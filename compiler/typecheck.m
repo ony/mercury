@@ -388,7 +388,7 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 				TypeCheckInfo4, TypeCheckInfo5),
 		typecheck_info_get_final_info(TypeCheckInfo5, ExistQVars0,
 				TypeVarSet, HeadTypeParams2, InferredVarTypes0,
-				InferredTypeConstraints, ConstraintProofs,
+				InferredTypeConstraints0, ConstraintProofs,
 				TVarRenaming),
 		map__optimize(InferredVarTypes0, InferredVarTypes),
 		ClausesInfo = clauses_info(VarSet, ExplicitVarTypes,
@@ -400,39 +400,25 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 		( Inferring = yes ->
 			map__apply_to_list(HeadVars, InferredVarTypes,
 				ArgTypes),
-			%
+
 			% Now we need to infer which of the head variable
-			% types must be existentially quantified:
-			% anything that was inserted into the HeadTypeParams2
-			% set must have been inserted due to an existential
-			% type in something we called, and thus must be
-			% existentially quantified.
-			% (Note that concrete types are "more general" than
-			% existentially quantified types, so we prefer to
-			% infer a concrete type if we can rather than an
-			% existential type.)
-			%
+			% types must be existentially quantified,
+			% and to infer the appropriate universal and
+			% existential type class constraints.
 			term__vars_list(ArgTypes, ArgTypeVars),
-			set__list_to_set(ArgTypeVars, ArgTypeVarsSet),
-			set__list_to_set(HeadTypeParams2, HeadTypeParamsSet),
-			set__intersect(ArgTypeVarsSet, HeadTypeParamsSet,
-				ExistQVarsSet),
-			set__difference(ArgTypeVarsSet, ExistQVarsSet,
-				UnivQVarsSet),
-			set__to_sorted_list(ExistQVarsSet, ExistQVars),
-			set__to_sorted_list(UnivQVarsSet, UnivQVars),
-			%
-			% Then we need to insert the universally
-			% quantified head variable types into the
-			% HeadTypeParams set, which will now contain
-			% all the type variables that are produced
-			% either by stuff we call or by our caller.
-			% This is needed so that it has the right
-			% value when post_typecheck.m uses it to
-			% check for unbound type variables.
-			%
-			list__append(UnivQVars, HeadTypeParams2,
-				HeadTypeParams),
+			infer_existential_types(ArgTypeVars, HeadTypeParams2,
+				ExistQVars, HeadTypeParams),
+			restrict_to_head_vars(InferredTypeConstraints0,
+				ArgTypeVars, InferredTypeConstraints,
+				_UnprovenConstraints),
+			% XXX if _UnprovenConstraints \= [], then
+			% we should report an error -- but this can't
+			% be safely done until the post_typecheck pass.
+			% We should record the error in the pred_info now
+			% and (if this turns out to be the last pass of
+			% type inference) report it in post_typecheck.
+			% Currently it will cause polymorphism.m to
+			% call error/1.
 
 			%
 			% Now save the information we inferred in the pred_info
@@ -494,6 +480,82 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 		),
 		typecheck_info_get_io_state(TypeCheckInfo4, IOState)
 	    )
+	).
+
+	%
+	% infer which of the head variable
+	% types must be existentially quantified
+	%
+:- pred infer_existential_types(list(tvar), head_type_params,
+		existq_tvars, head_type_params).
+:- mode infer_existential_types(in, in, out, out) is det.
+
+infer_existential_types(ArgTypeVars, HeadTypeParams0,
+		ExistQVars, HeadTypeParams) :-
+	%
+	% First, infer which of the head variable
+	% types must be existentially quantified:
+	% anything that was inserted into the HeadTypeParams0
+	% set must have been inserted due to an existential
+	% type in something we called, and thus must be
+	% existentially quantified.
+	% (Note that concrete types are "more general" than
+	% existentially quantified types, so we prefer to
+	% infer a concrete type if we can rather than an
+	% existential type.)
+	%
+	set__list_to_set(ArgTypeVars, ArgTypeVarsSet),
+	set__list_to_set(HeadTypeParams0, HeadTypeParamsSet),
+	set__intersect(ArgTypeVarsSet, HeadTypeParamsSet, ExistQVarsSet),
+	set__difference(ArgTypeVarsSet, ExistQVarsSet, UnivQVarsSet),
+	set__to_sorted_list(ExistQVarsSet, ExistQVars),
+	set__to_sorted_list(UnivQVarsSet, UnivQVars),
+
+	%
+	% Then we need to insert the universally
+	% quantified head variable types into the
+	% HeadTypeParams set, which will now contain
+	% all the type variables that are produced
+	% either by stuff we call or by our caller.
+	% This is needed so that it has the right
+	% value when post_typecheck.m uses it to
+	% check for unbound type variables.
+	%
+	list__append(UnivQVars, HeadTypeParams0, HeadTypeParams).
+
+	%
+	% restrict_to_head_vars(Constraints0, HeadVarTypes, Constraints,
+	%		UnprovenConstraints):
+	%	Constraints is the subset of Constraints0 which contain
+	%	no type variables other than those in HeadVarTypes.
+	%	UnprovenConstraints is any unproven (universally quantified)
+	%	type constraints on variables not in HeadVarTypes.
+	%
+:- pred restrict_to_head_vars(class_constraints, list(tvar), class_constraints,
+		list(class_constraint)).
+:- mode restrict_to_head_vars(in, in, out, out) is det.
+
+restrict_to_head_vars(constraints(UnivCs0, ExistCs0), ArgVarTypes,
+		constraints(UnivCs, ExistCs), UnprovenCs) :-
+	restrict_to_head_vars_2(UnivCs0, ArgVarTypes, UnivCs, UnprovenCs),
+	restrict_to_head_vars_2(ExistCs0, ArgVarTypes, ExistCs, _).
+
+:- pred restrict_to_head_vars_2(list(class_constraint), list(tvar),
+		list(class_constraint), list(class_constraint)).
+:- mode restrict_to_head_vars_2(in, in, out, out) is det.
+
+restrict_to_head_vars_2(ClassConstraints, HeadTypeVars, HeadClassConstraints,
+		OtherClassConstraints) :-
+	list__filter(is_head_class_constraint(HeadTypeVars),
+		ClassConstraints, HeadClassConstraints, OtherClassConstraints).
+
+:- pred is_head_class_constraint(list(tvar), class_constraint).
+:- mode is_head_class_constraint(in, in) is semidet.
+
+is_head_class_constraint(HeadTypeVars, constraint(_Name, Types)) :-
+	all [TVar] (
+		term__contains_var_list(Types, TVar) =>
+			list__member(TVar, HeadTypeVars)
 	).
 
 % Check whether the argument types, type quantifiers, and type constraints
@@ -1327,16 +1389,7 @@ convert_args_type_assign(args(TypeAssign0, _, Constraints0), TypeAssign) :-
 	type_assign_get_typeclass_constraints(TypeAssign0, OldConstraints),
 	type_assign_get_type_bindings(TypeAssign0, Bindings),
 	apply_rec_subst_to_constraints(Bindings, Constraints0, Constraints),
-	%
-	% add the dual of the constraints for this call
-	% to the current constraint set
-	% (anything which we can assume in the caller
-	% is something that we must prove in the callee,
-	% and vice versa)
-	%
-	dual_constraints(Constraints, ConstraintsToAdd),
-	add_constraints(OldConstraints, ConstraintsToAdd, NewConstraints),
-
+	add_constraints(OldConstraints, Constraints, NewConstraints),
 	type_assign_set_typeclass_constraints(TypeAssign0,
 		NewConstraints, TypeAssign).
 
@@ -2083,23 +2136,18 @@ get_cons_stuff(ConsDefn, TypeAssign0, _TypeCheckInfo, ConsType, ArgTypes,
 		apply_substitution_to_var_list(ConsExistQVars0, Subst,
 			ConsExistQVars),
 		apply_subst_to_constraints(Subst, ClassConstraints0,
-			ClassConstraints2),
+			ConstraintsToAdd),
 		type_assign_get_typeclass_constraints(TypeAssign1,
 			OldConstraints),
 		%
-		% add the dual of the constraints for this functor
+		% add the constraints for this functor
 		% to the current constraint set
-		% We need to do this for functions so that functions
-		% have the same behaviour as predicates
-		% (anything which we can assume in the caller
-		% is something that we must prove in the callee,
-		% and vice versa).
 		% For functors which are data constructors,
-		% this corresponds to assuming that they
+		% the fact that we don't take the dual
+		% corresponds to assuming that they
 		% will be used as constructors rather than as
 		% deconstructors.
 		%
-		dual_constraints(ClassConstraints2, ConstraintsToAdd),
 		add_constraints(OldConstraints, ConstraintsToAdd,
 			ClassConstraints),
 		type_assign_set_typeclass_constraints(TypeAssign1,
@@ -2724,8 +2772,6 @@ typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars, NewTypeVarSet,
 		type_assign_get_constraint_proofs(TypeAssign,
 			ConstraintProofs),
 
-		% XXX take dual of constraints here?
-
 		map__keys(VarTypes0, Vars),
 		expand_types(Vars, TypeBindings, VarTypes0, VarTypes),
 
@@ -3065,8 +3111,8 @@ typecheck_constraints(no, TypeCheckInfo0, TypeCheckInfo) :-
 	typecheck_info_get_type_assign_set(TypeCheckInfo0, TypeAssignSet0),
 	NoConstraints = lambda([TypeAssign::in] is semidet, (
 		type_assign_get_typeclass_constraints(TypeAssign, Constraints),
-		Constraints = constraints(_AssumedConstraints,
-			ConstraintsToProve),
+		Constraints = constraints(ConstraintsToProve,
+				_AssumedConstraints),
 		ConstraintsToProve = [])),
 	list__filter(NoConstraints, TypeAssignSet0, TypeAssignSet),
 	(
@@ -3103,8 +3149,8 @@ report_unsatisfied_constraints(TypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 		(
 			type_assign_get_typeclass_constraints(
 				TypeAssign, Constraints),
-			Constraints = constraints(_AssumedConstraints,
-					UnprovenConstraints0),
+			Constraints = constraints(UnprovenConstraints0,
+					_AssumedConstraints),
 			
 			type_assign_get_typevarset(TypeAssign, VarSet),
 			type_assign_get_type_bindings(TypeAssign, Bindings),
@@ -3190,9 +3236,9 @@ perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 			TypeCheckInfo0, TypeCheckInfo1),
 		DeleteConstraints = lambda([TA0::in, TA::out] is det, (
 			type_assign_get_typeclass_constraints(TA0, 
-				constraints(AssumedConstraints, _)),
+				constraints(_, AssumedConstraints)),
 			type_assign_set_typeclass_constraints(TA0, 
-				constraints(AssumedConstraints, []), TA)
+				constraints([], AssumedConstraints), TA)
 		)),
 		list__map(DeleteConstraints, OrigTypeAssignSet,
 			NewTypeAssignSet),
@@ -3215,7 +3261,7 @@ reduce_type_assign_context(SuperClassTable, InstanceTable,
 	type_assign_get_typevarset(TypeAssign0, Tvarset0),
 	type_assign_get_constraint_proofs(TypeAssign0, Proofs0),
 
-	Constraints0 = constraints(AssumedConstraints, UnprovenConstraints0),
+	Constraints0 = constraints(UnprovenConstraints0, AssumedConstraints),
 
 	typecheck__reduce_context_by_rule_application(InstanceTable, 
 		SuperClassTable, AssumedConstraints,
@@ -3224,7 +3270,7 @@ reduce_type_assign_context(SuperClassTable, InstanceTable,
 
 	check_satisfiability(UnprovenConstraints, HeadTypeParams),
 
-	Constraints = constraints(AssumedConstraints, UnprovenConstraints),
+	Constraints = constraints(UnprovenConstraints, AssumedConstraints),
 
 	type_assign_set_typeclass_constraints(TypeAssign0, Constraints,
 		TypeAssign1),
@@ -4343,7 +4389,7 @@ write_type_assign_types([Var | Vars], VarSet, VarTypes, TypeBindings,
 :- mode write_type_assign_constraints(in, in, in, di, uo) is det.
 
 write_type_assign_constraints(Constraints, TypeBindings, TypeVarSet) -->
-	{ Constraints = constraints(AssumedConstraints, ConstraintsToProve) },
+	{ Constraints = constraints(ConstraintsToProve, AssumedConstraints) },
 	write_type_assign_constraints("&", AssumedConstraints,
 		TypeBindings, TypeVarSet, no),
 	write_type_assign_constraints("<=", ConstraintsToProve,
