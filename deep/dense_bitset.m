@@ -1,3 +1,9 @@
+%-----------------------------------------------------------------------------%
+% Copyright (C) 2001 The University of Melbourne.
+% This file may only be copied under the terms of the GNU General
+% Public License - see the file COPYING in the Mercury distribution.
+%-----------------------------------------------------------------------------%
+
 :- module dense_bitset.
 
 :- interface.
@@ -122,5 +128,5 @@ foldl2(B, W, P, A0, Acc0, Acc) :-
 word(I) = I // 32.
 
 :- func bit(int) = int.
-bit(I) = (1 << (I mod 32)).
+bit(I) = (1 << (I /\ 31)).
 

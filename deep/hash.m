@@ -31,14 +31,14 @@ init(Width) = init(Width, []).
 
 insert(Table0, Key, Value) = Table :-
 	array__max(Table0, Max),
-	H = Key mod (Max + 1),
+	H = Key rem (Max + 1),
 	lookup(Table0, H, List0),
 	List = [{Key, Value}|List0],
 	set(Table0, H, List, Table).
 
 search(Table, Key) = Value :-
 	array__max(Table, Max),
-	H = Key mod (Max + 1),
+	H = Key rem (Max + 1),
 	lookup(Table, H, List0),
 	find(List0, Key, Value).
 

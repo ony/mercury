@@ -40,7 +40,10 @@
 
 :- type ptr_info --->
 		ptr_info(
-			ptrs :: (ptr_kind -> { hashtable(int), int })
+			ps	:: {hashtable(int), int},
+			css	:: {hashtable(int), int},
+			pd	:: {hashtable(int), int},
+			csd	:: {hashtable(int), int}
 		).
 
 :- type ptr_kind
@@ -71,12 +74,12 @@ read_call_graph(FileName, Res) -->
 			array([]),
 			array([])
 		) },
-		{ PI0 = ptr_info(map__from_assoc_list([
-				ps - { init(10007), 1 },
-				pd - { init(10007), 1 },
-				css - { init(10007), 1 },
-				csd - { init(10007), 1 }
-			])) },
+		{ PI0 = ptr_info(
+				{ init(10007), 1 },
+				{ init(10007), 1 },
+				{ init(10007), 1 },
+				{ init(10007), 1 }
+			) },
 		read_call_graph2(Deep0, Res1, PI0, PI),
 		io__seen_binary,
 		{ resize_arrays(Res1, PI, Res) }
@@ -631,7 +634,11 @@ map_pointer(Kind, Ptr0, Ptr, PI0, PI) :-
 		Ptr = Ptr0,
 		PI = PI0
 	;
-		lookup(PI0^ptrs, Kind, Ptrs0),
+		( Kind = ps,	Ptrs0 = PI0^ps
+		; Kind = css,	Ptrs0 = PI0^css
+		; Kind = pd,	Ptrs0 = PI0^pd
+		; Kind = csd,	Ptrs0 = PI0^csd
+		),
 		Ptrs0 = { PMap0a, Next0 },
 		PMap0 = u(PMap0a),
 		( search(PMap0, Ptr0) = Ptr1 ->
@@ -642,7 +649,11 @@ map_pointer(Kind, Ptr0, Ptr, PI0, PI) :-
 			Next = Next0 + 1,
 			PMap = insert(PMap0, Ptr0, Ptr),
 			Ptrs = { PMap, Next },
-			PI = PI0^ptrs := set(PI0^ptrs, Kind, Ptrs)
+			( Kind = ps,	PI = PI0^ps := Ptrs
+			; Kind = css,	PI = PI0^css := Ptrs
+			; Kind = pd,	PI = PI0^pd := Ptrs
+			; Kind = csd,	PI = PI0^csd := Ptrs
+			)
 		)
 	).
 
@@ -656,28 +667,19 @@ read_num(Res, PtrInfo, PtrInfo) -->
 :- mode read_num(out, di, uo) is det.
 
 read_num(Res) -->
-	read_num1(0, [], Res),
-	%write(Res), nl,
-	[].
+	read_num1(0, Res).
 
-:- pred read_num1(int, [int], deep_result(int), io__state, io__state).
-:- mode read_num1(in, in, out, di, uo) is det.
+:- pred read_num1(int, deep_result(int), io__state, io__state).
+:- mode read_num1(in, out, di, uo) is det.
 
-read_num1(Num0, Bytes0, Res) -->
+read_num1(Num0, Res) -->
 	read_byte(Res0),
 	(
 		{ Res0 = ok(Byte) },
 		{ Num1 = (Num0 << 7) \/ (Byte /\ 0x7F) },
 		( { Byte /\ 0x80 \= 0 } ->
-			read_num1(Num1, [Byte|Bytes0], Res)
+			read_num1(Num1, Res)
 		;
-			( { Num1 < 0 } ->
-				{ reverse([Byte|Bytes0], TheBytes) },
-				write(TheBytes), nl,
-				{ error("bad number") }
-			;
-				[]
-			),
 			{ Res = ok(Num1) }
 		)
 	;
@@ -1021,28 +1023,28 @@ refs(CSDPtr, Deep) = Refs :-
 
 resize_arrays(error(Err), _, error(Err)).
 resize_arrays(ok(Deep0), PI, ok(Deep)) :-
-	lookup(PI^ptrs, csd, CSDInfo),
+	PI^csd = CSDInfo,
 	CSDInfo = { _, CSDSize },
 	CSDs0 = Deep0^call_site_dynamics,
 	lookup(CSDs0, 0, CSDx),
 	resize(u(CSDs0), CSDSize, CSDx, CSDs),
 	Deep1 = Deep0^call_site_dynamics := CSDs,
 
-	lookup(PI^ptrs, pd, PDInfo),
+	PI^pd = PDInfo,
 	PDInfo = { _, PDSize },
 	PDs0 = Deep1^proc_dynamics,
 	lookup(PDs0, 0, PDx),
 	resize(u(PDs0), PDSize, PDx, PDs),
 	Deep2 = Deep1^proc_dynamics := PDs,
 
-	lookup(PI^ptrs, css, CSSInfo),
+	PI^css = CSSInfo,
 	CSSInfo = { _, CSSSize },
 	CSSs0 = Deep2^call_site_statics,
 	lookup(CSSs0, 0, CSSx),
 	resize(u(CSSs0), CSSSize, CSSx, CSSs),
 	Deep3 = Deep2^call_site_statics := CSSs,
 
-	lookup(PI^ptrs, ps, PSInfo),
+	PI^ps = PSInfo,
 	PSInfo = { _, PSSize },
 	PSs0 = Deep3^proc_statics,
 	lookup(PSs0, 0, PSx),

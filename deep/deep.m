@@ -147,6 +147,14 @@
 :- import_module deep:server.
 
 main -->
+	foldl((pred(_::in, di, uo) is det -->
+		main0
+	), [1,2,3,4,5,6,7,8,9,10]).
+
+:- pred main0(io__state, io__state).
+:- mode main0(di, uo) is det.
+
+main0 -->
 	{ init(Globs0) },
 	io__command_line_arguments(Args0),
 	{ getopt__process_options(option_ops(short, long, defaults),
@@ -455,8 +463,8 @@ propagate_to_call_site(CliqueNumber, PDPtr, Members, CSDPtr, Deep0, Deep) :-
 			lookup(Deep0 ^ clique_index, CPDI,
 				clique(ChildCliqueNumber)),
 			( ChildCliqueNumber \= CliqueNumber ->
-				require_isnt(is_member(CPDPtr, Members),
-					"nasal gremlims"),
+				%require_isnt(is_member(CPDPtr, Members),
+				%	"nasal gremlims"),
 				PDPtr = proc_dynamic_ptr(PDI),
 				lookup(Deep0 ^ pd_desc, PDI, PDTotal0),
 				lookup(Deep0 ^ csd_desc, CSDI, CDesc),
@@ -466,8 +474,8 @@ propagate_to_call_site(CliqueNumber, PDPtr, Members, CSDPtr, Deep0, Deep) :-
 				set(u(Deep0 ^ pd_desc), PDI, PDTotal, PDDesc),
 				Deep = Deep0 ^ pd_desc := PDDesc
 			;
-				require(is_member(CPDPtr, Members),
-					"nasal demons"),
+				%require(is_member(CPDPtr, Members),
+				%	"nasal demons"),
 				Deep = Deep0
 			)
 		;
