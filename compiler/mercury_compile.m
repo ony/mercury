@@ -221,14 +221,14 @@ mercury_compile(Module, FactDeps) -->
 	    ; { MakeOptInt = yes } ->
 		% only run up to typechecking when making the .opt file
 	    	[]
+	    ; { MakeTransOptInt = yes } ->
+	    	mercury_compile__output_trans_opt_file(HLDS21)
 	    ;
 		mercury_compile__maybe_output_prof_call_graph(HLDS21,
 			Verbose, Stats, HLDS25),
 		mercury_compile__middle_pass(ModuleName, HLDS25, HLDS50), !,
 		globals__io_lookup_bool_option(highlevel_c, HighLevelC),
-		( { MakeTransOptInt = yes } ->
-			trans_opt__write_optfile(HLDS50)
-		; { HighLevelC = yes } ->
+		( { HighLevelC = yes } ->
 			{ string__append(ModuleName, ".c", C_File) },
 			mercury_compile__gen_hlds(C_File, HLDS50),
 			globals__io_lookup_bool_option(compile_to_c,
@@ -485,6 +485,23 @@ mercury_compile__maybe_write_optfile(MakeOptInt, HLDS0, HLDS) -->
 	;
 		{ HLDS = HLDS0 }
 	).
+
+
+:- pred mercury_compile__output_trans_opt_file(module_info, 
+	io__state, io__state).
+:- mode mercury_compile__output_trans_opt_file(in, di, uo) is det.
+mercury_compile__output_trans_opt_file(HLDS25) -->
+	globals__io_lookup_bool_option(verbose, Verbose),
+	globals__io_lookup_bool_option(statistics, Stats),
+
+	mercury_compile__maybe_polymorphism(HLDS25, Verbose, Stats, HLDS26),
+	mercury_compile__maybe_dump_hlds(HLDS26, "26", "polymorphism"),
+
+	mercury_compile__maybe_termination(HLDS26, Verbose, Stats, HLDS28),
+	mercury_compile__maybe_dump_hlds(HLDS28, "28", "termination"),
+
+	trans_opt__write_optfile(HLDS28).
+	
 
 :- pred mercury_compile__frontend_pass_2(module_info, module_info,
 	bool, io__state, io__state).
