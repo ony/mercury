@@ -28,6 +28,7 @@
 :- import_module hlds_pred, passes_aux.
 :- import_module dependency_graph, hlds_goal, prog_data, prog_util.
 :- import_module pa_alias_as, pa_run.
+:- import_module pa_sr_util.
 :- import_module sr_data, sr_util, sr_live.
 :- import_module sr_fixpoint_table.
 :- import_module globals, options.
@@ -60,10 +61,10 @@ run_with_dependencies( Deps, HLDSin, HLDSout) -->
 				io__state, io__state).
 :- mode run_with_dependency( in, in, out, di, uo ) is det.
 
-run_with_dependency( SCC , HLDSin, HLDSout ) -->
+run_with_dependency(SCC, HLDSin, HLDSout ) -->
 	(
 		% analysis ignores special predicates
-		{ some_are_special_preds(SCC, HLDSin) }
+		{ pa_sr_util__some_are_special_preds(SCC, HLDSin) }
 	->
 		{ HLDSout = HLDSin }
 	;
@@ -74,47 +75,7 @@ run_with_dependency( SCC , HLDSin, HLDSout ) -->
 					HLDSin, HLDSout )
 	).
 
-:- pred some_are_special_preds( list(pred_proc_id), module_info).
-:- mode some_are_special_preds( in, in ) is semidet.
-
-some_are_special_preds( SCC, HLDS ):- 
-	module_info_get_special_pred_map( HLDS, MAP), 
-	map__values( MAP, SpecPRED_IDS ), 
-
-	(
-		% either some of the predicates are special 
-		% preds, such as __Unify__ and others
-
-		list__filter( pred_id_in(SpecPRED_IDS), SCC, SpecialPREDS),
-		SpecialPREDS = [_|_]
-
-	; 
-		% or some of the predicates are not defined in this
-		% module. 
-
-		list__filter( not_defined_in_this_module(HLDS), SCC,
-				FILTERED), 
-		FILTERED = [_|_]
-	).
-
-:- pred pred_id_in( list(pred_id), pred_proc_id ).
-:- mode pred_id_in( in, in) is semidet.
-
-pred_id_in( IDS, PredProcId):-
-	PredProcId = proc( PRED_ID, _),
-	list__member( PRED_ID, IDS ). 
-
-:- pred not_defined_in_this_module(module_info, pred_proc_id).
-:- mode not_defined_in_this_module(in,in) is semidet.
-
-not_defined_in_this_module( HLDS, proc(PREDID, _) ):-
-	hlds_module__pred_not_defined_in_this_module(HLDS,
-		PREDID).
-	% module_info_pred_proc_info(HLDS, PredProcId, PRED_INFO, _), 
-	% pred_info_import_status(PRED_INFO, STATUS), 
-	% status_defined_in_this_module(STATUS, no).
-
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 :- pred run_with_dependency_until_fixpoint( list(pred_proc_id), 
 		sr_fixpoint_table__table, module_info, module_info,
 		io__state, io__state ).
@@ -134,31 +95,31 @@ run_with_dependency_until_fixpoint( SCC, FPtable0, HLDSin, HLDSout ) -->
 				HLDSout)
 	).
 
-:- pred update_goal_in_module_info( sr_fixpoint_table__table::in, 
-		pred_proc_id::in, 
-		module_info::in, module_info::out) is det.
+:- pred update_goal_in_module_info(sr_fixpoint_table__table::in, 
+		pred_proc_id::in, module_info::in, module_info::out) is det.
 
-update_goal_in_module_info( FP, PredProcId, HLDS0, HLDS) :- 
-	PredProcId = proc( PredId, ProcId ), 
+update_goal_in_module_info(FP, PredProcId, HLDS0, HLDS) :- 
+	PredProcId = proc(PredId, ProcId), 
 	sr_fixpoint_table_get_final_reuse(PredProcId, Memo, Goal, FP), 
-	module_info_pred_proc_info( HLDS0, PredProcId, PredInfo0, ProcInfo0),
-	proc_info_set_goal( ProcInfo0, Goal, ProcInfo1), 
-	proc_info_set_reuse_information( ProcInfo1, Memo, ProcInfo),
-	pred_info_procedures( PredInfo0, Procedures0), 
-	map__det_update( Procedures0, ProcId, ProcInfo, Procedures ), 
-	pred_info_set_procedures( PredInfo0, Procedures, PredInfo), 
-	module_info_set_pred_info( HLDS0, PredId, PredInfo, HLDS ).
+	module_info_pred_proc_info(HLDS0, PredProcId, PredInfo0, ProcInfo0),
+	proc_info_set_goal(ProcInfo0, Goal, ProcInfo1), 
+	proc_info_set_reuse_information(ProcInfo1, Memo, ProcInfo),
+	pred_info_procedures(PredInfo0, Procedures0), 
+	map__det_update(Procedures0, ProcId, ProcInfo, Procedures), 
+	pred_info_set_procedures(PredInfo0, Procedures, PredInfo), 
+	module_info_set_pred_info(HLDS0, PredId, PredInfo, HLDS).
 	
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
-:- pred analyse_pred_proc( module_info, pred_proc_id, 
+:- pred analyse_pred_proc(module_info, pred_proc_id, 
 				sr_fixpoint_table__table,
 				sr_fixpoint_table__table, 
 				io__state, io__state).
-:- mode analyse_pred_proc( in, in, in, out, di, uo) is det.
+:- mode analyse_pred_proc(in, in, in, out, di, uo) is det.
 
-analyse_pred_proc( HLDS, PredProcId, FPin, FPout) --> 
-	{ module_info_pred_proc_info( HLDS, PredProcId,_PredInfo,ProcInfo) },
+analyse_pred_proc(HLDS, PredProcId, FPin, FPout) --> 
+	{ module_info_pred_proc_info(HLDS, PredProcId,
+		_PredInfo, ProcInfo) },
 	{ PredProcId = proc(PredId, ProcId) },
 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose), 
@@ -168,16 +129,16 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		[]
 	;
 		{ sr_fixpoint_table_which_run(FPin, Run) }, 
-		{ string__int_to_string( Run, SRun ) }, 
+		{ string__int_to_string(Run, SRun) }, 
 		{ string__append_list([ 
 			"% Indirect reuse analysing (run ", SRun, ") "],
 			Msg) },
-		passes_aux__write_proc_progress_message( Msg, 
+		passes_aux__write_proc_progress_message(Msg, 
 			PredId, ProcId, HLDS), 
-		{ sr_fixpoint_table_get_final_reuse( PredProcId, M, _, FPin) }, 
+		{ sr_fixpoint_table_get_final_reuse(PredProcId, M, _, FPin) }, 
 
 		( 
-			{ M = yes( Conditions ) }
+			{ M = yes(Conditions) }
 		-> 
 			{ list__length(Conditions, Length) }, 
 			{ string__int_to_string(Length, LengthS ) }, 
@@ -196,7 +157,7 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		% 1. get ProcInfo
 		%	OK
 		% 2. get Goal
-		proc_info_goal( ProcInfo, Goal0 ),
+		proc_info_goal(ProcInfo, Goal0),
 		%   	OK
 		% 3. initialize alias-information
 		pa_alias_as__init(Alias0),
@@ -205,11 +166,11 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		hlds_pred__proc_info_real_headvars(ProcInfo, HVs), 
 		% do not change the state of the fixpoint table by
 		% simply consulting it now for initialization.
-		sr_fixpoint_table_get_final_reuse( PredProcId, 
-				MemoStarting, _, FPin ),
-		indirect_reuse_pool_init( HVs, MemoStarting, Pool0 ), 
+		sr_fixpoint_table_get_final_reuse(PredProcId, 
+				MemoStarting, _, FPin),
+		indirect_reuse_pool_init(HVs, MemoStarting, Pool0), 
 		% 5. analyse_goal
-		analyse_goal( ProcInfo, HLDS, 
+		analyse_goal(ProcInfo, HLDS, 
 					Goal0, Goal,
 					analysis_info(Alias0, Pool0,
 							set__init, FPin),
@@ -224,9 +185,9 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		*/
 		% 	OK
 		% 6. update all kind of information
-		indirect_reuse_pool_get_memo_reuse( Pool, Memo ), 
-		sr_fixpoint_table_new_reuse( PredProcId,
-				Memo, Goal, FP1, FPout )
+		indirect_reuse_pool_get_memo_reuse(Pool, Memo), 
+		sr_fixpoint_table_new_reuse(PredProcId,
+				Memo, Goal, FP1, FPout)
 	},
 	(
 		{ VeryVerbose = no }
@@ -260,7 +221,7 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 			table	:: sr_fixpoint_table__table
 		).
 
-:- pred analyse_goal( proc_info::in, module_info::in, 
+:- pred analyse_goal(proc_info::in, module_info::in, 
 			hlds_goal::in, hlds_goal::out,
 			analysis_info::in, analysis_info::out) is det.
 

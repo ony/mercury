@@ -15,6 +15,7 @@
 
 :- import_module io, list, std_util, term. 
 :- import_module hlds_pred, prog_data. 
+:- import_module hlds_module.
 
 :- pred trans_opt_output_vars_and_types( 
 		prog_varset::in, 
@@ -28,6 +29,8 @@
                 term__substitution(tvar_type)::in,
                 term__substitution(tvar_type)::out ) is det.
 
+:- pred some_are_special_preds(list(pred_proc_id)::in, 
+		module_info::in) is semidet.
 
 %-----------------------------------------------------------------------------%
 :- implementation. 
@@ -131,3 +134,40 @@ const_to_tmp_string( Const, String ):-
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
+
+some_are_special_preds(PredProcIds, ModuleInfo):- 
+	module_info_get_special_pred_map(ModuleInfo, SpecialPredMap), 
+	map__values(SpecialPredMap, SpecialPreds), 
+
+	(
+		% either some of the predicates are special 
+		% preds, such as __Unify__ and others
+
+		list__filter(pred_id_in(SpecialPreds), PredProcIds,
+				SpecialPredProcs),
+		SpecialPredProcs = [_|_]
+
+	; 
+		% or some of the predicates are not defined in this
+		% module. 
+
+		list__filter(not_defined_in_this_module(ModuleInfo), 	
+				PredProcIds,
+				FilteredPredProcIds), 
+		FilteredPredProcIds = [_|_]
+	).
+
+:- pred pred_id_in(list(pred_id), pred_proc_id).
+:- mode pred_id_in(in, in) is semidet.
+
+pred_id_in(PredIds, PredProcId):-
+	PredProcId = proc(PredId, _),
+	list__member(PredId, PredIds). 
+
+:- pred not_defined_in_this_module(module_info, pred_proc_id).
+:- mode not_defined_in_this_module(in,in) is semidet.
+
+not_defined_in_this_module(ModuleInfo, proc(Predid, _)):-
+	hlds_module__pred_not_defined_in_this_module(ModuleInfo,
+		Predid).
+

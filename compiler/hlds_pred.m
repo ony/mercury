@@ -19,7 +19,7 @@
 :- import_module globals.
 
 :- import_module bool, list, set, map, std_util, term, varset.
-:- import_module pa_alias_as.
+:- import_module pa_alias_as, pa_datastruct.
 :- import_module sr_data.
 
 :- implementation.
@@ -1579,6 +1579,14 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 		maybe(list(sr_data__reuse_condition)), proc_info).
 :- mode proc_info_set_reuse_information(in, in, out) is det.
 
+:- pred proc_info_static_terms(proc_info, 
+		maybe(set(pa_datastruct__datastruct))).
+:- mode proc_info_static_terms(in, out) is det.
+
+:- pred proc_info_set_static_terms(proc_info, 
+		maybe(set(pa_datastruct__datastruct)), proc_info).
+:- mode proc_info_set_static_terms(in, in, out) is det.
+
 :- pred proc_info_get_need_maxfr_slot(proc_info, bool).
 :- mode proc_info_get_need_maxfr_slot(in, out) is det.
 
@@ -1775,24 +1783,11 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% of the connection, we generate an RL
 					% expression, for which this is an
 					% identifier. See rl_update.m.
-			maybe_alias_as :: maybe(alias_as),
-		                        % `Possible' aliases annotations per
-		                        % procedure. This field is set by the
-		                        % possible alias analysis.
-			maybe_global_use :: maybe(set(prog_var)),
-					% Set of headvars which are not
-					% fully consumed (in the sense of
-					% deathness as in liveness.m) in 
-					% the procedure. This corresponds
-					% to the vars which are output 
-					% w.r.t. the modes of the procedure.
-					% (corresponds to the final set
-					% of Local Forward Use in the goal)
-					% (set during structure_reuse phase)
-
-					% Possible set of reuse conditions. 
-			structure_reuse:: maybe(list(sr_data__reuse_condition)),
-
+			alias_reuse_info :: pa_sr_info, 
+					% All information gathered during
+					% passes that are related to either
+					% the possible-alias analysis or
+					% structure reuse pass. 
  			need_maxfr_slot	:: bool,
 					% True iff tracing is enabled, this
  					% is a procedure that lives on the det
@@ -1836,6 +1831,36 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% debugger.
 		).
 
+:- type pa_sr_info
+	--->	pa_sr_information(
+			maybe_alias_as :: maybe(alias_as),
+		                        % `Possible' aliases annotations per
+		                        % procedure. This field is set by the
+		                        % possible alias analysis.
+			maybe_global_use :: maybe(set(prog_var)),
+					% Set of headvars which are not
+					% fully consumed (in the sense of
+					% deathness as in liveness.m) in 
+					% the procedure. This corresponds
+					% to the vars which are output 
+					% w.r.t. the modes of the procedure.
+					% (corresponds to the final set
+					% of Local Forward Use in the goal)
+					% (set during structure_reuse phase)
+
+					% Possible set of reuse conditions. 
+			structure_reuse:: maybe(list(sr_data__reuse_condition)),
+	
+					% Possible set of datastructures that
+					% might be static after calling
+					% the procedure. 
+			static_terms:: maybe(set(pa_datastruct__datastruct))
+	).
+
+:- func pa_sr_info_init = pa_sr_info. 
+pa_sr_info_init = pa_sr_information(no, no, no, no).
+
+
 	% Some parts of the procedure aren't known yet. We initialize
 	% them to any old garbage which we will later throw away.
 
@@ -1861,17 +1886,13 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	map__init(TVarsMap),
 	map__init(TCVarsMap),
 	RLExprn = no,
-	Alias = no,
-	GlobalUse = no, 
-	Reuse = no, 
 	NewProc = procedure(
 		BodyVarSet, BodyTypes, HeadVars, HeadVars,
 		Modes, ModeErrors, InstVarSet,
 		MaybeArgLives, ClauseBody, MContext, StackSlots, MaybeDet,
 		InferredDet, CanProcess, ArgInfo, InitialLiveness, TVarsMap,
 		TCVarsMap, eval_normal, no, no, DeclaredModes, IsAddressTaken,
-		RLExprn, Alias, GlobalUse, Reuse, no, no
-	).
+		RLExprn, pa_sr_info_init, no, no).
 
 proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		InstVarSet, HeadLives, Goal, Context, StackSlots, 
@@ -1879,9 +1900,6 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		TCVarsMap, ArgSizes, Termination, IsAddressTaken,
 		ProcInfo) :-
 	RLExprn = no,
-	Alias = no,
-	GlobalUse = no, 
-	Reuse = no, 
 	ModeErrors = [],
 	ProcInfo = procedure(
 		BodyVarSet, BodyTypes, HeadVars, HeadVars, HeadModes,
@@ -1889,7 +1907,7 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		StackSlots, DeclaredDetism, InferredDetism, CanProcess, ArgInfo,
 		Liveness, TVarMap, TCVarsMap, eval_normal, ArgSizes,
 		Termination, no, IsAddressTaken, RLExprn,
-		Alias, GlobalUse, Reuse, no, no).
+		pa_sr_info_init, no, no).
 
 proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 		Goal, Context, TVarMap, TCVarsMap, IsAddressTaken, ProcInfo) :-
@@ -1897,16 +1915,13 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 	set__init(Liveness),
 	MaybeHeadLives = no,
 	RLExprn = no,
-	Alias = no,
-	GlobalUse = no, 
-	Reuse = no,
 	ModeErrors = [],
 	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadVars, HeadModes,
 		ModeErrors, InstVarSet,
 		MaybeHeadLives, Goal, Context, StackSlots,
 		yes(Detism), Detism, yes, [], Liveness, TVarMap, TCVarsMap,
 		eval_normal, no, no, no, IsAddressTaken, RLExprn,
-		Alias, GlobalUse, Reuse, no, no).
+		pa_sr_info_init, no, no).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-
@@ -1993,9 +2008,16 @@ proc_info_get_maybe_termination_info(ProcInfo, ProcInfo^maybe_termination).
 proc_info_maybe_declared_argmodes(ProcInfo, ProcInfo^maybe_declared_head_modes).
 proc_info_is_address_taken(ProcInfo, ProcInfo^is_address_taken).
 proc_info_get_rl_exprn_id(ProcInfo, ProcInfo^maybe_aditi_rl_id).
-proc_info_possible_aliases(ProcInfo, ProcInfo^maybe_alias_as).
-proc_info_global_use(ProcInfo, ProcInfo^maybe_global_use).
-proc_info_reuse_information(ProcInfo, ProcInfo^structure_reuse).
+:- pred proc_info_alias_reuse_info(proc_info::in, pa_sr_info::out) is det.
+proc_info_alias_reuse_info(ProcInfo, ProcInfo^alias_reuse_info).
+proc_info_possible_aliases(ProcInfo, AliasReuseInfo^maybe_alias_as):-
+	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
+proc_info_global_use(ProcInfo, AliasReuseInfo^maybe_global_use):-
+	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
+proc_info_reuse_information(ProcInfo, AliasReuseInfo^structure_reuse):- 
+	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
+proc_info_static_terms(ProcInfo, AliasReuseInfo^static_terms):- 
+	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
 proc_info_get_need_maxfr_slot(ProcInfo, ProcInfo^need_maxfr_slot).
 proc_info_get_call_table_tip(ProcInfo, ProcInfo^call_table_tip).
 
@@ -2024,13 +2046,32 @@ proc_info_set_maybe_termination_info(ProcInfo, MT,
 	ProcInfo^maybe_termination := MT).
 proc_info_set_address_taken(ProcInfo, AT, ProcInfo^is_address_taken := AT).
 proc_info_set_rl_exprn_id(ProcInfo, ID, ProcInfo^maybe_aditi_rl_id := yes(ID)).
-proc_info_set_possible_aliases(ProcInfo, Aliases, 
-		ProcInfo^maybe_alias_as := yes(Aliases)).
-proc_info_set_global_use(ProcInfo, GlobalUse, 
-		ProcInfo^maybe_global_use := yes(GlobalUse)).
-proc_info_set_reuse_information(ProcInfo, Reuse0,
-		ProcInfo^structure_reuse:= Reuse):- 
-	memo_reuse_simplify(Reuse0, Reuse).
+
+:- pred proc_info_set_alias_reuse_info(proc_info::in, pa_sr_info::in, 
+		proc_info::out) is det.
+proc_info_set_alias_reuse_info(ProcInfo, AliasReuseInfo, 
+		ProcInfo^alias_reuse_info := AliasReuseInfo).
+proc_info_set_possible_aliases(ProcInfo0, Aliases, ProcInfo):- 
+	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 
+	proc_info_set_alias_reuse_info(ProcInfo0,
+			AliasReuseInfo^maybe_alias_as := yes(Aliases),
+			ProcInfo). 
+proc_info_set_global_use(ProcInfo0, GlobalUse, ProcInfo):- 
+	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 
+	proc_info_set_alias_reuse_info(ProcInfo0,
+			AliasReuseInfo^maybe_global_use := yes(GlobalUse),
+			ProcInfo). 
+proc_info_set_reuse_information(ProcInfo0, Reuse0, ProcInfo):- 
+	memo_reuse_simplify(Reuse0, Reuse),
+	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 
+	proc_info_set_alias_reuse_info(ProcInfo0,
+			AliasReuseInfo^structure_reuse := Reuse,
+			ProcInfo). 
+proc_info_set_static_terms(ProcInfo0, StaticTerms, ProcInfo):- 
+	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 
+	proc_info_set_alias_reuse_info(ProcInfo0,
+			AliasReuseInfo^static_terms := StaticTerms,
+			ProcInfo). 
 proc_info_set_need_maxfr_slot(ProcInfo, NMS, ProcInfo^need_maxfr_slot := NMS).
 proc_info_set_call_table_tip(ProcInfo, CTT, ProcInfo^call_table_tip := CTT).
 

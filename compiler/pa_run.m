@@ -126,7 +126,7 @@ run_with_dependencies( Deps, HLDSin, HLDSout) -->
 run_with_dependency( SCC , HLDSin, HLDSout ) -->
 	(
 		% analysis ignores special predicates
-		{ some_are_special_preds(SCC, HLDSin) }
+		{ pa_sr_util__some_are_special_preds(SCC, HLDSin) }
 	->
 		{ HLDSout = HLDSin }
 	;
@@ -136,46 +136,6 @@ run_with_dependency( SCC , HLDSin, HLDSout ) -->
 		run_with_dependency_until_fixpoint( SCC, FPtable0, 
 					HLDSin, HLDSout )
 	).
-
-:- pred some_are_special_preds( list(pred_proc_id), module_info).
-:- mode some_are_special_preds( in, in ) is semidet.
-
-some_are_special_preds( SCC, HLDS ):- 
-	module_info_get_special_pred_map( HLDS, MAP), 
-	map__values( MAP, SpecPRED_IDS ), 
-
-	(
-		% either some of the predicates are special 
-		% preds, such as __Unify__ and others
-
-		list__filter( pred_id_in(SpecPRED_IDS), SCC, SpecialPREDS),
-		SpecialPREDS = [_|_]
-
-	; 
-		% or some of the predicates are not defined in this
-		% module. 
-
-		list__filter( not_defined_in_this_module(HLDS), SCC,
-				FILTERED), 
-		FILTERED = [_|_]
-	).
-
-:- pred pred_id_in( list(pred_id), pred_proc_id ).
-:- mode pred_id_in( in, in) is semidet.
-
-pred_id_in( IDS, PRED_PROC_ID):-
-	PRED_PROC_ID = proc( PRED_ID, _),
-	list__member( PRED_ID, IDS ). 
-
-:- pred not_defined_in_this_module(module_info, pred_proc_id).
-:- mode not_defined_in_this_module(in,in) is semidet.
-
-not_defined_in_this_module( HLDS, proc(PREDID, _) ):-
-	hlds_module__pred_not_defined_in_this_module(HLDS,
-		PREDID).
-	% module_info_pred_proc_info(HLDS, PRED_PROC_ID, PRED_INFO, _), 
-	% pred_info_import_status(PRED_INFO, STATUS), 
-	% status_defined_in_this_module(STATUS, no).
 
 :- pred run_with_dependency_until_fixpoint( list(pred_proc_id), 
 		pa_util__pa_fixpoint_table, module_info, module_info,
