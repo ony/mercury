@@ -56,7 +56,6 @@
 		call_site_dynamic::out, call_site_dynamic::out,
 		proc_dynamic::out) is det.
 
-
 :- impure pred semi_exit_port_code(call_site_dynamic::in,
 			call_site_dynamic::in) is det.
 
@@ -70,6 +69,9 @@
 :- impure pred semi_fail_port_code(call_site_dynamic::in,
 			call_site_dynamic::in,
 			proc_dynamic::in) is failure.
+
+:- impure pred inner_call_port_code(proc_static::in,
+			call_site_dynamic::out) is det.
 
 :- impure pred non_call_port_code(proc_static::in,
 		call_site_dynamic::out, call_site_dynamic::out,
@@ -141,6 +143,7 @@
 
 det_call_port_code(ProcDescr, TopCSD, MiddleCSD) :-
 	impure create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD),
+	%	done by create_proc_dynamic1
 	%impure increment_activation_count(MiddleCSD),
 	impure increment_call_count(MiddleCSD).
 
@@ -151,6 +154,7 @@ det_exit_port_code(TopCSD, MiddleCSD) :-
 
 semi_call_port_code(ProcDescr, TopCSD, MiddleCSD) :-
 	impure create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD),
+	%	done by create_proc_dynamic1
 	%impure increment_activation_count(MiddleCSD),
 	impure increment_call_count(MiddleCSD).
 
@@ -165,9 +169,14 @@ semi_fail_port_code(TopCSD, MiddleCSD) :-
 	impure set_current_csd(TopCSD),
 	fail.
 
+inner_call_port_code(ProcDescr, MiddleCSD) :-
+	impure create_proc_dynamic_inner(ProcDescr, MiddleCSD),
+	impure increment_recursion_depth(MiddleCSD).
+
 non_call_port_code(ProcDescr, TopCSD, MiddleCSD, NewActivationPtr) :-
 	impure create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD,
 			_OldActivationPtr, NewActivationPtr),
+	%	done by create_proc_dynamic1
 	%impure increment_activation_count(MiddleCSD),
 	impure increment_call_count(MiddleCSD).
 
@@ -242,6 +251,8 @@ non_fail_port_code(TopCSD, MiddleCSD, OldOutermostProcDyn) :-
 	impure set_current_csd(TopCSD),
 	fail.
 
+%------------------------------------------------------------------------------%
+
 :- impure pred get_parent_and_curr_csd(call_site_dynamic::out,
 			call_site_dynamic::out) is det.
 
@@ -299,10 +310,10 @@ create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD) :-
 
     if (csd->call_site_callee_ptr)
     {
-    	if (ps->activation_count++ == 0)
+    	if (ps->activation_count == 0)
 		ps->outermost_activation_ptr = csd->call_site_callee_ptr;
     }
-    else if (ps->activation_count++)
+    else if (ps->activation_count)
     {
 
 #ifdef MR_DEEP_PROFILING_STATISTICS
@@ -331,8 +342,47 @@ create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD) :-
 	ps->outermost_activation_ptr = proc_dyn;
     }
 
+    ps->activation_count++;
+
     NewPtr = (Word) ps->outermost_activation_ptr;
 
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
+
+#endif
+#endif
+}").
+
+:- impure pred create_proc_dynamic_inner(proc_static::in,
+		call_site_dynamic::out) is det.
+
+:- pragma c_code(create_proc_dynamic_inner(Proc_descr::in, MiddleCSD::out),
+		[thread_safe, will_not_call_mercury], "{
+#ifdef MR_DEEP_PROFILING
+#ifndef MR_USE_ACTIVATION_COUNTS
+    fatal_error(""create_proc_dynamic1 called when not using activation counts!"");
+#else
+    MR_CallSiteDynamic *csd;
+    MR_ProcStatic  *ps = (MR_ProcStatic *) Proc_descr;
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
+#endif
+
+#ifdef MR_DEEP_PROFILING_DELAYED_CSD_UPDATE
+    MR_current_call_site_dynamic = MR_next_call_site_dynamic;
+#endif
+    csd = MR_current_call_site_dynamic;
+
+    MiddleCSD = (MR_Word) MR_current_call_site_dynamic;
+
+    assert(ps->outermost_activation_ptr != NULL);
+
+    if (csd->call_site_callee_ptr == NULL)
+    {
+    	csd->call_site_callee_ptr = ps->outermost_activation_ptr;
+    }
 #ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
     MR_inside_deep_profiling_code = FALSE;
 #endif
@@ -532,6 +582,9 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	tmp->profiling_metrics.memory_mallocs = 0;
 	tmp->profiling_metrics.memory_words = 0;
 #endif
+#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
+	tmp->depth_count = 0;
+#endif
 	csd->call_site_callee_ptr->call_site_ptr_ptrs[N] = tmp;
     }
 
@@ -635,6 +688,9 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 #ifdef MR_DEEP_PROFILING_MEMORY
 	tmp2->profiling_metrics.memory_mallocs = 0;
 	tmp2->profiling_metrics.memory_words = 0;
+#endif
+#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
+	tmp2->depth_count = 0;
 #endif
 	
 	tmp = MR_PROFILING_MALLOC(MR_CallSiteDynList);
@@ -764,6 +820,9 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 #ifdef MR_DEEP_PROFILING_MEMORY
 	tmp2->profiling_metrics.memory_mallocs = 0;
 	tmp2->profiling_metrics.memory_words = 0;
+#endif
+#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
+	tmp2->depth_count = 0;
 #endif
 	
 	tmp = MR_PROFILING_MALLOC(MR_CallSiteDynList);
@@ -926,8 +985,7 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	MR_CallSiteDynamic *csd = (MR_CallSiteDynamic *) CSD;
 	MR_CallSiteDynamic *inner_csd;
 	
-	inner_csd = csd->call_site_dynamic->proc_static->
-			call_site_ptr_ptrs[CSN];
+	inner_csd = csd->call_site_callee_ptr->call_site_ptr_ptrs[CSN];
 	
 	if (inner_csd != NULL) {
 		Count = inner_csd->depth_count;
@@ -936,6 +994,21 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	}
 #else
 	fatal_error(""save_recursion_depth_count: no depth counts"");
+#endif
+#endif
+}").
+
+:- impure pred increment_recursion_depth(call_site_dynamic::in) is det.
+
+:- pragma c_code(increment_recursion_depth(CSD::in),
+		[thread_safe, will_not_call_mercury], "{
+#ifdef MR_DEEP_PROFILING
+#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
+	MR_CallSiteDynamic *csd = (MR_CallSiteDynamic *) CSD;
+	
+	csd->depth_count++;
+#else
+	fatal_error(""increment_recursion_depth: no depth counts"");
 #endif
 #endif
 }").
@@ -949,17 +1022,21 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	MR_CallSiteDynamic *inner_csd;
 	int inner_count;
 	
-	inner_csd = csd->call_site_dynamic->proc_static->
-			call_site_ptr_ptrs[CSN];
-	inner_count = inner_csd->depth_count;
-	inner_csd->depth_count = 0;
+	inner_csd = csd->call_site_callee_ptr->call_site_ptr_ptrs[CSN];
 
-	inner_csd->profiling_metrics->calls += inner_count;
-	inner_csd->profiling_metrics->exits += inner_count;
+	if (inner_csd != NULL)
+	{
+		inner_count = inner_csd->depth_count;
 
-	inner_csd->depth_count = OuterCount;
+		inner_csd->profiling_metrics.calls += inner_count;
+		inner_csd->profiling_metrics.exits += inner_count;
+
+		inner_csd->depth_count = OuterCount;
+	} else {
+		assert(OuterCount == 0);
+	}
 #else
-	fatal_error(""save_recursion_depth_count: no depth counts"");
+	fatal_error(""restore_recursion_depth_count_exit: no depth counts"");
 #endif
 #endif
 }").
@@ -973,17 +1050,21 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	MR_CallSiteDynamic *inner_csd;
 	int inner_count;
 	
-	inner_csd = csd->call_site_dynamic->proc_static->
-			call_site_ptr_ptrs[CSN];
-	inner_count = inner_csd->depth_count;
-	inner_csd->depth_count = 0;
+	inner_csd = csd->call_site_callee_ptr->call_site_ptr_ptrs[CSN];
 
-	inner_csd->profiling_metrics->calls += inner_count;
-	inner_csd->profiling_metrics->fails += inner_count;
+	if (inner_csd != NULL)
+	{
+		inner_count = inner_csd->depth_count;
 
-	inner_csd->depth_count = OuterCount;
+		inner_csd->profiling_metrics.calls += inner_count;
+		inner_csd->profiling_metrics.fails += inner_count;
+
+		inner_csd->depth_count = OuterCount;
+	} else {
+		assert(OuterCount == 0);
+	}
 #else
-	fatal_error(""save_recursion_depth_count: no depth counts"");
+	fatal_error(""restore_recursion_depth_count_fail: no depth counts"");
 #endif
 #endif
 }").
