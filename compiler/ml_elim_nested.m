@@ -373,26 +373,28 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	EnvTypeEntityName = type(EnvClassName, 0),
 	EnvTypeFlags = env_type_decl_flags,
 	Fields = list__map(convert_local_to_field, LocalVars),
+
+		% IL uses classes instead of structs, so the code
+		% generated needs to be a little different.
+		% XXX Perhaps if we used value classes this could go
+		% away.
+	globals__get_target(Globals, Target),
 	( Target = il ->
-		ThisPtr = self(mlds__commit_type),
-		FieldType = mlds__commit_type,
-		CtorType = mlds__commit_type,
-			% PtrType is unused by the IL backend.
-			% so this field is the wrong type.
-		PtrType = mlds__commit_type,	
-		FieldName = qual(mlds__append_name(ModuleName,
-				EnvClassName ++ "_0"), "commit_1"),
-		Lval = field(no, ThisPtr, named_field(FieldName, CtorType),
-				FieldType, PtrType),
+			% Generate a ctor for the class.
 
-		Rval = new_object(Lval, no, FieldType, no, no, [], []),
+			% We generate an empty block for the body of the
+			% constructor.
+		Stmt = mlds__statement(block([], []), Context),
 
-		Stmt = mlds__statement(atomic(Rval), Context),
-		Ctor = mlds__function(no, func_params([], []), yes(Stmt)),
+		Ctor = mlds__function(no, func_params([], []),
+				yes(Stmt)),
 		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
 				overridable, modifiable, concrete),
-		CtorDefn = mlds__defn(export("unused"), Context, CtorFlags,
-				Ctor),
+
+			% Note that the name of constructor is
+			% determined by the backend convention.
+		CtorDefn = mlds__defn(export("<constructor>"), Context,
+				CtorFlags, Ctor),
 		Ctors = [CtorDefn]
 	;
 		Ctors = []
@@ -418,7 +420,7 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	% initialize the `env_ptr' with the address of `env'
 	%
 	EnvVar = qual(ModuleName, mlds__var_name("env", no)),
-	globals__get_target(Globals, Target),
+
 		% IL uses classes instead of structs, so the code
 		% generated needs to be a little different.
 		% XXX Perhaps if we used value classes this could go
@@ -572,7 +574,7 @@ ml_conv_arg_to_var(Context, Name - Type, LocalVar) :-
 	% type declaration.
 :- func env_type_decl_flags = mlds__decl_flags.
 env_type_decl_flags = MLDS_DeclFlags :-
-	Access = public,
+	Access = private,
 	PerInstance = one_copy,
 	Virtuality = non_virtual,
 	Finality = overridable,
