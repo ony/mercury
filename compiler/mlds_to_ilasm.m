@@ -172,8 +172,8 @@ generate_c_code(MLDS) -->
 
 	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
 	{ prog_out__sym_name_to_string(ModuleName, ModuleNameStr) },
-	{ ClassName = mlds_module_name_to_class_name(
-		mercury_module_name_to_mlds(ModuleName)) },
+%	{ ClassName = mlds_module_name_to_class_name(
+%		mercury_module_name_to_mlds(ModuleName)) },
 
 	io__nl,
 	io__write_strings([
@@ -199,12 +199,12 @@ generate_c_code(MLDS) -->
 	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
 		ForeignCode),
 
-	{ Namespace = get_class_namespace(ClassName) },
+%	{ Namespace = get_class_namespace(ClassName) },
 
-	io__write_list(Namespace, "\n", 
-		(pred(N::in, di, uo) is det -->
-			io__format("namespace %s {", [s(N)])
-	)),
+%	io__write_list(Namespace, "\n", 
+%		(pred(N::in, di, uo) is det -->
+%			io__format("namespace %s {", [s(N)])
+%	)),
 
 	io__write_strings([
 		"\n__gc public class ",
@@ -228,10 +228,10 @@ generate_c_code(MLDS) -->
 	io__write_string("};\n"),
 
 		% Close the namespace braces.
-	io__write_list(Namespace, "\n", 
-		(pred(_N::in, di, uo) is det -->
-			io__write_string("}")
-	)),
+%	io__write_list(Namespace, "\n", 
+%		(pred(_N::in, di, uo) is det -->
+%			io__write_string("}")
+%	)),
 
 
 	io__nl.
