@@ -44,9 +44,11 @@
 **      runtime/mercury_tabling.c
 **      runtime/mercury_type_info.c
 **      library/std_util.m
+**
+**      runtime/mercury_mcpp.h:
+**          (for updating the MC++ backend RTTI structures)
 **      java/ *.java
-**          (for updating the Java backend RTTI
-**          structures)
+**          (for updating the Java backend RTTI structures)
 **     
 */
 
@@ -68,15 +70,16 @@
 ** structures used for RTTI.
 **
 ** This number should be kept in sync with type_ctor_info_rtti_version in
-** compiler/type_ctor_info.m.
+** compiler/type_ctor_info.m and with MR_RTTI_VERSION in mercury_mcpp.h.
 */
 
-#define MR_RTTI_VERSION                 MR_RTTI_VERSION__COMPACT
+#define MR_RTTI_VERSION                 MR_RTTI_VERSION__REP
 #define MR_RTTI_VERSION__INITIAL        2
 #define MR_RTTI_VERSION__USEREQ         3
 #define MR_RTTI_VERSION__CLEAN_LAYOUT   4
 #define MR_RTTI_VERSION__VERSION_NO     5
 #define MR_RTTI_VERSION__COMPACT        6
+#define MR_RTTI_VERSION__REP            7
 
 /*
 ** Check that the RTTI version is in a sensible range.
@@ -87,7 +90,7 @@
 */
 
 #define MR_TYPE_CTOR_INFO_CHECK_RTTI_VERSION_RANGE(typector)    \
-    assert(typector->MR_type_ctor_version == MR_RTTI_VERSION__COMPACT)
+    assert(typector->MR_type_ctor_version == MR_RTTI_VERSION__REP)
 
 /*---------------------------------------------------------------------------*/
 
@@ -139,33 +142,42 @@ typedef const struct MR_PseudoTypeInfo_Almost_Struct    *MR_PseudoTypeInfo;
 ** for static constant typeinfos and pseudotypeinfos.
 */
 
-#define MR_FIRST_ORDER_TYPEINFO_STRUCT(NAME, ARITY)                     \
+#define MR_FIXED_ARITY_TYPEINFO_STRUCT(NAME, ARITY)                     \
     struct NAME {                                                       \
         MR_TypeCtorInfo     MR_ti_type_ctor_info;                       \
-        MR_TypeInfo         MR_ti_first_order_arg_typeinfos[ARITY];     \
+        MR_TypeInfo         MR_ti_fixed_arity_arg_typeinfos[ARITY];     \
     }
 
 /* Tuple types also use the higher-order type-info structure. */
-#define MR_HIGHER_ORDER_TYPEINFO_STRUCT(NAME, ARITY)                    \
+#define MR_VAR_ARITY_TYPEINFO_STRUCT(NAME, ARITY)                       \
     struct NAME {                                                       \
         MR_TypeCtorInfo     MR_ti_type_ctor_info;                       \
-        MR_Integer          MR_ti_higher_order_arity;                   \
-        MR_TypeInfo         MR_ti_higher_order_arg_typeinfos[ARITY];    \
+        MR_Integer          MR_ti_var_arity_arity;                      \
+        MR_TypeInfo         MR_ti_var_arity_arg_typeinfos[ARITY];       \
     }
 
-#define MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)               \
+#define MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)               \
     struct NAME {                                                       \
         MR_TypeCtorInfo     MR_pti_type_ctor_info;                      \
-        MR_PseudoTypeInfo   MR_pti_first_order_arg_pseudo_typeinfos[ARITY]; \
+        MR_PseudoTypeInfo   MR_pti_fixed_arity_arg_pseudo_typeinfos[ARITY]; \
     }
 
 /* Tuple types also use the higher-order pseude-type-info structure. */
-#define MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)              \
+#define MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)                 \
     struct NAME {                                                       \
         MR_TypeCtorInfo     MR_pti_type_ctor_info;                      \
-        MR_Integer          MR_pti_higher_order_arity;                  \
-        MR_PseudoTypeInfo   MR_pti_higher_order_arg_pseudo_typeinfos[ARITY]; \
+        MR_Integer          MR_pti_var_arity_arity;                     \
+        MR_PseudoTypeInfo   MR_pti_var_arity_arg_pseudo_typeinfos[ARITY]; \
     }
+
+/*
+** The next two #defines are needed for bootstrapping.
+*/
+
+#define MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(a, b) \
+	MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(a, b)
+#define MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(a, b) \
+	MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(a, b)
 
 /*
 ** Now define specific versions of these struct types,
@@ -173,9 +185,9 @@ typedef const struct MR_PseudoTypeInfo_Almost_Struct    *MR_PseudoTypeInfo;
 ** typedefs above.
 */
 
-MR_HIGHER_ORDER_TYPEINFO_STRUCT(MR_TypeInfo_Almost_Struct,
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_TypeInfo_Almost_Struct,
         MR_VARIABLE_SIZED);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_PseudoTypeInfo_Almost_Struct,
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_PseudoTypeInfo_Almost_Struct,
         MR_VARIABLE_SIZED);
 
 /*
@@ -241,42 +253,30 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
         ? (pseudo_type_info)->MR_pti_type_ctor_info                 \
         : (MR_TypeCtorInfo) (pseudo_type_info))
 
-#define MR_TYPEINFO_GET_HIGHER_ORDER_ARITY(type_info)               \
-    ((type_info)->MR_ti_higher_order_arity)
+#define MR_TYPEINFO_GET_VAR_ARITY_ARITY(type_info)                  \
+    ((type_info)->MR_ti_var_arity_arity)
 
-#define MR_TYPEINFO_GET_TUPLE_ARITY(type_info)                      \
-    MR_TYPEINFO_GET_HIGHER_ORDER_ARITY(type_info)
+#define MR_PSEUDO_TYPEINFO_GET_VAR_ARITY_ARITY(pseudo_type_info)    \
+    ((pseudo_type_info)->MR_pti_var_arity_arity)
 
-#define MR_PSEUDO_TYPEINFO_GET_HIGHER_ORDER_ARITY(pseudo_type_info) \
-    ((pseudo_type_info)->MR_pti_higher_order_arity)
-
-#define MR_PSEUDO_TYPEINFO_GET_TUPLE_ARITY(pseudo_type_info)        \
-    MR_PSEUDO_TYPEINFO_GET_HIGHER_ORDER_ARITY(pseudo_type_info)
-
-#define MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info)           \
+#define MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info)           \
     ((MR_TypeInfoParams) &(type_info)->MR_ti_type_ctor_info)
 
-#define MR_TYPEINFO_GET_HIGHER_ORDER_ARG_VECTOR(type_info)          \
+#define MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(type_info)             \
     ((MR_TypeInfoParams)                                            \
-        &(type_info)->MR_ti_higher_order_arity)
-
-#define MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(type_info)                 \
-    MR_TYPEINFO_GET_HIGHER_ORDER_ARG_VECTOR(type_info)
+        &(type_info)->MR_ti_var_arity_arity)
 
 /*
 ** Macros for creating type_infos.
 */
 
-#define MR_first_order_type_info_size(arity)                        \
+#define MR_fixed_arity_type_info_size(arity)                        \
     (1 + (arity))
 
-#define MR_higher_order_type_info_size(arity)                       \
+#define MR_var_arity_type_info_size(arity)                          \
     (2 + (arity))
 
-#define MR_tuple_type_info_size(arity)                              \
-    MR_higher_order_type_info_size(arity)
-
-#define MR_fill_in_first_order_type_info(arena, type_ctor_info, vector) \
+#define MR_fill_in_fixed_arity_type_info(arena, type_ctor_info, vector) \
     do {                                                            \
         MR_TypeInfo new_ti;                                         \
         new_ti = (MR_TypeInfo) (arena);                             \
@@ -284,43 +284,40 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
         (vector) = (MR_TypeInfoParams) &new_ti->MR_ti_type_ctor_info; \
     } while (0)
 
-#define MR_fill_in_higher_order_type_info(arena, type_ctor_info, arity, vector)\
+#define MR_fill_in_var_arity_type_info(arena, type_ctor_info, arity, vector)\
     do {                                                            \
         MR_TypeInfo new_ti;                                         \
         new_ti = (MR_TypeInfo) (arena);                             \
         new_ti->MR_ti_type_ctor_info = (type_ctor_info);            \
-        new_ti->MR_ti_higher_order_arity = (arity);                 \
-        (vector) = (MR_TypeInfoParams) &new_ti->MR_ti_higher_order_arity;\
+        new_ti->MR_ti_var_arity_arity = (arity);                    \
+        (vector) = (MR_TypeInfoParams) &new_ti->MR_ti_var_arity_arity;\
     } while (0)
 
-#define MR_fill_in_tuple_type_info(arena, type_ctor_info, arity, vector) \
-    MR_fill_in_higher_order_type_info(arena, type_ctor_info, arity, vector)
-
-#define MR_static_type_info_arity_0(name, ctor)				\
-	struct {							\
-		MR_TypeCtorInfo field1;					\
-	} name = {							\
-		(MR_TypeCtorInfo) (ctor)				\
+#define MR_static_type_info_arity_0(name, ctor)				        \
+	struct {							                            \
+		MR_TypeCtorInfo field1;					                    \
+	} name = {							                            \
+		(MR_TypeCtorInfo) (ctor)				                    \
 	};
 
-#define MR_static_type_info_arity_1(name, ctor, ti1)			\
-	struct {							\
-		MR_TypeCtorInfo field1;					\
-		MR_TypeInfo 	field2;					\
-	} name = {							\
-		(MR_TypeCtorInfo) (ctor),				\
-		(MR_TypeInfo)     (ti1)					\
+#define MR_static_type_info_arity_1(name, ctor, ti1)			    \
+	struct {							                            \
+		MR_TypeCtorInfo field1;					                    \
+		MR_TypeInfo 	field2;					                    \
+	} name = {							                            \
+		(MR_TypeCtorInfo) (ctor),				                    \
+		(MR_TypeInfo)     (ti1)					                    \
 	};
 
-#define MR_static_type_info_arity_2(name, ctor, ti1, ti2)		\
-	struct {							\
-		MR_TypeCtorInfo field1;					\
-		MR_TypeInfo 	field2;					\
-		MR_TypeInfo 	field3;					\
-	} name = {							\
-		(MR_TypeCtorInfo) (ctor),				\
-		(MR_TypeInfo)     (ti1),				\
-		(MR_TypeInfo)     (ti2)					\
+#define MR_static_type_info_arity_2(name, ctor, ti1, ti2)		    \
+	struct {							                            \
+		MR_TypeCtorInfo field1;					                    \
+		MR_TypeInfo 	field2;					                    \
+		MR_TypeInfo 	field3;					                    \
+	} name = {							                            \
+		(MR_TypeCtorInfo) (ctor),				                    \
+		(MR_TypeInfo)     (ti1),				                    \
+		(MR_TypeInfo)     (ti2)					                    \
 	};
 
 /*---------------------------------------------------------------------------*/
@@ -467,7 +464,7 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** MR_CTOR_REP_NAMES below, in runtime/mercury_mcpp.{h,cpp}, in
 ** library/rtti_implementation.m (definitely the list of type_ctor_reps,
 ** maybe the bodies of predicates), in library/private_builtin.m,
-** and in java/TypeCtorRep.java.
+** in compiler/mlds_to_gcc.m, and in java/runtime/TypeCtorRep.java.
 **
 ** Additions to the end of this enum can be handled naturally,
 ** but changes in the meanings of already assigned values
@@ -510,6 +507,8 @@ typedef enum {
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_TYPECTORINFO),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_BASETYPECLASSINFO),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_TYPEDESC),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_TYPECTORDESC),
     /*
     ** MR_TYPECTOR_REP_UNKNOWN should remain the last alternative;
     ** MR_TYPE_CTOR_STATS depends on this.
@@ -521,9 +520,14 @@ typedef enum {
 ** We cannot put enums into structures as bit fields. To avoid wasting space,
 ** we put MR_TypeCtorRepInts into structures instead of MR_TypeCtorReps
 ** themselves.
+**
+** We need more than eight bits for a TypeCtorRep. The number of different
+** TypeCtorRep values requires six bits to differentiate them, and in .rt
+** grades on 64-bit machines we need another three bits for a primary tag
+** value.
 */
 
-typedef MR_int_least8_t         MR_TypeCtorRepInt;
+typedef MR_int_least16_t  MR_TypeCtorRepInt;
 
 /*
 ** This macro is intended to be used for the initialization of an array
@@ -565,7 +569,7 @@ typedef MR_int_least8_t         MR_TypeCtorRepInt;
     "TUPLE",                                    \
     "RESERVED_ADDR",                            \
     "RESERVED_ADDR_USEREQ",                     \
-    "TYPECTORINFO",                     	\
+    "TYPECTORINFO",                     	    \
     "BASETYPECLASSINFO",                     	\
     "UNKNOWN"
 
@@ -944,13 +948,21 @@ typedef union {
     ** A type_ctor_info describes the structure of a particular
     ** type constructor.  One of these is generated for every
     ** `:- type' declaration.
+    **
+    ** A change in the TypeCtorInfo structure also requires changes in the 
+    ** files listed at the top of this file, as well as in the macros below.
     */
+
+/*
+** The type of the MR_type_ctor_rep_CAST_ME field should be returned
+** to MR_TypeCtorRepInt when bootstrapping is complete.
+*/
 
 struct MR_TypeCtorInfo_Struct {
     MR_Integer          MR_type_ctor_arity;
     MR_int_least8_t     MR_type_ctor_version;
-    MR_TypeCtorRepInt   MR_type_ctor_rep_CAST_ME;
     MR_int_least8_t     MR_type_ctor_num_ptags;         /* if DU */
+    MR_int_least16_t    MR_type_ctor_rep_CAST_ME;
     MR_ProcAddr         MR_type_ctor_unify_pred;
     MR_ProcAddr         MR_type_ctor_compare_pred;
     MR_ConstString      MR_type_ctor_module_name;
@@ -967,7 +979,10 @@ struct MR_TypeCtorInfo_Struct {
 };
 
 #define MR_type_ctor_rep(tci)                                               \
-    ((MR_TypeCtorRep) (tci)->MR_type_ctor_rep_CAST_ME)
+    ((MR_TypeCtorRep) ((tci)->MR_type_ctor_rep_CAST_ME))
+
+#define MR_type_ctor_num_ptags(tci)                                         \
+    ((tci)->MR_type_ctor_num_ptags)
 
 #define MR_type_ctor_module_name(tci)                                       \
     ((tci)->MR_type_ctor_module_name)
@@ -1014,9 +1029,9 @@ struct MR_TypeCtorInfo_Struct {
 #define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_BODY(m, n, a, cr, u, c)        \
     {                                                                   \
         a,                                                              \
-        MR_RTTI_VERSION__COMPACT,                                       \
-        cr,                                                             \
+        MR_RTTI_VERSION__REP,                                           \
         -1,                                                             \
+        cr,                                                             \
         MR_MAYBE_STATIC_CODE(MR_ENTRY(u)),                              \
         MR_MAYBE_STATIC_CODE(MR_ENTRY(c)),                              \
         MR_string_const(MR_STRINGIFY(m), sizeof(MR_STRINGIFY(m))-1),    \
@@ -1076,9 +1091,9 @@ struct MR_TypeCtorInfo_Struct {
         MR_type_ctor_info_name(module, type, arity) =                   \
     {                                                                   \
         arity,                                                          \
-        MR_RTTI_VERSION__COMPACT,                                       \
-        type_rep,                                                       \
+        MR_RTTI_VERSION__REP,                                           \
         -1,                                                             \
+        type_rep,                                                       \
         (MR_Box) MR_type_ctor_info_func_name(module, type, arity,       \
                         do_unify),                                      \
         (MR_Box) MR_type_ctor_info_func_name(module, type, arity,       \
@@ -1206,9 +1221,9 @@ struct MR_TypeCtorInfo_Struct {
 /*---------------------------------------------------------------------------*/
 
 /*
-** Compare two type_info structures, using an arbitrary ordering based on
-** the addresses of the type_ctor_infos, or in the case of higher order types,
-** the arity). Return MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or MR_COMPARE_LESS,
+** Compare two type_info structures, using an ordering based on the
+** module names, type names and arities of the types inside the type_info.
+** Return MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or MR_COMPARE_LESS,
 ** depending on whether ti1 is greater than, equal to, or less than ti2.
 **
 ** You need to wrap MR_{save/restore}_transient_hp() around
@@ -1218,9 +1233,21 @@ struct MR_TypeCtorInfo_Struct {
 extern  int     MR_compare_type_info(MR_TypeInfo ti1, MR_TypeInfo ti2);
 
 /*
-** Compare two type_ctor_info structures, using an arbitrary ordering based on
-** the addresses of the type_ctor_infos, or in the case of higher order types,
-** the arity). Return MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or MR_COMPARE_LESS,
+** Unify two type_info structures, using an ordering based on the
+** module names, type names and arities of the types inside the type_info.
+** Return MR_TRUE if ti1 represents the same type as ti2, and MR_FALSE
+** otherwise.
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
+*/
+
+extern  MR_bool MR_unify_type_info(MR_TypeInfo ti1, MR_TypeInfo ti2);
+
+/*
+** Compare two type_ctor_info structures, using an ordering based on the
+** module names, type names and arities of the types represented by tci1/tci2.
+** Return MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or MR_COMPARE_LESS,
 ** depending on whether tci1 is greater than, equal to, or less than tci2.
 **
 ** You need to wrap MR_{save/restore}_transient_hp() around
@@ -1228,6 +1255,19 @@ extern  int     MR_compare_type_info(MR_TypeInfo ti1, MR_TypeInfo ti2);
 */
 
 extern  int     MR_compare_type_ctor_info(MR_TypeCtorInfo tci1,
+                    MR_TypeCtorInfo tci2);
+
+/*
+** Unify two type_ctor_info structures, using an ordering based on the
+** module names, type names and arities of the types represented by tci1/tci2.
+** Return MR_TRUE if tci1 represents the same type constructor as tci2, and
+** MR_FALSE otherwise.
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
+*/
+
+extern  MR_bool MR_unify_type_ctor_info(MR_TypeCtorInfo tci1,
                     MR_TypeCtorInfo tci2);
 
 /*

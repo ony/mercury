@@ -31,9 +31,16 @@ major algorithms and data structures it uses, etc.
 
 <p>
 
-Each type or predicate that is exported from a module should have
+Everything that is exported from a module should have
 sufficient documentation that it can be understood without reference
 to the module's implementation section.
+
+<p>
+
+Each procedure that is implemented using foreign code
+should have sufficient documentation about its interface that it
+can be implemented just by referring to that documentation,
+without reference to the module's implementation section.
 
 <p>
 
@@ -61,8 +68,6 @@ cause anyone's existing code to break.
 Any new compiler modules or other major design changes should
 be documented in `compiler/notes/compiler_design.html'.
 
-<p>
-
 <h2> Naming </h2>
 
 <p>
@@ -88,9 +93,6 @@ Predicates which get or set a field of a structure or ADT should
 be named bar_get_foo and bar_set_foo respectively, where bar
 is the name of the structure or ADT and foo is the name of the field.
 
-<p>
-
-
 <h2> Coding </h2>
 
 <p>
@@ -109,9 +111,6 @@ No fixed limits please!
 (If you really must have a fixed limit, include detailed documentation
 explaining why it was so hard to avoid.)
 
-<p>
-
-
 <h2> Error Handling </h2>
 
 <p>
@@ -128,7 +127,8 @@ scripts, or if you are interfacing with the OS.)
 
 Calls to error/1 should always indicate an internal software error, not
 merely incorrect inputs from the user, or failure of some library routine
-or system call.
+or system call.  In the compiler,
+use unexpected/2 or sorry/2 from error_util.m rather than error/1.
 
 <p>
 
@@ -155,9 +155,6 @@ If a system call or C library function that sets errno fails, the
 error message should be printed with perror() or should contain
 strerror(errno).  If it was a function manipulating some file, the
 error message should include the filename.
-
-<p>
-
 
 <h2> Layout </h2>
 
@@ -300,8 +297,6 @@ Double-dashed lines, i.e.
 
 can also be used to indicate divisions into major sections.
 
-<p>
-
 <h2> Testing </h2>
 
 <p>
@@ -324,9 +319,6 @@ the test suite.  Every time you add a new feature, you should add some
 test cases for that new feature to the test suite.  Every time you fix
 a bug, you should add a regression test to the test suite.
 
-<p>
-
-
 <h2> Committing changes </h2>
 
 <p>
@@ -336,7 +328,8 @@ changes.
 
 <p>
 
-The file "REVIEWS" contains more information on review policy.
+The file <a href="reviews.html">compiler/notes/reviews.html</a>
+contains more information on review policy.
 
 
 
@@ -344,6 +337,6 @@ The file "REVIEWS" contains more information on review policy.
 <hr>
 <!-------------------------->
 
-Last update was $Date: 2002-03-27 06:29:30 $ by $Author: zs $@cs.mu.oz.au. <br>
+Last update was $Date: 2002-05-09 03:15:23 $ by $Author: zs $@cs.mu.oz.au. <br>
 </body>
 </html>

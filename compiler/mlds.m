@@ -630,12 +630,9 @@
 	;	mlds__native_float_type
 	;	mlds__native_char_type
 
-		% This is a type of the MLDS target language.  Currently
-		% this is only used by the il backend.
+		% This is a type of the target language.
 	;	mlds__foreign_type(
-			bool,		% is type already boxed?
-			sym_name,	% structured name representing the type
-			string		% location of the type (ie assembly)
+			foreign_language_type
 		)
 
 		% MLDS types defined using mlds__class_defn
@@ -676,6 +673,8 @@
 		% nested functions, and also for handling
 		% closures for higher-order code.
 	;	mlds__generic_env_ptr_type
+
+	;	mlds__type_info_type
 
 	;	mlds__pseudo_type_info_type
 	
@@ -917,7 +916,7 @@
 			list(mlds__rval),	% ordinary function arguments
 			list(mlds__lval),	% places to store the
 						% function return value(s)
-			is_tail_call		% indicates whether this
+			call_kind		% indicates whether this
 						% call is a tail call
 		)
 
@@ -1075,9 +1074,24 @@ XXX Full exception handling support is not yet implemented.
 % Extra info for calls
 %
 
-:- type is_tail_call
-	--->	tail_call	% a tail call
-	;	call		% just an ordinary call
+	% The `call_kind' type indicates whether a call is a tail call
+	% and whether the call is know to never return.
+	%
+	% Marking a call as a tail_call is intended as a hint to
+	% the target language that this call can be implemented
+	% by removing the caller's stack frame and jumping to the
+	% destination, rather than a normal call.
+	% However, the target code generator need not obey this hint;
+	% it is permitted for the target code generator to ignore the
+	% hint and generate code which does not remove the caller's
+	% stack frame and/or which falls through to the following
+	% statement.
+	% 
+:- type call_kind
+	--->	no_return_call	% a call that never returns
+				% (this is a special case of a tail call)
+	;	tail_call	% a tail call
+	;	ordinary_call	% just an ordinary call
 	.
 
 %-----------------------------------------------------------------------------%
@@ -1599,6 +1613,7 @@ XXX Full exception handling support is not yet implemented.
 
 :- implementation.
 :- import_module backend_libs__foreign, parse_tree__modules.
+:- import_module hlds__error_util, libs__globals.
 :- import_module int, term, string, require.
 
 %-----------------------------------------------------------------------------%
@@ -1636,10 +1651,34 @@ mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
 		module_info_types(ModuleInfo, Types),
 		map__search(Types, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, Body),
-		Body = foreign_type(IsBoxed, ForeignType, ForeignLocation)
+		Body = foreign_type(MaybeIL, MaybeC)
 	->
-		MLDSType = mlds__foreign_type(IsBoxed,
-				ForeignType, ForeignLocation)
+		module_info_globals(ModuleInfo, Globals),
+		globals__get_target(Globals, Target),
+		( Target = c,
+			( MaybeC = yes(CForeignType),
+				ForeignType = c(CForeignType)
+			; MaybeC = no,
+				% This is checked by check_foreign_type
+				% in make_hlds.
+				unexpected(this_file,
+				"mercury_type_to_mlds_type: No C foreign type")
+			)
+		; Target = il,
+			( MaybeIL = yes(ILForeignType),
+				ForeignType = il(ILForeignType)
+			; MaybeIL = no,
+				% This is checked by check_foreign_type
+				% in make_hlds.
+				unexpected(this_file,
+				"mercury_type_to_mlds_type: No IL foreign type")
+			)
+		; Target = java,
+			sorry(this_file, "foreign types on the java backend")
+		; Target = asm,
+			sorry(this_file, "foreign types on the asm backend")
+		),
+		MLDSType = mlds__foreign_type(ForeignType)
 	;
 		classify_type(Type, ModuleInfo, Category),
 		ExportedType = to_exported_type(ModuleInfo, Type),
@@ -1848,5 +1887,10 @@ init_decl_flags(Access, PerInstance, Virtuality, Finality, Constness,
 	finality_bits(Finality) \/
 	constness_bits(Constness) \/
 	abstractness_bits(Abstractness).
+
+%-----------------------------------------------------------------------------%
+
+:- func this_file = string.
+this_file = "mlds.m".
 
 %-----------------------------------------------------------------------------%

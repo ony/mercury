@@ -1012,14 +1012,14 @@ typecheck_goal(Goal0 - GoalInfo0, Goal - GoalInfo, TypeCheckInfo0,
 typecheck_goal_2(conj(List0), conj(List)) -->
 	checkpoint("conj"),
 	typecheck_goal_list(List0, List).
-typecheck_goal_2(par_conj(List0, SM), par_conj(List, SM)) -->
+typecheck_goal_2(par_conj(List0), par_conj(List)) -->
 	checkpoint("par_conj"),
 	typecheck_goal_list(List0, List).
-typecheck_goal_2(disj(List0, SM), disj(List, SM)) -->
+typecheck_goal_2(disj(List0), disj(List)) -->
 	checkpoint("disj"),
 	typecheck_goal_list(List0, List).
-typecheck_goal_2(if_then_else(Vs, A0, B0, C0, SM),
-		if_then_else(Vs, A, B, C, SM)) -->
+typecheck_goal_2(if_then_else(Vs, A0, B0, C0),
+		if_then_else(Vs, A, B, C)) -->
 	checkpoint("if"),
 	typecheck_goal(A0, A),
 	checkpoint("then"),
@@ -1065,7 +1065,7 @@ typecheck_goal_2(unify(A, B0, Mode, Info, UnifyContext),
 	typecheck_info_set_arg_num(0),
 	typecheck_info_set_unify_context(UnifyContext),
 	typecheck_unification(A, B0, B).
-typecheck_goal_2(switch(_, _, _, _), _) -->
+typecheck_goal_2(switch(_, _, _), _) -->
 	{ error("unexpected switch") }.
 typecheck_goal_2(foreign_proc(A, PredId, C, Args, E, F, G), 
 		foreign_proc(A, PredId, C, Args, E, F, G)) -->
@@ -5560,8 +5560,9 @@ report_error_undef_pred(TypeCheckInfo, PredOrFunc - PredCallId) -->
 	;
 		io__write_string("  error: undefined "),
 		hlds_out__write_simple_call_id(PredOrFunc - PredCallId),
-		( { PredName = qualified(ModQual, _) } ->
-			maybe_report_missing_import(TypeCheckInfo, ModQual)
+		( { PredName = qualified(ModuleQualifier, _) } ->
+			maybe_report_missing_import(TypeCheckInfo,
+				ModuleQualifier)
 		;
 			io__write_string(".\n")
 		)
@@ -5572,6 +5573,10 @@ report_error_undef_pred(TypeCheckInfo, PredOrFunc - PredCallId) -->
 :- mode maybe_report_missing_import(typecheck_info_no_io, in, di, uo) is det.
 
 maybe_report_missing_import(TypeCheckInfo, ModuleQualifier) -->
+	{ typecheck_info_get_context(TypeCheckInfo, Context) },
+	%
+	% first check if this module wasn't imported
+	%
 	{ typecheck_info_get_module_info(TypeCheckInfo, ModuleInfo) },
 	(
 		% if the module qualifier couldn't match any of the
@@ -5579,18 +5584,60 @@ maybe_report_missing_import(TypeCheckInfo, ModuleQualifier) -->
 		% has not been imported
 		\+ (
 			{ visible_module(VisibleModule, ModuleInfo) },
-			{ match_sym_name(ModuleQualifier, VisibleModule) }
+			{ match_sym_name(ModuleQualifier,
+				VisibleModule) }
 		)
 	->
 		io__write_string("\n"),
-		{ typecheck_info_get_context(TypeCheckInfo, Context) },
-		prog_out__write_context(Context),
-		io__write_string("  (the module `"),
-		mercury_output_bracketed_sym_name(ModuleQualifier),
-		io__write_string("' has not been imported).\n")
+		error_util__write_error_pieces(Context, 2,
+			[words("(the module "),
+			fixed(error_util__describe_sym_name(ModuleQualifier)),
+			words("has not been imported).")])
 	;
-		io__write_string(".\n")
+		% The module qualifier matches one or more of the
+		% visible modules.  But maybe the user forgot to
+		% import the parent module(s) of that module...
+		{ solutions(get_unimported_parent(ModuleQualifier,
+			ModuleInfo), UnimportedParents) },
+		{ UnimportedParents \= [] }
+	->
+		io__write_string("\n"),
+		report_unimported_parents(Context, UnimportedParents)
+	;
+		io__write_string(".\n"),
+		[]
 	).
+
+	% nondeterministically return all the possible parent
+	% modules which could be parent modules of the given
+	% module qualifier, and which are not imported.
+:- pred get_unimported_parent(module_name::in, module_info::in,
+		module_name::out) is nondet.
+get_unimported_parent(ModuleQualifier, ModuleInfo, UnimportedParent) :-
+	visible_module(ModuleName, ModuleInfo),
+	match_sym_name(ModuleQualifier, ModuleName),
+	ParentModules = get_ancestors(ModuleName),
+	list__member(UnimportedParent, ParentModules),
+	\+ visible_module(UnimportedParent, ModuleInfo).
+
+:- pred report_unimported_parents(prog_context, list(module_name), io, io).
+:- mode report_unimported_parents(in, in, di, uo) is det.
+	
+report_unimported_parents(Context, UnimportedParents) -->
+	{ UnimportedParentDescs = list__map(error_util__describe_sym_name,
+		UnimportedParents) },
+	{ error_util__list_to_pieces(UnimportedParentDescs,
+		AllUnimportedParents) },
+	error_util__write_error_pieces(Context, 2,
+		( AllUnimportedParents = [_] ->
+			[words("(the possible parent module ")]
+			++ AllUnimportedParents
+			++ [words("has not been imported).")]
+		;
+			[words("(the possible parent modules ")]
+			++ AllUnimportedParents
+			++ [words("have not been imported).")]
+		)).
 
 :- pred report_error_func_instead_of_pred(typecheck_info, pred_or_func,
 			simple_call_id, io__state, io__state).

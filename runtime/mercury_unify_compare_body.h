@@ -1,4 +1,7 @@
 /*
+** vim:ts=4 sw=4 expandtab
+*/
+/*
 ** Copyright (C) 2000-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
@@ -6,12 +9,14 @@
 
 /*
 ** This file contains a piece of code that is included by mercury_ho_call.c
-** four times:
+** six times:
 ** 
 ** - as the body of the mercury__unify_2_0 Mercury procedure,
-** - as the body of the mercury__compare_3_3 Mercury procedure, and
-** - as the body of the MR_generic_unify C function.
-** - as the body of the MR_generic_compare C function.
+** - as the body of the mercury__compare_3_3 Mercury procedure,
+** - as the body of the mercury__compare_representation_3_0 Mercury procedure,
+** - as the body of the MR_generic_unify C function,
+** - as the body of the MR_generic_compare C function, and
+** - as the body of the MR_generic_compare_representation C function.
 **
 ** The inclusions are surrounded by #defines and #undefs of the macros
 ** that personalize each copy of the code.
@@ -19,7 +24,8 @@
 ** The reason why the unify and compare Mercury procedures share code is
 ** that unify is mostly just a special case of comparison; it differs only
 ** by treating "less than" and "greater than" the same way, and returning
-** its result slightly differently.
+** its result slightly differently.  Likewise, compare_representation
+** is mostly the same as compare.
 **
 ** The reason why there is both a Mercury procedure and a C function for
 ** unifications and comparisons is that the Mercury procedure needs a
@@ -50,55 +56,75 @@ start_label:
 
     switch (MR_type_ctor_rep(type_ctor_info)) {
 
-#ifdef  MR_COMPARE_BY_RTTI
+#if defined(MR_COMPARE_BY_RTTI) || defined(include_compare_rep_code)
 
         case MR_TYPECTOR_REP_EQUIV:
             MR_save_transient_hp();
             type_info = MR_create_type_info(
-                MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                 MR_type_ctor_layout(type_ctor_info).layout_equiv);
             MR_restore_transient_hp();
             goto start_label;
 
         case MR_TYPECTOR_REP_EQUIV_GROUND:
-            type_info = (MR_TypeInfo) MR_type_ctor_layout(type_ctor_info).layout_equiv;
+            type_info = (MR_TypeInfo)
+                MR_type_ctor_layout(type_ctor_info).layout_equiv;
             goto start_label;
 
-        case MR_TYPECTOR_REP_EQUIV_VAR:
-            MR_fatal_error("found type_ctor_rep MR_TYPECTOR_REP_EQUIV_VAR");
-
+  #ifdef include_compare_rep_code
+        case MR_TYPECTOR_REP_NOTAG_USEREQ:
+            /* fall through */
+  #endif
         case MR_TYPECTOR_REP_NOTAG:
             MR_save_transient_hp();
             type_info = MR_create_type_info(
-                MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                 MR_type_ctor_layout(type_ctor_info).layout_notag->
                 MR_notag_functor_arg_type);
             MR_restore_transient_hp();
             goto start_label;
 
+  #ifdef include_compare_rep_code
+        case MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ:
+            /* fall through */
+  #endif
         case MR_TYPECTOR_REP_NOTAG_GROUND:
             type_info = (MR_TypeInfo) MR_type_ctor_layout(type_ctor_info).
                 layout_notag->MR_notag_functor_arg_type;
             goto start_label;
 
+  #ifdef include_compare_rep_code
+        case MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ:
+            /* fall through */
+  #endif
         case MR_TYPECTOR_REP_RESERVED_ADDR:
             MR_fatal_error("sorry, not implemented: "
-		    	"MR_COMPARE_BY_RTTI for RESERVED_ADDR");
+                "MR_COMPARE_BY_RTTI for RESERVED_ADDR");
 
+  #ifdef include_compare_rep_code
+        case MR_TYPECTOR_REP_ARRAY:
+            MR_fatal_error("sorry, not implemented: "
+                "compare_representation for arrays");
+  #endif
+
+  #ifdef include_compare_rep_code
+        case MR_TYPECTOR_REP_DU_USEREQ:
+            /* fall through */
+  #endif
         case MR_TYPECTOR_REP_DU:
             {
                 const MR_DuFunctorDesc  *functor_desc;
   #ifdef  select_compare_code
                 const MR_DuFunctorDesc  *x_functor_desc;
                 const MR_DuFunctorDesc  *y_functor_desc;
-                MR_DuPtagLayout         *x_ptaglayout;
-                MR_DuPtagLayout         *y_ptaglayout;
+                const MR_DuPtagLayout   *x_ptaglayout;
+                const MR_DuPtagLayout   *y_ptaglayout;
   #else
                 MR_Word                 x_ptag;
                 MR_Word                 y_ptag;
                 MR_Word                 x_sectag;
                 MR_Word                 y_sectag;
-                MR_DuPtagLayout         *ptaglayout;
+                const MR_DuPtagLayout   *ptaglayout;
   #endif
                 MR_Word                 *x_data_value;
                 MR_Word                 *y_data_value;
@@ -112,12 +138,13 @@ start_label:
 
   #define MR_find_du_functor_desc(data, data_value, functor_desc)             \
                 do {                                                          \
-                    MR_DuPtagLayout         *ptaglayout;                      \
+                    const MR_DuPtagLayout   *ptaglayout;                      \
                     int                     ptag;                             \
                     int                     sectag;                           \
                                                                               \
                     ptag = MR_tag(data);                                      \
-                    ptaglayout = &MR_type_ctor_layout(type_ctor_info).layout_du[ptag];\
+                    ptaglayout = &MR_type_ctor_layout(type_ctor_info).        \
+                        layout_du[ptag];                                      \
                     data_value = (MR_Word *) MR_body(data, ptag);             \
                                                                               \
                     switch (ptaglayout->MR_sectag_locn) {                     \
@@ -164,7 +191,8 @@ start_label:
                     return_answer(MR_FALSE);
                 }
 
-                ptaglayout = &MR_type_ctor_layout(type_ctor_info).layout_du[x_ptag];
+                ptaglayout = &MR_type_ctor_layout(type_ctor_info).
+                    layout_du[x_ptag];
                 x_data_value = (MR_Word *) MR_body(x, x_ptag);
                 y_data_value = (MR_Word *) MR_body(y, y_ptag);
 
@@ -194,7 +222,7 @@ start_label:
                         break;
 
                     case MR_SECTAG_VARIABLE:
-                        MR_fatal_error("find_du_functor_desc(): attempt get functor desc of variable");                                                   \
+                        MR_fatal_error("find_du_functor_desc(): attempt get functor desc of variable");
                 }
 
                 functor_desc = ptaglayout->MR_sectag_alternatives[x_sectag];
@@ -238,9 +266,9 @@ start_label:
                                 y_data_value[locns[i].MR_exist_arg_num],
                                 locns[i].MR_exist_offset_in_tci);
                         }
-			MR_save_transient_registers();
+                        MR_save_transient_registers();
                         result = MR_compare_type_info(x_ti, y_ti);
-			MR_restore_transient_registers();
+                        MR_restore_transient_registers();
                         if (result != MR_COMPARE_EQUAL) {
   #ifdef  select_compare_code
                             return_answer(result);
@@ -257,29 +285,34 @@ start_label:
                     MR_TypeInfo arg_type_info;
 
                     if (MR_arg_type_may_contain_var(functor_desc, i)) {
-		        MR_save_transient_hp();
+                        MR_save_transient_hp();
                         arg_type_info = MR_create_type_info_maybe_existq(
-                            MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                            MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                             functor_desc->MR_du_functor_arg_types[i],
                             x_data_value, functor_desc);
-		        MR_restore_transient_hp();
+                        MR_restore_transient_hp();
                     } else {
                         arg_type_info = (MR_TypeInfo)
                             functor_desc->MR_du_functor_arg_types[i];
                     }
   #ifdef  select_compare_code
-		    MR_save_transient_registers();
+                    MR_save_transient_registers();
+    #ifdef include_compare_rep_code
+                    result = MR_generic_compare_representation(arg_type_info,
+                        x_data_value[cur_slot], y_data_value[cur_slot]);
+    #else
                     result = MR_generic_compare(arg_type_info,
                         x_data_value[cur_slot], y_data_value[cur_slot]);
-		    MR_restore_transient_registers();
+    #endif
+                    MR_restore_transient_registers();
                     if (result != MR_COMPARE_EQUAL) {
                         return_answer(result);
                     }
   #else
-		    MR_save_transient_registers();
+                    MR_save_transient_registers();
                     result = MR_generic_unify(arg_type_info,
                         x_data_value[cur_slot], y_data_value[cur_slot]);
-		    MR_restore_transient_registers();
+                    MR_restore_transient_registers();
                     if (! result) {
                         return_answer(MR_FALSE);
                     }
@@ -296,8 +329,10 @@ start_label:
 
             break;
 
-#else /* ! MR_COMPARE_BY_RTTI */
+#endif  /* defined(MR_COMPARE_BY_RTTI) || defined(include_compare_rep_code) */
 
+#ifndef include_compare_rep_code
+  #ifndef MR_COMPARE_BY_RTTI
         case MR_TYPECTOR_REP_EQUIV:
         case MR_TYPECTOR_REP_EQUIV_GROUND:
         case MR_TYPECTOR_REP_NOTAG:
@@ -305,8 +340,7 @@ start_label:
         case MR_TYPECTOR_REP_RESERVED_ADDR:
         case MR_TYPECTOR_REP_DU:
             /* fall through */
-
-#endif
+  #endif
 
         case MR_TYPECTOR_REP_ENUM_USEREQ:
         case MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ:
@@ -338,7 +372,7 @@ start_label:
                 MR_Word    *args_base;
 
                 args_base = (MR_Word *)
-                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
+                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info);
                 MR_r1 = args_base[1];
                 MR_r2 = x;
                 MR_r3 = y;
@@ -349,7 +383,7 @@ start_label:
                 MR_Word    *args_base;
 
                 args_base = (MR_Word *)
-                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
+                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info);
                 MR_r1 = args_base[1];
                 MR_r2 = args_base[2];
                 MR_r3 = x;
@@ -363,7 +397,7 @@ start_label:
 
                 type_arity = type_ctor_info->MR_type_ctor_arity;
                 args_base = (MR_Word *)
-                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
+                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info);
                 MR_save_registers();
 
                 /* CompPred(...ArgTypeInfos..., Res, X, Y) * */
@@ -377,6 +411,7 @@ start_label:
             }
 
             tailcall_user_pred();
+#endif  /* !include_compare_rep_code */
 
         case MR_TYPECTOR_REP_TUPLE:
             {
@@ -384,28 +419,28 @@ start_label:
                 int     type_arity;
                 int     result;
 
-                type_arity = MR_TYPEINFO_GET_TUPLE_ARITY(type_info);
+                type_arity = MR_TYPEINFO_GET_VAR_ARITY_ARITY(type_info);
 
                 for (i = 0; i < type_arity; i++) {
                     MR_TypeInfo arg_type_info;
 
                     /* type_infos are counted from one */
-                    arg_type_info = MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(
+                    arg_type_info = MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(
                                             type_info)[i + 1];
 
 #ifdef  select_compare_code
-		    MR_save_transient_registers();
+                    MR_save_transient_registers();
                     result = MR_generic_compare(arg_type_info,
                                 ((MR_Word *) x)[i], ((MR_Word *) y)[i]);
-		    MR_restore_transient_registers();
+                    MR_restore_transient_registers();
                     if (result != MR_COMPARE_EQUAL) {
                         return_answer(result);
                     }
 #else
-		    MR_save_transient_registers();
+                    MR_save_transient_registers();
                     result = MR_generic_unify(arg_type_info,
                                 ((MR_Word *) x)[i], ((MR_Word *) y)[i]);
-		    MR_restore_transient_registers();
+                    MR_restore_transient_registers();
                     if (! result) {
                         return_answer(MR_FALSE);
                     }
@@ -418,6 +453,10 @@ start_label:
 #endif
             }
 
+#ifdef  include_compare_rep_code
+        case MR_TYPECTOR_REP_ENUM_USEREQ:
+            /* fall through */
+#endif
         case MR_TYPECTOR_REP_ENUM:
         case MR_TYPECTOR_REP_INT:
         case MR_TYPECTOR_REP_CHAR:
@@ -512,7 +551,7 @@ start_label:
             }
 
         case MR_TYPECTOR_REP_C_POINTER:
-#ifdef	select_compare_code
+#ifdef  select_compare_code
   #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
             compare_call_exit_code(c_pointer_compare);
   #endif
@@ -539,57 +578,130 @@ start_label:
 
         case MR_TYPECTOR_REP_TYPEINFO:
             {
+#ifdef  select_compare_code
                 int result;
 
                 MR_save_transient_registers();
                 result = MR_compare_type_info(
                     (MR_TypeInfo) x, (MR_TypeInfo) y);
                 MR_restore_transient_registers();
-#ifdef	select_compare_code
   #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
                 compare_call_exit_code(typeinfo_compare);
   #endif
                 return_answer(result);
 #else
+                MR_bool result;
+
+                MR_save_transient_registers();
+                result = MR_unify_type_info(
+                    (MR_TypeInfo) x, (MR_TypeInfo) y);
+                MR_restore_transient_registers();
   #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
-                if (result == MR_COMPARE_EQUAL) {
+                if (result) {
                     unify_call_exit_code(typeinfo_unify);
-                    return_answer(MR_TRUE);
                 } else {
                     unify_call_fail_code(typeinfo_unify);
-                    return_answer(MR_FALSE);
                 }
-  #else
-                return_answer(result == MR_COMPARE_EQUAL);
   #endif
+                return_answer(result);
+#endif
+            }
+
+        case MR_TYPECTOR_REP_TYPEDESC:
+            /*
+            ** Differs from the code for MR_TYPECTOR_REP_TYPEINFO
+            ** only in recording profiling information elsewhere.
+            */
+
+            {
+#ifdef  select_compare_code
+                int result;
+
+                MR_save_transient_registers();
+                result = MR_compare_type_info(
+                    (MR_TypeInfo) x, (MR_TypeInfo) y);
+                MR_restore_transient_registers();
+  #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
+                compare_call_exit_code(typedesc_compare);
+  #endif
+                return_answer(result);
+#else
+                MR_bool result;
+
+                MR_save_transient_registers();
+                result = MR_unify_type_info(
+                    (MR_TypeInfo) x, (MR_TypeInfo) y);
+                MR_restore_transient_registers();
+  #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
+                if (result) {
+                    unify_call_exit_code(typedesc_unify);
+                } else {
+                    unify_call_fail_code(typedesc_unify);
+                }
+  #endif
+                return_answer(result);
 #endif
             }
 
         case MR_TYPECTOR_REP_TYPECTORINFO:
             {
+#ifdef  select_compare_code
                 int result;
 
                 MR_save_transient_registers();
                 result = MR_compare_type_ctor_info(
                     (MR_TypeCtorInfo) x, (MR_TypeCtorInfo) y);
                 MR_restore_transient_registers();
-#ifdef	select_compare_code
   #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
                 compare_call_exit_code(typectorinfo_compare);
   #endif
                 return_answer(result);
 #else
+                MR_bool result;
+
+                MR_save_transient_registers();
+                result = MR_unify_type_ctor_info(
+                    (MR_TypeCtorInfo) x, (MR_TypeCtorInfo) y);
+                MR_restore_transient_registers();
   #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
-                if (result == MR_COMPARE_EQUAL) {
+                if (result) {
                     unify_call_exit_code(typectorinfo_unify);
-                    return_answer(MR_TRUE);
                 } else {
                     unify_call_fail_code(typectorinfo_unify);
-                    return_answer(MR_FALSE);
                 }
-  #else
-                return_answer(result == MR_COMPARE_EQUAL);
   #endif
+                return_answer(result);
+#endif
+            }
+
+        case MR_TYPECTOR_REP_TYPECTORDESC:
+            {
+#ifdef  select_compare_code
+                int result;
+
+                MR_save_transient_registers();
+                result = MR_compare_type_ctor_desc(
+                    (MR_TypeCtorDesc) x, (MR_TypeCtorDesc) y);
+                MR_restore_transient_registers();
+  #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
+                compare_call_exit_code(typectordesc_compare);
+  #endif
+                return_answer(result);
+#else
+                MR_bool result;
+
+                MR_save_transient_registers();
+                result = MR_unify_type_ctor_desc(
+                    (MR_TypeCtorDesc) x, (MR_TypeCtorDesc) y);
+                MR_restore_transient_registers();
+  #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
+                if (result) {
+                    unify_call_exit_code(typectordesc_unify);
+                } else {
+                    unify_call_fail_code(typectordesc_unify);
+                }
+  #endif
+                return_answer(result);
 #endif
             }
 
@@ -598,7 +710,19 @@ start_label:
 
         case MR_TYPECTOR_REP_FUNC:
         case MR_TYPECTOR_REP_PRED:
-            MR_fatal_error(attempt_msg "higher-order terms");
+            {
+#ifdef  include_compare_rep_code
+                int     result;
+
+                MR_save_transient_registers();
+                result = MR_compare_closures((MR_Closure *) x,
+                            (MR_Closure *) y);
+                MR_restore_transient_registers();
+                return_answer(result);
+#else
+                MR_fatal_error(attempt_msg "higher-order terms");
+#endif
+            }
 
         case MR_TYPECTOR_REP_TYPECLASSINFO:
             MR_fatal_error(attempt_msg "typeclass_infos");

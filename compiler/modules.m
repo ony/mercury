@@ -473,6 +473,20 @@
 		item_list, module_imports, module_error, io__state, io__state).
 :- mode grab_unqual_imported_modules(in, in, in, in, out, out, di, uo) is det.
 
+	% process_module_private_interfaces(Ancestors, DirectImports0,
+	%			DirectImports, DirectUses0, DirectUses,
+	%			Module0, Module):
+	%  	Read the complete private interfaces for modules in Ancestors,
+	%	and append any imports/uses in the ancestors to the
+	%	corresponding previous lists.
+	%
+:- pred process_module_private_interfaces(read_modules, list(module_name),
+		list(module_name), list(module_name),
+		list(module_name), list(module_name),
+		module_imports, module_imports, io__state, io__state).
+:- mode process_module_private_interfaces(in, in, in, out, in, out, in, out,
+		di, uo) is det.
+
 	% process_module_long_interfaces(ReadModules, NeedQualifier, Imports,
 	%	Ext, IndirectImports0, IndirectImports, Module0, Module):
 	%
@@ -488,20 +502,6 @@
 		io__state, io__state).
 :- mode process_module_long_interfaces(in, in, in, in, in, out, in, out,
 		di, uo) is det.
-
-	% process_module_indirect_imports(ReadModules, IndirectImports, Ext,
-	%			Module0, Module):
-	%  	Read the short interfaces for modules in IndirectImports
-	%	(unless they've already been read in) and any
-	%	modules that those modules import (transitively),
-	%	from files with filename extension Ext.
-	%	Put them all in a `:- used.' section, where the section
-	%	is assumed to be in the interface.
-	%
-:- pred process_module_indirect_imports(read_modules, list(module_name),
-		string, module_imports, module_imports, io__state, io__state).
-:- mode process_module_indirect_imports(in, in, in, in, out, di, uo)
-		is det.
 
 	% process_module_short_interfaces_transitively(ReadModules,
 	%		IndirectImports, Ext, Module0, Module):
@@ -582,7 +582,7 @@
 	%	using `:- use_module'.
 	%	N.B. Typically you also need to consider the module's
 	%	implicit dependencies (see get_implicit_dependencies/3),
-	%	its parent modules (see get_ancestors/2) and possibly
+	%	its parent modules (see get_ancestors/1) and possibly
 	%	also the module's child modules (see get_children/2).
 	%	You may also need to consider indirect dependencies.
 	%
@@ -602,13 +602,12 @@
 		list(module_name), list(module_name)).
 :- mode get_implicit_dependencies(in, in, out, out) is det.
 
-	% get_ancestors(ModuleName, ParentDeps):
+	% get_ancestors(ModuleName) =  ParentDeps:
 	%	ParentDeps is the list of ancestor modules for this
 	%	module, oldest first; e.g. if the ModuleName is 
 	%	`foo:bar:baz', then ParentDeps would be [`foo', `foo:bar'].
 	%
-:- pred get_ancestors(module_name, list(module_name)).
-:- mode get_ancestors(in, out) is det.
+:- func get_ancestors(module_name) = list(module_name).
 
 	% init_dependencies(FileName, SourceFileModuleName, NestedModuleNames,
 	%	Error, Globals, ModuleName - Items, ModuleImports).
@@ -647,6 +646,12 @@
 :- pred update_interface(string, io__state, io__state).
 :- mode update_interface(in, di, uo) is det.
 
+	% make_directory(Dir)
+	%
+	% Make the directory Dir and all its parents.
+:- pred make_directory(string, io__state, io__state).
+:- mode make_directory(in, di, uo) is det.
+
 %-----------------------------------------------------------------------------%
 
 	% Check whether a particular `pragma' declaration is allowed
@@ -670,6 +675,7 @@
 :- import_module ll_backend__llds_out, hlds__passes_aux, parse_tree__prog_out.
 :- import_module parse_tree__prog_util, parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io_util, libs__options.
+:- import_module parse_tree__source_file_map.
 :- import_module parse_tree__module_qual, backend_libs__foreign.
 :- import_module recompilation__version.
 :- import_module make. % XXX undesirable dependency
@@ -745,15 +751,17 @@ mercury_std_library_module("tree234").
 mercury_std_library_module("type_desc").
 mercury_std_library_module("varset").
 
-	% It is not really clear what the naming convention
-	% should be.  Currently we assume that the module
-	% `foo:bar:baz' will be in files `foo.bar.baz.{m,int,etc.}'.
-	% It would be nice to allow a more flexible mapping.
-
 module_name_to_file_name(ModuleName, Ext, MkDir, FileName) -->
-	{ prog_out__sym_name_to_string(ModuleName, ".", BaseFileName) },
-	{ string__append_list([BaseFileName, Ext], BaseName) },
-	choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName).
+	( { Ext = ".m" } ->
+		% Look up the module in the module->file mapping.
+		source_file_map__lookup_module_source_file(ModuleName,
+			FileName)
+	;
+		{ prog_out__sym_name_to_string(ModuleName,
+			".", BaseFileName) },
+		{ string__append_list([BaseFileName, Ext], BaseName) },
+		choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName)
+	).
 
 module_name_to_lib_file_name(Prefix, ModuleName, Ext, MkDir, FileName) -->
 	{ prog_out__sym_name_to_string(ModuleName, ".", BaseFileName) },
@@ -790,9 +798,8 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 		% and phony Mmake targets names go in the current directory
 		%
 		{
-			( Ext = ".m"
 			% executable files
-			; Ext = ""
+			( Ext = ""
 			; Ext = ".split"
 			% library files
 			; Ext = ".a"
@@ -956,9 +963,6 @@ file_name_to_module_name(FileName, ModuleName) :-
 
 module_name_to_make_var_name(ModuleName, MakeVarName) :-
 	prog_out__sym_name_to_string(ModuleName, ".", MakeVarName).
-
-:- pred make_directory(string, io__state, io__state).
-:- mode make_directory(in, di, uo) is det.
 
 make_directory(DirName) -->
 	( { dir__this_directory(DirName) } ->
@@ -1430,7 +1434,7 @@ grab_imported_modules(SourceFileName, SourceFileModuleName, ModuleName,
 		%
 		% Find out which modules this one depends on
 		%
-	{ get_ancestors(ModuleName, AncestorModules) },
+	{ AncestorModules = get_ancestors(ModuleName) },
 	{ get_dependencies(Items0, IntImportedModules0, IntUsedModules0,
 			ImpImportedModules0, ImpUsedModules0) },
 
@@ -1546,7 +1550,7 @@ grab_unqual_imported_modules(SourceFileName, SourceFileModuleName, ModuleName,
 		%
 		% Find out which modules this one depends on
 		%
-	{ get_ancestors(ModuleName, ParentDeps) },
+	{ ParentDeps = get_ancestors(ModuleName) },
 	{ get_dependencies(Items0, IntImportDeps0, IntUseDeps0,
 			ImpImportDeps0, ImpUseDeps0) },
 
@@ -2056,15 +2060,20 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				JavaDateFileName, " : "
 			]),
 
-			% The target (e.g. C) file only depends on the .opt files
-			% from  the current directory, so that inter-module
-			% optimization works when the .opt files for the 
-			% library are unavailable. This is only necessary 
-			% because make doesn't allow conditional dependencies.
+			% The target (e.g. C) file only depends on the .opt
+			% files from the current directory, so that
+			% inter-module optimization works when the .opt files
+			% for the library are unavailable. This is only
+			% necessary because make doesn't allow conditional
+			% dependencies.
 			% The dependency on the current module's .opt file
 			% is to make sure the module gets type-checked without
 			% having the definitions of abstract types from other
 			% modules.
+			%
+			% XXX The code here doesn't correctly handle
+			% dependencies on `.int' and `.int2' files needed
+			% by the `.opt' files.
 			globals__io_lookup_bool_option(transitive_optimization,
 				TransOpt),
 			globals__io_lookup_bool_option(use_trans_opt_files,
@@ -2075,8 +2084,14 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				get_both_opt_deps(BuildOptFiles,
 					[ModuleName | LongDeps], IntermodDirs,
 					OptDeps, TransOptDeps),
+				{ OptInt0Deps = sort_and_remove_dups(
+					condense(map(get_ancestors,
+					OptDeps))) },
 				write_dependencies_list(OptDeps,
 					".opt", DepStream),
+				write_dependencies_list(OptInt0Deps,
+					".int0", DepStream),
+				
 				io__write_strings(DepStream, [
 					"\n\n", 
 					ErrFileName, " ",
@@ -2095,8 +2110,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				get_opt_deps(BuildOptFiles,
 					[ModuleName | LongDeps],
 					IntermodDirs, ".opt", OptDeps),
+				{ OptInt0Deps = sort_and_remove_dups(
+					condense(map(get_ancestors,
+					OptDeps))) },
 				write_dependencies_list(OptDeps,
-					".opt", DepStream)
+					".opt", DepStream),
+				write_dependencies_list(OptInt0Deps,
+					".int0", DepStream)
 			)
 		;
 			[]
@@ -2351,9 +2371,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			"\t@:\n"
 		]),
 
-		module_name_to_file_name(ModuleName, ".m", no,
-			ExpectedSourceFileName),
-		( { SourceFileName \= ExpectedSourceFileName } ->
+		( { SourceFileName \= default_source_file(ModuleName) } ->
 			%
 			% The pattern rules in Mmake.rules won't work,
 			% since the source file name doesn't match the
@@ -2645,6 +2663,8 @@ read_dependency_file_get_modules(TransOptDeps) -->
 	% If --use-opt-files is set, don't look for `.m' files, since
 	% we are not building `.opt' files, only using those which
 	% are available.
+	% XXX This won't find nested sub-modules.
+	% XXX Use `mmc --make' if that matters.
 :- pred get_both_opt_deps(bool::in, list(module_name)::in, list(string)::in, 
 	list(module_name)::out, list(module_name)::out, 
 	io__state::di, io__state::uo) is det.
@@ -2654,9 +2674,8 @@ get_both_opt_deps(BuildOptFiles, [Dep | Deps], IntermodDirs,
 	get_both_opt_deps(BuildOptFiles, Deps, IntermodDirs,
 		OptDeps0, TransOptDeps0),
 	( { BuildOptFiles = yes } ->
-		module_name_to_file_name(Dep, ".m", no, DepName), 
-		search_for_file(IntermodDirs, DepName, Result1),
-		( { Result1 = yes(_) } ->
+		search_for_module_source(IntermodDirs, Dep, Result1),
+		( { Result1 = ok(_) } ->
 			{ OptDeps1 = [Dep | OptDeps0] },
 			{ TransOptDeps1 = [Dep | TransOptDeps0] },
 			io__seen,
@@ -2675,7 +2694,7 @@ get_both_opt_deps(BuildOptFiles, [Dep | Deps], IntermodDirs,
 	( { Found = no } ->
 		module_name_to_file_name(Dep, ".opt", no, OptName), 
 		search_for_file(IntermodDirs, OptName, Result2),
-		( { Result2 = yes(_) } ->
+		( { Result2 = ok(_) } ->
 			{ OptDeps = [Dep | OptDeps1] },
 			io__seen
 		;
@@ -2683,7 +2702,7 @@ get_both_opt_deps(BuildOptFiles, [Dep | Deps], IntermodDirs,
 		),
 		module_name_to_file_name(Dep, ".trans_opt", no, TransOptName), 
 		search_for_file(IntermodDirs, TransOptName, Result3),
-		( { Result3 = yes(_) } ->
+		( { Result3 = ok(_) } ->
 			{ TransOptDeps = [Dep | TransOptDeps1] },
 			io__seen
 		;
@@ -2698,6 +2717,8 @@ get_both_opt_deps(BuildOptFiles, [Dep | Deps], IntermodDirs,
 	% file or a .m file, filtering out those for which the search fails.
 	% If --use-opt-files is set, only look for `.opt' files,
 	% not `.m' files.
+	% XXX This won't find nested sub-modules.
+	% XXX Use `mmc --make' if that matters.
 :- pred get_opt_deps(bool::in, list(module_name)::in, list(string)::in,
 	string::in, list(module_name)::out,
 	io__state::di, io__state::uo) is det.
@@ -2705,9 +2726,8 @@ get_opt_deps(_, [], _, _, []) --> [].
 get_opt_deps(BuildOptFiles, [Dep | Deps], IntermodDirs, Suffix, OptDeps) -->
 	get_opt_deps(BuildOptFiles, Deps, IntermodDirs, Suffix, OptDeps0),
 	( { BuildOptFiles = yes } ->
-		module_name_to_file_name(Dep, ".m", no, DepName),
-		search_for_file(IntermodDirs, DepName, Result1),
-		( { Result1 = yes(_) } ->
+		search_for_module_source(IntermodDirs, Dep, Result1),
+		( { Result1 = ok(_) } ->
 			{ OptDeps1 = [Dep | OptDeps0] },
 			{ Found = yes },
 			io__seen
@@ -2723,7 +2743,7 @@ get_opt_deps(BuildOptFiles, [Dep | Deps], IntermodDirs, Suffix, OptDeps) -->
 	( { Found = no } ->
 		module_name_to_file_name(Dep, Suffix, no, OptName),
 		search_for_file(IntermodDirs, OptName, Result2),
-		( { Result2 = yes(_) } ->
+		( { Result2 = ok(_) } ->
 			{ OptDeps = [Dep | OptDeps1] },
 			io__seen
 		;
@@ -3179,7 +3199,7 @@ add_dep(ModuleRelKey, Dep, Relation0, Relation) :-
 
 :- func get_submodule_kind(module_name, deps_map) = submodule_kind.
 get_submodule_kind(ModuleName, DepsMap) = Kind :-
-	get_ancestors(ModuleName, Ancestors),
+	Ancestors = get_ancestors(ModuleName),
 	( list__last(Ancestors, Parent) ->
 		map__lookup(DepsMap, ModuleName, deps(_, ModuleImports)),
 		map__lookup(DepsMap, Parent, deps(_, ParentImports)),
@@ -3703,18 +3723,6 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 :- mode generate_dep_file(in, in, in, in, di, uo) is det.
 
 generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
-	%
-	% Some of the targets are based on the source file name
-	% rather than on the module name.
-	%
-	{
-		string__remove_suffix(SourceFileName, ".m", SourceFileBase)
-	->
-		file_name_to_module_name(SourceFileBase, SourceModuleName)
-	;
-		error("modules.m: source file name doesn't end in `.m'")
-	},
-
 	io__write_string(DepStream,
 		"# Automatically generated dependencies for module `"),
 	{ prog_out__sym_name_to_string(ModuleName, ModuleNameString) },
@@ -3780,7 +3788,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	% than the `.c' files.
 	%
 
-	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
+	module_name_to_file_name(ModuleName, "", no, ExeFileName),
 
 	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
 	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe\n",
@@ -3811,16 +3819,18 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	},
 	io__write_strings(DepStream, Rules),
 
-	module_name_to_file_name(SourceModuleName, ".split", yes,
+	module_name_to_file_name(ModuleName, ".split", yes,
 				SplitExeFileName),
 	module_name_to_file_name(ModuleName, ".split.$A",
 			yes, SplitLibFileName),
 	io__write_strings(DepStream, [
 		SplitExeFileName, " : ", SplitLibFileName, " ",
-			InitObjFileName, " ", All_MLLibsDepString, "\n",
+			InitObjFileName, " ", All_MLObjsString, " ",
+			All_MLLibsDepString, "\n",
 		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -- $(ALL_LDFLAGS) ",
 			"-o ", SplitExeFileName, " ", InitObjFileName, " \\\n",
-		"\t	", SplitLibFileName, " $(ALL_MLLIBS)\n\n"
+		"\t	", SplitLibFileName, " ", All_MLObjsString,
+			" $(ALL_MLLIBS)\n\n"
 	]),
 
 	io__write_strings(DepStream, [
@@ -4008,8 +4018,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		])
 	),
 
-	module_name_to_file_name(SourceModuleName, ".check", no,
-				CheckTargetName),
+	module_name_to_file_name(ModuleName, ".check", no, CheckTargetName),
 	module_name_to_file_name(ModuleName, ".ints", no, IntsTargetName),
 	module_name_to_file_name(ModuleName, ".int3s", no, Int3sTargetName),
 	module_name_to_file_name(ModuleName, ".opts", no, OptsTargetName),
@@ -4073,8 +4082,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	% will also require a fix in `mmake.in'.
 	%
 
-	module_name_to_file_name(SourceModuleName, ".clean", no,
-				CleanTargetName),
+	module_name_to_file_name(ModuleName, ".clean", no, CleanTargetName),
 	io__write_strings(DepStream, [
 		"clean_local : ", CleanTargetName, "\n"
 	]),
@@ -4109,7 +4117,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, "\n"),
 
-	module_name_to_file_name(SourceModuleName, ".realclean", no,
+	module_name_to_file_name(ModuleName, ".realclean", no,
 			RealCleanTargetName),
 	io__write_strings(DepStream, [
 		"realclean_local : ", RealCleanTargetName, "\n"
@@ -4654,7 +4662,7 @@ read_dependencies(ModuleName, Search, ModuleImportsList) -->
 
 init_dependencies(FileName, SourceFileModuleName, NestedModuleNames,
 		Error, Globals, ModuleName - Items, ModuleImports) :-
-	get_ancestors(ModuleName, ParentDeps),
+	ParentDeps = get_ancestors(ModuleName),
 
 	get_dependencies(Items, ImplImportDeps0, ImplUseDeps0),
 	add_implicit_imports(Items, Globals, ImplImportDeps0, ImplUseDeps0,
@@ -4754,30 +4762,30 @@ read_mod(ReadModules, ModuleName, Extension, Descr, Search, ReturnTimestamp,
 
 read_mod(ModuleName, Extension, Descr, Search, ReturnTimestamp,
 		Items, Error, FileName, MaybeTimestamp) -->
-	read_mod_2(no, ModuleName, ModuleName, Extension, Descr, Search,
+	read_mod_2(no, ModuleName, Extension, Descr, Search,
 		no, ReturnTimestamp, Items, Error, FileName, MaybeTimestamp).
 
 read_mod_if_changed(ModuleName, Extension, Descr, Search, OldTimestamp,
 		Items, Error, FileName, MaybeTimestamp) -->
-	read_mod_2(no, ModuleName, ModuleName, Extension, Descr, Search,
+	read_mod_2(no, ModuleName, Extension, Descr, Search,
 		yes(OldTimestamp), yes, Items, Error,
 		FileName, MaybeTimestamp).
 
 read_mod_ignore_errors(ModuleName, Extension, Descr, Search, ReturnTimestamp,
 		Items, Error, FileName, MaybeTimestamp) -->
-	read_mod_2(yes, ModuleName, ModuleName, Extension, Descr, Search,
+	read_mod_2(yes, ModuleName, Extension, Descr, Search,
 		no, ReturnTimestamp, Items, Error, FileName, MaybeTimestamp).
 
-:- pred read_mod_2(bool, module_name, module_name, string, string,
+:- pred read_mod_2(bool, module_name, string, string,
 		bool, maybe(timestamp), bool, item_list, module_error,
 		file_name, maybe(timestamp), io__state, io__state).
-:- mode read_mod_2(in, in, in, in, in, in, in, in, out, out, out, out,
+:- mode read_mod_2(in, in, in, in, in, in, in, out, out, out, out,
 		di, uo) is det.
 
-read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
+read_mod_2(IgnoreErrors, ModuleName,
 		Extension, Descr, Search, MaybeOldTimestamp,
 		ReturnTimestamp, Items, Error, FileName, MaybeTimestamp) -->
-	module_name_to_file_name(PartialModuleName, Extension, no, FileName0),
+	module_name_to_file_name(ModuleName, Extension, no, FileName0),
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 	maybe_write_string(VeryVerbose, "% "),
 	maybe_write_string(VeryVerbose, Descr),
@@ -4785,68 +4793,68 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 	maybe_write_string(VeryVerbose, FileName0),
 	maybe_write_string(VeryVerbose, "'... "),
 	maybe_flush_output(VeryVerbose),
-	( { MaybeOldTimestamp = yes(OldTimestamp) } ->
-		prog_io__read_module_if_changed(FileName0, ModuleName, Search,
-			OldTimestamp, Error0, ActualModuleName,
-			Messages, Items0, MaybeTimestamp0)
-	;
-		prog_io__read_module(FileName0, ModuleName, Search,
-			ReturnTimestamp, Error0, ActualModuleName,
-			Messages, Items0, MaybeTimestamp0)
-	),
-	check_module_has_expected_name(FileName0,
-		ModuleName, ActualModuleName),
 
-	%
-	% if that didn't work, and we're reading in the source (.m)
-	% file for a nested module, try again after dropping one 
-	% level of module qualifiers.
-	%
-	(
-		{ Error0 = fatal_module_errors },
-		{ Items0 = [] },
-		{ Extension = ".m" },
-		{ PartialModuleName = qualified(Parent, Child) }
-	->
-		maybe_write_string(VeryVerbose, "not found...\n"),
-		{ drop_one_qualifier(Parent, Child, PartialModuleName2) },
-		read_mod_2(IgnoreErrors, ModuleName, PartialModuleName2,
-			Extension, Descr, Search, MaybeOldTimestamp,
-			ReturnTimestamp, Items, Error, FileName,
-			MaybeTimestamp)
+	( { Search = yes } ->
+		globals__io_lookup_accumulating_option(search_directories,
+			SearchDirs)
 	;
-		check_timestamp(FileName0, MaybeTimestamp0, MaybeTimestamp),
-		( { IgnoreErrors = yes } ->
-			(
-				{ Error0 = fatal_module_errors },
-				{ Items0 = [] }
-			->
-				maybe_write_string(VeryVerbose, "not found.\n")
-			;
-				maybe_write_string(VeryVerbose, "done.\n")
-			)
+		{ SearchDirs = [dir__this_directory] }
+	),
+	{ Extension = ".m" ->
+		% For `.m' files we need to deal with the case where
+		% the module name does not match the file name.
+		OpenFile = search_for_module_source(SearchDirs, ModuleName)
+	;
+		OpenFile = search_for_file(SearchDirs, FileName0)
+	},
+	( { MaybeOldTimestamp = yes(OldTimestamp) } ->
+		prog_io__read_module_if_changed(OpenFile, ModuleName,
+			OldTimestamp, Error0, MaybeFileName, ActualModuleName,
+			Messages, Items0, MaybeTimestamp0)
+	;
+		prog_io__read_module(OpenFile, ModuleName,
+			ReturnTimestamp, Error0, MaybeFileName,
+			ActualModuleName, Messages, Items0, MaybeTimestamp0)
+	),
+
+	{
+		MaybeFileName = yes(FileName)
+	;
+		MaybeFileName = no,
+		FileName = FileName0
+	},
+	check_module_has_expected_name(FileName, ModuleName, ActualModuleName),
+
+	check_timestamp(FileName0, MaybeTimestamp0, MaybeTimestamp),
+	( { IgnoreErrors = yes } ->
+		(
+			{ Error0 = fatal_module_errors },
+			{ Items0 = [] }
+		->
+			maybe_write_string(VeryVerbose, "not found.\n")
 		;
-			(
-				{ Error0 = fatal_module_errors },
-				maybe_write_string(VeryVerbose,
-					"fatal error(s).\n"),
-				io__set_exit_status(1)
-			;
-				{ Error0 = some_module_errors },
-				maybe_write_string(VeryVerbose,
-					"parse error(s).\n"),
-				io__set_exit_status(1)
-			;
-				{ Error0 = no_module_errors },
-				maybe_write_string(VeryVerbose,
-					"successful parse.\n")
-			),
-			prog_out__write_messages(Messages)
+			maybe_write_string(VeryVerbose, "done.\n")
+		)
+	;
+		(
+			{ Error0 = fatal_module_errors },
+			maybe_write_string(VeryVerbose,
+				"fatal error(s).\n"),
+			io__set_exit_status(1)
+		;
+			{ Error0 = some_module_errors },
+			maybe_write_string(VeryVerbose,
+				"parse error(s).\n"),
+			io__set_exit_status(1)
+		;
+			{ Error0 = no_module_errors },
+			maybe_write_string(VeryVerbose,
+				"successful parse.\n")
 		),
-		{ Error = Error0 },
-		{ Items = Items0 },
-		{ FileName = FileName0 }
-	).
+		prog_out__write_messages(Messages)
+	),
+	{ Error = Error0 },
+	{ Items = Items0 }.
 
 read_mod_from_file(FileName, Extension, Descr, Search, ReturnTimestamp,
 		Items, Error, ModuleName, MaybeTimestamp) -->
@@ -4860,8 +4868,15 @@ read_mod_from_file(FileName, Extension, Descr, Search, ReturnTimestamp,
 	{ string__append(FileName, Extension, FullFileName) },
 	{ dir__basename(FileName, BaseFileName) },
 	{ file_name_to_module_name(BaseFileName, DefaultModuleName) },
-	prog_io__read_module(FullFileName, DefaultModuleName, Search,
-		ReturnTimestamp, Error, ModuleName, Messages, Items,
+	( { Search = yes } ->
+		globals__io_lookup_accumulating_option(search_directories,
+			SearchDirs)
+	;
+		{ SearchDirs = [dir__this_directory] }
+	),
+	{ OpenFile = search_for_file(SearchDirs, FullFileName) },
+	prog_io__read_module(OpenFile, DefaultModuleName,
+		ReturnTimestamp, Error, _, ModuleName, Messages, Items,
 		MaybeTimestamp0),
 	check_timestamp(FullFileName, MaybeTimestamp0, MaybeTimestamp),
 	(
@@ -4908,20 +4923,6 @@ combine_module_errors(no, Error, Error).
 */
 
 %-----------------------------------------------------------------------------%
-
-	% process_module_private_interfaces(Ancestors, DirectImports0,
-	%			DirectImports, DirectUses0, DirectUses,
-	%			Module0, Module):
-	%  	Read the complete private interfaces for modules in Ancestors,
-	%	and append any imports/uses in the ancestors to the
-	%	corresponding previous lists.
-
-:- pred process_module_private_interfaces(read_modules, list(module_name),
-		list(module_name), list(module_name),
-		list(module_name), list(module_name),
-		module_imports, module_imports, io__state, io__state).
-:- mode process_module_private_interfaces(in, in, in, out, in, out, in, out,
-		di, uo) is det.
 
 process_module_private_interfaces(_, [], DirectImports, DirectImports,
 		DirectUses, DirectUses, Module, Module) --> [].
@@ -5167,15 +5168,6 @@ report_inaccessible_module_error(ModuleName, ParentModule, SubModule,
 
 %-----------------------------------------------------------------------------%
 
-process_module_indirect_imports(ReadModules, IndirectImports, Ext,
-			Module0, Module) -->
-		% Treat indirectly imported items as if they were imported 
-		% using `:- use_module', since all uses of them in the `.int'
-		% files must be module qualified.
-	{ append_pseudo_decl(Module0, used(interface), Module1) },
-	process_module_short_interfaces_transitively(ReadModules,
-		IndirectImports, Ext, Module1, Module).
-
 process_module_short_interfaces_transitively(ReadModules, Imports, Ext,
 		Module0, Module) -->
 	process_module_short_interfaces(ReadModules, Imports, Ext, [],
@@ -5258,32 +5250,13 @@ maybe_add_int_error(InterfaceError, ModError0, ModError) :-
 
 %-----------------------------------------------------------------------------%
 
-get_ancestors(ModuleName, Ancestors) :-
-	get_ancestors_2(ModuleName, [], Ancestors).
-	
-:- pred get_ancestors_2(module_name, list(module_name), list(module_name)).
-:- mode get_ancestors_2(in, in, out) is det.
+get_ancestors(ModuleName) = get_ancestors_2(ModuleName, []).
 
-get_ancestors_2(unqualified(_), Ancestors, Ancestors).
-get_ancestors_2(qualified(Parent, _), Ancestors0, Ancestors) :-
-	Ancestors1 = [Parent | Ancestors0],
-	get_ancestors_2(Parent, Ancestors1, Ancestors).
+:- func get_ancestors_2(module_name, list(module_name)) = list(module_name).
 
-%-----------------------------------------------------------------------------%
-
-:- pred drop_one_qualifier(module_name, string, module_name).
-:- mode drop_one_qualifier(in, in, out) is det.
-
-drop_one_qualifier(ParentQual, ChildName, PartialQual) :-
-	(
-		ParentQual = unqualified(_ParentName),
-		PartialQual = unqualified(ChildName)
-	;
-		ParentQual = qualified(GrandParentQual, ParentName), 
-		drop_one_qualifier(GrandParentQual, ParentName,
-				PartialGrantParentQual),
-		PartialQual = qualified(PartialGrantParentQual, ChildName)
-	).
+get_ancestors_2(unqualified(_), Ancestors) = Ancestors.
+get_ancestors_2(qualified(Parent, _), Ancestors0) = 
+	get_ancestors_2(Parent, [Parent | Ancestors0]).
 
 %-----------------------------------------------------------------------------%
 
@@ -5331,7 +5304,7 @@ get_dependencies(Items, ImportDeps, UseDeps) :-
 	%	implementation.
 	%	N.B. Typically you also need to consider the module's
 	%	implicit dependencies (see get_implicit_dependencies/3),
-	%	its parent modules (see get_ancestors/2) and possibly
+	%	its parent modules (see get_ancestors/1) and possibly
 	%	also the module's child modules (see get_children/2).
 	%	You may also need to consider indirect dependencies.
 	%

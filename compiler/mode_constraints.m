@@ -227,11 +227,11 @@ number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
 	number_robdd_variables_in_goals(InstGraph, NonLocals, Occurring,
 		Goals0, Goals).
 number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
-		disj(Goals0, SM), disj(Goals, SM)) -->
+		disj(Goals0), disj(Goals)) -->
 	number_robdd_variables_in_goals(InstGraph, NonLocals, Occurring,
 		Goals0, Goals).
 number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
-		switch(V, CF, Cases0, SM), switch(V, CF, Cases, SM)) -->
+		switch(V, CF, Cases0), switch(V, CF, Cases)) -->
 	number_robdd_variables_in_cases(InstGraph, NonLocals, Occurring,
 		Cases0, Cases).
 number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
@@ -243,8 +243,8 @@ number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
 	number_robdd_variables_in_goal(InstGraph, NonLocals, Occurring,
 		Goal0, Goal).
 number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
-		if_then_else(Vs, Cond0, Then0, Else0, SM),
-		if_then_else(Vs, Cond, Then, Else, SM)) -->
+		if_then_else(Vs, Cond0, Then0, Else0),
+		if_then_else(Vs, Cond, Then, Else)) -->
 	number_robdd_variables_in_goal(InstGraph, NonLocals, OccCond,
 		Cond0, Cond),
 	number_robdd_variables_in_goal(InstGraph, NonLocals, OccThen,
@@ -253,7 +253,7 @@ number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
 		Else0, Else),
 	{ Occurring = OccCond `set__union` OccThen `set__union` OccElse }.
 number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
-		par_conj(Goals0, SM), par_conj(Goals, SM)) -->
+		par_conj(Goals0), par_conj(Goals)) -->
 	number_robdd_variables_in_goals(InstGraph, NonLocals, Occurring,
 		Goals0, Goals).
 number_robdd_variables_in_goal_2(_, _, _, _, _, shorthand(_), _) -->
@@ -838,8 +838,7 @@ mode_constraints__process_clauses_info(ModuleInfo, SCC, ClausesInfo0,
 	{ clauses_info_clauses(ClausesInfo0, Clauses) },
 	{ list__map(pred(clause(_, Goal, _, _)::in, Goal::out) is det, Clauses,
 		Goals) },
-	{ map__init(DummyStoreMap) },
-	{ DisjGoal = disj(Goals, DummyStoreMap) },
+	{ DisjGoal = disj(Goals) },
 	{ EmptyGoalPath = [] },
 	{ AtomicGoals0 = set__init },
 	{ Info0 = goal_constraints_info(ModuleInfo, SCC, InstGraph, HeadVars,
@@ -1024,8 +1023,8 @@ goal_constraints_2(GoalPath, NonLocals, _, CanSucceed, conj(Goals0),
 	conj_constraints(no, KnownTrue, KnownFalse, GoalPath, Usage,
 		Constraint2, Constraint).
 
-goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, disj(Goals0, SM),
-		disj(Goals, SM), Constraint0, Constraint) -->
+goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, disj(Goals0),
+		disj(Goals), Constraint0, Constraint) -->
 	disj_constraints(NonLocals, CanSucceed, Constraint0, Constraint1,
 		Goals0, Goals, [], DisjunctPaths),
 	list__foldl2((pred(V::in, Cons0::in, Cons::out, in, out) is det -->
@@ -1141,7 +1140,7 @@ goal_constraints_2(GoalPath, _NonLocals, _Vars, CanSucceed, GoalExpr, GoalExpr,
 		{ error("mode_constraints.m: aditi_builtin call NYI") }
 	).
 
-goal_constraints_2(_,_,_,_,switch(_,_,_,_),_,_,_)  --> { error("NYI") }.
+goal_constraints_2(_,_,_,_,switch(_,_,_),_,_,_)  --> { error("NYI") }.
 
 goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed,
 		not(Goal0), not(Goal), Constraint0, Constraint) -->
@@ -1171,8 +1170,8 @@ goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, some(A, B, Goal0),
 		), set__to_sorted_list(Vars), Constraint1, Constraint).
 
 goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed,
-		if_then_else(IteNonLocals, Cond0, Then0, Else0, SM),
-		if_then_else(IteNonLocals, Cond, Then, Else, SM),
+		if_then_else(IteNonLocals, Cond0, Then0, Else0),
+		if_then_else(IteNonLocals, Cond, Then, Else),
 		Constraint0, Constraint) -->
 
 	% Make sure that the condition doesn't bind any variables that are
@@ -1229,7 +1228,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed,
 
 goal_constraints_2(_,_,_,_,foreign_proc(_,_,_,_,_,_,_),_,_,_) -->
 	{ error("NYI") }.
-goal_constraints_2(_,_,_,_,par_conj(_,_),_,_,_) --> { error("NYI") }.
+goal_constraints_2(_,_,_,_,par_conj(_),_,_,_) --> { error("NYI") }.
 goal_constraints_2(_,_,_,_,shorthand(_),_,_,_) -->
 	{ error("mode_constraints:goal_constraints_2: shorthand") }.
 

@@ -112,6 +112,8 @@
 	;	reserved_addr_usereq
 	;	type_ctor_info
 	;	base_typeclass_info
+	;	type_desc
+	;	type_ctor_desc
 	;	unknown.
 
 	% We keep all the other types abstract.
@@ -762,6 +764,16 @@ deconstruct(Term, Functor, Arity, Arguments) :-
 		Arity = 0,
 		Arguments = []
 	;
+		TypeCtorRep = type_desc,
+		Functor = "some_type_desc", 
+		Arity = 0,
+		Arguments = []
+	;
+		TypeCtorRep = type_ctor_desc,
+		Functor = "some_type_ctor_desc", 
+		Arity = 0,
+		Arguments = []
+	;
 		TypeCtorRep = unknown,
 		Functor = "some_unknown", 
 		Arity = 0,
@@ -1013,8 +1025,8 @@ pseudotypeinfo_max_var = 1024.
 	enum type_ctor_info_field_nums {
 		type_ctor_arity 	= 0,
 		// type_ctor_version	= 1,
-		type_ctor_rep		= 2,
-		type_ctor_num_ptags	= 3,
+		type_ctor_num_ptags	= 2,
+		type_ctor_rep		= 3,
 		type_ctor_unify_pred 	= 4,
 		type_ctor_compare_pred	= 5,
 		type_ctor_module_name	= 6,

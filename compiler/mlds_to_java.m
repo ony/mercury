@@ -762,7 +762,7 @@ generate_call_method(CodeAddr, MethodDefn) :-
 		CallRetLvals = [ReturnLval]
 	),
 	Call = mlds__call(OrigFuncSignature, CallRval, no, CallArgs,
-			CallRetLvals, call),
+			CallRetLvals, ordinary_call),
 	CallStatement = mlds__statement(Call, Context),
 	%
 	% Create a return statement that returns the result of the call to the
@@ -1251,7 +1251,7 @@ get_java_type_initializer(mlds__native_bool_type) = "false".
 get_java_type_initializer(mlds__native_int_type) = "0".
 get_java_type_initializer(mlds__native_float_type) = "0".
 get_java_type_initializer(mlds__native_char_type) = "0".
-get_java_type_initializer(mlds__foreign_type(_, _, _)) = _ :-
+get_java_type_initializer(mlds__foreign_type(_)) = _ :-
 	unexpected(this_file, 
 		"get_type_initializer: variable has foreign_type"). 
 get_java_type_initializer(mlds__class_type(_, _, _)) = "null".
@@ -1260,6 +1260,7 @@ get_java_type_initializer(mlds__ptr_type(_)) = "null".
 get_java_type_initializer(mlds__func_type(_)) = "null".
 get_java_type_initializer(mlds__generic_type) = "null".
 get_java_type_initializer(mlds__generic_env_ptr_type) = "null".
+get_java_type_initializer(mlds__type_info_type) = "null".
 get_java_type_initializer(mlds__pseudo_type_info_type) = "null".
 get_java_type_initializer(mlds__rtti_type(_)) = "null".
 get_java_type_initializer(mlds__unknown_type) = _ :-
@@ -1618,7 +1619,7 @@ output_type(mlds__native_int_type)   --> io__write_string("int").
 output_type(mlds__native_float_type) --> io__write_string("double").
 output_type(mlds__native_bool_type) --> io__write_string("boolean").
 output_type(mlds__native_char_type)  --> io__write_string("char").
-output_type(mlds__foreign_type(_, _, _))  -->
+output_type(mlds__foreign_type(_))  -->
 	{ unexpected(this_file, "output_type: foreign_type NYI.") }.
 output_type(mlds__class_type(Name, Arity, ClassKind)) -->
 	( { ClassKind = mlds__enum } ->
@@ -1644,6 +1645,8 @@ output_type(mlds__generic_type) -->
 	io__write_string("java.lang.Object").	
 output_type(mlds__generic_env_ptr_type) -->
 	io__write_string("java.lang.Object").
+output_type(mlds__type_info_type) -->
+	io__write_string("mercury.runtime.TypeInfo").
 output_type(mlds__pseudo_type_info_type) -->
 	io__write_string("mercury.runtime.PseudoTypeInfo").
 output_type(mlds__cont_type(_)) -->

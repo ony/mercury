@@ -190,7 +190,7 @@ hhf__goal_expr(NonLocals, _, conj(Goals0), conj(Goals)) -->
 	{ flatten_conj(Goals1, Goals) }.
 hhf__goal_expr(_, _, call(A, B, C, D, E, F), call(A, B, C, D, E, F)) --> [].
 hhf__goal_expr(_, _, generic_call(A, B, C, D), generic_call(A, B, C, D)) --> [].
-hhf__goal_expr(_, _, switch(_, _, _, _), _) -->
+hhf__goal_expr(_, _, switch(_, _, _), _) -->
 	{ error("hhf_goal_expr: found switch") }.
 hhf__goal_expr(_, _, foreign_proc(A,B,C,D,E,F,G),
 		foreign_proc(A,B,C,D,E,F,G)) --> [].
@@ -198,15 +198,15 @@ hhf__goal_expr(_, _, shorthand(_), _) -->
 	{ error("hhf_goal_expr: found shorthand") }.
 hhf__goal_expr(NonLocals, _, some(A, B, Goal0), some(A, B, Goal)) -->
 	hhf__goal(NonLocals, Goal0, Goal).
-hhf__goal_expr(_, _, disj(Goals0, SM), disj(Goals, SM)) -->
+hhf__goal_expr(_, _, disj(Goals0), disj(Goals)) -->
 	list__map_foldl((pred((E0 - I)::in, (E - I)::out, in, out) is det -->
 			{ goal_info_get_nonlocals(I, NonLocals) },
 			hhf__goal_expr(NonLocals, I, E0, E)),
 		Goals0, Goals).
 hhf__goal_expr(NonLocals, _, not(Goal0), not(Goal)) -->
 	hhf__goal(NonLocals, Goal0, Goal).
-hhf__goal_expr(NonLocals, _, if_then_else(Vs, Cond0, Then0, Else0, SM),
-		if_then_else(Vs, Cond, Then, Else, SM)) -->
+hhf__goal_expr(NonLocals, _, if_then_else(Vs, Cond0, Then0, Else0),
+		if_then_else(Vs, Cond, Then, Else)) -->
 	hhf__goal(NonLocals, Cond0, Cond),
 	{ Then0 = ThenExpr0 - ThenInfo },
 	{ goal_info_get_nonlocals(ThenInfo, ThenNonLocals) },
@@ -216,7 +216,7 @@ hhf__goal_expr(NonLocals, _, if_then_else(Vs, Cond0, Then0, Else0, SM),
 	{ goal_info_get_nonlocals(ElseInfo, ElseNonLocals) },
 	hhf__goal_expr(ElseNonLocals, ElseInfo, ElseExpr0, ElseExpr),
 	{ Else = ElseExpr - ElseInfo }.
-hhf__goal_expr(NonLocals, _, par_conj(Goals0, SM), par_conj(Goals, SM)) -->
+hhf__goal_expr(NonLocals, _, par_conj(Goals0), par_conj(Goals)) -->
 	list__map_foldl(hhf__goal(NonLocals), Goals0, Goals).
 hhf__goal_expr(NonLocals, GoalInfo, unify(Var, RHS, Mode, Unif, Context),
 		GoalExpr) -->

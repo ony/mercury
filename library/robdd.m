@@ -316,8 +316,20 @@
 empty_vars_set = sparse_bitset__init.
 
 :- pragma c_header_code("
-#define USE_ITE_CONSTANT
-#include ""bryant.h""
+
+#define	NDEBUG
+#define	CLEAR_CACHES
+#define	COMPUTED_TABLE
+#define	EQUAL_TEST
+#define	USE_ITE_CONSTANT
+#define	NEW
+#define	RESTRICT_SET
+
+#include ""../robdd/bryant.h""
+").
+
+:- pragma foreign_code("C", "
+#include ""../robdd/bryant.c""
 ").
 
 :- pragma c_code(one = (F::out), [will_not_call_mercury],

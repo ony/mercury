@@ -854,22 +854,41 @@ ml_gen_foreign_code(ModuleInfo, All_MLDS_ForeignCode) -->
 
 ml_gen_imports(ModuleInfo, MLDS_ImportList) :-
 		% Determine all the mercury imports.
+	module_info_globals(ModuleInfo, Globals),
+	globals__get_target(Globals, Target),
 	module_info_get_all_deps(ModuleInfo, AllImports),
 	P = (func(Name) = mercury_import(mercury_module_name_to_mlds(Name))),
 
 		% For every foreign type determine the import needed to
 		% find the declaration for that type.
 	module_info_types(ModuleInfo, Types),
-	list__filter_map((pred(TypeDefn::in, Import::out) is semidet :-
-			hlds_data__get_type_defn_body(TypeDefn, Body),
-			Body = foreign_type(_, _, Location),
-			Name = il_assembly_name(mercury_module_name_to_mlds(
-					unqualified(Location))),
-			Import = foreign_import(Name)
-		), map__values(Types), ForeignTypeImports),
+	ForeignTypeImports = list__condense(list__map(
+				foreign_type_required_imports(Target),
+				map__values(Types))),
 
 	MLDS_ImportList = ForeignTypeImports ++ 
 			list__map(P, set__to_sorted_list(AllImports)).
+
+:- func foreign_type_required_imports(compilation_target, hlds_type_defn)
+		= list(mlds__import).
+
+foreign_type_required_imports(c, _) = [].
+foreign_type_required_imports(il, TypeDefn) = Imports :-
+	hlds_data__get_type_defn_body(TypeDefn, Body),
+	( Body = foreign_type(MaybeIL, _MaybeC) ->
+		( MaybeIL = yes(il(_, Location, _)) ->
+			Name = il_assembly_name(mercury_module_name_to_mlds(
+					unqualified(Location))),
+			Imports = [foreign_import(Name)]
+			
+		;
+			unexpected(this_file, "no IL type")
+		)
+	;
+		Imports = []
+	).
+foreign_type_required_imports(java, _) = [].
+foreign_type_required_imports(asm, _) = [].
 
 :- pred ml_gen_defns(module_info, mlds__defns, io__state, io__state).
 :- mode ml_gen_defns(in, out, di, uo) is det.
@@ -1861,9 +1880,9 @@ maybe_put_commit_in_own_func(CommitFuncLocalDecls, TryCommitStatements,
 		),
 		{ RetTypes = [] },
 		{ Signature = mlds__func_signature(ArgTypes, RetTypes) },
-		{ CallOrTailcall = call },
+		{ CallKind = ordinary_call },
 		{ CallStmt = call(Signature, CommitFuncLabelRval, no,
-			ArgRvals, [], CallOrTailcall) },
+			ArgRvals, [], CallKind) },
 		{ CallStatement = mlds__statement(CallStmt,
 			mlds__make_context(Context)) },
 		% Package it all up
@@ -1982,7 +2001,7 @@ ml_gen_commit_var_decl(Context, VarName) =
 			ml_gen_info, ml_gen_info).
 :- mode ml_gen_goal_expr(in, in, in, out, out, in, out) is det.
 
-ml_gen_goal_expr(switch(Var, CanFail, CasesList, _), CodeModel, Context,
+ml_gen_goal_expr(switch(Var, CanFail, CasesList), CodeModel, Context,
 		MLDS_Decls, MLDS_Statements) -->
 	ml_gen_switch(Var, CanFail, CasesList, CodeModel, Context,
 		MLDS_Decls, MLDS_Statements).
@@ -1991,7 +2010,7 @@ ml_gen_goal_expr(some(_Vars, _CanRemove, Goal), CodeModel, Context,
 		MLDS_Decls, MLDS_Statements) -->
 	ml_gen_commit(Goal, CodeModel, Context, MLDS_Decls, MLDS_Statements).
 
-ml_gen_goal_expr(if_then_else(_Vars, Cond, Then, Else, _),
+ml_gen_goal_expr(if_then_else(_Vars, Cond, Then, Else),
 		CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 	ml_gen_ite(CodeModel, Cond, Then, Else, Context,
 			MLDS_Decls, MLDS_Statements).
@@ -2004,11 +2023,11 @@ ml_gen_goal_expr(conj(Goals), CodeModel, Context,
 		MLDS_Decls, MLDS_Statements) -->
 	ml_gen_conj(Goals, CodeModel, Context, MLDS_Decls, MLDS_Statements).
 
-ml_gen_goal_expr(disj(Goals, _), CodeModel, Context,
+ml_gen_goal_expr(disj(Goals), CodeModel, Context,
 		MLDS_Decls, MLDS_Statements) -->
 	ml_gen_disj(Goals, CodeModel, Context, MLDS_Decls, MLDS_Statements).
 
-ml_gen_goal_expr(par_conj(Goals, _SM), CodeModel, Context,
+ml_gen_goal_expr(par_conj(Goals), CodeModel, Context,
 		MLDS_Decls, MLDS_Statements) -->
 	%
 	% XXX currently we treat parallel conjunction the same as

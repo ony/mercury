@@ -92,6 +92,7 @@
 		;	debug_rl_opt
 		;	debug_il_asm	% il_asm = IL generation via asm
 		;	debug_liveness
+		;	debug_stack_opt
 		;	debug_make
 	% Output options
 		;	make_short_interface
@@ -99,6 +100,7 @@
 		;	make_private_interface
 		;	make_optimization_interface
 		;	make_transitive_opt_interface
+		;	generate_source_file_mapping
 		;	generate_dependencies
 		;	generate_module_order
 		;	convert_to_mercury
@@ -117,7 +119,6 @@
 				% and cannot be set explicitly by the user.
 		;	generate_item_version_numbers
 		;	generate_mmc_make_module_dependencies
-		;	generate_mmake_module_dependencies
 		;	assume_gmake
 		;	trace
 		;	trace_optimized
@@ -358,6 +359,7 @@
 
 		;	gcc_local_labels
 		;	prefer_switch
+		;	opt_no_return_calls
 
 	% Optimization Options
 		;	opt_level
@@ -393,6 +395,20 @@
 		;	optimize_duplicate_calls
 		;	constant_propagation
 		;	excess_assign
+		;	optimize_saved_vars_const
+		;	optimize_saved_vars_cell
+		;	optimize_saved_vars_cell_loop
+		;	optimize_saved_vars_cell_full_path
+		;	optimize_saved_vars_cell_on_stack
+		;	optimize_saved_vars_cell_candidate_headvars
+		;	optimize_saved_vars_cell_cv_store_cost
+		;	optimize_saved_vars_cell_cv_load_cost
+		;	optimize_saved_vars_cell_fv_store_cost
+		;	optimize_saved_vars_cell_fv_load_cost
+		;	optimize_saved_vars_cell_op_ratio
+		;	optimize_saved_vars_cell_node_ratio
+		;	optimize_saved_vars_cell_all_path_node_ratio
+		;	optimize_saved_vars_cell_include_all_candidates
 		;	optimize_saved_vars
 		;	delay_construct
 		;	follow_code
@@ -438,6 +454,7 @@
 		;	pessimize_tailcalls
 		;	checked_nondet_tailcalls
 		;	use_local_vars
+		;	local_var_access_threshold
 		;	optimize_labels
 		;	optimize_dups
 %%% unused:	;	optimize_copyprop
@@ -510,6 +527,7 @@
 		;	mercury_standard_library_directory
 		;	init_file_directories
 		;	init_files
+		;	trace_init_files
 
 			% auto-configured options.
 		;	shared_library_extension
@@ -524,6 +542,7 @@
 		;	make
 		;	keep_going
 		;	rebuild
+		;	invoked_by_mmc_make
 		;	install_prefix
 		;	install_command
 		;	libgrades
@@ -626,10 +645,12 @@ option_defaults_2(verbosity_option, [
 	debug_rl_opt		-	bool(no),
 	debug_il_asm		-	bool(no),
 	debug_liveness		-	int(-1),
+	debug_stack_opt		-	int(-1),
 	debug_make		-	bool(no)
 ]).
 option_defaults_2(output_option, [
 		% Output Options (mutually exclusive)
+	generate_source_file_mapping -	bool(no),
 	generate_dependencies	-	bool(no),
 	generate_module_order 	-	bool(no),
 	make_short_interface	-	bool(no),
@@ -650,7 +671,6 @@ option_defaults_2(aux_output_option, [
 	smart_recompilation	-	bool(no),
 	generate_item_version_numbers -	bool(no),
 	generate_mmc_make_module_dependencies - bool(no),
-	generate_mmake_module_dependencies - bool(yes),
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
@@ -832,7 +852,8 @@ option_defaults_2(code_gen_option, [
 	fact_table_max_array_size -	int(1024),
 	fact_table_hash_percent_full - 	int(90),
 	gcc_local_labels	-	bool(no),
-	prefer_switch		-	bool(yes)
+	prefer_switch		-	bool(yes),
+	opt_no_return_calls	-	bool(yes)
 ]).
 option_defaults_2(special_optimization_option, [
 		% Special optimization options.
@@ -878,7 +899,21 @@ option_defaults_2(optimization_option, [
 	optimize_duplicate_calls -	bool(no),
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
-	optimize_saved_vars	-	bool(no),
+	optimize_saved_vars_const	-	bool(no),
+	optimize_saved_vars_cell	-	bool(no),
+	optimize_saved_vars_cell_loop	-	bool(yes),
+	optimize_saved_vars_cell_full_path -	bool(yes),
+	optimize_saved_vars_cell_on_stack -	bool(yes),
+	optimize_saved_vars_cell_candidate_headvars -	bool(yes),
+	optimize_saved_vars_cell_cv_store_cost -	int(3),
+	optimize_saved_vars_cell_cv_load_cost -		int(1),
+	optimize_saved_vars_cell_fv_store_cost -	int(1),
+	optimize_saved_vars_cell_fv_load_cost -		int(1),
+	optimize_saved_vars_cell_op_ratio -	int(100),
+	optimize_saved_vars_cell_node_ratio -	int(100),
+	optimize_saved_vars_cell_all_path_node_ratio -	int(100),
+	optimize_saved_vars_cell_include_all_candidates -	bool(yes),
+	optimize_saved_vars	-	bool_special,
 	delay_construct		-	bool(no),
 	prev_code		-	bool(no),
 	follow_code		-	bool(no),
@@ -886,12 +921,12 @@ option_defaults_2(optimization_option, [
 	intermod_unused_args	-	bool(no),
 	optimize_higher_order	-	bool(no),
 	higher_order_size_limit	-	int(20),
-	higher_order_arg_limit -	int(10),
+	higher_order_arg_limit	-	int(10),
 	unneeded_code		-	bool(no),
-	unneeded_code_copy_limit	-	int(10),
+	unneeded_code_copy_limit-	int(10),
 	type_specialization	-	bool(no),
 	user_guided_type_specialization	-	bool(no),
-	introduce_accumulators -	bool(no),
+	introduce_accumulators	-	bool(no),
 	optimize_constructor_last_call -	bool(no),
 	optimize_dead_procs	-	bool(no),
 	deforestation		-	bool(no),
@@ -930,6 +965,7 @@ option_defaults_2(optimization_option, [
 	pessimize_tailcalls	-	bool(no),
 	checked_nondet_tailcalls -	bool(no),
 	use_local_vars		-	bool(no),
+	local_var_access_threshold -	int(2),
 	optimize_labels		-	bool(no),
 	optimize_dups		-	bool(no),
 %%%	optimize_copyprop	-	bool(no),
@@ -1020,6 +1056,7 @@ option_defaults_2(link_option, [
 	mercury_standard_library_directory - maybe_string(no),
 	init_file_directories -		accumulating([]),
 	init_files -			accumulating([]),
+	trace_init_files -		accumulating([]),
 
 					% the `mmc' script will override the
 					% following seven defaults with a value
@@ -1039,10 +1076,11 @@ option_defaults_2(build_system_option, [
 	make			-	bool(no),
 	keep_going		-	bool(no),
 	rebuild			-	bool(no),
+	invoked_by_mmc_make	-	bool(no),
 	install_prefix		-	string("/usr/local/"),
 	install_command		-	string("cp"),
 	libgrades		-	accumulating([]),
-	options_files		-	accumulating([]),
+	options_files		-	accumulating(["Mercury.options"]),
 	options_search_directories -	accumulating(["."]),
 	use_subdirs		-	bool(no),
 	search_directories 	-	accumulating(["."]),
@@ -1066,6 +1104,7 @@ short_option('d', 			dump_hlds).
 short_option('D', 			dump_hlds_alias).
 short_option('e', 			errorcheck_only).
 short_option('E', 			verbose_errors).
+short_option('f',			generate_source_file_mapping).
 short_option('h', 			help).
 short_option('H', 			highlevel_code).
 short_option('i', 			make_interface).
@@ -1141,9 +1180,12 @@ long_option("debug-rl-opt",		debug_rl_opt).
 	% system built into .NET improves.
 long_option("debug-il-asm",		debug_il_asm).
 long_option("debug-liveness",		debug_liveness).
+long_option("debug-stack-opt",		debug_stack_opt).
 long_option("debug-make",		debug_make).
 
 % output options (mutually exclusive)
+long_option("generate-source-file-mapping",
+					generate_source_file_mapping).
 long_option("generate-dependencies",	generate_dependencies).
 long_option("generate-module-order",	generate_module_order).
 long_option("make-short-interface",	make_short_interface).
@@ -1179,8 +1221,6 @@ long_option("generate-mmc-make-module-dependencies",
 					generate_mmc_make_module_dependencies).
 long_option("generate-mmc-deps",
 					generate_mmc_make_module_dependencies).
-long_option("generate-mmake-module-dependencies",
-					generate_mmake_module_dependencies).
 long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
 long_option("trace-optimized",		trace_optimized).
@@ -1351,6 +1391,7 @@ long_option("fact-table-hash-percent-full",
 					fact_table_hash_percent_full).
 long_option("gcc-local-labels",		gcc_local_labels).
 long_option("prefer-switch",		prefer_switch).
+long_option("opt-no-return-calls",	opt_no_return_calls).
 
 % optimization options
 
@@ -1388,6 +1429,22 @@ long_option("optimise-constant-propagation", constant_propagation).
 long_option("optimize-constant-propagation", constant_propagation).
 long_option("optimize-saved-vars",	optimize_saved_vars).
 long_option("optimise-saved-vars",	optimize_saved_vars).
+long_option("optimize-saved-vars-const",	optimize_saved_vars_const).
+long_option("optimise-saved-vars-const",	optimize_saved_vars_const).
+long_option("optimize-saved-vars-cell",	optimize_saved_vars_cell).
+long_option("optimise-saved-vars-cell",	optimize_saved_vars_cell).
+long_option("osv-loop",			optimize_saved_vars_cell_loop).
+long_option("osv-full-path",		optimize_saved_vars_cell_full_path).
+long_option("osv-on-stack",		optimize_saved_vars_cell_on_stack).
+long_option("osv-cand-head",		optimize_saved_vars_cell_candidate_headvars).
+long_option("osv-cvstore-cost",		optimize_saved_vars_cell_cv_store_cost).
+long_option("osv-cvload-cost",		optimize_saved_vars_cell_cv_load_cost).
+long_option("osv-fvstore-cost",		optimize_saved_vars_cell_fv_store_cost).
+long_option("osv-fvload-cost",		optimize_saved_vars_cell_fv_load_cost).
+long_option("osv-op-ratio",		optimize_saved_vars_cell_op_ratio).
+long_option("osv-node-ratio",		optimize_saved_vars_cell_node_ratio).
+long_option("osv-allpath-node-ratio",	optimize_saved_vars_cell_all_path_node_ratio).
+long_option("osv-all-cand",		optimize_saved_vars_cell_include_all_candidates).
 long_option("delay-construct",		delay_construct).
 long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
@@ -1483,6 +1540,7 @@ long_option("optimise-fulljumps",	optimize_fulljumps).
 long_option("pessimize-tailcalls",	pessimize_tailcalls).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
 long_option("use-local-vars",		use_local_vars).
+long_option("local-var-access-threshold", local_var_access_threshold).
 long_option("optimize-labels",		optimize_labels).
 long_option("optimise-labels",		optimize_labels).
 long_option("optimize-dups",		optimize_dups).
@@ -1575,8 +1633,10 @@ long_option("mercury-library-directory", mercury_library_directory_special).
 long_option("mld",			mercury_library_directory_special).
 long_option("mercury-standard-library-directory",
 					mercury_standard_library_directory).
+long_option("mercury-stdlib-dir",	mercury_standard_library_directory).
 long_option("init-file-directory",	init_file_directories).
 long_option("init-file",		init_files).
+long_option("trace-init-file",		trace_init_files).
 long_option("shared-library-extension",	shared_library_extension).
 long_option("library-extension",	library_extension).
 long_option("executable-file-extension", executable_file_extension).
@@ -1590,6 +1650,7 @@ long_option("ranlib-command",		ranlib_command).
 long_option("make",			make).
 long_option("keep-going",		keep_going).
 long_option("rebuild",			rebuild).
+long_option("invoked-by-mmc-make",	invoked_by_mmc_make).
 long_option("install-prefix",		install_prefix).
 long_option("install-command",		install_command).
 long_option("library-grade",		libgrades).
@@ -1720,6 +1781,12 @@ special_handler(opt_level, int(N0), OptionTable0, ok(OptionTable)) :-
 		N = N0
 	),
 	set_opt_level(N, OptionTable0, OptionTable).
+special_handler(optimize_saved_vars, bool(Optimize),
+		OptionTable0, ok(OptionTable)) :-
+	map__set(OptionTable0, optimize_saved_vars_const, bool(Optimize),
+		OptionTable1),
+	map__set(OptionTable1, optimize_saved_vars_cell, bool(Optimize),
+		OptionTable).
 special_handler(mercury_library_directory_special, string(Dir),
 			OptionTable0, ok(OptionTable)) :-
 	OptionTable = option_table_add_mercury_library_directory(
@@ -1802,6 +1869,7 @@ opt_space([
 	optimize_labels		-	bool(yes),
 	optimize_dups		-	bool(yes),
 	optimize_fulljumps	-	bool(no),
+	optimize_reassign	-	bool(yes),
 	inline_alloc		-	bool(no),
 	use_macro_for_redo_fail	-	bool(no)
 ]).
@@ -1878,7 +1946,7 @@ opt_level(2, _, [
 
 opt_level(3, _, [
 %%%	optimize_copyprop	-	bool(yes),
-	optimize_saved_vars	-	bool(yes),
+	optimize_saved_vars_const -	bool(yes),
 	optimize_unused_args	-	bool(yes),	
 	optimize_higher_order	-	bool(yes),
 	deforestation		-	bool(yes),
@@ -2122,6 +2190,14 @@ options_help_output -->
 		"Only the first one specified will apply.",
 		"If none of these options are specified, the default action",
 		"is to link the named modules to produce an executable.\n",
+		"-f, --generate-source-file-mapping",
+		"\tOutput the module name to file name mapping for the list",
+		"\tof source files given as non-option arguments to mmc",
+		"\tto `Mercury.modules'. This must be done before",
+		"\t`mmc --generate-dependencies' if there are any modules",
+		"\tfor which the file name does not match the module name.",
+		"\tIf there are no such modules the mapping need not be",
+		"\tgenerated.",
 		"-M, --generate-dependencies",
 		"\tOutput `Make'-style dependencies for the module",
 		"\tand all of its dependencies to `<module>.dep'.",
@@ -2197,9 +2273,6 @@ options_help_aux_output -->
 		"\tGenerate dependencies for use by `mmc --make' even",
 		"\twhen using Mmake. This is recommended when building a",
 		"\tlibrary for installation.",
-
-		% --generate-mmake-module-dependencies is for internal
-		% use by the compiler.
 
 % declarative debugging is not documented yet, since it is still experimental
 %		"--trace {minimum, shallow, deep, decl, rep, default}",
@@ -2800,6 +2873,10 @@ options_help_code_generation -->
 %		"\tThis option has no effect unless the `--high-level-code' option",
 %		"\tis enabled.  It also has no effect if the `--target' option is",
 %		"\tset to `il'.",
+% This optimization is for implementors only. Turning this option on provides
+% the fairest possible test of --optimize-saved-vars-cell.
+%		"--no-opt-no-return-calls",
+%		"\tDo not optimize the stack usage of calls that cannot return.",
 
 	]),
 
@@ -2926,9 +3003,17 @@ options_help_hlds_hlds_optimization -->
 		"--delay-constructs",
 		"\tReorder goals to move construction unifications after",
 		"\tprimitive goals that can fail.",
+		% "--optimize-saved-vars-const",
+		% "\tMinimize the number of variables saved across calls by",
+		% "\tintroducing duplicate copies of variables bound to",
+		% "\tconstants in each interval between flushes where they",
+		% "\tare needed.",
+		% "--optimize-saved-vars-cell",
+		% "\tMinimize the number of variables saved across calls by",
+		% "\ttrying to use saved variables pointing to cells to reach",
+		% "\tthe variables stored in those cells.",
 		"--optimize-saved-vars",
-		"\tReorder goals to minimize the number of variables",
-		"\tthat have to be saved across calls.",
+		"\tMinimize the number of variables saved across calls.",
 		"--optimize-unused-args",
 		"\tRemove unused predicate arguments.",
 		"\tThis will cause the compiler to generate more",
@@ -3256,8 +3341,10 @@ options_help_link -->
 		"\t`--init-file-directory' and `--c-include-directory'",
 		"\toptions as needed.",
 		"--mercury-standard-library-directory <directory>",
+		"--mercury-stdlib-dir <directory>",
 		"\tSearch <directory> for the Mercury standard library.",
 		"--no-mercury-standard-library-directory",
+		"--no-mercury-stdlib-dir",
 		"\tDon't use the Mercury standard library.",
 		"--ml <library>, --mercury-library <library>",
 		"\tLink with the specified Mercury library.",
@@ -3266,7 +3353,10 @@ options_help_link -->
 		"\tbe searched for `.init' files by c2init.",
 		"--init-file <init-file>",
 		"\tAppend <init-file> to the list of `.init' files to",
-		"\tbe passed to c2init."
+		"\tbe passed to c2init.",
+		"--trace-init-file <init-file>",
+		"\tAppend <init-file> to the list of `.init' files to",
+		"\tbe passed to c2init when tracing is enabled."
 		
 		% The --shared-library-extension,
 		% --library-extension, --executable-file-extension
@@ -3283,6 +3373,9 @@ options_help_link -->
 options_help_build_system -->
 	io__write_string("\nBuild System Options:\n"),
 	write_tabbed_lines([
+		% `--invoked-by-mmc-make' is for internal use by the
+		% compiler. `mmc --make' passes it as the first argument
+		% when compiling a module.
 		"-m, --make",
 		"\tTreat the non-option arguments to `mmc' as files to",
 		"\tmake, rather than source files.",
@@ -3304,9 +3397,9 @@ options_help_build_system -->
 		"\twhich a library to be installed should be built.",
 		"--options-file <file>",
 		"\tAdd <file> to the list of options files to be processed.",
-		"\tIf no `--options-file' options are given, the file",
-		"\t`Mercury.options' in the current directory will be read",
-		"\tif it exists.",
+		"\tIf <file> is `-', an options file will be read from the",
+		"\tstandard input.  By default the file `Mercury.options'",
+		"\tin the current directory will be read.",
 		"--options-search-directory <dir>",
 		"\tAdd <dir> to the list of directories to be searched for",
 		"\toptions files.",

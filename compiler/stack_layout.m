@@ -249,7 +249,7 @@ stack_layout__add_line_no(LineNo, LineInfo, RevList0, RevList) :-
 stack_layout__construct_layouts(ProcLayoutInfo) -->
 	{ ProcLayoutInfo = proc_layout_info(RttiProcLabel, EntryLabel, Detism,
 		StackSlots, SuccipLoc, EvalMethod, MaybeCallLabel, MaxTraceReg,
-		Goal, InstMap, TraceSlotInfo, ForceProcIdLayout,
+		HeadVars, Goal, InstMap, TraceSlotInfo, ForceProcIdLayout,
 		VarSet, VarTypes, InternalMap, MaybeTableIoDecl) },
 	{ map__to_assoc_list(InternalMap, Internals) },
 	stack_layout__set_cur_proc_named_vars(map__init),
@@ -286,8 +286,9 @@ stack_layout__construct_layouts(ProcLayoutInfo) -->
 	stack_layout__set_label_tables(LabelTables),
 	stack_layout__construct_proc_layout(RttiProcLabel, EntryLabel,
 		ProcLabel, Detism, StackSlots, SuccipLoc, EvalMethod,
-		MaybeCallLabel, MaxTraceReg, Goal, InstMap, TraceSlotInfo,
-		VarSet, VarTypes, NamedVars, MaybeTableIoDecl, Kind).
+		MaybeCallLabel, MaxTraceReg, HeadVars, Goal, InstMap,
+		TraceSlotInfo, VarSet, VarTypes, NamedVars, MaybeTableIoDecl,
+		Kind).
 
 %---------------------------------------------------------------------------%
 
@@ -386,16 +387,16 @@ stack_layout__context_is_valid(Context) :-
 
 :- pred stack_layout__construct_proc_layout(rtti_proc_label::in, label::in,
 	proc_label::in, determinism::in, int::in, maybe(int)::in,
-	eval_method::in, maybe(label)::in, int::in, hlds_goal::in, instmap::in,
-	trace_slot_info::in, prog_varset::in, vartypes::in,
-	map(int, string)::in, maybe(table_io_decl_info)::in,
+	eval_method::in, maybe(label)::in, int::in, list(prog_var)::in,
+	hlds_goal::in, instmap::in, trace_slot_info::in, prog_varset::in,
+	vartypes::in, map(int, string)::in, maybe(table_io_decl_info)::in,
 	proc_layout_kind::in, stack_layout_info::in, stack_layout_info::out)
 	is det.
 
 stack_layout__construct_proc_layout(RttiProcLabel, EntryLabel, ProcLabel,
 		Detism, StackSlots, MaybeSuccipLoc, EvalMethod, MaybeCallLabel,
-		MaxTraceReg, Goal, InstMap, TraceSlotInfo, VarSet, VarTypes,
-		UsedVarNames, MaybeTableIoDeclInfo, Kind) -->
+		MaxTraceReg, HeadVars, Goal, InstMap, TraceSlotInfo, VarSet,
+		VarTypes, UsedVarNames, MaybeTableIoDeclInfo, Kind) -->
 	{
 		MaybeSuccipLoc = yes(Location)
 	->
@@ -453,7 +454,7 @@ stack_layout__construct_proc_layout(RttiProcLabel, EntryLabel, ProcLabel,
 	;
 		{ Kind = proc_layout_exec_trace(_) },
 		stack_layout__construct_trace_layout(RttiProcLabel, EvalMethod,
-			MaybeCallLabel, MaxTraceReg, Goal, InstMap,
+			MaybeCallLabel, MaxTraceReg, HeadVars, Goal, InstMap,
 			TraceSlotInfo, VarSet, VarTypes, UsedVarNames,
 			MaybeTableIoDeclInfo, ExecTrace),
 		{ MaybeRest = proc_id_and_exec_trace(ExecTrace) }
@@ -474,38 +475,40 @@ stack_layout__construct_proc_layout(RttiProcLabel, EntryLabel, ProcLabel,
 	).
 
 :- pred stack_layout__construct_trace_layout(rtti_proc_label::in,
-	eval_method::in, maybe(label)::in, int::in, hlds_goal::in,
-	instmap::in, trace_slot_info::in, prog_varset::in, vartypes::in,
-	map(int, string)::in, maybe(table_io_decl_info)::in,
+	eval_method::in, maybe(label)::in, int::in, list(prog_var)::in,
+	hlds_goal::in, instmap::in, trace_slot_info::in, prog_varset::in,
+	vartypes::in, map(int, string)::in, maybe(table_io_decl_info)::in,
 	proc_layout_exec_trace::out,
 	stack_layout_info::in, stack_layout_info::out) is det.
 
 stack_layout__construct_trace_layout(RttiProcLabel, EvalMethod, MaybeCallLabel,
-		MaxTraceReg, Goal, InstMap, TraceSlotInfo, VarSet, VarTypes,
-		UsedVarNameMap, MaybeTableIoDecl, ExecTrace) -->
+		MaxTraceReg, HeadVars, Goal, InstMap, TraceSlotInfo, VarSet,
+		VarTypes, UsedVarNameMap, MaybeTableIoDecl, ExecTrace) -->
 	stack_layout__construct_var_name_vector(VarSet, UsedVarNameMap,
 		MaxVarNum, VarNameVector),
+	{ list__map(term__var_to_int, HeadVars, HeadVarNumVector) },
 	stack_layout__get_trace_level(TraceLevel),
 	stack_layout__get_trace_suppress(TraceSuppress),
-	{ trace_needs_proc_body_reps(TraceLevel, TraceSuppress)
-		= BodyReps },
+	{ BodyReps = trace_needs_proc_body_reps(TraceLevel, TraceSuppress) },
 	(
 		{ BodyReps = no },
-		{ MaybeGoalRepRval = no }
+		{ MaybeProcRepRval = no }
 	;
 		{ BodyReps = yes },
 		stack_layout__get_module_info(ModuleInfo),
-		{ prog_rep__represent_goal(Goal, InstMap, VarTypes,
-			ModuleInfo, GoalRep) },
-		{ type_to_univ(GoalRep, GoalRepUniv) },
+		{ prog_rep__represent_proc(HeadVars, Goal, InstMap, VarTypes,
+			ModuleInfo, ProcRep) },
+		{ type_to_univ(ProcRep, ProcRepUniv) },
 		stack_layout__get_cell_counter(CellCounter0),
-		{ static_term__term_to_rval(GoalRepUniv, MaybeGoalRepRval,
+		{ static_term__term_to_rval(ProcRepUniv, MaybeProcRepRval,
 			CellCounter0, CellCounter) },
 		stack_layout__set_cell_counter(CellCounter)
 	),
-	{ MaybeCallLabel = yes(CallLabelPrime) ->
+	{
+		MaybeCallLabel = yes(CallLabelPrime),
 		CallLabel = CallLabelPrime
 	;
+		MaybeCallLabel = no,
 		error("stack_layout__construct_trace_layout: call label not present")
 	},
 	{ TraceSlotInfo = trace_slot_info(MaybeFromFullSlot,
@@ -520,11 +523,11 @@ stack_layout__construct_trace_layout(RttiProcLabel, EvalMethod, MaybeCallLabel,
 		MaybeTableIoDecl = yes(_),
 		MaybeTableIoDeclName = yes(table_io_decl(RttiProcLabel))
 	},
-	{ ExecTrace = proc_layout_exec_trace(CallLabelLayout, MaybeGoalRepRval,
-		MaybeTableIoDeclName, VarNameVector, MaxVarNum, MaxTraceReg,
-		MaybeFromFullSlot, MaybeIoSeqSlot, MaybeTrailSlots,
-		MaybeMaxfrSlot, EvalMethod, MaybeCallTableSlot,
-		MaybeDeclSlots) }.
+	{ ExecTrace = proc_layout_exec_trace(CallLabelLayout, MaybeProcRepRval,
+		MaybeTableIoDeclName, HeadVarNumVector, VarNameVector,
+		MaxVarNum, MaxTraceReg, MaybeFromFullSlot, MaybeIoSeqSlot,
+		MaybeTrailSlots, MaybeMaxfrSlot, EvalMethod,
+		MaybeCallTableSlot, MaybeDeclSlots) }.
 
 :- pred stack_layout__construct_var_name_vector(prog_varset::in,
 	map(int, string)::in, int::out, list(int)::out,
@@ -534,8 +537,8 @@ stack_layout__construct_var_name_vector(VarSet, UsedVarNameMap, Count, Offsets)
 		-->
 	stack_layout__get_trace_level(TraceLevel),
 	stack_layout__get_trace_suppress(TraceSuppress),
-	{ trace_needs_all_var_names(TraceLevel, TraceSuppress)
-		= NeedsAllNames },
+	{ NeedsAllNames = trace_needs_all_var_names(TraceLevel,
+		TraceSuppress) },
 	(
 		{ NeedsAllNames = yes },
 		{ varset__var_name_list(VarSet, VarNameList) },

@@ -1329,7 +1329,7 @@ mlds_export_to_mlds_defn(
 		% XXX should we look for tail calls?
 	CallStatement = statement(
 		call(Signature, CodeRval, no, ArgRvals, ReturnLvals,
-			call), Context),
+			ordinary_call), Context),
 	ReturnStatement = statement(return(ReturnRvals), Context),
 
 	Statement = statement(mlds__block(ReturnVarDecls,
@@ -1563,7 +1563,7 @@ statement_to_il(statement(atomic(Atomic), Context), Instrs) -->
 	atomic_statement_to_il(Atomic, AtomicInstrs),
 	{ Instrs = tree(context_node(Context), AtomicInstrs) }.
 
-statement_to_il(statement(call(Sig, Function, _This, Args, Returns, IsTail), 
+statement_to_il(statement(call(Sig, Function, _This, Args, Returns, CallKind), 
 		Context), Instrs) -->
 	VerifiableCode =^ verifiable_code,
 	ByRefTailCalls =^ il_byref_tailcalls,
@@ -1574,7 +1574,7 @@ statement_to_il(statement(call(Sig, Function, _This, Args, Returns, IsTail),
 	CallerSig =^ signature,
 	{ CallerSig = signature(_, CallerReturnParam, _) },
 	(
-		{ IsTail = tail_call },
+		{ CallKind = tail_call ; CallKind = no_return_call },
 		% if --verifiable-code is enabled,
 		% and the arguments contain one or more byrefs,
 		% then don't emit the "tail." prefix,
@@ -2962,6 +2962,9 @@ mlds_type_to_ilds_type(DataRep, mlds__mercury_array_type(ElementType)) =
 mlds_type_to_ilds_type(DataRep, mlds__array_type(ElementType)) = 
 	ilds__type([], '[]'(mlds_type_to_ilds_type(DataRep, ElementType), [])).
 
+	% XXX should be checked by Tyson
+mlds_type_to_ilds_type(_, mlds__type_info_type) = il_generic_type.
+
 	% This is tricky.  It could be an integer, or it could be
 	% a System.Array.
 mlds_type_to_ilds_type(_, mlds__pseudo_type_info_type) = il_generic_type.
@@ -3002,15 +3005,19 @@ mlds_type_to_ilds_type(_, mlds__native_int_type) = ilds__type([], int32).
 
 mlds_type_to_ilds_type(_, mlds__native_float_type) = ilds__type([], float64).
 
-mlds_type_to_ilds_type(_, mlds__foreign_type(IsBoxed, ForeignType, Assembly))
+mlds_type_to_ilds_type(_, mlds__foreign_type(ForeignType))
 	= ilds__type([], Class) :-
-	sym_name_to_class_name(ForeignType, ForeignClassName),
-	( IsBoxed = yes,
-		Class = class(structured_name(assembly(Assembly),
-				ForeignClassName, []))
-	; IsBoxed = no,
-		Class = valuetype(structured_name(assembly(Assembly),
-				ForeignClassName, []))
+	( ForeignType = il(il(RefOrVal, Assembly, Type)),
+		sym_name_to_class_name(Type, ForeignClassName),
+		( RefOrVal = reference,
+			Class = class(structured_name(assembly(Assembly),
+					ForeignClassName, []))
+		; RefOrVal = value,
+			Class = valuetype(structured_name(assembly(Assembly),
+					ForeignClassName, []))
+		)
+	; ForeignType = c(_),
+		error("mlds_to_il: c foreign type")
 	).
 
 mlds_type_to_ilds_type(ILDataRep, mlds__ptr_type(MLDSType)) =
@@ -3294,8 +3301,13 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 			(
 				RttiName = type_ctor_info
 			;
+				RttiName = type_info(TypeInfo),
+				TypeInfo =
+					plain_arity_zero_type_info(RttiTypeCtor)
+			;
 				RttiName = pseudo_type_info(PseudoTypeInfo),
-				PseudoTypeInfo = type_ctor_info(RttiTypeCtor)
+				PseudoTypeInfo =
+					plain_arity_zero_pseudo_type_info(RttiTypeCtor)
 			),
 			( LibModuleName0 = "builtin",
 				( 
@@ -3316,6 +3328,7 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 			; LibModuleName0 = "type_desc",
 				( 
 				  Name = "type_desc", Arity = 0
+				; Name = "type_ctor_desc", Arity = 0
 				)
 			; LibModuleName0 = "private_builtin",
 				( 

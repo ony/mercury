@@ -36,7 +36,8 @@
 
 :- interface.
 
-:- import_module parse_tree__prog_data, hlds__hlds_goal, ll_backend__llds.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_llds, ll_backend__llds.
 :- import_module libs__options.
 :- import_module map, set, list, assoc_list.
 

@@ -16,14 +16,14 @@
 
 :- interface.
 
-:- import_module parse_tree__prog_data, (parse_tree__inst).
+:- import_module parse_tree__prog_data, parse_tree__inst.
 :- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
 :- import_module backend_libs__foreign, backend_libs__code_model.
-:- import_module backend_libs__rtti, ll_backend__layout.
-:- import_module backend_libs__builtin_ops.
+:- import_module backend_libs__rtti, backend_libs__builtin_ops.
+:- import_module ll_backend__layout.
 :- import_module libs__tree.
 
-:- import_module bool, assoc_list, list, map, set, std_util, counter, term.
+:- import_module bool, list, assoc_list, map, set, std_util, counter, term.
 
 %-----------------------------------------------------------------------------%
 
@@ -553,15 +553,17 @@
 	% A pragma_c_input represents the code that initializes one
 	% of the input variables for a pragma_c instruction.
 :- type pragma_c_input
-	--->	pragma_c_input(string, type, rval).
-				% variable name, type, variable value.
+	--->	pragma_c_input(string, type, rval, maybe(string)).
+				% variable name, type, variable value,
+				% maybe C type if foreign type.
 
 	% A pragma_c_output represents the code that stores one of
 	% of the outputs for a pragma_c instruction.
 :- type pragma_c_output
-	--->	pragma_c_output(lval, type, string).
+	--->	pragma_c_output(lval, type, string, maybe(string)).
 				% where to put the output val, type and name
 				% of variable containing the output val
+				% followed by maybe C type if foreign type.
 
 	% see runtime/mercury_trail.h
 :- type reset_trail_reason

@@ -44,13 +44,16 @@ NONRETRY_PROGS = \
 	nondet_stack			\
 	output_term_dep			\
 	polymorphic_output		\
+	queens_rep			\
 	resume_typeinfos		\
-	shallow
+	shallow				\
+	type_desc_test
 
 # The completion test requires mdb to use readline, even though
 # the input is not a terminal.
 MLFLAGS-completion = --runtime-flags --force-readline
 
+MCFLAGS-queens_rep = --trace rep
 MCFLAGS-shallow = --trace shallow
 MCFLAGS-tabled_read = --trace-table-io
 MCFLAGS-tabled_read_decl = --trace-table-io-decl
@@ -60,8 +63,8 @@ MCFLAGS-tabled_read_decl = --trace-table-io-decl
 # The optimization level also affects stack frame sizes.
 MCFLAGS-nondet_stack = -O2 --no-reclaim-heap-on-failure
 
-MCFLAGS = --trace deep
-MLFLAGS = --trace
+MCFLAGS += --trace deep
+MLFLAGS += --trace
 
 # We need to use shared libraries for interactive queries to work.
 # The following is necessary for shared libraries to work on Linux.
@@ -69,10 +72,11 @@ GRADEFLAGS-interactive = --pic-reg
 MLFLAGS-interactive = --shared
 
 # Since the `interactive' test case requires the use of shared libraries,
-# this means it won't work properly if MERCURY_LIBS is set to point
-# to static libraries (as is done by tools/bootcheck and tools/lmc).
-# So we only enable it if MERCURY_LIBS is not set.
-ifeq "$(origin MERCURY_LIBS)" "undefined"
+# this means it won't work properly if the static libraries are linked
+# (as is done by tools/bootcheck and tools/lmc).
+# So we only enable it if LINK_STATIC is not set.
+LINK_STATIC ?= no
+ifeq ($(LINK_STATIC),no)
 	RETRY_PROGS := $(RETRY_PROGS) interactive
 endif
 
@@ -137,7 +141,7 @@ cmd_quote.out: cmd_quote cmd_quote.inp
 # Set up readline to make it easier to use completion non-interactively.
 completion.out: completion completion.inp
 	INPUTRC=completion.inputrc $(MDB) ./completion \
-		< completion.inp > completion.out 2>&1
+		< completion.inp 2>&1 | sed -e '/^$$/d' > completion.out 2>&1
 
 debugger_regs.out: debugger_regs debugger_regs.inp
 	$(MDB) ./debugger_regs < debugger_regs.inp > debugger_regs.out 2>&1
@@ -256,6 +260,9 @@ output_term_dep.out: output_term_dep output_term_dep.inp
 queens.out: queens queens.inp
 	$(MDB) ./queens < queens.inp > queens.out 2>&1
 
+queens_rep.out: queens_rep queens_rep.inp
+	$(MDB) ./queens_rep < queens_rep.inp > queens_rep.out 2>&1
+
 # We insert the names of entry labels into the label table only in a few grades
 # (e.g. profiling grades). The debugger's redo label is an entry label. To
 # avoid spurious inconsistencies in the output, we filter out its name even
@@ -284,18 +291,25 @@ tabled_read_decl.out: tabled_read_decl tabled_read_decl.inp tabled_read_decl.dat
 	$(MDB) ./tabled_read_decl < tabled_read_decl.inp \
 		> tabled_read_decl.out 2>&1
 
+type_desc_test.out: type_desc_test type_desc_test.inp
+	$(MDB) ./type_desc_test < type_desc_test.inp \
+		> type_desc_test.out 2>&1
+
 # Note that interactive.out.orig depends on $(interactive.ints) because
 # interactive.inp contains interactive queries that require interactive.ints
 # to have been built.
+interactive.out.orig: Mercury.options.interactive interactive \
+			interactive.inp $(interactive.ints)
+	echo "echo on" > interactive.inp.tmp
+	echo mmc_options --options-file Mercury.options.interactive \
+			--trace minimum >> interactive.inp.tmp
+	cat interactive.inp >> interactive.inp.tmp
+	$(MDB) ./interactive < interactive.inp.tmp > interactive.out.orig 2>&1
+	rm -f interactive.inp.tmp
 
-ifeq ($(MMAKE_USE_SUBDIRS),yes)
-INTERACTIVE_INP = interactive.inp.subdirs
-else
-INTERACTIVE_INP = interactive.inp.nosubdirs
-endif
-
-interactive.out.orig: interactive $(INTERACTIVE_INP) $(interactive.ints)
-	$(MDB) ./interactive < $(INTERACTIVE_INP) > interactive.out.orig 2>&1
+.PHONY: Mercury.options.interactive
+Mercury.options.interactive:
+	$(ECHO_MERCURY_OPTIONS) > Mercury.options.interactive
 
 # We pipe the output through sed to avoid differences for `--use-subdirs',
 # and to remove some spurious warnings that `gcc' and `ld' issue.
@@ -305,7 +319,7 @@ interactive.out.orig: interactive $(INTERACTIVE_INP) $(interactive.ints)
 interactive.out: interactive.out.orig
 	cat interactive.out.orig | \
 		sed \
-		    -e '/mdb> mmc_options --use-subdirs/d' \
+		    -e '/mdb> mmc_options/d' \
 		    -e '/In file included from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_trace_base.h:[0-9]*,$$/N' \
 		    -e 's/In file included from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_trace_base.h:[0-9]*,.//' \
 		    -e '/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_wrapper.h:[0-9]*,$$/N' \
@@ -372,6 +386,9 @@ dep_local:	$(DEPS)
 depend_local:	$(DEPENDS)
 check_local:	$(OUTS) $(RESS)
 all_local:	$(PROGS)
+
+realclean_local:
+	rm -f Mercury.options.interactive
 
 #-----------------------------------------------------------------------------#
 

@@ -43,6 +43,7 @@ BROWSER_DIR = $(WORKSPACE)/browser
 BOEHM_GC_DIR = $(WORKSPACE)/boehm_gc
 COMPILER_DIR = $(WORKSPACE)/compiler
 UTIL_DIR = $(WORKSPACE)/util
+ROBDD_DIR = $(WORKSPACE)/robdd
 
 # The names of the various libraries.
 # The archives and shared object objects have a "lib" prefix and a ".a" or

@@ -249,10 +249,20 @@ det_infer_proc(PredId, ProcId, ModuleInfo0, ModuleInfo, Globals,
 		% context or not.  Currently we only assume so if
 		% the predicate has an explicit determinism declaration
 		% that says so.
+	det_get_soln_context(Detism0, OldInferredSolnContext),
 	proc_info_declared_determinism(Proc0, MaybeDeclaredDetism),
 	( MaybeDeclaredDetism = yes(DeclaredDetism) ->
-		det_get_soln_context(DeclaredDetism, SolnContext)
+		det_get_soln_context(DeclaredDetism, DeclaredSolnContext)
 	;	
+		DeclaredSolnContext = all_solns
+	),
+	(
+		( DeclaredSolnContext = first_soln
+		; OldInferredSolnContext = first_soln
+		)
+	->
+		SolnContext = first_soln
+	;
 		SolnContext = all_solns
 	),
 
@@ -386,7 +396,7 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 		% code generator.  (Both the MLDS and LLDS
 		% back-ends rely on this.)
 		%
-		Goal1 = if_then_else(_, _ - CondInfo, _, _, _),
+		Goal1 = if_then_else(_, _ - CondInfo, _, _),
 		goal_info_get_determinism(CondInfo, CondDetism),
 		determinism_components(CondDetism, _, at_most_many),
 		Solns \= at_most_many
@@ -426,7 +436,7 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 		% choice point at all, rather than wrapping a
 		% some [] around a nondet disj, which would
 		% create a choice point and then prune it.
-		Goal1 \= disj(_, _),	
+		Goal1 \= disj(_),	
 
 		% do we already have a commit?
 		Goal1 \= some(_, _, _)
@@ -459,8 +469,8 @@ det_infer_goal_2(conj(Goals0), _, InstMap0, SolnContext, DetInfo, _, _,
 	det_infer_conj(Goals0, InstMap0, SolnContext, DetInfo,
 		Goals, Detism, Msgs).
 
-det_infer_goal_2(par_conj(Goals0, SM), GoalInfo, InstMap0, SolnContext,
-		DetInfo, _, _, par_conj(Goals, SM), Detism, Msgs) :-
+det_infer_goal_2(par_conj(Goals0), GoalInfo, InstMap0, SolnContext,
+		DetInfo, _, _, par_conj(Goals), Detism, Msgs) :-
 	det_infer_par_conj(Goals0, InstMap0, SolnContext, DetInfo,
 		Goals, Detism, Msgs0),
 	(
@@ -476,8 +486,8 @@ det_infer_goal_2(par_conj(Goals0, SM), GoalInfo, InstMap0, SolnContext,
 		Msgs = [Msg|Msgs0]
 	).
 
-det_infer_goal_2(disj(Goals0, SM), _, InstMap0, SolnContext, DetInfo, _, _,
-		disj(Goals, SM), Detism, Msgs) :-
+det_infer_goal_2(disj(Goals0), _, InstMap0, SolnContext, DetInfo, _, _,
+		disj(Goals), Detism, Msgs) :-
 	det_infer_disj(Goals0, InstMap0, SolnContext, DetInfo,
 		can_fail, at_most_zero, Goals, Detism, Msgs).
 
@@ -486,9 +496,9 @@ det_infer_goal_2(disj(Goals0, SM), _, InstMap0, SolnContext, DetInfo, _, _,
 	% then it is semideterministic or worse - this is determined
 	% in switch_detection.m and handled via the SwitchCanFail field.
 
-det_infer_goal_2(switch(Var, SwitchCanFail, Cases0, SM), GoalInfo,
+det_infer_goal_2(switch(Var, SwitchCanFail, Cases0), GoalInfo,
 		InstMap0, SolnContext, DetInfo, _, _,
-		switch(Var, SwitchCanFail, Cases, SM), Detism, Msgs) :-
+		switch(Var, SwitchCanFail, Cases), Detism, Msgs) :-
 	det_infer_switch(Cases0, InstMap0, SolnContext, DetInfo,
 		cannot_fail, at_most_zero, Cases, CasesDetism, Msgs0),
 	determinism_components(CasesDetism, CasesCanFail, CasesSolns),
@@ -516,8 +526,8 @@ det_infer_goal_2(switch(Var, SwitchCanFail, Cases0, SM), GoalInfo,
 	% This is the point at which annotations start changing
 	% when we iterate to fixpoint for global determinism inference.
 
-det_infer_goal_2(call(PredId, ModeId0, A, B, C, N), GoalInfo, _, SolnContext,
-		DetInfo, _, _,
+det_infer_goal_2(call(PredId, ModeId0, A, B, C, N), GoalInfo, _,
+		SolnContext, DetInfo, _, _,
 		call(PredId, ModeId, A, B, C, N), Detism, Msgs) :-
 	det_lookup_detism(DetInfo, PredId, ModeId0, Detism0),
 	%
@@ -613,9 +623,9 @@ det_infer_goal_2(unify(LT, RT0, M, U, C), GoalInfo, InstMap0, SolnContext,
 		UnifyNumSolns, Msgs),
 	determinism_components(UnifyDet, UnifyCanFail, UnifyNumSolns).
 
-det_infer_goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM), _GoalInfo0,
+det_infer_goal_2(if_then_else(Vars, Cond0, Then0, Else0), _GoalInfo0,
 		InstMap0, SolnContext, DetInfo, _NonLocalVars, _DeltaInstMap,
-		if_then_else(Vars, Cond, Then, Else, SM), Detism, Msgs) :-
+		if_then_else(Vars, Cond, Then, Else), Detism, Msgs) :-
 
 	% We process the goal right-to-left, doing the `then' before
 	% the condition of the if-then-else, so that we can propagate

@@ -17,6 +17,7 @@
 #include "mercury_imp.h"
 #include "mercury_deconstruct.h"
 #include "mercury_deconstruct_macros.h"
+#include "mercury_type_desc.h"
 
 static  MR_ConstString  MR_expand_type_name(MR_TypeCtorInfo tci, MR_bool);
 
@@ -231,7 +232,7 @@ MR_named_arg_num(MR_TypeInfo type_info, MR_Word *term_ptr,
 
         case MR_TYPECTOR_REP_EQUIV:
             eqv_type_info = MR_create_type_info(
-                MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                 MR_type_ctor_layout(type_ctor_info).layout_equiv);
             return MR_named_arg_num(eqv_type_info, term_ptr, arg_name,
                 arg_num_ptr);

@@ -23,6 +23,7 @@ MULTIMODULE_SOURCES= \
 	duplicate_instance_2.m \
 	ho_default_func_2.sub.m \
 	imported_mode.m \
+	missing_parent_import.m \
 	partial_implied_mode.m \
 	sub_c.m \
 	test_nested.m \
@@ -51,6 +52,7 @@ SINGLEMODULE_SOURCES= \
 	ext_type_bug.m \
 	exported_mode.m \
 	field_syntax_error.m \
+	foreign_type.m \
 	func_errors.m \
 	funcs_as_preds.m \
 	ho_default_func_1.m \
@@ -83,8 +85,6 @@ SINGLEMODULE_SOURCES= \
 	occurs.m \
 	overloading.m \
 	polymorphic_unification.m \
-	pragma_c_code_and_clauses1.m \
-	pragma_c_code_and_clauses2.m \
 	pragma_c_code_dup_var.m \
 	pragma_c_code_no_det.m \
 	predmode.m \

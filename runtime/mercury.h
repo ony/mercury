@@ -44,7 +44,10 @@
   #include "mercury_regs.h"		/* for MR_hp */
   #include "mercury_engine.h"		/* for MR_fake_reg (needed by MR_hp) */
   #include "mercury_overflow.h"		/* for MR_heap_overflow_check() */
-  #include "mercury_accurate_gc.h"	/* for MR_garbage_collect() */
+  #ifdef MR_NATIVE_GC
+    #include "mercury_accurate_gc.h"	/* for MR_garbage_collect() */
+    #include "mercury_layout_util.h"	/* for MR_materialize_closure...() */
+  #endif
 #endif
 
 #if defined(MR_MPROF_PROFILE_CALLS) || defined(MR_MPROF_PROFILE_TIME)
@@ -135,6 +138,7 @@ typedef const MR_Closure *MR_ClosurePtr;
   typedef struct mercury__array__array_1_s * MR_Array;
   typedef struct mercury__std_util__univ_0_s * MR_Univ;
   typedef struct mercury__type_desc__type_desc_0_s * MR_Type_Desc;
+  typedef struct mercury__type_desc__type_ctor_desc_0_s * MR_Type_Ctor_Desc;
   typedef struct mercury__private_builtin__type_info_1_s *
   	MR_Mercury_Type_Info;
   typedef struct mercury__private_builtin__type_ctor_info_1_s *
@@ -154,6 +158,7 @@ typedef const MR_Closure *MR_ClosurePtr;
   typedef MR_Word MR_Array;
   typedef MR_Word MR_Univ;
   typedef MR_Word MR_Type_Desc;
+  typedef MR_Word MR_Type_Ctor_Desc;
   typedef MR_Word MR_Mercury_Type_Info;
   typedef MR_Word MR_Mercury_Type_Ctor_Info;
   typedef MR_Word MR_Mercury_TypeClass_Info;
@@ -193,96 +198,227 @@ typedef const MR_ReservedAddrFunctorDesc *MR_ReservedAddrFunctors;
 ** often, so this is probably OK for now...
 */
 
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct1, 1);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct2, 2);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct3, 3);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct4, 4);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct5, 5);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct6, 6);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct7, 7);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct8, 8);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct9, 9);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct10, 10);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct11, 11);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct12, 12);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct13, 13);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct14, 14);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct15, 15);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct16, 16);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct17, 17);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct18, 18);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct19, 19);
-MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct20, 20);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct1, 1);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct2, 2);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct3, 3);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct4, 4);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct5, 5);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct6, 6);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct7, 7);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct8, 8);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct9, 9);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct10, 10);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct11, 11);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct12, 12);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct13, 13);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct14, 14);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct15, 15);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct16, 16);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct17, 17);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct18, 18);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct19, 19);
+MR_VAR_ARITY_PSEUDOTYPEINFO_STRUCT(MR_VA_PseudoTypeInfo_Struct20, 20);
 
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct1, 1);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct2, 2);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct3, 3);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct4, 4);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct5, 5);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct6, 6);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct7, 7);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct8, 8);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct9, 9);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct10, 10);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct11, 11);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct12, 12);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct13, 13);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct14, 14);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct15, 15);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct16, 16);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct17, 17);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct18, 18);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct19, 19);
-MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct20, 20);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct1, 1);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct2, 2);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct3, 3);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct4, 4);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct5, 5);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct6, 6);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct7, 7);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct8, 8);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct9, 9);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct10, 10);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct11, 11);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct12, 12);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct13, 13);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct14, 14);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct15, 15);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct16, 16);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct17, 17);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct18, 18);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct19, 19);
+MR_FIXED_ARITY_PSEUDOTYPEINFO_STRUCT(MR_FA_PseudoTypeInfo_Struct20, 20);
+
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct1, 1);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct2, 2);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct3, 3);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct4, 4);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct5, 5);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct6, 6);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct7, 7);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct8, 8);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct9, 9);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct10, 10);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct11, 11);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct12, 12);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct13, 13);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct14, 14);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct15, 15);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct16, 16);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct17, 17);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct18, 18);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct19, 19);
+MR_VAR_ARITY_TYPEINFO_STRUCT(MR_VA_TypeInfo_Struct20, 20);
+
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct1, 1);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct2, 2);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct3, 3);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct4, 4);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct5, 5);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct6, 6);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct7, 7);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct8, 8);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct9, 9);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct10, 10);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct11, 11);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct12, 12);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct13, 13);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct14, 14);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct15, 15);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct16, 16);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct17, 17);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct18, 18);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct19, 19);
+MR_FIXED_ARITY_TYPEINFO_STRUCT(MR_FA_TypeInfo_Struct20, 20);
 
 /*
 ** Since standard C doesn't support zero-sized arrays,
 ** we use the same type for unary higher-order pseudo-type-infos
 ** as for zero-arity higher-order pseudo-type-infos.
 */
-typedef struct MR_HO_PseudoTypeInfo_Struct1 MR_HO_PseudoTypeInfo_Struct0;
 
-typedef struct MR_HO_PseudoTypeInfo_Struct1 MR_HO_PseudoTypeInfo_Struct1;
-typedef struct MR_HO_PseudoTypeInfo_Struct2 MR_HO_PseudoTypeInfo_Struct2;
-typedef struct MR_HO_PseudoTypeInfo_Struct3 MR_HO_PseudoTypeInfo_Struct3;
-typedef struct MR_HO_PseudoTypeInfo_Struct4 MR_HO_PseudoTypeInfo_Struct4;
-typedef struct MR_HO_PseudoTypeInfo_Struct5 MR_HO_PseudoTypeInfo_Struct5;
-typedef struct MR_HO_PseudoTypeInfo_Struct6 MR_HO_PseudoTypeInfo_Struct6;
-typedef struct MR_HO_PseudoTypeInfo_Struct7 MR_HO_PseudoTypeInfo_Struct7;
-typedef struct MR_HO_PseudoTypeInfo_Struct8 MR_HO_PseudoTypeInfo_Struct8;
-typedef struct MR_HO_PseudoTypeInfo_Struct9 MR_HO_PseudoTypeInfo_Struct9;
-typedef struct MR_HO_PseudoTypeInfo_Struct10 MR_HO_PseudoTypeInfo_Struct10;
-typedef struct MR_HO_PseudoTypeInfo_Struct11 MR_HO_PseudoTypeInfo_Struct11;
-typedef struct MR_HO_PseudoTypeInfo_Struct12 MR_HO_PseudoTypeInfo_Struct12;
-typedef struct MR_HO_PseudoTypeInfo_Struct13 MR_HO_PseudoTypeInfo_Struct13;
-typedef struct MR_HO_PseudoTypeInfo_Struct14 MR_HO_PseudoTypeInfo_Struct14;
-typedef struct MR_HO_PseudoTypeInfo_Struct15 MR_HO_PseudoTypeInfo_Struct15;
-typedef struct MR_HO_PseudoTypeInfo_Struct16 MR_HO_PseudoTypeInfo_Struct16;
-typedef struct MR_HO_PseudoTypeInfo_Struct17 MR_HO_PseudoTypeInfo_Struct17;
-typedef struct MR_HO_PseudoTypeInfo_Struct18 MR_HO_PseudoTypeInfo_Struct18;
-typedef struct MR_HO_PseudoTypeInfo_Struct19 MR_HO_PseudoTypeInfo_Struct19;
-typedef struct MR_HO_PseudoTypeInfo_Struct20 MR_HO_PseudoTypeInfo_Struct20;
+typedef struct MR_VA_PseudoTypeInfo_Struct1 MR_VA_PseudoTypeInfo_Struct0;
+typedef struct MR_VA_PseudoTypeInfo_Struct1 MR_VA_PseudoTypeInfo_Struct1;
+typedef struct MR_VA_PseudoTypeInfo_Struct2 MR_VA_PseudoTypeInfo_Struct2;
+typedef struct MR_VA_PseudoTypeInfo_Struct3 MR_VA_PseudoTypeInfo_Struct3;
+typedef struct MR_VA_PseudoTypeInfo_Struct4 MR_VA_PseudoTypeInfo_Struct4;
+typedef struct MR_VA_PseudoTypeInfo_Struct5 MR_VA_PseudoTypeInfo_Struct5;
+typedef struct MR_VA_PseudoTypeInfo_Struct6 MR_VA_PseudoTypeInfo_Struct6;
+typedef struct MR_VA_PseudoTypeInfo_Struct7 MR_VA_PseudoTypeInfo_Struct7;
+typedef struct MR_VA_PseudoTypeInfo_Struct8 MR_VA_PseudoTypeInfo_Struct8;
+typedef struct MR_VA_PseudoTypeInfo_Struct9 MR_VA_PseudoTypeInfo_Struct9;
+typedef struct MR_VA_PseudoTypeInfo_Struct10 MR_VA_PseudoTypeInfo_Struct10;
+typedef struct MR_VA_PseudoTypeInfo_Struct11 MR_VA_PseudoTypeInfo_Struct11;
+typedef struct MR_VA_PseudoTypeInfo_Struct12 MR_VA_PseudoTypeInfo_Struct12;
+typedef struct MR_VA_PseudoTypeInfo_Struct13 MR_VA_PseudoTypeInfo_Struct13;
+typedef struct MR_VA_PseudoTypeInfo_Struct14 MR_VA_PseudoTypeInfo_Struct14;
+typedef struct MR_VA_PseudoTypeInfo_Struct15 MR_VA_PseudoTypeInfo_Struct15;
+typedef struct MR_VA_PseudoTypeInfo_Struct16 MR_VA_PseudoTypeInfo_Struct16;
+typedef struct MR_VA_PseudoTypeInfo_Struct17 MR_VA_PseudoTypeInfo_Struct17;
+typedef struct MR_VA_PseudoTypeInfo_Struct18 MR_VA_PseudoTypeInfo_Struct18;
+typedef struct MR_VA_PseudoTypeInfo_Struct19 MR_VA_PseudoTypeInfo_Struct19;
+typedef struct MR_VA_PseudoTypeInfo_Struct20 MR_VA_PseudoTypeInfo_Struct20;
 
-typedef struct MR_FO_PseudoTypeInfo_Struct1 MR_FO_PseudoTypeInfo_Struct1;
-typedef struct MR_FO_PseudoTypeInfo_Struct2 MR_FO_PseudoTypeInfo_Struct2;
-typedef struct MR_FO_PseudoTypeInfo_Struct3 MR_FO_PseudoTypeInfo_Struct3;
-typedef struct MR_FO_PseudoTypeInfo_Struct4 MR_FO_PseudoTypeInfo_Struct4;
-typedef struct MR_FO_PseudoTypeInfo_Struct5 MR_FO_PseudoTypeInfo_Struct5;
-typedef struct MR_FO_PseudoTypeInfo_Struct6 MR_FO_PseudoTypeInfo_Struct6;
-typedef struct MR_FO_PseudoTypeInfo_Struct7 MR_FO_PseudoTypeInfo_Struct7;
-typedef struct MR_FO_PseudoTypeInfo_Struct8 MR_FO_PseudoTypeInfo_Struct8;
-typedef struct MR_FO_PseudoTypeInfo_Struct9 MR_FO_PseudoTypeInfo_Struct9;
-typedef struct MR_FO_PseudoTypeInfo_Struct10 MR_FO_PseudoTypeInfo_Struct10;
-typedef struct MR_FO_PseudoTypeInfo_Struct11 MR_FO_PseudoTypeInfo_Struct11;
-typedef struct MR_FO_PseudoTypeInfo_Struct12 MR_FO_PseudoTypeInfo_Struct12;
-typedef struct MR_FO_PseudoTypeInfo_Struct13 MR_FO_PseudoTypeInfo_Struct13;
-typedef struct MR_FO_PseudoTypeInfo_Struct14 MR_FO_PseudoTypeInfo_Struct14;
-typedef struct MR_FO_PseudoTypeInfo_Struct15 MR_FO_PseudoTypeInfo_Struct15;
-typedef struct MR_FO_PseudoTypeInfo_Struct16 MR_FO_PseudoTypeInfo_Struct16;
-typedef struct MR_FO_PseudoTypeInfo_Struct17 MR_FO_PseudoTypeInfo_Struct17;
-typedef struct MR_FO_PseudoTypeInfo_Struct18 MR_FO_PseudoTypeInfo_Struct18;
-typedef struct MR_FO_PseudoTypeInfo_Struct19 MR_FO_PseudoTypeInfo_Struct19;
-typedef struct MR_FO_PseudoTypeInfo_Struct20 MR_FO_PseudoTypeInfo_Struct20;
+typedef struct MR_FA_PseudoTypeInfo_Struct1 MR_FA_PseudoTypeInfo_Struct1;
+typedef struct MR_FA_PseudoTypeInfo_Struct2 MR_FA_PseudoTypeInfo_Struct2;
+typedef struct MR_FA_PseudoTypeInfo_Struct3 MR_FA_PseudoTypeInfo_Struct3;
+typedef struct MR_FA_PseudoTypeInfo_Struct4 MR_FA_PseudoTypeInfo_Struct4;
+typedef struct MR_FA_PseudoTypeInfo_Struct5 MR_FA_PseudoTypeInfo_Struct5;
+typedef struct MR_FA_PseudoTypeInfo_Struct6 MR_FA_PseudoTypeInfo_Struct6;
+typedef struct MR_FA_PseudoTypeInfo_Struct7 MR_FA_PseudoTypeInfo_Struct7;
+typedef struct MR_FA_PseudoTypeInfo_Struct8 MR_FA_PseudoTypeInfo_Struct8;
+typedef struct MR_FA_PseudoTypeInfo_Struct9 MR_FA_PseudoTypeInfo_Struct9;
+typedef struct MR_FA_PseudoTypeInfo_Struct10 MR_FA_PseudoTypeInfo_Struct10;
+typedef struct MR_FA_PseudoTypeInfo_Struct11 MR_FA_PseudoTypeInfo_Struct11;
+typedef struct MR_FA_PseudoTypeInfo_Struct12 MR_FA_PseudoTypeInfo_Struct12;
+typedef struct MR_FA_PseudoTypeInfo_Struct13 MR_FA_PseudoTypeInfo_Struct13;
+typedef struct MR_FA_PseudoTypeInfo_Struct14 MR_FA_PseudoTypeInfo_Struct14;
+typedef struct MR_FA_PseudoTypeInfo_Struct15 MR_FA_PseudoTypeInfo_Struct15;
+typedef struct MR_FA_PseudoTypeInfo_Struct16 MR_FA_PseudoTypeInfo_Struct16;
+typedef struct MR_FA_PseudoTypeInfo_Struct17 MR_FA_PseudoTypeInfo_Struct17;
+typedef struct MR_FA_PseudoTypeInfo_Struct18 MR_FA_PseudoTypeInfo_Struct18;
+typedef struct MR_FA_PseudoTypeInfo_Struct19 MR_FA_PseudoTypeInfo_Struct19;
+typedef struct MR_FA_PseudoTypeInfo_Struct20 MR_FA_PseudoTypeInfo_Struct20;
+
+typedef struct MR_VA_TypeInfo_Struct1 MR_VA_TypeInfo_Struct0;
+typedef struct MR_VA_TypeInfo_Struct1 MR_VA_TypeInfo_Struct1;
+typedef struct MR_VA_TypeInfo_Struct2 MR_VA_TypeInfo_Struct2;
+typedef struct MR_VA_TypeInfo_Struct3 MR_VA_TypeInfo_Struct3;
+typedef struct MR_VA_TypeInfo_Struct4 MR_VA_TypeInfo_Struct4;
+typedef struct MR_VA_TypeInfo_Struct5 MR_VA_TypeInfo_Struct5;
+typedef struct MR_VA_TypeInfo_Struct6 MR_VA_TypeInfo_Struct6;
+typedef struct MR_VA_TypeInfo_Struct7 MR_VA_TypeInfo_Struct7;
+typedef struct MR_VA_TypeInfo_Struct8 MR_VA_TypeInfo_Struct8;
+typedef struct MR_VA_TypeInfo_Struct9 MR_VA_TypeInfo_Struct9;
+typedef struct MR_VA_TypeInfo_Struct10 MR_VA_TypeInfo_Struct10;
+typedef struct MR_VA_TypeInfo_Struct11 MR_VA_TypeInfo_Struct11;
+typedef struct MR_VA_TypeInfo_Struct12 MR_VA_TypeInfo_Struct12;
+typedef struct MR_VA_TypeInfo_Struct13 MR_VA_TypeInfo_Struct13;
+typedef struct MR_VA_TypeInfo_Struct14 MR_VA_TypeInfo_Struct14;
+typedef struct MR_VA_TypeInfo_Struct15 MR_VA_TypeInfo_Struct15;
+typedef struct MR_VA_TypeInfo_Struct16 MR_VA_TypeInfo_Struct16;
+typedef struct MR_VA_TypeInfo_Struct17 MR_VA_TypeInfo_Struct17;
+typedef struct MR_VA_TypeInfo_Struct18 MR_VA_TypeInfo_Struct18;
+typedef struct MR_VA_TypeInfo_Struct19 MR_VA_TypeInfo_Struct19;
+typedef struct MR_VA_TypeInfo_Struct20 MR_VA_TypeInfo_Struct20;
+
+typedef struct MR_FA_TypeInfo_Struct1 MR_FA_TypeInfo_Struct1;
+typedef struct MR_FA_TypeInfo_Struct2 MR_FA_TypeInfo_Struct2;
+typedef struct MR_FA_TypeInfo_Struct3 MR_FA_TypeInfo_Struct3;
+typedef struct MR_FA_TypeInfo_Struct4 MR_FA_TypeInfo_Struct4;
+typedef struct MR_FA_TypeInfo_Struct5 MR_FA_TypeInfo_Struct5;
+typedef struct MR_FA_TypeInfo_Struct6 MR_FA_TypeInfo_Struct6;
+typedef struct MR_FA_TypeInfo_Struct7 MR_FA_TypeInfo_Struct7;
+typedef struct MR_FA_TypeInfo_Struct8 MR_FA_TypeInfo_Struct8;
+typedef struct MR_FA_TypeInfo_Struct9 MR_FA_TypeInfo_Struct9;
+typedef struct MR_FA_TypeInfo_Struct10 MR_FA_TypeInfo_Struct10;
+typedef struct MR_FA_TypeInfo_Struct11 MR_FA_TypeInfo_Struct11;
+typedef struct MR_FA_TypeInfo_Struct12 MR_FA_TypeInfo_Struct12;
+typedef struct MR_FA_TypeInfo_Struct13 MR_FA_TypeInfo_Struct13;
+typedef struct MR_FA_TypeInfo_Struct14 MR_FA_TypeInfo_Struct14;
+typedef struct MR_FA_TypeInfo_Struct15 MR_FA_TypeInfo_Struct15;
+typedef struct MR_FA_TypeInfo_Struct16 MR_FA_TypeInfo_Struct16;
+typedef struct MR_FA_TypeInfo_Struct17 MR_FA_TypeInfo_Struct17;
+typedef struct MR_FA_TypeInfo_Struct18 MR_FA_TypeInfo_Struct18;
+typedef struct MR_FA_TypeInfo_Struct19 MR_FA_TypeInfo_Struct19;
+typedef struct MR_FA_TypeInfo_Struct20 MR_FA_TypeInfo_Struct20;
+
+/* the next two blocks of #defines are for bootstrapping */
+
+#define	MR_FO_PseudoTypeInfo_Struct0 MR_FA_PseudoTypeInfo_Struct0
+#define	MR_FO_PseudoTypeInfo_Struct1 MR_FA_PseudoTypeInfo_Struct1
+#define	MR_FO_PseudoTypeInfo_Struct2 MR_FA_PseudoTypeInfo_Struct2
+#define	MR_FO_PseudoTypeInfo_Struct3 MR_FA_PseudoTypeInfo_Struct3
+#define	MR_FO_PseudoTypeInfo_Struct4 MR_FA_PseudoTypeInfo_Struct4
+#define	MR_FO_PseudoTypeInfo_Struct5 MR_FA_PseudoTypeInfo_Struct5
+#define	MR_FO_PseudoTypeInfo_Struct6 MR_FA_PseudoTypeInfo_Struct6
+#define	MR_FO_PseudoTypeInfo_Struct7 MR_FA_PseudoTypeInfo_Struct7
+#define	MR_FO_PseudoTypeInfo_Struct8 MR_FA_PseudoTypeInfo_Struct8
+#define	MR_FO_PseudoTypeInfo_Struct9 MR_FA_PseudoTypeInfo_Struct9
+#define	MR_FO_PseudoTypeInfo_Struct10 MR_FA_PseudoTypeInfo_Struct10
+#define	MR_FO_PseudoTypeInfo_Struct11 MR_FA_PseudoTypeInfo_Struct11
+#define	MR_FO_PseudoTypeInfo_Struct12 MR_FA_PseudoTypeInfo_Struct12
+#define	MR_FO_PseudoTypeInfo_Struct13 MR_FA_PseudoTypeInfo_Struct13
+#define	MR_FO_PseudoTypeInfo_Struct14 MR_FA_PseudoTypeInfo_Struct14
+#define	MR_FO_PseudoTypeInfo_Struct15 MR_FA_PseudoTypeInfo_Struct15
+#define	MR_FO_PseudoTypeInfo_Struct16 MR_FA_PseudoTypeInfo_Struct16
+#define	MR_FO_PseudoTypeInfo_Struct17 MR_FA_PseudoTypeInfo_Struct17
+#define	MR_FO_PseudoTypeInfo_Struct18 MR_FA_PseudoTypeInfo_Struct18
+#define	MR_FO_PseudoTypeInfo_Struct19 MR_FA_PseudoTypeInfo_Struct19
+#define	MR_FO_PseudoTypeInfo_Struct20 MR_FA_PseudoTypeInfo_Struct20
+
+#define	MR_HO_PseudoTypeInfo_Struct0 MR_VA_PseudoTypeInfo_Struct0
+#define	MR_HO_PseudoTypeInfo_Struct1 MR_VA_PseudoTypeInfo_Struct1
+#define	MR_HO_PseudoTypeInfo_Struct2 MR_VA_PseudoTypeInfo_Struct2
+#define	MR_HO_PseudoTypeInfo_Struct3 MR_VA_PseudoTypeInfo_Struct3
+#define	MR_HO_PseudoTypeInfo_Struct4 MR_VA_PseudoTypeInfo_Struct4
+#define	MR_HO_PseudoTypeInfo_Struct5 MR_VA_PseudoTypeInfo_Struct5
+#define	MR_HO_PseudoTypeInfo_Struct6 MR_VA_PseudoTypeInfo_Struct6
+#define	MR_HO_PseudoTypeInfo_Struct7 MR_VA_PseudoTypeInfo_Struct7
+#define	MR_HO_PseudoTypeInfo_Struct8 MR_VA_PseudoTypeInfo_Struct8
+#define	MR_HO_PseudoTypeInfo_Struct9 MR_VA_PseudoTypeInfo_Struct9
+#define	MR_HO_PseudoTypeInfo_Struct10 MR_VA_PseudoTypeInfo_Struct10
+#define	MR_HO_PseudoTypeInfo_Struct11 MR_VA_PseudoTypeInfo_Struct11
+#define	MR_HO_PseudoTypeInfo_Struct12 MR_VA_PseudoTypeInfo_Struct12
+#define	MR_HO_PseudoTypeInfo_Struct13 MR_VA_PseudoTypeInfo_Struct13
+#define	MR_HO_PseudoTypeInfo_Struct14 MR_VA_PseudoTypeInfo_Struct14
+#define	MR_HO_PseudoTypeInfo_Struct15 MR_VA_PseudoTypeInfo_Struct15
+#define	MR_HO_PseudoTypeInfo_Struct16 MR_VA_PseudoTypeInfo_Struct16
+#define	MR_HO_PseudoTypeInfo_Struct17 MR_VA_PseudoTypeInfo_Struct17
+#define	MR_HO_PseudoTypeInfo_Struct18 MR_VA_PseudoTypeInfo_Struct18
+#define	MR_HO_PseudoTypeInfo_Struct19 MR_VA_PseudoTypeInfo_Struct19
+#define	MR_HO_PseudoTypeInfo_Struct20 MR_VA_PseudoTypeInfo_Struct20
 
 /*
 ** The chain of stack frames, used for accurate GC.
@@ -328,6 +464,7 @@ extern const MR_TypeCtorInfo_Struct
 	mercury__builtin__builtin__type_ctor_info_tuple_0,
 	mercury__array__array__type_ctor_info_array_1,
 	mercury__std_util__std_util__type_ctor_info_univ_0,
+	mercury__type_desc__type_desc__type_ctor_info_type_ctor_desc_0,
 	mercury__type_desc__type_desc__type_ctor_info_type_desc_0,
 	mercury__private_builtin__private_builtin__type_ctor_info_type_ctor_info_1,
 	mercury__private_builtin__private_builtin__type_ctor_info_type_info_1,
@@ -546,6 +683,8 @@ void MR_CALL mercury__builtin__compare_3_p_2(MR_Mercury_Type_Info,
 	MR_Comparison_Result *, MR_Box, MR_Box);
 void MR_CALL mercury__builtin__compare_3_p_3(MR_Mercury_Type_Info,
 	MR_Comparison_Result *, MR_Box, MR_Box);
+void MR_CALL mercury__std_util__compare_representation_3_p_0(
+	MR_Mercury_Type_Info, MR_Comparison_Result *, MR_Box, MR_Box);
 
 MR_bool MR_CALL mercury__builtin____Unify____int_0_0(MR_Integer x,
 	MR_Integer y); 
@@ -562,6 +701,8 @@ MR_bool MR_CALL mercury__builtin____Unify____func_0_0(MR_Func x, MR_Func y);
 MR_bool MR_CALL mercury__builtin____Unify____pred_0_0(MR_Pred x, MR_Pred y); 
 MR_bool MR_CALL mercury__builtin____Unify____tuple_0_0(
 	MR_Mercury_Type_Info type_info, MR_Tuple x, MR_Tuple y); 
+MR_bool MR_CALL mercury__type_desc____Unify____type_ctor_desc_0_0(
+	MR_Type_Ctor_Desc x, MR_Type_Ctor_Desc y); 
 MR_bool MR_CALL mercury__type_desc____Unify____type_desc_0_0(
 	MR_Type_Desc x, MR_Type_Desc y); 
 MR_bool MR_CALL mercury__private_builtin____Unify____type_ctor_info_1_0(
@@ -598,6 +739,9 @@ void MR_CALL mercury__builtin____Compare____pred_0_0(
 void MR_CALL mercury__builtin____Compare____tuple_0_0(
 	MR_Mercury_Type_Info type_info, MR_Comparison_Result *result,
 	MR_Tuple x, MR_Tuple y); 
+void MR_CALL mercury__type_desc____Compare____type_ctor_desc_0_0(
+	MR_Comparison_Result *result,
+	MR_Type_Ctor_Desc x, MR_Type_Ctor_Desc y);
 void MR_CALL mercury__type_desc____Compare____type_desc_0_0(
 	MR_Comparison_Result *result, MR_Type_Desc x, MR_Type_Desc y);
 void MR_CALL mercury__private_builtin____Compare____type_ctor_info_1_0(

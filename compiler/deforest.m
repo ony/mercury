@@ -132,9 +132,17 @@ deforestation(ModuleInfo0, ModuleInfo, IO0, IO) :-
 reset_inferred_proc_determinism(PredProcId, ModuleInfo0, ModuleInfo) :-
 	module_info_pred_proc_info(ModuleInfo0, PredProcId,
 		PredInfo, ProcInfo0),
-	proc_info_set_inferred_determinism(ProcInfo0, erroneous, ProcInfo),
-	module_info_set_pred_proc_info(ModuleInfo0, PredProcId,
-		PredInfo, ProcInfo, ModuleInfo).
+	proc_info_inferred_determinism(ProcInfo0, Detism0),
+	( determinism_components(Detism0, _, at_most_many_cc) ->
+		% `cc_multi' or `cc_nondet' determinisms are never inferred,
+		% so resetting the determinism would cause determinism errors.
+		ModuleInfo = ModuleInfo0
+	;	
+		proc_info_set_inferred_determinism(ProcInfo0, erroneous,
+			ProcInfo),
+		module_info_set_pred_proc_info(ModuleInfo0, PredProcId,
+			PredInfo, ProcInfo, ModuleInfo)
+	).
 
 :- pred proc_arg_info_init(map(pred_proc_id, pd_proc_arg_info)::out) is det.
 
@@ -272,13 +280,13 @@ deforest__goal(conj(Goals0) - Info, conj(Goals) - Info) -->
 	pd_info_set_instmap(InstMap0).
 
 	% XXX cannot deforest across parallel_conjunctions!
-deforest__goal(par_conj(Goals, SM) - Info, par_conj(Goals, SM) - Info) --> [].
+deforest__goal(par_conj(Goals) - Info, par_conj(Goals) - Info) --> [].
 
-deforest__goal(disj(Goals0, SM) - Info, disj(Goals, SM) - Info) -->
+deforest__goal(disj(Goals0) - Info, disj(Goals) - Info) -->
 	deforest__disj(Goals0, Goals).
 
-deforest__goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info, 
-		if_then_else(Vars, Cond, Then, Else, SM) - Info) -->
+deforest__goal(if_then_else(Vars, Cond0, Then0, Else0) - Info, 
+		if_then_else(Vars, Cond, Then, Else) - Info) -->
 	pd_info_get_instmap(InstMap0),
 	deforest__goal(Cond0, Cond),
 	pd_info_update_goal(Cond),
@@ -287,8 +295,8 @@ deforest__goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info,
 	deforest__goal(Else0, Else),
 	pd_info_set_instmap(InstMap0).
 		
-deforest__goal(switch(Var, CanFail, Cases0, SM) - Info,
-		switch(Var, CanFail, Cases, SM) - Info) -->
+deforest__goal(switch(Var, CanFail, Cases0) - Info,
+		switch(Var, CanFail, Cases) - Info) -->
 	deforest__cases(Var, Cases0, Cases).
 
 deforest__goal(Goal, Goal) -->
@@ -1621,12 +1629,12 @@ deforest__push_goal_into_goal(NonLocals, DeforestInfo, EarlierGoal,
 		BetweenGoals, LaterGoal, Goal) -->
 	pd_info_get_instmap(InstMap0),
 	{ EarlierGoal = EarlierGoalExpr - _ },
-	( { EarlierGoalExpr = switch(Var1, CanFail1, Cases1, SM) } ->
+	( { EarlierGoalExpr = switch(Var1, CanFail1, Cases1) } ->
 		{ set__insert(NonLocals, Var1, CaseNonLocals) },
 		deforest__append_goal_to_cases(Var1, Cases1, BetweenGoals, 
 			LaterGoal, CaseNonLocals, 1, DeforestInfo, Cases),
-		{ GoalExpr = switch(Var1, CanFail1, Cases, SM) }
-	; { EarlierGoalExpr = if_then_else(Vars, Cond, Then0, Else0, SM) } ->
+		{ GoalExpr = switch(Var1, CanFail1, Cases) }
+	; { EarlierGoalExpr = if_then_else(Vars, Cond, Then0, Else0) } ->
 		pd_info_update_goal(Cond),
 		{ Cond = _ - CondInfo },
 		{ goal_info_get_nonlocals(CondInfo, CondNonLocals) },
@@ -1636,11 +1644,11 @@ deforest__push_goal_into_goal(NonLocals, DeforestInfo, EarlierGoal,
 		pd_info_set_instmap(InstMap0),
 		deforest__append_goal(Else0, BetweenGoals,
 			LaterGoal, NonLocals, 2, DeforestInfo, Else),
-		{ GoalExpr = if_then_else(Vars, Cond, Then, Else, SM) }
-	; { EarlierGoalExpr = disj(Disjuncts0, SM) } ->
+		{ GoalExpr = if_then_else(Vars, Cond, Then, Else) }
+	; { EarlierGoalExpr = disj(Disjuncts0) } ->
 		deforest__append_goal_to_disjuncts(Disjuncts0, BetweenGoals, 
 			LaterGoal, NonLocals, 1, DeforestInfo, Disjuncts),
-		{ GoalExpr = disj(Disjuncts, SM) }
+		{ GoalExpr = disj(Disjuncts) }
 	;
 		{ error("deforest__push_goal_into_goal") }
 	),

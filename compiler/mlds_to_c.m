@@ -126,8 +126,7 @@ mlds_to_c__output_mlds(MLDS, Suffix) -->
 :- mode mlds_output_hdr_file(in, in, di, uo) is det.
 
 mlds_output_hdr_file(Indent, MLDS) -->
-	% XXX for bootstrapping
-	io__write_string("#define MR_BOOTSTRAP_TYPE_CTOR_COMPACT\n"),
+	io__write_string("#define MR_BOOTSTRAP_TYPE_CTOR_REP\n"),
 	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns) },
 	mlds_output_hdr_start(Indent, ModuleName), io__nl,
 	mlds_output_hdr_imports(Indent, Imports), io__nl,
@@ -664,8 +663,8 @@ mlds_output_pragma_export_type(prefix, mlds__native_float_type) -->
 	io__write_string("MR_Float").
 mlds_output_pragma_export_type(prefix, mlds__native_char_type) -->
 	io__write_string("MR_Char").
-mlds_output_pragma_export_type(prefix, mlds__foreign_type(_, _, _)) -->
-	{ error("mlds_output_pragma_export_type: foreign_type") }.
+mlds_output_pragma_export_type(prefix, mlds__foreign_type(_)) -->
+	io__write_string("MR_Box").
 mlds_output_pragma_export_type(prefix, mlds__class_type(_, _, _)) -->
 	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mlds__array_type(_)) -->
@@ -678,6 +677,8 @@ mlds_output_pragma_export_type(prefix, mlds__func_type(_)) -->
 mlds_output_pragma_export_type(prefix, mlds__generic_type) -->
 	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mlds__generic_env_ptr_type) -->
+	io__write_string("MR_Word").
+mlds_output_pragma_export_type(prefix, mlds__type_info_type) -->
 	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mlds__pseudo_type_info_type) -->
 	io__write_string("MR_Word").
@@ -1638,8 +1639,13 @@ mlds_output_type_prefix(mlds__native_float_type) --> io__write_string("float").
 mlds_output_type_prefix(mlds__native_bool_type)  -->
 	io__write_string("MR_bool").
 mlds_output_type_prefix(mlds__native_char_type)  --> io__write_string("char").
-mlds_output_type_prefix(mlds__foreign_type(_, _, _)) -->
-	{ error("mlds_output_type_prefix: foreign_type") }.
+mlds_output_type_prefix(mlds__foreign_type(ForeignType)) -->
+	( { ForeignType = c(c(Name)) },
+		io__write_string(Name)
+	; { ForeignType = il(_) },
+		{ unexpected(this_file,
+			"mlds_output_type_prefix: il foreign_type") }
+	).
 mlds_output_type_prefix(mlds__class_type(Name, Arity, ClassKind)) -->
 	( { ClassKind = mlds__enum } ->
 		%
@@ -1678,6 +1684,8 @@ mlds_output_type_prefix(mlds__generic_type) -->
 	io__write_string("MR_Box").
 mlds_output_type_prefix(mlds__generic_env_ptr_type) -->
 	io__write_string("void *").
+mlds_output_type_prefix(mlds__type_info_type) -->
+	io__write_string("MR_TypeInfo").
 mlds_output_type_prefix(mlds__pseudo_type_info_type) -->
 	io__write_string("MR_PseudoTypeInfo").
 mlds_output_type_prefix(mlds__cont_type(ArgTypes)) -->
@@ -1806,7 +1814,8 @@ mlds_output_type_suffix(mlds__native_int_type, _) --> [].
 mlds_output_type_suffix(mlds__native_float_type, _) --> [].
 mlds_output_type_suffix(mlds__native_bool_type, _) --> [].
 mlds_output_type_suffix(mlds__native_char_type, _) --> [].
-mlds_output_type_suffix(mlds__foreign_type(_, _, _), _) --> [].
+	% XXX Currently we can't output a type suffix.
+mlds_output_type_suffix(mlds__foreign_type(_), _) --> [].
 mlds_output_type_suffix(mlds__class_type(_, _, _), _) --> [].
 mlds_output_type_suffix(mlds__ptr_type(_), _) --> [].
 mlds_output_type_suffix(mlds__array_type(_), ArraySize) -->
@@ -1815,6 +1824,7 @@ mlds_output_type_suffix(mlds__func_type(FuncParams), _) -->
 	mlds_output_func_type_suffix(FuncParams).
 mlds_output_type_suffix(mlds__generic_type, _) --> [].
 mlds_output_type_suffix(mlds__generic_env_ptr_type, _) --> [].
+mlds_output_type_suffix(mlds__type_info_type, _) --> [].
 mlds_output_type_suffix(mlds__pseudo_type_info_type, _) --> [].
 mlds_output_type_suffix(mlds__cont_type(ArgTypes), _) -->
 	( { ArgTypes = [] } ->
@@ -2216,7 +2226,8 @@ mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	% the call -- see below.
 	%
 	% Note that it's only safe to add such a return statement if
-	% the calling procedure has the same argument types as the callee.
+	% the calling procedure has the same return types as the callee,
+	% or if the calling procedure has no return value.
 	% (Calls where the types are different can be marked as tail calls
 	% if they are known to never return.)
 	%
@@ -2224,7 +2235,7 @@ mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	{ Signature = mlds__func_signature(_, RetTypes) },
 	{ CallerSignature = mlds__func_signature(_, CallerRetTypes) },
 	(
-		{ IsTailCall = tail_call },
+		{ IsTailCall = tail_call ; IsTailCall = no_return_call },
 		{ Results \= [] },
 		{ RetTypes = CallerRetTypes }
 	->
@@ -2253,9 +2264,8 @@ mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	io__write_string(");\n"),
 
 	(
-		{ IsTailCall = tail_call },
-		{ Results = [] },
-		{ RetTypes = CallerRetTypes }
+		{ IsTailCall = tail_call ; IsTailCall = no_return_call },
+		{ CallerRetTypes = [] }
 	->
 		mlds_indent(Context, Indent + 1),
 		io__write_string("return;\n")

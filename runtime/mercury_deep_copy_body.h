@@ -224,7 +224,7 @@ try_again:
                             MR_field(0, new_data, cur_slot) =               \
                                 copy_arg(parent_data, &data_value[cur_slot], \
                                     functor_desc,                           \
-                                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR( \
+                                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR( \
                                         type_info),                         \
                                     functor_desc->MR_du_functor_arg_types[i], \
                                     lower_limit, upper_limit);              \
@@ -269,7 +269,7 @@ try_again:
     case MR_TYPECTOR_REP_NOTAG:
     case MR_TYPECTOR_REP_NOTAG_USEREQ:
         new_data = copy_arg(NULL, data_ptr, NULL,
-            MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+            MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
             MR_type_ctor_layout(type_ctor_info).layout_notag->
             MR_notag_functor_arg_type, lower_limit, upper_limit);
         break;
@@ -284,7 +284,7 @@ try_again:
 
     case MR_TYPECTOR_REP_EQUIV:
         new_data = copy_arg(NULL, data_ptr, NULL,
-            MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+            MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
             MR_type_ctor_layout(type_ctor_info).layout_equiv,
             lower_limit, upper_limit);
         break;
@@ -395,7 +395,7 @@ try_again:
                 ** Fill in the pseudo_typeinfos in the closure layout
                 ** with the values from the closure.
                 */
-                type_info_arg_vector = MR_materialize_closure_typeinfos(
+                type_info_arg_vector = MR_materialize_closure_type_params(
                     old_closure);
 
                 /* copy the arguments */
@@ -438,7 +438,7 @@ try_again:
                 MR_Word *new_data_ptr;
                 MR_TypeInfo *arg_typeinfo_vector;
 
-                arity = MR_TYPEINFO_GET_TUPLE_ARITY(type_info);
+                arity = MR_TYPEINFO_GET_VAR_ARITY_ARITY(type_info);
 
                 if (arity == 0) {
                     new_data = (MR_Word) NULL;
@@ -448,7 +448,7 @@ try_again:
                     new_data_ptr = (MR_Word *) new_data;
 
                     arg_typeinfo_vector =
-                        MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(type_info);
+                        MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(type_info);
                     for (i = 0; i < arity; i++) {
                        /* type_infos are counted from one */
                        new_data_ptr[i] = copy(&data_value[i],
@@ -488,7 +488,7 @@ try_again:
                 for (i = 0; i < array_size; i++) {
                     new_array->elements[i] = copy_arg(NULL,
                         &old_array->elements[i], NULL,
-                        MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                        MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                         (const MR_PseudoTypeInfo) 1, lower_limit, upper_limit);
                 }
                 new_data = (MR_Word) new_array;
@@ -502,7 +502,7 @@ try_again:
                 for (i = 0; i < array_size; i++) {
                     (void) copy_arg(NULL, 
                         &old_array->elements[i], NULL, 
-                        MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                        MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                         (const MR_PseudoTypeInfo) 1, lower_limit, upper_limit);
                 }
                 new_data = data;
@@ -514,12 +514,21 @@ try_again:
         break;
 
     case MR_TYPECTOR_REP_TYPEINFO:
+    case MR_TYPECTOR_REP_TYPEDESC:
         new_data = (MR_Word) copy_type_info((MR_TypeInfo *) data_ptr,
             lower_limit, upper_limit);
         break;
 
     case MR_TYPECTOR_REP_TYPECTORINFO:
-        /* type_ctor_infos are always static */
+        /* type_ctor_infos are always pointers to static data */
+        new_data = data;
+        break;
+
+    case MR_TYPECTOR_REP_TYPECTORDESC:
+        /*
+        ** type_ctor_descs are always either encoded integers,
+        ** or pointers to static data
+        */
         new_data = data;
         break;
 
@@ -529,7 +538,7 @@ try_again:
         break;
 
     case MR_TYPECTOR_REP_BASETYPECLASSINFO:
-        /* base_typeclass_infos are always static */
+        /* base_typeclass_infos are always pointers to static data */
         new_data = data;
         break;
 
@@ -678,19 +687,19 @@ copy_type_info(maybeconst MR_TypeInfo *type_info_ptr,
         if (MR_type_ctor_rep_is_variable_arity(
             MR_type_ctor_rep(type_ctor_info)))
         {
-            arity = MR_TYPEINFO_GET_HIGHER_ORDER_ARITY(type_info);
+            arity = MR_TYPEINFO_GET_VAR_ARITY_ARITY(type_info);
             type_info_args =
-                MR_TYPEINFO_GET_HIGHER_ORDER_ARG_VECTOR(type_info);
+                MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(type_info);
             MR_incr_saved_hp(MR_LVALUE_CAST(MR_Word, new_type_info_arena),
-                MR_higher_order_type_info_size(arity));
-            MR_fill_in_higher_order_type_info(new_type_info_arena,
+                MR_var_arity_type_info_size(arity));
+            MR_fill_in_var_arity_type_info(new_type_info_arena,
                 type_ctor_info, arity, new_type_info_args);
         } else {
             arity = type_ctor_info->MR_type_ctor_arity;
-            type_info_args = MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
+            type_info_args = MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info);
             MR_incr_saved_hp(MR_LVALUE_CAST(MR_Word, new_type_info_arena),
-                MR_first_order_type_info_size(arity));
-            MR_fill_in_first_order_type_info(new_type_info_arena,
+                MR_fixed_arity_type_info_size(arity));
+            MR_fill_in_fixed_arity_type_info(new_type_info_arena,
                 type_ctor_info, new_type_info_args);
         }
         for (i = 1; i <= arity; i++) {

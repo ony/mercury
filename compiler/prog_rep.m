@@ -18,17 +18,20 @@
 
 :- interface.
 
+:- import_module parse_tree__prog_data.
 :- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_module.
 :- import_module hlds__instmap.
 :- import_module mdb, mdb__program_representation.
+:- import_module list.
 
-:- pred prog_rep__represent_goal(hlds_goal::in, instmap::in, vartypes::in,
-	module_info::in, goal_rep::out) is det.
+:- pred prog_rep__represent_proc(list(prog_var)::in, hlds_goal::in,
+	instmap::in, vartypes::in, module_info::in, proc_rep::out) is det.
 
 :- implementation.
 
-:- import_module hlds__hlds_data, parse_tree__prog_data.
-:- import_module string, list, set, std_util, require, term.
+:- import_module parse_tree__prog_out.
+:- import_module hlds__hlds_data.
+:- import_module string, set, std_util, require, term.
 
 :- type prog_rep__info
 	--->	info(
@@ -36,9 +39,11 @@
 			module_info :: module_info
 		).
 
-prog_rep__represent_goal(Goal, InstMap0, VarTypes, ModuleInfo, Rep) :-
+prog_rep__represent_proc(HeadVars, Goal, InstMap0, VarTypes, ModuleInfo,
+		proc_rep(HeadVarsRep, GoalRep)) :-
+	list__map(term__var_to_int, HeadVars, HeadVarsRep),
 	prog_rep__represent_goal(Goal, InstMap0, info(VarTypes, ModuleInfo),
-		Rep).
+		GoalRep).
 
 :- pred prog_rep__represent_goal(hlds_goal::in, instmap::in,
 	prog_rep__info::in, goal_rep::out) is det.
@@ -59,8 +64,8 @@ prog_rep__represent_atomic_goal(GoalInfo, InstMap0, Info,
 	term__context_line(Context, LinenoRep),
 	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
 	instmap__apply_instmap_delta(InstMap0, InstMapDelta, InstMap),
-	instmap_changed_vars(InstMap0, InstMap, Info^vartypes, Info^module_info,
-		ChangedVars),
+	instmap_changed_vars(InstMap0, InstMap, Info ^ vartypes,
+		Info ^ module_info, ChangedVars),
 	set__to_sorted_list(ChangedVars, ChangedVarsList),
 	list__map(term__var_to_int, ChangedVarsList, ChangedVarsRep).
 
@@ -148,18 +153,17 @@ prog_rep__represent_goal_expr(unify(_, _, _, Uni, _), GoalInfo, InstMap0,
 prog_rep__represent_goal_expr(conj(Goals), _, InstMap0, Info, Rep) :-
 	prog_rep__represent_conj(Goals, InstMap0, Info, Reps),
 	Rep = conj_rep(Reps).
-prog_rep__represent_goal_expr(par_conj(_, _), _, _, _, _) :-
+prog_rep__represent_goal_expr(par_conj(_), _, _, _, _) :-
 	error("Sorry, not yet implemented:\n\
 	parallel conjunctions and declarative debugging").
-prog_rep__represent_goal_expr(disj(Goals, _SM), _, InstMap0, Info, Rep)
-		:-
+prog_rep__represent_goal_expr(disj(Goals), _, InstMap0, Info, Rep) :-
 	prog_rep__represent_disj(Goals, InstMap0, Info, DisjReps),
 	Rep = disj_rep(DisjReps).
 prog_rep__represent_goal_expr(not(Goal), _GoalInfo, InstMap0, Info, Rep)
 		:-
 	prog_rep__represent_goal(Goal, InstMap0, Info, InnerRep),
 	Rep = negation_rep(InnerRep).
-prog_rep__represent_goal_expr(if_then_else(_, Cond, Then, Else, _SM),
+prog_rep__represent_goal_expr(if_then_else(_, Cond, Then, Else),
 		_, InstMap0, Info, Rep) :-
 	prog_rep__represent_goal(Cond, InstMap0, Info, CondRep),
 	Cond = _ - CondGoalInfo,
@@ -168,14 +172,22 @@ prog_rep__represent_goal_expr(if_then_else(_, Cond, Then, Else, _SM),
 	prog_rep__represent_goal(Then, InstMap1, Info, ThenRep),
 	prog_rep__represent_goal(Else, InstMap0, Info, ElseRep),
 	Rep = ite_rep(CondRep, ThenRep, ElseRep).
-prog_rep__represent_goal_expr(switch(_, _, Cases, _SM), _,
+prog_rep__represent_goal_expr(switch(_, _, Cases), _,
 		InstMap0, Info, Rep) :-
 	prog_rep__represent_cases(Cases, InstMap0, Info, CaseReps),
 	Rep = switch_rep(CaseReps).
-prog_rep__represent_goal_expr(some(_, _, Goal), _, InstMap0, Info, Rep)
+prog_rep__represent_goal_expr(some(_, _, Goal), GoalInfo, InstMap0, Info, Rep)
 		:-
 	prog_rep__represent_goal(Goal, InstMap0, Info, InnerRep),
-	Rep = some_rep(InnerRep).
+	Goal = _ - InnerGoalInfo,
+	goal_info_get_determinism(GoalInfo, OuterDetism),
+	goal_info_get_determinism(InnerGoalInfo, InnerDetism),
+	( InnerDetism = OuterDetism ->
+		MaybeCut = no_cut
+	;
+		MaybeCut = cut
+	),
+	Rep = some_rep(InnerRep, MaybeCut).
 prog_rep__represent_goal_expr(generic_call(GenericCall, Args, _, _),
 		GoalInfo, InstMap0, Info, Rep) :-
 	list__map(term__var_to_int, Args, ArgsRep),
@@ -198,10 +210,12 @@ prog_rep__represent_goal_expr(generic_call(GenericCall, Args, _, _),
 		ChangedVarsRep, AtomicGoalRep).
 prog_rep__represent_goal_expr(call(PredId, _, Args, _, _, _),
 		GoalInfo, InstMap0, Info, Rep) :-
-	module_info_pred_info(Info^module_info, PredId, PredInfo),
+	module_info_pred_info(Info ^ module_info, PredId, PredInfo),
+	pred_info_module(PredInfo, ModuleSymName),
+	prog_out__sym_name_to_string(ModuleSymName, ModuleName),
 	pred_info_name(PredInfo, PredName),
 	list__map(term__var_to_int, Args, ArgsRep),
-	AtomicGoalRep = plain_call_rep(PredName, ArgsRep),
+	AtomicGoalRep = plain_call_rep(ModuleName, PredName, ArgsRep),
 	prog_rep__represent_atomic_goal(GoalInfo, InstMap0, Info,
 		DetismRep, FilenameRep, LinenoRep, ChangedVarsRep),
 	Rep = atomic_goal_rep(DetismRep, FilenameRep, LinenoRep,

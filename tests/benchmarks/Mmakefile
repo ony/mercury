@@ -11,7 +11,7 @@ include ../Mmake.common
 # of the benchmarks (with I/O suppressed)
 # MLFLAGS=-w "`extract $(*:_init=) '' BenchEntry`"
 
-MCFLAGS = --dump-mode-constraints -V -dpolymorphism -dmode_constraints --dump-hlds-options C -D ALL
+MCFLAGS += --dump-mode-constraints -V -dpolymorphism -dmode_constraints --dump-hlds-options C -D ALL
 
 #-----------------------------------------------------------------------------#
 

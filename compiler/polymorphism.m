@@ -29,7 +29,7 @@
 % argument for every type variable in the predicate's type declaration.
 % The argument gives information about the type, including higher-order
 % predicate variables for each of the builtin polymorphic operations
-% (currently unify/2, compare/3, index/2).
+% (currently unify/2, compare/3).
 %
 %-----------------------------------------------------------------------------%
 %
@@ -40,27 +40,14 @@
 % TO THE TYPE SPECIALIZATION CODE IN "compiler/higher_order.m".
 %
 % Type information is represented using one or two cells. The cell which
-% is always present is the type_ctor_info structure, laid out like this:
-%
-%	word 0		<arity of type constructor>
-%			e.g. 0 for `int', 1 for `list(T)', 2 for `map(K, V)'.
-%	word 1		<=/2 predicate for type>
-%	word 2		<index/2 predicate for type>
-%	word 3		<compare/3 predicate for type>
-%	word 4		<MR_TypeCtorRepresentation for type constructor>
-%	word 5		<type_ctor_functors for type>
-%	word 6		<type_ctor_layout for type>
-%	word 7		<string name of type constructor>
-%			e.g. "int" for `int', "list" for `list(T)',
-%			"map" for `map(K,V)'
-%	word 8		<string name of module>
-%
-% The other cell is the type_info structure, laid out like this:
+% is always present is the type_ctor_info structure, whose structure is
+% defined in runtime/mercury_type_info.h. The other cell is the type_info
+% structure, laid out like this:
 %
 %	word 0		<pointer to the type_ctor_info structure>
 %	word 1+		<the type_infos for the type params, at least one>
 %
-%	(but see note below for how higher order types differ)
+%	(but see note below for how variable arity types differ)
 %
 %-----------------------------------------------------------------------------%
 %
@@ -77,12 +64,12 @@
 %
 %-----------------------------------------------------------------------------%
 %
-% Higher order types:
+% Variable arity types:
 %
-% There is a slight variation on this for higher-order types. Higher
-% order type_infos always have a pointer to the pred/0 type_ctor_info,
-% regardless of their true arity, so we store the real arity in the
-% type-info as well.
+% There is a slight variation on this for variable-arity type constructors, of
+% there are exactly three: pred, func and tuple. Typeinfos of these types
+% always have a pointer to the pred/0 type_ctor_info, regardless of their true
+% arity, so we store the real arity in the type-info as well.
 %
 %	word 0		<pointer to the type_ctor_info structure (pred/0)>
 %	word 1		<arity of predicate>
@@ -103,7 +90,7 @@
 %	   addresses during startup (that is, during the module
 %	   initialization code).
 %
-% Currently we use option 2.
+% We use option 2.
 %
 %-----------------------------------------------------------------------------%
 %
@@ -127,28 +114,12 @@
 % We transform the body of p to this:
 %
 %	p(TypeInfoT1, X) :-
-%		TypeCtorInfoT2 = type_ctor_info(
-%			1,
-%			'__Unify__'<list/1>,
-%			'__Index__'<list/1>,
-%			'__Compare__'<list/1>,
-%			<type_ctor_layout for list/1>,
-%			<type_ctor_functors for list/1>,
-%			"list",
-%			"list"),
+%		TypeCtorInfoT2 = type_ctor_info(list/1),
 %		TypeInfoT2 = type_info(
 %			TypeCtorInfoT2,
 %			TypeInfoT1),
 %		q(TypeInfoT2, [X]),
-%		TypeInfoT3 = type_ctor_info(
-%			0,
-%			builtin_unify_int,
-%			builtin_index_int,
-%			builtin_compare_int,
-%			<type_ctor_layout for int/0>,
-%			<type_ctor_functors for int/0>,
-%			"int",
-%			"builtin"),
+%		TypeInfoT3 = type_ctor_info(int/0),
 %		r(TypeInfoT3, 0).
 %
 % Note that type_ctor_infos are actually generated as references to a
@@ -1150,22 +1121,22 @@ polymorphism__process_goal_expr(unify(XVar, Y, Mode, Unification, UnifyContext),
 polymorphism__process_goal_expr(conj(Goals0), GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	polymorphism__process_goal_list(Goals0, Goals).
-polymorphism__process_goal_expr(par_conj(Goals0, SM), GoalInfo,
-		par_conj(Goals, SM) - GoalInfo) -->
+polymorphism__process_goal_expr(par_conj(Goals0), GoalInfo,
+		par_conj(Goals) - GoalInfo) -->
 	polymorphism__process_goal_list(Goals0, Goals).
-polymorphism__process_goal_expr(disj(Goals0, SM), GoalInfo,
-		disj(Goals, SM) - GoalInfo) -->
+polymorphism__process_goal_expr(disj(Goals0), GoalInfo,
+		disj(Goals) - GoalInfo) -->
 	polymorphism__process_goal_list(Goals0, Goals).
 polymorphism__process_goal_expr(not(Goal0), GoalInfo, not(Goal) - GoalInfo) -->
 	polymorphism__process_goal(Goal0, Goal).
-polymorphism__process_goal_expr(switch(Var, CanFail, Cases0, SM), GoalInfo,
-				switch(Var, CanFail, Cases, SM) - GoalInfo) -->
+polymorphism__process_goal_expr(switch(Var, CanFail, Cases0), GoalInfo,
+				switch(Var, CanFail, Cases) - GoalInfo) -->
 	polymorphism__process_case_list(Cases0, Cases).
 polymorphism__process_goal_expr(some(Vars, CanRemove, Goal0), GoalInfo,
 			some(Vars, CanRemove, Goal) - GoalInfo) -->
 	polymorphism__process_goal(Goal0, Goal).
-polymorphism__process_goal_expr(if_then_else(Vars, A0, B0, C0, SM), GoalInfo,
-			if_then_else(Vars, A, B, C, SM) - GoalInfo) -->
+polymorphism__process_goal_expr(if_then_else(Vars, A0, B0, C0), GoalInfo,
+			if_then_else(Vars, A, B, C) - GoalInfo) -->
 	polymorphism__process_goal(A0, A),
 	polymorphism__process_goal(B0, B),
 	polymorphism__process_goal(C0, C).
@@ -2676,7 +2647,7 @@ polymorphism__make_type_info_var(Type, Context, Var, ExtraGoals,
 			% variable to be that type_info variable.
 			%
 			polymorphism__new_type_info_var(Type, "type_info",
-				Var, Info0, Info1),
+				typeinfo_prefix, Var, Info0, Info1),
 			map__det_insert(TypeInfoMap0, TypeVar, type_info(Var),
 				TypeInfoMap),
 			poly_info_set_type_info_map(TypeInfoMap, Info1, Info),
@@ -2900,8 +2871,8 @@ polymorphism__init_type_info_var(Type, ArgVars, Symbol, VarSet0, VarTypes0,
 	TypeInfoTerm = functor(ConsId, ArgVars),
 
 	% introduce a new variable
-	polymorphism__new_type_info_var(Type, Symbol, VarSet0, VarTypes0,
-		TypeInfoVar, VarSet, VarTypes),
+	polymorphism__new_type_info_var_raw(Type, Symbol, typeinfo_prefix,
+		VarSet0, VarTypes0, TypeInfoVar, VarSet, VarTypes),
 
 	% create the construction unification to initialize the variable
 	UniMode = (free - ground(shared, none) ->
@@ -2959,8 +2930,9 @@ polymorphism__init_const_type_ctor_info_var(Type, TypeCtor,
 	TypeInfoTerm = functor(ConsId, []),
 
 	% introduce a new variable
-	polymorphism__new_type_info_var(Type, "type_ctor_info",
-		VarSet0, VarTypes0, TypeCtorInfoVar, VarSet, VarTypes),
+	polymorphism__new_type_info_var_raw(Type, "type_ctor_info",
+		typectorinfo_prefix, VarSet0, VarTypes0,
+		TypeCtorInfoVar, VarSet, VarTypes),
 
 	% create the construction unification to initialize the variable
 	RLExprnId = no,
@@ -2990,7 +2962,8 @@ polymorphism__init_const_type_ctor_info_var(Type, TypeCtor,
 polymorphism__make_head_vars([], _, []) --> [].
 polymorphism__make_head_vars([TypeVar|TypeVars], TypeVarSet, TypeInfoVars) -->
 	{ Type = term__variable(TypeVar) },
-	polymorphism__new_type_info_var(Type, "type_info", Var),
+	polymorphism__new_type_info_var(Type, "type_info", typeinfo_prefix,
+		Var),
 	( { varset__search_name(TypeVarSet, TypeVar, TypeVarName) } ->
 		=(Info0),
 		{ poly_info_get_varset(Info0, VarSet0) },
@@ -3003,34 +2976,40 @@ polymorphism__make_head_vars([TypeVar|TypeVars], TypeVarSet, TypeInfoVars) -->
 	{ TypeInfoVars = [Var | TypeInfoVars1] },
 	polymorphism__make_head_vars(TypeVars, TypeVarSet, TypeInfoVars1).
 
+:- pred polymorphism__new_type_info_var(type, string, string, prog_var,
+	poly_info, poly_info).
+:- mode polymorphism__new_type_info_var(in, in, in, out, in, out) is det.
 
-:- pred polymorphism__new_type_info_var(type, string, prog_var,
-					poly_info, poly_info).
-:- mode polymorphism__new_type_info_var(in, in, out, in, out) is det.
-
-polymorphism__new_type_info_var(Type, Symbol, Var, Info0, Info) :-
+polymorphism__new_type_info_var(Type, Symbol, Prefix, Var, Info0, Info) :-
 	poly_info_get_varset(Info0, VarSet0),
 	poly_info_get_var_types(Info0, VarTypes0),
-	polymorphism__new_type_info_var(Type, Symbol, VarSet0, VarTypes0,
-					Var, VarSet, VarTypes),
+	polymorphism__new_type_info_var_raw(Type, Symbol, Prefix,
+		VarSet0, VarTypes0, Var, VarSet, VarTypes),
 	poly_info_set_varset_and_types(VarSet, VarTypes, Info0, Info).
 
+:- pred polymorphism__new_type_info_var_raw(type, string, string, prog_varset,
+	map(prog_var, type), prog_var, prog_varset, map(prog_var, type)).
+:- mode polymorphism__new_type_info_var_raw(in, in, in, in, in, out, out, out)
+	is det.
 
-:- pred polymorphism__new_type_info_var(type, string, prog_varset,
-		map(prog_var, type), prog_var, prog_varset,
-		map(prog_var, type)).
-:- mode polymorphism__new_type_info_var(in, in, in, in, out, out, out) is det.
-
-polymorphism__new_type_info_var(Type, Symbol, VarSet0, VarTypes0,
-				Var, VarSet, VarTypes) :-
+polymorphism__new_type_info_var_raw(Type, Symbol, Prefix, VarSet0, VarTypes0,
+		Var, VarSet, VarTypes) :-
 	% introduce new variable
 	varset__new_var(VarSet0, Var, VarSet1),
 	term__var_to_int(Var, VarNum),
 	string__int_to_string(VarNum, VarNumStr),
-	string__append("TypeInfo_", VarNumStr, Name),
+	string__append(Prefix, VarNumStr, Name),
 	varset__name_var(VarSet1, Var, Name, VarSet),
 	polymorphism__build_type_info_type(Symbol, Type, TypeInfoType),
 	map__set(VarTypes0, Var, TypeInfoType, VarTypes).
+
+:- func typeinfo_prefix = string.
+
+typeinfo_prefix = "TypeInfo_".
+
+:- func typectorinfo_prefix = string.
+
+typectorinfo_prefix = "TypeCtorInfo_".
 
 %---------------------------------------------------------------------------%
 
@@ -3100,8 +3079,9 @@ polymorphism__gen_extract_type_info(TypeVar, TypeClassInfoVar, Index,
 	polymorphism__make_count_var(Index, VarSet0, VarTypes0, IndexVar,
 		IndexGoal, VarSet1, VarTypes1),
 
-	polymorphism__new_type_info_var(term__variable(TypeVar), "type_info",
-		VarSet1, VarTypes1, TypeInfoVar, VarSet, VarTypes),
+	polymorphism__new_type_info_var_raw(term__variable(TypeVar),
+		"type_info", typeinfo_prefix, VarSet1, VarTypes1,
+		TypeInfoVar, VarSet, VarTypes),
 
 		% Make the goal info for the call.
 		% `type_info_from_typeclass_info' does not require an extra

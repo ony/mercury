@@ -73,17 +73,6 @@ case "$host" in
 esac
 #-----------------------------------------------------------------------------#
 
-# When statically linked on Compaq Tru64 UNIX V5.1, the conftest executable
-# fails with message "sh: Cannot allocate space for bss."
-case "$host" in
-	alpha*-osf5*)
-		link_flags=
-		;;
-	*)	
-		link_flags='--link-flags "--static"'
-		;;
-esac
-	
 MERCURY_MSG("looking for an already installed Mercury compiler to bootstrap with...")
 AC_PATH_PROG(BOOTSTRAP_MC,mmc)
 if test "$BOOTSTRAP_MC" != ""; then
@@ -119,13 +108,16 @@ if test "$BOOTSTRAP_MC" != ""; then
 		").
 EOF
 	if
-		# Test for the `--dotnet-library-version' option.
+		# Test for the `--generate-mmc-deps' and
+		# `--no-mercury-stdlib-dir' options.
 		echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
 		$BOOTSTRAP_MC \
-			--dotnet-library-version 1.0.3300.0 \
-			--halt-at-warn $link_flags conftest \
+			--generate-mmc-deps \
+			--halt-at-warn --link-flags --static conftest \
 			</dev/null >&AC_FD_CC 2>&1 &&
-		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
+		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world" &&
+		$BOOTSTRAP_MC --output-grade-string --no-mercury-stdlib-dir \
+			</dev/null >&AC_FD_CC 2>&1
 	then
 		AC_MSG_RESULT(yes)
 	else
@@ -440,7 +432,8 @@ mercury_check_for_functions () {
 
     for mercury_cv_func in "$@"
     do
-	mercury_cv_func_define=MR_HAVE_`echo $mercury_cv_func | tr a-z A-Z`
+	mercury_cv_func_define="MR_HAVE_`echo $mercury_cv_func | \
+		tr abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ`"
 	AC_CHECK_FUNC($mercury_cv_func, [
 		AC_DEFINE_UNQUOTED($mercury_cv_func_define)
 	])
@@ -469,7 +462,7 @@ mercury_check_for_headers () {
     for mercury_cv_header in "$@"
     do
 	mercury_cv_header_define="MR_HAVE_`echo $mercury_cv_header | \
-						tr 'a-z./' 'A-Z__'`"
+		tr abcdefghijklmnopqrstuvwxyz./ ABCDEFGHIJKLMNOPQRSTUVWXYZ__`"
 	AC_CHECK_HEADER($mercury_cv_header, [
 		AC_DEFINE_UNQUOTED($mercury_cv_header_define)
 		eval "$mercury_cv_header_define=1"

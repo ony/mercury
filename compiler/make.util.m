@@ -135,9 +135,9 @@
 :- mode target_extension(in, in) = out is det.
 :- mode target_extension(in, out) = in is nondet.
 
-:- func linked_target_extension(globals, linked_target_type) = string.
-:- mode linked_target_extension(in, in) = out is det.
-:- mode linked_target_extension(in, out) = in is nondet.
+:- pred linked_target_file_name(module_name, linked_target_type, file_name,
+		io__state, io__state).
+:- mode linked_target_file_name(in, in, out, di, uo) is det.
 
 	% Find the extension for the timestamp file for the
 	% given target type, if one exists.
@@ -271,13 +271,12 @@ build_with_module_options(ModuleName, ExtraOptions,
 		{ OptionsResult = yes(OptionArgs) }, 
 		globals__io_get_globals(Globals),
 
-		% --no-generate-mmake-module-dependencies disables
-		% generation of `.d' files.
-		{ AllOptionArgs = list__condense(
-		    [["--no-generate-mmake-module-dependencies" | OptionArgs],
-		    Info0 ^ option_args, ExtraOptions,
-		    ["--no-make", "--no-rebuild"]]) },
-	    	
+		% --invoked-by-mmc-make disables reading DEFAULT_MCFLAGS
+		% from the environment (DEFAULT_MCFLAGS is included in
+		% OptionArgs) and generation of `.d' files.
+		{ AllOptionArgs = list__condense([
+		    ["--invoked-by-mmc-make" | OptionArgs],
+		    Info0 ^ option_args, ExtraOptions]) },
 		handle_options(AllOptionArgs, OptionsError, _, _, _),
 		(
 			{ OptionsError = yes(OptionsMessage) },
@@ -483,7 +482,7 @@ get_file_timestamp(SearchDirs, FileName, MaybeTimestamp, Info0, Info) -->
 	;
 		io__input_stream(OldInputStream),
 		search_for_file(SearchDirs, FileName, SearchResult),
-		( { SearchResult = yes(_) } ->
+		( { SearchResult = ok(_) } ->
 			io__input_stream_name(FullFileName),
 			io__set_input_stream(OldInputStream, FileStream),
 			io__close_input(FileStream),
@@ -568,12 +567,15 @@ target_extension(Globals, object_code(non_pic)) = Ext :-
 target_extension(Globals, object_code(pic)) = Ext :-
 	globals__lookup_string_option(Globals, pic_object_file_extension, Ext).
 
-linked_target_extension(Globals, executable) = Ext :-
-	globals__lookup_string_option(Globals, executable_file_extension, Ext).
-linked_target_extension(Globals, static_library) = Ext :-
-	globals__lookup_string_option(Globals, library_extension, Ext).
-linked_target_extension(Globals, shared_library) = Ext :-
-	globals__lookup_string_option(Globals, shared_library_extension, Ext).
+linked_target_file_name(ModuleName, executable, FileName) -->
+	globals__io_lookup_string_option(executable_file_extension, Ext),
+	module_name_to_file_name(ModuleName, Ext, no, FileName).
+linked_target_file_name(ModuleName, static_library, FileName) -->
+	globals__io_lookup_string_option(library_extension, Ext),
+	module_name_to_lib_file_name("lib", ModuleName, Ext, no, FileName).
+linked_target_file_name(ModuleName, shared_library, FileName) -->
+	globals__io_lookup_string_option(shared_library_extension, Ext),
+	module_name_to_lib_file_name("lib", ModuleName, Ext, no, FileName).
 
 	% Note that we need a timestamp file for `.err' files because
 	% errors are written to the `.err' file even when writing interfaces.

@@ -115,7 +115,10 @@
 
 :- type compilation_task_type
 	--->	process_module(module_compilation_task_type)
-	;	target_code_to_object_code	
+
+			% The `pic' argument is only used for
+			% `--target c' and `--target asm'.
+	;	target_code_to_object_code(pic)
 	.
 
 :- type module_compilation_task_type
@@ -144,15 +147,6 @@
 	;	java_code
 	;	asm_code(pic)
 	;	object_code(pic)
-	.
-
-	% Are we generating position indepedent code (for use in a
-	% shared library)? On some architectures, pic and non-pic
-	% code is incompatible, so we need to generate `.o' and `.pic_o'
-	% files.
-:- type pic
-	--->	pic
-	;	non_pic
 	.
 
 % :- type linked_target_type in mercury_compile.m.
@@ -251,6 +245,18 @@ make__process_args(OptionArgs, Targets0) -->
 	    (pred(TargetStr::in, Success0::out,
 	    		Info0::in, Info::out, di, uo) is det -->	
 		(
+			% Accept and ignore `.depend' targets.
+			% `mmc --make' does not need a separate
+			% make depend step. The dependencies for
+			% each module are regenerated on demand.
+			{ string__length(TargetStr, NameLength) },
+			{ search_backwards_for_dot(TargetStr,
+				NameLength - 1, DotLocn) },
+			{ string__split(TargetStr, DotLocn, _, ".depend") }
+		->
+			{ Success0 = yes },
+			{ Info = Info0 }
+		;
 			{ target_file(Globals, TargetStr,
 				ModuleName, TargetType) }
 		->
@@ -269,18 +275,6 @@ make__process_args(OptionArgs, Targets0) -->
 			    make_misc_target(ModuleName - MiscTargetType,
 			    	Success0, Info0, Info)
 			)
-		;
-			% Accept and ignore `.depend' targets.
-			% `mmc --make' does not need a separate
-			% make depend step. The dependencies for
-			% each module are regenerated on demand.
-			{ string__length(TargetStr, NameLength) },
-			{ search_backwards_for_dot(TargetStr,
-				NameLength - 1, DotLocn) },
-			{ string__split(TargetStr, DotLocn, _, ".depend") }
-		->
-			{ Success0 = yes },
-			{ Info = Info0 }
 		;
 			{ Info = Info0 },
 			{ Success0 = no },

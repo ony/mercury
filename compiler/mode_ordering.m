@@ -184,7 +184,7 @@ mode_ordering__goal_2(generic_call(_GenericCall0, _Args, _Modes0, _Det),
 		_, _, _) -->
 	{ error("mode_ordering__goal_2: generic_call NYI") }.
 
-mode_ordering__goal_2(switch(_Var, _CanFail0, _Cases0, _SM), _, _, _) -->
+mode_ordering__goal_2(switch(_Var, _CanFail0, _Cases0), _, _, _) -->
 	{ error("mode_ordering__goal_2: switch") }.
 
 mode_ordering__goal_2(unify(VarA, RHS0, UnifyMode, Unification0, Context),
@@ -263,7 +263,7 @@ mode_ordering__goal_2(unify(VarA, RHS0, UnifyMode, Unification0, Context),
 	{ goal_info_set_need_visible_vars(GoalInfo3, NeedVisibleVars,
 		GoalInfo) }.
 	
-mode_ordering__goal_2(disj(Goals0, SM), disj(Goals, SM), GoalInfo0, GoalInfo)
+mode_ordering__goal_2(disj(Goals0), disj(Goals), GoalInfo0, GoalInfo)
 		-->
 	list__map_foldl(mode_ordering__goal, Goals0, Goals),
 	{ mode_ordering__disj(Goals, GoalInfo0, GoalInfo) }.
@@ -277,8 +277,8 @@ mode_ordering__goal_2(some(Vars, CanRemove, Goal0), some(Vars, CanRemove, Goal),
 	mode_ordering__goal(Goal0, Goal),
 	{ goal_info_copy_mode_var_sets(Goal ^ snd, GoalInfo0, GoalInfo) }.
 
-mode_ordering__goal_2(if_then_else(Locals, Cond0, Then0, Else0, SM),
-		if_then_else(Locals, Cond, Then, Else, SM),
+mode_ordering__goal_2(if_then_else(Locals, Cond0, Then0, Else0),
+		if_then_else(Locals, Cond, Then, Else),
 		GoalInfo0, GoalInfo) -->
 	mode_ordering__goal(Cond0, Cond),
 	mode_ordering__goal(Then0, Then),
@@ -301,7 +301,7 @@ mode_ordering__goal_2(foreign_proc(A, B, C, ArgVars, Modes, F, G),
 	% set_atomic_prod_vars(ProdVars, GoalInfo0, GoalInfo1),
 	{ error("mode_ordering__goal_2: pragma_foreign_code NYI") }.
 	
-mode_ordering__goal_2(par_conj(Goals0, SM), par_conj(Goals, SM), GoalInfo0,
+mode_ordering__goal_2(par_conj(Goals0), par_conj(Goals), GoalInfo0,
 		GoalInfo) -->
 	list__map_foldl(mode_ordering__goal, Goals0, Goals),
 	{ union_mode_vars_sets(Goals, GoalInfo0, GoalInfo) }.

@@ -36,6 +36,7 @@ case $HOST in
 	muse) 		ARCH=sgi	FULLARCH=mips-sgi-irix5.3 ;;
 	kryten) 	ARCH=sparc	FULLARCH=sparc-sun-solaris2.5 ;;
 	taifun) 	ARCH=sparc	FULLARCH=sparc-sun-solaris2.7 ;;
+	mundroo)	ARCH=i686	FULLARCH=i386-pc-solaris2.8 ;;
 	murlibobo) 	ARCH=alpha	FULLARCH=alphaev5-dec-osf5.1 ;;
 	mundook) 	ARCH=alpha	FULLARCH=alpha-dec-osf3.2 ;;
 	quicksilver) 	ARCH=i586	FULLARCH=i586-pc-linux-gnu ;;
@@ -89,7 +90,16 @@ case "$BRANCH" in
 		# to problems with the GCC back-end.
 	    	BRANCH=latest
 		;;
-	    murlibobo|taifun|hg|hydra|mars)
+	    taifun|mundroo)
+	    	# For these hosts we only run 3 times a week.
+		# On Monday and Thursday, test the main branch.
+		# On Sunday, test the release branch.
+		case `date '+%w'` in
+			6)	BRANCH=0.10 ;;
+			*)	BRANCH=latest ;;
+		esac
+		;;
+	    murlibobo|hg|hydra|mars)
 		#
 		# For these hosts:
 		# On odd-numbered days, test the release branch.

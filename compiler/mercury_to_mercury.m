@@ -510,20 +510,28 @@ mercury_output_item(_UnqualifiedItemNames, pragma(Pragma), Context) -->
 	;
 		{ Pragma = foreign_type(ForeignType, _MercuryType,
 				MercuryTypeSymName) },
-		{ ForeignType = il(RefOrVal, ForeignLocStr, ForeignTypeName) },
 
 		io__write_string(":- pragma foreign_type("),
-		io__write_string("il, "),
+		( { ForeignType = il(_) },
+			io__write_string("il, ")
+		; { ForeignType = c(_) },
+			io__write_string("c, ")
+		),
 		mercury_output_sym_name(MercuryTypeSymName),
 		io__write_string(", "),
-		( { RefOrVal = reference },
-			io__write_string("\"class [")
-		; { RefOrVal = value },
-			io__write_string("\"valuetype [")
-		),
-		io__write_string(ForeignLocStr),
-		io__write_string("]"),
-		{ sym_name_to_string(ForeignTypeName, ".", ForeignTypeStr) },
+		io__write_string(", \""),
+		{ ForeignType = il(il(RefOrVal,
+				ForeignLocStr, ForeignTypeName)),
+			( RefOrVal = reference,
+				RefOrValStr = "class "
+			; RefOrVal = value,
+				RefOrValStr = "valuetype "
+			),
+			sym_name_to_string(ForeignTypeName, ".", NameStr),
+			ForeignTypeStr = RefOrValStr ++ "[" ++ ForeignLocStr ++
+					"]" ++ NameStr
+		; ForeignType = c(c(ForeignTypeStr))
+		},
 		io__write_string(ForeignTypeStr),
 		io__write_string("\").\n")
 	;
@@ -885,7 +893,9 @@ mercury_output_module_defn(_VarSet, ModuleDefn, _Context) -->
 		io__write_string(").\n")
 	;
 		% XXX unimplemented
-		io__write_string("% unimplemented module declaration\n")
+		io__write_string("% unimplemented module declaration "),
+		io__write(ModuleDefn),
+		io__nl
 	).
 
 :- pred mercury_write_module_spec_list(list(module_specifier),
@@ -1745,7 +1755,7 @@ mercury_format_pred_or_func_decl(PredOrFunc, TypeVarSet, InstVarSet,
 	->
 		{ AppendVarnums = no },
 		mercury_format_pred_or_func_type_2(PredOrFunc, TypeVarSet,
-			ExistQVars, PredName, Types, WithType, MaybeDet,
+			ExistQVars, PredName, Types, WithType, no,
 			Purity, ClassContext, Context, AppendVarnums,
 			StartString, Separator),
 		mercury_format_pred_or_func_mode_decl_2(InstVarSet,
@@ -1810,14 +1820,18 @@ mercury_format_pred_or_func_type_2(PredOrFunc, VarSet, ExistQVars, PredName,
 		add_string("("),
 		mercury_format_term(Type, VarSet, AppendVarnums),
 		mercury_format_remaining_terms(Rest, VarSet, AppendVarnums),
-		add_string(")"),
-		mercury_format_class_context(ClassContext, ExistQVars, VarSet,
-			AppendVarnums)
+		add_string(")")
 	;
-		mercury_format_bracketed_sym_name(PredName),
-		mercury_format_class_context(ClassContext, ExistQVars, VarSet,
-			AppendVarnums),
-		mercury_format_det_annotation(MaybeDet)
+		mercury_format_bracketed_sym_name(PredName)
+	),
+
+	(
+		{ MaybeWithType = yes(WithType) },
+		add_string(" `with_type` ("),
+		mercury_format_term(WithType, VarSet, AppendVarnums),
+		add_string(")")
+	;
+		{ MaybeWithType = no }
 	),
 
 	% We need to handle is/2 specially, because it's used for
@@ -1834,21 +1848,19 @@ mercury_format_pred_or_func_type_2(PredOrFunc, VarSet, ExistQVars, PredName,
 	% efficient.
 
 	(
+		{ PredOrFunc = predicate },
+		{ MaybeDet = no },
 		{ unqualify_name(PredName, "is") },
 		{ list__length(Types, 2) }
 	->
+		% This determinism will be ignored.
+		mercury_format_det_annotation(yes(det))
+	;
 		mercury_format_det_annotation(MaybeDet)
-	;
-		[]
 	),
-	(
-		{ MaybeWithType = yes(WithType) },
-		add_string(" `with_type` ("),
-		mercury_format_term(WithType, VarSet, AppendVarnums),
-		add_string(")")
-	;
-		{ MaybeWithType = no }
-	),
+
+	mercury_format_class_context(ClassContext,
+		ExistQVars, VarSet, AppendVarnums),
 	add_string(Separator).
 
 %-----------------------------------------------------------------------------%

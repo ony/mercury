@@ -117,9 +117,9 @@
 */
 
 #include <stdio.h>
-#include "mercury_library_types.h"   /* for MR_ArrayType */
-#include "mercury_layout_util.h"     /* for MR_materialize_closure_typeinfos */
-#include "mercury_ho_call.h"         /* for MR_Closure_Id etc */
+#include "mercury_library_types.h" /* for MR_ArrayType */
+#include "mercury_layout_util.h"   /* for MR_materialize_closure_type_params */
+#include "mercury_ho_call.h"       /* for MR_Closure_Id etc */
 
 #ifdef MR_DEEP_PROFILING
   #include  "mercury_deep_profiling.h"
@@ -452,7 +452,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                         if (MR_arg_type_may_contain_var(functor_desc, i)) {
                             expand_info->EXPAND_ARGS_FIELD.arg_type_infos[i] =
                                 MR_create_type_info_maybe_existq(
-                                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(
+                                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(
                                         type_info),
                                     functor_desc->MR_du_functor_arg_types[i],
                                     arg_vector, functor_desc);
@@ -490,7 +490,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     if (MR_arg_type_may_contain_var(functor_desc, chosen)) {
                         expand_info->chosen_type_info =
                             MR_create_type_info_maybe_existq(
-                                MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(
+                                MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(
                                     type_info),
                                 functor_desc->MR_du_functor_arg_types[chosen],
                                 arg_vector, functor_desc);
@@ -532,7 +532,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 MR_GC_NEW_ARRAY(MR_TypeInfo, 1);
             expand_info->EXPAND_ARGS_FIELD.arg_type_infos[0] =
                 MR_create_type_info(
-                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                     MR_type_ctor_layout(type_ctor_info).layout_notag->
                         MR_notag_functor_arg_type);
 #endif  /* EXPAND_ARGS_FIELD */
@@ -553,7 +553,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 expand_info->chosen_value_ptr = data_word_ptr;
                 expand_info->chosen_type_info =
                     MR_create_type_info(
-                        MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                        MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                         MR_type_ctor_layout(type_ctor_info).layout_notag->
                             MR_notag_functor_arg_type);
             } else {
@@ -621,7 +621,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 MR_TypeInfo eqv_type_info;
 
                 eqv_type_info = MR_create_type_info(
-                    MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                    MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info),
                     MR_type_ctor_layout(type_ctor_info).layout_equiv);
                 EXPAND_FUNCTION_NAME(eqv_type_info, data_word_ptr, noncanon,
                     EXTRA_ARGS expand_info);
@@ -781,7 +781,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     MR_TypeInfo *type_params;
 
                     type_params =
-                        MR_materialize_closure_typeinfos(closure);
+                        MR_materialize_closure_type_params(closure);
                     expand_info->EXPAND_ARGS_FIELD.num_extra_args = 0;
                     expand_info->EXPAND_ARGS_FIELD.arg_values = &closure->
                         MR_closure_hidden_args_0[0];
@@ -809,7 +809,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     expand_info->chosen_value_ptr = 
                         &closure->MR_closure_hidden_args_0[chosen];
                     /* the following code could be improved */
-                    type_params = MR_materialize_closure_typeinfos(closure);
+                    type_params = MR_materialize_closure_type_params(closure);
                     expand_info->chosen_type_info =
                         MR_create_type_info(type_params,
                             closure_layout->
@@ -829,7 +829,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
             break;
 
         case MR_TYPECTOR_REP_TUPLE:
-            expand_info->arity = MR_TYPEINFO_GET_TUPLE_ARITY(type_info);
+            expand_info->arity = MR_TYPEINFO_GET_VAR_ARITY_ARITY(type_info);
             handle_functor_name("{}");
 
 #ifdef  EXPAND_ARGS_FIELD
@@ -848,7 +848,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 ** the users of this vector count from zero.
                 */
                 expand_info->EXPAND_ARGS_FIELD.arg_type_infos =
-                        MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(type_info) + 1;
+                        MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(type_info) + 1;
             }
 #endif  /* EXPAND_ARGS_FIELD */
 
@@ -860,7 +860,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 expand_info->chosen_index_exists = MR_TRUE;
                 expand_info->chosen_value_ptr = &arg_vector[chosen];
                 expand_info->chosen_type_info =
-                    MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(type_info)[chosen + 1];
+                    MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(type_info)[chosen + 1];
             } else {
                 expand_info->chosen_index_exists = MR_FALSE;
             }
@@ -904,6 +904,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
             break;
 
         case MR_TYPECTOR_REP_TYPEINFO:
+        case MR_TYPECTOR_REP_TYPEDESC:
             {
                 MR_TypeInfo     data_type_info;
                 MR_TypeCtorInfo data_type_ctor_info;
@@ -935,13 +936,13 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     MR_type_ctor_rep(data_type_ctor_info)))
                 {
                     num_args =
-                        MR_TYPEINFO_GET_HIGHER_ORDER_ARITY(data_type_info);
+                        MR_TYPEINFO_GET_VAR_ARITY_ARITY(data_type_info);
                     arg_type_infos = (MR_Word *)
-                        MR_TYPEINFO_GET_HIGHER_ORDER_ARG_VECTOR(data_type_info);
+                        MR_TYPEINFO_GET_VAR_ARITY_ARG_VECTOR(data_type_info);
                 } else {
                     num_args = data_type_ctor_info->MR_type_ctor_arity;
                     arg_type_infos = (MR_Word *)
-                        MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(data_type_info);
+                        MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(data_type_info);
                 }
                 expand_info->arity = num_args;
                 /* switch from 1-based to 0-based array indexing */
@@ -1007,6 +1008,32 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 
             break;
 
+        case MR_TYPECTOR_REP_TYPECTORDESC:
+            {
+                MR_TypeCtorDesc data_type_ctor_desc; 
+                MR_TypeCtorInfo data_type_ctor_info; 
+
+                if (noncanon == MR_NONCANON_ABORT) {
+                    /* XXX should throw an exception */
+                    MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                        ": attempt to deconstruct noncanonical term");
+                }
+
+                data_type_ctor_desc = (MR_TypeCtorDesc) *data_word_ptr;
+                if (MR_TYPECTOR_DESC_IS_VARIABLE_ARITY(data_type_ctor_desc)) {
+                    handle_functor_name(MR_TYPECTOR_DESC_GET_VA_NAME(
+                        data_type_ctor_desc));
+                } else {
+                    data_type_ctor_info =
+                        MR_TYPECTOR_DESC_GET_FIXED_ARITY_TYPE_CTOR_INFO(
+                            data_type_ctor_desc);
+                    handle_type_ctor_name(data_type_ctor_info);
+                }
+                handle_zero_arity_args();
+            }
+
+            break;
+
         case MR_TYPECTOR_REP_TYPECLASSINFO:
             if (noncanon == MR_NONCANON_ABORT) {
                 /* XXX should throw an exception */
@@ -1050,7 +1077,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     MR_TypeInfoParams   params;
                     int                 i;
 
-                    params = MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
+                    params = MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info);
                     expand_info->EXPAND_ARGS_FIELD.num_extra_args = 0;
                     expand_info->EXPAND_ARGS_FIELD.arg_values =
                         &array->elements[0];
@@ -1069,7 +1096,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 if (0 <= chosen && chosen < array->size) {
                     MR_TypeInfoParams   params;
 
-                    params = MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
+                    params = MR_TYPEINFO_GET_FIXED_ARITY_ARG_VECTOR(type_info);
                     expand_info->chosen_value_ptr = &array->elements[chosen];
                     expand_info->chosen_type_info = params[1];
                     expand_info->chosen_index_exists = MR_TRUE;

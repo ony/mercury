@@ -18,19 +18,30 @@
 
 :- import_module bool, list, io, std_util.
 
-	% compile_c_file(ErrorStream, CFile, ObjFile, Succeeded).
-:- pred compile_c_file(io__output_stream, string, string, bool,
+
+	% Are we generating position independent code (for use in a
+	% shared library)? On some architectures, pic and non-pic
+	% code is incompatible, so we need to generate `.o' and `.pic_o'
+	% files.
+:- type pic
+	--->    pic
+	;       non_pic
+	.
+
+	% compile_c_file(ErrorStream, PIC, CFile, ObjFile, Succeeded).
+:- pred compile_c_file(io__output_stream, pic, string, string, bool,
+		io__state, io__state).
+:- mode compile_c_file(in, in, in, in, out, di, uo) is det.
+
+	% compile_c_file(ErrorStream, PIC, ModuleName, Succeeded).
+:- pred compile_c_file(io__output_stream, pic, module_name, bool,
 		io__state, io__state).
 :- mode compile_c_file(in, in, in, out, di, uo) is det.
 
-	% compile_c_file(ErrorStream, ModuleName, Succeeded).
-:- pred compile_c_file(io__output_stream, module_name, bool,
-		io__state, io__state).
-:- mode compile_c_file(in, in, out, di, uo) is det.
-
-	% assemble(ErrorStream, ModuleName, Succeeded).
-:- pred assemble(io__output_stream, module_name, bool, io__state, io__state).
-:- mode assemble(in, in, out, di, uo) is det.
+	% assemble(ErrorStream, PIC, ModuleName, Succeeded).
+:- pred assemble(io__output_stream, pic, module_name,
+		bool, io__state, io__state).
+:- mode assemble(in, in, in, out, di, uo) is det.
 	
 	% compile_java_file(ErrorStream, ModuleName, Succeeded).
 :- pred compile_java_file(io__output_stream, module_name, bool,
@@ -249,7 +260,7 @@ split_c_to_obj(ErrorStream, ModuleName,
 			".c", C_File),
 		module_name_to_split_c_file_name(ModuleName, Chunk,
 			Obj, O_File),
-		compile_c_file(ErrorStream,
+		compile_c_file(ErrorStream, non_pic,
 			C_File, O_File, Succeeded0),
 		( { Succeeded0 = no } ->
 			{ Succeeded = no }
@@ -265,13 +276,20 @@ split_c_to_obj(ErrorStream, ModuleName,
 
 :- type compiler_type ---> gcc ; lcc ; unknown.
 
-compile_c_file(ErrorStream, ModuleName, Succeeded) -->
+compile_c_file(ErrorStream, PIC, ModuleName, Succeeded) -->
 	module_name_to_file_name(ModuleName, ".c", yes, C_File),
-	globals__io_lookup_string_option(object_file_extension, ObjExt),
+	(
+		{ PIC = pic },
+		globals__io_lookup_string_option(pic_object_file_extension,
+			ObjExt)
+	;
+		{ PIC = non_pic },
+		globals__io_lookup_string_option(object_file_extension, ObjExt)
+	),
 	module_name_to_file_name(ModuleName, ObjExt, yes, O_File),
-	compile_c_file(ErrorStream, C_File, O_File, Succeeded).
+	compile_c_file(ErrorStream, PIC, C_File, O_File, Succeeded).
 
-compile_c_file(ErrorStream, C_File, O_File, Succeeded) -->
+compile_c_file(ErrorStream, PIC, C_File, O_File, Succeeded) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	globals__io_lookup_string_option(c_flag_to_name_object_file,
 			NameObjectFile),
@@ -281,6 +299,15 @@ compile_c_file(ErrorStream, C_File, O_File, Succeeded) -->
 	globals__io_lookup_string_option(cc, CC),
 	globals__io_lookup_accumulating_option(cflags, C_Flags_List),
 	{ join_string_list(C_Flags_List, "", "", " ", CFLAGS) },
+	
+	(
+		{ PIC = pic },
+		globals__io_lookup_string_option(cflags_for_pic,
+			CFLAGS_FOR_PIC)
+	;
+		{ PIC = non_pic },
+		{ CFLAGS_FOR_PIC = "" }
+	),
 
 	globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
 	globals__io_lookup_bool_option(split_c_files, SplitCFiles),
@@ -505,7 +532,7 @@ compile_c_file(ErrorStream, C_File, O_File, Succeeded) -->
 		HighLevelCodeOpt, NestedFunctionsOpt, HighLevelDataOpt,
 		RegOpt, GotoOpt, AsmOpt,
 		CFLAGS_FOR_REGS, " ", CFLAGS_FOR_GOTOS, " ",
-		CFLAGS_FOR_THREADS, " ",
+		CFLAGS_FOR_THREADS, " ", CFLAGS_FOR_PIC, " ",
 		GC_Opt, ProfileCallsOpt, ProfileTimeOpt, ProfileMemoryOpt,
 		ProfileDeepOpt, PIC_Reg_Opt, TagsOpt, NumTagBitsOpt,
 		Target_DebugOpt, LL_DebugOpt,
@@ -555,9 +582,15 @@ compile_java_file(ErrorStream, ModuleName, Succeeded) -->
 
 %-----------------------------------------------------------------------------%
 
-assemble(ErrorStream, ModuleName, Succeeded) -->
+assemble(ErrorStream, PIC, ModuleName, Succeeded) -->
 	globals__io_lookup_bool_option(pic, Pic),
-	{ AsmExt = (Pic = yes -> ".pic_s" ; ".s") },
+	{ ( Pic = yes ; PIC = pic ) ->
+		AsmExt = ".pic_s",
+		GCCFLAGS_FOR_PIC = ""
+	;
+		AsmExt = ".s",
+		GCCFLAGS_FOR_PIC = "-fpic"
+	},
 	module_name_to_file_name(ModuleName, AsmExt, no, AsmFile),
 	globals__io_lookup_string_option(object_file_extension, Obj),
 	module_name_to_file_name(ModuleName, Obj, yes, ObjFile),
@@ -575,7 +608,7 @@ assemble(ErrorStream, ModuleName, Succeeded) -->
 	{ join_string_list(C_Flags_List, "", "", " ", CFLAGS) },
 	% Be careful with the order here.
 	% Also be careful that each option is separated by spaces.
-	{ string__append_list([CC, " ", CFLAGS,
+	{ string__append_list([CC, " ", CFLAGS, " ", GCCFLAGS_FOR_PIC,
 		" -c ", AsmFile, " ", NameObjectFile, ObjFile], Command) },
 	invoke_system_command(ErrorStream, verbose_commands,
 		Command, Succeeded).
@@ -673,6 +706,7 @@ make_init_obj_file(ErrorStream, MustCompile, ModuleName,
 	globals__io_get_globals(Globals),
 	{ compute_grade(Globals, Grade) },
 
+	standard_library_directory_option(StdLibOpt),
 	globals__io_lookup_string_option(object_file_extension, Obj),
 	{ string__append("_init", Obj, InitObj) },
 	module_name_to_file_name(ModuleName, "_init.c", yes, InitCFileName),
@@ -695,11 +729,16 @@ make_init_obj_file(ErrorStream, MustCompile, ModuleName,
 	globals__io_lookup_accumulating_option(init_files, InitFileNamesList),
 	{ join_string_list(InitFileNamesList, "", "", " ", InitFileNames) },
 
+	globals__io_lookup_accumulating_option(trace_init_files,
+		TraceInitFileNamesList),
+	{ join_string_list(TraceInitFileNamesList, "--trace-init-file ",
+		"", " ", TraceInitFileNames) },
+
 	{ TmpInitCFileName = InitCFileName ++ ".tmp" },
 	{ MkInitCmd = string__append_list(
-		["c2init --grade ", Grade, " ", TraceOpt, LinkFlags,
-		" --init-c-file ", TmpInitCFileName, " ",
-		InitFileDirs, " ", InitFileNames, " ", CFileNames]) },
+		["c2init --grade ", Grade, " ", TraceOpt, StdLibOpt, LinkFlags,
+		" --init-c-file ", TmpInitCFileName, " ", InitFileDirs, " ",
+		TraceInitFileNames, " ", InitFileNames, " ", CFileNames]) },
 	invoke_shell_command(ErrorStream, verbose, MkInitCmd, MkInitOK0),
 	maybe_report_stats(Stats),
 	( { MkInitOK0 = yes } ->
@@ -735,7 +774,7 @@ make_init_obj_file(ErrorStream, MustCompile, ModuleName,
 		    maybe_write_string(Verbose,
 			"% Compiling initialization file...\n"),
 
-		    compile_c_file(ErrorStream, InitCFileName,
+		    compile_c_file(ErrorStream, non_pic, InitCFileName,
 		    	InitObjFileName, CompileOK),
 		    maybe_report_stats(Stats),
 		    ( { CompileOK = no } ->
@@ -772,7 +811,8 @@ link(ErrorStream, LinkTargetType, ModuleName,
 	maybe_write_string(Verbose, "% Linking...\n"),
 	( { LinkTargetType = static_library } ->
 	    	globals__io_lookup_string_option(library_extension, LibExt),
-		module_name_to_file_name(ModuleName, LibExt, yes, LibName),
+		module_name_to_lib_file_name("lib", ModuleName, LibExt,
+			yes, LibName),
 		create_archive(ErrorStream, LibName, ObjectsList, ArCmdOK),
 		maybe_report_stats(Stats),
 		( { ArCmdOK = no } ->
@@ -781,22 +821,26 @@ link(ErrorStream, LinkTargetType, ModuleName,
 			{ Succeeded = yes }
 		)
 	;
-		{ LinkTargetType = shared_library ->
-			SharedLibOpt = "--make-shared-lib ",
-			FileExtOpt = shared_library_extension
+		( { LinkTargetType = shared_library } ->
+			{ SharedLibOpt = "--make-shared-lib " },
+			globals__io_lookup_string_option(
+				shared_library_extension, SharedLibExt),
+			module_name_to_lib_file_name("lib", ModuleName,
+				SharedLibExt, yes, OutputFileName)
 		;
-			SharedLibOpt = "",
-			FileExtOpt = executable_file_extension
-		},
-		globals__io_lookup_string_option(FileExtOpt, OutputFileExt),
-		module_name_to_file_name(ModuleName, OutputFileExt,
-			yes, OutputFileName),
+			{ SharedLibOpt = "" },
+			globals__io_lookup_string_option(
+				executable_file_extension, ExeExt),
+			module_name_to_file_name(ModuleName, ExeExt,
+				yes, OutputFileName)
+		),
 		globals__io_lookup_bool_option(target_debug, Target_Debug),
 		{ Target_Debug = yes ->
 			Target_Debug_Opt = "--no-strip "
 		;
 			Target_Debug_Opt = ""
 		},
+		standard_library_directory_option(StdLibOpt),
 		{ join_string_list(ObjectsList, "", "", " ", Objects) },
 		globals__io_lookup_accumulating_option(link_flags,
 				LinkFlagsList),
@@ -812,7 +856,7 @@ link(ErrorStream, LinkTargetType, ModuleName,
 				LinkLibraries) },
 		{ string__append_list(
 			["ml --grade ", Grade, " ", SharedLibOpt,
-			Target_Debug_Opt, TraceOpt, LinkFlags,
+			Target_Debug_Opt, TraceOpt, StdLibOpt, LinkFlags,
 			" -o ", OutputFileName, " ", Objects, " ", 
 			LinkLibraryDirectories, " ", LinkLibraries],
 			LinkCmd) },
@@ -833,14 +877,32 @@ create_archive(ErrorStream, LibFileName, ObjectList, MakeLibCmdOK) -->
 	globals__io_lookup_string_option(
 		create_archive_command_output_flag, ArOutputFlag),
 	globals__io_lookup_string_option(ranlib_command, RanLib),
-	{ list__append(
-		[ArCmd, " ", ArFlags, " ", ArOutputFlag, " ",
-		LibFileName, " " | ObjectList],
-		[" && ", RanLib, " ", LibFileName],
-		MakeLibCmdList) },
-	{ string__append_list(MakeLibCmdList, MakeLibCmd) },
+	{ join_string_list(ObjectList, "", "", " ", Objects) },
+	{ MakeLibCmd = string__append_list([
+		ArCmd, " ", ArFlags, " ", ArOutputFlag, " ",
+		LibFileName, " ", Objects,  
+		" && ", RanLib, " ", LibFileName]) },
 	invoke_system_command(ErrorStream, verbose_commands,
 		MakeLibCmd, MakeLibCmdOK).
+
+%-----------------------------------------------------------------------------%
+
+:- pred standard_library_directory_option(string, io__state, io__state).
+:- mode standard_library_directory_option(out, di, uo) is det.
+
+standard_library_directory_option(Opt) -->
+	globals__io_lookup_maybe_string_option(
+		mercury_standard_library_directory, MaybeStdLibDir),
+	{
+		MaybeStdLibDir = yes(StdLibDir),
+		Opt = "--mercury-standard-library-directory "
+				++ StdLibDir ++ " "
+	;
+		MaybeStdLibDir = no,
+		Opt = "--no-mercury-standard-library-directory "
+	}.
+
+%-----------------------------------------------------------------------------%
 
 	% join_string_list(Strings, Prefix, Suffix, Serarator, Result)
 	%

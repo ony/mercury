@@ -476,7 +476,8 @@ output_c_file_intro_and_grade(SourceFileName, Version) -->
 		"** END_OF_C_GRADE_INFO\n",
 		"*/\n",
 		"\n",
-		"#define MR_BOOTSTRAP_TYPE_CTOR_COMPACT\n"
+		"#define MR_BOOTSTRAP_TYPE_CTOR_REP\n",
+		"\n"
 	]).
 
 :- pred convert_bool_to_string(bool, string).
@@ -1965,7 +1966,7 @@ output_pragma_decls([D|Decls]) -->
 
 output_pragma_input_rval_decls([], DeclSet, DeclSet) --> [].
 output_pragma_input_rval_decls([I | Inputs], DeclSet0, DeclSet) -->
-	{ I = pragma_c_input(_VarName, _Type, Rval) },
+	{ I = pragma_c_input(_VarName, _Type, Rval, _) },
 	output_rval_decls(Rval, "\t", "\t", 0, _N, DeclSet0, DeclSet1),
 	output_pragma_input_rval_decls(Inputs, DeclSet1, DeclSet).
 
@@ -1976,7 +1977,7 @@ output_pragma_input_rval_decls([I | Inputs], DeclSet0, DeclSet) -->
 
 output_pragma_inputs([]) --> [].
 output_pragma_inputs([I|Inputs]) -->
-	{ I = pragma_c_input(VarName, Type, Rval) },
+	{ I = pragma_c_input(VarName, Type, Rval, MaybeForeignType) },
 	io__write_string("\t"),
 	io__write_string(VarName),
 	io__write_string(" = "),
@@ -1990,6 +1991,13 @@ output_pragma_inputs([I|Inputs]) -->
 	->
 		output_rval_as_type(Rval, float)
 	;
+		% Note that for this cast to be correct the foreign type
+		% must be a word sized integer or pointer type.
+		( { MaybeForeignType = yes(ForeignTypeStr) } ->
+			io__write_string("(" ++ ForeignTypeStr ++ ") ")
+		;
+			[]
+		),
 		output_rval_as_type(Rval, word)
 	),
 	io__write_string(";\n"),
@@ -2002,7 +2010,7 @@ output_pragma_inputs([I|Inputs]) -->
 
 output_pragma_output_lval_decls([], DeclSet, DeclSet) --> [].
 output_pragma_output_lval_decls([O | Outputs], DeclSet0, DeclSet) -->
-	{ O = pragma_c_output(Lval, _Type, _VarName) },
+	{ O = pragma_c_output(Lval, _Type, _VarName, _) },
 	output_lval_decls(Lval, "\t", "\t", 0, _N, DeclSet0, DeclSet1),
 	output_pragma_output_lval_decls(Outputs, DeclSet1, DeclSet).
 
@@ -2013,7 +2021,7 @@ output_pragma_output_lval_decls([O | Outputs], DeclSet0, DeclSet) -->
 
 output_pragma_outputs([]) --> [].
 output_pragma_outputs([O|Outputs]) -->
-	{ O = pragma_c_output(Lval, Type, VarName) },
+	{ O = pragma_c_output(Lval, Type, VarName, MaybeForeignType) },
 	io__write_string("\t"),
 	output_lval_as_word(Lval),
 	io__write_string(" = "),
@@ -2029,6 +2037,13 @@ output_pragma_outputs([O|Outputs]) -->
 		io__write_string(VarName),
 		io__write_string(")")
 	;
+		% Note that for this cast to be correct the foreign type
+		% must be a word sized integer or pointer type.
+		( { MaybeForeignType = yes(_) } ->
+			output_llds_type_cast(word)
+		;
+			[]
+		),
 		io__write_string(VarName)
 	),
 	io__write_string(";\n"),
@@ -4521,15 +4536,5 @@ output_rl_file(ModuleName, MaybeRLFile) -->
 output_rl_byte(Byte) -->
 	io__write_int(Byte),
 	io__write_string(", ").
-
-%-----------------------------------------------------------------------------%
-
-:- pred make_directory(string::in, io__state::di, io__state::uo) is det.
-
-make_directory(DirName) -->
-	{ make_command_string(string__format(
-		"[ -d %s ] || mkdir -p %s", [s(DirName), s(DirName)]),
-		forward, Command) },
-	io__call_system(Command, _Result).
 
 %-----------------------------------------------------------------------------%

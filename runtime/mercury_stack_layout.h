@@ -245,7 +245,9 @@ typedef enum {
 ** The MR_sll_goal_path field contains an offset into the module-wide string
 ** table, leading to a string that gives the goal path associated with the
 ** label. If there is no meaningful goal path associated with the label,
-** the offset will be zero, leading to the empty string.
+** the offset will be zero, leading to the empty string. You can use the macro
+** MR_label_goal_path to convert the value in the MR_sll_goal_path field to a
+** string.
 **
 ** The remaining fields give information about the values live at the given
 ** label, if this information is available. If it is available, the
@@ -525,7 +527,7 @@ typedef union MR_Proc_Id_Union {
 ** stored there, as well the table associating source-file contexts with labels.
 **
 ** The proc_rep field contains a representation of the body of the procedure
-** as a Mercury term of type goal_rep, defined in program_representation.m.
+** as a Mercury term of type proc_rep, defined in program_representation.m.
 ** Note that the type of this field is `MR_Word *', not `MR_Word',
 ** for the same reasons that MR_mkword() has type `MR_Word *' rather
 ** than `MR_Word' (see the comment in runtime/mercury_tags.h).
@@ -543,8 +545,10 @@ typedef union MR_Proc_Id_Union {
 ** Therefore using the stored offset to index into the string table
 ** is always safe.
 **
-** The max_var_num field gives the number of elements in the used_var_names
-** table.
+** The max_named_var_num field gives the number of elements in the
+** used_var_names table, which is also the number of the highest numbered
+** named variable. Note that unnamed variables may have numbers higher than
+** this.
 **
 ** The max_r_num field tells the debugger which Mercury abstract machine
 ** registers need saving in MR_trace: besides the special registers, it is
@@ -612,8 +616,10 @@ typedef	struct MR_Exec_Trace_Struct {
 	const MR_Module_Layout	*MR_exec_module_layout;
 	MR_Word			*MR_exec_proc_rep;
 	const MR_Table_Io_Decl	*MR_exec_table_io_decl;
+	const MR_int_least16_t	*MR_exec_head_var_nums;
 	const MR_int_least16_t	*MR_exec_used_var_names;
-	MR_int_least16_t	MR_exec_max_var_num;
+	MR_int_least16_t	MR_exec_num_head_vars;
+	MR_int_least16_t	MR_exec_max_named_var_num;
 	MR_int_least16_t	MR_exec_max_r_num;
 	MR_int_least8_t		MR_exec_maybe_from_full;
 	MR_int_least8_t		MR_exec_maybe_io_seq;
@@ -726,8 +732,10 @@ typedef	struct MR_Proc_Layout_Compiler_Exec_Struct {
 #define	MR_sle_call_label	MR_sle_exec_trace.MR_exec_call_label
 #define	MR_sle_module_layout	MR_sle_exec_trace.MR_exec_module_layout
 #define	MR_sle_proc_rep	MR_sle_exec_trace.MR_exec_proc_rep
+#define	MR_sle_head_var_nums	MR_sle_exec_trace.MR_exec_head_var_nums
+#define	MR_sle_num_head_vars	MR_sle_exec_trace.MR_exec_num_head_vars
 #define	MR_sle_used_var_names	MR_sle_exec_trace.MR_exec_used_var_names
-#define	MR_sle_max_var_num	MR_sle_exec_trace.MR_exec_max_var_num
+#define	MR_sle_max_named_var_num MR_sle_exec_trace.MR_exec_max_named_var_num
 #define	MR_sle_max_r_num	MR_sle_exec_trace.MR_exec_max_r_num
 #define	MR_sle_maybe_from_full	MR_sle_exec_trace.MR_exec_maybe_from_full
 #define	MR_sle_maybe_io_seq	MR_sle_exec_trace.MR_exec_maybe_io_seq

@@ -119,7 +119,7 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPECTOR_REP(a) MR_BOX_INT(mercury::runtime::Constants::a)
 
 // XXX This is hardcoded
-#define MR_RTTI_VERSION MR_BOX_INT(6)
+#define MR_RTTI_VERSION MR_BOX_INT(7)
 
 // XXX It is intended that we eventually define the constants in
 // private_builtin.m and mercury_mcpp.cpp in terms of these #defines
@@ -161,7 +161,9 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ_val	32
 #define MR_TYPECTOR_REP_TYPECTORINFO_val		33
 #define MR_TYPECTOR_REP_BASETYPECLASSINFO_val		34
-#define MR_TYPECTOR_REP_UNKNOWN_val			35
+#define MR_TYPECTOR_REP_TYPEDESC_val			35
+#define MR_TYPECTOR_REP_TYPECTORDESC_val		36
+#define MR_TYPECTOR_REP_UNKNOWN_val			37
 
 // XXX we should integrate this macro in with the version in 
 // mercury_typeinfo.h
@@ -173,8 +175,8 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
     MR_CLASS_INIT(MR_PASTE4(type_ctor_init_, n, _, a))   		\
 	MR_BOX_INT(a),							\
 	MR_RTTI_VERSION,						\
-	MR_TYPECTOR_REP(cr),						\
 	MR_BOX_INT(-1),							\
+	MR_TYPECTOR_REP(cr),						\
 	MR_MAYBE_STATIC_CODE(n##_unify),				\
 	MR_MAYBE_STATIC_CODE(n##_compare),				\
 	MR_string_const(MR_STRINGIFY(m), sizeof(MR_STRINGIFY(m))-1),	\

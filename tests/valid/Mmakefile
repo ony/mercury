@@ -46,6 +46,10 @@ NO_SPECIAL_PREDS_SOURCES= \
 RLO_SOURCES= \
 	aditi_query.m
 
+	# Tests for which we should only produce a `.il' file.
+IL_SOURCES = \
+	foreign_type_spec.m
+
 OTHER_SOURCES= \
 	any_inst_merge.m \
 	common_struct_bug.m \
@@ -131,6 +135,8 @@ OTHER_SOURCES= \
 	nested_mod_type_bug.m \
 	nondet_live.m \
 	parsing_bug_main.m \
+	pragma_c_code_and_clauses1.m \
+	pragma_c_code_and_clauses2.m \
 	pred_with_no_modes.m \
 	qualified_cons_id.m \
 	quantifier_warning.m \
@@ -224,9 +230,11 @@ else
 	ALL_RLO_SOURCES = $(RLO_SOURCES)
 endif
 
-ALL_SOURCES = $(SOURCES) $(ALL_RLO_SOURCES)
+ALL_SOURCES = $(SOURCES) $(ALL_RLO_SOURCES) $(IL_SOURCES)
 DEPS =	$(ALL_SOURCES:%.m=%.depend)
-OBJS =	$(SOURCES:%.m=$(os_subdir)%.$O) $(ALL_RLO_SOURCES:%.m=$(rlos_subdir)%.rlo)
+OBJS =	$(SOURCES:%.m=$(os_subdir)%.$O) \
+		$(ALL_RLO_SOURCES:%.m=$(rlos_subdir)%.rlo) \
+		$(IL_SOURCES:%.m=$(ils_subdir)%.il)
 PROGS =	$(SOURCES:%.m=%)
 
 all:	objs
@@ -242,6 +250,8 @@ GRADEFLAGS-agc_unbound_typevars2 = --gc accurate
 GRADEFLAGS-agc_unused_in	= --gc accurate
 GRADEFLAGS-complex_failure	= --use-trail
 GRADEFLAGS-semi_fail_in_non_ite	= --use-trail
+GRADEFLAGS-foreign_type_spec	= --grade il
+GRADEFLAGS-foreign_type_spec.foreign	= --grade il
 
 MCFLAGS-aditi_error_bug		= --aditi
 MCFLAGS-aditi_error_bug2	= --aditi

@@ -42,9 +42,9 @@
 :- interface.
 
 :- import_module parse_tree__prog_data.
-:- import_module hlds__hlds_goal, hlds__hlds_data, backend_libs__switch_util.
-:- import_module backend_libs__code_model.
+:- import_module hlds__hlds_goal, hlds__hlds_data, hlds__hlds_llds.
 :- import_module ll_backend__llds, ll_backend__code_info.
+:- import_module backend_libs__switch_util, backend_libs__code_model.
 
 :- import_module std_util, map, set, list.
 

@@ -22,12 +22,12 @@
 :- module hlds__make_hlds.
 :- interface.
 
-:- import_module parse_tree__prog_data, hlds__hlds_data, hlds__hlds_module.
-:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
 :- import_module parse_tree__equiv_type, parse_tree__module_qual.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_data.
 :- import_module hlds__special_pred.
 
-:- import_module io, std_util, list, bool.
+:- import_module bool, list, io, std_util.
 
 % parse_tree_to_hlds(ParseTree, MQInfo, EqvMap, HLDS, QualInfo,
 %		UndefTypes, UndefModes):
@@ -97,25 +97,24 @@
 
 :- implementation.
 
-:- import_module hlds__hlds_goal.
 :- import_module parse_tree__prog_io, parse_tree__prog_io_goal.
 :- import_module parse_tree__prog_io_dcg, parse_tree__prog_io_util.
-:- import_module parse_tree__prog_out.
+:- import_module parse_tree__prog_out, parse_tree__mercury_to_mercury.
+:- import_module parse_tree__prog_util, parse_tree__inst.
 :- import_module parse_tree__modules, parse_tree__module_qual.
-:- import_module parse_tree__prog_util, libs__options, hlds__hlds_out.
-:- import_module check_hlds__typecheck.
-:- import_module hlds__make_tags, hlds__quantification, (parse_tree__inst).
-:- import_module libs__globals.
-:- import_module ll_backend__code_util, check_hlds__unify_proc.
-:- import_module check_hlds__type_util, check_hlds__mode_util.
-:- import_module check_hlds__mode_errors.
-:- import_module parse_tree__mercury_to_mercury, hlds__passes_aux.
+:- import_module hlds__hlds_goal, hlds__goal_util, hlds__hlds_out.
+:- import_module hlds__make_tags, hlds__quantification.
+:- import_module hlds__error_util, hlds__passes_aux.
+:- import_module check_hlds__typecheck, check_hlds__type_util.
+:- import_module check_hlds__mode_util, check_hlds__mode_errors.
 :- import_module check_hlds__clause_to_proc, check_hlds__inst_match.
-:- import_module ll_backend__fact_table, check_hlds__purity, hlds__goal_util.
-:- import_module transform_hlds__term_util, backend_libs__export.
-:- import_module ll_backend__llds.
-:- import_module hlds__error_util, backend_libs__foreign.
+:- import_module check_hlds__purity, check_hlds__unify_proc.
+:- import_module transform_hlds__term_util.
+:- import_module ll_backend, ll_backend__llds.
+:- import_module ll_backend__code_util, ll_backend__fact_table.
+:- import_module backend_libs__export, backend_libs__foreign.
 :- import_module recompilation.
+:- import_module libs__options, libs__globals.
 
 :- import_module string, char, int, set, bintree, map, multi_map, require.
 :- import_module bag, term, varset, getopt, assoc_list, term_io.
@@ -410,21 +409,18 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Pragma = foreign_proc(_, _, _, _, _, _) },
 		{ Module = Module0 }
 	;	
+		% Note that we check during add_item_clause that we have
+		% defined a foreign_type which is usable by the back-end
+		% we are compiling on.
 		{ Pragma = foreign_type(ForeignType, _MercuryType, Name) },
-
-		{ ForeignType = il(RefOrVal,
-				ForeignTypeLocation, ForeignTypeName) },
-
-		{ RefOrVal = reference,
-			IsBoxed = yes
-		; RefOrVal = value,
-			IsBoxed = no
-		},
 
 		{ varset__init(VarSet) },
 		{ Args = [] },
-		{ Body = foreign_type(IsBoxed,
-				ForeignTypeName, ForeignTypeLocation) },
+		{ ForeignType = il(ILForeignType),
+			Body = foreign_type(yes(ILForeignType), no)
+		; ForeignType = c(CForeignType),
+			Body = foreign_type(no, yes(CForeignType))
+		},
 		{ Cond = true },
 
 		{ TypeCtor = Name - 0 },
@@ -807,6 +803,11 @@ add_item_clause(pragma(Pragma), Status, Status, Context,
 	->
 		add_pragma_type_spec(Pragma, Context, Module0, Module,
 			Info0, Info)
+	;
+		{ Pragma = foreign_type(_, _, Name) }
+	->
+		check_foreign_type(Name, Context, Module0, Module),
+		{ Info = Info0 }	
 	;
 		% don't worry about any pragma decs but c_code, tabling,
 		% type_spec and fact_table here
@@ -1793,18 +1794,15 @@ insts_add(Insts0, VarSet, Name, Args, eqv_inst(Body),
 		{ Insts = Insts0 },
 		% If abstract insts are implemented, this will need to change
 		% to update the hlds_inst_defn to the non-abstract inst.
-		( { Status = opt_imported } ->
-			[]
-		;
-			% XXX we should record each error using 
-			%	 module_info_incr_errors
-			{ user_inst_table_get_inst_defns(Insts, InstDefns) },
-			{ map__lookup(InstDefns, Name - Arity, OrigI) },
-			{ OrigI = hlds_inst_defn(_, _, _, _,
-						OrigContext, _) },
-			multiple_def_error(Name, Arity, "inst",
-					Context, OrigContext)
-		)
+
+		% XXX we should record each error using 
+		%	 module_info_incr_errors
+		{ user_inst_table_get_inst_defns(Insts, InstDefns) },
+		{ map__lookup(InstDefns, Name - Arity, OrigI) },
+		{ OrigI = hlds_inst_defn(_, _, _, _,
+					OrigContext, _) },
+		multiple_def_error(Status, Name, Arity, "inst",
+			Context, OrigContext, _)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -1838,18 +1836,13 @@ modes_add(Modes0, VarSet, Name, Args, eqv_mode(Body),
 		{ Modes = Modes1 }
 	;
 		{ Modes = Modes0 },
-		( { Status = opt_imported } ->
-			[]
-		;
-			{ mode_table_get_mode_defns(Modes, ModeDefns) },
-			{ map__lookup(ModeDefns, Name - Arity, OrigI) },
-			{ OrigI = hlds_mode_defn(_, _, _, _,
-						OrigContext, _) },
-			% XXX we should record each error using
-			% 	module_info_incr_errors
-			multiple_def_error(Name, Arity, "mode",
-					Context, OrigContext)
-		)
+		{ mode_table_get_mode_defns(Modes, ModeDefns) },
+		{ map__lookup(ModeDefns, Name - Arity, OrigI) },
+		{ OrigI = hlds_mode_defn(_, _, _, _, OrigContext, _) },
+		% XXX we should record each error using
+		% 	module_info_incr_errors
+		multiple_def_error(Status, Name, Arity, "mode",
+			Context, OrigContext, _)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -1930,7 +1923,13 @@ module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, _Cond, Context,
 				module_info_set_types(Module0, Types, Module)
 			}
 		;
-
+			{ merge_foreign_type_bodies(Body, Body_2, NewBody) }
+		->
+			{ hlds_data__set_type_defn(TVarSet_2, Params_2,
+				NewBody, Status, Context, T3) },
+			{ map__det_update(Types0, TypeCtor, T3, Types) },
+			{ module_info_set_types(Module0, Types, Module) }
+		;
 			% otherwise issue an error message if the second
 			% definition wasn't read while reading .opt files. 
 			{ Status = opt_imported }
@@ -1938,8 +1937,8 @@ module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, _Cond, Context,
 			{ Module = Module0 }
 		;
 			{ module_info_incr_errors(Module0, Module) },
-			multiple_def_error(Name, Arity, "type", Context,
-				OrigContext)
+			multiple_def_error(Status, Name, Arity, "type", Context,
+				OrigContext, _)
 		)
 	;
 		{ map__set(Types0, TypeCtor, T, Types) },
@@ -2014,6 +2013,109 @@ module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, _Cond, Context,
 			[]
 		)
 	).
+
+	% check_foreign_type ensures that if we are generating code for
+	% a specific backend that the foreign type has a representation
+	% on that backend.
+:- pred check_foreign_type(sym_name::in, prog_context::in,
+		module_info::in, module_info::out, io::di, io::uo) is det.
+
+check_foreign_type(Name, Context, Module0, Module) -->
+	{ TypeCtor = Name - 0 },
+	{ module_info_types(Module0, Types) },
+	{ TypeStr = error_util__describe_sym_name_and_arity(Name/0) },
+	( 
+		{ map__search(Types, TypeCtor, Defn) },
+		{ hlds_data__get_type_defn_body(Defn, Body) },
+		{ Body = foreign_type(MaybeIL, MaybeC) }
+	->
+		{ module_info_globals(Module0, Globals) },
+		generating_code(GeneratingCode),
+		( { GeneratingCode = yes } ->
+			io_lookup_bool_option(very_verbose, VeryVerbose),
+			{ VeryVerbose = yes ->
+				VerboseErrorPieces = [
+					nl,
+					words("There are representations for"),
+					words("this type on other back-ends,"),
+					words("but none for this back-end.")
+				]
+			;
+				VerboseErrorPieces = []
+			},
+			{ globals__get_target(Globals, Target) },
+			( { Target = c },
+			    ( { MaybeC = yes(_) },
+				{ Module = Module0 }
+			    ; { MaybeC = no },
+				{ ErrorPieces = [
+				    words("Error: no C pragma"),
+				    words("foreign_type declaration for"),
+				    fixed(TypeStr) | VerboseErrorPieces
+				] },
+				error_util__write_error_pieces(Context,
+					0, ErrorPieces),
+				{ module_info_incr_errors(Module0, Module) }
+			    )
+			; { Target = il },
+			    ( { MaybeIL = yes(_) },
+				{ Module = Module0 }
+			    ; { MaybeIL = no },
+				{ ErrorPieces = [
+				    words("Error: no IL pragma"),
+				    words("foreign_type declaration for"),
+				    fixed(TypeStr) | VerboseErrorPieces
+				] },
+				error_util__write_error_pieces(Context, 0,
+						ErrorPieces),
+				{ module_info_incr_errors(Module0, Module) }
+			    )
+			; { Target = java },
+				{ Module = Module0 }
+			; { Target = asm },
+				{ Module = Module0 }
+			)
+		;
+			{ Module = Module0 }
+		)
+	;
+		{ error("check_foreign_type: unable to find foreign type") }
+	).
+
+	% Do the options imply that we will generate code for a specific
+	% back-end?
+:- pred generating_code(bool::out, io::di, io::uo) is det.
+
+generating_code(bool__not(NotGeneratingCode)) -->
+	io_lookup_bool_option(make_short_interface, MakeShortInterface),
+	io_lookup_bool_option(make_interface, MakeInterface),
+	io_lookup_bool_option(make_private_interface, MakePrivateInterface),
+	io_lookup_bool_option(make_transitive_opt_interface,
+			MakeTransOptInterface),
+	io_lookup_bool_option(generate_source_file_mapping, GenSrcFileMapping),
+	io_lookup_bool_option(generate_dependencies, GenDepends),
+	io_lookup_bool_option(convert_to_mercury, ConvertToMercury),
+	io_lookup_bool_option(typecheck_only, TypeCheckOnly),
+	io_lookup_bool_option(errorcheck_only, ErrorCheckOnly),
+	io_lookup_bool_option(output_grade_string, OutputGradeString),
+	{ bool__or_list([MakeShortInterface, MakeInterface,
+			MakePrivateInterface, MakeTransOptInterface,
+			GenSrcFileMapping, GenDepends, ConvertToMercury,
+			TypeCheckOnly, ErrorCheckOnly, OutputGradeString],
+			NotGeneratingCode) }.
+
+:- pred merge_foreign_type_bodies(hlds_type_body::in,
+		hlds_type_body::in, hlds_type_body::out) is semidet.
+
+merge_foreign_type_bodies(foreign_type(MaybeILA, MaybeCA),
+		foreign_type(MaybeILB, MaybeCB),
+		foreign_type(MaybeIL, MaybeC)) :-
+	merge_maybe(MaybeILA, MaybeILB, MaybeIL),
+	merge_maybe(MaybeCA, MaybeCB, MaybeC).
+
+:- pred merge_maybe(maybe(T)::in, maybe(T)::in, maybe(T)::out) is semidet.
+merge_maybe(yes(T), no, yes(T)).
+merge_maybe(no, yes(T), yes(T)).
 
 :- pred make_status_abstract(import_status, import_status).
 :- mode make_status_abstract(in, out) is det.
@@ -2309,17 +2411,9 @@ module_add_pred_or_func(Module0, TypeVarSet, InstVarSet, ExistQVars,
 		PredOrFunc, PredName, TypesAndModes, MaybeDet, Cond, Purity,
 		ClassContext, Markers, Context, item_status(Status, NeedQual),
 		MaybePredProcId, Module) -->
-	% Only preds with opt_imported clauses are tagged as opt_imported, so
-	% that the compiler doesn't look for clauses for other preds read in
-	% from optimization interfaces.
-	{ Status = opt_imported ->
-		DeclStatus = imported(interface)
-	;
-		DeclStatus = Status
-	},
 	{ split_types_and_modes(TypesAndModes, Types, MaybeModes0) },
 	add_new_pred(Module0, TypeVarSet, ExistQVars, PredName, Types, Cond,
-		Purity, ClassContext, Markers, Context, DeclStatus, NeedQual, 
+		Purity, ClassContext, Markers, Context, Status, NeedQual, 
 		PredOrFunc, Module1),
 	{
 	    	PredOrFunc = predicate,
@@ -2408,38 +2502,35 @@ module_add_class_defn(Module0, Constraints, Name, Vars, Interface, VarSet,
 				OldVarSet, OldConstraints, Vars, VarSet,
 				Constraints) }
 		->
-			multiple_def_error(Name, ClassArity,
-				"typeclass", Context, OldContext),
+			% Always report the error, even in `.opt' files.
+			{ DummyStatus = local },
+			multiple_def_error(DummyStatus, Name, ClassArity,
+				"typeclass", Context, OldContext, _),
 			prog_out__write_context(Context),
 			io__write_string(
 			"  The superclass constraints do not match.\n"),
 			io__set_exit_status(1),
-			{ FoundError = yes }
+			{ ErrorOrPrevDef = yes }
 		;
 			{ Interface = concrete(_) },
 			{ OldInterface = concrete(_) }
 		->
-			{ FoundError = yes },
-			( { ImportStatus = opt_imported } ->
-				[]
-			;
-				multiple_def_error(Name, ClassArity,
-					"typeclass", Context, OldContext),
-				io__set_exit_status(1)
-			)
+			multiple_def_error(ImportStatus, Name, ClassArity,
+				"typeclass", Context, OldContext, _),
+			{ ErrorOrPrevDef = yes }
 		;
-			{ FoundError = no }
+			{ ErrorOrPrevDef = no }
 		),
 
 		{ IsNewDefn = no }
 	;
 		{ IsNewDefn = yes `with_type` bool },
-		{ FoundError = no `with_type` bool },
+		{ ErrorOrPrevDef = no `with_type` bool },
 		{ ClassMethods0 = [] },
 		{ ClassInterface = Interface },
 		{ ImportStatus = ImportStatus1 }
 	),
-	( { FoundError = no } ->
+	( { ErrorOrPrevDef = no } ->
 		(
 			{ Interface = concrete(Methods) },
 			module_add_class_interface(Module0, Name, Vars,
@@ -2749,8 +2840,17 @@ report_overlapping_instance_declaration(class_id(ClassName, ClassArity),
 % to be reflected there too.
 
 add_new_pred(Module0, TVarSet, ExistQVars, PredName, Types, Cond, Purity,
-		ClassContext, Markers0, Context, Status, NeedQual,
+		ClassContext, Markers0, Context, ItemStatus, NeedQual,
 		PredOrFunc, Module) -->
+	% Only preds with opt_imported clauses are tagged as opt_imported, so
+	% that the compiler doesn't look for clauses for other preds read in
+	% from optimization interfaces.
+	{ ItemStatus = opt_imported ->
+		Status = imported(interface)
+	;
+		Status = ItemStatus
+	},
+
 	check_tvars_in_constraints(ClassContext, Types, TVarSet,
 		PredOrFunc, PredName, Context, Module0, Module1),
 
@@ -2786,22 +2886,19 @@ add_new_pred(Module0, TVarSet, ExistQVars, PredName, Types, Cond, Purity,
 				PredOrFunc, MNameOfPred, PName, Arity,
 				[OrigPred|_]) }
 		->
-			( { Status \= opt_imported } ->
-				{ module_info_incr_errors(Module1, Module) },
-				{ module_info_pred_info(Module, OrigPred,
-					OrigPredInfo) },
-				{ pred_info_context(OrigPredInfo,
-					OrigContext) },
-				{ hlds_out__pred_or_func_to_str(PredOrFunc,
-					DeclString) },
-				{ adjust_func_arity(PredOrFunc,
-					OrigArity, Arity) },
-				multiple_def_error(PredName, OrigArity,
-					DeclString, Context, OrigContext)
+			{ module_info_pred_info(Module1, OrigPred,
+				OrigPredInfo) },
+			{ pred_info_context(OrigPredInfo, OrigContext) },
+			{ hlds_out__pred_or_func_to_str(PredOrFunc,
+				DeclString) },
+			{ adjust_func_arity(PredOrFunc, OrigArity, Arity) },
+			multiple_def_error(ItemStatus, PredName, OrigArity,
+				DeclString, Context, OrigContext, FoundError),
+			{ FoundError = yes ->
+				module_info_incr_errors(Module1, Module)
 			;
-				% This can happen for exported external preds.
-				{ Module = Module0 }
-			)
+				Module = Module1
+			}
 		;
 			{ module_info_get_partial_qualifier_info(Module1,
 				PQInfo) },
@@ -3680,22 +3777,6 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 		PredInfo1 = PredInfo0
 	},
 	(
-		{ pred_info_pragma_goal_type(PredInfo1) },
-		{ get_mode_annotations(Args, _, empty, ModeAnnotations) },
-		{ ModeAnnotations = empty ; ModeAnnotations = none }
-	->
-			% If we have a pragma foreign_proc for this procedure
-			% already, and we are trying to add a non-mode specific
-			% Mercury clause 
-		{ module_info_incr_errors(ModuleInfo1, ModuleInfo) },
-		prog_out__write_context(Context),
-		io__write_string("Error: non mode-specific clause for "),
-		hlds_out__write_simple_call_id(PredOrFunc, PredName/Arity),
-		io__write_string("\n"),
-		prog_out__write_context(Context),
-		io__write_string("  with `:- pragma foreign_proc' declaration preceding.\n"),
-		{ Info = Info0 }
-	;
 		%
 		% User-supplied clauses for field access functions are
 		% not allowed -- the clauses are always generated by the
@@ -3862,12 +3943,28 @@ select_applicable_modes(Args0, VarSet, Status, Context, PredId, PredInfo,
 		)
 	;
 		{ ModeAnnotations = empty },
-		{ ProcIds = [] }, % this means the clauses applies to all modes
+		{ pred_info_pragma_goal_type(PredInfo) ->
+			% We are only allowed to mix foreign procs and
+			% mode specific clauses, so make this clause
+			% mode specific but apply to all modes.
+			pred_info_all_procids(PredInfo, ProcIds)
+		;
+			% this means the clauses applies to all modes
+			ProcIds = []
+		},
 		{ ModuleInfo = ModuleInfo0 },
 		{ Info = Info0 }
 	;
 		{ ModeAnnotations = none },
-		{ ProcIds = [] }, % this means the clauses applies to all modes
+		{ pred_info_pragma_goal_type(PredInfo) ->
+			% We are only allowed to mix foreign procs and
+			% mode specific clauses, so make this clause
+			% mode specific but apply to all modes.
+			pred_info_all_procids(PredInfo, ProcIds)
+		;
+			% this means the clauses applies to all modes
+			ProcIds = []
+		},
 		{ ModuleInfo = ModuleInfo0 },
 		{ Info = Info0 }
 	;
@@ -4259,9 +4356,31 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 	% tagged as opt_imported only if/when we see a clause (including
 	% a `pragma c_code' clause) for them
 	{ Status = opt_imported ->
-		pred_info_set_import_status(PredInfo0, opt_imported, PredInfo1)
+		pred_info_set_import_status(PredInfo0, opt_imported, PredInfo1a)
 	;
-		PredInfo1 = PredInfo0
+		PredInfo1a = PredInfo0
+	},
+	{
+		% If this procedure was previously defined as clauses only
+		% then we need to turn all the non mode-specific clauses
+		% into mode-specific clauses.
+		pred_info_clause_goal_type(PredInfo1a)
+	->
+		pred_info_clauses_info(PredInfo1a, CInfo0),
+		clauses_info_clauses(CInfo0, ClauseList0),
+		ClauseList = list__map(
+			(func(C) =
+				( C = clause([], Goal, mercury, Ctxt) ->
+					clause(AllProcIds, Goal, mercury, Ctxt)
+				;
+					C
+				) :-
+				pred_info_all_procids(PredInfo1a, AllProcIds)
+			), ClauseList0),
+		clauses_info_set_clauses(CInfo0, ClauseList, CInfo),
+		pred_info_set_clauses_info(PredInfo1a, CInfo, PredInfo1)
+	;
+		PredInfo1 = PredInfo1a
 	},
 	( 
 		{ pred_info_is_imported(PredInfo1) }
@@ -4275,23 +4394,6 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 		io__write_string(".\n"),
 		{ Info = Info0 }
 	;	
-		{ pred_info_clause_goal_type(PredInfo1) },
-		{ pred_info_clauses_info(PredInfo1, CInfo) },
-		{ clauses_info_clauses(CInfo, ClauseList) },
-		{ list__member(clause([], _, mercury, _), ClauseList) }
-
-	->
-		{ module_info_incr_errors(ModuleInfo1, ModuleInfo) },
-		prog_out__write_context(Context),
-		io__write_string("Error: `:- pragma foreign_proc' (or `pragma c_code')\n"),
-		prog_out__write_context(Context),
-		io__write_string("declaration for "),
-		hlds_out__write_simple_call_id(PredOrFunc, PredName/Arity),
-		io__write_string("\n"),
-		prog_out__write_context(Context),
-		io__write_string("  with preceding non-mode specific clauses.\n"),
-		{ Info = Info0 }
-	;
 			% Don't add clauses for foreign languages other
 			% than the ones we can generate code for.
 		{ not list__member(PragmaForeignLanguage, BackendForeignLangs) }
@@ -4788,15 +4890,15 @@ warn_singletons_in_goal_2(conj(Goals), _GoalInfo, QuantVars, VarSet,
 		PredCallId, MI) -->
 	warn_singletons_in_goal_list(Goals, QuantVars, VarSet, PredCallId, MI).
 
-warn_singletons_in_goal_2(par_conj(Goals, _SM), _GoalInfo, QuantVars, VarSet,
+warn_singletons_in_goal_2(par_conj(Goals), _GoalInfo, QuantVars, VarSet,
 		PredCallId, MI) -->
 	warn_singletons_in_goal_list(Goals, QuantVars, VarSet, PredCallId, MI).
 
-warn_singletons_in_goal_2(disj(Goals, _), _GoalInfo, QuantVars, VarSet,
+warn_singletons_in_goal_2(disj(Goals), _GoalInfo, QuantVars, VarSet,
 		PredCallId, MI) -->
 	warn_singletons_in_goal_list(Goals, QuantVars, VarSet, PredCallId, MI).
 
-warn_singletons_in_goal_2(switch(_Var, _CanFail, Cases, _),
+warn_singletons_in_goal_2(switch(_Var, _CanFail, Cases),
 			_GoalInfo, QuantVars, VarSet, PredCallId, MI) -->
 	warn_singletons_in_cases(Cases, QuantVars, VarSet, PredCallId, MI).
 
@@ -4821,7 +4923,7 @@ warn_singletons_in_goal_2(some(Vars, _, SubGoal), GoalInfo, QuantVars, VarSet,
 	{ set__insert_list(QuantVars, Vars, QuantVars1) },
 	warn_singletons_in_goal(SubGoal, QuantVars1, VarSet, PredCallId, MI).
 
-warn_singletons_in_goal_2(if_then_else(Vars, Cond, Then, Else, _), GoalInfo,
+warn_singletons_in_goal_2(if_then_else(Vars, Cond, Then, Else), GoalInfo,
 				QuantVars, VarSet, PredCallId, MI) -->
 	%
 	% warn if any quantified variables do not occur in the condition
@@ -5647,9 +5749,8 @@ transform_goal(Goal0 - Context, VarSet0, Subst, Goal1 - GoalInfo1, VarSet,
 		transform_info, transform_info, io__state, io__state).
 :- mode transform_goal_2(in, in, in, in, out, out, in, out, di, uo) is det.
 
-transform_goal_2(fail, _, VarSet, _, disj([], Empty) - GoalInfo, VarSet,
+transform_goal_2(fail, _, VarSet, _, disj([]) - GoalInfo, VarSet,
 		Info, Info) -->
-	{ map__init(Empty) },
 	{ goal_info_init(GoalInfo) }.
 
 transform_goal_2(true, _, VarSet, _, conj([]) - GoalInfo, VarSet,
@@ -5672,13 +5773,12 @@ transform_goal_2(some(Vars0, Goal0), _, VarSet0, Subst,
 
 
 transform_goal_2(if_then_else(Vars0, A0, B0, C0), _, VarSet0, Subst,
-	if_then_else(Vars, A, B, C, Empty) - GoalInfo, VarSet, Info0, Info)
-		-->
+		if_then_else(Vars, A, B, C) - GoalInfo, VarSet,
+		Info0, Info) -->
 	{ substitute_vars(Vars0, Subst, Vars) },
 	transform_goal(A0, VarSet0, Subst, A, VarSet1, Info0, Info1),
 	transform_goal(B0, VarSet1, Subst, B, VarSet2, Info1, Info2),
 	transform_goal(C0, VarSet2, Subst, C, VarSet, Info2, Info),
-	{ map__init(Empty) },
 	{ goal_info_init(GoalInfo) }.
 
 transform_goal_2(if_then(Vars0, A0, B0), Context, Subst, VarSet0,
@@ -7279,9 +7379,8 @@ unravel_unification(term__variable(X), RHS,
 		unravel_unification(term__variable(X), ElseTerm,
 			Context, MainContext, SubContext, VarSet33, pure,
 			ElseGoal, VarSet, Info3, Info),
-		{ map__init(Empty) },
-		{ IfThenElse = if_then_else(Vars, IfGoal, ThenGoal, ElseGoal,
-			Empty) },
+		{ IfThenElse = if_then_else(Vars, IfGoal,
+			ThenGoal, ElseGoal) },
 		{ goal_info_init(Context, GoalInfo) },
 		{ Goal = IfThenElse - GoalInfo }
 	;
@@ -7956,29 +8055,39 @@ report_unexpected_decl(Descr, Context) -->
 	io__write_string(Descr),
 	io__write_string("' declaration.\n").
 
-:- pred multiple_def_error(sym_name, int, string, prog_context, prog_context,
-				io__state, io__state).
-:- mode multiple_def_error(in, in, in, in, in, di, uo) is det.
+:- pred multiple_def_error(import_status, sym_name, int, string, prog_context,
+		prog_context, bool, io__state, io__state).
+:- mode multiple_def_error(in, in, in, in, in, in, out, di, uo) is det.
 
-multiple_def_error(Name, Arity, DefType, Context, OrigContext) -->
-	io__set_exit_status(1),
-	prog_out__write_context(Context),
-	io__write_string("Error: "),
-	io__write_string(DefType),
-	io__write_string(" `"),
-	prog_out__write_sym_name(Name),
-	io__write_string("/"),
-	io__write_int(Arity),
-	io__write_string("' multiply defined.\n"),
-	prog_out__write_context(OrigContext),
-	io__write_string(
-		"  Here is the previous definition of "),
-	io__write_string(DefType),
-	io__write_string(" `"),
-	prog_out__write_sym_name(Name),
-	io__write_string("/"),
-	io__write_int(Arity),
-	io__write_string("'.\n").
+multiple_def_error(Status, Name, Arity, DefType, Context,
+		OrigContext, FoundError) -->
+	( { Status \= opt_imported } ->
+		io__set_exit_status(1),
+		prog_out__write_context(Context),
+		io__write_string("Error: "),
+		io__write_string(DefType),
+		io__write_string(" `"),
+		prog_out__write_sym_name(Name),
+		io__write_string("/"),
+		io__write_int(Arity),
+		io__write_string("' multiply defined.\n"),
+		prog_out__write_context(OrigContext),
+		io__write_string(
+			"  Here is the previous definition of "),
+		io__write_string(DefType),
+		io__write_string(" `"),
+		prog_out__write_sym_name(Name),
+		io__write_string("/"),
+		io__write_int(Arity),
+		io__write_string("'.\n"),
+		{ FoundError = yes }
+	;
+		% We don't take care not to read the same declaration
+		% from multiple sources with inter-module optimization
+		% so ignore multiple definition errors in the items read
+		% for inter-module optimization.
+		{ FoundError = no }
+	).
 
 :- pred undefined_pred_or_func_error(sym_name, int, prog_context, string,
 				io__state, io__state).

@@ -382,7 +382,6 @@ make_construction(Var - _, ConsId, Goal) :-
 :- mode make_true_or_fail(in, in, out, out) is det.
 
 make_true_or_fail(yes, GoalInfo, conj([]), GoalInfo).
-make_true_or_fail(no, GoalInfo, disj([], SM), GoalInfo) :-
-	map__init(SM).
+make_true_or_fail(no, GoalInfo, disj([]), GoalInfo).
 
 %------------------------------------------------------------------------------%

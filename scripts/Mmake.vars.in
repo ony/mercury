@@ -16,6 +16,7 @@ ALL_EXTRA_LIBRARIES	= $(TARGET_EXTRA_LIBRARIES) $(EXTRA_LIBRARIES)
 EXTRA_LIB_DIRS		=
 EXTRA_LIBRARIES		=
 
+ifeq ($(MMAKE_USE_MMC_MAKE),no)
 EXTRA_INT_DIRS		= $(patsubst %,%/ints,$(EXTRA_LIB_DIRS))
 MERCURY_EXTRA_INT_DIRS	= $(EXTRA_INT_DIRS)
 EXTRA_C_LIB_DIRS	= \
@@ -24,6 +25,15 @@ EXTRA_C_LIB_DIRS	= \
 EXTRA_C_INCL_DIRS	= $(patsubst %,%/inc,$(EXTRA_LIB_DIRS))
 EXTRA_INIT_DIRS		= $(patsubst %,%/modules,$(EXTRA_LIB_DIRS))
 MERCURY_EXTRA_INIT_DIRS = $(EXTRA_INIT_DIRS)
+else
+# mmc handles these itself when invoked with `--make'.
+EXTRA_INT_DIRS =
+MERCURY_EXTRA_INT_DIRS =
+EXTRA_C_LIB_DIRS =
+EXTRA_C_INCL_DIRS =
+EXTRA_INIT_DIRS =
+MERCURY_EXTRA_INIT_DIRS	=
+endif
 
 # Set the directory search path. 
 # (See the GNU Make manual for documentation about VPATH and GPATH.)
@@ -35,7 +45,7 @@ MERCURY_EXTRA_INIT_DIRS = $(EXTRA_INIT_DIRS)
 # occurrence of $(patsubst ...), since GNU Make does not respect quotes.
 nullstring	=
 MMAKE_VPATH	= $(subst $(nullstring) ,:,$(strip \
-			$(MERCURY_EXTRA_INT_DIRS) $(MERCURY_INT_DIR)\
+			$(MERCURY_EXTRA_INT_DIRS) $(MERC_INT_DIR)\
 			$(MERCURY_EXTRA_INIT_DIRS)))
 VPATH		= $(MMAKE_VPATH) # do not remove the `:' from this comment!!!
 #			 the above comment works around a misfeature of
@@ -55,6 +65,23 @@ ASM_OPT  = --target asm
 else
 ASM_OPT  =
 endif
+
+MERCURY_MAIN_MODULES =
+
+#
+# Files which should be built using `mmc --make' rather than `make'
+# when `--use-mmc-make' is passed on the mmake command line.
+# XXX Once `mmc --make' allows library installation we should add
+# %.install to the list below
+#
+ALL_MC_BUILD_FILES = $(MERCURY_MAIN_MODULES:%=%$(EXT_FOR_EXE)) \
+			$(MERCURY_MAIN_MODULES:%=lib%.$A) \
+			$(MERCURY_MAIN_MODULES:%=lib%.so) \
+			$(MERCURY_MAIN_MODULES:%=%.clean) \
+			$(MERCURY_MAIN_MODULES:%=%.realclean) \
+			$(MERCURY_MAIN_MODULES:%=%.depend) \
+			$(MC_BUILD_FILES)
+MC_BUILD_FILES =
 
 #-----------------------------------------------------------------------------#
 #-----------------------------------------------------------------------------#
@@ -79,6 +106,28 @@ MCFLAGS		=
 EXTRA_MCFLAGS	=
 LIB_MCFLAGS	= $(patsubst %,-I %,$(EXTRA_INT_DIRS))
 
+# Flags for use with `mmc --make'.
+# Pass the options as a Mercury.options file on stdin rather
+# than on the command line. This avoids problems with quoting
+# and unwanted word splitting.
+ECHO_MERCURY_OPTIONS = { \
+	echo MCFLAGS += '$(ALL_GRADEFLAGS) $(ALL_MCFLAGS)'; \
+	echo MCFLAGS += '$(MC_MAKE_FLAGS) $(EXTRA_MC_MAKE_FLAGS)'; \
+	echo CFLAGS += '$(ALL_CFLAGS)'; \
+	echo JAVACFLAGS += '$(ALL_JAVACFLAGS)'; \
+	echo MS_CLFLAGS += '$(ALL_MS_CLFLAGS)'; \
+	echo MS_ILASMFLAGS += '$(ALL_MS_ILASMFLAGS)'; \
+	echo C2INITARGS += '$(ALL_C2INITARGS)'; \
+	echo MLFLAGS += '$(ALL_MLFLAGS)'; \
+	echo MLLIBS += '$(ALL_MLLIBS)'; \
+	echo MLOBJS += '$(ALL_MLOBJS)'; \
+	echo EXTRA_LIBRARIES += '$(EXTRA_LIBRARIES)'; \
+	echo EXTRA_LIB_DIRS += '$(EXTRA_LIB_DIRS)'; \
+	}
+
+MC_MAKE_FLAGS	=
+EXTRA_MC_MAKE_FLAGS =
+
 MCS		= $(MC) --split-c-files --compile-only
 MCG		= $(MC) --compile-to-c
 MCE		= $(MC) --errorcheck-only
@@ -89,6 +138,7 @@ MCSI		= $(MC) --make-short-interface
 MCOI		= $(MC) --make-optimization-interface
 MCTOI		= $(MC) --make-transitive-optimization-interface
 MCOGS		= $(MC) --output-grade-string
+MCM		= $(ECHO_MERCURY_OPTIONS) | $(MC) --make --options-file -
 
 ALL_MCIFLAGS	= $(MCIFLAGS) $(EXTRA_MCIFLAGS) $(TARGET_MCFLAGS) \
 		  $(LIB_MCFLAGS)
@@ -105,7 +155,7 @@ ALL_MCDFLAGS	= $(MCDFLAGS) $(EXTRA_MCDFLAGS) $(TARGET_MCFLAGS) \
 ALL_MCGFLAGS	= $(MCGFLAGS) $(EXTRA_MCGFLAGS) $(TARGET_MCFLAGS) \
 		  $(LIB_MCFLAGS)
 ALL_MCSFLAGS	= $(MCSFLAGS) $(EXTRA_MCSFLAGS) $(TARGET_MCFLAGS) \
-		  $(LIB_MCFLAGS)
+		  $(LIB_MCFLAGS) --cflags "$(ALL_CFLAGS)"
 
 MCIFLAGS	= $(MCFLAGS)
 MCPIFLAGS	= $(MCFLAGS)
@@ -148,13 +198,20 @@ EXTRA_CFLAGS	=
 
 # MS_CL is the command line version of Microsoft Visual C++, which we
 # use to compile Managed C++ code in the .NET backend.
+CYGPATH		= @CYGPATH@
 MS_CL		= @MS_CL@
 MS_VISUALCPP_DIR = @MS_VISUALCPP_DIR@
 ALL_MS_CLFLAGS	= $(MS_CLFLAGS) $(EXTRA_MS_CLFLAGS) $(TARGET_MS_CLFLAGS) \
 		$(LIB_MS_CLFLAGS)
 MS_CLFLAGS	=
 EXTRA_MS_CLFLAGS =
-MS_VC7_INCLUDES = -I"`cygpath -w '$(MS_VISUALCPP_DIR)/include'`"
+# The $(shell ...) here is to cause make to evaluate the command substitution
+# when the variable is expanded. This is necessary because the result
+# will be single-quoted when passed to the shell via ECHO_MERCURY_OPTIONS
+# to preserve possible double-quotes, so the command substitution won't
+# be run then.
+MS_VC7_INCLUDE_DIR = $(shell echo `$(CYGPATH) "$(MS_VISUALCPP_DIR)/include"`)
+MS_VC7_INCLUDES = -I"$(MS_VC7_INCLUDE_DIR)"
 LIB_MS_CLFLAGS	= $(MS_VC7_INCLUDES) $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
 
 # MS_CL_NOASM can be used to turn off assembly generation.  Use
@@ -163,8 +220,10 @@ MS_CL_NOASM	=
 MS_DOTNET_SDK_DIR=@MS_DOTNET_SDK_DIR@
 # The system libraries were once needed here, but are currently unnecessary.
 MS_CL_LIBS	= 
-MERC_C_INCL_DIR = @LIBDIR@/inc
-MERC_DLL_DIR    = @LIBDIR@/lib/ilc/@FULLARCH@
+
+# XXX handle the case where MERCURY_STDLIB_DIR is not set.
+MERC_C_INCL_DIR = $(MERCURY_STDLIB_DIR)/inc
+MERC_DLL_DIR    = $(MERCURY_STDLIB_DIR)/lib/ilc/@FULLARCH@
 
 # MS_ILASM is the Microsoft IL assembler, which turns IL assembly code
 # into bytecode.
