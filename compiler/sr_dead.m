@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -66,8 +66,13 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _),
+	proc_info_vartypes( ProcInfo, VarTypes ), 
+	list__map( 
+		map__lookup( VarTypes ), 
+		ActualVars, 
+		ActualTypes ), 
 	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
-		PredId, ProcId, ActualVars, Alias0, Alias),
+		PredId, ProcId, ActualVars, ActualTypes, Alias0, Alias),
 	Expr = Expr0, 
 	Info = Info0, 
 	Pool = Pool0, 
@@ -99,7 +104,7 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification0, _Context),
-	unification_verify_reuse(Unification0, Alias0, 
+	unification_verify_reuse(HLDS, ProcInfo, Unification0, Alias0, 
 		Pool0, Pool, Info0, Info),
 		% XXX candidate for future optimization: if
 		% you annotate the deconstruct first, you might avoid
@@ -212,12 +217,14 @@ annotate_case( ProcInfo, HLDS, Pool0, Alias0, Case0,
 			Alias0, Alias), 
 	Case = case(CONS, Goal).
 
-:- pred unification_verify_reuse( hlds_goal__unification, 
+:- pred unification_verify_reuse( module_info, proc_info, 
+		hlds_goal__unification, 
 		alias_as, dead_cell_pool, dead_cell_pool, 
 		hlds_goal_info, hlds_goal_info).
-:- mode unification_verify_reuse( in, in, in, out, in, out) is det.
+:- mode unification_verify_reuse( in, in, in, in, in, out, in, out) is det.
 
-unification_verify_reuse( Unification, Alias0, Pool0, Pool,
+unification_verify_reuse( ModuleInfo, ProcInfo, 
+				Unification, Alias0, Pool0, Pool,
 				Info0, Info) :- 
 	(
 		Unification = deconstruct( Var, CONS_ID, _, _, _, _)
@@ -226,7 +233,8 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 		goal_info_get_lbu( Info0, LBU ),
 		set__union( LFU, LBU, LU), 
 		sr_live__init(LIVE0),
-		pa_alias_as__live(LU, LIVE0, Alias0, LIVE), 
+		pa_alias_as__live(ModuleInfo, ProcInfo, LU, LIVE0, 
+				Alias0, LIVE), 
 		(
 			( 
 				sr_live__is_live(Var,LIVE) 
@@ -239,7 +247,8 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 				choice(deconstruct(no)), Info),
 			Pool = Pool0
 		;
-			add_dead_cell( Var, CONS_ID, 
+			add_dead_cell( ModuleInfo, ProcInfo, 
+					Var, CONS_ID, 
 					LFU, LBU,
 					Alias0, Pool0, Pool, 
 					ReuseCondition),
@@ -292,16 +301,16 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 	% test if empty
 :- pred dead_cell_pool_is_empty(dead_cell_pool::in) is semidet.
 
-:- pred add_dead_cell(prog_var, cons_id, set(prog_var), 
+:- pred add_dead_cell(module_info, proc_info, prog_var, cons_id, set(prog_var), 
 			set(prog_var), alias_as, 
 			dead_cell_pool, dead_cell_pool, 
 			reuse_condition).
-:- mode add_dead_cell(in, in, in, in, in, in, out, out) is det.
+:- mode add_dead_cell(in, in, in, in, in, in, in, in, out, out) is det.
 
 	% given its reuse_condition, add the dead cell to dr_info.
-:- pred add_dead_cell(prog_var, cons_id, reuse_condition, 
+:- pred add_dead_cell( prog_var, cons_id, reuse_condition, 
 			dead_cell_pool, dead_cell_pool) is det.
-:- mode add_dead_cell(in, in, in, in, out) is det.
+:- mode add_dead_cell( in, in, in, in, out) is det.
 
 :- pred dead_cell_pool_least_upper_bound_disj( set(prog_var),
 				list(dead_cell_pool), dead_cell_pool).
@@ -330,9 +339,11 @@ dead_cell_pool_init( HVS, Pool ):-
 dead_cell_pool_is_empty( pool(_, Pool) ):- 
 	map__is_empty(Pool).
 
-add_dead_cell(Var, Cons, LFU, LBU, Alias0, Pool0, Pool, Condition) :- 
+add_dead_cell(ModuleInfo, ProcInfo, Var, Cons, LFU, LBU, 
+			Alias0, Pool0, Pool, Condition) :- 
 	Pool0 = pool(HVS, _Map0), 
-	reuse_condition_init(Var, LFU, LBU, Alias0, HVS, Condition),
+	reuse_condition_init(ModuleInfo, ProcInfo, Var, LFU, LBU, 
+			Alias0, HVS, Condition),
 	add_dead_cell( Var, Cons, Condition, Pool0, Pool).
 
 

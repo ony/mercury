@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -54,9 +54,10 @@
 	% Collect all the datastructures to which the datastructure
 	% is aliased, taking into account possible termshifting.
 	% Gives an error when alias_as is top.
-:- pred collect_aliases_of_datastruct(pa_datastruct__datastruct, 
+:- pred collect_aliases_of_datastruct(module_info, proc_info, 
+		pa_datastruct__datastruct, 
 		alias_as, list(pa_datastruct__datastruct)).
-:- mode collect_aliases_of_datastruct(in, in, out) is det.
+:- mode collect_aliases_of_datastruct(in, in, in, in, out) is det.
 
 	% extend_prog_vars_from_alias( Vars, Alias, NewVars)
 	% ( X \in NewVars <=> X \in Vars or alias(X,Y) \in Alias and
@@ -68,6 +69,17 @@
 	% of prog_vars (map (FROM_VARS, TO_VARS) ).
 :- pred rename( map(prog_var, prog_var), alias_as, alias_as).
 :- mode rename( in, in, out ) is det.
+
+	% rename_types( FromTypes, ToTypes, Alias0, Alias).
+	% Rename all the typevariables occurring in the aliases using the
+	% mapping from FromTypes to ToTypes. 
+:- pred rename_types( list( (type) )::in, list( (type) )::in, 
+		alias_as::in, alias_as::out ) is det.
+	% rename_types( Substitution, Alias0, Alias). 
+	% Rename all the type-variables occurring in the aliases using the
+	% substitution mapping. 
+:- pred rename_types( term__substitution( tvar_type )::in, 
+		alias_as::in, alias_as::out ) is det.
 
 	% returns true if both abstract substitutions are equal. 
 	% needed for fixpoint
@@ -89,8 +101,10 @@
 					list(alias_as), alias_as).
 :- mode least_upper_bound_list( in, in, in, in, out) is det.
 
-	% extend( NEW, OLD, RESULT).
+	% extend( ProcInfo, ModuleInfo, NEW, OLD, RESULT).
 	% extend a given abstract substitution with new information.
+	% NB: the order is _very_ important! The first alias-set is
+	% the (new) one to be added to the second one (cumulating one). 
 :- pred extend( proc_info, module_info, alias_as, alias_as, alias_as).
 :- mode extend( in, in, in, in, out) is det.
 
@@ -121,18 +135,18 @@
 	% print-procedures:
 	% print_maybe_possible_aliases: routine used within
 	% hlds_dumps.
-:- pred print_maybe_possible_aliases( maybe(alias_as), proc_info,
+:- pred print_maybe_possible_aliases( maybe(alias_as), proc_info, pred_info, 
 				io__state, io__state).
-:- mode print_maybe_possible_aliases( in, in, di, uo) is det.
+:- mode print_maybe_possible_aliases( in, in, in, di, uo) is det.
 
 	% print_maybe_interface_aliases: routine for printing
 	% alias information in interface files.
 :- pred print_maybe_interface_aliases( maybe(alias_as), 
-				proc_info, io__state, io__state).
-:- mode print_maybe_interface_aliases( in, in, di, uo) is det.
+				proc_info, pred_info, io__state, io__state).
+:- mode print_maybe_interface_aliases( in, in, in, di, uo) is det.
 
-:- pred print_aliases( alias_as, proc_info, io__state, io__state).
-:- mode print_aliases( in, in, di, uo) is det.
+:- pred print_aliases( alias_as, proc_info, pred_info, io__state, io__state).
+:- mode print_aliases( in, in, in, di, uo) is det.
 
 	% reverse routine of print_maybe_interface_aliases.
 :- pred parse_read_aliases(list(term(T)), alias_as).
@@ -144,11 +158,13 @@
 	% Live = live(IN_USE,LIVE_0,ALIASES).
 	% compute the live-set based upon an initial IN_USE set, 
 	% and a list of aliases.
-:- pred live(set(prog_var),live_set, alias_as, sr_live__live_set).
-:- mode live(in,in, in,out) is det.
+:- pred live(module_info, proc_info, 
+		set(prog_var),live_set, alias_as, sr_live__live_set).
+:- mode live(in, in, in,in, in,out) is det.
 
-:- func live(set(prog_var),live_set, alias_as) = sr_live__live_set.
-:- mode live(in,in, in) = out is det.
+:- func live(module_info, proc_info, 
+		set(prog_var),live_set, alias_as) = sr_live__live_set.
+:- mode live(in, in, in,in, in) = out is det.
 
 :- func size( alias_as ) = int.
 :- mode size( in ) = out is det.
@@ -158,10 +174,10 @@
 :- implementation.
 
 % library modules
-:- import_module require, term.
+:- import_module require, term, assoc_list.
 
 % compiler modules
-:- import_module pa_alias, pa_util.
+:- import_module pa_alias, pa_util, pa_sr_util.
 
 %-----------------------------------------------------------------------------%
 %-- type definitions 
@@ -178,8 +194,8 @@
 :- func alias_limit = int. 
 :- func top_limit = int. 
 
-alias_limit = 100.
-top_limit = 1000.
+alias_limit = 500. % 100
+top_limit = 200.
 
 %-----------------------------------------------------------------------------%
 
@@ -243,13 +259,14 @@ project_set( SetVar, ASin, ASout ):-
 	set__to_sorted_list( SetVar, ListVar),
 	project( ListVar, ASin, ASout).
 
-collect_aliases_of_datastruct( DATA, AS, LIST ):-
+collect_aliases_of_datastruct( ModuleInfo, ProcInfo, DATA, AS, LIST ):-
 	(
 		AS = real_as(ALIASES)
 	->
 		list__filter_map(
 			pred( A::in, D::out) is semidet :-
-			    ( pa_alias__aliased_to( A, DATA, D)),
+			    ( pa_alias__aliased_to( ModuleInfo, ProcInfo, 
+					A, DATA, D)),
 			ALIASES,
 			LIST)
 	;
@@ -298,6 +315,27 @@ rename( Mapvar, ASin, ASout ):-
 		ASout = ASin 
 	).
 
+rename_types( FromTypes, ToTypes, ASin, ASout ) :- 
+	assoc_list__from_corresponding_lists( FromTypes, ToTypes, 
+				FromToTypes ), 
+	list__foldl( rename_type_det, FromToTypes, 
+				map__init, Substitution), 
+	rename_types( Substitution, ASin, ASout ). 
+
+rename_types( Substitution, A0, A) :- 
+	(
+		A0 = real_as( Aliases0 )
+	-> 
+		list__map(
+			pa_alias__rename_types(Substitution), 
+			Aliases0, 
+			Aliases ), 
+		A = real_as( Aliases )
+	; 
+		A = A0
+	).
+			
+
 equal( AS1, AS2 ):-
 	(
 		AS1 = real_as(LIST1)
@@ -342,7 +380,7 @@ least_upper_bound( ProcInfo, HLDS, AS1, AS2, RESULT) :-
 		->
 			pa_alias__least_upper_bound_lists(ProcInfo, 
 				HLDS, LIST1,LIST2,Aliases),
-			wrap(Aliases, RESULT)
+			wrap_and_control( HLDS, ProcInfo, Aliases, RESULT)
 		;
 			AS2 = top(_)
 		->
@@ -376,7 +414,7 @@ simplify_upon_subsumption( ProcInfo, HLDS, AS, RESULT):-
 	->
 		pa_alias__least_upper_bound_lists(ProcInfo,HLDS,
 				LIST,[],Aliases),
-		wrap(Aliases,RESULT)
+		wrap_and_control(HLDS, ProcInfo, Aliases,RESULT)
 	;
 		% AS is bottom or top(_)
 		RESULT = AS
@@ -402,13 +440,17 @@ maybe_normalize( ProcInfo, HLDS, GoalInfo, Alias0, Alias ) :-
 		Alias0 = bottom, 
 		Alias = Alias0
 	; 
-		Alias0 = real_as(_), 
+		Alias0 = real_as(AliasList0), 
+		SIZE = size(Alias0), 
 		(
-			size(Alias0) > top_limit
+			SIZE > top_limit
 		->
-			top("Size too big", Alias)
+			pa_alias__apply_widening_list( HLDS, ProcInfo, 
+				AliasList0, AliasList ), 
+			Alias = real_as(AliasList)
+			% top("Size too big", Alias)
 		;
-			size(Alias0) > alias_limit
+			SIZE > alias_limit
 		-> 
 			normalize_with_goal_info( ProcInfo, HLDS, GoalInfo, 
 				Alias0, Alias)
@@ -425,8 +467,8 @@ extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 			A2 = real_as(OLD)
 		->
 			pa_alias__extend(ProcInfo, HLDS, 
-				OLD, NEW, Aliases),
-			wrap(Aliases,RESULT)
+				NEW, OLD, Aliases),
+			wrap_and_control(HLDS, ProcInfo, Aliases, RESULT)
 		;
 			A2 = top(_)
 		->
@@ -695,26 +737,27 @@ normalize_wti( ProcInfo, HLDS, ASin, ASout ):-
 
 	% MaybeAs = yes( Alias_as) -> print out Alias_as
 	%         = no		   -> print "not available"
-print_maybe_possible_aliases( MaybeAS, ProcInfo ) -->
+print_maybe_possible_aliases( MaybeAS, ProcInfo, PredInfo ) -->
 	(
 		{ MaybeAS = yes(AS) }
 	->	
-		print_possible_aliases( AS, ProcInfo)
+		print_possible_aliases( AS, ProcInfo, PredInfo)
 	;
 		io__write_string("% not available.")
 	).
 
 	% print_possible_aliases( Abstract Substitution, Proc Info).
 	% print alias abstract substitution
-:- pred print_possible_aliases( alias_as, proc_info, io__state, io__state).
-:- mode print_possible_aliases( in, in, di, uo ) is det. 
+:- pred print_possible_aliases( alias_as, proc_info, pred_info, 
+					io__state, io__state).
+:- mode print_possible_aliases( in, in, in, di, uo ) is det. 
 
-print_possible_aliases( AS, ProcInfo ) -->
+print_possible_aliases( AS, ProcInfo, PredInfo ) -->
 	(
 		{ AS = real_as(Aliases) }
 	->
 		io__write_list( Aliases, "", 
-			pa_alias__print(ProcInfo,"% ", "\n"))
+			pa_alias__print(ProcInfo, PredInfo, "% ", "\n"))
 	;
 		{ AS = top(Msgs) }
 	->
@@ -731,24 +774,24 @@ print_possible_aliases( AS, ProcInfo ) -->
 
 	% MaybeAs = yes(Alias_as) -> print `yes( printed Alias_as)'
 	%         = no		  -> print `not_available'
-print_maybe_interface_aliases( MaybeAS, ProcInfo ) -->
+print_maybe_interface_aliases( MaybeAS, ProcInfo, PredInfo ) -->
 	(
 		{ MaybeAS = yes(AS) }
 	->
 		io__write_string("yes("),
-		print_aliases(AS, ProcInfo),
+		print_aliases(AS, ProcInfo, PredInfo),
 		io__write_string(")")
 	;
 		io__write_string("not_available")
 	).
 
-print_aliases( AS, ProcInfo ) --> 
+print_aliases( AS, ProcInfo, PredInfo ) --> 
 	(
 		{ AS = real_as(Aliases) }
 	->
 		io__write_string("["),
 		io__write_list( Aliases, ",", 
-			pa_alias__print(ProcInfo," ","")),
+			pa_alias__print(ProcInfo,PredInfo," ","")),
 		io__write_string("]")
 	;
 		{ AS = top(_Msgs) }
@@ -848,19 +891,41 @@ wrap( LIST, AS) :-
 	->
 		AS = bottom
 	;
-		list__length(LIST,Length), 
-		Length > top_limit
-	->
-		top("Size too big", AS)
-	;
+%		list__length(LIST,Length), 
+%		Length > top_limit
+%	->
+%		top("Size too big", AS)
+%	;
 		AS = real_as(LIST)
 	).
+
+:- pred wrap_and_control( module_info::in, proc_info::in, 
+				list(alias)::in, alias_as::out) is det.
+
+wrap_and_control( _ModuleInfo, _ProcInfo, AliasList, AS ):-
+	wrap( AliasList, AS ).
+/**
+	(
+		AliasList = []
+	->
+		AS = bottom
+	; 
+		list__length(AliasList,Length),
+		Length > top_limit
+	->
+		pa_alias__apply_widening_list( ModuleInfo, ProcInfo, 
+				AliasList, AliasList1 ), 
+		AS = real_as( AliasList1 )
+	;
+		AS = real_as( AliasList )
+	).
+**/
 
 
 %-------------------------------------------------------------------%
 % computing LIVE_SET
 %-------------------------------------------------------------------%
-live(IN_USE, LIVE_0, AS, LIVE) :-
+live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 	(
 		set__empty(IN_USE)
 	->
@@ -885,7 +950,7 @@ live(IN_USE, LIVE_0, AS, LIVE) :-
 		% most general case
 		AS = real_as(Aliases)
 	->
-		live_2(IN_USE, LIVE_0, Aliases, LIVE)
+		live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, Aliases, LIVE)
 	;
 		error("(pa_alias_as) live: impossible situation.")	
 	).
@@ -893,11 +958,11 @@ live(IN_USE, LIVE_0, AS, LIVE) :-
 
 	% live_2(IN_USE, Aliases, Liveset)
 	% pre-condition: IN_USE is not empty
-:- pred live_2(set(prog_var),sr_live__live_set,
+:- pred live_2(module_info, proc_info, set(prog_var),sr_live__live_set,
 		list(pa_alias__alias), sr_live__live_set).
-:- mode live_2(in, in, in, out) is det.
+:- mode live_2(in, in, in, in, in, out) is det.
 
-live_2( IN_USE, LIVE_0, ALIASES, LIVE) :- 
+live_2( ModuleInfo, ProcInfo, IN_USE, LIVE_0, ALIASES, LIVE) :- 
 	% LIVE = LIVE0 + LIVE1 + LIVE2 + LIVE3
 	% where
 	%	LIVE0 = LIVE_0
@@ -929,13 +994,14 @@ live_2( IN_USE, LIVE_0, ALIASES, LIVE) :-
 	pa_alias__live_from_in_use(IN_USE, ALIASES, LIVE2),
 
 	% (LIVE3)
-	pa_alias__live_from_live0(LIVE_0, ALIASES, LIVE3),
+	pa_alias__live_from_live0(ModuleInfo, ProcInfo, 
+			LIVE_0, ALIASES, LIVE3),
 
 	% LIVE
 	sr_live__union([LIVE0,LIVE1,LIVE2,LIVE3],LIVE).
 
 
-live(IN_USE, LIVE_0, AS) = LIVE :- 
-	live(IN_USE, LIVE_0, AS, LIVE).
+live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS) = LIVE :- 
+	live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE).
 
 

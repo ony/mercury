@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -81,9 +81,10 @@
 :- mode reuse_condition_equal(in, in) is semidet.
 
 	% condition_init(Var, LFUi, LBUi, ALIASi, HVs, Condition).
-:- pred reuse_condition_init(prog_var, set(prog_var), set(prog_var), 
-		alias_as, list(prog_var), reuse_condition).
-:- mode reuse_condition_init(in, in, in, in, in, out) is det.
+:- pred reuse_condition_init(module_info, proc_info,
+			prog_var, set(prog_var), set(prog_var), 
+			alias_as, list(prog_var), reuse_condition).
+:- mode reuse_condition_init(in, in, in, in, in, in, in, out) is det.
 
 	% rename the reuse condition given a map from FROM_VARS, to
 	% TO_VARS
@@ -91,10 +92,13 @@
 		reuse_condition, reuse_condition).
 :- mode reuse_condition_rename( in, in, out ) is det.
 
+:- pred reuse_condition_rename_types( term__substitution(tvar_type)::in, 
+		reuse_condition::in, reuse_condition::out) is det.
+
 	% print the reuse_condition 
-:- pred reuse_condition_print( proc_info, reuse_condition, io__state, 
-				io__state).
-:- mode reuse_condition_print( in, in, di, uo) is det.
+:- pred reuse_condition_print( proc_info, pred_info, reuse_condition, 
+				io__state, io__state).
+:- mode reuse_condition_print( in, in, in, di, uo) is det.
 
 	% check whether the given live_set and alias_as satisfy
 	% the condition for reuse. 
@@ -121,8 +125,13 @@
 		memo_reuse::in, memo_reuse::out) is det.
 :- pred memo_reuse_rename( map(prog_var, prog_var)::in, memo_reuse::in,
 		memo_reuse::out) is det.
+	% memo_reuse_rename_types( FromTypes, ToTypes, Memo0, Memo).
+	% Rename all the types occurring in the memo_reuse from FromTypes, 
+	% to ToTypes.
+:- pred memo_reuse_rename_types( list((type))::in, list((type))::in, 
+		memo_reuse::in, memo_reuse::out) is det.
 :- pred memo_reuse_print( memo_reuse::in, sym_name::in, proc_info::in,
-		io__state::di, io__state::uo) is det.
+		pred_info::in, io__state::di, io__state::uo) is det.
 :- pred memo_reuse_parse( term(T)::in, memo_reuse::out, 
 		maybe(sym_name)::out) is semidet.
 :- pred memo_reuse_verify_reuse( proc_info::in, module_info::in, 
@@ -138,10 +147,10 @@
 
 :- implementation.
 
-:- import_module list, string, require, varset, bool.
+:- import_module list, string, require, varset, bool, assoc_list.
 :- import_module pa_datastruct, pa_alias_as.
 :- import_module mercury_to_mercury, prog_out, prog_io, prog_io_util.
-:- import_module sr_util.
+:- import_module sr_util, pa_sr_util.
 
 reuse_condition_merge( C1, C2, C ):-
 	(
@@ -184,7 +193,8 @@ reuse_condition_equal(condition(NODES1, LU1, LA1),
 	set__equal(LU1, LU2),
 	pa_alias_as__equal(LA1, LA2).
 
-reuse_condition_init(Var, LFUi, LBUi, ALIASi, HVs, CONDITION):- 
+reuse_condition_init(ModuleInfo, ProcInfo, 
+				Var, LFUi, LBUi, ALIASi, HVs, CONDITION):- 
 	% First determine the nodes to which the reuse is related. 
 	% There are two cased:
 	% 1. Var is a headvar, then it is sufficient to keep the topcel
@@ -202,7 +212,8 @@ reuse_condition_init(Var, LFUi, LBUi, ALIASi, HVs, CONDITION):-
 	->
 		NODES = [TopCel]
 	;
-		pa_alias_as__collect_aliases_of_datastruct(TopCel, 
+		pa_alias_as__collect_aliases_of_datastruct(ModuleInfo, 
+			ProcInfo, TopCel, 
 			ALIASi, AliasedData),
 		list__filter(
 			pred(DATA::in) is semidet :-
@@ -249,16 +260,38 @@ reuse_condition_rename( Dict, Cin, Cout ) :-
 		Cout = Cin
 	).
 
-reuse_condition_print( _, always ) -->
+reuse_condition_rename_types( Subst, Cond0, Cond ):-
+	(
+		Cond0 = condition( Nodes0, LUiH0, LAiH0 ),
+		% rename the selectors of the nodes
+		set__to_sorted_list( Nodes0, NodesList0 ), 
+		list__map(
+			pa_datastruct__rename_types( Subst ), 
+			NodesList0, 
+			NodesList ), 
+		set__list_to_set( NodesList, Nodes), 
+		% LUiH needs no renaming:
+		LUiH = LUiH0, 
+		% rename the selector of the local aliases
+		pa_alias_as__rename_types( Subst, LAiH0, LAiH ), 
+		% combine the whole stuff
+		Cond = condition( Nodes, LUiH, LAiH )
+	;
+		Cond0 = always, 
+		Cond = always
+	).
+
+reuse_condition_print( _, _, always ) -->
 	io__write_string("always").
-reuse_condition_print( ProcInfo, condition(Nodes, LUiH, LAiH)) -->
+reuse_condition_print( ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
 	{ set__to_sorted_list( Nodes, NodesList ) }, 
 	io__write_string("condition("),
 		% write out the list of headvar-nodes involved
 	io__write_string("["),
 	io__write_list( NodesList, ",", 
 			pred( D::in, IO1::di, IO2::uo) is det :- 
-			    ( pa_datastruct__print(D, ProcInfo, IO1, IO2) )
+			    ( pa_datastruct__print(D, ProcInfo, 
+						PredInfo, IO1, IO2) )
 			),
 	io__write_string("], "),	
 
@@ -270,7 +303,7 @@ reuse_condition_print( ProcInfo, condition(Nodes, LUiH, LAiH)) -->
 	io__write_string("], "),
 
 		% write out LAiH, the aliases at the reuse-point
-	pa_alias_as__print_aliases(LAiH, ProcInfo),	
+	pa_alias_as__print_aliases(LAiH, ProcInfo, PredInfo),	
 
 	io__write_string(")").
 
@@ -287,11 +320,11 @@ reuse_condition_verify( ProcInfo, HLDS,  Live0, Alias0, Static,
 		), set__to_sorted_list(Nodes), []),
 	
 	pa_alias_as__extend( ProcInfo, HLDS, Alias0, LAiH, Alias),
-	pa_alias_as__live( LUiH, Live0, Alias, Live), 
+	pa_alias_as__live( HLDS, ProcInfo, LUiH, Live0, Alias, Live), 
 	set__to_sorted_list(Nodes, NodesList), 
 	list__filter(
 		pred( D::in ) is semidet :- 
-		    ( sr_live__is_live_datastruct(D, Live) ),
+		    ( sr_live__is_live_datastruct(HLDS, ProcInfo, D, Live) ),
 		NodesList,
 		[] ).
 
@@ -305,7 +338,8 @@ reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 	set__to_sorted_list( OLD_NODES_set, OLD_NODES ), 
 	list__map(
 		pred(TOP::in,LIST::out) is det :- 
-			( pa_alias_as__collect_aliases_of_datastruct(TOP, 
+			( pa_alias_as__collect_aliases_of_datastruct(HLDS,
+				ProcInfo, TOP, 
 				ALIASi, LIST)),
 		OLD_NODES,
 		LISTS_ALL_NEW_NODES
@@ -418,12 +452,35 @@ memo_reuse_rename( Dict, TREUSEin, TREUSEout) :-
 		TREUSEout = TREUSEin
 	).
 
-memo_reuse_print( TREUSE, Name, ProcInfo ) --> 
+memo_reuse_rename_types( FromTypes, ToTypes, Memo0, Memo) :-
+	assoc_list__from_corresponding_lists( FromTypes, ToTypes, 
+				FromToTypes), 
+	list__foldl( pa_sr_util__rename_type_det, FromToTypes, 
+			map__init, Substitution ), 
+	memo_reuse_rename_types_2( Substitution, Memo0, Memo ). 
+
+:- pred memo_reuse_rename_types_2( term__substitution(tvar_type)::in, 
+		memo_reuse::in, memo_reuse::out) is det.
+memo_reuse_rename_types_2( Subst, Memo0, Memo) :- 
+	(
+		Memo0 = yes(Conditions0),
+		list__map(
+			reuse_condition_rename_types( Subst ), 
+			Conditions0, 
+			Conditions), 
+		Memo = yes(Conditions)
+	;
+		Memo0 = no, 
+		Memo = no
+	).
+
+memo_reuse_print( TREUSE, Name, ProcInfo, PredInfo ) --> 
 	( 	
 		{ TREUSE = yes(CONDS) }
 	->
 		io__write_string("yes(["),
-		io__write_list(CONDS, ",", reuse_condition_print(ProcInfo)),
+		io__write_list(CONDS, ",", 
+			reuse_condition_print(ProcInfo, PredInfo)),
 		io__write_string("], "),
 		prog_out__write_quoted_sym_name(Name),
 		io__write_string(")")

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -96,7 +96,7 @@ write_pragma_reuse_info( HLDS, SpecPredIds, PredId ) -->
 		[]
 	).
 
-:- import_module sr_data.	
+:- import_module sr_data, pa_sr_util.	
 :- import_module mercury_to_mercury, prog_data.
 
 :- pred write_pred_proc_sr_reuse_info( module_info, pred_id,
@@ -137,16 +137,15 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ proc_info_real_headvars(ProcInfo, HeadVars) },
+	{ proc_info_vartypes( ProcInfo, VarTypes) }, 
+	{ pred_info_typevarset( PredInfo, TypeVarSet ) },
 
-	{ RealHeadVars = HeadVars }, 
+	pa_sr_util__trans_opt_output_vars_and_types(
+			ProgVarset, 
+			VarTypes, 
+			TypeVarSet, 
+			HeadVars ),
 
-	( { RealHeadVars = [] } ->
-		io__write_string("vars")
-	;
-		io__write_string("vars("),
-		mercury_output_vars(RealHeadVars, ProgVarset, no),
-		io__write_string(")")
-	),
 	io__write_string(", "),
 
 		% write reuse information
@@ -164,7 +163,7 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	{ module_info_pred_proc_info(HLDS, ReusePredId, ReuseProcId,
 			_ReusePredInfo, ReuseProcInfo) },
 	{ proc_info_reuse_information(ReuseProcInfo, TREUSE) },
-	sr_data__memo_reuse_print( TREUSE, ReuseName, ReuseProcInfo) ,
+	sr_data__memo_reuse_print( TREUSE, ReuseName, ReuseProcInfo, PredInfo) ,
 
 	io__write_string(").\n").
 %-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -443,10 +443,10 @@ mercury_output_item(pragma(Pragma), Context) -->
 			PredName, ModeList, Context,
 			MaybeArgSizeInfo, MaybeTerminationInfo)
 	;
-		{ Pragma = pa_alias_info(_,_,_,_,_) },
+		{ Pragma = pa_alias_info(_,_,_,_,_,_) },
 		[]
 	;
-		{ Pragma = sr_reuse_info(_,_,_,_,_, _) },
+		{ Pragma = sr_reuse_info(_,_,_,_,_,_, _) },
 		[]
 	;
 		{ Pragma = terminates(Pred, Arity) },

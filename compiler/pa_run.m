@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -47,12 +47,15 @@
 	%		the predicate is called
 	%		PredId, ProcId = id's of the called procedure
 	%		ActualArgs = args with which the proc is called
+	%		ActualTypes = types of the args with which the
+	% 			proc is called
 	%		AliasIN = alias at moment of call
 	%		AliasOUT = alias at end of call
 :- pred pa_run__extend_with_call_alias( module_info, proc_info, 
 			pred_id, proc_id, 
-			list(prog_var), alias_as, alias_as). 
-:- mode pa_run__extend_with_call_alias( in, in, in, in, in, in, out) is det.
+			list(prog_var), 
+			list( (type) ), alias_as, alias_as). 
+:- mode pa_run__extend_with_call_alias( in, in, in, in, in, in, in, out) is det.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -71,6 +74,8 @@
 :- import_module liveness.
 
 
+% XXX lfu/lbu stuff
+:- import_module sr_lbu, sr_lfu.
 
 
 %-------------------------------------------------------------------%
@@ -199,7 +204,14 @@ run_with_dependency_until_fixpoint( SCC, FPtable0, HLDSin, HLDSout ) -->
 analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	globals__io_lookup_bool_option(very_verbose,Verbose),
 
-	{ module_info_pred_proc_info( HLDS, PRED_PROC_ID,_PredInfo,ProcInfo) },
+	{ module_info_pred_proc_info( HLDS, PRED_PROC_ID,_PredInfo,
+			ProcInfo_tmp) },
+
+	% XXX annotate all lbu/lfu stuff
+	{ sr_lfu__process_proc(ProcInfo_tmp, ProcInfo_tmp2) }, 
+	{ sr_lbu__process_proc(HLDS, ProcInfo_tmp2, ProcInfo) }, 
+
+	% { ProcInfo = ProcInfo_tmp }, 
 
 	{ PRED_PROC_ID = proc(PredId, ProcId) },
 
@@ -248,10 +260,29 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 		},
 		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
 					NormS, "\n"])
+/**
+		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
+					NormS, "\n"]),
+		(
+			{ dummy_test(PRED_PROC_ID) }
+		-> 
+			{ dummy_test_here( Alias ) }
+			io__write_string("Alias = "), 
+			pa_alias_as__print_aliases(Alias, ProcInfo),
+			io__write_string("\n\n")
+		;
+			[]
+		)
+**/
 
 	;
 		[]
 	).
+
+:- pred dummy_test( pred_proc_id::in) is semidet. 
+dummy_test( proc(PredId, _) ):- pred_id_to_int(PredId, 39). 
+:- pred dummy_test_here( alias_as::in ) is det.
+dummy_test_here(_). 
 
 	% analyse a given goal, with module_info and fixpoint table
 	% to lookup extra information, starting from an initial abstract
@@ -267,11 +298,37 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 
 analyse_goal( ProcInfo, HLDS, 
 		Goal, FPtable0, FPtable, Alias0, Alias ) :- 
+
 	Goal = GoalExpr - GoalInfo ,
+	/* 
+	   extra: before even starting the analysis of the current goal, 
+	   first project the entering alias-set (Alias0) to the set 
+	   LFUi + LBUi + HeadVars
+        */
+	goal_info_get_lfu(GoalInfo, LFUi), 
+	goal_info_get_lbu(GoalInfo, LBUi), 
+	proc_info_real_headvars(ProcInfo, ListRealHeadVars), 
+	set__list_to_set(ListRealHeadVars, RealHeadVars), 
+	set__union(LFUi, LBUi, IN_USEi), 
+	set__union(IN_USEi, RealHeadVars, AliveVars), 
+	
 	analyse_goal_expr( GoalExpr, GoalInfo, 
 				ProcInfo, HLDS, 
 				FPtable0, FPtable, Alias0, Alias1),
-	% XXX Lets'  see what it all costs to remove them:
+
+	% projecting is too expensive to be done for each goal, 
+	% let's do it only on non-atomic goals: 
+
+	(
+		goal_is_atomic( GoalExpr )
+	->
+		Alias = Alias1	% projection operation is not worthwhile
+	; 
+		pa_alias_as__project_set( AliveVars, Alias1, Alias)
+	).
+
+/**
+	% XXX Lets'  see what it all costs to remove local vars:
 	(
 		goal_is_atomic( GoalExpr )
 	->
@@ -280,6 +337,7 @@ analyse_goal( ProcInfo, HLDS,
 		goal_info_get_outscope( GoalInfo, Outscope), 
 		pa_alias_as__project_set( Outscope, Alias1, Alias)
 	).
+**/
 
 	
 :- pred analyse_goal_expr( hlds_goal_expr, 
@@ -298,7 +356,13 @@ analyse_goal_expr( call(PredID, ProcID, ARGS, _,_, _PName), _Info,
 			ProcInfo, HLDS, T0, T, A0, A):- 
 	PRED_PROC_ID = proc(PredID, ProcID),
 	lookup_call_alias( PRED_PROC_ID, HLDS, T0, T, CallAlias), 
-	rename_call_alias( PRED_PROC_ID, HLDS, ARGS, CallAlias, RenamedCallAlias),
+	proc_info_vartypes( ProcInfo, VarTypes), 
+	list__map(
+		map__lookup( VarTypes ), 
+		ARGS, 
+		ActualTypes),
+	rename_call_alias( PRED_PROC_ID, HLDS, ARGS, ActualTypes, 
+				CallAlias, RenamedCallAlias),
 	pa_alias_as__extend( ProcInfo, HLDS, RenamedCallAlias, A0, A ).
 
 analyse_goal_expr( generic_call( GenCall,_,_,_), Info, 
@@ -444,10 +508,11 @@ lookup_call_alias( PRED_PROC_ID, HLDS, FPtable0, FPtable, Alias) :-
 
 	% exported predicate
 extend_with_call_alias( HLDS, ProcInfo, 
-		PRED_ID, PROC_ID, ARGS, ALIASin, ALIASout ):-
+		PRED_ID, PROC_ID, ARGS, ActualTypes, ALIASin, ALIASout ):-
 	PRED_PROC_ID = proc(PRED_ID, PROC_ID), 
 	lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, ALIAS_tmp), 
-	rename_call_alias( PRED_PROC_ID, HLDS, ARGS, ALIAS_tmp, ALIAS_call),
+	rename_call_alias( PRED_PROC_ID, HLDS, ARGS, ActualTypes, 
+				ALIAS_tmp, ALIAS_call),
 	pa_alias_as__extend( ProcInfo, HLDS, ALIAS_call, ALIASin, ALIASout). 
 	
 :- pred lookup_call_alias_in_module_info( module_info, pred_proc_id, 
@@ -537,14 +602,17 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 	).
 
 :- pred rename_call_alias( pred_proc_id, module_info, list(prog_var),
+				list( (type) ), 
 				alias_as, alias_as).
-:- mode rename_call_alias( in, in, in, in, out) is det.
+:- mode rename_call_alias( in, in, in, in, in, out) is det.
 
-rename_call_alias( PRED_PROC_ID, HLDS, ARGS, Ain, Aout ):-
-	module_info_pred_proc_info( HLDS, PRED_PROC_ID, _P, ProcInfo),
+rename_call_alias( PRED_PROC_ID, HLDS, ARGS, ActualTypes, A0, A ):-
+	module_info_pred_proc_info( HLDS, PRED_PROC_ID, PredInfo, ProcInfo),
+	pred_info_arg_types(PredInfo, FormalTypes), 
 	proc_info_headvars(ProcInfo, Headvars),
 	map__from_corresponding_lists(Headvars,ARGS,Dict),
-	pa_alias_as__rename( Dict, Ain, Aout ).
+	pa_alias_as__rename( Dict, A0, A1 ),
+	pa_alias_as__rename_types( FormalTypes, ActualTypes, A1, A).
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -573,6 +641,8 @@ update_alias_in_module_info( FPtable, PRED_PROC_ID, HLDSin, HLDSout) :-
 :- import_module globals, modules, passes_aux, bool, options.
 :- import_module varset.
 :- import_module mercury_to_mercury.
+
+:- import_module pa_sr_util.
 
 	% inspiration taken from termination.m
 :- pred pa_run__make_pa_interface( module_info, io__state, io__state ).
@@ -683,21 +753,23 @@ pa_run__make_pa_interface_pred_proc( PredInfo, ProcTable, ProcId) -->
 		% write headvars vars(HeadVar__1, ... HeadVar__n)
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ proc_info_real_headvars(ProcInfo, RealHeadVars) }, 
-	
-	( { RealHeadVars = [] } ->
-		io__write_string("vars")
-	;
-		io__write_string("vars("),
-		mercury_output_vars(RealHeadVars, ProgVarset, no),
-		io__write_string(")")
-	),
+	{ proc_info_vartypes( ProcInfo, VarTypes) }, 
+	{ pred_info_typevarset( PredInfo, TypeVarSet ) },
+
+	pa_sr_util__trans_opt_output_vars_and_types(
+			ProgVarset, 
+			VarTypes, 
+			TypeVarSet, 
+			RealHeadVars ),
+
 	io__write_string(", "),
 
 		% write alias information
 
 	{ proc_info_possible_aliases(ProcInfo, MaybeAliases) },
 
-	pa_alias_as__print_maybe_interface_aliases( MaybeAliases, ProcInfo),
+	pa_alias_as__print_maybe_interface_aliases( MaybeAliases, 
+					ProcInfo, PredInfo),
 
 	io__write_string(").\n").
 

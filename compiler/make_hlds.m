@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-2000 The University of Melbourne.
+% Copyright (C) 1993-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -526,19 +526,21 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 			Module0, Module)
 	;
 		{ Pragma = pa_alias_info(PredOrFunc, SymName, ModeList,
-			HeadVars, MaybeAlias) },
+			HeadVars, Types, MaybeAlias) },
 		% these pragma's should only occur in trans_opt files. 
 		% But as this predicate is also used to read in those
 		% files, we must consider them here. 
 		% { Module = Module0 }
 		add_pragma_possible_aliases_info(PredOrFunc,SymName,ModeList,
-                                        HeadVars,MaybeAlias, Module0, Module)
+                                        HeadVars, Types, 
+					MaybeAlias, Module0, Module)
 		
 	;
 		{ Pragma = sr_reuse_info(PredOrFunc, SymName, ModeList,
-			HeadVars, Memo, MaybeReuseSymName) },
+			HeadVars, Types, Memo, MaybeReuseSymName) },
 		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
-					HeadVars, Memo, MaybeReuseSymName,
+					HeadVars, Types, 
+					Memo, MaybeReuseSymName,
 					Module0, Module)
 	;
 		{ Pragma = terminates(Name, Arity) },
@@ -1398,16 +1400,19 @@ add_pragma_termination_info(PredOrFunc, SymName, ModeList,
 
 %-----------------------------------------------------------------------------%
 
-:- pred add_pragma_possible_aliases_info( pred_or_func, sym_name, list(mode),
-		list(var(T)), maybe(alias_as),
-		module_info, module_info, 
-		io__state, io__state).
-:- mode add_pragma_possible_aliases_info( in, in, in, in, in, in, out, di, uo) 
-		is det.
+:- pred add_pragma_possible_aliases_info( 
+			pred_or_func::in, 
+			sym_name::in, 
+			list(mode)::in,
+			list(var(T))::in, 
+			list( (type) )::in, 
+			maybe(alias_as)::in,
+			module_info::in, module_info::out, 
+			io__state::di, io__state::uo) is det.
 
-add_pragma_possible_aliases_info(_, _, _, _, no, Module, Module) --> [].
+add_pragma_possible_aliases_info(_, _, _, _, _, no, Module, Module) --> [].
 add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes, 
-				HeadVars, yes(AliasAS),
+				HeadVars, Types, yes(AliasAS),
 				Module0, Module) --> 
 	{ module_info_get_predicate_table(Module0, Preds) },
 	{ list__length(Modes, Arity) },
@@ -1433,7 +1438,13 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 			{ map__from_corresponding_lists(CHeadVars,
 				ProcHeadVars, MapHeadVars) },
 			{ pa_alias_as__rename( MapHeadVars, AliasAS, 
-						RenAliasAS) },
+						RenAliasAS0) },
+
+			% rename type variables
+			{ pred_info_arg_types( PredInfo0, ArgTypes ) }, 
+			{ pa_alias_as__rename_types( Types,
+				ArgTypes, RenAliasAS0, RenAliasAS ) }, 
+
 			{ proc_info_set_possible_aliases( ProcInfo0, 
 				RenAliasAS, ProcInfo ) },
 			{ map__det_update(ProcTable0, ProcId, ProcInfo,
@@ -1477,14 +1488,18 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 
 %-----------------------------------------------------------------------------%
 
-:- pred add_pragma_reuse_info( pred_or_func, sym_name, list(mode),
-		list(var(T)), sr_data__memo_reuse, maybe(sym_name),
-		module_info, module_info, 
-		io__state, io__state).
-:- mode add_pragma_reuse_info( in, in, in, in, in, in, in, out, di, uo) 
-		is det.
+:- pred add_pragma_reuse_info( 
+			pred_or_func::in, 
+			sym_name::in, 
+			list(mode)::in,
+			list(var(T))::in, 
+			list( (type) )::in, 
+			sr_data__memo_reuse::in, 
+			maybe(sym_name)::in,
+			module_info::in, module_info::out, 
+			io__state::di, io__state::uo) is det.
 
-add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
+add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, Types, TREUSE,
 		_MaybeReuseName, Module0, Module) --> 
 	{ module_info_get_predicate_table(Module0, Preds) },
 	{ list__length(Modes, Arity) },
@@ -1510,7 +1525,11 @@ add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
 			{ map__from_corresponding_lists(CHeadVars,
 				ProcHeadVars, MapHeadVars) },
 			{ sr_data__memo_reuse_rename( MapHeadVars, TREUSE, 
-						RenTREUSE) },
+						RenTREUSE0) },
+			{ pred_info_arg_types( PredInfo0, ArgTypes ) }, 
+			{ sr_data__memo_reuse_rename_types( Types,
+				ArgTypes, RenTREUSE0, RenTREUSE ) }, 
+
 			{ sr_split__create_reuse_pred(proc(PredId, ProcId),
 					RenTREUSE,
 					no, Module0, Module) }

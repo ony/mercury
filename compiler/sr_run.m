@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -123,14 +123,15 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ proc_info_headvars(ProcInfo, HeadVars) },
 	{ list__delete_elems( HeadVars, TVars, RealHeadVars ) }, 
+	{ proc_info_vartypes( ProcInfo, VarTypes) }, 
+	{ pred_info_typevarset( PredInfo, TypeVarSet ) },
 
-	( { RealHeadVars = [] } ->
-		io__write_string("vars")
-	;
-		io__write_string("vars("),
-		mercury_output_vars(RealHeadVars, ProgVarset, no),
-		io__write_string(")")
-	),
+	pa_sr_util__trans_opt_output_vars_and_types(
+			ProgVarset, 
+			VarTypes, 
+			TypeVarSet, 
+			RealHeadVars ),
+
 	io__write_string(", "),
 
 		% write reuse information

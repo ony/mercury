@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -751,6 +751,7 @@ parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm,
 	PragmaTerms = [ 
 		PredAndModesTerm0,
 		HVsTerm,
+		HVsTypes,
 		AliasInformation
 	],
 	parse_pred_or_func_and_arg_modes(yes(ModuleName), PredAndModesTerm0,
@@ -763,8 +764,11 @@ parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm,
 	term__vars_list(ListHVTerm, HeadVarsGeneric),
 	list__map(term__coerce_var, HeadVarsGeneric, HeadVars),
 
-	% aliases
+	% types
+	HVsTypes = term__functor(term__atom("types"), ListHVTypesTerm, _),
+	list__map(term__coerce, ListHVTypesTerm, HVTypes ), 
 
+	% aliases
 	(
 	   	AliasInformation = term__functor(
 					term__atom("not_available"),_,_),
@@ -777,7 +781,7 @@ parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm,
 	),
 
 	Result0 = ok(pragma(pa_alias_info(PredOrFunc, PredName, ModeList,
-					HeadVars, MaybeAliasInfo)))
+					HeadVars, HVTypes, MaybeAliasInfo)))
    ->
    	Result = Result0
    ;
@@ -792,6 +796,7 @@ parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm,
 	PragmaTerms = [ 
 		PredAndModesTerm0,
 		HVsTerm,
+		HVsTypes, 
 		ReuseInformation
 	],
 	parse_pred_or_func_and_arg_modes(yes(ModuleName), PredAndModesTerm0,
@@ -804,11 +809,15 @@ parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm,
 	term__vars_list(ListHVTerm, HeadVarsGeneric),
 	list__map(term__coerce_var, HeadVarsGeneric, HeadVars),
 
+	% types
+	HVsTypes = term__functor(term__atom("types"), ListHVTypesTerm, _),
+	list__map(term__coerce, ListHVTypesTerm, HVTypes ), 
+
 	sr_data__memo_reuse_parse(ReuseInformation, ParsedReuse,
 			MaybeReuseName),
 
 	Result0 = ok(pragma(sr_reuse_info(PredOrFunc, PredName, ModeList,
-					HeadVars, ParsedReuse,
+					HeadVars, HVTypes, ParsedReuse,
 					MaybeReuseName)))
    ->
    	Result = Result0

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -32,6 +32,7 @@
 :- import_module list, map, set, std_util.
 :- import_module hlds_pred, liveness. 
 :- import_module hlds_goal, prog_data.
+
 
 annotate_all_liveness_in_module( HLDSin, HLDSout) :- 
 	module_info_predids( HLDSin, PRED_IDS0 ), 

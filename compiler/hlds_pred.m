@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -1653,13 +1653,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% of Local Forward Use in the goal)
 					% (set during structure_reuse phase)
 
-					% Set of possible reuses within
-					% the given procedure. 
-					% XXX This will
-					% become obsolete and should be
-					% replaced by our new 
-					% reuse_conditions in our new
-					% approach.
+					% Possible set of reuse conditions. 
 			structure_reuse:: maybe(list(sr_data__reuse_condition)),
 
  			need_maxfr_slot	:: bool,

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -1020,8 +1020,8 @@ pragma_allowed_in_interface(promise_pure(_, _), no).
 pragma_allowed_in_interface(unused_args(_, _, _, _, _), no).
 pragma_allowed_in_interface(type_spec(_, _, _, _, _, _, _), yes).
 pragma_allowed_in_interface(termination_info(_, _, _, _, _), yes).
-pragma_allowed_in_interface(pa_alias_info(_, _, _, _, _), yes).
-pragma_allowed_in_interface(sr_reuse_info(_, _, _, _, _, _), yes).
+pragma_allowed_in_interface(pa_alias_info(_, _, _, _, _,_), yes).
+pragma_allowed_in_interface(sr_reuse_info(_, _, _, _, _, _,_), yes).
 pragma_allowed_in_interface(terminates(_, _), yes).
 pragma_allowed_in_interface(does_not_terminate(_, _), yes).
 pragma_allowed_in_interface(check_termination(_, _), yes).

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -66,8 +66,8 @@
 	% Check whether by extending the ShorterData with some selector
 	% Selector one can obtain LongerData. 
 	% If the datastructs concern different variables, fail right away.
-:- pred less_or_equal(datastruct, datastruct, selector).
-:- mode less_or_equal(in, in, out) is semidet.
+:- pred less_or_equal(module_info, proc_info, datastruct, datastruct, selector).
+:- mode less_or_equal(in, in, in, in, out) is semidet.
 
 	% Check whether the two given datastructs are related to the
 	% same variable or not. 
@@ -82,9 +82,12 @@
 :- pred rename(map(prog_var,prog_var), datastruct, datastruct).
 :- mode rename(in, in, out) is det.
 
+:- pred rename_types( term__substitution(tvar_type)::in, 
+			datastruct::in, datastruct::out) is det. 
+
 	% Printing routines
-:- pred print(datastruct, proc_info, io__state, io__state).
-:- mode print(in, in, di, uo) is det.
+:- pred print(datastruct, proc_info, pred_info, io__state, io__state).
+:- mode print(in, in, in, di, uo) is det.
 
 	% Parsing routines
 :- pred parse_term( term(T), datastruct ).
@@ -92,6 +95,9 @@
 
 :- pred normalize_wti(proc_info, module_info, datastruct, datastruct).
 :- mode normalize_wti(in, in, in, out) is det.
+
+:- pred apply_widening( module_info::in, proc_info::in, datastruct::in, 
+			datastruct::out) is det.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -114,14 +120,22 @@ rename( MAP, DATAin, DATAout) :-
 	map__lookup( MAP, VAR, RVAR),
 	DATAout = cel(RVAR, SEL).
 
+rename_types( Subst, Data0, Data) :- 
+	Data0 = cel( Var, Sel0), 
+	pa_selector__rename_types( Subst, Sel0, Sel), 
+	Data = cel( Var, Sel). 
+
 equal( D1, D2 ):- D1 = D2.
 
 same_vars(D1, D2):-
 	get_var(D1,V),
 	get_var(D2,V).
 
-less_or_equal(D1,D2, EXT):-
+less_or_equal(ModuleInfo, ProcInfo, D1,D2, EXT):-
 	same_vars(D1,D2),
+	get_var(D1,ProgVar), 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	map__lookup( VarTypes, ProgVar, ProgVarType), 
 	(
 		equal(D1,D2)
 	->
@@ -129,7 +143,7 @@ less_or_equal(D1,D2, EXT):-
 	;
 		get_selector(D1,S1),
 		get_selector(D2,S2),
-		pa_selector__less_or_equal(S1,S2, EXT)
+		pa_selector__less_or_equal(ModuleInfo,S1,S2,ProgVarType,EXT)
 	).
 
 termshift(Din, S, Dout):-
@@ -145,14 +159,15 @@ init( V, Dout) :-
 	SEL = [],
 	Dout = cel(V, SEL).
 
-print( D, ProcInfo) -->
+print( D, ProcInfo, PredInfo) -->
 	{ D = cel( ProgVar, SEL ) },
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ varset__lookup_name( ProgVarset, ProgVar, ProgName ) },
 	io__write_string("cel("),
 	io__write_string( ProgName ), 
 	io__write_string(", "),
-	pa_selector__print(SEL),
+	{ pred_info_typevarset( PredInfo, TypeVarSet ) }, 
+	pa_selector__print(SEL, TypeVarSet),
 	io__write_string(")").
 
 parse_term( TERM, Data ) :- 
@@ -212,4 +227,12 @@ normalize_wti_2( VarTypes, HLDS, D0, D ):-
 		D = cel( ProgVar, SEL )
 	).
 
+apply_widening( ModuleInfo, ProcInfo, D0, D ):- 
+	D0 = cel( ProgVar, Sel0 ), 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	map__lookup( VarTypes, ProgVar, ProgVarType), 
+	pa_selector__apply_widening( ModuleInfo, ProgVarType, Sel0, Sel), 
+	D = cel( ProgVar, Sel ). 
+
+	
 

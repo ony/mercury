@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -23,6 +23,7 @@
 % compiler modules
 :- import_module prog_data.
 :- import_module pa_datastruct.
+:- import_module hlds_pred, hlds_module. 
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -58,8 +59,9 @@
 :- pred is_live(prog_var,live_set).
 :- mode is_live(in, in) is semidet.
 
-:- pred is_live_datastruct(pa_datastruct__datastruct, live_set).
-:- mode is_live_datastruct(in, in) is semidet.
+:- pred is_live_datastruct(module_info, proc_info, 
+			pa_datastruct__datastruct, live_set).
+:- mode is_live_datastruct(in, in, in, in) is semidet.
 
 :- pred project(list(prog_var), live_set, live_set).
 :- mode project(in, in, out) is det.
@@ -180,27 +182,15 @@ is_live(Var,Live) :-
 		fail
 	).
 
-:- pred test_filter(datastruct, list(datastruct), list(datastruct)).
-:- mode test_filter(in, in, out) is det.
-
-test_filter( _, [], []).
-test_filter( D, [ X | Xs ], Result ):- 
-	test_filter( D, Xs, Rest), 
-	(
-		pa_datastruct__less_or_equal( D, X , _)
-	->
-		Result = [ X | Rest ]
-	;
-		Result = Rest
-	).
 		
-is_live_datastruct(Data, Live):- 
+is_live_datastruct(ModuleInfo, ProcInfo, Data, Live):- 
 	(
 		Live = live(Datastructs)
 	->
 		list__filter(
 			pred( D::in ) is semidet :- 
-			    ( pa_datastruct__less_or_equal(Data, D, _S) ),
+			    ( pa_datastruct__less_or_equal(ModuleInfo,
+					ProcInfo, Data, D, _S) ),
 			Datastructs,
 			R ),
 		R = [_ | _ ]

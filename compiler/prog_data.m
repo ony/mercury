@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -262,7 +262,8 @@
 			% trans_opt files.
 
 	;	pa_alias_info(pred_or_func, sym_name, list(mode),
-				list(prog_var), maybe(alias_as))
+				list(prog_var), list( (type) ), 
+				maybe(alias_as))
 			% the list(mode) is the declared argmodes of the
 			% procedure. 
 			% This pragma is used to define information about
@@ -270,7 +271,8 @@
 			% These pragma's are used in opt.pa files
 
 	; 	sr_reuse_info(pred_or_func, sym_name, list(mode), 
-				list(prog_var), memo_reuse, maybe(sym_name))
+				list(prog_var), 
+				list( (type) ), memo_reuse, maybe(sym_name))
 
 	;	terminates(sym_name, arity)
 			% Predname, Arity

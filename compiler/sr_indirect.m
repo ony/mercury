@@ -1,5 +1,5 @@
-%-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+				%-----------------------------------------------------------------------------%
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -273,10 +273,16 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 
 analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
+	proc_info_vartypes( ProcInfo, VarTypes),
+	list__map( 
+		map__lookup( VarTypes ), 
+		ActualVars,
+		ActualTypes), 
 	call_verify_reuse( ProcInfo, HLDS,
-			PredId, ProcId, ActualVars, Info0, Info, AI0, AI1, _),
+			PredId, ProcId, ActualVars, 
+			ActualTypes, Info0, Info, AI0, AI1, _),
 	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
-		PredId, ProcId, ActualVars, AI0 ^ alias, Alias),
+		PredId, ProcId, ActualVars, ActualTypes, AI0 ^ alias, Alias),
 	AI = AI1 ^ alias := Alias,
 	Expr = Expr0, 
 	Goal = Expr - Info.
@@ -473,13 +479,19 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
 			FP0, FP) :- 
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
+	proc_info_vartypes( ProcInfo, VarTypes),
+	list__map( 
+		map__lookup(VarTypes),
+		ActualVars, 
+		ActualTypes),
 	call_verify_reuse( ProcInfo, HLDS,
-		PredId, ProcId, ActualVars, Alias0, set__init,
+		PredId, ProcId, ActualVars, ActualTypes, 
+		Alias0, set__init,
 		Pool0, Pool,
 		Info0, Info, 
 		FP0, FP, _),
 	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
-		PredId, ProcId, ActualVars, Alias0, Alias),
+		PredId, ProcId, ActualVars, ActualTypes, Alias0, Alias),
 	Expr = Expr0, 
 	Goal = Expr - Info.
 
@@ -668,27 +680,31 @@ analyse_case( ProcInfo, HLDS, Reuses0, Alias0, Case0, Case,
 
 :- pred call_verify_reuse( proc_info::in, module_info::in,
 		pred_id::in, proc_id::in, list(prog_var)::in,
+		list( (type) )::in, 
 		hlds_goal_info::in, hlds_goal_info::out, 
 		analysis_info::in, analysis_info::out, bool::out) is det.
 
 call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
+		ActualTypes, 
 		GoalInfo0, GoalInfo, analysis_info(Alias0, Pool0, Static, FP0),
 		analysis_info(Alias0, Pool, Static, FP), YesNo) :-
 	call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
+			ActualTypes, 
 			Alias0, Static, Pool0, Pool, GoalInfo0, GoalInfo,
 			FP0, FP, YesNo).
 
 :- pred call_verify_reuse( proc_info::in, module_info::in, pred_id::in,
-		proc_id::in, list(prog_var)::in, alias_as::in,
+		proc_id::in, list(prog_var)::in, list( (type) )::in, 
+		alias_as::in,
 		set(prog_var)::in, indirect_reuse_pool::in,
 		indirect_reuse_pool::out, hlds_goal_info::in ,
 		hlds_goal_info::out, sr_fixpoint_table__table::in,
 		sr_fixpoint_table__table::out, bool::out) is det.
 
-call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0, 
-					StaticTerms,
-					Pool0, Pool, 
-					Info0, Info, FP0, FP, YesNo ) :- 
+call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, 
+			ActualVars, ActualTypes, Alias0, 
+			StaticTerms, Pool0, Pool, 
+			Info0, Info, FP0, FP, YesNo ) :- 
 
 	module_info_structure_reuse_info(HLDS, ReuseInfo),
 	ReuseInfo = structure_reuse_info(ReuseMap),
@@ -700,7 +716,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 	),
 
 	% 0. fetch the procinfo of the called procedure:
-	module_info_pred_proc_info( HLDS, PredId, ProcId, _, 
+	module_info_pred_proc_info( HLDS, PredId, ProcId, PredInfo, 
 					ProcInfo0),
 	% 1. find the tabled reuse for the called predicate
 	lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP,
@@ -726,7 +742,10 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		YesNo = no
 	;
 		memo_reuse_rename( ProcInfo0, ActualVars, FormalMemo, 
-					Memo ), 
+					Memo0 ), 
+		pred_info_arg_types( PredInfo, FormalTypes) ,
+		memo_reuse_rename_types( FormalTypes, ActualTypes, 
+					Memo0, Memo),
 		% 3. compute the Live variables upon a procedure entry:
 		% 3.a. compute the full live set at the program point of
 		%      the call.
@@ -739,7 +758,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		goal_info_get_lfu(Info0, LFUi),
 		goal_info_get_lbu(Info0, LBUi),
 		set__union(LFUi, LBUi, LUi),
-		pa_alias_as__live( LUi, LIVE0, Alias0, Live_i),
+		pa_alias_as__live( HLDS, ProcInfo, LUi, LIVE0, Alias0, Live_i),
 		% 3.b. project the live-set to the actual vars:
 		sr_live__project( ActualVars, Live_i, ActualLive_i ),
 		% 4. project the aliases to the actual vars
@@ -759,7 +778,8 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		;
 			Pool = Pool0,
 	
-			examine_cause_of_missed_reuse( LBUi, LFUi, 
+			examine_cause_of_missed_reuse( HLDS, ProcInfo, 
+					LBUi, LFUi, 
 					StaticTerms, Memo, 
 					Cause ), 
 			
@@ -769,16 +789,21 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		)
 	).
 
-:- pred examine_cause_of_missed_reuse( set(prog_var)::in, 
+:- pred examine_cause_of_missed_reuse( module_info::in, 
+			proc_info::in, 
+			set(prog_var)::in, 
 			set(prog_var)::in, 
 			set(prog_var)::in, 
 			memo_reuse::in, list(string)::out) is det. 
-examine_cause_of_missed_reuse( LFU, LBU, Static, Memo, Causes ) :- 
+examine_cause_of_missed_reuse( ModuleInfo, ProcInfo, 
+		LFU, LBU, Static, Memo, Causes ) :- 
 	( 
 		Memo = yes(Conditions) 
 	->
 		list__filter_map(
-			examine_cause_of_missed_condition(LFU, LBU, Static), 
+			examine_cause_of_missed_condition(ModuleInfo,
+						ProcInfo, 
+						LFU, LBU, Static), 
 			Conditions, 
 			Causes)
 	;
@@ -786,17 +811,22 @@ examine_cause_of_missed_reuse( LFU, LBU, Static, Memo, Causes ) :-
 		Causes = [Cause]
 	).
 
-:- pred examine_cause_of_missed_condition( set(prog_var)::in, 
+:- pred examine_cause_of_missed_condition( module_info::in, 
+			proc_info::in, 
+			set(prog_var)::in, 
 			set(prog_var)::in, 
 			set(prog_var)::in, 
 			reuse_condition::in, 
 			string::out) is semidet.
 
-examine_cause_of_missed_condition( LFU, LBU, StaticVars, Condition, Cause ) :- 
+examine_cause_of_missed_condition( ModuleInfo, ProcInfo, 
+		LFU, LBU, StaticVars, Condition, Cause ) :- 
 	sr_live__init(DummyLive), 
 	pa_alias_as__init( BottomAlias), 
-	pa_alias_as__live( LFU, DummyLive, BottomAlias, LFU_Live), 
-	pa_alias_as__live( LBU, DummyLive, BottomAlias, LBU_Live), 
+	pa_alias_as__live( ModuleInfo, ProcInfo, 
+			LFU, DummyLive, BottomAlias, LFU_Live), 
+	pa_alias_as__live( ModuleInfo, ProcInfo, 
+			LBU, DummyLive, BottomAlias, LBU_Live), 
 	Condition = condition( Nodes, _LU, _LA ), 
 	% 
 	NodesL = set__to_sorted_list(Nodes),
@@ -818,7 +848,8 @@ examine_cause_of_missed_condition( LFU, LBU, StaticVars, Condition, Cause ) :-
 		% check for LFU
 		list__filter(
 			( pred(D::in) is semidet :- 
-			  sr_live__is_live_datastruct( D, LFU_Live)
+			  sr_live__is_live_datastruct( ModuleInfo, 
+				ProcInfo, D, LFU_Live)
 			), 
 			NodesL, 
 			RF), 
@@ -831,7 +862,8 @@ examine_cause_of_missed_condition( LFU, LBU, StaticVars, Condition, Cause ) :-
 		% check LBU
 		list__filter(
 			( pred(D::in) is semidet :- 
-			  sr_live__is_live_datastruct( D, LBU_Live)
+			  sr_live__is_live_datastruct( ModuleInfo, 
+				ProcInfo, D, LBU_Live)
 			), 
 			NodesL, 
 			RB), 

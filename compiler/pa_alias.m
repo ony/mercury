@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -53,8 +53,8 @@
 */
 
 	% aliased_to( AL, D1, D2) such that AL = D1 - D2
-:- pred aliased_to( alias, datastruct, datastruct ).
-:- mode aliased_to( in, in, out) is semidet.
+:- pred aliased_to( module_info, proc_info, alias, datastruct, datastruct ).
+:- mode aliased_to( in, in, in, in, out) is semidet.
 
 	% Rename the variables of the alias using the given mapping. 
 :- pred rename( map(prog_var, prog_var), alias, alias).
@@ -64,6 +64,9 @@
 			list(alias), list(alias)).
 :- mode rename_alias( in, in, in, out) is det.
 */
+
+:- pred rename_types( term__substitution(tvar_type)::in, 
+			alias::in, alias::out) is det.
 
 	% Check whether a given alias is a member of the given list. 
 :- pred occurs_in( alias, list(alias)).
@@ -150,8 +153,9 @@
 :- mode extend_prog_var_from_alias( in, in, in, out) is det.
 
 	% printing routines
-:- pred print( proc_info, string, string, alias, io__state, io__state).
-:- mode print( in, in, in, in, di, uo) is det.
+:- pred print( proc_info, pred_info, string, string, 
+			alias, io__state, io__state).
+:- mode print( in, in, in, in, in, di, uo) is det.
 
 	% parsing routines
 :- pred parse_term( term(T), alias).
@@ -160,8 +164,14 @@
 :- pred live_from_in_use(set(prog_var), list(alias), live_set).
 :- mode live_from_in_use(in, in, out) is det.
 
-:- pred live_from_live0(live_set, list(alias), live_set).
-:- mode live_from_live0(in, in, out) is det.
+:- pred live_from_live0(module_info, proc_info, 
+				live_set, list(alias), live_set).
+:- mode live_from_live0(in, in, in, in, out) is det.
+
+:- pred apply_widening( module_info::in, proc_info::in, alias::in, 
+		alias::out) is det.
+:- pred apply_widening_list( module_info::in, proc_info::in, list(alias)::in,
+		list(alias)::out) is det.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -202,13 +212,13 @@ extend_prog_var_from_alias( Var, Alias, Set0, Set):-
 % printing routines
 %-------------------------------------------------------------------%
 
-print( ProcInfo, FrontString, EndString, ALIAS ) -->
+print( ProcInfo, PredInfo, FrontString, EndString, ALIAS ) -->
 	{ ALIAS = D1 - D2 },
 	io__write_string( FrontString ),
 	io__write_string( "pair( " ),
-	pa_datastruct__print( D1, ProcInfo ),
+	pa_datastruct__print( D1, ProcInfo, PredInfo ),
 	io__write_string(" , "),
-	pa_datastruct__print( D2, ProcInfo ),
+	pa_datastruct__print( D2, ProcInfo, PredInfo ),
 	io__write_string(" ) "),
 	io__write_string( EndString ).
 
@@ -271,14 +281,16 @@ contains_one_of_vars_in_list( Vars, Alias) :-
 	pa_datastruct__get_var(Data2, Var2),
 	( list__member(Var1, Vars);  list__member(Var2, Vars)).
 	
-aliased_to( Alias, Data1, Data2 ) :-
+aliased_to( ModuleInfo, ProcInfo, Alias, Data1, Data2 ) :-
 	Alias = D1 - D2,
 	(
-		pa_datastruct__less_or_equal(Data1, D1, EXT)
+		pa_datastruct__less_or_equal(ModuleInfo, ProcInfo, 
+						Data1, D1, EXT)
 	->
 		pa_datastruct__termshift(D2, EXT, Data2)
 	;
-		pa_datastruct__less_or_equal(Data1, D2, EXT)
+		pa_datastruct__less_or_equal(ModuleInfo, ProcInfo, 
+						Data1, D2, EXT)
 	->
 		pa_datastruct__termshift(D1, EXT, Data2)
 	;
@@ -319,6 +331,12 @@ rename( MAP, Alias, RAlias) :-
 	pa_datastruct__rename( MAP, Data2, RData2),
 	RAlias = RData1 - RData2. 
 
+rename_types( Subst, Alias0, Alias ):-
+	Alias0 = Data10 - Data20, 
+	pa_datastruct__rename_types( Subst, Data10, Data1), 
+	pa_datastruct__rename_types( Subst, Data20, Data2), 
+	Alias = Data1 - Data2.
+
 occurs_in( A2, [A1 | R ] ):-
 	(
 		pa_alias__equal(A1,A2)
@@ -349,13 +367,13 @@ subsumed_by_list( ProcInfo, HLDS, A2, [A1 | R ] ) :-
 	).
 
 
-less_or_equal( _ProcInfo, _HLDS, A1, A2 ) :-
+less_or_equal( ProcInfo, HLDS, A1, A2 ) :-
 	A1 = D1a - D1b,
 	A2 = D2a - D2b,
 	(
 		% XXX TEST underscored extensions!
-		pa_datastruct__less_or_equal(D1a,D2a, EXT1),
-		pa_datastruct__less_or_equal(D1b,D2b, EXT1)
+		pa_datastruct__less_or_equal(HLDS, ProcInfo, D1a,D2a, EXT1),
+		pa_datastruct__less_or_equal(HLDS, ProcInfo, D1b,D2b, EXT1)
 		% the extension should be the same wrt normalization
 		% normalize(D1b.EXT1) == normalize(D1b.EXT2) 
 		% where normalize(D1b.EXT2) == D2b as D2b is a normalized
@@ -370,8 +388,8 @@ less_or_equal( _ProcInfo, _HLDS, A1, A2 ) :-
 		% at the end. 
 	;
 		% XXX TEST underscored extensions!
-		pa_datastruct__less_or_equal(D1a,D2b, EXT1),
-		pa_datastruct__less_or_equal(D1b,D2a, EXT1)
+		pa_datastruct__less_or_equal(HLDS, ProcInfo, D1a,D2b, EXT1),
+		pa_datastruct__less_or_equal(HLDS, ProcInfo, D1b,D2a, EXT1)
 	).
 
 
@@ -395,8 +413,9 @@ least_upper_bound_lists(ProcInfo, HLDS, L1, L2, L):-
 	list__foldl(pa_alias__add_subsuming(ProcInfo, HLDS), 
 			L1, L2, L).
 
-extend( ProcInfo, HLDS, OLD, NEW, RESULT) :-
-	alias_altclosure( ProcInfo, HLDS, NEW, OLD, RESULT).
+extend( ProcInfo, HLDS, NEW, OLD,  RESULT) :-
+% 	alias_altclosure( ProcInfo, HLDS, NEW, OLD, RESULT).
+	altclosure_altclos( HLDS, ProcInfo, NEW, OLD, RESULT). 
 
 	% alias_altclosure( NEW, OLD, RESULT)
 	% computes the alternating closure of two lists of aliases.
@@ -510,6 +529,165 @@ single_directed_altclos( FROM, TO, RESULT) :-
 	;
 		fail
 	).
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- type altclos_path ---> single(alias)		% can be rotated
+			; compressed(alias).	% fixed order: shortcut of
+						% path(alias, ... , alias)
+
+:- pred alias_to_altclos_path(alias::in, altclos_path::out) is det.
+alias_to_altclos_path(Alias, single(Alias)). 
+
+:- pred altclos_path_to_alias(altclos_path::in, alias::out) is det.
+altclos_path_to_alias( single(Alias), Alias ).
+altclos_path_to_alias( compressed(Alias), Alias ). 
+
+%-----------------------------------------------------------------------------%
+
+% altclos computations. 
+
+:- pred altclosure_altclos( module_info::in, proc_info::in, 
+			list(alias)::in, list(alias)::in, 
+			list(alias)::out ) is det.
+altclosure_altclos( ModuleInfo, ProcInfo, NewAliases, OldAliases,
+			ComputedAliases ):-
+	(
+		NewAliases = []
+	->
+		ComputedAliases = OldAliases
+	;
+		OldAliases = []
+	-> 
+		ComputedAliases = NewAliases
+	; 
+		altclosure_altclos_path2_3( NewAliases, OldAliases, 
+			Path2, Path3), 
+		list__foldl(
+			pa_alias__least_upper_bound_lists(ProcInfo, ModuleInfo),
+				[OldAliases,NewAliases,Path2,Path3],
+				[],
+				ComputedAliases)
+	).
+
+	% altclosure_altclos_path2_3( NewAliases, OldAliases, Path2, Path3)
+:- pred altclosure_altclos_path2_3( list(alias)::in, list(alias)::in, 
+		list(alias)::out, list(alias)::out) is det.
+altclosure_altclos_path2_3( NewAliases, OldAliases, Path2, Path3):- 
+	list__map( alias_to_altclos_path, NewAliases, StartPaths ), 
+	list__foldl( 
+		pred( StartPath::in, Acc::in, NewPaths::out) is det :-
+		    (
+			altclos_ordered_altclos_path( StartPath, 
+				OldAliases, Acc, NewPaths)
+		    ),
+		StartPaths, 
+		[],
+		PathsLength2 ), 
+	list__foldl(
+		pred( StartPath::in, Acc::in, NewPaths::out) is det :-
+		    (
+			altclos_ordered_altclos_path( StartPath,
+				NewAliases, Acc, NewPaths)
+		    ),
+		PathsLength2,
+		[],
+		PathsLength3), 
+	list__map( altclos_path_to_alias, PathsLength2, Path2),
+	list__map( altclos_path_to_alias, PathsLength3, Path3).
+
+:- pred altclos_ordered_altclos_path( altclos_path::in, list(alias)::in, 
+		list(altclos_path)::in, list(altclos_path)::out) is det.
+altclos_ordered_altclos_path( StartPath, EndAliases, AccPaths, NewPaths):- 
+	list__filter_map(single_altclos_path( StartPath ), 
+				EndAliases, NewPaths0 ),
+	list__append( NewPaths0, AccPaths, NewPaths). 
+
+	% single_altclos_path( StartPath, EndAlias, NewPath). 
+	% Find a path starting from StartPath and ending in EndAlias. 
+	% EndAlias can always be rotated. StartPath can only be
+	% rotated if it is a single path. 
+:- pred single_altclos_path( altclos_path::in, alias::in, 
+		altclos_path::out) is semidet.
+single_altclos_path( StartPath, EndAlias, NewPath) :- 
+	(
+		StartPath = single(StartAlias)
+	-> 
+		( 
+			single_directed_altclos_path_verify(StartAlias,
+				EndAlias, NewPath0)
+		->
+			NewPath = NewPath0
+		; 
+			switch(StartAlias, StartAliasSW),
+			single_directed_altclos_path_verify(StartAliasSW, 
+				EndAlias, NewPath)
+		)
+	;
+		StartPath = compressed(StartAlias),
+		single_directed_altclos_path_verify(StartAlias, 
+			EndAlias, NewPath)
+	).
+
+	% single_directed_altclos_path_verify( StartAlias, EndAlias, NewPath).
+	% Compute a path starting from StartAlias to EndAlias. StartAlias
+	% may not be rotated. EndAlias can be rotated if needed. The middle
+	% alias still has to be verified. 
+:- pred single_directed_altclos_path_verify( alias::in, alias::in, 
+		altclos_path::out) is semidet.
+single_directed_altclos_path_verify( StartAlias, EndAlias, Path ) :- 
+	StartAlias = _StartDatastructure1 - StartDatastructure2, 
+	EndAlias = EndDatastructure1 - EndDatastructure2, 
+	(
+		pa_datastruct__same_vars( StartDatastructure2,
+					EndDatastructure1)
+	->
+		single_directed_altclos_path( StartAlias, EndAlias, 
+				Path)
+	; 
+		pa_datastruct__same_vars( StartDatastructure2, 
+					EndDatastructure2), 
+		switch( EndAlias, EndAliasSW ), 
+		single_directed_altclos_path( StartAlias, EndAliasSW, 
+				Path)
+	).
+
+	% single_directed_altclos_path( StartAlias, EndAlias, NewPath).
+	% they already have matching middle vars. 
+:- pred single_directed_altclos_path( alias::in, alias::in, 
+			altclos_path::out) is semidet.
+single_directed_altclos_path( StartAlias, EndAlias, NewPath):-
+	StartAlias = StartDatastructure1 - StartDatastructure2, 
+	EndAlias = EndDatastructure1 - EndDatastructure2, 
+	pa_datastruct__get_selector(StartDatastructure2, StartSelector), 
+	pa_datastruct__get_selector(EndDatastructure1, EndSelector), 
+	(
+		% either EndSelector <= StartSelector
+		pa_selector__less_or_equal(EndSelector, StartSelector, Ext)
+	-> 
+		% StartSelector.Ext = EndSelector, and StartAlias has
+		% to be termshifted:
+		pa_datastruct__termshift(StartDatastructure1, Ext, 
+				NewStartDatastructure1),
+		NewPath = compressed( NewStartDatastructure1 -  
+				EndDatastructure2 )
+	;
+		% or StartSelector <= EndSelector
+		pa_selector__less_or_equal(StartSelector, EndSelector, Ext)
+	->
+		% EndSelector.Ext = StartSelector, and EndAlias has to
+		% be termshifted:
+		pa_datastruct__termshift(EndDatastructure2, Ext, 
+				NewEndDatastructure2), 
+		NewPath = compressed(StartDatastructure1 - NewEndDatastructure2)
+	;
+		fail
+	).
+
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- pred number_args( list(prog_var), list(pair(int, prog_var))).
 :- mode number_args( in, out) is det.
@@ -692,9 +870,9 @@ alias_from_unif( VAR, CONS, N - ARG, LISTin, LISTout):-
 
 switch( D1 - D2, D2 - D1 ).
 	
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % NORMALIZATION WITH TYPE INFORMATION
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 normalize_wti(ProcInfo, HLDS, A0, A):-
 	A0 = Da0 - Db0,
@@ -702,8 +880,8 @@ normalize_wti(ProcInfo, HLDS, A0, A):-
 	pa_datastruct__normalize_wti(ProcInfo, HLDS, Db0, Db),
 	A = Da - Db.
 
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 live_from_in_use(IN_USE, ALIASES, LIVE):-
 	% filter the list of aliases, keeping only the ones that 
@@ -714,7 +892,7 @@ live_from_in_use(IN_USE, ALIASES, LIVE):-
 		DATASTRUCTS),
 	sr_live__from_datastructs(DATASTRUCTS, LIVE).
 
-live_from_live0(LIVE_0, ALIASES, LIVE):- 
+live_from_live0(ModuleInfo, ProcInfo, LIVE_0, ALIASES, LIVE):- 
 	(
 		(sr_live__top(LIVE_0) ; sr_live__bottom(LIVE_0))
 	->
@@ -722,7 +900,8 @@ live_from_live0(LIVE_0, ALIASES, LIVE):-
 	;
 		sr_live__get_datastructs(LIVE_0, Datastructs),
 		list__map(
-			pa_alias__one_of_vars_is_live(Datastructs),
+			pa_alias__one_of_vars_is_live(ModuleInfo,
+				ProcInfo, Datastructs),
 			ALIASES,
 			LL_DATASTRUCTS), 
 		list__condense(LL_DATASTRUCTS, DATASTRUCTS),
@@ -736,23 +915,25 @@ live_from_live0(LIVE_0, ALIASES, LIVE):-
 	%		sy = s1.s2 => sx1 = sx
 	% 	   or
 	%		sy.s2 = s1 => sx1 = sx.s2
-:- pred one_of_vars_is_live(list(pa_datastruct__datastruct), 
+:- pred one_of_vars_is_live(module_info, proc_info, 
+				list(pa_datastruct__datastruct), 
 				alias, 
 				list(pa_datastruct__datastruct)).
-:- mode one_of_vars_is_live(in, in, out) is det.
+:- mode one_of_vars_is_live(in, in, in, in, out) is det.
 
-one_of_vars_is_live(LIST, ALIAS, List_Xsx1) :- 
-	one_of_vars_is_live_ordered(LIST, ALIAS, L1), 
+one_of_vars_is_live(ModuleInfo, ProcInfo, LIST, ALIAS, List_Xsx1) :- 
+	one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, LIST, ALIAS, L1), 
 	switch(ALIAS, ALIASsw),	
-	one_of_vars_is_live_ordered(LIST, ALIASsw, L2),
+	one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, LIST, ALIASsw, L2),
 	list__append(L1,L2, List_Xsx1).
 
-:- pred one_of_vars_is_live_ordered( list(pa_datastruct__datastruct),
+:- pred one_of_vars_is_live_ordered( module_info, proc_info,
+				list(pa_datastruct__datastruct),
 				alias,
 				list(pa_datastruct__datastruct) ).
-:- mode one_of_vars_is_live_ordered( in, in, out) is det.
+:- mode one_of_vars_is_live_ordered( in, in, in, in, out) is det.
 
-one_of_vars_is_live_ordered( LIST, ALIAS, List_Xsx1 ) :- 
+one_of_vars_is_live_ordered( ModuleInfo, ProcInfo, LIST, ALIAS, List_Xsx1 ) :- 
 	ALIAS = Xsx - Ysy,
 	pa_datastruct__get_var(Ysy, Y),
 	list__filter( 
@@ -766,7 +947,8 @@ one_of_vars_is_live_ordered( LIST, ALIAS, List_Xsx1 ) :-
 		% Ys1 in Y_LIST (sy = s1.s2)
 		list__filter(
 			pred( Ys1::in ) is semidet :-
-			    ( pa_datastruct__less_or_equal(Ysy, Ys1, _s2) ),
+			    ( pa_datastruct__less_or_equal( ModuleInfo, 
+					ProcInfo, Ysy, Ys1, _s2) ),
 			Y_LIST,
 			FY_LIST),
 		FY_LIST = [_|_]
@@ -781,7 +963,8 @@ one_of_vars_is_live_ordered( LIST, ALIAS, List_Xsx1 ) :-
 		% is not minimal, while this should be somehow guaranteed).
 		list__filter_map(
 			pred( Ys1::in, S2::out) is semidet :-
-			    ( pa_datastruct__less_or_equal(Ysy, Ys1, S2)),
+			    ( pa_datastruct__less_or_equal( ModuleInfo, 
+					ProcInfo, Ysy, Ys1, S2)),
 			Y_LIST,
 			SELECTOR_LIST),
 		% each sx1 = sx.s2, where s2 is one of SELECTOR_LIST
@@ -792,3 +975,26 @@ one_of_vars_is_live_ordered( LIST, ALIAS, List_Xsx1 ) :-
 			List_Xsx1 )
 	).
 			
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+apply_widening( ModuleInfo, ProcInfo, Alias0, Alias) :-
+	Alias0 = Da0 - Db0, 
+	apply_widening( ModuleInfo, ProcInfo, Da0, Da), 
+	apply_widening( ModuleInfo, ProcInfo, Db0, Db), 
+	Alias = Da - Db. 
+
+apply_widening_list(ModuleInfo, ProcInfo, AliasList0, AliasList) :- 
+	list__foldl(
+		pred( Alias0::in, List0::in, List::out ) is det :- 
+		    (
+			apply_widening( ModuleInfo, ProcInfo, Alias0, 
+					Alias), 
+			add_subsuming(ProcInfo, ModuleInfo, Alias, 
+					List0, List )
+		    ),
+		AliasList0, 
+		[],
+		AliasList ). 
+		
+

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -956,12 +956,16 @@ qualify_pragma(termination_info(PredOrFunc, SymName, ModeList0, Args, Term),
 		termination_info(PredOrFunc, SymName, ModeList, Args, Term), 
 		Info0, Info) --> 
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
-qualify_pragma(pa_alias_info(PredOrFunc, SymName, ModeList0, Vars, MaybeAS),
-		pa_alias_info(PredOrFunc, SymName, ModeList, Vars, MaybeAS),
+qualify_pragma(pa_alias_info(PredOrFunc, SymName, ModeList0, 
+			Vars, Types, MaybeAS),
+		pa_alias_info(PredOrFunc, SymName, ModeList, 
+			Vars, Types, MaybeAS),
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
-qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars, TREUSE, N), 
-		sr_reuse_info(PredOrFunc, SymName, ModeList, Vars, TREUSE, N), 
+qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars, 
+			Types, TREUSE, N), 
+		sr_reuse_info(PredOrFunc, SymName, ModeList, Vars, 
+			Types, TREUSE, N), 
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
 qualify_pragma(terminates(A, B), terminates(A, B), Info, Info) --> [].

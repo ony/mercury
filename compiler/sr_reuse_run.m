@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -284,8 +284,14 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 				Info0, Info, 
 				FP0, FP)
 		),
+		proc_info_vartypes( ProcInfo, VarTypes ), 
+		list__map( 
+			map__lookup( VarTypes ), 
+			ActualVars, 
+			ActualTypes ), 
 		pa_run__extend_with_call_alias( HLDS, ProcInfo, 
-	    		PredId, ProcId, ActualVars, Alias0, Alias),
+	    		PredId, ProcId, ActualVars, 
+			ActualTypes, Alias0, Alias),
 		Expr = Expr0
 	;
 		% 3. generic_call --> see end
@@ -313,7 +319,7 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 		% 5. unification
 		Expr0 = unify(Var, Rhs, Mode, Unification0, Context)
 	->
-		unification_verify_reuse(Unification0, Alias0, 
+		unification_verify_reuse(HLDS, ProcInfo, Unification0, Alias0, 
 				Reuses0, Reuses, Info0, Info),
 		pa_alias_as__extend_unification(ProcInfo, HLDS, 
 				Unification, Info, Alias0, Alias),	
@@ -481,7 +487,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		goal_info_get_lfu(Info0, LFUi),
 		goal_info_get_lbu(Info0, LBUi),
 		set__union(LFUi, LBUi, LUi),
-		pa_alias_as__live( LUi, LIVE0, Alias0, Live_i),
+		pa_alias_as__live( HLDS, ProcInfo, LUi, LIVE0, Alias0, Live_i),
 		% 3.b. project the live-set to the actual vars:
 		sr_live__project( ActualVars, Live_i, ActualLive_i ),
 		% 4. project the aliases to the actual vars
@@ -500,13 +506,15 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		)
 	).
 				
-:- pred unification_verify_reuse( hlds_goal__unification, 
+:- pred unification_verify_reuse( module_info, proc_info, 
+			hlds_goal__unification, 
 			alias_as, reuses, reuses, 
 			hlds_goal_info, hlds_goal_info).
-:- mode unification_verify_reuse( in, in, in, out, in, out) is det.
+:- mode unification_verify_reuse( in, in, in, in, in, out, in, out) is det.
 
-unification_verify_reuse( Unification, Alias0, Reuses0, Reuses,
-				Info0, Info) :- 
+unification_verify_reuse( ModuleInfo, ProcInfo, 
+			Unification, Alias0, Reuses0, Reuses,
+			Info0, Info) :- 
 	(
 		Unification = deconstruct( Var, CONS_ID, _, _, _, _)
 	->
@@ -514,7 +522,8 @@ unification_verify_reuse( Unification, Alias0, Reuses0, Reuses,
 		goal_info_get_lbu( Info0, LBU ),
 		set__union( LFU, LBU, LU), 
 		sr_live__init(LIVE0),
-		pa_alias_as__live(LU, LIVE0, Alias0, LIVE), 
+		pa_alias_as__live( ModuleInfo, ProcInfo, 
+				LU, LIVE0, Alias0, LIVE), 
 		(
 			sr_live__is_live(Var,LIVE)
 		->
