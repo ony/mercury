@@ -742,11 +742,22 @@ annotate_reuses(DeadContextVar, Value, E0 - I0, E - I):-
 				Cond = condition(_,_,_),
 				Conditional = yes
 			),
-			goal_info_set_reuse(I0, 
-				potential_reuse(cell_reused(
-					DeadContextVar ^ pvar, 
+			CellReused = cell_reused( DeadContextVar ^ pvar, 
 					Conditional,
-					ConsIds, ReuseFields)), I), 
+					ConsIds, ReuseFields),
+			(
+				Conditional = yes, 
+				KindReuse = potential_reuse(CellReused)
+			; 
+				Conditional = no, 
+				% If the reuse is unconditional, then
+				% reuse is not just potentially possible, 
+				% but alwasy possible, so skipping the
+				% potential phase is perfectly safe. 
+				% (see also sr_indirect__call_verify_reuse)
+				KindReuse = reuse(CellReused)
+			), 	
+			goal_info_set_reuse(I0, KindReuse, I), 
 			E = E0
 		;
 			% ReuseVars = [_|_]

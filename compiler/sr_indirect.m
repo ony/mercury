@@ -513,10 +513,21 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 			indirect_reuse_pool_add(HLDS, ProcInfo,
 				Memo, LFUi, LBUi, 
 				Alias0, ConditionalReuse, Pool0, Pool),
-			goal_info_set_reuse(Info0,
-					potential_reuse(
-						reuse_call(ConditionalReuse)),
-					Info),
+			ReuseCall = reuse_call(ConditionalReuse),
+			(
+				ConditionalReuse = yes,
+				KindReuse = potential_reuse(ReuseCall)
+			;
+				ConditionalReuse = no, 
+				% If the reuse is unconditional, then
+				% reuse is not just potentially possible, 
+				% but alwasy possible, so skipping the
+				% potential phase is perfectly safe. 
+				% (see also
+				% sr_choice_graphing__annotate_reuses)
+				KindReuse = reuse(ReuseCall)
+			),
+			goal_info_set_reuse(Info0, KindReuse, Info),
 			YesNo = yes
 		;
 			Pool = Pool0,
