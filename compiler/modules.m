@@ -767,6 +767,8 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".ints"
 			; Ext = ".int3s"
 			; Ext = ".rlos"
+			; Ext = ".ss"
+			; Ext = ".pic_ss"
 			; Ext = ".ils"
 			; Ext = ".opts"
 			; Ext = ".trans_opts"
@@ -1895,10 +1897,10 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__write_strings(DepStream, ["\n\n",
 			OptDateFileName, " ",
 			TransOptDateFileName, " ",
+			ErrFileName, " ",
 			CDateFileName, " ",
 			AsmDateFileName, " ",
 			PicAsmDateFileName, " ",
-			ErrFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
 			ILDateFileName, " : ",
@@ -1926,17 +1928,21 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			Intermod),
 		globals__io_lookup_accumulating_option(intermod_directories,
 			IntermodDirs),
-		( { Intermod = yes; UseOptFiles = yes } ->
+		( { Intermod = yes ; UseOptFiles = yes } ->
 			io__write_strings(DepStream, [
 				"\n\n", 
-				CDateFileName, " ",
 				TransOptDateFileName, " ",
-				ErrFileName, " ", 
-				SplitObjPattern, " :"
+				ErrFileName, " ",
+				CDateFileName, " ",
+				AsmDateFileName, " ",
+				PicAsmDateFileName, " ",
+				SplitObjPattern, " ",
+				RLOFileName, " ",
+				ILDateFileName, " : "
 			]),
 
-			% The .c file only depends on the .opt files from 
-			% the current directory, so that inter-module
+			% The target (e.g. C) file only depends on the .opt files
+			% from  the current directory, so that inter-module
 			% optimization works when the .opt files for the 
 			% library are unavailable. This is only necessary 
 			% because make doesn't allow conditional dependencies.
@@ -1958,9 +1964,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					".opt", DepStream),
 				io__write_strings(DepStream, [
 					"\n\n", 
+					ErrFileName, " ",
 					CDateFileName, " ",
-					ErrFileName, " ", 
-					SplitObjPattern, " :"
+					AsmDateFileName, " ",
+					PicAsmDateFileName, " ",
+					SplitObjPattern, " ",
+					RLOFileName, " ",
+					ILDateFileName, " : "
 				]),
 				write_dependencies_list(TransOptDeps,
 					".trans_opt", DepStream)
@@ -2072,6 +2082,16 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 							Date3FileName),
 
 		/*
+		** We add some extra dependencies to the generated `.d' files, so
+		** that local `.int', `.opt', etc. files shadow the installed
+		** versions properly (e.g. for when you're trying to build a new
+		** version of an installed library).  This saves the user from
+		** having to add these explicitly if they have multiple libraries
+		** installed in the same installation hierarchy which aren't
+		** independent (e.g. one uses another).
+		** These extra dependencies are necessary due to the way the
+		** combination of search paths and pattern rules works in Make.
+		**
 		** Be very careful about changing the following rules.
 		** The `@:' is a silent do-nothing command.
 		** It is used to force GNU Make to recheck the timestamp
@@ -3031,7 +3051,7 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".all_pic_ss = "),
-	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".pic_s",
+	write_compact_dependencies_list(Modules, "$(pic_ss_subdir)", ".pic_s",
 		Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -3598,10 +3618,21 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_file_name(ModuleName, ".opts", no, OptsTargetName),
 	module_name_to_file_name(ModuleName, ".trans_opts", no,
 						TransOptsTargetName),
+	module_name_to_file_name(ModuleName, ".ss", no,
+						SsTargetName),
+	module_name_to_file_name(ModuleName, ".pic_ss", no,
+						PicSsTargetName),
 	module_name_to_file_name(ModuleName, ".rlos", no,
 						RLOsTargetName),
 	module_name_to_file_name(ModuleName, ".ils", no,
 						ILsTargetName),
+
+	% We need to explicitly mention
+	% $(foo.pic_ss) somewhere in the Mmakefile, otherwise it
+	% won't build properly with --target asm: GNU Make's pattern rule
+	% algorithm will try to use the .m -> .c_date -> .c -> .pic_o rule chain
+	% rather than the .m -> .pic_s_date -> .pic_s -> .pic_o chain.
+	% So don't remove the pic_ss target here.
 
 	io__write_strings(DepStream, [
 		".PHONY : ", CheckTargetName, "\n",
@@ -3615,6 +3646,10 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		".PHONY : ", TransOptsTargetName, "\n",
 		TransOptsTargetName, " : $(", MakeVarName,
 						".trans_opt_dates)\n\n",
+		".PHONY : ", SsTargetName, "\n",
+		SsTargetName, " : $(", MakeVarName, ".ss)\n\n",
+		".PHONY : ", PicSsTargetName, "\n",
+		PicSsTargetName, " : $(", MakeVarName, ".pic_ss)\n\n",
 		".PHONY : ", RLOsTargetName, "\n",
 		RLOsTargetName, " : $(", MakeVarName, ".rlos)\n\n",
 		".PHONY : ", ILsTargetName, "\n",
