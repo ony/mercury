@@ -30,6 +30,7 @@
 	% reuse.
 :- type constraint
 	--->	same_cons_id
+	;	same_size
 	.
 
 	% After the constraint has been applied to the set of cells
@@ -181,24 +182,46 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 	{ Unif = construct(_Var, ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi) },
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
 	{ ReuseInfo = choice(construct(Pairs)) ->
-		PossibleCanditates = set__to_sorted_list(Pairs)
+		PossibleCandidates = set__to_sorted_list(Pairs)
 	;
 		error("sr_choice__apply_constraint_unification")
 	},
+	Map =^ map,
 	(
 		{ Constraint = same_cons_id },
-		Map =^ map,
 
 			% XXX recode this more efficiently at some stage.
-		{ P = (pred(Canditate::out) is nondet :- 
-			list__member(Canditate, PossibleCanditates),
-			CanditateVar = fst(Canditate),
-			multi_map__search(Map, CanditateVar, [ConsId])
-		)},
-		{ solutions(P, Canditates) }
+		{ P = (pred(Candidate::out) is nondet :- 
+			list__member(Candidate, PossibleCandidates),
+			CandidateVar = fst(Candidate),
+			multi_map__search(Map, CandidateVar, [ConsId])
+		)}
+	;
+		{ Constraint = same_size },
+
+			% XXX Are two cells with the same arity the same
+			% size?  I think not, because the cell may
+			% contain existentially typed compenents which
+			% require storage of the corresponding type
+			% infos.
+		{ P = (pred(Candidate::out) is nondet :- 
+			list__member(Candidate, PossibleCandidates),
+			CandidateVar = fst(Candidate),
+			multi_map__search(Map, CandidateVar, ConsIds),
+			cons_id_arity(ConsId, Arity),
+			all [ReuseConsId] (
+				list__member(ReuseConsId, ConsIds)
+			=>
+				(
+					cons_id_arity(ReuseConsId, ReuseArity),
+					ReuseArity = Arity
+				)
+			)
+		)}
 	),
+	{ solutions(P, Candidates) },
 	{ goal_info_set_reuse(GoalInfo0,
-			choice(construct(set__list_to_set(Canditates))),
+			choice(construct(set__list_to_set(Candidates))),
 			GoalInfo) }.
 
 apply_constraint_unification(_Constraint, Unif, GoalInfo0, GoalInfo) -->
@@ -280,6 +303,7 @@ select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ select_reuses(Selection, Else0, Else, IfInfo, ElseInfo) },
 	selection_merge(ThenInfo),
 	selection_merge(ElseInfo),
+	selection_end_branch,
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
 
 select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
@@ -313,7 +337,7 @@ select_reuses(Selection, par_conj(Goal0s, SM) - GoalInfo,
 		list(case)::in, list(case)::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_cases(_Selection, _Info0, [], []) --> [].
+select_reuses_cases(_Selection, _Info0, [], []) --> selection_end_branch.
 select_reuses_cases(Selection, Info0, [Case0 | Case0s], [Case | Cases]) -->
 	{ Case0 = case(ConsId, Goal0) },
 	{ select_reuses(Selection, Goal0, Goal, Info0, Info) },
@@ -333,22 +357,37 @@ select_reuses_list(Selection, [Goal0 | Goal0s], [Goal | Goals]) -->
 		selection_info::in, hlds_goals::in, hlds_goals::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_disj(_Selection, _Info0, [], []) --> [].
+select_reuses_disj(_Selection, _Info0, [], []) --> selection_end_branch.
 select_reuses_disj(Selection, Info0, [Goal0 | Goal0s], [Goal | Goals]) -->
 	{ select_reuses(Selection, Goal0, Goal, Info0, Info) },
 	selection_merge(Info),
 	select_reuses_disj(Selection, Info0, Goal0s, Goals).
 
+	%
+	% This merges in the select_info left after the end of each
+	% branch with the global one.
+	%
 :- pred selection_merge(selection_info::in, selection_info::in,
 		selection_info::out) is det.
 
 selection_merge(selection_info(LocalA, GlobalA, CondsA),
 		selection_info(LocalB, GlobalB, CondsB),
 		selection_info(Local, Global, Conds)) :-
-	Local = set__init,
-	Global = LocalA `set__union` LocalB `set__union`
-			GlobalA `set__union` GlobalB,
+	Local = LocalA `set__union` LocalB,
+	Global = GlobalA `set__union` GlobalB,
 	Conds = CondsA ++ CondsB.
+
+	%
+	% At the end of processing all branches of a
+	% disj/switch/if_then_else this predicate should be called.
+	%
+:- pred selection_end_branch(selection_info::in, selection_info::out) is det.
+
+selection_end_branch(selection_info(Local0, Global0, Conds0),
+		selection_info(Local, Global, Conds)) :-
+	Local = set__init,
+	Global = Local0 `set__union` Global0,
+	Conds = Conds0.
 
 :- pred select_reuses_unification(selection::in, unification::in,
 		hlds_goal_info::in, hlds_goal_info::out,
@@ -358,7 +397,7 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 	{ Unif = construct(_Var, _ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi) },
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
 	{ ReuseInfo = choice(construct(Pairs)) ->
-		PossibleCanditates = set__to_sorted_list(Pairs)
+		PossibleCandidates = set__to_sorted_list(Pairs)
 	;
 		error("sr_choice__apply_selection_unification")
 	},
@@ -371,14 +410,14 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 		GlobalReused =^ global_used,
 
 		{ P = (pred(Choice::out) is nondet :- 
-			list__member(Choice, PossibleCanditates),
+			list__member(Choice, PossibleCandidates),
 			ChoiceVar = fst(Choice),
 			\+ set__member(ChoiceVar, LocalReused0),
 			\+ set__member(ChoiceVar, GlobalReused)
 		)},
 
-		{ solutions(P, Canditates) },
-		( { Canditates = [ReuseVar - ReuseCond | _] } ->
+		{ solutions(P, Candidates) },
+		( { Candidates = [ReuseVar - ReuseCond | _] } ->
 			{ set__insert(LocalReused0, ReuseVar, LocalReused) },
 			{ goal_info_set_reuse(GoalInfo0,
 					reuse(cell_reused(ReuseVar)),
