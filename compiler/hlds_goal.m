@@ -411,6 +411,9 @@
 	;	modes_are_ok
 	.
 
+	% The cell is available for compile time garbage collected.
+:- type can_cgc == bool.
+
 :- type unification
 		% A construction unification is a unification with a functor
 		% or lambda expression which binds the LHS variable,
@@ -477,8 +480,9 @@
 					% e.g. [X] in the above example.
 			list(uni_mode), % The lists of modes of the argument
 					% sub-unifications.
-			can_fail	% Whether or not the unification
+			can_fail,	% Whether or not the unification
 					% could possibly fail.
+			can_cgc		% Can compile time GC this cell
 		)
 
 		% Y = X where the top node of Y is output,

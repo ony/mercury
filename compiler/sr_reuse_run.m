@@ -76,9 +76,12 @@ sr_reuse_run__reuse_pass( HLDSin, HLDSout ) -->
 		{ hlds_dependency_info_get_dependency_ordering( DepInfo, DepOrdering ) },
 		% perform the analysis, and annotate the procedures
 		run_with_dependencies( DepOrdering, HLDS1, HLDS2),
+		/*
 		process_all_nonimported_procs(
 			update_module_io(process_proc),
 			HLDS2, HLDSout)
+		*/
+		{ HLDSout = HLDS2 }
 	;
 		{ error("(sr_reuse_run) reuse_pass: no dependency info") }
 	).
@@ -202,10 +205,14 @@ analyse_pred_proc( HLDS, PRED_PROC_ID, FPin, FPout) -->
 		sr_reuse__init(PredArity, ProcInfo, Reuses0),
 		% 5. analyse_goal
 		analyse_goal( ProcInfo, HLDS, 
-					Goal0, Goal, 
+					Goal0, Goal1,
 					Reuses0, Reuses,
 					Alias0, _Alias, 
 					FPin, FP1 ),
+
+		compile_time_gc_cells(Reuses, CgcCells),
+		process_goal(CgcCells, Goal1, Goal, HLDS, _),
+
 		% 	OK
 		% 6. update all kind of information
 		sr_reuse__to_tabled_reuse( Reuses, TREUSE ), 
@@ -491,7 +498,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 unification_verify_reuse( Unification, Alias0, Reuses0, Reuses,
 				Info0, Info) :- 
 	(
-		Unification = deconstruct( Var, CONS_ID, _, _, _)
+		Unification = deconstruct( Var, CONS_ID, _, _, _, _)
 	->
 		goal_info_get_lfu( Info0, LFU ), 
 		goal_info_get_lbu( Info0, LBU ),
@@ -619,7 +626,8 @@ create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 		module_info_set_structure_reuse_info(HLDSin,
 				StrReuseInfo, HLDSin1),
 		module_info_set_predicate_table(HLDSin1, PredTable, HLDSout)
-	; contains_unconditional_reuse(TREUSE) ->
+	% ; contains_unconditional_reuse(TREUSE) ->
+	;
 		proc_info_set_reuse_information(ProcInfo0, TREUSE, ProcInfo1),
 		(
 			MaybeHLDS_GOAL = yes(HLDS_GOAL),
@@ -630,8 +638,6 @@ create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 		),
 		module_info_set_pred_proc_info(HLDSin, PRED_PROC_ID, 
 				PredInfo0, ProcInfo, HLDSout)
-	;
-		HLDSout = HLDSin
 	).
 
 
@@ -726,15 +732,15 @@ arg_types_are_all_primitive(HLDS, PredInfo):-
 process_proc(_PredId, _ProcId, ProcInfo0, ProcInfo, 
 		ModuleInfo0, ModuleInfo) -->
 	{ proc_info_goal(ProcInfo0, Goal0) },
-	{ process_goal(Goal0, Goal, ModuleInfo0, ModuleInfo) },
+	{ process_goal([], Goal0, Goal, ModuleInfo0, ModuleInfo) },
 	{ proc_info_set_goal(ProcInfo0, Goal, ProcInfo) }.
 
 %-----------------------------------------------------------------------------%
 
-:- pred process_goal(hlds_goal::in, hlds_goal::out,
+:- pred process_goal(prog_vars::in, hlds_goal::in, hlds_goal::out,
 		module_info::in, module_info::out) is det.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(_CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = call(PredId0, ProcId0, Args, Builtin, MaybeContext, Name0) },
 	=(ModuleInfo),
 	{ module_info_structure_reuse_info(ModuleInfo, ReuseInfo) },
@@ -751,63 +757,74 @@ process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
 	},
 	{ Goal = call(PredId, ProcId, Args, Builtin, MaybeContext, Name) }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = unify(_, _, _, _, _) },
-	{ Goal = Goal0 }.
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = unify(Var, Rhs, Mode, Unification0, Ctxt) },
+	{ Unification0 = deconstruct(Var, ConsId, Vars, Modes, CanFail, _) ->
+		( list__member(Var, CGC) ->
+			Unification = deconstruct(Var, ConsId, Vars,
+					Modes, CanFail, yes)
+		;
+			Unification = deconstruct(Var, ConsId, Vars,
+					Modes, CanFail, no)
+		),
+		Goal = unify(Var, Rhs, Mode, Unification, Ctxt)
+	;
+		Goal = Goal0
+	}.
+process_goal(_CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(_CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
-process_goal(Goal0 - _GoalInfo, _) -->
+process_goal(_CGC, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },
 	{ error("structure_reuse: bi_implication.\n") }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
-	process_goal(If0, If),
-	process_goal(Then0, Then),
-	process_goal(Else0, Else),
+	process_goal(CGC, If0, If),
+	process_goal(CGC, Then0, Then),
+	process_goal(CGC, Else0, Else),
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
-	process_goal_cases(Cases0, Cases),
+	process_goal_cases(CGC, Cases0, Cases),
 	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
-	process_goal(SomeGoal0, SomeGoal),
+	process_goal(CGC, SomeGoal0, SomeGoal),
 	{ Goal = some(Vars, CanRemove, SomeGoal) }.
 
-process_goal(not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	process_goal(Goal0, Goal).
-process_goal(conj(Goal0s) - GoalInfo, conj(Goals) - GoalInfo) -->
-	process_goal_list(Goal0s, Goals).
-process_goal(disj(Goal0s, SM) - GoalInfo, disj(Goals, SM) - GoalInfo) -->
-	process_goal_list(Goal0s, Goals).
-process_goal(par_conj(Goal0s, SM) - GoalInfo,
+process_goal(CGC, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+	process_goal(CGC, Goal0, Goal).
+process_goal(CGC, conj(Goal0s) - GoalInfo, conj(Goals) - GoalInfo) -->
+	process_goal_list(CGC, Goal0s, Goals).
+process_goal(CGC, disj(Goal0s, SM) - GoalInfo, disj(Goals, SM) - GoalInfo) -->
+	process_goal_list(CGC, Goal0s, Goals).
+process_goal(CGC, par_conj(Goal0s, SM) - GoalInfo,
 		par_conj(Goals, SM) - GoalInfo) -->
-	process_goal_list(Goal0s, Goals).
+	process_goal_list(CGC, Goal0s, Goals).
 
-:- pred process_goal_cases(list(case)::in, list(case)::out,
+:- pred process_goal_cases(prog_vars::in, list(case)::in, list(case)::out,
 		module_info::in, module_info::out) is det.
 
-process_goal_cases([], []) --> [].
-process_goal_cases([Case0 | Case0s], [Case | Cases]) -->
+process_goal_cases(_CGC, [], []) --> [].
+process_goal_cases(CGC, [Case0 | Case0s], [Case | Cases]) -->
 	{ Case0 = case(ConsId, Goal0) },
-	process_goal(Goal0, Goal),
+	process_goal(CGC, Goal0, Goal),
 	{ Case = case(ConsId, Goal) },
-	process_goal_cases(Case0s, Cases).
+	process_goal_cases(CGC, Case0s, Cases).
 
-:- pred process_goal_list(hlds_goals::in, hlds_goals::out,
+:- pred process_goal_list(prog_vars::in, hlds_goals::in, hlds_goals::out,
 		module_info::in, module_info::out) is det.
 
-process_goal_list([], []) --> [].
-process_goal_list([Goal0 | Goal0s], [Goal | Goals]) -->
-	process_goal(Goal0, Goal),
-	process_goal_list(Goal0s, Goals).
+process_goal_list(_CGC, [], []) --> [].
+process_goal_list(CGC, [Goal0 | Goal0s], [Goal | Goals]) -->
+	process_goal(CGC, Goal0, Goal),
+	process_goal_list(CGC, Goal0s, Goals).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

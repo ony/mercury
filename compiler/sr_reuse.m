@@ -117,7 +117,8 @@
 :- pred try_to_reuse( cons_id, reuses, prog_var, reuses).
 :- mode try_to_reuse( in, in, out, out) is semidet.
 
-%-------------------------------------------------------------------%
+:- pred compile_time_gc_cells(reuses::in, list(prog_var)::out) is det.
+
 %-------------------------------------------------------------------%
 %-- tabled_reuse
 
@@ -1305,4 +1306,23 @@ reuse_condition_print( ProcInfo, condition(Nodes, LUiH, LAiH)) -->
 	io__write_string(")").
 
 	
-	
+%-------------------------------------------------------------------%
+
+compile_time_gc_cells(reuses(_, DirectReuses, _), GcCells) :-
+	GlobalDirectReuses = list__condense(map__values(DirectReuses ^ global)),
+	LocalDirectReuses = list__condense(map__values(DirectReuses ^ local)),
+	list__filter_map(compile_time_gc_canditate,
+			GlobalDirectReuses `list__append` LocalDirectReuses,
+			GcCells).
+
+:- pred compile_time_gc_canditate(direct_reuse::in, prog_var::out) is semidet.
+
+compile_time_gc_canditate(direct(Var, _, Cond, Canditates), Var) :-
+	Canditates = 0,
+	(
+		Cond = always
+	;
+		Cond = condition([], _, _)
+	).
+
+%-------------------------------------------------------------------%

@@ -531,7 +531,7 @@ from_unification( _ProcInfo, _HLDS,
 	list__foldl( alias_from_unif(VAR,CONS),NUMBEREDARGS, [], AS).
 
 from_unification( _ProcInfo, _HLDS, 
-		deconstruct( VAR, CONS, ARGS, _, _ ), Info, AS) :-
+		deconstruct( VAR, CONS, ARGS, _, _, _ ), Info, AS) :-
 	number_args( ARGS, NUMBEREDARGS),
 	optimize_for_deconstruct(NUMBEREDARGS, Info, ReducedARGS),
 	list__foldl( alias_from_unif(VAR,CONS),ReducedARGS, [], AS).

@@ -134,7 +134,7 @@ ml_gen_unification(construct(Var, ConsId, Args, ArgModes,
 	},
 	ml_gen_construct(Var, ConsId, Args, ArgModes, HowToConstruct, Context,
 		MLDS_Decls, MLDS_Statements).
-ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail),
+ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, _CanCGC),
 		CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 	(
 		{ CanFail = can_fail },
