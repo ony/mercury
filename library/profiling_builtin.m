@@ -271,6 +271,10 @@ create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD) :-
     MR_CallSiteDynamic *csd;
     MR_ProcStatic  *ps = (MR_ProcStatic *) Proc_descr;
 
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
+#endif
+
 #ifdef MR_DEEP_PROFILING_DELAYED_CSD_UPDATE
     MR_current_call_site_dynamic = MR_next_call_site_dynamic;
 #endif
@@ -318,6 +322,10 @@ create_proc_dynamic1(ProcDescr, TopCSD, MiddleCSD) :-
 
     NewPtr = (Word) ps->outermost_activation_ptr;
 
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
+
 #endif
 #endif
 }").
@@ -341,6 +349,10 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 #else
     MR_CallSiteDynamic *csd = MR_current_call_site_dynamic;
     MR_ProcStatic  *ps = (MR_ProcStatic *) Proc_descr;
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
+#endif
 
     TopCSD = (MR_Word) MR_parent_call_site_dynamic;
     MiddleCSD = (MR_Word) MR_current_call_site_dynamic;
@@ -378,6 +390,10 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
     ps->outermost_activation_ptr = csd->call_site_callee_ptr;
 
     NewPtr = (Word) ps->outermost_activation_ptr;
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
 
 #endif
 #endif
@@ -481,6 +497,10 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
     MR_CallSiteDynamic *csd = (MR_CallSiteDynamic *) CSD;
     MR_CallSiteDynamic *tmp;
 
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
+#endif
+
     MR_assert(csd == MR_current_call_site_dynamic);
 
     if (!(tmp = csd->call_site_callee_ptr->call_site_ptr_ptrs[N]))
@@ -509,6 +529,11 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 #else
     MR_current_call_site_dynamic = tmp;
 #endif
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
+
 #endif
 }").
 
@@ -525,6 +550,10 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
     int			done = 0;
 #ifdef MR_DEEP_PROFILING_STATISTICS
     int			slen = 0;
+#endif
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
 #endif
 
     MR_assert(csd == MR_current_call_site_dynamic);
@@ -627,6 +656,11 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	}
     }
 #endif
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
+
 #endif
 }").
 
@@ -643,6 +677,10 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
     int done = 0;
 #ifdef MR_DEEP_PROFILING_STATISTICS
     int			slen = 0;
+#endif
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
 #endif
 
     MR_assert(csd == MR_current_call_site_dynamic);
@@ -745,6 +783,11 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	}
     }
 #endif
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
+
 #endif
 }").
 

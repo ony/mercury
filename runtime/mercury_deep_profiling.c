@@ -33,6 +33,10 @@ volatile MR_CallSiteDynamic
 		*MR_next_call_site_dynamic = &MR_mainCallSite;
 #endif
 
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+volatile MR_Bool MR_inside_deep_profiling_code = FALSE;
+#endif
+
 volatile MR_CallSiteDynamic
 		*MR_current_call_site_dynamic = &MR_mainCallSite;
 
@@ -60,6 +64,10 @@ MR_prepare_for_callback(void *entry)
 {
     MR_CallSiteDynList *tmp;
     MR_CallSiteDynamic *tmp2;
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = TRUE;
+#endif
 
     tmp = (MR_CallSiteDynList*) *MR_current_callback_site;
     while (tmp)
@@ -92,6 +100,11 @@ MR_prepare_for_callback(void *entry)
 #else
     MR_current_call_site_dynamic = tmp2;
 #endif
+
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+    MR_inside_deep_profiling_code = FALSE;
+#endif
+
 }
 /*----------------------------------------------------------------------------*/
 

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-1998,2000 The University of Melbourne.
+** Copyright (C) 1995-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -401,7 +401,12 @@ prof_time_profile(int signum)
 	return;
 #else
 #ifdef MR_DEEP_PROFILING_TIMING
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+	if (MR_inside_deep_profiling_code == FALSE)
+		MR_current_call_site_dynamic->profiling_metrics.quanta++;
+#else
 	MR_current_call_site_dynamic->profiling_metrics.quanta++;
+#endif
 #endif
 #endif
 } /* end prof_time_profile() */

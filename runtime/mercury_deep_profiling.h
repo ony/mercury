@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-1997,2000 The University of Melbourne.
+** Copyright (C) 2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -99,6 +99,10 @@ extern	volatile MR_CallSiteDynamic		*MR_parent_call_site_dynamic;
 extern	volatile MR_CallSiteDynamic		*MR_next_call_site_dynamic;
 extern	volatile MR_CallSiteDynamic		*MR_current_call_site_dynamic;
 extern	volatile MR_CallSiteDynamic		**MR_current_callback_site;
+#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
+extern	volatile MR_Bool			MR_inside_deep_profiling_code;
+#endif
+
 extern	MR_CallSiteDynamic			*MR_rootCallSites[];
 
 #ifdef MR_DEEP_PROFILING_STATISTICS

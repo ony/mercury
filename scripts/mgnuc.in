@@ -1,7 +1,7 @@
 #! /bin/sh
 # @configure_input@
 #---------------------------------------------------------------------------#
-# Copyright (C) 1995-2000 The University of Melbourne.
+# Copyright (C) 1995-2001 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #---------------------------------------------------------------------------#
@@ -84,6 +84,7 @@ assemble=false
 c_debug=false
 c_optimize=true
 use_activation_counts=true
+ignore_instrumentation=true
 
 # include the file `init_grade_options.sh-subr'
 @INIT_GRADE_OPTIONS@
@@ -191,6 +192,11 @@ while : ; do
 		use_activation_counts=true ;;
 	--no-use-activation-counts)
 		use_activation_counts=false ;;
+
+	--use-ignore-instrumentation)
+		ignore_instrumentation=true ;;
+	--no-ignore-instrumentation)
+		ignore_instrumentation=false ;;
 
 	# include the file `parse_grade_options.sh-subr'
 	@PARSE_GRADE_OPTIONS@
@@ -310,8 +316,13 @@ case $use_activation_counts in
 	false)		ACTIVATION_COUNT_OPT="";;
 esac
 
+case $ignore_instrumentation in
+	true)		ACTIVATION_COUNT_OPT="-DMR_DEEP_PROFILING_IGNORE_INSTRUMENTATION" ;;
+	false)		ACTIVATION_COUNT_OPT="";;
+esac
+
 case $profile_deep in
-	true)		PROF_DEEP_OPTS="-DMR_DEEP_PROFILING $ACTIVATION_COUNT_OPT" ;;
+	true)		PROF_DEEP_OPTS="-DMR_DEEP_PROFILING $IGNORE_INSTRUMENTATION_OPT $ACTIVATION_COUNT_OPT" ;;
 	false)		PROF_DEEP_OPTS="" ;;
 esac
 
