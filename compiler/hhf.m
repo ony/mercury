@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 University of Melbourne.
+% Copyright (C) 2001-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -116,6 +116,8 @@ hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
 	clauses_info_set_clauses(ClausesInfo0, Clauses, ClausesInfo1),
 
 	complete_inst_graph(ModuleInfo, Info1, Info),
+	% XXX Comment out the above line for incomplete, quick checking.
+	% Info = Info1,
 
 	Info = hhf_info(InstGraph, VarSet, VarTypes),
 

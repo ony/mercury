@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -23,7 +23,7 @@
 :- import_module varset, term_io.
 :- import_module hhf, inst_graph, prog_data, hlds_goal, hlds_pred, passes_aux.
 :- import_module dependency_graph, mode_util, (inst), hlds_data, goal_path.
-:- import_module mode_constraint_robdd, mode_ordering.
+:- import_module mode_constraint_robdd, mode_ordering, globals, options.
 :- import_module gc.
 
 :- import_module xrobdd__tfeir_robdd.
@@ -813,7 +813,12 @@ mode_constraints__process_clauses_info(ModuleInfo, SCC, ClausesInfo0,
 		ClausesInfo, InstGraph, HOModes0, Constraint0, Constraint,
 		ConstraintInfo0, Info^mc_info) -->
 	{ clauses_info_varset(ClausesInfo0, VarSet0) },
-	inst_graph__dump(InstGraph, VarSet0),
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	( { VeryVerbose = yes } ->
+		inst_graph__dump(InstGraph, VarSet0)
+	;
+		[]
+	),
 
 	{ clauses_info_headvars(ClausesInfo0, HeadVars) },
 	{ map__foldl2(input_output_constraints(HeadVars, InstGraph),

@@ -82,7 +82,7 @@
 	% library modules
 :- import_module int, list, map, set, std_util, dir, require, string, bool.
 :- import_module library, getopt, set_bbbtree, term, varset, assoc_list.
-:- import_module gc.
+:- import_module gc, benchmarking.
 
 %-----------------------------------------------------------------------------%
 
@@ -2135,7 +2135,9 @@ mercury_compile__puritycheck(FoundTypeError, HLDS0, Verbose, Stats,
 mercury_compile__modecheck(HLDS0, Verbose, Stats, HLDS, FoundModeError,
 		UnsafeToContinue) -->
 	{ module_info_num_errors(HLDS0, NumErrors0) },
-	modecheck(HLDS0, HLDS, UnsafeToContinue),
+	maybe_benchmark_modes((pred(H0::in, {H,U}::out, di, uo) is det -->
+			modecheck(H0, H, U)),
+		"modecheck", HLDS0, {HLDS, UnsafeToContinue}),
 	{ module_info_num_errors(HLDS, NumErrors) },
 	( { NumErrors \= NumErrors0 } ->
 		{ FoundModeError = yes },
@@ -2513,11 +2515,30 @@ mercury_compile__maybe_mode_constraints(HLDS0, Verbose, Stats, HLDS) -->
 		maybe_write_string(Verbose,
 			"% Dumping mode constraints..."),
 		maybe_flush_output(Verbose),
-		mode_constraints__process_module(HLDS0, HLDS),
+		maybe_benchmark_modes(mode_constraints__process_module,
+			"mode-constraints", HLDS0, HLDS),
 		maybe_write_string(Verbose, " done.\n"),
 		maybe_report_stats(Stats)
 	;
 		{ HLDS = HLDS0 }
+	).
+
+:- pred maybe_benchmark_modes(pred(T1, T2, io, io), string, T1, T2, io, io).
+:- mode maybe_benchmark_modes(pred(in, out, di, uo) is det, in, in, out, di, uo)
+			is det.	% XXX should be cc_multi.
+
+maybe_benchmark_modes(Pred, Stage, A0, A, IO0, IO) :-
+	globals__io_lookup_bool_option(benchmark_modes, BenchmarkModes,
+		IO0, IO1),
+	( BenchmarkModes = yes ->
+		globals__io_lookup_int_option(benchmark_modes_repeat, Repeats,
+			IO1, IO2),
+		io__format("%% Benchmarking %s Repeats %d Time ",
+			[s(Stage), i(Repeats)], IO2, IO3),
+		benchmark_det2(Pred, A0, A, IO3, IO4, Repeats, Time),
+		io__format("%d ms\n", [i(Time)], IO4, IO)
+	;
+		Pred(A0, A, IO1, IO)
 	).
 
 
