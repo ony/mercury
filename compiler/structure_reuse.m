@@ -137,10 +137,13 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	{ list__length(HeadVars, PseudoArity) }, 
 	{ NumberOfTypeInfos = PseudoArity - Arity },
 	{ list_drop_det(NumberOfTypeInfos, HeadVars, RealHeadVars) },
-	io__write_string("vars("),
-	mercury_output_vars(RealHeadVars, ProgVarset, no),
-	io__write_string(")"),
-
+	( { RealHeadVars = [] } ->
+		io__write_string("vars")
+	;
+		io__write_string("vars("),
+		mercury_output_vars(RealHeadVars, ProgVarset, no),
+		io__write_string(")")
+	),
 	io__write_string(", "),
 
 		% write reuse information

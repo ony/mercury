@@ -766,10 +766,13 @@ pa_run__make_pa_interface_pred_proc( PredInfo, ProcTable, ProcId) -->
 	{ list__length(HeadVars, PseudoArity) }, 
 	{ NumberOfTypeInfos = PseudoArity - Arity },
 	{ list_drop_det(NumberOfTypeInfos, HeadVars, RealHeadVars) },
-	io__write_string("vars("),
-	mercury_output_vars(RealHeadVars, ProgVarset, no),
-	io__write_string(")"),
-
+	( { RealHeadVars = [] } ->
+		io__write_string("vars")
+	;
+		io__write_string("vars("),
+		mercury_output_vars(RealHeadVars, ProgVarset, no),
+		io__write_string(")")
+	),
 	io__write_string(", "),
 
 		% write alias information
