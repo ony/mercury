@@ -179,10 +179,10 @@ number_robdd_variables_in_pred(PredId, ModuleInfo0, ModuleInfo) -->
 
 	    { list__map_foldl((pred(Clause0::in, Clause::out, in, out) is det
 			-->
-		    { Clause0 = clause(A, Goal0, C) },
+		    { Clause0 = clause(A, Goal0, C, D) },
 		    number_robdd_variables_in_goal(InstGraph, set__init, _,
 			Goal0, Goal),
-		    { Clause = clause(A, Goal, C) }
+		    { Clause = clause(A, Goal, C, D) }
 		), Clauses0, Clauses, NRInfo0, NRInfo) },
 
 	    :=(NRInfo ^ mc_info),
@@ -818,7 +818,7 @@ mode_constraints__process_clauses_info(ModuleInfo, SCC, ClausesInfo0,
 		ConstraintInfo1) },
 
 	{ clauses_info_clauses(ClausesInfo0, Clauses) },
-	{ list__map(pred(clause(_, Goal, _)::in, Goal::out) is det, Clauses,
+	{ list__map(pred(clause(_, Goal, _, _)::in, Goal::out) is det, Clauses,
 		Goals) },
 	{ map__init(DummyStoreMap) },
 	{ DisjGoal = disj(Goals, DummyStoreMap) },

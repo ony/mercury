@@ -341,7 +341,7 @@ dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo, IncludeImported,
 	;
 		pred_info_clauses_info(PredInfo, ClausesInfo),
 		clauses_info_clauses(ClausesInfo, Clauses),
-		Goals = list__map(func(clause(_, Goal, _)) = Goal, Clauses),
+		Goals = list__map(func(clause(_, Goal, _, _)) = Goal, Clauses),
 		relation__lookup_element(DepGraph0, PredId, Caller),
 		dependency_graph__add_arcs_in_list(Goals, Caller, DepGraph0,
 			DepGraph1)

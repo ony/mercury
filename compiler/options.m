@@ -579,7 +579,7 @@ option_defaults_2(aux_output_option, [
 	dump_mlds		-	accumulating([]),
 	dump_rl			-	bool(no),
 	dump_rl_bytecode	-	bool(no),
-	dump_mode_constraints	-	bool(no)
+	dump_mode_constraints	-	bool(no),
 	sign_assembly		-	bool(no),
 	separate_assemblies	-	bool(no),
 	generate_schemas	-	bool(no)

@@ -49,7 +49,8 @@ goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo, PredInfo) :-
 	clauses_info_clauses(ClausesInfo0, Clauses0),
 	clauses_info_vartypes(ClausesInfo0, VarTypes),
 	SlotInfo = slot_info(VarTypes, ModuleInfo),
-	list__map_foldl((pred(clause(A, Goal0, C)::in, clause(A, Goal, C)::out,
+	list__map_foldl(
+		(pred(clause(A, Goal0, C, D)::in, clause(A, Goal, C, D)::out,
 				N::in, (N + 1)::out) is det :-
 			fill_goal_slots(Goal0, [disj(N)], SlotInfo, Goal)
 		), Clauses0, Clauses, 1, _),

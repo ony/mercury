@@ -2038,11 +2038,11 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet,
 	MaybeHeadLives = no,
 	RLExprn = no,
 	ModeErrors = [],
-	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, ModeErrors,
-		InstVarSet, MaybeHeadLives, Goal, Context, StackSlots,
-		MaybeDeclaredDetism, Detism, yes, [], Liveness, TVarMap,
-		TCVarsMap, eval_normal, no, no, no, IsAddressTaken,
-		RLExprn, no, no, no).
+	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, no, no,
+		ModeErrors, InstVarSet, MaybeHeadLives, Goal, Context,
+		StackSlots, MaybeDeclaredDetism, Detism, yes, [],
+		Liveness, TVarMap, TCVarsMap, eval_normal, no, no,
+		IsAddressTaken, RLExprn, no, no, no).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-

@@ -139,8 +139,8 @@ hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
 		hhf_info, hhf_info).
 :- mode hhf__process_clause(in, in, out, in, out) is det.
 
-hhf__process_clause(_HeadVars, clause(ProcIds, Goal0, Context),
-		clause(ProcIds, Goal, Context)) -->
+hhf__process_clause(_HeadVars, clause(ProcIds, Goal0, Lang, Context),
+		clause(ProcIds, Goal, Lang, Context)) -->
 	{ Goal0 = _ - GoalInfo0 },
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
 
