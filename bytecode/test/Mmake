@@ -1,0 +1,50 @@
+PROGS=test00 test03 test04 test05 test06 test07 test10 test15 test20\
+	test25 test30
+DEPENDS=$(PROGS:%=%.depend)
+MBCFILES=$(PROGS:%=%.mbc)
+MDISFILES=$(PROGS:%=%.mdis)
+MDIS=../mdis
+
+%.mdis: %.mbc
+	$(MDIS) $*.mbc > $@
+
+MAIN_TARGET=all
+#GRADE
+#GRADE=asm_fast.gc.prof
+#MCFLAGS=-O6
+# MCFLAGS=-O6 --intermodule-optimization
+# MLFLAGS=--no-strip -g -static
+#MLFLAGS=-static
+MCFLAGS=-O-1 --no-dead-proc-elim
+
+#GRADE=reg.gc
+#GRADE=asm_fast.gc.prof
+#	XXX: the debug grade currently doesn't work since there are
+#	unresolved references.
+#	Either the debug code should be nuked, or it should be
+#	built regularly and regression tested. *Grr..*
+#GRADE=debug.gc
+
+MGNUCFLAGS=-O0 -g
+MCFLAGS=--debug --generate-bytecode --no-inlining --no-follow-code \
+	--no-smart-indexing --no-middle-rec --no-llds-optimize
+MLFLAGS=--no-strip -v
+RM_C=:
+
+.PHONY: all
+all : $(PROGS)
+
+mdis : $(MDISFILES)
+
+test :
+	echo $(DEPENDS)
+
+.PHONY: depend
+depend: $(DEPENDS)
+
+.PHONY: strip
+strip: $(PROGS)
+	strip $(PROGS)
+
+wayclean: realclean
+	-rm *bytedebug *mbc *mdis
