@@ -946,15 +946,15 @@ qualify_pragma(termination_info(PredOrFunc, SymName, ModeList0, Args, Term),
 		termination_info(PredOrFunc, SymName, ModeList, Args, Term), 
 		Info0, Info) --> 
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
-qualify_pragma(pa_alias_info(PredOrFunc, SymName, ModeList0, 
+qualify_pragma(possible_alias(PredOrFunc, SymName, ModeList0, 
 			Vars, Types, MaybeAS),
-		pa_alias_info(PredOrFunc, SymName, ModeList, 
+		possible_alias(PredOrFunc, SymName, ModeList, 
 			Vars, Types, MaybeAS),
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
-qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars, 
+qualify_pragma(structure_reuse(PredOrFunc, SymName, ModeList0, Vars, 
 			Types, TREUSE, N), 
-		sr_reuse_info(PredOrFunc, SymName, ModeList, Vars, 
+		structure_reuse(PredOrFunc, SymName, ModeList, Vars, 
 			Types, TREUSE, N), 
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).

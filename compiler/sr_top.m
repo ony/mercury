@@ -208,7 +208,7 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	{ module_info_pred_proc_info(HLDS, PredId, ProcId,
 			PredInfo, ProcInfo) },
 
-	io__write_string(":- pragma sr_reuse_info("),
+	io__write_string(":- pragma structure_reuse("),
 
 		% write a simple predicate declaration
 

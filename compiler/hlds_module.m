@@ -124,7 +124,7 @@
 	% the entries correspond to the transformed versions of predicates (ie
 	% type-infos and so on).
 	% The types in unproc_alias_pragma match the types in the 
-	% pa_alias_info-pragma (see prog_data.m).
+	% possible_alias-pragma (see prog_data.m).
 :- type unproc_alias_pragmas == list(unproc_alias_pragma).
 :- type unproc_alias_pragma 
 	--->	unproc_alias_pragma(pred_or_func, sym_name, list(mode),
@@ -136,7 +136,7 @@
 	% the entries correspond to the transformed versions of predicates (ie
 	% type-infos and so on).
 	% The types in unproc_reuse_pragma match the types in the 
-	% sr_reuse_info-pragma (see prog_data.m).
+	% structure_reuse-pragma (see prog_data.m).
 :- type unproc_reuse_pragmas == list(unproc_reuse_pragma).
 :- type unproc_reuse_pragma 
 	---> 	unproc_reuse_pragma(pred_or_func, sym_name, list(mode),

@@ -546,7 +546,7 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Pragma = termination_info(_, _, _, _, _) },
 		{ Module = Module0 }
 	;
-		{ Pragma = pa_alias_info(PredOrFunc, SymName, ModeList,
+		{ Pragma = possible_alias(PredOrFunc, SymName, ModeList,
 			HeadVars, Types, MaybeAlias) },
 		% these pragma's should only occur in trans_opt files. 
 		% But as this predicate is also used to read in those
@@ -557,7 +557,7 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 					MaybeAlias, Module0, Module)
 		
 	;
-		{ Pragma = sr_reuse_info(PredOrFunc, SymName, ModeList,
+		{ Pragma = structure_reuse(PredOrFunc, SymName, ModeList,
 			HeadVars, Types, Memo, MaybeReuseSymName) },
 		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
 					HeadVars, Types, 

@@ -710,7 +710,7 @@ pa_run__make_pa_interface_pred(HLDS, SpecPredIds, PredId) -->
 :- mode pa_run__make_pa_interface_pred_proc(in, in, in, di, uo) is det.
 
 pa_run__make_pa_interface_pred_proc(PredInfo, ProcTable, ProcId) -->
-	io__write_string(":- pragma pa_alias_info("),
+	io__write_string(":- pragma possible_alias("),
 
 		% write a simple predicate declaration
 

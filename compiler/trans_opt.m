@@ -170,7 +170,7 @@ trans_opt__write_optfile(Module) -->
 		->
 		% output possible-alias information.
 		io__write_string(
-			"\n%----------- pa_alias_info/3 ------------- \n\n"),
+			"\n%----------- possible_alias/3 ------------- \n\n"),
 		list__foldl(pa_run__write_pred_pa_info(Module,
 							AllSpecialPredIds),
 				PredIds)
@@ -182,7 +182,7 @@ trans_opt__write_optfile(Module) -->
 		->
 		% output structure-reuse information
 		 io__write_string(
-			"\n%----------- sr_reuse_info/3 ------------- \n\n"),
+			"\n%----------- structure_reuse/3 ------------- \n\n"),
 		list__foldl(sr_top__write_pragma_reuse_info(Module, 
 							AllSpecialPredIds),
 				PredIds)

@@ -653,10 +653,10 @@ mercury_output_item(_UnqualifiedItemNames, pragma(Pragma), Context) -->
 			PredName, ModeList, Context,
 			MaybeArgSizeInfo, MaybeTerminationInfo)
 	;
-		{ Pragma = pa_alias_info(_,_,_,_,_,_) },
+		{ Pragma = possible_alias(_,_,_,_,_,_) },
 		[]
 	;
-		{ Pragma = sr_reuse_info(_,_,_,_,_,_, _) },
+		{ Pragma = structure_reuse(_,_,_,_,_,_, _) },
 		[]
 	;
 		{ Pragma = terminates(Pred, Arity) },

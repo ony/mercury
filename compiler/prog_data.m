@@ -299,7 +299,7 @@
 			% termination_info pragmas are used in opt and
 			% trans_opt files.
 
-	;	pa_alias_info(pred_or_func, sym_name, list(mode),
+	;	possible_alias(pred_or_func, sym_name, list(mode),
 				list(prog_var), list( (type) ), 
 				maybe(alias_as))
 			% the list(mode) is the declared argmodes of the
@@ -308,7 +308,7 @@
 			% a predicates possible aliases set. 
 			% These pragma's are used in opt.pa files
 
-	; 	sr_reuse_info(pred_or_func, sym_name, list(mode), 
+	; 	structure_reuse(pred_or_func, sym_name, list(mode), 
 				list(prog_var), 
 				list( (type) ), memo_reuse, maybe(sym_name))
 
@@ -434,7 +434,7 @@
 	;	can_loop.	% This procedure might not terminate.
 
 %
-% Stuff for the 'pa_alias_info' and 'sr_reuse_info' pragma's.
+% Stuff for the 'possible_alias' and 'structure_reuse' pragma's.
 % These pragma's are used for the compile-time garbage collection system as
 % developed in Nancy Mazur's phd-thesis "Compile-time garbage collection for
 % the declarative language Mercury" (K.U.Leuven, May 2004).

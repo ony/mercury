@@ -1047,7 +1047,7 @@ parse_pragma_type(ModuleName, "termination_info", PragmaTerms, ErrorTerm,
 		ErrorTerm)
     ).
 	
-parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm, 
+parse_pragma_type(ModuleName, "possible_alias", PragmaTerms, ErrorTerm, 
 		_VarSet, Result) :- 
     (
 	PragmaTerms = [ 
@@ -1057,7 +1057,7 @@ parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm,
 		AliasInformation
 	],
 	parse_pred_or_func_and_arg_modes(yes(ModuleName), PredAndModesTerm0,
-		ErrorTerm, "`:- pragma pa_alias_info' declaration",
+		ErrorTerm, "`:- pragma possible_alias' declaration",
 		NameAndModesResult),
 	NameAndModesResult = ok(PredName - PredOrFunc, ModeList),
 	
@@ -1082,17 +1082,17 @@ parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm,
 		MaybeAliasInfo = yes(Alias_as)
 	),
 
-	Result0 = ok(pragma(pa_alias_info(PredOrFunc, PredName, ModeList,
+	Result0 = ok(pragma(possible_alias(PredOrFunc, PredName, ModeList,
 					HeadVars, HVTypes, MaybeAliasInfo)))
    ->
    	Result = Result0
    ;
         Result = error( 
-		"syntax error in `:- pragma pa_alias_info' declaration", 
+		"syntax error in `:- pragma possible_alias' declaration", 
 		ErrorTerm)	
    ).
 
-parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm, 
+parse_pragma_type(ModuleName, "structure_reuse", PragmaTerms, ErrorTerm, 
 		_VarSet, Result) :- 
     (
 	PragmaTerms = [ 
@@ -1102,7 +1102,7 @@ parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm,
 		ReuseInformation
 	],
 	parse_pred_or_func_and_arg_modes(yes(ModuleName), PredAndModesTerm0,
-		ErrorTerm, "`:- pragma sr_reuse_info' declaration",
+		ErrorTerm, "`:- pragma structure_reuse' declaration",
 		NameAndModesResult),
 	NameAndModesResult = ok(PredName - PredOrFunc, ModeList),
 	
@@ -1118,14 +1118,14 @@ parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm,
 	sr_data__memo_reuse_parse(ReuseInformation, ParsedReuse,
 			MaybeReuseName),
 
-	Result0 = ok(pragma(sr_reuse_info(PredOrFunc, PredName, ModeList,
+	Result0 = ok(pragma(structure_reuse(PredOrFunc, PredName, ModeList,
 					HeadVars, HVTypes, ParsedReuse,
 					MaybeReuseName)))
    ->
    	Result = Result0
    ;
         Result = error( 
-		"syntax error in `:- pragma sr_reuse_info' declaration", 
+		"syntax error in `:- pragma structure_reuse' declaration", 
 		ErrorTerm)	
    ).
 
