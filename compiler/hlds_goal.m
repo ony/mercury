@@ -769,6 +769,15 @@
 
 :- type maybe_cut	--->	cut ; no_cut.
 
+:- pred goal_info_maybe_get_lfu(hlds_goal_info::in, 
+		set(prog_var)::out) is semidet.
+:- pred goal_info_maybe_get_lbu(hlds_goal_info::in, 
+		set(prog_var)::out) is semidet.
+:- pred goal_info_maybe_get_outscope(hlds_goal_info::in, 
+		set(prog_var)::out) is semidet.
+:- pred goal_info_maybe_get_reuse(hlds_goal_info::in, 
+		reuse_goal_info::out) is semidet.
+
 :- pred goal_info_get_lfu(hlds_goal_info::in, set(prog_var)::out) is det.
 :- pred goal_info_get_lbu(hlds_goal_info::in, set(prog_var)::out) is det.
 :- pred goal_info_get_outscope(hlds_goal_info::in, set(prog_var)::out) is det.
@@ -1342,6 +1351,26 @@ goal_info_set_code_gen_info(GoalInfo0, CodeGenInfo,
 		GoalInfo0 ^ code_gen_info := CodeGenInfo).
 
 %-----------------------------------------------------------------------------%
+goal_info_maybe_get_lfu(GoalInfo, LFU) :-
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	MaybeSub = yes(Sub),
+	LFU = Sub ^ lfu.
+
+goal_info_maybe_get_outscope(GoalInfo, Outscope) :- 
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	MaybeSub = yes(Sub),
+	Outscope = Sub ^ outscope.
+
+goal_info_maybe_get_lbu(GoalInfo, LBU) :-
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	MaybeSub = yes(Sub),
+	LBU = Sub ^ lbu.
+
+goal_info_maybe_get_reuse(GoalInfo, Reuse) :- 
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	MaybeSub = yes(Sub),
+	Reuse = Sub ^ reuse.
+
 goal_info_get_lfu(GoalInfo, LFU) :-
 	MaybeSub = GoalInfo ^ goal_reuse_info,
 	(

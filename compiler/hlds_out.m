@@ -1292,109 +1292,112 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 		[]
 	),
 	( { string__contains_char(Verbose, 'p') } ->
-		{ goal_info_get_lfu(GoalInfo, LFU) },
-		{ set__to_sorted_list(LFU, LFU_list) },
+		(
+			{ goal_info_maybe_get_lfu(GoalInfo, LFU) },
+			{ goal_info_maybe_get_reuse(GoalInfo, REUSE) } ,
+			{ goal_info_get_lbu(GoalInfo, Lbu) }
+
+		-> 
+			{ set__to_sorted_list(LFU, LFU_list) },
 			hlds_out__write_indent(Indent),
 			io__write_string("% lfu: "),
 			mercury_output_vars(LFU_list, VarSet, 
 				AppendVarnums),
 			io__write_string("\n"),
 
-		{ goal_info_get_reuse(GoalInfo, REUSE) } ,
-	        (
-			{ 
-			  % REUSE = potential_reuse(no_reuse); 
-			  % REUSE = reuse(no_reuse) ; 
-			  REUSE = empty 
-			}
-		->
-			[]
-		; 
-			{ REUSE = potential_reuse(SR) ; REUSE = reuse(SR) }
-		-> 
-			hlds_out__write_indent(Indent), 
-			io__write_string("% reuse"),
-			( 
-				{ REUSE = potential_reuse(_) }
+	        	( 
+				{ REUSE = empty } 
+			->
+				[]
+			; 
+				( { REUSE = potential_reuse(SR)} 
+				; { REUSE = reuse(SR) } )
 			-> 
-				io__write_string(" (potential)")
-			;	
+				hlds_out__write_indent(Indent), 
+				io__write_string("% reuse"),
+				( 
+					{ REUSE = potential_reuse(_) }
+				-> 
+					io__write_string(" (potential)")
+				;	
+					[]
+				),
+				io__write_string(": "),
+				(
+					{ SR = no_reuse },
+					io__write_string("nothing.\n")
+				;
+					{ SR = cell_died },
+					io__write_string("cell just died (deconstruction).\n") 
+				;
+					{ SR = cell_reused(ProgVar,
+						WithCond,
+						ConsIds, _ReuseFields) },
+					io__write_string("cell "),
+					mercury_output_var(ProgVar, VarSet, 
+					AppendVarnums),
+					io__write_string(" with possible cons_ids: ["),
+					io__write_list(ConsIds, ", ",
+						hlds_out__write_cons_id),
+					io__write_string(
+					"] just reused in a construction "),
+					( { WithCond = yes } ->
+					io__write_string("conditionally.")
+					;
+					io__write_string("*unconditionally*.")
+					),
+					io__nl
+				;
+					{ SR = reuse_call(WithCond) },
+					( { WithCond = yes } ->
+					io__write_string("Conditional ")
+					;
+					io__write_string("*Unconditional* ")
+					),
+					io__write_string("call to procedure with reuse.\n")
+				;
+					{ SR = missed_reuse_call(Causes) } ,
+					io__write_string("failed reuse call:\n"),
+					write_missed_reuse_call_text(Indent,Causes)
+				)
+			;
 				[]
 			),
-			io__write_string(": "),
-			(
-				{ SR = no_reuse },
-				io__write_string("nothing.\n")
-			;
-				{ SR = cell_died },
-				io__write_string("cell just died (deconstruction).\n") 
-			;
-				{ SR = cell_reused(ProgVar,
-						IntroducesCondition,
-						ConsIds, _ReuseFields) },
-				io__write_string("cell "),
-				mercury_output_var(ProgVar, VarSet, 
-					AppendVarnums),
-				io__write_string(" with possible cons_ids: ["),
-				io__write_list(ConsIds, ", ",
-						hlds_out__write_cons_id),
-				io__write_string(
-					"] just reused in a construction "),
-				( { IntroducesCondition = yes } ->
-					io__write_string("conditionally.")
-				;
-					io__write_string("*unconditionally*.")
-				),
-				io__nl
-			;
-				{ SR = reuse_call(IntroducesCondition) },
-				( { IntroducesCondition = yes } ->
-					io__write_string("Conditional ")
-				;
-					io__write_string("*Unconditional* ")
-				),
-				io__write_string("call to procedure with reuse.\n")
-			;
-				{ SR = missed_reuse_call(Causes) } ,
-				io__write_string("failed reuse call:\n"),
-				write_missed_reuse_call_text(Indent,Causes)
-			)
-		;
-			[]
-		),
 
-		{ goal_info_get_lbu(GoalInfo, Lbu) },
-		{ set__to_sorted_list(Lbu, LbuList) },
-		hlds_out__write_indent(Indent),
-		io__write_string("% lbu: "),
-		mercury_output_vars(LbuList, VarSet, AppendVarnums),
-		io__write_string("\n"),
-		(
-			{ goal_info_maybe_get_post_deaths(GoalInfo,
-				PostDeaths) },
-			{ set__to_sorted_list(PostDeaths, PostDeathList) },
-			{ PostDeathList \= [] }
-		->
+			{ set__to_sorted_list(Lbu, LbuList) },
 			hlds_out__write_indent(Indent),
-			io__write_string("% post-deaths: "),
-			mercury_output_vars(PostDeathList, VarSet,
-				AppendVarnums),
-			io__write_string("\n")
-		;
-			[]
-		),
-		(
-			{ goal_info_maybe_get_post_births(GoalInfo,
-				PostBirths) },
-			{ set__to_sorted_list(PostBirths, PostBirthList) },
-			{ PostBirthList \= [] }
-		->
-			hlds_out__write_indent(Indent),
-			io__write_string("% post-births: "),
-			mercury_output_vars(PostBirthList, VarSet,
-				AppendVarnums),
-			io__write_string("\n")
-		;
+			io__write_string("% lbu: "),
+			mercury_output_vars(LbuList, VarSet, AppendVarnums),
+			io__write_string("\n"),
+			(
+				{ goal_info_maybe_get_post_deaths(GoalInfo,
+					PostDeaths) },
+				{ set__to_sorted_list(PostDeaths, PostDeathList) },
+				{ PostDeathList \= [] }
+			->
+				hlds_out__write_indent(Indent),
+				io__write_string("% post-deaths: "),
+				mercury_output_vars(PostDeathList, VarSet,
+					AppendVarnums),
+				io__write_string("\n")
+			;
+				[]
+			),
+			(
+				{ goal_info_maybe_get_post_births(GoalInfo,
+					PostBirths) },
+				{ set__to_sorted_list(PostBirths, PostBirthList) },
+				{ PostBirthList \= [] }
+			->
+				hlds_out__write_indent(Indent),
+				io__write_string("% post-births: "),
+				mercury_output_vars(PostBirthList, VarSet,
+					AppendVarnums),
+				io__write_string("\n")
+			;
+				[]
+			)
+		; 
 			[]
 		)
 	;
