@@ -533,16 +533,16 @@ single_directed_altclos( FROM, TO, RESULT) :-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- type altclos_path ---> single(alias)		% can be rotated
-			; compressed(alias).	% fixed order: shortcut of
+:- type altclos_path ---> undirected(alias)	% can be rotated
+			; directed(alias).	% fixed order: shortcut of
 						% path(alias, ... , alias)
 
 :- pred alias_to_altclos_path(alias::in, altclos_path::out) is det.
-alias_to_altclos_path(Alias, single(Alias)). 
+alias_to_altclos_path(Alias, undirected(Alias)). 
 
 :- pred altclos_path_to_alias(altclos_path::in, alias::out) is det.
-altclos_path_to_alias( single(Alias), Alias ).
-altclos_path_to_alias( compressed(Alias), Alias ). 
+altclos_path_to_alias( undirected(Alias), Alias ).
+altclos_path_to_alias( directed(Alias), Alias ). 
 
 %-----------------------------------------------------------------------------%
 
@@ -612,7 +612,7 @@ altclos_ordered_altclos_path( StartPath, EndAliases, AccPaths, NewPaths):-
 		altclos_path::out) is semidet.
 single_altclos_path( StartPath, EndAlias, NewPath) :- 
 	(
-		StartPath = single(StartAlias)
+		StartPath = undirected(StartAlias)
 	-> 
 		( 
 			single_directed_altclos_path_verify(StartAlias,
@@ -625,7 +625,7 @@ single_altclos_path( StartPath, EndAlias, NewPath) :-
 				EndAlias, NewPath)
 		)
 	;
-		StartPath = compressed(StartAlias),
+		StartPath = directed(StartAlias),
 		single_directed_altclos_path_verify(StartAlias, 
 			EndAlias, NewPath)
 	).
@@ -670,7 +670,7 @@ single_directed_altclos_path( StartAlias, EndAlias, NewPath):-
 		% to be termshifted:
 		pa_datastruct__termshift(StartDatastructure1, Ext, 
 				NewStartDatastructure1),
-		NewPath = compressed( NewStartDatastructure1 -  
+		NewPath = directed( NewStartDatastructure1 -  
 				EndDatastructure2 )
 	;
 		% or StartSelector <= EndSelector
@@ -680,7 +680,7 @@ single_directed_altclos_path( StartAlias, EndAlias, NewPath):-
 		% be termshifted:
 		pa_datastruct__termshift(EndDatastructure2, Ext, 
 				NewEndDatastructure2), 
-		NewPath = compressed(StartDatastructure1 - NewEndDatastructure2)
+		NewPath = directed(StartDatastructure1 - NewEndDatastructure2)
 	;
 		fail
 	).
