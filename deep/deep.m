@@ -168,7 +168,13 @@ main2(Globals0) -->
 	stderr_stream(StdErr),
 	io__report_stats,
 	write_string(StdErr, "Reading graph data...\n"),
-	read_call_graph("Deep.data", Res),
+	{ get_global(Globals0, options) = options(Options) },
+	( { lookup(Options, file, maybe_string(yes(FileName0))) } ->
+		{ FileName = FileName0 }
+	;
+		{ FileName = "Deep.data" }
+	),
+	read_call_graph(FileName, Res),
 	write_string(StdErr, "Done.\n"),
 	io__report_stats,
 	(
