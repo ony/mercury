@@ -269,11 +269,20 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 		% 2. call
 		Expr0 = call(PredId, ProcId, ActualVars, _, _, _)
 	->
-		call_verify_reuse( ProcInfo, HLDS,
+
+		( 
+			pa_alias_as__is_top(Alias0)
+		-> 
+		  	Info = Info0,
+			Reuses = Reuses0,
+			FP = FP0
+		;
+			call_verify_reuse( ProcInfo, HLDS,
 				PredId, ProcId, ActualVars, Alias0, 
 				Reuses0, Reuses,
 				Info0, Info, 
-				FP0, FP),
+				FP0, FP)
+		),
 		pa_run__extend_with_call_alias( HLDS, ProcInfo, 
 	    		PredId, ProcId, ActualVars, Alias0, Alias),
 		Expr = Expr0
