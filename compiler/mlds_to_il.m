@@ -2056,7 +2056,7 @@ mlds_module_name_to_class_name(MldsModuleName) =
 	SymName = mlds_module_name_to_sym_name(MldsModuleName),
 	sym_name_to_class_name(SymName, ClassName),
 	( 
-		ClassName = ["mercury", _]
+		ClassName = ["mercury" | _]
 	->
 		AssemblyName = "mercury"
 	;
@@ -2067,7 +2067,7 @@ mlds_module_name_to_class_name(MldsModuleName) =
 :- mode sym_name_to_class_name(in, out) is det.
 sym_name_to_class_name(SymName, Ids) :-
 	sym_name_to_class_name_2(SymName, Ids0),
-	list__reverse(Ids0, Ids).
+	list__reverse(["mercury_code" | Ids0], Ids).
 
 :- pred sym_name_to_class_name_2(sym_name, list(ilds__id)).
 :- mode sym_name_to_class_name_2(in, out) is det.
