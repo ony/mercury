@@ -577,7 +577,7 @@ write_il_simple_type_as_managed_cpp_type(float32) -->
 write_il_simple_type_as_managed_cpp_type(float64) --> 
 	io__write_string("mercury::MR_Float").
 write_il_simple_type_as_managed_cpp_type(bool) --> 
-	io__write_string("mercury::MR_Integer").
+	io__write_string("mercury::MR_Bool").
 write_il_simple_type_as_managed_cpp_type(char) --> 
 	io__write_string("mercury::MR_Char").
 write_il_simple_type_as_managed_cpp_type(string) --> 
