@@ -434,8 +434,6 @@ mercury_compile(Module) -->
 	    ; { MakeOptInt = yes } ->
 		% only run up to typechecking when making the .opt file
 	    	[]
-	    ; { MakeTransOptInt = yes } ->
-	    	mercury_compile__output_trans_opt_file(HLDS21)
 	    ;
 		{ module_imports_get_module_name(Module, ModuleName) },
 		mercury_compile__maybe_output_prof_call_graph(HLDS21,
@@ -453,6 +451,8 @@ mercury_compile(Module) -->
 				Verbose, MaybeRLFile),
 		    ( { AditiOnly = yes } ->
 		    	[]
+		    ; { MakeTransOptInt = yes } ->
+			mercury_compile__output_trans_opt_file(HLDS50)
 		    ; { HighLevelCode = yes } ->
 			mercury_compile__mlds_backend(HLDS50, MLDS),
 			mercury_compile__mlds_to_high_level_c(MLDS),
