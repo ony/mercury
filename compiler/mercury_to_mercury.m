@@ -439,7 +439,7 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = pa_alias_info(_,_,_,_,_) },
 		[]
 	;
-		{ Pragma = sr_reuse_info(_,_,_,_,_) },
+		{ Pragma = sr_reuse_info(_,_,_,_,_, _) },
 		[]
 	;
 		{ Pragma = terminates(Pred, Arity) },

@@ -66,10 +66,8 @@ sr_run__write_pred_sr_reuse_info( HLDS, SpecPredIds, PredId) -->
 			[]
 		;
 			{ pred_info_procids(PredInfo, ProcIds) },
-			{ pred_info_procedures( PredInfo, ProcTable ) },
 			list__foldl( 
-				write_pred_proc_sr_reuse_info( PredInfo, 
-								ProcTable),
+				write_pred_proc_sr_reuse_info(HLDS, PredId),
 					ProcIds )
 		)
 	;
@@ -83,11 +81,14 @@ sr_run__write_pred_sr_reuse_info( HLDS, SpecPredIds, PredId) -->
 :- import_module sr_reuse.
 :- import_module mercury_to_mercury, prog_data.
 
-:- pred write_pred_proc_sr_reuse_info( pred_info, proc_table, proc_id,
-				io__state, io__state).
+:- pred write_pred_proc_sr_reuse_info( module_info, pred_id,
+                                proc_id, io__state, io__state).
 :- mode write_pred_proc_sr_reuse_info( in, in, in, di, uo) is det.
 
-write_pred_proc_sr_reuse_info( PredInfo, ProcTable, ProcId) -->
+write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
+	{ module_info_pred_proc_info(HLDS, PredId, ProcId,
+			PredInfo, ProcInfo) },
+
 	io__write_string(":- pragma sr_reuse_info("),
 
 		% write a simple predicate declaration
@@ -100,7 +101,6 @@ write_pred_proc_sr_reuse_info( PredInfo, ProcTable, ProcId) -->
 	{ pred_info_arity( PredInfo, Arity) },
 	{ SymName = qualified( ModuleName, PredName ) },
 
-	{ map__lookup( ProcTable, ProcId, ProcInfo ) },
 	{ proc_info_declared_argmodes( ProcInfo, Modes ) },
 
 	(
@@ -130,8 +130,21 @@ write_pred_proc_sr_reuse_info( PredInfo, ProcTable, ProcId) -->
 	io__write_string(", "),
 
 		% write reuse information
-	{ proc_info_reuse_information(ProcInfo, TREUSE) },
-	sr_reuse__tabled_reuse_print( TREUSE, ProcInfo) ,
+	{ module_info_structure_reuse_info(HLDS, ReuseInfo) },
+	{ ReuseInfo = structure_reuse_info(ReuseMap) },
+	{ 
+		map__search(ReuseMap, proc(PredId, ProcId), Result)
+	->
+		Result = proc(ReusePredId, ReuseProcId) - ReuseName
+	;
+		ReusePredId = PredId,
+		ReuseProcId = ProcId,
+		ReuseName = SymName
+	},
+	{ module_info_pred_proc_info(HLDS, ReusePredId, ReuseProcId,
+			_ReusePredInfo, ReuseProcInfo) },
+	{ proc_info_reuse_information(ReuseProcInfo, TREUSE) },
+	sr_reuse__tabled_reuse_print( TREUSE, ReuseName, ReuseProcInfo) ,
 
 	io__write_string(").\n").
 
@@ -153,4 +166,5 @@ list_drop_det(Len,List,End):-
 	).
 
 
-:- end_module sr_run.
+%-------------------------------------------------------------------%
+%-------------------------------------------------------------------%

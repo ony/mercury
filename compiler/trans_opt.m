@@ -121,8 +121,19 @@ trans_opt__write_optfile(Module) -->
 		globals__io_lookup_bool_option( infer_structure_reuse,
 							StructureReuse),
 
+		{ module_info_structure_reuse_info(Module, StructReuseInfo) },
+		{ StructReuseInfo = structure_reuse_info(ReuseMap) },
+		{ map__values(ReuseMap, ReuseData) },
+		{ list__map(fst, ReuseData, PredProcIds) },
+		{ list__map((pred(proc(PredId, _)::in, PredId::out) is det),
+				PredProcIds, StructReusePredIds) },
+
 		{ module_info_get_special_pred_map(Module, SpecialPredMap) },
 		{ map__values(SpecialPredMap, SpecialPredIds) },
+
+		{ list__append(StructReusePredIds, SpecialPredIds,
+				AllSpecialPredIds) },
+
 		(
 			{ Termination = yes }
 		->
@@ -159,7 +170,7 @@ trans_opt__write_optfile(Module) -->
 		io__write_string(
 			"\n%----------- pa_alias_info/3 ------------- \n\n"),
 		list__foldl( pa_run__write_pred_pa_info(Module,
-							SpecialPredIds),
+							AllSpecialPredIds),
 				PredIds)
 		;
 			[]
@@ -171,7 +182,7 @@ trans_opt__write_optfile(Module) -->
 		io__write_string(
 			"\n%----------- sr_reuse_info/3 ------------- \n\n"),
 		list__foldl( sr_run__write_pred_sr_reuse_info(Module, 
-							SpecialPredIds),
+							AllSpecialPredIds),
 				PredIds)
 		;
 			[]

@@ -18,7 +18,7 @@
 %-- import_module 
 
 % library modules
-:- import_module io, set, list, term, map.
+:- import_module io, set, list, term, map, std_util.
 
 % compiler modules
 :- import_module sr_live.
@@ -135,11 +135,12 @@
 
 	% used to print the reuse information to the interface
 	% files. 
-:- pred tabled_reuse_print( tabled_reuse, proc_info, io__state, io__state).
-:- mode tabled_reuse_print( in, in, di, uo) is det.
+:- pred tabled_reuse_print( tabled_reuse, sym_name, proc_info,
+		io__state, io__state).
+:- mode tabled_reuse_print( in, in, in, di, uo) is det.
 
-:- pred tabled_reuse_parse( term(T), tabled_reuse).
-:- mode tabled_reuse_parse( in, out ) is semidet.
+:- pred tabled_reuse_parse( term(T), tabled_reuse, maybe(sym_name)).
+:- mode tabled_reuse_parse( in, out, out ) is semidet.
 
 	% tabled_reuse_verify_conditions( ProcInfo, HLDS, 
 	%				TREUSE, Live0, Alias0)
@@ -188,6 +189,7 @@
 :- import_module string, varset.
 
 % compiler modules
+:- import_module prog_out, prog_io, prog_io_util.
 :- import_module pa_datastruct.
 :- import_module mercury_to_mercury.
 
@@ -417,33 +419,41 @@ tabled_reuse_equal(yes(C1), yes(C2)):-
 		C2, 
 		[]).
 
-tabled_reuse_parse( ReuseInformation, ParsedReuse ) :- 
+tabled_reuse_parse( ReuseInformation, ParsedReuse, MaybeReuseName ) :- 
 	(
 		ReuseInformation = term__functor( term__atom("no"), _, _),
+		MaybeReuseName = no,
 		sr_reuse__tabled_reuse_init(ParsedReuse)
 	;
 		ReuseInformation = term__functor( term__atom("yes"),
 					ReadConditions, _),
-		conditions_list_parse( ReadConditions, Conditions),
+		conditions_list_parse( ReadConditions, Conditions, ReuseName),
+		MaybeReuseName = yes(ReuseName),
 		ParsedReuse = yes(Conditions)
 	).
 
-:- pred conditions_list_parse( list(term(T)), list(reuse_condition)).
-:- mode conditions_list_parse( in, out ) is det.
+:- pred conditions_list_parse( list(term(T)),
+		list(reuse_condition), sym_name).
+:- mode conditions_list_parse( in, out, out ) is det.
 
-conditions_list_parse( LISTTERM, CONDS ) :- 
+conditions_list_parse( LISTTERM, CONDS, ReuseName ) :- 
 	(
-		% LISTTERM ought to have only one element (term corresponding
-		% to a list)
-		LISTTERM = [ OneITEM ]
+		LISTTERM = [ OneITEM , NameTerm ]
 	->
-		condition_rest_parse(OneITEM, CONDS)
+		condition_rest_parse(OneITEM, CONDS),
+		parse_qualified_term(NameTerm, NameTerm, "pragma reuse",
+				Result),
+		( Result = ok(ReuseName0, []) ->
+			ReuseName = ReuseName0
+		;
+			error("conditions_list_parse")
+		)
 	;
 		list__length( LISTTERM, L ), 
 		string__int_to_string(L, LS), 
 		string__append_list( ["(sr_reuse) conditions_list_parse: ",
 				"wrong number of arguments. yes/", LS,
-				" should be yes/1"], Msg),
+				" should be yes/2"], Msg),
 		error(Msg)
 	).
 
@@ -586,13 +596,15 @@ condition_rest_parse( Term, CONDS ) :-
 tabled_reuse_init(no).		
 tabled_reuse_top(no).		
 
-tabled_reuse_print( TREUSE, ProcInfo ) --> 
+tabled_reuse_print( TREUSE, Name, ProcInfo ) --> 
 	( 	
 		{ TREUSE = yes(CONDS) }
 	->
 		io__write_string("yes(["),
 		io__write_list(CONDS, ",", reuse_condition_print(ProcInfo)),
-		io__write_string("])")
+		io__write_string("], "),
+		prog_out__write_sym_name(Name),
+		io__write_string(")")
 	;
 		io__write_string("no")
 	).

@@ -951,8 +951,8 @@ qualify_pragma(pa_alias_info(PredOrFunc, SymName, ModeList0, Vars, MaybeAS),
 		pa_alias_info(PredOrFunc, SymName, ModeList, Vars, MaybeAS),
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
-qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars, TREUSE), 
-		sr_reuse_info(PredOrFunc, SymName, ModeList, Vars, TREUSE), 
+qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars, TREUSE, N), 
+		sr_reuse_info(PredOrFunc, SymName, ModeList, Vars, TREUSE, N), 
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
 qualify_pragma(terminates(A, B), terminates(A, B), Info, Info) --> [].

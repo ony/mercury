@@ -816,6 +816,9 @@ dead_pred_elim_initialize(PredId, DeadInfo0, DeadInfo) :-
 		;
 			% Don't eliminate the clauses for assertions.
 			pred_info_get_goal_type(PredInfo, assertion)
+		;
+			% Don't eliminate any reuse predicates
+			string__prefix(PredName, "reuse__")
 		)
 	->
 		set__insert(NeededNames0, qualified(PredModule, PredName), 

@@ -76,7 +76,7 @@
 :- import_module fact_table, purity, goal_util, term_util, export, llds.
 :- import_module error_util.
 :- import_module pa_run, pa_alias_as.
-:- import_module sr_reuse.
+:- import_module sr_reuse, sr_reuse_run.
 
 :- import_module string, char, int, set, bintree, map, multi_map, require.
 :- import_module bag, term, varset, getopt, assoc_list, term_io.
@@ -514,9 +514,10 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		
 	;
 		{ Pragma = sr_reuse_info(PredOrFunc, SymName, ModeList,
-			HeadVars, TREUSE) },
+			HeadVars, TREUSE, MaybeReuseSymName) },
 		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
-					HeadVars, TREUSE, Module0, Module)
+					HeadVars, TREUSE, MaybeReuseSymName,
+					Module0, Module)
 	;
 		{ Pragma = terminates(Name, Arity) },
 		add_pred_marker(Module0, "terminates", Name, Arity,
@@ -1458,14 +1459,14 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 %-----------------------------------------------------------------------------%
 
 :- pred add_pragma_reuse_info( pred_or_func, sym_name, list(mode),
-		list(var(T)), sr_reuse__tabled_reuse,
+		list(var(T)), sr_reuse__tabled_reuse, maybe(sym_name),
 		module_info, module_info, 
 		io__state, io__state).
-:- mode add_pragma_reuse_info( in, in, in, in, in, in, out, di, uo) 
+:- mode add_pragma_reuse_info( in, in, in, in, in, in, in, out, di, uo) 
 		is det.
 
-add_pragma_reuse_info(PredOrFunc,SymName, Modes, 
-				HeadVars, TREUSE, Module0, Module) --> 
+add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
+		_MaybeReuseName, Module0, Module) --> 
 	{ module_info_get_predicate_table(Module0, Preds) },
 	{ list__length(Modes, Arity) },
 	(
@@ -1491,15 +1492,8 @@ add_pragma_reuse_info(PredOrFunc,SymName, Modes,
 				ProcHeadVars, MapHeadVars) },
 			{ sr_reuse__tabled_reuse_rename( MapHeadVars, TREUSE, 
 						RenTREUSE) },
-			{ proc_info_set_reuse_information( ProcInfo0, 
-				RenTREUSE, ProcInfo ) },
-			{ map__det_update(ProcTable0, ProcId, ProcInfo,
-					ProcTable) },
-			{ pred_info_set_procedures(PredInfo0, ProcTable,
-					PredInfo) },
-			{ map__det_update(PredTable0, PredId, PredInfo,
-					PredTable) },
-			{ module_info_set_preds( Module0, PredTable, Module) }
+			{ create_reuse_pred(proc(PredId, ProcId), RenTREUSE,
+					no, Module0, Module) }
 		;
 
 			% 	{ module_info_incr_errors(Module0, Module) },

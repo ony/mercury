@@ -804,10 +804,12 @@ parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm,
 	term__vars_list(ListHVTerm, HeadVarsGeneric),
 	list__map(term__coerce_var, HeadVarsGeneric, HeadVars),
 
-	sr_reuse__tabled_reuse_parse(ReuseInformation, ParsedReuse),
+	sr_reuse__tabled_reuse_parse(ReuseInformation, ParsedReuse,
+			MaybeReuseName),
 
 	Result0 = ok(pragma(sr_reuse_info(PredOrFunc, PredName, ModeList,
-					HeadVars, ParsedReuse)))
+					HeadVars, ParsedReuse,
+					MaybeReuseName)))
    ->
    	Result = Result0
    ;

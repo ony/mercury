@@ -19,10 +19,11 @@
 %-- import_module
 
 % library modules
-:- import_module io.
+:- import_module io, std_util.
 
 % compiler modules
-:- import_module hlds_module.
+:- import_module hlds_goal, hlds_pred, hlds_module.
+:- import_module sr_reuse.
 
 %-------------------------------------------------------------------%
 %-- exported predicates
@@ -31,6 +32,10 @@
 :- pred sr_reuse_run__reuse_pass( module_info, module_info, 
 					io__state, io__state).
 :- mode sr_reuse_run__reuse_pass( in, out, di, uo) is det.
+
+:- pred create_reuse_pred(pred_proc_id::in, tabled_reuse::in,
+		maybe(hlds_goal)::in,
+		module_info::in, module_info::out) is det.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -587,12 +592,18 @@ list_map_foldl3( P, L1, L, A1, A, B1, B, C1, C) :-
 :- mode update_reuse_in_module_info(in, in, in, out) is det.
 
 update_reuse_in_module_info( FP, PRED_PROC_ID ,HLDSin, HLDSout) :- 
-	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
-					ProcInfo0),
 	sr_reuse_util__sr_fixpoint_table_get_final_reuse(PRED_PROC_ID,
 			TREUSE, HLDS_GOAL, FP),
+	create_reuse_pred(PRED_PROC_ID, TREUSE, yes(HLDS_GOAL),
+			HLDSin, HLDSout).
+
+%-----------------------------------------------------------------------------%
+
+create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
+	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
+					ProcInfo0),
 	( contains_conditional_reuse(TREUSE) ->
-		create_reuse_pred(TREUSE, HLDS_GOAL, PredInfo0, ProcInfo0,
+		create_reuse_pred(TREUSE, MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
 				ReusePredInfo, _ReuseProcInfo,
 				ReuseProcId, ReuseName),
 
@@ -610,30 +621,41 @@ update_reuse_in_module_info( FP, PRED_PROC_ID ,HLDSin, HLDSout) :-
 		module_info_set_predicate_table(HLDSin1, PredTable, HLDSout)
 	; contains_unconditional_reuse(TREUSE) ->
 		proc_info_set_reuse_information(ProcInfo0, TREUSE, ProcInfo1),
-		proc_info_set_goal(ProcInfo1, HLDS_GOAL, ProcInfo),
+		(
+			MaybeHLDS_GOAL = yes(HLDS_GOAL),
+			proc_info_set_goal(ProcInfo1, HLDS_GOAL, ProcInfo)
+		;
+			MaybeHLDS_GOAL = no,
+			ProcInfo = ProcInfo1
+		),
 		module_info_set_pred_proc_info(HLDSin, PRED_PROC_ID, 
 				PredInfo0, ProcInfo, HLDSout)
 	;
 		HLDSout = HLDSin
 	).
 
-%-----------------------------------------------------------------------------%
 
-:- pred create_reuse_pred(tabled_reuse::in, hlds_goal::in,
+:- pred create_reuse_pred(tabled_reuse::in, maybe(hlds_goal)::in,
 		pred_info::in, proc_info::in,
 		pred_info::out, proc_info::out,
 		proc_id::out, sym_name::out) is det.
 
-create_reuse_pred(TabledReuse, ReuseGoal, PredInfo, ProcInfo,
+create_reuse_pred(TabledReuse, MaybeReuseGoal, PredInfo, ProcInfo,
 		ReusePredInfo, ReuseProcInfo, ReuseProcId, SymName) :-
 	proc_info_set_reuse_information(ProcInfo, TabledReuse, ReuseProcInfo0),
-	proc_info_set_goal(ReuseProcInfo0, ReuseGoal, ReuseProcInfo),
-
+	(
+		MaybeReuseGoal = yes(ReuseGoal),
+		proc_info_set_goal(ReuseProcInfo0, ReuseGoal, ReuseProcInfo)
+	;
+		MaybeReuseGoal = no,
+		ReuseProcInfo = ReuseProcInfo0
+	),
 	pred_info_module(PredInfo, ModuleName),
 	pred_info_name(PredInfo, Name),
 	pred_info_arg_types(PredInfo, TypeVarSet, ExistQVars, Types),
 	Cond = true,
 	pred_info_context(PredInfo, PredContext),
+	pred_info_import_status(PredInfo, Status),
 	pred_info_get_markers(PredInfo, Markers),
 	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
 	pred_info_get_class_context(PredInfo, ClassContext),
@@ -641,15 +663,14 @@ create_reuse_pred(TabledReuse, ReuseGoal, PredInfo, ProcInfo,
 
 	set__init(Assertions),
 
-	proc_info_context(ProcInfo, Context),
-	term__context_line(Context, Line),
+	Line = 0,
 	Counter = 0,
 
-	make_pred_name_with_context(ModuleName, "Reuse", PredOrFunc, Name,
+	make_pred_name_with_context(ModuleName, "reuse", PredOrFunc, Name,
 		Line, Counter, SymName),
 
 	pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types,
-			Cond, PredContext, local, Markers, PredOrFunc,
+			Cond, PredContext, Status, Markers, PredOrFunc,
 			ClassContext, Owner, Assertions, ReuseProcInfo, 
 			ReuseProcId, ReusePredInfo).
 

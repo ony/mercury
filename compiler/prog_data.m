@@ -270,7 +270,7 @@
 			% These pragma's are used in opt.pa files
 
 	; 	sr_reuse_info(pred_or_func, sym_name, list(mode), 
-				list(prog_var), tabled_reuse)
+				list(prog_var), tabled_reuse, maybe(sym_name))
 
 	;	terminates(sym_name, arity)
 			% Predname, Arity
