@@ -1,3 +1,9 @@
+%-----------------------------------------------------------------------------%
+% Copyright (C) 2001 The University of Melbourne.
+% This file may only be copied under the terms of the GNU General
+% Public License - see the file COPYING in the Mercury distribution.
+%-----------------------------------------------------------------------------%
+
 :- module deep:server.
 
 :- interface.
@@ -59,15 +65,14 @@ exec(quit, _, _) -->
 	told.
 
 exec(root, Globs, Deep) -->
-	{ RootQuanta = rootTime(Deep) },
-	{ RQ = float(RootQuanta) },
+	{ RootInherit = root_inherit_info(Deep) },
 	{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
 	{ HTML =
 		"<HTML>\n" ++
 		banner ++
 		"<TABLE>\n" ++
 		clique_table_header ++
-		pred_name("Call graph root", RQ, RootQuanta) ++
+		pred_name("Call graph root", RootInherit, RootInherit) ++
 		callsite2html(URL, Deep, clique(-1), Deep^root) ++
 		"</TABLE>\n" ++
 		footer(Deep) },
@@ -77,10 +82,11 @@ exec(root, Globs, Deep) -->
 	told,
 	server(Globs, Deep).
 
-:- func rootTime(deep) = int.
-rootTime(Deep) = RootQuanta :-
+:- func root_inherit_info(deep) = inherit_prof_info.
+
+root_inherit_info(Deep) = RootInherit :-
 	Deep^root = call_site_dynamic_ptr(RootI),
-	lookup(Deep^csd_desc, RootI, RootQuanta).
+	lookup(Deep^csd_desc, RootI, RootInherit).
 
 exec(clique(N), Globs, Deep) -->
 	( { N > 0 } ->
@@ -140,15 +146,17 @@ clique_table_header =
 	"<TD ALIGN=RIGHT>% of root</TD>\n" ++
 	"</TR>\n".
 
-:- func pred_name(string, float, int) = string.
-pred_name(Name, RQ, Total) =
+:- func pred_name(string, inherit_prof_info, inherit_prof_info) = string.
+pred_name(Name, Root, Total) =
 		"<TR>\n" ++
 		format("<TD COLSPAN=8><B>%s</B></TD>\n", [s(Name)]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Total))]) ++
-		format("<TD ALIGN=RIGHT>%2.2f</TD>\n", [f(Prop)]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(TotalQ))]) ++
+		format("<TD ALIGN=RIGHT>%2.2f</TD>\n", [f(PropQ)]) ++
 		"</TR>\n" ++
 		"<TR><TD>.</TD></TR>\n" :-
-	Prop = 100.0 * float(Total) / RQ.
+	TotalQ = inherit_quanta(Total),
+	RootQ = inherit_quanta(Root),
+	PropQ = 100.0 * float(TotalQ) / float(RootQ).
 
 :- func footer(deep) = string.
 footer(_Deep) =
@@ -166,8 +174,7 @@ clique2html(URL, Deep, Clique) = HTML :-
 	lookup(Deep^clique_members, CliqueN, PDPtrs),
 	lookup(Deep^clique_parents, CliqueN, CallerCSDPtr),
 
-	RootQuanta = rootTime(Deep),
-	RQ = float(RootQuanta),
+	RootInherit = root_inherit_info(Deep),
 
 	SummaryLine = callsite2html(URL, Deep, Clique, CallerCSDPtr),
 
@@ -183,10 +190,11 @@ clique2html(URL, Deep, Clique) = HTML :-
 			CSDStrs = map(callsite2html(URL, Deep, Clique),
 				CSDPtrs),
 			append_list(CSDStrs, Rows),
-			lookup(Deep^pd_desc, PDI, SubTotal0),
-			lookup(Deep^pd_own, PDI, SubTotal1),
-			SubTotal = SubTotal0 + SubTotal1,
-			PDStr = pred_name(Id, RQ, SubTotal) ++ Rows ++
+			lookup(Deep^pd_desc, PDI, SubTotalDesc),
+			lookup(Deep^pd_own, PDI, SubTotalOwn),
+			add_own_to_inherit(SubTotalOwn, SubTotalDesc)
+				= SubTotal,
+			PDStr = pred_name(Id, RootInherit, SubTotal) ++ Rows ++
 				"<TR><TD COLSPAN=8>.</TD></TR>\n"
 		;
 			PDStr = ""
@@ -209,12 +217,14 @@ addTime(P, T0, SM0, SM) :-
 
 :- func callsite2html(string, deep, clique, call_site_dynamic_ptr) = string.
 callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
-	RootQuanta = rootTime(Deep),
+	RootInherit = root_inherit_info(Deep),
+	RootQuanta = inherit_quanta(RootInherit),
 	RQ = float(RootQuanta),
+
 	label(CSDPtr, Deep) = CalleeName,
 	CSDPtr = call_site_dynamic_ptr(CSDI),
 	lookup(Deep^call_site_dynamics, CSDI, CSD),
-	CSD = call_site_dynamic(ToPtr, PI),
+	CSD = call_site_dynamic(ToPtr, OwnPI),
 	ToPtr = proc_dynamic_ptr(ToInd),
 	lookup(Deep^clique_index, ToInd, clique(To)),
 
@@ -226,14 +236,15 @@ callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
 		format("<A HREF=""%s?clique+%d"">%s</A>\n",
 			[s(URL), i(To), s(CalleeName)])
 	),
-	Calls = calls(PI), Exits = exits(PI),
-	Fails = fails(PI), Redos = redos(PI),
-	Quanta0 = quanta(PI),
-	lookup(Deep^csd_desc, CSDI, Quanta1),
-	Quanta = Quanta0 + Quanta1,
-	Q0 = float(Quanta0),
+	Calls = calls(OwnPI), Exits = exits(OwnPI),
+	Fails = fails(OwnPI), Redos = redos(OwnPI),
+	OwnQuanta = quanta(OwnPI),
+	lookup(Deep^csd_desc, CSDI, CSDDPI),
+	DescQuanta = inherit_quanta(CSDDPI),
+	Quanta = OwnQuanta + DescQuanta,
+	OwnQ = float(OwnQuanta),
 	Q = float(Quanta),
-	Prop0 = 100.0 * Q0 / RQ,
+	OwnProp = 100.0 * OwnQ / RQ,
 	Prop = 100.0 * Q / RQ,
 	Row = "<TR>\n" ++
 		"<TD> </TD>\n" ++
@@ -242,8 +253,8 @@ callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
 		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
 		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
 		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta0))]) ++
-		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop0)]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(OwnQuanta))]) ++
+		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
 		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
 		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
 		"</TR>\n".
@@ -251,48 +262,49 @@ callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
 :- func procs2html(string, deep, sort, int, int) = string.
 procs2html(_URL, Deep, Sort, First, Last) = HTML :-
 	foldl((pred(PSI::in, PS::in, Xs0::in, Xs::out) is det :-
+	(
+		PSI >= First,
+		PSI =< Last
+	->
+		lookup(Deep^ps_own, PSI, PI),
+		PS = proc_static(Id, _),
+		Calls = calls(PI), Exits = exits(PI),
+		Fails = fails(PI), Redos = redos(PI),
+		OwnQuanta = quanta(PI),
+		lookup(Deep^ps_desc, PSI, PSIDesc),
+		DescQuanta = inherit_quanta(PSIDesc),
+		Quanta = OwnQuanta + DescQuanta,
+		OwnQ = float(OwnQuanta),
+		Q = float(Quanta),
+		OwnProp = 100.0 * OwnQ / RQ,
+		Prop = 100.0 * Q / RQ,
+		RootInherit = root_inherit_info(Deep),
+		RootQuanta = inherit_quanta(RootInherit),
+		RQ = float(RootQuanta),
+		Row = "<TR>\n" ++
+		 "<TD> </TD>\n" ++
+		 format("<TD>%s</TD>\n", [s(Id)]) ++
+		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
+		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
+		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
+		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
+		 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(OwnQuanta))]) ++
+		 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
+		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
+		 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
+			"</TR>\n",
 		(
-			PSI >= First,
-			PSI =< Last
-		->
-			lookup(Deep^ps_own, PSI, PI),
-			PS = proc_static(Id, _),
-			Cs = calls(PI), Es = exits(PI),
-			Fs = fails(PI), Rs = redos(PI),
-			Qs0 = quanta(PI),
-			lookup(Deep^ps_desc, PSI, Qs1),
-			Qs = Qs0 + Qs1,
-			Q0 = float(Qs0),
-			Q = float(Qs),
-			Prop0 = 100.0 * Q0 / RQ,
-			Prop = 100.0 * Q / RQ,
-			RootQuanta = rootTime(Deep),
-			RQ = float(RootQuanta),
-			Row = "<TR>\n" ++
-			 "<TD> </TD>\n" ++
-			 format("<TD>%s</TD>\n", [s(Id)]) ++
-			 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Cs))]) ++
-			 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Es))]) ++
-			 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fs))]) ++
-			 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Rs))]) ++
-			 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(Qs0))]) ++
-			 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop0)]) ++
-			 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Qs))]) ++
-			 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
-				"</TR>\n",
-			(
-				Sort = self,
-				K = Qs0
-			;
-				Sort = self_and_desc,
-				K = Qs
-			),
-			X = {K, Row},
-			Xs = [X|Xs0]
+			Sort = self,
+			K = OwnQuanta
 		;
-			Xs = Xs0
-		)
-	), Deep^proc_statics, [], KeyedRows0),
+			Sort = self_and_desc,
+			K = Quanta
+		),
+		X = {K, Row},
+		Xs = [X|Xs0]
+	;
+		Xs = Xs0
+	)), Deep^proc_statics, [], KeyedRows0),
 	sort(KeyedRows0, KeyedRows),
 	foldl((pred({_, RStr}::in, Strs1::in, Strs2::out) is det :-
 		Strs2 = [RStr|Strs1]

@@ -1,3 +1,9 @@
+%-----------------------------------------------------------------------------%
+% Copyright (C) 2001 The University of Melbourne.
+% This file may only be copied under the terms of the GNU General
+% Public License - see the file COPYING in the Mercury distribution.
+%-----------------------------------------------------------------------------%
+
 :- module deep:io.
 
 :- interface.
@@ -22,7 +28,7 @@
 %		io__state, io__state).
 %:- mode node2html(in, in, in, in, di, uo) is det.
 
-:- func cons_profile([int]) = profiling_info.
+:- func cons_profile([int]) = own_prof_info.
 
 :- func u(array(T)) = array(T).
 :- mode (u(in) = array_uo) is det.
@@ -267,7 +273,7 @@ read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 		{ PtrInfo = PtrInfo1 }
 	).
 
-:- pred read_profile(deep_result(profiling_info), io__state, io__state).
+:- pred read_profile(deep_result(own_prof_info), io__state, io__state).
 :- mode read_profile(out, di, uo) is det.
 
 read_profile(Res) -->

@@ -1,3 +1,9 @@
+%-----------------------------------------------------------------------------%
+% Copyright (C) 2001 The University of Melbourne.
+% This file may only be copied under the terms of the GNU General
+% Public License - see the file COPYING in the Mercury distribution.
+%-----------------------------------------------------------------------------%
+
 :- module deep.
 
 :- interface.
@@ -24,11 +30,11 @@
 			clique_members		:: clique_members,
 			clique_parents		:: array(call_site_dynamic_ptr),
 				% Propagated timing info
-			pd_own			:: array(int),
-			pd_desc			:: array(int),
-			csd_desc		:: array(int),
-			ps_own			:: array(profiling_info),
-			ps_desc			:: array(int)
+			pd_own			:: array(own_prof_info),
+			pd_desc			:: array(inherit_prof_info),
+			csd_desc		:: array(inherit_prof_info),
+			ps_own			:: array(own_prof_info),
+			ps_desc			:: array(inherit_prof_info)
 		).
 
 :- type call_site_dynamics == array(call_site_dynamic).
@@ -42,7 +48,7 @@
 :- type call_site_dynamic
 	--->	call_site_dynamic(
 			proc_dynamic_ptr,
-			profiling_info
+			own_prof_info
 		).
 
 :- type proc_dynamic_ptr
@@ -84,12 +90,18 @@
 	;	callback
 	.
 
-:- type profiling_info
+:- type own_prof_info
 	--->	zdet(int)		% calls == exits, quanta == 0
 	;	det(int, int)		% calls == exits, quanta
 	;	all(int, int, int, int, int, int)
 	.				% calls, exits, fails, redos,
 					%	quanta, memory
+
+:- type inherit_prof_info
+	--->	inherit_prof_info(
+			int, 		% quanta
+			int 		% memory
+		).
 
 :- type ptr ---> ptr(int).
 :- type clique ---> clique(int).
@@ -293,7 +305,7 @@ merge_cliques(Deep0, Deep) -->
 			)
 		), CSDPtrs, C1, C2)
 	    ;
-	    	C2 = C1
+	    	error("emit nasal daemons")
 	    )
 	), CliqueIndex, CliqueParents0, CliqueParents1) },
 	{ Deep0^root = call_site_dynamic_ptr(RootI) },
@@ -308,14 +320,22 @@ merge_cliques(Deep0, Deep) -->
 
 	format(StdErr, "  Propagating time up call graph...\n", []),
 
-	{ init(NPDs, 0, PDOwn0) },
+	{ init(NPDs, zero_own_prof_info, PDOwn0) },
 	{ foldl((pred(_::in, CSD::in, PDO0::array_di, PDO::array_uo)
 								is det :-
 		CSD = call_site_dynamic(PDPtr, PI),
 		PDPtr = proc_dynamic_ptr(PDI),
 		( PDI > 0 ->
-			lookup(PDO0, PDI, T0),
-			set(PDO0, PDI, T0 + quanta(PI), PDO)
+			lookup(PDO0, PDI, OwnPI0),
+			Calls = calls(PI) + calls(OwnPI0),
+			Exits = exits(PI) + exits(OwnPI0),
+			Fails = fails(PI) + fails(OwnPI0),
+			Redos = redos(PI) + redos(OwnPI0),
+			Quanta = quanta(PI) + quanta(OwnPI0),
+			Memory = memory(PI) + memory(OwnPI0),
+			OwnPI = cons_profile([Calls, Exits,
+					Fails, Redos, Quanta, Memory]),
+			set(PDO0, PDI, OwnPI, PDO)
 		;
 			PDO = PDO0
 		)
@@ -323,8 +343,8 @@ merge_cliques(Deep0, Deep) -->
 	
 	{ array__max(Deep0^call_site_dynamics, CSDMax) },
 	{ NCSDs = CSDMax + 1 },
-	{ init(NPDs, 0, PDDesc0) },
-	{ init(NCSDs, 0, CSDDesc0) },
+	{ init(NPDs, zero_inherit_prof_info, PDDesc0) },
+	{ init(NCSDs, zero_inherit_prof_info, CSDDesc0) },
 	{ foldl((pred(Cn::in, Members::in, Stuff0::in, Stuff::out) is det :-
 	    lookup(CliqueParents, Cn, ParentCSDPtr),
 	    ParentCSDPtr = call_site_dynamic_ptr(ParentCSDI),
@@ -343,7 +363,9 @@ merge_cliques(Deep0, Deep) -->
 				PDPtr = proc_dynamic_ptr(PPDI),
 				lookup(PDDesc5, PPDI, PDTotal0),
 				lookup(CSDDesc5, CSDI, CDesc),
-				PDTotal = PDTotal0 + quanta(CPI) + CDesc,
+				add_own_to_inherit(CPI, PDTotal0) = PDTotal1,
+				add_inherit_to_inherit(CDesc, PDTotal1)
+					= PDTotal,
 				set(u(PDDesc5), PDI, PDTotal, PDDesc6),
 				Stuff6 = {PDDesc6, CSDDesc5}
 			    ;
@@ -359,9 +381,10 @@ merge_cliques(Deep0, Deep) -->
 		Stuff4 = {PDDesc4, CSDDesc4},
 		lookup(CSDDesc4, ParentCSDI, CliqueTotal0),
 		PDPtr = proc_dynamic_ptr(PDI),
-		lookup(PDDesc4, PDI, DescTime),
-		lookup(PDOwn, PDI, OwnTime),
-		CliqueTotal = CliqueTotal0 + DescTime + OwnTime,
+		lookup(PDDesc4, PDI, DescPI),
+		lookup(PDOwn, PDI, OwnPI),
+		add_own_to_inherit(OwnPI, CliqueTotal0) = CliqueTotal1,
+		add_inherit_to_inherit(DescPI, CliqueTotal1) = CliqueTotal,
 		set(u(CSDDesc4), ParentCSDI, CliqueTotal, CSDDesc3),
 		Stuff3 = {PDDesc4, CSDDesc3}
 	    ), Members, Stuff0, Stuff1),
@@ -369,42 +392,30 @@ merge_cliques(Deep0, Deep) -->
 	    lookup(Deep0^call_site_dynamics, ParentCSDI, ParentCSD),
 	    ParentCSD = call_site_dynamic(_, ParentPI),
 	    lookup(CSDDesc1, ParentCSDI, ParentTotal0),
-	    ParentTotal = ParentTotal0 - quanta(ParentPI),
+	    ParentTotal = subtract_own_from_inherit(ParentPI, ParentTotal0),
 	    set(u(CSDDesc1), ParentCSDI, ParentTotal, CSDDescx),
 	    Stuff = {PDDesc1, CSDDescx}
 	), Cliques, {PDDesc0, CSDDesc0}, {PDDesc, CSDDesc}) },
 
 	{ array__max(Deep0^proc_statics, PSMax) },
 	{ NPSs = PSMax + 1 },
-	{ init(NPSs, zdet(0), PSOwn0) },
-	{ init(NPSs, 0, PSDesc0) },
+	{ init(NPSs, zero_own_prof_info, PSOwn0) },
+	{ init(NPSs, zero_inherit_prof_info, PSDesc0) },
 
-	{ foldl((pred(_CSDI::in, CSD::in,
+	{ foldl((pred(PDI::in, PD::in,
 			PSOwn1::array_di, PSOwn2::array_uo) is det :-
-		CSD = call_site_dynamic(PDPtr, PI),
-		PDPtr = proc_dynamic_ptr(PDI),
-		( PDI > 0 ->
-			lookup(Deep0^proc_dynamics, PDI, PD),
-			PD = proc_dynamic(PSPtr, _),
-			PSPtr = proc_static_ptr(PSI),
-			( PSI > 0 ->
-				lookup(PSOwn1, PSI, OwnPI0),
-				Calls = calls(PI) + calls(OwnPI0),
-				Exits = exits(PI) + exits(OwnPI0),
-				Fails = fails(PI) + fails(OwnPI0),
-				Redos = redos(PI) + redos(OwnPI0),
-				Quanta = quanta(PI) + quanta(OwnPI0),
-				Memory = memory(PI) + memory(OwnPI0),
-				OwnPI = cons_profile([Calls, Exits,
-						Fails, Redos, Quanta, Memory]),
-				set(PSOwn1, PSI, OwnPI, PSOwn2)
-			;
-				PSOwn2 = PSOwn1
-			)
+		PD = proc_dynamic(PSPtr, _),
+		PSPtr = proc_static_ptr(PSI),
+		( PSI > 0 ->
+			lookup(PSOwn1, PSI, PSOwnPI0),
+			lookup(PDOwn, PDI, PDOwnPI),
+			add_own_to_own(PDOwnPI, PSOwnPI0) = PSOwnPI,
+			set(PSOwn1, PSI, PSOwnPI, PSOwn2)
 		;
-			PSOwn2 = PSOwn1
+			error("emit nasal devils")
+			% PSOwn2 = PSOwn1
 		)
-	), Deep0^call_site_dynamics, PSOwn0, PSOwn) },
+	), Deep0^proc_dynamics, PSOwn0, PSOwn) },
 
 	{ foldl((pred(PDI::in, PD::in,
 			PSDesc1::array_di, PSDesc2::array_uo) is det :-
@@ -413,7 +424,7 @@ merge_cliques(Deep0, Deep) -->
 		( PSI > 0 ->
 			lookup(PDDesc, PDI, Desc),
 			lookup(PSDesc1, PSI, DescTotal0),
-			DescTotal = DescTotal0 + Desc,
+			add_inherit_to_inherit(Desc, DescTotal0) = DescTotal,
 			set(PSDesc1, PSI, DescTotal, PSDesc2)
 		;
 			PSDesc2 = PSDesc1
@@ -431,6 +442,52 @@ merge_cliques(Deep0, Deep) -->
 	{ Deep6 = Deep5^csd_desc := CSDDesc },
 	{ Deep7 = Deep6^ps_own := PSOwn },
 	{ Deep  = Deep7^ps_desc := PSDesc }.
+
+:- func add_inherit_to_inherit(inherit_prof_info, inherit_prof_info)
+	= inherit_prof_info.
+
+add_inherit_to_inherit(PI1, PI2) = SumPI :-
+	Quanta = inherit_quanta(PI1) + inherit_quanta(PI2),
+	Memory = inherit_memory(PI1) + inherit_memory(PI2),
+	SumPI = inherit_prof_info(Quanta, Memory).
+
+:- func add_own_to_inherit(own_prof_info, inherit_prof_info)
+	= inherit_prof_info.
+
+add_own_to_inherit(PI1, PI2) = SumPI :-
+	Quanta = quanta(PI1) + inherit_quanta(PI2),
+	Memory = memory(PI1) + inherit_memory(PI2),
+	SumPI = inherit_prof_info(Quanta, Memory).
+
+:- func subtract_own_from_inherit(own_prof_info, inherit_prof_info)
+	= inherit_prof_info.
+
+subtract_own_from_inherit(PI1, PI2) = SumPI :-
+	Quanta = inherit_quanta(PI2) + quanta(PI1),
+	Memory = inherit_memory(PI2) + memory(PI1),
+	SumPI = inherit_prof_info(Quanta, Memory).
+
+:- func add_inherit_to_own(inherit_prof_info, own_prof_info) = own_prof_info.
+
+add_inherit_to_own(PI1, PI2) = SumPI :-
+	Calls = calls(PI2),
+	Exits = exits(PI2),
+	Fails = fails(PI2),
+	Redos = redos(PI2),
+	Quanta = inherit_quanta(PI1) + quanta(PI2),
+	Memory = inherit_memory(PI1) + memory(PI2),
+	SumPI = cons_profile([Calls, Exits, Fails, Redos, Quanta, Memory]).
+
+:- func add_own_to_own(own_prof_info, own_prof_info) = own_prof_info.
+
+add_own_to_own(PI1, PI2) = SumPI :-
+	Calls = calls(PI1) + calls(PI2),
+	Exits = exits(PI1) + exits(PI2),
+	Fails = fails(PI1) + fails(PI2),
+	Redos = redos(PI1) + redos(PI2),
+	Quanta = quanta(PI1) + quanta(PI2),
+	Memory = memory(PI1) + memory(PI2),
+	SumPI = cons_profile([Calls, Exits, Fails, Redos, Quanta, Memory]).
 
 :- pred mlookup(array(T), int, T, string).
 :- mode mlookup(in, in, out, in) is det.
@@ -604,12 +661,12 @@ lfoldl(P, [X|Xs]) -->
 
 %------------------------------------------------------------------------------%
 
-:- func calls(profiling_info) = int.
-:- func exits(profiling_info) = int.
-:- func fails(profiling_info) = int.
-:- func redos(profiling_info) = int.
-:- func quanta(profiling_info) = int.
-:- func memory(profiling_info) = int.
+:- func calls(own_prof_info) = int.
+:- func exits(own_prof_info) = int.
+:- func fails(own_prof_info) = int.
+:- func redos(own_prof_info) = int.
+:- func quanta(own_prof_info) = int.
+:- func memory(own_prof_info) = int.
 
 calls(zdet(Calls)) = Calls.
 exits(zdet(Calls)) = Calls.
@@ -631,6 +688,20 @@ fails(all(_, _, Fails, _, _, _)) = Fails.
 redos(all(_, _, _, Redos, _, _)) = Redos.
 quanta(all(_, _, _, _, Quanta, _)) = Quanta.
 memory(all(_, _, _, _, _, Memory)) = Memory.
+
+:- func zero_own_prof_info = own_prof_info.
+
+zero_own_prof_info = zdet(0).
+
+:- func inherit_quanta(inherit_prof_info) = int.
+:- func inherit_memory(inherit_prof_info) = int.
+
+inherit_quanta(inherit_prof_info(Quanta, _)) = Quanta.
+inherit_memory(inherit_prof_info(_, Memory)) = Memory.
+
+:- func zero_inherit_prof_info = inherit_prof_info.
+
+zero_inherit_prof_info = inherit_prof_info(0, 0).
 
 %------------------------------------------------------------------------------%
 
@@ -706,4 +777,3 @@ get_global(Globs, Key) = Value :-
 
 set_global(Globs0, Key, Value) = Globs :-
 	set(Globs0, univ(Key), univ(Value), Globs).
-
