@@ -398,9 +398,9 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr - Info.
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = pragma_foreign_code( _, _, _, Vars, MaybeModes, Types, _ ), 
-	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Info0, Vars, 
-			MaybeModes, Types, AI0 ^ alias, Alias), 
+	Expr0 = pragma_foreign_code(Attrs, _, _, Vars, MaybeModes, Types, _ ), 
+	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info0, Attrs, Vars,
+			MaybeModes, Types, AI0 ^ alias, Alias),
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0. 
 
@@ -596,11 +596,11 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 	Expr = if_then_else( Vars, Cond, Then, Else, SM),
 	Goal = Expr - Info.
 				
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
 			Alias0, Alias, 
 			FP0, FP) :- 
-	Expr0 = pragma_foreign_code(_, _, _, Vars, MaybeModes, Types, _ ), 
-	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Info0, Vars, 
+	Expr0 = pragma_foreign_code(Attrs, _, _, Vars, MaybeModes, Types, _), 
+	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info0, Attrs, Vars, 
 			MaybeModes, Types, Alias0, Alias), 
 	Pool = Pool0, 
 	FP = FP0,

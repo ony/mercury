@@ -430,10 +430,10 @@ analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	analyse_goal( ProcInfo, HLDS, ELSE, T2, T, A0, A3),
 	pa_alias_as__least_upper_bound( ProcInfo, HLDS, A2, A3, A).
 
-analyse_goal_expr( pragma_foreign_code( _,_,_, Vars, MaybeModes,Types,_  ), 
-			Info, ProcInfo, HLDS , 
+analyse_goal_expr(pragma_foreign_code(Attrs, _, _, Vars, MaybeModes, Types, _), 
+			Info, ProcInfo, HLDS, 
 			T, T, Ain, A) :- 
-	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Info, Vars, 
+	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info, Attrs, Vars, 
 		MaybeModes, Types, Ain, A). 
 
 	% error( "(pa) pragma_c_code not handled") .

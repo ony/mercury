@@ -114,10 +114,11 @@
 			hlds_goal__hlds_goal_info, alias_as, alias_as).
 :- mode extend_unification(in, in, in, in, in, out) is det.
 
-:- pred extend_foreign_code(proc_info, module_info, hlds_goal_info, 
+:- pred extend_foreign_code(proc_info, module_info, hlds_goal_info,
+			pragma_foreign_code_attributes,
 			list(prog_var), list(maybe(pair(string, mode))),
                         list(type), alias_as, alias_as).
-:- mode extend_foreign_code(in, in, in, in, in, in, in, out) is det.
+:- mode extend_foreign_code(in, in, in, in, in, in, in, in, out) is det.
 
 	% Add two abstract substitutions to each other. These
 	% abstract substitutions come from different contexts, and have
@@ -471,8 +472,8 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 
 
 %-----------------------------------------------------------------------------%
-extend_foreign_code(_ProcInfo, HLDS, GoalInfo, 
-			Vars, MaybeModes, Types, Alias0, Alias):-
+extend_foreign_code(_ProcInfo, HLDS, GoalInfo,
+			Attrs, Vars, MaybeModes, Types, Alias0, Alias):-
 	to_trios(Vars, MaybeModes, Types, Trios), 
 	% remove all unique objects
 	remove_all_unique_vars(HLDS, Trios, NonUniqueVars), 
@@ -480,12 +481,14 @@ extend_foreign_code(_ProcInfo, HLDS, GoalInfo,
 	collect_all_output_vars(HLDS, NonUniqueVars, OutputVars), 
 %	collect_all_input_vars(HLDS, NonUniqueVars, InputVars), 
 	(
-%		(
+		(
 			OutputVars = [] 
+		;
+			aliasing(Attrs, no_aliasing)
 %		; 
 %			% XXXXXXXXXXXXXXXXX !!
 %			OutputVars = [_], InputVars = []
-%		)
+		)
 	->
 		Alias = Alias0
 	;

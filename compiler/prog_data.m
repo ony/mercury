@@ -566,6 +566,13 @@
 		pragma_foreign_code_attributes).
 :- mode set_tabled_for_io(in, in, out) is det.
 
+:- pred aliasing(pragma_foreign_code_attributes, aliasing).
+:- mode aliasing(in, out) is det.
+
+:- pred set_aliasing(pragma_foreign_code_attributes, aliasing,
+		pragma_foreign_code_attributes).
+:- mode set_aliasing(in, in, out) is det.
+
 	% For pragma c_code, there are two different calling conventions,
 	% one for C code that may recursively call Mercury code, and another
 	% more efficient one for the case when we know that the C code will
@@ -584,6 +591,10 @@
 :- type tabled_for_io
 	--->	not_tabled_for_io
 	;	tabled_for_io.
+
+:- type aliasing
+	--->	no_aliasing
+	;	unknown_aliasing.
 
 :- type pragma_var    
 	--->	pragma_var(prog_var, string, mode).
@@ -970,12 +981,13 @@
 			foreign_language 	:: foreign_language,
 			may_call_mercury	:: may_call_mercury,
 			thread_safe		:: thread_safe,
-			tabled_for_io		:: tabled_for_io
+			tabled_for_io		:: tabled_for_io,
+			aliasing		:: aliasing
 		).
 
 default_attributes(Language, 
 	attributes(Language, may_call_mercury, not_thread_safe, 
-		not_tabled_for_io)).
+		not_tabled_for_io, unknown_aliasing)).
 
 may_call_mercury(Attrs, Attrs ^ may_call_mercury).
 
@@ -984,6 +996,8 @@ thread_safe(Attrs, Attrs ^ thread_safe).
 foreign_language(Attrs, Attrs ^ foreign_language).
 
 tabled_for_io(Attrs, Attrs ^ tabled_for_io).
+
+aliasing(Attrs, Attrs ^ aliasing).
 
 set_may_call_mercury(Attrs0, MayCallMercury, Attrs) :-
 	Attrs = Attrs0 ^ may_call_mercury := MayCallMercury.
@@ -997,11 +1011,15 @@ set_foreign_language(Attrs0, ForeignLanguage, Attrs) :-
 set_tabled_for_io(Attrs0, TabledForIo, Attrs) :-
 	Attrs = Attrs0 ^ tabled_for_io := TabledForIo.
 
+set_aliasing(Attrs0, TabledForIo, Attrs) :-
+	Attrs = Attrs0 ^ aliasing := TabledForIo.
+
 attributes_to_strings(Attrs, StringList) :-
 	% We ignore Lang because it isn't an attribute that you can put
 	% in the attribute list -- the foreign language specifier string
 	% is at the start of the pragma.
-	Attrs = attributes(_Lang, MayCallMercury, ThreadSafe, TabledForIO),
+	Attrs = attributes(_Lang, MayCallMercury, ThreadSafe,
+			TabledForIO, Aliasing),
 	(
 		MayCallMercury = may_call_mercury,
 		MayCallMercuryStr = "may_call_mercury"
@@ -1023,6 +1041,14 @@ attributes_to_strings(Attrs, StringList) :-
 		TabledForIO = not_tabled_for_io,
 		TabledForIOStr = "not_tabled_for_io"
 	),
-	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr].
+	(
+		Aliasing = no_aliasing,
+		AliasingStr = "no_aliasing"
+	;
+		Aliasing = unknown_aliasing,
+		AliasingStr = "unknown_aliasing"
+	),
+	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr,
+			AliasingStr].
 
 %-----------------------------------------------------------------------------%

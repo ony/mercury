@@ -178,8 +178,8 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = pragma_foreign_code(_, _, _, Vars, MaybeModes, Types, _), 
-	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info0, Vars, 
+	Expr0 = pragma_foreign_code(Attrs, _, _, Vars, MaybeModes, Types, _), 
+	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info0, Attrs, Vars, 
 			MaybeModes, Types, Alias0, Alias), 
 	Pool = Pool0, 
 	Goal = Expr0 - Info0. 
