@@ -385,6 +385,18 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 		CONDITION = condition(NORM_NODES_set, NEW_LUiH, NEW_LAiH)
 	).
 
+	% Collect the nodes a reuse-condition is talking about. Fail 
+	% if the reuse condition is `always'. 
+:- pred reuse_condition_get_nodes(reuse_condition::in, 
+			set(pa_datastruct__datastruct)::out) is semidet.
+reuse_condition_get_nodes(Condition, Condition ^ nodes). 
+
+	% Collect the nodes a reuse-condition is talking about. Fail 
+	% if the reuse condition is `always'. 
+:- pred reuse_condition_get_nodes_list(reuse_condition::in, 
+			list(pa_datastruct__datastruct)::out) is semidet.
+reuse_condition_get_nodes_list(Condition, List):-
+	set__to_sorted_list(Condition ^ nodes, List). 
 
 reuse_conditions_simplify(ReuseCondition0, ReuseCondition):- 
 	list__foldl( 
@@ -679,8 +691,86 @@ memo_reuse_verify_reuse(ProcInfo, HLDS, Memo, Live0, Alias0, Static) :-
 	Memo = yes(Conditions), 
 	list__takewhile(reuse_condition_verify(ProcInfo, HLDS, 
 						Live0, Alias0, Static), 
-				Conditions, _, []).
+				Conditions, _, []), 
+	% Next to verifying each condition separately, one has to
+	% verify whether the nodes which are reused in each of the
+	% conditions are not aliased within the current context. If
+	% this would be the case, then reuse is not allowed. If
+	% this would be allowed, then the callee want to reuse
+	% the different parts of the input while these may point
+	% to exactly the same structure, resulting in undefined
+	% behaviour. 
+	no_aliases_between_reuse_nodes(HLDS, ProcInfo, Conditions, 
+				Alias0 ). 
 
+:- pred no_aliases_between_reuse_nodes(
+		module_info::in, 
+		proc_info::in, 
+		list(reuse_condition)::in, 
+		alias_as::in) is semidet.
+no_aliases_between_reuse_nodes(ModuleInfo, ProcInfo, 
+		Conditions, Alias):- 
+	list__filter_map(
+		reuse_condition_get_nodes_list,
+		Conditions, 
+		ListNodes), 
+	list__condense(ListNodes, AllNodes), 
+	(
+		AllNodes = [Node | Rest] 
+	-> 
+		no_aliases_between_reuse_nodes_2(ModuleInfo, ProcInfo, 
+					Node, Rest, Alias)
+	;
+		require__error("(sr_data): no_aliases_between_reuse_nodes has no nodes.")
+	).
+
+:- pred no_aliases_between_reuse_nodes_2(module_info::in, proc_info::in,
+		pa_datastruct__datastruct::in, 
+		list(pa_datastruct__datastruct)::in, 
+		alias_as::in) is semidet. 
+no_aliases_between_reuse_nodes_2(ModuleInfo, ProcInfo, Node, OtherNodes, 
+		Alias):- 
+	pa_alias_as__collect_aliases_of_datastruct(ModuleInfo, ProcInfo, 
+		Node, Alias, AliasedNodes), 
+	% Check whether none of the structures to which the current
+	% Node is aliased is subsumed by or subsumes one of 
+	% the other nodes, including the current node itself. 
+	list__filter(
+		there_is_a_subsumption_relation(ModuleInfo, ProcInfo, 
+			[Node | OtherNodes]), 
+		AliasedNodes, 
+		[]), 
+	(
+		OtherNodes = [NextNode | NextOtherNodes],
+		no_aliases_between_reuse_nodes_2(ModuleInfo, ProcInfo, 
+			NextNode, NextOtherNodes, Alias)
+	; 
+		OtherNodes = [], 
+		true
+	).
+
+	% there_is_a_subsumption_relation(ModuleInfo, ProcInfo, Datastructs, 
+	% Data): This procedure succeeds if Data is subsumed or subsumes
+	% some of the datastructures in Datastructs. 
+:- pred there_is_a_subsumption_relation(module_info::in, proc_info::in, 
+		list(pa_datastruct__datastruct)::in, 
+		pa_datastruct__datastruct::in) is semidet.
+there_is_a_subsumption_relation(ModuleInfo, ProcInfo, 
+		Datastructs0, Data0):-
+	list__filter(
+		pred(Data1::in) is semidet:-
+		    (
+			( pa_datastruct__less_or_equal(ModuleInfo, ProcInfo, 
+				Data0, Data1, _) ; 
+			  pa_datastruct__less_or_equal(ModuleInfo, ProcInfo, 
+				Data1, Data0, _)
+			)
+		     ), 
+		Datastructs0, 
+		SubsumedStructs), 
+	SubsumedStructs \= []. 
+
+		
 memo_reuse_is_conditional(yes([_|_])).
 memo_reuse_is_unconditional(yes([])).
 
