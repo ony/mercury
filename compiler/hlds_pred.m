@@ -1332,6 +1332,9 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_headvars(proc_info, list(prog_var), proc_info).
 :- mode proc_info_set_headvars(in, in, out) is det.
 
+:- pred proc_info_real_headvars(proc_info, list(prog_var)).
+:- mode proc_info_real_headvars(in, out) is det.
+
 :- pred proc_info_argmodes(proc_info, list(mode)).
 :- mode proc_info_argmodes(in, out) is det.
 
@@ -1563,6 +1566,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 	--->	procedure(
 			prog_varset	:: prog_varset,
 			var_types	:: vartypes,
+			real_head_vars  :: list(prog_var),
 			head_vars	:: list(prog_var),
 			actual_head_modes :: list(mode),
 			inst_varset :: inst_varset,
@@ -1729,7 +1733,7 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	GLOBAL_USE = no, 
 	REUSE = no, 
 	NewProc = procedure(
-		BodyVarSet, BodyTypes, HeadVars, Modes, InstVarSet,
+		BodyVarSet, BodyTypes, HeadVars, HeadVars, Modes, InstVarSet,
 		MaybeArgLives, ClauseBody, MContext, StackSlots, MaybeDet,
 		InferredDet, CanProcess, ArgInfo, InitialLiveness, TVarsMap,
 		TCVarsMap, eval_normal, no, no, DeclaredModes, IsAddressTaken,
@@ -1746,7 +1750,7 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 	GLOBAL_USE = no, 
 	REUSE = no, 
 	ProcInfo = procedure(
-		BodyVarSet, BodyTypes, HeadVars,
+		BodyVarSet, BodyTypes, HeadVars, HeadVars,
 		HeadModes, InstVarSet, HeadLives, Goal, Context,
 		StackSlots, DeclaredDetism, InferredDetism, CanProcess, ArgInfo,
 		Liveness, TVarMap, TCVarsMap, eval_normal, ArgSizes,
@@ -1762,7 +1766,7 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 	ALIAS = no,
 	GLOBAL_USE = no, 
 	REUSE = no,
-	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes,
+	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadVars, HeadModes,
 		InstVarSet, MaybeHeadLives, Goal, Context, StackSlots,
 		yes(Detism), Detism, yes, [], Liveness, TVarMap, TCVarsMap,
 		eval_normal, no, no, no, IsAddressTaken, RLExprn,
@@ -1835,6 +1839,7 @@ proc_info_declared_determinism(ProcInfo, ProcInfo^declared_detism).
 proc_info_varset(ProcInfo, ProcInfo^prog_varset).
 proc_info_vartypes(ProcInfo, ProcInfo^var_types).
 proc_info_headvars(ProcInfo, ProcInfo^head_vars).
+proc_info_real_headvars(ProcInfo, ProcInfo^real_head_vars).
 proc_info_argmodes(ProcInfo, ProcInfo^actual_head_modes).
 proc_info_inst_varset(ProcInfo, ProcInfo^inst_varset).
 proc_info_maybe_arglives(ProcInfo, ProcInfo^head_var_caller_liveness).
