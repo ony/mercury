@@ -382,11 +382,9 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 		% at the end, before checking the typeclass constraints
 		perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo2,
 				TypeCheckInfo3),
-		typecheck_constraints(Inferring, TypeCheckInfo3,
-				TypeCheckInfo4),
 		typecheck_check_for_ambiguity(whole_pred, HeadVars,
-				TypeCheckInfo4, TypeCheckInfo5),
-		typecheck_info_get_final_info(TypeCheckInfo5, ExistQVars0,
+				TypeCheckInfo3, TypeCheckInfo4),
+		typecheck_info_get_final_info(TypeCheckInfo4, ExistQVars0,
 				TypeVarSet, HeadTypeParams2, InferredVarTypes0,
 				InferredTypeConstraints0, ConstraintProofs,
 				TVarRenaming),
@@ -397,39 +395,49 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 		pred_info_set_typevarset(PredInfo1, TypeVarSet, PredInfo2),
 		pred_info_set_constraint_proofs(PredInfo2, ConstraintProofs,
 			PredInfo3),
-		( Inferring = yes ->
-			map__apply_to_list(HeadVars, InferredVarTypes,
-				ArgTypes),
 
-			% Now we need to infer which of the head variable
-			% types must be existentially quantified,
-			% and to infer the appropriate universal and
-			% existential type class constraints.
-			term__vars_list(ArgTypes, ArgTypeVars),
+		%
+		% Split the inferred type class constraints into those that
+		% that apply only to the head variables, and those that
+		% apply to type variables which occur only in the body.
+		%
+		map__apply_to_list(HeadVars, InferredVarTypes, ArgTypes),
+		term__vars_list(ArgTypes, ArgTypeVars),
+		restrict_to_head_vars(InferredTypeConstraints0, ArgTypeVars,
+			InferredTypeConstraints, UnprovenBodyConstraints),
+
+		%
+		% If there are any as-yet-unproven constraints on type
+		% variables in the body, then save these in the pred_info.
+		% If it turns out that this pass was the last pass of type
+		% inference, the post_typecheck.m will report an error.
+		% But we can't report an error now, because a later pass
+		% of type inference could cause some type variables to become
+		% bound in to types that make the constraints satisfiable,
+		% causing the error to go away.
+		%
+		pred_info_set_unproven_body_constraints(PredInfo3,
+				UnprovenBodyConstraints, PredInfo4),
+
+		is_bool(Inferring),
+		( Inferring = yes ->
+			%
+			% We need to infer which of the head variable
+			% types must be existentially quantified
+			%
 			infer_existential_types(ArgTypeVars, HeadTypeParams2,
 				ExistQVars, HeadTypeParams),
-			restrict_to_head_vars(InferredTypeConstraints0,
-				ArgTypeVars, InferredTypeConstraints,
-				_UnprovenConstraints),
-			% XXX if _UnprovenConstraints \= [], then
-			% we should report an error -- but this can't
-			% be safely done until the post_typecheck pass.
-			% We should record the error in the pred_info now
-			% and (if this turns out to be the last pass of
-			% type inference) report it in post_typecheck.
-			% Currently it will cause polymorphism.m to
-			% call error/1.
 
 			%
 			% Now save the information we inferred in the pred_info
 			%
-			pred_info_set_head_type_params(PredInfo3,
-				HeadTypeParams, PredInfo4),
-			pred_info_set_arg_types(PredInfo4, TypeVarSet,
-				ExistQVars, ArgTypes, PredInfo5),
+			pred_info_set_head_type_params(PredInfo4,
+				HeadTypeParams, PredInfo5),
+			pred_info_set_arg_types(PredInfo5, TypeVarSet,
+				ExistQVars, ArgTypes, PredInfo6),
 			pred_info_get_class_context(PredInfo0,
 				OldTypeConstraints),
-			pred_info_set_class_context(PredInfo5,
+			pred_info_set_class_context(PredInfo6,
 				InferredTypeConstraints, PredInfo),
 			%
 			% Check if anything changed
@@ -449,8 +457,8 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 				Changed = yes
 			)
 		; % Inferring = no
-			pred_info_set_head_type_params(PredInfo3,
-				HeadTypeParams2, PredInfo4),
+			pred_info_set_head_type_params(PredInfo4,
+				HeadTypeParams2, PredInfo5),
 
 			% leave the original argtypes etc., but rename them,
 			% so that the type variables names match up
@@ -460,12 +468,12 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			apply_var_renaming_to_var_list(ExistQVars0,
 				TVarRenaming, ExistQVars),
 			term__apply_variable_renaming_to_list(ArgTypes0,
-				TVarRenaming, ArgTypes),
-			pred_info_set_arg_types(PredInfo4, TypeVarSet,
-				ExistQVars, ArgTypes, PredInfo5),
+				TVarRenaming, RenamedOldArgTypes),
+			pred_info_set_arg_types(PredInfo5, TypeVarSet,
+				ExistQVars, RenamedOldArgTypes, PredInfo6),
 			rename_class_constraints(TVarRenaming, Constraints,
 				RenamedOldConstraints),
-			pred_info_set_class_context(PredInfo5,
+			pred_info_set_class_context(PredInfo6,
 				RenamedOldConstraints, PredInfo),
 
 			Changed = no
@@ -481,6 +489,10 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 		typecheck_info_get_io_state(TypeCheckInfo4, IOState)
 	    )
 	).
+
+% is_bool/1 is used to avoid a type ambiguity
+:- pred is_bool(bool::in) is det.
+is_bool(_).
 
 	%
 	% infer which of the head variable
@@ -3089,60 +3101,18 @@ typecheck_info_get_ctor_list_2(TypeCheckInfo, Functor, Arity, ConsInfoList) :-
 
 %-----------------------------------------------------------------------------%
 
-	% typecheck_constraints(Inferring, TypeCheckInfo0, TypeCheckInfo)
-	%
-	% Produces TypeCheckInfo from TypeCheckInfo0 by rejecting any
-	% type_assign in TypeCheckInfo0 whose calculated typeclass constraints
-	% do not match the declared constraints.
-	%
-	% An appropriate error message is given if all type_assigns are 
-	% rejected.
-:- pred typecheck_constraints(bool, typecheck_info, typecheck_info).
-:- mode typecheck_constraints(in, typecheck_info_di, typecheck_info_uo) is det.
-
-typecheck_constraints(yes, TypeCheckInfo, TypeCheckInfo).
-typecheck_constraints(no, TypeCheckInfo0, TypeCheckInfo) :-
-		% reject any type assignment whose "constraints to prove"
-		% have not all been eliminated by context reduction
-		% (i.e. those which have constraints which do not match the
-		% declared constraints or the existentially quantified
-		% constraints for the called preds, and which are not
-		% redundant for any other reason)
-	typecheck_info_get_type_assign_set(TypeCheckInfo0, TypeAssignSet0),
-	NoConstraints = lambda([TypeAssign::in] is semidet, (
-		type_assign_get_typeclass_constraints(TypeAssign, Constraints),
-		Constraints = constraints(ConstraintsToProve,
-				_AssumedConstraints),
-		ConstraintsToProve = [])),
-	list__filter(NoConstraints, TypeAssignSet0, TypeAssignSet),
-	(
-			% Check that we haven't just eliminated
-			% all the type assignments. 
-		TypeAssignSet = [], 
-		TypeAssignSet0 \= []
-	->
-		report_unsatisfied_constraints(TypeAssignSet0,
-			TypeCheckInfo0, TypeCheckInfo)
-	;
-		typecheck_info_set_type_assign_set(TypeCheckInfo0,
-			TypeAssignSet, TypeCheckInfo)
-	).
-
-			
-%-----------------------------------------------------------------------------%
-
-:- pred report_unsatisfied_constraints(type_assign_set, typecheck_info,
+:- pred report_unsatisfiable_constraints(type_assign_set, typecheck_info,
 					typecheck_info).
-:- mode report_unsatisfied_constraints(in, typecheck_info_di,
+:- mode report_unsatisfiable_constraints(in, typecheck_info_di,
 					typecheck_info_uo) is det.
 
-report_unsatisfied_constraints(TypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
+report_unsatisfiable_constraints(TypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 	typecheck_info_get_io_state(TypeCheckInfo0, IOState0),
 
 	typecheck_info_get_context(TypeCheckInfo0, Context),
 	write_context_and_pred_id(TypeCheckInfo0, IOState0, IOState1),
 	prog_out__write_context(Context, IOState1, IOState2),
-	io__write_string("  unsatisfied typeclass constraint(s):\n",
+	io__write_string("  unsatisfiable typeclass constraint(s):\n",
 		IOState2, IOState3),
 
 	WriteConstraints = lambda([TypeAssign::in, IO0::di, IO::uo] is det,
@@ -3232,7 +3202,7 @@ perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 		TypeAssignSet = [], 
 		TypeAssignSet0 \= []
 	->
-		report_unsatisfied_constraints(TypeAssignSet0,
+		report_unsatisfiable_constraints(TypeAssignSet0,
 			TypeCheckInfo0, TypeCheckInfo1),
 		DeleteConstraints = lambda([TA0::in, TA::out] is det, (
 			type_assign_get_typeclass_constraints(TA0, 
