@@ -54,6 +54,14 @@
 :- pred type_id_is_hand_defined(type_id).
 :- mode type_id_is_hand_defined(in) is semidet.
 
+	% A test for type_info-related types that are introduced by
+	% polymorphism.m.  Mode inference never infers unique modes
+	% for these types, since it would not be useful, and since we
+	% want to minimize the number of different modes that we infer.
+
+:- pred is_introduced_type_info_type(type).
+:- mode is_introduced_type_info_type(in) is semidet.
+
 	% Given a type, determine what sort of type it is.
 
 :- pred classify_type(type, module_info, builtin_type).
@@ -279,6 +287,16 @@ type_id_is_hand_defined(qualified(PrivateBuiltin, "type_ctor_info") - 1) :-
 type_id_is_hand_defined(qualified(PrivateBuiltin, "typeclass_info") - 1) :-
 	mercury_private_builtin_module(PrivateBuiltin).
 type_id_is_hand_defined(qualified(PrivateBuiltin, "base_typeclass_info") - 1) :-
+	mercury_private_builtin_module(PrivateBuiltin).
+
+is_introduced_type_info_type(Type) :-
+	sym_name_and_args(Type, TypeName, _),
+	TypeName = qualified(PrivateBuiltin, Name),
+	( Name = "type_info"
+	; Name = "type_ctor_info"
+	; Name = "typeclass_info"
+	; Name = "base_typeclass_info"
+	),
 	mercury_private_builtin_module(PrivateBuiltin).
 
 %-----------------------------------------------------------------------------%

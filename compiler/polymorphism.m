@@ -307,7 +307,9 @@
 :- module polymorphism.
 :- interface.
 
-:- import_module hlds_goal, hlds_module, hlds_pred, prog_data, special_pred.
+:- import_module hlds_goal, hlds_module, hlds_pred, hlds_data.
+:- import_module prog_data, special_pred.
+
 :- import_module io, list, term, map.
 
 % Run the polymorphism pass over the whole HLDS.
@@ -413,12 +415,21 @@
 		module_info, sym_name, pred_id, proc_id).
 :- mode polymorphism__get_special_proc(in, in, in, out, out, out) is det.
 
+	% convert a higher-order pred term to a lambda goal
+:- pred convert_pred_to_lambda_goal(pred_or_func, prog_var, cons_id, sym_name,
+		list(prog_var), list(type), tvarset,
+		unification, unify_context, hlds_goal_info, context,
+		module_info, prog_varset, map(prog_var, type),
+		unify_rhs, prog_varset, map(prog_var, type)).
+:- mode convert_pred_to_lambda_goal(in, in, in, in, in, in, in, 
+		in, in, in, in, in, in, in, out, out, out) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module typecheck, hlds_data, llds, prog_io.
+:- import_module typecheck, llds, prog_io.
 :- import_module type_util, mode_util, quantification, instmap, prog_out.
 :- import_module code_util, unify_proc, prog_util, make_hlds.
 :- import_module (inst), hlds_out, base_typeclass_info, goal_util, passes_aux.
@@ -1318,79 +1329,21 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		ConsId0 = cons(PName, _)
 	->
 		%
-		% Create the new lambda-quantified variables
+		% convert the higher-order pred term to a lambda goal
 		%
 		poly_info_get_varset(PolyInfo0, VarSet0),
-		make_fresh_vars(PredArgTypes, VarSet0, VarTypes0,
-				LambdaVars, VarSet, VarTypes),
-		list__append(ArgVars0, LambdaVars, Args),
+		poly_info_get_typevarset(PolyInfo0, TVarSet),
+		goal_info_get_context(GoalInfo0, Context),
+		convert_pred_to_lambda_goal(PredOrFunc, X0, ConsId0, PName,
+			ArgVars0, PredArgTypes, TVarSet,
+			Unification0, UnifyContext, GoalInfo0, Context,
+			ModuleInfo0, VarSet0, VarTypes0,
+			Functor0, VarSet, VarTypes),
 		poly_info_set_varset_and_types(VarSet, VarTypes,
 			PolyInfo0, PolyInfo1),
-
 		%
-		% Build up the hlds_goal_expr for the call that will form
-		% the lambda goal
+		% process the unification in its new form
 		%
-
-		poly_info_get_typevarset(PolyInfo1, TVarSet),
-		map__apply_to_list(Args, VarTypes, ArgTypes),
-		get_pred_id_and_proc_id(PName, PredOrFunc, TVarSet, 
-			ArgTypes, ModuleInfo0, PredId, ProcId),
-		module_info_pred_proc_info(ModuleInfo0, PredId, ProcId,
-					PredInfo, ProcInfo),
-
-		% module-qualify the pred name (is this necessary?)
-		pred_info_module(PredInfo, PredModule),
-		unqualify_name(PName, UnqualPName),
-		QualifiedPName = qualified(PredModule, UnqualPName),
-
-		CallUnifyContext = call_unify_context(X0,
-				functor(ConsId0, ArgVars0), UnifyContext),
-		LambdaGoalExpr = call(PredId, ProcId, Args, not_builtin,
-				yes(CallUnifyContext), QualifiedPName),
-
-		%
-		% construct a goal_info for the lambda goal, making sure
-		% to set up the nonlocals field in the goal_info correctly
-		%
-		goal_info_get_nonlocals(GoalInfo0, NonLocals),
-		set__insert_list(NonLocals, LambdaVars, OutsideVars),
-		set__list_to_set(Args, InsideVars),
-		set__intersect(OutsideVars, InsideVars, LambdaNonLocals),
-		goal_info_init(LambdaGoalInfo0),
-		goal_info_get_context(GoalInfo0, Context),
-		goal_info_set_context(LambdaGoalInfo0, Context,
-				LambdaGoalInfo1),
-		goal_info_set_nonlocals(LambdaGoalInfo1, LambdaNonLocals,
-				LambdaGoalInfo),
-		LambdaGoal = LambdaGoalExpr - LambdaGoalInfo,
-
-		%
-		% work out the modes of the introduced lambda variables
-		% and the determinism of the lambda goal
-		%
-		pred_info_arity(PredInfo, PredArity),
-		proc_info_argmodes(ProcInfo, ArgModes),
-		list__length(ArgModes, ProcArity),
-		NumTypeInfos = ProcArity - PredArity,
-		( list__drop(NumTypeInfos + Arity, ArgModes, LambdaModes0) ->
-			LambdaModes = LambdaModes0
-		;
-			error("modecheck_unification: list__drop failed")
-		),
-		proc_info_declared_determinism(ProcInfo, MaybeDet),
-		( MaybeDet = yes(Det) ->
-			LambdaDet = Det
-		;
-			error("Sorry, not implemented: determinism inference for higher-order predicate terms")
-		),
-
-		%
-		% construct the lambda expression, and then go ahead
-		% and process this unification in its new form
-		%
-		Functor0 = lambda_goal(PredOrFunc, ArgVars0, LambdaVars, 
-				LambdaModes, LambdaDet, LambdaGoal),
 		polymorphism__process_unify(X0, Functor0, Mode0,
 				Unification0, UnifyContext, GoalInfo0, Goal,
 				PolyInfo1, PolyInfo)
@@ -1404,7 +1357,89 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		PolyInfo = PolyInfo0
 	).
 
-% this is duplicated in modecheck_unify.m
+convert_pred_to_lambda_goal(PredOrFunc, X0, ConsId0, PName,
+		ArgVars0, PredArgTypes, TVarSet,
+		Unification0, UnifyContext, GoalInfo0, Context,
+		ModuleInfo0, VarSet0, VarTypes0,
+		Functor, VarSet, VarTypes) :-
+	%
+	% Create the new lambda-quantified variables
+	%
+	make_fresh_vars(PredArgTypes, VarSet0, VarTypes0,
+			LambdaVars, VarSet, VarTypes),
+	list__append(ArgVars0, LambdaVars, Args),
+
+	%
+	% Build up the hlds_goal_expr for the call that will form
+	% the lambda goal
+	%
+	map__apply_to_list(Args, VarTypes, ArgTypes),
+	(
+		% If we are redoing mode analysis, use the
+		% pred_id and proc_id found before, to avoid aborting
+		% in get_pred_id_and_proc_id if there are multiple
+		% matching procedures.
+		Unification0 = construct(_, 
+			pred_const(PredId0, ProcId0), _, _)
+	->
+		PredId = PredId0,
+		ProcId = ProcId0
+	;
+		get_pred_id_and_proc_id(PName, PredOrFunc, TVarSet, 
+			ArgTypes, ModuleInfo0, PredId, ProcId)
+	),
+	module_info_pred_proc_info(ModuleInfo0, PredId, ProcId,
+				PredInfo, ProcInfo),
+
+	% module-qualify the pred name (is this necessary?)
+	pred_info_module(PredInfo, PredModule),
+	unqualify_name(PName, UnqualPName),
+	QualifiedPName = qualified(PredModule, UnqualPName),
+
+	CallUnifyContext = call_unify_context(X0,
+			functor(ConsId0, ArgVars0), UnifyContext),
+	LambdaGoalExpr = call(PredId, ProcId, Args, not_builtin,
+			yes(CallUnifyContext), QualifiedPName),
+
+	%
+	% construct a goal_info for the lambda goal, making sure
+	% to set up the nonlocals field in the goal_info correctly
+	%
+	goal_info_get_nonlocals(GoalInfo0, NonLocals),
+	set__insert_list(NonLocals, LambdaVars, OutsideVars),
+	set__list_to_set(Args, InsideVars),
+	set__intersect(OutsideVars, InsideVars, LambdaNonLocals),
+	goal_info_init(LambdaGoalInfo0),
+	goal_info_set_context(LambdaGoalInfo0, Context,
+			LambdaGoalInfo1),
+	goal_info_set_nonlocals(LambdaGoalInfo1, LambdaNonLocals,
+			LambdaGoalInfo),
+	LambdaGoal = LambdaGoalExpr - LambdaGoalInfo,
+
+	%
+	% work out the modes of the introduced lambda variables
+	% and the determinism of the lambda goal
+	%
+	proc_info_argmodes(ProcInfo, ArgModes),
+	list__length(ArgVars0, Arity),
+	( list__drop(Arity, ArgModes, LambdaModes0) ->
+		LambdaModes = LambdaModes0
+	;
+		error("modecheck_unification: list__drop failed")
+	),
+	proc_info_declared_determinism(ProcInfo, MaybeDet),
+	( MaybeDet = yes(Det) ->
+		LambdaDet = Det
+	;
+		error("Sorry, not implemented: determinism inference for higher-order predicate terms")
+	),
+
+	%
+	% construct the lambda expression
+	%
+	Functor = lambda_goal(PredOrFunc, ArgVars0, LambdaVars, 
+			LambdaModes, LambdaDet, LambdaGoal).
+
 :- pred make_fresh_vars(list(type), prog_varset, map(prog_var, type),
 			list(prog_var), prog_varset, map(prog_var, type)).
 :- mode make_fresh_vars(in, in, in, out, out, out) is det.

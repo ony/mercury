@@ -1559,19 +1559,6 @@ normalise_inst(Inst0, Type, ModuleInfo, NormalisedInst) :-
 		NormalisedInst = Inst
 	).
 
-:- pred is_introduced_type_info_type(type).
-:- mode is_introduced_type_info_type(in) is semidet.
-
-is_introduced_type_info_type(Type) :-
-	sym_name_and_args(Type, TypeName, _),
-	TypeName = qualified(PrivateBuiltin, Name),
-	( Name = "type_info"
-	; Name = "type_ctor_info"
-	; Name = "typeclass_info"
-	; Name = "base_typeclass_info"
-	),
-	mercury_private_builtin_module(PrivateBuiltin).
-
 %-----------------------------------------------------------------------------%
 
 fixup_switch_var(Var, InstMap0, InstMap, Goal0, Goal) :-

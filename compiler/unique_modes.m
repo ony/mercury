@@ -425,7 +425,6 @@ unique_modes__check_goal_2(class_method_call(TCVar, Num, Args, Types, Modes,
 
 unique_modes__check_goal_2(call(PredId, ProcId0, Args, Builtin, CallContext,
 		PredName), _GoalInfo0, Goal) -->
-	/*** CallString = "call" ***/
 	{ prog_out__sym_name_to_string(PredName, PredNameString) },
 	{ string__append("call ", PredNameString, CallString) },
 	mode_checkpoint(enter, CallString),

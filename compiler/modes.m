@@ -1073,7 +1073,6 @@ modecheck_goal_expr(some(Vs, G0), _, some(Vs, G)) -->
 
 modecheck_goal_expr(call(PredId, ProcId0, Args0, _, Context, PredName),
 		GoalInfo0, Goal) -->
-	/*** CallString = "call" ***/
 	{ prog_out__sym_name_to_string(PredName, PredNameString) },
 	{ string__append("call ", PredNameString, CallString) },
 	mode_checkpoint(enter, CallString),

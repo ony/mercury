@@ -133,91 +133,23 @@ modecheck_unification(X0, functor(ConsId0, ArgVars0), Unification0,
 		Unification0 \= deconstruct(_, code_addr_const(_, _), _, _, _)
 	->
 		%
-		% Create the new lambda-quantified variables
+		% convert the pred term to a lambda expression
 		%
 		mode_info_get_varset(ModeInfo0, VarSet0),
-		make_fresh_vars(PredArgTypes, VarSet0, VarTypes0,
-				LambdaVars, VarSet, VarTypes),
-		list__append(ArgVars0, LambdaVars, Args),
-		mode_info_set_varset(VarSet, ModeInfo0, ModeInfo1),
-		mode_info_set_var_types(VarTypes, ModeInfo1, ModeInfo2),
-
-		%
-		% Build up the hlds_goal_expr for the call that will form
-		% the lambda goal
-		%
-
+		mode_info_get_context(ModeInfo0, Context),
 		mode_info_get_predid(ModeInfo0, ThisPredId),
 		module_info_pred_info(ModuleInfo0, ThisPredId, ThisPredInfo),
 		pred_info_typevarset(ThisPredInfo, TVarSet),
-		map__apply_to_list(Args, VarTypes, ArgTypes),
-		(
-			% If we are redoing mode analysis, use the
-			% pred_id and proc_id found before, to avoid aborting
-			% in get_pred_id_and_proc_id if there are multiple
-			% matching procedures.
-			Unification0 = construct(_, 
-				pred_const(PredId0, ProcId0), _, _)
-		->
-			PredId = PredId0,
-			ProcId = ProcId0
-		;
-			get_pred_id_and_proc_id(PName, PredOrFunc, TVarSet, 
-				ArgTypes, ModuleInfo0, PredId, ProcId)
-		),
-		module_info_pred_proc_info(ModuleInfo0, PredId, ProcId,
-					PredInfo, ProcInfo),
-
-		% module-qualify the pred name (is this necessary?)
-		pred_info_module(PredInfo, PredModule),
-		unqualify_name(PName, UnqualPName),
-		QualifiedPName = qualified(PredModule, UnqualPName),
-
-		CallUnifyContext = call_unify_context(X0,
-				functor(ConsId0, ArgVars0), UnifyContext),
-		LambdaGoalExpr = call(PredId, ProcId, Args, not_builtin,
-				yes(CallUnifyContext), QualifiedPName),
-
+		convert_pred_to_lambda_goal(PredOrFunc, X0, ConsId0, PName,
+			ArgVars0, PredArgTypes, TVarSet,
+			Unification0, UnifyContext, GoalInfo0, Context,
+			ModuleInfo0, VarSet0, VarTypes0,
+			Functor0, VarSet, VarTypes),
+		mode_info_set_varset(VarSet, ModeInfo0, ModeInfo1),
+		mode_info_set_var_types(VarTypes, ModeInfo1, ModeInfo2),
 		%
-		% construct a goal_info for the lambda goal, making sure
-		% to set up the nonlocals field in the goal_info correctly
+		% modecheck this unification in its new form
 		%
-		goal_info_get_nonlocals(GoalInfo0, NonLocals),
-		set__insert_list(NonLocals, LambdaVars, OutsideVars),
-		set__list_to_set(Args, InsideVars),
-		set__intersect(OutsideVars, InsideVars, LambdaNonLocals),
-		goal_info_init(LambdaGoalInfo0),
-		mode_info_get_context(ModeInfo2, Context),
-		goal_info_set_context(LambdaGoalInfo0, Context,
-				LambdaGoalInfo1),
-		goal_info_set_nonlocals(LambdaGoalInfo1, LambdaNonLocals,
-				LambdaGoalInfo),
-		LambdaGoal = LambdaGoalExpr - LambdaGoalInfo,
-
-		%
-		% work out the modes of the introduced lambda variables
-		% and the determinism of the lambda goal
-		%
-		proc_info_argmodes(ProcInfo, ArgModes),
-		list__length(ArgVars0, Arity),
-		( list__drop(Arity, ArgModes, LambdaModes0) ->
-			LambdaModes = LambdaModes0
-		;
-			error("modecheck_unification: list__drop failed")
-		),
-		proc_info_declared_determinism(ProcInfo, MaybeDet),
-		( MaybeDet = yes(Det) ->
-			LambdaDet = Det
-		;
-			error("Sorry, not implemented: determinism inference for higher-order predicate terms")
-		),
-
-		%
-		% construct the lambda expression, and then go ahead
-		% and modecheck this unification in its new form
-		%
-		Functor0 = lambda_goal(PredOrFunc, ArgVars0, LambdaVars, 
-				LambdaModes, LambdaDet, LambdaGoal),
 		modecheck_unification( X0, Functor0, Unification0, UnifyContext,
 				GoalInfo0, Goal, ModeInfo2, ModeInfo)
 	;
@@ -1256,19 +1188,6 @@ mode_set_args([], _, []).
 mode_set_args([Inst | Insts], FinalInst, [Mode | Modes]) :-
 	Mode = (Inst -> FinalInst),
 	mode_set_args(Insts, FinalInst, Modes).
-
-%-----------------------------------------------------------------------------%
-
-:- pred make_fresh_vars(list(type), prog_varset, map(prog_var, type),
-			list(prog_var), prog_varset, map(prog_var, type)).
-:- mode make_fresh_vars(in, in, in, out, out, out) is det.
-
-make_fresh_vars([], VarSet, VarTypes, [], VarSet, VarTypes).
-make_fresh_vars([Type|Types], VarSet0, VarTypes0,
-		[Var|Vars], VarSet, VarTypes) :-
-	varset__new_var(VarSet0, Var, VarSet1),
-	map__det_insert(VarTypes0, Var, Type, VarTypes1),
-	make_fresh_vars(Types, VarSet1, VarTypes1, Vars, VarSet, VarTypes).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
