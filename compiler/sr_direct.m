@@ -67,8 +67,7 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	% unifications, later in the choice analysis)
 	% XXX these goal-paths should become the main way of identifying the
 	% places of reuse, instead of annotating the actual goals.
-	{ initialise_reuse_info(ProcInfo0, ProcInfo00) },
-	{ sr_lfu__process_proc(ProcInfo00, ProcInfo1) },
+	{ sr_lfu__process_proc(ProcInfo0, ProcInfo1) },
 	{ sr_lbu__process_proc(ModuleInfo0, ProcInfo1, ProcInfo2b) },
 	{ goal_path__fill_slots(ProcInfo2b, ModuleInfo0, ProcInfo2) }, 
 
@@ -134,47 +133,4 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 			ProcInfo3) },
 	{ proc_info_set_goal(ProcInfo3, Goal, ProcInfo) }.
 
-
-:- pred initialise_reuse_info(proc_info::in, proc_info::out) is det.
-
-initialise_reuse_info(ProcInfo0, ProcInfo) :- 
-	proc_info_goal(ProcInfo0, Goal0), 
-	initialise_reuse_info_in_goal(Goal0, Goal),
-	proc_info_set_goal(ProcInfo0, Goal, ProcInfo).
-
-:- pred initialise_reuse_info_in_goal(hlds_goal::in, hlds_goal::out) is det.
-
-initialise_reuse_info_in_goal(Expr0 - Info0, Expr - Info) :- 
-	goal_info_reuse_init(Info0, Info),
-	initialise_reuse_info_in_subgoal(Expr0, Expr). 
-
-:- pred initialise_reuse_info_in_subgoal(hlds_goal_expr::in, 
-		hlds_goal_expr::out) is det.
-
-initialise_reuse_info_in_subgoal(conj(Goals0), conj(Goals)):- 
-	list__map(initialise_reuse_info_in_goal, Goals0, Goals).
-initialise_reuse_info_in_subgoal(call(A,B,C,D,E,F), call(A,B,C,D,E,F)).
-initialise_reuse_info_in_subgoal(generic_call(A,B,C,D), generic_call(A,B,C,D)).
-initialise_reuse_info_in_subgoal(switch(A,B,Cases0),switch(A,B,Cases)) :-
-	list__map(
-		pred(Case0::in, Case::out) is det :- 
-			( Case0 = case(C,G0), 
-			initialise_reuse_info_in_goal(G0,G),
-			Case = case(C,G)), Cases0, Cases).
-initialise_reuse_info_in_subgoal(unify(A,B,C,D,E), unify(A,B,C,D,E)).
-initialise_reuse_info_in_subgoal(disj(Goals0), disj(Goals)):- 
-	list__map(initialise_reuse_info_in_goal, Goals0, Goals).
-initialise_reuse_info_in_subgoal(not(Goal0), not(Goal)):- 
-	initialise_reuse_info_in_goal(Goal0, Goal).
-initialise_reuse_info_in_subgoal(some(A,B,G0),some(A,B,G)):- 
-	initialise_reuse_info_in_goal(G0, G).
-initialise_reuse_info_in_subgoal(if_then_else(A,I0,T0,E0),
-		if_then_else(A,I,T,E)):- 
-	initialise_reuse_info_in_goal(I0, I),
-	initialise_reuse_info_in_goal(T0, T),
-	initialise_reuse_info_in_goal(E0, E).
-initialise_reuse_info_in_subgoal(foreign_proc(A,B,C,D,E,F,G),
-		foreign_proc(A,B,C,D,E,F,G)).
-initialise_reuse_info_in_subgoal(par_conj(G),par_conj(G)).
-initialise_reuse_info_in_subgoal(shorthand(G),shorthand(G)).
 

@@ -774,7 +774,6 @@
 :- pred goal_info_get_outscope(hlds_goal_info::in, set(prog_var)::out) is det.
 :- pred goal_info_get_reuse(hlds_goal_info::in, reuse_goal_info::out) is det.
 
-:- pred goal_info_reuse_init(hlds_goal_info::in, hlds_goal_info::out) is det.
 :- pred goal_info_set_lfu(set(prog_var)::in, hlds_goal_info::in,
 	hlds_goal_info::out) is det.
 :- pred goal_info_set_lbu(set(prog_var)::in, hlds_goal_info::in,
@@ -1383,56 +1382,56 @@ goal_info_get_reuse(GoalInfo, Reuse) :-
 		error("goal_info_get_reuse: no goal_reuse_info")
 	).
 
-goal_info_reuse_init(GoalInfo0, GoalInfo) :- 
-	ReuseInfo = goal_reuse_info(set__init, set__init, set__init, empty),
-	GoalInfo = GoalInfo0 ^ goal_reuse_info := yes(ReuseInfo).
+:- pred goal_reuse_info_init(hlds_goal_reuse_info::out) is det.
+goal_reuse_info_init(ReuseInfo) :- 
+	ReuseInfo = goal_reuse_info(set__init, set__init, set__init, empty).
 
 goal_info_set_lfu(LFU, GoalInfo0, GoalInfo) :-
 	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
 	(
-		MaybeSub0 = yes(Sub0),
-		Sub = Sub0 ^ lfu := LFU,
-		MaybeSub = yes(Sub)
-	;
-		MaybeSub0 = no,
-		error("goal_info_set_lfu: no goal_reuse_info")
+		MaybeSub0 = yes(Sub0)
+	; 
+		MaybeSub0 = no, 
+		goal_reuse_info_init(Sub0)
 	),
+	Sub = Sub0 ^ lfu := LFU,
+	MaybeSub = yes(Sub),
 	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
 
 goal_info_set_lbu(LBU, GoalInfo0, GoalInfo) :- 
 	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
 	(
-		MaybeSub0 = yes(Sub0),
-		Sub = Sub0 ^ lbu := LBU,
-		MaybeSub = yes(Sub)
-	;
+		MaybeSub0 = yes(Sub0)
+	; 
 		MaybeSub0 = no,
-		error("goal_info_set_lbu: no goal_reuse_info")
+		goal_reuse_info_init(Sub0)
 	),
+	Sub = Sub0 ^ lbu := LBU,
+	MaybeSub = yes(Sub),
 	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
 
 goal_info_set_outscope(Outscope, GoalInfo0, GoalInfo) :- 
 	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
 	(
-		MaybeSub0 = yes(Sub0),
-		Sub = Sub0 ^ outscope := Outscope,
-		MaybeSub = yes(Sub)
+		MaybeSub0 = yes(Sub0)
 	;
-		MaybeSub0 = no,
-		error("goal_info_set_outscope: no goal_reuse_info")
-	),
+		MaybeSub0 = no, 
+		goal_reuse_info_init(Sub0)
+	), 
+	Sub = Sub0 ^ outscope := Outscope,
+	MaybeSub = yes(Sub),
 	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
 
 goal_info_set_reuse(Reuse, GoalInfo0, GoalInfo):- 
 	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
 	(
-		MaybeSub0 = yes(Sub0),
-		Sub = Sub0 ^ reuse := Reuse,
-		MaybeSub = yes(Sub)
-	;
-		MaybeSub0 = no,
-		error("goal_info_set_reuse: no goal_reuse_info")
+		MaybeSub0 = yes(Sub0)
+	; 
+		MaybeSub0 = no, 
+		goal_reuse_info_init(Sub0)
 	),
+	Sub = Sub0 ^ reuse := Reuse,
+	MaybeSub = yes(Sub),
 	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
 
 %-----------------------------------------------------------------------------%
