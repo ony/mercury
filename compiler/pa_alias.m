@@ -166,11 +166,12 @@ number_args(Args, NumberedArgs) :-
 		NumberedArgs,
 		1, _).
 	
-from_unification(_ProcInfo, _HLDS, 
+from_unification(ProcInfo, HLDS, 
 		construct(Var, Cons, Args0, _, _, _, _), _Info, AS) :-
 	get_rid_of_damn_typeinfos(Cons, Args0, Args),
 	number_args(Args, NumberedArgs), 
-	list__foldl(alias_from_unif(Var, Cons), NumberedArgs, [], AS0), 
+	list__foldl(alias_from_unif(HLDS, ProcInfo, Var, Cons), 
+						NumberedArgs, [], AS0), 
 	internal_aliases(NumberedArgs, PosList), 
 	create_internal_aliases(Var, Cons, PosList, AS1), 
 	list__append(AS0, AS1, AS). 
@@ -283,12 +284,13 @@ get_rid_of_damn_typeinfos(Cons, Args0, Args) :-
 	).
 	
 
-from_unification(_ProcInfo, _HLDS, 
+from_unification(ProcInfo, HLDS, 
 		deconstruct(Var, Cons, Args0, _, _, _), Info, AS) :-
 	get_rid_of_damn_typeinfos(Cons, Args0, Args), 
 	number_args(Args, NumberedArgs),
 	optimize_for_deconstruct(NumberedArgs, Info, ReducedArgs),
-	list__foldl(alias_from_unif(Var,Cons),ReducedArgs, [], AS).
+	list__foldl(alias_from_unif(HLDS, ProcInfo, Var, Cons), 
+			ReducedArgs, [], AS).
 
 :- pred optimize_for_deconstruct(list(pair(int, prog_var))::in, 
 		hlds_goal_info::in, list(pair(int, prog_var))::out) is det.
@@ -379,13 +381,20 @@ is_of_a_primitive_type(ProcInfo, HLDS, Var):-
 	map__lookup(VarTypes, Var, VarType), 
 	type_util__type_is_atomic(VarType, HLDS).
 
-:- pred alias_from_unif(prog_var::in, cons_id::in, pair(int, prog_var)::in, 
+:- pred alias_from_unif(module_info::in, proc_info::in, 
+		prog_var::in, cons_id::in, pair(int, prog_var)::in, 
 		list(alias)::in, list(alias)::out) is det.
-alias_from_unif(Var, Cons, N - ARG, List0, List):-
-	pa_datastruct__init(Var, Cons, N, D1),
-	pa_datastruct__init(ARG, D2),
-	Alias = D1 - D2,
-	List = [Alias | List0].
+alias_from_unif(ModuleInfo, ProcInfo, Var, Cons, N - ARG, List0, List):-
+	(
+		is_of_a_primitive_type(ProcInfo, ModuleInfo, ARG)
+	-> 
+		List = List0
+	; 
+		pa_datastruct__init(Var, Cons, N, D1),
+		pa_datastruct__init(ARG, D2),
+		Alias = D1 - D2,
+		List = [Alias | List0]
+	).
 
 	% switch the order of the alias...
 :- pred switch(alias::in, alias::out) is det.
