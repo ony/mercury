@@ -2710,7 +2710,7 @@ hlds_out__write_class_defn(Indent, ClassId - ClassDefn) -->
 :- pred hlds_out__write_class_proc(hlds_class_proc, io__state, io__state).
 :- mode hlds_out__write_class_proc(in, di, uo) is det.
 
-hlds_out__write_class_proc(hlds_class_proc(PredId, ProcId)) -->
+hlds_out__write_class_proc(hlds_class_proc(PredId, ProcId, _)) -->
 	io__write_string("hlds_class_proc(pred_id:"),
 	{ pred_id_to_int(PredId, PredInt) },
 	io__write_int(PredInt),

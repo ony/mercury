@@ -159,6 +159,11 @@
 			% PredName, Predicate or Function, Vars/Mode, 
 			% VarNames, Foreign Code Implementation Info
 
+	;	foreign_class(sym_name,
+			(type), list(pair(sym_name, arity)), string)
+			% Instance name, instance argument type,
+			% list of constructors, foreign name
+
 	;	foreign_type((type), sym_name, sym_name, string)
 			% MercuryType, MercuryTypeName, ForeignType,
 			% ForeignTypeLocation

@@ -190,6 +190,13 @@
 	module_info).
 :- mode module_info_set_superclasses(in, in, out) is det.
 
+:- pred module_info_foreign_classes(module_info, foreign_class_table).
+:- mode module_info_foreign_classes(in, out) is det.
+
+:- pred module_info_set_foreign_classes(module_info,
+		foreign_class_table, module_info).
+:- mode module_info_set_foreign_classes(in, in, out) is det.
+
 :- pred module_info_assertion_table(module_info, assertion_table).
 :- mode module_info_assertion_table(in, out) is det.
 
@@ -476,6 +483,7 @@
 		class_table ::			class_table,
 		instance_table ::		instance_table,
 		superclass_table ::		superclass_table,
+		foreign_class_table ::		foreign_class_table,
 		assertion_table ::		assertion_table,
 		ctor_field_table ::		ctor_field_table,
 		cell_counter ::			counter
@@ -564,6 +572,8 @@ module_info_init(Name, Items, Globals, QualifierInfo, ModuleInfo) :-
 	set__list_to_set(ImportDeps `list__append` UseDeps, ImportedModules),
 	set__init(IndirectlyImportedModules),
 
+	map__init(ForeignClassTable),
+
 	assertion_table_init(AssertionTable),
 	map__init(FieldNameTable),
 
@@ -574,8 +584,8 @@ module_info_init(Name, Items, Globals, QualifierInfo, ModuleInfo) :-
 		TypeSpecInfo, NoTagTypes),
 	ModuleInfo = module(ModuleSubInfo, PredicateTable, Requests,
 		UnifyPredMap, QualifierInfo, Types, Insts, Modes, Ctors,
-		ClassTable, SuperClassTable, InstanceTable, AssertionTable,
-		FieldNameTable, counter__init(1)).
+		ClassTable, SuperClassTable, InstanceTable, ForeignClassTable,
+		AssertionTable, FieldNameTable, counter__init(1)).
 
 %-----------------------------------------------------------------------------%
 
@@ -592,6 +602,7 @@ module_info_ctors(MI, MI ^ cons_table).
 module_info_classes(MI, MI ^ class_table).
 module_info_instances(MI, MI ^ instance_table).
 module_info_superclasses(MI, MI ^ superclass_table).
+module_info_foreign_classes(MI, MI ^ foreign_class_table).
 module_info_assertion_table(MI, MI ^ assertion_table).
 module_info_ctor_field_table(MI, MI ^ ctor_field_table).
 module_info_get_cell_counter(MI, MI ^ cell_counter).
@@ -612,6 +623,7 @@ module_info_set_ctors(MI, C, MI ^ cons_table := C).
 module_info_set_classes(MI, C, MI ^ class_table := C).
 module_info_set_instances(MI, I, MI ^ instance_table := I).
 module_info_set_superclasses(MI, S, MI ^ superclass_table := S).
+module_info_set_foreign_classes(MI, A, MI ^ foreign_class_table := A).
 module_info_set_assertion_table(MI, A, MI ^ assertion_table := A).
 module_info_set_ctor_field_table(MI, CF, MI ^ ctor_field_table := CF).
 module_info_set_cell_counter(MI, CC, MI ^ cell_counter := CC).

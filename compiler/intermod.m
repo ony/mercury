@@ -865,7 +865,7 @@ intermod__gather_instances_3(ModuleInfo, ClassId, InstanceDefn) -->
 			{ MaybePredProcIds = yes(ClassProcs) ->
 				GetPredId =
 				    (pred(Proc::in, PredId::out) is det :-
-					Proc = hlds_class_proc(PredId, _)
+					Proc = hlds_class_proc(PredId, _, _)
 				    ),
 				list__map(GetPredId, ClassProcs, ClassPreds0),
 
@@ -2008,7 +2008,7 @@ adjust_class_status_2(ModuleName, ClassId - ClassDefn0, ClassId - ClassDefn,
 class_procs_to_pred_ids(ClassProcs, PredIds) :-
 	list__map(
 		(pred(ClassProc::in, PredId::out) is det :-
-			ClassProc = hlds_class_proc(PredId, _)
+			ClassProc = hlds_class_proc(PredId, _, _)
 		),
 		ClassProcs, PredIds0),
 	list__sort_and_remove_dups(PredIds0, PredIds).

@@ -503,6 +503,7 @@
 						% inherits these base classes
 		implements ::	list(mlds__interface_id),
 						% implements these interfaces
+		ctors ::	mlds__defns,	% contains these constructors
 		members ::	mlds__defns	% contains these members
 	).
 
@@ -1275,8 +1276,13 @@ XXX Full exception handling support is not yet implemented.
 
 	;	binop(binary_op, mlds__rval, mlds__rval)
 
-	;	mem_addr(mlds__lval).
+	;	mem_addr(mlds__lval)
 		% The address of a variable, etc.
+
+	;	self.
+		% The equivalent of the this pointer in C++.  Note that
+		% this rval is valid iff we are targetting an object
+		% oriented backend.
 
 :- type mlds__unary_op
 	--->	box(mlds__type)

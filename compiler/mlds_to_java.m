@@ -390,6 +390,7 @@ generate_wrapper_class(ModuleName, Interface, MethodDefn, ClassDefn) :-
 		ClassExtends = [],
 		InterfaceDefn = mlds__class_type(Interface, 0, mlds__interface),
 		ClassImplements = [InterfaceDefn],
+		ClassCtors = [],
 		%
 		% Create a method that calls the original predicate.
 		%
@@ -403,7 +404,8 @@ generate_wrapper_class(ModuleName, Interface, MethodDefn, ClassDefn) :-
 		ClassContext  = Context,
 		ClassFlags    = ml_gen_type_decl_flags,
 		ClassBodyDefn = mlds__class_defn(mlds__class, ClassImports, 
-			ClassExtends, ClassImplements, ClassMembers),
+			ClassExtends, ClassImplements,
+			ClassCtors, ClassMembers),
 		ClassBody     = mlds__class(ClassBodyDefn)
 	;
 
@@ -650,7 +652,7 @@ output_class(Indent, Name, _Context, ClassDefn) -->
 		{ unexpected(this_file, "output_class") }
 	),
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, Implements,
-		AllMembers) },
+		_Ctors, AllMembers) },
 	( { Kind = mlds__interface } -> 
 		io__write_string("interface ")
 	;
@@ -2019,6 +2021,10 @@ output_rval(binop(Op, Rval1, Rval2)) -->
 
 output_rval(mem_addr(_Lval)) -->
 	{ unexpected(this_file, "output_rval: mem_addr(_) not supported") }.
+
+output_rval(self) -->
+	% XXX how do we reference the self pointer in Java?
+	{ sorry(this_file, "output_rval: self not yet implemented") }.
 
 :- pred output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode output_unop(in, in, di, uo) is det.

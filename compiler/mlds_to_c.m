@@ -962,7 +962,7 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		AllMembers) },
+		_Ctors, AllMembers) },
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -2712,6 +2712,9 @@ mlds_output_rval(mem_addr(Lval)) -->
 	% XXX are parentheses needed?
 	io__write_string("&"),
 	mlds_output_lval(Lval).
+
+mlds_output_rval(self) -->
+	{ error("mlds_to_c: self rval encountered.\n") }.
 
 :- pred mlds_output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode mlds_output_unop(in, in, di, uo) is det.

@@ -284,11 +284,43 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 :- mode generate_method_defn(in, in, out) is det.
 
 generate_method_defn(defn(type(_, _), _, _, _)) --> [].
-	% XXX we don't handle export
-generate_method_defn(defn(export(_), _, _, _)) --> [].
+generate_method_defn(ExportDefn) -->
+	{ ExportDefn = defn(export(Name), _, _, Entity) },
+	( { Entity = mlds__function(_, _, _, _) } ->
+		{ Id = Name },
+		{ EntryPoint = [] },
+		generate_method_function(ExportDefn, Id, EntryPoint)
+	;
+		[]
+	).
 generate_method_defn(FunctionDefn) -->
-	{ FunctionDefn = defn(function(PredLabel, ProcId, MaybeSeqNum, PredId), 
-		Context, DeclsFlags, Entity) },
+	{ FunctionDefn = defn(function(PredLabel, ProcId, MaybeSeqNum, _PredId),
+			_Context, _DeclsFlags, _Entity) },
+
+	{ predlabel_to_id(PredLabel, ProcId, MaybeSeqNum, Id) },
+
+		% If this is main, add the entrypoint, set a
+		% flag, and call the initialization instructions
+		% in the cctor of this module.
+	(
+		{ PredLabel = pred(predicate, no, "main", 2, model_det,
+				no) },
+		{ MaybeSeqNum = no }
+	->
+		{ EntryPoint = [entrypoint] },
+		il_info_add_init_instructions(
+			runtime_initialization_instrs),
+		^ has_main := yes
+	;
+		{ EntryPoint = [] }
+	),
+	generate_method_function(FunctionDefn, Id, EntryPoint).
+
+:- pred generate_method_function(mlds__defn::in, ilds__id::in,
+		list(method_body_decl)::in, il_info::in, il_info::out) is det.
+
+generate_method_function(Defn, Id, EntryPoint) -->
+	{ Defn = defn(_EntityName, Context, _DeclFlags, Entity) },
 	( { Entity = mlds__function(_PredProcId, Params, MaybeStatement,
 		Attributes) } ->
 
@@ -296,9 +328,7 @@ generate_method_defn(FunctionDefn) -->
 			% Generate a term (we use it to emit the complete
 			% method definition as a comment, which is nice
 			% for debugging).
-		{ term__type_to_term(defn(function(PredLabel, ProcId, 
-			MaybeSeqNum, PredId), Context, DeclsFlags, Entity),
-			MLDSDefnTerm) },
+		{ term__type_to_term(Defn, MLDSDefnTerm) },
 
 			% Generate the signature
 		{ Params = mlds__func_params(Args, Returns) },
@@ -307,10 +337,6 @@ generate_method_defn(FunctionDefn) -->
 		{ ILSignature = params_to_il_signature(DataRep, 
 			ModuleName, Params) },
 			
-			% Generate the name of the method.
-		{ predlabel_to_id(PredLabel, ProcId, MaybeSeqNum,
-			Id) },
-
 			% Initialize the IL info with this method info.
 		il_info_new_method(ILArgs, ILSignature, id(Id)),
 
@@ -330,21 +356,6 @@ generate_method_defn(FunctionDefn) -->
 				% The code might reference locals...
 			il_info_add_locals(["succeeded" - 
 				mlds__native_bool_type])
-		),
-
-			% If this is main, add the entrypoint, set a
-			% flag, and call the initialization instructions
-			% in the cctor of this module.
-		( { PredLabel = pred(predicate, no, "main", 2, model_det,
-			no) },
-		  { MaybeSeqNum = no }
-		->
-			{ EntryPoint = [entrypoint] },
-			il_info_add_init_instructions(
-				runtime_initialization_instrs),
-			^ has_main := yes
-		;
-			{ EntryPoint = [] }
 		),
 
 			% Generate the custom attributes
@@ -529,11 +540,11 @@ generate_other_decls(MLDSDefn, Decls) -->
 			{ Entity = mlds__class(ClassDefn) }
 		->
 			{ ClassDefn = mlds__class_defn(_ClassType, _Imports, 
-				Inherits, _Implements, Defns) },
+				Inherits, _Implements, _Ctors, Defns) },
 			DataRep =^ il_data_rep,
 			{ Extends = mlds_inherits_to_ilds_inherits(DataRep,
 				Inherits) },
-			list__map_foldl(defn_to_class_decl, Defns, ILDefns),
+			list__map_foldl(defn_to_class_decl(no), Defns, ILDefns),
 			{ make_constructor(DataRep, FullClassName, ClassDefn, 
 				ConstructorILDefn) },
 			{ Decls = [comment_term(MLDSDefnTerm),
@@ -546,9 +557,41 @@ generate_other_decls(MLDSDefn, Decls) -->
 		)
 	; { EntityName = function(_PredLabel, _ProcId, _MaybeFn, _PredId) },
 		{ Decls = [] }
-	; { EntityName = export(_) },
-			% XXX we don't handle export
-		{ Decls = [] }
+	; { EntityName = export(Name) },
+		( { Entity = mlds__class(ClassDefn) } ->
+			{ ClassDefn = mlds__class_defn(_ClassType, _Imports, 
+					Inherits, _Implements, Ctors, Defns) },
+			list__map_foldl(defn_to_class_decl(no),
+					Defns, ILDefnsA),
+			list__map_foldl(defn_to_class_decl(yes),
+					Ctors, ILDefnsB),
+			{ ILDefns = ILDefnsA ++ ILDefnsB },
+			{
+				Inherits = [mlds__foreign_type(ForeignType,
+						Assembly)]
+			->
+				sym_name_to_class_name(ForeignType,
+						no, ForeignClassName),
+				Extends = extends(structured_name(
+						Assembly, ForeignClassName))
+			;
+				error("multiple inheritance or not foreign_type")
+			}
+		;
+			{ error("not exporting a foreign_class") }
+		),
+			% XXX we are using export for foreign_class
+			% decls on this backend.
+		{ Decls = [class(
+					% XXX use the DeclFlags
+					[public],
+					Name,
+					% XXX use Entity
+					Extends,
+					implements([]),
+					ILDefns
+
+				)] }
 	; { EntityName = data(_) },
 		{ Decls = [] }
 	).
@@ -679,13 +722,13 @@ maybe_box_initializer(init_obj(Rval), init_obj(NewRval)) -->
 % Code to turn MLDS definitions into IL class declarations.
 %
 
-:- pred defn_to_class_decl(mlds__defn, class_member, il_info, il_info).
-:- mode defn_to_class_decl(in, out, in, out) is det.
+:- pred defn_to_class_decl(bool, mlds__defn, class_member, il_info, il_info).
+:- mode defn_to_class_decl(in, in, out, in, out) is det.
 
 	% XXX shouldn't we re-use the code for creating fieldrefs here?
 	% IL doesn't allow byrefs in classes, so we don't use them.
 	% XXX really this should be a transformation done in advance
-defn_to_class_decl(mlds__defn(Name, _Context, _DeclFlags, 
+defn_to_class_decl(_, mlds__defn(Name, _Context, _DeclFlags, 
 		mlds__data(Type, _Initializer)), ILClassMember) -->
 	DataRep =^ il_data_rep,
 	{ ILType = remove_byrefs_from_type(
@@ -698,21 +741,91 @@ defn_to_class_decl(mlds__defn(Name, _Context, _DeclFlags,
 	}.
 
 	% XXX this needs to be implemented
-defn_to_class_decl(mlds__defn(_Name, _Context, _DeclFlags,
-	mlds__function(_PredProcId, _Params, _MaybeStatements, _Attributes)),
+defn_to_class_decl(IsCtor, mlds__defn(Name, Context, _DeclFlags,
+	mlds__function(_PredProcId, Params, MaybeStatement, _Attributes)),
 		ILClassMember) -->
-	{ ILClassMember = comment("unimplemented: functions in classes") }.
 
-defn_to_class_decl(mlds__defn(EntityName, _Context, _DeclFlags,
+		% XXX should use declflags to generate this
+	{ MethodAttrs = [public] },
+
+	{ IsCtor = yes,
+		Id = ctor
+	; IsCtor = no,
+		( Name = export(ExportName) ->
+			Id = id(ExportName)
+		;
+				% XXX
+			Id = id("SomeName")
+		)
+	},
+
+	il_info_get_module_name(ModuleName),
+	DataRep =^ il_data_rep,
+	{ ILSignature = params_to_il_signature(DataRep, ModuleName, Params) },
+
+		% XXX
+	{ ImplAttrs = [] },
+
+		% Initialize the IL info with this method info.
+	{ Params = mlds__func_params(Args, Returns) },
+	{ ILArgs = list__map(mlds_arg_to_il_arg, Args) },
+	il_info_new_method(ILArgs, ILSignature, Id),
+
+		% XXX
+		% Start a new block, which we will use to wrap
+		% up the entire method.
+	il_info_get_next_block_id(BlockId),
+
+	( { MaybeStatement = yes(Statement) } -> 
+		statement_to_il(Statement, InstrsTree0)
+	;
+			% If there is no function body,
+			% generate forwarding code instead.
+			% This can happen with :- external
+		atomic_statement_to_il(inline_target_code(lang_C, []),
+			InstrsTree0),
+			% The code might reference locals...
+		il_info_add_locals(["succeeded" - 
+			mlds__native_bool_type])
+	),
+
+		% Need to insert a ret for functions returning
+		% void (MLDS doesn't).
+	{ Returns = [] ->
+		MaybeRet = instr_node(ret)
+	;
+		MaybeRet = empty
+	},
+
+
+		% Retrieve the locals, put them in the enclosing
+		% scope.
+	il_info_get_locals_list(Locals),
+	{ InstrsTree = tree__list([
+		context_node(Context),
+		instr_node(start_block(scope(Locals), BlockId)),
+		InstrsTree0, 
+		MaybeRet,
+		instr_node(end_block(scope(Locals), BlockId))
+		])
+	},
+
+		% Generate the entire method contents.
+	{ MethodDefn = make_method_defn(InstrsTree) },
+
+	{ MethodHead = methodhead(MethodAttrs, Id, ILSignature, ImplAttrs) },
+	{ ILClassMember = method(MethodHead, MethodDefn) }.
+
+defn_to_class_decl(_, mlds__defn(EntityName, _Context, _DeclFlags,
 		mlds__class(ClassDefn)), ILClassMember) -->
 	DataRep =^ il_data_rep,
 	( { EntityName = type(TypeName0, Arity) } ->
 		{ TypeName = string__format("%s_%d",
 			[s(TypeName0), i(Arity)]) },
 		{ ClassDefn = mlds__class_defn(_ClassType, _Imports, 
-			Inherits, _Implements, Defns) },
+			Inherits, _Implements, _Ctors, Defns) },
 		{ FullClassName = structured_name("", [TypeName]) },
-		list__map_foldl(defn_to_class_decl, Defns, ILDefns),
+		list__map_foldl(defn_to_class_decl(no), Defns, ILDefns),
 		{ make_constructor(DataRep, FullClassName, ClassDefn,
 			ConstructorILDefn) },
 		{ Extends = mlds_inherits_to_ilds_inherits(DataRep, Inherits) },
@@ -1054,7 +1167,7 @@ atomic_statement_to_il(inline_target_code(_Lang, _Code), node(Instrs)) -->
 		^ method_foreign_lang := yes(managed_cplusplus),
 		{ mangle_dataname_module(no, ModuleName, NewModuleName) },
 		{ ClassName = mlds_module_name_to_class_name(NewModuleName,
-				NewModuleName, no) },
+				NewModuleName, yes) },
 		signature(_, RetType, Params) =^ signature, 
 			% If there is a return value, put it in succeeded.
 			% XXX this is incorrect for functions, which might
@@ -1392,6 +1505,8 @@ load(mem_addr(Lval), Instrs) -->
 		{ Instrs = throw_unimplemented("load mem_addr lval mem_ref") }
 	).
 
+load(self, tree__list([instr_node(ldarg(index(0)))])) --> [].
+
 :- pred store(mlds__lval, instr_tree, il_info, il_info) is det.
 :- mode store(in, out, in, out) is det.
 
@@ -1725,6 +1840,8 @@ rval_to_function(Rval, MemberName) :-
 		unexpected(this_file, "binop_function_name")
 	; Rval = mem_addr(_),
 		unexpected(this_file, "mem_addr_function_name")
+	; Rval = self,
+		unexpected(this_file, "self_function_name")
 	).
 
 %-----------------------------------------------------------------------------
@@ -2378,7 +2495,7 @@ rval_to_type(lval(Lval), Type, Info0, Info) :-
 		Info = Info0
 	).
 
-	% The following four conversions should never occur or be boxed
+	% The following five conversions should never occur or be boxed
 	% anyway, but just in case they are we make them reference
 	% mercury.invalid which is a non-exisitant class.   If we try to
 	% run this code, we'll get a runtime error.
@@ -2396,6 +2513,11 @@ rval_to_type(binop(_, _, _), Type, I, I) :-
 	Type = mlds__class_type(qual(ModuleName, ModuleName, "invalid"),
 		0, mlds__class).
 rval_to_type(mem_addr(_), Type, I, I) :-
+	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
+	Type = mlds__class_type(qual(ModuleName, ModuleName, "invalid"),
+		0, mlds__class).
+rval_to_type(self, Type, I, I) :-
+	% XXX trd what is the right thing here?
 	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
 	Type = mlds__class_type(qual(ModuleName, ModuleName, "invalid"),
 		0, mlds__class).
@@ -2772,7 +2894,8 @@ make_method_defn(InstrTree) = MethodDecls :-
 	ilasm__class_member).
 :- mode make_constructor(in, in, in, out) is det.
 make_constructor(DataRep, ClassName, 
-		mlds__class_defn(_,  _Imports, Inherits, _Implements, Defns),
+		mlds__class_defn(_,  _Imports,
+			Inherits, _Implements, _Ctors, Defns),
 		ILDecl) :-
 	Extends = mlds_inherits_to_ilds_inherits(DataRep, Inherits),
 	( Extends = extends_nothing,

@@ -17,7 +17,7 @@
 :- interface.
 
 :- import_module prog_data.
-:- import_module hlds_pred, hlds_goal.
+:- import_module hlds_module, hlds_pred, hlds_goal.
 :- import_module code_model.
 :- import_module mlds, ml_code_util.
 
@@ -53,6 +53,9 @@
 :- pred ml_gen_proc_addr_rval(pred_id, proc_id, mlds__rval,
 		ml_gen_info, ml_gen_info).
 :- mode ml_gen_proc_addr_rval(in, in, out, in, out) is det.
+
+:- func ml_gen_proc_addr_rval(module_info, pred_id, proc_id) = mlds__rval.
+
 
 	% Given a source type and a destination type,
 	% and given an source rval holding a value of the source type,
@@ -97,7 +100,6 @@
 
 :- implementation.
 
-:- import_module hlds_module.
 :- import_module builtin_ops.
 :- import_module type_util, mode_util, error_util.
 :- import_module options, globals.
@@ -552,14 +554,15 @@ ml_gen_arg_name(ArgNum) = mlds__var_name(ArgName, no) :-
 ml_gen_proc_addr_rval(PredId, ProcId, CodeAddrRval) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
-	{ ml_gen_pred_label(ModuleInfo, PredId, ProcId,
-		PredLabel, PredModule) },
-	{ Params = ml_gen_proc_params(ModuleInfo, PredId, ProcId) },
-	{ Signature = mlds__get_func_signature(Params) },
-	{ QualifiedProcLabel = qual(PredModule,
-			PredModule, PredLabel - ProcId) },
-	{ CodeAddrRval = const(code_addr_const(proc(QualifiedProcLabel,
-		Signature))) }.
+	{ CodeAddrRval = ml_gen_proc_addr_rval(ModuleInfo, PredId, ProcId) }.
+
+ml_gen_proc_addr_rval(ModuleInfo, PredId, ProcId) = CodeAddrRval :-
+	ml_gen_pred_label(ModuleInfo, PredId, ProcId, PredLabel, PredModule),
+	Params = ml_gen_proc_params(ModuleInfo, PredId, ProcId),
+	Signature = mlds__get_func_signature(Params),
+	QualifiedProcLabel = qual(PredModule, PredModule, PredLabel - ProcId),
+	CodeAddrRval = const(code_addr_const(proc(QualifiedProcLabel,
+			Signature))).
 
 %
 % Generate rvals and lvals for the arguments of a procedure call

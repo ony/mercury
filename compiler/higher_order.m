@@ -772,7 +772,7 @@ maybe_specialize_higher_order_call(PredVar, MaybeMethod, Args,
 				InstanceConstraintArgs)
 		->
 			list__index1_det(ClassInterface, Method,
-				hlds_class_proc(PredId, ProcId)),
+				hlds_class_proc(PredId, ProcId, _)),
 			list__append(InstanceConstraintArgs, Args, AllArgs)
 		;
 			fail
@@ -865,7 +865,7 @@ find_matching_instance_method([Instance | Instances], MethodNum,
 		Instance = hlds_instance_defn(_, _, _, _,
 			_, _, yes(ClassInterface), _, _),
 		list__index1_det(ClassInterface, MethodNum,
-			hlds_class_proc(PredId, ProcId))
+			hlds_class_proc(PredId, ProcId, _))
 	;
 		find_matching_instance_method(Instances, MethodNum,
 			ClassTypes, PredId, ProcId, Constraints,

@@ -938,6 +938,9 @@ qualify_type(Type0, Type, Info0, Info) -->
 qualify_pragma(source_file(File), source_file(File), Info, Info) --> [].
 qualify_pragma(foreign_decl(L, Code), foreign_decl(L, Code), Info, Info) --> [].
 qualify_pragma(foreign_code(L, C), foreign_code(L, C), Info, Info) --> [].
+qualify_pragma(foreign_class(A, Type0, C, D),
+		foreign_class(A, Type, C, D), Info0, Info) -->
+	qualify_type(Type0, Type, Info0, Info).
 qualify_pragma(foreign_type(Type0, SymName, F, L),
 		foreign_type(Type, SymName, F, L), Info0, Info) -->
 	qualify_type(Type0, Type, Info0, Info).

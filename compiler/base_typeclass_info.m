@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -116,7 +116,7 @@ base_typeclass_info__gen_body(yes(PredProcIds0), Types, Constraints,
 	NumExtra = NumConstraints + NumUnconstrained,
 	ExtractPredProcId = lambda([HldsPredProc::in, PredProc::out] is det,
 		(
-			HldsPredProc = hlds_class_proc(PredId, ProcId),
+			HldsPredProc = hlds_class_proc(PredId, ProcId, _),
 			PredProc = proc(PredId, ProcId)
 		)),
 	list__map(ExtractPredProcId, PredProcIds0, PredProcIds),

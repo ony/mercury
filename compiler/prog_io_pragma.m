@@ -70,6 +70,66 @@ parse_pragma_type(_, "source_file", PragmaTerms, ErrorTerm, _VarSet, Result) :-
 			ErrorTerm)
 	).
 
+parse_pragma_type(ModuleName, "foreign_class", PragmaTerms,
+            ErrorTerm, _VarSet, Result) :-
+    ( PragmaTerms = [InstanceTerm, ConstructorListTerm, ForeignNameTerm] -> 
+	parse_implicitly_qualified_term(ModuleName, InstanceTerm,
+		ErrorTerm, "`:- pragma foreign_class' declaration",
+		MaybeInstance),
+	(
+	    MaybeInstance = ok(InstanceSymName, InstanceArgs),
+	    ( InstanceArgs = [MercuryTypeTerm] ->
+		parse_implicitly_qualified_term(ModuleName, MercuryTypeTerm,
+			ErrorTerm, "`:- pragma foreign_class' declaration",
+			MaybeMercuryType),
+		(
+		    MaybeMercuryType = ok(_MercuryTypeSymName, MercuryArgs),
+		    ( MercuryArgs = [] ->
+			(
+			    ForeignNameTerm = term__functor(
+				    term__string(ForeignNameStr), [], _)
+			->
+			    term__coerce(MercuryTypeTerm, MercuryType),
+				% XXX Handle ConstructorListTerm correctly
+			    parse_pred_name_and_arity(ModuleName,
+				"foreign_class", ConstructorListTerm,
+				ErrorTerm, NameArityResult),
+			    (
+				NameArityResult = ok(PredName, Arity),
+			    	Result = ok(pragma(
+					foreign_class(InstanceSymName,
+			    		MercuryType, [PredName - Arity],
+					ForeignNameStr)))
+			    ;
+				NameArityResult = error(ErrorMsg, _),
+				Result = error(ErrorMsg, ConstructorListTerm)
+			    )
+			;
+			    Result = error("foreign class name not a string",
+				    ForeignNameTerm)
+			)
+		    ;
+			Result = error("instance type arity not 0",
+				MercuryTypeTerm)
+		    )
+		;
+		    MaybeMercuryType = error(String, Term),
+		    Result = error(String, Term)
+		)
+	    ;
+		Result = error("instance can only have one type argument",
+			InstanceTerm)
+	    )
+	;
+	    MaybeInstance = error(String, Term),
+	    Result = error(String, Term)
+	)
+    ;
+        Result = error(
+    "wrong number of arguments in `:- pragma foreign_class' declaration",
+            ErrorTerm)
+    ).
+
 parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
             ErrorTerm, _VarSet, Result) :-
     ( PragmaTerms = [MercuryName, ForeignName, ForeignLocation] ->

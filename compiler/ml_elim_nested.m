@@ -382,7 +382,7 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	EnvTypeFlags = env_type_decl_flags,
 	Fields = list__map(convert_local_to_field, LocalVars),
 	EnvTypeDefnBody = mlds__class(mlds__class_defn(EnvTypeKind, [], 
-		[mlds__generic_env_ptr_type], [], Fields)),
+		[mlds__generic_env_ptr_type], [], [], Fields)),
 	EnvTypeDefn = mlds__defn(EnvTypeEntityName, Context, EnvTypeFlags,
 		EnvTypeDefnBody),
 
@@ -1015,6 +1015,7 @@ fixup_rval(binop(Op, X0, Y0), binop(Op, X, Y)) -->
 	fixup_rval(Y0, Y).
 fixup_rval(mem_addr(Lval0), mem_addr(Lval)) -->
 	fixup_lval(Lval0, Lval).
+fixup_rval(self, self) --> [].
 
 :- pred fixup_lvals(list(mlds__lval), list(mlds__lval), elim_info, elim_info).
 :- mode fixup_lvals(in, out, in, out) is det.
@@ -1202,7 +1203,7 @@ defn_body_contains_defn(mlds__function(_PredProcId, _Params, MaybeBody, _Attrs),
 	maybe_statement_contains_defn(MaybeBody, Name).
 defn_body_contains_defn(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
-		FieldDefns),
+		_Ctors, FieldDefns),
 	defns_contains_defn(FieldDefns, Name).
 
 :- pred statements_contains_defn(mlds__statements, mlds__defn).
@@ -1330,7 +1331,7 @@ defn_body_contains_var(mlds__function(_PredProcId, _Params, MaybeBody, _Attrs),
 	maybe_statement_contains_var(MaybeBody, Name).
 defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
-		FieldDefns),
+		_Ctors, FieldDefns),
 	defns_contains_var(FieldDefns, Name).
 
 :- pred maybe_statement_contains_var(maybe(mlds__statement), mlds__var).

@@ -262,7 +262,7 @@ get_class_interface_pred_procs(Ids, Queue0, Queue, Needed0, Needed) :-
 	AddHldsClassProc = lambda(
 		[PredProc::in, Q0::in, Q::out, N0::in, N::out] is det,
 		(
-			PredProc = hlds_class_proc(PredId, ProcId),
+			PredProc = hlds_class_proc(PredId, ProcId, _),
 			queue__put(Q0, proc(PredId, ProcId), Q),
 			map__set(N0, proc(PredId, ProcId), no, N)
 		)),

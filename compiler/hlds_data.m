@@ -833,7 +833,8 @@ determinism_components(failure,     can_fail,    at_most_zero).
 :- type hlds_class_proc
 	---> 	hlds_class_proc(
 			pred_id,
-			proc_id
+			proc_id,
+			maybe(instance_method)
 		).
 
 	% For each class, we keep track of a list of its instances, since there
@@ -899,6 +900,24 @@ determinism_components(failure,     can_fail,    at_most_zero).
 	% I'm sure there's a very clever way of 
 	% doing this with graphs or relations...
 :- type superclass_table == multi_map(class_id, subclass_details).
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- interface.
+
+:- type foreign_class_table == map(string, foreign_class_defn).
+
+:- type foreign_class_defn
+	--->	foreign_class(
+			(instance)	:: sym_name,
+			(type)		:: (type),
+			constructors	:: list(pred_id),
+			foreign_name	:: string,
+			context		:: prog_context
+		).
+
+:- implementation.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -162,7 +162,7 @@ check_one_class(ClassTable, ClassId - InstanceDefns0,
 		solutions(
 			(pred(PredId::out) is nondet :-
 				list__member(ClassProc, ClassInterface),
-				ClassProc = hlds_class_proc(PredId, _)
+				ClassProc = hlds_class_proc(PredId, _, _)
 			),
 			PredIds),
 		list_map_foldl2(
@@ -404,7 +404,7 @@ check_instance_pred(ClassId, ClassVars, ClassInterface, PredId,
 		lambda([ProcId::out] is nondet, 
 			(
 				list__member(ClassProc, ClassInterface),
-				ClassProc = hlds_class_proc(PredId, ProcId)
+				ClassProc = hlds_class_proc(PredId, ProcId, _)
 			)),
 		ProcIds),
 	module_info_pred_info(ModuleInfo0, PredId, PredInfo),
@@ -515,7 +515,7 @@ check_instance_pred_procs(ClassId, ClassVars, MethodName, Markers,
 			lambda([TheProcId::in, PredProcId::out] is det,
 			(
 				PredProcId = hlds_class_proc(InstancePredId,
-					TheProcId)
+						TheProcId, yes(InstanceMethod))
 			)),
 		list__map(MakeClassProc, InstanceProcIds, InstancePredProcs1),
 		(

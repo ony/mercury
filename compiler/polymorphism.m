@@ -3293,7 +3293,7 @@ expand_bodies(hlds_class_defn(_, _, _, _, Interface, _, _),
 :- pred expand_one_body(hlds_class_proc, int, int, module_info, module_info).
 :- mode expand_one_body(in, in, out, in, out) is det.
 
-expand_one_body(hlds_class_proc(PredId, ProcId), ProcNum0, ProcNum, 
+expand_one_body(hlds_class_proc(PredId, ProcId, _), ProcNum0, ProcNum, 
 		ModuleInfo0, ModuleInfo) :-
 	module_info_preds(ModuleInfo0, PredTable0),
 	map__lookup(PredTable0, PredId, PredInfo0),

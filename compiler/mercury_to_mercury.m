@@ -358,6 +358,22 @@ mercury_output_item(pragma(Pragma), Context) -->
 		mercury_output_pragma_foreign_code(Attributes, Pred,
 			PredOrFunc, Vars, VarSet, PragmaCode)
 	;
+		{ Pragma = foreign_class(InstanceName, InstanceType,
+				ConstructorList, ForeignClassName) },
+		io__write_string(":- pragma foreign_class("),
+		mercury_output_sym_name(InstanceName),
+		io__write_string("("),
+		output_type(varset__init, no, InstanceType),
+		io__write_string("), "),
+		( { ConstructorList = [] } ->
+			io__write_string("[], ")
+		;
+			{ error("mercury_output_item: non empty cons list") }
+		),
+		io__write_string("\""),
+		io__write_string(ForeignClassName),
+		io__write_string("\").\n")
+	;
 		{ Pragma = foreign_type(_MercuryType,
 				MercuryTypeSymName, ForeignType,
 				ForeignTypeLoc) },

@@ -417,6 +417,17 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Module = Module0 }
 	;	
 		% XXXX
+		{ Pragma = foreign_class(Instance, Type, Constructors, Name) },
+		constructor_predids(Module0, Constructors, Context,
+				Module1, PredIds),
+		{ module_info_foreign_classes(Module1, ForeignClasses0) },
+		{ map__det_insert(ForeignClasses0, Name,
+				foreign_class(Instance, Type,
+				PredIds, Name, Context), ForeignClasses) },
+		{ module_info_set_foreign_classes(Module1,
+				ForeignClasses, Module) }
+	;	
+		% XXXX
 		{ Pragma = foreign_type(MercuryType, _, ForeignType,
 				ForeignTypeLocation) },
 		{ module_info_types(Module0, Types0) },
@@ -1571,6 +1582,43 @@ check_index_attribute_pred(ModuleInfo, Name, Arity, Context, Attrs, PredId) -->
 		[]
 	).
 
+:- pred constructor_predids(module_info::in, list(pair(sym_name, arity))::in,
+		prog_context::in, module_info::out, list(pred_id)::out,
+		io__state::di, io__state::uo) is det.
+
+constructor_predids(Module, [], _, Module, []) --> [].
+constructor_predids(Module0, [SymName - Arity | Pairs],
+		Context, Module, [PredId | PredIds]) -->
+	constructor_predid(Module0, SymName, Arity, Context, Module1, PredId),
+	constructor_predids(Module1, Pairs, Context, Module, PredIds).
+
+:- pred constructor_predid(module_info::in, sym_name::in, arity::in,
+		prog_context::in, module_info::out, pred_id::out,
+		io__state::di, io__state::uo) is det.
+
+constructor_predid(Module0, Name, Arity, Context, Module, PredId) -->
+	( { get_matching_pred_ids(Module0, Name, Arity, PredIds) } ->
+		( { PredIds = [PredId0] } ->
+			{ PredId = PredId0 },
+			{ Module = Module0 }
+		;
+			{ invalid_pred_id(PredId) },
+			io__set_exit_status(1),
+			prog_out__write_context(Context),
+			io__write_string("Error: More then one matching func"),
+			io__write_string(" for "),
+			prog_out__write_sym_name_and_arity(Name/Arity),
+			io__write_string("\n"),
+			{ module_info_incr_errors(Module0, Module) }
+		)
+		
+	;
+		{ invalid_pred_id(PredId) },
+		undefined_pred_or_func_error(Name, Arity, Context,
+			"`:- pragma foreign_class declaration"),
+		{ module_info_incr_errors(Module0, Module) }
+	).
+
 :- type add_marker_pred_info == pred(pred_info, pred_info).
 :- inst add_marker_pred_info = (pred(in, out) is det).
 
@@ -2400,7 +2448,8 @@ module_add_class_defn(Module0, Constraints, Name, Vars, Interface, VarSet,
 			    (pred(Maybe::in, PredProcId::out) is semidet :-
 				(
 					Maybe = yes(Pred - Proc),
-					PredProcId = hlds_class_proc(Pred, Proc)
+					PredProcId = hlds_class_proc(
+							Pred, Proc, no)
 			    )) },
 			{ list__filter_map(IsYes, PredProcIds0, PredProcIds1) },
 

@@ -767,6 +767,7 @@
 :- implementation.
 
 :- import_module ml_type_gen, ml_call_gen, ml_unify_gen, ml_switch_gen.
+:- import_module ml_foreign_class.
 :- import_module ml_code_util.
 :- import_module arg_info, llds, llds_out. % XXX needed for pragma foreign code
 :- import_module export, foreign. % XXX needed for pragma foreign code
@@ -832,7 +833,9 @@ ml_gen_imports(ModuleInfo, MLDS_ImportList) :-
 ml_gen_defns(ModuleInfo, MLDS_Defns) -->
 	ml_gen_types(ModuleInfo, MLDS_TypeDefns),
 	ml_gen_preds(ModuleInfo, MLDS_PredDefns),
-	{ MLDS_Defns = list__append(MLDS_TypeDefns, MLDS_PredDefns) }.
+	ml_foreign_class(ModuleInfo, MLDS_ForeignClassDefns),
+	{ MLDS_Defns = MLDS_TypeDefns ++ 
+			(MLDS_PredDefns ++ MLDS_ForeignClassDefns) }.
 
 %-----------------------------------------------------------------------------%
 %
