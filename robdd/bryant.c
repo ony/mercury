@@ -1,12 +1,12 @@
 /*
-** Copyright (C) 1995, 2001 The University of Melbourne.
+** Copyright (C) 1995, 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
 
 /*****************************************************************
   File     : bryant.c
-  RCS      : $Id: bryant.c,v 1.1.12.3 2001-05-15 01:50:04 dmo Exp $
+  RCS      : $Id: bryant.c,v 1.1.12.4 2002-05-08 09:35:28 zs Exp $
   Author   : Peter Schachte, based on code by Tania Armstrong
   Purpose  : Manipulation of boolean functions
 
@@ -15,7 +15,6 @@
 /*****************************************************************
 
 		     Controlling #defined Symbols
-
 
   This code is conditionalized on a number of #defined symbols.  They are:
 
@@ -93,7 +92,6 @@
 			and so should be avoided.  In this case we use a
 			table where possible to avoid shifting.
 
-
 *****************************************************************/
 
 #include "mercury_imp.h"
@@ -103,7 +101,6 @@
 #include <ctype.h>
 #include <limits.h>
 #include "bryant.h"
-
 
 #ifdef BRYANT_CONSERVATIVE_GC
 
@@ -121,8 +118,10 @@
   #define BRYANT_memset(d, c, n) MR_memset(d, c, n)
 
 #else /* !BRYANT_CONSERVATIVE_GC */
+
   #define POOL
   #define BRYANT_memset(d, c, n) memset(d, c, n)
+
 #endif /* BRYANT_CONSERVATIVE_GC */
 
 #define REVEAL_NODE_POINTER(p) ((node *) REVEAL_POINTER(p))
@@ -130,24 +129,23 @@
 #define UNUSED_MAPPING -1	/* this MUST BE -1 */
 
 #if !defined(max)
-#define max(a,b) ((a)<(b) ? (b) : (a))
+  #define max(a,b) ((a)<(b) ? (b) : (a))
 #endif
 #if !defined(min)
-#define min(a,b) ((a)<(b) ? (a) : (b))
+  #define min(a,b) ((a)<(b) ? (a) : (b))
 #endif
 
 #define PERCENTAGE(x,y) ((100.0 * (float)(x)) / (float)(y))
 
 #ifdef POOL
-typedef struct pool {
+  typedef struct pool {
     node data[POOL_SIZE];
     struct pool *prev;
-} pool;
+  } pool;
 #endif POOL
 
-
 #if defined(NO_CHEAP_SHIFT) && BITS_PER_WORD == 32
-bitmask following_bits[BITS_PER_WORD] =
+  bitmask following_bits[BITS_PER_WORD] =
     {  0xffffffff, 0xfffffffe, 0xfffffffc, 0xfffffff8,
        0xfffffff0, 0xffffffe0, 0xffffffc0, 0xffffff80,
        0xffffff00, 0xfffffe00, 0xfffffc00, 0xfffff800,
@@ -158,7 +156,7 @@ bitmask following_bits[BITS_PER_WORD] =
        0xf0000000, 0xe0000000, 0xc0000000, 0x80000000
     };
 
-bitmask preceding_bits[BITS_PER_WORD] =
+  bitmask preceding_bits[BITS_PER_WORD] =
     {  0x00000001, 0x00000003, 0x00000007, 0x0000000f,
        0x0000001f, 0x0000003f, 0x0000007f, 0x000000ff,
        0x000001ff, 0x000003ff, 0x000007ff, 0x00000fff,
@@ -169,7 +167,6 @@ bitmask preceding_bits[BITS_PER_WORD] =
        0x1fffffff, 0x3fffffff, 0x7fffffff, 0xffffffff
     };
 #endif
-
 
 unsigned char first_one_bit[256] =
     {255, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0, /*  16 */
@@ -209,7 +206,6 @@ unsigned char last_one_bit[256] =
        7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, /* 256 */
     };
 
-
 /* automatically initialized to all 0 bits: */
 bitset emptyset;
 
@@ -219,115 +215,116 @@ bitset emptyset;
 
  ****************************************************************/
 
-
 #if defined(COMPUTED_TABLE) && defined(CLEAR_CACHES)
-#define CLEAR_CACHE(op)	\
-BRYANT_memset(op##_computed_cache, 0, sizeof(op##_computed_cache))
+  #define CLEAR_CACHE(op)	\
+	BRYANT_memset(op##_computed_cache, 0, sizeof(op##_computed_cache))
 #else /* !CLEAR_CACHES || !COMPUTED_TABLE */
-#define CLEAR_CACHE(op)
+  #define CLEAR_CACHE(op)
 #endif
-
 
 #if defined(STATISTICS)
 
-/* The largest bucket size to be separately counted.  Larger buckets
- * will be listed as "> MAX_COUNT." 
- */
-#define MAX_COUNT 1000
+  /* The largest bucket size to be separately counted.  Larger buckets
+   * will be listed as "> MAX_COUNT." 
+   */
+  #define MAX_COUNT 1000
 
-int unique_table_hits, unique_table_misses;
+  int unique_table_hits, unique_table_misses;
 
-#define DECLARE_FN_COUNT(op) int op##_count;
+  #define DECLARE_FN_COUNT(op) int op##_count;
 
-#define COUNT_FN(fn) (++fn##_count)
+  #define COUNT_FN(fn) (++fn##_count)
 
-#define INIT_FN_COUNT(fn) fn##_count = 0
-#define PRINT_FN_COUNT(fn) \
-  if (fn##_count!=0) printf("%6d calls to " #fn "\n", fn##_count);
+  #define INIT_FN_COUNT(fn) fn##_count = 0
+  #define PRINT_FN_COUNT(fn) \
+	if (fn##_count!=0) printf("%6d calls to " #fn "\n", fn##_count);
 
-#define COUNT_UNIQUE_HIT (++unique_table_hits)
-#define COUNT_UNIQUE_MISS (++unique_table_misses)
+  #define COUNT_UNIQUE_HIT (++unique_table_hits)
+  #define COUNT_UNIQUE_MISS (++unique_table_misses)
 
-#if defined(COMPUTED_TABLE)
+  #if defined(COMPUTED_TABLE)
 
-#define COUNT_HIT(op) (++op##_computed_hits)
-#define COUNT_MISS(op) (++op##_computed_misses, ++cache->count)
-#define INIT_CACHE(op)			\
-    do {				\
-	op##_computed_misses = 0;	\
-	op##_computed_hits = 0;		\
-	CLEAR_CACHE(op);		\
-    } while (0)
+    #define COUNT_HIT(op) (++op##_computed_hits)
+    #define COUNT_MISS(op) (++op##_computed_misses, ++cache->count)
+    #define INIT_CACHE(op)			\
+	do {					\
+	    op##_computed_misses = 0;		\
+	    op##_computed_hits = 0;		\
+	    CLEAR_CACHE(op);			\
+	} while (0)
 
-#define CACHE_COUNT_MEMBER int count;
-#define PRINT_CACHE_PERFORMANCE(op)					\
-do {									\
-    if (op##_computed_misses > 0 ) {					\
-	int i, size_count[MAX_COUNT+2];					\
-	printf(#op " computed table:  %d hits, %d misses, %.2f%% hit rate\n",\
-	       op##_computed_hits, op##_computed_misses,		\
-		PERCENTAGE(op##_computed_hits,				\
-			   op##_computed_hits + op##_computed_misses));	\
-	BRYANT_memset(size_count, 0, sizeof(size_count));			\
-	for (i=0; i<COMPUTED_TABLE_SIZE; ++i) {				\
-	    int count = op##_computed_cache[i].count;			\
-	    ++size_count[(count<=MAX_COUNT ? count : MAX_COUNT+1)];	\
-	}								\
-	print_distribution(size_count, MAX_COUNT);			\
-    }									\
-} while (0)
-#else /* !COMPUTED_TABLE */
-#define PRINT_CACHE_PERFORMANCE(op)
-#endif /* COMPUTED_TABLE */
+    #define CACHE_COUNT_MEMBER int count;
+    #define PRINT_CACHE_PERFORMANCE(op)					\
+	do {								\
+	    if (op##_computed_misses > 0 ) {				\
+		int i, size_count[MAX_COUNT+2];				\
+		printf(#op " computed table:  %d hits, %d misses, %.2f%% hit rate\n",\
+		       op##_computed_hits, op##_computed_misses,	\
+			PERCENTAGE(op##_computed_hits,			\
+				   op##_computed_hits + op##_computed_misses));\
+		BRYANT_memset(size_count, 0, sizeof(size_count));	\
+		for (i=0; i<COMPUTED_TABLE_SIZE; ++i) {			\
+		    int count = op##_computed_cache[i].count;		\
+		    ++size_count[(count<=MAX_COUNT ? count : MAX_COUNT+1)];\
+		}							\
+		print_distribution(size_count, MAX_COUNT);		\
+	    }								\
+	} while (0)
+
+  #else /* !COMPUTED_TABLE */
+
+    #define PRINT_CACHE_PERFORMANCE(op)
+
+  #endif /* COMPUTED_TABLE */
 #else /* ! STATISTICS */
-#define DECLARE_FN_COUNT(op)
-#define COUNT_FN(fn)
-#define INIT_FN_COUNT(fn)
-#define PRINT_FN_COUNT(fn)
-#define COUNT_UNIQUE_HIT
-#define COUNT_UNIQUE_MISS
-#define INIT_CACHE(op) CLEAR_CACHE(op)
-#define PRINT_CACHE_PERFORMANCE(op)
-#if defined(COMPUTED_TABLE)
-#define COUNT_HIT(fn)
-#define COUNT_MISS(fn)
-#define CACHE_COUNT_MEMBER
-#endif /* COMPUTED_TABLE */
+
+  #define DECLARE_FN_COUNT(op)
+  #define COUNT_FN(fn)
+  #define INIT_FN_COUNT(fn)
+  #define PRINT_FN_COUNT(fn)
+  #define COUNT_UNIQUE_HIT
+  #define COUNT_UNIQUE_MISS
+  #define INIT_CACHE(op) CLEAR_CACHE(op)
+  #define PRINT_CACHE_PERFORMANCE(op)
+
+  #if defined(COMPUTED_TABLE)
+    #define COUNT_HIT(fn)
+    #define COUNT_MISS(fn)
+    #define CACHE_COUNT_MEMBER
+  #endif /* COMPUTED_TABLE */
+
 #endif /* STATISTICS */
 
-
 #if defined(EQUAL_TEST)
-#define DIRECT_EQUAL_TEST(f,g,result) if ((f) == (g)) return (result)
-#define ELSE_TRY_EQUAL_TEST(f,g,result) \
-  else DIRECT_EQUAL_TEST(f,g,result);
+  #define DIRECT_EQUAL_TEST(f,g,result)	  if ((f) == (g)) return (result)
+  #define ELSE_TRY_EQUAL_TEST(f,g,result) else DIRECT_EQUAL_TEST(f,g,result);
 #else /* ! EQUAL_TEST */
-#define DIRECT_EQUAL_TEST(f,g,result)
-#define ELSE_TRY_EQUAL_TEST(f,g,result)
+  #define DIRECT_EQUAL_TEST(f,g,result)
+  #define ELSE_TRY_EQUAL_TEST(f,g,result)
 #endif
 
 #if defined(CLEAR_CACHES)
-#if defined(POOL)
-#define INIT_UNIQUE_TABLE				\
-    do {						\
-	BRYANT_memset(unique_table, (char) 0,		\
-	    		sizeof(unique_table));		\
-	while (curr_pool!=NULL) {			\
-	    pool *p = curr_pool->prev;			\
-	    free(curr_pool);				\
-	    curr_pool = p;				\
-	}						\
-	curr_pool_ptr = curr_pool_end_ptr = NULL;	\
-	node_count = 0;					\
-    } while (0)
-#else /* !POOL */
-#define INIT_UNIQUE_TABLE				\
-    BRYANT_memset(unique_table, (char) 0, sizeof(unique_table));
-#endif /* POOL */
+  #if defined(POOL)
+    #define INIT_UNIQUE_TABLE					\
+	    do {						\
+		BRYANT_memset(unique_table, (char) 0,		\
+				sizeof(unique_table));		\
+		while (curr_pool!=NULL) {			\
+		    pool *p = curr_pool->prev;			\
+		    free(curr_pool);				\
+		    curr_pool = p;				\
+		}						\
+		curr_pool_ptr = curr_pool_end_ptr = NULL;	\
+		node_count = 0;					\
+	    } while (0)
+
+  #else /* !POOL */
+    #define INIT_UNIQUE_TABLE				\
+	BRYANT_memset(unique_table, (char) 0, sizeof(unique_table));
+   #endif /* POOL */
 #else /* !CLEAR_CACHES */
-#define INIT_UNIQUE_TABLE
+  #define INIT_UNIQUE_TABLE
 #endif /* CLEAR_CACHES */
-
-
 
 /********************************************************************
 
@@ -347,161 +344,156 @@ do {									\
 
 #if defined(COMPUTED_TABLE)
 
-#if defined(STATISTICS)
-#define DECLARE_CACHE(op,type)			\
-static int op##_computed_hits;			\
-static int op##_computed_misses;		\
-static type op##_computed_cache[COMPUTED_TABLE_SIZE]
-#else /* !STATISTICS */
-#define DECLARE_CACHE(op,type)			\
-static type op##_computed_cache[COMPUTED_TABLE_SIZE]
-#endif /* STATISTICS */
+  #if defined(STATISTICS)
+    #define DECLARE_CACHE(op,type)			\
+	static int op##_computed_hits;			\
+	static int op##_computed_misses;		\
+	static type op##_computed_cache[COMPUTED_TABLE_SIZE]
+  #else /* !STATISTICS */
+    #define DECLARE_CACHE(op,type)			\
+	static type op##_computed_cache[COMPUTED_TABLE_SIZE]
+  #endif /* STATISTICS */
 
 /**************************** the cache for ite **************************/
 
-#define TERNARY_NODE_HASH(f,g,h) \
-  (((INTCAST(f)>>4)+INTCAST(g)+(INTCAST(h)<<1)) % COMPUTED_TABLE_SIZE)
+  #define TERNARY_NODE_HASH(f,g,h) \
+	(((INTCAST(f)>>4)+INTCAST(g)+(INTCAST(h)<<1)) % COMPUTED_TABLE_SIZE)
 
-typedef struct {
+  typedef struct {
     node *f;
     node *g;
     node *h;
     node *result;
     CACHE_COUNT_MEMBER
-} ite_cache_entry;
+  } ite_cache_entry;
 
-DECLARE_CACHE(ite, ite_cache_entry);
-#if defined(USE_ITE_CONSTANT)
-DECLARE_CACHE(ite_constant, ite_cache_entry);
-#endif /* USE_ITE_CONSTANT */
+  DECLARE_CACHE(ite, ite_cache_entry);
+  #if defined(USE_ITE_CONSTANT)
+    DECLARE_CACHE(ite_constant, ite_cache_entry);
+  #endif /* USE_ITE_CONSTANT */
 
-#define DECLARE_ITE_CACHE_ENTRY ite_cache_entry *cache;
+  #define DECLARE_ITE_CACHE_ENTRY ite_cache_entry *cache;
 
-#define TRY_ITE_CACHE(n1,n2,n3,op)				\
-do {								\
-	cache = &op##_computed_cache[TERNARY_NODE_HASH(n1,n2,n3)]; \
-	if (cache->f==n1 && cache->g==n2 && cache->h==n3) {	\
-	    COUNT_HIT(op);					\
-	    return cache->result;				\
-	}							\
-} while (0)
+  #define TRY_ITE_CACHE(n1,n2,n3,op)					\
+	do {								\
+		cache = &op##_computed_cache[TERNARY_NODE_HASH(n1,n2,n3)]; \
+		if (cache->f==n1 && cache->g==n2 && cache->h==n3) {	\
+		    COUNT_HIT(op);					\
+		    return cache->result;				\
+		}							\
+	} while (0)
 
-#define UPDATE_ITE_CACHE(n1,n2,n3,node,op)	\
-do {					\
-	cache->f = n1;			\
-	cache->g = n2;			\
-	cache->h = n3;			\
-	cache->result = node;		\
-	COUNT_MISS(op);			\
-} while (0)
-
+  #define UPDATE_ITE_CACHE(n1,n2,n3,node,op)	\
+	do {					\
+		cache->f = n1;			\
+		cache->g = n2;			\
+		cache->h = n3;			\
+		cache->result = node;		\
+		COUNT_MISS(op);			\
+	} while (0)
 
 /******************** the cache for unary operations ************/
 
-#define UNARY_NODE_HASH(a) \
+  #define UNARY_NODE_HASH(a) \
       (INTCAST(a) % COMPUTED_TABLE_SIZE)
 
-typedef struct {
+  typedef struct {
     node *f;
     node *result;
     CACHE_COUNT_MEMBER
-} unary_cache_entry;
+  } unary_cache_entry;
 
-#if defined(SHARING)
-DECLARE_CACHE(upclose, unary_cache_entry);
-#if defined(NEW)
-DECLARE_CACHE(complete_one, unary_cache_entry);
-#endif /* NEW */
-#endif /* SHARING */
+  #if defined(SHARING)
+    DECLARE_CACHE(upclose, unary_cache_entry);
+    #if defined(NEW)
+      DECLARE_CACHE(complete_one, unary_cache_entry);
+    #endif /* NEW */
+  #endif /* SHARING */
 
-#define DECLARE_UNARY_CACHE_ENTRY unary_cache_entry *cache;
+  #define DECLARE_UNARY_CACHE_ENTRY unary_cache_entry *cache;
 
-#define UPDATE_UNARY_CACHE(n,node,op)	\
-do {					\
-	cache->f = n;			\
-	cache->result = node;		\
-	COUNT_MISS(op);		\
-} while (0)
+  #define UPDATE_UNARY_CACHE(n,node,op)		\
+	do {					\
+		cache->f = n;			\
+		cache->result = node;		\
+		COUNT_MISS(op);			\
+	} while (0)
 
-#define TRY_UNARY_CACHE(n,op)						\
-do {									\
-	cache = &((op##_computed_cache)[UNARY_NODE_HASH(n)]);		\
-	if (cache->f==(n)) {						\
-	    COUNT_HIT(op);						\
-	    return cache->result;					\
-	}								\
-} while (0)
-
+  #define TRY_UNARY_CACHE(n,op)						\
+	do {								\
+		cache = &((op##_computed_cache)[UNARY_NODE_HASH(n)]);	\
+		if (cache->f==(n)) {					\
+		    COUNT_HIT(op);					\
+		    return cache->result;				\
+		}							\
+	} while (0)
 
 /******************** the cache for var_entailed ************/
 
-#define VAR_ENTAILED_HASH(a,n) \
+  #define VAR_ENTAILED_HASH(a,n) \
       ((INTCAST(a)+n) % COMPUTED_TABLE_SIZE)
 
-typedef struct {
+  typedef struct {
     node *f;
     int  n;
     int  result;
     CACHE_COUNT_MEMBER
-} var_entailed_cache_entry;
+  } var_entailed_cache_entry;
 
-#if defined(USE_RGLB)
-DECLARE_CACHE(var_entailed, var_entailed_cache_entry);
-#endif /* USE_RGLB */
+  #if defined(USE_RGLB)
+    DECLARE_CACHE(var_entailed, var_entailed_cache_entry);
+  #endif /* USE_RGLB */
 
-#define DECLARE_VAR_ENTAILED_CACHE_ENTRY var_entailed_cache_entry *cache;
+  #define DECLARE_VAR_ENTAILED_CACHE_ENTRY var_entailed_cache_entry *cache;
 
-#define UPDATE_VAR_ENTAILED_CACHE(node,var,val)	\
-do {						\
-	cache->f = node;			\
-	cache->n = var;				\
-	cache->result = val;			\
-	COUNT_MISS(var_entailed);		\
-} while (0)
+  #define UPDATE_VAR_ENTAILED_CACHE(node,var,val)	\
+	do {						\
+		cache->f = node;			\
+		cache->n = var;				\
+		cache->result = val;			\
+		COUNT_MISS(var_entailed);		\
+	} while (0)
 
-#define TRY_VAR_ENTAILED_CACHE(node,var)		\
-do {							\
-	cache = &((var_entailed_computed_cache)		\
-		  [VAR_ENTAILED_HASH(node,var)]);	\
-	if (cache->f==(node) && cache->n==(var)) {	\
-	    COUNT_HIT(op);				\
-	    return cache->result;			\
-	}						\
-} while (0)
-
+  #define TRY_VAR_ENTAILED_CACHE(node,var)			\
+	do {							\
+		cache = &((var_entailed_computed_cache)		\
+			  [VAR_ENTAILED_HASH(node,var)]);	\
+		if (cache->f==(node) && cache->n==(var)) {	\
+		    COUNT_HIT(op);				\
+		    return cache->result;			\
+		}						\
+	} while (0)
 
 /**************** the cache for unary set-valued operations ********/
 
-typedef struct {
+  typedef struct {
     node *f;
     bitset result;
     CACHE_COUNT_MEMBER
-} unary_bitset_cache_entry;
+  } unary_bitset_cache_entry;
 
-#if defined(NEW)
-DECLARE_CACHE(vars_entailed, unary_bitset_cache_entry);
-#endif
+  #if defined(NEW)
+    DECLARE_CACHE(vars_entailed, unary_bitset_cache_entry);
+  #endif
 
-#define DECLARE_UNARY_BITSET_CACHE_ENTRY \
+  #define DECLARE_UNARY_BITSET_CACHE_ENTRY \
 	unary_bitset_cache_entry *cache;
 
+  #define UPDATE_UNARY_BITSET_CACHE(n,set,op)			\
+	do {							\
+		cache->f = n;					\
+		cache->result = set;				\
+		COUNT_MISS(op);					\
+	} while (0)
 
-#define UPDATE_UNARY_BITSET_CACHE(n,set,op)		\
-do {							\
-	cache->f = n;					\
-	cache->result = set;				\
-	COUNT_MISS(op);					\
-} while (0)
-
-#define TRY_UNARY_BITSET_CACHE(n,op)			\
-do {								\
-	cache = &((op##_computed_cache)[UNARY_NODE_HASH(n)]);	\
-	if (cache->f==(n)) {					\
-	    COUNT_HIT(op);					\
-	    return &cache->result;				\
-	}							\
-} while (0)
-
+  #define TRY_UNARY_BITSET_CACHE(n,op)					\
+	do {								\
+		cache = &((op##_computed_cache)[UNARY_NODE_HASH(n)]);	\
+		if (cache->f==(n)) {					\
+		    COUNT_HIT(op);					\
+		    return &cache->result;				\
+		}							\
+	} while (0)
 
 /******************** the cache for symmetric binary operations ************/
 
@@ -512,215 +504,231 @@ do {								\
  * they won't be changed (or exchanged) before UPDATE_BIN_CACHE is called.
  */
 
-#define BINARY_NODE_HASH(a,b) \
+  #define BINARY_NODE_HASH(a,b) \
       ((INTCAST(a)+(INTCAST(b)<<1)) % COMPUTED_TABLE_SIZE)
 
-typedef struct {
+  typedef struct {
     node *f;
     node *g;
     node *result;
     CACHE_COUNT_MEMBER
-} bin_cache_entry;
+  } bin_cache_entry;
 
-DECLARE_CACHE(glb, bin_cache_entry);
-DECLARE_CACHE(lub, bin_cache_entry);
-#if defined(SHARING)
-DECLARE_CACHE(bin, bin_cache_entry);
-DECLARE_CACHE(complete, bin_cache_entry);
-#endif
+  DECLARE_CACHE(glb, bin_cache_entry);
+  DECLARE_CACHE(lub, bin_cache_entry);
+  #if defined(SHARING)
+    DECLARE_CACHE(bin, bin_cache_entry);
+    DECLARE_CACHE(complete, bin_cache_entry);
+  #endif
 
-#define DECLARE_BIN_CACHE_ENTRY bin_cache_entry *cache;
+  #define DECLARE_BIN_CACHE_ENTRY bin_cache_entry *cache;
 
-#define UPDATE_BIN_CACHE(n1,n2,node,op)	\
-do {					\
-	cache->f = n1;			\
-	cache->g = n2;			\
-	cache->result = node;		\
-	COUNT_MISS(op);		\
-} while (0)
+  #define UPDATE_BIN_CACHE(n1,n2,node,op)	\
+	do {					\
+		cache->f = n1;			\
+		cache->g = n2;			\
+		cache->result = node;		\
+		COUNT_MISS(op);			\
+	} while (0)
 
-#define TRY_BIN_CACHE(n1,n2,op)						\
-do {									\
-	if (n2 < n1) { node *temp = (n2); (n2) = (n1); (n1) = temp; }	\
-	cache = &((op##_computed_cache)[BINARY_NODE_HASH(n1,n2)]);	\
-	if (cache->f==(n1) && cache->g==(n2)) {				\
-	    COUNT_HIT(op);						\
-	    return cache->result;					\
-	}								\
-} while (0)
+  #define TRY_BIN_CACHE(n1,n2,op)					\
+	do {								\
+		if (n2 < n1) { node *temp = (n2); (n2) = (n1); (n1) = temp; }\
+		cache = &((op##_computed_cache)[BINARY_NODE_HASH(n1,n2)]);\
+		if (cache->f==(n1) && cache->g==(n2)) {			\
+		    COUNT_HIT(op);					\
+		    return cache->result;				\
+		}							\
+	} while (0)
 
 /******************** the cache for asymmetric binary operations ************/
 
-#if defined(SHARING) && defined(NEW)
-DECLARE_CACHE(complete_one_or, bin_cache_entry);
-#endif /* SHARING && NEW */
+  #if defined(SHARING) && defined(NEW)
+    DECLARE_CACHE(complete_one_or, bin_cache_entry);
+  #endif /* SHARING && NEW */
 
-#if defined(USE_THRESH)
-DECLARE_CACHE(restrictThresh, bin_cache_entry);
-#endif /* USE_THRESH */
+  #if defined(USE_THRESH)
+    DECLARE_CACHE(restrictThresh, bin_cache_entry);
+  #endif /* USE_THRESH */
 
-#if (defined(SHARING) && defined(NEW)) || defined(USE_THRESH)
+  #if (defined(SHARING) && defined(NEW)) || defined(USE_THRESH)
 
-#define DECLARE_ASYM_BIN_CACHE_ENTRY bin_cache_entry *cache;
+    #define DECLARE_ASYM_BIN_CACHE_ENTRY bin_cache_entry *cache;
 
-#define UPDATE_ASYM_BIN_CACHE(n1,n2,node,op) \
+    #define UPDATE_ASYM_BIN_CACHE(n1,n2,node,op) \
 	UPDATE_BIN_CACHE(n1,n2,node,op)
 
-#define TRY_ASYM_BIN_CACHE(n1,n2,op)					\
-do {									\
-	cache = &((op##_computed_cache)[BINARY_NODE_HASH(n1,n2)]);	\
-	if (cache->f==(n1) && cache->g==(n2)) {				\
-	    COUNT_HIT(op);						\
-	    return cache->result;					\
-	}								\
-} while (0)
-#endif /* (SHARING && NEW) || USE_THRESH */
+  #define TRY_ASYM_BIN_CACHE(n1,n2,op)					\
+	do {								\
+		cache = &((op##_computed_cache)[BINARY_NODE_HASH(n1,n2)]);\
+		if (cache->f==(n1) && cache->g==(n2)) {			\
+		    COUNT_HIT(op);					\
+		    return cache->result;				\
+		}							\
+	} while (0)
+
+  #endif /* (SHARING && NEW) || USE_THRESH */
 
 /**************************** the cache for rglb ***********************/
 
-#if defined(USE_RGLB)
+  #if defined(USE_RGLB)
 
-typedef struct {
-    node *f;
-    node *g;
-    node *result;
-    int  thresh;
-    CACHE_COUNT_MEMBER
-} rglb_cache_entry;
+    typedef struct {
+	node *f;
+	node *g;
+	node *result;
+	int  thresh;
+	CACHE_COUNT_MEMBER
+    } rglb_cache_entry;
 
-DECLARE_CACHE(rglb, rglb_cache_entry);
+    DECLARE_CACHE(rglb, rglb_cache_entry);
 
-#define DECLARE_RGLB_CACHE_ENTRY rglb_cache_entry *cache;
+    #define DECLARE_RGLB_CACHE_ENTRY rglb_cache_entry *cache;
 
-#define TRY_RGLB_CACHE(n1,n2,th)				\
-do {								\
-	if (n2 < n1) { node *temp = (n2); (n2) = (n1); (n1) = temp; }	\
-	cache = &rglb_computed_cache[BINARY_NODE_HASH(n1,n2)];	\
-	if (cache->f==(n1) && cache->g==(n2) &&			\
-	    cache->thresh >= th) {				\
-	    COUNT_HIT(rglb);					\
-	    if (cache->thresh == th) return cache->result;	\
-	    return restrictThresh(th, cache->result);		\
-	}							\
-} while (0)
+    #define TRY_RGLB_CACHE(n1,n2,th)				\
+	do {								\
+		if (n2 < n1) { node *temp = (n2); (n2) = (n1); (n1) = temp; }\
+		cache = &rglb_computed_cache[BINARY_NODE_HASH(n1,n2)];	\
+		if (cache->f==(n1) && cache->g==(n2) &&			\
+		    cache->thresh >= th) {				\
+		    COUNT_HIT(rglb);					\
+		    if (cache->thresh == th) return cache->result;	\
+		    return restrictThresh(th, cache->result);		\
+		}							\
+	} while (0)
 
-#define UPDATE_RGLB_CACHE(n1,n2,th,node) \
-do {					\
-	cache->f = n1;			\
-	cache->g = n2;			\
-	cache->thresh = th;		\
-	cache->result = node;		\
-	COUNT_MISS(rglb);		\
-} while (0)
+    #define UPDATE_RGLB_CACHE(n1,n2,th,node)	\
+	do {					\
+		cache->f = n1;			\
+		cache->g = n2;			\
+		cache->thresh = th;		\
+		cache->result = node;		\
+		COUNT_MISS(rglb);		\
+	} while (0)
 
-#endif /* USE_RGLB */
+  #endif /* USE_RGLB */
 
 /************************ the cache for complete_or *******************/
 
-#if defined(SHARING) && defined(NEW)
-typedef struct {
-    node *f;
-    node *g;
-    node *prev;
-    node *result;
-    CACHE_COUNT_MEMBER
-} complete_or_cache_entry;
+  #if defined(SHARING) && defined(NEW)
+    typedef struct {
+	node *f;
+	node *g;
+	node *prev;
+	node *result;
+	CACHE_COUNT_MEMBER
+    } complete_or_cache_entry;
 
-DECLARE_CACHE(complete_or, complete_or_cache_entry);
+    DECLARE_CACHE(complete_or, complete_or_cache_entry);
 
-#define DECLARE_COMPLETE_OR_CACHE_ENTRY complete_or_cache_entry *cache;
+    #define DECLARE_COMPLETE_OR_CACHE_ENTRY complete_or_cache_entry *cache;
 
-#define TRY_COMPLETE_OR_CACHE(n1,n2,pr)				\
-do {								\
-	if (n2 < n1) { node *temp = (n2); (n2) = (n1); (n1) = temp; }	\
-	cache = &complete_or_computed_cache[TERNARY_NODE_HASH(n1,n2,pr)]; \
-	if ((cache->f==n1 && cache->g==n2 && cache->prev==pr)) { \
-	    COUNT_HIT(complete_or);				\
-	    return cache->result;				\
-	}							\
-} while (0)
+    #define TRY_COMPLETE_OR_CACHE(n1,n2,pr)				\
+	do {								\
+		if (n2 < n1) { node *temp = (n2); (n2) = (n1); (n1) = temp; }\
+		cache = &complete_or_computed_cache			\
+			[TERNARY_NODE_HASH(n1,n2,pr)];			\
+		if ((cache->f==n1 && cache->g==n2 && cache->prev==pr)) {\
+		    COUNT_HIT(complete_or);				\
+		    return cache->result;				\
+		}							\
+	} while (0)
 
-#define UPDATE_COMPLETE_OR_CACHE(n1,n2,pr,node) \
-do {					\
-	cache->f = n1;			\
-	cache->g = n2;			\
-	cache->prev = pr;		\
-	cache->result = node;		\
-	COUNT_MISS(complete_or);	\
-} while (0)
+    #define UPDATE_COMPLETE_OR_CACHE(n1,n2,pr,node) \
+	do {					\
+		cache->f = n1;			\
+		cache->g = n2;			\
+		cache->prev = pr;		\
+		cache->result = node;		\
+		COUNT_MISS(complete_or);	\
+	} while (0)
 
-#endif /* SHARING && NEW */
+  #endif /* SHARING && NEW */
 
 /**************************** the cache for ite_var ***********************/
 
-#if defined(NEW)
+  #if defined(NEW)
 
-#define ITE_VAR_COMPUTED_HASH(f,g,h) \
-  ((f+INTCAST(g)+(INTCAST(h)<<1)) % COMPUTED_TABLE_SIZE)
+    #define ITE_VAR_COMPUTED_HASH(f,g,h) \
+	  ((f+INTCAST(g)+(INTCAST(h)<<1)) % COMPUTED_TABLE_SIZE)
 
-typedef struct {
-    int f;
-    node *g;
-    node *h;
-    node *result;
-    CACHE_COUNT_MEMBER
-} ite_var_cache_entry;
+    typedef struct {
+	int f;
+	node *g;
+	node *h;
+	node *result;
+	CACHE_COUNT_MEMBER
+    } ite_var_cache_entry;
 
-DECLARE_CACHE(ite_var, ite_var_cache_entry);
+    DECLARE_CACHE(ite_var, ite_var_cache_entry);
 
-#define DECLARE_ITE_VAR_CACHE_ENTRY ite_var_cache_entry *cache;
+    #define DECLARE_ITE_VAR_CACHE_ENTRY ite_var_cache_entry *cache;
 
-#define TRY_ITE_VAR_CACHE(n1,n2,h)				\
-do {								\
-	cache =							\
-	  &ite_var_computed_cache[ITE_VAR_COMPUTED_HASH(n1,n2,h)];\
-	if (cache->f==n1 && cache->g==n2 && cache->h==h) {	\
-	    COUNT_HIT(ite_var);				\
-	    return cache->result;				\
-	  }							\
-} while (0)
+    #define TRY_ITE_VAR_CACHE(n1,n2,h)					\
+	do {								\
+		cache =							\
+		  &ite_var_computed_cache[ITE_VAR_COMPUTED_HASH(n1,n2,h)];\
+		if (cache->f==n1 && cache->g==n2 && cache->h==h) {	\
+		    COUNT_HIT(ite_var);					\
+		    return cache->result;				\
+		  }							\
+	} while (0)
 
-#define UPDATE_ITE_VAR_CACHE(n1,n2,h,node)\
-do {					\
-	cache->f = n1;			\
-	cache->g = n2;			\
-	cache->h = h;			\
-	cache->result = node;		\
-	COUNT_MISS(ite_var);		\
-} while (0)
+    #define UPDATE_ITE_VAR_CACHE(n1,n2,h,node)	\
+	do {					\
+		cache->f = n1;			\
+		cache->g = n2;			\
+		cache->h = h;			\
+		cache->result = node;		\
+		COUNT_MISS(ite_var);		\
+	} while (0)
 
-#endif /* NEW */
-
+  #endif /* NEW */
 
 #else /* !COMPUTED_TABLE */
+
 /**************************** no caching at all **************************/
-#define DECLARE_ITE_CACHE_ENTRY
-#define TRY_ITE_CACHE(n1,n2,n3,op)
-#define UPDATE_ITE_CACHE(n1,n2,n3,node,op)
-#define DECLARE_BIN_CACHE_ENTRY
-#define TRY_BIN_CACHE(n1,n2,op)
-#define UPDATE_BIN_CACHE(n1,n2,node,op)
-#define DECLARE_UNARY_CACHE_ENTRY
-#define UPDATE_UNARY_CACHE(n,node,op)
-#define TRY_UNARY_CACHE(n,op)
-#define DECLARE_ASYM_BIN_CACHE_ENTRY
-#define UPDATE_ASYM_BIN_CACHE(n1,n2,node,op)
-#define TRY_ASYM_BIN_CACHE(n1,n2,op)
-#define DECLARE_RGLB_CACHE_ENTRY
-#define TRY_RGLB_CACHE(n1,n2,th)
-#define UPDATE_RGLB_CACHE(n1,n2,th,node)
-#define DECLARE_ITE_VAR_CACHE_ENTRY
-#define TRY_ITE_VAR_CACHE(n1,n2,h)
-#define UPDATE_ITE_VAR_CACHE(n1,n2,h,node)
-#define DECLARE_COMPLETE_OR_CACHE_ENTRY
-#define TRY_COMPLETE_OR_CACHE(n1,n2,pr)
-#define UPDATE_COMPLETE_OR_CACHE(n1,n2,pr,node)
 
-#undef COMPUTED_TABLE_SIZE
-#define COMPUTED_TABLE_SIZE 0
+  #define DECLARE_ITE_CACHE_ENTRY
+  #define TRY_ITE_CACHE(n1,n2,n3,op)
+  #define UPDATE_ITE_CACHE(n1,n2,n3,node,op)
+
+  #define DECLARE_UNARY_CACHE_ENTRY
+  #define UPDATE_UNARY_CACHE(n,node,op)
+  #define TRY_UNARY_CACHE(n,op)
+
+  #define DECLARE_VAR_ENTAILED_CACHE_ENTRY
+  #define UPDATE_VAR_ENTAILED_CACHE(node,var,val)
+  #define TRY_VAR_ENTAILED_CACHE(node,var)
+
+  #define DECLARE_UNARY_BITSET_CACHE_ENTRY
+  #define UPDATE_UNARY_BITSET_CACHE(n,set,op)
+  #define TRY_UNARY_BITSET_CACHE(n,op)
+
+  #define DECLARE_BIN_CACHE_ENTRY
+  #define TRY_BIN_CACHE(n1,n2,op)
+  #define UPDATE_BIN_CACHE(n1,n2,node,op)
+
+  #define DECLARE_ASYM_BIN_CACHE_ENTRY
+  #define UPDATE_ASYM_BIN_CACHE(n1,n2,node,op)
+  #define TRY_ASYM_BIN_CACHE(n1,n2,op)
+
+  #define DECLARE_RGLB_CACHE_ENTRY
+  #define TRY_RGLB_CACHE(n1,n2,th)
+  #define UPDATE_RGLB_CACHE(n1,n2,th,node)
+
+  #define DECLARE_COMPLETE_OR_CACHE_ENTRY
+  #define TRY_COMPLETE_OR_CACHE(n1,n2,pr)
+  #define UPDATE_COMPLETE_OR_CACHE(n1,n2,pr,node)
+
+  #define DECLARE_ITE_VAR_CACHE_ENTRY
+  #define TRY_ITE_VAR_CACHE(n1,n2,h)
+  #define UPDATE_ITE_VAR_CACHE(n1,n2,h,node)
+
+  #undef COMPUTED_TABLE_SIZE
+  #define COMPUTED_TABLE_SIZE 0
+
 #endif /* COMPUTED_TABLE */
-
-
 
 /****************************************************************
 
@@ -728,14 +736,10 @@ do {					\
 
  ****************************************************************/
 
-
 static BRYANT_hidden_node_pointer unique_table[UNIQUE_TABLE_SIZE];
-
 
 #define UNIQUE_HASH(var,tr,fa) \
   (((var)+INTCAST(tr)+(INTCAST(fa)<<1)) % UNIQUE_TABLE_SIZE)
-
-
 
 /****************************************************************
 
@@ -747,7 +751,6 @@ extern void printBryant(node *a);
 
 node *ite(node *f,node *g,node *h); /* if then else algorithm */
 node *restricted_iff_conj_array(int v0, int n, int arr[], int thresh);
-
 
 node *renameArray(node *in, int count, int mappping[]);
 node *reverseRenameArray(node *in, int count, int rev_mappping[]);
@@ -837,7 +840,6 @@ __inline int next_element(bitset *set, int *var, int *word, bitmask *mask)
     }
 #endif /* NO_CHEAP_SHIFT */
 
-
 #if defined(NO_CHEAP_SHIFT)
 __inline int prev_element(bitset *set, int *var, int *word, bitmask *mask)
     {
@@ -901,7 +903,6 @@ __inline int prev_element(bitset *set, int *var, int *word, bitmask *mask)
     }
 #endif /* NO_CHEAP_SHIFT */
 
-
 __inline int next_nonelement(bitset *set, int *var, int *word, bitmask *mask)
     {
 	int vr = *var;
@@ -931,7 +932,6 @@ __inline int next_nonelement(bitset *set, int *var, int *word, bitmask *mask)
 	return TRUE;
     }
 
-
 __inline int prev_nonelement(bitset *set, int *var, int *word, bitmask *mask)
     {
 	int vr = *var;
@@ -960,8 +960,6 @@ __inline int prev_nonelement(bitset *set, int *var, int *word, bitmask *mask)
 	*mask = msk;
 	return TRUE;
     }
-
-
 
 /* returns 1 if set1 is identical to set2 */
 __inline int bitset_equal(bitset *set1, bitset *set2);
@@ -994,7 +992,6 @@ __inline int bitset_disjoint(bitset *set1, bitset *set2)
 	}
     }
 
-
 /* returns 1 if set1 is a subset of set2 */
 __inline int bitset_subset(bitset *set1, bitset *set2);
 __inline int bitset_subset(bitset *set1, bitset *set2)
@@ -1011,7 +1008,6 @@ __inline int bitset_subset(bitset *set1, bitset *set2)
 	
     }
 
-
 /* returns 1 if set1 is a subset of set2 */
 __inline int bitset_empty(bitset *set);
 __inline int bitset_empty(bitset *set)
@@ -1025,7 +1021,6 @@ __inline int bitset_empty(bitset *set)
 	}
 	
     }
-
 
 /****************************************************************
 
@@ -1056,7 +1051,6 @@ void remove_node(GC_PTR obj, GC_PTR client_data)
     	removed_nodes++;
     }
 #endif /* BRYANT_CONSERVATIVE_GC */
-
 
 #if defined(POOL)
 static pool *curr_pool = NULL;
@@ -1099,7 +1093,6 @@ int nodes_in_use(void)
     {
         return node_count;
     }
-
 
 DECLARE_FN_COUNT(make_node)
 
@@ -1148,13 +1141,10 @@ node *make_node(int var, node *tr, node *fa)
 	return ptr;
     }
 
-
 void free_rep(node *n)
     {
 	/* never free ROBDD nodes */
     }
-
-
 
 /****************************************************************
 
@@ -1168,19 +1158,16 @@ int max_variable(void)
 	return MAXVAR;
     }
 
-
 node *trueVar(void)
     {
 	return one;
     }
-
 
 node *falseVar(void)
     {
 	return zero;
     }
     
-
 DECLARE_FN_COUNT(variableRep)
 
 node *variableRep(int var)
@@ -1188,7 +1175,6 @@ node *variableRep(int var)
 	COUNT_FN(variableRep);
 	return make_node(var,one,zero);
     }
-
 
 DECLARE_FN_COUNT(ite)
 
@@ -1244,7 +1230,6 @@ node *ite(node *f,node *g,node *h)
 	UPDATE_ITE_CACHE(f,g,h,newnode,ite);
 	return newnode;
     }
-
 
 #if defined(USE_ITE_CONSTANT)
 
@@ -1313,7 +1298,6 @@ node *ite_constant(node *f,node *g,node *h)
     }
 #endif /* USE_ITE_CONSTANT */
 
-
 DECLARE_FN_COUNT(implies)
 
 node *implies(node *a, node *b)
@@ -1322,18 +1306,15 @@ node *implies(node *a, node *b)
 	return ite(a,b,one);
     }
 
-
 node *copy(node *a)        /* returns a copy of graph a */
     {
         return a;
     }
 
-
 int equiv(node *a, node *b)	/* returns true if graph a and b are equiv */
     {
 	return (a == b);
     }
-
 
 DECLARE_FN_COUNT(lub)
 DECLARE_FN_COUNT(glb)
@@ -1344,7 +1325,6 @@ node *glb(node *a, node *b)
 	COUNT_FN(glb);
 	return ite(a,b,zero);
     }
-
 
 node *lub(node *a, node *b)
     {
@@ -1382,7 +1362,6 @@ node *lub(node *f, node *g)
 	}
     }
 
-
 node *glb(node *f, node *g)
     {
 	COUNT_FN(glb);
@@ -1412,8 +1391,6 @@ node *glb(node *f, node *g)
     }
 
 #endif /* NAIVE */
-
-
 
 #if defined(NAIVE)
 node *glb_array(int n, int arr[])
@@ -1460,7 +1437,6 @@ node *restrict(int c, node *f)
 	    return lub(f->tr, f->fa);
 	}
     }
-
 
 DECLARE_FN_COUNT(restrictThresh)
 
@@ -1530,7 +1506,6 @@ node *restrictThresh(int thresh, node *f)
     }
 #endif /* USE_THRESH */
 
-
 #if !defined(USE_THRESH) && !defined(RESTRICT_SET)
 node *restricted_glb(int lo, int hi, node *f, node *g)
     {
@@ -1563,7 +1538,6 @@ static int exists_glb(node *f, node *g)
 	    return exists_glb(f->tr, g->tr) || exists_glb(f->fa, g->fa);
 	}
     }
-
 
 node *restricted_glb(int c, node *f, node *g)
     {
@@ -1614,8 +1588,6 @@ node *restricted_glb(int c, node *f, node *g)
     }
 #endif /* USE_THRESH */
 
-    
-
 /****************************************************************
 
 			       Renaming
@@ -1656,7 +1628,6 @@ static node *ite_var_g(int f, node *g, node *h)
 	}
     }
 
-
 /* A special case version of ite_var, where we know that f < h->value */
 static node *ite_var_h(int f, node *g, node *h)
     {
@@ -1682,7 +1653,6 @@ static node *ite_var_h(int f, node *g, node *h)
 	    return result;
 	}
     }
-
 
 /* A special case version of ite, where we know that !IS_TERMINAL(f) &&
  * f->tr == one && f->fa == zero.  In fact, we refine this further and
@@ -1818,8 +1788,6 @@ node *reverseRenameArray(node *f, int count, int mapping[])
 	return renameArray(f, max, rev_map);
     }
 
-
-
 /****************************************************************
 
 	 Abstract Exit (renaming + conjunction + restriction)
@@ -1867,7 +1835,6 @@ int exists_restrict_sets(node *f, bitset *trues, bitset *falses, int hielt)
 	}
     }
 
-
 /* computes the function f restricted so that all variables in trues
  * are set to true and all in falses are set to false.
  */
@@ -1901,7 +1868,6 @@ node *restrict_sets(node *f, bitset *trues, bitset *falses, int hielt,
 	}
     }
 
-
 /* if f->value > thresh, returns one, else if f->value is in either
  * trues (or falses), this returns
  *	follow_path(f->tr (or fa), trues, falses}
@@ -1924,7 +1890,6 @@ node *follow_path(node *f, bitset *trues, bitset *falses)
 	}
 	return f;
     }
-
 
 /* This function computes
  *
@@ -1949,8 +1914,6 @@ node *restricted_rename(node *f, int count, int mapping[], int thresh)
 	    }
 	}
     }
-
-
 
 /* This function computes
  *
@@ -2010,7 +1973,6 @@ node *abexit(node *context, node *f, int count, int mapping[], int thresh,
 	}
     }
 
-
 node *abstract_exit(node *context, node *f, int count, int mapping[],
 		    int thresh)
     {
@@ -2026,7 +1988,6 @@ node *abstract_exit(node *context, node *f, int count, int mapping[],
 	return abexit(context, f, count, mapping, thresh, &trues, &falses, -1);
 }
 #endif /* 0 (end of unused code)  */
-
 
 /****************************************************************
 
@@ -2056,7 +2017,6 @@ node *abstract_exit(node *context, node *f, int count, int mapping[],
 #define DECLARE_PREV(init)
 #define HANDLE_DUP(this,rel)
 #endif
-
 
 DECLARE_FN_COUNT(iff_conj)
 
@@ -2149,15 +2109,12 @@ node *iff_conj_array(int v0, int n, int arr[])
     }
 #endif /* OLD */
 
-
 node *restricted_iff_conj_array(int v0, int n, int arr[], int thresh)
     {
 	if (v0 > thresh) return one;
 	while (--n>=0 && arr[n]>thresh);
 	return iff_conj_array(v0, n+1, arr);
     }
-
-
 
 #if !defined(USE_THRESH) && !defined(RESTRICT_SET)
 node *abstract_unify(node *f, int v0, int n, int arr[], int lo, int hi)
@@ -2171,7 +2128,6 @@ node *abstract_unify(node *f, int v0, int n, int arr[], int thresh)
     }
 #else /* !1 (this code is unused) */
 
-
 static node *build_and(int n, int arr[], node *tr, node *fa)
     {
 	if (n<=0) {
@@ -2182,7 +2138,6 @@ static node *build_and(int n, int arr[], node *tr, node *fa)
 			     fa);
 	}
     }
-
 
 static node *glb_and(node *f, int n, int arr[])
     {
@@ -2211,7 +2166,6 @@ static node *glb_and(node *f, int n, int arr[])
 	}
     }
 
-
 static node *glb_nand(node *f, int n, int arr[])
     {
 	if (f == zero) {
@@ -2239,7 +2193,6 @@ static node *glb_nand(node *f, int n, int arr[])
 	}
     }
 
-
 /* returns zero != glb(f, build_and(n, arr, one, zero)) */
 static int exists_glb_and(node *f, int n, int arr[])
     {
@@ -2257,7 +2210,6 @@ static int exists_glb_and(node *f, int n, int arr[])
 	    return exists_glb_and(f, n-1, arr+1);
 	}
     }
-
 
 /* returns zero != glb(f, build_and(n, arr, zero, one)) */
 static int exists_glb_nand(node *f, int n, int arr[])
@@ -2280,7 +2232,6 @@ static int exists_glb_nand(node *f, int n, int arr[])
 	    return exists_glb_nand(f->tr, n-1, arr+1);
 	}
     }
-
 
 /* returns zero != glb(f, iff_conj_array(v0, n, arr)) */
 static int exists_glb_iffconj(node *f, int v0, int n, int arr[])
@@ -2314,8 +2265,6 @@ static int exists_glb_iffconj(node *f, int v0, int n, int arr[])
 	    }
 	}
     }
-
-
 
 /* returns restricted_glb(f, build_and(n, arr, one, zero), thresh) */
 static node *rglb_and(node *f, int n, int arr[], int thresh)
@@ -2354,7 +2303,6 @@ static node *rglb_and(node *f, int n, int arr[], int thresh)
 	    }
 	}
     }
-
 
 /* returns restricted_glb(f, build_and(n, arr, zero, one), thresh) */
 static node *rglb_nand(node *f, int n, int arr[], int thresh)
@@ -2403,7 +2351,6 @@ static node *rglb_nand(node *f, int n, int arr[], int thresh)
 	}
     }
 
-
 /* returns restricted_glb(thresh, f, make_node(v, zero, one)) */
 static node *rglb_notvar(node *f, int v, int thresh)
     {
@@ -2435,8 +2382,6 @@ static node *rglb_notvar(node *f, int v, int thresh)
 	    }
 	}
     }
-
-
 
 node *abstract_unify(node *f, int v0, int n, int arr[], int thresh)
     {
@@ -2494,8 +2439,6 @@ node *abstract_unify(node *f, int v0, int n, int arr[], int thresh)
 
 #endif /* (end of unused code) */
 
-
-
 /****************************************************************
 
 		      Finding Entailed Variables
@@ -2532,7 +2475,6 @@ int var_entailed(node *f, int var)
 	}
 #endif /* NEW */
     }
-
 
 /* returns a bitset of all the variables implied by f.  A variable i
  * is implied by f iff
@@ -2609,7 +2551,6 @@ void vars_entailed_aux(node *f)
 	}
     }
 
-
 /* returns a bitset of all the variables implied by f.  A variable i
  * is implied by f iff
  *
@@ -2655,8 +2596,6 @@ bitset *vars_entailed(node *f)
 #endif /* NEW && !OLD_VARS_ENTAILED */
 #endif /* NEW */
 
-
-
 /****************************************************************
 
 			Set Sharing Operations
@@ -2679,7 +2618,6 @@ node *init_set_sharing(int n)
 
 	return result;
     }
-
 
 #if defined(NEW)
 
@@ -2730,7 +2668,6 @@ node *complete_one_or(node *f, node *prev)
 	return result;
     }
 
-
 DECLARE_FN_COUNT(complete_one)
 
 node *complete_one(node *f)
@@ -2747,7 +2684,6 @@ node *complete_one(node *f)
 	UPDATE_UNARY_CACHE(f, result, complete_one);
 	return result;
     }
-
 
 DECLARE_FN_COUNT(complete_or)
 
@@ -2913,7 +2849,6 @@ node *bin(node *f, node *g)
 	}
     }
 
-
 /* Auxilliary function for bin:  special case code for bin(f, one). */
 node *bin_univ(node *f)
     {
@@ -2932,7 +2867,6 @@ node *bin_univ(node *f)
 		      Initialization and Cleanup
 
  ****************************************************************/
-
 
 #if defined(STATISTICS)
 void print_distribution(int array[], int max)
@@ -3114,8 +3048,6 @@ void concludeRep(void)
 #endif /* NEW */
 #endif /* STATISTICS */
     }
-
-
 
 /****************************************************************
 

@@ -1,12 +1,12 @@
 /*
-** Copyright (C) 1995, 2001 The University of Melbourne.
+** Copyright (C) 1995, 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
 
 /*****************************************************************
   File     : bryant.h
-  RCS      : $Id: bryant.h,v 1.1.12.1 2001-02-14 04:42:48 dmo Exp $
+  RCS      : $Id: bryant.h,v 1.1.12.2 2002-05-08 09:35:29 zs Exp $
   Author   : Peter Schachte
   Origin   : Sun Jul 30 15:08:53 1995
   Purpose  : header file for users of bryant.c ROBDD package
@@ -209,8 +209,12 @@ typedef unsigned long bitmask;
 *****************************************************************/
 
 
+#ifndef TRUE
 #define TRUE 1
+#endif
+#ifndef FALSE
 #define FALSE 0
+#endif
 
 /* sneaky trick to make NEW the default */
 #if !defined(USE_RGLB) \
