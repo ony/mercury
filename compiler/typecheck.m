@@ -1078,8 +1078,8 @@ typecheck_goal_2(unify(A, B0, Mode, Info, UnifyContext),
 	typecheck_unification(A, B0, B).
 typecheck_goal_2(switch(_, _, _, _), _) -->
 	{ error("unexpected switch") }.
-typecheck_goal_2(pragma_foreign_code(A, PredId, C, Args, E, F, G), 
-		pragma_foreign_code(A, PredId, C, Args, E, F, G)) -->
+typecheck_goal_2(foreign_proc(A, PredId, C, Args, E, F, G), 
+		foreign_proc(A, PredId, C, Args, E, F, G)) -->
 	% pragma_foreign_codes are automatically generated, so they
 	% will always be type-correct, but we need to do
 	% the type analysis in order to correctly compute the
@@ -1091,7 +1091,17 @@ typecheck_goal_2(pragma_foreign_code(A, PredId, C, Args, E, F, G),
 		OrigTypeAssignSet) },
 	typecheck_call_pred_id(PredId, Args),
 	perform_context_reduction(OrigTypeAssignSet).
-typecheck_goal_2(bi_implication(LHS0, RHS0), bi_implication(LHS, RHS)) -->
+typecheck_goal_2(shorthand(ShorthandGoal0), shorthand(ShorthandGoal)) -->
+	typecheck_goal_2_shorthand(ShorthandGoal0, ShorthandGoal).
+
+
+:- pred typecheck_goal_2_shorthand(shorthand_goal_expr, shorthand_goal_expr,
+				typecheck_info, typecheck_info).
+:- mode typecheck_goal_2_shorthand(in, out, typecheck_info_di, 
+				typecheck_info_uo) is det.
+
+typecheck_goal_2_shorthand(bi_implication(LHS0, RHS0), 
+		bi_implication(LHS, RHS)) -->
 	checkpoint("<=>"),
 	typecheck_goal(LHS0, LHS),
 	typecheck_goal(RHS0, RHS).

@@ -507,12 +507,12 @@ intermod__traverse_goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info,
 
 	% Inlineable exported pragma_foreign_code goals can't use any
 	% non-exported types, so we just write out the clauses. 
-intermod__traverse_goal(pragma_foreign_code(A,B,C,D,E,F,G) - Info,
-		pragma_foreign_code(A,B,C,D,E,F,G) - Info, yes) --> [].
+intermod__traverse_goal(foreign_proc(A,B,C,D,E,F,G) - Info,
+		foreign_proc(A,B,C,D,E,F,G) - Info, yes) --> [].
 
-intermod__traverse_goal(bi_implication(_, _) - _, _, _) -->
+intermod__traverse_goal(shorthand(_) - _, _, _) -->
 	% these should have been expanded out by now
-	{ error("intermod__traverse_goal: unexpected bi_implication") }.
+	{ error("intermod__traverse_goal: unexpected shorthand") }.
 
 
 :- pred intermod__traverse_list_of_goals(hlds_goals::in, hlds_goals::out,
@@ -1737,13 +1737,13 @@ intermod__write_foreign_code(SymName, PredOrFunc, HeadVars, Varset,
 			{ Goal = conj(Goals) - _ },
 			{ list__filter(
 				lambda([X::in] is semidet, (
-				    X = pragma_foreign_code(_,_,_,_,_,_,_) - _
+				    X = foreign_proc(_,_,_,_,_,_,_) - _
 				)),
 				Goals, [ForeignCodeGoal]) },
-			{ ForeignCodeGoal = pragma_foreign_code(Attributes,
+			{ ForeignCodeGoal = foreign_proc(Attributes,
 				_, _, Vars, Names, _, PragmaCode) - _ }
 		;
-			{ Goal = pragma_foreign_code(Attributes,
+			{ Goal = foreign_proc(Attributes,
 				_, _, Vars, Names, _, PragmaCode) - _ }
 		)
 	->	
@@ -1758,7 +1758,7 @@ intermod__write_foreign_code(SymName, PredOrFunc, HeadVars, Varset,
 
 :- pred intermod__write_foreign_clauses(proc_table::in, list(proc_id)::in, 
 		pred_or_func::in, pragma_foreign_code_impl::in,
-		pragma_foreign_code_attributes::in, list(prog_var)::in,
+		pragma_foreign_proc_attributes::in, list(prog_var)::in,
 		prog_varset::in, list(maybe(pair(string, mode)))::in,
 		sym_name::in, io__state::di, io__state::uo) is det.
 
@@ -2236,16 +2236,16 @@ read_optimization_interfaces([Import | Imports],
 		maybe_write_string(VeryVerbose, " `"),
 		{ prog_out__sym_name_to_string(Import, ImportString) },
 		maybe_write_string(VeryVerbose, ImportString),
-		maybe_write_string(VeryVerbose, "'... "),
+		maybe_write_string(VeryVerbose, "'...\n"),
 		maybe_flush_output(VeryVerbose),
-		maybe_write_string(VeryVerbose, "% done.\n"),
 
 		module_name_to_file_name(Import, ".opt", no, FileName),
 		prog_io__read_opt_file(FileName, Import, yes,
 				ModuleError, Messages, Items1),
 		update_error_status(opt, FileName, ModuleError, Messages,
 				Error0, Error1),
-		{ list__append(Items0, Items1, Items2) }
+		{ list__append(Items0, Items1, Items2) },
+		maybe_write_string(VeryVerbose, "% done.\n")
 	),
 	read_optimization_interfaces(Imports, Items2, Items, Error1, Error).
 

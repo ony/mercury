@@ -403,7 +403,7 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Pragma = source_file(_) },
 		{ Module = Module0 }
 	;
-		{ Pragma = foreign(Lang, Body_Code) },
+		{ Pragma = foreign_code(Lang, Body_Code) },
 		{ module_add_foreign_body_code(Lang, Body_Code, Context,
 			Module0, Module) }
 	;
@@ -411,9 +411,9 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ module_add_foreign_decl(Lang, C_Header, Context,
 			Module0, Module) }
 	;
-		% Handle pragma foreign decls later on (when we process
+		% Handle pragma foreign procs later on (when we process
 		% clauses).
-		{ Pragma = foreign(_, _, _, _, _, _) },
+		{ Pragma = foreign_proc(_, _, _, _, _, _) },
 		{ Module = Module0 }
 	;	
 		% Handle pragma tabled decls later on (when we process
@@ -714,7 +714,7 @@ add_item_clause(module_defn(_, Defn), Status0, Status, _,
 add_item_clause(pragma(Pragma), Status, Status, Context,
 		Module0, Module, Info0, Info) -->
 	(
-		{ Pragma = foreign(Attributes, Pred, PredOrFunc,
+		{ Pragma = foreign_proc(Attributes, Pred, PredOrFunc,
 			Vars, VarSet, PragmaImpl) }
 	->
 		module_add_pragma_foreign_code(Attributes, 
@@ -3956,7 +3956,7 @@ produce_instance_method_clause(PredOrFunc, Context, InstanceClause,
 %	handling of `pragma export' declarations, in export.m.
 
 :- pred module_add_pragma_import(sym_name, pred_or_func, list(mode),
-		pragma_foreign_code_attributes, string, import_status,
+		pragma_foreign_proc_attributes, string, import_status,
 		prog_context, module_info, module_info, qual_info, qual_info,
 		io__state, io__state).
 :- mode module_add_pragma_import(in, in, in, in, in, in, in, in, out,
@@ -4078,7 +4078,7 @@ module_add_pragma_import(PredName, PredOrFunc, Modes, Attributes,
 %	the c_code for a `pragma import' declaration to a pred_info.
 
 :- pred pred_add_pragma_import(pred_info, pred_id, proc_id,
-		pragma_foreign_code_attributes, string, prog_context, pred_info,
+		pragma_foreign_proc_attributes, string, prog_context, pred_info,
 		module_info, module_info, qual_info, qual_info,
 		io__state, io__state).
 :- mode pred_add_pragma_import(in, in, in, in, in, in, out, in, out, in, out,
@@ -4115,7 +4115,7 @@ pred_add_pragma_import(PredInfo0, PredId, ProcId, Attributes, C_Function,
 
 %-----------------------------------------------------------------------------%
 
-:- pred module_add_pragma_foreign_code(pragma_foreign_code_attributes,
+:- pred module_add_pragma_foreign_code(pragma_foreign_proc_attributes,
 	sym_name, pred_or_func, list(pragma_var), prog_varset,
 	pragma_foreign_code_impl, import_status, prog_context,
 	module_info, module_info, qual_info, qual_info, io__state,
@@ -4755,18 +4755,30 @@ warn_singletons_in_goal_2(unify(Var, RHS, _, _, _),
 	warn_singletons_in_unify(Var, RHS, GoalInfo, QuantVars, VarSet,
 		PredCallId, MI).
 
-warn_singletons_in_goal_2(pragma_foreign_code(Attrs, _, _, _, ArgInfo, _,
+warn_singletons_in_goal_2(foreign_proc(Attrs, _, _, _, ArgInfo, _,
 		PragmaImpl), GoalInfo, _QuantVars, _VarSet, PredCallId, MI) --> 
 	{ goal_info_get_context(GoalInfo, Context) },
 	{ foreign_language(Attrs, Lang) },
 	warn_singletons_in_pragma_foreign_code(PragmaImpl, Lang,
 		ArgInfo, Context, PredCallId, MI).
 
-warn_singletons_in_goal_2(bi_implication(LHS, RHS), _GoalInfo, QuantVars,
+warn_singletons_in_goal_2(shorthand(ShorthandGoal), GoalInfo, QuantVars,
 		VarSet, PredCallId, MI) -->
+	warn_singletons_in_goal_2_shorthand(ShorthandGoal, GoalInfo, 
+		QuantVars, VarSet, PredCallId, MI).
+
+
+:- pred warn_singletons_in_goal_2_shorthand(shorthand_goal_expr,
+		hlds_goal_info, set(prog_var), prog_varset, simple_call_id,
+		module_info, io__state, io__state).
+:- mode warn_singletons_in_goal_2_shorthand(in, in, in, in, in, in, di, uo)
+		is det.
+
+warn_singletons_in_goal_2_shorthand(bi_implication(LHS, RHS), _GoalInfo, 
+		QuantVars, VarSet, PredCallId, MI) -->
 	warn_singletons_in_goal_list([LHS, RHS], QuantVars, VarSet,
 		PredCallId, MI).
-
+		
 
 :- pred warn_singletons_in_goal_list(list(hlds_goal), set(prog_var),
 		prog_varset, simple_call_id, module_info,
@@ -5238,7 +5250,7 @@ clauses_info_add_clause(ClausesInfo0, ModeIds, CVarSet, TVarSet0,
 % return the hlds_goal.
 
 :- pred clauses_info_add_pragma_foreign_code(
-	clauses_info::in, purity::in, pragma_foreign_code_attributes::in,
+	clauses_info::in, purity::in, pragma_foreign_proc_attributes::in,
 	pred_id::in, proc_id::in, prog_varset::in, list(pragma_var)::in,
 	list(type)::in, tvarset::in, 
 	pragma_foreign_code_impl::in, prog_context::in,
@@ -5332,7 +5344,7 @@ clauses_info_add_pragma_foreign_code(ClausesInfo0, Purity, Attributes0, PredId,
 		% Put the purity in the goal_info in case
 		% this foreign code is inlined
 		add_goal_info_purity_feature(GoalInfo1, Purity, GoalInfo),
-		HldsGoal0 = pragma_foreign_code(Attributes1, PredId, 
+		HldsGoal0 = foreign_proc(Attributes1, PredId, 
 			ModeId, Args, ArgInfo, OrigArgTypes, PragmaImpl)
 			- GoalInfo
 		}, 
@@ -5535,7 +5547,7 @@ transform_goal_2(equivalent(P0, Q0), _Context, VarSet0, Subst, Goal, VarSet,
 	{ goal_info_init(GoalInfo) },
 	transform_goal(P0, VarSet0, Subst, P, VarSet1, Info0, Info1),
 	transform_goal(Q0, VarSet1, Subst, Q, VarSet, Info1, Info),
-	{ Goal = bi_implication(P, Q) - GoalInfo }.
+	{ Goal = shorthand(bi_implication(P, Q)) - GoalInfo }.
 
 transform_goal_2(call(Name, Args0, Purity), Context, VarSet0, Subst, Goal,
 		VarSet, Info0, Info) -->

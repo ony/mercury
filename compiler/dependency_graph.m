@@ -346,12 +346,23 @@ dependency_graph__add_arcs_in_goal_2(unify(_,_,_,Unify,_), Caller,
 	    DepGraph0 = DepGraph
 	).
 
-% There can be no dependencies within a pragma_foreign_code
+% There can be no dependencies within a foreign_proc
 dependency_graph__add_arcs_in_goal_2(
-	pragma_foreign_code(_, _, _, _, _, _, _), _, DepGraph, DepGraph).
+	foreign_proc(_, _, _, _, _, _, _), _, DepGraph, DepGraph).
 
-dependency_graph__add_arcs_in_goal_2(bi_implication(LHS, RHS), Caller, 
+dependency_graph__add_arcs_in_goal_2(shorthand(ShorthandGoal), Caller, 
 		DepGraph0, DepGraph) :-
+	dependency_graph__add_arcs_in_goal_2_shorthand(ShorthandGoal, Caller,
+			DepGraph0, DepGraph).
+
+
+:- pred dependency_graph__add_arcs_in_goal_2_shorthand(shorthand_goal_expr,
+		relation_key, dependency_graph, dependency_graph).
+:- mode dependency_graph__add_arcs_in_goal_2_shorthand(in, in, in, out) 
+		is det.
+		
+dependency_graph__add_arcs_in_goal_2_shorthand(bi_implication(LHS, RHS),
+		Caller, DepGraph0, DepGraph) :-
 	dependency_graph__add_arcs_in_list([LHS, RHS], Caller,
 			DepGraph0, DepGraph).
 
@@ -737,11 +748,11 @@ process_aditi_goal(_IsNeg, unify(Var, _, _, Unify, _) - _,
 	).
 process_aditi_goal(_IsNeg, generic_call(_, _, _, _) - _, 
 		Map, Map) --> [].
-process_aditi_goal(_IsNeg, pragma_foreign_code(_, _, _, _, _, _, _) - _,
+process_aditi_goal(_IsNeg, foreign_proc(_, _, _, _, _, _, _) - _,
 		Map, Map) --> [].
-process_aditi_goal(_, bi_implication(_, _) - _, _, _) -->
+process_aditi_goal(_, shorthand(_) - _, _, _) -->
 	% these should have been expanded out by now
-	{ error("process_aditi_goal: unexpected bi_implication") }.
+	{ error("process_aditi_goal: unexpected shorthand") }.
 
 %-----------------------------------------------------------------------------%
 

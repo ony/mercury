@@ -276,6 +276,18 @@ mercury_runtime_init(int argc, char **argv)
 	*/
 	MR_save_regs_to_mem(c_regs);
 
+#ifdef __linux__
+	/*
+	** XXX Ensure that we link in atexit().
+	** XXX This works around a bug in gcc 2.95.3 (prerelease) and/or
+	** libc 2.2.2 on Debian Linux, where we'd get a link error when
+	** building libmer_rt.so with --no-undefined, due to a reference
+	** to atexit() from crtendS.o, which gets linked last, after any
+	** libraries such as `-lc'.
+	*/
+	MR_global_pointer = (void *) atexit;
+#endif
+
 #if defined(MR_LOWLEVEL_DEBUG) || defined(MR_TABLE_DEBUG)
 	/*
 	** Ensure stdio & stderr are unbuffered even if redirected.

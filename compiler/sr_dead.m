@@ -178,7 +178,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = pragma_foreign_code(Attrs, PredId, ProcId, 
+	Expr0 = foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
 	extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
 		Vars, MaybeModes, Types, Info0, Alias0, Alias), 
@@ -194,7 +194,7 @@ annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal,
 		
 annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
-	Expr0 = bi_implication(_, _),
+	Expr0 = shorthand(_),
 	Pool = Pool0,
 	pa_alias_as__top("unhandled goal", Alias),
 	Goal = Expr0 - Info0. 

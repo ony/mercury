@@ -673,13 +673,14 @@
 %	- RTTI
 %	- high level data representation
 %	  (i.e. generate MLDS type declarations for user-defined types)
+%	- support trailing
 %
 % BUGS:
 %	- XXX parameter passing problem for abstract equivalence types
 %         that are defined as float (or anything which doesn't map to `Word')
 %
 % TODO:
-%	- XXX define compare & unify preds RTTI types
+%	- XXX define compare & unify preds for RTTI types
 %	- XXX need to generate correct layout information for closures
 %	      so that tests/hard_coded/copy_pred works.
 %	- XXX fix ANSI/ISO C conformance of the generated code (i.e. port to lcc)
@@ -693,7 +694,6 @@
 %	- support fact tables
 %	- support --split-c-files
 %	- support aditi
-%	- support trailing
 %	- support accurate GC
 %
 % POTENTIAL EFFICIENCY IMPROVEMENTS:
@@ -2012,7 +2012,7 @@ ml_gen_goal_expr(unify(_A, _B, _, Unification, _), CodeModel, Context,
 	ml_gen_unification(Unification, CodeModel, Context,
 		MLDS_Decls, MLDS_Statements).
 
-ml_gen_goal_expr(pragma_foreign_code(Attributes,
+ml_gen_goal_expr(foreign_proc(Attributes,
                 PredId, ProcId, ArgVars, ArgDatas, OrigArgTypes, PragmaImpl),
 		CodeModel, OuterContext, MLDS_Decls, MLDS_Statements) -->
         (
@@ -2039,11 +2039,11 @@ ml_gen_goal_expr(pragma_foreign_code(Attributes,
                         C_Code, OuterContext, MLDS_Decls, MLDS_Statements)
         ).
 
-ml_gen_goal_expr(bi_implication(_, _), _, _, _, _) -->
+ml_gen_goal_expr(shorthand(_), _, _, _, _) -->
 	% these should have been expanded out by now
-	{ error("ml_gen_goal_expr: unexpected bi_implication") }.
+	{ error("ml_gen_goal_expr: unexpected shorthand") }.
 
-:- pred ml_gen_nondet_pragma_c_code(code_model, pragma_foreign_code_attributes,
+:- pred ml_gen_nondet_pragma_c_code(code_model, pragma_foreign_proc_attributes,
 		pred_id, proc_id, list(prog_var),
 		list(maybe(pair(string, mode))), list(prog_type), prog_context,
 		string, maybe(prog_context), string, maybe(prog_context),
@@ -2240,7 +2240,7 @@ ml_gen_nondet_pragma_c_code(CodeModel, Attributes,
 	{ MLDS_Decls = ConvDecls }.
 
 :- pred ml_gen_ordinary_pragma_c_code(code_model, 
-		pragma_foreign_code_attributes,
+		pragma_foreign_proc_attributes,
 		pred_id, proc_id, list(prog_var),
 		list(maybe(pair(string, mode))), list(prog_type),
 		string, prog_context,
@@ -2669,7 +2669,7 @@ ml_gen_pragma_c_output_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType),
 			% a cast is for polymorphic types, which are
 			% `Word' in the C interface but `MR_Box' in the
 			% MLDS back-end.
-			( type_util__var(VarType, _) ->
+			( type_util__var(OrigType, _) ->
 				RHS_Cast = "(MR_Box) "
 			;
 				RHS_Cast = ""

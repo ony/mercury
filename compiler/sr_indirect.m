@@ -397,7 +397,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr - Info.
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = pragma_foreign_code(Attrs, PredId, ProcId, 
+	Expr0 = foreign_proc(Attrs, PredId, ProcId, 
 					Vars, MaybeModes, Types, _), 
 	pa_alias_as__extend_foreign_code(HLDS, ProcInfo, Attrs, 
 			PredId, ProcId, Vars, 
@@ -412,8 +412,8 @@ analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr0 - Info0. 
 
 analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = bi_implication(_, _), 
-	pa_alias_as__top("unhandled goal (bi_implication)", Alias), 
+	Expr0 = shorthand(_), 
+	pa_alias_as__top("unhandled goal (shorthand)", Alias), 
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0. 
 

@@ -436,9 +436,9 @@ traverse_goal(_, generic_call(GenericCall, Args, _, _), UseInf0, UseInf) :-
 	set_list_vars_used(UseInf0, CallArgs, UseInf1),
 	set_list_vars_used(UseInf1, Args, UseInf).
 
-% handle pragma foreign(...) -
+% handle pragma foreign_proc(...) -
 % only those arguments which have names can be used in the foreign code.
-traverse_goal(_, pragma_foreign_code(_, _, _, Args, Names, _, _),
+traverse_goal(_, foreign_proc(_, _, _, Args, Names, _, _),
 		UseInf0, UseInf) :-
 	assoc_list__from_corresponding_lists(Args, Names, ArgsAndNames),
 	ArgIsUsed = lambda([ArgAndName::in, Arg::out] is semidet, (
@@ -504,9 +504,9 @@ traverse_goal(_, unify(Var, Rhs, _, complicated_unify(_, _, _), _),
 		error("complicated unifications should only be var-var")
 	).
 
-traverse_goal(_, bi_implication(_, _), _, _) :-
+traverse_goal(_, shorthand(_), _, _) :-
 	% these should have been expanded out by now
-	error("traverse_goal: unexpected bi_implication").
+	error("traverse_goal: unexpected shorthand").
 
 	% add PredProc - HeadVar as an alias for the same element of Args.
 :- pred add_pred_call_arg_dep(pred_proc_id::in, list(prog_var)::in,
@@ -1275,11 +1275,11 @@ fixup_goal_expr(_ModuleInfo, _UnusedVars, _ProcCallInfo, no,
 
 fixup_goal_expr(_ModuleInfo, _UnusedVars, _ProcCallInfo, no,
 			GoalExpr - GoalInfo, GoalExpr - GoalInfo) :-
-	GoalExpr = pragma_foreign_code(_, _, _, _, _, _, _).
+	GoalExpr = foreign_proc(_, _, _, _, _, _, _).
 
-fixup_goal_expr(_, _, _, _, bi_implication(_, _) - _, _) :-
+fixup_goal_expr(_, _, _, _, shorthand(_) - _, _) :-
 	% these should have been expanded out by now
-	error("fixup_goal_expr: unexpected bi_implication").
+	error("fixup_goal_expr: unexpected shorthand").
 
 	% Remove useless unifications from a list of conjuncts.
 :- pred fixup_conjuncts(module_info::in, list(prog_var)::in, proc_call_info::in,

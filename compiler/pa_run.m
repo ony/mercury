@@ -419,7 +419,7 @@ analyse_goal_expr(if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	analyse_goal(ProcInfo, HLDS, ELSE, T2, T, A0, A3),
 	pa_alias_as__least_upper_bound(ProcInfo, HLDS, A2, A3, A).
 
-analyse_goal_expr(pragma_foreign_code(Attrs, PredId, ProcId, 
+analyse_goal_expr(foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
 			Info, ProcInfo, HLDS, 
 			T, T, Ain, A) :- 
@@ -438,17 +438,8 @@ analyse_goal_expr(par_conj(_Goals, _SM), Info, _, _ , T, T, A0, A) :-
 				ContextLineS, ")"], Msg), 
 	pa_alias_as__top(A0, Msg, A).
 
-	% error("(pa) par_conj not handled") .
-analyse_goal_expr(bi_implication(_G1, _G2),Info, _,  _ , T, T, A0, A) :- 
-	goal_info_get_context(Info, Context), 
-	term__context_line(Context, ContextLine), 
-	term__context_file(Context, ContextFile), 
-	string__int_to_string(ContextLine, ContextLineS), 
-
-	string__append_list(["bi_implication:",
-				" (",ContextFile, ":", 
-				ContextLineS, ")"], Msg), 
-	pa_alias_as__top(A0, Msg, A).
+analyse_goal_expr(shorthand(_), _, _,  _ , _, _, _, _) :- 
+	error("pa_run__analyse_goal_expr: shorthand goal").
 
 %-----------------------------------------------------------------------------%
 

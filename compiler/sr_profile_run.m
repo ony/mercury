@@ -230,11 +230,11 @@ collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :-
 	collect_profiling_information_4(HLDS, Then, Prof1, Prof2), 
 	collect_profiling_information_4(HLDS, Else, Prof2, Prof). 
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
-	Expr = pragma_foreign_code(_, _, _, _, _, _, _). 
+	Expr = foreign_proc(_, _, _, _, _, _, _). 
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = par_conj(_, _).
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
-	Expr = bi_implication(_, _).
+	Expr = shorthand(_).
 
 		
 		

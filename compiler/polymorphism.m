@@ -1068,7 +1068,7 @@ polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
 	{ conj_list_to_goal(GoalList, GoalInfo, Goal) }.
 
 polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
-	{ Goal0 = pragma_foreign_code(Attributes, PredId, ProcId,
+	{ Goal0 = foreign_proc(Attributes, PredId, ProcId,
 		ArgVars0, ArgInfo0, OrigArgTypes0, PragmaCode0) },
 	polymorphism__process_call(PredId, ArgVars0, GoalInfo,
 		ArgVars, ExtraVars, CallGoalInfo, ExtraGoals),
@@ -1120,7 +1120,7 @@ polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
 		%
 		% plug it all back together
 		%
-		{ Call = pragma_foreign_code(Attributes, PredId, 
+		{ Call = foreign_proc(Attributes, PredId, 
 			ProcId, ArgVars, ArgInfo, OrigArgTypes, PragmaCode) - 
 			CallGoalInfo },
 		{ list__append(ExtraGoals, [Call], GoalList) },
@@ -1156,9 +1156,9 @@ polymorphism__process_goal_expr(if_then_else(Vars, A0, B0, C0, SM), GoalInfo,
 	polymorphism__process_goal(A0, A),
 	polymorphism__process_goal(B0, B),
 	polymorphism__process_goal(C0, C).
-polymorphism__process_goal_expr(bi_implication(_, _), _, _) -->
+polymorphism__process_goal_expr(shorthand(_), _, _) -->
 	% these should have been expanded out by now
-	{ error("polymorphism__process_goal_expr: unexpected bi_implication") }.
+	{ error("polymorphism__process_goal_expr: unexpected shorthand") }.
 
 
 	% type_info_vars prepends a comma seperated list of variables

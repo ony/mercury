@@ -86,7 +86,7 @@
 :- mode mercury_output_pragma_decl(in, in, in, in, di, uo) is det.
 
 :- pred mercury_output_pragma_foreign_code(
-		pragma_foreign_code_attributes, sym_name,
+		pragma_foreign_proc_attributes, sym_name,
 		pred_or_func, list(pragma_var), prog_varset,
 		pragma_foreign_code_impl, io__state, io__state).
 :- mode mercury_output_pragma_foreign_code(
@@ -353,10 +353,10 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = foreign_decl(Lang, ForeignHeaderString) },
 		mercury_output_pragma_foreign_decl(Lang, ForeignHeaderString)
 	;
-		{ Pragma = foreign(Lang, Code) }, 
+		{ Pragma = foreign_code(Lang, Code) }, 
 		mercury_output_pragma_foreign_body_code(Lang, Code)
 	;
-		{ Pragma = foreign(Attributes, Pred, PredOrFunc, Vars,
+		{ Pragma = foreign_proc(Attributes, Pred, PredOrFunc, Vars,
 			VarSet, PragmaCode) }, 
 		mercury_output_pragma_foreign_code(Attributes, Pred,
 			PredOrFunc, Vars, VarSet, PragmaCode)
@@ -2256,7 +2256,7 @@ mercury_output_pragma_foreign_code(Attributes, PredName, PredOrFunc, Vars0,
 	).
 
 :- pred mercury_output_pragma_foreign_code_2(
-		pragma_foreign_code_attributes, sym_name,
+		pragma_foreign_proc_attributes, sym_name,
 		pred_or_func, list(pragma_var), prog_varset,
 		pragma_foreign_code_impl, io__state, io__state).
 :- mode mercury_output_pragma_foreign_code_2(
@@ -2264,7 +2264,7 @@ mercury_output_pragma_foreign_code(Attributes, PredName, PredOrFunc, Vars0,
 
 mercury_output_pragma_foreign_code_2(Attributes, PredName, PredOrFunc, Vars0,
 		VarSet, PragmaCode) -->
-	io__write_string(":- pragma foreign_code("),
+	io__write_string(":- pragma foreign_proc("),
 	{ foreign_language(Attributes, Lang) },
 	mercury_output_foreign_language_string(Lang),
 	io__write_string(", "),
@@ -2457,7 +2457,7 @@ mercury_output_pragma_decl(PredName, Arity, PredOrFunc, PragmaName) -->
 %-----------------------------------------------------------------------------%
 
 :- pred mercury_output_pragma_import(sym_name, pred_or_func, list(mode),
-	pragma_foreign_code_attributes, string, io__state, io__state).
+	pragma_foreign_proc_attributes, string, io__state, io__state).
 :- mode mercury_output_pragma_import(in, in, in, in, in, di, uo) is det.
 
 mercury_output_pragma_import(Name, PredOrFunc, ModeList, Attributes,
@@ -2586,7 +2586,7 @@ mercury_output_tabs(Indent) -->
 %-----------------------------------------------------------------------------%
 
 :- pred mercury_output_pragma_foreign_attributes(
-		pragma_foreign_code_attributes, 
+		pragma_foreign_proc_attributes,
 		prog_varset, io__state, io__state).
 :- mode mercury_output_pragma_foreign_attributes(in, in, di, uo) is det.
 

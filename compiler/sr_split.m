@@ -342,11 +342,11 @@ process_goal(_, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 process_goal(_, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
+	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 process_goal(_, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = bi_implication(_, _) },
-	{ error("structure_reuse: bi_implication.\n") }.
+	{ Goal0 = shorthand(_) },
+	{ error("structure_reuse: shorthand.\n") }.
 
 process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },

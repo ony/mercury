@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -474,11 +474,21 @@ implicitly_quantify_goal_2(
 	{ union(NonLocalVars1, NonLocalVars2, NonLocalVars) },
 	quantification__set_nonlocals(NonLocalVars).
 
-implicitly_quantify_goal_2(pragma_foreign_code(A,B,C,Vars,E,F,G), _,
-		pragma_foreign_code(A,B,C,Vars,E,F,G)) --> 
+implicitly_quantify_goal_2(foreign_proc(A,B,C,Vars,E,F,G), _,
+		foreign_proc(A,B,C,Vars,E,F,G)) --> 
 	implicitly_quantify_atomic_goal(Vars).
 
-implicitly_quantify_goal_2(bi_implication(LHS0, RHS0), Context, Goal) -->
+implicitly_quantify_goal_2(shorthand(ShorthandGoal), Context, Goal) -->
+	implicitly_quantify_goal_2_shorthand(ShorthandGoal, 
+		Context, Goal).
+
+
+:- pred implicitly_quantify_goal_2_shorthand(shorthand_goal_expr::in,
+	prog_context::in, hlds_goal_expr::out,
+	quant_info::in, quant_info::out) is det.
+
+implicitly_quantify_goal_2_shorthand(bi_implication(LHS0, RHS0), 
+		Context, Goal) -->
 
 		% get the initial values of various settings
 	quantification__get_quant_vars(QuantVars0),
@@ -569,6 +579,8 @@ implicitly_quantify_goal_2(bi_implication(LHS0, RHS0), Context, Goal) -->
 		ReverseImplication0, ReverseImplication),
 
 	{ Goal = conj([ForwardsImplication, ReverseImplication]) }.
+
+
 
 :- pred implicitly_quantify_atomic_goal(list(prog_var), quant_info, quant_info).
 :- mode implicitly_quantify_atomic_goal(in, in, out) is det.
@@ -985,14 +997,28 @@ quantification__goal_vars_2(NonLocalsToRecompute,
 	union(Set5, Set6, Set),
 	union(LambdaSet5, LambdaSet6, LambdaSet).
 
-quantification__goal_vars_2(_, pragma_foreign_code(_,_,_, ArgVars, _, _, _),
+quantification__goal_vars_2(_, foreign_proc(_,_,_, ArgVars, _, _, _),
 		Set0, LambdaSet, Set, LambdaSet) :-
 	insert_list(Set0, ArgVars, Set).
 
-quantification__goal_vars_2(NonLocalsToRecompute, bi_implication(LHS, RHS),
+quantification__goal_vars_2(NonLocalsToRecompute, shorthand(ShorthandGoal),
 		Set0, LambdaSet0, Set, LambdaSet) :-
+	quantification__goal_vars_2_shorthand(NonLocalsToRecompute, 
+		ShorthandGoal, Set0, LambdaSet0, Set, LambdaSet).
+
+
+:- pred quantification__goal_vars_2_shorthand(nonlocals_to_recompute,
+		shorthand_goal_expr, set_of_var, set_of_var, set_of_var, 
+		set_of_var).
+:- mode quantification__goal_vars_2_shorthand(in, in, in, in, out, out) 
+		is det.
+
+quantification__goal_vars_2_shorthand(NonLocalsToRecompute, 
+		bi_implication(LHS, RHS), Set0, LambdaSet0, Set, 
+		LambdaSet) :-
 	goal_list_vars_2(NonLocalsToRecompute, [LHS, RHS],
 		Set0, LambdaSet0, Set, LambdaSet).
+
 
 :- pred quantification__unify_rhs_vars(nonlocals_to_recompute,
 		unify_rhs, maybe(cell_to_reuse), set_of_var, set_of_var,

@@ -1027,8 +1027,8 @@ split_clauses_and_decls([ItemAndContext0 | Items0],
 % header file, which currently we don't.
 
 pragma_allowed_in_interface(foreign_decl(_, _), no).
-pragma_allowed_in_interface(foreign(_, _), no).
-pragma_allowed_in_interface(foreign(_, _, _, _, _, _), no).
+pragma_allowed_in_interface(foreign_code(_, _), no).
+pragma_allowed_in_interface(foreign_proc(_, _, _, _, _, _), no).
 pragma_allowed_in_interface(inline(_, _), no).
 pragma_allowed_in_interface(no_inline(_, _), no).
 pragma_allowed_in_interface(obsolete(_, _), yes).
@@ -1987,15 +1987,40 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__close_output(DepStream),
 		io__rename_file(TmpDependencyFileName, DependencyFileName,
 			Result3),
-		( { Result3 = error(Error) } ->
-			maybe_write_string(Verbose, " failed.\n"),
-			maybe_flush_output(Verbose),
-			{ io__error_message(Error, ErrorMsg) },
-			{ string__append_list(["can't rename file `",
-				TmpDependencyFileName, "' as `",
-				DependencyFileName, "': ", ErrorMsg],
-				Message) },
-			report_error(Message)
+		( { Result3 = error(_) } ->
+			% On some systems, we need to remove the existing file
+			% first, if any.  So try again that way.
+			io__remove_file(DependencyFileName, Result4),
+			( { Result4 = error(Error4) } ->
+				maybe_write_string(Verbose, " failed.\n"),
+				maybe_flush_output(Verbose),
+				{ io__error_message(Error4, ErrorMsg) },
+				{ string__append_list(["can't remove file `",
+					DependencyFileName, "': ", ErrorMsg],
+					Message) },
+				report_error(Message)
+			;
+				io__rename_file(TmpDependencyFileName,
+					DependencyFileName, Result5),
+				( { Result5 = error(Error5) } ->
+					maybe_write_string(Verbose,
+						" failed.\n"),
+					maybe_flush_output(Verbose),
+					{ io__error_message(Error5,
+						ErrorMsg) },
+					{ string__append_list(
+						["can't rename file `",
+						TmpDependencyFileName,
+						"' as `",
+						DependencyFileName,
+						"': ",
+						ErrorMsg],
+						Message) },
+					report_error(Message)
+				;
+					maybe_write_string(Verbose, " done.\n")
+				)
+			)
 		;
 			maybe_write_string(Verbose, " done.\n")
 		)
@@ -3063,7 +3088,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_lib_file_name("lib", ModuleName, ".install_hdrs", no,
 				LibInstallHdrsTargetName),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	( { HighLevelCode = yes } ->
+	globals__io_get_target(Target),
+	( { HighLevelCode = yes, ( Target = c ; Target = asm ) } ->
 		%
 		% XXX  Note that we install the header files in two places:
 		% in the `inc' directory, so that the C compiler will find
@@ -3279,8 +3305,8 @@ item_list_contains_foreign_code([Item|Items]) :-
 		% do if there is some foreign_code, not just foreign_decls.
 		% Counting foreign_decls here causes problems with
 		% intermodule optimization.
-		(	Pragma = foreign(_Lang, _)
-		;	Pragma = foreign(_, _, _, _, _, _)
+		(	Pragma = foreign_code(_Lang, _)
+		;	Pragma = foreign_proc(_, _, _, _, _, _)
 		;	% XXX `pragma export' should not be treated as
 			% foreign, but currently mlds_to_gcc.m doesn't
 			% handle that declaration, and instead just punts

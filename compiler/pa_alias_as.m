@@ -128,7 +128,7 @@
 :- mode extend_unification(in, in, in, in, in, out) is det.
 
 :- pred extend_foreign_code(module_info::in, proc_info::in,
-		pragma_foreign_code_attributes::in, pred_id::in, proc_id::in, 
+		pragma_foreign_proc_attributes::in, pred_id::in, proc_id::in, 
 		list(prog_var)::in, list(maybe(pair(string, mode)))::in,
                 list(type)::in, hlds_goal_info::in, 
 		alias_as::in, alias_as::out) is det.
@@ -537,7 +537,7 @@ extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId,
 :- pred from_foreign_code(proc_info, module_info, 
 			pred_id, proc_id, 
 			hlds_goal_info,
-			pragma_foreign_code_attributes,
+			pragma_foreign_proc_attributes,
 			list(prog_var), list(maybe(pair(string, mode))),
                         list(type), alias_as).
 :- mode from_foreign_code(in, in, in, in, in, in, in, in, in, out) is det.

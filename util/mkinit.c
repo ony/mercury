@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------*/
 
 /*
-** Copyright (C) 1995-2000 The University of Melbourne.
+** Copyright (C) 1995-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU General
 ** Public License - see the file COPYING in the Mercury distribution.
 */
@@ -23,14 +23,18 @@
 #include	<string.h>
 #include	<ctype.h>
 #include	<errno.h>
-#include	<sys/stat.h>
+
+#include	"mercury_conf.h"
+
+#ifdef HAVE_SYS_STAT_H
+  #include	<sys/stat.h>
+#endif
 
 #ifdef HAVE_UNISTD_H
   #include	<unistd.h>
 #endif
 
 #include	"getopt.h"
-#include	"mercury_conf.h"
 #include	"mercury_std.h"
 
 /* --- adjustable limits --- */
@@ -279,7 +283,7 @@ static	void	output_init_function(const char *func_name,
 			int *num_bunches_ptr, int *num_calls_in_cur_bunch_ptr,
 			const char *suffix, bool only_full_module);
 static	void	add_rl_data(char *data);
-static	int	getline(FILE *file, char *line, int line_max);
+static	int	get_line(FILE *file, char *line, int line_max);
 static	void	*checked_malloc(size_t size);
 
 /*---------------------------------------------------------------------------*/
@@ -496,15 +500,23 @@ find_init_file(const char *basename)
 
 	/*
 	** Check whether a file exists.
-	** At some point in the future it may be worth making this
-	** implementation more portable.
 	*/
 static bool
 file_exists(const char *filename)
 {
+#ifdef HAVE_SYS_STAT_H
 	struct stat buf;
 
 	return (stat(filename, &buf) == 0);
+#else
+	FILE *f = fopen(filename, "rb");
+	if (f != NULL) {
+		fclose(f);
+		return TRUE;
+	} else {
+		return FALSE;
+	}
+#endif
 }
 
 /*---------------------------------------------------------------------------*/
@@ -732,7 +744,7 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 		return;
 	}
 
-	while (getline(cfile, line, MAXLINE) > 0) {
+	while (get_line(cfile, line, MAXLINE) > 0) {
 	    if (strncmp(line, init_str, init_strlen) == 0) {
 		int	j;
 
@@ -909,7 +921,7 @@ add_rl_data(char *data)
 /*---------------------------------------------------------------------------*/
 
 static int 
-getline(FILE *file, char *line, int line_max)
+get_line(FILE *file, char *line, int line_max)
 {
 	int	c, num_chars, limit;
 

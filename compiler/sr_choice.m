@@ -115,11 +115,11 @@ apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
+	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 apply_constraint_2(_Constraint, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = bi_implication(_, _) },
-	{ error("structure_reuse: bi_implication.\n") }.
+	{ Goal0 = shorthand(_) },
+	{ error("structure_reuse: shorthand.\n") }.
 
 apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
@@ -449,11 +449,11 @@ select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
+	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 select_reuses_2(_Selection, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = bi_implication(_, _) },
-	{ error("structure_reuse: bi_implication.\n") }.
+	{ Goal0 = shorthand(_) },
+	{ error("structure_reuse: shorthand.\n") }.
 
 select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
@@ -728,11 +728,11 @@ determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
+	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 determine_cgc(_ReusedVars, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = bi_implication(_, _) },
-	{ error("structure_reuse: bi_implication.\n") }.
+	{ Goal0 = shorthand(_) },
+	{ error("structure_reuse: shorthand.\n") }.
 
 determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },

@@ -548,14 +548,24 @@ equal_goals(if_then_else(VarsA, IfA, ThenA, ElseA, _) - _,
 	equal_goals(IfA, IfB, Subst1, Subst2),
 	equal_goals(ThenA, ThenB, Subst2, Subst3),
 	equal_goals(ElseA, ElseB, Subst3, Subst).
-equal_goals(pragma_foreign_code(Attribs, PredId, _, VarsA, _, _, _) - _,
-		pragma_foreign_code(Attribs, PredId, _, VarsB, _, _, _) -
+equal_goals(foreign_proc(Attribs, PredId, _, VarsA, _, _, _) - _,
+		foreign_proc(Attribs, PredId, _, VarsB, _, _, _) -
 			_, Subst0, Subst) :-
 	equal_vars(VarsA, VarsB, Subst0, Subst).
 equal_goals(par_conj(GoalAs, _) - _, par_conj(GoalBs, _) - _, Subst0, Subst) :-
 	equal_goals_list(GoalAs, GoalBs, Subst0, Subst).
-equal_goals(bi_implication(LeftGoalA, RightGoalA) - _,
-	    bi_implication(LeftGoalB, RightGoalB) - _, Subst0, Subst) :-
+equal_goals(shorthand(ShorthandGoalA) - GoalInfoA,
+	    shorthand(ShorthandGoalB) - GoalInfoB, Subst0, Subst) :-
+	equal_goals_shorthand(ShorthandGoalA - GoalInfoA, 
+			ShorthandGoalB - GoalInfoB, Subst0, Subst).
+
+:- pred equal_goals_shorthand(pair(shorthand_goal_expr, hlds_goal_info)::in,
+		pair(shorthand_goal_expr, hlds_goal_info)::in, subst::in, 
+		subst::out) is semidet.
+
+equal_goals_shorthand(bi_implication(LeftGoalA, RightGoalA) - GoalInfo,
+	    bi_implication(LeftGoalB, RightGoalB) - GoalInfo, Subst0, Subst) 
+	    :-
 	equal_goals(LeftGoalA, LeftGoalB, Subst0, Subst1),
 	equal_goals(RightGoalA, RightGoalB, Subst1, Subst).
 
@@ -652,8 +662,8 @@ update_pred_info(AssertId, PredId, Module0, Module) :-
 assertion__normalise_goal(call(A,B,C,D,E,F) - GI, call(A,B,C,D,E,F) - GI).
 assertion__normalise_goal(generic_call(A,B,C,D) - GI, generic_call(A,B,C,D)-GI).
 assertion__normalise_goal(unify(A,B,C,D,E) - GI, unify(A,B,C,D,E) - GI).
-assertion__normalise_goal(pragma_foreign_code(A,B,C,D,E,F,G) - GI,
-		pragma_foreign_code(A,B,C,D,E,F,G) - GI).
+assertion__normalise_goal(foreign_proc(A,B,C,D,E,F,G) - GI,
+		foreign_proc(A,B,C,D,E,F,G) - GI).
 assertion__normalise_goal(conj(Goals0) - GI, conj(Goals) - GI) :-
 	assertion__normalise_conj(Goals0, Goals).
 assertion__normalise_goal(switch(A,B,Case0s,D) - GI, switch(A,B,Cases,D)-GI) :-
@@ -671,10 +681,25 @@ assertion__normalise_goal(if_then_else(A, If0, Then0, Else0, E) - GI,
 	assertion__normalise_goal(Else0, Else).
 assertion__normalise_goal(par_conj(Goal0s,B) - GI, par_conj(Goals,B) - GI) :-
 	assertion__normalise_goals(Goal0s, Goals).
-assertion__normalise_goal(bi_implication(LHS0, RHS0) - GI,
+assertion__normalise_goal(shorthand(ShortHandGoal0) - GI0, 
+		shorthand(ShortHandGoal) - GI) :-
+	assertion__normalise_goal_shorthand(ShortHandGoal0 - GI0, 
+			ShortHandGoal - GI).
+
+	% assertion__normalise_goal_shorthand
+	%
+	% Place a shorthand goal into a standard form. Currently
+	% all the code does is replace conj([G]) with G.
+	%
+:- pred assertion__normalise_goal_shorthand(
+		pair(shorthand_goal_expr, hlds_goal_info)::in, 
+		pair(shorthand_goal_expr, hlds_goal_info)::out) is det.
+
+assertion__normalise_goal_shorthand(bi_implication(LHS0, RHS0) - GI,
 		bi_implication(LHS, RHS) - GI) :-
 	assertion__normalise_goal(LHS0, LHS),
 	assertion__normalise_goal(RHS0, RHS).
+
 
 %-----------------------------------------------------------------------------%
 
@@ -728,7 +753,7 @@ assertion__in_interface_check(unify(Var,RHS,_,_,_) - GoalInfo,
 	{ goal_info_get_context(GoalInfo, Context) },
 	assertion__in_interface_check_unify_rhs(RHS, Var, Context,
 			PredInfo, Module0, Module).
-assertion__in_interface_check(pragma_foreign_code(_,PredId,_,_,_,_,_) - 
+assertion__in_interface_check(foreign_proc(_,PredId,_,_,_,_,_) - 
 		GoalInfo, _PredInfo, Module0, Module) -->
 	{ module_info_pred_info(Module0, PredId, PragmaPredInfo) },
 	{ pred_info_import_status(PragmaPredInfo, ImportStatus) },
@@ -764,7 +789,16 @@ assertion__in_interface_check(if_then_else(_, If, Then, Else, _) - _,
 assertion__in_interface_check(par_conj(Goals,_) - _, PredInfo,
 		Module0, Module) -->
 	assertion__in_interface_check_list(Goals, PredInfo, Module0, Module).
-assertion__in_interface_check(bi_implication(LHS, RHS) - _, PredInfo,
+assertion__in_interface_check(shorthand(ShorthandGoal) - _GoalInfo, PredInfo,
+		Module0, Module) -->
+	assertion__in_interface_check_shorthand(ShorthandGoal,
+		PredInfo, Module0, Module).
+
+:- pred assertion__in_interface_check_shorthand(shorthand_goal_expr::in, 
+		pred_info::in, module_info::in, module_info::out,
+		io__state::di, io__state::uo) is det.
+		
+assertion__in_interface_check_shorthand(bi_implication(LHS, RHS), PredInfo,
 		Module0, Module) -->
 	assertion__in_interface_check(LHS, PredInfo, Module0, Module1),
 	assertion__in_interface_check(RHS, PredInfo, Module1, Module).

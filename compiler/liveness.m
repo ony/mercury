@@ -396,12 +396,12 @@ detect_liveness_in_goal_2(call(_,_,_,_,_,_), _, _, _, _, _) :-
 detect_liveness_in_goal_2(unify(_,_,_,_,_), _, _, _, _, _) :-
 	error("unify in detect_liveness_in_goal_2").
 
-detect_liveness_in_goal_2(pragma_foreign_code(_,_,_,_,_,_,_),
+detect_liveness_in_goal_2(foreign_proc(_,_,_,_,_,_,_),
 		_, _, _, _, _) :-
-	error("pragma_foreign_code in detect_liveness_in_goal_2").
+	error("foreign_proc in detect_liveness_in_goal_2").
 
-detect_liveness_in_goal_2(bi_implication(_, _), _, _, _, _, _) :-
-	error("bi_implication in detect_liveness_in_goal_2").
+detect_liveness_in_goal_2(shorthand(_), _, _, _, _, _) :-
+	error("shorthand in detect_liveness_in_goal_2").
 
 %-----------------------------------------------------------------------------%
 
@@ -634,12 +634,12 @@ detect_deadness_in_goal_2(call(_,_,_,_,_,_), _, _, _, _, _, _) :-
 detect_deadness_in_goal_2(unify(_,_,_,_,_), _, _, _, _, _, _) :-
 	error("unify in detect_deadness_in_goal_2").
 
-detect_deadness_in_goal_2(pragma_foreign_code(_, _, _, _, _, _, _),
+detect_deadness_in_goal_2(foreign_proc(_, _, _, _, _, _, _),
 		_, _, _, _, _, _) :-
-	error("pragma_foreign_code in detect_deadness_in_goal_2").
+	error("foreign_proc in detect_deadness_in_goal_2").
 
-detect_deadness_in_goal_2(bi_implication(_, _), _, _, _, _, _, _) :-
-	error("bi_implication in detect_deadness_in_goal_2").
+detect_deadness_in_goal_2(shorthand(_), _, _, _, _, _, _) :-
+	error("shorthand in detect_deadness_in_goal_2").
 
 %-----------------------------------------------------------------------------%
 
@@ -840,7 +840,7 @@ update_liveness_goal(GoalExpr - GoalInfo, LiveInfo, Liveness0, Liveness) :-
 update_liveness_expr(call(_, _, _, _, _, _), _, _, Liveness, Liveness).
 update_liveness_expr(generic_call(_, _, _, _), _, _, Liveness, Liveness).
 update_liveness_expr(unify(_, _, _, _, _), _, _, Liveness, Liveness).
-update_liveness_expr(pragma_foreign_code(_, _, _, _, _, _, _), _, _,
+update_liveness_expr(foreign_proc(_, _, _, _, _, _, _), _, _,
 		Liveness, Liveness).
 update_liveness_expr(conj(Goals), _, LiveInfo, Liveness0, Liveness) :-
 	update_liveness_conj(Goals, LiveInfo, Liveness0, Liveness).
@@ -886,8 +886,8 @@ update_liveness_expr(not(Goal), _, LiveInfo, Liveness0, Liveness) :-
 	update_liveness_goal(Goal, LiveInfo, Liveness0, Liveness).
 update_liveness_expr(some(_, _, Goal), _, LiveInfo, Liveness0, Liveness) :-
 	update_liveness_goal(Goal, LiveInfo, Liveness0, Liveness).
-update_liveness_expr(bi_implication(_, _), _, _, _, _) :-
-	error("update_liveness_expr: bi_implication").
+update_liveness_expr(shorthand(_), _, _, _, _) :-
+	error("update_liveness_expr: shorthand").
 
 :- pred update_liveness_conj(list(hlds_goal)::in, live_info::in,
 	set(prog_var)::in, set(prog_var)::out) is det.
@@ -1013,7 +1013,7 @@ delay_death_goal_expr(GoalExpr0, GoalInfo0, BornVars0, DelayedDead0, VarSet,
 		BornVars = BornVars0,
 		DelayedDead = DelayedDead0
 	;
-		GoalExpr0 = pragma_foreign_code(_, _, _, _, _, _, _),
+		GoalExpr0 = foreign_proc(_, _, _, _, _, _, _),
 		GoalExpr = GoalExpr0,
 		GoalInfo = GoalInfo0,
 		BornVars = BornVars0,
@@ -1096,8 +1096,8 @@ delay_death_goal_expr(GoalExpr0, GoalInfo0, BornVars0, DelayedDead0, VarSet,
 		GoalInfo = GoalInfo0,
 		BornVars = BornVars0
 	;
-		GoalExpr0 = bi_implication(_, _),
-		error("delay_death_goal_expr: bi_implication")
+		GoalExpr0 = shorthand(_),
+		error("delay_death_goal_expr: shorthand")
 	).
 
 :- pred delay_death_conj(list(hlds_goal)::in,
@@ -1341,12 +1341,12 @@ detect_resume_points_in_goal_2(call(A,B,C,D,E,F), _, Liveness, _, _,
 detect_resume_points_in_goal_2(unify(A,B,C,D,E), _, Liveness, _, _,
 		unify(A,B,C,D,E), Liveness).
 
-detect_resume_points_in_goal_2(pragma_foreign_code(A,B,C,D,E,F,G), _,
-		Liveness, _, _, pragma_foreign_code(A,B,C,D,E,F,G), Liveness).
+detect_resume_points_in_goal_2(foreign_proc(A,B,C,D,E,F,G), _,
+		Liveness, _, _, foreign_proc(A,B,C,D,E,F,G), Liveness).
 
-detect_resume_points_in_goal_2(bi_implication(_, _), _, _, _, _, _, _) :-
+detect_resume_points_in_goal_2(shorthand(_), _, _, _, _, _, _) :-
 	% these should have been expanded out by now
-	error("detect_resume_points_in_goal_2: unexpected bi_implication").
+	error("detect_resume_points_in_goal_2: unexpected shorthand").
 
 :- pred detect_resume_points_in_conj(list(hlds_goal)::in, set(prog_var)::in,
 	live_info::in, set(prog_var)::in,

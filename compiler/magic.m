@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2000 University of Melbourne.
+% Copyright (C) 1998-2001 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -1511,9 +1511,9 @@ magic__preprocess_goal_2(par_conj(_, _) - _, _, _, _) -->
 	{ error("Sorry, not yet implemented: parallel conjunction in Aditi procedures") }.
 magic__preprocess_goal_2(generic_call(_, _, _, _) - _, _, _, _) -->
 	{ error("Sorry, not yet implemented: higher-order or class-method calls in Aditi procedures") }.
-magic__preprocess_goal_2(pragma_foreign_code(_, _, _, _, _, _, _) -
+magic__preprocess_goal_2(foreign_proc(_, _, _, _, _, _, _) -
 	_, _, _, _) -->
-	{ error("Sorry, not yet implemented: pragma foreign_code calls in Aditi procedures") }.
+	{ error("Sorry, not yet implemented: foreign_proc calls in Aditi procedures") }.
 magic__preprocess_goal_2(conj(Goals0) - GoalInfo, [conj(Goals) - GoalInfo],
 		HOMap0, HOMap) -->
 	magic__preprocess_conj(Goals0, [], Goals, HOMap0, HOMap).
@@ -1610,9 +1610,9 @@ magic__preprocess_goal_2(Goal0, Goals, HOMap0, HOMap) -->
 		{ HOMap = HOMap0 }
 	).
 
-magic__preprocess_goal_2(bi_implication(_, _) - _, _, _, _) -->
+magic__preprocess_goal_2(shorthand(_) - _, _, _, _) -->
 	% these should have been expanded out by now
-	{ error("magic__preprocess_goal_2: unexpected bi_implication") }.
+	{ error("magic__preprocess_goal_2: unexpected shorthand") }.
 
 	% Introduce new variables and assignments to them for any
 	% duplicates in the list.

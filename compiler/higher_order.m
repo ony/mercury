@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -500,15 +500,15 @@ traverse_goal_2(some(Vars, CanRemove, Goal0) - Info,
 	traverse_goal_2(Goal0, Goal).
 
 traverse_goal_2(Goal, Goal) -->
-	{ Goal = pragma_foreign_code(_, _, _, _, _, _, _) - _ }.
+	{ Goal = foreign_proc(_, _, _, _, _, _, _) - _ }.
 
 traverse_goal_2(Goal, Goal) -->
 	{ Goal = unify(_, _, _, Unify, _) - _ },
 	check_unify(Unify).
 
-traverse_goal_2(bi_implication(_, _) - _, _) -->
+traverse_goal_2(shorthand(_) - _, _) -->
 	% these should have been expanded out by now
-	{ error("traverse_goal_2: unexpected bi_implication") }.
+	{ error("traverse_goal_2: unexpected shorthand") }.
 
 		% To process a disjunction, we process each disjunct with the
 		% specialization information before the goal, then merge the
