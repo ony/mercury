@@ -181,6 +181,7 @@ non_fail_port_code(TopCSD, MiddleCSD) :-
 
 non_redo_port_code1(MiddleCSD, NewOutermostProcDyn) :-
 	impure set_current_csd(MiddleCSD),
+	impure increment_redo_count(MiddleCSD),
 	impure increment_activation_count(MiddleCSD, NewOutermostProcDyn),
 	fail.
 
@@ -228,6 +229,7 @@ non_exit_port_code(TopCSD, MiddleCSD, OldOutermostProcDyn) :-
 
 non_redo_port_code2(MiddleCSD, NewOutermostProcDyn) :-
 	impure set_current_csd(MiddleCSD),
+	impure increment_redo_count(MiddleCSD),
 	impure set_outermost_activation_ptr(MiddleCSD, NewOutermostProcDyn),
 	fail.
 
