@@ -1,3 +1,9 @@
+#-----------------------------------------------------------------------------#
+# Copyright (C) 1995-1997 The University of Melbourne. 
+# This file may only be copied under the terms of the GNU General
+# Public Licence - see the file COPYING in the Mercury distribution.
+#-----------------------------------------------------------------------------#
+
 PROGS=test00 test03 test04 test05 test06 test07 test10 test15 test20\
 	test25 test30
 DEPENDS=$(PROGS:%=%.depend)
@@ -5,7 +11,9 @@ MBCFILES=$(PROGS:%=%.mbc)
 MDISFILES=$(PROGS:%=%.mdis)
 MDIS=../mdis
 
-%.mdis: %.mbc
+# XXX: This is a hack to get dependencies to work. What we really want is:
+# 	%.mdis: %.mbc
+%.mdis: %.c
 	$(MDIS) $*.mbc > $@
 
 MAIN_TARGET=all
@@ -32,12 +40,21 @@ MLFLAGS=--no-strip -v
 RM_C=:
 
 .PHONY: all
-all : $(PROGS)
+all : $(PROGS) $(MDISFILES)
 
-mdis : $(MDISFILES)
-
-test :
-	echo $(DEPENDS)
+# XXX: This is only a very simplistic test. Add more to test
+# the behaviour of bytecode interpretation.
+test : all
+	for file in $(MDISFILES) ; \
+	do \
+		if diff -w $$file `basename $$file .mdis`.bytedebug \
+			> /dev/null 2>&1 ; \
+		then \
+			true ; \
+		else \
+			echo "*** Error: test failed on $$file" ; \
+		fi ; \
+	done
 
 .PHONY: depend
 depend: $(DEPENDS)
