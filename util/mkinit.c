@@ -118,6 +118,12 @@ static const char mercury_funcs[] =
 	"\n"
 	"#define MR_TRACE_ENABLED %d\n"
 	"\n"
+	"Declare_entry(%s);\n"
+	"\n"
+	"#ifdef MR_PROFILE_DEEP\n"
+	"extern MR_Stack_Layout_Entry mercury_data__layout__%s;\n"
+	"#endif\n"
+	"\n"
 	"#ifdef MR_HIGHLEVEL_CODE\n"
 	"  extern void %s(void);\n"
 	"#else\n"
@@ -209,6 +215,10 @@ static const char mercury_funcs[] =
 	"	program_entry_point = %s;\n"
 	"#else\n"
 	"	program_entry_point = ENTRY(%s);\n"
+	"#endif\n"
+	"\n"
+	"#ifdef MR_PROFILE_DEEP\n"
+	"       MR_prof_init_globals(&mercury_data__layout__%s);\n"
 	"#endif\n"
 	"\n"
 	"	mercury_runtime_init(argc, argv);\n"
@@ -563,8 +573,9 @@ output_main(void)
 		aditi_load_func = "NULL";
 	}
 	
-	printf(mercury_funcs, need_tracing, hl_entry_point, entry_point,
-		aditi_load_func, hl_entry_point, entry_point);
+	printf(mercury_funcs, need_tracing, hl_entry_point,
+		entry_point, entry_point, entry_point, aditi_load_func,
+		hl_entry_point, entry_point, entry_point);
 
 	if (output_main_func) {
 		fputs(main_func, stdout);
