@@ -452,7 +452,7 @@ disj_vars_eq(Vars, Var, X) =
 		;
 			X ^ disj_vars(Vars)
 		)
-	; some [V] ( member(V, Vars), member(V, T) ) ->
+	; \+ empty(Vars `intersect` T) ->
 		X ^ var(Var)
 	; Vars `subset` F ->
 		X ^ not_var(Var)
@@ -687,7 +687,11 @@ extract_equivalent_vars_from_robdd(Changed, Robdd0, Robdd, EQVars0, EQVars) :-
 :- func x(tfeirn(T)::di_tfeirn, robdd(T)::in) = (tfeirn(T)::uo_tfeirn) is det.
 :- pragma type_spec(x/2, T = mc_type).
 
-x(X, R) = X * xrobdd(init, init, init_equiv_vars, init_imp_vars, R, no).
+x(xrobdd(TA, FA, EA, IA, RA, _), RB) =
+		xrobdd(TA `union` T1, FA `union` F1, EA * E1, IA * I1,
+			RA * R1, no) :-
+	xrobdd(T1, F1, E1, I1, R1, _) =
+		normalise(xrobdd(TA, FA, EA, IA, RB, no)).
 
 %---------------------------------------------------------------------------%
 
