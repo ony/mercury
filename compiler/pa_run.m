@@ -324,11 +324,12 @@ analyse_goal_expr( generic_call( GenCall,_,_,_), Info,
 	pa_alias_as__top(A0, Msg, A). 
 	% error("(pa) generic_call not handled") .
 
-analyse_goal_expr( switch(_Var,_CF,Cases,_SM), _Info, 
+analyse_goal_expr( switch(_Var,_CF,Cases,_SM), Info, 
 				ProcInfo, HLDS, T0, T, A0, A ):-
 	list__map_foldl( analyse_case(ProcInfo, HLDS, A0), 
 				Cases, SwitchAliases, T0, T),
-	pa_alias_as__least_upper_bound_list(ProcInfo,HLDS,SwitchAliases, A ).
+	pa_alias_as__least_upper_bound_list(ProcInfo,HLDS,Info, 
+				SwitchAliases, A ).
 
 :- pred analyse_case( proc_info, module_info, 
 			alias_as, case, alias_as, 
@@ -345,7 +346,7 @@ analyse_goal_expr( unify(_,_,_,Unification,_), Info, ProcInfo, HLDS,
 	pa_alias_as__extend_unification( ProcInfo, HLDS, Unification, 
 				Info, A0, A).
 
-analyse_goal_expr( disj(Goals, _SM), _Info, ProcInfo, HLDS, T0, T, A0, A ):-
+analyse_goal_expr( disj(Goals, _SM), Info, ProcInfo, HLDS, T0, T, A0, A ):-
 	list__map_foldl( 
 		pred( Goal::in, Alias::out, FPT0::in, FPT::out) is det :- 
 			( analyse_goal( ProcInfo, HLDS, Goal, 
@@ -353,7 +354,8 @@ analyse_goal_expr( disj(Goals, _SM), _Info, ProcInfo, HLDS, T0, T, A0, A ):-
 		Goals,
 		DisjAliases,
 		T0, T ),
-	pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, DisjAliases, A ).
+	pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, Info, 
+				DisjAliases, A ).
 
 analyse_goal_expr( not(Goal), _Info, ProcInfo, HLDS , T0, T, A0, A ):-
 	analyse_goal( ProcInfo, HLDS, Goal, T0, T, A0, A).

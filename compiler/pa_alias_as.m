@@ -15,7 +15,7 @@
 %-- import_module 
 
 % library modules
-:- import_module set, list, map, string.
+:- import_module set, list, map, string, int.
 :- import_module io, term, std_util.
 
 % compiler modules
@@ -33,6 +33,7 @@
 
 %-----------------------------------------------------------------------------%
 %-- exported predicates
+
 
 :- pred init( alias_as::out ) is det.
 :- pred is_bottom( alias_as::in ) is semidet.
@@ -84,9 +85,9 @@
 :- mode least_upper_bound( in, in, in, in, out) is det.
 
 	% compute least upper bound of a list of abstract substitutions.
-:- pred least_upper_bound_list( proc_info, module_info, 
+:- pred least_upper_bound_list( proc_info, module_info, hlds_goal_info, 
 					list(alias_as), alias_as).
-:- mode least_upper_bound_list( in, in, in, out) is det.
+:- mode least_upper_bound_list( in, in, in, in, out) is det.
 
 	% extend( NEW, OLD, RESULT).
 	% extend a given abstract substitution with new information.
@@ -173,6 +174,10 @@
 	% near future: alias_as should also include top(string),
 	% where string could be some sort of message.
 
+% constants
+:- func alias_limit = int. 
+
+alias_limit = 100000.
 
 %-----------------------------------------------------------------------------%
 
@@ -375,8 +380,36 @@ simplify_upon_subsumption( ProcInfo, HLDS, AS, RESULT):-
 		RESULT = AS
 	).
 		
-least_upper_bound_list( ProcInfo, HLDS, AS_LIST, AS ) :-
-	list__foldl(least_upper_bound(ProcInfo, HLDS) , AS_LIST, bottom, AS).
+least_upper_bound_list( ProcInfo, HLDS, GoalInfo, Alias_list0, AS ) :-
+	list__map(
+		maybe_normalize( ProcInfo, HLDS, GoalInfo ), 
+		Alias_list0, 
+		Alias_list), 
+	list__foldl(least_upper_bound(ProcInfo, HLDS) , Alias_list, 
+			bottom, AS).
+
+:- pred maybe_normalize( proc_info, module_info, hlds_goal_info, 
+			alias_as, alias_as). 
+:- mode maybe_normalize( in, in, in, in, out ) is det. 
+
+maybe_normalize( ProcInfo, HLDS, GoalInfo, Alias0, Alias ) :- 
+	(
+		Alias0 = top(_),
+		Alias = Alias0
+	; 
+		Alias0 = bottom, 
+		Alias = Alias0
+	; 
+		Alias0 = real_as(_), 
+		(
+			size(Alias0) > alias_limit
+		-> 
+			normalize_with_goal_info( ProcInfo, HLDS, GoalInfo, 
+				Alias0, Alias)
+		;
+			Alias = Alias0
+		)
+	). 
 
 extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 	(
@@ -618,12 +651,21 @@ collect_all_input_vars( HLDS, VarsIN, VarsOUT):-
 
 %-----------------------------------------------------------------------------%
 
-normalize( ProcInfo, HLDS, _INSTMAP, ALIASin, ALIASout):- 
+:- pred normalize_with_goal_info( proc_info::in, module_info::in, 
+		hlds_goal_info::in, alias_as::in, alias_as::out) is det.
+normalize_with_goal_info( ProcInfo, HLDS, GoalInfo, Alias0, Alias):- 
+	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
+	instmap__init_reachable(InitIM),
+	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
+	normalize( ProcInfo, HLDS, InstMap, Alias0, Alias). 
+	
+
+normalize( ProcInfo, HLDS, _InstMap, Alias0, Alias):- 
 	% normalize only using type-info's
-	normalize_wti( ProcInfo, HLDS, ALIASin, ALIAS1),
+	normalize_wti( ProcInfo, HLDS, Alias0, Alias1),
 	% removing doubles is not enough -- subsumption should
 	% be verified. 
-	simplify_upon_subsumption( ProcInfo, HLDS, ALIAS1, ALIASout).
+	simplify_upon_subsumption( ProcInfo, HLDS, Alias1, Alias).
 
 :- pred normalize_wti( proc_info, module_info, alias_as, alias_as).
 :- mode normalize_wti( in, in, in, out) is det.

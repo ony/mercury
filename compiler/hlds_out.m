@@ -1130,7 +1130,7 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 			(
 				{ REUSE = reuse(cell_died) }
 			->
-				io__write_string("cell just died (deconstruction).\n")
+				io__write_string("cell just died (deconstruction).\n") 
 			;
 				{ REUSE = reuse(cell_reused(ProgVar)) }
 			->
@@ -1143,7 +1143,12 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 			->
 				io__write_string("call to procedure with reuse.\n")
 			;
-				{ require__error("No legal alternative for short_reuse_info anymore left.") }
+				{ REUSE = reuse(missed_reuse_call(Causes)) } 
+			->
+				io__write_string("failed reuse call:\n"),
+				write_missed_reuse_call_text(Indent,Causes)
+			;
+				{ require__error("Not a legal alternative for short_reuse_info at this stage.\n") }
 			)
 		),
 
@@ -1238,6 +1243,21 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 	;
 		[]
 	).
+
+:- pred write_missed_reuse_call_text( int::in, list(string)::in, 
+		io__state::di, io__state::uo) is det.
+write_missed_reuse_call_text( Indent, Causes ) --> 
+	list__foldl(
+		write_missed_reuse_call_text_2( Indent ), 
+		Causes). 
+
+:- pred write_missed_reuse_call_text_2( int::in, string::in, 
+		io__state::di, io__state::uo) is det.
+write_missed_reuse_call_text_2( Indent, Text )  -->
+	hlds_out__write_indent( Indent ), 
+	io__write_string("%\t"), 
+	io__write_string(Text), 
+	io__nl. 
 
 :- pred hlds_out__write_goal_2(hlds_goal_expr, module_info, prog_varset, bool,
 	int, string, maybe_vartypes, io__state, io__state).

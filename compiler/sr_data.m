@@ -18,7 +18,7 @@
 :- import_module map, set, std_util, list, io, term.
 :- import_module pa_alias_as, pa_datastruct.
 :- import_module sr_live.
-:- import_module hlds_goal, hlds_pred, hlds_module, prog_data.
+:- import_module hlds_pred, hlds_module, prog_data.
 
 	% The information placed in the goal info which is used by
 	% structure reuse.
@@ -30,6 +30,13 @@
 	;	choice(choice_info)
 	;	reuse(short_reuse_info)
 	.
+
+:- type short_reuse_info --->
+				no_reuse 
+			; 	cell_died
+			; 	cell_reused(prog_var)
+			; 	reuse_call
+			; 	missed_reuse_call(list(string)). 
 
 :- type reuse_var == pair(prog_var, reuse_condition).
 :- type choice_info

@@ -31,6 +31,7 @@
 :- import_module sr_data, sr_util, sr_live.
 :- import_module sr_fixpoint_table.
 :- import_module globals, options.
+:- import_module pa_datastruct. 
 
 compute_fixpoint(HLDS0, HLDSout) -->
 		% compute the strongly connected components
@@ -334,7 +335,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	indirect_reuse_pool_least_upper_bound_disjunction(
 				ListPools,
 				Pool),
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 				ListAliases,
 				Alias1),
 	set__power_union(set__list_to_set(ListStatic), Static),
@@ -380,7 +381,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 		indirect_reuse_pool_least_upper_bound_disjunction(
 					ListPools,
 					Pool),
-		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 					ListAliases,
 					Alias1),
 
@@ -421,7 +422,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 				[AI_Then ^ pool, AI_Else ^ pool],
 				Pool),
 
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 				[AI_Then ^ alias, AI_Else ^ alias],
 				Alias1),
 	Static = AI_Then ^ static `set__union` AI_Else ^ static,
@@ -520,7 +521,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 		FP0, FP),
 	indirect_reuse_pool_least_upper_bound_disjunction( ListPools,
 				Pool),
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 				ListAliases,
 				Alias1),
 	% reduce the aliases
@@ -572,7 +573,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 		indirect_reuse_pool_least_upper_bound_disjunction(
 					ListPools,
 					Pool),
-		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 					ListAliases,
 					Alias1),
 		% reduce the aliases
@@ -624,7 +625,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 				[PoolTHEN, PoolELSE],
 				Pool),
 
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 				[AliasTHEN, AliasELSE],
 				Alias1),
 	FP = FP3,
@@ -761,11 +762,92 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 			YesNo = yes
 		;
 			Pool = Pool0,
-			Info = Info0,
+	
+			examine_cause_of_missed_reuse( LBUi, LFUi, 
+					StaticTerms, Memo, 
+					Cause ), 
+			
+			goal_info_set_reuse(Info0, 
+				reuse(missed_reuse_call(Cause)), Info), 
 			YesNo = no
 		)
 	).
-	
+
+:- pred examine_cause_of_missed_reuse( set(prog_var)::in, 
+			set(prog_var)::in, 
+			set(prog_var)::in, 
+			memo_reuse::in, list(string)::out) is det. 
+examine_cause_of_missed_reuse( LFU, LBU, Static, Memo, Causes ) :- 
+	( 
+		Memo = yes(Conditions) 
+	->
+		list__filter_map(
+			examine_cause_of_missed_condition(LFU, LBU, Static), 
+			Conditions, 
+			Causes)
+	;
+		Cause = "No failed reuse because there is no reuse.",
+		Causes = [Cause]
+	).
+
+:- pred examine_cause_of_missed_condition( set(prog_var)::in, 
+			set(prog_var)::in, 
+			set(prog_var)::in, 
+			reuse_condition::in, 
+			string::out) is semidet.
+
+examine_cause_of_missed_condition( LFU, LBU, StaticVars, Condition, Cause ) :- 
+	sr_live__init(DummyLive), 
+	pa_alias_as__init( BottomAlias), 
+	pa_alias_as__live( LFU, DummyLive, BottomAlias, LFU_Live), 
+	pa_alias_as__live( LBU, DummyLive, BottomAlias, LBU_Live), 
+	Condition = condition( Nodes, _LU, _LA ), 
+	% 
+	NodesL = set__to_sorted_list(Nodes),
+	(
+		% check whether reason for no reuse is StaticVars
+		list__filter_map(
+			(pred(Node::in, Var::out) is semidet :- 
+				get_var(Node, Var),
+				set__member(Var, StaticVars)
+			), 
+			NodesL, 
+			R), 
+		R \= []
+	->
+		% due to static vars
+		Cause = "Node is static."
+	;
+		% not due to static vars
+		% check for LFU
+		list__filter(
+			( pred(D::in) is semidet :- 
+			  sr_live__is_live_datastruct( D, LFU_Live)
+			), 
+			NodesL, 
+			RF), 
+		RF \= []
+	-> 
+		% due to lfu
+		Cause = "Node is in local forward use."
+	;
+		% not due to LFU
+		% check LBU
+		list__filter(
+			( pred(D::in) is semidet :- 
+			  sr_live__is_live_datastruct( D, LBU_Live)
+			), 
+			NodesL, 
+			RB), 
+		RB \= []
+	->
+		% due to lbu
+		Cause = "Node is in local backward use."
+	; 
+		Cause = "Node is live because it has a live alias."
+	).
+
+				
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 :- pred lookup_memo_reuse( pred_id, proc_id, module_info, 

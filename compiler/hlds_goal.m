@@ -690,11 +690,6 @@
 			;	first
 			;	later.
 
-:- type short_reuse_info --->
-				no_reuse 
-			; 	cell_died
-			; 	cell_reused(prog_var)
-			; 	reuse_call. 
 
 :- type goal_path == list(goal_path_step).
 
