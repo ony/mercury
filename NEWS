@@ -68,10 +68,18 @@ Changes to the Mercury standard library:
 * `io__read_file' and `io__read_file_as_string' now have better error
   handling. The result types have changed, so code using these predicates
   will need minor modifications.
-
 * We've added predicates `io__input_stream_foldl', `io__input_stream_foldl_io'
   and `io__input_stream_foldl2_io', which apply a predicate to each character
   of an input stream in turn.
+* We've added versions of `io__print', `io__write' and `io__write_univ'
+  that allow the caller to specify how they should treat values of noncanonical
+  types, e.g. types in which a single semantic value may have more than one
+  syntactic expression.
+* We've added four new predicates to allow programs to retrieve current
+  streams: `io__current_input_stream', `io__current_output_stream',
+  `io__current_binary_input_stream', and `io__current_binary_output_stream'.
+* We've added a predicate to io.m to return the last modification time
+  of a file: `io__file_modification_time'.
 
 * We've added four functions to list.m for mapping functions over
   corresponding members of lists: list__map_corresponding/3,
@@ -129,9 +137,6 @@ Changes to the Mercury standard library:
   comparison of values of type `tm' whose `tm_dst' fields are identical
   is equivalent to comparison of the times those values represent.
 
-* We've added a predicate to io.m to return the last modification time
-  of a file (io__file_modification_time).
-
 * We've added a predicate `std_util__map_maybe/3' and a function
   `std_util__map_maybe/2' to apply a predicate or a function to
   a value stored in a term of type `std_util__maybe'.
@@ -143,6 +148,9 @@ Changes to the Mercury standard library:
   version of all the predicates that deconstruct terms. These differ from the
   existing versions in that they do not abort when called upon to deconstruct
   non-canonical terms, such as values of types with user-defined equality.
+
+* We've added a new predicate `intersect_list' in each of the modules
+  implementing sets in the Mercury standard library.
 
 * We've added a predicate version of `set__fold'.
 
@@ -166,7 +174,23 @@ Changes to the Mercury standard library:
   for the arithmetic functions dating from when Mercury didn't
   have functions.
 
+Changes to the extras distribution:
+
+* The interface to Moose has been changed in a non-backwards compatible
+  way to support user-defined modes for the parser state and integrate
+  better with lex.
+
 Changes to the Mercury implementation:
+
+* The Mercury compiler can now perform smart recompilation, enabled by the
+  `--smart-recompilation' option. With smart recompilation, when the
+  interface of a module changes, only modules which use the changed
+  declarations are recompiled. Smart recompilation does not yet work
+  with `--intermodule-optimization'.
+
+* We've added a new compiler option `--warn-non-tail-recursion', which
+  causes the compiler to issue a warning about any directly recursive
+  call that is not a tail call.
 
 * The debugger can now print goals just as Prolog debuggers do. At an exit
   port of e.g. append, the command "print goal" will print the current goal
@@ -175,11 +199,7 @@ Changes to the Mercury implementation:
 * You can now navigate terms in the debugger by argument name as well as by
   argument number.
 
-* The Mercury compiler can now perform smart recompilation, enabled by the
-  `--smart-recompilation' option. With smart recompilation, when the
-  interface of a module changes, only modules which use the changed
-  declarations are recompiled. Smart recompilation does not yet work
-  with `--intermodule-optimization'.
+* The debugger can now print higher order values.
 
 * We've added a 'view' command to `mdb', which opens a `vim' window and
   in it displays the current source location, updated at each event.  This
@@ -340,7 +360,8 @@ Changes to the Mercury language:
 
 Changes to the standard library:
 
-* We've added new predicates map__foldl2, tree234__foldl2 and
+* We've added some new library predicates: assoc_list__keys_and_values,
+  list__map2, list__map3, map__foldl2, tree234__foldl2, relation__traverse,
   std_util__aggregate2, and builtin__promise_only_solution_io.
 
 * We've added function versions of std_util__solutions,
@@ -424,9 +445,6 @@ Changes to the standard library:
   to get the unwrapped value's functor, arity and arguments, then you can
   call "univ_value(Univ)" to extract the value before calling deconstruct.
   (Doing that also works in Mercury 0.9 and Mercury 0.10.)
-
-* We've addes some new library predicates: assoc_list__keys_and_values,
-  list__map2 and list__map3.
 
 * We've added func versions of the remaining preds in int.m that
   did not already have them.

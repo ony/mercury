@@ -546,6 +546,10 @@
 :- type mlds__class_name == string.
 :- type mlds__class == mlds__fully_qualified_name(mlds__class_name).
 
+	% Note that standard C doesn't support empty structs,
+	% so when targetting C, it is the MLDS code generator's
+	% responsibility to ensure that each generated MLDS class
+	% has at least one base class or non-static data member.
 :- type mlds__class_defn
 	---> mlds__class_defn(
 		kind	::	mlds__class_kind,
@@ -888,7 +892,7 @@
 			% Defines a label that can be used as the
 			% target of calls, gotos, etc.
 
-	;	goto(mlds__label)
+	;	goto(mlds__goto_target)
 			% goto(Target)
 			% Branch to the specified address.
 
@@ -1051,6 +1055,18 @@ XXX Full exception handling support is not yet implemented.
 %
 
 :- type mlds__label == string.
+
+:- type mlds__goto_target
+	--->	label(mlds__label) % Branch to the specified label.
+	;	break		% Branch to just after the end of the
+				% immediately enclosing loop or switch,
+				% just like a C/C++/Java `break' statement.
+				% Not supported by all target languages.
+	;	continue.	% Branch to the end of the loop body for
+				% the immediately enclosing loop,
+				% just like a C/C++/Java/C# `continue'
+				% statement.
+				% Not supported by all target languages.
 
 %-----------------------------------------------------------------------------%
 %
@@ -1470,6 +1486,8 @@ XXX Full exception handling support is not yet implemented.
 :- type mlds__data_addr
 	--->	data_addr(mlds_module_name, mlds__data_name).
 			% module name; which var
+
+:- type mlds__data == mlds__fully_qualified_name(mlds__data_name).
 
 :- type mlds__data_name
 	--->	var(mlds__var_name)

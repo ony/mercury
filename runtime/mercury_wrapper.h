@@ -14,7 +14,7 @@
 
 #include "mercury_regs.h"		/* needs to come first */
 #include <stddef.h>			/* for `size_t' */
-#include "mercury_std.h"		/* for `bool' */
+#include "mercury_std.h"		/* for `MR_bool' */
 #include "mercury_stack_layout.h"	/* for `MR_Label_Layout' etc */
 #include "mercury_trace_base.h"		/* for `MR_trace_port' */
 #include "mercury_stacks.h"		/* for `MR_{Cut,Generator}StackFrame' */
@@ -56,7 +56,7 @@ extern	int	MR_load_aditi_rl_code(void);
 ** (--high-level-code) back-end, it may be called directly
 ** from main().
 */
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   extern void	MR_init_conservative_GC(void);
 #endif
 
@@ -94,7 +94,7 @@ extern	void		(*MR_address_of_init_modules_debugger)(void);
 extern	void		(*MR_address_of_write_out_proc_statics)(FILE *fp);
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 extern	void		(*MR_address_of_init_gc)(void);
 #endif
 
@@ -126,7 +126,7 @@ extern	char *		(*MR_address_of_trace_get_command)(const char *,
 
 extern	const char *	(*MR_address_of_trace_browse_all_on_level)(FILE *,
 				const MR_Label_Layout *, MR_Word *, MR_Word *,
-				int);
+				int, MR_bool);
 
 /*
 ** MR_trace_init_external() and MR_trace_final_external() are defined 
@@ -209,19 +209,22 @@ extern	size_t		MR_debug_heap_zone_size;
 extern	size_t		MR_generatorstack_zone_size;
 extern	size_t		MR_cutstack_zone_size;
 
+/* heap margin for MLDS->C accurate GC (documented in mercury_wrapper.c) */
+extern	size_t		MR_heap_margin_size;
+
 /* file names for the mdb debugging streams */
 extern	const char	*MR_mdb_in_filename;
 extern	const char	*MR_mdb_out_filename;
 extern	const char	*MR_mdb_err_filename;
 
 /* should mdb be started in a window */
-extern	bool		MR_mdb_in_window;
+extern	MR_bool		MR_mdb_in_window;
 
 /* size of the primary cache */
 extern	size_t		MR_pcache_size;
 
 /* low level debugging */
-extern	bool		MR_check_space;
+extern	MR_bool		MR_check_space;
 extern	MR_Word		*MR_watch_addr;
 extern	MR_Word		*MR_watch_csd_addr;
 extern	int		MR_watch_csd_ignore;
@@ -239,8 +242,8 @@ enum MR_TimeProfileMethod {
 extern	enum MR_TimeProfileMethod
 			MR_time_profile_method;
 
-extern	bool		MR_profiling;
-extern	bool		MR_print_deep_profiling_statistics;
+extern	MR_bool		MR_profiling;
+extern	MR_bool		MR_print_deep_profiling_statistics;
 
 #ifdef  MR_TYPE_CTOR_STATS
 

@@ -682,7 +682,7 @@
 	% calling error/1 if List is empty.
 :- func list__det_head(list(T)) = T.
 
-	% list__det_head(List) returns the tail of List,
+	% list__det_tail(List) returns the tail of List,
 	% calling error/1 if List is empty.
 :- func list__det_tail(list(T)) = list(T).
 

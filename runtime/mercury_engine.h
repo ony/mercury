@@ -22,7 +22,7 @@
 
 #include <setjmp.h>
 
-#include "mercury_std.h"		/* for `bool' */
+#include "mercury_std.h"		/* for `MR_bool' */
 #include "mercury_types.h"		/* for `MR_Code *' */
 #include "mercury_goto.h"		/* for `MR_define_entry()' */
 #include "mercury_thread.h"		/* for pthread types */
@@ -34,7 +34,7 @@
 ** Global flags that control the behaviour of the Mercury engine(s)
 */
 
-extern	bool	MR_debugflag[];
+extern	MR_bool	MR_debugflag[];
 
 #define	MR_PROGFLAG		0
 #define	MR_GOTOFLAG		1
@@ -180,7 +180,7 @@ typedef struct MR_mercury_thread_list_struct {
 typedef struct MR_mercury_engine_struct {
 	MR_Word		MR_eng_fake_reg[MR_MAX_FAKE_REG];
 		/* The fake reg vector for this engine. */
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
 	MR_Word		*MR_eng_hp;
 		/* The heap pointer for this engine */
 	MR_Word		*MR_eng_sol_hp;
@@ -223,12 +223,12 @@ typedef struct MR_mercury_engine_struct {
 #endif
 	jmp_buf		*MR_eng_jmp_buf;
 	MR_Word		*MR_eng_exception;
-#ifndef	CONSERVATIVE_GC
+#ifndef	MR_CONSERVATIVE_GC
 	MR_MemoryZone	*MR_eng_heap_zone;
 	MR_MemoryZone	*MR_eng_solutions_heap_zone;
 	MR_MemoryZone	*MR_eng_global_heap_zone;
 #endif
-#ifdef	NATIVE_GC
+#ifdef	MR_NATIVE_GC
 	MR_MemoryZone	*MR_eng_heap_zone2;
   #ifdef MR_DEBUG_AGC_PRINT_VARS
 	MR_MemoryZone	*MR_eng_debug_heap_zone;
@@ -277,7 +277,7 @@ typedef struct MR_mercury_engine_struct {
 
 #define	MR_CONTEXT(x)		(MR_ENGINE(MR_eng_context).x)
 
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
   #define MR_IF_NOT_CONSERVATIVE_GC(x)	x
 #else
   #define MR_IF_NOT_CONSERVATIVE_GC(x)
@@ -320,7 +320,7 @@ extern	void		MR_finalize_engine(MercuryEngine *engine);
 ** See the comments in mercury_engine.c for documentation on MR_call_engine().
 */
 extern	MR_Word		*MR_call_engine(MR_Code *entry_point,
-				bool catch_exceptions);
+				MR_bool catch_exceptions);
 extern	void		MR_terminate_engine(void);
 extern	void		MR_dump_prev_locations(void);
 

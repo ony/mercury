@@ -113,8 +113,6 @@ ml_gen_type_2(abstract_type, _, _, _) --> [].
 ml_gen_type_2(eqv_type(_EqvType), _, _, _) --> []. % XXX Fixme!
 	% For a description of the problems with equivalence types,
 	% see our BABEL'01 paper "Compiling Mercury to the .NET CLR".
-ml_gen_type_2(uu_type(_), _, _, _) -->
-	{ error("sorry, undiscriminated union types not implemented") }.
 ml_gen_type_2(du_type(Ctors, TagValues, IsEnum, MaybeEqualityPred),
 		ModuleInfo, TypeId, TypeDefn) -->
 	{ ml_gen_equality_members(MaybeEqualityPred, MaybeEqualityMembers) },
@@ -362,9 +360,11 @@ ml_gen_du_parent_type(ModuleInfo, TypeId, TypeDefn, Ctors, TagValues,
 			TagMembers = TagMembers0,
 			TagClassId = BaseClassId
 		;
+			module_info_globals(ModuleInfo, Globals),
+			globals__get_target(Globals, Target),
 			ml_gen_secondary_tag_class(MLDS_Context,
 				BaseClassQualifier, BaseClassId, TagMembers0,
-				TagTypeDefn, TagClassId),
+				Target, TagTypeDefn, TagClassId),
 			TagMembers = [TagTypeDefn]
 		)
 	),
@@ -496,11 +496,12 @@ get_tagval(ConsTagValues, Ctor) = TagVal :-
 	% but not all constructors use secondary tags.
 	%
 :- pred ml_gen_secondary_tag_class(mlds__context, mlds_module_name,
-		mlds__class_id, mlds__defns, mlds__defn, mlds__class_id).
-:- mode ml_gen_secondary_tag_class(in, in, in, in, out, out) is det.
+		mlds__class_id, mlds__defns, compilation_target,
+		mlds__defn, mlds__class_id).
+:- mode ml_gen_secondary_tag_class(in, in, in, in, in, out, out) is det.
 
 ml_gen_secondary_tag_class(MLDS_Context, BaseClassQualifier, BaseClassId,
-		Members, MLDS_TypeDefn, SecondaryTagClassId) :-
+		Members, Target, MLDS_TypeDefn, SecondaryTagClassId) :-
 	% Generate the class name for the secondary tag class.
 	% Note: the secondary tag class is nested inside the
 	% base class for this type.
@@ -510,9 +511,16 @@ ml_gen_secondary_tag_class(MLDS_Context, BaseClassQualifier, BaseClassId,
 	SecondaryTagClassId = mlds__class_type(ClassName, ClassArity,
 		mlds__class),
 
-	% the secondary tag class inherits the base class for this type
+	% the secondary tag class inherits the base class for this type,
+	% unless we're compiling to C -- in that case, we omit it,
+	% since it is empty, and we don't want to include empty base
+	% classes when compiling to C.
 	Imports = [],
-	Inherits = [BaseClassId],
+	( target_uses_empty_base_classes(Target) = yes ->
+		Inherits = [BaseClassId]
+	;
+		Inherits = []
+	),
 	Implements = [],
 	Ctors = [],
 
@@ -589,15 +597,16 @@ ml_gen_du_ctor_member(ModuleInfo, BaseClassId, BaseClassQualifier,
 
 		% generate class members for the type_infos and typeclass_infos
 		% that hold information about existentially quantified
-		% type variables and type class constraints
+		% type variables and type class constraints.
+		% Note that the order of fields is as follows:
+		%	- first typeinfos (for unconstrained type variables)
+		%	- then typeclassinfos (for class constraints)
+		%	- finally the ordinary members
 		( ExistQTVars = [] ->
 			% optimize common case
 			ExtraMembers = [],
 			ArgNum2 = ArgNum0
 		;
-			list__map_foldl(ml_gen_typeclass_info_member(ModuleInfo,
-				Context), Constraints, TypeClassInfoMembers,
-				ArgNum0, ArgNum1),
 			constraint_list_get_tvars(Constraints,
 				ConstrainedTVars),
 			list__delete_elems(ExistQTVars, ConstrainedTVars,
@@ -605,8 +614,11 @@ ml_gen_du_ctor_member(ModuleInfo, BaseClassId, BaseClassQualifier,
 			list__map_foldl(
 				ml_gen_type_info_member(ModuleInfo, Context),
 				UnconstrainedTVars, TypeInfoMembers,
+				ArgNum0, ArgNum1),
+			list__map_foldl(ml_gen_typeclass_info_member(ModuleInfo,
+				Context), Constraints, TypeClassInfoMembers,
 				ArgNum1, ArgNum2),
-			list__append(TypeClassInfoMembers, TypeInfoMembers,
+			list__append(TypeInfoMembers, TypeClassInfoMembers,
 				ExtraMembers)
 		),
 
@@ -680,14 +692,18 @@ ml_gen_du_ctor_member(ModuleInfo, BaseClassId, BaseClassQualifier,
 
 			% we inherit either the base class for this type,
 			% or the secondary tag class, depending on whether
-			% we need a secondary tag
+			% we need a secondary tag.  But when targetting C,
+			% we want to omit empty base classes.  So if
+			% targetting C, don't include any base class if
+			% there is no secondary tag.
 			( MaybeSecTagVal = yes(_) ->
-				ParentClassId = SecondaryTagClassId
+				Inherits = [SecondaryTagClassId]
+			; target_uses_empty_base_classes(Target) = yes ->
+				Inherits = [BaseClassId]
 			;
-				ParentClassId = BaseClassId
+				Inherits = []
 			),
 			Imports = [],
-			Inherits = [ParentClassId],
 			Implements = [],
 
 			% put it all together
@@ -715,6 +731,12 @@ target_uses_constructors(c)	= no.
 target_uses_constructors(il)	= yes.
 target_uses_constructors(java)	= yes.
 target_uses_constructors(asm)	= no.
+
+:- func target_uses_empty_base_classes(compilation_target) = bool.
+target_uses_empty_base_classes(c)	= no.
+target_uses_empty_base_classes(il)	= yes.
+target_uses_empty_base_classes(java)	= yes.
+target_uses_empty_base_classes(asm)	= no.
 
 :- func gen_constructor_function(mlds__class_id, mlds__type, mlds_module_name,
 		mlds__class_id, maybe(int), mlds__defns, mlds__context) =

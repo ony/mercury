@@ -23,9 +23,9 @@
 #include <stddef.h>		/* for size_t */
 
 #include "mercury_types.h"	/* for MR_Word */
-#include "mercury_std.h"	/* for bool */
-#include "mercury_conf.h"	/* for CONSERVATIVE_GC, etc. */
-#ifdef CONSERVATIVE_GC
+#include "mercury_std.h"	/* for MR_bool */
+#include "mercury_conf.h"	/* for MR_CONSERVATIVE_GC, etc. */
+#ifdef MR_CONSERVATIVE_GC
   #define GC_I_HIDE_POINTERS
   #include "gc.h"		/* for GC_FREE */
 #endif
@@ -45,7 +45,7 @@
 extern	void	MR_init_memory(void);
 extern	void	MR_init_heap(void);
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   extern void	MR_init_conservative_GC(void);
 #endif
 
@@ -149,7 +149,7 @@ extern	void	*MR_GC_realloc(void *ptr, size_t num_bytes);
 #define MR_GC_RESIZE_ARRAY(ptr, type, num) \
 	((type *) MR_GC_realloc((ptr), (num) * sizeof(type)))
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   #define MR_GC_free(ptr) GC_FREE(ptr)
 #else
   #define MR_GC_free(ptr) free(ptr)
@@ -181,7 +181,7 @@ extern	size_t          MR_page_size;
 ** contains pointers to the Mercury heap.  This information is only
 ** used for agc grades.
 */
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
   #define MR_add_root(root_ptr, type_info) \
 	MR_agc_add_root((root_ptr), (type_info))
 #else

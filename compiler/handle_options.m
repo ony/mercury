@@ -279,11 +279,40 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 
 	globals__io_set_option(num_tag_bits, int(NumTagBits)),
 
-	% Generating IL implies high-level code, turning off nested functions,
-	% using copy-out for nondet output arguments,
-	% using zero tags, boxing enums, disabling no_tag_types and no
-	% static ground terms.
+	% Generating IL implies:
+	%   - gc_method `none' and no heap reclamation on failure
+	%	  Because GC is handled automatically by the .NET CLR
+	%	  implementation.
+	%   - high-level code
+	%	  Because only the MLDS back-end supports
+	%	  compiling to IL, not the LLDS back-end.
+	%   - turning off nested functions
+	%	  Because IL doesn't support nested functions.
+	%   - using copy-out for nondet output arguments
+	%	  For reasons explained in the paper "Compiling Mercury
+	%	  to the .NET Common Language Runtime"
+	%   - using no tags
+	%	  Because IL doesn't provide any mechanism for tagging
+	%	  pointers.
+	%   - boxing enums and disabling no_tag_types
+	%	  These are both required to ensure that we have a uniform
+	%	  representation (`object[]') for all data types,
+	%	  which is required to avoid type errors for code using
+	%	  abstract data types.
+	%	  XXX It should not be needed once we have a general solution
+	%	  to the abstract equivalence type problem.
+	%   - store nondet environments on the heap
+	%         Because Java has no way of allocating structs on the stack.
+	%   - no static ground terms
+	%         XXX Previously static ground terms used to not work with
+	%             --high-level-data.  But this has been (mostly?) fixed now.
+	%             So we should investigate re-enabling static ground terms.
 	( { Target = il } ->
+		globals__io_set_gc_method(none),
+		globals__io_set_option(reclaim_heap_on_nondet_failure,
+			bool(no)),
+		globals__io_set_option(reclaim_heap_on_semidet_failure,
+			bool(no)),
 		globals__io_set_option(highlevel_code, bool(yes)),
 		globals__io_set_option(gcc_nested_functions, bool(no)),
 		globals__io_set_option(nondet_copy_out, bool(yes)),
@@ -307,21 +336,43 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 			bool(yes))
 	),
 
-	% Generating Java implies high-level code, turning off nested functions,
-	% using copy-out for both det and nondet output arguments,
-	% using no tags, not optimizing tailcalls, no static ground terms and
-	% store nondet environments on the heap.
-	% XXX no static ground terms should be eliminated in a later
-	%     version.
-	% XXX The Java backend should eventually support optimizing tailcalls.
+	% Generating Java implies
+	%   - gc_method `none' and no heap reclamation on failure
+	%	  Because GC is handled automatically by the Java
+	%	  implementation.
+	%   - high-level code
+	%	  Because only the MLDS back-end supports
+	%	  compiling to Java, not the LLDS back-end.
+	%   - high-level data
+	%	  Because it is more efficient,
+	%	  and better for interoperability.
+	%	  (In theory --low-level-data should work too,
+	%	  but there's no reason to bother supporting it.)
+	%   - turning off nested functions
+	%	  Because Java doesn't support nested functions.
+	%   - using copy-out for both det and nondet output arguments
+	%	  Because Java doesn't support pass-by-reference.
+	%   - using no tags
+	%	  Because Java doesn't provide any mechanism for tagging
+	%	  pointers.
+	%   - store nondet environments on the heap
+	%         Because Java has no way of allocating structs on the stack.
+	%   - no static ground terms
+	%         XXX Previously static ground terms used to not work with
+	%             --high-level-data.  But this has been (mostly?) fixed now.
+	%             So we should investigate re-enabling static ground terms.
 	( { Target = java } ->
+		globals__io_set_gc_method(none),
+		globals__io_set_option(reclaim_heap_on_nondet_failure,
+			bool(no)),
+		globals__io_set_option(reclaim_heap_on_semidet_failure,
+			bool(no)),
 		globals__io_set_option(highlevel_code, bool(yes)),
 		globals__io_set_option(highlevel_data, bool(yes)),	
 		globals__io_set_option(gcc_nested_functions, bool(no)),
 		globals__io_set_option(nondet_copy_out, bool(yes)),
 		globals__io_set_option(det_copy_out, bool(yes)),
 		globals__io_set_option(num_tag_bits, int(0)),
-		globals__io_set_option(optimize_tailcalls, bool(no)),
 		globals__io_set_option(static_ground_terms, bool(no)),
 		globals__io_set_option(put_nondet_env_on_heap, bool(yes))
 	;
@@ -379,6 +430,8 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	globals__io_set_option(use_opt_files, bool(no)),
 
 	option_implies(smart_recompilation, generate_item_version_numbers,
+			bool(yes)),
+	option_implies(find_all_recompilation_reasons, verbose_recompilation,
 			bool(yes)),
 	
 	%
@@ -462,15 +515,6 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	% --split-c-files implies --procs-per-c-function 1
 	option_implies(split_c_files, procs_per_c_function, int(1)),
 
-	% make_hlds contains an optimization which requires the value of the
-	% compare_specialization option to accurately specify the max number
-	% of constructors in a type whose comparison procedure is specialized
-	% and which therefore don't need index functions.
-	globals__io_lookup_int_option(compare_specialization, CompareSpec0),
-	{ int__min(unify_proc__max_exploited_compare_spec_value,
-		CompareSpec0, CompareSpec) },
-	globals__io_set_option(compare_specialization, int(CompareSpec)),
-
 	% Minimal model tabling is not compatible with trailing;
 	% see the comment in runtime/mercury_tabling.c.
 
@@ -499,6 +543,9 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	;
 		[]
 	),
+
+	% --trace-table-io-decl is an extension of --trace-table-io
+	option_implies(trace_table_io_decl, trace_table_io, bool(yes)),
 
 	% Execution tracing requires
 	% 	- disabling optimizations that would change
@@ -820,6 +867,15 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	% we are expecting some to be missing.
 	option_implies(use_opt_files, warn_missing_opt_files, bool(no)),
 
+	% --warn-non-tail-recursion requires both --high-level-code
+	% and --optimize-tailcalls.  It also doesn't work if you use
+	% --errorcheck-only.
+	option_requires(warn_non_tail_recursion, highlevel_code, bool(yes),
+		"--warn-non-tail-recursion requires --high-level-code"),
+	option_requires(warn_non_tail_recursion, optimize_tailcalls, bool(yes),
+		"--warn-non-tail-recursion requires --optimize-tailcalls"),
+	option_requires(warn_non_tail_recursion, errorcheck_only, bool(no),
+		"--warn-non-tail-recursion is incompatible with --errorcheck-only"),
 
 	% The backend foreign languages depend on the target.
 	( 	
@@ -847,6 +903,23 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	->
 		globals__io_set_option(backend_foreign_languages,
 			accumulating(BackendForeignLanguages))
+	;
+		[]
+	),
+
+	globals__io_lookup_int_option(compare_specialization, CompareSpec),
+	( { CompareSpec < 0 } ->
+		% This indicates that the option was not set by the user;
+		% we should set the option to the default value. This value
+		% may be back end specific, since different back ends have
+		% different performance tradeoffs.
+		(
+			{ HighLevel = no },
+			globals__io_set_option(compare_specialization, int(13))
+		;
+			{ HighLevel = yes },
+			globals__io_set_option(compare_specialization, int(14))
+		)
 	;
 		[]
 	),
@@ -907,6 +980,23 @@ option_neg_implies(SourceOption, ImpliedOption, ImpliedOptionValue) -->
 	globals__io_lookup_bool_option(SourceOption, SourceOptionValue),
 	( { SourceOptionValue = no } ->
 		globals__io_set_option(ImpliedOption, ImpliedOptionValue)
+	;
+		[]
+	).
+
+% option_requires(SourceBoolOption, RequiredOption, RequiredOptionValue,
+%	ErrorMsg):
+% If the SourceBoolOption is set to yes, and RequiredOption is not set
+% to RequiredOptionValue, then report a usage error.
+:- pred option_requires(option::in, option::in, option_data::in,
+		string::in, io__state::di, io__state::uo) is det.
+
+option_requires(SourceOption, RequiredOption, RequiredOptionValue,
+		ErrorMessage) -->
+	globals__io_lookup_bool_option(SourceOption, SourceOptionValue),
+	globals__io_lookup_option(RequiredOption, OptionValue),
+	( { SourceOptionValue = yes, OptionValue \= RequiredOptionValue } ->
+		usage_error(ErrorMessage)
 	;
 		[]
 	).

@@ -85,7 +85,7 @@
 	#include <stdio.h>
 	#include ""mercury_conf.h""
 	#include ""mercury_string.h""	/* for MR_make_aligned_string_copy() */
-#ifdef HAVE_DLFCN_H
+#ifdef MR_HAVE_DLFCN_H
 	#include <dlfcn.h>
 #endif
 ").
@@ -117,7 +117,7 @@ open(FileName, Mode, Scope, Result) -->
 :- pragma c_code(dlopen(FileName::in, Mode::in, Scope::in, Result::out,
 		_IO0::di, _IO::uo), [], "
 {
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLOPEN) \
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLOPEN) \
  && defined(RTLD_NOW) && defined(RTLD_LAZY)
 	int mode = (Mode ? RTLD_NOW : RTLD_LAZY);
 	/* not all systems have RTLD_GLOBAL */
@@ -216,21 +216,24 @@ int	ML_DL_closure_counter = 0;
 	*/
 
 	MR_incr_hp_type(closure_id, MR_Closure_Id);
-	closure_id->proc_id.MR_proc_user.MR_user_pred_or_func = MR_PREDICATE;
-	closure_id->proc_id.MR_proc_user.MR_user_decl_module = ""unknown"";
-	closure_id->proc_id.MR_proc_user.MR_user_def_module = ""unknown"";
-	closure_id->proc_id.MR_proc_user.MR_user_name = ""unknown"";
-	closure_id->proc_id.MR_proc_user.MR_user_arity = -1;
-	closure_id->proc_id.MR_proc_user.MR_user_mode = -1;
-	closure_id->module_name = ""dl"";
-	closure_id->file_name = __FILE__;
-	closure_id->line_number = __LINE__;
-	MR_make_aligned_string_copy(closure_id->goal_path, buf);
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_pred_or_func =
+		MR_PREDICATE;
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_decl_module =
+		""unknown"";
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_def_module =
+		""unknown"";
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_name = ""unknown"";
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_arity = -1;
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_mode = -1;
+	closure_id->MR_closure_module_name = ""dl"";
+	closure_id->MR_closure_file_name = __FILE__;
+	closure_id->MR_closure_line_number = __LINE__;
+	MR_make_aligned_string_copy(closure_id->MR_closure_goal_path, buf);
 
 	MR_incr_hp_type(closure_layout, MR_Closure_Dyn_Link_Layout);
-	closure_layout->closure_id = closure_id;
-	closure_layout->type_params = NULL;
-	closure_layout->num_all_args = 0;
+	closure_layout->MR_closure_dl_id = closure_id;
+	closure_layout->MR_closure_dl_type_params = NULL;
+	closure_layout->MR_closure_dl_num_all_args = 0;
 
 	ClosureLayout = (MR_Word) closure_layout;
 }").
@@ -429,7 +432,7 @@ sym(handle(Handle), Name, Result) -->
 :- pragma c_code(dlsym(Handle::in, Name::in, Pointer::out,
 	_IO0::di, _IO::uo), [will_not_call_mercury], "
 {
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLSYM)
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLSYM)
 	Pointer = (MR_Word) dlsym((void *) Handle, Name);
 #else
 	Pointer = (MR_Word) NULL;
@@ -442,7 +445,7 @@ sym(handle(Handle), Name, Result) -->
 {
 	const char *msg;
 
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLERROR)
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLERROR)
 	msg = dlerror();
 	if (msg == NULL) msg = """";
 #else
@@ -465,7 +468,7 @@ close(handle(Handle), Result) -->
 */
 :- pred dlclose(c_pointer::in, io__state::di, io__state::uo) is det.
 :- pragma c_code(dlclose(Handle::in, _IO0::di, _IO::uo), [], "
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLCLOSE)
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLCLOSE)
 	dlclose((void *)Handle)
 #endif
 ").
@@ -475,9 +478,9 @@ close(handle(Handle), Result) -->
 :- pred high_level_code is semidet.
 :- pragma c_code(high_level_code, [will_not_call_mercury, thread_safe], "
 #ifdef MR_HIGHLEVEL_CODE
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #else
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #endif
 ").
 

@@ -137,7 +137,7 @@ try_again:
 **              if (in_range(data_value)) {
 **                  const MR_DuFunctorDesc  *functor_desc;
 **                  const MR_DuExistInfo    *exist_info;
-**                  bool                    have_sectag;
+**                  MR_bool                 have_sectag;
 **                  int                     sectag;
 **                  int                     cell_size;
 **                  int                     cur_slot;
@@ -237,7 +237,7 @@ try_again:
 #define MR_DC_decl                                                      \
                     const MR_DuFunctorDesc  *functor_desc;              \
                     const MR_DuExistInfo    *exist_info;                \
-                    bool                    have_sectag;                \
+                    MR_bool                 have_sectag;                \
                     int                     sectag;                     \
                     int                     cell_size;                  \
                     int                     cur_slot;                   \
@@ -307,7 +307,7 @@ try_again:
                 data_value = (MR_Word *) MR_body(data, ptag);
                 if (in_range(data_value)) {
                     MR_DC_decl
-                    have_sectag = TRUE;
+                    have_sectag = MR_TRUE;
                     sectag = data_value[0];
                     MR_DC_functor_desc
                     cell_size = 1 + arity;
@@ -341,7 +341,7 @@ try_again:
                 data_value = (MR_Word *) MR_body(data, ptag);
                 if (in_range(data_value)) {
                     MR_DC_decl
-                    have_sectag = FALSE;
+                    have_sectag = MR_FALSE;
                     sectag = 0;
                     MR_DC_functor_desc
                     cell_size = arity;
@@ -409,7 +409,7 @@ try_again:
         break;
 
     case MR_TYPECTOR_REP_FLOAT:
-        #ifdef BOXED_FLOAT
+        #ifdef MR_BOXED_FLOAT
             {
                 MR_Word    *data_value;
 
@@ -504,18 +504,14 @@ try_again:
                 ** with the values from the closure.
                 */
                 type_info_arg_vector = MR_materialize_closure_typeinfos(
-                    closure_layout->type_params, old_closure);
+                    old_closure);
 
                 /* copy the arguments */
                 for (i = 0; i < args; i++) {
                     MR_PseudoTypeInfo arg_pseudo_type_info;
 
-#ifdef MR_HIGHLEVEL_CODE
-                    /* the closure_layout is NULL */
-                    MR_fatal_error("Sorry, not implemented: copying closures");
-#endif
                     arg_pseudo_type_info =
-                        closure_layout->arg_pseudo_type_info[i];
+                        closure_layout->MR_closure_arg_pseudo_type_info[i];
                     new_closure->MR_closure_hidden_args_0[i] =
                         copy_arg(NULL,
                             &old_closure->MR_closure_hidden_args_0[i], NULL,

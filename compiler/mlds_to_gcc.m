@@ -425,9 +425,10 @@ mlds_output_init_fn_defns(ModuleName, FuncDefns, TypeCtorInfoDefns) -->
 		{ need_to_init_entries(Globals) },
 		{ FuncDefns \= [] }
 	->
-		io__write_strings(["\tstatic bool initialised = FALSE;\n",
+		io__write_strings(
+				["\tstatic MR_bool initialised = MR_FALSE;\n",
 				"\tif (initialised) return;\n",
-				"\tinitialised = TRUE;\n\n"]),
+				"\tinitialised = MR_TRUE;\n\n"]),
 		mlds_output_calls_to_init_entry(ModuleName, FuncDefns)
 	;
 		[]
@@ -439,9 +440,10 @@ mlds_output_init_fn_defns(ModuleName, FuncDefns, TypeCtorInfoDefns) -->
 	(
 		{ TypeCtorInfoDefns \= [] }
 	->
-		io__write_strings(["\tstatic bool initialised = FALSE;\n",
+		io__write_strings(
+				["\tstatic MR_bool initialised = MR_FALSE;\n",
 				"\tif (initialised) return;\n",
-				"\tinitialised = TRUE;\n\n"]),
+				"\tinitialised = MR_TRUE;\n\n"]),
 		mlds_output_calls_to_register_tci(ModuleName,
 			TypeCtorInfoDefns)
 	;
@@ -2453,10 +2455,17 @@ gen_stmt(DefnInfo, label(LabelName), _) -->
 	{ LabelTable = DefnInfo ^ label_table },
 	{ GCC_Label = map__lookup(LabelTable, LabelName) },
 	gcc__gen_label(GCC_Label).
-gen_stmt(DefnInfo, goto(LabelName), _) -->
+gen_stmt(DefnInfo, goto(label(LabelName)), _) -->
 	{ LabelTable = DefnInfo ^ label_table },
 	{ GCC_Label = map__lookup(LabelTable, LabelName) },
 	gcc__gen_goto(GCC_Label).
+gen_stmt(_DefnInfo, goto(break), _) -->
+	gcc__gen_break.
+gen_stmt(_DefnInfo, goto(continue), _) -->
+	% XXX not yet implemented
+	% but we set target_supports_break_and_continue to no
+	% for this target, so we shouldn't get any
+	{ unexpected(this_file, "continue") }.
 gen_stmt(_DefnInfo, computed_goto(_Expr, _Labels), _) -->
 	% XXX not yet implemented
 	% but we set target_supports_computed_goto to no

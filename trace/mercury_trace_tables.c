@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -39,10 +39,12 @@ static	void	MR_process_line_layouts(const MR_Module_File_Layout
 			*file_layout, int line,
 			MR_file_line_callback callback_func, int callback_arg);
 
+static MR_bool MR_parse_trailing_number(char *start, char **end, int *number);
+
 void
-MR_register_all_modules_and_procs(FILE *fp, bool verbose)
+MR_register_all_modules_and_procs(FILE *fp, MR_bool verbose)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		if (verbose) {
@@ -51,7 +53,7 @@ MR_register_all_modules_and_procs(FILE *fp, bool verbose)
 		}
 
 		MR_trace_init_modules();
-		done = TRUE;
+		done = MR_TRUE;
 		if (verbose) {
 			fprintf(fp, "done.\n");
 			if (MR_module_info_next == 0) {
@@ -90,7 +92,7 @@ static const MR_Module_Layout *
 MR_search_module_info(const char *name)
 {
 	int	slot;
-	bool	found;
+	MR_bool	found;
 
 	MR_bsearch(MR_module_info_next, slot, found,
 		strcmp(MR_module_infos[slot]->MR_ml_name, name));
@@ -128,7 +130,7 @@ MR_process_file_line_layouts(const char *file, int line,
 		{
 			file_layout = MR_module_infos[i]->
 					MR_ml_module_file_layout[j];
-			if (streq(file_layout->MR_mfl_filename, file)) {
+			if (MR_streq(file_layout->MR_mfl_filename, file)) {
 				MR_process_line_layouts(file_layout, line,
 					callback_func, callback_arg);
 			}
@@ -141,7 +143,7 @@ MR_process_line_layouts(const MR_Module_File_Layout *file_layout, int line,
 	MR_file_line_callback callback_func, int callback_arg)
 {
 	int			k;
-	bool			found;
+	MR_bool			found;
 
 	MR_bsearch(file_layout->MR_mfl_label_count, k, found,
 		file_layout->MR_mfl_label_lineno[k] - line);
@@ -214,14 +216,16 @@ MR_dump_module_procs(FILE *fp, const char *name)
 	}
 }
 
-bool
+MR_bool
 MR_parse_proc_spec(char *str, MR_Proc_Spec *spec)
 {
 	char	*dash;
-	char	*slash;
-	char	*s;
+	char	*start;
+	char	*end;
 	int	n;
-	bool	found;
+	int	len;
+	int	double_underscores;
+	MR_bool	found;
 
 	spec->MR_proc_module = NULL;
 	spec->MR_proc_name   = NULL;
@@ -229,85 +233,127 @@ MR_parse_proc_spec(char *str, MR_Proc_Spec *spec)
 	spec->MR_proc_mode   = -1;
 	spec->MR_proc_pf     = (MR_PredFunc) -1;
 
-	if (strneq(str, "pred*", 5)) {
+	len = strlen(str);
+
+	/*
+	** Check for the optional trailing arity and mode number. 
+	** This also checks for filename:linenumber breakpoint specifiers.
+	*/
+	end = str + len - 1;
+	if (MR_parse_trailing_number(str, &end, &n)) {
+		if (end == str) {
+			/* the string contains only a number */
+			return MR_FALSE;
+		}
+		end--;
+		if (*end == ':') {
+			/* filename:linenumber */
+			return MR_FALSE;
+		} else if (*end == '-') {
+			spec->MR_proc_mode = n;
+
+			/*
+			** Avoid modifying the string until we're sure
+			** the parse can't fail.
+			*/
+			dash = end;
+
+			end--;
+			if (MR_parse_trailing_number(str, &end, &n)) {
+				if (end == str) {
+					/* the string contains only a number */
+					return MR_FALSE;
+				}
+				end--;
+				if (*end == '/') {
+					*end = '\0';
+					spec->MR_proc_arity = n;
+					end--;
+				}
+			}
+			*dash = '\0';
+		} else if (*end == '/') {
+			*end = '\0';
+			end--;
+			spec->MR_proc_arity = n;
+		}
+	}
+	
+	if (MR_strneq(str, "pred*", 5)) {
 		spec->MR_proc_pf = MR_PREDICATE;
 		str += 5;
-	} else if (strneq(str, "func*", 5)) {
+	} else if (MR_strneq(str, "func*", 5)) {
 		spec->MR_proc_pf = MR_FUNCTION;
 		str += 5;
 	}
 
-	if ((dash = strrchr(str, '-')) != NULL) {
-		found = FALSE;
-		n = 0;
-		for (s = dash + 1; *s != '\0'; s++) {
-			if (MR_isdigit(*s)) {
-				found = TRUE;
-				n = n * 10 + *s - '0';
+	/*
+	** Search backwards for the end of the final module qualifier.
+	** There must be at least one character before the qualifier.
+	*/
+	while (end > str) {
+		if (*end == ':' || (*end == '_' && *(end + 1) == '_')) {
+			if (*end  == ':') {
+				spec->MR_proc_name = end + 1;
 			} else {
-				/* a dash followed by a nondigit is an error */
-				return FALSE;
-			}
-		}
-
-		if (! found) {
-			/* a dash with no following digit is an error */
-			return FALSE;
-		}
-
-		spec->MR_proc_mode = n;
-		*dash = '\0';
-	}
-
-	if ((slash = strrchr(str, '/')) != NULL) {
-		found = FALSE;
-		n = 0;
-		for (s = slash + 1; *s != '\0'; s++) {
-			if (MR_isdigit(*s)) {
-				found = TRUE;
-				n = n * 10 + *s - '0';
-			} else {
-				/* a slash followed by a nondigit is an error */
-				return FALSE;
-			}
-		}
-
-		if (! found) {
-			/* a slash with no following digit is an error */
-			return FALSE;
-		}
-
-		spec->MR_proc_arity = n;
-		*slash = '\0';
-	}
-
-	if (MR_isdigit(*str)) {
-		/* this looks to be a line number */
-		return FALSE;
-	}
-
-	for (s = str; *s != '\0'; s++) {
-		if (*s == ':' && MR_isdigit(*(s+1))) {
-			/* this looks to be filename:linenumber */
-			return FALSE;
-		}
-
-		if (*s == ':' || (*s == '_' && *(s+1) == '_')) {
-			if (*s == ':') {
-				spec->MR_proc_name = s+1;
-			} else {
-				spec->MR_proc_name = s+2;
+				spec->MR_proc_name = end + 2;
 			}
 
-			*s = '\0';
+			/*
+			** Convert all occurences of '__' to ':'.
+			*/
+			double_underscores = 0;
+			for (start = str; start < end; start++) {
+				if (*start == '_' && *(start + 1) == '_') {
+					*(start - double_underscores) = ':';
+					double_underscores++;
+					start++;
+				} else {
+					*(start - double_underscores) = *start;
+				}
+			}
+			*(end - double_underscores) = '\0';
+
 			spec->MR_proc_module = str;
 
-			return TRUE;
+			return MR_TRUE;
+		} else {
+			end--;
 		}
 	}
 
+	/* There was no module qualifier. */
 	spec->MR_proc_name = str;
-	return TRUE;
+	return MR_TRUE;
+}
+
+/* 
+** Go backwards over a string starting at `end', stopping at `start',
+** parsing the trailing integer and storing it in `*n'.
+** On return, `*end' points to the start of the trailing number.
+** If no number was found, `*end' is unchanged. 
+*/
+static MR_bool
+MR_parse_trailing_number(char *start, char **end, int *number)
+{
+	MR_bool found_digit = MR_FALSE;
+	int power_of_10 = 1;	
+	char c;
+	char *tmp_end;
+
+	*number = 0;
+
+	tmp_end = *end + 1;
+	while (tmp_end > start && MR_isdigit(*(tmp_end - 1))) {
+		found_digit = MR_TRUE;
+		*number += power_of_10 * (*(tmp_end - 1) - '0');
+		power_of_10 *= 10;
+		tmp_end--;
+	}
+	if (found_digit) {
+		*end = tmp_end;
+	}
+	return found_digit;
 }
 
 #define	MR_INIT_MATCH_PROC_SIZE		8
@@ -343,7 +389,7 @@ MR_search_for_matching_procedures(MR_Proc_Spec *spec)
 
 typedef struct {
 	const MR_Proc_Layout	*matching_entry;
-	bool	 		match_unique;
+	MR_bool	 		match_unique;
 } MR_Match_Info;
 
 static void
@@ -355,17 +401,17 @@ MR_register_match(void *data, const MR_Proc_Layout *entry)
 	if (m->matching_entry == NULL) {
 		m->matching_entry = entry;
 	} else {
-		m->match_unique = FALSE;
+		m->match_unique = MR_FALSE;
 	}
 }
 
 const MR_Proc_Layout *
-MR_search_for_matching_procedure(MR_Proc_Spec *spec, bool *unique)
+MR_search_for_matching_procedure(MR_Proc_Spec *spec, MR_bool *unique)
 {
 	MR_Match_Info	m;
 
 	m.matching_entry = NULL;
-	m.match_unique = TRUE;
+	m.match_unique = MR_TRUE;
 	MR_process_matching_procedures(spec, MR_register_match, &m);
 	*unique = m.match_unique;
 	return m.matching_entry;
@@ -394,12 +440,12 @@ MR_process_matching_procedures(MR_Proc_Spec *spec,
 }
 
 #define	match_name(spec, cur)	(((spec)->MR_proc_name == NULL) ||	\
-				streq((spec)->MR_proc_name,		\
+				MR_streq((spec)->MR_proc_name,		\
 					cur->MR_sle_user.MR_user_name))
 
 #define	match_arity(spec, cur)	(((spec)->MR_proc_arity < 0) ||		\
-				(spec)->MR_proc_arity ==		\
-					cur->MR_sle_user.MR_user_arity)
+    				(spec)->MR_proc_arity ==		\
+					MR_sle_user_adjusted_arity(cur))
 
 #define	match_mode(spec, cur)	(((spec)->MR_proc_mode < 0) ||		\
 				(spec)->MR_proc_mode ==			\

@@ -32,6 +32,7 @@
 #include "mercury_types.h"
 #include "mercury_std.h"			/* for MR_VARIABLE_SIZED */
 #include "mercury_tags.h"
+#include "mercury_type_info.h"			/* for MR_PseudoTypeInfo */
 
 /* forward declarations */
 typedef	struct MR_Proc_Layout_Struct	MR_Proc_Layout;
@@ -414,6 +415,30 @@ typedef	struct MR_Label_Layout_No_Var_Info_Struct {
 */
 
 /*
+** The MR_Table_Io_Decl structure.
+**
+** To enable declarative debugging of I/O actions, the compiler generates one
+** of these structures for each I/O primitive. The compiler transforms the
+** bodies of those primitives to create a block of memory and fill it in with
+** (1) a pointer to the primitive's MR_Table_Io_Decl structure and (2) the
+** values of the primitive's arguments (both input and output, but excluding
+** the I/O states). The array of pseudo-typeinfos pointed to by the ptis field
+** gives the types of these arguments, while the filtered_arity field gives
+** the number of saved arguments, which will be all the arguments except the
+** I/O states. The number in this field is the size of the ptis array, and
+** the size of the block exclusive of the pointer. The proc field allows us
+** to identify the primitive procedure. This is all the information we need
+** to describe the I/O action to the user.
+*/
+
+typedef struct MR_Table_Io_Decl_Struct {
+	const MR_Proc_Layout		*MR_table_io_decl_proc;
+	MR_Integer			MR_table_io_decl_filtered_arity;
+	const MR_PseudoTypeInfo		*MR_table_io_decl_ptis;
+	const MR_Type_Param_Locns	*MR_table_io_decl_type_params;
+} MR_Table_Io_Decl;
+
+/*
 ** The MR_Stack_Traversal structure contains the following fields:
 **
 ** The code_addr field points to the start of the procedure's code.
@@ -576,7 +601,8 @@ typedef	enum {
 	MR_EVAL_METHOD_LOOP_CHECK,
 	MR_EVAL_METHOD_MEMO,
 	MR_EVAL_METHOD_MINIMAL,
-	MR_EVAL_METHOD_TABLE_IO
+	MR_EVAL_METHOD_TABLE_IO,
+	MR_EVAL_METHOD_TABLE_IO_DECL
 } MR_EvalMethod;
 
 typedef	MR_int_least8_t		MR_EvalMethodInt;
@@ -585,6 +611,7 @@ typedef	struct MR_Exec_Trace_Struct {
 	const MR_Label_Layout	*MR_exec_call_label;
 	const MR_Module_Layout	*MR_exec_module_layout;
 	MR_Word			*MR_exec_proc_rep;
+	const MR_Table_Io_Decl	*MR_exec_table_io_decl;
 	const MR_int_least16_t	*MR_exec_used_var_names;
 	MR_int_least16_t	MR_exec_max_var_num;
 	MR_int_least16_t	MR_exec_max_r_num;
@@ -712,6 +739,11 @@ typedef	struct MR_Proc_Layout_Compiler_Exec_Struct {
 #define	MR_sle_eval_method(proc_layout_ptr)				\
 			((MR_EvalMethod) (proc_layout_ptr)->		\
 				MR_sle_exec_trace.MR_exec_eval_method_CAST_ME)
+
+	/* Adjust the arity of functions for printing. */
+#define MR_sle_user_adjusted_arity(entry)				\
+    ((entry)->MR_sle_user.MR_user_arity -				\
+        (((entry)->MR_sle_user.MR_user_pred_or_func == MR_FUNCTION) ? 1 : 0))
 
 /*
 ** Define a layout structure for a procedure, containing information
@@ -892,27 +924,27 @@ struct MR_Module_Layout_Struct {
 */
 
 typedef struct MR_Closure_Id_Struct {
-	MR_Proc_Id		proc_id;
-	MR_ConstString		module_name;
-	MR_ConstString		file_name;
-	MR_Integer		line_number;
-	MR_ConstString		goal_path;
+	MR_Proc_Id		MR_closure_proc_id;
+	MR_ConstString		MR_closure_module_name;
+	MR_ConstString		MR_closure_file_name;
+	MR_Integer		MR_closure_line_number;
+	MR_ConstString		MR_closure_goal_path;
 } MR_Closure_Id;
 
 typedef struct MR_User_Closure_Id_Struct {
-	MR_User_Proc_Id		proc_id;
-	MR_ConstString		module_name;
-	MR_ConstString		file_name;
-	MR_Integer		line_number;
-	MR_ConstString		goal_path;
+	MR_User_Proc_Id		MR_user_closure_proc_id;
+	MR_ConstString		MR_user_closure_module_name;
+	MR_ConstString		MR_user_closure_file_name;
+	MR_Integer		MR_user_closure_line_number;
+	MR_ConstString		MR_user_closure_goal_path;
 } MR_User_Closure_Id;
 
 typedef struct MR_Compiler_Closure_Id_Struct {
-	MR_Compiler_Proc_Id	proc_id;
-	MR_ConstString		module_name;
-	MR_ConstString		file_name;
-	MR_Integer		line_number;
-	MR_ConstString		goal_path;
+	MR_Compiler_Proc_Id	MR_comp_closure_proc_id;
+	MR_ConstString		MR_comp_closure_module_name;
+	MR_ConstString		MR_comp_closure_file_name;
+	MR_Integer		MR_comp_closure_line_number;
+	MR_ConstString		MR_comp_closure_goal_path;
 } MR_Compiler_Closure_Id;
 
 #endif /* not MERCURY_STACK_LAYOUT_H */

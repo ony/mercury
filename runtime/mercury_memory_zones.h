@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 University of Melbourne.
+** Copyright (C) 1998-2002 University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -23,7 +23,7 @@
 #include <stdlib.h>		/* for size_t */
 
 #include "mercury_types.h"	/* for MR_Word */
-#include "mercury_std.h"		/* for bool */
+#include "mercury_std.h"		/* for MR_bool */
 
 
 /* these cannot be changed without lots of modifications elsewhere */
@@ -84,7 +84,7 @@ extern	unsigned long 	MR_num_uses[MR_MAX_RN];
 
 typedef struct MR_MemoryZone_Struct	MR_MemoryZone;
 
-typedef bool	MR_ZoneHandler(MR_Word *addr, MR_MemoryZone *zone,
+typedef MR_bool	MR_ZoneHandler(MR_Word *addr, MR_MemoryZone *zone,
 			void *context);
 
 struct MR_MemoryZone_Struct {
@@ -125,6 +125,15 @@ struct MR_MemoryZone_Struct {
 #else
 	#define MR_zone_end	top
 #endif
+
+#if defined(MR_NATIVE_GC) && defined(MR_HIGHLEVEL_CODE)
+	/*
+	** This field, which is only used for heap zones,
+	** points to MR_heap_margin_size bytes before MR_zone_end.
+	** It is used to decide when to do garbage collection.
+	*/
+	char *gc_threshold;	/* == MR_zone_end - MR_heap_margin_size */
+#endif
 };
 
 /*
@@ -163,7 +172,7 @@ int MR_protect_pages(void *addr, size_t size, int prot_flags);
 ** MR_init_memory_arena() allocates (if necessary) the top-level memory pool
 ** from which all allocations should come. If PARALLEL is defined, then
 ** this pool should be shared memory. In the absence of PARALLEL, it
-** doesn't need to do anything, since with CONSERVATIVE_GC, the collector
+** doesn't need to do anything, since with MR_CONSERVATIVE_GC, the collector
 ** manages the heap, and without GC, we can allocate memory using memalign
 ** or malloc.
 */

@@ -56,6 +56,18 @@ else
 ASM_OPT  =
 endif
 
+#-----------------------------------------------------------------------------#
+#-----------------------------------------------------------------------------#
+#
+# The following variables hold the names of various programs and
+# the options which should be passed to them.
+#
+#-----------------------------------------------------------------------------#
+#-----------------------------------------------------------------------------#
+#
+# Stuff which is not specific to any back-end
+#
+
 ALL_GRADEFLAGS  = $(USUAL_GRADEFLAGS) $(ASM_OPT)
 USUAL_GRADEFLAGS = $(GRADEFLAGS) $(EXTRA_GRADEFLAGS) $(TARGET_GRADEFLAGS)
 GRADEFLAGS	= --grade $(GRADE)
@@ -113,13 +125,14 @@ EXTRA_MCDFLAGS	= $(EXTRA_MCFLAGS)
 EXTRA_MCGFLAGS	= $(EXTRA_MCFLAGS)
 EXTRA_MCSFLAGS	= $(EXTRA_MCFLAGS)
 
+#-----------------------------------------------------------------------------#
 #
-# The following variables hold the names of various programs and
-# the options which should be passed to them.
+# Stuff which is specific to the C back-ends
 #
+
 MGNUC		= mgnuc
 ALL_MGNUCFLAGS	= $(MGNUCFLAGS) $(EXTRA_MGNUCFLAGS) $(TARGET_MGNUCFLAGS) \
-		  $(LIB_MGNUCFLAGS) $(ALL_CFLAGS)
+		  $(LIB_MGNUCFLAGS) -- $(ALL_CFLAGS)
 MGNUCFLAGS	=
 EXTRA_MGNUCFLAGS =
 LIB_MGNUCFLAGS	= $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
@@ -127,6 +140,11 @@ LIB_MGNUCFLAGS	= $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
 ALL_CFLAGS	= $(CFLAGS) $(EXTRA_CFLAGS) $(TARGET_CFLAGS)
 CFLAGS		=
 EXTRA_CFLAGS	=
+
+#-----------------------------------------------------------------------------#
+#
+# Stuff for the .NET back-end
+#
 
 # MS_CL is the command line version of Microsoft Visual C++, which we
 # use to compile Managed C++ code in the .NET backend.
@@ -169,9 +187,28 @@ MS_CSCFLAGS	=
 EXTRA_MS_CSCFLAGS =
 LIB_MS_CSCFLAGS	= 
 
+#-----------------------------------------------------------------------------#
+#
+# Stuff for the Java back-end
+#
+
+# JAVAC is the command line java compiler;
+# it should generate .class files from .java files.
+JAVAC		= javac
+ALL_JAVACFLAGS	= $(JAVACFLAGS) $(EXTRA_JAVACFLAGS) $(TARGET_JAVACFLAGS) \
+		$(LIB_JAVACFLAGS)
+JAVACFLAGS	=
+EXTRA_JAVACFLAGS =
+# XXX Should we set LIB_JAVACFLAGS?
+LIB_JAVACFLAGS	= 
+
+#-----------------------------------------------------------------------------#
+#
+# Stuff related to linking (for the C and assembler back-ends).
+#
+
 C2INIT		= c2init
-# c2init and ml take the same arguments.
-ALL_C2INITFLAGS = $(ALL_MLFLAGS)
+ALL_C2INITFLAGS = $(C2INIT_AND_MLFLAGS)
 C2INITFLAGS	=
 EXTRA_C2INITFLAGS =
 LIB_C2INITFLAGS	= $(patsubst %,--init-file-directory %,$(EXTRA_INIT_DIRS))
@@ -182,15 +219,27 @@ C2INITARGS	=
 EXTRA_C2INITARGS =
 LIB_C2INITARGS	= $(patsubst %,%.init,$(ALL_EXTRA_LIBRARIES))
 
-ML		= ml
-ALL_MLFLAGS	= $(MLFLAGS) $(C2INITFLAGS) \
+# c2init and ml take the same arguments.
+C2INIT_AND_MLFLAGS = $(MLFLAGS) $(C2INITFLAGS) \
 			$(EXTRA_MLFLAGS) $(EXTRA_C2INITFLAGS) \
 			$(TARGET_MLFLAGS) $(TARGET_C2INITFLAGS) \
 			$(LIB_MLFLAGS) $(LIB_C2INITFLAGS)
-MLFLAGS		= $(EXTRA_MLFLAGS)
+
+ML		= ml
+ALL_MLFLAGS	= $(C2INIT_AND_MLFLAGS)
+MLFLAGS		=
 EXTRA_MLFLAGS	=
 LIB_MLFLAGS	= $(patsubst %,-R%,$(EXTRA_C_LIB_DIRS)) \
 		  $(patsubst %,-L%,$(EXTRA_C_LIB_DIRS))
+
+ALL_LDFLAGS	= $(LDFLAGS) $(EXTRA_LDFLAGS) $(TARGET_LDFLAGS)
+LDFLAGS		=
+EXTRA_LDFLAGS	=
+
+# Flags to use when linking a shared library.
+ALL_LD_LIBFLAGS	= $(LD_LIBFLAGS) $(EXTRA_LD_LIBFLAGS) $(TARGET_LD_LIBFLAGS)
+LD_LIBFLAGS		=
+EXTRA_LD_LIBFLAGS	=
 
 ALL_MLOBJS	= $(MLOBJS) $(EXTRA_MLOBJS) $(TARGET_MLOBJS)
 MLOBJS		=
@@ -206,6 +255,12 @@ ALL_MLLIBS_DEP	=
 MLLIBS		=
 EXTRA_MLLIBS	=
 LIB_MLLIBS	= $(patsubst %,-l%,$(ALL_EXTRA_LIBRARIES))
+
+#-----------------------------------------------------------------------------#
+#
+# Stuff related to the Prolog back-ends
+# (XXX This is all obsolete and should probably be deleted)
+#
 
 MNC		= mnc
 ALL_MNCFLAGS	= $(MNCFLAGS) $(EXTRA_MNCFLAGS) $(TARGET_MNCFLAGS)
@@ -236,6 +291,11 @@ MSP		= msp
 ALL_MSPFLAGS	= $(MSPFLAGS) $(EXTRA_MSPFLAGS) $(TARGET_MSPFLAGS)
 MSPFLAGS	=
 EXTRA_MSPFLAGS	=
+
+#-----------------------------------------------------------------------------#
+#
+# Stuff related to creating libraries
+#
 
 AR		= @AR@
 ALL_ARFLAGS	= $(ARFLAGS) $(EXTRA_ARFLAGS) $(TARGET_ARFLAGS)
@@ -306,10 +366,10 @@ TARGET_GRADEFLAGS = \
   $(maybe-base-GRADEFLAGS-$(findstring undefined,\
 		$(origin GRADEFLAGS-$(patsubst %_init,%,$*)))) \
   $(maybe-target-GRADEFLAGS-$(findstring undefined,\
-  		$(origin GRADEFLAGS-$(patsubst %_init.c,%,$@))))
+  		$(origin GRADEFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))))
 maybe-base-GRADEFLAGS- = $(GRADEFLAGS-$(patsubst %_init,%,$*))
 maybe-base-GRADEFLAGS-undefined =
-maybe-target-GRADEFLAGS- = $(GRADEFLAGS-$(patsubst %_init.c,%,$@))
+maybe-target-GRADEFLAGS- = $(GRADEFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))
 maybe-target-GRADEFLAGS-undefined =
 
 TARGET_MCFLAGS = \
@@ -319,18 +379,18 @@ maybe-base-MCFLAGS-undefined =
 
 TARGET_C2INITFLAGS = \
   $(maybe-target-C2INITFLAGS-$(findstring undefined,\
-		$(origin C2INITFLAGS-$(patsubst %_init.c,%,$@))))
-maybe-target-C2INITFLAGS- = $(C2INITFLAGS-$(patsubst %_init.c,%,$@))
+		$(origin C2INITFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))))
+maybe-target-C2INITFLAGS- = $(C2INITFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))
 maybe-target-C2INITFLAGS-undefined =
 
 TARGET_C2INITARGS = \
   $(maybe-base-C2INITARGS-$(findstring undefined,\
 		$(origin C2INITARGS-$*))) \
   $(maybe-target-C2INITARGS-$(findstring undefined,\
-		$(origin C2INITARGS-$(patsubst %_init.c,%,$@))))
+		$(origin C2INITARGS-$(patsubst $(cs_subdir)%_init.c,%,$@))))
 maybe-base-C2INITARGS- = $(C2INITARGS-$*)
 maybe-base-C2INITARGS-undefined =
-maybe-target-C2INITARGS- = $(C2INITARGS-$(patsubst %_init.c,%,$@))
+maybe-target-C2INITARGS- = $(C2INITARGS-$(patsubst $(cs_subdir)%_init.c,%,$@))
 maybe-target-C2INITARGS-undefined =
 
 TARGET_MGNUCFLAGS = \
@@ -351,9 +411,19 @@ maybe-target-CFLAGS-undefined =
 # an argument of a `c2init' rule or an `ml' rule.
 TARGET_MLFLAGS = \
   $(maybe-target-MLFLAGS-$(findstring undefined,\
-		$(origin MLFLAGS-$(patsubst %_init.c,%,$@))))
-maybe-target-MLFLAGS- = $(MLFLAGS-$(patsubst %_init.c,%,$@))
+		$(origin MLFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))))
+maybe-target-MLFLAGS- = $(MLFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))
 maybe-target-MLFLAGS-undefined =
+
+TARGET_LDFLAGS = \
+  $(maybe-target-LDFLAGS-$(findstring undefined,$(origin LDFLAGS-$@)))
+maybe-target-LDFLAGS- = $(LDFLAGS-$@)
+maybe-target-LDFLAGS-undefined =
+
+TARGET_LD_LIBFLAGS = \
+  $(maybe-target-LD_LIBFLAGS-$(findstring undefined,$(origin LD_LIBFLAGS-$@)))
+maybe-target-LD_LIBFLAGS- = $(LD_LIBFLAGS-$@)
+maybe-target-LD_LIBFLAGS-undefined =
 
 TARGET_MLOBJS = \
   $(maybe-target-MLOBJS-$(findstring undefined,$(origin MLOBJS-$@)))
@@ -380,8 +450,9 @@ maybe-target-RANLIBFLAGS-undefined =
 # an argument of a `c2init' rule or an `ml' rule.
 TARGET_EXTRA_LIBRARIES = \
   $(maybe-target-EXTRA_LIBRARIES-$(findstring undefined,\
-		$(origin EXTRA_LIBRARIES-$(patsubst %_init.c,%,$@))))
-maybe-target-EXTRA_LIBRARIES- = $(EXTRA_LIBRARIES-$(patsubst %_init.c,%,$@))
+	$(origin EXTRA_LIBRARIES-$(patsubst $(cs_subdir)%_init.c,%,$@))))
+maybe-target-EXTRA_LIBRARIES- = \
+  $(EXTRA_LIBRARIES-$(patsubst $(cs_subdir)%_init.c,%,$@))
 maybe-target-EXTRA_LIBRARIES-undefined =
 
 TARGET_LIBGRADES = \
@@ -414,6 +485,11 @@ ILASM_KEYFLAG = \
   $(maybe-target-ILASM_KEYFLAG-$(findstring undefined,$(origin ILASM_KEYFLAG-$*)))
 maybe-target-ILASM_KEYFLAG- = $(ILASM_KEYFLAG-$*)
 maybe-target-ILASM_KEYFLAG-undefined =
+
+TARGET_JAVACFLAGS = \
+   $(maybe-base-JAVACFLAGS-$(findstring undefined,$(origin JAVACFLAGS-$*)))
+maybe-base-JAVACFLAGS- = $(JAVACFLAGS-$*)
+maybe-base-JAVACFLAGS-undefined =
 
 # Support for compiling Mercury programs with Prolog will probably be
 # dropped one of these days, so it's probably not worth bothering with these.
@@ -463,11 +539,14 @@ os_subdir=$(SUBDIR)os/
 # doesn't know about `--use-subdirs'.
 rlos_subdir=
 ils_subdir=$(SUBDIR)ils/
+javas_subdir=$(SUBDIR)javas/
 dirs_subdir=$(SUBDIR)dirs/
 c_dates_subdir=$(SUBDIR)c_dates/
 s_dates_subdir=$(SUBDIR)s_dates/
 pic_s_dates_subdir=$(SUBDIR)pic_s_dates/
 il_dates_subdir=$(SUBDIR)il_dates/
+java_dates_subdir=$(SUBDIR)java_dates/
+classes_subdir=$(SUBDIR)classs/
 
 else
 
@@ -496,11 +575,14 @@ pic_ss_subdir=
 os_subdir=
 rlos_subdir=
 ils_subdir=
+javas_subdir=
 dirs_subdir=
 c_dates_subdir=
 s_dates_subdir=
 pic_s_dates_subdir=
 il_dates_subdir=
+java_dates_subdir=
+classes_subdir=
 
 endif
 

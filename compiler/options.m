@@ -58,6 +58,7 @@
 		;	warn_singleton_vars
 		;	warn_overlapping_scopes
 		;	warn_det_decls_too_lax
+		;	warn_inferred_erroneous
 		;	warn_nothing_exported
 		;	warn_unused_args
 		;	warn_interface_imports
@@ -70,11 +71,13 @@
 		;	warn_missing_module_name
 		;	warn_wrong_module_name
 		;	warn_smart_recompilation
+		;	warn_non_tail_recursion
 	% Verbosity options
 		;	verbose
 		;	very_verbose
 		;	verbose_errors
 		;	verbose_recompilation
+		;	find_all_recompilation_reasons
 		;	verbose_make
 		;	statistics
 		;	debug_types
@@ -114,6 +117,7 @@
 		;	trace
 		;	trace_optimized
 		;	trace_table_io
+		;	trace_table_io_decl
 		;	trace_table_io_states
 		;	delay_death
 		;	suppress_trace
@@ -415,6 +419,7 @@
 	%	- MLDS
 		;	optimize_tailcalls
 		;	optimize_initializations
+		;	eliminate_local_vars
 	%	- LLDS
 		;	common_data
 		;	optimize	% also used for MLDS->MLDS optimizations
@@ -467,7 +472,9 @@
 		;	java_flags
 		;	java_classpath
 		;	java_object_file_extension
-
+			
+			% IL
+		;	dotnet_library_version
 
 	% Link options
 		;	output_file_name
@@ -553,6 +560,7 @@ option_defaults_2(warning_option, [
 	warn_singleton_vars	-	bool(yes),
 	warn_overlapping_scopes	-	bool(yes),
 	warn_det_decls_too_lax	-	bool(yes),
+	warn_inferred_erroneous	-	bool(yes),
 	warn_nothing_exported	-	bool(yes),
 	warn_unused_args	-	bool(no),
 	warn_interface_imports	-	bool(yes),
@@ -564,7 +572,8 @@ option_defaults_2(warning_option, [
 	warn_duplicate_calls	-	bool(no),
 	warn_missing_module_name -	bool(yes),
 	warn_wrong_module_name -	bool(yes),
-	warn_smart_recompilation -	bool(yes)
+	warn_smart_recompilation -	bool(yes),
+	warn_non_tail_recursion -	bool(no)
 ]).
 option_defaults_2(verbosity_option, [
 		% Verbosity Options
@@ -572,6 +581,8 @@ option_defaults_2(verbosity_option, [
 	very_verbose		-	bool(no),
 	verbose_errors		-	bool(no),
 	verbose_recompilation	-	bool(no),
+	find_all_recompilation_reasons -
+					bool(no),
 	verbose_make		-	bool(yes),
 	statistics		-	bool(no),
 	debug_types		- 	bool(no),
@@ -610,6 +621,7 @@ option_defaults_2(aux_output_option, [
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
 	trace_table_io		-	bool(no),
+	trace_table_io_decl	-	bool(no),
 	trace_table_io_states	-	bool(no),
 	suppress_trace		-	string(""),
 	delay_death		-	bool(yes),
@@ -773,8 +785,11 @@ option_defaults_2(code_gen_option, [
 					% at configuration time
 	pic			-	bool(no),
 	max_jump_table_size	-	int(0),
-	compare_specialization	-	int(4),
 					% 0 indicates any size.
+	compare_specialization	-	int(-1),
+					% -1 asks handle_options.m to give
+					% the value, which may be grade
+					% dependent.
 	fact_table_max_array_size -	int(1024),
 	fact_table_hash_percent_full - 	int(90),
 	gcc_local_labels	-	bool(no),
@@ -866,6 +881,7 @@ option_defaults_2(optimization_option, [
 % MLDS
 	optimize_tailcalls	- 	bool(no),
 	optimize_initializations - 	bool(no),
+	eliminate_local_vars	- 	bool(no),
 % LLDS
 	common_data		-	bool(no),
 	optimize		-	bool(no),
@@ -897,6 +913,7 @@ option_defaults_2(optimization_option, [
 option_defaults_2(target_code_compilation_option, [
 		% Target code compilation options
 	target_debug		-	bool(no),
+
 % C
 					% the `mmc' script will override the
 					% following default with a value
@@ -925,7 +942,12 @@ option_defaults_2(target_code_compilation_option, [
 	java_compiler		-	string("javac"),
 	java_flags		-	accumulating([]),
 	java_classpath  	-	accumulating([]),
-	java_object_file_extension -	string(".class")
+	java_object_file_extension -	string(".class"),
+
+% IL
+		% We default to the version of the library that came
+		% with Beta2.
+	dotnet_library_version	-	string("1.0.2411.0")
 ]).
 option_defaults_2(link_option, [
 		% Link Options
@@ -1018,6 +1040,7 @@ long_option("halt-at-syntax-errors",	halt_at_syntax_errors).
 long_option("warn-singleton-variables",	warn_singleton_vars).
 long_option("warn-overlapping-scopes",	warn_overlapping_scopes).
 long_option("warn-det-decls-too-lax",	warn_det_decls_too_lax).
+long_option("warn-inferred-erroneous",	warn_inferred_erroneous).
 long_option("warn-nothing-exported",	warn_nothing_exported).
 long_option("warn-unused-args",		warn_unused_args).
 long_option("warn-interface-imports",	warn_interface_imports).
@@ -1030,12 +1053,15 @@ long_option("warn-duplicate-calls",	warn_duplicate_calls).
 long_option("warn-missing-module-name",	warn_missing_module_name).
 long_option("warn-wrong-module-name",	warn_wrong_module_name).
 long_option("warn-smart-recompilation",	warn_smart_recompilation).
+long_option("warn-non-tail-recursion",	warn_non_tail_recursion).
 
 % verbosity options
 long_option("verbose",			verbose).
 long_option("very-verbose",		very_verbose).
 long_option("verbose-error-messages",	verbose_errors).
 long_option("verbose-recompilation",	verbose_recompilation).
+long_option("find-all-recompilation-reasons",
+					find_all_recompilation_reasons).
 long_option("verbose-make",		verbose_make).
 long_option("statistics",		statistics).
 long_option("debug-types",		debug_types).
@@ -1090,6 +1116,7 @@ long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
 long_option("trace-optimized",		trace_optimized).
 long_option("trace-table-io",		trace_table_io).
+long_option("trace-table-io-decl",	trace_table_io_decl).
 long_option("trace-table-io-states",	trace_table_io_states).
 long_option("suppress-trace",		suppress_trace).
 long_option("delay-death",		delay_death).
@@ -1099,9 +1126,11 @@ long_option("line-numbers",		line_numbers).
 long_option("auto-comments",		auto_comments).
 long_option("show-dependency-graph",	show_dependency_graph).
 long_option("dump-hlds",		dump_hlds).
+long_option("hlds-dump",		dump_hlds).
 long_option("dump-hlds-alias",		dump_hlds_alias).
 long_option("dump-hlds-options",	dump_hlds_options).
 long_option("dump-mlds",		dump_mlds).
+long_option("mlds-dump",		dump_mlds).
 long_option("dump-rl",			dump_rl).
 long_option("dump-rl-bytecode",		dump_rl_bytecode).
 long_option("sign-assembly",		sign_assembly).
@@ -1364,6 +1393,7 @@ long_option("optimize-tailcalls",	optimize_tailcalls).
 long_option("optimise-tailcalls",	optimize_tailcalls).
 long_option("optimize-initializations",	optimize_initializations).
 long_option("optimise-initializations",	optimize_initializations).
+long_option("eliminate-local-vars",	eliminate_local_vars).
 
 % LLDS optimizations
 long_option("common-data",		common_data).
@@ -1444,6 +1474,8 @@ long_option("java-flags",			cflags).
 long_option("java-debug",		target_debug).
 long_option("java-classpath",   	java_classpath).
 long_option("java-object-file-extension", java_object_file_extension).
+
+long_option("dotnet-library-version",	dotnet_library_version).
 
 % link options
 long_option("output-file",		output_file_name).
@@ -1564,6 +1596,7 @@ special_handler(inhibit_warnings, bool(Inhibit), OptionTable0, ok(OptionTable))
 			warn_singleton_vars	-	bool(Enable),
 			warn_overlapping_scopes	-	bool(Enable),
 			warn_det_decls_too_lax	-	bool(Enable),
+			warn_inferred_erroneous	-	bool(Enable),
 			warn_nothing_exported	-	bool(Enable),
 			warn_interface_imports	-	bool(Enable),
 			warn_missing_opt_files	-	bool(Enable),
@@ -1780,12 +1813,15 @@ opt_level(4, _, [
 % Currently this enables the search for construction unifications that can be
 % delayed past failing computations, allows more passes of the low-level
 % optimizations, and increases the inlining thresholds still further.
+% We also enable eliminate_local_vars only at this level,
+% because that pass is implemented pretty inefficiently.
 
 opt_level(5, _, [
 	optimize_repeat		-	int(5),
 	delay_construct		-	bool(yes),
 	inline_compound_threshold -	int(100),
-	higher_order_size_limit -	int(40)
+	higher_order_size_limit -	int(40),
+	eliminate_local_vars	-	bool(yes)
 ]).
 
 % Optimization level 6: apply optimizations which may have any
@@ -1802,6 +1838,32 @@ opt_level(6, _, [
 	inline_alloc		-	bool(yes),
 	use_macro_for_redo_fail	-	bool(yes)
 ]).
+
+% The following optimization options are not enabled at any level:
+%
+% 	checked_nondet_tailcalls:
+%		This is deliberate, because the transformation
+%		might make code run slower.
+%
+% 	constraint_propagation:
+%		I think this is deliberate, because the transformation
+%		might make code run slower?
+%
+%	prev_code:
+%		Not useful?
+%
+%	unneeded_code:
+%	type_specialization:
+%	optimize_rl_invariant:
+%		XXX why not?
+%
+%	introduce_accumulators:
+%		XXX Disabled until a bug in extras/trailed_update/var.m
+%		is resolved.
+%
+%	optimize_rl_cse:
+%	optimize_constructor_last_call:
+%		Not implemented yet.
 
 %-----------------------------------------------------------------------------%
 
@@ -1854,6 +1916,9 @@ options_help_warning -->
 		"--no-warn-det-decls-too-lax",
 		"\tDon't warn about determinism declarations",
 		"\twhich could have been stricter.",
+		"--no-warn-inferred-erroneous",
+		"\tDon't warn about procedures whose determinism is inferred",
+		"\terroneous but whose determinism declarations are laxer.",
 		"--no-warn-nothing-exported",
 		"\tDon't warn about modules which export nothing.",
 		"--warn-unused-args",
@@ -1888,7 +1953,10 @@ options_help_warning -->
 		"\tDisable warnings for modules whose `:- module'",
 		"\tdeclaration does not match the module's file name.",
 		"--no-warn-smart-recompilation",
-		"\tDisable warnings from the smart recompilation system."
+		"\tDisable warnings from the smart recompilation system.",
+		"--warn-non-tail-recursion",
+		"\tWarn about any directly recursive calls that are not tail calls.",
+		"\tThis requires --high-level-code."
 	]).
 
 :- pred options_help_verbosity(io__state::di, io__state::uo) is det.
@@ -1908,8 +1976,11 @@ options_help_verbosity -->
 %		"\tOutput progress messages about the progress of the",
 %		"\t`--make' option.",
 		"--verbose-recompilation",
-		"\tWhen using `--smart-recompilation', output messages\n",
+		"\tWhen using `--smart-recompilation', output messages",
 		"\texplaining why a module needs to be recompiled.",
+		"--find-all-recompilation-reasons",
+		"\tFind all the reasons why a module needs to be recompiled,",
+		"\tnot just the first.  Implies `--verbose-recompilation'.",
 		"-S, --statistics",
 		"\tOutput messages about the compiler's time/space usage.",
 		"\tAt the moment this option implies `--no-trad-passes', so you get",
@@ -2028,6 +2099,9 @@ options_help_aux_output -->
 %		"--trace-table-io",
 %		"\tEnable the tabling of I/O actions, to allow the debugger",
 %		"\tto execute retry commands across I/O actions.",
+%		"--trace-table-io-decl",
+%		"\tSet up I/O tabling so that the declarative debugger can",
+%		"\tmake use of it.",
 %		"--trace-table-io-states",
 %		"\tWhen tabling I/O actions, table the io__state arguments",
 %		"\ttogether with the others. This should be required iff",
@@ -2891,7 +2965,10 @@ options_help_mlds_mlds_optimization -->
 		"--no-optimize-initializations",
 		"\tLeave initializations of local variables as",
 		"\tassignment statements, rather than converting such",
-		"\tassignment statements into initializers."
+		"\tassignment statements into initializers.",
+		"--eliminate-local-vars",
+		"\tEliminate local variables with known values, where possible,",
+		"\tby replacing occurrences of such variables with their values."
 	]).
 
 
@@ -3005,7 +3082,11 @@ options_help_target_code_compilation -->
 
 		"--java-object-file-extension",
 		"\tSpecify an extension for Java object (bytecode) files",
-		"\tBy default this is `.class'."
+		"\tBy default this is `.class'.",
+
+		"--dotnet-library-version <version-number>",
+		"\tThe version number for the mscorlib assembly distributed",
+		"\twith the Microsoft .NET SDK."
 	]).
 
 :- pred options_help_link(io__state::di, io__state::uo) is det.

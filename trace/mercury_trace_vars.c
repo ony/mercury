@@ -53,9 +53,9 @@ typedef struct {
 	char				*MR_var_fullname;
 	char				*MR_var_basename;
 	int				MR_var_num_suffix;
-	bool				MR_var_has_suffix;
-	bool				MR_var_is_headvar;
-	bool				MR_var_is_ambiguous;
+	MR_bool				MR_var_has_suffix;
+	MR_bool				MR_var_is_headvar;
+	MR_bool				MR_var_is_ambiguous;
 	int				MR_var_hlds_number;
 	MR_TypeInfo			MR_var_type;
 	MR_Word				MR_var_value;
@@ -107,15 +107,20 @@ typedef struct {
 	MR_Var_Details		*MR_point_vars;
 } MR_Point;
 
-static	bool		MR_trace_type_is_ignored(
-				MR_PseudoTypeInfo pseudo_type_info);
+static	MR_bool		MR_trace_type_is_ignored(
+				MR_PseudoTypeInfo pseudo_type_info,
+				MR_bool print_optionals);
 static	int		MR_trace_compare_var_details(const void *arg1,
 				const void *arg2);
+static	void		MR_generate_proc_name_from_layout(const MR_Proc_Layout
+				*proc_layout, MR_ConstString *proc_name_ptr,
+				int *arity_ptr, MR_Word *is_func_ptr);
 static	const char *	MR_trace_browse_one_path(FILE *out,
 				MR_Var_Spec var_spec, char *path,
 				MR_Browser browser,
 				MR_Browse_Caller_Type caller,
-				MR_Browse_Format format, bool must_be_unique);
+				MR_Browse_Format format,
+				MR_bool must_be_unique);
 static	char *		MR_trace_browse_var(FILE *out, MR_Var_Details *var,
 				char *path, MR_Browser browser,
 				MR_Browse_Caller_Type caller,
@@ -159,7 +164,7 @@ static	MR_Point			MR_point;
   extern struct MR_TypeCtorInfo_Struct
   	mercury_data___type_ctor_info_void_0;
 
-  #ifdef NATIVE_GC
+  #ifdef MR_NATIVE_GC
     extern struct MR_TypeCtorInfo_Struct
 	mercury_data___type_ctor_info_succip_0;
     extern struct MR_TypeCtorInfo_Struct
@@ -176,27 +181,20 @@ static	MR_Point			MR_point;
 #endif
 
 static	MR_TypeCtorInfo
-MR_trace_ignored_type_ctors[] =
+MR_trace_always_ignored_type_ctors[] =
 {
-	/* we ignore these until the debugger can handle their varying arity */
 #ifndef MR_HIGHLEVEL_CODE
-	&mercury_data_private_builtin__type_ctor_info_type_info_1,
-	&mercury_data_private_builtin__type_ctor_info_type_ctor_info_1,
-	&mercury_data_private_builtin__type_ctor_info_typeclass_info_1,
-	&mercury_data_private_builtin__type_ctor_info_base_typeclass_info_1,
-	&mercury_data_std_util__type_ctor_info_type_desc_0,
-	&mercury_data_std_util__type_ctor_info_type_ctor_desc_0,
+	/* we ignore these until the browser can handle their varying arity, */
+	/* or their definitions are updated. XXX */
 	&mercury_data_type_desc__type_ctor_info_type_desc_0,
 	&mercury_data_type_desc__type_ctor_info_type_ctor_desc_0,
-
-	/* we ignore these until the debugger can print higher-order terms */
-	&mercury_data___type_ctor_info_func_0,
-	&mercury_data___type_ctor_info_pred_0,
+	&mercury_data_private_builtin__type_ctor_info_typeclass_info_1,
+	&mercury_data_private_builtin__type_ctor_info_base_typeclass_info_1,
 
 	/* we ignore these because they should never be needed */
 	&mercury_data___type_ctor_info_void_0,
 
-  #ifdef NATIVE_GC
+  #ifdef MR_NATIVE_GC
 	/* we ignore these because they are not interesting */
 	&mercury_data___type_ctor_info_succip_0,
 	&mercury_data___type_ctor_info_hp_0,
@@ -210,44 +208,74 @@ MR_trace_ignored_type_ctors[] =
 	NULL
 };
 
-static bool
-MR_trace_type_is_ignored(MR_PseudoTypeInfo pseudo_type_info)
+static	MR_TypeCtorInfo
+MR_trace_maybe_ignored_type_ctors[] =
+{
+#ifndef MR_HIGHLEVEL_CODE
+	/*
+	** We can print values of these types (after a fashion),
+	** but users are usually not interested in their values.
+	*/
+	&mercury_data_private_builtin__type_ctor_info_type_info_1,
+	&mercury_data_private_builtin__type_ctor_info_type_ctor_info_1,
+#endif
+	/* dummy member */
+	NULL
+};
+
+static MR_bool
+MR_trace_type_is_ignored(MR_PseudoTypeInfo pseudo_type_info,
+	MR_bool print_optionals)
 {
 	MR_TypeCtorInfo	type_ctor_info;
-	int		ignore_type_ctor_count;
+	int		always_ignore_type_ctor_count;
+	int		maybe_ignore_type_ctor_count;
 	int		i;
 
 	if (MR_PSEUDO_TYPEINFO_IS_VARIABLE(pseudo_type_info)) {
-		return FALSE;
+		return MR_FALSE;
 	}
 
 	type_ctor_info =
 		MR_PSEUDO_TYPEINFO_GET_TYPE_CTOR_INFO(pseudo_type_info);
-	ignore_type_ctor_count =
-		sizeof(MR_trace_ignored_type_ctors) / sizeof(MR_Word *);
+	always_ignore_type_ctor_count =
+		sizeof(MR_trace_always_ignored_type_ctors) / sizeof(MR_Word *);
 
-	for (i = 0; i < ignore_type_ctor_count; i++) {
-		if (type_ctor_info == MR_trace_ignored_type_ctors[i]) {
-			return TRUE;
+	for (i = 0; i < always_ignore_type_ctor_count; i++) {
+		if (type_ctor_info == MR_trace_always_ignored_type_ctors[i]) {
+			return MR_TRUE;
 		}
 	}
 
-	return FALSE;
+	if (print_optionals) {
+		return MR_FALSE;
+	}
+
+	maybe_ignore_type_ctor_count =
+		sizeof(MR_trace_maybe_ignored_type_ctors) / sizeof(MR_Word *);
+
+	for (i = 0; i < maybe_ignore_type_ctor_count; i++) {
+		if (type_ctor_info == MR_trace_maybe_ignored_type_ctors[i]) {
+			return MR_TRUE;
+		}
+	}
+
+	return MR_FALSE;
 }
 
 void
 MR_trace_init_point_vars(const MR_Label_Layout *top_layout,
-	MR_Word *saved_regs, MR_Trace_Port port)
+	MR_Word *saved_regs, MR_Trace_Port port, MR_bool print_optionals)
 {
 	MR_point.MR_point_top_layout = top_layout;
 	MR_point.MR_point_top_saved_regs = saved_regs;
 	MR_point.MR_point_top_port = port;
 	MR_point.MR_point_level = 0;
-	MR_point.MR_point_problem = MR_trace_set_level(0);
+	MR_point.MR_point_problem = MR_trace_set_level(0, print_optionals);
 }
 
 const char *
-MR_trace_set_level(int ancestor_level)
+MR_trace_set_level(int ancestor_level, MR_bool print_optionals)
 {
 	const char			*problem;
 	MR_Word				*base_sp;
@@ -264,7 +292,7 @@ MR_trace_set_level(int ancestor_level)
 
 	if (level_layout != NULL) {
 		return MR_trace_set_level_from_layout(level_layout,
-				base_sp, base_curfr, ancestor_level);
+			base_sp, base_curfr, ancestor_level, print_optionals);
 	} else {
 		if (problem == NULL) {
 			MR_fatal_error("MR_find_nth_ancestor failed "
@@ -277,7 +305,8 @@ MR_trace_set_level(int ancestor_level)
 
 const char *
 MR_trace_set_level_from_layout(const MR_Label_Layout *level_layout,
-	MR_Word *base_sp, MR_Word *base_curfr, int ancestor_level)
+	MR_Word *base_sp, MR_Word *base_curfr, int ancestor_level,
+	MR_bool print_optionals)
 {
 	const MR_Proc_Layout		*entry;
 	MR_Word				*valid_saved_regs;
@@ -397,13 +426,15 @@ MR_trace_set_level_from_layout(const MR_Label_Layout *level_layout,
 		}
 
 		name = string_table + offset;
-		if (name == NULL || streq(name, "")) {
+		if (name == NULL || MR_streq(name, "")) {
 			/* this value is a compiler-generated variable */
 			continue;
 		}
 
 		pseudo_type_info = MR_var_pti(level_layout, i);
-		if (MR_trace_type_is_ignored(pseudo_type_info)) {
+		if (MR_trace_type_is_ignored(pseudo_type_info,
+			print_optionals))
+		{
 			continue;
 		}
 
@@ -431,7 +462,8 @@ MR_trace_set_level_from_layout(const MR_Label_Layout *level_layout,
 		}
 
 		if (s == copy + copylen - 1) {
-			MR_point.MR_point_vars[slot].MR_var_has_suffix = FALSE;
+			MR_point.MR_point_vars[slot].MR_var_has_suffix =
+						MR_FALSE;
 			/* num_suffix should not be used */
 			MR_point.MR_point_vars[slot].MR_var_num_suffix = -1;
 			MR_point.MR_point_vars[slot].MR_var_basename = copy;
@@ -441,27 +473,30 @@ MR_trace_set_level_from_layout(const MR_Label_Layout *level_layout,
 					"variable name starts with digit");
 			}
 
-			MR_point.MR_point_vars[slot].MR_var_has_suffix = TRUE;
+			MR_point.MR_point_vars[slot].MR_var_has_suffix =
+						MR_TRUE;
 			MR_point.MR_point_vars[slot].MR_var_num_suffix
 				= atoi(s + 1);
 			*(s + 1) = '\0';
 			MR_point.MR_point_vars[slot].MR_var_basename = copy;
 		}
 
-		if (streq(MR_point.MR_point_vars[slot].MR_var_basename,
+		if (MR_streq(MR_point.MR_point_vars[slot].MR_var_basename,
 			"HeadVar__"))
 		{
-			MR_point.MR_point_vars[slot].MR_var_is_headvar = TRUE;
+			MR_point.MR_point_vars[slot].MR_var_is_headvar =
+						MR_TRUE;
 		} else {
-			MR_point.MR_point_vars[slot].MR_var_is_headvar = FALSE;
+			MR_point.MR_point_vars[slot].MR_var_is_headvar =
+						MR_FALSE;
 		}
 
-		MR_point.MR_point_vars[slot].MR_var_is_ambiguous = FALSE;
+		MR_point.MR_point_vars[slot].MR_var_is_ambiguous = MR_FALSE;
 		slot++;
 	}
 
 	slot_max = slot;
-	free(type_params);
+	MR_free(type_params);
 
 	if (slot_max > 0) {
 		qsort(MR_point.MR_point_vars, slot_max,
@@ -480,13 +515,14 @@ MR_trace_set_level_from_layout(const MR_Label_Layout *level_layout,
 				&MR_point.MR_point_vars[i],
 				sizeof(MR_Var_Details));
 
-			if (streq(MR_point.MR_point_vars[slot].MR_var_fullname,
+			if (MR_streq(
+				MR_point.MR_point_vars[slot].MR_var_fullname,
 				MR_point.MR_point_vars[slot-1].MR_var_fullname))
 			{
 				MR_point.MR_point_vars[slot - 1].
-					MR_var_is_ambiguous = TRUE;
+					MR_var_is_ambiguous = MR_TRUE;
 				MR_point.MR_point_vars[slot].
-					MR_var_is_ambiguous = TRUE;
+					MR_var_is_ambiguous = MR_TRUE;
 			}
 
 			slot++;
@@ -670,6 +706,31 @@ MR_trace_headvar_num(int var_number, int *arg_pos)
 	return NULL;
 }
 
+static void
+MR_generate_proc_name_from_layout(const MR_Proc_Layout *proc_layout,
+	MR_ConstString *proc_name_ptr, int *arity_ptr, MR_Word *is_func_ptr)
+{
+	if (MR_PROC_LAYOUT_COMPILER_GENERATED(proc_layout)) {
+		*proc_name_ptr = proc_layout->MR_sle_proc_id.
+			MR_proc_comp.MR_comp_pred_name;
+		*arity_ptr = proc_layout->MR_sle_proc_id.
+			MR_proc_comp.MR_comp_arity;
+		*is_func_ptr = MR_BOOL_NO;
+	} else {
+		*proc_name_ptr = proc_layout->MR_sle_proc_id.
+			MR_proc_user.MR_user_name;
+		*arity_ptr = proc_layout->MR_sle_proc_id.
+			MR_proc_user.MR_user_arity;
+		if (proc_layout->MR_sle_proc_id.MR_proc_user.
+				MR_user_pred_or_func == MR_FUNCTION)
+		{
+			*is_func_ptr = MR_BOOL_YES;
+		} else {
+			*is_func_ptr = MR_BOOL_NO;
+		}
+	}
+}
+
 /*
 ** The following declaration allocates a cell to a typeinfo even if though
 ** its arity is zero. This wastes a word of space but avoids depending on the
@@ -703,25 +764,8 @@ MR_trace_browse_one_goal(FILE *out, MR_GoalBrowser browser,
 	int			slot;
 
 	proc_layout = MR_point.MR_point_level_entry;
-	if (MR_PROC_LAYOUT_COMPILER_GENERATED(proc_layout)) {
-		proc_name = proc_layout->MR_sle_proc_id.
-			MR_proc_comp.MR_comp_pred_name;
-		arity = proc_layout->MR_sle_proc_id.
-			MR_proc_comp.MR_comp_arity;
-		is_func = MR_BOOL_NO;
-	} else {
-		proc_name = proc_layout->MR_sle_proc_id.
-			MR_proc_user.MR_user_name;
-		arity = proc_layout->MR_sle_proc_id.
-			MR_proc_user.MR_user_arity;
-		if (proc_layout->MR_sle_proc_id.MR_proc_user.
-				MR_user_pred_or_func == MR_FUNCTION)
-		{
-			is_func = MR_BOOL_YES;
-		} else {
-			is_func = MR_BOOL_NO;
-		}
-	}
+	MR_generate_proc_name_from_layout(proc_layout, &proc_name, &arity,
+		&is_func);
 
 	vars = MR_point.MR_point_vars;
 	for (slot = MR_point.MR_point_var_count - 1; slot >= 0; slot--) {
@@ -750,9 +794,66 @@ MR_trace_browse_one_goal(FILE *out, MR_GoalBrowser browser,
 }
 
 const char *
+MR_trace_browse_action(FILE *out, int action_number, MR_GoalBrowser browser,
+	MR_Browse_Caller_Type caller, MR_Browse_Format format)
+{
+	const MR_Table_Io_Decl	*table_io_decl;
+	const MR_Proc_Layout	*proc_layout;
+	MR_ConstString		proc_name;
+	MR_Word			is_func;
+	MR_Word			arg_list;
+	MR_Word			arg;
+	int			filtered_arity;
+	int			arity;
+	int			hv;
+	MR_TrieNode		answer_block_trie;
+	MR_Word			*answer_block;
+	MR_TypeInfo		*type_params;
+	MR_TypeInfo		type_info;
+
+	if (! (MR_io_tabling_start <= action_number
+		&& action_number < MR_io_tabling_counter_hwm))
+	{
+		return "I/O action number not in range";
+	}
+
+	MR_DEBUG_NEW_TABLE_START_INT(answer_block_trie,
+		(MR_TrieNode) &MR_io_tabling_pointer,
+		MR_io_tabling_start, action_number);
+	answer_block = answer_block_trie->MR_answerblock;
+
+	if (answer_block == NULL) {
+		return "I/O action number not in range";
+	}
+
+	table_io_decl = (const MR_Table_Io_Decl *) answer_block[0];
+	proc_layout = table_io_decl->MR_table_io_decl_proc;
+	filtered_arity = table_io_decl->MR_table_io_decl_filtered_arity;
+
+	MR_generate_proc_name_from_layout(proc_layout, &proc_name, &arity,
+		&is_func);
+
+	type_params = MR_materialize_answer_block_typeinfos(
+			table_io_decl->MR_table_io_decl_type_params,
+			answer_block, filtered_arity);
+
+	arg_list = MR_list_empty();
+	for (hv = filtered_arity; hv >= 1; hv--) {
+		type_info = MR_create_type_info(type_params,
+			table_io_decl->MR_table_io_decl_ptis[hv - 1]);
+		MR_new_univ_on_hp(arg, type_info, answer_block[hv]);
+		arg_list = MR_list_cons(arg, arg_list);
+	}
+
+	MR_free(type_params);
+	(*browser)(proc_name, arg_list, is_func, caller, format);
+	return NULL;
+}
+
+const char *
 MR_trace_parse_browse_one(FILE *out, char *word_spec, MR_Browser browser,
 	MR_Browse_Caller_Type caller, MR_Browse_Format format,
-	bool must_be_unique)
+	MR_bool must_be_unique)
 {
 	MR_Var_Spec	var_spec;
 	char		*path;
@@ -810,7 +911,7 @@ MR_trace_parse_browse_one(FILE *out, char *word_spec, MR_Browser browser,
 const char *
 MR_trace_browse_one(FILE *out, MR_Var_Spec var_spec, MR_Browser browser,
 	MR_Browse_Caller_Type caller, MR_Browse_Format format,
-	bool must_be_unique)
+	MR_bool must_be_unique)
 {
 	return MR_trace_browse_one_path(out, var_spec, NULL, browser,
 		caller, format, must_be_unique);
@@ -819,10 +920,10 @@ MR_trace_browse_one(FILE *out, MR_Var_Spec var_spec, MR_Browser browser,
 static const char *
 MR_trace_browse_one_path(FILE *out, MR_Var_Spec var_spec, char *path,
 	MR_Browser browser, MR_Browse_Caller_Type caller,
-	MR_Browse_Format format, bool must_be_unique)
+	MR_Browse_Format format, MR_bool must_be_unique)
 {
 	int		i;
-	bool		found;
+	MR_bool		found;
 	const char	*problem;
 	char		*bad_path;
 
@@ -847,12 +948,12 @@ MR_trace_browse_one_path(FILE *out, MR_Var_Spec var_spec, char *path,
 			return MR_trace_bad_path(bad_path);
 		}
 	} else if (var_spec.MR_var_spec_kind == MR_VAR_SPEC_NAME) {
-		found = FALSE;
+		found = MR_FALSE;
 		for (i = 0; i < MR_point.MR_point_var_count; i++) {
-			if (streq(var_spec.MR_var_spec_name,
+			if (MR_streq(var_spec.MR_var_spec_name,
 				MR_point.MR_point_vars[i].MR_var_fullname))
 			{
-				found = TRUE;
+				found = MR_TRUE;
 				break;
 			}
 		}
@@ -880,7 +981,7 @@ MR_trace_browse_one_path(FILE *out, MR_Var_Spec var_spec, char *path,
 
 				i++;
 			} while (i < MR_point.MR_point_var_count &&
-				streq(var_spec.MR_var_spec_name,
+				MR_streq(var_spec.MR_var_spec_name,
 				MR_point.MR_point_vars[i].MR_var_fullname));
 
 			if (success_count == 0) {
@@ -944,12 +1045,13 @@ MR_trace_browse_all(FILE *out, MR_Browser browser, MR_Browse_Format format)
 
 const char *
 MR_trace_browse_all_on_level(FILE *out, const MR_Label_Layout *level_layout,
-	MR_Word *base_sp, MR_Word *base_curfr, int ancestor_level)
+	MR_Word *base_sp, MR_Word *base_curfr, int ancestor_level,
+	MR_bool print_optionals)
 {
 	const char	*problem;
 
 	problem = MR_trace_set_level_from_layout(level_layout,
-			base_sp, base_curfr, ancestor_level);
+			base_sp, base_curfr, ancestor_level, print_optionals);
 	if (problem != NULL) {
 		return problem;
 	}

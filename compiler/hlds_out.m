@@ -164,10 +164,10 @@
 :- mode hlds_out__write_clause(in, in, in, in, in, in, in, in, in, in, di, uo)
 	is det.
 
-:- pred hlds_out__write_assertion(int, module_info, pred_id, prog_varset, bool,
-		list(prog_var), pred_or_func, clause, maybe_vartypes,
-		io__state, io__state).
-:- mode hlds_out__write_assertion(in, in, in, in, in, in, in, in, in, di, uo)
+:- pred hlds_out__write_promise(promise_type, int, module_info, pred_id,
+		prog_varset, bool, list(prog_var), pred_or_func, clause,
+		maybe_vartypes, io__state, io__state).
+:- mode hlds_out__write_promise(in, in, in, in, in, in, in, in, in, in, di, uo)
 	is det.
 
 	% Print out an HLDS goal. The module_info and prog_varset give
@@ -317,6 +317,7 @@ hlds_out__cons_id_to_string(tabling_pointer_const(_, _),
 	"<tabling_pointer>").
 hlds_out__cons_id_to_string(deep_profiling_proc_static(_),
 	"<deep_profiling_proc_static>").
+hlds_out__cons_id_to_string(table_io_decl(_), "<table_io_decl>").
 
 hlds_out__write_cons_id(cons(SymName, Arity)) -->
 	prog_out__write_sym_name_and_arity(SymName / Arity).
@@ -338,6 +339,8 @@ hlds_out__write_cons_id(tabling_pointer_const(_, _)) -->
 	io__write_string("<tabling_pointer>").
 hlds_out__write_cons_id(deep_profiling_proc_static(_)) -->
 	io__write_string("<deep_profiling_proc_static>").
+hlds_out__write_cons_id(table_io_decl(_)) -->
+	io__write_string("<table_io_decl>").
 
 	% The code of this predicate duplicates the functionality of
 	% error_util__describe_one_pred_name. Changes here should be made
@@ -368,9 +371,10 @@ hlds_out__write_pred_id(ModuleInfo, PredId) -->
 	->
 		io__write_string("type class method implementation")
 	;
-		{ pred_info_get_goal_type(PredInfo, assertion) }
+		{ pred_info_get_goal_type(PredInfo, promise(PromiseType)) }
 	->
-		io__write_string("promise")
+		io__write_string("`" ++ prog_out__promise_to_string(PromiseType)
+					++ "' declaration")
 	;
 		hlds_out__write_simple_call_id(PredOrFunc,
 			qualified(Module, Name), Arity)
@@ -389,12 +393,43 @@ hlds_out__write_simple_call_id(PredOrFunc, Name/Arity) -->
 	hlds_out__write_simple_call_id(PredOrFunc, Name, Arity).
 
 hlds_out__write_simple_call_id(PredOrFunc, Name, Arity) -->
-	hlds_out__write_pred_or_func(PredOrFunc),
-	io__write_string(" `"),
-	{ hlds_out__simple_call_id_to_sym_name_and_arity(
-		PredOrFunc - Name/Arity, SymArity) },
-	prog_out__write_sym_name_and_arity(SymArity),
-	io__write_string("'").
+		% XXX when printed, promises are differentiated from 
+		%     predicates or functions by module name, so the module 
+		%     names `promise', `promise_exclusive', etc. should be 
+		%     reserved, and their dummy predicates should have more
+		%     unusual module names
+	(
+		{ Name = unqualified(StrName) }
+	;
+		{ Name = qualified(_, StrName) }
+	),
+		% is it really a promise?
+	( { string__prefix(StrName, "promise__") } ->
+		{ Promise = promise(true) }
+	; { string__prefix(StrName, "promise_exclusive__") } ->
+		{ Promise = promise(exclusive) }
+	; { string__prefix(StrName, "promise_exhaustive__") } ->
+		{ Promise = promise(exhaustive) }
+	; { string__prefix(StrName, "promise_exclusive_exhaustive__") } ->
+		{ Promise = promise(exclusive_exhaustive) }
+	;
+		{ Promise = none }	% no, it is really a pred or func
+	),
+
+	(
+		{ Promise = promise(PromiseType) }
+	->
+		io__write_string("`"),
+		prog_out__write_promise_type(PromiseType),
+		io__write_string("' declaration")
+	;
+		hlds_out__write_pred_or_func(PredOrFunc),
+		io__write_string(" `"),
+		{ hlds_out__simple_call_id_to_sym_name_and_arity(
+			PredOrFunc - Name/Arity, SymArity) },
+		prog_out__write_sym_name_and_arity(SymArity),
+		io__write_string("'")
+	).
 
 :- pred hlds_out__simple_call_id_to_sym_name_and_arity(simple_call_id,
 		sym_name_and_arity).
@@ -913,8 +948,8 @@ hlds_out__write_marker(Marker) -->
 	{ hlds_out__marker_name(Marker, Name) },
 	io__write_string(Name).
 
-hlds_out__write_assertion(Indent, ModuleInfo, _PredId, VarSet, AppendVarnums,
-		HeadVars, _PredOrFunc, Clause, TypeQual) -->
+hlds_out__write_promise(PromiseType, Indent, ModuleInfo, _PredId, VarSet, 
+		AppendVarnums, HeadVars, _PredOrFunc, Clause, TypeQual) -->
 
 		% curry the varset for term_io__write_variable/4
 	{ PrintVar = lambda([VarName::in, IO0::di, IO::uo] is det,
@@ -922,14 +957,25 @@ hlds_out__write_assertion(Indent, ModuleInfo, _PredId, VarSet, AppendVarnums,
 		) },
 
 	hlds_out__write_indent(Indent),
-	io__write_string(":- promise all["),
-	io__write_list(HeadVars, ", ", PrintVar),
-	io__write_string("] (\n"),
 
+		% print initial formatting differently for assertions
+	( { PromiseType = true } ->
+		io__write_string(":- promise all ["),
+		io__write_list(HeadVars, ", ", PrintVar),
+		io__write_string("] (\n")
+	;
+		io__write_string(":- all ["),
+		io__write_list(HeadVars, ", ", PrintVar),
+		io__write_string("]"),
+		mercury_output_newline(Indent),
+		prog_out__write_promise_type(PromiseType),
+		mercury_output_newline(Indent),
+		io__write_string("(\n")
+	),
+	
 	{ Clause = clause(_Modes, Goal, _Lang, _Context) },
 	hlds_out__write_goal_a(Goal, ModuleInfo, VarSet, AppendVarnums,
 			Indent+1, ").\n", TypeQual).
-
 
 
 hlds_out__write_clauses(Indent, ModuleInfo, PredId, VarSet, AppendVarnums,
@@ -2242,6 +2288,16 @@ hlds_out__write_functor_cons_id(ConsId, ArgVars, VarSet, ModuleInfo,
 		io__write_string(" (mode "),
 		io__write_int(ProcIdInt),
 		io__write_string("))")
+	;
+		{ ConsId = table_io_decl(RttiProcLabel) },
+		{ rtti__proc_label_pred_proc_id(RttiProcLabel,
+			PredId, ProcId) },
+		io__write_string("table_io_decl("),
+		hlds_out__write_pred_id(ModuleInfo, PredId),
+		{ proc_id_to_int(ProcId, ProcIdInt) },
+		io__write_string(" (mode "),
+		io__write_int(ProcIdInt),
+		io__write_string("))")
 	).
 
 hlds_out__write_var_modes([], [], _, _, _) --> [].
@@ -2689,9 +2745,6 @@ hlds_out__write_type_body(Indent, Tvarset, du_type(Ctors, Tags, Enum,
 	io__write_string(".\n").
 
 	
-hlds_out__write_type_body(_Indent, _Tvarset, uu_type(_)) -->
-	{ error("hlds_out__write_type_body: undiscriminated union found") }.
-
 hlds_out__write_type_body(_Indent, Tvarset, eqv_type(Type)) -->
 	io__write_string(" == "),
 	term_io__write_term(Tvarset, Type),
@@ -3051,6 +3104,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_headvars(Proc, HeadVars) },
 	{ proc_info_argmodes(Proc, HeadModes) },
 	{ proc_info_maybe_arglives(Proc, MaybeArgLives) },
+	{ proc_info_arg_info(Proc, ArgInfos) },
 	{ proc_info_goal(Proc, Goal) },
 	{ proc_info_context(Proc, ModeContext) },
 	{ proc_info_get_maybe_arg_size_info(Proc, MaybeArgSize) },
@@ -3172,6 +3226,18 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	),
 
 	(
+		{ string__contains_char(Verbose, 'A') },
+		{ ArgInfos \= [] }
+	->
+		hlds_out__write_indent(Indent),
+		io__write_string("% arg_infos: "),
+		io__print(ArgInfos),
+		io__nl
+	;
+		[]
+	),
+
+	(
 		{ ImportStatus = pseudo_imported },
 		{ hlds_pred__in_in_unification_proc_id(ProcId) }
 	->
@@ -3274,6 +3340,8 @@ hlds_out__write_eval_method(eval_minimal) -->
 	io__write_string("minimal").
 hlds_out__write_eval_method(eval_table_io) -->
 	io__write_string("table_io").
+hlds_out__write_eval_method(eval_table_io_decl) -->
+	io__write_string("table_io_decl").
 
 %-----------------------------------------------------------------------------%
 

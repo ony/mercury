@@ -34,10 +34,10 @@
 #include "mercury_memory.h"	/* for memory allocation routines */
 #include "mercury_type_tables.h"	/* for MR_register_type_ctor_info */
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   #define GC_I_HIDE_POINTERS
   #include "gc.h"
-  #ifdef INLINE_ALLOC
+  #ifdef MR_INLINE_ALLOC
     #include "gc_inl.h"
   #endif
 #else
@@ -129,6 +129,7 @@ typedef const MR_Closure *MR_ClosurePtr;
   	MR_Comparison_Result;
   typedef struct mercury__builtin__void_0_s * MR_Void;
   typedef struct mercury__builtin__c_pointer_0_s * MR_C_Pointer;
+  typedef struct mercury__private_builtin__heap_pointer_0_s * MR_Heap_Pointer;
   typedef MR_ClosurePtr MR_Pred;
   typedef MR_ClosurePtr MR_Func;
   typedef struct mercury__array__array_1_s * MR_Array;
@@ -147,6 +148,7 @@ typedef const MR_Closure *MR_ClosurePtr;
   typedef MR_Word MR_Comparison_Result;
   typedef MR_Word MR_Void;
   typedef MR_Word MR_C_Pointer;
+  typedef MR_Word MR_Heap_Pointer;
   typedef MR_Word MR_Pred;
   typedef MR_Word MR_Func;
   typedef MR_Word MR_Array;
@@ -293,7 +295,7 @@ struct MR_StackChain {
 ** Declarations of contants and variables
 */
 
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
   /*
   ** This points to the start of the MR_StackChain frame list.
   ** XXX Using a global variable for this is not thread-safe.
@@ -313,6 +315,7 @@ extern const MR_TypeCtorInfo_Struct
 	mercury__builtin__builtin__type_ctor_info_character_0,
 	mercury__builtin__builtin__type_ctor_info_void_0,
 	mercury__builtin__builtin__type_ctor_info_c_pointer_0,
+	mercury__private_builtin__private_builtin__type_ctor_info_heap_pointer_0,
 	mercury__builtin__builtin__type_ctor_info_pred_0,
 	mercury__builtin__builtin__type_ctor_info_func_0,
 	mercury__builtin__builtin__type_ctor_info_tuple_0,
@@ -393,10 +396,10 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
 **	Allocates memory on the garbage-collected heap.
 */
 
-#ifdef CONSERVATIVE_GC
-  #ifdef INLINE_ALLOC
+#ifdef MR_CONSERVATIVE_GC
+  #ifdef MR_INLINE_ALLOC
     #ifndef __GNUC__
-      #error "INLINE_ALLOC requires GNU C"
+      #error "MR_INLINE_ALLOC requires GNU C"
     #endif
     /*
     ** This must be a macro, not an inline function, because
@@ -421,12 +424,12 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
         )
     #define MR_new_object(type, size, name) \
   		((type *) MR_GC_MALLOC_INLINE(size))
-  #else /* !INLINE_ALLOC */
+  #else /* !MR_INLINE_ALLOC */
     #define MR_new_object(type, size, name) \
   		((type *) GC_MALLOC(size)) 
-  #endif /* !INLINE_ALLOC */
+  #endif /* !MR_INLINE_ALLOC */
 
-#else /* !CONSERVATIVE_GC */
+#else /* !MR_CONSERVATIVE_GC */
 
   #ifndef __GNUC__
     /*
@@ -512,8 +515,8 @@ MR_Box MR_asm_box_float(MR_Float f);
 */
 #define MR_GC_check()							\
 	do {								\
-		if ((char *) MR_hp + MR_heap_zone_size >=		\
-		    (char *) MR_ENGINE(MR_eng_heap_zone)->MR_zone_end)	\
+		if ((char *) MR_hp >=					\
+		    MR_ENGINE(MR_eng_heap_zone)->gc_threshold)		\
 		{							\
 			MR_save_registers();				\
 			MR_garbage_collect();				\
@@ -526,7 +529,7 @@ MR_Box MR_asm_box_float(MR_Float f);
 ** Function declarations
 */
 
-bool MR_CALL mercury__builtin__unify_2_p_0(MR_Mercury_Type_Info,
+MR_bool MR_CALL mercury__builtin__unify_2_p_0(MR_Mercury_Type_Info,
 	MR_Box, MR_Box);
 void MR_CALL mercury__builtin__compare_3_p_0(MR_Mercury_Type_Info,
 	MR_Comparison_Result *, MR_Box, MR_Box);
@@ -537,29 +540,33 @@ void MR_CALL mercury__builtin__compare_3_p_2(MR_Mercury_Type_Info,
 void MR_CALL mercury__builtin__compare_3_p_3(MR_Mercury_Type_Info,
 	MR_Comparison_Result *, MR_Box, MR_Box);
 
-bool MR_CALL mercury__builtin____Unify____int_0_0(MR_Integer x, MR_Integer y); 
-bool MR_CALL mercury__builtin____Unify____string_0_0(MR_String x, MR_String y); 
-bool MR_CALL mercury__builtin____Unify____float_0_0(MR_Float x, MR_Float y); 
-bool MR_CALL mercury__builtin____Unify____character_0_0(MR_Char x, MR_Char); 
-bool MR_CALL mercury__builtin____Unify____void_0_0(MR_Void x, MR_Void y); 
-bool MR_CALL mercury__builtin____Unify____c_pointer_0_0(
+MR_bool MR_CALL mercury__builtin____Unify____int_0_0(MR_Integer x,
+	MR_Integer y); 
+MR_bool MR_CALL mercury__builtin____Unify____string_0_0(MR_String x,
+	MR_String y); 
+MR_bool MR_CALL mercury__builtin____Unify____float_0_0(MR_Float x, MR_Float y); 
+MR_bool MR_CALL mercury__builtin____Unify____character_0_0(MR_Char x, MR_Char); 
+MR_bool MR_CALL mercury__builtin____Unify____void_0_0(MR_Void x, MR_Void y); 
+MR_bool MR_CALL mercury__builtin____Unify____c_pointer_0_0(
 	MR_C_Pointer x, MR_C_Pointer y); 
-bool MR_CALL mercury__builtin____Unify____func_0_0(MR_Func x, MR_Func y); 
-bool MR_CALL mercury__builtin____Unify____pred_0_0(MR_Pred x, MR_Pred y); 
-bool MR_CALL mercury__builtin____Unify____tuple_0_0(
+MR_bool MR_CALL mercury__private_builtin____Unify____heap_pointer_0_0(
+	MR_Heap_Pointer x, MR_Heap_Pointer y); 
+MR_bool MR_CALL mercury__builtin____Unify____func_0_0(MR_Func x, MR_Func y); 
+MR_bool MR_CALL mercury__builtin____Unify____pred_0_0(MR_Pred x, MR_Pred y); 
+MR_bool MR_CALL mercury__builtin____Unify____tuple_0_0(
 	MR_Mercury_Type_Info type_info, MR_Tuple x, MR_Tuple y); 
-bool MR_CALL mercury__type_desc____Unify____type_desc_0_0(
+MR_bool MR_CALL mercury__type_desc____Unify____type_desc_0_0(
 	MR_Type_Desc x, MR_Type_Desc y); 
-bool MR_CALL mercury__private_builtin____Unify____type_ctor_info_1_0(
+MR_bool MR_CALL mercury__private_builtin____Unify____type_ctor_info_1_0(
 	MR_Mercury_Type_Info type_info,
 	MR_Mercury_Type_Ctor_Info x, MR_Mercury_Type_Ctor_Info y); 
-bool MR_CALL mercury__private_builtin____Unify____type_info_1_0(
+MR_bool MR_CALL mercury__private_builtin____Unify____type_info_1_0(
 	MR_Mercury_Type_Info type_info,
 	MR_Mercury_Type_Info x, MR_Mercury_Type_Info y); 
-bool MR_CALL mercury__private_builtin____Unify____typeclass_info_1_0(
+MR_bool MR_CALL mercury__private_builtin____Unify____typeclass_info_1_0(
 	MR_Mercury_Type_Info type_info,
 	MR_Mercury_TypeClass_Info x, MR_Mercury_TypeClass_Info y); 
-bool MR_CALL mercury__private_builtin____Unify____base_typeclass_info_1_0(
+MR_bool MR_CALL mercury__private_builtin____Unify____base_typeclass_info_1_0(
 	MR_Mercury_Type_Info type_info, MR_Mercury_Base_TypeClass_Info x,
 	MR_Mercury_Base_TypeClass_Info y); 
 
@@ -575,6 +582,8 @@ void MR_CALL mercury__builtin____Compare____void_0_0(
 	MR_Comparison_Result *result, MR_Void x, MR_Void y);
 void MR_CALL mercury__builtin____Compare____c_pointer_0_0(
 	MR_Comparison_Result *result, MR_C_Pointer x, MR_C_Pointer y);
+void MR_CALL mercury__private_builtin____Compare____heap_pointer_0_0(
+	MR_Comparison_Result *result, MR_Heap_Pointer x, MR_Heap_Pointer y);
 void MR_CALL mercury__builtin____Compare____func_0_0(
 	MR_Comparison_Result *result, MR_Func x, MR_Func y);
 void MR_CALL mercury__builtin____Compare____pred_0_0(

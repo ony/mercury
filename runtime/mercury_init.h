@@ -20,8 +20,8 @@
 ** The following must come before any definitions of global variables.
 ** This is necessary to support DLLs on Windows.
 */
-#include "mercury_conf.h" /* for USE_DLLS */
-#if USE_DLLS
+#include "mercury_conf.h" /* for MR_USE_DLLS */
+#if MR_USE_DLLS
   #include "libmer_rt_dll.h"
 #endif
 
@@ -87,7 +87,7 @@ extern	int	mercury_terminate(void);
 #include "mercury_trace_base.h"	/* for MR_trace_port */
 #include "mercury_type_info.h"	/* for MR_TypeCtorInfo_Struct */
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   #define GC_I_HIDE_POINTERS
   #include "gc.h"
 #endif
@@ -127,7 +127,8 @@ extern	char	*MR_trace_get_command(const char *, FILE *, FILE *);
 
 /* in trace/mercury_trace_vars.h */
 extern	const char *MR_trace_browse_all_on_level(FILE *,
-			const MR_Label_Layout *, MR_Word *, MR_Word *, int);
+			const MR_Label_Layout *, MR_Word *, MR_Word *,
+			int, MR_bool);
 
 /* in trace/mercury_trace_external.h */
 extern	void	MR_trace_init_external(void);
@@ -144,7 +145,7 @@ extern	void	ML_DI_output_current_slots(MR_Integer, MR_Integer, MR_Integer,
 			MR_Word, MR_String, MR_String, MR_Integer, MR_Integer,
 			MR_Integer, MR_String, MR_Word);
 		/* output_current_slots/13 */
-extern	bool	ML_DI_found_match(MR_Integer, MR_Integer, MR_Integer, MR_Word,
+extern	MR_bool	ML_DI_found_match(MR_Integer, MR_Integer, MR_Integer, MR_Word,
 			MR_String, MR_String, MR_Integer, MR_Integer,
 			MR_Integer, MR_Word, MR_String, MR_Word);
 		/* found_match/12 */

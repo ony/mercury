@@ -801,7 +801,9 @@ ml_append_return_statement(CodeModel, CopiedOutputVarLvals, Context,
 		MLDS_Statements0, MLDS_Statements) -->
 	( { CodeModel = model_semi } ->
 		ml_gen_test_success(Succeeded),
-		{ ReturnStmt = return([Succeeded]) },
+		{ CopiedOutputVarRvals = list__map(func(Lval) = lval(Lval),
+			CopiedOutputVarLvals) },
+		{ ReturnStmt = return([Succeeded | CopiedOutputVarRvals]) },
 		{ ReturnStatement = mlds__statement(ReturnStmt,
 			mlds__make_context(Context)) },
 		{ MLDS_Statements = list__append(MLDS_Statements0,
@@ -880,7 +882,7 @@ ml_combine_conj(FirstCodeModel, Context, DoGenFirst, DoGenRest,
 		%	model_semi goal:
 		%		<Goal, Goals>
 		% 	===>
-		%		bool succeeded;
+		%		MR_bool succeeded;
 		%
 		%		<succeeded = Goal>;
 		%		if (succeeded) {
@@ -960,7 +962,7 @@ ml_combine_conj(FirstCodeModel, Context, DoGenFirst, DoGenRest,
 	%
 ml_decl_is_static_const(Defn) :-
 	Defn = mlds__defn(Name, _Context, Flags, _DefnBody),
-	Name = data(var(_)),
+	Name = data(_),
 	Flags = ml_static_const_decl_flags.
 
 	% Given a function label and the statement which will comprise
@@ -1670,6 +1672,8 @@ ml_gen_local_var_decl_flags = MLDS_DeclFlags :-
 
 	% Return the declaration flags appropriate for an
 	% initialized local static constant.
+	% Note that rtti_decl_flags, in rtti_to_mlds.m,
+	% must be the same as this apart from the access.
 	%
 ml_static_const_decl_flags = MLDS_DeclFlags :-
 	Access = local,
@@ -1740,7 +1744,7 @@ ml_gen_success(model_semi, Context, [SetSuccessTrue]) -->
 	% semidet succeed:
 	%	<do true>
 	% ===>
-	%	succeeded = TRUE;
+	%	succeeded = MR_TRUE;
 	%
 	ml_gen_set_success(const(true), Context, SetSuccessTrue).
 ml_gen_success(model_non, Context, [CallCont]) -->
@@ -1762,7 +1766,7 @@ ml_gen_failure(model_semi, Context, [SetSuccessFalse]) -->
 	% semidet fail:
 	%	<do fail>
 	% ===>
-	%	succeeded = FALSE;
+	%	succeeded = MR_FALSE;
 	%
 	ml_gen_set_success(const(false), Context, SetSuccessFalse).
 ml_gen_failure(model_non, _, MLDS_Statements) -->

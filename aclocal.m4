@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1999,2001 The University of Melbourne.
+# Copyright (C) 1999,2001-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -24,14 +24,7 @@ mercury_cv_with_readline="$withval", mercury_cv_with_readline=yes)
 if test "$mercury_cv_with_readline" = yes; then
 
 	# check for the readline header files
-	AC_CHECK_HEADER(readline/readline.h, HAVE_READLINE_READLINE_H=1)
-	if test "$HAVE_READLINE_READLINE_H" = 1; then
-		AC_DEFINE(HAVE_READLINE_READLINE)
-	fi
-	AC_CHECK_HEADER(readline/history.h, HAVE_READLINE_HISTORY_H=1)
-	if test "$HAVE_READLINE_HISTORY_H" = 1; then
-		AC_DEFINE(HAVE_READLINE_HISTORY)
-	fi
+	mercury_check_for_headers readline/readline.h readline/history.h
 
 	# check for the libraries that readline depends on
 	MERCURY_MSG('looking for termcap or curses (needed by readline)...')
@@ -105,10 +98,64 @@ fi
 AC_MSG_RESULT($mercury_cv_microsoft_visual_cpp)
 MS_CL=`basename "$MS_CL"`
 
+AC_PATH_PROG(MS_CSC, csc)
+AC_MSG_CHECKING(for Microsoft.NET Visual C sharp)
+AC_CACHE_VAL(mercury_cv_microsoft_visual_csharp, [
+if test "$MS_CSC" != ""; then
+	changequote(<<,>>) 
+	MS_VISUALCSHARP_DIR=`expr "$MS_CSC" : '\(.*\)[/\\]*[bB]in[/\\]*csc`
+	changequote([,]) 
+	mercury_cv_microsoft_visual_csharp="yes"
+else
+	MS_VISUALCSHARP_DIR=""
+	mercury_cv_microsoft_visual_csharp="no"
+fi
+])
+AC_MSG_RESULT($mercury_cv_microsoft_visual_csharp)
+MS_CSC=`basename "$MS_CSC"`
+
+# We default to the Beta 2 version of the library
+mercury_cv_microsoft_dotnet_library_version=1.0.2411.0
+if test $mercury_cv_microsoft_dotnet = "yes"; then
+	AC_MSG_CHECKING(determining version of .NET libraries)
+	cat > conftest.cs << EOF
+	using System;
+	using System.Reflection;
+	public class version {
+	    public static void Main()
+	    {
+		Assembly asm = Assembly.Load("mscorlib");
+		AssemblyName name = asm.GetName();
+		Version version = name.Version;
+		Console.Write(version);
+		Console.Write("\n");
+	    }
+	}
+EOF
+	if
+		echo $MS_CSC conftest.cs >&AC_FD_CC 2>&1 && \
+			$MS_CSC conftest.cs  >&AC_FD_CC 2>&1 && \
+			./conftest > conftest.out 2>&1
+	then
+		mercury_cv_microsoft_dotnet_library_version=`cat conftest.out`
+		AC_MSG_RESULT($mercury_cv_microsoft_dotnet_library_version)
+		rm -f conftest*
+	else
+		rm -f conftest*
+		AC_MSG_ERROR(unable to determine version)
+		if test $enable_dotnet_grades = "yes"; then
+			    exit 1
+		fi
+	fi
+fi
+MS_DOTNET_LIBRARY_VERSION=$mercury_cv_microsoft_dotnet_library_version
+
 AC_SUBST(ILASM)
 AC_SUBST(GACUTIL)
 AC_SUBST(MS_CL)
+AC_SUBST(MS_CSC)
 AC_SUBST(MS_DOTNET_SDK_DIR)
+AC_SUBST(MS_DOTNET_LIBRARY_VERSION)
 AC_SUBST(MS_VISUALCPP_DIR)
 ])
 

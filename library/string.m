@@ -986,13 +986,13 @@ string__append_list(Lists, string__append_list(Lists)).
 	MR_Word	tmp;
 	size_t	len = 0;
 	size_t	sep_len;
-	bool	add_sep;
+	MR_bool	add_sep;
 
 	sep_len = strlen(Sep);
 
 		/* Determine the total length of all strings */
 	len = 0;
-	add_sep = FALSE;
+	add_sep = MR_FALSE;
 	while (!MR_list_is_empty(list)) {
 		if (add_sep) {
 			len += sep_len;
@@ -1000,7 +1000,7 @@ string__append_list(Lists, string__append_list(Lists)).
 		
 		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
-		add_sep = TRUE;
+		add_sep = MR_TRUE;
 	}
 
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
@@ -1008,7 +1008,7 @@ string__append_list(Lists, string__append_list(Lists)).
 		/* Copy the strings into the new memory */
 	len = 0;
 	list = Strs;
-	add_sep = FALSE;
+	add_sep = MR_FALSE;
 	while (!MR_list_is_empty(list)) {
 		if (add_sep) {
 			strcpy((MR_String) Str + len, Sep);
@@ -1018,7 +1018,7 @@ string__append_list(Lists, string__append_list(Lists)).
 		strcpy((MR_String) Str + len, (MR_String) MR_list_head(list));
 		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
-		add_sep = TRUE;
+		add_sep = MR_TRUE;
 	}
 
 		/* Set the last character to the null char */
@@ -1102,9 +1102,9 @@ string__combine_hash(H0, X, H) :-
 	match = strstr(WholeString, SubString);
 	if (match) {
 		Index = match - WholeString;
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
 
@@ -1480,11 +1480,11 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) =
 
 :- pragma foreign_proc("C", using_sprintf,
 	[will_not_call_mercury, promise_pure, thread_safe], "
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 ").
 :- pragma foreign_proc("MC++", using_sprintf,
 	[will_not_call_mercury, promise_pure, thread_safe], "
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 ").
 		
 
@@ -1634,6 +1634,7 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 % The remaining routines are implemented using the C interface.
 
 :- pragma c_header_code("
+#include <ctype.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -1675,12 +1676,19 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- pragma foreign_proc("C",
 	string__to_float(FloatString::in, FloatVal::out),
 		[will_not_call_mercury, promise_pure, thread_safe], "{
-	/* use a temporary, since we can't don't know whether FloatVal
-	   is a double or float */
-	double tmp;
-	SUCCESS_INDICATOR = (sscanf(FloatString, ""%lf"", &tmp) == 1);
-		/* TRUE if sscanf succeeds, FALSE otherwise */
-	FloatVal = tmp;
+	/*
+	** Use a temporary, since we can't don't know whether FloatVal is a
+	** double or float.  The %c checks for any erroneous characters
+	** appearing after the float; if there are then sscanf() will
+	** return 2 rather than 1.
+	*/
+	double tmpf;
+	char   tmpc;
+	SUCCESS_INDICATOR =
+		(!MR_isspace(FloatString[0])) &&
+		(sscanf(FloatString, ""%lf%c"", &tmpf, &tmpc) == 1);
+		/* MR_TRUE if sscanf succeeds, MR_FALSE otherwise */
+	FloatVal = tmpf;
 }").
 
 :- pragma foreign_proc("MC++",
@@ -1692,11 +1700,11 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- pragma foreign_proc("MC++",
 	string__to_float(FloatString::in, FloatVal::out),
 		[will_not_call_mercury, promise_pure, thread_safe], "{
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 	try {
 	    FloatVal = System::Convert::ToDouble(FloatString);
 	} catch (System::InvalidCastException *e) {
-	     SUCCESS_INDICATOR = FALSE;
+	     SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
 
@@ -1830,18 +1838,18 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
                 */
 
 	if ((MR_Unsigned) Index >= strlen(Str)) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		Ch = Str[Index];
 	}
 ").
 :- pragma foreign_proc("MC++", string__index(Str::in, Index::in, Ch::out),
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	if (Index < 0 || Index >= Str->get_Length()) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		Ch = Str->get_Chars(Index);
 	}
 ").
@@ -1862,7 +1870,7 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 /*-----------------------------------------------------------------------*/
 
 :- pragma c_header_code("
-#ifdef USE_GCC_GLOBAL_REGISTERS
+#ifdef MR_USE_GCC_GLOBAL_REGISTERS
 	/*
 	** GNU C version egcs-1.1.2 crashes with `fixed or forbidden
 	** register spilled' in grade asm_fast.gc.tr.debug
@@ -1887,9 +1895,9 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	size_t len = strlen(Str0);
 	if ((MR_Unsigned) Index >= len) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 		strcpy(Str, Str0);
 		MR_set_char(Str, Index, Ch);
@@ -1899,12 +1907,12 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 	string__set_char(Ch::in, Index::in, Str0::in, Str::out),
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	if (Index >= Str0->get_Length()) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str = System::String::Concat(Str0->Substring(0, Index),
 			System::Convert::ToString(Ch), 
 			Str0->Substring(Index + 1));
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 ").
 
@@ -1917,9 +1925,9 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 	string__set_char(Ch::in, Index::in, Str0::di, Str::uo),
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	if ((MR_Unsigned) Index >= strlen(Str0)) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		Str = Str0;
 		MR_set_char(Str, Index, Ch);
 	}
@@ -1929,12 +1937,12 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 	string__set_char(Ch::in, Index::in, Str0::di, Str::uo),
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	if (Index >= Str0->get_Length()) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str = System::String::Concat(Str0->Substring(0, Index),
 			System::Convert::ToString(Ch), 
 			Str0->Substring(Index + 1));
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 ").
 */
@@ -2053,7 +2061,7 @@ string__append(S1::out, S2::out, S3::in) :-
 
 	len_1 = strlen(S1);
 	if (strncmp(S1, S3, len_1) != 0) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		len_3 = strlen(S3);
 		len_2 = len_3 - len_1;
@@ -2063,7 +2071,7 @@ string__append(S1::out, S2::out, S3::in) :-
 		*/
 		MR_allocate_aligned_string_msg(S2, len_2, MR_PROC_LABEL);
 		strcpy(S2, S3 + len_1);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 
@@ -2072,9 +2080,9 @@ string__append(S1::out, S2::out, S3::in) :-
 		[will_not_call_mercury, promise_pure, thread_safe], "{
 	if (S3->StartsWith(S1)) {
 		S2 = S3->Remove(0, S1->Length);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
 
@@ -2317,7 +2325,7 @@ strchars(I, End, Str) =
 			(System::String::Compare(Str, 1, Rest, 0, len) == 0);
 		First = Str->get_Chars(0);
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 ").
 
@@ -2328,7 +2336,7 @@ strchars(I, End, Str) =
 	string__first_char(Str::in, First::in, Rest::out),
 		[will_not_call_mercury, promise_pure, thread_safe], "{
 	if (Str[0] != First || First == '\\0') {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str++;
 		/*
@@ -2338,7 +2346,7 @@ strchars(I, End, Str) =
 		MR_allocate_aligned_string_msg(Rest, strlen(Str),
 			MR_PROC_LABEL);
 		strcpy(Rest, Str);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 :- pragma foreign_proc("MC++",
@@ -2349,7 +2357,7 @@ strchars(I, End, Str) =
 		SUCCESS_INDICATOR = (First == Str->get_Chars(0));
 		Rest = (Str)->Substring(1);
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
 
@@ -2361,7 +2369,7 @@ strchars(I, End, Str) =
 		[will_not_call_mercury, promise_pure, thread_safe], "{
 	First = Str[0];
 	if (First == '\\0') {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str++;
 		/*
@@ -2371,18 +2379,18 @@ strchars(I, End, Str) =
 		MR_allocate_aligned_string_msg(Rest, strlen(Str),
 			MR_PROC_LABEL);
 		strcpy(Rest, Str);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 :- pragma foreign_proc("MC++", 
 	string__first_char(Str::in, First::out, Rest::out),
 		[will_not_call_mercury, promise_pure, thread_safe], "{
 	if (Str->get_Length() == 0) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		First = Str->get_Chars(0);
 		Rest = (Str)->Substring(1);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
         }
 }").
 

@@ -82,6 +82,18 @@ size_t		MR_debug_heap_zone_size =	  16;
 size_t		MR_generatorstack_zone_size =	  16;
 size_t		MR_cutstack_zone_size =		  16;
 
+/*
+** MR_heap_margin_size is used for accurate GC with the MLDS->C back-end.
+** It is used to decide when to actually do a garbage collection.
+** At each call to MR_GC_check(), which is normally done on entry
+** to each C function, we check whether there is less than this
+** amount of heap space still available, and if not, we call
+** MR_garbage_collect().
+** Like the sizes above, it is measured in kilobytes
+** (but we later multiply by 1024 to convert to bytes).
+*/
+size_t		MR_heap_margin_size =		  16;
+
 /* primary cache size to optimize for, in bytes */
 size_t		MR_pcache_size =	        8192;
 
@@ -89,18 +101,20 @@ size_t		MR_pcache_size =	        8192;
 const char	*MR_mdb_in_filename = NULL;
 const char	*MR_mdb_out_filename = NULL;
 const char	*MR_mdb_err_filename = NULL;
-bool		MR_mdb_in_window = FALSE;
+MR_bool		MR_mdb_in_window = MR_FALSE;
 
 /* other options */
 
-bool		MR_check_space = FALSE;
+MR_bool		MR_check_space = MR_FALSE;
 MR_Word		*MR_watch_addr = NULL;
 MR_Word		*MR_watch_csd_addr = NULL;
 int		MR_watch_csd_ignore = 0;
 
-static	bool	benchmark_all_solns = FALSE;
-static	bool	use_own_timer = FALSE;
+static	MR_bool	benchmark_all_solns = MR_FALSE;
+static	MR_bool	use_own_timer = MR_FALSE;
 static	int	repeats = 1;
+
+static	int	MR_num_output_args = 0;
 
 unsigned	MR_num_threads = 1;
 
@@ -118,9 +132,9 @@ int		mercury_argc;	/* not counting progname */
 char **		mercury_argv;
 int		mercury_exit_status = 0;
 
-bool		MR_profiling = TRUE;
-bool		MR_print_deep_profiling_statistics = FALSE;
-bool		MR_deep_profiling_save_results = TRUE;
+MR_bool		MR_profiling = MR_TRUE;
+MR_bool		MR_print_deep_profiling_statistics = MR_FALSE;
+MR_bool		MR_deep_profiling_save_results = MR_TRUE;
 
 #ifdef	MR_TYPE_CTOR_STATS
 
@@ -195,14 +209,14 @@ char	*(*MR_address_of_trace_getline)(const char *, FILE *, FILE *);
 char	*(*MR_address_of_trace_get_command)(const char *, FILE *, FILE *);
 const char *
 	(*MR_address_of_trace_browse_all_on_level)(FILE *,
-		const MR_Label_Layout *, MR_Word *, MR_Word *, int);
+		const MR_Label_Layout *, MR_Word *, MR_Word *, int, MR_bool);
 
 #ifdef	MR_USE_EXTERNAL_DEBUGGER
 void	(*MR_address_of_trace_init_external)(void);
 void	(*MR_address_of_trace_final_external)(void);
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 void	(*MR_address_of_init_gc)(void);
 #endif
 
@@ -231,7 +245,7 @@ void	(*MR_DI_output_current_ptr)(MR_Integer, MR_Integer, MR_Integer,
 		MR_Word, MR_String, MR_String, MR_Integer, MR_Integer,
 		MR_Integer, MR_Word, MR_String, MR_Word, MR_Word);
 		/* normally ML_DI_output_current (output_current/13) */
-bool	(*MR_DI_found_match)(MR_Integer, MR_Integer, MR_Integer, MR_Word,
+MR_bool	(*MR_DI_found_match)(MR_Integer, MR_Integer, MR_Integer, MR_Word,
 		MR_String, MR_String, MR_Integer, MR_Integer, MR_Integer,
 		MR_Word, MR_String, MR_Word);
 		/* normally ML_DI_found_match (output_current/12) */
@@ -252,7 +266,7 @@ void	(*MR_address_of_trace_interrupt_handler)(void);
 
 void	(*MR_register_module_layout)(const MR_Module_Layout *);
 
-#ifdef USE_GCC_NONLOCAL_GOTOS
+#ifdef MR_USE_GCC_NONLOCAL_GOTOS
 
 #define	SAFETY_BUFFER_SIZE	1024	/* size of stack safety buffer */
 #define	MAGIC_MARKER_2		142	/* a random character */
@@ -284,7 +298,7 @@ static	void	MR_print_one_type_ctor_stat(FILE *fp, const char *op,
 void
 mercury_runtime_init(int argc, char **argv)
 {
-	bool	saved_trace_enabled;
+	MR_bool	saved_trace_enabled;
 
 #if MR_NUM_REAL_REGS > 0
 	MR_Word c_regs[MR_NUM_REAL_REGS];
@@ -323,7 +337,7 @@ mercury_runtime_init(int argc, char **argv)
 	}
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 	MR_init_conservative_GC();
 #endif
 
@@ -348,7 +362,7 @@ mercury_runtime_init(int argc, char **argv)
 	*/
 
 	saved_trace_enabled = MR_trace_enabled;
-	MR_trace_enabled = FALSE;
+	MR_trace_enabled = MR_FALSE;
 
 #ifdef MR_NEED_INITIALIZATION_AT_START
 	MR_do_init_modules();
@@ -356,7 +370,7 @@ mercury_runtime_init(int argc, char **argv)
 
 	(*MR_address_of_mercury_init_io)();
 
-#if defined(MR_HIGHLEVEL_CODE) && defined(CONSERVATIVE_GC)
+#if defined(MR_HIGHLEVEL_CODE) && defined(MR_CONSERVATIVE_GC)
 	MR_init_memory();
   #ifdef MR_USE_TRAIL
 	/* initialize the trail */
@@ -376,7 +390,7 @@ mercury_runtime_init(int argc, char **argv)
 		int i;
 		MR_init_thread_stuff();
 		MR_init_thread(MR_use_now);
-		MR_exit_now = FALSE;
+		MR_exit_now = MR_FALSE;
 		for (i = 1 ; i < MR_num_threads ; i++)
 			MR_create_thread(NULL);
 	}
@@ -442,7 +456,7 @@ mercury_runtime_init(int argc, char **argv)
 
 } /* end runtime_mercury_init() */
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 void
 MR_init_conservative_GC(void)
 {
@@ -456,7 +470,7 @@ MR_init_conservative_GC(void)
 	*/
 	MR_runqueue_head = NULL;
 
-	GC_quiet = TRUE;
+	GC_quiet = MR_TRUE;
 
 	/*
 	** Call GC_INIT() to tell the garbage collector about this DLL.
@@ -483,33 +497,33 @@ MR_init_conservative_GC(void)
 	{
 		int i;
 
-		for (i = 1; i < (1 << TAGBITS); i++) {
+		for (i = 1; i < (1 << MR_TAGBITS); i++) {
 			GC_REGISTER_DISPLACEMENT(i);
 		}
 	}
 }
-#endif /* CONSERVATIVE_GC */
+#endif /* MR_CONSERVATIVE_GC */
 
 void 
 MR_do_init_modules(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		(*MR_address_of_init_modules)();
 		MR_close_prof_decl_file();
-		done = TRUE;
+		done = MR_TRUE;
 	}
 }
 
 void 
 MR_do_init_modules_type_tables(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		(*MR_address_of_init_modules_type_tables)();
-		done = TRUE;
+		done = MR_TRUE;
 
 		/*
 		** Some system-defined types have the code to register
@@ -524,11 +538,11 @@ MR_do_init_modules_type_tables(void)
 void 
 MR_do_init_modules_debugger(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		(*MR_address_of_init_modules_debugger)();
-		done = TRUE;
+		done = MR_TRUE;
 	}
 }
 
@@ -733,11 +747,13 @@ enum MR_long_option {
 	MR_NONDETSTACK_REDZONE_SIZE,
 	MR_SOLUTIONS_HEAP_REDZONE_SIZE,
 	MR_TRAIL_REDZONE_SIZE,
+	MR_HEAP_MARGIN_SIZE,
 	MR_MDB_TTY,
 	MR_MDB_IN,
 	MR_MDB_OUT,
 	MR_MDB_ERR,
-	MR_MDB_IN_WINDOW
+	MR_MDB_IN_WINDOW,
+	MR_NUM_OUTPUT_ARGS
 };
 
 struct MR_option MR_long_opts[] = {
@@ -751,11 +767,13 @@ struct MR_option MR_long_opts[] = {
 	{ "nondetstack-redzone-size", 	1, 0, MR_NONDETSTACK_REDZONE_SIZE },
 	{ "solutions-heap-redzone-size",1, 0, MR_SOLUTIONS_HEAP_REDZONE_SIZE },
 	{ "trail-redzone-size", 	1, 0, MR_TRAIL_REDZONE_SIZE },
+	{ "heap-margin-size", 		1, 0, MR_HEAP_MARGIN_SIZE },
 	{ "mdb-tty", 			1, 0, MR_MDB_TTY },
 	{ "mdb-in", 			1, 0, MR_MDB_IN },
 	{ "mdb-out", 			1, 0, MR_MDB_OUT },
 	{ "mdb-err", 			1, 0, MR_MDB_ERR },
-	{ "mdb-in-window",		0, 0, MR_MDB_IN_WINDOW }
+	{ "mdb-in-window",		0, 0, MR_MDB_IN_WINDOW },
+	{ "num-output-args", 		1, 0, MR_NUM_OUTPUT_ARGS }
 };
 
 static void
@@ -765,7 +783,7 @@ process_options(int argc, char **argv)
 	int		c;
 	int		long_index;
 
-	while ((c = MR_getopt_long(argc, argv, "acC:d:D:e:i:m:o:pP:r:sStT:x",
+	while ((c = MR_getopt_long(argc, argv, "acC:d:D:e:i:m:n:o:pP:r:sStT:x",
 		MR_long_opts, &long_index)) != EOF)
 	{
 		switch (c)
@@ -841,6 +859,13 @@ process_options(int argc, char **argv)
 			MR_trail_zone_size = size;
 			break;
 
+		case MR_HEAP_MARGIN_SIZE:
+			if (sscanf(MR_optarg, "%lu", &size) != 1)
+				usage();
+
+			MR_heap_margin_size = size;
+			break;
+
 		case 'i':
 		case MR_MDB_IN:
 			MR_mdb_in_filename = MR_copy_string(MR_optarg);
@@ -863,17 +888,25 @@ process_options(int argc, char **argv)
 			MR_mdb_err_filename = MR_copy_string(MR_optarg);
 			break;
 
+		case 'n':
+		case MR_NUM_OUTPUT_ARGS:
+			if (sscanf(MR_optarg, "%lu", &size) != 1)
+				usage();
+
+			MR_num_output_args = size;
+			break;
+
 		case 'w':
 		case MR_MDB_IN_WINDOW:
-			MR_mdb_in_window = TRUE;
+			MR_mdb_in_window = MR_TRUE;
 			break;
 
 		case 'a':
-			benchmark_all_solns = TRUE;
+			benchmark_all_solns = MR_TRUE;
 			break;
 
 		case 'c':
-			MR_check_space = TRUE;
+			MR_check_space = MR_TRUE;
 			break;
 
 		case 'C':
@@ -885,38 +918,38 @@ process_options(int argc, char **argv)
 			break;
 
 		case 'd':	
-			if (streq(MR_optarg, "a")) {
-				MR_calldebug      = TRUE;
-				MR_nondstackdebug = TRUE;
-				MR_detstackdebug  = TRUE;
-				MR_heapdebug      = TRUE;
-				MR_gotodebug      = TRUE;
-				MR_sregdebug      = TRUE;
-				MR_finaldebug     = TRUE;
-				MR_tracedebug     = TRUE;
-#ifdef CONSERVATIVE_GC
-				GC_quiet = FALSE;
+			if (MR_streq(MR_optarg, "a")) {
+				MR_calldebug      = MR_TRUE;
+				MR_nondstackdebug = MR_TRUE;
+				MR_detstackdebug  = MR_TRUE;
+				MR_heapdebug      = MR_TRUE;
+				MR_gotodebug      = MR_TRUE;
+				MR_sregdebug      = MR_TRUE;
+				MR_finaldebug     = MR_TRUE;
+				MR_tracedebug     = MR_TRUE;
+#ifdef MR_CONSERVATIVE_GC
+				GC_quiet = MR_FALSE;
 #endif
-			} else if (streq(MR_optarg, "b")) {
-				MR_nondstackdebug = TRUE;
-			} else if (streq(MR_optarg, "c")) {
-				MR_calldebug    = TRUE;
-			} else if (streq(MR_optarg, "d")) {
-				MR_detaildebug  = TRUE;
-			} else if (streq(MR_optarg, "f")) {
-				MR_finaldebug   = TRUE;
-			} else if (streq(MR_optarg, "g")) {
-				MR_gotodebug    = TRUE;
-			} else if (streq(MR_optarg, "G")) {
-#ifdef CONSERVATIVE_GC
-				GC_quiet = FALSE;
+			} else if (MR_streq(MR_optarg, "b")) {
+				MR_nondstackdebug = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "c")) {
+				MR_calldebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "d")) {
+				MR_detaildebug  = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "f")) {
+				MR_finaldebug   = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "g")) {
+				MR_gotodebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "G")) {
+#ifdef MR_CONSERVATIVE_GC
+				GC_quiet = MR_FALSE;
 #else
 				; /* ignore inapplicable option */
 #endif
-			} else if (streq(MR_optarg, "h")) {
-				MR_heapdebug    = TRUE;
-			} else if (streq(MR_optarg, "H")) {
-				MR_hashdebug    = TRUE;
+			} else if (MR_streq(MR_optarg, "h")) {
+				MR_heapdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "H")) {
+				MR_hashdebug    = MR_TRUE;
 			} else if (MR_optarg[0] == 'I') {
 				int	ignore;
 
@@ -925,22 +958,22 @@ process_options(int argc, char **argv)
 				}
 
 				MR_watch_csd_ignore = ignore;
-			} else if (streq(MR_optarg, "m")) {
-				MR_memdebug     = TRUE;
-			} else if (streq(MR_optarg, "p")) {
-				MR_progdebug    = TRUE;
-			} else if (streq(MR_optarg, "r")) {
-				MR_sregdebug    = TRUE;
-			} else if (streq(MR_optarg, "s")) {
-				MR_detstackdebug  = TRUE;
-			} else if (streq(MR_optarg, "S")) {
-				MR_tablestackdebug = TRUE;
-			} else if (streq(MR_optarg, "t")) {
-				MR_tracedebug   = TRUE;
-			} else if (streq(MR_optarg, "T")) {
-				MR_tabledebug   = TRUE;
-			} else if (streq(MR_optarg, "u")) {
-				MR_unbufdebug   = TRUE;
+			} else if (MR_streq(MR_optarg, "m")) {
+				MR_memdebug     = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "p")) {
+				MR_progdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "r")) {
+				MR_sregdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "s")) {
+				MR_detstackdebug  = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "S")) {
+				MR_tablestackdebug = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "t")) {
+				MR_tracedebug   = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "T")) {
+				MR_tabledebug   = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "u")) {
+				MR_unbufdebug   = MR_TRUE;
 			} else if (MR_optarg[0] == 'w' || MR_optarg[0] == 'W')
 			{
 				long	addr;
@@ -969,16 +1002,16 @@ process_options(int argc, char **argv)
 				usage();
 			}
 
-			use_own_timer = FALSE;
+			use_own_timer = MR_FALSE;
 			break;
 
 		case 'D':
-			MR_trace_enabled = TRUE;
+			MR_trace_enabled = MR_TRUE;
 
-			if (streq(MR_optarg, "i"))
+			if (MR_streq(MR_optarg, "i"))
 				MR_trace_handler = MR_TRACE_INTERNAL;
 #ifdef	MR_USE_EXTERNAL_DEBUGGER
-			else if (streq(MR_optarg, "e"))
+			else if (MR_streq(MR_optarg, "e"))
 				MR_trace_handler = MR_TRACE_EXTERNAL;
 #endif
 
@@ -988,7 +1021,7 @@ process_options(int argc, char **argv)
 			break;
 
 		case 'p':
-			MR_profiling = FALSE;
+			MR_profiling = MR_FALSE;
 			break;
 
 		case 'P':
@@ -1009,31 +1042,31 @@ process_options(int argc, char **argv)
 			break;
 
 		case 's':	
-			MR_deep_profiling_save_results = FALSE;
+			MR_deep_profiling_save_results = MR_FALSE;
 			break;
 
 		case 'S':	
-			MR_print_deep_profiling_statistics = TRUE;
+			MR_print_deep_profiling_statistics = MR_TRUE;
 			break;
 
 		case 't':	
-			use_own_timer = TRUE;
+			use_own_timer = MR_TRUE;
 
-			MR_calldebug      = FALSE;
-			MR_nondstackdebug = FALSE;
-			MR_detstackdebug  = FALSE;
-			MR_heapdebug      = FALSE;
-			MR_gotodebug      = FALSE;
-			MR_sregdebug      = FALSE;
-			MR_finaldebug     = FALSE;
+			MR_calldebug      = MR_FALSE;
+			MR_nondstackdebug = MR_FALSE;
+			MR_detstackdebug  = MR_FALSE;
+			MR_heapdebug      = MR_FALSE;
+			MR_gotodebug      = MR_FALSE;
+			MR_sregdebug      = MR_FALSE;
+			MR_finaldebug     = MR_FALSE;
 			break;
 
 		case 'T':
-			if (streq(MR_optarg, "r")) {
+			if (MR_streq(MR_optarg, "r")) {
 				MR_time_profile_method = MR_profile_real_time;
-			} else if (streq(MR_optarg, "v")) {
+			} else if (MR_streq(MR_optarg, "v")) {
 				MR_time_profile_method = MR_profile_user_time;
-			} else if (streq(MR_optarg, "p")) {
+			} else if (MR_streq(MR_optarg, "p")) {
 				MR_time_profile_method =
 					MR_profile_user_plus_system_time;
 			} else {
@@ -1042,8 +1075,8 @@ process_options(int argc, char **argv)
 			break;
 
 		case 'x':
-#ifdef CONSERVATIVE_GC
-			GC_dont_gc = TRUE;
+#ifdef MR_CONSERVATIVE_GC
+			GC_dont_gc = MR_TRUE;
 #endif
 
 			break;
@@ -1086,7 +1119,7 @@ mercury_runtime_main(void)
 	MR_Word c_regs[MR_NUM_REAL_REGS];
 #endif
 
-#if defined(MR_LOWLEVEL_DEBUG) && defined(USE_GCC_NONLOCAL_GOTOS)
+#if defined(MR_LOWLEVEL_DEBUG) && defined(MR_USE_GCC_NONLOCAL_GOTOS)
 	unsigned char	safety_buffer[SAFETY_BUFFER_SIZE];
 #endif
 
@@ -1128,7 +1161,7 @@ mercury_runtime_main(void)
 	MR_save_regs_to_mem(c_regs);
 	MR_restore_registers();
 
-#if defined(MR_LOWLEVEL_DEBUG) && defined(USE_GCC_NONLOCAL_GOTOS)
+#if defined(MR_LOWLEVEL_DEBUG) && defined(MR_USE_GCC_NONLOCAL_GOTOS)
 	/*
 	** double-check to make sure that we're not corrupting
 	** the C stack with these non-local gotos, by filling
@@ -1141,7 +1174,7 @@ mercury_runtime_main(void)
 #endif
 
 #ifdef MR_LOWLEVEL_DEBUG
-  #ifndef CONSERVATIVE_GC
+  #ifndef MR_CONSERVATIVE_GC
 	MR_ENGINE(MR_eng_heap_zone)->max =
 		MR_ENGINE(MR_eng_heap_zone)->min;
   #endif
@@ -1165,7 +1198,7 @@ mercury_runtime_main(void)
 		MR_do_interpreter();
 #else
 		MR_debugmsg0("About to call engine\n");
-		(void) MR_call_engine(MR_ENTRY(MR_do_interpreter), FALSE);
+		(void) MR_call_engine(MR_ENTRY(MR_do_interpreter), MR_FALSE);
 		MR_debugmsg0("Returning from MR_call_engine()\n");
 #endif
 
@@ -1179,7 +1212,7 @@ mercury_runtime_main(void)
 		MR_time_at_finish = MR_get_user_cpu_miliseconds();
 	}
 
-#if defined(USE_GCC_NONLOCAL_GOTOS) && defined(MR_LOWLEVEL_DEBUG)
+#if defined(MR_USE_GCC_NONLOCAL_GOTOS) && defined(MR_LOWLEVEL_DEBUG)
 	{
 		int i;
 
@@ -1195,7 +1228,7 @@ mercury_runtime_main(void)
 #ifdef MR_LOWLEVEL_DEBUG
 	if (MR_memdebug) {
 		printf("\n");
-  #ifndef CONSERVATIVE_GC
+  #ifndef MR_CONSERVATIVE_GC
 		printf("max heap used:      %6ld words\n",
 			(long) (MR_ENGINE(MR_eng_heap_zone)->max
 				- MR_ENGINE(MR_eng_heap_zone)->min));
@@ -1421,8 +1454,41 @@ MR_do_interpreter(void)
 	}
   #endif
 
-	/* call the Mercury predicate main/2 */
-	(*MR_program_entry_point)();
+	/* call the entry point (normally the Mercury predicate main/2) */
+	{ 
+		MR_Word outputs[4];
+		typedef void MR_CALL (*EntryPoint1)(MR_Word *);
+		typedef void MR_CALL (*EntryPoint2)(MR_Word *, MR_Word *);
+		typedef void MR_CALL (*EntryPoint3)(MR_Word *, MR_Word *,
+					MR_Word *);
+		typedef void MR_CALL (*EntryPoint4)(MR_Word *, MR_Word *,
+					MR_Word *, MR_Word *);
+		switch (MR_num_output_args) {
+			case 0:
+				(*MR_program_entry_point)();
+				break;
+			case 1:
+				(*(EntryPoint1)MR_program_entry_point)(
+					&outputs[0]);
+				break;
+			case 2:
+				(*(EntryPoint2)MR_program_entry_point)(
+					&outputs[0], &outputs[1]);
+				break;
+			case 3:
+				(*(EntryPoint3)MR_program_entry_point)(
+					&outputs[0], &outputs[1], &outputs[2]);
+				break;
+			case 4:
+				(*(EntryPoint4)MR_program_entry_point)(
+					&outputs[0], &outputs[1], &outputs[2],
+					&outputs[3]);
+				break;
+			default:
+				MR_fatal_error("sorry, not implemented: "
+					"--num-output-args > 4");
+		}
+	}
 
   #ifdef  MR_MPROF_PROFILE_TIME
 	if (MR_profiling)  {
@@ -1523,7 +1589,7 @@ MR_define_label(all_done);
 #endif
 
 	MR_proceed();
-#ifndef	USE_GCC_NONLOCAL_GOTOS
+#ifndef	MR_USE_GCC_NONLOCAL_GOTOS
 	return 0;
 #endif
 
@@ -1577,7 +1643,7 @@ mercury_runtime_terminate(void)
 
 #ifndef MR_HIGHLEVEL_CODE
   #ifdef MR_THREAD_SAFE
-	MR_exit_now = TRUE;
+	MR_exit_now = MR_TRUE;
 	pthread_cond_broadcast(MR_runqueue_cond);
   #endif
 #endif

@@ -42,26 +42,26 @@
 */
 #include "mercury_signal.h"
 
-#ifdef HAVE_UNISTD_H
+#ifdef MR_HAVE_UNISTD_H
   #include <unistd.h>
 #endif
 
 #include <stdio.h>
 #include <string.h>
 
-#ifdef HAVE_SYS_SIGINFO
+#ifdef MR_HAVE_SYS_SIGINFO_H
   #include <sys/siginfo.h>
 #endif 
 
-#ifdef	HAVE_MPROTECT
+#ifdef	MR_HAVE_MPROTECT
   #include <sys/mman.h>
 #endif
 
-#ifdef	HAVE_UCONTEXT
+#ifdef	MR_HAVE_UCONTEXT_H
   #include <ucontext.h>
 #endif
 
-#ifdef	HAVE_SYS_UCONTEXT
+#ifdef	MR_HAVE_SYS_UCONTEXT_H
   #include <sys/ucontext.h>
 #endif
 
@@ -71,9 +71,9 @@
 
 /*---------------------------------------------------------------------------*/
 
-#if defined(HAVE_SYSCONF) && defined(_SC_PAGESIZE)
+#if defined(MR_HAVE_SYSCONF) && defined(_SC_PAGESIZE)
   #define	getpagesize()	sysconf(_SC_PAGESIZE)
-#elif !defined(HAVE_GETPAGESIZE)
+#elif !defined(MR_HAVE_GETPAGESIZE)
   #if defined(MR_WIN32_GETSYSTEMINFO)
     #include <windows.h>
 
@@ -91,10 +91,10 @@
 
 /*---------------------------------------------------------------------------*/
 
-#ifdef	HAVE_SIGINFO
-  static	bool	try_munprotect(void *address, void *context);
+#ifdef	MR_HAVE_SIGINFO
+  static	MR_bool	try_munprotect(void *address, void *context);
   static	char	*explain_context(void *context);
-#endif /* HAVE_SIGINFO */
+#endif /* MR_HAVE_SIGINFO */
 
 /*
 ** Define the memory zones used by the Mercury runtime.
@@ -113,12 +113,12 @@ size_t		MR_page_size;
 void 
 MR_init_memory(void)
 {
-	static bool already_initialized = FALSE;
+	static MR_bool already_initialized = MR_FALSE;
 
-	if (already_initialized != FALSE)
+	if (already_initialized != MR_FALSE)
 		return;
 
-	already_initialized = TRUE;
+	already_initialized = MR_TRUE;
 
 	/*
 	** Convert all the sizes are from kilobytes to bytes and
@@ -126,9 +126,9 @@ MR_init_memory(void)
 	*/
 
 	MR_page_size = getpagesize();
-	MR_unit = max(MR_page_size, MR_pcache_size);
+	MR_unit = MR_max(MR_page_size, MR_pcache_size);
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 	MR_heap_size		 = 0;
 	MR_heap_zone_size	 = 0;
 	MR_solutions_heap_size	 = 0;
@@ -137,6 +137,7 @@ MR_init_memory(void)
 	MR_global_heap_zone_size = 0;
 	MR_debug_heap_size	 = 0;
 	MR_debug_heap_zone_size	 = 0;
+	MR_heap_margin_size	 = 0;
 #else
 	MR_heap_size		 = MR_round_up(MR_heap_size * 1024,
 					MR_unit);
@@ -155,6 +156,8 @@ MR_init_memory(void)
 					MR_unit);
 	MR_debug_heap_zone_size	 = MR_round_up(MR_debug_heap_zone_size * 1024,
 					MR_unit);
+	/* Note that there's no need for the heap margin to be rounded up */
+	MR_heap_margin_size	 = MR_heap_margin_size * 1024;
 #endif
 	MR_detstack_size	 = MR_round_up(MR_detstack_size * 1024,
 					MR_unit);
@@ -191,7 +194,7 @@ MR_init_memory(void)
 	** set them to a single unit.
 	*/
 
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
 	if (MR_heap_zone_size >= MR_heap_size) {
 		MR_heap_zone_size = MR_unit;
 	}
@@ -278,7 +281,7 @@ MR_copy_string(const char *s)
 ** These routines allocate memory that will be scanned by the
 ** conservative garbage collector.
 **
-** XXX This is inefficient.  If CONSERVATIVE_GC is enabled,
+** XXX This is inefficient.  If MR_CONSERVATIVE_GC is enabled,
 ** we should set `GC_oom_fn' (see boehm_gc/gc.h) rather than
 ** testing the return value from GC_MALLOC() or GC_MALLOC_UNCOLLECTABLE().
 */
@@ -288,7 +291,7 @@ MR_GC_malloc(size_t num_bytes)
 {
 	void	*ptr;
 
-#ifdef	CONSERVATIVE_GC
+#ifdef	MR_CONSERVATIVE_GC
 	ptr = GC_MALLOC(num_bytes);
 #else
 	ptr = malloc(num_bytes);
@@ -306,7 +309,7 @@ MR_GC_malloc_uncollectable(size_t num_bytes)
 {
 	void	*ptr;
 
-#ifdef	CONSERVATIVE_GC
+#ifdef	MR_CONSERVATIVE_GC
 	ptr = GC_MALLOC_UNCOLLECTABLE(num_bytes);
 #else
 	ptr = malloc(num_bytes);
@@ -324,7 +327,7 @@ MR_GC_realloc(void *old_ptr, size_t num_bytes)
 {
 	void    *ptr;
 
-#ifdef	CONSERVATIVE_GC
+#ifdef	MR_CONSERVATIVE_GC
 	ptr = GC_REALLOC(old_ptr, num_bytes);
 #else
 	ptr = realloc(old_ptr, num_bytes);

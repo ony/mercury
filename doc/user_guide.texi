@@ -202,9 +202,10 @@ and @file{.trans_opt_date}
 files associated with the module are used as date stamps;
 they are used when deciding whether the interface files need to be regenerated.
 
-@file{.c_date}, @file{.il_date}, @file{.s_date} and @file{.pic_s_date} files
-perform a similar function for @file{.c}, @file{.il}, @file{.s} and
-@file{.pic_s} files respectively. When smart recompilation
+@file{.c_date}, @file{.il_date}, @file{.java_date},
+@file{.s_date} and @file{.pic_s_date} files
+perform a similar function for @file{.c}, @file{.il}, @file{.java},
+@file{.s} and @file{.pic_s} files respectively. When smart recompilation
 (@pxref{Auxiliary output options}) works out that a module
 does not need to be recompiled, the timestamp file for the
 target file is updated, and the timestamp of the target file
@@ -224,9 +225,15 @@ which contain variable definitions for an entire program.
 
 As usual, @file{.c} files are C source code,
 @file{.h} files are C header files,
-@file{.o} files are object code,
+and @file{.o} files are object code.
 In addition, @file{.pic_o} files are object code files
 that contain position-independent code (PIC).
+@file{.s} files and @file{.pic_s} files are assembly language.
+@file{.java} and @file{.class} files are Java source code
+and Java bytecode respectively.
+@file{.il} files are Microsoft Intermediate Language (MSIL) files
+for the .NET Common Language Runtime.
+@c XXX mention .dll and .exe?
 
 @ifset aditi
 Files ending in @file{.rlo} are Aditi-RL bytecode files, which are
@@ -513,6 +520,18 @@ with the Mercury compiler's @samp{--split-c-files} option enabled.
 For more information about @samp{--split-c-files}, see
 @ref{Output-level (LLDS -> C) optimization options}.
 
+@item @var{main-module}.javas
+Compiles @var{main-module} to Java source files (@file{*.java}).
+
+@item @var{main-module}.classes
+Compiles @var{main-module} to Java bytecode files (@file{*.class}).
+
+@item @var{main-module}.ils
+Compiles @var{main-module} to MSIL files (@file{*.il})
+for the .NET Common Language Runtime.
+
+@c XXX mention .dlls and .exe targets?
+
 @item lib@var{main-module}
 Builds a library whose top-level module is @var{main-module}.
 This will build a static object library, a shared object library
@@ -633,7 +652,17 @@ The executable that invokes the C compiler.
 @item MGNUCFLAGS and EXTRA_MGNUCFLAGS
 @vindex MGNUCFLAGS
 @vindex EXTRA_MGNUCFLAGS
+Options to pass to the mgnuc script.
+
+@item CFLAGS and EXTRA_CFLAGS
+@vindex CFLAGS
+@vindex EXTRA_CFLAGS
 Options to pass to the C compiler.
+
+@item JAVACLAGS and EXTRA_JAVACFLAGS
+@vindex JAVACFLAGS
+@vindex EXTRA_JAVACFLAGS
+Options to pass to the Java compiler (if you are using it).
 
 @item MS_CLFLAGS and EXTRA_MS_CLFLAGS
 @vindex MS_CLFLAGS
@@ -655,9 +684,24 @@ The executable that invokes the linker.
 @item MLFLAGS and EXTRA_MLFLAGS
 @vindex MLFLAGS
 @vindex EXTRA_MLFLAGS
-Options to pass to the linker and the c2init program.
+Options to pass to the ml and c2init scripts.
 (Note that compilation model options should be
 specified in @code{GRADEFLAGS}, not in @code{MLFLAGS}.)
+
+@item LDFLAGS and EXTRA_LDFLAGS
+@vindex LDFLAGS
+@vindex EXTRA_LDFLAGS
+Options to pass to the command used by the ml script to link
+executables (use @code{ml --print-link-command} to find out
+what command is used, usually the C compiler).
+
+@item LD_LIBFLAGS and EXTRA_LD_LIBFLAGS
+@vindex LD_LIBFLAGS
+@vindex EXTRA_LD_LIBFLAGS
+Options to pass to the command used to by the ml script to link
+shared libraries (use @code{ml --print-shared-lib-link-command}
+to find out what command is used, usually the C compiler
+or the system linker, depending on the platform).
 
 @item MLLIBS and EXTRA_MLLIBS
 @vindex MLLIBS
@@ -1800,10 +1844,21 @@ within the predicate or function to which the procedure belongs.
 
 When the debugger (as opposed to the program being debugged) is interacting
 with the user, the debugger prints a prompt and reads in a line of text,
-which it will interpret as its next command. Each command line consists
-of several words separated by white space. The first word is the name of
-the command, while any other words give options and/or parameters to the
-command.
+which it will interpret as its next command line.
+A command line consists of a single command,
+or several commands separated by semicolons.
+Each command consists of several words separated by white space.
+The first word is the name of the command,
+while any other words give options and/or parameters to the command.
+
+A word may itself contain semicolons or whitespace if it is
+enclosed in single quotes (').
+This is useful for commands that have other commands as parameters,
+for example @samp{view -w 'xterm -e'}.
+Characters that have special meaning to @samp{mdb} will be treated like
+ordinary charaters if they are escaped with a backslash (\).
+It is possible to escape single quotes, whitespace, semicolons, newlines
+and the escape character itself.
 
 Some commands take a number as their first parameter.
 For such commands, users can type `@var{number} @var{command}'
@@ -2833,6 +2888,17 @@ Prints statistics about label layout structures in the program.
 @item label_stats @var{filename}
 Prints statistics about label layout structures in the program
 to the file @var{filename}.
+@sp 1
+@item print_optionals
+@kindex print_optionals (mdb command)
+Reports whether optionally-printed values such as typeinfos
+that are usually of interest only to implementors are being printed or not.
+@sp 1
+@item print_optionals on
+Tells the debugger to print optionally-printed values.
+@sp 1
+@item print_optionals off
+Tells the debugger not to print optionally-printed values.
 @end table
 @node Miscellaneous commands
 @subsection Miscellaneous commands
@@ -3458,6 +3524,13 @@ Don't warn about determinism declarations
 which could have been stricter.
 
 @sp 1
+@item --no-warn-inferred-erroneous
+@findex --no-warn-inferred-erroneous
+@findex --warn-inferred-erroneous
+Don't warn about procedures whose determinism is inferred erroneous
+but whose determinism declarations are laxer.
+
+@sp 1
 @item --no-warn-nothing-exported
 @findex --no-warn-nothing-exported
 @findex --warn-nothing-exported
@@ -3522,9 +3595,15 @@ does not match the module's file name.
 
 @sp 1
 @item --no-warn-smart-recompilation
+@findex --warn-smart-recompilation
 @findex --no-warn-smart-recompilation
 Disable warnings from the smart recompilation system.
 
+@sp 1
+@item --warn-non-tail-recursion
+@findex --warn-non-tail-recursion
+Warn about any directly recursive calls that are not tail recursive.
+This option also requires @samp{--high-level-code}.
 @end table
 
 @node Verbosity options
@@ -3557,6 +3636,12 @@ detailed explanation of any errors it finds in your program.
 @findex --verbose-recompilation
 When using @samp{--smart-recompilation}, output messages
 explaining why a module needs to be recompiled.
+
+@sp 1
+@item --find-all-recompilation-reasons
+@findex --find-all-recompilation-reasons
+Find all the reasons why a module needs to be recompiled,
+not just the first.  Implies @samp{--verbose-recompilation}.
 
 @sp 1
 @item -S
@@ -3878,6 +3963,7 @@ s - store maps of goals,
 t - results of termination analysis,
 u - unification categories,
 v - variable numbers in variable names,
+A - argument passing information,
 C - clause information,
 I - imported predicates,
 M - mode and inst information,
@@ -5115,6 +5201,11 @@ by turning self-tailcalls into loops.
 Leave initializations of local variables as assignment statements,
 rather than converting such assignments statements into initializers.
 
+@item --eliminate-local-variables
+@findex --no-eliminate-local-variables
+@findex --eliminate-local-variables
+Eliminate local variables with known values, where possible,
+by replacing occurrences of such variables with their values.
 @end table
 
 @node Medium-level (HLDS -> LLDS) optimization options
@@ -5536,6 +5627,12 @@ Set the classpath for the Java compiler.
 @cindex File extensions
 Specify an extension for Java object (bytecode) files.  By default this
 is @samp{.class}. 
+
+@sp 1
+@item --dotnet-library-version @var{version-number}
+@findex --dotnet-library-version
+The version number for the mscorlib assembly distributed with the
+Microsoft .NET SDK.
 
 @end table
 

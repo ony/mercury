@@ -13,19 +13,19 @@
 #include "mercury_deep_copy.h"
 #include "mercury_agc_debug.h"
 
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
 
 /*
 ** Function prototypes.
 */
 static	void	dump_long_value(MR_Long_Lval locn, MR_MemoryZone *heap_zone,
 			MR_Word * stack_pointer, MR_Word *current_frame,
-			bool do_regs);
+			MR_bool do_regs);
 static	void	dump_short_value(MR_Short_Lval locn, MR_MemoryZone *heap_zone,
 			MR_Word * stack_pointer, MR_Word *current_frame,
-			bool do_regs);
+			MR_bool do_regs);
 static  void	dump_live_variables(const MR_Label_Layout *layout,
-			MR_MemoryZone *heap_zone, bool top_frame,
+			MR_MemoryZone *heap_zone, MR_bool top_frame,
 			MR_Word *stack_pointer, MR_Word *current_frame);
 
 /*---------------------------------------------------------------------------*/
@@ -34,7 +34,7 @@ static  void	dump_live_variables(const MR_Label_Layout *layout,
 void
 MR_agc_dump_roots(MR_RootList roots)
 {
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
 	MR_Word	saved_regs[MR_MAX_FAKE_REG];
 
 	fflush(NULL);
@@ -66,7 +66,7 @@ MR_agc_dump_roots(MR_RootList roots)
 		roots = roots->next;
 	}
   #endif /* MR_DEBUG_AGC_PRINT_VARS */
-#endif /* NATIVE_GC */
+#endif /* MR_NATIVE_GC */
 }
 
 void
@@ -75,7 +75,7 @@ MR_agc_dump_nondet_stack_frames(MR_Internal *label, MR_MemoryZone *heap_zone,
 {
 	Code *success_ip;
 	int frame_size;
-	bool registers_valid;
+	MR_bool registers_valid;
 
 	while (max_frame > MR_nondet_stack_trace_bottom) {
 
@@ -163,7 +163,7 @@ void
 MR_agc_dump_stack_frames(MR_Internal *label, MR_MemoryZone *heap_zone,
 	MR_Word *stack_pointer, MR_Word *current_frame)
 {
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
 	MR_Word			saved_regs[MR_MAX_FAKE_REG];
 	int			i, short_var_count, long_var_count;
 	MR_Word			*type_params;
@@ -172,7 +172,7 @@ MR_agc_dump_stack_frames(MR_Internal *label, MR_MemoryZone *heap_zone,
 	const MR_Proc_Layout	*entry_layout;
 	const MR_Label_Layout	*layout;
 	const MR_Code		*success_ip;
-	bool			top_frame = TRUE;
+	MR_bool			top_frame = MR_TRUE;
 
 	layout = label->i_layout;
 	success_ip = label->i_addr;
@@ -217,19 +217,19 @@ MR_agc_dump_stack_frames(MR_Internal *label, MR_MemoryZone *heap_zone,
 			label = MR_lookup_internal_by_addr(success_ip);
 		}
 
-		top_frame = FALSE;
+		top_frame = MR_FALSE;
 		layout = label->i_layout;
 
 		if (layout != NULL) {
 			entry_layout = layout->MR_sll_entry;
 		}
 	}
-#endif /* NATIVE_GC */
+#endif /* MR_NATIVE_GC */
 }
 
 static void
 dump_live_variables(const MR_Label_Layout *label_layout,
-	MR_MemoryZone *heap_zone, bool top_frame,
+	MR_MemoryZone *heap_zone, MR_bool top_frame,
 	MR_Word *stack_pointer, MR_Word *current_frame)
 {
 	int short_var_count, long_var_count, i;
@@ -328,20 +328,20 @@ dump_live_variables(const MR_Label_Layout *label_layout,
 
 static void
 dump_long_value(MR_Long_Lval locn, MR_MemoryZone *heap_zone,
-	MR_Word *stack_pointer, MR_Word *current_frame, bool do_regs)
+	MR_Word *stack_pointer, MR_Word *current_frame, MR_bool do_regs)
 {
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
 	int	locn_num;
 	MR_Word	value = 0;
 	int	difference;
-	bool 	have_value = FALSE;
+	MR_bool 	have_value = MR_FALSE;
 
 	locn_num = MR_LONG_LVAL_NUMBER(locn);
 	switch (MR_LONG_LVAL_TYPE(locn)) {
 		case MR_LONG_LVAL_TYPE_R:
 			if (do_regs) {
 				value = MR_virtual_reg(locn_num);
-				have_value = TRUE;
+				have_value = MR_TRUE;
 				fprintf(stderr, "r%d\t", locn_num);
 			} else {
 				fprintf(stderr, "r%d (invalid)\t", locn_num);
@@ -354,13 +354,13 @@ dump_long_value(MR_Long_Lval locn, MR_MemoryZone *heap_zone,
 
 		case MR_LONG_LVAL_TYPE_STACKVAR:
 			value = MR_based_stackvar(stack_pointer, locn_num);
-			have_value = TRUE;
+			have_value = MR_TRUE;
 			fprintf(stderr, "stackvar%d", locn_num);
 			break;
 
 		case MR_LONG_LVAL_TYPE_FRAMEVAR:
 			value = MR_based_framevar(current_frame, locn_num);
-			have_value = TRUE;
+			have_value = MR_TRUE;
 			fprintf(stderr, "framevar%d", locn_num);
 			break;
 
@@ -409,25 +409,25 @@ dump_long_value(MR_Long_Lval locn, MR_MemoryZone *heap_zone,
 			fprintf(stderr, "\t       \t(%lx)", (long) value);
 		}
 	}
-#endif /* NATIVE_GC */
+#endif /* MR_NATIVE_GC */
 }
 
 static void
 dump_short_value(MR_Short_Lval locn, MR_MemoryZone *heap_zone,
-	MR_Word *stack_pointer, MR_Word *current_frame, bool do_regs)
+	MR_Word *stack_pointer, MR_Word *current_frame, MR_bool do_regs)
 {
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
 	int	locn_num;
 	MR_Word	value = 0;
 	int	difference;
-	bool 	have_value = FALSE;
+	MR_bool 	have_value = MR_FALSE;
 
 	locn_num = (int) locn >> MR_SHORT_LVAL_TAGBITS;
 	switch (MR_SHORT_LVAL_TYPE(locn)) {
 		case MR_SHORT_LVAL_TYPE_R:
 			if (do_regs) {
 				value = MR_virtual_reg(locn_num);
-				have_value = TRUE;
+				have_value = MR_TRUE;
 				fprintf(stderr, "r%d\t", locn_num);
 			} else {
 				fprintf(stderr, "r%d (invalid)\t", locn_num);
@@ -436,13 +436,13 @@ dump_short_value(MR_Short_Lval locn, MR_MemoryZone *heap_zone,
 
 		case MR_SHORT_LVAL_TYPE_STACKVAR:
 			value = MR_based_stackvar(stack_pointer, locn_num);
-			have_value = TRUE;
+			have_value = MR_TRUE;
 			fprintf(stderr, "stackvar%d", locn_num);
 			break;
 
 		case MR_SHORT_LVAL_TYPE_FRAMEVAR:
 			value = MR_based_framevar(current_frame, locn_num);
-			have_value = TRUE;
+			have_value = MR_TRUE;
 			fprintf(stderr, "framevar%d", locn_num);
 			break;
 
@@ -483,7 +483,7 @@ dump_short_value(MR_Short_Lval locn, MR_MemoryZone *heap_zone,
 			fprintf(stderr, "\t       \t(%lx)", (long) value);
 		}
 	}
-#endif /* NATIVE_GC */
+#endif /* MR_NATIVE_GC */
 }
 
-#endif /* NATIVE_GC */
+#endif /* MR_NATIVE_GC */

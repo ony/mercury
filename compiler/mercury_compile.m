@@ -62,7 +62,8 @@
 :- import_module mark_static_terms.		% HLDS -> HLDS
 :- import_module mlds.				% MLDS data structure
 :- import_module ml_code_gen, rtti_to_mlds.	% HLDS/RTTI -> MLDS
-:- import_module ml_elim_nested, ml_tailcall.	% MLDS -> MLDS
+:- import_module ml_elim_nested.		% MLDS -> MLDS
+:- import_module ml_tailcall.			% MLDS -> MLDS
 :- import_module ml_optimize.			% MLDS -> MLDS
 :- import_module mlds_to_c.			% MLDS -> C
 :- import_module mlds_to_java.			% MLDS -> Java
@@ -95,7 +96,7 @@ main -->
 :- pred gc_init(io__state::di, io__state::uo) is det.
 
 :- pragma c_code(gc_init(_IO0::di, _IO::uo), [will_not_call_mercury], "
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 	/*
 	** Explicitly force the initial heap size to be at least 4 Mb.
 	**
@@ -3256,7 +3257,15 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 		HLDS60),
 	mercury_compile__maybe_dump_hlds(HLDS60, "60", "mark_static"),
 
-	{ HLDS = HLDS60 },
+	% We need to do map_args_to_regs, even though that module is meant
+	% for the LLDS back-end, because with the MLDS back-end the arg_infos
+	% that map_args_to_regs generates are used by continuation_info.m,
+	% which is used by ml_unify_gen.m when outputting closure layout
+	% structs.
+	mercury_compile__map_args_to_regs(HLDS60, Verbose, Stats, HLDS70),
+	mercury_compile__maybe_dump_hlds(HLDS70, "70", "args_to_regs"),
+
+	{ HLDS = HLDS70 },
 	mercury_compile__maybe_dump_hlds(HLDS, "99", "final"),
 
 	maybe_write_string(Verbose, "% Converting HLDS to MLDS...\n"),
@@ -3271,6 +3280,10 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS10, "10", "rtti"),
 
+	% Detection of tail calls needs to occur before the
+	% chain_gc_stack_frame pass of ml_elim_nested,
+	% because we need to unlink the stack frame from the
+	% stack chain before tail calls.
 	globals__io_lookup_bool_option(optimize_tailcalls, OptimizeTailCalls),
 	( { OptimizeTailCalls = yes } ->
 		maybe_write_string(Verbose, 
@@ -3282,6 +3295,52 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	),
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS20, "20", "tailcalls"),
+
+	% Warning about non-tail calls needs to come after detection
+	% of tail calls
+	globals__io_lookup_bool_option(warn_non_tail_recursion, WarnTailCalls),
+	( { OptimizeTailCalls = yes, WarnTailCalls = yes } ->
+		maybe_write_string(Verbose, 
+			"% Warning about non-tail recursive calls...\n"),
+		ml_warn_tailcalls(MLDS20),
+		maybe_write_string(Verbose, "% done.\n")
+	;
+		[]
+	),
+	maybe_report_stats(Stats),
+
+	% run the ml_optimize pass before ml_elim_nested,
+	% so that we eliminate as many local variables as possible
+	% before the ml_elim_nested transformations.
+	% However, we don't want to do tail call elimination at
+	% this point, because that would result in loops
+	% with no call to MR_GC_check().
+	% So we explicitly disable that here.
+	% Also, we need to disable optimize_initializations,
+	% because ml_elim_nested doesn't correctly handle
+	% code containing initializations.
+	% The only optimization that ml_optimize will do on this
+	% pass is eliminating variables.
+	globals__io_lookup_bool_option(optimize, Optimize),
+	( { Optimize = yes } ->
+		globals__io_lookup_bool_option(optimize_initializations,
+			OptimizeInitializations),
+		globals__io_set_option(optimize_tailcalls, bool(no)),
+		globals__io_set_option(optimize_initializations, bool(no)),
+
+		maybe_write_string(Verbose, "% Optimizing MLDS...\n"),
+		ml_optimize__optimize(MLDS20, MLDS25),
+		maybe_write_string(Verbose, "% done.\n"),
+
+		globals__io_set_option(optimize_tailcalls,
+			bool(OptimizeTailCalls)),
+		globals__io_set_option(optimize_initializations,
+			bool(OptimizeInitializations))
+	;
+		{ MLDS25 = MLDS20 }
+	),
+	maybe_report_stats(Stats),
+	mercury_compile__maybe_dump_mlds(MLDS25, "25", "optimize1"),
 
 	%
 	% Note that we call ml_elim_nested twice --
@@ -3299,10 +3358,10 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	( { GC = accurate } ->
 		maybe_write_string(Verbose,
 			"% Threading GC stack frames...\n"),
-		ml_elim_nested(chain_gc_stack_frames, MLDS20, MLDS30),
+		ml_elim_nested(chain_gc_stack_frames, MLDS25, MLDS30),
 		maybe_write_string(Verbose, "% done.\n")
 	;
-		{ MLDS30 = MLDS20 }
+		{ MLDS30 = MLDS25 }
 	),
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS30, "30", "gc_frames"),
@@ -3319,16 +3378,19 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS35, "35", "nested_funcs"),
 
-	globals__io_lookup_bool_option(optimize, Optimize),
+	% run the ml_optimize pass again after ml_elim_nested,
+	% to do tail call elimination.  (It may also help pick
+	% up some additional optimization opportunities for the
+	% other optimizations in this pass.)
 	( { Optimize = yes } ->
-		maybe_write_string(Verbose, "% Optimizing MLDS...\n"),
+		maybe_write_string(Verbose, "% Optimizing MLDS again...\n"),
 		ml_optimize__optimize(MLDS35, MLDS40),
 		maybe_write_string(Verbose, "% done.\n")
 	;
 		{ MLDS40 = MLDS35 }
 	),
 	maybe_report_stats(Stats),
-	mercury_compile__maybe_dump_mlds(MLDS40, "40", "optimize"),
+	mercury_compile__maybe_dump_mlds(MLDS40, "40", "optimize2"),
 
 	{ MLDS = MLDS40 },
 	mercury_compile__maybe_dump_mlds(MLDS, "99", "final").
@@ -3405,9 +3467,15 @@ mercury_compile__il_assemble(ModuleName, HasMain) -->
 	module_name_to_file_name(ModuleName, ".dll", no, DLL_File),
 	module_name_to_file_name(ModuleName, ".exe", no, EXE_File),
 	globals__io_lookup_bool_option(verbose, Verbose),
+	globals__io_lookup_bool_option(sign_assembly, SignAssembly),
 	maybe_write_string(Verbose, "% Assembling `"),
 	maybe_write_string(Verbose, IL_File),
 	maybe_write_string(Verbose, "':\n"),
+	{ SignAssembly = yes ->
+		SignOpt = "/keyf=mercury.sn "
+	;
+		SignOpt = ""
+	},
 	{ Verbose = yes ->
 		VerboseOpt = ""
 	;
@@ -3427,8 +3495,8 @@ mercury_compile__il_assemble(ModuleName, HasMain) -->
 		TargetFile = DLL_File
 	},
 	{ OutputOpt = "/out=" },
-	{ string__append_list(["ilasm ", VerboseOpt, DebugOpt, TargetOpt,
-		OutputOpt, TargetFile, " ", IL_File], Command) },
+	{ string__append_list(["ilasm ", SignOpt, VerboseOpt, DebugOpt,
+		TargetOpt, OutputOpt, TargetFile, " ", IL_File], Command) },
 	invoke_system_command(Command, Succeeded),
 	( { Succeeded = no } ->
 		report_error("problem assembling IL file.")
@@ -3517,7 +3585,7 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	 	(func(C_INCL) = ["-I", C_INCL, " "]), C_Incl_Dirs))) },
 	globals__io_lookup_bool_option(split_c_files, Split_C_Files),
 	{ Split_C_Files = yes ->
-		SplitOpt = "-DSPLIT_C_FILES "
+		SplitOpt = "-DMR_SPLIT_C_FILES "
 	;
 		SplitOpt = ""
 	},
@@ -3544,14 +3612,14 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	( { GCC_Regs = yes } ->
 		globals__io_lookup_string_option(cflags_for_regs,
 			CFLAGS_FOR_REGS),
-		{ RegOpt = "-DUSE_GCC_GLOBAL_REGISTERS " }
+		{ RegOpt = "-DMR_USE_GCC_GLOBAL_REGISTERS " }
 	;
 		{ CFLAGS_FOR_REGS = "" },
 		{ RegOpt = "" }
 	),
 	globals__io_lookup_bool_option(gcc_non_local_gotos, GCC_Gotos),
 	( { GCC_Gotos = yes } ->
-		{ GotoOpt = "-DUSE_GCC_NONLOCAL_GOTOS " },
+		{ GotoOpt = "-DMR_USE_GCC_NONLOCAL_GOTOS " },
 		globals__io_lookup_string_option(cflags_for_gotos,
 			CFLAGS_FOR_GOTOS)
 	;
@@ -3560,7 +3628,7 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	),
 	globals__io_lookup_bool_option(asm_labels, ASM_Labels),
 	{ ASM_Labels = yes ->
-		AsmOpt = "-DUSE_ASM_LABELS "
+		AsmOpt = "-DMR_USE_ASM_LABELS "
 	;
 		AsmOpt = ""
 	},
@@ -3573,9 +3641,9 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	),
 	globals__io_get_gc_method(GC_Method),
 	{ GC_Method = conservative ->
-		GC_Opt = "-DCONSERVATIVE_GC "
+		GC_Opt = "-DMR_CONSERVATIVE_GC "
 	; GC_Method = accurate ->
-		GC_Opt = "-DNATIVE_GC "
+		GC_Opt = "-DMR_NATIVE_GC "
 	;
 		GC_Opt = ""
 	},
@@ -3605,20 +3673,20 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	},
 	globals__io_lookup_bool_option(pic_reg, PIC_Reg),
 	{ PIC_Reg = yes ->
-		PIC_Reg_Opt = "-DPIC_REG "
+		PIC_Reg_Opt = "-DMR_PIC_REG "
 	;
 		PIC_Reg_Opt = ""
 	},
 	globals__io_get_tags_method(Tags_Method),
 	{ Tags_Method = high ->
-		TagsOpt = "-DHIGHTAGS "
+		TagsOpt = "-DMR_HIGHTAGS "
 	;
 		TagsOpt = ""
 	},
 	globals__io_lookup_int_option(num_tag_bits, NumTagBits),
 	{ string__int_to_string(NumTagBits, NumTagBitsString) },
 	{ string__append_list(
-		["-DTAGBITS=", NumTagBitsString, " "], NumTagBitsOpt) },
+		["-DMR_TAGBITS=", NumTagBitsString, " "], NumTagBitsOpt) },
 	globals__io_lookup_bool_option(require_tracing, RequireTracing),
 	{ RequireTracing = yes ->
 		RequireTracingOpt = "-DMR_REQUIRE_TRACING "
@@ -3656,6 +3724,12 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	;
 		UseTrailOpt = ""
 	},
+	globals__io_lookup_bool_option(reserve_tag, ReserveTag),
+	{ ReserveTag = yes ->
+		ReserveTagOpt = "-DMR_RESERVE_TAG "
+	;
+		ReserveTagOpt = ""
+	},
 	globals__io_lookup_bool_option(use_minimal_model, MinimalModel),
 	{ MinimalModel = yes ->
 		MinimalModelOpt = "-DMR_USE_MINIMAL_MODEL "
@@ -3664,7 +3738,7 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	},
 	globals__io_lookup_bool_option(type_layout, TypeLayoutOption),
 	{ TypeLayoutOption = no ->
-		TypeLayoutOpt = "-DNO_TYPE_LAYOUT "
+		TypeLayoutOpt = "-DMR_NO_TYPE_LAYOUT "
 	;
 		TypeLayoutOpt = ""
 	},
@@ -3682,7 +3756,7 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	},
 	globals__io_lookup_bool_option(inline_alloc, InlineAlloc),
 	{ InlineAlloc = yes ->
-		InlineAllocOpt = "-DINLINE_ALLOC -DSILENT "
+		InlineAllocOpt = "-DMR_INLINE_ALLOC -DSILENT "
 	;
 		InlineAllocOpt = ""
 	},
@@ -3721,7 +3795,7 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 		ProfileDeepOpt, PIC_Reg_Opt, TagsOpt, NumTagBitsOpt,
 		Target_DebugOpt, LL_DebugOpt,
 		StackTraceOpt, RequireTracingOpt,
-		UseTrailOpt, MinimalModelOpt, TypeLayoutOpt,
+		UseTrailOpt, ReserveTagOpt, MinimalModelOpt, TypeLayoutOpt,
 		InlineAllocOpt, WarningOpt, CFLAGS,
 		" -c ", C_File, " ", NameObjectFile, O_File], Command) },
 	invoke_system_command(Command, Succeeded),

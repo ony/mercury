@@ -49,36 +49,51 @@
 	% The string representation of the functor that these predicates
 	% return is:
 	%
-	% 	- for user defined types, the functor that is given
-	% 	  in the type definition. For lists, this
-	% 	  means the functors [|]/2 and []/0 are used, even if
-	% 	  the list uses the [....] shorthand.
-	%	  For types with user-defined equality, the functor will be
-	%	  a constant of the form <<module:type/arity>>/0 except
-	%	  with include_details_cc.
-	%	- for integers, the string is a base 10 number,
+	% 	- for user defined types with standard equality, the functor
+	%	  that is given in the type definition. For lists, this means
+	%	  the functors [|]/2 and []/0 are used, even if the list uses
+	%	  the [....] shorthand.
+	%	- for user-defined types with user-defined equality, the
+	%	  functor will be of the form <<module:type/arity>>/0, except
+	%	  with include_details_cc, in which case the type will be
+	%	  handled as if it had standard equality.
+	%	- for integers, the string is a base 10 number;
 	%	  positive integers have no sign.
-	%	- for floats, the string is a floating point,
-	%	  base 10 number, positive floating point numbers have
-	%	  no sign.
+	%	- for floats, the string is a floating point, base 10 number;
+	%	  positive floating point numbers have no sign.
 	%	- for strings, the string, inside double quotation marks
 	%	- for characters, the character inside single quotation marks
-	%	- for predicates, the string <<predicate>>
-	%	- for functions, the string <<function>>
-	%	- for tuples, the string {}
-	%	- for arrays, the string <<array>>
+	%	- for predicates, the string <<predicate>>, and for functions,
+	%	  the string <<function>>, except with include_details_cc,
+	%	  in which case it will be the predicate or function name.
+	%	  (The predicate or function name will be artificial for
+	%	  predicate and function values created by lambda expressions.)
+	%	- for tuples, the string {}.
+	%	- for arrays, the string <<array>>.
 	%
 	% The arity that these predicates return is:
 	%
-	% 	- for user defined types, the arity of the functor.
+	% 	- for user defined types with standard equality, the arity
+	%	  of the functor.
+	% 	- for user defined types with user-defined equality, zero,
+	%	  except with include_details_cc, in which case the type
+	%	  will be handled as if it had standard equality.
 	%	- for integers, zero.
 	%	- for floats, zero.
 	%	- for strings, zero.
 	%	- for characters, zero.
-	%	- for predicates and functions, zero; we do not return the
-	%	  number of arguments expected by the predicate or function.
+	%	- for predicates and functions, zero, except with
+	%	  include_details_cc, in which case it will be the number of
+	%	  arguments hidden in the closure.
 	%	- for tuples, the number of elements in the tuple.
 	%	- for arrays, the number of elements in the array.
+	%
+	% Note that in the current University of Melbourne implementation,
+	% the implementations of these predicates depart from the above
+	% specification in that with --high-level-code, they do not
+	% deconstruct predicate- and function-valued terms even with
+	% include_details_cc; instead, they return <<predicate>> or
+	% <<function>> (in both cases with arity zero) as appropriate.
 
 	% functor(Data, NonCanon, Functor, Arity)
 	%
@@ -394,11 +409,11 @@ limited_deconstruct(Term, NonCanon, MaxArity, Functor, Arity, Arguments) :-
 }").
 
 functor_dna(_Term::in, _Functor::out, _Arity::out) :-
-	sorry("deconstruct__functor_dna/3").
+	private_builtin__sorry("deconstruct__functor_dna/3").
 functor_can(Term::in, Functor::out, Arity::out) :-
 	rtti_implementation__deconstruct(Term, Functor, Arity, _Arguments).
 functor_idcc(_Term::in, _Functor::out, _Arity::out) :-
-	sorry("deconstruct__functor_idcc/3").
+	private_builtin__sorry("deconstruct__functor_idcc/3").
 
 %-----------------------------------------------------------------------------%
 
@@ -535,19 +550,19 @@ functor_idcc(_Term::in, _Functor::out, _Arity::out) :-
 }").
 
 univ_arg_dna(_Term::in, _Index::in, _Arg::out) :-
-	sorry("deconstruct__univ_arg_dna/3").
+	private_builtin__sorry("deconstruct__univ_arg_dna/3").
 univ_arg_can(Term::in, Index::in, Arg::out) :-
 	rtti_implementation__deconstruct(Term, _Functor, _Arity, Arguments),
 	list__index0(Arguments, Index, Arg).
 univ_arg_idcc(_Term::in, _Index::in, _Arg::out) :-
-	sorry("deconstruct__univ_arg_idcc/3").
+	private_builtin__sorry("deconstruct__univ_arg_idcc/3").
 
 univ_named_arg_dna(_Term::in, _Name::in, _Arg::out) :-
-	sorry("deconstruct__univ_named_arg_dna/3").
+	private_builtin__sorry("deconstruct__univ_named_arg_dna/3").
 univ_named_arg_can(_Term::in, _Name::in, _Arg::out) :-
-	sorry("deconstruct__univ_named_arg_can/3").
+	private_builtin__sorry("deconstruct__univ_named_arg_can/3").
 univ_named_arg_idcc(_Term::in, _Name::in, _Arg::out) :-
-	sorry("deconstruct__univ_named_arg_idcc/3").
+	private_builtin__sorry("deconstruct__univ_named_arg_idcc/3").
 
 %-----------------------------------------------------------------------------%
 
@@ -711,22 +726,22 @@ univ_named_arg_idcc(_Term::in, _Name::in, _Arg::out) :-
 }").
 
 deconstruct_dna(_Term::in, _Functor::out, _Arity::out, _Arguments::out) :-
-	sorry("deconstuct__deconstruct_dna/4").
+	private_builtin__sorry("deconstuct__deconstruct_dna/4").
 deconstruct_can(Term::in, Functor::out, Arity::out, Arguments::out) :-
 	rtti_implementation__deconstruct(Term, Functor, Arity, Arguments).
 deconstruct_idcc(_Term::in, _Functor::out, _Arity::out, _Arguments::out) :-
-	sorry("deconstuct__deconstruct_idcc/4").
+	private_builtin__sorry("deconstuct__deconstruct_idcc/4").
 
 limited_deconstruct_dna(_Term::in, _MaxArity::in,
 		_Functor::out, _Arity::out, _Arguments::out) :-
-	sorry("deconstuct__limited_deconstruct_dna/5").
+	private_builtin__sorry("deconstuct__limited_deconstruct_dna/5").
 limited_deconstruct_can(Term::in, MaxArity::in,
 		Functor::out, Arity::out, Arguments::out) :-
 	rtti_implementation__deconstruct(Term, Functor, Arity, Arguments),
 	Arity =< MaxArity.
 limited_deconstruct_idcc(_Term::in, _MaxArity::in,
 		_Functor::out, _Arity::out, _Arguments::out) :-
-	sorry("deconstuct__limited_deconstruct_idcc/5").
+	private_builtin__sorry("deconstuct__limited_deconstruct_idcc/5").
 
 %-----------------------------------------------------------------------------%
 
@@ -782,7 +797,7 @@ get_functor_info(Univ, FunctorInfo) :-
             exp_type_info = MR_pseudo_type_info_is_ground(
                 functor_desc->MR_notag_functor_arg_type);
             MR_new_univ_on_hp(ExpUniv, exp_type_info, value);
-            SUCCESS_INDICATOR = TRUE;
+            SUCCESS_INDICATOR = MR_TRUE;
             break;
 
         case MR_TYPECTOR_REP_NOTAG_GROUND:
@@ -792,11 +807,11 @@ get_functor_info(Univ, FunctorInfo) :-
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
                 functor_desc->MR_notag_functor_arg_type);
             MR_new_univ_on_hp(ExpUniv, exp_type_info, value);
-            SUCCESS_INDICATOR = TRUE;
+            SUCCESS_INDICATOR = MR_TRUE;
             break;
 
         default:
-            SUCCESS_INDICATOR = FALSE;
+            SUCCESS_INDICATOR = MR_FALSE;
             break;
     }
 }").
@@ -830,7 +845,7 @@ get_functor_info(Univ, FunctorInfo) :-
             exp_type_info = MR_pseudo_type_info_is_ground(
                 MR_type_ctor_layout(type_ctor_info).layout_equiv);
             MR_new_univ_on_hp(ExpUniv, exp_type_info, value);
-            SUCCESS_INDICATOR = TRUE;
+            SUCCESS_INDICATOR = MR_TRUE;
             break;
 
         case MR_TYPECTOR_REP_EQUIV_GROUND:
@@ -838,11 +853,11 @@ get_functor_info(Univ, FunctorInfo) :-
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
                 MR_type_ctor_layout(type_ctor_info).layout_equiv);
             MR_new_univ_on_hp(ExpUniv, exp_type_info, value);
-            SUCCESS_INDICATOR = TRUE;
+            SUCCESS_INDICATOR = MR_TRUE;
             break;
 
         default:
-            SUCCESS_INDICATOR = FALSE;
+            SUCCESS_INDICATOR = MR_FALSE;
             break;
     }
 }").
@@ -872,11 +887,11 @@ get_functor_info(Univ, FunctorInfo) :-
         case MR_TYPECTOR_REP_ENUM:
         case MR_TYPECTOR_REP_ENUM_USEREQ:
             Enum = (MR_Integer) value;
-            SUCCESS_INDICATOR = TRUE;
+            SUCCESS_INDICATOR = MR_TRUE;
             break;
 
         default:
-            SUCCESS_INDICATOR = FALSE;
+            SUCCESS_INDICATOR = MR_FALSE;
             break;
     }
 }").
@@ -916,7 +931,7 @@ get_functor_info(Univ, FunctorInfo) :-
     switch (MR_type_ctor_rep(type_ctor_info)) {
         case MR_TYPECTOR_REP_DU:
         case MR_TYPECTOR_REP_DU_USEREQ:
-            SUCCESS_INDICATOR = TRUE;
+            SUCCESS_INDICATOR = MR_TRUE;
             Ptag = MR_tag(value);
             ptag_layout = &MR_type_ctor_layout(type_ctor_info).layout_du[Ptag];
 
@@ -942,7 +957,7 @@ get_functor_info(Univ, FunctorInfo) :-
 
                     functor_desc = ptag_layout->MR_sectag_alternatives[Sectag];
                     if (functor_desc->MR_du_functor_exist_info != NULL) {
-                        SUCCESS_INDICATOR = FALSE;
+                        SUCCESS_INDICATOR = MR_FALSE;
                         break;
                     }
 
@@ -981,7 +996,7 @@ get_functor_info(Univ, FunctorInfo) :-
             break;
 
         default:
-            SUCCESS_INDICATOR = FALSE;
+            SUCCESS_INDICATOR = MR_FALSE;
             break;
     }
 }").

@@ -15,7 +15,7 @@
 
 #include "mercury_imp.h"
 
-#ifdef HAVE_UNISTD_H
+#ifdef MR_HAVE_UNISTD_H
   #include <unistd.h>
 #endif
 
@@ -28,24 +28,24 @@
 */
 #include "mercury_signal.h"
 
-#ifdef HAVE_SYS_SIGINFO
+#ifdef MR_HAVE_SYS_SIGINFO_H
   #include <sys/siginfo.h>
 #endif 
 
-#ifdef HAVE_SYS_SIGNAL
+#ifdef MR_HAVE_SYS_SIGNAL_H
   /* on FREEBSD we need to include <sys/signal.h> before <ucontext.h> */
   #include <sys/signal.h>
 #endif
 
-#ifdef	HAVE_MPROTECT
+#ifdef	MR_HAVE_MPROTECT
   #include <sys/mman.h>
 #endif
 
-#ifdef	HAVE_UCONTEXT
+#ifdef	MR_HAVE_UCONTEXT_H
   #include <ucontext.h>
 #endif
 
-#ifdef	HAVE_SYS_UCONTEXT
+#ifdef	MR_HAVE_SYS_UCONTEXT_H
   #include <sys/ucontext.h>
 #endif
 
@@ -56,39 +56,39 @@
 
 /*---------------------------------------------------------------------------*/
 
-#ifdef HAVE_SIGINFO
-  #if defined(HAVE_SIGCONTEXT_STRUCT)
-    #if defined(HAVE_SIGCONTEXT_STRUCT_3ARG)
+#ifdef MR_HAVE_SIGINFO
+  #if defined(MR_HAVE_SIGCONTEXT_STRUCT)
+    #if defined(MR_HAVE_SIGCONTEXT_STRUCT_3ARG)
       static	void	complex_sighandler_3arg(int, int, 
 			      struct sigcontext_struct);
     #else
       static	void	complex_sighandler(int, struct sigcontext_struct);
     #endif
-  #elif defined(HAVE_SIGINFO_T)
+  #elif defined(MR_HAVE_SIGINFO_T)
     static	void	complex_bushandler(int, siginfo_t *, void *);
     static	void	complex_segvhandler(int, siginfo_t *, void *);
   #else
-    #error "HAVE_SIGINFO defined but don't know how to get it"
+    #error "MR_HAVE_SIGINFO defined but don't know how to get it"
   #endif
 #else
   static	void	simple_sighandler(int);
 #endif
 
 
-#ifdef HAVE_SIGINFO
-  #if defined(HAVE_SIGCONTEXT_STRUCT)
-    #if defined(HAVE_SIGCONTEXT_STRUCT_3ARG)
+#ifdef MR_HAVE_SIGINFO
+  #if defined(MR_HAVE_SIGCONTEXT_STRUCT)
+    #if defined(MR_HAVE_SIGCONTEXT_STRUCT_3ARG)
       #define     bus_handler	complex_sighandler_3arg
       #define     segv_handler	complex_sighandler_3arg
     #else
       #define     bus_handler	complex_sighandler
       #define     segv_handler	complex_sighandler
     #endif
-  #elif defined(HAVE_SIGINFO_T)
+  #elif defined(MR_HAVE_SIGINFO_T)
     #define     bus_handler	complex_bushandler
     #define     segv_handler	complex_segvhandler
   #else
-    #error "HAVE_SIGINFO defined but don't know how to get it"
+    #error "MR_HAVE_SIGINFO defined but don't know how to get it"
   #endif
 #else
     #define     bus_handler	simple_sighandler
@@ -102,7 +102,7 @@
 */
 
 static	void	print_dump_stack(void);
-static	bool	try_munprotect(void *address, void *context);
+static	MR_bool	try_munprotect(void *address, void *context);
 static	char	*explain_context(void *context);
 static	MR_Code	*get_pc_from_context(void *the_context);
 static	MR_Word	*get_sp_from_context(void *the_context);
@@ -110,11 +110,11 @@ static	MR_Word	*get_curfr_from_context(void *the_context);
 
 #define STDERR 2
 
-static bool 
+static MR_bool 
 try_munprotect(void *addr, void *context)
 {
-#if !(defined(HAVE_SIGINFO) || defined(MR_WIN32_VIRTUAL_ALLOC))
-	return FALSE;
+#if !(defined(MR_HAVE_SIGINFO) || defined(MR_WIN32_VIRTUAL_ALLOC))
+	return MR_FALSE;
 #else
 	MR_Word *    fault_addr;
 	MR_MemoryZone *zone;
@@ -150,14 +150,14 @@ try_munprotect(void *addr, void *context)
 		fprintf(stderr, "address not in any redzone.\n");
 	}
 
-	return FALSE;
-#endif /* HAVE_SIGINFO */
+	return MR_FALSE;
+#endif /* MR_HAVE_SIGINFO */
 } 
 
-bool 
+MR_bool 
 MR_null_handler(MR_Word *fault_addr, MR_MemoryZone *zone, void *context)
 {
-	return FALSE;
+	return MR_FALSE;
 }
 
 /*
@@ -183,11 +183,11 @@ MR_fatal_abort(void *context, const char *main_msg, int dump)
 	_exit(1);
 }
 
-bool 
+MR_bool 
 MR_default_handler(MR_Word *fault_addr, MR_MemoryZone *zone, void *context)
 {
 #ifndef MR_CHECK_OVERFLOW_VIA_MPROTECT
-	return FALSE;
+	return MR_FALSE;
 #else
     MR_Word *new_zone;
     size_t zone_size;
@@ -220,12 +220,12 @@ MR_default_handler(MR_Word *fault_addr, MR_MemoryZone *zone, void *context)
 		zone->name, zone->id, (void *) zone->redzone,
 		(void *) zone->top);
 	}
-  #if defined(NATIVE_GC) && !defined(MR_HIGHLEVEL_CODE)
+  #if defined(MR_NATIVE_GC) && !defined(MR_HIGHLEVEL_CODE)
 	MR_schedule_agc(get_pc_from_context(context),
 		get_sp_from_context(context),
 		get_curfr_from_context(context));
   #endif
-	return TRUE;
+	return MR_TRUE;
     } else {
 	char buf[2560];
 	if (MR_memdebug) {
@@ -235,10 +235,10 @@ MR_default_handler(MR_Word *fault_addr, MR_MemoryZone *zone, void *context)
 	}
 	sprintf(buf, "\nMercury runtime: memory zone %s#%d overflowed\n",
 		zone->name, zone->id);
-	MR_fatal_abort(context, buf, TRUE);
+	MR_fatal_abort(context, buf, MR_TRUE);
     }
 
-    return FALSE;
+    return MR_FALSE;
 #endif
 } 
 
@@ -252,10 +252,10 @@ MR_setup_signals(void)
 */
 #ifndef MR_MSVC_STRUCTURED_EXCEPTIONS
   #ifdef SIGBUS
-	MR_setup_signal(SIGBUS, (MR_Code *) bus_handler, TRUE,
+	MR_setup_signal(SIGBUS, (MR_Code *) bus_handler, MR_TRUE,
 		"cannot set SIGBUS handler");
   #endif
-	MR_setup_signal(SIGSEGV, (MR_Code *) segv_handler, TRUE,
+	MR_setup_signal(SIGSEGV, (MR_Code *) segv_handler, MR_TRUE,
 		"cannot set SIGSEGV handler");
 #endif
 }
@@ -265,11 +265,11 @@ explain_context(void *the_context)
 {
 	static	char	buf[100];
 
-#if defined(HAVE_SIGCONTEXT_STRUCT)
+#if defined(MR_HAVE_SIGCONTEXT_STRUCT)
 
-  #ifdef PC_ACCESS
+  #ifdef MR_PC_ACCESS
 	struct sigcontext_struct *context = the_context;
-	void *pc_at_signal = (void *) context->PC_ACCESS;
+	void *pc_at_signal = (void *) context->MR_PC_ACCESS;
 
 	sprintf(buf, "PC at signal: %ld (%lx)\n",
 		(long)pc_at_signal, (long)pc_at_signal);
@@ -277,31 +277,31 @@ explain_context(void *the_context)
 	buf[0] = '\0';
   #endif
 
-#elif defined(HAVE_SIGINFO_T)
+#elif defined(MR_HAVE_SIGINFO_T)
 
-  #ifdef PC_ACCESS
+  #ifdef MR_PC_ACCESS
 
 	ucontext_t *context = the_context;
 
-    #ifdef PC_ACCESS_GREG
+    #ifdef MR_PC_ACCESS_GREG
 	sprintf(buf, "PC at signal: %ld (%lx)\n",
-		(long) context->uc_mcontext.gregs[PC_ACCESS],
-		(long) context->uc_mcontext.gregs[PC_ACCESS]);
+		(long) context->uc_mcontext.gregs[MR_PC_ACCESS],
+		(long) context->uc_mcontext.gregs[MR_PC_ACCESS]);
     #else
 	sprintf(buf, "PC at signal: %ld (%lx)\n",
-		(long) context->uc_mcontext.PC_ACCESS,
-		(long) context->uc_mcontext.PC_ACCESS);
+		(long) context->uc_mcontext.MR_PC_ACCESS,
+		(long) context->uc_mcontext.MR_PC_ACCESS);
     #endif
 
-  #else /* not PC_ACCESS */
+  #else /* not MR_PC_ACCESS */
 
-	/* if PC_ACCESS is not set, we don't know the context */
+	/* if MR_PC_ACCESS is not set, we don't know the context */
 	/* therefore we return an empty string to be printed  */
 	buf[0] = '\0';
 
-  #endif /* not PC_ACCESS */
+  #endif /* not MR_PC_ACCESS */
 
-#else /* not HAVE_SIGINFO_T && not HAVE_SIGCONTEXT_STRUCT */
+#else /* not MR_HAVE_SIGINFO_T && not MR_HAVE_SIGCONTEXT_STRUCT */
 
 	buf[0] = '\0';
 
@@ -310,8 +310,8 @@ explain_context(void *the_context)
 	return buf;
 }
 
-#if defined(HAVE_SIGCONTEXT_STRUCT)
-  #if defined(HAVE_SIGCONTEXT_STRUCT_3ARG)
+#if defined(MR_HAVE_SIGCONTEXT_STRUCT)
+  #if defined(MR_HAVE_SIGCONTEXT_STRUCT_3ARG)
     static void
     complex_sighandler_3arg(int sig, int code,
 		    struct sigcontext_struct sigcontext)
@@ -321,8 +321,8 @@ explain_context(void *the_context)
   #endif
 {
 	void *address = (void *) MR_GET_FAULT_ADDR(sigcontext);
-  #ifdef PC_ACCESS
-	void *pc_at_signal = (void *) sigcontext.PC_ACCESS;
+  #ifdef MR_PC_ACCESS
+	void *pc_at_signal = (void *) sigcontext.MR_PC_ACCESS;
   #endif
 
 	switch(sig) {
@@ -367,7 +367,7 @@ explain_context(void *the_context)
 			break;
 	}
 
-  #ifdef PC_ACCESS
+  #ifdef MR_PC_ACCESS
 	fprintf(stderr, "PC at signal: %ld (%lx)\n",
 		(long) pc_at_signal, (long) pc_at_signal);
   #endif
@@ -381,7 +381,7 @@ explain_context(void *the_context)
 } /* end complex_sighandler() */
 
 
-#elif defined(HAVE_SIGINFO_T)
+#elif defined(MR_HAVE_SIGINFO_T)
 
 static void 
 complex_bushandler(int sig, siginfo_t *info, void *context)
@@ -539,7 +539,7 @@ complex_segvhandler(int sig, siginfo_t *info, void *context)
 	exit(1);
 } /* end complex_segvhandler */
 
-#else /* not HAVE_SIGINFO_T && not HAVE_SIGCONTEXT_STRUCT */
+#else /* not MR_HAVE_SIGINFO_T && not MR_HAVE_SIGCONTEXT_STRUCT */
 
 static void 
 simple_sighandler(int sig)
@@ -570,13 +570,13 @@ simple_sighandler(int sig)
 	exit(1);
 }
 
-#endif /* not HAVE_SIGINFO_T && not HAVE_SIGCONTEXT_STRUCT */
+#endif /* not MR_HAVE_SIGINFO_T && not MR_HAVE_SIGCONTEXT_STRUCT */
 
 #ifdef MR_MSVC_STRUCTURED_EXCEPTIONS
 static const char *MR_find_exception_name(DWORD exception_code);
 static void MR_explain_exception_record(EXCEPTION_RECORD *rec);
 static void MR_dump_exception_record(EXCEPTION_RECORD *rec);
-static bool MR_exception_record_is_access_violation(EXCEPTION_RECORD *rec,
+static MR_bool MR_exception_record_is_access_violation(EXCEPTION_RECORD *rec,
 		void **address_ptr, int *access_mode_ptr);
 
 /*
@@ -761,12 +761,12 @@ MR_dump_exception_record(EXCEPTION_RECORD *rec)
 
 
 /*
-** Return TRUE iff exception_ptrs indicates an access violation.
-** If TRUE, the dereferenced address_ptr is set to the accessed address and
+** Return MR_TRUE iff exception_ptrs indicates an access violation.
+** If MR_TRUE, the dereferenced address_ptr is set to the accessed address and
 ** the dereferenced access_mode_ptr is set to the desired access
 ** (0 = read, 1 = write)
 */
-static bool
+static MR_bool
 MR_exception_record_is_access_violation(EXCEPTION_RECORD *rec,
 		void **address_ptr, int *access_mode_ptr)
 {
@@ -774,10 +774,10 @@ MR_exception_record_is_access_violation(EXCEPTION_RECORD *rec,
 		if (rec->NumberParameters >= 2) {
 			(*access_mode_ptr) = (int) rec->ExceptionInformation[0];
 			(*address_ptr) = (void *) rec->ExceptionInformation[1];
-			return TRUE;
+			return MR_TRUE;
 		}
 	}
-	return FALSE;
+	return MR_FALSE;
 }
 
 
@@ -857,36 +857,36 @@ static MR_Code *
 get_pc_from_context(void *the_context)
 {
 	MR_Code *pc_at_signal = NULL;
-#if defined(HAVE_SIGCONTEXT_STRUCT)
+#if defined(MR_HAVE_SIGCONTEXT_STRUCT)
 
-  #ifdef PC_ACCESS
+  #ifdef MR_PC_ACCESS
 	struct sigcontext_struct *context = the_context;
 
-	pc_at_signal = (MR_Code *) context->PC_ACCESS;
+	pc_at_signal = (MR_Code *) context->MR_PC_ACCESS;
   #else
 	pc_at_signal = (MR_Code *) NULL;
   #endif
 
-#elif defined(HAVE_SIGINFO_T)
+#elif defined(MR_HAVE_SIGINFO_T)
 
-  #ifdef PC_ACCESS
+  #ifdef MR_PC_ACCESS
 
 	ucontext_t *context = the_context;
 
-    #ifdef PC_ACCESS_GREG
-	pc_at_signal = (MR_Code *) context->uc_mcontext.gregs[PC_ACCESS];
+    #ifdef MR_PC_ACCESS_GREG
+	pc_at_signal = (MR_Code *) context->uc_mcontext.gregs[MR_PC_ACCESS];
     #else
-	pc_at_signal = (MR_Code *) context->uc_mcontext.PC_ACCESS;
+	pc_at_signal = (MR_Code *) context->uc_mcontext.MR_PC_ACCESS;
     #endif
 
-  #else /* not PC_ACCESS */
+  #else /* not MR_PC_ACCESS */
 
-	/* if PC_ACCESS is not set, we don't know the context */
+	/* if MR_PC_ACCESS is not set, we don't know the context */
 	pc_at_signal = (MR_Code *) NULL;
 
-  #endif /* not PC_ACCESS */
+  #endif /* not MR_PC_ACCESS */
 
-#else /* not HAVE_SIGINFO_T && not HAVE_SIGCONTEXT_STRUCT */
+#else /* not MR_HAVE_SIGINFO_T && not MR_HAVE_SIGCONTEXT_STRUCT */
 
 	pc_at_signal = (MR_Code *) NULL;
 
@@ -911,10 +911,10 @@ static MR_Word *
 get_sp_from_context(void *the_context)
 {
 	MR_Word *sp_at_signal = NULL;
-#if defined(NATIVE_GC) && !defined(MR_HIGHLEVEL_CODE)
-  #if defined(HAVE_SIGCONTEXT_STRUCT)
+#if defined(MR_NATIVE_GC) && !defined(MR_HIGHLEVEL_CODE)
+  #if defined(MR_HAVE_SIGCONTEXT_STRUCT)
 
-    #ifdef PC_ACCESS
+    #ifdef MR_PC_ACCESS
 	struct sigcontext_struct *context = the_context;
 
 	sp_at_signal = (MR_Word *) context->MR_real_reg_number_sp;
@@ -922,36 +922,36 @@ get_sp_from_context(void *the_context)
 	sp_at_signal = (MR_Word *) NULL;
     #endif
 
-  #elif defined(HAVE_SIGINFO_T)
+  #elif defined(MR_HAVE_SIGINFO_T)
 
-    #ifdef PC_ACCESS
+    #ifdef MR_PC_ACCESS
 
 	struct sigcontext *context = the_context;
 
-      #ifdef PC_ACCESS_GREG
+      #ifdef MR_PC_ACCESS_GREG
 	sp_at_signal = (MR_Word *) context->gregs[MR_real_reg_number_sp];
       #else
 	sp_at_signal = (MR_Word *) context->sc_regs[MR_real_reg_number_sp];
       #endif
 
-    #else /* not PC_ACCESS */
+    #else /* not MR_PC_ACCESS */
 
 	/* 
-	** if PC_ACCESS is not set, we don't know how to get at the
+	** if MR_PC_ACCESS is not set, we don't know how to get at the
 	** registers
 	*/
 	sp_at_signal = (MR_Word *) NULL;
 
-    #endif /* not PC_ACCESS */
+    #endif /* not MR_PC_ACCESS */
 
-  #else /* not HAVE_SIGINFO_T && not HAVE_SIGCONTEXT_STRUCT */
+  #else /* not MR_HAVE_SIGINFO_T && not MR_HAVE_SIGCONTEXT_STRUCT */
 
 	sp_at_signal = (MR_Word *) NULL;
 
   #endif
-#else /* !NATIVE_GC */
+#else /* !MR_NATIVE_GC */
 	sp_at_signal = (MR_Word *) NULL;
-#endif /* !NATIVE_GC */
+#endif /* !MR_NATIVE_GC */
 
 	return sp_at_signal;
 }

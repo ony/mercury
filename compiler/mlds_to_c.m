@@ -421,9 +421,10 @@ mlds_output_init_fn_defns(ModuleName, FuncDefns, TypeCtorInfoDefns) -->
 		{ need_to_init_entries(Globals) },
 		{ FuncDefns \= [] }
 	->
-		io__write_strings(["\tstatic bool initialised = FALSE;\n",
+		io__write_strings(
+				["\tstatic MR_bool initialised = MR_FALSE;\n",
 				"\tif (initialised) return;\n",
-				"\tinitialised = TRUE;\n\n"]),
+				"\tinitialised = MR_TRUE;\n\n"]),
 		mlds_output_calls_to_init_entry(ModuleName, FuncDefns)
 	;
 		[]
@@ -435,9 +436,10 @@ mlds_output_init_fn_defns(ModuleName, FuncDefns, TypeCtorInfoDefns) -->
 	(
 		{ TypeCtorInfoDefns \= [] }
 	->
-		io__write_strings(["\tstatic bool initialised = FALSE;\n",
+		io__write_strings(
+				["\tstatic MR_bool initialised = MR_FALSE;\n",
 				"\tif (initialised) return;\n",
-				"\tinitialised = TRUE;\n\n"]),
+				"\tinitialised = MR_TRUE;\n\n"]),
 		mlds_output_calls_to_register_tci(ModuleName,
 			TypeCtorInfoDefns)
 	;
@@ -991,7 +993,7 @@ mlds_output_maybe_gc_trace_code(Indent, Name, Maybe_GC_TraceCode,
 		% XXX this value for FuncInfo is bogus
 		% However, this output is only for debugging anyway,
 		% so it doesn't really matter.
-		{ FuncInfo = func_info(Name) },
+		{ FuncInfo = func_info(Name, mlds__func_signature([], [])) },
 		mlds_output_statement(Indent, FuncInfo, GC_TraceCode),
 		io__write_string("#endif\n")
 	).
@@ -1072,6 +1074,16 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	%
 	% Output the class declaration and the class members.
 	% We treat enumerations specially.
+	%
+	% Note that standard ANSI/ISO C does not allow empty structs.
+	% We could handle empty structs here, by adding a dummy member,
+	% but that would waste a lot of space, and would also
+	% cause incompatibilities between the data layout for
+	% --high-level-data and --no-high-level-data.  So instead,
+	% we make it is the responsibility of the MLDS code generator
+	% to not generate any.  (E.g. ml_type_gen.m checks whether
+	% `target_uses_empty_base_classes' before generating empty
+	% structs.)  Hence we don't need to check for empty structs here.
 	%
 	mlds_output_class_decl(Indent, Name, ClassDefn),
 	io__write_string(" {\n"),
@@ -1224,8 +1236,6 @@ mlds_needs_initialization(init_struct([])) = no.
 mlds_needs_initialization(init_struct([_|_])) = yes.
 mlds_needs_initialization(init_array(_)) = yes.
 
-	% XXX ANSI/ISO C does not allow empty arrays or empty structs;
-	% what we do for them here is probably not quite right.
 :- pred mlds_output_initializer_body(mlds__initializer, io__state, io__state).
 :- mode mlds_output_initializer_body(in, di, uo) is det.
 
@@ -1233,16 +1243,24 @@ mlds_output_initializer_body(no_initializer) --> [].
 mlds_output_initializer_body(init_obj(Rval)) -->
 	mlds_output_rval(Rval).
 mlds_output_initializer_body(init_struct(FieldInits)) -->
+	% Note that standard ANSI/ISO C does not allow empty structs.
+	% But it is the responsibility of the MLDS code generator
+	% to not generate any.  So we don't need to handle empty
+	% initializers specially here.
 	io__write_string("{\n\t\t"),
 	io__write_list(FieldInits, ",\n\t\t", mlds_output_initializer_body),
 	io__write_string("}").
 mlds_output_initializer_body(init_array(ElementInits)) -->
 	io__write_string("{\n\t\t"),
-	(
-		{ ElementInits = [] }
-	->
-			% The MS VC++ compiler only generates a symbol, if
-			% the array has a known size.
+	% Standard ANSI/ISO C does not allow empty arrays. But the MLDS does.
+	% To keep the C compiler happy, we therefore convert zero-element
+	% MLDS arrays into one-element C arrays.  (The extra element is
+	% a minor waste of space, but it will otherwise be ignored.)
+	% So if the initializer list here is empty, we need to output
+	% a single initializer.  We can initialize the extra element
+	% with any value; we use "0", since that is a valid initializer
+	% for any type.
+	( { ElementInits = [] } ->
 		io__write_string("0")
 	;
 		io__write_list(ElementInits,
@@ -1276,8 +1294,8 @@ mlds_output_pred_proc_id(proc(PredId, ProcId)) -->
 		func_params, function_body, io__state, io__state).
 :- mode mlds_output_func(in, in, in, in, in, di, uo) is det.
 
-mlds_output_func(Indent, Name, Context, Signature, FunctionBody) -->
-	mlds_output_func_decl(Indent, Name, Context, Signature),
+mlds_output_func(Indent, Name, Context, Params, FunctionBody) -->
+	mlds_output_func_decl(Indent, Name, Context, Params),
 	(
 		{ FunctionBody = external },
 		io__write_string(";\n")
@@ -1290,7 +1308,8 @@ mlds_output_func(Indent, Name, Context, Signature, FunctionBody) -->
 
 		mlds_maybe_output_time_profile_instr(Context, Indent + 1, Name),
 
-		{ FuncInfo = func_info(Name) },
+		{ Signature = mlds__get_func_signature(Params) },
+		{ FuncInfo = func_info(Name, Signature) },
 		mlds_output_statement(Indent + 1, FuncInfo, Body),
 
 		mlds_indent(Context, Indent),
@@ -1613,7 +1632,8 @@ mlds_output_type_prefix(mercury_array_type(_ElemType)) -->
 	).
 mlds_output_type_prefix(mlds__native_int_type)   --> io__write_string("int").
 mlds_output_type_prefix(mlds__native_float_type) --> io__write_string("float").
-mlds_output_type_prefix(mlds__native_bool_type)  --> io__write_string("bool").
+mlds_output_type_prefix(mlds__native_bool_type)  -->
+	io__write_string("MR_bool").
 mlds_output_type_prefix(mlds__native_char_type)  --> io__write_string("char").
 mlds_output_type_prefix(mlds__foreign_type(_, _, _)) -->
 	{ error("mlds_output_type_prefix: foreign_type") }.
@@ -1826,9 +1846,10 @@ mlds_output_type_suffix(mlds__unknown_type, _) -->
 mlds_output_array_type_suffix(no_size) -->
 	io__write_string("[]").
 mlds_output_array_type_suffix(array_size(Size0)) -->
-	%
-	% ANSI/ISO C forbids arrays of size 0.
-	%
+	% Standard ANSI/ISO C does not allow arrays of size 0.
+	% But the MLDS does.  To keep the C compiler happy,
+	% we therefore convert zero-element MLDS arrays into
+	% one-element C arrays.
 	{ int__max(Size0, 1, Size) },
 	io__format("[%d]", [i(Size)]).
 
@@ -1965,7 +1986,7 @@ mlds_output_abstractness(concrete) --> [].
 %
 
 :- type func_info
-	--->	func_info(mlds__qualified_entity_name).
+	--->	func_info(mlds__qualified_entity_name, mlds__func_signature).
 
 :- pred mlds_output_statements(indent, func_info, list(mlds__statement),
 		io__state, io__state).
@@ -1993,7 +2014,7 @@ mlds_output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
 	mlds_indent(Indent),
 	io__write_string("{\n"),
 	( { Defns \= [] } ->
-		{ FuncInfo = func_info(FuncName) },
+		{ FuncInfo = func_info(FuncName, _) },
 		{ FuncName = qual(ModuleName, _) },
 
 		% output forward declarations for any nested functions
@@ -2123,11 +2144,17 @@ mlds_output_stmt(Indent, _FuncInfo, label(LabelName), _) -->
 	mlds_indent(Indent - 1),
 	mlds_output_label_name(LabelName),
 	io__write_string(":;\n").
-mlds_output_stmt(Indent, _FuncInfo, goto(LabelName), _) -->
+mlds_output_stmt(Indent, _FuncInfo, goto(label(LabelName)), _) -->
 	mlds_indent(Indent),
 	io__write_string("goto "),
 	mlds_output_label_name(LabelName),
 	io__write_string(";\n").
+mlds_output_stmt(Indent, _FuncInfo, goto(break), _) -->
+	mlds_indent(Indent),
+	io__write_string("break;\n").
+mlds_output_stmt(Indent, _FuncInfo, goto(continue), _) -->
+	mlds_indent(Indent),
+	io__write_string("continue;\n").
 mlds_output_stmt(Indent, _FuncInfo, computed_goto(Expr, Labels), Context) -->
 	% XXX for GNU C, we could output potentially more efficient code
 	% by using an array of labels; this would tell the compiler that
@@ -2156,9 +2183,23 @@ mlds_output_stmt(Indent, _FuncInfo, computed_goto(Expr, Labels), Context) -->
 	% function call/return
 	%
 mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
-	{ Call = call(_Signature, FuncRval, MaybeObject, CallArgs,
+	{ Call = call(Signature, FuncRval, MaybeObject, CallArgs,
 		Results, IsTailCall) },
-	{ CallerFuncInfo = func_info(Name) },
+	{ CallerFuncInfo = func_info(CallerName, CallerSignature) },
+
+	% 
+	% We need to enclose the generated code inside an extra pair
+	% of curly braces, in case we generate more than one statement
+	% (e.g. because we generate extra statements for profiling
+	% or for tail call optimization) and the generated code is
+	% e.g. inside an if-then-else.
+	% 
+	mlds_indent(Indent),
+	io__write_string("{\n"),
+
+	mlds_maybe_output_call_profile_instr(Context,
+			Indent + 1, FuncRval, CallerName),
+
 	%
 	% Optimize general tail calls.
 	% We can't really do much here except to insert `return'
@@ -2169,19 +2210,21 @@ mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	% then this would result in code that is not legal ANSI C
 	% (although it _is_ legal in GNU C and in C++),
 	% so for that case, we put the return statement after
-	% the call -- see below.  We need to enclose it inside
-	% an extra pair of curly braces in case this `call'
-	% is e.g. inside an if-then-else.
+	% the call -- see below.
 	%
-	mlds_indent(Indent),
-	io__write_string("{\n"),
-
-	mlds_maybe_output_call_profile_instr(Context,
-			Indent + 1, FuncRval, Name),
-
+	% Note that it's only safe to add such a return statement if
+	% the calling procedure has the same argument types as the callee.
+	% (Calls where the types are different can be marked as tail calls
+	% if they are known to never return.)
+	%
 	mlds_indent(Context, Indent + 1),
-
-	( { IsTailCall = tail_call, Results \= [] } ->
+	{ Signature = mlds__func_signature(_, RetTypes) },
+	{ CallerSignature = mlds__func_signature(_, CallerRetTypes) },
+	(
+		{ IsTailCall = tail_call },
+		{ Results \= [] },
+		{ RetTypes = CallerRetTypes }
+	->
 		io__write_string("return ")
 	;
 		[]
@@ -2206,12 +2249,16 @@ mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	io__write_list(CallArgs, ", ", mlds_output_rval),
 	io__write_string(");\n"),
 
-	( { IsTailCall = tail_call, Results = [] } ->
+	(
+		{ IsTailCall = tail_call },
+		{ Results = [] },
+		{ RetTypes = CallerRetTypes }
+	->
 		mlds_indent(Context, Indent + 1),
 		io__write_string("return;\n")
 	;
 		mlds_maybe_output_time_profile_instr(Context,
-				Indent + 1, Name)
+				Indent + 1, CallerName)
 	),
 	mlds_indent(Indent),
 	io__write_string("}\n").
@@ -2534,7 +2581,17 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	mlds_indent(Indent),
 	io__write_string("{\n"),
 
-	{ FuncInfo = func_info(FuncName) },
+	% for --gc accurate, we need to insert a call to GC_check()
+	% before every allocation
+	globals__io_get_gc_method(GC_Method),
+	( { GC_Method = accurate } ->
+		mlds_indent(Context, Indent + 1),
+		io__write_string("MR_GC_check();\n")
+	;
+		[]
+	),
+
+	{ FuncInfo = func_info(FuncName, _FuncSignature) },
 	mlds_maybe_output_heap_profile_instr(Context, Indent + 1, Args,
 			FuncName, MaybeCtorName),
 
@@ -3104,9 +3161,9 @@ mlds_output_binary_op(Op) -->
 :- mode mlds_output_rval_const(in, di, uo) is det.
 
 mlds_output_rval_const(true) -->
-	io__write_string("TRUE").	% XXX should we use `MR_TRUE'?
+	io__write_string("MR_TRUE").
 mlds_output_rval_const(false) -->
-	io__write_string("FALSE").	% XXX should we use `MR_FALSE'?
+	io__write_string("MR_FALSE").
 mlds_output_rval_const(int_const(N)) -->
 	% we need to cast to (MR_Integer) to ensure
 	% things like 1 << 32 work when `Integer' is 64 bits

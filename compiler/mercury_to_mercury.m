@@ -613,9 +613,32 @@ mercury_output_item(_UnqualifiedItemNames, pragma(Pragma), Context) -->
 			"check_termination")
 	).
 
-mercury_output_item(_, assertion(Goal, VarSet), _) -->
-	io__write_string(":- promise "),
+mercury_output_item(_, promise(PromiseType, Goal0, VarSet, UnivVars), _) -->
 	{ Indent = 1 },
+	( { PromiseType = true } ->
+			% for an assertion, we put back any universally
+			% quantified variables that were stripped off during
+			% parsing so that the clause will output correctly
+		io__write_string(":- promise "),
+		( { \+ UnivVars = [] } ->
+			{ Goal0 = _GoalExpr - Context },
+			{ Goal = all(UnivVars, Goal0) - Context }
+		;
+			{ Goal = Goal0 }
+		)
+	;
+			% a promise ex declaration has a slightly different
+			% standard formatting from an assertion; the universal
+			% quantification comes before the rest of the
+			% declaration
+		io__write_string(":- all ["),
+		{ AppendVarNum = no },
+		mercury_output_vars(UnivVars, VarSet, AppendVarNum),
+		io__write_string("]"),
+		mercury_output_newline(Indent),
+		prog_out__write_promise_type(PromiseType),
+		{ Goal0 = Goal }
+	),
 	mercury_output_newline(Indent),
 	mercury_output_goal(Goal, VarSet, Indent),
 	io__write_string(".\n").
@@ -682,6 +705,13 @@ mercury_output_item(_, instance(Constraints, ClassName, Types, Body,
 	),
 	io__write_string(".\n").
 
+:- func mercury_to_string_promise_type(promise_type) = string.
+mercury_to_string_promise_type(exclusive) = "promise_exclusive".
+mercury_to_string_promise_type(exhaustive) = "promise_exhaustive".
+mercury_to_string_promise_type(exclusive_exhaustive) = 
+		"promise_exclusive_exhaustive".
+mercury_to_string_promise_type(true) = "promise".
+	
 %-----------------------------------------------------------------------------%
 
 :- pred output_class_methods(list(class_method), io__state, io__state).
@@ -1412,6 +1442,8 @@ mercury_format_cons_id(tabling_pointer_const(_, _), _) -->
 	add_string("<tabling pointer>").
 mercury_format_cons_id(deep_profiling_proc_static(_), _) -->
 	add_string("<deep_profiling_proc_static>").
+mercury_format_cons_id(table_io_decl(_), _) -->
+	add_string("<table_io_decl>").
 
 :- pred mercury_format_mode_defn(inst_varset::in, sym_name::in,
 	list(inst_var)::in, mode_defn::in, prog_context::in,
@@ -1520,13 +1552,6 @@ mercury_format_mode(user_defined_mode(Name, Args), VarSet) -->
 :- pred mercury_output_type_defn(tvarset, sym_name, list(type_param),
 		type_defn, prog_context, io__state, io__state).
 :- mode mercury_output_type_defn(in, in, in, in, in, di, uo) is det.
-
-mercury_output_type_defn(_VarSet, _Name, _Args, uu_type(_Body), Context) -->
-	io__stderr_stream(StdErr),
-	io__set_output_stream(StdErr, OldStream),
-	prog_out__write_context(Context),
-	io__write_string("warning: undiscriminated union types not yet supported.\n"),
-	io__set_output_stream(OldStream, _).
 
 mercury_output_type_defn(VarSet, Name, Args, abstract_type, Context) -->
 	io__write_string(":- type "),
@@ -3064,6 +3089,18 @@ mercury_format_term(term__functor(Functor, Args, _), VarSet, AppendVarnums,
 		mercury_format_remaining_terms(Xs, VarSet, AppendVarnums),
 		add_string("}")
 	;
+		{ Args = [BinaryPrefixArg1, BinaryPrefixArg2] },
+		{ Functor = term__atom(FunctorName) },
+		{ mercury_binary_prefix_op(FunctorName) }
+	->
+		add_string("("),
+		add_string(FunctorName),
+		add_string(" "),
+		mercury_format_term(BinaryPrefixArg1, VarSet, AppendVarnums),
+		add_string(" "),
+		mercury_format_term(BinaryPrefixArg2, VarSet, AppendVarnums),
+		add_string(")")
+	;
 		{ Args = [PrefixArg] },
 		{ Functor = term__atom(FunctorName) },
 		{ mercury_unary_prefix_op(FunctorName) }
@@ -3598,6 +3635,8 @@ output_eval_method(eval_memo) -->
 	output_string("eval_memo").
 output_eval_method(eval_table_io) -->
 	output_string("eval_table_io").
+output_eval_method(eval_table_io_decl) -->
+	output_string("eval_table_io_decl").
 output_eval_method(eval_minimal) -->
 	output_string("eval_minimal").
 

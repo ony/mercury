@@ -911,7 +911,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	[will_not_call_mercury, thread_safe],
 "
 	/* save heap states */
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
  	HeapPtr = (MR_Word) MR_hp;
  	SolutionsHeapPtr = (MR_Word) MR_sol_hp;
 #else
@@ -998,7 +998,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	swap_heap_and_solutions_heap,
 	[will_not_call_mercury, thread_safe],
 "{
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
 	MR_MemoryZone *temp_zone;
 	MR_Word *temp_hp;
 
@@ -1036,7 +1036,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 
 #include ""mercury_deep_copy.h""
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   /* for conservative GC, shallow copies suffice */
   #define MR_PARTIAL_DEEP_COPY(SolutionsHeapPtr,			\\
   		OldVar, NewVal, TypeInfo_for_T)				\\
@@ -1116,7 +1116,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	reset_solutions_heap(SolutionsHeapPtr::in),
 	[will_not_call_mercury, thread_safe, promise_pure],
 "
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
 	MR_sol_hp = (MR_Word *) SolutionsHeapPtr;
 #endif
 ").
@@ -1285,11 +1285,11 @@ unsorted_aggregate(Generator, Accumulator, Acc0, Acc) :-
 :- pragma foreign_proc("C",
 	semidet_succeed, 
 	[will_not_call_mercury, thread_safe, promise_pure],
-	"SUCCESS_INDICATOR = TRUE;").
+	"SUCCESS_INDICATOR = MR_TRUE;").
 :- pragma foreign_proc("C",
 	semidet_fail,
 	[will_not_call_mercury, thread_safe, promise_pure],
-	"SUCCESS_INDICATOR = FALSE;").
+	"SUCCESS_INDICATOR = MR_FALSE;").
 :- pragma foreign_proc("C",
 	cc_multi_equal(X::in, Y::out),
 	[will_not_call_mercury, thread_safe, promise_pure],
@@ -1302,11 +1302,11 @@ unsorted_aggregate(Generator, Accumulator, Acc0, Acc) :-
 :- pragma foreign_proc("MC++",
 	semidet_succeed, 
 	[will_not_call_mercury, thread_safe, promise_pure],
-	"SUCCESS_INDICATOR = TRUE;").
+	"SUCCESS_INDICATOR = MR_TRUE;").
 :- pragma foreign_proc("MC++",
 	semidet_fail, 
 	[will_not_call_mercury, thread_safe, promise_pure],
-	"SUCCESS_INDICATOR = FALSE;").
+	"SUCCESS_INDICATOR = MR_FALSE;").
 :- pragma foreign_proc("MC++",
 	cc_multi_equal(X::in, Y::out),
 	[will_not_call_mercury, thread_safe, promise_pure],

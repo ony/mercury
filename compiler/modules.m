@@ -661,7 +661,6 @@ mercury_std_library_module("library").
 mercury_std_library_module("list").
 mercury_std_library_module("map").
 mercury_std_library_module("math").
-mercury_std_library_module("mercury_builtin").
 mercury_std_library_module("multi_map").
 mercury_std_library_module("ops").
 mercury_std_library_module("parser").
@@ -779,6 +778,8 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".ss"
 			; Ext = ".pic_ss"
 			; Ext = ".ils"
+			; Ext = ".javas"
+			; Ext = ".classes"
 			; Ext = ".opts"
 			; Ext = ".trans_opts"
 			% The current interface to `mercury_update_interface'
@@ -1062,7 +1063,7 @@ strip_imported_items([Item - Context | Rest], Items0, Items) :-
 strip_assertions([], []).
 strip_assertions([Item - Context | Rest], Items) :-
 	( 
-		Item = assertion(_, _)
+		Item = promise(true, _, _, _)
 	->
 		strip_assertions(Rest, Items)
 	; 
@@ -1793,7 +1794,7 @@ warn_if_duplicate_use_import_decls(ModuleName,
 
 write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 	{ Module = module_imports(SourceFileName, ModuleName, ParentDeps,
-			IntDeps, ImplDeps, IndirectDeps, _InclDeps, FactDeps0,
+			IntDeps, ImplDeps, IndirectDeps, InclDeps, FactDeps0,
 			ContainsForeignCode, ForeignImports0,
 			Items, _Error, _Timestamps) },
 	globals__io_lookup_bool_option(verbose, Verbose),
@@ -1904,8 +1905,12 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		module_name_to_file_name(ModuleName, ".rlo", no, RLOFileName),
 		module_name_to_file_name(ModuleName, ".il_date", no,
 			ILDateFileName),
+		module_name_to_file_name(ModuleName, ".java_date", no,
+			JavaDateFileName),
 		module_name_to_file_name(ModuleName, ".pic_o", no,
 							PicObjFileName),
+		module_name_to_file_name(ModuleName, ".int0", no,
+							Int0FileName),
 		module_name_to_split_c_file_pattern(ModuleName, ".$O",
 			SplitObjPattern),
 		io__write_strings(DepStream, ["\n\n",
@@ -1917,9 +1922,27 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			PicAsmDateFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
-			ILDateFileName, " : ",
-			SourceFileName
+			ILDateFileName, " ",
+			JavaDateFileName
 		] ),
+		write_dependencies_list(ParentDeps, ".optdate", DepStream),
+		write_dependencies_list(ParentDeps,
+				".trans_opt_date", DepStream),
+		write_dependencies_list(ParentDeps, ".c_date", DepStream),
+		write_dependencies_list(ParentDeps, ".s_date", DepStream),
+		write_dependencies_list(ParentDeps, ".pic_s_date", DepStream),
+		write_dependencies_list(ParentDeps, ".dir/*.$O", DepStream),
+		write_dependencies_list(ParentDeps, ".rlo", DepStream),
+		write_dependencies_list(ParentDeps, ".il_date", DepStream),
+		write_dependencies_list(ParentDeps, ".java_date", DepStream),
+		io__write_strings(DepStream, [" : ", SourceFileName]),
+		% If the module contains nested sub-modules then `.int0'
+		% file must first be built.
+		( { InclDeps = [_ | _] } ->
+			io__write_strings(DepStream, [" ", Int0FileName])
+		;
+			[]
+		),
 		write_dependencies_list(ParentDeps, ".int0", DepStream),
 		write_dependencies_list(LongDeps, ".int", DepStream),
 		write_dependencies_list(ShortDeps, ".int2", DepStream),
@@ -1952,7 +1975,8 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				PicAsmDateFileName, " ",
 				SplitObjPattern, " ",
 				RLOFileName, " ",
-				ILDateFileName, " : "
+				ILDateFileName, " ",
+				JavaDateFileName, " : "
 			]),
 
 			% The target (e.g. C) file only depends on the .opt files
@@ -1984,7 +2008,8 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					PicAsmDateFileName, " ",
 					SplitObjPattern, " ",
 					RLOFileName, " ",
-					ILDateFileName, " : "
+					ILDateFileName, " ",
+					JavaDateFileName, " : "
 				]),
 				write_dependencies_list(TransOptDeps,
 					".trans_opt", DepStream)
@@ -2054,9 +2079,12 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		% parent modules also depend on the same things as the
 		% `.date' files for this module, since all the `.date'
 		% files will get produced by a single mmc command.
-		% XXX The same is true for the `.date0' files, but
-		% including those dependencies here might result in
-		% cyclic dependencies(?).
+		% Similarly for `.date0' files, except these don't
+		% depend on the `.int0' files, because when doing the
+		% `--make-private-interface' for nested modules, mmc
+		% will process the modules in outermost to innermost
+		% order so as to produce each `.int0' file before it is
+		% needed.
 
 		module_name_to_file_name(ModuleName, ".date", no,
 						DateFileName),
@@ -2072,6 +2100,15 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				SourceFileName
 		]),
 		write_dependencies_list(ParentDeps, ".int0", DepStream),
+		write_dependencies_list(LongDeps, ".int3", DepStream),
+		write_dependencies_list(ShortDeps, ".int3", DepStream),
+
+		io__write_strings(DepStream, ["\n\n", Date0FileName]),
+		write_dependencies_list(ParentDeps, ".date0", DepStream),
+		io__write_strings(DepStream, [
+				" : ",
+				SourceFileName
+		]),
 		write_dependencies_list(LongDeps, ".int3", DepStream),
 		write_dependencies_list(ShortDeps, ".int3", DepStream),
 
@@ -2169,8 +2206,6 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			[]
 		),
 
-		module_name_to_file_name(ModuleName, ".int0", no,
-							Int0FileName),
 		module_name_to_file_name(ModuleName, ".int", no,
 							IntFileName),
 		module_name_to_file_name(ModuleName, ".int2", no,
@@ -2273,6 +2308,10 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				ILDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--il-only $< > ", ErrFileName,
+					" 2>&1\n",
+				JavaDateFileName, " : ", SourceFileName, "\n",
+				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
+					"--java-only $< > ", ErrFileName,
 					" 2>&1\n",
 				RLOFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
@@ -2694,10 +2733,68 @@ generate_dependencies(ModuleName, DepsMap0) -->
 		%
 		{ relation__tc(ImplDepsRel, IndirectOptDepsRel) },
 
+		/* 
+		write_relations("Rel", IntDepsRel, TransIntDepsRel, ImplDepsRel,
+				IndirectDepsRel, IndirectOptDepsRel),
+		*/
+
 		generate_dependencies_write_d_files(DepsList,
 			IntDepsRel, ImplDepsRel, IndirectDepsRel,
 			IndirectOptDepsRel, TransOptDepsOrdering, DepsMap)
 	).
+
+/*
+	% Output the various relations into a file which can be
+	% processed by the dot package to draw the relations.
+:- pred write_relations(string::in, relation(sym_name)::in,
+		relation(sym_name)::in, relation(sym_name)::in,
+		relation(sym_name)::in, relation(sym_name)::in,
+		io__state::di, io__state::uo) is det.
+
+write_relations(FileName, IntDepsRel, TransIntDepsRel,
+		ImplDepsRel, IndirectDepsRel, IndirectOptDepsRel) -->
+	io__open_output(FileName, Result),
+	( { Result = ok(Stream) } ->
+		write_relation(Stream, "IntDepsRel", IntDepsRel),
+		write_relation(Stream, "TransIntDepsRel", TransIntDepsRel),
+		write_relation(Stream, "ImplDepsRel", ImplDepsRel),
+		write_relation(Stream, "IndirectDepsRel", IndirectDepsRel),
+		write_relation(Stream, "IndirectOptDepsRel",
+				IndirectOptDepsRel)
+	;
+		{ error("unable to open file: " ++ FileName) }
+	).
+
+:- pred write_relation(io__output_stream::in,
+		string::in, relation(sym_name)::in,
+		io__state::di, io__state::uo) is det.
+
+write_relation(Stream, Name, Relation) -->
+	io__write_string(Stream, "digraph " ++ Name ++ " {\n"),
+	io__write_string(Stream, "label=\"" ++ Name ++ "\";\n"),
+	io__write_string(Stream, "center=true;\n"),
+	relation__traverse(Relation, write_node(Stream), write_edge(Stream)),
+	io__write_string(Stream, "}\n").
+
+:- pred write_node(io__output_stream::in, sym_name::in,
+		io__state::di, io__state::uo) is det.
+
+write_node(Stream, Node) -->
+	{ sym_name_to_string(Node, "__", NodeStr) },
+	io__write_string(Stream, NodeStr),
+	io__write_string(Stream, ";\n").
+
+:- pred write_edge(io__output_stream::in, sym_name::in, sym_name::in, 
+		io__state::di, io__state::uo) is det.
+
+write_edge(Stream, A, B) -->
+	{ sym_name_to_string(A, "__", AStr) },
+	{ sym_name_to_string(B, "__", BStr) },
+	io__write_string(Stream, AStr),
+	io__write_string(Stream, " -> "),
+	io__write_string(Stream, BStr),
+	io__write_string(Stream, ";\n").
+*/
 
 :- pred maybe_output_module_order(module_name::in, list(set(module_name))::in,
 	io__state::di, io__state::uo) is det.
@@ -2936,8 +3033,7 @@ deps_list_to_deps_rel([Deps | DepsList], DepsMap,
 add_int_deps(ModuleKey, ModuleImports, Rel0, Rel) :-
 	AddDep = add_dep(ModuleKey),
 	list__foldl(AddDep, ModuleImports ^ parent_deps, Rel0, Rel1),
-	list__foldl(AddDep, ModuleImports ^ int_deps, Rel1, Rel2),
-	list__foldl(AddDep, ModuleImports ^ public_children, Rel2, Rel).
+	list__foldl(AddDep, ModuleImports ^ int_deps, Rel1, Rel).
 
 % add direct implementation dependencies for a module to the
 % impl. deps relation
@@ -3313,6 +3409,18 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".javas = "),
+	write_compact_dependencies_list(Modules, "$(javas_subdir)", ".java",
+					Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".classes = "),
+	write_compact_dependencies_list(Modules, "$(classes_subdir)", ".class",
+					Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".dirs = "),
 	write_compact_dependencies_list(Modules, "$(dirs_subdir)", ".dir",
 					Basis, DepStream),
@@ -3364,6 +3472,12 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, ".il_dates = "),
 	write_compact_dependencies_list(Modules, "$(il_dates_subdir)",
 					".il_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".java_dates = "),
+	write_compact_dependencies_list(Modules, "$(java_dates_subdir)",
+					".java_date", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -3557,8 +3671,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 			"$(", MakeVarName, ".os) ",
 			InitObjFileName, " ", All_MLObjsString, " ",
 			All_MLLibsDepString, "\n",
-		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -o ",
-			ExeFileName, " ", InitObjFileName, " \\\n",
+		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -- $(ALL_LDFLAGS) ",
+			"-o ", ExeFileName, " ", InitObjFileName, " \\\n",
 		"\t	$(", MakeVarName, ".os) ", All_MLObjsString,
 			" $(ALL_MLLIBS)\n"]
 	},
@@ -3583,8 +3697,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_strings(DepStream, [
 		SplitExeFileName, " : ", SplitLibFileName, " ",
 			InitObjFileName, " ", All_MLLibsDepString, "\n",
-		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -o ",
-			SplitExeFileName, " ", InitObjFileName, " \\\n",
+		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -- $(ALL_LDFLAGS) ",
+			"-o ", SplitExeFileName, " ", InitObjFileName, " \\\n",
 		"\t	", SplitLibFileName, " $(ALL_MLLIBS)\n\n"
 	]),
 
@@ -3652,7 +3766,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 			"$(", MakeVarName, ".pic_os) ",
 			All_MLPicObjsString, " ", All_MLLibsDepString, "\n",
 		"\t$(ML) --make-shared-lib $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) ",
-			"-o ", SharedLibFileName, " \\\n",
+			"-- $(ALL_LD_LIBFLAGS) -o ", SharedLibFileName, " \\\n",
 		"\t\t$(", MakeVarName, ".pic_os) ", All_MLPicObjsString,
 			" $(ALL_MLLIBS)\n\n"
 	]),
@@ -3775,6 +3889,10 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 						RLOsTargetName),
 	module_name_to_file_name(ModuleName, ".ils", no,
 						ILsTargetName),
+	module_name_to_file_name(ModuleName, ".javas", no,
+						JavasTargetName),
+	module_name_to_file_name(ModuleName, ".classes", no,
+						ClassesTargetName),
 
 	% We need to explicitly mention
 	% $(foo.pic_ss) somewhere in the Mmakefile, otherwise it
@@ -3802,13 +3920,23 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		".PHONY : ", RLOsTargetName, "\n",
 		RLOsTargetName, " : $(", MakeVarName, ".rlos)\n\n",
 		".PHONY : ", ILsTargetName, "\n",
-		ILsTargetName, " : $(", MakeVarName, ".ils)\n\n"
+		ILsTargetName, " : $(", MakeVarName, ".ils)\n\n",
+		".PHONY : ", JavasTargetName, "\n",
+		JavasTargetName, " : $(", MakeVarName, ".javas)\n\n",
+		".PHONY : ", ClassesTargetName, "\n",
+		ClassesTargetName, " : $(", MakeVarName, ".classes)\n\n"
 	]),
 
 
 	%
 	% If you change the clean targets below, please also update the
 	% documentation in doc/user_guide.texi.
+	%
+	% XXX The use of xargs in the clean targets doesn't handle
+	% special characters in the file names correctly.  This is
+	% currently not a problem in practice as we never generate
+	% names containing special characters, any fix for this problem
+	% will also require a fix in `mmake.in'.
 	%
 
 	module_name_to_file_name(SourceModuleName, ".clean", no,
@@ -3819,24 +3947,29 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_strings(DepStream, [
 		".PHONY : ", CleanTargetName, "\n",
 		CleanTargetName, " :\n",
-		"\t-rm -rf $(", MakeVarName, ".dirs)\n",
-		"\t-rm -f $(", MakeVarName, ".cs) ", InitCFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".all_ss) ", InitAsmFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".all_pic_ss) ",
-					InitAsmFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".all_os) ", InitObjFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".all_pic_os) ",
-					InitPicObjFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".c_dates)\n",
-		"\t-rm -f $(", MakeVarName, ".il_dates)\n",
-		"\t-rm -f $(", MakeVarName, ".all_s_dates)\n",
-		"\t-rm -f $(", MakeVarName, ".all_pic_s_dates)\n",
-		"\t-rm -f $(", MakeVarName, ".useds)\n",
-		"\t-rm -f $(", MakeVarName, ".ils)\n",
-		"\t-rm -f $(", MakeVarName, ".profs)\n",
-		"\t-rm -f $(", MakeVarName, ".errs)\n",
-		"\t-rm -f $(", MakeVarName, ".foreign_cs)\n",
-		"\t-rm -f $(", MakeVarName, ".schemas)\n"
+		"\t-echo $(", MakeVarName, ".dirs) | xargs rm -rf \n",
+		"\t-echo $(", MakeVarName, ".cs) ", InitCFileName,
+				" | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_ss) ", InitAsmFileName,
+				" | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_pic_ss) ",
+					InitAsmFileName, " | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_os) ", InitObjFileName,
+				" | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_pic_os) ",
+					InitPicObjFileName, " | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".c_dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".il_dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".java_dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_s_dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_pic_s_dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".useds) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".ils) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".javas) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".profs) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".errs) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".foreign_cs) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".schemas) | xargs rm -f\n"
 	]),
 
 	io__write_string(DepStream, "\n"),
@@ -3849,21 +3982,22 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_strings(DepStream, [
 		".PHONY : ", RealCleanTargetName, "\n",
 		RealCleanTargetName, " : ", CleanTargetName, "\n",
-		"\t-rm -f $(", MakeVarName, ".dates)\n",
-		"\t-rm -f $(", MakeVarName, ".date0s)\n",
-		"\t-rm -f $(", MakeVarName, ".date3s)\n",
-		"\t-rm -f $(", MakeVarName, ".optdates)\n",
-		"\t-rm -f $(", MakeVarName, ".trans_opt_dates)\n",
-		"\t-rm -f $(", MakeVarName, ".ints)\n",
-		"\t-rm -f $(", MakeVarName, ".int0s)\n",
-		"\t-rm -f $(", MakeVarName, ".int3s)\n",
-		"\t-rm -f $(", MakeVarName, ".opts)\n",
-		"\t-rm -f $(", MakeVarName, ".trans_opts)\n",
-		"\t-rm -f $(", MakeVarName, ".ds)\n",
-		"\t-rm -f $(", MakeVarName, ".all_hs)\n",
-		"\t-rm -f $(", MakeVarName, ".dlls)\n",
-		"\t-rm -f $(", MakeVarName, ".foreign_dlls)\n",
-		"\t-rm -f $(", MakeVarName, ".rlos)\n"
+		"\t-echo $(", MakeVarName, ".dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".date0s) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".date3s) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".optdates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".trans_opt_dates) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".ints) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".int0s) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".int3s) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".opts) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".trans_opts) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".ds) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_hs) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".dlls) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".foreign_dlls) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".classes) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".rlos) | xargs rm -f\n"
 	]),
 	io__write_strings(DepStream, [
 		"\t-rm -f ",

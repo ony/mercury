@@ -9,11 +9,11 @@
 #include "mercury_imp.h"
 #include "mercury_string.h"
 
-#if defined(HAVE__VSNPRINTF) && ! defined(HAVE_VSNPRINTF)
+#if defined(MR_HAVE__VSNPRINTF) && ! defined(MR_HAVE_VSNPRINTF)
   #define vsnprintf	_vsnprintf
 #endif
 
-#if defined(HAVE_VSNPRINTF) || defined(HAVE__VSNPRINTF)
+#if defined(MR_HAVE_VSNPRINTF) || defined(MR_HAVE__VSNPRINTF)
   #define MR_HAVE_A_VSNPRINTF
 #endif
 
@@ -29,7 +29,7 @@ MR_make_string(MR_Code *proclabel, const char *fmt, ...) {
 #ifdef MR_HAVE_A_VSNPRINTF
 	int 		size = BUFFER_SIZE;
 	char		fixed[BUFFER_SIZE];
-	bool		dynamically_allocated = FALSE;
+	MR_bool		dynamically_allocated = MR_FALSE;
 	
 	/*
 	** On the first iteration we try with a fixed-size buffer.
@@ -59,7 +59,7 @@ MR_make_string(MR_Code *proclabel, const char *fmt, ...) {
 
 		if (!dynamically_allocated) {
 			p = MR_NEW_ARRAY(char, size);
-			dynamically_allocated = TRUE;
+			dynamically_allocated = MR_TRUE;
 		} else {
 			p = MR_RESIZE_ARRAY(p, char, size);
 		}

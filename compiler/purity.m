@@ -392,10 +392,10 @@ check_preds_purity_2([PredId | PredIds], FoundTypeError, ModuleInfo0,
 	{ module_info_set_predicate_table(ModuleInfo0, PredTable,
 					  ModuleInfo1) },
 
-	(
-		{ pred_info_get_goal_type(PredInfo0, assertion) }
-	->
-		post_typecheck__finish_assertion(ModuleInfo1,
+		% finish processing of promise declarations
+	{ pred_info_get_goal_type(PredInfo0, GoalType) },
+	( { GoalType = promise(PromiseType) } ->
+		post_typecheck__finish_promise(PromiseType, ModuleInfo1,
 				PredId, ModuleInfo2)
 	;
 		{ ModuleInfo2 = ModuleInfo1 }
@@ -884,7 +884,9 @@ perform_pred_purity_checks(PredInfo, ActualPurity, DeclaredPurity,
 		PurityCheckResult = inconsistent_promise
 	;
 		% You shouldn't promise pure unnecessarily.
-		PromisedPurity \= (impure), ActualPurity = PromisedPurity
+		% It's OK in the case of foreign_procs though.
+		PromisedPurity \= (impure), ActualPurity = PromisedPurity,
+		not pred_info_pragma_goal_type(PredInfo)
 	->
 		PurityCheckResult = unnecessary_promise_pure
 	;

@@ -253,7 +253,8 @@ add_item_decl_pass_1(
 
 add_item_decl_pass_1(pragma(_), _, Status, Module, Status, Module) --> [].
 
-add_item_decl_pass_1(assertion(_, _), _, Status, Module, Status, Module) --> [].
+add_item_decl_pass_1(promise(_, _, _, _), _, Status, Module, Status, Module)
+	--> [].
 
 add_item_decl_pass_1(module_defn(_VarSet, ModuleDefn), Context,
 		Status0, Module0, Status, Module) -->
@@ -609,7 +610,8 @@ add_item_decl_pass_2(
 		)
 	}.
 
-add_item_decl_pass_2(assertion(_, _), _, Status, Module, Status, Module) --> [].
+add_item_decl_pass_2(promise(_, _, _, _), _, Status, Module, Status, Module) 
+	--> [].
 add_item_decl_pass_2(clause(_, _, _, _, _), _, Status, Module, Status,
 		Module) --> [].
 add_item_decl_pass_2(inst_defn(_, _, _, _, _), _, Status, Module,
@@ -690,9 +692,10 @@ maybe_enable_aditi_compilation(_Status, Context, Module0, Module) -->
 add_item_clause(clause(VarSet, PredOrFunc, PredName, Args, Body),
 		Status, Status, Context, Module0, Module, Info0, Info) -->
 	check_not_exported(Status, Context, "clause"),
-	{ IsAssertion = no },
+	{ GoalType = none }, 	% at this stage we only need know that it's not
+				% a promise declaration
 	module_add_clause(Module0, VarSet, PredOrFunc, PredName,
-		Args, Body, Status, Context, IsAssertion, Module, Info0, Info).
+		Args, Body, Status, Context, GoalType, Module, Info0, Info).
 add_item_clause(type_defn(_, _, _, _, _), Status, Status, _,
 				Module, Module, Info, Info) --> [].
 add_item_clause(inst_defn(_, _, _, _, _), Status, Status, _,
@@ -796,47 +799,57 @@ add_item_clause(pragma(Pragma), Status, Status, Context,
 		{ Module = Module0 },
 		{ Info = Info0 }	
 	).
-add_item_clause(assertion(Goal0, VarSet),
+	
+add_item_clause(promise(PromiseType, Goal, VarSet, UnivVars),
 		Status, Status, Context, Module0, Module, Info0, Info) -->
-
-		%
-		% If the outermost existentially quantified variables
-		% are placed in the head of the assertion, the
-		% typechecker will avoid warning about unbound
-		% type variables as this implicity adds a universal
-		% quantification of the typevariables needed.
-		%
-	(
-		{ Goal0 = all(Vars, AllGoal) - _Context }
-	->
-		{ term__var_list_to_term_list(Vars, HeadVars) },
-		{ Goal = AllGoal }
+	%
+	% If the outermost universally quantified variables
+	% are placed in the head of the dummy predicate, the
+	% typechecker will avoid warning about unbound
+	% type variables as this implicity adds a universal
+	% quantification of the typevariables needed.
+	%
+	{ term__var_list_to_term_list(UnivVars, HeadVars) },
+	
+	% extra error checking for promise ex declarations
+	( { PromiseType \= true } ->
+		check_promise_ex_decl(UnivVars, PromiseType, Goal, Context)
 	;
-		{ HeadVars = [] },
-		{ Goal = Goal0 }
+		[]
 	),
 
+	% add as dummy predicate
+	add_promise_clause(PromiseType, HeadVars, VarSet, Goal, Context, Status,
+			Module0, Module, Info0, Info).
+
+:- pred add_promise_clause(promise_type, list(term(prog_var_type)), prog_varset,
+		goal, prog_context, import_status, module_info, module_info, 
+		qual_info, qual_info, io__state, io__state). 
+:- mode add_promise_clause(in, in, in, in, in, in, in, out, in, out, 
+		di, uo) is det.
+add_promise_clause(PromiseType, HeadVars, VarSet, Goal, Context, Status,
+		Module0, Module, Info0, Info) -->
 	{ term__context_line(Context, Line) },
 	{ term__context_file(Context, File) },
-	{ string__format("assertion__%d__%s", [i(Line), s(File)], Name) },
-
+	{ string__format(prog_out__promise_to_string(PromiseType) ++
+			"__%d__%s", [i(Line), s(File)], Name) },
 		%
-		% The assertions are recorded as a predicate whose
-		% goal_type is set to assertion.  This allows us to
-		% leverage off all the other checks in the compiler that
-		% operate on predicates.
+		% Promise declarations are recorded as a predicate with a
+		% goal_type of promise(X), where X is of promise_type. This 
+		% allows us to leverage off all the other checks in the 
+		% compiler that operate on predicates.
 		%
 		% :- promise all [A,B,R] ( R = A + B <=> R = B + A ).
 		%
 		% becomes
 		%
-		% assertion__lineno_filename(A, B, R) :-
+		% promise__lineno_filename(A, B, R) :-
 		% 	( R = A + B <=> R = B + A ).
 		%
-	{ IsAssertion = yes },
+	{ GoalType = promise(PromiseType) },
 	module_add_clause(Module0, VarSet, predicate, unqualified(Name),
-			HeadVars, Goal, Status, Context, IsAssertion, Module,
-			Info0, Info).
+			HeadVars, Goal, Status, Context, GoalType, 
+			Module, Info0, Info).
 
 add_item_clause(nothing(_), Status, Status, _,
 	Module, Module, Info, Info) --> [].
@@ -1952,17 +1965,7 @@ module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, _Cond, Context,
 		{ add_special_preds(Module2, TVarSet, Type, TypeId,
 			Body, Context, Status, Module3) },
 		{ module_info_set_types(Module3, Types, Module) },
-		( { Body = uu_type(_) } ->
-			io__stderr_stream(StdErr),
-			io__set_output_stream(StdErr, OldStream),
-			prog_out__write_context(Context),
-			io__write_string("Error in type declaration: \n"),
-			prog_out__write_context(Context),
-			io__write_string(
-	"  the syntax for type equivalence is `:- type t1 == t2'.\n"),
-			io__set_exit_status(1),
-			io__set_output_stream(OldStream, _)
-		;
+		(
 			% XXX we can't handle abstract exported
 			% polymorphic equivalence types with monomorphic
 			% bodies, because the compiler stuffs up the
@@ -2084,7 +2087,6 @@ combine_status_abstract_imported(Status2, Status) :-
 convert_type_defn(du_type(Body, EqualityPred), TypeId, Globals,
 		du_type(Body, CtorTags, IsEnum, EqualityPred)) :-
 	assign_constructor_tags(Body, TypeId, Globals, CtorTags, IsEnum).
-convert_type_defn(uu_type(Body), _, _, uu_type(Body)).
 convert_type_defn(eqv_type(Body), _, _, eqv_type(Body)).
 convert_type_defn(abstract_type, _, _, abstract_type).
 
@@ -3279,7 +3281,7 @@ add_special_pred_decl_for_real(SpecialPredId,
 	PredName = unqualified(Name),
 	special_pred_info(SpecialPredId, Type, Name, ArgTypes, ArgModes, Det),
 	special_pred_name_arity(SpecialPredId, _, _, Arity),
-	Cond = true,
+	Cond `with_type` condition = true,
 	clauses_info_init(Arity, ClausesInfo0),
 	adjust_special_pred_status(Status0, SpecialPredId, Status),
 	map__init(Proofs),
@@ -3582,13 +3584,13 @@ next_mode_id(Procs, _MaybeDet, ModeId) :-
 %-----------------------------------------------------------------------------%
 
 :- pred module_add_clause(module_info, prog_varset, pred_or_func, sym_name,
-		list(prog_term), goal, import_status, prog_context, bool,
+		list(prog_term), goal, import_status, prog_context, goal_type,
 		module_info, qual_info, qual_info, io__state, io__state).
 :- mode module_add_clause(in, in, in, in, in, in, in, in, in,
 		out, in, out, di, uo) is det.
 
 module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
-			Status, Context, IsAssertion, ModuleInfo,
+			Status, Context, GoalType, ModuleInfo,
 			Info0, Info) -->
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 	( { VeryVerbose = yes } ->
@@ -3616,7 +3618,7 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 		{ PredId = PredId0 },
 		{ ModuleInfo1 = ModuleInfo0 },
 		(
-			{ IsAssertion = yes }
+			{ GoalType = promise(_) }
 		->
 			{ prog_out__sym_name_to_string(PredName, NameString) },
 			{ string__format("%s %s %s (%s).\n",
@@ -3629,10 +3631,11 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 			[]
 		)
 	;
-		(
-				% An assertion will not have a
+				% A promise will not have a
 				% corresponding pred declaration.
-			{ IsAssertion = yes },
+		(
+			{ GoalType = promise(_) }
+		->
 			{ term__term_list_to_var_list(Args, HeadVars) },
 			{ preds_add_implicit_for_assertion(HeadVars,
 					ModuleInfo0, PredicateTable0,
@@ -3642,8 +3645,6 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 			{ module_info_set_predicate_table(ModuleInfo0,
 					PredicateTable1, ModuleInfo1) }
 		;
-			{ IsAssertion = no },
-
 			preds_add_implicit_report_error(ModuleName,
 				PredOrFunc, PredName, Arity, Status, no,
 				Context, "clause", PredId,
@@ -3744,15 +3745,16 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 			ArgTerms, ProcIdsForThisClause, ModuleInfo2, Info1),
 		clauses_info_add_clause(Clauses0, ProcIdsForThisClause,
 			ClauseVarSet, TVarSet0, ArgTerms, Body, Context,
-			Status, PredOrFunc, Arity, IsAssertion, Goal,
+			Status, PredOrFunc, Arity, GoalType, Goal,
 			VarSet, TVarSet, Clauses, Warnings,
 			ModuleInfo2, ModuleInfo3, Info1, Info),
 		{
 		pred_info_set_clauses_info(PredInfo2, Clauses, PredInfo3),
 		(
-			IsAssertion = yes
+			GoalType = promise(PromiseType)
 		->
-			pred_info_set_goal_type(PredInfo3, assertion, PredInfo4)
+			pred_info_set_goal_type(PredInfo3, promise(PromiseType),
+					PredInfo4)
 		;
 			pred_info_set_goal_type(PredInfo3, clauses, PredInfo4)
 		),
@@ -4003,10 +4005,10 @@ produce_instance_method_clause(PredOrFunc, Context, Status, InstanceClause,
 
 		{ ProcIds = [] }, % means this clause applies to _every_
 				  % mode of the procedure
-		{ IsAssertion = no },
+		{ GoalType = none },	% goal is not a promise
 		clauses_info_add_clause(ClausesInfo0, ProcIds,
 			CVarSet, TVarSet0, HeadTerms, Body, Context, Status,
-			PredOrFunc, Arity, IsAssertion, Goal,
+			PredOrFunc, Arity, GoalType, Goal,
 			VarSet, _TVarSet, ClausesInfo, Warnings,
 			ModuleInfo0, ModuleInfo, QualInfo0, QualInfo),
 
@@ -5272,14 +5274,14 @@ clauses_info_init(Arity, ClausesInfo) :-
 :- pred clauses_info_add_clause(clauses_info::in,
 		list(proc_id)::in, prog_varset::in, tvarset::in,
 		list(prog_term)::in, goal::in, prog_context::in,
-		import_status::in, pred_or_func::in, arity::in, bool::in,
+		import_status::in, pred_or_func::in, arity::in, goal_type::in,
 		hlds_goal::out, prog_varset::out, tvarset::out,
 		clauses_info::out, list(quant_warning)::out, 
 		module_info::in, module_info::out, qual_info::in,
 		qual_info::out, io__state::di, io__state::uo) is det.
 
 clauses_info_add_clause(ClausesInfo0, ModeIds0, CVarSet, TVarSet0,
-		Args, Body, Context, Status, PredOrFunc, Arity, IsAssertion,
+		Args, Body, Context, Status, PredOrFunc, Arity, GoalType,
 		Goal, VarSet, TVarSet, ClausesInfo, Warnings, Module0, Module,
 		Info0, Info) -->
 	{ ClausesInfo0 = clauses_info(VarSet0, ExplicitVarTypes0, TVarNameMap0,
@@ -5301,7 +5303,7 @@ clauses_info_add_clause(ClausesInfo0, ModeIds0, CVarSet, TVarSet0,
 			ExplicitVarTypes0, Status, Info1) },
 	{ varset__merge_subst(VarSet0, CVarSet, VarSet1, Subst) },
 	transform(Subst, HeadVars, Args, Body, VarSet1, Context, PredOrFunc,
-			Arity, IsAssertion, Goal0, VarSet, Warnings,
+			Arity, GoalType, Goal0, VarSet, Warnings,
 			transform_info(Module0, Info1),
 			transform_info(Module, Info2)),
 	{ TVarSet = Info2 ^ tvarset },
@@ -5579,7 +5581,7 @@ allocate_vars_for_saved_vars([Name | Names], [Var - Name | VarNames],
 	).
 
 :- pred transform(prog_substitution, list(prog_var), list(prog_term), goal,
-		prog_varset, prog_context, pred_or_func, arity, bool,
+		prog_varset, prog_context, pred_or_func, arity, goal_type,
 		hlds_goal, prog_varset, list(quant_warning),
 		transform_info, transform_info,
 		io__state, io__state).
@@ -5587,14 +5589,14 @@ allocate_vars_for_saved_vars([Name | Names], [Var - Name | VarNames],
 		in, out, di, uo) is det.
 
 transform(Subst, HeadVars, Args0, Body, VarSet0, Context, PredOrFunc,
-		Arity, IsAssertion, Goal, VarSet, Warnings, Info0, Info) -->
+		Arity, GoalType, Goal, VarSet, Warnings, Info0, Info) -->
 	transform_goal(Body, VarSet0, Subst, Goal1, VarSet1, Info0, Info1),
 	{ term__apply_substitution_to_list(Args0, Subst, Args) },
 		
 		% The head variables of an assertion will always be
 		% variables, so it is unnecessary to insert unifications.
 	(
-		{ IsAssertion = yes }
+		{ GoalType = promise(_) }
 	->
 		{ VarSet2 = VarSet1 },
 		{ Goal2 = Goal1 },
@@ -8412,4 +8414,134 @@ fact_table_pragma_vars(Vars0, Modes0, VarSet, PragmaVars0) :-
 		PragmaVars0 = []
 	).
 
+
 %-----------------------------------------------------------------------------%
+%
+% promise ex error checking
+%
+% The following predicates are used to perform extra error checking specific
+% to promise ex declarations (see notes/promise_ex.html). Currently, the 
+% following checks are performed:
+% 	* check for universally quantified variables
+% 	* check if universal quantification is placed in the wrong
+% 	  position (i.e. after the `promise_exclusive' rather than 
+% 	  before it)
+% 	* check that its goal is a disjunction and that each arm of the 
+% 	  disjunction has at most one call, and otherwise has only unifications
+
+	% perform above checks on a promise ex declaration
+:- pred check_promise_ex_decl(prog_vars, promise_type, goal, prog_context, 
+		io__state, io__state).
+:- mode check_promise_ex_decl(in, in, in, in, di, uo) is det.
+check_promise_ex_decl(UnivVars, PromiseType, Goal, Context) -->
+		% are universally quantified variables present?
+	(
+		{ UnivVars = [] },
+		promise_ex_error(PromiseType, Context, "declaration has no universally quantified variables")
+	;
+		{ UnivVars = [_ | _] }
+	),
+	check_promise_ex_goal(PromiseType, Goal).
+
+	% check for misplaced universal quantification, otherwise find the
+	% disjunction, flatten it out into list form and perform further
+	% checks
+:- pred check_promise_ex_goal(promise_type, goal, io__state, io__state).
+:- mode check_promise_ex_goal(in, in, di, uo) is det.
+check_promise_ex_goal(PromiseType, GoalExpr - Context) -->
+	( { GoalExpr = some(_, Goal) } ->
+		check_promise_ex_goal(PromiseType, Goal)
+	; { GoalExpr =  ( _ ; _ ) } ->
+		{ flatten_to_disj_list(GoalExpr - Context, DisjList) },
+		{ list__map(flatten_to_conj_list, DisjList, DisjConjList) },
+		check_disjunction(PromiseType, DisjConjList)
+	; { GoalExpr = all(_UnivVars, Goal) } ->
+		promise_ex_error(PromiseType, Context, "universal quantification should come before the declaration name"),
+		check_promise_ex_goal(PromiseType, Goal)
+	;
+		promise_ex_error(PromiseType, Context, "goal in declaration is not a disjunction")
+	).
+
+	% turns the goal of a promise ex declaration into a list of goals,
+	% where each goal is an arm of the disjunction
+:- pred flatten_to_disj_list(goal, goals).
+:- mode flatten_to_disj_list(in, out) is det.
+flatten_to_disj_list(GoalExpr - Context, GoalList) :-
+	( GoalExpr = ( GoalA ; GoalB ) ->
+		flatten_to_disj_list(GoalA, GoalListA),
+		flatten_to_disj_list(GoalB, GoalListB),
+		GoalList = GoalListA ++ GoalListB
+	;
+		GoalList = [GoalExpr - Context]
+	).
+
+	% takes a goal representing an arm of a disjunction and turn it into
+	% a list of conjunct goals
+:- pred flatten_to_conj_list(goal, goals).
+:- mode flatten_to_conj_list(in, out) is det.
+flatten_to_conj_list(GoalExpr - Context, GoalList) :-
+	( GoalExpr = ( GoalA , GoalB ) ->
+		flatten_to_conj_list(GoalA, GoalListA),
+		flatten_to_conj_list(GoalB, GoalListB),
+		GoalList = GoalListA ++ GoalListB
+	;
+		GoalList = [GoalExpr - Context]
+	).
+
+	% taking a list of arms of the disjunction, check each arm
+	% individually
+:- pred check_disjunction(promise_type, list(goals), io__state, io__state).
+:- mode check_disjunction(in, in, di, uo) is det.
+check_disjunction(PromiseType, DisjConjList) -->
+	(
+		{ DisjConjList = [] }
+	;
+		{ DisjConjList = [ConjList | Rest] },
+		check_disj_arm(PromiseType, ConjList, no),
+		check_disjunction(PromiseType, Rest)
+	).
+
+	% only one goal in an arm is allowed to be a call, the rest must be 
+	% unifications
+:- pred check_disj_arm(promise_type, goals, bool, io__state, io__state).
+:- mode check_disj_arm(in, in, in, di, uo) is det.
+check_disj_arm(PromiseType, Goals, CallUsed) -->
+	(
+		{ Goals = [] }
+	;
+		{ Goals = [GoalExpr - Context | Rest] },
+		( { GoalExpr = unify(_, _, _) } ->
+			check_disj_arm(PromiseType, Rest, CallUsed)
+		; { GoalExpr = some(_, Goal) } ->
+			check_disj_arm(PromiseType, [Goal | Rest], CallUsed)
+		; { GoalExpr = call(_, _, _) } ->
+			(
+				{ CallUsed = no }
+			;
+				{ CallUsed = yes },
+				promise_ex_error(PromiseType, Context, "disjunct contains more than one call")
+			),
+			check_disj_arm(PromiseType, Rest, yes)
+		;
+			promise_ex_error(PromiseType, Context, "disjunct is not a call or unification"),
+			check_disj_arm(PromiseType, Rest, CallUsed)
+		)
+	).
+
+
+	% called for any error in the above checks
+:- pred promise_ex_error(promise_type, prog_context, string, 
+		io__state, io__state).
+:- mode promise_ex_error(in, in, in, di, uo) is det.
+promise_ex_error(PromiseType, Context, Message) -->
+	{ ErrorPieces = [
+		words("In"),
+		fixed("`" ++ prog_out__promise_to_string(PromiseType) ++ "'"),
+		words("declaration:"),
+		nl,
+		words("error:"),
+		words(Message)
+		] },
+	error_util__write_error_pieces(Context, 0, ErrorPieces).
+
+%------------------------------------------------------------------------------%

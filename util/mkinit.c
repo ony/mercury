@@ -26,11 +26,11 @@
 
 #include	"mercury_conf.h"
 
-#ifdef HAVE_SYS_STAT_H
+#ifdef MR_HAVE_SYS_STAT_H
   #include	<sys/stat.h>
 #endif
 
-#ifdef HAVE_UNISTD_H
+#ifdef MR_HAVE_UNISTD_H
   #include	<unistd.h>
 #endif
 
@@ -162,11 +162,11 @@ static const char *grade = "";
 static int maxcalls = MAXCALLS;
 static int num_files;
 static char **files;
-static bool output_main_func = TRUE;
-static bool c_files_contain_extra_inits = FALSE;
-static bool aditi = FALSE;
-static bool need_initialization_code = FALSE;
-static bool need_tracing = FALSE;
+static MR_bool output_main_func = MR_TRUE;
+static MR_bool c_files_contain_extra_inits = MR_FALSE;
+static MR_bool aditi = MR_FALSE;
+static MR_bool need_initialization_code = MR_FALSE;
+static MR_bool need_tracing = MR_FALSE;
 
 static int num_errors = 0;
 
@@ -209,7 +209,7 @@ static const char header2[] =
 	"** on these machines, init_gc must be statically linked.\n"
 	"*/\n"
 	"\n"
-	"#ifdef CONSERVATIVE_GC\n"
+	"#ifdef MR_CONSERVATIVE_GC\n"
 	"static void init_gc(void)\n"
 	"{\n"
 	"	GC_INIT();\n"
@@ -236,7 +236,7 @@ static const char mercury_funcs1[] =
 	"  MR_declare_entry(%s);\n"
 	"#endif\n"
 	"\n"
-	"#if defined(USE_DLLS)\n"
+	"#if defined(MR_USE_DLLS)\n"
 	"  #if !defined(libmer_DEFINE_DLL)\n"
 	"       #define libmer_impure_ptr \\\n"
 	"		(*__imp_libmer_impure_ptr)\n"
@@ -269,7 +269,7 @@ static const char mercury_funcs1[] =
 	"mercury_init(int argc, char **argv, char *stackbottom)\n"
 	"{\n"
 	"\n"
-	"#ifdef CONSERVATIVE_GC\n"
+	"#ifdef MR_CONSERVATIVE_GC\n"
 	"	/*\n"
 	"	** Explicitly register the bottom of the stack, so that the\n"
 	"	** GC knows where it starts.  This is necessary for AIX 4.1\n"
@@ -284,7 +284,7 @@ static const char mercury_funcs1[] =
 	"** to take special steps to initialize _impure_ptr\n"
 	"** for the DLLs.\n"
 	"*/\n"
-	"#if defined(USE_DLLS)\n"
+	"#if defined(MR_USE_DLLS)\n"
 	"  #if !defined(libmer_DEFINE_DLL)\n"
 	"	libmer_impure_ptr = _impure_ptr;\n"
 	"  #endif\n"
@@ -319,7 +319,7 @@ static const char mercury_funcs2[] =
 	"	MR_address_of_type_ctor_info_for_tuple ="
 	"		&mercury_data___type_ctor_info_tuple_0;\n"
 	"#endif\n"
-	"#ifdef CONSERVATIVE_GC\n"
+	"#ifdef MR_CONSERVATIVE_GC\n"
 	"	MR_address_of_init_gc = init_gc;\n"
 	"#endif\n"
 	"	MR_library_initializer = ML_io_init_state;\n"
@@ -354,7 +354,7 @@ static const char mercury_funcs2[] =
 	"	MR_address_of_trace_final_external = NULL;\n"
 	"  #endif\n"
 	"#endif\n"
-	"#if defined(USE_GCC_NONLOCAL_GOTOS) && !defined(USE_ASM_LABELS)\n"
+	"#if defined(MR_USE_GCC_NONLOCAL_GOTOS) && !defined(MR_USE_ASM_LABELS)\n"
 	"	MR_do_init_modules();\n"
 	"#endif\n"
 	"#ifdef MR_HIGHLEVEL_CODE\n"
@@ -412,7 +412,7 @@ static	void	usage(void);
 static	void	set_output_file(void);
 static	void	do_path_search(void);
 static	char	*find_init_file(const char *base_name);
-static	bool	file_exists(const char *filename);
+static	MR_bool	file_exists(const char *filename);
 static	void	output_headers(void);
 static	int	output_sub_init_functions(Purpose purpose);
 static	void	output_main_init_function(Purpose purpose, int num_bunches);
@@ -426,14 +426,14 @@ static	void	process_init_file(const char *filename, int *num_bunches_ptr,
 			int *num_calls_in_cur_bunch_ptr, Purpose purpose);
 static	void	output_init_function(const char *func_name,
 			int *num_bunches_ptr, int *num_calls_in_cur_bunch_ptr,
-			Purpose purpose, bool special_module);
+			Purpose purpose, MR_bool special_module);
 static	void	add_rl_data(char *data);
 static	int	get_line(FILE *file, char *line, int line_max);
 static	void	*checked_malloc(size_t size);
 
 /*---------------------------------------------------------------------------*/
 
-#ifndef HAVE_STRERROR
+#ifndef MR_HAVE_STRERROR
 
 /*
 ** Apparently SunOS 4.1.3 doesn't have strerror()
@@ -523,7 +523,7 @@ parse_options(int argc, char *argv[])
 	while ((c = getopt(argc, argv, "ac:g:iI:lo:r:tw:x")) != EOF) {
 		switch (c) {
 		case 'a':
-			aditi = TRUE;
+			aditi = MR_TRUE;
 			break;
 
 		case 'c':
@@ -536,7 +536,7 @@ parse_options(int argc, char *argv[])
 			break;
 
 		case 'i':
-			need_initialization_code = TRUE;
+			need_initialization_code = MR_TRUE;
 			break;
 
 		case 'I':
@@ -555,7 +555,7 @@ parse_options(int argc, char *argv[])
 			break;
 
 		case 'l':
-			output_main_func = FALSE;
+			output_main_func = MR_FALSE;
 			break;
 
 		case 'o':
@@ -584,8 +584,8 @@ parse_options(int argc, char *argv[])
 			break;
 
 		case 't':
-			need_tracing = TRUE;
-			need_initialization_code = TRUE;
+			need_tracing = MR_TRUE;
+			need_initialization_code = MR_TRUE;
 			break;
 
 		case 'w':
@@ -593,7 +593,7 @@ parse_options(int argc, char *argv[])
 			break;
 
 		case 'x':
-			c_files_contain_extra_inits = TRUE;
+			c_files_contain_extra_inits = MR_TRUE;
 			break;
 
 		default:
@@ -710,10 +710,10 @@ find_init_file(const char *base_name)
 	/*
 	** Check whether a file exists.
 	*/
-static bool
+static MR_bool
 file_exists(const char *filename)
 {
-#ifdef HAVE_SYS_STAT_H
+#ifdef MR_HAVE_SYS_STAT_H
 	struct stat buf;
 
 	return (stat(filename, &buf) == 0);
@@ -721,9 +721,9 @@ file_exists(const char *filename)
 	FILE *f = fopen(filename, "rb");
 	if (f != NULL) {
 		fclose(f);
-		return TRUE;
+		return MR_TRUE;
 	} else {
-		return FALSE;
+		return MR_FALSE;
 	}
 #endif
 }
@@ -946,7 +946,7 @@ process_c_file(const char *filename, int *num_bunches_ptr,
 	strcat(func_name, "__");
 
 	output_init_function(func_name, num_bunches_ptr,
-		num_calls_in_cur_bunch_ptr, purpose, FALSE);
+		num_calls_in_cur_bunch_ptr, purpose, MR_FALSE);
 
 	if (aditi) {
 		char *rl_data_name;
@@ -992,7 +992,7 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 			char	*func_name;
 			int	func_name_len;
 		int	j;
-			bool	special;
+			MR_bool	special;
 
 		for (j = init_strlen;
 			MR_isalnum(line[j]) || line[j] == '_'; j++)
@@ -1003,12 +1003,12 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 
 			func_name = line + init_strlen;
 			func_name_len = strlen(func_name);
-			if (strneq(&func_name[func_name_len - 4], "init", 4))
+			if (MR_strneq(&func_name[func_name_len - 4], "init", 4))
 			{
 				func_name[func_name_len - 4] = '\0';
-				special = FALSE;
+				special = MR_FALSE;
 			} else {
-				special = TRUE;
+				special = MR_TRUE;
 			}
 
 			output_init_function(func_name, num_bunches_ptr,
@@ -1051,7 +1051,8 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 
 static void 
 output_init_function(const char *func_name, int *num_bunches_ptr,
-	int *num_calls_in_cur_bunch_ptr, Purpose purpose, bool special_module)
+	int *num_calls_in_cur_bunch_ptr, Purpose purpose,
+	MR_bool special_module)
 {
 	if (purpose == PURPOSE_DEBUGGER) {
 		if (special_module) {

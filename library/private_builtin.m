@@ -370,13 +370,13 @@ void sys_init_type_info_module_write_out_proc_statics(FILE *fp);
 
 #ifdef	MR_DEEP_PROFILING
 MR_proc_static_compiler_empty(private_builtin, __Unify__,   type_info,
-	1, 0, ""private_builtin.m"", 0, TRUE);
+	1, 0, ""private_builtin.m"", 0, MR_TRUE);
 MR_proc_static_compiler_empty(private_builtin, __Compare__, type_info,
-	1, 0, ""private_builtin.m"", 0, TRUE);
+	1, 0, ""private_builtin.m"", 0, MR_TRUE);
 MR_proc_static_compiler_empty(private_builtin, __Unify__,   typeclass_info,
-	1, 0, ""private_builtin.m"", 0, TRUE);
+	1, 0, ""private_builtin.m"", 0, MR_TRUE);
 MR_proc_static_compiler_empty(private_builtin, __Compare__, typeclass_info,
-	1, 0, ""private_builtin.m"", 0, TRUE);
+	1, 0, ""private_builtin.m"", 0, MR_TRUE);
 #endif
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(private_builtin, type_ctor_info, 1,
@@ -915,16 +915,22 @@ static void init_runtime(void)
 % Default (Mercury) implementations.
 % These should be overridden by the appropriate foreign language implementation.
 store_ticket(_Ticket::out) :-
+	impure imp,
 	sorry("private_builtin__store_ticket/1").
 reset_ticket_undo(_Ticket::in) :-
+	impure imp,
 	sorry("private_builtin__reset_ticket_undo/1").
 reset_ticket_commit(_Ticket::in) :-
+	impure imp,
 	sorry("private_builtin__reset_ticket_commit/1").
 reset_ticket_solve(_Ticket::in) :-
+	impure imp,
 	sorry("private_builtin__reset_ticket_solve/1").
 mark_ticket_stack(_TicketCounter::out) :-
+	impure imp,
 	sorry("private_builtin__mark_ticket_stack/1").
 prune_tickets_to(_TicketCounter::in) :-
+	impure imp,
 	sorry("private_builtin__prune_tickets_to/1").
 /****
 % XXX we can't give default Mercury implementations for these,
@@ -1111,9 +1117,7 @@ trailed_nondet_pragma_foreign_code :-
 	% The `di' mode on the argument is overly conservative -- only
 	% the top-level cell is clobbered. This is handled correctly by
 	% mode_util__recompute_instmap_delta.
-	% XXX Why isn't this marked as `impure'?
-:- pred free_heap(_T).
-:- mode free_heap(di) is det.
+:- impure pred free_heap(T::di) is det.
 
 	% gc_trace/1 is used for accurate garbage collection in the
 	% the MLDS->C backend.  It takes as parameters a pointer to
@@ -1137,7 +1141,7 @@ trailed_nondet_pragma_foreign_code :-
 	% For documentation, see the corresponding LLDS instructions
 	% in compiler/llds.m.  See also compiler/notes/trailing.html.
 
-:- type heap_pointer == c_pointer.
+:- type heap_pointer.
 
 :- impure pred mark_hp(heap_pointer::out) is det.
 :- impure pred restore_hp(heap_pointer::in) is det.
@@ -1152,6 +1156,16 @@ trailed_nondet_pragma_foreign_code :-
 
 :- implementation.
 
+/*
+** These routines are defined in C in ways which may make it not obvious
+** to the Mercury compiler that they are worth inlining.
+**
+** (Note: it's probably not worth inlining gc_trace/1...)
+*/
+:- pragma inline(free_heap/1).
+:- pragma inline(mark_hp/1).
+:- pragma inline(restore_hp/1).
+
 :- pragma foreign_decl("C", "
 	#include ""mercury_heap.h""	/* for MR_free_heap() */
 ").
@@ -1159,12 +1173,13 @@ trailed_nondet_pragma_foreign_code :-
 % default (Mercury) implementation for gc_trace/1
 % This should be overridden by the appropriate foreign language implementation.
 gc_trace(_::in) :-
+	impure imp,
 	sorry("private_builtin__gc_trace/1").
 
 :- pragma foreign_proc("C", gc_trace(Pointer::in),
 	[will_not_call_mercury, thread_safe],
 "
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
 	*(MR_Word *)Pointer =
 		MR_agc_deep_copy((MR_Word *) Pointer,
 			(MR_TypeInfo) TypeInfo_for_T,
@@ -1179,6 +1194,7 @@ gc_trace(_::in) :-
 % default (Mercury) implementation for free_heap/1
 % This should be overridden by the appropriate foreign language implementation.
 free_heap(_::di) :-
+	impure imp,
 	sorry("private_builtin__free_heap/1").
 
 :- pragma foreign_proc("C", free_heap(Val::di),
@@ -1188,8 +1204,10 @@ free_heap(_::di) :-
 % default (Mercury) implementations for mark_hp/1 and restore_hp/1.
 % This should be overridden by the appropriate foreign language implementation.
 mark_hp(_::out) :-
+	impure imp,
 	sorry("private_builtin__mark_hp/1").
 restore_hp(_::in) :-
+	impure imp,
 	sorry("private_builtin__restore_hp/1").
 
 :- pragma foreign_proc("C", mark_hp(SavedHeapPointer::out),
@@ -1235,6 +1253,165 @@ reclaim_heap_nondet_pragma_foreign_code :-
 
 %-----------------------------------------------------------------------------%
 
+% Code to define the `heap_pointer' type for the LLDS and .NET back-ends.
+% (For the MLDS->C back-end, this type is defined in runtime/mercury.c.)
+
+:- pragma foreign_code("C", "
+
+#include ""mercury_deep_profiling_hand.h""
+
+/* Ensure that the initialization code for the module below gets run. */
+/*
+INIT sys_init_heap_pointer_module
+*/
+
+/* duplicate declarations to suppress gcc -Wmissing-decl warning */
+void sys_init_heap_pointer_module_init(void);
+void sys_init_heap_pointer_module_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void sys_init_heap_pointer_module_write_out_proc_statics(FILE *fp);
+#endif
+
+#ifndef MR_HIGHLEVEL_CODE
+
+#ifdef	MR_DEEP_PROFILING
+MR_proc_static_compiler_empty(private_builtin, __Unify__,   heap_pointer,
+	0, 0, ""private_builtin.m"", 0, MR_TRUE);
+MR_proc_static_compiler_empty(private_builtin, __Compare__, heap_pointer,
+	0, 0, ""private_builtin.m"", 0, MR_TRUE);
+#endif
+
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(private_builtin, heap_pointer, 0,
+	MR_TYPECTOR_REP_HP,
+	mercury____Unify___private_builtin__heap_pointer_0_0,
+	mercury____Compare___private_builtin__heap_pointer_0_0);
+
+MR_declare_entry(mercury____Unify___private_builtin__heap_pointer_0_0);
+MR_declare_entry(mercury____Index___private_builtin__heap_pointer_0_0);
+MR_declare_entry(mercury____Compare___private_builtin__heap_pointer_0_0);
+
+MR_BEGIN_MODULE(heap_pointer_module)
+	MR_init_entry(mercury____Unify___private_builtin__heap_pointer_0_0);
+	MR_init_entry(mercury____Compare___private_builtin__heap_pointer_0_0);
+#ifdef	MR_DEEP_PROFILING
+	MR_init_label(mercury____Unify___private_builtin__heap_pointer_0_0_i1);
+	MR_init_label(mercury____Unify___private_builtin__heap_pointer_0_0_i2);
+	MR_init_label(mercury____Unify___private_builtin__heap_pointer_0_0_i3);
+	MR_init_label(mercury____Unify___private_builtin__heap_pointer_0_0_i4);
+	MR_init_label(mercury____Compare___private_builtin__heap_pointer_0_0_i1);
+	MR_init_label(mercury____Compare___private_builtin__heap_pointer_0_0_i2);
+#endif
+MR_BEGIN_CODE
+
+#define	proc_label	mercury____Unify___private_builtin__heap_pointer_0_0
+#define	proc_static	MR_proc_static_compiler_name(private_builtin, \
+				__Unify__, heap_pointer, 0, 0)
+#define	body_code	MR_fatal_error( \
+		""called unify for type `private_builtin:heap_pointer'"")
+
+#include ""mercury_hand_unify_body.h""
+
+#undef	body_code
+#undef	proc_static
+#undef	proc_label
+
+#define	proc_label	mercury____Compare___private_builtin__heap_pointer_0_0
+#define	proc_static	MR_proc_static_compiler_name(private_builtin, \
+				__Compare__, heap_pointer, 0, 0)
+#define	body_code	MR_fatal_error( \
+		""called compare/3 for type `private_builtin:heap_pointer'"")
+
+#include ""mercury_hand_compare_body.h""
+
+#undef	body_code
+#undef	proc_static
+#undef	proc_label
+
+MR_END_MODULE
+
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc heap_pointer_module;
+
+#endif /* ! MR_HIGHLEVEL_CODE */
+
+void
+sys_init_heap_pointer_module_init(void)
+{
+#ifndef	MR_HIGHLEVEL_CODE
+	heap_pointer_module();
+
+	MR_INIT_TYPE_CTOR_INFO(
+		mercury_data_private_builtin__type_ctor_info_heap_pointer_0,
+		private_builtin__heap_pointer_0_0);
+#endif
+}
+
+void
+sys_init_heap_pointer_module_init_type_tables(void)
+{
+#ifndef	MR_HIGHLEVEL_CODE
+	MR_register_type_ctor_info(
+		&mercury_data_private_builtin__type_ctor_info_heap_pointer_0);
+#endif
+}
+
+#ifdef	MR_DEEP_PROFILING
+void
+sys_init_heap_pointer_module_write_out_proc_statics(FILE *fp)
+{
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_compiler_name(private_builtin, __Unify__,
+			heap_pointer, 0, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_compiler_name(private_builtin, __Compare__,
+			heap_pointer, 0, 0));
+}
+#endif
+
+").
+
+
+:- pragma foreign_code("MC++", "
+	
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, heap_pointer, 0,
+	MR_TYPECTOR_REP_HP) 
+
+static int
+__Unify__private_builtin__heap_pointer_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `private_builtin:heap_pointer'"");
+	return 0;
+}
+
+static void
+__Compare__private_builtin__heap_pointer_0_0(
+	MR_Word_Ref result, MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `private_builtin:heap_pointer'"");
+}
+
+static int
+do_unify__heap_pointer_0_0(MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `private_builtin:heap_pointer'"");
+	return 0;
+}
+
+static void
+do_compare__heap_pointer_0_0(
+	MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `private_builtin:heap_pointer'"");
+	return;
+}
+
+").
+
+%-----------------------------------------------------------------------------%
+
 :- interface.
 
 	% This section of the module is for miscellaneous predicates
@@ -1253,6 +1430,9 @@ reclaim_heap_nondet_pragma_foreign_code :-
 
 	% N.B. interface continued below.
 
+:- pred nyi_foreign_type_unify(T::in, T::in) is semidet.
+:- pred nyi_foreign_type_compare(comparison_result::uo, T::in, T::in) is det.
+
 :- implementation.
 
 % unsafe_type_cast is a builtin; the compiler generates inline code for it
@@ -1263,6 +1443,20 @@ unused :-
 	;
 		% the following is never executed
 		true
+	).
+
+nyi_foreign_type_unify(_, _) :-
+	( semidet_succeed ->
+		sorry("unify for foreign types")
+	;
+		semidet_succeed
+	).
+
+nyi_foreign_type_compare(Result, _, _) :-
+	( semidet_succeed ->
+		sorry("compare for foreign types")
+	;
+		Result = (=)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -1291,6 +1485,9 @@ unused :-
 
 :- pred sorry(string::in) is erroneous.
 
+% imp/0 is used to make pure predicates impure.
+:- impure pred imp is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
@@ -1306,6 +1503,10 @@ nonvar(_::unused) :- fail.
 sorry(PredName) :-
 	error("sorry, `" ++ PredName ++ "' not implemented\n" ++
 		"for this target language (or compiler back-end).").
+
+:- pragma foreign_proc(c, imp, [will_not_call_mercury, thread_safe], "").
+:- pragma foreign_proc(il, imp,
+		[will_not_call_mercury, thread_safe, max_stack_size(0)], "").
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

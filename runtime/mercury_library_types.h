@@ -27,7 +27,7 @@
   typedef struct mercury_file {
 	FILE *file1;
 	int line_number1;
-  #ifdef NATIVE_GC
+  #ifdef MR_NATIVE_GC
 	int id;
   #endif
   } MercuryFile;
@@ -35,7 +35,7 @@
   #define MR_file(mf)		(mf).file1
   #define MR_line_number(mf)	(mf).line_number1
 
-  #define MR_IS_FILE_STREAM(mf)	( TRUE )
+  #define MR_IS_FILE_STREAM(mf)	( MR_TRUE )
 
   #define MR_MERCURYFILE_INIT(file, line_number)		\
   		{ (file), (line_number) }
@@ -104,7 +104,7 @@
 	MR_StreamType	stream_type;
 	MR_StreamInfo	stream_info;
 	int		line_number;
-  #ifdef NATIVE_GC
+  #ifdef MR_NATIVE_GC
 	int id;
   #endif
 

@@ -19,6 +19,7 @@ namespace mercury {
 typedef int		MR_Integer;
 typedef System::Int32	MR_BoxedInt;
 typedef System::Boolean	MR_Bool;
+typedef System::Boolean	MR_bool;
 
 typedef System::Char	MR_Char; // `Char' is MS's name for unicode characters
 
@@ -35,6 +36,8 @@ typedef void (*MR_Cont) (void *);
 // Should these be MR_ qualified?
 #define TRUE 1
 #define FALSE 0
+#define MR_TRUE 1
+#define MR_FALSE 0
 
 
 

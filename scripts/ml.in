@@ -311,6 +311,22 @@ case $make_shared_lib in
 	;;
 esac
 
+# if the --print-link-command option is specified,
+# then all we do is print the command used to link executables
+# and then exit.
+case "$print_link_command" in true)
+	echo $LINKER
+	exit 0
+esac
+
+# if the --print-shared-lib-command option is specified,
+# then all we do is print the command used to link executables
+# and then exit.
+case "$print_shared_lib_link_command" in true)
+	echo $LINK_SHARED_OBJ
+	exit 0
+esac
+
 merc_libdir_opts="\
 	@LIB_LIBPATH@$LIBDIR/$GRADE/$FULLARCH
 	@LIB_LIBPATH@$LIBDIR/$FULLARCH

@@ -88,12 +88,18 @@
 :- import_module hlds_out, builtin_ops.
 :- import_module ml_code_gen, ml_call_gen, ml_type_gen.
 :- import_module prog_util, type_util, mode_util.
-:- import_module rtti, error_util.
-:- import_module code_util. % XXX needed for `code_util__cons_id_to_tag'.
+:- import_module pseudo_type_info, rtti, rtti_to_mlds, error_util.
 :- import_module globals, options.
 
+% XXX The following modules depend on the LLDS,
+% so ideally they should not be used here.
+:- import_module code_util. 	    % needed for `cons_id_to_tag'.
+:- import_module continuation_info. % needed for `generate_closure_layout'
+:- import_module stack_layout.      % needed for `represent_locn_as_int'
+:- import_module llds.       	    % needed for `layout_locn'
+
 :- import_module bool, int, string, list, map, require, std_util, term, varset.
-:- import_module assoc_list.
+:- import_module assoc_list, set.
 
 %-----------------------------------------------------------------------------%
 
@@ -313,7 +319,7 @@ ml_gen_static_const_arg(Var, StaticCons, Rval) -->
 :- mode ml_gen_static_const_arg_2(in, in, in, in, out, in, out) is det.
 
 ml_gen_static_const_arg_2(Tag, VarType, Var, StaticCons, Rval) -->
-	{ StaticCons = static_cons(_ConsId, ArgVars, StaticArgs) }, 
+	{ StaticCons = static_cons(ConsId, ArgVars, StaticArgs) }, 
 	(
 		%
 		% types for which some other constructor has a
@@ -355,17 +361,20 @@ ml_gen_static_const_arg_2(Tag, VarType, Var, StaticCons, Rval) -->
 		% If this argument is something that would normally be allocated
 		% on the heap, just generate a reference to the static constant
 		% that we must have already generated for it.
-		% XXX Using mlds__array_type(mlds__generic_type) is probably 
-		% wrong when `--high-level-data' is enabled.
 		%
-		{ ConstType = mlds__array_type(mlds__generic_type) },	
+		ml_gen_type(VarType, MLDS_VarType),
+		ml_gen_info_get_globals(Globals),
+		{ globals__lookup_bool_option(Globals, highlevel_data,
+			HighLevelData) },
+		{ UsesBaseClass = (ml_tag_uses_base_class(Tag) -> yes ; no) },
+		{ ConstType = get_type_for_cons_id(MLDS_VarType,
+			UsesBaseClass, yes(ConsId), HighLevelData) },
 		ml_gen_static_const_addr(Var, ConstType, ConstAddrRval),
 		{ TagVal = 0 ->
 			TaggedRval = ConstAddrRval
 		;
 			TaggedRval = mkword(TagVal, ConstAddrRval)
 		},
-		ml_gen_type(VarType, MLDS_VarType),
 		{ Rval = unop(cast(MLDS_VarType), TaggedRval) }
 	;
 		%
@@ -401,17 +410,7 @@ ml_gen_constant(shared_local_tag(Bits1, Num1), VarType, Rval) -->
 ml_gen_constant(type_ctor_info_constant(ModuleName0, TypeName, TypeArity),
 		VarType, Rval) -->
 	ml_gen_type(VarType, MLDS_VarType),
-	%
-	% Although the builtin types `int', `float', etc. are treated as part
-	% of the `builtin' module, for historical reasons they don't have
-	% any qualifiers at this point, so we need to add the `builtin'
-	% qualifier now.
-	%
-	{ ModuleName0 = unqualified("") ->
-		mercury_public_builtin_module(ModuleName)
-	;
-		ModuleName = ModuleName0
-	},
+	{ ModuleName = fixup_builtin_module(ModuleName0) },
 	{ MLDS_Module = mercury_module_name_to_mlds(ModuleName) },
 	{ RttiTypeId = rtti_type_id(ModuleName, TypeName, TypeArity) },
 	{ DataAddr = data_addr(MLDS_Module,
@@ -442,6 +441,9 @@ ml_gen_constant(tabling_pointer_constant(PredId, ProcId), VarType, Rval) -->
 ml_gen_constant(deep_profiling_proc_static_tag(_), _, _) -->
 	{ error("ml_gen_constant: deep_profiling_proc_static_tag not yet supported") }.
 
+ml_gen_constant(table_io_decl_tag(_), _, _) -->
+	{ error("ml_gen_constant: table_io_decl_tag not yet supported") }.
+
 ml_gen_constant(code_addr_constant(PredId, ProcId), _, ProcAddrRval) -->
 	ml_gen_proc_addr_rval(PredId, ProcId, ProcAddrRval).
 
@@ -471,6 +473,20 @@ ml_gen_constant(shared_remote_tag(_, _), _, _) -->
 	{ error("ml_gen_constant: shared_remote_tag") }.
 ml_gen_constant(pred_closure_tag(_, _, _), _, _) -->
 	{ error("ml_gen_constant: pred_closure_tag") }.
+
+	%
+	% Although the builtin types `int', `float', etc. are treated as part
+	% of the `builtin' module, for historical reasons they don't have
+	% any qualifiers at this point, so we need to add the `builtin'
+	% qualifier now.
+	%
+:- func fixup_builtin_module(module_name) = module_name.
+fixup_builtin_module(ModuleName0) = ModuleName :-
+	( ModuleName0 = unqualified("") ->
+		mercury_public_builtin_module(ModuleName)
+	;
+		ModuleName = ModuleName0
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -553,16 +569,13 @@ ml_gen_closure(PredId, ProcId, EvalMethod, Var, ArgVars, ArgModes,
 	),
 
 	%
-	% Generate a dummy value for the closure layout
-	% (we do this just to match the structure used
-	% by the LLDS closure representation)
+	% Generate a value for the closure layout;
+	% this is a static constant that holds information
+	% about how the structure of this closure.
 	%
-	{ mercury_private_builtin_module(PrivateBuiltinModule) },
-	{ MLDS_PrivateBuiltinModule = mercury_module_name_to_mlds(
-		PrivateBuiltinModule) },
-	{ ClosureLayoutType = mlds__class_type(qual(MLDS_PrivateBuiltinModule,
-			"closure_layout"), 0, mlds__class) },
-	{ ClosureLayoutRval = const(null(ClosureLayoutType)) },
+	ml_gen_closure_layout(PredId, ProcId, Context,
+		ClosureLayoutRval, ClosureLayoutType,
+		ClosureLayoutDecls),
 
 	%
 	% Generate a wrapper function which just unboxes the
@@ -586,14 +599,6 @@ ml_gen_closure(PredId, ProcId, EvalMethod, Var, ArgVars, ArgModes,
 	{ NumArgsType0 = mlds__native_int_type },
 
 	%
-	% the pointer will not be tagged (i.e. the tag will be zero)
-	%
-	{ MaybeConsId = no },
-	{ MaybeConsName = no },
-	{ PrimaryTag = 0 },
-	{ MaybeSecondaryTag = no },
-
-	%
 	% put all the extra arguments of the closure together
 	% Note that we need to box these arguments, except for
 	% the closure layout, which is already a reference type.
@@ -606,13 +611,278 @@ ml_gen_closure(PredId, ProcId, EvalMethod, Var, ArgVars, ArgModes,
 	{ ExtraArgTypes = [ClosureLayoutType, WrapperFuncType, NumArgsType] },
 
 	%
+	% the pointer will not be tagged (i.e. the tag will be zero)
+	%
+	{ MaybeConsId = no },
+	{ MaybeConsName = no },
+	{ PrimaryTag = 0 },
+	{ MaybeSecondaryTag = no },
+
+	%
 	% generate a `new_object' statement (or static constant)
 	% for the closure
 	%
 	ml_gen_new_object(MaybeConsId, PrimaryTag, MaybeSecondaryTag,
 		MaybeConsName, Var, ExtraArgRvals, ExtraArgTypes, ArgVars,
 		ArgModes, HowToConstruct, Context,
-		MLDS_Decls, MLDS_Statements).
+		MLDS_Decls0, MLDS_Statements),
+	{ MLDS_Decls = ClosureLayoutDecls ++ MLDS_Decls0 }.
+
+	%
+	% Generate a value for the closure layout struct.
+	% See MR_Closure_Layout in ../runtime/mercury_ho_call.h.
+	%
+	% Note that the code here is similar to code in stack_layout.m;
+	% any changes here may need to be reflected there, and vice versa.
+	%
+:- pred ml_gen_closure_layout(pred_id::in, proc_id::in, prog_context::in,
+		mlds__rval::out, mlds__type::out, mlds__defns::out,
+		ml_gen_info::in, ml_gen_info::out) is det.
+ml_gen_closure_layout(PredId, ProcId, Context,
+		ClosureLayoutRval, ClosureLayoutType,
+		ClosureLayoutDefns) -->
+	=(Info),
+	{ ml_gen_info_get_module_info(Info, ModuleInfo) },
+	{ continuation_info__generate_closure_layout(
+		ModuleInfo, PredId, ProcId, ClosureLayoutInfo) },
+
+	{ ml_gen_closure_proc_id(ModuleInfo, Context,
+		InitProcId, ProcIdType, ClosureProcIdDefns) },
+
+	{ ClosureLayoutInfo = closure_layout_info(ClosureArgs, TVarLocnMap) },
+	{ ml_stack_layout_construct_closure_args(ModuleInfo, ClosureArgs,
+		InitClosureArgs, ClosureArgTypes, ClosureArgDefns) },
+	ml_gen_info_new_const(TvarVectorSeqNum),
+	ml_format_static_const_name("typevar_vector", TvarVectorSeqNum,
+		TvarVectorName),
+	{ ml_stack_layout_construct_tvar_vector(ModuleInfo, TvarVectorName,
+		Context, TVarLocnMap, TVarVectorRval, TVarVectorType,
+		TVarDefns) },
+	{ InitTVarVector = init_obj(unop(box(TVarVectorType),
+		TVarVectorRval)) },
+	{ Inits = [InitProcId, InitTVarVector | InitClosureArgs] },
+	{ _ArgTypes = [ProcIdType, TVarVectorType | ClosureArgTypes] },
+
+	ml_gen_info_new_const(LayoutSeqNum),
+	ml_format_static_const_name("closure_layout", LayoutSeqNum, Name),
+	{ Access = local },
+	{ Initializer = init_array(Inits) },
+	% XXX there's no way in C to properly represent this type,
+	% since it is a struct that ends with a variable-length array.
+	% For now we just treat the whole struct as an array.
+	{ ClosureLayoutType = mlds__array_type(mlds__generic_type) },
+	{ ClosureLayoutDefn = ml_gen_static_const_defn(Name, ClosureLayoutType,
+		Access, Initializer, Context) },
+	{ ClosureLayoutDefns = ClosureProcIdDefns ++ TVarDefns ++
+		ClosureArgDefns ++ [ClosureLayoutDefn] },
+	{ module_info_name(ModuleInfo, ModuleName) },
+	{ MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName) },
+	{ ClosureLayoutRval = lval(var(qual(MLDS_ModuleName, Name),
+		ClosureLayoutType)) }.
+
+:- pred ml_gen_closure_proc_id(module_info::in, prog_context::in,
+		mlds__initializer::out, mlds__type::out,
+		mlds__defns::out) is det.
+ml_gen_closure_proc_id(_ModuleInfo, _Context, InitProcId, ProcIdType,
+		ClosureProcIdDefns) :-
+	% XXX currently we don't fill in the ProcId field!
+	InitProcId = init_obj(const(null(ProcIdType))),
+	ProcIdType = mlds__generic_type,
+	ClosureProcIdDefns = [].
+/*
+	{ module_info_name(ModuleInfo, ModuleName) },
+	{ term__context_file(Context, FileName) },
+	{ term__context_line(Context, LineNumber) },
+	% XXX We don't have the GoalInfo here,
+	%     so we can't compute the goal path correctly
+	%	{ goal_info_get_goal_path(GoalInfo, GoalPath) },
+	%	{ trace__path_to_string(GoalPath, GoalPathStr) },
+	{ GoalPathStr = "" },
+	% DataAddr = layout_addr(
+	% 	closure_proc_id(CallerProcLabel, SeqNo, ClosureProcLabel)),
+	% Data = layout_data(closure_proc_id_data(CallerProcLabel, SeqNo,
+	% 	ClosureProcLabel, ModuleName, FileName, LineNumber, GoalPath)),
+	% InitProcId = init_obj(const(data_addr_const(DataAddr))),
+	% ProcIdType = ...
+*/
+
+:- pred ml_stack_layout_construct_closure_args(module_info::in,
+	list(closure_arg_info)::in, list(mlds__initializer)::out,
+	list(mlds__type)::out, mlds__defns::out) is det.
+
+ml_stack_layout_construct_closure_args(ModuleInfo, ClosureArgs,
+		ClosureArgInits, ClosureArgTypes, MLDS_Defns) :-
+	list__map_foldl(ml_stack_layout_construct_closure_arg_rval(ModuleInfo),
+		ClosureArgs, ArgInitsAndTypes, [], MLDS_Defns),
+	assoc_list__keys(ArgInitsAndTypes, ArgInits),
+	assoc_list__values(ArgInitsAndTypes, ArgTypes),
+	Length = list__length(ArgInits),
+	LengthRval = const(int_const(Length)),
+	LengthType = mlds__native_int_type,
+	CastLengthRval = unop(box(LengthType), LengthRval),
+	ClosureArgInits = [init_obj(CastLengthRval) | ArgInits],
+	ClosureArgTypes = [LengthType | ArgTypes].
+
+:- pred ml_stack_layout_construct_closure_arg_rval(module_info::in,
+	closure_arg_info::in, pair(mlds__initializer, mlds__type)::out,
+	mlds__defns::in, mlds__defns::out) is det.
+
+ml_stack_layout_construct_closure_arg_rval(ModuleInfo, ClosureArg,
+		ArgInit - ArgType, MLDS_Defns0, MLDS_Defns) :-
+	ClosureArg = closure_arg_info(Type, _Inst),
+
+		% For a stack layout, we can treat all type variables as
+		% universally quantified. This is not the argument of a
+		% constructor, so we do not need to distinguish between type
+		% variables that are and aren't in scope; we can take the
+		% variable number directly from the procedure's tvar set.
+	ExistQTvars = [],
+	NumUnivQTvars = -1,
+
+	pseudo_type_info__construct_pseudo_type_info(Type, NumUnivQTvars,
+			ExistQTvars, PseudoTypeInfo),
+	ml_gen_pseudo_type_info(ModuleInfo, PseudoTypeInfo, ArgRval, ArgType,
+			MLDS_Defns0, MLDS_Defns),
+	CastArgRval = unop(box(ArgType), ArgRval),
+	ArgInit = init_obj(CastArgRval).
+
+:- pred ml_gen_pseudo_type_info_defn(module_info::in, pseudo_type_info::in,
+		mlds__defns::in, mlds__defns::out) is det.
+
+ml_gen_pseudo_type_info_defn(ModuleInfo, Pseudo, Defns0, Defns) :-
+	ml_gen_pseudo_type_info(ModuleInfo, Pseudo, _Rval, _Type,
+		Defns0, Defns).
+
+:- pred ml_gen_pseudo_type_info(module_info::in, pseudo_type_info::in,
+		mlds__rval::out, mlds__type::out,
+		mlds__defns::in, mlds__defns::out) is det.
+
+ml_gen_pseudo_type_info(ModuleInfo, Pseudo, Rval, Type,
+		MLDS_Defns0, MLDS_Defns) :-
+	( Pseudo = type_var(N) ->
+		% type variables are represented just as integers
+		Rval = const(int_const(N)),
+		Type = mlds__native_int_type,
+		MLDS_Defns = MLDS_Defns0
+	;
+		( Pseudo = type_ctor_info(RttiTypeId0) ->
+			% for zero-arity types, we just generate a
+			% reference to the already-existing type_ctor_info
+			RttiName = type_ctor_info,
+			RttiTypeId0 = rtti_type_id(ModuleName0, _, _),
+			ModuleName = fixup_builtin_module(ModuleName0),
+			RttiTypeId = RttiTypeId0,
+			MLDS_Defns = MLDS_Defns0
+		;
+			% for other types, we need to generate a definition
+			% of the pseudo_type_info for that type,
+			% in the the current module
+			module_info_name(ModuleInfo, ModuleName),
+			RttiData = pseudo_type_info(Pseudo),
+			rtti_data_to_name(RttiData, RttiTypeId, RttiName),
+			RttiDefns0 = rtti_data_list_to_mlds(ModuleInfo,
+				[RttiData]),
+			% rtti_data_list_to_mlds assumes that the result
+			% will be at file scope, but here we're generating it
+			% as a local, so we need to convert the access
+			% to `local'
+			RttiDefns = list__map(convert_to_local, RttiDefns0),
+			MLDS_Defns1 = RttiDefns ++ MLDS_Defns0,
+			% Generate definitions of any pseudo_type_infos
+			% referenced by this pseudotypeinfo.
+			list__foldl(ml_gen_pseudo_type_info_defn(ModuleInfo),
+				arg_pseudo_type_infos(Pseudo),
+				MLDS_Defns1, MLDS_Defns)
+		),
+		MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName),
+		Rval = const(data_addr_const(data_addr(MLDS_ModuleName,
+			rtti(RttiTypeId, RttiName)))),
+		Type = mlds__rtti_type(RttiName)
+	).
+
+:- func arg_pseudo_type_infos(pseudo_type_info) = list(pseudo_type_info).
+arg_pseudo_type_infos(type_var(_)) = [].
+arg_pseudo_type_infos(type_ctor_info(_)) = [].
+arg_pseudo_type_infos(type_info(_TypeId, ArgPTIs)) = ArgPTIs.
+arg_pseudo_type_infos(higher_order_type_info(_TypeId, _Arity, ArgPTIs)) =
+	ArgPTIs.
+
+:- func convert_to_local(mlds__defn) = mlds__defn.
+convert_to_local(mlds__defn(Name, Context, Flags0, Body)) =
+		mlds__defn(Name, Context, Flags, Body) :-
+	Flags = set_access(Flags0, local).
+
+:- pred ml_stack_layout_construct_tvar_vector(module_info::in,
+	mlds__var_name::in, prog_context::in, map(tvar, set(layout_locn))::in,
+	mlds__rval::out, mlds__type::out, mlds__defns::out) is det.
+
+ml_stack_layout_construct_tvar_vector(ModuleInfo, TvarVectorName, Context,
+		TVarLocnMap, MLDS_Rval, PtrType, MLDS_Defns) :-
+	PtrType = mlds__ptr_type(mlds__native_int_type),
+	ArrayType = mlds__array_type(mlds__native_int_type),
+	( map__is_empty(TVarLocnMap) ->
+		MLDS_Rval = const(null(PtrType)),
+		MLDS_Defns = []
+	;
+		Access = local,
+		ml_stack_layout_construct_tvar_rvals(TVarLocnMap,
+			Vector, _VectorTypes),
+		Initializer = init_array(Vector),
+		MLDS_Defn = ml_gen_static_const_defn(TvarVectorName, ArrayType,
+			Access, Initializer, Context),
+		MLDS_Defns = [MLDS_Defn],
+		module_info_name(ModuleInfo, ModuleName),
+		MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName),
+		MLDS_Rval = lval(var(qual(MLDS_ModuleName, TvarVectorName),
+			PtrType))
+	).
+
+:- pred ml_stack_layout_construct_tvar_rvals(map(tvar, set(layout_locn))::in,
+	list(mlds__initializer)::out, list(mlds__type)::out) is det.
+
+ml_stack_layout_construct_tvar_rvals(TVarLocnMap, Vector, VectorTypes) :-
+	map__to_assoc_list(TVarLocnMap, TVarLocns),
+	ml_stack_layout_construct_type_param_locn_vector(TVarLocns, 1,
+		TypeParamLocs),
+	list__length(TypeParamLocs, TypeParamsLength),
+	LengthRval = const(int_const(TypeParamsLength)),
+	Vector = [init_obj(LengthRval) | TypeParamLocs],
+	VectorTypes = list__duplicate(TypeParamsLength + 1,
+			mlds__native_int_type).
+
+	% Given a association list of type variables and their locations
+	% sorted on the type variables, represent them in an array of
+	% location descriptions indexed by the type variable. The next
+	% slot to fill is given by the second argument.
+
+:- pred ml_stack_layout_construct_type_param_locn_vector(
+	assoc_list(tvar, set(layout_locn))::in,
+	int::in, list(mlds__initializer)::out) is det.
+
+ml_stack_layout_construct_type_param_locn_vector([], _, []).
+ml_stack_layout_construct_type_param_locn_vector([TVar - Locns | TVarLocns],
+		CurSlot, Vector) :-
+	term__var_to_int(TVar, TVarNum),
+	NextSlot is CurSlot + 1,
+	( TVarNum = CurSlot ->
+		( set__remove_least(Locns, LeastLocn, _) ->
+			Locn = LeastLocn
+		;
+			error("tvar has empty set of locations")
+		),
+		stack_layout__represent_locn_as_int(Locn, LocnAsInt),
+		Rval = const(int_const(LocnAsInt)),
+		ml_stack_layout_construct_type_param_locn_vector(TVarLocns,
+			NextSlot, VectorTail),
+		Vector = [init_obj(Rval) | VectorTail]
+	; TVarNum > CurSlot ->
+		% This slot will never be referred to.
+		ml_stack_layout_construct_type_param_locn_vector(
+			[TVar - Locns | TVarLocns], NextSlot, VectorTail),
+		Vector = [init_obj(const(int_const(0))) | VectorTail]
+	;
+		error("unsorted tvars in construct_type_param_locn_vector")
+	).
 
 	%
 	% ml_gen_closure_wrapper:
@@ -633,7 +903,7 @@ ml_gen_closure(PredId, ProcId, EvalMethod, Var, ArgVars, ArgModes,
 	%		Arg2Type conv_arg2;
 	%		...
 	% #if MODEL_SEMI
-	%		bool succeeded;
+	%		MR_bool succeeded;
 	% #endif
 	%		
 	%		closure = closure_arg; 	/* XXX should add cast */
@@ -837,7 +1107,7 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	{ Statements1 = [InitClosure | Statements0] },
 
 	%
-	% For semidet code, add the declaration `bool succeeded;'
+	% For semidet code, add the declaration `MR_bool succeeded;'
 	%
 	( { CodeModel = model_semi } ->
 		{ SucceededVarDecl = ml_gen_succeeded_var_decl(MLDS_Context) },
@@ -1141,15 +1411,8 @@ ml_gen_new_object(MaybeConsId, Tag, HasSecTag, MaybeCtorName, Var,
 		ml_gen_var_list(ArgVars, ArgLvals),
 		=(Info),
 		{ ml_gen_info_get_module_info(Info, ModuleInfo) },
-		{ MaybeConsId = yes(ConsId) ->
-			ConsArgTypes = constructor_arg_types(ConsId,
-				ArgTypes, Type, ModuleInfo)
-		;
-			% it's a closure
-			% in this case, the arguments are all boxed
-			ConsArgTypes = ml_make_boxed_types(
-					list__length(ArgTypes))
-		},
+		{ get_maybe_cons_id_arg_types(MaybeConsId, ArgTypes, Type,
+			ModuleInfo, ConsArgTypes) },
 		ml_gen_cons_args(ArgLvals, ArgTypes, ConsArgTypes, ArgModes,
 			ModuleInfo, ArgRvals0, MLDS_ArgTypes0),
 
@@ -1181,48 +1444,68 @@ ml_gen_new_object(MaybeConsId, Tag, HasSecTag, MaybeCtorName, Var,
 		{ MLDS_Decls = [] }
 	;
 		{ HowToConstruct = construct_statically(StaticArgs) },
-
-		% XXX This code gets the types wrong
-		% for the --high-level-data case
-
-		list__map_foldl(ml_gen_type, ArgTypes, MLDS_ArgTypes0),
-		/****
-		XXX We ought to do something like this instead:
+		%
+		% Find out the types of the constructor arguments
+		%
 		=(Info),
 		{ ml_gen_info_get_module_info(Info, ModuleInfo) },
-		{ ConsArgTypes = constructor_arg_types(CtorId,
-			ArgTypes, Type, ModuleInfo) },
+		{ get_maybe_cons_id_arg_types(MaybeConsId, ArgTypes, Type,
+			ModuleInfo, ConsArgTypes) },
 		list__map_foldl(ml_gen_field_type, ConsArgTypes,
-			MLDS_ArgTypes0),
-		...
-		*****/
+			FieldTypes),
 
 		%
 		% Generate rvals for the arguments
 		%
+		list__map_foldl(ml_gen_type, ArgTypes, MLDS_ArgTypes0),
 		ml_gen_static_const_arg_list(ArgVars, StaticArgs, ArgRvals0),
 
 		%
-		% Insert the extra rvals at the start
+		% Box or unbox the arguments, if needed,
+		% and insert the extra rvals at the start
 		%
-		{ list__append(ExtraRvals, ArgRvals0, ArgRvals1) },
-		{ list__append(ExtraTypes, MLDS_ArgTypes0, MLDS_ArgTypes) },
-
-		%
-		% Box all the arguments
-		%
-		ml_gen_box_const_rval_list(MLDS_ArgTypes, ArgRvals1,
-			Context, BoxConstDefns, ArgRvals),
+		ml_gen_info_get_globals(Globals),
+		{ globals__lookup_bool_option(Globals, highlevel_data,
+			HighLevelData) },
+		(
+			{ HighLevelData = no },
+			%
+			% Box *all* the arguments, including the ExtraRvals
+			%
+			{ list__append(ExtraRvals, ArgRvals0, ArgRvals1) },
+			{ list__append(ExtraTypes, MLDS_ArgTypes0,
+				MLDS_ArgTypes) },
+			ml_gen_box_const_rval_list(MLDS_ArgTypes, ArgRvals1,
+				Context, BoxConstDefns, ArgRvals)
+		;
+			{ HighLevelData = yes },
+			ml_gen_box_or_unbox_const_rval_list(ArgTypes,
+				FieldTypes, ArgRvals0,
+				Context, BoxConstDefns, ArgRvals1),
+			% For --high-level-data, the ExtraRvals should
+			% already have the right type, so we don't need
+			% to worry about boxing or unboxing them
+			{ list__append(ExtraRvals, ArgRvals1, ArgRvals) }
+		),
 
 		%
 		% Generate a local static constant for this term.
-		% XXX Using mlds__array_type(mlds__generic_type) is probably 
-		% wrong when `--high-level-data' is enabled.
 		%
 		ml_gen_static_const_name(Var, ConstName),
-		{ ConstType = mlds__array_type(mlds__generic_type) },
+		{ UsesBaseClass = (MaybeCtorName = yes(_) -> no ; yes) },
+		{ ConstType = get_type_for_cons_id(MLDS_Type, UsesBaseClass,
+				MaybeConsId, HighLevelData) },
+		% XXX if the secondary tag is in a base class, then ideally its
+		% initializer should be wrapped in `init_struct([init_obj(X)])'
+		% rather than just `init_obj(X)' -- the fact that we don't
+		% leads to some warnings from GNU C about missing braces in
+		% initializers.
 		{ ArgInits = list__map(func(X) = init_obj(X), ArgRvals) },
-		{ Initializer = init_array(ArgInits) },
+		{ ConstType = mlds__array_type(_) ->
+			Initializer = init_array(ArgInits)
+		;
+			Initializer = init_struct(ArgInits)
+		},
 		{ ConstDefn = ml_gen_static_const_defn(ConstName, ConstType,
 			local, Initializer, Context) },
 
@@ -1304,6 +1587,96 @@ ml_gen_new_object(MaybeConsId, Tag, HasSecTag, MaybeCtorName, Var,
 		{ MLDS_Statements = [MLDS_Statement | MLDS_Statements0] }
 	).
 
+	% Return the MLDS type suitable for constructing a constant static
+	% ground term with the specified cons_id.
+:- func get_type_for_cons_id(mlds__type, bool, maybe(cons_id), bool)
+	= mlds__type.
+get_type_for_cons_id(MLDS_Type, UsesBaseClass, MaybeConsId, HighLevelData)
+		= ConstType :-
+	(
+		HighLevelData = no,
+		ConstType = mlds__array_type(mlds__generic_type)
+	;
+		HighLevelData = yes,
+		(
+			% Check for type_infos and typeclass_infos,
+			% since these need to be handled specially;
+			% their Mercury type definitions are lies.
+			MLDS_Type = mercury_type(MercuryType, user_type, _),
+			type_util__is_introduced_type_info_type(MercuryType)
+		->
+			ConstType = mlds__array_type(mlds__generic_type)
+		;
+			% Check if we're constructing a value for a 
+			% discriminated union where the specified cons_id
+			% which is represented as a derived class that
+			% is derived from the base class for this
+			% discriminated union type.
+			UsesBaseClass = no,
+			MaybeConsId = yes(ConsId),
+			ConsId = cons(CtorSymName, CtorArity),
+			( MLDS_Type = mlds__class_type(QualTypeName,
+				TypeArity, _)
+			; MLDS_Type = mercury_type(MercuryType, user_type, _),
+			  type_to_type_id(MercuryType, TypeId, _ArgsTypes),
+			  ml_gen_type_name(TypeId, QualTypeName, TypeArity)
+			)
+		->
+			% If so, append the name of the derived class to
+			% the name of the base class for this type
+			% (since the derived class will also be nested
+			% inside the base class).
+			unqualify_name(CtorSymName, CtorName),
+			QualTypeName = qual(MLDS_Module, TypeName),
+			ClassQualifier = mlds__append_class_qualifier(
+				MLDS_Module, TypeName, TypeArity),
+			ConstType = mlds__class_type(
+				qual(ClassQualifier, CtorName),
+				CtorArity, mlds__class)
+		;
+			% Convert mercury_types for user-defined types
+			% to the corresponding `mlds__class_type'.
+			% This is needed because these types get mapped to
+			% `mlds__ptr_type(mlds__class_type(...))', but when
+			% declarating static constants we want just the
+			% class type, not the pointer type.
+			MLDS_Type = mercury_type(MercuryType, user_type, _),
+			type_to_type_id(MercuryType, TypeId, _ArgsTypes)
+		->
+			ml_gen_type_name(TypeId, ClassName, ClassArity),
+			ConstType = mlds__class_type(ClassName, ClassArity,
+				mlds__class)
+		;
+			% For tuples, a similar issue arises;
+			% we want tuple constants to have array type,
+			% not the pointer type MR_Tuple.
+			MLDS_Type = mercury_type(_, tuple_type, _)
+		->
+			ConstType = mlds__array_type(mlds__generic_type)
+		;
+			% Likewise for closures, we need to use an array type
+			% rather than the pointer type MR_ClosurePtr.
+			% Note that we're still using a low-level data
+			% representation for closures, even when
+			% --high-level-data is enabled.
+			MLDS_Type = mercury_type(_, pred_type, _)
+		->
+			ConstType = mlds__array_type(mlds__generic_type)
+		;
+			ConstType = MLDS_Type
+		)
+	).
+
+:- pred ml_gen_field_type(prog_type, prog_type, ml_gen_info, ml_gen_info).
+:- mode ml_gen_field_type(in, out, in, out) is det.
+ml_gen_field_type(Type, FieldType) -->
+	=(Info),
+	{ ml_gen_info_get_module_info(Info, ModuleInfo) },
+	{ module_info_globals(ModuleInfo, Globals) },
+	{ globals__lookup_bool_option(Globals, highlevel_data,
+		HighLevelData) },
+	{ ml_type_as_field(Type, ModuleInfo, HighLevelData, FieldType) }.
+
 :- pred ml_type_as_field(prog_type, module_info, bool, prog_type).
 :- mode ml_type_as_field(in, in, in, out) is det.
 ml_type_as_field(FieldType, ModuleInfo, HighLevelData, BoxedFieldType) :-
@@ -1334,6 +1707,21 @@ ml_type_as_field(FieldType, ModuleInfo, HighLevelData, BoxedFieldType) :-
 		type_util__var(BoxedFieldType, TypeVar)
 	;
 		BoxedFieldType = FieldType
+	).
+
+:- pred get_maybe_cons_id_arg_types(maybe(cons_id)::in, list(prog_type)::in,
+		prog_type::in, module_info::in, list(prog_type)::out) is det.
+
+get_maybe_cons_id_arg_types(MaybeConsId, ArgTypes, Type, ModuleInfo,
+		ConsArgTypes) :-
+	( MaybeConsId = yes(ConsId) ->
+		ConsArgTypes = constructor_arg_types(ConsId,
+			ArgTypes, Type, ModuleInfo)
+	;
+		% it's a closure
+		% in this case, the arguments are all boxed
+		ConsArgTypes = ml_make_boxed_types(
+				list__length(ArgTypes))
 	).
 
 :- func constructor_arg_types(cons_id, list(prog_type), prog_type,
@@ -1401,6 +1789,50 @@ constructor_arg_types(CtorId, ArgTypes, Type, ModuleInfo) = ConsArgTypes :-
 
 :- func ml_gen_mktag(int) = mlds__rval.
 ml_gen_mktag(Tag) = unop(std_unop(mktag), const(int_const(Tag))).
+
+
+:- pred ml_gen_box_or_unbox_const_rval_list(list(prog_type), list(prog_type),
+		list(mlds__rval), prog_context, mlds__defns, list(mlds__rval),
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_box_or_unbox_const_rval_list(in, in, in, in, out, out, in, out)
+		is det.
+
+ml_gen_box_or_unbox_const_rval_list(ArgTypes, FieldTypes, ArgRvals,
+		Context, BoxConstDefns, FieldRvals) -->
+	(
+		{ ArgTypes = [], FieldTypes = [], ArgRvals = [] }
+	->
+		{ BoxConstDefns = [], FieldRvals = [] }
+	;
+		{ ArgTypes = [ArgType | ArgTypes1] },
+		{ FieldTypes = [FieldType | FieldTypes1] },
+		{ ArgRvals = [ArgRval | ArgRvals1] }
+	->
+		(
+			% Handle the case where the field type is a boxed
+			% type -- in that case, we can just box the argument
+			% type.
+			{ FieldType = term__variable(_) }
+		->
+			ml_gen_type(ArgType, MLDS_ArgType),
+			ml_gen_box_const_rval(MLDS_ArgType, ArgRval, Context,
+				BoxConstDefns0, FieldRval)
+		;
+			% Otherwise, fall back on ml_gen_box_or_unbox_rval.
+			% XXX this might still generate stuff which is not
+			% legal in a static initializer!
+			ml_gen_box_or_unbox_rval(ArgType, FieldType, ArgRval,
+				FieldRval),
+			{ BoxConstDefns0 = [] }
+		),
+		ml_gen_box_or_unbox_const_rval_list(ArgTypes1, FieldTypes1,
+			ArgRvals1, Context, BoxConstDefns1, FieldRvals1),
+		{ BoxConstDefns = BoxConstDefns0 ++ BoxConstDefns1 },
+		{ FieldRvals = [FieldRval | FieldRvals1] }
+	;
+		{ unexpected(this_file, "ml_gen_box_or_unbox_const_rval_list: "
+			++ "list length mismatch") }
+	).
 
 :- pred ml_gen_box_const_rval_list(list(mlds__type), list(mlds__rval),
 		prog_context, mlds__defns, list(mlds__rval),
@@ -1673,6 +2105,9 @@ ml_gen_det_deconstruct_2(Tag, Type, Var, ConsId, Args, Modes, Context,
 		{ Tag = deep_profiling_proc_static_tag(_) },
 		{ MLDS_Statements = [] }
 	;
+		{ Tag = table_io_decl_tag(_) },
+		{ MLDS_Statements = [] }
+	;
 		{ Tag = no_tag },
 		( { Args = [Arg], Modes = [Mode] } ->
 			ml_variable_type(Arg, ArgType),
@@ -1783,6 +2218,9 @@ ml_tag_offset_and_argnum(Tag, TagBits, OffSet, ArgNum) :-
 		error("ml_tag_offset_and_argnum")
 	;
 		Tag = deep_profiling_proc_static_tag(_),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = table_io_decl_tag(_),
 		error("ml_tag_offset_and_argnum")
 	;
 		Tag = no_tag,
@@ -2109,6 +2547,9 @@ ml_gen_tag_test_rval(tabling_pointer_constant(_, _), _, _, _) = _ :-
 ml_gen_tag_test_rval(deep_profiling_proc_static_tag(_), _, _, _) = _ :-
 	% This should never happen
 	error("Attempted deep_profiling_proc_static unification").
+ml_gen_tag_test_rval(table_io_decl_tag(_), _, _, _) = _ :-
+	% This should never happen
+	error("Attempted table_io_decl unification").
 ml_gen_tag_test_rval(no_tag, _, _, _Rval) = const(true).
 ml_gen_tag_test_rval(single_functor, _, _, _Rval) = const(true).
 ml_gen_tag_test_rval(unshared_tag(UnsharedTag), _, _, Rval) =
@@ -2295,3 +2736,6 @@ ml_make_boxed_types(Arity) = BoxedTypes :-
 this_file = "ml_unify_gen.m".
 
 :- end_module ml_unify_gen.
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%

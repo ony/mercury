@@ -188,9 +188,9 @@ void sys_init_type_desc_module_write_out_proc_statics(FILE *);
 
 #ifdef	MR_DEEP_PROFILING
 MR_proc_static_compiler_empty(type_desc, __Unify__,   type_desc, 0, 0,
-	""type_desc.m"", 0, TRUE);
+	""type_desc.m"", 0, MR_TRUE);
 MR_proc_static_compiler_empty(type_desc, __Compare__, type_desc, 0, 0,
-	""type_desc.m"", 0, TRUE);
+	""type_desc.m"", 0, MR_TRUE);
 #endif
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(type_desc, type_desc, 0,
@@ -296,13 +296,13 @@ sys_init_type_desc_module_write_out_proc_statics(FILE *fp)
 
 :- pragma foreign_code("MC++", "
 
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(types, type_desc, 0, 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(type_desc, type_desc, 0, 
 	MR_TYPECTOR_REP_TYPEINFO)
 
 static int MR_compare_type_info(MR_Word t1, MR_Word t2) {
 	MR_Word res;
 
-	mercury::types::mercury_code::ML_call_rtti_compare_type_infos(
+	mercury::type_desc::mercury_code::ML_call_rtti_compare_type_infos(
 		&res, t1, t2);
 	return System::Convert::ToInt32(res[0]);
 }
@@ -311,11 +311,11 @@ static void
 __Compare____type_desc_0_0(
 	MR_Word_Ref result, MR_Word x, MR_Word y)
 {
-	mercury::types::mercury_code::ML_call_rtti_compare_type_infos(
+	mercury::type_desc::mercury_code::ML_call_rtti_compare_type_infos(
 		result, x, y);
 }
 
-static bool
+static MR_bool
 __Unify____type_desc_0_0(MR_Word x, MR_Word y)
 {
 	return (MR_compare_type_info(x, y) == MR_COMPARE_EQUAL);
@@ -325,11 +325,11 @@ static void
 special___Compare___type_desc_0_0(
 	MR_Word_Ref result, MR_Word x, MR_Word y)
 {
-	mercury::types::mercury_code::ML_call_rtti_compare_type_infos(
+	mercury::type_desc::mercury_code::ML_call_rtti_compare_type_infos(
 		result, x, y);
 }
 
-static bool
+static MR_bool
 special___Unify___type_desc_0_0(MR_Word x, MR_Word y)
 {
 	return (MR_compare_type_info(x, y) == MR_COMPARE_EQUAL);
@@ -516,7 +516,8 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 	TypeCtor = (MR_Word) MR_make_type_ctor_desc(type_info, type_ctor_info);
 }").
 
-:- pragma foreign_proc("C#", type_ctor(_TypeInfo::in) = (_TypeCtor::out),
+:- pragma foreign_proc("C#",
+	type_ctor(_TypeInfo::in) = (_TypeCtor::out),
 	[will_not_call_mercury, thread_safe, promise_pure],
 "{
 	mercury.runtime.Errors.SORRY(""foreign code for type_ctor"");
@@ -533,7 +534,7 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 	MR_save_transient_registers();
 
 	type_info = (MR_TypeInfo) TypeDesc;
-	MR_type_ctor_and_args(type_info, TRUE, &type_ctor_desc, &ArgTypes);
+	MR_type_ctor_and_args(type_info, MR_TRUE, &type_ctor_desc, &ArgTypes);
 	TypeCtorDesc = (MR_Word) type_ctor_desc;
 
 	MR_restore_transient_registers();
@@ -555,9 +556,10 @@ type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out) :-
 	** a new type with the specified arguments.
 	*/
 
+:- pragma promise_pure(make_type/2).
 :- pragma foreign_proc("C", 
 	make_type(TypeCtorDesc::in, ArgTypes::in) = (TypeDesc::out),
-	[will_not_call_mercury, thread_safe, promise_pure],
+	[will_not_call_mercury, thread_safe],
 "{
 	MR_TypeCtorDesc type_ctor_desc;
 	MR_TypeCtorInfo type_ctor_info;
@@ -581,24 +583,18 @@ type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out) :-
 	}
 
 	if (list_length != arity) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		MR_save_transient_registers();
 		TypeDesc = (MR_Word) MR_make_type(arity, type_ctor_desc,
 			ArgTypes);
 		MR_restore_transient_registers();
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 
-:- pragma foreign_proc("C#", 
-	make_type(_TypeCtorDesc::in, _ArgTypes::in) = (_TypeDesc::out),
-	[will_not_call_mercury, thread_safe, promise_pure],
-"{
-	mercury.runtime.Errors.SORRY(""make_type"");
-	// XXX this is required to keep the C# compiler quiet
-	SUCCESS_INDICATOR = false;
-}").
+make_type(_TypeCtorDesc::in, _ArgTypes::in) = (_TypeDesc::out) :-
+	private_builtin__sorry("make_type/2 forward mode.").
 
 	/*
 	** This is the reverse mode of make_type: given a type,
@@ -608,7 +604,7 @@ type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out) :-
 
 :- pragma foreign_proc("C", 
 	make_type(TypeCtorDesc::out, ArgTypes::out) = (TypeDesc::in),
-	[will_not_call_mercury, thread_safe, promise_pure],
+	[will_not_call_mercury, thread_safe],
 "{
 	MR_TypeCtorDesc type_ctor_desc;
 	MR_TypeInfo	type_info;
@@ -616,11 +612,14 @@ type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out) :-
 	MR_save_transient_registers();
 
 	type_info = (MR_TypeInfo) TypeDesc;
-	MR_type_ctor_and_args(type_info, FALSE, &type_ctor_desc, &ArgTypes);
+	MR_type_ctor_and_args(type_info, MR_FALSE, &type_ctor_desc, &ArgTypes);
 	TypeCtorDesc = (MR_Word) type_ctor_desc;
 
 	MR_restore_transient_registers();
 }").
+
+make_type(_TypeCtorDesc::out, _ArgTypes::out) = (_TypeDesc::in) :-
+	private_builtin__sorry("make_type/2 reverse mode").
 
 :- pragma foreign_proc("C",
 	type_ctor_name_and_arity(TypeCtorDesc::in, TypeCtorModuleName::out,
@@ -655,6 +654,10 @@ type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out) :-
             TypeCtorArity = type_ctor_info->MR_type_ctor_arity;
         }
 }").
+
+type_ctor_name_and_arity(_TypeCtorDesc::in, _ModuleName::out,
+		_TypeCtorName::out, _TypeCtorArity::out) :-
+	private_builtin__sorry("type_ctor_name_and_arity/4").
 
 %-----------------------------------------------------------------------------%
 

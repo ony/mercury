@@ -10,26 +10,38 @@
 % DONE:
 %	det and semidet predicates
 %	multiple output arguments
-%       boxing and unboxing
-%       conjunctions
-%       disjunctions
+%	boxing and unboxing
+%	conjunctions
+%	disjunctions
 %	if-then-else's
-%       enumerations
+%	enumerations
 %	discriminated unions
-% TODO: 
+%	higher order functions
 %	multidet and nondet predicates
-%       RTTI
-%	handle foreign code written in Java
-%       higher order functions
-%       generate names of classes etc. correctly 
+%	test tests/benchmarks/*.m
 %	generate optimized tailcalls
-%       handle foreign code written in C 
+% TODO: 
+%	General code cleanup
 %	handle static ground terms
+%	RTTI (requires static ground terms)
+%	generate names of classes etc. correctly (mostly same as IL backend)
+%
+%	handle foreign code written in Java
+%	handle foreign code written in C 
 %
 % NOTES: 
 %       To avoid namespace conflicts all Java names must be fully qualified.
 %	e.g. The classname `String' must be qualified as `java.lang.String'
 %	     to avoid conflicting with `mercury.String'.
+%
+%	There is currently some code threaded through the output predicates
+%	(usually a variable called `ExitMethods') which keeps track of, and
+%	removes unreachable code. Ideally this would be done as an MLDS->MLDS
+%	transformation, preferably in a seperate module. Unfortunately this
+%	is not possible due to the fact that the back-end generates `break'
+%	statements for cases in switches as they are output, meaning that we
+%	can't remove them in a pass over the MLDS. 
+%
 %-----------------------------------------------------------------------------%
 
 :- module mlds_to_java.
@@ -64,14 +76,16 @@
 :- import_module builtin_ops.
 :- import_module prog_data, prog_out, type_util, error_util.
 
-:- import_module bool, int, string, library, list.
+:- import_module bool, int, string, library, list, set.
 :- import_module assoc_list, term, std_util, require.
 
 %-----------------------------------------------------------------------------%
 
 mlds_to_java__output_mlds(MLDS) -->
 	{ ModuleName = mlds__get_module_name(MLDS) },
-	module_name_to_file_name(ModuleName, ".java", yes, JavaSourceFile),
+	{ JavaSafeModuleName = valid_module_name(ModuleName) },
+	module_name_to_file_name(JavaSafeModuleName, ".java", yes, 
+			JavaSourceFile),
 	{ Indent = 0 },
 	output_to_file(JavaSourceFile, output_java_src_file(Indent, MLDS)).
 
@@ -173,10 +187,8 @@ rval_is_enum_object(Rval) :-
 :- pred interface_is_special(string).
 :- mode interface_is_special(in) is semidet.
 
-interface_is_special("Unify").
-interface_is_special("Compare").
-interface_is_special("ProcAddr").
 interface_is_special("MethodPtr").
+
 
 %-----------------------------------------------------------------------------%
 %
@@ -227,14 +239,16 @@ reverse_string(String0, String) :-
 :- pred mangle_mlds_sym_name_for_java(sym_name, string, string).
 :- mode mangle_mlds_sym_name_for_java(in, in, out) is det.
 
-mangle_mlds_sym_name_for_java(unqualified(Name), _Qualifier, MangledName) :-
-	llds_out__name_mangle(Name, MangledName).
+mangle_mlds_sym_name_for_java(unqualified(Name), _Qualifier, JavaSafeName) :-
+	llds_out__name_mangle(Name, MangledName),
+	JavaSafeName = valid_symbol_name(MangledName).
 mangle_mlds_sym_name_for_java(qualified(ModuleName, PlainName), Qualifier,
 		MangledName) :-
 	mangle_mlds_sym_name_for_java(ModuleName, Qualifier,
 			MangledModuleName),
 	llds_out__name_mangle(PlainName, MangledPlainName),
-	java_qualify_mangled_name(MangledModuleName, MangledPlainName,
+	JavaSafePlainName = valid_symbol_name(MangledPlainName),
+	java_qualify_mangled_name(MangledModuleName, JavaSafePlainName,
 			Qualifier, MangledName).
 
 :- pred java_qualify_mangled_name(string, string, string, string).
@@ -242,6 +256,45 @@ mangle_mlds_sym_name_for_java(qualified(ModuleName, PlainName), Qualifier,
 
 java_qualify_mangled_name(Module0, Name0, Qualifier, Name) :-
 	string__append_list([Module0, Qualifier, Name0], Name).
+
+
+%-----------------------------------------------------------------------------%
+%
+% Name mangling code to fix problem of mercury modules having the same name
+% as reserved Java words such as `char' and `int'. 
+% 
+
+	% If the given name conficts with a reserved Java word we must add a 
+	% prefix to it to avoid compilation errors.
+:- func valid_symbol_name(string) = string.
+:- mode valid_symbol_name(in) = out is det.
+
+valid_symbol_name(SymName) = ValidSymName :-
+	Prefix = "mr_",
+	( java_util__is_keyword(SymName) ->
+		% This is a reserved Java word, add the above prefix.
+		ValidSymName = Prefix ++ SymName
+	; string__append(Prefix, Suffix, SymName) ->
+		% This name already contains the prefix we are adding to 
+		% variables to avoid conficts, so add an additional '_'.
+		ValidSymName = Prefix ++ "_" ++ Suffix
+	; 
+		% Normal name; do nothing.
+		ValidSymName = SymName
+	).
+
+
+:- func valid_module_name(mercury_module_name) = mercury_module_name.
+:- mode valid_module_name(in) = out is det.
+
+valid_module_name(unqualified(String)) =  ValidModuleName :-
+	ValidString = valid_symbol_name(String),
+	ValidModuleName = unqualified(ValidString).
+valid_module_name(qualified(ModuleSpecifier, String)) =  ValidModuleName :-
+	ValidModuleSpecifier = valid_module_name(ModuleSpecifier),
+	ValidString = valid_symbol_name(String),
+	ValidModuleName = qualified(ValidModuleSpecifier, ValidString).
+
 
 %-----------------------------------------------------------------------------%
 %
@@ -267,12 +320,11 @@ output_import(Import) -->
 		unexpected(this_file, "foreign import in java backend")
 	},
 	{ SymName = mlds_module_name_to_sym_name(ImportName) },
-	{ prog_out__sym_name_to_string(SymName, ".", File) }, 
-	( { qualified_name_is_stdlib(SymName) } ->
-		{ enforce_java_names(File, ClassFile) }
-	;
-		{ ClassFile = File }
-	),
+	{ JavaSafeSymName = valid_module_name(SymName) },
+	{ prog_out__sym_name_to_string(JavaSafeSymName, ".", File) }, 
+	% XXX Name mangling code should be put here when we start enforcing
+	%     Java's naming conventions.
+	{ ClassFile = File },
 	io__write_strings(["import ", ClassFile, ";\n"]).
 
 %--------------------------------------------------------------------
@@ -296,16 +348,16 @@ output_java_src_file(Indent, MLDS) -->
 	{ find_pointer_addressed_methods(Defns0, [], CodeAddrs0) },
 	{ CodeAddrs = list__sort_and_remove_dups(CodeAddrs0) },
 	%
-	% Output transformed MLDS as Java source.  
-	%
-	output_src_start(Indent, ModuleName, Imports, Defns1), 
-	%
 	% Create wrappers in MLDS for all pointer addressed methods.
 	% 
 	{ generate_code_addr_wrappers(Indent + 1, CodeAddrs, [], 
 			WrapperDefns) },
-	{ Defns1 = WrapperDefns ++ Defns0 }, 
-	{ list__filter(defn_is_rtti_data, Defns1, _RttiDefns, NonRttiDefns) },
+	{ Defns = WrapperDefns ++ Defns0 }, 
+	%
+	% Output transformed MLDS as Java source.  
+	%
+	output_src_start(Indent, ModuleName, Imports, Defns), 
+	{ list__filter(defn_is_rtti_data, Defns, _RttiDefns, NonRttiDefns) },
 	% XXX Need to output RTTI data at this point.
 	{ CtorData = none },  % Not a constructor.
 	output_defns(Indent + 1, MLDS_ModuleName, CtorData, NonRttiDefns),
@@ -644,9 +696,9 @@ generate_call_method(CodeAddr, MethodDefn) :-
 	OrigFuncSignature = mlds__func_signature(OrigArgTypes, OrigRetTypes),
 	% XXX We should fill in the Context properly.
 	Context = mlds__make_context(term__context_init),
-	ProcLabel = mlds__qual(ModuleName, EntityName),
+	ProcLabel = mlds__qual(ModuleName, _EntityName),
 	hlds_pred__initial_pred_id(PredID),
-	ProcID = snd(EntityName),
+	initial_proc_id(ProcID),
 	%
 	% Create new method name
 	%
@@ -826,17 +878,18 @@ pred_label_string(special_pred(PredName, MaybeTypeModule,
 :- mode output_src_start(in, in, in, in, di, uo) is det.
 
 output_src_start(Indent, ModuleName, Imports, Defns) -->
+	{ JavaSafeModuleName = valid_module_name(ModuleName) },
 	output_auto_gen_comment(ModuleName),
 	indent_line(Indent),
 	io__write_string("/* :- module "),
-	prog_out__write_sym_name(ModuleName),
+	prog_out__write_sym_name(JavaSafeModuleName),
 	io__write_string(". */\n\n"),
-	output_package_info(ModuleName),	
-	output_imports(Imports),
+	output_package_info(JavaSafeModuleName),	
+	output_imports(Imports), 
 	io__write_string("public class "),
-	prog_out__write_sym_name(ModuleName),
+	prog_out__write_sym_name(JavaSafeModuleName),
 	io__write_string(" {\n"),
-	maybe_write_main_driver(Indent + 1, ModuleName, Defns).
+	maybe_write_main_driver(Indent + 1, JavaSafeModuleName, Defns).
 
 	% Output a `package' directive at the top of the Java source file,
 	% if necessary.
@@ -891,10 +944,11 @@ maybe_write_main_driver(Indent, ModuleName, Defns) -->
 :- mode output_src_end(in, in, di, uo) is det.
 
 output_src_end(Indent, ModuleName) -->
+	{ JavaSafeModuleName = valid_module_name(ModuleName) },
 	io__write_string("}\n"),
 	indent_line(Indent),
 	io__write_string("// :- end_module "),
-	prog_out__write_sym_name(ModuleName),
+	prog_out__write_sym_name(JavaSafeModuleName),
 	io__write_string(".\n").
 
 	% Output a Java comment saying that the file was automatically
@@ -985,10 +1039,11 @@ output_class(Indent, Name, _Context, ClassDefn) -->
 	;
 		io__write_string("class ")
 	),
-	output_class_name(UnqualName),
-	output_extends_list(BaseClasses),
-	output_implements_list(Implements),
-	io__write_string(" {\n"),
+	output_class_name(UnqualName), io__nl,
+	output_extends_list(Indent + 1, BaseClasses),
+	output_implements_list(Indent + 1, Implements),
+	indent_line(Indent),
+	io__write_string("{\n"),
 	output_class_body(Indent + 1, Kind, Name, AllMembers, ModuleName),
 	io__nl,
 	output_defns(Indent + 1, ModuleName, cname(UnqualName),	Ctors),
@@ -999,29 +1054,33 @@ output_class(Indent, Name, _Context, ClassDefn) -->
 	% not support multiple inheritance, so more than one superclass
 	% is an error.
 	%
-:- pred output_extends_list(list(mlds__class_id), io__state, io__state).
-:- mode output_extends_list(in, di, uo) is det.
+:- pred output_extends_list(indent, list(mlds__class_id), io__state, io__state).
+:- mode output_extends_list(in, in, di, uo) is det.
 
-output_extends_list([]) --> [].
-output_extends_list([SuperClass]) -->
-	io__write_string(" extends "),
-	output_type(SuperClass).
-output_extends_list([_, _ | _]) -->
+output_extends_list(_, []) --> [].
+output_extends_list(Indent, [SuperClass]) -->
+	indent_line(Indent),
+	io__write_string("extends "),
+	output_type(SuperClass),
+	io__nl.
+output_extends_list(_, [_, _ | _]) -->
 	{ unexpected(this_file, 
 		"output_extends_list: multiple inheritance not supported in Java") }.
 
 	% Output list of interfaces that this class implements.
 	%
-:- pred output_implements_list(list(mlds__interface_id), 
+:- pred output_implements_list(indent, list(mlds__interface_id), 
 		io__state, io__state).
-:- mode output_implements_list(in, di, uo) is det.
+:- mode output_implements_list(in, in, di, uo) is det.
 
-output_implements_list(InterfaceList) --> 
+output_implements_list(Indent, InterfaceList) --> 
 	( { InterfaceList = [] }  ->
 		[]
 	;
-		io__write_string(" implements "),
-		io__write_list(InterfaceList, ",", output_interface) 
+		indent_line(Indent),
+		io__write_string("implements "),
+		io__write_list(InterfaceList, ",", output_interface) ,
+		io__nl
 	).
 
 :- pred output_interface(mlds__interface_id, io__state, io__state).
@@ -1326,7 +1385,7 @@ output_func(Indent, Name, CtorData, Context, Signature, MaybeBody)
 		indent_line(Context, Indent),
 		io__write_string("{\n"),
 		{ FuncInfo = func_info(Name, Signature) },
-		output_statement(Indent + 1, FuncInfo, Body),
+		output_statement(Indent + 1, FuncInfo, Body, _ExitMethods),
 		indent_line(Context, Indent),
 		io__write_string("}\n")	% end the function
 	).
@@ -1427,11 +1486,9 @@ output_fully_qualified(qual(ModuleName, Name), OutputFunc, Qualifier) -->
 	{ SymName = mlds_module_name_to_sym_name(ModuleName) },
 	{ mangle_mlds_sym_name_for_java(SymName, Qualifier, 
 			MangledModuleName) },
-	( { qualified_name_is_stdlib(SymName) } ->
-		{ enforce_java_names(MangledModuleName, JavaMangledName) }
-	;
-		{ MangledModuleName = JavaMangledName }
-	),
+	% XXX Name mangling code should be put here when we start enforcing
+	%     Java's naming convention.
+	{ MangledModuleName = JavaMangledName},
 	io__write_string(JavaMangledName),
 	io__write_string(Qualifier),
 	OutputFunc(Name).
@@ -1582,7 +1639,7 @@ output_type(mlds__array_type(Type)) -->
 	output_type(Type),
 	io__write_string("[]").
 output_type(mlds__func_type(_FuncParams)) -->
-	io__write_string("MethodPtr").
+	io__write_string("mercury.runtime.MethodPtr").
 output_type(mlds__generic_type) -->
 	io__write_string("java.lang.Object").	
 output_type(mlds__generic_env_ptr_type) -->
@@ -1590,12 +1647,11 @@ output_type(mlds__generic_env_ptr_type) -->
 output_type(mlds__pseudo_type_info_type) -->
 	io__write_string("mercury.runtime.PseudoTypeInfo").
 output_type(mlds__cont_type(_)) -->
-	% XXX Not yet implemented.
-	{ unexpected(this_file, 
-		"output_type: nondet code not yet implemented") }.
+	% XXX Should this actually be a class that extends MethodPtr? 
+	io__write_string("mercury.runtime.MethodPtr").
 output_type(mlds__commit_type) -->
-	% XXX Not yet implemented.
-	{ unexpected(this_file, "output_type: commits not yet implemented") }.
+	io__write_string("mercury.runtime.Commit").
+
 %
 % XXX The RTTI data should actually be static but it isn't being
 % generated as such.
@@ -1733,33 +1789,73 @@ maybe_output_comment(Comment) -->
 % Code to output statements
 %
 
+	% These types are used by many of the output_stmt style predicates to
+	% return information about the statement's control flow,
+	% i.e. about the different ways in which the statement can exit.
+	% In general we only output the current statement if the previous 
+	% statement could complete normally (fall through).
+	% We keep a set of exit methods since some statements (like an
+	% if-then-else) could potentially break, and also fall through. 
+:- type exit_methods == set__set(exit_method).
+
+:- type exit_method
+	--->	can_break
+	;	can_continue
+	;	can_return
+	;	can_throw
+	;	can_fall_through	% Where the instruction can complete
+					% normally and execution can continue
+					% with the following statement.
+	.
+
+
 :- type func_info
 	--->	func_info(mlds__qualified_entity_name, mlds__func_params).
 
 :- pred output_statements(indent, func_info, list(mlds__statement),
+		exit_methods, io__state, io__state).
+:- mode output_statements(in, in, in, out, di, uo) is det.
+
+output_statements(_, _, [], set__make_singleton_set(can_fall_through)) --> [].
+output_statements(Indent, FuncInfo, [Statement|Statements], ExitMethods) -->
+	output_statement(Indent, FuncInfo, Statement, StmtExitMethods),
+	( { set__member(can_fall_through, StmtExitMethods) } ->
+		output_statements(Indent, FuncInfo, Statements,
+				StmtsExitMethods),
+		{ ExitMethods0 = StmtExitMethods `set__union`
+				StmtsExitMethods },
+		( { set__member(can_fall_through, StmtsExitMethods) } ->
+			{ ExitMethods = ExitMethods0 }
+		;
+			% If the last statement could not complete normally
+			% the current block can no longer complete normally.
+			{ ExitMethods = ExitMethods0 `set__delete`
+					can_fall_through }
+		)
+	;
+		% Don't output any more statements from the current list since
+		% the preceeding statement cannot complete.
+		{ ExitMethods = StmtExitMethods }
+	).
+
+:- pred output_statement(indent, func_info, mlds__statement, exit_methods,
 		io__state, io__state).
-:- mode output_statements(in, in, in, di, uo) is det.
+:- mode output_statement(in, in, in, out, di, uo) is det.
 
-output_statements(Indent, FuncInfo, Statements) -->
-	list__foldl(output_statement(Indent, FuncInfo),
-			Statements).
-
-:- pred output_statement(indent, func_info, mlds__statement,
-		io__state, io__state).
-:- mode output_statement(in, in, in, di, uo) is det.
-
-output_statement(Indent, FuncInfo, mlds__statement(Statement, Context)) -->
+output_statement(Indent, FuncInfo, mlds__statement(Statement, Context),
+		ExitMethods) -->
 	output_context(Context),
-	output_stmt(Indent, FuncInfo, Statement, Context).
+	output_stmt(Indent, FuncInfo, Statement, Context, ExitMethods).
 
-:- pred output_stmt(indent, func_info, mlds__stmt, mlds__context,
+:- pred output_stmt(indent, func_info, mlds__stmt, mlds__context, exit_methods,
 		io__state, io__state).
-:- mode output_stmt(in, in, in, in, di, uo) is det.
+:- mode output_stmt(in, in, in, in, out, di, uo) is det.
 
 	%
 	% sequence
 	%
-output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
+output_stmt(Indent, FuncInfo, block(Defns, Statements), Context,
+		ExitMethods) -->
 	indent_line(Indent),
 	io__write_string("{\n"),
 	( { Defns \= [] } ->
@@ -1771,33 +1867,73 @@ output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
 	;
 		[]
 	),
-	output_statements(Indent + 1, FuncInfo, Statements),
+	output_statements(Indent + 1, FuncInfo, Statements, ExitMethods),
 	indent_line(Context, Indent),
 	io__write_string("}\n").
 
 	%
 	% iteration
 	%
-output_stmt(Indent, FuncInfo, while(Cond, Statement, no), _) -->
+output_stmt(Indent, FuncInfo, while(Cond, Statement, no), _, ExitMethods) -->
 	indent_line(Indent),
 	io__write_string("while ("),
 	output_rval(Cond),
 	io__write_string(")\n"),
-	output_statement(Indent + 1, FuncInfo, Statement).
-output_stmt(Indent, FuncInfo, while(Cond, Statement, yes), Context) -->
+	% The contained statement is reachable iff the while statement is 
+	% reachable and the condition expression is not a constant expression
+	% whose value is false.
+	( { Cond = const(false) } ->
+		indent_line(Indent),
+		io__write_string("{  /* Unreachable code */  }\n"),
+		{ ExitMethods = set__make_singleton_set(can_fall_through) }
+	;	
+		output_statement(Indent + 1, FuncInfo, Statement,
+				StmtExitMethods),
+		{ ExitMethods = while_exit_methods(Cond, StmtExitMethods) }
+	).
+output_stmt(Indent, FuncInfo, while(Cond, Statement, yes), Context, 
+		ExitMethods) -->
 	indent_line(Indent),
 	io__write_string("do\n"),
-	output_statement(Indent + 1, FuncInfo, Statement),
+	output_statement(Indent + 1, FuncInfo, Statement, StmtExitMethods),
 	indent_line(Context, Indent),
 	io__write_string("while ("),
 	output_rval(Cond),
-	io__write_string(");\n").
+	io__write_string(");\n"),
+	{ ExitMethods = while_exit_methods(Cond, StmtExitMethods) }.
+
+
+	% Returns a set of exit_methods that describes whether the while 
+	% statement can complete normally.
+:- func while_exit_methods(mlds__rval, exit_methods) = exit_methods.
+:- mode while_exit_methods(in, in) = out is det.
+
+while_exit_methods(Cond, BlockExitMethods) = ExitMethods :-
+	% A while statement cannot complete normally if its condition
+	% expression is a constant expression with value true, and it
+	% doesn't contain a reachable break statement that exits the
+	% while statement.
+	(
+		% XXX This is not a sufficient way of testing for a Java 
+		%     "constant expression", though determining these
+		%     accurately is a little difficult to do here.
+		Cond = mlds__const(mlds__true),
+		not set__member(can_break, BlockExitMethods)
+	->
+		% Cannot complete normally
+		ExitMethods0 = BlockExitMethods `set__delete` can_fall_through
+	;
+		ExitMethods0 = BlockExitMethods `set__insert` can_fall_through
+	),
+	ExitMethods = (ExitMethods0 `set__delete` can_continue)
+				    `set__delete` can_break.
+
 
 	%
 	% selection (if-then-else)
 	%
 output_stmt(Indent, FuncInfo, if_then_else(Cond, Then0, MaybeElse),
-		Context) -->
+		Context, ExitMethods) -->
 	%
 	% we need to take care to avoid problems caused by the
 	% dangling else ambiguity
@@ -1829,49 +1965,68 @@ output_stmt(Indent, FuncInfo, if_then_else(Cond, Then0, MaybeElse),
 	io__write_string("if ("),
 	output_rval(Cond),
 	io__write_string(")\n"),
-	output_statement(Indent + 1, FuncInfo, Then),
+	output_statement(Indent + 1, FuncInfo, Then, ThenExitMethods),
 	( { MaybeElse = yes(Else) } ->
 		indent_line(Context, Indent),
 		io__write_string("else\n"),
-		output_statement(Indent + 1, FuncInfo, Else)
+		output_statement(Indent + 1, FuncInfo, Else, ElseExitMethods),
+		% An if-then-else statement can complete normally iff the 
+		% then-statement can complete normally or the else-statement
+		% can complete normally.
+		{ ExitMethods = ThenExitMethods `set__union` ElseExitMethods }
 	;
-		[]
+		% An if-then statement can complete normally iff it is 
+		% reachable.
+		{ ExitMethods = ThenExitMethods `set__union` 
+				set__make_singleton_set(can_fall_through) }
 	).
-
+	
+	
 
 	%
 	% selection (switch)
 	%
 output_stmt(Indent, FuncInfo, switch(_Type, Val, _Range, Cases, Default),
-		Context) -->
+		Context, ExitMethods) -->
 	indent_line(Context, Indent),
 	io__write_string("switch ("),
 	output_rval_maybe_with_enum(Val),
 	io__write_string(") {\n"),
-	list__foldl(output_switch_case(Indent + 1, FuncInfo, Context), Cases),
-	output_switch_default(Indent + 1, FuncInfo, Context, Default),
+	output_switch_cases(Indent + 1, FuncInfo, Context, Cases, Default,
+			ExitMethods),
 	indent_line(Context, Indent),
 	io__write_string("}\n").
-	
+
+
 	%
 	% transfer of control
 	% 
-output_stmt(_Indent, _FuncInfo, label(_LabelName), _Context) --> 
+output_stmt(_Indent, _FuncInfo, label(_LabelName), _Context, _ExitMethods) --> 
 	{ unexpected(this_file, 
 		"output_stmt: labels not supported in Java.") }.
-output_stmt(_Indent, _FuncInfo, goto(_LabelName), _Context) --> 
+output_stmt(_Indent, _FuncInfo, goto(label(_LabelName)), _Context,
+		_ExitMethods) --> 
 	{ unexpected(this_file,
 		"output_stmt: gotos not supported in Java.") }.
-output_stmt(_Indent, _FuncInfo, computed_goto(_Expr, _Labels), _Context) --> 
+output_stmt(Indent, _FuncInfo, goto(break), _Context, ExitMethods) --> 
+	indent_line(Indent),
+	io__write_string("break;\n"),
+	{ ExitMethods = set__make_singleton_set(can_break) }.
+output_stmt(Indent, _FuncInfo, goto(continue), _Context, ExitMethods) --> 
+	indent_line(Indent),
+	io__write_string("continue;\n"),
+	{ ExitMethods = set__make_singleton_set(can_continue) }.
+output_stmt(_Indent, _FuncInfo, computed_goto(_Expr, _Labels), _Context,
+		_ExitMethods) --> 
 	{ unexpected(this_file, 
 		"output_stmt: computed gotos not supported in Java.") }.
 	
 	%
 	% function call/return
 	%
-output_stmt(Indent, CallerFuncInfo, Call, Context) -->
+output_stmt(Indent, CallerFuncInfo, Call, Context, ExitMethods) -->
 	{ Call = call(Signature, FuncRval, MaybeObject, CallArgs,
-		Results, IsTailCall) },
+		Results, _IsTailCall) },
 	{ CallerFuncInfo = func_info(_Name, _Params) },
 	{ Signature = mlds__func_signature(ArgTypes, RetTypes) },
 	indent_line(Indent),
@@ -1905,7 +2060,8 @@ output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 		% 
 		output_call_rval(FuncRval),
 		io__write_string("("),
-		io__write_list(CallArgs, ", ", output_rval)
+		io__write_list(CallArgs, ", ", output_rval),
+		io__write_string(")")
 	;
 		% This is a call using a method pointer.
 		%
@@ -1934,7 +2090,7 @@ output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 				io__write_string(") ")
 			)
 		;
-				io__write_string("((java.lang.Object[]) ")
+			io__write_string("((java.lang.Object[]) ")
 		),	
 		( { MaybeObject = yes(Object) } ->
 			output_bracketed_rval(Object),
@@ -1954,6 +2110,7 @@ output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 		%
 		% XXX This is a hack, see the above comment.
 		% 
+		io__write_string(")"),
 		( { RetTypes = [] } ->
 			[]
 		; { RetTypes = [RetType2] } ->
@@ -1968,10 +2125,10 @@ output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 				io__write_string(")")
 			)
 		;
-				io__write_string(")")
+			io__write_string(")")
 		)	
 	),
-	io__write_string(");\n"),
+	io__write_string(";\n"),
 
 	( { Results = [_, _ | _] } ->
 		% Copy the results from the "result" array into the Result
@@ -1980,14 +2137,19 @@ output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	;
 		[]
 	),
-	( { IsTailCall = tail_call, Results = [] } ->
-		indent_line(Context, Indent + 1),
-		io__write_string("return;\n")
-	;
-		[]
-	),
+	% XXX Is this needed? If present, it causes compiler errors for a
+	%     couple of files in the benchmarks directory.  -mjwybrow
+	%
+	% ( { IsTailCall = tail_call, Results = [] } ->
+	%	indent_line(Context, Indent + 1),
+	%	io__write_string("return;\n")
+	% ;
+	%	[]
+	% ),
+	%
 	indent_line(Indent),
-	io__write_string("}\n").
+	io__write_string("}\n"),
+	{ ExitMethods = set__make_singleton_set(can_fall_through) }.
 
 
 :- pred output_args_as_array(list(mlds__rval), list(mlds__type),
@@ -2019,46 +2181,91 @@ output_boxed_args([CallArg|CallArgs], [CallArgType|CallArgTypes]) -->
 	).
 
 
-output_stmt(Indent, FuncInfo, return(Results), _Context) -->
-	indent_line(Indent),
-	io__write_string("return"),
+output_stmt(Indent, FuncInfo, return(Results0), _Context, ExitMethods) -->
+	%
+	% XXX It's not right to just remove the dummy variables like this,
+	%     but currently they do not seem to be included in the ReturnTypes
+	%     of func_params by the MLDS, so the easiest thing to do here is
+	%     just remove them.
+	%     
+	%     When this is resolved, the right way to handle it would be to
+	%     check for `dummy_var' in the `var' clause for output_lval, and
+	%     output a reference to a static variable `dummy_var' defined in
+	%     a fixed class (e.g. some class in the mercury/java directory,
+	%     or mercury.private_builtin).
+	% 
+	{ Results = remove_dummy_vars(Results0) },
 	( { Results = [] } ->
-		[]
+		indent_line(Indent),
+		io__write_string("return;\n")
 	; { Results = [Rval] } ->
-		io__write_char(' '),
-		% 
-		% Don't output `dummy_var'.
-		%
-		( 
-	   		{ Rval = mlds__lval(Lval) },
-	   		{ Lval = var(VarName, _) },
-	   		{ VarName = qual(_, UnqualName) },
-	   		{ UnqualName = var_name("dummy_var", no) } 
-		->
-			[]
-		;
-			output_rval(Rval)
-		)
+		indent_line(Indent),
+		io__write_string("return "),
+		output_rval(Rval),
+		io__write_string(";\n")
 	;
 		{ FuncInfo = func_info(_Name, Params) },
 		{ Params = mlds__func_params(_Args, ReturnTypes) },
 		{ TypesAndResults = assoc_list__from_corresponding_lists(
 			ReturnTypes, Results) },
-		io__write_string(" new java.lang.Object[] { "),
+		io__write_string("return new java.lang.Object[] { "),
 		io__write_list(TypesAndResults, ",\n ",
 			(pred((Type - Result)::in, di, uo) is det -->
 				output_boxed_rval(Type, Result))),
-		io__write_string("}")
+		io__write_string("};\n")
 	),
-	io__write_string(";\n").
-	
-	%
-	% commits
-	% XXX These are yet to be implemented.
-output_stmt(_Indent, _FuncInfo, do_commit(_Ref), _) -->
-	{ sorry(this_file, "output_stmt: commits not yet implemented") }.
-output_stmt(_Indent, _FuncInfo, try_commit(_Ref, _Stmt0, _Handler), _) -->
-	{ sorry(this_file, "output_stmt: commits not implemented") }.
+	{ ExitMethods = set__make_singleton_set(can_return) }.
+
+output_stmt(Indent, _FuncInfo, do_commit(Ref), _, ExitMethods) -->
+	indent_line(Indent),
+	output_rval(Ref),
+	io__write_string(" = new mercury.runtime.Commit();\n"),
+	indent_line(Indent),
+	io__write_string("throw "),
+	output_rval(Ref),
+	io__write_string(";\n"),
+	{ ExitMethods = set__make_singleton_set(can_throw) }.
+
+output_stmt(Indent, FuncInfo, try_commit(_Ref, Stmt, Handler), _,
+		ExitMethods) -->
+	indent_line(Indent),
+	io__write_string("try\n"),
+	indent_line(Indent),
+	io__write_string("{\n"),
+	output_statement(Indent + 1, FuncInfo, Stmt, TryExitMethods0),
+	indent_line(Indent),
+	io__write_string("}\n"),
+	indent_line(Indent),
+	io__write_string("catch (mercury.runtime.Commit commit_variable)\n"),
+	indent_line(Indent),
+	io__write_string("{\n"),
+	indent_line(Indent + 1),
+	output_statement(Indent + 1, FuncInfo, Handler, CatchExitMethods),
+	indent_line(Indent),
+	io__write_string("}\n"),
+	{ ExitMethods = (TryExitMethods0 `set__delete` can_throw)
+				         `set__union`  CatchExitMethods }.
+
+
+
+:- func remove_dummy_vars(list(mlds__rval)) = list(mlds__rval).
+:- mode remove_dummy_vars(in) = out is det.
+
+remove_dummy_vars([]) = [].
+remove_dummy_vars([Var|Vars0]) = VarList :-
+	Vars = remove_dummy_vars(Vars0),
+	( 
+   		Var = mlds__lval(Lval),
+   		Lval = var(_VarName, VarType),
+		VarType = mercury_type(ProgDataType, _, _),
+   		type_util__is_dummy_argument_type(ProgDataType)
+	->
+		VarList = Vars
+	;
+		VarList = [Var|Vars]	
+	).
+
+
 %-----------------------------------------------------------------------------%
 %
 % When returning multiple values,
@@ -2114,16 +2321,44 @@ output_unboxed_result(Type, ResultIndex) -->
 % Extra code for outputting switch statements
 %
 
-:- pred output_switch_case(indent, func_info, mlds__context,
-		mlds__switch_case, io__state, io__state).
-:- mode output_switch_case(in, in, in, in, di, uo) is det.
+:- pred output_switch_cases(indent, func_info, mlds__context,
+		list(mlds__switch_case), mlds__switch_default, exit_methods,
+		io__state, io__state).
+:- mode output_switch_cases(in, in, in, in, in, out, di, uo) is det.
 
-output_switch_case(Indent, FuncInfo, Context, Case) -->
+output_switch_cases(Indent, FuncInfo, Context, [], Default, ExitMethods) -->
+	output_switch_default(Indent, FuncInfo, Context, Default, ExitMethods).
+output_switch_cases(Indent, FuncInfo, Context, [Case|Cases], Default,
+		ExitMethods) -->
+	output_switch_case(Indent, FuncInfo, Context, Case, CaseExitMethods0),
+	output_switch_cases(Indent, FuncInfo, Context, Cases, Default, 
+			CasesExitMethods),
+	( { set__member(can_break, CaseExitMethods0) } ->
+		{ CaseExitMethods = (CaseExitMethods0 `set__delete` can_break)
+				`set__insert` can_fall_through }
+	;
+		{ CaseExitMethods = CaseExitMethods0 }
+	),
+	{ ExitMethods = CaseExitMethods `set__union` CasesExitMethods }.
+
+
+:- pred output_switch_case(indent, func_info, mlds__context,
+		mlds__switch_case, exit_methods, io__state, io__state).
+:- mode output_switch_case(in, in, in, in, out, di, uo) is det.
+
+output_switch_case(Indent, FuncInfo, Context, Case, ExitMethods) -->
 	{ Case = (Conds - Statement) },
 	list__foldl(output_case_cond(Indent, Context), Conds),
-	output_statement(Indent + 1, FuncInfo, Statement),
-	indent_line(Context, Indent + 1),
-	io__write_string("break;\n").
+	output_statement(Indent + 1, FuncInfo, Statement, StmtExitMethods),
+	( { set__member(can_fall_through, StmtExitMethods) } ->
+		indent_line(Context, Indent + 1),
+		io__write_string("break;\n"),
+		{ ExitMethods = (StmtExitMethods `set__insert` can_break)
+				`set__delete` can_fall_through }
+	;
+		% Don't output `break' since it would be unreachable.
+		{ ExitMethods = StmtExitMethods }
+	).
 
 :- pred output_case_cond(indent, mlds__context, mlds__case_match_cond, 
 		io__state, io__state).
@@ -2139,20 +2374,24 @@ output_case_cond(_Indent, _Context, match_range(_, _)) -->
 		"output_case_cond: cannot match ranges in Java cases") }.
 
 :- pred output_switch_default(indent, func_info, mlds__context,
-		mlds__switch_default, io__state, io__state).
-:- mode output_switch_default(in, in, in, in, di, uo) is det.
+		mlds__switch_default, exit_methods, io__state, io__state).
+:- mode output_switch_default(in, in, in, in, out, di, uo) is det.
 
-output_switch_default(_Indent, _FuncInfo, _Context, default_do_nothing) --> 
-	[].
-output_switch_default(Indent, FuncInfo, Context, default_case(Statement)) -->
+output_switch_default(_Indent, _FuncInfo, _Context, default_do_nothing,
+		ExitMethods) -->
+	{ ExitMethods = set__make_singleton_set(can_fall_through) }.
+output_switch_default(Indent, FuncInfo, Context, default_case(Statement),
+		ExitMethods) -->
 	indent_line(Context, Indent),
 	io__write_string("default:\n"),
-	output_statement(Indent + 1, FuncInfo, Statement).
-output_switch_default(Indent, _FuncInfo, Context, default_is_unreachable) -->
+	output_statement(Indent + 1, FuncInfo, Statement, ExitMethods).
+output_switch_default(Indent, _FuncInfo, Context, default_is_unreachable,
+		ExitMethods) -->
 	indent_line(Context, Indent),
 	io__write_string("default: /*NOTREACHED*/\n"), 
 	indent_line(Context, Indent + 1),
-	io__write_string("throw new mercury.runtime.UnreachableDefault();\n").
+	io__write_string("throw new mercury.runtime.UnreachableDefault();\n"),
+	{ ExitMethods = set__make_singleton_set(can_throw) }.
 
 %-----------------------------------------------------------------------------%
 
@@ -2166,8 +2405,10 @@ output_switch_default(Indent, _FuncInfo, Context, default_is_unreachable) -->
 	%
 	% atomic statements
 	%
-output_stmt(Indent, FuncInfo, atomic(AtomicStatement), Context) -->
-	output_atomic_stmt(Indent, FuncInfo, AtomicStatement, Context).
+output_stmt(Indent, FuncInfo, atomic(AtomicStatement), Context,
+		ExitMethods) -->
+	output_atomic_stmt(Indent, FuncInfo, AtomicStatement, Context),
+	{ ExitMethods = set__make_singleton_set(can_fall_through) }.
 
 :- pred output_atomic_stmt(indent, func_info,
 		mlds__atomic_statement, mlds__context, io__state, io__state).
@@ -2220,7 +2461,7 @@ output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval), _) -->
 	{ error("mlds_to_java.m: delete_object not supported in Java.") }.
 
 output_atomic_stmt(Indent, _FuncInfo, NewObject, Context) -->
-	{ NewObject = new_object(Target, _MaybeTag, _HasSecTag, Type,
+	{ NewObject = new_object(Target, _MaybeTag, HasSecTag, Type,
 		_MaybeSize, MaybeCtorName, Args, ArgTypes) },
 	
 	indent_line(Indent),
@@ -2242,7 +2483,7 @@ output_atomic_stmt(Indent, _FuncInfo, NewObject, Context) -->
 		output_type(Type)
 	),
 	(
-		{ Type = mlds__func_type(_FuncParams)
+		{ Type = mlds__array_type(_Type)
 		; Type = mlds__mercury_type(_Type, pred_type, _)
 		} 
 	->
@@ -2251,16 +2492,17 @@ output_atomic_stmt(Indent, _FuncInfo, NewObject, Context) -->
 		% need to initialise it using array literals syntax.
 		%
 		io__write_string(" {"),
-		output_init_args(Args, ArgTypes, 0),
+		output_init_args(Args, ArgTypes, 0, HasSecTag),
 		io__write_string("};\n") 
 	;
 		%
 		% Generate constructor arguments.
 		%
 		io__write_string("("),
-		output_init_args(Args, ArgTypes, 0),
+		output_init_args(Args, ArgTypes, 0, HasSecTag),
 		io__write_string(");\n")
 	),
+	indent_line(Indent),
 	io__write_string("}\n").
 	
 
@@ -2295,29 +2537,33 @@ output_atomic_stmt(_Indent, _FuncInfo,
 	% Output initial values of an object's fields as arguments for the
 	% object's class constructor.
 	%
-:- pred output_init_args(list(mlds__rval), list(mlds__type), int,
+:- pred output_init_args(list(mlds__rval), list(mlds__type), int, bool,
 		io__state, io__state).
-:- mode output_init_args(in, in, in, di, uo) is det.
+:- mode output_init_args(in, in, in, in, di, uo) is det.
 
-output_init_args([], [], _) --> [].
-output_init_args([_|_], [], _) -->
+output_init_args([], [], _, _) --> [].
+output_init_args([_|_], [], _, _) -->
 	{ error("output_init_args: length mismatch") }.
-output_init_args([], [_|_], _) -->
+output_init_args([], [_|_], _i, _) -->
 	{ error("output_init_args: length mismatch") }.
-output_init_args([Arg|Args], [_ArgType|ArgTypes], ArgNum) -->
-	( { ArgNum = 0 } ->
-		% Discard the first argument, as this will always be the 
-		% data_tag, which is now set by the class constructor. 
+output_init_args([Arg|Args], [_ArgType|ArgTypes], ArgNum, HasSecTag) -->
+	(
+		{ ArgNum = 0 },
+		{ HasSecTag = yes }
+	->
+		% This first argument is a `data_tag', It is set by
+		% the class constructor so this argument can be discarded.
 		[]
-	; 
-		( { ArgNum > 1 } ->
-			io__write_string(", ")
-		;
+	;
+		output_rval(Arg),
+		( { Args = [] } ->
 			[]
-		),
-		output_rval(Arg)
+		;
+			io__write_string(", ")
+		)
 	),
-	output_init_args(Args, ArgTypes, ArgNum + 1).
+	output_init_args(Args, ArgTypes, ArgNum + 1, HasSecTag).
+
 
 %-----------------------------------------------------------------------------%
 %
@@ -2340,12 +2586,13 @@ output_lval(field(_MaybeTag, Rval, offset(OffsetRval), FieldType,
 		% must be something that maps to MR_Box.
 		{ error("unexpected field type") }
 	),
-	io__write_string("("),
+	% XXX We shouldn't need this cast here, but there are cases where 
+	%     it is needed and the MLDS doesn't seem to generate it.
+	io__write_string("((java.lang.Object[]) "),
 	output_rval(Rval),
-	io__write_string("["),
+	io__write_string(")["),
 	output_rval(OffsetRval),
-	io__write_string("]))").
-
+	io__write_string("]").
 
 
 output_lval(field(_MaybeTag, PtrRval, named_field(FieldName, CtorType),
@@ -2553,6 +2800,15 @@ java_builtin_type(Type, "char", "java.lang.Character", "charValue") :-
 		[], _), _, _).
 java_builtin_type(Type, "boolean", "java.lang.Boolean", "booleanValue") :-
 	Type = mlds__native_bool_type.
+	
+	% io__state and store__store(S) are dummy variables 
+	% for which we pass an arbitrary integer. For this
+	% reason they should have the Java type `int'.
+	% 
+java_builtin_type(Type, "int", "java.lang.Integer", "intValue") :-
+	Type = mlds__mercury_type(term__functor(term__atom(":"), _, _), _, _),
+	Type = mlds__mercury_type(MercuryType, _, _),
+	type_util__is_dummy_argument_type(MercuryType).
 
 :- pred output_std_unop(builtin_ops__unary_op, mlds__rval, 
 		io__state, io__state).
@@ -2696,9 +2952,9 @@ mlds_output_code_addr(proc(Label, _Sig), IsCall) -->
 		% Not a function call, so we are taking the address of the
 		% wrapper for that function (method).
 		% 
-		io__write_string("AddrOf__"),
+		io__write_string("new AddrOf__"),
 		output_fully_qualified_proc_label(Label, "__"),
-		io__write_string("_0")
+		io__write_string("_0()")
 	;
 		output_fully_qualified_proc_label(Label, ".")
 	).
@@ -2708,11 +2964,11 @@ mlds_output_code_addr(internal(Label, SeqNum, _Sig), IsCall) -->
 		% Not a function call, so we are taking the address of the
 		% wrapper for that function (method).
 		% 
-		io__write_string("AddrOf__"),
+		io__write_string("new AddrOf__"),
 		output_fully_qualified_proc_label(Label, "__"),
 		io__write_string("_"),
 		io__write_int(SeqNum),
-		io__write_string("_0")
+		io__write_string("_0()")
 	;
 		output_fully_qualified_proc_label(Label, "."),
 		io__write_string("_"),
@@ -2730,8 +2986,10 @@ mlds_output_proc_label(PredLabel - ProcId) -->
 :- pred mlds_output_data_addr(mlds__data_addr, io__state, io__state).
 :- mode mlds_output_data_addr(in, di, uo) is det.
 
-mlds_output_data_addr(data_addr(ModuleName, DataName)) -->
-	output_module_name(mlds_module_name_to_sym_name(ModuleName)),
+mlds_output_data_addr(data_addr(ModuleQualifier, DataName)) -->
+	{ SymName = mlds_module_name_to_sym_name(ModuleQualifier) },	
+	{ mangle_mlds_sym_name_for_java(SymName, ".", ModuleName) },
+	io__write_string(ModuleName),
 	io__write_string("."),
 	output_data_name(DataName).
 

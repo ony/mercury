@@ -694,6 +694,7 @@ code_util__cons_id_to_tag(tabling_pointer_const(PredId,ProcId), _, _,
 		tabling_pointer_constant(PredId,ProcId)).
 code_util__cons_id_to_tag(deep_profiling_proc_static(PPId), _, _,
 		deep_profiling_proc_static_tag(PPId)).
+code_util__cons_id_to_tag(table_io_decl(PPId), _, _, table_io_decl_tag(PPId)).
 code_util__cons_id_to_tag(cons(Name, Arity), Type, ModuleInfo, Tag) :-
 	(
 			% handle the `character' type specially
