@@ -152,7 +152,7 @@
 	map(class_constraint, constraint_proof),
 	list(class_constraint), list(class_constraint)).
 :- mode typecheck__reduce_context_by_rule_application(in, in, in, in, in, out, 
-	in, out, in, out) is semidet.
+	in, out, in, out) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -3209,8 +3209,9 @@ perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 
 reduce_type_assign_context(SuperClassTable, InstanceTable, 
 		TypeAssign0, TypeAssign) :-
-	type_assign_get_typeclass_constraints(TypeAssign0, Constraints0),
+	type_assign_get_head_type_params(TypeAssign0, HeadTypeParams),
 	type_assign_get_type_bindings(TypeAssign0, Bindings),
+	type_assign_get_typeclass_constraints(TypeAssign0, Constraints0),
 	type_assign_get_typevarset(TypeAssign0, Tvarset0),
 	type_assign_get_constraint_proofs(TypeAssign0, Proofs0),
 
@@ -3220,6 +3221,8 @@ reduce_type_assign_context(SuperClassTable, InstanceTable,
 		SuperClassTable, AssumedConstraints,
 		Bindings, Tvarset0, Tvarset, Proofs0, Proofs,
 		UnprovenConstraints0, UnprovenConstraints),
+
+	check_satisfiability(UnprovenConstraints, HeadTypeParams),
 
 	Constraints = constraints(AssumedConstraints, UnprovenConstraints),
 
@@ -3274,7 +3277,7 @@ eliminate_assumed_constraints([C|Cs], AssumedCs, NewCs, Changed) :-
 :- pred apply_instance_rules(list(class_constraint), instance_table,
 	tvarset, tvarset, map(class_constraint, constraint_proof),
 	map(class_constraint, constraint_proof), list(class_constraint), bool).
-:- mode apply_instance_rules(in, in, in, out, in, out, out, out) is semidet.
+:- mode apply_instance_rules(in, in, in, out, in, out, out, out) is det.
 
 apply_instance_rules([], _, Names, Names, Proofs, Proofs, [], no).
 apply_instance_rules([C|Cs], InstanceTable, TVarSet, NewTVarSet,
@@ -3293,24 +3296,6 @@ apply_instance_rules([C|Cs], InstanceTable, TVarSet, NewTVarSet,
 		Proofs2 = Proofs1,
 		Changed1 = yes
 	;
-			%
-			% Check that the constraint is not a ground
-			% constraint.  We disallow ground constraints
-			% for which there are no matching instance rules,
-			% even though the module system means that it would
-			% make sense to allow them: even if there
-			% is no instance declaration visible in the current
-			% module, there may be one visible in the caller.
-			% The reason we disallow them is that in practice
-			% allowing this causes type inference to let too
-			% many errors slip through, with the error diagnosis
-			% being too far removed from the real cause of the
-			% error.  Note that ground constraints *are* allowed
-			% if you declare them, since we removed declared
-			% constraints before checking instance rules.
-			%
-		term__contains_var_list(Types, _TVar),
-
 			% Put the old constraint at the front of the list
 		NewConstraints = [C],
 		NewTVarSet1 = TVarSet,
@@ -3506,6 +3491,50 @@ find_first(Pred, [X|Xs], Result) :-
 		Result = Result0
 	;
 		find_first(Pred, Xs, Result)
+	).
+
+	%
+	% check_satisfiability(Constraints, HeadTypeParams):
+	% 	Check that all of the constraints are satisfiable.
+	%	Fail if any are definitely not satisfiable.
+	%
+	% We disallow ground constraints
+	% for which there are no matching instance rules,
+	% even though the module system means that it would
+	% make sense to allow them: even if there
+	% is no instance declaration visible in the current
+	% module, there may be one visible in the caller.
+	% The reason we disallow them is that in practice
+	% allowing this causes type inference to let too
+	% many errors slip through, with the error diagnosis
+	% being too far removed from the real cause of the
+	% error.  Note that ground constraints *are* allowed
+	% if you declare them, since we removed declared
+	% constraints before checking satisfiability.
+	%
+	% Similarly, for constraints on head type params
+	% (universally quantified type vars in the head of this pred,
+	% or existentially quantified type vars in callees),
+	% we know that the head type params can never get bound.
+	% This means that if the constraint wasn't an assumed constraint
+	% and can't be eliminated by instance rule or class rule
+	% application, then we can report an error now, rather than
+	% later.  (For non-head-type-param type variables,
+	% we need to wait, in case the type variable gets bound
+	% to a type for which there is a valid instance declaration.)
+	%
+	% So a constraint is considered satisfiable iff it
+	% contains at least one type variable that is not in the
+	% head type params.
+	%
+:- pred check_satisfiability(list(class_constraint), head_type_params).
+:- mode check_satisfiability(in, in) is semidet.
+
+check_satisfiability(Constraints, HeadTypeParams) :-
+	all [C] list__member(C, Constraints) => (
+		C = constraint(_ClassName, Types),
+		term__contains_var_list(Types, TVar),
+		not list__member(TVar, HeadTypeParams)
 	).
 
 %-----------------------------------------------------------------------------%
