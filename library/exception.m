@@ -1026,29 +1026,52 @@ Declare_label(mercury__exception__builtin_throw_1_0_i1);
 **			module, name, arity, mode)                         
 */
 
+MR_MAKE_SCC_ID(throw_scc_id_1, { }, { }, { });
 MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_throw_1_0,
         MR_DETISM_DET, BUILTIN_THROW_STACK_SIZE, MR_LONG_LVAL_STACKVAR(1),
-        MR_PREDICATE, ""exception"", ""builtin_throw"", 1, 0);
+        MR_PREDICATE, ""exception"", ""builtin_throw"", 1, 0,
+	throw_scc_id_1);
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_throw_1_0, 1);
 
+#ifdef MR_PROFILE_DEEP
+  MR_MAKE_SCC_ID(catch_scc_id_1, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_catch_3_0,
+	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 0,
+	catch_scc_id_1);
+
+  MR_MAKE_SCC_ID(catch_scc_id_4, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_catch_3_4,
+	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 4,
+	catch_scc_id_4);
+#endif
 /*
 ** The following procedures all allocate their stack frames on
 ** the nondet stack, so for the purposes of doing stack traces
 ** we say they have MR_DETISM_NON, even though they are not
 ** actually nondet.
 */ 
+MR_MAKE_SCC_ID(catch_scc_id_2, { }, { }, { });
 MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_catch_3_2,
 	MR_DETISM_NON,	/* really cc_multi; also used for det */
 	MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
-	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 2);
+	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 2,
+	catch_scc_id_2);
+
+MR_MAKE_SCC_ID(catch_scc_id_3, { }, { }, { });
 MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_catch_3_3,
 	MR_DETISM_NON,	/* really cc_nondet; also used for semidet */
 	MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
-	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 3);
+	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 3,
+	catch_scc_id_3);
+
+MR_MAKE_SCC_ID(catch_scc_id_5, { }, { }, { });
 MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_catch_3_5,
 	MR_DETISM_NON,	/* ; also used for multi */
 	MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
-	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 5);
+	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 5,
+	catch_scc_id_5);
 
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_2, 1);
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_2, 2);
@@ -1274,6 +1297,14 @@ Define_entry(mercury__exception__builtin_throw_1_0);
 		if (MR_jumpaddr != NULL) GOTO(MR_jumpaddr);
 	}
 
+#ifdef MR_PROFILE_DEEP
+	/*
+	** Set the current scc instance to the root - we need somewhere
+	** to hang the children if the exception is uncaught. If it is
+	** caught, it will be reset by the handler.
+	*/
+	MR_prof_current_proc = (MR_ProcCallProfile *) &MR_prof_root_proc;
+#endif
 	/*
 	** Search the nondet stack for an exception handler,
 	** i.e. a frame whose redoip is `exception_handler_do_fail'

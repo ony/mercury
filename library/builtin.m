@@ -393,6 +393,19 @@ mercury__builtin__copy_2_p_1(MR_Type_Info type_info, MR_Box x, MR_Box * y)
 Define_extern_entry(mercury__copy_2_0);
 Define_extern_entry(mercury__copy_2_1);
 
+#ifdef MR_PROFILE_DEEP
+  MR_MAKE_SCC_ID(copy_scc_id_0, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury__copy_2_0,
+  	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""builtin"", ""builtin_copy"", 2, 0,
+	copy_scc_id_0);
+  MR_MAKE_SCC_ID(copy_scc_id_1, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury__copy_2_1,
+  	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""builtin"", ""builtin_copy"", 2, 1,
+	copy_scc_id_1);
+#endif
+
 BEGIN_MODULE(copy_module)
 	init_entry(mercury__copy_2_0);
 	init_entry(mercury__copy_2_1);
@@ -449,6 +462,28 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(builtin, c_pointer, 0,
 	MR_TYPECTOR_REP_C_POINTER,
 	mercury____Unify___builtin__c_pointer_0_0,
 	mercury____Compare___builtin__c_pointer_0_0);
+
+#ifdef MR_PROFILE_DEEP
+  MR_MAKE_SCC_ID(c_pointer_unify_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Unify___builtin__c_pointer_0_0,
+  	MR_DETISM_SEMI, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""builtin_c_pointer"", ""builtin_unify"", 2, 0,
+	c_pointer_unify_scc_id);
+
+#if 0
+  MR_MAKE_SCC_ID(c_pointer_index_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Index___builtin__c_pointer_0_0,
+  	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""builtin_c_pointer"", ""builtin_index"", 2, 0,
+	c_pointer_index_scc_id);
+#endif
+
+  MR_MAKE_SCC_ID(c_pointer_compare_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Compare___builtin__c_pointer_0_0,
+  	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""builtin_c_pointer"", ""builtin_compare"", 3, 0,
+	c_pointer_compare_scc_id);
+#endif
 
 BEGIN_MODULE(unify_c_pointer_module)
 	init_entry(mercury____Unify___builtin__c_pointer_0_0);

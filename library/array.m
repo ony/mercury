@@ -278,6 +278,28 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY);
 Declare_entry(mercury__array__array_equal_2_0);
 Declare_entry(mercury__array__array_compare_3_0);
 
+#ifdef MR_PROFILE_DEEP
+  MR_MAKE_SCC_ID(unify_array_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Unify___array__array_1_0,
+  	MR_DETISM_SEMI, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""array"", ""builtin_compare"", 2, 0,
+	unify_array_scc_id);
+
+#if 0
+  MR_MAKE_SCC_ID(index_array_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Index___array__array_1_0,
+  	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""array"", ""builtin_index"", 2, 0,
+	index_array_scc_id);
+#endif
+
+  MR_MAKE_SCC_ID(compare_array_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Compare___array__array_1_0,
+  	MR_DETISM_DET, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""array"", ""builtin_index"", 3, 0,
+	compare_array_scc_id);
+#endif
+
 BEGIN_MODULE(array_module_builtins)
 	init_entry(mercury____Unify___array__array_1_0);
 	init_entry(mercury____Compare___array__array_1_0);

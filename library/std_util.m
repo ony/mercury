@@ -1051,10 +1051,34 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, univ, 0,
 
 Declare_label(mercury____Compare___std_util__univ_0_0_i1);
 
+MR_MAKE_SCC_ID(univ_compare_scc_id, { }, { }, { });
 MR_MAKE_PROC_LAYOUT(mercury____Compare___std_util__univ_0_0,
 	MR_DETISM_DET, 1, MR_LONG_LVAL_STACKVAR(1),
-	MR_PREDICATE, ""std_util"", ""compare_univ"", 3, 0);
+	MR_PREDICATE, ""std_util"", ""compare_univ"", 3, 0,
+	univ_compare_scc_id);
 MR_MAKE_INTERNAL_LAYOUT(mercury____Compare___std_util__univ_0_0, 1);
+
+#endif
+
+#ifdef MR_PROFILE_DEEP
+  MR_MAKE_SCC_ID(univ_unify_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Unify___std_util__univ_0_0,
+  	MR_DETISM_SEMI, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""univ"", ""builtin_unify"", 2, 0,
+	univ_unify_scc_id);
+
+  MR_MAKE_SCC_ID(type_desc_unify_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Unify___std_util__type_desc_0_0,
+  	MR_DETISM_SEMI, MR_ENTRY_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""type_desc"", ""builtin_unify"", 2, 0,
+	type_desc_unify_scc_id);
+
+  MR_MAKE_SCC_ID(type_desc_compare_scc_id, { }, { }, { });
+  MR_MAKE_PROC_LAYOUT(mercury____Compare___std_util__type_desc_0_0,
+	MR_DETISM_DET, 1, MR_LONG_LVAL_STACKVAR(1),
+	MR_PREDICATE, ""std_util"", ""compare_type_desc"", 3, 0,
+	type_desc_compare_scc_id);
+  MR_MAKE_INTERNAL_LAYOUT(mercury____Compare___std_util__type_desc_0_0, 1);
 
 #endif
 

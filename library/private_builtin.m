@@ -287,12 +287,58 @@ typed_compare(R, X, Y) :- compare(R, univ(X), univ(Y)).
 	** type_ctor_infos.
 	*/
 
+Declare_entry(mercury____Unify___private_builtin__type_info_1_0);
+MR_MAKE_SCC_ID(unify_type_info_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(mercury____Unify___private_builtin__type_info_1_0,
+	MR_DETISM_SEMI, 0, 0, MR_PREDICATE,
+	""private_builtin"", ""unify_type_info"", 2, 0,
+	unify_type_info_scc_id);
+
+#if 0
+Declare_entry(mercury____Index___private_builtin__type_info_1_0);
+MR_MAKE_SCC_ID(index_type_info_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(mercury____Index___private_builtin__type_info_1_0,
+	MR_DETISM_SEMI, 0, 0, MR_PREDICATE,
+	""private_builtin"", ""index_type_info"", 2, 0,
+	index_type_info_scc_id);
+#endif
+
+Declare_entry(mercury____Compare___private_builtin__type_info_1_0);
+MR_MAKE_SCC_ID(comapre_type_info_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(mercury____Compare___private_builtin__type_info_1_0,
+	MR_DETISM_SEMI, 0, 0, MR_PREDICATE,
+	""private_builtin"", ""comapre_type_info"", 2, 0,
+	comapre_type_info_scc_id);
+
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(private_builtin, type_ctor_info, 1,
 	MR_TYPECTOR_REP_TYPEINFO,
 	mercury____Unify___private_builtin__type_info_1_0,
 	mercury____Compare___private_builtin__type_info_1_0);
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, type_info, 1,
 	MR_TYPECTOR_REP_TYPEINFO);
+
+Declare_entry(mercury____Unify___private_builtin__typeclass_info_1_0);
+MR_MAKE_SCC_ID(unify_typeclass_info_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(mercury____Unify___private_builtin__typeclass_info_1_0,
+	MR_DETISM_SEMI, 0, 0, MR_PREDICATE,
+	""private_builtin"", ""unify_typeclass_info"", 2, 0,
+	unify_typeclass_info_scc_id);
+
+#if 0
+Declare_entry(mercury____Index___private_builtin__typeclass_info_1_0);
+MR_MAKE_SCC_ID(index_typeclass_info_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(mercury____Index___private_builtin__typeclass_info_1_0,
+	MR_DETISM_SEMI, 0, 0, MR_PREDICATE,
+	""private_builtin"", ""index_typeclass_info"", 2, 0,
+	index_typeclass_info_scc_id);
+#endif
+
+Declare_entry(mercury____Compare___private_builtin__typeclass_info_1_0);
+MR_MAKE_SCC_ID(comapre_typeclass_info_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(mercury____Compare___private_builtin__typeclass_info_1_0,
+	MR_DETISM_SEMI, 0, 0, MR_PREDICATE,
+	""private_builtin"", ""comapre_typeclass_info"", 2, 0,
+	comapre_typeclass_info_scc_id);
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(private_builtin, base_typeclass_info, 1,
 	MR_TYPECTOR_REP_TYPECLASSINFO,
