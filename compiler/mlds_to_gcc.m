@@ -11,9 +11,22 @@
 % actually generates GCC's internal "Tree" representation,
 % and then invokes the GCC back-end to compile it to assembler,
 % without going via an external file.
-% Code using the C interface, however, does get compiled to C;
-% this module invokes mlds_to_c.m to do that.
-
+%
+% Code using the C interface, however, does get compiled to C; this module
+% invokes mlds_to_c.m to do that.  We split off all the parts of the MLDS
+% for `c_code'/`foreign_code' declarations, `c_header_code'/`foreign_decl'
+% declarations, `export' declarations, and procedures defined with
+% `c_code'/`foreign_proc', and pass them to mlds_to_c.m.  That will generate
+% a `<module>.c' file for this module; mercury_compile.m will invoke the C
+% compiler to compile that to `<module>__c_code.o'.  The remainding parts
+% of the MLDS, which don't contain any foreign code, we handle normally,
+% converting them to GCC trees and passing them to the GCC back-end
+% to generate an assembler file.  Calls to procedures defined using
+% `c_code'/`foreign_proc' will end up calling the functions defined in
+% `<module>__c_code.o'.  This works because the calling convention that
+% is used for the MLDS->C back-end is the same as (i.e. binary compatible
+% with) the calling convention that we use here in the MLDS->GCC back-end.
+%
 % Currently this back-end supports grade hlc.gc only.
 %
 % Trailing will probably work too, but since trailing
@@ -26,7 +39,7 @@
 %	  with C; need to promote boolean return type to int
 %
 %	Fix configuration issues:
-%	- mmake support
+%	- mmake support for foreign code
 %	- document installation procedure
 %	- test more
 %	- support in tools/bootcheck and check that it bootchecks
@@ -76,6 +89,15 @@
 	% The bool returned is `yes' iff the module contained C code.
 	% In that case, we will have output a separate C file which needs
 	% to be compiled with the C compiler.
+	%
+	% XXX Currently the only foreign language we handle is C.
+	%     To make it work properly we'd need to change the
+	%     `ContainsCCode' boolean that we return to instead be a list
+	%     of the foreign languages used, so that mercury_compile.m
+	%     will know which foreign language files have been generated
+	%     which foreign language compilers it needs to invoke,
+	%     and which object files to link into the executable.
+
 :- pred mlds_to_gcc__compile_to_asm(mlds__mlds, bool, io__state, io__state).
 :- mode mlds_to_gcc__compile_to_asm(in, out, di, uo) is det.
 
@@ -327,7 +349,9 @@ mlds_to_gcc__compile_to_gcc(MLDS, ContainsCCode) -->
 		{ ForeignMLDS = mlds(ModuleName, ForeignCode, Imports,
 			ForeignDefns) },
 		mlds_to_c__output_mlds(ForeignMLDS),
-		% XXX currently the only foreign code we handle is C
+		% XXX currently the only foreign code we handle is C;
+		%     see comments above (at the declaration for
+		%     mlds_to_c__compile_to_asm)
 		{ ContainsCCode = yes },
 		{ NeedInitFn = no }
 	),
