@@ -34,7 +34,13 @@
 :- import_module hlds_goal, prog_data.
 
 annotate_all_liveness_in_module( HLDSin, HLDSout) :- 
-	module_info_predids( HLDSin, PRED_IDS ), 
+	module_info_predids( HLDSin, PRED_IDS0 ), 
+
+	module_info_get_special_pred_map(HLDSin, SpecialPredMap),
+	map__values(SpecialPredMap, SpecialPredIds),
+
+	list__delete_elems(PRED_IDS0, SpecialPredIds, PRED_IDS),
+
 	list__foldl(
 		annotate_all_liveness_in_module_2,
 		PRED_IDS, 
