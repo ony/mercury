@@ -356,19 +356,28 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			% initial type declaration of 
 			% `pred foo(T1, T2, ..., TN)' by make_hlds.m.
 			Inferring = yes,
-			HeadTypeParams1 = [],
-			Constraints = constraints([], []),
 			write_pred_progress_message("% Inferring type of ",
-				PredId, ModuleInfo, IOState0, IOState1)
+				PredId, ModuleInfo, IOState0, IOState1),
+			HeadTypeParams1 = [],
+			PredConstraints = constraints([], [])
 		;
 			Inferring = no,
+			write_pred_progress_message("% Type-checking ",
+				PredId, ModuleInfo, IOState0, IOState1),
 			term__vars_list(ArgTypes0, HeadTypeParams0),
 			list__delete_elems(HeadTypeParams0, ExistQVars0,
 				HeadTypeParams1),
-			pred_info_get_class_context(PredInfo0, Constraints),
-			write_pred_progress_message("% Type-checking ",
-				PredId, ModuleInfo, IOState0, IOState1)
+			pred_info_get_class_context(PredInfo0, PredConstraints)
 		),
+
+		%
+		% let the initial constraint set be the
+		% dual of the constraints for this pred
+		% (anything which we can assume in the caller
+		% is something that we must prove in the callee,
+		% and vice versa)
+		%
+		dual_constraints(PredConstraints, Constraints),
 
 		typecheck_info_init(IOState1, ModuleInfo, PredId,
 				TypeVarSet0, VarSet, ExplicitVarTypes,
@@ -464,6 +473,8 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			% so that the type variables names match up
 			% (e.g. with the type variables in the
 			% constraint_proofs)
+			% XXX this doesn't work right for existential type
+			% class constraints
 
 			apply_var_renaming_to_var_list(ExistQVars0,
 				TVarRenaming, ExistQVars),
@@ -471,7 +482,7 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 				TVarRenaming, RenamedOldArgTypes),
 			pred_info_set_arg_types(PredInfo5, TypeVarSet,
 				ExistQVars, RenamedOldArgTypes, PredInfo6),
-			rename_class_constraints(TVarRenaming, Constraints,
+			rename_class_constraints(TVarRenaming, PredConstraints,
 				RenamedOldConstraints),
 			pred_info_set_class_context(PredInfo6,
 				RenamedOldConstraints, PredInfo),
@@ -879,7 +890,13 @@ typecheck_goal_2(pragma_c_code(A, PredId, C, Args, E, F, G),
 	% will always be type-correct, but we need to do
 	% the type analysis in order to correctly compute the
 	% HeadTypeParams that result from existentially typed pragma_c_codes.
-	typecheck_call_pred_id(PredId, Args).
+	% (We could probably do that more efficiently that the way
+	% it is done below, though.)
+	=(TypeCheckInfo0),
+	{ typecheck_info_get_type_assign_set(TypeCheckInfo0,
+		OrigTypeAssignSet) },
+	typecheck_call_pred_id(PredId, Args),
+	perform_context_reduction(OrigTypeAssignSet).
 
 %-----------------------------------------------------------------------------%
 
@@ -3189,10 +3206,11 @@ report_unsatisfiable_constraints(TypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :
 			typecheck_info_di, typecheck_info_uo) is det.
 
 perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
-	typecheck_info_get_module_info(TypeCheckInfo0, ModuleInfo),
+	checkpoint("before context reduction", TypeCheckInfo0, TypeCheckInfo1),
+	typecheck_info_get_module_info(TypeCheckInfo1, ModuleInfo),
 	module_info_superclasses(ModuleInfo, SuperClassTable),
 	module_info_instances(ModuleInfo, InstanceTable),
-	typecheck_info_get_type_assign_set(TypeCheckInfo0, TypeAssignSet0),
+	typecheck_info_get_type_assign_set(TypeCheckInfo1, TypeAssignSet0),
 	list__filter_map(reduce_type_assign_context(SuperClassTable, 
 			InstanceTable), 
 		TypeAssignSet0, TypeAssignSet),
@@ -3203,7 +3221,7 @@ perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 		TypeAssignSet0 \= []
 	->
 		report_unsatisfiable_constraints(TypeAssignSet0,
-			TypeCheckInfo0, TypeCheckInfo1),
+			TypeCheckInfo1, TypeCheckInfo2),
 		DeleteConstraints = lambda([TA0::in, TA::out] is det, (
 			type_assign_get_typeclass_constraints(TA0, 
 				constraints(_, AssumedConstraints)),
@@ -3212,10 +3230,10 @@ perform_context_reduction(OrigTypeAssignSet, TypeCheckInfo0, TypeCheckInfo) :-
 		)),
 		list__map(DeleteConstraints, OrigTypeAssignSet,
 			NewTypeAssignSet),
-		typecheck_info_set_type_assign_set(TypeCheckInfo1,
+		typecheck_info_set_type_assign_set(TypeCheckInfo2,
 			NewTypeAssignSet, TypeCheckInfo)
 	;
-		typecheck_info_set_type_assign_set(TypeCheckInfo0,
+		typecheck_info_set_type_assign_set(TypeCheckInfo1,
 			TypeAssignSet, TypeCheckInfo)
 	).
 
@@ -3529,13 +3547,13 @@ find_first(Pred, [X|Xs], Result) :-
 	% constraints before checking satisfiability.
 	%
 	% Similarly, for constraints on head type params
-	% (universally quantified type vars in the head of this pred,
-	% or existentially quantified type vars in callees),
-	% we know that the head type params can never get bound.
+	% (universally quantified type vars in this pred's type decl,
+	% or existentially quantified type vars in type decls for
+	% callees), we know that the head type params can never get bound.
 	% This means that if the constraint wasn't an assumed constraint
 	% and can't be eliminated by instance rule or class rule
 	% application, then we can report an error now, rather than
-	% later.  (For non-head-type-param type variables,
+	% later.  (For non-head-type-param type variables, 
 	% we need to wait, in case the type variable gets bound
 	% to a type for which there is a valid instance declaration.)
 	%
