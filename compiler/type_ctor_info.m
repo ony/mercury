@@ -88,7 +88,7 @@ type_ctor_info__gen_type_ctor_gen_infos([TypeId | TypeIds], TypeTable,
 			hlds_data__get_type_defn_body(TypeDefn, TypeBody),
 			TypeBody \= abstract_type,
 				% XXXX
-			TypeBody \= foreign_type(_),
+			TypeBody \= foreign_type(_, _),
 			\+ type_id_has_hand_defined_rtti(TypeId)
 		->
 			type_ctor_info__gen_type_ctor_gen_info(TypeId,
@@ -264,7 +264,7 @@ type_ctor_info__gen_layout_info(ModuleName, TypeName, TypeArity, HldsDefn,
 		NumPtags = -1
 	;
 			% XXXX
-		TypeBody = foreign_type(_),
+		TypeBody = foreign_type(_, _),
 		TypeCtorRep = unknown,
 		NumFunctors = -1,
 		FunctorsInfo = no_functors,

@@ -159,8 +159,9 @@
 			% PredName, Predicate or Function, Vars/Mode, 
 			% VarNames, Foreign Code Implementation Info
 
-	;	foreign_type((type), sym_name, sym_name)
-			% MercuryType, MercuryTypeName, ForeignType
+	;	foreign_type((type), sym_name, sym_name, string)
+			% MercuryType, MercuryTypeName, ForeignType,
+			% ForeignTypeLocation
 	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
 			maybe(list(mode)), type_subst, tvarset)

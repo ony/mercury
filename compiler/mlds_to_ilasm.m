@@ -196,15 +196,15 @@ generate_c_code(MLDS) -->
 		"extern ""C"" int _fltused=0;\n",
 		"\n"]),
 
+	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
+		ForeignCode),
+
 	{ Namespace = get_class_namespace(ClassName) },
 
 	io__write_list(Namespace, "\n", 
 		(pred(N::in, di, uo) is det -->
 			io__format("namespace %s {", [s(N)])
 	)),
-
-	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
-		ForeignCode),
 
 	io__write_strings([
 		"\n__gc public class ",

@@ -414,11 +414,12 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Module = Module0 }
 	;	
 		% XXXX
-		{ Pragma = foreign_type(MercuryType, _, ForeignType) },
+		{ Pragma = foreign_type(MercuryType, _, ForeignType,
+				ForeignTypeLocation) },
 		{ module_info_types(Module0, Types0) },
 
 		{ type_to_type_id(MercuryType, TypeId, _) ->
-			Body = foreign_type(ForeignType),
+			Body = foreign_type(ForeignType, ForeignTypeLocation),
 
 			hlds_data__set_type_defn(varset__init, [], Body,
 					ImportStatus, Context, TypeDefn),

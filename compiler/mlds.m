@@ -513,7 +513,7 @@
 
 		% This is a type of the MLDS target language.  Currently
 		% this is only used by the il backend.
-	;	mlds__foreign_type(sym_name)
+	;	mlds__foreign_type(sym_name, string)
 
 		% MLDS types defined using mlds__class_defn
 	;	mlds__class_type(
@@ -1396,8 +1396,8 @@ mercury_type_to_mlds_type(ModuleInfo, Type) = MLDS_Type :-
 		map__search(Types, TypeId, TypeDefn)
 	->
 		hlds_data__get_type_defn_body(TypeDefn, Body),
-		( Body = foreign_type(ForeignType) ->
-			MLDS_Type = mlds__foreign_type(ForeignType)
+		( Body = foreign_type(ForeignType, ForeignLoc) ->
+			MLDS_Type = mlds__foreign_type(ForeignType, ForeignLoc)
 		;
 			MLDS_Type = mercury_type(Type, Category, TypeString)
 		)

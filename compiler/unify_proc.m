@@ -745,7 +745,7 @@ unify_proc__generate_unify_clauses(TypeBody, H1, H2, Context, Clauses) -->
 		{ TypeBody = abstract_type },
 		{ error("trying to create unify proc for abstract type") }
 	;
-		{ TypeBody = foreign_type(_) },
+		{ TypeBody = foreign_type(_, _) },
 		{ error("trying to create unify proc for foreign type") }
 	).
 
@@ -802,7 +802,7 @@ unify_proc__generate_index_clauses(TypeBody, X, Index, Context, Clauses) -->
 		{ TypeBody = abstract_type },
 		{ error("trying to create index proc for abstract type") }
 	;
-		{ TypeBody = foreign_type(_) },
+		{ TypeBody = foreign_type(_, _) },
 		{ error("trying to create index proc for foreign type") }
 	).
 
@@ -872,7 +872,7 @@ unify_proc__generate_compare_clauses(Type, TypeBody, Res, H1, H2, Context,
 		{ TypeBody = abstract_type },
 		{ error("trying to create compare proc for abstract type") }
 	;
-		{ TypeBody = foreign_type(_) },
+		{ TypeBody = foreign_type(_, _) },
 		{ error("trying to create compare proc for foreign type") }
 	).
 

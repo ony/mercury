@@ -284,14 +284,20 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 	--->	du_type(
 			list(constructor), 	% the ctors for this type
 			cons_tag_values,	% their tag values
-			bool,		% is this type an enumeration?
-			maybe(sym_name) % user-defined equality pred
+			bool,			% is this type an enumeration?
+			maybe(sym_name) 	% user-defined equality pred
 		)
-	;	uu_type(list(type))	% not yet implemented!
+	;	uu_type(list(type))		% not yet implemented!
 	;	eqv_type(type)
 	;	abstract_type
-	;	foreign_type(sym_name).	% Name of foreign type which represents
-					% the mercury type.
+	;	foreign_type(
+			sym_name,		% Structured name of foreign
+						% type which represents
+						% the mercury type.
+			string			% String which represents
+						% where I can find this
+						% type.
+		).
 
 	% The `cons_tag_values' type stores the information on how
 	% a discriminated union type is represented.

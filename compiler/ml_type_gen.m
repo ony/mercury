@@ -107,7 +107,7 @@ ml_gen_type_2(du_type(Ctors, TagValues, IsEnum, MaybeEqualityPred),
 			Ctors, TagValues, MaybeEqualityMembers)
 	).
 	% XXXX
-ml_gen_type_2(foreign_type(_), _, _, _) -->
+ml_gen_type_2(foreign_type(_, _), _, _, _) -->
 	{ error("sorry, foreign types not implemented") }.
 
 %-----------------------------------------------------------------------------%

@@ -72,7 +72,7 @@ parse_pragma_type(_, "source_file", PragmaTerms, ErrorTerm, _VarSet, Result) :-
 
 parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
             ErrorTerm, _VarSet, Result) :-
-    ( PragmaTerms = [MercuryName, ForeignName] ->
+    ( PragmaTerms = [MercuryName, ForeignName, ForeignLocation] ->
 	parse_implicitly_qualified_term(ModuleName, MercuryName,
 		ErrorTerm, "`:- pragma unused_args' declaration",
 		MaybeMercuryType),
@@ -85,9 +85,19 @@ parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
 		(
 		    MaybeForeignType = ok(ForeignType, ForeignArgs),
 		    ( ForeignArgs = [] ->
-        		term__coerce(MercuryName, MercuryType),
-			Result = ok(pragma(foreign_type(MercuryType,
-				MercuryTypeSymName, ForeignType)))
+			( 
+			    ForeignLocation = term__functor(
+				    term__string(ForeignLocationString), [], _)
+			->
+			    term__coerce(MercuryName, MercuryType),
+			    Result = ok(pragma(foreign_type(MercuryType,
+				    MercuryTypeSymName, ForeignType,
+				    ForeignLocationString)))
+			;
+			    Result = error(
+				    "foreign type location not a string",
+				    ForeignLocation)
+			)
 		    ;
 			Result = error("foreign type arity not 0", ErrorTerm)
 		    )

@@ -1809,11 +1809,10 @@ mlds_type_to_ilds_type(mlds__native_int_type) = ilds__type([], int32).
 
 mlds_type_to_ilds_type(mlds__native_float_type) = ilds__type([], float64).
 
-mlds_type_to_ilds_type(mlds__foreign_type(ForeignType))
+mlds_type_to_ilds_type(mlds__foreign_type(ForeignType, Assembly))
 	= ilds__type([], Class) :-
-		% XXX we should really get the assembly right here.
 	sym_name_to_class_name(ForeignType, ForeignClassName),
-	Class = class(structured_name("", ForeignClassName)).
+	Class = class(structured_name(Assembly, ForeignClassName)).
 	
 
 mlds_type_to_ilds_type(mlds__ptr_type(MLDSType)) =

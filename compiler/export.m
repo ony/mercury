@@ -621,7 +621,7 @@ export__type_to_type_string(ModuleInfo, Type, Result) :-
 				% XXX how we output the type depends on
 				% which foreign language we are using.
 			hlds_data__get_type_defn_body(TypeDefn, Body),
-			( Body = foreign_type(ForeignType) ->
+			( Body = foreign_type(ForeignType, _) ->
 				Result = sym_name_to_string(ForeignType) ++ " *"
 			;
 				Result = "MR_Word"
