@@ -396,6 +396,8 @@ add( AS1, AS2, AS ) :-
 extend_unification( ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout ):-
 	pa_alias__from_unification( ProcInfo, HLDS, Unif, GoalInfo, AUnif),
 	wrap(AUnif, ASUnif),
+	extend( ProcInfo, HLDS, ASUnif, ASin, ASout). 
+/*
 	extend( ProcInfo, HLDS, ASUnif, ASin, ASout0), 
 	(
 		Unif = construct(_, _, _, _, _, _, _)
@@ -404,6 +406,7 @@ extend_unification( ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout ):-
 	;
 		ASout = ASout0
 	).
+*/
 
 :- pred optimization_remove_deaths( alias_as, hlds_goal_info, alias_as).
 :- mode optimization_remove_deaths( in, in, out) is det.
