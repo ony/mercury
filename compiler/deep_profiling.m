@@ -412,8 +412,12 @@ apply_tail_recursion_to_cases([case(ConsId, Goal0) | Cases0], ApplyInfo,
 figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
 	Goal = GoalExpr - GoalInfo,
 	(
-		GoalExpr = pragma_foreign_code(_, _, _, _, _, _, _),
-		N = N0,
+		GoalExpr = pragma_foreign_code(Attrs, _, _, _, _, _, _),
+		( may_call_mercury(Attrs, may_call_mercury) ->
+			N = N0 + 1
+		;
+			N = N0
+		),
 		TailCallSites = TailCallSites0
 	;
 		GoalExpr = call(_, _, _, BuiltinState, _, _),
