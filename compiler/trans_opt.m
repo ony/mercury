@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2000 The University of Melbourne.
+% Copyright (C) 1997-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -111,6 +111,20 @@ trans_opt__write_optfile(Module) -->
 		mercury_output_bracketed_sym_name(ModName),
 		io__write_string(".\n"),
 
+		{ module_info_get_imported_module_specifiers(Module,
+				Modules0) },
+		{ set__to_sorted_list(Modules0, Modules) },
+		( { Modules \= [] } ->
+			% XXX this could be reduced to the set that is
+			% actually needed by the items being written.
+			io__write_string(":- use_module "),
+			io__write_list(Modules, ",",
+					mercury_output_bracketed_sym_name),
+			io__write_string(".")
+		;
+			[]
+		),
+
 		% All predicates to write global items into the .trans_opt 
 		% file should go here.
 		{ module_info_predids(Module, PredIds) },
@@ -184,7 +198,7 @@ trans_opt__grab_optfiles(Module0, TransOptDeps, Module, FoundError) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	maybe_write_string(Verbose, "% Reading .trans_opt files..\n"),
 	maybe_flush_output(Verbose),
-	read_trans_opt_files(TransOptDeps, [], OptItems, no, FoundError),
+	read_trans_opt_files(TransOptDeps, [], [], OptItems, no, FoundError),
 
 	{ append_pseudo_decl(Module0, opt_imported, Module1) },
 	{ module_imports_get_items(Module1, Items0) },
@@ -194,13 +208,14 @@ trans_opt__grab_optfiles(Module0, TransOptDeps, Module, FoundError) -->
 
 	maybe_write_string(Verbose, "% Done.\n").
 
-:- pred read_trans_opt_files(list(module_name), item_list,
+:- pred read_trans_opt_files(list(module_name), list(module_name), item_list,
 	item_list, bool, bool, io__state, io__state).
-:- mode read_trans_opt_files(in, in, out, in, out, di, uo) is det.
+:- mode read_trans_opt_files(in, in, in, out, in, out, di, uo) is det.
 
-read_trans_opt_files([], Items, Items, Error, Error) --> [].
-read_trans_opt_files([Import | Imports],
+read_trans_opt_files([], _, Items, Items, Error, Error) --> [].
+read_trans_opt_files(OptFilesToRead, AlreadyReadOptFiles,
 		Items0, Items, Error0, Error) -->
+	{ OptFilesToRead = [Import | Imports] },
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 	maybe_write_string(VeryVerbose,
 		"% Reading transitive optimization interface for module"),
@@ -212,13 +227,27 @@ read_trans_opt_files([Import | Imports],
 
 	module_name_to_file_name(Import, ".trans_opt", no, FileName),
 	prog_io__read_opt_file(FileName, Import, yes,
-			ModuleError, Messages, Items1),
+			ModuleError, Messages, OptItems),
+
+		% Get the rest of the trans_opt files to be read.
+	{ get_dependencies(OptItems, NewImportDeps0, NewUseDeps0) },
+	globals__io_get_globals(Globals),
+	{ get_implicit_dependencies(OptItems, Globals,
+		NewImplicitImportDeps0, NewImplicitUseDeps0) },
+	{ NewDeps0 = list__condense([NewImportDeps0, NewUseDeps0,
+		NewImplicitImportDeps0, NewImplicitUseDeps0]) },
+	{ set__list_to_set(NewDeps0, NewDepsSet0) },
+	{ set__delete_list(NewDepsSet0,
+		OptFilesToRead ++ AlreadyReadOptFiles, NewDepsSet) },
+	{ set__to_sorted_list(NewDepsSet, NewDeps) },
 
 	maybe_write_string(VeryVerbose, " done.\n"),
 
 	intermod__update_error_status(trans_opt, FileName, ModuleError,
 		Messages, Error0, Error1),
 
-	{ list__append(Items0, Items1, Items2) },
-	read_trans_opt_files(Imports, Items2, Items, Error1, Error).
+	{ list__append(Items0, OptItems, Items2) },
+	read_trans_opt_files(NewDeps ++ Imports,
+			[Import | AlreadyReadOptFiles],
+			Items2, Items, Error1, Error).
 
