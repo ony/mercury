@@ -244,7 +244,8 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	% XXX
 	NormSize = pa_alias_as__size( Alias ),
 		
-	pa_fixpoint_table_new_as( PRED_PROC_ID, Alias, FPtable1, FPtable)
+	pa_fixpoint_table_new_as( HLDS, ProcInfo, 
+				PRED_PROC_ID, Alias, FPtable1, FPtable)
 	 	% end non-io 
  	}, 
 	(
@@ -266,9 +267,9 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 		(
 			{ dummy_test(PRED_PROC_ID) }
 		-> 
-			{ dummy_test_here( Alias ) }
+			{ dummy_test_here( Alias ) },
 			io__write_string("Alias = "), 
-			pa_alias_as__print_aliases(Alias, ProcInfo),
+			pa_alias_as__print_aliases(Alias, ProcInfo,PredInfo),
 			io__write_string("\n\n")
 		;
 			[]

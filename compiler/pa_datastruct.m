@@ -58,6 +58,8 @@
 :- pred init(prog_var, cons_id, int, datastruct).
 :- mode init(in, in, in, out) is det.
 
+:- pred create( prog_var::in, selector::in, datastruct::out) is det.
+
 	% Extend the given datastructure with an additional path.
 :- pred termshift(datastruct, selector, datastruct). 
 :- mode termshift(in, in, out) is det.
@@ -158,6 +160,8 @@ init( V, CONS, INDEX, Dout) :-
 init( V, Dout) :-
 	SEL = [],
 	Dout = cel(V, SEL).
+create( V, Sel, Dout ) :- 
+	Dout = cel( V, Sel). 
 
 print( D, ProcInfo, PredInfo) -->
 	{ D = cel( ProgVar, SEL ) },

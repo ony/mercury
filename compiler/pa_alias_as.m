@@ -88,8 +88,8 @@
 
 	% first abstract subst. is less than or equal to second
 	% abstract subst. (for fixpoint). (not used)
-:- pred leq( proc_info, module_info, alias_as, alias_as).
-:- mode leq( in, in, in ,in ) is semidet.
+:- pred less_or_equal( module_info, proc_info, alias_as, alias_as).
+:- mode less_or_equal( in, in, in, in) is semidet.
 
 	% compute least upper bound. 
 :- pred least_upper_bound( proc_info, module_info, 
@@ -355,7 +355,7 @@ equal( AS1, AS2 ):-
 		( is_top(AS1), is_top(AS2) )
 	).
 
-leq( ProcInfo, HLDS, AS1, AS2 ):-
+less_or_equal( ModuleInfo, ProcInfo, AS1, AS2 ):-
 	(
 		AS1 = real_as(LIST1)
 	->
@@ -363,7 +363,7 @@ leq( ProcInfo, HLDS, AS1, AS2 ):-
 		list__takewhile(
 			pred(AL::in) is semidet :- 
 			 	( pa_alias__subsumed_by_list(ProcInfo, 
-					HLDS,AL, LIST2)),
+					ModuleInfo,AL, LIST2)),
 			LIST1,_,
 			AfterList),
 		AfterList = []

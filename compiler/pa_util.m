@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -37,9 +37,10 @@
 	% the new exit alias information is stored. This might
 	% change the stability of the table. 
 	% if the pred_proc_id is not in the table --> error
-:- pred pa_fixpoint_table_new_as( pred_proc_id, alias_as, 
+:- pred pa_fixpoint_table_new_as( module_info, proc_info, 
+			pred_proc_id, alias_as, 
 			pa_fixpoint_table, pa_fixpoint_table).
-:- mode pa_fixpoint_table_new_as( in, in, in, out) is det.
+:- mode pa_fixpoint_table_new_as( in, in, in, in, in, out) is det.
 
 	% retreive the alias abstract substitution of a given
 	% pred_proc_id. If this information is not available,
@@ -84,8 +85,15 @@ pa_fixpoint_table_which_run( Tin, Run ) :-
 pa_fixpoint_table_all_stable( TABLE ) :-
 	fp_stable(TABLE).
 
-pa_fixpoint_table_new_as( PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
-	fp_add(pa_alias_as__equal, PRED_PROC_ID, ALIAS_AS, Tin, Tout).
+pa_fixpoint_table_new_as( ModuleInfo, ProcInfo, 
+				PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
+	fp_add(
+		pred(TabledElem::in, Elem::in) is semidet :-
+		    (
+			pa_alias_as__less_or_equal(ModuleInfo, ProcInfo, 
+					Elem, TabledElem)
+		    ), 
+		PRED_PROC_ID, ALIAS_AS, Tin, Tout).
 
 pa_fixpoint_table_get_as( PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
 	fp_get(PRED_PROC_ID, ALIAS_AS, Tin, Tout).

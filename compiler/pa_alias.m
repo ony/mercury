@@ -417,119 +417,6 @@ extend( ProcInfo, HLDS, NEW, OLD,  RESULT) :-
 % 	alias_altclosure( ProcInfo, HLDS, NEW, OLD, RESULT).
 	altclosure_altclos( HLDS, ProcInfo, NEW, OLD, RESULT). 
 
-	% alias_altclosure( NEW, OLD, RESULT)
-	% computes the alternating closure of two lists of aliases.
-	% RESULT = NEW + OLD + path2(NEW,OLD) + path3(NEW,OLD).
-	% where path2(NEW,OLD) is: (a,b), such that (a,c) in NEW, 
-	%				  and       (c,b) in OLD
-	% where path3(NEW,OLD) is: (a,b), such that (a,c) in NEW,
-	%					    (c,d) in OLD,
-	%					    (d,b) in NEW
-	% taking into account termshifts.
-:- pred alias_altclosure( proc_info, module_info, 
-				list(alias),list(alias),list(alias)).
-:- mode alias_altclosure( in, in, in,in,out) is det.
-
-alias_altclosure( ProcInfo, HLDS, NEW, OLD, RESULT) :-
-	(
-		NEW = []
-	->
-		RESULT = OLD
-	;
-		OLD = []
-	->
-		RESULT = NEW
-	;
-		altclosure_path2_3(NEW,OLD,PATH2,PATH3),
-		% NEW is not necessaraly minimal wrt subsumption
-		% OLD is guaranteed to be minimal
-		% so the next foldl operation should have as a starting
-		% point: OLD and not NEW ! 
-		list__foldl(pa_alias__least_upper_bound_lists(ProcInfo,HLDS),
-				[OLD,NEW,PATH2,PATH3],[],RESULT)
-	).
-
-:- pred altclosure_path2_3(list(alias),list(alias),list(alias),list(alias)).
-:- mode altclosure_path2_3(in,in,out,out) is det.
-
-altclosure_path2_3(NEW,OLD,PATH2,PATH3):-
-		% not only this returns the path2 results,
-		% but these results are also such that:
-		% ALIAS =  D1 - D2, where D1 is from NEW, en D2
-		% from OLD
-		% constructs paths from NEW to OLD
-	list__foldl(altclos_ordered_path(OLD),NEW,[],PATH2),
-		% constructs paths from PATH2 (NEW -> OLD) to NEW
-	list__foldl(altclos_ordered_path(NEW),PATH2,[],PATH3).
-
-
-	% altclos_ordered_path( to_aliases, from_alias, temporary result,
-	%						new result).
-:- pred altclos_ordered_path(list(alias),alias,list(alias),list(alias)).
-:- mode altclos_ordered_path(in,in,in,out) is det.
-
-altclos_ordered_path( TO_LIST, FROM_ALIAS, LISTin, LISTout) :-
-	list__filter_map(single_altclos(FROM_ALIAS),TO_LIST,NEW),
-	list__append(NEW,LISTin,LISTout).
-
-	% single_altclos( FROM_ALIAS, TO_ALIAS, RESULT_ALIAS).
-	% --> semidet!
-:- pred single_altclos(alias,alias,alias).
-:- mode single_altclos(in,in,out) is semidet.
-
-single_altclos( FROM , TO , RESULT ) :-
-	FROM = DFa - DFb,
-	TO   = DTa - DTb,
-	(
-		pa_datastruct__same_vars(DFb,DTa)
-	-> 
-		single_directed_altclos(FROM, TO, RESULT)
-	;
-		pa_datastruct__same_vars(DFa,DTa)
-	->
-		switch(FROM,FROMsw),
-		single_directed_altclos(FROMsw,TO,RESULT)
-	;
-		pa_datastruct__same_vars(DFb,DTb)
-	->
-		switch(TO,TOsw),
-		single_directed_altclos(FROM,TOsw,RESULT)
-	;
-		pa_datastruct__same_vars(DFa,DTb)
-	->
-		switch(FROM,FROMsw),
-		switch(TO,TOsw),
-		single_directed_altclos(FROMsw,TOsw,RESULT)
-	;
-		fail
-	).
-
-	% single_directed_altclos(FROM,TO, RESULT), with matching
-	% middle vars!
-:- pred single_directed_altclos(alias,alias,alias).
-:- mode single_directed_altclos(in,in,out) is semidet.
-		
-single_directed_altclos( FROM, TO, RESULT) :-
-	FROM = DFa - DFb,
-	TO   = DTa - DTb,
-	pa_datastruct__get_selector(DFb,SF),
-	pa_datastruct__get_selector(DTa,ST),
-	(
-		pa_selector__less_or_equal(ST,SF,EXT1)
-	->
-		% SF.EXT1 = ST
-		pa_datastruct__termshift(DFa,EXT1,DRa),
-		RESULT = DRa - DTb
-	;
-		pa_selector__less_or_equal(SF,ST,EXT2)
-	->
-		% ST.EXT1 = SF
-		pa_datastruct__termshift(DTb,EXT2,DRb),
-		RESULT = DFa - DRb
-	;
-		fail
-	).
-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -548,6 +435,15 @@ altclos_path_to_alias( directed(Alias), Alias ).
 
 % altclos computations. 
 
+	% altclosure_altclos( ModuleInfo, ProcInfo, NEW, OLD, RESULT)
+	% computes the alternating closure of two lists of aliases.
+	% RESULT = NEW + OLD + path2(NEW,OLD) + path3(NEW,OLD).
+	% where path2(NEW,OLD) is: (a,b), such that (a,c) in NEW, 
+	%				  and       (c,b) in OLD
+	% where path3(NEW,OLD) is: (a,b), such that (a,c) in NEW,
+	%					    (c,d) in OLD,
+	%					    (d,b) in NEW
+	% taking into account termshifts.
 :- pred altclosure_altclos( module_info::in, proc_info::in, 
 			list(alias)::in, list(alias)::in, 
 			list(alias)::out ) is det.
@@ -562,7 +458,8 @@ altclosure_altclos( ModuleInfo, ProcInfo, NewAliases, OldAliases,
 	-> 
 		ComputedAliases = NewAliases
 	; 
-		altclosure_altclos_path2_3( NewAliases, OldAliases, 
+		altclosure_altclos_path2_3( ModuleInfo, ProcInfo, 
+			NewAliases, OldAliases, 
 			Path2, Path3), 
 		list__foldl(
 			pa_alias__least_upper_bound_lists(ProcInfo, ModuleInfo),
@@ -572,14 +469,17 @@ altclosure_altclos( ModuleInfo, ProcInfo, NewAliases, OldAliases,
 	).
 
 	% altclosure_altclos_path2_3( NewAliases, OldAliases, Path2, Path3)
-:- pred altclosure_altclos_path2_3( list(alias)::in, list(alias)::in, 
+:- pred altclosure_altclos_path2_3( module_info::in, proc_info::in, 
+		list(alias)::in, list(alias)::in, 
 		list(alias)::out, list(alias)::out) is det.
-altclosure_altclos_path2_3( NewAliases, OldAliases, Path2, Path3):- 
+altclosure_altclos_path2_3( ModuleInfo, ProcInfo, 
+				NewAliases, OldAliases, Path2, Path3):- 
 	list__map( alias_to_altclos_path, NewAliases, StartPaths ), 
 	list__foldl( 
 		pred( StartPath::in, Acc::in, NewPaths::out) is det :-
 		    (
-			altclos_ordered_altclos_path( StartPath, 
+			altclos_ordered_altclos_path( ModuleInfo, 
+				ProcInfo, StartPath, 
 				OldAliases, Acc, NewPaths)
 		    ),
 		StartPaths, 
@@ -588,7 +488,8 @@ altclosure_altclos_path2_3( NewAliases, OldAliases, Path2, Path3):-
 	list__foldl(
 		pred( StartPath::in, Acc::in, NewPaths::out) is det :-
 		    (
-			altclos_ordered_altclos_path( StartPath,
+			altclos_ordered_altclos_path( ModuleInfo, 
+				ProcInfo, StartPath,
 				NewAliases, Acc, NewPaths)
 		    ),
 		PathsLength2,
@@ -597,10 +498,13 @@ altclosure_altclos_path2_3( NewAliases, OldAliases, Path2, Path3):-
 	list__map( altclos_path_to_alias, PathsLength2, Path2),
 	list__map( altclos_path_to_alias, PathsLength3, Path3).
 
-:- pred altclos_ordered_altclos_path( altclos_path::in, list(alias)::in, 
+:- pred altclos_ordered_altclos_path( module_info::in, proc_info::in, 
+		altclos_path::in, list(alias)::in, 
 		list(altclos_path)::in, list(altclos_path)::out) is det.
-altclos_ordered_altclos_path( StartPath, EndAliases, AccPaths, NewPaths):- 
-	list__filter_map(single_altclos_path( StartPath ), 
+altclos_ordered_altclos_path( ModuleInfo, ProcInfo, 
+			StartPath, EndAliases, AccPaths, NewPaths):- 
+	list__filter_map(single_altclos_path( ModuleInfo, ProcInfo, 
+				StartPath ), 
 				EndAliases, NewPaths0 ),
 	list__append( NewPaths0, AccPaths, NewPaths). 
 
@@ -608,25 +512,29 @@ altclos_ordered_altclos_path( StartPath, EndAliases, AccPaths, NewPaths):-
 	% Find a path starting from StartPath and ending in EndAlias. 
 	% EndAlias can always be rotated. StartPath can only be
 	% rotated if it is a single path. 
-:- pred single_altclos_path( altclos_path::in, alias::in, 
+:- pred single_altclos_path( module_info::in, proc_info::in, 
+		altclos_path::in, alias::in, 
 		altclos_path::out) is semidet.
-single_altclos_path( StartPath, EndAlias, NewPath) :- 
+single_altclos_path( ModuleInfo, ProcInfo, StartPath, EndAlias, NewPath) :- 
 	(
 		StartPath = undirected(StartAlias)
 	-> 
 		( 
-			single_directed_altclos_path_verify(StartAlias,
+			single_directed_altclos_path_verify(ModuleInfo,
+				ProcInfo, StartAlias,
 				EndAlias, NewPath0)
 		->
 			NewPath = NewPath0
 		; 
 			switch(StartAlias, StartAliasSW),
-			single_directed_altclos_path_verify(StartAliasSW, 
+			single_directed_altclos_path_verify(ModuleInfo,
+				ProcInfo, StartAliasSW, 
 				EndAlias, NewPath)
 		)
 	;
 		StartPath = directed(StartAlias),
-		single_directed_altclos_path_verify(StartAlias, 
+		single_directed_altclos_path_verify(ModuleInfo,
+				ProcInfo, StartAlias, 
 			EndAlias, NewPath)
 	).
 
@@ -634,37 +542,52 @@ single_altclos_path( StartPath, EndAlias, NewPath) :-
 	% Compute a path starting from StartAlias to EndAlias. StartAlias
 	% may not be rotated. EndAlias can be rotated if needed. The middle
 	% alias still has to be verified. 
-:- pred single_directed_altclos_path_verify( alias::in, alias::in, 
+:- pred single_directed_altclos_path_verify( module_info::in, 
+		proc_info::in, alias::in, alias::in, 
 		altclos_path::out) is semidet.
-single_directed_altclos_path_verify( StartAlias, EndAlias, Path ) :- 
+single_directed_altclos_path_verify( ModuleInfo, ProcInfo, 
+					StartAlias, EndAlias, Path ) :- 
 	StartAlias = _StartDatastructure1 - StartDatastructure2, 
 	EndAlias = EndDatastructure1 - EndDatastructure2, 
 	(
 		pa_datastruct__same_vars( StartDatastructure2,
 					EndDatastructure1)
 	->
-		single_directed_altclos_path( StartAlias, EndAlias, 
+		single_directed_altclos_path( ModuleInfo, ProcInfo, 
+				StartAlias, EndAlias, 
 				Path)
 	; 
 		pa_datastruct__same_vars( StartDatastructure2, 
 					EndDatastructure2), 
 		switch( EndAlias, EndAliasSW ), 
-		single_directed_altclos_path( StartAlias, EndAliasSW, 
+		single_directed_altclos_path( ModuleInfo, ProcInfo, 
+				StartAlias, EndAliasSW, 
 				Path)
 	).
 
 	% single_directed_altclos_path( StartAlias, EndAlias, NewPath).
 	% they already have matching middle vars. 
-:- pred single_directed_altclos_path( alias::in, alias::in, 
+:- pred single_directed_altclos_path( module_info::in, proc_info::in, 
+			alias::in, alias::in, 
 			altclos_path::out) is semidet.
-single_directed_altclos_path( StartAlias, EndAlias, NewPath):-
+single_directed_altclos_path( ModuleInfo, ProcInfo, 
+				StartAlias, EndAlias, NewPath):-
 	StartAlias = StartDatastructure1 - StartDatastructure2, 
 	EndAlias = EndDatastructure1 - EndDatastructure2, 
 	pa_datastruct__get_selector(StartDatastructure2, StartSelector), 
+	pa_datastruct__get_var( StartDatastructure2, Var),
 	pa_datastruct__get_selector(EndDatastructure1, EndSelector), 
+
+	proc_info_vartypes( ProcInfo, VarTypes ), 
+	map__lookup( VarTypes, Var, CommonVarType), 
+	
 	(
 		% either EndSelector <= StartSelector
-		pa_selector__less_or_equal(EndSelector, StartSelector, Ext)
+		%pa_selector__less_or_equal( EndSelector, StartSelector, 
+		%			Ext)
+		pa_selector__less_or_equal(ModuleInfo, 
+					EndSelector, StartSelector, 
+					CommonVarType, Ext)
 	-> 
 		% StartSelector.Ext = EndSelector, and StartAlias has
 		% to be termshifted:
@@ -674,7 +597,11 @@ single_directed_altclos_path( StartAlias, EndAlias, NewPath):-
 				EndDatastructure2 )
 	;
 		% or StartSelector <= EndSelector
-		pa_selector__less_or_equal(StartSelector, EndSelector, Ext)
+		%pa_selector__less_or_equal( StartSelector, EndSelector, 
+		%			Ext)
+		pa_selector__less_or_equal(ModuleInfo,
+					StartSelector, EndSelector, 
+					CommonVarType, Ext)
 	->
 		% EndSelector.Ext = StartSelector, and EndAlias has to
 		% be termshifted:
@@ -876,6 +803,7 @@ switch( D1 - D2, D2 - D1 ).
 
 normalize_wti(ProcInfo, HLDS, A0, A):-
 	A0 = Da0 - Db0,
+	% the two datastructs are normalized independently! 
 	pa_datastruct__normalize_wti(ProcInfo, HLDS, Da0, Da),
 	pa_datastruct__normalize_wti(ProcInfo, HLDS, Db0, Db),
 	A = Da - Db.

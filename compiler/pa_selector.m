@@ -71,6 +71,7 @@
 	% Predicate holds when S1 is less than or equal to S2 ("is 
 	% subsumed by"), i.e. S1 can be selected by extending S2 with
 	% the extension EXT (output).
+	% PRECONDITION: the selectors do not contain any type-selectors. 
 :- pred less_or_equal(selector, selector, selector).
 :- mode less_or_equal(in, in, out) is semidet.
 
@@ -257,63 +258,42 @@ normalize_wti( VarType, HLDS, SEL0, SEL ):-
 
 normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 	(
-		top( SEL0 )
-	->
-		SEL = Acc0
-	;
-		select_first_part( SEL0, US, SELR ),
-		US = us(CONS, INDEX)
+		SEL0 = [ US | SELR ]
 	->
 		type_util__classify_type( VarType, HLDS, Class ),
 		(
 			Class = user_type
 		->
-			type_util__get_cons_id_arg_types(HLDS, VarType, CONS,
-							ArgTypes ),
+			% switch on the kind of selector, unit selector
+			% or type selector. 
 			(
-				list__index1(ArgTypes, INDEX, CType )
-			->
-				( 
-					branch_map_search( B0, CType, BSel )
+				US = us(CONS, INDEX),
+				type_util__get_cons_id_arg_types(HLDS, 
+						VarType, CONS, ArgTypes ),
+				(
+					list__index1(ArgTypes, INDEX, SubType )
 				->
-					normalize_wti_2( CType, HLDS,
-							B0, BSel, SELR, SEL )
+					CType = SubType
 				;
-					unit_termshift( Acc0, US, Acc1 ),
-					branch_map_insert( CType, Acc1, B0, B1 ),
-					normalize_wti_2( CType, HLDS, 
-							B1, Acc1, SELR, SEL )
+					error(index_error_message(HLDS, 
+						VarType, CONS, INDEX))
 				)
 			;
-
-				get_type_defn(HLDS,VarType,TypeDefn),
-				get_type_id(VarType,TypeID),
-				hlds_data__get_type_defn_status(TypeDefn,
-					TypeImportStatus),
-				hlds_data__get_type_defn_body(TypeDefn,
-					TypeBody), 
-
-				hlds_type_body_to_minimal_string(TypeBody,
-					BodyString),
-		hlds_pred__import_status_to_minimal_string(TypeImportStatus,
-					StatusString),
-				type_util__type_id_name(HLDS,TypeID,TypeName),
-				type_util__type_id_module(HLDS,TypeID,
-						ModuleName),
-				prog_out__sym_name_to_string(ModuleName,
-						"__", SModuleName),	
-				hlds_out__cons_id_to_string(CONS,SCONS),
-				string__int_to_string(INDEX,SINDEX),
-
-				string__append_list([
-		"\n(pa_selector) normalize_wti_2: index not found.\n",
-		"(pa)              type is ", SModuleName, "::",TypeName, 
-				" -> ", SCONS, " -- ", SINDEX, "\n",
-		"(pa)              (", BodyString, " and ", 
-					StatusString, ").\n"], Msg),
-	
-			%	error("(pa) pa_alias_as: index not found.")
-				error(Msg)
+				US = ts( CType )
+			), 
+			( 
+				branch_map_search( B0, CType,
+					BSel )
+			->
+				normalize_wti_2( CType, HLDS,
+					B0, BSel, SELR, SEL )
+			;
+				unit_termshift( Acc0, US, 
+					Acc1 ),
+				branch_map_insert( CType, 
+					Acc1, B0, B1 ),
+				normalize_wti_2( CType, HLDS, 
+					B1, Acc1, SELR, SEL )
 			)
 		;
 			% if it's not a user type, SELR will be empty
@@ -324,9 +304,33 @@ normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 
 		)
 	;
-		
-		SEL = SEL0	
+		% SEL0 = []		
+		SEL = Acc0
 	).
+
+:- func index_error_message( module_info, (type), cons_id, int ) = string. 
+index_error_message( HLDS, VarType, CONS, INDEX ) = Msg :- 
+	get_type_defn(HLDS,VarType,TypeDefn),
+	get_type_id(VarType,TypeID),
+	hlds_data__get_type_defn_status(TypeDefn, TypeImportStatus),
+	hlds_data__get_type_defn_body(TypeDefn, TypeBody), 
+
+	hlds_type_body_to_minimal_string(TypeBody, BodyString),
+	hlds_pred__import_status_to_minimal_string(TypeImportStatus,
+		StatusString),
+	type_util__type_id_name(HLDS,TypeID,TypeName),
+	type_util__type_id_module(HLDS,TypeID, ModuleName),
+	prog_out__sym_name_to_string(ModuleName, "__", SModuleName),	
+	hlds_out__cons_id_to_string(CONS,SCONS),
+	string__int_to_string(INDEX,SINDEX),
+	string__append_list([
+		"\n(pa_selector) normalize_wti_2: index not found.\n",
+		"(pa)              type is ", SModuleName, "::",TypeName, 
+				" -> ", SCONS, " -- ", SINDEX, "\n",
+		"(pa)              (", BodyString, " and ", 
+					StatusString, ").\n"], 
+		Msg).
+	
 
 :- pred get_type_id((type),type_id).
 :- mode get_type_id(in,out) is det.
