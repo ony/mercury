@@ -1947,13 +1947,13 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50,
 	mercury_compile__maybe_dump_hlds(HLDS47a, "47a", "mark_static"),
 
 	% possible aliases
-	mercury_compile__possible_aliases(HLDS47a, Verbose, 
-		Stats, HLDS48),
+	pa_run__possible_aliases(HLDS47a, Verbose, 
+		Stats, HLDS48, MaybeAliasTable),
 	mercury_compile__maybe_dump_hlds(HLDS48,"48",
 		"possible_aliases"),
 
 	% structure reuse analysis
-	mercury_compile__structure_reuse(HLDS48, Verbose, 
+	sr_top__structure_reuse(HLDS48, MaybeAliasTable, Verbose, 
 		Stats, HLDS48a),
 	mercury_compile__maybe_dump_hlds(HLDS48a,"48a",
 		"structure_reuse") ,	
@@ -2527,45 +2527,8 @@ mercury_compile__maybe_mark_static_terms(HLDS0, Verbose, Stats, HLDS) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred mercury_compile__possible_aliases(module_info, bool, bool, 
-						module_info, io__state,
-						io__state).
-:- mode mercury_compile__possible_aliases(in, in, in, out, di, uo) is det.
-
-mercury_compile__possible_aliases(HLDS0, Verbose, Stats, HLDS) -->
-	globals__io_lookup_bool_option(infer_possible_aliases, InferAliases),
-	( 	
-		{ InferAliases = yes }
-	->
-		maybe_write_string(Verbose, "% Possible alias analysis...\n"),
-		maybe_flush_output(Verbose),
-		pa_run__aliases_pass(HLDS0, HLDS),
-		maybe_write_string(Verbose, "% done.\n"),
-		maybe_report_stats(Stats)
-	;
-		{ HLDS = HLDS0 }
-	).
-
 %-----------------------------------------------------------------------------%
 
-:- pred mercury_compile__structure_reuse(module_info, bool, bool, 
-						module_info, io__state,
-						io__state).
-:- mode mercury_compile__structure_reuse(in, in, in, out, di, uo) is det.
-
-mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS) -->
-	globals__io_lookup_bool_option(infer_structure_reuse, StrucReuse),
-	( 	
-		{ StrucReuse = yes }
-	->
-		maybe_write_string(Verbose, "% Structure-reuse analysis...\n"),
-		maybe_flush_output(Verbose),
-		structure_reuse(HLDS0, HLDS),
-		maybe_write_string(Verbose, "% done.\n"),
-		maybe_report_stats(Stats)
-	;
-		{ HLDS = HLDS0 }
-	).
 
 %-----------------------------------------------------------------------------%
 

@@ -23,9 +23,10 @@
 :- import_module hlds__hlds_goal.
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
+:- import_module possible_alias__pa_alias_as.
 
 :- pred sr_dead__process_goal(pred_id::in, proc_info::in, module_info::in, 
-				hlds_goal::in, hlds_goal::out) is det.
+		alias_as_table::in, hlds_goal::in, hlds_goal::out) is det.
 
 
 %-----------------------------------------------------------------------------%
@@ -44,26 +45,26 @@
 :- import_module assoc_list, int, require. 
 :- import_module set, list, map, std_util.
 
-process_goal(_PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
+process_goal(_PredId, ProcInfo, ModuleInfo, AliasTable, Goal0, Goal) :- 
 	pa_alias_as__init(Alias0), 
 	hlds_pred__proc_info_headvars(ProcInfo, HeadVars), 
 	dead_cell_pool_init(HeadVars, Pool0), 
-	annotate_goal(ProcInfo, ModuleInfo, Goal0, Goal, 
+	annotate_goal(ProcInfo, ModuleInfo, AliasTable, Goal0, Goal, 
 			Pool0, _Pool, Alias0, _Alias).
 		
 	
 %-----------------------------------------------------------------------------%
 
-:- pred annotate_goal(proc_info::in, module_info::in,
+:- pred annotate_goal(proc_info::in, module_info::in, alias_as_table::in,
 		hlds_goal::in, hlds_goal::out, 
 		dead_cell_pool::in, dead_cell_pool::out, 
 		alias_as::in, alias_as::out) is det.
 
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal,
 		Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = conj(Goals0),
 	sr_util__list_map_foldl2(
-		annotate_goal(ProcInfo, HLDS),
+		annotate_goal(ProcInfo, HLDS, AliasTable),
 		Goals0, Goals,
 		Pool0, Pool,
 		Alias0, Alias),
@@ -71,30 +72,31 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = conj(Goals),
 	Goal = Expr - Info. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _),
 	proc_info_vartypes(ProcInfo, VarTypes), 
 	list__map(map__lookup(VarTypes), ActualVars, ActualTypes), 
-	pa_run__extend_with_call_alias(HLDS, ProcInfo, 
+	pa_run__extend_with_call_alias(HLDS, ProcInfo, AliasTable, 
 		PredId, ProcId, ActualVars, ActualTypes, Alias0, Alias),
 	Expr = Expr0, 
 	Info = Info0, 
 	Pool = Pool0, 
 	Goal = Expr - Info. 
 	
-annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+annotate_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
 	Expr0 = generic_call(_, _, _, _), 
 	Pool = Pool0,
 	pa_alias_as__top("unhandled goal", Alias),
 	Goal = Expr0 - Info0. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = switch(A, B, Cases0),
 	goal_info_get_outscope(Info0, Outscope), 
-	sr_util__list_map3(annotate_case(ProcInfo, HLDS, Pool0, Alias0),
+	sr_util__list_map3(annotate_case(ProcInfo, HLDS, AliasTable, 
+			Pool0, Alias0),
 			Cases0, Cases, ListPools, ListAliases),
 	dead_cell_pool_least_upper_bound_disj(Outscope, ListPools, Pool), 
 	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info0, 
@@ -103,7 +105,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = switch(A, B, Cases), 
 	Goal = Expr - Info. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, _AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification0, _Context),
 	unification_verify_reuse(HLDS, ProcInfo, Unification0, Alias0, 
@@ -118,7 +120,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = Expr0, 
 	Goal = Expr - Info. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = disj(Goals0),
 	(
@@ -132,7 +134,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 			pred(Gin::in, Gout::out, P::out, A::out)
 				is det :- 
 			(
-			   annotate_goal(ProcInfo, HLDS, 
+			   annotate_goal(ProcInfo, HLDS, AliasTable, 
 				Gin, Gout, Pool0, P, 
 				Alias0, A)
 			),
@@ -148,34 +150,35 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = disj(Goals),
 	Goal = Expr - Info. 
 
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = not(NegatedGoal0),
-	annotate_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal,
+	annotate_goal(ProcInfo, HLDS, AliasTable, NegatedGoal0, NegatedGoal,
 			Pool0, Pool, Alias0, Alias),
 	Info = Info0, 
 	Expr = not(NegatedGoal),
 	Goal = Expr - Info. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = some(A, B, SomeGoal0),
 	% XXX
-	annotate_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, Pool0, Pool, 
+	annotate_goal(ProcInfo, HLDS, AliasTable, 
+			SomeGoal0, SomeGoal, Pool0, Pool, 
 			Alias0, Alias), 
 	Info = Info0, 
 	Expr = some(A, B, SomeGoal),
 	Goal = Expr - Info. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
 	goal_info_get_outscope(Info0, Outscope), 
-	annotate_goal(ProcInfo, HLDS, Cond0, Cond, Pool0, 
+	annotate_goal(ProcInfo, HLDS, AliasTable, Cond0, Cond, Pool0, 
 			PoolCond, Alias0, AliasCond),
-	annotate_goal(ProcInfo, HLDS, Then0, Then, PoolCond, 
+	annotate_goal(ProcInfo, HLDS, AliasTable, Then0, Then, PoolCond, 
 			PoolThen, AliasCond, AliasThen),
-	annotate_goal(ProcInfo, HLDS, Else0, Else, Pool0, 
+	annotate_goal(ProcInfo, HLDS, AliasTable, Else0, Else, Pool0, 
 			PoolElse, Alias0, AliasElse), 
 	dead_cell_pool_least_upper_bound_disj(Outscope, 
 			[ PoolThen, PoolElse ], Pool), 
@@ -185,7 +188,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = if_then_else(Vars, Cond, Then, Else),
 	Goal = Expr - Info. 
 	
-annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, _AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
@@ -194,14 +197,14 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Pool = Pool0, 
 	Goal = Expr0 - Info0. 
 	
-annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+annotate_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
 	Expr0 = par_conj(_),
 	Pool = Pool0,
 	pa_alias_as__top("unhandled goal", Alias),
 	Goal = Expr0 - Info0. 
 		
-annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+annotate_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
 	Expr0 = shorthand(_),
 	Pool = Pool0,
@@ -209,13 +212,15 @@ annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal,
 	Goal = Expr0 - Info0. 
 
 
-:- pred annotate_case(proc_info::in, module_info::in,
+:- pred annotate_case(proc_info::in, module_info::in, alias_as_table::in, 
 		dead_cell_pool::in, alias_as::in, case::in,
 		case::out, dead_cell_pool::out, alias_as::out) is det.
 
-annotate_case(ProcInfo, HLDS, Pool0, Alias0, Case0, Case, Pool, Alias) :- 
+annotate_case(ProcInfo, HLDS, AliasTable, Pool0, Alias0, Case0, 
+		Case, Pool, Alias) :- 
 	Case0 = case(ConsId, Goal0),
-	annotate_goal(ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, Alias0, Alias), 
+	annotate_goal(ProcInfo, HLDS, AliasTable, Goal0, Goal, 
+			Pool0, Pool, Alias0, Alias), 
 	Case = case(ConsId, Goal).
 
 :- pred unification_verify_reuse(module_info::in, proc_info::in, 

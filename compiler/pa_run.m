@@ -21,11 +21,13 @@
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_alias_as.
 
-:- import_module io, list.
+:- import_module io, list, bool, std_util.
+
+:- pred possible_aliases(module_info::in, bool::in, bool::in, module_info::out, 
+		maybe(alias_as_table)::out, 
+		io__state::di, io__state::uo) is det.
 
 	% the main pass
-:- pred pa_run__aliases_pass(module_info::in, module_info::out, 
-		io__state::di, io__state::uo) is det.
 
 	% Write the pa_info pragma for the given pred_id (if that
 	% pred_id does not belong to the list(pred_id). 
@@ -63,7 +65,8 @@
 	% preferrable to keep the optimised representation as well for its
 	% use during the structure reuse pass.  This is a bit of a dilemma.
 :- pred pa_run__extend_with_call_alias(module_info::in, proc_info::in, 
-		pred_id::in, proc_id::in, list(prog_var)::in, 
+		alias_as_table::in, pred_id::in, proc_id::in, 
+		list(prog_var)::in, 
 		list((type))::in, alias_as::in, alias_as::out) is det. 
 
 %-----------------------------------------------------------------------------%
@@ -100,209 +103,216 @@
 
 %-----------------------------------------------------------------------------%
 
-pa_run__aliases_pass(HLDSin, HLDSout) -->
+possible_aliases(ModuleInfo0, Verbose, Stats, ModuleInfo, MaybeAliasTable) -->
+	globals__io_lookup_bool_option(infer_possible_aliases, InferAliases),
+	( 	
+		{ InferAliases = yes }
+	->
+		maybe_write_string(Verbose, "% Possible alias analysis...\n"),
+		maybe_flush_output(Verbose),
+		pa_run__aliases_pass(ModuleInfo0, ModuleInfo, AliasTable),
+		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats),
+		{ MaybeAliasTable = yes(AliasTable) }
+	;
+		{ ModuleInfo = ModuleInfo0 },
+		{ MaybeAliasTable = no }
+	).
+
+:- pred pa_run__aliases_pass(module_info::in, module_info::out, 
+		alias_as_table::out, 
+		io__state::di, io__state::uo) is det.
+pa_run__aliases_pass(ModuleInfo0, ModuleInfo, AliasTable) -->
 	% preliminary steps:
 
 	% 0. process all the alias-information for all the imported 
 	% predicates.
-	pa_prelim_run__process_imported_predicates(HLDSin, HLDS0),
+	pa_prelim_run__process_imported_predicates(ModuleInfo0, ModuleInfo1,
+		AliasTable0),
 
 	% 1. annotate all the liveness
-	pa_prelim_run__annotate_all_liveness_in_module(HLDS0, HLDS1),
+	pa_prelim_run__annotate_all_liveness_in_module(ModuleInfo1,
+		ModuleInfo2),
 
 	% 2. annotate all the outscope vars
-	{ pa_prelim_run__annotate_all_outscope_vars_in_module(HLDS1,HLDS2) },
+	{ pa_prelim_run__annotate_all_outscope_vars_in_module(ModuleInfo2,
+		ModuleInfo3) }, 
 
-	% 3. and finally do the actual aliases pass
-	aliases_pass_2(HLDS2, HLDSout).
+	% 3. do the actual aliases pass
+	aliases_pass_2(ModuleInfo3, AliasTable0, AliasTable), 
 
-:- pred aliases_pass_2(module_info, module_info, io__state, io__state).
-:- mode aliases_pass_2(in, out, di, uo) is det.
+	% 4. record the alias results in the HLDS. 
+	{ map__foldl(record_alias_in_hlds, AliasTable, 
+			ModuleInfo3, ModuleInfo) }.
 
-pa_run__aliases_pass_2(HLDSin, HLDSout) -->
+:- pred record_alias_in_hlds(pred_proc_id::in, alias_as::in, 
+		module_info::in, module_info::out) is det.
+record_alias_in_hlds(PredProcId, AliasAs, ModuleInfo0, ModuleInfo) :- 
+	module_info_pred_proc_info(ModuleInfo0, PredProcId, 
+		PredInfo0, ProcInfo0),
+	proc_info_set_possible_aliases(ProcInfo0, AliasAs, ProcInfo),
+	module_info_set_pred_proc_info(ModuleInfo0, PredProcId, 
+		PredInfo0, ProcInfo, ModuleInfo).
+
+
+:- pred aliases_pass_2(module_info::in, alias_as_table::in,
+		alias_as_table::out, io__state::di, io__state::uo) is det.
+
+pa_run__aliases_pass_2(HLDS, !AliasTable, !IO) :- 
 		% strongly connected components needed
-	{ module_info_ensure_dependency_info(HLDSin, HLDS1) },
-	{ module_info_get_maybe_dependency_info(HLDS1, MaybeDepInfo) } ,
+	module_info_ensure_dependency_info(HLDS, HLDS1),
+	module_info_get_maybe_dependency_info(HLDS1, MaybeDepInfo),
 	(
-		{ MaybeDepInfo = yes(DepInfo) }
+		MaybeDepInfo = yes(DepInfo) 
 	->
-		{ hlds_dependency_info_get_dependency_ordering(DepInfo, DepOrdering) },
+		hlds_dependency_info_get_dependency_ordering(DepInfo, 
+			DepOrdering),
 		% perform the analysis, and annotate the procedures
-		run_with_dependencies(DepOrdering, HLDS1, HLDSout) %,
-		% write out the results of the exported procedures into
-		% a separate interface-file. 
-		% pa_run__make_pa_interface(HLDSout)
+		run_with_dependencies(DepOrdering, HLDS1, !AliasTable, !IO)
 	;
-		{ error("(pa) pa_run module: no dependency info") }
+		error("(pa) pa_run module: no dependency info")
 	).
 
-:- pred run_with_dependencies(dependency_ordering, module_info, 
-					module_info, io__state, io__state).
-:- mode run_with_dependencies(in, in, out, di, uo) is det.
+:- pred run_with_dependencies(dependency_ordering::in, module_info::in, 
+		alias_as_table::in, alias_as_table::out, 
+		io__state::di, io__state::uo) is det.
 
-run_with_dependencies(Deps, HLDSin, HLDSout) -->
-	list__foldl2(run_with_dependency, Deps, HLDSin, HLDSout).
+run_with_dependencies(Deps, HLDS, !AliasTable, !IO) :- 
+	list__foldl2(run_with_dependency(HLDS), Deps, !AliasTable, !IO).
 
-:- pred run_with_dependency(list(pred_proc_id), module_info, module_info,
-				io__state, io__state).
-:- mode run_with_dependency(in, in, out, di, uo) is det.
+:- pred run_with_dependency(module_info::in, list(pred_proc_id)::in, 
+		alias_as_table::in, alias_as_table::out, 
+		io__state::di, io__state::uo) is det.
 
-run_with_dependency(SCC , HLDSin, HLDSout) -->
+run_with_dependency(HLDS, SCC, !AliasTable, !IO) :- 
 	(
 		% analysis ignores special predicates
-		{ pa_sr_util__some_are_special_preds(SCC, HLDSin) }
+		pa_sr_util__some_are_special_preds(SCC, HLDS)
 	->
-		{ HLDSout = HLDSin }
+		true
 	;
 		% for each list of strongly connected components, 
 		% perform a fixpoint computation.
-		{ pa_util__pa_fixpoint_table_init(SCC, FPtable0) } , 
+		pa_util__pa_fixpoint_table_init(SCC, FPtable0),
 		run_with_dependency_until_fixpoint(SCC, FPtable0, 
-					HLDSin, HLDSout)
+			HLDS, !AliasTable, !IO)
 	).
 
-:- pred run_with_dependency_until_fixpoint(list(pred_proc_id), 
-		pa_util__pa_fixpoint_table, module_info, module_info,
-		io__state, io__state).
-:- mode run_with_dependency_until_fixpoint(in, in, in, out, di, uo) is det.
+:- pred run_with_dependency_until_fixpoint(list(pred_proc_id)::in, 
+		pa_fixpoint_table::in, module_info::in, 
+		alias_as_table::in, alias_as_table::out, 
+		io__state::di, io__state::uo) is det.
 
-run_with_dependency_until_fixpoint(SCC, FPtable0, HLDSin, HLDSout) -->
-	list__foldl2(analyse_pred_proc(HLDSin), SCC, FPtable0, FPtable),
+run_with_dependency_until_fixpoint(SCC, FPtable0, HLDS, !AliasTable, !IO) :- 
+	list__foldl2(analyse_pred_proc(HLDS, !.AliasTable), 
+			SCC, FPtable0, FPtable, !IO),
 	(
-		{ pa_fixpoint_table_all_stable(FPtable) }
+		pa_fixpoint_table_all_stable(FPtable)
 	->
-		{ list__foldl(update_alias_in_module_info(FPtable), SCC, HLDSin, HLDSout) }
+		list__foldl(update_alias_in_alias_table(FPtable), SCC,
+			!AliasTable)
 	;
-		{ pa_util__pa_fixpoint_table_new_run(FPtable,FPtable1) },
+		pa_util__pa_fixpoint_table_new_run(FPtable,FPtable1),
 		run_with_dependency_until_fixpoint(SCC, FPtable1, 
-				HLDSin, HLDSout)
+			HLDS, !AliasTable, !IO)
 	).
 
 %-----------------------------------------------------------------------------%
 % THE KERNEL 
 %-----------------------------------------------------------------------------%
-:- pred analyse_pred_proc(module_info, pred_proc_id, pa_fixpoint_table, 
-				pa_fixpoint_table, io__state, io__state).
-:- mode analyse_pred_proc(in, in, in, out, di, uo) is det.
+:- pred analyse_pred_proc(module_info::in, alias_as_table::in, 
+		pred_proc_id::in, 
+		pa_fixpoint_table::in, pa_fixpoint_table::out, 
+		io__state::di, io__state::uo) is det.
 
-analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
-	globals__io_lookup_bool_option(very_verbose,Verbose),
-	globals__io_lookup_int_option(possible_alias_widening, WideningLimit),
+analyse_pred_proc(HLDS, AliasTable, PredProcId, !FPTable, !IO) :- 
+		% Collect the relevant compiler options.
+	globals__io_lookup_bool_option(very_verbose, Verbose, !IO),
+	globals__io_lookup_int_option(possible_alias_widening, 
+			WideningLimit, !IO),
 
-	{ module_info_pred_proc_info(HLDS, PRED_PROC_ID, PredInfo,
-			ProcInfo_tmp) },
+		% Select all the relevant procedure information. 
+	module_info_pred_proc_info(HLDS, PredProcId, PredInfo, ProcInfo) ,
+	PredProcId = proc(PredId, ProcId),
+	proc_info_headvars(ProcInfo, HeadVars),
 
-	% XXX annotate all lbu/lfu stuff
-	% may 20, 2004: should not be necessary
-	% { sr_lfu__process_proc(ProcInfo_tmp, ProcInfo_tmp2) }, 
-	% { sr_lbu__process_proc(HLDS, ProcInfo_tmp2, ProcInfo) }, 
-
-	{ ProcInfo = ProcInfo_tmp }, 
-
-	{ PRED_PROC_ID = proc(PredId, ProcId) },
-
-	{ pa_util__pa_fixpoint_table_which_run(FPtable0, Run) },
-	{
+	pa_util__pa_fixpoint_table_which_run(!.FPTable, Run),
 	( 
-		pa_util__pa_fixpoint_table_get_final_as_semidet(PRED_PROC_ID, 
-				TabledAliasAs, FPtable0) 
+		pa_util__pa_fixpoint_table_get_final_as_semidet(PredProcId, 
+				TabledAliasAs, !.FPTable) 
 	->
 		TabledSize = size(TabledAliasAs)
 	;
 		TabledSize = 0
-	)
-	},
-	{ string__int_to_string(Run, SRun)},
-	{ string__append_list(["% Alias analysing (run ",SRun,") "],
-				Msg) },
-	passes_aux__write_proc_progress_message(Msg, 
-				PredId, ProcId, HLDS), 
-
-	{ 
-		% begin non-io
-	proc_info_goal(ProcInfo, Goal), 
-	proc_info_headvars(ProcInfo, HeadVars),
-
-	pa_alias_as__init(Alias0)
-
-	},
-
-	(
-		{ predict_bottom_aliases(HLDS, ProcInfo) }
-	->
-		maybe_write_string(Verbose, "% bottom predicted"),
-		{ Alias1 = Alias0 }, % = bottom 
-		{ FPtable1 = FPtable0 }
-	; 
-		analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
-			FPtable0, FPtable1, Alias0, Alias1) 
 	),
+	string__int_to_string(Run, SRun),
+	string__append_list(["% Alias analysing (run ",SRun,") "], Msg),
+	passes_aux__write_proc_progress_message(Msg, PredId, ProcId, 
+			HLDS, !IO), 
 
-	{ 
-	FullSize = pa_alias_as__size(Alias1), 
+	pa_alias_as__init(Alias0),
 
-	pa_alias_as__project(HeadVars, Alias1, Alias2),
-	ProjectSize = pa_alias_as__size(Alias2),
-
-	Goal = _ - GoalInfo,
-	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
-	instmap__init_reachable(InitIM),
-	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
-	pa_alias_as__normalize(HLDS, ProcInfo, InstMap, Alias2, Alias3),
-	NormSize = pa_alias_as__size(Alias3),
-
-	pa_alias_as__apply_widening(HLDS, ProcInfo, WideningLimit, 
-			Alias3, Alias, Widening),
-		
-	pa_fixpoint_table_new_as(HLDS, ProcInfo, 
-				PRED_PROC_ID, Alias, FPtable1, FPtable)
-	 	% end non-io 
- 	}, 
+		% If the aliases can safely be predicted to be "bottom", then
+		% an analysis is not needed.
 	(
-		{ Verbose = yes } 
+		predict_bottom_aliases(HLDS, ProcInfo)
 	->
-		%	print_maybe_possible_aliases(yes(Alias),ProcInfo), 
-		%	io__write_string("\n")
-		% []
-		{
-			( pa_fixpoint_table_all_stable(FPtable) ->
-				Stable = "s" ; Stable = "u"
-			),
-			string__int_to_string(TabledSize, TabledS), 
-			string__int_to_string(FullSize, FullS), 
-			string__int_to_string(ProjectSize, ProjectS),
-			string__int_to_string(NormSize, NormS)
-		},
-		io__write_strings(["\t\t: ", TabledS, "->", 
-					FullS, "/", ProjectS, "/",
-					NormS,
-					"(", Stable, ")"]), 
-		(
-			{ Widening = bool__yes }
-		-> 
-			{ string__int_to_string(
-				pa_alias_as__size(Alias), WidenS) }, 
-			{ string__int_to_string(WideningLimit, WidLimitS) },
-			io__write_strings(["/-->widening(", WidLimitS,"): ", WidenS, "\n"])
-		;
-			io__write_string("\n")
-		)
-/**
-		,	
-		(
-			{ dummy_test(PRED_PROC_ID) }
-		-> 
-			{ dummy_test_here(Alias) },
-			io__write_string("Alias = "), 
-			pa_alias_as__print_aliases(Alias, ProcInfo,PredInfo),
-			io__write_string("\n\n")
-		;
-			[]
-		)
-**/
+		maybe_write_string(Verbose, "\t\t: bottom predicted", !IO),
+		Alias = Alias0 % = bottom 
+	; 
+		% The alias could not be predicted to be bottom, hence, start
+		% the analysis of the procedure goal. 
+		proc_info_goal(ProcInfo, Goal),
+		analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, Goal, 
+			!FPTable, Alias0, Alias1, !IO),
+		FullSize = pa_alias_as__size(Alias1), 
+		pa_alias_as__project(HeadVars, Alias1, Alias2),
+		ProjectSize = pa_alias_as__size(Alias2),
 
+		pa_alias_as__normalize(HLDS, ProcInfo, Alias2, Alias3),
+		NormSize = pa_alias_as__size(Alias3) ,
+		pa_alias_as__apply_widening(HLDS, ProcInfo, WideningLimit, 
+			Alias3, Alias, Widening),
+		(
+			Verbose = yes
+		-> 
+			string__append_list(["\t\t: ", 
+				string__int_to_string(TabledSize), "->",
+				string__int_to_string(FullSize), "/",
+				string__int_to_string(ProjectSize), "/",
+				string__int_to_string(NormSize)], Sizes),
+
+			(
+				Widening = bool__yes 
+			-> 
+
+				string__append_list(["/-->widening(", 
+				    string__int_to_string(WideningLimit),
+				    "): ", 
+				    string__int_to_string(size(Alias))], 
+				    WidMsg)
+			;
+				WidMsg = "" 
+			), 
+			io__write_string(string__append(Sizes, WidMsg), !IO)
+		;
+			true
+		)
+
+	),
+	pa_fixpoint_table_new_as(HLDS, ProcInfo, 
+				PredProcId, Alias, !FPTable), 
+	(
+		Verbose = yes 
+	->
+		( pa_fixpoint_table_all_stable(!.FPTable) ->
+			Stable = "stable" ; Stable = "unstable"
+		),
+		string__append_list(["\t\t (ft = ", 
+			Stable, ")\n"], FPMsg),
+		io__write_string(FPMsg, !IO)
 	;
-		[]
+		true
 	).
 
 :- pred predict_bottom_aliases(module_info::in, proc_info::in) is semidet.
@@ -314,11 +324,6 @@ predict_bottom_aliases(ModuleInfo, ProcInfo):-
 	list__map( map__lookup(VarTypes), HeadVars, Types), 
 	pa_alias_as__predict_bottom_alias(ModuleInfo, HeadVars, Modes, Types).
 
-:- pred dummy_test(pred_proc_id::in) is semidet. 
-dummy_test(proc(PredId, _)):- pred_id_to_int(PredId, 16). 
-:- pred dummy_test_here(alias_as::in) is det.
-dummy_test_here(_). 
-
 	% analyse a given goal, with module_info and fixpoint table
 	% to lookup extra information, starting from an initial abstract
 	% substitution, and creating a new one. During this process,
@@ -327,14 +332,17 @@ dummy_test_here(_).
 	% analyse_goal(ProcInfo, HLDS, Goal, TableIn, TableOut,
 	%		AliasIn, AliasOut).
 :- pred analyse_goal(proc_info::in, pred_info::in, module_info::in, 
-		hlds_goal::in, pa_fixpoint_table::in, pa_fixpoint_table::out,
+		alias_as_table::in, 
+		hlds_goal::in, 
+		pa_fixpoint_table::in, pa_fixpoint_table::out,
 		alias_as::in, alias_as::out, 
 		io__state::di, io__state::uo) is det.
 
-analyse_goal(ProcInfo, PredInfo, HLDS, Goal, FPtable0, FPtable, 
+analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, Goal, FPtable0, FPtable, 
 		Alias0, Alias, !IO) :- 
 	Goal = GoalExpr - GoalInfo, 
 	analyse_goal_expr(GoalExpr, GoalInfo, ProcInfo, PredInfo, HLDS, 
+		AliasTable,
 		FPtable0, FPtable, Alias0, Alias, !IO).
 /***
 	% extra: after the analysis of the current goal, 
@@ -355,21 +363,23 @@ analyse_goal(ProcInfo, PredInfo, HLDS, Goal, FPtable0, FPtable,
 	
 :- pred analyse_goal_expr(hlds_goal_expr::in, hlds_goal_info::in, 
 		proc_info::in, pred_info::in, module_info::in, 
+		alias_as_table::in, 
 		pa_fixpoint_table::in, pa_fixpoint_table::out,
 		alias_as::in, alias_as::out, 
 		io__state::di, io__state::uo) is det.
 
 analyse_goal_expr(conj(Goals), _Info, ProcInfo, PredInfo, 
-		HLDS , !Table, !Alias, !IO) :- 
-	list__foldl3(analyse_goal(ProcInfo, PredInfo, HLDS),  Goals, 
+		HLDS , AliasTable, !Table, !Alias, !IO) :- 
+	list__foldl3(analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable),  
+		Goals, 
 		!Table, !Alias, !IO). 
 
 analyse_goal_expr(call(PredId, ProcId, ARGS, _,_, _PName), _Info, 
-		ProcInfo, _PredInfo, HLDS, !Table, !Alias, !IO) :- 
+		ProcInfo, _PredInfo, HLDS, AliasTable, !Table, !Alias, !IO) :- 
 % 	write_proc_progress_message("\n--> Call to ", 
 %			PredId, ProcId, HLDS, !IO),
 	PredProcId = proc(PredId, ProcId),
-	lookup_call_alias(PredProcId, HLDS, !Table, CallAlias),
+	lookup_call_alias(PredProcId, HLDS, AliasTable, !Table, CallAlias),
 %	module_info_pred_info(HLDS, PredId, PredInfoLookedUp),
 %	io__write_string("--> Looked up aliases: ", !IO), 
 %	io__write_strings(["(size = ", int_to_string(size(CallAlias)), 
@@ -391,7 +401,7 @@ analyse_goal_expr(call(PredId, ProcId, ARGS, _,_, _PName), _Info,
 %	print_brief_aliases(5, !.Alias, ProcInfo, PredInfo, !IO).
 
 analyse_goal_expr(generic_call(GenCall,_,_,_), Info, 
-		_ProcInfo, _P, _HLDS , !Table, !Alias, !IO) :-
+		_ProcInfo, _P, _HLDS , _AliasTable, !Table, !Alias, !IO) :-
 	(
 		GenCall = higher_order(_, _, _),
 		Text = "higher_order"
@@ -411,25 +421,28 @@ analyse_goal_expr(generic_call(GenCall,_,_,_), Info,
 	pa_alias_as__top(Msg, !Alias). 
 	% error("(pa) generic_call not handled") .
 
-analyse_goal_expr(switch(_Var,_CF,Cases), Info, 
-		ProcInfo, PredInfo, HLDS, !Table, !Alias, !IO) :- 
-	list__map_foldl2(analyse_case(ProcInfo, PredInfo, HLDS, !.Alias), 
+analyse_goal_expr(switch(_Var,_CF,Cases), Info, ProcInfo, PredInfo, HLDS, 
+		AliasTable, !Table, !Alias, !IO) :- 
+	list__map_foldl2(analyse_case(ProcInfo, PredInfo, HLDS, 
+					AliasTable, !.Alias), 
 				Cases, SwitchAliases, !Table, !IO),
 	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info, 
 				SwitchAliases, !:Alias).
 
 :- pred analyse_case(proc_info::in, pred_info::in, module_info::in, 
+		alias_as_table::in, 
 		alias_as::in, case::in, alias_as::out, 
 		pa_fixpoint_table::in, pa_fixpoint_table::out, 
 		io__state::di, io__state::uo) is det.
 
-analyse_case(ProcInfo, PredInfo, HLDS, Alias0, Case, Alias, !Table, !IO) :-
+analyse_case(ProcInfo, PredInfo, HLDS, AliasTable, 
+		Alias0, Case, Alias, !Table, !IO) :-
 	Case = case(_, Goal),
-	analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+	analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, Goal, 
 		!Table, Alias0, Alias, !IO).
 
 analyse_goal_expr(unify(_,_,_,Unification,_), Info, ProcInfo, _PredInfo, 
-		HLDS, !Table, !Alias, !IO) :- 
+		HLDS, _AliasTable, !Table, !Alias, !IO) :- 
 	% io__write_string("\n--> Unification.", !IO),
 	% io__write_string("\n--> Existing aliases: ", !IO),
 	% io__write_strings(["(size = ", int_to_string(size(A0)), 
@@ -443,13 +456,14 @@ analyse_goal_expr(unify(_,_,_,Unification,_), Info, ProcInfo, _PredInfo,
 			% ") "], !IO),
 	% print_aliases(A, ProcInfo, PredInfo, !IO).
 
-analyse_goal_expr(disj(Goals), Info, ProcInfo, PredInfo, HLDS, 
+analyse_goal_expr(disj(Goals), Info, ProcInfo, PredInfo, HLDS, AliasTable, 
 		!Table, !Alias, !IO) :-
 %	io__write_string("\n--> Disjunction", !IO),
 	list__map_foldl2(
 		pred(Goal::in, Alias::out, FPT0::in, FPT::out, 
 			IO0::di, IO::uo) is det :- 
-			(analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+			(analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, 
+					Goal, 
 					FPT0, FPT, !.Alias, Alias, IO0, IO)),
 		Goals,
 		DisjAliases,
@@ -473,38 +487,41 @@ analyse_goal_expr(disj(Goals), Info, ProcInfo, PredInfo, HLDS,
 %	print_aliases(A, ProcInfo, PredInfo).
 
 analyse_goal_expr(not(Goal), _Info, ProcInfo, PredInfo, 
-		HLDS, !Table, !Alias, !IO) :- 
-	analyse_goal(ProcInfo, PredInfo, HLDS, Goal, !Table, !Alias, !IO). 
+		HLDS, AliasTable, !Table, !Alias, !IO) :- 
+	analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, 
+		Goal, !Table, !Alias, !IO). 
 
 analyse_goal_expr(some(Vars,_,Goal), _Info, ProcInfo, PredInfo, 
-		HLDS, !Table, !Alias, !IO) :- 
+		HLDS, AliasTable, !Table, !Alias, !IO) :- 
 	(
 		Vars = []
 	->
-		% XXX
-		analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+		% XXX 
+		analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, Goal, 
 			!Table, !Alias, !IO) 
 	;
 		Msg = "(pa_run) analyse_goal_expr: empty vars expected.",
 		require__error(Msg)
 	).
-	% pa_alias_as__top("some not handled", A).
-	% error("(pa) some goal not handled") .
 
 analyse_goal_expr(if_then_else(_VARS, IF, THEN, ELSE), _Info, 
-		ProcInfo, PredInfo, HLDS, !Table, A0, A, !IO) :- 
-	analyse_goal(ProcInfo, PredInfo, HLDS, IF, !Table, A0, A1, !IO),
-	analyse_goal(ProcInfo, PredInfo, HLDS, THEN, !Table, A1, A2, !IO),
-	analyse_goal(ProcInfo, PredInfo, HLDS, ELSE, !Table, A0, A3, !IO),
+		ProcInfo, PredInfo, HLDS, AliasTable, !Table, A0, A, !IO) :- 
+	analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, 
+			IF, !Table, A0, A1, !IO),
+	analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, 
+			THEN, !Table, A1, A2, !IO),
+	analyse_goal(ProcInfo, PredInfo, HLDS, AliasTable, 
+			ELSE, !Table, A0, A3, !IO),
 	pa_alias_as__least_upper_bound(HLDS, ProcInfo, A2, A3, A).
 
 analyse_goal_expr(foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
-		Info, ProcInfo, _PredInfo, HLDS, !Table, !Alias, !IO) :- 
+		Info, ProcInfo, _PredInfo, HLDS, _AT, !Table, !Alias, !IO) :- 
 	extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, Info, !Alias).
 
-analyse_goal_expr(par_conj(_Goals), Info, _, _ , _, !Table, !Alias, !IO) :- 
+analyse_goal_expr(par_conj(_Goals), Info, _, _ , _, _AT, 
+		!Table, !Alias, !IO) :- 
 	goal_info_get_context(Info, Context), 
 	term__context_line(Context, ContextLine), 
 	term__context_file(Context, ContextFile), 
@@ -514,7 +531,7 @@ analyse_goal_expr(par_conj(_Goals), Info, _, _ , _, !Table, !Alias, !IO) :-
 				ContextLineS, ")"], Msg), 
 	pa_alias_as__top(Msg, !Alias).
 
-analyse_goal_expr(shorthand(_), _, _,  _, _, !T, !A, !IO) :- 
+analyse_goal_expr(shorthand(_), _, _,  _, _, _AT, !T, !A, !IO) :- 
 	error("pa_run__analyse_goal_expr: shorthand goal").
 
 %-----------------------------------------------------------------------------%
@@ -522,7 +539,7 @@ analyse_goal_expr(shorthand(_), _, _,  _, _, !T, !A, !IO) :-
 	% lookup the alias of the procedure with given pred_proc_id and
 	% find it's output abstract substitution. 
 	% 1 - look first in table, if this fails (then not in same SCC)
-	% 2 - look in module_info (as we might already have analysed the 
+	% 2 - look in alias_as_table (as we might already have analysed the 
 	%     predicate, if defined in same module, or analysed in other 
 	%     imported module)
 	% 3 - check whether the args have primitive types -- then no aliases
@@ -530,65 +547,68 @@ analyse_goal_expr(shorthand(_), _, _,  _, _, !T, !A, !IO) :-
 	% 4 - react appropriately if the calls happen to be to 
 	%     * either compiler generated predicates
 	%     * or predicates from builtin.m and private_builtin.m
-:- pred lookup_call_alias(pred_proc_id, module_info, pa_fixpoint_table,
-				pa_fixpoint_table, alias_as).
-:- mode lookup_call_alias(in, in, in, out, out) is det.
+:- pred lookup_call_alias(pred_proc_id::in, module_info::in,
+		alias_as_table::in, pa_fixpoint_table::in,
+		pa_fixpoint_table::out, alias_as::out) is det.
 
-lookup_call_alias(PRED_PROC_ID, HLDS, FPtable0, FPtable, Alias) :-
+lookup_call_alias(PredProcId, HLDS, AliasTable, FPtable0, FPtable, Alias) :-
 	(
 		% 1 - check in table
-		pa_fixpoint_table_get_as(PRED_PROC_ID, Alias1, 
+		pa_fixpoint_table_get_as(PredProcId, Alias1, 
 					FPtable0, FPtable1)
 	->
 		FPtable = FPtable1,
 		Alias   = Alias1
 	;
-		% 2 - look up in module_info
-		lookup_call_alias_in_module_info(HLDS, PRED_PROC_ID, 
-				Alias), 
+		% 2 - look up amongst the already recorded aliases.
+		lookup_already_recorded_alias(PredProcId, HLDS, AliasTable, 
+			Alias),
 		FPtable = FPtable0
 	).
 
+:- pred lookup_already_recorded_alias(pred_proc_id::in, module_info::in,
+		alias_as_table::in, alias_as::out) is det.
+lookup_already_recorded_alias(PredProcId, ModuleInfo, AliasTable, Alias) :- 
+	(
+		% 1 - look up in AliasTable
+		Alias1 = alias_as_table_search_alias(PredProcId, AliasTable)
+	-> 
+		Alias = Alias1
+	;
+		% 2 - perhaps predict the alias
+		predict_bottom_alias(ModuleInfo, PredProcId)
+	-> 
+		Alias = pa_alias_as__init
+	; 
+		% 3. else return "top" with an error message.
+		error_not_found_alias(ModuleInfo, PredProcId, Alias)
+	).
+
 	% exported predicate
-extend_with_call_alias(HLDS, ProcInfo, 
+extend_with_call_alias(HLDS, ProcInfo, AliasTable, 
 		PRED_ID, PROC_ID, ARGS, ActualTypes, ALIASin, ALIASout):-
-	PRED_PROC_ID = proc(PRED_ID, PROC_ID), 
-	lookup_call_alias_in_module_info(HLDS, PRED_PROC_ID, ALIAS_tmp), 
-	rename_call_alias(PRED_PROC_ID, HLDS, ARGS, ActualTypes, 
+	PredProcId = proc(PRED_ID, PROC_ID), 
+	lookup_already_recorded_alias(PredProcId, HLDS, AliasTable, ALIAS_tmp), 
+	rename_call_alias(PredProcId, HLDS, ARGS, ActualTypes, 
 				ALIAS_tmp, ALIAS_call),
 	pa_alias_as__extend(HLDS, ProcInfo, ALIAS_call, ALIASin, ALIASout). 
 	
-:- pred lookup_call_alias_in_module_info(module_info, pred_proc_id, 
-		alias_as). 
-:- mode lookup_call_alias_in_module_info(in, in, out) is det.
+:- pred predict_bottom_alias(module_info::in, pred_proc_id::in) is semidet.
 
-lookup_call_alias_in_module_info(HLDS, PRED_PROC_ID, Alias) :- 
-	module_info_pred_proc_info(HLDS, PRED_PROC_ID, PredInfo,
+predict_bottom_alias(HLDS, PredProcId) :- 
+	module_info_pred_proc_info(HLDS, PredProcId, PredInfo,
 				    ProcInfo),
 	(
-		% If the determinism of the called procedure is
-		% erroneous or failure, then you don't even need to
-		% check anything else anymore: it simply cannot 
-		% introduce any aliases. 
 		proc_info_inferred_determinism(ProcInfo, Determinism), 
 		(
 			Determinism = erroneous
 		; 
 			Determinism = failure
 		)
-	->
-		init(Alias)	
-	;
-		proc_info_possible_aliases(ProcInfo, MaybeAliases),
-		MaybeAliases = yes(SomeAL)
-	->
-		Alias = SomeAL
 	;
 		% Special tricks: 
 		% 1. check whether the args are primitive types
 		arg_types_are_all_primitive(HLDS, PredInfo)
-	->
-		init(Alias)
 	;
 		% 2. call to builtin.m or private_builtin.m
 		%    predicate -- unify/index/compare
@@ -605,9 +625,6 @@ lookup_call_alias_in_module_info(HLDS, PRED_PROC_ID, Alias) :-
 		;
 			special_pred_name_arity(_, _, Name, Arity)
 		)
-	->
-		% no aliases created
-		init(Alias)
 	;
 		% 3. XXX Any call to private_builtin.m module and
 		%        builtin module are considered alias-free. 
@@ -620,50 +637,40 @@ lookup_call_alias_in_module_info(HLDS, PRED_PROC_ID, Alias) :-
 		; 
 			mercury_public_builtin_module(ModuleName)
 		)
-	->
-		% no aliases created
-		init(Alias)
-	;
-		% if all else fails --> ERROR !! 
-		
-		PRED_PROC_ID = proc(PRED_ID, PROC_ID),
-		pred_info_name(PredInfo, PNAME), 
-		pred_info_module(PredInfo, PMODULE),
-		prog_out__sym_name_to_string(PMODULE, SPMODULE),	
-		pred_info_import_status(PredInfo, Status),
-		import_status_to_minimal_string(Status, SStatus),
-		pred_id_to_int(PRED_ID, IPRED_ID),
-		proc_id_to_int(PROC_ID, IPROC_ID),
-		string__int_to_string(IPRED_ID, SPRED_ID),
-		string__int_to_string(IPROC_ID, SPROC_ID),
-		string__append_list(["lookup alias failed for ", 
-			SPMODULE, "::",
-			PNAME,"(",SPRED_ID, ",", SPROC_ID, ",",
-				SStatus, ")"], 
-			ErrMsg), 
-		top(ErrMsg, Alias)
 	).
+
+:- pred error_not_found_alias(module_info::in, 
+		pred_proc_id::in, alias_as::out) is det.
+error_not_found_alias(ModuleInfo, PredProcId, Alias) :-
+	module_info_pred_proc_info(ModuleInfo, PredProcId, PredInfo, _),
+	PredProcId = proc(PRED_ID, PROC_ID),
+	pred_info_name(PredInfo, PNAME), 
+	pred_info_module(PredInfo, PMODULE),
+	prog_out__sym_name_to_string(PMODULE, SPMODULE),	
+	pred_info_import_status(PredInfo, Status),
+	import_status_to_minimal_string(Status, SStatus),
+	pred_id_to_int(PRED_ID, IPRED_ID),
+	proc_id_to_int(PROC_ID, IPROC_ID),
+	string__int_to_string(IPRED_ID, SPRED_ID),
+	string__int_to_string(IPROC_ID, SPROC_ID),
+	string__append_list(["lookup alias failed for ", 
+		SPMODULE, "::",
+		PNAME,"(",SPRED_ID, ",", SPROC_ID, ",",
+			SStatus, ")"], 
+		ErrMsg), 
+	top(ErrMsg, Alias).
 
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 % easy stuff
 
-	% once the abstract alias substitution is computed for
-	% a procedure, one must simply update the proc-information
-	% of that procedure.
-:- pred update_alias_in_module_info(pa_util__pa_fixpoint_table, 
-					pred_proc_id, module_info,
-					module_info).
-:- mode update_alias_in_module_info(in, in, in, out) is det.
-
-update_alias_in_module_info(FPtable, PRED_PROC_ID, HLDSin, HLDSout) :-
-	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo, ProcInfo),
-	pa_fixpoint_table_get_final_as(PRED_PROC_ID, ALIAS_AS, FPtable),
-	proc_info_set_possible_aliases(ProcInfo, ALIAS_AS, NewProcInfo),
-	module_info_set_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo,
-					NewProcInfo, HLDSout).
-
+:- pred update_alias_in_alias_table(pa_fixpoint_table::in, pred_proc_id::in, 
+		alias_as_table::in, alias_as_table::out) is det.
+update_alias_in_alias_table(FPTable, PredProcId, AliasTable0, AliasTable) :-
+	pa_fixpoint_table_get_final_as(PredProcId, AliasAs, FPTable), 
+	alias_as_table_set_alias(PredProcId, AliasAs, AliasTable0, 
+			AliasTable). 
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

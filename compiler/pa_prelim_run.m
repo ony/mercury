@@ -23,6 +23,7 @@
 :- interface.
 
 :- import_module hlds__hlds_module.
+:- import_module possible_alias__pa_alias_as.
 
 :- import_module io.
 
@@ -35,7 +36,8 @@
 	% these procedures. 
 	% XXX the type unproc_alias_pragma should not be in terms of alias_as
 	% but in terms of the to be defined public form of alias information. 
-:- pred process_imported_predicates(module_info::in, module_info::out, 
+:- pred process_imported_predicates(module_info::in,
+		module_info::out, alias_as_table::out, 
 		io__state::di, io__state::uo) is det.
 
 	% The pre-births and post-deaths as derived by the liveness pass
@@ -85,30 +87,31 @@
 :- import_module list, map, set, std_util.
 :- import_module term, varset.
 
-process_imported_predicates(HLDS0, HLDS) -->
-	{ module_info_unproc_alias_pragmas(HLDS0, UnprocAliasPragmas) },
+process_imported_predicates(ModuleInfo0, ModuleInfo, AliasTable) -->
+	{ module_info_unproc_alias_pragmas(ModuleInfo0, UnprocAliasPragmas) },
+	{ module_info_remove_unproc_alias_pragmas(ModuleInfo0, ModuleInfo) },
 	list__foldl2(
-		process_unproc_alias_pragma, 
-		UnprocAliasPragmas, HLDS0, HLDS1), 
-	{ module_info_remove_unproc_alias_pragmas(HLDS1, HLDS) }.
+		process_unproc_alias_pragma(ModuleInfo), 
+		UnprocAliasPragmas, alias_as_table_init , AliasTable).
 	
 
-:- pred process_unproc_alias_pragma(unproc_alias_pragma, module_info, 
-		module_info, io__state, io__state).
-:- mode process_unproc_alias_pragma(in, in, out, di, uo) is det.
+:- pred process_unproc_alias_pragma(module_info::in, unproc_alias_pragma::in, 
+		alias_as_table::in, alias_as_table::out,
+		io__state::di, io__state::uo) is det.
 
-process_unproc_alias_pragma(UnprocAliasPragma, Module0, Module) --> 
+process_unproc_alias_pragma(ModuleInfo, UnprocAliasPragma, AliasTable0, 
+		AliasTable) --> 
 	{ UnprocAliasPragma = unproc_alias_pragma(PredOrFunc, SymName,
 		Modes, HeadVars, Types, Alias0) },
 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 
-	{ module_info_get_predicate_table(Module0, Preds) }, 
-	{ module_info_preds(Module0, PredTable0) },
+	{ module_info_get_predicate_table(ModuleInfo, Preds) }, 
+	{ module_info_preds(ModuleInfo, PredTable0) },
 	{ list__length(Modes, Arity) },
 	( 
 		{ predicate_table_search_pf_sym_arity_declmodes(
-			Module0, Preds, PredOrFunc, SymName, 
+			ModuleInfo, Preds, PredOrFunc, SymName, 
 			Arity, Modes, PredId, ProcId) }
 	->
 		{ map__lookup(PredTable0, PredId, PredInfo0) },
@@ -116,7 +119,7 @@ process_unproc_alias_pragma(UnprocAliasPragma, Module0, Module) -->
 		{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
 		
 		write_proc_progress_message("(Alias) Looking into ", 
-			PredId, ProcId, Module0),
+			PredId, ProcId, ModuleInfo),
 
 			% rename the headvars: 
 		maybe_write_string(VeryVerbose, "Renaming HeadVars..."),
@@ -134,16 +137,9 @@ process_unproc_alias_pragma(UnprocAliasPragma, Module0, Module) -->
 			Alias1, Alias) },
 		maybe_write_string(VeryVerbose, "done.\n"),
 
-		% set the proc_info right
-		{ proc_info_set_possible_aliases(ProcInfo0, 
-			Alias, ProcInfo) },
-		{ map__det_update(ProcTable0, ProcId, ProcInfo,
-				ProcTable) },
-		{ pred_info_set_procedures(PredInfo0, ProcTable,
-				PredInfo) },
-		{ map__det_update(PredTable0, PredId, PredInfo,
-				PredTable) },
-		{ module_info_set_preds(Module0, PredTable, Module) }
+		% Record the alias in the aliastable. 
+		{ alias_as_table_set_alias(proc(PredId, ProcId), Alias,
+			AliasTable0, AliasTable) }
 	;
 		% XXX Currently a lot of pragma's with no corresponding
 		% procedure in the predicate table are read. Yet a priori
@@ -156,7 +152,7 @@ process_unproc_alias_pragma(UnprocAliasPragma, Module0, Module) -->
 		% { varset__init(EmptyVarset) },
 		% io__write_list(Modes, ", ", write_mode(EmptyVarset)),
 		% io__write_string(" (alias_info).\n"),
-		{ Module = Module0 }
+		{ AliasTable = AliasTable0 }
 	).
 
 % :- import_module mercury_to_mercury.

@@ -43,12 +43,14 @@
 
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
+:- import_module possible_alias__pa_alias_as.
 
-:- import_module list, io.
+:- import_module list, io, bool, std_util.
 
 	% Perform the structure reuse analysis. 
-:- pred structure_reuse(module_info::in, module_info::out,
-	io::di, io::uo) is det.
+:- pred structure_reuse(module_info::in, maybe(alias_as_table)::in, 
+		bool::in, bool::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
 
 	% Write the reuse information of a module as pragma's in the trans_opt
 	% of that module. 
@@ -78,9 +80,35 @@
 :- import_module structure_reuse__sr_util.
 
 :- import_module list, map, varset, std_util, int, bool.
-:- import_module term.
+:- import_module term, require.
 
-structure_reuse(HLDS00, HLDS) -->
+structure_reuse(HLDS0, MaybeAliasTable, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(infer_structure_reuse, Reuse),
+	( 	
+		{ Reuse = yes }
+	->
+		(
+			{ MaybeAliasTable = yes(AliasTable) }
+		->
+			maybe_write_string(Verbose, 
+					"% Structure-reuse analysis...\n"),
+			maybe_flush_output(Verbose),
+			structure_reuse(AliasTable, HLDS0, HLDS),
+			maybe_write_string(Verbose, "% done.\n"),
+			maybe_report_stats(Stats)
+		;
+			{ Msg = "(sr_top) No aliastable." },
+			{ error(Msg) }
+		)
+	;
+		{ HLDS = HLDS0 }
+	).
+
+:- pred structure_reuse(alias_as_table::in, 
+		module_info::in, module_info::out,
+		io::di, io::uo) is det.
+
+structure_reuse(AliasTable, HLDS00, HLDS) -->
 	% Before starting the actual reuse-analysis, process all the reuse
 	% information of the imported predicates.
 	{ module_info_unproc_reuse_pragmas(HLDS00, UnprocReusePragmas) },
@@ -96,7 +124,7 @@ structure_reuse(HLDS00, HLDS) -->
 
 		% Do the direct reuse analysis phase.
 	process_matching_nonimported_procs(
-			update_module_io(sr_direct__process_proc),
+			update_module_io(sr_direct__process_proc(AliasTable)),
 			(pred(PredId::in, _PredInfo::in) is semidet :-
 				\+ list__member(PredId, SpecialPredIds)
 			),
@@ -104,7 +132,7 @@ structure_reuse(HLDS00, HLDS) -->
 
 		% Do the fixpoint computation to determine all the indirect
 		% reuse, and the implied conditions.
-	sr_indirect__compute_fixpoint(HLDS1, HLDS2),
+	sr_indirect__compute_fixpoint(AliasTable, HLDS1, HLDS2),
 	sr_split__create_multiple_versions(HLDS2, HLDS), 
 	sr_profile_run__structure_reuse_profiling(HLDS). 
 

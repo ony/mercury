@@ -15,10 +15,12 @@
 :- interface.
 
 :- import_module hlds__hlds_module.
+:- import_module possible_alias__pa_alias_as.
 
 :- import_module io. 
 
-:- pred sr_indirect__compute_fixpoint(module_info::in, module_info::out,
+:- pred sr_indirect__compute_fixpoint(alias_as_table::in, 
+		module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
@@ -46,7 +48,7 @@
 
 :- import_module map, list, std_util, require, set, string, bool.
 
-compute_fixpoint(HLDS0, HLDSout) -->
+compute_fixpoint(AliasTable, HLDS0, HLDSout) -->
 		% compute the strongly connected components
 	{ module_info_ensure_dependency_info(HLDS0, HLDS1) },
 	{ module_info_get_maybe_dependency_info(HLDS1, MaybeDepInfo) } ,
@@ -56,24 +58,24 @@ compute_fixpoint(HLDS0, HLDSout) -->
 		{ hlds_dependency_info_get_dependency_ordering(DepInfo,
 				DepOrdering) },
 		% perform the analysis, and annotate the procedures
-		run_with_dependencies(DepOrdering, HLDS1, HLDS2),
+		run_with_dependencies(AliasTable, DepOrdering, HLDS1, HLDS2),
 		{ HLDSout = HLDS2 }
 	;
 		{ error("(sr_indirect) compute_fixpoint: no dependency info") }
 	).
 
-:- pred run_with_dependencies(dependency_ordering, module_info, 
-					module_info, io__state, io__state).
-:- mode run_with_dependencies(in, in, out, di, uo) is det.
+:- pred run_with_dependencies(alias_as_table::in, dependency_ordering::in, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
 
-run_with_dependencies(Deps, HLDSin, HLDSout) -->
-	list__foldl2(run_with_dependency, Deps, HLDSin, HLDSout).
+run_with_dependencies(AliasTable, Deps, HLDSin, HLDSout) -->
+	list__foldl2(run_with_dependency(AliasTable), Deps, HLDSin, HLDSout).
 
-:- pred run_with_dependency(list(pred_proc_id), module_info, module_info,
-				io__state, io__state).
-:- mode run_with_dependency(in, in, out, di, uo) is det.
+:- pred run_with_dependency(alias_as_table::in, list(pred_proc_id)::in, 
+		module_info::in, module_info::out,
+		io__state::di, io__state::uo) is det.
 
-run_with_dependency(SCC, HLDSin, HLDSout) -->
+run_with_dependency(AliasTable, SCC, HLDSin, HLDSout) -->
 	(
 		% analysis ignores special predicates
 		{ pa_sr_util__some_are_special_preds(SCC, HLDSin) }
@@ -83,18 +85,20 @@ run_with_dependency(SCC, HLDSin, HLDSout) -->
 		% for each list of strongly connected components, 
 		% perform a fixpoint computation.
 		{ sr_fixpoint_table_init(HLDSin, SCC, FPtable0) } , 
-		run_with_dependency_until_fixpoint(SCC, FPtable0, 
+		run_with_dependency_until_fixpoint(AliasTable, SCC, FPtable0, 
 					HLDSin, HLDSout)
 	).
 
 %-----------------------------------------------------------------------------%
-:- pred run_with_dependency_until_fixpoint(list(pred_proc_id), 
-		sr_fixpoint_table__table, module_info, module_info,
-		io__state, io__state).
-:- mode run_with_dependency_until_fixpoint(in, in, in, out, di, uo) is det.
+:- pred run_with_dependency_until_fixpoint(alias_as_table::in, 
+		list(pred_proc_id)::in, sr_fixpoint_table__table::in, 
+		module_info::in, module_info::out,
+		io__state::di, io__state::uo) is det.
 
-run_with_dependency_until_fixpoint(SCC, FPtable0, HLDSin, HLDSout) -->
-	list__foldl2(analyse_pred_proc(HLDSin), SCC, FPtable0, FPtable),
+run_with_dependency_until_fixpoint(AliasTable, 
+		SCC, FPtable0, HLDSin, HLDSout) -->
+	list__foldl2(analyse_pred_proc(HLDSin, AliasTable), 
+			SCC, FPtable0, FPtable),
 	(
 		{ sr_fixpoint_table_all_stable(FPtable) }
 	->
@@ -103,7 +107,8 @@ run_with_dependency_until_fixpoint(SCC, FPtable0, HLDSin, HLDSout) -->
 	;
 		{ sr_fixpoint_table_new_run(FPtable, 
 				FPtable1) },
-		run_with_dependency_until_fixpoint(SCC, FPtable1, HLDSin, 
+		run_with_dependency_until_fixpoint(AliasTable, 
+				SCC, FPtable1, HLDSin, 
 				HLDSout)
 	).
 
@@ -124,13 +129,12 @@ update_goal_in_module_info(FP, PredProcId, HLDS0, HLDS) :-
 	
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
-:- pred analyse_pred_proc(module_info, pred_proc_id, 
-				sr_fixpoint_table__table,
-				sr_fixpoint_table__table, 
-				io__state, io__state).
-:- mode analyse_pred_proc(in, in, in, out, di, uo) is det.
+:- pred analyse_pred_proc(module_info::in, alias_as_table::in, 
+		pred_proc_id::in, 
+		sr_fixpoint_table__table::in, sr_fixpoint_table__table::out, 
+		io__state::di, io__state::uo) is det.
 
-analyse_pred_proc(HLDS, PredProcId, FPin, FPout) --> 
+analyse_pred_proc(HLDS, AliasTable, PredProcId, FPin, FPout) --> 
 	{ module_info_pred_proc_info(HLDS, PredProcId,
 		_PredInfo, ProcInfo) },
 	{ PredProcId = proc(PredId, ProcId) },
@@ -189,7 +193,7 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 		indirect_reuse_pool_init(HVs, MemoStarting, Pool0)
 	},
 		% 5. analyse_goal
-		analyse_goal(ProcInfo, HLDS, 
+		analyse_goal(ProcInfo, HLDS, AliasTable, 
 					Goal0, Goal,
 					analysis_info(Alias0, Pool0,
 							set__init, FPin),
@@ -263,20 +267,23 @@ debug_write_rec_table(Msg, Table) -->
 		io__write_string(Msg2)
 	).
 
-:- pred analyse_goal(proc_info::in, module_info::in, 
-			hlds_goal::in, hlds_goal::out,
-			analysis_info::in, analysis_info::out,
-			io__state::di, io__state::uo) is det.
+:- pred analyse_goal(proc_info::in, module_info::in, alias_as_table::in, 
+		hlds_goal::in, hlds_goal::out,
+		analysis_info::in, analysis_info::out,
+		io__state::di, io__state::uo) is det.
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = conj(Goals0), 
-	list__map_foldl2(analyse_goal(ProcInfo, HLDS), Goals0, Goals, 
+	list__map_foldl2(analyse_goal(ProcInfo, HLDS, AliasTable), 
+			Goals0, Goals, 
 			AI0, AI, IO0, IO),
 	Expr = conj(Goals),
 	Info = Info0,
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
 	passes_aux__write_proc_progress_message(
 			"%\t\tcall to ",
@@ -289,21 +296,23 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	call_verify_reuse(ProcInfo, HLDS,
 			PredId, ProcId, ActualVars, 
 			ActualTypes, Info0, Info, AI0, AI1, _, IO2, IO3),
-	pa_run__extend_with_call_alias(HLDS, ProcInfo, 
+	pa_run__extend_with_call_alias(HLDS, ProcInfo, AliasTable, 
 		PredId, ProcId, ActualVars, ActualTypes, AI0 ^ alias, Alias),
 	AI = AI1 ^ alias := Alias,
 	Expr = Expr0, 
 	Goal = Expr - Info, 
 	IO = IO3.
 
-analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = generic_call(_, _, _, _), 
 	pa_alias_as__top("unhandled goal", Alias), 
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0, 
 	IO = IO0. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, _AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context), 
 
 		% Record the statically constructed variables.
@@ -321,13 +330,14 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Goal = Expr - Info, 
 	IO = IO0. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = switch(Var, CanFail, Cases0),
 	list__map_foldl2(
 		(pred(case(ConsId, Gin)::in, Tuple::out,
 				FPin::in, FPout::out, 
 				IOin::di, IOout::uo) is det :-
-			analyse_goal(ProcInfo, HLDS, Gin, Gout, 
+			analyse_goal(ProcInfo, HLDS, AliasTable, Gin, Gout, 
 				analysis_info(AI0 ^ alias, AI0 ^ pool,
 						AI0 ^ static, FPin),
 				analysis_info(NewAlias,
@@ -361,7 +371,8 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr = switch(Var, CanFail, Cases),
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = disj(Goals0),
 	(
 		Goals0 = []
@@ -375,7 +386,8 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 			(pred(Gin::in, Tuple::out,
 					FPin::in, FPout::out,
 					IOin::di, IOout::uo) is det :-
-				analyse_goal(ProcInfo, HLDS, Gin, Gout, 
+				analyse_goal(ProcInfo, HLDS, AliasTable, 
+						Gin, Gout, 
 					analysis_info(AI0 ^ alias, AI0 ^ pool,
 							AI0 ^ static, FPin),
 					analysis_info(NewAlias, NewPool,
@@ -410,28 +422,35 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr = disj(Goals),
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = not(NegatedGoal0),
-	analyse_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal, 
+	analyse_goal(ProcInfo, HLDS, AliasTable, NegatedGoal0, NegatedGoal, 
 				AI0, AI, IO0, IO),
 	Info = Info0, 
 	Expr = not(NegatedGoal),
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = some(A, B, SomeGoal0), 
-	analyse_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, AI0, AI, IO0, IO),
+	analyse_goal(ProcInfo, HLDS, AliasTable, SomeGoal0, 
+			SomeGoal, AI0, AI, IO0, IO),
 	Info = Info0, 
 	Expr = some(A, B, SomeGoal), 
 	Goal = Expr - Info.
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
-	analyse_goal(ProcInfo, HLDS, Cond0, Cond, AI0, AI_Cond, IO0, IO1),
-	analyse_goal(ProcInfo, HLDS, Then0, Then, AI_Cond, AI_Then, IO1, IO2),
+	analyse_goal(ProcInfo, HLDS, AliasTable, 
+			Cond0, Cond, AI0, AI_Cond, IO0, IO1),
+	analyse_goal(ProcInfo, HLDS, AliasTable, 
+			Then0, Then, AI_Cond, AI_Then, IO1, IO2),
 
 	AI1 = AI0 ^ table := AI_Then ^ table,
-	analyse_goal(ProcInfo, HLDS, Else0, Else, AI1, AI_Else, IO2, IO),
+	analyse_goal(ProcInfo, HLDS, AliasTable, 
+			Else0, Else, AI1, AI_Else, IO2, IO),
 
 	indirect_reuse_pool_least_upper_bound_disjunction(
 				[AI_Then ^ pool, AI_Else ^ pool],
@@ -452,7 +471,8 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr = if_then_else(Vars, Cond, Then, Else),
 	Goal = Expr - Info.
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(ProcInfo, HLDS, _AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = foreign_proc(Attrs, PredId, ProcId, 
 					Vars, MaybeModes, Types, _), 
 	pa_alias_as__extend_foreign_code(HLDS, ProcInfo, Attrs, 
@@ -462,14 +482,16 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Goal = Expr0 - Info0, 
 	IO = IO0. 
 
-analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = par_conj(_), 
 	pa_alias_as__top("unhandled goal (par_conj)", Alias), 
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0, 
 	IO = IO0. 
 
-analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
+analyse_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, 
+		Goal, AI0, AI, IO0, IO) :-
 	Expr0 = shorthand(_), 
 	pa_alias_as__top("unhandled goal (shorthand)", Alias), 
 	AI = AI0 ^ alias := Alias,

@@ -28,9 +28,20 @@
 
 %-----------------------------------------------------------------------------%
 
+:- type alias_as_table == map(pred_proc_id, alias_as).
+:- func alias_as_table_init = alias_as_table. 
+:- func alias_as_table_init(list(pred_proc_id)) = alias_as_table.
+:- func alias_as_table_search_alias(pred_proc_id, alias_as_table) 
+		= alias_as is semidet.
+:- pred alias_as_table_set_alias(pred_proc_id::in, alias_as::in, 
+		alias_as_table::in, alias_as_table::out) is det.
+
+%-----------------------------------------------------------------------------%
+
 :- type alias_as.
 
 :- pred init(alias_as::out) is det.
+:- func init = alias_as.
 :- pred is_bottom(alias_as::in) is semidet.
 
 :- pred top(string::in, alias_as::out) is det.
@@ -203,6 +214,8 @@
 	% alias_sets... hmmm, needs some more thinking. 
 :- pred normalize(module_info::in, proc_info::in, instmap::in, 
 		alias_as::in, alias_as::out) is det.
+:- pred normalize(module_info::in, proc_info::in, 
+		alias_as::in, alias_as::out) is det.
 
 %-----------------------------------------------------------------------------%
 % Printing routines. 
@@ -318,9 +331,24 @@
 :- import_module require, term, assoc_list.
 :- import_module std_util.
 
-%-----------------------------------------------------------------------------%
-%-- type definitions 
 
+%-----------------------------------------------------------------------------%
+alias_as_table_init = map__init. 
+alias_as_table_init(Ids) = list__foldl(
+		func(Id, T0) = T :-
+		    (
+		        alias_as_table_set_alias(Id, pa_alias_as__init,
+				T0, T)
+		    ),
+		Ids, 
+		alias_as_table_init).
+alias_as_table_search_alias(PredProcId, Table) = Alias :- 
+	Table^elem(PredProcId) = Alias.
+alias_as_table_set_alias(PredProcId, Alias, Table0, Table) :- 
+	Table = Table0^elem(PredProcId) := Alias.
+
+
+%-----------------------------------------------------------------------------%
 :- type alias_as ---> 
 			real_as(alias_set)
 		;	bottom
@@ -340,6 +368,7 @@ top_limit = 200000.
 
 	% init
 init(bottom).
+init = B :- init(B).
 
 	% is_bottom
 is_bottom(bottom).
@@ -883,6 +912,10 @@ normalize_with_goal_info(ProcInfo, HLDS, GoalInfo, Alias0, Alias):-
 	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
 	normalize(HLDS, ProcInfo, InstMap, Alias0, Alias). 
 	
+
+normalize(HLDS, ProcInfo, Alias0, Alias):- 
+	% normalize only using type-info's
+	normalize_wti(HLDS, ProcInfo, Alias0, Alias).
 
 normalize(HLDS, ProcInfo, _InstMap, Alias0, Alias):- 
 	% normalize only using type-info's

@@ -19,11 +19,13 @@
 
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
+:- import_module possible_alias__pa_alias_as.
 
 :- import_module io. 
 
-:- pred sr_direct__process_proc(pred_id::in, proc_id::in, proc_info::in,
-		proc_info::out, module_info::in, module_info::out,
+:- pred sr_direct__process_proc(alias_as_table::in, pred_id::in, proc_id::in, 
+		proc_info::in, proc_info::out, 
+		module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
@@ -58,7 +60,8 @@
 	% potentially die. 
 	% 3. 'choice' analysis, i.e. identify where dead datastructure can be
 	% reused. 
-process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
+process_proc(AliasTable, PredId, ProcId, 
+		ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	% Some pre-processing: 
 	% - Initialise the reuse information.
 	% - Annotate goals with local forward use (lfu).
@@ -83,7 +86,8 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	% 'Deadness' analysis: determine the deconstructions in which data
 	% structures potentially die. 
 	passes_aux__maybe_write_string(VeryVerbose, "%\tdeadness analysis..."),
-	{ sr_dead__process_goal(PredId,ProcInfo0,ModuleInfo0,Goal0,Goal1) },
+	{ sr_dead__process_goal(PredId, ProcInfo0, ModuleInfo0, 
+			AliasTable, Goal0,Goal1) },
 	passes_aux__maybe_write_string(VeryVerbose, "done.\n"),
 
 	% 'Choice' analysis: determine how the detected dead data structures
