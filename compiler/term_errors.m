@@ -86,7 +86,8 @@
 			% the termination constant of a builtin predicate
 			% is set to infinity if the types of the builtin
 			% predicate may have a norm greater than 0.
-	;	is_builtin.
+	;	is_builtin
+	;	does_not_term_pragma(pred_id).
 
 % eqn_soln are used to report the results from solving the equations
 % created in the first pass.  The first 4 (optimal - failure) represent
@@ -461,10 +462,29 @@ term_errors__output_2(PredId, ProcId, Module, ConstErrorOutput, ForHLDSDump,
 	term_errors__output_2(PredId, ProcId, Module, ConstErrorOutput, 
 		ForHLDSDump, SingleArgContext - SingleArgError).
 
-term_errors__output_2(_PredId, _ProcId, _Module, ConstErrorOutput, _ForHldsDump,
+term_errors__output_2(_PredId, _ProcId, _Module, ConstErrorOutput, _ForHLDSDump,
 		_Context - is_builtin) -->
 	{ require(unify(ConstErrorOutput, yes), 
 		"Unexpected value in term_errors:output_2") },
 	io__write_string("it is a builtin predicate\n").
 
+term_errors__output_2(PredId, _ProcId, Module, ConstErrorOutput, ForHLDSDump,
+		Context - does_not_term_pragma(OtherPredId)) -->
+	{ require(unify(ConstErrorOutput, no), 
+		"Unexpected value in term_errors:output_2") },
+	io__write_string("there was a `does_not_terminate'\n"),
+	maybe_write_string(ForHLDSDump, "% "),
+	prog_out__write_context(Context),
+	io__write_string("  pragma defined on "),
+	( { PredId = OtherPredId } ->
+		{ module_info_pred_info(Module, PredId, PredInfo) },
+		{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
+		io__write_string("this "),
+		hlds_out__write_pred_or_func(PredOrFunc),
+		io__nl
+	;
+		io__write_string("the "),
+		hlds_out__write_pred_id(Module, OtherPredId),
+		io__nl
+	).
 

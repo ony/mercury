@@ -23,8 +23,21 @@
 :- pred short_option(char::in, option::out) is semidet.
 :- pred long_option(string::in, option::out) is semidet.
 :- pred option_defaults(option::out, option_data::out) is nondet.
+
 :- pred special_handler(option::in, special_data::in, option_table::in,
 	maybe_option_table::out) is semidet.
+%	special_handler(Option, ValueForThatOption, OptionTableIn,
+%			MaybeOptionTableOut).
+%	This predicate is invoked whenever getopt finds an option
+%	(long or short) designated as special, with special_data holding
+%	the argument of the option (if any). The predicate can change the
+%	option table in arbitrary ways in the course of handling the option,
+%	or it can return an error message.
+%	The canonical examples of special options are -O options in compilers,
+%	which set many other options at once.
+%	The MaybeOptionTableOut may either be ok(OptionTableOut), or it may
+%	be error(ErrorString).
+
 
 :- pred options_help(io__state::di, io__state::uo) is det.
 
@@ -171,6 +184,7 @@
 		;	follow_code
 		;	prev_code
 		;	optimize_dead_procs
+		;	check_termination
 		;	termination
 		;	termination_single_args
 	%	- HLDS->LLDS
@@ -392,6 +406,7 @@ option_defaults_2(special_optimization_option, [
 	opt_space		-	special,
 	intermodule_optimization -	bool(no),
 	transitive_optimization -	bool(no),
+	check_termination	-	bool_special,
 	termination		-	bool(no),
 	termination_single_args	-	bool(no),
 	split_c_files		-	bool(no)
@@ -691,9 +706,11 @@ long_option("optimise-constructor-last-call",	optimize_constructor_last_call).
 long_option("optimize-constructor-last-call",	optimize_constructor_last_call).
 long_option("optimize-dead-procs",	optimize_dead_procs).
 long_option("optimise-dead-procs",	optimize_dead_procs).
-long_option("check-termination",	termination).
-long_option("check-term",		termination).
-long_option("chk-term",			termination).
+long_option("enable-termination",	termination).
+long_option("enable-term",		termination).
+long_option("check-termination",	check_termination).
+long_option("check-term",		check_termination).
+long_option("chk-term",			check_termination).
 long_option("termination-single-argument-analysis",
 					termination_single_args).
 long_option("term-single-arg", 		termination_single_args).
@@ -769,6 +786,16 @@ long_option("use-search-directories-for-intermod",
 					use_search_directories_for_intermod).	
 
 %-----------------------------------------------------------------------------%
+
+% The --check-termination option implies the --enable-termination option.
+special_handler(check_termination, bool(Value), OptTable0, ok(OptTable)) :-
+	(
+		Value = yes,
+		map__set(OptTable0, termination, bool(yes), OptTable)
+	;
+		Value = no,
+		OptTable = OptTable0
+	).
 
 special_handler(inlining, bool(Value), OptionTable0, ok(OptionTable)) :-
 	map__set(OptionTable0, inline_simple, bool(Value), OptionTable1),
@@ -1100,10 +1127,10 @@ options_help_output -->
 	io__write_string("\t\tWrite inter-module optimization information to\n"),
 	io__write_string("\t\t`<module>.opt'.\n"),
 	io__write_string("\t\tThis option should only be used by mmake.\n"),
-	io__write_string("\t--make-transitive-optimization-interface\n"),
-	io__write_string("\t--make-trans-opt\n"),
-	io__write_string("\t\tOutput transitive optimization information\n"),
-	io__write_string("\t\tinto the <module>.trans_opt file.\n"),
+%	io__write_string("\t--make-transitive-optimization-interface\n"),
+%	io__write_string("\t--make-trans-opt\n"),
+%	io__write_string("\t\tOutput transitive optimization information\n"),
+%	io__write_string("\t\tinto the <module>.trans_opt file.\n"),
 	io__write_string("\t-G, --convert-to-goedel\n"),
 	io__write_string("\t\tConvert to Goedel. Output to file `<module>.loc'.\n"),
 	io__write_string("\t\tNote that some Mercury language constructs cannot\n"),
@@ -1371,14 +1398,19 @@ options_help_optimization -->
 	io__write_string("\t\tPerform inlining and higher-order specialization of\n"),
 	io__write_string("\t\tthe code for predicates imported from other modules.\n"),
 	io__write_string("\t\tThis option must be set throughout the compilation process.\n"),
-	io__write_string("\t--transitive-intermodule-optimization\n"),
-	io__write_string("\t--trans-intermod-opt\n"),
-	io__write_string("\t\tImport the transitive intermodule optimization data.\n"),
-	io__write_string("\t\tThis data is imported from <module>.trans_opt files.\n"),
+%	io__write_string("\t--transitive-intermodule-optimization\n"),
+%	io__write_string("\t--trans-intermod-opt\n"),
+%	io__write_string("\t\tImport the transitive intermodule optimization data.\n"),
+%	io__write_string("\t\tThis data is imported from <module>.trans_opt files.\n"),
+	io__write_string("\t--enable-termination"),
+	io__write_string("\t--enable-term"),
+	io__write_string("\t\tAnalyse each predicate to discover if it terminates.\n"),
 	io__write_string("\t--check-termination"),
 	io__write_string("\t--check-term"),
 	io__write_string("\t--chk-term"),
-	io__write_string("\t\tAnalyse each predicate to discover if it terminates.\n"),
+	io__write_string("\t\tAnalyse each predicate to discover if it terminates\n"),
+	io__write_string("\t\tand emit a warning message for any predicates or\n"),
+	io__write_string("\t\tfunctions which could not be proved to terminate.\n"),
 	io__write_string("\t--split-c-files\n"),
 	io__write_string("\t\tGenerate each C function in its own C file,\n"),
 	io__write_string("\t\tso that the linker will optimize away unused code.\n"),

@@ -515,6 +515,7 @@ hlds_out__marker_name(obsolete, "obsolete").
 hlds_out__marker_name(memo, "memo").
 hlds_out__marker_name(terminates, "terminates").
 hlds_out__marker_name(check_termination, "check_termination").
+hlds_out__marker_name(does_not_terminate, "does_not_terminate").
 
 hlds_out__write_marker(Marker) -->
 	{ hlds_out__marker_name(Marker, Name) },

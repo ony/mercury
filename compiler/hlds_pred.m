@@ -213,8 +213,22 @@
 	;	memo		% Requests that this predicate be evaluated
 				% using memoing.
 				% Used for pragma(memo).
+
+				% The terminates and does_not_terminate
+				% pragmas are kept as markers to ensure
+				% that conflicting declarations are not
+				% made by the user.  Otherwise, the
+				% information could be added to the
+				% ProcInfos directly.
 	;	terminates	% The user guarantees that this predicate
 				% will terminate for all (finite?) input
+				% The `done' status could be meaningful,
+				% but it is currently not used.
+	;	does_not_terminate
+				% States that this predicate does not
+				% terminate.  This is useful for pragma c
+				% code, which the compiler assumes to be
+				% terminating.
 				% The `done' status could be meaningful,
 				% but it is currently not used.
 	;	check_termination

@@ -70,7 +70,7 @@
 :- import_module hlds_data, hlds_pred, hlds_goal, dependency_graph.
 :- import_module code_util, prog_out, bag, set.
 :- import_module term_pass1, term_pass2, term_errors.
-:- import_module varset.
+:- import_module varset, special_pred.
 
 %-----------------------------------------------------------------------------%
 
@@ -87,9 +87,6 @@ termination__pass(Module0, Module) -->
 
 	termination(Module3, Module),
 
-	/**
-	% to output termination_info pragmas to .opt files, uncomment this
-	% block of code.
 	globals__io_lookup_bool_option(make_optimization_interface,
 		MakeOptInt),
 	( { MakeOptInt = yes } ->
@@ -97,7 +94,6 @@ termination__pass(Module0, Module) -->
 	;
 		[]
 	),
-	**/
 
 	maybe_write_string(Verbose, "% Termination checking done.\n").
 
@@ -204,6 +200,7 @@ termination__output_pragma_termination_info(PredOrFunc, SymName,
 % 	also sets the termination constant and UsedArgs).
 %
 % Set the termination to dont_know if:
+% - there is a `does_not_terminate' pragma defined for this predicate.
 % - the predicate is imported and there is no other source of information
 % 	about it (termination_info pragmas, terminates pragmas,
 % 	check_termination pragmas, builtin/compiler generated).
@@ -212,6 +209,7 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 	module_info_preds(Module0, PredTable0),
 	map__lookup(PredTable0, PredId, PredInfo0),
 	pred_info_import_status(PredInfo0, ImportStatus),
+	pred_info_context(PredInfo0, Context),
 	pred_info_procedures(PredInfo0, ProcTable0),
 	map__keys(ProcTable0, ProcIds),
 	(
@@ -250,7 +248,6 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 		% check_termination will not be checked when the relevant
 		% source file is compiled, so it cannot be depended upon. 
 		pred_info_get_marker_list(PredInfo0, Markers),
-		pred_info_context(PredInfo0, Context),
 		globals__io_lookup_bool_option(make_optimization_interface,
 			MakeOptInt, State0, State1),
 		(
@@ -298,9 +295,18 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 		set_compiler_gen_terminates(ProcIds, PredInfo0, 
 			Module0, ProcTable2, ProcTable3)
 	->
-		ProcTable = ProcTable3
+		ProcTable4 = ProcTable3
 	;
-		ProcTable = ProcTable2
+		ProcTable4 = ProcTable2
+	),
+	( list__member(request(does_not_terminate), Markers) ->
+		MaybeFind1 = no,
+		ReplaceTerminate1 = dont_know,
+		MaybeError1 = yes(Context - does_not_term_pragma(PredId)),
+		change_procs_terminate(ProcIds, MaybeFind1,
+			ReplaceTerminate1, MaybeError1, ProcTable4, ProcTable)
+	;
+		ProcTable = ProcTable4
 	),
 	pred_info_set_procedures(PredInfo0, ProcTable, PredInfo),
 	map__set(PredTable0, PredId, PredInfo, PredTable),
@@ -350,72 +356,34 @@ set_builtin_terminates([ProcId | ProcIds], PredInfo, Module, ProcTable0,
 set_compiler_gen_terminates([], _PredInfo, _Module, ProcTable, ProcTable).
 set_compiler_gen_terminates([ ProcId | ProcIds ], PredInfo, Module, 
 		ProcTable0, ProcTable) :-
-	pred_info_name(PredInfo, PredName),
+	pred_info_name(PredInfo, Name),
 	pred_info_arity(PredInfo, Arity),
-	pred_info_module(PredInfo, ModuleName),
+	(
+		special_pred_name_arity(SpecPredId0, Name, _, Arity),
+		pred_info_module(PredInfo, ModuleName),
+		ModuleName = "mercury_builtin"
+	->
+		SpecialPredId = SpecPredId0
+	;
+		special_pred_name_arity(SpecialPredId, _, Name, Arity)
+	),
 	map__lookup(ProcTable0, ProcId, ProcInfo0),
-	( Arity = 3 ->
-		(
-			PredName = "__Compare__"
-		;
-			ModuleName = "mercury_builtin",
-			PredName = "compare"
-		),
+	( 
+		SpecialPredId = compare,
 		proc_info_headvars(ProcInfo0, HeadVars),
 		term_util__make_bool_list(HeadVars,
 			[no, no, no], OutList),
 		Termination = term(set(0), yes, yes(OutList), no)
-	; Arity = 2 ->
-		(
-			(
-				PredName = "__Unify__"
-			;
-				ModuleName = "mercury_builtin",
-				PredName = "unify"
-			)
-		->
-			proc_info_headvars(ProcInfo0, HeadVars),
-			term_util__make_bool_list(HeadVars,
-				[yes, yes], OutList),
-			Termination = term(set(0), yes,
-				yes(OutList), no)
-		; % else if
-			( 
-				PredName = "__Index__"
-			;
-				ModuleName = "mercury_builtin",
-				PredName = "index"
-			)
-		->
-			proc_info_headvars(ProcInfo0, HeadVars),
-			term_util__make_bool_list(HeadVars,
-				[no, no], OutList),
-			Termination = term(set(0), yes,
-				yes(OutList), no)
-		; % else 
-			% XXX what is the relationship between size of
-			% input and size of output in Term_To_Type and
-			% Type_To_Term?  Which arguments are used to make
-			% the output variables?
-			( PredName = "__Term_To_Type__"
-			; PredName = "__Type_To_Term__"
-			),
-			pred_info_context(PredInfo, Context),
-			Termination = term(inf(Context - is_builtin), 
-				yes, no, no)
-		)
+	; 
+		SpecialPredId = unify,
+		proc_info_headvars(ProcInfo0, HeadVars),
+		term_util__make_bool_list(HeadVars, [yes, yes], OutList),
+		Termination = term(set(0), yes, yes(OutList), no)
 	;
-		ModuleName = "mercury_builtin",
-		( attempt_set_proc_const(Module, PredInfo, ProcInfo0) ->
-			proc_info_headvars(ProcInfo0, HeadVars),
-			term_util__make_bool_list(HeadVars, [], Bools),
-			UsedArgs = yes(Bools),
-			Termination = term(set(0), yes, UsedArgs, no)
-		;
-			proc_info_termination(ProcInfo0, OldTerm),
-			OldTerm = term(OldConst, _, OldUsedArgs, _),
-			Termination = term(OldConst, yes, OldUsedArgs, no)
-		)
+		SpecialPredId = index,
+		proc_info_headvars(ProcInfo0, HeadVars),
+		term_util__make_bool_list(HeadVars, [no, no], OutList),
+		Termination = term(set(0), yes, yes(OutList), no)
 	),
 	% The procedure is a compiler generated procedure, so enter the
 	% data in the proc_info.
@@ -558,34 +526,35 @@ termination__make_opt_int_2([ PredId | PredIds ], Module) -->
 	{ module_info_preds(Module, PredTable) },
 	{ map__lookup(PredTable, PredId, PredInfo) },
 	{ pred_info_import_status(PredInfo, ImportStatus) },
-	{ pred_info_procedures(PredInfo, ProcTable) },
-	{ pred_info_procids(PredInfo, ProcIds) },
-	{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
-	{ pred_info_name(PredInfo, PredName) },
-	{ pred_info_module(PredInfo, ModuleName) },
-	{ pred_info_context(PredInfo, Context) },
-	{ pred_info_arity(PredInfo, Arity) },
-	{ SymName = qualified(ModuleName, PredName) },
-
-	( { ImportStatus = exported } ->
+	( 
+		{ ImportStatus = exported },
+		{ \+ code_util__compiler_generated(PredInfo) }
+	->
+		{ pred_info_name(PredInfo, PredName) },
+		{ pred_info_procedures(PredInfo, ProcTable) },
+		{ pred_info_procids(PredInfo, ProcIds) },
+		{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
+		{ pred_info_module(PredInfo, ModuleName) },
+		{ pred_info_context(PredInfo, Context) },
+		{ SymName = qualified(ModuleName, PredName) },
 		termination__make_opt_int_3(PredId, ProcIds, ProcTable, 
-			PredOrFunc, SymName, Arity, Context)
+			PredOrFunc, SymName, Context)
 	;
 		[]
 	),
 	termination__make_opt_int_2(PredIds, Module).
 	
 :- pred termination__make_opt_int_3(pred_id, list(proc_id), proc_table,
-	pred_or_func, sym_name, arity, term__context, io__state, io__state).
-:- mode termination__make_opt_int_3(in, in, in, in, in, in, in, di, uo) is det.
-termination__make_opt_int_3(_PredId, [], _, _, _, _, _) --> [].
+	pred_or_func, sym_name, term__context, io__state, io__state).
+:- mode termination__make_opt_int_3(in, in, in, in, in, in, di, uo) is det.
+termination__make_opt_int_3(_PredId, [], _, _, _, _) --> [].
 termination__make_opt_int_3(PredId, [ ProcId | ProcIds ], ProcTable, 
-		PredOrFunc, SymName, Arity, Context) -->
+		PredOrFunc, SymName, Context) -->
 	{ map__lookup(ProcTable, ProcId, ProcInfo) },
 	{ proc_info_termination(ProcInfo, Termination) },
 	{ proc_info_declared_argmodes(ProcInfo, ModeList) },
 	termination__output_pragma_termination_info(PredOrFunc, SymName,
 		ModeList, Termination, Context),
 	termination__make_opt_int_3(PredId, ProcIds, ProcTable, PredOrFunc, 
-		SymName, Arity, Context).
+		SymName, Context).
 

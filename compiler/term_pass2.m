@@ -137,7 +137,8 @@ termination_2_check_terminates([ PPId | PPIds ], SCC,Module0, Module, Succ) -->
 		)
 	).
 
-% This predicate runs termination_3 until a fixed point is reached.
+% This predicate runs termination_3 until a fixed point for UsedArgs 
+% is reached.
 :- pred call_termination_3(list(pred_proc_id), module_info,
 	term_util__result(term_errors__error), map(pred_proc_id, set(var)),
 	relation(pred_proc_id), relation(pred_proc_id)).
@@ -146,6 +147,9 @@ call_termination_3(SCC, Module, Result, UsedArgs0, Relation0, Relation) :-
 	termination_3(SCC, Module, Res1, UsedArgs0, UsedArgs1, 
 		Relation0, Relation1),
 	( 
+		% If some other error prevented the analysis from proving
+		% termination, then finding a fixed point will not assist
+		% in proving termination, so we may as well stop here.
 		( Res1 = error(_ - not_subset(_, _, _))
 		; Res1 = error(_ - positive_value(_, _))
 		),

@@ -415,6 +415,13 @@ parse_pragma_type(ModuleName, "terminates", PragmaTerms,
 			Pragma = terminates(Name, Arity)),
 		PragmaTerms, ErrorTerm, Result).
 
+parse_pragma_type(ModuleName, "does_not_terminate", PragmaTerms,
+				ErrorTerm, _VarSet, Result) :-
+	parse_simple_pragma(ModuleName, "does_not_terminate",
+		lambda([Name::in, Arity::in, Pragma::out] is det,
+			Pragma = does_not_terminate(Name, Arity)),
+		PragmaTerms, ErrorTerm, Result).
+
 parse_pragma_type(ModuleName, "check_termination", PragmaTerms,
 				ErrorTerm, _VarSet, Result) :-
 	parse_simple_pragma(ModuleName, "check_termination",

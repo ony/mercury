@@ -150,6 +150,9 @@
 	;	terminates(sym_name, arity)
 			% Predname, Arity
 
+	;	does_not_terminate(sym_name, arity)
+			% Predname, Arity
+
 	;	check_termination(sym_name, arity).
 			% Predname, Arity
 

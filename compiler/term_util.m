@@ -153,6 +153,7 @@
 :- implementation.
 
 :- import_module map, std_util, require, mode_util, prog_out, type_util.
+:- import_module globals, options.
 
 % given a list of variables from a unification, this predicate divides the
 % list into a bag of input variables, and a bag of output variables.
@@ -321,7 +322,7 @@ do_ppid_check_terminates([ PPId | PPIds ], Error, Module0, Module) -->
 	{ proc_info_termination(ProcInfo0, Termination0) },
 	{ Termination0 = term(Const, Terminates, UsedArgs, _) },
 	( { Terminates = dont_know } ->
-		{ Module1 = Module0 }
+		{ Module2 = Module0 }
 	;
 		{ Termination = term(Const, dont_know, UsedArgs, yes(Error)) },
 		{ proc_info_set_termination(ProcInfo0, Termination, ProcInfo)},
@@ -330,6 +331,7 @@ do_ppid_check_terminates([ PPId | PPIds ], Error, Module0, Module) -->
 		{ map__det_update(PredTable0, PredId, PredInfo, PredTable) },
 		{ module_info_set_preds(Module0, PredTable, Module1) },
 		{ pred_info_get_marker_list(PredInfo, MarkerList) },
+		globals__io_lookup_bool_option(verbose_errors, VerboseErrors),
 		% If a check_terminates pragma exists, print out an error
 		% message.
 		% Note that this allows the one error to be printed out
@@ -337,16 +339,49 @@ do_ppid_check_terminates([ PPId | PPIds ], Error, Module0, Module) -->
 		% number of predicates to be non terminating, and if
 		% check_terminates is defined on all of the predicates,
 		% then the error is printed out for each of them.
-		( { list__member(request(check_termination), MarkerList) } ->
+		( 
+			{ list__member(request(check_termination), MarkerList) }
+		->
 			term_errors__output(PredId, ProcId, Module1,
 				Success),
 			% Success is only no if there was no error
 			% defined for this predicate.  As we just set the
 			% error, term_errors__output should succeed.
-			{ require(unify(Success, yes), "term_util.m: Unexpected value in do_ppid_check_terminates") }
+			{ require(unify(Success, yes), "term_util.m: Unexpected value in do_ppid_check_terminates") },
+			io__set_exit_status(1),
+			{ module_info_incr_errors(Module1, Module2) }
+		; % else if
+			{ \+ pred_info_is_imported(PredInfo) },
+			% only output warnings of non-termination for
+			% important errors, unless verbose errors are
+			% enabled.  Important errors are errors where the
+			% compiler analysed the code and was not able to
+			% prove termination.  Unimportant warnings are
+			% created when code is used/called which the
+			% compiler was unable to analyse/prove termination
+			% of.  
+			(
+				{ VerboseErrors = yes }
+			;
+				{ Error \= _Context - horder_call },
+				{ Error \= _ - pragma_c_code },
+				{ Error \= _ - dont_know_proc_called(_, _) },
+				{ Error \= _ - call_in_single_arg(_) },
+				{ Error \= _ - horder_args(_, _) }
+			)
+		->
+			term_errors__output(PredId, ProcId, Module1,
+				Success),
+			% Success is only no if there was no error
+			% defined for this predicate.  As we just set the
+			% error, term_errors__output should succeed.
+			{ require(unify(Success, yes), "term_util.m: Unexpected value in do_ppid_check_terminates") },
+			{ Module2 = Module1 }
 		;
-			[]
+			% Even though the predicate does not terminate, no
+			% warning has been requested for it.
+			{ Module2 = Module1 }
 		)
 	),
-	do_ppid_check_terminates(PPIds, Error, Module1, Module).
+	do_ppid_check_terminates(PPIds, Error, Module2, Module).
 

@@ -312,6 +312,9 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = terminates(Pred, Arity) },
 		mercury_output_pragma_decl(Pred, Arity, "terminates")
 	;
+		{ Pragma = does_not_terminate(Pred, Arity) },
+		mercury_output_pragma_decl(Pred, Arity, "does_not_terminate")
+	;
 		{ Pragma = check_termination(Pred, Arity) },
 		mercury_output_pragma_decl(Pred, Arity, "check_termination")
 	).

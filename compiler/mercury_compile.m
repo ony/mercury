@@ -460,6 +460,8 @@ mercury_compile__maybe_write_optfile(MakeOptInt, HLDS0, HLDS) -->
 	globals__io_lookup_bool_option(intermod_unused_args, IntermodArgs),
 	globals__io_lookup_bool_option(verbose, Verbose),
 	globals__io_lookup_bool_option(statistics, Stats),
+	globals__io_lookup_bool_option(termination, Termination),
+
 	( { MakeOptInt = yes } ->
 		intermod__write_optfile(HLDS0, HLDS1),
 
@@ -467,14 +469,25 @@ mercury_compile__maybe_write_optfile(MakeOptInt, HLDS0, HLDS) -->
 		% determinism analysis and polymorphism, then run unused_args
 		% to append the unused argument information to the `.opt' file
 		% written above.
-		( { IntermodArgs = yes } ->
+		( { IntermodArgs = yes ; Termination = yes } ->
 			mercury_compile__frontend_pass_2_by_phases(
 				HLDS1, HLDS2, FoundModeError),
 			( { FoundModeError = no } ->
 				mercury_compile__maybe_polymorphism(HLDS2,
 					Verbose, Stats, HLDS3),
-				mercury_compile__maybe_unused_args(HLDS3,
-					Verbose, Stats, HLDS)
+				( { IntermodArgs = yes } ->
+					mercury_compile__maybe_unused_args(
+						HLDS3, Verbose, Stats, HLDS4)
+				;
+					{ HLDS4 = HLDS3 }
+				),
+				( { Termination = yes } ->
+					mercury_compile__maybe_termination(
+						HLDS4, Verbose, Stats, HLDS)
+				;
+					{ HLDS = HLDS4 }
+				)
+					
 			;
 				io__set_exit_status(1),
 				{ HLDS = HLDS2 }
@@ -924,7 +937,7 @@ mercury_compile__check_determinism(HLDS0, Verbose, Stats, HLDS, FoundError) -->
 mercury_compile__maybe_termination(HLDS0, Verbose, Stats, HLDS) -->
 	globals__io_lookup_bool_option(polymorphism, Polymorphism),
 	globals__io_lookup_bool_option(termination, Termination),
-	% termination analysis requires polymorphism to be run,
+	% Termination analysis requires polymorphism to be run,
 	% as termination analysis does not handle complex unification
 	( 
 		{ Polymorphism = yes },

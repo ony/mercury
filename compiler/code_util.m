@@ -527,10 +527,7 @@ code_util__translate_builtin_2("float", "=<", 0, [X, Y],
 code_util__compiler_generated(PredInfo) :-
 	pred_info_name(PredInfo, PredName),
 	pred_info_arity(PredInfo, PredArity),
-	( PredName = "__Unify__", PredArity = 2
-	; PredName = "__Compare__", PredArity = 3
-	; PredName = "__Index__", PredArity = 2
-	).
+	special_pred_name_arity(_, _, PredName, PredArity).
 
 %-----------------------------------------------------------------------------%
 

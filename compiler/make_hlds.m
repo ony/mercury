@@ -445,12 +445,20 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Pragma = terminates(Name, Arity) },
 		add_pred_marker(Module0, "terminates", Name, Arity,
 			Context, [request(terminates)],
-			[request(check_termination)], Module)
+			[request(check_termination), 
+			request(does_not_terminate)], Module)
+	;
+		{ Pragma = does_not_terminate(Name, Arity) },
+		add_pred_marker(Module0, "does_not_terminate", Name, Arity,
+			Context, [request(does_not_terminate)],
+			[request(check_termination), request(terminates)], 
+			Module)
 	;
 		{ Pragma = check_termination(Name, Arity) },
 		add_pred_marker(Module0, "check_termination", Name, Arity, 
 			Context, [request(check_termination)], 
-			[request(terminates)], Module)
+			[request(terminates), request(does_not_terminate)], 
+			Module)
 	).
 
 
