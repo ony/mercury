@@ -396,23 +396,25 @@ add( AS1, AS2, AS ) :-
 extend_unification( ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout ):-
 	pa_alias__from_unification( ProcInfo, HLDS, Unif, GoalInfo, AUnif),
 	wrap(AUnif, ASUnif),
-	extend( ProcInfo, HLDS, ASUnif, ASin, ASout). 
-/*
+%	extend( ProcInfo, HLDS, ASUnif, ASin, ASout). 
 	extend( ProcInfo, HLDS, ASUnif, ASin, ASout0), 
 	(
 		Unif = construct(_, _, _, _, _, _, _)
 	-> 
-		optimization_remove_deaths( ASout0, GoalInfo, ASout)
+		optimization_remove_deaths( ProcInfo, ASout0, GoalInfo, ASout)
 	;
 		ASout = ASout0
 	).
-*/
 
-:- pred optimization_remove_deaths( alias_as, hlds_goal_info, alias_as).
-:- mode optimization_remove_deaths( in, in, out) is det.
+:- pred optimization_remove_deaths( proc_info, alias_as, 
+					hlds_goal_info, alias_as).
+:- mode optimization_remove_deaths( in, in, in, out) is det.
 
-optimization_remove_deaths( ASin, GI, ASout ) :-
-	hlds_goal__goal_info_get_post_deaths( GI, Deaths),
+optimization_remove_deaths( ProcInfo, ASin, GI, ASout ) :-
+	proc_info_headvars( ProcInfo, HeadVars ), 
+	set__list_to_set( HeadVars, HeadVarsSet), 
+	hlds_goal__goal_info_get_post_deaths( GI, Deaths0),
+	set__difference( Deaths0, HeadVarsSet, Deaths), 
 	set__to_sorted_list( Deaths, DeathsList),
 	(
 		ASin = real_as( Aliases0)

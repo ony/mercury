@@ -293,7 +293,7 @@ reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 		OLD_NODES,
 		LISTS_ALL_NEW_NODES
 		),
-	list__condense(LISTS_ALL_NEW_NODES, ALL_NEW_NODES),
+	list__condense( [ OLD_NODES | LISTS_ALL_NEW_NODES], ALL_NEW_NODES),
 	list__filter(
 		pred(DATA::in) is semidet :-
 		  ( pa_datastruct__get_var(DATA,V), 
