@@ -18,7 +18,7 @@
 :- import_module hlds__hlds_module.
 :- import_module parse_tree__prog_data.
 
-:- import_module list, int, io, term.
+:- import_module list, int, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -69,12 +69,6 @@
 :- pred rename_types(term__substitution(tvar_type)::in, 
 		selector::in, selector::out) is det.
 
-:- pred print(selector::in, tvarset::in, 
-		io__state::di, io__state::uo) is det. 
-:- pred to_user_declared(selector::in, tvarset::in, string::out) is det. 
-
-:- pred parse_term(term(T)::in, selector::out) is det.
-
 	% normalize with type information
 :- pred normalize_wti(module_info::in, (type)::in, selector::in,
 		selector::out) is det.
@@ -97,6 +91,7 @@
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module parse_tree__prog_out.
 
 :- import_module require, string, std_util, bool.
@@ -156,127 +151,6 @@ unit_selector_rename_types(Subst, US0, US) :-
 		US = ts(Type)
 	).
 	
-print(Selector, ProgVarSet) -->
-	io__write_string("["),
-	io__write_list(Selector, ",", print_unit_selector(ProgVarSet)),
-	io__write_string("]").
-
-:- pred print_unit_selector(tvarset::in, unit_sel::in, 
-		io__state::di, io__state::uo) is det.
-
-print_unit_selector(_ProgVarSet, ns(Cons, Index)) -->
-	{ hlds_data__cons_id_arity(Cons, Arity) },
-	io__write_string("sel("),
-	mercury_output_cons_id(Cons, needs_brackets),
-	io__write_string(","),
-	io__write_int(Arity),
-	io__write_string(","),
-	io__write_int(Index),
-	io__write_string(")").
-print_unit_selector(ProgVarSet, ts(Type)) --> 
-	io__write_string("typesel("), 
-	mercury_output_term(Type, ProgVarSet, bool__no), 
-	io__write_string(")").
-
-to_user_declared(Selector, TVarSet, String):- 
-	(
-		Selector = []
-	-> 
-		String = "[]"
-	; 
-		to_user_declared_2(Selector, TVarSet, String2), 
-		string__append_list(["[", String2, "]"], String)
-	). 
-
-:- pred to_user_declared_2(selector::in, tvarset::in, string::out) is det.
-
-to_user_declared_2([], _, "").
-to_user_declared_2([First | Rest], TVarSet, String):- 
-	us_to_user_declared(First, TVarSet, FirstString), 
-	(
-		Rest = []
-	->
-		String = FirstString
-	;
-		to_user_declared_2(Rest, TVarSet, RestString), 
-		string__append_list([FirstString, ", ", RestString], 
-			String)
-	). 
-
-:- pred us_to_user_declared(unit_sel::in, tvarset::in, string::out) is det.
-us_to_user_declared(ns(_,_), _, _):- 
-	require__error("(pa_selector) us_to_user_declared: only type-selectors are allowed in user-alias-declaration.").
-us_to_user_declared(ts(Type), TVarSet, 
-		mercury_type_to_string(TVarSet, Type)). 
-
-parse_term(Term, Sel):- 
-	(
-		Term = term__functor(term__atom(Cons), Args, _)
-	->
-		(
-			Cons = "[|]",
-			Args = [ First , Rest ]
-		->
-			parse_unit_selector(First, US),
-			parse_term(Rest, SelRest),
-			Sel = [ US | SelRest ]
-		;
-			Sel = []
-		)
-	;
-		error("(pa_selector) parse_term: term not a functor")
-	).
-
-:- pred parse_unit_selector(term(T)::in, unit_sel::out) is det.
-
-parse_unit_selector(Term, US):- 
-   (
-      Term = term__functor(term__atom(Cons), Args, _)
-   ->
-      (
-         Cons = "sel",
-         Args = [ ConsTerm, ArityTerm, PosTerm ]
-      ->
-         (
-            prog_io__sym_name_and_args(ConsTerm, ConsID_SN, ConsID_Args),
-            ConsID_Args = [],
-	    ArityTerm = term__functor(term__integer(Arity), _, _),
-            PosTerm = term__functor(term__integer(Pos), _, _)
-         ->
-	    ConsID = cons(ConsID_SN, Arity),
-	    US = ns(ConsID, Pos)
-	 ;
-	    ConsTerm = term__functor(term__integer(X), _, _)
-	 ->
-	    ConsID = int_const(X), 
-	    US = ns(ConsID, 0)
-	 ;
-	    ConsTerm = term__functor(term__float(X), _, _)
-	 ->
-	    ConsID = float_const(X),
-	    US = ns(ConsID, 0)
-	 ;
-	    ConsTerm = term__functor(term__string(S), _, _)
-	 ->
-	    ConsID = string_const(S),
-	    US = ns(ConsID, 0)
-	 ;
-	    error("(pa_selector) parse_unit_selector: unknown cons_id in unit selector")
-	 )
-      ; 
-	 
-         Cons = "typesel",
-	 Args = [ TypeSelectorTerm ]
-      ->
- 	 term__coerce(TypeSelectorTerm, TypeSelector), 
-	 US = ts(TypeSelector)
-      ;
-	 error("(pa_selector) parse_unit_selector: top constructor should be sel/3 or typesel/1.")
-      )
-   ;
-      error("(pa_selector) parse_unit_selector: term not a functor")
-   ).
-
 
 normalize_wti(HLDS, VarType, Sel0, Sel):-
 	(

@@ -61,6 +61,7 @@
 :- import_module hlds__hlds_data.
 :- import_module hlds__hlds_llds.
 :- import_module parse_tree__mercury_to_mercury.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module possible_alias__pa_datastruct.
 :- import_module possible_alias__pa_selector.
 :- import_module possible_alias__pa_sr_util.
@@ -71,15 +72,17 @@
 % printing routines
 %-------------------------------------------------------------------%
 
-print(ProcInfo, PredInfo, FrontString, EndString, Alias0) -->
-	{ Alias0 = D1 - D2 },
-	io__write_string(FrontString),
-	io__write_string("pair("),
-	pa_datastruct__print(PredInfo, ProcInfo, D1),
-	io__write_string(" , "),
-	pa_datastruct__print(PredInfo, ProcInfo, D2),
-	io__write_string(") "),
-	io__write_string(EndString).
+print(ProcInfo, PredInfo, FrontString, EndString, Alias0, !IO) :- 
+	proc_info_varset(ProcInfo, ProgVarSet),
+	pred_info_typevarset(PredInfo, TypeVarSet), 
+	Alias0 = D1 - D2,
+	io__write_string(FrontString, !IO),
+	io__write_string("pair(", !IO),
+	print_datastruct(ProgVarSet, TypeVarSet, D1, !IO),
+	io__write_string(" , ", !IO),
+	print_datastruct(ProgVarSet, TypeVarSet, D2, !IO),
+	io__write_string(") ", !IO),
+	io__write_string(EndString, !IO).
 
 %-------------------------------------------------------------------%
 % parsing routines
@@ -95,8 +98,8 @@ pa_alias__parse_term(Term,  A) :-
 			(
 				Args = [ First, Second ]
 			->
-				pa_datastruct__parse_term(First, D1),
-				pa_datastruct__parse_term(Second, D2),
+				parse_datastruct(First, D1),
+				parse_datastruct(Second, D2),
 				A = D1 - D2
 			;
 				list__length(Args, L),

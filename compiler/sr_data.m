@@ -187,6 +187,7 @@
 :- import_module hlds__instmap. 
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module parse_tree__prog_io_util.
 :- import_module parse_tree__prog_out.
 :- import_module possible_alias__pa_alias_as.
@@ -349,12 +350,14 @@ reuse_condition_rename_types(Subst, Cond0, Cond):-
 reuse_condition_print(_, _, always) -->
 	io__write_string("always").
 reuse_condition_print(ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
+	{ proc_info_varset(ProcInfo, ProgVarSet) }, 
+	{ pred_info_typevarset(PredInfo, TypeVarSet) },
 	{ set__to_sorted_list(Nodes, NodesList) }, 
 	io__write_string("condition("),
 		% write out the list of headvar-nodes involved
 	io__write_string("["),
 	io__write_list(NodesList, ",", 
-			pa_datastruct__print(PredInfo, ProcInfo)), 
+			print_datastruct(ProgVarSet, TypeVarSet)), 
 	io__write_string("], "),	
 
 		% write out LUiH, list of prog_vars
@@ -668,7 +671,7 @@ nodes_parse(Term, Datastructs) :-
 			Cons = "[|]",
 			Args = [First, Rest]
 		->
-			pa_datastruct__parse_term(First, D1),
+			parse_datastruct(First, D1),
 			nodes_parse(Rest, D2),
 			Datastructs = [D1 | D2]
 		;

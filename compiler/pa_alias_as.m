@@ -329,6 +329,7 @@
 :- import_module check_hlds__type_util.
 :- import_module hlds__hlds_llds.
 :- import_module parse_tree__mercury_to_mercury.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module possible_alias__pa_alias.
 :- import_module possible_alias__pa_alias_as__pa_alias_set.
 :- import_module possible_alias__pa_selector. 
@@ -1277,10 +1278,10 @@ alias_list_to_user_declared_aliases([Alias|Rest], ProgVarSet, TypeVarSet,
 		tvarset::in, string::out) is det.
 alias_to_user_declared_alias(Alias, ProgVarSet, TypeVarSet, String):- 
 	Alias = Data0 - Data1, 
-	pa_datastruct__to_user_declared(Data0, ProgVarSet, TypeVarSet, 
-			Data0String), 
-	pa_datastruct__to_user_declared(Data1, ProgVarSet, TypeVarSet,
-			Data1String),
+	prog_io_pasr__to_user_declared_datastruct(ProgVarSet, TypeVarSet, 
+			Data0, Data0String), 
+	prog_io_pasr__to_user_declared_datastruct(ProgVarSet, TypeVarSet,
+			Data1, Data1String),
 	string__append_list([Data0String, " - ", Data1String],
 			String). 
 		

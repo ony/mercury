@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2002 The University of Melbourne.
+% Copyright (C) 2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -25,6 +25,9 @@
 :- include_module prog_io.
    :- include_module prog_io_goal, prog_io_dcg, prog_io_pragma.
    :- include_module prog_io_typeclass, prog_io_util.
+   % parsing/printing of possible aliases (pa) and 
+   % structure reuse information (sr).
+   :- include_module prog_io_pasr.
 
 % Pretty-printers.
 :- include_module prog_out, mercury_to_mercury.

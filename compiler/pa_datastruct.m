@@ -26,7 +26,7 @@
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
 
-:- import_module map, io, term.
+:- import_module map, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -78,16 +78,6 @@
 :- pred rename_types(term__substitution(tvar_type)::in, 
 		datastruct::in, datastruct::out) is det. 
 
-	% Printing routines
-:- pred print(pred_info::in, proc_info::in, datastruct::in, 
-		io__state::di, io__state::uo) is det.
-
-:- pred to_user_declared(datastruct::in, prog_varset::in, 
-		tvarset::in, string::out) is det. 
-
-	% Parsing routines
-:- pred parse_term(term(T)::in, datastruct::out) is det.
-
 :- pred normalize_wti(module_info::in, proc_info::in, 
 		datastruct::in, datastruct::out) is det.
 
@@ -104,6 +94,7 @@
 :- implementation.
 
 :- import_module check_hlds__type_util.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module possible_alias__pa_selector.
 
 :- import_module string, varset, require, list.
@@ -161,61 +152,6 @@ init(V) = D :- init(V, D).
 
 init(V, Sel, Dout) :- 
 	Dout = selected_cel(V, Sel). 
-
-print(PredInfo, ProcInfo, D) --> 
-	{ D = selected_cel(ProgVar, SEL) },
-	{ proc_info_varset(ProcInfo, ProgVarset) },
-	{ varset__lookup_name(ProgVarset, ProgVar, ProgName) },
-	io__write_string("cel("),
-	io__write_string(ProgName), 
-	io__write_string(", "),
-	{ pred_info_typevarset(PredInfo, TypeVarSet) }, 
-	pa_selector__print(SEL, TypeVarSet),
-	io__write_string(")").
-
-to_user_declared(Data, ProgVarSet, TypeVarSet, String):- 
-	Data = selected_cel(ProgVar, Selector), 
-	varset__lookup_name(ProgVarSet, ProgVar, ProgName), 
-	pa_selector__to_user_declared(Selector, TypeVarSet, 
-			SelectorString), 
-	string__append_list(["cel(", ProgName, ", ", SelectorString, ")"], 
-		String). 
-
-parse_term(TERM, Data) :- 
-   (
-      TERM = term__functor(term__atom(CONS), Args, _)
-   ->
-      (
-         CONS = "cel"
-      ->
-         (
-            Args = [ VarTerm, SelectorTerm ]
-         ->
-           (
-              VarTerm = term__variable(VAR)
-	   ->
-	      term__coerce_var(VAR, PROGVAR),
-	      pa_selector__parse_term(SelectorTerm, SELECTOR),
-	      Data = selected_cel(PROGVAR, SELECTOR)
-	   ;
-	      error("(pa_datastruct) parse_term: wrong term. variable, should be functor")
-	   )
-	 ;
-	   list__length(Args, L),
-	   string__int_to_string(L, LS),
-	   string__append_list(["(pa_datastruct) parse_term: wrong number of arguments. cel/",LS,
-	   			"should be cel/2"],Msg),
-	   error(Msg)
-	 )
-      ;
-         string__append_list(["(pa_datastruct) parse_term: wrong constructor. `",CONS,
-	 			"' should be `cel'"],Msg),
-	   error(Msg)
-      )
-   ;
-      error("(pa_datastruct) parse_term: term not a functor")
-   ).
-
 
 normalize_wti(HLDS, ProcInfo, Din, Dout):-
 	proc_info_vartypes(ProcInfo, VarTypes), 
