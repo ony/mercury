@@ -374,7 +374,7 @@ MR_GC_realloc(void *old_ptr, size_t num_bytes)
 static MR_Word 		MR_cell_cache[MR_MAX_CACHE_SIZE + 1][MR_CACHE_ENTRIES];
 static int 		MR_cell_cache_index[MR_MAX_CACHE_SIZE + 1];
 
-#ifdef PROFILE_MEMORY
+#ifdef MR_MPROF_PROFILE_MEMORY
   typedef struct s_cell_cache_stats
   {
 	int	length;
@@ -395,7 +395,7 @@ void MR_compile_time_gc(MR_Word cell, size_t size)
 	if (size <= MR_MAX_CACHE_SIZE) {
 		int ind = (MR_cell_cache_index[size] + 1) % MR_CACHE_ENTRIES;
 
-#ifdef PROFILE_MEMORY
+#ifdef MR_MPROF_PROFILE_MEMORY
 		record_stats(size);
 #endif
 		MR_cell_cache[size][ind] = cell;
@@ -407,7 +407,7 @@ MR_Word MR_check_cell_cache(size_t size)
 {
 	MR_Word cell;
 
-#ifdef PROFILE_MEMORY
+#ifdef MR_MPROF_PROFILE_MEMORY
 	MR_update_cell_cache_statistics(size);
 #endif
 
@@ -428,7 +428,7 @@ MR_Word MR_check_cell_cache(size_t size)
 	}
 }
 
-#ifdef PROFILE_MEMORY
+#ifdef MR_MPROF_PROFILE_MEMORY
   void MR_update_cell_cache_statistics(size_t size)
   {
 	if (size <= MR_MAX_CACHE_SIZE) {
@@ -480,6 +480,6 @@ MR_Word MR_check_cell_cache(size_t size)
 				hits, total, 100 * hit_proportion);
 	}
   }
-#endif /* PROFILE_MEMORY */
+#endif /* MR_MPROF_PROFILE_MEMORY */
 
 /*---------------------------------------------------------------------------*/
