@@ -34,26 +34,15 @@
 :- implementation.
 
 :- import_module std_util, require, list, set, map.
-:- import_module dependency_graph, hlds_pred. 
+:- import_module hlds_pred. 
 :- import_module hlds_goal, prog_data, hlds_data, prog_util. 
 :- import_module sr_data. 
 
 
 sr_split__create_multiple_versions( VirginHLDS, ReuseHLDS, HLDS) --> 
 		% compute the strongly connected components
-	{ module_info_ensure_dependency_info( ReuseHLDS, ReuseHLDS1) },
-	{ module_info_get_maybe_dependency_info( ReuseHLDS1, MaybeDepInfo) } ,
-	(
-		{ MaybeDepInfo = yes(DepInfo) }
-	->
-		{ hlds_dependency_info_get_dependency_ordering( DepInfo,
-				DepOrdering ) },
-		run_with_dependencies( DepOrdering, ReuseHLDS1, 
-					VirginHLDS, HLDS1),
-		{ reprocess_all_goals( HLDS1, HLDS ) }
-	;
-		{ error("(sr_split) create_multiple_versions: no dependency info") }
-	).
+	{ create_versions( VirginHLDS, ReuseHLDS, HLDS1) },
+	{ reprocess_all_goals( HLDS1, HLDS ) }.
 
 	% reprocess each of the procedures to make sure that all calls
 	% to reuse preds are correct. 
@@ -99,29 +88,39 @@ reprocess_all_goals_3( HLDS, ProcId, ProcTable0, ProcTable) :-
 	).
 
 
-:- pred run_with_dependencies( dependency_ordering, module_info, module_info,
-					module_info, io__state, io__state).
-:- mode run_with_dependencies( in, in, in, out, di, uo) is det.
+:- pred create_versions( module_info, module_info, module_info).
+:- mode create_versions( in, in, out) is det.
 
-run_with_dependencies( Deps, ReuseHLDSin, VirginHLDS, HLDSout) -->
-	list__foldl2( run_with_dependency(VirginHLDS), Deps, 
-				ReuseHLDSin, HLDSout ).
+create_versions( VirginHLDS, ReuseHLDS, HLDS) :- 
+	module_info_predids( ReuseHLDS, PredIds), 
+	list__foldl(
+		create_versions_2(VirginHLDS),
+		PredIds,
+		ReuseHLDS, 
+		HLDS).
 
-:- pred run_with_dependency( module_info, list(pred_proc_id), 
-				module_info, module_info,
-				io__state, io__state).
-:- mode run_with_dependency( in, in, in, out, di, uo ) is det.
+:- pred create_versions_2( module_info::in, pred_id::in, 
+			module_info::in, module_info::out) is det.
 
-run_with_dependency( VirginHLDS, SCC , HLDSin, HLDSout ) -->
-	{ list__foldl( create_versions(VirginHLDS), 
-			SCC, 
-			HLDSin,
-			HLDSout ) }.
+create_versions_2( VirginHLDS, PredId , HLDS0, HLDS ) :- 
+	module_info_pred_info( HLDS0, PredId, PredInfo0 ), 
+	pred_info_procids( PredInfo0, ProcIds ), 
+	list__foldl(
+		pred( Id::in, H0::in, H::out ) is det :- 
+		(
+			create_versions_3( VirginHLDS, 
+				proc(PredId, Id), 
+				H0, H)
+		),
+		ProcIds,
+		HLDS0,
+		HLDS
+	).
 
-:- pred create_versions( module_info::in, pred_proc_id::in, 
+:- pred create_versions_3( module_info::in, pred_proc_id::in, 
 		module_info::in, module_info::out) is det.
 
-create_versions( VirginHLDS, PredProcId, WorkingHLDS, HLDS):- 
+create_versions_3( VirginHLDS, PredProcId, WorkingHLDS, HLDS):- 
 	module_info_pred_proc_info( WorkingHLDS, PredProcId, 
 				PredInfo0, ProcInfo0),
 	proc_info_reuse_information( ProcInfo0, Memo), 
