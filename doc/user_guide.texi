@@ -2521,8 +2521,15 @@ the Mmakefile in @file{$ADITI_HOME/demos/transactions} as a template.
 
 @menu
 * Profiling introduction::          What is profiling useful for?
-* The Mercury graph profiler::      A gprof-style profiler
-* The Mercury deep profiler::       A new kind of profiler
+* Building profiled applications::  How to enable profiling.
+* Creating profiles::               How to create profile data.
+* Using mprof for time profiling::  How to analyze the time performance of a
+                                    program with mprof.
+* Using mprof for memory profiling::How to analyze the memory performance of a
+                                    program with mprof.
+* Using mdprof::                    How to analyze the time and/or memory
+                                    performance of a program with mdprof.
+* Profiling and shared libraries::  Profiling dynamically linked executables.
 @end menu
 
 @node Profiling introduction
@@ -2542,48 +2549,94 @@ The Mercury profiler @samp{mprof} is a conventional graph profiler
 in the style of gprof.
 The Mercury deep profiler @samp{mdprof} is a new kind of profiler
 that associates a lot more context with each measurement.
+@samp{mprof} can be used to profile either time or space,
+but not both at the same time;
+@samp{mdprof} can profile both time and space at the same time.
 
-@node The Mercury graph profiler
-@section The Mercury graph profiler
+@node Building profiled applications
+@section Building profiled applications
 
-@menu
-* Building graph profiled applications:: How to enable graph profiling.
-* Time profiling methods::          Choose user, user + system, or real time.
-* Creating the profile::            How to create profile data.
-* Displaying the profile::          How to display the profile data.
-* Analysis of results::             How to interpret the output.
-* Memory profiling::                Profiling memory usage rather than time.
-* Profiling and shared libraries::  Profiling dynamically linked executables.
-@end menu
+To enable profiling, your program must be built with profiling enabled.
+The two different profilers require different support,
+and thus you must choose which one to enable when you build your program.
 
-@node Building graph profiled applications
-@subsection Building graph profiled applications
-
-To enable graph profiling,
-your program must be built with graph profiling enabled.
-This can be done by passing
-the @samp{-p} (@samp{--profiling}) option to @samp{mmc}
+@itemize @bullet
+@item
+To build your program with time profiling enabled for @samp{mprof},
+pass the @samp{-p} (@samp{--profiling}) option to @samp{mmc}
 (and also to @samp{mgnuc} and @samp{ml}, if you invoke them separately).
-If you are using Mmake, then you can do this
+@item
+To build your program with memory profiling enabled for @samp{mprof},
+pass the @samp{--memory-profiling} option to @samp{mmc},
+@samp{mgnuc} and @samp{ml}.
+@item
+To build your program with deep profiling enabled (for @samp{mdprof}),
+pass the @samp{--deep-profiling} option to @samp{mmc},
+@samp{mgnuc} and @samp{ml}.
+@end itemize
+
+If you are using Mmake,
+then you pass these options to all the relevant programs
 by setting the @samp{GRADEFLAGS} variable in your Mmakefile,
 e.g. by adding the line @samp{GRADEFLAGS=--profiling}. 
-For more information about the different grades,
-see @ref{Compilation model options}.
+(For more information about the different grades,
+see @ref{Compilation model options}.)
 
-Enabling graph profiling has several effects.
-First, it causes the compiler to generate
-slightly modified code which counts
-the number of times each predicate or function is called,
+Enabling profiling has several effects.
+First, it causes the compiler to generate slightly modified code,
+which counts the number of times each predicate or function is called,
 and for every call, records the caller and callee.
+With deep profiling, there are other modifications as well,
+the most important impact of which is the loss of tail-recursion
+for groups of mutually tail-recursive predicates
+(self-tail-recursive predicates stay tail-recursive).
 Second, your program will be linked with versions of the library and runtime
-that were compiled with graph profiling enabled.
-(It also has the effect that for each source file the compiler
-generates the static call graph for that file in @samp{@var{module}.prof}.)
+that were compiled with the same kind of profiling enabled.
+Third, if enable graph profiling,
+the compiler will generate for each source file
+the static call graph for that file in @samp{@var{module}.prof}.
 
-@node Time profiling methods
-@subsection Time profiling methods
+@node Creating profiles
+@section Creating profiles
 
-You can control whether profiling measures
+Once you have created a profiled executable,
+you can gather profiling information by running the profiled executable
+on some test data that is representative of the intended uses of the program.
+The profiling version of your program
+will collect profiling information during execution,
+and save this information at the end of execution,
+provided execution terminates normally and not via an abort.
+
+Executables compiled with @samp{--profiling}
+save profiling data in the files
+@file{Prof.Counts}, @file{Prof.Decls}, and @file{Prof.CallPair}.
+(@file{Prof.Decl} contains the names
+of the procedures and their associated addresses,
+@file{Prof.CallPair} records the number of times
+each procedure was called by each different caller,
+and @file{Prof.Counts} records the number of times
+that execution was in each procedure when a profiling interrupt occurred.)
+Executables compiled with @samp{--memory-profiling}
+will use two of those files (@file{Prof.Decls} and @file{Prof.CallPair})
+and a two others: @file{Prof.MemoryWords} and @file{Prof.MemoryCells}.
+Executables compiled with @samp{--deep-profiling}
+save profiling data in a single file, @file{Deep.data}.
+
+It is also possible to combine @samp{mprof} profiling results
+from multiple runs of your program.
+You can do by running your program several times,
+and typing @samp{mprof_merge_counts} after each run.
+It is not (yet) possible to combine @samp{mdprof} profiling results
+from multiple runs of your program.
+
+Due to a known timing-related bug in our code,
+you may occasionally get segmentation violations
+when running your program with @samp{mprof} profiling enabled.
+If this happens, just run it again --- the problem occurs only very rarely.
+The same vulnerability does not occur with @samp{mdprof} profiling.
+
+With both profilers,
+you can control whether time profiling measures
 real (elapsed) time, user time plus system time, or user time only,
 by including the options @samp{-Tr}, @samp{-Tp}, or @samp{-Tv} respectively
 in the environment variable MERCURY_OPTIONS
@@ -2595,62 +2648,33 @@ so on Windows you must explicitly specify @samp{-Tr}.
 
 The default is user time plus system time,
 which counts all time spent executing the process,
-including time spent by the operating system performing
-working on behalf of the process,
+including time spent by the operating system working on behalf of the process,
 but not including time that the process was suspended
 (e.g. due to time slicing, or while waiting for input).
-When measuring real time, profiling counts
-even periods during which the process was suspended.
-When measuring user time only, profiling does not count
-time inside the operating system at all.
+When measuring real time,
+profiling counts even periods during which the process was suspended.
+When measuring user time only,
+profiling does not count time inside the operating system at all.
 
-@node Creating the profile
-@subsection Creating the profile
+@node Using mprof for time profiling
+@section Using mprof for time profiling
 
-The next step is to run your program.
-The profiling version of your program
-will collect profiling information during execution,
-and save this information in the files
-@file{Prof.Counts}, @file{Prof.Decls}, and @file{Prof.CallPair}.
-(@file{Prof.Decl} contains the names
-of the procedures and their associated addresses,
-@file{Prof.CallPair} records the number of times
-each procedure was called by each different caller,
-and @file{Prof.Counts} records the number of times
-that execution was in each procedure when a profiling interrupt occurred.)
-
-It is also possible to combine profiling results
-from multiple runs of your program.
-You can do by running your program several times,
-and typing @samp{mprof_merge_counts} after each run.
-
-Due to a known timing-related bug in our code, you may occasionally get
-segmentation violations when running your program with time profiling enabled.
-If this happens, just run it again --- the problem occurs only very rarely.
-
-@node Displaying the profile
-@subsection Displaying the profile
-
-To display the profile, just type @samp{mprof}.
-This will read the @file{Prof.*} files
-and display the flat profile in a nice human-readable format.
-If you also want to see the call graph profile,
-which takes a lot longer to generate, type @samp{mprof -c}.
-
-Note that @samp{mprof} can take quite a while to execute,
+To display the graph profile information
+gathered from one or more profiling runs,
+just type @samp{mprof} or @samp{mprof -c}.
+(For programs built with @samp{--high-level-code},
+you need to also pass the @samp{--no-demangle} option to @samp{mprof} as well.)
+Note that @samp{mprof} can take quite a while to execute
+(especially with @samp{-c}),
 and will usually produce quite a lot of output,
 so you will usually want to redirect the output into a file
 with a command such as @samp{mprof > mprof.out}.
 
-For programs built with @samp{--high-level-code},
-you need to also pass the @samp{--no-demangle} option to @samp{mprof}.
-
-@node Analysis of results
-@subsection Analysis of results
-
-The profile output consists of three major sections.
+The output of @samp{mprof -c} consists of three major sections.
 These are named the call graph profile,
 the flat profile and the alphabetic listing.
+The output of @samp{mprof} contains
+the flat profile and the alphabetic listing only.
 
 The call graph profile presents the local call graph of each procedure.
 For each procedure it shows
@@ -2826,74 +2850,72 @@ time represent the proportion of the current procedure's self and descendent
 time due to that parent.  These times are obtained using the assumption that
 each call contributes equally to the total time of the current procedure.
 
-@node Memory profiling
-@subsection Memory profiling
+@node Using mprof for memory profiling
+@section Using mprof for memory profiling
 
-It is also possible to profile memory allocation.  To enable memory
-profiling, your program must be built with memory profiling enabled,
-using the @samp{--memory-profiling} option.  Then, as with time
-profiling, you run your program to create the profiling data.
-This will be stored in the files @file{Prof.MemoryWords}
-@file{Prof.MemoryCells}, @file{Prof.Decls}, and @file{Prof.CallPair}.
-
-To create the profile, you need to invoke @samp{mprof} with the
-@samp{-m} (@samp{--profile memory-words}) option.  This will profile
-the amount of memory allocated, measured in units of words. 
-(A word is 4 bytes on a 32-bit architecture, and 8 bytes on a 64-bit
-architecture.)
+To create a memory profile, you can invoke @samp{mprof}
+with the @samp{-m} (@samp{--profile memory-words}) option.
+This will profile the amount of memory allocated, measured in units of words. 
+(A word is 4 bytes on a 32-bit architecture,
+and 8 bytes on a 64-bit architecture.)
 
 Alternatively, you can use @samp{mprof}'s @samp{-M}
-(@samp{--profile memory-cells}) option.  This will profile memory in
-units of ``cells''.  A cell is a group of words allocated together in a
-single allocation, to hold a single object.  Selecting this option this
-will therefore profile the number of memory allocations, while ignoring
-the size of each memory allocation.
+(@samp{--profile memory-cells}) option.
+This will profile memory in units of ``cells''.
+A cell is a group of words allocated together in a single allocation,
+to hold a single object.
+Selecting this option this will therefore profile
+the number of memory allocations,
+while ignoring the size of each memory allocation.
 
 With memory profiling, just as with time profiling,
 you can use the @samp{-c} (@samp{--call-graph}) option to display
 call graph profiles in addition to flat profiles.
 
-Note that Mercury's memory profiler will only tell you about
-allocation, not about deallocation (garbage collection).
+Note that Mercury's memory profiler will only tell you about allocation,
+not about deallocation (garbage collection).
 It can tell you how much memory was allocated by each procedure,
 but it won't tell you how long the memory was live for,
 or how much of that memory was garbage-collected.
+This is also true for @samp{mdprof}.
+
+@node Using mdprof
+@section Using mdprof
+
+To display the information contained in a deep profiling data file
+(which will be called @file{Deep.data} unless you renamed it),
+start up your browser and give it a URL of the form
+@file{http://server.domain.name/cgi-bin/mdprof?:full:path:name:Deep.data}.
+The @file{server.domain.name} part should be the name of a machine
+with the following qualifications:
+it should have a web server running on it,
+and it should have the @samp{mdprof} program installed
+in its @file{/usr/lib/cgi-bin} directory.
+The @file{:full:path:name:Deep.data} part
+should be the full path name of the deep profiling data file
+whose data you wish to explore,
+with the slashes in its path name converted to colons.
+(The path name should not have had colons in it to begin with.)
 
 @node Profiling and shared libraries
-@subsection Profiling and shared libraries
+@section Profiling and shared libraries
 
-On some operating systems, Mercury's profiling doesn't work properly
-with shared libraries.  The symptom is errors ("map__lookup failed")
-or warnings from @samp{mprof}.  On some systems, the problem occurs
-because the C implementation fails to conform to the semantics
-specified by the ISO C standard for programs that use shared
-libraries.  For other systems, we have not been able to analyze the
-cause of the failure (but we suspect that the cause may be the same as
-on those systems where we have been able to analyze it).
+On some operating systems,
+Mercury's profiling doesn't work properly with shared libraries.
+The symptom is errors ("map__lookup failed") or warnings from @samp{mprof}.
+On some systems, the problem occurs because the C implementation
+fails to conform to the semantics specified by the ISO C standard
+for programs that use shared libraries.
+For other systems, we have not been able to analyze the cause of the failure
+(but we suspect that the cause may be the same as on those systems
+where we have been able to analyze it).
 
-If you get errors or warnings from @samp{mprof}, and your program is
-dynamically linked, try rebuilding your application statically linked,
-e.g. by using @samp{MLFLAGS=--static} in your Mmakefile.  Another
-work-around that sometimes works is to set the environment variable
+If you get errors or warnings from @samp{mprof},
+and your program is dynamically linked,
+try rebuilding your application statically linked,
+e.g. by using @samp{MLFLAGS=--static} in your Mmakefile.
+Another work-around that sometimes works is to set the environment variable
 @samp{LD_BIND_NOW} to a non-null value before running the program.
-
-@node The Mercury deep profiler
-@section The Mercury deep profiler
-
-@menu
-* Building deep profiled applications::
-* Creating deep profiles::
-* Displaying deep profiles::
-@end menu
-
-@node Building deep profiled applications
-@subsection Building deep profiled applications
-
-@node Creating deep profiles
-@subsection Creating deep profiles
-
-@node Displaying deep profiles
-@subsection Displaying deep profiles
 
 @node Invocation
 @chapter Invocation
@@ -3692,7 +3714,7 @@ This option is not supported for the IL and Java back-ends.
 Enable memory profiling.  Insert memory profiling hooks in the
 generated code, and also output some profiling
 information (the static call graph) to the file
-@samp{@var{module}.prof}.  @xref{Memory profiling}.
+@samp{@var{module}.prof}.  @xref{Using mprof for memory profiling}.
 This option is not supported for the IL and Java back-ends.
 
 @ignore
