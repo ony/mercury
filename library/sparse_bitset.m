@@ -724,7 +724,7 @@ member(X, Set0) :-
 
 %-----------------------------------------------------------------------------%
 
-:- func rest(bitset_impl::in(bound('.'(ground, ground)))) =
+:- func rest(bitset_impl::in(bound([ground | ground]))) =
 		(bitset_impl::out) is det.
 rest([_ | Rest]) = Rest.
 

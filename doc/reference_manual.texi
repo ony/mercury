@@ -316,25 +316,52 @@ except that as extensions we permit higher-order terms and the
 introduction of infix operators by the use of grave accents (backquotes),
 as described below,
 and we support an extended set of builtin operators. @xref{Builtin Operators}.
-However, the meaning of some terms in Mercury is different to that
-in Prolog.  @xref{Data-terms}.
+Also, the constructor for list terms in Mercury is @code{[|]/2}, not
+@code{./2} as in Prolog.
+
+Note, however, that the meaning of some terms in Mercury is
+different to that in Prolog.  @xref{Data-terms}.
 
 A term is either a variable or a functor.
 
 A functor is an integer, a float, a string, a name, a compound term,
 or a higher-order term.
 
-A compound term is a simple compound term, a tuple term, an operator term,
-or a parenthesized term.
+A compound term is a simple compound term, a list term, a tuple term,
+an operator term, or a parenthesized term.
 
 A simple compound term is a name followed without any intervening
 whitespace by an open parenthesis (i.e. an open_ct token),
 a sequence of argument terms separated by commas, and a close
 parenthesis.  
 
+A list term is an open square bracket (i.e. an open_list token)
+followed by a sequence of argument terms separated by commas,
+optionally followed by a vertical bar (i.e. a close_list token)
+followed by a term, followed by a close square bracket (i.e. a
+close_list token).  An empty list term is an open_list token
+followed by a close_list token.  List terms are parsed as follows:
+@example
+parse('[' ']') = [].
+parse('[' List) = parse_list(List).
+parse_list(Head ',' Tail) = '[|]'(parse_term(Head), parse_list(Tail)).
+parse_list(Head '|' Tail ']') = '[|]'(parse_term(Head), parse_term(Tail)).
+parse_list(Head ']') = '[|]'(parse_term(Head), []).
+@end example
+
+The following terms are all equivalent:
+@example
+[1, 2, 3]
+[1, 2, 3 | []]
+[1, 2 | [3]]
+[1 | [2, 3]]
+'[|]'(1, '[|]'(2, '[|]'(3, [])))
+@end example
+
 A tuple term is a left curly bracket (i.e. an open_curly token)
 followed by a sequence of argument terms separated by commas,
-and a right curly bracket.
+and a right curly bracket.  For example, @code{@{1, '2', "three"@}}
+is a valid tuple term.
 
 An operator term is a term specified using operator notation, as in Prolog.
 Operators can also be formed by enclosing a variable or name between grave
@@ -2313,41 +2340,40 @@ For each mode of a predicate or function,
 we categorise that mode according to how many times it can succeed,
 and whether or not it can fail before producing its first solution.
 
+If all possible calls to a particular mode of a predicate or function
+which return to the caller (calls which terminate, do not throw
+an exception and do not cause a fatal runtime error)
+
 @itemize @bullet
 @item
-If all possible calls to a particular mode of a predicate or function
 have exactly one solution,
-then that mode is @dfn{deterministic} (@code{det}).
+then that mode is @dfn{deterministic} (@code{det});
 
 @item
-If all possible calls to a particular mode of a predicate or function
 either have no solutions or have one solution,
-then that mode is @dfn{semideterministic} (@code{semidet}).
+then that mode is @dfn{semideterministic} (@code{semidet});
 
 @item
-If all possible calls to a particular mode of a predicate or function
 have at least one solution but may have more,
-then that mode is @dfn{multisolution} (@code{multi}).
+then that mode is @dfn{multisolution} (@code{multi});
 
 @item
-If some possible calls to a particular mode of a predicate or function
-have no solution but other calls may have more than one solution,
-then that mode is @dfn{nondeterministic} (@code{nondet}).
+have zero or more solutions,
+then that mode is @dfn{nondeterministic} (@code{nondet});
 
 @item
-If all possible calls to a particular mode of a predicate or function
 fail without producing a solution,
 then that mode has a determinism of @code{failure}.
-
-@item
-If all possible calls to a particular mode of a predicate or function
-lead to a runtime error, i.e. neither succeed nor fail,
-then that mode has a determinism of @code{erroneous}.
 @end itemize
 
+If no possible calls to a particular mode of a predicate or
+function can return to the caller, then that mode has a
+determinism of @code{erroneous}.
+
 The determinism annotation @code{erroneous} is used on the library
-predicate @samp{error/1}, but apart from that those last two determinism
-annotations are generally not needed.
+predicates @samp{require__error/1} and @samp{exception__throw/1},
+but apart from that determinism annotations @code{erroneous} and
+@code{failure} are generally not needed.
 
 To summarize:
 
@@ -4671,10 +4697,10 @@ different semantics, which can be selected with different
 combinations of the @samp{--no-reorder-conj}, @samp{--no-reorder-disj},
 and @samp{--fully-strict} options.  (The @samp{--fully-strict} option
 prevents the compiler from improving completeness by optimizing away infinite
-loops or calls to @code{error/1}.)  The default semantics are the
-commutative semantics.  Enabling all of these options gives you the
-the strict sequential semantics.  Enabling just some of them gives
-you a semantics somewhere in between.
+loops or calls to @code{require__error/1} or @code{exception__throw/1}.)
+The default semantics are the commutative semantics.  Enabling all of these
+options gives you the the strict sequential semantics.  Enabling just some
+of them gives you a semantics somewhere in between.
 
 Future implementations of Mercury may wish to offer other operational semantics.
 For example, they may wish to provide semantics in which function
