@@ -51,136 +51,155 @@ process_goal( PredId, ProcInfo, ModuleInfo, Goal0, Goal) :-
 			alias_as, alias_as).
 :- mode annotate_goal( in, in, in, out, in, out, in, out) is det.
 
-annotate_goal( ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, Alias0, AliasRed) :- 
-	Goal0 = Expr0 - Info0,
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = conj(Goals0),
+	sr_util__list_map_foldl2( 
+		annotate_goal(ProcInfo, HLDS),
+		Goals0, Goals,
+		Pool0, Pool,
+		Alias0, Alias),
+	Info = Info0, 
+	Expr = conj(Goals),
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = call(PredId, ProcId, ActualVars, _, _, _),
+	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
+		PredId, ProcId, ActualVars, Alias0, Alias),
+	Expr = Expr0, 
+	Info = Info0, 
+	Pool = Pool0, 
+	Goal = Expr - Info. 
+	
+annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, _Alias0, Alias) :- 
+	Expr0 = generic_call(_, _, _, _), 
+	Pool = Pool0,
+	pa_alias_as__top("unhandled goal", Alias),
+	Goal = Expr0 - Info0. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = switch(A, B, Cases0, SM),
 	goal_info_get_outscope( Info0, Outscope), 
-	% each of the branches must instantiate:
-	% 	Expr, Info, 
-	%	Pool, Alias
+	sr_util__list_map3( 
+		annotate_case(ProcInfo, HLDS, Pool0, Alias0),
+		Cases0, Cases,
+		ListPools, ListAliases),
+	dead_cell_pool_least_upper_bound_disj( Outscope, 
+		ListPools, Pool ), 
+	pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, 
+		ListAliases, Alias),
+	Info = Info0, 
+	Expr = switch( A, B, Cases, SM ), 
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = unify(_Var, _Rhs, _Mode, Unification0, _Context),
+	unification_verify_reuse(Unification0, Alias0, 
+		Pool0, Pool, Info0, Info),
+		% XXX candidate for future optimization: if
+		% you annotate the deconstruct first, you might avoid
+		% creating the aliases altogether, thus reducing the
+		% number of aliases you cary along, and eventually
+		% having an impact on the analysis-time.
+	pa_alias_as__extend_unification(ProcInfo, HLDS, 
+		Unification0, Info, Alias0, Alias),
+	Expr = Expr0, 
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = disj( Goals0, SM ),
+	goal_info_get_outscope( Info0, Outscope), 
 	(
-		% * conjunction
-		Expr0 = conj(Goals0)
+		Goals0 = []
 	->
-		sr_util__list_map_foldl2( 
-			annotate_goal(ProcInfo, HLDS),
-			Goals0, Goals,
-			Pool0, Pool,
-			Alias0, Alias),
-		Info = Info0, 
-		Expr = conj(Goals)
+		Goals = Goals0, 
+		Pool = Pool0, 
+		Alias = Alias0
 	;
-		% * call 
-		Expr0 = call(PredId, ProcId, ActualVars, _, _, _)
-	->
-		pa_run__extend_with_call_alias( HLDS, ProcInfo, 
-			PredId, ProcId, ActualVars, Alias0, Alias),
-		Expr = Expr0, 
-		Info = Info0, 
-		Pool = Pool0
-	;
-		% * switch
-		Expr0 = switch(A, B, Cases0, SM)
-	->
-		sr_util__list_map3( 
-			annotate_case(ProcInfo, HLDS, Pool0, Alias0),
-			Cases0, Cases,
-			ListPools, ListAliases),
-		dead_cell_pool_least_upper_bound_disj( Outscope, 
-			ListPools, Pool ), 
-		pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, 
-			ListAliases, Alias),
-		Info = Info0, 
-		Expr = switch( A, B, Cases, SM )
-	;
-		% * disjunction
-		Expr0 = disj( Goals0, SM )
-	->
-		(
-			Goals0 = []
-		->
-			Goals = Goals0, 
-			Pool = Pool0, 
-			Alias = Alias0
-		;
-			list_map3( 
-				pred( Gin::in, Gout::out, P::out, A::out)
-					is det :- 
-				(
-				   annotate_goal( ProcInfo, HLDS, 
-					Gin, Gout, Pool0, P, 
-					Alias0, A)
-				),
-				Goals0, Goals, 
-				ListPools, ListAliases ),
-			dead_cell_pool_least_upper_bound_disj( Outscope,
-				ListPools, Pool),
-			pa_alias_as__least_upper_bound_list( ProcInfo, 
-				HLDS, ListAliases, Alias)
-		),
-		Info = Info0,
-		Expr = disj(Goals, SM )
-	;
-		% * not
-		Expr0 = not(NegatedGoal0)
-	->
-		annotate_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal,
-				Pool0, Pool, Alias0, Alias),
-		Info = Info0, 
-		Expr = not(NegatedGoal)
-	;
-		% * if then else
-		Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM)
-	->
-		annotate_goal( ProcInfo, HLDS, Cond0, Cond, Pool0, 
-				PoolCond, Alias0, AliasCond),
-		annotate_goal( ProcInfo, HLDS, Then0, Then, PoolCond, 
-				PoolThen, AliasCond, AliasThen),
-		annotate_goal( ProcInfo, HLDS, Else0, Else, Pool0, 
-				PoolElse, Alias0, AliasElse), 
-		dead_cell_pool_least_upper_bound_disj( Outscope, 
-				[ PoolThen, PoolElse ], Pool), 
-		pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, 
-				[ AliasThen, AliasElse ], Alias),
-		Info = Info0, 
-		Expr = if_then_else( Vars, Cond, Then, Else, SM)
-	;
-		% * unification
-		Expr0 = unify(_Var, _Rhs, _Mode, Unification0, _Context)
-	->
-		unification_verify_reuse(Unification0, Alias0, 
-			Pool0, Pool, Info0, Info),
-			% XXX candidate for future optimization: if
-			% you annotate the deconstruct first, you might avoid
-			% creating the aliases altogether, thus reducing the
-			% number of aliases you cary along, and eventually
-			% having an impact on the analysis-time.
-		pa_alias_as__extend_unification(ProcInfo, HLDS, 
-			Unification0, Info, Alias0, Alias),
-		Expr = Expr0
-	;
-		Expr0 = some( A, B, SomeGoal0)
-	->
-		% XXX
-		annotate_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, Pool0, Pool, 
-				Alias0, Alias), 
-		Info = Info0, 
-		Expr = some(A, B, SomeGoal)
-	;
-		% * call --> do nothing 
-		% * generic_call
-		Expr = Expr0, 
-		Info = Info0, 
-		Pool = Pool0,
-		pa_alias_as__top("unhandled goal", Alias)
-	), 
-	(
-		goal_is_atomic( Expr )
-	->
-		AliasRed = Alias
-	;
-		pa_alias_as__project_set( Outscope, Alias, AliasRed)
+		list_map3( 
+			pred( Gin::in, Gout::out, P::out, A::out)
+				is det :- 
+			(
+			   annotate_goal( ProcInfo, HLDS, 
+				Gin, Gout, Pool0, P, 
+				Alias0, A)
+			),
+			Goals0, Goals, 
+			ListPools, ListAliases ),
+		dead_cell_pool_least_upper_bound_disj( Outscope,
+			ListPools, Pool),
+		pa_alias_as__least_upper_bound_list( ProcInfo, 
+			HLDS, ListAliases, Alias)
 	),
-	Goal = Expr - Info. 	
+	Info = Info0,
+	Expr = disj(Goals, SM ),
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = not(NegatedGoal0),
+	annotate_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal,
+			Pool0, Pool, Alias0, Alias),
+	Info = Info0, 
+	Expr = not(NegatedGoal),
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = some( A, B, SomeGoal0),
+	% XXX
+	annotate_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, Pool0, Pool, 
+			Alias0, Alias), 
+	Info = Info0, 
+	Expr = some(A, B, SomeGoal),
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM),
+	goal_info_get_outscope( Info0, Outscope), 
+	annotate_goal( ProcInfo, HLDS, Cond0, Cond, Pool0, 
+			PoolCond, Alias0, AliasCond),
+	annotate_goal( ProcInfo, HLDS, Then0, Then, PoolCond, 
+			PoolThen, AliasCond, AliasThen),
+	annotate_goal( ProcInfo, HLDS, Else0, Else, Pool0, 
+			PoolElse, Alias0, AliasElse), 
+	dead_cell_pool_least_upper_bound_disj( Outscope, 
+			[ PoolThen, PoolElse ], Pool), 
+	pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, 
+			[ AliasThen, AliasElse ], Alias),
+	Info = Info0, 
+	Expr = if_then_else( Vars, Cond, Then, Else, SM),
+	Goal = Expr - Info. 
+	
+annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, Alias0, Alias) :- 
+	Expr0 = pragma_foreign_code(_, _, _, _, Vars, MaybeModes, Types, _), 
+	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Vars, 
+			MaybeModes, Types, Alias0, Alias), 
+	Pool = Pool0, 
+	Goal = Expr0 - Info0. 
+	
+annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, _Alias0, Alias) :- 
+	Expr0 = par_conj(_, _),
+	Pool = Pool0,
+	pa_alias_as__top("unhandled goal", Alias),
+	Goal = Expr0 - Info0. 
+		
+annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+			Pool0, Pool, _Alias0, Alias) :- 
+	Expr0 = bi_implication(_, _),
+	Pool = Pool0,
+	pa_alias_as__top("unhandled goal", Alias),
+	Goal = Expr0 - Info0. 
+
 
 :- pred annotate_case( proc_info, module_info, dead_cell_pool, alias_as, 
 		case, case, dead_cell_pool, alias_as).
