@@ -162,7 +162,7 @@ ml_elim_nested(MLDS0, MLDS) -->
 ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 	Defn0 = mlds__defn(Name, Context, Flags, DefnBody0),
 	( DefnBody0 = mlds__function(PredProcId, Params,
-			defined_here(FuncBody0)) ->
+			defined_here(FuncBody0), Attributes) ->
 		EnvName = ml_env_name(Name),
 			% XXX this should be optimized to generate 
 			% EnvTypeName from just EnvName
@@ -272,9 +272,8 @@ ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 				HoistedDefns = HoistedDefns0
 			)
 		),
-
 		DefnBody = mlds__function(PredProcId, Params,
-			defined_here(FuncBody)),
+			defined_here(FuncBody), Attributes),
 		Defn = mlds__defn(Name, Context, Flags, DefnBody),
 		FlatDefns = list__append(HoistedDefns, [Defn])
 	;
@@ -378,46 +377,25 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	%
 		% If we're allocating it on the heap, then we need to use 
 		% a class type rather than a struct (value type).
-		% This is needed for the IL back-end.
+		% This is needed for verifiable code on the IL back-end.
 	globals__lookup_bool_option(Globals, put_nondet_env_on_heap, OnHeap),
 	( OnHeap = yes ->
-		EnvTypeKind = mlds__class
+		EnvTypeKind = mlds__class,
+		BaseClasses = [mlds__generic_env_ptr_type]
 	;
-		EnvTypeKind = mlds__struct
+		EnvTypeKind = mlds__struct,
+		BaseClasses = []
 	),
 	EnvTypeName = class_type(qual(ModuleName, EnvClassName), 0,
 		EnvTypeKind),
 	EnvTypeEntityName = type(EnvClassName, 0),
 	EnvTypeFlags = env_type_decl_flags,
 	Fields = list__map(convert_local_to_field, LocalVars),
-
-		% If we're allocating it on the heap, then we're using
-		% a class type, and (for some back-ends, at least, e.g. IL)
-		% that means we need to define a constructor for it.
-	( OnHeap = yes ->
-			% Generate a ctor for the class.
-
-			% We generate an empty block for the body of the
-			% constructor.
-		Stmt = mlds__statement(block([], []), Context),
-
-		Ctor = mlds__function(no, func_params([], []),
-				defined_here(Stmt)),
-		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
-				overridable, modifiable, concrete),
-
-			% Note that the name of constructor is
-			% determined by the backend convention.
-		CtorDefn = mlds__defn(export("<constructor>"), Context,
-				CtorFlags, Ctor),
-		Ctors = [CtorDefn],
-		BaseClasses = [mlds__generic_env_ptr_type]
-	;
-		Ctors = [],
-		BaseClasses = []
-	),
-	EnvTypeDefnBody = mlds__class(mlds__class_defn(EnvTypeKind, [], 
-		BaseClasses, [], Ctors, Fields)),
+	Imports = [],
+	Ctors = [], % mlds_to_il.m will add an empty constructor if needed
+	Interfaces = [],
+	EnvTypeDefnBody = mlds__class(mlds__class_defn(EnvTypeKind, Imports, 
+		BaseClasses, Interfaces, Ctors, Fields)),
 	EnvTypeDefn = mlds__defn(EnvTypeEntityName, Context, EnvTypeFlags,
 		EnvTypeDefnBody),
 
@@ -516,8 +494,8 @@ convert_local_to_global(mlds__defn(Name, Context, Flags0, Body)) =
 ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 	Defn0 = mlds__defn(Name, Context, Flags, DefnBody0),
 	(
-		DefnBody0 = mlds__function(PredProcId, Params, 
-			defined_here(FuncBody0)),
+		DefnBody0 = mlds__function(PredProcId, Params,
+			defined_here(FuncBody0), Attributes),
 		statement_contains_var(FuncBody0, qual(ModuleName,
 			mlds__var_name("env_ptr", no)))
 	->
@@ -536,7 +514,7 @@ ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 		FuncBody = mlds__statement(block([EnvPtrDecl],
 				[InitEnvPtr, FuncBody0]), Context),
 		DefnBody = mlds__function(PredProcId, Params,
-			defined_here(FuncBody)),
+			defined_here(FuncBody), Attributes),
 		Defn = mlds__defn(Name, Context, Flags, DefnBody),
 		Init = yes
 	;
@@ -549,8 +527,7 @@ ml_make_env_ptr_type(Globals, EnvType) = EnvPtrType :-
 	globals__lookup_bool_option(Globals, put_nondet_env_on_heap, OnHeap),
 	globals__get_target(Globals, Target),
 	( Target = il, OnHeap = yes ->
-		% IL uses classes instead of structs, so the type
-		% is a little different.
+		% For IL, a class type is already a pointer (object reference).
 		EnvPtrType = EnvType
 	;
 		EnvPtrType = mlds__ptr_type(EnvType)
@@ -854,7 +831,8 @@ flatten_nested_defns([Defn0 | Defns0], FollowingStatements, Defns) -->
 flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
 	{ Defn0 = mlds__defn(Name, Context, Flags0, DefnBody0) },
 	(
-		{ DefnBody0 = mlds__function(PredProcId, Params, FuncBody0) },
+		{ DefnBody0 = mlds__function(PredProcId, Params, FuncBody0,
+			Attributes) },
 		%
 		% recursively flatten the nested function
 		%
@@ -868,7 +846,8 @@ flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
 		{ Flags1 = set_access(Flags0, private) },
 		{ Flags = set_per_instance(Flags1, one_copy) },
 
-		{ DefnBody = mlds__function(PredProcId, Params, FuncBody) },
+		{ DefnBody = mlds__function(PredProcId, Params, FuncBody,
+			Attributes) },
 		{ Defn = mlds__defn(Name, Context, Flags, DefnBody) },
 
 		% Note that we assume that we can safely hoist stuff
@@ -967,7 +946,7 @@ ml_should_add_local_data(ModuleName, VarName,
 	),
 	(
 		FollowingDefn = mlds__defn(_, _, _,
-			mlds__function(_, _, _)),
+			mlds__function(_, _, _, _)),
 		defn_contains_var(FollowingDefn, QualVarName)
 	;
 		FollowingDefn = mlds__defn(_, _, _,
@@ -1279,8 +1258,8 @@ defn_contains_defn(mlds__defn(_Name, _Context, _Flags, DefnBody), Defn) :-
 :- mode defn_body_contains_defn(in, out) is nondet.
 
 % defn_body_contains_defn(mlds__data(_Type, _Initializer), _Defn) :- fail.
-defn_body_contains_defn(mlds__function(_PredProcId, _Params, FunctionBody),
-		Name) :-
+defn_body_contains_defn(mlds__function(_PredProcId, _Params, FunctionBody,
+		_Attrs), Name) :-
 	function_body_contains_defn(FunctionBody, Name).
 defn_body_contains_defn(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
@@ -1416,8 +1395,8 @@ defn_contains_var(mlds__defn(_Name, _Context, _Flags, DefnBody), Name) :-
 
 defn_body_contains_var(mlds__data(_Type, Initializer), Name) :-
 	initializer_contains_var(Initializer, Name).
-defn_body_contains_var(mlds__function(_PredProcId, _Params, FunctionBody),
-		Name) :-
+defn_body_contains_var(mlds__function(_PredProcId, _Params, FunctionBody,
+		_Attrs), Name) :-
 	function_body_contains_var(FunctionBody, Name).
 defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,

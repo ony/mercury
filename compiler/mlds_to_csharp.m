@@ -106,6 +106,13 @@ generate_csharp_code(MLDS) -->
 	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
 		ForeignCode),
 
+	globals__io_lookup_bool_option(sign_assembly, SignAssembly),
+	( { SignAssembly = yes },
+		io__write_string("[assembly:System.Reflection.AssemblyKeyFileAttribute(\"mercury.sn\")]\n")
+	; { SignAssembly = no },
+		[]
+	),
+
 	{ Namespace0 = get_class_namespace(ClassName) },
 	{ list__reverse(Namespace0) = [Head | Tail] ->
 		Namespace = list__reverse([Head ++ "__csharp_code" | Tail])
@@ -197,7 +204,9 @@ generate_method_csharp_code(_ModuleName,
 	_Context, _DeclFlags, Entity)) -->
 
 	( 
-		{ Entity = mlds__function(_, Params, defined_here(Statement)) },
+			% XXX we ignore the attributes
+		{ Entity = mlds__function(_, Params, defined_here(Statement),
+			_Attributes) },
 		{ has_foreign_languages(Statement, Langs) },
 		{ list__member(csharp, Langs) }
 	->
@@ -491,8 +500,8 @@ write_il_simple_type_as_csharp_type('*'(Type)) -->
 
 :- pred write_csharp_class_name(structured_name::in, io__state::di,
 	io__state::uo) is det.
-write_csharp_class_name(structured_name(_Assembly, DottedName)) -->
-	io__write_list(DottedName, ".", io__write_string).
+write_csharp_class_name(structured_name(_Assembly, DottedName, NestedClasses)) -->
+	io__write_list(DottedName ++ NestedClasses, ".", io__write_string).
 
 :- pred write_il_type_as_csharp_type(ilds__type::in,
 	io__state::di, io__state::uo) is det.

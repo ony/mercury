@@ -633,7 +633,7 @@ condition_parse(Term, Cond) :-
 		;
 			term__det_term_to_type(Term, Type),
 			varset__init(V), 
-			mercury_type_to_string(V, Type, StringTerm),
+			StringTerm = mercury_type_to_string(V, Type),
 			string__append_list( 
 				["(sr_data) condition_parse: ",
 				"wrong constructur. `", 

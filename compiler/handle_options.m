@@ -405,6 +405,15 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(errorcheck_only, smart_recompilation, bool(no)),
 	option_implies(typecheck_only, smart_recompilation, bool(no)),
 
+	% disable --line-numbers when building the `.int', `.opt', etc. files,
+	% since including line numbers in those would cause unnecessary
+	% recompilation
+	option_implies(make_private_interface,		line_numbers, bool(no)),
+	option_implies(make_interface,			line_numbers, bool(no)),
+	option_implies(make_short_interface,		line_numbers, bool(no)),
+	option_implies(make_optimization_interface,	line_numbers, bool(no)),
+	option_implies(make_transitive_opt_interface,	line_numbers, bool(no)),
+
 	% `--aditi-only' is only used by the Aditi query shell,
 	% for queries which should only be compiled once.
 	% recompilation_check.m currently doesn't check whether
@@ -521,6 +530,10 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 			globals__io_set_option(user_guided_type_specialization,
 				bool(no)),
 			globals__io_set_option(deforestation, bool(no)),
+			globals__io_set_option(constraint_propagation,
+				bool(no)),
+			globals__io_set_option(local_constraint_propagation,
+				bool(no)),
 			globals__io_set_option(optimize_duplicate_calls,
 				bool(no)),
 			globals__io_set_option(optimize_constructor_last_call,
@@ -601,8 +614,12 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
-	% --no-reorder-conj implies --no-deforestation.
+	% --no-reorder-conj implies --no-deforestation,
+	% --no-constraint-propagation and --no-local-constraint-propagation.
 	option_neg_implies(reorder_conj, deforestation, bool(no)),
+	option_neg_implies(reorder_conj, constraint_propagation, bool(no)),
+	option_neg_implies(reorder_conj, local_constraint_propagation,
+		bool(no)),
 
 	% --stack-trace requires `procid' stack layouts
 	option_implies(stack_trace, procid_stack_layout, bool(yes)),
@@ -632,9 +649,12 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% so we need to disable it when tracing.
 	option_implies(procid_stack_layout, optimize_dups, bool(no)),
 
-	% XXX deforestation does not perform folding on polymorphic
-	% predicates correctly with --body-typeinfo-liveness.
+	% XXX deforestation and constraint propagation do not perform
+	% folding on polymorphic predicates correctly with
+	% --body-typeinfo-liveness.
 	option_implies(body_typeinfo_liveness, deforestation, bool(no)),
+	option_implies(body_typeinfo_liveness, constraint_propagation,
+		bool(no)),
 
 	% XXX if trailing is enabled, middle recursion optimization
 	% can generate code which does not allocate a stack frame 
@@ -664,6 +684,12 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% If we are doing type-specialization, we may as well take
 	% advantage of the declarations supplied by the programmer.
 	option_implies(type_specialization, user_guided_type_specialization,
+		bool(yes)),
+
+	% The local constraint propagation transformation (constraint.m)
+	% is a required part of the constraint propagation transformation
+	% performed by deforest.m.
+	option_implies(constraint_propagation, local_constraint_propagation,
 		bool(yes)),
 
 	% --intermod-unused-args implies --intermodule-optimization and
@@ -727,13 +753,13 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(use_opt_files, warn_missing_opt_files, bool(no)),
 
 
-	% The preferred backend foreign language depends on the target.
+	% The backend foreign languages depend on the target.
 	( 	
 		{ Target = c },
 		{ BackendForeignLanguages = ["c"] }
 	;
 		{ Target = il },
-		{ BackendForeignLanguages = ["csharp", "mc++"] }
+		{ BackendForeignLanguages = ["il", "csharp", "mc++"] }
 	;
 		{ Target = asm },
 		% XXX This is wrong!  It should be asm.

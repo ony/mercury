@@ -10,7 +10,11 @@
 % TODO:
 %	- RTTI for debugging (module_layout, proc_layout, internal_layout)
 %	- trail ops
-%	- foreign language interfacing (trd: what does this mean?)
+%	- foreign language interfacing for languages other than C
+%	  (handle `user_foreign_code' and `foreign_code_decl' --
+%	  actually perhaps this should be done in an earlier pass,
+%	  in which case the only thing that would need to be done here
+%	  is to change some calls to sorry/2 to unexpected/2).
 %	- packages, classes and inheritance
 %	  (currently we just generate all classes as structs)
 
@@ -124,7 +128,7 @@ mlds_output_hdr_file(Indent, MLDS) -->
 	mlds_output_hdr_start(Indent, ModuleName), io__nl,
 	mlds_output_hdr_imports(Indent, Imports), io__nl,
 		% Get the foreign code for C
-	{ ForeignCode = map__lookup(AllForeignCode, c) },
+	{ ForeignCode = mlds_get_c_foreign_code(AllForeignCode) },
 	mlds_output_c_hdr_decls(MLDS_ModuleName, Indent, ForeignCode), io__nl,
 	%
 	% The header file must contain _definitions_ of all public types,
@@ -197,7 +201,7 @@ mlds_output_src_file(Indent, MLDS) -->
 	mlds_output_src_imports(Indent, Imports), io__nl,
 
 		% Get the foreign code for C
-	{ ForeignCode = map__lookup(AllForeignCode, c) },
+	{ ForeignCode = mlds_get_c_foreign_code(AllForeignCode) },
 	mlds_output_c_decls(Indent, ForeignCode), io__nl,
 	%
 	% The public types have already been defined in the
@@ -368,6 +372,19 @@ mlds_output_grade_var -->
 		"/* ensure everything is compiled with the same grade */\n"),
 	io__write_string(
 		"static const void *const MR_grade = &MR_GRADE_VAR;\n").
+
+:- func mlds_get_c_foreign_code(map(foreign_language, mlds__foreign_code))
+		= mlds__foreign_code.
+
+	% Get the foreign code for C
+mlds_get_c_foreign_code(AllForeignCode) = ForeignCode :-
+	( map__search(AllForeignCode, c, ForeignCode0) ->
+		ForeignCode = ForeignCode0
+	;
+		% this can occur when compiling to a non-C target
+		% using "--mlds-dump all"
+		ForeignCode = foreign_code([], [], [])
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -795,7 +812,7 @@ mlds_output_decl(Indent, ModuleName, Defn) -->
 		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
 		(
 			{ HighLevelData = yes },
-			{ DefnBody = mlds__function(_, Signature, _) }
+			{ DefnBody = mlds__function(_, Signature, _, _) }
 		->
 			{ Signature = mlds__func_params(Parameters,
 				_RetTypes) },
@@ -903,7 +920,7 @@ mlds_output_decl_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_data_decl(Name, Type, initializer_array_size(Initializer))
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
-			_MaybeBody) },
+			_MaybeBody, _Attrs) },
 		mlds_output_maybe(MaybePredProcId, mlds_output_pred_proc_id),
 		mlds_output_func_decl(Indent, Name, Context, Signature)
 	;
@@ -922,7 +939,7 @@ mlds_output_defn_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_data_defn(Name, Type, Initializer)
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
-			MaybeBody) },
+			MaybeBody, _Attributes) },
 		mlds_output_maybe(MaybePredProcId, mlds_output_pred_proc_id),
 		mlds_output_func(Indent, Name, Context, Signature, MaybeBody)
 	;
@@ -1839,7 +1856,7 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 		{ Name \= type(_, _) },
 		% Don't output "static" for functions that don't have a body.
 		% This can happen for Mercury procedures declared `:- external'
-		{ DefnBody \= mlds__function(_, _, external) }
+		{ DefnBody \= mlds__function(_, _, external, _) }
 	->
 		io__write_string("static ")
 	;
@@ -2790,7 +2807,7 @@ mlds_output_rval(mem_addr(Lval)) -->
 	mlds_output_lval(Lval).
 
 mlds_output_rval(self(_)) -->
-	{ error("mlds_to_c: self rval encountered.\n") }.
+	io__write_string("this").
 
 :- pred mlds_output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode mlds_output_unop(in, in, di, uo) is det.

@@ -217,8 +217,8 @@ to_user_declared_2([First | Rest], TVarSet, String):-
 :- pred us_to_user_declared(unit_sel::in, tvarset::in, string::out) is det.
 us_to_user_declared(us(_,_), _, _):- 
 	require__error("(pa_selector) us_to_user_declared: only type-selectors are allowed in user-alias-declaration.").
-us_to_user_declared(ts(Type), TVarSet, String):- 
-	mercury_type_to_string(TVarSet, Type, String). 
+us_to_user_declared(ts(Type), TVarSet, 
+		mercury_type_to_string(TVarSet, Type)). 
 
 parse_term(TERM, SEL):- 
 	(

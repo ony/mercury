@@ -116,6 +116,13 @@ generate_mcplusplus_code(MLDS) -->
 		"extern ""C"" int _fltused=0;\n",
 		"\n"]),
 
+	globals__io_lookup_bool_option(sign_assembly, SignAssembly),
+	( { SignAssembly = yes },
+		io__write_string("[assembly:System::Reflection::AssemblyKeyFileAttribute(\"mercury.sn\")];\n")
+	; { SignAssembly = no },
+		[]
+	),
+
 	{ Namespace0 = get_class_namespace(ClassName) },
 	{ list__reverse(Namespace0) = [Head | Tail] ->
 		Namespace = list__reverse([Head ++ "__cpp_code" | Tail])
@@ -212,8 +219,9 @@ generate_method_mcpp_code(ModuleName,
 		defn(function(PredLabel, ProcId, MaybeSeqNum, _PredId), 
 	_Context, _DeclFlags, Entity)) -->
 	( 
+			% XXX we ignore the attributes
 		{ Entity = mlds__function(_, Params,
-			defined_here(Statement)) },
+			defined_here(Statement), _) },
 		( 
 			{ has_inline_target_code_statement(Statement) }
 		;
@@ -607,8 +615,9 @@ write_il_simple_type_as_managed_cpp_type('*'(Type)) -->
 
 :- pred write_managed_cpp_class_name(structured_name::in, io__state::di,
 	io__state::uo) is det.
-write_managed_cpp_class_name(structured_name(_Assembly, DottedName)) -->
-	io__write_list(DottedName, "::", io__write_string).
+write_managed_cpp_class_name(structured_name(_Assembly, DottedName,
+		NestedClasses)) -->
+	io__write_list(DottedName ++ NestedClasses, "::", io__write_string).
 
 :- pred write_il_type_as_managed_cpp_type(ilds__type::in,
 	io__state::di, io__state::uo) is det.

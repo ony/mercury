@@ -280,7 +280,7 @@ has_foreign_languages(Statement, Langs) :-
 
 defn_contains_foreign_code(NativeTargetLang, Defn) :-
 	Defn = mlds__defn(_Name, _Context, _Flags, Body),
-	Body = function(_, _, defined_here(FunctionBody)),
+	Body = function(_, _, defined_here(FunctionBody), _),
 	statement_contains_statement(FunctionBody, Statement),
 	Statement = mlds__statement(Stmt, _),
 	( 
@@ -292,7 +292,7 @@ defn_contains_foreign_code(NativeTargetLang, Defn) :-
 
 defn_contains_outline_foreign_proc(ForeignLang, Defn) :-
 	Defn = mlds__defn(_Name, _Context, _Flags, Body),
-	Body = function(_, _, defined_here(FunctionBody)),
+	Body = function(_, _, defined_here(FunctionBody), _),
 	statement_contains_statement(FunctionBody, Statement),
 	Statement = mlds__statement(Stmt, _),
 	Stmt = atomic(outline_foreign_proc(ForeignLang, _, _)).
@@ -303,7 +303,7 @@ defn_is_type(Defn) :-
 
 defn_is_function_with_body(Defn) :-
 	Defn = mlds__defn(Name, _Context, _Flags, Body),
-	Body = function(_, _, defined_here(_)),
+	Body = function(_, _, defined_here(_), _),
 	Name = function(_, _, _, _).
 
 defn_is_type_ctor_info(Defn) :-

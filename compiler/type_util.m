@@ -1015,27 +1015,25 @@ type_is_no_tag_type(ModuleInfo, Type, Ctor, ArgType) :-
 	% type_constructors_are_no_tag_type/3 is called.
 
 type_constructors_are_no_tag_type(Ctors, Ctor, ArgType, MaybeArgName) :-
-	type_is_single_ctor_single_arg(Ctors, Ctor, MaybeSymName, ArgType),
-	unqualify_name(Ctor, Name),
-	\+ name_is_type_info(Name),
+	type_is_single_ctor_single_arg(Ctors, Ctor, MaybeArgName0, ArgType),
+	\+ ctor_is_type_info(Ctor),
 
 	% We don't handle unary tuples as no_tag types --
 	% they are rare enough that it's not worth
 	% the implementation effort.
-	Name \= "{}",
+	Ctor \= unqualified("{}"),
 
-	(
-		MaybeSymName = yes(SymName),
-		unqualify_name(SymName, ArgName),
-		MaybeArgName = yes(ArgName)
-	;
-		MaybeSymName = no,
-		MaybeArgName = no
-	).
+	map_maybe(unqualify_name, MaybeArgName0, MaybeArgName).
 
 type_constructors_are_type_info(Ctors) :-
 	type_is_single_ctor_single_arg(Ctors, Ctor, _, _),
-	unqualify_name(Ctor, Name),
+	ctor_is_type_info(Ctor).
+
+:- pred ctor_is_type_info(sym_name).
+:- mode ctor_is_type_info(in) is semidet.
+
+ctor_is_type_info(Ctor) :-
+	unqualify_private_builtin(Ctor, Name),
 	name_is_type_info(Name).
 
 :- pred name_is_type_info(string).
@@ -1046,14 +1044,26 @@ name_is_type_info("type_ctor_info").
 name_is_type_info("typeclass_info").
 name_is_type_info("base_typeclass_info").
 
+	% If the sym_name is in the private_builtin module, unqualify it,
+	% otherwise fail.
+	% All, user-defined types should be module-qualified by the
+	% time this predicate is called, so we assume that any
+	% unqualified names are in private_builtin.
+:- pred unqualify_private_builtin(sym_name, string).
+:- mode unqualify_private_builtin(in, out) is semidet.
+
+unqualify_private_builtin(unqualified(Name), Name).
+unqualify_private_builtin(qualified(ModuleName, Name), Name) :-
+	mercury_private_builtin_module(ModuleName).
+
 :- pred type_is_single_ctor_single_arg(list(constructor), sym_name, 
-	maybe(sym_name), type).
+	maybe(ctor_field_name), type).
 :- mode type_is_single_ctor_single_arg(in, out, out, out) is semidet.
 
-type_is_single_ctor_single_arg(Ctors, Ctor, MaybeSymName, ArgType) :-
+type_is_single_ctor_single_arg(Ctors, Ctor, MaybeArgName, ArgType) :-
 	Ctors = [SingleCtor],
 	SingleCtor = ctor(ExistQVars, _Constraints, Ctor, 
-		[MaybeSymName - ArgType]),
+		[MaybeArgName - ArgType]),
 	ExistQVars = [].
 
 %-----------------------------------------------------------------------------%

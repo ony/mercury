@@ -1057,7 +1057,7 @@ to_user_declared_aliases( aliasing(MaybeTypes, TypeVarSet, real_as(AliasSet)),
 	(
 		MaybeTypes = yes(Types) 
 	->
-		mercury_type_list_to_string(TypeVarSet, Types, TypesString0),
+		TypesString0 = mercury_type_list_to_string(TypeVarSet, Types),
 		string__append_list(["yes(", TypesString0, ")"], 
 			TypesString)
 	;

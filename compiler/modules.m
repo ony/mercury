@@ -669,6 +669,7 @@ mercury_std_library_module("rational").
 mercury_std_library_module("rbtree").
 mercury_std_library_module("relation").
 mercury_std_library_module("require").
+mercury_std_library_module("rtti_implementation").
 mercury_std_library_module("set").
 mercury_std_library_module("set_bbbtree").
 mercury_std_library_module("set_ordlist").
@@ -2014,11 +2015,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			% the same command that creates the .c files, so
 			% we just make them depend on the .c files.
 			%
+			module_name_to_file_name(ModuleName, ".c", no,
+							CFileName),
 			module_name_to_file_name(ModuleName, ".h", no,
 							HeaderFileName),
 			io__write_strings(DepStream, [
 					"\n\n", HeaderFileName, 
-					" : ", CDateFileName
+					" : ", CFileName
 			])
 		;
 			[]
@@ -2050,22 +2053,59 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		]),
 
 		globals__io_get_target(Target),
+		globals__io_lookup_bool_option(sign_assembly, SignAssembly),
 		globals__io_get_globals(Globals),
+
+			
+		    % If we are on the IL backend, add the dependency that the
+		    % top level dll of a nested module hierachy depends on all
+		    % of it sub-modules dlls, as they are referenced from
+		    % inside the top level dll.
+
+		{ SubModules = submodules(ModuleName, AllDeps) },
+		( { Target = il, SubModules \= [] } ->
+			module_name_to_file_name(ModuleName, ".dll", no,
+					DllFileName),
+			io__write_strings(DepStream, [DllFileName, " : "]),
+			write_dll_dependencies_list(SubModules, "", DepStream),
+			io__nl(DepStream)
+		;
+			[]
+		),
+		
+		{ ContainsForeignCode = contains_foreign_code(LangSet)
+		; ContainsForeignCode = unknown,
+			get_item_list_foreign_code(Globals, Items, LangSet)
+		; ContainsForeignCode = no_foreign_code,
+			set__init(LangSet)
+		},
 		(
 			{ Target = il },
-			{
-				ContainsForeignCode = 
-					contains_foreign_code(LangSet)
-			;
-				ContainsForeignCode = unknown,
-				get_item_list_foreign_code(Globals, Items,
-					LangSet),
-				not set__empty(LangSet)
-			}
+			{ not set__empty(LangSet) }
 		->
 			{ Langs = set__to_sorted_list(LangSet) },
 			list__foldl(write_foreign_dependency_for_il(DepStream,
 				ModuleName, AllDeps), Langs)
+		;
+			[]
+		),
+
+			% If we are signing the assembly, then we will
+			% need the strong key to sign the il file with
+			% so add a dependency that the il file requires
+			% the strong name file `mercury.sn'.
+			% Also add the variable ILASM_KEYFLAG-<module> which
+			% is used to build the command line for ilasm.
+		( { Target = il, SignAssembly = yes } ->
+			{ prog_out__sym_name_to_string(ModuleName, ".",
+					ModuleNameString) },
+			module_name_to_file_name(ModuleName, ".il",
+					no, IlFileName),
+			
+			io__write_strings(DepStream, [
+				"ILASM_KEYFLAG-", ModuleNameString,
+						" = /keyf=mercury.sn\n",
+				IlFileName, " : mercury.sn\n"])
 		;
 			[]
 		),
@@ -3438,8 +3478,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
 
 	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
-	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe ",
-			"$(", MakeVarName, ".dlls) ",
+	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe\n",
+			ExeFileName, ".exe : ", "$(", MakeVarName, ".dlls) ",
 			"$(", MakeVarName, ".foreign_dlls)\n"] },
 	{ Else = ["else\n"] },
 	{ MainRule =
@@ -3507,15 +3547,31 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 							SharedLibFileName),
 	module_name_to_lib_file_name("lib", ModuleName,
 		".$(EXT_FOR_SHARED_LIB)", no, MaybeSharedLibFileName),
-	io__write_strings(DepStream, [
-		".PHONY : ", LibTargetName, "\n",
-		LibTargetName, " : ",
-		LibFileName, " ",
+
+	{ ILLibRule = [
+		LibTargetName, " : ", "$(", MakeVarName, ".dlls) ",
+			"$(", MakeVarName, ".foreign_dlls)\n"
+	] },
+	{ LibRule = [
+		LibTargetName, " : ", LibFileName, " ",
 		MaybeSharedLibFileName, " \\\n",
 		"\t\t$(", MakeVarName, ".ints) ",
 		"$(", MakeVarName, ".int3s) ",
 		MaybeOptsVar, MaybeTransOptsVar,
 		InitFileName, "\n\n"
+	] },
+	{ Gmake = yes,
+		LibRules = If ++ ILLibRule ++ Else ++ LibRule ++ EndIf
+	; Gmake = no,
+		( Target = il ->
+			LibRules = ILLibRule
+		;
+			LibRules = LibRule
+		)
+	},
+	io__write_strings(DepStream, [
+		".PHONY : ", LibTargetName, "\n" |
+		LibRules
 	]),
 
 	io__write_strings(DepStream, [
@@ -3765,9 +3821,17 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 	{ string__append(InitFuncName0, "init", InitFuncName) },
 	{ llds_out__make_rl_data_name(Module, RLName) },
 	io__write_strings(DepStream, [
-		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n",
-		"\techo ""ADITI_DATA ", RLName, """ >> ", InitFileName, "\n"
-	]).
+		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n"
+	]),
+	globals__io_lookup_bool_option(aditi, Aditi),
+	( { Aditi = yes } ->
+		io__write_strings(DepStream, [
+			"\techo ""ADITI_DATA ", RLName, """ >> ",
+				InitFileName, "\n"
+		])
+	;
+		[]
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -3983,8 +4047,8 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
 
-	% Generate the list of .NET DLLs which could be refered to by this
-	% module.  
+	% Generate the list of .NET DLLs which could be referred to by this
+	% module (including the module itself).
 	% If we are compiling a module within the standard library we should
 	% reference the runtime DLLs and all other library DLLs.  If we are
 	% outside the library we should just reference mercury.dll (which will
@@ -3992,15 +4056,18 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	
 :- func referenced_dlls(module_name, list(module_name)) = list(module_name).
 
-referenced_dlls(Module, Modules0) = Modules :-
+referenced_dlls(Module, DepModules0) = Modules :-
+	DepModules = [Module | DepModules0],
+
 		% If we are not compiling a module in the mercury
 		% std library then replace all the std library dlls with
 		% one reference to mercury.dll.
 	( Module = unqualified(Str), mercury_std_library_module(Str) ->
 			% In the standard library we need to add the
 			% runtime dlls.
-		Modules = [unqualified("mercury_mcpp"),
-				unqualified("mercury_il") | Modules0]
+		Modules = list__remove_dups(
+			[unqualified("mercury_mcpp"),
+				unqualified("mercury_il") | DepModules])
 	;
 		F = (func(M) =
 			( if 
@@ -4009,10 +4076,29 @@ referenced_dlls(Module, Modules0) = Modules :-
 			then
 				unqualified("mercury")
 			else
-				M
+					% A sub module is located in the
+					% top level assembly.
+				unqualified(outermost_qualifier(M))
 			)
 		),
-		Modules = list__remove_dups(list__map(F, Modules0))
+		Modules = list__remove_dups(list__map(F, DepModules))
+	).
+
+	% submodules(Module, Imports)
+	% returns the list of submodules from Imports which are sub-modules of
+	% Module, if Module is a top level module and not in the std library.
+	% Otherwise it returns the empty list.
+:- func submodules(module_name, list(module_name)) = list(module_name).
+
+submodules(Module, Modules0) = Modules :-
+	( Module = unqualified(Str), \+ mercury_std_library_module(Str) ->
+		P = (pred(M::in) is semidet :-
+			Str = outermost_qualifier(M),
+			M \= Module
+		),
+		list__filter(P, Modules0, Modules)
+	;
+		Modules = []
 	).
 
 :- pred write_dll_dependencies_list(list(module_name),

@@ -112,7 +112,7 @@ pa_alias__parse_term(Term,  A) :-
 		;
 			term__det_term_to_type(Term, Type),
 			varset__init(V),
-			mercury_type_to_string(V, Type, StringTerm),
+			StringTerm = mercury_type_to_string(V, Type),
 			string__append_list([ 
 					"(pa_alias) parse_term: ",
 					"wrong constructor. `",
