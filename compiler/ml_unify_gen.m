@@ -148,12 +148,12 @@ ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, CanCGC),
 		{ CanFail = can_fail },
 		{ ExpectedCodeModel = model_semi },
 		ml_gen_semi_deconstruct(Var, ConsId, Args, ArgModes, Context,
-			MLDS_Decls, MLDS_Unif_Statements)
+			HasSecondaryTag, MLDS_Decls, MLDS_Unif_Statements)
 	;
 		{ CanFail = cannot_fail },
 		{ ExpectedCodeModel = model_det },
 		ml_gen_det_deconstruct(Var, ConsId, Args, ArgModes, Context,
-			MLDS_Decls, MLDS_Unif_Statements)
+			HasSecondaryTag, MLDS_Decls, MLDS_Unif_Statements)
 	),
 	(
 		%
@@ -163,7 +163,15 @@ ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, CanCGC),
 		%
 		{ CanCGC = yes },
 		ml_gen_var(Var, VarLval),
-		{ MLDS_Stmt = atomic(delete_object(VarLval)) },
+		{ 
+			HasSecondaryTag = yes,
+			SecondaryTagSize = 1
+		; 
+			HasSecondaryTag = no,
+			SecondaryTagSize = 0
+		},
+		{ MLDS_Stmt = atomic(delete_object(VarLval,
+				list__length(Args) + SecondaryTagSize)) },
 		{ MLDS_CGC_Statements = [mlds__statement(MLDS_Stmt,
 				mlds__make_context(Context)) ] }
 	;
@@ -1277,9 +1285,10 @@ ml_gen_cons_args_2([Lval|Lvals], [Type|Types], [UniMode|UniModes],
 	% need to generate a test.
 	%
 :- pred ml_gen_det_deconstruct(prog_var, cons_id, prog_vars, list(uni_mode),
-		prog_context, mlds__defns, mlds__statements,
+		prog_context, bool, mlds__defns, mlds__statements,
 		ml_gen_info, ml_gen_info).
-:- mode ml_gen_det_deconstruct(in, in, in, in, in, out, out, in, out) is det.
+:- mode ml_gen_det_deconstruct(in,
+		in, in, in, in, out, out, out, in, out) is det.
 
 %	det (cannot_fail) deconstruction:
 %		<do (X => f(A1, A2, ...))>
@@ -1289,7 +1298,7 @@ ml_gen_cons_args_2([Lval|Lvals], [Type|Types], [UniMode|UniModes],
 %		...
 
 ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
-		MLDS_Decls, MLDS_Statements) -->
+		HasSecondaryTag, MLDS_Decls, MLDS_Statements) -->
 	{ MLDS_Decls = [] },
 	ml_variable_type(Var, Type),
 	ml_cons_id_to_tag(ConsId, Type, Tag),
@@ -1297,30 +1306,39 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 	% the value of the constant, so MLDS_Statements = [].
 	(
 		{ Tag = string_constant(_String) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = int_constant(_Int) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = float_constant(_Float) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = pred_closure_tag(_, _, _) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = code_addr_constant(_, _) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = type_ctor_info_constant(_, _, _) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = base_typeclass_info_constant(_, _, _) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = tabling_pointer_constant(_, _) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] }
 	;
 		{ Tag = no_tag },
+		{ HasSecondaryTag = no },
 		( { Args = [Arg], Modes = [Mode] } ->
 			ml_variable_type(Arg, ArgType),
 			ml_gen_var(Arg, ArgLval),
@@ -1332,6 +1350,7 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		)
 	;
 		{ Tag = unshared_tag(UnsharedTag) },
+		{ HasSecondaryTag = no },
 		ml_gen_var(Var, VarLval),
 		ml_variable_types(Args, ArgTypes),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
@@ -1341,6 +1360,7 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 				UnsharedTag, Context, MLDS_Statements)
 	;
 		{ Tag = shared_remote_tag(PrimaryTag, _SecondaryTag) },
+		{ HasSecondaryTag = yes },
 		ml_gen_var(Var, VarLval),
 		ml_variable_types(Args, ArgTypes),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
@@ -1350,6 +1370,7 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 				PrimaryTag, Context, MLDS_Statements)
 	;
 		{ Tag = shared_local_tag(_Bits1, _Num1) },
+		{ HasSecondaryTag = no },
 		{ MLDS_Statements = [] } % if this is det, then nothing happens
 	).
 
@@ -1662,9 +1683,10 @@ ml_gen_sub_unify(Mode, ArgLval, ArgType, FieldLval, FieldType, Context,
 	% (which is executed only if the tag test succeeds).
 	%
 :- pred ml_gen_semi_deconstruct(prog_var, cons_id, prog_vars, list(uni_mode),
-		prog_context, mlds__defns, mlds__statements,
+		prog_context, bool, mlds__defns, mlds__statements,
 		ml_gen_info, ml_gen_info).
-:- mode ml_gen_semi_deconstruct(in, in, in, in, in, out, out, in, out) is det.
+:- mode ml_gen_semi_deconstruct(in,
+		in, in, in, in, out, out, out, in, out) is det.
 
 %	semidet (can_fail) deconstruction:
 %		<succeeded = (X => f(A1, A2, ...))>
@@ -1677,12 +1699,12 @@ ml_gen_sub_unify(Mode, ArgLval, ArgType, FieldLval, FieldType, Context,
 %		}
 
 ml_gen_semi_deconstruct(Var, ConsId, Args, ArgModes, Context,
-		MLDS_Decls, MLDS_Statements) -->
+		HasSecondaryTag, MLDS_Decls, MLDS_Statements) -->
 	ml_gen_tag_test(Var, ConsId, TagTestDecls, TagTestStatements,
 		TagTestExpression),
 	ml_gen_set_success(TagTestExpression, Context, SetTagTestResult),
 	ml_gen_det_deconstruct(Var, ConsId, Args, ArgModes, Context,
-		GetArgsDecls, GetArgsStatements),
+		HasSecondaryTag, GetArgsDecls, GetArgsStatements),
 	{ GetArgsDecls = [], GetArgsStatements = [] ->
 		MLDS_Decls = TagTestDecls,
 		MLDS_Statements = list__append(TagTestStatements,

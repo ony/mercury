@@ -61,7 +61,8 @@ process_goal(Strategy, VarTypes, ModuleInfo,
 		Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
 	apply_constraint(Constraint, VarTypes, ModuleInfo, Goal0, Goal1),
-	select_reuses(SelectionRule, Goal1, Goal, ReuseConditions),
+	select_reuses(SelectionRule, Goal1, Goal2, ReusedVars, ReuseConditions),
+	determine_cgc(ReusedVars, Goal2, Goal),
 	( ReuseConditions = [] ->
 		MaybeReuseConditions = no
 	;
@@ -261,24 +262,8 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			choice(construct(set__list_to_set(Candidates))),
 			GoalInfo) }.
 
-apply_constraint_unification(_Constraint, Unif, GoalInfo0, GoalInfo) -->
+apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC) },
-
-	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
-	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
-		(
-			MaybeDies = yes(_Condition),
-			goal_info_set_reuse(GoalInfo0, reuse(cell_died),
-					GoalInfo)
-		;
-			MaybeDies = no,
-			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
-					GoalInfo)
-		)
-	;
-		error("sr_choice__apply_constraint_unification")
-	},
-
 	Map0 =^ map,
 	has_secondary_tag(Var, ConsId, SecondaryTag),
 	{ multi_map__set(Map0, Var, data(ConsId, Vars, SecondaryTag), Map) },
@@ -443,70 +428,71 @@ and_list(ListA, ListB)
 selection_info_init = selection_info(set__init, set__init, [], lifo([],[],[])).
 
 :- pred select_reuses(selection::in, hlds_goal::in, hlds_goal::out,
-		list(reuse_condition)::out) is det.
+		set(prog_var)::out, list(reuse_condition)::out) is det.
 
-select_reuses(SelectionRule, Goal0, Goal, ReuseConditions) :-
-	select_reuses(SelectionRule, Goal0, Goal, selection_info_init, Info),
+select_reuses(SelectionRule, Goal0, Goal, ReusedVars, ReuseConditions) :-
+	select_reuses_2(SelectionRule, Goal0, Goal, selection_info_init, Info),
+	ReusedVars = Info ^ local_used `union` Info ^ global_used,
 	ReuseConditions = Info ^ reuse_conds.
 
-:- pred select_reuses(selection::in, hlds_goal::in, hlds_goal::out,
+:- pred select_reuses_2(selection::in, hlds_goal::in, hlds_goal::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses(_Selection, Goal - GoalInfo, Goal - GoalInfo) -->
+select_reuses_2(_Selection, Goal - GoalInfo, Goal - GoalInfo) -->
 	{ Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name) }.
 
-select_reuses(Selection, Goal - GoalInfo0, Goal - GoalInfo) -->
+select_reuses_2(Selection, Goal - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal = unify(_Var, _Rhs, _Mode, Unification, _Ctxt) },
 	select_reuses_unification(Selection, Unification, GoalInfo0, GoalInfo).
 
-select_reuses(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
+select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
-select_reuses(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
+select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
-select_reuses(_Selection, Goal0 - _GoalInfo, _) -->
+select_reuses_2(_Selection, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },
 	{ error("structure_reuse: bi_implication.\n") }.
 
-select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
+select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
 	selection_start_branch,
 	=(BeforeIfInfo),
-	{ select_reuses(Selection, If0, If, BeforeIfInfo, IfInfo) },
-	{ select_reuses(Selection, Then0, Then, IfInfo, ThenInfo) },
+	{ select_reuses_2(Selection, If0, If, BeforeIfInfo, IfInfo) },
+	{ select_reuses_2(Selection, Then0, Then, IfInfo, ThenInfo) },
 	selection_merge(ThenInfo),
-	{ select_reuses(Selection, Else0, Else, BeforeIfInfo, ElseInfo) },
+	{ select_reuses_2(Selection, Else0, Else, BeforeIfInfo, ElseInfo) },
 	selection_merge(ElseInfo),
 	selection_end_branch,
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
 
-select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
+select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
 	selection_start_branch,
 	=(InitSwitchInfo),
 	select_reuses_cases(Selection, InitSwitchInfo, Cases0, Cases),
 	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
 
-select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
+select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
-	select_reuses(Selection, SomeGoal0, SomeGoal),
+	select_reuses_2(Selection, SomeGoal0, SomeGoal),
 	{ Goal = some(Vars, CanRemove, SomeGoal) }.
 
-select_reuses(Selection, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	select_reuses(Selection, Goal0, Goal).
+select_reuses_2(Selection, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+	select_reuses_2(Selection, Goal0, Goal).
 
-select_reuses(Selection, conj(Goal0s) - GoalInfo,
+select_reuses_2(Selection, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	select_reuses_list(Selection, Goal0s, Goals).
 
-select_reuses(Selection, disj(Goal0s, SM) - GoalInfo,
+select_reuses_2(Selection, disj(Goal0s, SM) - GoalInfo,
 		disj(Goals, SM) - GoalInfo) -->
 	selection_start_branch,
 	=(InitDisjInfo),
 	select_reuses_disj(Selection, InitDisjInfo, Goal0s, Goals).
 
-select_reuses(Selection, par_conj(Goal0s, SM) - GoalInfo,
+select_reuses_2(Selection, par_conj(Goal0s, SM) - GoalInfo,
 		par_conj(Goals, SM) - GoalInfo) -->
 	select_reuses_list(Selection, Goal0s, Goals).
 
@@ -517,7 +503,7 @@ select_reuses(Selection, par_conj(Goal0s, SM) - GoalInfo,
 select_reuses_cases(_Selection, _Info0, [], []) --> selection_end_branch.
 select_reuses_cases(Selection, Info0, [Case0 | Case0s], [Case | Cases]) -->
 	{ Case0 = case(ConsId, Goal0) },
-	{ select_reuses(Selection, Goal0, Goal, Info0, Info) },
+	{ select_reuses_2(Selection, Goal0, Goal, Info0, Info) },
 	selection_merge(Info),
 	{ Case = case(ConsId, Goal) },
 	select_reuses_cases(Selection, Info0, Case0s, Cases).
@@ -527,7 +513,7 @@ select_reuses_cases(Selection, Info0, [Case0 | Case0s], [Case | Cases]) -->
 
 select_reuses_list(_Selection, [], []) --> [].
 select_reuses_list(Selection, [Goal0 | Goal0s], [Goal | Goals]) -->
-	select_reuses(Selection, Goal0, Goal),
+	select_reuses_2(Selection, Goal0, Goal),
 	select_reuses_list(Selection, Goal0s, Goals).
 
 :- pred select_reuses_disj(selection::in,
@@ -536,7 +522,7 @@ select_reuses_list(Selection, [Goal0 | Goal0s], [Goal | Goals]) -->
 
 select_reuses_disj(_Selection, _Info0, [], []) --> selection_end_branch.
 select_reuses_disj(Selection, Info0, [Goal0 | Goal0s], [Goal | Goals]) -->
-	{ select_reuses(Selection, Goal0, Goal, Info0, Info) },
+	{ select_reuses_2(Selection, Goal0, Goal, Info0, Info) },
 	selection_merge(Info),
 	select_reuses_disj(Selection, Info0, Goal0s, Goals).
 
@@ -716,7 +702,143 @@ select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
 select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = complicated_unify(_, _, _) }.
 
-%-----------------------------------------------------------------------------% %-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- type cgc_info
+	--->	cgc_info.
+
+:- pred determine_cgc(set(prog_var)::in, hlds_goal::in, hlds_goal::out) is det.
+
+determine_cgc(ReuseVars, Goal0, Goal) :-
+	determine_cgc(ReuseVars, Goal0, Goal, cgc_info, _Info).
+
+:- pred determine_cgc(set(prog_var)::in, hlds_goal::in, hlds_goal::out,
+		cgc_info::in, cgc_info::out) is det.
+
+determine_cgc(_ReusedVars, Goal - GoalInfo, Goal - GoalInfo) -->
+	{ Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name) }.
+
+determine_cgc(ReusedVars, Goal0 - GoalInfo0, Goal - GoalInfo) -->
+	{ Goal0 = unify(Var, Rhs, Mode, Unif0, Ctxt) },
+	determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo),
+	{ Goal = unify(Var, Rhs, Mode, Unif, Ctxt) }.
+
+determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = generic_call(_, _, _, _) },
+	{ Goal = Goal0 }.
+determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
+	{ Goal = Goal0 }.
+determine_cgc(_ReusedVars, Goal0 - _GoalInfo, _) -->
+	{ Goal0 = bi_implication(_, _) },
+	{ error("structure_reuse: bi_implication.\n") }.
+
+determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	determine_cgc(ReusedVars, If0, If),
+	determine_cgc(ReusedVars, Then0, Then),
+	determine_cgc(ReusedVars, Else0, Else),
+	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
+
+determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	determine_cgc_cases(ReusedVars, Cases0, Cases),
+	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
+
+determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
+	determine_cgc(ReusedVars, SomeGoal0, SomeGoal),
+	{ Goal = some(Vars, CanRemove, SomeGoal) }.
+
+determine_cgc(ReusedVars, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+	determine_cgc(ReusedVars, Goal0, Goal).
+
+determine_cgc(ReusedVars, conj(Goal0s) - GoalInfo,
+		conj(Goals) - GoalInfo) -->
+	determine_cgc_list(ReusedVars, Goal0s, Goals).
+
+determine_cgc(ReusedVars, disj(Goal0s, SM) - GoalInfo,
+		disj(Goals, SM) - GoalInfo) -->
+	determine_cgc_list(ReusedVars, Goal0s, Goals).
+
+determine_cgc(ReusedVars, par_conj(Goal0s, SM) - GoalInfo,
+		par_conj(Goals, SM) - GoalInfo) -->
+	determine_cgc_list(ReusedVars, Goal0s, Goals).
+
+:- pred determine_cgc_cases(set(prog_var)::in, list(case)::in, list(case)::out,
+		cgc_info::in, cgc_info::out) is det.
+
+determine_cgc_cases(_ReusedVars, [], []) --> [].
+determine_cgc_cases(ReusedVars, [Case0 | Case0s], [Case | Cases]) -->
+	{ Case0 = case(ConsId, Goal0) },
+	determine_cgc(ReusedVars, Goal0, Goal),
+	{ Case = case(ConsId, Goal) },
+	determine_cgc_cases(ReusedVars, Case0s, Cases).
+
+:- pred determine_cgc_list(set(prog_var)::in, hlds_goals::in, hlds_goals::out,
+		cgc_info::in, cgc_info::out) is det.
+
+determine_cgc_list(_ReusedVars, [], []) --> [].
+determine_cgc_list(ReusedVars, [Goal0 | Goal0s], [Goal | Goals]) -->
+	determine_cgc(ReusedVars, Goal0, Goal),
+	determine_cgc_list(ReusedVars, Goal0s, Goals).
+
+:- pred determine_cgc_unification(set(prog_var)::in,
+		unification::in, unification::out,
+		hlds_goal_info::in, hlds_goal_info::out,
+		cgc_info::in, cgc_info::out) is det.
+
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
+	{ Unif = construct(_Var, _ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi) }.
+
+determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
+	{ Unif0 = deconstruct(Var, ConsId, Vars, Modes, CanFail, _CanCGC) },
+
+	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
+	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
+		(
+			MaybeDies = yes(Condition),
+			goal_info_set_reuse(GoalInfo0, reuse(cell_died),
+					GoalInfo),
+			( set__member(Var, ReusedVars) ->
+				CanCGC = no
+			;
+				% XXX Currently we only compile time gc
+				% cells which don't introduce a reuse
+				% condition on the predicate.
+				(
+					Condition = always,
+					CanCGC = yes
+				;
+					Condition = condition(_, _, _),
+					CanCGC = no
+				)
+			)
+
+		;
+			MaybeDies = no,
+			CanCGC = no,
+			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+					GoalInfo)
+		)
+	;
+		error("determine_cgc_unification")
+	},
+	{ Unif = deconstruct(Var, ConsId, Vars, Modes, CanFail, CanCGC) }.
+
+
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
+	{ Unif = assign(_, _) }.
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
+	{ Unif = simple_test(_, _) }.
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
+	{ Unif = complicated_unify(_, _, _) }.
+
+
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
 	io_lookup_string_option(structure_reuse_constraint, ConstraintStr),

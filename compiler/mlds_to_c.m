@@ -2390,14 +2390,33 @@ mlds_output_atomic_stmt(Indent, _FuncInfo, assign(Lval, Rval), _) -->
 	%
 	% heap management
 	%
-mlds_output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval), _) -->
-	{ error("mlds_to_c.m: sorry, delete_object not implemented") }.
+mlds_output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval, _Size), _) -->
+	[].
+	% Commented out until MR_compile_time_gc implemented.
+	% mlds_indent(Indent),
+	% io__write_string("MR_compile_time_gc(MR_strip_tag("),
+	% mlds_output_lval(Lval),
+	% io__write_string("), "),
+	% io__write_int(Size),
+	% io__write_string(");\n").
 
 mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	{ NewObject = new_object(Target, MaybeTag, Type, MaybeSize,
 		MaybeCtorName, Args, ArgTypes) },
 	mlds_indent(Indent),
 	io__write_string("{\n"),
+
+	/* XXX measure how likely we are to reuse a cgc cell
+	mlds_indent(Context, Indent + 1),
+	io__write_string("MR_update_cell_cache_statistics("),
+	( { MaybeSize = yes(LSize) } ->
+		mlds_output_rval(LSize)
+	;
+		% XXX what should we do here?
+		io__write_int(-1)
+	),
+	io__write_string(");\n"),
+	*/
 
 	{ FuncInfo = func_info(FuncName, _) },
 	mlds_maybe_output_heap_profile_instr(Context, Indent + 1, Args,

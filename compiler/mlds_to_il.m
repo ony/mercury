@@ -962,7 +962,7 @@ atomic_statement_to_il(assign(Lval, Rval), Instrs) -->
 atomic_statement_to_il(comment(Comment), Instrs) -->
 	{ Instrs = node([comment(Comment)]) }.
 
-atomic_statement_to_il(delete_object(Target), Instrs) -->
+atomic_statement_to_il(delete_object(Target, _Size), Instrs) -->
 		% XXX we assume the code generator knows what it is
 		% doing and is only going to delete real objects (e.g.
 		% reference types).  It would perhaps be prudent to

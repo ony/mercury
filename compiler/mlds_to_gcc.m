@@ -2833,7 +2833,7 @@ gen_atomic_stmt(DefnInfo, assign(Lval, Rval), _) -->
 	%
 	% heap management
 	%
-gen_atomic_stmt(_DefnInfo, delete_object(_Lval), _) -->
+gen_atomic_stmt(_DefnInfo, delete_object(_Lval, _Size), _) -->
 	% XXX not yet implemented
 	% we should generate a call to GC_free()
 	% (would be easy to do, but not needed so far, since

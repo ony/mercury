@@ -1766,7 +1766,7 @@ output_atomic_stmt(Indent, _FuncInfo, assign(Lval, Rval), _) -->
 	%
 	% heap management
 	%
-output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval), _) -->
+output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval, _Size), _) -->
 	{ error("mlds_to_java.m: delete_object not supported in Java.") }.
 
 output_atomic_stmt(Indent, _FuncInfo, NewObject, Context) -->
