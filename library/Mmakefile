@@ -238,22 +238,26 @@ MODULES_CONTAINING_C_CODE=	\
 
 CPP_DLLS=$(MODULES_CONTAINING_C_CODE:%=%__c_code.dll)
 
-ALL_DLLS=$(library.dlls) $(CPP_DLLS) $(RUNTIME_DLLS) 
+ALL_DLLS=$(CPP_DLLS) $(library.dlls) $(RUNTIME_DLLS) 
 
 ALL_DLLS_BASE  = $(ALL_DLLS:%.dll=%)
 EMBED_ALL_DLLS = $(foreach dll_name,$(ALL_DLLS_BASE),$(EMBED_ONE_DLL))
 EMBED_ONE_DLL  = /embed:$(dll_name).dll,$(dll_name),Y
 
+# This doesn't work, it appears to generate invalid IL or metadata (20/3/01)
+#MS_ILASMFLAGS = /debug
+
 # al is the assembly linker, it will create an assembly that references
 # all the modules (.dll files) in the library and runtime.
 mercury.dll: $(ALL_DLLS)
-	$(MS_AL) -out:mercury.dll $(ALL_DLLS)
+	$(MS_AL) -v:0.0.0.0 -out:mercury.dll $(ALL_DLLS) 
+
+#$(MS_AL) -v:0.0.0.0 -keyf:zzkey -out:mercury.dll $(ALL_DLLS) $(EMBED_ALL_DLLS) 
 
 # This al command line will create a signed assembly that can be
 # installed into the assembly cache, but then you need to create a key
 # and actually start using the cache.  I haven't quite figured out how
 # this all works just yet.
-# al -v:1.0.0.0 -keyf:mercury.key -out:mercury.dll $(ALLDLLS)
 
 else
 
@@ -355,12 +359,24 @@ install_init: $(STD_LIB_NAME).init install_lib_dirs
 	rm -f $(INSTALL_MODULE_DIR)/library.init \
 		$(INSTALL_MODULE_DIR)/libmercury.init
 
+
+ifneq (,$(findstring il,$(GRADE)))
+
+.PHONY: install_library
+install_library: $(library.dlls) $(CPP_DLLS) install_grade_dirs
+	cp `vpath_find $(library.dlls) $(CPP_DLLS) mercury.dll` \
+		$(INSTALL_MERC_LIB_DIR)
+	
+else
+
 .PHONY: install_library
 install_library: lib$(STD_LIB_NAME).$A \
 		lib$(STD_LIB_NAME).$(EXT_FOR_SHARED_LIB) install_grade_dirs
 	cp `vpath_find lib$(STD_LIB_NAME).$A \
 		lib$(STD_LIB_NAME).$(EXT_FOR_SHARED_LIB)` \
 		$(INSTALL_MERC_LIB_DIR)
+
+endif	# non IL grades
 
 # library.split.$A is a version of lib$(STD_LIB_NAME).$A that has been compiled
 # with `--split-c-files'.

@@ -43,11 +43,13 @@ __gc public class Convert
 public:
     static MR_Box ToObject(MR_Integer x)
     {
-        return ConvertImpl::ToObject(x);
+	return ConvertImpl::ToObject(x);
+       // return __box(x);
     }
     static MR_Box ToObject(MR_Char x)
     {
         return ConvertImpl::ToObject((MR_Integer) x);
+        // return __box(x);
     }
     static MR_Box ToObject(MR_Word x)
     {
@@ -56,6 +58,7 @@ public:
     static MR_Box ToObject(MR_Float x)
     {
         return ConvertImpl::ToObject(x);
+        // return __box(x);
     }
 
 
