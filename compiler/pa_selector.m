@@ -493,13 +493,21 @@ split_upto_type_selector_acc([ US | SEL ], ACC, S1, TS, S2):-
 
 
 less_or_equal(HLDS, S1, S2, MainType, EXT):- 
+	normalize_wti(MainType, HLDS, S1, NormS1), 
+	normalize_wti(MainType, HLDS, S2, NormS2), 
+	less_or_equal_2(HLDS, NormS1, NormS2, MainType, EXT). 
+
+:- pred less_or_equal_2(module_info::in, selector::in, selector::in, 
+		(type)::in, selector::out) is semidet.
+
+less_or_equal_2(HLDS, S1, S2, MainType, EXT):- 
 	(
 		split_upto_type_selector(S2, S2_part1, TS, S2_part2),
 		TS = ts(SubType)
 	->
 		(
 
-			less_or_equal(HLDS, S1, S2_part1, MainType, Rest)
+			less_or_equal_2(HLDS, S1, S2_part1, MainType, Rest)
 			% append(S2_part1, Rest, S1) % walk past S2_part1
 						% S1 = S2_part1.Rest
 		->
@@ -510,7 +518,7 @@ less_or_equal(HLDS, S1, S2, MainType, EXT):-
 			get_type_of_node(HLDS, MainType, S2_part1, NodeType), 
 				% from NodeType, to TS
 			type_on_path(HLDS, NodeType, SubType, Rest, Remainder),
-			less_or_equal(HLDS, Remainder, S2_part2, SubType, EXT)
+			less_or_equal_2(HLDS, Remainder, S2_part2, SubType, EXT)
 		;
 			fail	% the walks do not correspond
 		)
