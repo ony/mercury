@@ -190,8 +190,16 @@ create_versions_3(PredProcId, WorkingHLDS, HLDS):-
 			% memo_reuse is unconditional -- perfect -- 
 			% nothing to be done! (processing the goal is
 			% done separately). 
-			HLDS = WorkingHLDS
-
+			% HLDS = WorkingHLDS
+			% instead of keeping as is, the potential reuses
+			% have to be converted to real reuses. 
+			convert_potential_reuse_to_reuse(ReuseGoal, 
+					ReuseGoal1),
+			proc_info_set_goal(ProcInfo0, ReuseGoal1, 
+					ProcInfo2), 
+			module_info_set_pred_proc_info(WorkingHLDS, 
+				PredProcId, PredInfo0, ProcInfo2, HLDS)
+			
 		)
 	).
 
