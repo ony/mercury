@@ -600,6 +600,7 @@
 	---> 	aliasing(maybe(list(type)), % this is only needed when the
 					    % user expresses aliases in terms
 					    % of type-variables.
+			 tvarset, 
 			 pa_alias_as__alias_as). 
 
 :- type pragma_var    
@@ -975,7 +976,7 @@
 	% In particular, the foreign language attribute needs to be
 	% handled separately as it belongs at the start of the pragma.
 :- pred attributes_to_strings(pragma_foreign_code_attributes::in,
-		list(string)::out) is det.
+		prog_varset::in, list(string)::out) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -995,7 +996,7 @@ default_attributes(Language,
 	attributes(Language, may_call_mercury, not_thread_safe, 
 		not_tabled_for_io, Aliasing)):-
 	pa_alias_as__top("Default top", TopAlias), 
-	Aliasing = aliasing(no, TopAlias).
+	Aliasing = aliasing(no, varset__init, TopAlias).
 
 may_call_mercury(Attrs, Attrs ^ may_call_mercury).
 
@@ -1022,7 +1023,7 @@ set_tabled_for_io(Attrs0, TabledForIo, Attrs) :-
 set_aliasing(Attrs0, TabledForIo, Attrs) :-
 	Attrs = Attrs0 ^ aliasing := TabledForIo.
 
-attributes_to_strings(Attrs, StringList) :-
+attributes_to_strings(Attrs, ProgVarSet, StringList) :-
 	% We ignore Lang because it isn't an attribute that you can put
 	% in the attribute list -- the foreign language specifier string
 	% is at the start of the pragma.
@@ -1049,7 +1050,7 @@ attributes_to_strings(Attrs, StringList) :-
 		TabledForIO = not_tabled_for_io,
 		TabledForIOStr = "not_tabled_for_io"
 	),
-	to_user_declared_aliases(Aliasing, AliasingStr), 
+	to_user_declared_aliases(Aliasing, ProgVarSet, AliasingStr), 
 	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr,
 			AliasingStr].
 

@@ -82,6 +82,7 @@
 
 :- pred print(selector::in, tvarset::in, 
 		io__state::di, io__state::uo) is det. 
+:- pred to_user_declared(selector::in, tvarset::in, string::out) is det. 
 
 :- pred parse_term(term(T), selector).
 :- mode parse_term(in, out) is det.
@@ -184,6 +185,36 @@ print_unit_selector(ProgVarSet, ts(Type)) -->
 	mercury_output_term(Type, ProgVarSet, bool__no), 
 	io__write_string(")").
 
+to_user_declared(Selector, TVarSet, String):- 
+	(
+		Selector = []
+	-> 
+		String = "[]"
+	; 
+		to_user_declared_2(Selector, TVarSet, String2), 
+		string__append_list(["[", String2, "]"], String)
+	). 
+
+:- pred to_user_declared_2(selector::in, tvarset::in, string::out) is det.
+
+to_user_declared_2([], _, "").
+to_user_declared_2([First | Rest], TVarSet, String):- 
+	us_to_user_declared(First, TVarSet, FirstString), 
+	(
+		Rest = []
+	->
+		String = FirstString
+	;
+		to_user_declared_2(Rest, TVarSet, RestString), 
+		string__append_list([FirstString, ", ", RestString], 
+			String)
+	). 
+
+:- pred us_to_user_declared(unit_sel::in, tvarset::in, string::out) is det.
+us_to_user_declared(us(_,_), _, _):- 
+	require__error("(pa_selector) us_to_user_declared: only type-selectors are allowed in user-alias-declaration.").
+us_to_user_declared(ts(Type), TVarSet, String):- 
+	mercury_type_to_string(TVarSet, Type, String). 
 
 parse_term(TERM, SEL):- 
 	(

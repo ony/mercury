@@ -2290,7 +2290,7 @@ mercury_output_pragma_foreign_code_2(Attributes, PredName, PredOrFunc, Vars0,
 		io__write_string(")")
 	),
 	io__write_string(", "),
-	mercury_output_pragma_foreign_attributes(Attributes),
+	mercury_output_pragma_foreign_attributes(Attributes, VarSet),
 	io__write_string(", "),
 	(
 		{ PragmaCode = ordinary(C_Code, _) },
@@ -2475,7 +2475,11 @@ mercury_output_pragma_import(Name, PredOrFunc, ModeList, Attributes,
 		io__write_string(")")
 	),
 	io__write_string(", "),
-	mercury_output_pragma_foreign_attributes(Attributes),
+		% The varset (varset__init) could be erronuously used
+		% when outputting aliasing-information. But, since
+		% it's impossible to provide aliasing information for
+		% pragma-imports, the problem will never occur. 
+	mercury_output_pragma_foreign_attributes(Attributes, varset__init),
 	io__write_string(", """),
 	io__write_string(C_Function),
 	io__write_string(""").\n").
@@ -2578,13 +2582,14 @@ mercury_output_tabs(Indent) -->
 %-----------------------------------------------------------------------------%
 
 :- pred mercury_output_pragma_foreign_attributes(
-		pragma_foreign_code_attributes, io__state, io__state).
-:- mode mercury_output_pragma_foreign_attributes(in, di, uo) is det.
+		pragma_foreign_code_attributes, 
+		prog_varset, io__state, io__state).
+:- mode mercury_output_pragma_foreign_attributes(in, in, di, uo) is det.
 
-mercury_output_pragma_foreign_attributes(Attributes) -->
+mercury_output_pragma_foreign_attributes(Attributes, VarSet) -->
 	% This is one case where it is a bad idea to use field
 	% accessors.  
-	{ attributes_to_strings(Attributes, AttrStrings) },
+	{ attributes_to_strings(Attributes, VarSet, AttrStrings) },
 	io__write_string("["),
 	io__write_list(AttrStrings, ", ", io__write_string),
 	io__write_string("]").

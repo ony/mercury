@@ -4103,7 +4103,8 @@ pred_add_pragma_import(PredInfo0, PredId, ProcId, Attributes, C_Function,
 	% Add the code for this `pragma import' to the clauses_info
 	%
 	clauses_info_add_pragma_foreign_code(Clauses0, Purity, Attributes,
-		PredId, ProcId, VarSet, PragmaVars, ArgTypes, PragmaImpl,
+		PredId, ProcId, VarSet, PragmaVars, ArgTypes, 
+		varset__init, PragmaImpl,
 		Context, PredOrFunc, qualified(PredModule, PredName),
 		Arity, Clauses, ModuleInfo0, ModuleInfo, Info0, Info),
 
@@ -4214,11 +4215,12 @@ module_add_pragma_foreign_code(Attributes, PredName, PredOrFunc,
 						ModuleInfo1, ProcId) }
 		->
 			{ pred_info_clauses_info(PredInfo1, Clauses0) },
-			{ pred_info_arg_types(PredInfo1, ArgTypes) },
+			{ pred_info_arg_types(PredInfo1, TVarSet, _, 
+					ArgTypes) }, 
 			{ pred_info_get_purity(PredInfo1, Purity) },
 			clauses_info_add_pragma_foreign_code(
 				Clauses0, Purity, Attributes, PredId,
-				ProcId, VarSet, PVars, ArgTypes,
+				ProcId, VarSet, PVars, ArgTypes, TVarSet, 
 				PragmaImpl, Context, PredOrFunc,
 				PredName, Arity, Clauses, ModuleInfo1,
 				ModuleInfo2, Info0, Info),
@@ -5238,13 +5240,15 @@ clauses_info_add_clause(ClausesInfo0, ModeIds, CVarSet, TVarSet0,
 :- pred clauses_info_add_pragma_foreign_code(
 	clauses_info::in, purity::in, pragma_foreign_code_attributes::in,
 	pred_id::in, proc_id::in, prog_varset::in, list(pragma_var)::in,
-	list(type)::in, pragma_foreign_code_impl::in, prog_context::in,
+	list(type)::in, tvarset::in, 
+	pragma_foreign_code_impl::in, prog_context::in,
 	pred_or_func::in, sym_name::in, arity::in, clauses_info::out,
 	module_info::in, module_info::out, qual_info::in,
 	qual_info::out, io__state::di, io__state::uo) is det.
 
 clauses_info_add_pragma_foreign_code(ClausesInfo0, Purity, Attributes0, PredId,
-		ModeId, PVarSet, PVars, OrigArgTypes, PragmaImpl0, Context,
+		ModeId, PVarSet, PVars, OrigArgTypes, TVarSet, 
+		PragmaImpl0, Context,
 		PredOrFunc, PredName, Arity, ClausesInfo, ModuleInfo0,
 		ModuleInfo, Info0, Info) -->
 	globals__io_lookup_foreign_language_option(backend_foreign_language,
@@ -5319,7 +5323,7 @@ clauses_info_add_pragma_foreign_code(ClausesInfo0, Purity, Attributes0, PredId,
 		% variables. 
 		aliasing(Attributes, Aliasing0), 
 		rename_aliasing(Aliasing0, Args0, HeadVars, OrigArgTypes, 
-			Aliasing), 
+			TVarSet, Aliasing), 
 		set_aliasing(Attributes, Aliasing, Attributes1), 
 
 			% build the pragma_c_code
@@ -5354,22 +5358,26 @@ clauses_info_add_pragma_foreign_code(ClausesInfo0, Purity, Attributes0, PredId,
 	).
 
 :- pred rename_aliasing(aliasing::in, list(prog_var)::in, 
-	list(prog_var)::in, list(type)::in, aliasing::out) is det.
+	list(prog_var)::in, list(type)::in, tvarset::in, aliasing::out) is det.
 rename_aliasing(ActualAliasing, ActualHVs, FormalHVs, FormalTypes, 
-			FormalAliasing):- 
-	ActualAliasing = aliasing(MaybeActualTypes, ActualAlias),
+			TVarSet, FormalAliasing):- 
+	ActualAliasing = aliasing(MaybeActualTypes, _, ActualAlias),
 	map__from_corresponding_lists(ActualHVs, FormalHVs, VarMapping), 
 	pa_alias_as__rename(VarMapping, ActualAlias, Alias0), 
 	(
 		MaybeActualTypes = yes(ActualTypes)
 	->
 		pa_alias_as__rename_types(ActualTypes, FormalTypes, 
-				Alias0, FormalAlias)
+				Alias0, FormalAlias),
+		term__vars_list(FormalTypes, FormalTVars), 
+		set__list_to_set(FormalTVars, TSet), 
+		varset__select(TVarSet, TSet, FormalVarSet) 
 	;
-		FormalAlias = Alias0
+		FormalAlias = Alias0,
+		FormalVarSet = varset__init
 	), 
 	% NB: MaybeActualTypes are not needed after this renaming
-	FormalAliasing = aliasing(no, FormalAlias). 
+	FormalAliasing = aliasing(yes(FormalTypes), FormalVarSet, FormalAlias). 
 		
 
 :- pred allocate_vars_for_saved_vars(list(string), list(pair(prog_var, string)),

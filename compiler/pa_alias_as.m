@@ -15,7 +15,7 @@
 %-- import_module 
 
 % library modules
-:- import_module set, list, map, string, int.
+:- import_module set, list, map, string, int, varset.
 :- import_module io, term, std_util.
 
 % compiler modules
@@ -169,11 +169,11 @@
 :- pred parse_read_aliases_from_single_term(term(T), alias_as).
 :- mode parse_read_aliases_from_single_term(in, out) is det.
 
-:- pred parse_user_declared_aliases(term, aliasing).
-:- mode parse_user_declared_aliases(in, out) is semidet.
+:- pred parse_user_declared_aliases(term, varset, aliasing).
+:- mode parse_user_declared_aliases(in, in, out) is semidet.
 
-:- pred to_user_declared_aliases(aliasing, string). 
-:- mode to_user_declared_aliases(in, out) is det.
+:- pred to_user_declared_aliases(aliasing, prog_varset, string). 
+:- mode to_user_declared_aliases(in, in, out) is det.
 
 	% Live = live(IN_USE,LIVE_0,ALIASES).
 	% compute the live-set based upon an initial IN_USE set, 
@@ -202,6 +202,7 @@
 % compiler modules
 :- import_module pa_alias, pa_util, pa_sr_util.
 :- import_module pa_alias_set.
+:- import_module mercury_to_mercury.
 
 %-----------------------------------------------------------------------------%
 %-- type definitions 
@@ -556,7 +557,7 @@ from_foreign_code(_ProcInfo, HLDS, GoalInfo, Attrs, Vars,
 		MaybeModes, Types, Alias):-
 	(
 		aliasing(Attrs, UserDefinedAlias), 
-		UserDefinedAlias = aliasing(_, UserAlias),
+		UserDefinedAlias = aliasing(_, _, UserAlias),
 		UserAlias \= top(_)
 	->
 		Alias = UserAlias
@@ -864,28 +865,34 @@ parse_list_alias_term(TERM, Aliases) :-
 %-----------------------------------------------------------------------------%
 
 parse_user_declared_aliases(term__functor(term__atom("no_aliasing"), [], _),
-                Aliasing):-
+		_VarSet, Aliasing):-
         pa_alias_as__init(BottomAlias),
-	Aliasing = aliasing(no, BottomAlias). 
+	Aliasing = aliasing(no, varset__init, BottomAlias). 
 parse_user_declared_aliases(term__functor(term__atom("unknown_aliasing"), 
-				[], Context), Aliasing):-
+				[], Context), _VarSet, Aliasing):-
 	format_context(Context, ContextString), 
 	string__append_list(["user declared top (", ContextString, ")"], Msg),
         pa_alias_as__top(Msg, TopAlias), 
-	Aliasing = aliasing(no, TopAlias). 
+	Aliasing = aliasing(no, varset__init, TopAlias). 
 parse_user_declared_aliases(term__functor(term__atom("alias"), 
-		[TypesTerm,AliasTerm], _), Aliasing):-
+		[TypesTerm,AliasTerm], _), VarSet, Aliasing):-
 	(
 		TypesTerm = term__functor(term__atom("yes"), 
 					ListTypesTerms, _), 
+		term__vars_list(ListTypesTerms, TypeVars), 
+		set__list_to_set(TypeVars, SetTypeVars), 
+		varset__select(VarSet, SetTypeVars, TypeVarSet0),
+		varset__coerce(TypeVarSet0, TypeVarSet),
+		
 		list__map(term__coerce, ListTypesTerms, Types), 
 		MaybeTypes = yes(Types)
 	;
 		TypesTerm = term__functor(term__atom("no"),[],_), 
-		MaybeTypes = no
+		MaybeTypes = no,
+		varset__init(TypeVarSet) 
 	), 
 	parse_user_declared_aliases_2(AliasTerm, AliasAs), 
-	Aliasing = aliasing(MaybeTypes, AliasAs). 
+	Aliasing = aliasing(MaybeTypes, TypeVarSet, AliasAs). 
 
 :- pred format_context(term__context::in, string::out) is det.
 format_context(Context, String):- 
@@ -979,9 +986,60 @@ parse_user_datastruct(Term, Data):-
 	).
 
 		
-to_user_declared_aliases(aliasing(_, bottom), "no_aliasing"). 
-to_user_declared_aliases(aliasing(_, top(_)), "unknown_aliasing").
-to_user_declared_aliases(aliasing(_, real_as(_)), "alias([])"). 
+to_user_declared_aliases(aliasing(_, _, bottom), _, "no_aliasing"). 
+to_user_declared_aliases(aliasing(_, _, top(_)), _, "unknown_aliasing").
+% to_user_declared_aliases(aliasing(_, _, real_as(_)), _, "alias(no, [])"). 
+% to_user_declared_aliases(aliasing(MaybeTypes, real_as(_)), 
+%				ProgVarSet, String):- 
+to_user_declared_aliases( aliasing(MaybeTypes, TypeVarSet, real_as(AliasSet)), 
+		ProgVarSet, String):-
+	(
+		MaybeTypes = yes(Types) 
+	->
+		mercury_type_list_to_string(TypeVarSet, Types, TypesString0),
+		string__append_list(["yes(", TypesString0, ")"], 
+			TypesString)
+	;
+		TypesString = "no"
+	), 
+	pa_alias_set__to_pair_alias_list(AliasSet, AliasList), 
+	alias_list_to_user_declared_aliases(AliasList, 
+			ProgVarSet, TypeVarSet, AliasString0), 
+	string__append_list(["[",AliasString0,"]"], AliasString), 
+
+	string__append_list(["alias(", TypesString, ", ", 
+			AliasString, ")"], String).
+
+:- pred alias_list_to_user_declared_aliases(list(alias)::in, 
+		prog_varset::in, tvarset::in, string::out) is det. 
+alias_list_to_user_declared_aliases([], _, _, ""). 
+alias_list_to_user_declared_aliases([Alias|Rest], ProgVarSet, TypeVarSet,
+		String):- 
+	alias_to_user_declared_alias(Alias, ProgVarSet, TypeVarSet, 
+			AliasString), 
+	(
+		Rest = []
+	->
+		String = AliasString
+	; 
+		alias_list_to_user_declared_aliases(Rest, ProgVarSet, 
+				TypeVarSet, RestString), 
+		string__append_list([AliasString, ", ", RestString], 
+				String)
+	).
+
+:- pred alias_to_user_declared_alias(alias::in, prog_varset::in,
+		tvarset::in, string::out) is det.
+alias_to_user_declared_alias(Alias, ProgVarSet, TypeVarSet, String):- 
+	Alias = Data0 - Data1, 
+	pa_datastruct__to_user_declared(Data0, ProgVarSet, TypeVarSet, 
+			Data0String), 
+	pa_datastruct__to_user_declared(Data1, ProgVarSet, TypeVarSet,
+			Data1String),
+	string__append_list([Data0String, " - ", Data1String],
+			String). 
+		
+		
 
 %-----------------------------------------------------------------------------%
 

@@ -218,7 +218,7 @@ parse_pragma_foreign_code_pragma(ModuleName, Pragma, PragmaTerms,
             PTerms6 = [PredAndVarsTerm, FlagsTerm,
 		    FieldsTerm, FirstTerm, LaterTerm, SharedTerm],
 	    ( parse_pragma_foreign_code_attributes_term(
-	    		ForeignLanguage, FlagsTerm, Flags) ->
+	    		ForeignLanguage, FlagsTerm, VarSet, Flags) ->
 	        ( parse_pragma_keyword("local_vars", FieldsTerm, Fields,
 			FieldsContext) ->
 	            ( parse_pragma_keyword("first_code", FirstTerm, First,
@@ -295,12 +295,12 @@ parse_pragma_foreign_code_pragma(ModuleName, Pragma, PragmaTerms,
 		CodeTerm = term__functor(term__string(Code), [], Context)
 	    ->
 		( parse_pragma_foreign_code_attributes_term(ForeignLanguage, 
-			FlagsTerm, Flags) ->
+			FlagsTerm, VarSet, Flags) ->
 		    parse_pragma_foreign_code(ModuleName, Flags,
 			PredAndVarsTerm, ordinary(Code, yes(Context)),
 			VarSet, Res)
 	        ; parse_pragma_foreign_code_attributes_term(ForeignLanguage,
-			PredAndVarsTerm, Flags) ->
+			PredAndVarsTerm, VarSet, Flags) ->
 		    % XXX we should issue a warning; this syntax is deprecated
 		    % We will continue to accept this if c_code is used, but
 		    % not with foreign_code
@@ -421,7 +421,7 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
             PTerms6 = [PredAndVarsTerm, FlagsTerm,
 		    FieldsTerm, FirstTerm, LaterTerm, SharedTerm],
 	    ( parse_pragma_foreign_code_attributes_term(
-	    		ForeignLanguage, FlagsTerm, Flags) ->
+	    		ForeignLanguage, FlagsTerm, VarSet, Flags) ->
 	        ( parse_pragma_keyword("local_vars", FieldsTerm, Fields,
 			FieldsContext) ->
 	            ( parse_pragma_keyword("first_code", FirstTerm, First,
@@ -498,12 +498,12 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
 		CodeTerm = term__functor(term__string(Code), [], Context)
 	    ->
 		( parse_pragma_foreign_code_attributes_term(ForeignLanguage, 
-			FlagsTerm, Flags) ->
+			FlagsTerm, VarSet, Flags) ->
 		    parse_pragma_foreign_code(ModuleName, Flags,
 			PredAndVarsTerm, ordinary(Code, yes(Context)),
 			VarSet, Res)
 	        ; parse_pragma_foreign_code_attributes_term(ForeignLanguage,
-			PredAndVarsTerm, Flags) ->
+			PredAndVarsTerm, VarSet, Flags) ->
 		    % XXX we should issue a warning; this syntax is deprecated
 		    % We will continue to accept this if c_code is used, but
 		    % not with foreign_code
@@ -607,14 +607,14 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
 
 
 parse_pragma_type(ModuleName, "import", PragmaTerms,
-			ErrorTerm, _VarSet, Result) :-
+			ErrorTerm, VarSet, Result) :-
 		% XXX we assume all imports are C
 	ForeignLanguage = c,
 	(
 	    (
 		PragmaTerms = [PredAndModesTerm, FlagsTerm, FunctionTerm],
 		( parse_pragma_foreign_code_attributes_term(ForeignLanguage,
-				FlagsTerm, Flags) ->
+				FlagsTerm, VarSet, Flags) ->
 			FlagsResult = ok(Flags)
 		;
 			FlagsResult = error("invalid second argument in `:- pragma import/3' declaration -- expecting foreign code attribute or list of attributes'",
@@ -1178,12 +1178,13 @@ parse_pragma_keyword(ExpectedKeyword, Term, StringArg, StartContext) :-
 	;	collected_aliasing(aliasing).
 
 :- pred parse_pragma_foreign_code_attributes_term(foreign_language, term, 
-		pragma_foreign_code_attributes).
-:- mode parse_pragma_foreign_code_attributes_term(in, in, out) is semidet.
+		varset, pragma_foreign_code_attributes).
+:- mode parse_pragma_foreign_code_attributes_term(in, in, in, out) is semidet.
 
-parse_pragma_foreign_code_attributes_term(ForeignLanguage, Term, Attributes) :-
+parse_pragma_foreign_code_attributes_term(ForeignLanguage, 
+		Term, VarSet, Attributes) :-
 	default_attributes(ForeignLanguage, Attributes0),
-	parse_pragma_foreign_code_attributes_term0(Term, AttrList),
+	parse_pragma_foreign_code_attributes_term0(Term, VarSet, AttrList),
 	( list__member(may_call_mercury(will_not_call_mercury), AttrList) ->
 		( list__member(may_call_mercury(may_call_mercury), AttrList) ->
 			% XXX an error message would be nice
@@ -1232,12 +1233,12 @@ parse_pragma_foreign_code_attributes_term(ForeignLanguage, Term, Attributes) :-
 	).
 
 :- pred parse_pragma_foreign_code_attributes_term0(term,
-		list(collected_pragma_foreign_code_attribute)).
-:- mode parse_pragma_foreign_code_attributes_term0(in, out) is semidet.
+		varset, list(collected_pragma_foreign_code_attribute)).
+:- mode parse_pragma_foreign_code_attributes_term0(in, in, out) is semidet.
 
-parse_pragma_foreign_code_attributes_term0(Term, Flags) :-
+parse_pragma_foreign_code_attributes_term0(Term, VarSet, Flags) :-
 	(
-		parse_single_pragma_foreign_code_attribute(Term, Flag)
+		parse_single_pragma_foreign_code_attribute(Term, VarSet, Flag)
 	->
 		Flags = [Flag]
 	;
@@ -1247,23 +1248,25 @@ parse_pragma_foreign_code_attributes_term0(Term, Flags) :-
 		;
 			Term = term__functor(term__atom("."), [Hd, Tl], _),
 			Flags = [Flag|Flags0],
-			parse_single_pragma_foreign_code_attribute(Hd, Flag),
-			parse_pragma_foreign_code_attributes_term0(Tl, Flags0)
+			parse_single_pragma_foreign_code_attribute(Hd,
+							VarSet, Flag),
+			parse_pragma_foreign_code_attributes_term0(Tl, 
+							VarSet, Flags0)
 		)
 	).
 
-:- pred parse_single_pragma_foreign_code_attribute(term,
+:- pred parse_single_pragma_foreign_code_attribute(term, varset, 
 		collected_pragma_foreign_code_attribute).
-:- mode parse_single_pragma_foreign_code_attribute(in, out) is semidet.
+:- mode parse_single_pragma_foreign_code_attribute(in, in, out) is semidet.
 
-parse_single_pragma_foreign_code_attribute(Term, Flag) :-
+parse_single_pragma_foreign_code_attribute(Term, VarSet, Flag) :-
 	( parse_may_call_mercury(Term, MayCallMercury) ->
 		Flag = may_call_mercury(MayCallMercury)
 	; parse_threadsafe(Term, ThreadSafe) ->
 		Flag = thread_safe(ThreadSafe)
 	; parse_tabled_for_io(Term, TabledForIo) ->
 		Flag = tabled_for_io(TabledForIo)
-	; parse_aliasing(Term, Aliasing) ->
+	; parse_aliasing(Term, VarSet, Aliasing) ->
 		Flag = collected_aliasing(Aliasing)
 	;
 		fail
@@ -1297,11 +1300,11 @@ parse_tabled_for_io(term__functor(term__atom("tabled_for_io"), [], _),
 parse_tabled_for_io(term__functor(term__atom("not_tabled_for_io"), [], _),
 	not_tabled_for_io).
 
-:- pred parse_aliasing(term, aliasing).
-:- mode parse_aliasing(in, out) is semidet.
+:- pred parse_aliasing(term, varset, aliasing).
+:- mode parse_aliasing(in, in, out) is semidet.
 
-parse_aliasing(Term, Aliasing):- 
-	pa_alias_as__parse_user_declared_aliases(Term, Aliasing). 
+parse_aliasing(Term, VarSet, Aliasing):- 
+	pa_alias_as__parse_user_declared_aliases(Term, VarSet, Aliasing). 
 
 % parse a pragma foreign_code declaration
 

@@ -91,6 +91,9 @@
 :- pred print(datastruct, proc_info, pred_info, io__state, io__state).
 :- mode print(in, in, in, di, uo) is det.
 
+:- pred to_user_declared(datastruct, prog_varset, tvarset, string). 
+:- mode to_user_declared(in, in, in, out) is det.
+
 	% Parsing routines
 :- pred parse_term(term(T), datastruct).
 :- mode parse_term(in, out) is det.
@@ -174,6 +177,14 @@ print(D, ProcInfo, PredInfo) -->
 	{ pred_info_typevarset(PredInfo, TypeVarSet) }, 
 	pa_selector__print(SEL, TypeVarSet),
 	io__write_string(")").
+
+to_user_declared(Data, ProgVarSet, TypeVarSet, String):- 
+	Data = cel(ProgVar, Selector), 
+	varset__lookup_name(ProgVarSet, ProgVar, ProgName), 
+	pa_selector__to_user_declared(Selector, TypeVarSet, 
+			SelectorString), 
+	string__append_list(["cel(", ProgName, ", ", SelectorString, ")"], 
+		String). 
 
 parse_term(TERM, Data) :- 
    (
