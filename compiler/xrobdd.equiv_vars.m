@@ -28,6 +28,8 @@
 		is semidet.
 
 :- func leader(var(T), equiv_vars(T)) = var(T) is semidet.
+:- import_module mode_constraint_robdd.
+:- pragma type_spec(leader/2, T = mc_type).
 
 :- func det_leader(var(T), equiv_vars(T)) = var(T).
 
@@ -50,6 +52,7 @@
 
 :- pred normalise_known_equivalent_vars(bool::out, vars(T)::in, vars(T)::out,
 	equiv_vars(T)::in, equiv_vars(T)::out) is det.
+:- pragma type_spec(normalise_known_equivalent_vars/5, T = mc_type).
 
 :- pred label(equiv_vars(T)::in, vars(T)::in, vars(T)::out, vars(T)::in,
 	vars(T)::out) is det.
@@ -307,13 +310,23 @@ normalise_known_equivalent_vars(Changed, Vars0, Vars, EQVars0, EQVars) :-
 		EQVars = EQVars0,
 		Changed = no
 	;
-		Vars1 = foldl(func(V, Vs) =
-			( L = EQVars0 ^ leader(V) -> Vs `insert` L ; Vs ),
+		Vars1 = foldl(normalise_known_equivalent_vars_1(EQVars0),
 		    Vars0, Vars0),
 		EQVars0 = equiv_vars(LeaderMap0),
 		foldl(normalise_known_equivalent_vars_2, LeaderMap0,
 		    {no, Vars1, LeaderMap0}, {Changed, Vars, LeaderMap}),
 		EQVars = equiv_vars(LeaderMap)
+	).
+
+:- func normalise_known_equivalent_vars_1(equiv_vars(T), var(T),
+		vars(T)) = vars(T).
+:- pragma type_spec(normalise_known_equivalent_vars_1/3, T = mc_type).
+
+normalise_known_equivalent_vars_1(EQVars, V, Vs) =
+	( L = EQVars ^ leader(V) ->
+		Vs `insert` L
+	;
+		Vs
 	).
 
 :- pred normalise_known_equivalent_vars_2(var(T)::in, var(T)::in,

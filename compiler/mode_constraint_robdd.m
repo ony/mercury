@@ -174,7 +174,8 @@ remove_goal_path_branches(RepVar) =
 	(
 		RepVar = ProgVar `at` Path0,
 		list__takewhile((pred(Step::in) is semidet :-
-			( Step = disj(_) ; Step = neg ; Step = exist(_) )),
+			( Step = disj(_) ; Step = neg ; Step = exist(_) 
+			; Step = ite_else )),
 		    Path0, _, Path)
 	->
 		% Variables in each branch of a branched goal are always

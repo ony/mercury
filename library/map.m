@@ -403,6 +403,19 @@
 :- pragma type_spec(map__select/2, K = var(_)).
 :- pragma type_spec(map__select/3, K = var(_)).
 
+:- pragma type_spec(map__elem/2, K = int).
+:- pragma type_spec(map__elem/2, K = var(_)).
+
+:- pragma type_spec(map__det_elem/2, K = int).
+:- pragma type_spec(map__det_elem/2, K = var(_)).
+
+:- pragma type_spec('map__elem :='/3, K = int).
+:- pragma type_spec('map__elem :='/3, K = var(_)).
+
+:- pragma type_spec('map__det_elem :='/3, K = int).
+:- pragma type_spec('map__det_elem :='/3, K = var(_)).
+
+
 :- implementation.
 :- import_module std_util, require, string.
 

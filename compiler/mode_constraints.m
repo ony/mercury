@@ -55,12 +55,13 @@ mode_constraints__process_module(ModuleInfo0, ModuleInfo) -->
 
 	% Stage 1: Process SCCs bottom-up to determine variable producers.
 	list__foldl2(mode_constraints__process_scc, SCCs,
-		{ModuleInfo1, map__init}, {ModuleInfo2, PredConstraintMap}),
+		{ModuleInfo1, map__init}, {ModuleInfo, _PredConstraintMap}),
 		
 	% Stage 2: Process SCCs top-down to determine execution order of
 	% conjuctions and which modes are needed for each predicate.
-	mode_ordering(PredConstraintMap, list__reverse(SCCs),
-		ModuleInfo2, ModuleInfo),
+	% XXX
+	% mode_ordering(PredConstraintMap, list__reverse(SCCs),
+	%	ModuleInfo2, ModuleInfo),
 		
 	clear_caches.
 
@@ -918,10 +919,10 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	InstGraph =^ inst_graph,
 	{ NonLocalReachable = solutions_set(inst_graph__reachable_from_list(
 		InstGraph, to_sorted_list(NonLocals))) },
-	constrain_local_vars(Vars `difference` NonLocalReachable, GoalPath,
+	goal_constraints_2(GoalPath, NonLocals, Vars, GoalExpr0, GoalExpr,
 		Constraint0, Constraint1),
 
-	goal_constraints_2(GoalPath, NonLocals, Vars, GoalExpr0, GoalExpr,
+	constrain_local_vars(Vars `difference` NonLocalReachable, GoalPath,
 		Constraint1, Constraint2),
 	/*
 	ModuleInfo =^ module_info, % XXX
@@ -949,7 +950,7 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	{ unsafe_perform_io(io__flush_output) },
 	*/
 
-	constrain_non_occuring_vars(ParentNonLocals, Vars, GoalPath,
+	constrain_non_occurring_vars(ParentNonLocals, Vars, GoalPath,
 		Constraint3, Constraint),
 	%{ unsafe_perform_io(dump_constraints(ModuleInfo, ProgVarset, Constraint)) },
 	%{ goal_info_set_mode_constraint(GoalInfo0, Constraint, GoalInfo) }.
@@ -966,12 +967,13 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 		Constraint0, Constraint) -->
 	{ multi_map__init(Empty) },
 	conj_constraints(NonLocals, Constraint0, Constraint1, Goals0, Goals,
-		Empty, Usage),
+		Empty, Usage0),
 	/*
 	Info =^ mc_info, VarSet =^ prog_varset, % XXX
 	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
 	*/
-	map__foldl2((pred(V::in, Ps::in, Cn0::in, Cn::out, in, out) is det -->
+	{ Usage = map__to_assoc_list(Usage0) }, % XXX needed for deep profiler
+	list__foldl2((pred((V - Ps)::in, Cn0::in, Cn::out, in, out) is det -->
 		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
 			get_var(V `at` P, CV)
 		    ), Ps, ConstraintVars0),
@@ -979,7 +981,6 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	        { ConstraintVars = list_to_set(ConstraintVars0) },
 		{ Cn = Cn0 ^ at_most_one_of(ConstraintVars)
 			^ disj_vars_eq(ConstraintVars, VConj) }
-
 	    ), Usage, Constraint1, Constraint).
 
 goal_constraints_2(GoalPath, NonLocals, Vars, disj(Goals0, SM),
@@ -1133,6 +1134,10 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 	negation_constraints(goal_path(Cond0), NonLocals,
 		Constraint0, Constraint1),
 
+	goal_constraints(NonLocals, Cond0, Cond, Constraint1, Constraint2),
+	goal_constraints(NonLocals, Then0, Then, Constraint2, Constraint3),
+	goal_constraints(NonLocals, Else0, Else, Constraint3, Constraint4),
+
 	InstGraph =^ inst_graph,
 	{ NonLocalReachable = solutions(inst_graph__reachable_from_list(
 		InstGraph, to_sorted_list(NonLocals))) },
@@ -1144,7 +1149,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 			get_var(V `at` goal_path(Then0), Vthen),
 			get_var(V `at` goal_path(Else0), Velse),
 			{ C = C0 ^ eq_vars(Vgp, Vthen) ^ eq_vars(Vgp, Velse) }
-		), NonLocalReachable, Constraint1, Constraint2),
+		), NonLocalReachable, Constraint4, Constraint5),
 
 	% Make sure variables are bound in at most one of the cond and then
 	% goals.
@@ -1153,11 +1158,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 			get_var(V `at` goal_path(Then0), Vthen),
 			{ C = C0 ^ not_both(Vcond, Vthen) }
 		), set__to_sorted_list(vars(Cond0) `set__union` vars(Then0)),
-		Constraint2, Constraint3),
-
-	goal_constraints(NonLocals, Cond0, Cond, Constraint3, Constraint4),
-	goal_constraints(NonLocals, Then0, Then, Constraint4, Constraint5),
-	goal_constraints(NonLocals, Else0, Else, Constraint5, Constraint6),
+		Constraint5, Constraint6),
 
 	% Local variables bound in cond, then or else should be treated as
 	% though they are bound in the ite as well.  (Although all such
@@ -1538,13 +1539,23 @@ constrain_local_vars(Locals, GoalPath, Constraint0, Constraint) -->
 		{ C = C0 ^ eq_vars(Vgp, Vout) }
 	    ), to_sorted_list(Locals), Constraint0, Constraint).
 
-:- pred constrain_non_occuring_vars(set(prog_var)::in, set(prog_var)::in,
+:- pred constrain_non_occurring_vars(set(prog_var)::in, set(prog_var)::in,
 	goal_path::in, mode_constraint::in, mode_constraint::out,
 	goal_constraints_info::in, goal_constraints_info::out) is det.
 
-constrain_non_occuring_vars(ParentNonLocals, OccurringVars, GoalPath,
+constrain_non_occurring_vars(ParentNonLocals, OccurringVars, GoalPath,
 		Constraint0, Constraint) -->
 	InstGraph =^ inst_graph,
+	aggregate2((pred(V::out) is nondet :-
+		set__member(U, ParentNonLocals),
+		inst_graph__reachable(InstGraph, U, V),
+		\+ set__member(V, OccurringVars)
+	    ), (pred(V::in, Vs0::in, Vs::out, in, out) is det -->
+	    	get_var(V `at` GoalPath, VGP),
+		{ Vs = Vs0 `insert` VGP }
+	    ), empty_vars_set, NonOccurringVars),
+	{ Constraint = Constraint0 ^ conj_not_vars(NonOccurringVars) }.
+	/*
 	aggregate2((pred(V::out) is nondet :-
 		set__member(U, ParentNonLocals),
 		inst_graph__reachable(InstGraph, U, V),
@@ -1553,6 +1564,7 @@ constrain_non_occuring_vars(ParentNonLocals, OccurringVars, GoalPath,
 	    	get_var(V `at` GoalPath, VGP),
 	    	{ C = C0 ^ not_var(VGP) }
 	    ), Constraint0, Constraint).
+	*/
 
 %------------------------------------------------------------------------%
 

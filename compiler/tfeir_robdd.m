@@ -27,58 +27,79 @@
 
 % Constants.
 :- func one = tfeir(T).
+:- pragma type_spec(one/0, T = mc_type).
+
 :- func zero = tfeir(T).
+:- pragma type_spec(zero/0, T = mc_type).
+
+:- import_module mode_constraint_robdd.
 
 % Conjunction.
 :- func tfeir(T) * tfeir(T) = tfeir(T).
+:- pragma type_spec(('*')/2, T = mc_type).
 
 % Disjunction.
 :- func tfeir(T) + tfeir(T) = tfeir(T).
+:- pragma type_spec(('+')/2, T = mc_type).
 
 %-----------------------------------------------------------------------------%
 
 :- func var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir))
 		is det.
+:- pragma type_spec(var/2, T = mc_type).
 
 :- func not_var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir))
 		is det.
+:- pragma type_spec(not_var/2, T = mc_type).
 
 :- func eq_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(eq_vars/3, T = mc_type).
 
 :- func neq_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(neq_vars/3, T = mc_type).
 
 :- func imp_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(imp_vars/3, T = mc_type).
 
 :- func conj_vars(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
 		is det.
+:- pragma type_spec(conj_vars/2, T = mc_type).
 
 :- func conj_not_vars(vars(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(conj_not_vars/2, T = mc_type).
 
 :- func disj_vars(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
 		is det.
+:- pragma type_spec(disj_vars/2, T = mc_type).
 
 :- func at_most_one_of(vars(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(at_most_one_of/2, T = mc_type).
 
 :- func not_both(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(not_both/3, T = mc_type).
 
 :- func io_constraint(var(T)::in, var(T)::in, var(T)::in, tfeir(T)::di_tfeir)
 		= (tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(io_constraint/4, T = mc_type).
 
 		% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
 :- func disj_vars_eq(vars(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(disj_vars_eq/3, T = mc_type).
 
 :- func var_restrict_true(var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(var_restrict_true/2, T = mc_type).
 
 :- func var_restrict_false(var(T)::in, tfeir(T)::di_tfeir) =
 		(tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(var_restrict_false/2, T = mc_type).
 
 %-----------------------------------------------------------------------------%
 
@@ -506,6 +527,7 @@ minimal_model_2(Vars0, X0, TrueVars, FalseVars) :-
 %-----------------------------------------------------------------------------%
 
 :- func normalise(tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(normalise/1, T = mc_type).
 
 normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, ImpVars0, Robdd0)) = X :-
 	% T <-> F
@@ -580,6 +602,7 @@ normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, ImpVars0, Robdd0)) = X :-
 :- pred normalise_true_false_equivalent_vars(bool::out, vars(T)::in,
 	vars(T)::out, vars(T)::in, vars(T)::out, equiv_vars(T)::in,
 	equiv_vars(T)::out) is det.
+:- pragma type_spec(normalise_true_false_equivalent_vars/7, T = mc_type).
 
 normalise_true_false_equivalent_vars(Changed, T0, T, F0, F) -->
 	normalise_known_equivalent_vars(Changed0, T0, T),
@@ -617,6 +640,7 @@ extract_equivalent_vars_from_robdd(Changed, Robdd0, Robdd, EQVars0, EQVars) :-
 	Changed = Changed0 `bool__or` ( Robdd \= Robdd1 -> yes ; no ).
 
 :- func x(tfeir(T)::di_tfeir, robdd(T)::in) = (tfeir(T)::uo_tfeir) is det.
+:- pragma type_spec(x/2, T = mc_type).
 
 x(X, R) = X * xrobdd(init, init, init_equiv_vars, init_imp_vars, R).
 
