@@ -29,6 +29,7 @@
 	;	reuse(short_reuse_info)
 	.
 
+:- type reuse_var == pair(prog_var, reuse_condition).
 :- type choice_info
 	--->	deconstruct(
 				% The condition under which this cell
@@ -40,7 +41,7 @@
 				% current construction unification and
 				% the condition associated with reusing
 				% that cell.
-			set(pair(prog_var, reuse_condition))
+			set(reuse_var)
 		)
 	.
 
