@@ -13,13 +13,14 @@
 
 #include "mercury_stack_layout.h"
 #include "mercury_ho_call.h"
+#include <stdio.h>
 
 /* These should be controled by command line options */
 #define MR_DEEP_PROFILING_CALL_COUNTS
 #define MR_DEEP_PROFILING_TIMING
 #define MR_DEEP_PROFILING_MEMORY
 
-typedef enum MR_CALLSITE_KIND {
+typedef enum {
 	normal,
 	higher_order,
 	typeclass_method,
@@ -105,27 +106,37 @@ extern	volatile MR_Bool			MR_inside_deep_profiling_code;
 
 extern	MR_CallSiteDynamic			*MR_rootCallSites[];
 
+extern	void	MR_write_out_profiling_tree(FILE *fp);
+
 #ifdef MR_DEEP_PROFILING_STATISTICS
+
 extern int MR_number_of_profiling_entries;
 extern int MR_number_of_activation_loads;
 extern int MR_amount_of_memory;
 extern int MR_profiling_tree_memory;
+
 #define MR_MAX_CLOSURE_LIST_LENGTH 256
 #define MR_HISTORY_LENGTH 4096
+
 extern int MR_dictionary_search_lengths[MR_MAX_CLOSURE_LIST_LENGTH];
 extern int MR_dictionary_history_counter;
+
 extern struct MR_DICTIONARY_SEARCH_HISTORY_STRUCT {
 	MR_TypeCtorInfo type_ctor;
 	int		count;
 } MR_dictionary_history[MR_HISTORY_LENGTH];
+
 extern int MR_closure_search_lengths[MR_MAX_CLOSURE_LIST_LENGTH];
 extern int MR_closure_history_counter;
+
 extern struct MR_CLOSURE_SEARCH_HISTORY_STRUCT {
 	MR_Closure_Layout	*closure;
 	int			count;
 } MR_closure_history[MR_HISTORY_LENGTH];
+
 extern int MR_history_thresh;
-#endif
+
+#endif	/* MR_DEEP_PROFILING_STATISTICS */
 
 extern	void MR_prepare_for_callback(void *entry);
 
