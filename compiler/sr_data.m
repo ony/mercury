@@ -31,10 +31,9 @@
 
 :- type choice_info
 	--->	deconstruct(
-				% The cells which could possibly use the
-				% cell from this deconstruction provided
-				% that the cell dies
-			maybe(set(prog_var))
+				% The condition under which this cell
+				% can be reused, if at all.
+			maybe(reuse_condition)
 		)
 	;	construct(
 				% The cells which could be reused by the
