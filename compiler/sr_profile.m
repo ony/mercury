@@ -12,6 +12,7 @@
 :- interface.
 
 :- import_module io, int, string. 
+:- import_module hlds_module.
 
 :- type profiling_info ---> 
 		prof(
@@ -66,14 +67,15 @@ det.
 :- pred inc_no_reuse_calls( profiling_info::in, profiling_info::out ) is det.
 
 
-:- pred write_profiling( string::in, profiling_info::in, 
+:- pred write_profiling( string::in, profiling_info::in, module_info::in,
 			io__state::di, io__state::uo ) is det. 
 
 %-----------------------------------------------------------------------------%
 
 :- implementation. 
 
-:- import_module require, time, list. 
+:- import_module bool, relation, require, set, time, list, std_util. 
+:- import_module dependency_graph, hlds_out, hlds_pred.
 
 init( P ) :- 
 	P = prof( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0). 
@@ -134,13 +136,13 @@ pred_calls( P0, P0 ^ pred_calls ).
 reuse_calls( P0, P0 ^ reuse_calls ).
 no_reuse_calls( P0, P0 ^ no_reuse_calls ).
 
-write_profiling( String, Prof ) --> 
+write_profiling( String, Prof, HLDS ) --> 
 	{ string__append(String, ".profile", String2) }, 
 	io__open_output( String2, IOResult), 
 	(
 		{ IOResult = ok(Stream) },
 		% top
-		io__write_string(Stream, "Profiling output for module: "), 
+		io__write_string(Stream, "/*\nProfiling output for module: "), 
 		io__write_string(Stream, String), 
 		io__nl(Stream),
 		% date
@@ -187,12 +189,88 @@ write_profiling( String, Prof ) -->
 				"# calls to procedures with reuse"),
 		write_prof_item( Stream, no_reuse_calls, Prof, 
 				"# failed calls to procedures with reuse"),
+
+		io__write_string( Stream, "*/\ndigraph "),
+		io__write_string(Stream, String), 
+		io__write_string(Stream, " {\n"),
+		{ dependency_graph__build_dependency_graph(HLDS,
+				no, DepInfo) },
+		{ hlds_dependency_info_get_dependency_graph(DepInfo,
+				DepGraph) },
+		{ relation__components(DepGraph, ComponentsSet) },
+		{ list__filter_map(
+			(pred(ComponentSet::in, Component::out) is semidet :-
+				( set__singleton_set(ComponentSet, C0) ->
+					relation__lookup_key(DepGraph, C0, C),
+					C = proc(PredId, _ProcId),
+					module_info_pred_info(HLDS,
+							PredId, PredInfo),
+					pred_info_import_status(PredInfo,
+							ImportStatus),
+					status_defined_in_this_module(
+							ImportStatus, yes)
+				;
+					\+ set__singleton_set(ComponentSet, _)
+				),
+				Component = set__to_sorted_list(ComponentSet)
+			), set__to_sorted_list(ComponentsSet), DomList0) },
+		{ list__condense(DomList0, DomList1) },
+		{ list__map(relation__lookup_key(DepGraph), DomList1,
+				DomList) },
+		
+		write_graph_nodes(DomList, DepGraph,
+				write_procedure_node(HLDS, Stream),
+				write_procedure_link(HLDS, Stream)),
+
+		io__write_string(Stream, "\n}\n"),
+
 		io__close_output(Stream)
 	;
 		{ IOResult = error(IOError) },
 		{ io__error_message(IOError, IOErrorString) }, 
 		{ require__error(IOErrorString) }
 	).
+
+:- pred write_procedure_node(module_info::in, io__output_stream::in,
+		pred_proc_id::in, io__state::di, io__state::uo) is det.
+
+write_procedure_node(HLDS, Stream, PredProcId) -->
+	io__set_output_stream(Stream, OldStream),
+	{ PredProcId = proc(PredId, ProcId) },
+	{ module_info_pred_proc_info(HLDS, PredProcId, _PredInfo, ProcInfo) },
+	{ proc_info_reuse_information(ProcInfo, ReuseInfo) },
+
+	io__write_char('"'),
+	hlds_out__write_pred_proc_id(HLDS, PredId, ProcId),
+	io__write_char('"'),
+
+	( { ReuseInfo = yes(_) } ->
+		io__write_string(" [style=filled,color=red,shape=box];\n")
+	;
+		io__write_string(";\n")
+	),
+
+	io__set_output_stream(OldStream, _).
+
+:- pred write_procedure_link(module_info::in, io__output_stream::in,
+		pred_proc_id::in, pred_proc_id::in,
+		io__state::di, io__state::uo) is det.
+
+write_procedure_link(HLDS, Stream, Parent, Child) -->
+	io__set_output_stream(Stream, OldStream),
+	{ Parent = proc(ParentPredId, ParentProcId) },
+	{ Child = proc(ChildPredId, ChildProcId) },
+
+	io__write_char('"'),
+	hlds_out__write_pred_proc_id(HLDS, ParentPredId, ParentProcId),
+	io__write_string("\" -> "),
+
+	io__write_char('"'),
+	hlds_out__write_pred_proc_id(HLDS, ChildPredId, ChildProcId),
+	io__write_string("\";\n"),
+
+	io__set_output_stream(OldStream, _).
+	
 
 :- pred write_prof_item( io__output_stream, pred(profiling_info, int), 
 			profiling_info, 

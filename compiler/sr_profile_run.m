@@ -36,7 +36,7 @@ structure_reuse_profiling( HLDS ) -->
 	{ collect_profiling_information( HLDS, Profiling) }, 
 	{ module_info_name( HLDS, ModuleName ) }, 
 	{ prog_out__sym_name_to_string( ModuleName, ModuleNameString) }, 
-	sr_profile__write_profiling( ModuleNameString, Profiling ), 
+	sr_profile__write_profiling( ModuleNameString, Profiling, HLDS ), 
 	maybe_write_string( Verbose, "done.\n"). 
 
 :- pred collect_profiling_information( module_info::in, 

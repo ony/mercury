@@ -21,10 +21,17 @@
 
 :- interface.
 :- import_module hlds_module, hlds_pred.
-:- import_module list, io.
+:- import_module bool, list, io.
 
 :- pred module_info_ensure_dependency_info(module_info, module_info).
 :- mode module_info_ensure_dependency_info(in, out) is det.
+
+	% Give me the dependency graph.  If the bool is yes then
+	% imported_procedures aren't included in the dependency graph,
+	% otherwise they are.
+:- pred dependency_graph__build_dependency_graph(module_info, bool,
+		dependency_info).
+:- mode dependency_graph__build_dependency_graph(in, in, out) is det.
 
 :- pred dependency_graph__write_dependency_graph(module_info, module_info,
 						io__state, io__state).
@@ -56,6 +63,28 @@
 :- pred module_info_ensure_aditi_dependency_info(module_info, module_info).
 :- mode module_info_ensure_aditi_dependency_info(in, out) is det.
 
+	% write_graph(Graph, WriteNode, WriteEdge)
+	%
+	% Write out the dependency graph using two higher predicates to
+	% decide output a node and any edges.
+	%
+:- pred write_graph(dependency_info::in,
+	pred(pred_proc_id, io__state, io__state)::pred(in, di, uo) is det,
+	pred(pred_proc_id, pred_proc_id, io__state, io__state)::
+			pred(in, in, di, uo) is det,
+	io__state::di, io__state::uo) is det.
+
+	% write_graph_nodes(Nodes, Graph, WriteNode, WriteEdge)
+	%
+	% Write out each of the Nodes in the Graph and any edges
+	% origination in Nodes.
+	%
+:- pred write_graph_nodes(list(pred_proc_id)::in, dependency_graph::in,
+	pred(pred_proc_id, io__state, io__state)::pred(in, di, uo) is det,
+	pred(pred_proc_id, pred_proc_id, io__state, io__state)::
+			pred(in, in, di, uo) is det,
+	io__state::di, io__state::uo) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -85,21 +114,19 @@ module_info_ensure_dependency_info(ModuleInfo0, ModuleInfo) :-
 	( MaybeDepInfo = yes(_) ->
 	    ModuleInfo = ModuleInfo0
 	;
-	    dependency_graph__build_dependency_graph(ModuleInfo0, ModuleInfo)
+	    dependency_graph__build_dependency_graph(ModuleInfo0, yes, DepInfo),
+	    module_info_set_dependency_info(ModuleInfo0, DepInfo, ModuleInfo)
 	).
 
 	% Traverse the module structure, calling `dependency_graph__add_arcs'
 	% for each procedure body.
 
-:- pred dependency_graph__build_dependency_graph(module_info, module_info).
-:- mode dependency_graph__build_dependency_graph(in, out) is det.
-
-dependency_graph__build_dependency_graph(ModuleInfo0, ModuleInfo) :-
+dependency_graph__build_dependency_graph(ModuleInfo0, LocalOnly, DepInfo) :-
 	module_info_predids(ModuleInfo0, PredIds),
 	relation__init(DepGraph0),
-	dependency_graph__add_pred_nodes(PredIds, ModuleInfo0,
+	dependency_graph__add_pred_nodes(PredIds, ModuleInfo0, LocalOnly,
 				DepGraph0, DepGraph1),
-	dependency_graph__add_pred_arcs(PredIds, ModuleInfo0,
+	dependency_graph__add_pred_arcs(PredIds, ModuleInfo0, LocalOnly,
 				DepGraph1, DepGraph),
 	hlds_dependency_info_init(DepInfo0),
 	hlds_dependency_info_set_dependency_graph(DepInfo0, DepGraph,
@@ -107,8 +134,7 @@ dependency_graph__build_dependency_graph(ModuleInfo0, ModuleInfo) :-
 	relation__atsort(DepGraph, DepOrd0),
 	dependency_graph__sets_to_lists(DepOrd0, [], DepOrd),
 	hlds_dependency_info_set_dependency_ordering(DepInfo1, DepOrd,
-				DepInfo),
-	module_info_set_dependency_info(ModuleInfo0, DepInfo, ModuleInfo).
+				DepInfo).
 
 :- pred dependency_graph__sets_to_lists( list(set(pred_proc_id)),
 			list(list(pred_proc_id)), list(list(pred_proc_id))).
@@ -123,21 +149,28 @@ dependency_graph__sets_to_lists([X | Xs], Ys, Zs) :-
 %-----------------------------------------------------------------------------%
 
 :- pred dependency_graph__add_pred_nodes(list(pred_id), module_info,
-                        dependency_graph, dependency_graph).
-:- mode dependency_graph__add_pred_nodes(in, in, in, out) is det.
+		bool, dependency_graph, dependency_graph).
+:- mode dependency_graph__add_pred_nodes(in, in, in, in, out) is det.
 
-dependency_graph__add_pred_nodes([], _ModuleInfo, DepGraph, DepGraph).
-dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo,
+dependency_graph__add_pred_nodes([], _ModuleInfo, _, DepGraph, DepGraph).
+dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo, LocalOnly,
                                         DepGraph0, DepGraph) :-
         module_info_preds(ModuleInfo, PredTable),
         map__lookup(PredTable, PredId, PredInfo),
-	% Don't bother adding nodes (or arcs) for procedures
-	% which which are imported (ie we don't have any `clauses'
-	% for).
-	pred_info_non_imported_procids(PredInfo, ProcIds),
+	(
+		% Don't bother adding nodes (or arcs) for procedures
+		% which which are imported (ie we don't have any
+		% `clauses' for).
+		LocalOnly = yes,
+		pred_info_non_imported_procids(PredInfo, ProcIds)
+	;
+		LocalOnly = no,
+		pred_info_procids(PredInfo, ProcIds)
+	),
+
 	dependency_graph__add_proc_nodes(ProcIds, PredId, ModuleInfo,
 		DepGraph0, DepGraph1),
-        dependency_graph__add_pred_nodes(PredIds, ModuleInfo,
+        dependency_graph__add_pred_nodes(PredIds, ModuleInfo, LocalOnly,
 		DepGraph1, DepGraph).
 
 :- pred dependency_graph__add_proc_nodes(list(proc_id), pred_id, module_info,
@@ -154,39 +187,70 @@ dependency_graph__add_proc_nodes([ProcId | ProcIds], PredId, ModuleInfo,
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- pred dependency_graph__add_pred_arcs(list(pred_id), module_info,
+:- pred dependency_graph__add_pred_arcs(list(pred_id), module_info, bool,
 			dependency_graph, dependency_graph).
-:- mode dependency_graph__add_pred_arcs(in, in, in, out) is det.
+:- mode dependency_graph__add_pred_arcs(in, in, in, in, out) is det.
 
-dependency_graph__add_pred_arcs([], _ModuleInfo, DepGraph, DepGraph).
-dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo,
+dependency_graph__add_pred_arcs([], _ModuleInfo, _, DepGraph, DepGraph).
+dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo, LocalOnly,
 					DepGraph0, DepGraph) :-
 	module_info_preds(ModuleInfo, PredTable),
 	map__lookup(PredTable, PredId, PredInfo),
-	pred_info_non_imported_procids(PredInfo, ProcIds),
-	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo,
+	(
+		% Don't bother adding nodes (or arcs) for procedures
+		% which which are imported (ie we don't have any
+		% `clauses' for).
+		LocalOnly = yes,
+		pred_info_non_imported_procids(PredInfo, ProcIds)
+	;
+		LocalOnly = no,
+		pred_info_procids(PredInfo, ProcIds)
+	),
+	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo, LocalOnly,
 			DepGraph0, DepGraph1),
-	dependency_graph__add_pred_arcs(PredIds, ModuleInfo,
+	dependency_graph__add_pred_arcs(PredIds, ModuleInfo, LocalOnly,
 			DepGraph1, DepGraph).
 
 :- pred dependency_graph__add_proc_arcs(list(proc_id), pred_id, module_info,
-			dependency_graph, dependency_graph).
-:- mode dependency_graph__add_proc_arcs(in, in, in, in, out) is det.
+			bool, dependency_graph, dependency_graph).
+:- mode dependency_graph__add_proc_arcs(in, in, in, in, in, out) is det.
 
-dependency_graph__add_proc_arcs([], _PredId, _ModuleInfo, DepGraph, DepGraph).
+dependency_graph__add_proc_arcs([], _PredId, _ModuleInfo, _,
+		DepGraph, DepGraph).
 dependency_graph__add_proc_arcs([ProcId | ProcIds], PredId, ModuleInfo,
-						DepGraph0, DepGraph) :-
+		LocalOnly, DepGraph0, DepGraph) :-
+
 	module_info_preds(ModuleInfo, PredTable0),
 	map__lookup(PredTable0, PredId, PredInfo0),
 	pred_info_procedures(PredInfo0, ProcTable0),
 	map__lookup(ProcTable0, ProcId, ProcInfo0),
 
-	proc_info_goal(ProcInfo0, Goal),
+	(
+		LocalOnly = yes,
+		proc_info_goal(ProcInfo0, Goal),
 
-	relation__lookup_element(DepGraph0, proc(PredId, ProcId), Caller),
-	dependency_graph__add_arcs_in_goal(Goal, Caller, DepGraph0, DepGraph1),
+		relation__lookup_element(DepGraph0,
+				proc(PredId, ProcId), Caller),
+		dependency_graph__add_arcs_in_goal(Goal, Caller,
+				DepGraph0, DepGraph1)
+	;
+		LocalOnly = no,
+		pred_info_import_status(PredInfo0, ImportStatus),
+		status_is_imported(ImportStatus, Imported),
+		(
+			Imported = yes,
+			DepGraph1 = DepGraph0
+		;
+			Imported = no,
+			proc_info_goal(ProcInfo0, Goal),
 
-	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo,
+			relation__lookup_element(DepGraph0,
+					proc(PredId, ProcId), Caller),
+			dependency_graph__add_arcs_in_goal(Goal, Caller,
+					DepGraph0, DepGraph1)
+		)
+	),
+	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo, LocalOnly,
 						DepGraph1, DepGraph).
 
 %-----------------------------------------------------------------------------%
@@ -514,6 +578,38 @@ dependency_graph__write_prof_dependency_graph_3([S | Ss], Node, DepGraph,
 	io__write_string("\n"),
 	dependency_graph__write_prof_dependency_graph_3(Ss, Node, DepGraph, 
 					ModuleInfo).
+
+%-----------------------------------------------------------------------------%
+
+write_graph(DepInfo, WriteNode, WriteLink) -->
+	{ hlds_dependency_info_get_dependency_graph(DepInfo, DepGraph) },
+	{ relation__domain(DepGraph, DomSet) },
+	{ set__to_sorted_list(DomSet, DomList) },
+	write_graph_nodes(DomList, DepGraph, WriteNode, WriteLink).
+
+write_graph_nodes([], _Graph, _WriteNode, _WriteLink) --> [].
+write_graph_nodes([Node | Nodes], Graph, WriteNode, WriteLink) -->
+	WriteNode(Node),
+
+	{ relation__lookup_element(Graph, Node, NodeKey) },
+	{ relation__lookup_from(Graph, NodeKey, ChildrenSet) },
+	{ set__to_sorted_list(ChildrenSet, Children) },
+
+	write_graph_children(Children, Node, Graph, WriteLink),
+
+	write_graph_nodes(Nodes, Graph, WriteNode, WriteLink).
+
+:- pred write_graph_children(list(relation_key)::in, pred_proc_id::in,
+	dependency_graph::in,
+	pred(pred_proc_id, pred_proc_id, io__state, io__state)::
+			pred(in, in, di, uo) is det,
+	io__state::di, io__state::uo) is det.
+
+write_graph_children([], _Parent, _Graph, _WriteLink) --> [].
+write_graph_children([ChildKey | Children], Parent, Graph, WriteLink) -->
+	{ relation__lookup_key(Graph, ChildKey, Child) },
+	WriteLink(Parent, Child),
+	write_graph_children(Children, Parent, Graph, WriteLink).
 
 %-----------------------------------------------------------------------------%
 
