@@ -3210,7 +3210,7 @@ The code may be easier to understand if you also use the
 @samp{--no-llds-optimize} option.
 
 @sp 1
-@item --no-line-numbers
+@item -n-, --no-line-numbers
 Do not put source line numbers in the generated code.
 The generated code may be in C (the usual case),
 in Goedel (with @samp{--convert-to-goedel})
@@ -4104,6 +4104,10 @@ Disable the MLDS -> MLDS optimization passes.
 @item --no-optimize-tailcalls
 Treat tailcalls as ordinary calls rather than optimizing
 by turning self-tailcalls into loops.
+
+@item --no-optimize-initializations
+Leave initializations of local variables as assignment statements,
+rather converting such assignments statements into initializers.
 
 @end table
 

@@ -383,6 +383,7 @@
 		;	allow_hijacks
 	%	- MLDS
 		;	optimize_tailcalls
+		;	optimize_initializations
 	%	- LLDS
 		;	common_data
 		;	optimize	% also used for MLDS->MLDS optimizations
@@ -781,6 +782,7 @@ option_defaults_2(optimization_option, [
 	allow_hijacks		-	bool(yes),
 % MLDS
 	optimize_tailcalls	- 	bool(no),
+	optimize_initializations - 	bool(no),
 % LLDS
 	common_data		-	bool(no),
 	optimize		-	bool(no),
@@ -853,6 +855,7 @@ short_option('I', 			search_directories).
 short_option('l', 			link_libraries).
 short_option('L', 			link_library_directories).
 short_option('M', 			generate_dependencies).
+short_option('n', 			line_numbers).
 short_option('N', 			debug_modes).
 short_option('o', 			output_file_name).
 short_option('O', 			opt_level).
@@ -1215,6 +1218,8 @@ long_option("mlds-optimize",		optimize).
 long_option("mlds-optimise",		optimize).
 long_option("optimize-tailcalls",	optimize_tailcalls).
 long_option("optimise-tailcalls",	optimize_tailcalls).
+long_option("optimize-initializations",	optimize_initializations).
+long_option("optimise-initializations",	optimize_initializations).
 
 % LLDS optimizations
 long_option("common-data",		common_data).
@@ -1519,7 +1524,9 @@ opt_level(2, _, [
 
 	optimize_rl		-	bool(yes),
 	optimize_rl_index	-	bool(yes),
-	detect_rl_streams	-	bool(yes)
+	detect_rl_streams	-	bool(yes),
+
+	optimize_initializations -	bool(yes)
 ]).
 
 % Optimization level 3: apply optimizations which usually have a good
@@ -1816,7 +1823,7 @@ options_help_aux_output -->
 % --prolog-dialect is not documented because it is not yet used
 %		"--prolog-dialect {sicstus,nu}",
 %		"\tTarget the named dialect if generating Prolog code.",
-		"--no-line-numbers",
+		"-n-, --no-line-numbers",
 		"\tDo not put source line numbers in the generated code.",
 		"\tThe generated code may be in C (the usual case),",
 		"\tin Goedel (with the option --convert-to-goedel)",
@@ -2565,7 +2572,10 @@ options_help_mlds_mlds_optimization -->
 		"\tDisable the MLDS->MLDS optimization passes.",
 		"--no-optimize-tailcalls",
 		"\tTreat tailcalls as ordinary calls, rather than optimizing",
-		"\tby turning self-tailcalls into loops."
+		"\tby turning self-tailcalls into loops.",
+		"--no-optimize-initializations",
+		"\tLeave initializations of local variables as assignment statements,",
+		"\trather converting such assignments statements into initializers."
 	]).
 
 
