@@ -87,6 +87,7 @@ extern	int	mercury_terminate(void);
 #include "mercury_trace_base.h"	/* for MR_trace_port */
 
 #ifdef CONSERVATIVE_GC
+  #define GC_I_HIDE_POINTERS
   #include "gc.h"
 #endif
 
