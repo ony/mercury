@@ -706,9 +706,12 @@ opt_debug__dump_data_name(base_type(BaseData, TypeName, TypeArity), Str) :-
 	llds_out__make_base_type_name(BaseData, TypeName, TypeArity, Str).
 opt_debug__dump_data_name(base_typeclass_info(ClassId, InstanceNum), Str) :-
 	llds_out__make_base_typeclass_info_name(ClassId, InstanceNum, Str).
-opt_debug__dump_data_name(stack_layout(Label), Str) :-
+opt_debug__dump_data_name(proc_layout(Label), Str) :-
 	opt_debug__dump_label(Label, LabelStr),
-	string__append_list(["stack_layout(", LabelStr, ")"], Str).
+	string__append_list(["proc_layout(", LabelStr, ")"], Str).
+opt_debug__dump_data_name(internal_layout(Label), Str) :-
+	opt_debug__dump_label(Label, LabelStr),
+	string__append_list(["internal_layout(", LabelStr, ")"], Str).
 
 opt_debug__dump_unop(mktag, "mktag").
 opt_debug__dump_unop(tag, "tag").
@@ -754,6 +757,7 @@ opt_debug__dump_code_addr(do_succeed(Last), Str) :-
 	).
 opt_debug__dump_code_addr(do_redo, "do_redo").
 opt_debug__dump_code_addr(do_fail, "do_fail").
+opt_debug__dump_code_addr(do_trace_redo_fail, "do_trace_redo_fail").
 opt_debug__dump_code_addr(do_det_closure, "do_det_closure").
 opt_debug__dump_code_addr(do_semidet_closure, "do_semidet_closure").
 opt_debug__dump_code_addr(do_nondet_closure, "do_nondet_closure").

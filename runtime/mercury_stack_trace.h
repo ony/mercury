@@ -7,6 +7,7 @@
 #ifndef MERCURY_STACK_TRACE_H
 #define MERCURY_STACK_TRACE_H
 
+#include <stdio.h>
 #include "mercury_stack_layout.h"
 
 /*
@@ -20,7 +21,9 @@
 ** MR_dump_stack:
 ** 	Given the succip, det stack pointer and current frame, generate a 
 ** 	stack dump showing the name of each active procedure on the
-** 	stack.
+** 	stack. If include_trace_data data is set, also print the
+**	call event number, call sequence number and depth for every
+**	traced procedure.
 ** 	NOTE: MR_dump_stack will assume that the succip is for the
 ** 	topmost stack frame.  If you call MR_dump_stack from some
 ** 	pragma c_code, that may not be the case.
@@ -37,9 +40,8 @@
 ** 	using `:- external'.
 */
 
-extern	void		MR_dump_stack(Code *success_pointer,
-				Word *det_stack_pointer,
-				Word *current_frame);
+extern	void	MR_dump_stack(Code *success_pointer, Word *det_stack_pointer,
+			Word *current_frame, bool include_trace_data);
 
 /*
 ** MR_dump_stack_from_layout:
@@ -53,7 +55,8 @@ extern	void		MR_dump_stack(Code *success_pointer,
 
 extern	const char	*MR_dump_stack_from_layout(FILE *fp,
 				const MR_Stack_Layout_Entry *entry_layout,
-				Word *det_stack_pointer, Word *current_frame);
+				Word *det_stack_pointer, Word *current_frame,
+				bool include_trace_data);
 
 /*
 ** MR_dump_nondet_stack_from_layout:
@@ -62,8 +65,7 @@ extern	const char	*MR_dump_stack_from_layout(FILE *fp,
 **	The value of maxfr should be in *base_maxfr.
 */
 
-extern	void		MR_dump_nondet_stack_from_layout(FILE *fp,
-				Word *base_maxfr);
+extern	void	MR_dump_nondet_stack_from_layout(FILE *fp, Word *base_maxfr);
 
 /*
 ** MR_find_nth_ancestor:
@@ -81,9 +83,39 @@ extern	void		MR_dump_nondet_stack_from_layout(FILE *fp,
 */
 
 extern	const MR_Stack_Layout_Label *MR_find_nth_ancestor(
-				const MR_Stack_Layout_Label *label_layout,
-				int ancestor_level, Word **stack_trace_sp,
-				Word **stack_trace_curfr, const char **problem);
+			const MR_Stack_Layout_Label *label_layout,
+			int ancestor_level, Word **stack_trace_sp,
+			Word **stack_trace_curfr, const char **problem);
+
+/*
+** MR_stack_walk_step:
+**	This function takes the entry_layout for the current stack
+**	frame (which is the topmost stack frame from the two stack
+**	pointers given), and moves down one stack frame, setting the
+**	stack pointers to their new levels. 
+**      
+**	return_label_layout will be set to the stack_layout of the
+**	continuation label, or NULL if the bottom of the stack has
+**	been reached.
+**
+**	The meaning of the return value for MR_stack_walk_step is
+**	described in its type definition above.  If an error is
+**	encountered, problem_ptr will be set to a string representation
+**	of the error.
+*/
+
+typedef enum {
+	STEP_ERROR_BEFORE,      /* the current entry_layout has no valid info */
+	STEP_ERROR_AFTER,       /* the current entry_layout has valid info,
+				   but the next one does not */
+	STEP_OK                 /* both have valid info */
+} MR_Stack_Walk_Step_Result;
+
+extern  MR_Stack_Walk_Step_Result
+MR_stack_walk_step(const MR_Stack_Layout_Entry *entry_layout,
+		const MR_Stack_Layout_Label **return_label_layout,
+		Word **stack_trace_sp_ptr, Word **stack_trace_curfr_ptr,
+		const char **problem_ptr);
 
 /*
 ** MR_stack_trace_bottom should be set to the address of global_success,
@@ -102,34 +134,20 @@ Code	*MR_stack_trace_bottom;
 
 Word	*MR_nondet_stack_trace_bottom;
 
-
-typedef        enum {
-	STEP_ERROR_BEFORE,      /* the current entry_layout has no valid info */
-	STEP_ERROR_AFTER,       /* the current entry_layout has valid info,
-				   but the next one does not */
-	STEP_OK                 /* both have valid info */
-} MR_Stack_Walk_Step_Result;
-
 /*
-** MR_stack_walk_step:
-**	This function takes the entry_layout for the current stack
-**	frame (which is the topmost stack frame from the two stack
-**	pointers given), and moves down one stack frame, setting the
-**	stack pointers to their new levels. 
-**      
-**	return_label_layout will be set to the stack_layout of the
-**	continuation label, or NULL if the bottom of the stack has
-**	been reached.
+** MR_print_proc_id prints an identification of the given procedure,
+** consisting of "pred" or "func", module name, pred or func name, arity,
+** mode number and determinism, followed by an optional extra string,
+** and a newline.
 **
-**	The meaning of the return value for MR_stack_walk_step is
-**	described in its type definiton above.  If an error is
-**	encountered, problem_ptr will be set to a string representation
-**	of the error.
+** If the procedure has trace layout information and the relevant one of
+** base_sp and base_curfr is not NULL, it also prints the call event number,
+** call sequence number and call depth of the call.
 */
-extern  MR_Stack_Walk_Step_Result
-MR_stack_walk_step(const MR_Stack_Layout_Entry *entry_layout,
-		const MR_Stack_Layout_Label **return_label_layout,
-		Word **stack_trace_sp_ptr, Word **stack_trace_curfr_ptr,
-		const char **problem_ptr);
+
+extern	void	MR_print_proc_id_for_debugger(
+			const MR_Stack_Layout_Entry *entry);
+extern	void	MR_print_proc_id(FILE *fp, const MR_Stack_Layout_Entry *entry,
+			const char *extra, Word *base_sp, Word *base_curfr);
 
 #endif /* MERCURY_STACK_TRACE_H */

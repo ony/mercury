@@ -119,7 +119,7 @@
 
 :- implementation.
 
-:- import_module prog_data, det_report.
+:- import_module prog_data, det_report, purity.
 :- import_module type_util, modecheck_call, mode_util, options, passes_aux.
 :- import_module hlds_out, mercury_to_mercury.
 :- import_module assoc_list, bool, map, set, require, term.
@@ -294,10 +294,14 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 	goal_info_get_nonlocals(GoalInfo0, NonLocalVars),
 	goal_info_get_instmap_delta(GoalInfo0, DeltaInstMap),
 
-	% If a goal has no output variables, then the goal is in
-	% single-solution context
+	% If a pure or semipure goal has no output variables,
+	% then the goal is in single-solution context
 
-	( det_no_output_vars(NonLocalVars, InstMap0, DeltaInstMap, DetInfo) ->
+	(
+		det_no_output_vars(NonLocalVars, InstMap0, DeltaInstMap,
+			DetInfo),
+		\+ goal_info_is_impure(GoalInfo0)
+	->
 		OutputVars = no,
 		SolnContext = first_soln
 	;
@@ -323,7 +327,8 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 	determinism_components(InternalDetism, InternalCanFail, InternalSolns),
 
 	(
-		% If a goal with multiple solutions has no output variables,
+		% If a pure or semipure goal with multiple solutions
+		% has no output variables,
 		% then it really it has only one solution
 		% (we will need to do pruning)
 
@@ -378,7 +383,7 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 %-----------------------------------------------------------------------------%
 
 :- pred det_infer_goal_2(hlds_goal_expr, hlds_goal_info, instmap,
-	soln_context, det_info, set(var), instmap_delta,
+	soln_context, det_info, set(prog_var), instmap_delta,
 	hlds_goal_expr, determinism, list(det_msg)).
 :- mode det_infer_goal_2(in, in, in, in, in, in, in, out, out, out) is det.
 
@@ -780,8 +785,15 @@ det_infer_disj([Goal0 | Goals0], InstMap0, SolnContext, DetInfo, CanFail0,
 	determinism_components(Detism1, CanFail1, MaxSolns1),
 	det_disjunction_canfail(CanFail0, CanFail1, CanFail2),
 	det_disjunction_maxsoln(MaxSolns0, MaxSolns1, MaxSolns2),
+	% if we're in a single-solution context,
+	% convert `at_most_many' to `at_most_many_cc'
+	( SolnContext = first_soln, MaxSolns2 = at_most_many ->
+		MaxSolns3 = at_most_many_cc
+	;
+		MaxSolns3 = MaxSolns2
+	),
 	det_infer_disj(Goals0, InstMap0, SolnContext, DetInfo, CanFail2,
-		MaxSolns2, Goals1, Detism, Msgs2),
+		MaxSolns3, Goals1, Detism, Msgs2),
 	list__append(Msgs1, Msgs2, Msgs).
 
 :- pred det_infer_switch(list(case), instmap, soln_context, det_info,
@@ -850,7 +862,7 @@ det_find_matching_non_cc_mode_2([ProcId1 - ProcInfo | Rest],
 
 %-----------------------------------------------------------------------------%
 
-:- pred det_check_for_noncanonical_type(var, bool, can_fail, soln_context,
+:- pred det_check_for_noncanonical_type(prog_var, bool, can_fail, soln_context,
 		hlds_goal_info, cc_unify_context, det_info, list(det_msg),
 		soln_count, list(det_msg)).
 :- mode det_check_for_noncanonical_type(in, in, in, in,
@@ -896,7 +908,7 @@ det_check_for_noncanonical_type(Var, ExaminesRepresentation, CanFail,
 % return true iff there was a `where equality is <predname>' declaration
 % for the specified type.
 :- pred det_type_has_user_defined_equality_pred(det_info::in, (type)::in,
-		term__context::out) is semidet.
+		prog_context::out) is semidet.
 det_type_has_user_defined_equality_pred(DetInfo, Type, TypeContext) :-
 	det_info_get_module_info(DetInfo, ModuleInfo),
 	module_info_types(ModuleInfo, TypeTable),

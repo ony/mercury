@@ -226,23 +226,29 @@
 **
 ** Also intended for use in handwritten C code.
 **
-** Note that TYPELAYOUT_UNASSIGNED_VALUE is not yet
+** Note that MR_TYPELAYOUT_UNASSIGNED_VALUE is not yet
 ** used for anything.
+**
+** Changes in this type may need to be reflected in
+** compiler/base_type_layout.m.
 **
 */
 
-#define TYPELAYOUT_UNASSIGNED_VALUE	((Integer) 0)
-#define TYPELAYOUT_UNUSED_VALUE		((Integer) 1)
-#define TYPELAYOUT_STRING_VALUE		((Integer) 2)
-#define TYPELAYOUT_FLOAT_VALUE		((Integer) 3)
-#define TYPELAYOUT_INT_VALUE		((Integer) 4)
-#define TYPELAYOUT_CHARACTER_VALUE	((Integer) 5)
-#define TYPELAYOUT_UNIV_VALUE		((Integer) 6)
-#define TYPELAYOUT_PREDICATE_VALUE	((Integer) 7)
-#define TYPELAYOUT_VOID_VALUE		((Integer) 8)
-#define TYPELAYOUT_ARRAY_VALUE		((Integer) 9)
-#define TYPELAYOUT_TYPEINFO_VALUE	((Integer) 10)
-#define TYPELAYOUT_C_POINTER_VALUE	((Integer) 11)
+enum MR_TypeLayoutValue {
+	MR_TYPELAYOUT_UNASSIGNED_VALUE,
+	MR_TYPELAYOUT_UNUSED_VALUE,
+	MR_TYPELAYOUT_STRING_VALUE,
+	MR_TYPELAYOUT_FLOAT_VALUE,
+	MR_TYPELAYOUT_INT_VALUE,
+	MR_TYPELAYOUT_CHARACTER_VALUE,
+	MR_TYPELAYOUT_UNIV_VALUE,
+	MR_TYPELAYOUT_PREDICATE_VALUE,
+	MR_TYPELAYOUT_VOID_VALUE,
+	MR_TYPELAYOUT_ARRAY_VALUE,
+	MR_TYPELAYOUT_TYPEINFO_VALUE,
+	MR_TYPELAYOUT_C_POINTER_VALUE,
+	MR_TYPELAYOUT_TYPECLASSINFO_VALUE
+};
 
 /* 
 ** Highest allowed type variable number
@@ -613,7 +619,8 @@ typedef struct {
 	((MR_TypeLayout_ComplicatedVector *) (Vector))->num_sharers
 
 #define MR_TYPELAYOUT_COMPLICATED_VECTOR_GET_SIMPLE_VECTOR(Vector, N) 	\
-	( (&((MR_TypeLayout_ComplicatedVector *)(Vector))->simple_vector1) [N] )
+	( (Word *) strip_tag((&((MR_TypeLayout_ComplicatedVector *)	\
+		(Vector))->simple_vector1) [N]) )
 		
 	/* 
 	** Macros for dealing with no_tag vectors 
@@ -818,7 +825,8 @@ enum MR_DataRepresentation {
 	MR_DATAREP_ARRAY,
 	MR_DATAREP_TYPEINFO,
 	MR_DATAREP_C_POINTER,
-	MR_DATAREP_UNKNOWN
+	MR_DATAREP_UNKNOWN,
+	MR_DATAREP_TYPECLASSINFO
 };
 
 /*

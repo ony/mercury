@@ -27,7 +27,6 @@ ENDINIT
 **	various cleanups that are needed to terminate cleanly.
 */
 
-#define		MR_STACK_TRACE_THIS_MODULE
 #include	"mercury_imp.h"
 
 #include	<stdio.h>
@@ -138,8 +137,13 @@ void	(*MR_library_initializer)(void);
 		/* normally ML_io_init_state (io__init_state/2)*/
 void	(*MR_library_finalizer)(void);
 		/* normally ML_io_finalize_state (io__finalize_state/2) */
-Code	*MR_library_trace_browser;
-		/* normally mercury__io__print_3_0 (io__print/3) */
+
+void	(*MR_io_stderr_stream)(Word *);
+void	(*MR_io_stdout_stream)(Word *);
+void	(*MR_io_stdin_stream)(Word *);
+void	(*MR_io_print_to_cur_stream)(Word, Word);
+void	(*MR_io_print_to_stream)(Word, Word, Word);
+
 void	(*MR_DI_output_current_ptr)(Integer, Integer, Integer, Word, String,
 		String, Integer, Integer, Integer, Word, String, Word, Word);
 		/* normally ML_DI_output_current (output_current/13) */
@@ -148,8 +152,17 @@ bool	(*MR_DI_found_match)(Integer, Integer, Integer, Word, String, String,
 		/* normally ML_DI_found_match (output_current/12) */
 void	(*MR_DI_read_request_from_socket)(Word, Word *, Integer *);
 
-void	(*MR_trace_func_ptr)(const MR_Stack_Layout_Label *, MR_trace_port,
-		Word, Word, const char *, int);
+/*
+** This variable has been replaced by MR_io_print_to_*_stream,
+** but the installed mkinit executable may still generate references to it.
+** We must therefore keep it until all obsolete mkinit executables have
+** been retired.
+*/
+
+Code	*MR_library_trace_browser;
+
+Code	*(*MR_trace_func_ptr)(const MR_Stack_Layout_Label *, MR_Trace_Port,
+		Unsigned, Unsigned, const char *, int);
 
 #ifdef USE_GCC_NONLOCAL_GOTOS
 
@@ -910,16 +923,11 @@ Declare_label(global_success);
 Declare_label(global_fail);
 Declare_label(all_done);
 
-MR_MAKE_STACK_LAYOUT_ENTRY(do_interpreter)
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(global_success, do_interpreter)
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(global_fail, do_interpreter)
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(all_done, do_interpreter)
-
 BEGIN_MODULE(interpreter_module)
-	init_entry(do_interpreter);
-	init_label_sl(global_success);
-	init_label_sl(global_fail);
-	init_label_sl(all_done);
+	init_entry_ai(do_interpreter);
+	init_label_ai(global_success);
+	init_label_ai(global_fail);
+	init_label_ai(all_done);
 BEGIN_CODE
 
 Define_entry(do_interpreter);

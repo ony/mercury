@@ -30,7 +30,7 @@
 
 :- import_module hlds_goal, hlds_module, hlds_pred, det_report, det_util.
 :- import_module common, instmap, globals.
-:- import_module io, bool, list, map, term, varset.
+:- import_module io, bool, list, map.
 
 :- pred simplify__pred(list(simplification), pred_id, module_info, module_info,
 	pred_info, pred_info, int, int, io__state, io__state).
@@ -70,7 +70,7 @@
 :- implementation.
 
 :- import_module code_aux, det_analysis, follow_code, goal_util, const_prop.
-:- import_module hlds_module, hlds_data, (inst), inst_match.
+:- import_module hlds_module, hlds_data, (inst), inst_match, varset.
 :- import_module options, passes_aux, prog_data, mode_util, type_util.
 :- import_module code_util, quantification, modes, purity, pd_cost.
 :- import_module set, require, std_util, int.
@@ -223,22 +223,41 @@ simplify__do_process_goal(Goal0, Goal, Info0, Info) :-
 		% In the alias branch this is necessary anyway.
 		RecomputeAtomic = yes,
 
-		simplify_info_get_module_info(Info3, ModuleInfo1),
+		simplify_info_get_module_info(Info3, ModuleInfo3),
 		recompute_instmap_delta(RecomputeAtomic, Goal2, Goal3,
-			InstMap0, ModuleInfo1, ModuleInfo),
-		simplify_info_set_module_info(Info3, ModuleInfo, Info)
+			InstMap0, ModuleInfo3, ModuleInfo4),
+		simplify_info_set_module_info(Info3, ModuleInfo4, Info4)
 	;
 		Goal3 = Goal1,
-		Info = Info1
+		Info4 = Info1
 	),
-	( simplify_info_rerun_det(Info) ->
+	( simplify_info_rerun_det(Info4) ->
 		Goal0 = _ - GoalInfo0,
 		goal_info_get_determinism(GoalInfo0, Det),
 		det_get_soln_context(Det, SolnContext),
+
+		% det_infer_goal looks up the proc_info in the module_info
+		% for the vartypes, so we'd better stick them back in the
+		% module_info.
+		simplify_info_get_module_info(Info4, ModuleInfo5),
+		simplify_info_get_varset(Info4, VarSet4),
+		simplify_info_get_var_types(Info4, VarTypes4),
+		simplify_info_get_det_info(Info4, DetInfo4),
+		det_info_get_pred_id(DetInfo4, PredId),
+		det_info_get_proc_id(DetInfo4, ProcId),
+		module_info_pred_proc_info(ModuleInfo5, PredId, ProcId,
+			PredInfo, ProcInfo0),
+		proc_info_set_vartypes(ProcInfo0, VarTypes4, ProcInfo1),
+		proc_info_set_varset(ProcInfo1, VarSet4, ProcInfo),
+		module_info_set_pred_proc_info(ModuleInfo5, PredId, ProcId,
+			PredInfo, ProcInfo, ModuleInfo6),
+		simplify_info_set_module_info(Info4, ModuleInfo6, Info),
+
 		simplify_info_get_det_info(Info, DetInfo),
 		det_infer_goal(Goal3, InstMap0, SolnContext,
 			DetInfo, Goal, _, _)
 	;
+		Info = Info4,
 		Goal = Goal3
 	).
 
@@ -989,8 +1008,8 @@ simplify__goal_2(Goal0, GoalInfo, Goal, GoalInfo, Info0, Info) :-
 	% in HeadVars.  HeadVars, Modes, and Args should all be lists of
 	% the same length.
 
-:- pred simplify__input_args_are_equiv(list(var), list(var), list(mode),
-	common_info, module_info).
+:- pred simplify__input_args_are_equiv(list(prog_var), list(prog_var),
+		list(mode), common_info, module_info).
 :- mode simplify__input_args_are_equiv(in, in, in, in, in) is semidet.
 
 simplify__input_args_are_equiv([], [], _, _, _).
@@ -1007,8 +1026,8 @@ simplify__input_args_are_equiv([Arg|Args], [HeadVar|HeadVars], [Mode|Modes],
 %-----------------------------------------------------------------------------%
 
 	% replace nested `some's with a single `some',
-:- pred simplify__nested_somes(list(var)::in, hlds_goal::in,
-		list(var)::out, hlds_goal::out) is det.
+:- pred simplify__nested_somes(list(prog_var)::in, hlds_goal::in,
+		list(prog_var)::out, hlds_goal::out) is det.
 
 simplify__nested_somes(Vars0, Goal0, Vars, Goal) :-
 	( Goal0 = some(Vars1, Goal1) - _ ->
@@ -1186,7 +1205,7 @@ simplify__excess_assigns(Goal0, ConjInfo, Goals0, Goals,
 
 %-----------------------------------------------------------------------------%
 
-:- pred simplify__switch(var, list(case), list(case), list(case), 
+:- pred simplify__switch(prog_var, list(case), list(case), list(case), 
 		list(instmap_delta), list(instmap_delta), can_fail, can_fail,
 		simplify_info, simplify_info, simplify_info).
 :- mode simplify__switch(in, in, in, out, in, out, in, out,
@@ -1242,7 +1261,7 @@ simplify__switch(Var, [Case0 | Cases0], RevCases0, Cases, InstMaps0, InstMaps,
 
 	% Create a semidet unification at the start of a singleton case
 	% in a can_fail switch.
-:- pred simplify__create_test_unification(var::in, cons_id::in, int::in,
+:- pred simplify__create_test_unification(prog_var::in, cons_id::in, int::in,
 		hlds_goal::out, simplify_info::in, simplify_info::out) is det.
 
 simplify__create_test_unification(Var, ConsId, ConsArity,
@@ -1480,8 +1499,8 @@ simplify__contains_multisoln_goal(Goals) :-
 			set(simplification),
 			common_info,	% Info about common subexpressions.
 			instmap,
-			varset,
-			map(var, type),
+			prog_varset,
+			map(prog_var, type),
 			bool,		% Does the goal need requantification.
 			bool,		% Do we need to recompute
 					% instmap_deltas for atomic goals
@@ -1519,7 +1538,7 @@ simplify_info_reinit(Simplifications, InstMap0, Info0, Info) :-
 :- import_module set.
 
 :- pred simplify_info_init(det_info, list(simplification), instmap,
-		varset, map(var, type), simplify_info).
+		prog_varset, map(prog_var, type), simplify_info).
 :- mode simplify_info_init(in, in, in, in, in, out) is det.
 
 :- pred simplify_info_get_det_info(simplify_info::in, det_info::out) is det.
@@ -1529,9 +1548,9 @@ simplify_info_reinit(Simplifications, InstMap0, Info0, Info) :-
 		set(simplification)::out) is det.
 :- pred simplify_info_get_common_info(simplify_info::in,
 		common_info::out) is det.
-:- pred simplify_info_get_varset(simplify_info::in, varset::out) is det.
+:- pred simplify_info_get_varset(simplify_info::in, prog_varset::out) is det.
 :- pred simplify_info_get_var_types(simplify_info::in,
-		map(var, type)::out) is det.
+		map(prog_var, type)::out) is det.
 :- pred simplify_info_requantify(simplify_info::in) is semidet.
 :- pred simplify_info_recompute_atomic(simplify_info::in) is semidet.
 :- pred simplify_info_rerun_det(simplify_info::in) is semidet.
@@ -1575,9 +1594,9 @@ simplify_info_get_module_info(Info, ModuleInfo) :-
 		instmap::in, simplify_info::out) is det.
 :- pred simplify_info_set_common_info(simplify_info::in, common_info::in,
 		simplify_info::out) is det.
-:- pred simplify_info_set_varset(simplify_info::in, varset::in,
+:- pred simplify_info_set_varset(simplify_info::in, prog_varset::in,
 		simplify_info::out) is det.
-:- pred simplify_info_set_var_types(simplify_info::in, map(var, type)::in,
+:- pred simplify_info_set_var_types(simplify_info::in, map(prog_var, type)::in,
 		simplify_info::out) is det.
 :- pred simplify_info_set_requantify(simplify_info::in,
 		simplify_info::out) is det.

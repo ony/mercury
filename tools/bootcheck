@@ -72,10 +72,15 @@ keep_stage_2=false
 keep_stage_3=false
 keep_stage_2_sicstus=false
 test_sicstus=false
-use_subdirs=${MMAKE_USE_SUBDIRS=no}
+if [ -d compiler/Mercury ]; then
+	use_subdirs=${MMAKE_USE_SUBDIRS=yes}
+else
+	use_subdirs=${MMAKE_USE_SUBDIRS=no}
+fi
 
 # If you change these, you will also need to change scripts/ml.in,
-# scripts/c2init.in and Mmake.common.in.
+# scripts/c2init.in, Mmake.common.in, tools/binary, tools/binary_step
+# and tools/linear.
 RT_LIB_NAME=mer_rt
 STD_LIB_NAME=mer_std
 TRACE_LIB_NAME=mer_trace
@@ -173,7 +178,7 @@ export MMAKE_USE_SUBDIRS
 
 # Turn off the debugger, since accidentally leaving it on will result
 # in user interaction every time we any any version of the compiler
-# that wwas compiled with tracing. This has happened to me accidentally 
+# that was compiled with tracing. This has happened to me accidentally 
 # one too many times - zs.
 if echo $MERCURY_OPTIONS | grep '\-Di' > /dev/null
 then
@@ -885,8 +890,19 @@ then
 		export PATH
 	fi
 
+	# We need to give tests/debugger access to the mdbrc and mdb_doc
+	# files in the doc and scripts directories, without hardcoding their
+	# pathnames. We must also compensate for scripts/mdbrc having hardcoded
+	# within it the *installed* pathname of mdb_doc and not its current
+	# pathname.
+	cat $root/doc/mdb_doc > $root/scripts/test_mdbrc
+	sed -e '/^source/d' $root/scripts/mdbrc >> $root/scripts/test_mdbrc
+	MERCURY_DEBUGGER_INIT=$root/scripts/test_mdbrc
+	export MERCURY_DEBUGGER_INIT
+
 	if test -d ../tests
 	then
+		cp $root/doc/mdb_command_test.inp ../tests/debugger
 		if test "$testdir" = ""
 		then
 			cd ../tests
@@ -899,6 +915,7 @@ then
 		cd $root
 	elif test -d tests
 	then
+		cp $root/doc/mdb_command_test.inp tests/debugger
 		if test "$testdir" = ""
 		then
 			cd tests

@@ -206,7 +206,8 @@
 		% computing term_contexts, for use e.g. in error messages).
 		% Offsets start at zero.
 
-:- pred io__read_from_string(string, string, int, io__read_result(T), posn, posn).
+:- pred io__read_from_string(string, string, int, io__read_result(T),
+				posn, posn).
 :- mode io__read_from_string(in, in, in, out, in, out) is det.
 % mode io__read_from_string(FileName, String, MaxPos, Result, Posn0, Posn):
 %		Same as io__read/4 except that it reads from
@@ -1029,12 +1030,17 @@
 :- pred io__set_op_table(ops__table, io__state, io__state).
 :- mode io__set_op_table(di, di, uo) is det.
 
+% For use by browser/browse.m:
+
+:- pred io__write_univ(univ, io__state, io__state).
+:- mode io__write_univ(in, di, uo) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 :- import_module map, dir, term, term_io, varset, require, benchmarking, array.
-:- import_module int, std_util, parser.
+:- import_module int, parser.
 
 :- type io__state ---> io__state(c_pointer).
 	% Values of type `io__state' are never really used:
@@ -1540,7 +1546,7 @@ io__check_err(Stream, Res) -->
 		/* just have to alloc and copy */
 		incr_hp_atomic(Buffer,
 		   (NewSize * sizeof(Char) + sizeof(Word) - 1) / sizeof(Word));
-		buffer = (Char *) buffer;
+		buffer = (Char *) Buffer;
 		if (OldSize > NewSize) {
 			memcpy(buffer, buffer0, NewSize);
 		} else {
@@ -1736,10 +1742,14 @@ io__write_many( Stream, [ f(F) | Rest ]) -->
 	io__write_float(Stream, F),
 	io__write_many(Stream, Rest).
 
+:- pragma export(io__print(in, in, di, uo), "ML_io_print_to_stream").
+
 io__print(Stream, Term) -->
 	io__set_output_stream(Stream, OrigStream),
 	io__print(Term),
 	io__set_output_stream(OrigStream, _Stream).
+
+:- pragma export(io__print(in, di, uo), "ML_io_print_to_cur_stream").
 
 io__print(Term) -->
 	% `string', `char' and `univ' are special cases for io__print
@@ -1782,12 +1792,11 @@ io__write(Stream, X) -->
 	io__write(X),
 	io__set_output_stream(OrigStream, _Stream).
 
+%-----------------------------------------------------------------------------%
+
 io__write(Term) -->
 	{ type_to_univ(Term, Univ) },
 	io__write_univ(Univ).
-
-:- pred io__write_univ(univ, io__state, io__state).
-:- mode io__write_univ(in, di, uo) is det.
 
 io__write_univ(Univ) -->
 	{ ops__max_priority(MaxPriority) },
@@ -1801,6 +1810,7 @@ io__write_univ(Univ, Priority) -->
 	% we need to special-case the builtin types:
 	%	int, char, float, string
 	%	type_info, univ, c_pointer, array
+	%	and private_builtin:type_info
 	%
 	( { univ_to_type(Univ, String) } ->
 		term_io__quote_string(String)
@@ -1811,64 +1821,69 @@ io__write_univ(Univ, Priority) -->
 	; { univ_to_type(Univ, Float) } ->
 		io__write_float(Float)
 	; { univ_to_type(Univ, TypeInfo) } ->
-		io__write_string(type_name(TypeInfo))
+		io__write_type_info(TypeInfo)
 	; { univ_to_type(Univ, OrigUniv) } ->
 		io__write_univ_as_univ(OrigUniv)
 	; { univ_to_type(Univ, C_Pointer) } ->
 		io__write_c_pointer(C_Pointer)
-	; { type_ctor_name(type_ctor(univ_type(Univ))) = "type_info" },
-	  { type_ctor_module_name(type_ctor(univ_type(Univ))) =
-			"private_builtin" } ->
-	  	% XXX This is a hack (see the comment for array below).
-		{ TypeInfo = unsafe_cast(univ_value_as_type_any(Univ)) },
-		io__write_string(type_name(TypeInfo))
-	; { type_ctor_name(type_ctor(univ_type(Univ))) = "array" },
-	  { type_ctor_module_name(type_ctor(univ_type(Univ))) = "array" } ->
-		%
-		% Note that we can't use univ_to_type above, because we
-		% want to match on a non-ground type `array(T)'
-		% (matching against `array(void)' isn't much use).
-		% Instead, we explicitly check the type name.
-		% That makes it tricky to get the value, so
-		% we can't use io__write_array below... instead we
-		% use the following, which is a bit of a hack.
-		%
-		{ term__univ_to_term(Univ, Term) },
-		{ varset__init(VarSet) },
-		term_io__write_term(VarSet, Term)
 	;
+		%
+		% Check if the type is array:array/1.
+		% We can't just use univ_to_type here since 
+		% array:array/1 is a polymorphic type.
+		%
+		% The calls to type_ctor_name and type_ctor_module_name
+		% are not really necessary -- we could use univ_to_type
+		% in the condition instead of det_univ_to_type in the body.
+		% However, this way of doing things is probably more efficient
+		% in the common case when the thing being printed is
+		% *not* of type array:array/1.
+		%
+		% The ordering of the tests here (arity, then name, then
+		% module name, rather than the reverse) is also chosen
+		% for efficiency, to find failure cheaply in the common cases,
+		% rather than for readability.
+		%
+		{ type_ctor_and_args(univ_type(Univ), TypeCtor, ArgTypes) },
+		{ ArgTypes = [ElemType] },
+		{ type_ctor_name(TypeCtor) = "array" },
+		{ type_ctor_module_name(TypeCtor) = "array" }
+	->
+		%
+		% Now that we know the element type, we can
+		% constrain the type of the variable `Array'
+		% so that we can use det_univ_to_type.
+		%
+		{ has_type(Elem, ElemType) },
+		{ same_array_elem_type(Array, Elem) },
+		{ det_univ_to_type(Univ, Array) },
+		io__write_array(Array)
+	; 
+		%
+		% Check if the type is private_builtin:type_info/1.
+		% See the comments above for array:array/1.
+		%
+		{ type_ctor_and_args(univ_type(Univ), TypeCtor, ArgTypes) },
+		{ ArgTypes = [ElemType] },
+		{ type_ctor_name(TypeCtor) = "type_info" },
+		{ type_ctor_module_name(TypeCtor) = "private_builtin" }
+	->
+		{ has_type(Elem, ElemType) },
+		{ same_private_builtin_type(PrivateBuiltinTypeInfo, Elem) },
+		{ det_univ_to_type(Univ, PrivateBuiltinTypeInfo) },
+		io__write_private_builtin_type_info(PrivateBuiltinTypeInfo)
+	; 
 		io__write_ordinary_term(Univ, Priority)
 	).
 
-	% XXX These two functions and the type definition 
-	% are just temporary, they are used for the
-	% horrible hack above.
+:- pred same_array_elem_type(array(T), T).
+:- mode same_array_elem_type(unused, unused) is det.
+same_array_elem_type(_, _).
 
-:- func unsafe_cast(T1::in) = (T2::out) is det.
-:- pragma c_code(unsafe_cast(VarIn::in) = (VarOut::out),
-	[will_not_call_mercury, thread_safe], "
-	VarOut = VarIn;
-").
+:- pred same_private_builtin_type(private_builtin__type_info(T), T).
+:- mode same_private_builtin_type(unused, unused) is det.
+same_private_builtin_type(_, _).
 
-:- type any == c_pointer.
-
-:- func univ_value_as_type_any(univ) = any.
-:- pragma c_code(univ_value_as_type_any(Univ::in) = (Val::out),
-	[will_not_call_mercury, thread_safe], "
-	Val = field(mktag(0), Univ, UNIV_OFFSET_FOR_DATA);
-").
-
-
-:- pred io__write_univ_as_univ(univ, io__state, io__state).
-:- mode io__write_univ_as_univ(in, di, uo) is det.
-
-io__write_univ_as_univ(Univ) -->
-	io__write_string("univ("),
-	io__write_univ(Univ),
-	% XXX what is the right TYPE_QUAL_OP to use here?
-	io__write_string(" : "),
-	io__write_string(type_name(univ_type(Univ))),
-	io__write_string(")").
 
 :- pred io__write_ordinary_term(univ, ops__priority, io__state, io__state).
 :- mode io__write_ordinary_term(in, in, di, uo) is det.
@@ -1961,7 +1976,8 @@ io__write_ordinary_term(Term, Priority) -->
 			term_io__quote_atom(Functor),
 			io__write_char(')')
 		;
-			term_io__quote_atom(Functor)
+			term_io__quote_atom(Functor,
+				maybe_adjacent_to_graphic_token)
 		),
 		(
 			{ Args = [X|Xs] }
@@ -2021,6 +2037,32 @@ io__write_term_args([X|Xs]) -->
 	io__write_univ(X),
 	io__write_term_args(Xs).
 
+%-----------------------------------------------------------------------------%
+
+:- pred io__write_type_info(type_info, io__state, io__state).
+:- mode io__write_type_info(in, di, uo) is det.
+
+io__write_type_info(TypeInfo) -->
+	io__write_string(type_name(TypeInfo)).
+
+:- pred io__write_univ_as_univ(univ, io__state, io__state).
+:- mode io__write_univ_as_univ(in, di, uo) is det.
+
+io__write_univ_as_univ(Univ) -->
+	io__write_string("univ("),
+	io__write_univ(Univ),
+	% XXX what is the right TYPE_QUAL_OP to use here?
+	io__write_string(" : "),
+	io__write_string(type_name(univ_type(Univ))),
+	io__write_string(")").
+
+:- pred io__write_c_pointer(c_pointer, io__state, io__state).
+:- mode io__write_c_pointer(in, di, uo) is det.
+
+io__write_c_pointer(_C_Pointer) -->
+	% XXX what should we do here?
+	io__write_string("'<<c_pointer>>'").
+
 :- pred io__write_array(array(T), io__state, io__state).
 :- mode io__write_array(in, di, uo) is det.
 
@@ -2030,12 +2072,18 @@ io__write_array(Array) -->
 	io__write(List),
 	io__write_string(")").
 
-:- pred io__write_c_pointer(c_pointer, io__state, io__state).
-:- mode io__write_c_pointer(in, di, uo) is det.
+:- pred io__write_private_builtin_type_info(private_builtin__type_info(T)::in,
+		io__state::di, io__state::uo) is det.
+io__write_private_builtin_type_info(PrivateBuiltinTypeInfo) -->
+	{ TypeInfo = unsafe_cast(PrivateBuiltinTypeInfo) },
+	io__write_type_info(TypeInfo).
 
-io__write_c_pointer(_C_Pointer) -->
-	% XXX what should we do here?
-	io__write_string("'<<c_pointer>>'").
+:- func unsafe_cast(T1::in) = (T2::out) is det.
+:- pragma c_code(unsafe_cast(VarIn::in) = (VarOut::out),
+	[will_not_call_mercury, thread_safe],
+"
+	VarOut = VarIn;
+").
 
 %-----------------------------------------------------------------------------%
 
@@ -2201,11 +2249,12 @@ io__told -->
 
 io__tell(File, Result) -->
 	io__open_output(File, Result0),
-	( { Result0 = ok(Stream) } ->
+	(
+		{ Result0 = ok(Stream) },
 		io__set_output_stream(Stream, _),
 		{ Result = ok }
 	;
-		io__make_err_msg("can't open output file: ", Msg),
+		{ Result0 = error(Msg) },
 		{ Result = error(Msg) }
 	).
 
@@ -2216,11 +2265,12 @@ io__told_binary -->
 
 io__tell_binary(File, Result) -->
 	io__open_binary_output(File, Result0),
-	( { Result0 = ok(Stream) } ->
+	(
+		{ Result0 = ok(Stream) },
 		io__set_binary_output_stream(Stream, _),
 		{ Result = ok }
 	;
-		io__make_err_msg("can't open output file: ", Msg),
+		{ Result0 = error(Msg) },
 		{ Result = error(Msg) }
 	).
 
@@ -2454,6 +2504,30 @@ io__get_op_table(OpTable) -->
 	{ ops__init_op_table(OpTable) }.
 
 io__set_op_table(_OpTable) --> [].
+
+%-----------------------------------------------------------------------------%
+
+% For use by the debugger:
+
+:- pred io__get_io_input_stream_type(type_info, io__state, io__state).
+:- mode io__get_io_input_stream_type(out, di, uo) is det.
+
+:- pragma export(io__get_io_input_stream_type(out, di, uo),
+	"ML_io_input_stream_type").
+
+io__get_io_input_stream_type(Type) -->
+	io__stdin_stream(Stream),
+	{ Type = type_of(Stream) }.
+
+:- pred io__get_io_output_stream_type(type_info, io__state, io__state).
+:- mode io__get_io_output_stream_type(out, di, uo) is det.
+
+:- pragma export(io__get_io_output_stream_type(out, di, uo),
+	"ML_io_output_stream_type").
+
+io__get_io_output_stream_type(Type) -->
+	io__stdout_stream(Stream),
+	{ Type = type_of(Stream) }.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -2834,6 +2908,10 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 
 /* stream predicates */
 
+:- pragma export(io__stdin_stream(out, di, uo), "ML_io_stdin_stream").
+:- pragma export(io__stdout_stream(out, di, uo), "ML_io_stdout_stream").
+:- pragma export(io__stderr_stream(out, di, uo), "ML_io_stderr_stream").
+
 :- pragma c_code(io__stdin_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe], "
 	Stream = (Word) &mercury_stdin;
@@ -3177,7 +3255,7 @@ io__make_temp(Name) -->
 
 	len = strlen(Dir) + 1 + 5 + 3 + 1 + 3 + 1;
 		/* Dir + / + Prefix + counter_high + . + counter_low + \\0 */
-	incr_hp_atomic(LVALUE_CAST(Word *, FileName),
+	incr_hp_atomic(LVALUE_CAST(Word, FileName),
 		(len + sizeof(Word)) / sizeof(Word));
 	if (ML_io_tempnam_counter == 0) {
 		ML_io_tempnam_counter = getpid();

@@ -23,11 +23,11 @@
 
 :- import_module hlds_goal, hlds_pred, prog_data.
 :- import_module llds, code_info.
-:- import_module list, std_util, term.
+:- import_module list, std_util.
 
 :- pred pragma_c_gen__generate_pragma_c_code(code_model::in,
 	pragma_c_code_attributes::in, pred_id::in, proc_id::in,
-	list(var)::in, list(maybe(pair(string, mode)))::in, list(type)::in,
+	list(prog_var)::in, list(maybe(pair(string, mode)))::in, list(type)::in,
 	hlds_goal_info::in, pragma_c_code_impl::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
@@ -300,8 +300,8 @@ pragma_c_gen__generate_pragma_c_code(CodeModel, Attributes,
 
 :- pred pragma_c_gen__ordinary_pragma_c_code(code_model::in,
 	pragma_c_code_attributes::in, pred_id::in, proc_id::in,
-	list(var)::in, list(maybe(pair(string, mode)))::in, list(type)::in,
-	string::in, maybe(term__context)::in, code_tree::out,
+	list(prog_var)::in, list(maybe(pair(string, mode)))::in, list(type)::in,
+	string::in, maybe(prog_context)::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
 pragma_c_gen__ordinary_pragma_c_code(CodeModel, Attributes,
@@ -495,11 +495,11 @@ pragma_c_gen__ordinary_pragma_c_code(CodeModel, Attributes,
 
 :- pred pragma_c_gen__nondet_pragma_c_code(code_model::in,
 	pragma_c_code_attributes::in, pred_id::in, proc_id::in,
-	list(var)::in, list(maybe(pair(string, mode)))::in, list(type)::in,
-	string::in, maybe(term__context)::in,
-	string::in, maybe(term__context)::in,
-	string::in, maybe(term__context)::in, pragma_shared_code_treatment::in,
-	string::in, maybe(term__context)::in, code_tree::out,
+	list(prog_var)::in, list(maybe(pair(string, mode)))::in, list(type)::in,
+	string::in, maybe(prog_context)::in,
+	string::in, maybe(prog_context)::in,
+	string::in, maybe(prog_context)::in, pragma_shared_code_treatment::in,
+	string::in, maybe(prog_context)::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
 pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
@@ -524,14 +524,15 @@ pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
 	{ output_descs_from_arg_info(OutArgs, OutputDescs) },
 
 	code_info__get_module_info(ModuleInfo),
-	{ predicate_module(ModuleInfo, PredId, ModuleName) },
-	{ predicate_name(ModuleInfo, PredId, PredName) },
-	{ predicate_arity(ModuleInfo, PredId, Arity) },
+	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
+	{ pred_info_module(PredInfo, ModuleName) },
+	{ pred_info_name(PredInfo, PredName) },
+	{ pred_info_arity(PredInfo, Arity) },
 	{ pragma_c_gen__struct_name(ModuleName, PredName, Arity, ProcId,
 		StructName) },
 	{ SaveStructDecl = pragma_c_struct_ptr_decl(StructName, "LOCALS") },
 	{ string__format("\tLOCALS = (struct %s *) (
-		(char *) (curfr - MR_ORDINARY_SLOTS - NONDET_FIXED_SIZE)
+		(char *) (curfr - MR_ORDINARY_SLOTS - MR_NONDET_FIXED_SIZE)
 		- sizeof(struct %s));\n",
 		[s(StructName), s(StructName)],
 		InitSaveStruct) },
@@ -606,6 +607,11 @@ pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
 			% is small enough for its duplication not to have
 			% a significant effect on code size. (This form
 			% generates slightly faster code.)
+			% However, if `pragma no_inline' is specified,
+			% then we don't duplicate the code unless the
+			% programmer asked for it -- the code may contain
+			% static variable declarations, so duplicating it
+			% could change the semantics.
 
 			% We use the number of semicolons in the code
 			% as an indication how many C statements it has
@@ -614,6 +620,7 @@ pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
 			Treat = duplicate
 		;
 			Treat = automatic,
+			\+ pred_info_requested_no_inlining(PredInfo),
 			CountSemis = lambda([Char::in, Count0::in, Count::out]
 				is det,
 				( Char = (;) ->
@@ -806,7 +813,7 @@ pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
 
 :- type c_arg
 	--->	c_arg(
-			var,
+			prog_var,
 			maybe(string),	% name
 			type,		% original type before
 					% inlining/specialization
@@ -816,7 +823,7 @@ pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
 			arg_info
 		).
 
-:- pred make_c_arg_list(list(var)::in, list(maybe(pair(string, mode)))::in,
+:- pred make_c_arg_list(list(prog_var)::in, list(maybe(pair(string, mode)))::in,
 		list(type)::in, list(arg_info)::in, list(c_arg)::out) is det.
 
 make_c_arg_list(Vars, ArgDatas, Types, ArgInfos, ArgList) :-
@@ -847,7 +854,7 @@ make_c_arg_list(Vars, ArgDatas, Types, ArgInfos, ArgList) :-
 		error("pragma_c_gen:make_c_arg_list - length mismatch")
 	).
 
-:- pred get_c_arg_list_vars(list(c_arg)::in, list(var)::out) is det.
+:- pred get_c_arg_list_vars(list(c_arg)::in, list(prog_var)::out) is det.
 
 get_c_arg_list_vars([], []).
 get_c_arg_list_vars([Arg | Args], [Var | Vars]) :-

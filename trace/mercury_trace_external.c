@@ -27,6 +27,7 @@
 #include "mercury_trace.h"
 #include "mercury_trace_external.h"
 #include "mercury_trace_util.h"
+#include "mercury_layout_util.h"
 #include <stdio.h>
 #include <errno.h>
 #include <sys/types.h>
@@ -68,11 +69,11 @@ static void	MR_read_request_from_socket(
 			Integer *debugger_request_type_ptr);
 	
 static bool	MR_found_match(const MR_Stack_Layout_Label *layout,
-			MR_trace_port port, Unsigned seqno, Unsigned depth,
+			MR_Trace_Port port, Unsigned seqno, Unsigned depth,
 			/* XXX registers */
 			const char *path, Word search_data);
 static void	MR_output_current_slots(const MR_Stack_Layout_Label *layout,
-			MR_trace_port port, Unsigned seqno, Unsigned depth, 
+			MR_Trace_Port port, Unsigned seqno, Unsigned depth, 
 			const char *path);
 static void	MR_output_current_vars(Word var_list, Word string_list);
 static void	MR_output_current_nth_var(Word var);
@@ -80,9 +81,10 @@ static void	MR_output_current_live_var_names(Word var_names_list,
 						 Word type_list);
 static Word	MR_trace_make_var_names_list(
 			const MR_Stack_Layout_Label *layout);
-static Word	MR_trace_make_type_list(const MR_Stack_Layout_Label *layout);
+static Word	MR_trace_make_type_list(const MR_Stack_Layout_Label *layout,
+			Word *saved_regs);
 static Word	MR_trace_make_nth_var(const MR_Stack_Layout_Label *layout, 
-				      Word debugger_request);
+			Word *saved_regs, Word debugger_request);
 static int	MR_get_var_number(Word debugger_request);
 
 #if 0
@@ -320,9 +322,9 @@ MR_trace_final_external(void)
 }
 
 void
-MR_trace_event_external(MR_trace_cmd_info *cmd, 
-	const MR_Stack_Layout_Label *layout, MR_trace_port port,
-	Unsigned seqno, Unsigned depth, const char *path)
+MR_trace_event_external(MR_Trace_Cmd_Info *cmd, 
+	const MR_Stack_Layout_Label *layout, Word *saved_regs,
+	MR_Trace_Port port, Unsigned seqno, Unsigned depth, const char *path)
 {
 	static bool searching = FALSE;
 	static Word search_data;
@@ -370,9 +372,10 @@ MR_trace_event_external(MR_trace_cmd_info *cmd,
 				}
 				var_names_list = 
 				  MR_trace_make_var_names_list(layout);
-				type_list = MR_trace_make_type_list(layout);
+				type_list = MR_trace_make_type_list(layout,
+						saved_regs);
 				MR_output_current_live_var_names(var_names_list,
-								 type_list);
+					type_list);
 				break;
 
 			case MR_REQUEST_CURRENT_VARS:
@@ -380,7 +383,7 @@ MR_trace_event_external(MR_trace_cmd_info *cmd,
 					fprintf(stderr, "\nMercury runtime: "
 						"REQUEST_CURRENT_VARS\n");
 				}
-				var_list = MR_trace_make_var_list(layout);
+				var_list = MR_make_var_list(layout, saved_regs);
 				var_names_list = 
 				  MR_trace_make_var_names_list(layout);
 				MR_output_current_vars(var_list, 
@@ -392,7 +395,7 @@ MR_trace_event_external(MR_trace_cmd_info *cmd,
 					fprintf(stderr, "\nMercury runtime: "
 						"REQUEST_NTH_CURRENT_VAR\n");
 				}
-				var = MR_trace_make_nth_var(layout, 
+				var = MR_trace_make_nth_var(layout, saved_regs,
 							    debugger_request);
 				MR_output_current_nth_var(var);
 				break;			
@@ -420,46 +423,62 @@ MR_trace_event_external(MR_trace_cmd_info *cmd,
 
 static void
 MR_output_current_slots(const MR_Stack_Layout_Label *layout,
-	MR_trace_port port, Unsigned seqno, Unsigned depth, const char *path)
+	MR_Trace_Port port, Unsigned seqno, Unsigned depth, const char *path)
 {
-	MR_DI_output_current_slots(
+	/*
+	** XXX This function and the Mercury predicates it calls
+	** ought to be generalized to handle inter-module inlining,
+	** and either further generalized to handle compiler-generated
+	** procedures or to explicitly discard events involving
+	** compiler-generated procedures.
+	*/
+
+    MR_TRACE_CALL_MERCURY(
+	ML_DI_output_current_slots(
 		MR_trace_event_number,
 		seqno,
 		depth,
 		port,
-		layout->MR_sll_entry->MR_sle_def_module,
-		layout->MR_sll_entry->MR_sle_name,
-		layout->MR_sll_entry->MR_sle_arity,
-		layout->MR_sll_entry->MR_sle_mode,
+		layout->MR_sll_entry->MR_sle_user.MR_user_def_module,
+		layout->MR_sll_entry->MR_sle_user.MR_user_name,
+		layout->MR_sll_entry->MR_sle_user.MR_user_arity,
+		layout->MR_sll_entry->MR_sle_user.MR_user_mode,
 		layout->MR_sll_entry->MR_sle_detism,
 		(String) (Word) path,
 		(Word) &MR_debugger_socket_out);
+    );
 }
 
 static void
 MR_output_current_vars(Word var_list, Word string_list)
 {
-	MR_DI_output_current_vars(
+    MR_TRACE_CALL_MERCURY(
+	ML_DI_output_current_vars(
 		var_list,
 		string_list,
 		(Word) &MR_debugger_socket_out);
+    );
 }
 
 static void
 MR_output_current_nth_var(Word var)
 {
-	MR_DI_output_current_nth_var(
+    MR_TRACE_CALL_MERCURY(
+	ML_DI_output_current_nth_var(
 		var,
 		(Word) &MR_debugger_socket_out);
+    );
 }
 
 static void
 MR_output_current_live_var_names(Word var_names_list, Word type_list)
 {
-	MR_DI_output_current_live_var_names(
+    MR_TRACE_CALL_MERCURY(
+	ML_DI_output_current_live_var_names(
 		var_names_list,
 		type_list,
 		(Word) &MR_debugger_socket_out);
+    );
 }
 
 static void
@@ -468,36 +487,51 @@ MR_read_request_from_socket(
 			Integer *debugger_request_type_ptr)
 {		
 	fflush(MR_debugger_socket_in.file);
-	MR_DI_read_request_from_socket(
+
+    MR_TRACE_CALL_MERCURY(
+	ML_DI_read_request_from_socket(
 		(Word) &MR_debugger_socket_in, 
 		debugger_request_ptr, 
 		debugger_request_type_ptr);
+    );
 }
  
 
 static bool
 MR_found_match(const MR_Stack_Layout_Label *layout,
-	MR_trace_port port, Unsigned seqno, Unsigned depth,
+	MR_Trace_Port port, Unsigned seqno, Unsigned depth,
 	/* XXX live vars */
 	const char *path, Word search_data)
 {
 	bool result;
 
+	/*
+	** XXX This function and the Mercury predicates it calls
+	** ought to be generalized to handle inter-module inlining,
+	** and either further generalized to handle compiler-generated
+	** procedures or to explicitly discard events involving
+	** compiler-generated procedures.
+	*/
+
 	/* XXX get live vars from registers */
 	Word arguments = /* XXX FIXME!!! */ 0;
-	result = MR_DI_found_match(
+
+    MR_TRACE_CALL_MERCURY(
+	result = ML_DI_found_match(
 		MR_trace_event_number,
 		seqno,
 		depth,
 		port,
-		layout->MR_sll_entry->MR_sle_def_module,
-		layout->MR_sll_entry->MR_sle_name,
-		layout->MR_sll_entry->MR_sle_arity,
-		layout->MR_sll_entry->MR_sle_mode,
+		layout->MR_sll_entry->MR_sle_user.MR_user_def_module,
+		layout->MR_sll_entry->MR_sle_user.MR_user_name,
+		layout->MR_sll_entry->MR_sle_user.MR_user_arity,
+		layout->MR_sll_entry->MR_sle_user.MR_user_mode,
 		layout->MR_sll_entry->MR_sle_detism,
 		arguments,
 		(String) (Word) path,
 		search_data);
+    );
+
 	return result;
 }
 
@@ -513,6 +547,7 @@ MR_send_message_to_socket(const char *message)
 /*
 ** This function returns the list of the internal names of currently live
 ** variables.
+** The memory needed will be allocated on the Mercury heap.
 */
 
 static Word
@@ -528,16 +563,13 @@ MR_trace_make_var_names_list(const MR_Stack_Layout_Label *layout)
 	var_count = layout->MR_sll_var_count;
 	vars = &layout->MR_sll_var_info;
 
-	restore_transient_registers();
+    MR_TRACE_USE_HP(
 	var_names_list = list_empty();
-	save_transient_registers();
 	for (i = var_count - 1; i >= 0; i--) {
-
 		name = MR_name_if_present(vars, i);
-		restore_transient_registers();
 		var_names_list = list_cons(name, var_names_list);
-		save_transient_registers();
 	}
+    );
 
 	return var_names_list;
 }
@@ -545,10 +577,11 @@ MR_trace_make_var_names_list(const MR_Stack_Layout_Label *layout)
 
 /*
 ** This function returns the list of types of currently live variables.
+** The memory needed will be allocated on the Mercury heap.
 */
 
 static Word
-MR_trace_make_type_list(const MR_Stack_Layout_Label *layout)
+MR_trace_make_type_list(const MR_Stack_Layout_Label *layout, Word *saved_regs)
 {
 	int 				var_count;
 	const MR_Stack_Layout_Vars 	*vars;
@@ -563,23 +596,25 @@ MR_trace_make_type_list(const MR_Stack_Layout_Label *layout)
 	var_count = layout->MR_sll_var_count;
 	vars = &layout->MR_sll_var_info;
 
-	restore_transient_registers();
-	type_list = list_empty();
-	save_transient_registers();
+        MR_TRACE_USE_HP(
+		type_list = list_empty();
+        );
 	for (i = var_count - 1; i >= 0; i--) {
 
 		name = MR_name_if_present(vars, i);
 		var = &vars->MR_slvs_pairs[i];
 
-		if (!MR_trace_get_type_filtered(var, name, &type_info))
+		if (! MR_get_type_filtered(var, saved_regs, name, &type_info))
 		{
 			continue;
 		}
 
-		restore_transient_registers();
-		type_info_string = MR_type_name(type_info);
-		type_list = list_cons(type_info_string, type_list);
-		save_transient_registers();
+		MR_TRACE_CALL_MERCURY(
+			type_info_string = MR_type_name(type_info);
+		);
+	        MR_TRACE_USE_HP(
+			type_list = list_cons(type_info_string, type_list);
+	        );
 	}
 
 	return type_list;
@@ -587,11 +622,12 @@ MR_trace_make_type_list(const MR_Stack_Layout_Label *layout)
 
 
 /*
-** This function returns the requested live variable.
+** This function returns the requested live variable, as a univ.
+** Any memory needed will be allocated on the Mercury heap.
 */
 
 static Word
-MR_trace_make_nth_var(const MR_Stack_Layout_Label *layout, 
+MR_trace_make_nth_var(const MR_Stack_Layout_Label *layout, Word *saved_regs,
 		      Word debugger_request)
 {
 	int 				var_number;
@@ -611,12 +647,12 @@ MR_trace_make_nth_var(const MR_Stack_Layout_Label *layout,
 	name = MR_name_if_present(vars, var_number);
 	var = &vars->MR_slvs_pairs[var_number];
 
-	restore_transient_registers();
-	incr_hp(univ, 2);
+	MR_TRACE_USE_HP(
+		incr_hp(univ, 2);
+	);
 
-
-	if (MR_trace_get_type_and_value_filtered(var, name, &type_info, 
-						     &value))
+	if (MR_get_type_and_value_filtered(var, saved_regs, name,
+			&type_info, &value))
 	{
 		field(mktag(0), univ, UNIV_OFFSET_FOR_TYPEINFO) = type_info;
 		field(mktag(0), univ, UNIV_OFFSET_FOR_DATA) = value;
@@ -627,8 +663,6 @@ MR_trace_make_nth_var(const MR_Stack_Layout_Label *layout,
 		*/
 		fatal_error("try to retrieve a non-live variable");
 	}
-
-	save_transient_registers();
 
 	return univ;
 }
@@ -642,6 +676,10 @@ MR_trace_make_nth_var(const MR_Stack_Layout_Label *layout,
 static int
 MR_get_var_number(Word debugger_request)
 {
-	return MR_DI_get_var_number(debugger_request);
+	int num;
+	MR_TRACE_CALL_MERCURY(
+		num = ML_DI_get_var_number(debugger_request);
+	);
+	return num;
 }
 #endif /* MR_USE_EXTERNAL_DEBUGGER */

@@ -32,7 +32,8 @@
 :- implementation.
 
 :- import_module code_gen, code_util, trace, options, globals, instmap.
-:- import_module bool, set, tree, list, map, std_util, term, require.
+:- import_module prog_data, term.
+:- import_module bool, set, tree, list, map, std_util, require.
 
 ite_gen__generate_ite(CodeModel, CondGoal0, ThenGoal, ElseGoal, StoreMap, Code)
 		-->
@@ -109,16 +110,21 @@ ite_gen__generate_ite(CodeModel, CondGoal0, ThenGoal, ElseGoal, StoreMap, Code)
 	code_info__make_vars_forward_dead(Zombies),
 
 		% Discard hp and trail ticket if the condition succeeded
-		% XXX is this the right thing to do?
-	code_info__maybe_reset_and_discard_ticket(MaybeTicketSlot, commit,
-		DiscardTicketCode),
-	code_info__maybe_discard_hp(MaybeHpSlot),
-
-		% XXX release any temp slots holding heap or trail pointers
+	( { CondCodeModel = model_non } ->
+		% We cannot release the stack slots used for the heap pointer
+		% and the trail ticket if the condition can be backtracked
+		% into.
+		code_info__maybe_reset_and_discard_ticket(
+			MaybeTicketSlot, commit, DiscardTicketCode)
+	;
+		code_info__maybe_release_hp(MaybeHpSlot),
+		code_info__maybe_reset_discard_and_release_ticket(
+			MaybeTicketSlot, commit, DiscardTicketCode)
+	),
 
 	code_info__get_instmap(EndCondInstMap),
 	( { instmap__is_unreachable(EndCondInstMap) } ->
-		% If instmap indicates we cannot reach then part,
+		% If the instmap indicates we cannot reach the then part,
 		% do not attempt to generate it (may cause aborts).
 		{ ThenTraceCode = empty },
 		{ ThenCode = empty },
@@ -138,19 +144,10 @@ ite_gen__generate_ite(CodeModel, CondGoal0, ThenGoal, ElseGoal, StoreMap, Code)
 	code_info__reset_to_position(BranchStart),
 	code_info__generate_resume_point(ResumePoint, ResumeCode),
 
-	( { CondCodeModel = model_non } ->
-			% We cannot release the stack slots used for
-			% the trail ticket and heap pointer if the
-			% condition can be backtracked into.
-		code_info__maybe_restore_hp(MaybeHpSlot, RestoreHpCode),
-		code_info__maybe_reset_and_pop_ticket(MaybeTicketSlot,
-			undo, RestoreTicketCode)
-	;
-		code_info__maybe_restore_and_discard_hp(MaybeHpSlot,
-			RestoreHpCode),
-		code_info__maybe_reset_and_discard_ticket(MaybeTicketSlot,
-			undo, RestoreTicketCode)
-	),
+		% Restore the heap pointer and solver state if necessary.
+	code_info__maybe_restore_and_release_hp(MaybeHpSlot, RestoreHpCode),
+	code_info__maybe_reset_discard_and_release_ticket(
+		MaybeTicketSlot, undo, RestoreTicketCode),
 
 		% Generate the else branch
 	trace__maybe_generate_internal_event_code(ElseGoal, ElseTraceCode),
@@ -255,7 +252,7 @@ ite_gen__generate_negation(CodeModel, Goal0, Code) -->
 	% of the code for if-then-elses.
 
 :- pred generate_negation_general(code_model::in, hlds_goal::in,
-	set(var)::in, resume_locs::in, code_tree::out,
+	set(prog_var)::in, resume_locs::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
 generate_negation_general(CodeModel, Goal, ResumeVars, ResumeLocs, Code) -->
@@ -310,8 +307,9 @@ generate_negation_general(CodeModel, Goal, ResumeVars, ResumeLocs, Code) -->
 		code_info__remember_position(AfterNegatedGoal),
 		% The call to reset_ticket(..., commit) here is necessary
 		% in order to properly detect floundering.
-		code_info__maybe_reset_and_discard_ticket(MaybeTicketSlot,
-			commit, DiscardTicketCode),
+		code_info__maybe_release_hp(MaybeHpSlot),
+		code_info__maybe_reset_discard_and_release_ticket(
+			MaybeTicketSlot, commit, DiscardTicketCode),
 		code_info__generate_failure(FailCode),
 			% We want liveness after not(G) to be the same as
 			% after G. Information about what variables are where
@@ -324,9 +322,10 @@ generate_negation_general(CodeModel, Goal, ResumeVars, ResumeLocs, Code) -->
 
 	code_info__set_forward_live_vars(LiveVars),
 
-	code_info__maybe_reset_and_discard_ticket(MaybeTicketSlot, undo,
-		RestoreTicketCode),
-	code_info__maybe_restore_and_discard_hp(MaybeHpSlot, RestoreHpCode),
+		% Restore the heap pointer and solver state if necessary.
+	code_info__maybe_restore_and_release_hp(MaybeHpSlot, RestoreHpCode),
+	code_info__maybe_reset_discard_and_release_ticket(
+		MaybeTicketSlot, undo, RestoreTicketCode),
 
 	{ Code =
 		tree(FlushCode,

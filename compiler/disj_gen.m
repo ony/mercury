@@ -27,7 +27,8 @@
 
 :- implementation.
 
-:- import_module hlds_data, code_gen, code_util, trace, options, globals.
+:- import_module prog_data, hlds_data, code_gen, code_util, trace.
+:- import_module options, globals.
 :- import_module bool, set, tree, map, std_util, term, require.
 
 disj_gen__generate_disj(CodeModel, Goals, StoreMap, Code) -->
@@ -53,7 +54,7 @@ disj_gen__generate_disj(CodeModel, Goals, StoreMap, Code) -->
 
 %---------------------------------------------------------------------------%
 
-:- pred disj_gen__generate_real_disj(code_model::in, set(var)::in,
+:- pred disj_gen__generate_real_disj(code_model::in, set(prog_var)::in,
 	list(hlds_goal)::in, store_map::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
@@ -120,7 +121,6 @@ disj_gen__generate_real_disj(CodeModel, ResumeVars, Goals, StoreMap, Code) -->
 	;
 		[]
 	),
-		% XXX release any temp slots holding heap or trail pointers
 	{ Code =
 		tree(FlushCode,
 		tree(SaveTicketCode,
@@ -214,8 +214,15 @@ disj_gen__generate_disjuncts([Goal0 | Goals], CodeModel, FullResumeMap,
 			% so we make sure every variable in the resume set
 			% is in its stack slot.
 			code_info__flush_resume_vars_to_stack(ResumeVarsCode)
+
+			% We hang onto any temporary slots holding saved
+			% heap pointers and/or tickets, thus ensuring that
+			% they will still be reserved after the disjunction.
 		;
-			{ ResumeVarsCode = empty }
+			{ ResumeVarsCode = empty },
+
+			code_info__maybe_release_hp(MaybeHpSlot),
+			code_info__maybe_release_ticket(MaybeTicketSlot)
 		),
 
 			% Put every variable whose value is needed after
@@ -253,29 +260,10 @@ disj_gen__generate_disjuncts([Goal0 | Goals], CodeModel, FullResumeMap,
 
 			% Restore the heap pointer and solver state
 			% if necessary.
-		( { CodeModel = model_non } ->
-
-			% Note that we can't release the temps used for the
-			% heap pointer and ticket, because those values may be
-			% required again after backtracking after control
-			% leaves the disjunction. If we were to reuse either
-			% of their stack slots for something else when
-			% generating the code that follows this goal,
-			% then the values that earlier disjuncts need on
-			% backtracking would get clobbered.
-			% Thus we must not use the `_discard' versions
-			% of the two predicates below.
-
-			code_info__maybe_restore_hp(MaybeHpSlot0,
-				RestoreHpCode),
-			code_info__maybe_reset_and_pop_ticket(
-				MaybeTicketSlot, undo, RestoreTicketCode)
-		;
-			code_info__maybe_restore_and_discard_hp(MaybeHpSlot0,
-				RestoreHpCode),
-			code_info__maybe_reset_and_discard_ticket(
-				MaybeTicketSlot, undo, RestoreTicketCode)
-		),
+		code_info__maybe_restore_and_release_hp(MaybeHpSlot0,
+			RestoreHpCode),
+		code_info__maybe_reset_discard_and_release_ticket(
+			MaybeTicketSlot, undo, RestoreTicketCode),
 
 		code_info__undo_disj_hijack(HijackInfo, UndoCode),
 

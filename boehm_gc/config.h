@@ -114,7 +114,8 @@
 #   define SYSV
 #   define mach_type_known
 # endif
-# if defined(_PA_RISC1_0) || defined(_PA_RISC1_1)
+# if defined(_PA_RISC1_0) || defined(_PA_RISC1_1) \
+	|| defined(hppa) || defined(__hppa__)
 #   define HP_PA
 #   define mach_type_known
 # endif
@@ -663,8 +664,8 @@
   	/* minumum/maximum of the two.			*/
 #   	define MAX(x,y) ((x) > (y) ? (x) : (y))
 #   	define MIN(x,y) ((x) < (y) ? (x) : (y))
-#       define DATASTART ((ptr_t) MIN(_data_start__, _bss_start__))
-#       define DATAEND	 ((ptr_t) MAX(_data_end__, _bss_end__))
+#       define DATASTART ((ptr_t) MIN(&_data_start__, &_bss_start__))
+#       define DATAEND	 ((ptr_t) MAX(&_data_end__, &_bss_end__))
 #	undef STACK_GRAN
 #       define STACK_GRAN 0x10000
 #       define HEURISTIC1
@@ -837,6 +838,8 @@
 #   ifdef OSF1
 #	define OS_TYPE "OSF1"
 #   	define DATASTART ((ptr_t) 0x140000000)
+	extern _end;
+#   	define DATAEND ((ptr_t) &_end)
 #   	define HEURISTIC2
 	/* Normally HEURISTIC2 is too conervative, since		*/
 	/* the text segment immediately follows the stack.		*/

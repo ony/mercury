@@ -90,6 +90,12 @@
 	% Auxiliary output options
 		;	assume_gmake
 		;	trace
+		;	trace_internal
+		;	trace_return
+		;	trace_redo
+		;	trace_optimized
+		;	trace_decl
+		;	stack_trace_higher_order
 		;	generate_bytecode
 		;	generate_prolog
 		;	prolog_dialect
@@ -148,6 +154,7 @@
 		;	unboxed_float
 		;	sync_term_size % in words
 		;	type_layout
+		;	max_jump_table_size
 	% Options for internal use only
 	% (the values of these options are implied by the
 	% settings of other options)
@@ -377,6 +384,12 @@ option_defaults_2(aux_output_option, [
 		% Auxiliary Output Options
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
+	trace_internal		-	bool(yes),
+	trace_return		-	bool(yes),
+	trace_redo		-	bool(yes),
+	trace_optimized		-	bool(no),
+	trace_decl		-	bool(no),
+	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
 	generate_prolog		-	bool(no),
 	prolog_dialect		-	string("default"),
@@ -443,6 +456,8 @@ option_defaults_2(compilation_model_option, [
 					% of writing) - will usually be over-
 					% ridden by a value from configure.
 	type_layout		-	bool(yes),
+	max_jump_table_size	-	int(0),
+					% 0 indicates any size.
 	basic_stack_layout	-	bool(no),
 	agc_stack_layout	-	bool(no),
 	procid_stack_layout	-	bool(no),
@@ -709,6 +724,13 @@ long_option("output-grade-string",	output_grade_string).
 % aux output options
 long_option("assume-gmake",		assume_gmake).
 long_option("trace",			trace).
+long_option("trace-internal",		trace_internal).
+long_option("trace-return",		trace_return).
+long_option("trace-redo",		trace_redo).
+long_option("trace-optimised",		trace_optimized).
+long_option("trace-optimized",		trace_optimized).
+long_option("trace-decl",		trace_decl).
+long_option("stack-trace-higher-order",	stack_trace_higher_order).
 long_option("generate-bytecode",	generate_bytecode).
 long_option("generate-prolog",		generate_prolog).
 long_option("generate-Prolog",		generate_prolog).
@@ -764,6 +786,7 @@ long_option("conf-low-tag-bits",	conf_low_tag_bits).
 long_option("args",			args).
 long_option("arg-convention",		args).
 long_option("type-layout",		type_layout).
+long_option("max-jump-table-size",	max_jump_table_size).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -1385,11 +1408,30 @@ options_help_aux_output -->
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
 		"\tdo not assume the availability of GNU Make extensions.",
-		"--trace {minimum, interfaces, all, default}",
+		"--trace {minimum, shallow, deep, default}",
 		"\tGenerate code that includes the specified level", 
 		"\tof execution tracing.",
-		"\tSee the [XXX not yet written!] chapter of the",
-		"\tMercury User's Guide for details.",
+		"\tSee the Debugging chapter of the Mercury User's Guide",
+		"\tfor details.",
+		"--no-trace-internal",
+		"\tDo not generate code for internal events even if the trace",
+		"\tlevel is deep.",
+		"--no-trace-return",
+		"\tDo not generate trace information for call return sites.",
+		"\tPrevents the printing of the values of variables in ancestors",
+		"\tof the current call.",
+		"--no-trace-redo",
+		"\tDo not generate code to trace REDO events.",
+		"--trace-optimized",
+		"\tDo not disable optimizations that can change the trace.",
+% --trace-decl is commented out in the absence of runtime support
+%		"--trace-decl",
+%		"\tMake the generated tracing code include support for an",
+%		"\texperimental declarative debugger.",
+		"--stack-trace-higher-order",
+		"\tEnable stack traces through predicates and functions with",
+		"\thigher-order arguments, even if stack tracing is not",
+		"\tsupported in general.",
 		"--generate-bytecode",
 		"\tOutput a bytecode form of the module for use",
 		"\tby an experimental debugger.",
@@ -1624,7 +1666,13 @@ your program compiled with different options.
 		"\tDon't output base_type_layout structures or references",
 		"\tto them. (The C code also needs to be compiled with",
 		"\t`-DNO_TYPE_LAYOUT').",
-	
+
+		"--max-jump-table-size",
+		"\tThe maximum number of entries a jump table can have.",
+		"\tThe special value 0 indicates the table size is unlimited.",
+		"\tThis option can be useful to avoid exceeding fixed limits",
+		"\timposed by some C compilers.\n",
+
 		% This is a developer only option.
 %		"--basic-stack-layout",
 %		"(This option is not for general use.)",
@@ -1707,7 +1755,8 @@ options_help_code_generation -->
 
 		"--c-debug",
 		"\tEnable debugging of the generated C code.",
-		"\t(This has the same effect as `--cflags -g'.)",
+		"\t(This has the same effect as",
+		"\t`--cflags ""-g"" --link-flags ""--no-strip""'.)",
 
 		"--fact-table-max-array-size <n>",
 		"\tSpecify the maximum number of elements in a single",

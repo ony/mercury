@@ -61,9 +61,9 @@
 :- implementation.
 
 :- import_module assoc_list, dir, getopt, int, list, map, require, set.
-:- import_module std_util, string, term, varset.
+:- import_module std_util, string.
 
-:- import_module code_util, globals, goal_util.
+:- import_module code_util, globals, goal_util, term, varset.
 :- import_module hlds_data, hlds_goal, hlds_pred, hlds_out, inlining, llds.
 :- import_module mercury_to_mercury, mode_util, modules.
 :- import_module options, passes_aux, prog_data, prog_io, prog_out, prog_util.
@@ -137,7 +137,7 @@ intermod__write_optfile(ModuleInfo0, ModuleInfo) -->
 			bool,			% do the c_header_codes for
 				% the module need writing, yes if there
 				% are pragma_c_code procs being exported
-			map(var, type),		% Vartypes and tvarset for the
+			map(prog_var, type),	% Vartypes and tvarset for the
 			tvarset			% current pred
 		).
 
@@ -168,6 +168,11 @@ intermod__gather_preds([PredId | PredIds], CollectTypes,
 	{ module_info_preds(ModuleInfo0, PredTable0) },
 	{ map__lookup(PredTable0, PredId, PredInfo0) },
 	(
+		%
+		% note: we can't include exported_to_submodules predicates
+		% in the `.opt' file, for reasons explained in
+		% the comments for intermod_info_add_proc
+		%
 		{ pred_info_is_exported(PredInfo0) },
 		{ pred_info_procids(PredInfo0, [ProcId | _ProcIds]) },
 		{ pred_info_procedures(PredInfo0, Procs) },
@@ -271,8 +276,8 @@ has_ho_input(ModuleInfo, ProcInfo) :-
 	proc_info_vartypes(ProcInfo, VarTypes),
 	check_for_ho_input_args(ModuleInfo, HeadVars, ArgModes, VarTypes).
 
-:- pred check_for_ho_input_args(module_info::in, list(var)::in,
-		list(mode)::in, map(var, type)::in) is semidet.
+:- pred check_for_ho_input_args(module_info::in, list(prog_var)::in,
+		list(mode)::in, map(prog_var, type)::in) is semidet.
 
 check_for_ho_input_args(ModuleInfo, [HeadVar | HeadVars],
 			[ArgMode | ArgModes], VarTypes) :-
@@ -323,7 +328,7 @@ intermod__gather_types(ModuleInfo, TypeTable, [TypeToCheck | TypesToCheck]) -->
 		{ map__search(TypeTable, TypeId, TypeDefn) }
 	->
 		{ hlds_data__get_type_defn_status(TypeDefn, Status) },
-		( { Status = imported ; Status = abstract_imported } ->
+		( { status_is_imported(Status, yes) } ->
 			{ type_util__type_id_module(ModuleInfo,
 						TypeId, Module) },
 			intermod_info_get_modules(Modules0),
@@ -481,8 +486,19 @@ intermod__traverse_cases([case(F, Goal0) | Cases0],
 		{ Cases = Cases0 }
 	).
 
-	% If a proc called within an exported proc is non-local, we need
-	% to include an :- import_module declaration.
+	%
+	% intermod_info_add_proc/4 tries to do what ever is necessary to
+	% ensure that the specified predicate will be exported,
+	% so that it can be called from clauses in the `.opt' file.
+	% If it can't, then it returns DoWrite = no, which will
+	% prevent the caller from being included in the `.opt' file.
+	%
+	% If a proc called within an exported proc is local, we need
+	% to add a declaration for the called proc to the .opt file.
+	% If a proc called within an exported proc is from a different
+	% module, we need to include an `:- import_module' declaration
+	% to import that module in the `.opt' file.
+	%
 :- pred intermod_info_add_proc(pred_id::in, bool::out,
 		intermod_info::in, intermod_info::out) is det.
 
@@ -493,56 +509,111 @@ intermod_info_add_proc(PredId, DoWrite) -->
 	{ pred_info_procids(PredInfo, ProcIds) },
 	{ pred_info_get_markers(PredInfo, Markers) },
 	(
-		{ check_marker(Markers, infer_modes) }
-	->
-		% Don't write this pred if it calls preds without mode decls.
-		{ DoWrite = no }
-	;
-		% Don't output declarations for compiler generated procedures,
-		% since they will be recreated in the calling module.
+		%
+		% Calling compiler-generated procedures is fine;
+		% we don't need to output declarations for them to
+		% the `.opt' file, since they will be recreated every
+		% time anyway.
+		%
 		{ code_util__compiler_generated(PredInfo) }
 	->
 		{ DoWrite = yes }
 	;
+		%
+		% Don't write the caller to the `.opt' file if it calls
+		% a pred without mode or determinism decls, because we'd
+		% need to include the mode decls for the callee in the `.opt'
+		% file and (since writing the `.opt' file happens before mode
+		% inference) we can't do that because we don't know what
+		% the modes are.
+		%
+		% XXX This prevents intermodule optimizations in such cases,
+		% which is a pity.
+		%
 		{
-		pred_info_procedures(PredInfo, Procs),
-		list__member(ProcId, ProcIds),
-		map__lookup(Procs, ProcId, ProcInfo),
-		proc_info_declared_determinism(ProcInfo, no)
+			check_marker(Markers, infer_modes)
+		;
+			pred_info_procedures(PredInfo, Procs),
+			list__member(ProcId, ProcIds),
+			map__lookup(Procs, ProcId, ProcInfo),
+			proc_info_declared_determinism(ProcInfo, no)
 		}
 	->
-		% Don't write this pred if it calls preds
-		% without determinism decls.
 		{ DoWrite = no }
 	;
+		%
+		% Don't write this pred if it is exported to submodules,
+		% because we don't know whether or not to write out the
+		% pred decl to the .opt file -- if we write it out, you
+		% can get spurious "duplicate declaration" errors when
+		% compiling the submodules, and if we don't, then you
+		% can get spurious "undeclared predicate" errors when
+		% compiling other modules which import the parent module.
+		%
+		% XXX This prevents intermodule optimization in those
+		% cases, which is a pity.
+		%
+		{ Status = exported_to_submodules }
+	->
+		{ DoWrite = no }
+	;
+		%
+		% If a pred whose code we're going to put in the `.opt' file
+		% calls a predicate which is local to that module, then
+		% we need to put the declaration for the called predicate
+		% in the `.opt' file.
+		%
 		{ Status = local }
 	->
+		{ DoWrite = yes },
 		intermod_info_get_pred_decls(PredDecls0),
 		{ set__insert(PredDecls0, PredId, PredDecls) },
-		intermod_info_set_pred_decls(PredDecls),
-		{ DoWrite = yes }
+		intermod_info_set_pred_decls(PredDecls)
 	;
-		{ Status = imported }
+		{ Status = imported
+		; Status = opt_imported
+		}
 	->
 		{ DoWrite = yes },
-		{ pred_info_module(PredInfo, Module) },
-		( { module_info_name(ModuleInfo, Module) } ->
-			% :- external pred - add decl 
+		{ module_info_name(ModuleInfo, ThisModule) },
+		{ pred_info_module(PredInfo, PredModule) },
+		(
+			{ PredModule = ThisModule }
+		->
+			%
+			% This can happen in the case of a local predicate
+			% which has been declared as external using a
+			% `:- external(Name/Arity)' declaration, e.g.
+			% because it is implemented as low-level C code.
+			%
+			% We treat these the same as local predicates.
+			%
 			intermod_info_get_pred_decls(PredDecls0),
 			{ set__insert(PredDecls0, PredId, PredDecls) },
 			intermod_info_set_pred_decls(PredDecls)
 		;	
+			%
 			% imported pred - add import for module
+			%
 			intermod_info_get_modules(Modules0),
-			{ set__insert(Modules0, Module, Modules) },
+			{ set__insert(Modules0, PredModule, Modules) },
 			intermod_info_set_modules(Modules)
 		)
 	;
+		%
+		% if a pred whose code we're going to put in the .opt file
+		% calls a predicate which is exported, then we don't
+		% need to do anything special
+		%
+		{ Status = exported }
+	->
 		{ DoWrite = yes }
+	;
+		{ error("intermod_info_add_proc: unexpected status") }
 	).
 
 	% Resolve overloading and module qualify everything in a unify_rhs.
-:- pred intermod__module_qualify_unify_rhs(var::in, unify_rhs::in,
+:- pred intermod__module_qualify_unify_rhs(prog_var::in, unify_rhs::in,
 		unify_rhs::out, bool::out, intermod_info::in,
 		intermod_info::out) is det.
 
@@ -1027,7 +1098,7 @@ intermod__write_pragmas(SymName, Arity, [Marker | Markers], PredOrFunc) -->
 
 	% Some pretty kludgy stuff to get c code written correctly.
 :- pred intermod__write_c_code(sym_name::in, pred_or_func::in, 
-	list(var)::in, varset::in,
+	list(prog_var)::in, prog_varset::in,
 	list(clause)::in, proc_table::in, io__state::di, io__state::uo) is det.
 
 intermod__write_c_code(_, _, _, _, [], _) --> [].
@@ -1061,9 +1132,9 @@ intermod__write_c_code(SymName, PredOrFunc, HeadVars, Varset,
 
 :- pred intermod__write_c_clauses(proc_table::in, list(proc_id)::in, 
 		pred_or_func::in, pragma_c_code_impl::in,
-		pragma_c_code_attributes::in, list(var)::in, varset::in,
-		list(maybe(pair(string, mode)))::in, sym_name::in,
-		io__state::di, io__state::uo) is det.
+		pragma_c_code_attributes::in, list(prog_var)::in,
+		prog_varset::in, list(maybe(pair(string, mode)))::in,
+		sym_name::in, io__state::di, io__state::uo) is det.
 
 intermod__write_c_clauses(_, [], _, _, _, _, _, _, _) --> [].
 intermod__write_c_clauses(Procs, [ProcId | ProcIds], PredOrFunc,
@@ -1082,9 +1153,9 @@ intermod__write_c_clauses(Procs, [ProcId | ProcIds], PredOrFunc,
 		{ error("intermod__write_c_clauses: no mode declaration") }
 	).
 
-:- pred get_pragma_c_code_vars(list(var)::in,
-		list(maybe(pair(string, mode)))::in, varset::in, list(mode)::in,
-		varset::out, list(pragma_var)::out) is det.
+:- pred get_pragma_c_code_vars(list(prog_var)::in,
+		list(maybe(pair(string, mode)))::in, prog_varset::in,
+		list(mode)::in, prog_varset::out, list(pragma_var)::out) is det.
 
 get_pragma_c_code_vars(HeadVars, VarNames, VarSet0, ArgModes,
 		VarSet, PragmaVars) :- 
@@ -1134,7 +1205,7 @@ get_pragma_c_code_vars(HeadVars, VarNames, VarSet0, ArgModes,
 			intermod_info::in, intermod_info::out) is det.
 :- pred intermod_info_get_write_c_header(bool::out,
 			intermod_info::in, intermod_info::out) is det.
-:- pred intermod_info_get_var_types(map(var, type)::out,
+:- pred intermod_info_get_var_types(map(prog_var, type)::out,
 			intermod_info::in, intermod_info::out) is det.
 :- pred intermod_info_get_tvarset(tvarset::out, intermod_info::in,
 			intermod_info::out) is det.
@@ -1167,7 +1238,7 @@ intermod_info_get_tvarset(TVarSet)	--> =(info(_,_,_,_,_,_,_,_,_,TVarSet)).
 			intermod_info::in, intermod_info::out) is det.
 :- pred intermod_info_set_write_header(intermod_info::in,
 			intermod_info::out) is det.
-:- pred intermod_info_set_var_types(map(var, type)::in, intermod_info::in, 
+:- pred intermod_info_set_var_types(map(prog_var, type)::in, intermod_info::in, 
 			intermod_info::out) is det.
 :- pred intermod_info_set_tvarset(tvarset::in, intermod_info::in,
 			intermod_info::out) is det.

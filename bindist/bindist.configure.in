@@ -167,13 +167,15 @@ AC_SUBST(CC)
 top=`pwd`
 INIT_GRADE_OPTIONS=$top/scripts/init_grade_options.sh-subr
 PARSE_GRADE_OPTIONS=$top/scripts/parse_grade_options.sh-subr
+FINAL_GRADE_OPTIONS=$top/scripts/final_grade_options.sh-subr
 AC_SUBST_FILE(INIT_GRADE_OPTIONS)
 AC_SUBST_FILE(PARSE_GRADE_OPTIONS)
+AC_SUBST_FILE(FINAL_GRADE_OPTIONS)
 
 #-----------------------------------------------------------------------------#
 
 AC_OUTPUT(Makefile scripts/mmc scripts/mprof
-scripts/mercury_update_interface scripts/mgnuc scripts/mint scripts/ml
+scripts/mercury_update_interface scripts/mgnuc scripts/ml
 scripts/mmake scripts/mnc scripts/mnl scripts/mnp scripts/c2init
 scripts/msc scripts/msl scripts/msp scripts/sicstus_conv
 scripts/mkfifo_using_mknod scripts/Mmake.vars

@@ -132,7 +132,7 @@ a variable live if its value will be used later on in the computation.
 :- interface.
 
 :- import_module prog_data, hlds_goal, hlds_module, hlds_pred, (inst), instmap.
-:- import_module bool, list, term, io.
+:- import_module bool, list, io.
 
 	% modecheck(HLDS0, HLDS, UnsafeToContinue):
 	% Perform mode inference and checking for a whole module.
@@ -193,21 +193,21 @@ a variable live if its value will be used later on in the computation.
  	% given the right-hand-side of a unification, return a list of
 	% the potentially non-local variables of that unification.
 	%
-:- pred unify_rhs_vars(unify_rhs, list(var)).
+:- pred unify_rhs_vars(unify_rhs, list(prog_var)).
 :- mode unify_rhs_vars(in, out) is det.
 
 	% Given a list of variables, and a list of livenesses,
 	% select the live variables.
 	%
-:- pred get_live_vars(list(var), list(is_live), list(var)).
+:- pred get_live_vars(list(prog_var), list(is_live), list(prog_var)).
 :- mode get_live_vars(in, in, out) is det.
 
 	% Given a list of variables and a list of expected liveness, ensure
 	% that the inst of each variable satisfies the corresponding expected
 	% liveness.
 	%
-:- pred modecheck_var_list_is_live(list(var), list(is_live), int, mode_info,
-					mode_info).
+:- pred modecheck_var_list_is_live(list(prog_var), list(is_live), int,
+		mode_info, mode_info).
 :- mode modecheck_var_list_is_live(in, in, in, mode_info_di, mode_info_uo)
 	is det.
 
@@ -215,24 +215,23 @@ a variable live if its value will be used later on in the computation.
 	% that the inst of each variable matches the corresponding initial
 	% inst.
 	%
-:- pred modecheck_var_has_inst_list(list(var), list(inst), int, mode_info,
-					mode_info).
+:- pred modecheck_var_has_inst_list(list(prog_var), list(inst), int,
+		mode_info, mode_info).
 :- mode modecheck_var_has_inst_list(in, in, in, mode_info_di, mode_info_uo)
 	is det.
 
-:- pred modecheck_set_var_inst(var, inst, mode_info, mode_info).
+:- pred modecheck_set_var_inst(prog_var, inst, mode_info, mode_info).
 :- mode modecheck_set_var_inst(in, in, mode_info_di, mode_info_uo) is det.
 
-:- pred modecheck_set_var_inst_list(list(var), list(inst), list(inst),
-					list(var), extra_goals,
-					mode_info, mode_info).
+:- pred modecheck_set_var_inst_list(list(prog_var), list(inst), list(inst),
+		list(prog_var), extra_goals, mode_info, mode_info).
 :- mode modecheck_set_var_inst_list(in, in, in, out, out,
 					mode_info_di, mode_info_uo) is det.
 
 	% check that the final insts of the head vars of a lambda
 	% goal matches their expected insts
 	%
-:- pred modecheck_final_insts(list(var), list(inst), mode_info, mode_info).
+:- pred modecheck_final_insts(list(prog_var), list(inst), mode_info, mode_info).
 :- mode modecheck_final_insts(in, in, mode_info_di, mode_info_uo) is det.
 
 :- pred mode_info_add_goals_live_vars(list(hlds_goal), mode_info, mode_info).
@@ -282,7 +281,7 @@ a variable live if its value will be used later on in the computation.
 	% hlds_goal_expr.
 	%
 :- pred handle_extra_goals(hlds_goal_expr, extra_goals,
-		hlds_goal_info, list(var), list(var),
+		hlds_goal_info, list(prog_var), list(prog_var),
 		instmap, mode_info, hlds_goal_expr).
 :- mode handle_extra_goals(in, in, in, in, in, in, mode_info_ui, out)
 	is det.
@@ -301,9 +300,9 @@ a variable live if its value will be used later on in the computation.
 :- import_module globals, options, mercury_to_mercury, hlds_out, int, set.
 :- import_module passes_aux, typecheck, module_qual, clause_to_proc.
 :- import_module modecheck_unify, modecheck_call, inst_util, purity.
-:- import_module prog_out.
+:- import_module prog_out, term, varset.
 
-:- import_module list, map, varset, string, require, std_util.
+:- import_module list, map, string, require, std_util.
 :- import_module assoc_list.
 
 %-----------------------------------------------------------------------------%
@@ -351,12 +350,11 @@ check_pred_modes(WhatToCheck, ModuleInfo0, ModuleInfo, UnsafeToContinue) -->
 
 modecheck_to_fixpoint(PredIds, MaxIterations, WhatToCheck, ModuleInfo0,
 		ModuleInfo, UnsafeToContinue) -->
-	( { WhatToCheck = check_modes } ->
-		{ copy_module_clauses_to_procs(PredIds, ModuleInfo0,
-			ModuleInfo1) }
-	;
-		{ ModuleInfo1 = ModuleInfo0 }
-	),
+	{ ModuleInfo1 = ModuleInfo0 },
+
+	% save the old procedure bodies so that we can restore them for the
+	% next pass
+	{ module_info_preds(ModuleInfo0, OldPredTable0) },
 
 	% analyze everything which has the "can-process" flag set to `yes'
 	modecheck_pred_modes_2(PredIds, WhatToCheck, ModuleInfo1, ModuleInfo2,
@@ -364,7 +362,8 @@ modecheck_to_fixpoint(PredIds, MaxIterations, WhatToCheck, ModuleInfo0,
 
 	% analyze the procedures whose "can-process" flag was no;
 	% those procedures were inserted into the unify requests queue.
-	modecheck_queued_procs(WhatToCheck, ModuleInfo2, ModuleInfo3, Changed2),
+	modecheck_queued_procs(WhatToCheck, OldPredTable0, ModuleInfo2,
+					OldPredTable, ModuleInfo3, Changed2),
 	io__get_exit_status(ExitStatus),
 
 	{ bool__or(Changed1, Changed2, Changed) },
@@ -387,9 +386,30 @@ modecheck_to_fixpoint(PredIds, MaxIterations, WhatToCheck, ModuleInfo0,
 			;
 				[]
 			),
+			%
+			% Mode analysis may have modified the procedure
+			% bodies, since it does some optimizations such
+			% as deleting unreachable code.  But since we didn't
+			% reach a fixpoint yet, the mode information is not
+			% correct yet, and so those optimizations will have
+			% been done based on incomplete information, and so
+			% they may therefore produce incorrect results.
+			% Thus we need to restore the old procedure bodies.
+			%
+			( { WhatToCheck = check_modes } ->
+				% restore the proc_info goals from the
+				% clauses in the pred_info
+				{ copy_module_clauses_to_procs(PredIds,
+					ModuleInfo3, ModuleInfo4) }
+			;
+				% restore the proc_info goals from the
+				% proc_infos in the old module_info
+				{ copy_pred_bodies(OldPredTable, PredIds,
+					ModuleInfo3, ModuleInfo4) }
+			),
 			{ MaxIterations1 is MaxIterations - 1 },
 			modecheck_to_fixpoint(PredIds, MaxIterations1,
-				WhatToCheck, ModuleInfo3,
+				WhatToCheck, ModuleInfo4,
 				ModuleInfo, UnsafeToContinue)
 		)
 	).
@@ -408,6 +428,45 @@ report_max_iterations_exceeded -->
 		MaxIterations),
 	io__format("(The current limit is %d iterations.)\n",
 		[i(MaxIterations)]).
+
+% copy_pred_bodies(OldPredTable, ProcId, ModuleInfo0, ModuleInfo):
+%	copy the procedure bodies for all procedures of the specified
+%	PredIds from OldPredTable into ModuleInfo0, giving ModuleInfo.
+:- pred copy_pred_bodies(pred_table, list(pred_id), module_info, module_info).
+:- mode copy_pred_bodies(in, in, in, out) is det.
+copy_pred_bodies(OldPredTable, PredIds, ModuleInfo0, ModuleInfo) :-
+	module_info_preds(ModuleInfo0, PredTable0),
+	list__foldl(copy_pred_body(OldPredTable), PredIds,
+		PredTable0, PredTable),
+	module_info_set_preds(ModuleInfo0, PredTable, ModuleInfo).
+
+% copy_pred_body(OldPredTable, ProcId, PredTable0, PredTable):
+%	copy the procedure bodies for all procedures of the specified
+%	PredId from OldPredTable into PredTable0, giving PredTable.
+:- pred copy_pred_body(pred_table, pred_id, pred_table, pred_table).
+:- mode copy_pred_body(in, in, in, out) is det.
+copy_pred_body(OldPredTable, PredId, PredTable0, PredTable) :-
+	map__lookup(PredTable0, PredId, PredInfo0),
+	pred_info_procedures(PredInfo0, ProcTable0),
+	map__lookup(OldPredTable, PredId, OldPredInfo),
+	pred_info_procedures(OldPredInfo, OldProcTable),
+	map__keys(OldProcTable, OldProcIds),
+	list__foldl(copy_proc_body(OldProcTable), OldProcIds,
+		ProcTable0, ProcTable),
+	pred_info_set_procedures(PredInfo0, ProcTable, PredInfo),
+	map__set(PredTable0, PredId, PredInfo, PredTable).
+
+% copy_proc_body(OldProcTable, ProcId, ProcTable0, ProcTable):
+%	copy the body of the specified ProcId from OldProcTable
+%	into ProcTable0, giving ProcTable.
+:- pred copy_proc_body(proc_table, proc_id, proc_table, proc_table).
+:- mode copy_proc_body(in, in, in, out) is det.
+copy_proc_body(OldProcTable, ProcId, ProcTable0, ProcTable) :-
+	map__lookup(OldProcTable, ProcId, OldProcInfo),
+	proc_info_goal(OldProcInfo, OldProcBody),
+	map__lookup(ProcTable0, ProcId, ProcInfo0),
+	proc_info_set_goal(ProcInfo0, OldProcBody, ProcInfo),
+	map__set(ProcTable0, ProcId, ProcInfo, ProcTable).
 
 :- pred modecheck_pred_modes_2(list(pred_id), how_to_check_goal,
 			module_info, module_info, bool, bool, int, int,
@@ -718,7 +777,7 @@ modecheck_final_insts(HeadVars, ArgFinalInsts, ModeInfo0, ModeInfo) :-
 	modecheck_final_insts_2(HeadVars, ArgFinalInsts, ModeInfo0,
 			InferModes, _NewFinalInsts, ModeInfo).
 
-:- pred modecheck_final_insts_2(list(var), list(inst), mode_info, bool,
+:- pred modecheck_final_insts_2(list(prog_var), list(inst), mode_info, bool,
 					list(inst), mode_info).
 :- mode modecheck_final_insts_2(in, in, mode_info_di, in,
 					out, mode_info_uo) is det.
@@ -775,7 +834,7 @@ maybe_clobber_insts([Inst0 | Insts0], [IsLive | IsLives], [Inst | Insts]) :-
 	),
 	maybe_clobber_insts(Insts0, IsLives, Insts).
 
-:- pred check_final_insts(list(var), list(inst), list(inst), bool, int,
+:- pred check_final_insts(list(prog_var), list(inst), list(inst), bool, int,
 				module_info, bool, bool, mode_info, mode_info).
 :- mode check_final_insts(in, in, in, in, in, in, in, out, mode_info_di,
 				mode_info_uo) is det.
@@ -1121,7 +1180,7 @@ handle_extra_goals(MainGoal, ExtraGoals, GoalInfo0, Args0, Args,
 		Goal = conj(GoalList)
 	).
 
-:- pred handle_extra_goals_contexts(list(hlds_goal), term__context,
+:- pred handle_extra_goals_contexts(list(hlds_goal), prog_context,
 	list(hlds_goal)).
 :- mode handle_extra_goals_contexts(in, in, out) is det.
 
@@ -1132,7 +1191,7 @@ handle_extra_goals_contexts([Goal0 | Goals0], Context, [Goal | Goals]) :-
 	goal_info_set_context(GoalInfo0, Context, GoalInfo),
 	handle_extra_goals_contexts(Goals0, Context, Goals).
 
-:- pred goal_get_nonlocals(hlds_goal, set(var)).
+:- pred goal_get_nonlocals(hlds_goal, set(prog_var)).
 :- mode goal_get_nonlocals(in, out) is det.
 
 goal_get_nonlocals(_Goal - GoalInfo, NonLocals) :-
@@ -1348,7 +1407,7 @@ check_for_impurity_error(Goal, ImpurityErrors0, ImpurityErrors) -->
 	).
 
 	
-:- pred no_non_headvar_unification_goals(list(delayed_goal), list(var)).
+:- pred no_non_headvar_unification_goals(list(delayed_goal), list(prog_var)).
 :- mode no_non_headvar_unification_goals(in, in) is semidet.
 
 no_non_headvar_unification_goals([], _).
@@ -1368,14 +1427,15 @@ dcg_set_state(Val, _OldVal, Val).
 	% Given an association list of Vars - Goals,
 	% combine all the Vars together into a single set.
 
-:- pred get_all_waiting_vars(list(delayed_goal), set(var)).
+:- pred get_all_waiting_vars(list(delayed_goal), set(prog_var)).
 :- mode get_all_waiting_vars(in, out) is det.
 
 get_all_waiting_vars(DelayedGoals, Vars) :-
 	set__init(Vars0),
 	get_all_waiting_vars_2(DelayedGoals, Vars0, Vars).
 
-:- pred get_all_waiting_vars_2(list(delayed_goal), set(var), set(var)).
+:- pred get_all_waiting_vars_2(list(delayed_goal), set(prog_var),
+		set(prog_var)).
 :- mode get_all_waiting_vars_2(in, in, out) is det.
 
 get_all_waiting_vars_2([], Vars, Vars).
@@ -1397,7 +1457,7 @@ modecheck_disj_list([Goal0 | Goals0], [Goal | Goals], [InstMap | InstMaps]) -->
 	mode_info_set_instmap(InstMap0),
 	modecheck_disj_list(Goals0, Goals, InstMaps).
 
-:- pred modecheck_case_list(list(case), var, list(case), list(instmap),
+:- pred modecheck_case_list(list(case), prog_var, list(case), list(instmap),
 				mode_info, mode_info).
 :- mode modecheck_case_list(in, in, out, out, mode_info_di, mode_info_uo)
 	is det.
@@ -1426,7 +1486,8 @@ modecheck_case_list([Case0 | Cases0], Var,
 %-----------------------------------------------------------------------------%
 
 :- pred modecheck_par_conj_list(list(hlds_goal), list(hlds_goal),
-		set(var), list(pair(instmap, set(var))), mode_info, mode_info).
+		set(prog_var), list(pair(instmap, set(prog_var))),
+		mode_info, mode_info).
 :- mode modecheck_par_conj_list(in, out, in, out,
 		mode_info_di, mode_info_uo) is det.
 
@@ -1464,7 +1525,8 @@ modecheck_par_conj_list([Goal0|Goals0], [Goal|Goals], NonLocals,
 	modecheck_par_conj_list(Goals0, Goals, NonLocals, InstMaps),
 	mode_info_unlock_vars(par_conj, Bound1).
 
-:- pred get_all_conjunct_nonlocals(list(hlds_goal), set(var), set(var)).
+:- pred get_all_conjunct_nonlocals(list(hlds_goal), set(prog_var),
+		set(prog_var)).
 :- mode get_all_conjunct_nonlocals(in, in, out) is det.
 
 get_all_conjunct_nonlocals([], NonLocals, NonLocals).
@@ -1492,7 +1554,7 @@ modecheck_var_list_is_live([Var|Vars], [IsLive|IsLives], ArgNum0) -->
 	modecheck_var_is_live(Var, IsLive),
 	modecheck_var_list_is_live(Vars, IsLives, ArgNum).
 
-:- pred modecheck_var_is_live(var, is_live, mode_info, mode_info).
+:- pred modecheck_var_is_live(prog_var, is_live, mode_info, mode_info).
 :- mode modecheck_var_is_live(in, in, mode_info_di, mode_info_uo) is det.
 
 	% `live' means possibly used later on, and
@@ -1529,7 +1591,7 @@ modecheck_var_has_inst_list([Var|Vars], [Inst|Insts], ArgNum0) -->
 	modecheck_var_has_inst(Var, Inst),
 	modecheck_var_has_inst_list(Vars, Insts, ArgNum).
 
-:- pred modecheck_var_has_inst(var, inst, mode_info, mode_info).
+:- pred modecheck_var_has_inst(prog_var, inst, mode_info, mode_info).
 :- mode modecheck_var_has_inst(in, in, mode_info_di, mode_info_uo) is det.
 
 modecheck_var_has_inst(VarId, Inst, ModeInfo0, ModeInfo) :-
@@ -1558,10 +1620,9 @@ modecheck_set_var_inst_list(Vars0, InitialInsts, FinalInsts, Vars, Goals) -->
 		{ error("modecheck_set_var_inst_list: length mismatch") }
 	).
 
-:- pred modecheck_set_var_inst_list_2(list(var), list(inst), list(inst),
-					extra_goals, int,
-					list(var), extra_goals,
-					mode_info, mode_info).
+:- pred modecheck_set_var_inst_list_2(list(prog_var), list(inst), list(inst),
+		extra_goals, int, list(prog_var), extra_goals,
+		mode_info, mode_info).
 :- mode modecheck_set_var_inst_list_2(in, in, in, in, in, out, out,
 					mode_info_di, mode_info_uo) is semidet.
 
@@ -1577,8 +1638,8 @@ modecheck_set_var_inst_list_2([Var0 | Vars0], [InitialInst | InitialInsts],
 	modecheck_set_var_inst_list_2(Vars0, InitialInsts, FinalInsts,
  				ExtraGoals1, ArgNum, Vars, ExtraGoals).
 
-:- pred modecheck_set_var_inst(var, inst, inst, var, extra_goals, extra_goals,
-				mode_info, mode_info).
+:- pred modecheck_set_var_inst(prog_var, inst, inst, prog_var, extra_goals,
+		extra_goals, mode_info, mode_info).
 :- mode modecheck_set_var_inst(in, in, in, out, in, out,
 				mode_info_di, mode_info_uo) is det.
 
@@ -1707,9 +1768,8 @@ modecheck_set_var_inst(Var0, FinalInst, ModeInfo00, ModeInfo) :-
 % If this was a call to an implied mode for that variable, then we need to
 % introduce a fresh variable.
 
-:- pred handle_implied_mode(var, inst, inst, inst, inst, determinism,
-				var, extra_goals, extra_goals,
-				mode_info, mode_info).
+:- pred handle_implied_mode(prog_var, inst, inst, inst, inst, determinism,
+		prog_var, extra_goals, extra_goals, mode_info, mode_info).
 :- mode handle_implied_mode(in, in, in, in, in, in, out, in, out,
 				mode_info_di, mode_info_uo) is det.
 
@@ -1869,9 +1929,9 @@ handle_implied_mode(Var0, VarInst0, VarInst, InitialInst0, FinalInst, Det,
 		)
 	).
 
-:- pred modes__build_call(module_name, string, list(var),
-			term__context, maybe(call_unify_context), module_info,
-			hlds_goal).
+:- pred modes__build_call(module_name, string, list(prog_var),
+		prog_context, maybe(call_unify_context), module_info,
+		hlds_goal).
 :- mode modes__build_call(in, in, in, in, in, in, out) is semidet.
 
 modes__build_call(Module, Name, ArgVars, Context, CallUnifyContext, ModuleInfo,

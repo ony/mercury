@@ -31,7 +31,7 @@
 :- pred base_type_info__generate_hlds(module_info, module_info).
 :- mode base_type_info__generate_hlds(in, out) is det.
 
-:- pred base_type_info__generate_llds(module_info, list(c_module)).
+:- pred base_type_info__generate_llds(module_info, list(comp_gen_c_data)).
 :- mode base_type_info__generate_llds(in, out) is det.
 
 :- implementation.
@@ -131,7 +131,7 @@ base_type_info__generate_llds(ModuleInfo, CModules) :-
 	list__append(CModules1, CModules2, CModules).
 
 :- pred base_type_info__construct_base_type_infos(list(base_gen_info),
-	module_info, list(c_module)).
+	module_info, list(comp_gen_c_data)).
 :- mode base_type_info__construct_base_type_infos(in, in, out) is det.
 
 base_type_info__construct_base_type_infos([], _, []).
@@ -148,13 +148,7 @@ It would be more efficient if we could make base_type_infos local,
 but linkage/2 in llds_out.m requires that we make them all exported
 if any of them are exported, so that we can compute the linkage
 from the data_name, for use in forward declarations.
-	( 	
-		( Status = exported ; Status = abstract_exported )
-	->
-		Exported = yes
-	;
-		Exported = no
-	),
+	status_is_exported(Status, Exported),
 ******/
 	Exported = yes,
 
@@ -175,8 +169,9 @@ from the data_name, for use in forward declarations.
 	;
 		FinalArgs = PredAddrArgs
 	),
-	CModule = c_data(ModuleName, base_type(info, TypeName, TypeArity),
-			Exported, [ArityArg | FinalArgs], Procs),
+	DataName = base_type(info, TypeName, TypeArity),
+	CModule = comp_gen_c_data(ModuleName, DataName, Exported,
+		[ArityArg | FinalArgs], Procs),
 	base_type_info__construct_base_type_infos(BaseGenInfos, ModuleInfo,
 		CModules).
 

@@ -853,9 +853,12 @@ table_return_all_ans(T, A) :-
 ** fail; the code to return the answers is in table_resume.
 */ 
 Define_extern_entry(mercury__table_suspend_2_0);
-MR_MAKE_STACK_LAYOUT_ENTRY(mercury__table_suspend_2_0);
+MR_MAKE_PROC_LAYOUT(mercury__table_suspend_2_0,
+	MR_DETISM_NON, 0, MR_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""private_builtin"", ""table_suspend"", 2, 0);
 BEGIN_MODULE(table_suspend_module)
 	init_entry_sl(mercury__table_suspend_2_0);
+	MR_INIT_PROC_LAYOUT_ADDR(mercury__table_suspend_2_0);
 BEGIN_CODE
 
 Define_entry(mercury__table_suspend_2_0);
@@ -895,14 +898,15 @@ Define_entry(mercury__table_suspend_2_0);
 
 #ifdef	MR_TABLE_DEBUG
 	if (MR_tabledebug) {
-		printf(""suspension saves consumer stack: %d non, %d det\n"",
+		printf(""suspension saves consumer stack: %d non, %d det\\n"",
 			non_stack_delta, det_stack_delta);
-		printf(""non region from %p to %p, det region from %p to %p\n"",
+		printf(""non region from %p to %p, det region from ""
+			""%p to %p\\n"",
 			(void *) non_stack_bottom,
 			(void *) MR_maxfr,
 			(void *) det_stack_bottom,
 			(void *) MR_sp);
-		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\n"",
+		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\\n"",
 			(void *) MR_succip, (void *) MR_sp,
 			(void *) MR_maxfr, (void *) MR_curfr);
 	}
@@ -1022,24 +1026,27 @@ Declare_label(mercury__table_resume_1_0_AnsListLoopDone1);
 Declare_label(mercury__table_resume_1_0_AnsListLoopDone2);
 Declare_label(mercury__table_resume_1_0_RedoPoint);
 
-MR_MAKE_STACK_LAYOUT_ENTRY(mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_PROC_LAYOUT(mercury__table_resume_1_0,
+	MR_DETISM_NON, MR_ENTRY_NO_SLOT_COUNT, MR_LVAL_TYPE_UNKNOWN,
+	MR_PREDICATE, ""private_builtin"", ""table_resume"", 1, 0);
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_ChangeLoop, mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_ChangeLoopDone, mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_SolutionsListLoop, mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_AnsListLoop, mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_AnsListLoopDone1, mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_AnsListLoopDone2, mercury__table_resume_1_0);
-MR_MAKE_STACK_LAYOUT_INTERNAL_WITH_ENTRY(
+MR_MAKE_INTERNAL_LAYOUT_WITH_ENTRY(
 	mercury__table_resume_1_0_RedoPoint, mercury__table_resume_1_0);
 
 BEGIN_MODULE(table_resume_module)
 	init_entry_sl(mercury__table_resume_1_0);
+	MR_INIT_PROC_LAYOUT_ADDR(mercury__table_resume_1_0);
 	init_label_sl(mercury__table_resume_1_0_ChangeLoop);
 	init_label_sl(mercury__table_resume_1_0_ChangeLoopDone);
 	init_label_sl(mercury__table_resume_1_0_SolutionsListLoop);
@@ -1098,15 +1105,16 @@ Define_entry(mercury__table_resume_1_0);
 
 #ifdef	MR_TABLE_DEBUG
 	if (MR_tabledebug) {
-		printf(""resumption saves generator stack: %d non, %d det\n"",
+		printf(""resumption saves generator stack: %d non, %d det\\n"",
 			ML_RESUME_VAR->non_stack_block_size,
 			ML_RESUME_VAR->det_stack_block_size);
-		printf(""non region from %p to %p, det region from %p to %p\n"",
+		printf(""non region from %p to %p, det region ""
+			""from %p to %p\\n"",
 			(void *) ML_RESUME_VAR->table->non_stack_bottom,
 			(void *) MR_maxfr,
 			(void *) ML_RESUME_VAR->table->det_stack_bottom,
 			(void *) MR_sp);
-		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\n"",
+		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\\n"",
 			(void *) MR_succip, (void *) MR_sp,
 			(void *) MR_maxfr, (void *) MR_curfr);
 	}
@@ -1163,10 +1171,12 @@ Define_label(mercury__table_resume_1_0_SolutionsListLoop);
 
 #ifdef	MR_TABLE_DEBUG
 	if (MR_tabledebug) {
-		printf(""resumption restores consumer stack: %d non, %d det\n"",
+		printf(""resumption restores consumer stack: ""
+			""%d non, %d det\\n"",
 			ML_RESUME_VAR->suspend_node->non_stack_block_size,
 			ML_RESUME_VAR->suspend_node->det_stack_block_size);
-		printf(""non region from %p to %p, det region from %p to %p\n"",
+		printf(""non region from %p to %p, det region ""
+			""from %p to %p\\n"",
 			(void *) ML_RESUME_VAR->table->non_stack_bottom,
 			(void *) (ML_RESUME_VAR->table->non_stack_bottom
 				+ ML_RESUME_VAR->suspend_node->
@@ -1175,7 +1185,7 @@ Define_label(mercury__table_resume_1_0_SolutionsListLoop);
 			(void *) (ML_RESUME_VAR->table->det_stack_bottom
 				+ ML_RESUME_VAR->suspend_node->
 				det_stack_block_size));
-		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\n"",
+		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\\n"",
 			(void *) MR_succip, (void *) MR_sp,
 			(void *) MR_maxfr, (void *) MR_curfr);
 	}
@@ -1257,17 +1267,18 @@ Define_label(mercury__table_resume_1_0_ChangeLoopDone);
 #ifdef	MR_TABLE_DEBUG
 	if (MR_tabledebug) {
 		printf(""resumption restores generator stack:""
-				"" %d non, %d det\n"",
+				"" %d non, %d det\\n"",
 			ML_RESUME_VAR->non_stack_block_size,
 			ML_RESUME_VAR->det_stack_block_size);
-		printf(""non region from %p to %p, det region from %p to %p\n"",
+		printf(""non region from %p to %p, det region ""
+			""from %p to %p\\n"",
 			(void *) ML_RESUME_VAR->table->non_stack_bottom,
 			(void *) (ML_RESUME_VAR->table->non_stack_bottom +
 				ML_RESUME_VAR->non_stack_block_size),
 			(void *) ML_RESUME_VAR->table->det_stack_bottom,
 			(void *) (ML_RESUME_VAR->table->det_stack_bottom +
 				ML_RESUME_VAR->det_stack_block_size));
-		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\n"",
+		printf(""succip = %p, sp = %p, maxfr = %p, curfr = %p\\n"",
 			(void *) MR_succip, (void *) MR_sp,
 			(void *) MR_maxfr, (void *) MR_curfr);
 	}
@@ -1285,17 +1296,161 @@ END_MODULE
 INIT sys_init_table_suspend_module
 INIT sys_init_table_resume_module
 */
+
+extern ModuleFunc table_suspend_module;
+extern ModuleFunc table_resume_module;
+
 void sys_init_table_suspend_module(void);
 	/* extra declaration to suppress gcc -Wmissing-decl warning */
 void sys_init_table_suspend_module(void) {
-	extern ModuleFunc table_suspend_module;
 	table_suspend_module();
 }
 void sys_init_table_resume_module(void);
 	/* extra declaration to suppress gcc -Wmissing-decl warning */
 void sys_init_table_resume_module(void) {
-	extern ModuleFunc table_resume_module;
 	table_resume_module();
+}
+
+").
+
+
+	% The definitions for base_type_info/1 and type_info/1.
+
+:- pragma c_code("
+
+Define_extern_entry(mercury____Unify___private_builtin__type_info_1_0);
+Define_extern_entry(mercury____Index___private_builtin__type_info_1_0);
+Define_extern_entry(mercury____Compare___private_builtin__type_info_1_0);
+
+extern const struct
+	mercury_data_private_builtin__base_type_layout_type_info_1_struct 
+	mercury_data_private_builtin__base_type_layout_type_info_1;
+extern const struct
+	mercury_data_private_builtin__base_type_functors_type_info_1_struct
+	mercury_data_private_builtin__base_type_functors_type_info_1;
+
+	/*
+	** For most purposes, base_type_info can be treated just like
+	** type_info.  The code that handles type_infos can also handle
+	** base_type_infos.
+	*/
+
+MR_STATIC_CODE_CONST struct
+mercury_data_private_builtin__base_type_info_base_type_info_1_struct {
+	Integer f1;
+	Code *f2;
+	Code *f3;
+	Code *f4;
+	const Word *f5;
+	const Word *f6;
+	const Word *f7;
+	const Word *f8;
+} mercury_data_private_builtin__base_type_info_base_type_info_1 = {
+	((Integer) 1),
+	MR_MAYBE_STATIC_CODE(ENTRY(
+		mercury____Unify___private_builtin__type_info_1_0)),
+	MR_MAYBE_STATIC_CODE(ENTRY(
+		mercury____Index___private_builtin__type_info_1_0)),
+	MR_MAYBE_STATIC_CODE(ENTRY(
+		mercury____Compare___private_builtin__type_info_1_0)),
+	(const Word *) &
+		mercury_data_private_builtin__base_type_layout_type_info_1,
+	(const Word *) &
+		mercury_data_private_builtin__base_type_functors_type_info_1,
+	(const Word *) string_const(""private_builtin"", 15),
+	(const Word *) string_const(""base_type_info"", 14)
+};
+
+MR_STATIC_CODE_CONST struct
+mercury_data_private_builtin__base_type_info_type_info_1_struct {
+	Integer f1;
+	Code *f2;
+	Code *f3;
+	Code *f4;
+	const Word *f5;
+	const Word *f6;
+	const Word *f7;
+	const Word *f8;
+} mercury_data_private_builtin__base_type_info_type_info_1 = {
+	((Integer) 1),
+	MR_MAYBE_STATIC_CODE(ENTRY(
+		mercury____Unify___private_builtin__type_info_1_0)),
+	MR_MAYBE_STATIC_CODE(ENTRY(
+		mercury____Index___private_builtin__type_info_1_0)),
+	MR_MAYBE_STATIC_CODE(ENTRY(
+		mercury____Compare___private_builtin__type_info_1_0)),
+	(const Word *) &
+		mercury_data_private_builtin__base_type_layout_type_info_1,
+	(const Word *) &
+		mercury_data_private_builtin__base_type_functors_type_info_1,
+	(const Word *) string_const(""private_builtin"", 15),
+	(const Word *) string_const(""type_info"", 9)
+};
+
+
+const struct mercury_data_private_builtin__base_type_layout_type_info_1_struct {
+	TYPE_LAYOUT_FIELDS
+} mercury_data_private_builtin__base_type_layout_type_info_1 = {
+	make_typelayout_for_all_tags(TYPELAYOUT_CONST_TAG, 
+		mkbody(MR_TYPELAYOUT_TYPEINFO_VALUE))
+};
+
+const struct mercury_data_private_builtin__base_type_functors_type_info_1_struct {
+	Integer f1;
+} mercury_data_private_builtin__base_type_functors_type_info_1 = {
+	MR_TYPEFUNCTORS_SPECIAL
+};
+
+BEGIN_MODULE(type_info_module)
+	init_entry(mercury____Unify___private_builtin__type_info_1_0);
+	init_entry(mercury____Index___private_builtin__type_info_1_0);
+	init_entry(mercury____Compare___private_builtin__type_info_1_0);
+BEGIN_CODE
+Define_entry(mercury____Unify___private_builtin__type_info_1_0);
+{
+	/*
+	** Unification for type_info.
+	**
+	** The two inputs are in the registers named by unify_input[12].
+	** The success/failure indication should go in unify_output.
+	*/
+	int comp;
+	save_transient_registers();
+	comp = MR_compare_type_info(unify_input1, unify_input2);
+	restore_transient_registers();
+	unify_output = (comp == COMPARE_EQUAL);
+	proceed();
+}
+
+Define_entry(mercury____Index___private_builtin__type_info_1_0);
+	index_output = -1;
+	proceed();
+
+Define_entry(mercury____Compare___private_builtin__type_info_1_0);
+{
+	/*
+	** Comparison for type_info:
+	**
+	** The two inputs are in the registers named by compare_input[12].
+	** The result should go in compare_output.
+	*/
+	int comp;
+	save_transient_registers();
+	comp = MR_compare_type_info(unify_input1, unify_input2);
+	restore_transient_registers();
+	compare_output = comp;
+	proceed();
+}
+END_MODULE
+
+/* Ensure that the initialization code for the above module gets run. */
+/*
+INIT sys_init_type_info_module
+*/
+extern ModuleFunc type_info_module;
+void sys_init_type_info_module(void); /* suppress gcc -Wmissing-decl warning */
+void sys_init_type_info_module(void) {
+	type_info_module();
 }
 
 ").
