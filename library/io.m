@@ -43,11 +43,15 @@
 
 :- type io__state.
 
-	% Opaque handles for text I/O streams.
+:- type io__stream.
+:- type io__bi_stream == io__stream.
 
-:- type io__input_stream.
+	% Non-opaque handles for text I/O streams.
+	% Needed to allow sockets to uses streams as input and output.
 
-:- type io__output_stream.
+:- type io__input_stream == io__stream.
+
+:- type io__output_stream == io__stream.
 
 	% Opaque handles for binary I/O streams.
 
@@ -55,7 +59,7 @@
 
 :- type io__binary_output_stream	==	io__binary_stream.
 
-:- type io__binary_stream.
+:- type io__binary_stream == io__stream.
 
 	% Various types used for the result from the access predicates
 
@@ -969,6 +973,12 @@
 	% on some systems, the file previously named `NewFileName' will be
 	% deleted and replaced with the file previously named `OldFileName'.
 
+:- pred io__stream_file_size(stream, int, io__state, io__state).
+:- mode io__stream_file_size(in, out, di, uo) is det.
+	% io__stream_file_size(Stream, Size):
+	%	if Stream is a regular file, then Size is its size (in bytes),
+	%	otherwise Size is -1.
+
 %-----------------------------------------------------------------------------%
 
 % Memory management predicates.
@@ -1037,9 +1047,19 @@
 :- func io__error_message(io__error) = string.
 :- pred io__error_message(io__error, string).
 :- mode io__error_message(in, out) is det.
+:- mode io__error_message(out, in) is det.
 %	io__error_message(ErrorCode, ErrorMessage).
 %		Look up the error message corresponding to a particular error
 %		code.
+
+:- pred io__stream_name(io__stream, string, io__state, io__state).
+:- mode io__stream_name(in, out, di, uo) is det.
+
+:- pred io__delete_stream_name(io__stream, io__state, io__state).
+:- mode io__delete_stream_name(in, di, uo) is det.
+
+:- pred io__insert_stream_name(io__stream, string, io__state, io__state).
+:- mode io__insert_stream_name(in, in, di, uo) is det.
 
 %-----------------------------------------------------------------------------%
 :- implementation.
@@ -1133,10 +1153,10 @@
 :- type io__stream_names ==	map(io__stream_id, string).
 :- type io__stream_putback ==	map(io__stream_id, list(char)).
 
-:- type io__input_stream ==	io__stream.
-:- type io__output_stream ==	io__stream.
+%:- type io__input_stream ==	io__stream.
+%:- type io__output_stream ==	io__stream.
 
-:- type io__binary_stream ==	io__stream.
+%:- type io__binary_stream ==	io__stream.
 
 :- type io__stream == c_pointer.
 
@@ -1568,12 +1588,6 @@ io__check_err(Stream, Res) -->
 }").
 
 %-----------------------------------------------------------------------------%
-
-:- pred io__stream_file_size(stream, int, io__state, io__state).
-:- mode io__stream_file_size(in, out, di, uo) is det.
-% io__stream_file_size(Stream, Size):
-%	if Stream is a regular file, then Size is its size (in bytes),
-%	otherwise Size is -1.
 
 :- pragma c_header_code("
 #ifdef HAVE_UNISTD_H
@@ -2471,9 +2485,6 @@ io__binary_output_stream_name(Name) -->
 io__binary_output_stream_name(Stream, Name) -->
 	io__stream_name(Stream, Name).
 
-:- pred io__stream_name(io__stream, string, io__state, io__state).
-:- mode io__stream_name(in, out, di, uo) is det.
-
 io__stream_name(Stream, Name) -->
 	io__get_stream_names(StreamNames),
 	{ map__search(StreamNames, get_stream_id(Stream), Name1) ->
@@ -2501,16 +2512,10 @@ io__stream_name(Stream, Name) -->
 	update_io(IO0, IO);
 ").
 
-:- pred io__delete_stream_name(io__stream, io__state, io__state).
-:- mode io__delete_stream_name(in, di, uo) is det.
-
 io__delete_stream_name(Stream) -->
 	io__get_stream_names(StreamNames0),
 	{ map__delete(StreamNames0, get_stream_id(Stream), StreamNames) },
 	io__set_stream_names(StreamNames).
-
-:- pred io__insert_stream_name(io__stream, string, io__state, io__state).
-:- mode io__insert_stream_name(in, in, di, uo) is det.
 
 io__insert_stream_name(Stream, Name) -->
 	io__get_stream_names(StreamNames0),
@@ -3494,6 +3499,27 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
+:- pragma c_code(io__close_input(Stream::in, IO0::di, IO::uo),
+		[may_call_mercury, tabled_for_io, thread_safe],
+"
+	mercury_close((MercuryFile *) Stream);
+	update_io(IO0, IO);
+").
+
+:- pragma c_code(io__close_output(Stream::in, IO0::di, IO::uo),
+		[may_call_mercury, tabled_for_io, thread_safe],
+"
+	mercury_close((MercuryFile *) Stream);
+	update_io(IO0, IO);
+").
+
+:- pragma c_code(io__close_binary_input(Stream::in, IO0::di, IO::uo),
+		[may_call_mercury, tabled_for_io, thread_safe],
+"
+	mercury_close((MercuryFile *) Stream);
+	update_io(IO0, IO);
+").
+
 io__close_input(Stream) -->
 	io__delete_stream_name(Stream),
 	io__close_stream(Stream).
@@ -3512,7 +3538,7 @@ io__close_binary_output(Stream) -->
 
 :- pred io__close_stream(stream::in, io__state::di, io__state::uo) is det.
 :- pragma c_code(io__close_stream(Stream::in, IO0::di, IO::uo),
-		[may_call_mercury, thread_safe], "
+		[may_call_mercury, tabled_for_io, thread_safe], "
 	mercury_close((MercuryFile *) Stream);
 	update_io(IO0, IO);
 ").
