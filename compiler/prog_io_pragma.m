@@ -1175,7 +1175,7 @@ parse_pragma_keyword(ExpectedKeyword, Term, StringArg, StartContext) :-
 	--->	may_call_mercury(may_call_mercury)
 	;	thread_safe(thread_safe)
 	;	tabled_for_io(tabled_for_io)
-	;	aliasing(aliasing).
+	;	collected_aliasing(aliasing).
 
 :- pred parse_pragma_foreign_code_attributes_term(foreign_language, term, 
 		pragma_foreign_code_attributes).
@@ -1216,12 +1216,16 @@ parse_pragma_foreign_code_attributes_term(ForeignLanguage, Term, Attributes) :-
 	;
 		Attributes3 = Attributes2
 	),
-	( list__member(aliasing(no_aliasing), AttrList) ->
-		( list__member(aliasing(unknown_aliasing), AttrList) ->
+	( list__filter(
+			pred(C::in) is semidet :- 
+				C = collected_aliasing(_), 
+			AttrList, 
+			AliasInfo), AliasInfo \= [] ->
+		( AliasInfo = [collected_aliasing(Aliasing)] ->
+			set_aliasing(Attributes3, Aliasing, Attributes)
+		;
 			% XXX an error message would be nice
 			fail
-		;
-			set_aliasing(Attributes3, no_aliasing, Attributes)
 		)
 	;
 		Attributes = Attributes3
@@ -1260,7 +1264,7 @@ parse_single_pragma_foreign_code_attribute(Term, Flag) :-
 	; parse_tabled_for_io(Term, TabledForIo) ->
 		Flag = tabled_for_io(TabledForIo)
 	; parse_aliasing(Term, Aliasing) ->
-		Flag = aliasing(Aliasing)
+		Flag = collected_aliasing(Aliasing)
 	;
 		fail
 	).
@@ -1296,10 +1300,8 @@ parse_tabled_for_io(term__functor(term__atom("not_tabled_for_io"), [], _),
 :- pred parse_aliasing(term, aliasing).
 :- mode parse_aliasing(in, out) is semidet.
 
-parse_aliasing(term__functor(term__atom("no_aliasing"), [], _),
-	no_aliasing).
-parse_aliasing(term__functor(term__atom("unknown_aliasing"), [], _),
-	unknown_aliasing).
+parse_aliasing(Term, Aliasing):- 
+	pa_alias_as__parse_user_declared_aliases(Term, Aliasing). 
 
 % parse a pragma foreign_code declaration
 

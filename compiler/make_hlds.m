@@ -5314,13 +5314,21 @@ clauses_info_add_pragma_foreign_code(ClausesInfo0, Purity, Attributes0, PredId,
 		map__apply_to_list(Args0, Subst, TermArgs),
 		term__term_list_to_var_list(TermArgs, Args),
 
+		% rename the aliasing information from their variables
+		% to the actual variables (prog_var's as well as type-
+		% variables. 
+		aliasing(Attributes, Aliasing0), 
+		rename_aliasing(Aliasing0, Args0, HeadVars, OrigArgTypes, 
+			Aliasing), 
+		set_aliasing(Attributes, Aliasing, Attributes1), 
+
 			% build the pragma_c_code
 		goal_info_init(GoalInfo0),
 		goal_info_set_context(GoalInfo0, Context, GoalInfo1),
 		% Put the purity in the goal_info in case
 		% this foreign code is inlined
 		add_goal_info_purity_feature(GoalInfo1, Purity, GoalInfo),
-		HldsGoal0 = pragma_foreign_code(Attributes, PredId, 
+		HldsGoal0 = pragma_foreign_code(Attributes1, PredId, 
 			ModeId, Args, ArgInfo, OrigArgTypes, PragmaImpl)
 			- GoalInfo
 		}, 
@@ -5344,6 +5352,25 @@ clauses_info_add_pragma_foreign_code(ClausesInfo0, Purity, Attributes0, PredId,
 			TI_VarMap, TCI_VarMap)
 		}
 	).
+
+:- pred rename_aliasing(aliasing::in, list(prog_var)::in, 
+	list(prog_var)::in, list(type)::in, aliasing::out) is det.
+rename_aliasing(ActualAliasing, ActualHVs, FormalHVs, FormalTypes, 
+			FormalAliasing):- 
+	ActualAliasing = aliasing(MaybeActualTypes, ActualAlias),
+	map__from_corresponding_lists(ActualHVs, FormalHVs, VarMapping), 
+	pa_alias_as__rename(VarMapping, ActualAlias, Alias0), 
+	(
+		MaybeActualTypes = yes(ActualTypes)
+	->
+		pa_alias_as__rename_types(ActualTypes, FormalTypes, 
+				Alias0, FormalAlias)
+	;
+		FormalAlias = Alias0
+	), 
+	% NB: MaybeActualTypes are not needed after this renaming
+	FormalAliasing = aliasing(no, FormalAlias). 
+		
 
 :- pred allocate_vars_for_saved_vars(list(string), list(pair(prog_var, string)),
 	prog_varset, prog_varset).

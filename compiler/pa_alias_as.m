@@ -156,6 +156,12 @@
 :- pred parse_read_aliases_from_single_term(term(T), alias_as).
 :- mode parse_read_aliases_from_single_term(in, out) is det.
 
+:- pred parse_user_declared_aliases(term, aliasing).
+:- mode parse_user_declared_aliases(in, out) is semidet.
+
+:- pred to_user_declared_aliases(aliasing, string). 
+:- mode to_user_declared_aliases(in, out) is det.
+
 	% Live = live(IN_USE,LIVE_0,ALIASES).
 	% compute the live-set based upon an initial IN_USE set, 
 	% and a list of aliases.
@@ -472,19 +478,22 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 
 
 %-----------------------------------------------------------------------------%
-extend_foreign_code(_ProcInfo, HLDS, GoalInfo,
+extend_foreign_code(ProcInfo, HLDS, GoalInfo,
 			Attrs, Vars, MaybeModes, Types, Alias0, Alias):-
 	to_trios(Vars, MaybeModes, Types, Trios), 
 	% remove all unique objects
 	remove_all_unique_vars(HLDS, Trios, NonUniqueVars), 
 	% keep only the output vars
 	collect_all_output_vars(HLDS, NonUniqueVars, OutputVars), 
-%	collect_all_input_vars(HLDS, NonUniqueVars, InputVars), 
 	(
+		aliasing(Attrs, UserDefinedAlias),
+		UserDefinedAlias = aliasing(_MaybeTypes, UserAlias),
+		UserAlias \= top(_)
+	->
+		extend(ProcInfo, HLDS, UserAlias, Alias0, Alias)
+	;	
 		(
 			OutputVars = [] 
-		;
-			aliasing(Attrs, no_aliasing)
 %		; 
 %			% XXXXXXXXXXXXXXXXX !!
 %			OutputVars = [_], InputVars = []
@@ -506,14 +515,9 @@ extend_foreign_code(_ProcInfo, HLDS, GoalInfo,
 		; 
 
 			goal_info_get_context(GoalInfo, Context), 
-			term__context_line(Context, ContextLine), 
-			term__context_file(Context, ContextFile), 
-			string__int_to_string(ContextLine, ContextLineS), 
-
+			format_context(Context, ContextStr), 
 			string__append_list(["pragma_foreign_code:",
-						" (",ContextFile, ":", 
-						ContextLineS, ")"], Msg), 
-			
+						" (",ContextStr, ")"], Msg), 
 			pa_alias_as__top(Alias0, Msg, Alias)
 		)
 	).
@@ -634,9 +638,9 @@ normalize_wti(ProcInfo, HLDS, ASin, ASout):-
 	).
 		
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % printing routines
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 	% MaybeAs = yes(Alias_as) -> print out Alias_as
 	%         = no		   -> print "not available"
@@ -705,9 +709,9 @@ print_aliases(AS, ProcInfo, PredInfo) -->
 	).
 
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % parsing routines
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 parse_read_aliases(LISTTERM ,AS):- 
 	(
@@ -743,11 +747,9 @@ parse_read_aliases_from_single_term(OneITEM, AS) :-
 		; 
 			CONS = "top"
 		->
-			term__context_line(Context, ContextLine), 
-			term__context_file(Context, ContextFile), 
-			string__int_to_string(ContextLine, ContextLineS), 
+			format_context(Context, ContextString), 
 			string__append_list(["imported top (", 
-				ContextFile, ":", ContextLineS, ")"], 
+				ContextString, ")"], 
 					Msg),
 			top(Msg, AS)
 		;
@@ -786,7 +788,135 @@ parse_list_alias_term(TERM, Aliases) :-
                 error("(pa_alias_as) parse_list_alias_term: term is not a functor")
 	).
 
+%-----------------------------------------------------------------------------%
+% user declared aliases
+%-----------------------------------------------------------------------------%
 
+parse_user_declared_aliases(term__functor(term__atom("no_aliasing"), [], _),
+                Aliasing):-
+        pa_alias_as__init(BottomAlias),
+	Aliasing = aliasing(no, BottomAlias). 
+parse_user_declared_aliases(term__functor(term__atom("unknown_aliasing"), 
+				[], Context), Aliasing):-
+	format_context(Context, ContextString), 
+	string__append_list(["user declared top (", ContextString, ")"], Msg),
+        pa_alias_as__top(Msg, TopAlias), 
+	Aliasing = aliasing(no, TopAlias). 
+parse_user_declared_aliases(term__functor(term__atom("alias"), 
+		[TypesTerm,AliasTerm], _), Aliasing):-
+	(
+		TypesTerm = term__functor(term__atom("yes"), 
+					ListTypesTerms, _), 
+		list__map(term__coerce, ListTypesTerms, Types), 
+		MaybeTypes = yes(Types)
+	;
+		TypesTerm = term__functor(term__atom("no"),[],_), 
+		MaybeTypes = no
+	), 
+	parse_user_declared_aliases_2(AliasTerm, AliasAs), 
+	Aliasing = aliasing(MaybeTypes, AliasAs). 
+
+:- pred format_context(term__context::in, string::out) is det.
+format_context(Context, String):- 
+	term__context_line(Context, ContextLine), 
+	term__context_file(Context, ContextFile), 
+	string__int_to_string(ContextLine, ContextLineS), 
+	string__append_list([ContextFile, ":", ContextLineS], 
+			String).
+
+:- pred parse_user_declared_aliases_2(term::in, alias_as::out) is det.
+parse_user_declared_aliases_2(ListTerm, AliasAS):- 
+	(
+		parse_list_term(ListTerm, AllTerms)
+	-> 
+		list__map(parse_single_user_declared_alias, 
+				AllTerms, AliasList),
+		pa_alias_set__from_pair_alias_list(AliasList, AliasSet),
+		wrap(AliasSet, AliasAS)
+	;
+		error("(pa_alias_as) parse_user_declared_aliases_2: term not a functor")
+	).
+
+:- pred parse_list_term(term::in, list(term)::out) is semidet.
+parse_list_term(ListTerm, Terms):- 
+	ListTerm = term__functor(term__atom(Cons), Args, _), 
+	(
+		Cons = "."
+	->
+		Args = [FirstTerm, RestTerm],
+		parse_list_term(RestTerm, RestList), 
+		Terms = [FirstTerm | RestList]
+	;
+		Cons = "[]"
+	->
+		Terms = []
+	; 
+		fail
+	). 
+
+:- pred parse_single_user_declared_alias(term::in, alias::out) is det.
+parse_single_user_declared_alias(Term, Alias):- 
+	(
+		Term = term__functor(term__atom("-"), [Left, Right], _)
+	->
+		% Left and Right have shape "cel(ProgVar, Types)"
+		parse_user_datastruct(Left, LeftData), 
+		parse_user_datastruct(Right, RightData), 
+		Alias = LeftData - RightData
+	;
+		error("(pa_alias_as) parse_single_user_declared_alias: wrong functor.")
+	).
+
+% might be better to move this code to pa_datastruct ? 
+:- import_module pa_selector. 
+:- pred parse_user_datastruct(term::in, 
+		pa_datastruct__datastruct::out) is det. 
+parse_user_datastruct(Term, Data):- 
+	(
+		Term = term__functor(term__atom("cel"),
+			[VarTerm, TypesTerm], Context)
+	->
+		(
+			VarTerm = term__variable(GenericVar),
+			term__coerce_var(GenericVar, ProgVar) 
+		-> 
+			( 
+				parse_list_term(TypesTerm, ListTypesTerms)
+			-> 
+				list__map(term__coerce, ListTypesTerms, Types),
+				pa_selector__from_types(Types, Selector), 
+				pa_datastruct__create(ProgVar, Selector, Data)
+			;
+				format_context(Context, ContextString), 
+				string__append_list([
+				"(pa_alias_as) parse_user_datastruct: ", 
+				"error in declared selector (", 
+					ContextString, ")"], Msg), 
+				error(Msg)
+				
+			)
+		;
+			format_context(Context, ContextString), 
+			string__append_list([
+				"(pa_alias_as) parse_user_datastruct: ", 
+				"error in declared alias (", 
+				ContextString, ")"], Msg), 
+			error(Msg)
+		)
+	;
+		error("(pa_alias_as) parse_user_datastruct: wrong datastructure description -- should be cel/2")
+	).
+
+		
+to_user_declared_aliases(aliasing(_, bottom), "no_aliasing"). 
+to_user_declared_aliases(aliasing(_, top(_)), "unknown_aliasing").
+to_user_declared_aliases(aliasing(_, real_as(_)), "alias([])"). 
+
+%-----------------------------------------------------------------------------%
+
+%-----------------------------------------------------------------------------%
+% Extra 
+%-----------------------------------------------------------------------------%
 :- pred wrap(pa_alias_set__alias_set, alias_as).
 :- mode wrap(in, out) is det.
 
@@ -837,6 +967,7 @@ apply_widening(ModuleInfo, ProcInfo, A0, A):-
 	pa_alias_set__apply_widening(ModuleInfo, ProcInfo, 
 			AliasSet0, AliasSet), 
 	A = real_as(AliasSet).
+
 %-----------------------------------------------------------------------------%
 % computing LIVE_SET
 %-----------------------------------------------------------------------------%

@@ -48,6 +48,8 @@
 	% create an initial selector with given constructor and index.
 :- pred init(cons_id::in, int::in, selector::out) is det.
 
+:- pred from_types(list(type)::in, selector::out) is det.
+
 	% check whether the selector is a top-selector.
 :- pred top(selector::in) is semidet.
 
@@ -109,6 +111,13 @@ init([]).
 init(CONS, INDEX, SEL):-
 	US = us(CONS, INDEX),
 	SEL = [US].
+from_types(Types, Selector):- 
+	list__map(
+		pred(T::in, US::out) is det :- 
+			US = ts(T),
+		Types,
+		Selector). 	
+		
 
 top([]).
 

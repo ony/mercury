@@ -535,6 +535,7 @@
 		% `pragma_c_code_attribute's.
 :- type pragma_foreign_code_attributes.
 
+
 :- pred default_attributes(foreign_language, pragma_foreign_code_attributes).
 :- mode default_attributes(in, out) is det.
 
@@ -592,9 +593,14 @@
 	--->	not_tabled_for_io
 	;	tabled_for_io.
 
-:- type aliasing
-	--->	no_aliasing
-	;	unknown_aliasing.
+% :- type aliasing
+%	--->	no_aliasing
+%	;	unknown_aliasing.
+:- type aliasing 
+	---> 	aliasing(maybe(list(type)), % this is only needed when the
+					    % user expresses aliases in terms
+					    % of type-variables.
+			 pa_alias_as__alias_as). 
 
 :- type pragma_var    
 	--->	pragma_var(prog_var, string, mode).
@@ -987,7 +993,9 @@
 
 default_attributes(Language, 
 	attributes(Language, may_call_mercury, not_thread_safe, 
-		not_tabled_for_io, unknown_aliasing)).
+		not_tabled_for_io, Aliasing)):-
+	pa_alias_as__top("Default top", TopAlias), 
+	Aliasing = aliasing(no, TopAlias).
 
 may_call_mercury(Attrs, Attrs ^ may_call_mercury).
 
@@ -1041,13 +1049,7 @@ attributes_to_strings(Attrs, StringList) :-
 		TabledForIO = not_tabled_for_io,
 		TabledForIOStr = "not_tabled_for_io"
 	),
-	(
-		Aliasing = no_aliasing,
-		AliasingStr = "no_aliasing"
-	;
-		Aliasing = unknown_aliasing,
-		AliasingStr = "unknown_aliasing"
-	),
+	to_user_declared_aliases(Aliasing, AliasingStr), 
 	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr,
 			AliasingStr].
 
