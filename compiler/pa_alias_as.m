@@ -11,7 +11,7 @@
 
 :- interface.
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 %-- import_module 
 
 % library modules
@@ -26,12 +26,12 @@
 :- import_module sr_live.
 :- import_module pa_datastruct.
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 %-- exported types
 
 :- type alias_as.
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 %-- exported predicates
 
 :- pred init( alias_as::out ) is det.
@@ -98,6 +98,11 @@
 			hlds_goal__hlds_goal_info, alias_as, alias_as).
 :- mode extend_unification( in, in, in, in, in, out) is det.
 
+:- pred extend_foreign_code( proc_info, module_info, 
+			list(prog_var), list(maybe(pair(string, mode))),
+                        list(type), alias_as, alias_as).
+:- mode extend_foreign_code( in, in, in, in, in, in, out) is det.
+
 	% Add two abstract substitutions to each other. These
 	% abstract substitutions come from different contexts, and have
 	% not to be 'extended' wrt each other. 
@@ -146,17 +151,17 @@
 :- func size( alias_as ) = int.
 :- mode size( in ) = out is det.
 
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 :- implementation.
 
 % library modules
 :- import_module require.
 
 % compiler modules
-:- import_module pa_alias.
+:- import_module pa_alias, pa_util.
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 %-- type definitions 
 
 :- type alias_as ---> 
@@ -168,7 +173,7 @@
 	% where string could be some sort of message.
 
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 	% init
 init(bottom).
@@ -393,6 +398,7 @@ add( AS1, AS2, AS ) :-
 	).
 	
 
+%-----------------------------------------------------------------------------%
 extend_unification( ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout ):-
 	pa_alias__from_unification( ProcInfo, HLDS, Unif, GoalInfo, AUnif),
 	wrap(AUnif, ASUnif),
@@ -440,6 +446,127 @@ optimization_remove_deaths( ProcInfo, ASin, GI, ASout ) :-
 
 does_not_contain_vars( Vars, Alias) :- 
 	not contains_one_of_vars_in_list( Vars, Alias).
+
+%-----------------------------------------------------------------------------%
+extend_foreign_code( _ProcInfo, HLDS, Vars, MaybeModes, Types, Alias0, Alias):-
+	to_trios(Vars, MaybeModes, Types, Trios), 
+	% remove all unique objects
+	remove_all_unique_vars( HLDS, Trios, NonUniqueVars), 
+	% keep only the output vars
+	collect_all_output_vars( HLDS, NonUniqueVars, OutputVars), 
+	collect_all_input_vars( HLDS, NonUniqueVars, InputVars), 
+	(
+		(
+			OutputVars = [] 
+		; 
+			% XXXXXXXXXXXXXXXXX !!
+			OutputVars = [_], InputVars = []
+		)
+	->
+		Alias = Alias0
+	;
+		list__map( 
+			pred( Trio::in, Type::out ) is det:-
+			( 
+				Trio = trio(_, _, Type)
+			), 
+			OutputVars,
+			OutputTypes),
+		(
+			types_are_primitive( HLDS, OutputTypes) 
+		-> 
+			Alias = Alias0
+		; 
+			pa_alias_as__top("pragma_c_code not handled", Alias)
+		)
+	).
+	
+
+:- import_module std_util, inst_match.
+
+:- type trio ---> trio( prog_var, mode, type). 
+
+:- pred to_trios( list(prog_var), list(maybe(pair(string, mode))), 
+			list(type), list(trio)).
+:- mode to_trios( in, in, in, out) is det.
+
+to_trios( Vars, MaybeModes, Types, Trios ):-
+	(
+		Vars = [ V1 | VR ]
+	->
+		(
+			MaybeModes = [ M1 | MR ],
+			Types = [ T1 | TR ]
+		->
+			(
+				M1 = yes( _String - Mode )
+			->
+				Trio1 = trio( V1, Mode, T1), 
+				to_trios( VR, MR, TR, TrioR), 
+				Trios = [ Trio1 | TrioR ]
+			;
+				to_trios( VR, MR, TR, Trios )
+			)
+		;
+			require__error("(pa_run) to_trios: lists of different length.")
+		)
+	;
+		(
+			MaybeModes = [], Types = []
+		->
+			Trios = []
+		;
+			require__error("(pa_run) to_trios: not all lists empty.")
+		)
+	).
+			
+:- pred collect_all_output_vars( module_info::in, 
+		list(trio)::in, list(trio)::out) is det.
+:- pred remove_all_unique_vars( module_info::in, 
+		list(trio)::in, list(trio)::out) is det.
+:- pred collect_all_input_vars( module_info::in,
+		list(trio)::in, list(trio)::out) is det.
+
+:- import_module mode_util.
+
+collect_all_output_vars( HLDS, VarsIN, VarsOUT):- 
+	list__filter(
+		pred( P0::in ) is semidet :- 
+		(
+			P0 = trio(_, Mode, Type), 
+			mode_to_arg_mode(HLDS, Mode, Type, ArgMode), 
+			ArgMode = top_out
+		), 
+		VarsIN, 
+		VarsOUT
+	).
+	
+remove_all_unique_vars( HLDS, VarsIN, VarsOUT):- 
+	list__filter(
+		pred( P0::in ) is semidet :- 
+		(
+			P0 = trio(_, Mode, _), 
+			Mode = (_LeftInst -> RightInst), 
+			\+ inst_is_unique(HLDS, RightInst), 
+			\+ inst_is_clobbered(HLDS, RightInst)
+		),
+		VarsIN, 
+		VarsOUT
+	).
+
+collect_all_input_vars( HLDS, VarsIN, VarsOUT):- 
+	list__filter(
+		pred( P0::in ) is semidet :- 
+		(
+			P0 = trio(_, Mode, Type), 
+			mode_to_arg_mode(HLDS, Mode, Type, ArgMode), 
+			ArgMode = top_in
+		), 
+		VarsIN, 
+		VarsOUT
+	).
+
+%-----------------------------------------------------------------------------%
 
 normalize( ProcInfo, HLDS, _INSTMAP, ALIASin, ALIASout):- 
 	% normalize only using type-info's

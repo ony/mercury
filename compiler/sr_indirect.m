@@ -423,11 +423,12 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 	Expr = if_then_else( Vars, Cond, Then, Else, SM),
 	Goal = Expr - Info.
 				
-analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
-			_Alias0, Alias, 
+analyse_goal( ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
+			Alias0, Alias, 
 			FP0, FP) :- 
-	Expr0 = pragma_foreign_code( _, _, _, _, _, _, _, _ ), 
-	pa_alias_as__top("unhandled goal", Alias), 
+	Expr0 = pragma_foreign_code( _, _, _, _, Vars, MaybeModes, Types, _ ), 
+	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Vars, 
+			MaybeModes, Types, Alias0, Alias), 
 	Pool = Pool0, 
 	FP = FP0,
 	Goal = Expr0 - Info0. 

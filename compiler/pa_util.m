@@ -12,7 +12,7 @@
 
 :- interface.
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- import_module hlds_pred.
 :- import_module pa_alias_as.
@@ -57,8 +57,8 @@
 :- mode pa_fixpoint_table_get_final_as( in, out, in) is det.
 
 
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 :- implementation.
 
 :- type pa_fixpoint_table == 
@@ -93,4 +93,34 @@ pa_fixpoint_table_get_as( PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
 pa_fixpoint_table_get_final_as( PRED_PROC_ID, ALIAS_AS, T ):-
 	fp_get_final( PRED_PROC_ID, ALIAS_AS, T).
 
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- interface.
+
+:- import_module hlds_module, hlds_pred, list.
+:- import_module prog_data.
+
+:- pred arg_types_are_all_primitive(module_info, pred_info).
+:- mode arg_types_are_all_primitive(in,in) is semidet.
+
+:- pred types_are_primitive( module_info::in, list(type)::in) is semidet.
+
+:- implementation. 
+
+:- import_module type_util.
+
+arg_types_are_all_primitive(HLDS, PredInfo):-
+        hlds_pred__pred_info_arg_types(PredInfo, ArgTypes),
+        types_are_primitive( HLDS, ArgTypes).
+
+types_are_primitive( HLDS, TYPES ) :- 
+        list__filter( pred( TYPE::in ) is semidet :-
+                (
+                        type_util__type_is_atomic(TYPE,HLDS)
+                ),
+                TYPES,
+                _TrueList, 
+                [] ).
 

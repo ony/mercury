@@ -359,39 +359,10 @@ analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	pa_alias_as__least_upper_bound( ProcInfo, HLDS, A2, A3, A).
 
 analyse_goal_expr( pragma_foreign_code( _,_,_,_, Vars, MaybeModes,Types,_  ), 
-			_Info, _, HLDS , 
+			_Info, ProcInfo, HLDS , 
 			T, T, Ain, A) :- 
-	to_trios(Vars, MaybeModes, Types, Trios), 
-	% remove all unique objects
-	remove_all_unique_vars( HLDS, Trios, NonUniqueVars), 
-	% keep only the output vars
-	collect_all_output_vars( HLDS, NonUniqueVars, OutputVars), 
-	collect_all_input_vars( HLDS, NonUniqueVars, InputVars), 
-	(
-		(
-			OutputVars = [] 
-		; 
-			% XXXXXXXXXXXXXXXXX !!
-			OutputVars = [_], InputVars = []
-		)
-	->
-		A = Ain
-	;
-		list__map( 
-			pred( Trio::in, Type::out ) is det:-
-			( 
-				Trio = trio(_, _, Type)
-			), 
-			OutputVars,
-			OutputTypes),
-		(
-			types_are_primitive( HLDS, OutputTypes) 
-		-> 
-			A = Ain
-		; 
-			pa_alias_as__top("pragma_c_code not handled", A)
-		)
-	).
+	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Vars, 
+		MaybeModes, Types, Ain, A). 
 
 	% error( "(pa) pragma_c_code not handled") .
 analyse_goal_expr( par_conj( _Goals, _SM), _Info, _, _ , T, T, _A, A) :-  
@@ -400,94 +371,6 @@ analyse_goal_expr( par_conj( _Goals, _SM), _Info, _, _ , T, T, _A, A) :-
 analyse_goal_expr( bi_implication( _G1, _G2),_Info, _,  _ , T, T, _A, A) :- 
 	pa_alias_as__top("bi_implication not handled", A).
 	% error( "(pa) bi_implication not handled") .
-
-%-----------------------------------------------------------------------------%
-
-
-
-:- import_module std_util, inst_match.
-
-:- type trio ---> trio( prog_var, mode, type). 
-
-:- pred to_trios( list(prog_var), list(maybe(pair(string, mode))), 
-			list(type), list(trio)).
-:- mode to_trios( in, in, in, out) is det.
-
-to_trios( Vars, MaybeModes, Types, Trios ):-
-	(
-		Vars = [ V1 | VR ]
-	->
-		(
-			MaybeModes = [ M1 | MR ],
-			Types = [ T1 | TR ]
-		->
-			(
-				M1 = yes( _String - Mode )
-			->
-				Trio1 = trio( V1, Mode, T1), 
-				to_trios( VR, MR, TR, TrioR), 
-				Trios = [ Trio1 | TrioR ]
-			;
-				to_trios( VR, MR, TR, Trios )
-			)
-		;
-			require__error("(pa_run) to_trios: lists of different length.")
-		)
-	;
-		(
-			MaybeModes = [], Types = []
-		->
-			Trios = []
-		;
-			require__error("(pa_run) to_trios: not all lists empty.")
-		)
-	).
-			
-:- pred collect_all_output_vars( module_info::in, 
-		list(trio)::in, list(trio)::out) is det.
-:- pred remove_all_unique_vars( module_info::in, 
-		list(trio)::in, list(trio)::out) is det.
-:- pred collect_all_input_vars( module_info::in,
-		list(trio)::in, list(trio)::out) is det.
-
-:- import_module mode_util.
-
-collect_all_output_vars( HLDS, VarsIN, VarsOUT):- 
-	list__filter(
-		pred( P0::in ) is semidet :- 
-		(
-			P0 = trio(_, Mode, Type), 
-			mode_to_arg_mode(HLDS, Mode, Type, ArgMode), 
-			ArgMode = top_out
-		), 
-		VarsIN, 
-		VarsOUT
-	).
-	
-remove_all_unique_vars( HLDS, VarsIN, VarsOUT):- 
-	list__filter(
-		pred( P0::in ) is semidet :- 
-		(
-			P0 = trio(_, Mode, _), 
-			Mode = (_LeftInst -> RightInst), 
-			\+ inst_is_unique(HLDS, RightInst), 
-			\+ inst_is_clobbered(HLDS, RightInst)
-		),
-		VarsIN, 
-		VarsOUT
-	).
-
-collect_all_input_vars( HLDS, VarsIN, VarsOUT):- 
-	list__filter(
-		pred( P0::in ) is semidet :- 
-		(
-			P0 = trio(_, Mode, Type), 
-			mode_to_arg_mode(HLDS, Mode, Type, ArgMode), 
-			ArgMode = top_in
-		), 
-		VarsIN, 
-		VarsOUT
-	).
 
 %-----------------------------------------------------------------------------%
 
@@ -592,29 +475,6 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 			ErrMsg), 
 		top(ErrMsg, Alias)
 	).
-
-:- import_module type_util.
-
-:- pred arg_types_are_all_primitive(module_info, pred_info).
-:- mode arg_types_are_all_primitive(in,in) is semidet.
-
-arg_types_are_all_primitive(HLDS, PredInfo):-
-	hlds_pred__pred_info_arg_types(PredInfo, ArgTypes),
-	types_are_primitive( HLDS, ArgTypes).
-
-:- pred types_are_primitive( module_info::in, list(type)::in) is semidet.
-
-types_are_primitive( HLDS, TYPES ) :- 
-	list__filter( pred( TYPE::in ) is semidet :-
-		(
-			type_util__type_is_atomic(TYPE,HLDS)
-		),
-		TYPES,
-		_TrueList, 
-		[] ).
-
-
-
 
 :- pred rename_call_alias( pred_proc_id, module_info, list(prog_var),
 				alias_as, alias_as).
