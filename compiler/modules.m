@@ -4469,6 +4469,7 @@ include_in_short_interface(inst_defn(_, _, _)).
 include_in_short_interface(mode_defn(_, _, _)).
 include_in_short_interface(module_defn(_, _)).
 include_in_short_interface(typeclass(_, _, _, _, _)).
+include_in_short_interface(pragma(foreign_type(_, _, _, _))).
 
 :- pred make_abstract_type_defn(item, short_interface_kind, item).
 :- mode make_abstract_type_defn(in, in, out) is semidet.
