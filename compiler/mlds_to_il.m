@@ -104,9 +104,13 @@
 :- pred mangle_mlds_var(mlds__var, ilds__id).
 :- mode mangle_mlds_var(in, out) is det.
 
+	% This type stores information affecting our IL data representation.
 :- type il_data_rep ---> il_data_rep(
-	highlevel_data	:: bool		% do we use high level data?
+		highlevel_data	:: bool,	% do we use high-level data?
+		il_envptr_type :: ilds__type	% what IL type do we use for
+						% mlds__generic_env_ptr_type?
 	).
+:- pred get_il_data_rep(il_data_rep::out, io__state::di, io__state::uo) is det.
 
 	% Get the corresponding ILDS type for an MLDS type 
 	% (this depends on which representation you happen to be using).
@@ -137,7 +141,7 @@
 
 :- import_module globals, options, passes_aux.
 :- import_module builtin_ops, c_util, modules, tree.
-:- import_module prog_data, prog_out, llds_out.
+:- import_module prog_data, prog_out, prog_util, llds_out.
 :- import_module rtti, type_util, code_model, foreign.
 
 :- import_module ilasm, il_peephole.
@@ -156,11 +160,13 @@
 :- type il_info ---> il_info(
 		% file-wide attributes (all static)
 	module_name 	:: mlds_module_name,	% the module name
-	assembly_name 	:: assembly_name,	% the assembly name
+	assembly_name 	:: ilds__id,		% the assembly name
 	imports 	:: mlds__imports,	% the imports
 	file_foreign_langs :: set(foreign_language), % file foreign code
 	il_data_rep	:: il_data_rep,		% data representation.
 	debug_il_asm	:: bool,		% --debug-il-asm
+	verifiable_code	:: bool,		% --verifiable-code
+	il_byref_tailcalls :: bool,		% --il-byref-tailcalls
 		% class-wide attributes (all accumulate)
 	alloc_instrs	:: instr_tree,		% .cctor allocation instructions
 	init_instrs	:: instr_tree,		% .cctor init instructions
@@ -195,11 +201,14 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 	ModuleName = mercury_module_name_to_mlds(MercuryModuleName),
 	prog_out__sym_name_to_string(mlds_module_name_to_sym_name(ModuleName),
 			".", AssemblyName),
-	globals__io_lookup_bool_option(highlevel_data, HighLevelData, IO0, IO1),
-	globals__io_lookup_bool_option(debug_il_asm, DebugIlAsm, IO1, IO),
+	get_il_data_rep(ILDataRep, IO0, IO1),
+	globals__io_lookup_bool_option(debug_il_asm, DebugIlAsm, IO1, IO2),
+	globals__io_lookup_bool_option(verifiable_code, VerifiableCode, IO2, IO3),
+	globals__io_lookup_bool_option(il_byref_tailcalls, ByRefTailCalls,
+			IO3, IO),
 
 	IlInfo0 = il_info_init(ModuleName, AssemblyName, Imports,
-			il_data_rep(HighLevelData), DebugIlAsm),
+			ILDataRep, DebugIlAsm, VerifiableCode, ByRefTailCalls),
 
 	list__map_foldl(mlds_defn_to_ilasm_decl, Defns, ILDecls,
 			IlInfo0, IlInfo),
@@ -213,14 +222,25 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 		% library.  Standard library modules all go in the one
 		% assembly in a separate step during the build (using
 		% AL.EXE).  
+	PackageName = mlds_module_name_to_package_name(ModuleName),
 	(
-		PackageName = mlds_module_name_to_package_name(ModuleName),
 		PackageName = qualified(unqualified("mercury"), _)
 	->
 		ThisAssembly = [],
 		AssemblerRefs = Imports
 	;
-		ThisAssembly = [assembly(AssemblyName)],
+			% If the package name is qualified then the
+			% we have a sub-module which shouldn't be placed
+			% in its own assembly.
+		( PackageName = unqualified(_) ->
+			ThisAssembly = [assembly(AssemblyName)]
+		;
+			ThisAssembly = []
+		),
+
+			% XXX at a later date we should make foreign
+			% code behave like a submodule.
+			%
 			% If not in the library, but we have foreign code,
 			% declare the foreign module as an assembly we
 			% reference
@@ -232,9 +252,15 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 			ForeignCodeAssemblerRefs),
 		AssemblerRefs = list__append(ForeignCodeAssemblerRefs, Imports)
 	),
-	generate_extern_assembly(AssemblerRefs, ExternAssemblies),
+	generate_extern_assembly(AssemblyName, AssemblerRefs, ExternAssemblies),
 	Namespace = [namespace(NamespaceName, ILDecls)],
 	ILAsm = list__condense([ThisAssembly, ExternAssemblies, Namespace]).
+
+get_il_data_rep(ILDataRep, IO0, IO) :-
+	globals__io_get_globals(Globals, IO0, IO),
+	globals__lookup_bool_option(Globals, highlevel_data, HighLevelData),
+	ILEnvPtrType = choose_il_envptr_type(Globals),
+	ILDataRep = il_data_rep(HighLevelData, ILEnvPtrType).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -497,7 +523,7 @@ mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags0, class(ClassDefn)),
 		% when that assembly is created by al.exe.
 		% This occurs for nondet environment classes in the
 		% mercury std library.
-	( ClassName = structured_name("mercury", _) ->
+	( ClassName = structured_name(assembly("mercury"), _) ->
 		Flags = set_access(Flags0, public)
 	;
 		Flags = Flags0
@@ -554,18 +580,8 @@ generate_parent_and_extends(DataRep, Kind, Inherits) = Parent - Extends :-
 		)
 	).
 
-class_name(Module, Name) = structured_name(Assembly, ClassName ++ [Name]) :-
-	ClassName = sym_name_to_list(mlds_module_name_to_sym_name(Module)),
-		% Any name beginning with mercury is in the standard
-		% library.  The standard library is placed into one
-		% assembly called mercury.
-	( ClassName = ["mercury" | _] ->
-		Assembly = "mercury"
-	;
-		prog_out__sym_name_to_string(
-				mlds_module_name_to_package_name(Module),
-				".", Assembly)
-	).
+class_name(Module, Name)
+	= append_class_name(mlds_module_name_to_class_name(Module), [Name]).
 
 :- func sym_name_to_list(sym_name) = list(string).
 
@@ -726,7 +742,7 @@ interface_id_to_class_name(_) = Result :-
 	( semidet_succeed ->
 		sorry(this_file, "interface_id_to_class_name NYI")
 	;
-		Result = structured_name("XXX", [])
+		Result = structured_name(assembly("XXX"), [])
 		
 	).
 
@@ -942,10 +958,10 @@ generate_method(ClassName, IsCons,
 		il_info_get_next_block_id(TryBlockId),
 		il_info_make_next_label(DoneLabel),
 
-			% Replace all the returns with leave
-			% instructions as a side effect this means that
-			% we can no longer have any tail calls so
-			% replace them with nops.
+			% Replace all the returns with leave instructions;
+			% as a side effect, this means that
+			% we can no longer have any tail calls,
+			% so replace them with nops.
 		{ RenameRets = (func(I) = 
 			(if (I = ret) then
 				leave(label_target(DoneLabel))
@@ -957,11 +973,11 @@ generate_method(ClassName, IsCons,
 		)},
 		{ RenameNode = (func(N) = list__map(RenameRets, N)) },
 
-		{ ExceptionClassName = structured_name("mscorlib",
+		{ ExceptionClassName = structured_name(assembly("mscorlib"),
 				["System", "Exception"]) },
 
 		{ ConsoleWriteName = class_member_name(structured_name(
-				"mscorlib", ["System", "Console"]),
+				il_system_assembly_name, ["System", "Console"]),
 				id("Write")) },
 		{ WriteString = methoddef(call_conv(no, default),
 					void, ConsoleWriteName,
@@ -1002,7 +1018,9 @@ generate_method(ClassName, IsCons,
 
 		% Generate the entire method contents.
 	DebugIlAsm =^ debug_il_asm,
-	{ MethodBody = make_method_defn(DebugIlAsm, InstrsTree) },
+	VerifiableCode =^ verifiable_code,
+	{ MethodBody = make_method_defn(DebugIlAsm, VerifiableCode,
+		InstrsTree) },
 	{ list__condense([EntryPoint, CustomAttrs, MethodBody],
 			MethodContents) },
 
@@ -1334,11 +1352,33 @@ statement_to_il(statement(atomic(Atomic), Context), Instrs) -->
 
 statement_to_il(statement(call(Sig, Function, _This, Args, Returns, IsTail), 
 		Context), Instrs) -->
-	( { IsTail = tail_call } ->
-		% For tail calls, to make the code verifiable, 
-		% we need a `ret' instruction immediately after
-		% the call.
+	VerifiableCode =^ verifiable_code,
+	ByRefTailCalls =^ il_byref_tailcalls,
+	DataRep =^ il_data_rep,
+	{ TypeParams = mlds_signature_to_ilds_type_params(DataRep, Sig) },
+	{ ReturnParam = mlds_signature_to_il_return_param(DataRep, Sig) },
+	(
+		{ IsTail = tail_call },
+		% if --verifiable-code is enabled,
+		% and the arguments contain one or more byrefs,
+		% then don't emit the "tail." prefix,
+		% unless --il-byref-tailcalls is set
+		\+ (
+			{ VerifiableCode = yes },
+			some [Ref] (
+				{ list__member(Ref, TypeParams) },
+				{ Ref = ilds__type(_, '&'(_)) 
+				; Ref = ilds__type(_, '*'(_)) 
+				; Ref = ilds__type(_, refany) 
+				}
+			),
+			{ ByRefTailCalls = no }
+		)
+	->
 		{ TailCallInstrs = [tailcall] },
+		% For calls marked with "tail.", we need a `ret'
+		% instruction immediately after the call (this is in fact
+		% needed for correct IL, not just for verifiability)
 		{ RetInstrs = [ret] },
 		{ ReturnsStoredInstrs = empty },
 		{ LoadMemRefInstrs = empty }
@@ -1353,9 +1393,6 @@ statement_to_il(statement(call(Sig, Function, _This, Args, Returns, IsTail),
 	),
 	list__map_foldl(load, Args, ArgsLoadInstrsTrees),
 	{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
-	DataRep =^ il_data_rep,
-	{ TypeParams = mlds_signature_to_ilds_type_params(DataRep, Sig) },
-	{ ReturnParam = mlds_signature_to_il_return_param(DataRep, Sig) },
 	( { Function = const(_) } ->
 		{ FunctionLoadInstrs = empty },
 		{ rval_to_function(Function, MemberName) },
@@ -1707,7 +1744,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 			Type = mlds__class_type(_, _, mlds__class) 
 		;
 			DataRep ^ highlevel_data = yes,
-			Type = mlds__mercury_type(_, user_type, _, _)
+			Type = mlds__mercury_type(_, user_type, _)
 		}
 	->
 			% If this is a class, we should call the
@@ -2086,31 +2123,97 @@ unaryop_to_il(std_unop(bitwise_complement), _, node([not])) --> [].
 unaryop_to_il(std_unop((not)), _,
 	node([ldc(int32, i(1)), clt(unsigned)])) --> [].
 
-		% if we are casting from an unboxed type, we should box
-		% it first.
-unaryop_to_il(cast(Type), Rval, Instrs) -->
+	% XXX should detect casts to System.Array from
+	% array types and ignore them, as they are not
+	% necessary.
+unaryop_to_il(cast(DestType), SrcRval, Instrs) -->
 	DataRep =^ il_data_rep,
-	{ ILType = mlds_type_to_ilds_type(DataRep, Type) },
-	{ rval_to_type(Rval, RvalType) },
-	{ RvalILType = mlds_type_to_ilds_type(DataRep, RvalType) },
-	{ already_boxed(ILType) ->
-		( already_boxed(RvalILType) ->
-			( RvalType = Type ->
+	{ DestILType = mlds_type_to_ilds_type(DataRep, DestType) },
+	{ rval_to_type(SrcRval, SrcType) },
+	{ SrcILType = mlds_type_to_ilds_type(DataRep, SrcType) },
+
+	%
+	% we need to handle casts to/from "refany" specially --
+	% IL has special instructions for those
+	%
+	{
+		% is it a cast to refany?
+		DestILType = ilds__type(_, refany)
+	->
+		(
+			% is it from refany?
+			SrcILType = ilds__type(_, refany)
+		->
+			% cast from refany to refany is a NOP
+			Instrs = empty
+		;
+			% cast to refany: use "mkrefany" instruction
+			( SrcILType = ilds__type(_Qual, '&'(ReferencedType)) ->
+				Instrs = node([mkrefany(ReferencedType)])
+			;
+				unexpected(this_file,
+					"cast from non-ref type to refany")
+			)
+		)
+	;
+		% is it a cast from refany?
+		SrcRval = lval(_),
+		rval_to_type(SrcRval, SrcType),
+		SrcILType = mlds_type_to_ilds_type(DataRep, SrcType),
+		SrcILType = ilds__type(_, refany)
+	->
+		% cast from refany: use "refanyval" instruction
+		( DestILType = ilds__type(_Qual, '&'(ReferencedType)) ->
+			Instrs = node([refanyval(ReferencedType)])
+		;
+			unexpected(this_file,
+				"cast from non-ref type to refany")
+		)
+	;
+	%
+	% we need to handle casts to/from unmanaged pointers specially --
+	% .castclass doesn't work for those.  These casts are generated
+	% by ml_elim_nested.m for the environment pointers.  If we're
+	% using unmanaged pointers, then this must be unverifiable code.
+	% We don't need to use any explicit conversion in the IL
+	%
+	% XXX Currently ilds uses `native_uint' for unmanaged pointers,
+	% because that's what IL does, but we should probably define a
+	% separate ilds type for this.
+	%
+		( DestILType = ilds__type(_, native_uint)
+		; SrcILType = ilds__type(_, native_uint)
+		)
+	->
+		Instrs = empty
+	;
+	%
+	% if we are casting from an unboxed type to a boxed type,
+	% we should box it first, and then cast.
+	%
+		already_boxed(DestILType)
+	->
+		( already_boxed(SrcILType) ->
+			( SrcType = DestType ->
 				Instrs = empty
 			;
-				Instrs = node([castclass(ILType)])
+				% cast one boxed type to another boxed type
+				Instrs = node([castclass(DestILType)])
 			)
 		;
+			% convert an unboxed type to a boxed type:
+			% box it first, then cast
 			Instrs = tree__list([
-				convert_to_object(RvalILType),
-				instr_node(castclass(ILType))
+				convert_to_object(SrcILType),
+				instr_node(castclass(DestILType))
 			])
 		)
 	;
-		( already_boxed(RvalILType) ->
-			( RvalType = mercury_type(_, user_type, _, _) ->
+		( already_boxed(SrcILType) ->
+			( SrcType = mercury_type(_, user_type, _) ->
 				% XXX we should look into a nicer way to
 				% generate MLDS so we don't need to do this
+				% XXX This looks wrong for --high-level-data. -fjh.
 				Instrs = tree__list([
 					comment_node(
 						"loading out of an MR_Word"),
@@ -2119,7 +2222,7 @@ unaryop_to_il(cast(Type), Rval, Instrs) -->
 						il_generic_simple_type)),
 					comment_node(
 						"turning a cast into an unbox"),
-					convert_from_object(ILType)
+					convert_from_object(DestILType)
 				])
 			;
 				% XXX It would be nicer if the MLDS used an
@@ -2127,11 +2230,15 @@ unaryop_to_il(cast(Type), Rval, Instrs) -->
 				Instrs = tree__list([
 					comment_node(
 					"turning a cast into an unbox"),
-					convert_from_object(ILType)
+					convert_from_object(DestILType)
 				])
 			)
 		;
-			sorry(this_file, "cast operations between value types")
+			DestILType = ilds__type(_, DestSimpleType),
+			Instrs = tree__list([
+				comment_node("cast between value types"),
+				instr_node(conv(DestSimpleType))
+			])
 		)
 	}.
 
@@ -2141,8 +2248,6 @@ unaryop_to_il(box(UnboxedType), _, Instrs) -->
 	{ already_boxed(UnboxedILType) ->
 			% It is already boxed, so we don't need
 			% to do anything.
-			% It would be good if we didn't generate 
-			% such code, but it's no big deal
 		Instrs = empty
 	;
 		Instrs = convert_to_object(UnboxedILType)
@@ -2566,7 +2671,15 @@ mlds_type_to_ilds_simple_type(DataRep, MLDSType) = SimpleType :-
 
 	% XXX make sure all the types are converted correctly
 
-mlds_type_to_ilds_type(_, mlds__rtti_type(_RttiName)) = il_array_type.
+mlds_type_to_ilds_type(_, mlds__rtti_type(_RttiName)) = il_object_array_type.
+
+mlds_type_to_ilds_type(DataRep, mlds__mercury_array_type(ElementType)) = 
+	( ElementType = mlds__mercury_type(_, polymorphic_type, _) ->
+		il_generic_array_type
+	;
+		ilds__type([], '[]'(mlds_type_to_ilds_type(DataRep,
+			ElementType), []))
+	).
 
 mlds_type_to_ilds_type(DataRep, mlds__array_type(ElementType)) = 
 	ilds__type([], '[]'(mlds_type_to_ilds_type(DataRep, ElementType), [])).
@@ -2593,7 +2706,8 @@ mlds_type_to_ilds_type(_, mlds__class_type(Class, Arity, Kind)) =
 
 mlds_type_to_ilds_type(_, mlds__commit_type) = il_commit_type.
 
-mlds_type_to_ilds_type(_, mlds__generic_env_ptr_type) = il_envptr_type.
+mlds_type_to_ilds_type(ILDataRep, mlds__generic_env_ptr_type) =
+	ILDataRep^il_envptr_type.
 
 	% XXX we ought to use the IL bool type
 mlds_type_to_ilds_type(_, mlds__native_bool_type) = ilds__type([], int32).
@@ -2614,35 +2728,29 @@ mlds_type_to_ilds_type(_, mlds__native_float_type) = ilds__type([], float64).
 mlds_type_to_ilds_type(_, mlds__foreign_type(ForeignType, Assembly))
 	= ilds__type([], Class) :-
 	sym_name_to_class_name(ForeignType, ForeignClassName),
-	Class = class(structured_name(Assembly, ForeignClassName)).
+	Class = class(structured_name(assembly(Assembly), ForeignClassName)).
 	
 mlds_type_to_ilds_type(ILDataRep, mlds__ptr_type(MLDSType)) =
 	ilds__type([], '&'(mlds_type_to_ilds_type(ILDataRep, MLDSType))).
 
-mlds_type_to_ilds_type(_, mercury_type(_, int_type, _, _)) =
+mlds_type_to_ilds_type(_, mercury_type(_, int_type, _)) =
 	ilds__type([], int32).
-mlds_type_to_ilds_type(_, mercury_type(_, char_type, _, _)) =
+mlds_type_to_ilds_type(_, mercury_type(_, char_type, _)) =
 	ilds__type([], char).
-mlds_type_to_ilds_type(_, mercury_type(_, float_type, _, _)) =
+mlds_type_to_ilds_type(_, mercury_type(_, float_type, _)) =
 	ilds__type([], float64).
-mlds_type_to_ilds_type(_, mercury_type(_, str_type, _, _)) = il_string_type.
-mlds_type_to_ilds_type(_, mercury_type(_, pred_type, _, _)) = il_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, tuple_type, _, _)) = il_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, enum_type, _, _)) = il_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type, _, _))
-	= il_generic_type.
-mlds_type_to_ilds_type(DataRep,
-		mercury_type(MercuryType, user_type, _, MaybeArray))
-		= ILDS_Type :-
-	( MaybeArray = yes(Array),
-		ILDS_Type = array_type_to_ilds_type(DataRep, Array)
-	; MaybeArray = no,
-		( DataRep ^ highlevel_data = yes ->
-			ILDS_Type = mercury_type_to_highlevel_class_type(
-					MercuryType)
-		;
-			ILDS_Type = il_array_type
-		)
+mlds_type_to_ilds_type(_, mercury_type(_, str_type, _)) = il_string_type.
+mlds_type_to_ilds_type(_, mercury_type(_, pred_type, _)) = il_object_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, tuple_type, _)) =
+	il_object_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, enum_type, _)) = il_object_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type, _)) =
+	il_generic_type.
+mlds_type_to_ilds_type(DataRep, mercury_type(MercuryType, user_type, _)) = 
+	( DataRep ^ highlevel_data = yes ->
+		mercury_type_to_highlevel_class_type(MercuryType)
+	;
+		il_object_array_type
 	).
 mlds_type_to_ilds_type(_, mlds__unknown_type) = _ :-
 	unexpected(this_file, "mlds_type_to_ilds_type: unknown_type").
@@ -2667,16 +2775,10 @@ mlds_class_to_ilds_simple_type(Kind, ClassName) = SimpleType :-
 :- func mercury_type_to_highlevel_class_type(mercury_type) = ilds__type.
 mercury_type_to_highlevel_class_type(MercuryType) = ILType :-
 	( type_to_type_id(MercuryType, TypeId, _Args) ->
-		(
-			type_id_is_array(TypeId)
-		->
-			ILType = il_array_type
-		;
-			ml_gen_type_name(TypeId, ClassName, Arity),
-			ILType = ilds__type([], class(
-				mlds_class_name_to_ilds_class_name(
-					ClassName, Arity)))
-		)
+		ml_gen_type_name(TypeId, ClassName, Arity),
+		ILType = ilds__type([], class(
+			mlds_class_name_to_ilds_class_name(ClassName, Arity)
+			))
 	;
 		unexpected(this_file, "type_to_type_id failed")
 	).
@@ -3027,15 +3129,29 @@ mlds_to_il__sym_name_to_string_2(unqualified(Name), _) -->
 mlds_module_name_to_class_name(MldsModuleName) = 
 		structured_name(AssemblyName, ClassName) :-
 	SymName = mlds_module_name_to_sym_name(MldsModuleName),
+	sym_name_to_class_name(SymName, ClassName),
+	AssemblyName = mlds_module_name_to_assembly_name(MldsModuleName).
+
+:- func mlds_module_name_to_assembly_name(mlds_module_name) = assembly_name.
+
+mlds_module_name_to_assembly_name(MldsModuleName) = AssemblyName :-
+	SymName = mlds_module_name_to_sym_name(MldsModuleName),
 	PackageSymName = mlds_module_name_to_package_name(MldsModuleName),
 	sym_name_to_class_name(SymName, ClassName),
 	( 
 		ClassName = ["mercury" | _]
 	->
-		AssemblyName = "mercury"
+		AssemblyName = assembly("mercury")
 	;
-		mlds_to_il__sym_name_to_string(PackageSymName, AssemblyName)
+		mlds_to_il__sym_name_to_string(PackageSymName, PackageString),
+		( PackageSymName = unqualified(_),
+			AssemblyName = assembly(PackageString)
+		; PackageSymName = qualified(_, _),
+			AssemblyName = module(PackageString,
+					outermost_qualifier(PackageSymName))
+		)
 	).
+	
 
 :- pred sym_name_to_class_name(sym_name, list(ilds__id)).
 :- mode sym_name_to_class_name(in, out) is det.
@@ -3133,20 +3249,20 @@ rval_const_to_type(code_addr_const(_)) = mlds__func_type(
 		mlds__func_params([], [])).
 rval_const_to_type(int_const(_)) 
 	= mercury_type(term__functor(term__atom("int"), [], context("", 0)),
-			int_type, "MR_Integer", no).
+			int_type, "MR_Integer").
 rval_const_to_type(float_const(_))
 	= mercury_type(term__functor(term__atom("float"), [], context("", 0)),
-		float_type, "MR_Float", no).
+		float_type, "MR_Float").
 rval_const_to_type(false) = mlds__native_bool_type.
 rval_const_to_type(true) = mlds__native_bool_type.
 rval_const_to_type(string_const(_))
 	= mercury_type(
 		term__functor(term__atom("string"), [], context("", 0)),
-			str_type, "MR_String", no).
+			str_type, "MR_String").
 rval_const_to_type(multi_string_const(_, _))
 	= mercury_type(term__functor(term__atom("string"), [], context("", 0)),
 			% XXX Should this be MR_Word instead?
-			str_type, "MR_String", no).
+			str_type, "MR_String").
 rval_const_to_type(null(MldsType)) = MldsType.
 
 %-----------------------------------------------------------------------------%
@@ -3181,7 +3297,7 @@ data_addr_constant_to_fieldref(data_addr(ModuleName, DataName), FieldRef) :-
 	mangle_dataname(DataName, FieldName),
 	mangle_dataname_module(yes(DataName), ModuleName, NewModuleName),
 	ClassName = mlds_module_name_to_class_name(NewModuleName),
-	FieldRef = make_fieldref(il_array_type, ClassName, FieldName).
+	FieldRef = make_fieldref(il_object_array_type, ClassName, FieldName).
 
 
 %-----------------------------------------------------------------------------%
@@ -3303,7 +3419,7 @@ simple_type_to_value_class(native_uint) = _ :-
 
 %-----------------------------------------------------------------------------%
 %
-% The mapping to the string type.
+% The mapping of the string type.
 %
 
 :- func il_string_equals = methodref.
@@ -3339,7 +3455,7 @@ mercury_string_class_name = mercury_library_name(StringClass) :-
 
 %-----------------------------------------------------------------------------%
 %
-% The mapping to the generic type (used like MR_Box).
+% The mapping of the generic type (used like MR_Box).
 %
 
 :- func il_generic_type = ilds__type.
@@ -3360,12 +3476,20 @@ il_generic_enum_name = il_system_name(["Enum"]).
 
 %-----------------------------------------------------------------------------%
 %
-% The mapping to the array type (used like MR_Word).
+% The mapping of the object array type (used like MR_Word).
+%
+	% il_object_array_type means array of System.Object.
+:- func il_object_array_type = ilds__type.
+il_object_array_type = ilds__type([], '[]'(il_generic_type, [])).
+
+%-----------------------------------------------------------------------------%
+%
+% The mapping of the library array type (array(T))
 %
 
-	% il_array_type means array of System.Object.
-:- func il_array_type = ilds__type.
-il_array_type = ilds__type([], '[]'(il_generic_type, [])).
+	% il_generic_array_type means array of System.Object.
+:- func il_generic_array_type = ilds__type.
+il_generic_array_type = ilds__type([], class(il_system_name(["Array"]))).
 
 %-----------------------------------------------------------------------------%
 %
@@ -3377,7 +3501,7 @@ il_conversion_class_name = mercury_runtime_name(["Convert"]).
 
 %-----------------------------------------------------------------------------%
 %
-% The mapping to the exception type.
+% The mapping of the exception type.
 %
 
 :- func il_exception_type = ilds__type.
@@ -3391,22 +3515,52 @@ il_exception_class_name = mercury_runtime_name(["Exception"]).
 
 %-----------------------------------------------------------------------------%
 %
-% The mapping to the environment type.
+% The mapping of the generic environment pointer type.
 %
 
-:- func il_envptr_type = ilds__type.
-il_envptr_type = ilds__type([], il_envptr_simple_type).
+% Unfortunately the .NET CLR doesn't have any verifiable way of creating a
+% generic pointer to an environment, unless you allocate them on the heap.
+% Using "refany" (a.k.a. "typedref") *almost* works, except that we need
+% to be able to put these pointers in environment structs, and the CLR
+% doesn't allow that (see ECMA CLI Partition 1, 8.6.1.3 "Local Signatures").
+% So we only do that if the --il-refany-fields option is set.
+% If it is not set, then handle_options.m will ensure that we allocate
+% the environments on the heap if verifiable code is requested.
 
-:- func il_envptr_simple_type = simple_type.
-il_envptr_simple_type = class(il_envptr_class_name).
+% For unverifiable code we allocate environments on the stack and use
+% unmanaged pointers.
 
-:- func il_envptr_class_name = ilds__class_name.
-il_envptr_class_name = mercury_runtime_name(["Environment"]).
+:- func choose_il_envptr_type(globals) = ilds__type.
+choose_il_envptr_type(Globals) = ILType :-
+	globals__lookup_bool_option(Globals, put_nondet_env_on_heap, OnHeap),
+	globals__lookup_bool_option(Globals, verifiable_code, Verifiable),
+	( OnHeap = yes ->
+		% Use an object reference type
+		ILType = il_heap_envptr_type
+	; Verifiable = yes ->
+		% Use "refany", the generic managed pointer type
+		ILType = ilds__type([], refany)
+	;
+		% Use unmanaged pointers
+		ILType = ilds__type([], native_uint)
+		% XXX we should introduce an ILDS type for unmanaged pointers,
+		%     rather than using native_uint; that's what IL does, but
+		%     it sucks -- we should delay the loss of type information
+		%     to the last possible moment, i.e. when writing out IL.
+	).
 
+:- func il_heap_envptr_type = ilds__type.
+il_heap_envptr_type = ilds__type([], il_heap_envptr_simple_type).
+
+:- func il_heap_envptr_simple_type = simple_type.
+il_heap_envptr_simple_type = class(il_heap_envptr_class_name).
+ 
+:- func il_heap_envptr_class_name = ilds__class_name.
+il_heap_envptr_class_name = mercury_runtime_name(["Environment"]).
 
 %-----------------------------------------------------------------------------%
 %
-% The mapping to the commit type.
+% The mapping of the commit type.
 %
 
 :- func il_commit_type = ilds__type.
@@ -3426,7 +3580,8 @@ mercury_library_name(Name) =
 	append_class_name(mercury_library_namespace_name, Name).
 
 :- func mercury_library_namespace_name = ilds__class_name.
-mercury_library_namespace_name = structured_name("mercury", ["mercury"]).
+mercury_library_namespace_name
+	= structured_name(assembly("mercury"), ["mercury"]).
 
 %-----------------------------------------------------------------------------
 
@@ -3436,8 +3591,8 @@ mercury_runtime_name(Name) =
 	append_class_name(mercury_runtime_class_name, Name).
 
 :- func mercury_runtime_class_name = ilds__class_name.
-mercury_runtime_class_name = structured_name("mercury",
-	["mercury", "runtime"]).
+mercury_runtime_class_name
+	= structured_name(assembly("mercury"), ["mercury", "runtime"]).
 
 %-----------------------------------------------------------------------------
 
@@ -3446,8 +3601,8 @@ mercury_runtime_class_name = structured_name("mercury",
 il_system_name(Name) = structured_name(il_system_assembly_name, 
 		[il_system_namespace_name | Name]).
 
-:- func il_system_assembly_name = string.
-il_system_assembly_name = "mscorlib".
+:- func il_system_assembly_name = assembly_name.
+il_system_assembly_name = assembly("mscorlib").
 
 :- func il_system_namespace_name = string.
 il_system_namespace_name = "System".
@@ -3455,39 +3610,30 @@ il_system_namespace_name = "System".
 %-----------------------------------------------------------------------------
 
 	% Generate extern decls for any assembly we reference.
-:- pred mlds_to_il__generate_extern_assembly(mlds__imports, list(decl)).
-:- mode mlds_to_il__generate_extern_assembly(in, out) is det.
+:- pred mlds_to_il__generate_extern_assembly(string, mlds__imports, list(decl)).
+:- mode mlds_to_il__generate_extern_assembly(in, in, out) is det.
 
-mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
-	SystemAssemblyDecl = [
-			version(1, 0, 2411, 0),
-			public_key_token([
-				int8(0xb7), int8(0x7a), int8(0x5c), int8(0x56),
-				int8(0x19), int8(0x34), int8(0xE0), int8(0x89)
-			]),
-			hash([
-				int8(0xb0), int8(0x73), int8(0xf2), int8(0x4c),
-				int8(0x14), int8(0x39), int8(0x0a), int8(0x35),
-				int8(0x25), int8(0xea), int8(0x45), int8(0x0f),
-				int8(0x60), int8(0x58), int8(0xc3), int8(0x84),
-				int8(0xe0), int8(0x3b), int8(0xe0), int8(0x95)
-			])],
+mlds_to_il__generate_extern_assembly(CurrentAssembly, Imports, AllDecls) :-
 	Gen = (pred(Import::in, Decl::out) is semidet :-
-		ClassName = mlds_module_name_to_class_name(Import ^ name),
-		ClassName = structured_name(Assembly, _),
-		not (Assembly = "mercury"),
-		(
-			Import ^ mercury = no,
-			string__append("System", _, Assembly)
-		->
-			AssemblyDecl = SystemAssemblyDecl
-		;
-			AssemblyDecl = []
-		),
-		Decl = extern_assembly(Assembly, AssemblyDecl)
+		AsmName = mlds_module_name_to_assembly_name(Import ^ name),
+		( AsmName = assembly(Assembly),
+			Assembly \= "mercury",
+			Decl = [extern_assembly(Assembly,
+					assembly_decls(Assembly, Import))]
+		; AsmName = module(ModuleName, Assembly),
+			( Assembly = CurrentAssembly ->
+				ModuleStr = ModuleName ++ ".dll",
+				Decl = [file(ModuleStr),
+					extern_module(ModuleStr)]
+			;
+				Assembly \= "mercury",
+				Decl = [extern_assembly(Assembly,
+					assembly_decls(Assembly, Import))]
+			)
+		)
 	),
 	list__filter_map(Gen, Imports, Decls0),
-	list__sort_and_remove_dups(Decls0, Decls),
+	list__sort_and_remove_dups(list__condense(Decls0), Decls),
 	AllDecls = [
 		extern_assembly("mercury", [
 			version(0, 0, 0, 0),
@@ -3496,27 +3642,60 @@ mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
 				int8(0x12), int8(0xAA), int8(0x0B), int8(0x0B)
 			])
 		]),
-		extern_assembly("mscorlib", SystemAssemblyDecl) | Decls].
+		extern_assembly("mscorlib", system_assembly_decls) | Decls].
+
+:- func assembly_decls(string, import) = list(assembly_decl).
+
+assembly_decls(Assembly, Import) =
+	(
+		Import ^ mercury = no,
+		string__append("System", _, Assembly)
+	->
+		system_assembly_decls
+	;
+		[]
+	).
+
+:- func system_assembly_decls = list(assembly_decl).
+
+system_assembly_decls =
+	[
+		version(1, 0, 2411, 0),
+		public_key_token([
+			int8(0xb7), int8(0x7a), int8(0x5c), int8(0x56),
+			int8(0x19), int8(0x34), int8(0xE0), int8(0x89)
+		]),
+		hash([
+			int8(0xb0), int8(0x73), int8(0xf2), int8(0x4c),
+			int8(0x14), int8(0x39), int8(0x0a), int8(0x35),
+			int8(0x25), int8(0xea), int8(0x45), int8(0x0f),
+			int8(0x60), int8(0x58), int8(0xc3), int8(0x84),
+			int8(0xe0), int8(0x3b), int8(0xe0), int8(0x95)
+		])
+	].
+		
 
 %-----------------------------------------------------------------------------
 
-:- func make_method_defn(bool, instr_tree) = method_defn.
-make_method_defn(DebugIlAsm, InstrTree) = MethodDecls :-
+:- func make_method_defn(bool, bool, instr_tree) = method_defn.
+make_method_defn(DebugIlAsm, VerifiableCode, InstrTree) = MethodDecls :-
 	( DebugIlAsm = yes,
 		Add = 1
 	; DebugIlAsm = no,
 		Add = 0
 	),
 	Instrs = list__condense(tree__flatten(InstrTree)),
-	MethodDecls = [
-		maxstack(int32(calculate_max_stack(Instrs) + Add)),
-			% note that we only need .zeroinit to ensure
-			% verifiability; for nonverifiable code,
-			% we could omit that (it ensures that all
-			% variables are initialized to zero).
-		zeroinit,
-		instrs(Instrs)
-		].
+	MaxStack = maxstack(int32(calculate_max_stack(Instrs) + Add)),
+		% .zeroinit (which initializes all variables to zero)
+		% is required for verifiable code.  But if we're generating
+		% non-verifiable code, then we can skip it.  The code that
+		% the Mercury compiler generates doesn't require it, and
+		% omitting it may lead to slightly faster code.
+	( VerifiableCode = yes ->
+		MethodDecls = [MaxStack, zeroinit, instrs(Instrs)]
+	;
+		MethodDecls = [MaxStack, instrs(Instrs)]
+	).
 
 %-----------------------------------------------------------------------------
 % Some useful functions for generating IL fragments.
@@ -3580,7 +3759,7 @@ runtime_initialization_instrs = [
 
 :- func runtime_init_module_name = ilds__class_name.
 runtime_init_module_name = 
-	structured_name("mercury",
+	structured_name(assembly("mercury"),
 		["mercury", "private_builtin__cpp_code", wrapper_class_name]).
 
 :- func runtime_init_method_name = ilds__member_name.
@@ -3591,12 +3770,14 @@ runtime_init_method_name = id("init_runtime").
 % Predicates for manipulating il_info.
 %
 
-:- func il_info_init(mlds_module_name, assembly_name, mlds__imports,
-		il_data_rep, bool) = il_info.
+:- func il_info_init(mlds_module_name, ilds__id, mlds__imports,
+		il_data_rep, bool, bool, bool) = il_info.
 
-il_info_init(ModuleName, AssemblyName, Imports, ILDataRep, DebugIlAsm) =
+il_info_init(ModuleName, AssemblyName, Imports, ILDataRep,
+		DebugIlAsm, VerifiableCode, ByRefTailCalls) =
 	il_info(ModuleName, AssemblyName, Imports, set__init, ILDataRep,
-		DebugIlAsm, empty, empty, [], no, set__init, set__init,
+		DebugIlAsm, VerifiableCode, ByRefTailCalls,
+		empty, empty, [], no, set__init, set__init,
 		map__init, empty, counter__init(1), counter__init(1), no,
 		Args, MethodName, DefaultSignature) :-
 	Args = [],

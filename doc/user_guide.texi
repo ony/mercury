@@ -1734,7 +1734,7 @@ is based on the following concepts.
 The user may associate a break point
 with some events that occur inside a procedure;
 the invocation condition of the break point says which events these are.
-The four possible invocation conditions are:
+The four possible invocation conditions (also called scopes) are:
 @sp 1
 @itemize @bullet
 @item
@@ -2390,7 +2390,7 @@ these options are ignored.
 @cindex Breakpoints
 @sp 1
 @table @code
-@item break [-PS] @var{filename}:@var{linenumber}
+@item break [-PS] [-E@var{ignore-count}] [-I@var{ignore-count}] @var{filename}:@var{linenumber}
 @kindex break (mdb command)
 Puts a break point on the specified line of the specified source file,
 if there is an event or a call at that position.
@@ -2400,8 +2400,20 @@ it defaults to the filename from the context of the current event.
 The options @samp{-P} or @samp{--print}, and @samp{-S} or @samp{--stop}
 specify the action to be taken at the break point.
 @sp 1
-By default, the initial state of the break point is @samp{stop}.
-@item break [-AOPSaei] @var{proc-spec}
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint.
+@sp 1
+By default, the initial state of the break point is @samp{stop},
+and the ignore count is zero.
+@item break [-AOPSaei] [-E@var{ignore-count}] [-I@var{ignore-count}] @var{proc-spec}
 @c <module name> <predicate name> [<arity> [<mode> [<predfunc>]]]
 Puts a break point on the specified procedure.
 @sp 1
@@ -2417,15 +2429,32 @@ By default, mdb will ask you whether you want to put a breakpoint
 on all matched procedures or just one, and if so, which one.
 @sp 1
 The options @samp{-P} or @samp{--print}, and @samp{-S} or @samp{--stop}
-specify the action to be taken at the break point,
-while the options @samp{-a} or @samp{--all},
+specify the action to be taken at the break point.
+@sp 1
+The options @samp{-a} or @samp{--all},
 @samp{-e} or @samp{--entry}, and @samp{-i} or @samp{--interface}
 specify the invocation conditions of the break point.
+If none of these options are specified,
+the default is the one indicated by the current scope
+(see the @samp{scope} command below).
+The initial scope is @samp{interface}.
+@sp 1
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint.
 @sp 1
 By default, the action of the break point is @samp{stop},
-and its invocation condition is @samp{interface}.
+its invocation condition is @samp{interface},
+and the ignore count is zero.
 @sp 1
-@item break [-PS] here
+@item break [-PS] [-E@var{ignore-count}] [-I@var{ignore-count}] here
 Puts a break point on the procedure referred to by the current event,
 with the invocation condition being the event at the current location
 in the procedure body.
@@ -2433,10 +2462,56 @@ in the procedure body.
 The options @samp{-P} or @samp{--print}, and @samp{-S} or @samp{--stop}
 specify the action to be taken at the break point.
 @sp 1
-By default, the initial state of the break point is @samp{stop}.
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint.
+@sp 1
+By default, the initial state of the break point is @samp{stop},
+and the ignore count is zero.
 @sp 1
 @item break info
 Lists the details and status of all break points.
+@sp 1
+@item ignore [-E@var{ignore-count}] [-I@var{ignore-count}] @var{num}
+@sp 1
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint with the specified number.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint with the specified number.
+If neither option is given,
+the default is to ignore one call event
+that matches the breakpoint with the specified number.
+Reports an error if there is no break point with the specified number.
+@sp 1
+@item ignore [-E@var{ignore-count}] [-I@var{ignore-count}]
+@sp 1
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the most recently added breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the most recently added breakpoint.
+If neither option is given,
+the default is to ignore one call event
+that matches the most recently added breakpoint.
+Reports an error if the most recently added breakpoint has since been deleted.
 @sp 1
 @item disable @var{num}
 @kindex disable (mdb command)
@@ -2590,6 +2665,24 @@ after the identification of the event or call to which they refer.
 @sp 1
 @item context
 Reports where contexts are being printed.
+@sp 1
+@item scope all
+Sets the default scope of new breakpoints to "all",
+i.e. by default, new breakpoints on procedures
+will stop at all events in the procedure.
+@sp 1
+@item scope interface
+Sets the default scope of new breakpoints to "interface",
+i.e. by default, new breakpoints on procedures
+will stop at all interface events in the procedure.
+@sp 1
+@item scope entry
+Sets the default scope of new breakpoints to "entry",
+i.e. by default, new breakpoints on procedures
+will stop only at events representing calls to the procedure.
+@sp 1
+@item scope
+Reports the current default scope of new breakpoints.
 @sp 1
 @item alias @var{name} @var{command} [@var{command-parameter} ...]
 @kindex alias (mdb command)
@@ -4001,6 +4094,19 @@ and @samp{MLFLAGS}.
 @vindex MGNUCFLAGS
 @vindex C2INITFLAGS
 
+@menu
+* Grades and grade components::                 Setting the compilation model
+* Target options::                              Choosing a target language
+* Optional features compilation model options:: Debugging, Profiling, etc.
+* LLDS back-end compilation model options::     For the original back-end
+* MLDS back-end compilation model options::     For the new high-level back-end
+* Developer compilation model options::         Not for general use
+@end menu
+
+@node Grades and grade components
+@subsection Grades and grade components
+@cindex Grades and grade components
+
 @table @asis
 @item @code{-s @var{grade}}
 @itemx @code{--grade @var{grade}}
@@ -4096,6 +4202,7 @@ and grade modifier; they are followed by descriptions of those options.
 @findex --no-high-level-code
 @findex --target
 @findex --il
+@findex --java
 @findex --gc
 @findex --profiling
 @findex --memory-profiling
@@ -4169,7 +4276,13 @@ and grade modifier; they are followed by descriptions of those options.
 
 @end table
 
-@sp 1
+@end table
+
+@node Target options
+@subsection Target options
+@cindex Target options
+
+@table @asis
 @item @code{--target c} (grades: none, reg, jump, fast, asm_jump, asm_fast, hlc)
 @item @code{--target asm} (grades: hlc)
 @itemx @code{--il}, @code{--target il} (grades: ilc)
@@ -4201,6 +4314,14 @@ An abbreviation for @samp{--target java --target-code-only}.
 Generate Java code in @file{@var{module}.java}, but do not invoke 
 the Java compiler to produce Java bytecode.
 
+@end table
+
+@node LLDS back-end compilation model options
+@subsection LLDS back-end compilation model options
+@cindex LLDS back-end compilation model options
+
+@table @asis
+
 @sp 1
 @item @code{--gcc-global-registers} (grades: reg, fast, asm_fast)
 @itemx @code{--no-gcc-global-registers} (grades: none, jump, asm_jump)
@@ -4227,6 +4348,26 @@ for inline assembler labels.
 This option is ignored if the @samp{--high-level-code} option is enabled.
 
 @sp 1
+@item @code{--pic-reg} (grades: any grade containing `.pic_reg')
+@findex --pic-reg
+@findex -fpic
+@cindex Position independent code
+@cindex PIC (position independent code)
+@cindex Shared libraries
+[For Unix with intel x86 architecture only.]
+Select a register usage convention that is compatible
+with position-independent code (gcc's `-fpic' option).
+This is necessary when using shared libraries on Intel x86 systems
+running Unix.  On other systems it has no effect.
+This option is also ignored if the @samp{--high-level-code} option is enabled.
+
+@end table
+
+@node MLDS back-end compilation model options
+@subsection MLDS back-end compilation model option
+@cindex MLDS back-end compilation model options
+
+@table @asis
 @item @code{-H}, @code{--high-level-code} (grades: hlc, ilc, java)
 @findex -H
 @findex --high-level-code
@@ -4234,20 +4375,20 @@ Use an alternative back-end that generates high-level code
 rather than the very low-level code that is generated by our
 original back-end.
 
+@end table
+
+@node Optional features compilation model options
+@subsection Optional features compilation model options
+@cindex Optional features compilation model options
+
+@table @asis
 @sp 1
-@item @code{--gc @{none, conservative, accurate@}}
-@itemx @code{--garbage-collection @{none, conservative, accurate@}}
-@cindex Garbage collection
-@cindex Conservative garbage collection
-@cindex Accurate garbage collection
-@findex --gc
-@findex --garbage-collection
-Specify which method of garbage collection to use.
-Grades containing @samp{.gc} use @samp{--gc conservative},
-other grades use @samp{--gc none}.
-@samp{accurate} is not yet implemented.
-This option is ignored by the IL and Java back-ends, which always use
-the underlying IL or Java implementation's garbage collector.
+@item @code{--debug} (grades: any grade containing @samp{.debug})
+@findex --debug
+@cindex Debugging
+Enables the inclusion in the executable of code and data structures
+that allow the program to be debugged with @samp{mdb} (see @ref{Debugging}).
+This option is not yet supported for the @samp{--high-level-code} back-ends.
 
 @sp 1
 @item @code{--profiling}, @code{--time-profiling} (grades: any grade containing @samp{.prof})
@@ -4309,12 +4450,19 @@ has a small effect on the execution speed.
 @end ignore
 
 @sp 1
-@item @code{--debug} (grades: any grade containing @samp{.debug})
-@findex --debug
-@cindex Debugging
-Enables the inclusion in the executable of code and data structures
-that allow the program to be debugged with @samp{mdb} (see @ref{Debugging}).
-This option is not yet supported for the @samp{--high-level-code} back-ends.
+@item @code{--gc @{none, conservative, accurate@}}
+@itemx @code{--garbage-collection @{none, conservative, accurate@}}
+@cindex Garbage collection
+@cindex Conservative garbage collection
+@cindex Accurate garbage collection
+@findex --gc
+@findex --garbage-collection
+Specify which method of garbage collection to use.
+Grades containing @samp{.gc} use @samp{--gc conservative},
+other grades use @samp{--gc none}.
+@samp{accurate} is not yet implemented.
+This option is ignored by the IL and Java back-ends, which always use
+the underlying IL or Java implementation's garbage collector.
 
 @sp 1
 @item @code{--use-trail} (grades: any grade containing @samp{.tr})
@@ -4327,33 +4475,8 @@ Enable use of a trail.
 This is necessary for interfacing with constraint solvers,
 or for backtrackable destructive update.
 This option is not yet supported for the IL or Java back-ends.
-@sp 1
-@item @code{--reserve-tag} (grades: any grade containing @samp{.rt})
-@findex --reserve-tag
-@cindex Tags
-Reserve a tag in the data representation of the generated 
-code. This tag is intended to be used to give an explicit
-representation to free variables.
-This is necessary for a seamless Herbrand constraint solver --- 
-for use with HAL.
-@sp 1
-@item @code{--pic-reg} (grades: any grade containing `.pic_reg')
-@findex --pic-reg
-@findex -fpic
-@cindex Position independent code
-@cindex PIC (position independent code)
-@cindex Shared libraries
-[For Unix with intel x86 architecture only.]
-Select a register usage convention that is compatible
-with position-independent code (gcc's `-fpic' option).
-This is necessary when using shared libraries on Intel x86 systems
-running Unix.  On other systems it has no effect.
 
 @end table
-
-@menu
-* Developer compilation model options::
-@end menu
 
 @node Developer compilation model options
 @subsection Developer compilation model options
@@ -4383,6 +4506,16 @@ Use @var{n} tag bits.  This option is required if you specify
 @samp{--tags high}.
 With @samp{--tags low}, the default number of tag bits to use
 is determined by the auto-configuration script.
+
+@sp 1
+@item @code{--reserve-tag} (grades: any grade containing @samp{.rt})
+@findex --reserve-tag
+@cindex Tags
+Reserve a tag in the data representation of the generated 
+code. This tag is intended to be used to give an explicit
+representation to free variables.
+This is necessary for a seamless Herbrand constraint solver --- 
+for use with HAL.
 
 @sp 1
 @item @code{--no-type-layout}
@@ -4955,9 +5088,9 @@ A value of -1 specifies no depth limit. The default is 4.
 @sp 1
 @item --deforestation-vars-threshold
 @findex --deforestation-vars-threshold
-Specify a rough limit on the number of variables",
-in a procedure created by deforestation.",
-A value of -1 specifies no limit. The default is 200."
+Specify a rough limit on the number of variables
+in a procedure created by deforestation.
+A value of -1 specifies no limit. The default is 200.
 
 @sp 1
 @item --deforestation-size-threshold
@@ -5724,6 +5857,20 @@ code with @samp{--no-static-ground-terms}.
 @node Foreign language interface
 @chapter Foreign language interface
 
+The Mercury foreign language interfaces allows pragma foreign_proc to
+specify multiple implementations (in different foreign programming
+languages) for a procedure.
+
+If the compiler generates code for a procedure using a back-end for which 
+there are multiple applicable foreign languages, it will choose the
+foreign language to use for each procedure according to a builtin ordering. 
+
+If the language specified in a foreign_proc is not available for a
+particular backend, it will be ignored. 
+
+If there are no suitable foreign_proc clauses for a particular
+procedure but there are Mercury clauses, they will be used instead.
+
 @table @asis
 
 @item @samp{C}
@@ -5731,32 +5878,23 @@ This is the default foreign language on all backends which compile to C
 or assembler.
 Only available on backends that compile to C or assembler.
 
-@item @samp{Managed C++}
-Managed Extensions for C++ is a language based on C++ that
-provide support for writing .NET components, by adding extra
-keywords and syntax.
-
-This is the default foreign language on all backends which compile to IL.
-In the current implementation, this is only available on backends that
-compile to IL.
-Requires a Managed Extensions for C++ compiler installed.
-
-
 @item @samp{C#}
 Only available on backends that compile to IL.
-Requires a C# compiler installed.
-To use it pass mmc @samp{--use-foreign-language csharp} and
-@samp{--backend-foreign-language csharp}.
+This is the second preferred foreign language for IL code generation.
 
 @item @samp{IL}
 IL (or CIL) is the intermediate language of the .NET Common Language
 Runtime.
-
-Use the string "IL" to set the foreign language to IL.
 Only available on backends that compile to IL.
-Requires an IL assembler installed.
-To use it pass mmc @samp{--use-foreign-language il} and
-@samp{--backend-foreign-language il}.
+This is the preferred foreign language for IL code generation.
+
+@item @samp{Managed C++}
+Managed Extensions for C++ is a language based on C++ that
+provide support for writing .NET components, by adding extra
+keywords and syntax.
+Only available on backends that compile to IL.
+This is the third preferred foreign language for IL code generation.
+
 
 @end table
 

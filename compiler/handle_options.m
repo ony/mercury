@@ -294,6 +294,18 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	;
 		[]
 	),
+
+	% Set --put-nondet-env-on-heap if --verifiable-code is specified,
+	% unless both --il-funcptr-types and --il-refany-fields
+	% are specified.
+	globals__io_lookup_bool_option(il_funcptr_types, ILFuncPtrTypes),
+	globals__io_lookup_bool_option(il_refany_fields, ILRefAnyFields),
+	( { ILFuncPtrTypes = yes, ILRefAnyFields = yes } ->
+		[]
+	;
+		option_implies(verifiable_code, put_nondet_env_on_heap, bool(yes))
+	),
+
 	% Generating Java implies high-level code, turning off nested functions,
 	% using copy-out for both det and nondet output arguments,
 	% using no tags, not optimizing tailcalls and no static ground terms.
@@ -375,6 +387,15 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		smart_recompilation, bool(no)),
 	option_implies(errorcheck_only, smart_recompilation, bool(no)),
 	option_implies(typecheck_only, smart_recompilation, bool(no)),
+
+	% disable --line-numbers when building the `.int', `.opt', etc. files,
+	% since including line numbers in those would cause unnecessary
+	% recompilation
+	option_implies(make_private_interface,		line_numbers, bool(no)),
+	option_implies(make_interface,			line_numbers, bool(no)),
+	option_implies(make_short_interface,		line_numbers, bool(no)),
+	option_implies(make_optimization_interface,	line_numbers, bool(no)),
+	option_implies(make_transitive_opt_interface,	line_numbers, bool(no)),
 
 	% `--aditi-only' is only used by the Aditi query shell,
 	% for queries which should only be compiled once.

@@ -170,6 +170,8 @@
 :- pred write_purity_prefix(purity, io__state, io__state).
 :- mode write_purity_prefix(in, di, uo) is det.
 
+:- func purity_prefix_to_string(purity) = string.
+
 %  Get a purity name as a string.
 :- pred purity_name(purity, string).
 :- mode purity_name(in, out) is det.
@@ -300,6 +302,14 @@ write_purity_prefix(Purity) -->
 		io__write_string(" ")
 	).
 
+purity_prefix_to_string(Purity) = String :-
+	( Purity = pure ->
+		String = ""
+	;
+		purity_name(Purity, PurityName),
+		String = string__append(PurityName, " ")
+	).
+
 write_purity(Purity) -->
 	{ purity_name(Purity, String) },
 	io__write_string(String).
@@ -424,7 +434,7 @@ puritycheck_pred(PredId, PredInfo0, PredInfo, ModuleInfo, NumErrors) -->
 	( { pred_info_get_goal_type(PredInfo0, pragmas) } ->
 		{ WorstPurity = (impure) },
 		{ IsPragmaCCode = yes },
-			% This is where we assume pragma C code is
+			% This is where we assume pragma foreign_proc is
 			% pure.
 		{ Purity = pure },
 		{ PredInfo = PredInfo0 },

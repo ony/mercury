@@ -547,12 +547,20 @@
 			prog_data__type, % the exact Mercury type
 			builtin_type,	% what kind of type it is:
 					% enum, float, etc.
-			string,		% the result of 
+			string		% the result of 
 					% export__type_to_type_string
-			maybe(array)	% If the current type is an array,
-					% record the amount of nesting
-					% and the element type.
 		)
+
+	 	% The Mercury array type is treated specially, some backends
+		% will treat it like any other mercury_type, whereas other may
+		% use a special representation for it.
+		% Arrays are type constructors in some backends, and so it is
+		% easier to represent it here as a special type constructor.
+		% (if we used the mercury_type representation above, we would
+		% only classify the topmost level of the type, whereas we
+		% really want to classify the element type for arrays, so
+		% we can generate int[] for array(int)).
+	;	mlds__mercury_array_type(mlds__type)
 
 		% The type for the continuation functions used
 		% to handle nondeterminism
@@ -1352,8 +1360,18 @@ XXX Full exception handling support is not yet implemented.
 		% per_instance flag set).
 
 :- type mlds__unary_op
-	--->	box(mlds__type)
+			% box(MLDSType)
+			% convert from MLDSType to mlds__generic_type,
+			% by boxing if necessary, or just casting if not
+	--->	box(mlds__type)	
+
+			% unbox(MLDSType)
+			% convert from mlds__generic_type to MLDSType,
+			% applying the inverse transformation to box/1,
+			% i.e. unboxing if boxing was necessary,
+			% and just casting otherwise.
 	;	unbox(mlds__type)
+		
 			% cast(MLDSType):
 			% Coerce the type of the rval to be MLDSType.
 			% XXX it might be worthwhile adding the 
@@ -1526,52 +1544,18 @@ mlds__get_prog_context(mlds__context(Context)) = Context.
 % XXX It might be a better idea to get rid of the mercury_type/2
 % MLDS type and instead fully convert all Mercury types to MLDS types.
 
-mercury_type_to_mlds_type(ModuleInfo, Type) = MLDS_Type :-
-	ArrayType = mercury_type_to_array_type(ModuleInfo, Type),
-	MLDS_Type0 = mercury_type_to_mlds_type_2(ModuleInfo, Type),
-	( ArrayType = type(_),
-		MLDS_Type = MLDS_Type0
-	; ArrayType = array(_),
-		( MLDS_Type0 = mercury_type(T, B, E, _) ->
-			MLDS_Type = mercury_type(T, B, E, yes(ArrayType))
-		;
-			error("mercury_type_to_mlds_type: non mercury type")
-		)
-	).
-	
-:- func mercury_type_to_mlds_type_2(module_info, mercury_type) = mlds__type.
-
-mercury_type_to_mlds_type_2(ModuleInfo, Type) = MLDS_Type :-
-	module_info_types(ModuleInfo, Types),
-	classify_type(Type, ModuleInfo, Category),
-	export__type_to_type_string(ModuleInfo, Type, TypeString),
-	(
-		type_to_type_id(Type, TypeId, _),
-		map__search(Types, TypeId, TypeDefn)
+mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
+	( 
+		type_to_type_id(Type, TypeId, [ElemType]),
+		TypeId = qualified(unqualified("array"), "array") - 1
 	->
-		hlds_data__get_type_defn_body(TypeDefn, Body),
-		( Body = foreign_type(ForeignType, ForeignLoc) ->
-			MLDS_Type = mlds__foreign_type(ForeignType, ForeignLoc)
-		;
-			MLDS_Type = mercury_type(Type, Category, TypeString, no)
-		)
+		MLDSElemType = mercury_type_to_mlds_type(ModuleInfo, ElemType),
+		MLDSType = mlds__mercury_array_type(MLDSElemType)
 	;
-		MLDS_Type = mercury_type(Type, Category, TypeString, no)
+		classify_type(Type, ModuleInfo, Category),
+		export__type_to_type_string(ModuleInfo, Type, TypeString),
+		MLDSType = mercury_type(Type, Category, TypeString)
 	).
-	
-:- func mercury_type_to_array_type(module_info, prog_data__type) = array.
-
-mercury_type_to_array_type(ModuleInfo, Type) =
-	(
-		type_to_type_id(Type, TypeId, [ElementType]),
-		type_id_is_array(TypeId)
-	->
-		array(mercury_type_to_array_type(ModuleInfo, ElementType))
-	;
-		type(mercury_type_to_mlds_type_2(ModuleInfo, Type))
-	).
-
-
 
 %-----------------------------------------------------------------------------%
 

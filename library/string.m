@@ -30,10 +30,12 @@
 	% An empty string has length zero.
 
 :- func string__append(string, string) = string.
+:- mode string__append(in, in) = uo is det.
+
 :- pred string__append(string, string, string).
 :- mode string__append(in, in, in) is semidet.	% implied
 :- mode string__append(in, out, in) is semidet.
-:- mode string__append(in, in, out) is det.
+:- mode string__append(in, in, uo) is det.
 :- mode string__append(out, out, in) is multi.
 %	Append two strings together.
 %
@@ -44,6 +46,7 @@
 % :- mode string__append(out, in, in) is semidet.
 
 :- func string ++ string = string.
+:- mode in ++ in = uo is det.
 %	S1 ++ S2 = S :- string__append(S1, S2, S).
 %
 %	Nicer syntax.
@@ -358,12 +361,12 @@
 %	substring, whereas string__substring may take time proportional
 %	to the length of the whole string.
 
-:- func string__append_list(list(string)) = string.
+:- func string__append_list(list(string)::in) = (string::uo) is det.
 :- pred string__append_list(list(string), string).
-:- mode string__append_list(in, out) is det.
+:- mode string__append_list(in, uo) is det.
 %	Append a list of strings together.
 
-:- func string__join_list(string, list(string)) = string.
+:- func string__join_list(string::in, list(string)::in) = (string::uo) is det.
 %	string__join_list(Separator, Strings) = JoinedString:
 %	Appends together the strings in Strings, putting Separator between
 %	adjacent strings. If Strings is the empty list, returns the empty
@@ -940,13 +943,13 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	% Implementation of string__append_list that uses C as this
 	% minimises the amount of garbage created.
-:- pragma foreign_proc("C", string__append_list(Strs::in) = (Str::out),
+:- pragma foreign_proc("C", string__append_list(Strs::in) = (Str::uo),
 		[will_not_call_mercury, thread_safe], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
 	size_t	len;
 
-		/* Determine the total len of all strings */
+		/* Determine the total length of all strings */
 	len = 0;
 	while (!MR_list_is_empty(list)) {
 		len += strlen((MR_String) MR_list_head(list));
@@ -971,7 +974,7 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	% Implementation of string__join_list that uses C as this
 	% minimises the amount of garbage created.
-:- pragma foreign_proc("C", string__join_list(Sep::in, Strs::in) = (Str::out),
+:- pragma foreign_proc("C", string__join_list(Sep::in, Strs::in) = (Str::uo),
 		[will_not_call_mercury, thread_safe], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
@@ -981,17 +984,19 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	sep_len = strlen(Sep);
 
-		/* Determine the total len of all strings */
-	len = -sep_len; /* compensate for no separator before first string */
+		/* Determine the total length of all strings */
+	len = 0;
+	add_sep = FALSE;
 	while (!MR_list_is_empty(list)) {
-		len += sep_len + strlen((MR_String) MR_list_head(list));
+		if (add_sep) {
+			len += sep_len;
+		}
+		
+		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
+		add_sep = TRUE;
 	}
 
-		/* Allocate enough word aligned memory for the string */
-	if (len <= 0) {
-		len = 0;
-	}
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 
 		/* Copy the strings into the new memory */
@@ -1660,8 +1665,7 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
         MR_list_nil(prev);
 
         for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp, __box(Str->get_Chars(i)),
-			prev);
+		MR_list_cons(tmp, __box((MR_Integer) Str->get_Chars(i)), prev);
 		prev = tmp;
         }
         IntList = tmp;
@@ -1889,7 +1893,7 @@ string__append(S1::in, S2::in, S3::in) :-
 	string__append_iii(S1, S2, S3).
 string__append(S1::in, S2::out, S3::in) :-
 	string__append_ioi(S1, S2, S3).
-string__append(S1::in, S2::in, S3::out) :-
+string__append(S1::in, S2::in, S3::uo) :-
 	string__append_iio(S1, S2, S3).
 string__append(S1::out, S2::out, S3::in) :-
 	string__append_ooi(S1, S2, S3).
@@ -1946,10 +1950,10 @@ string__append(S1::out, S2::out, S3::in) :-
 	}
 }").
 
-:- pred string__append_iio(string::in, string::in, string::out) is det.
+:- pred string__append_iio(string::in, string::in, string::uo) is det.
 
 :- pragma foreign_proc("C",
-	string__append_iio(S1::in, S2::in, S3::out),
+	string__append_iio(S1::in, S2::in, S3::uo),
 		[will_not_call_mercury, thread_safe], "{
 	size_t len_1, len_2;
 	len_1 = strlen(S1);
@@ -1960,7 +1964,7 @@ string__append(S1::out, S2::out, S3::in) :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__append_iio(S1::in, S2::in, S3::out),
+	string__append_iio(S1::in, S2::in, S3::uo),
 		[will_not_call_mercury, thread_safe], "{
 	S3 = System::String::Concat(S1, S2);
 }").

@@ -218,15 +218,14 @@ mlds_to_gcc__run_gcc_backend(ModuleName, CallBack, CallBackOutput) -->
 mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns0) },
 
-		% We only handle C currently, so we just look up C
-	{ ForeignCode = map__lookup(AllForeignCode, c) },
-
 	%
 	% Handle output of any foreign code (C, Ada, Fortran, etc.)
 	% to appropriate files.
 	%
 	{ list__filter(defn_contains_foreign_code(lang_asm), Defns0,
 		ForeignDefns, Defns) },
+		% We only handle C currently, so we just look up C
+	{ ForeignCode = map__lookup(AllForeignCode, c) },
 	(
 		% Check if there is any code from pragma foreign_code,
 		% pragma export, or pragma foreign_proc declarations.
@@ -1669,8 +1668,16 @@ build_type(Type, GlobalInfo, GCC_Type) -->
 :- pred build_type(mlds__type, initializer_array_size, global_info,
 		gcc__type, io__state, io__state).
 :- mode build_type(in, in, in, out, di, uo) is det.
-
-build_type(mercury_type(Type, TypeCategory, _ExportType, _), _, _, GCC_Type) -->
+	
+	% Just represent Mercury arrays as MR_Word.
+build_type(mercury_array_type(_ElemType), _, _, GCC_Type) -->
+	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+	( { HighLevelData = yes } ->
+		{ sorry(this_file, "--high-level-data (mercury_array_type)") }
+	;
+		{ GCC_Type = 'MR_Word' }
+	).
+build_type(mercury_type(Type, TypeCategory, _), _, _, GCC_Type) -->
 	build_mercury_type(Type, TypeCategory, GCC_Type).
 build_type(mlds__foreign_type(_, _), _, _, _) --> 
 	{ sorry(this_file, "foreign_type not implemented") }.
@@ -2807,7 +2814,7 @@ build_lval(field(MaybeTag, Rval, offset(OffsetRval),
 	% sanity check (copied from mlds_to_c.m)
 	(
 		{ FieldType = mlds__generic_type
-		; FieldType = mlds__mercury_type(term__variable(_), _, _, _)
+		; FieldType = mlds__mercury_type(term__variable(_), _, _)
 		}
 	->
 		[]
@@ -3009,7 +3016,7 @@ build_unop(std_unop(Unop), Exprn, DefnInfo, GCC_Expr) -->
 :- pred type_is_float(mlds__type::in) is semidet.
 type_is_float(Type) :-
 	( Type = mlds__mercury_type(term__functor(term__atom("float"),
-			[], _), _, _, _)
+			[], _), _, _)
 	; Type = mlds__native_float_type
 	).
 

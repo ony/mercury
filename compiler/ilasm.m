@@ -70,6 +70,13 @@
 			data_body 	 % body of data
 		) 
 
+		% .file
+		% Declares a file associated with the current assembly
+	;	file(ilds__id)
+
+		% .module extern
+		% declares a module name.
+	;	extern_module(ilds__id)
 
 		% .assembly extern
 		% declares an assembly name, and possibly its strong
@@ -287,7 +294,7 @@
 
 :- type ilasm_info ---> 
 		ilasm_info(
-			current_assembly :: assembly_name
+			current_assembly :: ilds__id
 		).
 
 :- pred ilasm__write_list(list(T), string, 
@@ -417,6 +424,14 @@ ilasm__output_decl(comment(CommentStr), Info, Info) -->
 		[]
 	).
 
+ilasm__output_decl(file(FileName), Info, Info) --> 
+	io__write_string(".file "),
+	output_id(FileName).
+
+ilasm__output_decl(extern_module(ModName), Info, Info) --> 
+	io__write_string(".module extern "),
+	output_id(ModName).
+
 ilasm__output_decl(extern_assembly(AsmName, AssemblyDecls), Info0, Info) --> 
 	io__write_string(".assembly extern "),
 	output_id(AsmName),
@@ -426,7 +441,6 @@ ilasm__output_decl(extern_assembly(AsmName, AssemblyDecls), Info0, Info) -->
 			io__write_string("\n\t")
 		), AssemblyDecls, Info0, Info),
 	io__write_string("\n}\n").
-
 
 ilasm__output_decl(assembly(AsmName), Info0, Info) --> 
 	io__write_string(".assembly "),
@@ -674,11 +688,11 @@ output_simple_type(uint8, I, I) --> io__write_string("uint8").
 output_simple_type(uint16, I, I) --> io__write_string("uint16").
 output_simple_type(uint32, I, I) --> io__write_string("uint32").
 output_simple_type(uint64, I, I) --> io__write_string("uint64").
-output_simple_type(native_int, I, I) --> io__write_string("nativeint").
-output_simple_type(native_uint, I, I) --> io__write_string("nativeuint").
+output_simple_type(native_int, I, I) --> io__write_string("native int").
+output_simple_type(native_uint, I, I) --> io__write_string("native unsigned int").
 output_simple_type(float32, I, I) --> io__write_string("float32").
 output_simple_type(float64, I, I) --> io__write_string("float64").
-output_simple_type(native_float, I, I) --> io__write_string("native_float").
+output_simple_type(native_float, I, I) --> io__write_string("native float").
 output_simple_type(bool, I, I) --> io__write_string("bool").
 output_simple_type(char, I, I) --> io__write_string("char").
 output_simple_type(refany, I, I) --> io__write_string("refany").
@@ -1483,14 +1497,32 @@ output_class_member_name(class_member_name(StructuredName, MemberName),
 
 :- pred output_structured_name(structured_name::in, ilasm_info::in,
 	ilasm_info::out, io__state::di, io__state::uo) is det.
-output_structured_name(structured_name(Assembly, DottedName), Info, Info) -->
+output_structured_name(structured_name(Asm, DottedName), Info, Info) -->
+	( { Asm = assembly(Assembly) },
+		maybe_output_quoted_assembly_name(Assembly, Info)
+	; { Asm = module(Module, Assembly) },
+		(
+			{ Info ^ current_assembly \= "" },
+			{ string__prefix(Module, Info ^ current_assembly) }
+		->
+			{ quote_id(Module ++ ".dll", QuotedModuleName) },
+			io__format("[.module %s]", [s(QuotedModuleName)])
+		;
+			maybe_output_quoted_assembly_name(Assembly, Info)
+		)
+	),
+	output_dotted_name(DottedName).
+
+:- pred maybe_output_quoted_assembly_name(ilds__id::in, ilasm_info::in,
+		io__state::di, io__state::uo) is det.
+
+maybe_output_quoted_assembly_name(Assembly, Info) -->
 	( { Assembly \= "", Assembly \= Info ^ current_assembly } ->
 		{ quote_id(Assembly, QuotedAssemblyName) },
 		io__format("[%s]", [s(QuotedAssemblyName)])
 	;
 		[]
-	),
-	output_dotted_name(DottedName).
+	).
 
 :- pred output_dotted_name(namespace_qual_name::in,
 	io__state::di, io__state::uo) is det.

@@ -956,7 +956,7 @@ ml_gen_array_elem_type(elem_type_string) = ml_string_type.
 ml_gen_array_elem_type(elem_type_int) = mlds__native_int_type.
 ml_gen_array_elem_type(elem_type_generic) = mlds__generic_type.
 
-ml_string_type = mercury_type(string_type, str_type, "MR_String", no).
+ml_string_type = mercury_type(string_type, str_type, "MR_String").
 
 %-----------------------------------------------------------------------------%
 %
