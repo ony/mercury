@@ -47,7 +47,7 @@
 			extends,		% what is the parent class
 			implements, 		% what interfaces are 
 						% implemented
-			list(classdecl)		% methods and fields
+			list(class_member)		% methods and fields
 		)
 		% .namespace declaration
 	;	namespace(
@@ -70,6 +70,13 @@
 			data_body 	 % body of data
 		) 
 
+		% .file
+		% Declares a file associated with the current assembly
+	;	file(ilds__id)
+
+		% .module extern
+		% declares a module name.
+	;	extern_module(ilds__id)
 
 		% .assembly extern
 		% declares an assembly name, and possibly its strong
@@ -79,6 +86,10 @@
 		% .assembly
 		% defines an assembly
 	;	assembly(ilds__id)
+
+		% .custom
+		% a custom attribute
+	;	custom(custom_decl)
 
 		% comments
 	;	comment_term(term)
@@ -90,7 +101,9 @@
 :- type assembly_decl 
 	--->	version(int, int, int, int)	% version number
 	;	hash(list(int8))		% hash 
-	;	public_key_token(list(int8)).	% public key token
+	;	public_key_token(list(int8))	% public key token
+	;	custom(custom_decl).		% a custom attribute
+
 
 	% a method definition is just a list of body decls.
 :- type method_defn == list(method_body_decl).
@@ -103,7 +116,7 @@
 			list(implattr)		% implementation attributes
 	).
 
-:- type classdecl
+:- type class_member
 		% .method (a class method)
 	--->	method(
 			methodhead,		% name, signature, attributes
@@ -131,8 +144,9 @@
 			extends,		% what is the parent class
 			implements, 		% what interfaces are 
 						% implemented
-			list(classdecl)		% methods and fields
+			list(class_member)	% methods and fields
 		)
+	;	custom(custom_decl)		% custom attribute
 		% comments
 	;	comment_term(term)
 	;	comment(string)
@@ -179,6 +193,7 @@
 			% words or something else?
 	;	entrypoint		% is this "main"?
 	;	zeroinit		% initialize locals to zero.
+	;	custom(custom_decl)	% custom attribute
 	;	instrs(list(instr))	% instructions
 	;	label(string).		% a label
 
@@ -239,11 +254,27 @@
 	;	bytearray(list(byte)).	% output as two digit hex, e.g.
 					% 01 F7 0A
 
+:- type custom_decl ---> 
+	custom_decl(
+		custom_type, 
+		maybe(custom_type),
+		qstring_or_bytes).
+
+:- type qstring_or_bytes
+	--->	qstring(string)
+	;	bytes(list(int8))
+	; 	no_initalizer.
+
+:- type custom_type
+	--->	type(ilds__type)
+	;	methodref(ilds__methodref).
+
+
 :- implementation.
 
 :- import_module char, string, pprint, getopt.
 :- import_module require, int, term_io, varset, bool.
-:- import_module globals, options.
+:- import_module globals, options, error_util.
 
 
 	% Some versions of the IL assembler enforce a rule that if you output 
@@ -263,7 +294,7 @@
 
 :- type ilasm_info ---> 
 		ilasm_info(
-			current_assembly :: assembly_name
+			current_assembly :: ilds__id
 		).
 
 :- pred ilasm__write_list(list(T), string, 
@@ -299,6 +330,8 @@ ilasm__output(Blocks, Info0, Info) -->
 :- pred ilasm__output_decl(decl::in, ilasm_info::in, ilasm_info::out,
 		io__state::di, io__state::uo) is det.
 
+ilasm__output_decl(custom(CustomDecl), Info0, Info) --> 
+	output_custom_decl(CustomDecl, Info0, Info).
 ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 		Info0, Info) --> 
 	io__write_string(".class "),
@@ -328,7 +361,7 @@ ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 		{ Info2 = Info1 }
 	),
 	io__write_string(" {\n"),
-	ilasm__write_list(Contents, "\n", output_classdecl, Info2, Info),
+	ilasm__write_list(Contents, "\n", output_class_member, Info2, Info),
 	io__write_string("\n}").
 ilasm__output_decl(namespace(DottedName, Contents), Info0, Info) --> 
 	( { DottedName \= [] } ->
@@ -391,11 +424,14 @@ ilasm__output_decl(comment(CommentStr), Info, Info) -->
 		[]
 	).
 
-ilasm__output_decl(extern_assembly(AsmName, AssemblyDecls), Info, Info) --> 
+ilasm__output_decl(extern_assembly(AsmName, AssemblyDecls), Info0, Info) --> 
 	io__write_string(".assembly extern "),
 	output_id(AsmName),
 	io__write_string("{\n"),
-	io__write_list(AssemblyDecls, "\n\t", output_assembly_decl),
+	list__foldl2((pred(A::in, I0::in, I::out, di, uo) is det -->
+			output_assembly_decl(A, I0, I),
+			io__write_string("\n\t")
+		), AssemblyDecls, Info0, Info),
 	io__write_string("\n}\n").
 
 
@@ -405,10 +441,19 @@ ilasm__output_decl(assembly(AsmName), Info0, Info) -->
 	{ Info = Info0 ^ current_assembly := AsmName },
 	io__write_string(" { }").
 
-:- pred ilasm__output_classdecl(classdecl::in, ilasm_info::in, ilasm_info::out,
-	io__state::di, io__state::uo) is det.
+ilasm__output_decl(file(FileName), Info, Info) --> 
+	io__write_string(".file "),
+	output_id(FileName).
 
-ilasm__output_classdecl(method(MethodHead, MethodDecls), Info0, Info) -->
+ilasm__output_decl(extern_module(ModName), Info, Info) --> 
+	io__write_string(".module extern "),
+	output_id(ModName).
+
+
+:- pred ilasm__output_class_member(class_member::in, ilasm_info::in,
+	ilasm_info::out, io__state::di, io__state::uo) is det.
+
+ilasm__output_class_member(method(MethodHead, MethodDecls), Info0, Info) -->
 		% Don't do debug output on class constructors, since
 		% they are automatically generated and take forever to
 		% run.
@@ -423,7 +468,10 @@ ilasm__output_classdecl(method(MethodHead, MethodDecls), Info0, Info) -->
 			Info0, Info)
 	).
 
-ilasm__output_classdecl(
+ilasm__output_class_member(custom(CustomDecl), Info0, Info) -->
+	output_custom_decl(CustomDecl, Info0, Info).
+
+ilasm__output_class_member(
 		field(FieldAttrs, Type, IlId, MaybeOffset, Initializer),
 		Info0, Info) -->
 	io__write_string(".field "),
@@ -440,7 +488,7 @@ ilasm__output_classdecl(
 	output_id(IlId),
 	output_field_initializer(Initializer).
 
-ilasm__output_classdecl(
+ilasm__output_class_member(
 		property(Type, Name, MaybeGet, MaybeSet), Info0, Info) -->
 	io__write_string(".property instance "),
 	output_type(Type, Info0, Info1),
@@ -465,12 +513,12 @@ ilasm__output_classdecl(
 	),
 	io__write_string("\n}\n").
 
-ilasm__output_classdecl(nested_class(Attrs, Id, Extends, Implements,
+ilasm__output_class_member(nested_class(Attrs, Id, Extends, Implements,
 		Contents), Info0, Info) --> 
 	ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 		Info0, Info).
 
-ilasm__output_classdecl(comment(CommentStr), Info, Info) --> 
+ilasm__output_class_member(comment(CommentStr), Info, Info) --> 
 	globals__io_lookup_bool_option(auto_comments, PrintComments),
 	( { PrintComments = yes } ->
 		output_comment_string(CommentStr)
@@ -478,7 +526,7 @@ ilasm__output_classdecl(comment(CommentStr), Info, Info) -->
 		[]
 	).
 
-ilasm__output_classdecl(comment_term(CommentTerm), Info, Info) --> 
+ilasm__output_class_member(comment_term(CommentTerm), Info, Info) --> 
 	globals__io_lookup_bool_option(auto_comments, PrintComments),
 	( { PrintComments = yes } ->
 		io__write_string("// "),
@@ -489,7 +537,7 @@ ilasm__output_classdecl(comment_term(CommentTerm), Info, Info) -->
 		[]
 	).
 
-ilasm__output_classdecl(comment_thing(Thing), Info, Info) --> 
+ilasm__output_class_member(comment_thing(Thing), Info, Info) --> 
 	globals__io_lookup_bool_option(auto_comments, PrintComments),
 	( { PrintComments = yes } ->
 		{ Doc = label("// ", to_doc(Thing)) },
@@ -520,6 +568,9 @@ ilasm__output_methodhead(methodhead(Attrs, MethodName, Signature,
 ilasm__output_method_body_decl(emitbyte(Int32), I, I) -->
 	io__write_string(".emitbyte "),
 	output_int32(Int32).
+
+ilasm__output_method_body_decl(custom(CustomDecl), Info0, Info) -->
+	output_custom_decl(CustomDecl, Info0, Info).
 
 ilasm__output_method_body_decl(maxstack(Int32), I, I) -->
 	io__write_string(".maxstack "),
@@ -639,11 +690,11 @@ output_simple_type(uint8, I, I) --> io__write_string("uint8").
 output_simple_type(uint16, I, I) --> io__write_string("uint16").
 output_simple_type(uint32, I, I) --> io__write_string("uint32").
 output_simple_type(uint64, I, I) --> io__write_string("uint64").
-output_simple_type(native_int, I, I) --> io__write_string("nativeint").
-output_simple_type(native_uint, I, I) --> io__write_string("nativeuint").
+output_simple_type(native_int, I, I) --> io__write_string("native int").
+output_simple_type(native_uint, I, I) --> io__write_string("native unsigned int").
 output_simple_type(float32, I, I) --> io__write_string("float32").
 output_simple_type(float64, I, I) --> io__write_string("float64").
-output_simple_type(native_float, I, I) --> io__write_string("native_float").
+output_simple_type(native_float, I, I) --> io__write_string("native float").
 output_simple_type(bool, I, I) --> io__write_string("bool").
 output_simple_type(char, I, I) --> io__write_string("char").
 output_simple_type(refany, I, I) --> io__write_string("refany").
@@ -1376,19 +1427,51 @@ output_classattr(serializable) --> io__write_string("serializable").
 output_classattr(specialname) --> io__write_string("specialname").
 output_classattr(unicode) --> io__write_string("unicode").
 
-:- pred ilasm__output_assembly_decl(assembly_decl::in, 
-	io__state::di, io__state::uo) is det.
+:- pred ilasm__output_assembly_decl(assembly_decl::in, ilasm_info::in,
+		ilasm_info::out, io__state::di, io__state::uo) is det.
 
-ilasm__output_assembly_decl(version(A, B, C, D)) -->
+ilasm__output_assembly_decl(version(A, B, C, D), I, I) -->
 	io__format(".ver %d:%d:%d:%d", [i(A), i(B), i(C), i(D)]).
-ilasm__output_assembly_decl(public_key_token(Token)) -->
+ilasm__output_assembly_decl(public_key_token(Token), I, I) -->
 	io__write_string(".publickeytoken = ( "),
 	io__write_list(Token, " ", output_hexbyte),
 	io__write_string(" ) ").
-ilasm__output_assembly_decl(hash(Hash)) -->
+ilasm__output_assembly_decl(hash(Hash), I, I) -->
 	io__write_string(".hash = ( "),
 	io__write_list(Hash, " ", output_hexbyte),
 	io__write_string(" ) ").
+ilasm__output_assembly_decl(custom(CustomDecl), Info0, Info) -->
+	output_custom_decl(CustomDecl, Info0, Info).
+
+:- pred output_custom_decl(custom_decl::in, ilasm_info::in, ilasm_info::out,
+		io__state::di, io__state::uo) is det.
+output_custom_decl(custom_decl(Type, MaybeOwner, StringOrBytes), 
+		Info0, Info) -->
+	io__write_string(".custom "),
+
+	( { MaybeOwner = yes(Owner) } ->
+		io__write_string(" ("),
+		output_custom_type(Owner, Info0, Info1),
+		io__write_string(") ")
+	;
+		{ Info1 = Info0 }
+	),
+	output_custom_type(Type, Info1, Info),
+	( { StringOrBytes = bytes(Bytes) } ->
+		io__write_string(" = ("),
+		io__write_list(Bytes, " ", output_hexbyte),
+		io__write_string(")")
+	;
+		{ sorry(this_file, "custom_decl of this sort") }
+	),
+	io__write_string("\n").
+
+:- pred output_custom_type(custom_type::in, ilasm_info::in, ilasm_info::out,
+		io__state::di, io__state::uo) is det.
+output_custom_type(type(Type), Info0, Info) -->
+	output_type(Type, Info0, Info).
+output_custom_type(methodref(MethodRef), Info0, Info) -->
+	output_methodref(MethodRef, Info0, Info).
 
 :- pred output_index(index::in, io__state::di, io__state::uo) is det.
 output_index(Index) -->
@@ -1405,29 +1488,63 @@ output_string_constant(String) -->
 	ilasm_info::in, ilasm_info::out, io__state::di, io__state::uo) is det.
 output_class_member_name(class_member_name(StructuredName, MemberName),
 		Info0, Info) -->
-	( { StructuredName = structured_name(_, [_ | _]) } ->
-		output_structured_name(StructuredName, Info0, Info),
-		io__write_string("::")
-	;
-		{ Info = Info0 }
-	),
+	output_structured_name(StructuredName, Info0, Info),
+	io__write_string("::"),
 	output_member_name(MemberName).
 
 :- pred output_structured_name(structured_name::in, ilasm_info::in,
 	ilasm_info::out, io__state::di, io__state::uo) is det.
-output_structured_name(structured_name(Assembly, DottedName), Info, Info) -->
+output_structured_name(structured_name(Asm, DottedName, NestedClasses),
+		Info, Info) -->
+	globals__io_lookup_bool_option(separate_assemblies, SeparateAssemblies),
+	( { Asm = assembly(Assembly) },
+		maybe_output_quoted_assembly_name(Assembly, Info)
+	; { Asm = module(Module, Assembly) },
+		( { SeparateAssemblies = yes },
+			maybe_output_quoted_assembly_name(Module, Info)
+		; { SeparateAssemblies = no },
+			(
+				{ Info ^ current_assembly \= "" },
+				{ string__prefix(Module,
+						Info ^ current_assembly) }
+			->
+				{ quote_id(Module ++ ".dll",
+						QuotedModuleName) },
+				io__format("[.module %s]",
+						[s(QuotedModuleName)])
+			;
+				maybe_output_quoted_assembly_name(Assembly,
+						Info)
+			)
+		)
+	),
+	output_dotted_name(DottedName),
+	output_nested_class_quals(NestedClasses).
+
+
+:- pred maybe_output_quoted_assembly_name(ilds__id::in, ilasm_info::in,
+		io__state::di, io__state::uo) is det.
+
+maybe_output_quoted_assembly_name(Assembly, Info) -->
 	( { Assembly \= "", Assembly \= Info ^ current_assembly } ->
 		{ quote_id(Assembly, QuotedAssemblyName) },
 		io__format("[%s]", [s(QuotedAssemblyName)])
 	;
 		[]
-	),
-	output_dotted_name(DottedName).
+	).
 
 :- pred output_dotted_name(namespace_qual_name::in,
 	io__state::di, io__state::uo) is det.
 output_dotted_name(Name) -->
 	io__write_list(Name, ".", output_id).
+
+:- pred output_nested_class_quals(nested_class_name::in,
+	io__state::di, io__state::uo) is det.
+output_nested_class_quals(Name) -->
+	list__foldl(
+		(pred(Id::in, di, uo) is det -->
+			io__write_char('/'), output_id(Id)),
+		Name).
 
 :- pred output_id(ilds__id::in, io__state::di, io__state::uo) is det.
 output_id(Id) -->
@@ -1596,5 +1713,7 @@ escape_special_char('\t', 't').
 escape_special_char('\b', 'b').
 
 
+:- func this_file = string.
+this_file = "ilasm.m".
 
 :- end_module ilasm.

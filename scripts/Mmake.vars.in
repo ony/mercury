@@ -165,7 +165,7 @@ MERC_DLL_DIR    = @LIBDIR@/lib/ilc/@FULLARCH@
 # into bytecode.
 MS_ILASM		= @ILASM@
 ALL_MS_ILASMFLAGS= $(MS_ILASMFLAGS) $(EXTRA_MS_ILASMFLAGS) \
-		$(TARGET_MS_ILASMFLAGS) $(LIB_MS_ILASMFLAGS)
+		$(TARGET_MS_ILASMFLAGS) $(LIB_MS_ILASMFLAGS) $(ILASM_KEYFLAG)
 MS_ILASMFLAGS	=
 EXTRA_MS_ILASMFLAGS =
 LIB_MS_ILASMFLAGS= $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
@@ -173,6 +173,14 @@ LIB_MS_ILASMFLAGS= $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
 # MS_AL is the Microsoft assembly linker, which creates and installs
 # assemblies.
 MS_AL		= al
+
+# MS_CSC is the command line version of C# compiler
+MS_CSC		= csc
+ALL_MS_CSCFLAGS	= $(MS_CSCFLAGS) $(EXTRA_MS_CSCFLAGS) $(TARGET_MS_CSCFLAGS) \
+		$(LIB_MS_CSCFLAGS)
+MS_CSCFLAGS	=
+EXTRA_MS_CSCFLAGS =
+LIB_MS_CSCFLAGS	= 
 
 ML		= ml
 ALL_MLFLAGS	= $(MLFLAGS) $(EXTRA_MLFLAGS) $(TARGET_MLFLAGS) $(LIB_MLFLAGS)
@@ -377,10 +385,20 @@ TARGET_MS_CLFLAGS = \
 maybe-base-MS_CLFLAGS- = $(MS_CLFLAGS-$*)
 maybe-base-MS_CLFLAGS-undefined =
 
+TARGET_MS_CSCFLAGS = \
+  $(maybe-base-MS_CSCFLAGS-$(findstring undefined,$(origin MS_CSCFLAGS-$*)))
+maybe-base-MS_CSCFLAGS- = $(MS_CSCFLAGS-$*)
+maybe-base-MS_CSCFLAGS-undefined =
+
 TARGET_MS_ILASMFLAGS = \
    $(maybe-base-MS_ILASMFLAGS-$(findstring undefined,$(origin MS_ILASMFLAGS-$*)))
 maybe-base-MS_ILASMFLAGS- = $(MS_ILASMFLAGS-$*)
 maybe-base-MS_ILASMFLAGS-undefined =
+
+ILASM_KEYFLAG = \
+  $(maybe-target-ILASM_KEYFLAG-$(findstring undefined,$(origin ILASM_KEYFLAG-$*)))
+maybe-target-ILASM_KEYFLAG- = $(ILASM_KEYFLAG-$*)
+maybe-target-ILASM_KEYFLAG-undefined =
 
 # Support for compiling Mercury programs with Prolog will probably be
 # dropped one of these days, so it's probably not worth bothering with these.
@@ -422,9 +440,12 @@ optdates_subdir=$(SUBDIR)optdates/
 trans_opt_dates_subdir=$(SUBDIR)trans_opt_dates/
 cs_subdir=$(SUBDIR)cs/
 dlls_subdir=$(SUBDIR)dlls/
-ss_subdir=$(SUBDIR)cs/
+ss_subdir=$(SUBDIR)ss/
+pic_ss_subdir=$(SUBDIR)pic_ss/
 os_subdir=$(SUBDIR)os/
-rlos_subdir=$(SUBDIR)rlos/
+# `.rlo' files are used by the Aditi query shell, which
+# doesn't know about `--use-subdirs'.
+rlos_subdir=
 ils_subdir=$(SUBDIR)ils/
 dirs_subdir=$(SUBDIR)dirs/
 c_dates_subdir=$(SUBDIR)c_dates/
@@ -454,6 +475,7 @@ trans_opt_dates_subdir=
 cs_subdir=
 dlls_subdir=
 ss_subdir=
+pic_ss_subdir=
 os_subdir=
 rlos_subdir=
 ils_subdir=

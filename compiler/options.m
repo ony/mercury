@@ -122,6 +122,8 @@
 		;	dump_rl
 		;	dump_rl_bytecode
 		;	dump_mode_constraints
+		;	sign_assembly
+		;	separate_assemblies
 	% Language semantics options
 		;	reorder_conj
 		;	reorder_disj
@@ -135,17 +137,23 @@
 		;	mode_inference_iteration_limit
 	% Compilation Model options
 		;	grade
+
+		% Target selection options
 		;	target
 		;	il			% target il
 		;	il_only			% target il + target_code_only
 		;	compile_to_c		% target c + target_code_only
 		;       java                    % target java
 		;       java_only               % target java + target_code_only
-		;	gcc_non_local_gotos
-		;	gcc_global_registers
-		;	asm_labels
-		;	gc
-		;	parallel
+
+		% Compilation model options for optional features:
+
+		%   (a) Debugging
+		;	debug
+		;	stack_trace
+		;	require_tracing
+
+		%   (b) Profiling
 		;	profiling		% profile_time + profile_calls
 		;	time_profiling		% profile_time + profile_calls
 		;	memory_profiling	% profime_mem + profile_calls
@@ -167,18 +175,20 @@
 				% specially in deep profiling; the options is
 				% only for benchmarks for the paper.
 		;	deep_profile_tail_recursion
-		;	debug
-		;	stack_trace
-		;	require_tracing
+
+		%   (c) Miscellaneous
+		;	gc
+		;	parallel
 		;	use_trail
-		;	reserve_tag
 		;	use_minimal_model
-		;	pic_reg
+		;	type_layout
+
+		% Data representation compilation model options
+		;	reserve_tag
 		;	tags
 		;	num_tag_bits
 		;	bits_per_word
 		;	bytes_per_word
-		;	conf_low_tag_bits
 				% The undocumented conf_low_tag_bits option
 				% is used by the `mmc' script to pass the
 				% default value for num_tag_bits
@@ -189,31 +199,47 @@
 				% error message if the user specifies
 				% `--tags high' and doesn't specify
 				% `--num-tag-bits'.
-		;	args
+		;	conf_low_tag_bits
+		;	unboxed_float
+		;       unboxed_enums
+		;       unboxed_no_tag_types
+		;	sync_term_size % in words
+
+		% LLDS back-end compilation model options
+		;	gcc_non_local_gotos
+		;	gcc_global_registers
+		;	asm_labels
+		;	pic_reg
+
+		% MLDS back-end compilation model options
 		;	highlevel_code
 		;	highlevel_data
 		;	gcc_nested_functions
 		;	det_copy_out
 		;	nondet_copy_out
 		;	put_commit_in_own_func
-		;	unboxed_float
-		;       unboxed_enums
-		;       unboxed_no_tag_types
-		;	sync_term_size % in words
-		;	type_layout
-	% Foreign language interface options
-				% The foreign language that the user has
-				% selected for use in this module
-				% (defaults to the value of backend
-				% foreign target).
-		;	use_foreign_language
+		;	put_nondet_env_on_heap
+			% IL back-end compilation model options
+		;	verifiable_code
+		;	il_refany_fields
+		;	il_funcptr_types
+		;	il_byref_tailcalls % Currently this is not really a
+					   % compilation model option,
+					   % i.e. it doesn't affect the ABI.
+					   % In future it might become one,
+					   % though -- we should return
+					   % multiple values in value types,
+					   % rather than using byrefs.
+					   % Also it's nicer to keep it with
+					   % the other IL back-end options here.
+
+
 	% Options for internal use only
 	% (the values of these options are implied by the
 	% settings of other options)
-				% The language that this backend can
-				% interface to most easily (probably the
-				% target language of the backend).
-		; 	backend_foreign_language 
+				% The foreign programming languages that this
+				% backend can interface to.
+		; 	backend_foreign_languages
 				% Stack layout information required to do
 				% a stack trace.
 		;       basic_stack_layout
@@ -344,6 +370,7 @@
 		;	common_struct
 		;	common_goal
 		;	constraint_propagation
+		;	local_constraint_propagation
 		;	optimize_unused_args
 		;	intermod_unused_args
 		;	optimize_higher_order
@@ -367,6 +394,7 @@
 		;	deforestation_depth_limit
 		;	deforestation_cost_factor
 		;	deforestation_vars_threshold
+		;	deforestation_size_threshold
 		;	termination
 		;	check_termination
 		;	verbose_check_termination
@@ -452,6 +480,7 @@
 	;	aux_output_option
 	;	language_semantics_option
 	;	compilation_model_option
+	;	internal_use_option
 	;	code_gen_option
 	;	special_optimization_option
 	;	optimization_option
@@ -550,8 +579,10 @@ option_defaults_2(aux_output_option, [
 	dump_mlds		-	accumulating([]),
 	dump_rl			-	bool(no),
 	dump_rl_bytecode	-	bool(no),
-	generate_schemas	-	bool(no),
 	dump_mode_constraints	-	bool(no)
+	sign_assembly		-	bool(no),
+	separate_assemblies	-	bool(no),
+	generate_schemas	-	bool(no)
 ]).
 option_defaults_2(language_semantics_option, [
 	strict_sequential	-	special,
@@ -566,23 +597,29 @@ option_defaults_2(language_semantics_option, [
 	mode_inference_iteration_limit	-	int(30)
 ]).
 option_defaults_2(compilation_model_option, [
-		% Compilation model options (ones that affect binary
-		% compatibility).
+	%
+	% Compilation model options (ones that affect binary
+	% compatibility).
+	%
 	grade			-	string_special,
 					% the `mmc' script will pass the
 					% default grade determined
 					% at configuration time
+
+		% Target selection compilation model options
 	target			-	string("c"),
 	il			-	special,
 	il_only			-	special,
 	compile_to_c		-	special,
 	java			-       special,
 	java_only               -       special,
-	gcc_non_local_gotos	-	bool(yes),
-	gcc_global_registers	-	bool(yes),
-	asm_labels		-	bool(yes),
-	gc			-	string("conservative"),
-	parallel		-	bool(no),
+
+		% Optional feature compilation model options:
+		% (a) Debuggging
+	debug			-	bool_special,
+	require_tracing		-	bool(no),
+	stack_trace		-	bool(no),
+		% (b) Profiling
 	profiling		-	bool_special,
 	time_profiling		-	special,
 	memory_profiling	-	special,
@@ -597,12 +634,15 @@ option_defaults_2(compilation_model_option, [
 	use_lots_of_ho_specialization
 				-	bool(no),
 	deep_profile_tail_recursion	-	bool(yes),
-	debug			-	bool_special,
-	require_tracing		-	bool(no),
-	stack_trace		-	bool(no),
+		% (c) Miscellaneous optional features
+	gc			-	string("conservative"),
+	parallel		-	bool(no),
 	use_trail		-	bool(no),
-	reserve_tag		-	bool(no),
 	use_minimal_model	-	bool(no),
+	type_layout		-	bool(yes),
+
+		% Data representation compilation model options
+	reserve_tag		-	bool(no),
 	pic_reg			-	bool(no),
 	tags			-	string("low"),
 	num_tag_bits		-	int(-1),
@@ -623,12 +663,36 @@ option_defaults_2(compilation_model_option, [
 					% 8 is the size on linux (at the time
 					% of writing) - will usually be over-
 					% ridden by a value from configure.
-	type_layout		-	bool(yes),
-	use_foreign_language	-	string(""),
-	backend_foreign_language-	string(""),
-					% The previous two options
-					% depend on the target and are
-					% set in handle_options.
+	unboxed_float           -       bool(no),
+	unboxed_enums           -       bool(yes),
+	unboxed_no_tag_types    -       bool(yes),
+
+		% LLDS back-end compilation model options
+	gcc_non_local_gotos	-	bool(yes),
+	gcc_global_registers	-	bool(yes),
+	asm_labels		-	bool(yes),
+
+		% MLDS back-end compilation model options
+	highlevel_code		-	bool(no),
+	highlevel_data		-	bool(no),
+	gcc_nested_functions	-	bool(no),
+	det_copy_out		-	bool(no),
+	nondet_copy_out		-	bool(no),
+	put_commit_in_own_func	-	bool(no),
+	put_nondet_env_on_heap	-	bool(no),
+
+		% IL back-end compilation model options
+	verifiable_code		-	bool(no),
+	il_funcptr_types	- 	bool(no),
+	il_refany_fields	- 	bool(no),
+	il_byref_tailcalls	- 	bool(no)
+]).
+option_defaults_2(internal_use_option, [
+		% Options for internal use only
+	backend_foreign_languages-	accumulating([]),
+					% The backend_foreign_languages option
+					% depends on the target and is set in
+					% handle_options.
 	basic_stack_layout	-	bool(no),
 	agc_stack_layout	-	bool(no),
 	procid_stack_layout	-	bool(no),
@@ -638,16 +702,7 @@ option_defaults_2(compilation_model_option, [
 	type_ctor_info		-	bool(yes),
 	type_ctor_layout	-	bool(yes),
 	type_ctor_functors	-	bool(yes),
-	rtti_line_numbers	-	bool(yes),
-	highlevel_code		-	bool(no),
-	highlevel_data		-	bool(no),
-	gcc_nested_functions	-	bool(no),
-	det_copy_out		-	bool(no),
-	nondet_copy_out		-	bool(no),
-	put_commit_in_own_func	-	bool(no),
-	unboxed_float           -       bool(no),
-	unboxed_enums           -       bool(yes),
-	unboxed_no_tag_types    -       bool(yes)
+	rtti_line_numbers	-	bool(yes)
 ]).
 option_defaults_2(code_gen_option, [
 		% Code Generation Options
@@ -748,6 +803,7 @@ option_defaults_2(optimization_option, [
 		% common_goal is not really an optimization, since
 		% it affects the semantics
 	constraint_propagation	-	bool(no),
+	local_constraint_propagation	-	bool(no),
 	optimize_duplicate_calls -	bool(no),
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
@@ -771,6 +827,7 @@ option_defaults_2(optimization_option, [
 	deforestation_depth_limit	-	int(4),
 	deforestation_cost_factor	-	int(1000),
 	deforestation_vars_threshold 	-	int(200),
+	deforestation_size_threshold 	-	int(15),
 
 % HLDS -> LLDS
 	smart_indexing		-	bool(no),
@@ -967,6 +1024,8 @@ long_option("dump-hlds-options",	dump_hlds_options).
 long_option("dump-mlds",		dump_mlds).
 long_option("dump-rl",			dump_rl).
 long_option("dump-rl-bytecode",		dump_rl_bytecode).
+long_option("sign-assembly",		sign_assembly).
+long_option("separate-assemblies",	separate_assemblies).
 long_option("generate-schemas",		generate_schemas).
 long_option("dump-mode-constraints",	dump_mode_constraints).
 
@@ -987,6 +1046,7 @@ long_option("mode-inference-iteration-limit",
 
 % compilation model options
 long_option("grade",			grade).
+	% target selection options
 long_option("target",			target).
 long_option("il",			il).
 long_option("il-only",			il_only).
@@ -997,12 +1057,14 @@ long_option("java",                     java).
 long_option("Java",                     java).
 long_option("java-only",                java_only).
 long_option("Java-only",                java_only).
-long_option("gcc-non-local-gotos",	gcc_non_local_gotos).
-long_option("gcc-global-registers",	gcc_global_registers).
-long_option("asm-labels",		asm_labels).
-long_option("gc",			gc).
-long_option("garbage-collection",	gc).
-long_option("parallel",			parallel).
+	% Optional features compilation model options:
+	% (a) debugging
+long_option("debug",			debug).
+% The following options are not allowed, because they're
+% not very useful and would probably only confuse people.
+% long_option("stack-trace",           stack_trace).
+% long_option("require-tracing",       require_tracing).
+	% (b) profiling
 long_option("profiling",		profiling).
 long_option("time-profiling",		time_profiling).
 long_option("memory-profiling",		memory_profiling).
@@ -1018,12 +1080,13 @@ long_option("use-lots-of-ho-specialization",
 					use_lots_of_ho_specialization).
 long_option("deep-profile-tail-recursion",
 					deep_profile_tail_recursion).
-long_option("debug",			debug).
-% The following options are not allowed, because they're
-% not very useful and would probably only confuse people.
-% long_option("stack-trace",           stack_trace).
-% long_option("require-tracing",       require_tracing).
+	% (c) miscellanous optional features
+long_option("gc",			gc).
+long_option("garbage-collection",	gc).
+long_option("parallel",			parallel).
 long_option("use-trail",		use_trail).
+long_option("type-layout",		type_layout).
+	% Data represention options
 long_option("reserve-tag",		reserve_tag).
 long_option("use-minimal-model",	use_minimal_model).
 long_option("pic",			pic).
@@ -1033,9 +1096,40 @@ long_option("num-tag-bits",		num_tag_bits).
 long_option("bits-per-word",		bits_per_word).
 long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
-long_option("type-layout",		type_layout).
-long_option("use-foreign-language",	use_foreign_language).
-long_option("backend-foreign-language",	backend_foreign_language).
+long_option("unboxed-float",		unboxed_float).
+long_option("unboxed-enums",		unboxed_enums).
+long_option("unboxed-no-tag-types",	unboxed_no_tag_types).
+long_option("highlevel-data",		highlevel_data).
+long_option("high-level-data",		highlevel_data).
+	% LLDS back-end compilation model options
+long_option("gcc-non-local-gotos",	gcc_non_local_gotos).
+long_option("gcc-global-registers",	gcc_global_registers).
+long_option("asm-labels",		asm_labels).
+	% MLDS back-end compilation model options
+long_option("highlevel-code",		highlevel_code).
+long_option("high-level-code",		highlevel_code).
+long_option("highlevel-C",		highlevel_code).
+long_option("highlevel-c",		highlevel_code).
+long_option("high-level-C",		highlevel_code).
+long_option("high-level-c",		highlevel_code).
+long_option("gcc-nested-functions",	gcc_nested_functions).
+long_option("det-copy-out",		det_copy_out).
+long_option("nondet-copy-out",		nondet_copy_out).
+long_option("put-commit-in-own-func",	put_commit_in_own_func).
+long_option("put-nondet-env-on-heap",	put_nondet_env_on_heap).
+	% IL back-end compilation model options
+long_option("verifiable-code",		verifiable_code).
+long_option("verifiable",		verifiable_code).
+long_option("il-funcptr-types",		il_funcptr_types).
+long_option("IL-funcptr-types",		il_funcptr_types).
+long_option("il-refany-fields",		il_refany_fields).
+long_option("IL-refany-fields",		il_refany_fields).
+long_option("il-byref-tailcalls",	il_byref_tailcalls).
+long_option("IL-byref-tailcalls",	il_byref_tailcalls).
+
+% internal use options
+long_option("backend-foreign-languages",
+					backend_foreign_languages).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -1046,22 +1140,6 @@ long_option("type-ctor-info",		type_ctor_info).
 long_option("type-ctor-layout",		type_ctor_layout).
 long_option("type-ctor-functors",	type_ctor_functors).
 long_option("rtti-line-numbers",	rtti_line_numbers).
-long_option("highlevel-code",		highlevel_code).
-long_option("high-level-code",		highlevel_code).
-long_option("highlevel-C",		highlevel_code).
-long_option("highlevel-c",		highlevel_code).
-long_option("high-level-C",		highlevel_code).
-long_option("high-level-c",		highlevel_code).
-long_option("highlevel-data",		highlevel_data).
-long_option("high-level-data",		highlevel_data).
-long_option("gcc-nested-functions",	gcc_nested_functions).
-long_option("det-copy-out",		det_copy_out).
-long_option("nondet-copy-out",		nondet_copy_out).
-long_option("put-commit-in-own-func",	put_commit_in_own_func).
-long_option("unboxed-float",		unboxed_float).
-long_option("unboxed-enums",		unboxed_enums).
-long_option("unboxed-no-tag-types",	unboxed_no_tag_types).
-
 
 % code generation options
 long_option("low-level-debug",		low_level_debug).
@@ -1156,6 +1234,7 @@ long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
 long_option("follow-code",		follow_code).
 long_option("constraint-propagation",	constraint_propagation).
+long_option("local-constraint-propagation",	local_constraint_propagation).
 long_option("optimize-unused-args",	optimize_unused_args).
 long_option("optimise-unused-args",	optimize_unused_args).
 long_option("intermod-unused-args",	intermod_unused_args).
@@ -1186,6 +1265,7 @@ long_option("deforestation",		deforestation).
 long_option("deforestation-depth-limit",	deforestation_depth_limit).
 long_option("deforestation-cost-factor",	deforestation_cost_factor).
 long_option("deforestation-vars-threshold",	deforestation_vars_threshold).
+long_option("deforestation-size-threshold",	deforestation_size_threshold).
 long_option("enable-termination",	termination).
 long_option("enable-term",		termination).
 long_option("check-termination",	check_termination).
@@ -1544,6 +1624,7 @@ opt_level(3, _, [
 	optimize_unused_args	-	bool(yes),	
 	optimize_higher_order	-	bool(yes),
 	deforestation		-	bool(yes),
+	local_constraint_propagation -	bool(yes),
 	constant_propagation	-	bool(yes),
 	% Disabled until a bug in extras/trailed_update/var.m is resolved.
 	%introduce_accumulators	-	bool(yes),
@@ -1789,7 +1870,8 @@ options_help_aux_output -->
 		"\tWhen compiling, write program dependency information",
 		"\tto be used to avoid unnecessary recompilations if an",
 		"\timported module's interface changes in a way which does",
-		"\tnot invalidate the compiled code.",
+		"\tnot invalidate the compiled code. `--smart-recompilation'",
+		"\tdoes not yet work with `--intermodule-optimization'.",
 		"--no-assume-gmake",
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
@@ -1870,7 +1952,18 @@ options_help_aux_output -->
 		"\tto `<module>.base_schema' and for Aditi derived",
 		"\trelations to `<module>.derived_schema'.",
 		"\tA schema string is a representation of the types",
-		"\tof a relation."
+		"\tof a relation.",
+
+		"--sign-assembly",
+		"\tSign the current assembly with the Mercury strong name.",
+		"\tTo use assemblies created with this command all the Mercury",
+		"\tmodules must be compiled with this option enabled.",
+		"\tThis option is specific to the IL backend, and is likely",
+		"\tto be deprecated at a later date.",
+
+		"--separate-assemblies",
+		"\tPlace sub-modules in separate assemblies.",
+		"\tThis option is specific to the IL backend."
 	]).
 
 :- pred options_help_semantics(io__state::di, io__state::uo) is det.
@@ -1955,6 +2048,7 @@ options_help_compilation_model -->
 		"compiled with the same setting of these options,",
 		"and it must be linked to a version of the Mercury",
 		"library which has been compiled with the same setting.",
+		"",
 		"-s <grade>, --grade <grade>",
 		"\tSelect the compilation model. The <grade> should be one of",
 		"\tthe base grades `none', `reg', `jump', `asm_jump', `fast', ",
@@ -1969,7 +2063,11 @@ options_help_compilation_model -->
 		"\tDepending on your particular installation, only a subset",
 		"\tof these possible grades will have been installed.",
 		"\tAttempting to use a grade which has not been installed",
-		"\twill result in an error at link time.",
+		"\twill result in an error at link time."
+	]),
+
+	io__write_string("\n    Target selection compilation model options:\n"),
+	write_tabbed_lines([
 		"--target c\t\t\t(grades: none, reg, jump, fast,",
 		"\t\t\t\t\tasm_jump, asm_fast, hlc)",
 		"--target asm\t\t\t(grades: hlc)",
@@ -2001,8 +2099,79 @@ options_help_compilation_model -->
 		"--compile-to-c",
 		"\tAn abbreviation for `--target c --target-code-only'.",
 		"\tGenerate C code in `<module>.c', but do not generate object",
-		"\tcode.",
+		"\tcode."
+	]),
 
+	io__write_string("\n    Optional feature compilation model options:\n"),
+	io__write_string("      Debugging\n"),
+	write_tabbed_lines([
+		"--debug\t\t\t\t(grade modifier: `.debug')",
+		"\tEnable Mercury-level debugging.",
+		"\tSee the Debugging chapter of the Mercury User's Guide",
+		"\tfor details.",
+		"\tThis option is not yet supported for the `--high-level-code'",
+		"\tback-ends."
+	]),
+	io__write_string("      Profiling\n"),
+	write_tabbed_lines([
+		"-p, --profiling, --time-profiling",
+		"\t\t\t\t(grade modifier: `.prof')",
+		"\tEnable time and call profiling.  Insert profiling hooks in the",
+		"\tgenerated code, and also output some profiling",
+		"\tinformation (the static call graph) to the file",
+		"\t`<module>.prof'.",
+		"\tThis option is not supported for the IL or Java back-ends.",
+		"--memory-profiling\t\t(grade modifier: `.memprof')",
+		"\tEnable memory and call profiling.",
+		"\tThis option is not supported for the IL or Java back-ends.",
+		"--deep-profiling\t\t(grade modifier: `.profdeep')",
+		"\tEnable deep profiling.",
+		"\tThis option is not supported for the high-level C, IL",
+		"\tor Java back-ends."
+/*****************
+XXX The following options are not documented,
+because they are currently not useful.
+The idea was for you to be able to use --profile-calls
+and --profile-time separately, but that doesn't work
+because compiling with --profile-time instead of
+--profile-calls results in different code addresses, 
+so you can't combine the data from versions of
+your program compiled with different options.
+
+		"--profile-calls\t\t(grade modifier: `.profcalls')",
+		"\tSimilar to `--profiling', except that only gathers",
+		"\tcall counts, not timing information.",
+		"\tUseful on systems where time profiling is not supported,",
+		"\tbut not as useful as `--memory-profiling'.",
+		"--profile-time\t\t(grade modifier: `.proftime')",
+		"\tSimilar to `--profiling', except that it only gathers",
+		"\ttiming information, not call counts.",
+		"--profile-memory\t\t(grade modifier: `.profmem')",
+		"\tSimilar to `--memory-profiling', except that it only gathers",
+		"\tmemory usage information, not call counts.",
+********************/
+	]),
+	io__write_string("      Miscellaneous optional features\n"),
+	write_tabbed_lines([
+		"--gc {none, conservative, accurate}",
+		"--garbage-collection {none, conservative, accurate}",
+		"\t\t\t\t(`.gc' grades use `--gc conservative',",
+		"\t\t\t\tother grades use `--gc none'.)",
+		"\tSpecify which method of garbage collection to use",
+		"\t(default: conservative).  `accurate' GC is not yet implemented.",
+		"\tThis option is ignored for the IL and Java back-ends,",
+		"\twhich always use the garbage collector of the underlying",
+		"\tIL or Java implementation.",
+		"\t`--high-level-code' requires `conservative' GC.",
+		"--use-trail\t\t\t(grade modifier: `.tr')",
+		"\tEnable use of a trail.",
+		"\tThis is necessary for interfacing with constraint solvers,",
+		"\tor for backtrackable destructive update.",
+		"\tThis option is not yet supported for the IL or Java back-ends."
+	]),
+
+	io__write_string("\n    LLDS back-end compilation model options:\n"),
+	write_tabbed_lines([
 
 		"--gcc-global-registers\t\t(grades: reg, fast, asm_fast)",
 		"--no-gcc-global-registers\t(grades: none, jump, asm_jump)",
@@ -2022,6 +2191,16 @@ options_help_compilation_model -->
 		"\tasm extensions for inline assembler labels.",
 		"\tThis option is ignored if the `--high-level-code' option is",
 		"\tenabled.",
+		"--pic-reg\t\t\t(grade modifier: `.pic_reg')",
+		"[For Unix with intel x86 architecture only]",
+		"\tSelect a register usage convention that is compatible,",
+		"\twith position-independent code (gcc's `-fpic' option).",
+		"\tThis is necessary when using shared libraries on Intel x86",
+		"\tsystems running Unix.  On other systems it has no effect."
+	]),
+
+	io__write_string("\n    MLDS back-end compilation model options:\n"),
+	write_tabbed_lines([
 % These grades (hl, hl_nest, and hlc_nest) are not yet documented, because
 % the --high-level-data option is not yet implemented,
 % and the --gcc-nested-functions option is not yet documented.
@@ -2029,7 +2208,7 @@ options_help_compilation_model -->
 		"-H, --high-level-code\t\t\t(grades: hlc, ilc, java)",
 		"\tUse an alternative back-end that generates high-level code",
 		"\trather than the very low-level code that is generated by our",
-		"\toriginal back-end.",
+		"\toriginal back-end."
 % The --high-level-data option is not yet documented,
 % because it is not yet supported
 %		"--high-level-data\t\t\t(grades: hl, hl_nest)",
@@ -2068,78 +2247,51 @@ options_help_compilation_model -->
 %		"\twhere commits are implemented via setjmp()/longjmp(),",
 %		"\tsince longjmp() may clobber any non-volatile local vars",
 %		"\tin the function that called setjmp().",
-		"--gc {none, conservative, accurate}",
-		"--garbage-collection {none, conservative, accurate}",
-		"\t\t\t\t(`.gc' grades use `--gc conservative',",
-		"\t\t\t\tother grades use `--gc none'.)",
-		"\tSpecify which method of garbage collection to use",
-		"\t(default: conservative).  `accurate' GC is not yet implemented.",
-		"\tThis option is ignored for the IL and Java back-ends,",
-		"\twhich always use the garbage collector of the underlying",
-		"\tIL or Java implementation.",
-		"\t`--high-level-code' requires `conservative' GC.",
-		"--use-trail\t\t\t(grade modifier: `.tr')",
-		"\tEnable use of a trail.",
-		"\tThis is necessary for interfacing with constraint solvers,",
-		"\tor for backtrackable destructive update.",
-		"\tThis option is not yet supported for the IL or Java back-ends.",
-		"--reserve-tag\t\t\t(grade modifier: `.rt')",
-		"\tReserve a tag in the data representation of the generated ",
-		"\tcode. This tag is intended to be used to give an explicit",
-		"\trepresentation to free variables.",
-		"\tThis is necessary for a seamless Herbrand constraint solver -",
-		"\tfor use with HAL.",
-		"-p, --profiling, --time-profiling",
-		"\t\t\t\t(grade modifier: `.prof')",
-		"\tEnable time and call profiling.  Insert profiling hooks in the",
-		"\tgenerated code, and also output some profiling",
-		"\tinformation (the static call graph) to the file",
-		"\t`<module>.prof'.",
-		"\tThis option is not supported for the IL or Java back-ends.",
-		"--memory-profiling\t\t(grade modifier: `.memprof')",
-		"\tEnable memory and call profiling.",
-		"\tThis option is not supported for the IL or Java back-ends.",
-		"--deep-profiling\t\t(grade modifier: `.profdeep')",
-		"\tEnable deep profiling.",
-		"\tThis option is not supported for the high-level C, IL",
-		"\tor Java back-ends.",
-/*****************
-XXX The following options are not documented,
-because they are currently not useful.
-The idea was for you to be able to use --profile-calls
-and --profile-time seperately, but that doesn't work
-because compiling with --profile-time instead of
---profile-calls results in different code addresses, 
-so you can't combine the data from versions of
-your program compiled with different options.
-
-		"--profile-calls\t\t(grade modifier: `.profcalls')",
-		"\tSimilar to `--profiling', except that only gathers",
-		"\tcall counts, not timing information.",
-		"\tUseful on systems where time profiling is not supported,",
-		"\tbut not as useful as `--memory-profiling'.",
-		"--profile-time\t\t(grade modifier: `.proftime')",
-		"\tSimilar to `--profiling', except that it only gathers",
-		"\ttiming information, not call counts.",
-		"--profile-memory\t\t(grade modifier: `.profmem')",
-		"\tSimilar to `--memory-profiling', except that it only gathers",
-		"\tmemory usage information, not call counts.",
-********************/
-		"--debug\t\t\t\t(grade modifier: `.debug')",
-		"\tEnable Mercury-level debugging.",
-		"\tSee the Debugging chapter of the Mercury User's Guide",
-		"\tfor details.",
-		"\tThis option is not yet supported for the `--high-level-code'",
-		"\tback-ends.",
-		"--pic-reg\t\t\t(grade modifier: `.pic_reg')",
-		"[For Unix with intel x86 architecture only]",
-		"\tSelect a register usage convention that is compatible,",
-		"\twith position-independent code (gcc's `-fpic' option).",
-		"\tThis is necessary when using shared libraries on Intel x86",
-		"\tsystems running Unix.  On other systems it has no effect."
+% The --put-nondet-env-on-heap option is not documented because
+% it is enabled automatically (by handle_options) in the situations
+% where it is needed; the user should never need to set it.
+%		"--put-nondet-env-on-heap",
+%		"\tAllocate the environment structures used for",
+%		"\tnondeterministic Mercury procedures on the heap,",
+%		"\trather than on the stack.",
+%
+%	]),
+%	io__write_string("\n      IL back-end compilation model options:\n"),
+%	write_tabbed_lines([
+%
+% The --verifiable-code option is not yet documented because it is not yet fully
+% implemented.
+%		"--verifiable, --verifiable-code\t\t\t",
+%		"\tEnsure that the generated IL code is verifiable.",
+%
+% The --il-refany-fields option is not documented because currently there
+% are no IL implementations for which it is useful.
+%		"--il-refany-fields",
+%		"\tGenerate IL code that assumes that the CLI implementation",
+%		"\tsupports value types with fields of type `refany'.",
+%		"\tUsing this option could in theory allow more efficient",
+%		"\tverifiable IL code for nondeterministic Mercury procedures,",
+%		"\tif the CLI implementation supported it."
+%		"\tHowever, the current Microsoft CLR does not support it."
+%
+% The --il-byref-tailcalls option is not documented because currently there
+% are no IL implementations for which it is useful.
+%		"--il-byref-tailcalls",
+%		"\tGenerate IL code that assumes that the CLI verifier",
+%		"\tsupports tail calls with byref arguments."
+%
+% The --il-funcptr-types option is not documented because currently there
+% are no IL implementations for which it is useful.
+%		"--il-funcptr-types",
+%		"\tGenerate IL code that assumes that the IL assembler",
+%		"\tsupports function pointer types."
+%		"\tThe ECMA CLI specification allows function pointer types,"
+%		"\tbut the current (Beta 2) Microsoft CLR implementation"
+%		"\tdoes not support them."
 	]),
 
 	io__write_string("\n    Developer compilation model options:\n"),
+	io__write_string("\n      Data representation\n"),
 	write_tabbed_lines([
 		"--tags {none, low, high}\t(This option is not for general use.)",
 		"\tSpecify whether to use the low bits or the high bits of ",
@@ -2147,6 +2299,13 @@ your program compiled with different options.
 	% 	"\t\t`--tags none' implies `--num-tag-bits 0'.",
 		"--num-tag-bits <n>\t\t(This option is not for general use.)",
 		"\tUse <n> tag bits.",
+
+		"--reserve-tag\t\t\t(grade modifier: `.rt')",
+		"\tReserve a tag in the data representation of the generated ",
+		"\tcode. This tag is intended to be used to give an explicit",
+		"\trepresentation to free variables.",
+		"\tThis is necessary for a seamless Herbrand constraint solver -",
+		"\tfor use with HAL.",
 
 		% The --conf-low-tag-bits option is reserved for use
 		% by the `mmc' script; it is deliberately not documented.
@@ -2156,21 +2315,38 @@ your program compiled with different options.
 
 		% The --bytes-per-word option is intended for use
 		% by the `mmc' script; it is deliberately not documented.
-		%
-		"--use-foreign-language <foreign language>",
-		"\tUse the given foreign language to implement predicates",
-		"\twritten in foreign languages.  Any name that can be used",
-		"\tto specify foreign languages in pragma foreign declarations",
-		"\tis valid, but not all foreign languages are implemented",
-		"\tin all backends.",
-		"\tDefault value is `C' for the LLDS and MLDS->C backends,",
-		"\tor `ManagedC++' for the .NET backend.",
+
+		"--unboxed-float",
+		"(This option is not for general use.)",
+		"\tDon't box floating point numbers.",
+		"\tThis assumes that a Mercury float will fit in a word.",
+		"\tThe C code needs to be compiled with `-UBOXED_FLOAT'.",
+		"\tIt may also need to be compiled with",
+		"\t`-DUSE_SINGLE_PREC_FLOAT', if double precision",
+		"\tfloats don't fit into a word."
+
+		% This is a developer only option.
+%		"--no-unboxed-enums",
+%		"(This option is not for general use.)",
+%		"\tBox enumerations.  This option is disabled by default.",
+
+		% This is a developer only option.
+%		"--no-unboxed-no-tag-types",
+%		"(This option is not for general use.)",
+%		"\tBox no-tag types.  This option is disabled by default."
+
+	]),
+	io__write_string("\n      Developer Optional features\n"),
+	write_tabbed_lines([
+		"--use-minimal-model",
+		"(This option is not for general use.)",
+		"\tEnable the use of minimal model tabling.",
 
 		"--no-type-layout",
 		"(This option is not for general use.)",
 		"\tDon't output type_ctor_layout structures or references",
 		"\tto them. (The C code also needs to be compiled with",
-		"\t`-DNO_TYPE_LAYOUT').",
+		"\t`-DNO_TYPE_LAYOUT')."
 
 		% This is a developer only option.
 %		"--basic-stack-layout",
@@ -2201,28 +2377,6 @@ your program compiled with different options.
 %		"(This option is not for general use.)",
 %		For documentation, see the comment in the type declaration.
 
-		"--use-minimal-model",
-		"(This option is not for general use.)",
-		"\tEnable the use of minimal model tabling.",
-
-		"--unboxed-float",
-		"(This option is not for general use.)",
-		"\tDon't box floating point numbers.",
-		"\tThis assumes that a Mercury float will fit in a word.",
-		"\tThe C code needs to be compiled with `-UBOXED_FLOAT'.",
-		"\tIt may also need to be compiled with",
-		"\t`-DUSE_SINGLE_PREC_FLOAT', if double precision",
-		"\tfloats don't fit into a word."
-
-		% This is a developer only option.
-%		"--no-unboxed-enums",
-%		"(This option is not for general use.)",
-%		"\tBox enumerations.  This option is disabled by default.",
-
-		% This is a developer only option.
-%		"--no-unboxed-no-tag-types",
-%		"(This option is not for general use.)",
-%		"\tBox no-tag types.  This option is disabled by default."
 	]).
 
 :- pred options_help_code_generation(io__state::di, io__state::uo) is det.
@@ -2440,6 +2594,11 @@ options_help_hlds_hlds_optimization -->
 		"\t`.opt' files. Note that changing this between writing",
 		"\tthe `.opt' file and compiling to C may cause link errors,",
 		"\tand too high a value may result in reduced performance.",
+		"--inline-vars-threshold <threshold>",
+		"\tDon't inline a call if it would result in a procedure",
+		"\tcontaining more than <threshold> variables. Procedures",
+		"\tcontaining large numbers of variables can cause",
+		"\tslow compilation.",
 		"--no-common-struct",
 		"\tDisable optimization of common term structures.",
 		"--no-common-goal",
@@ -2448,8 +2607,14 @@ options_help_hlds_hlds_optimization -->
 		"\tdetects only common deconstruction unifications.",
 		"\tDisabling this optimization reduces the class of predicates",
 		"\tthat the compiler considers to be deterministic.",
-	% 	"\t--constraint-propagation",
-	% 	"\t\tEnable the C-tranformation.  (Doesn't work.)",
+	 	"--constraint-propagation",
+	 	"\tEnable the constraint propagation transformation,",
+		"\twhich attemps to transform the code so that goals",
+		"\twhich can fail are executed as early as possible.",
+	 	"--local-constraint-propagation",
+		"\tEnable the constraint propagation transformation,",
+		"\tbut only rearrange goals within each procedure.",
+		"\tSpecialized versions of procedures will not be created.",
 		"--prev-code",
 		"\tMigrate into the start of branched goals.",
 		"--no-follow-code",
@@ -2512,14 +2677,18 @@ options_help_hlds_hlds_optimization -->
 		"\ttransformation whose aim is to avoid the construction of",
 		"\tintermediate data structures and to avoid repeated traversals",
 		"\tover data structures within a conjunction.",
-		"--deforestation-depth-limit",
-		"\tSpecify a depth limit for the deforestation algorithm",
-		"\tin addition to the usual termination checks.",
+		"--deforestation-depth-limit <limit>",
+		"\tSpecify a depth limit to prevent infinite loops in the",
+		"\tdeforestation algorithm.",
 		"\tA value of -1 specifies no depth limit. The default is 4.",
-		"--deforestation-vars-threshold",
+		"--deforestation-vars-threshold <threshold>",
 		"\tSpecify a rough limit on the number of variables",
 		"\tin a procedure created by deforestation.",
-		"\tA value of -1 specifies no limit. The default is 200."
+		"\tA value of -1 specifies no limit. The default is 200.",
+		"--deforestation-size-threshold <threshold>",
+		"\tSpecify a rough limit on the size of a goal",
+		"\tto be optimized by deforestation.",
+		"\tA value of -1 specifies no limit. The default is 15."
 	]).
 	 
 :- pred options_help_hlds_llds_optimization(io__state::di, io__state::uo) is det.

@@ -170,6 +170,8 @@
 :- pred write_purity_prefix(purity, io__state, io__state).
 :- mode write_purity_prefix(in, di, uo) is det.
 
+:- func purity_prefix_to_string(purity) = string.
+
 %  Get a purity name as a string.
 :- pred purity_name(purity, string).
 :- mode purity_name(in, out) is det.
@@ -300,6 +302,14 @@ write_purity_prefix(Purity) -->
 		io__write_string(" ")
 	).
 
+purity_prefix_to_string(Purity) = String :-
+	( Purity = pure ->
+		String = ""
+	;
+		purity_name(Purity, PurityName),
+		String = string__append(PurityName, " ")
+	).
+
 write_purity(Purity) -->
 	{ purity_name(Purity, String) },
 	io__write_string(String).
@@ -424,7 +434,7 @@ puritycheck_pred(PredId, PredInfo0, PredInfo, ModuleInfo, NumErrors) -->
 	( { pred_info_get_goal_type(PredInfo0, pragmas) } ->
 		{ WorstPurity = (impure) },
 		{ IsPragmaCCode = yes },
-			% This is where we assume pragma C code is
+			% This is where we assume pragma foreign_proc is
 			% pure.
 		{ Purity = pure },
 		{ PredInfo = PredInfo0 },
@@ -562,7 +572,7 @@ repuritycheck_proc(ModuleInfo, proc(_PredId, ProcId), PredInfo0, PredInfo) :-
 compute_purity([], [], _, Purity, Purity) --> [].
 compute_purity([Clause0|Clauses0], [Clause|Clauses], ProcIds,
 		Purity0, Purity) -->
-	{ Clause0 = clause(Ids, Body0 - Info0, Context) },
+	{ Clause0 = clause(Ids, Body0 - Info0, Lang, Context) },
 	compute_expr_purity(Body0, Body, Info0, no, Bodypurity0),
 	% If this clause doesn't apply to all modes of this procedure,
 	% i.e. the procedure has different clauses for different modes,
@@ -577,12 +587,12 @@ compute_purity([Clause0|Clauses0], [Clause|Clauses], ProcIds,
 	{ worst_purity(Bodypurity0, Clausepurity, Bodypurity) },
 	{ add_goal_info_purity_feature(Info0, Bodypurity, Info) },
 	{ worst_purity(Purity0, Bodypurity, Purity1) },
-	{ Clause = clause(Ids, Body - Info, Context) },
+	{ Clause = clause(Ids, Body - Info, Lang, Context) },
 	compute_purity(Clauses0, Clauses, ProcIds, Purity1, Purity).
 
 :- pred applies_to_all_modes(clause::in, list(proc_id)::in) is semidet.
 
-applies_to_all_modes(clause(ClauseProcIds, _, _), ProcIds) :-
+applies_to_all_modes(clause(ClauseProcIds, _, _, _), ProcIds) :-
 	(
 		% an empty list here means that the clause applies
 		% to *all* procedures

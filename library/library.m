@@ -44,6 +44,7 @@
 
 :- import_module robdd, unsafe.
 
+:- import_module rtti_implementation.
 :- import_module builtin, private_builtin, table_builtin, profiling_builtin.
 
 % library__version must be implemented using pragma c_code,

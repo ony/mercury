@@ -448,6 +448,20 @@
 :- mode get_unconstrained_tvars(in, in, out) is det.
 
 %-----------------------------------------------------------------------------%
+
+	% If possible, get the argument types for the cons_id.
+	% We need to pass in the arity rather than using the arity
+	% from the cons_id because the arity in the cons_id will not
+	% include any extra type_info arguments for existentially
+	% quantified types.
+:- pred maybe_get_cons_id_arg_types(module_info, maybe(type), cons_id,
+		arity, list(maybe(type))).
+:- mode maybe_get_cons_id_arg_types(in, in, in, in, out) is det.
+
+:- pred maybe_get_higher_order_arg_types(maybe(type), arity, list(maybe(type))).
+:- mode maybe_get_higher_order_arg_types(in, in, out) is det.
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
@@ -1038,27 +1052,25 @@ type_is_no_tag_type(ModuleInfo, Type, Ctor, ArgType) :-
 	% type_constructors_are_no_tag_type/3 is called.
 
 type_constructors_are_no_tag_type(Ctors, Ctor, ArgType, MaybeArgName) :-
-	type_is_single_ctor_single_arg(Ctors, Ctor, MaybeSymName, ArgType),
-	unqualify_name(Ctor, Name),
-	\+ name_is_type_info(Name),
+	type_is_single_ctor_single_arg(Ctors, Ctor, MaybeArgName0, ArgType),
+	\+ ctor_is_type_info(Ctor),
 
 	% We don't handle unary tuples as no_tag types --
 	% they are rare enough that it's not worth
 	% the implementation effort.
-	Name \= "{}",
+	Ctor \= unqualified("{}"),
 
-	(
-		MaybeSymName = yes(SymName),
-		unqualify_name(SymName, ArgName),
-		MaybeArgName = yes(ArgName)
-	;
-		MaybeSymName = no,
-		MaybeArgName = no
-	).
+	map_maybe(unqualify_name, MaybeArgName0, MaybeArgName).
 
 type_constructors_are_type_info(Ctors) :-
 	type_is_single_ctor_single_arg(Ctors, Ctor, _, _),
-	unqualify_name(Ctor, Name),
+	ctor_is_type_info(Ctor).
+
+:- pred ctor_is_type_info(sym_name).
+:- mode ctor_is_type_info(in) is semidet.
+
+ctor_is_type_info(Ctor) :-
+	unqualify_private_builtin(Ctor, Name),
 	name_is_type_info(Name).
 
 :- pred name_is_type_info(string).
@@ -1069,14 +1081,26 @@ name_is_type_info("type_ctor_info").
 name_is_type_info("typeclass_info").
 name_is_type_info("base_typeclass_info").
 
+	% If the sym_name is in the private_builtin module, unqualify it,
+	% otherwise fail.
+	% All, user-defined types should be module-qualified by the
+	% time this predicate is called, so we assume that any
+	% unqualified names are in private_builtin.
+:- pred unqualify_private_builtin(sym_name, string).
+:- mode unqualify_private_builtin(in, out) is semidet.
+
+unqualify_private_builtin(unqualified(Name), Name).
+unqualify_private_builtin(qualified(ModuleName, Name), Name) :-
+	mercury_private_builtin_module(ModuleName).
+
 :- pred type_is_single_ctor_single_arg(list(constructor), sym_name, 
-	maybe(sym_name), type).
+	maybe(ctor_field_name), type).
 :- mode type_is_single_ctor_single_arg(in, out, out, out) is semidet.
 
-type_is_single_ctor_single_arg(Ctors, Ctor, MaybeSymName, ArgType) :-
+type_is_single_ctor_single_arg(Ctors, Ctor, MaybeArgName, ArgType) :-
 	Ctors = [SingleCtor],
 	SingleCtor = ctor(ExistQVars, _Constraints, Ctor, 
-		[MaybeSymName - ArgType]),
+		[MaybeArgName - ArgType]),
 	ExistQVars = [].
 
 %-----------------------------------------------------------------------------%
@@ -1671,5 +1695,44 @@ get_unconstrained_tvars(Tvars, Constraints, Unconstrained) :-
 	constraint_list_get_tvars(Constraints, ConstrainedTvars),
 	list__delete_elems(Tvars, ConstrainedTvars, Unconstrained0),
 	list__remove_dups(Unconstrained0, Unconstrained).
+
+%-----------------------------------------------------------------------------%
+
+maybe_get_cons_id_arg_types(ModuleInfo, MaybeType, ConsId0, Arity, MaybeTypes)
+		:-
+	( ConsId0 = cons(SymName, _) ->
+		( SymName = qualified(_, Name) ->
+			% get_cons_id_non_existential_arg_types
+			% expects an unqualified cons_id.
+			ConsId = cons(unqualified(Name), Arity)
+		;
+			ConsId = ConsId0
+		),
+		(
+			MaybeType = yes(Type),
+
+			% XXX get_cons_id_non_existential_arg_types will fail
+			% for ConsIds with existentially typed arguments.
+			get_cons_id_non_existential_arg_types(ModuleInfo, Type,
+				ConsId, Types),
+			list__length(Types, Arity)
+		->
+			MaybeTypes = list__map(func(T) = yes(T), Types)
+		;
+			list__duplicate(Arity, no, MaybeTypes)
+		)
+	;
+		MaybeTypes = []
+	).
+
+maybe_get_higher_order_arg_types(MaybeType, Arity, MaybeTypes) :-
+	(
+		MaybeType = yes(Type),
+		type_is_higher_order(Type, _, _, Types)
+	->
+		MaybeTypes = list__map(func(T) = yes(T), Types)
+	;
+		list__duplicate(Arity, no, MaybeTypes)
+	).
 
 %-----------------------------------------------------------------------------%

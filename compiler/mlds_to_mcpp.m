@@ -91,7 +91,7 @@ output_src_end(ModuleName) -->
 :- mode generate_mcplusplus_code(in, di, uo) is det.
 generate_mcplusplus_code(MLDS) -->
 
-	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, _Imports, Defns) },
 	{ prog_out__sym_name_to_string(ModuleName, ModuleNameStr) },
 	{ ClassName = class_name(mercury_module_name_to_mlds(ModuleName),
 			wrapper_class_name) },
@@ -116,6 +116,13 @@ generate_mcplusplus_code(MLDS) -->
 		"extern ""C"" int _fltused=0;\n",
 		"\n"]),
 
+	globals__io_lookup_bool_option(sign_assembly, SignAssembly),
+	( { SignAssembly = yes },
+		io__write_string("[assembly:System::Reflection::AssemblyKeyFileAttribute(\"mercury.sn\")];\n")
+	; { SignAssembly = no },
+		[]
+	),
+
 	{ Namespace0 = get_class_namespace(ClassName) },
 	{ list__reverse(Namespace0) = [Head | Tail] ->
 		Namespace = list__reverse([Head ++ "__cpp_code" | Tail])
@@ -128,6 +135,8 @@ generate_mcplusplus_code(MLDS) -->
 			io__format("namespace %s {", [s(N)])
 	)),
 
+		% Get the foreign code for MC++
+	{ ForeignCode = map__lookup(AllForeignCode, managed_cplusplus) },
 	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
 		ForeignCode),
 
@@ -210,8 +219,9 @@ generate_method_mcpp_code(ModuleName,
 		defn(function(PredLabel, ProcId, MaybeSeqNum, _PredId), 
 	_Context, _DeclFlags, Entity)) -->
 	( 
+			% XXX we ignore the attributes
 		{ Entity = mlds__function(_, Params,
-			defined_here(Statement)) },
+			defined_here(Statement), _) },
 		( 
 			{ has_inline_target_code_statement(Statement) }
 		;
@@ -219,8 +229,7 @@ generate_method_mcpp_code(ModuleName,
 			{ list__member(managed_cplusplus, Langs) }
 		)
 	->
-		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
-		{ DataRep = il_data_rep(HighLevelData) },
+		get_il_data_rep(DataRep),
 		{ ILSignature = params_to_il_signature(DataRep, ModuleName,
 			Params) },
 		{ predlabel_to_id(PredLabel, ProcId, MaybeSeqNum, Id) },
@@ -272,7 +281,7 @@ generate_method_mcpp_code(ModuleName,
 	io__state, io__state).
 :- mode write_managed_cpp_statement(in, di, uo) is det.
 write_managed_cpp_statement(Statement) -->
-	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+	get_il_data_rep(ILDataRep),
 	( 
 			% XXX this ignores the language target.
 		{ Statement = statement(atomic(inline_target_code(
@@ -339,8 +348,7 @@ write_managed_cpp_statement(Statement) -->
 		{ Statement = statement(atomic(
 			new_object(Target, _MaybeTag, Type, _MaybeSize, 
 				_MaybeCtorName, _Args, _ArgTypes)), _) },
-		{ ClassName = mlds_type_to_ilds_class_name(
-			il_data_rep(HighLevelData), Type) }
+		{ ClassName = mlds_type_to_ilds_class_name(ILDataRep, Type) }
 	->
 		write_managed_cpp_lval(Target),
 		io__write_string(" = new "),
@@ -519,8 +527,7 @@ write_mlds_varname(var_name(Var, no)) -->
 :- pred write_managed_cpp_type(mlds__type, io__state, io__state).
 :- mode write_managed_cpp_type(in, di, uo) is det.
 write_managed_cpp_type(Type) -->
-	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
-	{ DataRep = il_data_rep(HighLevelData) },
+	get_il_data_rep(DataRep),
 	write_il_type_as_managed_cpp_type(
 		mlds_type_to_ilds_type(DataRep, Type)).
 
@@ -608,8 +615,9 @@ write_il_simple_type_as_managed_cpp_type('*'(Type)) -->
 
 :- pred write_managed_cpp_class_name(structured_name::in, io__state::di,
 	io__state::uo) is det.
-write_managed_cpp_class_name(structured_name(_Assembly, DottedName)) -->
-	io__write_list(DottedName, "::", io__write_string).
+write_managed_cpp_class_name(structured_name(_Assembly, DottedName,
+		NestedClasses)) -->
+	io__write_list(DottedName ++ NestedClasses, "::", io__write_string).
 
 :- pred write_il_type_as_managed_cpp_type(ilds__type::in,
 	io__state::di, io__state::uo) is det.

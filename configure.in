@@ -72,6 +72,18 @@ case "$host" in
 		;;
 esac
 #-----------------------------------------------------------------------------#
+
+# When statically linked on Compaq Tru64 UNIX V5.1, the conftest executable
+# fails with message "sh: Cannot allocate space for bss."
+case "$host" in
+	alpha*-osf5*)
+		link_flags=
+		;;
+	*)	
+		link_flags='--link-flags "--static"'
+		;;
+esac
+	
 MERCURY_MSG("looking for an already installed Mercury compiler to bootstrap with...")
 AC_PATH_PROG(BOOTSTRAP_MC,mmc)
 if test "$BOOTSTRAP_MC" != ""; then
@@ -85,23 +97,24 @@ if test "$BOOTSTRAP_MC" != ""; then
 		:- module conftest.
 		:- interface.
 		:- import_module io.
-		:- pred main(io__state::di, io__state::uo) is det.
+		:- pred main(io__state::di, io__state::uo) is cc_multi.
 
 		:- implementation.
-	
+		:- import_module int, exception.
         
-		% Different bodies for different modes.
-		:- pragma promise_pure(foo/1).
-		:- pred foo(int).
-		:- mode foo(out) is det.
-		:- mode foo(in) is semidet.
-		foo(X::in) :-
-			X = 42.
-		foo(X::out) :-
-			X = 42.
-
+		% Check that X/0 throws an exception. If it doesn't,
+		% the old compiler will report an error for the clauses
+		% for int:// and float:/, which according to the old
+		% compiler should be builtins.
+		% Also check for unchecked_int_quotient, which is a builtin
+		% present only in recent compilers.
 		main --> 
-			( { foo(42) } ->
+			{ try(
+				(pred(Value::out) is det :-
+					Value = 42 // 0 +
+						unchecked_quotient(10, 2)
+				), Result) },
+			( { Result = exception(_) } ->
 				print("Hello, world\n")
 			;
 				print("Nope.\n")
@@ -112,7 +125,7 @@ EOF
 		# to be compatible with scripts/Mmake.rules.
 	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
 	 	$BOOTSTRAP_MC \
-			--halt-at-warn --link-flags "--static" conftest \
+			--halt-at-warn $link_flags conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
 		test -f ./conftest.c_date &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
@@ -435,7 +448,7 @@ case "$host" in
 esac
 AC_HAVE_FUNCS(sysconf getpagesize memalign mprotect sigaction setitimer)
 AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat stat)
-AC_HAVE_FUNCS(vsnprintf _vsnprintf)
+AC_HAVE_FUNCS(snprintf vsnprintf _vsnprintf)
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(unistd.h, HAVE_UNISTD_H=1)
 if test "$HAVE_UNISTD_H" = 1; then
@@ -2092,6 +2105,10 @@ LIBGRADES="$LIBGRADES $DEFAULT_GRADE.tr.debug"
 
 # add `hlc' (--high-level-code, i.e. MLDS back-end) grades
 LIBGRADES="$LIBGRADES hlc.gc"
+
+if test $mercury_cv_microsoft_dotnet = "yes"; then
+    LIBGRADES="$LIBGRADES ilc"
+fi
 
 if test $enable_hlc_prof_grades = "yes" -o $ac_microsoft = "yes"; then
 	# add `.prof' (--profiling) grades, if time profiling is supported,

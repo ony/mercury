@@ -14,7 +14,7 @@
 
 :- import_module string.
 
-:- pred mkdir(string, mode, posix__result, io__state, io__state).
+:- pred mkdir(string, mode_t, posix__result, io__state, io__state).
 :- mode mkdir(in, in, out, di, uo) is det.
 
 %------------------------------------------------------------------------------%
@@ -39,7 +39,7 @@ mkdir(Path, Mode, Result) -->
 	    { Result = error(Err) }
 	).				    
 
-:- pred mkdir0(string, mode, int, io__state, io__state).
+:- pred mkdir0(string, mode_t, int, io__state, io__state).
 :- mode mkdir0(in, in, out, di, uo) is det.
 
 :- pragma c_code(mkdir0(Path::in, Mode::in, Res::out, IO0::di, IO::uo),

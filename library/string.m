@@ -30,10 +30,12 @@
 	% An empty string has length zero.
 
 :- func string__append(string, string) = string.
+:- mode string__append(in, in) = uo is det.
+
 :- pred string__append(string, string, string).
 :- mode string__append(in, in, in) is semidet.	% implied
 :- mode string__append(in, out, in) is semidet.
-:- mode string__append(in, in, out) is det.
+:- mode string__append(in, in, uo) is det.
 :- mode string__append(out, out, in) is multi.
 %	Append two strings together.
 %
@@ -44,6 +46,7 @@
 % :- mode string__append(out, in, in) is semidet.
 
 :- func string ++ string = string.
+:- mode in ++ in = uo is det.
 %	S1 ++ S2 = S :- string__append(S1, S2, S).
 %
 %	Nicer syntax.
@@ -358,12 +361,12 @@
 %	substring, whereas string__substring may take time proportional
 %	to the length of the whole string.
 
-:- func string__append_list(list(string)) = string.
+:- func string__append_list(list(string)::in) = (string::uo) is det.
 :- pred string__append_list(list(string), string).
-:- mode string__append_list(in, out) is det.
+:- mode string__append_list(in, uo) is det.
 %	Append a list of strings together.
 
-:- func string__join_list(string, list(string)) = string.
+:- func string__join_list(string::in, list(string)::in) = (string::uo) is det.
 %	string__join_list(Separator, Strings) = JoinedString:
 %	Appends together the strings in Strings, putting Separator between
 %	adjacent strings. If Strings is the empty list, returns the empty
@@ -788,9 +791,7 @@ string__from_char_list(CharList, Str) :-
         MR_list_nil(prev);
 
         for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp,
-			mercury::runtime::Convert::ToObject(Str->get_Chars(i)),
-			prev);
+		MR_list_cons(tmp, __box(Str->get_Chars(i)), prev);
 		prev = tmp;
         }
         CharList = tmp;
@@ -804,7 +805,7 @@ string__from_char_list(CharList, Str) :-
         tmp = new System::Text::StringBuilder();
         while (1) {
             if (MR_list_is_cons(CharList)) {
-		c = mercury::runtime::Convert::ToChar(MR_list_head(CharList));
+		c = System::Convert::ToChar(MR_list_head(CharList));
                 tmp->Append(c);
                 CharList = MR_list_tail(CharList);
             } else {
@@ -814,11 +815,8 @@ string__from_char_list(CharList, Str) :-
         Str = tmp->ToString();
 }").
 
-:- pragma foreign_proc("MC++", string__from_rev_char_list(_Chars::in,
-		_Str::out), [will_not_call_mercury, thread_safe], "
-{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
-}").
+string__from_rev_char_list(Chars::in, Str::out) :- 
+	Str = string__from_char_list(list__reverse(Chars)).
 
 :- pred string__int_list_to_char_list(list(int), list(char)).
 :- mode string__int_list_to_char_list(in, out) is det.
@@ -942,13 +940,13 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	% Implementation of string__append_list that uses C as this
 	% minimises the amount of garbage created.
-:- pragma foreign_proc("C", string__append_list(Strs::in) = (Str::out),
+:- pragma foreign_proc("C", string__append_list(Strs::in) = (Str::uo),
 		[will_not_call_mercury, thread_safe], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
 	size_t	len;
 
-		/* Determine the total len of all strings */
+		/* Determine the total length of all strings */
 	len = 0;
 	while (!MR_list_is_empty(list)) {
 		len += strlen((MR_String) MR_list_head(list));
@@ -973,7 +971,7 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	% Implementation of string__join_list that uses C as this
 	% minimises the amount of garbage created.
-:- pragma foreign_proc("C", string__join_list(Sep::in, Strs::in) = (Str::out),
+:- pragma foreign_proc("C", string__join_list(Sep::in, Strs::in) = (Str::uo),
 		[will_not_call_mercury, thread_safe], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
@@ -983,17 +981,19 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	sep_len = strlen(Sep);
 
-		/* Determine the total len of all strings */
-	len = -sep_len; /* compensate for no separator before first string */
+		/* Determine the total length of all strings */
+	len = 0;
+	add_sep = FALSE;
 	while (!MR_list_is_empty(list)) {
-		len += sep_len + strlen((MR_String) MR_list_head(list));
+		if (add_sep) {
+			len += sep_len;
+		}
+		
+		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
+		add_sep = TRUE;
 	}
 
-		/* Allocate enough word aligned memory for the string */
-	if (len <= 0) {
-		len = 0;
-	}
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 
 		/* Copy the strings into the new memory */
@@ -1016,16 +1016,43 @@ string__append_list(Lists, string__append_list(Lists)).
 	Str[len] = '\\0';
 }").
 
-:- pragma foreign_proc("MC++",
-		string__append_list(_Strs::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
-}").
+:- pragma foreign_proc("C#",
+		string__append_list(Strs::in) = (Str::uo),
+		[will_not_call_mercury, thread_safe], "
+{
+        System.Text.StringBuilder tmp = new System.Text.StringBuilder();
 
-:- pragma foreign_proc("MC++",
-		string__join_list(_Sep::in, _Strs::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	while (mercury.runtime.LowLevelData.list_is_cons(Strs)) {
+		tmp.Append(mercury.runtime.LowLevelData.list_get_head(Strs));
+		Strs = mercury.runtime.LowLevelData.list_get_tail(Strs);
+	}
+	Str = tmp.ToString();
+}
+").
+
+string__append_list(Strs::in) = (Str::uo) :-
+	( Strs = [X | Xs] ->
+		Str = X ++ append_list(Xs)
+	;
+		Str = ""
+	).
+
+:- pragma foreign_proc("C#",
+		string__join_list(Sep::in, Strs::in) = (Str::uo),
+		[will_not_call_mercury, thread_safe], "
+{	
+	System.Text.StringBuilder tmpStr = new System.Text.StringBuilder();
+
+	while(mercury.runtime.LowLevelData.list_is_cons(Strs)) {
+		tmpStr.Append(mercury.runtime.LowLevelData.list_get_head(Strs));
+		Strs = mercury.runtime.LowLevelData.list_get_tail(Strs);
+
+		if (mercury.runtime.LowLevelData.list_is_cons(Strs)) {
+			tmpStr.Append(Sep);
+		}
+	}
+
+	Str = tmpStr.ToString();
 }").
 
 %-----------------------------------------------------------------------------%
@@ -1072,10 +1099,10 @@ string__combine_hash(H0, X, H) :-
 }").
 
 :- pragma foreign_proc("MC++", 
-	string__sub_string_search(_WholeString::in, _SubString::in,
-			_Index::out) , [will_not_call_mercury, thread_safe],
+	string__sub_string_search(WholeString::in, SubString::in,
+			Index::out) , [will_not_call_mercury, thread_safe],
 "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Index = WholeString->IndexOf(SubString);
 }").
 
 %-----------------------------------------------------------------------------%
@@ -1423,11 +1450,38 @@ specifier_to_string(conv(Flags, Width, Prec, Spec)) = String :-
 	).
 specifier_to_string(string(Chars)) = from_char_list(Chars).
 
-	% Construct a format string suitable to passing to sprintf.
+
+	% Construct a format string.
 :- func make_format(list(char), maybe(list(char)),
 		maybe(list(char)), string, string) = string.
 
-make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
+make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = 
+	( using_sprintf ->
+		make_format_sprintf(Flags, MaybeWidth, MaybePrec, LengthMod,
+			Spec)
+	;
+		make_format_dotnet(Flags, MaybeWidth, MaybePrec, LengthMod,
+			Spec)
+	).
+
+
+:- pred using_sprintf is semidet.
+
+:- pragma foreign_proc("C", using_sprintf,
+	[will_not_call_mercury, thread_safe], "
+	SUCCESS_INDICATOR = TRUE;
+").
+:- pragma foreign_proc("MC++", using_sprintf,
+	[will_not_call_mercury, thread_safe], "
+	SUCCESS_INDICATOR = FALSE;
+").
+		
+
+	% Construct a format string suitable to passing to sprintf.
+:- func make_format_sprintf(list(char), maybe(list(char)),
+		maybe(list(char)), string, string) = string.
+
+make_format_sprintf(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	(
 		MaybeWidth = yes(Width)
 	;
@@ -1445,6 +1499,43 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 				from_char_list(Width),
 				from_char_list(Prec), LengthMod, Spec]).
 
+
+	% Construct a format string suitable to passing to .NET's formatting
+	% functions.
+	% XXX this code is not yet complete.  We need to do a lot more work
+	% to make this work perfectly.
+:- func make_format_dotnet(list(char), maybe(list(char)),
+		maybe(list(char)), string, string) = string.
+
+make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
+	(
+		MaybeWidth = yes(Width0),
+		Width = [',' | Width0]
+	;
+		MaybeWidth = no,
+		Width = []
+	),
+	(
+		MaybePrec = yes(Prec)
+	;
+		MaybePrec = no,
+		Prec = []
+	),
+	( 	Spec0 = "i" -> Spec = "d"
+	;	Spec0 = "f" -> Spec = "e"
+	;	Spec = Spec0
+	),
+	String = string__append_list([
+		"{0", 
+		from_char_list(Width),
+		":",
+		Spec,
+		from_char_list(Prec),
+%		LengthMod,
+%		from_char_list(Flags),
+		"}"]).
+
+
 :- func int_length_modifer = string.
 :- pragma foreign_proc("C", 
 	int_length_modifer = (LengthModifier::out),
@@ -1453,10 +1544,10 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 		(MR_String) (MR_Word) MR_INTEGER_LENGTH_MODIFIER);
 }").
 
-:- pragma foreign_proc("MC++", 
-	int_length_modifer = (_LengthModifier::out),
+:- pragma foreign_proc("C#", 
+	int_length_modifer = (LengthModifier::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	LengthModifier = """";
 }").
 
 
@@ -1471,10 +1562,10 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, (double) Val);
 	MR_restore_transient_hp();
 }").
-:- pragma foreign_proc("MC++",
-	format_float(_FormatStr::in, _Val::in) = (_Str::out),
+:- pragma foreign_proc("C#",
+	format_float(FormatStr::in, Val::in) = (Str::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Str = System.String.Format(FormatStr, Val);
 }").
 
 	% Create a string from a int using the format string.
@@ -1488,10 +1579,10 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 	MR_restore_transient_hp();
 }").
-:- pragma foreign_proc("MC++",
-	format_int(_FormatStr::in, _Val::in) = (_Str::out),
+:- pragma foreign_proc("C#",
+	format_int(FormatStr::in, Val::in) = (Str::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Str = System.String.Format(FormatStr, Val);
 }").
 
 	% Create a string from a string using the format string.
@@ -1503,10 +1594,10 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 		[will_not_call_mercury, thread_safe], "{
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 }").
-:- pragma foreign_proc("MC++", 
-	format_string(_FormatStr::in, _Val::in) = (_Str::out),
+:- pragma foreign_proc("C#", 
+	format_string(FormatStr::in, Val::in) = (Str::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Str = System.String.Format(FormatStr, Val);
 }").
 
 	% Create a string from a char using the format string.
@@ -1520,10 +1611,10 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 	MR_restore_transient_hp();
 }").
-:- pragma foreign_proc("MC++", 
-	format_char(_FormatStr::in, _Val::in) = (_Str::out),
+:- pragma foreign_proc("C#", 
+	format_char(FormatStr::in, Val::in) = (Str::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Str = System.String.Format(FormatStr, Val);
 }").
 
 
@@ -1549,10 +1640,11 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	MR_allocate_aligned_string_msg(FloatString, strlen(buf), MR_PROC_LABEL);
 	strcpy(FloatString, buf);
 }").
+
 :- pragma foreign_proc("MC++",
-	string__float_to_string(_FloatVal::in, _FloatString::out),
+	string__float_to_string(FloatVal::in, FloatString::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	FloatString = System::Convert::ToString(FloatVal);
 }").
 
 	% Beware that the implementation of string__format depends
@@ -1581,15 +1673,20 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__float_to_f_string(_FloatVal::in, _FloatString::out),
+	string__float_to_f_string(FloatVal::in, FloatString::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	FloatString = System::Convert::ToString(FloatVal);
 }").
 
 :- pragma foreign_proc("MC++",
-	string__to_float(_FloatString::in, _FloatVal::out),
+	string__to_float(FloatString::in, FloatVal::out),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	SUCCESS_INDICATOR = TRUE;
+	try {
+	    FloatVal = System::Convert::ToDouble(FloatString);
+	} catch (System::InvalidCastException *e) {
+	     SUCCESS_INDICATOR = FALSE;
+	}
 }").
 
 /*-----------------------------------------------------------------------*/
@@ -1662,9 +1759,7 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
         MR_list_nil(prev);
 
         for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp,
-			mercury::runtime::Convert::ToObject(Str->get_Chars(i)),
-			prev);
+		MR_list_cons(tmp, __box((MR_Integer) Str->get_Chars(i)), prev);
 		prev = tmp;
         }
         IntList = tmp;
@@ -1677,8 +1772,8 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
        
         tmp = new System::Text::StringBuilder();
         while (1) {
-            if (mercury::runtime::Convert::ToInt32(IntList->GetValue(0))) {
-                tmp->Append(mercury::runtime::Convert::ToChar(
+            if (System::Convert::ToInt32(IntList->GetValue(0))) {
+                tmp->Append(System::Convert::ToChar(
 			IntList->GetValue(1)));
                 IntList = dynamic_cast<MR_Word>(IntList->GetValue(2));
             } else {
@@ -1699,9 +1794,9 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 		[will_not_call_mercury, thread_safe], "
 	SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL);
 ").
-:- pragma foreign_proc("MC++", string__contains_char(_Str::in, _Ch::in),
+:- pragma foreign_proc("MC++", string__contains_char(Str::in, Ch::in),
 		[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	SUCCESS_INDICATOR = (Str->IndexOf(Ch) != -1);
 ").
 
 /*-----------------------------------------------------------------------*/
@@ -1790,9 +1885,16 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	}
 ").
 :- pragma foreign_proc("MC++",
-	string__set_char(_Ch::in, _Index::in, _Str0::in, _Str::out),
+	string__set_char(Ch::in, Index::in, Str0::in, Str::out),
 		[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	if (Index >= Str0->get_Length()) {
+		SUCCESS_INDICATOR = FALSE;
+	} else {
+		Str = System::String::Concat(Str0->Substring(0, Index),
+			System::Convert::ToString(Ch), 
+			Str0->Substring(Index + 1));
+		SUCCESS_INDICATOR = TRUE;
+	}
 ").
 
 /*
@@ -1810,10 +1912,18 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 		MR_set_char(Str, Index, Ch);
 	}
 ").
+
 :- pragma foreign_proc("MC++",
-	string__set_char(_Ch::in, _Index::in, _Str0::di, _Str::uo),
+	string__set_char(Ch::in, Index::in, Str0::di, Str::uo),
 		[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	if (Index >= Str0->get_Length()) {
+		SUCCESS_INDICATOR = FALSE;
+	} else {
+		Str = System::String::Concat(Str0->Substring(0, Index),
+			System::Convert::ToString(Ch), 
+			Str0->Substring(Index + 1));
+		SUCCESS_INDICATOR = TRUE;
+	}
 ").
 
 /*-----------------------------------------------------------------------*/
@@ -1831,9 +1941,11 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	MR_set_char(Str, Index, Ch);
 ").
 :- pragma foreign_proc("MC++",
-	string__unsafe_set_char(_Ch::in, _Index::in, _Str0::in, _Str::out),
+	string__unsafe_set_char(Ch::in, Index::in, Str0::in, Str::out),
 		[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Str = System::String::Concat(Str0->Substring(0, Index),
+		System::Convert::ToString(Ch), 
+		Str0->Substring(Index + 1));
 ").
 
 /*
@@ -1847,9 +1959,11 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 	MR_set_char(Str, Index, Ch);
 ").
 :- pragma foreign_proc("MC++",
-	string__unsafe_set_char(_Ch::in, _Index::in, _Str0::di, _Str::uo),
+	string__unsafe_set_char(Ch::in, Index::in, Str0::di, Str::uo),
 		[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Str = System::String::Concat(Str0->Substring(0, Index),
+		System::Convert::ToString(Ch), 
+		Str0->Substring(Index + 1));
 ").
 
 /*-----------------------------------------------------------------------*/
@@ -1892,7 +2006,7 @@ string__append(S1::in, S2::in, S3::in) :-
 	string__append_iii(S1, S2, S3).
 string__append(S1::in, S2::out, S3::in) :-
 	string__append_ioi(S1, S2, S3).
-string__append(S1::in, S2::in, S3::out) :-
+string__append(S1::in, S2::in, S3::uo) :-
 	string__append_iio(S1, S2, S3).
 string__append(S1::out, S2::out, S3::in) :-
 	string__append_ooi(S1, S2, S3).
@@ -1910,9 +2024,9 @@ string__append(S1::out, S2::out, S3::in) :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__append_iii(_S1::in, _S2::in, _S3::in),
+	string__append_iii(S1::in, S2::in, S3::in),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	SUCCESS_INDICATOR = S3->Equals(System::String::Concat(S1, S2));
 }").
 
 :- pred string__append_ioi(string::in, string::out, string::in) is semidet.
@@ -1939,15 +2053,20 @@ string__append(S1::out, S2::out, S3::in) :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__append_ioi(_S1::in, _S2::out, _S3::in),
+	string__append_ioi(S1::in, S2::out, S3::in),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	if (S3->StartsWith(S1)) {
+		S2 = S3->Remove(0, S1->Length);
+		SUCCESS_INDICATOR = TRUE;
+	} else {
+		SUCCESS_INDICATOR = FALSE;
+	}
 }").
 
-:- pred string__append_iio(string::in, string::in, string::out) is det.
+:- pred string__append_iio(string::in, string::in, string::uo) is det.
 
 :- pragma foreign_proc("C",
-	string__append_iio(S1::in, S2::in, S3::out),
+	string__append_iio(S1::in, S2::in, S3::uo),
 		[will_not_call_mercury, thread_safe], "{
 	size_t len_1, len_2;
 	len_1 = strlen(S1);
@@ -1958,7 +2077,7 @@ string__append(S1::out, S2::out, S3::in) :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__append_iio(S1::in, S2::in, S3::out),
+	string__append_iio(S1::in, S2::in, S3::uo),
 		[will_not_call_mercury, thread_safe], "{
 	S3 = System::String::Concat(S1, S2);
 }").
@@ -1999,10 +2118,11 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__append_ooi_3(_S1Len::in, _S3Len::in,
-			_S1::out, _S2::out, _S3::in),
+	string__append_ooi_3(S1Len::in, _S3Len::in,
+			S1::out, S2::out, S3::in),
 		[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	S1 = S3->Substring(0, S1Len);
+	S2 = S3->Substring(S1Len);
 ").
 
 /*-----------------------------------------------------------------------*/
@@ -2012,6 +2132,18 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 :- mode string__substring(in, in, in, out) is det.
 %	string__substring(String, Start, Count, Substring):
 */
+
+string__substring(Str::in, Start::in, Count::in, SubStr::out) :-
+	End = min(Start + Count, string__length(Str)),
+	SubStr = string__from_char_list(strchars(Start, End, Str)).
+
+:- func strchars(int, int, string) = list(char).
+strchars(I, End, Str) =
+	( if ( I < 0 ; End =< I )
+		then []
+		else [string__index_det(Str, I) | 
+			strchars(I + 1, End, Str)]
+	).
 
 :- pragma foreign_proc("C",
 	string__substring(Str::in, Start::in, Count::in,
@@ -2034,14 +2166,6 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 		SubString[Count] = '\\0';
 	}
 }").
-:- pragma foreign_proc("MC++",
-	string__substring(_Str::in, _Start::in, _Count::in,
-		_SubString::out),
-		[will_not_call_mercury, thread_safe],
-"{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
-}").
-
 
 /*
 :- pred string__unsafe_substring(string, int, int, string).
@@ -2060,11 +2184,11 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 	SubString[Count] = '\\0';
 }").
 :- pragma foreign_proc("MC++",
-	string__unsafe_substring(_Str::in, _Start::in, _Count::in,
-		_SubString::out),
+	string__unsafe_substring(Str::in, Start::in, Count::in,
+		SubString::out),
 		[will_not_call_mercury, thread_safe],
 "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	SubString = Str->Substring(Start, Count);
 }").
 
 
@@ -2207,8 +2331,7 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 		[will_not_call_mercury, thread_safe], "{
 	MR_Integer len = Str->get_Length();
 	if (len > 0) {
-		SUCCESS_INDICATOR = (First == Str->get_Chars(0) &&
-			System::String::Compare(Str, 1, Rest, 0, len) == 0);
+		SUCCESS_INDICATOR = (First == Str->get_Chars(0));
 		Rest = (Str)->Substring(1);
 	} else {
 		SUCCESS_INDICATOR = FALSE;

@@ -54,6 +54,7 @@ SINGLEMODULE_SOURCES= \
 	invalid_typeclass.m \
 	io_in_ite_cond.m \
 	lambda_syntax_error.m \
+	merge_ground_any.m \
 	method_impl.m \
 	missing_det_decls.m \
 	missing_interface_import.m \
@@ -70,6 +71,7 @@ SINGLEMODULE_SOURCES= \
 	not_a_switch.m \
 	nullary_ho_func_error.m \
 	occurs.m \
+	overloading.m \
 	polymorphic_unification.m \
 	pragma_c_code_and_clauses1.m \
 	pragma_c_code_and_clauses2.m \
@@ -143,6 +145,13 @@ MCFLAGS-aditi_update_derived_relation =	--aditi --no-intermodule-optimization
 MCFLAGS-aditi_update_errors =	--aditi --no-intermodule-optimization
 MCFLAGS-aditi_update_mode_errors = --aditi --no-intermodule-optimization
 MCFLAGS-any_mode	=	--infer-types
+
+# XXX This test should work with --intermodule-optimization, but
+# the compiler doesn't know whether items imported from `.opt' files
+# were imported in the interface or the implementation. The error
+# is reported correctly when building the `.opt' file.
+MCFLAGS-assert_in_interface =	--no-intermodule-optimization
+
 MCFLAGS-duplicate_modes	=	--verbose-error-messages
 MCFLAGS-exported_mode =		--infer-all --no-intermodule-optimization
 MCFLAGS-imported_mode =		--infer-all --no-intermodule-optimization
@@ -151,6 +160,7 @@ MCFLAGS-missing_interface_import = --make-interface
 MCFLAGS-multisoln_func	=	--infer-types
 MCFLAGS-mode_inf	=	--infer-all
 MCFLAGS-no_exports = 		--halt-at-warn
+MCFLAGS-overloading = 		--no-intermodule-optimization
 MCFLAGS-sub_c = 		--verbose-error-messages
 MCFLAGS-record_syntax_errors =	--verbose-error-messages
 MCFLAGS-test_nested =		--no-intermodule-optimization
@@ -221,32 +231,32 @@ clean_local:
 SUBDIRS = purity
 
 dep_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) dep) || exit 1; \
 	done
 
 depend_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) depend) || exit 1; \
 	done
 
 check_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) check) || exit 1; \
 	done
 
 all_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) all) || exit 1; \
 	done
 
 clean_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) clean) || exit 1; \
 	done
 
 realclean_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) realclean) || exit 1; \
 	done
 

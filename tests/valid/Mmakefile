@@ -111,6 +111,7 @@ OTHER_SOURCES= \
 	livevals_seq.m \
 	loop.m \
 	loop_in_disj.m \
+	merge_ground_any.m \
 	middle_rec_labels.m \
 	modes_bug.m \
 	mode_syntax.m \
@@ -134,6 +135,7 @@ OTHER_SOURCES= \
 	record_syntax_bug.m \
 	record_syntax_bug_2.m \
 	record_syntax_bug_3.m \
+	record_syntax_bug_4.m \
 	recursive_no_tag_type.m \
 	same_length_2.m \
 	semidet_disj.m \

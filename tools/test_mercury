@@ -16,21 +16,18 @@ case $# in
 esac
 
 PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/pgrad/fjh/.path`"
-PATH="/home/mercury/public/mercury-0.8/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/mercury-latest/$FULLARCH/bin:$PATH"
 PATH="/home/$HOST/public/mercury-latest/$FULLARCH/bin:$PATH"
-PATH="/home/mercury/public/nuprolog/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/gcc-2.7.2/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/egcs-1.1b/$FULLARCH/bin:$PATH"
-PATH="/home/mercury/public/autoconf-2.13/$FULLARCH/bin:$PATH"
-PATH="/home/mercury/public/sicstus3/$HOST:$PATH"
+PATH="/home/mercury/public/autoconf-2.52/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/$FULLARCH:$PATH"
 PATH="/home/mercury/public/$HOST:$PATH"
 # generate_index_html needs to be in our PATH too
 PATH="`pwd`:$PATH"
 export PATH
 
-CVSROOT=/home/staff/zs/imp
+CVSROOT=/home/mercury1/repository
 export CVSROOT
 
 # tell gcc to use /tmp, not /usr/tmp
@@ -119,11 +116,28 @@ case $HOST in
 				*)	OPTIMIZE=-O2 ;;
 			esac ;;
 
-			# XXX There are some performance problems
-			# with deforestation (module_qual__process_assert takes
-			# forever to compile with --intermodule-optimization
-			# and --deforestation), so disable it for now.
-	earth)		OPTIMIZE="-O5 --intermodule-optimization --no-deforestation" ;;
+	earth)	
+			case $BRANCH in
+			    latest)
+				OPTIMIZE="-O5 --intermodule-optimization \
+						--constraint-propagation"
+				;;
+
+			    0.10)
+				# There are some performance problems with
+				# deforestation on the release branch.
+				# The compiler takes forever to compile
+				# module_qual__process_assert with
+				# `--intermodule-optimization'
+				# and `--deforestation'.
+				# `--constraint-propagation' does not
+				# work on the release branch.
+				OPTIMIZE="-O5 --intermodule-optimization \
+						--no-deforestation"
+				;;
+			esac
+			;;
+
 	mars)		OPTIMIZE=-O5 ;;
 	kryten) 	OPTIMIZE=-O1 ;;	# currently not used
 	rimmer) 	OPTIMIZE=-O1 ;; # currently not used
@@ -172,7 +186,8 @@ esac
 # directories to use
 
 TESTDIR=/home/mercury/public/test_mercury
-DIR=$TESTDIR/test_dirs/$HOST
+HOSTDIR=$TESTDIR/test_dirs/$HOST
+DIR=$HOSTDIR/build.$BRANCH.$C_COMPILER
 
 case $HOST in
 	hg|ender|roy|venus|earth|mars) 	
@@ -190,8 +205,8 @@ BETA_FTPDIR=/home/ftp/pub/mercury/beta-releases
 BETA_WEBDIR=/home/mercury5/installed_w3/download/files/beta-releases
 BETA_WEBDIR_TOP=/home/mercury5/installed_w3/download/files
 
-STABLE=$DIR/$INSTALL_DIR_NAME-stable
-UNSTABLE=$DIR/$INSTALL_DIR_NAME-unstable
+STABLE=$HOSTDIR/$INSTALL_DIR_NAME-stable
+UNSTABLE=$HOSTDIR/$INSTALL_DIR_NAME-unstable
 
 case $ARCH in
 	alpha)
@@ -270,9 +285,9 @@ fi
 # to make sure we don't try to run two tests in parallel,
 # we use a lock file in the test directory
 
-lockfile=$DIR/lockfile
+lockfile=$HOSTDIR/lockfile
 if [ -f $lockfile ]; then
-	echo "Directory $DIR is locked:" 1>&2
+	echo "Directory $HOSTDIR is locked:" 1>&2
 	cat $lockfile 1>&2
 	echo "Perhaps the previous test is still running?" 1>&2
 	echo "(Remove $lockfile manually if necessary.)" 1>&2
@@ -364,6 +379,21 @@ install_anyway=false
 
 #-----------------------------------------------------------------------------#
 
+: clean up any directories from previous test runs
+
+cd $HOSTDIR
+rm -rf build.*/mercury
+rm -rf build.*/tests
+rm -rf build.*/mercury-cvs
+# Note that we do NOT want to clean out the GCC directory,
+# because checking out the GCC sources from the FSF's repository in
+# California takes a *long* time and a *lot* of network bandwidth,
+# and we're currently using a fixed snapshot anyway, so we don't
+# bother to check it out at all.
+### rm -rf build.*/gcc
+
+#-----------------------------------------------------------------------------#
+
 : checkout sources and run bootcheck
 
 echo "test_mercury starting cvs checkout at `date`" 1>&2
@@ -398,14 +428,14 @@ case $HOST in
 		# Once it is done once, it will be saved in the user's
 		# ~/.cvspass file, so it doesn't need to be done again.
 		#
-		# XXX This should be commented out soon, to save bandwidth,
-		#     since currently we're using a fixed snapshot
-		#     (`-r gcc_3_0_release') anyway.
-		#     Eventually this should change to use
-		#     `-r gcc_latest_snapshot'.
-		date
-		cvs -d :pserver:anoncvs@gcc.gnu.org:/cvs/gcc -z 9 \
-		 	checkout -r gcc_3_0_release gcc || { false; exit 1; }
+		# This is commented out, to save bandwidth,
+		# since currently we're using a fixed snapshot
+		# (`-r gcc_3_0_release') anyway.
+		# Perhaps this should eventually change to use
+		# `-r gcc_latest_snapshot'.
+		#date
+		#cvs -d :pserver:anoncvs@gcc.gnu.org:/cvs/gcc -z 9 \
+		# 	checkout -r gcc_3_0_release gcc || { false; exit 1; }
 		date
 		# Link the Mercury gcc back-end interface sources
 		# into the appropriate place in the gcc sources
@@ -641,13 +671,13 @@ case $HOST in murlibobo)
 	sh configure --prefix=$INSTALL_DIR &&
 	mmake MMAKEFLAGS='EXTRA_MCFLAGS="-O5 --opt-space" -j6' tar &&
 	cd .. &&
-	rm -f $INSTALL_DIR_NAME-unstable/* &&
+	rm -f $UNSTABLE/* &&
 	mv mercury-compiler-$version.tar.gz	\
-	    $INSTALL_DIR_NAME-unstable/mercury-compiler-$version-unstable.tar.gz &&
+	    $UNSTABLE/mercury-compiler-$version-unstable.tar.gz &&
 	mv mercury-extras-$version.tar.gz	\
-	    $INSTALL_DIR_NAME-unstable/mercury-extras-$version-unstable.tar.gz &&
+	    $UNSTABLE/mercury-extras-$version-unstable.tar.gz &&
 	mv mercury-tests-$version.tar.gz	\
-	    $INSTALL_DIR_NAME-unstable/mercury-tests-$version-unstable.tar.gz
+	    $UNSTABLE/mercury-tests-$version-unstable.tar.gz
 	} || status=1
 	# later parts of this script assume that we've already run configure,
 	# so we need to redo that
@@ -671,8 +701,14 @@ unset MERCURY_COMPILER
 # installed above, before the tests are run.
 case $HOST in
 	mundook|murlibobo)
+		# XXX currently we don't bother to test hlc.gc.par,
+		#     since that is just the same as hlc.gc
+		#     (threads are not yet supported on Digital Unix --
+		#     see configure.in).
+		# XXX should we test asm_fast.gc.profdeep?
 		GRADES="none none.gc
 			reg reg.gc
+			hlc.gc
 			asm_fast asm_fast.gc
 			asm_fast.prof asm_fast.gc.prof
 			asm_fast.gc.memprof
@@ -832,12 +868,12 @@ case $HOST in murlibobo)
 		"rm -f $BETA_FTPDIR/mercury-extras-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
 	rsh $BETA_FTPHOST \
 		"rm -f $BETA_FTPDIR/mercury-tests-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
-	rcp $INSTALL_DIR_NAME-unstable/mercury-*-$version-unstable.tar.gz \
+	rcp $UNSTABLE/mercury-*-$version-unstable.tar.gz \
 		$BETA_FTPHOST:$BETA_FTPDIR 
 	rm -f $BETA_WEBDIR/mercury-compiler-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
 	rm -f $BETA_WEBDIR/mercury-extras-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
 	rm -f $BETA_WEBDIR/mercury-tests-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
-	cp $INSTALL_DIR_NAME-unstable/mercury-*-$version-unstable.tar.gz \
+	cp $UNSTABLE/mercury-*-$version-unstable.tar.gz \
 		$BETA_WEBDIR
 	;;
 esac
@@ -886,6 +922,9 @@ esac
 case $fullname in
 	alpha*-dec-osf3.2)
 		fullname=alpha-dec-osf3.2
+		;;
+	alpha*-dec-osf5.1)
+		fullname=alpha-dec-osf5.1
 		;;
 esac
 

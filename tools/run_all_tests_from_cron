@@ -13,17 +13,22 @@
 
 #-----------------------------------------------------------------------------#
 
-tm_dir=/home/mercury/public/test_mercury
+tmpfile=/tmp/run_test$$
+tmpscript=/tmp/test_mercury$$
+mail_subject=/tmp/test_mercury_mail$$
+trap 'rm -f $tmpfile $tmpscript $mail_subject; exit 1' 1 2 3 13 15
 
 #-----------------------------------------------------------------------------#
 
 ulimit -c 0
 
 C_COMPILER=gcc
+BRANCH=
 case $# in
 	1)	HOST=$1 ;;
 	2)	HOST=$1; C_COMPILER=$2 ;;
-	*)	echo "Usage: $0 host [c-compiler]" 1>&2; exit 1 ;;
+	3)	HOST=$1; C_COMPILER=$2; BRANCH=$3 ;;
+	*)	echo "Usage: $0 host [c-compiler] [branch]" 1>&2; exit 1 ;;
 esac
 
 case $HOST in
@@ -31,7 +36,7 @@ case $HOST in
 	muse) 		ARCH=sgi	FULLARCH=mips-sgi-irix5.3 ;;
 	kryten) 	ARCH=sparc	FULLARCH=sparc-sun-solaris2.5 ;;
 	taifun) 	ARCH=sparc	FULLARCH=sparc-sun-solaris2.7 ;;
-	murlibobo) 	ARCH=alpha	FULLARCH=alphaev5-dec-osf3.2 ;;
+	murlibobo) 	ARCH=alpha	FULLARCH=alphaev5-dec-osf5.1 ;;
 	mundook) 	ARCH=alpha	FULLARCH=alpha-dec-osf3.2 ;;
 	quicksilver) 	ARCH=i586	FULLARCH=i586-pc-linux-gnu ;;
 	hg) 		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
@@ -42,12 +47,6 @@ case $HOST in
 	earth)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	mars)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	*)		echo "$0: unknown HOST $HOST" 1>&2; exit 1 ;;
-esac
-	
-case $HOST in
-	kryten|taifun) 	mail="rsh mundook /bin/mail" ;;
-	hydra|ender|roy|venus|earth|mars) mail=/usr/bin/mail ;;
-	*)		mail=/bin/mail ;;
 esac
 
 #-----------------------------------------------------------------------------#
@@ -64,10 +63,16 @@ PATH="/home/mercury/public/sicstus3/$HOST:$PATH"
 PATH="/home/mercury/public/$HOST:$PATH"
 export PATH
 
-CVSROOT=/home/staff/zs/imp
+CVSROOT=/home/mercury1/repository
 export CVSROOT
 
-tmpscript=/tmp/test_mercury$$
+#-----------------------------------------------------------------------------#
+
+# Redirect all output to $tmpfile to stop cron mailing
+# content-free messages to mercury@cs.mu.oz.au.
+{
+tm_dir=/home/mercury/public/test_mercury
+
 cd /home/mercury/public/test_mercury/scripts;
 cvs checkout mercury/tools/test_mercury
 cp mercury/tools/test_mercury $tmpscript
@@ -76,9 +81,16 @@ cvs checkout mercury/tools/generate_index_html
 
 #-----------------------------------------------------------------------------#
 
-DAY=`date '+%e'`
-case $HOST in
-	murlibobo|taifun|hg|hydra|mars)
+case "$BRANCH" in
+    "")
+        DAY=`date '+%e'`
+        case $HOST in
+	    hg)
+		# XXX The release branch doesn't compile on hg due
+		# to problems with the GCC back-end.
+	    	BRANCH=latest
+		;;
+	    murlibobo|taifun|hg|hydra|mars)
 		#
 		# For these hosts:
 		# On odd-numbered days, test the release branch.
@@ -89,7 +101,7 @@ case $HOST in
 			*)	  BRANCH=latest ;;
 		esac
 		;;
-	*)
+	    *)
 		#
 		# For the remaining hosts, do the reverse:
 		# On odd-numbered days, test the main branch.
@@ -100,6 +112,8 @@ case $HOST in
 			*)	  BRANCH=0.10 ;;
 		esac
 		;;
+        esac
+        ;;
 esac
 
 #-----------------------------------------------------------------------------#
@@ -113,21 +127,23 @@ case "$C_COMPILER" in
 esac
 
 mv -f $tm_dir/logs/old/$logname $tm_dir/logs/old2 2>/dev/null
+mv -f $tm_dir/logs/old/$logname.errs $tm_dir/logs/old2 2>/dev/null
 mv -f $tm_dir/logs/$logname $tm_dir/logs/old 2>/dev/null
+mv -f $tm_dir/logs/$logname.errs $tm_dir/logs/old 2>/dev/null
 logfile="$tm_dir/logs/$logname"
 
-tmpfile=/tmp/run_test$$
-trap 'rm -f $tmpfile $tmpscript; exit 1' 1 2 3 13 15
-{
-echo "Subject: Mercury auto-test: $BRANCH $HOST $C_COMPILER"
-echo
 if nice -5 sh $tmpscript $HOST $ARCH $FULLARCH $BRANCH $C_COMPILER \
 		> $logfile 2>&1
 then
-	echo test passed
-	echo
-	echo last 20 lines of log file:
-	tail -20 $logfile
+	test_status="succeeded"
+	fgrep '**' $logfile > $logfile.errs
+	if [ -s $logfile.errs ]; then
+		echo "test passed (with some errors supressed/ignored)"
+		echo "log file summary in $logfile.errs"
+	else
+		rm -f $logfile.errs
+		echo "test passed"
+	fi
 	echo
 	case $HOST in
 		hg) base=/home/hg ;;
@@ -143,16 +159,32 @@ then
 		echo
 	} >> $tm_dir/logs/sizes
 else
+	test_status="FAILED"
+	fgrep '**' $logfile > $logfile.errs
 	echo test FAILED
 	echo log file in $logfile
+	echo log file summary in $logfile.errs
+fi
+
+if [ -s $logfile.errs ]; then
+	echo
+	echo first 100 lines of log file summary:
+	head -100 $logfile.errs
+elif [ $test_status = "FAILED" ]; then
 	echo
 	echo last 20 lines of log file:
 	tail -20 $logfile
 fi
+
+# We can't just set a variable containing the mail subject string
+# because sh (but not bash) executes compound commands with redirection
+# in a sub-shell.
+echo "test_mercury $test_status: $BRANCH $HOST $C_COMPILER" > $mail_subject
 } > $tmpfile 2>&1
-# NB we can't just pipe into $mail, because $mail times out while
-# waiting for the message.  So we need to use a temp file.
-$mail fjh < $tmpfile
-rm -f $tmpfile $tmpscript
+
+# NB we can't just pipe into `mutt' because the $mail_subject file
+# needs to be written before `mutt' is started.
+mutt -s "`cat $mail_subject`" stayl < $tmpfile
+rm -f $tmpfile $tmpscript $mail_subject
 
 #-----------------------------------------------------------------------------#

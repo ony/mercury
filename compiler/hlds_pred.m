@@ -148,7 +148,10 @@
 							% fields are computed
 							% by polymorphism.m
 			clause_type_info_varmap	:: type_info_varmap,
-			clause_typeclass_info_varmap :: typeclass_info_varmap
+			clause_typeclass_info_varmap :: typeclass_info_varmap,
+			have_foreign_clauses	::	bool
+							% do we have foreign
+							% language clauses?
 		).
 
 :- type vartypes == map(prog_var, type).
@@ -211,6 +214,7 @@
 :- mode clauses_info_set_typeclass_info_varmap(in, in, out) is det.
 
 
+	% XXX we should use field names for clause
 :- type clause		--->	clause(
 					list(proc_id),	% modes for which
 							% this clause applies
@@ -218,15 +222,24 @@
 							% it applies to all
 							% clauses)
 					hlds_goal,	% Body
+					implementation_language,
+							% implementation
+							% language
 					prog_context
 				).
 
 %-----------------------------------------------------------------------------%
 
+:- type implementation_language --->	mercury
+				; 	foreign_language(foreign_language).
+
+
 	% The type of goals that have been given for a pred.
 
-:- type goal_type 	--->	pragmas		% pragma foreign_code(...)
+:- type goal_type 	--->	pragmas		% pragma foreign_proc(...)
 			;	clauses		
+			;	clauses_and_pragmas 
+						% both clauses and pragmas
 			;	(assertion)
 			;	none.
 
@@ -442,6 +455,17 @@
 				% the termination of this predicate.
 				% If the compiler cannot guarantee termination
 				% then it must give an error message.
+	.
+
+
+	% An abstract set of attributes.
+:- type pred_attributes.
+
+:- type attribute
+	--->	custom(type)
+				% A custom attribute, indended to be associated
+				% with this predicate in the underlying
+				% implementation.
 	.
 
 	% Aditi predicates are identified by their owner as well as
@@ -673,6 +697,18 @@
 :- pred pred_info_get_goal_type(pred_info, goal_type).
 :- mode pred_info_get_goal_type(in, out) is det.
 
+	% Do we have a clause goal type?
+	% (this means either "clauses" or "clauses_and_pragmas")
+	
+:- pred pred_info_clause_goal_type(pred_info).
+:- mode pred_info_clause_goal_type(in) is semidet.
+
+	% Do we have a pragma goal type?
+	% (this means either "pragmas" or "clauses_and_pragmas")
+
+:- pred pred_info_pragma_goal_type(pred_info).
+:- mode pred_info_pragma_goal_type(in) is semidet.
+
 :- pred pred_info_set_goal_type(pred_info, goal_type, pred_info).
 :- mode pred_info_set_goal_type(in, in, out) is det.
 
@@ -758,6 +794,12 @@
 :- pred pred_info_set_markers(pred_info, pred_markers, pred_info).
 :- mode pred_info_set_markers(in, in, out) is det.
 
+:- pred pred_info_get_attributes(pred_info, pred_attributes).
+:- mode pred_info_get_attributes(in, out) is det.
+
+:- pred pred_info_set_attributes(pred_info, pred_attributes, pred_info).
+:- mode pred_info_set_attributes(in, in, out) is det.
+
 :- pred pred_info_get_call_id(pred_info, simple_call_id).
 :- mode pred_info_get_call_id(in, out) is det.
 
@@ -795,6 +837,29 @@
 
 :- pred marker_list_to_markers(list(marker), pred_markers).
 :- mode marker_list_to_markers(in, out) is det.
+
+	% create an empty set of attributes
+:- pred init_attributes(pred_attributes).
+:- mode init_attributes(out) is det.
+
+	% check if a particular is in the set
+:- pred check_attribute(pred_attributes, attribute).
+:- mode check_attribute(in, in) is semidet.
+
+	% add a attribute to the set
+:- pred add_attribute(pred_attributes, attribute, pred_attributes).
+:- mode add_attribute(in, in, out) is det.
+
+	% remove a attribute from the set
+:- pred remove_attribute(pred_attributes, attribute, pred_attributes).
+:- mode remove_attribute(in, in, out) is det.
+
+	% convert the set to a list
+:- pred attributes_to_attribute_list(pred_attributes, list(attribute)).
+:- mode attributes_to_attribute_list(in, out) is det.
+
+:- pred attribute_list_to_attributes(list(attribute), pred_attributes).
+:- mode attribute_list_to_attributes(in, out) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -889,6 +954,8 @@ status_defined_in_this_module(local,			yes).
 					% pragma foreign_code(...) decs, or none
 			markers		:: pred_markers,
 					% various boolean flags
+			attributes	:: pred_attributes,
+					% various attributes 
 			is_pred_or_func	:: pred_or_func,
 					% whether this "predicate" was really
 					% a predicate or a function
@@ -962,16 +1029,17 @@ pred_info_init(ModuleName, SymName, Arity, TypeVarSet, ExistQVars, Types,
 	sym_name_get_module_name(SymName, ModuleName, PredModuleName),
 	term__vars_list(Types, TVars),
 	list__delete_elems(TVars, ExistQVars, HeadTypeParams),
+	Attributes = [],
 	UnprovenBodyConstraints = [],
 	Indexes = [],
 	set__init(Assertions),
 	MaybeInstanceConstraints = no,
 	PredInfo = predicate(TypeVarSet, Types, Cond, ClausesInfo, Procs,
 		Context, PredModuleName, PredName, Arity, Status, TypeVarSet,
-		GoalType, Markers, PredOrFunc, ClassContext, ClassProofs,
-		ExistQVars, HeadTypeParams, UnprovenBodyConstraints, User,
-		Indexes, Assertions, MaybeInstanceConstraints,
-		inst_graph_info_init, []).
+		GoalType, Markers, Attributes, PredOrFunc, ClassContext,
+		ClassProofs, ExistQVars, HeadTypeParams,
+		UnprovenBodyConstraints, User, Indexes, Assertions,
+		MaybeInstanceConstraints, inst_graph_info_init, []).
 
 pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types, Cond,
 		Context, Status, Markers, PredOrFunc, ClassContext, User,
@@ -989,9 +1057,12 @@ pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types, Cond,
 	unqualify_name(SymName, PredName),
 	% The empty list of clauses is a little white lie.
 	Clauses = [],
+	Attributes = [],
 	map__init(TVarNameMap),
+	HasForeignClauses = no,
 	ClausesInfo = clauses_info(VarSet, VarTypes, TVarNameMap,
-		VarTypes, HeadVars, Clauses, TypeInfoMap, TypeClassInfoMap),
+		VarTypes, HeadVars, Clauses, TypeInfoMap, TypeClassInfoMap,
+		HasForeignClauses),
 	map__init(ClassProofs),
 	term__vars_list(Types, TVars),
 	list__delete_elems(TVars, ExistQVars, HeadTypeParams),
@@ -1000,10 +1071,10 @@ pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types, Cond,
 	MaybeInstanceConstraints = no,
 	PredInfo = predicate(TypeVarSet, Types, Cond, ClausesInfo, Procs,
 		Context, ModuleName, PredName, Arity, Status, TypeVarSet,
-		clauses, Markers, PredOrFunc, ClassContext, ClassProofs,
-		ExistQVars, HeadTypeParams, UnprovenBodyConstraints, User,
-		Indexes, Assertions, MaybeInstanceConstraints,
-		inst_graph_info_init, []).
+		clauses, Markers, Attributes, PredOrFunc, ClassContext,
+		ClassProofs, ExistQVars, HeadTypeParams,
+		UnprovenBodyConstraints, User, Indexes, Assertions,
+		MaybeInstanceConstraints, inst_graph_info_init, []).
 
 pred_info_all_procids(PredInfo, ProcIds) :-
 	ProcTable = PredInfo ^ procedures,
@@ -1160,6 +1231,16 @@ pred_info_set_typevarset(PredInfo, X, PredInfo^typevarset := X).
 
 pred_info_get_goal_type(PredInfo, PredInfo^goal_type).
 
+pred_info_clause_goal_type(PredInfo) :- 
+	( PredInfo ^ goal_type = clauses 
+	; PredInfo ^ goal_type = clauses_and_pragmas
+	).
+
+pred_info_pragma_goal_type(PredInfo) :- 
+	( PredInfo ^ goal_type = pragmas 
+	; PredInfo ^ goal_type = clauses_and_pragmas
+	).
+
 pred_info_set_goal_type(PredInfo, X, PredInfo^goal_type := X).
 
 pred_info_requested_inlining(PredInfo0) :-
@@ -1201,6 +1282,10 @@ purity_to_markers(impure, [impure]).
 pred_info_get_markers(PredInfo, PredInfo^markers).
 
 pred_info_set_markers(PredInfo, X, PredInfo^markers := X).
+
+pred_info_get_attributes(PredInfo, PredInfo ^ attributes).
+
+pred_info_set_attributes(PredInfo, X, PredInfo ^ attributes := X).
 
 pred_info_get_is_pred_or_func(PredInfo, PredInfo^is_pred_or_func).
 
@@ -1283,6 +1368,23 @@ markers_to_marker_list(Markers, Markers).
 
 marker_list_to_markers(Markers, Markers).
 
+:- type pred_attributes == list(attribute).
+
+init_attributes([]).
+
+check_attribute(Attributes, Attribute) :-
+	list__member(Attribute, Attributes).
+
+add_attribute(Attributes, Attribute, [Attribute | Attributes]).
+
+remove_attribute(Attributes0, Attribute, Attributes) :-
+	list__delete_all(Attributes0, Attribute, Attributes).
+
+attributes_to_attribute_list(Attributes, Attributes).
+
+attribute_list_to_attributes(Attributes, Attributes).
+
+
 %-----------------------------------------------------------------------------%
 
 clauses_info_varset(CI, CI^varset).
@@ -1358,9 +1460,10 @@ hlds_pred__define_new_pred(Goal0, Goal, ArgVars0, ExtraTypeInfos, InstMap0,
 		TermInfo = no
 	),
 
+	MaybeDeclaredDetism = no,
 	proc_info_create(VarSet, VarTypes, ArgVars, ArgModes, InstVarSet,
-		Detism, Goal0, Context, TVarMap, TCVarMap, IsAddressTaken,
-		ProcInfo0),
+		MaybeDeclaredDetism, Detism, Goal0, Context,
+		TVarMap, TCVarMap, IsAddressTaken, ProcInfo0),
 	proc_info_set_maybe_termination_info(ProcInfo0, TermInfo, ProcInfo),
 
 	set__init(Assertions),
@@ -1452,6 +1555,13 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 	list(mode), inst_varset, determinism, hlds_goal, prog_context,
 	type_info_varmap, typeclass_info_varmap, is_address_taken, proc_info).
 :- mode proc_info_create(in, in, in, in, in, in, in, in, in, in, in, out)
+	is det.
+
+:- pred proc_info_create(prog_varset, vartypes, list(prog_var),
+	list(mode), inst_varset, maybe(determinism), determinism,
+	hlds_goal, prog_context, type_info_varmap, typeclass_info_varmap,
+	is_address_taken, proc_info).
+:- mode proc_info_create(in, in, in, in, in, in, in, in, in, in, in, in, out)
 	is det.
 
 :- pred proc_info_set_body(proc_info, prog_varset, vartypes,
@@ -1913,18 +2023,26 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		Liveness, TVarMap, TCVarsMap, eval_normal, ArgSizes,
 		Termination, IsAddressTaken, RLExprn, no, no, no).
 
-proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
-		Goal, Context, TVarMap, TCVarsMap, IsAddressTaken, ProcInfo) :-
+proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet,
+		Detism, Goal, Context, TVarMap, TCVarsMap,
+		IsAddressTaken, ProcInfo) :-
+	proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet,
+		yes(Detism), Detism, Goal, Context, TVarMap,
+		TCVarsMap, IsAddressTaken, ProcInfo).
+
+proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet,
+		MaybeDeclaredDetism, Detism, Goal, Context, TVarMap,
+		TCVarsMap, IsAddressTaken, ProcInfo) :-
 	map__init(StackSlots),
 	set__init(Liveness),
 	MaybeHeadLives = no,
 	RLExprn = no,
 	ModeErrors = [],
-	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, no, no,
-		ModeErrors, InstVarSet, MaybeHeadLives, Goal, Context,
-		StackSlots, yes(Detism), Detism, yes, [], Liveness, TVarMap,
-		TCVarsMap, eval_normal, no, no, IsAddressTaken, RLExprn,
-		no, no, no).
+	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, ModeErrors,
+		InstVarSet, MaybeHeadLives, Goal, Context, StackSlots,
+		MaybeDeclaredDetism, Detism, yes, [], Liveness, TVarMap,
+		TCVarsMap, eval_normal, no, no, no, IsAddressTaken,
+		RLExprn, no, no, no).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-

@@ -22,6 +22,8 @@ ORDINARY_PROGS=	\
 	common_type_cast \
 	compare_spec \
 	comparison \
+	constraint \
+	constraint_order \
 	construct \
 	curry \
 	curry2 \
@@ -72,6 +74,7 @@ ORDINARY_PROGS=	\
 	integer_test \
 	intermod_c_code \
 	intermod_multimode_main \
+	join_list \
 	merge_and_remove_dups \
 	minint_bug \
 	mode_choice \
@@ -146,10 +149,12 @@ endif
 #		which are not yet fully supported.
 #
 # XXX csharp_test doesn't work yet (not even in il* grades)
+#
+# XXX needs_init doesn't work yet in profiling grades.
 
 # The following tests are passed only in some grades:
 #
-# XXX copy_pred does not work in the hl* grades (e.g. hlc.gc),
+# XXX copy_pred and copy_pred_2 do not work in the hl* grades (e.g. hlc.gc),
 # because the MLDS back-end doesn't generate the closure layout
 # information needed to copy closures.
 #
@@ -167,11 +172,13 @@ ifeq "$(findstring hl,$(GRADE))" ""
 	ifeq "$(findstring profdeep,$(GRADE))" ""
 		BACKEND_PROGS = \
 			copy_pred \
+			copy_pred_2 \
 			factt_non \
 			type_tables 
 	else
 		BACKEND_PROGS = \
 			copy_pred \
+			copy_pred_2 \
 			type_tables
 	endif
 else
@@ -209,6 +216,8 @@ endif
 
 MCFLAGS-checked_nondet_tailcall	=	--checked-nondet-tailcalls
 MCFLAGS-bigtest		=	--intermodule-optimization -O3
+MCFLAGS-constraint	=	--constraint-propagation --enable-termination
+MCFLAGS-constraint_order =	--constraint-propagation --enable-termination
 MCFLAGS-lp		=	--intermodule-optimization -O3
 MCFLAGS-boyer		=	--infer-all
 MCFLAGS-func_test	=	--infer-all
@@ -217,6 +226,8 @@ MCFLAGS-ho_order2	=	--optimize-higher-order
 MCFLAGS-no_fully_strict	=	--no-fully-strict
 MCFLAGS-intermod_c_code =	--intermodule-optimization
 MCFLAGS-intermod_c_code2 =	--intermodule-optimization
+MCFLAGS-intermod_multimode =	--intermodule-optimization
+MCFLAGS-intermod_multimode_main = --intermodule-optimization
 MCFLAGS-nondet_copy_out =	--no-inlining --nondet-copy-out
 MCFLAGS-redoip_clobber	=	--no-inlining
 MCFLAGS-rnd		=	-O6
@@ -252,6 +263,8 @@ MLFLAGS-parse			=	--trace --static
 C2INITFLAGS-split-c-files	= 	--trace
 MLFLAGS-split-c-files		=	--trace
 
+C2INITFLAGS-needs_init		= 	--include-initialization-code --extra-inits
+
 # no_fully_strict is expected to fail (it calls error/1).
 # We also need to pipe the output through sed to avoid hard-coding
 # dependencies on particular line numbers in the standard library source code.
@@ -283,32 +296,32 @@ all_local:	$(PROGS) $(SPLIT_PROGS:%=%.split)
 SUBDIRS = typeclasses sub-modules exceptions purity
 
 dep_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) dep) || exit 1; \
 	done
 
 depend_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) depend) || exit 1; \
 	done
 
 check_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) check) || exit 1; \
 	done
 
 all_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) all) || exit 1; \
 	done
 
 clean_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) clean) || exit 1; \
 	done
 
 realclean_subdirs:
-	for dir in $(SUBDIRS); do \
+	+for dir in $(SUBDIRS); do \
 		(cd $$dir && $(SUBDIR_MMAKE) realclean) || exit 1; \
 	done
 

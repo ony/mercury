@@ -237,11 +237,11 @@ promise_only_solution(Pred) = OutVal :-
                         (Y :: out(pred(out) is semidet)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
-:- pragma foreign_proc("MC++", cc_cast(X :: (pred(out) is cc_multi)) =
+:- pragma foreign_proc("C#", cc_cast(X :: (pred(out) is cc_multi)) =
                         (Y :: out(pred(out) is det)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
-:- pragma foreign_proc("MC++", cc_cast(X :: (pred(out) is cc_nondet)) =
+:- pragma foreign_proc("C#", cc_cast(X :: (pred(out) is cc_nondet)) =
                         (Y :: out(pred(out) is semidet)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
@@ -258,7 +258,7 @@ promise_only_solution_io(Pred, X) -->
 		(Y :: out(pred(out, di, uo) is det)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 		cc_cast_io(X :: (pred(out, di, uo) is cc_multi)) =
 		(Y :: out(pred(out, di, uo) is det)),
                 [will_not_call_mercury, thread_safe],
@@ -428,87 +428,25 @@ sys_init_builtin_types_module_write_out_proc_statics(FILE *fp)
 
 ").
 
+
+:- interface.
+:- pred call_rtti_generic_unify(T::in, T::in) is semidet.
+:- pred call_rtti_generic_compare(comparison_result::out, T::in, T::in) is det.
+:- implementation.
+:- use_module rtti_implementation.
+
+call_rtti_generic_unify(X, Y) :-
+	rtti_implementation__generic_unify(X, Y).
+call_rtti_generic_compare(Res, X, Y) :-
+	rtti_implementation__generic_compare(Res, X, Y).
+
 :- pragma foreign_code("MC++", "
 
 static void compare_3(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
 		MR_Box X, MR_Box Y) 
 {
-
-        MR_TypeInfo             type_info;
-        MR_TypeCtorInfo         type_ctor_info;
-        int                     arity;
-        MR_TypeInfoParams       params;
-        MR_Word                 *args;
-        MR_Box                  ComparePred;
-
-        type_info = (MR_TypeInfo) TypeInfo_for_T;
-        type_ctor_info = dynamic_cast<MR_Word> (type_info->GetValue(
-		MR_TYPEINFO_TYPE_CTOR_INFO_SLOT));
-
-        if (type_ctor_info == 0) {
-            type_ctor_info = type_info;
-        }
-
-        if (0) {
-            // XXX code for higher order still needs to be written...
-        } else {
-            arity = mercury::runtime::Convert::ToInt32(
-		type_ctor_info->GetValue(MR_TYPE_CTOR_INFO_ARITY_SLOT));
-        }
-
-	ComparePred = type_ctor_info->GetValue(
-		MR_TYPE_CTOR_INFO_COMPARE_PRED_SLOT);
-
-        switch(arity) {
-	case 0: 
-		mercury::runtime::GenericCall::result_call_4(
-			ComparePred,
-			Res, X, Y);
-	break;
-	case 1:
-		mercury::runtime::GenericCall::result_call_5(
-			ComparePred,
-			type_info->GetValue(1), 
-			Res, X, Y);
-	break;
-	case 2:
-		mercury::runtime::GenericCall::result_call_6(
-			ComparePred,
-			type_info->GetValue(1), 
-			type_info->GetValue(2), 
-			Res, X, Y);
-	break;
-	case 3:
-		mercury::runtime::GenericCall::result_call_7(
-			ComparePred,
-			type_info->GetValue(1), 
-			type_info->GetValue(2), 
-			type_info->GetValue(3), 
-			Res, X, Y);
-	break;
-	case 4:
-		mercury::runtime::GenericCall::result_call_8(
-			ComparePred,
-			type_info->GetValue(1), 
-			type_info->GetValue(2), 
-			type_info->GetValue(3), 
-			type_info->GetValue(4), 
-			Res, X, Y);
-	break;
-	case 5:
-		mercury::runtime::GenericCall::result_call_9(
-			ComparePred,
-			type_info->GetValue(1), 
-			type_info->GetValue(2), 
-			type_info->GetValue(3), 
-			type_info->GetValue(4), 
-			type_info->GetValue(5), 
-			Res, X, Y);
-	break; 
-	default:
-		mercury::runtime::Errors::fatal_error(
-			""compare/3: type arity > 5 not supported"");
-	}
+	mercury::builtin::mercury_code::call_rtti_generic_compare_3(
+			TypeInfo_for_T, Res, X, Y);
 }
 
 void compare_3_m1(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
@@ -545,95 +483,13 @@ void copy_2_m1(MR_TypeInfo TypeInfo_for_T,
 
 ").
 
+
 :- pragma foreign_code("MC++", "
 
-static MR_Integer unify_2_p(MR_TypeInfo TypeInfo_for_T, MR_Box X, MR_Box Y) 
+static MR_Integer unify_2_p(MR_TypeInfo ti, MR_Box X, MR_Box Y) 
 {
-	int			SUCCESS_INDICATOR;
-        MR_TypeInfo             type_info;
-        MR_TypeCtorInfo         type_ctor_info;
-        MR_Box                  tmp;
-        int                     arity;
-        MR_TypeInfoParams       params;
-        MR_Box       		UnifyPred;
-	
-        type_info = (MR_TypeInfo) TypeInfo_for_T;
-
-        type_ctor_info = dynamic_cast<MR_Word> (type_info->GetValue(
-		MR_TYPEINFO_TYPE_CTOR_INFO_SLOT));
-        if (type_ctor_info == 0) {
-            type_ctor_info = type_info;
-        }
-
-        // XXX insert code to handle higher order....
-        if (0) {
-
-        } else {
-            arity = mercury::runtime::Convert::ToInt32(
-		type_ctor_info->GetValue(MR_TYPE_CTOR_INFO_ARITY_SLOT));
-        }
-
-	UnifyPred = type_ctor_info->GetValue(
-		MR_TYPE_CTOR_INFO_UNIFY_PRED_SLOT);
-
-	switch(arity) {
-	case 0: 
-                SUCCESS_INDICATOR = 
-			mercury::runtime::GenericCall::semidet_call_3(
-				UnifyPred,
-				X, Y);
-	break;
-	case 1:
-                SUCCESS_INDICATOR = 
-			mercury::runtime::GenericCall::semidet_call_4(
-				UnifyPred,
-				type_info->GetValue(1), 
-				X, Y);
-	break;
-	case 2:
-		SUCCESS_INDICATOR = 
-			mercury::runtime::GenericCall::semidet_call_5(
-				UnifyPred,
-				type_info->GetValue(1), 
-				type_info->GetValue(2), 
-				X, Y);
-	break;
-	case 3:
-		SUCCESS_INDICATOR =
-			mercury::runtime::GenericCall::semidet_call_6(
-				UnifyPred,
-				type_info->GetValue(1), 
-				type_info->GetValue(2), 
-				type_info->GetValue(3), 
-				X, Y);
-	break;
-	case 4:
-		SUCCESS_INDICATOR =
-			mercury::runtime::GenericCall::semidet_call_7(
-				UnifyPred,
-				type_info->GetValue(1), 
-				type_info->GetValue(2), 
-				type_info->GetValue(3), 
-				type_info->GetValue(4), 
-				X, Y);
-	break;
-	case 5:
-		SUCCESS_INDICATOR = 
-			mercury::runtime::GenericCall::semidet_call_8(
-				UnifyPred,
-				type_info->GetValue(1), 
-				type_info->GetValue(2), 
-				type_info->GetValue(3), 
-				type_info->GetValue(4), 
-				type_info->GetValue(5), 
-				X, Y);
-	break;
-	default:
-		mercury::runtime::Errors::fatal_error(
-			""unify/2: type arity > 5 not supported"");
-	}
-
-	return SUCCESS_INDICATOR;
+	return mercury::builtin::mercury_code::call_rtti_generic_unify_2_p(
+			ti, X, Y);
 }
 
 ").
@@ -649,6 +505,7 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, void, 0, MR_TYPECTOR_REP_VOID)
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, float, 0, MR_TYPECTOR_REP_FLOAT) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, func, 0, MR_TYPECTOR_REP_PRED) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, pred, 0, MR_TYPECTOR_REP_PRED) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, tuple, 0, MR_TYPECTOR_REP_TUPLE) 
 
 static int
 __Unify____int_0_0(MR_Integer x, MR_Integer y)
@@ -704,6 +561,14 @@ __Unify____pred_0_0(MR_Word x, MR_Word y)
 {
 	mercury::runtime::Errors::fatal_error(
 		""called unify for `pred' type"");
+	return 0;
+}
+
+static int
+__Unify____tuple_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for `tuple' type"");
 	return 0;
 }
 
@@ -785,6 +650,14 @@ __Compare____pred_0_0(MR_Word_Ref result,
 		""called compare/3 for `pred' type"");
 }
 
+static void
+__Compare____tuple_0_0(MR_Word_Ref result,
+	MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for `pred' type"");
+}
+
 /*
 ** Unification procedures with the arguments boxed.
 ** These are just wrappers which call the unboxed version.
@@ -794,8 +667,8 @@ static int
 do_unify__int_0_0(MR_Box x, MR_Box y)
 {
 	return mercury::builtin__cpp_code::mercury_code::__Unify____int_0_0(
-		mercury::runtime::Convert::ToInt32(x), 
-		mercury::runtime::Convert::ToInt32(y)); 
+		System::Convert::ToInt32(x), 
+		System::Convert::ToInt32(y)); 
 }
 
 static int
@@ -810,16 +683,16 @@ static int
 do_unify__float_0_0(MR_Box x, MR_Box y)
 {
 	return mercury::builtin__cpp_code::mercury_code::__Unify____float_0_0(
-		mercury::runtime::Convert::ToDouble(x),
-		mercury::runtime::Convert::ToDouble(y));
+		System::Convert::ToDouble(x), 
+		System::Convert::ToDouble(y)); 
 }
 
 static int
 do_unify__character_0_0(MR_Box x, MR_Box y)
 {
 	return mercury::builtin__cpp_code::mercury_code::__Unify____character_0_0(
-		mercury::runtime::Convert::ToChar(x),
-		mercury::runtime::Convert::ToChar(y));
+		System::Convert::ToChar(x), 
+		System::Convert::ToChar(y)); 
 }
 
 static int
@@ -854,6 +727,14 @@ do_unify__pred_0_0(MR_Box x, MR_Box y)
 	return 0;
 }
 
+static int
+do_unify__tuple_0_0(MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for `tuple' type"");
+	return 0;
+}
+
 /*
 ** Comparison procedures with the arguments boxed.
 ** These are just wrappers which call the unboxed version.
@@ -863,8 +744,8 @@ static void
 do_compare__int_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
 {
 	mercury::builtin__cpp_code::mercury_code::__Compare____int_0_0(result,
-		mercury::runtime::Convert::ToInt32(x),
-		mercury::runtime::Convert::ToInt32(y));
+		System::Convert::ToInt32(x), 
+		System::Convert::ToInt32(y)); 
 }
 
 static void
@@ -879,8 +760,8 @@ static void
 do_compare__float_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
 {
 	mercury::builtin__cpp_code::mercury_code::__Compare____float_0_0(result,
-		mercury::runtime::Convert::ToDouble(x),
-		mercury::runtime::Convert::ToDouble(y));
+		System::Convert::ToDouble(x), 
+		System::Convert::ToDouble(y)); 
 }
 
 static void
@@ -889,8 +770,8 @@ do_compare__character_0_0(
 {
 	mercury::builtin__cpp_code::mercury_code::__Compare____character_0_0(
 		result, 
-		mercury::runtime::Convert::ToChar(x),
-		mercury::runtime::Convert::ToChar(y));
+		System::Convert::ToChar(x), 
+		System::Convert::ToChar(y)); 
 }
 
 static void
@@ -923,6 +804,14 @@ do_compare__pred_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
 	mercury::runtime::Errors::fatal_error(
 		""called compare/3 for pred type"");
 }
+
+static void
+do_compare__tuple_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for tuple type"");
+}
+
 
 ").
 

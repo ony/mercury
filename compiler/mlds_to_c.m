@@ -10,7 +10,11 @@
 % TODO:
 %	- RTTI for debugging (module_layout, proc_layout, internal_layout)
 %	- trail ops
-%	- foreign language interfacing (trd: what does this mean?)
+%	- foreign language interfacing for languages other than C
+%	  (handle `user_foreign_code' and `foreign_code_decl' --
+%	  actually perhaps this should be done in an earlier pass,
+%	  in which case the only thing that would need to be done here
+%	  is to change some calls to sorry/2 to unexpected/2).
 %	- packages, classes and inheritance
 %	  (currently we just generate all classes as structs)
 
@@ -61,7 +65,7 @@
 :- import_module builtin_ops, c_util, modules.
 :- import_module prog_data, prog_out, type_util, error_util, code_model.
 
-:- import_module bool, int, string, library, list.
+:- import_module bool, int, string, library, list, map.
 :- import_module assoc_list, term, std_util, require.
 
 %-----------------------------------------------------------------------------%
@@ -120,9 +124,11 @@ mlds_to_c__output_mlds(MLDS, Suffix) -->
 :- mode mlds_output_hdr_file(in, in, di, uo) is det.
 
 mlds_output_hdr_file(Indent, MLDS) -->
-	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns) },
 	mlds_output_hdr_start(Indent, ModuleName), io__nl,
 	mlds_output_hdr_imports(Indent, Imports), io__nl,
+		% Get the foreign code for C
+	{ ForeignCode = mlds_get_c_foreign_code(AllForeignCode) },
 	mlds_output_c_hdr_decls(MLDS_ModuleName, Indent, ForeignCode), io__nl,
 	%
 	% The header file must contain _definitions_ of all public types,
@@ -190,9 +196,12 @@ mlds_output_src_import(_Indent, Import) -->
 :- mode mlds_output_src_file(in, in, di, uo) is det.
 
 mlds_output_src_file(Indent, MLDS) -->
-	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns) },
 	mlds_output_src_start(Indent, ModuleName), io__nl,
 	mlds_output_src_imports(Indent, Imports), io__nl,
+
+		% Get the foreign code for C
+	{ ForeignCode = mlds_get_c_foreign_code(AllForeignCode) },
 	mlds_output_c_decls(Indent, ForeignCode), io__nl,
 	%
 	% The public types have already been defined in the
@@ -363,6 +372,19 @@ mlds_output_grade_var -->
 		"/* ensure everything is compiled with the same grade */\n"),
 	io__write_string(
 		"static const void *const MR_grade = &MR_GRADE_VAR;\n").
+
+:- func mlds_get_c_foreign_code(map(foreign_language, mlds__foreign_code))
+		= mlds__foreign_code.
+
+	% Get the foreign code for C
+mlds_get_c_foreign_code(AllForeignCode) = ForeignCode :-
+	( map__search(AllForeignCode, c, ForeignCode0) ->
+		ForeignCode = ForeignCode0
+	;
+		% this can occur when compiling to a non-C target
+		% using "--mlds-dump all"
+		ForeignCode = foreign_code([], [], [])
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -597,6 +619,9 @@ mlds_output_pragma_export_func_name(ModuleName, Indent,
 :- mode mlds_output_pragma_export_type(in, in, di, uo) is det.
 
 mlds_output_pragma_export_type(suffix, _Type) --> [].
+		% Array types are exported as MR_Word
+mlds_output_pragma_export_type(prefix, mercury_array_type(_ElemType)) -->
+	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mercury_type(Type, _)) -->
 	{ export__type_to_type_string(Type, String) },
 	io__write_string(String).
@@ -787,7 +812,7 @@ mlds_output_decl(Indent, ModuleName, Defn) -->
 		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
 		(
 			{ HighLevelData = yes },
-			{ DefnBody = mlds__function(_, Signature, _) }
+			{ DefnBody = mlds__function(_, Signature, _, _) }
 		->
 			{ Signature = mlds__func_params(Parameters,
 				_RetTypes) },
@@ -835,6 +860,7 @@ mlds_type_list_contains_type(Types, SubType) :-
 :- mode mlds_type_contains_type(in, out) is multi.
 
 mlds_type_contains_type(Type, Type).
+mlds_type_contains_type(mlds__mercury_array_type(Type), Type).
 mlds_type_contains_type(mlds__array_type(Type), Type).
 mlds_type_contains_type(mlds__ptr_type(Type), Type).
 mlds_type_contains_type(mlds__func_type(Parameters), Type) :-
@@ -894,7 +920,7 @@ mlds_output_decl_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_data_decl(Name, Type, initializer_array_size(Initializer))
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
-			_MaybeBody) },
+			_MaybeBody, _Attrs) },
 		mlds_output_maybe(MaybePredProcId, mlds_output_pred_proc_id),
 		mlds_output_func_decl(Indent, Name, Context, Signature)
 	;
@@ -913,7 +939,7 @@ mlds_output_defn_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_data_defn(Name, Type, Initializer)
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
-			MaybeBody) },
+			MaybeBody, _Attributes) },
 		mlds_output_maybe(MaybePredProcId, mlds_output_pred_proc_id),
 		mlds_output_func(Indent, Name, Context, Signature, MaybeBody)
 	;
@@ -1518,6 +1544,17 @@ mlds_output_type(Type) -->
 
 mlds_output_type_prefix(mercury_type(Type, TypeCategory)) -->
 	mlds_output_mercury_type_prefix(Type, TypeCategory).
+mlds_output_type_prefix(mercury_array_type(_ElemType)) -->
+	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+	( { HighLevelData = yes } ->
+		mlds_output_mercury_user_type_name(
+			qualified(unqualified("array"), "array") - 1,
+			user_type)
+	;
+		% for the --no-high-level-data case,
+		% we just treat everything as `MR_Word'
+		io__write_string("MR_Array")
+	).
 mlds_output_type_prefix(mlds__native_int_type)   --> io__write_string("int").
 mlds_output_type_prefix(mlds__native_float_type) --> io__write_string("float").
 mlds_output_type_prefix(mlds__native_bool_type)  --> io__write_string("bool").
@@ -1635,15 +1672,8 @@ mlds_output_mercury_user_type_prefix(Type, TypeCategory) -->
 	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
 	( { HighLevelData = yes } ->
 		( { type_to_type_id(Type, TypeId, _ArgsTypes) } ->
-			{ ml_gen_type_name(TypeId, ClassName, ClassArity) },
-			{ TypeCategory = enum_type ->
-				MLDS_Type = mlds__class_type(ClassName,
-					ClassArity, mlds__enum)
-			;
-				MLDS_Type = mlds__ptr_type(mlds__class_type(
-					ClassName, ClassArity, mlds__class))
-			},
-			mlds_output_type_prefix(MLDS_Type)
+			mlds_output_mercury_user_type_name(TypeId,
+				TypeCategory)
 		;
 			{ error("mlds_output_mercury_user_type_prefix") }
 		)
@@ -1652,6 +1682,21 @@ mlds_output_mercury_user_type_prefix(Type, TypeCategory) -->
 		% we just treat everything as `MR_Word'
 		io__write_string("MR_Word")
 	).
+
+:- pred mlds_output_mercury_user_type_name(type_id, builtin_type,
+		io__state, io__state).
+:- mode mlds_output_mercury_user_type_name(in, in, di, uo) is det.
+
+mlds_output_mercury_user_type_name(TypeId, TypeCategory) -->
+	{ ml_gen_type_name(TypeId, ClassName, ClassArity) },
+	{ TypeCategory = enum_type ->
+		MLDS_Type = mlds__class_type(ClassName,
+			ClassArity, mlds__enum)
+	;
+		MLDS_Type = mlds__ptr_type(mlds__class_type(
+			ClassName, ClassArity, mlds__class))
+	},
+	mlds_output_type_prefix(MLDS_Type).
 
 :- pred mlds_output_type_suffix(mlds__type, io__state, io__state).
 :- mode mlds_output_type_suffix(in, di, uo) is det.
@@ -1675,6 +1720,7 @@ initializer_array_size(init_array(Elems)) = array_size(list__length(Elems)).
 :- mode mlds_output_type_suffix(in, in, di, uo) is det.
 
 mlds_output_type_suffix(mercury_type(_, _), _) --> [].
+mlds_output_type_suffix(mercury_array_type(_), _) --> [].
 mlds_output_type_suffix(mlds__native_int_type, _) --> [].
 mlds_output_type_suffix(mlds__native_float_type, _) --> [].
 mlds_output_type_suffix(mlds__native_bool_type, _) --> [].
@@ -1810,7 +1856,7 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 		{ Name \= type(_, _) },
 		% Don't output "static" for functions that don't have a body.
 		% This can happen for Mercury procedures declared `:- external'
-		{ DefnBody \= mlds__function(_, _, external) }
+		{ DefnBody \= mlds__function(_, _, external, _) }
 	->
 		io__write_string("static ")
 	;
@@ -2722,7 +2768,7 @@ mlds_output_rval(mem_addr(Lval)) -->
 	mlds_output_lval(Lval).
 
 mlds_output_rval(self(_)) -->
-	{ error("mlds_to_c: self rval encountered.\n") }.
+	io__write_string("this").
 
 :- pred mlds_output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode mlds_output_unop(in, in, di, uo) is det.

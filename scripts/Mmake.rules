@@ -22,7 +22,7 @@ main_target: $(MAIN_TARGET)
 		.i .s .pic_s \
 		.ql .pl \
 		.rlo \
-		.il .dll .exe .cpp \
+		.il .dll .exe .cpp .cs \
 		.c_date .il_date .s_date .pic_s_date
 
 #-----------------------------------------------------------------------------#
@@ -192,7 +192,7 @@ ifeq ($(TARGET_ASM),yes)
 $(ss_subdir)%.s : $(s_dates_subdir)%.s_date
 	@:
 
-$(ss_subdir)%.pic_s : $(pic_s_dates_subdir)%.pic_s_date
+$(pic_ss_subdir)%.pic_s : $(pic_s_dates_subdir)%.pic_s_date
 	@:
 
 $(s_dates_subdir)%.s_date : %.m
@@ -206,15 +206,20 @@ $(pic_s_dates_subdir)%.pic_s_date : %.m
 $(os_subdir)%.$O : $(ss_subdir)%.s
 	$(AS) $< $(OBJFILE_OPT)$@
 
-$(os_subdir)%.pic_o : $(ss_subdir)%.pic_s
+$(os_subdir)%.pic_o : $(pic_ss_subdir)%.pic_s
 	$(AS) $< $(OBJFILE_OPT)$@
 
-$(os_subdir)%__c_code.$O : $(cs_subdir)%.c
-	$(MGNUC) $(ALL_GRADEFLAGS) $(ALL_MGNUCFLAGS) -c $< $(OBJFILE_OPT)$@
+# For *__c_code.{o,pic_o}, we depend on the .s or .pic_s file rather
+# than the .c file, since the .c file is produced as a side-effect of
+# generating the .s/.pic_s file.
 
-$(os_subdir)%__c_code.pic_o : $(cs_subdir)%.c
+$(os_subdir)%__c_code.$O : $(ss_subdir)%.s
+	$(MGNUC) $(ALL_GRADEFLAGS) $(ALL_MGNUCFLAGS) \
+		-c $(cs_subdir)$*.c $(OBJFILE_OPT)$@
+
+$(os_subdir)%__c_code.pic_o : $(pic_ss_subdir)%.pic_s
 	$(MGNUC) $(ALL_GRADEFLAGS) $(ALL_MGNUCFLAGS) $(CFLAGS_FOR_PIC) \
-		-c $< $(OBJFILE_OPT)$@
+		-c $(cs_subdir)$*.c $(OBJFILE_OPT)$@
 
 endif
 
@@ -225,7 +230,7 @@ endif
 $(cs_subdir)%.c : $(c_dates_subdir)%.c_date
 	@:
 
-$(cs_subdir)%.c_date : %.m
+$(c_dates_subdir)%.c_date : %.m
 	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) $< > $*.err 2>&1
 
 # Aditi-RL back-end
@@ -247,13 +252,21 @@ $(il_dates_subdir)%.il_date : %.m
 # IL to generate a DLL if we are in a non-IL grade.
 ifeq ($(findstring il,$(GRADE)),il)        
 $(os_subdir)%.dll : %.cpp
-	$(MS_CL) -CLR$(MS_CL_NOASM) -I`cygpath -w $(MERC_C_INCL_DIR)` \
-		-AI`cygpath -w $(MERC_DLL_DIR)` $(ALL_MS_CLFLAGS) $< \
+	$(MS_CL) -CLR$(MS_CL_NOASM) $(ALL_MS_CLFLAGS) \
+		-I`cygpath -w $(MERC_C_INCL_DIR)` \
+		-AI`cygpath -w $(MERC_DLL_DIR)` $< \
 		-link -noentry mscoree.lib -dll $(MS_CL_LIBS) -out:$@
 	rm -f $*.obj
 
+$(os_subdir)%.dll : %.cs
+	$(MS_CSC) /t:library /lib:`cygpath -w $(MERC_DLL_DIR)` /out:$@ \
+		$(CSHARP_ASSEMBLY_REFS-$*) $(ALL_MS_CSCFLAGS) $<
+
 $(os_subdir)%.dll : %.il
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /dll /quiet /OUT=$@ $<
+
+mercury.sn:
+	cp $(MERC_DLL_DIR)/mercury.sn .
 endif
 
 # For --split-c-files, we generate the .$O files directly from the .m files.
@@ -351,12 +364,22 @@ ifeq ($(findstring il,$(GRADE)),il)
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /quiet /OUT=$@ $< 
 
 .cpp.dll:
-	$(MS_CL) -CLR($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< \
+	$(MS_CL) -CLR($MS_CL_NOASM) $(ALL_MS_CLFLAGS) \
+		-I`cygpath -w $(MERC_C_INCL_DIR)` \
+		-AI`cygpath -w $(MERC_DLL_DIR)` $< \
 		-link -noentry mscoree.lib -dll $(MS_CL_LIBS) -out:$@
 	rm -f $*.obj
 
+.cs.dll:
+	$(MS_CSC) /t:library /lib:`cygpath -w $(MERC_DLL_DIR)` /out:$@ \
+		$(CSHARP_ASSEMBLY_REFS-$*) $(EXTRA_CSCFLAGS) $<
+
 .cpp.exe:
 	$(MS_CL) -CLR($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -entry:main $(MS_CL_LIBS) -out:$@
+
+.cs.exe:
+	$(MS_CSC) /lib:`cygpath -w $(MERC_DLL_DIR)` /out:$@ \
+		$(CSHARP_ASSEMBLY_REFS-$*) $(EXTRA_CSCFLAGS) $<
 
 endif # $(findstring il,$(GRADE)) != ""
 
@@ -447,8 +470,8 @@ lib%.install_split_library: %.split.a install_grade_dirs
 lib%.install_grades:
 	rm -rf tmp_dir && \
 	mkdir tmp_dir && \
-	{ mv -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.os) $($*.pic_os) \
-		*.a *.so tmp_dir || true; } && \
+	{ mv -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.c_dates) $($*.os) \
+		$($*.pic_os) *.a *.so tmp_dir || true; } && \
 	for grade in x $(ALL_LIBGRADES); do \
 		if [ "$$grade" != "x" ]; then \
 			$(MMAKE) GRADE=$$grade $*.depend || \
@@ -457,12 +480,13 @@ lib%.install_grades:
 				exit 1; \
 			$(MMAKE) GRADE=$$grade lib$*.install_library || \
 				exit 1; \
-			rm -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.os) \
-				$($*.pic_os) *.a *.so; \
+			rm -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) \
+				$($*.c_dates) $($*.os) $($*.pic_os) *.a *.so; \
 		fi; \
 	done && \
 	{ mv tmp_dir/*.c $(cs_subdir). ; \
 	  mv tmp_dir/*.$O $(os_subdir). ; \
+	  mv tmp_dir/*.c_date $(c_dates_subdir). ; \
 	  mv tmp_dir/*.pic_o $(os_subdir). ; \
 	  mv tmp_dir/*.dep $(deps_subdir). ; \
 	  mv tmp_dir/* . ; rmdir tmp_dir ; true; }

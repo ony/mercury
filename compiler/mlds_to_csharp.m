@@ -89,7 +89,7 @@ output_src_end(ModuleName) -->
 :- mode generate_csharp_code(in, di, uo) is det.
 generate_csharp_code(MLDS) -->
 
-	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, _Imports, Defns) },
 	{ ClassName = class_name(mercury_module_name_to_mlds(ModuleName), 
 			wrapper_class_name) },
 
@@ -101,8 +101,17 @@ generate_csharp_code(MLDS) -->
 		"using mercury;\n",
 		"\n"]),
 
+		% Get the foreign code for C#
+	{ ForeignCode = map__lookup(AllForeignCode, csharp) },
 	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
 		ForeignCode),
+
+	globals__io_lookup_bool_option(sign_assembly, SignAssembly),
+	( { SignAssembly = yes },
+		io__write_string("[assembly:System.Reflection.AssemblyKeyFileAttribute(\"mercury.sn\")]\n")
+	; { SignAssembly = no },
+		[]
+	),
 
 	{ Namespace0 = get_class_namespace(ClassName) },
 	{ list__reverse(Namespace0) = [Head | Tail] ->
@@ -195,12 +204,13 @@ generate_method_csharp_code(_ModuleName,
 	_Context, _DeclFlags, Entity)) -->
 
 	( 
-		{ Entity = mlds__function(_, Params, defined_here(Statement)) },
+			% XXX we ignore the attributes
+		{ Entity = mlds__function(_, Params, defined_here(Statement),
+			_Attributes) },
 		{ has_foreign_languages(Statement, Langs) },
 		{ list__member(csharp, Langs) }
 	->
-		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
-		{ DataRep = il_data_rep(HighLevelData) },
+		get_il_data_rep(DataRep),
 		{ Params = mlds__func_params(Inputs, Outputs) },
 		{ Outputs = [] ->
 			ReturnType = void
@@ -416,8 +426,7 @@ write_csharp_defn_decl(Defn) -->
 :- pred write_csharp_parameter_type(mlds__type, io__state, io__state).
 :- mode write_csharp_parameter_type(in, di, uo) is det.
 write_csharp_parameter_type(Type) -->
-	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
-	{ DataRep = il_data_rep(HighLevelData) },
+	get_il_data_rep(DataRep),
 	{ ILType = mlds_type_to_ilds_type(DataRep, Type) },
 	write_il_type_as_csharp_type(ILType).
 
@@ -473,8 +482,14 @@ write_il_simple_type_as_csharp_type(value_class(_ClassName)) -->
 	{ sorry(this_file, "value classes") }.
 write_il_simple_type_as_csharp_type(interface(_ClassName)) --> 
 	{ sorry(this_file, "interfaces") }.
-write_il_simple_type_as_csharp_type('[]'(_Type, _Bounds)) --> 
-	{ sorry(this_file, "arrays") }.
+write_il_simple_type_as_csharp_type('[]'(Type, Bounds)) --> 
+	write_il_type_as_csharp_type(Type),
+	io__write_string("[]"),
+	( { Bounds = [] } ->
+		[]
+	;
+		{ sorry(this_file, "arrays with bounds") }
+	).
 write_il_simple_type_as_csharp_type('&'(Type)) --> 
 		% XXX is this always right?
 	io__write_string("ref "),
@@ -485,8 +500,8 @@ write_il_simple_type_as_csharp_type('*'(Type)) -->
 
 :- pred write_csharp_class_name(structured_name::in, io__state::di,
 	io__state::uo) is det.
-write_csharp_class_name(structured_name(_Assembly, DottedName)) -->
-	io__write_list(DottedName, ".", io__write_string).
+write_csharp_class_name(structured_name(_Assembly, DottedName, NestedClasses)) -->
+	io__write_list(DottedName ++ NestedClasses, ".", io__write_string).
 
 :- pred write_il_type_as_csharp_type(ilds__type::in,
 	io__state::di, io__state::uo) is det.
@@ -508,8 +523,7 @@ write_il_type_modifier_as_csharp_type(volatile) -->
 	pair(mlds__entity_name, mlds__type)::in,
 	io__state::di, io__state::uo) is det.
 write_input_arg_as_csharp_type(EntityName - Type) --> 
-	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
-	{ DataRep = il_data_rep(HighLevelData) },
+	get_il_data_rep(DataRep),
 	write_il_type_as_csharp_type(mlds_type_to_ilds_type(DataRep, Type)),
 	io__write_string(" "),
 	( { EntityName = data(var(VarName)) } ->

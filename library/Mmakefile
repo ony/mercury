@@ -92,9 +92,6 @@ MCS	=	$(M_ENV) $(MC) --split-c-files -c --cflags "$(ALL_CFLAGS)" \
 			$(INTERMODULE_OPTS) $(CHECK_TERM_OPTS)
 MGNUC	=	$(M_ENV) $(SCRIPTS_DIR)/mgnuc
 MGNUCFLAGS =	$(DLL_CFLAGS)
-	# -AI sets the assembly search path (just like -I for assemblies)
-MS_CLFLAGS  =	-AI$(RUNTIME_DIR) -I$(RUNTIME_DIR)
-MS_CL_NOASM=:noAssembly
 LDFLAGS	=	-L$(BOEHM_GC_DIR) -L$(RUNTIME_DIR)
 ALL_LDFLAGS =	$(LDFLAGS) $(EXTRA_LDFLAGS)
 LDLIBS	=	-l$(RT_LIB_NAME) \
@@ -193,10 +190,17 @@ dates		:
 
 #-----------------------------------------------------------------------------#
 
-.PHONY: os cs ss ils 
+# Note that we need to explicitly mention $(library.pic_ss) somewhere
+# in the Mmakefile, otherwise it won't build properly with --target asm:
+# GNU Make's pattern rule algorithm will try to use the .m -> .c -> .pic_o
+# rule chain rather than the .m -> .pic_s_date -> .pic_s -> .pic_o chain.
+# So don't remove the pic_ss target here.
+
+.PHONY: os cs ss pic_ss ils 
 os: $(library.os)
 cs: $(library.cs)
 ss: $(library.ss)
+pic_ss: $(library.pic_ss)
 ils: $(library.ils)
 
 #-----------------------------------------------------------------------------#
@@ -208,13 +212,20 @@ ifeq ($(findstring il,$(GRADE)),il)
 
 lib_std: mercury.dll
 
-# Instead of generating UNIX style libraries, we general a bunch of
-# DLLs.  We have to hardcode the names of the C code files and the
-# runtime files.
-RUNTIME_DLLS=../runtime/mercury_mcpp.dll ../runtime/mercury_il.dll
+# We have to hardcode the names of the runtime DLL files.
+RUNTIME_DLLS=mercury_mcpp.dll mercury_il.dll
 
 # Turn this on if you wish to enable .NET debugging.
-#MS_ILASMFLAGS = /debug
+DEBUG_MS_ILASMFLAGS=
+#DEBUG_MS_ILASMFLAGS=/debug
+#DEBUG_MS_CLFLAGS=/Zi
+#DEBUG_MS_CSCFLAGS=/debug
+
+	# -AI sets the assembly search path (just like -I for assemblies)
+MS_CLFLAGS  =	-AI`cygpath -w $(RUNTIME_DIR)` -I`cygpath -w $(RUNTIME_DIR)` $(DEBUG_MS_CLFLAGS)
+MS_CL_NOASM=:noAssembly
+MS_CSCFLAGS=/t:module $(DEBUG_MS_CSCFLAGS)
+MS_ILASMFLAGS=$(DEBUG_MS_ILASMFLAGS)
 
 # If you do generate a new strong name, you had better update
 # compiler/mlds_to_il.m to generate references to it.  It is also hard-coded
@@ -224,10 +235,20 @@ RUNTIME_DLLS=../runtime/mercury_mcpp.dll ../runtime/mercury_il.dll
 library_strong_name.sn:
 	sn -k library_strong_name.sn
 
-mercury.dll: $(library.dlls) $(library.foreign_dlls) library_strong_name.sn
-	cp $(RUNTIME_DLLS) .
+mercury.dll: copy_runtime_dlls $(library.dlls) $(library.foreign_dlls) library_strong_name.sn
 	$(MS_AL) -v:0.0.0.0 -keyf:library_strong_name.sn -out:mercury.dll \
 		$(library.dlls) $(library.foreign_dlls) $(RUNTIME_DLLS) 
+
+# The runtime DLLs must be copied into this directory from the runtime
+# directory so they can be installed properly.
+.PHONY: copy_runtime_dlls
+copy_runtime_dlls: $(RUNTIME_DLLS)
+
+mercury_il.dll: ../runtime/mercury_il.dll
+	cp ../runtime/mercury_il.dll .
+
+mercury_mcpp.dll: ../runtime/mercury_mcpp.dll
+	cp ../runtime/mercury_mcpp.dll .
 
 else
 
@@ -334,13 +355,21 @@ install_init: $(STD_LIB_NAME).init install_lib_dirs
 ifneq (,$(findstring il,$(GRADE)))
 
 .PHONY: install_library
-install_library: mercury.dll install_grade_dirs install_gac
+install_library: mercury.dll install_grade_dirs install_gac install_strong_name
 	cp `vpath_find $(library.foreign_dlls) $(library.dlls) \
 		mercury.dll` $(INSTALL_MERC_LIB_DIR)
 
+# The GAC is the global assembly cache, which is the system managed
+# place to put .NET assemblies.
+# gacutil installs (and uninstalls) DLLs from the GAC.
 .PHONY: install_gac
 install_gac: mercury.dll
 	gacutil -i mercury.dll
+
+.PHONY: install_strong_name
+install_strong_name: library_strong_name.sn
+	cp `vpath_find library_strong_name.sn` \
+		$(INSTALL_MERC_LIB_DIR)/mercury.sn
 	
 else
 

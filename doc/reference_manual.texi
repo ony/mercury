@@ -1010,7 +1010,7 @@ transform(Term ^ Field(Arg1, @dots{}) := FieldValue) =
 transform(Term0 ^ Field(Arg1, @dots{}) ^ Rest := FieldValue) = Term :-
         OldFieldValue = Field(Arg1, @dots{}, Term0),
         NewFieldValue = transform(OldFieldValue ^ Rest := FieldValue),
-        Term = 'Field :='(Arg1, @dots{}, Term, NewFieldValue).
+        Term = 'Field :='(Arg1, @dots{}, Term0, NewFieldValue).
 @end example
 
 Examples:
@@ -1026,7 +1026,7 @@ to the code
 @example
 OldField1 = field1(Arg1, Term),
 NewField1 = 'field2 :='(Arg2, OldField1, FieldValue),
-Result = 'field1 :='(Arg1, OldField1, NewField1)
+Result = 'field1 :='(Arg1, Term, NewField1)
 @end example
 
 @end table
@@ -1177,12 +1177,15 @@ they occur, unless they are quantified, either explicitly
 (@pxref{Goals}) or implicitly (@pxref{Implicit quantification}).
 
 The scope of type variables in a predicate or function's type
-declaration extends over any explicit type qualifications in the
-clauses for that predicate or function, so explicit type
-qualifications can refer to those type variables.
-The scope of any type variables in an explicit type qualification
-which do not occur in the predicate or function's type declaration
-is the clause in which they occur.
+declaration extends over any explicit type qualifications
+(@pxref{Explicit type qualification}) in the clauses for that
+predicate or function, and over @samp{pragma type_spec}
+(@pxref{Type specialization}) declarations for that predicate or
+function, so that explicit type qualifications and
+@samp{pragma type_spec} declarations can refer to those
+type variables. The scope of any type variables in an explicit
+type qualification which do not occur in the predicate or function's
+type declaration is the clause in which they occur.
 
 @node Implicit quantification
 @section Implicit quantification
@@ -3368,12 +3371,13 @@ using the parametric inst @samp{in/1} mentioned in @ref{Modes}
 which maps an inst to itself.
 
 If you want to define a predicate which returns a higher-order predicate
-term, you would use a mode such as @samp{free -> pred(@dots{}) is @dots{}},
-or @samp{out(pred(@dots{}) is @dots{})}.  For example:
+term, you would use a mode such as @samp{free >> pred(@dots{}) is @dots{}},
+or @samp{out(pred(@dots{}) is @dots{} )}.  For example:
+@c XXX The space after the dots{} above works around a bug in texi2html
 
 @example
 :- pred foo(pred(int)).
-:- mode foo(free -> pred(out) is det) is det.
+:- mode foo(free >> pred(out) is det) is det.
 
 foo(sum([1,2,3])).
 @end example
@@ -4236,7 +4240,8 @@ polymorphic procedure whose argument type is universally quantified.
 (Note, however, that the standard library includes some quite powerful
 procedures such as `io__write' which can be useful in this context.)
 
-A non-variable type is considered @emph{more general} than an
+A non-variable type (i.e. a type which is not a type variable)
+is considered @emph{more general} than an
 existentially quantified type variable.  Type inference will therefore
 never infer an existentially quantified type for a predicate or
 function unless that predicate or function calls (directly or indirectly)
@@ -4685,10 +4690,10 @@ fair search rule; and so forth.
 				       written in a different
 				       programming language.
 * Adding foreign declarations::        How to add declarations of
-  				       enities in other programming
+  				       entities in other programming
 				       languages.
-* Adding foreign definitions::         How to add definitions of entities
-  				       enities in other programming
+* Adding foreign definitions::         How to add definitions of
+  				       entities in other programming
 				       languages.
 * Language specific bindings::         Information specific to each
   				       foreign language.
@@ -4700,8 +4705,8 @@ It is documented here as an aid to the Mercury language developers.
 See the @pxref{C interface} chapter for the existing, supported C
 interface for Mercury.
 
-The syntax, documentation, behaviour and semantics described in this
-chapter are subject to change without notice.
+The syntax, documentation, behaviour and semantics of the constructs
+described in this chapter are subject to change without notice.
 
 @node Calling foreign code from Mercury
 @section Calling foreign code from Mercury
@@ -4740,7 +4745,7 @@ written in language @var{Lang}, if @var{Lang} is selected as the foreign
 language code by this implementation. 
 See the ``Foreign Language Interface'' chapter of the
 Mercury User's Guide, for more information about how the implementation
-selects the approriate @samp{foreign_proc} to use.
+selects the appropriate @samp{foreign_proc} to use.
 
 The foreign code fragment may refer to the specified variables
 (@var{Var1}, @var{Var2}, @dots{}, and @var{Var})
@@ -4757,11 +4762,11 @@ the strings used to identify them, see the language specific information
 in the ``Foreign Language Interface'' chapter of the
 Mercury User's Guide.
 
-If there is one @code{pragma foreign_proc} declaration for any
+If there is a @code{pragma foreign_proc} declaration for any
 mode of a predicate or function, then there must be either a mode
-specific clause, or a @code{pragma foreign_proc} 
+specific clause or a @code{pragma foreign_proc} 
 @c or @code{pragma import} 
-declaration for every mode of the predicate or function.
+declaration for every mode of that predicate or function.
 
 Here's an example of code using @samp{pragma foreign_proc}:
 The following code defines a Mercury function
@@ -4781,6 +4786,16 @@ This allows the compiler to use a slightly more efficient calling convention.
 (If you use this form, and the C code @emph{does} invoke Mercury code,
 then the behaviour is undefined --- your program may misbehave or crash.)
 
+If there are both Mercury definitions and foreign_proc definitions for 
+a procedure and/or foreign_proc definitions for different languages,
+it is implementation defined which definition is used.
+All such Mercury definitions must use mode-specific clauses (even if
+there is only a single mode for the predicate).
+
+For pure and semipure procedures, the declarative semantics of the
+foreign_proc definitions must be the same as that of the Mercury code.
+The only thing that is allowed to differ is the efficiency (including
+the possibility of non-termination) and the order of solutions.
 
 @node Foreign code attributes
 @subsection Foreign code attributes
@@ -4851,15 +4866,24 @@ items.
 @section Adding foreign declarations
 
 Foreign language declarations (such as type declarations, header file
-inclusions or macro defintions) can included in the Mercury source file as
+inclusions or macro definitions) can included in the Mercury source file as
 part of a @samp{foreign_decl} declaration of the form
 
 @example
 :- pragma foreign_decl("@var{Lang}", @var{DeclCode}).
 @end example
 
-The semantics of @samp{foreign_decl} depend upon the implementation and
-foreign language used. 
+This declaration will have effects equivalent to including the specified
+@var{DeclCode} in an automatically-generated source file of the specified
+programming language, in a place appropriate for declarations,
+and linking that source file with the Mercury program
+(after having compiled it with a compiler for the specified programming
+language, if appropriate).
+
+Entities declared in @samp{pragma foreign_decl} declarations should be
+visible in @samp{pragma foreign_code} and @samp{pragma foreign_proc}
+declarations that specify the same foreign language and occur in in the
+same Mercury module.
 
 @node Adding foreign definitions
 @section Adding foreign definitions
@@ -4871,24 +4895,44 @@ variables) may be included using a declaration of the form
 :- pragma foreign_code("@var{Lang}", @var{Code}).
 @end example
 
-The semantics of @samp{foreign_code} depend upon the implementation and
-foreign language used. 
+This declaration will have effects equivalent to including the specified
+@var{DeclCode} in an automatically-generated source file of the specified
+programming language, in a place appropriate for definitions,
+and linking that source file with the Mercury program
+(after having compiled it with a compiler for the specified programming
+language, if appropriate).
+
+Entities declared in @samp{pragma foreign_code} declarations should be
+visible in @samp{pragma foreign_proc} declarations that specify the same
+foreign language and occur in in the same Mercury module.
 
 @c -----------------------------------------------------------------------
 
 @node Language specific bindings
 @section Language specific bindings
 
-Note that these bindings are specific to the Melbourne Mercury compiler,
-other compilers may choose to implement a different set of bindings.
+@menu
+* Interfacing with C 		:: How to write code to interface with C
+* Interfacing with C# 		:: How to write code to interface with C#
+* Interfacing with IL 		:: How to write code to interface with IL
+* Interfacing with Managed C++ 	:: How to write code to interface with
+  				   Managed C++
+@end menu
+
+All Mercury implementations should support interfacing with C.
+The set of other languages supported is implementation-defined.
+A suitable compiler or assembler for the foreign language
+must be available on the system.
+
+The University of Melbourne Mercury implementation supports
+interfacing with the following languages:
 
 @table @asis
 
+@c Please keep this table in alphabetical order
+
 @item @samp{C}
 Use the string "C" to set the foreign language to C.
-
-@item @samp{Managed C++}
-Use the string "MC++" to set the foreign language to Managed C++.
 
 @item @samp{C#}
 Use the string "C#" to set the foreign language to C#.
@@ -4896,11 +4940,281 @@ Use the string "C#" to set the foreign language to C#.
 @item @samp{IL}
 Use the string "IL" to set the foreign language to IL.
 
+@item @samp{Managed C++}
+Use the string "MC++" to set the foreign language to Managed C++.
+
 @end table
 
-Each of these foreign language interfaces requires that an appropriate
-compiler be installed.
+@c -----------------------------------------------------------------------
 
+@node Interfacing with C
+@subsection Interfacing with C
+
+@menu
+* Using pragma foreign_proc for C 	:: Calling C code from Mercury
+* Using pragma foreign_decl for C 	:: Including C declarations in Mercury
+* Using pragma foreign_code for C 	:: Including C code in Mercury
+@end menu
+
+@node Using pragma foreign_proc for C
+@subsubsection Using pragma foreign_proc for C
+
+The input and output variables will have C types corresponding
+to their Mercury types, as determined by the rules specified in
+``Passing data to and from C'' in the ``C Interface''
+chapter of the Mercury Language Reference Manual.
+
+The C code fragment may declare local variables, but it should not
+declare any labels or static variables unless there is also a Mercury
+@samp{pragma no_inline} declaration for the procedure.
+The reason for this is that otherwise the Mercury implementation may
+inline the procedure by duplicating the C code fragment for each call.
+If the C code fragment declared a static variable, inlining it in this
+way could result in the program having multiple instances of the static
+variable, rather than a single shared instance.  If the C code fragment
+declared a label, inlining it in this way could result in an error due
+to the same label being defined twice inside a single C function.
+
+C code in a @code{pragma foreign_proc} declaration
+for any procedure whose determinism indicates that it could fail
+must assign a truth value to the macro @samp{SUCCESS_INDICATOR}.
+For example:
+
+@example
+:- pred string__contains_char(string, character).
+:- mode string__contains_char(in, in) is semidet.
+
+:- pragma foreign_proc("C", string__contains_char(Str::in, Ch::in),
+        [will_not_call_mercury],
+        "SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL);").
+@end example
+
+@code{SUCCESS_INDICATOR} should not be used other than as the target of
+an assignment.
+(For example, it may be @code{#define}d to a register, so you should not
+try to take its address.) 
+Procedures whose determinism indicates that that they cannot fail
+should not access @code{SUCCESS_INDICATOR}.
+
+Arguments whose mode is input will have their values set by the
+Mercury implementation on entry to the C code.  If the procedure
+succeeds, the C code must set the values of all output arguments
+before returning.  If the procedure fails, the C code need only
+set @code{SUCCESS_INDICATOR} to false (zero).
+
+@node Using pragma foreign_decl for C
+@subsubsection Using pragma foreign_decl for C
+
+Any macros, function prototypes, or other C declarations
+that are used in @samp{foreign_code} or @samp{foreign_proc} 
+pragmas must be included using a @samp{foreign_decl} declaration of the form
+
+@example
+:- pragma foreign_decl("C", @var{HeaderCode}).
+@end example
+
+@noindent
+@var{HeaderCode} can be a C @samp{#include} line, for example
+
+@example
+:- pragma foreign_decl("C", "#include <math.h>")
+@end example
+
+@noindent
+or
+
+@example
+:- pragma foreign_decl("C", "#include ""tcl.h""").
+@end example
+
+@noindent
+or it may contain any C declarations, for example
+
+@example
+:- pragma foreign_decl("C", "
+        extern int errno;
+        #define SIZE 200
+        struct Employee @{
+                char name[SIZE];
+        @}
+        extern int bar;
+        extern void foo(void);
+").
+@end example
+
+Mercury automatically includes certain headers such as @code{<stdlib.h>},
+but you should not rely on this, as the set of headers which Mercury
+automatically includes is subject to change.
+
+@node Using pragma foreign_code for C
+@subsubsection Using pragma foreign_code for C
+
+Definitions of C functions or global variables may be
+included using a declaration of the form
+
+@example
+:- pragma foreign_code("C", @var{Code}).
+@end example
+
+For example,
+
+@example
+:- pragma foreign_code("C", "
+        int bar = 42;
+        void foo(void) @{@}
+").
+@end example
+
+Such code is copied verbatim into the generated C file.
+
+@c ----------------------------------------------------------------------------
+
+@node Interfacing with C#
+@subsection Interfacing with C#
+
+@c XXX
+Currently undocumented, sorry.
+
+@menu
+* Using pragma foreign_proc for C# 	:: Calling C# code from Mercury
+* Using pragma foreign_decl for C# 	:: Including C# declarations in Mercury
+* Using pragma foreign_code for C# 	:: Including C# code in Mercury
+@end menu
+
+@node Using pragma foreign_proc for C#
+@subsubsection Using pragma foreign_proc for C#
+
+Not currently supported for C#.
+@c XXX
+
+@node Using pragma foreign_decl for C#
+@subsubsection Using pragma foreign_decl for C#
+
+Not currently supported for C#.
+@c XXX
+
+@node Using pragma foreign_code for C#
+@subsubsection Using pragma foreign_code for C#
+
+Not currently supported for C#.
+@c XXX
+
+
+@c ----------------------------------------------------------------------------
+
+@node Interfacing with IL
+@subsection Interfacing with IL
+
+@menu
+* Using pragma foreign_proc for IL 	:: Calling IL code from Mercury
+* Using pragma foreign_decl for IL 	:: Including IL declarations in Mercury
+* Using pragma foreign_code for IL 	:: Including IL code in Mercury
+@end menu
+
+@node Using pragma foreign_proc for IL
+@subsubsection Using pragma foreign_proc for IL
+
+Variables can be accessed from IL by using ldloc (for input parameters) 
+and stloc (for output parameters).
+Do not use ret or jmp instructions or tail calls within the handwritten
+IL code.
+The stack must be empty at the end of the IL code.
+
+@example
+:- pred add(int::in, int::in, int::out) det.
+:- pragma foreign_proc("il", add(X::in, Y::in, Z::out), [max_stack_size(2)], "
+	ldloc X
+	ldloc Y
+	add
+	stloc Z
+").
+@end example
+
+IL code for procedures whose determinism indicates they could fail 
+is currently not supported.
+
+@c XXX document how semidet works -- but get it working first.
+@c
+@c The IL code in a @code{pragma foreign_proc} declaration
+@c for any procedure whose determinism indicates that it could fail
+@c must assign a truth value to the local variable @samp{succeeded}.
+@c For example:
+@c
+@c @example
+@c :- pred same(int::in, int::in) is semidet.
+@c :- pragma foreign_proc("il", same(X::in, Y::in), [max_stack_size(2)], "
+@c 	ldloc X
+@c 	ldloc Y
+@c 	ceq
+@c 	stloc succeeded
+@c ").
+@c @end example
+
+Arguments whose mode is input will have their values set by the
+Mercury implementation on entry to the IL code.  If the procedure
+succeeds, the IL code must set the values of all output arguments
+before returning. 
+
+@c If the procedure fails, the IL code need only
+@c set @code{success} to false (zero).
+
+The Mercury types @code{int}, @code{float}, @code{char},
+and @code{string} are mapped to the Common Language Runtime types 
+@code{int32}, @code{float64}, @code{char} and @code{System.String}
+respectively.
+
+Mercury variables which are polymorphically typed (e.g. whose type is a 
+type variables) will be passed as @code{System.Object} while all other
+Mercury variables are passed as @code{System.Object[]}.
+This mapping is subject to change and you should try to avoid writing
+code that relies heavily upon a particular representation of Mercury
+terms.
+
+@node Using pragma foreign_decl for IL
+@subsubsection Using pragma foreign_decl for IL
+
+Not currently supported for IL.
+@c XXX
+
+@node Using pragma foreign_code for IL
+@subsubsection Using pragma foreign_code for IL
+
+Not currently supported for IL.
+@c XXX
+
+@c ----------------------------------------------------------------------------
+
+@node Interfacing with Managed C++
+@subsection Interfacing with Managed C++
+
+@c XXX
+Currently undocumented, sorry.
+
+@menu
+* Using pragma foreign_proc for MC++::  Calling MC++ code from Mercury
+* Using pragma foreign_decl for MC++::  Including MC++ declarations in Mercury
+* Using pragma foreign_code for MC++::  Including MC++ code in Mercury
+@end menu
+
+@node Using pragma foreign_proc for MC++
+@subsubsection Using pragma foreign_proc for MC++
+
+Currenly undocumented, sorry.
+@c XXX
+
+@node Using pragma foreign_decl for MC++
+@subsubsection Using pragma foreign_decl for MC++
+
+Currenly undocumented, sorry.
+@c XXX
+
+@node Using pragma foreign_code for MC++
+@subsubsection Using pragma foreign_code for MC++
+
+Currenly undocumented, sorry.
+@c XXX
+
+@c -----------------------------------------------------------------------
 
 @node C interface
 @chapter C interface
@@ -5523,6 +5837,11 @@ Mercury types in C code to use typedefs for each user-defined Mercury type,
 and to treat each such type as an abstract data type.  This is good style
 and it will also minimize any compatibility problems if and when we do change
 this.)
+
+@c For the Managed C++ interface, the types are mapped slightly differently:
+@c Mercury variables which are polymorphically typed
+@c have type @samp{MR_Box} rather than @samp{MR_Word}.
+@c XXX We should document the Managed C++ interface somewhere.
 
 Mercury lists can be manipulated by C code using the following macros,
 which are defined by the Mercury implementation.

@@ -276,7 +276,7 @@
 				% in this module.
 		foreign_code :: contains_foreign_code,
 				% Whether or not the module contains
-				% foreign code
+				% foreign code (and which languages if it does)
 		items :: item_list,
 				% The contents of the module and its imports
 		error :: module_error,
@@ -290,7 +290,7 @@
 	).
 
 :- type contains_foreign_code
-	--->	contains_foreign_code
+	--->	contains_foreign_code(set(foreign_language))
 	;	no_foreign_code
 	;	unknown.
 
@@ -614,7 +614,7 @@
 
 :- implementation.
 :- import_module llds_out, passes_aux, prog_out, prog_util, mercury_to_mercury.
-:- import_module prog_io_util, options, module_qual.
+:- import_module prog_io_util, options, module_qual, foreign.
 :- import_module recompilation_version.
 
 :- import_module string, map, term, varset, dir, library.
@@ -669,6 +669,7 @@ mercury_std_library_module("rational").
 mercury_std_library_module("rbtree").
 mercury_std_library_module("relation").
 mercury_std_library_module("require").
+mercury_std_library_module("rtti_implementation").
 mercury_std_library_module("set").
 mercury_std_library_module("set_bbbtree").
 mercury_std_library_module("set_ordlist").
@@ -767,6 +768,8 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".ints"
 			; Ext = ".int3s"
 			; Ext = ".rlos"
+			; Ext = ".ss"
+			; Ext = ".pic_ss"
 			; Ext = ".ils"
 			; Ext = ".opts"
 			; Ext = ".trans_opts"
@@ -774,6 +777,11 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			% requires .h.tmp files to be in the same directory as
 			% the .h files
 			; Ext = ".h.tmp"
+			% The following files are only used by the Aditi
+			% query shell which doesn't know about --use-subdirs.
+			; Ext = ".base_schema"
+			; Ext = ".derived_schema"
+			; Ext = ".rlo"
 			)
 		;
 			% output files intended for use by the user
@@ -1892,10 +1900,10 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__write_strings(DepStream, ["\n\n",
 			OptDateFileName, " ",
 			TransOptDateFileName, " ",
+			ErrFileName, " ",
 			CDateFileName, " ",
 			AsmDateFileName, " ",
 			PicAsmDateFileName, " ",
-			ErrFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
 			ILDateFileName, " : ",
@@ -1923,17 +1931,21 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			Intermod),
 		globals__io_lookup_accumulating_option(intermod_directories,
 			IntermodDirs),
-		( { Intermod = yes; UseOptFiles = yes } ->
+		( { Intermod = yes ; UseOptFiles = yes } ->
 			io__write_strings(DepStream, [
 				"\n\n", 
-				CDateFileName, " ",
 				TransOptDateFileName, " ",
-				ErrFileName, " ", 
-				SplitObjPattern, " :"
+				ErrFileName, " ",
+				CDateFileName, " ",
+				AsmDateFileName, " ",
+				PicAsmDateFileName, " ",
+				SplitObjPattern, " ",
+				RLOFileName, " ",
+				ILDateFileName, " : "
 			]),
 
-			% The .c file only depends on the .opt files from 
-			% the current directory, so that inter-module
+			% The target (e.g. C) file only depends on the .opt files
+			% from  the current directory, so that inter-module
 			% optimization works when the .opt files for the 
 			% library are unavailable. This is only necessary 
 			% because make doesn't allow conditional dependencies.
@@ -1955,9 +1967,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					".opt", DepStream),
 				io__write_strings(DepStream, [
 					"\n\n", 
+					ErrFileName, " ",
 					CDateFileName, " ",
-					ErrFileName, " ", 
-					SplitObjPattern, " :"
+					AsmDateFileName, " ",
+					PicAsmDateFileName, " ",
+					SplitObjPattern, " ",
+					RLOFileName, " ",
+					ILDateFileName, " : "
 				]),
 				write_dependencies_list(TransOptDeps,
 					".trans_opt", DepStream)
@@ -1997,11 +2013,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			% the same command that creates the .c files, so
 			% we just make them depend on the .c files.
 			%
+			module_name_to_file_name(ModuleName, ".c", no,
+							CFileName),
 			module_name_to_file_name(ModuleName, ".h", no,
 							HeaderFileName),
 			io__write_strings(DepStream, [
 					"\n\n", HeaderFileName, 
-					" : ", CDateFileName
+					" : ", CFileName
 			])
 		;
 			[]
@@ -2032,60 +2050,60 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				SourceFileName, "\n\n"
 		]),
 
-		% Generate the following dependency.  This dependency is
-		% needed because module__cpp_code.dll might refer to
-		% high level data in any of the mercury modules it
-		% imports plus itself.
-		%
-		% 	module__cpp_code.dll : module.dll imports.dll
-		% 
-		%
-		% Generate the following sequence of rules which state
-		% how to generate the module__cpp_code.dll.
-		%
-		%	module__cpp_code.dll : module__cpp_code.cpp
-		%	module__cpp_code.cpp : module.il
-		%
 		globals__io_get_target(Target),
-		(
-			{ Target = il },
-			{
-				ContainsForeignCode = contains_foreign_code
-			;
-				ContainsForeignCode = unknown,
-				item_list_contains_foreign_code(Items)
-			}
-		->
-			globals__io_lookup_foreign_language_option(
-					backend_foreign_language, ForeignLang),
-			{ ForeignExt = simple_foreign_language_string(
-					ForeignLang) },
-			{ ForeignCodeExt = "__" ++ ForeignExt ++ "_code." },
-			module_name_to_file_name(ModuleName,
-					ForeignCodeExt ++ ForeignExt,
-					no, ForeignFileName),
-			module_name_to_file_name(ModuleName, ".il", no,
-					IlFileName),
+		globals__io_lookup_bool_option(sign_assembly, SignAssembly),
+		globals__io_get_globals(Globals),
+
+			
+		    % If we are on the IL backend, add the dependency that the
+		    % top level dll of a nested module hierachy depends on all
+		    % of it sub-modules dlls, as they are referenced from
+		    % inside the top level dll.
+
+		{ SubModules = submodules(ModuleName, AllDeps) },
+		( { Target = il, SubModules \= [] } ->
 			module_name_to_file_name(ModuleName, ".dll", no,
 					DllFileName),
-			module_name_to_file_name(ModuleName,
-					ForeignCodeExt ++ "dll",
-					no, ForeignDllFileName),
+			io__write_strings(DepStream, [DllFileName, " : "]),
+			write_dll_dependencies_list(SubModules, "", DepStream),
+			io__nl(DepStream)
+		;
+			[]
+		),
+		
+		{ ContainsForeignCode = contains_foreign_code(LangSet)
+		; ContainsForeignCode = unknown,
+			get_item_list_foreign_code(Globals, Items, LangSet)
+		; ContainsForeignCode = no_foreign_code,
+			set__init(LangSet)
+		},
+		(
+			{ Target = il },
+			{ not set__empty(LangSet) }
+		->
+			{ Langs = set__to_sorted_list(LangSet) },
+			list__foldl(write_foreign_dependency_for_il(DepStream,
+				ModuleName, AllDeps), Langs)
+		;
+			[]
+		),
 
+			% If we are signing the assembly, then we will
+			% need the strong key to sign the il file with
+			% so add a dependency that the il file requires
+			% the strong name file `mercury.sn'.
+			% Also add the variable ILASM_KEYFLAG-<module> which
+			% is used to build the command line for ilasm.
+		( { Target = il, SignAssembly = yes } ->
+			{ prog_out__sym_name_to_string(ModuleName, ".",
+					ModuleNameString) },
+			module_name_to_file_name(ModuleName, ".il",
+					no, IlFileName),
+			
 			io__write_strings(DepStream, [
-				ForeignDllFileName, " : ", DllFileName]),
-			% XXX This change doesn't work correctly because
-			% mmake can't find the dlls which don't reside
-			% in the current directory.
-			/*
-			write_dll_dependencies_list(ModuleName,
-					AllDeps, DepStream),
-			*/
-			io__nl(DepStream),
-
-			io__write_strings(DepStream, [
-				ForeignDllFileName, " : ", ForeignFileName,"\n",
-				ForeignFileName, " : ", IlFileName, "\n\n"])
+				"ILASM_KEYFLAG-", ModuleNameString,
+						" = /keyf=mercury.sn\n",
+				IlFileName, " : mercury.sn\n"])
 		;
 			[]
 		),
@@ -2106,6 +2124,16 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 							Date3FileName),
 
 		/*
+		** We add some extra dependencies to the generated `.d' files, so
+		** that local `.int', `.opt', etc. files shadow the installed
+		** versions properly (e.g. for when you're trying to build a new
+		** version of an installed library).  This saves the user from
+		** having to add these explicitly if they have multiple libraries
+		** installed in the same installation hierarchy which aren't
+		** independent (e.g. one uses another).
+		** These extra dependencies are necessary due to the way the
+		** combination of search paths and pattern rules works in Make.
+		**
 		** Be very careful about changing the following rules.
 		** The `@:' is a silent do-nothing command.
 		** It is used to force GNU Make to recheck the timestamp
@@ -2235,6 +2263,84 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			maybe_write_string(Verbose, " done.\n")
 		)
 	).
+
+	% Generate the following dependency.  This dependency is
+	% needed because module__cpp_code.dll might refer to
+	% high level data in any of the mercury modules it
+	% imports plus itself.
+	% We also generate a dependency on the .il file, so that mmake
+	% knows we need to generate the .il file to get the foreign language 
+	% source file (e.g. .cpp file).
+	%
+	% For example, for MC++ we generate:
+	%
+	% 	<module>__cpp_code.dll : <module>.dll <imports>.dll
+	%	<module>__cpp_code.cpp : <module>.il
+	%
+	% (the rule to generate .dll from .cpp is a pattern rule in
+	% scripts/Mmake.rules).
+	% 
+:- pred write_foreign_dependency_for_il(io__output_stream::in,sym_name::in,
+		list(module_name)::in, foreign_language::in,
+		io__state::di, io__state::uo) is det.
+write_foreign_dependency_for_il(DepStream, ModuleName, AllDeps, ForeignLang)
+		-->
+	( 
+		{ ForeignModuleName = foreign_language_module_name(
+			ModuleName, ForeignLang) },
+		{ ForeignExt = foreign_language_file_extension(ForeignLang) }
+	->
+		module_name_to_file_name(ForeignModuleName, "", no,
+			ForeignModuleNameString),
+		module_name_to_file_name(ForeignModuleName, ForeignExt, no,
+			ForeignFileName),
+		module_name_to_file_name(ModuleName, ".il", no, IlFileName),
+		module_name_to_file_name(ModuleName, ".dll", no, DllFileName),
+		module_name_to_file_name(ForeignModuleName, ".dll", no,
+			ForeignDllFileName),
+
+		io__write_strings(DepStream, [
+			ForeignDllFileName, " : ", DllFileName]),
+			% XXX This change doesn't work correctly because
+			% mmake can't find the dlls which don't reside
+			% in the current directory.
+		/*
+		write_dll_dependencies_list(ModuleName, AllDeps, DepStream),
+		*/
+		io__nl(DepStream),
+
+		io__write_strings(DepStream, [
+			ForeignFileName, " : ", IlFileName, "\n\n"]),
+
+		( { ForeignLang = csharp } ->
+			% Store in the variable
+			% CSHARP_ASSEMBLY_REFS-foreign_code_name
+			% the command line argument to reference all the
+			% dlls the foreign code module references.
+			io__write_strings(DepStream, 
+				["CSHARP_ASSEMBLY_REFS-", 
+					ForeignModuleNameString, "="]),
+			{
+				ModuleName = unqualified(Str),
+				mercury_std_library_module(Str)
+			->
+				Prefix = "/addmodule:"
+			;
+				Prefix = "/r:"
+			},
+			write_dll_dependencies_list(
+				referenced_dlls(ModuleName, AllDeps),
+				Prefix, DepStream),
+			io__nl(DepStream)
+		;
+			[]
+		)
+	;
+		% This foreign language doesn't generate an external file
+		% so there are no dependencies to generate.
+		[]
+	).
+
 
 maybe_read_dependency_file(ModuleName, MaybeTransOptDeps) -->
 	globals__io_lookup_bool_option(transitive_optimization, TransOpt),
@@ -2922,15 +3028,12 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	globals__io_get_target(Target),
-	globals__io_lookup_foreign_language_option(
-			backend_foreign_language, ForeignLang),
-	{ ForeignExt = "." ++ simple_foreign_language_string(ForeignLang) },
 	( { Target = il } ->
-		{ ForeignModules = foreign_modules(ForeignLang,
-				Modules, DepsMap) }
+		{ ForeignModulesAndExts = foreign_modules(Modules, DepsMap) }
 	;
-		{ ForeignModules = [] }
+		{ ForeignModulesAndExts = [] }
 	),
+	{ ForeignModules = assoc_list__keys(ForeignModulesAndExts) },
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".foreign ="),
 	write_dependencies_list(ForeignModules, "", DepStream),
@@ -2950,12 +3053,19 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	{ get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
 
+
+	{ MakeFileName = (pred(M - E::in, F::out, di, uo) is det -->
+		module_name_to_file_name(M, E, yes, F0),
+		{ F = "$(os_subdir)" ++ F0 }
+	) },
+
+	list__map_foldl(MakeFileName, ForeignModulesAndExts, ForeignFileNames),
+
 		% .foreign_cs are the source files which have had
 		% foreign code placed in them.
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".foreign_cs = "),
-	write_compact_dependencies_list(ForeignModules, "$(os_subdir)",
-					ForeignExt, ForeignBasis, DepStream),
+	write_file_dependencies_list(ForeignFileNames, "", DepStream),
 	io__write_string(DepStream, "\n"),
 
 		% The dlls which contain the foreign_code.
@@ -2992,7 +3102,7 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".all_pic_ss = "),
-	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".pic_s",
+	write_compact_dependencies_list(Modules, "$(pic_ss_subdir)", ".pic_s",
 		Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -3366,8 +3476,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
 
 	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
-	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe ",
-			"$(", MakeVarName, ".dlls) ",
+	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe\n",
+			ExeFileName, ".exe : ", "$(", MakeVarName, ".dlls) ",
 			"$(", MakeVarName, ".foreign_dlls)\n"] },
 	{ Else = ["else\n"] },
 	{ MainRule =
@@ -3435,15 +3545,31 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 							SharedLibFileName),
 	module_name_to_lib_file_name("lib", ModuleName,
 		".$(EXT_FOR_SHARED_LIB)", no, MaybeSharedLibFileName),
-	io__write_strings(DepStream, [
-		".PHONY : ", LibTargetName, "\n",
-		LibTargetName, " : ",
-		LibFileName, " ",
+
+	{ ILLibRule = [
+		LibTargetName, " : ", "$(", MakeVarName, ".dlls) ",
+			"$(", MakeVarName, ".foreign_dlls)\n"
+	] },
+	{ LibRule = [
+		LibTargetName, " : ", LibFileName, " ",
 		MaybeSharedLibFileName, " \\\n",
 		"\t\t$(", MakeVarName, ".ints) ",
 		"$(", MakeVarName, ".int3s) ",
 		MaybeOptsVar, MaybeTransOptsVar,
 		InitFileName, "\n\n"
+	] },
+	{ Gmake = yes,
+		LibRules = If ++ ILLibRule ++ Else ++ LibRule ++ EndIf
+	; Gmake = no,
+		( Target = il ->
+			LibRules = ILLibRule
+		;
+			LibRules = LibRule
+		)
+	},
+	io__write_strings(DepStream, [
+		".PHONY : ", LibTargetName, "\n" |
+		LibRules
 	]),
 
 	io__write_strings(DepStream, [
@@ -3559,10 +3685,21 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_file_name(ModuleName, ".opts", no, OptsTargetName),
 	module_name_to_file_name(ModuleName, ".trans_opts", no,
 						TransOptsTargetName),
+	module_name_to_file_name(ModuleName, ".ss", no,
+						SsTargetName),
+	module_name_to_file_name(ModuleName, ".pic_ss", no,
+						PicSsTargetName),
 	module_name_to_file_name(ModuleName, ".rlos", no,
 						RLOsTargetName),
 	module_name_to_file_name(ModuleName, ".ils", no,
 						ILsTargetName),
+
+	% We need to explicitly mention
+	% $(foo.pic_ss) somewhere in the Mmakefile, otherwise it
+	% won't build properly with --target asm: GNU Make's pattern rule
+	% algorithm will try to use the .m -> .c_date -> .c -> .pic_o rule chain
+	% rather than the .m -> .pic_s_date -> .pic_s -> .pic_o chain.
+	% So don't remove the pic_ss target here.
 
 	io__write_strings(DepStream, [
 		".PHONY : ", CheckTargetName, "\n",
@@ -3576,6 +3713,10 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		".PHONY : ", TransOptsTargetName, "\n",
 		TransOptsTargetName, " : $(", MakeVarName,
 						".trans_opt_dates)\n\n",
+		".PHONY : ", SsTargetName, "\n",
+		SsTargetName, " : $(", MakeVarName, ".ss)\n\n",
+		".PHONY : ", PicSsTargetName, "\n",
+		PicSsTargetName, " : $(", MakeVarName, ".pic_ss)\n\n",
 		".PHONY : ", RLOsTargetName, "\n",
 		RLOsTargetName, " : $(", MakeVarName, ".rlos)\n\n",
 		".PHONY : ", ILsTargetName, "\n",
@@ -3678,9 +3819,17 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 	{ string__append(InitFuncName0, "init", InitFuncName) },
 	{ llds_out__make_rl_data_name(Module, RLName) },
 	io__write_strings(DepStream, [
-		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n",
-		"\techo ""ADITI_DATA ", RLName, """ >> ", InitFileName, "\n"
-	]).
+		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n"
+	]),
+	globals__io_lookup_bool_option(aditi, Aditi),
+	( { Aditi = yes } ->
+		io__write_strings(DepStream, [
+			"\techo ""ADITI_DATA ", RLName, """ >> ",
+				InitFileName, "\n"
+		])
+	;
+		[]
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -3692,21 +3841,24 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 modules_that_need_headers(Modules, DepsMap) =
 	list__filter(module_needs_header(DepsMap), Modules).
 
-:- func foreign_modules(foreign_language, list(module_name), deps_map)  =
-		list(module_name).
 
-foreign_modules(ForeignLang, Modules, DepsMap) = ForeignModules :-
-	P = (pred(M::in, FM::out) is semidet :-
-		Ext = "__" ++ simple_foreign_language_string(ForeignLang) ++
-				"_code",
-		module_needs_header(DepsMap, M),
-		( M = unqualified(Name),
-			FM = unqualified(Name ++ Ext)
-		; M = qualified(Module, Name),
-			FM = qualified(Module, Name ++ Ext)
-		)
+
+	% Find out which modules will generate as external foreign
+	% language files. 
+	% We return the module names and file extensions.
+:- func foreign_modules(list(module_name), deps_map) =
+		assoc_list(module_name, string).
+
+foreign_modules(Modules, DepsMap) = ForeignModules :-
+	P = (pred(M::in, FMs::out) is semidet :-
+		module_has_foreign(DepsMap, M, LangList),
+		FMs = list__filter_map((func(L) = (NewM - Ext) is semidet :-
+			NewM = foreign_language_module_name(M, L),
+			Ext = foreign_language_file_extension(L)
+		), LangList)
 	),
-	list__filter_map(P, Modules, ForeignModules).
+	list__filter_map(P, Modules, ForeignModulesList),
+	ForeignModules = list__condense(ForeignModulesList).
 
 	% Succeed iff we need to generate a C header file for the specified
 	% module, assuming we're compiling with `--target asm'.
@@ -3714,7 +3866,19 @@ foreign_modules(ForeignLang, Modules, DepsMap) = ForeignModules :-
 
 module_needs_header(DepsMap, Module) :-
 	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
-	ModuleImports ^ foreign_code = contains_foreign_code.
+	ModuleImports ^ foreign_code = contains_foreign_code(Langs),
+	set__member(c, Langs).
+
+	% Succeed iff we need to generate a foreign language output file 
+	% for the specified module.
+:- pred module_has_foreign(deps_map::in, module_name::in,
+		list(foreign_language)::out) is semidet.
+
+module_has_foreign(DepsMap, Module, LangList) :-
+	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
+	ModuleImports ^ foreign_code = contains_foreign_code(Langs),
+	LangList = set__to_sorted_list(Langs).
+
 
 	% get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
 	% Find any extra .$O files that should be linked into the executable.
@@ -3755,7 +3919,8 @@ get_extra_link_objects_2([Module | Modules], DepsMap, Target,
 	%
 	(
 		Target = asm,
-		( ModuleImports ^ foreign_code = contains_foreign_code
+		( ModuleImports ^ foreign_code = contains_foreign_code(Langs),
+		  set__member(c, Langs)
 		; FactTableObjs \= []
 		)
 	->
@@ -3769,33 +3934,87 @@ get_extra_link_objects_2([Module | Modules], DepsMap, Target,
 	get_extra_link_objects_2(Modules, DepsMap, Target, ExtraLinkObjs1, 
 		ExtraLinkObjs).
 
-:- pred item_list_contains_foreign_code(item_list::in) is semidet.
+:- pred get_item_list_foreign_code(globals::in, item_list::in,
+		set(foreign_language)::out) is det.
 
-item_list_contains_foreign_code([Item|Items]) :-
-	(
-		Item = pragma(Pragma) - _Context,
-		% The code here should match the way that mlds_to_gcc.m
-		% decides whether or not to call mlds_to_c.m.
-		% XXX Note that we do NOT count foreign_decls here.
-		% We only link in a foreign object file if mlds_to_gcc
-		% called mlds_to_c.m to generate it, which it will only
-		% do if there is some foreign_code, not just foreign_decls.
-		% Counting foreign_decls here causes problems with
-		% intermodule optimization.
-		(	Pragma = foreign_code(_Lang, _)
-		;	Pragma = foreign_proc(_, _, _, _, _, _)
-		;	% XXX `pragma export' should not be treated as
-			% foreign, but currently mlds_to_gcc.m doesn't
-			% handle that declaration, and instead just punts
-			% it on to mlds_to_c.m, thus generating C code for
-			% it, rather than assembler code.  So we need to
-			% treat `pragma export' like the other pragmas for
-			% foreign code.
-			Pragma = export(_, _, _, _)
-		)
-	;
-		item_list_contains_foreign_code(Items)
-	).
+get_item_list_foreign_code(Globals, Items, LangSet) :-
+	globals__get_backend_foreign_languages(Globals, BackendLangs),
+	globals__get_target(Globals, Target),
+	list__foldl2((pred(Item::in, Set0::in, Set::out, Seen0::in, Seen::out)
+			is det :-
+		(
+			Item = pragma(Pragma) - _Context
+		->
+			% The code here should match the way that mlds_to_gcc.m
+			% decides whether or not to call mlds_to_c.m.  XXX Note
+			% that we do NOT count foreign_decls here.  We only
+			% link in a foreign object file if mlds_to_gcc called
+			% mlds_to_c.m to generate it, which it will only do if
+			% there is some foreign_code, not just foreign_decls.
+			% Counting foreign_decls here causes problems with
+			% intermodule optimization.
+			(	
+				Pragma = foreign_code(Lang, _),
+				list__member(Lang, BackendLangs)
+			->
+				set__insert(Set0, Lang, Set),
+				Seen = Seen0
+			;	
+				Pragma = foreign_proc(Attrs, Name, _, _, _, _)
+			->
+				foreign_language(Attrs, NewLang),
+				( OldLang = map__search(Seen0, Name) ->
+						% is it better than an existing
+						% one? 
+					( 
+					  yes = prefer_foreign_language(
+						Globals, Target, OldLang,
+						NewLang)
+					->
+						map__set(Seen0, Name,
+							NewLang, Seen)
+					;
+						Seen = Seen0
+					)
+				;
+						% is it one of the languages
+						% we support?
+					( 
+						list__member(NewLang,
+							BackendLangs)
+					->
+						map__det_insert(Seen0, Name,
+							NewLang, Seen)
+					;
+						Seen = Seen0
+					)
+				),
+				Set = Set0
+			;	
+				% XXX `pragma export' should not be treated as
+				% foreign, but currently mlds_to_gcc.m doesn't
+				% handle that declaration, and instead just
+				% punts it on to mlds_to_c.m, thus generating C
+				% code for it, rather than assembler code.  So
+				% we need to treat `pragma export' like the
+				% other pragmas for foreign code.
+				Pragma = export(_, _, _, _),
+				list__member(c, BackendLangs)
+			->
+				% XXX we assume lang = c for exports
+				Lang = c,
+				set__insert(Set0, Lang, Set),
+				Seen = Seen0
+			;
+				Set = Set0,
+				Seen = Seen0
+			)
+		;
+			Set = Set0,
+			Seen = Seen0
+		)), Items, set__init, LangSet0, map__init, LangMap),
+		Values = map__values(LangMap),
+		LangSet = set__insert_list(LangSet0, Values).
 
 %-----------------------------------------------------------------------------%
 
@@ -3826,16 +4045,27 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
 
-:- pred write_dll_dependencies_list(module_name,
-		list(module_name), io__output_stream, io__state, io__state).
-:- mode write_dll_dependencies_list(in, in, in, di, uo) is det.
+	% Generate the list of .NET DLLs which could be referred to by this
+	% module (including the module itself).
+	% If we are compiling a module within the standard library we should
+	% reference the runtime DLLs and all other library DLLs.  If we are
+	% outside the library we should just reference mercury.dll (which will
+	% contain all the DLLs).
+	
+:- func referenced_dlls(module_name, list(module_name)) = list(module_name).
 
-write_dll_dependencies_list(Module, Modules0, DepStream) -->
+referenced_dlls(Module, DepModules0) = Modules :-
+	DepModules = [Module | DepModules0],
+
 		% If we are not compiling a module in the mercury
 		% std library then replace all the std library dlls with
 		% one reference to mercury.dll.
-	{ Module = unqualified(Str), mercury_std_library_module(Str) ->
-		Modules = Modules0
+	( Module = unqualified(Str), mercury_std_library_module(Str) ->
+			% In the standard library we need to add the
+			% runtime dlls.
+		Modules = list__remove_dups(
+			[unqualified("mercury_mcpp"),
+				unqualified("mercury_il") | DepModules])
 	;
 		F = (func(M) =
 			( if 
@@ -3844,20 +4074,46 @@ write_dll_dependencies_list(Module, Modules0, DepStream) -->
 			then
 				unqualified("mercury")
 			else
-				M
+					% A sub module is located in the
+					% top level assembly.
+				unqualified(outermost_qualifier(M))
 			)
 		),
-		Modules = list__remove_dups(list__map(F, Modules0))
-	},
-	list__foldl(write_dll_dependency(DepStream), Modules).
+		Modules = list__remove_dups(list__map(F, DepModules))
+	).
 
-:- pred write_dll_dependency(io__output_stream, module_name,
+	% submodules(Module, Imports)
+	% returns the list of submodules from Imports which are sub-modules of
+	% Module, if Module is a top level module and not in the std library.
+	% Otherwise it returns the empty list.
+:- func submodules(module_name, list(module_name)) = list(module_name).
+
+submodules(Module, Modules0) = Modules :-
+	( Module = unqualified(Str), \+ mercury_std_library_module(Str) ->
+		P = (pred(M::in) is semidet :-
+			Str = outermost_qualifier(M),
+			M \= Module
+		),
+		list__filter(P, Modules0, Modules)
+	;
+		Modules = []
+	).
+
+:- pred write_dll_dependencies_list(list(module_name),
+		string, io__output_stream, io__state, io__state).
+:- mode write_dll_dependencies_list(in, in, in, di, uo) is det.
+
+write_dll_dependencies_list(Modules, Prefix, DepStream) -->
+	list__foldl(write_dll_dependency(DepStream, Prefix), Modules).
+
+:- pred write_dll_dependency(io__output_stream, string, module_name,
 				io__state, io__state).
-:- mode write_dll_dependency(in, in, di, uo) is det.
+:- mode write_dll_dependency(in, in, in, di, uo) is det.
 
-write_dll_dependency(DepStream, Module) -->
+write_dll_dependency(DepStream, Prefix, Module) -->
 	module_name_to_file_name(Module, ".dll", no, FileName),
 	io__write_string(DepStream, " \\\n\t"),
+	io__write_string(DepStream, Prefix),
 	io__write_string(DepStream, FileName).
 
 :- pred write_fact_table_dependencies_list(module_name, list(file_name),
@@ -4060,8 +4316,12 @@ init_dependencies(FileName, Error, Globals, ModuleName - Items,
 	globals__get_target(Globals, Target),
 	ContainsForeignCode =
 		(if (Target = asm ; Target = il) then
-			(if item_list_contains_foreign_code(Items) then
-				contains_foreign_code
+			(if 
+				get_item_list_foreign_code(Globals,
+					Items, LangSet),
+				not set__empty(LangSet)
+			then
+				contains_foreign_code(LangSet)
 			else
 				no_foreign_code
 			)

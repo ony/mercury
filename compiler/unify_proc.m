@@ -694,8 +694,10 @@ unify_proc__generate_clause_info(SpecialPredId, Type, TypeBody, Context,
 	map__init(TVarNameMap),
 	map__init(TI_VarMap),
 	map__init(TCI_VarMap),
+	HasForeignClauses = yes,
 	ClauseInfo = clauses_info(VarSet, Types, TVarNameMap,
-			Types, Args, Clauses, TI_VarMap, TCI_VarMap).
+			Types, Args, Clauses, TI_VarMap, TCI_VarMap,
+			HasForeignClauses).
 
 :- pred unify_proc__generate_unify_clauses(hlds_type_body, prog_var, prog_var,
 		prog_context, list(clause), unify_proc_info, unify_proc_info).
@@ -901,7 +903,7 @@ unify_proc__quantify_clause_body(HeadVars, Goal, Context, Clause) -->
 		Body, Varset, Types, _Warnings) },
 	unify_proc__info_set_varset(Varset),
 	unify_proc__info_set_types(Types),
-	{ Clause = clause([], Body, Context) }.
+	{ Clause = clause([], Body, mercury, Context) }.
 
 %-----------------------------------------------------------------------------%
 

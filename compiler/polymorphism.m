@@ -566,7 +566,8 @@ polymorphism__process_clause_info(ClausesInfo0, PredInfo0, ModuleInfo0,
 	map__init(TVarNameMap), % This is only used while adding the clauses.
 	ClausesInfo = clauses_info(VarSet, ExplicitVarTypes, TVarNameMap,
 				VarTypes, HeadVars, Clauses,
-				TypeInfoMap, TypeClassInfoMap).
+				TypeInfoMap, TypeClassInfoMap,
+				ClausesInfo0 ^ have_foreign_clauses).
 
 :- pred polymorphism__process_clause(pred_info, list(prog_var), list(prog_var),
 		list(tvar), list(prog_var), list(prog_var),
@@ -583,7 +584,7 @@ polymorphism__process_clause(PredInfo0, OldHeadVars, NewHeadVars,
 	->
 		{ Clause = Clause0 }
 	;
-		{ Clause0 = clause(ProcIds, Goal0, Context) },
+		{ Clause0 = clause(ProcIds, Goal0, Lang, Context) },
 		%
 		% process any polymorphic calls inside the goal
 		%
@@ -602,7 +603,7 @@ polymorphism__process_clause(PredInfo0, OldHeadVars, NewHeadVars,
 		{ pred_info_get_exist_quant_tvars(PredInfo0, ExistQVars) },
 		polymorphism__fixup_quantification(NewHeadVars, ExistQVars,
 			Goal2, Goal),
-		{ Clause = clause(ProcIds, Goal, Context) }
+		{ Clause = clause(ProcIds, Goal, Lang, Context) }
 	).
 
 :- pred polymorphism__process_procs(list(proc_id), proc_table,
@@ -1633,11 +1634,22 @@ polymorphism__process_c_code(PredInfo, NumExtraVars, Impl, OrigArgTypes0,
 	require(unify(NEVs, NumExtraVars), 
 		"list length mismatch in polymorphism processing pragma_c"),
 
-	polymorphism__c_code_add_typeinfos(
-			PredTypeVars, PredTypeVarSet, ExistQVars, Impl,
-			ArgInfo0, ArgInfo1),
+%	The argument order is as follows:
+%	first the UnivTypeInfos (for universally quantified type variables)
+% 	then the ExistTypeInfos (for existentially quantified type variables)
+%	then the UnivTypeClassInfos (for universally quantified constraints)
+%	then the ExistTypeClassInfos (for existentially quantified constraints)
+%	and finally the original arguments of the predicate.
+%
+%	But since we're building ArgInfo by starting with the original
+%	arguments and prepending things as we go, we need to do it in
+%	reverse order.
+
 	polymorphism__c_code_add_typeclass_infos(
 			UnivCs, ExistCs, PredTypeVarSet, Impl,
+			ArgInfo0, ArgInfo1),
+	polymorphism__c_code_add_typeinfos(
+			PredTypeVars, PredTypeVarSet, ExistQVars, Impl,
 			ArgInfo1, ArgInfo),
 
 	%

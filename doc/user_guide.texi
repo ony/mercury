@@ -593,6 +593,8 @@ target.
 
 @end table
 
+@cindex Variables, Mmake
+@cindex Mmake variables
 The variables used by the builtin rules (and their default values) are
 defined in the file @file{@var{prefix}/lib/mercury/mmake/Mmake.vars}, however
 these may be overridden by user @samp{Mmake} files.  Some of the more
@@ -640,8 +642,8 @@ using it).
 
 @item MS_CL_NOASM 
 @vindex MS_CL_NOASM
-The option to control whether the Microsoft command line C++ compile
-will generate assemblies from managed C++ files.  Set to
+The option to control whether the Microsoft command line C++ compiler
+will generate .NET assemblies from Managed C++ files.  Set to
 @samp{:noAssembly} to turn off assembly generation, leave empty to turn
 on assembly generation.  The default is to leave this variable empty.
 
@@ -1732,7 +1734,7 @@ is based on the following concepts.
 The user may associate a break point
 with some events that occur inside a procedure;
 the invocation condition of the break point says which events these are.
-The four possible invocation conditions are:
+The four possible invocation conditions (also called scopes) are:
 @sp 1
 @itemize @bullet
 @item
@@ -2388,7 +2390,7 @@ these options are ignored.
 @cindex Breakpoints
 @sp 1
 @table @code
-@item break [-PS] @var{filename}:@var{linenumber}
+@item break [-PS] [-E@var{ignore-count}] [-I@var{ignore-count}] @var{filename}:@var{linenumber}
 @kindex break (mdb command)
 Puts a break point on the specified line of the specified source file,
 if there is an event or a call at that position.
@@ -2398,8 +2400,20 @@ it defaults to the filename from the context of the current event.
 The options @samp{-P} or @samp{--print}, and @samp{-S} or @samp{--stop}
 specify the action to be taken at the break point.
 @sp 1
-By default, the initial state of the break point is @samp{stop}.
-@item break [-AOPSaei] @var{proc-spec}
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint.
+@sp 1
+By default, the initial state of the break point is @samp{stop},
+and the ignore count is zero.
+@item break [-AOPSaei] [-E@var{ignore-count}] [-I@var{ignore-count}] @var{proc-spec}
 @c <module name> <predicate name> [<arity> [<mode> [<predfunc>]]]
 Puts a break point on the specified procedure.
 @sp 1
@@ -2415,15 +2429,32 @@ By default, mdb will ask you whether you want to put a breakpoint
 on all matched procedures or just one, and if so, which one.
 @sp 1
 The options @samp{-P} or @samp{--print}, and @samp{-S} or @samp{--stop}
-specify the action to be taken at the break point,
-while the options @samp{-a} or @samp{--all},
+specify the action to be taken at the break point.
+@sp 1
+The options @samp{-a} or @samp{--all},
 @samp{-e} or @samp{--entry}, and @samp{-i} or @samp{--interface}
 specify the invocation conditions of the break point.
+If none of these options are specified,
+the default is the one indicated by the current scope
+(see the @samp{scope} command below).
+The initial scope is @samp{interface}.
+@sp 1
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint.
 @sp 1
 By default, the action of the break point is @samp{stop},
-and its invocation condition is @samp{interface}.
+its invocation condition is @samp{interface},
+and the ignore count is zero.
 @sp 1
-@item break [-PS] here
+@item break [-PS] [-E@var{ignore-count}] [-I@var{ignore-count}] here
 Puts a break point on the procedure referred to by the current event,
 with the invocation condition being the event at the current location
 in the procedure body.
@@ -2431,10 +2462,56 @@ in the procedure body.
 The options @samp{-P} or @samp{--print}, and @samp{-S} or @samp{--stop}
 specify the action to be taken at the break point.
 @sp 1
-By default, the initial state of the break point is @samp{stop}.
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint.
+@sp 1
+By default, the initial state of the break point is @samp{stop},
+and the ignore count is zero.
 @sp 1
 @item break info
 Lists the details and status of all break points.
+@sp 1
+@item ignore [-E@var{ignore-count}] [-I@var{ignore-count}] @var{num}
+@sp 1
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the breakpoint with the specified number.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the breakpoint with the specified number.
+If neither option is given,
+the default is to ignore one call event
+that matches the breakpoint with the specified number.
+Reports an error if there is no break point with the specified number.
+@sp 1
+@item ignore [-E@var{ignore-count}] [-I@var{ignore-count}]
+@sp 1
+The options @samp{-E@var{ignore-count}}
+and @samp{--ignore-entry @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of a call event
+that matches the most recently added breakpoint.
+The options @samp{-I@var{ignore-count}}
+and @samp{--ignore-interface @var{ignore-count}}
+tell the debugger to ignore the breakpoint
+until after @var{ignore-count} occurrences of interface events
+that match the most recently added breakpoint.
+If neither option is given,
+the default is to ignore one call event
+that matches the most recently added breakpoint.
+Reports an error if the most recently added breakpoint has since been deleted.
 @sp 1
 @item disable @var{num}
 @kindex disable (mdb command)
@@ -2588,6 +2665,24 @@ after the identification of the event or call to which they refer.
 @sp 1
 @item context
 Reports where contexts are being printed.
+@sp 1
+@item scope all
+Sets the default scope of new breakpoints to "all",
+i.e. by default, new breakpoints on procedures
+will stop at all events in the procedure.
+@sp 1
+@item scope interface
+Sets the default scope of new breakpoints to "interface",
+i.e. by default, new breakpoints on procedures
+will stop at all interface events in the procedure.
+@sp 1
+@item scope entry
+Sets the default scope of new breakpoints to "entry",
+i.e. by default, new breakpoints on procedures
+will stop only at events representing calls to the procedure.
+@sp 1
+@item scope
+Reports the current default scope of new breakpoints.
 @sp 1
 @item alias @var{name} @var{command} [@var{command-parameter} ...]
 @kindex alias (mdb command)
@@ -3653,7 +3748,8 @@ string and print it on the standard output.
 When compiling, write program dependency information
 to be used to avoid unnecessary recompilations if an
 imported module's interface changes in a way which does
-not invalidate the compiled code.
+not invalidate the compiled code. @samp{--smart-recompilation} does
+not yet work with @samp{--intermodule-optimization}.
 
 @item --no-assume-gmake
 @findex --no-assume-gmake
@@ -3999,6 +4095,19 @@ and @samp{MLFLAGS}.
 @vindex MGNUCFLAGS
 @vindex C2INITFLAGS
 
+@menu
+* Grades and grade components::                 Setting the compilation model
+* Target options::                              Choosing a target language
+* Optional features compilation model options:: Debugging, Profiling, etc.
+* LLDS back-end compilation model options::     For the original back-end
+* MLDS back-end compilation model options::     For the new high-level back-end
+* Developer compilation model options::         Not for general use
+@end menu
+
+@node Grades and grade components
+@subsection Grades and grade components
+@cindex Grades and grade components
+
 @table @asis
 @item @code{-s @var{grade}}
 @itemx @code{--grade @var{grade}}
@@ -4094,6 +4203,7 @@ and grade modifier; they are followed by descriptions of those options.
 @findex --no-high-level-code
 @findex --target
 @findex --il
+@findex --java
 @findex --gc
 @findex --profiling
 @findex --memory-profiling
@@ -4167,7 +4277,13 @@ and grade modifier; they are followed by descriptions of those options.
 
 @end table
 
-@sp 1
+@end table
+
+@node Target options
+@subsection Target options
+@cindex Target options
+
+@table @asis
 @item @code{--target c} (grades: none, reg, jump, fast, asm_jump, asm_fast, hlc)
 @item @code{--target asm} (grades: hlc)
 @itemx @code{--il}, @code{--target il} (grades: ilc)
@@ -4199,6 +4315,14 @@ An abbreviation for @samp{--target java --target-code-only}.
 Generate Java code in @file{@var{module}.java}, but do not invoke 
 the Java compiler to produce Java bytecode.
 
+@end table
+
+@node LLDS back-end compilation model options
+@subsection LLDS back-end compilation model options
+@cindex LLDS back-end compilation model options
+
+@table @asis
+
 @sp 1
 @item @code{--gcc-global-registers} (grades: reg, fast, asm_fast)
 @itemx @code{--no-gcc-global-registers} (grades: none, jump, asm_jump)
@@ -4225,6 +4349,26 @@ for inline assembler labels.
 This option is ignored if the @samp{--high-level-code} option is enabled.
 
 @sp 1
+@item @code{--pic-reg} (grades: any grade containing `.pic_reg')
+@findex --pic-reg
+@findex -fpic
+@cindex Position independent code
+@cindex PIC (position independent code)
+@cindex Shared libraries
+[For Unix with intel x86 architecture only.]
+Select a register usage convention that is compatible
+with position-independent code (gcc's `-fpic' option).
+This is necessary when using shared libraries on Intel x86 systems
+running Unix.  On other systems it has no effect.
+This option is also ignored if the @samp{--high-level-code} option is enabled.
+
+@end table
+
+@node MLDS back-end compilation model options
+@subsection MLDS back-end compilation model option
+@cindex MLDS back-end compilation model options
+
+@table @asis
 @item @code{-H}, @code{--high-level-code} (grades: hlc, ilc, java)
 @findex -H
 @findex --high-level-code
@@ -4232,20 +4376,20 @@ Use an alternative back-end that generates high-level code
 rather than the very low-level code that is generated by our
 original back-end.
 
+@end table
+
+@node Optional features compilation model options
+@subsection Optional features compilation model options
+@cindex Optional features compilation model options
+
+@table @asis
 @sp 1
-@item @code{--gc @{none, conservative, accurate@}}
-@itemx @code{--garbage-collection @{none, conservative, accurate@}}
-@cindex Garbage collection
-@cindex Conservative garbage collection
-@cindex Accurate garbage collection
-@findex --gc
-@findex --garbage-collection
-Specify which method of garbage collection to use.
-Grades containing @samp{.gc} use @samp{--gc conservative},
-other grades use @samp{--gc none}.
-@samp{accurate} is not yet implemented.
-This option is ignored by the IL and Java back-ends, which always use
-the underlying IL or Java implementation's garbage collector.
+@item @code{--debug} (grades: any grade containing @samp{.debug})
+@findex --debug
+@cindex Debugging
+Enables the inclusion in the executable of code and data structures
+that allow the program to be debugged with @samp{mdb} (see @ref{Debugging}).
+This option is not yet supported for the @samp{--high-level-code} back-ends.
 
 @sp 1
 @item @code{--profiling}, @code{--time-profiling} (grades: any grade containing @samp{.prof})
@@ -4307,12 +4451,19 @@ has a small effect on the execution speed.
 @end ignore
 
 @sp 1
-@item @code{--debug} (grades: any grade containing @samp{.debug})
-@findex --debug
-@cindex Debugging
-Enables the inclusion in the executable of code and data structures
-that allow the program to be debugged with @samp{mdb} (see @ref{Debugging}).
-This option is not yet supported for the @samp{--high-level-code} back-ends.
+@item @code{--gc @{none, conservative, accurate@}}
+@itemx @code{--garbage-collection @{none, conservative, accurate@}}
+@cindex Garbage collection
+@cindex Conservative garbage collection
+@cindex Accurate garbage collection
+@findex --gc
+@findex --garbage-collection
+Specify which method of garbage collection to use.
+Grades containing @samp{.gc} use @samp{--gc conservative},
+other grades use @samp{--gc none}.
+@samp{accurate} is not yet implemented.
+This option is ignored by the IL and Java back-ends, which always use
+the underlying IL or Java implementation's garbage collector.
 
 @sp 1
 @item @code{--use-trail} (grades: any grade containing @samp{.tr})
@@ -4325,33 +4476,8 @@ Enable use of a trail.
 This is necessary for interfacing with constraint solvers,
 or for backtrackable destructive update.
 This option is not yet supported for the IL or Java back-ends.
-@sp 1
-@item @code{--reserve-tag} (grades: any grade containing @samp{.rt})
-@findex --reserve-tag
-@cindex Tags
-Reserve a tag in the data representation of the generated 
-code. This tag is intended to be used to give an explicit
-representation to free variables.
-This is necessary for a seamless Herbrand constraint solver --- 
-for use with HAL.
-@sp 1
-@item @code{--pic-reg} (grades: any grade containing `.pic_reg')
-@findex --pic-reg
-@findex -fpic
-@cindex Position independent code
-@cindex PIC (position independent code)
-@cindex Shared libraries
-[For Unix with intel x86 architecture only.]
-Select a register usage convention that is compatible
-with position-independent code (gcc's `-fpic' option).
-This is necessary when using shared libraries on Intel x86 systems
-running Unix.  On other systems it has no effect.
 
 @end table
-
-@menu
-* Developer compilation model options::
-@end menu
 
 @node Developer compilation model options
 @subsection Developer compilation model options
@@ -4383,17 +4509,14 @@ With @samp{--tags low}, the default number of tag bits to use
 is determined by the auto-configuration script.
 
 @sp 1
-@item @code{--use-foreign-language @var{foreign language}}
-@findex --use-foreign-language
-@cindex Foreign language interfacing
-@cindex Interfacing with other languages
-Use the given foreign language to implement predicates
-written in foreign languages.  Any name that can be used
-to specify foreign languages in @samp{pragma foreign} declarations
-is valid, but not all foreign languages are implemented
-in all backends.
-Default value is `C' for the LLDS and MLDS->C backends,
-or `ManagedC++' for the .NET backend.
+@item @code{--reserve-tag} (grades: any grade containing @samp{.rt})
+@findex --reserve-tag
+@cindex Tags
+Reserve a tag in the data representation of the generated 
+code. This tag is intended to be used to give an explicit
+representation to free variables.
+This is necessary for a seamless Herbrand constraint solver --- 
+for use with HAL.
 
 @sp 1
 @item @code{--no-type-layout}
@@ -4649,6 +4772,8 @@ Optimization levels range from -1 to 6.
 Optimization level -1 disables all optimizations,
 while optimization level 6 enables all optimizations
 except for the cross-module optimizations listed below.
+Some experimental optimizations (for example constraint
+propagation) are not be enabled at any optimization level.
 
 In general, there is a trade-off between compilation speed and the
 speed of the generated code.  When developing, you should normally use
@@ -4787,6 +4912,12 @@ predicates should be included in @samp{.opt} files.  Note that changing this
 between writing the @samp{.opt} file and compiling to C may cause link errors,
 and too high a value may result in reduced performance.
 
+@item --inline-vars-threshold @var{threshold}
+@findex --inline-vars-threshold
+Don't inline a call if it would result in a procedure
+containing more than @var{threshold} variables. Procedures
+containing large numbers of variables can cause
+slow compilation.
 
 @sp 1
 @item --no-common-struct
@@ -4804,9 +4935,17 @@ detects only common deconstruction unifications.
 Disabling this optimization reduces the class of predicates
 that the compiler considers to be deterministic.
 
-@c @item --constraint-propagation
-@c @findex --constraint-propagation
-@c Enable the constraint propagation transformation.
+@item --constraint-propagation
+@findex --constraint-propagation
+Enable the constraint propagation transformation,
+which attempts to transform the code so that goals
+which can fail are executed as early as possible.
+
+@item --local-constraint-propagation
+@findex --local-constraint-propagation
+Enable the constraint propagation transformation,
+but only rearrange goals within each procedure.
+Specialized versions of procedures will not be created.
 
 @c @sp 1
 @c @item --prev-code
@@ -4949,6 +5088,27 @@ that have to be saved across calls.
 Enable deforestation. Deforestation is a program transformation whose aim
 is to avoid the construction of intermediate data structures and to avoid
 repeated traversals over data structures within a conjunction.
+
+@sp 1
+@item --deforestation-depth-limit
+@findex --deforestation-depth-limit
+Specify a depth limit to prevent infinite loops in the
+deforestation algorithm.
+A value of -1 specifies no depth limit. The default is 4.
+
+@sp 1
+@item --deforestation-vars-threshold
+@findex --deforestation-vars-threshold
+Specify a rough limit on the number of variables
+in a procedure created by deforestation.
+A value of -1 specifies no limit. The default is 200.
+
+@sp 1
+@item --deforestation-size-threshold
+@findex --deforestation-size-threshold
+Specify a rough limit on the size of a goal
+to be optimized by deforestation.
+A value of -1 specifies no limit. The default is 15.
 
 @end table
 
@@ -5708,13 +5868,19 @@ code with @samp{--no-static-ground-terms}.
 @node Foreign language interface
 @chapter Foreign language interface
 
-@menu
-* Interfacing with C 		:: How to write code to interface with C
-* Interfacing with Managed C++ 	:: How to write code to interface with
-* Interfacing with C# 		:: How to write code to interface with C#
-* Interfacing with IL 		:: How to write code to interface with IL
-  				   Managed C++
-@end menu
+The Mercury foreign language interfaces allows pragma foreign_proc to
+specify multiple implementations (in different foreign programming
+languages) for a procedure.
+
+If the compiler generates code for a procedure using a back-end for which 
+there are multiple applicable foreign languages, it will choose the
+foreign language to use for each procedure according to a builtin ordering. 
+
+If the language specified in a foreign_proc is not available for a
+particular backend, it will be ignored. 
+
+If there are no suitable foreign_proc clauses for a particular
+procedure but there are Mercury clauses, they will be used instead.
 
 @table @asis
 
@@ -5723,301 +5889,25 @@ This is the default foreign language on all backends which compile to C
 or assembler.
 Only available on backends that compile to C or assembler.
 
-@item @samp{Managed C++}
-Managed Extensions for C++ provides support for writing .NET components
-in C++, by adding extra keywords and syntax.
-
-This is the default foreign language on all backends which compile to IL.
-In the current implementation, this is only available on backends that
-compile to IL.
-Requires a Managed Extensions for C++ compiler installed.
-
-
 @item @samp{C#}
 Only available on backends that compile to IL.
-Requires a C# compiler installed.
-To use it pass mmc @samp{--use-foreign-language csharp} and
-@samp{--backend-foreign-language csharp}.
+This is the second preferred foreign language for IL code generation.
 
 @item @samp{IL}
 IL (or CIL) is the intermediate language of the .NET Common Language
 Runtime.
-
-Use the string "IL" to set the foreign language to IL.
 Only available on backends that compile to IL.
-Requires an IL assembler installed.
-To use it pass mmc @samp{--use-foreign-language il} and
-@samp{--backend-foreign-language il}.
+This is the preferred foreign language for IL code generation.
+
+@item @samp{Managed C++}
+Managed Extensions for C++ is a language based on C++ that
+provide support for writing .NET components, by adding extra
+keywords and syntax.
+Only available on backends that compile to IL.
+This is the third preferred foreign language for IL code generation.
+
 
 @end table
-
-@node Interfacing with C
-@section Interfacing with C
-
-@menu
-* Using pragma foreign_proc for C 	:: Calling C code from Mercury
-* Using pragma foreign_decl for C 	:: Including C declarations in Mercury
-* Using pragma foreign_code for C 	:: Including C code in Mercury
-@end menu
-
-@node Using pragma foreign_proc for C
-@subsection Using pragma foreign_proc for C
-
-The input and output variables will have C types corresponding
-to their Mercury types, as determined by the rules specified in
-``Passing data to and from C'' in the ``C Interface''
-chapter of the Mercury Language Reference Manual.
-
-The C code fragment may declare local variables, but it should not
-declare any labels or static variables unless there is also a Mercury
-@samp{pragma no_inline} declaration for the procedure.
-The reason for this is that otherwise the Mercury implementation may
-inline the procedure by duplicating the C code fragment for each call.
-If the C code fragment declared a static variable, inlining it in this
-way could result in the program having multiple instances of the static
-variable, rather than a single shared instance.  If the C code fragment
-declared a label, inlining it in this way could result in an error due
-to the same label being defined twice inside a single C function.
-
-C code in a @code{pragma foreign_proc} declaration
-for any procedure whose determinism indicates that it could fail
-must assign a truth value to the macro @samp{SUCCESS_INDICATOR}.
-For example:
-
-@example
-:- pred string__contains_char(string, character).
-:- mode string__contains_char(in, in) is semidet.
-
-:- pragma foreign_proc("C", string__contains_char(Str::in, Ch::in),
-        [will_not_call_mercury],
-        "SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL);").
-@end example
-
-@code{SUCCESS_INDICATOR} should not be used other than as the target of
-an assignment.
-(For example, it may be @code{#define}d to a register, so you should not
-try to take its address.) 
-Procedures whose determinism indicates that that they cannot fail
-should not access @code{SUCCESS_INDICATOR}.
-
-Arguments whose mode is input will have their values set by the
-Mercury implementation on entry to the C code.  If the procedure
-succeeds, the C code must set the values of all output arguments
-before returning.  If the procedure fails, the C code need only
-set @code{SUCCESS_INDICATOR} to false (zero).
-
-@node Using pragma foreign_decl for C
-@subsection Using pragma foreign_decl for C
-
-Any macros, function prototypes, or other C declarations
-that are used in @samp{foreign_code} or @samp{foreign_proc} 
-pragmas must be included using a @samp{foreign_decl} declaration of the form
-
-@example
-:- pragma foreign_decl("C", @var{HeaderCode}).
-@end example
-
-@noindent
-@var{HeaderCode} can be a C @samp{#include} line, for example
-
-@example
-:- pragma foreign_decl("C", "#include <math.h>")
-@end example
-
-@noindent
-or
-
-@example
-:- pragma foreign_decl("C", "#include ""tcl.h""").
-@end example
-
-@noindent
-or it may contain any C declarations, for example
-
-@example
-:- pragma foreign_decl("C", "
-        extern int errno;
-        #define SIZE 200
-        struct Employee @{
-                char name[SIZE];
-        @}
-        extern int bar;
-        extern void foo(void);
-").
-@end example
-
-Mercury automatically includes certain headers such as @code{<stdlib.h>},
-but you should not rely on this, as the set of headers which Mercury
-automatically includes is subject to change.
-
-@node Using pragma foreign_code for C
-@subsection Using pragma foreign_code for C
-
-Definitions of C functions or global variables may be
-included using a declaration of the form
-
-@example
-:- pragma foreign_code("C", @var{Code}).
-@end example
-
-For example,
-
-@example
-:- pragma foreign_code("C", "
-        int bar = 42;
-        void foo(void) @{@}
-").
-@end example
-
-Such code is copied verbatim into the generated C file.
-
-@c ----------------------------------------------------------------------------
-
-@node Interfacing with C#
-@section Interfacing with C#
-
-@c XXX
-Currently undocumented, sorry.
-
-@menu
-* Using pragma foreign_proc for C# 	:: Calling C# code from Mercury
-* Using pragma foreign_decl for C# 	:: Including C# declarations in Mercury
-* Using pragma foreign_code for C# 	:: Including C# code in Mercury
-@end menu
-
-@node Using pragma foreign_proc for C#
-@subsection Using pragma foreign_proc for C#
-
-Not currently supported for C#.
-@c XXX
-
-@node Using pragma foreign_decl for C#
-@subsection Using pragma foreign_decl for C#
-
-Not currently supported for C#.
-@c XXX
-
-@node Using pragma foreign_code for C#
-@subsection Using pragma foreign_code for C#
-
-Not currently supported for C#.
-@c XXX
-
-
-@c ----------------------------------------------------------------------------
-
-@node Interfacing with Managed C++
-@section Interfacing with Managed C++
-
-@c XXX
-Currently undocumented, sorry.
-
-@menu
-* Using pragma foreign_proc for MC++::  Calling MC++ code from Mercury
-* Using pragma foreign_decl for MC++::  Including MC++ declarations in Mercury
-* Using pragma foreign_code for MC++::  Including MC++ code in Mercury
-@end menu
-
-@node Using pragma foreign_proc for MC++
-@subsection Using pragma foreign_proc for MC++
-
-Currenly undocumented, sorry.
-@c XXX
-
-@node Using pragma foreign_decl for MC++
-@subsection Using pragma foreign_decl for MC++
-
-Currenly undocumented, sorry.
-@c XXX
-
-@node Using pragma foreign_code for MC++
-@subsection Using pragma foreign_code for MC++
-
-Currenly undocumented, sorry.
-@c XXX
-
-@c ----------------------------------------------------------------------------
-
-@node Interfacing with IL
-@section Interfacing with IL
-
-@menu
-* Using pragma foreign_proc for IL 	:: Calling IL code from Mercury
-* Using pragma foreign_decl for IL 	:: Including IL declarations in Mercury
-* Using pragma foreign_code for IL 	:: Including IL code in Mercury
-@end menu
-
-@node Using pragma foreign_proc for IL
-@subsection Using pragma foreign_proc for IL
-
-Variables can be accessed from IL by using ldloc (for input parameters) 
-and stloc (for output parameters).
-Do not use ret or jmp instructions or tail calls within the handwritten
-IL code.
-The stack must be empty at the end of the IL code.
-
-@example
-:- pred add(int::in, int::in, int::out) det.
-:- pragma foreign_proc("il", add(X::in, Y::in, Z::out), [max_stack_size(2)], "
-	ldloc X
-	ldloc Y
-	add
-	stloc Z
-").
-@end example
-
-IL code for procedures whose determinism indicates they could fail 
-is currently not supported.
-
-@c XXX document how semidet works -- but get it working first.
-@c
-@c The IL code in a @code{pragma foreign_proc} declaration
-@c for any procedure whose determinism indicates that it could fail
-@c must assign a truth value to the local variable @samp{succeeded}.
-@c For example:
-@c
-@c @example
-@c :- pred same(int::in, int::in) is semidet.
-@c :- pragma foreign_proc("il", same(X::in, Y::in), [max_stack_size(2)], "
-@c 	ldloc X
-@c 	ldloc Y
-@c 	ceq
-@c 	stloc succeeded
-@c ").
-@c @end example
-
-Arguments whose mode is input will have their values set by the
-Mercury implementation on entry to the IL code.  If the procedure
-succeeds, the IL code must set the values of all output arguments
-before returning. 
-
-@c If the procedure fails, the IL code need only
-@c set @code{success} to false (zero).
-
-The Mercury types @code{int}, @code{float}, @code{char},
-and @code{string} are mapped to the Common Language Runtime types 
-@code{int32}, @code{float64}, @code{char} and @code{System.String}
-respectively.
-
-Mercury variables which are polymorphically typed (e.g. whose type is a 
-type variables) will be passed as @code{System.Object} while all other
-Mercury variables are passed as @code{System.Object[]}.
-This mapping is subject to change and you should try to avoid writing
-code that relies heavily upon a particular representation of Mercury
-terms.
-
-@node Using pragma foreign_decl for IL
-@subsection Using pragma foreign_decl for IL
-
-Not currently supported for IL.
-@c XXX
-
-@node Using pragma foreign_code for IL
-@subsection Using pragma foreign_code for IL
-
-Not currently supported for IL.
-@c XXX
-
 
 @c ----------------------------------------------------------------------------
 

@@ -48,7 +48,7 @@
 % modules in the Mercury standard library map get a `mercury' prefix,
 % e.g. `mercury.builtin', `mercury.io', `mercury.std_util', etc.
 
-% 2. Procedures names
+% 2. Procedure names
 %
 % HLDS procedure names map directly to MLDS function names.
 % MLDS function names are structured terms that include sufficient
@@ -61,7 +61,7 @@
 % language will impose.  For example, some target languages (e.g. C++, Java)
 % will support overloading, while others (e.g. C) will not.]
 
-% 3. Procedures signatures
+% 3. Procedure signatures
 %
 % MLDS function signatures are determined by the HLDS procedure's
 % argument types, modes, and determinism.
@@ -80,7 +80,7 @@
 % With the `--copy-out' option, arguments with top_out modes will be returned
 % by value.  This requires the target language to support multiple return
 % values.  The MLDS->target code generator can of course handle that by mapping
-% functions with multiple return values into functions that returns a struct.
+% functions with multiple return values into functions that return a struct.
 % With the `--nondet-copy-out' option, arguments for nondet procedures with
 % top_out modes will be passed as arguments to the continuation.
 
@@ -99,7 +99,7 @@
 % mangled names at the MLDS level is that in some cases the mangling is
 % undesirable, as the original HLDS variable names are what is required
 % (for instance, when interfacing with foreign code which includes
-% references to the original HLDS variables names).]
+% references to the original HLDS variable names).]
 
 % 5. Global data
 %
@@ -111,11 +111,12 @@
 %
 % If there is an MLDS type corresponding to a Mercury type, then
 % the Mercury type name maps directly to the MLDS type name,
-% suitable module-qualified of course. 
+% suitably module-qualified of course. 
 % The MLDS type name includes the type arity (arity overloading is allowed).
 % However, if a low-level data representation scheme is used,
 % then some Mercury types may not have corresponding MLDS type names
-% (that is, the corresponding MLDS type may be just `Word' or its equivalent).
+% (that is, the corresponding MLDS type may be just `MR_Word' or its
+% equivalent).
 
 % 7.  Data constructors.
 %
@@ -157,7 +158,7 @@
 % the target language is up to the target language generator.
 % So the remarks here are just guidelines, not strict rules.
 
-% 1.  Names.
+% 1. Names.
 %
 % If the target language has standard conventions about certain categories
 % of names beginning with uppercase or lowercase letters, then the target
@@ -176,7 +177,7 @@
 % mapped to names of the form "foo.bar.baz" or if dots are not allowed
 % then to "foo__bar__baz".
 
-% 3. Overloading
+% 3. Overloading.
 %
 % If the target does not support overloading, then any Mercury names which
 % are overloaded within a single Mercury module must be qualified to avoid
@@ -265,7 +266,7 @@
 % back-end, to keep the front-end simple and to keep the responsibility
 % for this task in one place.
 %
-% But in the cases such as nondet if-then-else, where HLDS-liveness does not
+% But in cases such as nondet if-then-else, where HLDS-liveness does not
 % match MLDS-liveness, we can't just leave it to the MLDS target back-end,
 % because that would require assuming an unreasonably smart liveness
 % calculation in the MLDS target back-end, so in such cases we do need
@@ -286,7 +287,7 @@
 % It would be nice to avoid this dependency...
 :- import_module llds.
 
-:- import_module bool, list, assoc_list, std_util.
+:- import_module bool, list, assoc_list, std_util, map.
 
 %-----------------------------------------------------------------------------%
 
@@ -303,7 +304,7 @@
 
 			% Code defined in some other language, e.g.  for
 			% `pragma c_header_code', etc.
-		foreign_code	:: mlds__foreign_code,
+		foreign_code	:: map(foreign_language, mlds__foreign_code),
 
 			% The MLDS code itself
 			% Packages/classes to import
@@ -361,7 +362,7 @@
 % package name unchanged.
 :- func mlds__append_wrapper_class(mlds_module_name) = mlds_module_name.
 
-% Append an arbitarty qualifier to the module name and leave the package
+% Append an arbitrary qualifier to the module name and leave the package
 % name unchanged.
 :- func mlds__append_name(mlds_module_name, string) = mlds_module_name.
 
@@ -444,8 +445,8 @@
 			maybe(pred_proc_id),	% identifies the original
 						% Mercury procedure, if any
 			mlds__func_params,	% the arguments & return types
-			mlds__function_body	% the function body
-
+			mlds__function_body,	% the function body
+			list(mlds__attribute)	% attributes
 		)
 		% packages, classes, interfaces, structs, enums
 	;	mlds__class(
@@ -538,16 +539,27 @@
 						% enum, float, etc.
 		)
 
+	 	% The Mercury array type is treated specially, some backends
+		% will treat it like any other mercury_type, whereas other may
+		% use a special representation for it.
+		% Arrays are type constructors in some backends, and so it is
+		% easier to represent it here as a special type constructor.
+		% (if we used the mercury_type representation above, we would
+		% only classify the topmost level of the type, whereas we
+		% really want to classify the element type for arrays, so
+		% we can generate int[] for array(int)).
+	;	mlds__mercury_array_type(mlds__type)
+
 		% The type for the continuation functions used
 		% to handle nondeterminism
 	;	mlds__cont_type(mlds__return_types)
 
-		% mlds__commit_type is used for storing information about a commit.
-		% This is an abstract type; the exact definition will depend
-		% on the back-end.  The only operations on this ADT are
-		% `try_commit' and `do_commit'.  This type holds information
-		% about the `try_commit' stack frame that is needed to unwind
-		% the stack when a `do_commit' is executed.
+		% mlds__commit_type is used for storing information about a
+		% commit. This is an abstract type; the exact definition
+		% will depend on the back-end.  The only operations on this ADT
+		% are `try_commit' and `do_commit'.  This type holds
+		% information about the `try_commit' stack frame that is
+		% needed to unwind the stack when a `do_commit' is executed.
 		%
 		% For the C back-end, if we're implementing do_commit/try_commit
 		% using setjmp/longmp, then mlds__commit_type will be jmp_buf.
@@ -556,12 +568,12 @@
 		% of this "type" is actually a label, and doing a goto to that
 		% label will unwind the stack.
 		%
-		% If the back-end implements commits using the target language's,
-		% try/catch-style exception handling, as in Java/C++/etc.,
-		% then the target language implementation's exception handling
-		% support will keep track of the information need to unwind
-		% the stack, and so variables of this type don't need
-		% to be declared at all.
+		% If the back-end implements commits using the target
+		% language's, try/catch-style exception handling, as in
+		% Java/C++/etc., then the target language implementation's
+		% exception handling support will keep track of the information
+		% needed to unwind the stack, and so variables of this type
+		% don't need to be declared at all.
 		%
 		% See also the comments in ml_code_gen.m which show how commits
 		% can be implemented for different target languages.
@@ -735,6 +747,15 @@
 		mlds__context
 	).
 
+%-----------------------------------------------------------------------------%
+%
+% Attributes
+%
+
+:- type mlds__attribute
+	---> custom(
+		mlds__type
+	).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1323,8 +1344,18 @@ XXX Full exception handling support is not yet implemented.
 		% per_instance flag set).
 
 :- type mlds__unary_op
-	--->	box(mlds__type)
+			% box(MLDSType)
+			% convert from MLDSType to mlds__generic_type,
+			% by boxing if necessary, or just casting if not
+	--->	box(mlds__type)	
+
+			% unbox(MLDSType)
+			% convert from mlds__generic_type to MLDSType,
+			% applying the inverse transformation to box/1,
+			% i.e. unboxing if boxing was necessary,
+			% and just casting otherwise.
 	;	unbox(mlds__type)
+		
 			% cast(MLDSType):
 			% Coerce the type of the rval to be MLDSType.
 			% XXX it might be worthwhile adding the 
@@ -1497,8 +1528,17 @@ mlds__get_prog_context(mlds__context(Context)) = Context.
 % XXX It might be a better idea to get rid of the mercury_type/2
 % MLDS type and instead fully convert all Mercury types to MLDS types.
 
-mercury_type_to_mlds_type(ModuleInfo, Type) = mercury_type(Type, Category) :-
-	classify_type(Type, ModuleInfo, Category).
+mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
+	( 
+		type_to_type_id(Type, TypeId, [ElemType]),
+		TypeId = qualified(unqualified("array"), "array") - 1
+	->
+		MLDSElemType = mercury_type_to_mlds_type(ModuleInfo, ElemType),
+		MLDSType = mlds__mercury_array_type(MLDSElemType)
+	;
+		classify_type(Type, ModuleInfo, Category),
+		MLDSType = mercury_type(Type, Category)
+	).
 
 %-----------------------------------------------------------------------------%
 

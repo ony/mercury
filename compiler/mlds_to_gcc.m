@@ -216,7 +216,7 @@ mlds_to_gcc__run_gcc_backend(ModuleName, CallBack, CallBackOutput) -->
 	).
 
 mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
-	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns0) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns0) },
 
 	%
 	% Handle output of any foreign code (C, Ada, Fortran, etc.)
@@ -224,6 +224,8 @@ mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 	%
 	{ list__filter(defn_contains_foreign_code(lang_asm), Defns0,
 		ForeignDefns, Defns) },
+		% We only handle C currently, so we just look up C
+	{ ForeignCode = map__lookup(AllForeignCode, c) },
 	(
 		% Check if there is any code from pragma foreign_code,
 		% pragma export, or pragma foreign_proc declarations.
@@ -259,7 +261,7 @@ mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 		% create a new MLDS containing just the foreign code
 		% (with all definitions made public, so we can use
 		% them from the asm file!) and pass that to mlds_to_c.m
-		{ ForeignMLDS = mlds(ModuleName, ForeignCode, Imports,
+		{ ForeignMLDS = mlds(ModuleName, AllForeignCode, Imports,
 			list__map(make_public, ForeignDefns)) },
 		mlds_to_c__output_mlds(ForeignMLDS, ""),
 		% XXX currently the only foreign code we handle is C;
@@ -789,7 +791,7 @@ gen_defn_body(Name, Context, Flags, DefnBody, GlobalInfo0, GlobalInfo) -->
 		{ GlobalInfo = GlobalInfo0 ^ global_vars := GlobalVars }
 	;
 		{ DefnBody = mlds__function(_MaybePredProcId, Signature,
-			FunctionBody) },
+			FunctionBody, _Attributes) },
 		gen_func(Name, Context, Flags, Signature, FunctionBody,
 			GlobalInfo0, GlobalInfo)
 	;
@@ -809,7 +811,7 @@ build_local_defn_body(Name, DefnInfo, _Context, Flags, DefnBody, GCC_Defn) -->
 		build_local_data_defn(Name, Flags, Type,
 			Initializer, DefnInfo, GCC_Defn)
 	;
-		{ DefnBody = mlds__function(_, _, _) },
+		{ DefnBody = mlds__function(_, _, _, _) },
 		% nested functions should get eliminated by ml_elim_nested,
 		% unless --gcc-nested-functions is enabled.
 		% XXX --gcc-nested-functions is not yet implemented
@@ -836,7 +838,7 @@ build_field_defn_body(Name, _Context, Flags, DefnBody, GlobalInfo, GCC_Defn) -->
 			GCC_Defn),
 		add_field_decl_flags(Flags, GCC_Defn)
 	;
-		{ DefnBody = mlds__function(_, _, _) },
+		{ DefnBody = mlds__function(_, _, _, _) },
 		{ unexpected(this_file, "function nested in type") }
 	;
 		{ DefnBody = mlds__class(_) },
@@ -1666,7 +1668,15 @@ build_type(Type, GlobalInfo, GCC_Type) -->
 :- pred build_type(mlds__type, initializer_array_size, global_info,
 		gcc__type, io__state, io__state).
 :- mode build_type(in, in, in, out, di, uo) is det.
-
+	
+	% Just represent Mercury arrays as MR_Word.
+build_type(mercury_array_type(_ElemType), _, _, GCC_Type) -->
+	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+	( { HighLevelData = yes } ->
+		{ sorry(this_file, "--high-level-data (mercury_array_type)") }
+	;
+		{ GCC_Type = 'MR_Word' }
+	).
 build_type(mercury_type(Type, TypeCategory), _, _, GCC_Type) -->
 	build_mercury_type(Type, TypeCategory, GCC_Type).
 build_type(mlds__native_int_type, _, _, gcc__integer_type_node) --> [].
