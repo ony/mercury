@@ -417,6 +417,8 @@ lower bounds other than zero are not supported
 
 :- pragma foreign_code("C", "
 
+#include ""mercury_deep_profiling_hand.h""
+
 #ifdef MR_HIGHLEVEL_CODE
 
 MR_define_type_ctor_info(array, array, 1, MR_TYPECTOR_REP_ARRAY);
@@ -468,6 +470,13 @@ mercury__array____Compare____array_1_0(
 
 #else
 
+#ifdef	MR_DEEP_PROFILING
+MR_proc_static_compiler_plain(array, __Unify__,   array, 1, 0,
+	array, array_equal,   2, 0, ""array.m"", 99);
+MR_proc_static_compiler_plain(array, __Compare__, array, 1, 0,
+	array, array_compare, 3, 0, ""array.m"", 99);
+#endif
+
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY);
 
 MR_declare_entry(mercury__array__array_equal_2_0);
@@ -476,10 +485,61 @@ MR_declare_entry(mercury__array__array_compare_3_0);
 MR_BEGIN_MODULE(array_module_builtins)
 	MR_init_entry(mercury____Unify___array__array_1_0);
 	MR_init_entry(mercury____Compare___array__array_1_0);
+#ifdef	MR_DEEP_PROFILING
+	MR_init_label(mercury____Unify___array__array_1_0_i1);
+	MR_init_label(mercury____Unify___array__array_1_0_i2);
+	MR_init_label(mercury____Unify___array__array_1_0_i3);
+	MR_init_label(mercury____Unify___array__array_1_0_i4);
+	/* XXX should be MR_init_label_sl */
+	MR_init_label(mercury____Unify___array__array_1_0_i5);
+	MR_init_label(mercury____Compare___array__array_1_0_i1);
+	MR_init_label(mercury____Compare___array__array_1_0_i2);
+	/* XXX should be MR_init_label_sl */
+	MR_init_label(mercury____Compare___array__array_1_0_i3);
+#endif
 MR_BEGIN_CODE
+	/*
+	** Unification and comparison for arrays are implemented in Mercury,
+	** not hand-coded low-level C
+	*/
+
+#ifdef	MR_DEEP_PROFILING
+
+#define	proc_label	mercury____Unify___array__array_1_0
+#define proc_static	MR_proc_static_compiler_name(array, __Unify__,	\
+				array, 1, 0)
+#define	body_code	MR_call_localret(				\
+			  MR_ENTRY(mercury__array__array_equal_2_0),	\
+			  mercury____Unify___array__array_1_0_i5,	\
+			  MR_ENTRY(mercury____Unify___array__array_1_0));\
+			MR_define_label(				\
+			  mercury____Unify___array__array_1_0_i5);
+
+#include ""mercury_hand_unify_body.h""
+
+#undef	body_code
+#undef	proc_static
+#undef	proc_label
+
+#define	proc_label	mercury____Compare___array__array_1_0
+#define proc_static	MR_proc_static_compiler_name(array, __Compare__,\
+				array, 1, 0)
+#define	body_code	MR_call_localret(				\
+			  MR_ENTRY(mercury__array__array_compare_3_0),	\
+			  mercury____Compare___array__array_1_0_i3,	\
+			  MR_ENTRY(mercury____Compare___array__array_1_0));\
+			MR_define_label(				\
+			  mercury____Compare___array__array_1_0_i3);
+
+#include ""mercury_hand_compare_body.h""
+
+#undef	body_code
+#undef	proc_static
+#undef	proc_label
+
+#else
 
 MR_define_entry(mercury____Unify___array__array_1_0);
-	/* this is implemented in Mercury, not hand-coded low-level C */
 	MR_tailcall(MR_ENTRY(mercury__array__array_equal_2_0),
 		MR_ENTRY(mercury____Unify___array__array_1_0));
 
@@ -488,6 +548,8 @@ MR_define_entry(mercury____Compare___array__array_1_0);
 	MR_tailcall(MR_ENTRY(mercury__array__array_compare_3_0),
 		MR_ENTRY(mercury____Compare___array__array_1_0));
 
+#endif
+
 MR_END_MODULE
 
 /* Ensure that the initialization code for the above module gets run. */
@@ -495,17 +557,38 @@ MR_END_MODULE
 INIT sys_init_array_module_builtins
 */
 
+/* suppress gcc -Wmissing-decl warning */
+void sys_init_array_module_builtins_init(void);
+void sys_init_array_module_builtins_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void sys_init_array_module_builtins_write_out_proc_statics(FILE *fp);
+#endif
+
 MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc array_module_builtins;
 
-void sys_init_array_module_builtins(void);
-		/* suppress gcc -Wmissing-decl warning */
-void sys_init_array_module_builtins(void) {
+void
+sys_init_array_module_builtins_init(void)
+{
 	array_module_builtins();
 	MR_INIT_TYPE_CTOR_INFO(
 		mercury_data_array__type_ctor_info_array_1,
 		array__array_1_0);
+}
+
+void
+sys_init_array_module_builtins_init_type_tables(void)
+{
 	MR_register_type_ctor_info(
 		&mercury_data_array__type_ctor_info_array_1);
+}
+
+void
+sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
+{
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_compiler_name(array, __Unify__, array, 1, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_compiler_name(array, __Compare__, array, 1, 0));
 }
 
 #endif /* ! MR_HIGHLEVEL_CODE */

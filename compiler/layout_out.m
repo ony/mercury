@@ -323,13 +323,19 @@ output_layout_name_storage_type_name(module_layout(ModuleName),
 	io__write_string("static const MR_Module_Layout "),
 	output_layout_name(module_layout(ModuleName)).
 output_layout_name_storage_type_name(proc_static(RttiProcLabel),
-		_BeingDefined) -->
+		BeingDefined) -->
+	(
+		{ BeingDefined = no },
+		io__write_string("extern ")
+	;
+		{ BeingDefined = yes }
+	),
 	(
 		{ RttiProcLabel ^ is_special_pred_instance = yes },
-		io__write_string("static MR_Compiler_ProcStatic ")
+		io__write_string("MR_Compiler_ProcStatic ")
 	;
 		{ RttiProcLabel ^ is_special_pred_instance = no },
-		io__write_string("static MR_User_ProcStatic ")
+		io__write_string("MR_User_ProcStatic ")
 	),
 	output_layout_name(proc_static(RttiProcLabel)).
 output_layout_name_storage_type_name(proc_static_call_sites(RttiProcLabel),

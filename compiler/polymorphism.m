@@ -491,8 +491,8 @@ polymorphism__fixup_pred(PredId, ModuleInfo0, ModuleInfo) :-
 :- mode polymorphism__process_pred(in, in, out, di, uo) is det.
 
 polymorphism__process_pred(PredId, ModuleInfo0, ModuleInfo) -->
-	write_pred_progress_message("% Transforming polymorphism for ",
-					PredId, ModuleInfo0),
+	% write_pred_progress_message("% Transforming polymorphism for ",
+	% 				PredId, ModuleInfo0),
 	{ polymorphism__process_pred(PredId, ModuleInfo0, ModuleInfo) }.
 
 polymorphism__process_generated_pred(PredId, ModuleInfo0, ModuleInfo) :-

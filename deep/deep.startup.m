@@ -20,7 +20,7 @@
 startup(InitialDeep, Deep) -->
 	stderr_stream(StdErr),
 
-	{ InitialDeep = initial_deep(InsideQuanta, OutsideQuanta, Root,
+	{ InitialDeep = initial_deep(InitStats, Root,
 		CallSiteDynamics0, ProcDynamics,
 		CallSiteStatics0, ProcStatics) },
 
@@ -149,7 +149,7 @@ startup(InitialDeep, Deep) -->
 	{ array__init(NCSSs, zero_own_prof_info, CSSOwn0) },
 	{ array__init(NCSSs, zero_inherit_prof_info, CSSDesc0) },
 
-	{ Deep0 = deep(InsideQuanta, OutsideQuanta, Root,
+	{ Deep0 = deep(InitStats, Root,
 		CallSiteDynamics, ProcDynamics, CallSiteStatics, ProcStatics,
 		CliqueIndex, Cliques, CliqueParents, CliqueMaybeChildren,
 		ProcCallers, CallSiteStaticMap, CallSiteCalls,

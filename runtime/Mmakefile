@@ -44,6 +44,7 @@ HDRS		=	\
 			mercury_debug.h		\
 			mercury_deep_copy.h	\
 			mercury_deep_profiling.h \
+			mercury_deep_profiling_hand.h \
 			mercury_dummy.h		\
 			mercury_dlist.h		\
 		  	mercury_engine.h	\
@@ -97,7 +98,9 @@ HDRS		=	\
 # They do not have to be syntactically well-formed.
 
 BODY_HDRS	=	\
-			mercury_deep_copy_body.h \
+			mercury_deep_copy_body.h	\
+			mercury_hand_compare_body.h	\
+			mercury_hand_unify_body.h	\
 			mercury_make_type_info_body.h	\
 			mercury_unify_compare_body.h
 

@@ -33,9 +33,9 @@
 :- import_module bool, int, list, assoc_list, map, require, set.
 :- import_module exception, std_util, string, term, varset.
 
-% 
+%
 % Doing the work in procedure bodies, not at calls:
-% 
+%
 % middle's new body, if det:
 % middle(...) :-
 % 	get_parent_cur_csd(TopCSD, MiddleCSD),
@@ -44,7 +44,7 @@
 % 	<middle's original body, with calls transformed as below>,
 % 	decrement_activation_count(ProcDyn),
 % 	set_cur_csd(TopCSD).
-% 
+%
 % middle's new body, if semi:
 % middle(...) :-
 % 	get_parent_cur_csd(TopCSD, MiddleCSD),
@@ -59,7 +59,7 @@
 % 		set_cur_csd(TopCSD),
 % 		fail
 % 	).
-% 
+%
 % middle's new body, if non:
 % middle(...) :-
 % 	get_parent_cur_csd(TopCSD, MiddleCSD),
@@ -81,12 +81,12 @@
 % 		set_cur_csd(TopCSD),
 % 		fail
 % 	).
-% 
+%
 % For all calls:
 % 	make_new_csd_for_normal_call(MiddleCSD, N, BottomCSD),
 % 	bottom(...)
-% 
-% 
+%
+%
 % get_parent_cur_csd(TopCSD, MiddleCSD) executes:
 % 	TopCSD = parent_call_site_dyn;
 % 	MiddleCSD = current_call_site_dyn;
@@ -96,12 +96,12 @@
 % 	parent_call_site_dyn = MiddleCSD;
 % set_cur_csd(CSD) executes:
 % 	current_call_site_dyn = CSD;
-% 
+%
 % create_and_link_new_csd(MiddleCSD, N):
 % 	creates a new CSD and returns is address
 % 	after linking it to the Nth call site
 % 	of the procedure called in MiddleCSD
-% 
+%
 
 apply_deep_profiling_transformation(ModuleInfo0, ModuleInfo, ProcStatics) -->
 	{ module_info_globals(ModuleInfo0, Globals) },
@@ -119,12 +119,13 @@ apply_deep_profiling_transformation(ModuleInfo0, ModuleInfo, ProcStatics) -->
 	{ module_info_get_predicate_table(ModuleInfo1, PredTable0) },
 	{ predicate_table_get_preds(PredTable0, PredMap0) },
 	{ list__foldl2(transform_predicate(ModuleInfo1),
-		PredIds, PredMap0, PredMap, [], MProcStatics) },
+		PredIds, PredMap0, PredMap, [], MaybeProcStatics) },
 		% Remove any duplicates that resulted from
-		% references in inner tail recursive procedures 
-	{ list__filter_map((pred(MProcStatic::in, ProcStatic::out) is semidet :-
-		MProcStatic = yes(ProcStatic)
-	), MProcStatics, ProcStatics) },
+		% references in inner tail recursive procedures
+	{ list__filter_map(
+		(pred(MaybeProcStatic::in, ProcStatic::out) is semidet :-
+			MaybeProcStatic = yes(ProcStatic)
+	), MaybeProcStatics, ProcStatics) },
 	{ predicate_table_set_preds(PredTable0, PredMap, PredTable) },
 	{ module_info_set_predicate_table(ModuleInfo1, PredTable, ModuleInfo) }.
 
@@ -558,38 +559,45 @@ maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 
 transform_procedure2(ModuleInfo, PredProcId, Proc0, Proc,
 		ProcStaticList0, ProcStaticList) :-
-	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
+	proc_info_get_maybe_deep_profile_info(Proc0, MaybeRecInfo),
 	proc_info_interface_code_model(Proc0, CodeModel),
 	(
 		CodeModel = model_det,
-		( MRecInfo = yes(RecInfo), RecInfo ^ role = inner_proc(_) ->
+		(
+			MaybeRecInfo = yes(RecInfo),
+			RecInfo ^ role = inner_proc(_)
+		->
 			transform_inner_proc(ModuleInfo, PredProcId, Proc0,
-				Proc, MProcStatic)
+				Proc, MaybeProcStatic)
 		;
 			transform_det_proc(ModuleInfo, PredProcId, Proc0,
-				Proc, MProcStatic)
+				Proc, MaybeProcStatic)
 		)
 	;
 		CodeModel = model_semi,
-		( MRecInfo = yes(RecInfo), RecInfo ^ role = inner_proc(_) ->
+		(
+			MaybeRecInfo = yes(RecInfo),
+			RecInfo ^ role = inner_proc(_)
+		->
 			transform_inner_proc(ModuleInfo, PredProcId, Proc0,
-				Proc, MProcStatic)
+				Proc, MaybeProcStatic)
 		;
 			transform_semi_proc(ModuleInfo, PredProcId, Proc0,
-				Proc, MProcStatic)
+				Proc, MaybeProcStatic)
 		)
 	;
 		CodeModel = model_non,
 		transform_non_proc(ModuleInfo, PredProcId, Proc0,
-			Proc, MProcStatic)
+			Proc, MaybeProcStatic)
 	),
-	ProcStaticList = [MProcStatic | ProcStaticList0].
+	ProcStaticList = [MaybeProcStatic | ProcStaticList0].
 
 %-----------------------------------------------------------------------------%
 
 :- type deep_info
 	--->	deep_info(
 			module_info		:: module_info,
+			pred_proc_id		:: pred_proc_id,
 			current_csd		:: prog_var,
 			next_site_num		:: int,
 			call_sites		:: list(call_site_static_data),
@@ -621,29 +629,29 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 		UseActivationCounts = no,
 		varset__new_var(Vars3, ActivationPtr0, Vars5),
 		map__set(VarTypes3, ActivationPtr0, CPointerType, VarTypes5),
-		MActivationPtr = yes(ActivationPtr0)
+		MaybeActivationPtr = yes(ActivationPtr0)
 	;
 		UseActivationCounts = yes,
 		Vars5 = Vars3,
 		VarTypes5 = VarTypes3,
-		MActivationPtr = no
+		MaybeActivationPtr = no
 	),
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
-	
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars5, VarTypes5, FileName, MRecInfo),
+	proc_info_get_maybe_deep_profile_info(Proc0, MaybeRecInfo),
 
-	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
+	DeepInfo0 = deep_info(ModuleInfo, PredProcId, MiddleCSD, 0,
+			[], Vars5, VarTypes5, FileName, MaybeRecInfo),
 
-	Vars = PInfo ^ vars,
-	VarTypes = PInfo ^ var_types,
-	CallSites = PInfo ^ call_sites,
+	transform_goal([], Goal0, TransformedGoal, DeepInfo0, DeepInfo),
+
+	Vars = DeepInfo ^ vars,
+	VarTypes = DeepInfo ^ var_types,
+	CallSites = DeepInfo ^ call_sites,
 
 	(
-		MRecInfo = yes(RecInfo),
+		MaybeRecInfo = yes(RecInfo),
 		RecInfo ^ role = inner_proc(OuterPredProcId)
 	->
 		OuterPredProcId = proc(PredId, ProcId)
@@ -657,14 +665,14 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
 
 	(
-		MActivationPtr = yes(ActivationPtr1),
+		MaybeActivationPtr = yes(ActivationPtr1),
 		generate_call(ModuleInfo, "det_call_port_code_sr", 4,
 			[ProcStaticVar, TopCSD, MiddleCSD, ActivationPtr1],
 			[TopCSD, MiddleCSD, ActivationPtr1], CallPortCode),
 		generate_call(ModuleInfo, "det_exit_port_code_ac", 3,
 			[TopCSD, MiddleCSD, ActivationPtr1], [], ExitPortCode)
 	;
-		MActivationPtr = no,
+		MaybeActivationPtr = no,
 		generate_call(ModuleInfo, "det_call_port_code_ac", 3,
 			[ProcStaticVar, TopCSD, MiddleCSD],
 			[TopCSD, MiddleCSD], CallPortCode),
@@ -704,29 +712,29 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 		UseActivationCounts = no,
 		varset__new_var(Vars3, ActivationPtr0, Vars5),
 		map__set(VarTypes3, ActivationPtr0, CPointerType, VarTypes5),
-		MActivationPtr = yes(ActivationPtr0)
+		MaybeActivationPtr = yes(ActivationPtr0)
 	;
 		UseActivationCounts = yes,
 		Vars5 = Vars3,
 		VarTypes5 = VarTypes3,
-		MActivationPtr = no
+		MaybeActivationPtr = no
 	),
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
-	
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars5, VarTypes5, FileName, MRecInfo),
+	proc_info_get_maybe_deep_profile_info(Proc0, MaybeRecInfo),
 
-	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
+	DeepInfo0 = deep_info(ModuleInfo, PredProcId, MiddleCSD, 0,
+			[], Vars5, VarTypes5, FileName, MaybeRecInfo),
 
-	Vars = PInfo ^ vars,
-	VarTypes = PInfo ^ var_types,
-	CallSites = PInfo ^ call_sites,
+	transform_goal([], Goal0, TransformedGoal, DeepInfo0, DeepInfo),
+
+	Vars = DeepInfo ^ vars,
+	VarTypes = DeepInfo ^ var_types,
+	CallSites = DeepInfo ^ call_sites,
 
 	(
-		MRecInfo = yes(RecInfo),
+		MaybeRecInfo = yes(RecInfo),
 		RecInfo ^ role = inner_proc(OuterPredProcId)
 	->
 		OuterPredProcId = proc(PredId, ProcId)
@@ -740,7 +748,7 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
 
 	(
-		MActivationPtr = yes(ActivationPtr1),
+		MaybeActivationPtr = yes(ActivationPtr1),
 		generate_call(ModuleInfo, "semi_call_port_code_sr", 4,
 			[ProcStaticVar, TopCSD, MiddleCSD, ActivationPtr1],
 			[TopCSD, MiddleCSD, ActivationPtr1], CallPortCode),
@@ -751,7 +759,7 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			FailPortCode),
 		NewNonlocals = list_to_set([MiddleCSD, ActivationPtr1])
 	;
-		MActivationPtr = no,
+		MaybeActivationPtr = no,
 		generate_call(ModuleInfo, "semi_call_port_code_ac", 3,
 			[ProcStaticVar, TopCSD, MiddleCSD],
 			[TopCSD, MiddleCSD], CallPortCode),
@@ -806,27 +814,27 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 		varset__new_var(Vars4, NewOutermostProcDyn, Vars5),
 		map__set(VarTypes4, NewOutermostProcDyn, CPointerType,
 			VarTypes5),
-		MOldActivationPtr = yes(OldOutermostProcDyn0)
+		MaybeOldActivationPtr = yes(OldOutermostProcDyn0)
 	;
 		UseActivationCounts = yes,
 		varset__new_var(Vars3, NewOutermostProcDyn, Vars5),
 		map__set(VarTypes3, NewOutermostProcDyn, CPointerType,
 			VarTypes5),
-		MOldActivationPtr = no
+		MaybeOldActivationPtr = no
 	),
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
-	
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars5, VarTypes5, FileName, MRecInfo),
+	proc_info_get_maybe_deep_profile_info(Proc0, MaybeRecInfo),
 
-	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
+	DeepInfo0 = deep_info(ModuleInfo, PredProcId, MiddleCSD, 0,
+			[], Vars5, VarTypes5, FileName, MaybeRecInfo),
 
-	Vars = PInfo ^ vars,
-	VarTypes = PInfo ^ var_types,
-	CallSites = PInfo ^ call_sites,
+	transform_goal([], Goal0, TransformedGoal, DeepInfo0, DeepInfo),
+
+	Vars = DeepInfo ^ vars,
+	VarTypes = DeepInfo ^ var_types,
+	CallSites = DeepInfo ^ call_sites,
 
 	PredProcId = proc(PredId, ProcId),
 	RttiProcLabel = rtti__make_proc_label(ModuleInfo, PredId, ProcId),
@@ -835,7 +843,7 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
 
 	(
-		MOldActivationPtr = yes(OldOutermostProcDyn2),
+		MaybeOldActivationPtr = yes(OldOutermostProcDyn2),
 		generate_call(ModuleInfo, "non_call_port_code_sr", 5,
 			[ProcStaticVar, TopCSD, MiddleCSD,
 			OldOutermostProcDyn2, NewOutermostProcDyn],
@@ -854,7 +862,7 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 		NewNonlocals = list_to_set(
 			[TopCSD, MiddleCSD, OldOutermostProcDyn2])
 	;
-		MOldActivationPtr = no,
+		MaybeOldActivationPtr = no,
 		generate_call(ModuleInfo, "non_call_port_code_ac", 4,
 			[ProcStaticVar, TopCSD, MiddleCSD, NewOutermostProcDyn],
 			[TopCSD, MiddleCSD, NewOutermostProcDyn],
@@ -914,23 +922,24 @@ transform_inner_proc(ModuleInfo, PredProcId, Proc0, Proc, no) :-
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
-	
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars3, VarTypes3, FileName, MRecInfo),
+	proc_info_get_maybe_deep_profile_info(Proc0, MaybeRecInfo),
 
-	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
+	DeepInfo0 = deep_info(ModuleInfo, PredProcId, MiddleCSD, 0,
+			[], Vars3, VarTypes3, FileName, MaybeRecInfo),
 
-	Vars = PInfo ^ vars,
-	VarTypes = PInfo ^ var_types,
+	transform_goal([], Goal0, TransformedGoal, DeepInfo0, DeepInfo),
+
+	Vars = DeepInfo ^ vars,
+	VarTypes = DeepInfo ^ var_types,
 
 	(
-		MRecInfo = yes(RecInfo),
+		MaybeRecInfo = yes(RecInfo),
 		RecInfo ^ role = inner_proc(OuterPredProcId)
 	->
 		OuterPredProcId = proc(PredId, ProcId)
 	;
-		PredProcId = proc(PredId, ProcId)
+		error("transform_inner_proc: no rec_info")
+		% XXX PredProcId = proc(PredId, ProcId)
 	),
 
 	RttiProcLabel = rtti__make_proc_label(ModuleInfo, PredId, ProcId),
@@ -1073,16 +1082,36 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	goal_info_get_context(GoalInfo0, Context),
 	FileName0 = term__context_file(Context),
 	LineNumber = term__context_line(Context),
-	compress_filename(DeepInfo0, FileName0, FileName),
+	compress_filename(DeepInfo2, FileName0, FileName),
 	classify_call(ModuleInfo, GoalExpr, CallKind),
 	(
 		CallKind = normal(PredProcId),
 		generate_call(ModuleInfo, "prepare_for_normal_call", 2,
 			[MiddleCSD, SiteNumVar], [], PrepareGoal),
 		PredProcId = proc(PredId, ProcId),
-		RttiProcLabel = rtti__make_proc_label(ModuleInfo,
-			PredId, ProcId),
 		TypeSubst = compute_type_subst(GoalExpr, DeepInfo2),
+		MaybeRecInfo = DeepInfo2 ^ maybe_rec_info,
+		(
+			MaybeRecInfo = yes(RecInfo1),
+			RecInfo1 ^ role = inner_proc(OuterPredProcId),
+			PredProcId = DeepInfo2 ^ pred_proc_id
+		->
+			OuterPredProcId = proc(OuterPredId, OuterProcId),
+			RttiProcLabel = rtti__make_proc_label(ModuleInfo,
+				OuterPredId, OuterProcId)
+		;
+			MaybeRecInfo = yes(RecInfo2),
+			RecInfo2 ^ role = outer_proc(InnerPredProcId),
+			PredProcId = InnerPredProcId
+		->
+			OuterPredProcId = DeepInfo2 ^ pred_proc_id,
+			OuterPredProcId = proc(OuterPredId, OuterProcId),
+			RttiProcLabel = rtti__make_proc_label(ModuleInfo,
+				OuterPredId, OuterProcId)
+		;
+			RttiProcLabel = rtti__make_proc_label(ModuleInfo,
+				PredId, ProcId)
+		),
 		CallSite = normal_call(RttiProcLabel, TypeSubst,
 			FileName, LineNumber, GoalPath),
 		Goal1 = Goal0,
@@ -1135,7 +1164,7 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 			DeepInfo5, DeepInfo),
 		generate_call(ModuleInfo, "set_current_csd", 1,
 			[MiddleCSD], [], ReturnGoal),
-		
+
 		goal_info_get_code_model(GoalInfo, CodeModel),
 		( CodeModel = model_det ->
 			condense([
@@ -1459,18 +1488,19 @@ generate_call(ModuleInfo, Name, Arity, ArgVars, OutputVars, Goal) :-
 :- pred generate_call(module_info::in, string::in, int::in, list(prog_var)::in,
 	maybe(list(prog_var))::in, determinism::in, hlds_goal::out) is det.
 
-generate_call(ModuleInfo, Name, Arity, ArgVars, MOutputVars, Detism, Goal) :-
+generate_call(ModuleInfo, Name, Arity, ArgVars, MaybeOutputVars, Detism,
+		Goal) :-
 	get_deep_profile_builtin_ppid(ModuleInfo, Name, Arity, PredId, ProcId),
 	NonLocals = list_to_set(ArgVars),
 	Ground = ground(shared, none),
 	(
-		MOutputVars = yes(OutputVars),
+		MaybeOutputVars = yes(OutputVars),
 		map((pred(V::in, P::out) is det :-
 			P = V - Ground
 		), OutputVars, OutputInsts),
 		instmap_delta_from_assoc_list(OutputInsts, InstMapDelta)
 	;
-		MOutputVars = no,
+		MaybeOutputVars = no,
 		instmap_delta_init_unreachable(InstMapDelta)
 	),
 	GoalInfo = impure_init_goal_info(NonLocals, InstMapDelta, Detism),
@@ -1560,7 +1590,7 @@ impure_unreachable_init_goal_info(NonLocals, Determinism) = GoalInfo :-
 :- func goal_info_add_nonlocals_make_impure(hlds_goal_info, set(prog_var))
 	= hlds_goal_info.
 
-goal_info_add_nonlocals_make_impure(GoalInfo0, NewNonLocals) = GoalInfo :- 
+goal_info_add_nonlocals_make_impure(GoalInfo0, NewNonLocals) = GoalInfo :-
 	goal_info_get_nonlocals(GoalInfo0, NonLocals0),
 	NonLocals = set__union(NonLocals0, NewNonLocals),
 	goal_info_set_nonlocals(GoalInfo0, NonLocals, GoalInfo1),

@@ -19,10 +19,19 @@
 :- import_module array, bool, char, getopt, int, list, assoc_list.
 :- import_module map, require, set, std_util, string.
 
+:- type profile_stats --->
+	profile_stats(
+		instrument_quanta	:: int,
+		user_quanta		:: int,
+		num_csds		:: int,
+		num_pds			:: int,
+		num_csss		:: int,
+		num_pss			:: int
+	).
+
 :- type initial_deep --->
 	initial_deep(
-		init_inside_quanta	:: int,
-		init_outside_quanta	:: int,
+		init_profile_stats	:: profile_stats,
 
 		init_root		:: proc_dynamic_ptr,
 			% The main arrays, each indexed by own xxx_ptr int
@@ -34,8 +43,7 @@
 
 :- type deep --->
 	deep(
-		inside_quanta		:: int,
-		outside_quanta		:: int,
+		profile_stats		:: profile_stats,
 
 		root			:: proc_dynamic_ptr,
 			% The main arrays, each indexed by own xxx_ptr int
@@ -97,8 +105,8 @@
 
 :- type proc_dynamic
 	--->	proc_dynamic(
-			proc_static_ptr,
-			array(call_site_array_slot)
+			pd_proc_static	:: proc_static_ptr,
+			pd_sites	:: array(call_site_array_slot)
 		).
 
 :- type proc_static
@@ -112,19 +120,21 @@
 
 :- type call_site_dynamic
 	--->	call_site_dynamic(
-			proc_dynamic_ptr,	% the caller proc_dynamic
-			proc_dynamic_ptr,	% the callee proc_dynamic
-			own_prof_info
+			csd_caller	:: proc_dynamic_ptr,
+			csd_callee	:: proc_dynamic_ptr,
+			csd_own_prof	:: own_prof_info
 		).
 
 :- type call_site_static
 	--->	call_site_static(
-			proc_static_ptr,	% the containing procedure
-			int,			% slot number in the
-						% containing procedure
-			call_site_kind_and_callee,
-			int,			% line number
-			string			% goal path
+			css_container	:: proc_static_ptr,
+					   % the containing procedure
+			css_slot_num	:: int,
+					   % slot number in the
+					   % containing procedure
+			css_kind	:: call_site_kind_and_callee,
+			css_line_num	:: int,
+			css_goal_path	:: string
 		).
 
 %-----------------------------------------------------------------------------%
@@ -205,6 +215,9 @@
 	;	input_file
 	;	output_file
 	;	wait
+	;	test
+	;	test_dir
+	;	test_fields
 	.
 
 :- type options ---> options.
@@ -231,17 +244,19 @@
 :- import_module deep:startup.
 
 main -->
+	stderr_stream(StdErr),
+	io__report_stats,
+	write_string(StdErr, "  Handling options...\n"),
 	{ map__init(Globs0) },
 	io__command_line_arguments(Args0),
 	{ getopt__process_options(option_ops(short, long, defaults),
-		Args0, _Args, MOptions) },
+		Args0, _Args, MaybeOptions) },
 	(
-		{ MOptions = ok(Options) },
+		{ MaybeOptions = ok(Options) },
 		{ set_global(Globs0, options, options(Options)) = Globs1 },
 		main2(Globs1)
 	;
-		{ MOptions = error(Msg) },
-		io__stderr_stream(StdErr),
+		{ MaybeOptions = error(Msg) },
 		format(StdErr, "error parsing options: %s\n", [s(Msg)])
 	).
 
@@ -285,7 +300,7 @@ sum_all_csd_quanta(_, call_site_dynamic(_, _, OwnPI), Sum0,
 
 main3(Globals, Deep) -->
 	{ get_global(Globals, options) = options(Options) },
-	( { search(Options, dump, bool(yes)) } ->
+	( { map__search(Options, dump, bool(yes)) } ->
 		dump_graph(Deep)
 	;
 		[]
@@ -297,13 +312,26 @@ main3(Globals, Deep) -->
 	%	[]
 	%),
 	(
-		{ search(Options, server, string(MachineName)) },
-		{ MachineName \= "" },
+		{ map__search(Options, test, bool(Test)) },
+		{ Test = yes },
+		{ map__search(Options, test_dir, string(TestDir)) },
+		{ map__search(Options, test_fields, string(TestFields)) },
+		{ map__search(Options, server, string(Machine)) }
+	->
+		{ string__append_list(["http://", Machine, "/cgi-bin/deep"],
+			URLprefix) },
+		test_server(TestDir, URLprefix, Deep, TestFields)
+	;
+		{ map__search(Options, server, string(Machine)) },
+		{ Machine \= "" },
 		{ map__search(Options, input_file, string(InputFileName)) },
 		{ map__search(Options, output_file, string(OutputFileName)) },
 		{ map__search(Options, wait, int(Wait)) }
 	->
-		server(InputFileName, OutputFileName, Wait, MachineName, Deep)
+		{ string__append_list(["http://", Machine, "/cgi-bin/deep"],
+			URLprefix) },
+		server_loop(InputFileName, OutputFileName, Wait, URLprefix,
+			Deep)
 	;
 		[]
 	),
@@ -479,6 +507,7 @@ short('S',	server).
 short('I',	input_file).
 short('O',	output_file).
 short('W',	wait).
+short('T',	test).
 
 :- pred long(string, option).
 :- mode long(in, out) is semidet.
@@ -497,6 +526,9 @@ long("server",	server).
 long("data-file",	data_file).
 long("input-file",	input_file).
 long("wait",	wait).
+long("test",	test).
+long("test-dir",	test_dir).
+long("test-fields",	test_fields).
 
 :- pred defaults(option, option_data).
 :- mode defaults(out, out) is nondet.
@@ -523,6 +555,9 @@ defaults0(server,	string("")).
 defaults0(input_file,	string("/var/tmp/toDeep")).
 defaults0(output_file,	string("/var/tmp/fromDeep")).
 defaults0(wait,		int(0)).
+defaults0(test,		bool(no)).
+defaults0(test_dir,	string("deep_test")).
+defaults0(test_fields,	string("pqw")).
 
 :- func (get_global(globals, Key) = Value) <= global(Key, Value).
 

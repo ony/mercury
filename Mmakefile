@@ -196,6 +196,19 @@ tags_deep:
 
 #-----------------------------------------------------------------------------#
 
+cleanint:
+	for dir in browser compiler deep library profiler; do \
+		echo looking for inappropriate files in the $$dir directory: ; \
+		( cd $$dir; cleanint > .cleanint ) ; \
+		if test -s $$dir/.cleanint ; then \
+			cat $$dir/.cleanint ; \
+		else \
+			echo none found. ; \
+		fi \
+	done
+
+#-----------------------------------------------------------------------------#
+
 configure: configure.in aclocal.m4
 	autoconf
 

@@ -131,6 +131,18 @@ const char	*main_func_arg[] =
 	"fp"
 };
 
+/* --- macros--- */
+
+#define	SYS_PREFIX_1	"sys_init"
+#define	SYS_PREFIX_2	"mercury_sys_init"
+
+#define	matches_prefix(s, prefix)					\
+			(strncmp((s), (prefix), sizeof(prefix)-1) == 0)
+
+#define	sys_init_prefix(s)						\
+			( matches_prefix(s, SYS_PREFIX_1) ||		\
+			  matches_prefix(s, SYS_PREFIX_2) )
+
 /* --- global variables --- */
 
 static const char *MR_progname = NULL;
@@ -821,8 +833,6 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 	const int		endinit_strlen = strlen(endinit_str);
 	const int		aditi_init_strlen = strlen(aditi_init_str);
 	char			line[MAXLINE];
-	char			*func_name;
-	int			func_name_len;
 	char			*rl_data_name;
 	FILE			*cfile;
 
@@ -836,7 +846,10 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 
 	while (getline(cfile, line, MAXLINE) > 0) {
 		if (strncmp(line, init_str, init_strlen) == 0) {
+			char	*func_name;
+			int	func_name_len;
 			int	j;
+			bool	special;
 
 			for (j = init_strlen;
 				MR_isalnum(line[j]) || line[j] == '_'; j++)
@@ -847,19 +860,16 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 
 			func_name = line + init_strlen;
 			func_name_len = strlen(func_name);
-			if (strcmp(&func_name[func_name_len - 4], "init") == 0)
+			if (strneq(&func_name[func_name_len - 4], "init", 4))
 			{
 				func_name[func_name_len - 4] = '\0';
-				output_init_function(func_name,
-					num_bunches_ptr,
-					num_calls_in_cur_bunch_ptr,
-					purpose, FALSE);
+				special = FALSE;
 			} else {
-				output_init_function(line + init_strlen,
-					num_bunches_ptr,
-					num_calls_in_cur_bunch_ptr,
-					purpose, TRUE);
+				special = TRUE;
 			}
+
+			output_init_function(func_name, num_bunches_ptr,
+				num_calls_in_cur_bunch_ptr, purpose, special);
 		} else if (aditi &&
 			strncmp(line, aditi_init_str, aditi_init_strlen) == 0)
 		{
@@ -885,12 +895,6 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 	fclose(cfile);
 }
 
-#define	SYS_PREFIX_1	"sys_init"
-#define	SYS_PREFIX_2	"mercury_sys_init"
-
-#define	matches_prefix(s, prefix)	\
-			(strncmp((s), (prefix), sizeof(prefix)-1) == 0)
-
 /*
 ** We could in theory put all calls to e.g. <module>_init_type_tables()
 ** functions in a single C function in the <mainmodule>_init.c file we
@@ -906,15 +910,11 @@ static void
 output_init_function(const char *func_name, int *num_bunches_ptr,
 	int *num_calls_in_cur_bunch_ptr, Purpose purpose, bool special_module)
 {
-	if (purpose != PURPOSE_INIT) {
-		/* if (matches_prefix(func_name, SYS_PREFIX_1) */
-		/* || matches_prefix(func_name, SYS_PREFIX_2)) */
+	if (purpose == PURPOSE_DEBUGGER) {
 		if (special_module) {
 			/*
-			** This is a handwritten "module" which has only
-			** one handwritten initialization function; it does not
-			** have separate initialization functions to register
-			** type_ctor_infos or module layouts.
+			** This is a handwritten "module" which doesn't have
+			** a module layout to register.
 			*/
 
 			return;
@@ -934,19 +934,21 @@ output_init_function(const char *func_name, int *num_bunches_ptr,
 
 	(*num_calls_in_cur_bunch_ptr)++;
 
+#if 0
 	if (special_module) {
 		printf("\t{ extern void %s(%s);\n", func_name,
 			main_func_arg_decl[purpose]);
 		printf("\t  %s(%s); }\n", func_name,
 			main_func_arg[purpose]);
 	} else {
-		printf("\t{ extern void %s%s(%s);\n",
-			func_name, module_suffix[purpose],
-			main_func_arg_decl[purpose]);
-		printf("\t  %s%s(%s); }\n",
-			func_name, module_suffix[purpose],
-			main_func_arg[purpose]);
-	}
+#endif
+
+	printf("\t{ extern void %s%s%s(%s);\n",
+		func_name, special_module ? "_" : "", module_suffix[purpose],
+		main_func_arg_decl[purpose]);
+	printf("\t  %s%s%s(%s); }\n",
+		func_name, special_module ? "_" : "", module_suffix[purpose],
+		main_func_arg[purpose]);
 }
 
 /*---------------------------------------------------------------------------*/

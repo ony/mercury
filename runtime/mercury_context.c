@@ -377,7 +377,26 @@ MR_define_entry(MR_do_runnext);
 
 MR_END_MODULE
 
-void mercury_sys_init_scheduler_wrapper(void); /* suppress gcc warning */
-void mercury_sys_init_scheduler_wrapper(void) {
+/* forward decls to suppress gcc warnings */
+void mercury_sys_init_scheduler_wrapper_init(void);
+void mercury_sys_init_scheduler_wrapper_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_scheduler_wrapper_write_out_proc_statics(FILE *fp);
+#endif
+
+void mercury_sys_init_scheduler_wrapper_init(void)
+{
 	scheduler_module();
 }
+
+void mercury_sys_init_scheduler_wrapper_init_type_tables(void)
+{
+	/* no types to register */
+}
+
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_scheduler_wrapper_write_out_proc_statics(FILE *fp)
+{
+	/* no proc_statics to write out */
+}
+#endif

@@ -59,9 +59,9 @@ read_call_graph(FileName, Res) -->
 		read_sequence2(
 			read_num,
 			read_num,
-			(pred(InsideQuanta::in, OutsideQuanta::in,
+			(pred(InstrumentQuanta::in, UserQuanta::in,
 					ResInitDeep::out) is det :-
-				init_deep(InsideQuanta, OutsideQuanta,
+				init_deep(InstrumentQuanta, UserQuanta,
 					InitDeep0),
 				ResInitDeep = ok(InitDeep0)
 			),
@@ -84,10 +84,13 @@ read_call_graph(FileName, Res) -->
 
 :- pred init_deep(int::in, int::in, initial_deep::out) is det.
 
-init_deep(InsideQuanta, OutsideQuanta, InitDeep) :-
+init_deep(InstrumentQuanta, UserQuanta, InitDeep) :-
+	InitStats = profile_stats(
+		InstrumentQuanta,
+		UserQuanta,
+		-1, -1, -1, -1),
 	InitDeep = initial_deep(
-		InsideQuanta,
-		OutsideQuanta,
+		InitStats,
 		proc_dynamic_ptr(-1),
 		init(1, call_site_dynamic(
 				proc_dynamic_ptr(-1),
@@ -353,8 +356,20 @@ raw_proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 :- func refined_proc_id_to_string(proc_id) = string.
 
 refined_proc_id_to_string(compiler_generated(TypeName, TypeModule, _DefModule,
-		PredName, _Arity, _Mode)) =
-	string__append_list([PredName, " for ", TypeModule, ":", TypeName]).
+		RawPredName, _Arity, _Mode)) = Name :-
+	( RawPredName = "__Unify__" ->
+		PredName = "Unify"
+	; RawPredName = "__Compare__" ->
+		PredName = "Compare"
+	; RawPredName = "__Index__" ->
+		PredName = "Index"
+	;
+		string__append("unknown special predicate name ", RawPredName,
+			Msg),
+		error(Msg)
+	),
+	Name = string__append_list(
+		[PredName, " for ", TypeModule, ":", TypeName]).
 refined_proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 		ProcName, Arity, Mode)) = Name :-
 	(
@@ -1379,6 +1394,13 @@ resize_arrays(ok2(InitDeep0, PI), ok(InitDeep)) :-
 	PSs0 = InitDeep3 ^ init_proc_statics,
 	lookup(PSs0, 0, PSx),
 	resize(u(PSs0), PSMax + 1, PSx, PSs),
-	InitDeep = InitDeep3 ^ init_proc_statics := PSs.
+	InitDeep4 = InitDeep3 ^ init_proc_statics := PSs,
+
+	ProfileStats0 = InitDeep4 ^ init_profile_stats,
+	ProfileStats0 = profile_stats(InstrumentQuanta, UserQuanta,
+		_, _, _, _),
+	ProfileStats = profile_stats(InstrumentQuanta, UserQuanta,
+		CSDMax, PDMax, CSSMax, PSMax),
+	InitDeep = InitDeep4 ^ init_profile_stats := ProfileStats.
 
 %-----------------------------------------------------------------------------%

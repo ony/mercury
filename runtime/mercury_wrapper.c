@@ -361,9 +361,11 @@ mercury_runtime_init(int argc, char **argv)
 		MR_prof_init();
 	}
 #endif
-#if defined(MR_DEEP_PROFILING)
-	if (MR_profiling) {
+
+#ifdef  MR_DEEP_PROFILING_TIMING
+	if (MR_deep_profiling_save_results) {
 		MR_deep_prof_init();
+		MR_deep_prof_turn_on_time_profiling();
 	}
 #endif
 
@@ -1094,24 +1096,6 @@ mercury_runtime_main(void)
 	}
 #endif
 
-	/*
-	** XXX some of the following code should be
-	** in mercury_runtime_terminate
-	*/
-
-#ifdef MR_DEEP_PROFILING
-	if (MR_deep_profiling_save_results) {
-		FILE	*fp;
-
-		fp = fopen("Deep.data", "w");
-		if (fp != NULL) {
-			MR_write_out_profiling_tree(fp);
-		} else {
-			MR_fatal_error("Cannot open Deep.data");
-		}
-	}
-#endif
-
 #ifdef MEASURE_REGISTER_USAGE
 	printf("\n");
 	print_register_usage_counts();
@@ -1367,13 +1351,6 @@ MR_define_entry(MR_do_interpreter);
 	}
 #endif
 
-#ifdef  MR_DEEP_PROFILING_TIMING
-	/* XXX should be mercury_runtime_init */
-	if (MR_profiling) {
-		MR_deep_prof_turn_on_time_profiling();
-	}
-#endif
-
 	MR_noprof_call(MR_program_entry_point, MR_LABEL(global_success));
 
 MR_define_label(global_success);
@@ -1409,13 +1386,6 @@ MR_define_label(all_done);
 #ifdef  MR_MPROF_PROFILE_TIME
 	if (MR_profiling) {
 		MR_prof_turn_off_time_profiling();
-	}
-#endif
-
-#ifdef  MR_DEEP_PROFILING_TIMING
-	/* XXX should be mercury_runtime_terminate */
-	if (MR_profiling) {
-		MR_deep_prof_turn_off_time_profiling();
 	}
 #endif
 
@@ -1468,9 +1438,26 @@ mercury_runtime_terminate(void)
 
 	MR_trace_final();
 
+#if defined(MR_MPROF_PROFILE_TIME) || defined(MR_MPROF_PROFILE_CALLS) \
+		|| defined(MR_MPROF_PROFILE_MEMORY)
 	if (MR_profiling) {
 		MR_prof_finish();
 	}
+#endif
+
+#ifdef MR_DEEP_PROFILING
+	if (MR_deep_profiling_save_results) {
+		FILE	*fp;
+
+		MR_deep_prof_turn_off_time_profiling();
+		fp = fopen("Deep.data", "w");
+		if (fp != NULL) {
+			MR_write_out_profiling_tree(fp);
+		} else {
+			MR_fatal_error("Cannot open Deep.data");
+		}
+	}
+#endif
 
 #ifndef MR_HIGHLEVEL_CODE
   #ifdef MR_THREAD_SAFE
@@ -1507,9 +1494,32 @@ MR_load_aditi_rl_code(void)
 }
 
 /*---------------------------------------------------------------------------*/
-void mercury_sys_init_wrapper(void); /* suppress gcc warning */
-void mercury_sys_init_wrapper(void) {
+
+/* forward decls to suppress gcc warnings */
+void mercury_sys_init_wrapper_init(void);
+void mercury_sys_init_wrapper_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_wrapper_write_out_proc_statics(FILE *fp);
+#endif
+
+void
+mercury_sys_init_wrapper_init(void)
+{
 #ifndef MR_HIGHLEVEL_CODE
 	interpreter_module();
 #endif
 }
+
+void
+mercury_sys_init_wrapper_init_type_tables(void)
+{
+	/* no types to register */
+}
+
+#ifdef	MR_DEEP_PROFILING
+void
+mercury_sys_init_wrapper_write_out_proc_statics(FILE *fp)
+{
+	/* no proc_statics to write out */
+}
+#endif

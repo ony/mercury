@@ -697,9 +697,28 @@ MR_define_entry(MR_exception_handler_do_fail);
 
 MR_END_MODULE
 
-void mercury_sys_init_engine(void); /* suppress gcc warning */
-void mercury_sys_init_engine(void) {
+/* forward decls to suppress gcc warnings */
+void mercury_sys_init_engine_init(void);
+void mercury_sys_init_engine_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_engine_write_out_proc_statics(FILE *fp);
+#endif
+
+void mercury_sys_init_engine_init(void)
+{
 	special_labels_module();
 }
+
+void mercury_sys_init_engine_init_type_tables(void)
+{
+	/* no types to register */
+}
+
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_engine_write_out_proc_statics(FILE *fp)
+{
+	/* no proc_statics to write out */
+}
+#endif
 
 /*---------------------------------------------------------------------------*/

@@ -64,6 +64,8 @@
 	call_site_static_ptr::out) is det.
 :- pred deep_lookup_call_site_calls(deep::in, call_site_static_ptr::in,
 	map(proc_static_ptr, list(call_site_dynamic_ptr))::out) is det.
+:- pred deep_lookup_proc_dynamic_sites(deep::in, proc_dynamic_ptr::in,
+	array(call_site_array_slot)::out) is det.
 
 :- pred deep_lookup_pd_own(deep::in, proc_dynamic_ptr::in,
 	own_prof_info::out) is det.
@@ -224,6 +226,10 @@ deep_lookup_call_site_static_map(Deep, CSDPtr, CSSPtr) :-
 deep_lookup_call_site_calls(Deep, CSSPtr, Calls) :-
 	CSSPtr = call_site_static_ptr(CSSI),
 	array__lookup(Deep ^ call_site_calls, CSSI, Calls).
+
+deep_lookup_proc_dynamic_sites(Deep, PDPtr, PDSites) :-
+	deep_lookup_proc_dynamics(Deep, PDPtr, PD),
+	PDSites = PD ^ pd_sites.
 
 %-----------------------------------------------------------------------------%
 

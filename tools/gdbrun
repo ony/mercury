@@ -12,6 +12,17 @@ program="$1"
 tmpfile=/tmp/gdbrun.$$
 trap "rm -f $tmpfile" 0 1 2 3 13 15
 shift
-echo run "$@" > "$tmpfile"
+echo -n "run " > "$tmpfile"
+for arg in "$@"
+do
+	if echo "$arg" | grep " " > /dev/null
+	then
+		echo -n "\"$arg\" " >> $tmpfile
+	else
+		echo -n "$arg " >> $tmpfile
+	fi
+done
+echo >> $tmpfile
+
 echo gdb --command="$tmpfile" $program
 gdb --command="$tmpfile" $program

@@ -127,7 +127,13 @@ void
 MR_proceed_msg(void)
 {
 	printf("\nreturning from determinate procedure\n");
-	MR_printregs("registers at proceed");
+	if (MR_sregdebug) {
+		MR_printregs("registers at proceed");
+	}
+
+#ifdef	MR_DEEP_PROFILING
+	MR_print_deep_prof_vars(stdout);
+#endif
 }
 
 void 
@@ -312,14 +318,16 @@ MR_print_ordinary_regs(void)
 		}
 #endif
 
-		printf("%ld\n", (long) value);
+		printf("%ld %lx\n", (long) value, (long) value);
 	}
 
+#if 0
 	if (MR_sp >= &MR_CONTEXT(MR_ctxt_detstack_zone)->min[300]) {
 		for (i = 321; i < 335; i++) {
 			MR_printdetslot_as_label(i);
 		}
 	}
+#endif
 }
 
 #endif /* defined(MR_DEBUG_GOTOS) */

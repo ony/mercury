@@ -152,9 +152,9 @@ MR_define_entry(mercury__do_call_closure);
 MR_define_entry(mercury__do_call_class_method);
 {
 	MR_Code 	*destination;
-	int	num_in_args;
-	int	num_extra_instance_args;
-	int	i;
+	int		num_in_args;
+	int		num_extra_instance_args;
+	int		i;
 
 	destination = MR_typeclass_info_class_method(MR_r1, MR_r2);
 	num_extra_instance_args = 
@@ -410,9 +410,29 @@ MR_generic_compare(MR_TypeInfo type_info, MR_Word x, MR_Word y)
 ** in the list of initialization functions that get called.
 ** So for MR_HIGHLEVEL_CODE it just does nothing.
 */
-void mercury_sys_init_call(void); /* suppress gcc warning */
-void mercury_sys_init_call(void) {
+
+/* forward decls to suppress gcc warnings */
+void mercury_sys_init_call_init(void);
+void mercury_sys_init_call_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_call_write_out_proc_statics(FILE *fp);
+#endif
+
+void mercury_sys_init_call_init(void)
+{
 #ifndef MR_HIGHLEVEL_CODE
 	call_module();
 #endif /* not MR_HIGHLEVEL_CODE */
 }
+
+void mercury_sys_init_call_init_type_tables(void)
+{
+	/* no types to register */
+}
+
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_call_write_out_proc_statics(FILE *fp)
+{
+	/* no proc_statics to write out */
+}
+#endif

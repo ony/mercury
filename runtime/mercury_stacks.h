@@ -22,7 +22,7 @@
 /* DEFINITIONS FOR MANIPULATING THE DET STACK */
 
 #define	MR_based_stackvar(base_sp, n)	((base_sp)[-(n)])
-#define	MR_stackvar(n)			MR_based_stackvar(MR_sp, n)
+#define	MR_stackvar(n)			MR_based_stackvar(MR_sp, (n))
 
 #define	MR_incr_sp_push_msg(n, msg)				\
 			(					\
@@ -308,7 +308,7 @@ typedef struct MR_Exception_Handler_Frame_struct {
 		** builtin_throw/1), and save the stuff we will		      \
 		** need if an exception is thrown.			      \
 		*/							      \
-		MR_mkpragmaframe((name), 0,				      \
+		MR_mkpragmaframe((name), 0,  				      \
 			MR_Exception_Handler_Frame_struct,		      \
 			MR_ENTRY(MR_exception_handler_do_fail));	      \
 		/* record the handler's code model */			      \

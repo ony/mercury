@@ -45,8 +45,8 @@
 :- impure pred det_exit_port_code_sr(call_site_dynamic::in,
 	call_site_dynamic::in, proc_dynamic::in) is det.
 
-:- impure pred semi_call_port_code_ac(proc_static::in, call_site_dynamic::out,
-	call_site_dynamic::out) is det.
+:- impure pred semi_call_port_code_ac(proc_static::in,
+	call_site_dynamic::out, call_site_dynamic::out) is det.
 
 :- impure pred semi_call_port_code_sr(proc_static::in, call_site_dynamic::out,
 	call_site_dynamic::out, proc_dynamic::out) is det.
@@ -139,8 +139,8 @@
 % Activation count versions
 %------------------------------------------------------------------------------%
 
-det_call_port_code_ac(ProcDescr, TopCSD, MiddleCSD) :-
-	impure create_proc_dynamic_ac(ProcDescr, TopCSD, MiddleCSD, _),
+det_call_port_code_ac(ProcStatic, TopCSD, MiddleCSD) :-
+	impure create_proc_dynamic_ac(ProcStatic, TopCSD, MiddleCSD, _),
 	%	done by create_proc_dynamic_ac
 	%impure increment_activation_count(MiddleCSD),
 	impure increment_call_count(MiddleCSD).
@@ -150,8 +150,8 @@ det_exit_port_code_ac(TopCSD, MiddleCSD) :-
 	impure decrement_activation_count(MiddleCSD),
 	impure set_current_csd(TopCSD).
 
-semi_call_port_code_ac(ProcDescr, TopCSD, MiddleCSD) :-
-	impure create_proc_dynamic_ac(ProcDescr, TopCSD, MiddleCSD, _),
+semi_call_port_code_ac(ProcStatic, TopCSD, MiddleCSD) :-
+	impure create_proc_dynamic_ac(ProcStatic, TopCSD, MiddleCSD, _),
 	%	done by create_proc_dynamic1_ac
 	%impure increment_activation_count(MiddleCSD),
 	impure increment_call_count(MiddleCSD).
@@ -167,8 +167,8 @@ semi_fail_port_code_ac(TopCSD, MiddleCSD) :-
 	impure set_current_csd(TopCSD),
 	fail.
 
-non_call_port_code_ac(ProcDescr, TopCSD, MiddleCSD, NewActivationPtr) :-
-	impure create_proc_dynamic_ac(ProcDescr, TopCSD, MiddleCSD,
+non_call_port_code_ac(ProcStatic, TopCSD, MiddleCSD, NewActivationPtr) :-
+	impure create_proc_dynamic_ac(ProcStatic, TopCSD, MiddleCSD,
 		NewActivationPtr),
 	%	done by create_proc_dynamic_ac
 	%impure increment_activation_count(MiddleCSD),
@@ -195,8 +195,8 @@ non_fail_port_code_ac(TopCSD, MiddleCSD) :-
 % Non-activation count versions
 %------------------------------------------------------------------------------%
 
-det_call_port_code_sr(ProcDescr, TopCSD, MiddleCSD, OldActivationPtr) :-
-	impure create_proc_dynamic_sr(ProcDescr, TopCSD, MiddleCSD,
+det_call_port_code_sr(ProcStatic, TopCSD, MiddleCSD, OldActivationPtr) :-
+	impure create_proc_dynamic_sr(ProcStatic, TopCSD, MiddleCSD,
 		OldActivationPtr, _NewActivationPtr),
 	impure increment_call_count(MiddleCSD).
 
@@ -205,8 +205,8 @@ det_exit_port_code_sr(TopCSD, MiddleCSD, OutermostActivationPtr) :-
 	impure set_outermost_activation_ptr(MiddleCSD, OutermostActivationPtr),
 	impure set_current_csd(TopCSD).
 
-semi_call_port_code_sr(ProcDescr, TopCSD, MiddleCSD, OldActivationPtr) :-
-	impure create_proc_dynamic_sr(ProcDescr, TopCSD, MiddleCSD,
+semi_call_port_code_sr(ProcStatic, TopCSD, MiddleCSD, OldActivationPtr) :-
+	impure create_proc_dynamic_sr(ProcStatic, TopCSD, MiddleCSD,
 		OldActivationPtr, _NewActivationPtr),
 	impure increment_call_count(MiddleCSD).
 
@@ -221,9 +221,9 @@ semi_fail_port_code_sr(TopCSD, MiddleCSD, OutermostActivationPtr) :-
 	impure set_current_csd(TopCSD),
 	fail.
 
-non_call_port_code_sr(ProcDescr, TopCSD, MiddleCSD,
+non_call_port_code_sr(ProcStatic, TopCSD, MiddleCSD,
 		OldActivationPtr, NewActivationPtr) :-
-	impure create_proc_dynamic_sr(ProcDescr, TopCSD, MiddleCSD,
+	impure create_proc_dynamic_sr(ProcStatic, TopCSD, MiddleCSD,
 		OldActivationPtr, NewActivationPtr),
 	impure increment_call_count(MiddleCSD).
 
@@ -246,8 +246,8 @@ non_fail_port_code_sr(TopCSD, MiddleCSD, OldOutermostProcDyn) :-
 
 %------------------------------------------------------------------------------%
 
-inner_call_port_code(ProcDescr, MiddleCSD) :-
-	impure create_proc_dynamic_inner(ProcDescr, MiddleCSD),
+inner_call_port_code(ProcStatic, MiddleCSD) :-
+	impure create_proc_dynamic_inner(ProcStatic, MiddleCSD),
 	impure increment_recursion_depth(MiddleCSD).
 
 %------------------------------------------------------------------------------%

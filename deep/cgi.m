@@ -94,6 +94,50 @@ main -->
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)
 		;
+			{ Pieces = ["proc_static", NStr] },
+			{ string__to_int(NStr, N) }
+		->
+			to("/var/tmp/toDeep", proc_static(N)),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["call_site_static", NStr] },
+			{ string__to_int(NStr, N) }
+		->
+			to("/var/tmp/toDeep", call_site_static(N)),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["num_proc_statics"] }
+		->
+			to("/var/tmp/toDeep", num_proc_statics),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["num_call_site_statics"] }
+		->
+			to("/var/tmp/toDeep", num_call_site_statics),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["num_proc_dynamics"] }
+		->
+			to("/var/tmp/toDeep", num_proc_dynamics),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["num_call_site_dynamics"] }
+		->
+			to("/var/tmp/toDeep", num_call_site_dynamics),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
 			{ Pieces = ["quit"] }
 		->
 			to("/var/tmp/toDeep", quit),

@@ -19,7 +19,13 @@
 	;	clique(int, fields)
 	;	proc(int, fields)
 	;	top_procs(sort_measurement, include_descendants,
-			display_limit, fields).
+			display_limit, fields)
+	;	proc_static(int)
+	;	call_site_static(int)
+	;	num_proc_statics
+	;	num_call_site_statics
+	;	num_proc_dynamics
+	;	num_call_site_dynamics.
 
 :- type sort_measurement
 	--->	calls

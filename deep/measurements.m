@@ -8,6 +8,8 @@
 
 :- interface.
 
+:- import_module list.
+
 :- type own_prof_info.
 :- type inherit_prof_info.
 
@@ -35,6 +37,9 @@
 	= inherit_prof_info.
 :- func add_inherit_to_own(inherit_prof_info, own_prof_info) = own_prof_info.
 :- func add_own_to_own(own_prof_info, own_prof_info) = own_prof_info.
+
+:- func sum_own_infos(list(own_prof_info)) = own_prof_info.
+:- func sum_inherit_infos(list(inherit_prof_info)) = inherit_prof_info.
 
 :- func compress_profile(int, int, int, int, int, int, int) = own_prof_info.
 :- func compress_profile(own_prof_info) = own_prof_info.
@@ -135,6 +140,12 @@ add_own_to_own(PI1, PI2) = SumPI :-
 	Words = words(PI1) + words(PI2),
 	SumPI = compress_profile(Calls, Exits, Fails, Redos,
 		Quanta, Mallocs, Words).
+
+sum_own_infos(Owns) =
+	list__foldl(add_own_to_own, Owns, zero_own_prof_info).
+
+sum_inherit_infos(Inherits) =
+	list__foldl(add_inherit_to_inherit, Inherits, zero_inherit_prof_info).
 
 compress_profile(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words) = PI :-
 	(
