@@ -46,6 +46,26 @@
 :- pred inst_graph__reachable_from_list(inst_graph, list(prog_var), prog_var).
 :- mode inst_graph__reachable_from_list(in, in, out) is nondet.
 
+:- pred inst_graph__foldl_reachable(pred(prog_var, T, T), inst_graph,
+		prog_var, T, T).
+:- mode inst_graph__foldl_reachable(pred(in, in, out) is det, in, in,
+		in, out) is det.
+
+:- pred inst_graph__foldl_reachable_from_list(pred(prog_var, T, T), inst_graph,
+		list(prog_var), T, T).
+:- mode inst_graph__foldl_reachable_from_list(pred(in, in, out) is det, in, in,
+		in, out) is det.
+
+:- pred inst_graph__foldl_reachable2(pred(prog_var, T, T, U, U), inst_graph,
+		prog_var, T, T, U, U).
+:- mode inst_graph__foldl_reachable2(pred(in, in, out, in, out) is det, in, in,
+		in, out, in, out) is det.
+
+:- pred inst_graph__foldl_reachable_from_list2(pred(prog_var, T, T, U, U),
+		inst_graph, list(prog_var), T, T, U, U).
+:- mode inst_graph__foldl_reachable_from_list2(pred(in, in, out, in, out)
+		is det, in, in, in, out, in, out) is det.
+
 :- pred inst_graph__corresponding_nodes(inst_graph, prog_var, prog_var,
 		prog_var, prog_var).
 :- mode inst_graph__corresponding_nodes(in, in, in, out, out) is multi.
@@ -160,6 +180,62 @@ inst_graph__reachable(InstGraph, Var, Reachable) :-
 inst_graph__reachable_from_list(InstGraph, Vars, Reachable) :-
 	list__member(Var, Vars),
 	inst_graph__reachable(InstGraph, Var, Reachable).
+
+inst_graph__foldl_reachable(P, InstGraph, Var) -->
+	% aggregate(inst_graph__reachable(InstGraph, Var), P).
+	inst_graph__foldl_reachable_aux(P, InstGraph, Var, set__init).
+
+:- pred inst_graph__foldl_reachable_aux(pred(prog_var, T, T), inst_graph,
+		prog_var, set(prog_var), T, T).
+:- mode inst_graph__foldl_reachable_aux(pred(in, in, out) is det, in, in,
+		in, in, out) is det.
+
+inst_graph__foldl_reachable_aux(P, InstGraph, Var, Seen) -->
+	P(Var),
+	{ map__lookup(InstGraph, Var, node(Functors, _)) },
+	map__foldl((pred(_ConsId::in, Args::in, in, out) is det -->
+		list__foldl((pred(Arg::in, in, out) is det -->
+			( { Arg `member` Seen } ->
+			    []
+			;
+			    inst_graph__foldl_reachable_aux(P,
+				InstGraph, Arg, Seen `insert` Arg)
+			)
+		    ), Args)
+	    ), Functors).
+
+inst_graph__foldl_reachable_from_list(P, InstGraph, Vars) -->
+	list__foldl(inst_graph__foldl_reachable(P, InstGraph), Vars).
+
+inst_graph__foldl_reachable2(P, InstGraph, Var, Acc0, Acc) -->
+	% aggregate2(inst_graph__reachable(InstGraph, Var), P, Acc0, Acc).
+	inst_graph__foldl_reachable_aux2(P, InstGraph, Var, set__init,
+		Acc0, Acc).
+
+:- pred inst_graph__foldl_reachable_aux2(pred(prog_var, T, T, U, U),
+		inst_graph, prog_var, set(prog_var), T, T, U, U).
+:- mode inst_graph__foldl_reachable_aux2(pred(in, in, out, in, out) is det,
+		in, in, in, in, out, in, out) is det.
+
+
+inst_graph__foldl_reachable_aux2(P, InstGraph, Var, Seen, Acc0, Acc) -->
+	P(Var, Acc0, Acc1),
+	{ map__lookup(InstGraph, Var, node(Functors, _)) },
+	map__foldl2((pred(_ConsId::in, Args::in, A0::in, A::out, in, out)
+			is det -->
+		list__foldl2((pred(Arg::in, B0::in, B::out, in, out) is det -->
+			( { Arg `member` Seen } ->
+			    { B = B0 }
+			;
+			    inst_graph__foldl_reachable_aux2(P, InstGraph, Arg,
+			    	Seen `insert` Arg, B0, B)
+			)
+		    ), Args, A0, A)
+	    ), Functors, Acc1, Acc).
+
+inst_graph__foldl_reachable_from_list2(P, InstGraph, Vars, Acc0, Acc) -->
+	list__foldl2(inst_graph__foldl_reachable2(P, InstGraph), Vars,
+		Acc0, Acc).
 
 inst_graph__corresponding_nodes(InstGraph, A, B, V, W) :-
 	inst_graph__corresponding_nodes(InstGraph, InstGraph, A, B, V, W).

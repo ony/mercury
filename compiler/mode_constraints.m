@@ -161,12 +161,12 @@ number_robdd_variables_in_pred(PredId, ModuleInfo0, ModuleInfo) -->
 	{ pred_info_clauses_info(PredInfo1, ClausesInfo0) },
 	{ clauses_info_headvars(ClausesInfo0, HeadVars) },
 	{ InstGraph = PredInfo1^inst_graph_info^implementation_inst_graph },
-	aggregate(inst_graph__reachable_from_list(InstGraph, HeadVars),
+	inst_graph__foldl_reachable_from_list(
 		( pred(V::in, in, out) is det -->
 		    mode_constraint_var(in(V), _),
 		    mode_constraint_var(out(V), _),
 		    mode_constraint_var(V `at` [], _)
-		)),
+		), InstGraph, HeadVars),
 
 	( { pred_info_is_imported(PredInfo0) } ->
 	    { ModuleInfo = ModuleInfo0 }
@@ -294,13 +294,12 @@ number_robdd_variables_in_unify(InstGraph, GoalPath, Vars, RHS0, RHS) -->
 	% lambda-quantified variables.
 	{ LambdaHeadVars = LambdaNonLocals `list__append` LambdaVars },
 	update_mc_info(pred(in, out) is det -->
-	    aggregate(
-		inst_graph__reachable_from_list(InstGraph, LambdaHeadVars),
+	    inst_graph__foldl_reachable_from_list(
 		( pred(V::in, in, out) is det -->
 		    mode_constraint_var(in(V), _),
 		    mode_constraint_var(out(V), _),
 		    mode_constraint_var(V `at` [], _)
-		))),
+		), InstGraph, LambdaHeadVars)),
 
 	% Number variables within the lambda goal.
 	number_robdd_variables_in_goal(InstGraph, set__init, _Occurring,
@@ -320,10 +319,11 @@ number_robdd_variables_at_goal_path(InstGraph, GoalPath, ParentNonLocals,
 		Occurring) },
 	{ Vars = set__to_sorted_list(ParentNonLocals `set__union` 
 		set__list_to_set(Vars0)) },
-	aggregate(inst_graph__reachable_from_list(InstGraph, Vars),
+	% XXX may be able to make this more efficient.
+	inst_graph__foldl_reachable_from_list(
 	    (pred(V::in, in, out) is det -->
 	    	update_mc_info(mode_constraint_var(V `at` GoalPath), _)
-	    )).
+	    ), InstGraph, Vars).
 
 :- pred number_robdd_variables_in_goals(inst_graph::in, set(prog_var)::in,
 	set(prog_var)::out, hlds_goals::in, hlds_goals::out,
@@ -1243,7 +1243,7 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 	InstGraph =^ inst_graph,
 	{ map__lookup(InstGraph, A, node(Functors, _)) },
 	{ map__lookup(Functors, ConsId, Args) },
-	aggregate2(inst_graph__reachable_from_list(InstGraph, Args),
+	inst_graph__foldl_reachable_from_list2(
 		( pred(V::in, C0::in, C::out, in, out) is det -->
 		    ( { V \= A } ->
 			get_var(V `at` GoalPath, Vgp),
@@ -1251,25 +1251,25 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 		    ;
 			{ C = C0 }
 		    )
-		), Constraint1, Constraint).
+		), InstGraph, Args, Constraint1, Constraint).
 
 unify_constraints(Var, GoalPath, RHS0, RHS, Constraint0, Constraint) -->
 	{ RHS0 = lambda_goal(A,B,C, NonLocals, LambdaVars, Modes, G, Goal0) },
 	InstGraph =^ inst_graph,
 
 	% Variable Var is made ground by this goal.
-	aggregate2(inst_graph__reachable(InstGraph, Var),
+	inst_graph__foldl_reachable2(
 		( pred(V::in, Cn0::in, Cn::out, in, out) is det -->
 		    get_var(V `at` GoalPath, Vgp),
 		    { Cn = Cn0 ^ var(Vgp) }
-		), Constraint0, Constraint1),
+		), InstGraph, Var, Constraint0, Constraint1),
 
 	% The lambda NonLocals are not bound by this goal.
-	aggregate2(inst_graph__reachable_from_list(InstGraph, NonLocals),
+	inst_graph__foldl_reachable_from_list2(
 		( pred(V::in, Cn0::in, Cn::out, in, out) is det -->
 		    get_var(V `at` GoalPath, Vgp),
 		    { Cn = Cn0 ^ not_var(Vgp) }
-		), Constraint1, Constraint2),
+		), InstGraph, NonLocals, Constraint1, Constraint2),
 
 	% Record the higher-order mode of this lambda goal.
 	HoModes0 =^ ho_modes,
@@ -1379,13 +1379,12 @@ higher_order_call_constraints(Constraint0, Constraint) -->
 
 negation_constraints(GoalPath, NonLocals, Constraint0, Constraint) -->
 	InstGraph =^ inst_graph,
-	aggregate2((pred(V::out) is nondet :-
-			member(NonLocal, NonLocals),
-			inst_graph__reachable(InstGraph, NonLocal, V)
-		), (pred(V::in, C0::in, C::out, in, out) is det -->
+	inst_graph__foldl_reachable_from_list2(
+		(pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
 			{ C = C0 ^ not_var(Vgp) }
-		), Constraint0, Constraint).
+		), InstGraph, to_sorted_list(NonLocals),
+		Constraint0, Constraint).
 
 :- pred generic_call_constrain_var(prog_var::in, goal_path::in,
 	mode_constraint::in, mode_constraint::out,
@@ -1393,12 +1392,12 @@ negation_constraints(GoalPath, NonLocals, Constraint0, Constraint) -->
 
 generic_call_constrain_var(Var, GoalPath, Constraint0, Constraint) -->
 	InstGraph =^ inst_graph,
-	aggregate2(inst_graph__reachable(InstGraph, Var),
+	inst_graph__foldl_reachable2(
 	    ( pred(V::in, C0::in, C::out, in, out) is det -->
 		get_var(out(V), Vout),
 		get_var(V `at` GoalPath, Vgp),
 		{ C = C0 ^ var(Vout) ^ not_var(Vgp) }
-	    ), Constraint0, Constraint).
+	    ), InstGraph, Var, Constraint0, Constraint).
 
 
 :- pred constrict_to_vars(list(prog_var)::in, set(prog_var)::in, goal_path::in, 
