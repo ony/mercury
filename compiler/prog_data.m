@@ -134,7 +134,7 @@
 	;	fact_table(sym_name, arity, string)
 			% Predname, Arity, Fact file name.
 
-	;	opt_terminates(pred_or_func, sym_name, arity, proc_id,
+	;	termination_info(pred_or_func, sym_name, arity, proc_id,
 			termination)
 			% PredName, Arity, Mode, Termination
 			% Used for inter-module termination analysis

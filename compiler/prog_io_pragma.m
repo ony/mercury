@@ -323,9 +323,9 @@ parse_pragma_type(ModuleName, "fact_table", PragmaTerms,
 
 
 
-	% pragma opt_terminates should never appear in user programs,
+	% pragma termination_info should never appear in user programs,
 	% only in .opt files.
-parse_pragma_type(ModuleName, "opt_terminates", PragmaTerms, ErrorTerm,
+parse_pragma_type(ModuleName, "termination_info", PragmaTerms, ErrorTerm,
 	_VarSet, Result) :-
 	
 	(
@@ -395,10 +395,10 @@ parse_pragma_type(ModuleName, "opt_terminates", PragmaTerms, ErrorTerm,
 			MaybeError)
 		
 	->
-		Result = ok(pragma(opt_terminates(PredOrFunc, PredName, Arity,
+		Result = ok(pragma(termination_info(PredOrFunc, PredName, Arity,
 			ProcId, Termination)))
 	;
-		Result = error("error in pragma opt_terminates", ErrorTerm)
+		Result = error("error in pragma termination_info", ErrorTerm)
 	).
 			
 	

@@ -304,9 +304,9 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = fact_table(Pred, Arity, FileName) },
 		mercury_output_pragma_fact_table(Pred, Arity, FileName)
 	;
-		{ Pragma = opt_terminates(PredOrFunc, PredName, Arity,
+		{ Pragma = termination_info(PredOrFunc, PredName, Arity,
 			ProcId, Termination) },
-		termination__output_pragma_opt_terminates(PredOrFunc,
+		termination__output_pragma_termination_info(PredOrFunc,
 			PredName, Arity, ProcId, Termination)
 	;
 		{ Pragma = terminates(Pred, Arity) },

@@ -28,7 +28,7 @@
 %
 % This module writes out the interface for transitive intermodule optimization.
 % The .trans_opt file includes:
-%	- pragma opt_terminates declarations for all exported preds
+%	- pragma termination_info declarations for all exported preds
 % All these items should be module qualified.
 % Constructors should be explicitly type qualified.
 %
@@ -157,7 +157,7 @@ trans_opt__write_procs([ProcId | ProcIds], PredId, PredInfo) -->
 
 	% all predicates to write procedure items into the .trans_opt file
 	% should go here.
-	termination__output_pragma_opt_terminates(PredOrFunc, SymName,
+	termination__output_pragma_termination_info(PredOrFunc, SymName,
 		Arity, ProcId, Termination),
 	
 	trans_opt__write_procs(ProcIds, PredId, PredInfo).

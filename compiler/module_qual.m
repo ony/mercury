@@ -598,8 +598,8 @@ qualify_pragma(unused_args(A, B, C, D, E), unused_args(A, B, C, D, E),
 				Info, Info) --> [].
 qualify_pragma(fact_table(SymName, Arity, FileName),
 	fact_table(SymName, Arity, FileName), Info, Info) --> [].
-qualify_pragma(opt_terminates(A, B, C, D, E), opt_terminates(A, B, C, D, E),
-				Info, Info) --> [].
+qualify_pragma(termination_info(A, B, C, D, E), 
+		termination_info(A, B, C, D, E), Info, Info) --> [].
 qualify_pragma(terminates(A, B), terminates(A, B), Info, Info) --> [].
 qualify_pragma(check_termination(A, B), check_termination(A, B), Info
 		, Info) --> [].

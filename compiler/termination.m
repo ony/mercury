@@ -51,11 +51,11 @@
 :- pred termination__out_terminates(termination, io__state, io__state).
 :- mode termination__out_terminates(in, di, uo) is det.
 
-% This predicate outputs pragma opt_terminates which are used in .trans_opt
+% This predicate outputs pragma termination_info which are used in .trans_opt
 % and .opt files.
-:- pred termination__output_pragma_opt_terminates(pred_or_func, sym_name,
+:- pred termination__output_pragma_termination_info(pred_or_func, sym_name,
 	int, proc_id, termination, io__state, io__state).
-:- mode termination__output_pragma_opt_terminates(in, in, in, in, in, 
+:- mode termination__output_pragma_termination_info(in, in, in, in, in, 
 	di, uo) is det.
 
 %----------------------------------------------------------------------------%
@@ -87,7 +87,7 @@ termination__pass(Module0, Module) -->
 	termination(Module3, Module),
 
 	/**
-	% to output opt_terminates pragmas to .opt files, uncomment this
+	% to output termination_info pragmas to .opt files, uncomment this
 	% block of code.
 	globals__io_lookup_bool_option(make_optimization_interface,
 		MakeOptInt),
@@ -104,9 +104,10 @@ termination__pass(Module0, Module) -->
 termination__init(term(not_set, not_set, no, no)).
 
 %-----------------------------------------------------------------------------%
-% These termination__out predicates are used to print out the opt_terminates
-% pragmas.  If they are changed, then prog_io_pragma.m must also be changed 
-% so that it can parse the resulting pragma opt_terminates declarations.
+% These termination__out predicates are used to print out the
+% termination_info pragmas.  If they are changed, then prog_io_pragma.m
+% must also be changed so that it can parse the resulting pragma
+% termination_info declarations.
 % XXX could these predicates be replaced by calls to io__write?
 
 termination__out(Termination) -->
@@ -164,9 +165,9 @@ termination__out_const_2(set(Int)) -->
 	io__write_int(Int),
 	io__write_string(")").
 
-termination__output_pragma_opt_terminates(PredOrFunc, SymName,
+termination__output_pragma_termination_info(PredOrFunc, SymName,
 		Arity, ProcId, Termination) -->
-	io__write_string(":- pragma opt_terminates("),
+	io__write_string(":- pragma termination_info("),
 	hlds_out__write_pred_or_func(PredOrFunc),
 	io__write_string(", "),
 	mercury_output_bracketed_sym_name(SymName),
@@ -200,7 +201,7 @@ termination__output_pragma_opt_terminates(PredOrFunc, SymName,
 %
 % Set the termination to dont_know if:
 % - the predicate is imported and there is no other source of information
-% 	about it (opt_terminates pragmas, terminates pragmas,
+% 	about it (termination_info pragmas, terminates pragmas,
 % 	check_termination pragmas, builtin/compiler generated).
 check_preds([], Module, Module, State, State).
 check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
@@ -521,7 +522,7 @@ change_procs_const([ProcId | ProcIds], MaybeFind, Replace, ProcTable0,
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
-% These predicates are used to add the opt_terminates pragmas to the .opt
+% These predicates are used to add the termination_info pragmas to the .opt
 % file.  Currently they are not used, because the .trans_opt file gives
 % much better accuracy.  The two files are not mutually exclusive, and
 % termination information may be stored in both.
@@ -577,7 +578,7 @@ termination__make_opt_int_3(PredId, [ ProcId | ProcIds ], ProcTable,
 		PredOrFunc, SymName, Arity) -->
 	{ map__lookup(ProcTable, ProcId, ProcInfo) },
 	{ proc_info_termination(ProcInfo, Termination) },
-	termination__output_pragma_opt_terminates(PredOrFunc, SymName,
+	termination__output_pragma_termination_info(PredOrFunc, SymName,
 		Arity, ProcId, Termination),
 	termination__make_opt_int_3(PredId, ProcIds, ProcTable, PredOrFunc, 
 		SymName, Arity).
