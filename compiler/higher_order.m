@@ -2251,7 +2251,10 @@ create_new_pred(Request, NewPred, NextHOid0, NextHOid, NewPreds0, NewPreds,
 		% If this is a user-guided type specialisation, the
 		% new name comes from the name of the requesting predicate.
 		Caller = proc(CallerPredId, CallerProcId),
-		predicate_name(ModuleInfo0, CallerPredId, PredName),
+		predicate_name(ModuleInfo0, CallerPredId, PredName0),
+		proc_id_to_int(CallerProcId, CallerProcInt),
+		PredName = string__append_list(
+			[PredName0, "_", int_to_string(CallerProcInt)]),
 		SymName = qualified(PredModule, PredName),
 		NextHOid = NextHOid0,
 		NewProcId = CallerProcId,
