@@ -57,9 +57,12 @@
 
 %------------------------------------------------------------------------------%
 
-:- import_module io, rat, list, map, std_util, size_varset.
+:- import_module io, rat, list, map, std_util, term, varset.
 
-:- type coeff 		== 	pair(size_var, rat).
+:- type lp_var		==	var.
+:- type lp_varset	==	varset.
+
+:- type coeff 		== 	pair(lp_var, rat).
 
 :- type equation
 	--->	eqn(list(coeff), operator, rat).
@@ -77,12 +80,12 @@
 :- type lp_rational__result
 	--->	unbounded
 	;	inconsistent
-	;	satisfiable(rat, map(size_var, rat))
+	;	satisfiable(rat, map(lp_var, rat))
 	.
 
-:- type vector ---> pair(map(size_var, rat), rat).
+:- type vector ---> pair(map(lp_var, rat), rat).
 
-% XX Should that be:  :- type vector == pair(map(size_var, rat), rat).
+% XX Should that be:  :- type vector == pair(map(lp_var, rat), rat).
 %    Maybe we can change this later.
 
 :- type matrix == list(vector).
@@ -102,7 +105,7 @@
 	% if the given constraints are inconsistent, or to 
 	% `satisfiable(ObjVal, MapFromObjVarsToVals)'.
 
-:- pred lp_solve(equations, direction, objective, size_varset, list(size_var),
+:- pred lp_solve(equations, direction, objective, lp_varset, list(lp_var),
 		lp_rational__result).
 :- mode lp_solve(in, in, in, in, in, out) is det.
 
@@ -115,7 +118,7 @@
 	% represented by those variables that are not in the list. 
 	% Binds Equations to the projection of the polygon.
 
-:- pred project(equations, list(size_var), equations).
+:- pred project(equations, list(lp_var), equations).
 :- mode project(in, in, out) is det.
 
 
@@ -125,7 +128,7 @@
 	% which is a superset of all of them.  For details of the algorithm, 
 	% see Benoy and King.
 
-:- pred convex_hull(list(equations), equations, size_varset, size_varset).
+:- pred convex_hull(list(equations), equations, lp_varset, lp_varset).
 :- mode convex_hull(in, out, in, out) is det.
 
 
@@ -138,7 +141,7 @@
 	% that Cs must contain (be a superset of) the second polygon Cs2. 
 	% Note that this is not commutative for Cs1, Cs2.
 
-:- pred widen(equations, equations, size_varset, equations).
+:- pred widen(equations, equations, lp_varset, equations).
 :- mode widen(in, in, in, out) is det.
 
 
@@ -150,7 +153,7 @@
 	% satisfies C.
 	% This assumes that all the variables are non-negative. 
 
-:- pred entailed(equation, equations, size_varset).
+:- pred entailed(equation, equations, lp_varset).
 :- mode entailed(in, in, in) is semidet.
 
 
@@ -190,11 +193,11 @@
 :- mode fm_standardize_equations(in, out) is det.
 
 
-	% Converts a vector into a parallel one where the coefficient of size_var
+	% Converts a vector into a parallel one where the coefficient of lp_var
 	% is plus or minus one.  That is, divides the vector through by the
-	% absolute value of the coefficient of size_var.
+	% absolute value of the coefficient of lp_var.
 
-:- pred normalize_vector(vector, size_var, vector).
+:- pred normalize_vector(vector, lp_var, vector).
 :- mode normalize_vector(in, in, out) is det.
 
 
@@ -215,14 +218,14 @@
 
 :- type lp_info
 	---> lp(
-		size_varset,
-		map(size_var, pair(size_var)),	% map from variables with URS to
+		lp_varset,
+		map(lp_var, pair(lp_var)),	% map from variables with URS to
 					% the corresponding pair of variables
 					% that represent that variable in
 					% the standard form (x = x' - x'',
 					% x', x'' >= 0).
-		list(size_var),		% slack variables
-		list(size_var)		% artificial variables
+		list(lp_var),		% slack variables
+		list(lp_var)		% artificial variables
 	).
 
 is_false(eqn([], (>=), Const)) :-
@@ -309,7 +312,7 @@ lp_solve2(Eqns0, Dir, Obj0, Result, Info0, Info) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred one_phase(list(coeff), list(coeff), map(size_var, int), tableau,
+:- pred one_phase(list(coeff), list(coeff), map(lp_var, int), tableau,
 							lp_rational__result).
 :- mode one_phase(in, in, in, in, out) is det.
 one_phase(Obj0, Obj, VarNums, Tableau0, Result) :-
@@ -322,7 +325,7 @@ one_phase(Obj0, Obj, VarNums, Tableau0, Result) :-
 	optimize(ObjVars, Tableau1, _, Result).
 %------------------------------------------------------------------------------%
 
-:- pred two_phase(list(coeff), list(coeff), list(size_var), map(size_var, int),
+:- pred two_phase(list(coeff), list(coeff), list(lp_var), map(lp_var, int),
 		tableau, lp_rational__result).
 :- mode two_phase(in, in, in, in, in, out) is det.
 two_phase(Obj0, Obj, ArtVars, VarNums, Tableau0, Result) :-
@@ -366,7 +369,7 @@ two_phase(Obj0, Obj, ArtVars, VarNums, Tableau0, Result) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred construct_art_objective(list(size_var), list(coeff)).
+:- pred construct_art_objective(list(lp_var), list(coeff)).
 :- mode construct_art_objective(in, out) is det.
 
 construct_art_objective([], []).
@@ -468,7 +471,7 @@ simplify_coeffs(Coeffs0, Coeffs) :-
 	list__foldl(AddCoeff, Coeffs0, CoeffMap0, CoeffMap),
 	map__to_assoc_list(CoeffMap, Coeffs).
 
-:- pred add_var(map(size_var, rat), size_var, rat, map(size_var, rat)).
+:- pred add_var(map(lp_var, rat), lp_var, rat, map(lp_var, rat)).
 :- mode add_var(in, in, in, out) is det.
 
 add_var(Map0, Var, Coeff, Map) :-
@@ -480,20 +483,20 @@ add_var(Map0, Var, Coeff, Map) :-
 	Acc is Acc1 + Coeff,
 	map__set(Map0, Var, Acc, Map).
 
-:- pred expand_urs_vars_e(equation, map(size_var, pair(size_var)), equation).
+:- pred expand_urs_vars_e(equation, map(lp_var, pair(lp_var)), equation).
 :- mode expand_urs_vars_e(in, in, out) is det.
 
 expand_urs_vars_e(eqn(Coeffs0, Op, Const), Vars, eqn(Coeffs, Op, Const)) :-
 	expand_urs_vars(Coeffs0, Vars, Coeffs).
 
-:- pred expand_urs_vars(list(coeff), map(size_var, pair(size_var)), list(coeff)).
+:- pred expand_urs_vars(list(coeff), map(lp_var, pair(lp_var)), list(coeff)).
 :- mode expand_urs_vars(in, in, out) is det.
 
 expand_urs_vars(Coeffs0, Vars, Coeffs) :-
 	expand_urs_vars(Coeffs0, Vars, [], Coeffs1),
 	list__reverse(Coeffs1, Coeffs).
 
-:- pred expand_urs_vars(list(coeff), map(size_var, pair(size_var)),
+:- pred expand_urs_vars(list(coeff), map(lp_var, pair(lp_var)),
 		list(coeff), list(coeff)).
 :- mode expand_urs_vars(in, in, in, out) is det.
 
@@ -509,7 +512,7 @@ expand_urs_vars([Var - Coeff|Rest], Vars, Coeffs0, Coeffs) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred collect_vars(equations, objective, set(size_var)).
+:- pred collect_vars(equations, objective, set(lp_var)).
 :- mode collect_vars(in, in, out) is det.
 
 collect_vars(Eqns, Obj, Vars) :-
@@ -527,7 +530,7 @@ collect_vars(Eqns, Obj, Vars) :-
 	solutions(GetVar, VarList),
 	set__list_to_set(VarList, Vars).
 
-:- pred number_vars(list(size_var), int, map(size_var, int), map(size_var, int)).
+:- pred number_vars(list(lp_var), int, map(lp_var, int), map(lp_var, int)).
 :- mode number_vars(in, in, in, out) is det.
 
 number_vars([], _, VarNums, VarNums).
@@ -536,7 +539,7 @@ number_vars([Var|Vars], N, VarNums0, VarNums) :-
 	N1 is N + 1,
 	number_vars(Vars, N1, VarNums1, VarNums).
 
-:- pred insert_equations(equations, int, int, map(size_var, int), tableau, tableau).
+:- pred insert_equations(equations, int, int, map(lp_var, int), tableau, tableau).
 :- mode insert_equations(in, in, in, in, in, out) is det.
 
 insert_equations([], _, _, _, Tableau, Tableau).
@@ -547,7 +550,7 @@ insert_equations([Eqn|Eqns], Row, ConstCol, VarNums, Tableau0, Tableau) :-
 	Row1 is Row + 1,
 	insert_equations(Eqns, Row1, ConstCol, VarNums, Tableau2, Tableau).
 
-:- pred insert_coeffs(list(coeff), int, map(size_var, int), tableau, tableau).
+:- pred insert_coeffs(list(coeff), int, map(lp_var, int), tableau, tableau).
 :- mode insert_coeffs(in, in, in, in, out) is det.
 
 insert_coeffs([], _Row, _VarNums, Tableau, Tableau).
@@ -559,7 +562,7 @@ insert_coeffs([Coeff|Coeffs], Row, VarNums, Tableau0, Tableau) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred optimize(list(size_var), tableau, tableau, lp_rational__result).
+:- pred optimize(list(lp_var), tableau, tableau, lp_rational__result).
 :- mode optimize(in, in, out, out) is det.
 
 optimize(ObjVars, A0, A, Result) :- 
@@ -575,14 +578,14 @@ optimize(ObjVars, A0, A, Result) :-
 		Result = satisfiable(ObjVal, ObjMap)
 	).
 
-:- pred extract_objective(list(size_var), tableau, map(size_var, rat)).
+:- pred extract_objective(list(lp_var), tableau, map(lp_var, rat)).
 :- mode extract_objective(in, in, out) is det.
 
 extract_objective(ObjVars, Tab, Res) :-
 	map__init(Res0),
 	list__foldl(extract_obj_var(Tab), ObjVars, Res0, Res).
 
-:- pred extract_obj_var(tableau, size_var, map(size_var, rat), map(size_var, rat)).
+:- pred extract_obj_var(tableau, lp_var, map(lp_var, rat), map(lp_var, rat)).
 :- mode extract_obj_var(in, in, in, out) is det.
 
 extract_obj_var(Tab, Var, Map0, Map) :-
@@ -596,7 +599,7 @@ extract_obj_var(Tab, Var, Map0, Map) :-
 	),
 	map__set(Map0, Var, Val, Map).
 
-:- pred extract_obj_var2(tableau, size_var, rat).
+:- pred extract_obj_var2(tableau, lp_var, rat).
 :- mode extract_obj_var2(in, in, out) is det.
 
 extract_obj_var2(Tab, Var, Val) :-
@@ -694,7 +697,7 @@ simplex(A0, A, Result) :-
 
 %------------------------------------------------------------------------------%
 
-:- pred ensure_zero_obj_coeffs(list(size_var), tableau, tableau).
+:- pred ensure_zero_obj_coeffs(list(lp_var), tableau, tableau).
 :- mode ensure_zero_obj_coeffs(in, in, out) is det.
 
 ensure_zero_obj_coeffs([], Tableau, Tableau).
@@ -724,7 +727,7 @@ ensure_zero_obj_coeffs([V|Vs], Tableau0, Tableau) :-
 		)
 	).
 
-:- pred fix_basis_and_rem_cols(list(size_var), tableau, tableau).
+:- pred fix_basis_and_rem_cols(list(lp_var), tableau, tableau).
 :- mode fix_basis_and_rem_cols(in, in, out) is det.
 
 fix_basis_and_rem_cols([], Tab, Tab).
@@ -828,15 +831,15 @@ row_op(Scale, From, To, A0, A) :-
 	---> tableau(
 		int,
 		int,
-		map(size_var, int),
-		map(size_var, pair(size_var)),
+		map(lp_var, int),
+		map(lp_var, pair(lp_var)),
 		list(int),	% shunned rows
 		list(int),	% shunned cols
 		map(pair(int), rat)
 	).
 
-:- pred init_tableau(int::in, int::in, map(size_var, int)::in, 
-		map(size_var, pair(size_var))::in, tableau::out) is det.
+:- pred init_tableau(int::in, int::in, map(lp_var, int)::in, 
+		map(lp_var, pair(lp_var))::in, tableau::out) is det.
 
 init_tableau(Rows, Cols, VarNums, URSVars, Tableau) :-
 	map__init(Cells),
@@ -923,14 +926,14 @@ all_cols(Tableau, Col) :-
 	between(0, Cols1, Col),
 	\+ list__member(Col, SC).
 
-:- pred var_col(tableau, size_var, int).
+:- pred var_col(tableau, lp_var, int).
 :- mode var_col(in, in, out) is det.
 
 var_col(Tableau, Var, Col) :-
 	Tableau = tableau(_, _, VarCols, _, _, _, _),
 	map__lookup(VarCols, Var, Col).
 
-:- pred urs_vars(tableau, map(size_var, pair(size_var))).
+:- pred urs_vars(tableau, map(lp_var, pair(lp_var))).
 :- mode urs_vars(in, out) is det.
 
 urs_vars(Tableau, URS) :-
@@ -950,7 +953,7 @@ remove_col(C, Tableau0, Tableau) :-
 	Tableau0 = tableau(Rows, Cols, VarNums, URS, SR, SC, Cells),
 	Tableau = tableau(Rows, Cols, VarNums, URS, SR, [C|SC], Cells).
 
-:- pred get_basis_vars(tableau, list(size_var)).
+:- pred get_basis_vars(tableau, list(lp_var)).
 :- mode get_basis_vars(in, out) is det.
 
 get_basis_vars(Tab, Vars) :-
@@ -1004,14 +1007,14 @@ show_cell(Tableau, Row, Col) -->
 
 %------------------------------------------------------------------------------%
 
-:- pred lp_info_init(size_varset, list(size_var), lp_info).
+:- pred lp_info_init(lp_varset, list(lp_var), lp_info).
 :- mode lp_info_init(in, in, out) is det.
 
 lp_info_init(Varset0, URSVars, LPInfo) :-
 	Introduce = lambda([Orig::in, VP0::in, VP::out] is det, (
 		VP0 = VS0 - VM0,
-		size_varset__new_var(VS0, V1, VS1),
-		size_varset__new_var(VS1, V2, VS),
+		varset__new_var(VS0, V1, VS1),
+		varset__new_var(VS1, V2, VS),
 		map__set(VM0, Orig, V1 - V2, VM),
 		VP = VS - VM
 	)),
@@ -1019,63 +1022,63 @@ lp_info_init(Varset0, URSVars, LPInfo) :-
 	list__foldl(Introduce, URSVars, Varset0 - URSMap0, Varset - URSMap),
 	LPInfo = lp(Varset, URSMap, [], []).
 
-:- pred new_slack_var(size_var::out, lp_info::in, lp_info::out) is det.
+:- pred new_slack_var(lp_var::out, lp_info::in, lp_info::out) is det.
 
 new_slack_var(Var) -->
 	get_varset(Varset0),
-	{ size_varset__new_var(Varset0, Var, Varset) },
+	{ varset__new_var(Varset0, Var, Varset) },
 	set_varset(Varset),
 	get_slack_vars(Vars),
 	set_slack_vars([Var|Vars]).
 
-:- pred new_art_var(size_var::out, lp_info::in, lp_info::out) is det.
+:- pred new_art_var(lp_var::out, lp_info::in, lp_info::out) is det.
 
 new_art_var(Var) -->
 	get_varset(Varset0),
-	{ size_varset__new_var(Varset0, Var, Varset) },
+	{ varset__new_var(Varset0, Var, Varset) },
 	set_varset(Varset),
 	get_art_vars(Vars),
 	set_art_vars([Var|Vars]).
 
-:- pred get_varset(size_varset::out, lp_info::in, lp_info::out) is det.
+:- pred get_varset(lp_varset::out, lp_info::in, lp_info::out) is det.
 
 get_varset(Varset, Info, Info) :-
 	Info = lp(Varset, _URSVars, _Slack, _Art).
 
-:- pred set_varset(size_varset::in, lp_info::in, lp_info::out) is det.
+:- pred set_varset(lp_varset::in, lp_info::in, lp_info::out) is det.
 
 set_varset(Varset, Info0, Info) :-
 	Info0 = lp(_Varset, URSVars, Slack, Art),
 	Info  = lp(Varset, URSVars, Slack, Art).
 
-:- pred get_urs_vars(map(size_var, pair(size_var))::out, lp_info::in, lp_info::out) is det.
+:- pred get_urs_vars(map(lp_var, pair(lp_var))::out, lp_info::in, lp_info::out) is det.
 
 get_urs_vars(URSVars, Info, Info) :-
 	Info = lp(_Varset, URSVars, _Slack, _Art).
 
-:- pred set_urs_vars(map(size_var, pair(size_var))::in, lp_info::in, lp_info::out) is det.
+:- pred set_urs_vars(map(lp_var, pair(lp_var))::in, lp_info::in, lp_info::out) is det.
 
 set_urs_vars(URSVars, Info0, Info) :-
 	Info0 = lp(Varset, _URSVars, Slack, Art),
 	Info  = lp(Varset, URSVars, Slack, Art).
 
-:- pred get_slack_vars(list(size_var)::out, lp_info::in, lp_info::out) is det.
+:- pred get_slack_vars(list(lp_var)::out, lp_info::in, lp_info::out) is det.
 
 get_slack_vars(Slack, Info, Info) :-
 	Info = lp(_Varset, _URSVars, Slack, _Art).
 
-:- pred set_slack_vars(list(size_var)::in, lp_info::in, lp_info::out) is det.
+:- pred set_slack_vars(list(lp_var)::in, lp_info::in, lp_info::out) is det.
 
 set_slack_vars(Slack, Info0, Info) :-
 	Info0 = lp(Varset, URSVars, _Slack, Art),
 	Info  = lp(Varset, URSVars, Slack, Art).
 
-:- pred get_art_vars(list(size_var)::out, lp_info::in, lp_info::out) is det.
+:- pred get_art_vars(list(lp_var)::out, lp_info::in, lp_info::out) is det.
 
 get_art_vars(Art, Info, Info) :-
 	Info = lp(_Varset, _URSVars, _Slack, Art).
 
-:- pred set_art_vars(list(size_var)::in, lp_info::in, lp_info::out) is det.
+:- pred set_art_vars(list(lp_var)::in, lp_info::in, lp_info::out) is det.
 
 set_art_vars(Art, Info0, Info) :-
 	Info0 = lp(Varset, URSVars, Slack, _Art),
@@ -1166,7 +1169,7 @@ vectors_to_eqns(Vectors, Equations) :-
 
 % Add a list of coefficients to a map and returns the resulting map.
 % Ensures that there are no zeros in the resulting map.
-:- pred coeff_list_to_map(list(coeff), map(size_var, rat), map(size_var, rat)).
+:- pred coeff_list_to_map(list(coeff), map(lp_var, rat), map(lp_var, rat)).
 :- mode coeff_list_to_map(in, in, out) is det.
 
 coeff_list_to_map([], Map, Map).
@@ -1191,7 +1194,7 @@ coeff_list_to_map([Var-Num | Coeffs], Map0, Map) :-
 % Vec0 by the absolute value of the coefficient of Var.
 % (We are considering here the values, not the "coeff" type.)
 % It is an error if the map contains a zero coefficient.
-%:- pred normalize_vector(vector, size_var, vector).
+%:- pred normalize_vector(vector, lp_var, vector).
 %:- mode normalize_vector(in, in, out) is det.
 
 normalize_vector(pair(Map0, Num0), Var0, pair(Map, Num)) :-
@@ -1222,13 +1225,13 @@ normalize_vector(pair(Map0, Num0), Var0, pair(Map, Num)) :-
 % Breaks a list of vectors up into three lists of vectors according to
 % whether the coefficient of Variable is positive, negative or zero.
 % Applies normalize_vector to each vector.
-:- pred separate_vectors(matrix, size_var, matrix, matrix, matrix).
+:- pred separate_vectors(matrix, lp_var, matrix, matrix, matrix).
 :- mode separate_vectors(in, in, out, out, out) is det.
 
 separate_vectors(Matrix, Var, Pos, Neg, Zero) :-
 	separate_vectors_acc(Matrix, Var, [], [], [], Pos, Neg, Zero).
 
-:- pred separate_vectors_acc(matrix, size_var, matrix, matrix, 
+:- pred separate_vectors_acc(matrix, lp_var, matrix, matrix, 
 				matrix, matrix, matrix, matrix).	
 :- mode separate_vectors_acc(in, in, in, in, in, out, out, out) is det.
 
@@ -1255,7 +1258,7 @@ separate_vectors_acc([Vec0|Vectors], Var, Pos0, Neg0, Zeros0, Pos, Neg, Zeros):-
 		
 % Fails if the variable searched for is not in the vector
 % (i.e. if it has coefficient zero). 
-:- pred get_var_coeff(vector, size_var, rat).
+:- pred get_var_coeff(vector, lp_var, rat).
 :- mode get_var_coeff(in, in, out) is semidet.
 
 get_var_coeff(pair(Varmap, _), Var, Num) :-
@@ -1288,7 +1291,7 @@ add_vectors(pair(Map0, Rat0), pair(Map1, Rat1), pair(Map2, Rat2)) :-
 % assuming that the inequations in the first list have a positive
 % coefficient for V, and that the second and third lists contain negative
 % and zero coefficients respectively.
-:- pred eliminate_var(size_var, matrix, matrix, matrix, matrix).
+:- pred eliminate_var(lp_var, matrix, matrix, matrix, matrix).
 :- mode eliminate_var(in, in, in, in, out) is det.		
 
 eliminate_var(_, [], _, Matrix, Matrix).
@@ -1303,7 +1306,7 @@ eliminate_var(Var, [Vec_P|Pos], Neg, Zeros, Result) :-
 	eliminate_var(Var, Pos, Neg, New_zeros, Result). 
 
 
-:- pred eliminate_vars(list(size_var), matrix, matrix).
+:- pred eliminate_vars(list(lp_var), matrix, matrix).
 :- mode eliminate_vars(in, in, out) is det.
 
 eliminate_vars([], Matrix, Matrix). 
@@ -1394,7 +1397,8 @@ compare_constraints(pair(Map0,Rat0), pair(Map1,Rat1), pair(Map3,Rat)) :-
 
 :- type var_info 
 	---> 	var_info(
-			 list(map(size_var,size_var)), 	% Maps from original variables
+			 list(map(lp_var, lp_var)), 
+			 			% Maps from original variables
 						% to new (temporary) ones.
 						% A variable which occurs in 
 						% more than one polyhedron is
@@ -1403,18 +1407,18 @@ compare_constraints(pair(Map0,Rat0), pair(Map1,Rat1), pair(Map3,Rat)) :-
 						% This list contains one map
 						% for each polyhedron.
 
-			 list(size_var), 	% List of sigma variables.
+			 list(lp_var), 	% List of sigma variables.
 
-			 size_varset
+			 lp_varset
 			).
 
 :- type eqn_info
 	---> 	eqn_info(
-			 map(size_var, size_var),	% Map from original variables
+			 map(lp_var, lp_var),	% Map from original variables
 						% to new (temporary) ones.
 						% There is one of these for
 						% each equation. 
-			 size_varset
+			 lp_varset
   			 ).
  
 % convex_hull takes a list of polyhedra (represented as lists of constraints)
@@ -1467,7 +1471,7 @@ transform_polys(Polys, Eqns, Var_info0, Var_info) :-
 
 transform_poly(Poly, Polys0, Polys, var_info(Maps0, Sigmas0, Vars0), Var_info):-
 	map__init(Newmap),
-	size_varset__new_var(Vars0, Sigma, Vars1),
+	varset__new_var(Vars0, Sigma, Vars1),
 	Trans_eqn = lambda([Eqn0::in, Eqn::out, Eq_inf0::in, 
 							Eq_inf1::out] is det, ( 
 		transform_eqn(Eqn0, Eqn, Sigma, Eq_inf0, Eq_inf1)
@@ -1481,7 +1485,7 @@ transform_poly(Poly, Polys0, Polys, var_info(Maps0, Sigmas0, Vars0), Var_info):-
 % variable to add, and returns the equation where the original variables 
 % are substituted for new ones and where the sigma variable is included. 
 % The map of old to new variables is updated if necessary.
-:- pred transform_eqn(equation, equation, size_var, eqn_info, eqn_info).
+:- pred transform_eqn(equation, equation, lp_var, eqn_info, eqn_info).
 :- mode transform_eqn(in, out, in, in, out) is det.
 
 transform_eqn(eqn(Coeffs0, Op, Num0), eqn(Coeffs, Op, Num), Sigma,
@@ -1505,7 +1509,7 @@ change_var(Var0-Num, Var-Num, eqn_info(Map0, Varset0), eqn_info(Map, Varset)) :-
 		Map = Map0,
 		Varset = Varset0
 	;
-		size_varset__new_var(Varset0, Nvar, Varset),
+		varset__new_var(Varset0, Nvar, Varset),
 		map__det_insert(Map0, Var0, Nvar, Map),
 		Var = Nvar
 	).
@@ -1515,7 +1519,7 @@ change_var(Var0-Num, Var-Num, eqn_info(Map0, Varset0), eqn_info(Map, Varset)) :-
 % add_sigma_eqns: Takes the list of equations so far and appends
 % the non-negativity equation for each sigma variable,
 % and an equation stating that the sum of the sigmas is one. 
-:- pred add_sigma_eqns(equations, list(size_var), equations).
+:- pred add_sigma_eqns(equations, list(lp_var), equations).
 :- mode add_sigma_eqns(in, in, out) is det.
 
 add_sigma_eqns(Eqns0, Sigmas, Eqns) :- 
@@ -1535,7 +1539,7 @@ add_sigma_eqns(Eqns0, Sigmas, Eqns) :-
 % add_last_eqns: Adds the equations stating that each original
 % variable is the sum of the temporary variables to which it has
 % been mapped.
-:- pred add_last_eqns(equations, list(map(size_var,size_var)), equations).
+:- pred add_last_eqns(equations, list(map(lp_var,lp_var)), equations).
 :- mode add_last_eqns(in, in, out) is det.
 
 add_last_eqns(Eqns0, Old_to_new_var_maps, Eqns) :-
@@ -1552,7 +1556,7 @@ add_last_eqns(Eqns0, Old_to_new_var_maps, Eqns) :-
 	append(Eqns2, Eqns0, Eqns).
 
 
-:- pred original_var_to_eqn(size_var, list(map(size_var,size_var)), equation).
+:- pred original_var_to_eqn(lp_var, list(map(lp_var,lp_var)), equation).
 :- mode original_var_to_eqn(in, in, out) is semidet.
 
 original_var_to_eqn(Original_var, Maplist, Eqn) :-
@@ -1567,7 +1571,7 @@ original_var_to_eqn(Original_var, Maplist, Eqn) :-
 
 % get_map_keys: Given a list of maps, return a list of all the keys in 
 % the list of maps.
-:- pred get_map_keys(list(map(size_var,size_var)), list(size_var), list(size_var)).
+:- pred get_map_keys(list(map(lp_var,lp_var)), list(lp_var), list(lp_var)).
 :- mode get_map_keys(in, in, out) is det.
 
 get_map_keys([], Keys, Keys).
@@ -1665,14 +1669,14 @@ write_vector(pair(Map, Rat)) -->
 write_term(Var-Rat) -->
 	( { Rat = one } ->
 		io__write_char('+'),
-		io__write_char(' '),
+		io__write_char(' ')
 	;
 		io__write_char('('),
 		io__write_int(numer(Rat)),
 		io__write_char('/'),
 		io__write_int(denom(Rat)),
-		io__write_char(')'),
+		io__write_char(')')
 	),
-	io__write_char('x')
-	{ size_varset__size_var_to_int(Var, Int) },
+	io__write_char('x'),
+	{ term__var_to_int(Var, Int) },
 	io__write_int(Int).

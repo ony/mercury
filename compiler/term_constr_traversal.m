@@ -16,7 +16,7 @@
 :- interface.
 
 :- import_module bimap, hlds_goal, hlds_module, hlds_pred, io, 
-	lp_rational, map, prog_data, set, size_varset, term, term_util.  
+	lp_rational, map, prog_data, set, term, term_util.  
 
 :- pred do_traversal(hlds_goal, traversal_params, size_varset, 
 				constraint_info, io__state, io__state).
@@ -27,8 +27,8 @@
 
 
 :- pred term_constr_traversal__init_traversal_params(module_info, functor_info,
-	pred_proc_id, term__context, map(var, type), set(size_var), 
-	bimap(var, size_var), traversal_params).
+	pred_proc_id, term__context, map(prog_var, type), set(size_var), 
+	bimap(prog_var, size_var), traversal_params).
 :- mode term_constr_traversal__init_traversal_params(in, in, in, in, in, in, 
 								in, out) is det.
 
@@ -38,7 +38,7 @@
 % in the list. The list uses to be a zero-size variable list.
 %### This should probably go in term_util?
 
-:- pred derive_nonneg_eqns(bimap(var,size_var), set(size_var), equations).
+:- pred derive_nonneg_eqns(bimap(prog_var, size_var), set(size_var), equations).
 :- mode derive_nonneg_eqns(in, in, out) is det.
 
 %------------------------------------------------------------------------------
@@ -47,7 +47,7 @@
 
 :- import_module assoc_list, bimap, hlds_data, hlds_goal, hlds_module, 
 	hlds_pred, io, list, lp_rational, map, quantification, rat, require, 
-	set, std_util, term, term_util, type_util, size_varset, varset.
+	set, std_util, term, term_util, type_util, varset.
 
 do_traversal(Goal, Params, Size_varset0, Constr_info, IO0, IO) :-
 
@@ -442,8 +442,8 @@ write_first_equation(Constr_info, IO0, IO) :-
 % or unifications which produce an equation 0=0.
 % 
 
-:- pred info_to_eqn(var, cons_id, list(var), list(uni_mode), traversal_params, 
-				constraint_info, constraint_info).
+:- pred info_to_eqn(prog_var, cons_id, list(prog_var), list(uni_mode),
+		traversal_params, constraint_info, constraint_info).
 :- mode info_to_eqn(in, in, in, in, in, in, out) is semidet.
 
 info_to_eqn(Var, ConsId, ArgVars0, Modes, Params, Constr_info0, Constr_info) :-
@@ -510,8 +510,8 @@ info_to_eqn(Var, ConsId, ArgVars0, Modes, Params, Constr_info0, Constr_info) :-
 % equation that corresponds to it.  Used for assignment and simple_test
 % unifications.  i.e. for a unification of the form X = Y,
 % the equation returned is |X| - |Y| = 0.
-:- pred simple_info_to_eqn(var, var, traversal_params, constraint_info, 
-							constraint_info).
+:- pred simple_info_to_eqn(prog_var, prog_var, traversal_params,
+		constraint_info, constraint_info).
 :- mode simple_info_to_eqn(in, in, in, in, out) is det.
 
 simple_info_to_eqn(LVar, RVar, Params, Constr_info0, Constr_info) :-
@@ -547,7 +547,7 @@ simple_info_to_eqn(LVar, RVar, Params, Constr_info0, Constr_info) :-
 % the real local vars.  #### This may be a problem!
 %                       According to Tom, this should work. (They use
 %                       pretty the same in the code generator.)
-:- pred get_local_vars(hlds_goal, list(var)).
+:- pred get_local_vars(hlds_goal, list(prog_var)).
 :- mode get_local_vars(in, out) is det.
 
 get_local_vars(Goal_expr-Goal_info, Locals) :-
@@ -584,8 +584,9 @@ substitute_size_vars(Eqns, NewToOldVarMap, EqnsInCorrectVbles) :-
 % sizevar (keys are the elements of the first list, values the values in
 % the first map).
 
-:- pred compose_bijections(list(size_var), list(var), bimap(var, size_var), 
-			bimap(size_var, size_var), bimap(size_var, size_var)).
+:- pred compose_bijections(list(size_var), list(prog_var),
+		bimap(prog_var, size_var), bimap(size_var, size_var),
+		bimap(size_var, size_var)).
 :- mode compose_bijections(in, in, in, in, out) is det.
 
 compose_bijections([], [], _, SizeVars, SizeVars).
@@ -621,7 +622,7 @@ compose_bijections([ArgSize|Args], [HeadVar|Headvars], HeadToSizeVarMap,
 	).
 %-----------------------------------------------------------------------------
 
-:- pred rename_vars_params(list(var), list(size_var), traversal_params). 
+:- pred rename_vars_params(list(prog_var), list(size_var), traversal_params). 
 :- mode rename_vars_params(in, out, in) is det.
 
 rename_vars_params(Vars, SizeVars, Params) :-
@@ -649,9 +650,9 @@ has_false_eqn([_|Eqns]) :-
                         pred_proc_id,   	% The procedure we are tracing 
 						% through.
                         term__context,  	% The context of the procedure.
-			map(var, type),
+			map(prog_var, type),
 			set(size_var),		% Variables with zero-size type.
-			bimap(var, size_var)	% Map from proc variables to
+			bimap(prog_var, size_var) % Map from proc variables to
 						% size_vars used in
 						% constraints.
 		). 
@@ -670,12 +671,12 @@ term_constr_traversal__init_traversal_params(ModuleInfo, FunctorInfo,
         is det.
 :- pred params_get_context(traversal_params::in, term__context::out)
         is det.
-:- pred params_get_var_types(traversal_params::in, map(var,type)::out)
+:- pred params_get_var_types(traversal_params::in, map(prog_var, type)::out)
         is det.
 :- pred params_get_zeros(traversal_params::in, set(size_var)::out)
         is det.
 :- pred params_get_var_to_sizevar_map(traversal_params::in, 
-			bimap(var,size_var)::out) is det.
+			bimap(prog_var, size_var)::out) is det.
 
 params_get_module_info(Params, A) :-
         Params = traversal_params(A, _, _, _, _, _, _).

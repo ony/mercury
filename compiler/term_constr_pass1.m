@@ -17,7 +17,7 @@
 :- interface.
 
 :- import_module bimap, list, hlds_module, hlds_pred, map, prog_data, 
-				set, size_varset, term, term_util.
+				set, term_util.
 
 % Need enough info to make traversal params.
 :- pred find_arg_sizes_in_scc(list(pred_proc_id), module_info, size_varset, 
@@ -26,8 +26,8 @@
 :- mode find_arg_sizes_in_scc(in, in, in, in, in, out, out, di, uo) is det.
 
 %XX Put this in term_util.
-:- pred find_zero_size_vars(module_info, bimap(var,size_var), map(var, type), 
-							set(size_var)).
+:- pred find_zero_size_vars(module_info, bimap(prog_var, size_var),
+		map(prog_var, type), set(size_var)).
 :- mode find_zero_size_vars(in, in, in, out) is det.
 
 :- type widening_info
@@ -42,7 +42,7 @@
 
 :- import_module bimap, bool, hlds_goal, hlds_module, hlds_pred, int, io, list, 
 	lp_rational, map, prog_data, quantification, rat, require, set, 
-		std_util, term, term_constr_traversal, term_util, size_varset.
+	std_util, term, varset, term_constr_traversal, term_util.
 
 	
 %-----------------------------------------------------------------------------%
@@ -193,7 +193,7 @@ find_constraints_pred(PPID, Module_info0, SizeVars0, Func_info, Widening_info,
 
 
 :- pred update_arg_size_info(pred_proc_id, equations, set(size_var), 
-				bimap(var, size_var), module_info, module_info).
+		bimap(prog_var, size_var), module_info, module_info).
 :- mode update_arg_size_info(in, in, in, in, in, out) is det.
 
 update_arg_size_info(PPID, Constraints, Zeros, VarMap, Mod_info0, Mod_info) :-
@@ -374,7 +374,7 @@ find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros) :-
 
 
 :- pred fill_var_to_sizevar_map(hlds_goal, size_varset, size_varset, 
-							bimap(var, size_var)).
+		bimap(prog_var, size_var)).
 :- mode fill_var_to_sizevar_map(in, in, out, out) is det.
 
 fill_var_to_sizevar_map(Goal, Varset0, Varset, VarToSizeVarMap) :-
@@ -382,7 +382,7 @@ fill_var_to_sizevar_map(Goal, Varset0, Varset, VarToSizeVarMap) :-
 	quantification__goal_vars(Goal, VarsSet),
 	Insert_var = lambda([Var::in, Map0::in, Map::out, VSet0::in,
 							VSet::out] is det, (
-		size_varset__new_var(VSet0, SizeVar, VSet),
+		varset__new_var(VSet0, SizeVar, VSet),
 		bimap__set(Map0, Var, SizeVar, Map)
 	)),
 	set__to_sorted_list(VarsSet, Vars),

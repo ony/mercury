@@ -104,11 +104,10 @@
 :- import_module mode_util, hlds_out, code_util, prog_out, prog_util.
 :- import_module mercury_to_mercury, type_util, special_pred.
 :- import_module modules.
-:- import_module size_varset.
 
 :- import_module list, map, bimap, int, char, string, relation.
 :- import_module require, bag, set, term.
-:- import_module lp_rational, rat. 
+:- import_module lp_rational, safe_varset, rat. 
 :- import_module polymorphism.
 
 %----------------------------------------------------------------------------%
@@ -132,7 +131,7 @@ termination__pass(Module0, Module) -->
 	{ module_info_dependency_info(Module2, DepInfo) },
 	{ hlds_dependency_info_get_dependency_ordering(DepInfo, SCCs) },
 
-	{ size_varset__init(SizeVars) },
+	{ varset__init(SizeVars) },
 	termination__process_all_sccs(SCCs, Module2, SizeVars, PassInfo, 
 								Module, _),
 
@@ -503,13 +502,13 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 		change_procs_arg_size_info(ProcIds, no, ArgSizeInfo,
 			ProcTable1, ProcTable2)
 		
-	;
+%	;
 %		( ImportStatus = abstract_imported
 %		; ImportStatus = abstract_exported
 %		),
-		% This should not happen, as procedures are being processed
-		% here, and these import_status' refer to abstract types.
-		error("termination__check_preds: Unexpected import status")
+%		% This should not happen, as procedures are being processed
+%		% here, and these import_status' refer to abstract types.
+%		error("termination__check_preds: Unexpected import status")
 	),
 	( check_marker(Markers, does_not_terminate) ->
 		RequestError = Context - does_not_term_pragma(PredId),
@@ -607,8 +606,8 @@ special_pred_id_to_termination(index, HeadVars, ArgSize, Termination) :-
 	Termination = cannot_loop.
 
 :- pred special_pred_id_to_termination_v(special_pred_id::in, 
-	list(var)::in, module_info::in, map(var,type)::in, 
-			arg_size_info::out, termination_info::out) is det.
+		list(prog_var)::in, module_info::in, map(prog_var, type)::in, 
+		arg_size_info::out, termination_info::out) is det.
 
 
 %XX Check that these do the right thing.
@@ -663,8 +662,8 @@ special_pred_id_to_termination_v(index, HeadVars, Module, VarTypes, ArgSize,
 
 % Sets up the arg_size an termination info for those special preds (compare
 % and index) where we don't know any arg-size constraints.
-:- pred make_info(list(var), module_info, map(var,type), arg_size_info, 
-					termination_info). 
+:- pred make_info(list(prog_var), module_info, map(prog_var, type),
+		arg_size_info, termination_info). 
 :- mode make_info(in, in, in, out, out) is det.
 make_info(HeadVars, Module, VarTypes, ArgSize, Termination) :-
 
@@ -677,16 +676,17 @@ make_info(HeadVars, Module, VarTypes, ArgSize, Termination) :-
 	Termination = cannot_loop.
 
 
-:- pred fill_var_to_sizevar_map(list(var), size_varset, bimap(var, size_var)).
+:- pred fill_var_to_sizevar_map(list(prog_var), size_varset,
+		bimap(prog_var, size_var)).
 :- mode fill_var_to_sizevar_map(in, out, out) is det.
 fill_var_to_sizevar_map(HeadVars, SizeVarset, VarToSizeVarMap) :-
-	size_varset__init(SizeVarset0),
+	varset__init(SizeVarset0),
 	bimap__init(VarToSizeVarMap0),
 	%XXX This is exactly like the code in pass1. Put something in
 	%term_util. 
 	Insert_var = lambda([Var::in, Map0::in, Map::out, VSet0::in,
 							 VSet::out] is det, (
-		size_varset__new_var(VSet0, SizeVar, VSet),
+		varset__new_var(VSet0, SizeVar, VSet),
 		bimap__set(Map0, Var, SizeVar, Map)
 	)),
 	list__foldl2(Insert_var, HeadVars, VarToSizeVarMap0, VarToSizeVarMap, 
@@ -774,8 +774,8 @@ set_builtin_terminates([ProcId | ProcIds], PredId, PredInfo, Module,
 		ProcTable1, Vanessa_termination, ProcTable).
 
 
-:- pred process_special_builtin(string, list(var), bimap(var, size_var),
-							equation).
+:- pred process_special_builtin(string, list(prog_var),
+		bimap(prog_var, size_var), equation).
 :- mode process_special_builtin(in, in, in, out) is det.
 process_special_builtin(PredName, HeadVars, VarToSizeVarMap, Eqn) :-
 

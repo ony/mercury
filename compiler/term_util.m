@@ -23,7 +23,16 @@
 :- import_module hlds_module, hlds_pred, hlds_data, hlds_goal.
 
 :- import_module std_util, bimap, bool, int, list, lp_rational, map, bag, 
-							set, size_varset, term.
+	set.
+
+%-----------------------------------------------------------------------------%
+
+
+:- type size_var_type	--->	size_var_type(pred_proc_id).
+
+:- type size_var	==	lp_var.
+% :- type size_var_supply	==	safe_term__var_supply(size_var_type).
+:- type size_varset	==	lp_varset.
 
 %-----------------------------------------------------------------------------%
 
@@ -49,7 +58,12 @@
 				% why the analysis failed to find a finite
 				% constant.
 
-	;	constraints(equations, set(size_var), bimap(var, size_var)).
+	;	constraints(
+			equations,
+			set(size_var),
+			bimap(prog_var, size_var)
+		)
+	.
 
 :- type termination_info
 	---> 	cannot_loop	% This procedure terminates for all
@@ -116,7 +130,7 @@
 				%XXX Comment the invariants in this.
 	---> 	constr_info(  
 
-			%bimap(var, size_var),		
+			%bimap(prog_var, size_var),		
 					% The bimap
 					% stores the correspondence between
 					% vars (i.e. variables
@@ -129,7 +143,7 @@
 					% non-clashing variables to pass to
 					% project and convex_hull.  
 
-			%set(var),	% A set of all the variables discovered
+			%set(prog_var),	% A set of all the variables discovered
 					% to have zero-size-type.
 
 			 
@@ -149,16 +163,16 @@
 
 % These predicates are for dealing with equations.
 
-:- pred rename_vars(list(var), list(size_var), bimap(var, size_var)).
+:- pred rename_vars(list(prog_var), list(size_var), bimap(prog_var, size_var)).
 :- mode rename_vars(in, out, in) is det.
 
-:- pred rename_var(var, size_var, bimap(var, size_var)).
+:- pred rename_var(prog_var, size_var, bimap(prog_var, size_var)).
 :- mode rename_var(in, out, in) is det.  
 
 % Inserts a new variable into the set of zero-size-variables (does
 % nothing if that variable is already there).
 %XXX Obsolete: delete this.
-%:- pred new_zero_var(var, constraint_info, constraint_info).
+%:- pred new_zero_var(prog_var, constraint_info, constraint_info).
 %:- mode new_zero_var(in, in, out) is det.
 
 % Compares two equations, assumed to be in canonical form.  Two equations
@@ -276,8 +290,8 @@ rename_vars(Vars, RenamedVars, VarToSizeVarMap) :-
 	)),
 	list__map(Rename_Var, Vars, RenamedVars).
 
-%:- pred rename_vars_acc(list(var), list(size_var), list(size_var), 
-%							map(var, size_var)).
+%:- pred rename_vars_acc(list(prog_var), list(size_var), list(size_var), 
+%						map(prog_var, size_var)).
 %:- mode rename_vars_acc(in, in, out, in) is det.
 
 %rename_vars_acc([], Renamed_Vars0, Renamed_Vars, _):-
