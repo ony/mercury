@@ -132,11 +132,6 @@ ml_gen_unification(construct(Var, ConsId, Args, ArgModes,
 	;
 		true
 	},
-	{ HowToConstruct = reuse_cell(_) ->
-		sorry("cell reuse")
-	;
-		true
-	},
 	ml_gen_construct(Var, ConsId, Args, ArgModes, HowToConstruct, Context,
 		MLDS_Decls, MLDS_Statements).
 ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail),
@@ -984,8 +979,33 @@ ml_gen_new_object(Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 		{ MLDS_Decls = list__append(BoxConstDefns, [ConstDefn]) },
 		{ MLDS_Statements = [AssignStatement] }
 	;
-		{ HowToConstruct = reuse_cell(_) },
-		{ sorry("cell reuse") }
+		{ HowToConstruct = reuse_cell(CellToReuse) },
+		{ CellToReuse = cell_to_reuse(ReuseVar, ConsId, _CorrectVals) },
+
+		%
+		% Currently structure reuse will only reuse a cell that
+		% is using the same cons_id, so it is safe to just do an
+		% assignment.
+		%
+		ml_gen_unification(assign(Var, ReuseVar), model_det, Context,
+				MLDS_Decls, MLDS_StatementsA),
+
+		%
+		% For each field in the construction unification we need
+		% to generate an rval.
+		% XXX we do more work then we need to here, as some of
+		% the cells may already contain the correct values.
+		%
+		ml_cons_id_to_tag(ConsId, Type, ConsIdTag),
+		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
+		{ ml_tag_offset_and_argnum(ConsIdTag,
+				PrimaryTag, OffSet, ArgNum) },
+
+		ml_gen_unify_args(ConsId, ArgVars, ArgModes, ArgTypes,
+				Fields, Type, VarLval, OffSet,
+				ArgNum, PrimaryTag, Context, MLDS_StatementsB),
+
+		{ MLDS_Statements = MLDS_StatementsA `append` MLDS_StatementsB }
 	).
 
 :- pred ml_gen_box_const_rval_list(list(mlds__type), list(mlds__rval),
@@ -1230,19 +1250,75 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		ml_gen_var(Var, VarLval),
 		ml_variable_types(Args, ArgTypes),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
+		{ ml_tag_offset_and_argnum(Tag, _, OffSet, ArgNum) },
 		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, Type,
-			VarLval, 0, 1, UnsharedTag, Context, MLDS_Statements)
+				VarLval, OffSet, ArgNum,
+				UnsharedTag, Context, MLDS_Statements)
 	;
 		{ Tag = shared_remote_tag(PrimaryTag, _SecondaryTag) },
 		ml_gen_var(Var, VarLval),
 		ml_variable_types(Args, ArgTypes),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
+		{ ml_tag_offset_and_argnum(Tag, _, OffSet, ArgNum) },
 		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, Type,
-			VarLval, 1, 1, PrimaryTag, Context, MLDS_Statements)
+				VarLval, OffSet, ArgNum,
+				PrimaryTag, Context, MLDS_Statements)
 	;
 		{ Tag = shared_local_tag(_Bits1, _Num1) },
 		{ MLDS_Statements = [] } % if this is det, then nothing happens
 	).
+
+	% Calculate the integer offset used to reference the first field
+	% of a structure for lowlevel data or the first argument number
+	% to access the field using the highlevel data representation.
+	% Abort if the tag indicates that the data doesn't have any
+	% fields.
+:- pred ml_tag_offset_and_argnum(cons_tag::in, tag_bits::out,
+		int::out, int::out) is det.
+
+ml_tag_offset_and_argnum(Tag, TagBits, OffSet, ArgNum) :-
+	(
+		Tag = unshared_tag(UnsharedTag),
+		TagBits = UnsharedTag,
+		OffSet = 0,
+		ArgNum = 1
+	;
+		Tag = shared_remote_tag(PrimaryTag, _SecondaryTag),
+		TagBits = PrimaryTag,
+		OffSet = 1,
+		ArgNum = 1
+	;
+		Tag = string_constant(_String),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = int_constant(_Int),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = float_constant(_Float),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = pred_closure_tag(_, _, _),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = code_addr_constant(_, _),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = type_ctor_info_constant(_, _, _),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = base_typeclass_info_constant(_, _, _),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = tabling_pointer_constant(_, _),
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = no_tag,
+		error("ml_tag_offset_and_argnum")
+	;
+		Tag = shared_local_tag(_Bits1, _Num1),
+		error("ml_tag_offset_and_argnum")
+	).
+
 
 	% Given a type and a cons_id, and also the types of the actual
 	% arguments of that cons_id in some particular use of it,

@@ -944,6 +944,7 @@ mercury_compile__frontend_pass_2_by_phases(HLDS4, HLDS20, FoundError) -->
 			FoundDetError),
 		mercury_compile__maybe_dump_hlds(HLDS9, "09", "determinism"),
 
+		/*
 		% possible aliases
 		mercury_compile__possible_aliases(HLDS9, Verbose, 
 			Stats, HLDS10),
@@ -955,6 +956,8 @@ mercury_compile__frontend_pass_2_by_phases(HLDS4, HLDS20, FoundError) -->
 			Stats, HLDS11),
 		mercury_compile__maybe_dump_hlds(HLDS11,"11",
 			"structure_reuse") ,	
+		*/
+		{ HLDS11 = HLDS9 },
 
 		mercury_compile__check_unique_modes(HLDS11, Verbose, Stats,
 			HLDS12, FoundUniqError),
@@ -1081,10 +1084,22 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50) -->
 	mercury_compile__maybe_magic(HLDS44, Verbose, Stats, HLDS46),
 	mercury_compile__maybe_dump_hlds(HLDS46, "46", "magic"),
 
-	mercury_compile__maybe_dead_procs(HLDS46, Verbose, Stats, HLDS48),
-	mercury_compile__maybe_dump_hlds(HLDS48, "48", "dead_procs"),
+	mercury_compile__maybe_dead_procs(HLDS46, Verbose, Stats, HLDS47),
+	mercury_compile__maybe_dump_hlds(HLDS47, "47", "dead_procs"),
 
-	{ HLDS50 = HLDS48 },
+	% possible aliases
+	mercury_compile__possible_aliases(HLDS47, Verbose, 
+		Stats, HLDS48),
+	mercury_compile__maybe_dump_hlds(HLDS48,"48",
+		"possible_aliases"),
+
+	% structure reuse analysis
+	mercury_compile__structure_reuse(HLDS48, Verbose, 
+		Stats, HLDS49),
+	mercury_compile__maybe_dump_hlds(HLDS49,"49",
+		"structure_reuse") ,	
+
+	{ HLDS50 = HLDS49 },
 	mercury_compile__maybe_dump_hlds(HLDS50, "50", "middle_pass").
 
 %-----------------------------------------------------------------------------%

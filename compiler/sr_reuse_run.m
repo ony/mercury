@@ -41,7 +41,7 @@
 
 % library modules
 :- import_module require.
-:- import_module set, list, map, int.
+:- import_module bool, set, list, map, int.
 :- import_module std_util, string.
 
 % compiler modules
@@ -286,16 +286,30 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 		
 	; 
 		% 5. unification
-		Expr0 = unify( _, _, _, Unification, _ )
+		Expr0 = unify(Var, Rhs, Mode, Unification0, Context)
 	->
-		unification_verify_reuse( Unification, Alias0, 
-						Reuses0, Reuses, 
-						Info0, Info ),
-		pa_alias_as__extend_unification( ProcInfo, HLDS, 
-					Unification, Info, 
-					Alias0, Alias),	
+		unification_verify_reuse(Unification0, Alias0, 
+				Reuses0, Reuses, Info0, Info),
+		pa_alias_as__extend_unification(ProcInfo, HLDS, 
+				Unification, Info, Alias0, Alias),	
+
+		goal_info_get_reuse(Info, GoalInfoReuse),
+		(
+			Unification0 = construct(Var, ConsId, Vars,
+					Modes, _, IsUnique, Aditi),
+			GoalInfoReuse = cell_reused(ReuseVar)
+		->
+			CorrectVals = list__duplicate(list__length(Vars), no),
+			Cell = cell_to_reuse(ReuseVar, ConsId, CorrectVals),
+			HowToConstruct = reuse_cell(Cell),
+			Unification = construct(Var, ConsId, Vars,
+					Modes, HowToConstruct, IsUnique, Aditi)
+		;
+			Unification = Unification0
+		),
+			
 		FP = FP0,
-		Expr = Expr0
+		Expr = unify(Var, Rhs, Mode, Unification, Context)
 
 	;
 		% 6. disjunction	
