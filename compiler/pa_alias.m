@@ -631,12 +631,96 @@ number_args( ARGS, NUMBEREDARGS ) :-
 		NUMBEREDARGS,
 		1, _ ).
 	
-from_unification( _ProcInfo, _HLDS, 
-		construct( VAR, CONS, ARGS0, _, _, _, _ ), _Info, AS ) :-
-	get_rid_of_damn_typeinfos(CONS,ARGS0, ARGS),
-	number_args( ARGS, NUMBEREDARGS), 
-	list__foldl( alias_from_unif(VAR,CONS),NUMBEREDARGS, [], AS).
+from_unification(_ProcInfo, _HLDS, 
+		construct(Var, Cons, Args0, _, _, _, _), _Info, AS) :-
+	get_rid_of_damn_typeinfos( Cons, Args0, Args),
+	number_args(Args, NumberedArsg), 
+	list__foldl(alias_from_unif(Var, Cons), NumberedArsg, [], AS0), 
+	internal_aliases(NumberedArsg, PosList), 
+	create_internal_aliases(Var, Cons, PosList, AS1), 
+	list__append(AS0, AS1, AS). 
+	
 
+	% Given a list of arguments of the construction, determine all
+	% the sets of positions which refer to the same prog_var. 
+:- pred internal_aliases(list(pair(int, prog_var))::in, 
+		list(list(int))::out) is det.
+internal_aliases(NumberedArgs, PosList):- 
+	list__foldl(
+		pred(NumberedArg::in, Map0::in, Map::out) is det:- 
+		    (
+			NumberedArg = Position - ProgVar, 
+			(
+				map__search(Map0, ProgVar, Positions0)
+			->
+				Positions = [Position | Positions0],
+				map__det_update(Map0, ProgVar, Positions, Map)
+			;
+				map__det_insert(Map0, ProgVar, [Position], Map)
+			)
+		    ),
+		NumberedArgs, 
+		map__init, 
+		FrequencyMap0),
+	map__keys(FrequencyMap0, Keys), 
+	list__foldl(
+		pred(ProgVar::in, List0::in, List::out) is det :- 
+		    (
+			map__lookup(FrequencyMap0, ProgVar, Positions),
+			( 
+				( Positions = [] ; Positions = [_] )
+			-> 
+				List = List0
+			; 	
+				List = [Positions | List0]
+			)
+		    ), 
+		Keys, 
+		[],
+		PosList). 
+
+:- pred create_internal_aliases(prog_var::in, cons_id::in, 
+		list(list(int))::in, list(alias)::out) is det. 
+create_internal_aliases(MainVar, ConsId, PositionLists, Aliases):- 
+	list__foldl(
+		pred(Positions::in, List0::in, List::out) is det:-
+		    (
+			solutions_set(two_by_two(Positions), SetPairs), 
+			set__to_sorted_list(SetPairs, Pairs),
+			list__append(Pairs, List0, List)
+		    ), 
+		PositionLists, 
+		[], 
+		PositionPairs), 
+	list__map(
+		pred(PositionPair::in, Alias::out) is det:-
+		    (
+			PositionPair = Pos0 - Pos1,
+			pa_datastruct__init(MainVar, ConsId, Pos0, D0), 
+			pa_datastruct__init(MainVar, ConsId, Pos1, D1), 
+			Alias = D0 - D1
+		    ), 
+		PositionPairs, 
+		Aliases). 
+			
+:- pred two_by_two(list(int)::in, pair(int)::out) is nondet. 
+two_by_two(List0, Pair):-
+	(
+		List0 = []
+	->
+		require__error("empty list")
+	; 
+		list__delete(List0, E0, Rest0), 
+		list__delete(Rest0, E1, _), 
+		(
+			E0 > E1
+		-> 
+			Pair = E1 - E0
+		; 
+			Pair = E0 - E1 
+		)
+	). 
+			
 :- pred get_rid_of_damn_typeinfos( cons_id::in, list(prog_var)::in, 
 			list(prog_var)::out) is det. 
 get_rid_of_damn_typeinfos( Cons, Args0, Args ) :- 

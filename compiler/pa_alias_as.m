@@ -475,14 +475,14 @@ extend_foreign_code( _ProcInfo, HLDS, GoalInfo,
 	remove_all_unique_vars( HLDS, Trios, NonUniqueVars), 
 	% keep only the output vars
 	collect_all_output_vars( HLDS, NonUniqueVars, OutputVars), 
-	collect_all_input_vars( HLDS, NonUniqueVars, InputVars), 
+%	collect_all_input_vars( HLDS, NonUniqueVars, InputVars), 
 	(
-		(
+%		(
 			OutputVars = [] 
-		; 
-			% XXXXXXXXXXXXXXXXX !!
-			OutputVars = [_], InputVars = []
-		)
+%		; 
+%			% XXXXXXXXXXXXXXXXX !!
+%			OutputVars = [_], InputVars = []
+%		)
 	->
 		Alias = Alias0
 	;
@@ -577,7 +577,8 @@ remove_all_unique_vars( HLDS, VarsIN, VarsOUT):-
 		pred( P0::in ) is semidet :- 
 		(
 			P0 = trio(_, Mode, _), 
-			Mode = (_LeftInst -> RightInst), 
+			mode_util__mode_get_insts( HLDS, Mode, _LeftInst, 
+				RightInst),
 			\+ inst_is_unique(HLDS, RightInst), 
 			\+ inst_is_clobbered(HLDS, RightInst)
 		),
