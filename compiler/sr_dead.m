@@ -217,7 +217,7 @@ annotate_case(ProcInfo, HLDS, Pool0, Alias0, Case0, Case, Pool, Alias) :-
 unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 		Pool0, Pool, Info0, Info) :- 
 	(
-		Unification = deconstruct(Var, _ConsId, Vars, _, _, _)
+		Unification = deconstruct(Var, ConsId, Vars, _, _, _)
 	->
 		goal_info_get_lfu(Info0, LFU), 
 		goal_info_get_lbu(Info0, LBU),
@@ -227,6 +227,14 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 				Alias0, Live), 
 		(
 			(
+				% XXX things suchs as pred_const's cannot
+				% die. 
+				cons_id_maybe_arity(ConsId, no)
+			;
+				% Do not consider functors of arity 0
+				% dead. 
+				cons_id_arity(ConsId, 0)
+			;
 				sr_live__is_live(Var, Live) 
 			;
 				pa_alias_as__is_top(Alias0)
@@ -252,8 +260,13 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 			% XXX to avoid trying to reuse cells such as
 			% pred_const, which don't have a valid cons_id
 			% passed to them in ml_gen_new_object. ie
-			% pred_const's
-		( cons_id_maybe_arity(ConsId, no) ->
+			% pred_const's.
+			% Do not reuse cells for constructing functors
+			% of arity zero. 
+		( 
+			( cons_id_maybe_arity(ConsId, no) ; 
+			  cons_id_arity(ConsId, 0) )
+		->
 			set__init(ReuseVarsConds)
 		;
 			dead_cell_pool_try_to_reuse(list__length(Vars),
