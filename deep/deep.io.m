@@ -719,8 +719,8 @@ insert(A0, Ind, Thing, A) :-
 :- pragma c_code(u(A::in) = (B::array_uo),
 		[will_not_call_mercury, thread_safe], "B = A;").
 
-:- func max(int, int) = int.
-max(A, B) = (A > B -> A ; B).
+%:- func max(int, int) = int.
+%max(A, B) = (A > B -> A ; B).
 
 %------------------------------------------------------------------------------%
 

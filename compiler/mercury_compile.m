@@ -62,6 +62,7 @@
 :- import_module ml_elim_nested, ml_tailcall.	% MLDS -> MLDS
 :- import_module ml_optimize.			% MLDS -> MLDS
 :- import_module mlds_to_c.			% MLDS -> C
+:- import_module mlds_to_java.			% MLDS -> Java
 :- import_module mlds_to_ilasm.			% MLDS -> IL assembler
 :- import_module maybe_mlds_to_gcc.		% MLDS -> GCC back-end
 
@@ -486,6 +487,14 @@ mercury_compile(Module) -->
 				mercury_compile__il_assemble(ModuleName,
 					HasMain)
 			)
+		    ; { Target = java } ->
+			mercury_compile__mlds_backend(HLDS50, MLDS),
+			mercury_compile__mlds_to_java(MLDS),
+			( { TargetCodeOnly = yes } ->
+				[]
+			;
+				mercury_compile__compile_java_file(ModuleName)
+			)
 		    ; { Target = asm } ->
 		    	% compile directly to assembler using the gcc back-end
 			mercury_compile__mlds_backend(HLDS50, MLDS),
@@ -699,11 +708,17 @@ mercury_compile__maybe_grab_optfiles(Imports0, Verbose, MaybeTransOptDeps,
 				[]
 			)
 		)
+	; { MakeOptInt = yes } ->
+		% If we're making the `.opt' file, then we can't
+		% read any `.trans_opt' files, since `.opt' files 
+		% aren't allowed to depend on `.trans_opt' files.
+		{ Imports = Imports1 },
+		{ Error2 = no }
 	;
 		( { TransOpt = yes } ->
 			% If transitive optimization is enabled, but we are
-			% not creating the trans opt file, then import the
-			% trans_opt files for all the modules that are
+			% not creating the .opt or .trans opt file, then import
+			% the trans_opt files for all the modules that are
 			% imported (or used), and for all ancestor modules.
 			{ Imports0 = module_imports(_File, _Module, Ancestors,
 				InterfaceImports, ImplementationImports,
@@ -2583,11 +2598,15 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS10, "10", "rtti"),
 
-	% XXX this pass should be conditional on a compilation option
-
-	maybe_write_string(Verbose, "% Detecting tail calls...\n"),
-	ml_mark_tailcalls(MLDS10, MLDS20),
-	maybe_write_string(Verbose, "% done.\n"),
+	globals__io_lookup_bool_option(optimize_tailcalls, OptimizeTailCalls),
+	( { OptimizeTailCalls = yes } ->
+		maybe_write_string(Verbose, 
+			"% Detecting tail calls...\n"),
+		ml_mark_tailcalls(MLDS10, MLDS20),
+		maybe_write_string(Verbose, "% done.\n")
+	;
+		{ MLDS10 = MLDS20 }
+	),
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS20, "20", "tailcalls"),
 
@@ -2642,6 +2661,18 @@ mercury_compile__mlds_to_high_level_c(MLDS) -->
 	maybe_write_string(Verbose, "% Converting MLDS to C...\n"),
 	mlds_to_c__output_mlds(MLDS),
 	maybe_write_string(Verbose, "% Finished converting MLDS to C.\n"),
+	maybe_report_stats(Stats).
+
+:- pred mercury_compile__mlds_to_java(mlds, io__state, io__state).
+:- mode mercury_compile__mlds_to_java(in, di, uo) is det.
+
+mercury_compile__mlds_to_java(MLDS) -->
+	globals__io_lookup_bool_option(verbose, Verbose),
+	globals__io_lookup_bool_option(statistics, Stats),
+
+	maybe_write_string(Verbose, "% Converting MLDS to Java...\n"),
+	mlds_to_java__output_mlds(MLDS),
+	maybe_write_string(Verbose, "% Finished converting MLDS to Java.\n"),
 	maybe_report_stats(Stats).
 
 :- pred mercury_compile__maybe_mlds_to_gcc(mlds, bool, io__state, io__state).
@@ -2979,6 +3010,48 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	invoke_system_command(Command, Succeeded),
 	( { Succeeded = no } ->
 		report_error("problem compiling C file.")
+	;
+		[]
+	).
+
+:- pred mercury_compile__compile_java_file(module_name, io__state, io__state).
+:- mode mercury_compile__compile_java_file(in, di, uo) is det.
+
+mercury_compile__compile_java_file(ModuleName) -->
+	module_name_to_file_name(ModuleName, ".java", no, JavaFile),
+	globals__io_lookup_bool_option(verbose, Verbose),
+	maybe_write_string(Verbose, "% Compiling `"),
+	maybe_write_string(Verbose, JavaFile),
+	maybe_write_string(Verbose, "':\n"),
+	globals__io_lookup_string_option(java_compiler, JavaCompiler),
+	globals__io_lookup_accumulating_option(java_flags, JavaFlagsList),
+	{ join_string_list(JavaFlagsList, "", "", " ", JAVAFLAGS) },
+
+	globals__io_lookup_accumulating_option(java_classpath,
+	 	Java_Incl_Dirs),
+	( { Java_Incl_Dirs = [] } ->
+		{ InclOpt = "" }
+	;
+		% XXX PathSeparator should be ";" on Windows
+		{ PathSeparator = ":" },
+		{ join_string_list(Java_Incl_Dirs, "", "",
+			PathSeparator, ClassPath) },
+		{ InclOpt = string__append_list([
+			"-classpath ", ClassPath, " "]) }
+	),
+	globals__io_lookup_bool_option(target_debug, Target_Debug),
+	{ Target_Debug = yes ->
+		Target_DebugOpt = "-g "
+	;
+		Target_DebugOpt = ""
+	},
+	% Be careful with the order here!  Some options may override others.
+	% Also be careful that each option is separated by spaces.
+	{ string__append_list([JavaCompiler, " ", InclOpt,
+		Target_DebugOpt, JAVAFLAGS, JavaFile], Command) },
+	invoke_system_command(Command, Succeeded),
+	( { Succeeded = no } ->
+		report_error("problem compiling Java file.")
 	;
 		[]
 	).

@@ -33,9 +33,9 @@ init(graph(1, Array)) :-
 
 add_arc(graph(Size0, Array0), From, To, Graph) :-
 	( in_bounds(Array0, From) ->
-		lookup(Array0, From, Tos0),
-		insert(Tos0, To, Tos),
-		set(u(Array0), From, Tos, Array),
+		array__lookup(Array0, From, Tos0),
+		set__insert(Tos0, To, Tos),
+		array__set(u(Array0), From, Tos, Array),
 		Size = max(max(From, To), Size0),
 		Graph = graph(Size, Array)
 	;
@@ -44,8 +44,8 @@ add_arc(graph(Size0, Array0), From, To, Graph) :-
 		add_arc(graph(Size0, Array1), From, To, Graph)
 	).
 
-:- func max(int, int) = int.
-max(X, Y) = (X > Y -> X ; Y).
+%:- func max(int, int) = int.
+%max(X, Y) = (X > Y -> X ; Y).
 
 atsort(Graph, ATSort) :-
 	dfsrev(Graph, DfsRev),

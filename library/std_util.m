@@ -996,7 +996,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	will_not_call_mercury,
 "
 #ifndef CONSERVATIVE_GC
-	MR_sol_hp = SolutionsHeapPtr;
+	MR_sol_hp = (MR_Word *) SolutionsHeapPtr;
 #endif
 ").
 
@@ -1232,8 +1232,20 @@ unravel_univ(Univ, X) :-
 :- pragma foreign_code("C", "
 
 #ifdef MR_HIGHLEVEL_CODE
-void sys_init_unify_type_desc_module(void); /* suppress gcc -Wmissing-decl warning */
-void sys_init_unify_type_desc_module(void) { return; }
+
+/* forward decl, to suppress gcc -Wmissing-decl warning */
+void sys_init_unify_type_desc_module(void);
+
+/*
+** This empty initialization function is needed just to
+** match the one that we use for LLDS grades.
+*/
+void
+sys_init_unify_type_desc_module(void)
+{
+	/* no initialization needed */
+}
+
 #else
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, type_desc, 0,

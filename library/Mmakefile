@@ -194,9 +194,10 @@ dates		:
 
 #-----------------------------------------------------------------------------#
 
-.PHONY: os cs ils library.dlls dlls
+.PHONY: os cs ss ils library.dlls dlls
 os: $(library.os)
 cs: $(library.cs)
+ss: $(library.ss)
 ils: $(library.ils)
 library.dlls = $(library.mods:%=%.dll)
 dlls: $(library.dlls)
@@ -273,7 +274,8 @@ RPATH_1=$(SHLIB_RPATH_OPT)$(FINAL_INSTALL_MERC_LIB_DIR)
 RPATH_2=$(SHLIB_RPATH_SEP)$(FINAL_INSTALL_MERC_GC_LIB_DIR)
 
 lib$(STD_LIB_NAME).so : $(library.pic_os)
-	$(LINK_SHARED_OBJ) -o lib$(STD_LIB_NAME).so $(library.pic_os)	\
+	$(LINK_SHARED_OBJ) $(ERROR_UNDEFINED) 				\
+		-o lib$(STD_LIB_NAME).so $(library.pic_os)		\
 		$(RPATH_1)$(RPATH_2)					\
 		$(ALL_LDFLAGS) $(ALL_LDLIBS)				\
 		$(SHARED_LIBS)

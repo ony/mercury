@@ -54,6 +54,24 @@
 	io__state::di, io__state::uo) is det.
 
 % interface to the C function dlclose()
+%
+% WARNING: dlclose() is form of manual memory management.
+% You need to make sure that no remaining references to code or
+% static data in the dynamically linked module before you call dl__close,
+% because if you do reference code or static data from the dynamically
+% linked module after dl__close has been called, then the behaviour is
+% undefined (and probably harmful!).
+% 
+% This can be difficult to ensure.  You need to make sure that you
+% don't keep any references to the higher-order terms return by dl__sym.
+% Furthermore you need to make sure that you don't keep any references
+% to terms constructed by procedures in the dynamically loaded module,
+% since such terms may contain references to static data in the
+% dynamically loaded module.  You must also ensure that you don't keep
+% any references to types or instances defined in the dynamically loaded
+% module, as might be the case if you're using existentially quantified
+% data types, since they too can contain references to static data.
+% 
 :- pred dl__close(handle::in, dl__result::out,
 	io__state::di, io__state::uo) is det.
 
@@ -63,6 +81,7 @@
 :- pragma c_header_code("
 	#include <stdio.h>
 	#include ""mercury_conf.h""
+	#include ""mercury_string.h""	/* for MR_make_aligned_string_copy() */
 #ifdef HAVE_DLFCN_H
 	#include <dlfcn.h>
 #endif
@@ -180,7 +199,6 @@ int	ML_DL_closure_counter = 0;
 :- pragma foreign_code("C", make_closure_layout = (ClosureLayout::out),
 	[will_not_call_mercury, thread_safe],
 "{
-	extern	int			ML_DL_closure_counter;
 	MR_Closure_Id			*closure_id;
 	MR_Closure_Dyn_Link_Layout	*closure_layout;
 	char				buf[80];
