@@ -96,11 +96,11 @@ process_proc(AliasTable, PredId, ProcId, !ProcInfo, !ModuleInfo, !IO) :-
 	% arguments given to the mmc were correct. This is definitely not the
 	% right moment to check these arguments. Should be done way earlier. 
 	sr_choice_util__get_strategy(Strategy, !ModuleInfo, !IO), 
-	Strategy = strategy(Constraint, Selection),
+	Strategy = strategy(_Constraint, Selection),
 	(
-		Selection = graph 
+		( Selection = graph ; Selection = lifo )
 	->
-		sr_choice_graphing__set_background_info(Constraint, 
+		sr_choice_graphing__set_background_info(Strategy, 
 			!.ModuleInfo, VarTypes, Background), 
 		sr_choice_graphing__process_goal(Background, Goal1, Goal,
 			MaybeReuseConditions, !IO)

@@ -101,7 +101,6 @@
 % it dies in each of the branches of the disjunction), this will not
 % be discovered at this moment. 
 %
-
 %-----------------------------------------------------------------------------%
 
 :- module structure_reuse__sr_choice_graphing.
@@ -116,7 +115,7 @@
 :- import_module io, std_util, list. 
 
 :- type background_info. 
-:- pred set_background_info(sr_choice_util__constraint::in, module_info::in, 
+:- pred set_background_info(sr_choice_util__strategy::in, module_info::in, 
 		vartypes::in, background_info::out) is det.
 
 	% Annotate each deconstruction/construction unification with
@@ -142,13 +141,13 @@
 %-----------------------------------------------------------------------------%
 :- type background_info 
 	---> 	background(
-			constraint	:: sr_choice_util__constraint,
+			strategy	:: sr_choice_util__strategy,
 			module_info	:: module_info, 
 			vartypes	:: vartypes
 		).
 
-set_background_info(Constraint, ModuleInfo, VarTypes, BG):-
-	BG = background(Constraint, ModuleInfo, VarTypes). 
+set_background_info(Strategy, ModuleInfo, VarTypes, BG):-
+	BG = background(Strategy, ModuleInfo, VarTypes). 
 
 %-----------------------------------------------------------------------------%
 
@@ -460,15 +459,33 @@ compute_values(Background, Expr - _Info, Cont) -->
 		value::in, value::out) is det. 
 
 conjunction_value_of_dead_cel(Background, Deconstruction, 
-		Cont, Val0, Val):- 
+		Cont, !Value) :- 
+	Val0 = !.Value, 
 	list__map(
 		pred(G::in, V::out) is det:- 
 		    ( value_of_dead_cel_in_goal(Background, 
 			Deconstruction, G, Val0, V)), 
 		Cont, DisjunctiveVals), 
 	count_candidates(DisjunctiveVals, Degree), 
-	highest_value_in_list(DisjunctiveVals, Val0, Val1), 
-	Val = Val1 ^ degree := Degree. 
+	(
+		Background ^ strategy ^ selection = lifo,
+		(
+			value_empty(Val0), 
+			list__takewhile(value_empty, DisjunctiveVals, 
+				_EmptyVals, [FirstNonEmpty|_])
+		-> 
+			!:Value= FirstNonEmpty
+		; 
+			!:Value= Val0
+		)
+	; 
+		Background ^ strategy ^ selection = graph, 
+		highest_value_in_list(DisjunctiveVals, !Value)
+	; 
+		Background ^ strategy ^ selection = random, 
+		require__error("(sr_choice_graphing) blabla not supported.")
+	),
+	!:Value = !.Value ^ degree := Degree. 
 
 	% compute the value of a dead cell with respect to a 
 	% disjunction. If reuse is possible within the branches, the value
@@ -662,7 +679,7 @@ beta_value = 1.
 
 compute_new_value(Background, NewVar, DeadVar, NewCons, DeadCons, 
 		NewCellArgs, DeadCellArgs, Weight, ReuseType) :- 
-	Constraint = Background ^ constraint, 
+	Constraint = Background ^ strategy ^ constraint, 
 	ModuleInfo = Background ^ module_info, 
 	Vartypes   = Background ^ vartypes, 
 	NewArity = list__length(NewCellArgs), 
@@ -969,6 +986,8 @@ average_value(List, Value):-
 :- pred value_init(reuse_condition::in, value::out) is det.
 value_init(Cond, entry(Cond, no, [], 0)). 
 
+:- pred value_empty(value::in) is semidet.
+value_empty(entry(_, no, _, _)).
 
 :- func arity_diff(reuse_type) = int. 
 arity_diff(T) = R :- 

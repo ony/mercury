@@ -573,6 +573,7 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 				Locals ++ list__condense(Globals), Candidates) }
 	;
 		{ Selection = random },
+		% XXX If you ask me, I don't see much randomness around here. 
 		{ P = (pred(Choice::out) is nondet :- 
 			list__member(Choice, PossibleCandidates),
 			ChoiceVar = Choice ^ var,
@@ -637,98 +638,88 @@ select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- type cgc_info
-	--->	cgc_info.
-
 :- pred determine_cgc(set(prog_var)::in, hlds_goal::in, hlds_goal::out) is det.
 
-determine_cgc(ReuseVars, Goal0, Goal) :-
-	determine_cgc(ReuseVars, Goal0, Goal, cgc_info, _Info).
+determine_cgc(_ReusedVars, Goal - GoalInfo, Goal - GoalInfo) :- 
+	Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name).
 
-:- pred determine_cgc(set(prog_var)::in, hlds_goal::in, hlds_goal::out,
-		cgc_info::in, cgc_info::out) is det.
-
-determine_cgc(_ReusedVars, Goal - GoalInfo, Goal - GoalInfo) -->
-	{ Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name) }.
-
-determine_cgc(ReusedVars, Goal0 - GoalInfo0, Goal - GoalInfo) -->
-	{ Goal0 = unify(Var, Rhs, Mode, Unif0, Ctxt) },
+determine_cgc(ReusedVars, Goal0 - GoalInfo0, Goal - GoalInfo) :-
+	Goal0 = unify(Var, Rhs, Mode, Unif0, Ctxt),
 	determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo),
-	{ Goal = unify(Var, Rhs, Mode, Unif, Ctxt) }.
+	Goal = unify(Var, Rhs, Mode, Unif, Ctxt).
 
-determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = generic_call(_, _, _, _) },
-	{ Goal = Goal0 }.
-determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
-	{ Goal = Goal0 }.
-determine_cgc(_ReusedVars, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = shorthand(_) },
-	{ error("structure_reuse: shorthand.\n") }.
+determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) :- 
+	Goal0 = generic_call(_, _, _, _),
+	Goal = Goal0.
+determine_cgc(_ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) :- 
+	Goal0 = foreign_proc(_, _, _, _, _, _, _),
+	Goal = Goal0.
+determine_cgc(_ReusedVars, Goal0 - _GoalInfo, _) :- 
+	Goal0 = shorthand(_),
+	error("structure_reuse: shorthand.\n").
 
-determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
+determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) :- 
+	Goal0 = if_then_else(Vars, If0, Then0, Else0),
 	determine_cgc(ReusedVars, If0, If),
 	determine_cgc(ReusedVars, Then0, Then),
 	determine_cgc(ReusedVars, Else0, Else),
-	{ Goal = if_then_else(Vars, If, Then, Else) }.
+	Goal = if_then_else(Vars, If, Then, Else).
 
-determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0) },
+determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) :-
+	Goal0 = switch(Var, CanFail, Cases0),
 	determine_cgc_cases(ReusedVars, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases) }.
+	Goal = switch(Var, CanFail, Cases).
 
-determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
+determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) :- 
+	Goal0 = some(Vars, CanRemove, SomeGoal0),
 	determine_cgc(ReusedVars, SomeGoal0, SomeGoal),
-	{ Goal = some(Vars, CanRemove, SomeGoal) }.
+	Goal = some(Vars, CanRemove, SomeGoal).
 
-determine_cgc(ReusedVars, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+determine_cgc(ReusedVars, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) :- 
 	determine_cgc(ReusedVars, Goal0, Goal).
 
 determine_cgc(ReusedVars, conj(Goal0s) - GoalInfo,
-		conj(Goals) - GoalInfo) -->
+		conj(Goals) - GoalInfo) :- 
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
 determine_cgc(ReusedVars, disj(Goal0s) - GoalInfo,
-		disj(Goals) - GoalInfo) -->
+		disj(Goals) - GoalInfo) :- 
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
 determine_cgc(ReusedVars, par_conj(Goal0s) - GoalInfo,
-		par_conj(Goals) - GoalInfo) -->
+		par_conj(Goals) - GoalInfo) :- 
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
-:- pred determine_cgc_cases(set(prog_var)::in, list(case)::in, list(case)::out,
-		cgc_info::in, cgc_info::out) is det.
+:- pred determine_cgc_cases(set(prog_var)::in, list(case)::in, 
+		list(case)::out) is det.
 
-determine_cgc_cases(_ReusedVars, [], []) --> [].
-determine_cgc_cases(ReusedVars, [Case0 | Case0s], [Case | Cases]) -->
-	{ Case0 = case(ConsId, Goal0) },
+determine_cgc_cases(_ReusedVars, [], []).
+determine_cgc_cases(ReusedVars, [Case0 | Case0s], [Case | Cases]) :- 
+	Case0 = case(ConsId, Goal0),
 	determine_cgc(ReusedVars, Goal0, Goal),
-	{ Case = case(ConsId, Goal) },
+	Case = case(ConsId, Goal),
 	determine_cgc_cases(ReusedVars, Case0s, Cases).
 
-:- pred determine_cgc_list(set(prog_var)::in, hlds_goals::in, hlds_goals::out,
-		cgc_info::in, cgc_info::out) is det.
+:- pred determine_cgc_list(set(prog_var)::in, hlds_goals::in, 
+		hlds_goals::out) is det.
 
-determine_cgc_list(_ReusedVars, [], []) --> [].
-determine_cgc_list(ReusedVars, [Goal0 | Goal0s], [Goal | Goals]) -->
+determine_cgc_list(_ReusedVars, [], []).
+determine_cgc_list(ReusedVars, [Goal0 | Goal0s], [Goal | Goals]) :-
 	determine_cgc(ReusedVars, Goal0, Goal),
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
 :- pred determine_cgc_unification(set(prog_var)::in,
 		unification::in, unification::out,
-		hlds_goal_info::in, hlds_goal_info::out,
-		cgc_info::in, cgc_info::out) is det.
+		hlds_goal_info::in, hlds_goal_info::out) is det.
 
-determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = construct(_Var, _ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi) }.
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) :- 
+	Unif = construct(_Var, _ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi).
 
-determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
-	{ Unif0 = deconstruct(Var, ConsId, Vars, Modes, CanFail, _CanCGC) },
+determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) :- 
+	Unif0 = deconstruct(Var, ConsId, Vars, Modes, CanFail, _CanCGC),
 
-	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
-	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
+	goal_info_get_reuse(GoalInfo0, ReuseInfo),
+	( ReuseInfo = choice(deconstruct(MaybeDies)) ->
 		(
 			MaybeDies = yes(Condition),
 			goal_info_set_reuse(
@@ -760,16 +751,16 @@ determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
 		)
 	;
 		error("determine_cgc_unification")
-	},
-	{ Unif = deconstruct(Var, ConsId, Vars, Modes, CanFail, CanCGC) }.
+	),
+	Unif = deconstruct(Var, ConsId, Vars, Modes, CanFail, CanCGC).
 
 
-determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = assign(_, _) }.
-determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = simple_test(_, _) }.
-determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = complicated_unify(_, _, _) }.
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) :- 
+	Unif = assign(_, _).
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) :- 
+	Unif = simple_test(_, _).
+determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) :- 
+	Unif = complicated_unify(_, _, _).
 
 
 %-----------------------------------------------------------------------------%
