@@ -224,7 +224,7 @@ mlds_output_src_file(Indent, MLDS) -->
 	{ list__filter(defn_is_type, PrivateDefns, PrivateTypeDefns,
 		PrivateNonTypeDefns) },
 	{ list__filter(defn_is_type, Defns, _TypeDefns, NonTypeDefns) },
-	{ list__filter(defn_is_function, NonTypeDefns, FuncDefns) },
+	{ list__filter(defn_is_function_with_body, NonTypeDefns, FuncDefns) },
 	{ list__filter(defn_is_type_ctor_info, NonTypeDefns,
 		TypeCtorInfoDefns) },
 	{ MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName) },

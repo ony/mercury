@@ -62,9 +62,10 @@
 :- pred defn_is_type(mlds__defn).
 :- mode defn_is_type(in) is semidet.
 
-	% Succeeds iff this definition is a function definition.
-:- pred defn_is_function(mlds__defn).
-:- mode defn_is_function(in) is semidet.
+	% Succeeds iff this definition is a function definition, which
+	% has a body defined for it.
+:- pred defn_is_function_with_body(mlds__defn).
+:- mode defn_is_function_with_body(in) is semidet.
 
 	% Succeeds iff this definition is a data definition which
 	% defines a type_ctor_info constant.
@@ -267,8 +268,9 @@ defn_is_type(Defn) :-
 	Defn = mlds__defn(Name, _Context, _Flags, _Body),
 	Name = type(_, _).
 
-defn_is_function(Defn) :-
-	Defn = mlds__defn(Name, _Context, _Flags, _Body),
+defn_is_function_with_body(Defn) :-
+	Defn = mlds__defn(Name, _Context, _Flags, Body),
+	Body = function(_, _, yes(_)),
 	Name = function(_, _, _, _).
 
 defn_is_type_ctor_info(Defn) :-
