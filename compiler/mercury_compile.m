@@ -31,6 +31,7 @@
 	% semantic analysis
 :- import_module handle_options, prog_io, prog_out, modules, module_qual.
 :- import_module equiv_type, make_hlds, typecheck, purity, polymorphism, modes.
+:- import_module mode_constraints.
 :- import_module switch_detection, cse_detection, det_analysis, unique_modes.
 :- import_module stratify, simplify.
 
@@ -1024,6 +1025,11 @@ mercury_compile__frontend_pass_2_by_phases(HLDS4, HLDS20, FoundError) -->
 	mercury_compile__maybe_polymorphism(HLDS4, Verbose, Stats, HLDS5),
 	mercury_compile__maybe_dump_hlds(HLDS5, "05", "polymorphism"),
 
+	mercury_compile__maybe_mode_constraints(HLDS5, Verbose, Stats,
+		HHF_HLDS),
+	mercury_compile__maybe_dump_hlds(HHF_HLDS, "05a", "mode_constraints"),
+
+
 	mercury_compile__modecheck(HLDS5, Verbose, Stats, HLDS6,
 		FoundModeError, UnsafeToContinue),
 	mercury_compile__maybe_dump_hlds(HLDS6, "06", "modecheck"),
@@ -1851,6 +1857,24 @@ mercury_compile__maybe_polymorphism(HLDS0, Verbose, Stats, HLDS) -->
 		% types.
 		{ error("sorry, `--no-polymorphism' is no longer supported") }
 	).
+
+:- pred mercury_compile__maybe_mode_constraints(module_info, bool, bool,
+	module_info, io__state, io__state).
+:- mode mercury_compile__maybe_mode_constraints(in, in, in, out, di, uo) is det.
+
+mercury_compile__maybe_mode_constraints(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(dump_mode_constraints, ModeConstraints),
+	( { ModeConstraints = yes } ->
+		maybe_write_string(Verbose,
+			"% Dumping mode constraints..."),
+		maybe_flush_output(Verbose),
+		mode_constraints__process_module(HLDS0, HLDS),
+		maybe_write_string(Verbose, " done.\n"),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS = HLDS0 }
+	).
+
 
 :- pred mercury_compile__maybe_type_ctor_infos(module_info, bool, bool,
 	module_info, io__state, io__state).

@@ -128,6 +128,7 @@ BROWSER_DIR = $(MERCURY_DIR)/browser
 BOEHM_GC_DIR = $(MERCURY_DIR)/boehm_gc
 COMPILER_DIR = $(MERCURY_DIR)/compiler
 UTIL_DIR = $(MERCURY_DIR)/util
+ROBDD_DIR = $(MERCURY_DIR)/robdd
 
 # By default, GRADESTRING is defined as the result of invoking
 # `mmc --output-grade-string' with $(GRADE) and $(GRADEFLAGS).

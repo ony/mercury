@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2000 University of Melbourne.
+% Copyright (C) 1997-2001 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,14 +13,22 @@
 
 :- interface.
 
-:- import_module hlds_pred, hlds_module.
+:- import_module hlds_pred, hlds_module, hlds_goal.
 
 :- pred goal_path__fill_slots(proc_info::in, module_info::in, proc_info::out)
 	is det.
 
+	% Fill in the goal_paths for goals in the clauses_info of the predicate.
+	% Clauses are given goal paths `disj(1)', ...,  `disj(N)'.
+:- pred goal_path__fill_slots_in_clauses(pred_info::in, module_info::in,
+	pred_info::out) is det.
+
+:- pred goal_path__fill_slots_in_goal(hlds_goal::in, vartypes::in,
+		module_info::in, hlds_goal::out) is det.
+
 :- implementation.
 
-:- import_module prog_data, hlds_data, hlds_goal, type_util.
+:- import_module prog_data, hlds_data, type_util.
 :- import_module char, int, list, map, std_util, require.
 
 :- type slot_info
@@ -33,9 +41,24 @@ goal_path__fill_slots(Proc0, ModuleInfo, Proc) :-
 		% The ModuleInfo argument is there just for passes_aux
 	proc_info_goal(Proc0, Goal0),
 	proc_info_vartypes(Proc0, VarTypes),
-	SlotInfo = slot_info(VarTypes, ModuleInfo),
-	fill_goal_slots(Goal0, [], SlotInfo, Goal),
+	goal_path__fill_slots_in_goal(Goal0, VarTypes, ModuleInfo, Goal),
 	proc_info_set_goal(Proc0, Goal, Proc).
+
+goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo, PredInfo) :-
+	pred_info_clauses_info(PredInfo0, ClausesInfo0),
+	clauses_info_clauses(ClausesInfo0, Clauses0),
+	clauses_info_vartypes(ClausesInfo0, VarTypes),
+	SlotInfo = slot_info(VarTypes, ModuleInfo),
+	list__map_foldl((pred(clause(A, Goal0, C)::in, clause(A, Goal, C)::out,
+				N::in, (N + 1)::out) is det :-
+			fill_goal_slots(Goal0, [disj(N)], SlotInfo, Goal)
+		), Clauses0, Clauses, 1, _),
+	clauses_info_set_clauses(ClausesInfo0, Clauses, ClausesInfo),
+	pred_info_set_clauses_info(PredInfo0, ClausesInfo, PredInfo).
+
+goal_path__fill_slots_in_goal(Goal0, VarTypes, ModuleInfo, Goal) :-
+	SlotInfo = slot_info(VarTypes, ModuleInfo),
+	fill_goal_slots(Goal0, [], SlotInfo, Goal).
 
 :- pred fill_goal_slots(hlds_goal::in, goal_path::in, slot_info::in,
 	hlds_goal::out) is det.

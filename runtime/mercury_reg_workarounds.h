@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -21,15 +21,17 @@
 #include <stdlib.h>			/* for size_t */
 
 /*
-** We use our own version of memcpy because gcc recognises calls to the
-** standard memcpy (even in things that do not mention memcpy by name, e.g.
-** structure assignments) and generates inline code for them. Unfortunately
-** this causes gcc to abort because it tries to use a register that we have
-** already reserved.
+** We use our own versions of memcpy and memset because gcc recognises
+** calls to the standard memcpy and memset (even in things that do not
+** mention them by name, e.g.  structure assignments) and generates
+** inline code for them. Unfortunately this causes gcc to abort
+** because it tries to use a register that we have already reserved.
 ** XXX We should fix this eventually by using -fno-builtin since pragma
 ** c_code may call the builtin functions.
 */
 extern	void	MR_memcpy(void *dest, const void *src, size_t nbytes);
+
+extern void	MR_memset(void *dest, char c, size_t nbytes);
 
 /*
 ** We use a forwarding function to FD_ZERO because the Linux headers

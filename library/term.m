@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1993-2000 The University of Melbourne.
+% Copyright (C) 1993-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -293,6 +293,8 @@
 %		Convert a variable to an int.
 %		Different variables map to different ints.
 %		Other than that, the mapping is unspecified.
+
+:- func term__var_supply_max_var(var_supply(T)) = var(T).
 	
 %-----------------------------------------------------------------------------%
 
@@ -1086,6 +1088,9 @@ term__var_to_int(var(Var), Var).
 	% Cast an integer to a var(T), subverting the type-checking.
 :- func unsafe_int_to_var(int) = var(T).
 term__unsafe_int_to_var(Var) = var(Var).
+
+
+term__var_supply_max_var(var_supply(V)) = var(V).
 
 %-----------------------------------------------------------------------------%
 

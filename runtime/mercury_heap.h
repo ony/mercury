@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-2000 The University of Melbourne.
+** Copyright (C) 1995-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -19,6 +19,7 @@
 
 #ifdef CONSERVATIVE_GC
 
+  #define GC_I_HIDE_POINTERS
   #include "gc.h"
 
   #define MR_tag_incr_hp_n(dest, tag, count) \
