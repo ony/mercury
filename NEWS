@@ -89,6 +89,12 @@ Changes to the standard library:
 
 * There is a new library module `counter' for managing counters.
 
+* We've added a new library module `sparse_bitset', which implements
+  an abstract data type for storing sets of integers.
+
+* There is a new library module `enum' which contains a typeclass
+  describing types which can be converted to and from integers.
+
 * Four new parametric instantiations `maybe/1', `maybe_error/1',
   `pair/2' and `pair/1' have been added to the `std_util' library
   module.  These make it more convenient to work with non-ground
@@ -124,6 +130,8 @@ Changes to the standard library:
 	  truncated to the specified precision, but for ISO C's
 	  printf(), they are rounded rather than being truncated.
 
+* We've added a new function, math__solve_quadratic/3.
+
 Changes to the Mercury implementation:
 
 * We've implemented a new back-end for the Mercury compiler.
@@ -153,8 +161,10 @@ Changes to the Mercury implementation:
   The new back-end is not yet as mature or complete as the old back-end.
   It does not yet support the following standard Mercury features:
   	- abstractly exported equivalence types defined as `float'
-	- the `in = in' mode of unification for certain standard library
-	  types such as arrays and `univ'
+	- calling compare/3, or the `in = in' mode of unification,
+	  for certain standard library types (array__array/1,
+	  std_util__type_desc/0, and std_util__type_ctor_desc/0).
+	- calling copy/2 on higher-order terms
   It also does not support the following implemention-specific
   features that the old back-end supports:
 	- trailing

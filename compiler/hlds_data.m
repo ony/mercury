@@ -386,6 +386,21 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 
 :- type tag_bits	==	int.	% actually only 2 (or maybe 3) bits
 
+
+	% The type definitions for no_tag types have information
+	% mirrored in a separate table for faster lookups.
+	% mode_util__mode_to_arg_mode makes heavy use of
+	% type_util__type_is_no_tag_type.
+:- type no_tag_type
+	--->	no_tag_type(
+			list(type_param),	% Formal type parameters.
+			sym_name,		% Constructor name.
+			(type)			% Argument type.
+		).
+
+:- type no_tag_type_table == map(type_id, no_tag_type).
+
+
 :- implementation.
 
 :- type hlds_type_defn
@@ -828,6 +843,7 @@ determinism_to_code_model(failure,     model_semi).
 	% Information about a single `instance' declaration
 :- type hlds_instance_defn 
 	--->	hlds_instance_defn(
+			module_name,		% module of the instance decl
 			import_status,		% import status of the instance
 						% declaration
 			prog_context,		% context of declaration

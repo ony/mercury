@@ -273,6 +273,7 @@
 		;	c_flag_to_name_object_file
 		;	object_file_extension
 		;	max_jump_table_size
+		;	compare_specialization
 		;	fact_table_max_array_size
 				% maximum number of elements in a single 
 				% fact table data array
@@ -283,6 +284,7 @@
 				% percentage.
 
 		;	gcc_local_labels
+		;	prefer_switch
 
 	% Optimization Options
 		;	opt_level
@@ -632,10 +634,12 @@ option_defaults_2(code_gen_option, [
 					% above default with a value determined
 					% at configuration time
 	max_jump_table_size	-	int(0),
+	compare_specialization	-	int(1),
 					% 0 indicates any size.
 	fact_table_max_array_size -	int(1024),
 	fact_table_hash_percent_full - 	int(90),
-	gcc_local_labels	-	bool(no)
+	gcc_local_labels	-	bool(no),
+	prefer_switch		-	bool(yes)
 ]).
 option_defaults_2(special_optimization_option, [
 		% Special optimization options.
@@ -1008,10 +1012,12 @@ long_option("c-include-directory",	c_include_directory).
 long_option("c-flag-to-name-object-file", c_flag_to_name_object_file).
 long_option("object-file-extension",	object_file_extension).
 long_option("max-jump-table-size",	max_jump_table_size).
+long_option("compare-specialization",	compare_specialization).
 long_option("fact-table-max-array-size",fact_table_max_array_size).
 long_option("fact-table-hash-percent-full",
 					fact_table_hash_percent_full).
 long_option("gcc-local-labels",		gcc_local_labels).
+long_option("prefer-switch",		prefer_switch).
 
 % optimization options
 
@@ -1064,6 +1070,12 @@ long_option("type-specialisation",	type_specialization).
 long_option("user-guided-type-specialization",
 					user_guided_type_specialization).
 long_option("user-guided-type-specialisation",
+					user_guided_type_specialization).
+	% This option is for use in configure.in to test for
+	% some bug-fixes for type-specialization which are needed
+	% to compile the library. It's not documented, and should
+	% eventually be removed.
+long_option("fixed-user-guided-type-specialization",
 					user_guided_type_specialization).
 long_option("higher-order-size-limit",	higher_order_size_limit).
 long_option("introduce-accumulators",	introduce_accumulators).
@@ -2127,6 +2139,17 @@ options_help_code_generation -->
 %		"\tvia a `goto'.",
 %		"\tIf this option is not enabled, the default behaviour is to",
 %		"\tuse the standard ANSI/ISO C setjmp() and longjmp() functions."
+
+% This option is not yet documented because it is not yet useful -- currently
+% we don't take advantage of GNU C's computed gotos extension.
+%		"--no-prefer-switch",
+%		"\tGenerate code using computed gotos rather than switches.",
+%		"\tThis makes the generated code less readable, but potentially",
+%		"\tslightly more efficient.",
+%		"\tThis option has no effect unless the `--high-level-code' option",
+%		"\tis enabled.  It also has no effect if the `--target' option is",
+%		"\tset to `il'.",
+
 	]),
 
 	io__write_string("\n    Code generation target options:\n"),
@@ -2187,7 +2210,10 @@ options_help_optimization -->
 		"\tlink time, and intermediate disk space requirements,",
 		"\tbut in return reduces the size of the final",
 		"\texecutable, typically by about 10-20%.",
-		"\tThis option is only useful with `--procs-per-c-function 1'."
+		"\tThis option is only useful with `--procs-per-c-function 1',",
+		"\tso this option automatically sets `--procs-per-c-function 1'.",
+		"\tThe `--high-level-code' back-end does not support",
+		"\t`--split-c-files'."
 	]).
 
 :- pred options_help_hlds_hlds_optimization(io__state::di, io__state::uo)

@@ -595,7 +595,7 @@ output_c_module_init_list(ModuleName, Modules, Datas, StackLayoutLabels) -->
 	io__write_string("\t\treturn;\n"),
 	io__write_string("\t}\n"),
 	io__write_string("\tdone = TRUE;\n"),
-	output_type_tables_init_list(Datas),
+	output_type_tables_init_list(Datas, SplitFiles),
 	io__write_string("}\n\n"),
 
 	io__write_string("void "),
@@ -694,18 +694,18 @@ output_c_data_init_list([Data | Datas]) -->
 	% Output code to register each type_ctor_info defined in this module.
 
 :- pred output_type_tables_init_list(list(comp_gen_c_data)::in,
-	io__state::di, io__state::uo) is det.
+	bool::in, io__state::di, io__state::uo) is det.
 
-output_type_tables_init_list([]) --> [].
-output_type_tables_init_list([Data | Datas]) -->
+output_type_tables_init_list([], _) --> [].
+output_type_tables_init_list([Data | Datas], SplitFiles) -->
 	(
 		{ Data = rtti_data(RttiData) }
 	->
-		rtti_out__register_rtti_data_if_nec(RttiData)
+		rtti_out__register_rtti_data_if_nec(RttiData, SplitFiles)
 	;
 		[]
 	),
-	output_type_tables_init_list(Datas).
+	output_type_tables_init_list(Datas, SplitFiles).
 
 	% Output declarations for each module layout defined in this module
 	% (there should only be one, of course).
@@ -1122,7 +1122,7 @@ output_stack_layout_decl(Label, DeclSet0, DeclSet) -->
 get_proc_label(exported(ProcLabel)) = ProcLabel.
 get_proc_label(local(ProcLabel)) = ProcLabel.
 get_proc_label(c_local(ProcLabel)) = ProcLabel.
-get_proc_label(local(ProcLabel, _)) = ProcLabel.
+get_proc_label(local(_, ProcLabel)) = ProcLabel.
 
 :- func get_defining_module_name(proc_label) = module_name.
 get_defining_module_name(proc(ModuleName, _, _, _, _, _)) = ModuleName.
@@ -3004,7 +3004,7 @@ output_data_addr_storage_type_name(ModuleName, DataVarName, BeingDefined,
 		LaterIndent) -->
 	( { DataVarName = base_typeclass_info(ClassId, Instance) } ->
 		output_base_typeclass_info_storage_type_name(
-			ClassId, Instance, no)
+			ModuleName, ClassId, Instance, no)
 	;
 		{ data_name_linkage(DataVarName, Linkage) },
 		globals__io_get_globals(Globals),
@@ -3421,9 +3421,9 @@ output_label_as_code_addr(c_local(ProcLabel)) -->
 	io__write_string("LABEL("),
 	output_label(c_local(ProcLabel)),
 	io__write_string(")").
-output_label_as_code_addr(local(ProcLabel, N)) -->
+output_label_as_code_addr(local(N, ProcLabel)) -->
 	io__write_string("LABEL("),
-	output_label(local(ProcLabel, N)),
+	output_label(local(N, ProcLabel)),
 	io__write_string(")").
 
 :- pred output_label_list(list(label), io__state, io__state).
@@ -3474,9 +3474,9 @@ output_label_defn(c_local(ProcLabel)) -->
 	io__write_string("Define_local("),
 	output_label(c_local(ProcLabel)),
 	io__write_string(");\n").
-output_label_defn(local(ProcLabel, Num)) -->
+output_label_defn(local(Num, ProcLabel)) -->
 	io__write_string("Define_label("),
-	output_label(local(ProcLabel, Num)),
+	output_label(local(Num, ProcLabel)),
 	io__write_string(");\n").
 
 % Note that the suffixes _l and _iN used to be interpreted by mod2c,
@@ -3501,7 +3501,7 @@ llds_out__get_label(local(ProcLabel), AddPrefix, ProcLabelStr) :-
 	llds_out__get_proc_label(ProcLabel, AddPrefix, ProcLabelStr).
 llds_out__get_label(c_local(ProcLabel), AddPrefix, ProcLabelStr) :-
 	llds_out__get_proc_label(ProcLabel, AddPrefix, ProcLabelStr).
-llds_out__get_label(local(ProcLabel, Num), AddPrefix, LabelStr) :-
+llds_out__get_label(local(Num, ProcLabel), AddPrefix, LabelStr) :-
 	llds_out__get_proc_label(ProcLabel, AddPrefix, ProcLabelStr),
 	string__int_to_string(Num, NumStr),
 	string__append("_i", NumStr, NumSuffix),

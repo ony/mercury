@@ -97,7 +97,8 @@ frame__hglue(LeftFrame, RightFrame, GluedFrame) :-
 :- pred frame_right_pad(frame, frame).
 :- mode frame_right_pad(in, out) is det.
 frame_right_pad(Frame, PaddedFrame) :-
-	list__map(string__length, Frame, Lengths),
+	list__map((pred(S::in, L::out) is det :- string__length(S, L)),
+			Frame, Lengths),
 	list__foldl(int__max, Lengths, 0, MaxLen),
 	list__map(subtract(MaxLen), Lengths, Paddings),
 	add_right_padding(Frame, Paddings, PaddedFrame).
@@ -134,7 +135,8 @@ frame_lower_pad(Frame, PadLines, PaddedFrame) :-
 
 	% Horizontal size (width) of a frame
 frame__hsize(Frame, HSize) :-
-	list__map(string__length, Frame, Lengths),
+	list__map((pred(S::in, L::out) is det :- string__length(S, L)),
+			Frame, Lengths),
 	list__foldl(int__max, Lengths, 0, MaxLen),
 	HSize = MaxLen.
 

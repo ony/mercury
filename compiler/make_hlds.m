@@ -355,7 +355,7 @@ add_item_decl_pass_1(typeclass(Constraints, Name, Vars, Interface, VarSet),
 
 	% We add instance declarations on the second pass so that we don't add
 	% an instance declaration before its class declaration.
-add_item_decl_pass_1(instance(_, _, _, _, _), _, Status, Module, Status,
+add_item_decl_pass_1(instance(_, _, _, _, _, _), _, Status, Module, Status,
 	Module) --> [].
 
 %-----------------------------------------------------------------------------%
@@ -455,11 +455,8 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 				ModeNum, UnusedArgs, Context, Module0, Module)
 		)
 	;
-		{ Pragma = type_spec(Name, SpecName, Arity, PorF,
-			MaybeModes, TypeSubst, VarSet) },
-		add_pragma_type_spec(Pragma, Name, SpecName, Arity, PorF,
-			MaybeModes, TypeSubst, VarSet,
-			Context, Module0, Module)
+		{ Pragma = type_spec(_, _, _, _, _, _, _) },
+		add_pragma_type_spec(Pragma, Context, Module0, Module)
 	;
 		% Handle pragma fact_table decls later on (when we process
 		% clauses).
@@ -599,16 +596,17 @@ add_item_decl_pass_2(func_mode(_, _, _, _, _, _), _, Status, Module, Status,
 add_item_decl_pass_2(nothing, _, Status, Module, Status, Module) --> [].
 add_item_decl_pass_2(typeclass(_, _, _, _, _)
 	, _, Status, Module, Status, Module) --> [].
-add_item_decl_pass_2(instance(Constraints, Name, Types, Body, VarSet), 
-		Context, Status, Module0, Status, Module) -->
+add_item_decl_pass_2(instance(Constraints, Name, Types, Body, VarSet,
+		InstanceModuleName), Context,
+		Status, Module0, Status, Module) -->
 	{ Status = item_status(ImportStatus, _) },
 	{ Body = abstract ->
 		make_status_abstract(ImportStatus, BodyStatus)
 	;
 		BodyStatus = ImportStatus
 	},
-	module_add_instance_defn(Module0, Constraints, Name, Types, Body,
-		VarSet, BodyStatus, Context, Module).
+	module_add_instance_defn(Module0, InstanceModuleName, Constraints,
+		Name, Types, Body, VarSet, BodyStatus, Context, Module).
 
 %------------------------------------------------------------------------------
 
@@ -801,7 +799,7 @@ add_item_clause(assertion(Goal0, VarSet),
 add_item_clause(nothing, Status, Status, _, Module, Module, Info, Info) --> [].
 add_item_clause(typeclass(_, _, _, _, _),
 	Status, Status, _, Module, Module, Info, Info) --> [].
-add_item_clause(instance(_, _, _, _, _),
+add_item_clause(instance(_, _, _, _, _, _),
 	Status, Status, _, Module, Module, Info, Info) --> [].
 
 %-----------------------------------------------------------------------------%
@@ -895,15 +893,12 @@ add_pragma_unused_args(PredOrFunc, SymName, Arity, ModeNum, UnusedArgs,
 
 %-----------------------------------------------------------------------------%
 
-:- pred add_pragma_type_spec(pragma_type, sym_name, sym_name, arity,
-		maybe(pred_or_func), maybe(list(mode)), assoc_list(tvar, type),
-		tvarset, term__context, module_info, module_info,
-		io__state, io__state).
-:- mode add_pragma_type_spec(in, in, in, in, in, in, in,
-		in, in, in, out, di, uo) is det.
+:- pred add_pragma_type_spec(pragma_type, term__context,
+		module_info, module_info, io__state, io__state).
+:- mode add_pragma_type_spec(in(type_spec), in, in, out, di, uo) is det.
 
-add_pragma_type_spec(Pragma, SymName, SpecName, Arity, MaybePredOrFunc,
-		MaybeModes, SpecSubst, VarSet, Context, Module0, Module) -->
+add_pragma_type_spec(Pragma, Context, Module0, Module) -->
+	{ Pragma = type_spec(SymName, _, Arity, MaybePredOrFunc, _, _, _) },
 	{ module_info_get_predicate_table(Module0, Preds) },
 	(
 		{ MaybePredOrFunc = yes(PredOrFunc) ->
@@ -916,8 +911,7 @@ add_pragma_type_spec(Pragma, SymName, SpecName, Arity, MaybePredOrFunc,
 		},
 		{ PredIds \= [] }
 	->
-		list__foldl2(add_pragma_type_spec_2(Pragma, SymName, SpecName,
-			Arity, SpecSubst, MaybeModes, VarSet, Context),
+		list__foldl2(add_pragma_type_spec_2(Pragma, Context),
 			PredIds, Module0, Module)
 	;
 		undefined_pred_or_func_error(SymName, Arity, Context,
@@ -925,20 +919,18 @@ add_pragma_type_spec(Pragma, SymName, SpecName, Arity, MaybePredOrFunc,
 		{ module_info_incr_errors(Module0, Module) }
 	).
 
-:- pred add_pragma_type_spec_2(pragma_type, sym_name, sym_name, arity,
-	assoc_list(tvar, type), maybe(list(mode)), tvarset,
-	prog_context, pred_id, module_info, module_info, io__state, io__state).
-:- mode add_pragma_type_spec_2(in, in, in, in, in, in, in, in,
-	in, in, out, di, uo) is det.
+:- pred add_pragma_type_spec_2(pragma_type, prog_context, pred_id,
+		module_info, module_info, io__state, io__state).
+:- mode add_pragma_type_spec_2(in(type_spec), in, in, in, out, di, uo) is det.
 
-add_pragma_type_spec_2(Pragma, SymName, SpecName, Arity,
-		Subst, MaybeModes, TVarSet0, Context, PredId,
-		ModuleInfo0, ModuleInfo) -->
+add_pragma_type_spec_2(Pragma0, Context, PredId, ModuleInfo0, ModuleInfo) -->
+	{ Pragma0 = type_spec(SymName, SpecName, Arity, _,
+			MaybeModes, Subst, TVarSet0) },
 	{ module_info_pred_info(ModuleInfo0, PredId, PredInfo0) },
 	handle_pragma_type_spec_subst(Context, Subst, TVarSet0, PredInfo0,
 		TVarSet, Types, ExistQVars, ClassContext, SubstOk,
 		ModuleInfo0, ModuleInfo1),
-	( { SubstOk = yes } ->
+	( { SubstOk = yes(RenamedSubst) } ->
 	    { pred_info_procedures(PredInfo0, Procs0) },
 	    handle_pragma_type_spec_modes(SymName, Arity, Context,
 	    	MaybeModes, ProcIds, Procs0, Procs, ModesOk,
@@ -1030,6 +1022,9 @@ add_pragma_type_spec_2(Pragma, SymName, SpecName, Arity,
 			SpecMap = SpecMap0
 		),
 
+		Pragma = type_spec(SymName, SpecName, Arity,
+				yes(PredOrFunc), MaybeModes,
+				map__to_assoc_list(RenamedSubst), TVarSet), 
 		multi_map__set(PragmaMap0, PredId, Pragma, PragmaMap),
 		TypeSpecInfo = type_spec_info(ProcsToSpec,
 			ForceVersions, SpecMap, PragmaMap),
@@ -1052,7 +1047,7 @@ add_pragma_type_spec_2(Pragma, SymName, SpecName, Arity,
 	% of the current implementation, so it only results in a warning.
 :- pred handle_pragma_type_spec_subst(prog_context, assoc_list(tvar, type),
 	tvarset, pred_info, tvarset, list(type), existq_tvars,
-	class_constraints, bool, module_info, module_info,
+	class_constraints, maybe(tsubst), module_info, module_info,
 	io__state, io__state).
 :- mode handle_pragma_type_spec_subst(in, in, in, in, out, out, out, out, out,
 		in, out, di, uo) is det.
@@ -1136,7 +1131,7 @@ handle_pragma_type_spec_subst(Context, Subst, TVarSet0, PredInfo0,
 				TypeSubst, Types),
 			apply_rec_subst_to_constraints(TypeSubst,
 				ClassContext0, ClassContext),
-			SubstOk = yes,
+			SubstOk = yes(TypeSubst),
 			ModuleInfo = ModuleInfo0
 			}
 		    ;
@@ -1304,9 +1299,7 @@ handle_pragma_type_spec_modes(SymName, Arity, Context, MaybeModes, ProcIds,
 		->
 			{ map__lookup(Procs0, ProcId, ProcInfo) },
 			{ map__init(Procs1) },
-			{ hlds_pred__initial_proc_id(NewProcId) },
-			{ map__det_insert(Procs1, NewProcId,
-				ProcInfo, Procs) },
+			{ map__det_insert(Procs1, ProcId, ProcInfo, Procs) },
 			{ ProcIds = [ProcId] },
 			{ ModesOk = yes },
 			{ ModuleInfo = ModuleInfo0 }
@@ -1918,6 +1911,7 @@ module_add_type_defn(Module0, TVarSet, TypeDefn, _Cond, Context,
 	globals__io_get_globals(Globals),
 	{ convert_type_defn(TypeDefn, Globals, Name, Args, Body) },
 	{ list__length(Args, Arity) },
+	{ TypeId = Name - Arity },
 	{ Body = abstract_type ->
 		make_status_abstract(Status0, Status1)
 	;
@@ -1926,18 +1920,19 @@ module_add_type_defn(Module0, TVarSet, TypeDefn, _Cond, Context,
 	{ 
 		% the type is exported if *any* occurrence is exported,
 		% even a previous abstract occurrence
-		map__search(Types0, Name - Arity, OldDefn)
+		map__search(Types0, TypeId, OldDefn)
 	->
 		hlds_data__get_type_defn_status(OldDefn, OldStatus),
-		combine_status(Status1, OldStatus, Status)
+		combine_status(Status1, OldStatus, Status),
+		MaybeOldDefn = yes(OldDefn)
 	;
+		MaybeOldDefn = no,
 		Status = Status1 
 	},
 	{ hlds_data__set_type_defn(TVarSet, Args, Body, Status, Context, T) },
-	{ TypeId = Name - Arity },
 	(
 		% if there was an existing non-abstract definition for the type
-		{ map__search(Types0, TypeId, T2) },
+		{ MaybeOldDefn = yes(T2) },
 		{ hlds_data__get_type_defn_tvarset(T2, TVarSet_2) },
 		{ hlds_data__get_type_defn_tparams(T2, Params_2) },
 		{ hlds_data__get_type_defn_body(T2, Body_2) },
@@ -1987,7 +1982,26 @@ module_add_type_defn(Module0, TVarSet, TypeDefn, _Cond, Context,
 				Ctors0, Ctors),
 			{ module_info_set_ctors(Module0, Ctors, Module1) },
 			{ module_info_set_ctor_field_table(Module1,
-				CtorFields, Module2) }
+				CtorFields, Module1a) },
+			globals__io_lookup_bool_option(unboxed_no_tag_types,
+				AllowNoTagTypes),
+
+			{
+				AllowNoTagTypes = yes,
+				type_constructors_are_no_tag_type(ConsList,
+					Name, CtorArgType)
+			->
+				NoTagType = no_tag_type(Args,
+					Name, CtorArgType),
+				module_info_no_tag_types(Module1a,
+					NoTagTypes0),
+				map__set(NoTagTypes0, TypeId, NoTagType,
+					NoTagTypes),
+				module_info_set_no_tag_types(Module1a,
+					NoTagTypes, Module2)
+			;
+				Module2 = Module1a
+			}
 		;
 			{ Module2 = Module0 }
 		),
@@ -2658,14 +2672,15 @@ add_default_class_method_func_modes([M|Ms], PredProcIds0, PredProcIds,
 	add_default_class_method_func_modes(Ms, PredProcIds1, PredProcIds,
 		Module1, Module).
 
-:- pred module_add_instance_defn(module_info, list(class_constraint), sym_name,
-	list(type), instance_body, tvarset, import_status, prog_context, 
-	module_info, io__state, io__state).
-:- mode module_add_instance_defn(in, in, in, in, in, in, in, in, out, 
-	di, uo) is det.
+:- pred module_add_instance_defn(module_info, module_name,
+		list(class_constraint), sym_name, list(type), instance_body,
+		tvarset, import_status, prog_context, module_info,
+		io__state, io__state).
+:- mode module_add_instance_defn(in, in, in, in, in, in, in, in, in, out, 
+		di, uo) is det.
 
-module_add_instance_defn(Module0, Constraints, ClassName, Types, Body, VarSet,
-		Status, Context, Module) -->
+module_add_instance_defn(Module0, InstanceModuleName, Constraints, ClassName,
+		Types, Body, VarSet, Status, Context, Module) -->
 	{ module_info_classes(Module0, Classes) },
 	{ module_info_instances(Module0, Instances0) },
 	{ list__length(Types, ClassArity) },
@@ -2674,8 +2689,9 @@ module_add_instance_defn(Module0, Constraints, ClassName, Types, Body, VarSet,
 		{ map__search(Classes, ClassId, _) }
 	->
 		{ map__init(Empty) },
-		{ NewInstanceDefn = hlds_instance_defn(Status, Context,
-			Constraints, Types, Body, no, VarSet, Empty) },
+		{ NewInstanceDefn = hlds_instance_defn(InstanceModuleName,
+			Status, Context, Constraints, Types, Body, no,
+			VarSet, Empty) },
 		{ map__lookup(Instances0, ClassId, InstanceDefns) },
 		check_for_overlapping_instances(NewInstanceDefn, InstanceDefns,
 			ClassId),
@@ -2694,11 +2710,11 @@ module_add_instance_defn(Module0, Constraints, ClassName, Types, Body, VarSet,
 
 check_for_overlapping_instances(NewInstanceDefn, InstanceDefns, ClassId) -->
 	{ IsOverlapping = lambda([(Context - OtherContext)::out] is nondet, (
-		NewInstanceDefn = hlds_instance_defn(_Status, Context,
+		NewInstanceDefn = hlds_instance_defn(_, _Status, Context,
 				_, Types, Body, _, VarSet, _),
 		Body \= abstract, % XXX
 		list__member(OtherInstanceDefn, InstanceDefns),
-		OtherInstanceDefn = hlds_instance_defn(_OtherStatus,
+		OtherInstanceDefn = hlds_instance_defn(_, _OtherStatus,
 				OtherContext, _, OtherTypes, OtherBody,
 				_, OtherVarSet, _),
 		OtherBody \= abstract, % XXX
@@ -3094,7 +3110,11 @@ add_special_preds(Module0, TVarSet, Type, TypeId,
 						UserDefinedEquality),
 				IsEnum = no,
 				UserDefinedEquality = no,
-				Ctors = [_, _|_]
+				module_info_globals(Module0, Globals),
+				globals__lookup_int_option(Globals,
+					compare_specialization, CompareSpec),
+				list__length(Ctors, CtorCount),
+				CtorCount > CompareSpec
 			->
 				SpecialPredIds = [index, compare]
 			;

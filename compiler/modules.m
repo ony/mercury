@@ -528,6 +528,7 @@ mercury_std_library_module("builtin").
 mercury_std_library_module("char").
 mercury_std_library_module("counter").
 mercury_std_library_module("dir").
+mercury_std_library_module("enum").
 mercury_std_library_module("eqvclass").
 mercury_std_library_module("exception").
 mercury_std_library_module("float").
@@ -561,6 +562,7 @@ mercury_std_library_module("set").
 mercury_std_library_module("set_bbbtree").
 mercury_std_library_module("set_ordlist").
 mercury_std_library_module("set_unordlist").
+mercury_std_library_module("sparse_bitset").
 mercury_std_library_module("stack").
 mercury_std_library_module("std_util").
 mercury_std_library_module("store").
@@ -4082,7 +4084,7 @@ split_into_submodules_3(ModuleName, [Item | Items1],
 			InInterface0, ThisModuleItems0, Items3, SubModules1),
 
 		%
-		% combine the sub-module declarations from the prevous two
+		% combine the sub-module declarations from the previous two
 		% steps
 		%
 		{ list__foldl(add_submodule, SubModules0, SubModules1,
@@ -4337,10 +4339,12 @@ make_abstract_type_defn(type_defn(VarSet, abstract_type(Name, Args), Cond),
 :- pred make_abstract_instance(item, item).
 :- mode make_abstract_instance(in, out) is semidet.
 
-make_abstract_instance(Item, Item1) :-
-	Item = instance(Constraints, Class, ClassTypes, Body0, TVarSet),
+make_abstract_instance(Item0, Item) :-
+	Item0 = instance(Constraints, Class, ClassTypes, Body0, TVarSet,
+		ModName),
 	Body0 = concrete(_),
 	Body = abstract,
-	Item1 = instance(Constraints, Class, ClassTypes, Body, TVarSet).
+	Item = instance(Constraints, Class, ClassTypes, Body, TVarSet,
+		ModName).
 
 %-----------------------------------------------------------------------------%

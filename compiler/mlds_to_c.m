@@ -147,7 +147,7 @@ mlds_output_hdr_file(Indent, MLDS) -->
 	{ MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName) },
 	mlds_output_defns(Indent, MLDS_ModuleName, PublicTypeDefns), io__nl,
 	mlds_output_decls(Indent, MLDS_ModuleName, PublicNonTypeDefns), io__nl,
-	mlds_maybe_output_init_fn_decl(MLDS_ModuleName), io__nl,
+	mlds_output_init_fn_decls(MLDS_ModuleName), io__nl,
 	mlds_output_hdr_end(Indent, ModuleName).
 
 :- pred defn_is_public(mlds__defn).
@@ -163,6 +163,22 @@ defn_is_public(Defn) :-
 defn_is_type(Defn) :-
 	Defn = mlds__defn(Name, _Context, _Flags, _Body),
 	Name = type(_, _).
+
+:- pred defn_is_function(mlds__defn).
+:- mode defn_is_function(in) is semidet.
+
+defn_is_function(Defn) :-
+	Defn = mlds__defn(Name, _Context, _Flags, _Body),
+	Name = function(_, _, _, _).
+
+:- pred defn_is_type_ctor_info(mlds__defn).
+:- mode defn_is_type_ctor_info(in) is semidet.
+
+defn_is_type_ctor_info(Defn) :-
+	Defn = mlds__defn(_Name, _Context, _Flags, Body),
+	Body = mlds__data(Type, _),
+	Type = mlds__rtti_type(RttiName),
+	RttiName = type_ctor_info.
 
 :- pred defn_is_commit_type_var(mlds__defn).
 :- mode defn_is_commit_type_var(in) is semidet.
@@ -222,6 +238,7 @@ mlds_output_src_file(Indent, MLDS) -->
 	%	#1. definitions of the private types,
 	% 	#2. forward-declarations of the private non-types
 	%	#3. definitions of all the non-types
+	%	#4. initialization functions
 	% in that order. 
 	% #2 is needed to allow #3 to contain forward references,
 	% which can arise for e.g. mutually recursive procedures.
@@ -236,13 +253,17 @@ mlds_output_src_file(Indent, MLDS) -->
 	{ list__filter(defn_is_type, PrivateDefns, PrivateTypeDefns,
 		PrivateNonTypeDefns) },
 	{ list__filter(defn_is_type, Defns, _TypeDefns, NonTypeDefns) },
+	{ list__filter(defn_is_function, NonTypeDefns, FuncDefns) },
+	{ list__filter(defn_is_type_ctor_info, NonTypeDefns,
+		TypeCtorInfoDefns) },
 	{ MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName) },
 	mlds_output_defns(Indent, MLDS_ModuleName, PrivateTypeDefns), io__nl,
 	mlds_output_decls(Indent, MLDS_ModuleName, PrivateNonTypeDefns), io__nl,
 
 	mlds_output_c_defns(MLDS_ModuleName, Indent, ForeignCode), io__nl,
 	mlds_output_defns(Indent, MLDS_ModuleName, NonTypeDefns), io__nl,
-	mlds_maybe_output_init_fn_defn(MLDS_ModuleName, NonTypeDefns), io__nl,
+	mlds_output_init_fn_defns(MLDS_ModuleName, FuncDefns,
+		TypeCtorInfoDefns), io__nl,
 	mlds_output_src_end(Indent, ModuleName).
 
 :- pred mlds_output_hdr_start(indent, mercury_module_name,
@@ -283,9 +304,19 @@ mlds_output_src_start(Indent, ModuleName) -->
 	io__write_string(". */\n"),
 	mlds_indent(Indent),
 	io__write_string("/* :- implementation. */\n"),
+	mlds_output_src_bootstrap_defines, io__nl,
 	mlds_output_src_import(Indent,
 		mercury_module_name_to_mlds(ModuleName)),
 	io__nl.
+
+	%
+	% Output any #defines which are required to bootstrap in the hlc
+	% grade.
+	%
+:- pred mlds_output_src_bootstrap_defines(io__state::di, io__state::uo) is det.
+
+mlds_output_src_bootstrap_defines -->
+	[].
 
 :- pred mlds_output_hdr_end(indent, mercury_module_name,
 		io__state, io__state).
@@ -320,55 +351,62 @@ mlds_output_src_end(Indent, ModuleName) -->
 	% MR_init_entry(<function>) for each function defined in the
 	% module.
 	%
-:- pred mlds_maybe_output_init_fn_decl(mlds_module_name::in,
+:- pred mlds_output_init_fn_decls(mlds_module_name::in,
 		io__state::di, io__state::uo) is det.
 
-mlds_maybe_output_init_fn_decl(ModuleName) -->
+mlds_output_init_fn_decls(ModuleName) -->
+	output_init_fn_name(ModuleName, ""),
+	io__write_string(";\n"),
+	output_init_fn_name(ModuleName, "_type_tables"),
+	io__write_string(";\n"),
+	output_init_fn_name(ModuleName, "_debugger"),
+	io__write_string(";\n").
+
+:- pred mlds_output_init_fn_defns(mlds_module_name::in, mlds__defns::in,
+		mlds__defns::in, io__state::di, io__state::uo) is det.
+
+mlds_output_init_fn_defns(ModuleName, FuncDefns, TypeCtorInfoDefns) -->
+	output_init_fn_name(ModuleName, ""),
+	io__write_string("\n{\n"),
 	io_get_globals(Globals),
 	(
-		{ output_init_fn(Globals) }
+		{ need_to_init_entries(Globals) },
+		{ FuncDefns \= [] }
 	->
-		output_init_fn_name(ModuleName),
-		io__write_string(";\n")
-	;
-		[]
-	).
-
-:- pred mlds_maybe_output_init_fn_defn(mlds_module_name::in, mlds__defns::in,
-		io__state::di, io__state::uo) is det.
-
-mlds_maybe_output_init_fn_defn(ModuleName, Defns) -->
-	io_get_globals(Globals),
-	(
-		{ output_init_fn(Globals) }
-	->
-		output_init_fn_name(ModuleName),
-		io__write_string("\n{\n"),
-		io__write_strings(["\tstatic int initialised = 0;\n",
+		io__write_strings(["\tstatic bool initialised = FALSE;\n",
 				"\tif (initialised) return;\n",
-				"\tinitialised = 1;\n\n"]),
-		mlds_output_init_fn_2(ModuleName, Defns),
-		io__write_string("\n}\n")
+				"\tinitialised = TRUE;\n\n"]),
+		mlds_output_calls_to_init_entry(ModuleName, FuncDefns)
 	;
 		[]
-	).
-
-	%
-	% Do we need an init function?
-	%
-:- pred output_init_fn(globals::in) is semidet.
-
-output_init_fn(Globals) :-
-	( Option = profile_calls
-	; Option = profile_time
-	; Option = profile_memory
 	),
-	globals__lookup_bool_option(Globals, Option, yes).
-	
-:- pred output_init_fn_name(mlds_module_name::in,
+	io__write_string("}\n\n"),
+
+	output_init_fn_name(ModuleName, "_type_tables"),
+	io__write_string("\n{\n"),
+	(
+		{ TypeCtorInfoDefns \= [] }
+	->
+		io__write_strings(["\tstatic bool initialised = FALSE;\n",
+				"\tif (initialised) return;\n",
+				"\tinitialised = TRUE;\n\n"]),
+		mlds_output_calls_to_register_tci(ModuleName,
+			TypeCtorInfoDefns)
+	;
+		[]
+	),
+	io__write_string("}\n\n"),
+
+	output_init_fn_name(ModuleName, "_debugger"),
+	io__write_string("\n{\n"),
+	io__write_string(
+	    "\tMR_fatal_error(""debugger initialization in MLDS grade"");\n"),
+	io__write_string("}\n").
+
+:- pred output_init_fn_name(mlds_module_name::in, string::in,
 		io__state::di, io__state::uo) is det.
 
-output_init_fn_name(ModuleName) -->
+output_init_fn_name(ModuleName, Suffix) -->
 		% Here we ensure that we only get one "mercury__" at the
 		% start of the function name.
 	{ prog_out__sym_name_to_string(
@@ -384,25 +422,49 @@ output_init_fn_name(ModuleName) -->
 	},
 	io__write_string("void "),
 	io__write_string(ModuleNameString),
-	io__write_string("__init(void)").
+	io__write_string("__init"),
+	io__write_string(Suffix),
+	io__write_string("(void)").
 
-:- pred mlds_output_init_fn_2(mlds_module_name::in, mlds__defns::in,
+:- pred need_to_init_entries(globals::in) is semidet.
+need_to_init_entries(Globals) :-
+	% We only need to output calls to MR_init_entry() if profiling is
+	% enabled.  (It would be OK to output the calls regardless, since
+	% they will macro-expand to nothing if profiling is not enabled,
+	% but for readability of the generated code we prefer not to.)
+	( Option = profile_calls
+	; Option = profile_time
+	; Option = profile_memory
+	),
+	globals__lookup_bool_option(Globals, Option, yes).
+
+	% Generate calls to MR_init_entry() for the specified functions.
+	%
+:- pred mlds_output_calls_to_init_entry(mlds_module_name::in, mlds__defns::in,
 		io__state::di, io__state::uo) is det.
 
-mlds_output_init_fn_2(_ModuleName, []) --> [].
-mlds_output_init_fn_2(ModuleName, [Defn | Defns]) --> 
-	{ Defn = mlds__defn(EntityName, _Context, _Flags, _EntityDefn) },
-	(
-		{ EntityName = function(_, _, _, _) }
-	->
-		{ QualName = qual(ModuleName, EntityName) },
-		io__write_string("\tMR_init_entry("),
-		mlds_output_fully_qualified_name(QualName),
-		io__write_string(");\n")
-	;
-		[]
-	),
-	mlds_output_init_fn_2(ModuleName, Defns).
+mlds_output_calls_to_init_entry(_ModuleName, []) --> [].
+mlds_output_calls_to_init_entry(ModuleName, [FuncDefn | FuncDefns]) --> 
+	{ FuncDefn = mlds__defn(EntityName, _, _, _) },
+	io__write_string("\tMR_init_entry("),
+	mlds_output_fully_qualified_name(qual(ModuleName, EntityName)),
+	io__write_string(");\n"),
+	mlds_output_calls_to_init_entry(ModuleName, FuncDefns).
+
+	% Generate calls to MR_register_type_ctor_info() for the specified
+	% type_ctor_infos.
+	%
+:- pred mlds_output_calls_to_register_tci(mlds_module_name::in, mlds__defns::in,
+		io__state::di, io__state::uo) is det.
+
+mlds_output_calls_to_register_tci(_ModuleName, []) --> [].
+mlds_output_calls_to_register_tci(ModuleName,
+		[TypeCtorInfoDefn | TypeCtorInfoDefns]) --> 
+	{ TypeCtorInfoDefn = mlds__defn(EntityName, _, _, _) },
+	io__write_string("\tMR_register_type_ctor_info(&"),
+	mlds_output_fully_qualified_name(qual(ModuleName, EntityName)),
+	io__write_string(");\n"),
+	mlds_output_calls_to_register_tci(ModuleName, TypeCtorInfoDefns).
 
 %-----------------------------------------------------------------------------%
 %
@@ -472,21 +534,14 @@ mlds_output_pragma_export_decl(ModuleName, Indent, PragmaExport) -->
 
 mlds_output_pragma_export_defn(ModuleName, Indent, PragmaExport) -->
 	{ PragmaExport = ml_pragma_export(_C_name, MLDS_Name, MLDS_Signature,
-			Context, IsFunc) },
+			Context) },
 	mlds_output_pragma_export_func_name(ModuleName, Indent, PragmaExport),
 	io__write_string("\n"),
 	mlds_indent(Context, Indent),
 	io__write_string("{\n"),
 	mlds_indent(Context, Indent),
-	(
-		{ IsFunc = yes },
-		mlds_output_pragma_export_func_defn_body(ModuleName, MLDS_Name,
-				MLDS_Signature)
-	;
-		{ IsFunc = no },
-		mlds_output_pragma_export_defn_body(ModuleName, MLDS_Name,
-				MLDS_Signature)
-	),
+	mlds_output_pragma_export_defn_body(ModuleName, MLDS_Name,
+				MLDS_Signature),
 	io__write_string("}\n").
 
 :- pred mlds_output_pragma_export_func_name(mlds_module_name, indent,
@@ -494,15 +549,7 @@ mlds_output_pragma_export_defn(ModuleName, Indent, PragmaExport) -->
 :- mode mlds_output_pragma_export_func_name(in, in, in, di, uo) is det.
 
 mlds_output_pragma_export_func_name(ModuleName, Indent,
-		ml_pragma_export(C_name, _MLDS_Name, Signature0, Context,
-			IsFunc)) -->
-	(
-		{ IsFunc = yes }
-	->
-		{ Signature = det_func_signature(Signature0) }
-	;
-		{ Signature = Signature0 }
-	),
+		ml_pragma_export(C_name, _MLDS_Name, Signature, Context)) -->
 	{ Name = qual(ModuleName, export(C_name)) },
 	mlds_indent(Context, Indent),
 	mlds_output_func_decl_ho(Indent, Name, Context, Signature,
@@ -549,8 +596,7 @@ mlds_output_pragma_export_type(prefix, mlds__rtti_type(_)) -->
 	
 
 	%
-	% Output the definition body for a pragma export when it is
-	% *NOT* a det function whose last arg is top_out.
+	% Output the definition body for a pragma export
 	%
 :- pred mlds_output_pragma_export_defn_body(mlds_module_name,
 		mlds__qualified_entity_name, func_params, io__state, io__state).
@@ -576,47 +622,6 @@ mlds_output_pragma_export_defn_body(ModuleName, FuncName, Signature) -->
 			mlds_output_name_with_cast(ModuleName)),
 	io__write_string(");\n").
 
-
-	%
-	% Output the definition body for a pragma export when it is
-	% det function whose last arg is top_out.
-	%
-:- pred mlds_output_pragma_export_func_defn_body(mlds_module_name,
-		mlds__qualified_entity_name, func_params,
-		io__state, io__state).
-:- mode mlds_output_pragma_export_func_defn_body(in, in, in, di, uo) is det.
-
-mlds_output_pragma_export_func_defn_body(ModuleName, FuncName, Signature) -->
-	{ ExportedSignature = det_func_signature(Signature) },
-	{ ExportedSignature = mlds__func_params(_ExpParameters, ExpRetTypes) },
-	{ Signature = mlds__func_params(Parameters, _RetTypes) },
-
-	( { ExpRetTypes = [ExpRetType0] } ->
-		{ ExpRetType = ExpRetType0 }
-	;
-		{ error("mlds_output_pragma_export_func_defn_body") }
-	),
-
-		% Define a variable to hold the function result.
-	io__write_string("\t"),
-	mlds_output_type_prefix(ExpRetType),
-	io__write_string(" arg"),
-	mlds_output_type_suffix(ExpRetType),
-	io__write_string(";\n"),
-
-		% Call the MLDS function.
-	io__write_string("\t"),
-	mlds_output_fully_qualified_name(FuncName),
-	io__write_string("("),
-	write_func_args(ModuleName, Parameters),
-	io__write_string(");\n"),
-
-		% return the function result.
-	io__write_string("\t"),
-	io__write_string("return ("),
-	mlds_output_pragma_export_type(prefix, ExpRetType),
-	mlds_output_pragma_export_type(suffix, ExpRetType),
-	io__write_string(") arg;\n").
 
 	%
 	% Write out the arguments to the MLDS function.  Note the last
@@ -759,14 +764,7 @@ mlds_output_decl(Indent, ModuleName, Defn) -->
 		% Now output the declaration for this mlds__defn.
 		%
 		mlds_indent(Context, Indent),
-		( { Name = data(_) } ->
-			% XXX for private data and private functions,
-			% we should use "static"
-			io__write_string("extern ")
-		;
-			[]
-		),
-		mlds_output_decl_flags(Flags),
+		mlds_output_decl_flags(Flags, forward_decl, Name),
 		mlds_output_decl_body(Indent, qual(ModuleName, Name), Context,
 			DefnBody)
 	).
@@ -846,7 +844,7 @@ mlds_output_defn(Indent, ModuleName, Defn) -->
 		[]
 	),
 	mlds_indent(Context, Indent),
-	mlds_output_decl_flags(Flags),
+	mlds_output_decl_flags(Flags, definition, Name),
 	mlds_output_defn_body(Indent, qual(ModuleName, Name), Context,
 			DefnBody).
 
@@ -856,8 +854,8 @@ mlds_output_defn(Indent, ModuleName, Defn) -->
 
 mlds_output_decl_body(Indent, Name, Context, DefnBody) -->
 	(
-		{ DefnBody = mlds__data(Type, _Initializer) },
-		mlds_output_data_decl(Name, Type)
+		{ DefnBody = mlds__data(Type, Initializer) },
+		mlds_output_data_decl(Name, Type, initializer_array_size(Initializer))
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
 			_MaybeBody) },
@@ -1047,12 +1045,14 @@ mlds_output_enum_constant(Indent, EnumModuleName, Defn) -->
 %
 
 :- pred mlds_output_data_decl(mlds__qualified_entity_name, mlds__type,
-			io__state, io__state).
-:- mode mlds_output_data_decl(in, in, di, uo) is det.
+			initializer_array_size, io__state, io__state).
+:- mode mlds_output_data_decl(in, in, in, di, uo) is det.
 
-mlds_output_data_decl(Name, Type) -->
+mlds_output_data_decl(Name, Type, InitializerSize) -->
 	mlds_output_data_decl_ho(mlds_output_type_prefix,
-			mlds_output_type_suffix, Name, Type).
+			(pred(Tp::in, di, uo) is det -->
+				mlds_output_type_suffix(Tp, InitializerSize)),
+			Name, Type).
 
 :- pred mlds_output_data_decl_ho(output_type, output_type,
 		mlds__qualified_entity_name, mlds__type, io__state, io__state).
@@ -1070,7 +1070,7 @@ mlds_output_data_decl_ho(OutputPrefix, OutputSuffix, Name, Type) -->
 :- mode mlds_output_data_defn(in, in, in, di, uo) is det.
 
 mlds_output_data_defn(Name, Type, Initializer) -->
-	mlds_output_data_decl(Name, Type),
+	mlds_output_data_decl(Name, Type, initializer_array_size(Initializer)),
 	mlds_output_initializer(Type, Initializer),
 	io__write_string(";\n").
 
@@ -1607,21 +1607,40 @@ mlds_output_mercury_user_type_prefix(Type, TypeCategory) -->
 :- pred mlds_output_type_suffix(mlds__type, io__state, io__state).
 :- mode mlds_output_type_suffix(in, di, uo) is det.
 
-mlds_output_type_suffix(mercury_type(_, _)) --> [].
-mlds_output_type_suffix(mlds__native_int_type) --> [].
-mlds_output_type_suffix(mlds__native_float_type) --> [].
-mlds_output_type_suffix(mlds__native_bool_type) --> [].
-mlds_output_type_suffix(mlds__native_char_type) --> [].
-mlds_output_type_suffix(mlds__class_type(_, _, _)) --> [].
-mlds_output_type_suffix(mlds__ptr_type(_)) --> [].
-mlds_output_type_suffix(mlds__array_type(_)) -->
-	io__write_string("[]").
-mlds_output_type_suffix(mlds__func_type(FuncParams)) -->
+mlds_output_type_suffix(Type) -->
+	mlds_output_type_suffix(Type, no_size).
+
+:- type initializer_array_size
+	--->	array_size(int)
+	;	no_size.	% either the size is unknown,
+				% or the data is not an array
+
+:- func initializer_array_size(mlds__initializer) = initializer_array_size.
+initializer_array_size(no_initializer) = no_size.
+initializer_array_size(init_obj(_)) = no_size.
+initializer_array_size(init_struct(_)) = no_size.
+initializer_array_size(init_array(Elems)) = array_size(list__length(Elems)).
+
+:- pred mlds_output_type_suffix(mlds__type, initializer_array_size,
+		io__state, io__state).
+:- mode mlds_output_type_suffix(in, in, di, uo) is det.
+
+
+mlds_output_type_suffix(mercury_type(_, _), _) --> [].
+mlds_output_type_suffix(mlds__native_int_type, _) --> [].
+mlds_output_type_suffix(mlds__native_float_type, _) --> [].
+mlds_output_type_suffix(mlds__native_bool_type, _) --> [].
+mlds_output_type_suffix(mlds__native_char_type, _) --> [].
+mlds_output_type_suffix(mlds__class_type(_, _, _), _) --> [].
+mlds_output_type_suffix(mlds__ptr_type(_), _) --> [].
+mlds_output_type_suffix(mlds__array_type(_), ArraySize) -->
+	mlds_output_array_type_suffix(ArraySize).
+mlds_output_type_suffix(mlds__func_type(FuncParams), _) -->
 	mlds_output_func_type_suffix(FuncParams).
-mlds_output_type_suffix(mlds__generic_type) --> [].
-mlds_output_type_suffix(mlds__generic_env_ptr_type) --> [].
-mlds_output_type_suffix(mlds__pseudo_type_info_type) --> [].
-mlds_output_type_suffix(mlds__cont_type(ArgTypes)) -->
+mlds_output_type_suffix(mlds__generic_type, _) --> [].
+mlds_output_type_suffix(mlds__generic_env_ptr_type, _) --> [].
+mlds_output_type_suffix(mlds__pseudo_type_info_type, _) --> [].
+mlds_output_type_suffix(mlds__cont_type(ArgTypes), _) -->
 	( { ArgTypes = [] } ->
 		[]
 	;
@@ -1638,49 +1657,112 @@ mlds_output_type_suffix(mlds__cont_type(ArgTypes)) -->
 		),
 		io__write_string(")")
 	).
-mlds_output_type_suffix(mlds__commit_type) --> [].
-mlds_output_type_suffix(mlds__rtti_type(_)) --> [].
+mlds_output_type_suffix(mlds__commit_type, _) --> [].
+mlds_output_type_suffix(mlds__rtti_type(RttiName), ArraySize) -->
+	( { rtti_name_has_array_type(RttiName) = yes } ->
+		mlds_output_array_type_suffix(ArraySize)
+	;
+		[]
+	).
+
+:- pred mlds_output_array_type_suffix(initializer_array_size::in,
+		io__state::di, io__state::uo) is det.
+mlds_output_array_type_suffix(no_size) -->
+	io__write_string("[]").
+mlds_output_array_type_suffix(array_size(Size0)) -->
+	%
+	% ANSI/ISO C forbids arrays of size 0.
+	%
+	{ int__max(Size0, 1, Size) },
+	io__format("[%d]", [i(Size)]).
 
 %-----------------------------------------------------------------------------%
 %
 % Code to output declaration specifiers
 %
 
-:- pred mlds_output_decl_flags(mlds__decl_flags, io__state, io__state).
-:- mode mlds_output_decl_flags(in, di, uo) is det.
+:- type decl_or_defn
+	--->	forward_decl
+	;	definition.
 
-mlds_output_decl_flags(Flags) -->
-	mlds_output_access(access(Flags)),
-	mlds_output_per_instance(per_instance(Flags)),
+:- pred mlds_output_decl_flags(mlds__decl_flags, decl_or_defn,
+		mlds__entity_name, io__state, io__state).
+:- mode mlds_output_decl_flags(in, in, in, di, uo) is det.
+
+mlds_output_decl_flags(Flags, DeclOrDefn, Name) -->
+	%
+	% mlds_output_extern_or_static handles both the
+	% `access' and the `per_instance' fields of the mlds__decl_flags.
+	% We have to handle them together because C overloads `static'
+	% to mean both `private' and `one_copy', rather than having
+	% separate keywords for each.  To make it clear which MLDS
+	% construct each `static' keyword means, we precede the `static'
+	% without (optionally-enabled) comments saying whether it is
+	% `private', `one_copy', or both.
+	%
+	mlds_output_access_comment(access(Flags)),
+	mlds_output_per_instance_comment(per_instance(Flags)),
+	mlds_output_extern_or_static(access(Flags), per_instance(Flags),
+		DeclOrDefn, Name),
 	mlds_output_virtuality(virtuality(Flags)),
 	mlds_output_finality(finality(Flags)),
 	mlds_output_constness(constness(Flags)),
 	mlds_output_abstractness(abstractness(Flags)).
 
-:- pred mlds_output_access(access, io__state, io__state).
-:- mode mlds_output_access(in, di, uo) is det.
+:- pred mlds_output_access_comment(access, io__state, io__state).
+:- mode mlds_output_access_comment(in, di, uo) is det.
 
-mlds_output_access(Access) -->
+mlds_output_access_comment(Access) -->
 	globals__io_lookup_bool_option(auto_comments, Comments),
 	( { Comments = yes } ->
-		mlds_output_access_2(Access)
+		mlds_output_access_comment_2(Access)
 	;
 		[]
 	).
 
-:- pred mlds_output_access_2(access, io__state, io__state).
-:- mode mlds_output_access_2(in, di, uo) is det.
+:- pred mlds_output_access_comment_2(access, io__state, io__state).
+:- mode mlds_output_access_comment_2(in, di, uo) is det.
 
-mlds_output_access_2(public)    --> [].
-mlds_output_access_2(private)   --> io__write_string("/* private: */ ").
-mlds_output_access_2(protected) --> io__write_string("/* protected: */ ").
-mlds_output_access_2(default)   --> io__write_string("/* default access */ ").
+mlds_output_access_comment_2(public)    --> [].
+mlds_output_access_comment_2(private)   --> io__write_string("/* private: */ ").
+mlds_output_access_comment_2(protected) --> io__write_string("/* protected: */ ").
+mlds_output_access_comment_2(default)   --> io__write_string("/* default access */ ").
 
-:- pred mlds_output_per_instance(per_instance, io__state, io__state).
-:- mode mlds_output_per_instance(in, di, uo) is det.
+:- pred mlds_output_per_instance_comment(per_instance, io__state, io__state).
+:- mode mlds_output_per_instance_comment(in, di, uo) is det.
 
-mlds_output_per_instance(one_copy)     --> io__write_string("static ").
-mlds_output_per_instance(per_instance) --> [].
+mlds_output_per_instance_comment(PerInstance) -->
+	globals__io_lookup_bool_option(auto_comments, Comments),
+	( { Comments = yes } ->
+		mlds_output_per_instance_comment_2(PerInstance)
+	;
+		[]
+	).
+
+:- pred mlds_output_per_instance_comment_2(per_instance, io__state, io__state).
+:- mode mlds_output_per_instance_comment_2(in, di, uo) is det.
+
+mlds_output_per_instance_comment_2(per_instance) --> [].
+mlds_output_per_instance_comment_2(one_copy)     --> io__write_string("/* one_copy */ ").
+
+:- pred mlds_output_extern_or_static(access, per_instance, decl_or_defn,
+		mlds__entity_name, io__state, io__state).
+:- mode mlds_output_extern_or_static(in, in, in, in, di, uo) is det.
+
+mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name) -->
+	(
+		{ Access = private ; PerInstance = one_copy },
+		{ Name \= type(_, _) }
+	->
+		io__write_string("static ")
+	;
+		{ DeclOrDefn = forward_decl },
+		{ Name = data(_) }
+	->
+		io__write_string("extern ")
+	;
+		[]
+	).
 
 :- pred mlds_output_virtuality(virtuality, io__state, io__state).
 :- mode mlds_output_virtuality(in, di, uo) is det.
@@ -1831,6 +1913,17 @@ mlds_output_stmt(Indent, FuncInfo, if_then_else(Cond, Then0, MaybeElse),
 	;
 		[]
 	).
+mlds_output_stmt(Indent, FuncInfo, switch(_Type, Val, Cases, Default),
+		Context) -->
+	mlds_indent(Context, Indent),
+	io__write_string("switch ("),
+	mlds_output_rval(Val),
+	io__write_string(") {\n"),
+	list__foldl(mlds_output_switch_case(Indent + 1, FuncInfo, Context),
+		Cases),
+	mlds_output_switch_default(Indent + 1, FuncInfo, Context, Default),
+	mlds_indent(Context, Indent),
+	io__write_string("}\n").
 
 	%
 	% transfer of control
@@ -1856,7 +1949,7 @@ mlds_output_stmt(Indent, _FuncInfo, computed_goto(Expr, Labels), Context) -->
 	mlds_indent(Indent),
 	io__write_string("switch ("),
 	mlds_output_rval(Expr),
-	io__write_string(") {"),
+	io__write_string(") {\n"),
 	{ OutputLabel =
 	    (pred(Label::in, Count0::in, Count::out, di, uo) is det -->
 		mlds_indent(Context, Indent + 1),
@@ -1945,7 +2038,7 @@ mlds_output_stmt(Indent, _FuncInfo, return(Results), _) -->
 		io__write_char(' '),
 		mlds_output_rval(Rval)
 	;
-		{ error("mld_output_stmt: multiple return values") }
+		{ error("mlds_output_stmt: multiple return values") }
 	),
 	io__write_string(";\n").
 	
@@ -2012,8 +2105,8 @@ mlds_output_stmt(Indent, FuncInfo, try_commit(Ref, Stmt0, Handler), Context) -->
 		%               <Handler>
 
 		%
-		% XXX do we need to declare the local variables as volatile,
-		% because of the setjmp()?
+		% XXX we need to declare the local variables as volatile,
+		% because of the setjmp()!
 		%
 
 		%
@@ -2040,6 +2133,56 @@ mlds_output_stmt(Indent, FuncInfo, try_commit(Ref, Stmt0, Handler), Context) -->
 
 		mlds_output_statement(Indent + 1, FuncInfo, Handler)
 	).
+
+%-----------------------------------------------------------------------------%
+
+%
+% Extra code for outputting switch statements
+%
+
+:- pred mlds_output_switch_case(indent, func_info, mlds__context,
+		mlds__switch_case, io__state, io__state).
+:- mode mlds_output_switch_case(in, in, in, in, di, uo) is det.
+
+mlds_output_switch_case(Indent, FuncInfo, Context, Case) -->
+	{ Case = (Conds - Statement) },
+	list__foldl(mlds_output_case_cond(Indent, Context), Conds),
+	mlds_output_statement(Indent + 1, FuncInfo, Statement),
+	mlds_indent(Context, Indent + 1),
+	io__write_string("break;\n").
+
+:- pred mlds_output_case_cond(indent, mlds__context,
+		mlds__case_match_cond, io__state, io__state).
+:- mode mlds_output_case_cond(in, in, in, di, uo) is det.
+
+mlds_output_case_cond(Indent, Context, match_value(Val)) -->
+	mlds_indent(Context, Indent),
+	io__write_string("case "),
+	mlds_output_rval(Val),
+	io__write_string(":\n").
+mlds_output_case_cond(Indent, Context, match_range(Low, High)) -->
+	% This uses the GNU C extension `case <Low> ... <High>:'.
+	mlds_indent(Context, Indent),
+	io__write_string("case "),
+	mlds_output_rval(Low),
+	io__write_string(" ... "),
+	mlds_output_rval(High),
+	io__write_string(":\n").
+
+:- pred mlds_output_switch_default(indent, func_info, mlds__context,
+		mlds__switch_default, io__state, io__state).
+:- mode mlds_output_switch_default(in, in, in, in, di, uo) is det.
+
+mlds_output_switch_default(Indent, _FuncInfo, Context, default_is_unreachable) -->
+	mlds_indent(Context, Indent),
+	io__write_string("default: /*NOTREACHED*/ assert(0);\n").
+mlds_output_switch_default(_Indent, _FuncInfo, _Context, default_do_nothing) --> [].
+mlds_output_switch_default(Indent, FuncInfo, Context, default_case(Statement)) -->
+	mlds_indent(Context, Indent),
+	io__write_string("default:\n"),
+	mlds_output_statement(Indent + 1, FuncInfo, Statement).
+
+%-----------------------------------------------------------------------------%
 
 	%
 	% If memory profiling is turned on output an instruction to
@@ -2174,7 +2317,7 @@ mlds_output_atomic_stmt(Indent, _FuncInfo, comment(Comment), _) -->
 	mlds_indent(Indent),
 	io__write_string("/* "),
 	io__write_string(Comment),
-	io__write_string(" */").
+	io__write_string(" */\n").
 
 	%
 	% assignment

@@ -45,7 +45,7 @@
 
 :- implementation.
 
-:- import_module options, globals, prog_io_util, trace_params.
+:- import_module options, globals, prog_io_util, trace_params, unify_proc.
 :- import_module char, int, string, map, set, getopt, library.
 
 handle_options(MaybeError, Args, Link) -->
@@ -338,6 +338,16 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% --split-c-files implies --procs-per-c-function 1
 	option_implies(split_c_files, procs_per_c_function, int(1)),
 
+	% make_hlds contains an optimization which requires the value of the
+	% compare_specialization option to accurately specify the max number
+	% of constructors in a type whose comparison procedure is specialized
+	% and which therefore don't need index functions.
+	globals__io_lookup_int_option(compare_specialization, CompareSpec0),
+	{ int__min(unify_proc__max_exploited_compare_spec_value,
+		CompareSpec0, CompareSpec) },
+	globals__io_set_option(compare_specialization, int(CompareSpec)),
+
+
 	% Minimal model tabling is not compatible with trailing;
 	% see the comment in runtime/mercury_tabling.c.
 
@@ -575,18 +585,35 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% we are expecting some to be missing.
 	option_implies(use_opt_files, warn_missing_opt_files, bool(no)),
 
-	% --no-lazy-code assumes that const(_) rvals are really constant,
-	% and that create(_) rvals with constant arguments can be materialized
-	% in an assignable rval without further code. For float_consts,
-	% the former is true only if either static_ground_terms or
-	% unboxed_floats is true, and the latter cannot be true without
-	% static_ground_terms.
+	globals__io_lookup_bool_option(highlevel_code, HighLevel),
+	( { HighLevel = no } ->
+		postprocess_options_lowlevel
+	;
+		[]
+	).
+
+	% These option implications only affect the low-level (LLDS) code
+	% generator.  They may in fact be harmful if set for the high-level
+	% code generator, because sometimes the same option has different
+	% meanings and implications in the two backends.
+	%
+:- pred postprocess_options_lowlevel(io__state::di, io__state::uo) is det.
+
+postprocess_options_lowlevel -->
+		% --no-lazy-code assumes that const(_) rvals are really
+		% constant, and that create(_) rvals with constant arguments
+		% can be materialized in an assignable rval without further
+		% code. For float_consts, the former is true only if either
+		% static_ground_terms or unboxed_floats is true, and the latter
+		% cannot be true without static_ground_terms.
 	option_neg_implies(lazy_code, static_ground_terms, bool(yes)),
 
-	% --no-lazy-code requires --follow-vars for acceptable performance.
+		% --no-lazy-code requires --follow-vars for acceptable
+		% performance.
 	option_neg_implies(lazy_code, follow_vars, bool(yes)),
 
-	% --optimize-frames requires --optimize-labels and --optimize-jumps
+		% --optimize-frames requires --optimize-labels and
+		% --optimize-jumps
 	option_implies(optimize_frames, optimize_labels, bool(yes)),
 	option_implies(optimize_frames, optimize_jumps, bool(yes)).
 

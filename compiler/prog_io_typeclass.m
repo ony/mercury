@@ -389,10 +389,11 @@ parse_derived_instance(ModuleName, Decl, Constraints, TVarSet,
 		->
 			Result = Result0
 		;
-			Result0 = ok(instance(_, Name, Types, Body, VarSet0))
+			Result0 = ok(instance(_, Name, Types, Body, VarSet,
+				ModName))
 		->
 			Result = ok(instance(ConstraintList, Name, Types, Body,
-					VarSet0))
+					VarSet, ModName))
 		;
 				% if the item we get back isn't an instance, 
 				% something has gone wrong...
@@ -417,7 +418,7 @@ parse_instance_constraints(ModuleName, Constraints, Result) :-
 :- pred parse_underived_instance(module_name, term, tvarset, maybe1(item)).
 :- mode parse_underived_instance(in, in, in, out) is det.
 
-parse_underived_instance(_ModuleName, Name, TVarSet, Result) :-
+parse_underived_instance(ModuleName, Name, TVarSet, Result) :-
 		% We don't give a default module name here since the instance
 		% declaration could well be for a typeclass defined in another
 		% module
@@ -459,7 +460,7 @@ parse_underived_instance(_ModuleName, Name, TVarSet, Result) :-
 		(
 			ErroneousTypes = [],
 			Result = ok(instance([], ClassName,
-				TermTypes, abstract, TVarSet))
+				TermTypes, abstract, TVarSet, ModuleName))
 		;
 				% XXX We should report an error for _each_
 				% XXX erroneous type
@@ -488,10 +489,10 @@ parse_non_empty_instance(ModuleName, Name, Methods, VarSet, TVarSet, Result) :-
 			Result = error(String, Term)
 		;
 			ParsedNameAndTypes = ok(instance(Constraints,
-				NameString, Types, _, _))
+				NameString, Types, _, _, ModName))
 		->
 			Result0 = ok(instance(Constraints, NameString, Types,
-				concrete(MethodList), TVarSet)),
+				concrete(MethodList), TVarSet, ModName)),
 			check_tvars_in_instance_constraint(Result0, Name,
 				Result)
 		;
@@ -509,7 +510,10 @@ parse_non_empty_instance(ModuleName, Name, Methods, VarSet, TVarSet, Result) :-
 
 check_tvars_in_instance_constraint(error(M,E), _, error(M, E)).
 check_tvars_in_instance_constraint(ok(Item), InstanceTerm, Result) :-
-	( Item = instance(Constraints, _Name, Types, _Methods, _TVarSet) ->
+	(
+		Item = instance(Constraints, _Name, Types, _Methods, _TVarSet,
+			_ModName)
+	->
 		%
 		% check that all of the type variables in the constraints
 		% on the instance declaration also occur in the type class
@@ -553,7 +557,7 @@ parse_instance_methods(ModuleName, Methods, VarSet, Result) :-
 		maybe1(instance_method)).
 :- mode term_to_instance_method(in, in, in, out) is det.
 
-term_to_instance_method(ModuleName, VarSet, MethodTerm, Result) :-
+term_to_instance_method(_ModuleName, VarSet, MethodTerm, Result) :-
 	(
 		MethodTerm = term__functor(term__atom("is"), [ClassMethodTerm,
 						InstanceMethod], TermContext)
@@ -618,7 +622,19 @@ term_to_instance_method(ModuleName, VarSet, MethodTerm, Result) :-
 				MethodTerm)
 		)
 	;
-		parse_item(ModuleName, VarSet, MethodTerm, Result0),
+		% For the clauses in an instance declaration,
+		% the default module name for the clause heads
+		% is the module name of the class that this is an
+		% instance declaration for, but we don't necessarily
+		% know what module that is at this point, since the
+		% class name hasn't been fully qualified yet.
+		% So here we give the special module name ""
+		% as the default, which means that there is no default.
+		% (If the module qualifiers in the clauses don't match
+		% the module name of the class, we will pick that up later,
+		% in check_typeclass.m.)
+		DefaultModuleName = unqualified(""),
+		parse_item(DefaultModuleName, VarSet, MethodTerm, Result0),
 		(
 			Result0 = ok(Item, Context),
 			(
@@ -635,10 +651,15 @@ term_to_instance_method(ModuleName, VarSet, MethodTerm, Result) :-
 		->
 			Result = ok(instance_method(PredOrFunc,
 					ClassMethodName,
-					% XXX FIXME handle multiple clauses
 					clauses([Item]),
 					ArityInt, Context))
 		;
+			Result0 = error(ErrorMsg, ErrorTerm)
+		->
+			Result = error(ErrorMsg, ErrorTerm)
+		;
+			% catch-all error message for a syntactically valid item
+			% which is not a clause
 			Result = error("expected clause or `pred(<Name> / <Arity>) is <InstanceName>' or `func(<Name> / <Arity>) is <InstanceName>')",
 				MethodTerm)
 		)

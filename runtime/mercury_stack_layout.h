@@ -77,9 +77,9 @@ typedef	MR_int_least16_t	MR_Determinism;
 ** lval.
 **
 ** What kind of location an MR_Long_Lval refers to is encoded using
-** a low tag with MR_LONG_LVAL_TAGBITS bits; the type MR_Lval_Type describes
-** the different tag values. The interpretation of the rest of the word
-** depends on the location type:
+** a low tag with MR_LONG_LVAL_TAGBITS bits; the type MR_Long_Lval_Type
+** describes the different tag values. The interpretation of the rest of
+** the word depends on the location type:
 **
 **  Locn		Tag	Rest
 **  r(Num)		 0	Num (register number)
@@ -186,6 +186,9 @@ typedef enum {
 #define MR_SHORT_LVAL_TYPE(Locn) 					\
 	((MR_Short_Lval_Type)						\
 		(((MR_Word) Locn) & ((1 << MR_SHORT_LVAL_TAGBITS) - 1)))
+
+#define MR_SHORT_LVAL_NUMBER(Locn) 					\
+	((int) ((MR_Word) Locn) >> MR_SHORT_LVAL_TAGBITS)
 
 #define	MR_SHORT_LVAL_STACKVAR(n)					\
 	((MR_Short_Lval) (((n) << MR_SHORT_LVAL_TAGBITS)		\
@@ -577,6 +580,19 @@ typedef	struct MR_Stack_Layout_Label_Struct {
 ** require padding.) The labels are sorted on line number.
 */
 
+/*
+** The trace level that the module was compiled with.  If this enum is
+** modified, then the corresponding function in compiler/trace_params.m
+** must be updated.
+*/
+typedef enum {
+	MR_TRACE_LEVEL_NONE,
+	MR_TRACE_LEVEL_SHALLOW,
+	MR_TRACE_LEVEL_DEEP,
+	MR_TRACE_LEVEL_DECL,
+	MR_TRACE_LEVEL_DECL_REP
+} MR_Trace_Level;
+
 typedef struct MR_Module_File_Layout_Struct {
 	MR_String		MR_mfl_filename;
 	MR_Integer		MR_mfl_label_count;
@@ -593,6 +609,7 @@ typedef	struct MR_Module_Layout_Struct {
 	MR_Stack_Layout_Entry	**MR_ml_procs;
 	MR_Integer		MR_ml_filename_count;
 	MR_Module_File_Layout	**MR_ml_module_file_layout;
+	MR_Trace_Level		MR_ml_trace_level;
 } MR_Module_Layout;
 
 #endif /* not MERCURY_STACK_LAYOUT_H */

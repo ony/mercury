@@ -148,7 +148,10 @@
 **	Display the values of live variables during accurate garbage
 **	collection.
 **
-** MR_DEBUG_AGC
+** MR_DEBUG_AGC_SMALL_HEAP
+**	Use a small heap to trigger garbage collection more often.
+**
+** MR_DEBUG_AGC_ALL
 ** 	Turn on all debugging information for accurate garbage
 ** 	collection.  (Equivalent to all MR_DEBUG_AGC_* macros above).
 **
@@ -160,11 +163,12 @@
 ** 	code handling exceptions.
 */
 
-#if MR_DEBUG_AGC
+#if MR_DEBUG_AGC_ALL
   #define MR_DEBUG_AGC_SCHEDULING
   #define MR_DEBUG_AGC_COLLECTION
   #define MR_DEBUG_AGC_FORWARDING
   #define MR_DEBUG_AGC_PRINT_VARS
+  #define MR_DEBUG_AGC_SMALL_HEAP
 #endif
 
 /*
@@ -248,6 +252,13 @@
 **			   (this also means the initialization code needs
 **			   to be run some time before the first use of the
 **			   label table).
+**
+** Note that for the MLDS back-end, the calls to MR_init_entry()
+** that insert the function addresses in the label table are only
+** output if the right compiler options are enabled.  So if you change
+** the condition of this `#ifdef', and you want your changes to apply
+** to the MLDS back-end too, you may also need to change the
+** `need_to_init_entries' predicate in compiler/mlds_to_c.m.
 */
 
 #ifdef MR_INSERT_LABELS

@@ -822,8 +822,8 @@ intermod__gather_instances_2(ModuleInfo, ClassId, InstanceDefns) -->
 	hlds_instance_defn::in, intermod_info::in, intermod_info::out) is det.
 		
 intermod__gather_instances_3(ModuleInfo, ClassId, InstanceDefn) -->
-	{ InstanceDefn = hlds_instance_defn(Status, B, C, D, Interface0,
-				MaybePredProcIds, F, G) },
+	{ InstanceDefn = hlds_instance_defn(A, Status, C, D, E, Interface0,
+				MaybePredProcIds, H, I) },
 	(
 		%
 		% The bodies are always stripped from instance declarations
@@ -898,9 +898,9 @@ intermod__gather_instances_3(ModuleInfo, ClassId, InstanceDefn) -->
 				status_is_exported(Status, no)
 			}
 		->
-			{ InstanceDefnToWrite = hlds_instance_defn(Status,
-					B, C, D, Interface, MaybePredProcIds,
-					F, G) },
+			{ InstanceDefnToWrite = hlds_instance_defn(A, Status,
+					C, D, E, Interface, MaybePredProcIds,
+					H, I) },
 			intermod_info_get_instances(Instances0),
 			intermod_info_set_instances(
 				[ClassId - InstanceDefnToWrite | Instances0])
@@ -1285,10 +1285,11 @@ intermod__write_instances(Instances) -->
 		io__state::di, io__state::uo) is det.
 
 intermod__write_instance(ClassId - InstanceDefn) -->
-	{ InstanceDefn = hlds_instance_defn(_, Context, Constraints,
-				Types, Body, _, TVarSet, _) },
+	{ InstanceDefn = hlds_instance_defn(ModuleName, _, Context,
+			Constraints, Types, Body, _, TVarSet, _) },
 	{ ClassId = class_id(ClassName, _) },
-	{ Item = instance(Constraints, ClassName, Types, Body, TVarSet) },
+	{ Item = instance(Constraints, ClassName, Types, Body, TVarSet,
+		ModuleName) },
 	mercury_output_item(Item, Context).
 
 	% We need to write all the declarations for local predicates so
@@ -1550,10 +1551,16 @@ intermod__write_type_spec_pragmas(ModuleInfo, PredId) -->
 	{ module_info_type_spec_info(ModuleInfo,
 		type_spec_info(_, _, _, PragmaMap)) },
 	( { multi_map__search(PragmaMap, PredId, TypeSpecPragmas) } ->
-		{ term__context_init(Context) },
-		list__foldl(lambda([Pragma::in, IO0::di, IO::uo] is det, (
-			mercury_output_item(pragma(Pragma), Context, IO0, IO)
-		)), TypeSpecPragmas)
+		list__foldl(
+		    ( pred(Pragma::in, di, uo) is det -->
+			( { Pragma = type_spec(_, _, _, _, _, _, _) } ->
+				{ AppendVarnums = yes },
+				mercury_output_pragma_type_spec(Pragma,
+					AppendVarnums)
+			;
+				{ error("intermod__write_type_spec_pragmas") }
+			)
+		    ), TypeSpecPragmas)
 	;
 		[]
 	).
@@ -1572,6 +1579,7 @@ intermod__should_output_marker((semipure), no).
 	% There is no pragma required for generated class methods.
 intermod__should_output_marker(class_method, no).
 intermod__should_output_marker(class_instance_method, no).
+intermod__should_output_marker(named_class_instance_method, no).
 	% The warning for calls to local obsolete predicates should appear
 	% once in the defining module, not in importing modules.
 intermod__should_output_marker(obsolete, no).
@@ -1923,16 +1931,17 @@ adjust_instance_status_2(ClassId - InstanceList0, ClassId - InstanceList,
 	hlds_instance_defn::out, module_info::in, module_info::out) is det.
 
 adjust_instance_status_3(Instance0, Instance, ModuleInfo0, ModuleInfo) :-
-	Instance0 = hlds_instance_defn(Status0, Context, Constraints, Types,
-			Body, HLDSClassInterface, TVarSet, ConstraintProofs),
+	Instance0 = hlds_instance_defn(InstanceModule, Status0, Context,
+			Constraints, Types, Body, HLDSClassInterface,
+			TVarSet, ConstraintProofs),
 	(
 		( Status0 = local
 		; Status0 = abstract_exported
 		)
 	->
-		Instance = hlds_instance_defn(exported, Context, Constraints,
-				Types, Body, HLDSClassInterface, TVarSet,
-				ConstraintProofs),
+		Instance = hlds_instance_defn(InstanceModule, exported,
+			Context, Constraints, Types, Body, HLDSClassInterface,
+			TVarSet, ConstraintProofs),
 		( HLDSClassInterface = yes(ClassInterface) ->
 			class_procs_to_pred_ids(ClassInterface, PredIds),
 			set_list_of_preds_exported(PredIds,
