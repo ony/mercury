@@ -669,6 +669,7 @@ mercury_std_library_module("rational").
 mercury_std_library_module("rbtree").
 mercury_std_library_module("relation").
 mercury_std_library_module("require").
+mercury_std_library_module("rtti_implementation").
 mercury_std_library_module("set").
 mercury_std_library_module("set_bbbtree").
 mercury_std_library_module("set_ordlist").
@@ -3479,7 +3480,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
 	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe\n",
-			ExeFileName, ".exe : ", "$(", MakeVarName, ".dlls) ",
+			ExeFileName, ".exe : ", ExeFileName, ".dll\n",
+			ExeFileName, ".dll : ", "$(", MakeVarName, ".dlls) ",
 			"$(", MakeVarName, ".foreign_dlls)\n"] },
 	{ Else = ["else\n"] },
 	{ MainRule =
@@ -3805,9 +3807,17 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 	{ string__append(InitFuncName0, "init", InitFuncName) },
 	{ llds_out__make_rl_data_name(Module, RLName) },
 	io__write_strings(DepStream, [
-		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n",
-		"\techo ""ADITI_DATA ", RLName, """ >> ", InitFileName, "\n"
-	]).
+		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n"
+	]),
+	globals__io_lookup_bool_option(aditi, Aditi),
+	( { Aditi = yes } ->
+		io__write_strings(DepStream, [
+			"\techo ""ADITI_DATA ", RLName, """ >> ",
+				InitFileName, "\n"
+		])
+	;
+		[]
+	).
 
 %-----------------------------------------------------------------------------%
 

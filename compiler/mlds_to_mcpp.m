@@ -576,12 +576,14 @@ write_il_simple_type_as_managed_cpp_type(float32) -->
 	io__write_string("float").
 write_il_simple_type_as_managed_cpp_type(float64) --> 
 	io__write_string("mercury::MR_Float").
-write_il_simple_type_as_managed_cpp_type(native_float) --> 
-	io__write_string("mercury::MR_Float").
 write_il_simple_type_as_managed_cpp_type(bool) --> 
 	io__write_string("mercury::MR_Integer").
 write_il_simple_type_as_managed_cpp_type(char) --> 
 	io__write_string("mercury::MR_Char").
+write_il_simple_type_as_managed_cpp_type(string) --> 
+	io__write_string("mercury::MR_String").
+write_il_simple_type_as_managed_cpp_type(object) --> 
+	io__write_string("mercury::MR_Box").
 write_il_simple_type_as_managed_cpp_type(refany) --> 
 	io__write_string("mercury::MR_RefAny").
 write_il_simple_type_as_managed_cpp_type(class(ClassName)) --> 

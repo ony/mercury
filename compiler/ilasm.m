@@ -684,17 +684,18 @@ output_simple_type(int8, I, I) --> io__write_string("int8").
 output_simple_type(int16, I, I) --> io__write_string("int16").
 output_simple_type(int32, I, I) --> io__write_string("int32").
 output_simple_type(int64, I, I) --> io__write_string("int64").
-output_simple_type(uint8, I, I) --> io__write_string("uint8").
-output_simple_type(uint16, I, I) --> io__write_string("uint16").
-output_simple_type(uint32, I, I) --> io__write_string("uint32").
-output_simple_type(uint64, I, I) --> io__write_string("uint64").
+output_simple_type(uint8, I, I) --> io__write_string("unsigned int8").
+output_simple_type(uint16, I, I) --> io__write_string("unsigned int16").
+output_simple_type(uint32, I, I) --> io__write_string("unsigned int32").
+output_simple_type(uint64, I, I) --> io__write_string("unsigned int64").
 output_simple_type(native_int, I, I) --> io__write_string("native int").
 output_simple_type(native_uint, I, I) --> io__write_string("native unsigned int").
 output_simple_type(float32, I, I) --> io__write_string("float32").
 output_simple_type(float64, I, I) --> io__write_string("float64").
-output_simple_type(native_float, I, I) --> io__write_string("native float").
 output_simple_type(bool, I, I) --> io__write_string("bool").
 output_simple_type(char, I, I) --> io__write_string("char").
+output_simple_type(object, I, I) --> io__write_string("object").
+output_simple_type(string, I, I) --> io__write_string("string").
 output_simple_type(refany, I, I) --> io__write_string("refany").
 output_simple_type(class(Name), Info0, Info) --> 
 	io__write_string("class "),
@@ -732,14 +733,13 @@ output_simple_type_opcode(native_int) --> io__write_string("i").
 output_simple_type_opcode(native_uint) --> io__write_string("u").
 output_simple_type_opcode(float32) --> io__write_string("r4").
 output_simple_type_opcode(float64) --> io__write_string("r8").
-output_simple_type_opcode(native_float) --> 
-	{ error("unable to create opcode for native_float") }.
-		% XXX should i4 be used for bool? 
 output_simple_type_opcode(bool) --> io__write_string("i4").
 output_simple_type_opcode(char) --> io__write_string("i2").
 
 	% all reference types use "ref" as their opcode.
 	% XXX is "ref" here correct for value classes?
+output_simple_type_opcode(object) --> io__write_string("ref").
+output_simple_type_opcode(string) --> io__write_string("ref").
 output_simple_type_opcode(refany) --> io__write_string("ref").
 output_simple_type_opcode(class(_Name)) --> io__write_string("ref").
 output_simple_type_opcode(value_class(_Name)) --> io__write_string("ref").
