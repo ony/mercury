@@ -2505,8 +2505,9 @@ There are several uses for @code{pragma} declarations:
 @menu
 * C interface::                 The C interface allows C code to be called
                                 from Mercury code, and vice versa.
-* Inlining::                    Calls to Mercury predicates can be inlined
-                                by the compiler to improve efficiency.
+* Inlining::                    Calls to Mercury predicates and functions
+				can be inlined by the compiler to improve 
+				efficiency.
 * Preventing Inlining::         Inlining can be avoided when undesirable.
 @c * Tabling::                     Mercury predicates can be evaluated
 @c                                 using a three different forms of tabled
@@ -2518,6 +2519,11 @@ There are several uses for @code{pragma} declarations:
 				@samp{#@var{line}} directives provide support
 				for preprocessors and other tools that
 				generate Mercury code.
+* Termination Analysis::	Information about a predicate or functions
+				termination properties can be given to the 
+				compiler.  Pragmas are also available to 
+				force the compiler to prove termination of 
+				a given predicate or function.
 @end menu
 
 @node C interface
@@ -2871,6 +2877,66 @@ idea to use @samp{pragma source_file} and @samp{#@var{line}} directives
 to reset the source file name and line number to point back to the
 generated file for the automatically generated text, as in the above
 example.
+
+@node Termination Analysis
+@section Termination Analysis
+
+The compiler includes a termination analyser which can be used to prove 
+termination of predicates and functions.  The analyser is enabled by the
+option @samp{--enable-termination}, which can be abbreviated to
+@samp{--enable-term}.  When termination analysis is enabled, any
+predicates or functions with a @samp{check_termination} pragma defined
+on them will have their termination checked, and if termination cannot
+be proved, the compiler will emit an error message detailing the reason
+that termination could not be proved and then quit.
+
+The option @samp{--check-termination} option, which may be abbreviated
+to @samp{--check-term} or @samp{--chk-term}, forces the compiler to
+check the termination of all predicates in the module.  For every
+predicate or function that the compiler cannot prove termination, a
+warning message is emitted, but compilation continues.  It is common for
+the compiler to be unable to prove termination of some predicates and
+functions because they call other predicates which could not be proved
+to terminate.  In this case, the compiler only emits a warning for these
+predicates and functions if the @samp{-E} option is enabled.  The
+@samp{--check-termination} option implies the
+@samp{--enable-termination} option.
+
+The accuracy of the termination analysis is substantially degraded if
+intermodule optimization is not enabled.  Unless intermodule
+optimization is enabled, the compiler must assume that any imported
+predicate may not terminate.  
+
+Currently the compiler assumes that all c code terminates for any input.
+If this is not the case, a @samp{pragma does_not_terminate} declaration
+may be used to inform the compiler that this c_code may not terminate.
+
+The following declarations can be used to inform the compiler of a
+predicate or functions termination properties, or to force the compiler
+to prove termination of a given predicate or function. 
+
+@example
+:- pragma terminates(@var{Name}/@var{Arity}).
+@end example
+This declaration may be used to inform the compiler that this predicate
+or function is guaranteed to terminate for any input.  This is useful
+when the compiler cannot prove termination of some predicates or 
+functions which are in turn preventing the compiler from proving
+termination of other predicates or functions.
+
+@example
+:- pragma does_not_terminate(@var{Name}/@var{Arity}).
+@end example
+This declaration may be used to inform the compiler that this predicate
+does not necessarily terminate for any input.  This is useful for c
+code, which the compiler assumes to terminate by default.
+
+@example
+:- pragma check_termination(@var{Name}/@var{Arity}).
+@end example
+This pragma forces the compiler to prove termination of this predicate.
+If it cannot prove the termination of the specified predicate or
+function then the compiler will quit with an error message.
 
 @contents
 @bye

@@ -19,7 +19,7 @@ END-INFO-DIR-ENTRY
 @ifinfo
 This file documents the Mercury implementation.
 
-Copyright (C) 1995 University of Melbourne.
+Copyright (C) 1997 University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -50,7 +50,7 @@ into another language, under the above conditions for modified versions.
 @author Peter Ross
 @page
 @vskip 0pt plus 1filll
-Copyright @copyright{} 1995 University of Melbourne.
+Copyright @copyright{} 1997 University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -1584,10 +1584,10 @@ files may depend on other @file{@var{module}.trans_opt} files.
 @item --check-term
 @item --chk-term
 Enable termination analysis.  Termination analysis analyses each mode of each
-predicate to see whether it terminates.  @samp{pragma terminates} and
-@samp{pragma check_termination} pragmas have no effect unless termination
-analysis is enabled.  When using termination,
-@samp{--transitive-intermodule-optimization} should be enabled, as it greatly
+predicate to see whether it terminates.  @samp{pragma terminates}, @samp{pragma
+does_not_terminate} and @samp{pragma check_termination} pragmas have no effect
+unless termination analysis is enabled.  When using termination,
+@samp{--intermodule-optimization} should be enabled, as it greatly
 improves the accuracy of the analysis.
 
 @sp 1
