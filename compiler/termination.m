@@ -700,6 +700,7 @@ termination__write_pred_termination_info(Module, PredId) -->
 	( 
 		{ ImportStatus = exported },
 		{ \+ code_util__compiler_generated(PredInfo) },
+		{ \+ code_util__reuse_compiler_generated(PredInfo) }, 
 
 		% XXX These should be allowed, but the predicate
 		% declaration for the specialized predicate is not produced

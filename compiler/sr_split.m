@@ -14,7 +14,7 @@
 :- module sr_split.
 :- interface.
 
-:- import_module hlds_module, io.
+:- import_module hlds_module, io, string.
 :- import_module hlds_pred, sr_data, std_util, hlds_goal.
 
 	% create_multiple_versions( VirginHLDS, ReuseHLDS, FinalHLDS ).
@@ -29,6 +29,9 @@
 		maybe(hlds_goal)::in,
 		module_info::in, module_info::out) is det.
 
+:- pred reuse_predicate_name(string).
+:- mode reuse_predicate_name(in) is semidet.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -39,6 +42,9 @@
 :- import_module hlds_goal, prog_data, hlds_data, prog_util. 
 :- import_module sr_data. 
 
+
+reuse_predicate_name(PredName) :- 
+	string__prefix(PredName, "reuse__").
 
 sr_split__create_multiple_versions( VirginHLDS, ReuseHLDS, HLDS) --> 
 		% compute the strongly connected components

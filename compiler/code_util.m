@@ -130,6 +130,12 @@
 :- pred code_util__compiler_generated(pred_info).
 :- mode code_util__compiler_generated(in) is semidet.
 
+	% code_util__reuse_compiler_generated(PredInfo) succeeds iff
+	% the PredInfo is for a compiler generated separate reuse-predicate
+	% (reuse__*).
+:- pred code_util__reuse_compiler_generated(pred_info).
+:- mode code_util__reuse_compiler_generated(in) is semidet.
+
 :- pred code_util__predinfo_is_builtin(pred_info).
 :- mode code_util__predinfo_is_builtin(in) is semidet.
 
@@ -445,6 +451,11 @@ code_util__compiler_generated(PredInfo) :-
 	pred_info_name(PredInfo, PredName),
 	pred_info_arity(PredInfo, PredArity),
 	special_pred_name_arity(_, _, PredName, PredArity).
+
+:- import_module sr_split.
+code_util__reuse_compiler_generated(PredInfo) :-
+	pred_info_name(PredInfo, PredName), 
+	sr_split__reuse_predicate_name(PredName).
 
 %-----------------------------------------------------------------------------%
 

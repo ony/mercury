@@ -98,7 +98,6 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	{ pred_info_get_is_pred_or_func( PredInfo, PredOrFunc ) },
 	{ pred_info_module( PredInfo, ModuleName ) },
 	{ pred_info_context( PredInfo, Context ) },
-	{ pred_info_arity( PredInfo, Arity) },
 	{ SymName = qualified( ModuleName, PredName ) },
 
 	{ proc_info_declared_argmodes( ProcInfo, Modes ) },
@@ -118,11 +117,13 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 
 		% write headvars vars(HeadVar__1, ... HeadVar__n)
 
+	{ pred_info_arg_types(PredInfo, DeclTVarset, _, _) },
+	{ TVars = varset__vars(DeclTVarset) },
+
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ proc_info_headvars(ProcInfo, HeadVars) },
-	{ list__length(HeadVars, PseudoArity) }, 
-	{ NumberOfTypeInfos = PseudoArity - Arity },
-	{ list_drop_det(NumberOfTypeInfos, HeadVars, RealHeadVars) },
+	{ list__delete_elems( HeadVars, TVars, RealHeadVars ) }, 
+
 	( { RealHeadVars = [] } ->
 		io__write_string("vars")
 	;

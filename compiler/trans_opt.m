@@ -146,27 +146,6 @@ trans_opt__write_optfile(Module) -->
 		(
 			{ PossibleAliases = yes }
 		->
-		% output type-information.
-		io__write_string(
-			"\n%----------- type-definitions ------------- \n\n"),
-		{ module_info_types( Module, TypesMap ) }, 
-		{ map__to_assoc_list( TypesMap, AllTypes) }, 
-		{ list__filter( 
-			pred( P::in ) is semidet :- 
-			    ( P = _TId - TDefn, 
-			      hlds_data__get_type_defn_status( TDefn, Stat), 
-			      ( hlds_pred__status_defined_in_this_module( Stat,
-								yes )
-			%	;
-			%	Stat = opt_imported
-			      )
-			    ),
-			AllTypes, 
-			_Types ) },
-		% { Types = AllTypes },
-			% XXX not necessary!
-		% intermod__write_types( Types ), 
-
 		% output possible-alias information.
 		io__write_string(
 			"\n%----------- pa_alias_info/3 ------------- \n\n"),
