@@ -1092,7 +1092,7 @@ parse_list_alias_term(TERM, Aliases) :-
 		        CONS = "[|]",
                         Args = [ AliasTerm, Rest]
                 ->
-			pa_alias__parse_term(AliasTerm, Alias),
+			prog_io_pasr__parse_alias(AliasTerm, Alias),
 			parse_list_alias_term(Rest, RestAliases), 
                         Aliases = [ Alias | RestAliases ]
                 ;

@@ -20,7 +20,6 @@
 :- import_module structure_reuse__sr_live. % XXX should be removed, eventually.
 
 :- import_module set, list.
-:- import_module io, string, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -39,13 +38,6 @@
 :- pred from_unification(module_info::in, proc_info::in, 
 		hlds_goal__unification::in, hlds_goal__hlds_goal_info::in, 
 		list(alias)::out) is det.
-
-	% printing routines
-:- pred print(proc_info::in, pred_info::in, string::in, string::in, 
-		alias::in, io__state::di, io__state::uo) is det.
-
-	% parsing routines
-:- pred parse_term(term(T)::in , alias::out) is det.
 
 :- pred live_from_in_use(set(prog_var)::in, list(alias)::in, 
 		live_set::out) is det.
@@ -66,64 +58,11 @@
 :- import_module possible_alias__pa_selector.
 :- import_module possible_alias__pa_sr_util.
 
-:- import_module varset, require, int, map, std_util.
-
-%-------------------------------------------------------------------%
-% printing routines
-%-------------------------------------------------------------------%
-
-print(ProcInfo, PredInfo, FrontString, EndString, Alias0, !IO) :- 
-	proc_info_varset(ProcInfo, ProgVarSet),
-	pred_info_typevarset(PredInfo, TypeVarSet), 
-	Alias0 = D1 - D2,
-	io__write_string(FrontString, !IO),
-	io__write_string("pair(", !IO),
-	print_datastruct(ProgVarSet, TypeVarSet, D1, !IO),
-	io__write_string(" , ", !IO),
-	print_datastruct(ProgVarSet, TypeVarSet, D2, !IO),
-	io__write_string(") ", !IO),
-	io__write_string(EndString, !IO).
+:- import_module varset, require, int, map, std_util, string.
 
 %-------------------------------------------------------------------%
 % parsing routines
 %-------------------------------------------------------------------%
-
-pa_alias__parse_term(Term,  A) :- 
-	(
-		Term = term__functor(term__atom(Cons), Args, _)
-	->
-		(
-			Cons = "pair"
-		->
-			(
-				Args = [ First, Second ]
-			->
-				parse_datastruct(First, D1),
-				parse_datastruct(Second, D2),
-				A = D1 - D2
-			;
-				list__length(Args, L),
-				string__int_to_string(L,LS),
-				string__append_list(
-					[ "(pa_alias) parse_term: ", 
-					"wrong number of arguments. `-'/",
-					LS," should be `-'/2"],Msg),
-				error(Msg)
-			)
-		;
-			term__det_term_to_type(Term, Type),
-			varset__init(V),
-			StringTerm = mercury_type_to_string(V, Type),
-			string__append_list([ 
-					"(pa_alias) parse_term: ",
-					"wrong constructor. `",
-					StringTerm,
-					"' should be `pair'"],Msg),
-			error(Msg)
-		)
-	;
-		error("(pa_alias) parse_term: term is not a functor")
-	).
 
 	% contains_one_of_vars(SET, ALIAS, DATA)
 	% returns true if ALIAS = DATA1 - DATA, 

@@ -142,6 +142,7 @@
 :- import_module possible_alias__pa_alias.
 :- import_module possible_alias__pa_selector.
 :- import_module possible_alias__pa_datastruct. 
+:- import_module parse_tree__prog_io_pasr.
 
 :- import_module std_util.
 :- import_module int, bool, assoc_list. 
@@ -685,6 +686,8 @@ print(PredInfo, ProcInfo, AliasList, StartingString, MiddleString,
 
 print_brief(MaybeThreshold, PredInfo, ProcInfo, AliasList, 
 		StartingString, MiddleString, EndString) --> 
+	{ proc_info_varset(ProcInfo, ProgVarSet) }, 
+	{ pred_info_typevarset(PredInfo, TypeVarSet) }, 
 	% { to_pair_alias_list(AliasSet, AliasList) },
 	(
 		{ MaybeThreshold = yes(Limit) }
@@ -694,7 +697,7 @@ print_brief(MaybeThreshold, PredInfo, ProcInfo, AliasList,
 		{ NewList = AliasList }
 	),
 	io__write_list(NewList, MiddleString, 
-		pa_alias__print(ProcInfo, PredInfo, StartingString, 
+		print_alias(ProgVarSet, TypeVarSet, StartingString, 
 			EndString)),
 	(
 		{ MaybeThreshold = yes(_) }

@@ -20,13 +20,18 @@
 % Printing routines. 
 %-----------------------------------------------------------------------------%
 % 
-% 1. selectors. 
+% 1. selector. 
 :- pred print_selector(tvarset::in, selector::in, io__state::di, 
 		io__state::uo) is det.
 
-% 2. datastructs.
+% 2. datastruct.
 :- pred print_datastruct(prog_varset::in, tvarset::in, datastruct::in, 
 		io__state::di, io__state::uo) is det.
+
+% 3. alias.
+:- pred print_alias(prog_varset::in, tvarset::in, string::in, string::in, 
+		alias::in, io__state::di, io__state::uo) is det.
+
 %-----------------------------------------------------------------------------%
 % Transform to string routines. 
 
@@ -49,10 +54,13 @@
 % Parsing routines. 
 %-----------------------------------------------------------------------------%
 
-% 1. selectors. 
+% 1. selector. 
 :- pred parse_selector(term(T)::in, selector::out) is det.
-% 2. datastructs. 
+% 2. datastruct. 
 :- pred parse_datastruct(term(T)::in, datastruct::out) is det.
+% 3. alias.
+:- pred parse_alias(term(T)::in , alias::out) is det.
+
 
 %-----------------------------------------------------------------------------%
 
@@ -63,7 +71,7 @@
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
 
-:- import_module string, list, require, bool, varset. 
+:- import_module string, list, require, bool, varset, std_util. 
 
 %-----------------------------------------------------------------------------%
 print_selector(TVarSet, Selector, !IO) :-
@@ -76,6 +84,15 @@ print_datastruct(ProgVarSet, TypeVarSet, DataStruct, !IO) :-
 	print_selector(TypeVarSet, DataStruct^sc_selector, !IO),
 	io__write_string(")", !IO).
 
+print_alias(ProgVarSet, TypeVarSet, FrontString, EndString, Alias0, !IO) :- 
+	Alias0 = D1 - D2,
+	io__write_string(FrontString, !IO),
+	io__write_string("pair(", !IO),
+	print_datastruct(ProgVarSet, TypeVarSet, D1, !IO),
+	io__write_string(" , ", !IO),
+	print_datastruct(ProgVarSet, TypeVarSet, D2, !IO),
+	io__write_string(") ", !IO),
+	io__write_string(EndString, !IO).
 %-----------------------------------------------------------------------------%
 to_user_declared_selector(TVarSet, Selector, String):- 
 	(
@@ -127,7 +144,7 @@ us_to_user_declared(TVarSet, ts(Type), String) :-
 	String = mercury_type_to_string(TVarSet, Type). 
 
 %-----------------------------------------------------------------------------%
-% 2. datastructs. 
+% 2. datastruct. 
 to_user_declared_datastruct(ProgVarSet, TypeVarSet, Data, String):- 
 	Data = selected_cel(ProgVar, Selector), 
 	varset__lookup_name(ProgVarSet, ProgVar, ProgName), 
@@ -141,7 +158,7 @@ to_user_declared_datastruct(ProgVarSet, TypeVarSet, Data, String):-
 % Parsing routines. 
 %-----------------------------------------------------------------------------%
 % 
-% 1. selectors.
+% 1. selector.
 parse_selector(Term, Sel):- 
 	(
 		Term = term__functor(term__atom(Cons), Args, _)
@@ -211,7 +228,7 @@ parse_unit_selector(Term, US):-
    ).
 
 %-----------------------------------------------------------------------------%
-% 2. datastructs. 
+% 2. datastruct. 
 parse_datastruct(TERM, Data) :- 
    (
       TERM = term__functor(term__atom(CONS), Args, _)
@@ -246,4 +263,43 @@ parse_datastruct(TERM, Data) :-
    ;
       error("(prog_io_pasr) parse_datastruct: term not a functor")
    ).
+
+%-----------------------------------------------------------------------------%
+% 3. alias
+parse_alias(Term,  A) :- 
+	(
+		Term = term__functor(term__atom(Cons), Args, _)
+	->
+		(
+			Cons = "pair"
+		->
+			(
+				Args = [ First, Second ]
+			->
+				parse_datastruct(First, D1),
+				parse_datastruct(Second, D2),
+				A = D1 - D2
+			;
+				list__length(Args, L),
+				string__int_to_string(L,LS),
+				string__append_list(
+					[ "(prog_io_pasr) parse_alias: ", 
+					"wrong number of arguments. `-'/",
+					LS," should be `-'/2"],Msg),
+				error(Msg)
+			)
+		;
+			term__det_term_to_type(Term, Type),
+			varset__init(V),
+			StringTerm = mercury_type_to_string(V, Type),
+			string__append_list([ 
+					"(prog_io_pasr) parse_alias: ",
+					"wrong constructor. `",
+					StringTerm,
+					"' should be `pair'"],Msg),
+			error(Msg)
+		)
+	;
+		error("(prog_io_pasr) parse_alias: term is not a functor")
+	).
 
