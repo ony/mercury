@@ -1421,8 +1421,9 @@ convert_pred_to_lambda_goal(PredOrFunc, X0, ConsId0, PName,
 	% and the determinism of the lambda goal
 	%
 	proc_info_argmodes(ProcInfo, ArgModes),
-	list__length(ArgVars0, Arity),
-	( list__drop(Arity, ArgModes, LambdaModes0) ->
+	list__length(ArgModes, NumArgModes),
+	list__length(LambdaVars, NumLambdaVars),
+	( list__drop(NumArgModes - NumLambdaVars, ArgModes, LambdaModes0) ->
 		LambdaModes = LambdaModes0
 	;
 		error("modecheck_unification: list__drop failed")
