@@ -617,7 +617,10 @@ call_gen__generate_builtin(CodeModel, PredId, ProcId, Args, Code) -->
 	->
 		SimpleCode = SimpleCode0
 	;
-		error("Unknown builtin predicate")
+		length(Args, Arity),
+		format("Unknown builtin predicate: %s/%d",
+			[s(PredName), i(Arity)], Msg),
+		error(Msg)
 	},
 	(
 		{ CodeModel = model_det },

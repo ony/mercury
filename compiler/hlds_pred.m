@@ -18,7 +18,7 @@
 :- import_module mode_errors.
 :- import_module globals.
 
-:- import_module bool, list, assoc_list, set, map, std_util, term, varset.
+:- import_module bool, list, set, map, std_util, term, varset.
 
 :- implementation.
 
@@ -33,7 +33,7 @@
 :- import_module options.
 
 % Standard library modules.
-:- import_module int, string, require.
+:- import_module assoc_list, int, string, require.
 
 %-----------------------------------------------------------------------------%
 
@@ -1349,13 +1349,24 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- type deep_profile_proc_info
 	--->	deep_profile_proc_info(
 			role		:: deep_profile_role,
-			visible_scc	:: assoc_list(pred_proc_id)
+			visible_scc	:: list(visible_scc_data)
 					% If the procedure is not tail
 					% recursive, this list is empty.
 					% Otherwise, it contains outer-inner
 					% pairs of procedures in the visible
 					% SCC, including this procedure and
 					% its copy.
+		).
+
+:- type visible_scc_data
+	--->	visible_scc_data(
+			vis_outer_proc	:: pred_proc_id,
+			vis_inner_proc	:: pred_proc_id,
+			rec_call_sites	:: list(int)
+					% A list of all the call site numbers
+					% that correspond to tail calls.
+					% (Call sites are numbered depth-first,
+					% left-to-right, from zero.)
 		).
 
 :- pred proc_info_init(arity, list(type), list(mode), maybe(list(mode)),

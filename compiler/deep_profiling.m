@@ -119,7 +119,12 @@ apply_deep_profiling_transformation(ModuleInfo0, ModuleInfo, ProcStatics) -->
 	{ module_info_get_predicate_table(ModuleInfo1, PredTable0) },
 	{ predicate_table_get_preds(PredTable0, PredMap0) },
 	{ list__foldl2(transform_predicate(ModuleInfo1),
-		PredIds, PredMap0, PredMap, [], ProcStatics) },
+		PredIds, PredMap0, PredMap, [], MProcStatics) },
+		% Remove any duplicates that resulted from
+		% references in inner tail recursive procedures 
+	{ list__filter_map((pred(MProcStatic::in, ProcStatic::out) is semidet :-
+		MProcStatic = yes(ProcStatic)
+	), MProcStatics, ProcStatics) },
 	{ predicate_table_set_preds(PredTable0, PredMap, PredTable) },
 	{ module_info_set_predicate_table(ModuleInfo1, PredTable, ModuleInfo) }.
 
@@ -171,12 +176,15 @@ apply_tail_recursion_to_proc(PredProcId, ModuleInfo0, ModuleInfo) :-
 		FoundTailCall = yes
 	->
 		proc_info_set_goal(ProcInfo0, Goal, ProcInfo1),
+		figure_out_rec_call_numbers(Goal, 0, _N, [], TailCallSites),
 		OrigDeepProfileInfo = deep_profile_proc_info(
 			outer_proc(ClonePredProcId),
-			[PredProcId - ClonePredProcId]),
+			[visible_scc_data(PredProcId, ClonePredProcId,
+				TailCallSites)]),
 		CloneDeepProfileInfo = deep_profile_proc_info(
 			inner_proc(PredProcId),
-			[PredProcId - ClonePredProcId]),
+			[visible_scc_data(PredProcId, ClonePredProcId,
+				TailCallSites)]),
 		proc_info_set_maybe_deep_profile_info(ProcInfo1,
 			yes(OrigDeepProfileInfo), ProcInfo),
 		proc_info_set_maybe_deep_profile_info(ProcInfo1,
@@ -398,9 +406,105 @@ apply_tail_recursion_to_cases([case(ConsId, Goal0) | Cases0], ApplyInfo,
 
 %-----------------------------------------------------------------------------%
 
+:- pred figure_out_rec_call_numbers(hlds_goal, int, int, list(int), list(int)).
+:- mode figure_out_rec_call_numbers(in, in, out, in, out) is det.
+
+figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
+	Goal = GoalExpr - GoalInfo,
+	(
+		GoalExpr = pragma_foreign_code(_, _, _, _, _, _, _),
+		N = N0,
+		TailCallSites = TailCallSites0
+	;
+		GoalExpr = call(_, _, _, BuiltinState, _, _),
+		goal_info_get_features(GoalInfo, Features),
+		( BuiltinState \= inline_builtin ->
+			N = N0 + 1
+		;
+			N = N0
+		),
+		( member(tailcall, Features) ->
+			TailCallSites = [N0|TailCallSites0]
+		;
+			TailCallSites = TailCallSites0
+		)
+	;
+		GoalExpr = generic_call(_, _, _, _),
+		N = N0 + 1,
+		TailCallSites = TailCallSites0
+	;
+		GoalExpr = unify(_, _, _, _, _),
+		N = N0,
+		TailCallSites = TailCallSites0
+	;
+		GoalExpr = conj(Goals),
+		figure_out_rec_call_numbers_in_goal_list(Goals, N0, N,
+			TailCallSites0, TailCallSites)
+	;
+		GoalExpr = disj(Goals, _),
+		figure_out_rec_call_numbers_in_goal_list(Goals, N0, N,
+			TailCallSites0, TailCallSites)
+	;
+		GoalExpr = switch(_, _, Cases, _),
+		figure_out_rec_call_numbers_in_case_list(Cases, N0, N,
+			TailCallSites0, TailCallSites)
+	;
+		GoalExpr = if_then_else(_, Cond, Then, Else, _),
+		figure_out_rec_call_numbers(Cond, N0, N1,
+			TailCallSites0, TailCallSites1),
+		figure_out_rec_call_numbers(Then, N1, N2,
+			TailCallSites1, TailCallSites2),
+		figure_out_rec_call_numbers(Else, N2, N,
+			TailCallSites2, TailCallSites)
+	;
+		GoalExpr = par_conj(Goals, _),
+		figure_out_rec_call_numbers_in_goal_list(Goals, N0, N,
+			TailCallSites0, TailCallSites)
+	;
+		GoalExpr = some(_, _, Goal1),
+		figure_out_rec_call_numbers(Goal1, N0, N,
+			TailCallSites0, TailCallSites)
+	;
+		GoalExpr = not(Goal1),
+		figure_out_rec_call_numbers(Goal1, N0, N,
+			TailCallSites0, TailCallSites)
+	;
+		GoalExpr = bi_implication(_, _),
+		error("bi_implication in apply_tail_recursion_to_goal")
+	).
+
+:- pred figure_out_rec_call_numbers_in_goal_list(list(hlds_goal), int, int,
+		list(int), list(int)).
+:- mode figure_out_rec_call_numbers_in_goal_list(in, in, out, in, out) is det.
+
+figure_out_rec_call_numbers_in_goal_list([], N, N,
+		TailCallSites, TailCallSites).
+figure_out_rec_call_numbers_in_goal_list([Goal|Goals], N0, N,
+		TailCallSites0, TailCallSites) :-
+	figure_out_rec_call_numbers(Goal, N0, N1,
+		TailCallSites0, TailCallSites1),
+	figure_out_rec_call_numbers_in_goal_list(Goals, N1, N,
+		TailCallSites1, TailCallSites).
+
+:- pred figure_out_rec_call_numbers_in_case_list(list(case), int, int,
+		list(int), list(int)).
+:- mode figure_out_rec_call_numbers_in_case_list(in, in, out, in, out) is det.
+
+figure_out_rec_call_numbers_in_case_list([], N, N,
+		TailCallSites, TailCallSites).
+figure_out_rec_call_numbers_in_case_list([Case|Cases], N0, N,
+		TailCallSites0, TailCallSites) :-
+	Case = case(_, Goal),
+	figure_out_rec_call_numbers(Goal, N0, N1,
+		TailCallSites0, TailCallSites1),
+	figure_out_rec_call_numbers_in_case_list(Cases, N1, N,
+		TailCallSites1, TailCallSites).
+
+%-----------------------------------------------------------------------------%
+
 :- pred transform_predicate(module_info::in, pred_id::in,
 	pred_table::in, pred_table::out,
-	list(layout_data)::in, list(layout_data)::out) is det.
+	list(maybe(layout_data))::in, list(maybe(layout_data))::out) is det.
 
 transform_predicate(ModuleInfo, PredId, PredMap0, PredMap,
 		ProcStatics0, ProcStatics) :-
@@ -414,7 +518,7 @@ transform_predicate(ModuleInfo, PredId, PredMap0, PredMap,
 
 :- pred maybe_transform_procedure(module_info::in, pred_id::in, proc_id::in,
 	proc_table::in, proc_table::out,
-	list(layout_data)::in, list(layout_data)::out) is det.
+	list(maybe(layout_data))::in, list(maybe(layout_data))::out) is det.
 
 maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 		ProcStatics0, ProcStatics) :-
@@ -443,27 +547,38 @@ maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 
 :- pred transform_procedure2(module_info::in, pred_proc_id::in,
 	proc_info::in, proc_info::out,
-	list(layout_data)::in, list(layout_data)::out) is det.
+	list(maybe(layout_data))::in, list(maybe(layout_data))::out) is det.
 
 transform_procedure2(ModuleInfo, PredProcId, Proc0, Proc,
 		ProcStaticList0, ProcStaticList) :-
 	proc_info_goal(Proc0, Goal0),
+	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
 	Goal0 = _ - GoalInfo0,
 	goal_info_get_code_model(GoalInfo0, CodeModel),		% XXX zs: bug?
 	(
 		CodeModel = model_det,
-		transform_det_proc(ModuleInfo, PredProcId, Proc0,
-			Proc, ProcStatic)
+		( MRecInfo = yes(RecInfo), RecInfo ^ role = inner_proc(_) ->
+			transform_inner_proc(ModuleInfo, PredProcId, Proc0,
+				Proc, MProcStatic)
+		;
+			transform_det_proc(ModuleInfo, PredProcId, Proc0,
+				Proc, MProcStatic)
+		)
 	;
 		CodeModel = model_semi,
-		transform_semi_proc(ModuleInfo, PredProcId, Proc0,
-			Proc, ProcStatic)
+		( MRecInfo = yes(RecInfo), RecInfo ^ role = inner_proc(_) ->
+			transform_inner_proc(ModuleInfo, PredProcId, Proc0,
+				Proc, MProcStatic)
+		;
+			transform_semi_proc(ModuleInfo, PredProcId, Proc0,
+				Proc, MProcStatic)
+		)
 	;
 		CodeModel = model_non,
 		transform_non_proc(ModuleInfo, PredProcId, Proc0,
-			Proc, ProcStatic)
+			Proc, MProcStatic)
 	),
-	ProcStaticList = [ProcStatic | ProcStaticList0].
+	ProcStaticList = [MProcStatic | ProcStaticList0].
 
 %-----------------------------------------------------------------------------%
 
@@ -474,13 +589,14 @@ transform_procedure2(ModuleInfo, PredProcId, Proc0, Proc,
 			next_site_num		:: int,
 			call_sites		:: list(call_site_static_data),
 			vars			:: prog_varset,
-			var_types		:: vartypes
+			var_types		:: vartypes,
+			maybe_rec_info		:: maybe(deep_profile_proc_info)
 		).
 
 :- pred transform_det_proc(module_info::in, pred_proc_id::in,
-	proc_info::in, proc_info::out, layout_data::out) is det.
+	proc_info::in, proc_info::out, maybe(layout_data)::out) is det.
 
-transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
+transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	proc_info_goal(Proc0, Goal0),
 	Goal0 = _ - GoalInfo0,
 	proc_info_varset(Proc0, Vars0),
@@ -507,7 +623,10 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0, [], Vars5, VarTypes5),
+	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
+	
+	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
+			[], Vars5, VarTypes5, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -515,7 +634,15 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	VarTypes = PInfo ^ var_types,
 	CallSites = PInfo ^ call_sites,
 
-	PredProcId = proc(PredId, ProcId),
+	(
+		MRecInfo = yes(RecInfo),
+		RecInfo ^ role = inner_proc(OuterPredProcId)
+	->
+		OuterPredProcId = proc(PredId, ProcId)
+	;
+		PredProcId = proc(PredId, ProcId)
+	),
+
 	RttiProcLabel = rtti__make_proc_label(ModuleInfo, PredId, ProcId),
 	ProcStatic = proc_static_data(RttiProcLabel, FileName, CallSites),
 	ProcStaticConsId = deep_profiling_proc_static(RttiProcLabel),
@@ -551,9 +678,9 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	proc_info_set_goal(Proc2, Goal, Proc).
 
 :- pred transform_semi_proc(module_info::in, pred_proc_id::in,
-	proc_info::in, proc_info::out, layout_data::out) is det.
+	proc_info::in, proc_info::out, maybe(layout_data)::out) is det.
 
-transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
+transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	proc_info_goal(Proc0, Goal0),
 	Goal0 = _ - GoalInfo0,
 	proc_info_varset(Proc0, Vars0),
@@ -580,7 +707,10 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0, [], Vars5, VarTypes5),
+	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
+	
+	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
+			[], Vars5, VarTypes5, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -588,7 +718,15 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	VarTypes = PInfo ^ var_types,
 	CallSites = PInfo ^ call_sites,
 
-	PredProcId = proc(PredId, ProcId),
+	(
+		MRecInfo = yes(RecInfo),
+		RecInfo ^ role = inner_proc(OuterPredProcId)
+	->
+		OuterPredProcId = proc(PredId, ProcId)
+	;
+		PredProcId = proc(PredId, ProcId)
+	),
+
 	RttiProcLabel = rtti__make_proc_label(ModuleInfo, PredId, ProcId),
 	ProcStatic = proc_static_data(RttiProcLabel, FileName, CallSites),
 	ProcStaticConsId = deep_profiling_proc_static(RttiProcLabel),
@@ -642,9 +780,9 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	proc_info_set_goal(Proc2, Goal, Proc).
 
 :- pred transform_non_proc(module_info::in, pred_proc_id::in,
-	proc_info::in, proc_info::out, layout_data::out) is det.
+	proc_info::in, proc_info::out, maybe(layout_data)::out) is det.
 
-transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
+transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	proc_info_goal(Proc0, Goal0),
 	Goal0 = _ - GoalInfo0,
 	proc_info_varset(Proc0, Vars0),
@@ -676,7 +814,10 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 	goal_info_get_context(GoalInfo0, Context),
 	FileName = term__context_file(Context),
 
-	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0, [], Vars5, VarTypes5),
+	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
+	
+	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
+			[], Vars5, VarTypes5, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -747,6 +888,58 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, ProcStatic) :-
 			FailPortCode
 		], init) - GoalInfo4
 	]) - GoalInfo0,
+	proc_info_set_varset(Proc0, Vars, Proc1),
+	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
+	proc_info_set_goal(Proc2, Goal, Proc).
+
+:- pred transform_inner_proc(module_info::in, pred_proc_id::in,
+	proc_info::in, proc_info::out, maybe(layout_data)::out) is det.
+
+transform_inner_proc(ModuleInfo, PredProcId, Proc0, Proc, no) :-
+	proc_info_goal(Proc0, Goal0),
+	Goal0 = _ - GoalInfo0,
+	proc_info_varset(Proc0, Vars0),
+	proc_info_vartypes(Proc0, VarTypes0),
+	CPointerType = c_pointer_type,
+	varset__new_var(Vars0, TopCSD, Vars1),
+	map__set(VarTypes0, TopCSD, CPointerType, VarTypes1),
+	varset__new_var(Vars1, MiddleCSD, Vars2),
+	map__set(VarTypes1, MiddleCSD, CPointerType, VarTypes2),
+	varset__new_var(Vars2, ProcStaticVar, Vars3),
+	map__set(VarTypes2, ProcStaticVar, CPointerType, VarTypes3),
+
+	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
+	
+	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
+			[], Vars3, VarTypes3, MRecInfo),
+
+	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
+
+	Vars = PInfo ^ vars,
+	VarTypes = PInfo ^ var_types,
+
+	(
+		MRecInfo = yes(RecInfo),
+		RecInfo ^ role = inner_proc(OuterPredProcId)
+	->
+		OuterPredProcId = proc(PredId, ProcId)
+	;
+		PredProcId = proc(PredId, ProcId)
+	),
+
+	RttiProcLabel = rtti__make_proc_label(ModuleInfo, PredId, ProcId),
+	ProcStaticConsId = deep_profiling_proc_static(RttiProcLabel),
+	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
+
+	generate_call(ModuleInfo, "inner_call_port_code", 2,
+		[ProcStaticVar, MiddleCSD], [MiddleCSD], CallPortCode),
+
+	Goal = conj([
+		BindProcStaticVarGoal,
+		CallPortCode,
+		TransformedGoal
+	]) - GoalInfo0,
+
 	proc_info_set_varset(Proc0, Vars, Proc1),
 	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
 	proc_info_set_goal(Proc2, Goal, Proc).
@@ -857,6 +1050,7 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	MiddleCSD = DeepInfo0 ^ current_csd,
 
 	goal_info_get_nonlocals(GoalInfo0, NonLocals0),
+	goal_info_get_features(GoalInfo0, GoalFeatures),
 	NewNonlocals = set__make_singleton_set(MiddleCSD),
 	NonLocals = union(NonLocals0, NewNonlocals),
 	goal_info_set_nonlocals(GoalInfo0, NonLocals, GoalInfo1),
@@ -916,14 +1110,72 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 			DeepInfo3 = DeepInfo2
 		)
 	),
-	Goal = conj([
-		SiteNumVarGoal,
-		PrepareGoal,
-		Goal1
-	]) - GoalInfo,
-	DeepInfo4 = DeepInfo3 ^ next_site_num := SiteNum + 1,
-	DeepInfo = DeepInfo4 ^ call_sites
-		:= DeepInfo1 ^ call_sites ++ [CallSite].
+	DeepInfo4 = DeepInfo3^next_site_num := SiteNum + 1,
+	DeepInfo5 = DeepInfo4^call_sites := DeepInfo4^call_sites ++ [CallSite],
+	(
+		member(tailcall, GoalFeatures),
+		DeepInfo5 ^ maybe_rec_info = yes(RecInfo),
+		RecInfo ^ role = outer_proc(_)
+	->
+		generate_recursion_counter_saves_and_resotres(
+			MiddleCSD, RecInfo ^ visible_scc,
+			BeforeGoals, ExitGoals, FailGoals, ExtraVarList,
+			DeepInfo5, DeepInfo),
+		generate_call(ModuleInfo, "set_current_csd", 1,
+			[MiddleCSD], [], ReturnGoal),
+		
+		goal_info_get_code_model(GoalInfo, CodeModel),
+		( CodeModel = model_det ->
+			condense([
+				BeforeGoals,
+				[SiteNumVarGoal, PrepareGoal, Goal1, ReturnGoal],
+				ExitGoals
+			], Goals),
+			Goal = conj(Goals) - GoalInfo
+		;
+			goal_info_get_nonlocals(GoalInfo, OrigGoalNonlocals),
+			ExtraVars = list_to_set(ExtraVarList),
+			Nonlocals1 = union(OrigGoalNonlocals, ExtraVars),
+			goal_info_set_nonlocals(GoalInfo, Nonlocals1,
+				GoalInfo2),
+
+			insert(ExtraVars, MiddleCSD, Nonlocals2),
+			instmap_delta_init_unreachable(Unreachable),
+			goal_info_init(Nonlocals2, Unreachable, failure,
+				GoalInfo3),
+
+			goal_info_init(init, Unreachable, failure,
+				FailGoalInfo0),
+			FailGoal = disj([], init) - FailGoalInfo0,
+
+			append(FailGoals, [FailGoal], FailGoalsAndFail),
+
+			condense([
+				BeforeGoals,
+				[disj([
+					conj([
+						SiteNumVarGoal,
+						PrepareGoal,
+						Goal1,
+						ReturnGoal|
+						ExitGoals
+					]) - GoalInfo2,
+					conj([
+						ReturnGoal|
+						FailGoalsAndFail
+					]) - GoalInfo3
+				], init) - GoalInfo2]
+			], Goals),
+			Goal = conj(Goals) - GoalInfo
+		)
+	;
+		Goal = conj([
+			SiteNumVarGoal,
+			PrepareGoal,
+			Goal1
+		]) - GoalInfo,
+		DeepInfo = DeepInfo5
+	).
 
 :- pred transform_higher_order_call(code_model::in,
 	hlds_goal::in, hlds_goal::out, deep_info::in, deep_info::out) is det.
@@ -1087,6 +1339,61 @@ classify_call(ModuleInfo, Expr, Class) :-
 	;
 		error("unexpected goal type in classify_call/2")
 	).
+
+:- pred generate_recursion_counter_saves_and_resotres(
+		prog_var, list(visible_scc_data), list(hlds_goal),
+		list(hlds_goal), list(hlds_goal), list(prog_var),
+		deep_info, deep_info).
+:- mode generate_recursion_counter_saves_and_resotres(in, in, out, out, out,
+		out, in, out) is det.
+
+generate_recursion_counter_saves_and_resotres(_, [], [], [], [], [],
+		DInfo, DInfo).
+generate_recursion_counter_saves_and_resotres(CSDVar, [Vis|Viss],
+		Befores, Exits, Fails, Vars, DeepInfo0, DeepInfo) :-
+	generate_recursion_counter_saves_and_resotres_2(Vis^rec_call_sites,
+		CSDVar, Befores0, Exits0, Fails0, Vars0, DeepInfo0, DeepInfo1),
+	(
+		Viss = [],
+		Befores = Befores0,
+		Exits = Exits0,
+		Fails = Fails0,
+		Vars = Vars0,
+		DeepInfo = DeepInfo1
+	;
+		Viss = [_|_],
+		error("generate_recursion_counter_saves_and_resotres: not implemented")
+		% generate a call to get the outermost csd for the next
+		% procedure in the clique, then make the recursive call
+	).
+
+:- pred generate_recursion_counter_saves_and_resotres_2(
+		list(int), prog_var, list(hlds_goal), list(hlds_goal),
+		list(hlds_goal), list(prog_var), deep_info, deep_info).
+:- mode generate_recursion_counter_saves_and_resotres_2(in, in, out, out,
+		out, out, in, out) is det.
+
+generate_recursion_counter_saves_and_resotres_2([], _, [], [], [], [],
+		DInfo, DInfo).
+generate_recursion_counter_saves_and_resotres_2([CSN|CSNs], CSDVar,
+		[Unify, Before|Befores], [Exit|Exits], [Fail|Fails],
+		[CSNVar, DepthVar|ExtraVars], DeepInfo0, DeepInfo) :-
+	varset__new_var(DeepInfo0 ^ vars, CSNVar, Vars1),
+	IntType = functor(atom("int"), [], context_init),
+	map__set(DeepInfo0 ^ var_types, CSNVar, IntType, VarTypes1),
+	varset__new_var(Vars1, DepthVar, Vars),
+	map__set(VarTypes1, DepthVar, IntType, VarTypes),
+	DeepInfo1 = (DeepInfo0 ^ vars := Vars) ^ var_types := VarTypes,
+	generate_unify(int_const(CSN), CSNVar, Unify),
+	ModuleInfo = DeepInfo1 ^ module_info,
+	generate_call(ModuleInfo, "save_recursion_depth_count", 3,
+		[CSDVar, CSNVar, DepthVar], [DepthVar], Before),
+	generate_call(ModuleInfo, "restore_recursion_depth_count_exit", 3,
+		[CSDVar, CSNVar, DepthVar], [], Exit),
+	generate_call(ModuleInfo, "restore_recursion_depth_count_fail", 3,
+		[CSDVar, CSNVar, DepthVar], [], Fail),
+	generate_recursion_counter_saves_and_resotres_2(CSNs, CSDVar,
+		Befores, Exits, Fails, ExtraVars, DeepInfo1, DeepInfo).
 
 %:- pred generate_ho_save_goal(ho_call_info, module_info, hlds_goal).
 %:- mode generate_ho_save_goal(in, in, out) is det.
