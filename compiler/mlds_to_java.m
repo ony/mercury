@@ -260,7 +260,7 @@ output_imports(Imports) -->
 :- mode output_import(in, di, uo) is det.
 
 output_import(Import) -->
-	{ SymName = mlds_module_name_to_sym_name(Import) },
+	{ SymName = mlds_module_name_to_sym_name(Import ^ name) },
 	{ prog_out__sym_name_to_string(SymName, ".", File) }, 
 	( { qualified_name_is_stdlib(SymName) } ->
 		{ enforce_java_names(File, ClassFile) }

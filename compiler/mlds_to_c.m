@@ -155,11 +155,12 @@ mlds_output_src_imports(Indent, Imports) -->
 		% been declared.
 		[]
 	;
-		list__foldl(mlds_output_src_import(Indent), Imports)
+		list__foldl(mlds_output_src_import(Indent), 
+				list__map((func(I) = I ^ name), Imports))
 	).
 
-:- pred mlds_output_src_import(indent, mlds__import, io__state, io__state).
-:- mode mlds_output_src_import(in, in, di, uo) is det.
+:- pred mlds_output_src_import(indent::in, mlds__package_name::in,
+		io__state::di, io__state::uo) is det.
 
 mlds_output_src_import(_Indent, Import) -->
 	{ SymName = mlds_module_name_to_sym_name(Import) },

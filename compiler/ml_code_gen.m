@@ -821,12 +821,12 @@ ml_gen_imports(ModuleInfo, MLDS_ImportList) :-
 	list__filter_map((pred(TypeDefn::in, Import::out) is semidet :-
 			hlds_data__get_type_defn_body(TypeDefn, Body),
 			Body = foreign_type(_, Location),
-			Import = mercury_module_name_to_mlds(
-					unqualified(Location))
+			Import = import(mercury_module_name_to_mlds(
+					unqualified(Location)), no)
 		), map__values(Types), ForeignTypeImports),
+	P = (func(Name) = import(mercury_module_name_to_mlds(Name), yes)),
 	MLDS_ImportList = ForeignTypeImports ++ 
-			list__map(mercury_module_name_to_mlds,
-					set__to_sorted_list(AllImports)).
+			list__map(P, set__to_sorted_list(AllImports)).
 
 :- pred ml_gen_defns(module_info, mlds__defns, io__state, io__state).
 :- mode ml_gen_defns(in, out, di, uo) is det.

@@ -230,7 +230,10 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 			% If not in the library, but we have C code,
 			% declare the foreign module as an assembly we
 			% reference
-		list__map(mangle_foreign_code_module(ModuleName),
+		list__map((pred(F::in, I::out) is det :-
+				mangle_foreign_code_module(ModuleName, F, N),
+				I = import(N, yes)
+			),
 			set__to_sorted_list(ForeignLangs),
 			ForeignCodeAssemblerRefs),
 		AssemblerRefs = list__append(ForeignCodeAssemblerRefs, Imports)
@@ -1752,8 +1755,12 @@ make_class_constructor_classdecl(DoneFieldRef, Imports, AllocInstrs,
 		MethodDecls) },
 	test_rtti_initialization_field(DoneFieldRef, TestInstrs),
 	set_rtti_initialization_field(DoneFieldRef, SetInstrs),
-	{ CCtorCalls = list__map((func(X) = call_class_constructor(
-		mlds_module_name_to_class_name(X))), Imports) },
+	{ CCtorCalls = list__filter_map(
+		(func(X::in) = (C::out) is semidet :-
+			X ^ mercury = yes,
+			C = call_class_constructor(
+				mlds_module_name_to_class_name(X ^ name))
+		), Imports) },
 	{ AllInstrs = list__condense([TestInstrs, AllocInstrs, SetInstrs,
 		CCtorCalls, InitInstrs, [ret]]) },
 	{ MethodDecls = [instrs(AllInstrs)] }.
@@ -2596,7 +2603,7 @@ il_system_namespace_name = "System".
 
 mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
 	Gen = (pred(Import::in, Decl::out) is semidet :-
-		ClassName = mlds_module_name_to_class_name(Import),
+		ClassName = mlds_module_name_to_class_name(Import ^ name),
 		ClassName = structured_name(Assembly, _),
 		not (Assembly = "mercury"),
 		Decl = extern_assembly(Assembly, [])

@@ -302,12 +302,16 @@
 
 :- type mlds__imports == list(mlds__import).
 
-% Currently an import just gives the name of the package to be imported.
-% This might perhaps need to be expanded to cater to different kinds of
-% imports, e.g. imports with wild-cards ("import java.lang.*").
-:- type mlds__import == mlds_module_name.
-					% Specifies the name of a package or
-					% class to import.
+% This might need to be expanded to cater to different kinds of imports,
+% e.g. imports with wild-cards ("import java.lang.*").
+:- type mlds__import
+	---> 	import(
+				% Specifies the name of a package or
+				% class to import.
+			name	:: mlds_module_name,
+				% Is this module a mercury module?
+			mercury	:: bool			
+		).
 
 % An mlds_module_name specifies the name of an mlds package or class.
 :- type mlds_module_name.
