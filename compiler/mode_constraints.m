@@ -934,11 +934,27 @@ goal_constraints(ParentNonLocals, CanSucceed, GoalExpr0 - GoalInfo0,
 	InstGraph =^ inst_graph,
 	{ NonLocalReachable = solutions_set(inst_graph__reachable_from_list(
 		InstGraph, to_sorted_list(NonLocals))) },
-	goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, GoalExpr0,
-		GoalExpr, Constraint0, Constraint1),
+	{ LocalVars = Vars `difference` NonLocalReachable },
 
-	constrain_local_vars(Vars `difference` NonLocalReachable, GoalPath,
-		Constraint1, Constraint2),
+	( update_mc_info(using_simple_mode_constraints) ->
+		% With simple mode constraints, it is more efficient to do this
+		% constraint before doing the goal constraints.
+		constrain_local_vars(LocalVars, GoalPath,
+			Constraint0, Constraint1)
+	;
+		{ Constraint1 = Constraint0 }
+	),
+
+	goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, GoalExpr0,
+		GoalExpr, Constraint1, Constraint2),
+
+	( update_mc_info(using_simple_mode_constraints) ->
+		{ Constraint3 = Constraint2 }
+	;
+		constrain_local_vars(LocalVars, GoalPath,
+			Constraint2, Constraint3)
+	),
+
 	/*
 	ModuleInfo =^ module_info, % XXX
 	ProgVarset =^ prog_varset, % XXX
@@ -956,7 +972,7 @@ goal_constraints(ParentNonLocals, CanSucceed, GoalExpr0 - GoalInfo0,
 		[i(NumNodes1), i(Depth1)])) }, % XXX
 	*/
 	%{ unsafe_perform_io(io__flush_output) },
-	{ Constraint3 = restrict_threshold(Threshold, Constraint2) },
+	{ Constraint4 = restrict_threshold(Threshold, Constraint3) },
 	/*
 	{ size(Constraint2, NumNodes2, Depth2) }, % XXX
 	{ unsafe_perform_io(io__format(
@@ -966,7 +982,7 @@ goal_constraints(ParentNonLocals, CanSucceed, GoalExpr0 - GoalInfo0,
 	*/
 
 	constrain_non_occurring_vars(CanSucceed, ParentNonLocals, Vars,
-		GoalPath, Constraint3, Constraint),
+		GoalPath, Constraint4, Constraint),
 	%{ unsafe_perform_io(dump_constraints(ModuleInfo, ProgVarset, Constraint)) },
 	%{ goal_info_set_mode_constraint(GoalInfo0, Constraint, GoalInfo) }.
 	{ GoalInfo = GoalInfo0 }.
@@ -980,25 +996,28 @@ goal_constraints(ParentNonLocals, CanSucceed, GoalExpr0 - GoalInfo0,
 
 goal_constraints_2(GoalPath, NonLocals, _, CanSucceed, conj(Goals0),
 		conj(Goals), Constraint0, Constraint) -->
-	{ multi_map__init(Empty) },
-	conj_constraints(NonLocals, CanSucceed, Constraint0, Constraint1,
-		Goals0, Goals, Empty, Usage0),
-	/*
-	Info =^ mc_info, VarSet =^ prog_varset, % XXX
-	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
-	*/
-	{ Usage = map__to_assoc_list(Usage0) }, % XXX needed for deep profiler
-	% { Constraint2 = ensure_normalised(Constraint1) },
-	{ Constraint2 = Constraint1 },
-	list__foldl2((pred((V - Ps)::in, Cn0::in, Cn::out, in, out) is det -->
-		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
-			get_var(V `at` P, CV)
-		    ), Ps, ConstraintVars0),
-	        get_var(V `at` GoalPath, VConj),
-	        { ConstraintVars = list_to_set(ConstraintVars0) },
-		{ Cn = Cn0 ^ at_most_one_of(ConstraintVars)
-			^ disj_vars_eq(ConstraintVars, VConj) }
-	    ), Usage, Constraint2, Constraint).
+	{ multi_map__init(Usage0) },
+
+	{ Usage = list__foldl(func(G, U0) =
+		list__foldl((func(V, U1) = U :-
+				multi_map__set(U1, V, goal_path(G), U)),
+			set__to_sorted_list(vars(G)), U0),
+		Goals0, Usage0) },
+
+	{ known_vars(ensure_normalised(Constraint0), KnownTrue, KnownFalse) },
+
+	% Generate conj constraints for known vars first since these should be
+	% more efficient and provide lots of useful information for the subgoal
+	% constraints.
+	conj_constraints(yes, KnownTrue, KnownFalse, GoalPath, Usage,
+		Constraint0, Constraint1),
+
+	conj_subgoal_constraints(NonLocals, CanSucceed, Constraint1,
+		Constraint2, Goals0, Goals),
+
+	% Generate the rest of the constraints.
+	conj_constraints(no, KnownTrue, KnownFalse, GoalPath, Usage,
+		Constraint2, Constraint).
 
 goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, disj(Goals0, SM),
 		disj(Goals, SM), Constraint0, Constraint) -->
@@ -1209,24 +1228,78 @@ goal_constraints_2(_,_,_,_,par_conj(_,_),_,_,_) --> { error("NYI") }.
 goal_constraints_2(_,_,_,_,shorthand(_),_,_,_) -->
 	{ error("mode_constraints:goal_constraints_2: shorthand") }.
 
-:- pred conj_constraints(set(prog_var)::in, can_succeed::out,
+	% Constraints for the conjunction.  If UseKnownVars = yes, generate
+	% constraints only for the vars in KnownVars, otherwise generate
+	% constraints only for the vars _not_ is KnownVars.
+:- pred conj_constraints(bool::in, mode_constraint_vars::in,
+	mode_constraint_vars::in, goal_path::in,
+	multi_map(prog_var, goal_path)::in, mode_constraint::in,
+	mode_constraint::out, goal_constraints_info::in,
+	goal_constraints_info::out) is det.
+
+conj_constraints(UseKnownVars, KnownTrue, KnownFalse, GoalPath, Usage0,
+		Constraint0, Constraint) -->
+	{ Usage = map__to_assoc_list(Usage0) }, % XXX needed for deep profiler
+	list__foldl2((pred((V - Ps)::in, Cn0::in, Cn::out, in, out) is det -->
+		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
+			get_var(V `at` P, CV)
+		    ), Ps, ConstraintVars0),
+	        get_var(V `at` GoalPath, VConj),
+	        { ConstraintVars = list_to_set(ConstraintVars0) },
+		{ KnownFalse `contains` VConj ->
+		    Cn = ( UseKnownVars = yes ->
+		    	Cn0 ^ conj_not_vars(ConstraintVars)
+		    ;
+		    	Cn0
+		    )
+		; KnownTrue `contains` VConj ->
+		    ( ConstraintVars0 = [] ->
+			Cn = zero
+		    ; ConstraintVars0 = [ConstraintVar] ->
+			Cn = ( UseKnownVars = yes ->
+			    Cn0 ^ var(ConstraintVar)
+			;
+			    Cn0
+			)
+		    ; ConstraintVars0 = [ConstraintVar1, ConstraintVar2] ->
+			Cn = ( UseKnownVars = yes ->
+			    Cn0 ^ neq_vars(ConstraintVar1, ConstraintVar2)
+			;
+			    Cn0
+			)
+		    ;
+		    	Cn = ( UseKnownVars = yes ->
+			    Cn0
+			;
+			    Cn0
+				^ at_most_one_of(ConstraintVars)
+				^ disj_vars_eq(ConstraintVars, VConj)
+			)
+		    )
+		;
+		    Cn = ( UseKnownVars = yes ->
+			Cn0
+		    ;
+			Cn0
+			    ^ at_most_one_of(ConstraintVars)
+			    ^ disj_vars_eq(ConstraintVars, VConj)
+		    )
+		}
+	    ), Usage, Constraint0, Constraint).
+
+:- pred conj_subgoal_constraints(set(prog_var)::in, can_succeed::out,
 	mode_constraint::in, mode_constraint::out,
 	hlds_goals::in, hlds_goals::out,
-	multi_map(prog_var, goal_path)::in, multi_map(prog_var, goal_path)::out,
 	goal_constraints_info::in, goal_constraints_info::out) is det.
 
-conj_constraints(_, yes, Constraint, Constraint, [], [], Usage, Usage) --> [].
-conj_constraints(NonLocals, CanSucceed, Constraint0, Constraint,
-		[Goal0 | Goals0], [Goal | Goals], Usage0, Usage) -->
+conj_subgoal_constraints(_, yes, Constraint, Constraint, [], []) --> [].
+conj_subgoal_constraints(NonLocals, CanSucceed, Constraint0, Constraint,
+		[Goal0 | Goals0], [Goal | Goals]) -->
 	goal_constraints(NonLocals, CanSucceed0, Goal0, Goal, Constraint0,
 		Constraint1),
 
-	{ list__foldl((pred(V::in, U0::in, U::out) is det :-
-			multi_map__set(U0, V, goal_path(Goal), U)
-		), set__to_sorted_list(vars(Goal)), Usage0, Usage1) },
-
-	conj_constraints(NonLocals, CanSucceed1, Constraint1, Constraint,
-		Goals0, Goals, Usage1, Usage),
+	conj_subgoal_constraints(NonLocals, CanSucceed1, Constraint1,
+		Constraint, Goals0, Goals),
 	{ CanSucceed = CanSucceed0 `bool__and` CanSucceed1 }.
 
 :- pred disj_constraints(set(prog_var)::in, can_succeed::out,
@@ -1281,10 +1354,17 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 		    ), Args, ArgsGp0),
 		{ ArgsGp = list_to_set(ArgsGp0) },
 		get_var(A `at` GoalPath, Agp),
-		{ Constraint = Constraint1 * 
-			( one ^ var(Agp) ^ conj_not_vars(ArgsGp)
-			+ one ^ not_var(Agp) ^ conj_vars(ArgsGp)
-			) }
+		{ remove_least(ArgsGp, Arg1gp, ArgsGp1) ->
+			Constraint = Constraint1
+				^ neq_vars(Arg1gp, Agp)
+				^ fold(eq_vars(Arg1gp), ArgsGp1)
+		;
+			Constraint = Constraint1
+		}
+		%{ Constraint = Constraint1 * 
+		%	( one ^ var(Agp) ^ conj_not_vars(ArgsGp)
+		%	+ one ^ not_var(Agp) ^ conj_vars(ArgsGp)
+		%	) }
 	;
 	    InstGraph =^ inst_graph,
 	    inst_graph__foldl_reachable_from_list2(
@@ -1584,7 +1664,13 @@ constrain_local_vars(Locals, GoalPath, Constraint0, Constraint) -->
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 		get_var(V `at` GoalPath, Vgp),
 		get_var(out(V), Vout),
-		{ C = C0 ^ eq_vars(Vgp, Vout) }
+		( update_mc_info(using_simple_mode_constraints) ->
+		    % For simple_mode_constraints, local variables must all be
+		    % bound within the goal.
+		    { C = C0 ^ var(Vgp) ^ var(Vout) }
+		;
+		    { C = C0 ^ eq_vars(Vgp, Vout) }
+		)
 	    ), to_sorted_list(Locals), Constraint0, Constraint).
 
 :- pred constrain_non_occurring_vars(can_succeed::in, set(prog_var)::in,

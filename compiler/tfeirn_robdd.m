@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -122,6 +122,9 @@
 :- func vars_disentailed(tfeirn(T)::ni_tfeirn) =
 		(vars_entailed_result(T)::out) is det.
 :- pragma type_spec(vars_disentailed/1, T = mc_type).
+
+:- pred known_vars(tfeirn(T)::ni_tfeirn, vars(T)::out, vars(T)::out) is det.
+:- pragma type_spec(known_vars/3, T = mc_type).
 
 	% Existentially quantify away the var in the xROBDD.
 :- func restrict(var(T)::in, tfeirn(T)::ni_tfeirn) =
@@ -287,6 +290,15 @@ vars_disentailed(X) =
 		all_vars
 	;
 		some_vars(X ^ false_vars)
+	).
+
+known_vars(X, TrueVars, FalseVars) :-
+	( X ^ robdd = zero ->
+		TrueVars = init,
+		FalseVars = init
+	;
+		TrueVars = X ^ true_vars,
+		FalseVars = X ^ false_vars
 	).
 
 restrict(V, xrobdd(T, F, E, I, R, N)) =

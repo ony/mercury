@@ -20,7 +20,7 @@
 :- interface.
 
 :- import_module prog_data, hlds_goal, hlds_pred.
-:- import_module xrobdd, term, set, stack, map, bool.
+:- import_module xrobdd, robdd, term, set, stack, map, bool.
 :- import_module io.
 /*
 :- import_module list.
@@ -28,6 +28,7 @@
 
 :- type mode_constraint == xrobdd(mc_type).
 :- type mode_constraint_var == var(mc_type).
+:- type mode_constraint_vars == vars(mc_type).
 :- type mode_constraint_info.
 :- type threshold.
 
