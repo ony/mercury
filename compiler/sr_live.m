@@ -37,6 +37,9 @@
 :- pred from_datastructs(list(prog_data__datastruct), live_set).
 :- mode from_datastructs(in, out) is det.
 
+:- pred from_datastructs_set(set(prog_data__datastruct), live_set).
+:- mode from_datastructs_set(in, out) is det.
+
 :- pred bottom(live_set).
 :- mode bottom(out) is det.
 :- mode bottom(in) is semidet.
@@ -88,9 +91,13 @@ init(VARS, LIVE) :-
 	set__to_sorted_list(LiveSet,LiveList),
 	live_wrap(LiveList, LIVE).	
 
-from_datastructs(DATASTRUCTS, LIVE) :- 
+from_datastructs(Datastructs, Live) :- 
 	% check whether minimal !! 
-	live_wrap(DATASTRUCTS, LIVE).
+	live_wrap(Datastructs, Live).
+
+from_datastructs_set(Datastructs, Live) :- 
+	set__to_sorted_list(Datastructs, List), 
+	from_datastructs(List, Live).
 
 :- func func_datastruct_init(prog_var) =  prog_data__datastruct.
 :- mode func_datastruct_init(in) = out is det.

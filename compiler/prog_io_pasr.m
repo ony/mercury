@@ -301,8 +301,6 @@ print_reuse_tuple(_ProgVarSet, _TVarSet, unconditional, !IO) :-
 print_reuse_tuple(ProgVarSet, TVarSet, conditional(Nodes, LUiH, LAiH), !IO) :-
 	set__to_sorted_list(Nodes, NodesList),
 	set__to_sorted_list(LUiH, ListLUiH),
-	ListLUiHVars = list__map( 
-		(func(D) = V :- V = D ^ sc_var), ListLUiH), 
 
 	io__write_string("condition(", !IO),
 		% write out the list of headvar-nodes involved
@@ -311,9 +309,10 @@ print_reuse_tuple(ProgVarSet, TVarSet, conditional(Nodes, LUiH, LAiH), !IO) :-
 			print_datastruct(ProgVarSet, TVarSet), !IO), 
 	io__write_string("], ", !IO),	
 
-		% write out LUiH, list of prog_vars
+		% write out LUiH, list of datastructs
 	io__write_string("[", !IO),
-	mercury_output_vars(ListLUiHVars, ProgVarSet, bool__no, !IO), 
+	io__write_list(ListLUiH, ",", 
+			print_datastruct(ProgVarSet, TVarSet), !IO), 
 	io__write_string("], ", !IO),
 
 		% write out LAiH, the aliases at the reuse-point
@@ -705,13 +704,11 @@ parse_reuse_tuple(Term, ReuseTuple) :-
 			->
 				nodes_parse(NodesTerm, NodesList),
 				set__list_to_set(NodesList, Nodes), 
-				vars_parse(LUiHTerm, LUiH),
-				LUiHData = set__map(
-					(func(V) = selected_cel(V,[])), 
-					LUiH), 
+				nodes_parse(LUiHTerm, LUiHList),
+				set__list_to_set(LUiHList, LUiH),
 				parse_aliases_domain(LAiHTerm, 	
 						LAiH),
-				ReuseTuple = conditional(Nodes, LUiHData, LAiH)
+				ReuseTuple = conditional(Nodes, LUiH, LAiH)
 			;
 				list__length(Args, L),
 				string__int_to_string(L, LS), 

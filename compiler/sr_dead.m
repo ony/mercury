@@ -37,6 +37,7 @@
 :- import_module hlds__hlds_goal.
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_alias_as.
+:- import_module possible_alias__pa_datastruct.
 :- import_module possible_alias__pa_run.
 :- import_module structure_reuse__sr_live.
 
@@ -166,8 +167,9 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Info,
 			list__length(Vars) = 0
 		;
 			set__union(LFU, LBU, LU), 
+			LU_data = set__map(pa_datastruct__init, LU),
 			sr_live__init(Live0),
-			pa_alias_as__live(ModuleInfo, ProcInfo, LU, 
+			pa_alias_as__live(ModuleInfo, ProcInfo, LU_data, 
 				Live0, Alias0, Live), 
 			sr_live__is_live(Var, Live) 
 		;

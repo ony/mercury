@@ -215,7 +215,7 @@
 	% Compute the (sr_live__)live-set Live based on an initial InUse set, 
 	% an initial Live0 set, and a list of aliases Alias.
 :- pred live(module_info::in, proc_info::in, 
-		set(prog_var)::in, live_set::in, alias_as::in,
+		set(datastruct)::in, live_set::in, alias_as::in,
 		sr_live__live_set::out) is det.
 	
 % :- func live(module_info, proc_info, 
@@ -918,7 +918,7 @@ live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 		% AS bottom?
 		is_bottom(AS)
 	->
-		sr_live__init(IN_USE, LIVE_1),
+		sr_live__from_datastructs_set(IN_USE, LIVE_1),
 		sr_live__union([LIVE_1, LIVE_0], LIVE)
 		
 	;
@@ -934,7 +934,7 @@ live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 
 	% live_2(IN_USE, Aliases, Liveset)
 	% pre-condition: IN_USE is not empty
-:- pred live_2(module_info, proc_info, set(prog_var),sr_live__live_set,
+:- pred live_2(module_info, proc_info, set(datastruct), sr_live__live_set,
 		list(prog_data__alias), sr_live__live_set).
 :- mode live_2(in, in, in, in, in, out) is det.
 
@@ -964,10 +964,11 @@ live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, ALIASES, LIVE) :-
 	LIVE0 = LIVE_0,
 
 	% (LIVE1)
-	sr_live__init(IN_USE, LIVE1), 
+	from_datastructs_set(IN_USE, LIVE1), 
 
 	% (LIVE2)
-	pa_alias__live_from_in_use(IN_USE, ALIASES, LIVE2),
+	pa_alias__live_from_in_use(ModuleInfo, ProcInfo, 
+			IN_USE, ALIASES, LIVE2),
 
 	% (LIVE3)
 	pa_alias__live_from_live0(ModuleInfo, ProcInfo, 

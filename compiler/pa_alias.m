@@ -39,7 +39,11 @@
 		hlds_goal__unification::in, hlds_goal__hlds_goal_info::in, 
 		list(alias)::out) is det.
 
-:- pred live_from_in_use(set(prog_var)::in, list(alias)::in, 
+	% In use information is stored as a set of datastructures. This
+	% procedure computes the set of live datastructure using the in-use set
+	% and extending it wrt the alias information.
+:- pred live_from_in_use(module_info::in, proc_info::in, 
+		set(datastruct)::in, list(alias)::in, 
 		live_set::out) is det.
 
 :- pred live_from_live0(module_info::in, proc_info::in, 
@@ -60,7 +64,6 @@
 :- import_module varset, require, int, map, std_util, string.
 
 %-------------------------------------------------------------------%
-% parsing routines
 %-------------------------------------------------------------------%
 
 	% contains_one_of_vars(SET, ALIAS, DATA)
@@ -342,13 +345,15 @@ switch(D1 - D2, D2 - D1).
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-live_from_in_use(InUse, Aliases, Live):-
+live_from_in_use(ModuleInfo, ProcInfo, InUse, Aliases, Live):-
 	% filter the list of aliases, keeping only the ones that 
 	% involve at least one variable from the IN_USE set
-	list__filter_map(
-		pa_alias__contains_one_of_vars(InUse),
+	set__to_sorted_list(InUse, InUseList),
+	list__map(
+		pa_alias__one_of_vars_is_live(ModuleInfo, ProcInfo, InUseList),
 		Aliases,
-		Datastructs),
+		DatastructsLists),
+	list__condense(DatastructsLists, Datastructs),
 	sr_live__from_datastructs(Datastructs, Live).
 
 live_from_live0(ModuleInfo, ProcInfo, Live0, Aliases, Live):- 

@@ -101,8 +101,18 @@
 	--->	always
 	;	condition(
 		   nodes 		:: set(datastruct),
-		   local_use_headvars 	:: set(prog_var),
+		   	% A description of the node that is reused if the
+			% reuse is allowed. Given the existence of possible
+			% aliases, the single node may be translated into a set
+			% of nodes. 
+		   local_use_headvars 	:: set(datastruct),
+		   	% A description of the nodes that are inherently live
+			% at the site of the last deconstruction of the
+			% structure to be reused.
 		   local_alias_headvars :: alias_as 
+		   	% A description of the existing aliases at the site of
+			% the last deconstruction of the structure to be
+			% reused. 
 		).
 
 
@@ -251,9 +261,8 @@ from_reuse_condition_to_reuse_tuple(Condition, Tuple) :-
 		Condition = always,
 		Tuple = unconditional
 	;
-		Condition = condition(Nodes, LocalUse, AliasAs), 
+		Condition = condition(Nodes, LocalUseData, AliasAs), 
 		from_alias_as_to_aliases_domain(AliasAs, AliasesDomain), 
-		LocalUseData = set__map(pa_datastruct__init, LocalUse),
 		Tuple = conditional(Nodes, LocalUseData, AliasesDomain)
 	).
 from_reuse_tuple_to_reuse_condition(Tuple, Condition) :- 
@@ -263,10 +272,7 @@ from_reuse_tuple_to_reuse_condition(Tuple, Condition) :-
 	;
 		Tuple = conditional(Nodes, LocalUseData, AliasesDomain),
 		from_aliases_domain_to_alias_as(AliasesDomain, AliasAs),
-		LocalUse = set__map(
-			(func(D) = V :- 
-				V = D ^ sc_var), LocalUseData),
-		Condition = condition(Nodes, LocalUse, AliasAs)
+		Condition = condition(Nodes, LocalUseData, AliasAs)
 	).
 from_memo_reuse_to_maybe_reuse_typles(no, no). 
 from_memo_reuse_to_maybe_reuse_typles(yes(Conditions), yes(Tuples)):-
@@ -378,9 +384,10 @@ reuse_condition_init(ModuleInfo, ProcInfo,
 			% headvariables. 
 			% XXX Thus: WRONG here!!
 		set__intersect(LUi, HVsSet, LUiHVs),
+		LUiHVsData = set__map(pa_datastruct__init, LUiHVs),
 		pa_alias_as__project(HVs, ALIASi, LAiHVs),
 		set__list_to_set(Nodes, Nodes_set),
-		Condition = condition(Nodes_set, LUiHVs, LAiHVs)
+		Condition = condition(Nodes_set, LUiHVsData, LAiHVs)
 	).
 
 reuse_condition_rename(Dict, MaybeSubst, Cin, Cout) :- 
@@ -393,16 +400,16 @@ reuse_condition_rename(Dict, MaybeSubst, Cin, Cout) :-
 			pa_datastruct__rename(Dict, MaybeSubst),
 			NodesList,
 			RenNodesList),
-		% rename the datastructures
+		set__list_to_set(RenNodesList, RenNodes),
+		% rename the datastructures in use: 
 		set__to_sorted_list(LUiH, ListLUiH),
 		list__map(
-			map__lookup(Dict), 
+			pa_datastruct__rename(Dict, MaybeSubst),
 			ListLUiH, 	
 			ListRenLUiH),
 		set__list_to_set(ListRenLUiH, RenLUiH),
 		% rename the alias
 		pa_alias_as__rename(Dict, MaybeSubst, LAiH, RenLAiH),
-		set__list_to_set(RenNodesList, RenNodes),
 		Cout = condition(RenNodes, RenLUiH, RenLAiH)
 	;
 		Cout = Cin
@@ -478,10 +485,27 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 		pa_alias_as__normalize(HLDS, ProcInfo, InstMap0, 
 				NEW_LAiH0, NEW_LAiH), 
 
+		% collect the datastructs in use part of the reuse condition: 
+		% 1. collect all the in use information (as datastructs!);
+		% 2. extend wrt the local aliases;
+		% 3. project on the headvars;
 		set__union(LFUi, LBUi, LUi),
-		set__union(LUi, OLD_LUiH, NEW_LUi),
-		set__list_to_set(HVs, HVsSet),
-		set__intersect(NEW_LUi, HVsSet, NEW_LUiH),
+		LUi_data = set__map(pa_datastruct__init, LUi), 
+		set__union(LUi_data, OLD_LUiH, NEW_LUi_data),
+		set__to_sorted_list(NEW_LUi_data, NEW_LUi_data_list), 
+		list__map(
+		    pred(TopCell::in, AliasedCells::out) is det :- 
+			(pa_alias_as__collect_aliases_of_datastruct(HLDS, 
+			    ProcInfo, TopCell, NewALIASi, AliasedCells)),
+		    NEW_LUi_data_list, ListAliasedCells), 
+		list__condense([NEW_LUi_data_list | ListAliasedCells], 
+			Extended_LUi_list),
+		list__filter(
+			pred(Data::in) is semidet :- 
+				(list__member(Data^sc_var, HVs)),
+			Extended_LUi_list, Extended_LUiHvs_list),
+		set__list_to_set(Extended_LUiHvs_list, NEW_LUiH),
+
 		set__list_to_set(NORM_NODES, NORM_NODES_set), 
 		CONDITION = condition(NORM_NODES_set, NEW_LUiH, NEW_LAiH)
 	).
