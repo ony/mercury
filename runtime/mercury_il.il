@@ -608,6 +608,7 @@ get_ftn_ptr_univ_unify() {
 .class public 'Init' {
     .method static default void init_runtime() {
         call void ['mercury']mercury.io::init_state_2_p_0()
+	ret
     }
 }
 
