@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -28,26 +28,30 @@
 #include "mercury_deep_copy.h"
 
 #include "mercury_trace_help.h"
+#include "mercury_trace_internal.h"
 #include "mercury_trace_util.h"
 
-#ifdef MR_HIGHLEVEL_CODE
-  #include "mercury.std_util.h"
-  #include "mercury.io.h"
-#else
-  #include "std_util.h"
-  #include "io.h"
-#endif
-#include "mdb.help.h"
+#include "type_desc.mh"
+#include "io.mh"
+
+#include "mdb.help.mh"
 
 #include <stdio.h>
 
 static	MR_Word		MR_trace_help_system;
 static	MR_TypeInfo	MR_trace_help_system_type;
-static	MR_Word		MR_trace_help_stdout;
 
 static	const char	*MR_trace_help_add_node(MR_Word path, const char *name,
 				int slot, const char *text);
 static	void		MR_trace_help_ensure_init(void);
+
+/* Used for completion of arguments of the `help' command. */
+static  char		**MR_help_words = NULL;
+static  int             MR_help_word_max = 0;
+static  int             MR_help_word_next = 0;
+
+static	void		MR_trace_add_help_word(const char *word);
+static	char *		MR_trace_get_help_word(int slot);
 
 const char *
 MR_trace_add_cat(const char *category, int slot, const char *text)
@@ -55,6 +59,8 @@ MR_trace_add_cat(const char *category, int slot, const char *text)
 	MR_Word	path;
 
 	MR_trace_help_ensure_init();
+	MR_trace_add_help_word(category);
+
 	MR_TRACE_USE_HP(
 		path = MR_list_empty();
 	);
@@ -70,6 +76,7 @@ MR_trace_add_item(const char *category, const char *item, int slot,
 	const char 	*result;
 
 	MR_trace_help_ensure_init();
+	MR_trace_add_help_word(item);
 
 	MR_TRACE_USE_HP(
 		MR_make_aligned_string_copy(category_on_heap, category);
@@ -87,7 +94,7 @@ MR_trace_help_add_node(MR_Word path, const char *name, int slot, const char *tex
 	char	*msg;
 	char	*name_on_heap;
 	char	*text_on_heap;
-	bool	error;
+	MR_bool	error;
 
 	MR_TRACE_USE_HP(
 		MR_make_aligned_string_copy(name_on_heap, name);
@@ -110,10 +117,14 @@ MR_trace_help_add_node(MR_Word path, const char *name, int slot, const char *tex
 void
 MR_trace_help(void)
 {
+	MercuryFile mdb_out;
+
 	MR_trace_help_ensure_init();
 
+	MR_c_file_to_mercury_file(MR_mdb_out, &mdb_out);
+
 	MR_TRACE_CALL_MERCURY(
-		ML_HELP_help(MR_trace_help_system, MR_trace_help_stdout);
+		ML_HELP_help(MR_trace_help_system, (MR_Word) &mdb_out);
 	);
 }
 
@@ -121,6 +132,7 @@ void
 MR_trace_help_word(const char *word)
 {
 	char	*word_on_heap;
+	MercuryFile mdb_out;
 
 	MR_trace_help_ensure_init();
 
@@ -128,9 +140,10 @@ MR_trace_help_word(const char *word)
 		MR_make_aligned_string_copy(word_on_heap, word);
 	);
 
+	MR_c_file_to_mercury_file(MR_mdb_out, &mdb_out);
 	MR_TRACE_CALL_MERCURY(
 		ML_HELP_name(MR_trace_help_system, word_on_heap,
-			MR_trace_help_stdout);
+			(MR_Word) &mdb_out);
 	);
 }
 
@@ -142,7 +155,8 @@ MR_trace_help_cat_item(const char *category, const char *item)
 	char	*msg;
 	char	*category_on_heap;
 	char	*item_on_heap;
-	bool	error;
+	MR_bool	error;
+	MercuryFile mdb_out;
 
 	MR_trace_help_ensure_init();
 
@@ -154,8 +168,10 @@ MR_trace_help_cat_item(const char *category, const char *item)
 		path = MR_list_cons((MR_Word) category_on_heap, path);
 	);
 
+	MR_c_file_to_mercury_file(MR_mdb_out, &mdb_out);
 	MR_TRACE_CALL_MERCURY(
-		ML_HELP_path(MR_trace_help_system, path, MR_trace_help_stdout, &result);
+		ML_HELP_path(MR_trace_help_system, path,
+			(MR_Word) &mdb_out, &result);
 		error = ML_HELP_result_is_error(result, &msg);
 	);
 
@@ -167,21 +183,18 @@ MR_trace_help_cat_item(const char *category, const char *item)
 static void
 MR_trace_help_ensure_init(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 	MR_Word		typeinfo_type;
-	MR_Word		output_stream_type;
 	MR_Word		MR_trace_help_system_type_word;
 
 	if (! done) {
 		MR_TRACE_CALL_MERCURY(
-			ML_get_type_info_for_type_info(&typeinfo_type);
+			typeinfo_type = ML_get_type_info_for_type_info();
 			ML_HELP_help_system_type(
 				&MR_trace_help_system_type_word);
 			MR_trace_help_system_type =
 				(MR_TypeInfo) MR_trace_help_system_type_word;
 			ML_HELP_init(&MR_trace_help_system);
-			ML_io_output_stream_type(&output_stream_type);
-			ML_io_stdout_stream(&MR_trace_help_stdout);
 		);
 
 		MR_trace_help_system_type = (MR_TypeInfo) MR_make_permanent(
@@ -189,9 +202,39 @@ MR_trace_help_ensure_init(void)
 					(MR_TypeInfo) typeinfo_type);
 		MR_trace_help_system = MR_make_permanent(MR_trace_help_system,
 					MR_trace_help_system_type);
-		MR_trace_help_stdout = MR_make_permanent(MR_trace_help_stdout,
-					(MR_TypeInfo) output_stream_type);
-
-		done = TRUE;
+		done = MR_TRUE;
 	}
+}
+
+/*
+** Add the help categories and items to a sorted array for use in completion.
+*/
+static void
+MR_trace_add_help_word(const char *word)
+{
+	MR_bool	found;
+	int	slot;
+
+	MR_bsearch(MR_help_word_next, slot, found,
+		strcmp(MR_help_words[slot], word));
+	if (!found) {
+		MR_ensure_room_for_next(MR_help_word, char *, 100);
+		MR_prepare_insert_into_sorted(MR_help_words,
+			MR_help_word_next, slot,
+			strcmp(MR_help_words[slot], word));
+		MR_help_words[slot] = MR_copy_string(word);
+	}
+}
+
+MR_Completer_List *
+MR_trace_help_completer(const char *word, size_t word_len)
+{
+	return MR_trace_sorted_array_completer(word, word_len,
+		MR_help_word_next, MR_trace_get_help_word);
+}
+
+static char *
+MR_trace_get_help_word(int slot)
+{
+	return MR_help_words[slot];
 }

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2001 The University of Melbourne.
+** Copyright (C) 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -24,7 +24,7 @@
 #include "mercury_memory_zones.h"	/* for MR_MAX_FAKE_REG */
 #include "mercury_types.h"		/* for MR_Unsigned etc */
 #include "mercury_trace_base.h"		/* for MR_Trace_Port   */
-#include "mercury_std.h"		/* for bool            */
+#include "mercury_std.h"		/* for MR_bool            */
 
 /*
 ** MR_Event_Info is used to hold the information for a trace event.  One
@@ -108,8 +108,11 @@ typedef struct MR_Event_Details_Struct {
 ** information.
 **
 ** Retry across I/O is unsafe in general, at least for now. It is therefore
-** only allowed if in_fp and out_fp are both non-NULL, and if the user, when
-** asked whether he/she wants to perform the retry anyway, says yes.
+** allowed only
+**
+** - if unconditional_allow_io is TRUE, or
+** - if in_fp and out_fp are both non-NULL, and the user, when asked whether
+**   he/she wants to perform the retry anyway, says yes.
 */
 
 typedef	enum {
@@ -121,7 +124,9 @@ typedef	enum {
 
 extern	MR_Retry_Result	MR_trace_retry(MR_Event_Info *event_info,
 				MR_Event_Details *event_details,
-				int ancestor_level, const char **problem,
+				int ancestor_level,
+				MR_bool unconditional_allow_io,
+				const char **problem,
 				FILE *in_fp, FILE *out_fp,
 				MR_Code **jumpaddr);
 
@@ -129,9 +134,10 @@ extern	MR_Retry_Result	MR_trace_retry(MR_Event_Info *event_info,
 ** MR_trace_cmd says what mode the tracer is in, i.e. how events should be
 ** treated.
 **
-** If MR_trace_cmd == MR_CMD_COLLECT, the event handler calls MR_COLLECT_filter()
-** until the end of the execution is reached or until the `stop_collecting'
-** variable is set to TRUE. It is the tracer mode after a `collect' request.
+** If MR_trace_cmd == MR_CMD_COLLECT, the event handler calls
+** MR_COLLECT_filter() until the end of the execution is reached or until
+** the `stop_collecting' variable is set to MR_TRUE. It is the tracer mode
+** after a `collect' request.
 **
 ** If MR_trace_cmd == MR_CMD_GOTO, the event handler will stop at the next
 ** event whose event number is equal to or greater than MR_trace_stop_event.
@@ -208,14 +214,14 @@ typedef struct {
 				*/
 	MR_Unsigned		MR_trace_stop_event;
 	MR_Trace_Print_Level	MR_trace_print_level;
-	bool			MR_trace_strict;
+	MR_bool			MR_trace_strict;
 
 				/*
 				** The next field is an optimization;
 				** it must be set to !MR_trace_strict ||
 				** MR_trace_print_level != MR_PRINT_LEVEL_NONE
 				*/
-	bool			MR_trace_must_check;
+	MR_bool			MR_trace_must_check;
 
 				/*
 				** The MR_filter_ptr field points to the filter/4

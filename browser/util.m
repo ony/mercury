@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 The University of Melbourne.
+% Copyright (C) 1998-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -74,6 +74,10 @@
 :- pred util__limit(pred(list(T), list(T)), list(T), list(T)).
 :- mode util__limit(pred(in,out) is det, in, out) is det.
 
+	% For use in representing unbound head variables in the "print goal"
+	% commands in the debugger.
+:- type unbound ---> '_'.
+
 %---------------------------------------------------------------------------%
 :- implementation.
 
@@ -84,19 +88,16 @@ util__trace_getline(Prompt, Result) -->
 	io__output_stream(MdbOut),
 	util__trace_getline(Prompt, Result, MdbIn, MdbOut).
 
-:- pragma promise_pure(util__trace_getline/6).
-
 util__trace_getline(Prompt, Result, MdbIn, MdbOut) -->
-	{
-		impure call_trace_getline(MdbIn, MdbOut, Prompt, Line)
-	->
+	call_trace_getline(MdbIn, MdbOut, Prompt, Line, Success),
+	{ Success \= 0 ->
 		Result = ok(Line)
 	;
 		Result = eof
 	}.
 
-:- impure pred call_trace_getline(input_stream, output_stream, string, string).
-:-        mode call_trace_getline(in, in, in, out) is semidet.
+:- pred call_trace_getline(input_stream::in, output_stream::in, string::in,
+	string::out, int::out, io__state::di, io__state::uo) is det.
 
 :- pragma c_header_code("
 	#include ""mercury_wrapper.h""
@@ -106,60 +107,65 @@ util__trace_getline(Prompt, Result, MdbIn, MdbOut) -->
 	#include ""mercury_library_types.h""
 ").
 
-:- pragma c_code(call_trace_getline(MdbIn::in, MdbOut::in, Prompt::in,
-			Line::out),
-	[will_not_call_mercury],
-	"
-		char		*line;
-		MercuryFile	*mdb_in = (MercuryFile *) MdbIn;
-		MercuryFile	*mdb_out = (MercuryFile *) MdbOut;
+:- pragma foreign_proc("C",
+	call_trace_getline(MdbIn::in, MdbOut::in, Prompt::in, Line::out,
+		Success::out, IO0::di, IO::uo),
+	% We need to use will_not_call_mercury here,
+	% because MR_make_aligned_string_copy() references MR_hp,
+	% which only works for will_not_call_mercury foreign_procs.
+	[will_not_call_mercury, promise_pure, tabled_for_io],
+"
+	char		*line;
+	MercuryFile	*mdb_in = (MercuryFile *) MdbIn;
+	MercuryFile	*mdb_out = (MercuryFile *) MdbOut;
 
-		if (MR_address_of_trace_getline != NULL) {
-			line = (*MR_address_of_trace_getline)((char *) Prompt,
-					MR_file(*mdb_in), MR_file(*mdb_out));
-		} else {
-			MR_tracing_not_enabled();
-			/* not reached */
-		}
+	if (MR_address_of_trace_getline != NULL) {
+		line = (*MR_address_of_trace_getline)((char *) Prompt,
+				MR_file(*mdb_in), MR_file(*mdb_out));
+	} else {
+		MR_tracing_not_enabled();
+		/* not reached */
+	}
 
-		if (line == NULL) {
-			SUCCESS_INDICATOR = FALSE;
-		} else {
-			MR_make_aligned_string_copy(Line, line);
-			MR_free(line);
-			SUCCESS_INDICATOR = TRUE;
-		}
-	"
-).
+	if (line == NULL) {
+		/* we copy the null string to avoid warnings about const */
+		MR_make_aligned_string_copy(Line, """");
+		Success = 0;
+	} else {
+		MR_make_aligned_string_copy(Line, line);
+		MR_free(line);
+		Success = 1;
+	}
+").
 
 util__trace_get_command(Prompt, Result) -->
 	io__input_stream(MdbIn),
 	io__output_stream(MdbOut),
 	util__trace_get_command(Prompt, Result, MdbIn, MdbOut).
 
-:- pragma c_code(util__trace_get_command(Prompt::in, Line::out, MdbIn::in,
-			MdbOut::in, State0::di, State::uo),
-	[will_not_call_mercury],
-	"
-		char		*line;
-		MercuryFile	*mdb_in = (MercuryFile *) MdbIn;
-		MercuryFile	*mdb_out = (MercuryFile *) MdbOut;
+:- pragma foreign_proc("C",
+	util__trace_get_command(Prompt::in, Line::out, MdbIn::in,
+		MdbOut::in, State0::di, State::uo),
+	[will_not_call_mercury, promise_pure, tabled_for_io],
+"
+	char		*line;
+	MercuryFile	*mdb_in = (MercuryFile *) MdbIn;
+	MercuryFile	*mdb_out = (MercuryFile *) MdbOut;
 
-		if (MR_address_of_trace_getline != NULL) {
-			line = (*MR_address_of_trace_get_command)(
-					(char *) Prompt,
-					MR_file(*mdb_in), MR_file(*mdb_out));
-		} else {
-			MR_tracing_not_enabled();
-			/* not reached */
-		}
+	if (MR_address_of_trace_getline != NULL) {
+		line = (*MR_address_of_trace_get_command)(
+				(char *) Prompt,
+				MR_file(*mdb_in), MR_file(*mdb_out));
+	} else {
+		MR_tracing_not_enabled();
+		/* not reached */
+	}
 
-		MR_make_aligned_string_copy(Line, line);
-		MR_free(line);
+	MR_make_aligned_string_copy(Line, line);
+	MR_free(line);
 
-		State = State0;
-	"
-).
+	State = State0;
+").
 
 util__zip_with(Pred, XXs, YYs, Zipped) :-
 	( (XXs = [], YYs = []) ->

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -15,16 +15,17 @@
 #define	MERCURY_TRACE_TABLES_H
 
 #include	"mercury_stack_layout.h"
+#include	"mercury_trace_completion.h"
 #include	<stdio.h>
 
 /*
 ** MR_register_all_modules_and_procs gathers all available debugging info
 ** about the modules and procedures of the program into the module info table.
-** If verbose is TRUE, print progress and summary messages.
+** If verbose is MR_TRUE, print progress and summary messages.
 */
 
 extern	void		MR_register_all_modules_and_procs(FILE *fp,
-				bool verbose);
+				MR_bool verbose);
 
 /*
 ** MR_register_module_layout_real registers a module layout structure.
@@ -97,22 +98,22 @@ typedef	struct {
 ** parse it into the more usable form of a MR_Proc_Spec. The original string
 ** may be overwritten in the process.
 **
-** Returns TRUE if the string was correctly formed, and FALSE otherwise.
+** Returns MR_TRUE if the string was correctly formed, and MR_FALSE otherwise.
 */
 
-extern	bool	MR_parse_proc_spec(char *str, MR_Proc_Spec *spec);
+extern	MR_bool	MR_parse_proc_spec(char *str, MR_Proc_Spec *spec);
 
 /*
 ** Search the tables for a procedure that matches the given specification.
 ** If no procedure matches, return NULL.
 ** If one procedure matches, return its layout structure,
-** and set *unique to TRUE.
+** and set *unique to MR_TRUE.
 ** If more than one procedure matches, return the layout structure of one
-** and set *unique to FALSE.
+** and set *unique to MR_FALSE.
 */
 
 extern	const MR_Proc_Layout *MR_search_for_matching_procedure(
-					MR_Proc_Spec *spec, bool *unique);
+					MR_Proc_Spec *spec, MR_bool *unique);
 
 /*
 ** Search the tables for procedures that matches the given specification.
@@ -158,5 +159,11 @@ extern	void	MR_proc_layout_stats(FILE *fp);
 */
 
 extern	void	MR_label_layout_stats(FILE *fp);
+
+/* A Readline completer for module names. */
+extern  MR_Completer_List *MR_trace_module_completer(const char *, size_t);
+
+/* A Readline completer for breakpoint specifications. */
+extern  MR_Completer_List *MR_trace_breakpoint_completer(const char *, size_t);
 
 #endif	/* not MERCURY_TRACE_TABLES_H */

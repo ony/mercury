@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1999,2001 The University of Melbourne.
+# Copyright (C) 1999,2001-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -24,14 +24,7 @@ mercury_cv_with_readline="$withval", mercury_cv_with_readline=yes)
 if test "$mercury_cv_with_readline" = yes; then
 
 	# check for the readline header files
-	AC_CHECK_HEADER(readline/readline.h, HAVE_READLINE_READLINE_H=1)
-	if test "$HAVE_READLINE_READLINE_H" = 1; then
-		AC_DEFINE(HAVE_READLINE_READLINE)
-	fi
-	AC_CHECK_HEADER(readline/history.h, HAVE_READLINE_HISTORY_H=1)
-	if test "$HAVE_READLINE_HISTORY_H" = 1; then
-		AC_DEFINE(HAVE_READLINE_HISTORY)
-	fi
+	mercury_check_for_headers readline/readline.h readline/history.h
 
 	# check for the libraries that readline depends on
 	MERCURY_MSG('looking for termcap or curses (needed by readline)...')
@@ -105,10 +98,56 @@ fi
 AC_MSG_RESULT($mercury_cv_microsoft_visual_cpp)
 MS_CL=`basename "$MS_CL"`
 
+# Check for the C# (C sharp) compiler.
+AC_PATH_PROG(MS_CSC, csc)
+MS_CSC=`basename "$MS_CSC"`
+
+# We default to the Beta 2 version of the library
+mercury_cv_microsoft_dotnet_library_version=1.0.2411.0
+if	test $mercury_cv_microsoft_dotnet = "yes" &&
+	test "$MS_CSC" != "";
+then
+	AC_MSG_CHECKING(version of .NET libraries)
+	cat > conftest.cs << EOF
+	using System;
+	using System.Reflection;
+	public class version {
+	    public static void Main()
+	    {
+		Assembly asm = Assembly.Load("mscorlib");
+		AssemblyName name = asm.GetName();
+		Version version = name.Version;
+		Console.Write(version);
+		Console.Write("\n");
+	    }
+	}
+EOF
+	if
+		echo $MS_CSC conftest.cs >&AC_FD_CC 2>&1 && \
+			$MS_CSC conftest.cs  >&AC_FD_CC 2>&1 && \
+			./conftest > conftest.out 2>&1
+	then
+		mercury_cv_microsoft_dotnet_library_version=`cat conftest.out`
+		AC_MSG_RESULT($mercury_cv_microsoft_dotnet_library_version)
+		rm -f conftest*
+	else
+		rm -f conftest*
+		if test "$enable_dotnet_grades" = "yes"; then
+			AC_MSG_ERROR(unable to determine version)
+			exit 1
+		else
+			AC_MSG_WARN(unable to determine version)
+		fi
+	fi
+fi
+MS_DOTNET_LIBRARY_VERSION=$mercury_cv_microsoft_dotnet_library_version
+
 AC_SUBST(ILASM)
 AC_SUBST(GACUTIL)
 AC_SUBST(MS_CL)
+AC_SUBST(MS_CSC)
 AC_SUBST(MS_DOTNET_SDK_DIR)
+AC_SUBST(MS_DOTNET_LIBRARY_VERSION)
 AC_SUBST(MS_VISUALCPP_DIR)
 ])
 

@@ -25,11 +25,13 @@
 # that version. When makebatch exits normally, it removes the file to indicate
 # completion.
 
-usage="Usage: makebatch [-jN] [-cost] [--compile-times] [--test-params] batchname"
+usage="Usage: makebatch [-jN] [-cdeost] [--compile-times] [--test-params] batchname"
 jfactor=-j1
 runtests=""
 objects=""
 cfiles="false"
+save_stage2="false"
+errfiles="false"
 compile_times=""
 testparams=""
 
@@ -39,6 +41,12 @@ do
 
 	-c|--c-files)
 		cfiles="true" ;;
+
+	-d|--save-stage2-dirs)
+		save_stage2="true" ;;
+
+	-e|--err-files)
+		errfiles="true" ;;
 
 	-j|--jobs)
 		jfactor="-j$2" ; shift ;;
@@ -53,8 +61,8 @@ do
 	-s|--stop-at-failure)
 		failed="stop" ;;
 
-	-t|--no-test-suite)
-		runtests="-t" ;;
+	-t-|--no-test-suite)
+		runtests="-t-" ;;
 
 	--compile-times)
 		compile_times="--compile-times" ;;
@@ -176,14 +184,15 @@ do
 	fi
 
 	echo starting bootcheck of version $visn
-	if tools/bootcheck $gradeopt -r $jfactor $runtests $objects $compile_times $testparams > batch/$batch.out.$visn 2>&1
+	if tools/bootcheck $gradeopt --copy-runtime $jfactor $runtests \
+	   $objects $compile_times $testparams > batch/$batch.out.$visn 2>&1
 	then
 		echo bootcheck of version $visn succeeded
 		if test "$compile_times" = ""
 		then
 			echo bootcheck succeeded > batch/$batch.out.$visn
 		fi
-		mv stage2/compiler/mercury_compile batch/$batch.mercury_compile.$visn
+		cp stage2/compiler/mercury_compile batch/$batch.mercury_compile.$visn
 		size batch/$batch.mercury_compile.$visn | tail -1 | sed -e 's/mercury_compile.//' | sed -e 's/batch\///' >> batch/$batch.sizes
 		/bin/rm -f batch/$batch.mercury_compile.$visn.gz > /dev/null 2>&1
 		gzip batch/$batch.mercury_compile.$visn
@@ -195,7 +204,7 @@ do
 		if test -x stage2/compiler/mercury_compile
 		then
 			echo bootcheck of version $visn failed but produced compiler
-			mv stage2/compiler/mercury_compile batch/$batch.mercury_compile.$visn
+			cp stage2/compiler/mercury_compile batch/$batch.mercury_compile.$visn
 			size batch/$batch.mercury_compile.$visn | tail -1 | sed -e 's/mercury_compile.//' | sed -e 's/batch\///' >> batch/$batch.sizes
 			/bin/rm -f batch/$batch.mercury_compile.$visn.gz > /dev/null 2>&1
 			gzip batch/$batch.mercury_compile.$visn
@@ -228,6 +237,28 @@ do
 		/bin/rm -fr batch/cfiles/$batch.compiler.$visn/*
 		cp stage2/compiler/*.c batch/cfiles/$batch.compiler.$visn
 		gzip batch/cfiles/$batch.compiler.$visn/*
+	fi
+
+	if "$errfiles"
+	then
+		echo saving err files
+		mkdir -p batch/errfiles/$batch.library.$visn
+		/bin/rm -fr batch/errfiles/$batch.library.$visn/*
+		cp stage2/library/*.err batch/errfiles/$batch.library.$visn
+		# gzip batch/errfiles/$batch.library.$visn/*
+		mkdir -p batch/errfiles/$batch.compiler.$visn
+		/bin/rm -fr batch/errfiles/$batch.compiler.$visn/*
+		cp stage2/compiler/*.err batch/errfiles/$batch.compiler.$visn
+		# gzip batch/errfiles/$batch.compiler.$visn/*
+	fi
+
+	if $save_stage2
+	then
+		# If a directory with this name already exists,
+		# it probably came from a previous invocation of this script.
+		# This invocation supersedes earlier ones.
+		/bin/rm -fr stage2.batch.$visn > /dev/null
+		mv stage2 stage2.batch.$visn
 	fi
 
 	n=`expr $n + 1`

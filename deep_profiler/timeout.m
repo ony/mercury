@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -70,7 +70,7 @@ extern	void		MP_delete_timeout_files_and_exit_failure(void);
 
 :- pragma foreign_code("C",
 "
-bool	MP_process_is_detached_server = FALSE;
+MR_bool	MP_process_is_detached_server = MR_FALSE;
 char	*MP_timeout_file1;
 char	*MP_timeout_file2;
 char	*MP_timeout_file3;
@@ -166,7 +166,7 @@ MP_delete_timeout_files_and_exit_failure(void)
 
 :- pragma foreign_proc("C",
 	setup_exit(File1::in, File2::in, File3::in, IO0::di, IO::uo),
-	[will_not_call_mercury],
+	[will_not_call_mercury, promise_pure],
 "
 	int	i;
 	void	(*handler)(void);
@@ -182,7 +182,7 @@ MP_delete_timeout_files_and_exit_failure(void)
 			handler = MP_delete_timeout_files_and_exit_failure;
 		}
 
-		MR_setup_signal(MP_signal_numbers[i], handler, FALSE,
+		MR_setup_signal(MP_signal_numbers[i], handler, MR_FALSE,
 			""Mercury deep profiler: cannot setup signal exit"");
 	}
 
@@ -195,7 +195,7 @@ MP_delete_timeout_files_and_exit_failure(void)
 
 :- pragma foreign_proc("C",
 	setup_timeout(Minutes::in, IO0::di, IO::uo),
-	[will_not_call_mercury],
+	[will_not_call_mercury, promise_pure],
 "
 	int	seconds;
 

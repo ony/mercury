@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -18,11 +18,13 @@ extern	void	MR_trace_init_external(void);
 extern	void	MR_trace_final_external(void);
 extern	MR_Code	*MR_trace_event_external(MR_Trace_Cmd_Info *cmd,
 			MR_Event_Info *event_info);
-extern	void	MR_COLLECT_filter(MR_FilterFuncPtr filter_ptr, MR_Unsigned seqno, 
-			MR_Unsigned depth, MR_Trace_Port port, 
-			const MR_Label_Layout *layout, const char *path, 
-			int lineno, bool *stop_collecting);
-extern	int	MR_get_line_number(MR_Word *saved_regs, const MR_Label_Layout *layout, 
+extern	void	MR_COLLECT_filter(MR_FilterFuncPtr filter_ptr,
+			MR_Unsigned seqno, MR_Unsigned depth,
+			MR_Trace_Port port, const MR_Label_Layout *layout,
+			const char *path, int lineno,
+			MR_bool *stop_collecting);
+extern	int	MR_get_line_number(MR_Word *saved_regs,
+			const MR_Label_Layout *layout, 
 			MR_Trace_Port port);
 
 /*

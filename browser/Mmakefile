@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1998-2001 The University of Melbourne.
+# Copyright (C) 1998-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -16,11 +16,15 @@
 # compile the modules in this directory in debug grades as well.
 
 MERCURY_DIR=..
+LINK_STDLIB_ONLY=yes
 include $(MERCURY_DIR)/Mmake.common
 
-MAIN_TARGET=library
+# Module-specific options should go in Mercury.options so they
+# can be found by `mmc --make'.
+include Mercury.options
 
-VPATH=$(LIBRARY_DIR)
+MAIN_TARGET=library
+MERCURY_MAIN_MODULES=$(BROWSER_LIB_NAME) browse_test declarative_test
 
 #-----------------------------------------------------------------------------#
 
@@ -28,41 +32,15 @@ VPATH=$(LIBRARY_DIR)
 # Don't change these without good reason - if you want to
 # do a temporary change, change ../Mmake.params.
 
-M_ENV	=	MERCURY_INT_DIR=$(LIBRARY_DIR) \
-		MERCURY_ALL_C_INCL_DIRS="\
-			-I$(TRACE_DIR) \
-			-I$(LIBRARY_DIR) \
-			-I$(RUNTIME_DIR) \
-			-I$(BOEHM_GC_DIR) \
-			-I$(BOEHM_GC_DIR)/include \
-		"
-
-MCD	=	$(M_ENV) $(MC) --generate-dependencies
-MCI	=	$(M_ENV) $(MC) --make-interface
-MCPI	=	$(M_ENV) $(MC) --make-private-interface
-MCSI	=	$(M_ENV) $(MC) --make-short-interface
-MCOI	=	$(M_ENV) $(MC) --make-opt-int
-MCTOI	=	$(M_ENV) $(MC) --make-trans-opt
-MCG	=	$(M_ENV) $(MC) --compile-to-c
-MCS	=	$(M_ENV) $(MC) --split-c-files -c --cflags "$(ALL_CFLAGS)"
-MGNUC	=	$(M_ENV) $(SCRIPTS_DIR)/mgnuc
-MGNUCFLAGS =	$(DLL_CFLAGS)
-LDFLAGS	=	-L$(LIBRARY_DIR) -L$(RUNTIME_DIR) -L$(BOEHM_GC_DIR)
-LDLIBS	=	-l$(STD_LIB_NAME) -l$(RT_LIB_NAME) \
-		` case "$(GRADE)" in 					\
-		    *.par*.gc*.prof*)	echo "-lpar_gc_prof" ;;		\
-		    *.par*.gc*)		echo "-lpar_gc" ;;		\
-		    *.gc*.prof*)	echo "-lgc_prof" ;;		\
-		    *.gc*)		echo "-lgc" ;;			\
-		  esac							\
-		`
-
-# XXX Smart recompilation currently doesn't work when the module
-# name doesn't match the file name, so disable warnings about it
-# not working in this directory.
-MCFLAGS += --no-warn-smart-recompilation
+CFLAGS	+=	$(DLL_CFLAGS) -I$(TRACE_DIR)
+MLFLAGS +=	-R$(FINAL_INSTALL_MERC_LIB_DIR)	\
+		-R$(FINAL_INSTALL_MERC_GC_LIB_DIR)
+MLLIBS +=	$(SOCKET_LIBRARY) $(NSL_LIBRARY) $(DL_LIBRARY)	\
+		$(READLINE_LIBRARIES)
 
 MTAGS	=	$(SCRIPTS_DIR)/mtags
+
+LN	=	ln
 
 #-----------------------------------------------------------------------------#
 
@@ -88,71 +66,64 @@ endif
 .PHONY: all
 all : library browse_test declarative_test
 
+DEPENDS = $(BROWSER_LIB_NAME).depend browse_test.depend declarative_test.depend
 .PHONY: depend
-depend		: mdb.depend browse_test.depend declarative_test.depend
+depend		: $(DEPENDS)
+$(DEPENDS)	: Mercury.modules
+
+# This directory contains source files for which the module
+# name doesn't match the file name, so smart recompilation
+# won't work without the Mercury.modules file.
+.PHONY: Mercury.modules
+Mercury.modules:
+	$(MC) -f *.m
 
 .PHONY: check
-check		: mdb.check
+check		: $(BROWSER_LIB_NAME).check
 
 .PHONY: all-ints 
 all-ints: ints int3s
 
 .PHONY: ints 
-ints		: mdb.ints browse_test.ints declarative_test.ints
+ints		: $(BROWSER_LIB_NAME).ints \
+			browse_test.ints declarative_test.ints
 
 .PHONY: int3s 
-int3s		: mdb.int3s
+int3s		: $(BROWSER_LIB_NAME).int3s
 
 #-----------------------------------------------------------------------------#
 
-tags		: $(MTAGS) $(mdb.ms)
-	$(MTAGS) $(mdb.ms) ../library/*.m
+tags		: $(MTAGS) $($(BROWSER_LIB_NAME).ms)
+	$(MTAGS) $($(BROWSER_LIB_NAME).ms) ../library/*.m
 
-mdb.stats : $(COMPILER_DIR)/source_stats.awk $(mdb.ms)
+$(BROWSER_LIB_NAME).stats : $(COMPILER_DIR)/source_stats.awk \
+				$($(BROWSER_LIB_NAME).ms)
 	awk -f $(COMPILER_DIR)/source_stats.awk \
-		`vpath_find $(mdb.ms)` > $@
+		`vpath_find $($(BROWSER_LIB_NAME).ms)` > $@
 	
 #-----------------------------------------------------------------------------#
 
 .PHONY: dates
 dates		:
-	touch $(mdb.dates)
+	touch $($(BROWSER_LIB_NAME).dates)
 
 #-----------------------------------------------------------------------------#
 
 .PHONY: os cs ss
-os: $(mdb.os)
-cs: $(mdb.cs)
-ss: $(mdb.ss)
+ifeq ($(MMAKE_USE_MMC_MAKE),no)
+os: $($(BROWSER_LIB_NAME).os)
+cs: $($(BROWSER_LIB_NAME).cs)
+ss: $($(BROWSER_LIB_NAME).ss)
+else
+os: $(BROWSER_LIB_NAME).os
+cs: $(BROWSER_LIB_NAME).cs
+ss: $(BROWSER_LIB_NAME).ss
+endif
 
 #-----------------------------------------------------------------------------#
 
 .PHONY: library
-library: lib$(BROWSER_LIB_NAME).$A lib$(BROWSER_LIB_NAME).$(EXT_FOR_SHARED_LIB)
-library: $(BROWSER_LIB_NAME).init
-
-lib$(BROWSER_LIB_NAME)$(DLL_DEF_LIB).$A : $(mdb.os)
-	rm -f lib$(BROWSER_LIB_NAME)$(DLL_DEF_LIB).$A
-	$(AR) $(ALL_ARFLAGS) \
-		$(AR_LIBFILE_OPT)lib$(BROWSER_LIB_NAME)$(DLL_DEF_LIB).$A \
-		$(mdb.os)
-	$(RANLIB) lib$(BROWSER_LIB_NAME)$(DLL_DEF_LIB).$A
-
-RPATH_1=$(SHLIB_RPATH_OPT)$(FINAL_INSTALL_MERC_LIB_DIR)
-RPATH_2=$(SHLIB_RPATH_SEP)$(FINAL_INSTALL_MERC_GC_LIB_DIR)
-
-lib$(BROWSER_LIB_NAME).so : $(mdb.pic_os)
-	$(LINK_SHARED_OBJ) $(ERROR_UNDEFINED)				\
-		-o lib$(BROWSER_LIB_NAME).so				\
-		$(mdb.pic_os)						\
-		$(RPATH_1)$(RPATH_2)					\
-		$(LDFLAGS) $(LDLIBS)					\
-		$(SOCKET_LIBRARY) $(NSL_LIBRARY) $(DL_LIBRARY)		\
-		$(READLINE_LIBRARIES)					\
-		$(SHARED_LIBS)
-
-$(BROWSER_LIB_NAME).init: $(deps_subdir)mdb.dep mdb.init
-	cp mdb.init $(BROWSER_LIB_NAME).init
+library: lib$(BROWSER_LIB_NAME)
 
 # Ensure we recompile mdb__version if VERSION is changed.
 $(os_subdir)mdb.o \
@@ -161,10 +132,11 @@ $(os_subdir)mdb.pic_o \
 
 #-----------------------------------------------------------------------------#
 
+# In the past we generated libmdb.* and then linked
+# libmer_browser.* to the files.
 realclean_local:
-	rm -f lib$(BROWSER_LIB_NAME).$A lib$(BROWSER_LIB_NAME).so \
-		$(BROWSER_LIB_NAME).init mdb.init
-	rm -f tags
+	rm -rf libmdb.so libmdb.a mdb.init
+	rm -f Mercury.modules tags
 
 #-----------------------------------------------------------------------------#
 

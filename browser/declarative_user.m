@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,8 +17,8 @@
 :- import_module mdb__declarative_debugger.
 :- import_module list, io.
 
-:- type user_response
-	--->	user_answer(decl_answer)
+:- type user_response(T)
+	--->	user_answer(decl_question(T), decl_answer(T))
 	;	no_user_answer
 	;	abort_diagnosis.
 
@@ -32,22 +32,22 @@
 	% and is asked to respond about the truth of the node in the
 	% intended interpretation.
 	%
-:- pred query_user(list(decl_question), user_response, user_state, user_state,
-		io__state, io__state).
-:- mode query_user(in, out, in, out, di, uo) is det.
+:- pred query_user(list(decl_question(T))::in, user_response(T)::out,
+	user_state::in, user_state::out, io__state::di, io__state::uo)
+	is cc_multi.
 
 	% Confirm that the node found is indeed an e_bug or an i_bug.
 	%
-:- pred user_confirm_bug(decl_bug, decl_confirmation, user_state, user_state,
-		io__state, io__state).
-:- mode user_confirm_bug(in, out, in, out, di, uo) is det.
+:- pred user_confirm_bug(decl_bug::in, decl_confirmation::out,
+	user_state::in, user_state::out, io__state::di, io__state::uo)
+	is cc_multi.
 
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module mdb__browser_info, mdb__browse, mdb__util.
+:- import_module mdb__browser_info, mdb__browse, mdb__io_action, mdb__util.
 :- import_module mdb__declarative_execution, mdb__program_representation.
-:- import_module std_util, char, string, bool, int.
+:- import_module std_util, char, string, bool, int, deconstruct.
 
 :- type user_state
 	--->	user(
@@ -62,51 +62,73 @@ user_state_init(InStr, OutStr, User) :-
 
 %-----------------------------------------------------------------------------%
 
-query_user(Nodes, Response, User0, User) -->
-	query_user_2(Nodes, [], Response, User0, User).
+query_user(Questions, Response, User0, User) -->
+	query_user_2(Questions, [], Response, User0, User).
 
-:- pred query_user_2(list(decl_question), list(decl_question), user_response,
-		user_state, user_state, io__state, io__state).
-:- mode query_user_2(in, in, out, in, out, di, uo) is det.
+:- pred query_user_2(list(decl_question(T))::in, list(decl_question(T))::in,
+	user_response(T)::out, user_state::in, user_state::out,
+	io__state::di, io__state::uo) is cc_multi.
 
 query_user_2([], _, no_user_answer, User, User) -->
 	[].
-query_user_2([Node | Nodes], Skipped, Response, User0, User) -->
-	write_decl_question(Node, User0),
-	{ decl_question_prompt(Node, Question) },
-	get_command(Question, Command, User0, User1),
+query_user_2([Question | Questions], Skipped, Response, User0, User) -->
+	write_decl_question(Question, User0),
+	{ Node = get_decl_question_node(Question) },
+	{ decl_question_prompt(Question, Prompt) },
+	get_command(Prompt, Command, User0, User1),
 	(
 		{ Command = yes },
-		{ Response = user_answer(truth_value(Node, yes)) },
+		{ Response = user_answer(Question, truth_value(Node, yes)) },
 		{ User = User1 }
 	;
 		{ Command = no },
-		{ Response = user_answer(truth_value(Node, no)) },
+		{ Response = user_answer(Question, truth_value(Node, no)) },
 		{ User = User1 }
 	;
 		{ Command = inadmissible },
 		io__write_string("Sorry, not implemented,\n"),
-		query_user_2([Node | Nodes], Skipped, Response, User1, User)
+		query_user_2([Question | Questions], Skipped, Response,
+				User1, User)
 	;
 		{ Command = skip },
-		query_user_2(Nodes, [Node | Skipped], Response, User1, User)
+		query_user_2(Questions, [Question | Skipped], Response,
+				User1, User)
 	;
 		{ Command = restart },
-		{ reverse_and_append(Skipped, [Node | Nodes], Questions) },
-		query_user_2(Questions, [], Response, User1, User)
+		{ reverse_and_append(Skipped, [Question | Questions],
+				RestartedQuestions) },
+		query_user(RestartedQuestions, Response, User1, User)
 	;
-		{ Command = browse(Arg) },
-		browse_edt_node(Node, Arg, MaybeMark, User1, User2),
+		{ Command = browse_arg(ArgNum) },
+		{ edt_node_trace_atom(Question, TraceAtom) },
+		browse_atom_argument(TraceAtom, ArgNum, MaybeMark,
+			User1, User2),
 		(
 			{ MaybeMark = no },
-			query_user_2([Node | Nodes], Skipped, Response, User2,
-					User)
+			query_user_2([Question | Questions], Skipped, Response,
+					User2, User)
 		;
 			{ MaybeMark = yes(Mark) },
-			{ Answer = suspicious_subterm(Node, Arg, Mark) },
-			{ Response = user_answer(Answer) },
+			{ Which = chosen_head_vars_presentation },
+			{
+				Which = only_user_headvars,
+				ArgPos = user_head_var(ArgNum)
+			;
+				Which = all_headvars,
+				ArgPos = any_head_var(ArgNum)
+			},
+			{ Answer = suspicious_subterm(Node, ArgPos, Mark) },
+			{ Response = user_answer(Question, Answer) },
 			{ User = User2 }
 		)
+	;
+		{ Command = browse_io(ActionNum) },
+		{ edt_node_io_actions(Question, IoActions) },
+		% We don't have code yet to trace a marked I/O action.
+		browse_chosen_io_action(IoActions, ActionNum, _MaybeMark,
+			User1, User2),
+		query_user_2([Question | Questions], Skipped, Response,
+			User2, User)
 	;
 		{ Command = abort },
 		{ Response = abort_diagnosis },
@@ -114,69 +136,107 @@ query_user_2([Node | Nodes], Skipped, Response, User0, User) -->
 	;
 		{ Command = help },
 		user_help_message(User1),
-		query_user_2([Node | Nodes], Skipped, Response, User1, User)
+		query_user_2([Question | Questions], Skipped, Response,
+				User1, User)
 	;
 		{ Command = illegal_command },
 		io__write_string("Unknown command, 'h' for help.\n"),
-		query_user_2([Node | Nodes], Skipped, Response, User1, User)
+		query_user_2([Question | Questions], Skipped, Response,
+				User1, User)
 	).
 
-:- pred decl_question_prompt(decl_question, string).
+:- pred decl_question_prompt(decl_question(T), string).
 :- mode decl_question_prompt(in, out) is det.
 
-decl_question_prompt(wrong_answer(_), "Valid? ").
-decl_question_prompt(missing_answer(_, _), "Complete? ").
-decl_question_prompt(unexpected_exception(_, _), "Expected? ").
+decl_question_prompt(wrong_answer(_, _), "Valid? ").
+decl_question_prompt(missing_answer(_, _, _), "Complete? ").
+decl_question_prompt(unexpected_exception(_, _, _), "Expected? ").
 
-:- pred browse_edt_node(decl_question::in, int::in, maybe(term_path)::out,
-		user_state::in, user_state::out, io__state::di,
-		io__state::uo) is det.
+:- pred edt_node_trace_atom(decl_question(T)::in, trace_atom::out) is det.
 
-browse_edt_node(Node, ArgNum, MaybeMark, User0, User) -->
-	{
-		Node = wrong_answer(Atom)
+edt_node_trace_atom(wrong_answer(_, FinalDeclAtom),
+	FinalDeclAtom ^ final_atom).
+edt_node_trace_atom(missing_answer(_, InitDeclAtom, _),
+	InitDeclAtom ^ init_atom).
+edt_node_trace_atom(unexpected_exception(_, InitDeclAtom, _),
+	InitDeclAtom ^ init_atom).
+
+:- pred edt_node_io_actions(decl_question(T)::in, list(io_action)::out) is det.
+
+edt_node_io_actions(wrong_answer(_, FinalDeclAtom),
+	FinalDeclAtom ^ final_io_actions).
+edt_node_io_actions(missing_answer(_, _, _), []).
+edt_node_io_actions(unexpected_exception(_, _, _), []).
+
+:- pred decl_bug_trace_atom(decl_bug::in, trace_atom::out) is det.
+
+decl_bug_trace_atom(e_bug(incorrect_contour(FinalDeclAtom, _, _)),
+	FinalDeclAtom ^ final_atom).
+decl_bug_trace_atom(e_bug(partially_uncovered_atom(InitDeclAtom, _)),
+	InitDeclAtom ^ init_atom).
+decl_bug_trace_atom(e_bug(unhandled_exception(InitDeclAtom, _, _)),
+	InitDeclAtom ^ init_atom).
+decl_bug_trace_atom(i_bug(inadmissible_call(_, _, InitDeclAtom, _)),
+	InitDeclAtom ^ init_atom).
+
+:- pred decl_bug_io_actions(decl_bug::in, list(io_action)::out) is det.
+
+decl_bug_io_actions(e_bug(incorrect_contour(FinalDeclAtom, _, _)),
+	FinalDeclAtom ^ final_io_actions).
+decl_bug_io_actions(e_bug(partially_uncovered_atom(_, _)), []).
+decl_bug_io_actions(e_bug(unhandled_exception(_, _, _)), []).
+decl_bug_io_actions(i_bug(inadmissible_call(_, _, _, _)), []).
+
+:- pred browse_chosen_io_action(list(io_action)::in, int::in,
+	maybe(term_path)::out, user_state::in, user_state::out,
+	io__state::di, io__state::uo) is cc_multi.
+
+browse_chosen_io_action(IoActions, ActionNum, MaybeMark, User0, User) -->
+	( { list__index1(IoActions, ActionNum, IoAction) } ->
+		browse_io_action(IoAction, MaybeMark, User0, User)
 	;
-		Node = missing_answer(Atom, _)
-	;
-		Node = unexpected_exception(Atom, _)
-	},
-	browse_atom_argument(Atom, ArgNum, MaybeMark, User0, User).
+		io__write_string("No such IO action.\n"),
+		{ MaybeMark = no },
+		{ User = User0 }
+	).
 
-:- pred browse_decl_bug(decl_bug, int, user_state, user_state,
-		io__state, io__state).
-:- mode browse_decl_bug(in, in, in, out, di, uo) is det.
+:- pred browse_io_action(io_action::in, maybe(term_path)::out,
+	user_state::in, user_state::out, io__state::di, io__state::uo)
+	is cc_multi.
 
-browse_decl_bug(Bug, ArgNum, User0, User) -->
-	{
-		Bug = e_bug(EBug),
-		(
-			EBug = incorrect_contour(Atom, _, _)
-		;
-			EBug = partially_uncovered_atom(Atom, _)
-		;
-			EBug = unhandled_exception(Atom, _, _)
-		)
-	;
-		Bug = i_bug(inadmissible_call(_, _, Atom, _))
-	},
+browse_io_action(IoAction, MaybeMark, User0, User) -->
+	{ io_action_to_synthetic_term(IoAction, ProcName, Args, IsFunc) },
+	browse_synthetic(ProcName, Args, IsFunc, User0 ^ instr, User0 ^ outstr,
+		MaybeDirs, User0 ^ browser, Browser),
+	{ maybe_convert_dirs_to_path(MaybeDirs, MaybeMark) },
+	{ User = User0 ^ browser := Browser }.
+
+:- pred browse_decl_bug_arg(decl_bug::in, int::in,
+	user_state::in, user_state::out, io__state::di, io__state::uo)
+	is cc_multi.
+
+browse_decl_bug_arg(Bug, ArgNum, User0, User) -->
+	{ decl_bug_trace_atom(Bug, Atom) },
 	browse_atom_argument(Atom, ArgNum, _, User0, User).
 
-:- pred browse_atom_argument(decl_atom::in, int::in, maybe(term_path)::out,
-		user_state::in, user_state::out, io__state::di,
-		io__state::uo) is det.
+:- pred browse_atom_argument(trace_atom::in, int::in, maybe(term_path)::out,
+	user_state::in, user_state::out, io__state::di, io__state::uo)
+	is cc_multi.
 
 browse_atom_argument(Atom, ArgNum, MaybeMark, User0, User) -->
-	{ Atom = atom(_, _, Args) },
+	{ Atom = atom(_, _, Args0) },
+	{ maybe_filter_headvars(chosen_head_vars_presentation, Args0, Args) },
 	(
-		{ list__index1(Args, ArgNum, MaybeArg) },
+		{ list__index1(Args, ArgNum, ArgInfo) },
+		{ ArgInfo = arg_info(_, _, MaybeArg) },
 		{ MaybeArg = yes(Arg) }
 	->
-		browse(univ_value(Arg), User0^instr, User0^outstr, MaybeDirs,
-			User0^browser, Browser),
+		browse(univ_value(Arg), User0 ^ instr, User0 ^ outstr,
+			MaybeDirs, User0 ^ browser, Browser),
 		{ maybe_convert_dirs_to_path(MaybeDirs, MaybeMark) },
-		{ User = User0^browser := Browser }
+		{ User = User0 ^ browser := Browser }
 	;
-		io__write_string(User^outstr, "Invalid argument number\n"),
+		io__write_string(User ^ outstr, "Invalid argument number\n"),
 		{ MaybeMark = no },
 		{ User = User0 }
 	).
@@ -205,7 +265,9 @@ reverse_and_append([A | As], Bs, Cs) :-
 	;	inadmissible		% The node is inadmissible.
 	;	skip			% The user has no answer.
 	;	restart			% Ask the skipped questions again.
-	;	browse(int)		% Browse the nth argument before
+	;	browse_arg(int)		% Browse the nth argument before
+					% answering.
+	;	browse_io(int)		% Browse the nth IO action before
 					% answering.
 	;	abort			% Abort this diagnosis session.
 	;	help			% Request help before answering.
@@ -215,7 +277,7 @@ reverse_and_append([A | As], Bs, Cs) :-
 :- mode user_help_message(in, di, uo) is det.
 
 user_help_message(User) -->
-	io__write_strings(User^outstr, [
+	io__write_strings(User ^ outstr, [
 		"According to the intended interpretation of the program,",
 		" answer one of:\n",
 		"\ty\tyes\t\tthe node is correct\n",
@@ -233,7 +295,7 @@ user_help_message(User) -->
 :- mode user_confirm_bug_help(in, di, uo) is det.
 
 user_confirm_bug_help(User) -->
-	io__write_strings(User^outstr, [
+	io__write_strings(User ^ outstr, [
 		"Answer one of:\n",
 		"\ty\tyes\t\tconfirm that the suspect is a bug\n",
 		"\tn\tno\t\tdo not accept that the suspect is a bug\n",
@@ -248,54 +310,66 @@ user_confirm_bug_help(User) -->
 :- mode get_command(in, out, in, out, di, uo) is det.
 
 get_command(Prompt, Command, User, User) -->
-	util__trace_getline(Prompt, Result, User^instr, User^outstr),
-	( { Result = ok(String) },
-		{ string__to_char_list(String, Line) },
+	util__trace_getline(Prompt, Result, User ^ instr, User ^ outstr),
+	(
+		{ Result = ok(String) },
+		{ Words = string__words(char__is_whitespace, String) },
 		{
-			command_chars(Line, Command0)
+			Words = [CmdWord | CmdArgs],
+			cmd_handler(CmdWord, CmdHandler),
+			CommandPrime = CmdHandler(CmdArgs)
 		->
-			Command = Command0
+			Command = CommandPrime
 		;
 			Command = illegal_command
 		}
-	; { Result = error(Error) },
+	;
+		{ Result = error(Error) },
 		{ io__error_message(Error, Msg) },
-		io__write_string(User^outstr, Msg),
-		io__nl(User^outstr),
+		io__write_string(User ^ outstr, Msg),
+		io__nl(User ^ outstr),
 		{ Command = abort }
-	; { Result = eof },
+	;
+		{ Result = eof },
 		{ Command = abort }
 	).
 
-:- pred command_chars(list(char), user_command).
-:- mode command_chars(in, out) is semidet.
+:- pred cmd_handler(string, func(list(string)) = user_command).
+:- mode cmd_handler(in, out((func(in) = out is semidet))) is semidet.
 
-command_chars(['y' | _], yes).
-command_chars(['n' | _], no).
-command_chars(['i' | _], inadmissible).
-command_chars(['s' | _], skip).
-command_chars(['r' | _], restart).
-command_chars(['a' | _], abort).
-command_chars(['h' | _], help).
-command_chars(['?' | _], help).
-command_chars(['b' | Line0], browse(Arg)) :-
-	(
-		Line0 = ['r','o','w','s','e' | Line1]
-	->
-		Line2 = Line1
-	;
-		Line2 = Line0
-	),
-	list__takewhile(char__is_whitespace, Line2, _, ArgChars),
-	parse_integer(ArgChars, 0, Arg).
+cmd_handler("y",	one_word_cmd(yes)).
+cmd_handler("yes",	one_word_cmd(yes)).
+cmd_handler("n",	one_word_cmd(no)).
+cmd_handler("no",	one_word_cmd(no)).
+cmd_handler("in",	one_word_cmd(inadmissible)).
+cmd_handler("inadmissible", one_word_cmd(inadmissible)).
+cmd_handler("io",	browse_io_cmd).
+cmd_handler("s",	one_word_cmd(skip)).
+cmd_handler("skip",	one_word_cmd(skip)).
+cmd_handler("r",	one_word_cmd(restart)).
+cmd_handler("restart",	one_word_cmd(restart)).
+cmd_handler("a",	one_word_cmd(abort)).
+cmd_handler("abort",	one_word_cmd(abort)).
+cmd_handler("?",	one_word_cmd(help)).
+cmd_handler("h",	one_word_cmd(help)).
+cmd_handler("help",	one_word_cmd(help)).
+cmd_handler("b",	browse_arg_cmd).
+cmd_handler("browse",	browse_arg_cmd).
 
-:- pred parse_integer(list(char), int, int).
-:- mode parse_integer(in, in, out) is semidet.
+:- func one_word_cmd(user_command::in, list(string)::in) = (user_command::out)
+	is semidet.
 
-parse_integer([], N, N).
-parse_integer([D | Ds], N0, N) :-
-	char__digit_to_int(D, I),
-	parse_integer(Ds, N0 * 10 + I, N).
+one_word_cmd(Cmd, []) = Cmd.
+
+:- func browse_arg_cmd(list(string)::in) = (user_command::out) is semidet.
+
+browse_arg_cmd([Arg]) = browse_arg(ArgNum) :-
+	string__to_int(Arg, ArgNum).
+
+:- func browse_io_cmd(list(string)::in) = (user_command::out) is semidet.
+
+browse_io_cmd([Arg]) = browse_io(ArgNum) :-
+	string__to_int(Arg, ArgNum).
 
 %-----------------------------------------------------------------------------%
 
@@ -318,9 +392,16 @@ user_confirm_bug(Bug, Response, User0, User) -->
 		{ Response = abort_diagnosis },
 		{ User = User1 }
 	;
-		{ Command = browse(Arg) }
+		{ Command = browse_arg(ArgNum) }
 	->
-		browse_decl_bug(Bug, Arg, User1, User2),
+		browse_decl_bug_arg(Bug, ArgNum, User1, User2),
+		user_confirm_bug(Bug, Response, User2, User)
+	;
+		{ Command = browse_io(ActionNum) }
+	->
+		{ decl_bug_io_actions(Bug, IoActions) },
+		browse_chosen_io_action(IoActions, ActionNum, _MaybeMark,
+			User1, User2),
 		user_confirm_bug(Bug, Response, User2, User)
 	;
 		user_confirm_bug_help(User1),
@@ -332,61 +413,74 @@ user_confirm_bug(Bug, Response, User0, User) -->
 	% Display the node in user readable form on the current
 	% output stream.
 	%
-:- pred write_decl_question(decl_question, user_state, io__state, io__state).
-:- mode write_decl_question(in, in, di, uo) is det.
+:- pred write_decl_question(decl_question(T)::in, user_state::in,
+	io__state::di, io__state::uo) is cc_multi.
 
-write_decl_question(wrong_answer(Atom), User) -->
-	write_decl_atom(User, "", Atom).
+write_decl_question(wrong_answer(_, Atom), User) -->
+	write_decl_final_atom(User, "", Atom).
 	
-write_decl_question(missing_answer(Call, Solns), User) -->
-	write_decl_atom(User, "Call ", Call),
+write_decl_question(missing_answer(_, Call, Solns), User) -->
+	write_decl_init_atom(User, "Call ", Call),
 	(
 		{ Solns = [] }
 	->
-		io__write_string(User^outstr, "No solutions.\n")
+		io__write_string(User ^ outstr, "No solutions.\n")
 	;
-		io__write_string(User^outstr, "Solutions:\n"),
-		list__foldl(write_decl_atom(User, "\t"), Solns)
+		io__write_string(User ^ outstr, "Solutions:\n"),
+		list__foldl(write_decl_final_atom(User, "\t"), Solns)
 	).
 
-write_decl_question(unexpected_exception(Call, Exception), User) -->
-	write_decl_atom(User, "Call ", Call),
-	io__write_string(User^outstr, "Throws "),
-	io__print(User^outstr, Exception),
-	io__nl(User^outstr).
+write_decl_question(unexpected_exception(_, Call, Exception), User) -->
+	write_decl_init_atom(User, "Call ", Call),
+	io__write_string(User ^ outstr, "Throws "),
+	io__write(User ^ outstr, include_details_cc, univ_value(Exception)),
+	io__nl(User ^ outstr).
 
-:- pred write_decl_bug(decl_bug, user_state, io__state, io__state).
-:- mode write_decl_bug(in, in, di, uo) is det.
+:- pred write_decl_bug(decl_bug::in, user_state::in,
+	io__state::di, io__state::uo) is cc_multi.
 
 write_decl_bug(e_bug(EBug), User) -->
 	(
 		{ EBug = incorrect_contour(Atom, _, _) },
-		io__write_string(User^outstr, "Found incorrect contour:\n"),
-		write_decl_atom(User, "", Atom)
+		io__write_string(User ^ outstr, "Found incorrect contour:\n"),
+		write_decl_final_atom(User, "", Atom)
 	;
 		{ EBug = partially_uncovered_atom(Atom, _) },
-		io__write_string(User^outstr,
+		io__write_string(User ^ outstr,
 				"Found partially uncovered atom:\n"),
-		write_decl_atom(User, "", Atom)
+		write_decl_init_atom(User, "", Atom)
 	;
 		{ EBug = unhandled_exception(Atom, Exception, _) },
-		io__write_string(User^outstr, "Found unhandled exception:\n"),
-		write_decl_atom(User, "", Atom),
-		io__write(User^outstr, univ_value(Exception)),
-		io__nl(User^outstr)
+		io__write_string(User ^ outstr, "Found unhandled exception:\n"),
+		write_decl_init_atom(User, "", Atom),
+		io__write(User ^ outstr, include_details_cc,
+				univ_value(Exception)),
+		io__nl(User ^ outstr)
 	).
 
 write_decl_bug(i_bug(IBug), User) -->
 	{ IBug = inadmissible_call(Parent, _, Call, _) },
-	io__write_string(User^outstr, "Found inadmissible call:\n"),
-	write_decl_atom(User, "Parent ", Parent),
-	write_decl_atom(User, "Call ", Call).
+	io__write_string(User ^ outstr, "Found inadmissible call:\n"),
+	write_decl_atom(User, "Parent ", init(Parent)),
+	write_decl_atom(User, "Call ", init(Call)).
 
-:- pred write_decl_atom(user_state, string, decl_atom, io__state, io__state).
-:- mode write_decl_atom(in, in, in, di, uo) is det.
+:- pred write_decl_init_atom(user_state::in, string::in, init_decl_atom::in,
+	io__state::di, io__state::uo) is cc_multi.
 
-write_decl_atom(User, Indent, Atom) -->
-	io__write_string(User^outstr, Indent),
+write_decl_init_atom(User, Indent, InitAtom) -->
+	write_decl_atom(User, Indent, init(InitAtom)).
+
+:- pred write_decl_final_atom(user_state::in, string::in, final_decl_atom::in,
+	io__state::di, io__state::uo) is cc_multi.
+
+write_decl_final_atom(User, Indent, FinalAtom) -->
+	write_decl_atom(User, Indent, final(FinalAtom)).
+
+:- pred write_decl_atom(user_state::in, string::in, some_decl_atom::in,
+	io__state::di, io__state::uo) is cc_multi.
+
+write_decl_atom(User, Indent, DeclAtom) -->
+	io__write_string(User ^ outstr, Indent),
 		%
 		% Check whether the atom is likely to fit on one line.
 		% If it's not, then call the browser to print the term
@@ -394,75 +488,123 @@ write_decl_atom(User, Indent, Atom) -->
 		% it out directly so that all arguments are put on the
 		% same line.
 		%
+	{ unravel_decl_atom(DeclAtom, TraceAtom, IoActions) },
+	{ Which = chosen_head_vars_presentation },
+	{ check_trace_atom_size(Indent, Which, TraceAtom, RemSize) },
 	(
-		{ check_decl_atom_size(Indent, Atom) }
+		{ RemSize > 0 },
+		{ IoActions = [] }
 	->
-		write_decl_atom_direct(User^outstr, Atom)
+		write_decl_atom_direct(User ^ outstr, TraceAtom, Which)
 	;
-		write_decl_atom_limited(Atom, User)
+		write_decl_atom_limited(User, DeclAtom, Which)
 	).
 
-:- pred check_decl_atom_size(string, decl_atom).
-:- mode check_decl_atom_size(in, in) is semidet.
+:- pred check_trace_atom_size(string::in, which_headvars::in, trace_atom::in,
+	int::out) is cc_multi.
 
-check_decl_atom_size(Indent, atom(_, Functor, Args)) :-
-	decl_atom_size_limit(RemSize0),
+check_trace_atom_size(Indent, Which, atom(_, Functor, Args), RemSize) :-
+	trace_atom_size_limit(RemSize0),
 	string__length(Indent, I),
 	string__length(Functor, F),
 	P = 2,		% parentheses
 	RemSize1 = RemSize0 - I - F - P,
-	size_left_after_args(Args, RemSize1, RemSize),
-	RemSize > 0.
+	size_left_after_args(Args, Which, RemSize1, RemSize).
 
-:- pred size_left_after_args(list(maybe(univ)), int, int).
-:- mode size_left_after_args(in, in, out) is det.
+:- pred size_left_after_args(list(trace_atom_arg)::in, which_headvars::in,
+	int::in, int::out) is cc_multi.
 
-size_left_after_args([]) -->
+size_left_after_args([], _) -->
 	[].
-size_left_after_args([yes(A) | As]) -->
-	term_size_left_from_max(A),
-	size_left_after_args(As).
-size_left_after_args([no | As]) -->
-	size_left_after_args(As).
+size_left_after_args([arg_info(UserVis, _, MaybeUniv) | Args], Which) -->
+	(
+		{ MaybeUniv = yes(Univ) },
+		(
+			{ Which = only_user_headvars },
+			{ UserVis = no }
+		->
+			% This argument won't be printed.
+			[]
+		;
+			term_size_left_from_max(Univ)
+		)
+	;
+		{ MaybeUniv = no }
+	),
+	size_left_after_args(Args, Which).
 
-:- pred decl_atom_size_limit(int).
-:- mode decl_atom_size_limit(out) is det.
+:- pred trace_atom_size_limit(int).
+:- mode trace_atom_size_limit(out) is det.
 
-decl_atom_size_limit(79).
+trace_atom_size_limit(79).
 
-:- pred write_decl_atom_limited(decl_atom, user_state, io__state, io__state).
-:- mode write_decl_atom_limited(in, in, di, uo) is det.
+:- pred write_decl_atom_limited(user_state::in, some_decl_atom::in,
+	which_headvars::in, io__state::di, io__state::uo) is cc_multi.
 
-write_decl_atom_limited(atom(PredOrFunc, Functor, Args), User) -->
-	write_decl_atom_category(User^outstr, PredOrFunc),
-	io__write_string(User^outstr, Functor),
-	io__nl(User^outstr),
-	foldl(print_decl_atom_arg(User), Args).
+write_decl_atom_limited(User, DeclAtom, Which) -->
+	{ unravel_decl_atom(DeclAtom, TraceAtom, IoActions) },
+	{ TraceAtom = atom(PredOrFunc, Functor, Args0) },
+	write_decl_atom_category(User ^ outstr, PredOrFunc),
+	io__write_string(User ^ outstr, Functor),
+	io__nl(User ^ outstr),
+	{ maybe_filter_headvars(Which, Args0, Args) },
+	list__foldl(print_decl_atom_arg(User), Args),
+	{ list__length(IoActions, NumIoActions) },
+	( { NumIoActions = 0 } ->
+		[]
+	;
+		( { NumIoActions = 1 } ->
+			io__write_string(User ^ outstr, "1 io action:")
+		;
+			io__write_int(User ^ outstr, NumIoActions),
+			io__write_string(User ^ outstr, " io actions:")
+		),
+		% XXX the 6 should be configurable
+ 		( { NumIoActions < 6 } ->
+			io__nl(User ^ outstr),
+			list__foldl(print_io_action(User), IoActions)
+		;
+			io__write_string(User ^ outstr, " too many to show"),
+			io__nl(User ^ outstr)
+		)
+	).
 
-:- pred write_decl_atom_category(io__output_stream, pred_or_func, io__state,
-		io__state).
-:- mode write_decl_atom_category(in, in, di, uo) is det.
+:- pred print_io_action(user_state::in, io_action::in,
+	io__state::di, io__state::uo) is cc_multi.
+
+print_io_action(User, IoAction) -->
+	{ io_action_to_synthetic_term(IoAction, ProcName, Args, IsFunc) },
+	browse__print_synthetic(ProcName, Args, IsFunc, User ^ outstr,
+		print_all, User ^ browser).
+
+:- pred write_decl_atom_category(io__output_stream::in, pred_or_func::in,
+	io__state::di, io__state::uo) is det.
 
 write_decl_atom_category(OutStr, predicate) -->
 	io__write_string(OutStr, "pred ").
 write_decl_atom_category(OutStr, function) -->
 	io__write_string(OutStr, "func ").
 
-:- pred print_decl_atom_arg(user_state, maybe(univ), io__state, io__state).
-:- mode print_decl_atom_arg(in, in, di, uo) is det.
+:- pred print_decl_atom_arg(user_state::in, trace_atom_arg::in,
+	io__state::di, io__state::uo) is cc_multi.
 
-print_decl_atom_arg(User, yes(Arg)) -->
-	io__write_string(User^outstr, "\t"),
-	browse__print(univ_value(Arg), User^outstr, print_all, User^browser).
-print_decl_atom_arg(User, no) -->
-	io__write_string(User^outstr, "\t_\n").
+print_decl_atom_arg(User, arg_info(_, _, MaybeArg)) -->
+	(
+		{ MaybeArg = yes(Arg) },
+		io__write_string(User ^ outstr, "\t"),
+		browse__print(univ_value(Arg), User ^ outstr, print_all,
+			User ^ browser)
+	;
+		{ MaybeArg = no },
+		io__write_string(User ^ outstr, "\t_\n")
+	).
 
-:- pred write_decl_atom_direct(io__output_stream, decl_atom,
-		io__state, io__state).
-:- mode write_decl_atom_direct(in, in, di, uo) is det.
+:- pred write_decl_atom_direct(io__output_stream::in, trace_atom::in,
+	which_headvars::in, io__state::di, io__state::uo) is cc_multi.
 
-write_decl_atom_direct(OutStr, atom(PredOrFunc, Functor, Args)) -->
+write_decl_atom_direct(OutStr, atom(PredOrFunc, Functor, Args0), Which) -->
 	io__write_string(OutStr, Functor),
+	{ maybe_filter_headvars(Which, Args0, Args) },
 	(
 		{ Args = [] }
 	;
@@ -485,14 +627,18 @@ write_decl_atom_direct(OutStr, atom(PredOrFunc, Functor, Args)) -->
 	),
 	io__nl(OutStr).
 
-:- pred write_decl_atom_arg(io__output_stream, maybe(univ),
+:- pred write_decl_atom_arg(io__output_stream, trace_atom_arg,
 		io__state, io__state).
-:- mode write_decl_atom_arg(in, in, di, uo) is det.
+:- mode write_decl_atom_arg(in, in, di, uo) is cc_multi.
 
-write_decl_atom_arg(OutStr, yes(Arg)) -->
-	io__print(OutStr, Arg).
-write_decl_atom_arg(OutStr, no) -->
-	io__write_char(OutStr, '_').
+write_decl_atom_arg(OutStr, arg_info(_, _, MaybeArg)) -->
+	(
+		{ MaybeArg = yes(Arg) },
+		io__write(OutStr, include_details_cc, univ_value(Arg))
+	;
+		{ MaybeArg = no },
+		io__write_char(OutStr, '_')
+	).
 
 :- pred get_inputs_and_result(T, list(T), list(T), T).
 :- mode get_inputs_and_result(in, in, out, out) is det.
@@ -501,3 +647,4 @@ get_inputs_and_result(A, [], [], A).
 get_inputs_and_result(A1, [A2 | As], [A1 | Inputs0], Result) :-
 	get_inputs_and_result(A2, As, Inputs0, Result).
 
+%-----------------------------------------------------------------------------%

@@ -20,7 +20,7 @@
 usage="\
 Usage: $0 [options]
 Options:
-	-b, --no-bootcheck
+	-b-, --no-bootcheck
 		Do not perform a bootcheck; check only the tests directory
 		or the single command.
 	-c, --compile-only
@@ -61,7 +61,7 @@ Options:
 "
 
 # If you change this, you will also need to change scripts/ml.in,
-# scripts/c2init.in, Mmake.common.in, tools/bootcheck, tools/binary_step
+# scripts/c2init.in, Mmake.workspace, tools/bootcheck, tools/binary_step
 # and tools/linear.
 STD_LIB_NAME=mer_std
 
@@ -86,8 +86,8 @@ basis="ok"
 while [ $# -gt 0 ]; do
 	case "$1" in
 
-	-b|--no-bootcheck)
-		bootcheck="-b" ;;
+	-b-|--no-bootcheck)
+		bootcheck="-b-" ;;
 
 	-c|--compile-only)
 		compile_only="-c" ;;
@@ -245,6 +245,7 @@ wait
 $RMSTAGECMD $trueroot/stage2/* < /dev/null
 echo linking stage 2... 1>&2
 cd stage2
+ln -s $root/main.c .
 mkdir compiler
 cd compiler
 ln -s $root/compiler/[a-h]*.m .
@@ -324,6 +325,7 @@ then
 	$RMSTAGECMD $trueroot/stage3/* < /dev/null
 	echo linking stage 3... 1>&2
 	cd stage3
+	ln -s $root/main.c
 	mkdir compiler
 	cd compiler
 	# Break up the links into several chunks.
@@ -373,6 +375,7 @@ then
 	fi
 fi
 
+cp stage2.ok/main.o stage2
 if test "$alldirs" = ""
 then
 	echo testing whether the stage2.bad library works
@@ -538,8 +541,8 @@ fi
 echo "there is a problem in $testeddir/$module"
 echo
 
-basecnt=`egrep '^END_MODULE' stage2.$base/$testeddir/$module.c | wc -l`
-trialcnt=`egrep '^END_MODULE' stage2.$trial/$testeddir/$module.c | wc -l`
+basecnt=`egrep '^MR_END_MODULE' stage2.$base/$testeddir/$module.c | wc -l`
+trialcnt=`egrep '^MR_END_MODULE' stage2.$trial/$testeddir/$module.c | wc -l`
 
 if test $basecnt -ne $trialcnt
 then

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -111,7 +111,7 @@ server(TimeOut, Debug, CanonicalClique, Deep) -->
 :- pred detach_server_loop(io__state::di, io__state::uo) is cc_multi.
 
 :- pragma foreign_proc("C", detach_server_loop(S0::di, S::uo),
-	[will_not_call_mercury], "
+	[will_not_call_mercury, promise_pure], "
 {
 	int	status;
 
@@ -133,9 +133,9 @@ server(TimeOut, Debug, CanonicalClique, Deep) -->
 		** now to let the io__call_system in the cgi script succeed.
 		*/
 
-		extern	bool	MP_process_is_detached_server;
+		extern	MR_bool	MP_process_is_detached_server;
 
-		MP_process_is_detached_server = TRUE;
+		MP_process_is_detached_server = MR_TRUE;
 		exit(0);
 	}
 

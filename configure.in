@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2001 The University of Melbourne. 
+# Copyright (C) 1995-2002 The University of Melbourne. 
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -53,6 +53,13 @@ if test "$prefix" = "NONE"; then
 else
 	PREFIX="$prefix"
 fi
+case "$PREFIX" in
+    *\ *)
+	AC_MSG_ERROR(cannot install into a directory with a name containing spaces: \`$PREFIX.')
+	exit 1
+	;;
+esac
+
 LIBDIR="$PREFIX/lib/mercury"
 WINDOWS_LIBDIR="`cygpath -w $LIBDIR 2>/dev/null`"
 NONSHARED_LIB_DIR=${MERCURY_NONSHARED_LIB_DIR=$PREFIX/lib/nonshared}
@@ -73,17 +80,11 @@ case "$host" in
 esac
 #-----------------------------------------------------------------------------#
 
-# When statically linked on Compaq Tru64 UNIX V5.1, the conftest executable
-# fails with message "sh: Cannot allocate space for bss."
-case "$host" in
-	alpha*-osf5*)
-		link_flags=
-		;;
-	*)	
-		link_flags='--link-flags "--static"'
-		;;
+case "$host" in 
+	i386-pc-solaris2.8)	link_static_opt= ;;
+	*)			link_static_opt="--link-flags --static" ;;
 esac
-	
+
 MERCURY_MSG("looking for an already installed Mercury compiler to bootstrap with...")
 AC_PATH_PROG(BOOTSTRAP_MC,mmc)
 if test "$BOOTSTRAP_MC" != ""; then
@@ -97,36 +98,34 @@ if test "$BOOTSTRAP_MC" != ""; then
 		:- module conftest.
 		:- interface.
 		:- import_module io.
-		:- pred main(io__state::di, io__state::uo) is cc_multi.
+		:- pred main(io__state::di, io__state::uo) is det.
 
 		:- implementation.
-		:- import_module int, exception.
+
+		:- import_module int.
         
-		% Check that X/0 throws an exception. If it doesn't,
-		% the old compiler will report an error for the clauses
-		% for int:// and float:/, which according to the old
-		% compiler should be builtins.
-		% Also check for unchecked_int_quotient, which is a builtin
-		% present only in recent compilers.
 		main --> 
-			{ try(
-				(pred(Value::out) is det :-
-					Value = 42 // 0 +
-						unchecked_quotient(10, 2)
-				), Result) },
-			( { Result = exception(_) } ->
+			{ return_rtti_version(Version) },
+			( { Version >= 6 } ->
 				print("Hello, world\n")
 			;
 				print("Nope.\n")
 			).
+
+		:- pred return_rtti_version(int::out) is det.
+
+		:- pragma foreign_proc("C", return_rtti_version(Version::out),
+			[[will_not_call_mercury, promise_pure]], "
+			Version = MR_RTTI_VERSION;
+		").
 EOF
 	if
-		# The installed compiler must create `.c_date' files
-		# to be compatible with scripts/Mmake.rules.
-	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
-	 	$BOOTSTRAP_MC \
-			--halt-at-warn $link_flags conftest \
-		 	</dev/null >&AC_FD_CC 2>&1 &&
+		# Test for the `--bug-intermod-2002-06-13' option.
+		echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
+		$BOOTSTRAP_MC \
+			--bug-intermod-2002-06-13 \
+			--halt-at-warn $link_static_opt conftest \
+			</dev/null >&AC_FD_CC 2>&1 &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
 	then
 		AC_MSG_RESULT(yes)
@@ -365,7 +364,6 @@ CPPFLAGS="-I/usr/local/include $CPPFLAGS"
 LIBS="-L/usr/local/lib $LIBS"
 
 AC_PROG_CPP
-AC_RETSIGTYPE
 #-----------------------------------------------------------------------------#
 # Check for `-lm': some systems, e.g. MacOS X (Darwin), don't have it.
 AC_CHECK_LIB(m, sin, [MATH_LIB=-lm], [MATH_LIB=])
@@ -439,75 +437,59 @@ AC_SUBST(CYGPATH)
 MERCURY_CHECK_DOTNET
 
 #-----------------------------------------------------------------------------#
+mercury_check_for_functions () {
+
+    for mercury_cv_func in "$@"
+    do
+	mercury_cv_func_define="MR_HAVE_`echo $mercury_cv_func | \
+		tr abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ`"
+	AC_CHECK_FUNC($mercury_cv_func, [
+		AC_DEFINE_UNQUOTED($mercury_cv_func_define)
+	])
+    done
+}
+
 # Don't try to use mprotect() on gnu-win32, since it is broken
 # (at least for version b18, anyway) and trying it can crash Win95.
 case "$host" in
 	*-cygwin*)
 		ac_cv_func_mprotect=no ;;
 esac
-AC_HAVE_FUNCS(sysconf getpagesize memalign mprotect sigaction setitimer)
-AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat stat)
-AC_HAVE_FUNCS(snprintf vsnprintf _vsnprintf)
+
+mercury_check_for_functions \
+		sysconf getpagesize gethostname \
+		mprotect memalign memmove \
+		sigaction siginterrupt setitimer \
+		snprintf vsnprintf _vsnprintf strerror \
+		open close dup dup2 fdopen fileno fstat stat isatty \
+		getpid setpgid fork execlp wait kill \
+		grantpt unlockpt ptsname tcgetattr tcsetattr ioctl
+
 #-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(unistd.h, HAVE_UNISTD_H=1)
-if test "$HAVE_UNISTD_H" = 1; then
-	AC_DEFINE(HAVE_UNISTD_H)
+# This is also used by MERCURY_CHECK_READLINE in aclocal.m4.
+mercury_check_for_headers () {
+    for mercury_cv_header in "$@"
+    do
+	mercury_cv_header_define="MR_HAVE_`echo $mercury_cv_header | \
+		tr abcdefghijklmnopqrstuvwxyz./ ABCDEFGHIJKLMNOPQRSTUVWXYZ__`"
+	AC_CHECK_HEADER($mercury_cv_header, [
+		AC_DEFINE_UNQUOTED($mercury_cv_header_define)
+		eval "$mercury_cv_header_define=1"
+	])
+    done
+}
+
+mercury_check_for_headers \
+		unistd.h sys/wait.h sys/siginfo.h sys/signal.h ucontext.h \
+		asm/sigcontext.h sys/param.h sys/time.h sys/times.h \
+		sys/types.h sys/stat.h fcntl.h termios.h sys/ioctl.h \
+		sys/stropts.h
+
+if test "$MR_HAVE_UCONTEXT_H" != 1; then
+	mercury_check_for_headers sys/ucontext.h
 fi
 #-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/wait.h, HAVE_SYS_WAIT_H=1)
-if test "$HAVE_SYS_WAIT_H" = 1; then
-	AC_DEFINE(HAVE_SYS_WAIT)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/siginfo.h, HAVE_SYS_SIGINFO_H=1)
-if test "$HAVE_SYS_SIGINFO_H" = 1; then
-	AC_DEFINE(HAVE_SYS_SIGINFO)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/signal.h, HAVE_SYS_SIGNAL_H=1)
-if test "$HAVE_SYS_SIGNAL_H" = 1; then
-	AC_DEFINE(HAVE_SYS_SIGNAL)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(ucontext.h, HAVE_UCONTEXT_H=1)
-if test "$HAVE_UCONTEXT_H" = 1; then
-	AC_DEFINE(HAVE_UCONTEXT)
-else
-	AC_CHECK_HEADER(sys/ucontext.h, HAVE_SYS_UCONTEXT_H=1)
-	if test "$HAVE_SYS_UCONTEXT_H" = 1; then
-		AC_DEFINE(HAVE_SYS_UCONTEXT)
-	fi
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(asm/sigcontext.h, HAVE_ASM_SIGCONTEXT_H=1)
-if test "$HAVE_ASM_SIGCONTEXT_H" = 1; then
-	AC_DEFINE(HAVE_ASM_SIGCONTEXT)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/param.h, HAVE_SYS_PARAM_H=1)
-if test "$HAVE_SYS_PARAM_H" = 1; then
-	AC_DEFINE(HAVE_SYS_PARAM)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/time.h, HAVE_SYS_TIME_H=1)
-if test "$HAVE_SYS_TIME_H" = 1; then
-	AC_DEFINE(HAVE_SYS_TIME)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/times.h, HAVE_SYS_TIMES_H=1)
-if test "$HAVE_SYS_TIMES_H" = 1; then
-	AC_DEFINE(HAVE_SYS_TIMES_H)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/types.h, HAVE_SYS_TYPES_H=1)
-if test "$HAVE_SYS_TYPES_H" = 1; then
-	AC_DEFINE(HAVE_SYS_TYPES_H)
-fi
-#-----------------------------------------------------------------------------#
-AC_CHECK_HEADER(sys/stat.h, HAVE_SYS_STAT_H=1)
-if test "$HAVE_SYS_STAT_H" = 1; then
-	AC_DEFINE(HAVE_SYS_STAT_H)
-fi
+AC_CHECK_FILE(/dev/ptmx, AC_DEFINE(MR_HAVE_DEV_PTMX))
 #-----------------------------------------------------------------------------#
 #
 # check the basics of sigaction
@@ -552,9 +534,9 @@ if test "$ac_cv_func_sigaction" = yes; then
 	[mercury_cv_sigaction_field=sa_handler],
 	[mercury_cv_sigaction_field=sa_handler]))
 	AC_MSG_RESULT($mercury_cv_sigaction_field)
-	AC_DEFINE_UNQUOTED(SIGACTION_FIELD,$mercury_cv_sigaction_field)
+	AC_DEFINE_UNQUOTED(MR_SIGACTION_FIELD,$mercury_cv_sigaction_field)
 	if test $mercury_cv_sigaction_field = sa_sigaction; then
-		AC_DEFINE(HAVE_SIGINFO)
+		AC_DEFINE(MR_HAVE_SIGINFO)
 	fi
 fi
 #
@@ -564,7 +546,7 @@ AC_MSG_CHECKING(for working \`sigcontext_struct' in second arg)
 AC_CACHE_VAL(mercury_cv_sigcontext_struct_2arg,
 mercury_cv_sigcontext_struct_2arg=no
 AC_TRY_RUN([
-/* see runtime/memory.c for documentation of this code */
+/* see runtime/mercury_signal.h for documentation of this code */
 
 #define sigcontext_struct sigcontext
 
@@ -572,7 +554,7 @@ AC_TRY_RUN([
 #include <signal.h>
 #undef __KERNEL__
 
-#ifdef HAVE_ASM_SIGCONTEXT
+#ifdef MR_HAVE_ASM_SIGCONTEXT_H
 #include <asm/sigcontext.h>
 #endif
 
@@ -614,7 +596,7 @@ if test $mercury_cv_sigcontext_struct_2arg = no; then
 	mercury_cv_sigcontext_struct_3arg=no
 
 	AC_TRY_RUN([
-	/* see runtime/mercury_memory.c for documentation of this code */
+	/* see runtime/mercury_signal.h for documentation of this code */
 
 	#define sigcontext_struct sigcontext
 
@@ -622,7 +604,7 @@ if test $mercury_cv_sigcontext_struct_2arg = no; then
 	#include <signal.h>
 	#undef __KERNEL__
 
-	#ifdef HAVE_ASM_SIGCONTEXT
+	#ifdef MR_HAVE_ASM_SIGCONTEXT_H
 	#include <asm/sigcontext.h>
 	#endif
 
@@ -662,17 +644,17 @@ mercury_cv_sigcontext_struct=no
 
 if test $mercury_cv_sigcontext_struct_2arg = yes; then
 	mercury_cv_sigcontext_struct=yes
-	AC_DEFINE(HAVE_SIGCONTEXT_STRUCT_2ARG)
+	AC_DEFINE(MR_HAVE_SIGCONTEXT_STRUCT_2ARG)
 fi
 
 if test $mercury_cv_sigcontext_struct_3arg = yes; then
 	mercury_cv_sigcontext_struct=yes
-	AC_DEFINE(HAVE_SIGCONTEXT_STRUCT_3ARG)
+	AC_DEFINE(MR_HAVE_SIGCONTEXT_STRUCT_3ARG)
 fi
 
 if test $mercury_cv_sigcontext_struct = yes; then
-	AC_DEFINE(HAVE_SIGCONTEXT_STRUCT)
-	AC_DEFINE(HAVE_SIGINFO)
+	AC_DEFINE(MR_HAVE_SIGCONTEXT_STRUCT)
+	AC_DEFINE(MR_HAVE_SIGINFO)
 
 	#
 	# check for sigcontext_struct.eip
@@ -681,7 +663,7 @@ if test $mercury_cv_sigcontext_struct = yes; then
 	AC_CACHE_VAL(mercury_cv_pc_access,
 	mercury_cv_pc_access=no
 	AC_TRY_RUN([
-	/* see runtime/memory.c for documentation of this code */
+	/* see runtime/mercury_signal.h for documentation of this code */
 
 	#define sigcontext_struct sigcontext
 
@@ -689,7 +671,7 @@ if test $mercury_cv_sigcontext_struct = yes; then
 	#include <signal.h>
 	#undef __KERNEL__
 
-	#ifdef HAVE_ASM_SIGCONTEXT
+	#ifdef MR_HAVE_ASM_SIGCONTEXT_H
 	#include <asm/sigcontext.h>
 	#endif
 
@@ -697,7 +679,7 @@ if test $mercury_cv_sigcontext_struct = yes; then
 
 	#include <stdio.h>
 
-	#if HAVE_SIGCONTEXT_STRUCT_3ARG
+	#if MR_HAVE_SIGCONTEXT_STRUCT_3ARG
 	extern void handler(int signum, int code, 
 			struct sigcontext_struct context);
 	#else
@@ -715,7 +697,7 @@ if test $mercury_cv_sigcontext_struct = yes; then
 		exit(1);
 	}
 
-	#if HAVE_SIGCONTEXT_STRUCT_3ARG
+	#if MR_HAVE_SIGCONTEXT_STRUCT_3ARG
 	void handler(int signum, int code, struct sigcontext_struct context) {
 	#else
 	void handler(int signum, struct sigcontext_struct context) {
@@ -732,7 +714,7 @@ if test $mercury_cv_sigcontext_struct = yes; then
 	}], [mercury_cv_pc_access=eip], [true], [true]))
 	AC_MSG_RESULT($mercury_cv_pc_access)
 	if test $mercury_cv_pc_access != no; then
-		AC_DEFINE_UNQUOTED(PC_ACCESS,$mercury_cv_pc_access)
+		AC_DEFINE_UNQUOTED(MR_PC_ACCESS,$mercury_cv_pc_access)
 	fi
 else
 	AC_MSG_CHECKING(for \`siginfo_t')
@@ -741,16 +723,16 @@ else
 	AC_TRY_RUN([
 	#include <stdio.h>
 	#include <signal.h>
-	#ifdef HAVE_SYS_SIGINFO
+	#ifdef MR_HAVE_SYS_SIGINFO_H
 	#include <sys/siginfo.h>
 	#endif
-	#ifdef HAVE_SYS_SIGNAL
+	#ifdef MR_HAVE_SYS_SIGNAL_H
 	#include <sys/signal.h>
 	#endif
-	#ifdef HAVE_UCONTEXT
+	#ifdef MR_HAVE_UCONTEXT_H
 	#include <ucontext.h>
 	#endif
-	#ifdef HAVE_SYS_UCONTEXT
+	#ifdef MR_HAVE_SYS_UCONTEXT_H
 	#include <sys/ucontext.h>
 	#endif
 	int save_signum = 0;
@@ -777,8 +759,8 @@ else
 	}], [mercury_cv_siginfo_t=yes], [true], [true]))
 	AC_MSG_RESULT($mercury_cv_siginfo_t)
 	if test $mercury_cv_siginfo_t = yes; then
-		AC_DEFINE(HAVE_SIGINFO_T)
-		AC_DEFINE(HAVE_SIGINFO)
+		AC_DEFINE(MR_HAVE_SIGINFO_T)
+		AC_DEFINE(MR_HAVE_SIGINFO)
 
 		AC_MSG_CHECKING(for \`siginfo' pc access at signals)
 		AC_CACHE_VAL(mercury_cv_pc_access,
@@ -787,7 +769,7 @@ else
 		#include <stdio.h>
 		#include <signal.h>
 		#include <sys/siginfo.h>
-		#ifdef HAVE_UCONTEXT
+		#ifdef MR_HAVE_UCONTEXT_H
 		#include <ucontext.h>
 		#else
 		#include <sys/ucontext.h>
@@ -823,7 +805,7 @@ else
 		#include <stdio.h>
 		#include <signal.h>
 		#include <sys/siginfo.h>
-		#ifdef HAVE_UCONTEXT
+		#ifdef MR_HAVE_UCONTEXT_H
 		#include <ucontext.h>
 		#else
 		#include <sys/ucontext.h>
@@ -857,7 +839,7 @@ else
 		#include <stdio.h>
 		#include <signal.h>
 		#include <sys/siginfo.h>
-		#ifdef HAVE_UCONTEXT
+		#ifdef MR_HAVE_UCONTEXT_H
 		#include <ucontext.h>
 		#else
 		#include <sys/ucontext.h>
@@ -889,9 +871,9 @@ else
 		)
 		AC_MSG_RESULT($mercury_cv_pc_access)
 		if test $mercury_cv_pc_access != no; then
-			AC_DEFINE_UNQUOTED(PC_ACCESS,$mercury_cv_pc_access)
+			AC_DEFINE_UNQUOTED(MR_PC_ACCESS,$mercury_cv_pc_access)
 			if test $mercury_cv_pc_access_greg != no; then
-				AC_DEFINE(PC_ACCESS_GREG)
+				AC_DEFINE(MR_PC_ACCESS_GREG)
 			fi
 		fi
 	fi
@@ -1022,6 +1004,9 @@ if test "$mercury_cv_int_least64_type" = unknown; then
 	[mercury_cv_int_least64_type=unknown],
 	[mercury_cv_int_least64_type=unknown])
 fi
+# Uncomment the following line to test how the system behaves
+# in the absence of a 64-bit integer type.
+# mercury_cv_int_least64_type=unknown
 AC_MSG_RESULT($mercury_cv_int_least64_type)
 if test "$mercury_cv_int_least64_type" != unknown; then
 	AC_DEFINE_UNQUOTED(MR_INT_LEAST64_TYPE, $mercury_cv_int_least64_type)
@@ -1064,6 +1049,20 @@ AC_MSG_RESULT($mercury_cv_int_least32_type)
 AC_DEFINE_UNQUOTED(MR_INT_LEAST32_TYPE, $mercury_cv_int_least32_type)
 MR_INT_LEAST32_TYPE=$mercury_cv_int_least32_type
 AC_SUBST(MR_INT_LEAST32_TYPE)
+
+if test "$mercury_cv_int_least32_type" = int; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST32_MAX, INT_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST32_MAX, UINT_MAX)
+elif test "$mercury_cv_int_least32_type" = long; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST32_MAX, LONG_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST32_MAX, ULONG_MAX)
+else
+	AC_MSG_ERROR("Cannot find the name of the max values for MR_INT_LEAST32_TYPE.")
+fi
+AC_SUBST(MR_INT_LEAST32_MAX)
+AC_SUBST(MR_UINT_LEAST32_MAX)
+#-----------------------------------------------------------------------------#
+AC_TYPE_PID_T
 #-----------------------------------------------------------------------------#
 AC_MSG_CHECKING(for an integer type of at least 16 bits)
 AC_CACHE_VAL(mercury_cv_int_least16_type,
@@ -1100,6 +1099,19 @@ AC_MSG_RESULT($mercury_cv_int_least16_type)
 AC_DEFINE_UNQUOTED(MR_INT_LEAST16_TYPE, $mercury_cv_int_least16_type)
 MR_INT_LEAST16_TYPE=$mercury_cv_int_least16_type
 AC_SUBST(MR_INT_LEAST16_TYPE)
+
+if test "$mercury_cv_int_least16_type" = short; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST16_MAX, SHRT_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST16_MAX, USHRT_MAX)
+elif test "$mercury_cv_int_least16_type" = int; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST16_MAX, INT_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST16_MAX, UINT_MAX)
+else
+	AC_MSG_ERROR("Cannot find the name of the max value for MR_INT_LEAST16_TYPE.")
+fi
+AC_SUBST(MR_INT_LEAST16_MAX)
+AC_SUBST(MR_UINT_LEAST16_MAX)
+
 #-----------------------------------------------------------------------------#
 AC_MSG_CHECKING(the number of low tag bits available)
 AC_CACHE_VAL(mercury_cv_low_tag_bits,
@@ -1148,7 +1160,7 @@ if test "$mercury_cv_low_tag_bits" -gt 2; then
 		mercury_cv_low_tag_bits=2
 	fi
 fi
-AC_DEFINE_UNQUOTED(LOW_TAG_BITS, $mercury_cv_low_tag_bits)
+AC_DEFINE_UNQUOTED(MR_LOW_TAG_BITS, $mercury_cv_low_tag_bits)
 LOW_TAG_BITS=$mercury_cv_low_tag_bits
 AC_SUBST(LOW_TAG_BITS)
 #-----------------------------------------------------------------------------#
@@ -1172,7 +1184,7 @@ AC_CACHE_VAL(mercury_cv_bytes_per_word,
 	[mercury_cv_bytes_per_word=0])
 )
 AC_MSG_RESULT($mercury_cv_bytes_per_word)
-AC_DEFINE_UNQUOTED(BYTES_PER_WORD, $mercury_cv_bytes_per_word)
+AC_DEFINE_UNQUOTED(MR_BYTES_PER_WORD, $mercury_cv_bytes_per_word)
 BYTES_PER_WORD=$mercury_cv_bytes_per_word
 AC_SUBST(BYTES_PER_WORD)
 #-----------------------------------------------------------------------------#
@@ -1203,7 +1215,7 @@ AC_CACHE_VAL(mercury_cv_sync_term_size,
 	[mercury_cv_sync_term_size=0])
 )
 AC_MSG_RESULT($mercury_cv_sync_term_size)
-AC_DEFINE_UNQUOTED(SYNC_TERM_SIZE, $mercury_cv_sync_term_size)
+AC_DEFINE_UNQUOTED(MR_SYNC_TERM_SIZE, $mercury_cv_sync_term_size)
 SYNC_TERM_SIZE=$mercury_cv_sync_term_size
 AC_SUBST(SYNC_TERM_SIZE)
 #-----------------------------------------------------------------------------#
@@ -1228,7 +1240,7 @@ AC_CACHE_VAL(mercury_cv_bits_per_word,
 	[mercury_cv_bits_per_word=0])
 )
 AC_MSG_RESULT($mercury_cv_bits_per_word)
-AC_DEFINE_UNQUOTED(BITS_PER_WORD, $mercury_cv_bits_per_word)
+AC_DEFINE_UNQUOTED(MR_BITS_PER_WORD, $mercury_cv_bits_per_word)
 BITS_PER_WORD=$mercury_cv_bits_per_word
 AC_SUBST(BITS_PER_WORD)
 #-----------------------------------------------------------------------------#
@@ -1261,7 +1273,7 @@ fi
 if test "$mercury_cv_unboxed_floats" = yes; then
 	HAVE_BOXED_FLOATS="--unboxed-float"
 else
-	AC_DEFINE(BOXED_FLOAT)
+	AC_DEFINE(MR_BOXED_FLOAT)
 	HAVE_BOXED_FLOATS="--no-unboxed-float"
 fi
 AC_SUBST(HAVE_BOXED_FLOATS)
@@ -1378,7 +1390,7 @@ AC_MSG_CHECKING(return values of system)
 AC_CACHE_VAL(mercury_cv_normal_system_retval,
 	AC_TRY_RUN([
 	#include <stdlib.h>
-	#ifdef HAVE_SYS_WAIT
+	#ifdef MR_HAVE_SYS_WAIT_H
 	#include <sys/wait.h>
 	#endif
 	int main() {
@@ -1595,7 +1607,7 @@ AC_CACHE_VAL(mercury_cv_gcc_labels,
 )
 AC_MSG_RESULT($mercury_cv_gcc_labels)
 if test "$mercury_cv_gcc_labels" = yes; then
-	AC_DEFINE(HAVE_GCC_LABELS)
+	AC_DEFINE(MR_HAVE_GCC_LABELS)
 fi
 
 if test $mercury_cv_gcc_labels = yes; then
@@ -1627,7 +1639,7 @@ fi
 HAVE_ASM_LABELS=$mercury_cv_asm_labels
 AC_SUBST(HAVE_ASM_LABELS)
 if test $HAVE_ASM_LABELS = 1; then
-	AC_DEFINE(HAVE_ASM_LABELS)
+	AC_DEFINE(MR_HAVE_ASM_LABELS)
 fi
 
 # Restore env vars modified above
@@ -1657,8 +1669,8 @@ if test $mercury_cv_gcc_labels = yes || test $mercury_cv_asm_labels = yes; then
 
 	AC_CACHE_VAL(mercury_cv_gcc_model_fast,
 	AC_TRY_RUN([
-	#define USE_GCC_NONLOCAL_GOTOS
-	#define USE_GCC_GLOBAL_REGISTERS
+	#define MR_USE_GCC_NONLOCAL_GOTOS
+	#define MR_USE_GCC_GLOBAL_REGISTERS
 	#include "mercury_engine.h"
 	changequote(<<,>>) 
 	MercuryEngine MR_engine_base;
@@ -1690,7 +1702,7 @@ CC="$CC $CFLAGS_FOR_REGS"
 
 AC_CACHE_VAL(mercury_cv_gcc_model_reg,
 AC_TRY_RUN([
-#define USE_GCC_GLOBAL_REGISTERS
+#define MR_USE_GCC_GLOBAL_REGISTERS
 #include "mercury_engine.h"
 changequote(<<,>>) 
 MercuryEngine MR_engine_base;
@@ -1720,22 +1732,22 @@ AC_TRY_CPP([
 #include	<string.h>
 #include	<signal.h>
 
-#ifdef HAVE_SYS_PARAM
+#ifdef MR_HAVE_SYS_PARAM_H
 #include	<sys/param.h>
 #endif
 
-#ifdef HAVE_SYS_TIME
+#ifdef MR_HAVE_SYS_TIME_H
 #include	<sys/time.h>
 #endif
 
 /* 
 ** if HZ is not defined, we may be able to use sysconf(_SC_CLK_TCK) instead
 */
-#if !defined(HZ) && defined(HAVE_SYSCONF) && defined(_SC_CLK_TCK)
+#if !defined(HZ) && defined(MR_HAVE_SYSCONF) && defined(_SC_CLK_TCK)
 #define HZ ((int)sysconf(_SC_CLK_TCK))
 #endif
 
-#if !defined(HZ) || !defined(SIGPROF) || !defined(HAVE_SETITIMER)
+#if !defined(HZ) || !defined(SIGPROF) || !defined(MR_HAVE_SETITIMER)
 #error "Time profiling not supported on this system"
 #endif
 ], [mercury_cv_profiling=yes], [mercury_cv_profiling=no]))
@@ -1745,10 +1757,10 @@ AC_MSG_RESULT($mercury_cv_profiling)
 AC_MSG_CHECKING(if C compiler is egcs)
 case "`$CC --version < /dev/null 2>&1`" in
     egcs-*)
-    	mercury_cv_egcs=yes
+	mercury_cv_egcs=yes
 	;;
     *)
-    	mercury_cv_egcs=no
+	mercury_cv_egcs=no
 	;;
 esac
 AC_MSG_RESULT($mercury_cv_egcs)
@@ -1766,7 +1778,7 @@ AC_MSG_CHECKING(whether to enable the deep profiler)
     # Currently it only distinguishes between systems which have
     # unistd.h or not, but at a later date we may also need to test for
     # other posix features.
-if test "$HAVE_UNISTD_H" = 1; then
+if test "$MR_HAVE_UNISTD_H" = 1; then
     mercury_cv_can_enable_deep_profiler=yes
 else
     mercury_cv_can_enable_deep_profiler=no
@@ -1851,7 +1863,7 @@ fi
 case "$host" in
 	*solaris*)
 		CFLAGS_FOR_THREADS="-DMR_THREAD_SAFE -DSOLARIS_THREADS \
-			-D_SOLARIS_PTHREADS -D_REENTRANT"
+			-D_SOLARIS_PTHREADS -DGC_SOLARIS_PTHREADS -D_REENTRANT"
 		;;
 
 	*linux*)
@@ -2018,10 +2030,18 @@ AC_ARG_ENABLE(par-grades,
 [  --disable-par-grades    do not install thread-safe versions of the library],
 enable_par_grades="$enableval",enable_par_grades=yes)
 
+AC_ARG_ENABLE(mm-grades,
+[  --enable-mm-grades      install minimal model versions of the library],
+enable_mm_grades="$enableval",enable_mm_grades=no)
+
 AC_ARG_ENABLE(hlc-prof-grades,
 [  --enable-hlc-prof-grades
                           install profiling versions of the high level C grade],
-enable_hlc_prof_grades=yes,enable_hlc_prof_grades=no)
+enable_hlc_prof_grades="$enableval",enable_hlc_prof_grades=no)
+
+AC_ARG_ENABLE(dotnet-grades,
+[  --disable-dotnet-grades do not install the .NET grades],
+enable_dotnet_grades="$enableval",enable_dotnet_grades=yes)
 
 AC_ARG_ENABLE(libgrades,
 [  --enable-libgrades=...  install exactly the given versions of the library],
@@ -2032,6 +2052,7 @@ if test "$enable_most_grades" = no; then
 	enable_nogc_grades=no
 	enable_prof_grades=no
 	enable_trail_grades=no
+	enable_mm_grades=no
 	enable_hlc_prof_grades=no
 	enable_par_grades=no
 fi
@@ -2099,13 +2120,23 @@ if test "$enable_trail_grades" = yes; then
 	fi
 fi
 
+# add `.mm' (--minimal-model) grades
+if test "$enable_mm_grades" = yes; then
+	LIBGRADES="$LIBGRADES $BEST_GRADE.gc.mm $BEST_GRADE.gc.mm.debug"
+fi
+
 # add `.debug' (--debug) grades
 LIBGRADES="$LIBGRADES $DEFAULT_GRADE.tr.debug"
 
 # add `hlc' (--high-level-code, i.e. MLDS back-end) grades
-LIBGRADES="$LIBGRADES hlc.gc"
+if test "$enable_inefficient_grades" = yes -a "$CC" = gcc ; then
+    LIBGRADES="$LIBGRADES hlc.gc hlc_nest.gc"
+else
+    LIBGRADES="$LIBGRADES hlc.gc"
+fi
 
-if test $mercury_cv_microsoft_dotnet = "yes"; then
+if test $mercury_cv_microsoft_dotnet = yes -a "$enable_dotnet_grades" = yes
+then
     LIBGRADES="$LIBGRADES ilc"
 fi
 
@@ -2181,7 +2212,14 @@ AC_SUBST(DEFAULT_GRADE)
 LIBGRADES=` echo " $LIBGRADES " | sed "s/ $GRADE / /" `
 MERCURY_MSG("using \`LIBGRADES=$LIBGRADES' as the set of library grades to install")
 
+LIBGRADE_OPTS=
+for libgrade in $LIBGRADES
+do
+	LIBGRADE_OPTS="$LIBGRADE_OPTS --libgrade $libgrade"
+done
+
 AC_SUBST(LIBGRADES)
+AC_SUBST(LIBGRADE_OPTS)
 
 #-----------------------------------------------------------------------------#
 #
@@ -2310,11 +2348,11 @@ AC_CACHE_VAL(mercury_cv_cannot_use_structure_assignment,
 AC_TRY_RUN([
 changequote(<<,>>) 
 
-/* USE_GCC_GLOBAL_REGISTERS are essential to the purpose of the test. */
-/* We define USE_GCC_NONLOCAL_GOTOS because some platforms (e.g. SPARCs) */
-/* cannot have USE_GCC_GLOBAL_REGISTERS without it. */
-#define	USE_GCC_GLOBAL_REGISTERS
-#define USE_GCC_NONLOCAL_GOTOS
+/* MR_USE_GCC_GLOBAL_REGISTERS are essential to the purpose of the test. */
+/* We define MR_USE_GCC_NONLOCAL_GOTOS because some platforms (e.g. SPARCs) */
+/* cannot have MR_USE_GCC_GLOBAL_REGISTERS without it. */
+#define	MR_USE_GCC_GLOBAL_REGISTERS
+#define MR_USE_GCC_NONLOCAL_GOTOS
 #include "mercury_imp.h"
 #include "trace/mercury_trace_spy.h"
 
@@ -2322,7 +2360,14 @@ MR_Spy_Point	spied_procs[2];
 
 int main() {
 	spied_procs[1] = spied_procs[0];
+#if __GNUC__ >= 3
+	/* gcc 3.1 seems to have problems with structure assignment
+	   and global registers, but which this simple test case
+	   doesn't trigger.  So just force the test to fail for gcc 3.x. */
+	exit(1);
+#else
 	exit(0);
+#endif
 changequote([,]) 
 }],
 [mercury_cv_cannot_use_structure_assignment=no],
@@ -2353,7 +2398,7 @@ EXE_RPATH_OPT="-Wl,-rpath,"
 EXE_RPATH_SEP=" -Wl,-rpath,"
 SHLIB_RPATH_OPT="-Wl,-rpath,"
 SHLIB_RPATH_SEP=" -Wl,-rpath,"
-CFLAGS_FOR_PIC="-fpic -DPIC"
+CFLAGS_FOR_PIC="-fpic -DMR_PIC"
 EXT_FOR_PIC_OBJECTS=pic_o
 EXT_FOR_SHARED_LIB=$LIB_SUFFIX
 USE_DLLS=no
@@ -2428,7 +2473,7 @@ case "$host" in
 		EXE_RPATH_SEP=" -R"
 		SHLIB_RPATH_OPT="-R"
 		SHLIB_RPATH_SEP=" -R"
-		CFLAGS_FOR_PIC="-fpic -DPIC"	# used only for libgc.{a,so}
+		CFLAGS_FOR_PIC="-fpic -DMR_PIC"	# used only for libgc.{a,so}
 		EXT_FOR_PIC_OBJECTS=o
 		#
 		# Note that despite the above definition of CFLAGS_FOR_PIC,
@@ -2452,7 +2497,7 @@ case "$host" in
 		# passes `-z text' to the linker, which causes it to
 		# report an error if any runtime fixups would be needed.
 		#
-		# If you *do* use `-fpic', you must also use `-DPIC'.
+		# If you *do* use `-fpic', you must also use `-DMR_PIC'.
 		#
 		# See runtime/mercury_goto.h for the code that handles PIC
 		# on SPARCs.
@@ -2464,14 +2509,26 @@ case "$host" in
 		;;
 	alpha*-dec-osf*)
 		AC_MSG_RESULT(yes)
-		LINK_SHARED_OBJ="gcc -shared \
-		-Wl,-O3,-update_registry,\$(SO_LOCATIONS_DIR)so_locations"
-		LINK_SHARED_OBJ_SH="gcc -shared \
-		-Wl,-O3,-update_registry,\${SO_LOCATIONS_DIR}so_locations"
-		ERROR_UNDEFINED="-Wl,-error_unresolved"
-		EXE_RPATH_OPT="-Wl,-rpath,"
+		if test "$GCC" != ""; then
+		    # use gcc to link shared objects
+		    LINK_SHARED_OBJ="gcc -shared \
+		    -Wl,-O3,-update_registry,\$(SO_LOCATIONS_DIR)so_locations"
+		    LINK_SHARED_OBJ_SH="gcc -shared \
+		    -Wl,-O3,-update_registry,\${SO_LOCATIONS_DIR}so_locations"
+		    ERROR_UNDEFINED="-Wl,-error_unresolved"
+		    EXE_RPATH_OPT="-Wl,-rpath,"
+		    SHLIB_RPATH_OPT="-Wl,-rpath,"
+		else
+		    # use cc to link shared objects
+		    LINK_SHARED_OBJ="cc -shared \
+		    -update_registry \$(SO_LOCATIONS_DIR)so_locations"
+		    LINK_SHARED_OBJ_SH="cc -shared \
+		    -update_registry \${SO_LOCATIONS_DIR}so_locations"
+		    ERROR_UNDEFINED="-error_unresolved"
+		    EXE_RPATH_OPT="-rpath "
+		    SHLIB_RPATH_OPT="-rpath "
+		fi
 		EXE_RPATH_SEP=":"
-		SHLIB_RPATH_OPT="-Wl,-rpath,"
 		SHLIB_RPATH_SEP=":"
 		EXT_FOR_SHARED_LIB=so
 		# -fpic not needed on Alpha/OSF, since it is the default
@@ -2550,7 +2607,7 @@ AC_SUBST(USE_DLLS)
 AC_SUBST(SHARED_LIBS)
 AC_SUBST(SHARED_LIBS_SH)
 if test $USE_DLLS = "yes"; then
-	AC_DEFINE(USE_DLLS)
+	AC_DEFINE(MR_USE_DLLS)
 fi
 #-----------------------------------------------------------------------------#
 if test "$BOOTSTRAP_MC" = ""; then
@@ -2567,10 +2624,12 @@ top=`pwd`
 INIT_GRADE_OPTIONS=$top/scripts/init_grade_options.sh-subr
 PARSE_GRADE_OPTIONS=$top/scripts/parse_grade_options.sh-subr
 FINAL_GRADE_OPTIONS=$top/scripts/final_grade_options.sh-subr
+PARSE_ML_OPTIONS=$top/scripts/parse_ml_options.sh-subr
 CANONICAL_GRADE=$top/scripts/canonical_grade.sh-subr
 AC_SUBST_FILE(INIT_GRADE_OPTIONS)
 AC_SUBST_FILE(PARSE_GRADE_OPTIONS)
 AC_SUBST_FILE(FINAL_GRADE_OPTIONS)
+AC_SUBST_FILE(PARSE_ML_OPTIONS)
 AC_SUBST_FILE(CANONICAL_GRADE)
 
 #-----------------------------------------------------------------------------#
@@ -2842,10 +2901,7 @@ AC_ARG_ENABLE(dynamic-link,
 [  --disable-dynamic-link  disable the use of dynamic linking],
 mercury_cv_enable_dynamic_link="$enableval",mercury_cv_enable_dynamic_link=yes)
 if test "$mercury_cv_enable_dynamic_link" = "yes"; then
-	AC_CHECK_HEADER(dlfcn.h, HAVE_DLFCN_H=1)
-	if test "$HAVE_DLFCN_H" = 1; then
-		AC_DEFINE(HAVE_DLFCN_H)
-	fi
+	mercury_check_for_headers dlfcn.h
 	AC_CHECK_LIB(dl, dlopen, DL_LIBRARY="-ldl", DL_LIBRARY="")
 	AC_SUBST(DL_LIBRARY)
 
@@ -2853,7 +2909,7 @@ if test "$mercury_cv_enable_dynamic_link" = "yes"; then
 	save_LIBS="$LIBS"
 	LIBS="$LIBS $DL_LIBRARY"
 
-	AC_HAVE_FUNCS(dlopen dlclose dlsym dlerror)
+	mercury_check_for_functions dlopen dlclose dlsym dlerror
 
 	# restore old value of LIBS
 	LIBS="$save_LIBS"
@@ -2877,7 +2933,7 @@ fi
 MERCURY_CHECK_READLINE
 #-----------------------------------------------------------------------------#
 
-check_c_files () {
+mercury_check_c_files () {
     c_dir=$1
     c_date_dir=$2
 
@@ -2910,10 +2966,10 @@ some_kept=false
 to_delete=""
 if test "$BOOTSTRAP_MC" != "" ; then
     MERCURY_MSG("checking whether any C files need to be rebuilt...")
-    for directory in library compiler profiler deep_profiler
+    for directory in library compiler profiler deep_profiler browser
     do
-        check_c_files $directory $directory
-        check_c_files $directory/Mercury/cs $directory/Mercury/c_dates
+        mercury_check_c_files $directory $directory
+        mercury_check_c_files $directory/Mercury/cs $directory/Mercury/c_dates
     done
     if test "$to_delete" = "" ; then
         case $some_kept in
@@ -2943,9 +2999,10 @@ if test "$BOOTSTRAP_MC" != "" ; then
 fi
 #-----------------------------------------------------------------------------#
 AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mercury.bat
-scripts/mprof scripts/mercury_update_interface scripts/mgnuc scripts/ml
-scripts/mmake scripts/c2init scripts/mdb scripts/mdbrc scripts/mdprof
-scripts/sicstus_conv scripts/mkfifo_using_mknod bindist/bindist.build_vars
+scripts/mprof scripts/mercury_update_interface scripts/mgnuc
+scripts/parse_ml_options.sh-subr scripts/ml scripts/c2init
+scripts/mmake scripts/mdb scripts/mdbrc scripts/mdprof
+scripts/mkfifo_using_mknod bindist/bindist.build_vars
 ,
 for header in $CONFIG_HEADERS ; do
 	if test "$header" = "runtime/mercury_conf.h"; then

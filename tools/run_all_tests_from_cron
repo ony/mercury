@@ -36,6 +36,7 @@ case $HOST in
 	muse) 		ARCH=sgi	FULLARCH=mips-sgi-irix5.3 ;;
 	kryten) 	ARCH=sparc	FULLARCH=sparc-sun-solaris2.5 ;;
 	taifun) 	ARCH=sparc	FULLARCH=sparc-sun-solaris2.7 ;;
+	mundroo)	ARCH=i686	FULLARCH=i386-pc-solaris2.8 ;;
 	murlibobo) 	ARCH=alpha	FULLARCH=alphaev5-dec-osf5.1 ;;
 	mundook) 	ARCH=alpha	FULLARCH=alpha-dec-osf3.2 ;;
 	quicksilver) 	ARCH=i586	FULLARCH=i586-pc-linux-gnu ;;
@@ -46,14 +47,13 @@ case $HOST in
 	venus)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	earth)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	mars)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
+	ceres)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	*)		echo "$0: unknown HOST $HOST" 1>&2; exit 1 ;;
 esac
 
 #-----------------------------------------------------------------------------#
 
-PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/pgrad/fjh/.path`"
-PATH="/home/mercury/public/mercury-0.5/$FULLARCH/bin:$PATH"
-PATH="/home/mercury/public/mercury-0.6/$FULLARCH/bin:$PATH"
+PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/mercury/public/cron/.path`"
 PATH="/home/mercury/public/mercury-latest/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/nuprolog/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/gcc-2.7.2/$FULLARCH/bin:$PATH"
@@ -90,7 +90,16 @@ case "$BRANCH" in
 		# to problems with the GCC back-end.
 	    	BRANCH=latest
 		;;
-	    murlibobo|taifun|hg|hydra|mars)
+	    taifun|mundroo)
+	    	# For these hosts we only run 3 times a week.
+		# On Monday and Thursday, test the main branch.
+		# On Sunday, test the release branch.
+		case `date '+%w'` in
+			6)	BRANCH=0.10 ;;
+			*)	BRANCH=latest ;;
+		esac
+		;;
+	    murlibobo|hg|hydra|mars)
 		#
 		# For these hosts:
 		# On odd-numbered days, test the release branch.
@@ -128,8 +137,10 @@ esac
 
 mv -f $tm_dir/logs/old/$logname $tm_dir/logs/old2 2>/dev/null
 mv -f $tm_dir/logs/old/$logname.errs $tm_dir/logs/old2 2>/dev/null
+mv -f $tm_dir/logs/old/$logname.test_errs $tm_dir/logs/old2 2>/dev/null
 mv -f $tm_dir/logs/$logname $tm_dir/logs/old 2>/dev/null
 mv -f $tm_dir/logs/$logname.errs $tm_dir/logs/old 2>/dev/null
+mv -f $tm_dir/logs/$logname.test_errs $tm_dir/logs/old 2>/dev/null
 logfile="$tm_dir/logs/$logname"
 
 if nice -5 sh $tmpscript $HOST $ARCH $FULLARCH $BRANCH $C_COMPILER \
@@ -143,6 +154,12 @@ then
 	else
 		rm -f $logfile.errs
 		echo "test passed"
+	fi
+	if [ -s $logfile.test_errs ]; then
+		test_status="FAILED"
+		echo "Error: test passed but $logfile.test_errs not empty"
+	else
+		rm -f $logfile.test_errs
 	fi
 	echo
 	case $HOST in
@@ -164,12 +181,24 @@ else
 	echo test FAILED
 	echo log file in $logfile
 	echo log file summary in $logfile.errs
+	if [ -s $logfile.test_errs ]; then
+		echo test failure summary in $logfile.test_errs
+	fi
 fi
 
-if [ -s $logfile.errs ]; then
-	echo
-	echo first 100 lines of log file summary:
-	head -100 $logfile.errs
+if [ -s $logfile.errs -o -s $logfile.test_errs ]; then
+	if [ -s $logfile.errs ]; then
+		# Failures building the compiler or library should
+		# occur early in the log summary.
+		echo first 10 lines of log file summary:
+		head -10 $logfile.errs
+		echo
+		echo
+	fi
+	if [ -s $logfile.test_errs ]; then
+		echo first 100 test failures:
+		grep "FAILED TEST" $logfile.test_errs | head - 100
+	fi
 elif [ $test_status = "FAILED" ]; then
 	echo
 	echo last 20 lines of log file:
@@ -184,7 +213,7 @@ echo "test_mercury $test_status: $BRANCH $HOST $C_COMPILER" > $mail_subject
 
 # NB we can't just pipe into `mutt' because the $mail_subject file
 # needs to be written before `mutt' is started.
-mutt -s "`cat $mail_subject`" stayl < $tmpfile
+mutt -s "`cat $mail_subject`" stayl@cs.mu.oz.au < $tmpfile
 rm -f $tmpfile $tmpscript $mail_subject
 
 #-----------------------------------------------------------------------------#

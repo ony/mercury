@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2001 The University of Melbourne. 
+# Copyright (C) 1995-2002 The University of Melbourne. 
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -19,13 +19,20 @@
 
 include $(MERCURY_DIR)/VERSION
 
+# The rpath for the libraries needs to be set to the final installation
+# directory, not $(MERCURY_DIR)/runtime etc.
+SET_RPATH=no
+
+WORKSPACE=$(MERCURY_DIR)
+include $(MERCURY_DIR)/Mmake.workspace
+
 #-----------------------------------------------------------------------------#
 
-# Specify the Mercury compiler to use for bootstrapping
-MC			= @BOOTSTRAP_MC@
+# Specify the Mercury compiler to use for bootstrapping.
+MC		= @BOOTSTRAP_MC@
 
-# Specify the compilation model to use for compiling the compiler
-GRADE			= @GRADE@
+# Specify the compilation model to use for compiling the compiler.
+GRADE		= @GRADE@
 
 # Specify EXT_FOR_EXE is `.exe' on MS-Windows and empty elsewhere.
 EXT_FOR_EXE	= @EXT_FOR_EXE@
@@ -36,7 +43,7 @@ EXT_FOR_EXE	= @EXT_FOR_EXE@
 # or as `a' if it doesn't.
 EXT_FOR_SHARED_LIB	= @EXT_FOR_SHARED_LIB@
 
-# Specify USE_DLLs as `yes' if the OS supports Windows-style DLLs
+# Specify USE_DLLs as `yes' if the OS supports Windows-style DLLs.
 USE_DLLS		= @USE_DLLS@
 
 # Specify any special flags to pass to the C compiler when creating objects
@@ -50,12 +57,6 @@ CFLAGS_FOR_PIC		= @CFLAGS_FOR_PIC@
 # we don't bother to build the .pic_o files if $(PIC) is null, since we can
 # just reuse the .o files.
 EXT_FOR_PIC_OBJECTS	= @EXT_FOR_PIC_OBJECTS@
-
-# This specifies the path to the so_locations file (or its equivalent),
-# which is used by the linker to help it to map different shared objects
-# to different virtual memory addresses at static link time, so as to avoid 
-# the need to relocate them at dynamic link time.
-SO_LOCATIONS_DIR	= $(MERCURY_DIR)/
 
 # Specify the Mmake command to link a shared library.
 # This is only used if EXT_FOR_SHARED_LIB was defined as `so' above.
@@ -113,15 +114,6 @@ SHARED_LIBS		= @SHARED_LIBS@
 INSTALL_MERC_GC_LIB_DIR	= $(INSTALL_MERC_GRADELESS_LIB_DIR)
 FINAL_INSTALL_MERC_GC_LIB_DIR = $(FINAL_INSTALL_MERC_GRADELESS_LIB_DIR)
 
-SCRIPTS_DIR = $(MERCURY_DIR)/scripts
-RUNTIME_DIR = $(MERCURY_DIR)/runtime
-LIBRARY_DIR = $(MERCURY_DIR)/library
-TRACE_DIR = $(MERCURY_DIR)/trace
-BROWSER_DIR = $(MERCURY_DIR)/browser
-BOEHM_GC_DIR = $(MERCURY_DIR)/boehm_gc
-COMPILER_DIR = $(MERCURY_DIR)/compiler
-UTIL_DIR = $(MERCURY_DIR)/util
-
 # By default, GRADESTRING is defined as the result of invoking
 # `mmc --output-grade-string' with $(GRADE) and $(GRADEFLAGS).
 # But when installing the standard library, the compiler will not yet
@@ -133,22 +125,8 @@ UTIL_DIR = $(MERCURY_DIR)/util
 # compiler itself should be done by setting GRADE, not GRADEFLAGS.
 GRADESTRING		= $(GRADE)
 
-# The names of the various libraries.
-# The archives and shared object objects have a "lib" prefix and a ".a" or
-# ".so" (or ".dll") suffix around these names; the initialization files
-# have just a ".init" suffix. (The trace library does not have a .init file,
-# since it contains no Mercury code.)
-#
-# If you change these, you will also need to change scripts/ml.in,
-# scripts/c2init.in, tools/bootcheck, tools/binary, tools/binary_step
-# and tools/linear.
-RT_LIB_NAME = mer_rt
-STD_LIB_NAME = mer_std
-TRACE_LIB_NAME = mer_trace
-BROWSER_LIB_NAME = mer_browser
-
 # Options to pass to the Mercury compiler
-MCFLAGS	= --no-infer-all --halt-at-warn
+MCFLAGS	+= --no-infer-all --halt-at-warn --no-warn-inferred-erroneous
 
 # Do we want to deal with intermodule information when building the library?
 # By default yes, since this way we note immediately when intermodule
@@ -230,8 +208,15 @@ BOEHMGC_MAKEFILE=@BOEHMGC_MAKEFILE@
 
 #-----------------------------------------------------------------------------#
 
+# Module-specific options should go in Mercury.options so they
+# can be found by `mmc --make'.
+include $(MERCURY_DIR)/Mercury.options
+
 # The Mmake.params file can be used to override definitions in this file
 -include $(MERCURY_DIR)/Mmake.params
+
+# Avoid trying to make this file with `mmc --make' if it doesn't exist.
+$(MERCURY_DIR)/Mmake.params: ;
 
 #-----------------------------------------------------------------------------#
 
@@ -256,12 +241,12 @@ BOEHMGC_MAKEFILE=@BOEHMGC_MAKEFILE@
 
 # This rule helps to check that header files is self-contained, i.e. that each
 # header file foo.h includes any other header files that define types
-# used by foo.h. It creates a foo.check.c file that contains only a single
-# `#include' statement that includes foo.h; compiling foo.check.c will fail
+# used by foo.h. It creates a foo.check_hdr.c file that contains only a single
+# `#include' statement that includes foo.h; compiling foo.check_hdr.c will fail
 # if foo.h is not self-contained.
 
-%.check.c : %.h
-	echo "#include \"$*.h\"" > $*.check.c
+%.check_hdr.c : %.h
+	echo "#include \"$*.h\"" > $*.check_hdr.c
 
 # This rule checks whether a header file defines any macros it shouldn't.
 # It generates the list of macros defined in the header file, and filters this
@@ -270,10 +255,10 @@ BOEHMGC_MAKEFILE=@BOEHMGC_MAKEFILE@
 # the HEADER_CLEAN_FILTER make variable to contain this command.
 
 AWK = awk
-%.check.macros: %.h %.check.c
+%.check.macros: %.h %.check_hdr.c
 	-$(MGNUC) $(ALL_GRADEFLAGS) $(ALL_MGNUCFLAGS) \
-		-DMERCURY_BOOTSTRAP_H \
-		-E $*.check.c \
+		-DMERCURY_BOOTSTRAP_H -DMR_NO_CONF_BACKWARDS_COMPAT \
+		-E $*.check_hdr.c \
 		-nostdinc -dN \
 		2> /dev/null | $(AWK) '/^#define/ { print $$2; }' | \
 		$(HEADER_CLEAN_FILTER) | sort -u > $@

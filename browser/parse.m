@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 The University of Melbourne.
+% Copyright (C) 1998-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -19,10 +19,10 @@
 % The Command Language
 %
 %	commandline:
-%		"?"			// SICstus help
-%		"^" [numlist]		// SICstus cd
-%		"d"			// SICstus display
-%		"w"			// SICstus write
+%		"?"			// SICStus help
+%		"^" [numlist]		// SICStus cd
+%		"d"			// SICStus display
+%		"w"			// SICStus write
 %		"help"
 %		"cd" [path]
 %		"pwd"
@@ -83,13 +83,12 @@
 	;	print
 	;	display
 	;	write
-	;	unknown
-	.
+	;	empty
+	;	unknown.
 
 :- type path
 	--->	root_rel(list(dir))
 	;	dot_rel(list(dir)).
-
 
 % If the term browser is called from the external debugger, the term browser
 % commands are send through the socket via terms of type external_request.
@@ -121,32 +120,30 @@
 	;	unknown(char)
 	.
 
-parse__read_command(Prompt, Comm) -->
+parse__read_command(Prompt, Command) -->
 	util__trace_get_command(Prompt, Line),
 	{ string__to_char_list(Line, Cs) },
 	{ lexer(Cs, Tokens) },
-	( { parse(Tokens, Comm2) } ->
-		{ Comm = Comm2 }
+	( { parse(Tokens, Command2) } ->
+		{ Command = Command2 }
 	;
-		{ Comm = unknown }
+		{ Command = unknown }
 	).
 
-parse__read_command_external(Comm) -->
+parse__read_command_external(Command) -->
 	io__read(Result),
-	( 
-		{ Result = ok(external_request(StringToParse)) }
-	->
+	( { Result = ok(external_request(StringToParse)) } ->
 		{ string__to_char_list(StringToParse, Cs) },
 		{ lexer(Cs, Tokens) },
-		( { parse(Tokens, Comm2) } ->
-			{ Comm = Comm2 }
+		( { parse(Tokens, Command2) } ->
+			{ Command = Command2 }
 		;
-			{ Comm = unknown }
+			{ Command = unknown }
 		)
 	; { Result = eof } ->
-		{ Comm = quit }
+		{ Command = quit }
 	;
-		{ Comm = unknown }
+		{ Command = unknown }
 	).
 
 :- pred lexer(list(char), list(token)).
@@ -221,7 +218,7 @@ digits_to_int_acc(Acc, [C | Cs], Num) :-
 :- pred lexer_name(char, list(char), list(token)).
 :- mode lexer_name(in, in, out) is det.
 lexer_name(C, Cs, Toks) :-
-	list__takewhile(char__is_alpha_or_underscore, Cs, Letters, Rest),
+	list__takewhile(char__is_alnum_or_underscore, Cs, Letters, Rest),
 	string__from_char_list([C | Letters], Name),
 	lexer(Rest, Toks2),
 	Toks = [name(Name) | Toks2].
@@ -229,62 +226,66 @@ lexer_name(C, Cs, Toks) :-
 
 :- pred parse(list(token), command).
 :- mode parse(in, out) is semidet.
-parse(Toks, Comm) :-
-	start(Toks, Comm).
+parse(Toks, Command) :-
+	( Toks = [] ->
+		Command = empty
+	;
+		start(Toks, Command)
+	).
 
 :- pred start(list(token), command).
 :- mode start(in, out) is semidet.
-start([Tok | Toks], Comm) :-
+start([Tok | Toks], Command) :-
 	( (Tok = name("help") ; Tok = (?) ; Tok = name("h")) ->
 		Toks = [],
-		Comm = help
+		Command = help
 	; (Tok = name("cd") ; Tok = (^)) ->
 		( Toks = [] ->
-			Comm = cd
+			Command = cd
 		;
 			parse_path(Toks, Path),
-			Comm = cd(Path)
+			Command = cd(Path)
 		)
 	; Tok = name("pwd") ->
 		Toks = [],
-		Comm = pwd
+		Command = pwd
 	; Tok = name("ls") ->
 		( Toks = [] ->
-			Comm = ls
+			Command = ls
 		;
 			parse_path(Toks, Path),
-			Comm = ls(Path)
+			Command = ls(Path)
 		)
 	; Tok = name("mark") ->
 		( Toks = [] ->
-			Comm = mark
+			Command = mark
 		;
 			parse_path(Toks, Path),
-			Comm = mark(Path)
+			Command = mark(Path)
 		)
 	; Tok = name("set") ->
 		( Toks = [] ->
-			Comm = set
+			Command = set
 		;
 			parse_setting(Toks, Setting),
-			Comm = set(Setting)
+			Command = set(Setting)
 		)
 	; Tok = name("quit") ->
 		Toks = [],
-		Comm = quit
+		Command = quit
 	; (Tok = name("display") ; Tok = name("d")) ->
 		Toks = [],
-		Comm = display
+		Command = display
 	; (Tok = name("write") ; Tok = name("w")) ->
 		Toks = [],
-		Comm = write
+		Command = write
 	; (Tok = name("print") ; Tok = name("p")) ->
 		Toks = [],
-		Comm = print
+		Command = print
 	;
 		Tok = (<),
 		Toks = [num(Depth)],
-		Comm = set(depth(Depth))
+		Command = set(depth(Depth))
 	).
 
 :- pred parse_path(list(token), path).
@@ -306,7 +307,11 @@ parse_dirs([], []).
 parse_dirs([Tok | Toks], Dirs) :-
 	(
 		Tok = num(Subdir),
-		Dirs = [child(Subdir) | RestDirs],
+		Dirs = [child_num(Subdir) | RestDirs],
+		parse_dirs(Toks, RestDirs)
+	;
+		Tok = name(NamedSubdir),
+		Dirs = [child_name(NamedSubdir) | RestDirs],
 		parse_dirs(Toks, RestDirs)
 	;
 		Tok = (..),
@@ -395,6 +400,8 @@ show_command(display) -->
 	io__write_string("display\n").
 show_command(write) -->
 	io__write_string("write\n").
+show_command(empty) -->
+	io__write_string("empty\n").
 show_command(unknown) -->
 	io__write_string("unknown\n").
 
@@ -410,8 +417,12 @@ show_path(dot_rel(Dirs)) -->
 :- mode show_dirs(in, di, uo) is det.
 show_dirs([]) -->
 	io__nl.
-show_dirs([child(Num) | Dirs]) -->
+show_dirs([child_num(Num) | Dirs]) -->
 	io__write_int(Num),
+	io__write_string("/"),
+	show_dirs(Dirs).
+show_dirs([child_name(Name) | Dirs]) -->
+	io__write_string(Name),
 	io__write_string("/"),
 	show_dirs(Dirs).
 show_dirs([parent | Dirs]) -->

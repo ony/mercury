@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 The University of Melbourne.
+% Copyright (C) 1998-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -35,7 +35,7 @@
 
 % high-level interface to the C function dlsym().
 % This version returns a higher-order predicate or function term.
-% The user must use an inst cast (implemented using pragma c_code)
+% The user must use an inst cast (implemented using c_code or foreign_proc)
 % to cast this term to the appropriate higher-order inst before calling
 % it; see dl_test.m for an example of this.
 %
@@ -85,7 +85,7 @@
 	#include <stdio.h>
 	#include ""mercury_conf.h""
 	#include ""mercury_string.h""	/* for MR_make_aligned_string_copy() */
-#ifdef HAVE_DLFCN_H
+#ifdef MR_HAVE_DLFCN_H
 	#include <dlfcn.h>
 #endif
 ").
@@ -93,9 +93,10 @@
 :- type handle ---> handle(c_pointer).
 
 :- pred is_null(c_pointer::in) is semidet.
-:- pragma c_code(is_null(Pointer::in),
-		[will_not_call_mercury, thread_safe],
-		"SUCCESS_INDICATOR = ((void *)Pointer == NULL)").
+:- pragma foreign_proc("C",
+	is_null(Pointer::in),
+	[will_not_call_mercury, promise_pure, thread_safe],
+"SUCCESS_INDICATOR = ((void *) Pointer == NULL)").
 
 open(FileName, Mode, Scope, Result) -->
 	dlopen(FileName, Mode, Scope, Pointer),
@@ -114,10 +115,12 @@ open(FileName, Mode, Scope, Result) -->
 
 :- pred dlopen(string::in, (mode)::in, scope::in, c_pointer::out,
 	io__state::di, io__state::uo) is det.
-:- pragma c_code(dlopen(FileName::in, Mode::in, Scope::in, Result::out,
-		_IO0::di, _IO::uo), [], "
-{
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLOPEN) \
+:- pragma foreign_proc("C",
+	dlopen(FileName::in, Mode::in, Scope::in, Result::out,
+		_IO0::di, _IO::uo),
+	[may_call_mercury, promise_pure, tabled_for_io],
+"{
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLOPEN) \
  && defined(RTLD_NOW) && defined(RTLD_LAZY)
 	int mode = (Mode ? RTLD_NOW : RTLD_LAZY);
 	/* not all systems have RTLD_GLOBAL */
@@ -129,31 +132,6 @@ open(FileName, Mode, Scope, Result) -->
 	Result = (MR_Word) NULL;
 #endif
 }").
-
-	% closures for the LLDS backend
-:- type ll_closure
-	--->	ll_closure(
-			c_pointer,	% really MR_Closure_Layout
-			c_pointer,	% the address of the procedure to call
-			int		% the number of curried arguments;
-					% always zero, for closures created
-					% by dl.m
-		).
-
-	% closures for the --high-level-code (MLDS) backend
-:- type hl_closure
-	--->	hl_closure(
-			c_pointer,	% really MR_Closure_Layout
-			c_pointer,	% the wrapper function;
-					% this gets passed the closure
-					% as an argument
-			int,		% the number of curried arguments;
-					% always one, for closures created
-					% by dl.m
-			c_pointer	% the real function, which gets
-					% called by the wrapper function
-		).
-
 
 mercury_sym(Handle, MercuryProc0, Result) -->
 	{ check_proc_spec_matches_result_type(Result, _,
@@ -172,15 +150,15 @@ mercury_sym(Handle, MercuryProc0, Result) -->
 		( high_level_code ->
 			NumCurriedInputArgs = 1,
 			ClosureLayout = make_closure_layout,
-			HL_Closure = hl_closure(ClosureLayout,
+			HL_Closure = make_closure(ClosureLayout,
 				dl__generic_closure_wrapper,
 				NumCurriedInputArgs, Address),
 			private_builtin__unsafe_type_cast(HL_Closure, Value)
 		;
 			NumCurriedInputArgs = 0,
 			ClosureLayout = make_closure_layout,
-			LL_Closure = ll_closure(ClosureLayout, Address,
-				NumCurriedInputArgs),
+			LL_Closure = make_closure(ClosureLayout, Address,
+				NumCurriedInputArgs, Address),
 			private_builtin__unsafe_type_cast(LL_Closure, Value)
 		),
 		Result = ok(Value)
@@ -200,7 +178,7 @@ int	ML_DL_closure_counter = 0;
 :- func make_closure_layout = c_pointer.
 
 :- pragma foreign_proc("C", make_closure_layout = (ClosureLayout::out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, promise_pure, thread_safe],
 "{
 	MR_Closure_Id			*closure_id;
 	MR_Closure_Dyn_Link_Layout	*closure_layout;
@@ -216,23 +194,55 @@ int	ML_DL_closure_counter = 0;
 	*/
 
 	MR_incr_hp_type(closure_id, MR_Closure_Id);
-	closure_id->proc_id.MR_proc_user.MR_user_pred_or_func = MR_PREDICATE;
-	closure_id->proc_id.MR_proc_user.MR_user_decl_module = ""unknown"";
-	closure_id->proc_id.MR_proc_user.MR_user_def_module = ""unknown"";
-	closure_id->proc_id.MR_proc_user.MR_user_name = ""unknown"";
-	closure_id->proc_id.MR_proc_user.MR_user_arity = -1;
-	closure_id->proc_id.MR_proc_user.MR_user_mode = -1;
-	closure_id->module_name = ""dl"";
-	closure_id->file_name = __FILE__;
-	closure_id->line_number = __LINE__;
-	MR_make_aligned_string_copy(closure_id->goal_path, buf);
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_pred_or_func =
+		MR_PREDICATE;
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_decl_module =
+		""unknown"";
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_def_module =
+		""unknown"";
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_name = ""unknown"";
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_arity = -1;
+	closure_id->MR_closure_proc_id.MR_proc_user.MR_user_mode = -1;
+	closure_id->MR_closure_module_name = ""dl"";
+	closure_id->MR_closure_file_name = __FILE__;
+	closure_id->MR_closure_line_number = __LINE__;
+	MR_make_aligned_string_copy(closure_id->MR_closure_goal_path, buf);
 
 	MR_incr_hp_type(closure_layout, MR_Closure_Dyn_Link_Layout);
-	closure_layout->closure_id = closure_id;
-	closure_layout->type_params = NULL;
-	closure_layout->num_all_args = 0;
+	closure_layout->MR_closure_dl_id = closure_id;
+	closure_layout->MR_closure_dl_type_params = NULL;
+	closure_layout->MR_closure_dl_num_all_args = 0;
 
 	ClosureLayout = (MR_Word) closure_layout;
+}").
+
+:- func make_closure(c_pointer, c_pointer, int, c_pointer) = c_pointer.
+
+:- pragma foreign_proc("C",
+	make_closure(ClosureLayout::in,
+		Address::in, NumArgs::in, FirstArg::in) = (Closure::out),
+	[will_not_call_mercury, promise_pure, thread_safe],
+"{
+	MR_Closure	*closure;
+	/*
+	** XXX All the allocations in this code should use malloc
+	** in deep profiling grades, perhaps?
+	*/
+	MR_incr_hp(MR_LVALUE_CAST(MR_Word, closure), 3 + NumArgs);
+	closure->MR_closure_layout = (MR_Closure_Layout *) ClosureLayout;
+	closure->MR_closure_code = (MR_Code *) Address;
+	closure->MR_closure_num_hidden_args = NumArgs;
+	switch (NumArgs) {
+	case 0:
+		break;
+	case 1:
+		closure->MR_closure_hidden_args(1) = FirstArg;
+		break;
+	default:
+		/* Not supported. */
+		MR_fatal_error(""dl.m: make_closure: NumArgs > 1"");
+	}
+	Closure = (MR_Word) closure;
 }").
 
 :- pragma c_header_code("
@@ -243,7 +253,7 @@ extern MR_Box MR_CALL ML_DL_generic_closure_wrapper(void *closure,
 	MR_Box arg16, MR_Box arg17, MR_Box arg18, MR_Box arg19, MR_Box arg20);
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 
 /*
 ** For the --high-level-code grades, the closure will be passed
@@ -302,8 +312,9 @@ ML_DL_generic_closure_wrapper(void *closure,
 ").
 	 
 :- func dl__generic_closure_wrapper = c_pointer.
-:- pragma c_code(dl__generic_closure_wrapper = (WrapperFuncAddr::out),
-	[thread_safe, will_not_call_mercury],
+:- pragma foreign_proc("C",
+	dl__generic_closure_wrapper = (WrapperFuncAddr::out),
+	[will_not_call_mercury, promise_pure, thread_safe],
 "
 	WrapperFuncAddr = (MR_Word) &ML_DL_generic_closure_wrapper;
 ").
@@ -426,10 +437,11 @@ sym(handle(Handle), Name, Result) -->
 
 :- pred dlsym(c_pointer::in, string::in, c_pointer::out,
 	io__state::di, io__state::uo) is det.
-:- pragma c_code(dlsym(Handle::in, Name::in, Pointer::out,
-	_IO0::di, _IO::uo), [will_not_call_mercury], "
-{
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLSYM)
+:- pragma foreign_proc("C",
+	dlsym(Handle::in, Name::in, Pointer::out, _IO0::di, _IO::uo),
+	[will_not_call_mercury, promise_pure, tabled_for_io],
+"{
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLSYM)
 	Pointer = (MR_Word) dlsym((void *) Handle, Name);
 #else
 	Pointer = (MR_Word) NULL;
@@ -437,12 +449,13 @@ sym(handle(Handle), Name, Result) -->
 }").
 
 :- pred dlerror(string::out, io__state::di, io__state::uo) is det.
-:- pragma c_code(dlerror(ErrorMsg::out, _IO0::di, _IO::uo),
-	[will_not_call_mercury], "
+:- pragma foreign_proc("C",
+	dlerror(ErrorMsg::out, _IO0::di, _IO::uo),
+	[will_not_call_mercury, promise_pure, tabled_for_io], "
 {
 	const char *msg;
 
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLERROR)
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLERROR)
 	msg = dlerror();
 	if (msg == NULL) msg = """";
 #else
@@ -464,20 +477,26 @@ close(handle(Handle), Result) -->
 ** to declare this as `will_not_call_mercury'.
 */
 :- pred dlclose(c_pointer::in, io__state::di, io__state::uo) is det.
-:- pragma c_code(dlclose(Handle::in, _IO0::di, _IO::uo), [], "
-#if defined(HAVE_DLFCN_H) && defined(HAVE_DLCLOSE)
-	dlclose((void *)Handle)
+:- pragma foreign_proc("C",
+	dlclose(Handle::in, _IO0::di, _IO::uo),
+	[may_call_mercury, promise_pure, tabled_for_io],
+"
+#if defined(MR_HAVE_DLFCN_H) && defined(MR_HAVE_DLCLOSE)
+	dlclose((void *) Handle);
 #endif
 ").
 
 %-----------------------------------------------------------------------------%
 
 :- pred high_level_code is semidet.
-:- pragma c_code(high_level_code, [will_not_call_mercury, thread_safe], "
+:- pragma foreign_proc("C",
+	high_level_code,
+	[will_not_call_mercury, promise_pure, thread_safe],
+"
 #ifdef MR_HIGHLEVEL_CODE
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #else
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #endif
 ").
 
