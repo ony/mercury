@@ -673,6 +673,53 @@
 :- pred goal_info_set_goal_path(hlds_goal_info, goal_path, hlds_goal_info).
 :- mode goal_info_set_goal_path(in, in, out) is det.
 
+:- pred goal_info_get_occurring_vars(hlds_goal_info, set(prog_var)).
+:- mode goal_info_get_occurring_vars(in, out) is det.
+
+:- pred goal_info_set_occurring_vars(hlds_goal_info, set(prog_var),
+		hlds_goal_info).
+:- mode goal_info_set_occurring_vars(in, in, out) is det.
+
+:- pred goal_info_get_producing_vars(hlds_goal_info, set(prog_var)).
+:- mode goal_info_get_producing_vars(in, out) is det.
+
+:- pred goal_info_set_producing_vars(hlds_goal_info, set(prog_var),
+		hlds_goal_info).
+:- mode goal_info_set_producing_vars(in, in, out) is det.
+
+:- func producing_vars(hlds_goal_info) = set(prog_var).
+:- func 'producing_vars :='(hlds_goal_info, set(prog_var)) = hlds_goal_info.
+
+:- pred goal_info_get_consuming_vars(hlds_goal_info, set(prog_var)).
+:- mode goal_info_get_consuming_vars(in, out) is det.
+
+:- pred goal_info_set_consuming_vars(hlds_goal_info, set(prog_var),
+		hlds_goal_info).
+:- mode goal_info_set_consuming_vars(in, in, out) is det.
+
+:- func consuming_vars(hlds_goal_info) = set(prog_var).
+:- func 'consuming_vars :='(hlds_goal_info, set(prog_var)) = hlds_goal_info.
+
+:- pred goal_info_get_make_visible_vars(hlds_goal_info, set(prog_var)).
+:- mode goal_info_get_make_visible_vars(in, out) is det.
+
+:- pred goal_info_set_make_visible_vars(hlds_goal_info, set(prog_var),
+		hlds_goal_info).
+:- mode goal_info_set_make_visible_vars(in, in, out) is det.
+
+:- func make_visible_vars(hlds_goal_info) = set(prog_var).
+:- func 'make_visible_vars :='(hlds_goal_info, set(prog_var)) = hlds_goal_info.
+
+:- pred goal_info_get_need_visible_vars(hlds_goal_info, set(prog_var)).
+:- mode goal_info_get_need_visible_vars(in, out) is det.
+
+:- pred goal_info_set_need_visible_vars(hlds_goal_info, set(prog_var),
+		hlds_goal_info).
+:- mode goal_info_set_need_visible_vars(in, in, out) is det.
+
+:- func need_visible_vars(hlds_goal_info) = set(prog_var).
+:- func 'need_visible_vars :='(hlds_goal_info, set(prog_var)) = hlds_goal_info.
+
 :- pred goal_get_nonlocals(hlds_goal, set(prog_var)).
 :- mode goal_get_nonlocals(in, out) is det.
 
@@ -1223,9 +1270,26 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 				% labels of the resumption point will be
 				% needed. (See compiler/notes/allocation.html)
 
-		goal_path :: goal_path
+		goal_path :: goal_path,
 				% The path to this goal from the root in
 				% reverse order.
+
+		occurring_vars :: set(prog_var),
+				% Inst_graph nodes that are reachable from
+				% variables that occur in the goal.
+
+		producing_vars :: set(prog_var),
+				% Inst_graph nodes produced by this goal.
+
+		consuming_vars :: set(prog_var),
+				% Inst_graph nodes consumed by this goal.
+
+		make_visible_vars :: set(prog_var),
+				% Variables that this goal makes visible.
+
+		need_visible_vars :: set(prog_var)
+				% Variables that this goal need to be visible
+				% before it is executed.
 	).
 
 
@@ -1239,9 +1303,15 @@ goal_info_init(GoalInfo) :-
 	set__init(NonLocals),
 	term__context_init(Context),
 	set__init(Features),
+	set__init(OccurringVars),
+	set__init(ProducingVars),
+	set__init(ConsumingVars),
+	set__init(MakeVisibleVars),
+	set__init(NeedVisibleVars),
 	GoalInfo = goal_info(PreBirths, PostBirths, PreDeaths, PostDeaths,
 		Detism, InstMapDelta, Context, NonLocals, no, Features,
-		no_resume_point, []).
+		no_resume_point, [], OccurringVars, ProducingVars,
+		ConsumingVars, MakeVisibleVars, NeedVisibleVars).
 
 goal_info_init(Context, GoalInfo) :-
 	goal_info_init(GoalInfo0),
@@ -1282,6 +1352,16 @@ goal_info_get_resume_point(GoalInfo, GoalInfo ^ resume_point).
 
 goal_info_get_goal_path(GoalInfo, GoalInfo ^ goal_path).
 
+goal_info_get_occurring_vars(GoalInfo, GoalInfo ^ occurring_vars).
+
+goal_info_get_producing_vars(GoalInfo, GoalInfo ^ producing_vars).
+
+goal_info_get_consuming_vars(GoalInfo, GoalInfo ^ consuming_vars).
+
+goal_info_get_make_visible_vars(GoalInfo, GoalInfo ^ make_visible_vars).
+
+goal_info_get_need_visible_vars(GoalInfo, GoalInfo ^ need_visible_vars).
+
 goal_info_set_pre_births(GoalInfo0, PreBirths,
 		GoalInfo0 ^ pre_births := PreBirths).
 
@@ -1320,6 +1400,21 @@ goal_info_set_resume_point(GoalInfo0, ResumePoint,
 
 goal_info_set_goal_path(GoalInfo0, GoalPath,
 		GoalInfo0 ^ goal_path := GoalPath).
+
+goal_info_set_occurring_vars(GoalInfo0, OccurringVars,
+		GoalInfo0 ^ occurring_vars := OccurringVars).
+
+goal_info_set_producing_vars(GoalInfo0, ProducingVars,
+		GoalInfo0 ^ producing_vars := ProducingVars).
+
+goal_info_set_consuming_vars(GoalInfo0, ConsumingVars,
+		GoalInfo0 ^ consuming_vars := ConsumingVars).
+
+goal_info_set_make_visible_vars(GoalInfo0, MakeVisibleVars,
+		GoalInfo0 ^ make_visible_vars := MakeVisibleVars).
+
+goal_info_set_need_visible_vars(GoalInfo0, NeedVisibleVars,
+		GoalInfo0 ^ need_visible_vars := NeedVisibleVars).
 
 goal_info_add_feature(GoalInfo0, Feature, GoalInfo) :-
 	goal_info_get_features(GoalInfo0, Features0),
