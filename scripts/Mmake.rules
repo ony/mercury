@@ -340,7 +340,6 @@ ifeq ($(findstring il,$(GRADE)),il)
 
 .il.exe:
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /quiet /OUT=$@ $< 
-	cp default.cfg $*.cfg
 
 .cpp.dll:
 	$(MS_CL) -com+($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -noentry -dll $(MS_CL_LIBS) -out:$@
