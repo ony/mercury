@@ -123,21 +123,17 @@ process_unproc_alias_pragma(ModuleInfo, UnprocAliasPragma, AliasTable0,
 			PredId, ProcId, ModuleInfo),
 
 			% rename the headvars: 
-		maybe_write_string(VeryVerbose, "Renaming HeadVars..."),
+		maybe_write_string(VeryVerbose, "Renaming HeadVars, Types..."),
 		{ proc_info_headvars(ProcInfo0, ProcHeadVars) }, 
 		{ list__map(term__coerce_var, HeadVars, CHVars) },
 		{ map__from_corresponding_lists(CHVars, ProcHeadVars,
 			MapHeadVars) }, 
-		{ pa_alias_as__rename(MapHeadVars, Alias0, Alias1) },
+		{ pred_info_arg_types(PredInfo0, ArgTypes) },
+		{ pa_alias_as__rename(MapHeadVars, 
+			yes(to_type_renaming(Types, ArgTypes)), 
+			Alias0, Alias) }, 
 		maybe_write_string(VeryVerbose, "done.\n"),
 	
-		% rename the types: 
-		maybe_write_string(VeryVerbose, "Renaming Types..."),
-		{ pred_info_arg_types(PredInfo0, ArgTypes) },
-		{ pa_alias_as__rename_types(Types, ArgTypes, 
-			Alias1, Alias) },
-		maybe_write_string(VeryVerbose, "done.\n"),
-
 		% Record the alias in the aliastable. 
 		{ alias_as_table_set_alias(proc(PredId, ProcId), Alias,
 			AliasTable0, AliasTable) }

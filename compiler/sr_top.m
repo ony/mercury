@@ -163,19 +163,15 @@ process_unproc_reuse_pragma(UnprocReusePragma, Module0, Module) -->
 			PredId, ProcId, Module0),
 
 			% rename the headvars: 
-		maybe_write_string(VeryVerbose, "Renaming HeadVars..."),
+		maybe_write_string(VeryVerbose, "Renaming HeadVars/Types..."),
 		{ proc_info_headvars(ProcInfo0, ProcHeadVars) }, 
 		{ list__map(term__coerce_var, HeadVars, CHVars) },
 		{ map__from_corresponding_lists(CHVars, ProcHeadVars,
 			MapHeadVars) }, 
-		{ sr_data__memo_reuse_rename(MapHeadVars, Reuse, Reuse1) },
-		maybe_write_string(VeryVerbose, "done.\n"),
-	
-		% rename the types: 
-		maybe_write_string(VeryVerbose, "Renaming Types..."),
 		{ pred_info_arg_types(PredInfo0, ArgTypes) },
-		{ sr_data__memo_reuse_rename_types(Types, ArgTypes, 
-			Reuse1, Reuse2) },
+		{ sr_data__memo_reuse_rename(MapHeadVars, 
+			yes(to_type_renaming(Types, ArgTypes)), 
+			Reuse, Reuse2) },
 		maybe_write_string(VeryVerbose, "done.\n"),
 
 		% create the reuse-version of the procedure

@@ -126,9 +126,7 @@
 	% Rename the reuse condition given a map from FromVars, to
 	% ToVars.
 :- pred reuse_condition_rename(map(prog_var, prog_var)::in, 
-		reuse_condition::in, reuse_condition::out) is det.
-
-:- pred reuse_condition_rename_types(term__substitution(tvar_type)::in, 
+		maybe(substitution(tvar_type))::in, 
 		reuse_condition::in, reuse_condition::out) is det.
 
 	% Print the reuse-condition.
@@ -156,15 +154,12 @@
 :- pred memo_reuse_equal(memo_reuse::in, memo_reuse::in) is semidet.
 :- pred memo_reuse_init(memo_reuse::out) is det.
 :- pred memo_reuse_top(memo_reuse::in) is semidet.
-:- pred memo_reuse_rename(proc_info::in, list(prog_var)::in, 
+:- pred memo_reuse_rename(map(prog_var, prog_var)::in, 
+		maybe(substitution(tvar_type))::in, 
 		memo_reuse::in, memo_reuse::out) is det.
-:- pred memo_reuse_rename(map(prog_var, prog_var)::in, memo_reuse::in,
-		memo_reuse::out) is det.
 	% memo_reuse_rename_types(FromTypes, ToTypes, Memo0, Memo).
 	% Rename all the types occurring in the memo_reuse from FromTypes, 
 	% to ToTypes.
-:- pred memo_reuse_rename_types(list((type))::in, list((type))::in, 
-		memo_reuse::in, memo_reuse::out) is det.
 :- pred memo_reuse_print(memo_reuse::in, sym_name::in, proc_info::in,
 		pred_info::in, io__state::di, io__state::uo) is det.
 :- pred memo_reuse_print_dump(memo_reuse::in, proc_info::in, 
@@ -301,14 +296,14 @@ reuse_condition_init(ModuleInfo, ProcInfo,
 		Condition = condition(Nodes_set, LUiHVs, LAiHVs)
 	).
 
-reuse_condition_rename(Dict, Cin, Cout) :- 
+reuse_condition_rename(Dict, MaybeSubst, Cin, Cout) :- 
 	(
 		Cin = condition(Nodes, LUiH, LAiH)
 	->
 		% rename the nodes:
 		set__to_sorted_list(Nodes, NodesList), 
 		list__map(
-			pa_datastruct__rename(Dict),
+			pa_datastruct__rename(Dict, MaybeSubst),
 			NodesList,
 			RenNodesList),
 		% rename the datastructures
@@ -319,32 +314,11 @@ reuse_condition_rename(Dict, Cin, Cout) :-
 			ListRenLUiH),
 		set__list_to_set(ListRenLUiH, RenLUiH),
 		% rename the alias
-		pa_alias_as__rename(Dict, LAiH, RenLAiH),
+		pa_alias_as__rename(Dict, MaybeSubst, LAiH, RenLAiH),
 		set__list_to_set(RenNodesList, RenNodes),
 		Cout = condition(RenNodes, RenLUiH, RenLAiH)
 	;
 		Cout = Cin
-	).
-
-reuse_condition_rename_types(Subst, Cond0, Cond):-
-	(
-		Cond0 = condition(Nodes0, LUiH0, LAiH0),
-		% rename the selectors of the nodes
-		set__to_sorted_list(Nodes0, NodesList0), 
-		list__map(
-			pa_datastruct__rename_types(Subst), 
-			NodesList0, 
-			NodesList), 
-		set__list_to_set(NodesList, Nodes), 
-		% LUiH needs no renaming:
-		LUiH = LUiH0, 
-		% rename the selector of the local aliases
-		pa_alias_as__rename_types(Subst, LAiH0, LAiH), 
-		% combine the whole stuff
-		Cond = condition(Nodes, LUiH, LAiH)
-	;
-		Cond0 = always, 
-		Cond = always
 	).
 
 reuse_condition_print(_, _, always) -->
@@ -508,44 +482,22 @@ memo_reuse_equal(yes(C1), yes(C2)):-
 memo_reuse_init(no).
 memo_reuse_top(no).
 
-memo_reuse_rename(ProcInfo, ActualVars, MEMOin, MEMOout):- 
-	proc_info_headvars(ProcInfo, FormalVars),
-	map__from_corresponding_lists(FormalVars, ActualVars, Dict),
-	memo_reuse_rename(Dict, MEMOin, MEMOout).
+% memo_reuse_rename(ProcInfo, ActualVars, MEMOin, MEMOout):- 
+	% proc_info_headvars(ProcInfo, FormalVars),
+	% map__from_corresponding_lists(FormalVars, ActualVars, Dict),
+	% memo_reuse_rename(Dict, MEMOin, MEMOout).
 
-memo_reuse_rename(Dict, Memo0, Memo) :- 
+memo_reuse_rename(Dict, MaybeSubst, Memo0, Memo) :- 
 	(
 		Memo0 = yes(Cond0)
 	->
 		list__map(
-			reuse_condition_rename(Dict), 
+			reuse_condition_rename(Dict, MaybeSubst), 
 			Cond0, 
 			Cond),
 		Memo = yes(Cond)
 	;
 		Memo = Memo0
-	).
-
-memo_reuse_rename_types(FromTypes, ToTypes, Memo0, Memo) :-
-	assoc_list__from_corresponding_lists(FromTypes, ToTypes, 
-				FromToTypes), 
-	list__foldl(pa_sr_util__rename_type_det, FromToTypes, 
-			map__init, Substitution), 
-	memo_reuse_rename_types_2(Substitution, Memo0, Memo). 
-
-:- pred memo_reuse_rename_types_2(term__substitution(tvar_type)::in, 
-		memo_reuse::in, memo_reuse::out) is det.
-memo_reuse_rename_types_2(Subst, Memo0, Memo) :- 
-	(
-		Memo0 = yes(Conditions0),
-		list__map(
-			reuse_condition_rename_types(Subst), 
-			Conditions0, 
-			Conditions), 
-		Memo = yes(Conditions)
-	;
-		Memo0 = no, 
-		Memo = no
 	).
 
 memo_reuse_print(MemoReuse, Name, ProcInfo, PredInfo) --> 

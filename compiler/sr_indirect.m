@@ -568,11 +568,12 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 		Info = Info0, 
 		YesNo = no
 	;
-		memo_reuse_rename(ProcInfo0, ActualVars, FormalMemo, 
-					Memo0), 
-		pred_info_arg_types(PredInfo, FormalTypes) ,
-		memo_reuse_rename_types(FormalTypes, ActualTypes, 
-					Memo0, Memo),
+		proc_info_headvars(ProcInfo0, FormalVars), 
+		pred_info_arg_types(PredInfo, FormalTypes),
+		memo_reuse_rename(
+			map__from_corresponding_lists(FormalVars, ActualVars),
+			yes(to_type_renaming(FormalTypes, ActualTypes)), 
+			FormalMemo, Memo), 
 		% 3. compute the Live variables upon a procedure entry:
 		% 3.a. compute the full live set at the program point of
 		%      the call.

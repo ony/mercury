@@ -50,14 +50,10 @@
 	% Rename the prog_vars occurring in the alias_set, using
 	% a map that maps the to-be-replaced-vars with on the
 	% new prog_vars. 
-:- pred rename(map(prog_var,prog_var)::in, alias_set::in, 
-		alias_set::out) is det. 
+:- pred rename(map(prog_var,prog_var)::in, 
+		maybe(substitution(tvar_type))::in, 
+		alias_set::in, alias_set::out) is det. 
 	
-	% Rename the types occurring in the alias_set, applying
-	% the given substitution to each of the types encountered. 
-:- pred rename_types(term__substitution(tvar_type)::in, 
-		alias_set::in, alias_set::out) is det.
-
 	% Equality test. Needed for the fixpoint computation. 
 :- pred equal(alias_set::in, alias_set::in) is semidet. 
 
@@ -346,12 +342,12 @@ collect_aliases_of_datastruct(ModuleInfo, ProcInfo, Datastruct,
 		Datastructs = [] 
 	). 
 
-rename(Dict, AliasSet0, AliasSet):-
+rename(Dict, MaybeTypeSubst, AliasSet0, AliasSet):-
 	AliasSet0 = alias_set(Size, Map0), 
 	map__foldl(
 		pred(Var0::in, SelectorSet0::in, M0::in, M::out) is det:- 
 		    (
-			alias_set2_rename(Dict, SelectorSet0,
+			alias_set2_rename(Dict, MaybeTypeSubst, SelectorSet0,
 							SelectorSet1),
 			map__lookup(Dict, Var0, Var), 
 			(
@@ -371,9 +367,9 @@ rename(Dict, AliasSet0, AliasSet):-
 		Map),
 	AliasSet  = alias_set(Size, Map). 
 
-rename_types(Subst, AliasSet0, AliasSet):- 
-	alias_set_map_values(alias_set2_rename_types(Subst), AliasSet0, 
-			AliasSet). 
+% rename_types(Subst, AliasSet0, AliasSet):- 
+	% alias_set_map_values(alias_set2_rename_types(Subst), AliasSet0, 
+			% AliasSet). 
 
 equal(AliasSet0, AliasSet1):-
 	AliasSet0 = alias_set(Size, Map0), 
@@ -698,9 +694,8 @@ alias_set_map_values_with_key(Pred, AliasSet0, AliasSet) :-
 :- pred alias_set2_project(list(prog_var)::in, alias_set2::in, 
 			alias_set2::out) is det.
 :- pred alias_set2_rename(map(prog_var, prog_var)::in, 
-			alias_set2::in, alias_set2::out) is det.
-:- pred alias_set2_rename_types(term__substitution(tvar_type)::in, 
-			alias_set2::in, alias_set2::out) is det.
+		maybe(substitution(tvar_type))::in, 
+		alias_set2::in, alias_set2::out) is det.
 :- pred alias_set2_equal(alias_set2::in, alias_set2::in) is semidet.
 :- pred alias_set2_add(alias_set2::in, alias_set2::in, 
 			alias_set2::out) is det.
@@ -803,23 +798,22 @@ alias_set2_recount(AliasSet0, AliasSet):-
 		Size),	
 	AliasSet = alias_sel_set(Size, Map). 
 
-alias_set2_rename(Dict, AliasSet0, AliasSet):- 
-	alias_set2_map_values(data_set_rename(Dict), AliasSet0, AliasSet).
-
-alias_set2_rename_types(Subst, AliasSet0, AliasSet):- 
-	AliasSet0 = alias_sel_set(Size, Map0), 
+alias_set2_rename(Dict, MaybeSubst, AliasSet0, AliasSet):- 
+	AliasSet0 = alias_sel_set(Size, Map0),
 	map__foldl(
 		pred(Sel0::in, DataSet0::in, M0::in, M::out) is det :-
 		(
-			pa_selector__rename_types(Subst, Sel0, Sel), 
-			data_set_rename_types(Subst, DataSet0, DataSet), 
+			pa_selector__maybe_rename_types(
+				MaybeSubst, Sel0, Sel), 
+			data_set_rename(Dict, MaybeSubst, DataSet0, 
+				DataSet), 
 			map__det_insert(M0, Sel, DataSet, M)
 		), 
 		Map0,
 		map__init, 
-		Map), 
+		Map),
 	AliasSet = alias_sel_set(Size, Map). 
-
+		
 alias_set2_equal(AliasSet0, AliasSet1):- 
 	AliasSet0 = alias_sel_set(Size, Map0), 
 	AliasSet1  = alias_sel_set(Size, Map), 
@@ -1103,9 +1097,8 @@ alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar,
 :- pred data_set_project(list(prog_var)::in, 
 				data_set::in, data_set::out) is det.
 :- pred data_set_rename(map(prog_var, prog_var)::in, 
-				data_set::in, data_set::out) is det.
-:- pred data_set_rename_types(term__substitution(tvar_type)::in, 
-				data_set::in, data_set::out) is det.
+		maybe(substitution(tvar_type))::in, 
+		data_set::in, data_set::out) is det.
 :- pred data_set_equal(data_set::in, data_set::in) is semidet.
 :- pred data_set_add(data_set::in, data_set::in, data_set::out) is det.
 :- pred data_set_termshift(data_set::in, selector::in, data_set::out) is det.
@@ -1155,11 +1148,9 @@ data_set_project(Vars, DataSet0, DataSet):-
 		),
 		DataSet0, 
 		DataSet). 
-data_set_rename(Dict, DataSet0, DataSet) :- 
-	data_set_map(pa_datastruct__rename(Dict), DataSet0, DataSet).
-data_set_rename_types(Subst, DataSet0, DataSet):-
-	data_set_map(pa_datastruct__rename_types(Subst), 
-			DataSet0, DataSet). 
+data_set_rename(Dict, MaybeSubst, DataSet0, DataSet) :- 
+	data_set_map(pa_datastruct__rename(Dict, MaybeSubst), 
+			DataSet0, DataSet).
 data_set_equal(DataSet0, DataSet1):-
 	DataSet0 = datastructs(Size0, Data0), 
 	DataSet1 = datastructs(Size0, Data1), 

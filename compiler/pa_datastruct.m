@@ -26,7 +26,7 @@
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
 
-:- import_module map, term.
+:- import_module map, term, std_util.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -72,11 +72,9 @@
 :- pred equal(datastruct::in, datastruct::in) is semidet.
 
 	% Rename the variable of the given datastruct.
-:- pred rename(map(prog_var,prog_var)::in, datastruct::in, 
-		datastruct::out) is det.
-
-:- pred rename_types(term__substitution(tvar_type)::in, 
-		datastruct::in, datastruct::out) is det. 
+:- pred rename(map(prog_var,prog_var)::in, 
+		maybe(substitution(tvar_type))::in, 
+		datastruct::in, datastruct::out) is det.
 
 :- pred normalize_wti(module_info::in, proc_info::in, 
 		datastruct::in, datastruct::out) is det.
@@ -107,15 +105,11 @@
 % selector(cel(_Var, Sel)) = Sel.
 
 
-rename(MAP, DATAin, DATAout) :-
-	DATAin = selected_cel(VAR, SEL),
-	map__lookup(MAP, VAR, RVAR),
-	DATAout = selected_cel(RVAR, SEL).
-
-rename_types(Subst, Data0, Data) :- 
-	Data0 = selected_cel(Var, Sel0), 
-	pa_selector__rename_types(Subst, Sel0, Sel), 
-	Data = selected_cel(Var, Sel). 
+rename(ProgVarMap, MaybeSubst, Data0, Data) :-
+	Data0 = selected_cel(Var0, Sel0),
+	map__lookup(ProgVarMap, Var0, Var),
+	pa_selector__maybe_rename_types(MaybeSubst, Sel0, Sel), 
+	Data = selected_cel(Var, Sel).
 
 equal(D1, D2):- D1 = D2.
 

@@ -18,7 +18,7 @@
 :- import_module hlds__hlds_module.
 :- import_module parse_tree__prog_data.
 
-:- import_module list, int, term.
+:- import_module list, int, term, std_util.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -66,7 +66,7 @@
 :- pred less_or_equal(module_info::in, selector::in, selector::in, 
 		(type)::in, selector::out) is semidet.
 
-:- pred rename_types(term__substitution(tvar_type)::in, 
+:- pred maybe_rename_types(maybe(term__substitution(tvar_type))::in, 
 		selector::in, selector::out) is det.
 
 	% normalize with type information
@@ -135,10 +135,11 @@ less_or_equal(S1, S2, EXT) :-
 	list__append(S2, EXT , S1). 
 
 
-rename_types(Subst, Sel0, Sel):- 
-	list__map(unit_selector_rename_types(Subst), Sel0, Sel).
+maybe_rename_types(no, S, S).
+maybe_rename_types(yes(Subst), S0, S) :-
+	list__map(unit_selector_rename_types(Subst), S0, S).
 
-:- pred unit_selector_rename_types(term__substitution(tvar_type)::in,
+:- pred unit_selector_rename_types(substitution(tvar_type)::in,
 		unit_sel::in, unit_sel::out) is det.
 
 unit_selector_rename_types(Subst, US0, US) :- 

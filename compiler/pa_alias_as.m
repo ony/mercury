@@ -101,26 +101,12 @@
 		list(prog_var)::in, list((type))::in, 
 		alias_as::in, alias_as::out) is det.
 
+:- func to_type_renaming(list((type)), list((type))) = 
+		substitution(tvar_type).
+
 	% Rename the abstract description according to the renaming
 	% mapping of prog_vars (which maps FROM_VARS to the TO_VARS). 
-	% XXX We should ensure that a renaming of the variables is always
-	% accompanied by a renaming of the type-variables that can possible be
-	% used in the selectors. At some point, the procedures renaming either
-	% the args or the types should all be replaced by one single procedure.
-	% This is the only way to guarantee that a full correct renaming has
-	% taken place. 
-:- pred rename(map(prog_var, prog_var)::in, alias_as::in, alias_as::out) is det.
-
-	% rename_types(FromTypes, ToTypes, Alias0, Alias).
-	% Rename all the typevariables occurring in the aliases using the
-	% mapping from FromTypes to ToTypes. 
-:- pred rename_types(list((type))::in, list((type))::in, 
-		alias_as::in, alias_as::out) is det.
-
-	% rename_types(Substitution, Alias0, Alias). 
-	% Rename all the type-variables occurring in the aliases using the
-	% substitution mapping. 
-:- pred rename_types(term__substitution(tvar_type)::in, 
+:- pred rename(map(prog_var, prog_var)::in, maybe(substitution(tvar_type))::in,
 		alias_as::in, alias_as::out) is det.
 
 	% The call equal(Alias1,Alias2) succeeds if both abstract
@@ -409,47 +395,26 @@ rename_call_alias(PredProcId, ModuleInfo, ActualVars, ActualTypes,
 	pred_info_arg_types(PredInfo, FormalTypes), 
 	proc_info_headvars(ProcInfo, FormalVars),
 	map__from_corresponding_lists(FormalVars, ActualVars, Dict), 
-	pa_alias_as__rename(Dict, FormalAlias, FormalAlias1),
-	pa_alias_as__rename_types(FormalTypes,  ActualTypes, 
-			FormalAlias1, ActualAlias).
+	pa_alias_as__rename(Dict, 
+		yes(to_type_renaming(FormalTypes, ActualTypes)), 
+		FormalAlias, ActualAlias).
 
-rename(MapVar, ASin, ASout):-
-	(
-		ASin = real_as(Aliases)
-	->
-		rename(MapVar, Aliases, RAliases), 
-		wrap(RAliases, ASout)
-	;
-		% ASin is bottom or top(_)
-		ASout = ASin 
-	).
+to_type_renaming(FromTypes, ToTypes) = Substitution :- 
+	assoc_list__from_corresponding_lists(FromTypes, 
+		ToTypes, FromToTypes), 
+	list__foldl(
+		(pred(P::in, S0::in, S::out) is det :- 
+			P = F - T, 
+			( 
+			 	term__unify(F, T, S0, S1) 
+			-> 	S = S1
+			; 	S = S0
+		)), FromToTypes, map__init, Substitution).
 
-rename_types(FromTypes, ToTypes, ASin, ASout) :- 
-	(
-		ASin = real_as(AliasSet0)
-	-> 
-		assoc_list__from_corresponding_lists(FromTypes, ToTypes, 
-				FromToTypes), 
-		list__foldl(rename_type_det, FromToTypes, 
-				map__init, Substitution), 
-		rename_types(Substitution, AliasSet0, 
-				AliasSet),
-		ASout = real_as(AliasSet)
-	; 
-		ASout = ASin 	% bottom or top
-	).
-
-rename_types(Substitution, A0, A) :- 
-	(
-		A0 = real_as(AliasSet0)
-	-> 
-		rename_types(Substitution, AliasSet0, 
-				AliasSet), 
-		A = real_as(AliasSet)
-	; 
-		A = A0
-	).
-			
+rename(_, _, top(M), top(M)). 
+rename(_, _, bottom, bottom). 
+rename(MapVar, MaybeTypeSubst, real_as(Aliases0), real_as(Aliases)):- 
+	pa_alias_set__rename(MapVar, MaybeTypeSubst, Aliases0, Aliases).
 
 equal(AS1, AS2):-
 	(
