@@ -713,7 +713,17 @@ mercury_compile__frontend_pass(HLDS1, HLDS, FoundUndefTypeError,
 		    { HLDS = HLDS4 },
 		    { bool__or(FoundTypeError, FoundTypeclassError,
 		    	FoundError) }
-	        ;
+	        ; { FoundTypeError = yes } ->
+		    %
+		    % XXX it would be nice if we could go on and mode-check
+		    % the predicates which didn't have type errors, but
+		    % we need to run polymorphism before running mode
+		    % analysis, and currently polymorphism may get internal
+		    % errors if any of the predicates are not type-correct.
+		    %
+		    { HLDS = HLDS4 },
+		    { FoundError = yes }
+		;
 		    % only write out the `.opt' file if there are no type errors
 		    % or undefined modes
 		    ( { FoundTypeError = no, FoundUndefModeError = no } ->

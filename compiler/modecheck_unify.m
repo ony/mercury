@@ -778,9 +778,9 @@ modecheck_complicated_unify(X, Y, Type, ModeOfX, ModeOfY, Det, UnifyContext,
 	% Build up the unification
 	%
 	mode_info_get_module_info(ModeInfo0, ModuleInfo0),
-	mode_get_insts(ModuleInfo0, ModeOfX, IX, FX),
-	mode_get_insts(ModuleInfo0, ModeOfY, IY, FY),
-	UniMode = ((IX - IY) -> (FX - FY)),
+	mode_get_insts(ModuleInfo0, ModeOfX, InitialInstX, FinalInstX),
+	mode_get_insts(ModuleInfo0, ModeOfY, InitialInstY, FinalInstY),
+	UniMode = ((InitialInstX - InitialInstY) -> (FinalInstX - FinalInstY)),
 	determinism_components(Det, CanFail, _),
 	( Unification0 = complicated_unify(_, _, UnifyTypeInfoVars0) ->
 		UnifyTypeInfoVars = UnifyTypeInfoVars0
@@ -807,15 +807,41 @@ modecheck_complicated_unify(X, Y, Type, ModeOfX, ModeOfY, Det, UnifyContext,
 			InitialArgNum, ModeInfo1, ModeInfo2)
 	),
 
-	%
-	% check that we're not trying to do a higher-order unification
-	%
+	mode_info_get_module_info(ModeInfo2, ModuleInfo2),
+
 	(
 		mode_info_get_errors(ModeInfo2, Errors),
 		Errors \= []
 	->
 		ModeInfo = ModeInfo2
 	;
+		%
+		% Check that we're not trying to do a polymorphic unification
+		% in a mode other than (in, in).
+		% [Actually we also allow `any' insts, since the (in, in)
+		% mode of unification for types which have `any' insts must
+		% also be able to handle (in(any), in(any)) unifications.]
+		%
+		Type = term__variable(_),
+		\+ inst_is_ground_or_any(ModuleInfo2, InitialInstX)
+	->
+		set__singleton_set(WaitingVars, X),
+		mode_info_error(WaitingVars,
+			mode_error_poly_unify(X, InitialInstX),
+			ModeInfo2, ModeInfo)
+	;
+		Type = term__variable(_),
+		\+ inst_is_ground_or_any(ModuleInfo2, InitialInstY)
+	->
+		set__singleton_set(WaitingVars, Y),
+		mode_info_error(WaitingVars,
+			mode_error_poly_unify(Y, InitialInstY),
+			ModeInfo2, ModeInfo)
+	;
+
+		%
+		% check that we're not trying to do a higher-order unification
+		%
 		type_is_higher_order(Type, PredOrFunc, _)
 	->
 		% We do not want to report this as an error
@@ -827,7 +853,7 @@ modecheck_complicated_unify(X, Y, Type, ModeOfX, ModeOfY, Det, UnifyContext,
 		% error message would be spurious if the 
 		% instmap is unreachable.
 		mode_info_get_predid(ModeInfo2, PredId),
-		module_info_pred_info(ModuleInfo0, PredId,
+		module_info_pred_info(ModuleInfo2, PredId,
 				PredInfo),
 		mode_info_get_instmap(ModeInfo2, InstMap0),
 		( 
@@ -853,7 +879,7 @@ modecheck_complicated_unify(X, Y, Type, ModeOfX, ModeOfY, Det, UnifyContext,
 	->
 		mode_info_get_context(ModeInfo2, Context),
 		unify_proc__request_unify(TypeId - UniMode,
-			Det, Context, ModuleInfo0, ModuleInfo),
+			Det, Context, ModuleInfo2, ModuleInfo),
 		mode_info_set_module_info(ModeInfo2, ModuleInfo,
 			ModeInfo)
 	;

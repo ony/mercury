@@ -789,6 +789,9 @@ gen_lookup_call_for_type(TypeCat, Type, TableVar, ArgVar,
 			error("gen_lookup: unexpected type")
 		)
 	;
+		generate_new_table_var("TableNodeVar", VarTypes0,
+			VarTypes1, VarSet0, VarSet1, NextTableVar),
+		InstMapAL = [NextTableVar - ground(unique, no)],
 		(
 			( TypeCat = pred_type
 			; TypeCat = polymorphic_type
@@ -799,27 +802,29 @@ gen_lookup_call_for_type(TypeCat, Type, TableVar, ArgVar,
 				LookupPredName = "table_lookup_insert_user"
 			;
 				LookupPredName = "table_lookup_insert_poly"
-			)
+			),
+			make_type_info_var(Type, TypeInfoVar, ExtraGoals,
+				VarTypes1, VarTypes, VarSet1, VarSet,
+				TableInfo0, TableInfo),
+
+			generate_call(LookupPredName,
+				[TypeInfoVar, TableVar, ArgVar, NextTableVar],
+				det, impure, InstMapAL, Module, CallGoal),
+
+			list__append(ExtraGoals, [CallGoal], ConjList),
+			CallGoal = _ - GoalInfo,
+			conj_list_to_goal(ConjList, GoalInfo, Goal)
 		;
 			builtin_type_to_string(TypeCat, CatString),
 			string__append("table_lookup_insert_", CatString,
-				LookupPredName)
-		),
-		generate_new_table_var("TableNodeVar", VarTypes0, VarTypes1,
-			VarSet0, VarSet1, NextTableVar),
-
-		make_type_info_var(Type, TypeInfoVar, ExtraGoals,
-			VarTypes1, VarTypes, VarSet1, VarSet,
-			TableInfo0, TableInfo),
-
-		InstMapAL = [NextTableVar - ground(unique, no)],
-		generate_call(LookupPredName,
-			[TypeInfoVar, TableVar, ArgVar, NextTableVar],
-			det, impure, InstMapAL, Module, CallGoal),
-
-		list__append(ExtraGoals, [CallGoal], ConjList),
-		CallGoal = _ - GoalInfo,
-		conj_list_to_goal(ConjList, GoalInfo, Goal)
+				LookupPredName),
+			generate_call(LookupPredName,
+				[TableVar, ArgVar, NextTableVar],
+				det, impure, InstMapAL, Module, Goal),
+			VarTypes = VarTypes1,
+			VarSet = VarSet1,
+			TableInfo = TableInfo0
+		)
 	).
 
 %-----------------------------------------------------------------------------%

@@ -466,14 +466,25 @@ copy_pred_bodies(OldPredTable, PredIds, ModuleInfo0, ModuleInfo) :-
 :- mode copy_pred_body(in, in, in, out) is det.
 copy_pred_body(OldPredTable, PredId, PredTable0, PredTable) :-
 	map__lookup(PredTable0, PredId, PredInfo0),
-	pred_info_procedures(PredInfo0, ProcTable0),
-	map__lookup(OldPredTable, PredId, OldPredInfo),
-	pred_info_procedures(OldPredInfo, OldProcTable),
-	map__keys(OldProcTable, OldProcIds),
-	list__foldl(copy_proc_body(OldProcTable), OldProcIds,
-		ProcTable0, ProcTable),
-	pred_info_set_procedures(PredInfo0, ProcTable, PredInfo),
-	map__set(PredTable0, PredId, PredInfo, PredTable).
+	(
+		% don't copy type class methods, because their
+		% proc_infos are generated already mode-correct,
+		% and because copying from the clauses_info doesn't
+		% work for them.
+		pred_info_get_markers(PredInfo0, Markers),
+		check_marker(Markers, class_method)
+	->
+		PredTable = PredTable0
+	;
+		pred_info_procedures(PredInfo0, ProcTable0),
+		map__lookup(OldPredTable, PredId, OldPredInfo),
+		pred_info_procedures(OldPredInfo, OldProcTable),
+		map__keys(OldProcTable, OldProcIds),
+		list__foldl(copy_proc_body(OldProcTable), OldProcIds,
+			ProcTable0, ProcTable),
+		pred_info_set_procedures(PredInfo0, ProcTable, PredInfo),
+		map__set(PredTable0, PredId, PredInfo, PredTable)
+	).
 
 % copy_proc_body(OldProcTable, ProcId, ProcTable0, ProcTable):
 %	copy the body of the specified ProcId from OldProcTable
@@ -510,7 +521,9 @@ modecheck_pred_modes_2([PredId | PredIds], WhatToCheck, MayChangeCalledProc,
 			)
 		;
 			%
-			% don't modecheck class methods
+			% don't modecheck class methods, because they
+			% are generated already mode-correct and with
+			% correct instmap deltas.
 			%
 			{ pred_info_get_markers(PredInfo0, PredMarkers) },
 			{ check_marker(PredMarkers, class_method) }

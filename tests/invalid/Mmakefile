@@ -94,13 +94,6 @@ ERR_RESS=	$(SOURCES:%.m=%.err_res)
 	if $(MC) $(ALL_MCFLAGS) --errorcheck-only $* > $*.err 2>&1; \
 	then false; else true; fi
 
-# We need a hard-coded rule for polymorphic_unification because we need to
-# do more than error check it: the error case we are checking for only
-# gets caught during polymorphism.
-polymorphic_unification.err: polymorphic_unification.m
-	if $(MC) $(ALL_MCFLAGS) polymorphic_unification > polymorphic_unification.err 2>&1; \
-	then false; else true; fi
-
 # Some tests have more than one possible valid output, so
 # we allow the test to pass if it matches *either* the .err_exp
 # or the .err_exp2 file. 

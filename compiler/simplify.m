@@ -366,7 +366,14 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
-		% warn about this, if the goal wasn't `true'
+/******************
+The following warning is disabled, because it often results in spurious
+warnings.  Sometimes predicate calls are used just to constrain the types,
+to avoid type ambiguities or unbound type variables, and in such cases,
+it is perfectly legitimate for a call to be det and to have no outputs.
+There's no simple way of telling those cases from cases for which we
+really ought to warn.
+		% warn about this, if the goal wasn't `true', wasn't `!',
 		% and wasn't a deconstruction unification.
 		% We don't warn about deconstruction unifications
 		% with no outputs that always succeed, because that
@@ -377,11 +384,11 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		% We also don't warn about conjunctions or existential
 		% quantifications, because it seems that warnings in those
 		% cases are usually spurious.
-		% XXX perhaps it would be best to just disable this entirely.
-		goal_info_get_context(GoalInfo0, Context),
 		(
 			simplify_do_warn(Info0),
 			% Goal0 \= conj([]) - _,
+			\+ (Goal0 = call(_, _, _, _, _, SymName) - _,
+			    unqualify_name(SymName, "!")),
 			Goal0 \= conj(_) - _,
 			Goal0 \= some(_, _) - _,
 			\+ (Goal0 = unify(_, _, _, Unification, _) - _,
@@ -392,6 +399,8 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		;
 			Info1 = Info0
 		),
+******************/
+		Info0 = Info1,
 		
 		% If the goal had any non-locals we should requantify. 
 		goal_info_get_nonlocals(GoalInfo0, NonLocals0),
@@ -402,6 +411,7 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		),
 		pd_cost__goal(Goal0, CostDelta),
 		simplify_info_incr_cost_delta(Info2, CostDelta, Info3),
+		goal_info_get_context(GoalInfo0, Context),
 		true_goal(Context, Goal1)
 	;
 		Goal1 = Goal0,
