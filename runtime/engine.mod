@@ -146,6 +146,49 @@ call_engine(Code *entry_point)
 	call_engine_inner(entry_point);
 }
 
+bool
+call_engine_nondet(Code *entry_point)
+{
+	/*
+	** XXX: STUB
+	**
+	** Call nondet code returning either TRUE on success or
+	** FALSE on failure. If the call fails, there is then
+	** an obligation to later call call_engine_redo() on
+	** the code. (Or alternatively, call_engine_commit() to
+	** prune off further solutions.)
+	*/
+	return FALSE;
+}
+
+bool
+call_engine_redo(Code *entry_point)
+{
+	/*
+	** XXX: STUB
+	**
+	** Redoes a call to a nondet entrypoint that had previously
+	** been called with call_engine_nondet.
+	** Returns TRUE if the call succeeds and FALSE if it fails.
+	** If the call succeeds, there is an obligation to later
+	** call call_engine_redo() again. (Or alternatively,
+	** call_engine_commit() to prune off further solutions.)
+	*/
+	return FALSE;
+}
+
+void
+call_engine_commit(Code *entry_point)
+{
+	/*
+	** XXX: STUB
+	**
+	** Prunes off any remaining solutions to a call previously
+	** made by call_engine_nondet().
+	*/
+	return;
+}
+
 #ifdef USE_GCC_NONLOCAL_GOTOS
 
 /* The gcc-specific version */

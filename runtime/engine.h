@@ -50,6 +50,13 @@ extern	void	call_engine(Code *entry_point);
 extern	void	terminate_engine(void);
 extern	void	dump_prev_locations(void);
 
+	/*
+	** XXX: The following three are stubs currently.
+	*/
+extern	bool	call_engine_nondet(Code *entry_point);
+extern	bool	call_engine_redo(Code *entry_point);
+extern	void	call_engine_commit(Code *entry_point);
+
 Declare_entry(do_redo);
 Declare_entry(do_fail);
 Declare_entry(do_reset_hp_fail);
