@@ -105,6 +105,10 @@
 			datastruct::out) is det.
 :- func apply_widening(module_info, proc_info, datastruct) = datastruct.
 
+:- func type_of_node(module_info, proc_info, datastruct) = (type). 
+:- func type_of_node_with_vartypes(module_info, map(prog_var, type), 
+						datastruct) = (type). 
+
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
 :- implementation.
@@ -247,5 +251,13 @@ apply_widening(ModuleInfo, ProcInfo, D0, D):-
 apply_widening(ModuleInfo, ProcInfo, D0) = D :- 
 	apply_widening(ModuleInfo, ProcInfo, D0, D).
 
-	
+type_of_node(ModuleInfo, ProcInfo, Data) = Type :- 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	Type = type_of_node_with_vartypes(ModuleInfo, VarTypes, Data). 
+
+type_of_node_with_vartypes(ModuleInfo, VarTypes, Data) = Type :- 
+	Data = cel(ProgVar, Sel), 
+	map__lookup(VarTypes, ProgVar, ProgVarType), 
+	Type = pa_selector__type_of_node(ModuleInfo, ProgVarType, Sel). 
+
 

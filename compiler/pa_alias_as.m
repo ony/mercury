@@ -203,6 +203,7 @@
 :- import_module pa_alias, pa_util, pa_sr_util.
 :- import_module pa_alias_set.
 :- import_module mercury_to_mercury.
+:- import_module type_util.
 
 %-----------------------------------------------------------------------------%
 %-- type definitions 
@@ -515,7 +516,7 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 %-----------------------------------------------------------------------------%
 extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
 		Vars, MaybeModes, Types, Info, Ain, A) :- 
-	from_foreign_code(ProcInfo, HLDS, Info, Attrs, Vars, 
+	from_foreign_code(ProcInfo, HLDS, PredId, ProcId, Info, Attrs, Vars, 
 		MaybeModes, Types, ForeignAlias),
 	(
 		(is_bottom(ForeignAlias); is_top(ForeignAlias)) 
@@ -532,35 +533,35 @@ extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId,
 		pa_alias_as__extend(ProcInfo, HLDS, RenamedForeign, Ain, A)
 	). 
 
-:- pred i_said_get_rid_of_those_typeinfos(proc_info::in, 
-		list(type)::in, list(type)::out) is det.
-i_said_get_rid_of_those_typeinfos(ProcInfo, Types0, Types):-
-	proc_info_real_headvars(ProcInfo, Hvs), 
-	list__length(Hvs, RealArity), 
-	list__length(Types0, TooBigArity), 
-	Diff = TooBigArity - RealArity, 
-	(
-		list__drop(Diff, Types0, Types1)
-	->
-		Types = Types1
-	; 
-		require__error("(pa_alias_as) problems getting rid of typeinfos.")
-	).
 				
-:- pred from_foreign_code(proc_info, module_info, hlds_goal_info,
+:- pred from_foreign_code(proc_info, module_info, 
+			pred_id, proc_id, 
+			hlds_goal_info,
 			pragma_foreign_code_attributes,
 			list(prog_var), list(maybe(pair(string, mode))),
                         list(type), alias_as).
-:- mode from_foreign_code(in, in, in, in, in, in, in, out) is det.
+:- mode from_foreign_code(in, in, in, in, in, in, in, in, in, out) is det.
 
-from_foreign_code(_ProcInfo, HLDS, GoalInfo, Attrs, Vars, 
+from_foreign_code(_ProcInfo, HLDS, PredId, ProcId, GoalInfo, Attrs, Vars, 
 		MaybeModes, Types, Alias):-
+	module_info_pred_proc_info(HLDS, proc(PredId, ProcId), 
+			_PredInfo, PragmaProcInfo), 
 	(
 		aliasing(Attrs, UserDefinedAlias), 
 		UserDefinedAlias = aliasing(_, _, UserAlias),
 		UserAlias \= top(_)
 	->
-		Alias = UserAlias
+		% Typecheck the aliasing: 
+		(
+			proc_info_headvars(PragmaProcInfo, FormalVars), 	
+			typecheck_user_annotated_alias(HLDS, FormalVars, 
+				Types, UserAlias)
+		-> 
+			Alias = UserAlias
+		; 
+			report_pragma_type_error(PragmaProcInfo, 
+					GoalInfo, UserDefinedAlias)
+		)
 	;
 		% else --> apply heuristics
 		to_trios(Vars, MaybeModes, Types, Trios), 
@@ -593,8 +594,45 @@ from_foreign_code(_ProcInfo, HLDS, GoalInfo, Attrs, Vars,
 			)
 		)
 	).
-	
 
+:- pred report_pragma_type_error(proc_info::in, hlds_goal_info::in, 
+				aliasing::in) is erroneous. 
+report_pragma_type_error(ProcInfo, GoalInfo, Aliasing):- 
+	proc_info_varset(ProcInfo, VarSet), 
+	goal_info_get_context(GoalInfo, Context), 
+	format_context(Context, ContextStr), 
+	to_user_declared_aliases(Aliasing, VarSet, AliasingString), 
+	string__append_list(
+		["\n", ContextStr, 
+		": Type error in user declared aliasing. \n", 
+		"\tDeclared aliasing = ", AliasingString, "\n", 
+		"\t(NB: type-variables might be renamed in this error message)\n"],
+		Msg), 
+	require__error(Msg). 
+	
+:- pred typecheck_user_annotated_alias(module_info::in, list(prog_var)::in,
+		list(type)::in, alias_as::in) is semidet.
+typecheck_user_annotated_alias(_, _, _, bottom). 
+typecheck_user_annotated_alias(_, _, _, top(_)). 
+typecheck_user_annotated_alias(ModuleInfo, Vars, Types, real_as(AliasSet)):- 
+	map__from_corresponding_lists(Vars, Types, VarTypes), 
+	to_pair_alias_list(AliasSet, AliasList),
+	typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, AliasList). 
+
+:- pred typecheck_user_annotated_alias_2(module_info::in, 
+		map(prog_var, type)::in, list(alias)::in) is semidet.
+typecheck_user_annotated_alias_2(_, _, []). 
+typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, [Alias | Rest]):-
+	Alias = Data1 - Data2, 
+	type_unify( 
+		type_of_node_with_vartypes(ModuleInfo, VarTypes, Data1), 
+		type_of_node_with_vartypes(ModuleInfo, VarTypes, Data2),
+		[], 
+		map__init, 
+		Substitution),
+	map__is_empty(Substitution),
+	typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, Rest).
+		
 :- import_module std_util, inst_match.
 
 :- type trio ---> trio(prog_var, mode, type). 

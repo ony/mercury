@@ -95,6 +95,10 @@
 :- pred apply_widening(module_info::in, (type)::in,
 		selector::in, selector::out) is det.
 
+	% Compute the type of the node the selector is pointing to, 
+	% given the type of the structure to which the selector belongs. 
+:- func type_of_node(module_info, (type), selector) = (type). 
+
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
 
@@ -530,6 +534,8 @@ apply_widening(ModuleInfo, MainType, Selector0, Selector) :-
 		Selector = [ ts(SubType) ]
 	).
 
+type_of_node(ModuleInfo, StartType, Selector) = SubType :-
+	get_type_of_node(ModuleInfo, StartType, Selector, SubType). 
 
 	% get_type_of_node(ModuleInfo, StartType, Selector, SubType)
 	% determines the type SybType of the node obtained by traversing
