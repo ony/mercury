@@ -170,6 +170,8 @@
 
 :- import_module bool, int, string, list, set, map, std_util, assoc_list.
 :- import_module term, term_io, varset, require, getopt.
+:- import_module termination.
+
 
 hlds_out__write_type_id(Name - Arity) -->
 	prog_out__write_sym_name(Name),
@@ -501,6 +503,8 @@ hlds_out__marker_name(dnf, "dnf").
 hlds_out__marker_name(magic, "magic").
 hlds_out__marker_name(obsolete, "obsolete").
 hlds_out__marker_name(memo, "memo").
+hlds_out__marker_name(terminates, "terminates").
+hlds_out__marker_name(check_termination, "check_termination").
 
 hlds_out__write_marker(Marker) -->
 	{ hlds_out__marker_name(Marker, Name) },
@@ -1743,6 +1747,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_argmodes(Proc, HeadModes) },
 	{ proc_info_goal(Proc, Goal) },
 	{ proc_info_context(Proc, ModeContext) },
+	{ proc_info_termination(Proc, Termination) },
 	{ Indent1 is Indent + 1 },
 
 	hlds_out__write_indent(Indent1),
@@ -1754,6 +1759,15 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	io__write_string(" ("),
 	hlds_out__write_determinism(InferredDeterminism),
 	io__write_string("):\n"),
+	hlds_out__write_indent(Indent),
+
+	io__write_string("% Inferred termination: "),
+	termination__out(Termination),
+	io__nl,
+	io__write_string("% Termination - used args: "),
+	termination__out_used_args(Termination),
+	io__nl,
+	termination__maybe_output_error(ModuleInfo, Termination),
 
 	hlds_out__write_var_types(Indent, VarSet, AppendVarnums,
 		VarTypes, TVarSet),

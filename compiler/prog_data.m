@@ -85,49 +85,63 @@
 :- type type_and_mode	--->	type_only(type)
 			;	type_and_mode(type, mode).
 
-:- type pragma_type --->	c_header_code(string)
-			;	c_code(string)
+:- type pragma_type 
+	--->	c_header_code(string)
 
-			;	c_code(may_call_mercury, sym_name, pred_or_func,
-					list(pragma_var), varset, string)
-				% Whether or not the C code may call Mercury,
-				% PredName, Predicate or Function, Vars/Mode, 
-				% VarNames, C Code
+	;	c_code(string)
 
-			;	c_code(may_call_mercury, sym_name,
-					pred_or_func, list(pragma_var),
-					list(string), list(string),
-					varset, string)
-				% Whether or not the C code may call Mercury,
-				% PredName, Predicate or Function, Vars/Mode, 
-				% SavedeVars, LabelNames, VarNames, C Code
+	;	c_code(may_call_mercury, sym_name, pred_or_func,
+			list(pragma_var), varset, string)
+			% Whether or not the C code may call Mercury,
+			% PredName, Predicate or Function, Vars/Mode, 
+			% VarNames, C Code
 
-			;	memo(sym_name, int)
-				% Predname, Arity
+	;	c_code(may_call_mercury, sym_name,
+			pred_or_func, list(pragma_var),
+			list(string), list(string),
+			varset, string)
+			% Whether or not the C code may call Mercury,
+			% PredName, Predicate or Function, Vars/Mode, 
+			% SavedeVars, LabelNames, VarNames, C Code
 
-			;	inline(sym_name, int)
-				% Predname, Arity
+	;	memo(sym_name, arity)
+			% Predname, Arity
 
-			;	obsolete(sym_name, int)
-				% Predname, Arity
+	;	inline(sym_name, arity)
+			% Predname, Arity
 
-			;	export(sym_name, pred_or_func, list(mode),
-					string)
-				% Predname, Predicate/function, Modes,
-				% C function name.
+	;	obsolete(sym_name, arity)
+			% Predname, Arity
 
-			;	source_file(string)
-				% Source file name.
+	;	export(sym_name, pred_or_func, list(mode),
+			string)
+			% Predname, Predicate/function, Modes,
+			% C function name.
 
-			;	unused_args(pred_or_func, sym_name, int,
-					proc_id, list(int))
-				% PredName, Arity, Mode, Optimized pred name,
-				% 	Removed arguments.
-				% Used for inter-module unused argument
-				% removal, should only appear in .opt files.
+	;	source_file(string)
+			% Source file name.
 
-			;	fact_table(sym_name, arity, string).
-				% Predname, Arity, Fact file name.
+	;	unused_args(pred_or_func, sym_name, int,
+			proc_id, list(int))
+			% PredName, Arity, Mode, Optimized pred name,
+			% 	Removed arguments.
+			% Used for inter-module unused argument
+			% removal, should only appear in .opt files.
+
+	;	fact_table(sym_name, arity, string)
+			% Predname, Arity, Fact file name.
+
+	;	opt_terminates(pred_or_func, sym_name, arity, proc_id,
+			termination)
+			% PredName, Arity, Mode, Termination
+			% Used for inter-module termination analysis
+			% should only appear in .opt files.
+
+	;	terminates(sym_name, arity)
+			% Predname, Arity
+
+	;	check_termination(sym_name, arity).
+			% Predname, Arity
 
 	% For pragma c_code, there are two different calling conventions,
 	% one for C code that may recursively call Mercury code, and another

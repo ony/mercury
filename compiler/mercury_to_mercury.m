@@ -15,7 +15,7 @@
 :- interface.
 
 :- import_module hlds_goal, hlds_data, hlds_pred, prog_data.
-:- import_module list, io, varset, term.
+:- import_module list, io, varset, term, termination.
 
 %	convert_to_mercury(ProgName, OutputFileName, Items)
 :- pred convert_to_mercury(string, string, list(item_and_context),
@@ -300,6 +300,17 @@ mercury_output_item(pragma(Pragma), Context) -->
 	;
 		{ Pragma = fact_table(Pred, Arity, FileName) },
 		mercury_output_pragma_fact_table(Pred, Arity, FileName)
+	;
+		{ Pragma = opt_terminates(PredOrFunc, PredName, Arity,
+			ProcId, Termination) },
+		termination__output_pragma_opt_terminates(PredOrFunc,
+			PredName, Arity, ProcId, Termination)
+	;
+		{ Pragma = terminates(Pred, Arity) },
+		mercury_output_pragma_decl(Pred, Arity, "terminates")
+	;
+		{ Pragma = check_termination(Pred, Arity) },
+		mercury_output_pragma_decl(Pred, Arity, "check_termination")
 	).
 
 mercury_output_item(nothing, _) --> [].

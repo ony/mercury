@@ -2,7 +2,17 @@
 *.ql
 *.pl
 *.prof
-mercury_compile.m optimize.m code_gen.m
+*.int 
+*.int2
+*.int3
+*.date
+*.date3
+*.err
+*.d
+*.dep 
+*.opt
+*.optdate
+*.trans_opt
 conf.m
 mercury_compile.stats
 mercury_compile

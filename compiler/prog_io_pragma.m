@@ -22,8 +22,8 @@
 
 :- implementation.
 
-:- import_module prog_io_goal, hlds_pred.
-:- import_module string, std_util.
+:- import_module prog_io_goal, hlds_pred, term_util, termination.
+:- import_module string, std_util, bool, require.
 
 parse_pragma(ModuleName, VarSet, PragmaTerms, Result) :-
 	(
@@ -314,6 +314,99 @@ parse_pragma_type(ModuleName, "fact_table", PragmaTerms,
 		ErrorTerm)
 	).
 
+
+
+	% pragma opt_terminates should never appear in user programs,
+	% only in .opt files.
+parse_pragma_type(ModuleName, "opt_terminates", PragmaTerms, ErrorTerm,
+	_VarSet, Result) :-
+	
+	(
+		PragmaTerms = [
+			PredOrFuncTerm,
+			PredNameTerm,
+			term__functor(term__integer(Arity), [], _),
+			term__functor(term__integer(ProcInt), [], _),
+			ConstTerm,
+			TerminatesTerm,
+			MaybeUsedArgsTerm
+		],
+		proc_id_to_int(ProcId, ProcInt),
+		(
+			PredOrFuncTerm = term__functor(
+				term__atom("predicate"), [], _),
+			PredOrFunc = predicate
+		;
+			PredOrFuncTerm = term__functor(
+				term__atom("function"), [], _),
+			PredOrFunc = function 
+		),
+		parse_qualified_term(ModuleName, PredNameTerm,
+			"predicate name", PredNameResult),
+		PredNameResult = ok(PredName, []),
+		(	
+			ConstTerm = term__functor(
+				term__atom("not_set"), [], _),
+			Const = not_set
+		;
+			ConstTerm = term__functor(
+				term__atom("infinite"), [], _),
+			Const = inf(no)
+		;
+			ConstTerm = term__functor(
+				term__atom("set"), [IntTerm], _),
+			IntTerm = term__functor(term__integer(Int), [], _),
+			Const = set(Int)
+		),
+		(
+			TerminatesTerm = term__functor(
+				term__atom("not_set"), [], _),
+			Terminates = not_set
+		;
+			TerminatesTerm = term__functor(
+				term__atom("dont_know"), [], _),
+			Terminates = dont_know
+		;
+			TerminatesTerm = term__functor(
+				term__atom("yes"), [], _),
+			Terminates = yes
+		),
+		(
+			MaybeUsedArgsTerm = term__functor(
+				term__atom("yes"), [BoolListTerm], _),
+			convert_bool_list(BoolListTerm, BoolList),
+			MaybeUsedArgs = yes(BoolList)
+		;
+			MaybeUsedArgsTerm = term__functor(
+				term__atom("no"), [], _),
+			MaybeUsedArgs = no
+		),
+		Termination = term(Const, Terminates, MaybeUsedArgs, no)
+		
+	->
+		Result = ok(pragma(opt_terminates(PredOrFunc, PredName, Arity,
+			ProcId, Termination)))
+	;
+		Result = error("error in pragma opt_terminates", ErrorTerm)
+	).
+			
+	
+	
+
+parse_pragma_type(ModuleName, "terminates", PragmaTerms,
+				ErrorTerm, _VarSet, Result) :-
+	parse_simple_pragma(ModuleName, "terminates",
+		lambda([Name::in, Arity::in, Pragma::out] is det,
+			Pragma = terminates(Name, Arity)),
+		PragmaTerms, ErrorTerm, Result).
+
+parse_pragma_type(ModuleName, "check_termination", PragmaTerms,
+				ErrorTerm, _VarSet, Result) :-
+	parse_simple_pragma(ModuleName, "check_termination",
+		lambda([Name::in, Arity::in, Pragma::out] is det,
+			Pragma = check_termination(Name, Arity)),
+		PragmaTerms, ErrorTerm, Result).
+
 :- pred parse_simple_pragma(module_name, string,
 			pred(sym_name, int, pragma_type),
 			list(term), term, maybe1(item)).
@@ -510,4 +603,25 @@ convert_int_list(term__functor(Functor, Args, Context), Result) :-
 	;
 		Result = error("error in int list",
 				term__functor(Functor, Args, Context))
+	).
+
+:- pred convert_bool_list(term::in, list(bool)::out) is semidet.
+
+convert_bool_list(term__functor(Functor, Args, _), Bools) :-
+	(
+		Functor = term__atom("."),
+		Args = [term__functor(AtomTerm, [], _), RestTerm],
+		( 
+			AtomTerm = term__atom("yes"),
+			Bool = yes
+		;
+			AtomTerm = term__atom("no"),
+			Bool = no
+		),
+		convert_bool_list(RestTerm, RestList),
+		Bools = [ Bool | RestList ]
+	;
+		Functor = term__atom("[]"),
+		Args = [],
+		Bools = []
 	).

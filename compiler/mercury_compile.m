@@ -26,19 +26,20 @@
 
 	% library modules
 :- import_module int, list, map, set, std_util, dir, require.
-:- import_module library, getopt, term, varset.
+:- import_module library, getopt, term, varset, bool.
 
 	% the main compiler passes (in order of execution)
 :- import_module handle_options, prog_io, modules, module_qual, equiv_type.
 :- import_module make_hlds, typecheck, modes.
 :- import_module switch_detection, cse_detection, det_analysis, unique_modes.
 :- import_module simplify, intermod, bytecode_gen, bytecode, (lambda).
-:- import_module polymorphism, intermod, higher_order, inlining, dnf.
+:- import_module polymorphism, higher_order, inlining, dnf.
 :- import_module constraint, unused_args, dead_proc_elim, saved_vars.
 :- import_module lco, liveness, stratify.
 :- import_module follow_code, live_vars, arg_info, store_alloc.
 :- import_module code_gen, optimize, export, base_type_info, base_type_layout.
 :- import_module llds_common, llds_out.
+:- import_module termination, trans_opt.
 
 	% miscellaneous compiler modules
 :- import_module prog_data, hlds_module, hlds_pred, hlds_out, llds.
@@ -208,6 +209,8 @@ mercury_compile(Module, FactDeps) -->
 	    globals__io_lookup_bool_option(errorcheck_only, ErrorCheckOnly),
 	    globals__io_lookup_bool_option(make_optimization_interface,
 		MakeOptInt),
+	    globals__io_lookup_bool_option(make_transitive_opt_interface,
+		MakeTransOptInt),
 	    ( { TypeCheckOnly = yes } ->
 		[]
 	    ; { ErrorCheckOnly = yes } ->
@@ -223,7 +226,9 @@ mercury_compile(Module, FactDeps) -->
 			Verbose, Stats, HLDS25),
 		mercury_compile__middle_pass(ModuleName, HLDS25, HLDS50),
 		globals__io_lookup_bool_option(highlevel_c, HighLevelC),
-		( { HighLevelC = yes } ->
+		( { MakeTransOptInt = yes } ->
+			trans_opt__write_optfile(HLDS50)
+		; { HighLevelC = yes } ->
 			{ string__append(ModuleName, ".c", C_File) },
 			mercury_compile__gen_hlds(C_File, HLDS50),
 			globals__io_lookup_bool_option(compile_to_c,
@@ -267,7 +272,7 @@ mercury_compile__pre_hlds_pass(ModuleImports0, FactDeps, HLDS1, UndefTypes,
 		% qualification.
 	{ ModuleImports1 = module_imports(Module, LongDeps, ShortDeps,
 							Items1, no) },
-		% Errors in .opt files result in software errors.
+	% Errors in .opt and .trans_opt files result in software errors.
 	mercury_compile__maybe_grab_optfiles(ModuleImports1, Verbose,
 					 ModuleImports2, IntermodError),
 	{ ModuleImports2 = module_imports(_, _, _, Items2, _) },
@@ -309,15 +314,26 @@ mercury_compile__maybe_grab_optfiles(Imports0, Verbose, Imports, Error) -->
 	globals__io_lookup_bool_option(intermodule_optimization, UseOptInt),
 	globals__io_lookup_bool_option(make_optimization_interface,
 						MakeOptInt),
+	globals__io_lookup_bool_option(transitive_optimization, TransOpt),
 	( { UseOptInt = yes, MakeOptInt = no } ->
 		maybe_write_string(Verbose, "% Reading .opt files...\n"),
 		maybe_flush_output(Verbose),
-		intermod__grab_optfiles(Imports0, Imports, Error),
+		intermod__grab_optfiles(Imports0, Imports1, Error1),
 		maybe_write_string(Verbose, "% Done.\n")
 	;
-		{ Imports = Imports0 },
-		{ Error = no }
-	).
+		{ Imports1 = Imports0 },
+		{ Error1 = no }
+	),
+	( { TransOpt = yes } ->
+		maybe_write_string(Verbose, "% Reading .trans_opt files..\n"),
+		maybe_flush_output(Verbose),
+		trans_opt__grab_optfiles(Imports1, Imports, Error2),
+		maybe_write_string(Verbose, "% Done.\n")
+	;
+		{ Imports = Imports1 },
+		{ Error2 = no }
+	),
+	{ bool__or(Error1, Error2, Error) }.
 
 :- pred mercury_compile__expand_equiv_types(item_list, bool, bool, item_list,
 	bool, eqv_map, io__state, io__state).
@@ -585,8 +601,11 @@ mercury_compile__middle_pass(ModuleName, HLDS25, HLDS50) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	globals__io_lookup_bool_option(statistics, Stats),
 
-	mercury_compile__maybe_polymorphism(HLDS25, Verbose, Stats, HLDS28),
-	mercury_compile__maybe_dump_hlds(HLDS28, "28", "polymorphism"),
+	mercury_compile__maybe_polymorphism(HLDS25, Verbose, Stats, HLDS26),
+	mercury_compile__maybe_dump_hlds(HLDS26, "26", "polymorphism"),
+
+	mercury_compile__maybe_termination(HLDS26, Verbose, Stats, HLDS28),
+	mercury_compile__maybe_dump_hlds(HLDS28, "28", "termination"),
 
 	mercury_compile__maybe_base_type_infos(HLDS28, Verbose, Stats, HLDS29),
 	mercury_compile__maybe_dump_hlds(HLDS29, "29", "base_type_infos"),
@@ -867,6 +886,26 @@ mercury_compile__check_determinism(HLDS0, Verbose, Stats, HLDS, FoundError) -->
 			"% Program is determinism-correct.\n")
 	),
 	maybe_report_stats(Stats).
+
+:- pred mercury_compile__maybe_termination(module_info, bool, bool
+	, module_info, io__state, io__state).
+:- mode mercury_compile__maybe_termination(in, in, in, out, di, uo) is det.
+
+mercury_compile__maybe_termination(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(polymorphism, Polymorphism),
+	globals__io_lookup_bool_option(termination, Termination),
+	% termination analysis requires polymorphism to be run,
+	% as termination analysis does not handle complex unification
+	( 
+		{ Polymorphism = yes },
+		{ Termination = yes }
+	->
+		maybe_write_string(Verbose, "% Detecting termination...\n"),
+		termination__pass(HLDS0, HLDS),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS = HLDS0 }
+	).
 
 :- pred mercury_compile__check_unique_modes(module_info, bool, bool,
 	module_info, bool, io__state, io__state).

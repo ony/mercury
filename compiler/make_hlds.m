@@ -60,7 +60,7 @@
 :- import_module make_tags, quantification, shapes.
 :- import_module code_util, unify_proc, special_pred, type_util, mode_util.
 :- import_module mercury_to_mercury, passes_aux, clause_to_proc, inst_match.
-:- import_module fact_table.
+:- import_module fact_table, term_util.
 
 :- import_module string, char, int, set, bintree, list, map, require.
 :- import_module bool, getopt, assoc_list, term, term_io, varset.
@@ -337,7 +337,8 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 				Arity, ProcId, UnusedArgs) },
 		( { Status \= opt_imported } ->
 			prog_out__write_context(Context),
-			io__write_string("Error: unknown pragma unused_args.\n"),
+			io__write_string(
+				"Error: unknown pragma unused_args.\n"),
 			{ module_info_incr_errors(Module0, Module) }
 		;
 			{ module_info_get_predicate_table(Module0, Preds) },
@@ -363,7 +364,91 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		% clauses).
 		{ Pragma = fact_table(_, _, _) },
 		{ Module = Module0 }
+	;
+		{ Pragma = opt_terminates(PredOrFunc, SymName, Arity, ProcId, 
+			Termination) },
+		% for the Status to be opt_imported, the pragma must be in
+		% a .trans_opt or .opt file.  Currently 
+		% :- pragma opt_terminates are only valid in .opt or
+		% .trans_opt files.
+		( { Status \= opt_imported } ->
+			prog_out__write_context(Context),
+			io__write_string(
+				"Error: unknown pragma opt_terminates.\n"),
+			{ module_info_incr_errors(Module0, Module) }
+		;
+			{ module_info_get_predicate_table(Module0, Preds) },
+			(
+			    { predicate_table_search_pf_sym_arity(Preds,
+				PredOrFunc, SymName, Arity, PredIds) }
+			->
+			    ( { PredIds = [] } ->
+			    	prog_out__write_context(Context),
+				io__write_string("Internal Error: Predicate name not found in pragma opt_terminates\n"),
+				{ module_info_incr_errors(Module0, Module) }
+			    ; { PredIds = [PredId] } ->
+			    	{ module_info_pred_proc_info(Module0, PredId, 
+					ProcId, PredInfo0, ProcInfo0) },
+				{ pred_info_procedures(PredInfo0, ProcTable0)},
+				{ proc_info_set_termination(ProcInfo0, 
+					Termination, ProcInfo) },
+				{ map__det_update(ProcTable0, ProcId, ProcInfo,
+					ProcTable) },
+				{ pred_info_set_procedures(PredInfo0, 
+					ProcTable, PredInfo) },
+				{ module_info_set_pred_info(Module0, PredId,
+					PredInfo, Module) }
+			    ;
+				prog_out__write_context(Context),
+				io__write_string("Internal Error: Ambiguous predicate name\n"),
+				prog_out__write_context(Context),
+				io__write_string(
+					"  in pragma opt_terminates\n"),
+				{ module_info_incr_errors(Module0, Module) }
+			    )
+			;
+			    prog_out__write_context(Context),
+			    io__write_string("Internal Error: Predicate name not found\n"),
+			    prog_out__write_context(Context),
+			    io__write_string("  in pragma opt_terminates\n"),
+			    { module_info_incr_errors(Module0, Module) }
+			)
+		)
+
+	;
+		{ Pragma = terminates(Name, Arity) },
+		get_pred_marker_list(Module0, Name, Arity, Context,
+			"pragma terminates declaration", Markers, Module1),
+		( { list__member(request(check_termination), Markers) } ->
+			% both pragma terminates and pragma check_termination
+			% have been defined on the one pred or func.
+			% emit a warning message.
+			terminates_and_check_termination_warning(Name,
+				Arity, Context)
+		;
+			[]
+		),
+		add_pred_marker(Module1, "terminates", Name, Arity, Context,
+			[request(terminates)], Module)
+	;
+		{ Pragma = check_termination(Name, Arity) },
+		get_pred_marker_list(Module0, Name, Arity, Context,
+			"pragma check_termination declaration", 
+			Markers, Module1),
+		( { list__member(request(terminates), Markers) } ->
+			% both pragma terminates and pragma check_termination
+			% have been defined on the one pred or func.
+			% emit a warning message.
+			terminates_and_check_termination_warning(Name,
+				Arity, Context)
+		;
+			[]
+		),
+		add_pred_marker(Module1, "check_termination", Name, Arity, 
+			Context, [request(check_termination)], Module)
 	).
+
+
 
 add_item_decl_pass_2(func(_VarSet, FuncName, TypesAndModes, _RetTypeAndMode,
 		_MaybeDet, _Cond), _Context, Status, Module0, Status, Module)
@@ -513,7 +598,14 @@ add_stratified_pred(Module0, PragmaName, Name, Arity, Context, Module) -->
 
 add_pred_marker(Module0, PragmaName, Name, Arity, Context, Markers, Module) -->
 	{ module_info_get_predicate_table(Module0, PredTable0) },
+	%
+	% check that the pragma is module qualified.
+	%
 	(
+		{ Name = unqualified(_) }
+	->
+		{ error("add_pred_marker: unqualified name") }
+	;
 		{ predicate_table_search_sym_arity(PredTable0, Name, 
 			Arity, PredIds) }
 	->
@@ -531,6 +623,29 @@ add_pred_marker(Module0, PragmaName, Name, Arity, Context, Markers, Module) -->
 			Description),
 		{ module_info_incr_errors(Module0, Module) }
 	).
+
+% This predicate gets all of the markers associated with a particular sym_name
+% and arity.  It is used to check whether check_termination and termination
+% pragmas have been declared on the one predicate.
+:- pred get_pred_marker_list(module_info, sym_name, arity, term__context,
+	string, list(marker_status), module_info, io__state, io__state).
+:- mode get_pred_marker_list(in, in, in, in, in, out, out, di, uo) is det.
+get_pred_marker_list(Module0, Name, Arity, Context, Desc, Markers, Module) -->
+	{ module_info_get_predicate_table(Module0, PredTable) },
+	(
+		{ predicate_table_search_sym_arity(PredTable, Name,
+			Arity, PredIds) }
+	->
+		{ predicate_table_get_preds(PredTable, Preds) },
+		{ pragma_get_markers(Preds, PredIds, Markers) },
+		{ Module0 = Module }
+	;
+		undefined_pred_or_func_error(Name, Arity, Context,
+			Desc),
+		{ module_info_incr_errors(Module0, Module) },
+		{ Markers = [] }
+	).
+
 
 %-----------------------------------------------------------------------------%
 
@@ -1748,23 +1863,39 @@ pragma_set_markers(PredTable, [], _, PredTable).
 pragma_set_markers(PredTable0, [PredId | PredIds], Markers, PredTable) :-
 	map__lookup(PredTable0, PredId, PredInfo0),
 	pred_info_get_marker_list(PredInfo0, MarkerList0),
-	pragma_set_markers_2(Markers, MarkerList0, MarkerList),
+	pragma_append_markers_remove_dups(Markers, MarkerList0, MarkerList),
 	pred_info_set_marker_list(PredInfo0, MarkerList, PredInfo),
 	map__det_update(PredTable0, PredId, PredInfo, PredTable1),
 	pragma_set_markers(PredTable1, PredIds, Markers, PredTable).
 
-:- pred pragma_set_markers_2(list(marker_status), list(marker_status),
-	list(marker_status)).
-:- mode pragma_set_markers_2(in, in, out) is det.
+% this is quite an inefficient algorithm, but it should be irrelevant
+% as both the pred_id and marker_status lists should be short.
+:- pred pragma_get_markers(pred_table, list(pred_id), list(marker_status)).
+:- mode pragma_get_markers(in, in, out) is det.
+pragma_get_markers(_PredTable, [], []).
+pragma_get_markers(PredTable, [PredId | PredIds], Markers) :-
+	map__lookup(PredTable, PredId, PredInfo),
+	pred_info_get_marker_list(PredInfo, MarkerList),
+	pragma_append_markers_remove_dups(MarkerList, MarkerList1, Markers),
+	pragma_get_markers(PredTable, PredIds, MarkerList1).
+	
 
-pragma_set_markers_2([], MarkerList, MarkerList).
-pragma_set_markers_2([Marker | Markers], MarkerList0, MarkerList) :-
+
+
+
+% this is really a 'list__append_and_remove_dups' predicate
+:- pred pragma_append_markers_remove_dups(list(marker_status)
+	, list(marker_status), list(marker_status)).
+:- mode pragma_append_markers_remove_dups(in, in, out) is det.
+
+pragma_append_markers_remove_dups([], MarkerList, MarkerList).
+pragma_append_markers_remove_dups([Marker | Markers],MarkerList0,MarkerList) :-
 	( list__member(Marker, MarkerList0) ->
 		MarkerList1 = MarkerList0
 	;
 		MarkerList1 = [Marker | MarkerList0]
 	),
-	pragma_set_markers_2(Markers, MarkerList1, MarkerList).
+	pragma_append_markers_remove_dups(Markers,MarkerList1,MarkerList).
 
 %---------------------------------------------------------------------------%
 
@@ -3261,6 +3392,20 @@ unqualified_pred_error(PredName, Arity, Context) -->
 	io__write_string("'.\n"),
 	prog_out__write_context(Context),
 	io__write_string("  should have been qualified by prog_io.m.\n").
+
+
+:- pred terminates_and_check_termination_warning(sym_name, int, term__context, 
+	io__state, io__state).
+:- mode terminates_and_check_termination_warning(in, in, in, di, uo) is det.
+terminates_and_check_termination_warning(Name, Arity, Context) -->
+	prog_out__write_context(Context),
+	report_warning("Warning: both `pragma terminates("),
+	hlds_out__write_pred_call_id(Name / Arity),
+	io__write_string(")' and\n"),
+	prog_out__write_context(Context),
+	io__write_string("  `pragma check_termination("),
+	hlds_out__write_pred_call_id(Name / Arity),
+	io__write_string(")' defined on the same predicate or function.").
 
 %-----------------------------------------------------------------------------%
 %	module_add_pragma_fact_table(PredName, Arity, FileName, 

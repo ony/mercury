@@ -60,6 +60,7 @@
 		;	make_short_interface
 		;	make_interface
 		;	make_optimization_interface
+		;	make_transitive_opt_interface
 		;	generate_dependencies
 		;	convert_to_mercury
 		;	convert_to_goedel
@@ -147,6 +148,7 @@
 		;	opt_level
 		;	opt_space	% default is to optimize time
 		;	intermodule_optimization
+		;	transitive_optimization
 		;	split_c_files
 	%	- HLDS
 		;	inlining
@@ -169,6 +171,8 @@
 		;	follow_code
 		;	prev_code
 		;	optimize_dead_procs
+		;	termination
+		;	termination_single_args
 	%	- HLDS->LLDS
 		;	smart_indexing
 		;	  dense_switch_req_density
@@ -279,6 +283,7 @@ option_defaults_2(output_option, [
 	make_short_interface	-	bool(no),
 	make_interface		-	bool(no),
 	make_optimization_interface -	bool(no),
+	make_transitive_opt_interface -	bool(no),
 	convert_to_mercury 	-	bool(no),
 	convert_to_goedel 	-	bool(no),
 	typecheck_only		-	bool(no),
@@ -386,6 +391,9 @@ option_defaults_2(special_optimization_option, [
 	opt_level		-	int_special,
 	opt_space		-	special,
 	intermodule_optimization -	bool(no),
+	transitive_optimization -	bool(no),
+	termination		-	bool(no),
+	termination_single_args	-	bool(no),
 	split_c_files		-	bool(no)
 ]).
 option_defaults_2(optimization_option, [
@@ -550,6 +558,11 @@ long_option("make-optimization-interface",
 long_option("make-optimisation-interface",
 					make_optimization_interface).
 long_option("make-opt-int",		make_optimization_interface).
+long_option("make-transitive-optimization-interface",
+					make_transitive_opt_interface).
+long_option("make-transitive-optimisation-interface",
+					make_transitive_opt_interface).
+long_option("make-trans-opt", 		make_transitive_opt_interface).
 long_option("convert-to-mercury", 	convert_to_mercury).
 long_option("convert-to-Mercury", 	convert_to_mercury). 
 long_option("pretty-print", 		convert_to_mercury).
@@ -644,6 +657,11 @@ long_option("optimize-space",		opt_space).
 long_option("optimise-space",		opt_space).
 long_option("intermodule-optimization", intermodule_optimization).
 long_option("intermodule-optimisation", intermodule_optimization).
+long_option("transitive-intermodule-optimization", 
+					transitive_optimization).
+long_option("transitive-intermodule-optimisation", 
+					transitive_optimization).
+long_option("trans-intermod-opt", 	transitive_optimization).
 
 % HLDS->HLDS optimizations
 long_option("inlining", 		inlining).
@@ -673,6 +691,12 @@ long_option("optimise-constructor-last-call",	optimize_constructor_last_call).
 long_option("optimize-constructor-last-call",	optimize_constructor_last_call).
 long_option("optimize-dead-procs",	optimize_dead_procs).
 long_option("optimise-dead-procs",	optimize_dead_procs).
+long_option("check-termination",	termination).
+long_option("check-term",		termination).
+long_option("chk-term",			termination).
+long_option("termination-single-argument-analysis",
+					termination_single_args).
+long_option("term-single-arg", 		termination_single_args).
 
 % HLDS->LLDS optimizations
 long_option("smart-indexing",		smart_indexing).
@@ -1076,6 +1100,10 @@ options_help_output -->
 	io__write_string("\t\tWrite inter-module optimization information to\n"),
 	io__write_string("\t\t`<module>.opt'.\n"),
 	io__write_string("\t\tThis option should only be used by mmake.\n"),
+	io__write_string("\t--make-transitive-optimization-interface\n"),
+	io__write_string("\t--make-trans-opt\n"),
+	io__write_string("\t\tOutput transitive optimization information\n"),
+	io__write_string("\t\tinto the <module>.trans_opt file.\n"),
 	io__write_string("\t-G, --convert-to-goedel\n"),
 	io__write_string("\t\tConvert to Goedel. Output to file `<module>.loc'.\n"),
 	io__write_string("\t\tNote that some Mercury language constructs cannot\n"),
@@ -1346,6 +1374,14 @@ options_help_optimization -->
 	io__write_string("\t\tPerform inlining and higher-order specialization of\n"),
 	io__write_string("\t\tthe code for predicates imported from other modules.\n"),
 	io__write_string("\t\tThis option must be set throughout the compilation process.\n"),
+	io__write_string("\t--transitive-intermodule-optimization\n"),
+	io__write_string("\t--trans-intermod-opt\n"),
+	io__write_string("\t\tImport the transitive intermodule optimization data.\n"),
+	io__write_string("\t\tThis data is imported from <module>.trans_opt files.\n"),
+	io__write_string("\t--check-termination"),
+	io__write_string("\t--check-term"),
+	io__write_string("\t--chk-term"),
+	io__write_string("\t\tAnalyse each predicate to discover if it terminates.\n"),
 	io__write_string("\t--split-c-files\n"),
 	io__write_string("\t\tGenerate each C function in its own C file,\n"),
 	io__write_string("\t\tso that the linker will optimize away unused code.\n"),
