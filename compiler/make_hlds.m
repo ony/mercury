@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-2001 The University of Melbourne.
+% Copyright (C) 1993-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -1453,80 +1453,16 @@ add_pragma_termination_info(PredOrFunc, SymName, ModeList,
 			module_info::in, module_info::out, 
 			io__state::di, io__state::uo) is det.
 
+:- import_module pa_sr_util.
+
 add_pragma_possible_aliases_info(_, _, _, _, _, no, Module, Module) --> [].
 add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes, 
 				HeadVars, Types, yes(AliasAS),
 				Module0, Module) --> 
-	{ module_info_get_predicate_table(Module0, Preds) },
-	{ list__length(Modes, Arity) },
-	(
-		{ predicate_table_search_pf_sym_arity( Preds,
-			PredOrFunc, SymName, Arity, PredIds) },
-		{ PredIds \= [] }
-	->
-	   (
-		{ PredIds = [PredId] }
-	   ->
-		{ module_info_preds(Module0, PredTable0) },
-		{ map__lookup(PredTable0, PredId, PredInfo0) },
-		{ pred_info_procedures(PredInfo0, ProcTable0) },
-		{ map__to_assoc_list(ProcTable0, ProcList) },
-		(
-			{ get_procedure_matching_declmodes( ProcList,
-				Modes, Module0, ProcId) }
-		->
-			{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
-			{ proc_info_headvars(ProcInfo0, ProcHeadVars) },
-			{ list__map( term__coerce_var, HeadVars, CHeadVars )},
-			{ map__from_corresponding_lists(CHeadVars,
-				ProcHeadVars, MapHeadVars) },
-			{ pa_alias_as__rename( MapHeadVars, AliasAS, 
-						RenAliasAS0) },
-
-			% rename type variables
-			{ pred_info_arg_types( PredInfo0, ArgTypes ) }, 
-			{ pa_alias_as__rename_types( Types,
-				ArgTypes, RenAliasAS0, RenAliasAS ) }, 
-
-			{ proc_info_set_possible_aliases( ProcInfo0, 
-				RenAliasAS, ProcInfo ) },
-			{ map__det_update(ProcTable0, ProcId, ProcInfo,
-					ProcTable) },
-			{ pred_info_set_procedures(PredInfo0, ProcTable,
-					PredInfo) },
-			{ map__det_update(PredTable0, PredId, PredInfo,
-					PredTable) },
-			{ module_info_set_preds( Module0, PredTable, Module) }
-		;
-
-			% 	{ module_info_incr_errors(Module0, Module) },
-			io__write_string(
-				"Error: `:- pragma pa_alias_info' "),
-			io__write_string(
-				"declaration for undeclared mode of "),
-			hlds_out__write_simple_call_id(PredOrFunc,
-				SymName/Arity),
-			io__write_string(".\n"),
-			{ Module = Module0 },
-			io__set_exit_status(1)
-		)
-	   ;
-		io__write_string("Error: ambiguous predicate name "),
-		hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
-		io__write_string(" in `pragma pa_alias_info'.\n"),
-		{ Module = Module0 },
-		io__set_exit_status(1)
-		% { module_info_incr_errors(Module0, Module) }
-	   )
-	;
-	   io__write_string("Warning: no corresponding entry found for "),
-	   hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
-	   io__write_string(" with `pragma pa_alias_info'.\n"),
-	   { Module = Module0 }
-	   % io__set_exit_status(1)
-	   % { module_info_incr_errors(Module0, Module) }
-	).
-
+	{ list__map(term__coerce_var, HeadVars, CHeadVars) },
+	{ module_info_add_unproc_alias_pragma(Module0, 
+		unproc_alias_pragma(PredOrFunc, SymName, Modes, CHeadVars,
+			Types, AliasAS), Module) }.
 
 
 %-----------------------------------------------------------------------------%
@@ -1542,69 +1478,13 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 			module_info::in, module_info::out, 
 			io__state::di, io__state::uo) is det.
 
-add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, Types, TREUSE,
-		_MaybeReuseName, Module0, Module) --> 
-	{ module_info_get_predicate_table(Module0, Preds) },
-	{ list__length(Modes, Arity) },
-	(
-		{ predicate_table_search_pf_sym_arity( Preds,
-			PredOrFunc, SymName, Arity, PredIds) },
-		{ PredIds \= [] }
-	->
-	   (
-		{ PredIds = [PredId] }
-	   ->
-		{ module_info_preds(Module0, PredTable0) },
-		{ map__lookup(PredTable0, PredId, PredInfo0) },
-		{ pred_info_procedures(PredInfo0, ProcTable0) },
-		{ map__to_assoc_list(ProcTable0, ProcList) },
-		(
-			{ get_procedure_matching_declmodes( ProcList,
-				Modes, Module0, ProcId) }
-		->
-			{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
-			{ proc_info_headvars(ProcInfo0, ProcHeadVars) },
-			{ list__map( term__coerce_var, HeadVars, CHeadVars )},
-			{ map__from_corresponding_lists(CHeadVars,
-				ProcHeadVars, MapHeadVars) },
-			{ sr_data__memo_reuse_rename( MapHeadVars, TREUSE, 
-						RenTREUSE0) },
-			{ pred_info_arg_types( PredInfo0, ArgTypes ) }, 
-			{ sr_data__memo_reuse_rename_types( Types,
-				ArgTypes, RenTREUSE0, RenTREUSE ) }, 
+add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, Types, Reuse,
+		MaybeReuseName, Module0, Module) --> 
+	{ list__map(term__coerce_var, HeadVars, CHeadVars) },
+	{ module_info_add_unproc_reuse_pragma(Module0, 
+		unproc_reuse_pragma(PredOrFunc, SymName, Modes, CHeadVars,
+			Types, Reuse, MaybeReuseName), Module) }.
 
-			{ sr_split__create_reuse_pred(proc(PredId, ProcId),
-					RenTREUSE,
-					no, Module0, Module) }
-		;
-
-			% 	{ module_info_incr_errors(Module0, Module) },
-			io__write_string(
-				"Error: `:- pragma sr_reuse_info' "),
-			io__write_string(
-				"declaration for undeclared mode of "),
-			hlds_out__write_simple_call_id(PredOrFunc,
-				SymName/Arity),
-			io__write_string(".\n"),
-			{ Module = Module0 },
-			io__set_exit_status(1)
-		)
-	   ;
-		io__write_string("Error: ambiguous predicate name "),
-		hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
-		io__write_string(" in `pragma sr_reuse_info'.\n"),
-		{ Module = Module0 },
-		io__set_exit_status(1)
-		% { module_info_incr_errors(Module0, Module) }
-	   )
-	;
-	   io__write_string("Warning: no corresponding entry found for "),
-	   hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
-	   io__write_string(" with `pragma sr_reuse_info'.\n"),
-	   { Module = Module0 }
-	   % io__set_exit_status(1)
-	   % { module_info_incr_errors(Module0, Module) }
-	).
 
 %-----------------------------------------------------------------------------%
 
@@ -4782,17 +4662,6 @@ get_procedure_matching_declmodes([P|Procs], Modes, ModuleInfo, OurProcId) :-
 		get_procedure_matching_declmodes(Procs, Modes, ModuleInfo, 
 			OurProcId)
 	).
-
-:- pred mode_list_matches(list(mode), list(mode), module_info).
-:- mode mode_list_matches(in, in, in) is semidet.
-
-mode_list_matches([], [], _).
-mode_list_matches([Mode1 | Modes1], [Mode2 | Modes2], ModuleInfo) :-
-	% Use mode_get_insts_semidet instead of mode_get_insts to avoid
-	% aborting if there are undefined modes.
-	mode_get_insts_semidet(ModuleInfo, Mode1, Inst1, Inst2),
-	mode_get_insts_semidet(ModuleInfo, Mode2, Inst1, Inst2),
-	mode_list_matches(Modes1, Modes2, ModuleInfo).
 
 %-----------------------------------------------------------------------------%
 

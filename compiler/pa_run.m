@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -81,10 +81,14 @@
 %-----------------------------------------------------------------------------%
 
 pa_run__aliases_pass(HLDSin, HLDSout) -->
-
 	% preliminary steps:
+
+	% 0. process all the alias-information for all the imported 
+	% predicates.
+	pa_prelim_run__process_imported_predicates(HLDSin, HLDS0),
+
 	% 1. annotate all the liveness
-	pa_prelim_run__annotate_all_liveness_in_module(HLDSin, HLDS1),
+	pa_prelim_run__annotate_all_liveness_in_module(HLDS0, HLDS1),
 
 	% 2. annotate all the outscope vars
 	{ pa_prelim_run__annotate_all_outscope_vars_in_module(HLDS1,HLDS2) },
@@ -734,7 +738,7 @@ pa_run__make_pa_interface_pred_proc(PredInfo, ProcTable, ProcId) -->
 
 		% write headvars vars(HeadVar__1, ... HeadVar__n)
 	{ proc_info_varset(ProcInfo, ProgVarset) },
-	{ proc_info_real_headvars(ProcInfo, RealHeadVars) }, 
+	{ proc_info_headvars(ProcInfo, HeadVars) }, 
 	{ proc_info_vartypes(ProcInfo, VarTypes) }, 
 	{ pred_info_typevarset(PredInfo, TypeVarSet) },
 
@@ -742,14 +746,13 @@ pa_run__make_pa_interface_pred_proc(PredInfo, ProcTable, ProcId) -->
 			ProgVarset, 
 			VarTypes, 
 			TypeVarSet, 
-			RealHeadVars),
+			HeadVars),
 
 	io__write_string(", "),
 
 		% write alias information
 
 	{ proc_info_possible_aliases(ProcInfo, MaybeAliases) },
-
 	pa_alias_as__print_maybe_interface_aliases(MaybeAliases, 
 					ProcInfo, PredInfo),
 

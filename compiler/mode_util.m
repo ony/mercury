@@ -201,6 +201,21 @@
 
 %-----------------------------------------------------------------------------%
 
+	% Returns true if the two mode-lists match, given the additional 
+	% module_info. 
+:- pred mode_list_matches(list(mode), list(mode), module_info).
+:- mode mode_list_matches(in, in, in) is semidet.
+
+mode_list_matches([], [], _).
+mode_list_matches([Mode1 | Modes1], [Mode2 | Modes2], ModuleInfo) :-
+	% Use mode_get_insts_semidet instead of mode_get_insts to avoid
+	% aborting if there are undefined modes.
+	mode_get_insts_semidet(ModuleInfo, Mode1, Inst1, Inst2),
+	mode_get_insts_semidet(ModuleInfo, Mode2, Inst1, Inst2),
+	mode_list_matches(Modes1, Modes2, ModuleInfo).
+
+%-----------------------------------------------------------------------------%
+
 	% Construct a mode corresponding to the standard `in',
 	% `out', `uo' or `unused' mode.
 :- pred in_mode((mode)::out) is det.

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -227,8 +227,8 @@ create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 		module_info_set_predicate_table(HLDSin1, PredTable, HLDSout)
 	% ; contains_unconditional_reuse(TREUSE) ->
 	;
-		proc_info_set_reuse_information(ProcInfo0, 
-						TREUSE, ProcInfo1),
+		memo_reuse_simplify(TREUSE, TREUSE1),
+		proc_info_set_reuse_information(ProcInfo0, TREUSE1, ProcInfo1),
 		(
 			MaybeHLDS_GOAL = yes(HLDS_GOAL),
 			proc_info_set_goal(ProcInfo1, HLDS_GOAL, ProcInfo)
@@ -247,8 +247,9 @@ create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 
 create_reuse_pred(TabledReuse, PredProcId, MaybeReuseGoal, PredInfo, ProcInfo,
 		ReusePredInfo, ReuseProcInfo, ReuseProcId, SymName) :-
-	proc_info_set_reuse_information(ProcInfo, 
-				TabledReuse, ReuseProcInfo0),
+	memo_reuse_simplify(TabledReuse, TabledReuse1),
+	proc_info_set_reuse_information(ProcInfo, TabledReuse1, 
+		ReuseProcInfo0),
 	(
 		MaybeReuseGoal = yes(PotReuseGoal),
 		convert_potential_reuse_to_reuse(PotReuseGoal, ReuseGoal),

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -2232,10 +2232,10 @@ proc_info_set_global_use(ProcInfo0, GlobalUse, ProcInfo):-
 			AliasReuseInfo^maybe_global_use := yes(GlobalUse),
 			ProcInfo). 
 proc_info_set_reuse_information(ProcInfo0, Reuse0, ProcInfo):- 
-	memo_reuse_simplify(Reuse0, Reuse),
+	% memo_reuse_simplify(Reuse0, Reuse),
 	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 
 	proc_info_set_alias_reuse_info(ProcInfo0,
-			AliasReuseInfo^structure_reuse := Reuse,
+			AliasReuseInfo^structure_reuse := Reuse0,
 			ProcInfo). 
 proc_info_set_static_terms(ProcInfo0, StaticTerms, ProcInfo):- 
 	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 

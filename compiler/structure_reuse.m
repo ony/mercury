@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -56,7 +56,15 @@
 :- import_module list, map, varset, std_util, int, bool.
 :- import_module sr_profile_run.
 
-structure_reuse(HLDS0, HLDS) -->
+structure_reuse(HLDS00, HLDS) -->
+	% Before starting the actual reuse-analysis, process all the reuse
+	% information of the imported predicates.
+	{ module_info_unproc_reuse_pragmas(HLDS00, UnprocReusePragmas) },
+	list__foldl2(
+		process_unproc_reuse_pragma, UnprocReusePragmas, 
+		HLDS00, HLDS01), 
+	{ module_info_remove_unproc_reuse_pragmas(HLDS01, HLDS0) }, 
+	
 	{ module_info_get_special_pred_map(HLDS0, SpecialPredMap) },
 	{ map__values(SpecialPredMap, SpecialPredIds) },
 
@@ -73,6 +81,81 @@ structure_reuse(HLDS0, HLDS) -->
 	sr_indirect__compute_fixpoint(HLDS1, HLDS2),
 	sr_split__create_multiple_versions(HLDS2, HLDS), 
 	sr_profile_run__structure_reuse_profiling(HLDS). 
+
+%-----------------------------------------------------------------------------%
+:- import_module term, varset.
+:- import_module sr_data, sr_split.
+:- import_module globals, options.
+:- import_module hlds_module.
+:- import_module hlds_out.
+
+:- pred process_unproc_reuse_pragma(unproc_reuse_pragma, module_info, 
+		module_info, io__state, io__state).
+:- mode process_unproc_reuse_pragma(in, in, out, di, uo) is det.
+
+process_unproc_reuse_pragma(UnprocReusePragma, Module0, Module) --> 
+	{ UnprocReusePragma = unproc_reuse_pragma(PredOrFunc, SymName, 
+		Modes, HeadVars, Types, Reuse, _MaybeReuseName) },
+
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+
+	{ module_info_get_predicate_table(Module0, Preds) }, 
+	{ list__length(Modes, Arity) },
+	(
+		{ predicate_table_search_pf_sym_arity_declmodes(Module0, 
+			Preds, PredOrFunc, SymName, Arity, Modes, 
+			PredId, ProcId) }
+	->
+		{ module_info_preds(Module0, PredTable0) },
+		{ map__lookup(PredTable0, PredId, PredInfo0) },
+		{ pred_info_procedures(PredInfo0, ProcTable0) },
+		{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+		write_proc_progress_message("(Reuse) Looking into ", 
+			PredId, ProcId, Module0),
+
+			% rename the headvars: 
+		maybe_write_string(VeryVerbose, "Renaming HeadVars..."),
+		{ proc_info_headvars(ProcInfo0, ProcHeadVars) }, 
+		{ list__map(term__coerce_var, HeadVars, CHVars) },
+		{ map__from_corresponding_lists(CHVars, ProcHeadVars,
+			MapHeadVars) }, 
+		{ sr_data__memo_reuse_rename(MapHeadVars, Reuse, Reuse1) },
+		maybe_write_string(VeryVerbose, "done.\n"),
+	
+		% rename the types: 
+		maybe_write_string(VeryVerbose, "Renaming Types..."),
+		{ pred_info_arg_types(PredInfo0, ArgTypes) },
+		{ sr_data__memo_reuse_rename_types(Types, ArgTypes, 
+			Reuse1, Reuse2) },
+		maybe_write_string(VeryVerbose, "done.\n"),
+
+		% create the reuse-version of the procedure
+		{ sr_split__create_reuse_pred(proc(PredId, ProcId),
+			Reuse2, no, Module0, Module) }
+		
+	;
+		% XXX Currently a lot of pragma's with no corresponding
+		% procedure in the predicate table are read. Yet a priori
+		% this is without consequences for the analysis. Either this 
+		% should be studied more closely, or correct warnings should
+		% be produced. 
+		% io__write_string("Warning: no entry found for "),
+		% hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
+		% io__write_string(" with modes: "), 
+		% { varset__init(EmptyVarset) },
+		% io__write_list(Modes, ", ", write_mode(EmptyVarset)),
+		% io__write_string(" (reuse_info).\n"),
+		{ Module = Module0 }
+	).
+
+% :- import_module mercury_to_mercury.
+% :- pred write_mode(varset, (mode), io__state, io__state).
+% :- mode write_mode(in, in, di, uo) is det.
+% write_mode(Varset, Mode) --> 
+	% { varset__coerce(Varset, CVarset) },
+	% io__write_string(mercury_mode_to_string(Mode, CVarset)).
+
+%-----------------------------------------------------------------------------%
 
 
 write_pragma_reuse_info( HLDS, SpecPredIds, PredId ) --> 
@@ -136,15 +219,15 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 		% write headvars vars(HeadVar__1, ... HeadVar__n)
 
 	{ proc_info_varset(ProcInfo, ProgVarset) },
-	{ proc_info_real_headvars(ProcInfo, HeadVars) },
-	{ proc_info_vartypes( ProcInfo, VarTypes) }, 
-	{ pred_info_typevarset( PredInfo, TypeVarSet ) },
+	{ proc_info_headvars(ProcInfo, HeadVars) },
+	{ proc_info_vartypes(ProcInfo, VarTypes) }, 
+	{ pred_info_typevarset(PredInfo, TypeVarSet) },
 
 	pa_sr_util__trans_opt_output_vars_and_types(
 			ProgVarset, 
 			VarTypes, 
 			TypeVarSet, 
-			HeadVars ),
+			HeadVars),
 
 	io__write_string(", "),
 
@@ -163,7 +246,7 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	{ module_info_pred_proc_info(HLDS, ReusePredId, ReuseProcId,
 			_ReusePredInfo, ReuseProcInfo) },
 	{ proc_info_reuse_information(ReuseProcInfo, TREUSE) },
-	sr_data__memo_reuse_print( TREUSE, ReuseName, ReuseProcInfo, PredInfo) ,
+	sr_data__memo_reuse_print(TREUSE, ReuseName, ReuseProcInfo, PredInfo) ,
 
 	io__write_string(").\n").
 %-----------------------------------------------------------------------------%

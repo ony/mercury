@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -109,8 +109,9 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	; 
 		[]
 	), 
-		
-	{ proc_info_set_reuse_information(ProcInfo2, MaybeReuseConditions, 
+	
+	{ memo_reuse_simplify(MaybeReuseConditions, MaybeReuseConditions1) },
+	{ proc_info_set_reuse_information(ProcInfo2, MaybeReuseConditions1, 
 			ProcInfo3) },
 	{ proc_info_set_goal(ProcInfo3, Goal, ProcInfo) }.
 

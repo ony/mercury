@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -25,12 +25,15 @@
 :- import_module hlds_pred, hlds_data, unify_proc, special_pred.
 :- import_module globals, llds.
 :- import_module relation, map, std_util, list, set, multi_map, counter.
+:- import_module pa_alias_as.
+:- import_module sr_data.
 
 :- implementation.
 
 :- import_module hlds_out, prog_out, prog_util.
 :- import_module typecheck, modules.
 :- import_module bool, require, int, string.
+:- import_module mode_util.
 
 %-----------------------------------------------------------------------------%
 
@@ -113,6 +116,30 @@
 :- type do_aditi_compilation
 	--->    do_aditi_compilation
 	;       no_aditi_compilation.
+
+	% The unprocessed pragma alias information.  This information is not
+	% processed until just prior to the alias pass in the compiler so that
+	% the entries correspond to the transformed versions of predicates (ie
+	% type-infos and so on).
+	% The types in unproc_alias_pragma match the types in the 
+	% pa_alias_info-pragma (see prog_data.m).
+:- type unproc_alias_pragmas == list(unproc_alias_pragma).
+:- type unproc_alias_pragma 
+	--->	unproc_alias_pragma(pred_or_func, sym_name, 
+			list(mode), list(prog_var), list((type)), 
+			alias_as).
+
+	% The unprocessed pragma reuse information.  This information is not
+	% processed until just prior to the alias pass in the compiler so that
+	% the entries correspond to the transformed versions of predicates (ie
+	% type-infos and so on).
+	% The types in unproc_reuse_pragma match the types in the 
+	% sr_reuse_info-pragma (see prog_data.m).
+:- type unproc_reuse_pragmas == list(unproc_reuse_pragma).
+:- type unproc_reuse_pragma 
+	---> 	unproc_reuse_pragma(pred_or_func, sym_name, 
+			list(mode), list(prog_var), list((type)), 
+			sr_data__memo_reuse, maybe(sym_name)).
 
 %-----------------------------------------------------------------------------%
 
@@ -477,6 +504,28 @@
 :- mode module_info_optimize(in, out) is det.
 
 %-----------------------------------------------------------------------------%
+% Predicates to add and remove the unprocessed alias/reuse pragma's. 
+
+:- pred module_info_add_unproc_alias_pragma(module_info, unproc_alias_pragma,
+		module_info).
+:- mode module_info_add_unproc_alias_pragma(in, in, out) is det.
+
+:- pred module_info_unproc_alias_pragmas(module_info, unproc_alias_pragmas).
+:- mode module_info_unproc_alias_pragmas(in, out) is det.
+
+:- pred module_info_remove_unproc_alias_pragmas(module_info, module_info).
+:- mode module_info_remove_unproc_alias_pragmas(in, out) is det.
+
+:- pred module_info_add_unproc_reuse_pragma(module_info, unproc_reuse_pragma,
+		module_info). 
+:- mode module_info_add_unproc_reuse_pragma(in, in, out) is det.
+
+:- pred module_info_unproc_reuse_pragmas(module_info, unproc_reuse_pragmas).
+:- mode module_info_unproc_reuse_pragmas(in, out) is det.
+
+:- pred module_info_remove_unproc_reuse_pragmas(module_info, module_info).
+:- mode module_info_remove_unproc_reuse_pragmas(in, out) is det.
+%-----------------------------------------------------------------------------%
 
 :- implementation.
 
@@ -518,7 +567,9 @@
 					% numbers for constant terms in the
 					% generated C code
 
-		maybe_recompilation_info ::	maybe(recompilation_info)
+		maybe_recompilation_info ::	maybe(recompilation_info),
+		alias_info ::			unproc_alias_pragmas,
+		reuse_info ::			unproc_reuse_pragmas
 	).
 
 :- type module_sub_info --->
@@ -619,7 +670,7 @@ module_info_init(Name, Items, Globals, QualifierInfo, RecompInfo,
 	ModuleInfo = module(ModuleSubInfo, PredicateTable, Requests,
 		UnifyPredMap, QualifierInfo, Types, Insts, Modes, Ctors,
 		ClassTable, SuperClassTable, InstanceTable, AssertionTable,
-		FieldNameTable, counter__init(1), RecompInfo).
+		FieldNameTable, counter__init(1), RecompInfo, [], []).
 
 %-----------------------------------------------------------------------------%
 
@@ -1209,6 +1260,16 @@ hlds_dependency_info_set_aditi_dependency_ordering(DepInfo0,
 				sym_name, arity, list(pred_id)) is semidet.
 :- mode predicate_table_search_pf_sym_arity(in, in, in, in, out) is semidet.
 
+	% Search the table for the (unique) procedure matching this
+	% pred_or_func category, sym_name, arity, and declared modes. 
+	% If there was no mode declaration, then use the inferred argmodes.
+:- pred predicate_table_search_pf_sym_arity_declmodes(module_info, 
+				predicate_table,
+				pred_or_func, sym_name, arity, list(mode),
+				pred_id, proc_id).
+:- mode predicate_table_search_pf_sym_arity_declmodes(in, in, in, in, in, 
+				in, out, out) is semidet.
+
 	% Search the table for predicates or functions matching
 	% this pred_or_func category and sym_name.
 
@@ -1664,6 +1725,24 @@ predicate_table_search_pf_sym_arity(PredicateTable, PredOrFunc,
 	predicate_table_search_pf_name_arity(PredicateTable, PredOrFunc,
 		Name, Arity, PredIdList).
 
+	% (inspired from make_hlds::get_procedure_matching_declmodes/4)
+predicate_table_search_pf_sym_arity_declmodes(ModuleInfo, 
+		PredicateTable, PredOrFunc, 
+		SymName, Arity, Modes, PredId, ProcId):- 
+	predicate_table_search_pf_sym_arity(PredicateTable, PredOrFunc, 
+		SymName, Arity, PredIds), 
+	PredIds = [PredId], 
+	module_info_preds(ModuleInfo, PredMap),
+	map__lookup(PredMap, PredId, PredInfo), 
+	pred_info_procedures(PredInfo, ProcedureTable), 
+	map__to_assoc_list(ProcedureTable, ProcedureList), 
+	list__filter(
+		(pred(ProcPair::in) is semidet :- 
+			ProcPair = _Id - ProcInfo, 
+			proc_info_declared_argmodes(ProcInfo, ArgModes),
+			mode_list_matches(Modes, ArgModes, ModuleInfo)),
+		ProcedureList, [ProcId - _ProcInfo]).
+
 predicate_table_search_pf_sym(PredicateTable, predicate,
 		SymName, PredIdList) :-
 	predicate_table_search_pred_sym(PredicateTable, SymName, PredIdList).
@@ -1892,4 +1971,21 @@ predicate_arity(ModuleInfo, PredId, Arity) :-
 	map__lookup(Preds, PredId, PredInfo),
 	pred_info_arity(PredInfo, Arity).
 
+%-----------------------------------------------------------------------------%
+
+module_info_add_unproc_alias_pragma(ModuleInfo, UnprocAlias, 
+	ModuleInfo ^ alias_info := [UnprocAlias | ModuleInfo ^ alias_info]).
+
+module_info_unproc_alias_pragmas(ModuleInfo, ModuleInfo ^ alias_info).
+
+module_info_remove_unproc_alias_pragmas(ModuleInfo, 
+	ModuleInfo ^ alias_info := []).
+
+module_info_add_unproc_reuse_pragma(ModuleInfo, UnprocReuse, 
+	ModuleInfo ^ reuse_info := [UnprocReuse | ModuleInfo ^ reuse_info]).
+
+module_info_unproc_reuse_pragmas(ModuleInfo, ModuleInfo ^ reuse_info).
+
+module_info_remove_unproc_reuse_pragmas(ModuleInfo, 
+	ModuleInfo ^ reuse_info := []).
 %-----------------------------------------------------------------------------%

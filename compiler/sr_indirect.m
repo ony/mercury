@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -103,7 +103,8 @@ update_goal_in_module_info(FP, PredProcId, HLDS0, HLDS) :-
 	sr_fixpoint_table_get_final_reuse(PredProcId, Memo, Goal, FP), 
 	module_info_pred_proc_info(HLDS0, PredProcId, PredInfo0, ProcInfo0),
 	proc_info_set_goal(ProcInfo0, Goal, ProcInfo1), 
-	proc_info_set_reuse_information(ProcInfo1, Memo, ProcInfo),
+	memo_reuse_simplify(Memo, MemoS),
+	proc_info_set_reuse_information(ProcInfo1, MemoS, ProcInfo),
 	pred_info_procedures(PredInfo0, Procedures0), 
 	map__det_update(Procedures0, ProcId, ProcInfo, Procedures), 
 	pred_info_set_procedures(PredInfo0, Procedures, PredInfo), 
