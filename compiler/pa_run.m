@@ -420,18 +420,32 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 	module_info_pred_proc_info( HLDS, PRED_PROC_ID, PredInfo,
 				    ProcInfo),
 	(
+		% If the determinism of the called procedure is
+		% erroneous or failure, then you don't even need to
+		% check anything else anymore: it simply cannot 
+		% introduce any aliases. 
+		proc_info_inferred_determinism(ProcInfo, Determinism), 
+		(
+			Determinism = erroneous
+		; 
+			Determinism = failure
+		)
+	->
+		init(Alias)	
+	;
 		proc_info_possible_aliases(ProcInfo, MaybeAliases),
 		MaybeAliases = yes( SomeAL)
 	->
 		Alias = SomeAL
 	;
-		% check whether the args are primitive types
+		% Special tricks: 
+		% 1. check whether the args are primitive types
 		arg_types_are_all_primitive(HLDS, PredInfo)
 	->
 		init(Alias)
 	;
-		% 4 - call to builtin.m or private_builtin.m
-		%     predicate -- unify/index/compare
+		% 2. call to builtin.m or private_builtin.m
+		%    predicate -- unify/index/compare
 		pred_info_name(PredInfo, Name),
 		pred_info_arity(PredInfo, Arity),
 		(
@@ -449,9 +463,17 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 		% no aliases created
 		init(Alias)
 	;
-		% XXX Any call to private_builtin.m module!
+		% 3. XXX Any call to private_builtin.m module and
+		%        builtin module are considered alias-free. 
+		% This is unsafe and it would be much better to 
+		% even annotate their aliases manually then just considering
+		% them as non-alias by default. 
 		pred_info_module(PredInfo, ModuleName),
-		mercury_private_builtin_module(ModuleName)
+		( 
+			mercury_private_builtin_module(ModuleName)
+		; 
+			mercury_public_builtin_module(ModuleName)
+		)
 	->
 		% no aliases created
 		init(Alias)
@@ -571,7 +593,8 @@ pa_run__write_pred_pa_info( HLDS, SpecPredIds, PredId) -->
 pa_run__make_pa_interface_pred( HLDS, SpecPredIds, PredId ) -->
 	{ module_info_pred_info( HLDS, PredId, PredInfo ) },
 	(
-		{ pred_info_is_exported( PredInfo ) }
+		{ pred_info_is_exported( PredInfo ) ;
+		  pred_info_is_opt_exported( PredInfo ) }
 	->
 		( 
 			{ list__member( PredId, SpecPredIds ) }

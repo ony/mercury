@@ -76,7 +76,9 @@ structure_reuse(HLDS0, HLDS) -->
 write_pragma_reuse_info( HLDS, SpecPredIds, PredId ) --> 
 	{ module_info_pred_info( HLDS, PredId, PredInfo ) },
 	(
-		{ pred_info_is_exported( PredInfo ) }
+		{ pred_info_is_exported( PredInfo ) ; 
+		  pred_info_is_opt_exported( PredInfo) }
+	
 	->
 		( 
 			{ list__member( PredId, SpecPredIds ) }

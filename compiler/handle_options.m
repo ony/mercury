@@ -321,6 +321,7 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% we need to build all `.opt' or `.trans_opt' files.
 	option_implies(intermodule_optimization, use_opt_files, bool(no)),
 	option_implies(transitive_optimization, use_trans_opt_files, bool(no)),
+	option_implies(make_optimization_interface, use_trans_opt_files, bool(no)),
 
 	% when doing possible alias analysis, for the moment we
         % don't want everything to be rebuild each time -- so let's

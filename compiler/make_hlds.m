@@ -1471,11 +1471,11 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 		% { module_info_incr_errors(Module0, Module) }
 	   )
 	;
-	   io__write_string("Error: no corresponding entry found for "),
+	   io__write_string("Warning: no corresponding entry found for "),
 	   hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
 	   io__write_string(" with `pragma pa_alias_info'.\n"),
-	   { Module = Module0 },
-	   io__set_exit_status(1)
+	   { Module = Module0 }
+	   % io__set_exit_status(1)
 	   % { module_info_incr_errors(Module0, Module) }
 	).
 
@@ -1542,11 +1542,11 @@ add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
 		% { module_info_incr_errors(Module0, Module) }
 	   )
 	;
-	   io__write_string("Error: no corresponding entry found for "),
+	   io__write_string("Warning: no corresponding entry found for "),
 	   hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
 	   io__write_string(" with `pragma sr_reuse_info'.\n"),
-	   { Module = Module0 },
-	   io__set_exit_status(1)
+	   { Module = Module0 }
+	   % io__set_exit_status(1)
 	   % { module_info_incr_errors(Module0, Module) }
 	).
 
