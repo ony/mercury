@@ -285,8 +285,8 @@ number_robdd_variables_in_unify(_, _, Vars, RHS, RHS) -->
 	{ RHS = var(VarR) },
 	{ Vars = [VarR] }.
 number_robdd_variables_in_unify(_, _, Vars, RHS, RHS) -->
-	{ RHS = functor(_, _) },
-	{ Vars = [] }.
+	{ RHS = functor(_, Args) },
+	{ Vars = Args }. % XXX
 number_robdd_variables_in_unify(InstGraph, GoalPath, Vars, RHS0, RHS) -->
 	{ RHS0 = lambda_goal(A, B, C, LambdaNonLocals, LambdaVars, F, G,
 		LambdaGoal0) },

@@ -231,18 +231,18 @@ hhf__unify(lambda_goal(A,B,C,D,E,F,G,LambdaGoal0), NonLocals, _, X, Mode,
 	hhf__goal(NonLocals, LambdaGoal0, LambdaGoal),
 	{ GoalExpr = unify(X, lambda_goal(A,B,C,D,E,F,G,LambdaGoal), Mode,
 			Unif, Context) }.
-hhf__unify(functor(ConsId0, ArgsA), NonLocals, GoalInfo, X, Mode, Unif, Context,
-		GoalExpr) -->
+hhf__unify(functor(ConsId0, ArgsA), NonLocals, GoalInfo0, X, Mode, Unif,
+		Context, GoalExpr) -->
 	TypeOfX =^ vartypes ^ det_elem(X),
 	{ qualify_cons_id(TypeOfX, ArgsA, ConsId0, _, ConsId) },
 	InstGraph0 =^ inst_graph,
 	{ map__lookup(InstGraph0, X, node(Functors0, MaybeParent)) },
 	( { map__search(Functors0, ConsId, ArgsB) } ->
-		{ hhf__make_unifications(ArgsA, ArgsB, GoalInfo, Mode, Unif,
+		{ hhf__make_unifications(ArgsA, ArgsB, GoalInfo0, Mode, Unif,
 			Context, Unifications) },
 		{ Args = ArgsB }
 	;
-		hhf__add_unifications(ArgsA, NonLocals, GoalInfo, Mode, Unif,
+		hhf__add_unifications(ArgsA, NonLocals, GoalInfo0, Mode, Unif,
 			Context, Args, Unifications),
 		InstGraph1 =^ inst_graph,
 		{ map__det_insert(Functors0, ConsId, Args, Functors) },
@@ -252,6 +252,9 @@ hhf__unify(functor(ConsId0, ArgsA), NonLocals, GoalInfo, X, Mode, Unif, Context,
 			InstGraph) },
 		^inst_graph := InstGraph
 	),
+	{ goal_info_get_nonlocals(GoalInfo0, GINonlocals0) },
+	{ GINonlocals = GINonlocals0 `set__union` list_to_set(Args) },
+	{ goal_info_set_nonlocals(GoalInfo0, GINonlocals, GoalInfo) },
 	{ UnifyGoal = unify(X, functor(ConsId, Args), Mode, Unif, Context)
 		- GoalInfo },
 	{ GoalExpr = conj([UnifyGoal | Unifications]) }.
@@ -265,9 +268,12 @@ hhf__make_unifications([_|_], [], _, _, _, _, _) :-
 	error("hhf_make_unifications: length mismatch").
 hhf__make_unifications([], [_|_], _, _, _, _, _) :-
 	error("hhf_make_unifications: length mismatch").
-hhf__make_unifications([A | As], [B | Bs], GI, M, U, C,
+hhf__make_unifications([A | As], [B | Bs], GI0, M, U, C,
 		[unify(A, var(B), M, U, C) - GI | Us]) :-
-	hhf__make_unifications(As, Bs, GI, M, U, C, Us).
+	goal_info_get_nonlocals(GI0, GINonlocals0),
+	GINonlocals = GINonlocals0 `set__insert` A `set__insert` B,
+	goal_info_set_nonlocals(GI0, GINonlocals, GI),
+	hhf__make_unifications(As, Bs, GI0, M, U, C, Us).
 
 :- pred hhf__add_unifications(list(prog_var), set(prog_var), hlds_goal_info,
 		unify_mode, unification, unify_context, list(prog_var),
@@ -275,8 +281,8 @@ hhf__make_unifications([A | As], [B | Bs], GI, M, U, C,
 :- mode hhf__add_unifications(in, in, in, in, in, in, out, out, in, out) is det.
 
 hhf__add_unifications([], _, _, _, _, _, [], []) --> [].
-hhf__add_unifications([A | As], NonLocals, GI, M, U, C, [V | Vs], Goals) -->
-	hhf__add_unifications(As, NonLocals, GI, M, U, C, Vs, Goals0),
+hhf__add_unifications([A | As], NonLocals, GI0, M, U, C, [V | Vs], Goals) -->
+	hhf__add_unifications(As, NonLocals, GI0, M, U, C, Vs, Goals0),
 	InstGraph0 =^ inst_graph,
 	(
 		{ 
@@ -297,6 +303,9 @@ hhf__add_unifications([A | As], NonLocals, GI, M, U, C, [V | Vs], Goals) -->
 		^varset := VarSet,
 		^vartypes := VarTypes,
 		^inst_graph := InstGraph,
+		{ goal_info_get_nonlocals(GI0, GINonlocals0) },
+		{ GINonlocals = GINonlocals0 `set__insert` V },
+		{ goal_info_set_nonlocals(GI0, GINonlocals, GI) },
 		{ Goals = [unify(A, var(V), M, U, C) - GI | Goals0] }
 	;
 		{ V = A },
