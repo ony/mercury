@@ -209,7 +209,12 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 		sr_live__init(LIVE0),
 		pa_alias_as__live(LU, LIVE0, Alias0, LIVE), 
 		(
-			sr_live__is_live(Var,LIVE)
+			( 
+				sr_live__is_live(Var,LIVE) 
+			;
+				pa_alias_as__is_top(Alias0)
+			)
+		
 		->
 			goal_info_set_reuse(Info0, 
 				choice(deconstruct(no)), Info),
