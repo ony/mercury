@@ -138,8 +138,8 @@ collect_mq_info_2(mode_defn(_, ModeDefn, _), Info0, Info) :-
 	add_mode_defn(ModeDefn, Info0, Info).
 collect_mq_info_2(module_defn(_, ModuleDefn), Info0, Info) :-
 	process_module_defn(ModuleDefn, Info0, Info).
-collect_mq_info_2(pred(_,_,_,_,_,_,_), Info, Info).
-collect_mq_info_2(func(_,_,_,_,_,_,_,_), Info, Info).
+collect_mq_info_2(pred(_,_,_,_,_,_,_,_), Info, Info).
+collect_mq_info_2(func(_,_,_,_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pred_mode(_,_,_,_,_), Info, Info).
 collect_mq_info_2(func_mode(_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pragma(_), Info, Info).
@@ -281,8 +281,10 @@ module_qualify_item(module_defn(A, ModuleDefn) - Context,
 	{ update_import_status(ModuleDefn, Info0, Info, Continue) }.
 
 module_qualify_item(
-		pred(A, SymName, TypesAndModes0, D,E,F, Constraints0) - Context,
-		pred(A, SymName, TypesAndModes, D,E,F, Constraints) - Context,
+		pred(A, B, SymName, TypesAndModes0, C, D, E,
+			Constraints0) - Context,
+		pred(A, B, SymName, TypesAndModes,  C, D, E,
+			Constraints) - Context,
 		Info0, Info, yes) -->
 	{ list__length(TypesAndModes0, Arity) },
 	{ mq_info_set_error_context(Info0, pred(SymName - Arity) - Context,
@@ -291,9 +293,9 @@ module_qualify_item(
 	qualify_class_constraints(Constraints0, Constraints, Info2, Info).
 
 module_qualify_item(
-		func(A,SymName, TypesAndModes0, TypeAndMode0, D, E, F
-			,Constraints0) - Context,
-		func(A, SymName, TypesAndModes, TypeAndMode, D, E, F,
+		func(A, B, SymName, TypesAndModes0, TypeAndMode0, F, G, H,
+			Constraints0) - Context,
+		func(A, B, SymName, TypesAndModes, TypeAndMode, F, G, H,
 			Constraints) - Context,
 		Info0, Info, yes) -->
 	{ list__length(TypesAndModes0, Arity) },
@@ -741,9 +743,9 @@ qualify_class_interface([M0|M0s], [M|Ms], MQInfo0, MQInfo) -->
 	% There is no need to qualify the method name, since that is
 	% done when the item is parsed.
 qualify_class_method(
-		pred(Varset, Name, TypesAndModes0, MaybeDet, Cond,
+		pred(Varset, ExistQVars, Name, TypesAndModes0, MaybeDet, Cond,
 			ClassContext0, Context), 
-		pred(Varset, Name, TypesAndModes, MaybeDet, Cond, 
+		pred(Varset, ExistQVars, Name, TypesAndModes, MaybeDet, Cond, 
 			ClassContext, Context), 
 		MQInfo0, MQInfo
 		) -->
@@ -752,10 +754,10 @@ qualify_class_method(
 	qualify_class_constraints(ClassContext0, ClassContext, 
 		MQInfo1, MQInfo).
 qualify_class_method(
-		func(Varset, Name, TypesAndModes0, ReturnMode0, MaybeDet, Cond,
-			ClassContext0, Context), 
-		func(Varset, Name, TypesAndModes, ReturnMode, MaybeDet, Cond,
-			ClassContext, Context), 
+		func(Varset, ExistQVars, Name, TypesAndModes0, ReturnMode0,
+			MaybeDet, Cond, ClassContext0, Context), 
+		func(Varset, ExistQVars, Name, TypesAndModes, ReturnMode,
+			MaybeDet, Cond, ClassContext, Context), 
 		MQInfo0, MQInfo
 		) -->
 	qualify_types_and_modes(TypesAndModes0, TypesAndModes, 

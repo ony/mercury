@@ -89,12 +89,11 @@
 post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
 		NumErrors, IOState0, IOState) :-
 	pred_info_clauses_info(PredInfo0, ClausesInfo0),
+	pred_info_get_head_type_params(PredInfo0, HeadTypeParams),
 	ClausesInfo0 = clauses_info(VarSet, B, VarTypesMap0, HeadVars, E),
-	map__apply_to_list(HeadVars, VarTypesMap0, HeadVarTypes),
-	term__vars_list(HeadVarTypes, HeadVarTypeParams),
 	map__to_assoc_list(VarTypesMap0, VarTypesList),
 	set__init(Set0),
-	check_type_bindings_2(VarTypesList, HeadVarTypeParams,
+	check_type_bindings_2(VarTypesList, HeadTypeParams,
 			[], Errs, Set0, Set),
 	( Errs = [] ->
 		PredInfo = PredInfo0,
@@ -272,7 +271,7 @@ post_typecheck__finish_pred(ModuleInfo, PredId, PredInfo1, PredInfo) -->
 	% 
 post_typecheck__finish_imported_pred(ModuleInfo, PredId, PredInfo0, PredInfo)
 		-->
-	{ pred_info_arg_types(PredInfo0, _, ArgTypes) },
+	{ pred_info_arg_types(PredInfo0, ArgTypes) },
 	{ pred_info_procedures(PredInfo0, Procs0) },
 	{ pred_info_procids(PredInfo0, ProcIds) },
 	propagate_types_into_proc_modes(ModuleInfo, PredId, ProcIds, ArgTypes,

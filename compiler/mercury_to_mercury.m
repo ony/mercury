@@ -31,15 +31,16 @@
 				io__state, io__state).
 :- mode convert_to_mercury(in, in, in, di, uo) is det.
 
-:- pred mercury_output_pred_type(varset, sym_name, list(type),
+:- pred mercury_output_pred_type(tvarset, existq_tvars, sym_name, list(type),
 		maybe(determinism), purity, list(class_constraint),
 		term__context, io__state, io__state).
-:- mode mercury_output_pred_type(in, in, in, in, in, in, in, di, uo) is det.
+:- mode mercury_output_pred_type(in, in, in, in, in, in, in, in, di, uo) is det.
 
-:- pred mercury_output_func_type(varset, sym_name, list(type), type,
+:- pred mercury_output_func_type(tvarset, existq_tvars, sym_name,
+		list(type), type,
 		maybe(determinism), purity, list(class_constraint),
 		term__context, io__state, io__state).
-:- mode mercury_output_func_type(in, in, in, in, in, in, in, in, 
+:- mode mercury_output_func_type(in, in, in, in, in, in, in, in, in, 
 		di, uo) is det.
 
 :- pred mercury_output_pred_mode_decl(varset, sym_name, list(mode),
@@ -241,16 +242,16 @@ mercury_output_item(mode_defn(VarSet, ModeDefn, _Cond), Context) -->
 	maybe_output_line_number(Context),
 	mercury_output_mode_defn(VarSet, ModeDefn, Context).
 
-mercury_output_item(pred(VarSet, PredName, TypesAndModes, Det, _Cond,
-		Purity, ClassContext), Context) -->
-	maybe_output_line_number(Context),
-	mercury_output_pred_decl(VarSet, PredName, TypesAndModes, Det,
-		Purity, ClassContext, Context, ":- ", ".\n", ".\n").
-
-mercury_output_item(func(VarSet, PredName, TypesAndModes, RetTypeAndMode, Det,
+mercury_output_item(pred(VarSet, ExistQVars, PredName, TypesAndModes, Det,
 		_Cond, Purity, ClassContext), Context) -->
 	maybe_output_line_number(Context),
-	mercury_output_func_decl(VarSet, PredName, TypesAndModes,
+	mercury_output_pred_decl(VarSet, ExistQVars, PredName, TypesAndModes,
+		Det, Purity, ClassContext, Context, ":- ", ".\n", ".\n").
+
+mercury_output_item(func(VarSet, ExistQVars, PredName, TypesAndModes,
+		RetTypeAndMode, Det, _Cond, Purity, ClassContext), Context) -->
+	maybe_output_line_number(Context),
+	mercury_output_func_decl(VarSet, ExistQVars, PredName, TypesAndModes,
 			RetTypeAndMode, Det, Purity, ClassContext, Context, 
 			":- ", ".\n", ".\n").
 
@@ -439,16 +440,18 @@ output_class_methods(Methods) -->
 output_class_method(Method) -->
 	io__write_string("\t"),
 	(
-		{ Method = pred(VarSet, Name, TypesAndModes, Detism, 
-			_Condition, ClassContext, Context) },
-		mercury_output_pred_decl(VarSet, Name, TypesAndModes, Detism,
-			pure, ClassContext, Context, "", ",\n\t", "")
-	;
-		{ Method = func(VarSet, Name, TypesAndModes, TypeAndMode, 
+		{ Method = pred(VarSet, ExistQVars, Name, TypesAndModes,
 			Detism, _Condition, ClassContext, Context) },
-		mercury_output_func_decl(VarSet, Name, TypesAndModes,
-			TypeAndMode, Detism, pure, ClassContext, Context, 
+		mercury_output_pred_decl(VarSet, ExistQVars, Name,
+			TypesAndModes, Detism, pure, ClassContext, Context,
 			"", ",\n\t", "")
+	;
+		{ Method = func(VarSet, ExistQVars, Name, TypesAndModes,
+			TypeAndMode, Detism, _Condition, ClassContext,
+			Context) },
+		mercury_output_func_decl(VarSet, ExistQVars, Name,
+			TypesAndModes, TypeAndMode, Detism, pure,
+			ClassContext, Context, "", ",\n\t", "")
 	;
 		{ Method = pred_mode(VarSet, Name, Modes, Detism, 
 			_Condition, Context) },
@@ -1236,13 +1239,14 @@ mercury_output_ctor_arg_name_prefix(Name) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred mercury_output_pred_decl(varset, sym_name, list(type_and_mode),
+:- pred mercury_output_pred_decl(tvarset, existq_tvars,
+		sym_name, list(type_and_mode),
 		maybe(determinism), purity, list(class_constraint),
 		term__context, string, string, string, io__state, io__state).
-:- mode mercury_output_pred_decl(in, in, in, in, in, in, in, in, in, in,
+:- mode mercury_output_pred_decl(in, in, in, in, in, in, in, in, in, in, in,
 		di, uo) is det.
 
-mercury_output_pred_decl(VarSet, PredName, TypesAndModes, MaybeDet, 
+mercury_output_pred_decl(VarSet, ExistQVars, PredName, TypesAndModes, MaybeDet, 
 		Purity, ClassContext, Context, StartString, Separator,
 		Terminator) -->
 	{ split_types_and_modes(TypesAndModes, Types, MaybeModes) },
@@ -1250,30 +1254,33 @@ mercury_output_pred_decl(VarSet, PredName, TypesAndModes, MaybeDet,
 		{ MaybeModes = yes(Modes) },
 		{ Modes \= [] }
 	->
-		mercury_output_pred_type_2(VarSet, PredName, Types, MaybeDet, 
-			Purity, ClassContext, Context, StartString, Separator),
+		mercury_output_pred_type_2(VarSet, ExistQVars, PredName,
+			Types, MaybeDet, Purity, ClassContext, Context,
+			StartString, Separator),
 		mercury_output_pred_mode_decl_2(VarSet, PredName, Modes,
 				MaybeDet, Context, StartString, Terminator)
 	;
-		mercury_output_pred_type_2(VarSet, PredName, Types, MaybeDet, 
-			Purity, ClassContext, Context, StartString, Terminator)
+		mercury_output_pred_type_2(VarSet, ExistQVars, PredName,
+			Types, MaybeDet, Purity, ClassContext, Context,
+			StartString, Terminator)
 	).
 
-mercury_output_pred_type(VarSet, PredName, Types, MaybeDet, Purity,
+mercury_output_pred_type(VarSet, ExistQVars, PredName, Types, MaybeDet, Purity,
 		ClassContext, Context) -->
-	mercury_output_pred_type_2(VarSet, PredName, Types, MaybeDet,
-		Purity, ClassContext, Context, ":- ", ".\n").
+	mercury_output_pred_type_2(VarSet, ExistQVars, PredName, Types,
+		MaybeDet, Purity, ClassContext, Context, ":- ", ".\n").
 
 
-:- pred mercury_output_pred_type_2(varset, sym_name, list(type),
+:- pred mercury_output_pred_type_2(tvarset, existq_tvars, sym_name, list(type),
 		maybe(determinism), purity, list(class_constraint),
 		term__context, string, string, io__state, io__state).
-:- mode mercury_output_pred_type_2(in, in, in, in, in, in, in, in, in,
+:- mode mercury_output_pred_type_2(in, in, in, in, in, in, in, in, in, in,
 		di, uo) is det.
 
-mercury_output_pred_type_2(VarSet, PredName, Types, MaybeDet, Purity,
-		ClassContext, _Context, StartString, Separator) -->
+mercury_output_pred_type_2(VarSet, ExistQVars, PredName, Types, MaybeDet,
+		Purity, ClassContext, _Context, StartString, Separator) -->
 	io__write_string(StartString),
+	mercury_output_quantifier(VarSet, ExistQVars),
 	write_purity_prefix(Purity),
 	io__write_string("pred "),
 	(
@@ -1317,48 +1324,51 @@ mercury_output_pred_type_2(VarSet, PredName, Types, MaybeDet, Purity,
 
 %-----------------------------------------------------------------------------%
 
-:- pred mercury_output_func_decl(varset, sym_name, list(type_and_mode),
-		type_and_mode, maybe(determinism), 
+:- pred mercury_output_func_decl(tvarset, existq_tvars, sym_name,
+		list(type_and_mode), type_and_mode, maybe(determinism), 
 		purity, list(class_constraint), term__context, string, string,
 		string, io__state, io__state).
 :- mode mercury_output_func_decl(in, in, in, in, in, in, in, in, in, in, in,
-		di, uo) is det.
+		in, di, uo) is det.
 
-mercury_output_func_decl(VarSet, FuncName, TypesAndModes, RetTypeAndMode,
-		MaybeDet, Purity, ClassContext, Context, 
-		StartString, Separator, Terminator) -->
+mercury_output_func_decl(VarSet, ExistQVars, FuncName,
+		TypesAndModes, RetTypeAndMode, MaybeDet, Purity, ClassContext,
+		Context, StartString, Separator, Terminator) -->
 	{ split_types_and_modes(TypesAndModes, Types, MaybeModes) },
 	{ split_type_and_mode(RetTypeAndMode, RetType, MaybeRetMode) },
 	(
 		{ MaybeModes = yes(Modes) },
 		{ MaybeRetMode = yes(RetMode) }
 	->
-		mercury_output_func_type_2(VarSet, FuncName, Types, RetType,
-				no, Purity, ClassContext, Context, 
-				StartString, Separator),
+		mercury_output_func_type_2(VarSet, ExistQVars, FuncName,
+				Types, RetType, no, Purity, ClassContext,
+				Context, StartString, Separator),
 		mercury_output_func_mode_decl_2(VarSet, FuncName, Modes,
 				RetMode, MaybeDet, Context, 
 				StartString, Terminator)
 	;
-		mercury_output_func_type_2(VarSet, FuncName, Types, RetType,
-				MaybeDet, Purity, ClassContext, Context, 
-				StartString, Terminator)
+		mercury_output_func_type_2(VarSet, ExistQVars, FuncName,
+				Types, RetType, MaybeDet, Purity, ClassContext,
+				Context, StartString, Terminator)
 	).
 
-mercury_output_func_type(VarSet, FuncName, Types, RetType, MaybeDet, 
-		Purity, ClassContext, Context) -->
-	mercury_output_func_type_2(VarSet, FuncName, Types, RetType, MaybeDet, 
-			Purity, ClassContext, Context, ":- ", ".\n").
+mercury_output_func_type(VarSet, ExistQVars, FuncName, Types, RetType,
+		MaybeDet, Purity, ClassContext, Context) -->
+	mercury_output_func_type_2(VarSet, ExistQVars, FuncName, Types,
+		RetType, MaybeDet, Purity, ClassContext, Context,
+		":- ", ".\n").
 
-:- pred mercury_output_func_type_2(varset, sym_name, list(type), type,
-		maybe(determinism), purity, list(class_constraint),
+:- pred mercury_output_func_type_2(varset, existq_tvars, sym_name, list(type),
+		type, maybe(determinism), purity, list(class_constraint),
 		term__context, string, string, io__state, io__state).
-:- mode mercury_output_func_type_2(in, in, in, in, in, in, in, in, in, in, 
+:- mode mercury_output_func_type_2(in, in, in, in, in, in, in, in, in, in, in, 
 		di, uo) is det.
 
-mercury_output_func_type_2(VarSet, FuncName, Types, RetType, MaybeDet, 
-		Purity, ClassContext, _Context, StartString, Separator) -->
+mercury_output_func_type_2(VarSet, ExistQVars, FuncName, Types, RetType,
+		MaybeDet, Purity, ClassContext, _Context, StartString,
+		Separator) -->
 	io__write_string(StartString),
+	mercury_output_quantifier(VarSet, ExistQVars),
 	write_purity_prefix(Purity),
 	io__write_string("func "),
 	(
@@ -1377,6 +1387,20 @@ mercury_output_func_type_2(VarSet, FuncName, Types, RetType, MaybeDet,
 	mercury_output_class_context(ClassContext, VarSet),
 	mercury_output_det_annotation(MaybeDet),
 	io__write_string(Separator).
+
+%-----------------------------------------------------------------------------%
+
+:- pred mercury_output_quantifier(tvarset, list(tvar), io__state, io__state).
+:- mode mercury_output_quantifier(in, in, di, uo) is det.
+
+mercury_output_quantifier(VarSet, ExistQVars) -->
+	( { ExistQVars = [] } ->
+		[]
+	;
+		io__write_string("some ["),
+		mercury_output_vars(ExistQVars, VarSet, no),
+		io__write_string("] ")
+	).
 
 %-----------------------------------------------------------------------------%
 

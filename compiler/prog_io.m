@@ -808,6 +808,36 @@ process_decl(ModuleName, VarSet, "<=", [Decl, ClassContext], Result) :-
 		    Decl)
 	).
 
+process_decl(ModuleName, VarSet, "some", [TVars, Decl], Result) :-
+	% XXX we should check that `TVars' is of the
+	%     appropriate form (i.e. a list of variables)
+	term__vars(TVars, TVarsList),
+	parse_decl(ModuleName, VarSet, Decl, Result0),
+	(
+		Result0 = ok(pred(TVarSet, ExistQVars0, Name, ArgsAndModes,
+			Detism, Cond, Purity, ClassConstraints), _Context)
+	->
+		list__append(TVarsList, ExistQVars0, ExistQVars),
+		Result = ok(pred(TVarSet, ExistQVars, Name, ArgsAndModes,
+			Detism, Cond, Purity, ClassConstraints))
+	;
+		Result0 = ok(func(TVarSet, ExistQVars0, Name, ArgsAndModes,
+			RetArgAndMode, Detism, Cond, Purity, ClassConstraints),
+			_Context)
+	->
+		list__append(TVarsList, ExistQVars0, ExistQVars),
+		Result = ok(func(TVarSet, ExistQVars, Name, ArgsAndModes,
+			RetArgAndMode, Detism, Cond, Purity, ClassConstraints))
+	;
+		Result0 = error(Msg, Term)
+	->
+		Result = error(Msg, Term)
+	;
+		Result = error(
+	"Existential quantifiers only allowed on pred or func declarations", 
+		    Decl)
+	).
+
 process_decl(ModuleName, VarSet, "mode", [ModeDecl], Result) :-
 	parse_mode_decl(ModuleName, VarSet, ModeDecl, Result).
 
@@ -1460,8 +1490,9 @@ process_pred_2(ok(F, As0), PredType, VarSet, MaybeDet, Cond, Purity,
 		(
 			verify_type_and_mode_list(As)
 		->
-			Result = ok(pred(VarSet, F, As, MaybeDet, Cond,
-				Purity, ClassContext))
+			ExistQVars = [],
+			Result = ok(pred(VarSet, ExistQVars, F, As, MaybeDet,
+				Cond, Purity, ClassContext))
 		;
 			Result = error("some but not all arguments have modes", PredType)
 		)
@@ -1593,8 +1624,10 @@ process_func_2(ok(F, As0), FuncTerm, ReturnTypeTerm, VarSet, MaybeDet, Cond,
 "function declaration specifies a determinism but does not specify the mode",
 					FuncTerm)
 			;
-				Result = ok(func(VarSet, F, As, ReturnType,
-					MaybeDet, Cond, Purity, ClassContext))
+				ExistQVars = [],
+				Result = ok(func(VarSet, ExistQVars, F, As,
+					ReturnType, MaybeDet, Cond, Purity,
+					ClassContext))
 			)
 		;
 			Result = error(

@@ -197,7 +197,7 @@ check_instance_pred(ClassId, ClassVars, ClassInterface, PredId,
 			)),
 		ProcIds),
 	module_info_pred_info(ModuleInfo0, PredId, PredInfo),
-	pred_info_arg_types(PredInfo, ArgTypeVars, ArgTypes),
+	pred_info_arg_types(PredInfo, ArgTypeVars, _ExistQVars, ArgTypes),
 	pred_info_get_class_context(PredInfo, ClassContext0),
 		% The first constraint in the class context of a class method
 		% is always the constraint for the class of which it is
@@ -495,7 +495,7 @@ check_instance_types_and_modes(InstancePredName, InstancePredInfo,
 	Info0 = instance_method_info(ModuleInfo0, PredName, PredArity, ArgTypes,
 		ClassContext, ArgModes, Errors, ArgTypeVars, Status,
 		PredOrFunc, Context),
-	pred_info_arg_types(InstancePredInfo, _, InstanceArgTypes),
+	pred_info_arg_types(InstancePredInfo, _, ExistQVars, InstanceArgTypes),
 	pred_info_get_class_context(InstancePredInfo, InstanceClassContext),
 	(
 			% As an optimisation, if the types and constraints
@@ -538,9 +538,9 @@ check_instance_types_and_modes(InstancePredName, InstancePredInfo,
 
 
 		pred_info_init(ModuleName, PredName, PredArity, ArgTypeVars, 
-			ArgTypes, Cond, Context, DummyClausesInfo, Status,
-			Markers, none, PredOrFunc, ClassContext, Proofs,
-			PredInfo0),
+			ExistQVars, ArgTypes, Cond, Context, DummyClausesInfo,
+			Status, Markers, none, PredOrFunc, ClassContext,
+			Proofs, PredInfo0),
 
 		module_info_globals(ModuleInfo0, Globals),
 		globals__get_args_method(Globals, ArgsMethod),

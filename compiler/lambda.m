@@ -353,8 +353,12 @@ lambda__transform_lambda(PredOrFunc, OrigPredName, Vars, Modes, Detism,
 			PredOrFunc, OrigPredName, OrigLine,
 			LambdaCount, PredName),
 		goal_info_get_context(LambdaGoalInfo, LambdaContext),
-		% the TVarSet is a superset of what it really ought be,
-		% but that shouldn't matter
+		% The TVarSet is a superset of what it really ought be,
+		% but that shouldn't matter.
+		% Currently lambda expressions are always monomorphic
+		% in Mercury, so there are no existentially quantified
+		% type variables (no universally quantified tvars either).
+		ExistQVars = [],
 		lambda__uni_modes_to_modes(UniModes1, OrigArgModes),
 
 		% We have to jump through hoops to work out the mode
@@ -402,9 +406,9 @@ lambda__transform_lambda(PredOrFunc, OrigPredName, Vars, Modes, Detism,
 			TVarMap, TCVarMap, ArgsMethod, ProcInfo),
 
 		init_markers(Markers),
-		pred_info_create(ModuleName, PredName, TVarSet, ArgTypes,
-			true, LambdaContext, local, Markers, PredOrFunc,
-			Constraints, ProcInfo, ProcId, PredInfo),
+		pred_info_create(ModuleName, PredName, TVarSet, ExistQVars,
+			ArgTypes, true, LambdaContext, local, Markers,
+			PredOrFunc, Constraints, ProcInfo, ProcId, PredInfo),
 
 		% save the new predicate in the predicate table
 

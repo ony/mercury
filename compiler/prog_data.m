@@ -51,16 +51,20 @@
 	; 	mode_defn(varset, mode_defn, condition)
 	; 	module_defn(varset, module_defn)
 
-	; 	pred(varset, sym_name, list(type_and_mode),
+	; 	pred(tvarset, existq_tvars, sym_name, list(type_and_mode),
 			maybe(determinism), condition, purity,
 			list(class_constraint))
-		%     VarNames, PredName, ArgTypes, Deterministicness, Cond
+		%       VarNames, ExistentiallyQuantifiedTypeVars,
+		%	PredName, ArgTypes, Deterministicness, Cond,
+		%	Purity, TypeClassContext
 
-	; 	func(varset, sym_name, list(type_and_mode), type_and_mode,
-			maybe(determinism), condition, purity,
+	; 	func(tvarset, existq_tvars, sym_name, list(type_and_mode),
+			type_and_mode, maybe(determinism), condition, purity,
 			list(class_constraint))
-		%       VarNames, PredName, ArgTypes, ReturnType,
-		%       Deterministicness, Cond
+		%       VarNames, ExistentiallyQuantifiedTypeVars,
+		%       PredName, ArgTypes, ReturnType,
+		%       Deterministicness, Cond,
+		%	Purity, TypeClassContext
 
 	; 	pred_mode(varset, sym_name, list(mode), maybe(determinism),
 			condition)
@@ -243,37 +247,38 @@
 
 :- type class_interface  == list(class_method).	
 
-:- type class_method	--->	pred(varset, sym_name, list(type_and_mode),
-					maybe(determinism), condition,
-					list(class_constraint), term__context)
-				%       VarNames, PredName, ArgTypes,
-				%	Determinism, Cond
-				%	ClassContext, Context
+:- type class_method
+	--->	pred(tvarset, existq_tvars, sym_name, list(type_and_mode),
+			maybe(determinism), condition,
+			list(class_constraint), term__context)
+		%       VarNames, ExistentiallyQuantifiedTypeVars,
+		%	PredName, ArgTypes, Determinism, Cond
+		%	ClassContext, Context
 
-			; 	func(varset, sym_name, list(type_and_mode),
-					type_and_mode,
-					maybe(determinism), condition,
-					list(class_constraint), term__context)
-				%       VarNames, PredName, ArgTypes,
-				%	ReturnType,
-				%	Determinism, Cond
-				%	ClassContext, Context
+	; 	func(tvarset, existq_tvars, sym_name, list(type_and_mode),
+			type_and_mode,
+			maybe(determinism), condition,
+			list(class_constraint), term__context)
+		%       VarNames, ExistentiallyQuantfiedTypeVars,
+		%	PredName, ArgTypes, ReturnType,
+		%	Determinism, Cond
+		%	ClassContext, Context
 
-			; 	pred_mode(varset, sym_name, list(mode),
-					maybe(determinism), condition,
-					term__context)
-				%       VarNames, PredName, ArgModes,
-				%	Determinism, Cond
-				%	Context
+	; 	pred_mode(varset, sym_name, list(mode),
+			maybe(determinism), condition,
+			term__context)
+		%       VarNames, PredName, ArgModes,
+		%	Determinism, Cond
+		%	Context
 
-			; 	func_mode(varset, sym_name, list(mode), mode,
-					maybe(determinism), condition,
-					term__context)
-				%       VarNames, PredName, ArgModes,
-				%	ReturnValueMode,
-				%	Determinism, Cond
-				%	Context
-			.
+	; 	func_mode(varset, sym_name, list(mode), mode,
+			maybe(determinism), condition,
+			term__context)
+		%       VarNames, PredName, ArgModes,
+		%	ReturnValueMode,
+		%	Determinism, Cond
+		%	Context
+	.
 
 :- type instance_method	--->	func_instance(sym_name, sym_name, arity)
 			;	pred_instance(sym_name, sym_name, arity)
@@ -365,6 +370,10 @@
 :- type tvar		==	var.	% used for type variables
 :- type tvarset		==	varset. % used for sets of type variables
 :- type tsubst		==	map(tvar, type). % used for type substitutions
+
+	% existq_tvars is used to record the set of type variables which are
+	% existentially quantified
+:- type existq_tvars	==	list(tvar).
 
 	% Types may have arbitrary assertions associated with them
 	% (eg. you can define a type which represents sorted lists).

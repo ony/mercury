@@ -933,7 +933,8 @@ deforest__create_call_goal(proc(PredId, ProcId), VersionInfo,
 	pd_info_get_module_info(ModuleInfo),
 	{ module_info_pred_proc_info(ModuleInfo, PredId, ProcId,
 		CalledPredInfo, CalledProcInfo) },
-	{ pred_info_arg_types(CalledPredInfo, CalledTVarSet, ArgTypes0) },
+	{ pred_info_arg_types(CalledPredInfo, CalledTVarSet, _CalledExistQVars,
+		ArgTypes0) },
 
 		% Rename the arguments in the version.
 	pd_info_get_proc_info(ProcInfo0),
@@ -1207,7 +1208,7 @@ deforest__match_generalised_version(ModuleInfo, VersionGoal, VersionArgs,
 
 	module_info_pred_info(ModuleInfo, NonGeneralisedPredId, 
 		NonGeneralisedPredInfo),
-	pred_info_arg_types(NonGeneralisedPredInfo, _, NonGeneralisedArgTypes),
+	pred_info_arg_types(NonGeneralisedPredInfo, NonGeneralisedArgTypes),
 	deforest__create_deforest_call_args(NonGeneralisedArgs, 
 		NonGeneralisedArgTypes, GeneralRenaming, TypeRenaming,
 		NewArgs, VarSet, _, VarTypes, _),

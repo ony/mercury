@@ -255,7 +255,8 @@ hlds_out__write_pred_id(ModuleInfo, PredId) -->
 		{ special_pred_description(Kind, Descr) },
 		io__write_string(Descr),
 		io__write_string(" for type "),
-		{ pred_info_arg_types(PredInfo, TVarSet, ArgTypes) },
+		{ pred_info_arg_types(PredInfo, TVarSet, _ExistQVars,
+			ArgTypes) },
 		( { special_pred_get_type(Name, ArgTypes, Type) } ->
 			mercury_output_term(Type, TVarSet, no)
 		;
@@ -475,7 +476,8 @@ hlds_out__write_preds_2(Indent, ModuleInfo, PredIds0, PredTable) -->
 
 hlds_out__write_pred(Indent, ModuleInfo, PredId, PredInfo) -->
 	{ pred_info_module(PredInfo, Module) },
-	{ pred_info_arg_types(PredInfo, _, ArgTypes) },
+	{ pred_info_arg_types(PredInfo, ArgTypes) },
+	{ pred_info_get_exist_quant_tvars(PredInfo, ExistQVars) },
 	{ pred_info_typevarset(PredInfo, TVarSet) },
 	{ pred_info_clauses_info(PredInfo, ClausesInfo) },
 	{ pred_info_procedures(PredInfo, ProcTable) },
@@ -486,11 +488,13 @@ hlds_out__write_pred(Indent, ModuleInfo, PredId, PredInfo) -->
 	{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
 	{ pred_info_get_class_context(PredInfo, ClassContext) },
 	{ pred_info_get_purity(PredInfo, Purity) },
+	{ pred_info_get_head_type_params(PredInfo, HeadTypeParams) },
 	globals__io_lookup_string_option(verbose_dump_hlds, Verbose),
 	( { string__contains_char(Verbose, 'C') } ->
 		% Information about predicates is dumped if 'C' 
 		% suboption is on.
-		mercury_output_pred_type(TVarSet, qualified(Module, PredName), 
+		mercury_output_pred_type(TVarSet, ExistQVars,
+				qualified(Module, PredName), 
 				ArgTypes, no, Purity, ClassContext, Context)
 	;
 		[]
@@ -524,6 +528,16 @@ hlds_out__write_pred(Indent, ModuleInfo, PredId, PredInfo) -->
 		{ AppendVarnums = no }
 	),
 	( { string__contains_char(Verbose, 'C') } ->
+		( { HeadTypeParams \= [] } ->
+			io__write_string(
+				"% head_type_params:\n"),
+			io__write_string("% "),
+			mercury_output_vars(HeadTypeParams, TVarSet,
+					AppendVarnums),
+			io__write_string("\n")
+		;
+			[]
+		),
 		hlds_out__write_var_types(Indent, VarSet, AppendVarnums,
 			VarTypes, TVarSet),
 
@@ -1400,7 +1414,7 @@ hlds_out__write_unify_rhs_3(
 	),
 	( { MaybeType = yes(Type), TypeQual = yes(TVarSet, _) } ->
 		io__write_string(" TYPE_QUAL_OP "),
-		mercury_output_term(Type, TVarSet, no)
+		mercury_output_term(Type, TVarSet, AppendVarnums)
 	;
 		[]
 	),
@@ -1691,7 +1705,7 @@ hlds_out__write_var_types_2([Var | Vars], Indent, VarSet, AppendVarnums,
 	io__write_int(VarNum),
 	io__write_string(")"),
 	io__write_string(" :: "),
-	mercury_output_term(Type, TypeVarSet, no),
+	mercury_output_term(Type, TypeVarSet, AppendVarnums),
 	io__write_string("\n"),
 	hlds_out__write_var_types_2(Vars, Indent, VarSet, AppendVarnums,
 		VarTypes, TypeVarSet).

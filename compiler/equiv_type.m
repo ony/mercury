@@ -113,10 +113,10 @@ equiv_type__replace_in_item(type_defn(VarSet0, TypeDefn0, Cond),
 				TypeDefn, VarSet, ContainsCirc).
 
 equiv_type__replace_in_item(
-		pred(VarSet0, PredName, TypesAndModes0, 
+		pred(VarSet0, ExistQVars, PredName, TypesAndModes0, 
 			Det, Cond, Purity, ClassContext0),
 		EqvMap,
-		pred(VarSet, PredName, TypesAndModes, 
+		pred(VarSet, ExistQVars, PredName, TypesAndModes, 
 			Det, Cond, Purity, ClassContext),
 		no) :-
 	equiv_type__replace_in_class_constraints(ClassContext0, VarSet0, 
@@ -125,11 +125,11 @@ equiv_type__replace_in_item(
 					TypesAndModes, VarSet).
 
 equiv_type__replace_in_item(
-			func(VarSet0, PredName, TypesAndModes0, 
+			func(VarSet0, ExistQVars, PredName, TypesAndModes0, 
 				RetTypeAndMode0, Det, Cond, Purity,
 				ClassContext0),
 			EqvMap,
-			func(VarSet, PredName, TypesAndModes, 
+			func(VarSet, ExistQVars, PredName, TypesAndModes, 
 				RetTypeAndMode, Det, Cond, Purity,
 				ClassContext),
 			no) :-
@@ -225,9 +225,9 @@ equiv_type__replace_in_class_interface(ClassInterface0, EqvMap,
 :- mode equiv_type__replace_in_class_method(in, in, out) is det.
 
 equiv_type__replace_in_class_method(EqvMap,
-			pred(VarSet0, PredName, TypesAndModes0, 
+			pred(VarSet0, ExistQVars, PredName, TypesAndModes0, 
 				Det, Cond, ClassContext0, Context),
-			pred(VarSet, PredName, TypesAndModes, 
+			pred(VarSet, ExistQVars, PredName, TypesAndModes, 
 				Det, Cond, ClassContext, Context)
 			) :-
 	equiv_type__replace_in_class_constraints(ClassContext0, VarSet0, 
@@ -236,10 +236,10 @@ equiv_type__replace_in_class_method(EqvMap,
 					TypesAndModes, VarSet).
 
 equiv_type__replace_in_class_method(EqvMap,
-			func(VarSet0, PredName, TypesAndModes0, 
+			func(VarSet0, ExistQVars, PredName, TypesAndModes0, 
 				RetTypeAndMode0, Det, Cond,
 				ClassContext0, Context),
-			func(VarSet, PredName, TypesAndModes, 
+			func(VarSet, ExistQVars, PredName, TypesAndModes, 
 				RetTypeAndMode, Det, Cond,
 				ClassContext, Context)
 			) :-

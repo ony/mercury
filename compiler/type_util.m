@@ -182,6 +182,11 @@
 	class_constraint).
 :- mode apply_subst_to_constraint(in, in, out) is det.
 
+% Apply a renaming (partial map) to a list.
+% Useful for applying a variable renaming to a list of variables.
+:- pred apply_partial_map_to_list(list(T), map(T, T), list(T)).
+:- mode apply_partial_map_to_list(in, in, out) is det.
+
 % strip out the term__context fields, replacing them with empty
 % term__contexts (as obtained by term__context_init/1)
 % in a type or list of types
@@ -745,6 +750,19 @@ apply_subst_to_constraint(Subst, Constraint0, Constraint) :-
 	Constraint0 = constraint(ClassName, Types0),
 	term__apply_substitution_to_list(Types0, Subst, Types),
 	Constraint  = constraint(ClassName, Types).
+
+%-----------------------------------------------------------------------------%
+
+apply_partial_map_to_list([], _PartialMap, []).
+apply_partial_map_to_list([X|Xs], PartialMap, [Y|Ys]) :-
+	( map__search(PartialMap, X, Y0) ->
+		Y = Y0
+	;
+		Y = X
+	),
+	apply_partial_map_to_list(Xs, PartialMap, Ys).
+
+%-----------------------------------------------------------------------------%
 
 strip_term_contexts(Terms, StrippedTerms) :-
 	list__map(strip_term_context, Terms, StrippedTerms).
