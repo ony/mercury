@@ -870,7 +870,7 @@ input_output_constraints(HeadVars, InstGraph, V, Node,
 	mode_constraint_var(V `at` [], V_),
 	{ TopLevel `member` HeadVars ->
 		% For each variable V in the instantiation graph, add
-		%	Vout = Vin + V,  ~(Vin * V)
+		%	(Vout = Vin + V),  ~(Vin * V)
 		Constraint1 = Constraint0 ^ io_constraint(V_in, V_out, V_)
 	;
 		Constraint1 = Constraint0 ^ not_var(V_in) ^ eq_vars(V_out, V_)
@@ -1280,6 +1280,9 @@ unify_constraints(Var, GoalPath, RHS0, RHS, Constraint0, Constraint) -->
 	% Analyse the lambda goal.
 	update_mc_info(enter_lambda_goal(GoalPath)),
 
+	% XXX rather than adding `in' modes for lambda nonlocals we
+	% should just place a constraint `V_prod = 0' for all nodes
+	% reachable from these variables in the lambda goal.
 	{ in_mode(InMode) },
 	{ ArgModes = list__duplicate(length(NonLocals), InMode) 
 					`list__append` Modes },
