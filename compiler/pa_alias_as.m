@@ -38,6 +38,7 @@
 :- pred is_bottom( alias_as::in ) is semidet.
 
 :- pred top( string::in, alias_as::out ) is det.
+:- pred top( alias_as::in, string::in, alias_as::out) is det.
 :- pred is_top( alias_as::in ) is semidet.
 
 	% project alias abstract substitution on a list of variables.
@@ -98,10 +99,10 @@
 			hlds_goal__hlds_goal_info, alias_as, alias_as).
 :- mode extend_unification( in, in, in, in, in, out) is det.
 
-:- pred extend_foreign_code( proc_info, module_info, 
+:- pred extend_foreign_code( proc_info, module_info, hlds_goal_info, 
 			list(prog_var), list(maybe(pair(string, mode))),
                         list(type), alias_as, alias_as).
-:- mode extend_foreign_code( in, in, in, in, in, in, out) is det.
+:- mode extend_foreign_code( in, in, in, in, in, in, in, out) is det.
 
 	% Add two abstract substitutions to each other. These
 	% abstract substitutions come from different contexts, and have
@@ -156,7 +157,7 @@
 :- implementation.
 
 % library modules
-:- import_module require.
+:- import_module require, term.
 
 % compiler modules
 :- import_module pa_alias, pa_util.
@@ -186,6 +187,29 @@ is_bottom(real_as([])).
 top( Msg, top([NewMsg]) ):- 
 	% string__append_list(["- ",Msg," -"],NewMsg).
 	NewMsg = Msg.
+
+top( Alias, Msg, top(Msgs)):-
+	(
+		Alias = top(FirstMsgs)
+	->
+		Msgs = FirstMsgs
+	;
+		Msgs = [Msg]
+	).
+
+:- pred top_merge(alias_as::in, alias_as::in, alias_as::out) is det.
+top_merge( A0, A1, A ) :- 
+	(
+		A0 = top(Msgs0),
+		A1 = top(Msgs1)
+	->
+		list__append(Msgs0, Msgs1, MsgsDups),
+		list__remove_dups(MsgsDups, Msgs),
+		A = top(Msgs)
+	;
+		require__error("(pa_alias_as) top_merge: aliases ought to be
+both top.")
+	).
 
 	% is_top
 is_top( top(_) ).
@@ -281,7 +305,9 @@ equal( AS1, AS2 ):-
 		AfterList = []
 	;
 		% AS1 is bottom or top(_)
-		AS2 = AS1
+		( AS1 = bottom, AS2 = bottom)
+		;
+		( is_top(AS1), is_top(AS2) )
 	).
 
 leq( ProcInfo, HLDS, AS1, AS2 ):-
@@ -321,7 +347,13 @@ least_upper_bound( ProcInfo, HLDS, AS1, AS2, RESULT) :-
 	;
 		AS1 = top(_)
 	->
-		RESULT = AS1
+		(
+			AS2 = top(_)
+		->
+			top_merge( AS1, AS2, RESULT)
+		;
+			RESULT = AS1
+		)
 	;
 		% AS1 = bottom
 		RESULT = AS2
@@ -366,7 +398,14 @@ extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 	;
 		A1 = top(_)
 	->
-		RESULT = A1
+		(
+			A2 = top(_)
+		->
+			RESULT = A2 	% if the old alias was already
+					% top, keep the old one.
+		; 		
+			RESULT = A1 	
+		)
 	; 
 		% A1 = bottom
 		RESULT = A2	
@@ -448,7 +487,8 @@ does_not_contain_vars( Vars, Alias) :-
 	not contains_one_of_vars_in_list( Vars, Alias).
 
 %-----------------------------------------------------------------------------%
-extend_foreign_code( _ProcInfo, HLDS, Vars, MaybeModes, Types, Alias0, Alias):-
+extend_foreign_code( _ProcInfo, HLDS, GoalInfo, 
+			Vars, MaybeModes, Types, Alias0, Alias):-
 	to_trios(Vars, MaybeModes, Types, Trios), 
 	% remove all unique objects
 	remove_all_unique_vars( HLDS, Trios, NonUniqueVars), 
@@ -477,7 +517,17 @@ extend_foreign_code( _ProcInfo, HLDS, Vars, MaybeModes, Types, Alias0, Alias):-
 		-> 
 			Alias = Alias0
 		; 
-			pa_alias_as__top("pragma_c_code not handled", Alias)
+
+			goal_info_get_context(GoalInfo, Context), 
+			term__context_line(Context, ContextLine), 
+			term__context_file(Context, ContextFile), 
+			string__int_to_string(ContextLine, ContextLineS), 
+
+			string__append_list(["pragma_foreign_code:",
+						" (",ContextFile, ":", 
+						ContextLineS, ")"], Msg), 
+			
+			pa_alias_as__top(Alias0, Msg, Alias)
 		)
 	).
 	
@@ -619,9 +669,13 @@ print_possible_aliases( AS, ProcInfo ) -->
 	;
 		{ AS = top(Msgs) }
 	->
-		{ string__append_list(["% aliases = top("|Msgs],Msg) },
-		{ string__append(Msg,")",Msg2) },
-		io__write_string(Msg2)
+		{ list__map( 
+			pred( S0::in, S::out ) is det :- 
+				(string__append_list(["%\t",S0,"\n"], S)),
+			Msgs, 
+			MsgsF ) }, 
+		{ string__append_list(["% aliases are top:\n" |MsgsF],Msg) },
+		io__write_string(Msg)
 	;
 		io__write_string("% aliases = bottom")
 	).
@@ -676,7 +730,7 @@ parse_read_aliases( LISTTERM ,AS ):-
 
 parse_read_aliases_from_single_term( OneITEM, AS ) :- 
 	(
-		OneITEM = term__functor( term__atom(CONS), _TERMS, _ )
+		OneITEM = term__functor( term__atom(CONS), _TERMS, Context )
 	->
 		(
 			CONS = "."
@@ -692,7 +746,13 @@ parse_read_aliases_from_single_term( OneITEM, AS ) :-
 		; 
 			CONS = "top"
 		->
-			AS = top(["imported top"])
+			term__context_line(Context, ContextLine), 
+			term__context_file(Context, ContextFile), 
+			string__int_to_string(ContextLine, ContextLineS), 
+			string__append_list(["imported top (", 
+				ContextFile, ":", ContextLineS, ")"], 
+					Msg),
+			top(Msg, AS)
 		;
 			string__append(
 		"(pa_alias_as) parse_read_aliases_from_single_term: could not parse aliases, top cons: ", CONS, Msg),

@@ -61,6 +61,7 @@
 :- import_module require.
 :- import_module list, map, int, set.
 :- import_module std_util, string.
+:- import_module term.
 
 :- import_module dependency_graph.
 :- import_module instmap.
@@ -68,6 +69,7 @@
 :- import_module pa_util, pa_alias_as, pa_prelim_run.
 :- import_module special_pred, prog_util, prog_out.
 :- import_module liveness.
+
 
 
 
@@ -299,9 +301,27 @@ analyse_goal_expr( call(PredID, ProcID, ARGS, _,_, _PName), _Info,
 	rename_call_alias( PRED_PROC_ID, HLDS, ARGS, CallAlias, RenamedCallAlias),
 	pa_alias_as__extend( ProcInfo, HLDS, RenamedCallAlias, A0, A ).
 
-analyse_goal_expr( generic_call(_,_,_,_), _Info, 
-				_ProcInfo, _HLDS , T, T, _A, A):- 
-	pa_alias_as__top("generic_call not handled",A).
+analyse_goal_expr( generic_call( GenCall,_,_,_), Info, 
+				_ProcInfo, _HLDS , T, T, A0, A):- 
+	(
+		GenCall = higher_order(_, _, _),
+		Text = "higher_order"
+	; 
+		GenCall = class_method(_, _, _, _),
+		Text = "class_method"
+	; 
+		GenCall = aditi_builtin(_,_),
+		Text = "aditi_builtin"
+	), 
+	goal_info_get_context(Info, Context), 
+	term__context_line(Context, ContextLine), 
+	term__context_file(Context, ContextFile), 
+	string__int_to_string(ContextLine, ContextLineS), 
+
+	string__append_list(["generic_call:",Text," (",ContextFile, ":", 
+				ContextLineS, ")"], Msg), 
+	
+	pa_alias_as__top(A0, Msg, A). 
 	% error("(pa) generic_call not handled") .
 
 analyse_goal_expr( switch(_Var,_CF,Cases,_SM), _Info, 
@@ -359,18 +379,34 @@ analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	pa_alias_as__least_upper_bound( ProcInfo, HLDS, A2, A3, A).
 
 analyse_goal_expr( pragma_foreign_code( _,_,_,_, Vars, MaybeModes,Types,_  ), 
-			_Info, ProcInfo, HLDS , 
+			Info, ProcInfo, HLDS , 
 			T, T, Ain, A) :- 
-	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Vars, 
+	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Info, Vars, 
 		MaybeModes, Types, Ain, A). 
 
 	% error( "(pa) pragma_c_code not handled") .
-analyse_goal_expr( par_conj( _Goals, _SM), _Info, _, _ , T, T, _A, A) :-  
-	pa_alias_as__top("par_conj not handled", A).
+analyse_goal_expr( par_conj( _Goals, _SM), Info, _, _ , T, T, A0, A) :-  
+	goal_info_get_context(Info, Context), 
+	term__context_line(Context, ContextLine), 
+	term__context_file(Context, ContextFile), 
+	string__int_to_string(ContextLine, ContextLineS), 
+
+	string__append_list(["par_conj:",
+				" (",ContextFile, ":", 
+				ContextLineS, ")"], Msg), 
+	pa_alias_as__top(A0, Msg, A).
+
 	% error( "(pa) par_conj not handled") .
-analyse_goal_expr( bi_implication( _G1, _G2),_Info, _,  _ , T, T, _A, A) :- 
-	pa_alias_as__top("bi_implication not handled", A).
-	% error( "(pa) bi_implication not handled") .
+analyse_goal_expr( bi_implication( _G1, _G2),Info, _,  _ , T, T, A0, A) :- 
+	goal_info_get_context(Info, Context), 
+	term__context_line(Context, ContextLine), 
+	term__context_file(Context, ContextFile), 
+	string__int_to_string(ContextLine, ContextLineS), 
+
+	string__append_list(["bi_implication:",
+				" (",ContextFile, ":", 
+				ContextLineS, ")"], Msg), 
+	pa_alias_as__top(A0, Msg, A).
 
 %-----------------------------------------------------------------------------%
 
@@ -683,99 +719,5 @@ list_drop_det(Len,List,End):-
 	;
 		End = List
 	).
-
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
-% ensure loaded interfaces.
-
-/*********************************************************************
-:- import_module term, set, prog_io, globals, prog_out, prog_io_util.
-:- import_module hlds_out, assoc_list, mode_util.
-
-	% load interfaces of the imported modules. 
-	% If some interface file appears to be unavailable, a warning
-	% is generated, and probably the code will fail at some later
-	% point. 
-:- pred pa_run__ensure_loaded_interfaces( module_info, module_info, 
-						io__state, io__state).
-:- mode pa_run__ensure_loaded_interfaces( in, out, di, uo) is det.
-
-pa_run__ensure_loaded_interfaces( HLDS0, HLDS) -->
-	{ module_info_get_imported_module_specifiers( HLDS0, ModSpecs ) },
-	{ set__to_sorted_list( ModSpecs, LModSpecs ) },
-	list__foldl2( load_interface, LModSpecs, HLDS0, HLDS).
-
-:- pred load_interface( module_specifier, module_info, module_info,
-			io__state, io__state).
-:- mode load_interface( in, in, out, di, uo) is det.
-
-load_interface( ModuleSpec, HLDS0, HLDS ) -->
-	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
-	module_name_to_file_name( ModuleSpec, ".opt.pa", no, FileName ),
-	maybe_write_string(VeryVerbose, "% Reading `"),
-	maybe_write_string(VeryVerbose, FileName ),
-	maybe_write_string(VeryVerbose, "'... "),
-	maybe_flush_output(VeryVerbose),
-	prog_io__read_module( FileName, ModuleSpec, yes, Err, _ModuleName, 
-				Msgs, Items),
-	(
-		{ Err = fatal }
-	->
-		maybe_write_string(VeryVerbose, "fatal error(s).\n")
-	;
-		{ Err = yes }
-	->
-		maybe_write_string(VeryVerbose, "parse_error(s).\n")
-	;
-		maybe_write_string(VeryVerbose, "successfull parse.\n")
-	),
-	prog_out__write_messages(Msgs),
-	(
-		{ Err = fatal }
-	-> 
-		maybe_write_string(VeryVerbose, "% Continuing... errors might occur later.\n")
-	;
-		{ Err = yes }
-	->
-		maybe_write_string(VeryVerbose, "% Continuing... errors might occur later.\n")
-	;
-		maybe_write_string(VeryVerbose, "% Cool!\n")
-	),
-
-	list__foldl2( add_item_from_opt_pa, Items, HLDS0, HLDS ).
-
-:- pred add_item_from_opt_pa( item_and_context, module_info, module_info, 
-					io__state, io__state ).
-:- mode add_item_from_opt_pa( in, in, out, di, uo) is det.
-
-add_item_from_opt_pa( Item - _Context, HLDS0, HLDS ) -->
-	(
-		{ Item = pragma(Pragma) }
-	->
-		add_pragma_item_from_opt_pa( Pragma , HLDS0, HLDS)
-	;
-	 	prog_io_util__report_warning(
-				"Only pragma pa_alias_info allowed in `.opt.pa' file.")	,
-		{ HLDS = HLDS0 }
-	).
-
-:- pred add_pragma_item_from_opt_pa( pragma_type, module_info, module_info,
-					io__state, io__state).
-:- mode add_pragma_item_from_opt_pa( in, in, out, di, uo) is det.
-
-add_pragma_item_from_opt_pa( Pragma, HLDS0, HLDS) -->
-	(
-		{ Pragma = pa_alias_info( PredOrFunc, SymName, Modes,
-					HeadVars, MaybeAlias) }
-	->
-		add_pragma_possible_aliases_info( PredOrFunc, SymName, Modes,
-					HeadVars, MaybeAlias, HLDS0, HLDS)
-	;
-		prog_io_util__report_warning(
-				"Only pragma pa_alias_info allowed in `.opt.pa' file.")	,
-		{ HLDS = HLDS0 }
-	).
-
-*************************************************************************/
 
 
