@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -15,12 +15,17 @@
 
 %----------------------------------------------------------------------------%
 
-:- module var_locn.
+:- module ll_backend__var_locn.
 
 :- interface.
 
-:- import_module prog_data, hlds_goal, llds, options.
-:- import_module bool, map, set, list, assoc_list, std_util.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_llds.
+:- import_module hlds__hlds_goal.
+:- import_module ll_backend__llds.
+:- import_module libs__options.
+
+:- import_module bool, list, assoc_list, map, set, std_util.
 
 :- type var_locn_info.
 
@@ -56,12 +61,14 @@
 :- pred var_locn__reinit_state(assoc_list(prog_var, lval)::in,
 	var_locn_info::in, var_locn_info::out) is det.
 
-%	var_locn__clobber_all_regs(VarLocnInfo0, VarLocnInfo)
+%	var_locn__clobber_all_regs(OkToDeleteAny, VarLocnInfo0, VarLocnInfo)
 %		Modifies the state VarLocnInfo0 to produce VarLocnInfo
 %		in which all variables stored in registers are clobbered.
+%		Aborts if this deletes the last record of the state of a
+%		variable unless OkToDeleteAny is `yes'.
 
-:- pred var_locn__clobber_all_regs(var_locn_info::in, var_locn_info::out)
-	is det.
+:- pred var_locn__clobber_all_regs(bool::in,
+	var_locn_info::in, var_locn_info::out) is det.
 
 %	var_locn__clobber_regs(Regs, VarLocnInfo0, VarLocnInfo)
 %		Modifies the state VarLocnInfo0 to produce VarLocnInfo
@@ -150,7 +157,7 @@
 
 :- pred var_locn__assign_cell_to_var(prog_var::in, tag::in,
 	list(maybe(rval))::in, int::in, string::in,
-	how_to_construct::in, code_tree::out,
+	hlds_goal__how_to_construct::in, code_tree::out,
 	var_locn_info::in, var_locn_info::out) is det.
 
 %	var_locn__place_var(Var, Lval, Code, VarLocnInfo0, VarLocnInfo)
@@ -318,8 +325,9 @@
 
 :- implementation.
 
-:- import_module code_util, exprn_aux, options, tree.
-:- import_module getopt, int, string, bag, require, varset, term.
+:- import_module ll_backend__code_util, ll_backend__exprn_aux.
+:- import_module libs__options, libs__tree.
+:- import_module int, string, bag, require, getopt, varset, term.
 
 :- type dead_or_alive	--->	dead ; alive.
 
@@ -482,13 +490,8 @@ var_locn__init_state_2([Var - Lval |  Rest], MaybeLiveness,
 			State = state(NewLocs, no, no, Using, alive),
 			map__det_insert(VarStateMap0, Var, State, VarStateMap1)
 		),
-		( map__search(LocVarMap0, Lval, OldVars) ->
-			set__insert(OldVars, Var, NewVars),
-			map__det_update(LocVarMap0, Lval, NewVars, LocVarMap1)
-		;
-			set__singleton_set(NewVars, Var),
-			map__det_insert(LocVarMap0, Lval, NewVars, LocVarMap1)
-		)
+		var_locn__make_var_depend_on_lval_roots(Var, Lval,
+			LocVarMap0, LocVarMap1)
 	),
 	var_locn__init_state_2(Rest, MaybeLiveness, VarStateMap1, VarStateMap,
 		LocVarMap1, LocVarMap).
@@ -510,7 +513,7 @@ var_locn__convert_live_to_lval_set(Var - State, Var - Lvals) :-
 
 %----------------------------------------------------------------------------%
 
-var_locn__clobber_all_regs -->
+var_locn__clobber_all_regs(OkToDeleteAny) -->
 	{ set__init(Acquired) },
 	var_locn__set_acquired(Acquired),
 	var_locn__set_locked(0),
@@ -518,8 +521,8 @@ var_locn__clobber_all_regs -->
 	var_locn__get_loc_var_map(LocVarMap0),
 	var_locn__get_var_state_map(VarStateMap0),
 	{ map__keys(LocVarMap0, Locs) },
-	{ var_locn__clobber_regs_in_maps(Locs, LocVarMap0, LocVarMap,
-		VarStateMap0, VarStateMap) },
+	{ var_locn__clobber_regs_in_maps(Locs, OkToDeleteAny,
+		LocVarMap0, LocVarMap, VarStateMap0, VarStateMap) },
 	var_locn__set_loc_var_map(LocVarMap),
 	var_locn__set_var_state_map(VarStateMap).
 
@@ -529,42 +532,44 @@ var_locn__clobber_regs(Regs) -->
 	var_locn__set_acquired(Acquired),
 	var_locn__get_loc_var_map(LocVarMap0),
 	var_locn__get_var_state_map(VarStateMap0),
-	{ var_locn__clobber_regs_in_maps(Regs, LocVarMap0, LocVarMap,
-		VarStateMap0, VarStateMap) },
+	{ var_locn__clobber_regs_in_maps(Regs, no,
+		LocVarMap0, LocVarMap, VarStateMap0, VarStateMap) },
 	var_locn__set_loc_var_map(LocVarMap),
 	var_locn__set_var_state_map(VarStateMap).
 
-:- pred var_locn__clobber_regs_in_maps(list(lval)::in,
+:- pred var_locn__clobber_regs_in_maps(list(lval)::in, bool::in,
 	loc_var_map::in, loc_var_map::out,
 	var_state_map::in, var_state_map::out) is det.
 
-var_locn__clobber_regs_in_maps([], LocVarMap, LocVarMap,
+var_locn__clobber_regs_in_maps([], _, LocVarMap, LocVarMap,
 		VarStateMap, VarStateMap).
-var_locn__clobber_regs_in_maps([Lval | Lvals], LocVarMap0, LocVarMap,
-		VarStateMap0, VarStateMap) :-
+var_locn__clobber_regs_in_maps([Lval | Lvals], OkToDeleteAny,
+		LocVarMap0, LocVarMap, VarStateMap0, VarStateMap) :-
 	(
 		Lval = reg(_, _),
 		map__search(LocVarMap0, Lval, DependentVarsSet)
 	->
 		map__delete(LocVarMap0, Lval, LocVarMap1),
 		set__to_sorted_list(DependentVarsSet, DependentVars),
-		list__foldl(var_locn__clobber_lval_in_var_state_map(Lval, []),
+		list__foldl(var_locn__clobber_lval_in_var_state_map(Lval, [],
+			OkToDeleteAny),
 			DependentVars, VarStateMap0, VarStateMap1)
 	;
 		LocVarMap1 = LocVarMap0,
 		VarStateMap1 = VarStateMap0
 	),
-	var_locn__clobber_regs_in_maps(Lvals, LocVarMap1, LocVarMap,
-		VarStateMap1, VarStateMap).
+	var_locn__clobber_regs_in_maps(Lvals, OkToDeleteAny,
+		LocVarMap1, LocVarMap, VarStateMap1, VarStateMap).
 
 :- pred var_locn__clobber_lval_in_var_state_map(lval::in, list(prog_var)::in,
-	prog_var::in, var_state_map::in, var_state_map::out) is det.
+	bool::in, prog_var::in, var_state_map::in, var_state_map::out) is det.
 
-var_locn__clobber_lval_in_var_state_map(Lval, OkToDeleteVars, Var,
-		VarStateMap0, VarStateMap) :-
+var_locn__clobber_lval_in_var_state_map(Lval, OkToDeleteVars, OkToDeleteAny,
+		Var, VarStateMap0, VarStateMap) :-
 	(
 		var_locn__try_clobber_lval_in_var_state_map(Lval,
-			OkToDeleteVars, Var, VarStateMap0, VarStateMap1)
+			OkToDeleteVars, OkToDeleteAny, Var,
+			VarStateMap0, VarStateMap1)
 	->
 		VarStateMap = VarStateMap1
 	;
@@ -576,11 +581,11 @@ var_locn__clobber_lval_in_var_state_map(Lval, OkToDeleteVars, Var,
 % Var can be found, and Var is not in OkToDeleteVars, then fail.
 
 :- pred var_locn__try_clobber_lval_in_var_state_map(lval::in,
-	list(prog_var)::in, prog_var::in,
+	list(prog_var)::in, bool::in, prog_var::in,
 	var_state_map::in, var_state_map::out) is semidet.
 
-var_locn__try_clobber_lval_in_var_state_map(Lval, OkToDeleteVars, Var,
-		VarStateMap0, VarStateMap) :-
+var_locn__try_clobber_lval_in_var_state_map(Lval, OkToDeleteVars,
+		OkToDeleteAny, Var, VarStateMap0, VarStateMap) :-
 	map__lookup(VarStateMap0, Var, State0),
 	State0 = state(LvalSet0, MaybeConstRval, MaybeExprRval, Using,
 		DeadOrAlive),
@@ -592,6 +597,8 @@ var_locn__try_clobber_lval_in_var_state_map(Lval, OkToDeleteVars, Var,
 		var_locn__nonempty_state(State)
 	;
 		list__member(Var, OkToDeleteVars)
+	;
+		OkToDeleteAny = yes
 	;
 		DeadOrAlive = dead,
 		set__to_sorted_list(Using, UsingVars),
@@ -1084,8 +1091,8 @@ var_locn__clear_r1(Code) -->
 
 	var_locn__get_loc_var_map(LocVarMap0),
 	var_locn__get_var_state_map(VarStateMap0),
-	{ var_locn__clobber_regs_in_maps([reg(r, 1)], LocVarMap0, LocVarMap,
-		VarStateMap0, VarStateMap) },
+	{ var_locn__clobber_regs_in_maps([reg(r, 1)], no,
+		LocVarMap0, LocVarMap, VarStateMap0, VarStateMap) },
 	var_locn__set_loc_var_map(LocVarMap),
 	var_locn__set_var_state_map(VarStateMap).
 
@@ -1196,7 +1203,7 @@ var_locn__record_clobbering(Target, Assigns) -->
 		var_locn__get_var_state_map(VarStateMap2),
 		{ list__foldl(
 			var_locn__clobber_lval_in_var_state_map(Target,
-				Assigns),
+				Assigns, no),
 			DependentVars, VarStateMap2, VarStateMap) },
 		var_locn__set_var_state_map(VarStateMap)
 	;
@@ -1231,7 +1238,7 @@ var_locn__free_up_lval(Lval, ToBeAssignedVars, ForbiddenLvals, Code) -->
 		var_locn__get_var_state_map(VarStateMap0),
 		\+ { list__foldl(
 			var_locn__try_clobber_lval_in_var_state_map(
-				Lval, ToBeAssignedVars),
+				Lval, ToBeAssignedVars, no),
 			AffectedVars, VarStateMap0, _) }
 	->
 		var_locn__free_up_lval_with_copy(Lval, ToBeAssignedVars,

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -20,9 +20,11 @@
 :- import_module set, list, std_util.
 :- import_module io, string, term.
 
+% XXX parent modules
+:- import_module hlds.
 % compiler module
-:- import_module prog_data.
-:- import_module hlds_pred, hlds_goal, hlds_module.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_module.
 :- import_module sr_live.
 :- import_module pa_datastruct.
 
@@ -64,10 +66,16 @@
 % library module
 :- import_module varset, require, int, map.
 
+% XXX parent modules.
+:- import_module check_hlds, parse_tree.
 % compiler module
-:- import_module hlds_data, mercury_to_mercury, type_util.
+:- import_module hlds__hlds_data.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module check_hlds__type_util.
 :- import_module pa_datastruct.
 :- import_module pa_selector.
+:- import_module pa_sr_util.
+:- import_module hlds__hlds_llds.
 
 %-------------------------------------------------------------------%
 % printing routines
@@ -304,7 +312,7 @@ optimize_for_deconstruct(Args, Info, ReducedArgs) :-
 	% between the deconstructed var and all the args of the
 	% deconstruction, it is enough to consider only those with 
 	% the args which are in pre-birth. 
-	hlds_goal__goal_info_get_pre_births(Info, PreB),
+	hlds_llds__goal_info_get_pre_births(Info, PreB),
 	keep_only_the_prebirths_v2(PreB, Args, ReducedArgs).
 
 :- pred keep_only_the_prebirths_v2(set(prog_var)::in, 
@@ -379,7 +387,7 @@ from_unification(_ProcInfo, _HLDS, complicated_unify(_,_,_), _, AS):-
 is_of_a_primitive_type(ProcInfo, HLDS, Var):-
 	proc_info_vartypes(ProcInfo, VarTypes),
 	map__lookup(VarTypes, Var, VarType), 
-	type_util__type_is_guaranteed_atomic(VarType, HLDS).
+	type_util__type_is_atomic(VarType, HLDS).
 
 :- pred alias_from_unif(module_info::in, proc_info::in, 
 		prog_var::in, cons_id::in, pair(int, prog_var)::in, 

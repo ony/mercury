@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -13,11 +13,11 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module static_term.
+:- module ll_backend__static_term.
 
 :- interface.
 
-:- import_module llds.
+:- import_module ll_backend__llds.
 :- import_module counter, std_util.
 
 :- pred static_term__term_to_rval(univ::in, maybe(rval)::out,
@@ -27,11 +27,11 @@
 
 :- implementation.
 
-:- import_module builtin_ops.
-:- import_module list, require.
+:- import_module backend_libs__builtin_ops.
+:- import_module deconstruct, list, require.
 
 static_term__term_to_rval(Univ, Rval, CellCounter0, CellCounter) :-
-	( std_util__get_functor_info(Univ, FunctorInfo) ->
+	( deconstruct__get_functor_info(Univ, FunctorInfo) ->
 		static_term__functor_info_to_rval(FunctorInfo, Rval,
 			CellCounter0, CellCounter)
 	;

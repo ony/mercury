@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,9 +13,14 @@
 :- interface. 
 %-----------------------------------------------------------------------------%
 
+% library modules
 :- import_module io, list, std_util, term. 
-:- import_module hlds_pred, prog_data. 
-:- import_module hlds_module.
+
+% XXX parent modules
+:- import_module hlds, parse_tree.
+% compiler modules. 
+:- import_module hlds__hlds_pred, parse_tree__prog_data. 
+:- import_module hlds__hlds_module.
 
 :- pred trans_opt_output_vars_and_types(
 		prog_varset::in, 
@@ -32,11 +37,12 @@
 :- pred some_are_special_preds(list(pred_proc_id)::in, 
 		module_info::in) is semidet.
 
+
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
 :- import_module bool, map, require.
-:- import_module mercury_to_mercury.
+:- import_module parse_tree__mercury_to_mercury.
 
 
 trans_opt_output_vars_and_types(ProgVarSet, VarTypes, TypeVarSet, 
@@ -58,7 +64,8 @@ trans_opt_output_vars_and_types(ProgVarSet, VarTypes, TypeVarSet,
 		io__write_string(")")
 	).
 
-:- pred output_type_of_var(vartypes::in, tvarset::in, prog_var::in,
+:- pred output_type_of_var(vartypes::in, tvarset::in, 
+		prog_var::in,
                 io__state::di, io__state::uo) is det.
 
 output_type_of_var(VarTypes, TypeVarSet, SomeVar) -->

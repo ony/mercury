@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,14 +13,15 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module special_pred.
+:- module hlds__special_pred.
 :- interface.
-:- import_module prog_data, hlds_data, hlds_module, hlds_pred.
+:- import_module parse_tree__prog_data, hlds__hlds_data, hlds__hlds_module.
+:- import_module hlds__hlds_pred.
 :- import_module list, map, std_util.
 
 :- type special_pred_map	==	map(special_pred, pred_id).
 
-:- type special_pred		==	pair(special_pred_id, type_id).
+:- type special_pred		==	pair(special_pred_id, type_ctor).
 
 :- type special_pred_id
 	--->	unify
@@ -53,8 +54,22 @@
 :- pred special_pred_list(list(special_pred_id)).
 :- mode special_pred_list(out) is det.
 
+	% Given the mangled predicate name and the list of argument types,
+	% work out which type this special predicate is for.
+	% Note that this gets called after the polymorphism.m pass, so
+	% type_info arguments may have been inserted at the start; hence we
+	% find the type at a known position from the end of the list
+	% (by using list__reverse).
+
+	% Currently for most of the special predicates the type variable
+	% can be found in the last type argument, except for index, for
+	% which it is the second-last argument.
+
 :- pred special_pred_get_type(string, list(Type), Type).
 :- mode special_pred_get_type(in, in, out) is semidet.
+
+:- pred special_pred_get_type_det(string, list(Type), Type).
+:- mode special_pred_get_type_det(in, in, out) is det.
 
 :- pred special_pred_description(special_pred_id, string).
 :- mode special_pred_description(in, out) is det.
@@ -65,10 +80,10 @@
 	% This will succeed for imported types for which the special
 	% predicates do not need typechecking.
 	%
-:- pred special_pred_is_generated_lazily(module_info, type_id).
+:- pred special_pred_is_generated_lazily(module_info, type_ctor).
 :- mode special_pred_is_generated_lazily(in, in) is semidet.
 
-:- pred special_pred_is_generated_lazily(module_info, type_id,
+:- pred special_pred_is_generated_lazily(module_info, type_ctor,
 		hlds_type_body, import_status).
 :- mode special_pred_is_generated_lazily(in, in, in, in) is semidet.
 
@@ -85,13 +100,15 @@
 	% its special predicates. This will fail for abstract
 	% types and types for which the RTTI information is
 	% defined by hand.
-:- pred can_generate_special_pred_clauses_for_type(type_id, hlds_type_body).
+:- pred can_generate_special_pred_clauses_for_type(type_ctor, hlds_type_body).
 :- mode can_generate_special_pred_clauses_for_type(in, in) is semidet.
 
 :- implementation.
 
-:- import_module globals, options, type_util, mode_util, prog_util.
-:- import_module bool.
+:- import_module parse_tree__prog_util.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
+:- import_module libs__globals, libs__options.
+:- import_module bool, require.
 
 special_pred_list([unify, index, compare]).
 
@@ -118,17 +135,6 @@ special_pred_info(compare, Type,
 	in_mode(In),
 	uo_mode(Uo).
 
-	% Given the mangled predicate name and the list of argument types,
-	% work out which type this special predicate is for.
-	% Note that this gets called after the polymorphism.m pass, so
-	% type_info arguments may have been inserted at the start; hence we
-	% find the type at a known position from the end of the list
-	% (by using list__reverse).
-
-	% Currently for most of the special predicates the type variable
-	% can be found in the last type argument, except for index, for
-	% which it is the second-last argument.
-
 special_pred_get_type("__Unify__", Types, T) :-
 	list__reverse(Types, [T | _]).
 special_pred_get_type("unify", Types, T) :-
@@ -142,39 +148,46 @@ special_pred_get_type("__Compare__", Types, T) :-
 special_pred_get_type("compare", Types, T) :-
 	list__reverse(Types, [T | _]).
 
+special_pred_get_type_det(Name, ArgTypes, Type) :-
+	( special_pred_get_type(Name, ArgTypes, TypePrime) ->
+		Type = TypePrime
+	;
+		error("special_pred_get_type_det: special_pred_get_type failed")
+	).
+
 special_pred_description(unify, "unification predicate").
 special_pred_description(compare, "comparison predicate").
 special_pred_description(index, "indexing predicate").
 
-special_pred_is_generated_lazily(ModuleInfo, TypeId) :-
-	classify_type_id(ModuleInfo, TypeId, Class),
+special_pred_is_generated_lazily(ModuleInfo, TypeCtor) :-
+	classify_type_ctor(ModuleInfo, TypeCtor, Class),
 	(
 		Class = tuple_type
 	;
 		( Class = user_type ; Class = enum_type ),
 		module_info_types(ModuleInfo, Types),
-		map__search(Types, TypeId, TypeDefn),
+		map__search(Types, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, Body),
 		hlds_data__get_type_defn_status(TypeDefn, Status),
 		special_pred_is_generated_lazily_2(ModuleInfo,
-			TypeId, Body, Status)
+			TypeCtor, Body, Status)
 	).
 
-special_pred_is_generated_lazily(ModuleInfo, TypeId, Body, Status) :-
-	classify_type_id(ModuleInfo, TypeId, Class),
+special_pred_is_generated_lazily(ModuleInfo, TypeCtor, Body, Status) :-
+	classify_type_ctor(ModuleInfo, TypeCtor, Class),
 	(
 		Class = tuple_type
 	;
 		( Class = user_type ; Class = enum_type ),
 		special_pred_is_generated_lazily_2(ModuleInfo,
-			TypeId, Body, Status)
+			TypeCtor, Body, Status)
 	).
 
 :- pred special_pred_is_generated_lazily_2(module_info,
-		type_id, hlds_type_body, import_status).
+		type_ctor, hlds_type_body, import_status).
 :- mode special_pred_is_generated_lazily_2(in, in, in, in) is semidet.
 
-special_pred_is_generated_lazily_2(ModuleInfo, _TypeId, Body, Status) :-
+special_pred_is_generated_lazily_2(ModuleInfo, _TypeCtor, Body, Status) :-
 	(
 		status_defined_in_this_module(Status, no)
 	;
@@ -182,13 +195,22 @@ special_pred_is_generated_lazily_2(ModuleInfo, _TypeId, Body, Status) :-
 		globals__lookup_bool_option(Globals, special_preds, no)
 	),
 
+	%
+	% We can't generate clauses for unification predicates for
+	% foreign types lazily because they call the polymorphic procedure
+	% private_builtin__nyi_foreign_type_unify.
+	% polymorphism__process_generated_pred can't handle calls to
+	% polymorphic procedures after the initial polymorphism pass.
+	%
+	Body \= foreign_type(_),
+
 	% The special predicates for types with user-defined
 	% equality or existentially typed constructors are always
 	% generated immediately by make_hlds.m.
 	\+ special_pred_for_type_needs_typecheck(Body).
 
 special_pred_for_type_needs_typecheck(Body) :-
-	Body = du_type(Ctors, _, _, MaybeEqualityPred),
+	Body = du_type(Ctors, _, _, MaybeEqualityPred, _),
 	(
 		MaybeEqualityPred = yes(_)
 	;
@@ -197,9 +219,8 @@ special_pred_for_type_needs_typecheck(Body) :-
 		ExistQTVars \= []
 	).
 
-can_generate_special_pred_clauses_for_type(TypeId, Body) :-
+can_generate_special_pred_clauses_for_type(TypeCtor, Body) :-
 	Body \= abstract_type,
-	Body \= uu_type(_),
-	\+ type_id_has_hand_defined_rtti(TypeId).
+	\+ type_ctor_has_hand_defined_rtti(TypeCtor).
 
 %-----------------------------------------------------------------------------%

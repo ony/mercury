@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,13 +13,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module string_switch.
+:- module ll_backend__string_switch.
 
 :- interface.
 
-:- import_module prog_data, hlds_data, hlds_goal.
-:- import_module switch_util, code_model.
-:- import_module llds, code_info.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_data, hlds__hlds_llds.
+:- import_module ll_backend__llds, ll_backend__code_info.
+:- import_module backend_libs__switch_util, backend_libs__code_model.
 
 :- pred string_switch__generate(cases_list, prog_var, code_model,
 	can_fail, store_map, label, branch_end, branch_end, code_tree,
@@ -31,7 +32,11 @@
 
 :- implementation.
 
-:- import_module builtin_ops, code_gen, trace, tree.
+:- import_module hlds__hlds_goal.
+:- import_module ll_backend__code_gen, ll_backend__trace.
+:- import_module backend_libs__builtin_ops.
+:- import_module libs__tree.
+
 :- import_module bool, int, string, list, map, std_util, assoc_list, require.
 
 string_switch__generate(Cases, Var, CodeModel, _CanFail, StoreMap,

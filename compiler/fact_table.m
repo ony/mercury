@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -45,12 +45,12 @@
 % floats.
 
 
-:- module fact_table.
+:- module ll_backend__fact_table.
 
 :- interface.
 
 :- import_module io, list.
-:- import_module prog_data, hlds_pred, hlds_module.
+:- import_module parse_tree__prog_data, hlds__hlds_pred, hlds__hlds_module.
 
 	% compile the fact table into a separate .c file.
 	% fact_table_compile_facts(PredName, Arity, FileName, PredInfo0, 
@@ -92,15 +92,19 @@
 :- import_module parser, term, term_io.
 
 % Parse tree modules
-:- import_module prog_util, prog_io, prog_out, modules.
+:- import_module parse_tree__prog_util, parse_tree__prog_io.
+:- import_module parse_tree__prog_out, parse_tree__modules.
 % HLDS modules
-:- import_module hlds_out, hlds_data, mode_util, inst_match.
+:- import_module hlds__hlds_out, hlds__hlds_data, check_hlds__mode_util.
+:- import_module check_hlds__inst_match.
 % LLDS back-end modules
-:- import_module arg_info, llds, llds_out, code_util, export.
+:- import_module ll_backend__arg_info, ll_backend__llds, ll_backend__llds_out.
+:- import_module ll_backend__code_util, backend_libs__export.
+:- import_module backend_libs__foreign.
 % Modules shared between different back-ends.
-:- import_module passes_aux, code_model.
+:- import_module hlds__passes_aux, backend_libs__code_model.
 % Misc
-:- import_module globals, options.
+:- import_module libs__globals, libs__options.
 
 :- type fact_result
 	--->	ok ; error.
@@ -2697,10 +2701,10 @@ generate_all_in_code(PredName, PragmaVars, ProcID, ArgTypes, ModuleInfo,
 
 	SuccessCodeTemplate = "
 		success_code_%s:
-			SUCCESS_INDICATOR = TRUE;
+			SUCCESS_INDICATOR = MR_TRUE;
 			goto skip_%s;
 		failure_code_%s:
-			SUCCESS_INDICATOR = FALSE;
+			SUCCESS_INDICATOR = MR_FALSE;
 		skip_%s:
 			;
 	",
@@ -2730,7 +2734,7 @@ generate_semidet_in_out_code(PredName, PragmaVars, ProcID, ArgTypes,
 
 	SuccessCodeTemplate = "
 		success_code_%s:
-			SUCCESS_INDICATOR = TRUE;
+			SUCCESS_INDICATOR = MR_TRUE;
 	",
 	string__format(SuccessCodeTemplate, [s(LabelName)], SuccessCode),
 
@@ -2740,7 +2744,7 @@ generate_semidet_in_out_code(PredName, PragmaVars, ProcID, ArgTypes,
 	FailCodeTemplate = "
 			goto skip_%s;
 		failure_code_%s:
-			SUCCESS_INDICATOR = FALSE;
+			SUCCESS_INDICATOR = MR_FALSE;
 		skip_%s:
 			;
 	",
@@ -3188,16 +3192,17 @@ generate_argument_vars_code(PragmaVars, Types, ModuleInfo, DeclCode, InputCode,
 	list__map(lambda([X::in, Y::out] is det, X = pragma_var(_,_,Y)),
 		PragmaVars, Modes),
 	make_arg_infos(Types, Modes, model_non, ModuleInfo, ArgInfos),
-	generate_argument_vars_code_2(PragmaVars, ArgInfos, Types, DeclCode,
-		InputCode, OutputCode, SaveRegsCode, GetRegsCode, 1,
+	generate_argument_vars_code_2(PragmaVars, ArgInfos, Types, ModuleInfo,
+		DeclCode, InputCode, OutputCode, SaveRegsCode, GetRegsCode, 1,
 		NumInputArgs).
 
 :- pred generate_argument_vars_code_2(list(pragma_var), list(arg_info),
-		list(type), string, string, string, string, string, int, int).
-:- mode generate_argument_vars_code_2(in, in, in, out, out, out, out, out,
+		list(type), module_info, string,
+		string, string, string, string, int, int).
+:- mode generate_argument_vars_code_2(in, in, in, in, out, out, out, out, out,
 		in, out) is det.
 
-generate_argument_vars_code_2(PragmaVars0, ArgInfos0, Types0, DeclCode,
+generate_argument_vars_code_2(PragmaVars0, ArgInfos0, Types0, Module, DeclCode,
 		InputCode, OutputCode, SaveRegsCode, GetRegsCode,
 		NumInputArgs0, NumInputArgs) :-
 	(
@@ -3216,7 +3221,7 @@ generate_argument_vars_code_2(PragmaVars0, ArgInfos0, Types0, DeclCode,
 		ArgInfos0 = [arg_info(Loc, ArgMode) | ArgInfos],
 		Types0 = [Type | Types]
 	->
-		generate_arg_decl_code(VarName, Type, DeclCode0),
+		generate_arg_decl_code(VarName, Type, Module, DeclCode0),
 		( ArgMode = top_in ->
 			NumInputArgs1 is NumInputArgs0 + 1,
 			generate_arg_input_code(VarName, Type, Loc,
@@ -3234,8 +3239,9 @@ generate_argument_vars_code_2(PragmaVars0, ArgInfos0, Types0, DeclCode,
 			error("generate_argument_vars_code: invalid mode")
 		),
 		generate_argument_vars_code_2(PragmaVars, ArgInfos, Types,
-			DeclCode1, InputCode1, OutputCode1, SaveRegsCode1,
-			GetRegsCode1, NumInputArgs1, NumInputArgs),
+			Module, DeclCode1, InputCode1, OutputCode1,
+			SaveRegsCode1, GetRegsCode1, NumInputArgs1,
+			NumInputArgs),
 		string__append(DeclCode0, DeclCode1, DeclCode),
 		string__append(InputCode0, InputCode1, InputCode),
 		string__append(OutputCode0, OutputCode1, OutputCode),
@@ -3245,10 +3251,11 @@ generate_argument_vars_code_2(PragmaVars0, ArgInfos0, Types0, DeclCode,
 		error("generate_argument_vars_code: list length mismatch")
 	).
 
-:- pred generate_arg_decl_code(string::in, (type)::in, string::out) is det.
+:- pred generate_arg_decl_code(string::in, (type)::in, module_info::in,
+		string::out) is det.
 
-generate_arg_decl_code(Name, Type, DeclCode) :-
-	export__type_to_type_string(Type, C_Type),
+generate_arg_decl_code(Name, Type, Module, DeclCode) :-
+	C_Type = to_type_string(c, Module, Type),
 	string__format("\t\t%s %s;\n", [s(C_Type), s(Name)], DeclCode).
 
 :- pred generate_arg_input_code(string::in, (type)::in, int::in, int::in,

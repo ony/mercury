@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,11 +14,12 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module (assertion).
+:- module (hlds__assertion).
 
 :- interface.
 
-:- import_module hlds_data, hlds_goal, hlds_module, hlds_pred, prog_data.
+:- import_module hlds__hlds_data, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__hlds_pred, parse_tree__prog_data.
 :- import_module io, std_util.
 
 	%
@@ -127,12 +128,21 @@
 		module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
 
+	%
+	% assertion__normalise_goal
+	%
+	% Place a hlds_goal into a standard form.  Currently all the
+	% code does is replace conj([G]) with G.
+	%
+:- pred assertion__normalise_goal(hlds_goal::in, hlds_goal::out) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module globals, goal_util, hlds_out.
-:- import_module options, prog_out, prog_util, type_util.
+:- import_module libs__globals, hlds__goal_util, hlds__hlds_out.
+:- import_module libs__options, parse_tree__prog_out, parse_tree__prog_util.
+:- import_module check_hlds__type_util.
 :- import_module assoc_list, bool, list, map, require, set, std_util.
 
 :- type subst == map(prog_var, prog_var).
@@ -431,7 +441,7 @@ assertion__is_construction_equivalence_assertion(AssertId, Module,
 
 single_construction(unify(_, UnifyRhs, _, _, _) - _,
 		cons(QualifiedSymName, Arity)) :-
-	UnifyRhs = functor(cons(UnqualifiedSymName, Arity), _),
+	UnifyRhs = functor(cons(UnqualifiedSymName, Arity), _, _),
 	match_sym_name(UnqualifiedSymName, QualifiedSymName).
 
 	%
@@ -451,7 +461,7 @@ predicate_call(Goal, PredId) :-
 		P = (pred(G::in) is semidet :-
 			not (
 				G = unify(_, UnifyRhs, _, _, _) - _,
-				UnifyRhs = functor(_, _)
+				UnifyRhs = functor(_, _, _)
 			)
 		),
 		list__filter(P, Unifications, [])
@@ -527,14 +537,14 @@ equal_goals(call(PredId, _, VarsA, _, _, _) - _,
 equal_goals(generic_call(Type, VarsA, _, _) - _,
 		generic_call(Type, VarsB, _, _) - _, Subst0, Subst) :-
 	equal_vars(VarsA, VarsB, Subst0, Subst).
-equal_goals(switch(Var, CanFail, CasesA, _) - _,
-		switch(Var, CanFail, CasesB, _) - _, Subst0, Subst) :-
+equal_goals(switch(Var, CanFail, CasesA) - _,
+		switch(Var, CanFail, CasesB) - _, Subst0, Subst) :-
 	equal_goals_cases(CasesA, CasesB, Subst0, Subst).
 equal_goals(unify(VarA, RHSA, _, _, _) - _, unify(VarB, RHSB, _, _, _) - _,
 		Subst0, Subst) :-
 	equal_vars([VarA], [VarB], Subst0, Subst1),
 	equal_unification(RHSA, RHSB, Subst1, Subst).
-equal_goals(disj(GoalAs, _) - _, disj(GoalBs, _) - _, Subst0, Subst) :-
+equal_goals(disj(GoalAs) - _, disj(GoalBs) - _, Subst0, Subst) :-
 	equal_goals_list(GoalAs, GoalBs, Subst0, Subst).
 equal_goals(not(GoalA) - _, not(GoalB) - _, Subst0, Subst) :-
 	equal_goals(GoalA, GoalB, Subst0, Subst).
@@ -542,8 +552,8 @@ equal_goals(some(VarsA, _, GoalA) - _, some(VarsB, _, GoalB) - _,
 		Subst0, Subst) :-
 	equal_vars(VarsA, VarsB, Subst0, Subst1),
 	equal_goals(GoalA, GoalB, Subst1, Subst).
-equal_goals(if_then_else(VarsA, IfA, ThenA, ElseA, _) - _,
-		if_then_else(VarsB, IfB, ThenB, ElseB, _) - _, Subst0, Subst) :-
+equal_goals(if_then_else(VarsA, IfA, ThenA, ElseA) - _,
+		if_then_else(VarsB, IfB, ThenB, ElseB) - _, Subst0, Subst) :-
 	equal_vars(VarsA, VarsB, Subst0, Subst1),
 	equal_goals(IfA, IfB, Subst1, Subst2),
 	equal_goals(ThenA, ThenB, Subst2, Subst3),
@@ -552,7 +562,7 @@ equal_goals(foreign_proc(Attribs, PredId, _, VarsA, _, _, _) - _,
 		foreign_proc(Attribs, PredId, _, VarsB, _, _, _) -
 			_, Subst0, Subst) :-
 	equal_vars(VarsA, VarsB, Subst0, Subst).
-equal_goals(par_conj(GoalAs, _) - _, par_conj(GoalBs, _) - _, Subst0, Subst) :-
+equal_goals(par_conj(GoalAs) - _, par_conj(GoalBs) - _, Subst0, Subst) :-
 	equal_goals_list(GoalAs, GoalBs, Subst0, Subst).
 equal_goals(shorthand(ShorthandGoalA) - GoalInfoA,
 	    shorthand(ShorthandGoalB) - GoalInfoB, Subst0, Subst) :-
@@ -589,7 +599,7 @@ equal_vars([VA | VAs], [VB | VBs], Subst0, Subst) :-
 
 equal_unification(var(A), var(B), Subst0, Subst) :-
 	equal_vars([A], [B], Subst0, Subst).
-equal_unification(functor(ConsId, VarsA), functor(ConsId, VarsB),
+equal_unification(functor(ConsId, E, VarsA), functor(ConsId, E, VarsB),
 		Subst0, Subst) :-
 	equal_vars(VarsA, VarsB, Subst0, Subst).
 equal_unification(lambda_goal(PredOrFunc, EvalMethod, FixModes, NLVarsA, LVarsA,
@@ -651,14 +661,6 @@ update_pred_info(AssertId, PredId, Module0, Module) :-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-	%
-	% assertion__normalise_goal
-	%
-	% Place a hlds_goal into a standard form.  Currently all the
-	% code does is replace conj([G]) with G.
-	%
-:- pred assertion__normalise_goal(hlds_goal::in, hlds_goal::out) is det.
-
 assertion__normalise_goal(call(A,B,C,D,E,F) - GI, call(A,B,C,D,E,F) - GI).
 assertion__normalise_goal(generic_call(A,B,C,D) - GI, generic_call(A,B,C,D)-GI).
 assertion__normalise_goal(unify(A,B,C,D,E) - GI, unify(A,B,C,D,E) - GI).
@@ -666,20 +668,20 @@ assertion__normalise_goal(foreign_proc(A,B,C,D,E,F,G) - GI,
 		foreign_proc(A,B,C,D,E,F,G) - GI).
 assertion__normalise_goal(conj(Goals0) - GI, conj(Goals) - GI) :-
 	assertion__normalise_conj(Goals0, Goals).
-assertion__normalise_goal(switch(A,B,Case0s,D) - GI, switch(A,B,Cases,D)-GI) :-
+assertion__normalise_goal(switch(A,B,Case0s) - GI, switch(A,B,Cases)-GI) :-
 	assertion__normalise_cases(Case0s, Cases).
-assertion__normalise_goal(disj(Goal0s,B) - GI, disj(Goals,B) - GI) :-
+assertion__normalise_goal(disj(Goal0s) - GI, disj(Goals) - GI) :-
 	assertion__normalise_goals(Goal0s, Goals).
 assertion__normalise_goal(not(Goal0) - GI, not(Goal) - GI) :-
 	assertion__normalise_goal(Goal0, Goal).
 assertion__normalise_goal(some(A,B,Goal0) - GI, some(A,B,Goal) - GI) :-
 	assertion__normalise_goal(Goal0, Goal).
-assertion__normalise_goal(if_then_else(A, If0, Then0, Else0, E) - GI,
-		if_then_else(A, If, Then, Else, E) - GI) :-
+assertion__normalise_goal(if_then_else(A, If0, Then0, Else0) - GI,
+		if_then_else(A, If, Then, Else) - GI) :-
 	assertion__normalise_goal(If0, If),
 	assertion__normalise_goal(Then0, Then),
 	assertion__normalise_goal(Else0, Else).
-assertion__normalise_goal(par_conj(Goal0s,B) - GI, par_conj(Goals,B) - GI) :-
+assertion__normalise_goal(par_conj(Goal0s) - GI, par_conj(Goals) - GI) :-
 	assertion__normalise_goals(Goal0s, Goals).
 assertion__normalise_goal(shorthand(ShortHandGoal0) - GI0, 
 		shorthand(ShortHandGoal) - GI) :-
@@ -773,20 +775,20 @@ assertion__in_interface_check(foreign_proc(_,PredId,_,_,_,_,_) -
 	).
 assertion__in_interface_check(conj(Goals) - _, PredInfo, Module0, Module) -->
 	assertion__in_interface_check_list(Goals, PredInfo, Module0, Module).
-assertion__in_interface_check(switch(_,_,_,_) - _, _, _, _) -->
+assertion__in_interface_check(switch(_,_,_) - _, _, _, _) -->
 	{ error("assertion__in_interface_check: assertion contains switch.") }.
-assertion__in_interface_check(disj(Goals,_) - _, PredInfo, Module0, Module) -->
+assertion__in_interface_check(disj(Goals) - _, PredInfo, Module0, Module) -->
 	assertion__in_interface_check_list(Goals, PredInfo, Module0, Module).
 assertion__in_interface_check(not(Goal) - _, PredInfo, Module0, Module) -->
 	assertion__in_interface_check(Goal, PredInfo, Module0, Module).
 assertion__in_interface_check(some(_,_,Goal) - _, PredInfo, Module0, Module) -->
 	assertion__in_interface_check(Goal, PredInfo, Module0, Module).
-assertion__in_interface_check(if_then_else(_, If, Then, Else, _) - _,
+assertion__in_interface_check(if_then_else(_, If, Then, Else) - _,
 		PredInfo, Module0, Module) -->
 	assertion__in_interface_check(If, PredInfo, Module0, Module1),
 	assertion__in_interface_check(Then, PredInfo, Module1, Module2),
 	assertion__in_interface_check(Else, PredInfo, Module2, Module).
-assertion__in_interface_check(par_conj(Goals,_) - _, PredInfo,
+assertion__in_interface_check(par_conj(Goals) - _, PredInfo,
 		Module0, Module) -->
 	assertion__in_interface_check_list(Goals, PredInfo, Module0, Module).
 assertion__in_interface_check(shorthand(ShorthandGoal) - _GoalInfo, PredInfo,
@@ -810,16 +812,16 @@ assertion__in_interface_check_shorthand(bi_implication(LHS, RHS), PredInfo,
 		module_info::out, io__state::di, io__state::uo) is det.
 
 assertion__in_interface_check_unify_rhs(var(_), _, _, _, Module, Module) --> [].
-assertion__in_interface_check_unify_rhs(functor(ConsId, _), Var, Context,
+assertion__in_interface_check_unify_rhs(functor(ConsId, _, _), Var, Context,
 		PredInfo, Module0, Module) -->
 	{ pred_info_clauses_info(PredInfo, ClausesInfo) },
 	{ clauses_info_vartypes(ClausesInfo, VarTypes) },
 	{ map__lookup(VarTypes, Var, Type) },
 	(
-		{ type_to_type_id(Type, TypeId, _) }
+		{ type_to_ctor_and_args(Type, TypeCtor, _) }
 	->
 		{ module_info_types(Module0, Types) },
-		{ map__lookup(Types, TypeId, TypeDefn) },
+		{ map__lookup(Types, TypeCtor, TypeDefn) },
 		{ hlds_data__get_type_defn_status(TypeDefn, TypeStatus) },
 		(
 			{ is_defined_in_implementation_section(TypeStatus,
@@ -831,7 +833,7 @@ assertion__in_interface_check_unify_rhs(functor(ConsId, _), Var, Context,
 			{ Module = Module0 }
 		)
 	;
-		{ error("assertion__in_interface_check_unify_rhs: type_to_type_id failed.") }
+		{ error("assertion__in_interface_check_unify_rhs: type_to_ctor_and_args failed.") }
 	).
 assertion__in_interface_check_unify_rhs(lambda_goal(_,_,_,_,_,_,_,Goal),
 		_Var, _Context, PredInfo, Module0, Module) -->

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -26,13 +26,13 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module code_gen.
+:- module ll_backend__code_gen.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_goal.
-:- import_module code_model.
-:- import_module llds, code_info.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module backend_libs__code_model.
+:- import_module ll_backend__llds, ll_backend__code_info.
 
 :- import_module list, io, counter.
 
@@ -57,30 +57,44 @@
 :- pred code_gen__generate_goal(code_model::in, hlds_goal::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
+		% Return the message that identifies the procedure to pass to
+		% the incr_sp_push_msg macro in the generated C code.
+:- func code_gen__push_msg(module_info, pred_id, proc_id) = string.
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
 :- implementation.
 
 % Parse tree modules
-:- import_module prog_data, prog_out, prog_util.
+:- import_module parse_tree__prog_data, parse_tree__prog_out.
+:- import_module parse_tree__prog_util.
 
 % HLDS modules
-:- import_module hlds_out, instmap, type_util, mode_util, goal_util.
+:- import_module hlds__hlds_llds, hlds__hlds_out.
+:- import_module hlds__instmap, hlds__goal_util, hlds__special_pred.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
 
 % LLDS code generator modules.
-:- import_module call_gen, unify_gen, ite_gen, switch_gen, disj_gen.
-:- import_module par_conj_gen, pragma_c_gen, commit_gen.
-:- import_module continuation_info, trace, trace_params.
-:- import_module code_aux, code_util, middle_rec, llds_out.
+:- import_module ll_backend__call_gen, ll_backend__unify_gen.
+:- import_module ll_backend__ite_gen, ll_backend__switch_gen.
+:- import_module ll_backend__disj_gen.
+:- import_module ll_backend__par_conj_gen, ll_backend__pragma_c_gen.
+:- import_module ll_backend__commit_gen.
+:- import_module ll_backend__continuation_info, ll_backend__trace.
+:- import_module ll_backend__code_aux, ll_backend__code_util.
+:- import_module ll_backend__middle_rec, ll_backend__llds_out.
 
 % Misc compiler modules
-:- import_module builtin_ops, passes_aux.
-:- import_module globals, options.
+:- import_module backend_libs__builtin_ops, hlds__passes_aux.
+:- import_module backend_libs__rtti.
+:- import_module libs__globals, libs__options.
+:- import_module libs__trace_params.
 
 % Standard library modules
 :- import_module bool, char, int, string.
-:- import_module map, assoc_list, set, term, tree, std_util, require, varset.
+:- import_module map, assoc_list, set, term, libs__tree, std_util, require.
+:- import_module varset.
 
 %---------------------------------------------------------------------------%
 
@@ -261,9 +275,9 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo,
 		% procedures, always needed for model_semi procedures, and
 		% needed for model_non procedures only if we are doing
 		% execution tracing.
-	code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo,
-		FollowVars, ModuleInfo, CellCounter0, OutsideResumePoint,
-		TraceSlotInfo, CodeInfo0),
+	code_info__init(SaveSuccip, Globals, PredId, ProcId, PredInfo,
+		ProcInfo, FollowVars, ModuleInfo, CellCounter0,
+		OutsideResumePoint, TraceSlotInfo, CodeInfo0),
 
 		% Generate code for the procedure.
 	generate_category_code(CodeModel, Goal, OutsideResumePoint,
@@ -275,8 +289,10 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo,
 	globals__get_trace_level(Globals, TraceLevel),
 	code_info__get_created_temp_frame(CreatedTempFrame, CodeInfo, _),
 
+	EffTraceIsNone = eff_trace_level_is_none(PredInfo, ProcInfo,
+		TraceLevel),
 	(
-		trace_level_is_none(TraceLevel) = no,
+		EffTraceIsNone = no,
 		CreatedTempFrame = yes,
 		CodeModel \= model_non
 	->
@@ -313,19 +329,41 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo,
 		Instructions = Instructions0
 	),
 
-	( BasicStackLayout = yes ->
+	proc_info_get_table_io_decl(ProcInfo, MaybeTableIoDecl),
+	(
+		( BasicStackLayout = yes
+		; MaybeTableIoDecl = yes(_TableIoDecl)
+		)
+	->
 			% Create the procedure layout structure.
+		RttiProcLabel = rtti__make_proc_label(ModuleInfo,
+			PredId, ProcId),
 		code_info__get_layout_info(InternalMap, CodeInfo, _),
 		code_util__make_local_entry_label(ModuleInfo, PredId, ProcId,
 			no, EntryLabel),
 		proc_info_eval_method(ProcInfo, EvalMethod),
 		proc_info_get_initial_instmap(ProcInfo, ModuleInfo, InstMap0),
+		proc_info_headvars(ProcInfo, HeadVars),
 		proc_info_varset(ProcInfo, VarSet),
 		proc_info_vartypes(ProcInfo, VarTypes),
-		ProcLayout = proc_layout_info(EntryLabel, Detism, TotalSlots,
-			MaybeSuccipSlot, EvalMethod, MaybeTraceCallLabel,
-			MaxTraceReg, Goal, InstMap0, TraceSlotInfo,
-			ForceProcId, VarSet, VarTypes, InternalMap),
+		globals__get_trace_suppress(Globals, TraceSuppress),
+		(
+			eff_trace_needs_proc_body_reps(PredInfo, ProcInfo,
+				TraceLevel, TraceSuppress) = yes
+		->
+			MaybeGoal = yes(Goal)
+		;
+			MaybeGoal = no
+		),
+		IsBeingTraced = bool__not(EffTraceIsNone),
+		NeedsAllNames = eff_trace_needs_all_var_names(PredInfo,
+			ProcInfo, TraceLevel, TraceSuppress),
+		ProcLayout = proc_layout_info(RttiProcLabel, EntryLabel,
+			Detism, TotalSlots, MaybeSuccipSlot, EvalMethod,
+			MaybeTraceCallLabel, MaxTraceReg, HeadVars, MaybeGoal,
+			InstMap0, TraceSlotInfo, ForceProcId, VarSet, VarTypes,
+			InternalMap, MaybeTableIoDecl, IsBeingTraced,
+			NeedsAllNames),
 		global_data_add_new_proc_layout(GlobalData0,
 			proc(PredId, ProcId), ProcLayout, GlobalData1)
 	;
@@ -342,13 +380,14 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo,
 	pred_info_name(PredInfo, Name),
 	pred_info_arity(PredInfo, Arity),
 
-	( goal_contains_reconstruction(Goal) ->
-		ContainsReconstruction = contains_reconstruction
-	;
-		ContainsReconstruction = does_not_contain_reconstruction
-	),
-
 	code_info__get_label_counter(LabelCounter, CodeInfo, _),
+	(
+		EffTraceIsNone = yes,
+		MayAlterRtti = may_alter_rtti
+	;
+		EffTraceIsNone = no,
+		MayAlterRtti = must_not_alter_rtti
+	),
 
 	globals__lookup_bool_option(Globals, generate_bytecode, GenBytecode),
 	(
@@ -367,11 +406,11 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo,
 			BytecodeInstructions),
 		Proc = c_procedure(Name, Arity, proc(PredId, ProcId),
 			BytecodeInstructions, ProcLabel, EmptyLabelCounter,
-			ContainsReconstruction)
+			MayAlterRtti)
 	;	
 		Proc = c_procedure(Name, Arity, proc(PredId, ProcId),
 			Instructions, ProcLabel, LabelCounter,
-			ContainsReconstruction)
+			MayAlterRtti)
 	).
 
 :- pred maybe_add_tabling_pointer_var(module_info::in,
@@ -720,14 +759,12 @@ code_gen__generate_entry(CodeModel, Goal, OutsideResumePoint, FrameInfo,
 	;
 		{ TraceFillCode = empty }
 	),
+	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
+	{ pred_info_module(PredInfo, ModuleName) },
+	{ pred_info_name(PredInfo, PredName) },
+	{ pred_info_arity(PredInfo, Arity) },
 
-	{ predicate_module(ModuleInfo, PredId, ModuleName) },
-	{ predicate_name(ModuleInfo, PredId, PredName) },
-	{ predicate_arity(ModuleInfo, PredId, Arity) },
-	{ prog_out__sym_name_to_string(ModuleName, ModuleNameString) },
-	{ string__int_to_string(Arity, ArityStr) },
-	{ string__append_list([ModuleNameString, ":", PredName, "/", ArityStr],
-		PushMsg) },
+	{ PushMsg = code_gen__push_msg(ModuleInfo, PredId, ProcId) },
 	(
 		{ CodeModel = model_non }
 	->
@@ -802,7 +839,7 @@ code_gen__generate_entry(CodeModel, Goal, OutsideResumePoint, FrameInfo,
 	%	code to place the output arguments where their caller expects
 	%	code to restore registers from some special slots
 	%	code to deallocate the stack frame
-	%	code to set r1 to TRUE (for semidet procedures only)
+	%	code to set r1 to MR_TRUE (for semidet procedures only)
 	%	a jump back to the caller, including livevals information
 	%	a comment to mark epilogue end
 	%
@@ -927,7 +964,8 @@ code_gen__generate_exit(CodeModel, FrameInfo, TraceSlotInfo, BodyContext,
 				{ PruneTraceTicketCode = node([
 					prune_ticket - "prune retry ticket"
 				]) },
-				{ PruneTraceTicketCodeCopy = PruneTraceTicketCode }
+				{ PruneTraceTicketCodeCopy =
+					PruneTraceTicketCode }
 			)
 		;
 			{ PruneTraceTicketCode = empty },
@@ -1115,46 +1153,41 @@ code_gen__generate_goal_2(unify(_, _, _, Uni, _), GoalInfo, CodeModel, Code)
 	unify_gen__generate_unification(CodeModel, Uni, GoalInfo, Code).
 code_gen__generate_goal_2(conj(Goals), _GoalInfo, CodeModel, Code) -->
 	code_gen__generate_goals(Goals, CodeModel, Code).
-code_gen__generate_goal_2(par_conj(Goals, _SM), GoalInfo, CodeModel, Code) -->
+code_gen__generate_goal_2(par_conj(Goals), GoalInfo, CodeModel, Code) -->
 	par_conj_gen__generate_par_conj(Goals, GoalInfo, CodeModel, Code).
-code_gen__generate_goal_2(disj(Goals, StoreMap), _, CodeModel, Code) -->
-	disj_gen__generate_disj(CodeModel, Goals, StoreMap, Code).
+code_gen__generate_goal_2(disj(Goals), GoalInfo, CodeModel, Code) -->
+	disj_gen__generate_disj(CodeModel, Goals, GoalInfo, Code).
 code_gen__generate_goal_2(not(Goal), _GoalInfo, CodeModel, Code) -->
 	ite_gen__generate_negation(CodeModel, Goal, Code).
-code_gen__generate_goal_2(if_then_else(_Vars, Cond, Then, Else, StoreMap),
-		_GoalInfo, CodeModel, Code) -->
-	ite_gen__generate_ite(CodeModel, Cond, Then, Else, StoreMap, Code).
-code_gen__generate_goal_2(switch(Var, CanFail, CaseList, StoreMap),
+code_gen__generate_goal_2(if_then_else(_Vars, Cond, Then, Else),
+		GoalInfo, CodeModel, Code) -->
+	ite_gen__generate_ite(CodeModel, Cond, Then, Else, GoalInfo, Code).
+code_gen__generate_goal_2(switch(Var, CanFail, CaseList),
 		GoalInfo, CodeModel, Code) -->
 	switch_gen__generate_switch(CodeModel, Var, CanFail, CaseList,
-		StoreMap, GoalInfo, Code).
+		GoalInfo, Code).
 code_gen__generate_goal_2(some(_Vars, _, Goal), _GoalInfo, CodeModel, Code) -->
 	commit_gen__generate_commit(CodeModel, Goal, Code).
 code_gen__generate_goal_2(generic_call(GenericCall, Args, Modes, Det),
 		GoalInfo, CodeModel, Code) -->
 	call_gen__generate_generic_call(CodeModel, GenericCall, Args,
 		Modes, Det, GoalInfo, Code).
-
-code_gen__generate_goal_2(call(PredId, ProcId, Args, BuiltinState, _, _),
+code_gen__generate_goal_2(call(PredId, ProcId, Args, BuiltinState, _,_),
 		GoalInfo, CodeModel, Code) -->
-	(
-		{ BuiltinState = not_builtin }
-	->
+	( { BuiltinState = not_builtin } ->
 		call_gen__generate_call(CodeModel, PredId, ProcId, Args,
 			GoalInfo, Code)
 	;
 		call_gen__generate_builtin(CodeModel, PredId, ProcId, Args,
 			Code)
 	).
-code_gen__generate_goal_2(foreign_proc(Attributes,
-		PredId, ModeId, Args, ArgNames, OrigArgTypes, PragmaCode),
-		GoalInfo, CodeModel, Instr) -->
-	( 
-		{ foreign_language(Attributes, c) } 
-	->
+code_gen__generate_goal_2(foreign_proc(Attributes, PredId, ProcId,
+		Args, ArgNames, OrigArgTypes, PragmaCode),
+		GoalInfo, CodeModel, Code) -->
+	( { foreign_language(Attributes, c) } ->
 		pragma_c_gen__generate_pragma_c_code(CodeModel, Attributes,
-			PredId, ModeId, Args, ArgNames, OrigArgTypes,
-			GoalInfo, PragmaCode, Instr)
+			PredId, ProcId, Args, ArgNames, OrigArgTypes,
+			GoalInfo, PragmaCode, Code)
 	;
 		{ error("code_gen__generate_goal_2: foreign code other than C unexpected") }
 	).
@@ -1267,7 +1300,8 @@ code_gen__bytecode_stub(ModuleInfo, PredId, ProcId, BytecodeInstructions) :-
 		"\t\t\t""", PredName, """,\n",
 		"\t\t\t", ProcStr, ",\n",
 		"\t\t\t", ArityStr, ",\n",
-		"\t\t\t", (PredOrFunc = function -> "TRUE" ; "FALSE"), "\n",
+		"\t\t\t", (PredOrFunc = function -> "MR_TRUE" ; "MR_FALSE"),
+			"\n",
 		"\t\t};\n"
 		], CallStruct),
 
@@ -1280,7 +1314,6 @@ code_gen__bytecode_stub(ModuleInfo, PredId, ProcId, BytecodeInstructions) :-
 		"\t\tMR_GOTO(return_addr);\n"
 		], BytecodeCall),
 
-		
 	BytecodeInstructions = [
 		label(Entry) - "Procedure entry point",
 
@@ -1296,4 +1329,42 @@ code_gen__bytecode_stub(ModuleInfo, PredId, ProcId, BytecodeInstructions) :-
 		) - "Entry stub"
 	].
 
+%---------------------------------------------------------------------------%
+
+:- type type_giving_arg --->	last_arg ; last_but_one_arg.
+
+code_gen__push_msg(ModuleInfo, PredId, ProcId) = PushMsg :-
+	module_info_pred_info(ModuleInfo, PredId, PredInfo),
+	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
+	pred_info_module(PredInfo, ModuleName),
+	pred_info_name(PredInfo, PredName),
+	pred_info_arity(PredInfo, Arity),
+	( special_pred_name_arity(_, _, PredName, Arity) ->
+		pred_info_arg_types(PredInfo, ArgTypes),
+		special_pred_get_type_det(PredName, ArgTypes, Type),
+		code_gen__find_arg_type_ctor_name(Type, TypeName),
+		string__append_list([PredName, "for_", TypeName], FullPredName)
+	;
+		FullPredName = PredName
+	),
+	pred_or_func_to_str(PredOrFunc, PredOrFuncString),
+	prog_out__sym_name_to_string(ModuleName, ModuleNameString),
+	string__int_to_string(Arity, ArityStr),
+	proc_id_to_int(ProcId, ProcNum),
+	string__int_to_string(ProcNum, ProcNumStr),
+	string__append_list([PredOrFuncString, " ", ModuleNameString, ":",
+		FullPredName, "/", ArityStr, "-", ProcNumStr], PushMsg).
+
+:- pred code_gen__find_arg_type_ctor_name((type)::in, string::out) is det.
+
+code_gen__find_arg_type_ctor_name(Type, TypeName) :-
+	( type_to_ctor_and_args(Type, TypeCtor, _) ->
+		TypeCtor = TypeCtorSymName - TypeCtorArity,
+		prog_out__sym_name_to_string(TypeCtorSymName, TypeCtorName),
+		string__int_to_string(TypeCtorArity, ArityStr),
+		string__append_list([TypeCtorName, "_", ArityStr], TypeName)
+	;
+		TypeName = "unknown"
+	).
+		
 %---------------------------------------------------------------------------%

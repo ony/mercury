@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,19 +14,39 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module handle_options.
+:- module libs__handle_options.
 
 :- interface.
-:- import_module list, bool, std_util, io.
-:- import_module globals, options.
+:- import_module list, bool, getopt, std_util, io.
+:- import_module libs__globals, libs__options.
 
-:- pred handle_options(maybe(string), list(string), bool, io__state, io__state).
-:- mode handle_options(out, out, out, di, uo) is det.
+	% handle_options(Args, MaybeError, OptionArgs, NonOptionArgs, Link).
+:- pred handle_options(list(string), maybe(string), list(string),
+		list(string), bool, io__state, io__state).
+:- mode handle_options(in, out, out, out, out, di, uo) is det.
 
+	% process_options(Args, OptionArgs, NonOptionArgs, MaybeOptionTable).
+	%
+	% Process the options, but don't do any post-processing or
+	% modify the globals. This is mainly useful for separating
+	% the list of arguments into option and non-option arguments.
+:- pred process_options(list(string), list(string), list(string),
+			maybe_option_table(option)).
+:- mode process_options(in, out, out, out) is det.
+
+	% usage_error(Descr, Message)
+	%
+	% Display the description of the error location, the error message
+	% and then a usage message.
+:- pred usage_error(string::in, string::in,
+		io__state::di, io__state::uo) is det.
+
+	% usage_error(Message)
+	%
 	% Display error message and then usage message
 :- pred usage_error(string::in, io__state::di, io__state::uo) is det.
 
-	% Display usage message
+	% Display usage message.
 :- pred usage(io__state::di, io__state::uo) is det.
 
 	% Display long usage message for help
@@ -41,23 +61,23 @@
 :- pred convert_grade_option(string::in, option_table::in, option_table::out)
 	is semidet.
 
+	% Produce the grade component of grade-specific
+	% installation directories.
+:- pred grade_directory_component(globals::in, string::out) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module options, globals, prog_io_util, trace_params, unify_proc.
-:- import_module prog_data, foreign.
-:- import_module char, int, string, map, set, getopt, library.
+:- import_module libs__options, libs__globals, parse_tree__prog_io_util.
+:- import_module libs__trace_params, check_hlds__unify_proc.
+:- import_module parse_tree__prog_data, backend_libs__foreign.
+:- import_module char, dir, int, string, map, set, library.
 
-handle_options(MaybeError, Args, Link) -->
-	io__command_line_arguments(Args0),
+handle_options(Args0, MaybeError, OptionArgs, Args, Link) -->
 	% io__write_string("original arguments\n"),
 	% dump_arguments(Args0),
-	{ OptionOps = option_ops(short_option, long_option,
-		option_defaults, special_handler) },
-	% default to optimization level `-O2'
-	{ Args1 = ["-O2" | Args0] },
-	{ getopt__process_options(OptionOps, Args1, Args, Result) },
+	{ process_options(Args0, OptionArgs, Args, Result) },
 	% io__write_string("final arguments\n"),
 	% dump_arguments(Args),
 	postprocess_options(Result, MaybeError),
@@ -105,6 +125,12 @@ handle_options(MaybeError, Args, Link) -->
 			[]	
 		)
 	).
+
+process_options(Args0, OptionArgs, Args, Result) :-
+	OptionOps = option_ops(short_option, long_option,
+		option_defaults, special_handler),
+	getopt__process_options(OptionOps, Args0,
+		OptionArgs, Args, Result).
 
 :- pred dump_arguments(list(string), io__state, io__state).
 :- mode dump_arguments(in, di, uo) is det.
@@ -214,7 +240,7 @@ postprocess_options(ok(OptionTable), Error) -->
                     { Error = yes("Invalid tags option (must be `none', `low' or `high')") }
             )
         ;
-            { Error = yes("Invalid GC option (must be `none', `conservative' or `accurate')") }
+            { Error = yes("Invalid GC option (must be `none', `conservative', `boehm', `mps' or `accurate')") }
 	)
     ;
         { Error = yes("Invalid target option (must be `c', `asm', `il', or `java')") }
@@ -226,14 +252,14 @@ postprocess_options(ok(OptionTable), Error) -->
     trace_level::in, trace_suppress_items::in, maybe(string)::out,
     io__state::di, io__state::uo) is det.
 
-postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
+postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 		TermNorm, TraceLevel, TraceSuppress, Error) -->
-	{ unsafe_promise_unique(OptionTable, OptionTable1) }, % XXX
+	{ unsafe_promise_unique(OptionTable0, OptionTable1) }, % XXX
 	globals__io_init(OptionTable1, Target, GC_Method, TagsMethod,
 		TermNorm, TraceLevel, TraceSuppress),
 
-	% --gc conservative implies --no-reclaim-heap-*
-	( { GC_Method = conservative } ->
+	% Conservative GC implies --no-reclaim-heap-*
+	( { gc_is_conservative(GC_Method) = yes } ->
 		globals__io_set_option(
 			reclaim_heap_on_semidet_failure, bool(no)),
 		globals__io_set_option(
@@ -266,11 +292,10 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% and assume --num-tag-bits 0
 	( { NumTagBits1 < 0 } ->
 		io__progname_base("mercury_compile", ProgName),
-		io__stderr_stream(StdErr),
 		report_warning(ProgName),
 		report_warning(
 			": warning: --num-tag-bits invalid or unspecified\n"),
-		io__write_string(StdErr, ProgName),
+		io__write_string(ProgName),
 		report_warning(": using --num-tag-bits 0 (tags disabled)\n"),
 		{ NumTagBits = 0 }
 	;
@@ -279,18 +304,58 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 
 	globals__io_set_option(num_tag_bits, int(NumTagBits)),
 
-	% Generating IL implies high-level code, turning off nested functions,
-	% using copy-out for nondet output arguments,
-	% using zero tags, boxing enums, disabling no_tag_types and no
-	% static ground terms.
+	% Generating IL implies:
+	%   - gc_method `none' and no heap reclamation on failure
+	%	  Because GC is handled automatically by the .NET CLR
+	%	  implementation.
+	%   - high-level code
+	%	  Because only the MLDS back-end supports
+	%	  compiling to IL, not the LLDS back-end.
+	%   - turning off nested functions
+	%	  Because IL doesn't support nested functions.
+	%   - using copy-out for nondet output arguments
+	%	  For reasons explained in the paper "Compiling Mercury
+	%	  to the .NET Common Language Runtime"
+	%   - using no tags
+	%	  Because IL doesn't provide any mechanism for tagging
+	%	  pointers.
+	%   - boxing enums and disabling no_tag_types
+	%	  These are both required to ensure that we have a uniform
+	%	  representation (`object[]') for all data types,
+	%	  which is required to avoid type errors for code using
+	%	  abstract data types.
+	%	  XXX It should not be needed once we have a general solution
+	%	  to the abstract equivalence type problem.
+	%   - no static ground terms
+	%         XXX Previously static ground terms used to not work with
+	%             --high-level-data.  But this has been (mostly?) fixed now.
+	%             So we should investigate re-enabling static ground terms.
+	%   - intermodule optimization
+	%	  This is only required for high-level data and is needed
+	%	  so that abstract equivalence types can be expanded.  They
+	%	  need to be expanded because .NET requires that the structural
+	%	  representation of a type is known at all times.
 	( { Target = il } ->
+		globals__io_set_gc_method(none),
+		globals__io_set_option(reclaim_heap_on_nondet_failure,
+			bool(no)),
+		globals__io_set_option(reclaim_heap_on_semidet_failure,
+			bool(no)),
 		globals__io_set_option(highlevel_code, bool(yes)),
 		globals__io_set_option(gcc_nested_functions, bool(no)),
 		globals__io_set_option(nondet_copy_out, bool(yes)),
 		globals__io_set_option(num_tag_bits, int(0)),
 		globals__io_set_option(unboxed_enums, bool(no)),
 		globals__io_set_option(unboxed_no_tag_types, bool(no)),
-		globals__io_set_option(static_ground_terms, bool(no))
+		globals__io_set_option(static_ground_terms, bool(no)),
+
+		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+		( { HighLevelData = yes } ->
+			globals__io_set_option(intermodule_optimization,
+					bool(yes))
+		;
+			[]
+		)
 	;
 		[]
 	),
@@ -303,23 +368,49 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	( { ILFuncPtrTypes = yes, ILRefAnyFields = yes } ->
 		[]
 	;
-		option_implies(verifiable_code, put_nondet_env_on_heap, bool(yes))
+		option_implies(verifiable_code, put_nondet_env_on_heap,
+			bool(yes))
 	),
 
-	% Generating Java implies high-level code, turning off nested functions,
-	% using copy-out for both det and nondet output arguments,
-	% using no tags, not optimizing tailcalls and no static ground terms.
-	% XXX no static ground terms should be eliminated in a later
-	%     version.
-	% XXX The Java backend should eventually support optimizing tailcalls.
+	% Generating Java implies
+	%   - gc_method `none' and no heap reclamation on failure
+	%	  Because GC is handled automatically by the Java
+	%	  implementation.
+	%   - high-level code
+	%	  Because only the MLDS back-end supports
+	%	  compiling to Java, not the LLDS back-end.
+	%   - high-level data
+	%	  Because it is more efficient,
+	%	  and better for interoperability.
+	%	  (In theory --low-level-data should work too,
+	%	  but there's no reason to bother supporting it.)
+	%   - turning off nested functions
+	%	  Because Java doesn't support nested functions.
+	%   - using copy-out for both det and nondet output arguments
+	%	  Because Java doesn't support pass-by-reference.
+	%   - using no tags
+	%	  Because Java doesn't provide any mechanism for tagging
+	%	  pointers.
+	%   - store nondet environments on the heap
+	%         Because Java has no way of allocating structs on the stack.
+	%   - no static ground terms
+	%         XXX Previously static ground terms used to not work with
+	%             --high-level-data.  But this has been (mostly?) fixed now.
+	%             So we should investigate re-enabling static ground terms.
 	( { Target = java } ->
+		globals__io_set_gc_method(none),
+		globals__io_set_option(reclaim_heap_on_nondet_failure,
+			bool(no)),
+		globals__io_set_option(reclaim_heap_on_semidet_failure,
+			bool(no)),
 		globals__io_set_option(highlevel_code, bool(yes)),
+		globals__io_set_option(highlevel_data, bool(yes)),	
 		globals__io_set_option(gcc_nested_functions, bool(no)),
 		globals__io_set_option(nondet_copy_out, bool(yes)),
 		globals__io_set_option(det_copy_out, bool(yes)),
 		globals__io_set_option(num_tag_bits, int(0)),
-		globals__io_set_option(optimize_tailcalls, bool(no)),
-		globals__io_set_option(static_ground_terms, bool(no))
+		globals__io_set_option(static_ground_terms, bool(no)),
+		globals__io_set_option(put_nondet_env_on_heap, bool(yes))
 	;
 		[]
 	),
@@ -352,6 +443,22 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% --no-mlds-optimize implies --no-optimize-tailcalls
 	option_neg_implies(optimize, optimize_tailcalls, bool(no)),
 
+	% --rebuild is just like --make but always rebuilds the files
+	% without checking timestamps.
+	option_implies(rebuild, make, bool(yes)),
+
+	% make.m controls generating object code and linking itself,
+	% so mercury_compile.m should only generate target code when
+	% given a module to process.
+	option_implies(make, compile_only, bool(yes)),
+	option_implies(make, target_code_only, bool(yes)),
+
+	% This is needed for library installation (the library grades
+	% are built using `--use-grade-subdirs', and assume that
+	% the interface files were built using `--use-subdirs').
+	option_implies(make, use_subdirs, bool(yes)),
+	option_implies(invoked_by_mmc_make, use_subdirs, bool(yes)),
+
 	option_implies(verbose_check_termination, check_termination,bool(yes)),
 	option_implies(check_termination, termination, bool(yes)),
 	option_implies(check_termination, warn_missing_trans_opt_files,
@@ -361,6 +468,8 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(infer_possible_aliases, warn_missing_trans_opt_files,
         	bool(yes)),
 	option_implies(infer_possible_aliases, transitive_optimization,
+		bool(yes)),
+	option_implies(infer_possible_aliases, read_opt_files_transitively, 
 		bool(yes)),
 	option_implies(make_transitive_opt_interface, transitive_optimization,
 		bool(yes)),
@@ -372,7 +481,10 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% we need to build all `.opt' or `.trans_opt' files.
 	option_implies(intermodule_optimization, use_opt_files, bool(no)),
 	option_implies(transitive_optimization, use_trans_opt_files, bool(no)),
-	option_implies(make_optimization_interface, use_trans_opt_files, bool(no)),
+%	option_implies(make_optimization_interface, use_trans_opt_files, bool(no)),
+
+	% XXX This should be checked in the near future or a merge
+	% towards using smart_recompilation should be done.
 
 	% when doing possible alias analysis, for the moment we
         % don't want everything to be rebuild each time -- so let's
@@ -384,7 +496,16 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
         % option_implies(infer_possible_aliases, use_opt_files, bool(yes)),
         % option_implies(infer_possible_aliases, use_trans_opt_files, bool(yes)),
 	
+	% XXX `--use-opt-files' is broken.
+	% When inter-module optimization is enabled, error checking
+	% without the extra information from the `.opt' files
+	% is done when making the `.opt' file. With `--use-opt-files',
+	% that doesn't happen.
+	globals__io_set_option(use_opt_files, bool(no)),
+
 	option_implies(smart_recompilation, generate_item_version_numbers,
+			bool(yes)),
+	option_implies(find_all_recompilation_reasons, verbose_recompilation,
 			bool(yes)),
 	
 	%
@@ -446,7 +567,22 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	maybe_disable_smart_recompilation(Smart, target_code_only, no,
 		"`--no-target-code-only'"),
 
+	option_implies(use_grade_subdirs, use_subdirs, bool(yes)),
+
+	% --make handles creation of the module dependencies itself,
+	% and they don't need to be recreated when compiling to C.
+	option_implies(invoked_by_mmc_make,
+		generate_mmc_make_module_dependencies, bool(no)),
+	option_implies(invoked_by_mmc_make, make, bool(no)),
+	option_implies(invoked_by_mmc_make, rebuild, bool(no)),
+
+	% --make does not handle --transitive-intermodule-optimization.
+	% --transitive-intermodule-optimization is in the process of
+	% being rewritten anyway.
+	option_implies(make, transitive_optimization, bool(no)),
+
 	option_implies(very_verbose, verbose, bool(yes)),
+	option_implies(verbose, verbose_commands, bool(yes)),
 
 	globals__io_lookup_int_option(debug_liveness, DebugLiveness),
 	(
@@ -465,17 +601,11 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
+	% --split-c-files is not supported by the high-level C code generator.
+	option_implies(highlevel_code, split_c_files, bool(no)),
+
 	% --split-c-files implies --procs-per-c-function 1
 	option_implies(split_c_files, procs_per_c_function, int(1)),
-
-	% make_hlds contains an optimization which requires the value of the
-	% compare_specialization option to accurately specify the max number
-	% of constructors in a type whose comparison procedure is specialized
-	% and which therefore don't need index functions.
-	globals__io_lookup_int_option(compare_specialization, CompareSpec0),
-	{ int__min(unify_proc__max_exploited_compare_spec_value,
-		CompareSpec0, CompareSpec) },
-	globals__io_set_option(compare_specialization, int(CompareSpec)),
 
 	% Minimal model tabling is not compatible with trailing;
 	% see the comment in runtime/mercury_tabling.c.
@@ -506,6 +636,11 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
+	% --trace-table-io-decl is an extension of --trace-table-io
+	option_implies(trace_table_io_decl, trace_table_io, bool(yes)),
+	% --trace-table-io-require is compulsory application of --trace-table-io
+	option_implies(trace_table_io_require, trace_table_io, bool(yes)),
+
 	% Execution tracing requires
 	% 	- disabling optimizations that would change
 	% 	  the trace being generated (except with --trace-optimized)
@@ -514,7 +649,7 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% 	- enabling stack layouts
 	% 	- enabling typeinfo liveness
 	globals__io_lookup_bool_option(trace_optimized, TraceOptimized),
-	( { trace_level_is_none(TraceLevel) = no } ->
+	( { given_trace_level_is_none(TraceLevel) = no } ->
 		( { TraceOptimized = no } ->
 			% The following options modify the structure
 			% of the program, which makes it difficult to
@@ -537,6 +672,8 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 			globals__io_set_option(optimize_duplicate_calls,
 				bool(no)),
 			globals__io_set_option(optimize_constructor_last_call,
+				bool(no)),
+			globals__io_set_option(optimize_saved_vars_cell,
 				bool(no))
 		;
 			[]
@@ -581,7 +718,11 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 			% The following options cause the info required
 			% by tracing to be generated.
 		globals__io_set_option(trace_stack_layout, bool(yes)),
-		globals__io_set_option(body_typeinfo_liveness, bool(yes))
+		globals__io_set_option(body_typeinfo_liveness, bool(yes)),
+			% To support up-level printing, we need to save
+			% variables across a call even if the call cannot
+			% succeed.
+		globals__io_set_option(opt_no_return_calls, bool(no))
 	;
 		[]
 	),
@@ -634,6 +775,36 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		globals__io_set_option(body_typeinfo_liveness, bool(yes)),
 		globals__io_set_option(allow_hijacks, bool(no)),
 		globals__io_set_option(optimize_frames, bool(no))
+	;
+		[]
+	),
+
+	% ml_gen_params_base and ml_declare_env_ptr_arg, in ml_code_util.m,
+	% both assume (for accurate GC) that continuation environments
+	% are always allocated on the stack, which means that things won't
+	% if --gc accurate and --put-nondet-env-on-heap are both enabled.
+	globals__io_lookup_bool_option(put_nondet_env_on_heap,
+		PutNondetEnvOnHeap),
+	(
+		{ HighLevel = yes },
+		{ GC_Method = accurate },
+		{ PutNondetEnvOnHeap = yes }
+	->
+		usage_error("--gc accurate is incompatible with " ++
+			"--put-nondet-env-on-heap")
+	;
+		[]
+	),
+	% ml_gen_cont_params in ml_call_gen.m will call sorry/1
+	% if --gc accurate and --nondet-copy-out are both enabled.
+	globals__io_lookup_bool_option(nondet_copy_out, NondetCopyOut),
+	(
+		{ HighLevel = yes },
+		{ GC_Method = accurate },
+		{ NondetCopyOut = yes }
+	->
+		usage_error("--gc accurate is incompatible with " ++
+			"--nondet-copy-out")
 	;
 		[]
 	),
@@ -713,6 +884,11 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(generate_module_order, generate_dependencies,
 		bool(yes)),
 
+	% We only generate the source file mapping if the module name
+	% doesn't match the file name. 
+	option_implies(generate_source_file_mapping, warn_wrong_module_name,
+		bool(no)),
+
 	% --aditi-only implies --aditi.
 	option_implies(aditi_only, aditi, bool(yes)),
 
@@ -731,6 +907,76 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
+	%
+	% Add the standard library directory.
+	%
+	globals__io_lookup_maybe_string_option(
+		mercury_standard_library_directory, MaybeStdLibDir),
+	( { MaybeStdLibDir = yes(StdLibDir) } ->
+		globals__io_get_globals(Globals2),
+		{ globals__get_options(Globals2, OptionTable2) },
+		{ globals__set_options(Globals2,
+			option_table_add_mercury_library_directory(
+				OptionTable2, StdLibDir),
+			Globals3) },
+		{ unsafe_promise_unique(Globals3, Globals4) },
+		globals__io_set_globals(Globals4)
+	;
+		[]
+	),
+
+	%
+	% Handle the `.opt', C header and library search directories.
+	% These couldn't be handled by options.m because they are grade
+	% dependent.
+	%
+	globals__io_lookup_accumulating_option(mercury_library_directories,
+		MercuryLibDirs),
+	globals__io_lookup_string_option(fullarch, FullArch),
+	globals__io_get_globals(Globals),
+	{ grade_directory_component(Globals, GradeString) },
+	(
+		{ MercuryLibDirs = [_|_] },
+		{ ExtraLinkLibDirs = list__map(
+			(func(MercuryLibDir) =
+				dir__make_path_name(MercuryLibDir, 
+				dir__make_path_name("lib",
+				dir__make_path_name(GradeString, FullArch)))
+				% MercuryLibDir/"lib"/GradeString/FullArch
+			), MercuryLibDirs) },
+		globals__io_lookup_accumulating_option(
+			link_library_directories, LinkLibDirs),
+		globals__io_set_option(link_library_directories,
+			accumulating(LinkLibDirs ++ ExtraLinkLibDirs)),
+
+		{ ExtraCIncludeDirs = list__map(
+			(func(MercuryLibDir) =
+				dir__make_path_name(MercuryLibDir, 
+				dir__make_path_name("lib",
+				dir__make_path_name(GradeString, 
+				dir__make_path_name(FullArch, "inc"))))
+				% MercuryLibDir/"lib"/GradeString/FullArch/"inc"
+			), MercuryLibDirs) },
+		globals__io_lookup_accumulating_option(c_include_directory,
+			CIncludeDirs),
+		globals__io_set_option(c_include_directory,
+			accumulating(ExtraCIncludeDirs ++ CIncludeDirs)),
+
+		{ ExtraIntermodDirs = list__map(
+				(func(MercuryLibDir) =
+					dir__make_path_name(MercuryLibDir,
+					dir__make_path_name("ints",
+					GradeString
+					))
+				), MercuryLibDirs) },
+		globals__io_lookup_accumulating_option(intermod_directories,
+			IntermodDirs0),
+		globals__io_set_option(intermod_directories,
+			accumulating(ExtraIntermodDirs ++ IntermodDirs0))
+	;
+		{ MercuryLibDirs = [] }
+	),
+	
 	% If --use-search-directories-for-intermod is true, append the
 	% search directories to the list of directories to search for
 	% .opt files.
@@ -738,20 +984,84 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		UseSearchDirs),
 	( { UseSearchDirs = yes } ->
 		globals__io_lookup_accumulating_option(intermod_directories,
-			IntermodDirs0),
+			IntermodDirs1),
 		globals__io_lookup_accumulating_option(search_directories,
 			SearchDirs),
-		{ list__append(IntermodDirs0, SearchDirs, IntermodDirs) },
 		globals__io_set_option(intermod_directories,
-			accumulating(IntermodDirs))
+			accumulating(IntermodDirs1 ++ SearchDirs))
 	;
 		[]
+	),
+
+	globals__io_lookup_bool_option(use_grade_subdirs, UseGradeSubdirs),
+	( { UseGradeSubdirs = yes } ->
+		%
+		% With `--use-grade-subdirs', `.opt', `.trans_opt' and
+		% `.mih' files are placed in a directory named
+		% `Mercury/<grade>/<fullarch>/Mercury/<ext>s'.
+		% When searching for a `.opt' file, module_name_to_file_name
+		% produces `Mercury/<ext>/<module>.ext' so that searches
+		% for installed files work, so we need to add
+		% `--intermod-directory Mercury/<grade>/<fullarch>'
+		% to find the `.opt' files in the current directory.
+		%
+		globals__io_lookup_accumulating_option(intermod_directories,
+			IntermodDirs2),
+		{ GradeSubdirIntermodDirs =
+			[ dir__make_path_name("Mercury",
+				dir__make_path_name(GradeString, FullArch)) |
+			list__filter(isnt(unify(dir__this_directory)),
+				IntermodDirs2)] },
+		globals__io_set_option(intermod_directories,
+			accumulating(GradeSubdirIntermodDirs))
+	;
+		[]
+	),
+
+	%
+	% When searching for a header (.mh or .mih) file,
+	% module_name_to_file_name uses the plain header
+	% name, so we need to add the full path to the
+	% header files in the current directory.
+	%
+	globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
+	(
+		{ UseGradeSubdirs = yes ->
+			MihsSubdir = 
+				dir__make_path_name("Mercury", 
+				dir__make_path_name(GradeString, 
+				dir__make_path_name(FullArch, 
+				dir__make_path_name("Mercury", "mihs"))))
+			% "Mercury"/GradeString/FullArch/"Mercury"/"mihs"
+		; UseSubdirs = yes ->
+			MihsSubdir = dir__make_path_name("Mercury", "mihs")
+		;
+			fail
+		}
+	->	
+		globals__io_lookup_accumulating_option(c_include_directory,
+			CIncludeDirs1),
+		{ SubdirCIncludeDirs =
+			[dir__this_directory, MihsSubdir | CIncludeDirs1] },
+		globals__io_set_option(c_include_directory,
+			accumulating(SubdirCIncludeDirs))
+	;	
+		[]	
 	),
 
 	% --use-opt-files implies --no-warn-missing-opt-files since
 	% we are expecting some to be missing.
 	option_implies(use_opt_files, warn_missing_opt_files, bool(no)),
 
+	% --warn-non-tail-recursion requires both --high-level-code
+	% and --optimize-tailcalls.  It also doesn't work if you use
+	% --errorcheck-only.
+	option_requires(warn_non_tail_recursion, highlevel_code, bool(yes),
+		"--warn-non-tail-recursion requires --high-level-code"),
+	option_requires(warn_non_tail_recursion, optimize_tailcalls, bool(yes),
+		"--warn-non-tail-recursion requires --optimize-tailcalls"),
+	option_requires(warn_non_tail_recursion, errorcheck_only, bool(no),
+		"--warn-non-tail-recursion is incompatible with --errorcheck-only"),
 
 	% The backend foreign languages depend on the target.
 	( 	
@@ -783,6 +1093,23 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
+	globals__io_lookup_int_option(compare_specialization, CompareSpec),
+	( { CompareSpec < 0 } ->
+		% This indicates that the option was not set by the user;
+		% we should set the option to the default value. This value
+		% may be back end specific, since different back ends have
+		% different performance tradeoffs.
+		(
+			{ HighLevel = no },
+			globals__io_set_option(compare_specialization, int(13))
+		;
+			{ HighLevel = yes },
+			globals__io_set_option(compare_specialization, int(14))
+		)
+	;
+		[]
+	),
+
 	( { HighLevel = no } ->
 		postprocess_options_lowlevel
 	;
@@ -808,6 +1135,10 @@ postprocess_options_lowlevel -->
 		% --no-lazy-code requires --follow-vars for acceptable
 		% performance.
 	option_neg_implies(lazy_code, follow_vars, bool(yes)),
+
+		% --optimize-saved-vars-cell requires --use-local-vars for
+		% acceptable performance.
+	option_implies(optimize_saved_vars_cell, use_local_vars, bool(yes)),
 
 		% --optimize-frames requires --optimize-labels and
 		% --optimize-jumps
@@ -839,6 +1170,23 @@ option_neg_implies(SourceOption, ImpliedOption, ImpliedOptionValue) -->
 	globals__io_lookup_bool_option(SourceOption, SourceOptionValue),
 	( { SourceOptionValue = no } ->
 		globals__io_set_option(ImpliedOption, ImpliedOptionValue)
+	;
+		[]
+	).
+
+% option_requires(SourceBoolOption, RequiredOption, RequiredOptionValue,
+%	ErrorMsg):
+% If the SourceBoolOption is set to yes, and RequiredOption is not set
+% to RequiredOptionValue, then report a usage error.
+:- pred option_requires(option::in, option::in, option_data::in,
+		string::in, io__state::di, io__state::uo) is det.
+
+option_requires(SourceOption, RequiredOption, RequiredOptionValue,
+		ErrorMessage) -->
+	globals__io_lookup_bool_option(SourceOption, SourceOptionValue),
+	globals__io_lookup_option(RequiredOption, OptionValue),
+	( { SourceOptionValue = yes, OptionValue \= RequiredOptionValue } ->
+		usage_error(ErrorMessage)
 	;
 		[]
 	).
@@ -884,20 +1232,29 @@ disable_smart_recompilation(OptionDescr) -->
 		[]
 	).
 
+usage_error(ErrorDescr, ErrorMessage) -->
+	write_program_name,	
+	io__write_string(ErrorDescr),
+	io__nl,
+	usage_error(ErrorMessage).
+
 usage_error(ErrorMessage) -->
-	io__progname_base("mercury_compile", ProgName),
-	io__stderr_stream(StdErr),
-	io__write_string(StdErr, ProgName),
-	io__write_string(StdErr, ": "),
-	io__write_string(StdErr, ErrorMessage),
-	io__write_string(StdErr, "\n"),
+	write_program_name,
+	io__write_string(ErrorMessage),
+	io__write_string("\n"),
 	io__set_exit_status(1),
 	usage.
 
+:- pred write_program_name(io__state::di, io__state::uo) is det.
+
+write_program_name -->
+	io__progname_base("mercury_compile", ProgName),
+	io__write_string(ProgName),
+	io__write_string(": ").
+
 usage -->
-	io__stderr_stream(StdErr),
 	{ library__version(Version) },
- 	io__write_strings(StdErr, [
+ 	io__write_strings([
 		"Mercury Compiler, version ", Version, "\n",
 		"Copyright (C) 1993-2000 The University of Melbourne\n",
 		"Usage: mmc [<options>] <arguments>\n",
@@ -976,6 +1333,25 @@ add_option_list(CompOpts, Opts0, Opts) :-
 		Opt = Option - Data,
 		map__set(Opts1, Option, Data, Opts2)
 	)), CompOpts, Opts0, Opts).
+
+grade_directory_component(Globals, Grade) :-
+	compute_grade(Globals, Grade0),
+
+	%
+	% Strip out the `.picreg' part of the grade -- `.picreg' is
+	% implied by the file names (.pic_o vs .o, `.a' vs `.so').
+	%
+	(
+		string__sub_string_search(Grade0,
+			".picreg", PicRegIndex),
+		string__split(Grade0, PicRegIndex,
+			LeftPart, RightPart0),
+		string__append(".picreg", RightPart, RightPart0)
+	->
+		Grade = LeftPart ++ RightPart
+	;
+		Grade = Grade0
+	).
 
 compute_grade(Globals, Grade) :-
 	globals__get_options(Globals, Options),
@@ -1146,7 +1522,8 @@ grade_component_table("java", gcc_ext, [
 grade_component_table("par", par, [parallel - bool(yes)]).
 
 	% GC components
-grade_component_table("gc", gc, [gc - string("conservative")]).
+grade_component_table("gc", gc, [gc - string("boehm")]).
+grade_component_table("mps", gc, [gc - string("mps")]).
 grade_component_table("agc", gc, [gc - string("accurate")]).
 
 	% Profiling components
@@ -1273,3 +1650,5 @@ convert_dump_alias("petdr", "din").
 convert_dump_alias("palias", "A").
 convert_dump_alias("sr", "Ap").
 
+convert_dump_alias("osv", "bcdglmnpruvP").	% for debugging
+						% --optimize-saved-vars-cell

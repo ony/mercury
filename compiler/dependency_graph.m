@@ -1,10 +1,10 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2001 The University of Melbourne.
+% Copyright (C) 1995-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-:- module dependency_graph.
+:- module transform_hlds__dependency_graph.
 % Main author: bromage, conway, stayl.
 
 % The dependency_graph records which procedures depend on which other
@@ -20,7 +20,7 @@
 %-----------------------------------------------------------------------------%
 
 :- interface.
-:- import_module hlds_module, hlds_pred.
+:- import_module hlds__hlds_module, hlds__hlds_pred.
 :- import_module bool, list, io.
 
 	% Ensure that the module_info contains a version of the
@@ -98,14 +98,15 @@
 
 :- implementation.
 
-:- import_module hlds_goal, hlds_data, prog_data.
-:- import_module mode_util, globals, options, code_util, goal_util.
-:- import_module mercury_to_mercury.
+:- import_module hlds__hlds_goal, hlds__hlds_data, parse_tree__prog_data.
+:- import_module check_hlds__mode_util, libs__globals, libs__options.
+:- import_module ll_backend__code_util, hlds__goal_util.
+:- import_module parse_tree__mercury_to_mercury.
 
 % XXX we should not import llds here -- this should depend only on the HLDS,
 % not on the LLDS.  But the LLDS stuff is unfortunately needed for producing
 % the LLDS labels used for dependency_graph__write_prof_dependency_graph.
-:- import_module llds, llds_out.
+:- import_module ll_backend__llds, ll_backend__llds_out.
 
 :- import_module term, varset.
 :- import_module int, bool, term, require, string.
@@ -282,19 +283,19 @@ dependency_graph__add_arcs_in_goal_2(conj(Goals), Caller,
 					DepGraph0, DepGraph) :-
 	dependency_graph__add_arcs_in_list(Goals, Caller, DepGraph0, DepGraph).
 
-dependency_graph__add_arcs_in_goal_2(par_conj(Goals, _SM), Caller, 
+dependency_graph__add_arcs_in_goal_2(par_conj(Goals), Caller, 
 					DepGraph0, DepGraph) :-
 	dependency_graph__add_arcs_in_list(Goals, Caller, DepGraph0, DepGraph).
 
-dependency_graph__add_arcs_in_goal_2(disj(Goals, _), Caller, 
+dependency_graph__add_arcs_in_goal_2(disj(Goals), Caller, 
 					DepGraph0, DepGraph) :-
 	dependency_graph__add_arcs_in_list(Goals, Caller, DepGraph0, DepGraph).
 
-dependency_graph__add_arcs_in_goal_2(switch(_Var, _Det, Cases, _),
+dependency_graph__add_arcs_in_goal_2(switch(_Var, _Det, Cases),
 					Caller, DepGraph0, DepGraph) :-
 	dependency_graph__add_arcs_in_cases(Cases, Caller, DepGraph0, DepGraph).
 
-dependency_graph__add_arcs_in_goal_2(if_then_else(_Vars, Cond, Then, Else, _),
+dependency_graph__add_arcs_in_goal_2(if_then_else(_Vars, Cond, Then, Else),
 			Caller, DepGraph0, DepGraph) :-
 	dependency_graph__add_arcs_in_goal(Cond, Caller, DepGraph0, DepGraph1),
 	dependency_graph__add_arcs_in_goal(Then, Caller, DepGraph1, DepGraph2),
@@ -395,6 +396,7 @@ dependency_graph__add_arcs_in_cases([case(Cons, Goal) | Goals], Caller,
 :- pred dependency_graph__add_arcs_in_cons(cons_id, relation_key,
 			dependency_graph, dependency_graph).
 :- mode dependency_graph__add_arcs_in_cons(in, in, in, out) is det.
+
 dependency_graph__add_arcs_in_cons(cons(_, _), _Caller,
 				DepGraph, DepGraph).
 dependency_graph__add_arcs_in_cons(int_const(_), _Caller,
@@ -434,6 +436,8 @@ dependency_graph__add_arcs_in_cons(base_typeclass_info_const(_, _, _, _),
 dependency_graph__add_arcs_in_cons(tabling_pointer_const(_, _),
 				_Caller, DepGraph, DepGraph).
 dependency_graph__add_arcs_in_cons(deep_profiling_proc_static(_),
+				_Caller, DepGraph, DepGraph).
+dependency_graph__add_arcs_in_cons(table_io_decl(_),
 				_Caller, DepGraph, DepGraph).
 
 %-----------------------------------------------------------------------------%
@@ -713,18 +717,18 @@ process_aditi_goal(Goal) -->
 
 process_aditi_goal(IsNeg, conj(Goals) - _, Map0, Map) -->
 	list__foldl2(process_aditi_goal(IsNeg), Goals, Map0, Map).
-process_aditi_goal(_IsNeg, par_conj(_, _) - _, _, _) -->
+process_aditi_goal(_IsNeg, par_conj(_) - _, _, _) -->
 	{ error("process_aditi_goal - par_conj") }.
-process_aditi_goal(IsNeg, disj(Goals, _) - _, Map0, Map) -->
+process_aditi_goal(IsNeg, disj(Goals) - _, Map0, Map) -->
 	list__foldl2(process_aditi_goal(IsNeg), Goals, Map0, Map).
-process_aditi_goal(IsNeg, switch(_, _, Cases, _) - _, Map0, Map) -->
+process_aditi_goal(IsNeg, switch(_, _, Cases) - _, Map0, Map) -->
 	{ NegCallsInCases = 
 	    lambda([Case::in, M0::in, M::out, AInfo0::in, AInfo::out] is det, (
 		Case = case(_ConsId, Goal),
 		process_aditi_goal(IsNeg, Goal, M0, M, AInfo0, AInfo)
 	    )) },
 	list__foldl2(NegCallsInCases, Cases, Map0, Map).
-process_aditi_goal(IsNeg, if_then_else(_, Cond, Then, Else, _) - _, 
+process_aditi_goal(IsNeg, if_then_else(_, Cond, Then, Else) - _, 
 		Map0, Map) -->
 	process_aditi_goal(yes, Cond, Map0, Map1),
 	process_aditi_goal(IsNeg, Then, Map1, Map2),

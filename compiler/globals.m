@@ -1,10 +1,10 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-:- module globals.
+:- module libs__globals.
 
 % Main author: fjh.
 
@@ -16,8 +16,9 @@
 %-----------------------------------------------------------------------------%
 
 :- interface.
-:- import_module options, trace_params, prog_data.
-:- import_module bool, getopt, list, io.
+:- import_module libs__options, libs__trace_params.
+:- import_module parse_tree, parse_tree__prog_data. % for module_name.
+:- import_module bool, getopt, list, map, io, std_util.
 
 :- type globals.
 
@@ -31,10 +32,34 @@
 			% Do not go via C, instead generate GCC's internal
 			% `tree' data structure.
 			% (Work in progress.)
+
+:- type foreign_language
+	--->	c
+% 	;	cplusplus
+ 	;	csharp
+ 	;	managed_cplusplus
+% 	;	java
+ 	;	il
+	.
+
+	% The GC method specifies how we do garbage collection.
+	% This is only relevant for the C and asm back-ends;
+	% when compiling to IL or Java, where the target language
+	% implementation handles garbage collection automatically,
+	% the gc_method is set to `none'.  (XXX Maybe we should
+	% have a different alternative for that case?)
+	% 
 :- type gc_method
 	--->	none
-	;	conservative
+	;	boehm
+	;	mps
 	;	accurate.
+
+	% Returns yes if the GC method is conservative,
+	% i.e. if it is `boehm' or `mps'.
+	% Conservative GC methods don't support heap
+	% reclamation on failure.
+:- func gc_is_conservative(gc_method) = bool.
 
 :- type tags_method
 	--->	none
@@ -46,6 +71,9 @@
 	;	total
 	;	num_data_elems
 	;	size_data_elems.
+
+	% Map from module name to file name.
+:- type source_file_map == map(module_name, string).
 
 :- pred convert_target(string::in, compilation_target::out) is semidet.
 :- pred convert_foreign_language(string::in, foreign_language::out) is semidet.
@@ -72,13 +100,22 @@
 :- pred globals__get_trace_level(globals::in, trace_level::out) is det.
 :- pred globals__get_trace_suppress(globals::in, trace_suppress_items::out)
 	is det.
+:- pred globals__get_source_file_map(globals::in,
+		maybe(source_file_map)::out) is det.
 
 :- pred globals__set_options(globals::in, option_table::in, globals::out)
+	is det.
+
+:- pred globals__set_gc_method(globals::in, gc_method::in, globals::out)
 	is det.
 
 :- pred globals__set_trace_level(globals::in, trace_level::in, globals::out)
 	is det.
 :- pred globals__set_trace_level_none(globals::in, globals::out) is det.
+
+
+:- pred globals__set_source_file_map(globals::in, maybe(source_file_map)::in,
+		globals::out) is det.
 
 :- pred globals__lookup_option(globals::in, option::in, option_data::out)
 	is det.
@@ -89,6 +126,8 @@
 :- pred globals__lookup_int_option(globals::in, option::in, int::out) is det.
 :- pred globals__lookup_string_option(globals::in, option::in, string::out)
 	is det.
+:- pred globals__lookup_maybe_string_option(globals::in, option::in,
+	maybe(string)::out) is det.
 :- pred globals__lookup_accumulating_option(globals::in, option::in,
 	list(string)::out) is det.
 
@@ -149,6 +188,9 @@
 :- pred globals__io_set_option(option::in, option_data::in,
 	io__state::di, io__state::uo) is det.
 
+:- pred globals__io_set_gc_method(gc_method::in,
+	io__state::di, io__state::uo) is det.
+
 :- pred globals__io_set_trace_level(trace_level::in,
 	io__state::di, io__state::uo) is det.
 
@@ -167,6 +209,9 @@
 :- pred globals__io_lookup_string_option(option::in, string::out,
 	io__state::di, io__state::uo) is det.
 
+:- pred globals__io_lookup_maybe_string_option(option::in, maybe(string)::out,
+	io__state::di, io__state::uo) is det.
+
 :- pred globals__io_lookup_accumulating_option(option::in, list(string)::out,
 	io__state::di, io__state::uo) is det.
 
@@ -175,7 +220,7 @@
 
 :- implementation.
 
-:- import_module exprn_aux.
+:- import_module ll_backend__exprn_aux.
 :- import_module map, std_util, require, string.
 
 convert_target(String, Target) :-
@@ -204,7 +249,9 @@ convert_foreign_language_2("c sharp", csharp).
 convert_foreign_language_2("il", il).
 
 convert_gc_method("none", none).
-convert_gc_method("conservative", conservative).
+convert_gc_method("conservative", boehm).
+convert_gc_method("boehm", boehm).
+convert_gc_method("mps", mps).
 convert_gc_method("accurate", accurate).
 
 convert_tags_method("none", none).
@@ -216,6 +263,11 @@ convert_termination_norm("total", total).
 convert_termination_norm("num-data-elems", num_data_elems).
 convert_termination_norm("size-data-elems", size_data_elems).
 
+gc_is_conservative(boehm) = yes.
+gc_is_conservative(mps) = yes.
+gc_is_conservative(none) = no.
+gc_is_conservative(accurate) = no.
+
 %-----------------------------------------------------------------------------%
 
 :- type globals
@@ -226,13 +278,14 @@ convert_termination_norm("size-data-elems", size_data_elems).
 			tags_method 		:: tags_method,
 			termination_norm 	:: termination_norm,
 			trace_level 		:: trace_level,
-			trace_suppress_items	:: trace_suppress_items
+			trace_suppress_items	:: trace_suppress_items,
+			source_file_map		:: maybe(source_file_map)
 		).
 
 globals__init(Options, Target, GC_Method, TagsMethod,
 		TerminationNorm, TraceLevel, TraceSuppress,
 	globals(Options, Target, GC_Method, TagsMethod,
-		TerminationNorm, TraceLevel, TraceSuppress)).
+		TerminationNorm, TraceLevel, TraceSuppress, no)).
 
 globals__get_options(Globals, Globals ^ options).
 globals__get_target(Globals, Globals ^ target).
@@ -241,6 +294,7 @@ globals__get_tags_method(Globals, Globals ^ tags_method).
 globals__get_termination_norm(Globals, Globals ^ termination_norm).
 globals__get_trace_level(Globals, Globals ^ trace_level).
 globals__get_trace_suppress(Globals, Globals ^ trace_suppress_items).
+globals__get_source_file_map(Globals, Globals ^ source_file_map).
 
 globals__get_backend_foreign_languages(Globals, ForeignLangs) :-
 	globals__lookup_accumulating_option(Globals, backend_foreign_languages,
@@ -254,10 +308,16 @@ globals__get_backend_foreign_languages(Globals, ForeignLangs) :-
 
 globals__set_options(Globals, Options, Globals ^ options := Options).
 
+globals__set_gc_method(Globals, GC_Method,
+	Globals ^ gc_method := GC_Method).
+
 globals__set_trace_level(Globals, TraceLevel,
 	Globals ^ trace_level := TraceLevel).
 globals__set_trace_level_none(Globals,
 	Globals ^ trace_level := trace_level_none).
+
+globals__set_source_file_map(Globals, SourceFileMap,
+	Globals ^ source_file_map := SourceFileMap).
 
 globals__lookup_option(Globals, Option, OptionData) :-
 	globals__get_options(Globals, OptionTable),
@@ -287,6 +347,15 @@ globals__lookup_int_option(Globals, Option, Value) :-
 		Value = Int
 	;
 		error("globals__lookup_int_option: invalid int option")
+	).
+
+globals__lookup_maybe_string_option(Globals, Option, Value) :-
+	globals__lookup_option(Globals, Option, OptionData),
+	( OptionData = maybe_string(MaybeString) ->
+		Value = MaybeString
+	;
+		error(
+		"globals__lookup_string_option: invalid maybe_string option")
 	).
 
 globals__lookup_accumulating_option(Globals, Option, Value) :-
@@ -401,6 +470,14 @@ globals__io_set_option(Option, OptionData) -->
 	{ unsafe_promise_unique(Globals1, Globals) },
 	globals__io_set_globals(Globals).
 
+globals__io_set_gc_method(GC_Method) -->
+	globals__io_get_globals(Globals0),
+	{ globals__set_gc_method(Globals0, GC_Method, Globals1) },
+	{ unsafe_promise_unique(Globals1, Globals) },
+		% XXX there is a bit of a design flaw with regard to
+		% uniqueness and io__set_globals
+	globals__io_set_globals(Globals).
+
 globals__io_set_trace_level(TraceLevel) -->
 	globals__io_get_globals(Globals0),
 	{ globals__set_trace_level(Globals0, TraceLevel, Globals1) },
@@ -439,6 +516,10 @@ globals__io_lookup_int_option(Option, Value) -->
 globals__io_lookup_string_option(Option, Value) -->
 	globals__io_get_globals(Globals),
 	{ globals__lookup_string_option(Globals, Option, Value) }.
+
+globals__io_lookup_maybe_string_option(Option, Value) -->
+	globals__io_get_globals(Globals),
+	{ globals__lookup_maybe_string_option(Globals, Option, Value) }.
 
 globals__io_lookup_accumulating_option(Option, Value) -->
 	globals__io_get_globals(Globals),

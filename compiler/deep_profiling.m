@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,11 +12,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module deep_profiling.
+:- module ll_backend__deep_profiling.
 
 :- interface.
 
-:- import_module hlds_module, layout.
+:- import_module hlds__hlds_module, ll_backend__layout.
 :- import_module io, list.
 
 :- pred apply_deep_profiling_transformation(module_info::in, module_info::out,
@@ -26,10 +26,14 @@
 
 :- implementation.
 
-:- import_module (inst), instmap, hlds_data, hlds_pred, hlds_goal, prog_data.
-:- import_module code_model, code_util, prog_util, type_util, mode_util.
-:- import_module quantification, dependency_graph, rtti, trace.
-:- import_module options, globals.
+:- import_module (parse_tree__inst), hlds__instmap, hlds__hlds_data.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, parse_tree__prog_data.
+:- import_module backend_libs__code_model, ll_backend__code_util.
+:- import_module parse_tree__prog_util, check_hlds__type_util.
+:- import_module check_hlds__mode_util.
+:- import_module hlds__quantification, transform_hlds__dependency_graph.
+:- import_module backend_libs__rtti, ll_backend__trace.
+:- import_module libs__options, libs__globals.
 :- import_module bool, int, list, assoc_list, map, require, set.
 :- import_module std_util, string, term, varset, counter.
 
@@ -233,30 +237,30 @@ apply_tail_recursion_to_goal(Goal0, ApplyInfo, Goal,
 		GoalExpr = conj(Goals),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = disj(Goals0, SM),
+		GoalExpr0 = disj(Goals0),
 		apply_tail_recursion_to_disj(Goals0, ApplyInfo,
 			Goals, FoundTailCall0, FoundTailCall),
-		GoalExpr = disj(Goals, SM),
+		GoalExpr = disj(Goals),
 		Goal = GoalExpr - GoalInfo0,
 		Continue = no
 	;
-		GoalExpr0 = switch(Var, CanFail, Cases0, SM),
+		GoalExpr0 = switch(Var, CanFail, Cases0),
 		apply_tail_recursion_to_cases(Cases0, ApplyInfo,
 			Cases, FoundTailCall0, FoundTailCall),
-		GoalExpr = switch(Var, CanFail, Cases, SM),
+		GoalExpr = switch(Var, CanFail, Cases),
 		Goal = GoalExpr - GoalInfo0,
 		Continue = no
 	;
-		GoalExpr0 = if_then_else(Vars, Cond, Then0, Else0, SM),
+		GoalExpr0 = if_then_else(Vars, Cond, Then0, Else0),
 		apply_tail_recursion_to_goal(Then0, ApplyInfo,
 			Then, FoundTailCall0, FoundTailCall1, _),
 		apply_tail_recursion_to_goal(Else0, ApplyInfo,
 			Else, FoundTailCall1, FoundTailCall, _),
-		GoalExpr = if_then_else(Vars, Cond, Then, Else, SM),
+		GoalExpr = if_then_else(Vars, Cond, Then, Else),
 		Goal = GoalExpr - GoalInfo0,
 		Continue = no
 	;
-		GoalExpr0 = par_conj(_, _),
+		GoalExpr0 = par_conj(_),
 		Goal = Goal0,
 		FoundTailCall = FoundTailCall0,
 		Continue = no
@@ -361,7 +365,7 @@ figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
 		;
 			N = N0
 		),
-		( member(tailcall, Features) ->
+		( set__member(tailcall, Features) ->
 			TailCallSites = [N0|TailCallSites0]
 		;
 			TailCallSites = TailCallSites0
@@ -379,15 +383,15 @@ figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
 		figure_out_rec_call_numbers_in_goal_list(Goals, N0, N,
 			TailCallSites0, TailCallSites)
 	;
-		GoalExpr = disj(Goals, _),
+		GoalExpr = disj(Goals),
 		figure_out_rec_call_numbers_in_goal_list(Goals, N0, N,
 			TailCallSites0, TailCallSites)
 	;
-		GoalExpr = switch(_, _, Cases, _),
+		GoalExpr = switch(_, _, Cases),
 		figure_out_rec_call_numbers_in_case_list(Cases, N0, N,
 			TailCallSites0, TailCallSites)
 	;
-		GoalExpr = if_then_else(_, Cond, Then, Else, _),
+		GoalExpr = if_then_else(_, Cond, Then, Else),
 		figure_out_rec_call_numbers(Cond, N0, N1,
 			TailCallSites0, TailCallSites1),
 		figure_out_rec_call_numbers(Then, N1, N2,
@@ -395,7 +399,7 @@ figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
 		figure_out_rec_call_numbers(Else, N2, N,
 			TailCallSites2, TailCallSites)
 	;
-		GoalExpr = par_conj(Goals, _),
+		GoalExpr = par_conj(Goals),
 		figure_out_rec_call_numbers_in_goal_list(Goals, N0, N,
 			TailCallSites0, TailCallSites)
 	;
@@ -696,7 +700,7 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 		generate_call(ModuleInfo, "semi_fail_port_code_sr", 3,
 			[TopCSD, MiddleCSD, ActivationPtr1], no, failure,
 			FailPortCode),
-		NewNonlocals = list_to_set([MiddleCSD, ActivationPtr1])
+		NewNonlocals = list_to_set([TopCSD, MiddleCSD, ActivationPtr1])
 	;
 		MaybeActivationPtr = no,
 		generate_call(ModuleInfo, "semi_call_port_code_ac", 3,
@@ -706,7 +710,7 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			[TopCSD, MiddleCSD], [], ExitPortCode),
 		generate_call(ModuleInfo, "semi_fail_port_code_ac", 2,
 			[TopCSD, MiddleCSD], no, failure, FailPortCode),
-		NewNonlocals = list_to_set([MiddleCSD])
+		NewNonlocals = list_to_set([TopCSD, MiddleCSD])
 	),
 
 	ExitConjGoalInfo = goal_info_add_nonlocals_make_impure(GoalInfo0,
@@ -722,7 +726,7 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 				ExitPortCode
 			]) - ExitConjGoalInfo,
 			FailPortCode
-		], map__init) - ExitConjGoalInfo
+		]) - ExitConjGoalInfo
 	]) - GoalInfo,
 	proc_info_set_varset(Proc0, Vars, Proc1),
 	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
@@ -804,7 +808,7 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			failure, FailPortCode),
 		generate_call(ModuleInfo, "non_redo_port_code_sr", 2,
 			[MiddleCSD, NewOutermostProcDyn], no,
-			failure, RedoPortCode),
+			failure, RedoPortCode0),
 		NewNonlocals = list_to_set(
 			[TopCSD, MiddleCSD, OldOutermostProcDyn2])
 	;
@@ -819,9 +823,14 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			[TopCSD, MiddleCSD], no, failure, FailPortCode),
 		generate_call(ModuleInfo, "non_redo_port_code_ac", 2,
 			[MiddleCSD, NewOutermostProcDyn], no,
-			failure, RedoPortCode),
+			failure, RedoPortCode0),
 		NewNonlocals = list_to_set([TopCSD, MiddleCSD])
 	),
+
+	RedoPortCode0 = RedoPortExpr - RedoPortGoalInfo0,
+	goal_info_add_feature(RedoPortGoalInfo0,
+		preserve_backtrack_into, RedoPortGoalInfo),
+	RedoPortCode = RedoPortExpr - RedoPortGoalInfo,
 
 	% Even though the procedure has a model_non interface determinism,
 	% the actual determinism of its original body goal may have been
@@ -852,10 +861,10 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 				disj([
 					ExitPortCode,
 					RedoPortCode
-				], map__init) - ExitRedoGoalInfo
+				]) - ExitRedoGoalInfo
 			]) - CallExitRedoGoalInfo,
 			FailPortCode
-		], map__init) - CallExitRedoGoalInfo
+		]) - CallExitRedoGoalInfo
 	]) - GoalInfo,
 	proc_info_set_varset(Proc0, Vars, Proc1),
 	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
@@ -931,18 +940,18 @@ transform_goal(Path, conj(Goals0) - Info0, conj(Goals) - Info,
 	transform_conj(0, Path, Goals0, Goals, AddedImpurity),
 	{ add_impurity_if_needed(AddedImpurity, Info0, Info) }.
 
-transform_goal(Path, par_conj(Goals0, SM) - Info0,
-		par_conj(Goals, SM) - Info, AddedImpurity) -->
+transform_goal(Path, par_conj(Goals0) - Info0,
+		par_conj(Goals) - Info, AddedImpurity) -->
 	transform_conj(0, Path, Goals0, Goals, AddedImpurity),
 	{ add_impurity_if_needed(AddedImpurity, Info0, Info) }.
 
-transform_goal(Path, switch(Var, CF, Cases0, SM) - Info0,
-		switch(Var, CF, Cases, SM) - Info, AddedImpurity) -->
+transform_goal(Path, switch(Var, CF, Cases0) - Info0,
+		switch(Var, CF, Cases) - Info, AddedImpurity) -->
 	transform_switch(list__length(Cases0), 0, Path, Cases0, Cases,
 		AddedImpurity),
 	{ add_impurity_if_needed(AddedImpurity, Info0, Info) }.
 
-transform_goal(Path, disj(Goals0, SM) - Info0, disj(Goals, SM) - Info,
+transform_goal(Path, disj(Goals0) - Info0, disj(Goals) - Info,
 		AddedImpurity) -->
 	transform_disj(0, Path, Goals0, Goals, AddedImpurity),
 	{ add_impurity_if_needed(AddedImpurity, Info0, Info) }.
@@ -951,21 +960,29 @@ transform_goal(Path, not(Goal0) - Info0, not(Goal) - Info, AddedImpurity) -->
 	transform_goal([neg | Path], Goal0, Goal, AddedImpurity),
 	{ add_impurity_if_needed(AddedImpurity, Info0, Info) }.
 
-transform_goal(Path, some(QVars, CR, Goal0) - Info0,
-		some(QVars, CR, Goal) - Info, AddedImpurity) -->
+transform_goal(Path, some(QVars, CanRemove, Goal0) - Info0,
+		some(QVars, CanRemove, Goal) - Info, AddedImpurity) -->
 	{ Goal0 = _ - InnerInfo },
 	{ goal_info_get_determinism(Info0, OuterDetism) },
 	{ goal_info_get_determinism(InnerInfo, InnerDetism) },
 	{ InnerDetism = OuterDetism ->
+		Info1 = Info0,
 		MaybeCut = no_cut
 	;
+		% Given a subgoal containing both nondet code and impure code, 
+		% determinism analysis will remove the `some' wrapped around
+		% that subgoal if it is allowed to. If we get here, then the
+		% subgoal inside the `some' contains nondet code, and the deep
+		% profiling transformation will make it impure as well.
+
+		goal_info_add_feature(Info0, keep_this_commit, Info1),
 		MaybeCut = cut
 	},
 	transform_goal([exist(MaybeCut) | Path], Goal0, Goal, AddedImpurity),
-	{ add_impurity_if_needed(AddedImpurity, Info0, Info) }.
+	{ add_impurity_if_needed(AddedImpurity, Info1, Info) }.
 
-transform_goal(Path, if_then_else(IVars, Cond0, Then0, Else0, SM) - Info0,
-		if_then_else(IVars, Cond, Then, Else, SM) - Info,
+transform_goal(Path, if_then_else(IVars, Cond0, Then0, Else0) - Info0,
+		if_then_else(IVars, Cond, Then, Else) - Info,
 		AddedImpurity) -->
 	transform_goal([ite_cond | Path], Cond0, Cond, AddedImpurityC),
 	transform_goal([ite_then | Path], Then0, Then, AddedImpurityT),
@@ -985,10 +1002,9 @@ transform_goal(Path, if_then_else(IVars, Cond0, Then0, Else0, SM) - Info0,
 transform_goal(_, shorthand(_) - _, _, _) -->
 	{ error("transform_goal/6: shorthand should have gone by now") }.
 
-transform_goal(Path0, Goal0 - Info0, GoalAndInfo, AddedImpurity) -->
+transform_goal(Path, Goal0 - Info0, GoalAndInfo, AddedImpurity) -->
 	{ Goal0 = foreign_proc(Attrs, _, _, _, _, _, _) },
 	( { may_call_mercury(Attrs, may_call_mercury) } ->
-		{ reverse(Path0, Path) },
 		wrap_foreign_code(Path, Goal0 - Info0, GoalAndInfo),
 		{ AddedImpurity = yes }
 	;
@@ -999,18 +1015,16 @@ transform_goal(Path0, Goal0 - Info0, GoalAndInfo, AddedImpurity) -->
 transform_goal(_Path, Goal - Info, Goal - Info, no) -->
 	{ Goal = unify(_, _, _, _, _) }.
 
-transform_goal(Path0, Goal0 - Info0, GoalAndInfo, yes) -->
+transform_goal(Path, Goal0 - Info0, GoalAndInfo, yes) -->
 	{ Goal0 = call(_, _, _, BuiltinState, _, _) },
 	( { BuiltinState \= inline_builtin } ->
-		{ reverse(Path0, Path) },
 		wrap_call(Path, Goal0 - Info0, GoalAndInfo)
 	;
 		{ GoalAndInfo = Goal0 - Info0 }
 	).
 
-transform_goal(Path0, Goal0 - Info0, GoalAndInfo, yes) -->
+transform_goal(Path, Goal0 - Info0, GoalAndInfo, yes) -->
 	{ Goal0 = generic_call(_, _, _, _) },
-	{ reverse(Path0, Path) },
 	wrap_call(Path, Goal0 - Info0, GoalAndInfo).
 
 :- pred transform_conj(int::in, goal_path::in,
@@ -1019,8 +1033,9 @@ transform_goal(Path0, Goal0 - Info0, GoalAndInfo, yes) -->
 
 transform_conj(_, _, [], [], no) --> [].
 transform_conj(N, Path, [Goal0 | Goals0], [Goal | Goals], AddedImpurity) -->
-	transform_goal([conj(N) | Path], Goal0, Goal, AddedImpurityFirst),
-	transform_conj(N + 1, Path, Goals0, Goals, AddedImpurityLater),
+	{ N1 = N + 1 },
+	transform_goal([conj(N1) | Path], Goal0, Goal, AddedImpurityFirst),
+	transform_conj(N1, Path, Goals0, Goals, AddedImpurityLater),
 	{ bool__or(AddedImpurityFirst, AddedImpurityLater, AddedImpurity) }.
 
 :- pred transform_disj(int::in, goal_path::in,
@@ -1029,8 +1044,9 @@ transform_conj(N, Path, [Goal0 | Goals0], [Goal | Goals], AddedImpurity) -->
 
 transform_disj(_, _, [], [], no) --> [].
 transform_disj(N, Path, [Goal0 | Goals0], [Goal | Goals], AddedImpurity) -->
-	transform_goal([disj(N) | Path], Goal0, Goal, AddedImpurityFirst),
-	transform_disj(N + 1, Path, Goals0, Goals, AddedImpurityLater),
+	{ N1 = N + 1 },
+	transform_goal([disj(N1) | Path], Goal0, Goal, AddedImpurityFirst),
+	transform_disj(N1, Path, Goals0, Goals, AddedImpurityLater),
 	{ bool__or(AddedImpurityFirst, AddedImpurityLater, AddedImpurity) }.
 
 :- pred transform_switch(int::in, int::in, goal_path::in,
@@ -1040,9 +1056,10 @@ transform_disj(N, Path, [Goal0 | Goals0], [Goal | Goals], AddedImpurity) -->
 transform_switch(_, _, _, [], [], no) --> [].
 transform_switch(NumCases, N, Path, [case(Id, Goal0) | Goals0],
 		[case(Id, Goal) | Goals], AddedImpurity) -->
-	transform_goal([switch(NumCases, N) | Path], Goal0, Goal,
+	{ N1 = N + 1 },
+	transform_goal([switch(NumCases, N1) | Path], Goal0, Goal,
 		AddedImpurityFirst),
-	transform_switch(NumCases, N + 1, Path, Goals0, Goals,
+	transform_switch(NumCases, N1, Path, Goals0, Goals,
 		AddedImpurityLater),
 	{ bool__or(AddedImpurityFirst, AddedImpurityLater, AddedImpurity) }.
 
@@ -1055,6 +1072,16 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	goal_info_get_features(GoalInfo0, GoalFeatures),
 	goal_info_remove_feature(GoalInfo0, tailcall, GoalInfo1),
 	goal_info_add_feature(GoalInfo1, impure, GoalInfo),
+
+	% We need to make the call itself impure. If we didn't do so,
+	% then simplify could eliminate the goal (e.g. if it was a duplicate
+	% call). The result would be a prepare_for_{...}_call whose execution
+	% is not followed by the execution of the call port code of the callee.
+	% This would leave the MR_csd_callee_ptr field NULL, which violates
+	% invariants of the deep profiling tree (which allows this field to be
+	% NULL only temporarily, between the prepare_for_{...}_call and the
+	% call port code).
+	Goal1 = GoalExpr - GoalInfo,
 
 	SiteNumCounter0 = DeepInfo0 ^ site_num_counter,
 	counter__allocate(SiteNum, SiteNumCounter0, SiteNumCounter),
@@ -1073,7 +1100,7 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	classify_call(ModuleInfo, GoalExpr, CallKind),
 	(
 		CallKind = normal(PredProcId),
-		( member(tailcall, GoalFeatures) ->
+		( set__member(tailcall, GoalFeatures) ->
 			generate_call(ModuleInfo, "prepare_for_tail_call", 1,
 				[SiteNumVar], [], PrepareGoal)
 		;
@@ -1106,14 +1133,14 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 		),
 		CallSite = normal_call(RttiProcLabel, TypeSubst,
 			FileName, LineNumber, GoalPath),
-		Goal1 = Goal0,
+		Goal2 = Goal1,
 		DeepInfo3 = DeepInfo1
 	;
 		CallKind = special(_PredProcId, TypeInfoVar),
 		generate_call(ModuleInfo, "prepare_for_special_call", 2,
 			[SiteNumVar, TypeInfoVar], [], PrepareGoal),
 		CallSite = special_call(FileName, LineNumber, GoalPath),
-		Goal1 = Goal0,
+		Goal2 = Goal1,
 		DeepInfo3 = DeepInfo1
 	;
 		CallKind = generic(Generic),
@@ -1154,16 +1181,17 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 			use_zeroing_for_ho_cycles, UseZeroing),
 		( UseZeroing = yes ->
 			transform_higher_order_call(Globals, GoalCodeModel,
-				Goal0, Goal1, DeepInfo2, DeepInfo3)
+				Goal1, Goal2, DeepInfo2, DeepInfo3)
 		;
-			Goal1 = Goal0,
+			Goal2 = Goal1,
 			DeepInfo3 = DeepInfo2
 		)
 	),
+
 	DeepInfo4 = DeepInfo3 ^ call_sites :=
 		(DeepInfo3 ^ call_sites ++ [CallSite]),
 	(
-		member(tailcall, GoalFeatures),
+		set__member(tailcall, GoalFeatures),
 		DeepInfo4 ^ maybe_rec_info = yes(RecInfo),
 		RecInfo ^ role = outer_proc(_)
 	->
@@ -1191,7 +1219,7 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 		( CodeModel = model_det ->
 			list__condense([
 				CallGoals,
-				[SiteNumVarGoal, PrepareGoal, Goal1],
+				[SiteNumVarGoal, PrepareGoal, Goal2],
 				ExitGoals
 			], Goals),
 			Goal = conj(Goals) - GoalInfo
@@ -1207,7 +1235,7 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 					ExtraVars, failure),
 
 			FailGoalInfo = fail_goal_info,
-			FailGoal = disj([], init) - FailGoalInfo,
+			FailGoal = disj([]) - FailGoalInfo,
 
 			list__append(FailGoals, [FailGoal], FailGoalsAndFail),
 
@@ -1217,13 +1245,13 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 					conj([
 						SiteNumVarGoal,
 						PrepareGoal,
-						Goal1 |
+						Goal2 |
 						ExitGoals
 					]) - WrappedGoalGoalInfo,
 					conj(
 						FailGoalsAndFail
 					) - ReturnFailsGoalInfo
-				], init) - WrappedGoalGoalInfo]
+				]) - WrappedGoalGoalInfo]
 			], Goals),
 			Goal = conj(Goals) - GoalInfo
 		)
@@ -1231,7 +1259,7 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 		Goal = conj([
 			SiteNumVarGoal,
 			PrepareGoal,
-			Goal1
+			Goal2
 		]) - GoalInfo,
 		DeepInfo = DeepInfo4
 	).
@@ -1301,7 +1329,7 @@ transform_higher_order_call(Globals, CodeModel, Goal0, Goal,
 		NoBindExtGoalInfo),
 
 	FailGoalInfo = fail_goal_info,
-	FailGoal = disj([], init) - FailGoalInfo,
+	FailGoal = disj([]) - FailGoalInfo,
 
 	RestoreFailGoalInfo = impure_unreachable_init_goal_info(ExtraNonLocals,
 		failure),
@@ -1330,7 +1358,7 @@ transform_higher_order_call(Globals, CodeModel, Goal0, Goal,
 					RestoreStuff,
 					FailGoal
 				]) - RestoreFailGoalInfo
-			], init) - ExtGoalInfo
+			]) - ExtGoalInfo
 		]) - GoalInfo
 	;
 		CodeModel = model_non,
@@ -1345,13 +1373,13 @@ transform_higher_order_call(Globals, CodeModel, Goal0, Goal,
 							ReZeroStuff,
 							FailGoal
 						]) - RezeroFailGoalInfo
-					], init) - NoBindExtGoalInfo
+					]) - NoBindExtGoalInfo
 				]) - ExtGoalInfo,
 				conj([
 					RestoreStuff,
 					FailGoal
 				]) - RestoreFailGoalInfo
-			], init) - ExtGoalInfo
+			]) - ExtGoalInfo
 		]) - GoalInfo
 	).
 
@@ -1610,7 +1638,7 @@ generate_unify(ConsId, Var, Goal) :-
 		InstMapDelta),
 	Determinism = det,
 	goal_info_init(NonLocals, InstMapDelta, Determinism, GoalInfo),
-	Goal = unify(Var, functor(ConsId, []),
+	Goal = unify(Var, functor(ConsId, no, []),
     		(free -> Ground) - (Ground -> Ground),
 		construct(Var, ConsId, [], [], construct_statically([]),
 			cell_is_shared, no),
@@ -1627,7 +1655,7 @@ generate_cell_unify(Length, ConsId, Args, Var, Goal) :-
 	goal_info_init(NonLocals, InstMapDelta, Determinism, GoalInfo),
 	ArgMode = ((free - Ground) -> (Ground - Ground)),
 	list__duplicate(Length, ArgMode, ArgModes),
-	Goal = unify(Var, functor(ConsId, Args),
+	Goal = unify(Var, functor(ConsId, no, Args),
     		(free -> Ground) - (Ground -> Ground),
 		construct(Var, ConsId, Args, ArgModes,
 			construct_statically([]), cell_is_shared, no),

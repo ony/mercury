@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,9 +17,14 @@
 :- module sr_choice.
 :- interface.
 
-:- import_module hlds_goal, hlds_pred, hlds_module, sr_data.
+% library modules.
 :- import_module list, std_util.
-:- import_module sr_choice_util.
+
+% XXX parent modules. 
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_goal, hlds__hlds_pred, hlds__hlds_module.
+:- import_module sr_data, sr_choice_util.
 
 :- pred sr_choice__process_goal(strategy::in, vartypes::in, module_info::in,
 		proc_info::in, hlds_goal::in, hlds_goal::out,
@@ -31,9 +36,13 @@
 
 :- implementation.
 
-:- import_module hlds_data, prog_data, type_util.
-:- import_module assoc_list, bool, globals, int. 
-:- import_module map, multi_map, options, require, set.
+% XXX parent modules. 
+:- import_module parse_tree, check_hlds, libs.
+
+:- import_module hlds__hlds_data, parse_tree__prog_data, check_hlds__type_util.
+:- import_module assoc_list, bool, int. 
+:- import_module map, multi_map, require, set.
+:- import_module libs__options, libs__globals.
 
 process_goal(Strategy, VarTypes, ModuleInfo, ProcInfo, 
 		Goal0, Goal, MaybeReuseConditions) :-
@@ -102,7 +111,7 @@ apply_constraint_2(_Constraint, Goal0 - _GoalInfo, _) -->
 	{ error("structure_reuse: shorthand.\n") }.
 
 apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
 	=(BeforeIfInfo),
 	apply_constraint_2(Constraint, If0, If),
 	=(IfInfo),
@@ -110,13 +119,13 @@ apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ apply_constraint_2(Constraint, Else0, Else, BeforeIfInfo, ElseInfo) },
 	merge(ThenInfo),
 	merge(ElseInfo),
-	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
+	{ Goal = if_then_else(Vars, If, Then, Else) }.
 
 apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	{ Goal0 = switch(Var, CanFail, Cases0) },
 	=(InitSwitchInfo),
 	apply_constraint_cases(Constraint, InitSwitchInfo, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
+	{ Goal = switch(Var, CanFail, Cases) }.
 
 apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
@@ -134,13 +143,13 @@ apply_constraint_2(Constraint, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	apply_constraint_list(Constraint, Goal0s, Goals).
 
-apply_constraint_2(Constraint, disj(Goal0s, SM) - GoalInfo,
-		disj(Goals, SM) - GoalInfo) -->
+apply_constraint_2(Constraint, disj(Goal0s) - GoalInfo,
+		disj(Goals) - GoalInfo) -->
 	=(InitDisjInfo),
 	apply_constraint_disj(Constraint, InitDisjInfo, Goal0s, Goals).
 
-apply_constraint_2(Constraint, par_conj(Goal0s, SM) - GoalInfo,
-		par_conj(Goals, SM) - GoalInfo) -->
+apply_constraint_2(Constraint, par_conj(Goal0s) - GoalInfo,
+		par_conj(Goals) - GoalInfo) -->
 	apply_constraint_list(Constraint, Goal0s, Goals).
 
 :- pred apply_constraint_cases(constraint::in, constraint_info::in,
@@ -184,6 +193,7 @@ merge(InfoA, Info0, Info) :-
 		hlds_goal_info::in, hlds_goal_info::out,
 		constraint_info::in, constraint_info::out) is det.
 
+:- import_module string. 
 apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 	{ Unif = construct(Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi) },
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
@@ -227,9 +237,14 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			ConsIds = list__remove_dups(
 					list__map((func(D) = D ^ cons_id),
 						CandidateData)),
-			ReuseSizes = list__map(
-					(func(Data) = list__length(Data^vars)),
-					CandidateData),
+			% XXX There is something wrong going on here. Removing
+			% the list__remove_dups causes stack overflow in some
+			% cases. Later some further investigation wouldn't be a
+			% bad investment. 
+			ReuseSizes = list__remove_dups(list__map(
+					(func(Data) = list__length(Data^vars)), 
+					CandidateData)),
+			
 			Size = list__length(Vars),
 			all [ReuseSize] (
 				list__member(ReuseSize, ReuseSizes)
@@ -251,13 +266,24 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			choice(construct(set__list_to_set(Candidates))),
 			GoalInfo) }.
 
+
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC) },
 	Map0 =^ map,
 	ModuleInfo =^ module_info, 
 	VarTypes =^ vartypes, 
 	{ has_secondary_tag(ModuleInfo, VarTypes, Var, ConsId, SecondaryTag) },
-	{ multi_map__set(Map0, Var, data(ConsId, Vars, SecondaryTag), Map) },
+	{ NewData = data(ConsId, Vars, SecondaryTag) },
+	{ 
+		(
+			multi_map__search(Map0, Var, ListData),
+			cons_id_in_reuse_cell_data(ConsId, ListData)
+		)
+	->
+		Map = Map0
+	;
+		multi_map__set(Map0, Var, NewData, Map) 
+	},
 	^ map := Map.
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = assign(_, _) }.
@@ -266,6 +292,13 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = complicated_unify(_, _, _) }.
 
+:- pred cons_id_in_reuse_cell_data(cons_id, list(reuse_cell_data)). 
+:- mode cons_id_in_reuse_cell_data(in, in) is semidet.
+cons_id_in_reuse_cell_data(ConsId, Data):- 
+	list__filter(
+		(pred(ReuseData::in) is semidet :- 
+			ReuseData = data(ConsId, _, _)), 
+		Data, [_|_]).
 
 	%
 	% Determine which of the fields already contain references to
@@ -349,7 +382,7 @@ select_reuses_2(_Selection, Goal0 - _GoalInfo, _) -->
 	{ error("structure_reuse: shorthand.\n") }.
 
 select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
 	selection_start_branch,
 	=(BeforeIfInfo),
 	{ select_reuses_2(Selection, If0, If, BeforeIfInfo, IfInfo) },
@@ -358,14 +391,14 @@ select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ select_reuses_2(Selection, Else0, Else, BeforeIfInfo, ElseInfo) },
 	selection_merge(ElseInfo),
 	selection_end_branch,
-	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
+	{ Goal = if_then_else(Vars, If, Then, Else) }.
 
 select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	{ Goal0 = switch(Var, CanFail, Cases0) },
 	selection_start_branch,
 	=(InitSwitchInfo),
 	select_reuses_cases(Selection, InitSwitchInfo, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
+	{ Goal = switch(Var, CanFail, Cases) }.
 
 select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
@@ -379,14 +412,14 @@ select_reuses_2(Selection, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	select_reuses_list(Selection, Goal0s, Goals).
 
-select_reuses_2(Selection, disj(Goal0s, SM) - GoalInfo,
-		disj(Goals, SM) - GoalInfo) -->
+select_reuses_2(Selection, disj(Goal0s) - GoalInfo,
+		disj(Goals) - GoalInfo) -->
 	selection_start_branch,
 	=(InitDisjInfo),
 	select_reuses_disj(Selection, InitDisjInfo, Goal0s, Goals).
 
-select_reuses_2(Selection, par_conj(Goal0s, SM) - GoalInfo,
-		par_conj(Goals, SM) - GoalInfo) -->
+select_reuses_2(Selection, par_conj(Goal0s) - GoalInfo,
+		par_conj(Goals) - GoalInfo) -->
 	select_reuses_list(Selection, Goal0s, Goals).
 
 :- pred select_reuses_cases(selection::in, selection_info::in,
@@ -632,16 +665,16 @@ determine_cgc(_ReusedVars, Goal0 - _GoalInfo, _) -->
 	{ error("structure_reuse: shorthand.\n") }.
 
 determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
 	determine_cgc(ReusedVars, If0, If),
 	determine_cgc(ReusedVars, Then0, Then),
 	determine_cgc(ReusedVars, Else0, Else),
-	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
+	{ Goal = if_then_else(Vars, If, Then, Else) }.
 
 determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	{ Goal0 = switch(Var, CanFail, Cases0) },
 	determine_cgc_cases(ReusedVars, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
+	{ Goal = switch(Var, CanFail, Cases) }.
 
 determine_cgc(ReusedVars, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
@@ -655,12 +688,12 @@ determine_cgc(ReusedVars, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
-determine_cgc(ReusedVars, disj(Goal0s, SM) - GoalInfo,
-		disj(Goals, SM) - GoalInfo) -->
+determine_cgc(ReusedVars, disj(Goal0s) - GoalInfo,
+		disj(Goals) - GoalInfo) -->
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
-determine_cgc(ReusedVars, par_conj(Goal0s, SM) - GoalInfo,
-		par_conj(Goals, SM) - GoalInfo) -->
+determine_cgc(ReusedVars, par_conj(Goal0s) - GoalInfo,
+		par_conj(Goals) - GoalInfo) -->
 	determine_cgc_list(ReusedVars, Goal0s, Goals).
 
 :- pred determine_cgc_cases(set(prog_var)::in, list(case)::in, list(case)::out,

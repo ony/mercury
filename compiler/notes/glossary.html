@@ -15,26 +15,23 @@
 
 <dl>
 
-<dt> assertion/promise
+<dt> assertion
 	<dd>
-    A declaration that specifies a law that holds for the
-    predicates/functions in the declaration.
+	A particular form of promise which claims to the compiler 
+	that the specified goal will always hold. If useful, the 
+	compiler may use this information to perform optimisations.
 
 <dt> class context 
 	<dd>
 	The typeclass constraints on a predicate or function.
 
+<dt> codeinfo
+	<dd>
+	a structure used by codegen.m
+
 <dt> HLDS 
 	<dd>
 	The "High Level Data Structure".  See hlds.m.
-
-<dt> moduleinfo 
-	<dd>
-	Another name for the HLDS.
-
-<dt> LLDS
-	<dd>
-	The "Low Level Data Structure".  See llds.m.
 
 <dt> inst
 	<dd>
@@ -61,6 +58,10 @@
 	ought to affect liveness).
 	</ol>
 
+<dt> LLDS
+	<dd>
+	The "Low Level Data Structure".  See llds.m.
+
 <dt> mode 
 	<dd>
 	this has two meanings:
@@ -72,6 +73,19 @@
 		(the mode of a predicate)
 	</ol>
 	
+<dt> moduleinfo 
+	<dd>
+	Another name for the HLDS.
+
+<dt> NYI 
+	<dd>
+	Not Yet Implemented.
+
+<dt> predinfo
+	<dd>
+	the structure in HLDS which contains information about
+	a predicate.
+
 <dt> proc (procedure)
 	<dd>
 	a particular mode of a predicate.
@@ -81,19 +95,27 @@
 	the structure in HLDS which contains
 	information about a procedure.
 
-<dt> predinfo
+<dt> promise
 	<dd>
-	the structure in HLDS which contains information about
-	a predicate.
+    	A declaration that specifies a law that holds for the 
+	predicates/functions in the declaration. Thus, examples of promises
+	are assertions and promise ex declarations.  More generally, the term 
+	promise is often used for a declaration where extra information is 
+	given to the compiler which it cannot check itself, for example in
+	purity pragmas.
 
-<dt> codeinfo
+<dt> promise ex
 	<dd>
-	a structure used by codegen.m
+	A shorthand for promise_exclusive, promise_exhaustive, and
+	promise_exclusive_exhaustive declarations. These declarations 
+	are used to tell the compiler determinism properties of a 
+	disjunction.
 
-<dt> switch
+<dt> RTTI
 	<dd>
-	a disjunction which does a case analysis on the toplevel
-	functor of some variable.
+	The "RunTime Type Information". See rtti.m. A copy of a paper given
+	on this topic is available 
+	<a href="http://www.cs.mu.oz.au/research/mercury/information/papers/rtti_ppdp.ps.gz">here</a> in zipped Postscript format.
 
 <dt> super-homogenous form (SHF)
 	<dd>
@@ -101,11 +123,16 @@
 	each unification is split into its component pieces; in particular,
 	the arguments of each predicate call and functor must be distinct
 	variables.
+
+<dt> switch
+	<dd>
+	a disjunction which does a case analysis on the toplevel
+	functor of some variable.
 </dl>
 
 <hr>
 <!-------------------------->
 
-Last update was $Date: 1999-11-12 09:12:24 $ by $Author: petdr $@cs.mu.oz.au. <br>
+Last update was $Date: 2002-09-11 07:37:32 $ by $Author: nancy $@cs.mu.oz.au. <br>
 </body>
 </html>

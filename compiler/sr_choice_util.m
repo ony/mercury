@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,10 +13,16 @@
 :- module sr_choice_util.
 :- interface.
 
+% library modules. 
 :- import_module bool, io, std_util, list.
-:- import_module hlds_module. 
-:- import_module hlds_data.
-:- import_module hlds_pred, prog_data.
+
+% XXX parent modules.
+:- import_module hlds, parse_tree.
+
+% compiler modules. 
+:- import_module hlds__hlds_module. 
+:- import_module hlds__hlds_data.
+:- import_module hlds__hlds_pred, parse_tree__prog_data.
 
 :- type strategy
         --->    strategy(
@@ -75,9 +81,12 @@
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
+% XXX parent modules.
+:- import_module libs, check_hlds.
+
 :- import_module map, require, int.
-:- import_module globals, options.
-:- import_module type_util.
+:- import_module libs__globals, libs__options.
+:- import_module check_hlds__type_util.
 
 get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
 	io_lookup_string_option(structure_reuse_constraint, ConstraintStr),
@@ -121,12 +130,12 @@ no_tag_type(ModuleInfo, Vartypes, Var):-
 has_secondary_tag(ModuleInfo, VarTypes, Var, ConsId, SecondaryTag) :- 
 	(
 		map__lookup(VarTypes, Var, Type),
-		type_to_type_id(Type, TypeId, _Args)
+		type_to_ctor_and_args(Type, TypeCTor, _)
 	->
 		module_info_types(ModuleInfo, Types),
-		( map__search(Types, TypeId, TypeDefn) ->
+		( map__search(Types, TypeCTor, TypeDefn) ->
 			hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-			( TypeBody = du_type(_, ConsTagValues, _, _) ->
+			( TypeBody = du_type(_, ConsTagValues, _, _, _) ->
 				(
 						% The search can fail
 						% for such types as
@@ -150,7 +159,7 @@ has_secondary_tag(ModuleInfo, VarTypes, Var, ConsId, SecondaryTag) :-
 			SecondaryTag = no
 		)
 	;
-		error("has_secondary_tag: type_to_type_id failed.")
+		error("has_secondary_tag: type_to_ctor_and_args failed.")
 		
 	).
 

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -10,11 +10,11 @@
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
-:- module middle_rec.
+:- module ll_backend__middle_rec.
 
 :- interface.
 
-:- import_module hlds_goal, llds, code_info.
+:- import_module hlds__hlds_goal, ll_backend__llds, ll_backend__code_info.
 
 :- pred middle_rec__match_and_generate(hlds_goal, code_tree,
 	code_info, code_info).
@@ -25,59 +25,64 @@
 
 :- implementation.
 
-:- import_module builtin_ops, hlds_module, hlds_data, prog_data, prog_out.
-:- import_module code_gen, unify_gen, code_util, code_aux, opt_util.
-:- import_module code_model.
+:- import_module parse_tree__prog_data, parse_tree__prog_out.
+:- import_module hlds__hlds_module, hlds__hlds_data, hlds__goal_form.
+:- import_module hlds__hlds_llds.
+:- import_module ll_backend__code_gen, ll_backend__unify_gen.
+:- import_module ll_backend__code_util, ll_backend__opt_util.
+:- import_module ll_backend__code_aux.
+:- import_module backend_libs__builtin_ops, backend_libs__code_model.
+:- import_module libs__tree.
 
-:- import_module bool, set, int, std_util, tree, list, assoc_list, require.
-:- import_module string.
+:- import_module bool, int, string, list, assoc_list, set, std_util.
+:- import_module require.
 
 %---------------------------------------------------------------------------%
 
 middle_rec__match_and_generate(Goal, Instrs, CodeInfo0, CodeInfo) :-
 	Goal = GoalExpr - GoalInfo,
 	(
-		GoalExpr = switch(Var, cannot_fail, [Case1, Case2], SM),
+		GoalExpr = switch(Var, cannot_fail, [Case1, Case2]),
 		Case1 = case(ConsId1, Goal1),
 		Case2 = case(ConsId2, Goal2),
 		(
-			code_aux__contains_only_builtins(Goal1),
+			contains_only_builtins(Goal1),
 			code_aux__contains_simple_recursive_call(Goal2,
 				CodeInfo0, _)
 		->
 			middle_rec__generate_switch(Var, ConsId1, Goal1, Goal2,
-				SM, GoalInfo, Instrs, CodeInfo0, CodeInfo)
+				GoalInfo, Instrs, CodeInfo0, CodeInfo)
 		;
-			code_aux__contains_only_builtins(Goal2),
+			contains_only_builtins(Goal2),
 			code_aux__contains_simple_recursive_call(Goal1,
 				CodeInfo0, _)
 		->
 			middle_rec__generate_switch(Var, ConsId2, Goal2, Goal1,
-				SM, GoalInfo, Instrs, CodeInfo0, CodeInfo)
+				GoalInfo, Instrs, CodeInfo0, CodeInfo)
 		;
 			fail
 		)
 	;
-		GoalExpr = if_then_else(Vars, Cond, Then, Else, SM),
+		GoalExpr = if_then_else(Vars, Cond, Then, Else),
 		(
-			code_aux__contains_only_builtins(Cond),
-			code_aux__contains_only_builtins(Then),
+			contains_only_builtins(Cond),
+			contains_only_builtins(Then),
 			code_aux__contains_simple_recursive_call(Else,
 				CodeInfo0, no)
 		->
 			semidet_fail,
 			middle_rec__generate_ite(Vars, Cond, Then, Else,
-				in_else, SM, GoalInfo, Instrs,
+				in_else, GoalInfo, Instrs,
 				CodeInfo0, CodeInfo)
 		;
-			code_aux__contains_only_builtins(Cond),
+			contains_only_builtins(Cond),
 			code_aux__contains_simple_recursive_call(Then,
 				CodeInfo0, no),
-			code_aux__contains_only_builtins(Else)
+			contains_only_builtins(Else)
 		->
 			semidet_fail,
 			middle_rec__generate_ite(Vars, Cond, Then, Else,
-				in_then, SM, GoalInfo, Instrs,
+				in_then, GoalInfo, Instrs,
 				CodeInfo0, CodeInfo)
 		;
 			fail
@@ -89,12 +94,12 @@ middle_rec__match_and_generate(Goal, Instrs, CodeInfo0, CodeInfo) :-
 %---------------------------------------------------------------------------%
 
 :- pred middle_rec__generate_ite(list(prog_var), hlds_goal, hlds_goal,
-	hlds_goal, ite_rec, store_map, hlds_goal_info,
+	hlds_goal, ite_rec, hlds_goal_info,
 	code_tree, code_info, code_info).
-:- mode middle_rec__generate_ite(in, in, in, in, in, in, in, out, in, out)
+:- mode middle_rec__generate_ite(in, in, in, in, in, in, out, in, out)
 	is det.
 
-middle_rec__generate_ite(_Vars, _Cond, _Then, _Else, _Rec, _IteGoalInfo, _SM,
+middle_rec__generate_ite(_Vars, _Cond, _Then, _Else, _Rec, _IteGoalInfo,
 		Instrs) -->
 	( { semidet_fail } ->
 		{ Instrs = empty }
@@ -105,12 +110,12 @@ middle_rec__generate_ite(_Vars, _Cond, _Then, _Else, _Rec, _IteGoalInfo, _SM,
 %---------------------------------------------------------------------------%
 
 :- pred middle_rec__generate_switch(prog_var, cons_id, hlds_goal, hlds_goal,
-	store_map, hlds_goal_info, code_tree, code_info, code_info).
-:- mode middle_rec__generate_switch(in, in, in, in, in, in, out, in, out)
+	hlds_goal_info, code_tree, code_info, code_info).
+:- mode middle_rec__generate_switch(in, in, in, in, in, out, in, out)
 	is semidet.
 
-middle_rec__generate_switch(Var, BaseConsId, Base, Recursive, StoreMap,
-		SwitchGoalInfo, Instrs) -->
+middle_rec__generate_switch(Var, BaseConsId, Base, Recursive, SwitchGoalInfo,
+		Instrs) -->
 	code_info__get_stack_slots(StackSlots),
 	code_info__get_varset(VarSet),
 	{ code_aux__explain_stack_slots(StackSlots, VarSet, SlotsComment) },
@@ -126,6 +131,7 @@ middle_rec__generate_switch(Var, BaseConsId, Base, Recursive, StoreMap,
 	{ tree__flatten(EntryTestCode, EntryTestListList) },
 	{ list__condense(EntryTestListList, EntryTestList) },
 
+	{ goal_info_get_store_map(SwitchGoalInfo, StoreMap) },
 	code_info__remember_position(BranchStart),
 	code_gen__generate_goal(model_det, Base, BaseGoalCode),
 	code_info__generate_branch_end(StoreMap, no, MaybeEnd1,
@@ -190,11 +196,7 @@ middle_rec__generate_switch(Var, BaseConsId, Base, Recursive, StoreMap,
 				label(Loop2Label))
 				- "test on upward loop"]
 	;
-		predicate_module(ModuleInfo, PredId, ModuleName),
-		prog_out__sym_name_to_string(ModuleName, ModuleNameString),
-		predicate_name(ModuleInfo, PredId, PredName),
-		string__append_list([ModuleNameString, ":", PredName],
-			PushMsg),
+		PushMsg = code_gen__push_msg(ModuleInfo, PredId, ProcId),
 		MaybeIncrSp = [incr_sp(FrameSize, PushMsg) - ""],
 		MaybeDecrSp = [decr_sp(FrameSize) - ""],
 		InitAuxReg =  [assign(AuxReg, lval(sp))
@@ -545,7 +547,7 @@ middle_rec__find_used_registers_maybe_rvals([MaybeRval | MaybeRvals],
 
 insert_pragma_c_input_registers([], Used, Used).
 insert_pragma_c_input_registers([Input|Inputs], Used0, Used) :-	
-	Input = pragma_c_input(_, _, Rval),
+	Input = pragma_c_input(_, _, Rval, _),
 	middle_rec__find_used_registers_rval(Rval, Used0, Used1),
 	insert_pragma_c_input_registers(Inputs, Used1, Used).
 
@@ -555,7 +557,7 @@ insert_pragma_c_input_registers([Input|Inputs], Used0, Used) :-
 
 insert_pragma_c_output_registers([], Used, Used).
 insert_pragma_c_output_registers([Output|Outputs], Used0, Used) :-	
-	Output = pragma_c_output(Lval, _, _),
+	Output = pragma_c_output(Lval, _, _, _),
 	middle_rec__find_used_registers_lval(Lval, Used0, Used1),
 	insert_pragma_c_output_registers(Outputs, Used1, Used).
 

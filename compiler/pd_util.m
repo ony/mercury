@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,12 +9,14 @@
 % Utility predicates for deforestation and partial evaluation.
 %
 %-----------------------------------------------------------------------------%
-:- module pd_util.
+:- module transform_hlds__pd_util.
 
 :- interface.
 
-:- import_module pd_info, hlds_goal, hlds_module, hlds_pred, mode_errors.
-:- import_module prog_data, simplify, (inst).
+:- import_module transform_hlds__pd_info, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__hlds_pred, check_hlds__mode_errors.
+:- import_module parse_tree__prog_data, check_hlds__simplify.
+:- import_module (parse_tree__inst).
 :- import_module bool, list, map, set, std_util.
 
 	% Pick out the pred_proc_ids of the calls in a list of atomic goals.
@@ -138,11 +140,17 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module det_analysis, constraint, pd_cost, hlds_data, instmap.
-:- import_module unused_args, inst_match, (inst), quantification, mode_util.
-:- import_module code_aux, purity, mode_info, unique_modes, pd_debug.
-:- import_module type_util, det_util, det_analysis, options, goal_util.
-:- import_module det_report.
+:- import_module parse_tree__inst.
+:- import_module hlds__goal_util, hlds__hlds_data, hlds__instmap.
+:- import_module hlds__quantification, hlds__goal_form.
+:- import_module check_hlds__purity, check_hlds__type_util.
+:- import_module check_hlds__mode_info, check_hlds__unique_modes.
+:- import_module check_hlds__mode_util, check_hlds__inst_util.
+:- import_module check_hlds__inst_match, check_hlds__det_report.
+:- import_module check_hlds__det_util, check_hlds__det_analysis.
+:- import_module transform_hlds__pd_cost, transform_hlds__pd_debug.
+:- import_module transform_hlds__constraint, transform_hlds__unused_args.
+:- import_module libs__options.
 :- import_module assoc_list, int, require, set, term.
 
 pd_util__goal_get_calls(Goal0, CalledPreds) :-
@@ -558,11 +566,11 @@ pd_util__get_branch_vars_goal_2(ModuleInfo, [Goal | Goals], FoundBranch0,
 
 pd_util__get_branch_instmap_deltas(Goal, [CondDelta, ThenDelta, ElseDelta]) :-
 	Goal = if_then_else(_, _ - CondInfo, _ - ThenInfo,
-		_ - ElseInfo, _) - _,
+		_ - ElseInfo) - _,
 	goal_info_get_instmap_delta(CondInfo, CondDelta),
 	goal_info_get_instmap_delta(ThenInfo, ThenDelta),
 	goal_info_get_instmap_delta(ElseInfo, ElseDelta).
-pd_util__get_branch_instmap_deltas(switch(_, _, Cases, _) - _,
+pd_util__get_branch_instmap_deltas(switch(_, _, Cases) - _,
 		InstMapDeltas) :-
 	GetCaseInstMapDelta =
 		lambda([Case::in, InstMapDelta::out] is det, (
@@ -570,7 +578,7 @@ pd_util__get_branch_instmap_deltas(switch(_, _, Cases, _) - _,
 			goal_info_get_instmap_delta(CaseInfo, InstMapDelta)
 		)),
 	list__map(GetCaseInstMapDelta, Cases, InstMapDeltas).
-pd_util__get_branch_instmap_deltas(disj(Disjuncts, _) - _, InstMapDeltas) :-
+pd_util__get_branch_instmap_deltas(disj(Disjuncts) - _, InstMapDeltas) :-
 	GetDisjunctInstMapDelta =
 		lambda([Disjunct::in, InstMapDelta::out] is det, (
 			Disjunct = _ - DisjInfo,
@@ -586,7 +594,7 @@ pd_util__get_branch_instmap_deltas(disj(Disjuncts, _) - _, InstMapDeltas) :-
 		set(prog_var)::in, set(prog_var)::out) is det.
 
 pd_util__get_left_vars(Goal, Vars0, Vars) :-
-	( Goal = switch(Var, _, _, _) - _ ->
+	( Goal = switch(Var, _, _) - _ ->
 		set__insert(Vars0, Var, Vars)
 	;
 		Vars = Vars0
@@ -626,7 +634,7 @@ pd_util__get_branch_vars(ModuleInfo, Goal, [InstMapDelta | InstMapDeltas],
 
 		% We have extra information about a switched-on variable 
 		% at the end of each branch.
-	( Goal = switch(SwitchVar, _, _, _) - _ ->
+	( Goal = switch(SwitchVar, _, _) - _ ->
 		( map__search(ExtraVars1, SwitchVar, SwitchVarSet0) ->
 			set__insert(SwitchVarSet0, BranchNo, SwitchVarSet)
 		;
@@ -650,7 +658,7 @@ pd_util__get_sub_branch_vars_goal(Module, _, [], _, _, Vars, Vars, Module).
 pd_util__get_sub_branch_vars_goal(ModuleInfo0, ProcArgInfo, [Goal | GoalList], 
 		VarTypes, InstMap0, Vars0, SubVars, ModuleInfo) :-
 	Goal = GoalExpr - GoalInfo,
-	( GoalExpr = if_then_else(_, Cond, Then, Else, _) ->
+	( GoalExpr = if_then_else(_, Cond, Then, Else) ->
 		Cond = _ - CondInfo,
 		goal_info_get_instmap_delta(CondInfo, CondDelta),
 		instmap__apply_instmap_delta(InstMap0, CondDelta, InstMap1),
@@ -661,11 +669,11 @@ pd_util__get_sub_branch_vars_goal(ModuleInfo0, ProcArgInfo, [Goal | GoalList],
 		pd_util__examine_branch(ModuleInfo0, ProcArgInfo, 2, ElseList,
 			VarTypes, InstMap0, Vars1, Vars2),
 		ModuleInfo1 = ModuleInfo0
-	; GoalExpr = disj(Goals, _) ->
+	; GoalExpr = disj(Goals) ->
 		pd_util__examine_branch_list(ModuleInfo0, ProcArgInfo, 
 			1, Goals, VarTypes, InstMap0, Vars0, Vars2),
 		ModuleInfo1 = ModuleInfo0
-	; GoalExpr = switch(Var, _, Cases, _) ->
+	; GoalExpr = switch(Var, _, Cases) ->
 		pd_util__examine_case_list(ModuleInfo0, ProcArgInfo, 1, Var,
 			Cases, VarTypes, InstMap0, Vars0, Vars2, ModuleInfo1)
 	;
@@ -898,6 +906,8 @@ bound_inst_list_MSG(Xs, Ys, Expansions, ModuleInfo, Uniq, List, Inst) :-
 			Uniq = unique,
 			inst_is_unique(ModuleInfo, bound(unique, List))
 		),		
+		\+ inst_contains_nonstandard_func_mode(bound(shared, List),
+			ModuleInfo),
 		Inst = ground(Uniq, none)
 	).
 
@@ -916,6 +926,9 @@ pd_util__inst_size_2(_, free, _, 0).
 pd_util__inst_size_2(_, free(_), _, 0).
 pd_util__inst_size_2(_, ground(_, _), _, 0).
 pd_util__inst_size_2(_, inst_var(_), _, 0).
+pd_util__inst_size_2(ModuleInfo, constrained_inst_vars(_, Inst), Expansions,
+		Size) :-
+	pd_util__inst_size_2(ModuleInfo, Inst, Expansions, Size).
 pd_util__inst_size_2(_, abstract_inst(_, _), _, 0).
 pd_util__inst_size_2(ModuleInfo, defined_inst(InstName), Expansions0, Size) :-
 	( set__member(InstName, Expansions0) ->
@@ -1181,7 +1194,7 @@ pd_util__reordering_maintains_termination(ModuleInfo, FullyStrict,
 		% (can_loop, can_fail) into (can_fail, can_loop). 
 	( 
 		FullyStrict = yes, 
-		\+ code_aux__goal_cannot_loop(ModuleInfo, EarlierGoal)
+		\+ goal_cannot_loop(ModuleInfo, EarlierGoal)
 	->
 		LaterCanFail = cannot_fail
 	;
@@ -1191,7 +1204,7 @@ pd_util__reordering_maintains_termination(ModuleInfo, FullyStrict,
 		% (can_loop, can_fail), since this could worsen 
 		% the termination properties of the program.
 	( EarlierCanFail = can_fail ->
-		code_aux__goal_cannot_loop(ModuleInfo, LaterGoal)
+		goal_cannot_loop(ModuleInfo, LaterGoal)
 	;
 		true
 	).

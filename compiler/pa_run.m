@@ -17,8 +17,12 @@
 %-----------------------------------------------------------------------------%
 
 :- import_module io, list.
-:- import_module hlds_module, hlds_pred.
-:- import_module prog_data.
+
+% XXX parent modules
+:- import_module hlds, parse_tree.
+
+:- import_module hlds__hlds_module, hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
 :- import_module pa_alias_as.
 
 
@@ -66,12 +70,17 @@
 :- import_module std_util, string.
 :- import_module term.
 
-:- import_module dependency_graph.
-:- import_module instmap.
-:- import_module hlds_pred, hlds_goal, prog_data.
+% XXX parent modules
+:- import_module transform_hlds, ll_backend, libs. 
+
+:- import_module transform_hlds__dependency_graph.
+:- import_module hlds__instmap, hlds__special_pred.
+:- import_module hlds__hlds_pred, hlds__hlds_goal.
+:- import_module parse_tree__prog_util, parse_tree__prog_out.
+:- import_module parse_tree__prog_data.
+:- import_module ll_backend__liveness.
+
 :- import_module pa_util, pa_alias_as, pa_prelim_run.
-:- import_module special_pred, prog_util, prog_out.
-:- import_module liveness.
 
 
 % XXX lfu/lbu stuff
@@ -394,7 +403,7 @@ analyse_goal_expr(generic_call(GenCall,_,_,_), Info,
 	pa_alias_as__top(A0, Msg, A). 
 	% error("(pa) generic_call not handled") .
 
-analyse_goal_expr(switch(_Var,_CF,Cases,_SM), Info, 
+analyse_goal_expr(switch(_Var,_CF,Cases), Info, 
 				ProcInfo, HLDS, T0, T, A0, A):-
 	list__map_foldl(analyse_case(ProcInfo, HLDS, A0), 
 				Cases, SwitchAliases, T0, T),
@@ -416,7 +425,7 @@ analyse_goal_expr(unify(_,_,_,Unification,_), Info, ProcInfo, HLDS,
 	pa_alias_as__extend_unification(ProcInfo, HLDS, Unification, 
 				Info, A0, A).
 
-analyse_goal_expr(disj(Goals, _SM), Info, ProcInfo, HLDS, T0, T, A0, A):-
+analyse_goal_expr(disj(Goals), Info, ProcInfo, HLDS, T0, T, A0, A):-
 	list__map_foldl(
 		pred(Goal::in, Alias::out, FPT0::in, FPT::out) is det :- 
 			(analyse_goal(ProcInfo, HLDS, Goal, 
@@ -442,7 +451,7 @@ analyse_goal_expr(some(Vars,_,Goal), _Info, ProcInfo, HLDS , T0, T, A0, A):-
 	% pa_alias_as__top("some not handled", A).
 	% error("(pa) some goal not handled") .
 
-analyse_goal_expr(if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info, 
+analyse_goal_expr(if_then_else(_VARS, IF, THEN, ELSE), _Info, 
 			ProcInfo,
 			HLDS , T0, T, A0, A) :- 
 	analyse_goal(ProcInfo, HLDS, IF, T0, T1, A0, A1),
@@ -458,7 +467,7 @@ analyse_goal_expr(foreign_proc(Attrs, PredId, ProcId,
 			Vars, MaybeModes, Types, Info, Ain, A). 
 
 	% error("(pa) pragma_c_code not handled") .
-analyse_goal_expr(par_conj(_Goals, _SM), Info, _, _ , T, T, A0, A) :-  
+analyse_goal_expr(par_conj(_Goals), Info, _, _ , T, T, A0, A) :-  
 	goal_info_get_context(Info, Context), 
 	term__context_line(Context, ContextLine), 
 	term__context_file(Context, ContextFile), 
@@ -624,9 +633,11 @@ update_alias_in_module_info(FPtable, PRED_PROC_ID, HLDSin, HLDSout) :-
 %-----------------------------------------------------------------------------%
 % make the interface
 
-:- import_module globals, modules, passes_aux, bool, options.
-:- import_module varset.
-:- import_module mercury_to_mercury.
+:- import_module parse_tree__modules.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module hlds__passes_aux.
+:- import_module libs__globals, libs__options.
+:- import_module varset, bool.
 
 :- import_module pa_sr_util.
 
@@ -687,8 +698,10 @@ pa_run__write_pred_pa_info(HLDS, SpecPredIds, PredId) -->
 pa_run__make_pa_interface_pred(HLDS, SpecPredIds, PredId) -->
 	{ module_info_pred_info(HLDS, PredId, PredInfo) },
 	(
-		{ pred_info_is_exported(PredInfo) ;
-		  pred_info_is_opt_exported(PredInfo) }
+		{ pred_info_import_status(PredInfo, Status), 
+		  ( Status = exported ; Status = opt_exported ) }
+		  % pred_info_is_exported(PredInfo) ;
+		  % pred_info_is_opt_exported(PredInfo) }
 	->
 		(
 			{ list__member(PredId, SpecPredIds) }
@@ -697,15 +710,16 @@ pa_run__make_pa_interface_pred(HLDS, SpecPredIds, PredId) -->
 		;
 			{ pred_info_procids(PredInfo, ProcIds) },
 			{ pred_info_procedures(PredInfo, ProcTable) },
-			list__foldl(make_pa_interface_pred_proc(PredInfo, ProcTable),
+			list__foldl(make_pa_interface_pred_proc(PredInfo,
+				    ProcTable),
 					ProcIds)
 		)
 	;
 		[]
 	).
 
-:- pred pa_run__make_pa_interface_pred_proc(pred_info, proc_table, proc_id,
-						io__state, io__state).
+:- pred pa_run__make_pa_interface_pred_proc(pred_info, proc_table, 
+		proc_id, io__state, io__state).
 :- mode pa_run__make_pa_interface_pred_proc(in, in, in, di, uo) is det.
 
 pa_run__make_pa_interface_pred_proc(PredInfo, ProcTable, ProcId) -->

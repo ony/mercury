@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -34,11 +34,11 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module quantification.
+:- module hlds__quantification.
 
 :- interface.
 
-:- import_module hlds_goal, hlds_pred, prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_pred, parse_tree__prog_data.
 :- import_module list, set.
 
 	%
@@ -120,7 +120,7 @@
 
 :- implementation.
 
-:- import_module instmap, goal_util.
+:- import_module hlds__instmap, hlds__goal_util.
 
 :- import_module map, term, varset.
 :- import_module std_util, bool, require.
@@ -339,14 +339,14 @@ implicitly_quantify_goal_2(some(Vars0, CanRemove, Goal0), Context,
 implicitly_quantify_goal_2(conj(List0), _, conj(List)) -->
 	implicitly_quantify_conj(List0, List).
 
-implicitly_quantify_goal_2(par_conj(List0, SM), _, par_conj(List, SM)) -->
+implicitly_quantify_goal_2(par_conj(List0), _, par_conj(List)) -->
 	implicitly_quantify_conj(List0, List).
 
-implicitly_quantify_goal_2(disj(Goals0, SM), _, disj(Goals, SM)) -->
+implicitly_quantify_goal_2(disj(Goals0), _, disj(Goals)) -->
 	implicitly_quantify_disj(Goals0, Goals).
 
-implicitly_quantify_goal_2(switch(Var, Det, Cases0, SM), _,
-					switch(Var, Det, Cases, SM)) -->
+implicitly_quantify_goal_2(switch(Var, Det, Cases0), _,
+					switch(Var, Det, Cases)) -->
 	implicitly_quantify_cases(Cases0, Cases),
 		% The switch variable is guaranteed to be non-local to the
 		% switch, since it has to be bound elsewhere, so we put it
@@ -375,8 +375,8 @@ implicitly_quantify_goal_2(not(Goal0), _, not(Goal)) -->
 	% have been renamed apart.  So we don't keep them.
 	% Thus we replace `if_then_else(Vars, ....)' with
 	% `if_then_else([], ...)'.
-implicitly_quantify_goal_2(if_then_else(Vars0, Cond0, Then0, Else0, SM),
-			Context, if_then_else([], Cond, Then, Else, SM)) -->
+implicitly_quantify_goal_2(if_then_else(Vars0, Cond0, Then0, Else0),
+			Context, if_then_else([], Cond, Then, Else)) -->
 	quantification__get_quant_vars(QuantVars),
 	quantification__get_outside(OutsideVars),
 	quantification__get_lambda_outside(LambdaOutsideVars),
@@ -605,8 +605,8 @@ implicitly_quantify_unify_rhs(var(X), _, Unification, _,
 		var(X), Unification) -->
 	{ singleton_set(Vars, X) },
 	quantification__set_nonlocals(Vars).
-implicitly_quantify_unify_rhs(functor(Functor, ArgVars), Reuse, Unification, _,
-				functor(Functor, ArgVars), Unification) -->
+implicitly_quantify_unify_rhs(functor(_, _, ArgVars) @ RHS, Reuse,
+		Unification, _, RHS, Unification) -->
 	quantification__get_nonlocals_to_recompute(NonLocalsToRecompute),
 	{
 		NonLocalsToRecompute = code_gen_nonlocals,
@@ -949,17 +949,17 @@ quantification__goal_vars_2(NonLocalsToRecompute, conj(Goals),
 	goal_list_vars_2(NonLocalsToRecompute, Goals,
 		Set0, LambdaSet0, Set, LambdaSet).
 
-quantification__goal_vars_2(NonLocalsToRecompute, par_conj(Goals, _SM),
+quantification__goal_vars_2(NonLocalsToRecompute, par_conj(Goals),
 		Set0, LambdaSet0, Set, LambdaSet) :-
 	goal_list_vars_2(NonLocalsToRecompute, Goals,
 		Set0, LambdaSet0, Set, LambdaSet).
 
-quantification__goal_vars_2(NonLocalsToRecompute, disj(Goals, _),
+quantification__goal_vars_2(NonLocalsToRecompute, disj(Goals),
 		Set0, LambdaSet0, Set, LambdaSet) :-
 	goal_list_vars_2(NonLocalsToRecompute, Goals, Set0, LambdaSet0,
 		Set, LambdaSet).
 
-quantification__goal_vars_2(NonLocalsToRecompute, switch(Var, _Det, Cases, _),
+quantification__goal_vars_2(NonLocalsToRecompute, switch(Var, _Det, Cases),
 		Set0, LambdaSet0, Set, LambdaSet) :-
 	insert(Set0, Var, Set1),
 	case_list_vars_2(NonLocalsToRecompute, Cases,
@@ -980,7 +980,7 @@ quantification__goal_vars_2(NonLocalsToRecompute, not(Goal - _GoalInfo),
 		Set0, LambdaSet0, Set, LambdaSet).
 
 quantification__goal_vars_2(NonLocalsToRecompute,
-		if_then_else(Vars, A, B, C, _),
+		if_then_else(Vars, A, B, C),
 		Set0, LambdaSet0, Set, LambdaSet) :-
 	% This code does the following:
 	%     Set = Set0 + ( (vars(A) + vars(B)) \ Vars ) + vars(C)
@@ -1029,7 +1029,7 @@ quantification__unify_rhs_vars(_, var(Y), _,
 		Set0, LambdaSet, Set, LambdaSet) :-
 	insert(Set0, Y, Set).
 quantification__unify_rhs_vars(NonLocalsToRecompute,
-		functor(_Functor, ArgVars), Reuse,
+		functor(_Functor, _, ArgVars), Reuse,
 		Set0, LambdaSet, Set, LambdaSet) :-
 	(
 		NonLocalsToRecompute = code_gen_nonlocals,

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -10,11 +10,12 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module bytecode.
+:- module bytecode_backend__bytecode.
 
 :- interface.
 
-:- import_module hlds_data, prog_data, tree, builtin_ops.
+:- import_module hlds__hlds_data, parse_tree__prog_data, libs__tree.
+:- import_module backend_libs__builtin_ops.
 :- import_module char, list, std_util, io.
 
 :- type byte_tree	==	tree(list(byte_code)).
@@ -137,7 +138,8 @@
 
 :- implementation.
 
-:- import_module bytecode_data, hlds_pred, prog_out, c_util.
+:- import_module backend_libs__bytecode_data, hlds__hlds_pred.
+:- import_module parse_tree__prog_out, backend_libs__c_util.
 :- import_module library, int, string, require.
 
 :- pred bytecode__version(int::out) is det.
@@ -145,14 +147,16 @@
 bytecode__version(9).
 
 output_bytecode_file(FileName, ByteCodes) -->
-	io__tell_binary(FileName, Result),
+	io__open_binary_output(FileName, Result),
 	(
-		{ Result = ok }
+		{ Result = ok(FileStream) }
 	->
+		io__set_binary_output_stream(FileStream, OutputStream),
 		{ bytecode__version(Version) },
 		output_short(Version),
 		output_bytecode_list(ByteCodes),
-		io__told_binary
+		io__set_binary_output_stream(OutputStream, _),
+		io__close_binary_output(FileStream)
 	;
 		io__progname_base("byte.m", ProgName),
 		io__write_string("\n"),
@@ -164,16 +168,18 @@ output_bytecode_file(FileName, ByteCodes) -->
 	).
 
 debug_bytecode_file(FileName, ByteCodes) -->
-	io__tell(FileName, Result),
+	io__open_output(FileName, Result),
 	(
-		{ Result = ok }
+		{ Result = ok(FileStream) }
 	->
+		io__set_output_stream(FileStream, OutputStream),
 		{ bytecode__version(Version) },
 		io__write_string("bytecode_version "),
 		io__write_int(Version),
 		io__write_string("\n"),
 		debug_bytecode_list(ByteCodes),
-		io__told
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream)
 	;
 		io__progname_base("byte.m", ProgName),
 		io__write_string("\n"),

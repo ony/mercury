@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -11,11 +11,11 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module bytecode_gen.
+:- module bytecode_backend__bytecode_gen.
 
 :- interface.
 
-:- import_module hlds_module, bytecode.
+:- import_module hlds__hlds_module, bytecode_backend__bytecode.
 :- import_module io, list.
 
 :- pred bytecode_gen__module(module_info::in, list(byte_code)::out,
@@ -36,15 +36,17 @@
 % in call_gen.m that we use here into arg_info.m, and to then rework
 % arg_info.m so that it didn't depend on the LLDS.
 
-:- import_module arg_info, call_gen. % XXX for arg passing convention
-:- import_module code_util.	% XXX for cons_id_to_tag
+:- import_module ll_backend__arg_info.
+:- import_module ll_backend__call_gen. % XXX for arg passing convention
+:- import_module ll_backend__code_util.	% XXX for cons_id_to_tag
 
-:- import_module prog_data.
-:- import_module hlds_pred, hlds_goal, hlds_data.
-:- import_module type_util, mode_util, goal_util.
-:- import_module builtin_ops, code_model, passes_aux, error_util.
-:- import_module globals, tree.
-:- import_module prog_out.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
+:- import_module check_hlds__type_util, check_hlds__mode_util, hlds__goal_util.
+:- import_module backend_libs__builtin_ops, backend_libs__code_model.
+:- import_module hlds__passes_aux, hlds__error_util.
+:- import_module libs__globals, libs__tree.
+:- import_module parse_tree__prog_out.
 
 :- import_module bool, int, string, list, assoc_list, set, map, varset.
 :- import_module std_util, require, term.
@@ -231,10 +233,10 @@ bytecode_gen__goal_expr(GoalExpr, GoalInfo, ByteInfo0, ByteInfo, Code) :-
 		GoalExpr = conj(GoalList),
 		bytecode_gen__conj(GoalList, ByteInfo0, ByteInfo, Code)
 	;
-		GoalExpr = par_conj(_GoalList, _SM),
+		GoalExpr = par_conj(_GoalList),
 		sorry(this_file, "bytecode_gen of parallel conjunction")
 	;
-		GoalExpr = disj(GoalList, _),
+		GoalExpr = disj(GoalList),
 		( GoalList = [] ->
 			Code = node([fail]),
 			ByteInfo = ByteInfo0
@@ -248,7 +250,7 @@ bytecode_gen__goal_expr(GoalExpr, GoalInfo, ByteInfo0, ByteInfo, Code) :-
 			Code = tree(EnterCode, tree(DisjCode, EndofCode))
 		)
 	;
-		GoalExpr = switch(Var, _, CasesList, _),
+		GoalExpr = switch(Var, _, CasesList),
 		bytecode_gen__get_next_label(ByteInfo0, EndLabel, ByteInfo1),
 		bytecode_gen__switch(CasesList, Var, ByteInfo1, EndLabel,
 			ByteInfo, SwitchCode),
@@ -257,7 +259,7 @@ bytecode_gen__goal_expr(GoalExpr, GoalInfo, ByteInfo0, ByteInfo, Code) :-
 		EndofCode = node([endof_switch, label(EndLabel)]),
 		Code = tree(EnterCode, tree(SwitchCode, EndofCode))
 	;
-		GoalExpr = if_then_else(_Vars, Cond, Then, Else, _),
+		GoalExpr = if_then_else(_Vars, Cond, Then, Else),
 		bytecode_gen__get_next_label(ByteInfo0, EndLabel, ByteInfo1),
 		bytecode_gen__get_next_label(ByteInfo1, ElseLabel, ByteInfo2),
 		bytecode_gen__get_next_temp(ByteInfo2, FrameTemp, ByteInfo3),
@@ -511,20 +513,25 @@ bytecode_gen__unify(simple_test(Var1, Var2), _, _, ByteInfo, Code) :-
 	bytecode_gen__get_var_type(ByteInfo, Var1, Var1Type),
 	bytecode_gen__get_var_type(ByteInfo, Var2, Var2Type),
 
-	(	type_to_type_id(Var1Type, TypeId1, _),
-		type_to_type_id(Var2Type, TypeId2, _)
-	->	(	TypeId2 = TypeId1
-		->	TypeId = TypeId1
-		;	unexpected(this_file, "simple_test between different types")
+	(
+		type_to_ctor_and_args(Var1Type, TypeCtor1, _),
+		type_to_ctor_and_args(Var2Type, TypeCtor2, _)
+	->
+		( TypeCtor2 = TypeCtor1 ->
+			TypeCtor = TypeCtor1
+		;	unexpected(this_file,
+				"simple_test between different types")
 		)
-	;	unexpected(this_file, "failed lookup of type id")
+	;
+		unexpected(this_file, "failed lookup of type id")
 	),
 
 	ByteInfo = byte_info(_, _, ModuleInfo, _, _),
 
-	classify_type_id(ModuleInfo, TypeId, BuiltinType),
+	classify_type_ctor(ModuleInfo, TypeCtor, BuiltinType),
 
-	(	BuiltinType = int_type,
+	(
+		BuiltinType = int_type,
 		TestId = int_test
 	
 	;	BuiltinType = char_type,
@@ -741,6 +748,9 @@ bytecode_gen__map_cons_id(ByteInfo, Var, ConsId, ByteConsId) :-
 		ConsId = tabling_pointer_const(_, _),
 		sorry(this_file, "bytecode cannot implement tabling")
 	;
+		ConsId = table_io_decl(_),
+		sorry(this_file, "bytecode cannot implement table io decl")
+	;
 		ConsId = deep_profiling_proc_static(_),
 		sorry(this_file, "bytecode cannot implement deep profiling")
 	).
@@ -748,6 +758,9 @@ bytecode_gen__map_cons_id(ByteInfo, Var, ConsId, ByteConsId) :-
 :- pred bytecode_gen__map_cons_tag(cons_tag::in, byte_cons_tag::out) is det.
 
 bytecode_gen__map_cons_tag(no_tag, no_tag).
+	% `single_functor' is just an optimized version of `unshared_tag(0)'
+	% this optimization is not important for the bytecode
+bytecode_gen__map_cons_tag(single_functor, unshared_tag(0)).
 bytecode_gen__map_cons_tag(unshared_tag(Primary), unshared_tag(Primary)).
 bytecode_gen__map_cons_tag(shared_remote_tag(Primary, Secondary),
 	shared_remote_tag(Primary, Secondary)).
@@ -770,6 +783,18 @@ bytecode_gen__map_cons_tag(tabling_pointer_constant(_, _), _) :-
 	unexpected(this_file, "tabling_pointer_constant cons tag for non-tabling_pointer_constant cons id").
 bytecode_gen__map_cons_tag(deep_profiling_proc_static_tag(_), _) :-
 	unexpected(this_file, "deep_profiling_proc_static_tag cons tag for non-deep_profiling_proc_static cons id").
+bytecode_gen__map_cons_tag(table_io_decl_tag(_), _) :-
+	unexpected(this_file, "table_io_decl_tag cons tag for non-table_io_decl cons id").
+bytecode_gen__map_cons_tag(reserved_address(_), _) :-
+	% These should only be generated if the --num-reserved-addresses
+	% or --num-reserved-objects options are used.
+	sorry(this_file,
+	   "bytecode with --num-reserved-addresses or --num-reserved-objects").
+bytecode_gen__map_cons_tag(shared_with_reserved_addresses(_, _), _) :-
+	% These should only be generated if the --num-reserved-addresses
+	% or --num-reserved-objects options are used.
+	sorry(this_file,
+	   "bytecode with --num-reserved-addresses or --num-reserved-objects").
 
 %---------------------------------------------------------------------------%
 

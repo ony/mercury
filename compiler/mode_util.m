@@ -10,12 +10,13 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module mode_util.
+:- module check_hlds__mode_util.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, prog_data.
-:- import_module (inst), instmap.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module hlds__hlds_data, parse_tree__prog_data.
+:- import_module (parse_tree__inst), hlds__instmap.
 :- import_module bool, list.
 
 	% mode_get_insts returns the initial instantiatedness and
@@ -29,11 +30,18 @@
 :- pred mode_get_insts_semidet(module_info, mode, inst, inst).
 :- mode mode_get_insts_semidet(in, in, out, out) is semidet.
 
+	% inst_substitute_arg_list(Inst0, Params, Args, Inst) is true
+	% iff Inst is the inst that results from substituting all
+	% occurrences of Params in Inst0 with the corresponding
+	% value in Args.
+:- pred inst_substitute_arg_list(inst, list(inst_var), list(inst), inst).
+:- mode inst_substitute_arg_list(in, in, in, out) is det.
+
 	% a mode is considered input if the initial inst is bound
 :- pred mode_is_input(module_info, mode).
 :- mode mode_is_input(in, in) is semidet.
 
-	% a mode is considered fully input if the inital inst is ground
+	% a mode is considered fully input if the initial inst is ground
 :- pred mode_is_fully_input(module_info, mode).
 :- mode mode_is_fully_input(in, in) is semidet.
 
@@ -42,7 +50,7 @@
 :- pred mode_is_output(module_info, mode).
 :- mode mode_is_output(in, in) is semidet.
 
-	% a mode is considered fully output if the inital inst is free and
+	% a mode is considered fully output if the initial inst is free and
 	% the final inst is ground
 :- pred mode_is_fully_output(module_info, mode).
 :- mode mode_is_fully_output(in, in) is semidet.
@@ -227,8 +235,10 @@
 
 :- implementation.
 :- import_module require, int, map, set, std_util, assoc_list, varset.
-:- import_module prog_util, prog_io, type_util.
-:- import_module inst_match, inst_util, mode_info.
+:- import_module parse_tree__prog_util, parse_tree__prog_io.
+:- import_module check_hlds__type_util.
+:- import_module check_hlds__inst_match, check_hlds__inst_util.
+:- import_module check_hlds__mode_info.
 :- import_module require, int, map, set, term, std_util, assoc_list, varset.
 
 %-----------------------------------------------------------------------------%
@@ -344,7 +354,7 @@ modes_to_arg_modes(ModuleInfo, Modes, Types, ArgModes) :-
 mode_to_arg_mode(ModuleInfo, Mode, Type, ArgMode) :-
 	mode_to_arg_mode_2(ModuleInfo, Mode, Type, [], ArgMode).
 
-:- pred mode_to_arg_mode_2(module_info, mode, type, list(type_id), arg_mode).
+:- pred mode_to_arg_mode_2(module_info, mode, type, list(type_ctor), arg_mode).
 :- mode mode_to_arg_mode_2(in, in, in, in, out) is det.
 
 mode_to_arg_mode_2(ModuleInfo, Mode, Type, ContainingTypes, ArgMode) :-
@@ -360,8 +370,8 @@ mode_to_arg_mode_2(ModuleInfo, Mode, Type, ContainingTypes, ArgMode) :-
 		% is this a no_tag type?
 		type_is_no_tag_type(ModuleInfo, Type, FunctorName, ArgType),
 		% avoid infinite recursion
-		type_to_type_id(Type, TypeId, _TypeArgs),
-		\+ list__member(TypeId, ContainingTypes)
+		type_to_ctor_and_args(Type, TypeCtor, _TypeArgs),
+		\+ list__member(TypeCtor, ContainingTypes)
 	->
 		% the arg_mode will be determined by the mode and
 		% type of the functor's argument,
@@ -375,7 +385,7 @@ mode_to_arg_mode_2(ModuleInfo, Mode, Type, ContainingTypes, ArgMode) :-
 			FinalArgInst),
 		ModeOfArg = (InitialArgInst -> FinalArgInst),
 		mode_to_arg_mode_2(ModuleInfo, ModeOfArg, ArgType,
-			[TypeId | ContainingTypes], ArgMode)
+			[TypeCtor | ContainingTypes], ArgMode)
 	;
 		base_mode_to_arg_mode(ModuleInfo, Mode, ArgMode)
 	).
@@ -421,6 +431,10 @@ get_single_arg_inst(abstract_inst(_, _), _, _, _) :-
 	error("get_single_arg_inst: abstract insts not supported").
 get_single_arg_inst(inst_var(_), _, _, _) :-
 	error("get_single_arg_inst: inst_var").
+get_single_arg_inst(constrained_inst_vars(_, Inst), ModuleInfo, ConsId,
+		ArgInst) :-
+	get_single_arg_inst(Inst, ModuleInfo, ConsId, ArgInst).
+	
 
 :- pred get_single_arg_inst_2(list(bound_inst), cons_id, inst).
 :- mode get_single_arg_inst_2(in, in, out) is semidet.
@@ -718,12 +732,12 @@ propagate_ctor_info(ground(Uniq, higher_order(PredInstInfo0)), Type, _Ctors,
 		% be reported if anything tries to match with the inst.
 		Modes = Modes0
 	).
-
-propagate_ctor_info(ground(Uniq, constrained_inst_var(Var)), _, _, _,
-		ground(Uniq, constrained_inst_var(Var))).
 propagate_ctor_info(not_reached, _Type, _Constructors, _ModuleInfo,
 		not_reached).
 propagate_ctor_info(inst_var(V), _, _, _, inst_var(V)).
+propagate_ctor_info(constrained_inst_vars(V, Inst0), Type, Constructors,
+		ModuleInfo, constrained_inst_vars(V, Inst)) :-
+	propagate_ctor_info(Inst0, Type, Constructors, ModuleInfo, Inst).
 propagate_ctor_info(abstract_inst(Name, Args), _, _, _,
 		abstract_inst(Name, Args)).	% XXX loses info
 propagate_ctor_info(defined_inst(InstName), Type, Ctors, ModuleInfo, Inst) :-
@@ -787,10 +801,11 @@ propagate_ctor_info_lazily(ground(Uniq, higher_order(PredInstInfo0)), Type0,
 		% be reported if anything tries to match with the inst.
 		Modes = Modes0
 	).
-propagate_ctor_info_lazily(ground(Uniq, constrained_inst_var(Var)), _, _, _,
-		ground(Uniq, constrained_inst_var(Var))).
 propagate_ctor_info_lazily(not_reached, _Type, _, _ModuleInfo, not_reached).
 propagate_ctor_info_lazily(inst_var(Var), _, _, _, inst_var(Var)).
+propagate_ctor_info_lazily(constrained_inst_vars(V, Inst0), Type, Constructors,
+		ModuleInfo, constrained_inst_vars(V, Inst)) :-
+	propagate_ctor_info_lazily(Inst0, Type, Constructors, ModuleInfo, Inst).
 propagate_ctor_info_lazily(abstract_inst(Name, Args), _, _, _,
 		abstract_inst(Name, Args)).	% XXX loses info
 propagate_ctor_info_lazily(defined_inst(InstName0), Type0, Subst, _,
@@ -882,13 +897,13 @@ propagate_ctor_info_2(BoundInsts0, Type, ModuleInfo, BoundInsts) :-
 			BoundInst = functor(Functor, ArgInsts)
 		    ), BoundInsts0, BoundInsts)
 	;
-		type_to_type_id(Type, TypeId, TypeArgs),
-		TypeId = qualified(TypeModule, _) - _,
+		type_to_ctor_and_args(Type, TypeCtor, TypeArgs),
+		TypeCtor = qualified(TypeModule, _) - _,
 		module_info_types(ModuleInfo, TypeTable),
-		map__search(TypeTable, TypeId, TypeDefn),
+		map__search(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_tparams(TypeDefn, TypeParams0),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-		TypeBody = du_type(Constructors, _, _, _)
+		TypeBody = du_type(Constructors, _, _, _, _)
 	->
 		term__term_list_to_var_list(TypeParams0, TypeParams),
 		map__from_corresponding_lists(TypeParams, TypeArgs, ArgSubst),
@@ -1004,14 +1019,6 @@ mode_substitute_arg_list(Mode0, Params, Args, Mode) :-
 		mode_apply_substitution(Mode0, Subst, Mode)
 	).
 
-	% inst_substitute_arg_list(Inst0, Params, Args, Inst) is true
-	% iff Inst is the inst that results from substituting all
-	% occurrences of Params in Inst0 with the corresponding
-	% value in Args.
-
-:- pred inst_substitute_arg_list(inst, list(inst_var), list(inst), inst).
-:- mode inst_substitute_arg_list(in, in, in, out) is det.
-
 inst_substitute_arg_list(Inst0, Params, Args, Inst) :-
 	( Params = [] ->
 		Inst = Inst0	% optimize common case
@@ -1074,6 +1081,22 @@ inst_apply_substitution(inst_var(Var), Subst, Result) :-
 	;
 		Result = inst_var(Var)
 	).
+inst_apply_substitution(constrained_inst_vars(Vars, Inst0), Subst, Result) :-
+	( set__singleton_set(Vars, Var0) ->
+		Var = Var0
+	;
+		error("inst_apply_substitution: multiple inst_vars found")
+	),
+	(
+		map__search(Subst, Var, Replacement)
+	->
+		Result = Replacement
+		% XXX Should probably have a sanity check here that
+		% Replacement =< Inst0
+	;
+		inst_apply_substitution(Inst0, Subst, Result0),
+		Result = constrained_inst_vars(Vars, Result0)
+	).
 inst_apply_substitution(defined_inst(InstName0), Subst,
 		    defined_inst(InstName)) :-
 	( inst_name_apply_substitution(InstName0, Subst, InstName1) ->
@@ -1120,15 +1143,6 @@ ground_inst_info_apply_substitution(GII0, Subst, Uniq, ground(Uniq, GII)) :-
 	GII0 = higher_order(pred_inst_info(PredOrFunc, Modes0, Det)),
 	mode_list_apply_substitution(Modes0, Subst, Modes),
 	GII = higher_order(pred_inst_info(PredOrFunc, Modes, Det)).
-ground_inst_info_apply_substitution(constrained_inst_var(Var), Subst, Uniq,
-		Inst) :-
-	(
-		map__search(Subst, Var, Inst0)
-	->
-		Inst = Inst0
-	;
-		Inst = ground(Uniq, constrained_inst_var(Var))
-	).
 
 	% mode_list_apply_substitution(Modes0, Subst, Modes) is true
 	% iff Mode is the mode that results from applying Subst to Modes0.
@@ -1180,23 +1194,25 @@ rename_apart_inst_vars_in_inst(Sub, ground(U, GI0), ground(U, GI)) :-
 		list__map(rename_apart_inst_vars_in_mode(Sub), Modes0, Modes),
 		GI = higher_order(pred_inst_info(PoF, Modes, Det))
 	;
-		GI0 = constrained_inst_var(V0),
-		( map__search(Sub, V0, term__variable(V)) ->
-			GI = constrained_inst_var(V)
-		;
-			GI = GI0
-		)
-	;
 		GI0 = none,
 		GI = none
 	).
 rename_apart_inst_vars_in_inst(_, not_reached, not_reached).
-rename_apart_inst_vars_in_inst(Sub, inst_var(V0), inst_var(V)) :-
-	( map__search(Sub, V0, term__variable(V1)) ->
-		V = V1
+rename_apart_inst_vars_in_inst(Sub, inst_var(Var0), inst_var(Var)) :-
+	( map__search(Sub, Var0, term__variable(Var1)) ->
+		Var = Var1
 	;
-		V = V0
+		Var = Var0
 	).
+rename_apart_inst_vars_in_inst(Sub, constrained_inst_vars(Vars0, Inst0),
+		constrained_inst_vars(Vars, Inst)) :-
+	rename_apart_inst_vars_in_inst(Sub, Inst0, Inst),
+	Vars = set__map(func(Var0) =
+		( map__search(Sub, Var0, term__variable(Var)) ->
+			Var
+		;
+			Var0
+		), Vars0).
 rename_apart_inst_vars_in_inst(Sub, defined_inst(Name0), defined_inst(Name)) :-
 	( rename_apart_inst_vars_in_inst_name(Sub, Name0, Name1) ->
 		Name = Name1
@@ -1314,9 +1330,8 @@ update_module_info(P, R) -->
 		recompute_info, recompute_info).
 :- mode recompute_instmap_delta_2(in, in, in, out, in, in, out, in, out) is det.
 
-recompute_instmap_delta_2(Atomic, switch(Var, Det, Cases0, SM), GoalInfo,
-		switch(Var, Det, Cases, SM), VarTypes, InstMap, InstMapDelta)
-		-->
+recompute_instmap_delta_2(Atomic, switch(Var, Det, Cases0), GoalInfo,
+		switch(Var, Det, Cases), VarTypes, InstMap, InstMapDelta) -->
 	{ goal_info_get_nonlocals(GoalInfo, NonLocals) },
 	recompute_instmap_delta_cases(Atomic, Var, Cases0, Cases,
 		VarTypes, InstMap, NonLocals, InstMapDelta).
@@ -1326,13 +1341,13 @@ recompute_instmap_delta_2(Atomic, conj(Goals0), _, conj(Goals),
 	recompute_instmap_delta_conj(Atomic, Goals0, Goals,
 		VarTypes, InstMap, InstMapDelta).
 
-recompute_instmap_delta_2(Atomic, par_conj(Goals0, SM), GoalInfo,
-		par_conj(Goals, SM), VarTypes, InstMap, InstMapDelta) -->
+recompute_instmap_delta_2(Atomic, par_conj(Goals0), GoalInfo,
+		par_conj(Goals), VarTypes, InstMap, InstMapDelta) -->
 	{ goal_info_get_nonlocals(GoalInfo, NonLocals) },
 	recompute_instmap_delta_par_conj(Atomic, Goals0, Goals,
 		VarTypes, InstMap, NonLocals, InstMapDelta).
 
-recompute_instmap_delta_2(Atomic, disj(Goals0, SM), GoalInfo, disj(Goals, SM),
+recompute_instmap_delta_2(Atomic, disj(Goals0), GoalInfo, disj(Goals),
 		VarTypes, InstMap, InstMapDelta) -->
 	{ goal_info_get_nonlocals(GoalInfo, NonLocals) },
 	recompute_instmap_delta_disj(Atomic, Goals0, Goals,
@@ -1343,8 +1358,8 @@ recompute_instmap_delta_2(Atomic, not(Goal0), _, not(Goal),
 	{ instmap_delta_init_reachable(InstMapDelta) },
 	recompute_instmap_delta_1(Atomic, Goal0, Goal, VarTypes, InstMap, _).
 
-recompute_instmap_delta_2(Atomic, if_then_else(Vars, A0, B0, C0, SM), GoalInfo,
-		if_then_else(Vars, A, B, C, SM), VarTypes, InstMap0,
+recompute_instmap_delta_2(Atomic, if_then_else(Vars, A0, B0, C0), GoalInfo,
+		if_then_else(Vars, A, B, C), VarTypes, InstMap0,
 		InstMapDelta) -->
 	recompute_instmap_delta_1(Atomic, A0, A, VarTypes, InstMap0,
 		InstMapDelta1),
@@ -1712,6 +1727,9 @@ strip_builtin_qualifiers_from_inst_list(Insts0, Insts) :-
 	list__map(strip_builtin_qualifiers_from_inst, Insts0, Insts).
 
 strip_builtin_qualifiers_from_inst(inst_var(V), inst_var(V)).
+strip_builtin_qualifiers_from_inst(constrained_inst_vars(Vars, Inst0),
+		constrained_inst_vars(Vars, Inst)) :-
+	strip_builtin_qualifiers_from_inst(Inst0, Inst).
 strip_builtin_qualifiers_from_inst(not_reached, not_reached).
 strip_builtin_qualifiers_from_inst(free, free).
 strip_builtin_qualifiers_from_inst(free(Type), free(Type)).
@@ -1721,9 +1739,8 @@ strip_builtin_qualifiers_from_inst(ground(Uniq, GII0), ground(Uniq, GII)) :-
 strip_builtin_qualifiers_from_inst(bound(Uniq, BoundInsts0),
 					bound(Uniq, BoundInsts)) :-
 	strip_builtin_qualifiers_from_bound_inst_list(BoundInsts0, BoundInsts).
-strip_builtin_qualifiers_from_inst(defined_inst(Name0), Inst) :-
-	strip_builtin_qualifiers_from_inst_name(Name0,
-		defined_inst(Name0), Inst).
+strip_builtin_qualifiers_from_inst(defined_inst(Name0), defined_inst(Name)) :-
+	strip_builtin_qualifiers_from_inst_name(Name0, Name).
 strip_builtin_qualifiers_from_inst(abstract_inst(Name0, Args0),
 				abstract_inst(Name, Args)) :-
 	strip_builtin_qualifier_from_sym_name(Name0, Name),
@@ -1743,24 +1760,40 @@ strip_builtin_qualifiers_from_bound_inst(BoundInst0, BoundInst) :-
 	BoundInst = functor(ConsId, Insts),
 	list__map(strip_builtin_qualifiers_from_inst, Insts0, Insts).
 
-:- pred strip_builtin_qualifiers_from_inst_name(inst_name::in, (inst)::in,
-		(inst)::out) is det.
+:- pred strip_builtin_qualifiers_from_inst_name(inst_name::in, inst_name::out)
+	is det.
 
-strip_builtin_qualifiers_from_inst_name(InstName0, Inst0, Inst) :-
-	( InstName0 = user_inst(SymName0, Insts0) ->
-		strip_builtin_qualifier_from_sym_name(SymName0, SymName),
-		strip_builtin_qualifiers_from_inst_list(Insts0, Insts),
-		Inst = defined_inst(user_inst(SymName, Insts))
-	; InstName0 = typed_inst(_, InstName1) ->
-		% Don't output the $typed_inst in error messages.
-		strip_builtin_qualifiers_from_inst_name(InstName1, Inst0, Inst)
-	; InstName0 = typed_ground(Uniq, _Type) ->
-		% Don't output the $typed_ground in error messages.
-		Inst = ground(Uniq, none)
-	;
-		% for the compiler-generated insts, don't bother.
-		Inst = Inst0
-	).
+strip_builtin_qualifiers_from_inst_name(user_inst(SymName0, Insts0),
+		user_inst(SymName, Insts)) :-
+	strip_builtin_qualifier_from_sym_name(SymName0, SymName),
+	strip_builtin_qualifiers_from_inst_list(Insts0, Insts).
+strip_builtin_qualifiers_from_inst_name(merge_inst(InstA0, InstB0),
+		merge_inst(InstA, InstB)) :-
+	strip_builtin_qualifiers_from_inst(InstA0, InstA),
+	strip_builtin_qualifiers_from_inst(InstB0, InstB).
+strip_builtin_qualifiers_from_inst_name(unify_inst(Live, InstA0, InstB0, Real),
+		unify_inst(Live, InstA, InstB, Real)) :-
+	strip_builtin_qualifiers_from_inst(InstA0, InstA),
+	strip_builtin_qualifiers_from_inst(InstB0, InstB).
+strip_builtin_qualifiers_from_inst_name(
+		ground_inst(InstName0, Live, Uniq, Real),
+		ground_inst(InstName, Live, Uniq, Real)) :-
+	strip_builtin_qualifiers_from_inst_name(InstName0, InstName).
+strip_builtin_qualifiers_from_inst_name(
+		any_inst(InstName0, Live, Uniq, Real),
+		any_inst(InstName, Live, Uniq, Real)) :-
+	strip_builtin_qualifiers_from_inst_name(InstName0, InstName).
+strip_builtin_qualifiers_from_inst_name(shared_inst(InstName0),
+		shared_inst(InstName)) :-
+	strip_builtin_qualifiers_from_inst_name(InstName0, InstName).
+strip_builtin_qualifiers_from_inst_name(mostly_uniq_inst(InstName0),
+		mostly_uniq_inst(InstName)) :-
+	strip_builtin_qualifiers_from_inst_name(InstName0, InstName).
+strip_builtin_qualifiers_from_inst_name(typed_ground(Uniq, Type),
+		typed_ground(Uniq, Type)).
+strip_builtin_qualifiers_from_inst_name(typed_inst(Type, InstName0),
+		typed_inst(Type, InstName)) :-
+	strip_builtin_qualifiers_from_inst_name(InstName0, InstName).
 
 :- pred strip_builtin_qualifiers_from_ground_inst_info(ground_inst_info::in,
 		ground_inst_info::out) is det.
@@ -1771,8 +1804,6 @@ strip_builtin_qualifiers_from_ground_inst_info(higher_order(Pred0),
 	Pred0 = pred_inst_info(Uniq, Modes0, Det),
 	Pred = pred_inst_info(Uniq, Modes, Det),
 	strip_builtin_qualifiers_from_mode_list(Modes0, Modes).
-strip_builtin_qualifiers_from_ground_inst_info(constrained_inst_var(Var),
-		constrained_inst_var(Var)).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -1800,7 +1831,8 @@ normalise_inst(Inst0, Type, ModuleInfo, NormalisedInst) :-
 			% don't infer unique modes for introduced type_infos
 			% arguments, because that leads to an increase
 			% in the number of inferred modes without any benefit
-			\+ is_introduced_type_info_type(Type)
+			\+ is_introduced_type_info_type(Type),
+			\+ inst_contains_nonstandard_func_mode(Inst, ModuleInfo)
 		->
 			NormalisedInst = ground(unique, none)
 		;
@@ -1809,12 +1841,14 @@ normalise_inst(Inst0, Type, ModuleInfo, NormalisedInst) :-
 			% don't infer unique modes for introduced type_infos
 			% arguments, because that leads to an increase
 			% in the number of inferred modes without any benefit
-			\+ is_introduced_type_info_type(Type)
+			\+ is_introduced_type_info_type(Type),
+			\+ inst_contains_nonstandard_func_mode(Inst, ModuleInfo)
 		->
 			NormalisedInst = ground(mostly_unique, none)
 		;
 			inst_is_ground(ModuleInfo, Inst),
-			\+ inst_is_clobbered(ModuleInfo, Inst)
+			\+ inst_is_clobbered(ModuleInfo, Inst),
+			\+ inst_contains_nonstandard_func_mode(Inst, ModuleInfo)
 		->
 			NormalisedInst = ground(shared, none)
 		;

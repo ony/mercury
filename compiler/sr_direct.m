@@ -15,7 +15,13 @@
 :- module sr_direct.
 :- interface.
 
-:- import_module hlds_module, hlds_pred, io.
+% library modules. 
+:- import_module io. 
+
+% XXX parent modules.
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_module, hlds__hlds_pred.
 
 :- pred sr_direct__process_proc(pred_id::in, proc_id::in, proc_info::in,
 		proc_info::out, module_info::in, module_info::out,
@@ -26,6 +32,9 @@
 
 :- implementation.
 
+% XXX parent modules.
+:- import_module check_hlds, parse_tree, libs.
+
 :- import_module map, list, set, std_util, int, bool, string.
 :- import_module assoc_list.
 :- import_module require.
@@ -34,10 +43,10 @@
 :- import_module sr_choice. 
 :- import_module sr_choice_util. 
 :- import_module sr_choice_graphing.
-:- import_module goal_path.
-:- import_module hlds_goal, hlds_data, prog_data.
-:- import_module hlds_pred, passes_aux.
-:- import_module globals, options.
+:- import_module check_hlds__goal_path.
+:- import_module hlds__hlds_goal, hlds__hlds_data, parse_tree__prog_data.
+:- import_module hlds__passes_aux.
+:- import_module libs__globals, libs__options.
 
 process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% Determine the LFU (local forward use)

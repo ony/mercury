@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -11,11 +11,11 @@
 % the time taken by called predicates.
 %
 %-----------------------------------------------------------------------------%
-:- module pd_cost.
+:- module transform_hlds__pd_cost.
 
 :- interface.
 
-:- import_module hlds_goal.
+:- import_module hlds__hlds_goal.
 
 :- pred pd_cost__goal(hlds_goal::in, int::out) is det.
 
@@ -35,7 +35,7 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module hlds_data, prog_data.
+:- import_module hlds__hlds_data, parse_tree__prog_data.
 :- import_module int, list, set, std_util, require.
 
 %-----------------------------------------------------------------------------%
@@ -43,19 +43,19 @@
 pd_cost__goal(conj(Goals) - _, Cost) :-
 	pd_cost__goals(Goals, 0, Cost).
 
-pd_cost__goal(par_conj(Goals, _SM) - _, Cost) :-
+pd_cost__goal(par_conj(Goals) - _, Cost) :-
 	pd_cost__goals(Goals, 0, Cost).
 
-pd_cost__goal(disj(Goals, _) - _, Cost) :-
+pd_cost__goal(disj(Goals) - _, Cost) :-
 	pd_cost__goals(Goals, 0, Cost0),
 	pd_cost__stack_flush(Cost1),
 	Cost is Cost0 + Cost1.
 
-pd_cost__goal(switch(_, _, Cases, _) - _, Cost) :-
+pd_cost__goal(switch(_, _, Cases) - _, Cost) :-
 	pd_cost__simple_test(Cost0),
 	pd_cost__cases(Cases, Cost0, Cost).
 
-pd_cost__goal(if_then_else(_, Cond, Then, Else, _) - _, Cost) :-
+pd_cost__goal(if_then_else(_, Cond, Then, Else) - _, Cost) :-
 	pd_cost__goal(Cond, Cost1),
 	pd_cost__goal(Then, Cost2),
 	pd_cost__goal(Else, Cost3),

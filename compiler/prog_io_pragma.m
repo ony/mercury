@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,11 +9,11 @@
 %
 % This module handles the parsing of pragma directives.
 
-:- module prog_io_pragma.
+:- module parse_tree__prog_io_pragma.
 
 :- interface.
 
-:- import_module prog_data, prog_io_util.
+:- import_module parse_tree__prog_data, parse_tree__prog_io_util.
 :- import_module list, varset, term.
 
 	% parse the pragma declaration. 
@@ -22,8 +22,9 @@
 
 :- implementation.
 
-:- import_module globals, prog_io, prog_io_goal, prog_util.
-:- import_module term_util, term_errors.
+:- import_module libs__globals, parse_tree__prog_io, parse_tree__prog_io_goal.
+:- import_module parse_tree__prog_util.
+:- import_module transform_hlds__term_util, transform_hlds__term_errors.
 :- import_module int, map, string, std_util, bool, require, set.
 :- import_module pa_alias_as.
 :- import_module sr_data.
@@ -71,6 +72,41 @@ parse_pragma_type(_, "source_file", PragmaTerms, ErrorTerm, _VarSet, Result) :-
 	"wrong number of arguments in `:- pragma source_file' declaration",
 			ErrorTerm)
 	).
+
+parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
+            ErrorTerm, VarSet, Result) :-
+    ( PragmaTerms = [LangTerm, MercuryTypeTerm, ForeignTypeTerm] ->
+	( parse_foreign_language(LangTerm, Language) ->
+	    parse_foreign_language_type(ForeignTypeTerm, Language,
+	    	MaybeForeignType),
+	    (
+		MaybeForeignType = ok(ForeignType),
+		parse_type_defn_head(ModuleName, MercuryTypeTerm,
+		    ErrorTerm, MaybeTypeDefnHead),
+		(
+		    MaybeTypeDefnHead = ok(MercuryTypeSymName, MercuryArgs0),
+		    varset__coerce(VarSet, TVarSet),
+		    MercuryArgs = list__map(term__coerce, MercuryArgs0),
+		    Result = ok(pragma(foreign_type(ForeignType,
+			    TVarSet, MercuryTypeSymName, MercuryArgs))) 
+		;
+		    MaybeTypeDefnHead = error(String, Term),
+		    Result = error(String, Term)
+		)
+	    ;
+		MaybeForeignType = error(String, Term),
+		Result = error(String, Term)
+	    )
+	;   
+	   Result = error(
+	   "invalid foreign language in `:- pragma foreign_type' declaration",
+			LangTerm)
+	)
+    ;
+        Result = error(
+    "wrong number of arguments in `:- pragma foreign_type' declaration",
+            ErrorTerm)
+    ).
 
 parse_pragma_type(ModuleName, "foreign_decl", PragmaTerms,
 			ErrorTerm, VarSet, Result) :-
@@ -126,11 +162,157 @@ parse_pragma_type(ModuleName, "c_code", PragmaTerms,
 		    ErrorTerm)
 	).
 
+parse_pragma_type(_ModuleName, "c_import_module", PragmaTerms,
+		ErrorTerm, _VarSet, Result) :-
+	(
+		PragmaTerms = [ImportTerm],
+		sym_name_and_args(ImportTerm, Import, [])
+	->
+		Result = ok(pragma(foreign_import_module(c, Import)))	
+	;
+		Result = error("wrong number of arguments or invalid module name in `:- pragma c_import_module' declaration", 
+			ErrorTerm)
+	).
+
+parse_pragma_type(_ModuleName, "foreign_import_module", PragmaTerms,
+		ErrorTerm, _VarSet, Result) :-
+	(
+	    PragmaTerms = [LangTerm, ImportTerm],
+	    sym_name_and_args(ImportTerm, Import, [])
+	->
+	    ( parse_foreign_language(LangTerm, Language) ->
+		( Language = c ->
+		    Result = ok(pragma(
+		    	foreign_import_module(Language, Import)))
+		;
+		    Result = error("`:- pragma foreign_import_module' not yet supported for languages other than C", LangTerm)
+		)
+	    ;
+		Result = error("invalid foreign language in `:- pragma foreign_import_module' declaration",
+			LangTerm)
+	    )
+	;
+	    Result = error("wrong number of arguments or invalid module name in `:- pragma foreign_import_module' declaration", 
+			ErrorTerm)
+			
+	).
+
 :- pred parse_foreign_language(term, foreign_language).
 :- mode parse_foreign_language(in, out) is semidet.
 
 parse_foreign_language(term__functor(term__string(String), _, _), Lang) :-
 	globals__convert_foreign_language(String, Lang).
+parse_foreign_language(term__functor(term__atom(String), _, _), Lang) :-
+	globals__convert_foreign_language(String, Lang).
+
+:- pred parse_foreign_language_type(term, foreign_language,
+		maybe1(foreign_language_type)).
+:- mode parse_foreign_language_type(in, in, out) is det.
+
+parse_foreign_language_type(InputTerm, Language, Result) :-
+	( 
+		Language = il
+	->
+		( 
+			InputTerm = term__functor(term__string(ILTypeName),
+				[], _)
+		->
+			parse_il_type_name(ILTypeName, InputTerm, Result)
+		;
+			Result = error("invalid backend specification term",
+				InputTerm)
+		)
+	;
+		Language = c
+	->
+		( 
+			InputTerm = term__functor(term__string(CTypeName),
+				[], _)
+		->
+			Result = ok(c(c(CTypeName)))
+		;
+			Result = error("invalid backend specification term",
+				InputTerm)
+		)
+	;
+
+		Result = error("unsupported language specified, unable to parse backend type", InputTerm)
+	).
+
+:- pred parse_il_type_name(string, term, maybe1(foreign_language_type)).
+:- mode parse_il_type_name(in, in, out) is det.
+
+parse_il_type_name(String0, ErrorTerm, ForeignType) :-
+	(
+		parse_special_il_type_name(String0, ForeignTypeResult)
+	->
+		ForeignType = ok(il(ForeignTypeResult))
+	;
+		string__append("class [", String1, String0),
+		string__sub_string_search(String1, "]", Index)
+	->
+		string__left(String1, Index, AssemblyName),
+		string__split(String1, Index + 1, _, TypeNameStr),
+		string_to_sym_name(TypeNameStr, ".", TypeSymName),
+		ForeignType = ok(il(il(reference, AssemblyName, TypeSymName)))
+	;
+		string__append("valuetype [", String1, String0),
+		string__sub_string_search(String1, "]", Index)
+	->
+		string__left(String1, Index, AssemblyName),
+		string__split(String1, Index + 1, _, TypeNameStr),
+		string_to_sym_name(TypeNameStr, ".", TypeSymName),
+		ForeignType = ok(il(il(value, AssemblyName, TypeSymName)))
+	;
+		ForeignType = error(
+			"invalid foreign language type description", ErrorTerm)
+	).
+
+	% Parse all the special assembler names for all the builtin types.
+	% See Parition I 'Built-In Types' (Section 8.2.2) for the list
+	% of all builtin types.
+:- pred parse_special_il_type_name(string::in, il_foreign_type::out) is semidet.
+
+parse_special_il_type_name("bool", il(value, "mscorlib",
+			qualified(unqualified("System"), "Boolean"))).
+parse_special_il_type_name("char", il(value, "mscorlib",
+			qualified(unqualified("System"), "Char"))).
+parse_special_il_type_name("object", il(reference, "mscorlib",
+			qualified(unqualified("System"), "Object"))).
+parse_special_il_type_name("string", il(reference, "mscorlib",
+			qualified(unqualified("System"), "String"))).
+parse_special_il_type_name("float32", il(value, "mscorlib",
+			qualified(unqualified("System"), "Single"))).
+parse_special_il_type_name("float64", il(value, "mscorlib",
+			qualified(unqualified("System"), "Double"))).
+parse_special_il_type_name("int8", il(value, "mscorlib",
+			qualified(unqualified("System"), "SByte"))).
+parse_special_il_type_name("int16", il(value, "mscorlib",
+			qualified(unqualified("System"), "Int16"))).
+parse_special_il_type_name("int32", il(value, "mscorlib",
+			qualified(unqualified("System"), "Int32"))).
+parse_special_il_type_name("int64", il(value, "mscorlib",
+			qualified(unqualified("System"), "Int64"))).
+parse_special_il_type_name("natural int", il(value, "mscorlib",
+			qualified(unqualified("System"), "IntPtr"))).
+parse_special_il_type_name("native int", il(value, "mscorlib",
+			qualified(unqualified("System"), "IntPtr"))).
+parse_special_il_type_name("natural unsigned int", il(value, "mscorlib",
+			qualified(unqualified("System"), "UIntPtr"))).
+parse_special_il_type_name("native unsigned int", il(value, "mscorlib",
+			qualified(unqualified("System"), "UIntPtr"))).
+parse_special_il_type_name("refany", il(value, "mscorlib",
+			qualified(unqualified("System"), "TypedReference"))).
+parse_special_il_type_name("typedref", il(value, "mscorlib",
+			qualified(unqualified("System"), "TypedReference"))).
+parse_special_il_type_name("unsigned int8", il(value, "mscorlib",
+			qualified(unqualified("System"), "Byte"))).
+parse_special_il_type_name("unsigned int16", il(value, "mscorlib",
+			qualified(unqualified("System"), "UInt16"))).
+parse_special_il_type_name("unsigned int32", il(value, "mscorlib",
+			qualified(unqualified("System"), "UInt32"))).
+parse_special_il_type_name("unsigned int64", il(value, "mscorlib",
+			qualified(unqualified("System"), "UInt64"))).
 
 	% This predicate parses both c_header_code and foreign_decl pragmas.
 :- pred parse_pragma_foreign_decl_pragma(module_name, string,
@@ -175,11 +357,10 @@ parse_pragma_foreign_decl_pragma(_ModuleName, Pragma, PragmaTerms,
 		list(term), term, varset, maybe1(item)).
 :- mode parse_pragma_foreign_code_pragma(in, in, in, in, in, out) is det.
 
-parse_pragma_foreign_code_pragma(ModuleName, Pragma, PragmaTerms,
-			ErrorTerm, VarSet, Result) :-
+parse_pragma_foreign_code_pragma(_ModuleName, Pragma, PragmaTerms,
+			ErrorTerm, _VarSet, Result) :-
 	string__format("invalid `:- pragma %s' declaration ", [s(Pragma)],
 		InvalidDeclStr),
-
 
 	Check1 = (func(PTerms1, ForeignLanguage) = Res is semidet :- 
 		PTerms1 = [Just_Code_Term],
@@ -196,200 +377,9 @@ parse_pragma_foreign_code_pragma(ModuleName, Pragma, PragmaTerms,
 		)
 	),
 
-		% After foreign_proc has bootstrapped and the library has
-		% been updated to use foreign_proc where appropriate, we
-		% should uncomment this code and remove Check2, Check3,
-		% Check5, Check6 and the other definition of CheckLength. 
-/*
 	CheckLength = (func(PTermsLen, ForeignLanguage) = Res :- 
 		( 
 			Res0 = Check1(PTermsLen, ForeignLanguage)
-		->	
-			Res = Res0
-		;
-			ErrMsg = "-- wrong number of arguments",
-			Res = error(string__append(InvalidDeclStr, ErrMsg), 
-				ErrorTerm)
-		)	
-	),
-*/
-
-	Check6 = (func(PTerms6, ForeignLanguage) = Res is semidet :- 
-            PTerms6 = [PredAndVarsTerm, FlagsTerm,
-		    FieldsTerm, FirstTerm, LaterTerm, SharedTerm],
-	    parse_pragma_foreign_proc_attributes_term(
-			ForeignLanguage, FlagsTerm, VarSet, MaybeFlags),
-	    ( MaybeFlags = ok(Flags) ->
-	        ( parse_pragma_keyword("local_vars", FieldsTerm, Fields,
-			FieldsContext) ->
-	            ( parse_pragma_keyword("first_code", FirstTerm, First,
-		    		FirstContext) ->
-	                ( parse_pragma_keyword("retry_code", LaterTerm, Later,
-				LaterContext) ->
-	                    ( parse_pragma_keyword("shared_code", SharedTerm,
-			    		Shared, SharedContext) ->
-	        	        parse_pragma_foreign_code(ModuleName,
-				    Flags, PredAndVarsTerm,
-				    nondet(Fields, yes(FieldsContext),
-				    	First, yes(FirstContext),
-					Later, yes(LaterContext),
-					share, Shared, yes(SharedContext)),
-				    VarSet, Res)
-		            ; parse_pragma_keyword("duplicated_code",
-			    		SharedTerm, Shared, SharedContext) ->
-	        	        parse_pragma_foreign_code(ModuleName,
-				    Flags, PredAndVarsTerm,
-				    nondet(Fields, yes(FieldsContext),
-				    	First, yes(FirstContext),
-					Later, yes(LaterContext),
-					duplicate, Shared, yes(SharedContext)),
-				    VarSet, Res)
-		            ; parse_pragma_keyword("common_code", SharedTerm,
-			    		Shared, SharedContext) ->
-	        	        parse_pragma_foreign_code(ModuleName, 
-				    Flags, PredAndVarsTerm,
-				    nondet(Fields, yes(FieldsContext),
-				    	First, yes(FirstContext),
-					Later, yes(LaterContext),
-					automatic, Shared, yes(SharedContext)),
-				    VarSet, Res)
-		            ;
-		                ErrMsg = "-- invalid seventh argument, expecting `common_code(<code>)'",
-				Res = error(string__append(InvalidDeclStr,
-					ErrMsg), SharedTerm)
-			    )
-		        ;
-		            ErrMsg = "-- invalid sixth argument, expecting `retry_code(<code>)'",
-			    Res = error(string__append(InvalidDeclStr, ErrMsg),
-			    	LaterTerm)
-			)
-		    ;
-		        ErrMsg = "-- invalid fifth argument, expecting `first_code(<code>)'",
-			Res = error(string__append(InvalidDeclStr, ErrMsg),
-			    	FirstTerm)
-		    )
-		;
-		    ErrMsg = "-- invalid fourth argument, expecting `local_vars(<fields>)'",
-		    Res = error(string__append(InvalidDeclStr, ErrMsg),
-			    	FieldsTerm)
-		)
-	    ;
-		MaybeFlags = error(ErrorStr, ErrorTerm),
-		ErrMsg = "-- invalid third argument, expecting foreign proc attribute or list of attributes: " ++ ErrorStr,
-		Res = error(string__append(InvalidDeclStr, ErrMsg), ErrorTerm)
-	    )
-	),
-
-	Check5 = (func(PTerms5, ForeignLanguage) = Res is semidet :- 
-		PTerms5 = [PredAndVarsTerm, FlagsTerm,
-		    FieldsTerm, FirstTerm, LaterTerm],
-		term__context_init(DummyContext),
-		SharedTerm = term__functor(term__atom("common_code"),
-			[term__functor(term__string(""), [], DummyContext)],
-			DummyContext),
-		Res = Check6([PredAndVarsTerm, FlagsTerm, FieldsTerm, FirstTerm,
-			LaterTerm, SharedTerm], ForeignLanguage)
-	),
-
-	Check3 = (func(PTerms3, ForeignLanguage) = Res is semidet :- 
-    	    PTerms3 = [PredAndVarsTerm, FlagsTerm, CodeTerm],
-	    (
-		CodeTerm = term__functor(term__string(Code), [], Context)
-	    ->
-		parse_pragma_foreign_proc_attributes_term(
-			ForeignLanguage, FlagsTerm, VarSet, MaybeFlags),
-		( 
-			MaybeFlags = ok(Flags),
-			parse_pragma_foreign_code(ModuleName, Flags,
-				PredAndVarsTerm, ordinary(Code, yes(Context)),
-				VarSet, Res),
-			parse_pragma_foreign_proc_attributes_term(
-				ForeignLanguage, PredAndVarsTerm, VarSet,
-				MaybeFlags2),
-			( 
-				MaybeFlags2 = ok(Flags)
-			->
-			    % XXX we should issue a warning; this syntax is
-			    % deprecated We will continue to accept this if
-			    % c_code is used, but not with foreign_code
-				( Pragma = "c_code" ->
-					parse_pragma_foreign_code(ModuleName,
-					Flags, FlagsTerm, ordinary(Code,
-					yes(Context)), VarSet, Res)
-				;
-					ErrMsg = "-- invalid second argument, expecting predicate or function mode",
-					Res = error(string__append(
-						InvalidDeclStr, ErrMsg),
-						PredAndVarsTerm)
-				)
-			;
-				ErrMsg = "-- invalid second argument, expecting predicate or function mode",
-				Res = error(string__append(
-					InvalidDeclStr, ErrMsg),
-					PredAndVarsTerm)
-			)
-	        ;
-		    MaybeFlags = error(FlagsError, FlagsErrorTerm),
-		    ErrMsg = "-- invalid third argument: ",
-		    Res = error(InvalidDeclStr ++ ErrMsg ++ FlagsError,
-			FlagsErrorTerm)
-		)
-	    ;
-		ErrMsg = "-- invalid fourth argument, expecting string containing foreign code",
-		Res = error(string__append(InvalidDeclStr, ErrMsg), 
-		    	CodeTerm)
-	    )
-	),
-
-	Check2 = (func(PTerms2, ForeignLanguage) = Res is semidet :- 
-		PTerms2 = [PredAndVarsTerm, CodeTerm],
-	    	% XXX we should issue a warning; this syntax is deprecated.
-		% We will continue to accept this if c_code is used, but
-		% not with foreign_code
-		( 
-			Pragma = "c_code"
-		->
-			% may_call_mercury is a conservative default.
-			default_attributes(ForeignLanguage, Attributes),
-			(
-			    CodeTerm = term__functor(term__string(Code), [],
-				Context)
-			->
-			    parse_pragma_foreign_code(ModuleName, 
-			        Attributes, PredAndVarsTerm, ordinary(Code,
-				yes(Context)), VarSet, Res)
-			;
-			    ErrMsg = "-- expecting either `may_call_mercury' or `will_not_call_mercury', and a string for foreign code",
-			    Res = error(string__append(InvalidDeclStr, ErrMsg), 
-				CodeTerm)
-	    		)
-		;
-			ErrMsg = "-- doesn't say whether it can call mercury",
-			Res = error(string__append(InvalidDeclStr, ErrMsg),
-				ErrorTerm)
-		)
-	),
-
-
-	CheckLength = (func(PTermsLen, ForeignLanguage) = Res :- 
-		( 
-			Res0 = Check1(PTermsLen, ForeignLanguage)
-		->	
-			Res = Res0
-		;
-			Res0 = Check2(PTermsLen, ForeignLanguage)
-		->	
-			Res = Res0
-		;
-			Res0 = Check3(PTermsLen, ForeignLanguage)
-		->	
-			Res = Res0
-		;
-			Res0 = Check5(PTermsLen, ForeignLanguage)
-		->	
-			Res = Res0
-		;
-			Res0 = Check6(PTermsLen, ForeignLanguage)
 		->	
 			Res = Res0
 		;
@@ -437,7 +427,7 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
             PTerms6 = [PredAndVarsTerm, FlagsTerm,
 		    FieldsTerm, FirstTerm, LaterTerm, SharedTerm],
 	    parse_pragma_foreign_proc_attributes_term(
-	    		ForeignLanguage, FlagsTerm, VarSet, MaybeFlags),
+	    	ForeignLanguage, Pragma, FlagsTerm, VarSet, MaybeFlags),
 	    ( MaybeFlags = ok(Flags) ->
 	        ( parse_pragma_keyword("local_vars", FieldsTerm, Fields,
 			FieldsContext) ->
@@ -516,7 +506,7 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
 		CodeTerm = term__functor(term__string(Code), [], Context)
 	    ->
 		parse_pragma_foreign_proc_attributes_term(ForeignLanguage, 
-			FlagsTerm, VarSet, MaybeFlags),
+			Pragma, FlagsTerm, VarSet, MaybeFlags),
 		( 
 			MaybeFlags = ok(Flags),
 			parse_pragma_foreign_code(ModuleName, Flags,
@@ -525,8 +515,8 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
 	        ; 
 			MaybeFlags = error(FlagsErr, FlagsErrTerm),
 			parse_pragma_foreign_proc_attributes_term(
-				ForeignLanguage, PredAndVarsTerm, VarSet,
-				MaybeFlags2),
+				ForeignLanguage, Pragma, PredAndVarsTerm,
+				VarSet, MaybeFlags2),
 			(
 				MaybeFlags2 = ok(Flags),
 			    % XXX we should issue a warning; this syntax is
@@ -567,7 +557,9 @@ parse_pragma_foreign_proc_pragma(ModuleName, Pragma, PragmaTerms,
 			Pragma = "c_code"
 		->
 			% may_call_mercury is a conservative default.
-			default_attributes(ForeignLanguage, Attributes),
+			default_attributes(ForeignLanguage, Attributes0),
+			set_legacy_purity_behaviour(Attributes0, yes,
+				Attributes),
 			(
 			    CodeTerm = term__functor(term__string(Code), [],
 				Context)
@@ -643,7 +635,7 @@ parse_pragma_type(ModuleName, "import", PragmaTerms,
 	    (
 		PragmaTerms = [PredAndModesTerm, FlagsTerm, FunctionTerm],
 		parse_pragma_foreign_proc_attributes_term(ForeignLanguage,
-				FlagsTerm, VarSet, MaybeFlags),
+				"import", FlagsTerm, VarSet, MaybeFlags),
 		(
 			MaybeFlags = error(FlagError, ErrorTerm),
 			FlagsResult = error("invalid second argument in `:- pragma import/3' declaration : " ++ FlagError, ErrorTerm)
@@ -653,7 +645,9 @@ parse_pragma_type(ModuleName, "import", PragmaTerms,
 	        )
 	    ;
 		PragmaTerms = [PredAndModesTerm, FunctionTerm],
-		default_attributes(ForeignLanguage, Flags),
+		default_attributes(ForeignLanguage, Flags0),
+			% pragma import uses legacy purity behaviour
+		set_legacy_purity_behaviour(Flags0, yes, Flags),
 		FlagsResult = ok(Flags)
 	    )	
  	-> 
@@ -1213,23 +1207,43 @@ parse_pragma_keyword(ExpectedKeyword, Term, StringArg, StartContext) :-
 	--->	may_call_mercury(may_call_mercury)
 	;	thread_safe(thread_safe)
 	;	tabled_for_io(tabled_for_io)
+	;	purity(purity)
 	;	collected_aliasing(aliasing)
 	;	max_stack_size(int).
 
-:- pred parse_pragma_foreign_proc_attributes_term(foreign_language, term, 
-		varset, maybe1(pragma_foreign_proc_attributes)).
-:- mode parse_pragma_foreign_proc_attributes_term(in, in, in, out) is semidet.
+:- pred parse_pragma_foreign_proc_attributes_term(foreign_language, string,
+		term, varset, maybe1(pragma_foreign_proc_attributes)).
+:- mode parse_pragma_foreign_proc_attributes_term(in, in, in, in, out) is det.
 
-parse_pragma_foreign_proc_attributes_term(ForeignLanguage,
-		Term, VarSet, MaybeAttributes) :-
+parse_pragma_foreign_proc_attributes_term(ForeignLanguage, Pragma, Term,
+		VarSet, MaybeAttributes) :-
 	default_attributes(ForeignLanguage, Attributes0),
+	( ( Pragma = "c_code" ; Pragma = "import" ) ->
+		set_legacy_purity_behaviour(Attributes0, yes, Attributes1),
+		set_purity(Attributes1, pure, Attributes2)
+	;
+		Attributes2 = Attributes0
+	),
 	ConflictingAttributes = [
 		may_call_mercury(will_not_call_mercury) - 
 			may_call_mercury(may_call_mercury),
 		thread_safe(thread_safe) - 
 			thread_safe(not_thread_safe),
 		tabled_for_io(tabled_for_io) - 
-			tabled_for_io(not_tabled_for_io)
+			tabled_for_io(tabled_for_io_unitize),
+		tabled_for_io(tabled_for_io) - 
+			tabled_for_io(tabled_for_descendant_io),
+		tabled_for_io(tabled_for_io) - 
+			tabled_for_io(not_tabled_for_io),
+		tabled_for_io(tabled_for_io_unitize) - 
+			tabled_for_io(tabled_for_descendant_io),
+		tabled_for_io(tabled_for_io_unitize) - 
+			tabled_for_io(not_tabled_for_io),
+		tabled_for_io(tabled_for_descendant_io) - 
+			tabled_for_io(not_tabled_for_io),
+		purity(pure) - purity(impure),
+		purity(pure) - purity(semipure),
+		purity(semipure) - purity(impure)
 	],
 	(
 		parse_pragma_foreign_proc_attributes_term0(Term,
@@ -1243,63 +1257,51 @@ parse_pragma_foreign_proc_attributes_term(ForeignLanguage,
 		->
 			MaybeAttributes = error("conflicting attributes in attribute list", Term)
 		;
-			( 
-				list__member(may_call_mercury(
-					will_not_call_mercury), AttrList)
-			->
-				set_may_call_mercury(Attributes0,
-					will_not_call_mercury, Attributes1)
-			;
-				Attributes1 = Attributes0
-			),
-			(
-				list__member(thread_safe(thread_safe),
-					AttrList)
-			->
-				set_thread_safe(Attributes1, thread_safe,
-					Attributes2)
-			;
-				Attributes2 = Attributes1
-			),
-			( 
-				list__member(tabled_for_io(tabled_for_io),
-					AttrList)
-			->
-				set_tabled_for_io(Attributes2, tabled_for_io,
-					Attributes3)
-			;
-				Attributes3 = Attributes2
-			),
-			( list__filter(
-					pred(C::in) is semidet :- 
-						C = collected_aliasing(_), 
-					AttrList, 
-					AliasInfo), AliasInfo \= [] ->
-				( AliasInfo = [collected_aliasing(Aliasing)] ->
-					set_aliasing(Attributes3,
-							Aliasing, Attributes4)
-				;
-					% XXX an error message would be nice
-					fail
-				)
-			;
-				Attributes4 = Attributes3
-			),
-			ExtraAttrs = list__filter_map(
-				attribute_to_extra_attribute, AttrList),
+%			( list__filter(
+%					pred(C::in) is semidet :- 
+%						C = collected_aliasing(_), 
+%					AttrList, 
+%					AliasInfo), AliasInfo \= [] ->
+%				( AliasInfo = [collected_aliasing(Aliasing)] ->
+%					set_aliasing(Attributes3,
+%							Aliasing, Attributes4)
+%				;
+%					% XXX an error message would be nice
+%					fail
+%				)
+%			;
+%				Attributes4 = Attributes3
+%			),
 			list__foldl(
-				(pred(EAttr::in, Attrs0::in,
-						Attrs::out) is det :- 
-					add_extra_attribute(Attrs0, EAttr,
-						Attrs)),
-				ExtraAttrs, Attributes4, Attributes),
-				MaybeAttributes = check_required_attributes(
-					ForeignLanguage, Attributes, Term)
+				process_attribute,
+				AttrList, Attributes2, Attributes),
+			MaybeAttributes = check_required_attributes(
+				ForeignLanguage, Attributes, Term)
 		)
 	;
 		ErrMsg = "expecting a foreign proc attribute or list of attributes",
 		MaybeAttributes = error(ErrMsg, Term)
 	).
+
+
+	% Update the pragma_foreign_proc_attributes according to the given 
+	% collected_pragma_foreign_proc_attribute.
+:- pred process_attribute(collected_pragma_foreign_proc_attribute::in,
+		pragma_foreign_proc_attributes::in,
+		pragma_foreign_proc_attributes::out) is det.
+
+process_attribute(may_call_mercury(MayCallMercury), Attrs0, Attrs) :-
+	set_may_call_mercury(Attrs0, MayCallMercury, Attrs).
+process_attribute(thread_safe(ThreadSafe), Attrs0, Attrs) :-
+	set_thread_safe(Attrs0, ThreadSafe, Attrs).
+process_attribute(tabled_for_io(TabledForIO), Attrs0, Attrs) :-
+	set_tabled_for_io(Attrs0, TabledForIO, Attrs).
+process_attribute(purity(Pure), Attrs0, Attrs) :-
+	set_purity(Attrs0, Pure, Attrs).
+process_attribute(max_stack_size(Size), Attrs0, Attrs) :-
+	add_extra_attribute(Attrs0, max_stack_size(Size), Attrs).
+process_attribute(collected_aliasing(Aliasing), Attrs0, Attrs) :-
+	set_aliasing(Attrs0, Aliasing, Attrs).
 
 
 	% Check whether all the required attributes have been set for
@@ -1321,12 +1323,6 @@ check_required_attributes(il, Attrs, Term) = Res :-
 	;
 		Res = ok(Attrs)
 	).
-
-:- func attribute_to_extra_attribute(collected_pragma_foreign_proc_attribute)
-	= pragma_foreign_proc_extra_attribute is semidet.
-
-attribute_to_extra_attribute(max_stack_size(Size)) = max_stack_size(Size).
-
 
 :- pred parse_pragma_foreign_proc_attributes_term0(term,
 		varset, list(collected_pragma_foreign_proc_attribute)).
@@ -1366,6 +1362,8 @@ parse_single_pragma_foreign_proc_attribute(Term, VarSet, Flag) :-
 		Flag = collected_aliasing(Aliasing)
 	; parse_max_stack_size(Term, Size) ->
 		Flag = max_stack_size(Size)
+	; parse_purity_promise(Term, Purity) ->
+		Flag = purity(Purity)
 	;
 		fail
 	).
@@ -1393,10 +1391,20 @@ parse_threadsafe(term__functor(term__atom("not_thread_safe"), [], _),
 :- pred parse_tabled_for_io(term, tabled_for_io).
 :- mode parse_tabled_for_io(in, out) is semidet.
 
-parse_tabled_for_io(term__functor(term__atom("tabled_for_io"), [], _),
-	tabled_for_io).
-parse_tabled_for_io(term__functor(term__atom("not_tabled_for_io"), [], _),
-	not_tabled_for_io).
+parse_tabled_for_io(term__functor(term__atom(Str), [], _), TabledForIo) :-
+	(
+		Str = "tabled_for_io",
+		TabledForIo = tabled_for_io
+	;
+		Str = "tabled_for_io_unitize",
+		TabledForIo = tabled_for_io_unitize
+	;
+		Str = "tabled_for_descendant_io",
+		TabledForIo = tabled_for_descendant_io
+	;
+		Str = "not_tabled_for_io",
+		TabledForIo = not_tabled_for_io
+	).
 
 :- pred parse_aliasing(term, varset, aliasing).
 :- mode parse_aliasing(in, in, out) is semidet.
@@ -1409,6 +1417,13 @@ parse_aliasing(Term, VarSet, Aliasing):-
 parse_max_stack_size(term__functor(
 		term__atom("max_stack_size"), [SizeTerm], _), Size) :-
 	SizeTerm = term__functor(term__integer(Size), [], _).
+
+:- pred parse_purity_promise(term::in, purity::out) is semidet.
+
+parse_purity_promise(term__functor(term__atom("promise_pure"), [], _), 
+		(pure)).
+parse_purity_promise(term__functor(term__atom("promise_semipure"), [], _),
+		(semipure)).
 
 % parse a pragma foreign_code declaration
 
@@ -1466,8 +1481,10 @@ parse_pragma_c_code_varlist(VarSet, [V|Vars], PragmaVars, Error):-
 			varset__search_name(VarSet, Var, VarName)
 		->
 			(
-				convert_mode(ModeTerm, Mode)
+				convert_mode(allow_constrained_inst_var,
+					ModeTerm, Mode0)
 			->
+				constrain_inst_vars_in_mode(Mode0, Mode),
 				term__coerce_var(Var, ProgVar),
 				P = (pragma_var(ProgVar, VarName, Mode)),
 				parse_pragma_c_code_varlist(VarSet, 
@@ -1577,11 +1594,19 @@ parse_pred_or_func_and_arg_modes(MaybeModuleName, PredAndModesTerm,
 	(
 	    PredAndArgsResult =
 		ok(PredName, ArgModeTerms - MaybeRetModeTerm),
-	    ( convert_mode_list(ArgModeTerms, ArgModes0) ->
+	    (
+	    	convert_mode_list(allow_constrained_inst_var, ArgModeTerms,
+	    		ArgModes0)
+	    ->
 		(
 		    MaybeRetModeTerm = yes(RetModeTerm),
-		    ( convert_mode(RetModeTerm, RetMode) ->
-			list__append(ArgModes0, [RetMode], ArgModes),
+		    (
+		    	convert_mode(allow_constrained_inst_var, RetModeTerm,
+				RetMode)
+		    ->
+			list__append(ArgModes0, [RetMode], ArgModes1),
+			list__map(constrain_inst_vars_in_mode, ArgModes1,
+			    ArgModes),
 			Result = ok(PredName - function, ArgModes)
 		    ;
 			string__append("error in return mode in ",

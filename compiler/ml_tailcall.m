@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,6 +10,10 @@
 % This module is an MLDS-to-MLDS transformation
 % that marks function calls as tail calls whenever
 % it is safe to do so, based on the assumptions described below.
+
+% This module also contains a pass over the MLDS that detects functions
+% which are directly recursive, but not tail-recursive,
+% and warns about them.
 
 % A function call can safely be marked as a tail call if
 %	(1) it occurs in a position which would fall through into the
@@ -43,12 +47,16 @@
 % optimization (turn self-tailcalls into loops) is done in ml_optimize.
 % Individual backends may wish to treat tailcalls separately if there is
 % any backend support for them.
+%
+% Note that ml_call_gen.m will also mark calls to procedures with determinism
+% `erroneous' as `no_return_call's (a special case of tail calls)
+% when it generates them.
 
 %-----------------------------------------------------------------------------%
 
-:- module ml_tailcall.
+:- module ml_backend__ml_tailcall.
 :- interface.
-:- import_module mlds.
+:- import_module ml_backend__mlds.
 :- import_module io.
 
 	% Traverse the MLDS, marking all optimizable tail calls
@@ -57,11 +65,19 @@
 :- pred ml_mark_tailcalls(mlds, mlds, io__state, io__state).
 :- mode ml_mark_tailcalls(in, out, di, uo) is det.
 
+	% Traverse the MLDS, warning about all directly recursive calls
+	% that are not marked as tail calls.
+	%
+:- pred ml_warn_tailcalls(mlds, io__state, io__state).
+:- mode ml_warn_tailcalls(in, di, uo) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module list, std_util.
+:- import_module parse_tree__prog_data, hlds__hlds_pred, hlds__hlds_out.
+:- import_module hlds__error_util, ml_backend__ml_util.
+:- import_module string, int, list, std_util.
 
 ml_mark_tailcalls(MLDS0, MLDS) -->
 	{ MLDS0 = mlds(ModuleName, ForeignCode, Imports, Defns0) },
@@ -132,7 +148,7 @@ mark_tailcalls_in_defn(Defn0) = Defn :-
 			Attributes),
 		Defn = mlds__defn(Name, Context, Flags, DefnBody)
 	;
-		DefnBody0 = mlds__data(_, _),
+		DefnBody0 = mlds__data(_, _, _),
 		Defn = Defn0
 	;
 		DefnBody0 = mlds__class(ClassDefn0),
@@ -259,11 +275,12 @@ mark_tailcalls_in_stmt(Stmt0, AtTail, Locals) = Stmt :-
 		Stmt0 = computed_goto(_, _),
 		Stmt = Stmt0
 	;
-		Stmt0 = call(Sig, Func, Obj, Args, ReturnLvals, _TailCall0),
+		Stmt0 = call(Sig, Func, Obj, Args, ReturnLvals, CallKind0),
 		%
 		% check if we can mark this call as a tail call
 		%
 		(
+			CallKind0 = ordinary_call,
 			%
 			% we must be in a tail position
 			%
@@ -282,9 +299,9 @@ mark_tailcalls_in_stmt(Stmt0, AtTail, Locals) = Stmt :-
 			check_rvals(Args, Locals)
 		->
 			% mark this call as a tail call
-			TailCall = tail_call,
+			CallKind = tail_call,
 			Stmt = call(Sig, Func, Obj, Args, ReturnLvals,
-					TailCall)
+					CallKind)
 		;
 			% leave this call unchanged
 			Stmt = Stmt0
@@ -539,7 +556,91 @@ locals_member(Name, LocalsList) :-
 	;
 		Locals = params(Params),
 		list__member(Param, Params),
-		Param = Name - _Type
+		Param = mlds__argument(Name, _, _)
+	).
+
+%-----------------------------------------------------------------------------%
+
+ml_warn_tailcalls(MLDS) -->
+	{ solutions(nontailcall_in_mlds(MLDS), Warnings) },
+	list__foldl(report_nontailcall_warning, Warnings).
+
+:- type tailcall_warning ---> tailcall_warning(
+		mlds__pred_label,
+		proc_id,
+		mlds__context
+	).
+
+:- pred nontailcall_in_mlds(mlds::in, tailcall_warning::out) is nondet.
+nontailcall_in_mlds(MLDS, Warning) :-
+	MLDS = mlds(ModuleName, _ForeignCode, _Imports, Defns),
+	MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName),
+	nontailcall_in_defns(MLDS_ModuleName, Defns, Warning).
+
+:- pred nontailcall_in_defns(mlds_module_name::in, mlds__defns::in,
+		tailcall_warning::out) is nondet.
+nontailcall_in_defns(ModuleName, Defns, Warning) :-
+	list__member(Defn, Defns),
+	nontailcall_in_defn(ModuleName, Defn, Warning).
+
+:- pred nontailcall_in_defn(mlds_module_name::in, mlds__defn::in,
+		tailcall_warning::out) is nondet.
+nontailcall_in_defn(ModuleName, Defn, Warning) :-
+	Defn = mlds__defn(Name, _Context, _Flags, DefnBody),
+	(
+		DefnBody = mlds__function(_PredProcId, _Params, FuncBody,
+			_Attributes),
+		FuncBody = defined_here(Body),
+		nontailcall_in_statement(ModuleName, Name, Body, Warning)
+	;
+		DefnBody = mlds__class(ClassDefn),
+		ClassDefn = class_defn(_Kind, _Imports, _BaseClasses,
+			_Implements, CtorDefns, MemberDefns),
+		( nontailcall_in_defns(ModuleName, CtorDefns, Warning)
+		; nontailcall_in_defns(ModuleName, MemberDefns, Warning)
+		)
+	).
+
+:- pred nontailcall_in_statement(mlds_module_name::in, mlds__entity_name::in,
+		mlds__statement::in, tailcall_warning::out) is nondet.
+
+nontailcall_in_statement(CallerModule, CallerFuncName, Statement, Warning) :-
+	% nondeterministically find a non-tail call
+	statement_contains_statement(Statement, SubStatement),
+	SubStatement = mlds__statement(SubStmt, Context),
+	SubStmt = call(_CallSig, Func, _This, _Args, _RetVals, CallKind),
+	CallKind = ordinary_call,
+	% check if this call is a directly recursive call
+	Func = const(code_addr_const(CodeAddr)),
+	( CodeAddr = proc(QualProcLabel, _Sig), MaybeSeqNum = no
+	; CodeAddr = internal(QualProcLabel, SeqNum, _Sig),
+	  MaybeSeqNum = yes(SeqNum)
+	),
+	QualProcLabel = qual(CallerModule, PredLabel - ProcId),
+	CallerFuncName = function(PredLabel, ProcId, MaybeSeqNum, _PredId),
+	% if so, construct an appropriate warning
+	Warning = tailcall_warning(PredLabel, ProcId, Context).
+
+:- pred report_nontailcall_warning(tailcall_warning::in,
+		io__state::di, io__state::uo) is det.
+
+report_nontailcall_warning(tailcall_warning(PredLabel, ProcId, Context)) -->
+	(
+		{ PredLabel = pred(PredOrFunc, _MaybeModule, Name, Arity,
+			_CodeModel, _NonOutputFunc) },
+		{ hlds_out__simple_call_id_to_string(PredOrFunc -
+			unqualified(Name) / Arity, CallId) },
+		{ proc_id_to_int(ProcId, ProcNumber0) },
+		{ ProcNumber = ProcNumber0 + 1 },
+		{ ProcNumberStr = string__int_to_string(ProcNumber) },
+		report_warning(mlds__get_prog_context(Context), 0, [
+		    words("In mode number"), words(ProcNumberStr),
+		    words("of"), fixed(CallId ++ ":"), nl,
+		    words("  warning: recursive call is not tail recursive.")
+		])
+	;
+		{ PredLabel = special_pred(_, _, _, _) }
+		% don't warn about these
 	).
 
 %-----------------------------------------------------------------------------%

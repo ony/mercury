@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,11 +13,11 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module basic_block.
+:- module ll_backend__basic_block.
 
 :- interface.
 
-:- import_module llds.
+:- import_module ll_backend__llds.
 :- import_module list, map, std_util, counter.
 
 :- type block_map	==	map(label, block_info).
@@ -50,7 +50,7 @@
 
 :- implementation.
 
-:- import_module opt_util.
+:- import_module ll_backend__opt_util.
 :- import_module bool, int, require.
 
 create_basic_blocks(Instrs0, Comments, ProcLabel, C0, C,

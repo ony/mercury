@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -17,14 +17,14 @@
 % The scheme for model_non pragma_c_codes is substantially different,
 % so we handle them separately.
 
-:- module pragma_c_gen.
+:- module ll_backend__pragma_c_gen.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_goal, hlds_pred.
-:- import_module code_model.
-:- import_module llds, code_info.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_pred.
+:- import_module backend_libs__code_model.
+:- import_module ll_backend__llds, ll_backend__code_info.
 
 :- import_module list, std_util.
 
@@ -41,9 +41,12 @@
 
 :- implementation.
 
-:- import_module hlds_module, hlds_pred, llds_out, trace, tree.
-:- import_module code_util.
-:- import_module options, globals.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_llds.
+:- import_module hlds__instmap, hlds__hlds_data, hlds__error_util.
+:- import_module check_hlds__type_util.
+:- import_module ll_backend__llds_out, ll_backend__trace, ll_backend__code_util.
+:- import_module backend_libs__foreign.
+:- import_module libs__options, libs__globals, libs__tree.
 
 :- import_module bool, string, int, assoc_list, set, map, require, term.
 
@@ -60,7 +63,7 @@
 %	MR_save_registers(); /* see notes (1) and (2) below */
 %	{ <the c code itself> }
 %	<for semidet code, check of r1>
-%	#ifndef CONSERVATIVE_GC
+%	#ifndef MR_CONSERVATIVE_GC
 %	  MR_restore_registers(); /* see notes (1) and (3) below */
 %	#endif
 %	<assignment of the output values from local variables to registers>
@@ -438,13 +441,13 @@ pragma_c_gen__ordinary_pragma_c_code(CodeModel, Attributes,
 	%
 	% Generate <declaration of one local variable for each arg>
 	%
-	{ make_pragma_decls(Args, Decls) },
+	code_info__get_module_info(ModuleInfo),
+	{ make_pragma_decls(Args, ModuleInfo, Decls) },
 
 	%
 	% Generate #define MR_PROC_LABEL <procedure label> /* see note (5) */
 	% and #undef MR_PROC_LABEL
 	%
-	code_info__get_module_info(ModuleInfo),
 	code_info__get_pred_id(CallerPredId),
 	code_info__get_proc_id(CallerProcId),
 	{ make_proc_label_hash_define(ModuleInfo, CallerPredId, CallerProcId,
@@ -505,7 +508,7 @@ pragma_c_gen__ordinary_pragma_c_code(CodeModel, Attributes,
 	),
 
 	%
-	% #ifndef CONSERVATIVE_GC
+	% #ifndef MR_CONSERVATIVE_GC
 	%   MR_restore_registers(); /* see notes (1) and (3) above */
 	% #endif
 	%
@@ -513,7 +516,7 @@ pragma_c_gen__ordinary_pragma_c_code(CodeModel, Attributes,
 		RestoreRegsComp = pragma_c_noop
 	;
 		RestoreRegsComp = pragma_c_raw_code(
-		"#ifndef CONSERVATIVE_GC\n\tMR_restore_registers();\n#endif\n",
+		"#ifndef MR_CONSERVATIVE_GC\n\tMR_restore_registers();\n#endif\n",
 		live_lvals_info(set__init)
 		)
 	},
@@ -526,7 +529,13 @@ pragma_c_gen__ordinary_pragma_c_code(CodeModel, Attributes,
 	( { MayCallMercury = will_not_call_mercury } ->
 		[]
 	;
-		code_info__clear_all_registers
+		{ goal_info_get_instmap_delta(GoalInfo, InstMapDelta) },
+		{ instmap_delta_is_reachable(InstMapDelta) ->
+			OkToDelete = no
+		;
+			OkToDelete = yes
+		},
+		code_info__clear_all_registers(OkToDelete)
 	),
 
 	%
@@ -665,11 +674,11 @@ pragma_c_gen__nondet_pragma_c_code(CodeModel, Attributes,
 	{ make_c_arg_list(ArgVars, ArgDatas, OrigArgTypes, ArgInfos, Args) },
 	{ pragma_select_in_args(Args, InArgs) },
 	{ pragma_select_out_args(Args, OutArgs) },
-	{ make_pragma_decls(Args, Decls) },
-	{ make_pragma_decls(OutArgs, OutDecls) },
+	{ make_pragma_decls(Args, ModuleInfo, Decls) },
+	{ make_pragma_decls(OutArgs, ModuleInfo, OutDecls) },
 
-	{ input_descs_from_arg_info(InArgs, InputDescs) },
-	{ output_descs_from_arg_info(OutArgs, OutputDescs) },
+	input_descs_from_arg_info(InArgs, InputDescs),
+	output_descs_from_arg_info(OutArgs, OutputDescs),
 
 	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 	{ pred_info_module(PredInfo, ModuleName) },
@@ -1127,21 +1136,23 @@ var_is_not_singleton(yes(Name), Name) :-
 % data structure in the LLDS. It is essentially a list of pairs of type and
 % variable name, so that declarations of the form "Type Name;" can be made.
 
-:- pred make_pragma_decls(list(c_arg)::in, list(pragma_c_decl)::out) is det.
+:- pred make_pragma_decls(list(c_arg)::in, module_info::in,
+		list(pragma_c_decl)::out) is det.
 
-make_pragma_decls([], []).
-make_pragma_decls([Arg | Args], Decls) :-
+make_pragma_decls([], _, []).
+make_pragma_decls([Arg | Args], Module, Decls) :-
 	Arg = c_arg(_Var, ArgName, OrigType, _ArgInfo),
 	(
 		var_is_not_singleton(ArgName, Name)
 	->
-		Decl = pragma_c_arg_decl(OrigType, Name),
-		make_pragma_decls(Args, Decls1),
+		OrigTypeString = foreign__to_type_string(c, Module, OrigType),
+		Decl = pragma_c_arg_decl(OrigType, OrigTypeString, Name),
+		make_pragma_decls(Args, Module, Decls1),
 		Decls = [Decl | Decls1]
 	;
 		% if the variable doesn't occur in the ArgNames list,
 		% it can't be used, so we just ignore it
-		make_pragma_decls(Args, Decls)
+		make_pragma_decls(Args, Module, Decls)
 	).
 
 %---------------------------------------------------------------------------%
@@ -1175,7 +1186,8 @@ get_pragma_input_vars([Arg | Args], Inputs, Code) -->
 		code_info__produce_variable(Var, FirstCode, Rval),
 		% code_info__produce_variable_in_reg(Var, FirstCode, Lval),
 		% { Rval = lval(Lval) },
-		{ Input = pragma_c_input(Name, Type, Rval) },
+		get_maybe_foreign_type_name(Type, MaybeForeign),
+		{ Input = pragma_c_input(Name, Type, Rval, MaybeForeign) },
 		get_pragma_input_vars(Args, Inputs1, RestCode),
 		{ Inputs = [Input | Inputs1] },
 		{ Code = tree(FirstCode, RestCode) }
@@ -1185,6 +1197,30 @@ get_pragma_input_vars([Arg | Args], Inputs, Code) -->
 		get_pragma_input_vars(Args, Inputs, Code)
 	).
 
+:- pred get_maybe_foreign_type_name((type)::in, maybe(string)::out,
+		code_info::in, code_info::out) is det.
+
+get_maybe_foreign_type_name(Type, MaybeForeignType) -->
+	code_info__get_module_info(Module),
+	{ module_info_types(Module, Types) },
+	{ 
+		type_to_ctor_and_args(Type, TypeId, _SubTypes),
+		map__search(Types, TypeId, Defn),
+		hlds_data__get_type_defn_body(Defn, Body),
+		Body = foreign_type(foreign_type_body(_MaybeIL, MaybeC))
+	->
+		( MaybeC = yes(c(Name)),
+			MaybeForeignType = yes(Name)
+		; MaybeC = no,
+			% This is ensured by check_foreign_type in
+			% make_hlds.
+			unexpected(this_file,
+			"get_maybe_foreign_type_name: no c foreign type")
+		)
+	;
+		MaybeForeignType = no
+	}.
+		
 %---------------------------------------------------------------------------%
 
 % pragma_acquire_regs acquires a list of registers in which to place each
@@ -1215,10 +1251,12 @@ place_pragma_output_args_in_regs([Arg | Args], [Reg | Regs], Outputs) -->
 	code_info__release_reg(Reg),
 	( code_info__variable_is_forward_live(Var) ->
 		code_info__set_var_location(Var, Reg),
+		get_maybe_foreign_type_name(OrigType, MaybeForeign),
 		{
 			var_is_not_singleton(MaybeName, Name)
 		->
-			PragmaCOutput = pragma_c_output(Reg, OrigType, Name),
+			PragmaCOutput = pragma_c_output(Reg, OrigType,
+						Name, MaybeForeign),
 			Outputs = [PragmaCOutput | Outputs0]
 		;
 			Outputs = Outputs0
@@ -1236,22 +1274,24 @@ place_pragma_output_args_in_regs([], [_|_], _) -->
 % input_descs_from_arg_info returns a list of pragma_c_inputs, which
 % are pairs of rvals and (C) variables which receive the input value.
 
-:- pred input_descs_from_arg_info(list(c_arg)::in, list(pragma_c_input)::out)
-	is det.
+:- pred input_descs_from_arg_info(list(c_arg)::in, list(pragma_c_input)::out,
+		code_info::in, code_info::out) is det.
 
-input_descs_from_arg_info([], []).
-input_descs_from_arg_info([Arg | Args], Inputs) :-
+input_descs_from_arg_info([], [], CodeInfo, CodeInfo).
+input_descs_from_arg_info([Arg | Args], Inputs, CodeInfo0, CodeInfo) :-
 	Arg = c_arg(_Var, MaybeName, OrigType, ArgInfo),
 	(
 		var_is_not_singleton(MaybeName, Name)
 	->
 		ArgInfo = arg_info(N, _),
 		Reg = reg(r, N),
-		Input = pragma_c_input(Name, OrigType, lval(Reg)),
+		get_maybe_foreign_type_name(OrigType, MaybeForeign,
+				CodeInfo0, CodeInfo1),
+		Input = pragma_c_input(Name, OrigType, lval(Reg), MaybeForeign),
 		Inputs = [Input | Inputs1],
-		input_descs_from_arg_info(Args, Inputs1)
+		input_descs_from_arg_info(Args, Inputs1, CodeInfo1, CodeInfo)
 	;
-		input_descs_from_arg_info(Args, Inputs)
+		input_descs_from_arg_info(Args, Inputs, CodeInfo0, CodeInfo)
 	).
 
 %---------------------------------------------------------------------------%
@@ -1260,22 +1300,26 @@ input_descs_from_arg_info([Arg | Args], Inputs) :-
 % are pairs of names of output registers and (C) variables which hold the
 % output value.
 
-:- pred output_descs_from_arg_info(list(c_arg)::in, list(pragma_c_output)::out)
-	is det.
+:- pred output_descs_from_arg_info(list(c_arg)::in, list(pragma_c_output)::out,
+		code_info::in, code_info::out) is det.
 
-output_descs_from_arg_info([], []).
-output_descs_from_arg_info([Arg | Args], Outputs) :-
+output_descs_from_arg_info([], [], CodeInfo, CodeInfo).
+output_descs_from_arg_info([Arg | Args], Outputs, CodeInfo0, CodeInfo) :-
 	Arg = c_arg(_Var, MaybeName, OrigType, ArgInfo),
+	output_descs_from_arg_info(Args, Outputs0, CodeInfo0, CodeInfo1),
 	(
 		var_is_not_singleton(MaybeName, Name)
 	->
 		ArgInfo = arg_info(N, _),
 		Reg = reg(r, N),
-		Outputs = [pragma_c_output(Reg, OrigType, Name) | Outputs0]
+		get_maybe_foreign_type_name(OrigType, MaybeForeign,
+				CodeInfo1, CodeInfo),
+		Outputs = [pragma_c_output(Reg, OrigType, Name, MaybeForeign) |
+				Outputs0]
 	;
-		Outputs = Outputs0
-	),
-	output_descs_from_arg_info(Args, Outputs0).
+		Outputs = Outputs0,
+		CodeInfo = CodeInfo1
+	).
 
 %---------------------------------------------------------------------------%
 
@@ -1288,4 +1332,10 @@ pragma_c_gen__struct_name(ModuleName, PredName, Arity, ProcId, StructName) :-
 	string__append_list(["mercury_save__", MangledModuleName, "__",
 		MangledPredName, "__", ArityStr, "_", ProcNumStr], StructName).
 
+%---------------------------------------------------------------------------%
+
+:- func this_file = string.
+this_file = "pragma_c_gen.m".
+
+%---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%

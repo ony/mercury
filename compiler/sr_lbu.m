@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -37,8 +37,14 @@
 
 %-------------------------------------------------------------------%
 
+% library modules. 
 :- import_module io.
-:- import_module hlds_module, hlds_pred. 
+
+% XXX parent modules
+:- import_module hlds.
+
+% compiler modules. 
+:- import_module hlds__hlds_module, hlds__hlds_pred. 
 
 :- pred sr_lbu__lbu_pass(module_info, module_info, io__state, io__state).
 :- mode sr_lbu__lbu_pass(in, out, di, uo) is det.
@@ -58,11 +64,15 @@
 :- import_module string.
 :- import_module std_util, require.
 
+% XXX parent modules
+:- import_module libs, parse_tree.
+
 % mercury-compiler modules
-:- import_module globals, options.
-:- import_module passes_aux.
-:- import_module hlds_goal.
-:- import_module prog_data.
+:- import_module libs__globals, libs__options.
+:- import_module hlds__passes_aux.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_llds.
+:- import_module parse_tree__prog_data.
 
 :- import_module sr_live.
 
@@ -197,18 +207,18 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		Info = Info0
 	;
 		% (3) switch
-		Expr0 = switch(A,B,Cases0,SM)
+		Expr0 = switch(A, B, Cases0)
 	->
 		annotate_lbu_in_switch(HLDS, ProcInfo, 
 				Lbu_01, Lbu,  
 				Cases0, Cases), 
-		Expr = switch(A,B,Cases,SM),
+		Expr = switch(A, B, Cases),
 		Info = Info0
 	;
 		%%%%%%%%%%%%%
 		% (4) unify %
 		%%%%%%%%%%%%%
-		Expr0 = unify(_,_,_,_,_)
+		Expr0 = unify(_, _, _, _, _)
 	->
 		% Lbu
 		Lbu = Lbu_01, 
@@ -218,17 +228,17 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		%%%%%%%%%%%%
 		% (5) disj %
 		%%%%%%%%%%%%
-		Expr0 = disj(Goals0, SM)
+		Expr0 = disj(Goals0)
 	->
 		annotate_lbu_in_disj(HLDS, ProcInfo, Lbu_01,  
 				Lbu, Goals0, Goals),
-		Expr = disj(Goals, SM),
+		Expr = disj(Goals),
 		Info = Info0
 	;
 		%%%%%%%%%%%%%%%%%%%%
 		% (6) if_then_else %
 		%%%%%%%%%%%%%%%%%%%%
-		Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM)
+		Expr0 = if_then_else(Vars, Cond0, Then0, Else0)
 	->
 			% annotating the condition
 			% starting from Lbu_01 (where resume_vars are
@@ -251,7 +261,7 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
 				LbuElse, Else0, Else),
 		set__union(LbuThen, LbuElse, Lbu),
-		Expr = if_then_else(Vars, Cond, Then, Else, SM),
+		Expr = if_then_else(Vars, Cond, Then, Else),
 		Info = Info0
 	;
 		%%%%%%%%%%%

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,12 +13,13 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module code_util.
+:- module ll_backend__code_util.
 
 :- interface.
 
-:- import_module prog_data, hlds_module, hlds_pred, hlds_goal, hlds_data.
-:- import_module rtti, llds.
+:- import_module parse_tree__prog_data, hlds__hlds_module, hlds__hlds_pred.
+:- import_module hlds__hlds_goal, hlds__hlds_data.
+:- import_module backend_libs__rtti, ll_backend__llds.
 
 :- import_module bool, list, std_util.
 
@@ -76,7 +77,7 @@
 :- mode code_util__make_user_proc_label(in, in,
 	in, in, in, in, in, out) is det.
 
-:- pred code_util__make_uni_label(module_info, type_id, proc_id, proc_label).
+:- pred code_util__make_uni_label(module_info, type_ctor, proc_id, proc_label).
 :- mode code_util__make_uni_label(in, in, in, out) is det.
 
 :- pred code_util__extract_proc_label_from_code_addr(code_addr, proc_label).
@@ -150,7 +151,7 @@
 :- pred code_util__cons_id_to_tag(cons_id, type, module_info, cons_tag).
 :- mode code_util__cons_id_to_tag(in, in, in, out) is det.
 
-	% Succeed if the given goal cannot encounter a context
+	% Succeed if execution of the given goal cannot encounter a context
 	% that causes any variable to be flushed to its stack slot.
 	% If such a goal needs a resume point, and that resume point cannot
 	% be backtracked to once control leaves the goal, then the only entry
@@ -159,6 +160,13 @@
 
 :- pred code_util__cannot_stack_flush(hlds_goal).
 :- mode code_util__cannot_stack_flush(in) is semidet.
+
+	% Succeed if execution of the given goal cannot encounter a context
+	% that causes any variable to be flushed to its stack slot or to a
+	% register.
+
+:- pred code_util__cannot_flush(hlds_goal).
+:- mode code_util__cannot_flush(in) is semidet.
 
 	% Succeed if the given goal cannot fail before encountering a context
 	% that forces all variables to be flushed to their stack slots.
@@ -194,7 +202,9 @@
 
 :- implementation.
 
-:- import_module prog_util, type_util, special_pred, builtin_ops, code_model.
+:- import_module parse_tree__prog_util, check_hlds__type_util.
+:- import_module hlds__special_pred, backend_libs__builtin_ops.
+:- import_module backend_libs__code_model.
 
 :- import_module char, int, string, set, map, term, varset.
 :- import_module require, std_util, assoc_list.
@@ -298,19 +308,19 @@ code_util__make_proc_label_from_rtti(RttiProcLabel) = ProcLabel :-
 	->
 		(
 			special_pred_get_type(PredName, ArgTypes, Type),
-			type_to_type_id(Type, TypeId, _),
-			% All type_ids other than tuples here should be
+			type_to_ctor_and_args(Type, TypeCtor, _),
+			% All type_ctors other than tuples here should be
 			% module qualified, since builtin types are
 			% handled separately in polymorphism.m.
 			(
-				TypeId = unqualified(TypeName) - _,
-				type_id_is_tuple(TypeId),
+				TypeCtor = unqualified(TypeName) - _,
+				type_ctor_is_tuple(TypeCtor),
 				mercury_public_builtin_module(TypeModule)
 			;
-				TypeId = qualified(TypeModule, TypeName) - _
+				TypeCtor = qualified(TypeModule, TypeName) - _
 			)
 		->
-			TypeId = _ - TypeArity,
+			TypeCtor = _ - TypeArity,
 			(
 				ThisModule \= TypeModule,
 				PredName = "__Unify__",
@@ -353,9 +363,9 @@ code_util__make_user_proc_label(ThisModule, PredIsImported,
 	ProcLabel = proc(DefiningModule, PredOrFunc,
 		PredModule, PredName, PredArity, ProcId).
 
-code_util__make_uni_label(ModuleInfo, TypeId, UniModeNum, ProcLabel) :-
+code_util__make_uni_label(ModuleInfo, TypeCtor, UniModeNum, ProcLabel) :-
 	module_info_name(ModuleInfo, ModuleName),
-	( TypeId = qualified(TypeModule, TypeName) - Arity ->
+	( TypeCtor = qualified(TypeModule, TypeName) - Arity ->
 		( hlds_pred__in_in_unification_proc_id(UniModeNum) ->
 			Module = TypeModule
 		;
@@ -364,7 +374,7 @@ code_util__make_uni_label(ModuleInfo, TypeId, UniModeNum, ProcLabel) :-
 		ProcLabel = special_proc(Module, "__Unify__", TypeModule,
 			TypeName, Arity, UniModeNum)
 	;
-		error("code_util__make_uni_label: unqualified type_id")
+		error("code_util__make_uni_label: unqualified type_ctor")
 	).
 
 code_util__extract_proc_label_from_code_addr(CodeAddr, ProcLabel) :-
@@ -498,12 +508,12 @@ code_util__goal_may_allocate_heap_2(not(Goal), May) :-
 	code_util__goal_may_allocate_heap(Goal, May).
 code_util__goal_may_allocate_heap_2(conj(Goals), May) :-
 	code_util__goal_list_may_allocate_heap(Goals, May).
-code_util__goal_may_allocate_heap_2(par_conj(_, _), yes).
-code_util__goal_may_allocate_heap_2(disj(Goals, _), May) :-
+code_util__goal_may_allocate_heap_2(par_conj(_), yes).
+code_util__goal_may_allocate_heap_2(disj(Goals), May) :-
 	code_util__goal_list_may_allocate_heap(Goals, May).
-code_util__goal_may_allocate_heap_2(switch(_Var, _Det, Cases, _), May) :-
+code_util__goal_may_allocate_heap_2(switch(_Var, _Det, Cases), May) :-
 	code_util__cases_may_allocate_heap(Cases, May).
-code_util__goal_may_allocate_heap_2(if_then_else(_Vars, C, T, E, _), May) :-
+code_util__goal_may_allocate_heap_2(if_then_else(_Vars, C, T, E), May) :-
 	( code_util__goal_may_allocate_heap(C, yes) ->
 		May = yes
 	; code_util__goal_may_allocate_heap(T, yes) ->
@@ -581,13 +591,13 @@ code_util__goal_may_alloc_temp_frame_2(not(Goal), May) :-
 	code_util__goal_may_alloc_temp_frame(Goal, May).
 code_util__goal_may_alloc_temp_frame_2(conj(Goals), May) :-
 	code_util__goal_list_may_alloc_temp_frame(Goals, May).
-code_util__goal_may_alloc_temp_frame_2(par_conj(Goals, _), May) :-
+code_util__goal_may_alloc_temp_frame_2(par_conj(Goals), May) :-
 	code_util__goal_list_may_alloc_temp_frame(Goals, May).
-code_util__goal_may_alloc_temp_frame_2(disj(Goals, _), May) :-
+code_util__goal_may_alloc_temp_frame_2(disj(Goals), May) :-
 	code_util__goal_list_may_alloc_temp_frame(Goals, May).
-code_util__goal_may_alloc_temp_frame_2(switch(_Var, _Det, Cases, _), May) :-
+code_util__goal_may_alloc_temp_frame_2(switch(_Var, _Det, Cases), May) :-
 	code_util__cases_may_alloc_temp_frame(Cases, May).
-code_util__goal_may_alloc_temp_frame_2(if_then_else(_Vars, C, T, E, _), May) :-
+code_util__goal_may_alloc_temp_frame_2(if_then_else(_Vars, C, T, E), May) :-
 	( code_util__goal_may_alloc_temp_frame(C, yes) ->
 		May = yes
 	; code_util__goal_may_alloc_temp_frame(T, yes) ->
@@ -608,7 +618,6 @@ code_util__goal_may_alloc_temp_frame_2_shorthand(bi_implication(G1, G2),
 	;
 		code_util__goal_may_alloc_temp_frame(G2, May)
 	).
-
 
 :- pred code_util__goal_list_may_alloc_temp_frame(list(hlds_goal)::in,
 	bool::out) is det.
@@ -705,6 +714,7 @@ code_util__cons_id_to_tag(tabling_pointer_const(PredId,ProcId), _, _,
 		tabling_pointer_constant(PredId,ProcId)).
 code_util__cons_id_to_tag(deep_profiling_proc_static(PPId), _, _,
 		deep_profiling_proc_static_tag(PPId)).
+code_util__cons_id_to_tag(table_io_decl(PPId), _, _, table_io_decl_tag(PPId)).
 code_util__cons_id_to_tag(cons(Name, Arity), Type, ModuleInfo, Tag) :-
 	(
 			% handle the `character' type specially
@@ -720,23 +730,23 @@ code_util__cons_id_to_tag(cons(Name, Arity), Type, ModuleInfo, Tag) :-
 		% couldn't be, it's just not worth the effort.
 		type_is_tuple(Type, _)
 	->
-		Tag = unshared_tag(0)
+		Tag = single_functor
 	;
-			% Use the type to determine the type_id
-		( type_to_type_id(Type, TypeId0, _) ->
-			TypeId = TypeId0
+			% Use the type to determine the type_ctor
+		( type_to_ctor_and_args(Type, TypeCtor0, _) ->
+			TypeCtor = TypeCtor0
 		;
 			% the type-checker should ensure that this never happens
 			error("code_util__cons_id_to_tag: invalid type")
 		),
 
-			% Given the type_id, lookup up the constructor tag
+			% Given the type_ctor, lookup up the constructor tag
 			% table for that type
 		module_info_types(ModuleInfo, TypeTable),
-		map__lookup(TypeTable, TypeId, TypeDefn),
+		map__lookup(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
 		(
-			TypeBody = du_type(_, ConsTable0, _, _)
+			TypeBody = du_type(_, ConsTable0, _, _, _)
 		->
 			ConsTable = ConsTable0
 		;
@@ -763,8 +773,10 @@ code_util__cannot_stack_flush_2(call(_, _, _, BuiltinState, _, _)) :-
 	BuiltinState = inline_builtin.
 code_util__cannot_stack_flush_2(conj(Goals)) :-
 	code_util__cannot_stack_flush_goals(Goals).
-code_util__cannot_stack_flush_2(switch(_, _, Cases, _)) :-
+code_util__cannot_stack_flush_2(switch(_, _, Cases)) :-
 	code_util__cannot_stack_flush_cases(Cases).
+code_util__cannot_stack_flush_2(not(unify(_, _, _, Unify, _) - _)) :-
+	Unify \= complicated_unify(_, _, _).
 
 :- pred code_util__cannot_stack_flush_goals(list(hlds_goal)).
 :- mode code_util__cannot_stack_flush_goals(in) is semidet.
@@ -781,6 +793,29 @@ code_util__cannot_stack_flush_cases([]).
 code_util__cannot_stack_flush_cases([case(_, Goal) | Cases]) :-
 	code_util__cannot_stack_flush(Goal),
 	code_util__cannot_stack_flush_cases(Cases).
+
+%-----------------------------------------------------------------------------%
+
+code_util__cannot_flush(GoalExpr - _) :-
+	code_util__cannot_flush_2(GoalExpr).
+
+:- pred code_util__cannot_flush_2(hlds_goal_expr).
+:- mode code_util__cannot_flush_2(in) is semidet.
+
+code_util__cannot_flush_2(unify(_, _, _, Unify, _)) :-
+	Unify \= complicated_unify(_, _, _).
+code_util__cannot_flush_2(call(_, _, _, BuiltinState, _, _)) :-
+	BuiltinState = inline_builtin.
+code_util__cannot_flush_2(conj(Goals)) :-
+	code_util__cannot_flush_goals(Goals).
+
+:- pred code_util__cannot_flush_goals(list(hlds_goal)).
+:- mode code_util__cannot_flush_goals(in) is semidet.
+
+code_util__cannot_flush_goals([]).
+code_util__cannot_flush_goals([Goal | Goals]) :-
+	code_util__cannot_flush(Goal),
+	code_util__cannot_flush_goals(Goals).
 
 %-----------------------------------------------------------------------------%
 
@@ -855,14 +890,16 @@ code_util__count_recursive_calls_2(call(CallPredId, CallProcId, _, _, _, _),
 code_util__count_recursive_calls_2(conj(Goals), PredId, ProcId, Min, Max) :-
 	code_util__count_recursive_calls_conj(Goals, PredId, ProcId, 0, 0,
 		Min, Max).
-code_util__count_recursive_calls_2(par_conj(Goals, _), PredId, ProcId, Min, Max) :-
-	code_util__count_recursive_calls_conj(Goals, PredId, ProcId, 0, 0, Min, Max).
-code_util__count_recursive_calls_2(disj(Goals, _), PredId, ProcId, Min, Max) :-
+code_util__count_recursive_calls_2(par_conj(Goals), PredId, ProcId,
+		Min, Max) :-
+	code_util__count_recursive_calls_conj(Goals, PredId, ProcId, 0, 0,
+		Min, Max).
+code_util__count_recursive_calls_2(disj(Goals), PredId, ProcId, Min, Max) :-
 	code_util__count_recursive_calls_disj(Goals, PredId, ProcId, Min, Max).
-code_util__count_recursive_calls_2(switch(_, _, Cases, _), PredId, ProcId,
+code_util__count_recursive_calls_2(switch(_, _, Cases), PredId, ProcId,
 		Min, Max) :-
 	code_util__count_recursive_calls_cases(Cases, PredId, ProcId, Min, Max).
-code_util__count_recursive_calls_2(if_then_else(_, Cond, Then, Else, _),
+code_util__count_recursive_calls_2(if_then_else(_, Cond, Then, Else),
 		PredId, ProcId, Min, Max) :-
 	code_util__count_recursive_calls(Cond, PredId, ProcId, CMin, CMax),
 	code_util__count_recursive_calls(Then, PredId, ProcId, TMin, TMax),

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -41,36 +41,44 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module switch_gen.
+:- module ll_backend__switch_gen.
 
 :- interface.
 
-:- import_module prog_data, hlds_goal, hlds_data, code_model, code_info, llds.
+:- import_module parse_tree__prog_data, hlds__hlds_goal, hlds__hlds_data.
+:- import_module backend_libs__code_model, ll_backend__code_info.
+:- import_module ll_backend__llds.
 :- import_module list.
 
 :- pred switch_gen__generate_switch(code_model, prog_var, can_fail, list(case),
-	store_map, hlds_goal_info, code_tree, code_info, code_info).
-:- mode switch_gen__generate_switch(in, in, in, in, in, in, out, in, out)
+	hlds_goal_info, code_tree, code_info, code_info).
+:- mode switch_gen__generate_switch(in, in, in, in, in, out, in, out)
 	is det.
 
 %---------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module dense_switch, string_switch, tag_switch, lookup_switch.
-:- import_module code_gen, unify_gen, code_aux, code_util.
-:- import_module switch_util, type_util.
-:- import_module trace, globals, options.
+:- import_module hlds__hlds_llds.
+:- import_module check_hlds__type_util.
+:- import_module ll_backend__dense_switch, ll_backend__string_switch.
+:- import_module ll_backend__tag_switch, ll_backend__lookup_switch.
+:- import_module ll_backend__code_gen, ll_backend__unify_gen.
+:- import_module ll_backend__code_aux, ll_backend__code_util.
+:- import_module ll_backend__trace.
+:- import_module backend_libs__switch_util.
+:- import_module libs__globals, libs__options, libs__tree.
 
-:- import_module bool, int, string, map, tree, std_util, require.
+:- import_module bool, int, string, map, std_util, require.
 
 %---------------------------------------------------------------------------%
 
 	% Choose which method to use to generate the switch.
 	% CanFail says whether the switch covers all cases.
 
-switch_gen__generate_switch(CodeModel, CaseVar, CanFail, Cases, StoreMap,
-		GoalInfo, Code) -->
+switch_gen__generate_switch(CodeModel, CaseVar, CanFail, Cases, GoalInfo,
+		Code) -->
+	{ goal_info_get_store_map(GoalInfo, StoreMap) },
 	switch_gen__determine_category(CaseVar, SwitchCategory),
 	code_info__get_next_label(EndLabel),
 	switch_gen__lookup_tags(Cases, CaseVar, TaggedCases0),
@@ -79,6 +87,21 @@ switch_gen__generate_switch(CodeModel, CaseVar, CanFail, Cases, StoreMap,
 	{ globals__lookup_bool_option(Globals, smart_indexing,
 		Indexing) },
 	(
+		% Check for a switch on a type whose representation
+		% uses reserved addresses 
+		{ list__member(Case, TaggedCases) },    
+		{ Case = case(_Priority, Tag, _ConsId, _Goal) },
+		{
+			Tag = reserved_address(_)
+		;
+			Tag = shared_with_reserved_addresses(_, _)
+		}
+	->
+		% XXX This may be be inefficient in some cases.
+		switch_gen__generate_all_cases(TaggedCases, CaseVar,
+			CodeModel, CanFail, StoreMap, EndLabel, no, MaybeEnd,
+			Code)
+	;
 		{ Indexing = yes },
 		{ SwitchCategory = atomic_switch },
 		code_info__get_maybe_trace_info(MaybeTraceInfo),

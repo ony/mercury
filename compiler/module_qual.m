@@ -1,10 +1,10 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 %
-:- module module_qual.
+:- module parse_tree__module_qual.
 %	Main authors: stayl, fjh.
 %
 %	Module qualifies types, insts and modes within declaration items.
@@ -19,7 +19,7 @@
 %
 :- interface.
 
-:- import_module prog_data, recompilation.
+:- import_module parse_tree__prog_data, recompilation.
 :- import_module bool, list, std_util, io.
 
 	% module_qualify_items(Items0, Items, ModuleName, ReportUndefErrors,
@@ -111,10 +111,12 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module type_util, prog_io, prog_out, hlds_out.
-:- import_module prog_util, mercury_to_mercury, modules, globals, options.
-:- import_module (inst), instmap.
-:- import_module hlds_data.	% for cons_id.
+:- import_module check_hlds__type_util, parse_tree__prog_io.
+:- import_module parse_tree__prog_out, hlds__hlds_out.
+:- import_module parse_tree__prog_util, parse_tree__mercury_to_mercury.
+:- import_module parse_tree__modules, libs__globals, libs__options.
+:- import_module (parse_tree__inst), hlds__instmap.
+:- import_module hlds__hlds_data.	% for cons_id.
 
 :- import_module int, map, require, set, string, term, varset.
 :- import_module assoc_list.
@@ -244,10 +246,11 @@ collect_mq_info_2(mode_defn(_, SymName, Params, _, _), Info0, Info) :-
 	mq_info_set_modes(Info0, Modes, Info).
 collect_mq_info_2(module_defn(_, ModuleDefn), Info0, Info) :-
 	process_module_defn(ModuleDefn, Info0, Info).
-collect_mq_info_2(pred_or_func(_,_,__,_,_,_,_,_,_,_), Info, Info).
-collect_mq_info_2(pred_or_func_mode(_,_,_,_,_,_), Info, Info).
+collect_mq_info_2(pred_or_func(_,_,_,_,__,_,_,_,_,_,_,_), Info, Info).
+collect_mq_info_2(pred_or_func_mode(_,_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pragma(_), Info, Info).
-collect_mq_info_2(assertion(Goal, _ProgVarSet), Info0, Info) :-
+collect_mq_info_2(promise(_PromiseType, Goal, _ProgVarSet, _UnivVars), Info0, 
+		Info) :-
 	process_assert(Goal, SymNames, Success),
 	(
 		Success = yes,
@@ -263,7 +266,7 @@ collect_mq_info_2(assertion(Goal, _ProgVarSet), Info0, Info) :-
 			), 
 			SymNames, Info0, Info)
 	;
-			% Any unqualified symbol in the assertion might
+			% Any unqualified symbol in the promise might
 			% come from *any* of the imported modules.
 			% There's no way for us to tell which ones.  So
 			% we conservatively assume that it uses all of
@@ -384,7 +387,11 @@ process_assert((GA ; GB) - _, Symbols, Success) :-
 process_assert(fail - _, [], yes).
 process_assert(some(_, G) - _, Symbols, Success) :-
 	process_assert(G, Symbols, Success).
+process_assert(some_state_vars(_, G) - _, Symbols, Success) :-
+	process_assert(G, Symbols, Success).
 process_assert(all(_, G) - _, Symbols, Success) :-
+	process_assert(G, Symbols, Success).
+process_assert(all_state_vars(_, G) - _, Symbols, Success) :-
 	process_assert(G, Symbols, Success).
 process_assert(implies(GA, GB) - _, Symbols, Success) :-
 	process_assert(GA, SymbolsA, SuccessA),
@@ -398,12 +405,12 @@ process_assert(equivalent(GA, GB) - _, Symbols, Success) :-
 	bool__and(SuccessA, SuccessB, Success).
 process_assert(not(G) - _, Symbols, Success) :-
 	process_assert(G, Symbols, Success).
-process_assert(if_then(_, GA, GB) - _, Symbols, Success) :-
+process_assert(if_then(_, _, GA, GB) - _, Symbols, Success) :-
 	process_assert(GA, SymbolsA, SuccessA),
 	process_assert(GB, SymbolsB, SuccessB),
 	list__append(SymbolsA, SymbolsB, Symbols),
 	bool__and(SuccessA, SuccessB, Success).
-process_assert(if_then_else(_, GA, GB, GC) - _, Symbols, Success) :-
+process_assert(if_then_else(_, _, GA, GB, GC) - _, Symbols, Success) :-
 	process_assert(GA, SymbolsA, SuccessA),
 	process_assert(GB, SymbolsB, SuccessB),
 	process_assert(GC, SymbolsC, SuccessC),
@@ -528,35 +535,38 @@ module_qualify_item(module_defn(A, ModuleDefn) - Context,
 
 module_qualify_item(
 		pred_or_func(A, IVs, B, PredOrFunc, SymName, TypesAndModes0,
-			C, D, E, Constraints0) - Context,
+			WithType0, WithInst0, C, D, E, Constraints0) - Context,
 		pred_or_func(A, IVs, B, PredOrFunc, SymName, TypesAndModes,
-			C, D, E, Constraints) - Context,
+			WithType, WithInst, C, D, E, Constraints) - Context,
 		Info0, Info, yes) -->
 	{ list__length(TypesAndModes0, Arity) },
 	{ mq_info_set_error_context(Info0,
 		pred_or_func(PredOrFunc, SymName - Arity) - Context,
 		Info1) },
 	qualify_types_and_modes(TypesAndModes0, TypesAndModes, Info1, Info2),
-	qualify_class_constraints(Constraints0, Constraints, Info2, Info).
+	qualify_class_constraints(Constraints0, Constraints, Info2, Info3),
+	map_fold2_maybe(qualify_type, WithType0, WithType, Info3, Info4),
+	map_fold2_maybe(qualify_inst, WithInst0, WithInst, Info4, Info).
 
 module_qualify_item(
 		pred_or_func_mode(A, PredOrFunc, SymName, Modes0,
-			C, D) - Context,
+			WithInst0, C, D) - Context,
 	 	pred_or_func_mode(A, PredOrFunc, SymName, Modes,
-			C, D) - Context,
+			WithInst, C, D) - Context,
 		Info0, Info, yes) -->
 	{ list__length(Modes0, Arity) },
 	{ mq_info_set_error_context(Info0,
 		pred_or_func_mode(PredOrFunc, SymName- Arity) - Context,
 		Info1) },
-	qualify_mode_list(Modes0, Modes, Info1, Info).
+	qualify_mode_list(Modes0, Modes, Info1, Info2),
+	map_fold2_maybe(qualify_inst, WithInst0, WithInst, Info2, Info).
 
 module_qualify_item(pragma(Pragma0) - Context, pragma(Pragma) - Context,
 						Info0, Info, yes) -->
 	{ mq_info_set_error_context(Info0, (pragma) - Context, Info1) },
 	qualify_pragma(Pragma0, Pragma, Info1, Info).
-module_qualify_item(assertion(G, V) - Context, assertion(G, V) - Context,
-						Info, Info, yes) --> [].
+module_qualify_item(promise(T, G, V, U) - Context, 
+		promise(T, G, V, U) - Context, Info, Info, yes) --> [].
 module_qualify_item(nothing(A) - Context, nothing(A) - Context,
 						Info, Info, yes) --> [].
 module_qualify_item(typeclass(Constraints0, Name, Vars, Interface0, VarSet) -
@@ -635,8 +645,6 @@ qualify_type_defn(du_type(Ctors0, MaybeEqualityPred0),
 	% (during mode analysis).  That way they get full type overloading
 	% resolution, etc.  Thus we don't module-qualify them here.
 	{ MaybeEqualityPred = MaybeEqualityPred0 }.
-qualify_type_defn(uu_type(Types0), uu_type(Types), Info0, Info) -->
-	qualify_type_list(Types0, Types, Info0, Info).	
 qualify_type_defn(eqv_type(Type0), eqv_type(Type), Info0, Info) -->
 	qualify_type(Type0, Type, Info0, Info).	
 qualify_type_defn(abstract_type, abstract_type, Info, Info) --> [].
@@ -741,15 +749,14 @@ qualify_inst(ground(Uniq, GroundInstInfo0), ground(Uniq, GroundInstInfo),
 		qualify_mode_list(Modes0, Modes, Info0, Info),
 		{ GroundInstInfo = higher_order(pred_inst_info(A, Modes, Det)) }
 	;
-		{ GroundInstInfo0 = constrained_inst_var(Var) },
-		{ GroundInstInfo = constrained_inst_var(Var) },
-		{ Info = Info0 }
-	;
 		{ GroundInstInfo0 = none },
 		{ GroundInstInfo = none },
 		{ Info = Info0 }
 	).
 qualify_inst(inst_var(Var), inst_var(Var), Info, Info) --> [].
+qualify_inst(constrained_inst_vars(Vars, Inst0),
+		constrained_inst_vars(Vars, Inst), Info0, Info) -->
+	qualify_inst(Inst0, Inst, Info0, Info).
 qualify_inst(defined_inst(InstName0), defined_inst(InstName), Info0, Info) -->
 	qualify_inst_name(InstName0, InstName, Info0, Info).
 qualify_inst(abstract_inst(Name, Args0), abstract_inst(Name, Args),
@@ -828,23 +835,23 @@ qualify_type_list([Type0 | Types0], [Type | Types], Info0, Info) -->
 qualify_type(term__variable(Var), term__variable(Var), Info, Info) --> [].
 qualify_type(Type0, Type, Info0, Info) -->
 	{ Type0 = term__functor(_, _, _) },
-	( { type_to_type_id(Type0, TypeId0, Args0) } ->
-		( { is_builtin_atomic_type(TypeId0) } ->
-			{ TypeId = TypeId0 },
+	( { type_to_ctor_and_args(Type0, TypeCtor0, Args0) } ->
+		( { is_builtin_atomic_type(TypeCtor0) } ->
+			{ TypeCtor = TypeCtor0 },
 			{ Info1 = Info0 }
-		; { type_id_is_higher_order(TypeId0, _, _) } ->
-			{ TypeId = TypeId0 },
+		; { type_ctor_is_higher_order(TypeCtor0, _, _) } ->
+			{ TypeCtor = TypeCtor0 },
 			{ Info1 = Info0 }
-		; { type_id_is_tuple(TypeId0) } ->
-			{ TypeId = TypeId0 },
+		; { type_ctor_is_tuple(TypeCtor0) } ->
+			{ TypeCtor = TypeCtor0 },
 			{ Info1 = Info0 }
 		;
 			{ mq_info_get_types(Info0, Types) },
-			find_unique_match(TypeId0, TypeId, Types,
+			find_unique_match(TypeCtor0, TypeCtor, Types,
 						type_id, Info0, Info1)
 		),
 		qualify_type_list(Args0, Args, Info1, Info2),
-		{ construct_type(TypeId, Args, Type) }	
+		{ construct_type(TypeCtor, Args, Type) }	
 	;
 		{ mq_info_get_error_context(Info0, ErrorContext) },
 		report_invalid_type(Type0, ErrorContext),
@@ -877,9 +884,11 @@ qualify_type(Type0, Type, Info0, Info) -->
 :- pred qualify_pragma((pragma_type)::in, (pragma_type)::out,
 		mq_info::in, mq_info::out, io__state::di, io__state::uo) is det.
 
-qualify_pragma(source_file(File), source_file(File), Info, Info) --> [].
-qualify_pragma(foreign_decl(L, Code), foreign_decl(L, Code), Info, Info) --> [].
-qualify_pragma(foreign_code(L, C), foreign_code(L, C), Info, Info) --> [].
+qualify_pragma(X@source_file(_), X, Info, Info) --> [].
+qualify_pragma(X@foreign_decl(_, _), X, Info, Info) --> [].
+qualify_pragma(X@foreign_code(_, _), X, Info, Info) --> [].
+qualify_pragma(X@foreign_type(_, _, _, _), X, Info, Info) --> [].
+qualify_pragma(X@foreign_import_module(_, _), X, Info, Info) --> [].
 qualify_pragma(
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars0, Varset, Code),
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars, Varset, Code), 
@@ -896,9 +905,9 @@ qualify_pragma(tabled(A, B, C, D, MModes0), tabled(A, B, C, D, MModes),
 		{ Info = Info0 },
 		{ MModes = no }
 	).
-qualify_pragma(inline(A, B), inline(A, B), Info, Info) --> [].
-qualify_pragma(no_inline(A, B), no_inline(A, B), Info, Info) --> [].
-qualify_pragma(obsolete(A, B), obsolete(A, B), Info, Info) --> [].
+qualify_pragma(X@inline(_, _), X, Info, Info) --> [].
+qualify_pragma(X@no_inline(_, _), X, Info, Info) --> [].
+qualify_pragma(X@obsolete(_, _), X, Info, Info) --> [].
 qualify_pragma(import(Name, PredOrFunc, Modes0, Attributes, CFunc),
 		import(Name, PredOrFunc, Modes, Attributes, CFunc),
 		Info0, Info) -->
@@ -906,8 +915,7 @@ qualify_pragma(import(Name, PredOrFunc, Modes0, Attributes, CFunc),
 qualify_pragma(export(Name, PredOrFunc, Modes0, CFunc),
 		export(Name, PredOrFunc, Modes, CFunc), Info0, Info) -->
 	qualify_mode_list(Modes0, Modes, Info0, Info).
-qualify_pragma(unused_args(A, B, C, D, E), unused_args(A, B, C, D, E),
-				Info, Info) --> [].
+qualify_pragma(X@unused_args(_, _, _, _, _), X, Info, Info) --> [].
 qualify_pragma(type_spec(A, B, C, D, MaybeModes0, Subst0, G, H),
 		type_spec(A, B, C, D, MaybeModes, Subst, G, H),
 		Info0, Info) -->
@@ -921,31 +929,19 @@ qualify_pragma(type_spec(A, B, C, D, MaybeModes0, Subst0, G, H),
 		{ MaybeModes = no }
 	),
 	qualify_type_spec_subst(Subst0, Subst, Info1, Info).
-qualify_pragma(fact_table(SymName, Arity, FileName),
-		fact_table(SymName, Arity, FileName), Info, Info) --> [].
-qualify_pragma(aditi(SymName, Arity), aditi(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(base_relation(SymName, Arity), base_relation(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(aditi_index(SymName, Arity, Index),
-		aditi_index(SymName, Arity, Index), Info, Info) --> [].
-qualify_pragma(supp_magic(SymName, Arity), supp_magic(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(context(SymName, Arity), context(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(aditi_memo(A, B), aditi_memo(A, B), Info, Info) --> [].
-qualify_pragma(aditi_no_memo(SymName, Arity), aditi_no_memo(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(naive(SymName, Arity), naive(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(psn(SymName, Arity), psn(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(owner(SymName, Arity, Owner), owner(SymName, Arity, Owner),
-		Info, Info) --> [].
-qualify_pragma(promise_pure(SymName, Arity), promise_pure(SymName, Arity),
-		Info, Info) --> [].
-qualify_pragma(promise_semipure(SymName, Arity), promise_pure(SymName, Arity),
-		Info, Info) --> [].
+qualify_pragma(X@fact_table(_, _, _), X, Info, Info) --> [].
+qualify_pragma(X@aditi(_, _), X, Info, Info) --> [].
+qualify_pragma(X@base_relation(_, _), X, Info, Info) --> [].
+qualify_pragma(X@aditi_index(_, _, _), X, Info, Info) --> [].
+qualify_pragma(X@supp_magic(_, _), X, Info, Info) --> [].
+qualify_pragma(X@context(_, _), X, Info, Info) --> [].
+qualify_pragma(X@aditi_memo(_, _), X, Info, Info) --> [].
+qualify_pragma(X@aditi_no_memo(_, _), X, Info, Info) --> [].
+qualify_pragma(X@naive(_, _), X, Info, Info) --> [].
+qualify_pragma(X@psn(_, _), X, Info, Info) --> [].
+qualify_pragma(X@owner(_, _, _), X, Info, Info) --> [].
+qualify_pragma(X@promise_pure(_, _), X, Info, Info) --> [].
+qualify_pragma(X@promise_semipure(_, _), X, Info, Info) --> [].
 qualify_pragma(termination_info(PredOrFunc, SymName, ModeList0, Args, Term), 
 		termination_info(PredOrFunc, SymName, ModeList, Args, Term), 
 		Info0, Info) --> 
@@ -962,11 +958,9 @@ qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars,
 			Types, TREUSE, N), 
 		Info0, Info) -->
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
-qualify_pragma(terminates(A, B), terminates(A, B), Info, Info) --> [].
-qualify_pragma(does_not_terminate(A, B), does_not_terminate(A, B), 
-		Info, Info) --> [].
-qualify_pragma(check_termination(A, B), check_termination(A, B), Info, 
-		Info) --> [].
+qualify_pragma(X@terminates(_, _), X, Info, Info) --> [].
+qualify_pragma(X@does_not_terminate(_, _), X, Info, Info) --> [].
+qualify_pragma(X@check_termination(_, _), X, Info, Info) --> [].
 
 :- pred qualify_pragma_vars(list(pragma_var)::in, list(pragma_var)::out,
 		mq_info::in, mq_info::out, io__state::di, io__state::uo) is det.
@@ -1039,25 +1033,28 @@ qualify_class_interface([M0|M0s], [M|Ms], MQInfo0, MQInfo) -->
 	% done when the item is parsed.
 qualify_class_method(
 		pred_or_func(TypeVarset, InstVarset, ExistQVars, PredOrFunc,
-			Name, TypesAndModes0, MaybeDet, Cond, Purity,
-			ClassContext0, Context), 
+			Name, TypesAndModes0, WithType0, WithInst0, MaybeDet,
+			Cond, Purity, ClassContext0, Context), 
 		pred_or_func(TypeVarset, InstVarset, ExistQVars, PredOrFunc,
-			Name, TypesAndModes, MaybeDet, Cond, Purity,
-			ClassContext, Context), 
+			Name, TypesAndModes, WithType, WithInst, MaybeDet,
+			Cond, Purity, ClassContext, Context), 
 		MQInfo0, MQInfo
 		) -->
 	qualify_types_and_modes(TypesAndModes0, TypesAndModes, 
 		MQInfo0, MQInfo1),
 	qualify_class_constraints(ClassContext0, ClassContext, 
-		MQInfo1, MQInfo).
+		MQInfo1, MQInfo2),
+	map_fold2_maybe(qualify_type, WithType0, WithType, MQInfo2, MQInfo3),
+	map_fold2_maybe(qualify_inst, WithInst0, WithInst, MQInfo3, MQInfo).
 qualify_class_method(
 		pred_or_func_mode(Varset, PredOrFunc, Name, Modes0,
-			MaybeDet, Cond, Context), 
+			WithInst0, MaybeDet, Cond, Context), 
 		pred_or_func_mode(Varset, PredOrFunc, Name, Modes,
-			MaybeDet, Cond, Context), 
+			WithInst, MaybeDet, Cond, Context), 
 		MQInfo0, MQInfo
 		) -->
-	qualify_mode_list(Modes0, Modes, MQInfo0, MQInfo).
+	qualify_mode_list(Modes0, Modes, MQInfo0, MQInfo1),
+	map_fold2_maybe(qualify_inst, WithInst0, WithInst, MQInfo1, MQInfo).
 
 :- pred qualify_instance_body(sym_name::in, instance_body::in, 
 	instance_body::out) is det. 
@@ -1189,7 +1186,7 @@ convert_simple_item_type(class_id) = (typeclass).
 	;	inst(id)
 	;	mode(id)
 	;	pred_or_func(pred_or_func, id)
-	; 	pred_or_func_mode(pred_or_func, id)
+	; 	pred_or_func_mode(maybe(pred_or_func), id)
 	;	(pragma)
 	;	lambda_expr
 	;	clause_mode_annotation
@@ -1285,11 +1282,17 @@ write_error_context2(pred_or_func(PredOrFunc, SymName - Arity)) -->
 	io__write_string(" "),
 	{ adjust_func_arity(PredOrFunc, OrigArity, Arity) },
 	write_id(SymName - OrigArity).
-write_error_context2(pred_or_func_mode(PredOrFunc, SymName - Arity)) -->
+write_error_context2(pred_or_func_mode(MaybePredOrFunc, SymName - Arity)) -->
 	io__write_string("mode declaration for "),
-	io__write(PredOrFunc),
-	io__write_string(" "),
-	{ adjust_func_arity(PredOrFunc, OrigArity, Arity) },
+	( 
+		{ MaybePredOrFunc = yes(PredOrFunc) },
+		io__write(PredOrFunc),
+		io__write_string(" "),
+		{ adjust_func_arity(PredOrFunc, OrigArity, Arity) }
+	;
+		{ MaybePredOrFunc = no },
+		{ OrigArity = Arity }
+	),
 	write_id(SymName - OrigArity).
 write_error_context2(lambda_expr) -->
 	io__write_string("mode declaration for lambda expression").
@@ -1394,10 +1397,10 @@ report_invalid_type(Type, ErrorContext - Context) -->
 
 %-----------------------------------------------------------------------------%
 
-	% is_builtin_atomic_type(TypeId)
-	%	is true iff 'TypeId' is the type_id of a builtin atomic type
+	% is_builtin_atomic_type(TypeCtor)
+	%	is true iff 'TypeCtor' is the type_ctor of a builtin atomic type
 
-:- pred is_builtin_atomic_type(type_id).
+:- pred is_builtin_atomic_type(type_ctor).
 :- mode is_builtin_atomic_type(in) is semidet.
 
 is_builtin_atomic_type(unqualified("int") - 0).

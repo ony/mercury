@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,12 +10,13 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module opt_debug.
+:- module ll_backend__opt_debug.
 
 :- interface.
 
-:- import_module llds, livemap.
-:- import_module code_model, rtti, layout, builtin_ops.
+:- import_module ll_backend__llds, ll_backend__livemap.
+:- import_module backend_libs__code_model, backend_libs__rtti.
+:- import_module ll_backend__layout, backend_libs__builtin_ops.
 
 :- import_module io, bool, list, assoc_list, std_util.
 
@@ -64,8 +65,8 @@
 :- pred opt_debug__dump_data_name(data_name, string).
 :- mode opt_debug__dump_data_name(in, out) is det.
 
-:- pred opt_debug__dump_rtti_type_id(rtti_type_id, string).
-:- mode opt_debug__dump_rtti_type_id(in, out) is det.
+:- pred opt_debug__dump_rtti_type_ctor(rtti_type_ctor, string).
+:- mode opt_debug__dump_rtti_type_ctor(in, out) is det.
 
 :- pred opt_debug__dump_rtti_name(rtti_name, string).
 :- mode opt_debug__dump_rtti_name(in, out) is det.
@@ -119,10 +120,11 @@
 
 :- implementation.
 
-:- import_module prog_out.
-:- import_module hlds_pred.
-:- import_module llds_out, code_util, opt_util.
-:- import_module globals, options.
+:- import_module parse_tree__prog_out.
+:- import_module hlds__hlds_pred.
+:- import_module ll_backend__llds_out, ll_backend__code_util.
+:- import_module ll_backend__opt_util.
+:- import_module libs__globals, libs__options.
 
 :- import_module int, set, map, string.
 
@@ -334,11 +336,12 @@ opt_debug__dump_data_addr(data_addr(ModuleName, DataName), Str) :-
 	opt_debug__dump_data_name(DataName, DataName_str),
 	string__append_list(
 		["data_addr(", ModuleName_str, ", ", DataName_str, ")"], Str).
-opt_debug__dump_data_addr(rtti_addr(RttiTypeId, DataName), Str) :-
-	opt_debug__dump_rtti_type_id(RttiTypeId, RttiTypeId_str),
+opt_debug__dump_data_addr(rtti_addr(RttiTypeCtor, DataName), Str) :-
+	opt_debug__dump_rtti_type_ctor(RttiTypeCtor, RttiTypeCtor_str),
 	opt_debug__dump_rtti_name(DataName, DataName_str),
 	string__append_list(
-		["rtti_addr(", RttiTypeId_str, ", ", DataName_str, ")"], Str).
+		["rtti_addr(", RttiTypeCtor_str, ", ", DataName_str, ")"],
+		Str).
 opt_debug__dump_data_addr(layout_addr(LayoutName), Str) :-
 	opt_debug__dump_layout_name(LayoutName, LayoutName_str),
 	string__append_list(["layout_addr(", LayoutName_str, ")"], Str).
@@ -356,11 +359,12 @@ opt_debug__dump_data_name(deep_profiling_procedure_data(ProcLabel), Str) :-
 	string__append_list(["deep_profiling_procedure_data(",
 				ProcLabelStr, ")"], Str).
 
-opt_debug__dump_rtti_type_id(rtti_type_id(ModuleName, TypeName, Arity), Str) :-
+opt_debug__dump_rtti_type_ctor(rtti_type_ctor(ModuleName, TypeName, Arity),
+		Str) :-
 	llds_out__sym_name_mangle(ModuleName, ModuleName_str),
 	llds_out__name_mangle(TypeName, TypeName_str),
 	string__int_to_string(Arity, Arity_str),
-	string__append_list(["rtti_type_id(", ModuleName_str, ", ",
+	string__append_list(["rtti_type_ctor(", ModuleName_str, ", ",
 		TypeName_str, Arity_str, ")"], Str).
 
 opt_debug__dump_rtti_name(exist_locns(Ordinal), Str) :-
@@ -375,6 +379,10 @@ opt_debug__dump_rtti_name(field_names(Ordinal), Str) :-
 opt_debug__dump_rtti_name(field_types(Ordinal), Str) :-
 	string__int_to_string(Ordinal, Ordinal_str),
 	string__append("field_types_", Ordinal_str, Str).
+opt_debug__dump_rtti_name(res_addrs, Str) :-
+	Str = "res_addrs".
+opt_debug__dump_rtti_name(res_addr_functors, Str) :-
+	Str = "res_addr_functors".
 opt_debug__dump_rtti_name(enum_functor_desc(Ordinal), Str) :-
 	string__int_to_string(Ordinal, Ordinal_str),
 	string__append("enum_functor_desc_", Ordinal_str, Str).
@@ -383,6 +391,9 @@ opt_debug__dump_rtti_name(notag_functor_desc, Str) :-
 opt_debug__dump_rtti_name(du_functor_desc(Ordinal), Str) :-
 	string__int_to_string(Ordinal, Ordinal_str),
 	string__append("du_functor_desc_", Ordinal_str, Str).
+opt_debug__dump_rtti_name(res_functor_desc(Ordinal), Str) :-
+	string__int_to_string(Ordinal, Ordinal_str),
+	string__append("res_functor_desc_", Ordinal_str, Str).
 opt_debug__dump_rtti_name(enum_name_ordered_table, Str) :-
 	Str = "enum_name_ordered_table".
 opt_debug__dump_rtti_name(enum_value_ordered_table, Str) :-
@@ -394,12 +405,19 @@ opt_debug__dump_rtti_name(du_stag_ordered_table(Ptag), Str) :-
 	string__append("du_stag_ordered_table_", Ptag_str, Str).
 opt_debug__dump_rtti_name(du_ptag_ordered_table, Str) :-
 	Str = "du_ptag_ordered_table".
+opt_debug__dump_rtti_name(res_value_ordered_table, Str) :-
+	Str = "res_value_ordered_table".
+opt_debug__dump_rtti_name(res_name_ordered_table, Str) :-
+	Str = "res_name_ordered_table".
 opt_debug__dump_rtti_name(type_ctor_info, Str) :-
 	Str = "type_ctor_info".
 opt_debug__dump_rtti_name(base_typeclass_info(_ModuleName, ClassId,
 		InstanceStr), Str) :-
 	llds_out__make_base_typeclass_info_name(ClassId, InstanceStr, Str).
-opt_debug__dump_rtti_name(pseudo_type_info(_Pseudo), Str) :-
+opt_debug__dump_rtti_name(type_info(_TypeInfo), Str) :-
+	% XXX should give more info than this
+	Str = "type_info".
+opt_debug__dump_rtti_name(pseudo_type_info(_PseudoTypeInfo), Str) :-
 	% XXX should give more info than this
 	Str = "pseudo_type_info".
 opt_debug__dump_rtti_name(type_hashcons_pointer, Str) :-
@@ -419,6 +437,10 @@ opt_debug__dump_layout_name(label_layout(Label, LabelVars), Str) :-
 opt_debug__dump_layout_name(proc_layout(ProcLabel, _), Str) :-
 	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
 	string__append_list(["proc_layout(", ProcLabelStr, ")"], Str).
+opt_debug__dump_layout_name(proc_layout_head_var_nums(ProcLabel), Str) :-
+	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
+	string__append_list(["proc_layout_head_var_nums(", ProcLabelStr, ")"],
+		Str).
 opt_debug__dump_layout_name(proc_layout_var_names(ProcLabel), Str) :-
 	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
 	string__append_list(["proc_layout_var_names(", ProcLabelStr, ")"],
@@ -469,6 +491,10 @@ opt_debug__dump_layout_name(proc_static_call_sites(RttiProcLabel), Str) :-
 	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
 	string__append_list(["proc_static_call_sites(", ProcLabelStr, ")"],
 		Str).
+opt_debug__dump_layout_name(table_io_decl(RttiProcLabel), Str) :-
+	ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel),
+	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
+	string__append_list(["table_io_decl(", ProcLabelStr, ")"], Str).
 
 opt_debug__dump_unop(mktag, "mktag").
 opt_debug__dump_unop(tag, "tag").

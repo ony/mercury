@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -27,8 +27,11 @@
 % library modules
 :- import_module map, io, term.
 
+% XXX parent modules
+:- import_module parse_tree, hlds.
 % compiler modules
-:- import_module prog_data, hlds_data, hlds_pred, hlds_module.
+:- import_module parse_tree__prog_data, hlds__hlds_data, hlds__hlds_pred.
+:- import_module hlds__hlds_module.
 :- import_module pa_selector.
 
 %-------------------------------------------------------------------%
@@ -116,8 +119,10 @@
 % library modules
 :- import_module string, varset, require, list.
 
+% XXX parent modules
+:- import_module check_hlds.
 % compiler_modules
-:- import_module type_util.
+:- import_module check_hlds__type_util.
 
 :- type datastruct ---> cel(prog_var, pa_selector__selector).
 

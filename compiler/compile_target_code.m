@@ -458,12 +458,6 @@ compile_c_file(ErrorStream, PIC, C_File, O_File, Succeeded) -->
 	{ string__int_to_string(NumTagBits, NumTagBitsString) },
 	{ string__append_list(
 		["-DMR_TAGBITS=", NumTagBitsString, " "], NumTagBitsOpt) },
-	globals__io_lookup_bool_option(decl_debug, DeclDebug),
-	{ DeclDebug = yes ->
-		DeclDebugOpt = "-DMR_DECL_DEBUG "
-	;
-		DeclDebugOpt = ""
-	},
 	globals__io_lookup_bool_option(require_tracing, RequireTracing),
 	{ RequireTracing = yes ->
 		RequireTracingOpt = "-DMR_REQUIRE_TRACING "
@@ -571,7 +565,7 @@ compile_c_file(ErrorStream, PIC, C_File, O_File, Succeeded) -->
 		GC_Opt, ProfileCallsOpt, ProfileTimeOpt, ProfileMemoryOpt,
 		ProfileDeepOpt, PIC_Reg_Opt, TagsOpt, NumTagBitsOpt,
 		Target_DebugOpt, LL_DebugOpt,
-		DeclDebugOpt, RequireTracingOpt, StackTraceOpt,
+		StackTraceOpt, RequireTracingOpt,
 		UseTrailOpt, ReserveTagOpt, MinimalModelOpt, TypeLayoutOpt,
 		InlineAllocOpt, WarningOpt, CFLAGS,
 		" -c ", C_File, " ", NameObjectFile, O_File], Command) },

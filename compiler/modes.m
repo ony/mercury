@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -127,11 +127,12 @@ a variable live if its value will be used later on in the computation.
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module modes.
+:- module check_hlds__modes.
 
 :- interface.
 
-:- import_module prog_data, hlds_goal, hlds_module, hlds_pred, (inst), instmap.
+:- import_module parse_tree__prog_data, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__hlds_pred, (parse_tree__inst), hlds__instmap.
 :- import_module bool, list, io.
 
 	% modecheck(HLDS0, HLDS, UnsafeToContinue):
@@ -187,7 +188,7 @@ a variable live if its value will be used later on in the computation.
 
 % The following predicates are used by unique_modes.m.
 
-:- import_module mode_info, hlds_data.
+:- import_module check_hlds__mode_info, hlds__hlds_data.
 
 	% Modecheck a unification.
 
@@ -322,13 +323,21 @@ a variable live if its value will be used later on in the computation.
 
 :- implementation.
 
-:- import_module make_hlds, hlds_data, unique_modes, mode_debug.
-:- import_module mode_info, delay_info, mode_errors, inst_match, instmap.
-:- import_module type_util, mode_util, code_util, unify_proc, special_pred.
-:- import_module globals, options, mercury_to_mercury, hlds_out, int, set.
-:- import_module passes_aux, typecheck, module_qual, clause_to_proc.
-:- import_module modecheck_unify, modecheck_call, inst_util, purity.
-:- import_module prog_out, term, varset.
+:- import_module hlds__make_hlds, hlds__hlds_data, check_hlds__unique_modes.
+:- import_module check_hlds__mode_debug.
+:- import_module check_hlds__mode_info, check_hlds__delay_info.
+:- import_module check_hlds__mode_errors, check_hlds__inst_match.
+:- import_module hlds__instmap.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
+:- import_module ll_backend__code_util, check_hlds__unify_proc.
+:- import_module hlds__special_pred.
+:- import_module libs__globals, libs__options, parse_tree__mercury_to_mercury.
+:- import_module hlds__hlds_out, int, set.
+:- import_module hlds__passes_aux, check_hlds__typecheck.
+:- import_module parse_tree__module_qual, check_hlds__clause_to_proc.
+:- import_module check_hlds__modecheck_unify, check_hlds__modecheck_call.
+:- import_module check_hlds__inst_util, check_hlds__purity.
+:- import_module parse_tree__prog_out, term, varset.
 
 :- import_module list, map, string, require, std_util.
 :- import_module assoc_list.
@@ -338,15 +347,11 @@ a variable live if its value will be used later on in the computation.
 modecheck(Module0, Module, UnsafeToContinue) -->
 	globals__io_lookup_bool_option(statistics, Statistics),
 	globals__io_lookup_bool_option(verbose, Verbose),
-	io__stderr_stream(StdErr),
-	io__set_output_stream(StdErr, OldStream),
 
 	maybe_write_string(Verbose, "% Mode-checking clauses...\n"),
 	check_pred_modes(check_modes, may_change_called_proc,
 		Module0, Module, UnsafeToContinue),
-	maybe_report_stats(Statistics),
-
-	io__set_output_stream(OldStream, _).
+	maybe_report_stats(Statistics).
 
 %-----------------------------------------------------------------------------%
 	
@@ -622,32 +627,15 @@ modecheck_pred_mode_2(PredId, PredInfo0, WhatToCheck, MayChangeCalledProc,
 			{ ProcIds = [] }
 		->
 			maybe_report_error_no_modes(PredId, PredInfo0,
-					ModuleInfo0),
-			{ NumErrors0 = 0 }
+					ModuleInfo0)
 		;
-			{ special_pred_name_arity(unify, _, PredName,
-				PredArity) },
-			{ pred_info_name(PredInfo0, PredName) },
-			{ pred_info_arity(PredInfo0, PredArity) }
-		->
-			% Don't check for indistinguishable modes in unification
-			% predicates.  The default (in, in) mode must be
-			% semidet, but for single-value types we also want to
-			% create a det mode which will be indistinguishable
-			% from the semidet mode.
-			% (When the type is known, the det mode is called,
-			% but the polymorphic unify needs to be able to call
-			% the semidet mode.)
-			{ NumErrors0 = 0 }
-		;
-			check_for_indistinguishable_modes(ProcIds, PredId,
-				PredInfo0, ModuleInfo0, 0, NumErrors0)
+			[]
 		)
 	;
-		{ NumErrors0 = 0 }
+		[]
 	),
 	modecheck_procs(ProcIds, PredId, WhatToCheck, MayChangeCalledProc,
-				ModuleInfo0, Changed0, NumErrors0,
+				ModuleInfo0, Changed0, 0,
 				ModuleInfo, Changed, NumErrors).
 
 	% Iterate over the list of modes for a predicate.
@@ -672,52 +660,6 @@ modecheck_procs([ProcId|ProcIds], PredId, WhatToCheck, MayChangeCalledProc,
 	modecheck_procs(ProcIds, PredId, WhatToCheck, MayChangeCalledProc,
 				ModuleInfo1, Changed1, Errs1,
 				ModuleInfo, Changed, Errs).
-
-%-----------------------------------------------------------------------------%
-
-:- pred check_for_indistinguishable_modes(list(proc_id),
-			pred_id, pred_info, module_info, int, int,
-			io__state, io__state).
-:- mode check_for_indistinguishable_modes(in, in, in, in, in, out,
-			di, uo) is det.
-
-check_for_indistinguishable_modes([], _, _, _, NumErrors, NumErrors) --> [].
-check_for_indistinguishable_modes([ProcId | ProcIds],
-		PredId, PredInfo, ModuleInfo, NumErrors0, NumErrors) -->
-	check_for_indistinguishable_mode(ProcIds, ProcId,
-		PredId, PredInfo, ModuleInfo, NumErrors0, NumErrors1),
-	check_for_indistinguishable_modes(ProcIds,
-		PredId, PredInfo, ModuleInfo, NumErrors1, NumErrors).
-
-:- pred check_for_indistinguishable_mode(list(proc_id), proc_id,
-			pred_id, pred_info, module_info, int, int,
-			io__state, io__state).
-:- mode check_for_indistinguishable_mode(in, in, in, in, in, in, out,
-			di, uo) is det.
-
-	% For each mode in the list, check that either that mode is the
-	% new mode we just added, or that it is distinguishable from the
-	% new mode.  If we find a mode that is indistinguishable from the
-	% one we just added, report an error.
-
-check_for_indistinguishable_mode([], _, _, _, _, NumErrors, NumErrors) --> [].
-check_for_indistinguishable_mode([ProcId | ProcIds], NewProcId,
-		PredId, PredInfo, ModuleInfo, NumErrors0, NumErrors) -->
-	(
-		{
-			ProcId = NewProcId
-		;
-			\+ modes_are_indistinguishable(ProcId, NewProcId,
-				PredInfo, ModuleInfo)
-		}
-	->
-		check_for_indistinguishable_mode(ProcIds, NewProcId,
-			PredId, PredInfo, ModuleInfo, NumErrors0, NumErrors)
-	;
-		report_indistinguishable_modes_error(ProcId, NewProcId,
-			PredId, PredInfo, ModuleInfo),
-		{ NumErrors is NumErrors0 + 1 }
-	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1096,17 +1038,17 @@ modecheck_goal_expr(conj(List0), GoalInfo0, Goal) -->
 	% empty.
 	% A stack of these structures is maintained to handle nested parallel
 	% conjunctions properly.
-modecheck_goal_expr(par_conj(List0, SM), GoalInfo0, par_conj(List, SM)) -->
+modecheck_goal_expr(par_conj(List0), GoalInfo0, par_conj(List)) -->
 	mode_checkpoint(enter, "par_conj"),
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
 	modecheck_par_conj_list(List0, List, NonLocals, InstMapNonlocalList),
 	instmap__unify(NonLocals, InstMapNonlocalList),
 	mode_checkpoint(exit, "par_conj").
 
-modecheck_goal_expr(disj(List0, SM), GoalInfo0, Goal) -->
+modecheck_goal_expr(disj(List0), GoalInfo0, Goal) -->
 	mode_checkpoint(enter, "disj"),
 	( { List0 = [] } ->	% for efficiency, optimize common case
-		{ Goal = disj(List0, SM) },
+		{ Goal = disj(List0) },
 		{ instmap__init_unreachable(InstMap) },
 		mode_info_set_instmap(InstMap)
 	;
@@ -1117,7 +1059,7 @@ modecheck_goal_expr(disj(List0, SM), GoalInfo0, Goal) -->
 	),
 	mode_checkpoint(exit, "disj").
 
-modecheck_goal_expr(if_then_else(Vs, A0, B0, C0, SM), GoalInfo0, Goal) -->
+modecheck_goal_expr(if_then_else(Vs, A0, B0, C0), GoalInfo0, Goal) -->
 	mode_checkpoint(enter, "if-then-else"),
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
 	{ goal_get_nonlocals(B0, B_Vars) },
@@ -1147,7 +1089,7 @@ modecheck_goal_expr(if_then_else(Vs, A0, B0, C0, SM), GoalInfo0, Goal) -->
 	mode_info_dcg_get_instmap(InstMapC),
 	mode_info_set_instmap(InstMap0),
 	instmap__merge(NonLocals, [InstMapB, InstMapC], if_then_else),
-	{ Goal = if_then_else(Vs, A, B, C, SM) },
+	{ Goal = if_then_else(Vs, A, B, C) },
 	mode_checkpoint(exit, "if-then-else").
 
 modecheck_goal_expr(not(A0), GoalInfo0, not(A)) -->
@@ -1253,8 +1195,8 @@ modecheck_goal_expr(unify(A0, B0, _, UnifyInfo0, UnifyContext), GoalInfo0, Goal)
 	mode_info_unset_call_context,
 	mode_checkpoint(exit, "unify").
 
-modecheck_goal_expr(switch(Var, CanFail, Cases0, SM), GoalInfo0,
-		switch(Var, CanFail, Cases, SM)) -->
+modecheck_goal_expr(switch(Var, CanFail, Cases0), GoalInfo0,
+		switch(Var, CanFail, Cases)) -->
 	mode_checkpoint(enter, "switch"),
 	( { Cases0 = [] } ->
 		{ Cases = [] },
@@ -1651,9 +1593,9 @@ check_for_impurity_error(Goal, ImpurityErrors0, ImpurityErrors) -->
 no_non_headvar_unification_goals([], _).
 no_non_headvar_unification_goals([delayed_goal(_,_,Goal-_)|Goals], HeadVars) :-
 	Goal = unify(Var,Rhs,_,_,_),
-	(   member(Var, HeadVars)
+	(   list__member(Var, HeadVars)
 	;   Rhs = var(OtherVar),
-	    member(OtherVar, HeadVars)
+	    list__member(OtherVar, HeadVars)
 	),
 	no_non_headvar_unification_goals(Goals, HeadVars).
 
@@ -2141,8 +2083,8 @@ handle_implied_mode(Var0, VarInst0, InitialInst0, Var,
 			CallUnifyContext = yes(call_unify_context(
 						Var, var(Var), UnifyContext)),
 			( 
-				type_to_type_id(VarType, TypeId, _TypeArgs),
-				TypeId = qualified(TypeModule, TypeName) -
+				type_to_ctor_and_args(VarType, TypeCtor, _TypeArgs),
+				TypeCtor = qualified(TypeModule, TypeName) -
 						_TypeArity,
 				string__append(TypeName, "_init_any", PredName),
 				modes__build_call(TypeModule, PredName, [Var],
@@ -2356,7 +2298,7 @@ check_mode_of_main([Di, Uo], ModuleInfo) :-
 report_eval_method_requires_ground_args(ProcInfo, ModuleInfo0, ModuleInfo) -->
 	{ proc_info_eval_method(ProcInfo, EvalMethod) },
 	{ proc_info_context(ProcInfo, Context) },
-	{ eval_method_to_string(EvalMethod, EvalMethodS) },
+	{ EvalMethodS = eval_method_to_string(EvalMethod) },
 	globals__io_lookup_bool_option(verbose_errors, VerboseErrors),
 	prog_out__write_context(Context),
 	io__write_string("Sorry, not implemented: `pragma "),
@@ -2384,7 +2326,7 @@ report_eval_method_requires_ground_args(ProcInfo, ModuleInfo0, ModuleInfo) -->
 report_eval_method_destroys_uniqueness(ProcInfo, ModuleInfo0, ModuleInfo) -->
 	{ proc_info_eval_method(ProcInfo, EvalMethod) },
 	{ proc_info_context(ProcInfo, Context) },
-	{ eval_method_to_string(EvalMethod, EvalMethodS) },
+	{ EvalMethodS = eval_method_to_string(EvalMethod) },
 	globals__io_lookup_bool_option(verbose_errors, VerboseErrors),
 	prog_out__write_context(Context),
 	io__write_string("Error: `pragma "),

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -19,15 +19,17 @@
 % See compiler/notes/trailing.html for more information about trailing
 % in the Mercury implementation.
 %
+% This pass is very similar to add_heap_ops.m.
+%
 %-----------------------------------------------------------------------------%
 
-% XXX FIXME check goal_infos for correctness
+% XXX check goal_infos for correctness
 
 %-----------------------------------------------------------------------------%
 
-:- module add_trail_ops.
+:- module ml_backend__add_trail_ops.
 :- interface.
-:- import_module hlds_pred, hlds_module.
+:- import_module hlds__hlds_pred, hlds__hlds_module.
 
 :- pred add_trail_ops(proc_info::in, module_info::in, proc_info::out) is det.
 
@@ -35,9 +37,12 @@
 
 :- implementation.
 
-:- import_module prog_data, prog_util, (inst).
-:- import_module hlds_goal, hlds_data, quantification, modules, type_util.
-:- import_module code_model, instmap.
+:- import_module parse_tree__prog_data, parse_tree__prog_util.
+:- import_module (parse_tree__inst).
+:- import_module hlds__hlds_goal, hlds__hlds_data.
+:- import_module hlds__goal_util, hlds__quantification, parse_tree__modules.
+:- import_module check_hlds__type_util.
+:- import_module backend_libs__code_model, hlds__instmap.
 
 :- import_module bool, string.
 :- import_module assoc_list, list, map, set, varset, std_util, require, term.
@@ -92,12 +97,12 @@ goal_add_trail_ops(GoalExpr0 - GoalInfo, Goal) -->
 goal_expr_add_trail_ops(conj(Goals0), GI, conj(Goals) - GI) -->
 	conj_add_trail_ops(Goals0, Goals).
 
-goal_expr_add_trail_ops(par_conj(Goals0, SM), GI, par_conj(Goals, SM) - GI) -->
+goal_expr_add_trail_ops(par_conj(Goals0), GI, par_conj(Goals) - GI) -->
 	conj_add_trail_ops(Goals0, Goals).
 
-goal_expr_add_trail_ops(disj([], B), GI, disj([], B) - GI) --> [].
+goal_expr_add_trail_ops(disj([]), GI, disj([]) - GI) --> [].
 
-goal_expr_add_trail_ops(disj(Goals0, B), GoalInfo, Goal - GoalInfo) -->
+goal_expr_add_trail_ops(disj(Goals0), GoalInfo, Goal - GoalInfo) -->
 	{ Goals0 = [_|_] },
 
 	{ goal_info_get_context(GoalInfo, Context) },
@@ -110,10 +115,9 @@ goal_expr_add_trail_ops(disj(Goals0, B), GoalInfo, Goal - GoalInfo) -->
 	new_ticket_var(TicketVar),
 	gen_store_ticket(TicketVar, Context, StoreTicketGoal),
 	disj_add_trail_ops(Goals0, yes, CodeModel, TicketVar, Goals),
-	{ Goal = conj([StoreTicketGoal, disj(Goals, B) - GoalInfo]) }.
+	{ Goal = conj([StoreTicketGoal, disj(Goals) - GoalInfo]) }.
 
-goal_expr_add_trail_ops(switch(A, B, Cases0, D), GI,
-		switch(A, B, Cases, D) - GI) -->
+goal_expr_add_trail_ops(switch(A, B, Cases0), GI, switch(A, B, Cases) - GI) -->
 	cases_add_trail_ops(Cases0, Cases).
 
 goal_expr_add_trail_ops(not(InnerGoal), OuterGoalInfo, Goal) -->
@@ -127,16 +131,20 @@ goal_expr_add_trail_ops(not(InnerGoal), OuterGoalInfo, Goal) -->
 	{ determinism_components(Determinism, _CanFail, NumSolns) },
 	{ true_goal(Context, True) },
 	{ fail_goal(Context, Fail) },
-	{ map__init(SM) },
+	ModuleInfo =^ module_info,
 	{ NumSolns = at_most_zero ->
 		% The "then" part of the if-then-else will be unreachable,
 		% but to preserve the invariants that the MLDS back-end
 		% relies on, we need to make sure that it can't fail.
-		% So we use `true' rather than `fail' for the "then" part.
-		NewOuterGoal = if_then_else([], InnerGoal, True, True, SM)
+		% So we use a call to `private_builtin__unused' (which
+		% will call error/1) rather than `fail' for the "then" part.
+		mercury_private_builtin_module(PrivateBuiltin),
+		generate_simple_call(PrivateBuiltin, "unused",
+			[], det, no, [], ModuleInfo, Context, ThenGoal)
 	;
-		NewOuterGoal = if_then_else([], InnerGoal, Fail, True, SM)
+		ThenGoal = Fail
 	},
+	{ NewOuterGoal = if_then_else([], InnerGoal, ThenGoal, True) },
 	goal_expr_add_trail_ops(NewOuterGoal, OuterGoalInfo, Goal).
 
 goal_expr_add_trail_ops(some(A, B, Goal0), OuterGoalInfo,
@@ -192,9 +200,7 @@ goal_expr_add_trail_ops(some(A, B, Goal0), OuterGoalInfo,
 			{ FailGoal = _ - FailGoalInfo },
 			{ FailCode = conj([ResetTicketUndoGoal,
 				DiscardTicketGoal, FailGoal]) - FailGoalInfo },
-			{ map__init(SM) },
-			{ Goal3 = disj([SuccCode, FailCode], SM) -
-				OuterGoalInfo }
+			{ Goal3 = disj([SuccCode, FailCode]) - OuterGoalInfo }
 		;
 			{ Goal3 = SuccCode }
 		),
@@ -204,7 +210,7 @@ goal_expr_add_trail_ops(some(A, B, Goal0), OuterGoalInfo,
 		{ Goal = some(A, B, Goal1) }
 	).
 
-goal_expr_add_trail_ops(if_then_else(A, Cond0, Then0, Else0, E), GoalInfo,
+goal_expr_add_trail_ops(if_then_else(A, Cond0, Then0, Else0), GoalInfo,
 		Goal - GoalInfo) -->
 	goal_add_trail_ops(Cond0, Cond),
 	goal_add_trail_ops(Then0, Then1),
@@ -240,7 +246,7 @@ goal_expr_add_trail_ops(if_then_else(A, Cond0, Then0, Else0, E), GoalInfo,
 	{ Else1 = _ - Else1GoalInfo },
 	{ Else = conj([ResetTicketUndoGoal, DiscardTicketGoal, Else1])
 		- Else1GoalInfo },
-	{ IfThenElse = if_then_else(A, Cond, Then, Else, E) - GoalInfo },
+	{ IfThenElse = if_then_else(A, Cond, Then, Else) - GoalInfo },
 	{ Goal = conj([StoreTicketGoal, IfThenElse]) }.
 
 
@@ -264,7 +270,7 @@ goal_expr_add_trail_ops(PragmaForeign, GoalInfo, Goal) -->
 		ModuleInfo =^ module_info,
 		{ goal_info_get_context(GoalInfo, Context) },
 		{ generate_call("trailed_nondet_pragma_foreign_code",
-			[], det, no, [], ModuleInfo, Context,
+			[], erroneous, no, [], ModuleInfo, Context,
 			SorryNotImplementedCode) },
 		{ Goal = SorryNotImplementedCode }
 	;
@@ -455,62 +461,14 @@ ticket_counter_type = c_pointer_type.
 
 %-----------------------------------------------------------------------------%
 
-% XXX copied from table_gen.m
-
 :- pred generate_call(string::in, list(prog_var)::in, determinism::in,
 	maybe(goal_feature)::in, assoc_list(prog_var, inst)::in,
 	module_info::in, term__context::in, hlds_goal::out) is det.
 
 generate_call(PredName, Args, Detism, MaybeFeature, InstMap, Module, Context,
 		CallGoal) :-
-	list__length(Args, Arity),
 	mercury_private_builtin_module(BuiltinModule),
-	module_info_get_predicate_table(Module, PredTable),
-	(
-		predicate_table_search_pred_m_n_a(PredTable,
-			BuiltinModule, PredName, Arity,
-			[PredId0])
-	->
-		PredId = PredId0
-	;
-		string__int_to_string(Arity, ArityS),
-		string__append_list(["can't locate ", PredName,
-			"/", ArityS], ErrorMessage),
-		error(ErrorMessage)
-	),
-	module_info_pred_info(Module, PredId, PredInfo),
-	(
-		pred_info_procids(PredInfo, [ProcId0])
-	->
-		ProcId = ProcId0
-	;
-		string__int_to_string(Arity, ArityS),
-		string__append_list(["too many modes for pred ",
-			PredName, "/", ArityS], ErrorMessage),
-		error(ErrorMessage)
-
-	),
-	Call = call(PredId, ProcId, Args, not_builtin, no,
-		qualified(BuiltinModule, PredName)),
-	set__init(NonLocals0),
-	set__insert_list(NonLocals0, Args, NonLocals),
-	determinism_components(Detism, _CanFail, NumSolns),
-	(
-		NumSolns = at_most_zero
-	->
-		instmap_delta_init_unreachable(InstMapDelta)
-	;
-		instmap_delta_from_assoc_list(InstMap, InstMapDelta)
-	),
-	goal_info_init(NonLocals, InstMapDelta, Detism, CallGoalInfo0),
-	goal_info_set_context(CallGoalInfo0, Context, CallGoalInfo1),
-	(
-		MaybeFeature = yes(Feature),
-		goal_info_add_feature(CallGoalInfo1, Feature, CallGoalInfo)
-	;
-		MaybeFeature = no,
-		CallGoalInfo = CallGoalInfo1
-	),
-	CallGoal = Call - CallGoalInfo.
+	goal_util__generate_simple_call(BuiltinModule, PredName, Args, Detism,
+		MaybeFeature, InstMap, Module, Context, CallGoal).
 
 %-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -26,10 +26,11 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module common.
+:- module check_hlds__common.
 :- interface.
 
-:- import_module hlds_pred, hlds_goal, prog_data, simplify.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, parse_tree__prog_data.
+:- import_module check_hlds__simplify.
 :- import_module list.
 
 	% If we find a deconstruction or a construction we cannot optimize,
@@ -48,8 +49,9 @@
 	% Check whether this call has been seen before and is replaceable, if
 	% so produce assignment unification for the non-local output variables,
 	% and give a warning.
-	% A call is replaceable if it has no uniquely moded outputs and no
-	% destructive inputs.
+	% A call is considered replaceable if it has no uniquely moded outputs
+	% and no destructive inputs.
+	% It is the caller's responsibility to check that the call is pure.
 
 :- pred common__optimise_call(pred_id, proc_id, list(prog_var), hlds_goal_expr,
 	hlds_goal_info, hlds_goal_expr, simplify_info, simplify_info).
@@ -79,9 +81,12 @@
 
 :- implementation.
 
-:- import_module quantification, mode_util, type_util, prog_util.
-:- import_module det_util, det_report, globals, options, inst_match, instmap.
-:- import_module hlds_data, hlds_module, (inst), pd_cost, term.
+:- import_module hlds__quantification, check_hlds__mode_util.
+:- import_module check_hlds__type_util, parse_tree__prog_util.
+:- import_module check_hlds__det_util, check_hlds__det_report, libs__globals.
+:- import_module libs__options, check_hlds__inst_match, hlds__instmap.
+:- import_module hlds__hlds_data, hlds__hlds_module, (parse_tree__inst).
+:- import_module transform_hlds__pd_cost, term.
 :- import_module bool, map, set, eqvclass, require, std_util, string.
 
 :- type structure
@@ -163,7 +168,7 @@ common__optimise_unification(Unification0, _Left0, _Right0, Mode, _Context,
 		)
 	;
 		Unification0 = deconstruct(Var, ConsId,
-				ArgVars, UniModes, _, _),
+				ArgVars, UniModes, CanFail, _),
 		simplify_info_get_module_info(Info0, ModuleInfo),
 		(
 				% Don't optimise partially instantiated
@@ -179,16 +184,25 @@ common__optimise_unification(Unification0, _Left0, _Right0, Mode, _Context,
 			Goal = Goal0,
 			Info = Info0
 		;
+			% Do not delete deconstruction unifications inserted by
+			% stack_opt.m, which has done a more comprehensive cost
+			% analysis than common.m can do.
+			\+ goal_info_has_feature(GoalInfo, stack_opt),
 			common__find_matching_cell(Var, ConsId, ArgVars,
 				deconstruction, Info0, OldStruct)
 		->
 			OldStruct = structure(_, _, _, OldArgVars),
 			common__create_output_unifications(GoalInfo0, ArgVars,
 				OldArgVars, UniModes, Goals, Info0, Info1),
-			simplify_info_set_requantify(Info1, Info2),
 			Goal = conj(Goals),
 			pd_cost__goal(Goal0 - GoalInfo0, Cost),
-			simplify_info_incr_cost_delta(Info2, Cost, Info)
+			simplify_info_incr_cost_delta(Info1, Cost, Info2),
+			simplify_info_set_requantify(Info2, Info3),
+			( CanFail = can_fail ->
+				simplify_info_set_rerun_det(Info3, Info)
+			;	
+				Info = Info3
+			)
 		;
 			Goal = Goal0,
 			common__record_cell(Var, ConsId, ArgVars, Info0, Info)
@@ -291,9 +305,9 @@ common__find_matching_cell_2([Struct | Structs], Var, ConsId, ArgVars,
 :- mode common__compatible_types(in, in) is semidet.
 
 common__compatible_types(Type1, Type2) :-
-	type_to_type_id(Type1, TypeId1, _),
-	type_to_type_id(Type2, TypeId2, _),
-	TypeId1 = TypeId2.
+	type_to_ctor_and_args(Type1, TypeCtor1, _),
+	type_to_ctor_and_args(Type2, TypeCtor2, _),
+	TypeCtor1 = TypeCtor2.
 
 %---------------------------------------------------------------------------%
 
@@ -493,7 +507,13 @@ common__optimise_call_2(SeenCall, InputArgs, OutputArgs, Modes, Goal0,
 				Structs1, SeenCalls0),
 			pd_cost__goal(Goal0 - GoalInfo, Cost),
 			simplify_info_incr_cost_delta(Info2, Cost, Info3),
-			simplify_info_set_requantify(Info3, Info4)
+			simplify_info_set_requantify(Info3, Info4),
+			goal_info_get_determinism(GoalInfo, Detism0),
+			( Detism0 \= det ->
+				simplify_info_set_rerun_det(Info4, Info5)
+			;
+				Info5 = Info4
+			)
 		;
 			goal_info_get_context(GoalInfo, Context),
 			ThisCall = call_args(Context, InputArgs, OutputArgs),
@@ -502,7 +522,7 @@ common__optimise_call_2(SeenCall, InputArgs, OutputArgs, Modes, Goal0,
 			CommonInfo = common(Eqv0, Structs0,
 				Structs1, SeenCalls),
 			Goal = Goal0,
-			Info4 = Info0
+			Info5 = Info0
 		)
 	;
 		goal_info_get_context(GoalInfo, Context),
@@ -510,9 +530,9 @@ common__optimise_call_2(SeenCall, InputArgs, OutputArgs, Modes, Goal0,
 		map__det_insert(SeenCalls0, SeenCall, [ThisCall], SeenCalls),
 		CommonInfo = common(Eqv0, Structs0, Structs1, SeenCalls),
 		Goal = Goal0,
-		Info4 = Info0
+		Info5 = Info0
 	),
-	simplify_info_set_common_info(Info4, CommonInfo, Info).
+	simplify_info_set_common_info(Info5, CommonInfo, Info).
 
 %---------------------------------------------------------------------------%
 
@@ -683,9 +703,9 @@ common__generate_assign(ToVar, FromVar, UniMode,
 
 common__types_match_exactly(term__variable(Var), term__variable(Var)).
 common__types_match_exactly(Type1, Type2) :-
-	type_to_type_id(Type1, TypeId1, Args1),
-	type_to_type_id(Type2, TypeId2, Args2),
-	TypeId1 = TypeId2,
+	type_to_ctor_and_args(Type1, TypeCtor1, Args1),
+	type_to_ctor_and_args(Type2, TypeCtor2, Args2),
+	TypeCtor1 = TypeCtor2,
 	common__types_match_exactly_list(Args1, Args2).
 
 :- pred common__types_match_exactly_list(list(type), list(type)).

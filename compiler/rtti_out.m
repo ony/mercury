@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -19,16 +19,22 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module rtti_out.
+:- module ll_backend__rtti_out.
 
 :- interface.
 
-:- import_module prog_data, hlds_data.
-:- import_module rtti, llds_out.
+:- import_module parse_tree__prog_data, hlds__hlds_data.
+:- import_module backend_libs__rtti, ll_backend__llds_out.
 :- import_module bool, io.
 
-	% output a C expression holding the address of the C name of
-	% the specified rtti_data
+	% Output a C expression holding the address of the C name of
+	% the specified rtti_data, preceded by the string in the first
+	% argument (that string will usually be a C cast).
+:- pred output_cast_addr_of_rtti_data(string::in, rtti_data::in,
+	io__state::di, io__state::uo) is det.
+
+	% Output a C expression holding the address of the C name of
+	% the specified rtti_data.
 :- pred output_addr_of_rtti_data(rtti_data::in, io__state::di, io__state::uo)
 	is det.
 
@@ -54,15 +60,15 @@
 	bool::in, io__state::di, io__state::uo) is det.
 
 	% Output the C name of the rtti_data specified by the given
-	% rtti_type_id and rtti_name.
-:- pred output_rtti_addr(rtti_type_id::in, rtti_name::in,
+	% rtti_type_ctor and rtti_name.
+:- pred output_rtti_addr(rtti_type_ctor::in, rtti_name::in,
 	io__state::di, io__state::uo) is det.
 
 	% Output the C storage class, C type, and C name of the rtti_data 
-	% specified by the given rtti_type_id and rtti_name,
+	% specified by the given rtti_type_ctor and rtti_name,
 	% for use in a declaration or definition.
 	% The bool should be `yes' iff it is for a definition.
-:- pred output_rtti_addr_storage_type_name(rtti_type_id::in, rtti_name::in,
+:- pred output_rtti_addr_storage_type_name(rtti_type_ctor::in, rtti_name::in,
 	bool::in, io__state::di, io__state::uo) is det.
 
 	% The same as output_rtti_addr_storage_type_name,
@@ -71,357 +77,34 @@
 		class_id::in, string::in, bool::in,
 		io__state::di, io__state::uo) is det.
 
-        % Return true iff the given type of RTTI data structure includes
-	% code addresses.
-:- func rtti_name_would_include_code_addr(rtti_name) = bool.
-
-:- pred rtti_name_linkage(rtti_name::in, linkage::out) is det.
-
-	% rtti_name_c_type(RttiName, Type, TypeSuffix):
-	%	The type of the specified RttiName is given by Type
-	%	and TypeSuffix, which are C code fragments suitable
-	%	for use in a C declaration `<TypeName> foo <TypeSuffix>'.
-	%	TypeSuffix will be "[]" if the given RttiName
-	%	has an array type.
-:- pred rtti_name_c_type(rtti_name::in, string::out, string::out) is det.
-
 :- implementation.
 
-:- import_module pseudo_type_info, code_util, llds, prog_out, c_util.
-:- import_module options, globals.
-:- import_module int, string, list, require, std_util.
+:- import_module parse_tree__prog_out.
+:- import_module hlds__error_util.
+:- import_module backend_libs__pseudo_type_info, backend_libs__type_ctor_info.
+:- import_module backend_libs__c_util.
+:- import_module ll_backend__llds, ll_backend__code_util.
+:- import_module libs__options, libs__globals.
+:- import_module int, string, list, assoc_list, map, require, std_util.
 
 %-----------------------------------------------------------------------------%
 
-output_rtti_data_defn(exist_locns(RttiTypeId, Ordinal, Locns),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_defn_start(RttiTypeId, exist_locns(Ordinal),
-		DeclSet0, DeclSet),
-	(
-			% ANSI/ISO C doesn't allow empty arrays, so
-			% place a dummy value in the array if necessary.
-		{ Locns = [] }
-	->
-		io__write_string("= { {0, 0} };\n")
-	;
-		io__write_string(" = {\n"),
-		output_exist_locns(Locns),
-		io__write_string("};\n")
-	).
-output_rtti_data_defn(exist_info(RttiTypeId, Ordinal, Plain, InTci, Tci,
-		Locns), DeclSet0, DeclSet) -->
-	output_rtti_addr_decls(RttiTypeId, Locns, "", "", 0, _,
-		DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId, exist_info(Ordinal),
-		DeclSet1, DeclSet),
-	io__write_string(" = {\n\t"),
-	io__write_int(Plain),
-	io__write_string(",\n\t"),
-	io__write_int(InTci),
-	io__write_string(",\n\t"),
-	io__write_int(Tci),
-	io__write_string(",\n\t"),
-	output_rtti_addr(RttiTypeId, Locns),
-	io__write_string("\n};\n").
-output_rtti_data_defn(field_names(RttiTypeId, Ordinal, MaybeNames),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_defn_start(RttiTypeId, field_names(Ordinal),
-		DeclSet0, DeclSet),
-	(
-			% ANSI/ISO C doesn't allow empty arrays, so
-			% place a dummy value in the array if necessary.
-		{ MaybeNames = [] }
-	->
-		io__write_string("= { "" };\n")
-	;
-		io__write_string(" = {\n"),
-		output_maybe_quoted_strings(MaybeNames),
-		io__write_string("};\n")
-	).
-output_rtti_data_defn(field_types(RttiTypeId, Ordinal, Types),
-		DeclSet0, DeclSet) -->
-	output_rtti_datas_decls(Types, "", "", 0, _, DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId, field_types(Ordinal),
-		DeclSet1, DeclSet),
-	(
-			% ANSI/ISO C doesn't allow empty arrays, so
-			% place a dummy value in the array if necessary.
-		{ Types = [] }
-	->
-		io__write_string("= { NULL };\n")
-	;
-		io__write_string(" = {\n"),
-		output_addr_of_rtti_datas(Types),
-		io__write_string("};\n")
-	).
-output_rtti_data_defn(enum_functor_desc(RttiTypeId, FunctorName, Ordinal),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		enum_functor_desc(Ordinal), DeclSet0, DeclSet),
-	io__write_string(" = {\n\t"""),
-	c_util__output_quoted_string(FunctorName),
-	io__write_string(""",\n\t"),
-	io__write_int(Ordinal),
-	io__write_string("\n};\n").
-output_rtti_data_defn(notag_functor_desc(RttiTypeId, FunctorName, ArgType,
-		MaybeArgName), DeclSet0, DeclSet) -->
-	output_rtti_data_decls(ArgType, "", "", 0, _, DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId, notag_functor_desc,
-		DeclSet1, DeclSet),
-	io__write_string(" = {\n\t"""),
-	c_util__output_quoted_string(FunctorName),
-	io__write_string(""",\n\t "),
-	output_addr_of_rtti_data(ArgType),
-	io__write_string(",\n\t"),
-	(
-		{ MaybeArgName = yes(ArgName) },
-		io__write_string(""""),
-		io__write_string(ArgName),
-		io__write_string("""")
-	;
-		{ MaybeArgName = no },
-		io__write_string("NULL")
-	),
-	io__write_string("\n};\n").
-output_rtti_data_defn(du_functor_desc(RttiTypeId, FunctorName, Ptag, Stag,
-		Locn, Ordinal, Arity, ContainsVarBitVector, MaybeArgTypes,
-		MaybeNames, MaybeExist),
-		DeclSet0, DeclSet) -->
-	(
-		{ MaybeArgTypes = yes(ArgTypes) },
-		output_rtti_addr_decls(RttiTypeId, ArgTypes, "", "", 0, _,
-			DeclSet0, DeclSet1)
-	;
-		{ MaybeArgTypes = no },
-		{ DeclSet1 = DeclSet0 }
-	),
-	(
-		{ MaybeNames = yes(NamesInfo1) },
-		output_rtti_addr_decls(RttiTypeId, NamesInfo1, "", "",
-			0, _, DeclSet1, DeclSet2)
-	;
-		{ MaybeNames = no },
-		{ DeclSet2 = DeclSet1 }
-	),
-	(
-		{ MaybeExist = yes(ExistInfo1) },
-		output_rtti_addr_decls(RttiTypeId, ExistInfo1, "", "",
-			0, _, DeclSet2, DeclSet3)
-	;
-		{ MaybeExist = no },
-		{ DeclSet3 = DeclSet2 }
-	),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		du_functor_desc(Ordinal), DeclSet3, DeclSet),
-	io__write_string(" = {\n\t"""),
-	c_util__output_quoted_string(FunctorName),
-	io__write_string(""",\n\t"),
-	io__write_int(Arity),
-	io__write_string(",\n\t"),
-	io__write_int(ContainsVarBitVector),
-	io__write_string(",\n\t"),
-	{ rtti__sectag_locn_to_string(Locn, LocnStr) },
-	io__write_string(LocnStr),
-	io__write_string(",\n\t"),
-	io__write_int(Ptag),
-	io__write_string(",\n\t"),
-	io__write_int(Stag),
-	io__write_string(",\n\t"),
-	io__write_int(Ordinal),
-	io__write_string(",\n\t"),
-	io__write_string("(MR_PseudoTypeInfo *) "), % cast away const
-	(
-		{ MaybeArgTypes = yes(ArgTypes2) },
-		output_addr_of_rtti_addr(RttiTypeId, ArgTypes2)
-	;
-		{ MaybeArgTypes = no },
-		io__write_string("NULL")
-	),
-	io__write_string(",\n\t"),
-	(
-		{ MaybeNames = yes(NamesInfo2) },
-		output_rtti_addr(RttiTypeId, NamesInfo2)
-	;
-		{ MaybeNames = no },
-		io__write_string("NULL")
-	),
-	io__write_string(",\n\t"),
-	(
-		{ MaybeExist = yes(ExistInfo2) },
-		output_addr_of_rtti_addr(RttiTypeId, ExistInfo2)
-	;
-		{ MaybeExist = no },
-		io__write_string("NULL")
-	),
-	io__write_string("\n};\n").
-output_rtti_data_defn(enum_name_ordered_table(RttiTypeId, Functors),
-		DeclSet0, DeclSet) -->
-	output_rtti_addrs_decls(RttiTypeId, Functors, "", "", 0, _,
-		DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		enum_name_ordered_table, DeclSet1, DeclSet),
-	io__write_string(" = {\n"),
-	output_addr_of_rtti_addrs(RttiTypeId, Functors),
-	io__write_string("};\n").
-output_rtti_data_defn(enum_value_ordered_table(RttiTypeId, Functors),
-		DeclSet0, DeclSet) -->
-	output_rtti_addrs_decls(RttiTypeId, Functors, "", "", 0, _,
-		DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		enum_value_ordered_table, DeclSet1, DeclSet),
-	io__write_string(" = {\n"),
-	output_addr_of_rtti_addrs(RttiTypeId, Functors),
-	io__write_string("};\n").
-output_rtti_data_defn(du_name_ordered_table(RttiTypeId, Functors),
-		DeclSet0, DeclSet) -->
-	output_rtti_addrs_decls(RttiTypeId, Functors, "", "", 0, _,
-		DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		du_name_ordered_table, DeclSet1, DeclSet),
-	io__write_string(" = {\n"),
-	output_addr_of_rtti_addrs(RttiTypeId, Functors),
-	io__write_string("};\n").
-output_rtti_data_defn(du_stag_ordered_table(RttiTypeId, Ptag, Sharers),
-		DeclSet0, DeclSet) -->
-	output_rtti_addrs_decls(RttiTypeId, Sharers, "", "", 0, _,
-		DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		du_stag_ordered_table(Ptag), DeclSet1, DeclSet),
-	io__write_string(" = {\n"),
-	output_addr_of_rtti_addrs(RttiTypeId, Sharers),
-	io__write_string("\n};\n").
-output_rtti_data_defn(du_ptag_ordered_table(RttiTypeId, PtagLayouts),
-		DeclSet0, DeclSet) -->
-	output_ptag_layout_decls(PtagLayouts, RttiTypeId, DeclSet0, DeclSet1),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		du_ptag_ordered_table, DeclSet1, DeclSet),
-	io__write_string(" = {\n"),
-	globals__io_lookup_bool_option(reserve_tag, ReserveTag),
-	(
-		{ ReserveTag = yes }
-	->
-			% Output a dummy ptag definition for the 
-			% reserved tag first
-		output_dummy_ptag_layout_defn
-	;
-		[]
-	),
-	output_ptag_layout_defns(PtagLayouts, RttiTypeId),
-	io__write_string("\n};\n").
-output_rtti_data_defn(type_ctor_info(RttiTypeId, Unify, Compare,
-		CtorRep, Solver, Init, Version, NumPtags, NumFunctors,
-		FunctorsInfo, LayoutInfo, _MaybeHashCons, _Prettyprinter),
-		DeclSet0, DeclSet) -->
-	{ UnifyCA   = make_maybe_code_addr(Unify) },
-	{ CompareCA = make_maybe_code_addr(Compare) },
-	{ SolverCA  = make_maybe_code_addr(Solver) },
-	{ InitCA    = make_maybe_code_addr(Init) },
-	{ MaybeCodeAddrs = [UnifyCA, CompareCA, SolverCA, InitCA] },
-	{ CodeAddrs = list__filter_map(func(yes(CA)) = CA is semidet,
-		MaybeCodeAddrs) },
-	output_code_addrs_decls(CodeAddrs, "", "", 0, _, DeclSet0, DeclSet1),
-	output_functors_info_decl(RttiTypeId, FunctorsInfo,
-		DeclSet1, DeclSet2),
-	output_layout_info_decl(RttiTypeId, LayoutInfo, DeclSet2, DeclSet3),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		type_ctor_info, DeclSet3, DeclSet),
-	io__write_string(" = {\n\t"),
-	{ RttiTypeId = rtti_type_id(Module, Type, TypeArity) },
-	io__write_int(TypeArity),
-	io__write_string(",\n\t"),
-	output_maybe_static_code_addr(UnifyCA),
-	io__write_string(",\n\t"),
-	output_maybe_static_code_addr(UnifyCA),
-	io__write_string(",\n\t"),
-	output_maybe_static_code_addr(CompareCA),
-	io__write_string(",\n\t"),
-	{ rtti__type_ctor_rep_to_string(CtorRep, CtorRepStr) },
-	io__write_string(CtorRepStr),
-	io__write_string(",\n\t"),
-	output_maybe_static_code_addr(SolverCA),
-	io__write_string(",\n\t"),
-	output_maybe_static_code_addr(InitCA),
-	io__write_string(",\n\t"""),
-	{ prog_out__sym_name_to_string(Module, ModuleName) },
-	c_util__output_quoted_string(ModuleName),
-	io__write_string(""",\n\t"""),
-	c_util__output_quoted_string(Type),
-	io__write_string(""",\n\t"),
-	io__write_int(Version),
-	io__write_string(",\n\t"),
-	(
-		{ FunctorsInfo = enum_functors(EnumFunctorsInfo) },
-		io__write_string("{ (void *) "),
-		output_rtti_addr(RttiTypeId, EnumFunctorsInfo),
-		io__write_string(" }")
-	;
-		{ FunctorsInfo = notag_functors(NotagFunctorsInfo) },
-		io__write_string("{ (void *) &"),
-		output_rtti_addr(RttiTypeId, NotagFunctorsInfo),
-		io__write_string(" }")
-	;
-		{ FunctorsInfo = du_functors(DuFunctorsInfo) },
-		io__write_string("{ (void *) "),
-		output_rtti_addr(RttiTypeId, DuFunctorsInfo),
-		io__write_string(" }")
-	;
-		{ FunctorsInfo = no_functors },
-		io__write_string("{ 0 }")
-	),
-	io__write_string(",\n\t"),
-	(
-		{ LayoutInfo = enum_layout(EnumLayoutInfo) },
-		io__write_string("{ (void *) "),
-		output_rtti_addr(RttiTypeId, EnumLayoutInfo),
-		io__write_string(" }")
-	;
-		{ LayoutInfo = notag_layout(NotagLayoutInfo) },
-		io__write_string("{ (void *) &"),
-		output_rtti_addr(RttiTypeId, NotagLayoutInfo),
-		io__write_string(" }")
-	;
-		{ LayoutInfo = du_layout(DuLayoutInfo) },
-		io__write_string("{ (void *) "),
-		output_rtti_addr(RttiTypeId, DuLayoutInfo),
-		io__write_string(" }")
-	;
-		{ LayoutInfo = equiv_layout(EquivTypeInfo) },
-		io__write_string("{ (void *) "),
-		output_addr_of_rtti_data(EquivTypeInfo),
-		io__write_string(" }")
-	;
-		{ LayoutInfo = no_layout },
-		io__write_string("{ 0 }")
-	),
-	io__write_string(",\n\t"),
-	io__write_int(NumFunctors),
-	io__write_string(",\n\t"),
-	io__write_int(NumPtags),
-% This code is commented out while the corresponding fields of the
-% MR_TypeCtorInfo_Struct type are commented out.
-%
-%	io__write_string(",\n\t"),
-%	(
-%		{ MaybeHashCons = yes(HashConsDataAddr) },
-%		io__write_string("&"),
-%		output_rtti_addr(RttiTypeId, HashConsDataAddr)
-%	;
-%		{ MaybeHashCons = no },
-%		io__write_string("NULL")
-%	),
-%	io__write_string(",\n\t"),
-%	output_maybe_static_code_addr(Prettyprinter),
-	io__write_string("\n};\n").
 output_rtti_data_defn(base_typeclass_info(InstanceModuleName, ClassId,
 		InstanceString, BaseTypeClassInfo), DeclSet0, DeclSet) -->
 	output_base_typeclass_info_defn(InstanceModuleName, ClassId,
 		InstanceString, BaseTypeClassInfo, DeclSet0, DeclSet).
-output_rtti_data_defn(pseudo_type_info(Pseudo), DeclSet0, DeclSet) -->
-	output_pseudo_type_info_defn(Pseudo, DeclSet0, DeclSet).
+output_rtti_data_defn(type_info(TypeInfo), DeclSet0, DeclSet) -->
+	output_type_info_defn(TypeInfo, DeclSet0, DeclSet).
+output_rtti_data_defn(pseudo_type_info(PseudoTypeInfo), DeclSet0, DeclSet) -->
+	output_pseudo_type_info_defn(PseudoTypeInfo, DeclSet0, DeclSet).
+output_rtti_data_defn(type_ctor_info(TypeCtorData), DeclSet0, DeclSet) -->
+	output_type_ctor_data_defn(TypeCtorData, DeclSet0, DeclSet).
 
-:- pred output_base_typeclass_info_defn(module_name, class_id, string,
-		base_typeclass_info, decl_set, decl_set, io__state, io__state).
-:- mode output_base_typeclass_info_defn(in, in, in, in, in, out, di, uo) is det.
+%-----------------------------------------------------------------------------%
+
+:- pred output_base_typeclass_info_defn(module_name::in, class_id::in,
+	string::in, base_typeclass_info::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
 
 output_base_typeclass_info_defn(InstanceModuleName, ClassId, InstanceString,
 		base_typeclass_info(N1, N2, N3, N4, N5, Methods),
@@ -441,130 +124,790 @@ output_base_typeclass_info_defn(InstanceModuleName, ClassId, InstanceString,
 	io__write_list(CodeAddrs, ",\n\t", output_static_code_addr),
 	io__write_string("\n};\n").
 
-:- func make_maybe_code_addr(maybe(rtti_proc_label)) = maybe(code_addr).
-make_maybe_code_addr(no) = no.
-make_maybe_code_addr(yes(ProcLabel)) = yes(make_code_addr(ProcLabel)).
+%-----------------------------------------------------------------------------%
 
-:- func make_code_addr(rtti_proc_label) = code_addr.
-make_code_addr(ProcLabel) = CodeAddr :-
-	code_util__make_entry_label_from_rtti(ProcLabel, no, CodeAddr).
+:- pred output_maybe_pseudo_type_info_or_self_defn(
+	rtti_maybe_pseudo_type_info_or_self::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
 
-:- pred output_pseudo_type_info_defn(pseudo_type_info, decl_set, decl_set,
-		io__state, io__state).
-:- mode output_pseudo_type_info_defn(in, in, out, di, uo) is det.
+output_maybe_pseudo_type_info_or_self_defn(plain(TypeInfo),
+		DeclSet0, DeclSet) -->
+	output_type_info_defn(TypeInfo, DeclSet0, DeclSet).
+output_maybe_pseudo_type_info_or_self_defn(pseudo(PseudoTypeInfo),
+		DeclSet0, DeclSet) -->
+	output_pseudo_type_info_defn(PseudoTypeInfo, DeclSet0, DeclSet).
+output_maybe_pseudo_type_info_or_self_defn(self, DeclSet, DeclSet) --> [].
 
-output_pseudo_type_info_defn(type_var(_), DeclSet, DeclSet) --> [].
-output_pseudo_type_info_defn(type_ctor_info(_), DeclSet, DeclSet) --> [].
-output_pseudo_type_info_defn(TypeInfo, DeclSet0, DeclSet) -->
-	{ TypeInfo = type_info(RttiTypeId, ArgTypes) },
-	{ TypeCtorRttiData = pseudo_type_info(type_ctor_info(RttiTypeId)) },
-	{ ArgRttiDatas = list__map(func(P) = pseudo_type_info(P), ArgTypes) },
-	output_rtti_data_decls(TypeCtorRttiData, "", "", 0, _, DeclSet0, DeclSet1),
-	output_rtti_datas_decls(ArgRttiDatas, "", "", 0, _, DeclSet1, DeclSet2),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		pseudo_type_info(TypeInfo), DeclSet2, DeclSet),
+:- pred output_maybe_pseudo_type_info_defn(rtti_maybe_pseudo_type_info::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_maybe_pseudo_type_info_defn(plain(TypeInfo), DeclSet0, DeclSet) -->
+	output_type_info_defn(TypeInfo, DeclSet0, DeclSet).
+output_maybe_pseudo_type_info_defn(pseudo(PseudoTypeInfo), DeclSet0, DeclSet)
+		-->
+	output_pseudo_type_info_defn(PseudoTypeInfo, DeclSet0, DeclSet).
+
+:- pred output_type_info_defn(rtti_type_info::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_type_info_defn(TypeInfo, DeclSet0, DeclSet) -->
+	(
+		{ rtti_data_to_name(type_info(TypeInfo),
+			RttiTypeCtor, RttiName) },
+		{ DataAddr = rtti_addr(RttiTypeCtor, RttiName) },
+		{ decl_set_is_member(data_addr(DataAddr), DeclSet0) }
+	->
+		{ DeclSet = DeclSet0 }
+	;
+		do_output_type_info_defn(TypeInfo, DeclSet0, DeclSet)
+	).
+
+:- pred do_output_type_info_defn(rtti_type_info::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+do_output_type_info_defn(plain_arity_zero_type_info(_),
+		DeclSet, DeclSet) --> [].
+do_output_type_info_defn(TypeInfo, DeclSet0, DeclSet) -->
+	{ TypeInfo = plain_type_info(RttiTypeCtor, Args) },
+	{ TypeCtorRttiData = type_info(
+		plain_arity_zero_type_info(RttiTypeCtor)) },
+	{ ArgRttiDatas = list__map(type_info_to_rtti_data, Args) },
+	output_type_ctor_and_arg_defns_and_decls(TypeCtorRttiData,
+		ArgRttiDatas, DeclSet0, DeclSet1),
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		type_info(TypeInfo), DeclSet1, DeclSet),
 	io__write_string(" = {\n\t&"),
-	output_rtti_addr(RttiTypeId, type_ctor_info),
+	output_rtti_addr(RttiTypeCtor, type_ctor_info),
 	io__write_string(",\n{"),
-	output_addr_of_rtti_datas(ArgRttiDatas),
+	output_cast_addr_of_rtti_datas("(MR_TypeInfo) ", ArgRttiDatas),
 	io__write_string("}};\n").
-output_pseudo_type_info_defn(HO_TypeInfo, DeclSet0, DeclSet) -->
-	{ HO_TypeInfo = higher_order_type_info(RttiTypeId, Arity, ArgTypes) },
-	{ TypeCtorRttiData = pseudo_type_info(type_ctor_info(RttiTypeId)) },
-	{ ArgRttiDatas = list__map(func(P) = pseudo_type_info(P), ArgTypes) },
-	output_rtti_data_decls(TypeCtorRttiData, "", "", 0, _, DeclSet0, DeclSet1),
-	output_rtti_datas_decls(ArgRttiDatas, "", "", 0, _, DeclSet1, DeclSet2),
-	output_generic_rtti_data_defn_start(RttiTypeId,
-		pseudo_type_info(HO_TypeInfo), DeclSet2, DeclSet),
+do_output_type_info_defn(TypeInfo, DeclSet0, DeclSet) -->
+	{ TypeInfo = var_arity_type_info(RttiVarArityId, Args) },
+	{ RttiTypeCtor = var_arity_id_to_rtti_type_ctor(RttiVarArityId) },
+	{ TypeCtorRttiData = type_info(
+		plain_arity_zero_type_info(RttiTypeCtor)) },
+	{ ArgRttiDatas = list__map(type_info_to_rtti_data, Args) },
+	output_type_ctor_and_arg_defns_and_decls(TypeCtorRttiData,
+		ArgRttiDatas, DeclSet0, DeclSet1),
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		type_info(TypeInfo), DeclSet1, DeclSet),
 	io__write_string(" = {\n\t&"),
-	output_rtti_addr(RttiTypeId, type_ctor_info),
+	output_rtti_addr(RttiTypeCtor, type_ctor_info),
 	io__write_string(",\n\t"),
+	{ list__length(Args, Arity) },
 	io__write_int(Arity),
 	io__write_string(",\n{"),
-	output_addr_of_rtti_datas(ArgRttiDatas),
+	output_cast_addr_of_rtti_datas("(MR_TypeInfo) ", ArgRttiDatas),
 	io__write_string("}};\n").
 
-:- pred output_functors_info_decl(rtti_type_id::in,
-	type_ctor_functors_info::in, decl_set::in, decl_set::out,
+:- pred output_pseudo_type_info_defn(rtti_pseudo_type_info::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_pseudo_type_info_defn(PseudoTypeInfo, DeclSet0, DeclSet) -->
+	(
+		{ PseudoTypeInfo = type_var(_) }
+	->
+		{ DeclSet = DeclSet0 }
+	;
+		{ rtti_data_to_name(pseudo_type_info(PseudoTypeInfo),
+			RttiTypeCtor, RttiName) },
+		{ DataAddr = rtti_addr(RttiTypeCtor, RttiName) },
+		{ decl_set_is_member(data_addr(DataAddr), DeclSet0) }
+	->
+		{ DeclSet = DeclSet0 }
+	;
+		do_output_pseudo_type_info_defn(PseudoTypeInfo,
+			DeclSet0, DeclSet)
+	).
+
+:- pred do_output_pseudo_type_info_defn(rtti_pseudo_type_info::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+do_output_pseudo_type_info_defn(plain_arity_zero_pseudo_type_info(_),
+		DeclSet, DeclSet) --> [].
+do_output_pseudo_type_info_defn(PseudoTypeInfo, DeclSet0, DeclSet) -->
+	{ PseudoTypeInfo = plain_pseudo_type_info(RttiTypeCtor, Args) },
+	{ TypeCtorRttiData = pseudo_type_info(
+		plain_arity_zero_pseudo_type_info(RttiTypeCtor)) },
+	{ ArgRttiDatas = list__map(maybe_pseudo_type_info_to_rtti_data, Args) },
+	output_type_ctor_and_arg_defns_and_decls(TypeCtorRttiData,
+		ArgRttiDatas, DeclSet0, DeclSet1),
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		pseudo_type_info(PseudoTypeInfo), DeclSet1, DeclSet),
+	io__write_string(" = {\n\t&"),
+	output_rtti_addr(RttiTypeCtor, type_ctor_info),
+	io__write_string(",\n{"),
+	output_cast_addr_of_rtti_datas("(MR_PseudoTypeInfo) ", ArgRttiDatas),
+	io__write_string("}};\n").
+do_output_pseudo_type_info_defn(PseudoTypeInfo, DeclSet0, DeclSet) -->
+	{ PseudoTypeInfo = var_arity_pseudo_type_info(RttiVarArityId, Args) },
+	{ RttiTypeCtor = var_arity_id_to_rtti_type_ctor(RttiVarArityId) },
+	{ TypeCtorRttiData = pseudo_type_info(
+		plain_arity_zero_pseudo_type_info(RttiTypeCtor)) },
+	{ ArgRttiDatas = list__map(maybe_pseudo_type_info_to_rtti_data, Args) },
+	output_type_ctor_and_arg_defns_and_decls(TypeCtorRttiData,
+		ArgRttiDatas, DeclSet0, DeclSet1),
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		pseudo_type_info(PseudoTypeInfo), DeclSet1, DeclSet),
+	io__write_string(" = {\n\t&"),
+	output_rtti_addr(RttiTypeCtor, type_ctor_info),
+	io__write_string(",\n\t"),
+	{ list__length(Args, Arity) },
+	io__write_int(Arity),
+	io__write_string(",\n{"),
+	output_cast_addr_of_rtti_datas("(MR_PseudoTypeInfo) ", ArgRttiDatas),
+	io__write_string("}};\n").
+do_output_pseudo_type_info_defn(type_var(_), DeclSet, DeclSet) --> [].
+
+:- pred output_type_ctor_and_arg_defns_and_decls(rtti_data::in,
+	list(rtti_data)::in, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
 
-output_functors_info_decl(RttiTypeId, enum_functors(EnumFunctorsInfo),
+output_type_ctor_and_arg_defns_and_decls(TypeCtorRttiData, ArgRttiDatas,
 		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_decl(RttiTypeId, EnumFunctorsInfo,
-		DeclSet0, DeclSet).
-output_functors_info_decl(RttiTypeId, notag_functors(NotagFunctorsInfo),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_decl(RttiTypeId, NotagFunctorsInfo,
-		DeclSet0, DeclSet).
-output_functors_info_decl(RttiTypeId, du_functors(DuFunctorsInfo),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_decl(RttiTypeId, DuFunctorsInfo,
-		DeclSet0, DeclSet).
-output_functors_info_decl(_RttiTypeId, no_functors, DeclSet, DeclSet) --> [].
-
-:- pred output_layout_info_decl(rtti_type_id::in, type_ctor_layout_info::in,
-	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
-
-output_layout_info_decl(RttiTypeId, enum_layout(EnumLayoutInfo),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_decl(RttiTypeId, EnumLayoutInfo,
-		DeclSet0, DeclSet).
-output_layout_info_decl(RttiTypeId, notag_layout(NotagLayoutInfo),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_decl(RttiTypeId, NotagLayoutInfo,
-		DeclSet0, DeclSet).
-output_layout_info_decl(RttiTypeId, du_layout(DuLayoutInfo),
-		DeclSet0, DeclSet) -->
-	output_generic_rtti_data_decl(RttiTypeId, DuLayoutInfo,
-		DeclSet0, DeclSet).
-output_layout_info_decl(_RttiTypeId, equiv_layout(EquivRttiData),
-		DeclSet0, DeclSet) -->
-	output_rtti_data_decl(EquivRttiData, DeclSet0, DeclSet).
-output_layout_info_decl(_RttiTypeId, no_layout, DeclSet, DeclSet) --> [].
-
-:- pred output_ptag_layout_decls(list(du_ptag_layout)::in, rtti_type_id::in,
-	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
-
-output_ptag_layout_decls([], _, DeclSet, DeclSet) --> [].
-output_ptag_layout_decls([DuPtagLayout | DuPtagLayouts], RttiTypeId,
-		DeclSet0, DeclSet) -->
-	{ DuPtagLayout = du_ptag_layout(_, _, Descriptors) },
-	output_rtti_addr_decls(RttiTypeId, Descriptors, "", "", 0, _,
+	output_rtti_data_decls(TypeCtorRttiData, "", "", 0, _,
 		DeclSet0, DeclSet1),
-	output_ptag_layout_decls(DuPtagLayouts, RttiTypeId, DeclSet1, DeclSet).
+	% We must output the definitions of the rtti_datas of the argument
+	% typeinfos and/or pseudo-typeinfos, because they may contain other
+	% typeinfos and/or pseudo-typeinfos nested within them. However,
+	% zero arity typeinfos and pseudo-typeinfos have empty definitions,
+	% yet the type_ctor_info they refer to still must be declared.
+	% This is why both calls below are needed.
+	list__foldl2(output_rtti_data_defn, ArgRttiDatas, DeclSet1, DeclSet2),
+	output_rtti_datas_decls(ArgRttiDatas, "", "", 0, _,
+		DeclSet2, DeclSet).
 
-:- pred output_ptag_layout_defns(list(du_ptag_layout)::in, rtti_type_id::in,
+%-----------------------------------------------------------------------------%
+
+:- pred output_type_ctor_data_defn(type_ctor_data::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_type_ctor_data_defn(TypeCtorData, DeclSet0, DeclSet) -->
+	{ RttiTypeCtor = tcd_get_rtti_type_ctor(TypeCtorData) },
+	{ TypeCtorData = type_ctor_data(Version, Module, TypeName, TypeArity,
+		UnifyUniv, CompareUniv, TypeCtorDetails) },
+	output_type_ctor_details_defn(RttiTypeCtor, TypeCtorDetails,
+		MaybeFunctorsName, MaybeLayoutName, DeclSet0, DeclSet1),
+	{ det_univ_to_type(UnifyUniv, UnifyProcLabel) },
+	{ UnifyCodeAddr   = make_code_addr(UnifyProcLabel) },
+	{ det_univ_to_type(CompareUniv, CompareProcLabel) },
+	{ CompareCodeAddr = make_code_addr(CompareProcLabel) },
+	{ CodeAddrs = [UnifyCodeAddr, CompareCodeAddr] },
+	output_code_addrs_decls(CodeAddrs, "", "", 0, _, DeclSet1, DeclSet2),
+	output_generic_rtti_data_defn_start(RttiTypeCtor, type_ctor_info,
+		DeclSet2, DeclSet), io__write_string(" = {\n\t"),
+	io__write_int(TypeArity),
+	io__write_string(",\n\t"),
+	io__write_int(Version),
+	io__write_string(",\n\t"),
+	io__write_int(type_ctor_details_num_ptags(TypeCtorDetails)),
+	io__write_string(",\n\t"),
+	{ rtti__type_ctor_rep_to_string(TypeCtorData, CtorRepStr) },
+	io__write_string(CtorRepStr),
+	io__write_string(",\n\t"),
+	output_static_code_addr(UnifyCodeAddr),
+	io__write_string(",\n\t"),
+	output_static_code_addr(CompareCodeAddr),
+	io__write_string(",\n\t"""),
+	{ prog_out__sym_name_to_string(Module, ModuleName) },
+	c_util__output_quoted_string(ModuleName),
+	io__write_string(""",\n\t"""),
+	c_util__output_quoted_string(TypeName),
+	io__write_string(""",\n\t"),
+	(
+		{ MaybeFunctorsName = yes(FunctorsName) },
+		io__write_string("{ (void *) &"),
+		output_rtti_addr(RttiTypeCtor, FunctorsName),
+		io__write_string(" }")
+	;
+		{ MaybeFunctorsName = no },
+		io__write_string("{ 0 }")
+	),
+	io__write_string(",\n\t"),
+	(
+		{ MaybeLayoutName = yes(LayoutName) },
+		io__write_string("{ (void *) &"),
+		output_rtti_addr(RttiTypeCtor, LayoutName),
+		io__write_string(" }")
+	;
+		{ MaybeLayoutName = no },
+		io__write_string("{ 0 }")
+	),
+	io__write_string(",\n\t"),
+	io__write_int(type_ctor_details_num_functors(TypeCtorDetails)),
+% This code is commented out while the corresponding fields of the
+% MR_TypeCtorInfo_Struct type are commented out.
+%
+%	io__write_string(",\n\t"),
+%	(
+%		{ MaybeHashCons = yes(HashConsDataAddr) },
+%		io__write_string("&"),
+%		output_rtti_addr(RttiTypeCtor, HashConsDataAddr)
+%	;
+%		{ MaybeHashCons = no },
+%		io__write_string("NULL")
+%	),
+%	io__write_string(",\n\t"),
+%	output_maybe_static_code_addr(Prettyprinter),
+	io__write_string("\n};\n").
+
+:- pred output_type_ctor_details_defn(rtti_type_ctor::in,
+	type_ctor_details::in, maybe(rtti_name)::out, maybe(rtti_name)::out,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_type_ctor_details_defn(RttiTypeCtor, TypeCtorDetails,
+		MaybeFunctorsName, MaybeLayoutName, DeclSet0, DeclSet) -->
+	(
+		{ TypeCtorDetails = enum(_, EnumFunctors, EnumByRep,
+			EnumByName) },
+		list__foldl2(output_enum_functor_defn(RttiTypeCtor),
+			EnumFunctors, DeclSet0, DeclSet1),
+		output_enum_value_ordered_table(RttiTypeCtor, EnumByRep,
+			DeclSet1, DeclSet2),
+		output_enum_name_ordered_table(RttiTypeCtor, EnumByName,
+			DeclSet2, DeclSet),
+		{ MaybeLayoutName = yes(enum_value_ordered_table) },
+		{ MaybeFunctorsName = yes(enum_name_ordered_table) }
+	;
+		{ TypeCtorDetails = du(_, DuFunctors, DuByRep, DuByName) },
+		list__foldl2(output_du_functor_defn(RttiTypeCtor), DuFunctors,
+			DeclSet0, DeclSet1),
+		output_du_ptag_ordered_table(RttiTypeCtor, DuByRep,
+			DeclSet1, DeclSet2),
+		output_du_name_ordered_table(RttiTypeCtor, DuByName,
+			DeclSet2, DeclSet),
+		{ MaybeLayoutName = yes(du_ptag_ordered_table) },
+		{ MaybeFunctorsName = yes(du_name_ordered_table) }
+	;
+		{ TypeCtorDetails = reserved(_, MaybeResFunctors, ResFunctors,
+			DuByRep, MaybeResByName) },
+		list__foldl2(output_maybe_res_functor_defn(RttiTypeCtor),
+			MaybeResFunctors, DeclSet0, DeclSet1),
+		output_res_value_ordered_table(RttiTypeCtor, ResFunctors,
+			DuByRep, DeclSet1, DeclSet2),
+		output_res_name_ordered_table(RttiTypeCtor, MaybeResByName,
+			DeclSet2, DeclSet),
+		{ MaybeLayoutName = yes(res_value_ordered_table) },
+		{ MaybeFunctorsName = yes(res_name_ordered_table) }
+	;
+		{ TypeCtorDetails = notag(_, NotagFunctor) },
+		output_notag_functor_defn(RttiTypeCtor, NotagFunctor,
+			DeclSet0, DeclSet),
+		{ MaybeLayoutName = yes(notag_functor_desc) },
+		{ MaybeFunctorsName = yes(notag_functor_desc) }
+	;
+		{ TypeCtorDetails = eqv(EqvType) },
+		output_maybe_pseudo_type_info_defn(EqvType,
+			DeclSet0, DeclSet1),
+		{ TypeData = maybe_pseudo_type_info_to_rtti_data(EqvType) },
+		output_rtti_data_decls(TypeData, "", "", 0, _,
+			DeclSet1, DeclSet),
+		{
+			EqvType = plain(TypeInfo),
+			LayoutName = type_info(TypeInfo)
+		;
+			EqvType = pseudo(PseudoTypeInfo),
+			LayoutName = pseudo_type_info(PseudoTypeInfo)
+		},
+		{ MaybeLayoutName = yes(LayoutName) },
+		{ MaybeFunctorsName = no }
+	;
+		{ TypeCtorDetails = builtin(_) }, { error("output_type_ctor_details_defn: builtin") }
+	;
+		{ TypeCtorDetails = impl_artifact(_) },
+		{ error("output_type_ctor_details_defn: impl_artifact") }
+	;
+		{ TypeCtorDetails = foreign },
+		{ DeclSet = DeclSet0 },
+		{ MaybeLayoutName = no },
+		{ MaybeFunctorsName = no }
+	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred output_enum_functor_defn(rtti_type_ctor::in, enum_functor::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_enum_functor_defn(RttiTypeCtor, EnumFunctor, DeclSet0, DeclSet) -->
+	{ EnumFunctor = enum_functor(FunctorName, Ordinal) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		enum_functor_desc(Ordinal), DeclSet0, DeclSet),
+	io__write_string(" = {\n\t"""),
+	c_util__output_quoted_string(FunctorName),
+	io__write_string(""",\n\t"),
+	io__write_int(Ordinal),
+	io__write_string("\n};\n").
+
+:- pred output_notag_functor_defn(rtti_type_ctor::in, notag_functor::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_notag_functor_defn(RttiTypeCtor, NotagFunctor, DeclSet0, DeclSet) -->
+	{ NotagFunctor = notag_functor(FunctorName, ArgType, MaybeArgName) },
+	output_maybe_pseudo_type_info_defn(ArgType, DeclSet0, DeclSet1),
+	{ ArgTypeData = maybe_pseudo_type_info_to_rtti_data(ArgType) },
+	output_rtti_data_decls(ArgTypeData, "", "", 0, _,
+		DeclSet1, DeclSet2),
+	output_generic_rtti_data_defn_start(RttiTypeCtor, notag_functor_desc,
+		DeclSet2, DeclSet),
+	io__write_string(" = {\n\t"""),
+	c_util__output_quoted_string(FunctorName),
+	io__write_string(""",\n\t"),
+	(
+		{ ArgType = plain(ArgTypeInfo) },
+		output_cast_addr_of_rtti_data("(MR_PseudoTypeInfo) ",
+			type_info(ArgTypeInfo))
+	;
+		{ ArgType = pseudo(ArgPseudoTypeInfo) },
+		% We need to cast the argument to MR_PseudoTypeInfo in case
+		% it turns out to be a small integer, not a pointer.
+		output_cast_addr_of_rtti_data("(MR_PseudoTypeInfo) ",
+			pseudo_type_info(ArgPseudoTypeInfo))
+	),
+	io__write_string(",\n\t"),
+	(
+		{ MaybeArgName = yes(ArgName) },
+		io__write_string(""""),
+		io__write_string(ArgName),
+		io__write_string("""")
+	;
+		{ MaybeArgName = no },
+		io__write_string("NULL")
+	),
+	io__write_string("\n};\n").
+
+:- pred output_du_functor_defn(rtti_type_ctor::in, du_functor::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_du_functor_defn(RttiTypeCtor, DuFunctor, DeclSet0, DeclSet) -->
+	{ DuFunctor = du_functor(FunctorName, OrigArity, Ordinal, Rep,
+		ArgInfos, MaybeExistInfo) },
+	{ ArgTypes = list__map(du_arg_info_type, ArgInfos) },
+	{ MaybeArgNames = list__map(du_arg_info_name, ArgInfos) },
+	{ ArgNames = list__filter_map(project_yes, MaybeArgNames) },
+	(
+		{ ArgInfos = [_ | _] },
+		output_du_arg_types(RttiTypeCtor, Ordinal, ArgTypes,
+			DeclSet0, DeclSet1)
+	;
+		{ ArgInfos = [] },
+		{ DeclSet1 = DeclSet0 }
+	),
+	(
+		{ ArgNames = [_ | _] },
+		output_du_arg_names(RttiTypeCtor, Ordinal, MaybeArgNames,
+			DeclSet1, DeclSet2)
+	;
+		{ ArgNames = [] },
+		{ DeclSet2 = DeclSet1 }
+	),
+	(
+		{ MaybeExistInfo = yes(ExistInfo) },
+		output_exist_info(RttiTypeCtor, Ordinal, ExistInfo,
+			DeclSet2, DeclSet3)
+	;
+		{ MaybeExistInfo = no },
+		{ DeclSet3 = DeclSet2 }
+	),
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		du_functor_desc(Ordinal), DeclSet3, DeclSet),
+	io__write_string(" = {\n\t"""),
+	c_util__output_quoted_string(FunctorName),
+	io__write_string(""",\n\t"),
+	io__write_int(OrigArity),
+	io__write_string(",\n\t"),
+	{ ContainsVarBitVector = compute_contains_var_bit_vector(ArgTypes) },
+	io__write_int(ContainsVarBitVector),
+	io__write_string(",\n\t"),
+	{
+		Rep = du_ll_rep(Ptag, SectagAndLocn)
+	;
+		Rep = du_hl_rep(_),
+		error("output_du_functor_defn: du_hl_rep")
+	},
+	{
+		SectagAndLocn = sectag_none,
+		Locn = "MR_SECTAG_NONE",
+		Stag = -1
+	;
+		SectagAndLocn = sectag_local(Stag),
+		Locn = "MR_SECTAG_LOCAL"
+	;
+		SectagAndLocn = sectag_remote(Stag),
+		Locn = "MR_SECTAG_REMOTE"
+	},
+	io__write_string(Locn),
+	io__write_string(",\n\t"),
+	io__write_int(Ptag),
+	io__write_string(",\n\t"),
+	io__write_int(Stag),
+	io__write_string(",\n\t"),
+	io__write_int(Ordinal),
+	io__write_string(",\n\t"),
+	io__write_string("(MR_PseudoTypeInfo *) "), % cast away const
+	(
+		{ ArgInfos = [_ | _] },
+		output_addr_of_rtti_addr(RttiTypeCtor, field_types(Ordinal))
+	;
+		{ ArgInfos = [] },
+		io__write_string("NULL")
+	),
+	io__write_string(",\n\t"),
+	(
+		{ ArgNames = [_ | _] },
+		output_addr_of_rtti_addr(RttiTypeCtor, field_names(Ordinal))
+	;
+		{ ArgNames = [] },
+		io__write_string("NULL")
+	),
+	io__write_string(",\n\t"),
+	(
+		{ MaybeExistInfo = yes(_) },
+		output_addr_of_rtti_addr(RttiTypeCtor, exist_info(Ordinal))
+	;
+		{ MaybeExistInfo = no },
+		io__write_string("NULL")
+	),
+	io__write_string("\n};\n").
+
+:- pred output_res_functor_defn(rtti_type_ctor::in, reserved_functor::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_res_functor_defn(RttiTypeCtor, ResFunctor, DeclSet0, DeclSet) -->
+	{ ResFunctor = reserved_functor(FunctorName, Ordinal, Rep) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		res_functor_desc(Ordinal), DeclSet0, DeclSet),
+	io__write_string(" = {\n\t"""),
+	c_util__output_quoted_string(FunctorName),
+	io__write_string(""",\n\t"),
+	io__write_int(Ordinal),
+	io__write_string(",\n\t"),
+	io__write_string("(void *) "),
+	(
+		{ Rep = null_pointer },
+		io__write_string("NULL")
+	;
+		{ Rep = small_pointer(SmallPtr) },
+		io__write_int(SmallPtr)
+	;
+		{ Rep = reserved_object(_, _, _) },
+		{ error("output_res_functor_defn: reserved object") }
+	),
+	io__write_string("\n};\n").
+
+:- pred output_maybe_res_functor_defn(rtti_type_ctor::in,
+	maybe_reserved_functor::in, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
 
-output_ptag_layout_defns([], _) --> [].
-output_ptag_layout_defns([DuPtagLayout | DuPtagLayouts], RttiTypeId) -->
-	{ DuPtagLayout = du_ptag_layout(NumSharers, Locn, Descriptors) },
+output_maybe_res_functor_defn(RttiTypeCtor, MaybeResFunctor, DeclSet0, DeclSet)
+		-->
+	(
+		{ MaybeResFunctor = res_func(ResFunctor) },
+		output_res_functor_defn(RttiTypeCtor, ResFunctor,
+			DeclSet0, DeclSet)
+	;
+		{ MaybeResFunctor = du_func(DuFunctor) },
+		output_du_functor_defn(RttiTypeCtor, DuFunctor,
+			DeclSet0, DeclSet)
+	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred output_exist_locns_array(rtti_type_ctor::in, int::in,
+	list(exist_typeinfo_locn)::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_exist_locns_array(RttiTypeCtor, Ordinal, Locns, DeclSet0, DeclSet) -->
+	output_generic_rtti_data_defn_start(RttiTypeCtor, exist_locns(Ordinal),
+		DeclSet0, DeclSet),
+	(
+			% ANSI/ISO C doesn't allow empty arrays, so
+			% place a dummy value in the array if necessary.
+		{ Locns = [] }
+	->
+		io__write_string("= { {0, 0} };\n")
+	;
+		io__write_string(" = {\n"),
+		output_exist_locns(Locns),
+		io__write_string("};\n")
+	).
+
+:- pred output_exist_info(rtti_type_ctor::in, int::in, exist_info::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_exist_info(RttiTypeCtor, Ordinal, ExistInfo, DeclSet0, DeclSet) -->
+	{ ExistInfo = exist_info(Plain, InTci, Tci, Locns) }, 
+	output_exist_locns_array(RttiTypeCtor, Ordinal, Locns,
+		DeclSet0, DeclSet1),
+	output_generic_rtti_data_defn_start(RttiTypeCtor, exist_info(Ordinal),
+		DeclSet1, DeclSet),
+	io__write_string(" = {\n\t"),
+	io__write_int(Plain),
+	io__write_string(",\n\t"),
+	io__write_int(InTci),
+	io__write_string(",\n\t"),
+	io__write_int(Tci),
+	io__write_string(",\n\t"),
+	output_rtti_addr(RttiTypeCtor, exist_locns(Ordinal)),
+	io__write_string("\n};\n").
+
+:- pred output_du_arg_types(rtti_type_ctor::in, int::in,
+	list(rtti_maybe_pseudo_type_info_or_self)::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_du_arg_types(RttiTypeCtor, Ordinal, ArgTypes, DeclSet0, DeclSet) -->
+	list__foldl2(output_maybe_pseudo_type_info_or_self_defn, ArgTypes,
+		DeclSet0, DeclSet1),
+	{ ArgTypeDatas = list__map(maybe_pseudo_type_info_or_self_to_rtti_data,
+		ArgTypes) },
+	output_rtti_datas_decls(ArgTypeDatas, "", "", 0, _,
+		DeclSet1, DeclSet2),
+	output_generic_rtti_data_defn_start(RttiTypeCtor, field_types(Ordinal),
+		DeclSet2, DeclSet),
+	io__write_string(" = {\n"),
+	{ require(list__is_not_empty(ArgTypes),
+		"output_du_arg_types: empty list") },
+	{ ArgRttiDatas = list__map(maybe_pseudo_type_info_or_self_to_rtti_data,
+		ArgTypes) },
+	output_cast_addr_of_rtti_datas("(MR_PseudoTypeInfo) ", ArgRttiDatas),
+	io__write_string("};\n").
+
+:- pred output_du_arg_names(rtti_type_ctor::in, int::in,
+	list(maybe(string))::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_du_arg_names(RttiTypeCtor, Ordinal, MaybeNames, DeclSet0, DeclSet) -->
+	output_generic_rtti_data_defn_start(RttiTypeCtor, field_names(Ordinal),
+		DeclSet0, DeclSet),
+	io__write_string(" = {\n"),
+	{ require(list__is_not_empty(MaybeNames),
+		"output_du_arg_names: empty list") },
+	output_maybe_quoted_strings(MaybeNames),
+	io__write_string("};\n").
+
+%-----------------------------------------------------------------------------%
+
+:- pred output_enum_value_ordered_table(rtti_type_ctor::in,
+	map(int, enum_functor)::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_enum_value_ordered_table(RttiTypeCtor, FunctorMap, DeclSet0, DeclSet)
+		-->
+	{ Functors = map__values(FunctorMap) },
+	{ FunctorRttiNames = list__map(enum_functor_rtti_name, Functors) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		enum_value_ordered_table, DeclSet0, DeclSet),
+	io__write_string(" = {\n"),
+	output_addr_of_rtti_addrs(RttiTypeCtor, FunctorRttiNames),
+	io__write_string("};\n").
+
+:- pred output_enum_name_ordered_table(rtti_type_ctor::in,
+	map(string, enum_functor)::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_enum_name_ordered_table(RttiTypeCtor, FunctorMap, DeclSet0, DeclSet)
+		-->
+	{ Functors = map__values(FunctorMap) },
+	{ FunctorRttiNames = list__map(enum_functor_rtti_name, Functors) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		enum_name_ordered_table, DeclSet0, DeclSet),
+	io__write_string(" = {\n"),
+	output_addr_of_rtti_addrs(RttiTypeCtor, FunctorRttiNames),
+	io__write_string("};\n").
+
+:- pred output_du_name_ordered_table(rtti_type_ctor::in,
+	map(string, map(int, du_functor))::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_du_name_ordered_table(RttiTypeCtor, NameArityMap, DeclSet0, DeclSet) -->
+	{ map__values(NameArityMap, ArityMaps) },
+	{ list__map(map__values, ArityMaps, FunctorLists) },
+	{ list__condense(FunctorLists, Functors) },
+	{ FunctorRttiNames = list__map(du_functor_rtti_name, Functors) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		du_name_ordered_table, DeclSet0, DeclSet),
+	io__write_string(" = {\n"),
+	output_addr_of_rtti_addrs(RttiTypeCtor, FunctorRttiNames),
+	io__write_string("};\n").
+
+:- pred output_du_stag_ordered_table(rtti_type_ctor::in,
+	pair(int, sectag_table)::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_du_stag_ordered_table(RttiTypeCtor, Ptag - SectagTable,
+		DeclSet0, DeclSet) -->
+	{ SectagTable = sectag_table(_SectagLocn, _NumSharers, SectagMap) },
+	{ map__values(SectagMap, SectagFunctors) },
+	{ FunctorNames = list__map(du_functor_rtti_name, SectagFunctors) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		du_stag_ordered_table(Ptag), DeclSet0, DeclSet),
+	io__write_string(" = {\n"),
+	output_addr_of_rtti_addrs(RttiTypeCtor, FunctorNames),
+	io__write_string("\n};\n").
+
+:- pred output_du_ptag_ordered_table(rtti_type_ctor::in,
+	map(int, sectag_table)::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_du_ptag_ordered_table(RttiTypeCtor, PtagMap, DeclSet0, DeclSet) -->
+	{ map__to_assoc_list(PtagMap, PtagList) },
+	list__foldl2(output_du_stag_ordered_table(RttiTypeCtor), PtagList,
+		DeclSet0, DeclSet1),
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		du_ptag_ordered_table, DeclSet1, DeclSet),
+	io__write_string(" = {\n"),
+	( { PtagList = [1 - _ | _] } ->
+			% Output a dummy ptag definition for the 
+			% reserved tag first.
+		output_dummy_ptag_layout_defn,
+		{ FirstPtag = 1 }
+	; { PtagList = [0 - _ | _] } ->
+		{ FirstPtag = 0 }
+	;
+		{ error("output_dummy_ptag_layout_defn: bad ptag list") }
+	),
+	output_du_ptag_ordered_table_body(RttiTypeCtor, PtagList, FirstPtag),
+	io__write_string("\n};\n").
+
+:- pred output_du_ptag_ordered_table_body(rtti_type_ctor::in,
+	assoc_list(int, sectag_table)::in, int::in,
+	io__state::di, io__state::uo) is det.
+
+output_du_ptag_ordered_table_body(_RttiTypeCtor, [], _CurPtag) --> [].
+output_du_ptag_ordered_table_body(RttiTypeCtor,
+		[Ptag - SectagTable | PtagTail], CurPtag) -->
+	{ require(unify(Ptag, CurPtag),
+		"output_du_ptag_ordered_table_body: ptag mismatch") },
+	{ SectagTable = sectag_table(SectagLocn, NumSharers, _SectagMap) },
 	io__write_string("\t{ "),
 	io__write_int(NumSharers),
 	io__write_string(", "),
-	{ rtti__sectag_locn_to_string(Locn, LocnStr) },
+	{ rtti__sectag_locn_to_string(SectagLocn, LocnStr) },
 	io__write_string(LocnStr),
 	io__write_string(",\n\t"),
-	output_rtti_addr(RttiTypeId, Descriptors),
-	( { DuPtagLayouts = [] } ->
+	output_rtti_addr(RttiTypeCtor, du_stag_ordered_table(Ptag)),
+	( { PtagTail = [] } ->
 		io__write_string(" }\n")
 	;
-		io__write_string(" },\n")
-	),
-	output_ptag_layout_defns(DuPtagLayouts, RttiTypeId).
+		io__write_string(" },\n"),
+		output_du_ptag_ordered_table_body(RttiTypeCtor, PtagTail,
+			CurPtag + 1)
+	).
 
 	% Output a `dummy' ptag layout, for use by tags that aren't *real*
 	% tags, such as the tag reserved when --reserve-tag is on.
 	%
 	% XXX Note that if one of these dummy ptag definitions is actually
-	% accessed by the Mercury runtime, or the construct/deconstruct
-	% code in library/std_util.m, the result will be undefined.
+	% accessed by the Mercury runtime, the result will be undefined.
 	% This should be fixed by adding a MR_SECTAG_DUMMY and handling it
 	% gracefully.
 :- pred output_dummy_ptag_layout_defn(io__state::di, io__state::uo) is det.
 
 output_dummy_ptag_layout_defn -->
 	io__write_string("\t{ 0, MR_SECTAG_VARIABLE, NULL },\n").
+
+:- pred output_res_addr_functors(rtti_type_ctor::in,
+	reserved_functor::in, io__state::di, io__state::uo) is det.
+
+output_res_addr_functors(RttiTypeCtor, ResFunctor) -->
+	output_rtti_addr(RttiTypeCtor, res_functor_rtti_name(ResFunctor)),
+	io__write_string(",\n").
+
+:- pred output_res_value_ordered_table(rtti_type_ctor::in,
+	list(reserved_functor)::in, map(int, sectag_table)::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_res_value_ordered_table(RttiTypeCtor, ResFunctors, DuPtagTable,
+		DeclSet0, DeclSet) -->
+	{ ResFunctorReps = list__map(res_addr_rep, ResFunctors) },
+	{ list__filter(res_addr_is_numeric, ResFunctorReps,
+		NumericResFunctorReps, SymbolicResFunctorReps) },
+	{ list__length(NumericResFunctorReps, NumNumericResFunctorReps) },
+	{ list__length(SymbolicResFunctorReps, NumSymbolicResFunctorReps) },
+	{ require(unify(NumSymbolicResFunctorReps, 0),
+		"output_res_value_ordered_table: symbolic functors") },
+
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		res_addr_functors, DeclSet0, DeclSet1),
+	io__write_string(" = {\n"),
+	list__foldl(output_res_addr_functors(RttiTypeCtor), ResFunctors),
+	io__write_string("};\n"),
+
+	output_du_ptag_ordered_table(RttiTypeCtor, DuPtagTable,
+		DeclSet1, DeclSet2),
+
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		res_value_ordered_table, DeclSet2, DeclSet),
+	io__write_string(" = {\n\t"""),
+	io__write_int(NumNumericResFunctorReps),
+	io__write_string(",\n\t"),
+	io__write_int(NumSymbolicResFunctorReps),
+	io__write_string(",\n\t"),
+	io__write_string("NULL"),
+	io__write_string(",\n\t"),
+	output_rtti_addr(RttiTypeCtor, res_addr_functors),
+	io__write_string(",\n\t"),
+	output_rtti_addr(RttiTypeCtor, du_ptag_ordered_table),
+	io__write_string("\n};\n").
+
+:- pred output_res_name_ordered_table(rtti_type_ctor::in,
+	map(string, map(int, maybe_reserved_functor))::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_res_name_ordered_table(RttiTypeCtor, NameArityMap, DeclSet0, DeclSet) -->
+	{ map__values(NameArityMap, ArityMaps) },
+	{ list__map(map__values, ArityMaps, FunctorLists) },
+	{ list__condense(FunctorLists, Functors) },
+	output_generic_rtti_data_defn_start(RttiTypeCtor,
+		res_name_ordered_table, DeclSet0, DeclSet),
+	io__write_string(" = {\n\t"""),
+	list__foldl(output_res_name_ordered_table_element(RttiTypeCtor),
+		Functors),
+	io__write_string("\n};\n").
+
+:- pred output_res_name_ordered_table_element(rtti_type_ctor::in,
+	maybe_reserved_functor::in, io__state::di, io__state::uo) is det.
+
+output_res_name_ordered_table_element(RttiTypeCtor, MaybeResFunctor) -->
+	io__write_string("\t{ """),
+	(
+		{ MaybeResFunctor = res_func(ResFunctor) },
+		{ Name = ResFunctor ^ res_name },
+		io__write_string(Name),
+		io__write_string(""", "),
+		io__write_string("0, "),
+		io__write_string("MR_TRUE, ")
+	;
+		{ MaybeResFunctor = du_func(DuFunctor) },
+		{ Name = DuFunctor ^ du_name },
+		{ Arity = DuFunctor ^ du_orig_arity },
+		io__write_string(Name),
+		io__write_string(""", "),
+		io__write_int(Arity),
+		io__write_string(", "),
+		io__write_string("MR_FALSE, ")
+	),
+	{ RttiName = maybe_res_functor_rtti_name(MaybeResFunctor) },
+	output_rtti_addr(RttiTypeCtor, RttiName),
+	io__write_string(" },\n").
+
+%-----------------------------------------------------------------------------%
+
+:- func make_code_addr(rtti_proc_label) = code_addr.
+
+make_code_addr(ProcLabel) = CodeAddr :-
+	code_util__make_entry_label_from_rtti(ProcLabel, no, CodeAddr).
+
+:- pred output_reserved_address(reserved_address::in,
+	io__state::di, io__state::uo) is det.
+
+output_reserved_address(null_pointer) -->
+	io__write_string("NULL").
+output_reserved_address(small_pointer(Val)) -->
+	io__write_string("(const void *) "),
+	io__write_int(Val).
+output_reserved_address(reserved_object(_, _, _)) -->
+	% These should only be used for the MLDS back-end
+	{ unexpected(this_file, "reserved_object") }.
 
 %-----------------------------------------------------------------------------%
 
@@ -582,8 +925,8 @@ output_rtti_data_decl(RttiData, DeclSet0, DeclSet) -->
 		output_base_typeclass_info_decl(InstanceModuleName, ClassId,
 			InstanceStr, no, DeclSet0, DeclSet)
 	;
-		{ rtti_data_to_name(RttiData, RttiTypeId, RttiName) },
-		output_generic_rtti_data_decl(RttiTypeId, RttiName,
+		{ rtti_data_to_name(RttiData, RttiTypeCtor, RttiName) },
+		output_generic_rtti_data_decl(RttiTypeCtor, RttiName,
 			DeclSet0, DeclSet)
 	).
 
@@ -609,27 +952,28 @@ output_base_typeclass_info_storage_type_name(InstanceModuleName, ClassId,
 
 %-----------------------------------------------------------------------------%
 
-:- pred output_generic_rtti_data_decl(rtti_type_id::in, rtti_name::in,
+:- pred output_generic_rtti_data_decl(rtti_type_ctor::in, rtti_name::in,
 	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
 
-output_generic_rtti_data_decl(RttiTypeId, RttiName, DeclSet0, DeclSet) -->
-	output_rtti_addr_storage_type_name(RttiTypeId, RttiName, no),
+output_generic_rtti_data_decl(RttiTypeCtor, RttiName, DeclSet0, DeclSet) -->
+	output_rtti_addr_storage_type_name(RttiTypeCtor, RttiName, no),
 	io__write_string(";\n"),
-	{ DataAddr = rtti_addr(RttiTypeId, RttiName) },
+	{ DataAddr = rtti_addr(RttiTypeCtor, RttiName) },
 	{ decl_set_insert(DeclSet0, data_addr(DataAddr), DeclSet) }.
 
-:- pred output_generic_rtti_data_defn_start(rtti_type_id::in, rtti_name::in,
+:- pred output_generic_rtti_data_defn_start(rtti_type_ctor::in, rtti_name::in,
 	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
 
-output_generic_rtti_data_defn_start(RttiTypeId, RttiName, DeclSet0, DeclSet) -->
+output_generic_rtti_data_defn_start(RttiTypeCtor, RttiName, DeclSet0, DeclSet)
+		-->
 	io__write_string("\n"),
-	output_rtti_addr_storage_type_name(RttiTypeId, RttiName, yes),
-	{ DataAddr = rtti_addr(RttiTypeId, RttiName) },
+	output_rtti_addr_storage_type_name(RttiTypeCtor, RttiName, yes),
+	{ DataAddr = rtti_addr(RttiTypeCtor, RttiName) },
 	{ decl_set_insert(DeclSet0, data_addr(DataAddr), DeclSet) }.
 
-output_rtti_addr_storage_type_name(RttiTypeId, RttiName, BeingDefined) -->
+output_rtti_addr_storage_type_name(RttiTypeCtor, RttiName, BeingDefined) -->
 	output_rtti_name_storage_type_name(
-		output_rtti_addr(RttiTypeId, RttiName),
+		output_rtti_addr(RttiTypeCtor, RttiName),
 		RttiName, BeingDefined).
 
 :- pred output_rtti_name_storage_type_name(
@@ -640,68 +984,82 @@ output_rtti_name_storage_type_name(OutputName, RttiName, BeingDefined) -->
 	output_rtti_type_decl(RttiName),
 	{ rtti_name_linkage(RttiName, Linkage) },
 	globals__io_get_globals(Globals),
-	{ c_data_linkage_string(Globals, Linkage, BeingDefined, LinkageStr) },
+	{ LinkageStr = c_data_linkage_string(Globals, Linkage, yes,
+		BeingDefined) },
 	io__write_string(LinkageStr),
 
 	{ InclCodeAddr = rtti_name_would_include_code_addr(RttiName) },
 	{ c_data_const_string(Globals, InclCodeAddr, ConstStr) },
 	io__write_string(ConstStr),
 
-	{ rtti_name_c_type(RttiName, CType, Suffix) },
+	{ rtti_name_c_type(RttiName, CType, IsArray) },
 	c_util__output_quoted_string(CType),
 	io__write_string(" "),
 	OutputName,
-	io__write_string(Suffix).
+	(
+		{ IsArray = yes },
+		io__write_string("[]")
+	;
+		{ IsArray = no }
+	).
+
+	% Each type_info and pseudo_type_info may have a different C type,
+	% depending on what kind of type_info or pseudo_type_info it is,
+	% and also on its arity. We need to declare that C type here.
 
 :- pred output_rtti_type_decl(rtti_name::in, io__state::di, io__state::uo)
 	is det.
+
 output_rtti_type_decl(RttiName) -->
 	(
-		%
-		% Each pseudo-type-info may have a different type,
-		% depending on what kind of pseudo-type-info it is,
-		% and also on its arity.
-		% We need to declare that type here.
-		%
-		{
-		  RttiName = pseudo_type_info(type_info(_, ArgTypes)),
-		  TypeNameBase = "MR_FO_PseudoTypeInfo_Struct",
-		  DefineType = "MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT"
-		;
-		  RttiName = pseudo_type_info(higher_order_type_info(_, _,
-		  		ArgTypes)),
-	 	  TypeNameBase = "MR_HO_PseudoTypeInfo_Struct",
-		  DefineType = "MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT"
-		}
+		{ rtti_type_template_arity(RttiName, Arity) },
+		{ Arity > max_always_declared_arity }
 	->
-		{ NumArgTypes = list__length(ArgTypes) },
 		{ Template = 
-"#ifndef %s%d_GUARD
-#define %s%d_GUARD
-%s(%s%d, %d);
+"#ifndef MR_TYPE_INFO_LIKE_STRUCTS_FOR_ARITY_%d_GUARD
+#define MR_TYPE_INFO_LIKE_STRUCTS_FOR_ARITY_%d_GUARD
+MR_DECLARE_ALL_TYPE_INFO_LIKE_STRUCTS_FOR_ARITY(%d);
 #endif
 "		},
-		io__format(Template, [
-			s(TypeNameBase), i(NumArgTypes),
-			s(TypeNameBase), i(NumArgTypes),
-			s(DefineType), s(TypeNameBase),
-			i(NumArgTypes), i(NumArgTypes)
-		])
+		io__format(Template, [i(Arity), i(Arity), i(Arity)])
 	;
 		[]
 	).
+
+:- pred rtti_type_template_arity(rtti_name::in, int::out) is semidet.
+
+rtti_type_template_arity(RttiName, NumArgTypes) :-
+	RttiName = type_info(TypeInfo),
+	(
+		TypeInfo = plain_type_info(_, ArgTypes)
+	;
+		TypeInfo = var_arity_type_info(_, ArgTypes)
+	),
+	NumArgTypes = list__length(ArgTypes).
+rtti_type_template_arity(RttiName, NumArgTypes) :-
+	RttiName = pseudo_type_info(PseudoTypeInfo),
+	(
+		PseudoTypeInfo = plain_pseudo_type_info(_, ArgTypes)
+	;
+		PseudoTypeInfo = var_arity_pseudo_type_info(_, ArgTypes)
+	),
+	NumArgTypes = list__length(ArgTypes).
+
+:- func max_always_declared_arity = int.
+
+max_always_declared_arity = 20.
 
 %-----------------------------------------------------------------------------%
 
 rtti_out__init_rtti_data_if_nec(Data) -->
 	(
-		{ Data = type_ctor_info(RttiTypeId,
-			_,_,_,_,_,_,_,_,_,_,_,_) }
+		{ Data = type_ctor_info(TypeCtorData) }
 	->
+		{ RttiTypeCtor = tcd_get_rtti_type_ctor(TypeCtorData) },
 		io__write_string("\tMR_INIT_TYPE_CTOR_INFO(\n\t\t"),
-		output_rtti_addr(RttiTypeId, type_ctor_info),
+		output_rtti_addr(RttiTypeCtor, type_ctor_info),
 		io__write_string(",\n\t\t"),
-		{ RttiTypeId = rtti_type_id(ModuleName, TypeName, Arity) },
+		{ RttiTypeCtor = rtti_type_ctor(ModuleName, TypeName, Arity) },
 		{ llds_out__sym_name_mangle(ModuleName, ModuleNameString) },
 		{ string__append(ModuleNameString, "__", UnderscoresModule) },
 		( 
@@ -736,23 +1094,23 @@ rtti_out__init_rtti_data_if_nec(Data) -->
 
 rtti_out__register_rtti_data_if_nec(Data, SplitFiles) -->
 	(
-		{ Data = type_ctor_info(RttiTypeId,
-			_,_,_,_,_,_,_,_,_,_,_,_) }
+		{ Data = type_ctor_info(TypeCtorData) }
 	->
+		{ RttiTypeCtor = tcd_get_rtti_type_ctor(TypeCtorData) },
 		(
 			{ SplitFiles = yes },
 			io__write_string("\t{\n\t"),
-			output_rtti_addr_storage_type_name(RttiTypeId,
+			output_rtti_addr_storage_type_name(RttiTypeCtor,
 				type_ctor_info, no),
 			io__write_string(
 				";\n\tMR_register_type_ctor_info(\n\t\t&"),
-			output_rtti_addr(RttiTypeId, type_ctor_info),
+			output_rtti_addr(RttiTypeCtor, type_ctor_info),
 			io__write_string(");\n\t}\n")
 		;
 			{ SplitFiles = no },
 			io__write_string(
 				"\tMR_register_type_ctor_info(\n\t\t&"),
-			output_rtti_addr(RttiTypeId, type_ctor_info),
+			output_rtti_addr(RttiTypeCtor, type_ctor_info),
 			io__write_string(");\n")
 		)
 	;
@@ -790,23 +1148,23 @@ output_init_method_pointers(FieldNum, [Arg|Args], ClassId, InstanceStr) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred output_maybe_rtti_addrs_decls(rtti_type_id::in,
+:- pred output_maybe_rtti_addrs_decls(rtti_type_ctor::in,
 	list(maybe(rtti_name))::in, string::in, string::in, int::in, int::out,
 	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
 
 output_maybe_rtti_addrs_decls(_, [], _, _, N, N, DeclSet, DeclSet) --> [].
-output_maybe_rtti_addrs_decls(RttiTypeId, [MaybeRttiName | RttiNames],
+output_maybe_rtti_addrs_decls(RttiTypeCtor, [MaybeRttiName | RttiNames],
 		FirstIndent, LaterIndent, N0, N, DeclSet0, DeclSet) -->
 	(
 		{ MaybeRttiName = yes(RttiName) },
-		output_data_addr_decls(rtti_addr(RttiTypeId, RttiName),
+		output_data_addr_decls(rtti_addr(RttiTypeCtor, RttiName),
 			FirstIndent, LaterIndent, N0, N1, DeclSet0, DeclSet1)
 	;
 		{ MaybeRttiName = no },
 		{ N1 = N0 },
 		{ DeclSet1 = DeclSet0 }
 	),
-	output_maybe_rtti_addrs_decls(RttiTypeId, RttiNames,
+	output_maybe_rtti_addrs_decls(RttiTypeCtor, RttiNames,
 		FirstIndent, LaterIndent, N1, N, DeclSet1, DeclSet).
 
 :- pred output_rtti_datas_decls(list(rtti_data)::in,
@@ -821,16 +1179,16 @@ output_rtti_datas_decls([RttiData | RttiDatas],
 	output_rtti_datas_decls(RttiDatas,
 		FirstIndent, LaterIndent, N1, N, DeclSet1, DeclSet).
 
-:- pred output_rtti_addrs_decls(rtti_type_id::in, list(rtti_name)::in,
+:- pred output_rtti_addrs_decls(rtti_type_ctor::in, list(rtti_name)::in,
 	string::in, string::in, int::in, int::out, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
 
 output_rtti_addrs_decls(_, [], _, _, N, N, DeclSet, DeclSet) --> [].
-output_rtti_addrs_decls(RttiTypeId, [RttiName | RttiNames],
+output_rtti_addrs_decls(RttiTypeCtor, [RttiName | RttiNames],
 		FirstIndent, LaterIndent, N0, N, DeclSet0, DeclSet) -->
-	output_data_addr_decls(rtti_addr(RttiTypeId, RttiName),
+	output_data_addr_decls(rtti_addr(RttiTypeCtor, RttiName),
 		FirstIndent, LaterIndent, N0, N1, DeclSet0, DeclSet1),
-	output_rtti_addrs_decls(RttiTypeId, RttiNames,
+	output_rtti_addrs_decls(RttiTypeCtor, RttiNames,
 		FirstIndent, LaterIndent, N1, N, DeclSet1, DeclSet).
 
 :- pred output_rtti_data_decls(rtti_data::in,
@@ -855,51 +1213,61 @@ output_rtti_data_decls(RttiData, FirstIndent, LaterIndent,
 			InstanceStr, no, DeclSet0, DeclSet),
 		{ N = N0 }
 	;
-		{ rtti_data_to_name(RttiData, RttiTypeId, RttiName) },
-		output_rtti_addr_decls(RttiTypeId, RttiName,
+		{ rtti_data_to_name(RttiData, RttiTypeCtor, RttiName) },
+		output_rtti_addr_decls(RttiTypeCtor, RttiName,
 			FirstIndent, LaterIndent, N0, N, DeclSet0, DeclSet)
 	).
 
-:- pred output_rtti_addr_decls(rtti_type_id::in, rtti_name::in,
+:- pred output_rtti_addr_decls(rtti_type_ctor::in, rtti_name::in,
 	string::in, string::in, int::in, int::out, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
 
-output_rtti_addr_decls(RttiTypeId, RttiName, FirstIndent, LaterIndent,
+output_rtti_addr_decls(RttiTypeCtor, RttiName, FirstIndent, LaterIndent,
 		N0, N1, DeclSet0, DeclSet1) -->
-	output_data_addr_decls(rtti_addr(RttiTypeId, RttiName),
+	output_data_addr_decls(rtti_addr(RttiTypeCtor, RttiName),
 		FirstIndent, LaterIndent, N0, N1, DeclSet0, DeclSet1).
 
-:- pred output_addr_of_maybe_rtti_addr(rtti_type_id::in, maybe(rtti_name)::in,
-	io__state::di, io__state::uo) is det.
+:- pred output_addr_of_maybe_rtti_addr(rtti_type_ctor::in,
+	maybe(rtti_name)::in, io__state::di, io__state::uo) is det.
 
-output_addr_of_maybe_rtti_addr(RttiTypeId, MaybeRttiName) -->
+output_addr_of_maybe_rtti_addr(RttiTypeCtor, MaybeRttiName) -->
 	(
 		{ MaybeRttiName = yes(RttiName) },
-		output_addr_of_rtti_addr(RttiTypeId, RttiName)
+		output_addr_of_rtti_addr(RttiTypeCtor, RttiName)
 	;
 		{ MaybeRttiName = no },
 		io__write_string("NULL")
 	).
 
-:- pred output_addr_of_maybe_rtti_addrs(rtti_type_id::in,
+:- pred output_addr_of_maybe_rtti_addrs(rtti_type_ctor::in,
 	list(maybe(rtti_name))::in, io__state::di, io__state::uo) is det.
 
 output_addr_of_maybe_rtti_addrs(_, []) --> [].
-output_addr_of_maybe_rtti_addrs(RttiTypeId,
+output_addr_of_maybe_rtti_addrs(RttiTypeCtor,
 		[MaybeRttiName | MaybeRttiNames]) -->
 	io__write_string("\t"),
 	io__write_list([MaybeRttiName | MaybeRttiNames], ",\n\t",
-		output_addr_of_maybe_rtti_addr(RttiTypeId)),
+		output_addr_of_maybe_rtti_addr(RttiTypeCtor)),
 	io__write_string("\n").
 
-:- pred output_addr_of_rtti_addrs(rtti_type_id::in, list(rtti_name)::in,
+:- pred output_addr_of_rtti_addrs(rtti_type_ctor::in, list(rtti_name)::in,
 	io__state::di, io__state::uo) is det.
 
 output_addr_of_rtti_addrs(_, []) --> [].
-output_addr_of_rtti_addrs(RttiTypeId, [RttiName | RttiNames]) -->
+output_addr_of_rtti_addrs(RttiTypeCtor, [RttiName | RttiNames]) -->
 	io__write_string("\t"),
 	io__write_list([RttiName | RttiNames], ",\n\t",
-		output_addr_of_rtti_addr(RttiTypeId)),
+		output_addr_of_rtti_addr(RttiTypeCtor)),
+	io__write_string("\n").
+
+:- pred output_cast_addr_of_rtti_datas(string::in, list(rtti_data)::in,
+	io__state::di, io__state::uo) is det.
+
+output_cast_addr_of_rtti_datas(_, []) --> [].
+output_cast_addr_of_rtti_datas(Cast, [RttiData | RttiDatas]) -->
+	io__write_string("\t"),
+	io__write_list([RttiData | RttiDatas], ",\n\t",
+		output_cast_addr_of_rtti_data(Cast)),
 	io__write_string("\n").
 
 :- pred output_addr_of_rtti_datas(list(rtti_data)::in,
@@ -912,10 +1280,15 @@ output_addr_of_rtti_datas([RttiData | RttiDatas]) -->
 		output_addr_of_rtti_data),
 	io__write_string("\n").
 
+output_cast_addr_of_rtti_data(Cast, RttiData) -->
+	io__write_string(Cast),
+	output_addr_of_rtti_data(RttiData).
+
 output_addr_of_rtti_data(RttiData) -->
-	( { RttiData = pseudo_type_info(type_var(VarNum)) } ->
+	(
+		{ RttiData = pseudo_type_info(type_var(VarNum)) }
+	->
 		% rtti_data_to_name/3 does not handle this case
-		io__write_string("(MR_PseudoTypeInfo) "),
 		io__write_int(VarNum)
 	;
 		{ RttiData = base_typeclass_info(_InstanceModuleName, ClassId,
@@ -925,28 +1298,14 @@ output_addr_of_rtti_data(RttiData) -->
 		output_base_typeclass_info_name(ClassId,
 			InstanceStr)
 	;
-		{ rtti_data_to_name(RttiData, RttiTypeId, RttiName) },
-		output_addr_of_rtti_addr(RttiTypeId, RttiName)
+		{ rtti_data_to_name(RttiData, RttiTypeCtor, RttiName) },
+		output_addr_of_rtti_addr(RttiTypeCtor, RttiName)
 	).
 
-:- pred output_addr_of_rtti_addr(rtti_type_id::in, rtti_name::in,
+:- pred output_addr_of_rtti_addr(rtti_type_ctor::in, rtti_name::in,
 	io__state::di, io__state::uo) is det.
 
-output_addr_of_rtti_addr(RttiTypeId, RttiName) -->
-	%
-	% The various different kinds of pseudotypeinfos
-	% each have different types, but really we treat
-	% them like a union rather than as separate types,
-	% so here we need to cast all such constants to
-	% a single type MR_PseudoTypeInfo.
-	%
-	(
-		{ RttiName = pseudo_type_info(_) }
-	->
-		io__write_string("(MR_PseudoTypeInfo) ")
-	;
-		[]
-	),
+output_addr_of_rtti_addr(RttiTypeCtor, RttiName) -->
 	%
 	% If the RttiName is not an array, then
 	% we need to use `&' to take its address
@@ -958,11 +1317,11 @@ output_addr_of_rtti_addr(RttiTypeId, RttiName) -->
 	;
 		io__write_string("&")
 	),
-	output_rtti_addr(RttiTypeId, RttiName).
+	output_rtti_addr(RttiTypeCtor, RttiName).
 
-output_rtti_addr(RttiTypeId, RttiName) -->
+output_rtti_addr(RttiTypeCtor, RttiName) -->
 	io__write_string(mercury_data_prefix),
-	{ rtti__addr_to_string(RttiTypeId, RttiName, Str) },
+	{ rtti__addr_to_string(RttiTypeCtor, RttiName, Str) },
 	io__write_string(Str).
 
 %-----------------------------------------------------------------------------%
@@ -1034,30 +1393,7 @@ output_static_code_addr(CodeAddr) -->
 
 %-----------------------------------------------------------------------------%
 
-rtti_name_would_include_code_addr(exist_locns(_)) =               no.
-rtti_name_would_include_code_addr(exist_info(_)) =                no.
-rtti_name_would_include_code_addr(field_names(_)) =               no.
-rtti_name_would_include_code_addr(field_types(_)) =               no.
-rtti_name_would_include_code_addr(enum_functor_desc(_)) =         no.
-rtti_name_would_include_code_addr(notag_functor_desc) =           no.
-rtti_name_would_include_code_addr(du_functor_desc(_)) =           no.
-rtti_name_would_include_code_addr(enum_name_ordered_table) =      no.
-rtti_name_would_include_code_addr(enum_value_ordered_table) =     no.
-rtti_name_would_include_code_addr(du_name_ordered_table) =        no.
-rtti_name_would_include_code_addr(du_stag_ordered_table(_)) =     no.
-rtti_name_would_include_code_addr(du_ptag_ordered_table) =        no.
-rtti_name_would_include_code_addr(type_ctor_info) =               yes.
-rtti_name_would_include_code_addr(base_typeclass_info(_, _, _)) = yes.
-rtti_name_would_include_code_addr(pseudo_type_info(Pseudo)) =
-		pseudo_type_info_would_incl_code_addr(Pseudo).
-rtti_name_would_include_code_addr(type_hashcons_pointer) =        no.
-
-:- func pseudo_type_info_would_incl_code_addr(pseudo_type_info) = bool.
-
-pseudo_type_info_would_incl_code_addr(type_var(_))			= no.
-pseudo_type_info_would_incl_code_addr(type_ctor_info(_))		= yes.
-pseudo_type_info_would_incl_code_addr(type_info(_, _))			= no.
-pseudo_type_info_would_incl_code_addr(higher_order_type_info(_, _, _))	= no.
+:- pred rtti_name_linkage(rtti_name::in, linkage::out) is det.
 
 rtti_name_linkage(RttiName, Linkage) :-
 	(
@@ -1075,41 +1411,9 @@ rtti_name_linkage(RttiName, Linkage) :-
 		)
         ).
 
-rtti_name_c_type(exist_locns(_),           "MR_DuExistLocn", "[]").
-rtti_name_c_type(exist_info(_),            "MR_DuExistInfo", "").
-rtti_name_c_type(field_names(_),           "MR_ConstString", "[]").
-rtti_name_c_type(field_types(_),           "MR_PseudoTypeInfo", "[]").
-rtti_name_c_type(enum_functor_desc(_),     "MR_EnumFunctorDesc", "").
-rtti_name_c_type(notag_functor_desc,       "MR_NotagFunctorDesc", "").
-rtti_name_c_type(du_functor_desc(_),       "MR_DuFunctorDesc", "").
-rtti_name_c_type(enum_name_ordered_table,  "MR_EnumFunctorDesc *", "[]").
-rtti_name_c_type(enum_value_ordered_table, "MR_EnumFunctorDesc *", "[]").
-rtti_name_c_type(du_name_ordered_table,    "MR_DuFunctorDesc *", "[]").
-rtti_name_c_type(du_stag_ordered_table(_), "MR_DuFunctorDesc *", "[]").
-rtti_name_c_type(du_ptag_ordered_table,    "MR_DuPtagLayout", "[]").
-rtti_name_c_type(type_ctor_info,           "struct MR_TypeCtorInfo_Struct",
-						"").
-rtti_name_c_type(base_typeclass_info(_, _, _), "MR_Code *", "[]").
-rtti_name_c_type(pseudo_type_info(Pseudo), TypePrefix, TypeSuffix) :-
-	pseudo_type_info_name_c_type(Pseudo, TypePrefix, TypeSuffix).
-rtti_name_c_type(type_hashcons_pointer,    "union MR_TableNode_Union **", "").
+%-----------------------------------------------------------------------------%
 
-:- pred pseudo_type_info_name_c_type(pseudo_type_info, string, string).
-:- mode pseudo_type_info_name_c_type(in, out, out) is det.
-
-pseudo_type_info_name_c_type(type_var(_), _, _) :-
-	% we use small integers to represent type_vars,
-	% rather than pointers, so there is no pointed-to type
-	error("rtti_name_c_type: type_var").
-pseudo_type_info_name_c_type(type_ctor_info(_),
-		"struct MR_TypeCtorInfo_Struct", "").
-pseudo_type_info_name_c_type(type_info(_TypeId, ArgTypes),
-		TypeInfoStruct, "") :-
-	TypeInfoStruct = string__format("struct MR_FO_PseudoTypeInfo_Struct%d",
-		[i(list__length(ArgTypes))]).
-pseudo_type_info_name_c_type(higher_order_type_info(_TypeId, _Arity, ArgTypes),
-		TypeInfoStruct, "") :-
-	TypeInfoStruct = string__format("struct MR_HO_PseudoTypeInfo_Struct%d",
-		[i(list__length(ArgTypes))]).
+:- func this_file = string.
+this_file = "rtti_out.m".
 
 %-----------------------------------------------------------------------------%

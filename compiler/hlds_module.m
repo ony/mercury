@@ -17,23 +17,25 @@
 
 % Main authors: fjh, conway.
 
-:- module hlds_module.
+:- module hlds__hlds_module.
 
 :- interface.
 
-:- import_module prog_data, module_qual, recompilation.
-:- import_module hlds_pred, hlds_data, unify_proc, special_pred.
-:- import_module globals, llds.
+:- import_module parse_tree__prog_data, parse_tree__module_qual.
+:- import_module recompilation.
+:- import_module hlds__hlds_pred, hlds__hlds_data, check_hlds__unify_proc.
+:- import_module hlds__special_pred.
+:- import_module libs__globals, backend_libs__foreign.
 :- import_module relation, map, std_util, list, set, multi_map, counter.
 :- import_module pa_alias_as.
 :- import_module sr_data.
 
 :- implementation.
 
-:- import_module hlds_out, prog_out, prog_util.
-:- import_module typecheck, modules.
+:- import_module hlds__hlds_out, parse_tree__prog_out, parse_tree__prog_util.
+:- import_module check_hlds__typecheck, parse_tree__modules.
 :- import_module bool, require, int, string.
-:- import_module mode_util.
+:- import_module check_hlds__mode_util.
 
 %-----------------------------------------------------------------------------%
 
@@ -60,17 +62,15 @@
 
 :- type type_ctor_gen_info
 	--->	type_ctor_gen_info(
-			type_id,
+			type_ctor,
 			module_name,	% module name
 			string,		% type name
 			int,		% type arity
 			import_status,	% of the type
 			hlds_type_defn,	% defn of type
-			maybe(pred_proc_id),	% unify, if not eliminated
-			maybe(pred_proc_id),	% compare, if not eliminated
-			maybe(pred_proc_id),	% solver, if relevant
-			maybe(pred_proc_id),	% init, if relevant
-			maybe(pred_proc_id)	% prettyprinter, if relevant
+			pred_proc_id,	% unify procedure
+			pred_proc_id	% compare procedure
+			% maybe(pred_proc_id)	% prettyprinter, if relevant
 		).
 
 	% map from proc to a list of unused argument numbers.
@@ -125,8 +125,8 @@
 	% pa_alias_info-pragma (see prog_data.m).
 :- type unproc_alias_pragmas == list(unproc_alias_pragma).
 :- type unproc_alias_pragma 
-	--->	unproc_alias_pragma(pred_or_func, sym_name, 
-			list(mode), list(prog_var), list((type)), 
+	--->	unproc_alias_pragma(pred_or_func, sym_name, list(mode),
+			list(prog_var), list((type)), 
 			alias_as).
 
 	% The unprocessed pragma reuse information.  This information is not
@@ -137,8 +137,8 @@
 	% sr_reuse_info-pragma (see prog_data.m).
 :- type unproc_reuse_pragmas == list(unproc_reuse_pragma).
 :- type unproc_reuse_pragma 
-	---> 	unproc_reuse_pragma(pred_or_func, sym_name, 
-			list(mode), list(prog_var), list((type)), 
+	---> 	unproc_reuse_pragma(pred_or_func, sym_name, list(mode),
+			list(prog_var), list((type)), 
 			sr_data__memo_reuse, maybe(sym_name)).
 
 %-----------------------------------------------------------------------------%
@@ -232,6 +232,13 @@
 	module_info).
 :- mode module_info_set_assertion_table(in, in, out) is det.
 
+:- pred module_info_exclusive_table(module_info, exclusive_table).
+:- mode module_info_exclusive_table(in, out) is det.
+
+:- pred module_info_set_exclusive_table(module_info, exclusive_table, 
+	module_info).
+:- mode module_info_set_exclusive_table(in, in, out) is det.
+
 :- pred module_info_ctor_field_table(module_info, ctor_field_table).
 :- mode module_info_ctor_field_table(in, out) is det.
 
@@ -295,6 +302,12 @@
 :- pred module_info_set_globals(module_info, globals, module_info).
 :- mode module_info_set_globals(in, in, out) is det.
 
+:- pred module_info_contains_foreign_type(module_info).
+:- mode module_info_contains_foreign_type(in) is semidet.
+
+:- pred module_info_contains_foreign_type(module_info, module_info).
+:- mode module_info_contains_foreign_type(in, out) is det.
+
 :- pred module_info_get_foreign_decl(module_info, foreign_decl_info).
 :- mode module_info_get_foreign_decl(in, out) is det.
 
@@ -305,12 +318,25 @@
 :- pred module_info_get_foreign_body_code(module_info, foreign_body_info).
 :- mode module_info_get_foreign_body_code(in, out) is det.
 
-:- pred module_info_set_foreign_body_code(module_info, foreign_body_info, module_info).
+:- pred module_info_set_foreign_body_code(module_info,
+		foreign_body_info, module_info).
 :- mode module_info_set_foreign_body_code(in, in, out) is det.
+
+:- pred module_info_get_foreign_import_module(module_info,
+		foreign_import_module_info).
+:- mode module_info_get_foreign_import_module(in, out) is det.
+
+:- pred module_info_set_foreign_import_module(module_info, 
+		foreign_import_module_info, module_info).
+:- mode module_info_set_foreign_import_module(in, in, out) is det.
 
 :- pred module_add_foreign_decl(foreign_language, string, prog_context,
 		module_info, module_info).
 :- mode module_add_foreign_decl(in, in, in, in, out) is det.
+
+:- pred module_add_foreign_import_module(foreign_language,
+		module_name, prog_context, module_info, module_info).
+:- mode module_add_foreign_import_module(in, in, in, in, out) is det.
 
 :- pred module_add_foreign_body_code(foreign_language, string, prog_context,
 		module_info, module_info).
@@ -450,7 +476,7 @@
 	pred_proc_id, pred_info, proc_info, module_info).
 :- mode module_info_set_pred_proc_info(in, in, in, in, out) is det.
 
-:- pred module_info_typeids(module_info, list(type_id)).
+:- pred module_info_typeids(module_info, list(type_ctor)).
 :- mode module_info_typeids(in, out) is det.
 
 :- pred module_info_instids(module_info, list(inst_id)).
@@ -560,6 +586,7 @@
 		instance_table ::		instance_table,
 		superclass_table ::		superclass_table,
 		assertion_table ::		assertion_table,
+		exclusive_table ::		exclusive_table,
 		ctor_field_table ::		ctor_field_table,
 		cell_counter ::			counter,
 					% cell count, passed into code_info
@@ -576,8 +603,10 @@
 	module_sub(
 		module_name ::			module_name,
 		globals ::			globals,
+		contains_foreign_type ::	bool,
 		foreign_decl_info ::		foreign_decl_info,
 		foreign_body_info ::		foreign_body_info,
+		foreign_import_module_info ::	foreign_import_module_info,
 			
 			% This dependency info is constrained to be only
 			% for between procedures which have clauses
@@ -660,17 +689,19 @@ module_info_init(Name, Items, Globals, QualifierInfo, RecompInfo,
 	set__init(IndirectlyImportedModules),
 
 	assertion_table_init(AssertionTable),
+	exclusive_table_init(ExclusiveTable),
 	map__init(FieldNameTable),
 
 	map__init(NoTagTypes),
-	ModuleSubInfo = module_sub(Name, Globals, [], [], no, 0, 0, [], 
+	ModuleSubInfo = module_sub(Name, Globals, no, [], [], [], no, 0, 0, [], 
 		[], StratPreds, UnusedArgInfo, 0, ImportedModules,
 		IndirectlyImportedModules, no_aditi_compilation, TypeSpecInfo,
 		ReuseSpecInfo, NoTagTypes),
 	ModuleInfo = module(ModuleSubInfo, PredicateTable, Requests,
 		UnifyPredMap, QualifierInfo, Types, Insts, Modes, Ctors,
 		ClassTable, SuperClassTable, InstanceTable, AssertionTable,
-		FieldNameTable, counter__init(1), RecompInfo, [], []).
+		ExclusiveTable, FieldNameTable, counter__init(1), RecompInfo, 
+		[], []).
 
 %-----------------------------------------------------------------------------%
 
@@ -688,6 +719,7 @@ module_info_classes(MI, MI ^ class_table).
 module_info_instances(MI, MI ^ instance_table).
 module_info_superclasses(MI, MI ^ superclass_table).
 module_info_assertion_table(MI, MI ^ assertion_table).
+module_info_exclusive_table(MI, MI ^ exclusive_table).
 module_info_ctor_field_table(MI, MI ^ ctor_field_table).
 module_info_get_cell_counter(MI, MI ^ cell_counter).
 module_info_get_maybe_recompilation_info(MI, MI ^ maybe_recompilation_info).
@@ -709,6 +741,7 @@ module_info_set_classes(MI, C, MI ^ class_table := C).
 module_info_set_instances(MI, I, MI ^ instance_table := I).
 module_info_set_superclasses(MI, S, MI ^ superclass_table := S).
 module_info_set_assertion_table(MI, A, MI ^ assertion_table := A).
+module_info_set_exclusive_table(MI, PXT, MI ^ exclusive_table := PXT).
 module_info_set_ctor_field_table(MI, CF, MI ^ ctor_field_table := CF).
 module_info_set_cell_counter(MI, CC, MI ^ cell_counter := CC).
 module_info_set_maybe_recompilation_info(MI, I,
@@ -721,8 +754,12 @@ module_info_set_maybe_recompilation_info(MI, I,
 
 module_info_name(MI, MI ^ sub_info ^ module_name).
 module_info_globals(MI, MI ^ sub_info ^ globals).
+module_info_contains_foreign_type(MI) :-
+	MI ^ sub_info ^ contains_foreign_type = yes.
 module_info_get_foreign_decl(MI, MI ^ sub_info ^ foreign_decl_info).
 module_info_get_foreign_body_code(MI, MI ^ sub_info ^ foreign_body_info).
+module_info_get_foreign_import_module(MI,
+	MI ^ sub_info ^ foreign_import_module_info).
 module_info_get_maybe_dependency_info(MI,
 	MI ^ sub_info ^ maybe_dependency_info).
 module_info_num_errors(MI, MI ^ sub_info ^ num_errors).
@@ -751,10 +788,14 @@ module_info_no_tag_types(MI, MI ^ sub_info ^ no_tag_type_table).
 
 module_info_set_globals(MI, NewVal,
 	MI ^ sub_info ^ globals := NewVal).
+module_info_contains_foreign_type(MI,
+	MI ^ sub_info ^ contains_foreign_type := yes).
 module_info_set_foreign_decl(MI, NewVal,
 	MI ^ sub_info ^ foreign_decl_info := NewVal).
 module_info_set_foreign_body_code(MI, NewVal,
 	MI ^ sub_info ^ foreign_body_info := NewVal).
+module_info_set_foreign_import_module(MI, NewVal,
+	MI ^ sub_info ^ foreign_import_module_info := NewVal).
 module_info_set_maybe_dependency_info(MI, NewVal,
 	MI ^ sub_info ^ maybe_dependency_info := NewVal).
 module_info_set_num_errors(MI, NewVal,
@@ -863,9 +904,9 @@ module_info_set_pred_proc_info(MI0, PredId, ProcId, PredInfo0, ProcInfo, MI) :-
 	pred_info_set_procedures(PredInfo0, Procs, PredInfo),
 	module_info_set_pred_info(MI0, PredId, PredInfo, MI).
 
-module_info_typeids(MI, TypeIds) :-
+module_info_typeids(MI, TypeCtors) :-
 	module_info_types(MI, Types),
-	map__keys(Types, TypeIds).
+	map__keys(Types, TypeCtors).
 
 module_info_instids(MI, InstIds) :-
 	module_info_insts(MI, InstTable),
@@ -955,13 +996,13 @@ visible_module(VisibleModule, ModuleInfo) :-
 	;
 		set__member(VisibleModule, ImportedModules)
 	;
-		get_ancestors(ThisModule, ParentModules),
+		ParentModules = get_ancestors(ThisModule),
 		list__member(VisibleModule, ParentModules)
 	).
 
 module_info_get_all_deps(ModuleInfo, AllImports) :-
 	module_info_name(ModuleInfo, ModuleName),
-	get_ancestors(ModuleName, Parents),
+	Parents = get_ancestors(ModuleName),
 	module_info_get_imported_module_specifiers(ModuleInfo, DirectImports),
 	module_info_get_indirectly_imported_module_specifiers(ModuleInfo,
 		IndirectImports),
@@ -975,6 +1016,16 @@ module_add_foreign_decl(Lang, ForeignDecl, Context, Module0, Module) :-
 	ForeignDeclIndex1 = [foreign_decl_code(Lang, ForeignDecl, Context) |
 		ForeignDeclIndex0],
 	module_info_set_foreign_decl(Module0, ForeignDeclIndex1, Module).
+
+module_add_foreign_import_module(Lang, ModuleName, Context, Module0, Module) :-
+	module_info_get_foreign_import_module(Module0, ForeignImportIndex0),
+		% store the decls in reverse order and reverse them later
+		% for efficiency
+	ForeignImportIndex1 =
+		[foreign_import_module(Lang, ModuleName, Context) |
+		ForeignImportIndex0],
+	module_info_set_foreign_import_module(Module0,
+		ForeignImportIndex1, Module).
 
 module_add_foreign_body_code(Lang, Foreign_Body_Code, Context,
 		Module0, Module) :-

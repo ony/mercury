@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -158,11 +158,11 @@
 % not need to handle them.
 % 
 %-----------------------------------------------------------------------------%
-:- module magic.
+:- module aditi_backend__magic.
 
 :- interface.
 
-:- import_module hlds_module.
+:- import_module hlds__hlds_module.
 :- import_module io.
 
 :- pred magic__process_module(module_info, module_info, io__state, io__state).
@@ -171,14 +171,18 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module magic_util, context.
-:- import_module dependency_graph, hlds_pred, hlds_goal, hlds_data, prog_data.
-:- import_module passes_aux, mode_util, (inst), instmap, rl_gen, rl.
-:- import_module globals, options, hlds_out, prog_out, goal_util, type_util.
-:- import_module polymorphism, quantification, saved_vars, dead_proc_elim.
+:- import_module aditi_backend__magic_util, aditi_backend__context.
+:- import_module transform_hlds__dependency_graph, hlds__hlds_pred.
+:- import_module hlds__hlds_goal, hlds__hlds_data, parse_tree__prog_data.
+:- import_module hlds__passes_aux, check_hlds__mode_util, (parse_tree__inst).
+:- import_module hlds__instmap, aditi_backend__rl_gen, aditi_backend__rl.
+:- import_module libs__globals, libs__options, hlds__hlds_out.
+:- import_module parse_tree__prog_out, hlds__goal_util, check_hlds__type_util.
+:- import_module check_hlds__polymorphism, hlds__quantification.
+:- import_module ll_backend__saved_vars, transform_hlds__dead_proc_elim.
 
 :- import_module int, list, map, require, set, std_util, string, term, varset.
-:- import_module assoc_list, bool, simplify.
+:- import_module assoc_list, bool, check_hlds__simplify.
 
 magic__process_module(ModuleInfo0, ModuleInfo) -->
 
@@ -269,7 +273,7 @@ magic__ite_to_disj_and_simplify(Simplifications, PredId, ProcId,
 		ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	{ proc_info_goal(ProcInfo0, Goal0) },
 
-	{ Goal0 = if_then_else(_Vars, Cond, Then, Else, _SM) - GoalInfo ->
+	{ Goal0 = if_then_else(_Vars, Cond, Then, Else) - GoalInfo ->
 		goal_util__if_then_else_to_disjunction(Cond, Then, Else, 
 			GoalInfo, Disj),
 		Goal1 = Disj - GoalInfo,
@@ -279,7 +283,7 @@ magic__ite_to_disj_and_simplify(Simplifications, PredId, ProcId,
 		% in the copies of the condition.
 		requantify_proc(ProcInfo1, ProcInfo3),
 		ModuleInfo1 = ModuleInfo0
-	; Goal0 = switch(Var, _Canfail, Cases, _SM) - GoalInfo ->
+	; Goal0 = switch(Var, _Canfail, Cases) - GoalInfo ->
 		proc_info_varset(ProcInfo0, VarSet0),
 		proc_info_vartypes(ProcInfo0, VarTypes0),
 		proc_info_get_initial_instmap(ProcInfo0, 
@@ -291,8 +295,7 @@ magic__ite_to_disj_and_simplify(Simplifications, PredId, ProcId,
 			VarTypes0, VarTypes1, ModuleInfo0, ModuleInfo1),
 		proc_info_set_varset(ProcInfo0, VarSet1, ProcInfo1),
 		proc_info_set_vartypes(ProcInfo1, VarTypes1, ProcInfo2),
-		map__init(SM),
-		Goal1 = disj(Disjuncts, SM) - GoalInfo,
+		Goal1 = disj(Disjuncts) - GoalInfo,
 		proc_info_set_goal(ProcInfo2, Goal1, ProcInfo3)
 	;
 		ProcInfo3 = ProcInfo0,
@@ -1055,7 +1058,7 @@ magic__create_input_join_proc(CPredProcId, AditiPredProcId, JoinPredProcId,
 
 	JoinProcInfo0 = CProcInfo,
 	proc_info_create_var_from_type(JoinProcInfo0,
-		ClosureVarType, ClosureVar, JoinProcInfo1),
+		ClosureVarType, no, ClosureVar, JoinProcInfo1),
 
 
 	%
@@ -1268,7 +1271,7 @@ magic__make_type_info_vars(Types, TypeInfoVars, TypeInfoGoals,
 		hlds_goal::out, proc_info::in, proc_info::out) is det.
 
 magic__make_const(Type, ConsId, Var, Goal, ProcInfo0, ProcInfo) :-
-	proc_info_create_var_from_type(ProcInfo0, Type, Var, ProcInfo),
+	proc_info_create_var_from_type(ProcInfo0, Type, no, Var, ProcInfo),
 	set__singleton_set(NonLocals, Var),
 	Inst = bound(unique, [functor(ConsId, [])]),
 	instmap_delta_init_reachable(Delta0),
@@ -1279,7 +1282,7 @@ magic__make_const(Type, ConsId, Var, Goal, ProcInfo0, ProcInfo) :-
 		construct_dynamically, cell_is_unique, RLExprnId),
 	Context = unify_context(explicit, []),
 	goal_info_init(NonLocals, Delta, det, GoalInfo),
-	Goal = unify(Var, functor(ConsId, []), UnifyMode, Uni, Context) -
+	Goal = unify(Var, functor(ConsId, no, []), UnifyMode, Uni, Context) -
 			GoalInfo.
 		
 %-----------------------------------------------------------------------------%
@@ -1502,12 +1505,12 @@ magic__preprocess_goal(Goal, Goals, HOMap0, HOMap) -->
 	% Switches, if-then-elses and disjunctions involving database calls
 	% should have been transformed into separate procedures by dnf.m.
 magic__preprocess_goal_2(Goal, [Goal], HOMap, HOMap) -->
-	{ Goal = disj(_, _) - _ }.
+	{ Goal = disj(_) - _ }.
 magic__preprocess_goal_2(Goal, [Goal], HOMap, HOMap) -->
-	{ Goal = switch(_, _, _, _) - _ }.
+	{ Goal = switch(_, _, _) - _ }.
 magic__preprocess_goal_2(Goal, [Goal], HOMap, HOMap) --> 
-	{ Goal = if_then_else(_, _, _, _, _) - _ }.
-magic__preprocess_goal_2(par_conj(_, _) - _, _, _, _) -->
+	{ Goal = if_then_else(_, _, _, _) - _ }.
+magic__preprocess_goal_2(par_conj(_) - _, _, _, _) -->
 	{ error("Sorry, not yet implemented: parallel conjunction in Aditi procedures") }.
 magic__preprocess_goal_2(generic_call(_, _, _, _) - _, _, _, _) -->
 	{ error("Sorry, not yet implemented: higher-order or class-method calls in Aditi procedures") }.
@@ -1631,7 +1634,7 @@ magic__preprocess_call_args([Arg | Args], [NewArg | NewArgs], SeenArgs,
 		{ proc_info_vartypes(ProcInfo0, VarTypes) },
 		{ map__lookup(VarTypes, Arg, ArgType) },
 		{ proc_info_create_var_from_type(ProcInfo0,
-			ArgType, NewArg, ProcInfo) },
+			ArgType, no, NewArg, ProcInfo) },
 		magic_info_set_proc_info(ProcInfo),
 		{ IntroducedArgs1 = [NewArg | IntroducedArgs0] },
 		{ in_mode(InMode) },
@@ -1747,7 +1750,7 @@ magic__rename_and_generate_closures([Arg | Args], ExtraGoals,
 		{ proc_info_vartypes(ProcInfo0, VarTypes0) },
 		{ map__lookup(VarTypes0, Arg, Type) },
 		{ proc_info_create_var_from_type(ProcInfo0, 
-			Type, NewArg, ProcInfo) },
+			Type, no, NewArg, ProcInfo) },
 		magic_info_set_proc_info(ProcInfo),
 		{ map__init(Subn0) },
 		{ map__det_insert(Subn0, Arg, NewArg, Subn) },

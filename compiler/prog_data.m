@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,7 +14,7 @@
 % Simplifications are done only by make_hlds.m, which transforms
 % the parse tree which we built here into the HLDS.
 
-:- module prog_data.
+:- module parse_tree__prog_data.
 
 :- interface.
 
@@ -22,7 +22,7 @@
 % Any types which are needed in both the parse tree and in the HLDS
 % should be defined here, rather than in hlds*.m.
 
-:- import_module (inst), options.
+:- import_module (parse_tree__inst), libs__options, libs__globals.
 :- import_module recompilation.
 :- import_module bool, list, assoc_list, map, set, varset, term, std_util.
 :- import_module pa_alias_as.
@@ -62,20 +62,33 @@
 	; 	module_defn(prog_varset, module_defn)
 
 	; 	pred_or_func(tvarset, inst_varset, existq_tvars, pred_or_func,
-			sym_name, list(type_and_mode), maybe(determinism),
+			sym_name, list(type_and_mode), maybe(type),
+			maybe(inst), maybe(determinism),
 			condition, purity, class_constraints)
 		%       TypeVarNames, InstVarNames,
 		%	ExistentiallyQuantifiedTypeVars, PredOrFunc, PredName,
-		%	ArgTypes, Determinism, Cond, Purity, TypeClassContext
+		%	ArgTypesAndModes, WithType, WithInst, Determinism,
+		%	Cond, Purity, TypeClassContext
+		%
+		%	The WithType and WithInst fields hold the `with_type`
+		% 	and `with_inst` annotations, which are syntactic
+		%	sugar that is expanded by equiv_type.m
+		%	equiv_type.m will set these fields to `no'.
 
-	; 	pred_or_func_mode(inst_varset, pred_or_func, sym_name,
-			list(mode), maybe(determinism), condition)
-		%       VarNames, PredOrFunc, PredName, ArgModes,
+	; 	pred_or_func_mode(inst_varset, maybe(pred_or_func), sym_name,
+			list(mode), maybe(inst), maybe(determinism), condition)
+		%       VarNames, PredOrFunc, PredName, ArgModes, WithInst,
 		%	Determinism, Cond
+		%
+		%	The WithInst field holds the `with_inst` annotation,
+		%	which is syntactic sugar that is expanded by
+		%	equiv_type.m. equiv_type.m will set the field to `no'.
 
 	;	pragma(pragma_type)
 
-	;	assertion(goal, prog_varset)
+	;	promise(promise_type, goal, prog_varset, prog_vars)
+		% 	PromiseType, PromiseClause, ProgVariables, 
+		% 	UniversallyQuantifiedVars
 
 	;	typeclass(list(class_constraint), class_name, list(tvar),
 			class_interface, tvarset)
@@ -91,19 +104,21 @@
 		% used for items that should be ignored (e.g.
 		% NU-Prolog `when' declarations, which are silently
 		% ignored for backwards compatibility).
+	
+	% indicates the type of information the compiler should get from the 
+	% declaration's clause
+:- type promise_type
+		% promise ex declarations
+	--->	exclusive		% each disjunct is mutually exclusive
+	;	exhaustive		% disjunction cannot fail
+	;	exclusive_exhaustive	% both of the above
+
+		% assertions
+	; 	true.			% promise goal is true
 
 :- type type_and_mode	
 	--->	type_only(type)
 	;	type_and_mode(type, mode).
-
-:- type foreign_language
-	--->	c
-% 	;	cplusplus
- 	;	csharp
- 	;	managed_cplusplus
-% 	;	java
- 	;	il
-	.
 
 :- type pred_or_func
 	--->	predicate
@@ -158,9 +173,34 @@
 			%	whether or not the code is thread-safe
 			% PredName, Predicate or Function, Vars/Mode, 
 			% VarNames, Foreign Code Implementation Info
+
+	;	foreign_type(foreign_language_type, tvarset,
+			sym_name, list(type_param))
+			% ForeignType, TVarSet, MercuryTypeName,
+			% MercuryTypeParams
+
+	;	foreign_import_module(foreign_language, module_name)
+			% Equivalent to
+			% `:- pragma foreign_decl(Lang, "#include <module>.h").'
+			% except that the name of the header file is not
+			% hard-coded, and mmake can use the dependency
+			% information.
+
+	;	export(sym_name, pred_or_func, list(mode),
+			string)
+			% Predname, Predicate/function, Modes,
+			% C function name.
+
+	;	import(sym_name, pred_or_func, list(mode),
+			pragma_foreign_proc_attributes, string)
+			% Predname, Predicate/function, Modes,
+			% Set of foreign proc attributes, eg.:
+			%    whether or not the foreign code may call Mercury,
+			%    whether or not the foreign code is thread-safe
+			% foreign function name.
 	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
-			maybe(list(mode)), type_subst, tvarset, set(type_id))
+			maybe(list(mode)), type_subst, tvarset, set(item_id))
 			% PredName, SpecializedPredName, Arity,
 			% PredOrFunc, Modes if a specific procedure was
 			% specified, type substitution (using the variable
@@ -175,19 +215,6 @@
 
 	;	obsolete(sym_name, arity)
 			% Predname, Arity
-
-	;	export(sym_name, pred_or_func, list(mode),
-			string)
-			% Predname, Predicate/function, Modes,
-			% C function name.
-
-	;	import(sym_name, pred_or_func, list(mode),
-			pragma_foreign_proc_attributes, string)
-			% Predname, Predicate/function, Modes,
-			% Set of foreign proc attributes, eg.:
-			%    whether or not the foreign code may call Mercury,
-			%    whether or not the foreign code is thread-safe
-			% foreign function name.
 
 	;	source_file(string)
 			% Source file name.
@@ -288,19 +315,78 @@
 			% Predname, Arity
 
 %
+% Stuff for the foreign interfacing pragmas.
+%
+
+	% 
+	% A foreign_language_type represents a type that is defined in a
+	% foreign language and accessed in Mercury (most likely through 
+	% pragma foreign_type).
+	% Currently we only support foreign_language_types for IL.
+	%
+
+
+	%
+	% It is important to distinguish between IL value types and
+	% reference types, the compiler may need to generate different code
+	% for each of these cases.
+	%
+
+:- type foreign_language_type
+	--->	il(il_foreign_type)
+	;	c(c_foreign_type)
+	.
+
+:- type il_foreign_type
+	--->	il(
+			ref_or_val,	% An indicator of whether the type is a
+					% reference of value type.
+			string,		% The location of the .NET name (the
+					% assembly)
+			sym_name	% The .NET type name
+		).
+
+:- type c_foreign_type
+	--->	c(
+			string		% The C type name
+		).
+
+:- type ref_or_val
+	--->	reference
+	;	value.
+
+%
 % Stuff for tabling pragmas
 %
 
-	% The evaluation method that should be used for a pred.
+	% The evaluation method that should be used for a procedure.
 	% Ignored for Aditi procedures.
 :- type eval_method
 	--->	eval_normal		% normal mercury 
 					% evaluation
 	;	eval_loop_check		% loop check only
 	;	eval_memo		% memoing + loop check 
-	;	eval_table_io		% memoing I/O actions for debugging
+	;	eval_table_io(		% memoing I/O actions for debugging
+			table_io_is_decl,
+			table_io_is_unitize
+		)
 	;	eval_minimal.		% minimal model 
 					% evaluation 
+
+:- type table_io_is_decl
+	--->	table_io_decl		% The procedure is tabled for
+					% declarative debugging.
+	;	table_io_proc.		% The procedure is tabled only for
+					% procedural debugging.
+
+:- type table_io_is_unitize
+	--->	table_io_unitize	% The procedure is tabled for I/O
+					% together with its Mercury
+					% descendants.
+	;	table_io_alone.		% The procedure is tabled for I/O
+					% by itself; it can have no Mercury
+					% descendants.
+
 %
 % Stuff for the `aditi_index' pragma
 %
@@ -473,19 +559,24 @@
 
 :- type class_method
 	--->	pred_or_func(tvarset, inst_varset, existq_tvars, pred_or_func,
-			sym_name, list(type_and_mode), maybe(determinism),
+			sym_name, list(type_and_mode), maybe(type),
+			maybe(inst), maybe(determinism),
 			condition, purity, class_constraints, prog_context)
 		%       TypeVarNames, InstVarNames,
 		%	ExistentiallyQuantifiedTypeVars,
-		%	PredOrFunc, PredName, ArgTypes, Determinism, Cond
-		%	Purity, ClassContext, Context
+		%	PredOrFunc, PredName, ArgTypes, WithType, Determinism,
+		%	Cond, Purity, ClassContext, Context
 
-	; 	pred_or_func_mode(inst_varset, pred_or_func, sym_name,
-			list(mode), maybe(determinism), condition,
-			prog_context)
-		%       InstVarNames, PredOrFunc, PredName, ArgModes,
-		%	Determinism, Cond
+	; 	pred_or_func_mode(inst_varset, maybe(pred_or_func), sym_name,
+			list(mode), maybe(inst), maybe(determinism),
+			condition, prog_context)
+		%       InstVarNames, MaybePredOrFunc, PredName, ArgModes,
+		%	Determinism, WithInst, Cond
 		%	Context
+		%
+		% 	For mode declarations using `with_inst` we don't
+		%	know whether it's a predicate or function until
+		%	we've expanded the inst.
 	.
 
 :- type instance_method	
@@ -533,6 +624,12 @@
 :- pred thread_safe(pragma_foreign_proc_attributes, thread_safe).
 :- mode thread_safe(in, out) is det.
 
+:- pred purity(pragma_foreign_proc_attributes, purity).
+:- mode purity(in, out) is det.
+
+:- pred legacy_purity_behaviour(pragma_foreign_proc_attributes, bool).
+:- mode legacy_purity_behaviour(in, out) is det.
+
 :- pred set_thread_safe(pragma_foreign_proc_attributes, thread_safe,
 		pragma_foreign_proc_attributes).
 :- mode set_thread_safe(in, in, out) is det.
@@ -557,6 +654,14 @@
 :- pred set_aliasing(pragma_foreign_proc_attributes, aliasing,
 		pragma_foreign_proc_attributes).
 :- mode set_aliasing(in, in, out) is det.
+
+:- pred set_purity(pragma_foreign_proc_attributes, purity,
+		pragma_foreign_proc_attributes).
+:- mode set_purity(in, in, out) is det.
+
+:- pred set_legacy_purity_behaviour(pragma_foreign_proc_attributes, bool,
+		pragma_foreign_proc_attributes).
+:- mode set_legacy_purity_behaviour(in, in, out) is det.
 
 :- pred add_extra_attribute(pragma_foreign_proc_attributes, 
 		pragma_foreign_proc_extra_attribute,
@@ -583,7 +688,9 @@
 
 :- type tabled_for_io
 	--->	not_tabled_for_io
-	;	tabled_for_io.
+	;	tabled_for_io
+	;	tabled_for_io_unitize
+	;	tabled_for_descendant_io.
 
 % :- type aliasing
 %	--->	no_aliasing
@@ -600,7 +707,6 @@
 	  	% variable, name, mode
 		% we explicitly store the name because we need the real
 		% name in code_gen
-
 
 :- type pragma_foreign_proc_extra_attribute
 	--->	max_stack_size(int).
@@ -639,6 +745,10 @@
 				% existential quantification
 				% (The curly braces just quote the 'some'/2.)
 	;	all(prog_vars, goal)	% universal quantification
+	;	some_state_vars(prog_vars, goal)
+	;	all_state_vars(prog_vars, goal)
+				% state variables extracted from
+				% some/2 and all/2 quantifiers.
 
 	% implications
 	;	implies(goal, goal)	% A => B
@@ -646,8 +756,11 @@
 
 	% negation and if-then-else
 	;	not(goal)
-	;	if_then(prog_vars, goal, goal)
-	;	if_then_else(prog_vars, goal, goal, goal)
+	;	if_then(prog_vars, prog_vars, goal, goal)
+				% if_then(SomeVars, StateVars, If, Then)
+	;	if_then_else(prog_vars, prog_vars, goal, goal, goal)
+				% if_then_else(SomeVars, StateVars,
+				% 			If, Then, Else)
 
 	% atomic goals
 	;	call(sym_name, list(prog_term), purity)
@@ -703,7 +816,6 @@
 
 :- type type_defn	
 	--->	du_type(list(constructor), maybe(equality_pred))
-	;	uu_type(list(type))
 	;	eqv_type(type)
 	;	abstract_type.
 
@@ -732,9 +844,9 @@
 :- type type_param	==	term(tvar_type).
 
 	% Module qualified types are represented as ':'/2 terms.
-	% Use type_util:type_to_type_id to convert a type to a qualified
-	% type_id and a list of arguments.
-	% type_util:construct_type to construct a type from a type_id 
+	% Use type_util:type_to_ctor_and_args to convert a type to a qualified
+	% type_ctor and a list of arguments.
+	% type_util:construct_type to construct a type from a type_ctor 
 	% and a list of arguments.
 	%
 	% The `term__context's of the type terms must be empty (as
@@ -756,7 +868,7 @@
 					% used for sets of type variables
 :- type tsubst		==	map(tvar, type). % used for type substitutions
 
-:- type type_id		==	pair(sym_name, arity).
+:- type type_ctor	==	pair(sym_name, arity).
 
 	% existq_tvars is used to record the set of type variables which are
 	% existentially quantified
@@ -1009,6 +1121,7 @@
 :- implementation.
 
 :- import_module string.
+:- import_module check_hlds__purity.
 
 :- type pragma_foreign_proc_attributes
 	--->	attributes(
@@ -1017,6 +1130,11 @@
 			thread_safe		:: thread_safe,
 			tabled_for_io		:: tabled_for_io,
 			aliasing		:: aliasing,
+			purity			:: purity,
+				% there is some special case behaviour for 
+				% pragma c_code and pragma import purity
+				% if legacy_purity_behaviour is `yes'
+			legacy_purity_behaviour	:: bool,
 			extra_attributes	:: 
 				list(pragma_foreign_proc_extra_attribute)
 		).
@@ -1024,7 +1142,7 @@
 
 default_attributes(Language, 
 	attributes(Language, may_call_mercury, not_thread_safe, 
-		not_tabled_for_io, Aliasing, [])):-
+		not_tabled_for_io, Aliasing, impure, no, [])):- 
 	pa_alias_as__top("Default top", TopAlias), 
 	Aliasing = aliasing(no, varset__init, TopAlias).
 
@@ -1037,6 +1155,10 @@ foreign_language(Attrs, Attrs ^ foreign_language).
 tabled_for_io(Attrs, Attrs ^ tabled_for_io).
 
 aliasing(Attrs, Attrs ^ aliasing).
+
+purity(Attrs, Attrs ^ purity).
+
+legacy_purity_behaviour(Attrs, Attrs ^ legacy_purity_behaviour).
 
 set_may_call_mercury(Attrs0, MayCallMercury, Attrs) :-
 	Attrs = Attrs0 ^ may_call_mercury := MayCallMercury.
@@ -1053,12 +1175,18 @@ set_tabled_for_io(Attrs0, TabledForIo, Attrs) :-
 set_aliasing(Attrs0, TabledForIo, Attrs) :-
 	Attrs = Attrs0 ^ aliasing := TabledForIo.
 
+set_purity(Attrs0, Purity, Attrs) :-
+	Attrs = Attrs0 ^ purity := Purity.
+
+set_legacy_purity_behaviour(Attrs0, Legacy, Attrs) :-
+	Attrs = Attrs0 ^ legacy_purity_behaviour := Legacy.
+
 attributes_to_strings(Attrs, ProgVarSet, StringList) :-
 	% We ignore Lang because it isn't an attribute that you can put
 	% in the attribute list -- the foreign language specifier string
 	% is at the start of the pragma.
-	Attrs = attributes(_Lang, MayCallMercury, ThreadSafe,
-			TabledForIO, Aliasing, ExtraAttributes),
+	Attrs = attributes(_Lang, MayCallMercury, ThreadSafe, TabledForIO, 
+			Aliasing, Purity, _LegacyBehaviour, ExtraAttributes),
 	(
 		MayCallMercury = may_call_mercury,
 		MayCallMercuryStr = "may_call_mercury"
@@ -1077,13 +1205,29 @@ attributes_to_strings(Attrs, ProgVarSet, StringList) :-
 		TabledForIO = tabled_for_io,
 		TabledForIOStr = "tabled_for_io"
 	;
+		TabledForIO = tabled_for_io_unitize,
+		TabledForIOStr = "tabled_for_io_unitize"
+	;
+		TabledForIO = tabled_for_descendant_io,
+		TabledForIOStr = "tabled_for_descendant_io"
+	;
 		TabledForIO = not_tabled_for_io,
 		TabledForIOStr = "not_tabled_for_io"
 	),
 	to_user_declared_aliases(Aliasing, ProgVarSet, AliasingStr), 
+	(
+		Purity = pure,
+		PurityStrList = ["promise_pure"]
+	;
+		Purity = (semipure),
+		PurityStrList = ["promise_semipure"]
+	;
+		Purity = (impure),
+		PurityStrList = []
+	),
 	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr,
-			AliasingStr] ++
-			list__map(extra_attribute_to_string, ExtraAttributes).
+			AliasingStr | PurityStrList] ++
+		list__map(extra_attribute_to_string, ExtraAttributes).
 
 add_extra_attribute(Attributes0, NewAttribute,
 	Attributes0 ^ extra_attributes := 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,18 +10,18 @@
 % are defined in runtime/mercury_stack_layout.h, where the documentation
 % of the semantics of the various kinds of layout structures can also be found.
 %
-% This module is should be, but as yet isn't, independent of whether we are
+% This module should be, but as yet isn't, independent of whether we are
 % compiling to LLDS or MLDS.
 %
 % Author: zs.
 
 %-----------------------------------------------------------------------------%
 
-:- module layout_out.
+:- module ll_backend__layout_out.
 
 :- interface.
 
-:- import_module layout, llds, llds_out.
+:- import_module ll_backend__layout, ll_backend__llds, ll_backend__llds_out.
 :- import_module bool, io.
 
 	% Given a Mercury representation of a layout structure, output its
@@ -77,8 +77,9 @@
 
 :- implementation.
 
-:- import_module prog_data, prog_out, hlds_pred, trace_params, c_util.
-:- import_module rtti, trace, code_util.
+:- import_module parse_tree__prog_data, parse_tree__prog_out, hlds__hlds_pred.
+:- import_module libs__trace_params, backend_libs__c_util.
+:- import_module backend_libs__rtti, ll_backend__trace, ll_backend__code_util.
 :- import_module int, char, string, require, std_util, list.
 
 output_layout_data_defn(label_layout_data(Label, ProcLayoutAddr,
@@ -104,6 +105,10 @@ output_layout_data_defn(proc_static_data(RttiProcLabel, FileName, LineNumber,
 		IsInInterface, CallSites), DeclSet0, DeclSet) -->
 	output_proc_static_data_defn(RttiProcLabel, FileName, LineNumber,
 		IsInInterface, CallSites, DeclSet0, DeclSet).
+output_layout_data_defn(table_io_decl_data(RttiProcLabel, Kind, NumPTIs,
+		PTIVectorRval, TypeParamsRval), DeclSet0, DeclSet) -->
+	output_table_io_decl(RttiProcLabel, Kind, NumPTIs,
+		PTIVectorRval, TypeParamsRval, DeclSet0, DeclSet).
 
 %-----------------------------------------------------------------------------%
 
@@ -119,7 +124,7 @@ output_maybe_layout_name_decl(LayoutName, DeclSet0, DeclSet) -->
 		{ DeclSet = DeclSet0 }
 	;
 		output_layout_name_decl(LayoutName),
-	{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
+		{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
 			DeclSet) }
 	).
 
@@ -143,6 +148,9 @@ extract_layout_name(module_layout_data(ModuleName, _,_,_,_,_), LayoutName) :-
 	LayoutName = module_layout(ModuleName).
 extract_layout_name(proc_static_data(RttiProcLabel, _, _, _, _), LayoutName) :-
 	LayoutName = proc_static(RttiProcLabel).
+extract_layout_name(table_io_decl_data(RttiProcLabel, _, _, _, _),
+		LayoutName) :-
+	LayoutName = table_io_decl(RttiProcLabel).
 
 :- pred output_layout_decls(list(layout_name)::in, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
@@ -168,7 +176,7 @@ output_layout_decl(LayoutName, DeclSet0, DeclSet) -->
 			DeclSet) }
 	).
 
-	% This code should be kept in sync with output_layout_name/2 below.
+	% This code should be kept in sync with output_layout_name/3 below.
 make_label_layout_name(Label) = Name :-
 	llds_out__get_label(Label, yes, LabelName),
 	string__append_list([
@@ -178,7 +186,7 @@ make_label_layout_name(Label) = Name :-
 	], Name).
 
 output_layout_name(label_layout(Label, _)) -->
-	% This code should be kept in sync with make_label_layout_name/2 above.
+	% This code should be kept in sync with make_label_layout_name/1 above.
 	io__write_string(mercury_data_prefix),
 	io__write_string("_label_layout__"),
 	{ llds_out__get_label(Label, yes, LabelName) },
@@ -186,6 +194,10 @@ output_layout_name(label_layout(Label, _)) -->
 output_layout_name(proc_layout(ProcLabel, _)) -->
 	io__write_string(mercury_data_prefix),
 	io__write_string("_proc_layout__"),
+	output_proc_label(ProcLabel).
+output_layout_name(proc_layout_head_var_nums(ProcLabel)) -->
+	io__write_string(mercury_data_prefix),
+	io__write_string("_head_var_nums__"),
 	output_proc_label(ProcLabel).
 output_layout_name(proc_layout_var_names(ProcLabel)) -->
 	io__write_string(mercury_data_prefix),
@@ -248,6 +260,11 @@ output_layout_name(proc_static_call_sites(RttiProcLabel)) -->
 	io__write_string("_proc_static_call_sites__"),
 	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
 	output_proc_label(ProcLabel).
+output_layout_name(table_io_decl(RttiProcLabel)) -->
+	io__write_string(mercury_data_prefix),
+	io__write_string("_table_io_decl__"),
+	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
+	output_proc_label(ProcLabel).
 
 output_layout_name_storage_type_name(label_layout(Label, LabelVars),
 		_BeingDefined) -->
@@ -261,6 +278,12 @@ output_layout_name_storage_type_name(proc_layout(ProcLabel, Kind),
 	io__write_string(kind_to_type(Kind)),
 	io__write_string(" "),
 	output_layout_name(proc_layout(ProcLabel, Kind)).
+output_layout_name_storage_type_name(proc_layout_head_var_nums(ProcLabel),
+		_BeingDefined) -->
+	io__write_string("static const "),
+	io__write_string("MR_int_least16_t "),
+	output_layout_name(proc_layout_head_var_nums(ProcLabel)),
+	io__write_string("[]").
 output_layout_name_storage_type_name(proc_layout_var_names(ProcLabel),
 		_BeingDefined) -->
 	io__write_string("static const "),
@@ -335,9 +358,14 @@ output_layout_name_storage_type_name(proc_static_call_sites(RttiProcLabel),
 	io__write_string("static const MR_CallSiteStatic "),
 	output_layout_name(proc_static_call_sites(RttiProcLabel)),
 	io__write_string("[]").
+output_layout_name_storage_type_name(table_io_decl(RttiProcLabel),
+		_BeingDefined) -->
+	io__write_string("static const MR_Table_Io_Decl "),
+	output_layout_name(table_io_decl(RttiProcLabel)).
 
 layout_name_would_include_code_addr(label_layout(_, _)) = no.
 layout_name_would_include_code_addr(proc_layout(_, _)) = yes.
+layout_name_would_include_code_addr(proc_layout_head_var_nums(_)) = no.
 layout_name_would_include_code_addr(proc_layout_var_names(_)) = no.
 layout_name_would_include_code_addr(closure_proc_id(_, _, _)) = no.
 layout_name_would_include_code_addr(file_layout(_, _)) = no.
@@ -349,6 +377,7 @@ layout_name_would_include_code_addr(module_layout_proc_vector(_)) = no.
 layout_name_would_include_code_addr(module_layout(_)) = no.
 layout_name_would_include_code_addr(proc_static(_)) = no.
 layout_name_would_include_code_addr(proc_static_call_sites(_)) = no.
+layout_name_would_include_code_addr(table_io_decl(_)) = no.
 
 :- func label_vars_to_type(label_vars) = string.
 
@@ -459,33 +488,36 @@ output_proc_layout_data_defn(ProcLabel, Traversal, MaybeRest,
 	{ Kind = maybe_proc_layout_and_exec_trace_kind(MaybeRest, ProcLabel) },
 	(
 		{ MaybeRest = no_proc_id },
-		output_layout_traversal_decls(Traversal, DeclSet0, DeclSet3),
+		output_layout_traversal_decls(Traversal, DeclSet0, DeclSet4),
 		output_proc_layout_data_defn_start(ProcLabel, Kind, Traversal),
 		output_layout_no_proc_id_group,
 		output_proc_layout_data_defn_end
 	;
 		{ MaybeRest = proc_id_only },
-		output_layout_traversal_decls(Traversal, DeclSet0, DeclSet3),
+		output_layout_traversal_decls(Traversal, DeclSet0, DeclSet4),
 		output_proc_layout_data_defn_start(ProcLabel, Kind, Traversal),
 		output_layout_proc_id_group(ProcLabel),
 		output_layout_no_exec_trace_group,
 		output_proc_layout_data_defn_end
 	;
 		{ MaybeRest = proc_id_and_exec_trace(ExecTrace) },
+		{ HeadVarNums = ExecTrace ^ head_var_nums },
+		output_proc_layout_head_var_nums(ProcLabel, HeadVarNums,
+			DeclSet0, DeclSet1),
 		{ VarNames = ExecTrace ^ var_names },
 		{ MaxVarNum = ExecTrace ^ max_var_num },
 		output_proc_layout_var_names(ProcLabel, VarNames, MaxVarNum,
-			DeclSet0, DeclSet1),
-		output_layout_traversal_decls(Traversal, DeclSet1, DeclSet2),
+			DeclSet1, DeclSet2),
+		output_layout_traversal_decls(Traversal, DeclSet2, DeclSet3),
 		output_layout_exec_trace_decls(ProcLabel, ExecTrace,
-			DeclSet2, DeclSet3),
+			DeclSet3, DeclSet4),
 
 		output_proc_layout_data_defn_start(ProcLabel, Kind, Traversal),
 		output_layout_proc_id_group(ProcLabel),
 		output_layout_exec_trace_group(ProcLabel, ExecTrace),
 		output_proc_layout_data_defn_end
 	),
-	{ decl_set_insert(DeclSet3, data_addr(
+	{ decl_set_insert(DeclSet4, data_addr(
 		layout_addr(proc_layout(ProcLabel, Kind))), DeclSet) }.
 
 :- func maybe_proc_layout_and_exec_trace_kind(maybe_proc_id_and_exec_trace,
@@ -502,7 +534,7 @@ maybe_proc_layout_and_exec_trace_kind(MaybeRest, ProcLabel) = Kind :-
 	;
 		MaybeRest = proc_id_and_exec_trace(_),
 		Kind = proc_layout_exec_trace(
-		    proc_label_user_or_compiler(ProcLabel))
+			proc_label_user_or_compiler(ProcLabel))
 	).
 
 proc_label_user_or_compiler(proc(_, _, _, _, _, _)) = user.
@@ -599,18 +631,26 @@ output_layout_no_proc_id_group -->
 
 output_layout_exec_trace_decls(ProcLabel, ExecTrace, DeclSet0, DeclSet) -->
 	{ ExecTrace = proc_layout_exec_trace(CallLabelLayout, MaybeProcBody,
-		_VarNames, _MaxVarNum, _MaxRegNum, _MaybeFromFullSlot,
-		_MaybeIoSeqSlot, _MaybeTrailSlot, _MaybeMaxfrSlot, _EvalMethod,
-		_MaybeCallTableSlot, _MaybeDeclDebugSlot) },
+		MaybeTableIoDecl, _HeadVarNums, _VarNames, _MaxVarNum,
+		_MaxRegNum, _MaybeFromFullSlot, _MaybeIoSeqSlot,
+		_MaybeTrailSlot, _MaybeMaxfrSlot, _EvalMethod,
+		_MaybeCallTableSlot) },
 	{ ModuleName = get_defining_module_name(ProcLabel) },
 	output_layout_decl(CallLabelLayout, DeclSet0, DeclSet1),
 	output_layout_decl(module_layout(ModuleName), DeclSet1, DeclSet2),
 	(
 		{ MaybeProcBody = yes(ProcBody) },
-		output_rval_decls(ProcBody, "", "", 0, _, DeclSet2, DeclSet)
+		output_rval_decls(ProcBody, "", "", 0, _, DeclSet2, DeclSet3)
 	;
 		{ MaybeProcBody = no },
-		{ DeclSet = DeclSet2 }
+		{ DeclSet3 = DeclSet2 }
+	),
+	(
+		{ MaybeTableIoDecl = yes(TableIoDeclName) },
+		output_layout_decl(TableIoDeclName, DeclSet3, DeclSet)
+	;
+		{ MaybeTableIoDecl = no },
+		{ DeclSet = DeclSet3 }
 	).
 
 :- pred output_layout_exec_trace_group(proc_label::in,
@@ -618,9 +658,9 @@ output_layout_exec_trace_decls(ProcLabel, ExecTrace, DeclSet0, DeclSet) -->
 
 output_layout_exec_trace_group(ProcLabel, ExecTrace) -->
 	{ ExecTrace = proc_layout_exec_trace(CallLabelLayout, MaybeProcBody,
-		_VarNames, MaxVarNum, MaxRegNum, MaybeFromFullSlot,
-		MaybeIoSeqSlot, MaybeTrailSlot, MaybeMaxfrSlot, EvalMethod,
-		MaybeCallTableSlot, MaybeDeclDebugSlot) },
+		MaybeTableIoDecl, HeadVarNums, _VarNames, MaxVarNum,
+		MaxRegNum, MaybeFromFullSlot, MaybeIoSeqSlot, MaybeTrailSlot,
+		MaybeMaxfrSlot, EvalMethod, MaybeCallTableSlot) },
 	io__write_string("\t{\n\t(const MR_Label_Layout *) &"),
 	output_layout_name(CallLabelLayout),
 	io__write_string(",\n\t(const MR_Module_Layout *) &"),
@@ -635,7 +675,20 @@ output_layout_exec_trace_group(ProcLabel, ExecTrace) -->
 		io__write_int(0)
 	),
 	io__write_string(",\n\t"),
+	(
+		{ MaybeTableIoDecl = yes(TableIoDecl) },
+		io__write_string("&"),
+		output_layout_name(TableIoDecl)
+	;
+		{ MaybeTableIoDecl = no },
+		io__write_string("NULL")
+	),
+	io__write_string(",\n\t"),
+	output_layout_name(proc_layout_head_var_nums(ProcLabel)),
+	io__write_string(",\n\t"),
 	output_layout_name(proc_layout_var_names(ProcLabel)),
+	io__write_string(",\n\t"),
+	io__write_int(list__length(HeadVarNums)),
 	io__write_string(",\n\t"),
 	io__write_int(MaxVarNum),
 	io__write_string(",\n\t"),
@@ -652,8 +705,6 @@ output_layout_exec_trace_group(ProcLabel, ExecTrace) -->
 	io__write_string(eval_method_to_c_string(EvalMethod)),
 	io__write_string(",\n\t"),
 	write_maybe_slot_num(MaybeCallTableSlot),
-	io__write_string(",\n\t"),
-	write_maybe_slot_num(MaybeDeclDebugSlot),
 	io__write_string("\n\t}\n").
 
 :- pred write_maybe_slot_num(maybe(int)::in, io__state::di, io__state::uo)
@@ -666,11 +717,47 @@ write_maybe_slot_num(no) -->
 
 :- func eval_method_to_c_string(eval_method) = string.
 
-eval_method_to_c_string(eval_normal) =	   "MR_EVAL_METHOD_NORMAL".
-eval_method_to_c_string(eval_loop_check) = "MR_EVAL_METHOD_LOOP_CHECK".
-eval_method_to_c_string(eval_memo) =       "MR_EVAL_METHOD_MEMO".
-eval_method_to_c_string(eval_table_io) =   "MR_EVAL_METHOD_TABLE_IO".
-eval_method_to_c_string(eval_minimal) =	   "MR_EVAL_METHOD_MINIMAL".
+eval_method_to_c_string(eval_normal) =	      "MR_EVAL_METHOD_NORMAL".
+eval_method_to_c_string(eval_loop_check) =    "MR_EVAL_METHOD_LOOP_CHECK".
+eval_method_to_c_string(eval_memo) =          "MR_EVAL_METHOD_MEMO".
+eval_method_to_c_string(eval_minimal) =	      "MR_EVAL_METHOD_MINIMAL".
+eval_method_to_c_string(eval_table_io(Decl, Unitize)) = Str :-
+	(
+		Decl = table_io_proc,
+		Unitize = table_io_alone,
+		Str = "MR_EVAL_METHOD_TABLE_IO"
+	;
+		Decl = table_io_proc,
+		Unitize = table_io_unitize,
+		Str = "MR_EVAL_METHOD_TABLE_IO_UNITIZE"
+	;
+		Decl = table_io_decl,
+		Unitize = table_io_alone,
+		Str = "MR_EVAL_METHOD_TABLE_IO_DECL"
+	;
+		Decl = table_io_decl,
+		Unitize = table_io_unitize,
+		Str = "MR_EVAL_METHOD_TABLE_IO_UNITIZE_DECL"
+	).
+
+:- pred output_proc_layout_head_var_nums(proc_label::in, list(int)::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_proc_layout_head_var_nums(ProcLabel, HeadVarNums, DeclSet0, DeclSet) -->
+	io__write_string("\n"),
+	output_layout_name_storage_type_name(
+		proc_layout_head_var_nums(ProcLabel), yes),
+	io__write_string(" = {\n"),
+	( { HeadVarNums = [] } ->
+			% ANSI/ISO C doesn't allow empty arrays, so
+			% place a dummy value in the array.
+		io__write_string("\t0\n")
+	;
+		list__foldl(output_number_in_vector, HeadVarNums)
+	),
+	io__write_string("};\n"),
+	{ decl_set_insert(DeclSet0, data_addr(
+		layout_addr(proc_layout_head_var_nums(ProcLabel))), DeclSet) }.
 
 :- pred output_proc_layout_var_names(proc_label::in, list(int)::in, int::in,
 	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
@@ -879,14 +966,7 @@ output_module_string_table_chars(CurIndex, MaxIndex, String) -->
 	),
 	{ string__unsafe_index(String, CurIndex, Char) },
 	io__write_char(''''),
-	( { char__to_int(Char, 0) } ->
-		io__write_string("\\0")
-	; { c_util__quote_char(Char, QuoteChar) } ->
-		io__write_char('\\'),
-		io__write_char(QuoteChar)
-	;
-		io__write_char(Char)
-	),
+	c_util__output_quoted_char(Char),
 	io__write_char(''''),
 	( { CurIndex < MaxIndex } ->
 		io__write_string(", "),
@@ -1075,10 +1155,10 @@ output_proc_static_data_defn(RttiProcLabel, FileName, LineNumber,
 	io__write_string(",\n\t"),
 	(
 		{ IsInInterface = yes },
-		io__write_string("TRUE")
+		io__write_string("MR_TRUE")
 	;
 		{ IsInInterface = no },
-		io__write_string("FALSE")
+		io__write_string("MR_FALSE")
 	),
 	io__write_string(",\n\t"),
 	io__write_int(list__length(CallSites)),
@@ -1101,16 +1181,18 @@ output_call_site_static_array(RttiProcLabel, CallSites, DeclSet0, DeclSet) -->
 	io__write_string("\n"),
 	output_layout_name_storage_type_name(LayoutName, yes),
 	io__write_string(" = {\n"),
-	list__foldl(output_call_site_static, CallSites),
+	list__foldl2(output_call_site_static, CallSites, 0, _),
 	io__write_string("};\n"),
 	{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
 		DeclSet) }.
 
-:- pred output_call_site_static(call_site_static_data::in,
+:- pred output_call_site_static(call_site_static_data::in, int::in, int::out,
 	io__state::di, io__state::uo) is det.
 
-output_call_site_static(CallSiteStatic) -->
-	io__write_string("\t{ "),
+output_call_site_static(CallSiteStatic, Index, Index + 1) -->
+	io__write_string("\t{ /* "),
+	io__write_int(Index),
+	io__write_string(" */ "),
 	(
 		{ CallSiteStatic = normal_call(Callee, TypeSubst,
 			FileName, LineNumber, GoalPath) },
@@ -1169,5 +1251,33 @@ output_call_site_static_decl(CallSiteStatic, DeclSet0, DeclSet) -->
 		{ CallSiteStatic = callback(_, _, _) },
 		{ DeclSet = DeclSet0 }
 	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred output_table_io_decl(rtti_proc_label::in, proc_layout_kind::in,
+	int::in, rval::in, rval::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_table_io_decl(RttiProcLabel, ProcLayoutKind, NumPTIs,
+		PTIVectorRval, TypeParamRval, DeclSet0, DeclSet) -->
+	output_rval_decls(PTIVectorRval, "", "", 0, _, DeclSet0, DeclSet1),
+	{ LayoutName = table_io_decl(RttiProcLabel) },
+	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
+	{ ProcLayoutName = proc_layout(ProcLabel, ProcLayoutKind) },
+	output_layout_decl(ProcLayoutName, DeclSet1, DeclSet2),
+
+	io__write_string("\n"),
+	output_layout_name_storage_type_name(LayoutName, yes),
+	io__write_string(" = {\n\t(const MR_Proc_Layout *) &"),
+	output_layout_name(ProcLayoutName),
+	io__write_string(",\n\t"),
+	io__write_int(NumPTIs),
+	io__write_string(",\n\t(const MR_PseudoTypeInfo *) "),
+	output_rval(PTIVectorRval),
+	io__write_string(",\n\t(const MR_Type_Param_Locns *) "),
+	output_rval(TypeParamRval),
+	io__write_string("\n};\n"),
+	{ decl_set_insert(DeclSet2, data_addr(layout_addr(LayoutName)),
+		DeclSet) }.
 
 %-----------------------------------------------------------------------------%

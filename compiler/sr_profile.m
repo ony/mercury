@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -11,8 +11,13 @@
 
 :- interface.
 
+% library modules.
 :- import_module io, int, string. 
-:- import_module hlds_module.
+
+% XXX parent modules.
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_module.
 
 :- type profiling_info ---> 
 		prof(
@@ -74,8 +79,12 @@ det.
 
 :- implementation. 
 
+% XXX parent modules.
+:- import_module transform_hlds.
+
 :- import_module bool, relation, require, set, time, list, std_util, map. 
-:- import_module dependency_graph, hlds_out, hlds_pred.
+:- import_module transform_hlds__dependency_graph.
+:- import_module hlds__hlds_out, hlds__hlds_pred.
 
 init(P) :- 
 	P = prof(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0). 

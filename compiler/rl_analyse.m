@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998 University of Melbourne.
+% Copyright (C) 1998,2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,11 +9,11 @@
 % Generic flow graph analysis for RL instructions.
 % This is mostly as described in the Dragon Book, chapter 10.
 %-----------------------------------------------------------------------------%
-:- module rl_analyse.
+:- module aditi_backend__rl_analyse.
 
 :- interface.
 
-:- import_module rl_block.
+:- import_module aditi_backend__rl_block.
 :- import_module io, list, map, set, std_util.
 
 	% rl_analyse(Blocks, Direction, Init, Confluence, Update, Results,
@@ -106,7 +106,7 @@
 
 :- implementation.
 
-:- import_module globals, options.
+:- import_module libs__globals, libs__options.
 :- import_module assoc_list, bool, relation, require, string.  
 
 rl_analyse(Blocks, Analysis, BlockDataMap0, BlockDataMap,
@@ -241,11 +241,10 @@ rl_analyse__do_io(Writer) -->
 		io__state::di, io__state::uo) is det.
 
 rl_analyse__dump_block_data_map(Analysis, Blocks, BlockDataMap, Globals) -->
-	rl_analyse__do_io(
+	rl_analyse__do_io(pred(di, uo) is det -->
 		io__write_list(Blocks, "\n",
 			rl_analyse__dump_block_data(Analysis,
-				BlockDataMap, Globals)
-		)
+				BlockDataMap, Globals))
 	).
 
 :- pred rl_analyse__dump_block_data(rl_analysis(T, U, V)::rl_analysis,

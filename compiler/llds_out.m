@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,12 +13,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module llds_out.
+:- module ll_backend__llds_out.
 
 :- interface.
 
-:- import_module llds, builtin_ops, prog_data, hlds_data, rl_file.
-:- import_module globals.
+:- import_module ll_backend__llds, backend_libs__builtin_ops.
+:- import_module parse_tree__prog_data, hlds__hlds_data.
+:- import_module aditi_backend__rl_file.
+:- import_module libs__globals.
 :- import_module bool, std_util, list, map, io.
 
 	% Given a 'c_file' structure, output the LLDS code inside it
@@ -54,6 +56,10 @@
 :- pred output_rval_decls(rval, string, string, int, int, decl_set, decl_set,
 	io__state, io__state).
 :- mode output_rval_decls(in, in, in, in, out, in, out, di, uo) is det.
+
+:- pred output_rvals_decls(list(rval)::in, string::in, string::in,
+	int::in, int::out, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
 
 	% output an rval (not converted to any particular type,
 	% but instead output as its "natural" type)
@@ -96,11 +102,12 @@
 	% or static after initialization should have this prefix.
 :- func mercury_data_prefix = string.
 
-	% Given the default linkage of a data item, and a bool saying whether
-	% it is being defined, return a C string that gives its storage class.
+	% c_data_linkage_string(Globals, DefaultLinkage, StaticEvenIfSplit,
+	%	BeingDefined):
+	% Return a C string that gives the storage class appropriate for the
+	% definition of a global variable with the specified properties.
 
-:- pred c_data_linkage_string(globals::in, linkage::in, bool::in, string::out)
-	is det.
+:- func c_data_linkage_string(globals, linkage, bool, bool) = string.
 
 	% Given a boolean that states whether a data item includes code
 	% addresses or not, return a C string that gives its "const-ness".
@@ -256,10 +263,16 @@
 
 :- implementation.
 
-:- import_module rtti, rtti_out, layout, layout_out, options, trace_params.
-:- import_module exprn_aux, prog_util, prog_out, hlds_pred.
-:- import_module export, mercury_to_mercury, modules, passes_aux.
-:- import_module c_util.
+:- import_module parse_tree__modules, parse_tree__prog_out.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module hlds__hlds_pred, hlds__passes_aux.
+:- import_module ll_backend__layout, ll_backend__layout_out.
+:- import_module ll_backend__rtti_out.
+:- import_module ll_backend__exprn_aux, parse_tree__prog_util.
+:- import_module backend_libs__rtti, backend_libs__export.
+:- import_module backend_libs__c_util, backend_libs__foreign.
+:- import_module backend_libs__compile_target_code.
+:- import_module libs__options, libs__trace_params.
 
 :- import_module int, char, string, std_util.
 :- import_module set, bintree_set, assoc_list, require.
@@ -288,6 +301,7 @@ output_llds(C_File, StackLayoutLabels, MaybeRLFile) -->
 			UserForeignCodes, Exports, Vars, Datas, Modules) },
 		module_name_to_file_name(ModuleName, ".dir", yes, ObjDirName),
 		make_directory(ObjDirName),
+
 		output_split_c_file_init(ModuleName, Modules, Datas,
 			StackLayoutLabels, MaybeRLFile),
 		output_split_user_foreign_codes(UserForeignCodes, ModuleName,
@@ -299,7 +313,16 @@ output_llds(C_File, StackLayoutLabels, MaybeRLFile) -->
 		output_split_comp_gen_c_datas(Datas, ModuleName,
 			C_HeaderInfo, StackLayoutLabels, Num3, Num4),
 		output_split_comp_gen_c_modules(Modules, ModuleName,
-			C_HeaderInfo, StackLayoutLabels, Num4, _Num)
+			C_HeaderInfo, StackLayoutLabels, Num4, Num),
+
+		compile_target_code__write_num_split_c_files(ModuleName,
+			Num, Succeeded),
+		( { Succeeded = no } ->
+			compile_target_code__remove_split_c_output_files(
+				ModuleName, Num)
+		;
+			[]
+		)
 	;
 		output_single_c_file(C_File, no,
 			StackLayoutLabels, MaybeRLFile)
@@ -315,7 +338,7 @@ output_split_user_foreign_codes([UserForeignCode | UserForeignCodes],
 	{ CFile = c_file(ModuleName, C_HeaderLines,
 		[UserForeignCode], [], [], [], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_user_foreign_codes(UserForeignCodes, ModuleName,
 		C_HeaderLines, StackLayoutLabels, Num1, Num).
 
@@ -329,7 +352,7 @@ output_split_c_exports([Export | Exports], ModuleName, C_HeaderLines,
 	{ CFile = c_file(ModuleName, C_HeaderLines,
 		[], [Export], [], [], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_c_exports(Exports, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -342,7 +365,7 @@ output_split_comp_gen_c_vars([Var | Vars], ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num0, Num) -->
 	{ CFile = c_file(ModuleName, C_HeaderLines, [], [], [Var], [], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_comp_gen_c_vars(Vars, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -355,7 +378,7 @@ output_split_comp_gen_c_datas([Data | Datas], ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num0, Num) -->
 	{ CFile = c_file(ModuleName, C_HeaderLines, [], [], [], [Data], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_comp_gen_c_datas(Datas, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -369,7 +392,7 @@ output_split_comp_gen_c_modules([Module | Modules], ModuleName, C_HeaderLines,
 	{ CFile = c_file(ModuleName, C_HeaderLines,
 		[], [], [], [], [Module]) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_comp_gen_c_modules(Modules, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -383,11 +406,12 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 	module_name_to_file_name(ModuleName, ".m", no, SourceFileName),
 	module_name_to_split_c_file_name(ModuleName, 0, ".c", FileName),
 
-	io__tell(FileName, Result),
+	io__open_output(FileName, Result),
 	(
-		{ Result = ok }
+		{ Result = ok(FileStream) }
 	->
 		{ library__version(Version) },
+		io__set_output_stream(FileStream, OutputStream),
 		output_c_file_intro_and_grade(SourceFileName, Version),
 		output_init_comment(ModuleName),
 		output_c_file_mercury_headers,
@@ -396,7 +420,8 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 		output_c_module_init_list(ModuleName, Modules, Datas,
 			StackLayoutLabels, DeclSet0, _DeclSet),
 		output_rl_file(ModuleName, MaybeRLFile),
-		io__told
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream)
 	;
 		io__progname_base("llds.m", ProgName),
 		io__write_string("\n"),
@@ -412,7 +437,7 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 
 output_c_file_mercury_headers -->
 	globals__io_get_trace_level(TraceLevel),
-	( { trace_level_is_none(TraceLevel) = no } ->
+	( { given_trace_level_is_none(TraceLevel) = no } ->
 		io__write_string("#include ""mercury_imp.h""\n"),
 		io__write_string("#include ""mercury_trace_base.h""\n")
 	;
@@ -452,7 +477,10 @@ output_c_file_intro_and_grade(SourceFileName, Version) -->
 		"** UNBOXED_FLOAT=", UnboxedFloatStr, "\n",
 		"**\n",
 		"** END_OF_C_GRADE_INFO\n",
-		"*/\n"
+		"*/\n",
+		"\n",
+		"#define MR_BOOTSTRAP_TYPE_CTOR_REP\n",
+		"\n"
 	]).
 
 :- pred convert_bool_to_string(bool, string).
@@ -474,11 +502,12 @@ output_single_c_file(CFile, SplitFiles, StackLayoutLabels, MaybeRLFile) -->
 	;
 		module_name_to_file_name(ModuleName, ".c", yes, FileName)
 	),
-	io__tell(FileName, Result),
+	io__open_output(FileName, Result),
 	(
-		{ Result = ok }
+		{ Result = ok(FileStream) }
 	->
 		{ library__version(Version) },
+		io__set_output_stream(FileStream, OutputStream),
 		module_name_to_file_name(ModuleName, ".m", no, SourceFileName),
 		output_c_file_intro_and_grade(SourceFileName, Version),
 		( { SplitFiles = yes(_) } ->
@@ -511,7 +540,8 @@ output_single_c_file(CFile, SplitFiles, StackLayoutLabels, MaybeRLFile) -->
 				StackLayoutLabels, DeclSet5, _DeclSet)
 		),
 		output_rl_file(ModuleName, MaybeRLFile),
-		io__told
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream)
 	;
 		io__progname_base("llds.m", ProgName),
 		io__write_string("\n"),
@@ -570,11 +600,11 @@ output_c_module_init_list(ModuleName, Modules, Datas, StackLayoutLabels,
 	output_init_name(ModuleName),
 	io__write_string("init(void)\n"),
 	io__write_string("{\n"),
-	io__write_string("\tstatic bool done = FALSE;\n"),
+	io__write_string("\tstatic MR_bool done = MR_FALSE;\n"),
 	io__write_string("\tif (done) {\n"),
 	io__write_string("\t\treturn;\n"),
 	io__write_string("\t}\n"),
-	io__write_string("\tdone = TRUE;\n"),
+	io__write_string("\tdone = MR_TRUE;\n"),
 
 	output_init_bunch_calls(AlwaysInitModuleBunches, ModuleName,
 		"always", 0),
@@ -603,11 +633,11 @@ output_c_module_init_list(ModuleName, Modules, Datas, StackLayoutLabels,
 	output_init_name(ModuleName),
 	io__write_string("init_type_tables(void)\n"),
 	io__write_string("{\n"),
-	io__write_string("\tstatic bool done = FALSE;\n"),
+	io__write_string("\tstatic MR_bool done = MR_FALSE;\n"),
 	io__write_string("\tif (done) {\n"),
 	io__write_string("\t\treturn;\n"),
 	io__write_string("\t}\n"),
-	io__write_string("\tdone = TRUE;\n"),
+	io__write_string("\tdone = MR_TRUE;\n"),
 	output_type_tables_init_list(Datas, SplitFiles),
 	io__write_string("}\n\n"),
 
@@ -617,11 +647,11 @@ output_c_module_init_list(ModuleName, Modules, Datas, StackLayoutLabels,
 	output_init_name(ModuleName),
 	io__write_string("init_debugger(void)\n"),
 	io__write_string("{\n"),
-	io__write_string("\tstatic bool done = FALSE;\n"),
+	io__write_string("\tstatic MR_bool done = MR_FALSE;\n"),
 	io__write_string("\tif (done) {\n"),
 	io__write_string("\t\treturn;\n"),
 	io__write_string("\t}\n"),
-	io__write_string("\tdone = TRUE;\n"),
+	io__write_string("\tdone = MR_TRUE;\n"),
 	output_debugger_init_list(Datas),
 	io__write_string("}\n\n"),
 
@@ -665,7 +695,7 @@ output_init_bunch_defs([Bunch | Bunches], ModuleName, InitStatus, Seq,
 	io__write_string("{\n"),
 	output_init_bunch_def(Bunch, ModuleName, SplitFiles),
 	io__write_string("}\n\n"),
-	{ NextSeq is Seq + 1 },
+	{ NextSeq = Seq + 1 },
 	output_init_bunch_defs(Bunches, ModuleName, InitStatus, NextSeq,
 		SplitFiles).
 
@@ -698,10 +728,10 @@ output_init_bunch_calls([_ | Bunches], ModuleName, InitStatus, Seq) -->
 	io__write_string("\t"),
 	output_bunch_name(ModuleName, InitStatus, Seq),
 	io__write_string("();\n"),
-	{ NextSeq is Seq + 1 },
+	{ NextSeq = Seq + 1 },
 	output_init_bunch_calls(Bunches, ModuleName, InitStatus, NextSeq).
 
-	% Output MR_INIT_TYPE_CTOR_INFO(TypeCtorInfo, TypeId);
+	% Output MR_INIT_TYPE_CTOR_INFO(TypeCtorInfo, Typector);
 	% for each type_ctor_info defined in this module.
 
 :- pred output_c_data_init_list(list(comp_gen_c_data)::in,
@@ -1375,10 +1405,10 @@ llds_out__is_while_label(Label, [Instr0 - Comment0 | Instrs0], Instrs,
 		Count = Count0,
 		Instrs = [Instr0 - Comment0 | Instrs0]
 	; Instr0 = goto(label(Label)) ->
-		Count1 is Count0 + 1,
+		Count1 = Count0 + 1,
 		llds_out__is_while_label(Label, Instrs0, Instrs, Count1, Count)
 	; Instr0 = if_val(_, label(Label)) ->
-		Count1 is Count0 + 1,
+		Count1 = Count0 + 1,
 		llds_out__is_while_label(Label, Instrs0, Instrs, Count1, Count)
 	;
 		llds_out__is_while_label(Label, Instrs0, Instrs, Count0, Count)
@@ -1835,7 +1865,7 @@ output_instruction(pragma_c(Decls, Components, _, _, _, _, _, _), _) -->
 	io__write_string("\t{\n"),
 	output_pragma_decls(Decls),
 	output_pragma_c_components(Components),
-	io__write_string("\n\t}\n").
+	io__write_string("\t}\n").
 
 output_instruction(init_sync_term(Lval, N), _) -->
 	io__write_string("\tMR_init_sync_term("),
@@ -1915,11 +1945,10 @@ output_pragma_c_component(pragma_c_noop) --> [].
 output_pragma_decls([]) --> [].
 output_pragma_decls([D|Decls]) -->
 	(
-		{ D = pragma_c_arg_decl(Type, VarName) },
 		% Apart from special cases, the local variables are MR_Words
-		{ export__type_to_type_string(Type, VarType) },
+		{ D = pragma_c_arg_decl(_Type, TypeString, VarName) },
 		io__write_string("\t"),
-		io__write_string(VarType),
+		io__write_string(TypeString),
 		io__write_string("\t"),
 		io__write_string(VarName),
 		io__write_string(";\n")
@@ -1940,7 +1969,7 @@ output_pragma_decls([D|Decls]) -->
 
 output_pragma_input_rval_decls([], DeclSet, DeclSet) --> [].
 output_pragma_input_rval_decls([I | Inputs], DeclSet0, DeclSet) -->
-	{ I = pragma_c_input(_VarName, _Type, Rval) },
+	{ I = pragma_c_input(_VarName, _Type, Rval, _) },
 	output_rval_decls(Rval, "\t", "\t", 0, _N, DeclSet0, DeclSet1),
 	output_pragma_input_rval_decls(Inputs, DeclSet1, DeclSet).
 
@@ -1951,21 +1980,38 @@ output_pragma_input_rval_decls([I | Inputs], DeclSet0, DeclSet) -->
 
 output_pragma_inputs([]) --> [].
 output_pragma_inputs([I|Inputs]) -->
-	{ I = pragma_c_input(VarName, Type, Rval) },
+	{ I = pragma_c_input(VarName, Type, Rval, MaybeForeignType) },
 	io__write_string("\t"),
-	io__write_string(VarName),
-	io__write_string(" = "),
-	(
-        	{ Type = term__functor(term__atom("string"), [], _) }
-	->
-		output_llds_type_cast(string),
-		output_rval_as_type(Rval, word)
+	( { MaybeForeignType = yes(ForeignType) } ->
+		io__write_string("MR_MAYBE_UNBOX_FOREIGN_TYPE("),
+		io__write_string(ForeignType),
+		io__write_string(", "),
+		output_rval(Rval),
+		io__write_string(", "),
+		io__write_string(VarName),
+		io__write_string(")")
 	;
-        	{ Type = term__functor(term__atom("float"), [], _) }
-	->
-		output_rval_as_type(Rval, float)
-	;
-		output_rval_as_type(Rval, word)
+		io__write_string(VarName),
+		io__write_string(" = "),
+		(
+			{ Type = term__functor(term__atom("string"), [], _) }
+		->
+			output_llds_type_cast(string),
+			output_rval_as_type(Rval, word)
+		;
+			{ Type = term__functor(term__atom("float"), [], _) }
+		->
+			output_rval_as_type(Rval, float)
+		;
+			% Note that for this cast to be correct the foreign type
+			% must be a word sized integer or pointer type.
+			( { MaybeForeignType = yes(ForeignTypeStr) } ->
+				io__write_string("(" ++ ForeignTypeStr ++ ") ")
+			;
+				[]
+			),
+			output_rval_as_type(Rval, word)
+		)
 	),
 	io__write_string(";\n"),
 	output_pragma_inputs(Inputs).
@@ -1977,7 +2023,7 @@ output_pragma_inputs([I|Inputs]) -->
 
 output_pragma_output_lval_decls([], DeclSet, DeclSet) --> [].
 output_pragma_output_lval_decls([O | Outputs], DeclSet0, DeclSet) -->
-	{ O = pragma_c_output(Lval, _Type, _VarName) },
+	{ O = pragma_c_output(Lval, _Type, _VarName, _) },
 	output_lval_decls(Lval, "\t", "\t", 0, _N, DeclSet0, DeclSet1),
 	output_pragma_output_lval_decls(Outputs, DeclSet1, DeclSet).
 
@@ -1988,23 +2034,33 @@ output_pragma_output_lval_decls([O | Outputs], DeclSet0, DeclSet) -->
 
 output_pragma_outputs([]) --> [].
 output_pragma_outputs([O|Outputs]) -->
-	{ O = pragma_c_output(Lval, Type, VarName) },
+	{ O = pragma_c_output(Lval, Type, VarName, MaybeForeignType) },
 	io__write_string("\t"),
-	output_lval_as_word(Lval),
-	io__write_string(" = "),
-	(
-        	{ Type = term__functor(term__atom("string"), [], _) }
-	->
-		output_llds_type_cast(word),
-		io__write_string(VarName)
-	;
-        	{ Type = term__functor(term__atom("float"), [], _) }
-	->
-		io__write_string("MR_float_to_word("),
+	( { MaybeForeignType = yes(ForeignType) } ->
+		io__write_string("MR_MAYBE_BOX_FOREIGN_TYPE("),
+		io__write_string(ForeignType),
+		io__write_string(", "),
 		io__write_string(VarName),
+		io__write_string(", "),
+		output_lval_as_word(Lval),
 		io__write_string(")")
 	;
-		io__write_string(VarName)
+		output_lval_as_word(Lval),
+		io__write_string(" = "),
+		(
+			{ Type = term__functor(term__atom("string"), [], _) }
+		->
+			output_llds_type_cast(word),
+			io__write_string(VarName)
+		;
+			{ Type = term__functor(term__atom("float"), [], _) }
+		->
+			io__write_string("MR_float_to_word("),
+			io__write_string(VarName),
+			io__write_string(")")
+		;
+			io__write_string(VarName)
+		)
 	),
 	io__write_string(";\n"),
 	output_pragma_outputs(Outputs).
@@ -2160,7 +2216,7 @@ output_temp_decls_2(Next, Max, Type) -->
 		io__write_string("MR_temp"),
 		io__write_string(Type),
 		io__write_int(Next),
-		{ Next1 is Next + 1 },
+		{ Next1 = Next + 1 },
 		output_temp_decls_2(Next1, Max, Type)
 	;
 		[]
@@ -2206,7 +2262,7 @@ output_rval_decls(const(Const), FirstIndent, LaterIndent, N0, N,
 				{ string__float_to_string(FloatVal,
 					FloatString) },
 				output_indent(FirstIndent, LaterIndent, N0),
-				{ N is N0 + 1 },
+				{ N = N0 + 1 },
 				io__write_strings([
 					"static const MR_Float ",
 					"mercury_float_const_", FloatName,
@@ -2253,7 +2309,7 @@ output_rval_decls(binop(Op, Rval1, Rval2), FirstIndent, LaterIndent, N0, N,
 		;
 			{ decl_set_insert(DeclSet2, FloatLabel, DeclSet) },
 			output_indent(FirstIndent, LaterIndent, N2),
-			{ N is N2 + 1 },
+			{ N = N2 + 1 },
 			io__write_string("static const "),
 			output_llds_type(float),
 			io__write_string(" mercury_float_const_"),
@@ -2298,6 +2354,15 @@ output_rval_decls(mem_addr(MemRef), FirstIndent, LaterIndent,
 		N0, N, DeclSet0, DeclSet) -->
 	output_mem_ref_decls(MemRef, FirstIndent, LaterIndent,
 		N0, N, DeclSet0, DeclSet).
+
+output_rvals_decls([], _FirstIndent, _LaterIndent, N, N,
+		DeclSet, DeclSet) --> [].
+output_rvals_decls([Rval | Rvals], FirstIndent, LaterIndent, N0, N,
+		DeclSet0, DeclSet) -->
+	output_rval_decls(Rval, FirstIndent, LaterIndent, N0, N1,
+		DeclSet0, DeclSet1),
+	output_rvals_decls(Rvals, FirstIndent, LaterIndent, N1, N,
+		DeclSet1, DeclSet).
 
 :- pred output_mem_ref_decls(mem_ref, string, string, int, int,
 	decl_set, decl_set, io__state, io__state).
@@ -2415,7 +2480,7 @@ output_const_term_decl(ArgVals, CreateArgTypes, DeclId, Exported,
 		[]
 	),
 	output_indent(FirstIndent, LaterIndent, N1),
-	{ N is N1 + 1 },
+	{ N = N1 + 1 },
 	(
 		{ Decl = yes }
 	->
@@ -2542,7 +2607,7 @@ output_uniform_cons_arg_types([Arg | Args], MaybeType, Indent, ArgNum) -->
 		io__write_string(" f"),
 		io__write_int(ArgNum),
 		io__write_string(";\n"),
-		{ ArgNum1 is ArgNum + 1 },
+		{ ArgNum1 = ArgNum + 1 },
 		output_uniform_cons_arg_types(Args, MaybeType, Indent, ArgNum1)
 	;
 		{ error("output_uniform_cons_arg_types: missing arg") }
@@ -2578,8 +2643,8 @@ output_initial_cons_arg_types_2([Arg | Args], N, MaybeType, InitTypes,
 			io__write_string(" f"),
 			io__write_int(ArgNum),
 			io__write_string(";\n"),
-			{ ArgNum1 is ArgNum + 1 },
-			{ N1 is N - 1 },
+			{ ArgNum1 = ArgNum + 1 },
+			{ N1 = N - 1 },
 			output_initial_cons_arg_types_2(Args, N1, MaybeType,
 				InitTypes, RestTypes, Indent, ArgNum1)
 		;
@@ -2739,7 +2804,7 @@ output_initial_cons_args_2([Arg | Args], N, MaybeType, InitTypes, RestTypes,
 			Indent)
 	;
 		( { Arg = yes(Rval) } ->
-			{ N1 is N - 1 },
+			{ N1 = N - 1 },
 			io__write_string(Indent),
 			( { MaybeType = yes(_) } ->
 				output_static_rval(Rval)
@@ -2830,7 +2895,7 @@ output_code_addr_decls(CodeAddress, FirstIndent, LaterIndent, N0, N,
 		need_code_addr_decls(CodeAddress, NeedDecl),
 		( { NeedDecl = yes } ->
 			output_indent(FirstIndent, LaterIndent, N0),
-			{ N is N0 + 1 },
+			{ N = N0 + 1 },
 			output_code_addr_decls(CodeAddress)
 		;
 			{ N = N0 }
@@ -2984,14 +3049,15 @@ output_data_addr_decls(DataAddr, FirstIndent, LaterIndent, N0, N,
 
 output_data_addr_decls_2(DataAddr, FirstIndent, LaterIndent, N0, N) -->
 	output_indent(FirstIndent, LaterIndent, N0),
-	{ N is N0 + 1 },
+	{ N = N0 + 1 },
 	(
 		{ DataAddr = data_addr(ModuleName, DataVarName) },
 		output_data_addr_storage_type_name(ModuleName, DataVarName, no,
 			LaterIndent)
 	;
-		{ DataAddr = rtti_addr(RttiTypeId, RttiVarName) },
-		output_rtti_addr_storage_type_name(RttiTypeId, RttiVarName, no)
+		{ DataAddr = rtti_addr(RttiTypector, RttiVarName) },
+		output_rtti_addr_storage_type_name(RttiTypector, RttiVarName,
+			no)
 	;
 		{ DataAddr = layout_addr(LayoutName) },
 		output_layout_name_storage_type_name(LayoutName, no)
@@ -3006,11 +3072,12 @@ output_data_addrs_decls([DataAddr | DataAddrs], FirstIndent, LaterIndent,
 	output_data_addrs_decls(DataAddrs, FirstIndent, LaterIndent, N1, N,
 		DeclSet1, DeclSet).
 
-c_data_linkage_string(Globals, DefaultLinkage, BeingDefined, LinkageStr) :-
+c_data_linkage_string(Globals, DefaultLinkage, StaticEvenIfSplit, BeingDefined)
+		= LinkageStr :-
 	globals__lookup_bool_option(Globals, split_c_files, SplitFiles),
 	(
 		( DefaultLinkage = extern
-		; SplitFiles = yes
+		; SplitFiles = yes, StaticEvenIfSplit = no
 		)
 	->
 		(
@@ -3058,8 +3125,8 @@ output_data_addr_storage_type_name(ModuleName, DataVarName, BeingDefined,
 	;
 		{ data_name_linkage(DataVarName, Linkage) },
 		globals__io_get_globals(Globals),
-		{ c_data_linkage_string(Globals, Linkage, BeingDefined,
-			LinkageStr) },
+		{ LinkageStr = c_data_linkage_string(Globals, Linkage,
+			no, BeingDefined) },
 		io__write_string(LinkageStr),
 
 		{ InclCodeAddr =
@@ -3393,8 +3460,8 @@ output_data_addrs([DataAddr | DataAddrs]) -->
 
 output_data_addr(data_addr(ModuleName, DataName)) -->
 	output_data_addr(ModuleName, DataName).
-output_data_addr(rtti_addr(RttiTypeId, RttiName)) -->
-	output_rtti_addr(RttiTypeId, RttiName).
+output_data_addr(rtti_addr(RttiTypeCtor, RttiName)) -->
+	output_rtti_addr(RttiTypeCtor, RttiName).
 output_data_addr(layout_addr(LayoutName)) -->
 	output_layout_name(LayoutName).
 
@@ -3549,7 +3616,7 @@ llds_out__get_proc_label(proc(DefiningModule, PredOrFunc, PredModule,
 	get_label_name(DefiningModule, PredOrFunc, PredModule,
 		PredName, Arity, AddPrefix, LabelName),
 	( PredOrFunc = function ->
-		OrigArity is Arity - 1
+		OrigArity = Arity - 1
 	;
 		OrigArity = Arity
 	),
@@ -3986,12 +4053,10 @@ output_rval_const(multi_string_const(Length, String)) -->
 	io__write_string(""", "),
 	io__write_int(Length),
 	io__write_string(")").
-% XXX we should consider using MR_TRUE and MR_FALSE
-% rather than TRUE and FALSE
 output_rval_const(true) -->
-	io__write_string("TRUE").
+	io__write_string("MR_TRUE").
 output_rval_const(false) -->
-	io__write_string("FALSE").
+	io__write_string("MR_FALSE").
 output_rval_const(code_addr_const(CodeAddress)) -->
 	output_code_addr(CodeAddress).
 output_rval_const(data_addr_const(DataAddr)) -->
@@ -4064,12 +4129,10 @@ output_rval_static_const(multi_string_const(Length, String)) -->
 	io__write_string(""", "),
 	io__write_int(Length),
 	io__write_string(")").
-% XXX we should consider using MR_TRUE and MR_FALSE
-% rather than TRUE and FALSE
 output_rval_static_const(true) -->
-	io__write_string("TRUE").
+	io__write_string("MR_TRUE").
 output_rval_static_const(false) -->
-	io__write_string("FALSE").
+	io__write_string("MR_FALSE").
 output_rval_static_const(code_addr_const(CodeAddress)) -->
 	output_code_addr(CodeAddress).
 output_rval_static_const(data_addr_const(DataAddr)) -->
@@ -4490,15 +4553,5 @@ output_rl_file(ModuleName, MaybeRLFile) -->
 output_rl_byte(Byte) -->
 	io__write_int(Byte),
 	io__write_string(", ").
-
-%-----------------------------------------------------------------------------%
-
-:- pred make_directory(string::in, io__state::di, io__state::uo) is det.
-
-make_directory(DirName) -->
-	{ make_command_string(string__format(
-		"[ -d %s ] || mkdir -p %s", [s(DirName), s(DirName)]),
-		forward, Command) },
-	io__call_system(Command, _Result).
 
 %-----------------------------------------------------------------------------%

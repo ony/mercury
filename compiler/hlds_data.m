@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,11 +9,12 @@
 
 % Main authors: fjh, conway.
 
-:- module hlds_data.
+:- module hlds__hlds_data.
 
 :- interface.
 
-:- import_module hlds_pred, prog_data, (inst), rtti.
+:- import_module hlds__hlds_pred, parse_tree__prog_data, (parse_tree__inst).
+:- import_module backend_libs__rtti.
 :- import_module bool, list, map, std_util, term.
 
 %-----------------------------------------------------------------------------%
@@ -55,7 +56,13 @@
 				% that points to the table that implements
 				% memoization, loop checking or the minimal
 				% model semantics for the given procedure.
-			;	deep_profiling_proc_static(rtti_proc_label).
+			;	deep_profiling_proc_static(rtti_proc_label)
+				% The ProcStatic structure of a procedure,
+				% as documented in the deep profiling paper.
+			;	table_io_decl(rtti_proc_label).
+				% The address of a structure that describes
+				% the layout of the answer block used by
+				% I/O tabling for declarative debugging.
 
 	% A cons_defn is the definition of a constructor (i.e. a constant
 	% or a functor) for a particular type.
@@ -69,7 +76,7 @@
 			list(constructor_arg),	% The field names and types of
 						% the arguments of this functor
 						% (if any)
-			type_id,		% The result type, i.e. the
+			type_ctor,		% The result type, i.e. the
 						% type to which this
 						% cons_defn belongs.
 			prog_context		% The location of this
@@ -85,7 +92,7 @@
 	---> hlds_ctor_field_defn(
 		prog_context,	% context of the field definition
 		import_status,
-		type_id,	% type containing the field
+		type_ctor,	% type containing the field
 		cons_id,	% constructor containing the field
 		int		% argument number (counting from 1)
 	).
@@ -137,14 +144,14 @@
 :- mode make_functor_cons_id(in, in, out) is det.
 
 	% Another way of making a cons_id from a functor.
-	% Given the name, argument types, and type_id of a functor,
+	% Given the name, argument types, and type_ctor of a functor,
 	% create a cons_id for that functor.
 
-:- pred make_cons_id(sym_name, list(constructor_arg), type_id, cons_id).
+:- pred make_cons_id(sym_name, list(constructor_arg), type_ctor, cons_id).
 :- mode make_cons_id(in, in, in, out) is det.
 
 	% Another way of making a cons_id from a functor.
-	% Given the name, argument types, and type_id of a functor,
+	% Given the name, argument types, and type_ctor of a functor,
 	% create a cons_id for that functor.
 	%
 	% Differs from make_cons_id in that (a) it requires the sym_name
@@ -159,7 +166,7 @@
 
 :- implementation.
 
-:- import_module prog_util, varset.
+:- import_module parse_tree__prog_util, varset.
 :- import_module require.
 
 cons_id_and_args_to_term(int_const(Int), [], Term) :-
@@ -190,7 +197,8 @@ cons_id_arity(tabling_pointer_const(_, _), _) :-
 	error("cons_id_arity: can't get arity of tabling_pointer_const").
 cons_id_arity(deep_profiling_proc_static(_), _) :-
 	error("cons_id_arity: can't get arity of deep_profiling_proc_static").
-
+cons_id_arity(table_io_decl(_), _) :-
+	error("cons_id_arity: can't get arity of table_io_decl").
 
 cons_id_maybe_arity(cons(_, Arity), yes(Arity)).
 cons_id_maybe_arity(int_const(_), yes(0)).
@@ -202,6 +210,7 @@ cons_id_maybe_arity(type_ctor_info_const(_, _, _), no) .
 cons_id_maybe_arity(base_typeclass_info_const(_, _, _, _), no).
 cons_id_maybe_arity(tabling_pointer_const(_, _), no).
 cons_id_maybe_arity(deep_profiling_proc_static(_), no).
+cons_id_maybe_arity(table_io_decl(_), no).
 
 make_functor_cons_id(term__atom(Name), Arity,
 		cons(unqualified(Name), Arity)).
@@ -209,7 +218,7 @@ make_functor_cons_id(term__integer(Int), _, int_const(Int)).
 make_functor_cons_id(term__string(String), _, string_const(String)).
 make_functor_cons_id(term__float(Float), _, float_const(Float)).
 
-make_cons_id(SymName0, Args, TypeId, cons(SymName, Arity)) :-
+make_cons_id(SymName0, Args, TypeCtor, cons(SymName, Arity)) :-
 	% Use the module qualifier on the SymName, if there is one,
 	% otherwise use the module qualifier on the Type, if there is one,
 	% otherwise leave it unqualified.
@@ -220,10 +229,10 @@ make_cons_id(SymName0, Args, TypeId, cons(SymName, Arity)) :-
 	;
 		SymName0 = unqualified(ConsName),
 		(
-			TypeId = unqualified(_) - _,
+			TypeCtor = unqualified(_) - _,
 			SymName = SymName0
 		;
-			TypeId = qualified(TypeModule, _) - _,
+			TypeCtor = qualified(TypeModule, _) - _,
 			SymName = qualified(TypeModule, ConsName)
 		)
 	),
@@ -239,7 +248,7 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 
 	% The symbol table for types.
 
-:- type type_table	==	map(type_id, hlds_type_defn).
+:- type type_table	==	map(type_ctor, hlds_type_defn).
 
 	% This is how type, modes and constructors are represented.
 	% The parts that are not defined here (i.e. type_param, constructor,
@@ -250,9 +259,9 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 
 :- type hlds_type_defn.
 
-:- pred hlds_data__set_type_defn(tvarset, list(type_param),
-	hlds_type_body, import_status, prog_context, hlds_type_defn).
-:- mode hlds_data__set_type_defn(in, in, in, in, in, out) is det.
+:- pred hlds_data__set_type_defn(tvarset, list(type_param), hlds_type_body,
+	import_status, need_qualifier, prog_context, hlds_type_defn).
+:- mode hlds_data__set_type_defn(in, in, in, in, in, in, out) is det.
 
 :- pred hlds_data__get_type_defn_tvarset(hlds_type_defn, tvarset).
 :- mode hlds_data__get_type_defn_tvarset(in, out) is det.
@@ -265,6 +274,10 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 
 :- pred hlds_data__get_type_defn_status(hlds_type_defn, import_status).
 :- mode hlds_data__get_type_defn_status(in, out) is det.
+
+:- pred hlds_data__get_type_defn_need_qualifier(hlds_type_defn,
+		need_qualifier).
+:- mode hlds_data__get_type_defn_need_qualifier(in, out) is det.
 
 :- pred hlds_data__get_type_defn_context(hlds_type_defn, prog_context).
 :- mode hlds_data__get_type_defn_context(in, out) is det.
@@ -284,14 +297,27 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 
 :- type hlds_type_body
 	--->	du_type(
-			list(constructor), 	% the ctors for this type
-			cons_tag_values,	% their tag values
-			bool,		% is this type an enumeration?
-			maybe(sym_name) % user-defined equality pred
+					% the ctors for this type
+			du_type_ctors :: list(constructor), 
+					% their tag values
+			du_type_cons_tag_values :: cons_tag_values,
+					% is this type an enumeration?
+			du_type_is_enum :: bool,
+					% user-defined equality pred
+			du_type_usereq :: maybe(sym_name),
+					% are there `:- pragma foreign' type
+					% declarations for this type.
+			du_type_is_foreign_type :: maybe(foreign_type_body)
 		)
-	;	uu_type(list(type))	% not yet implemented!
 	;	eqv_type(type)
+	;	foreign_type(foreign_type_body)
 	;	abstract_type.
+
+:- type foreign_type_body
+	---> foreign_type_body(
+			il	:: maybe(il_foreign_type),
+			c	:: maybe(c_foreign_type)
+	).
 
 	% The `cons_tag_values' type stores the information on how
 	% a discriminated union type is represented.
@@ -356,6 +382,16 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 	;	deep_profiling_proc_static_tag(rtti_proc_label)
 			% This is for constants representing procedure
 			% descriptions for deep profiling.
+	;	table_io_decl_tag(rtti_proc_label)
+			% This is for constants representing the structure
+			% that allows us to decode the contents of the memory
+			% block containing the headvars of I/O primitives.
+	;	single_functor
+			% This is for types with a single functor
+			% (and possibly also some constants represented
+			% using reserved addresses -- see below).
+			% For these types, we don't need any tags.
+			% We just store a pointer to the argument vector.
 	;	unshared_tag(tag_bits)
 			% This is for constants or functors which can be
 			% distinguished with just a primary tag.
@@ -382,10 +418,35 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 			% and a secondary tag, but this time the secondary
 			% tag is stored in the rest of the main word rather
 			% than in the first word of the argument vector.
-	;	no_tag.
+	;	no_tag
 			% This is for types with a single functor of arity one.
 			% In this case, we don't need to store the functor,
 			% and instead we store the argument directly.
+	;	reserved_address(reserved_address)
+			% This is for constants represented as null pointers,
+			% or as other reserved values in the address space.
+	;       shared_with_reserved_addresses(list(reserved_address),
+				cons_tag).
+			% This is for constructors of discriminated union
+			% types where one or more of the *other* constructors
+			% for that type is represented as a reserved address.
+			% Any semidet deconstruction against a constructor
+			% represented as a shared_with_reserved_addresses
+			% cons_tag must check that the value isn't any of
+			% the reserved addresses before testing for the
+			% constructor's own cons_tag.
+
+:- type reserved_address
+	--->	null_pointer
+			% This is for constants which are represented as a
+			% null pointer.
+	;	small_pointer(int)
+			% This is for constants which are represented as a
+			% small integer, cast to a pointer.
+	;	reserved_object(type_ctor, sym_name, arity).
+			% This is for constants which are represented as the
+			% address of a specially reserved global variable.
+
 
 	% The type `tag_bits' holds a primary tag value.
 
@@ -403,21 +464,83 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 			(type)			% Argument type.
 		).
 
-:- type no_tag_type_table == map(type_id, no_tag_type).
+:- type no_tag_type_table == map(type_ctor, no_tag_type).
 
+
+	% Return the primary tag, if any, for a cons_tag.
+	% A return value of `no' means the primary tag is unknown.
+	% A return value of `yes(N)' means the primary tag is N.
+	% (`yes(0)' also corresponds to the case where there no primary tag.)
+:- func get_primary_tag(cons_tag) = maybe(int).
+
+	% Return the secondary tag, if any, for a cons_tag.
+	% A return value of `no' means there is no secondary tag.
+:- func get_secondary_tag(cons_tag) = maybe(int).
 
 :- implementation.
 
+% In some of the cases where we return `no' here,
+% it would probably be OK to return `yes(0)'.
+% But it's safe to be conservative...
+get_primary_tag(string_constant(_)) = no.
+get_primary_tag(float_constant(_)) = no.
+get_primary_tag(int_constant(_)) = no.
+get_primary_tag(pred_closure_tag(_, _, _)) = no.
+get_primary_tag(code_addr_constant(_, _)) = no.
+get_primary_tag(type_ctor_info_constant(_, _, _)) = no.
+get_primary_tag(base_typeclass_info_constant(_, _, _)) = no.
+get_primary_tag(tabling_pointer_constant(_, _)) = no.
+get_primary_tag(deep_profiling_proc_static_tag(_)) = no.
+get_primary_tag(table_io_decl_tag(_)) = no.
+get_primary_tag(single_functor) = yes(0).
+get_primary_tag(unshared_tag(PrimaryTag)) = yes(PrimaryTag).
+get_primary_tag(shared_remote_tag(PrimaryTag, _SecondaryTag)) =
+		yes(PrimaryTag).
+get_primary_tag(shared_local_tag(PrimaryTag, _)) = yes(PrimaryTag).
+get_primary_tag(no_tag) = no.
+get_primary_tag(reserved_address(_)) = no.
+get_primary_tag(shared_with_reserved_addresses(_ReservedAddresses, TagValue))
+		= get_primary_tag(TagValue).
+
+get_secondary_tag(string_constant(_)) = no.
+get_secondary_tag(float_constant(_)) = no.
+get_secondary_tag(int_constant(_)) = no.
+get_secondary_tag(pred_closure_tag(_, _, _)) = no.
+get_secondary_tag(code_addr_constant(_, _)) = no.
+get_secondary_tag(type_ctor_info_constant(_, _, _)) = no.
+get_secondary_tag(base_typeclass_info_constant(_, _, _)) = no.
+get_secondary_tag(tabling_pointer_constant(_, _)) = no.
+get_secondary_tag(deep_profiling_proc_static_tag(_)) = no.
+get_secondary_tag(table_io_decl_tag(_)) = no.
+get_secondary_tag(single_functor) = no.
+get_secondary_tag(unshared_tag(_)) = no.
+get_secondary_tag(shared_remote_tag(_PrimaryTag, SecondaryTag)) =
+		yes(SecondaryTag).
+get_secondary_tag(shared_local_tag(_, _)) = no.
+get_secondary_tag(no_tag) = no.
+get_secondary_tag(reserved_address(_)) = no.
+get_secondary_tag(shared_with_reserved_addresses(_ReservedAddresses, TagValue))
+		= get_secondary_tag(TagValue).
+
 :- type hlds_type_defn
 	--->	hlds_type_defn(
-			tvarset,		% Names of type vars (empty
+			type_defn_tvarset :: tvarset,	
+						% Names of type vars (empty
 						% except for polymorphic types)
-			list(type_param),	% Formal type parameters
-			hlds_type_body,	% The definition of the type
+			type_defn_params :: list(type_param),
+						% Formal type parameters
+			type_defn_body :: hlds_type_body,
+						% The definition of the type
 
-			import_status,		% Is the type defined in this
+			type_defn_import_status :: import_status,
+						% Is the type defined in this
 						% module, and if yes, is it
 						% exported
+
+			type_defn_need_qualifier :: need_qualifier,
+						% Do uses of the type and
+						% its constructors need
+						% to be qualified.
 
 %			condition,		% UNUSED
 %				% Reserved for holding a user-defined invariant
@@ -427,24 +550,27 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 %				% :- type sorted_list(T) == list(T)
 %				%	where sorted.
 
-			prog_context		% The location of this type
+			type_defn_context :: prog_context	
+						% The location of this type
 						% definition in the original
 						% source code
 		).
 
-hlds_data__set_type_defn(Tvarset, Params, Body, Status, Context, Defn) :-
-	Defn = hlds_type_defn(Tvarset, Params, Body, Status, Context).
+hlds_data__set_type_defn(Tvarset, Params, Body, Status,
+		NeedQual, Context, Defn) :-
+	Defn = hlds_type_defn(Tvarset, Params, Body,
+			Status, NeedQual, Context).
 
-hlds_data__get_type_defn_tvarset(hlds_type_defn(Tvarset, _, _, _, _), Tvarset).
-hlds_data__get_type_defn_tparams(hlds_type_defn(_, Params, _, _, _), Params).
-hlds_data__get_type_defn_body(hlds_type_defn(_, _, Body, _, _), Body).
-hlds_data__get_type_defn_status(hlds_type_defn(_, _, _, Status, _), Status).
-hlds_data__get_type_defn_context(hlds_type_defn(_, _, _, _, Context), Context).
+hlds_data__get_type_defn_tvarset(Defn, Defn ^ type_defn_tvarset).
+hlds_data__get_type_defn_tparams(Defn, Defn ^ type_defn_params).
+hlds_data__get_type_defn_body(Defn, Defn ^ type_defn_body).
+hlds_data__get_type_defn_status(Defn, Defn ^ type_defn_import_status).
+hlds_data__get_type_defn_need_qualifier(Defn, Defn ^ type_defn_need_qualifier).
+hlds_data__get_type_defn_context(Defn, Defn ^ type_defn_context).
 
-hlds_data__set_type_defn_body(hlds_type_defn(A, B, _, D, E), Body,
-				hlds_type_defn(A, B, Body, D, E)).
-hlds_data__set_type_defn_status(hlds_type_defn(A, B, C, _, E), Status, 
-				hlds_type_defn(A, B, C, Status, E)).
+hlds_data__set_type_defn_body(Defn, Body, Defn ^ type_defn_body := Body).
+hlds_data__set_type_defn_status(Defn, Status,
+		Defn ^ type_defn_import_status := Status).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -881,7 +1007,8 @@ determinism_components(failure,     can_fail,    at_most_zero).
 
 :- type subclass_details 
 	--->	subclass_details(
-			list(tvar),		% variables of the superclass
+			list(type),		% arguments of the
+						% superclass constraint
 			class_id,		% name of the subclass
 			list(tvar),		% variables of the subclass
 			tvarset			% the names of these vars
@@ -948,3 +1075,77 @@ assertion_table_pred_ids(assertion_table(_, AssertionMap), PredIds) :-
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
+
+:- interface.
+
+	% 
+	% A table recording exclusivity declarations (i.e. promise_exclusive
+	% and promise_exclusive_exhaustive). 
+	%
+	% e.g. :- all [X]
+	% 		promise_exclusive
+	% 		some [Y] (
+	% 			p(X, Y)
+	% 		;
+	% 			q(X)
+	% 		).
+	% 
+	% promises that only one of p(X, Y) and q(X) can succeed at a time,
+	% although whichever one succeeds may have multiple solutions. See
+	% notes/promise_ex.html for details of the declarations.
+	%
+
+	% an exclusive_id is the pred_id of an exclusivity declaration,
+	% and is useful in distinguishing between the arguments of the
+	% operations below on the exclusive_table
+:- type exclusive_id	==	pred_id.
+:- type exclusive_ids	==	list(pred_id).
+
+:- type exclusive_table.
+
+	% initialise the exclusive_table
+:- pred exclusive_table_init(exclusive_table).
+:- mode exclusive_table_init(out) is det.
+
+	% search the exclusive table and return the list of exclusivity
+	% declarations that use the predicate given by pred_id
+:- pred exclusive_table_search(exclusive_table, pred_id, exclusive_ids).
+:- mode exclusive_table_search(in, in, out) is semidet.
+
+	% as for search, but aborts if no exclusivity declarations are
+	% found
+:- pred exclusive_table_lookup(exclusive_table, pred_id, exclusive_ids).
+:- mode exclusive_table_lookup(in, in, out) is det.
+
+	% optimises the exclusive_table
+:- pred exclusive_table_optimize(exclusive_table, exclusive_table).
+:- mode exclusive_table_optimize(in, out) is det.
+
+	% add to the exclusive table that pred_id is used in the
+	% exclusivity declaration exclusive_id
+:- pred exclusive_table_add(pred_id, exclusive_id, exclusive_table,
+		exclusive_table).
+:- mode exclusive_table_add(in, in, in, out) is det.
+
+%-----------------------------------------------------------------------------%
+
+:- implementation.
+
+:- import_module multi_map.
+
+:- type exclusive_table		==	multi_map(pred_id, exclusive_id).
+
+exclusive_table_init(ExclusiveTable) :-
+	multi_map__init(ExclusiveTable).
+
+exclusive_table_lookup(ExclusiveTable, PredId, ExclusiveIds) :-
+	multi_map__lookup(ExclusiveTable, PredId, ExclusiveIds).
+
+exclusive_table_search(ExclusiveTable, Id, ExclusiveIds) :-
+	multi_map__search(ExclusiveTable, Id, ExclusiveIds).
+
+exclusive_table_optimize(ExclusiveTable0, ExclusiveTable) :-
+	multi_map__optimize(ExclusiveTable0, ExclusiveTable).
+
+exclusive_table_add(ExclusiveId, PredId, ExclusiveTable0, ExclusiveTable) :-
+	multi_map__set(ExclusiveTable0, PredId, ExclusiveId, ExclusiveTable).

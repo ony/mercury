@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,12 +13,14 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module mode_errors.
+:- module check_hlds__mode_errors.
 
 :- interface.
 
-:- import_module hlds_data, hlds_pred, hlds_module, hlds_goal.
-:- import_module prog_data, mode_info, (inst).
+:- import_module hlds__hlds_data, hlds__hlds_pred, hlds__hlds_module.
+:- import_module hlds__hlds_goal.
+:- import_module parse_tree__prog_data, check_hlds__mode_info.
+:- import_module (parse_tree__inst).
 
 :- import_module bool, set, assoc_list, list, io.
 
@@ -186,9 +188,10 @@
 
 :- implementation.
 
-:- import_module hlds_out.
-:- import_module mode_info, mode_util, prog_out, mercury_to_mercury.
-:- import_module options, globals.
+:- import_module hlds__hlds_out.
+:- import_module check_hlds__mode_info, check_hlds__mode_util.
+:- import_module parse_tree__prog_out, parse_tree__mercury_to_mercury.
+:- import_module libs__options, libs__globals.
 
 :- import_module int, map, term_io, varset, term.
 :- import_module std_util, require.
@@ -403,12 +406,11 @@ write_merge_error_list([], _) --> [].
 write_merge_error_list([Var - Insts | Errors], ModeInfo) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	prog_out__write_context(Context),
 	io__write_string("  `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' :: "),
-	output_inst_list(Insts, InstVarSet),
+	output_inst_list(Insts, ModeInfo),
 	io__write_string(".\n"),
 	write_merge_error_list(Errors, ModeInfo).
 
@@ -429,7 +431,6 @@ write_merge_context(if_then_else) -->
 report_mode_error_bind_var(ModeInfo, Reason, Var, VarInst, Inst) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  scope error: "),
@@ -453,11 +454,11 @@ report_mode_error_bind_var(ModeInfo, Reason, Var, VarInst, Inst) -->
 	io__write_string("  Variable `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(VarInst, InstVarSet),
+	output_inst(VarInst, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  expected instantiatedness was `"),
-	output_inst(Inst, InstVarSet),
+	output_inst(Inst, ModeInfo),
 	io__write_string("'.\n"),
 	globals__io_lookup_bool_option(verbose_errors, VerboseErrors),
 	( { VerboseErrors = yes } ->
@@ -490,13 +491,12 @@ report_mode_error_bind_var(ModeInfo, Reason, Var, VarInst, Inst) -->
 report_mode_error_non_local_lambda_var(ModeInfo, Var, VarInst) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error: variable `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(VarInst, InstVarSet),
+	output_inst(VarInst, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  expected instantiatedness for non-local variables\n"),
@@ -516,7 +516,6 @@ report_mode_error_in_callee(ModeInfo, Vars, Insts,
 	{ mode_info_get_module_info(ModeInfo, ModuleInfo) },
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error: arguments `"),
@@ -524,7 +523,7 @@ report_mode_error_in_callee(ModeInfo, Vars, Insts,
 	io__write_string("'\n"),
 	prog_out__write_context(Context),
 	io__write_string("  have insts `"),
-	output_inst_list(Insts, InstVarSet),
+	output_inst_list(Insts, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  which does not match any of the valid modes for\n"),
@@ -560,7 +559,6 @@ report_mode_error_in_callee(ModeInfo, Vars, Insts,
 report_mode_error_no_matching_mode(ModeInfo, Vars, Insts) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error: arguments `"),
@@ -568,7 +566,7 @@ report_mode_error_no_matching_mode(ModeInfo, Vars, Insts) -->
 	io__write_string("'\n"),
 	prog_out__write_context(Context),
 	io__write_string("  have insts `"),
-	output_inst_list(Insts, InstVarSet),
+	output_inst_list(Insts, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  which does not match any of the modes for "),
@@ -589,13 +587,12 @@ report_mode_error_higher_order_pred_var(ModeInfo, PredOrFunc, Var, VarInst,
 		Arity) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error: variable `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(VarInst, InstVarSet),
+	output_inst(VarInst, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	(	{ PredOrFunc = predicate },
@@ -615,7 +612,6 @@ report_mode_error_higher_order_pred_var(ModeInfo, PredOrFunc, Var, VarInst,
 report_mode_error_poly_unify(ModeInfo, Var, VarInst) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  in polymorphically-typed unification:\n"),
@@ -623,7 +619,7 @@ report_mode_error_poly_unify(ModeInfo, Var, VarInst) -->
 	io__write_string("  mode error: variable `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(VarInst, InstVarSet),
+	output_inst(VarInst, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string(
@@ -661,17 +657,16 @@ report_mode_error_var_is_live(ModeInfo, Var) -->
 report_mode_error_var_has_inst(ModeInfo, Var, VarInst, Inst) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error: variable `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(VarInst, InstVarSet),
+	output_inst(VarInst, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  expected instantiatedness was `"),
-	output_inst(Inst, InstVarSet),
+	output_inst(Inst, ModeInfo),
 	io__write_string("'.\n").
 
 :- pred report_mode_error_implied_mode(mode_info, prog_var, inst, inst,
@@ -686,7 +681,6 @@ report_mode_error_implied_mode(ModeInfo, Var, VarInst, Inst) -->
 	( { ErrorcheckOnly = no } ->
 		{ mode_info_get_context(ModeInfo, Context) },
 		{ mode_info_get_varset(ModeInfo, VarSet) },
-		{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 		mode_info_write_context(ModeInfo),
 		prog_out__write_context(Context),
 		io__write_string("  sorry, implied modes not implemented.\n"),
@@ -694,11 +688,11 @@ report_mode_error_implied_mode(ModeInfo, Var, VarInst, Inst) -->
 		io__write_string("  Variable `"),
 		mercury_output_var(Var, VarSet, no),
 		io__write_string("' has instantiatedness `"),
-		output_inst(VarInst, InstVarSet),
+		output_inst(VarInst, ModeInfo),
 		io__write_string("',\n"),
 		prog_out__write_context(Context),
 		io__write_string("  expected instantiatedness was `"),
-		output_inst(Inst, InstVarSet),
+		output_inst(Inst, ModeInfo),
 		io__write_string("'.\n")
 	;
 		[]
@@ -779,7 +773,6 @@ report_mode_error_unify_pred(ModeInfo, X, RHS, Type, PredOrFunc) -->
 report_mode_error_unify_var_var(ModeInfo, X, Y, InstX, InstY) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error in unification of `"),
@@ -791,13 +784,13 @@ report_mode_error_unify_var_var(ModeInfo, X, Y, InstX, InstY) -->
 	io__write_string("  Variable `"),
 	mercury_output_var(X, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(InstX, InstVarSet),
+	output_inst(InstX, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  variable `"),
 	mercury_output_var(Y, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(InstY, InstVarSet),
+	output_inst(InstY, ModeInfo),
 	io__write_string("'.\n").
 
 %-----------------------------------------------------------------------------%
@@ -810,7 +803,6 @@ report_mode_error_unify_var_var(ModeInfo, X, Y, InstX, InstY) -->
 report_mode_error_unify_var_lambda(ModeInfo, X, InstX, InstY) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error in unification of `"),
@@ -820,11 +812,11 @@ report_mode_error_unify_var_lambda(ModeInfo, X, InstX, InstY) -->
 	io__write_string("  Variable `"),
 	mercury_output_var(X, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(InstX, InstVarSet),
+	output_inst(InstX, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  lambda expression has instantiatedness `"),
-	output_inst(InstY, InstVarSet),
+	output_inst(InstY, ModeInfo),
 	io__write_string("'.\n").
 
 %-----------------------------------------------------------------------------%
@@ -838,7 +830,6 @@ report_mode_error_unify_var_functor(ModeInfo, X, ConsId, Args, InstX, ArgInsts)
 		-->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	{ mode_info_get_module_info(ModeInfo, ModuleInfo) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
@@ -851,7 +842,7 @@ report_mode_error_unify_var_functor(ModeInfo, X, ConsId, Args, InstX, ArgInsts)
 	io__write_string("  Variable `"),
 	mercury_output_var(X, VarSet, no),
 	io__write_string("' has instantiatedness `"),
-	output_inst(InstX, InstVarSet),
+	output_inst(InstX, ModeInfo),
 	io__write_string("',\n"),
 	prog_out__write_context(Context),
 	io__write_string("  term `"),
@@ -862,7 +853,7 @@ report_mode_error_unify_var_functor(ModeInfo, X, ConsId, Args, InstX, ArgInsts)
 		io__write_string("  has instantiatedness `"),
 		mercury_output_cons_id(ConsId, does_not_need_brackets),
 		io__write_string("("),
-		output_inst_list(ArgInsts, InstVarSet),
+		output_inst_list(ArgInsts, ModeInfo),
 		io__write_string(")")
 	;
 		io__write_string("' has instantiatedness `"),
@@ -909,7 +900,6 @@ mode_info_write_context(ModeInfo) -->
 report_mode_error_final_inst(ModeInfo, ArgNum, Var, VarInst, Inst, Reason) -->
 	{ mode_info_get_context(ModeInfo, Context) },
 	{ mode_info_get_varset(ModeInfo, VarSet) },
-	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
 	mode_info_write_context(ModeInfo),
 	prog_out__write_context(Context),
 	io__write_string("  mode error: argument "),
@@ -928,12 +918,12 @@ report_mode_error_final_inst(ModeInfo, ArgNum, Var, VarInst, Inst, Reason) -->
 	io__write_string("  Final instantiatedness of `"),
 	mercury_output_var(Var, VarSet, no),
 	io__write_string("' was `"),
-	output_inst(VarInst, InstVarSet),
+	output_inst(VarInst, ModeInfo),
 	io__write_string("',\n"),
 
 	prog_out__write_context(Context),
 	io__write_string("  expected final instantiatedness was `"),
-	output_inst(Inst, InstVarSet),
+	output_inst(Inst, ModeInfo),
 	io__write_string("'.\n").
 
 
@@ -1134,19 +1124,27 @@ report_mode_errors(ModeInfo0, ModeInfo) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pred output_inst((inst), inst_varset, io__state, io__state).
-:- mode output_inst(in, in, di, uo) is det.
+:- pred output_inst((inst), mode_info, io__state, io__state).
+:- mode output_inst(in, mode_info_ui, di, uo) is det.
 
-output_inst(Inst0, VarSet) -->
+output_inst(Inst0, ModeInfo) -->
 	{ strip_builtin_qualifiers_from_inst(Inst0, Inst) },
-	mercury_output_inst(Inst, VarSet).
+	{ mode_info_get_instvarset(ModeInfo, InstVarSet) },
+	{ mode_info_get_module_info(ModeInfo, ModuleInfo) },
+	mercury_output_expanded_inst(Inst, InstVarSet, ModuleInfo).
 
-:- pred output_inst_list(list(inst), inst_varset, io__state, io__state).
+:- pred output_inst_list(list(inst), mode_info, io__state, io__state).
 :- mode output_inst_list(in, in, di, uo) is det.
 
-output_inst_list(Insts0, VarSet) -->
-	{ strip_builtin_qualifiers_from_inst_list(Insts0, Insts) },
-	mercury_output_inst_list(Insts, VarSet).
+output_inst_list([], _) --> [].
+output_inst_list([Inst | Insts], ModeInfo) -->
+	output_inst(Inst, ModeInfo),
+	( { Insts = [] } ->
+		[]
+	;
+		io__write_string(", "),
+		output_inst_list(Insts, ModeInfo)
+	).
 
 %-----------------------------------------------------------------------------%
 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -24,12 +24,13 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module simplify.
+:- module check_hlds__simplify.
 
 :- interface.
 
-:- import_module hlds_goal, hlds_module, hlds_pred, det_report, det_util.
-:- import_module common, instmap, globals.
+:- import_module hlds__hlds_goal, hlds__hlds_module, hlds__hlds_pred.
+:- import_module check_hlds__det_report, check_hlds__det_util.
+:- import_module check_hlds__common, hlds__instmap, libs__globals.
 :- import_module io, bool, list, map.
 
 :- pred simplify__pred(list(simplification), pred_id, module_info, module_info,
@@ -73,13 +74,23 @@
 
 :- implementation.
 
-:- import_module code_aux, det_analysis, follow_code, goal_util, const_prop.
-:- import_module hlds_module, hlds_data, (inst), inst_match, varset.
-:- import_module options, passes_aux, prog_data, mode_util, type_util.
-:- import_module code_util, quantification, modes, purity, pd_cost.
-:- import_module prog_util, unify_proc, special_pred, polymorphism.
+:- import_module parse_tree__inst, parse_tree__prog_data.
+:- import_module parse_tree__prog_util.
+:- import_module hlds__hlds_module, hlds__hlds_data, hlds__passes_aux.
+:- import_module hlds__goal_util, hlds__goal_form, hlds__special_pred.
+:- import_module hlds__quantification.
+:- import_module check_hlds__type_util.
+:- import_module check_hlds__mode_util, check_hlds__inst_match.
+:- import_module check_hlds__det_analysis.
+:- import_module check_hlds__modes, check_hlds__purity.
+:- import_module check_hlds__unify_proc.
+:- import_module check_hlds__polymorphism.
+:- import_module transform_hlds__const_prop.
+:- import_module transform_hlds__pd_cost.
+:- import_module ll_backend__code_util, ll_backend__follow_code.
+:- import_module libs__options, libs__trace_params.
 
-:- import_module set, require, std_util, int, term.
+:- import_module int, set, require, std_util, string, varset, term.
 
 %-----------------------------------------------------------------------------%
 
@@ -322,7 +333,7 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		% ensure goal is pure or semipure
 		\+ goal_info_is_impure(GoalInfo0),
 		( det_info_get_fully_strict(DetInfo, no)
-		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
+		; goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
 		% warn about this, unless the goal was an explicit
@@ -331,8 +342,10 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		goal_info_get_context(GoalInfo0, Context),
 		(
 			simplify_do_warn(Info0),
-			\+ (goal_contains_goal(Goal0, SubGoal),
-			    SubGoal = disj([], _) - _)
+			\+ (
+				goal_contains_goal(Goal0, SubGoal),
+				SubGoal = disj([]) - _
+			)
 		->
 			simplify_info_add_msg(Info0,
 				goal_cannot_succeed(Context), Info1)
@@ -370,7 +383,7 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		% ensure goal is pure or semipure
 		\+ goal_info_is_impure(GoalInfo0),
 		( det_info_get_fully_strict(DetInfo, no)
-		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
+		; goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
 /******************
@@ -519,7 +532,7 @@ simplify__goal_2(conj(Goals0), GoalInfo0, Goal, GoalInfo, Info0, Info) :-
 		GoalInfo = GoalInfo0
 	).
 
-simplify__goal_2(par_conj(Goals0, SM), GoalInfo0, Goal,
+simplify__goal_2(par_conj(Goals0), GoalInfo0, Goal,
 		GoalInfo, Info0, Info) :-
 	(
 		Goals0 = []
@@ -537,10 +550,10 @@ simplify__goal_2(par_conj(Goals0, SM), GoalInfo0, Goal,
 	;
 		GoalInfo = GoalInfo0,
 		simplify__par_conj(Goals0, Goals, Info0, Info0, Info),
-		Goal = par_conj(Goals, SM)
+		Goal = par_conj(Goals)
 	).
 
-simplify__goal_2(disj(Disjuncts0, SM), GoalInfo0,
+simplify__goal_2(disj(Disjuncts0), GoalInfo0,
 		Goal, GoalInfo, Info0, Info) :-
 	simplify_info_get_instmap(Info0, InstMap0),
 	simplify__disj(Disjuncts0, [], Disjuncts, [], InstMaps,
@@ -555,7 +568,7 @@ simplify__goal_2(disj(Disjuncts0, SM), GoalInfo0,
 		simplify__maybe_wrap_goal(GoalInfo0, GoalInfo1,
 			Goal1, Goal, GoalInfo, Info1, Info2)
 	;
-		Goal = disj(Disjuncts, SM),
+		Goal = disj(Disjuncts),
 		simplify_info_get_module_info(Info1, ModuleInfo1),
 		goal_info_get_nonlocals(GoalInfo0, NonLocals),
 		simplify_info_get_var_types(Info1, VarTypes),
@@ -585,7 +598,7 @@ simplify__goal_2(disj(Disjuncts0, SM), GoalInfo0,
 		Info = Info2
 	).
 
-simplify__goal_2(switch(Var, SwitchCanFail0, Cases0, SM),
+simplify__goal_2(switch(Var, SwitchCanFail0, Cases0),
 		GoalInfo0, Goal, GoalInfo, Info0, Info) :-
 	simplify_info_get_instmap(Info0, InstMap0),
 	simplify_info_get_module_info(Info0, ModuleInfo0),
@@ -630,7 +643,7 @@ simplify__goal_2(switch(Var, SwitchCanFail0, Cases0, SM),
 			type_util__is_existq_cons(ModuleInfo1,
 					Type, ConsId)
 		    ->
-		    	Goal = switch(Var, SwitchCanFail, Cases, SM),
+		    	Goal = switch(Var, SwitchCanFail, Cases),
 			goal_info_get_nonlocals(GoalInfo0, NonLocals),
 			simplify_info_get_var_types(Info1, VarTypes),
 			merge_instmap_deltas(InstMap0, NonLocals, VarTypes,
@@ -679,7 +692,7 @@ simplify__goal_2(switch(Var, SwitchCanFail0, Cases0, SM),
 		pd_cost__eliminate_switch(CostDelta),
 		simplify_info_incr_cost_delta(Info4, CostDelta, Info5)
 	;
-		Goal = switch(Var, SwitchCanFail, Cases, SM),
+		Goal = switch(Var, SwitchCanFail, Cases),
 		simplify_info_get_module_info(Info1, ModuleInfo1),
 		goal_info_get_nonlocals(GoalInfo0, NonLocals),
 		simplify_info_get_var_types(Info1, VarTypes),
@@ -970,7 +983,7 @@ simplify__goal_2(Goal0, GoalInfo0, Goal, GoalInfo, Info0, Info) :-
 	% conjunction construct. This will change when constraint pushing
 	% is finished, or when we start doing coroutining.
 
-simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM),
+simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0),
 		GoalInfo0, Goal, GoalInfo, Info0, Info) :-
 	Cond0 = _ - CondInfo0,
 	goal_info_get_determinism(CondInfo0, CondDetism0),
@@ -983,7 +996,9 @@ simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM),
 			Info0, Info1),
 		goal_info_get_context(GoalInfo0, Context),
 		simplify_info_add_msg(Info1, ite_cond_cannot_fail(Context),
-			Info)
+			Info2),
+		simplify_info_set_requantify(Info2, Info3),
+		simplify_info_set_rerun_det(Info3, Info)
 	; CondSolns0 = at_most_zero ->
 		% Optimize away the condition and the `then' part.
 		det_negation_det(CondDetism0, MaybeNegDetism),
@@ -1027,14 +1042,18 @@ simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM),
 			Info0, Info1),
 		goal_info_get_context(GoalInfo0, Context),
 		simplify_info_add_msg(Info1, ite_cond_cannot_succeed(Context),
-			Info)
-	; Else0 = disj([], _) - _ ->
+			Info2),
+		simplify_info_set_requantify(Info2, Info3),
+		simplify_info_set_rerun_det(Info3, Info)
+	; Else0 = disj([]) - _ ->
 		% (A -> C ; fail) is equivalent to (A, C)
 		goal_to_conj_list(Cond0, CondList),
 		goal_to_conj_list(Then0, ThenList),
 		list__append(CondList, ThenList, List),
 		simplify__goal(conj(List) - GoalInfo0, Goal - GoalInfo,
-			Info0, Info)
+			Info0, Info1),
+		simplify_info_set_requantify(Info1, Info2),
+		simplify_info_set_rerun_det(Info2, Info)
 	;
 		%
 		% recursively simplify the sub-goals,
@@ -1063,7 +1082,7 @@ simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM),
 			ModuleInfo0, ModuleInfo1),
 		simplify_info_set_module_info(Info6, ModuleInfo1, Info7),
 		goal_info_set_instmap_delta(GoalInfo0, NewDelta, GoalInfo1),
-		IfThenElse = if_then_else(Vars, Cond, Then, Else, SM),
+		IfThenElse = if_then_else(Vars, Cond, Then, Else),
 
 		goal_info_get_determinism(GoalInfo0, IfThenElseDetism0),
 		determinism_components(IfThenElseDetism0, IfThenElseCanFail,
@@ -1081,7 +1100,7 @@ simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM),
 			%
 			( CondCanFail = cannot_fail
 			; CondSolns = at_most_zero
-			; Else = disj([], _) - _ 
+			; Else = disj([]) - _ 
 			)
 		->
 			simplify_info_undo_goal_updates(Info0, Info7, Info8),
@@ -1142,7 +1161,7 @@ simplify__goal_2(not(Goal0), GoalInfo0, Goal, GoalInfo, Info0, Info) :-
 		Info = Info3
 	;
 		% replace `not fail' with `true'
-		Goal1 = disj([], _) - _GoalInfo2
+		Goal1 = disj([]) - _GoalInfo2
 	->
 		true_goal(Context, Goal - GoalInfo),
 		Info = Info3
@@ -1258,15 +1277,15 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 		{ Call = Call1 - GoalInfo },
 		{ ExtraGoals = [] }
 	;
-		{ type_to_type_id(Type, TypeIdPrime, TypeArgsPrime) ->
-			TypeId = TypeIdPrime,
+		{ type_to_ctor_and_args(Type, TypeCtorPrime, TypeArgsPrime) ->
+			TypeCtor = TypeCtorPrime,
 			TypeArgs = TypeArgsPrime
 		;
-			error("simplify: type_to_type_id failed")
+			error("simplify: type_to_ctor_and_args failed")
 		},
 		{ determinism_components(Det, CanFail, at_most_one) },
-		{ unify_proc__lookup_mode_num(ModuleInfo, TypeId, UniMode, Det,
-			ProcId) },
+		{ unify_proc__lookup_mode_num(ModuleInfo, TypeCtor, UniMode,
+			Det, ProcId) },
 		{ module_info_globals(ModuleInfo, Globals) },
 		{ globals__lookup_bool_option(Globals, special_preds,
 			SpecialPreds) },
@@ -1286,7 +1305,7 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 				% if possible.
 				%
 				special_pred_is_generated_lazily(ModuleInfo,
-					TypeId)
+					TypeCtor)
 			}
 		->
 			simplify__make_type_info_vars([Type], TypeInfoVars,
@@ -1307,7 +1326,7 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 
 			simplify__make_type_info_vars(TypeArgs,
 				TypeInfoVars, ExtraGoals),
-			{ simplify__call_specific_unify(TypeId, TypeInfoVars,
+			{ simplify__call_specific_unify(TypeCtor, TypeInfoVars,
 				XVar, YVar, ProcId, ModuleInfo, Context,
 				GoalInfo0, Call0, CallGoalInfo0) },
 			simplify__goal_2(Call0, CallGoalInfo0,
@@ -1348,17 +1367,17 @@ simplify__call_generic_unify(TypeInfoVar, XVar, YVar, ModuleInfo, Context,
 	Call = call(PredId, ProcId, ArgVars, BuiltinState, yes(CallContext),
 		SymName) - GoalInfo.
 
-:- pred simplify__call_specific_unify(type_id::in, list(prog_var)::in,
+:- pred simplify__call_specific_unify(type_ctor::in, list(prog_var)::in,
 	prog_var::in, prog_var::in, proc_id::in,
 	module_info::in, unify_context::in, hlds_goal_info::in,
 	hlds_goal_expr::out, hlds_goal_info::out) is det.
 
-simplify__call_specific_unify(TypeId, TypeInfoVars, XVar, YVar, ProcId,
+simplify__call_specific_unify(TypeCtor, TypeInfoVars, XVar, YVar, ProcId,
 		ModuleInfo, Context, GoalInfo0, CallExpr, CallGoalInfo) :-
 	% create the new call goal
 	list__append(TypeInfoVars, [XVar, YVar], ArgVars),
 	module_info_get_special_pred_map(ModuleInfo, SpecialPredMap),
-	map__lookup(SpecialPredMap, unify - TypeId, PredId),
+	map__lookup(SpecialPredMap, unify - TypeCtor, PredId),
 	SymName = unqualified("__Unify__"),
 	CallContext = call_unify_context(XVar, var(YVar), Context),
 	CallExpr = call(PredId, ProcId, ArgVars, not_builtin,
@@ -1598,7 +1617,7 @@ simplify__conj([Goal0 | Goals0], RevGoals0, Goals, ConjInfo, Info0, Info) :-
 		simplify__conjoin_goal_and_rev_goal_list(Goal1,
 			RevGoals0, RevGoals1),
 
-		( (Goal1 = disj([], _) - _ ; Goals0 = []) ->
+		( (Goal1 = disj([]) - _ ; Goals0 = []) ->
 			RevGoals = RevGoals1
 		;
 			% We insert an explicit failure at the end
@@ -1661,7 +1680,14 @@ simplify__excess_assigns_in_conj(ConjInfo, Goals0, Goals,
 	( simplify_do_excess_assigns(Info0) ->
 		goal_info_get_nonlocals(ConjInfo, ConjNonLocals),
 		map__init(Subn0),
-		simplify__find_excess_assigns_in_conj(ConjNonLocals,
+		simplify_info_get_module_info(Info0, ModuleInfo),
+		module_info_globals(ModuleInfo, Globals),
+		globals__get_trace_level(Globals, TraceLevel),
+		globals__lookup_bool_option(Globals,
+			trace_optimized, TraceOptimized),
+		simplify_info_get_varset(Info0, VarSet0),
+		simplify__find_excess_assigns_in_conj(TraceLevel,
+			TraceOptimized, VarSet0, ConjNonLocals,
 			Goals0, [], RevGoals, Subn0, Subn1),
 		( map__is_empty(Subn1) ->
 			Goals = Goals0,
@@ -1672,7 +1698,6 @@ simplify__excess_assigns_in_conj(ConjInfo, Goals0, Goals,
 			MustSub = no,
 			goal_util__rename_vars_in_goals(Goals1, MustSub,
 				Subn, Goals),
-			simplify_info_get_varset(Info0, VarSet0),
 			map__keys(Subn0, RemovedVars),
 			varset__delete_vars(VarSet0, RemovedVars, VarSet),
 			simplify_info_set_varset(Info0, VarSet, Info1),
@@ -1695,28 +1720,35 @@ simplify__excess_assigns_in_conj(ConjInfo, Goals0, Goals,
 
 :- type var_renaming == map(prog_var, prog_var).
 
-:- pred simplify__find_excess_assigns_in_conj(set(prog_var)::in,
-	list(hlds_goal)::in, list(hlds_goal)::in, list(hlds_goal)::out,
+:- pred simplify__find_excess_assigns_in_conj(trace_level::in, bool::in,
+	prog_varset::in, set(prog_var)::in, list(hlds_goal)::in,
+	list(hlds_goal)::in, list(hlds_goal)::out,
 	var_renaming::in, var_renaming::out) is det.
 
-simplify__find_excess_assigns_in_conj(_, [], RevGoals, RevGoals,
+simplify__find_excess_assigns_in_conj(_, _, _, _, [], RevGoals, RevGoals,
 			Subn, Subn).
-simplify__find_excess_assigns_in_conj(ConjNonLocals, [Goal | Goals],
-			RevGoals0, RevGoals, Subn0, Subn) :-
-	( goal_is_excess_assign(ConjNonLocals, Goal, Subn0, Subn1) ->
+simplify__find_excess_assigns_in_conj(Trace, TraceOptimized, VarSet,
+		ConjNonLocals, [Goal | Goals], RevGoals0, RevGoals,
+		Subn0, Subn) :-
+	(
+		goal_is_excess_assign(Trace, TraceOptimized,
+			VarSet, ConjNonLocals, Goal, Subn0, Subn1)
+	->
 		RevGoals1 = RevGoals0,
 		Subn2 = Subn1
 	;
 		RevGoals1 = [Goal | RevGoals0],
 		Subn2 = Subn0
 	),
-	simplify__find_excess_assigns_in_conj(ConjNonLocals, Goals,
-		RevGoals1, RevGoals, Subn2, Subn).
+	simplify__find_excess_assigns_in_conj(Trace, TraceOptimized, VarSet,
+		ConjNonLocals, Goals, RevGoals1, RevGoals, Subn2, Subn).
 
-:- pred goal_is_excess_assign(set(prog_var)::in, hlds_goal::in,
-	var_renaming::in, var_renaming::out) is semidet.
+:- pred goal_is_excess_assign(trace_level::in, bool::in, prog_varset::in,
+	set(prog_var)::in, hlds_goal::in, var_renaming::in,
+	var_renaming::out) is semidet.
 
-goal_is_excess_assign(ConjNonLocals, Goal0, Subn0, Subn) :-
+goal_is_excess_assign(Trace, TraceOptimized, VarSet, ConjNonLocals,
+		Goal0, Subn0, Subn) :-
 	Goal0 = unify(_, _, _, Unif, _) - _,
 	Unif = assign(LeftVar0, RightVar0),
 
@@ -1726,12 +1758,47 @@ goal_is_excess_assign(ConjNonLocals, Goal0, Subn0, Subn) :-
 	%
 	find_renamed_var(Subn0, LeftVar0, LeftVar),
 	find_renamed_var(Subn0, RightVar0, RightVar),
-	( \+ set__member(LeftVar, ConjNonLocals) ->
-		map__det_insert(Subn0, LeftVar, RightVar, Subn)
-	; \+ set__member(RightVar, ConjNonLocals) ->
-		map__det_insert(Subn0, RightVar, LeftVar, Subn)
+
+	CanElimLeft = ( set__member(LeftVar, ConjNonLocals) -> no ; yes ),
+	CanElimRight = ( set__member(RightVar, ConjNonLocals) -> no ; yes ),
+
+	% If we have a choice, eliminate an unnamed variable.
+	( CanElimLeft = yes, CanElimRight = yes ->
+		( var_is_named(VarSet, LeftVar) ->
+			ElimVar = RightVar,
+			ReplacementVar = LeftVar
+		;
+			ElimVar = LeftVar,
+			ReplacementVar = RightVar
+		)
+	; CanElimLeft = yes ->
+		ElimVar = LeftVar,
+		ReplacementVar = RightVar
+	; CanElimRight = yes ->
+		ElimVar = RightVar,
+		ReplacementVar = LeftVar
 	;
 		fail
+	),
+	map__det_insert(Subn0, ElimVar, ReplacementVar, Subn),
+
+	% If the module is being compiled with `--trace deep' and
+	% `--no-trace-optimized' don't replace a meaningful variable
+	% name with `HeadVar__n' or an anonymous variable.
+	\+ (
+		trace_level_needs_meaningful_var_names(Trace) = yes,
+		TraceOptimized = no,
+		var_is_named(VarSet, ElimVar),
+		\+ var_is_named(VarSet, ReplacementVar)
+	).
+
+:- pred var_is_named(prog_varset::in, prog_var::in) is semidet.
+
+var_is_named(VarSet, Var) :-
+	varset__search_name(VarSet, Var, Name),
+	\+ (
+		string__append("HeadVar__", Suffix, Name),
+		string__to_int(Suffix, _)
 	).
 
 :- pred find_renamed_var(var_renaming, prog_var, prog_var).
@@ -1779,7 +1846,7 @@ simplify__switch(Var, [Case0 | Cases0], RevCases0, Cases, InstMaps0, InstMaps,
 	simplify__goal(Goal0, Goal, Info3, Info4),
 
 		% Remove failing branches. 
-	( Goal = disj([], _) - _ ->
+	( Goal = disj([]) - _ ->
 		RevCases = RevCases0,
 		InstMaps1 = InstMaps0,
 		CanFail1 = can_fail,
@@ -1850,7 +1917,7 @@ simplify__create_test_unification(Var, ConsId, ConsArity,
 	UnifyContext = unify_context(explicit, []),
 	Unification = deconstruct(Var, ConsId,
 		ArgVars, UniModes, can_fail, no),
-	ExtraGoal = unify(Var, functor(ConsId, ArgVars),
+	ExtraGoal = unify(Var, functor(ConsId, no, ArgVars),
 		UniMode, Unification, UnifyContext),
 	set__singleton_set(NonLocals, Var),
 
@@ -1887,7 +1954,7 @@ simplify__disj([Goal0 | Goals0], RevGoals0, Goals,  PostBranchInstMaps0,
 			% since that can result from mode analysis
 			% pruning away cases in a switch which cannot
 			% succeed due to sub-typing in the modes.
-			Goal0 \= disj([], _) - _
+			Goal0 \= disj([]) - _
 		->
 			goal_info_get_context(GoalInfo, Context),
 			simplify_info_add_msg(Info2, 
@@ -1902,7 +1969,7 @@ simplify__disj([Goal0 | Goals0], RevGoals0, Goals,  PostBranchInstMaps0,
 
 		( 
 			(
-				Goal0 = disj([], _) - _
+				Goal0 = disj([]) - _
 			;
 				% Only remove disjuncts that might loop
 				% or call error/1 if --no-fully-strict.
@@ -1957,19 +2024,18 @@ simplify__disj([Goal0 | Goals0], RevGoals0, Goals,  PostBranchInstMaps0,
 				OutputVars = yes
 			),
 			simplify__fixup_disj(Disjuncts, Detism, OutputVars,
-				GoalInfo, SM, InstMap0, DetInfo, Goal,
+				GoalInfo, InstMap0, DetInfo, Goal,
 				MsgsA, Msgs)
 		;
 	****/
 
 :- pred simplify__fixup_disj(list(hlds_goal), determinism, bool,
-	hlds_goal_info, store_map, hlds_goal_expr,
+	hlds_goal_info, hlds_goal_expr,
 	simplify_info, simplify_info).
-:- mode simplify__fixup_disj(in, in, in, in, in, out, in, out) is det.
+:- mode simplify__fixup_disj(in, in, in, in, out, in, out) is det.
 
-simplify__fixup_disj(Disjuncts, _, _OutputVars, GoalInfo, SM,
-		Goal, Info0, Info) :-
-	det_disj_to_ite(Disjuncts, GoalInfo, SM, IfThenElse),
+simplify__fixup_disj(Disjuncts, _, _OutputVars, GoalInfo, Goal, Info0, Info) :-
+	det_disj_to_ite(Disjuncts, GoalInfo, IfThenElse),
 	simplify__goal(IfThenElse, Simplified, Info0, Info),
 	Simplified = Goal - _.
 
@@ -1990,13 +2056,12 @@ simplify__fixup_disj(Disjuncts, _, _OutputVars, GoalInfo, SM,
 	%		Disjunct3
 	%	).
 
-:- pred det_disj_to_ite(list(hlds_goal), hlds_goal_info, store_map,
-	hlds_goal).
-:- mode det_disj_to_ite(in, in, in, out) is det.
+:- pred det_disj_to_ite(list(hlds_goal), hlds_goal_info, hlds_goal).
+:- mode det_disj_to_ite(in, in, out) is det.
 
-det_disj_to_ite([], _GoalInfo, _SM, _) :-
+det_disj_to_ite([], _GoalInfo, _) :-
 	error("reached base case of det_disj_to_ite").
-det_disj_to_ite([Disjunct | Disjuncts], GoalInfo, SM, Goal) :-
+det_disj_to_ite([Disjunct | Disjuncts], GoalInfo, Goal) :-
 	( Disjuncts = [] ->
 		Goal = Disjunct
 	;
@@ -2005,7 +2070,7 @@ det_disj_to_ite([Disjunct | Disjuncts], GoalInfo, SM, Goal) :-
 
 		true_goal(Then),
 
-		det_disj_to_ite(Disjuncts, GoalInfo, SM, Rest),
+		det_disj_to_ite(Disjuncts, GoalInfo, Rest),
 		Rest = _RestGoal - RestGoalInfo,
 
 		goal_info_get_nonlocals(CondGoalInfo, CondNonLocals),
@@ -2032,7 +2097,7 @@ det_disj_to_ite([Disjunct | Disjuncts], GoalInfo, SM, Goal) :-
 		determinism_components(Detism, CanFail, MaxSoln),
 		goal_info_set_determinism(NewGoalInfo1, Detism, NewGoalInfo),
 
-		Goal = if_then_else([], Cond, Then, Rest, SM) - NewGoalInfo
+		Goal = if_then_else([], Cond, Then, Rest) - NewGoalInfo
 	).
 
 %-----------------------------------------------------------------------------%
@@ -2100,7 +2165,7 @@ simplify_info_reinit(Simplifications, InstMap0) -->
 	% exported for common.m
 :- interface.
 
-:- import_module prog_data.
+:- import_module parse_tree__prog_data.
 :- import_module set.
 
 :- pred simplify_info_init(det_info::in, list(simplification)::in, instmap::in,
@@ -2318,7 +2383,7 @@ simplify_info_update_instmap(SI, Goal, SI^instmap := InstMap) :-
 
 simplify_info_maybe_clear_structs(BeforeAfter, Goal, Info0, Info) :-
 	(
-		( code_util__cannot_stack_flush(Goal) 
+		( code_util__cannot_flush(Goal) 
 		; simplify_do_more_common(Info0)
 		)
 	->

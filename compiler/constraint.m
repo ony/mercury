@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,11 +13,12 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module constraint.
+:- module transform_hlds__constraint.
 
 :- interface.
 
-:- import_module hlds_goal, hlds_module, instmap, prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_module, hlds__instmap.
+:- import_module parse_tree__prog_data.
 :- import_module bool, map.
 
 :- type constraint_info.
@@ -44,9 +45,12 @@
 
 :- implementation.
 
-:- import_module goal_util, hlds_pred, hlds_module, hlds_data.
-:- import_module mode_util, passes_aux, code_aux, inst_match, purity.
-:- import_module options, globals.
+:- import_module hlds__goal_util, hlds__hlds_pred, hlds__hlds_module.
+:- import_module hlds__hlds_data, hlds__passes_aux, hlds__goal_form.
+:- import_module check_hlds__mode_util.
+:- import_module check_hlds__inst_match.
+:- import_module check_hlds__purity.
+:- import_module libs__options, libs__globals.
 
 :- import_module assoc_list, list, require, set, std_util.
 :- import_module string, term, varset.
@@ -106,18 +110,18 @@ constraint__propagate_conj_sub_goal_2(conj(Goals0) - Info, Constraints,
 		[conj(Goals) - Info]) -->
 	constraint__propagate_conj(Goals0, Constraints, Goals).
 
-constraint__propagate_conj_sub_goal_2(disj(Goals0, SM) - Info, Constraints,
-		[disj(Goals, SM) - Info]) -->
+constraint__propagate_conj_sub_goal_2(disj(Goals0) - Info, Constraints,
+		[disj(Goals) - Info]) -->
 	constraint__propagate_disj(Goals0, Constraints, Goals).
 
-constraint__propagate_conj_sub_goal_2(switch(Var, CanFail, Cases0, SM) - Info,
-		Constraints, [switch(Var, CanFail, Cases, SM) - Info]) -->
+constraint__propagate_conj_sub_goal_2(switch(Var, CanFail, Cases0) - Info,
+		Constraints, [switch(Var, CanFail, Cases) - Info]) -->
 	constraint__propagate_cases(Var, Cases0, Constraints, Cases).
 	
 constraint__propagate_conj_sub_goal_2(
-		if_then_else(Vars, Cond0, Then0, Else0, SM) - Info,
+		if_then_else(Vars, Cond0, Then0, Else0) - Info,
 		Constraints, 
-		[if_then_else(Vars, Cond, Then, Else, SM) - Info]) -->
+		[if_then_else(Vars, Cond, Then, Else) - Info]) -->
 	InstMap0 =^ instmap,
 
 	% We can't safely propagate constraints into 
@@ -132,9 +136,9 @@ constraint__propagate_conj_sub_goal_2(
 	% XXX propagate constraints into par_conjs -- this isn't
 	% possible at the moment because par_conj goals must have
 	% determinism det.
-constraint__propagate_conj_sub_goal_2(par_conj(Goals0, SM) - GoalInfo,
+constraint__propagate_conj_sub_goal_2(par_conj(Goals0) - GoalInfo,
 		Constraints0,
-		[par_conj(Goals, SM) - GoalInfo | Constraints]) -->
+		[par_conj(Goals) - GoalInfo | Constraints]) -->
 	% Propagate constraints within the goals of the conjunction.
 	% constraint__propagate_disj treats its list of goals as
 	% independent rather than specifically disjoint, so we can
@@ -404,7 +408,7 @@ constraint__annotate_conj_constraints(ModuleInfo,
 		{ goal_info_is_pure(GoalInfo) },
 
 		% Don't propagate goals that can loop. 
-		{ code_aux__goal_cannot_loop(ModuleInfo, Goal) }
+		{ goal_cannot_loop(ModuleInfo, Goal) }
 	->
 		% It's a constraint, add it to the list of constraints
 		% to be attached to goals earlier in the conjunction.
@@ -460,7 +464,7 @@ constraint__annotate_conj_constraints(ModuleInfo,
 	;
 		% Don't move goals which can fail before a goal which
 		% can loop if `--fully-strict' is set.
-		{ \+ code_aux__goal_cannot_loop(ModuleInfo, Goal) },
+		{ \+ goal_cannot_loop(ModuleInfo, Goal) },
 		{ module_info_globals(ModuleInfo, Globals) },
 		{ globals__lookup_bool_option(Globals, fully_strict, yes) }
 	->
@@ -803,10 +807,10 @@ strip_constraint_markers(Goal - GoalInfo0) =
 
 strip_constraint_markers_expr(conj(Goals)) =
 		conj(list__map(strip_constraint_markers, Goals)).
-strip_constraint_markers_expr(disj(Goals, SM)) =
-		disj(list__map(strip_constraint_markers, Goals), SM).
-strip_constraint_markers_expr(switch(Var, CanFail, Cases0, SM)) =
-		switch(Var, CanFail, Cases, SM) :-
+strip_constraint_markers_expr(disj(Goals)) =
+		disj(list__map(strip_constraint_markers, Goals)).
+strip_constraint_markers_expr(switch(Var, CanFail, Cases0)) =
+		switch(Var, CanFail, Cases) :-
 	Cases = list__map(
 		    (func(case(ConsId, Goal)) =
 			case(ConsId, strip_constraint_markers(Goal))
@@ -815,12 +819,12 @@ strip_constraint_markers_expr(not(Goal)) =
 		not(strip_constraint_markers(Goal)).
 strip_constraint_markers_expr(some(Vars, Remove, Goal)) =
 		some(Vars, Remove, strip_constraint_markers(Goal)).
-strip_constraint_markers_expr(if_then_else(Vars, If, Then, Else, SM)) =
+strip_constraint_markers_expr(if_then_else(Vars, If, Then, Else)) =
 		if_then_else(Vars, strip_constraint_markers(If),
 			strip_constraint_markers(Then),
-			strip_constraint_markers(Else), SM).
-strip_constraint_markers_expr(par_conj(Goals, SM)) =
-		par_conj(list__map(strip_constraint_markers, Goals), SM).
+			strip_constraint_markers(Else)).
+strip_constraint_markers_expr(par_conj(Goals)) =
+		par_conj(list__map(strip_constraint_markers, Goals)).
 strip_constraint_markers_expr(Goal) = Goal :-
 	Goal = foreign_proc(_, _, _, _, _, _, _).
 strip_constraint_markers_expr(Goal) = Goal :-

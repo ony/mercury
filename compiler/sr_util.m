@@ -1,10 +1,10 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 %
-% Module:	sr_dead
+% Module:	sr_util.
 % Main authors: nancy
 % 
 %-----------------------------------------------------------------------------%

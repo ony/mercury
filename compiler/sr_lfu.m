@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,8 +14,13 @@
 
 %-------------------------------------------------------------------%
 
+% library modules. 
 :- import_module io.
-:- import_module hlds_module, hlds_pred. 
+
+% XXX parent modules. 
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_module, hlds__hlds_pred. 
 
 :- pred sr_lfu__lfu_pass(module_info, module_info, io__state, io__state).
 :- mode sr_lfu__lfu_pass(in, out, di, uo) is det.
@@ -28,16 +33,20 @@
 :- implementation. 
 
 % library modules 
-:- import_module list,map, bool, set, varset.
+:- import_module list, map, bool, set, varset.
 :- import_module string.
 :- import_module std_util, require.
 
+% XXX parent modules. 
+:- import_module libs, parse_tree, ll_backend. 
+
 % mercury-compiler modules
-:- import_module globals, options.
-:- import_module passes_aux.
-:- import_module hlds_goal.
-:- import_module prog_data.
-:- import_module liveness.
+:- import_module libs__globals, libs__options.
+:- import_module hlds__passes_aux.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_llds.
+:- import_module parse_tree__prog_data.
+:- import_module ll_backend__liveness.
 
 
 sr_lfu__lfu_pass(HLDSin , HLDSout) --> 
@@ -166,6 +175,7 @@ annotate_lfu_in_goal(Inst0, Dead0, Inst, Dead, Goal0, Goal):-
 		annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, Goal0, Goal)
 	).
 
+
 	% calculateInstDead(info, instantiatedvars0, deadvars0, 
 	%		instantiatedvars, deadvars)
 :- pred calculateInstDead(hlds_goal_info, set(prog_var), set(prog_var),
@@ -199,15 +209,15 @@ annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
 		annotate_lfu_in_conj(Inst0, Dead0, Inst, Dead, Goals0, Goals),
 		Expr = conj(Goals)
 	;
-		Expr0 = switch(A,B,Cases0,C)
+		Expr0 = switch(A,B,Cases0)
 	->
 		annotate_lfu_in_cases(Inst0, Dead0, Inst, Dead, Cases0, Cases),
-		Expr = switch(A,B,Cases,C)
+		Expr = switch(A,B,Cases)
 	;
-		Expr0 = disj(Disj0,S)
+		Expr0 = disj(Disj0)
 	->
 		annotate_lfu_in_disjs(Inst0, Dead0, Inst, Dead, Disj0, Disj),
-		Expr = disj(Disj, S)
+		Expr = disj(Disj)
 	;
 		Expr0 = not(Goal0)
 	->
@@ -219,7 +229,7 @@ annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
 		annotate_lfu_in_goal(Inst0, Dead0, Inst, Dead, Goal0, Goal),
 		Expr = some(V,C,Goal)
 	;
-		Expr0 = if_then_else(V, COND0, THEN0, ELSE0, S)
+		Expr0 = if_then_else(V, COND0, THEN0, ELSE0)
 	->
 		annotate_lfu_in_goal(Inst0, Dead0, Inst01, Dead01, 
 					COND0, COND), 
@@ -229,7 +239,7 @@ annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
 					ELSE0, ELSE),
 		set__union(Inst1,Inst2, Inst),
 		set__union(Dead1, Dead2, Dead),
-		Expr = if_then_else(V, COND, THEN, ELSE, S)
+		Expr = if_then_else(V, COND, THEN, ELSE)
 	;
 		error("atomic call in annotate_lfu_in_goal_2"),
 		Expr = Expr0
@@ -296,23 +306,4 @@ annotate_lfu_in_disjs(Inst0, Dead0, Inst, Dead, Goals0, Goals) :-
 		Dead0, Dead).
 
 	
-:- pred map_foldl2(pred(T1,T2,T3,T3,T4,T4), list(T1), list(T2), T3, T3, 
-			T4, T4).
-:- mode map_foldl2(pred(in,out,in,out,in,out) is det, 
-                   in, out, in, out, in, out) is det.
-
-map_foldl2(P, L1, L, A1, A, B1, B):-
-        (L1 = [X|Xs] ->
-                P(X,Y,A1,A2,B1,B2),
-                map_foldl2(P, Xs, Ys, A2, A, B2, B),
-                L = [Y | Ys]
-        ;
-                L = [],
-                A = A1,
-                B = B1).
-
-
-
-	
-
 :- end_module sr_lfu.

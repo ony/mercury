@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,12 +13,13 @@
 % Output to RL bytecodes by rl_out.m.
 %
 %-----------------------------------------------------------------------------%
-:- module rl. 
+:- module aditi_backend__rl. 
 
 :- interface.
 
-:- import_module hlds_data, hlds_goal, hlds_module, hlds_pred.
-:- import_module instmap, prog_data.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_data, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__hlds_pred, hlds__instmap.
 :- import_module assoc_list, list, std_util, map, set.
 
 %-----------------------------------------------------------------------------%
@@ -656,22 +657,26 @@
 
 	% Produce names acceptable to Aditi (just wrap single
 	% quotes around non-alphanumeric-and-underscore names).
-:- pred rl__mangle_and_quote_type_name(type_id::in, list(type)::in,
+:- pred rl__mangle_and_quote_type_name(type_ctor::in, list(type)::in,
 		string::out) is det.
 :- pred rl__mangle_and_quote_ctor_name(sym_name::in,
 		int::in, string::out) is det.
 
 	% The expression stuff expects that constructor
 	% and type names are unquoted.
-:- pred rl__mangle_type_name(type_id::in, list(type)::in,
+:- pred rl__mangle_type_name(type_ctor::in, list(type)::in,
 		string::out) is det.
 :- pred rl__mangle_ctor_name(sym_name::in, int::in, string::out) is det.
 
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module code_util, code_aux, globals, llds_out, options, prog_out.
-:- import_module mode_util, prog_util, type_util, llds.
+:- import_module parse_tree__prog_util, parse_tree__prog_out.
+:- import_module hlds__goal_form.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
+:- import_module ll_backend__llds, ll_backend__llds_out.
+:- import_module ll_backend__code_util, ll_backend__code_aux.
+:- import_module libs__globals, libs__options.
 :- import_module bool, int, require, string.
 
 rl__default_temporary_state(ModuleInfo, TmpState) :-
@@ -935,7 +940,7 @@ rl__goal_can_be_removed(ModuleInfo, Goals) :-
 		all [Goal] (	
 			list__member(Goal, Goals)
 		=>
-			code_aux__goal_cannot_loop(ModuleInfo, Goal)
+			goal_cannot_loop(ModuleInfo, Goal)
 		)
 	).
 
@@ -1200,8 +1205,8 @@ rl__schema_to_string(ModuleInfo, Types, SchemaString) :-
 	string__append_list([Decls, "(", SchemaString0, ")"], SchemaString).
 
 	% Map from type to name and type definition string
-:- type gathered_types == map(pair(type_id, list(type)), string).
-:- type full_type_id == pair(type_id, list(type)).
+:- type gathered_types == map(pair(type_ctor, list(type)), string).
+:- type full_type_id == pair(type_ctor, list(type)).
 
 	% Go over a list of types collecting declarations for all the
 	% types used in the list.
@@ -1298,17 +1303,17 @@ rl__gather_type(ModuleInfo, Parents, Type, GatheredTypes0, GatheredTypes,
 rl__gather_du_type(ModuleInfo, Parents, Type, GatheredTypes0, GatheredTypes,
 		RecursiveTypes0, RecursiveTypes, Decls0, Decls, ThisType) :-
 	(
-		type_to_type_id(Type, TypeId, Args),
+		type_to_ctor_and_args(Type, TypeCtor, Args),
 		type_constructors(Type, ModuleInfo, Ctors)
 	->
-		( set__member(TypeId - Args, Parents) ->
-			set__insert(RecursiveTypes0, TypeId - Args,
+		( set__member(TypeCtor - Args, Parents) ->
+			set__insert(RecursiveTypes0, TypeCtor - Args,
 				RecursiveTypes1)
 		;
 			RecursiveTypes1 = RecursiveTypes0
 		),
 		(
-			map__search(GatheredTypes0, TypeId - Args,
+			map__search(GatheredTypes0, TypeCtor - Args,
 				MangledTypeName0) 
 		->
 			GatheredTypes = GatheredTypes0,
@@ -1316,13 +1321,13 @@ rl__gather_du_type(ModuleInfo, Parents, Type, GatheredTypes0, GatheredTypes,
 			MangledTypeName = MangledTypeName0,
 			RecursiveTypes = RecursiveTypes1
 		;
-			set__insert(Parents, TypeId - Args, Parents1),
-			rl__mangle_and_quote_type_name(TypeId,
+			set__insert(Parents, TypeCtor - Args, Parents1),
+			rl__mangle_and_quote_type_name(TypeCtor,
 				Args, MangledTypeName),
 
 			% Record that we have seen this type
 			% before processing the sub-terms.
-			map__det_insert(GatheredTypes0, TypeId - Args,
+			map__det_insert(GatheredTypes0, TypeCtor - Args,
 				MangledTypeName, GatheredTypes1),
 
 			rl__gather_constructors(ModuleInfo, 
@@ -1333,7 +1338,7 @@ rl__gather_du_type(ModuleInfo, Parents, Type, GatheredTypes0, GatheredTypes,
 
 			% Recursive types are marked by a
 			% second colon before their declaration.
-			( set__member(TypeId - Args, RecursiveTypes) ->
+			( set__member(TypeCtor - Args, RecursiveTypes) ->
 				RecursiveSpec = ":"
 			;
 				RecursiveSpec = ""
@@ -1382,24 +1387,24 @@ rl__gather_constructors(ModuleInfo, Parents, [Ctor | Ctors],
 
 %-----------------------------------------------------------------------------%
 
-rl__mangle_and_quote_type_name(TypeId, Args, MangledTypeName) :-
-	rl__mangle_type_name(TypeId, Args, MangledTypeName0),
+rl__mangle_and_quote_type_name(TypeCtor, Args, MangledTypeName) :-
+	rl__mangle_type_name(TypeCtor, Args, MangledTypeName0),
 	rl__maybe_quote_name(MangledTypeName0, MangledTypeName).
 
-rl__mangle_type_name(TypeId, Args, MangledTypeName) :-
-	rl__mangle_type_name_2(TypeId, Args, "", MangledTypeName).
+rl__mangle_type_name(TypeCtor, Args, MangledTypeName) :-
+	rl__mangle_type_name_2(TypeCtor, Args, "", MangledTypeName).
 
-:- pred rl__mangle_type_name_2(type_id::in, list(type)::in,
+:- pred rl__mangle_type_name_2(type_ctor::in, list(type)::in,
 		string::in, string::out) is det.
 
-rl__mangle_type_name_2(TypeId, Args, MangledTypeName0, MangledTypeName) :-
+rl__mangle_type_name_2(TypeCtor, Args, MangledTypeName0, MangledTypeName) :-
 	( 
-		TypeId = qualified(Module0, Name) - Arity,
+		TypeCtor = qualified(Module0, Name) - Arity,
 		prog_out__sym_name_to_string(Module0, Module),
 		string__append_list([MangledTypeName0, Module, "__", Name], 
 			MangledTypeName1)
 	;
-		TypeId = unqualified(TypeName) - Arity,
+		TypeCtor = unqualified(TypeName) - Arity,
 		string__append(MangledTypeName0, TypeName, MangledTypeName1)
 	),
 	string__int_to_string(Arity, ArStr),
@@ -1416,11 +1421,11 @@ rl__mangle_type_name_2(TypeId, Args, MangledTypeName0, MangledTypeName) :-
 
 rl__mangle_type_arg(Arg, String0, String) :-
 	string__append(String0, "___", String1),
-	( type_to_type_id(Arg, ArgTypeId, ArgTypeArgs) ->
-		rl__mangle_type_name_2(ArgTypeId, ArgTypeArgs, 
+	( type_to_ctor_and_args(Arg, ArgTypeCtor, ArgTypeArgs) ->
+		rl__mangle_type_name_2(ArgTypeCtor, ArgTypeArgs, 
 			String1, String)
 	;
-		error("rl__mangle_type_arg: type_to_type_id failed")
+		error("rl__mangle_type_arg: type_to_ctor_and_args failed")
 	).
 
 rl__mangle_ctor_name(CtorName, _Arity, MangledCtorName) :-

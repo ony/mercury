@@ -111,7 +111,8 @@ see the documentation at the start of that module's source code.
 <!---------------------------------------------------------------------------->
 <p>
 
-The action is co-ordinated from mercury_compile.m.
+The action is co-ordinated from mercury_compile.m or make.m (if `--make'
+was specified on the command line).
 
 <p>
 
@@ -124,6 +125,56 @@ mercury_compile.m calls library/getopt.m, passing the predicates
 defined in options.m as arguments, to parse them.  It then invokes
 handle_options.m to postprocess the option set.  The results are
 stored in the io__state, using the type globals defined in globals.m.
+
+<p>
+
+<h3> Build system </h3>
+
+<p>
+
+<dl> 
+
+<dt> make.m
+	<dd> 
+	Categorizes targets passed on the command line and passes
+	them to the appropriate module to be built.
+
+<dt> make.program_target.m
+	<dd>
+	Handles whole program `mmc --make' targets, including
+	executables, libraries and cleanup.
+
+<dt> make.module_target.m
+	<dd>
+	Handles targets built by a compilation action associated 
+	with a single module, for example making interface files,
+
+<dt> make.dependencies.m
+	<dd>
+	Compute dependencies between targets and between modules.
+
+<dt> make.module_dep_file.m
+	<dd>
+	Record the dependency information for each module between
+	compilations.
+
+<dt> make.util.m
+	<dd>
+	Utility predicates.
+
+<dt> options_file.m
+	<dd>
+	Read the options files specified by the `--options-file'
+	option. Also used by mercury_compile.m to collect the value
+	of DEFAULT_MCFLAGS, which contains the auto-configured flags
+	passed to the compiler.
+
+<dt> compile_target_code.m
+	<dd>
+	Invoke C, C#, IL, Java, etc. compilers and linkers to compile
+	the generated code.
+
+</dl>
 
 <p>
 <hr>
@@ -168,6 +219,11 @@ stored in the io__state, using the type globals defined in globals.m.
 
 	modules.m has the code to write out `.int', `.int2', `.int3',
 	`.d' and `.dep' files.
+	
+	<p>
+
+	source_file_map.m contains code to read, write and search
+	the mapping between module names and file names.
 
 <li> module qualification of types, insts and modes <br>
 
@@ -211,8 +267,11 @@ stored in the io__state, using the type globals defined in globals.m.
 
 <li> expansion of equivalence types (equiv_type.m) <br>
 
-	This is really part of type-checking, but is done
-	on the item_list rather than on the HLDS because it
+	`with_type` and `with_inst` annotations on predicate
+	and function type and mode declarations are also expanded.
+
+	Expansion of equivalence types is really part of type-checking,
+	but is done on the item_list rather than on the HLDS because it
 	turned out to be much easier to implement that way.
 
 <li> conversion to superhomogeneous form and into HLDS <br>
@@ -323,6 +382,9 @@ so that the compiler does the right thing for options such as
 	  analysis (see below).  It contains the stuff related to
 	  type checking that can't be done in the main type checking pass.
 	  It also removes assertions from further processing.
+	  post_typecheck.m reports errors for unbound type and inst variables,
+	  for unsatisified type class constraints, for indistinguishable
+	  predicate or function modes, and for invalid Aditi calls and updates.
 	</ul>
 
 <dt> assertions
@@ -647,18 +709,34 @@ The last HLDS-to-HLDS transformation implements deep profiling
 			<dd>
 			Currently uses one of two simple algorithms, but
 			we may add other algorithms later.
+		<dt> transforming procedure definitions to reduce the number
+			of variables that need their own stack slots
+			<dd>
+			The main algorithm in stack_opt.m figures out when
+			variable A can be reached from a cell pointed to by
+			variable B, so that storing variable B on the stack
+			obviates the need to store variable A on the stack
+			as well.
+			This algorithm relies on an implementation of
+			the maximal matching algorithm in matching.m.
 		<dt> annotation of goals with liveness information (liveness.m)
 			<dd>
 			This records the birth and death of each variable
 			in the HLDS goal_info.
 		<dt> allocation of stack slots
 			<dd>
-			This is done by live_vars.m, which works
-			out which variables need to be saved on the
-			stack when (trace.m determines what variables
-			are needed for debugging purposes).
-			It then uses graph_colour.m to determine
-			a good allocation of variables to stack slots.
+			This is done by stack_alloc.m, with the assistance of
+			the following modules:
+
+			<ul>
+			<li> live_vars.m works out which variables need
+			to be saved on the stack when.
+
+			<li> graph_colour.m contains the algorithm that
+			stack_alloc.m calls to convert sets of variables
+			that must be saved on the stack at the same time
+			to an assignment of a stack slot to each such variable.
+			</ul>
 		<dt> migration of builtins following branched structures
 			<dd>
 			This transformation, which is performed by
@@ -713,9 +791,11 @@ The last HLDS-to-HLDS transformation implements deep profiling
 		<li> commit_gen.m (commits)
 		<li> pragma_c_gen.m (embedded C code)
 		</ul>
-		<p>
 
-	It also calls middle_rec.m to do middle recursion optimization.
+	<p>
+
+	code_gen.m also calls middle_rec.m to do middle recursion optimization,
+	which is implemented during code generation.
 
 	<p>
 
@@ -731,9 +811,16 @@ The last HLDS-to-HLDS transformation implements deep profiling
 			which holds the information about
 			the contents of registers and
 			the values/locations of variables.
+			It implements lazy code generation.
 		<dt> exprn_aux.m
 			<dd>
 			Various preds which use exprn_info.
+		<dt> var_locn.m
+			<dd>
+			This defines the var_locn type, which is an alternative
+			to code_exprn; like code_exprn, it keeps track of
+			the values and locations of variables.
+			It implements eager code generation.
 		<dt> code_util.m
 			<dd>
 			Some miscellaneous preds used for code generation.
@@ -749,6 +836,10 @@ The last HLDS-to-HLDS transformation implements deep profiling
 		<dt> trace.m
 			<dd>
 			Inserts calls to the runtime debugger.
+		<dt> trace_params.m
+			<dd>
+			Holds the parameter settings controlling
+			the handling of execution tracing.
 		</dl>
 
 <dt> code generation for `pragma export' declarations (export.m)
@@ -794,6 +885,9 @@ They are:
 <li> peephole optimization (peephole.m)
 
 <li> introduction of local C variables (use_local_vars.m) <br>
+
+<li> removal of redundant assignments, i.e. assignments that assign a value
+that the target location already holds (reassign.m) <br>
 
 </ul>
 
@@ -897,6 +991,8 @@ So we have a pass which transforms the HLDS to handle trailing:
      resumes after backtracking, and whenever we do a commit.
      The trail operations are represented as (and implemented as)
      calls to impure procedures defined in library/private_builtin.m. 
+<li> add_heap_ops.m is very similar to add_trail_ops.m;
+     it inserts code to do heap reclamation on backtracking.
 </ul>
 
 <h4> 4b. MLDS code generation </h4>
@@ -905,6 +1001,7 @@ So we have a pass which transforms the HLDS to handle trailing:
 	  The following sub-modules are used to handle different constructs:
 		<dl>
 		<dt> ml_unify_gen.m
+		<dt> ml_closure_gen.m
 		<dt> ml_call_gen.m
 		<dt> ml_switch_gen.m, which in turn has sub-modules
 			<ul>
@@ -927,8 +1024,11 @@ So we have a pass which transforms the HLDS to handle trailing:
 <h4> 5b. MLDS transformations </h4>
 <ul>
 <li> ml_tailcall.m annotates the MLDS with information about tailcalls.
+     It also has a pass to implement the `--warn-non-tail-recursion' option.
 <li> ml_optimize.m does MLDS-&gt;MLDS optimizations
-<li> ml_elim_nested.m transforms the MLDS to eliminate nested functions.
+<li> ml_elim_nested.m does two MLDS transformations that happen
+     to have a lot in common: (1) eliminating nested functions
+     and (2) adding code to handle accurate garbage collection.
 </ul>
 
 <h4> 6b. MLDS output </h4>
@@ -1072,9 +1172,6 @@ compiled code.
   It uses the information written by recompilation_version.m and
   recompilation_usage.m to work out whether the recompilation is
   actually needed.
-
-<li> timestamp.m contains an ADT representing timestamps used
-  by smart recompilation.
 </ul>
 
 <p>
@@ -1131,6 +1228,16 @@ compiled code.
 	<dt> error_util.m:
 		<dd>
 		Utility routines for printing nicely formatted error messages.
+
+	<dt> process_util.m:
+		<dd>
+		Predicates to deal with process creation and signal handling.
+		This module is mainly used by make.m and its sub-modules.
+
+	<dt> timestamp.m
+		<dd>
+		Contains an ADT representing timestamps used by smart
+		recompilation and `mmc --make'.
 	</dl>
 
 
@@ -1157,6 +1264,6 @@ compiled code.
 <hr>
 <!---------------------------------------------------------------------------->
 
-Last update was $Date: 2001-07-25 13:06:57 $ by $Author: petdr $@cs.mu.oz.au. <br>
+Last update was $Date: 2002-09-11 07:37:31 $ by $Author: nancy $@cs.mu.oz.au. <br>
 </body>
 </html>

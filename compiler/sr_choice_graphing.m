@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -107,8 +107,13 @@
 :- module sr_choice_graphing.
 :- interface. 
 
+% library modules. 
 :- import_module io, std_util, list. 
-:- import_module hlds_goal, hlds_module, hlds_pred.
+
+% XXX parent modules.
+:- import_module hlds.
+% compiler_modules.
+:- import_module hlds__hlds_goal, hlds__hlds_module, hlds__hlds_pred.
 :- import_module sr_data.
 
 :- import_module sr_choice_util.
@@ -129,10 +134,13 @@
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
+% XXX parent modules.
+:- import_module parse_tree, check_hlds, libs. 
+
 :- import_module term, map, float, bool, set, require, int. 
-:- import_module type_util, globals, options.
-:- import_module prog_data.
-:- import_module hlds_data.
+:- import_module check_hlds__type_util, libs__globals, libs__options.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_data.
 
 %-----------------------------------------------------------------------------%
 :- type background_info 
@@ -356,7 +364,7 @@ compute_values(Background, Expr - _Info, Cont) -->
 	{ Expr = generic_call(_, _, _, _) },
 	compute_values(Background, Cont).
 compute_values(Background, Expr - _Info, Cont) --> 
-	{ Expr = switch(_, _, Cases, _) },
+	{ Expr = switch(_, _, Cases) },
 	{ list__map(
 		pred(C::in, G::out) is det:- 
 		    ( C = case(_, G) ),
@@ -392,7 +400,7 @@ compute_values(Background, Expr - Info, Cont, Values0, Values):-
 	compute_values(Background, Cont, Values1, Values). 
 
 compute_values(Background, Expr - _Info, Cont) -->
-	{ Expr = disj(Goals, _) },
+	{ Expr = disj(Goals) },
 	list__foldl(
 		pred(G::in, V0::in, V::out) is det:- 
 		    ( compute_values(Background, G, [], V0, V) ),
@@ -408,7 +416,7 @@ compute_values(Background, Expr - _Info, Cont) -->
 	{ Expr = some(_, _, Goal) },
 	compute_values(Background, Goal, Cont).
 compute_values(Background, Expr - _Info, Cont) -->
-	{ Expr = if_then_else(_, If, Then, Else, _) },
+	{ Expr = if_then_else(_, If, Then, Else) },
 	compute_values(Background, If, [Then]),
 	compute_values(Background, Else, []),
 	compute_values(Background, Cont).
@@ -416,7 +424,7 @@ compute_values(Background, Expr - _Info, Cont) -->
 	{ Expr = foreign_proc(_, _, _, _, _, _, _) },
 	compute_values(Background, Cont).
 compute_values(Background, Expr - _Info, Cont) -->
-	{ Expr = par_conj(_, _) },
+	{ Expr = par_conj(_) },
 	compute_values(Background, Cont).
 compute_values(Background, Expr - _Info, Cont) -->
 	{ Expr = shorthand(_) },
@@ -499,7 +507,7 @@ value_of_dead_cel_in_goal(_Background,
 	{ Goal = generic_call(_, _, _, _) }.
 value_of_dead_cel_in_goal(Background, 
 		Deconstruct, Goal - _Info) -->
-	{ Goal = switch(_, _, Cases, _) },
+	{ Goal = switch(_, _, Cases) },
 	{ list__map(
 		pred(C::in, G::out) is det:- 
 		    ( C = case(_, G) ), 
@@ -561,7 +569,7 @@ value_of_dead_cel_in_goal(Background,
 		
 value_of_dead_cel_in_goal(Background, 
 		Deconstruct, Goal - _Info) -->
-	{ Goal = disj(Branches, _) },
+	{ Goal = disj(Branches) },
 	disjunction_value_of_dead_cel(Background, 
 		Deconstruct, Branches).
 value_of_dead_cel_in_goal(Background, 
@@ -576,7 +584,7 @@ value_of_dead_cel_in_goal(Background,
 		Deconstruct, SGoal).
 value_of_dead_cel_in_goal(Background, 
 		Deconstruct, Goal - _Info, Val0, Value):- 
-	Goal = if_then_else(_, If, Then, Else, _),
+	Goal = if_then_else(_, If, Then, Else),
 	conjunction_value_of_dead_cel(Background, 
 		Deconstruct, [If, Then], Val0, Val1), 
 	value_of_dead_cel_in_goal(Background,
@@ -587,7 +595,7 @@ value_of_dead_cel_in_goal(_Background,
 	{ Goal = foreign_proc(_, _, _, _, _, _, _) }.
 value_of_dead_cel_in_goal(_Background, 
 		_Deconstruct, Goal - _Info) -->
-	{ Goal = par_conj(_, _) }.
+	{ Goal = par_conj(_) }.
 value_of_dead_cel_in_goal(_Background, 
 		_Deconstruct, Goal - _Info) -->
 	{ Goal = shorthand(_) }.
@@ -681,7 +689,7 @@ annotate_reuses(_ContextVar, _Value, E0 - I0, E - I):-
 	E = E0, 
 	I = I0. 
 annotate_reuses(ContextVar, Value, E0 - I0, E - I):- 
-	E0 = switch(V, CF, Cases0, SM),
+	E0 = switch(V, CF, Cases0),
 	list__map(
 		pred(C0::in, C::out) is det:- 
 		    ( C0 = case(Cons, Goal0),
@@ -689,7 +697,7 @@ annotate_reuses(ContextVar, Value, E0 - I0, E - I):-
 		      C = case(Cons, Goal)
 		    ), 
 		Cases0, Cases),
-	E = switch(V, CF, Cases, SM), 
+	E = switch(V, CF, Cases), 
 	I = I0. 
 
 :- pred make_contextvar(prog_var::in, hlds_goal_info::in, 
@@ -766,9 +774,9 @@ annotate_reuses(DeadContextVar, Value, E0 - I0, E - I):-
 	).
 
 annotate_reuses(ContextVar, Value, E0 - I0, E - I):- 
-	E0 = disj(Goals0, SM), 
+	E0 = disj(Goals0), 
 	list__map(annotate_reuses(ContextVar, Value), Goals0, Goals),
-	E = disj(Goals, SM), 
+	E = disj(Goals), 
 	I = I0. 
 annotate_reuses(ContextVar, Value, E0 - I0, E - I):- 
 	E0 = not(Goal0), 
@@ -781,18 +789,18 @@ annotate_reuses(ContextVar, Value, E0 - I0, E - I):-
 	E = some(Vars, CanRemove, Goal), 
 	I = I0. 
 annotate_reuses(ContextVar, Value, E0 - I0, E - I):- 
-	E0 = if_then_else(V, If0, Then0, Else0, SM), 
+	E0 = if_then_else(V, If0, Then0, Else0), 
 	annotate_reuses(ContextVar, Value, If0, If),
 	annotate_reuses(ContextVar, Value, Then0, Then),
 	annotate_reuses(ContextVar, Value, Else0, Else),
-	E = if_then_else(V, If, Then, Else, SM), 
+	E = if_then_else(V, If, Then, Else), 
 	I0 = I. 
 annotate_reuses(_ContextVar, _Value, E0 - I0, E - I):- 
 	E0 = foreign_proc(_, _, _, _, _, _, _), 
 	E = E0, 
 	I = I0. 
 annotate_reuses(_ContextVar, _Value, E0 - I0, E - I):- 
-	E0 = par_conj(_,_), 
+	E0 = par_conj(_), 
 	E = E0, 
 	I = I0.
 annotate_reuses(_ContextVar, _Value, E0 - I0, E - I):- 
@@ -958,14 +966,14 @@ clean_all_left_overs(G0 - I0, G - I):-
 	G  = G0, 
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 
-	G0 = switch(A, B, Cases0, SM),
+	G0 = switch(A, B, Cases0),
 	list__map(
 		pred(C0::in, C::out) is det:-
 		    ( C0 = case(Cons, Goal0), 
 		      clean_all_left_overs(Goal0, Goal), 
 		      C = case(Cons, Goal) ), 
 		Cases0, Cases), 
-	G  = switch(A, B, Cases, SM), 
+	G  = switch(A, B, Cases), 
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 
 	G0 = unify(A, B, C, Unification0, D),
@@ -995,9 +1003,9 @@ possible_cgc(Unif0, ReuseInfo0, Unif, ReuseInfo):-
 	).
 			
 clean_all_left_overs(G0 - I0, G - I):- 
-	G0 = disj(Goals0, SM),
+	G0 = disj(Goals0),
 	list__map(clean_all_left_overs, Goals0, Goals), 
-	G  = disj(Goals, SM), 
+	G  = disj(Goals), 
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 
 	G0 = not(Goal0),
@@ -1010,18 +1018,18 @@ clean_all_left_overs(G0 - I0, G - I):-
 	G  = some(A, B, Goal), 
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 
-	G0 = if_then_else(A, If0, Then0, Else0, SM),
+	G0 = if_then_else(A, If0, Then0, Else0),
 	clean_all_left_overs(If0, If), 
 	clean_all_left_overs(Then0, Then), 
 	clean_all_left_overs(Else0, Else), 
-	G  = if_then_else(A, If, Then, Else, SM),  
+	G  = if_then_else(A, If, Then, Else),  
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 
 	G0 = foreign_proc(_, _, _, _, _, _, _),
 	G  = G0,
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 
-	G0 = par_conj(_, _),
+	G0 = par_conj(_),
 	G  = G0,
 	I  = I0.
 clean_all_left_overs(G0 - I0, G - I):- 

@@ -22,7 +22,10 @@
 
 :- interface.
 
-:- import_module hlds_module, io.
+% XXX parent modules
+:- import_module hlds.
+% import modules
+:- import_module hlds__hlds_module, io.
 
 :- pred process_imported_predicates(module_info::in, module_info::out, 
 		io__state::di, io__state::uo) is det.
@@ -37,18 +40,18 @@
 
 :- implementation.
 
+:- import_module ll_backend, parse_tree. 
 :- import_module list, map, set, std_util.
-:- import_module hlds_pred, liveness. 
-:- import_module hlds_goal, prog_data.
-:- import_module passes_aux.
+:- import_module hlds__hlds_pred, ll_backend__liveness. 
+:- import_module hlds__hlds_goal, parse_tree__prog_data.
+:- import_module hlds__passes_aux.
 %-----------------------------------------------------------------------------%
 
-% :- import_module pa_sr_util.
 :- import_module term, varset.
 :- import_module pa_alias_as.
-:- import_module globals, options.
-:- import_module hlds_module.
-:- import_module hlds_out.
+:- import_module libs.
+:- import_module libs__globals, libs__options.
+% :- import_module hlds__hlds_out.
 
 process_imported_predicates(HLDS0, HLDS) -->
 	{ module_info_unproc_alias_pragmas(HLDS0, UnprocAliasPragmas) },
@@ -63,22 +66,23 @@ process_imported_predicates(HLDS0, HLDS) -->
 :- mode process_unproc_alias_pragma(in, in, out, di, uo) is det.
 
 process_unproc_alias_pragma(UnprocAliasPragma, Module0, Module) --> 
-	{ UnprocAliasPragma = unproc_alias_pragma(PredOrFunc, SymName, 
+	{ UnprocAliasPragma = unproc_alias_pragma(PredOrFunc, SymName,
 		Modes, HeadVars, Types, Alias0) },
 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 
 	{ module_info_get_predicate_table(Module0, Preds) }, 
+	{ module_info_preds(Module0, PredTable0) },
 	{ list__length(Modes, Arity) },
-	(
-		{ predicate_table_search_pf_sym_arity_declmodes(Module0, 
-			Preds, PredOrFunc, SymName, Arity, Modes, 
-			PredId, ProcId) }
+	( 
+		{ predicate_table_search_pf_sym_arity_declmodes(
+			Module0, Preds, PredOrFunc, SymName, 
+			Arity, Modes, PredId, ProcId) }
 	->
-		{ module_info_preds(Module0, PredTable0) },
 		{ map__lookup(PredTable0, PredId, PredInfo0) },
 		{ pred_info_procedures(PredInfo0, ProcTable0) },
 		{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+		
 		write_proc_progress_message("(Alias) Looking into ", 
 			PredId, ProcId, Module0),
 
@@ -218,16 +222,16 @@ annotate_all_outscope_vars_in_goal(Goal0, Outscope, Goal, NewOutscope) :-
 			), Goals0, Goals, Outscope, _LastOutscope),
 		Expr = conj(Goals)
 	;
-		Expr0 = disj(Goals0, SM)
+		Expr0 = disj(Goals0)
 	->
 		list__map(
 			(pred(G0::in, G::out) is det :- 
 				annotate_all_outscope_vars_in_goal(G0,
 						Outscope, G, _)
 			), Goals0, Goals),
-		Expr = disj(Goals, SM)
+		Expr = disj(Goals)
 	;
-		Expr0 = switch(A, B, Cases0, D)
+		Expr0 = switch(A, B, Cases0)
 	->
 		list__map(
 			(pred(C0::in, C::out) is det :- 
@@ -236,16 +240,16 @@ annotate_all_outscope_vars_in_goal(Goal0, Outscope, Goal, NewOutscope) :-
 						Outscope, G, _),
 				C = case(ConsId, G)
 			), Cases0, Cases),
-		Expr = switch(A, B, Cases, D)
+		Expr = switch(A, B, Cases)
 	;
-		Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM) 
+		Expr0 = if_then_else(Vars, Cond0, Then0, Else0) 
 	->
 		annotate_all_outscope_vars_in_goal(Cond0, Outscope, Cond,
 				CondOutscope),
 		annotate_all_outscope_vars_in_goal(Then0, CondOutscope,
 				Then, _), 
 		annotate_all_outscope_vars_in_goal(Else0, Outscope, Else, _),
-		Expr = if_then_else(Vars, Cond, Then, Else, SM)
+		Expr = if_then_else(Vars, Cond, Then, Else)
 	;
 		Expr0 = not(NegGoal0)
 	->

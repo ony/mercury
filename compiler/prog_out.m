@@ -1,10 +1,10 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-2000 The University of Melbourne.
+% Copyright (C) 1993-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-:- module prog_out.
+:- module parse_tree__prog_out.
 
 % Main author: fjh.
 
@@ -18,7 +18,7 @@
 %-----------------------------------------------------------------------------%
 
 :- interface.
-:- import_module prog_data.
+:- import_module parse_tree__prog_data.
 :- import_module list, io.
 
 :- pred prog_out__write_messages(message_list, io__state, io__state).
@@ -29,13 +29,6 @@
 
 :- pred prog_out__context_to_string(prog_context, string).
 :- mode prog_out__context_to_string(in, out) is det.
-
-	% XXX This pred should be deleted, and all uses replaced with
-	% XXX error_util:write_error_pieces, once zs has committed that
-	% XXX error_util.m.
-:- pred prog_out__write_strings_with_context(prog_context, list(string),
-	io__state, io__state).
-:- mode prog_out__write_strings_with_context(in, in, di, uo) is det.
 
 	% Write out a symbol name, with special characters escaped,
 	% but without any quotes.  This is suitable for use in
@@ -85,6 +78,14 @@
 :- pred prog_out__write_list(list(T), pred(T, io__state, io__state),
 		io__state, io__state).
 :- mode prog_out__write_list(in, pred(in, di, uo) is det, di, uo) is det.
+
+:- pred prog_out__write_promise_type(promise_type, io__state, io__state).
+:- mode prog_out__write_promise_type(in, di, uo) is det.
+
+:- func prog_out__promise_to_string(promise_type) = string.
+:- mode prog_out__promise_to_string(in) = out is det.
+:- mode prog_out__promise_to_string(out) = in is semidet.
+:- mode prog_out__promise_to_string(out) = out is multi.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -154,52 +155,6 @@ prog_out__context_to_string(Context, ContextMessage) :-
 		string__format("%s:%03d: ", [s(FileName), i(LineNumber)],
 			ContextMessage)
 	).
-
-%-----------------------------------------------------------------------------%
-
-prog_out__write_strings_with_context(Context, Strings) -->
-	{ prog_out__context_to_string(Context, ContextMessage) },
-	{ string__length(ContextMessage, ContextLength) },
-	prog_out__write_strings_with_context_2(ContextMessage,
-			ContextLength, Strings, 0).
-
-:- pred prog_out__write_strings_with_context_2(string, int, list(string), int,
-	io__state, io__state).
-:- mode prog_out__write_strings_with_context_2(in, in, in, in, di, uo) is det.
-
-prog_out__write_strings_with_context_2(_ContextMessage, _ContextLength,
-		[], _) --> [].
-prog_out__write_strings_with_context_2(ContextMessage, ContextLength,
-		[S|Ss], N0) -->
-	{ string__length(S, MessageLength) },
-	(
-		{ N0 = 0 }
-	->
-		io__write_string(ContextMessage),
-		io__write_string("  "),
-		io__write_string(S),
-		{ N is ContextLength + MessageLength },
-		{ Rest = Ss }
-	;
-		{ N1 is MessageLength + N0 },
-		{ num_columns(NumColumns) },
-		{ N1 < NumColumns }
-	->
-		io__write_string(S),
-		{ N = N1 },
-		{ Rest = Ss }
-	;
-		io__write_char('\n'),
-		{ N = 0 },
-		{ Rest = [S|Ss] }
-	),
-	prog_out__write_strings_with_context_2(ContextMessage,
-			ContextLength, Rest, N).
-
-
-:- pred num_columns(int::out) is det.
-
-num_columns(80).
 
 %-----------------------------------------------------------------------------%
 
@@ -273,6 +228,16 @@ prog_out__write_list([Import], Writer) -->
 	call(Writer, Import).
 prog_out__write_list([], _) -->
 	{ error("prog_out__write_module_list") }.
+
+prog_out__promise_to_string(true) = "promise".
+prog_out__promise_to_string(exclusive) = "promise_exclusive".
+prog_out__promise_to_string(exhaustive) =  "promise_exhaustive".
+prog_out__promise_to_string(exclusive_exhaustive) = 
+		"promise_exclusive_exhaustive".
+
+prog_out__write_promise_type(PromiseType) -->
+	io__write_string(prog_out__promise_to_string(PromiseType)).
+
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

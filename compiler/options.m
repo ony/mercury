@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -16,7 +16,7 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module options.
+:- module libs__options.
 :- interface.
 :- import_module char, io, getopt.
 
@@ -43,6 +43,15 @@
 :- type option_table == option_table(option).
 :- type maybe_option_table == maybe_option_table(option).
 
+	% Add a directory to search for Mercury libraries. This
+	% adds `--search-directory', `--c-include-directory',
+	% `--library-directory' and `--init-file-directory' options.
+:- func option_table_add_mercury_library_directory(option_table,
+		string) = option_table.
+
+	% Quote an argument to a shell command.
+:- func quote_arg(string) = string.
+
 :- type option	
 	% Warning options
 		--->	inhibit_warnings
@@ -52,6 +61,7 @@
 		;	warn_singleton_vars
 		;	warn_overlapping_scopes
 		;	warn_det_decls_too_lax
+		;	warn_inferred_erroneous
 		;	warn_nothing_exported
 		;	warn_unused_args
 		;	warn_interface_imports
@@ -64,12 +74,17 @@
 		;	warn_missing_module_name
 		;	warn_wrong_module_name
 		;	warn_smart_recompilation
+		;	warn_undefined_options_variables
+		;	warn_non_tail_recursion
 	% Verbosity options
 		;	verbose
 		;	very_verbose
 		;	verbose_errors
 		;	verbose_recompilation
+		;	find_all_recompilation_reasons
 		;	verbose_make
+		;	verbose_commands
+		;	output_compile_error_lines
 		;	statistics
 		;	debug_types
 		;	debug_modes
@@ -80,6 +95,7 @@
 		;	debug_rl_opt
 		;	debug_il_asm	% il_asm = IL generation via asm
 		;	debug_liveness
+		;	debug_stack_opt
 		;	debug_make
 	% Output options
 		;	make_short_interface
@@ -87,6 +103,7 @@
 		;	make_private_interface
 		;	make_optimization_interface
 		;	make_transitive_opt_interface
+		;	generate_source_file_mapping
 		;	generate_dependencies
 		;	generate_module_order
 		;	convert_to_mercury
@@ -94,6 +111,7 @@
 		;	errorcheck_only
 		;	target_code_only
 		;	compile_only
+		;	compile_to_shared_lib
 		;	aditi_only
 		;	output_grade_string
 	% Auxiliary output options
@@ -104,11 +122,14 @@
 				% It is implied by --smart-recompilation,
 				% and cannot be set explicitly by the user.
 		;	generate_item_version_numbers
+		;	generate_mmc_make_module_dependencies
 		;	assume_gmake
 		;	trace
 		;	trace_optimized
 		;	trace_table_io
+		;	trace_table_io_decl
 		;	trace_table_io_states
+		;	trace_table_io_require
 		;	delay_death
 		;	suppress_trace
 		;	stack_trace_higher_order
@@ -120,6 +141,7 @@
 		;	dump_hlds_alias
 		;	dump_hlds_options
 		;	dump_mlds
+		;	verbose_dump_mlds
 		;	generate_schemas
 		;	dump_rl
 		;	dump_rl_bytecode
@@ -190,6 +212,8 @@
 		;	reserve_tag
 		;	tags
 		;	num_tag_bits
+		;	num_reserved_addresses
+		;	num_reserved_objects
 		;	bits_per_word
 		;	bytes_per_word
 				% The undocumented conf_low_tag_bits option
@@ -324,29 +348,7 @@
 		;	num_real_f_regs
 		;	num_real_r_temps
 		;	num_real_f_temps
-		;	cc
-		;	cflags
-		;	cflags_for_regs
-		;	cflags_for_gotos
-		;	cflags_for_threads
-		;	cflags_for_pic
 		;	pic
-		;	target_debug	
-		;	c_include_directory
-		;	c_flag_to_name_object_file
-		;	object_file_extension
-		;	pic_object_file_extension
-		;	shared_library_extension
-		;	library_extension
-		;	executable_file_extension
-		;	create_archive_command
-		;	create_archive_command_flags
-
-		;	java_compiler
-		;	java_flags
-		;	java_classpath
-		;	java_object_file_extension
-
 		;	max_jump_table_size
 		;	compare_specialization
 		;	fact_table_max_array_size
@@ -360,11 +362,13 @@
 
 		;	gcc_local_labels
 		;	prefer_switch
+		;	opt_no_return_calls
 
 	% Optimization Options
 		;	opt_level
 		;	opt_space	% default is to optimize time
 		;	intermodule_optimization
+		;	read_opt_files_transitively
 		;	use_opt_files
 		;	use_trans_opt_files
 		;	promise_no_modified_source_files
@@ -396,6 +400,20 @@
 		;	optimize_duplicate_calls
 		;	constant_propagation
 		;	excess_assign
+		;	optimize_saved_vars_const
+		;	optimize_saved_vars_cell
+		;	optimize_saved_vars_cell_loop
+		;	optimize_saved_vars_cell_full_path
+		;	optimize_saved_vars_cell_on_stack
+		;	optimize_saved_vars_cell_candidate_headvars
+		;	optimize_saved_vars_cell_cv_store_cost
+		;	optimize_saved_vars_cell_cv_load_cost
+		;	optimize_saved_vars_cell_fv_store_cost
+		;	optimize_saved_vars_cell_fv_load_cost
+		;	optimize_saved_vars_cell_op_ratio
+		;	optimize_saved_vars_cell_node_ratio
+		;	optimize_saved_vars_cell_all_path_node_ratio
+		;	optimize_saved_vars_cell_include_all_candidates
 		;	optimize_saved_vars
 		;	delay_construct
 		;	follow_code
@@ -436,6 +454,7 @@
 	%	- MLDS
 		;	optimize_tailcalls
 		;	optimize_initializations
+		;	eliminate_local_vars
 	%	- LLDS
 		;	common_data
 		;	optimize	% also used for MLDS->MLDS optimizations
@@ -445,11 +464,13 @@
 		;	pessimize_tailcalls
 		;	checked_nondet_tailcalls
 		;	use_local_vars
+		;	local_var_access_threshold
 		;	optimize_labels
 		;	optimize_dups
 %%% unused:	;	optimize_copyprop
 		;	optimize_frames
 		;	optimize_delay_slot
+		;	optimize_reassign
 		;	optimize_repeat
 	%	- RL
 		;	optimize_rl
@@ -462,35 +483,118 @@
 		;	emit_c_loops
 		;	procs_per_c_function
 		;	everything_in_one_c_function
-		;	c_optimize
-		;	inline_alloc
 	%	- IL
 	%	(none yet)
+	% Target code compilation options
+		;	target_debug	
+
+			% C
+		;	cc
+		;	cflags
+		;	quoted_cflag
+		;	c_include_directory
+		;	c_optimize
+		;	inline_alloc
+
+			% auto-configured C compilation options.
+		;	cflags_for_regs
+		;	cflags_for_gotos
+		;	cflags_for_threads
+		;	cflags_for_pic
+		;	c_flag_to_name_object_file
+		;	object_file_extension
+		;	pic_object_file_extension
+
+			% Java
+		;	java_compiler
+		;	java_flags
+		;	quoted_java_flag
+		;	java_classpath
+		;	java_object_file_extension
+
+			% IL
+		;	il_assembler
+		;	ilasm_flags
+		;	quoted_ilasm_flag
+		;	dotnet_library_version
+		;	support_ms_clr
+
+			% Managed C++
+		;	mcpp_compiler
+		;	mcpp_flags
+		;	quoted_mcpp_flag
+
+			% C#
+		;	csharp_compiler
+		;	csharp_flags
+		;	quoted_csharp_flag
+
 	% Link options
 		;	output_file_name
 		;	link_flags
+		;	quoted_link_flag
+		;	ld_flags
+		;	quoted_ld_flag
+		;	ld_libflags
+		;	quoted_ld_libflag
 		;	link_library_directories
 		;	link_libraries
 		;	link_objects
-	% Miscellaneous Options
+		;	mercury_library_directories
+		;	mercury_library_directory_special
+		;	mercury_libraries
+		;	mercury_library_special
+		;	mercury_standard_library_directory
+		;	init_file_directories
+		;	init_files
+		;	trace_init_files
+
+			% auto-configured options.
+		;	shared_library_extension
+		;	library_extension
+		;	executable_file_extension
+		;	create_archive_command
+		;	create_archive_command_output_flag
+		;	create_archive_command_flags
+		;	ranlib_command
+
+	% Build system options
 		;	make
 		;	keep_going
 		;	rebuild
+		;	invoked_by_mmc_make
+		;	extra_init_command
+		;	pre_link_command
+		;	install_prefix
+		;	install_command
+		;	libgrades
+		;	options_files
+		;	options_search_directories
+		;	use_subdirs
+		;	use_grade_subdirs
+
+	% Miscellaneous Options
 		;	search_directories
 		;	intermod_directories
 		;	use_search_directories_for_intermod
 		;	filenames_from_stdin
-		;	use_subdirs
 		;	aditi		% XXX this should be in the
 					% "Auxiliary output options"
 					% section
 		;	aditi_user
-		;	help.
+		;	help
+		;	fullarch
+		;	compiler_sufficiently_recent
+				% This option is used to test that the compiler
+				% is sufficiently recent when no other test
+				% can easily be constructed in configure.in.
+		.
 
 :- implementation.
 
 :- import_module string, bool, int, map, std_util, assoc_list, require, list.
-:- import_module handle_options.
+:- import_module dir.
+:- import_module libs__handle_options.
 
 :- type option_category
 	--->	warning_option
@@ -503,7 +607,9 @@
 	;	code_gen_option
 	;	special_optimization_option
 	;	optimization_option
+	;	target_code_compilation_option
 	;	link_option
+	;	build_system_option
 	;	miscellaneous_option.
 
 option_defaults(Option, Default) :-
@@ -529,6 +635,7 @@ option_defaults_2(warning_option, [
 	warn_singleton_vars	-	bool(yes),
 	warn_overlapping_scopes	-	bool(yes),
 	warn_det_decls_too_lax	-	bool(yes),
+	warn_inferred_erroneous	-	bool(yes),
 	warn_nothing_exported	-	bool(yes),
 	warn_unused_args	-	bool(no),
 	warn_interface_imports	-	bool(yes),
@@ -540,7 +647,9 @@ option_defaults_2(warning_option, [
 	warn_duplicate_calls	-	bool(no),
 	warn_missing_module_name -	bool(yes),
 	warn_wrong_module_name -	bool(yes),
-	warn_smart_recompilation -	bool(yes)
+	warn_smart_recompilation -	bool(yes),
+	warn_undefined_options_variables - bool(yes),
+	warn_non_tail_recursion -	bool(no)
 ]).
 option_defaults_2(verbosity_option, [
 		% Verbosity Options
@@ -548,7 +657,11 @@ option_defaults_2(verbosity_option, [
 	very_verbose		-	bool(no),
 	verbose_errors		-	bool(no),
 	verbose_recompilation	-	bool(no),
+	find_all_recompilation_reasons -
+					bool(no),
 	verbose_make		-	bool(yes),
+	verbose_commands	-	bool(no),
+	output_compile_error_lines -	int(15),
 	statistics		-	bool(no),
 	debug_types		- 	bool(no),
 	debug_modes		- 	bool(no),
@@ -559,10 +672,12 @@ option_defaults_2(verbosity_option, [
 	debug_rl_opt		-	bool(no),
 	debug_il_asm		-	bool(no),
 	debug_liveness		-	int(-1),
+	debug_stack_opt		-	int(-1),
 	debug_make		-	bool(no)
 ]).
 option_defaults_2(output_option, [
 		% Output Options (mutually exclusive)
+	generate_source_file_mapping -	bool(no),
 	generate_dependencies	-	bool(no),
 	generate_module_order 	-	bool(no),
 	make_short_interface	-	bool(no),
@@ -575,6 +690,7 @@ option_defaults_2(output_option, [
 	errorcheck_only		-	bool(no),
 	target_code_only	-	bool(no),
 	compile_only		-	bool(no),
+	compile_to_shared_lib	-	bool(no),
 	aditi_only		-	bool(no),
 	output_grade_string	-	bool(no)
 ]).
@@ -582,11 +698,14 @@ option_defaults_2(aux_output_option, [
 		% Auxiliary Output Options
 	smart_recompilation	-	bool(no),
 	generate_item_version_numbers -	bool(no),
+	generate_mmc_make_module_dependencies - bool(no),
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
 	trace_table_io		-	bool(no),
+	trace_table_io_decl	-	bool(no),
 	trace_table_io_states	-	bool(no),
+	trace_table_io_require	-	bool(no),
 	suppress_trace		-	string(""),
 	delay_death		-	bool(yes),
 	stack_trace_higher_order -	bool(no),
@@ -598,10 +717,12 @@ option_defaults_2(aux_output_option, [
 	dump_hlds_alias		-	string(""),
 	dump_hlds_options	-	string(""),
 	dump_mlds		-	accumulating([]),
+	verbose_dump_mlds	-	accumulating([]),
 	dump_rl			-	bool(no),
 	dump_rl_bytecode	-	bool(no),
 	sign_assembly		-	bool(no),
-	separate_assemblies	-	bool(no),
+		% XXX should default to no but currently broken
+	separate_assemblies	-	bool(yes),
 	generate_schemas	-	bool(no)
 ]).
 option_defaults_2(language_semantics_option, [
@@ -656,9 +777,10 @@ option_defaults_2(compilation_model_option, [
 				-	bool(yes),
 	use_lots_of_ho_specialization
 				-	bool(no),
-	deep_profile_tail_recursion	-	bool(yes),
+	deep_profile_tail_recursion	-	bool(no),
+					% XXX doesn't work at the moment
 		% (c) Miscellaneous optional features
-	gc			-	string("conservative"),
+	gc			-	string("boehm"),
 	parallel		-	bool(no),
 	use_trail		-	bool(no),
 	use_minimal_model	-	bool(no),
@@ -672,6 +794,8 @@ option_defaults_2(compilation_model_option, [
 					% -1 is a special value which means
 					% use the value of conf_low_tag_bits
 					% instead
+	num_reserved_addresses	-	int(0),
+	num_reserved_objects	-	int(0),
 	bits_per_word		-	int(32),
 					% A good default for the current
 					% generation of architectures.
@@ -747,51 +871,18 @@ option_defaults_2(code_gen_option, [
 					% the `mmc' script will override the
 					% above defaults with values determined
 					% at configuration time
-	cc			-	string("gcc"),
-					% the `mmc' script will override the
-					% above default with a value determined
-					% at configuration time
-	cflags			-	accumulating([]),
-	cflags_for_regs		-	string(""),
-	cflags_for_gotos	-	string(""),
-	cflags_for_threads	-	string(""),
-	cflags_for_pic		-	string(""),
-					% the `mmc' script will override the
-					% above four defaults with values
-					% determined at configuration time
 	pic			-	bool(no),
-	target_debug		-	bool(no),
-	c_include_directory	-	accumulating([]),
-					% the `mmc' script will override the
-					% above default with a value determined
-					% at configuration time
-	c_flag_to_name_object_file -	string("-o "),
-					% the `mmc' script will override the
-					% above default with a value determined
-					% at configuration time
-	object_file_extension	-	string(".o"),
-	pic_object_file_extension -	string(".o"),
-	shared_library_extension -	string(".so"),
-	library_extension -		string(".a"),
-	executable_file_extension -	string(""),
-	create_archive_command -	string("ar"),
-	create_archive_command_flags -	accumulating([]), % "cr"
-					% the `mmc' script will override the
-					% above seven defaults with a value
-					% determined at configuration time
-
-	java_compiler		-	string("javac"),
-	java_flags		-	accumulating([]),
-	java_classpath  	-	accumulating([]),
-	java_object_file_extension -	string(".class"),
-
 	max_jump_table_size	-	int(0),
-	compare_specialization	-	int(4),
 					% 0 indicates any size.
+	compare_specialization	-	int(-1),
+					% -1 asks handle_options.m to give
+					% the value, which may be grade
+					% dependent.
 	fact_table_max_array_size -	int(1024),
 	fact_table_hash_percent_full - 	int(90),
 	gcc_local_labels	-	bool(no),
-	prefer_switch		-	bool(yes)
+	prefer_switch		-	bool(yes),
+	opt_no_return_calls	-	bool(yes)
 ]).
 option_defaults_2(special_optimization_option, [
 		% Special optimization options.
@@ -799,6 +890,7 @@ option_defaults_2(special_optimization_option, [
 	opt_level		-	int_special,
 	opt_space		-	special,
 	intermodule_optimization -	bool(no),
+	read_opt_files_transitively -	bool(yes),
 	use_opt_files		-	bool(no),
 	use_trans_opt_files	-	bool(no),
 	promise_no_modified_source_files - bool(no),
@@ -844,7 +936,21 @@ option_defaults_2(optimization_option, [
 	optimize_duplicate_calls -	bool(no),
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
-	optimize_saved_vars	-	bool(no),
+	optimize_saved_vars_const	-	bool(no),
+	optimize_saved_vars_cell	-	bool(no),
+	optimize_saved_vars_cell_loop	-	bool(yes),
+	optimize_saved_vars_cell_full_path -	bool(yes),
+	optimize_saved_vars_cell_on_stack -	bool(yes),
+	optimize_saved_vars_cell_candidate_headvars -	bool(yes),
+	optimize_saved_vars_cell_cv_store_cost -	int(3),
+	optimize_saved_vars_cell_cv_load_cost -		int(1),
+	optimize_saved_vars_cell_fv_store_cost -	int(1),
+	optimize_saved_vars_cell_fv_load_cost -		int(1),
+	optimize_saved_vars_cell_op_ratio -	int(100),
+	optimize_saved_vars_cell_node_ratio -	int(100),
+	optimize_saved_vars_cell_all_path_node_ratio -	int(100),
+	optimize_saved_vars_cell_include_all_candidates -	bool(yes),
+	optimize_saved_vars	-	bool_special,
 	delay_construct		-	bool(no),
 	prev_code		-	bool(no),
 	follow_code		-	bool(no),
@@ -852,12 +958,12 @@ option_defaults_2(optimization_option, [
 	intermod_unused_args	-	bool(no),
 	optimize_higher_order	-	bool(no),
 	higher_order_size_limit	-	int(20),
-	higher_order_arg_limit -	int(10),
+	higher_order_arg_limit	-	int(10),
 	unneeded_code		-	bool(no),
-	unneeded_code_copy_limit	-	int(10),
+	unneeded_code_copy_limit-	int(10),
 	type_specialization	-	bool(no),
 	user_guided_type_specialization	-	bool(no),
-	introduce_accumulators -	bool(no),
+	introduce_accumulators	-	bool(no),
 	optimize_constructor_last_call -	bool(no),
 	optimize_dead_procs	-	bool(no),
 	deforestation		-	bool(no),
@@ -886,6 +992,7 @@ option_defaults_2(optimization_option, [
 % MLDS
 	optimize_tailcalls	- 	bool(no),
 	optimize_initializations - 	bool(no),
+	eliminate_local_vars	- 	bool(no),
 % LLDS
 	common_data		-	bool(no),
 	optimize		-	bool(no),
@@ -895,11 +1002,13 @@ option_defaults_2(optimization_option, [
 	pessimize_tailcalls	-	bool(no),
 	checked_nondet_tailcalls -	bool(no),
 	use_local_vars		-	bool(no),
+	local_var_access_threshold -	int(2),
 	optimize_labels		-	bool(no),
 	optimize_dups		-	bool(no),
 %%%	optimize_copyprop	-	bool(no),
 	optimize_frames		-	bool(no),
 	optimize_delay_slot	-	bool(no),
+	optimize_reassign	-	bool(no),
 	optimize_repeat		-	int(0),
 
 % LLDS -> C
@@ -907,14 +1016,67 @@ option_defaults_2(optimization_option, [
 	emit_c_loops		-	bool(no),
 	procs_per_c_function	-	int(1),
 	everything_in_one_c_function -	special,
-	c_optimize		-	bool(no),
-	inline_alloc		-	bool(no),
 % RL
 	optimize_rl		- 	bool(no),
 	optimize_rl_cse		-	bool(no),
 	optimize_rl_invariants	-	bool(no),
 	optimize_rl_index	-	bool(no),
 	detect_rl_streams	-	bool(no)
+]).
+option_defaults_2(target_code_compilation_option, [
+		% Target code compilation options
+	target_debug		-	bool(no),
+
+% C
+					% the `mmc' script will override the
+					% following default with a value
+					% determined at configuration time.
+	cc			-	string("gcc"),
+					% the `mmc' script will override the
+					% following default with a value
+					% determined at configuration time
+	c_include_directory	-	accumulating([]),
+	c_optimize		-	bool(no),
+	inline_alloc		-	bool(no),
+	cflags			-	accumulating([]),
+	quoted_cflag		-	string_special,
+
+					% the `mmc' script will override the
+					% following seven defaults with values
+					% determined at configuration time
+	cflags_for_regs		-	string(""),
+	cflags_for_gotos	-	string(""),
+	cflags_for_threads	-	string(""),
+	cflags_for_pic		-	string(""),
+	c_flag_to_name_object_file -	string("-o "),
+	object_file_extension	-	string(".o"),
+	pic_object_file_extension -	string(".o"),
+
+% Java
+	java_compiler		-	string("javac"),
+	java_flags		-	accumulating([]),
+	quoted_java_flag	-	string_special,
+	java_classpath  	-	accumulating([]),
+	java_object_file_extension -	string(".class"),
+
+% IL
+	il_assembler		-	string("ilasm"),
+	ilasm_flags		-	accumulating([]),
+	quoted_ilasm_flag	-	string_special,
+		% We default to the version of the library that came
+		% with Beta2.
+	dotnet_library_version	-	string("1.0.3300.0"),
+	support_ms_clr		-	bool(yes),
+
+% Managed C++
+	mcpp_compiler		-	string("cl"),
+	mcpp_flags		-	accumulating([]),
+	quoted_mcpp_flag	-	string_special,
+
+% C#
+	csharp_compiler		-	string("csc"),
+	csharp_flags		-	accumulating([]),
+	quoted_csharp_flag	-	string_special
 ]).
 option_defaults_2(link_option, [
 		% Link Options
@@ -923,24 +1085,68 @@ option_defaults_2(link_option, [
 					% string, we use the name of the first
 					% module on the command line
 	link_flags		-	accumulating([]),
+	quoted_link_flag	-	string_special,
+	ld_flags		-	accumulating([]),
+	quoted_ld_flag		-	string_special,
+	ld_libflags		-	accumulating([]),
+	quoted_ld_libflag	-	string_special,
 	link_library_directories -	accumulating([]),
 	link_libraries		-	accumulating([]),
-	link_objects		-	accumulating([])
+	link_objects		-	accumulating([]),
+	mercury_library_directory_special -
+					string_special,
+	mercury_library_directories -	accumulating([]),
+	mercury_library_special -	string_special,
+	mercury_libraries -		accumulating([]),
+					% The mmc script will set the default
+					% standard library directory.
+	mercury_standard_library_directory - maybe_string(no),
+	init_file_directories -		accumulating([]),
+	init_files -			accumulating([]),
+	trace_init_files -		accumulating([]),
+
+					% the `mmc' script will override the
+					% following seven defaults with a value
+					% determined at configuration time
+	shared_library_extension -	string(".so"),
+	library_extension -		string(".a"),
+	executable_file_extension -	string(""),
+	create_archive_command -	string("ar"),
+	create_archive_command_output_flag -
+					string(""),
+	create_archive_command_flags -	accumulating([]), % "cr"
+	ranlib_command -		string("")
+
+]).
+option_defaults_2(build_system_option, [
+		% Build System Options
+	make			-	bool(no),
+	keep_going		-	bool(no),
+	rebuild			-	bool(no),
+	invoked_by_mmc_make	-	bool(no),
+	pre_link_command	-	maybe_string(no),
+	extra_init_command	-	maybe_string(no),
+	install_prefix		-	string("/usr/local/"),
+	install_command		-	string("cp"),
+	libgrades		-	accumulating([]),
+	options_files		-	accumulating(["Mercury.options"]),
+	options_search_directories -	accumulating(["."]),
+	use_subdirs		-	bool(no),
+	use_grade_subdirs	-	bool(no),
+	search_directories 	-	accumulating(["."]),
+	intermod_directories	-	accumulating([]),
+	use_search_directories_for_intermod
+				-	bool(yes)
 ]).
 option_defaults_2(miscellaneous_option, [
 		% Miscellaneous Options
 	filenames_from_stdin	-	bool(no),
-	make			-	bool(no),
-	keep_going		-	bool(no),
-	rebuild			-	bool(no),
-	search_directories 	-	accumulating(["."]),
-	intermod_directories	-	accumulating([]),
-	use_search_directories_for_intermod
-				-	bool(yes),
-	use_subdirs		-	bool(no),
 	aditi			-	bool(no),
 	aditi_user		-	string(""),
-	help 			-	bool(no)
+	help 			-	bool(no),
+	fullarch		-	string(""),
+	compiler_sufficiently_recent
+				-	bool(no)
 ]).
 
 	% please keep this in alphabetic order
@@ -950,6 +1156,7 @@ short_option('d', 			dump_hlds).
 short_option('D', 			dump_hlds_alias).
 short_option('e', 			errorcheck_only).
 short_option('E', 			verbose_errors).
+short_option('f',			generate_source_file_mapping).
 short_option('h', 			help).
 short_option('H', 			highlevel_code).
 short_option('i', 			make_interface).
@@ -983,6 +1190,7 @@ long_option("halt-at-syntax-errors",	halt_at_syntax_errors).
 long_option("warn-singleton-variables",	warn_singleton_vars).
 long_option("warn-overlapping-scopes",	warn_overlapping_scopes).
 long_option("warn-det-decls-too-lax",	warn_det_decls_too_lax).
+long_option("warn-inferred-erroneous",	warn_inferred_erroneous).
 long_option("warn-nothing-exported",	warn_nothing_exported).
 long_option("warn-unused-args",		warn_unused_args).
 long_option("warn-interface-imports",	warn_interface_imports).
@@ -995,13 +1203,20 @@ long_option("warn-duplicate-calls",	warn_duplicate_calls).
 long_option("warn-missing-module-name",	warn_missing_module_name).
 long_option("warn-wrong-module-name",	warn_wrong_module_name).
 long_option("warn-smart-recompilation",	warn_smart_recompilation).
+long_option("warn-undefined-options-variables",
+					warn_undefined_options_variables).
+long_option("warn-non-tail-recursion",	warn_non_tail_recursion).
 
 % verbosity options
 long_option("verbose",			verbose).
 long_option("very-verbose",		very_verbose).
 long_option("verbose-error-messages",	verbose_errors).
 long_option("verbose-recompilation",	verbose_recompilation).
+long_option("find-all-recompilation-reasons",
+					find_all_recompilation_reasons).
 long_option("verbose-make",		verbose_make).
+long_option("verbose-commands",		verbose_commands).
+long_option("output-compile-error-lines", output_compile_error_lines).
 long_option("statistics",		statistics).
 long_option("debug-types",		debug_types).
 long_option("debug-modes",		debug_modes).
@@ -1017,9 +1232,12 @@ long_option("debug-rl-opt",		debug_rl_opt).
 	% system built into .NET improves.
 long_option("debug-il-asm",		debug_il_asm).
 long_option("debug-liveness",		debug_liveness).
+long_option("debug-stack-opt",		debug_stack_opt).
 long_option("debug-make",		debug_make).
 
 % output options (mutually exclusive)
+long_option("generate-source-file-mapping",
+					generate_source_file_mapping).
 long_option("generate-dependencies",	generate_dependencies).
 long_option("generate-module-order",	generate_module_order).
 long_option("make-short-interface",	make_short_interface).
@@ -1045,17 +1263,24 @@ long_option("typecheck-only",		typecheck_only).
 long_option("errorcheck-only",		errorcheck_only).
 long_option("target-code-only",		target_code_only).
 long_option("compile-only",		compile_only).
+long_option("compile-to-shared-lib",	compile_to_shared_lib).
 long_option("aditi-only",		aditi_only).
 long_option("output-grade-string",	output_grade_string).
 
 % aux output options
 long_option("smart-recompilation",	smart_recompilation).
 long_option("assume-gmake",		assume_gmake).
+long_option("generate-mmc-make-module-dependencies",
+					generate_mmc_make_module_dependencies).
+long_option("generate-mmc-deps",
+					generate_mmc_make_module_dependencies).
 long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
 long_option("trace-optimized",		trace_optimized).
 long_option("trace-table-io",		trace_table_io).
+long_option("trace-table-io-decl",	trace_table_io_decl).
 long_option("trace-table-io-states",	trace_table_io_states).
+long_option("trace-table-io-require",	trace_table_io_require).
 long_option("suppress-trace",		suppress_trace).
 long_option("delay-death",		delay_death).
 long_option("stack-trace-higher-order",	stack_trace_higher_order).
@@ -1064,9 +1289,13 @@ long_option("line-numbers",		line_numbers).
 long_option("auto-comments",		auto_comments).
 long_option("show-dependency-graph",	show_dependency_graph).
 long_option("dump-hlds",		dump_hlds).
+long_option("hlds-dump",		dump_hlds).
 long_option("dump-hlds-alias",		dump_hlds_alias).
 long_option("dump-hlds-options",	dump_hlds_options).
 long_option("dump-mlds",		dump_mlds).
+long_option("mlds-dump",		dump_mlds).
+long_option("verbose-dump-mlds",	verbose_dump_mlds).
+long_option("verbose-mlds-dump",	verbose_dump_mlds).
 long_option("dump-rl",			dump_rl).
 long_option("dump-rl-bytecode",		dump_rl_bytecode).
 long_option("sign-assembly",		sign_assembly).
@@ -1140,6 +1369,8 @@ long_option("pic",			pic).
 long_option("pic-reg",			pic_reg).
 long_option("tags",			tags).
 long_option("num-tag-bits",		num_tag_bits).
+long_option("num-reserved-addresses",	num_reserved_addresses).
+long_option("num-reserved-objects",	num_reserved_objects).
 long_option("bits-per-word",		bits_per_word).
 long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
@@ -1205,40 +1436,6 @@ long_option("num-real-f-regs",		num_real_f_regs).
 long_option("num-real-r-temps",		num_real_r_temps).
 long_option("num-real-f-temps",		num_real_f_temps).
 long_option("num-real-temps",		num_real_r_temps).	% obsolete
-
-long_option("cc",			cc).
-long_option("cflags",			cflags).
-long_option("cflags-for-regs",		cflags_for_regs).
-long_option("cflags-for-gotos",		cflags_for_gotos).
-long_option("cflags-for-threads",	cflags_for_threads).
-long_option("cflags-for-pic",		cflags_for_pic).
-	% XXX we should consider the relationship between c_debug and
-	% target_debug more carefully.  Perhaps target_debug could imply
-	% C debug if the target is C.  However for the moment they are
-	% just synonyms.
-long_option("c-debug",			target_debug).
-long_option("target-debug",		target_debug).
-long_option("c-include-directory",	c_include_directory).
-long_option("c-flag-to-name-object-file", c_flag_to_name_object_file).
-long_option("object-file-extension",	object_file_extension).
-long_option("pic-object-file-extension", pic_object_file_extension).
-long_option("shared-library-extension",	shared_library_extension).
-long_option("library-extension",	library_extension).
-long_option("executable-file-extension", executable_file_extension).
-long_option("create-archive-comand",	create_archive_command).
-long_option("create-archive-comand-flags", create_archive_command_flags).
-
-long_option("java-compiler",		java_compiler).
-long_option("javac",			java_compiler).
-long_option("java-flags",			cflags).
-	% XXX we should consider the relationship between java_debug and
-	% target_debug more carefully.  Perhaps target_debug could imply
-	% Java debug if the target is Java.  However for the moment they are
-	% just synonyms.
-long_option("java-debug",		target_debug).
-long_option("java-classpath",   	java_classpath).
-long_option("java-object-file-extension", java_object_file_extension).
-
 long_option("max-jump-table-size",	max_jump_table_size).
 long_option("compare-specialization",	compare_specialization).
 long_option("fact-table-max-array-size",fact_table_max_array_size).
@@ -1246,6 +1443,7 @@ long_option("fact-table-hash-percent-full",
 					fact_table_hash_percent_full).
 long_option("gcc-local-labels",		gcc_local_labels).
 long_option("prefer-switch",		prefer_switch).
+long_option("opt-no-return-calls",	opt_no_return_calls).
 
 % optimization options
 
@@ -1257,6 +1455,7 @@ long_option("optimize-space",		opt_space).
 long_option("optimise-space",		opt_space).
 long_option("intermodule-optimization", intermodule_optimization).
 long_option("intermodule-optimisation", intermodule_optimization).
+long_option("read-opt-files-transitively", read_opt_files_transitively).
 long_option("use-opt-files",		use_opt_files).
 long_option("use-trans-opt-files",	use_trans_opt_files).
 long_option("promise-no-modified-source-files",
@@ -1285,6 +1484,22 @@ long_option("optimise-constant-propagation", constant_propagation).
 long_option("optimize-constant-propagation", constant_propagation).
 long_option("optimize-saved-vars",	optimize_saved_vars).
 long_option("optimise-saved-vars",	optimize_saved_vars).
+long_option("optimize-saved-vars-const",	optimize_saved_vars_const).
+long_option("optimise-saved-vars-const",	optimize_saved_vars_const).
+long_option("optimize-saved-vars-cell",	optimize_saved_vars_cell).
+long_option("optimise-saved-vars-cell",	optimize_saved_vars_cell).
+long_option("osv-loop",			optimize_saved_vars_cell_loop).
+long_option("osv-full-path",		optimize_saved_vars_cell_full_path).
+long_option("osv-on-stack",		optimize_saved_vars_cell_on_stack).
+long_option("osv-cand-head",		optimize_saved_vars_cell_candidate_headvars).
+long_option("osv-cvstore-cost",		optimize_saved_vars_cell_cv_store_cost).
+long_option("osv-cvload-cost",		optimize_saved_vars_cell_cv_load_cost).
+long_option("osv-fvstore-cost",		optimize_saved_vars_cell_fv_store_cost).
+long_option("osv-fvload-cost",		optimize_saved_vars_cell_fv_load_cost).
+long_option("osv-op-ratio",		optimize_saved_vars_cell_op_ratio).
+long_option("osv-node-ratio",		optimize_saved_vars_cell_node_ratio).
+long_option("osv-allpath-node-ratio",	optimize_saved_vars_cell_all_path_node_ratio).
+long_option("osv-all-cand",		optimize_saved_vars_cell_include_all_candidates).
 long_option("delay-construct",		delay_construct).
 long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
@@ -1373,6 +1588,7 @@ long_option("optimize-tailcalls",	optimize_tailcalls).
 long_option("optimise-tailcalls",	optimize_tailcalls).
 long_option("optimize-initializations",	optimize_initializations).
 long_option("optimise-initializations",	optimize_initializations).
+long_option("eliminate-local-vars",	eliminate_local_vars).
 
 % LLDS optimizations
 long_option("common-data",		common_data).
@@ -1387,6 +1603,7 @@ long_option("optimise-fulljumps",	optimize_fulljumps).
 long_option("pessimize-tailcalls",	pessimize_tailcalls).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
 long_option("use-local-vars",		use_local_vars).
+long_option("local-var-access-threshold", local_var_access_threshold).
 long_option("optimize-labels",		optimize_labels).
 long_option("optimise-labels",		optimize_labels).
 long_option("optimize-dups",		optimize_dups).
@@ -1397,6 +1614,8 @@ long_option("optimize-frames",		optimize_frames).
 long_option("optimise-frames",		optimize_frames).
 long_option("optimize-delay-slot",	optimize_delay_slot).
 long_option("optimise-delay-slot",	optimize_delay_slot).
+long_option("optimize-reassign",	optimize_reassign).
+long_option("optimise-reassign",	optimize_reassign).
 long_option("optimize-repeat",		optimize_repeat).
 long_option("optimise-repeat",		optimize_repeat).
 
@@ -1420,30 +1639,116 @@ long_option("everything-in-one-c-function",	everything_in_one_c_function).
 long_option("everything-in-one-C-function",	everything_in_one_c_function).
 long_option("split-c-files",		split_c_files).
 long_option("split-C-files",		split_c_files).
+long_option("inline-alloc",		inline_alloc).
+
+% Target code compilation options
+long_option("target-debug",		target_debug).
+
+long_option("cc",			cc).
 long_option("c-optimise",		c_optimize).
 long_option("c-optimize",		c_optimize).
-long_option("inline-alloc",		inline_alloc).
+	% XXX we should consider the relationship between c_debug and
+	% target_debug more carefully.  Perhaps target_debug could imply
+	% C debug if the target is C.  However for the moment they are
+	% just synonyms.
+long_option("c-debug",			target_debug).
+long_option("c-include-directory",	c_include_directory).
+long_option("cflags",			cflags).
+long_option("cflag",			quoted_cflag).
+long_option("cflags-for-regs",		cflags_for_regs).
+long_option("cflags-for-gotos",		cflags_for_gotos).
+long_option("cflags-for-threads",	cflags_for_threads).
+long_option("cflags-for-pic",		cflags_for_pic).
+long_option("c-flag-to-name-object-file", c_flag_to_name_object_file).
+long_option("object-file-extension",	object_file_extension).
+long_option("pic-object-file-extension", pic_object_file_extension).
+
+long_option("java-compiler",		java_compiler).
+long_option("javac",			java_compiler).
+long_option("java-flags",		java_flags).
+long_option("java-flag",		quoted_java_flag).
+	% XXX we should consider the relationship between java_debug and
+	% target_debug more carefully.  Perhaps target_debug could imply
+	% Java debug if the target is Java.  However for the moment they are
+	% just synonyms.
+long_option("java-debug",		target_debug).
+long_option("java-classpath",   	java_classpath).
+long_option("java-object-file-extension", java_object_file_extension).
+
+long_option("il-assembler",		il_assembler).
+long_option("ilasm-flags",		ilasm_flags).
+long_option("ilasm-flag",		quoted_ilasm_flag).
+long_option("dotnet-library-version",	dotnet_library_version).
+long_option("support-ms-clr",		support_ms_clr).
+
+long_option("mcpp-compiler",		mcpp_compiler).
+long_option("mcpp-flags",		mcpp_flags).
+long_option("mcpp-flag",		quoted_mcpp_flag).
+
+long_option("csharp-compiler",		csharp_compiler).
+long_option("csharp-flags",		csharp_flags).
+long_option("csharp-flag",		quoted_csharp_flag).
 
 % link options
 long_option("output-file",		output_file_name).
 long_option("link-flags",		link_flags).
+long_option("link-flag",		quoted_link_flag).
+long_option("ml-flags",			link_flags).
+long_option("ml-flag",			quoted_link_flag).
+long_option("ld-flags",			ld_flags).
+long_option("ld-flag",			quoted_ld_flag).
+long_option("ld-libflags",		ld_libflags).
+long_option("ld-libflag",		quoted_ld_libflag).
 long_option("library-directory",	link_library_directories).
 long_option("library",			link_libraries).
 long_option("link-object",		link_objects).
+long_option("mercury-library",		mercury_library_special).
+long_option("ml",			mercury_library_special).
+long_option("mercury-library-directory", mercury_library_directory_special).
+long_option("mld",			mercury_library_directory_special).
+long_option("mercury-standard-library-directory",
+					mercury_standard_library_directory).
+long_option("mercury-stdlib-dir",	mercury_standard_library_directory).
+long_option("init-file-directory",	init_file_directories).
+long_option("init-file",		init_files).
+long_option("trace-init-file",		trace_init_files).
+long_option("shared-library-extension",	shared_library_extension).
+long_option("library-extension",	library_extension).
+long_option("executable-file-extension", executable_file_extension).
+long_option("create-archive-command",	create_archive_command).
+long_option("create-archive-command-output-flag",
+					create_archive_command_output_flag).
+long_option("create-archive-command-flags", create_archive_command_flags).
+long_option("ranlib-command",		ranlib_command).
 
-% misc options
-long_option("help",			help).
+% build system options
 long_option("make",			make).
 long_option("keep-going",		keep_going).
 long_option("rebuild",			rebuild).
+long_option("invoked-by-mmc-make",	invoked_by_mmc_make).
+long_option("pre-link-command",		pre_link_command).
+long_option("extra-init-command",	extra_init_command).
+long_option("install-prefix",		install_prefix).
+long_option("install-command",		install_command).
+long_option("library-grade",		libgrades).
+long_option("libgrade",			libgrades).
+long_option("options-file",		options_files).
+long_option("options-search-directory", options_search_directories).
+long_option("use-subdirs",		use_subdirs).	
+long_option("use-grade-subdirs",	use_grade_subdirs).	
 long_option("search-directory",		search_directories).
 long_option("intermod-directory",	intermod_directories).
 long_option("use-search-directories-for-intermod",
 					use_search_directories_for_intermod).	
+
+% misc options
+long_option("help",			help).
 long_option("filenames-from-stdin",	filenames_from_stdin).
-long_option("use-subdirs",		use_subdirs).	
 long_option("aditi",			aditi).
 long_option("aditi-user",		aditi_user).
+long_option("fullarch",			fullarch).
+long_option("bug-intermod-2002-06-13",	compiler_sufficiently_recent).
+long_option("bug-foreign_import-2002-08-06", compiler_sufficiently_recent).
 
 %-----------------------------------------------------------------------------%
 
@@ -1526,6 +1831,7 @@ special_handler(inhibit_warnings, bool(Inhibit), OptionTable0, ok(OptionTable))
 			warn_singleton_vars	-	bool(Enable),
 			warn_overlapping_scopes	-	bool(Enable),
 			warn_det_decls_too_lax	-	bool(Enable),
+			warn_inferred_erroneous	-	bool(Enable),
 			warn_nothing_exported	-	bool(Enable),
 			warn_interface_imports	-	bool(Enable),
 			warn_missing_opt_files	-	bool(Enable),
@@ -1534,7 +1840,8 @@ special_handler(inhibit_warnings, bool(Inhibit), OptionTable0, ok(OptionTable))
 			warn_simple_code	-	bool(Enable),
 			warn_missing_module_name -	bool(Enable),
 			warn_wrong_module_name	-	bool(Enable),
-			warn_smart_recompilation -	bool(Enable)
+			warn_smart_recompilation -	bool(Enable),
+			warn_undefined_options_variables - bool(Enable)
 		], OptionTable0, OptionTable).
 special_handler(infer_all, bool(Infer), OptionTable0, ok(OptionTable)) :-
 	override_options([
@@ -1554,6 +1861,70 @@ special_handler(opt_level, int(N0), OptionTable0, ok(OptionTable)) :-
 		N = N0
 	),
 	set_opt_level(N, OptionTable0, OptionTable).
+special_handler(optimize_saved_vars, bool(Optimize),
+		OptionTable0, ok(OptionTable)) :-
+	map__set(OptionTable0, optimize_saved_vars_const, bool(Optimize),
+		OptionTable1),
+	map__set(OptionTable1, optimize_saved_vars_cell, bool(Optimize),
+		OptionTable).
+special_handler(mercury_library_directory_special, string(Dir),
+			OptionTable0, ok(OptionTable)) :-
+	OptionTable = option_table_add_mercury_library_directory(
+			OptionTable0, Dir).
+special_handler(mercury_library_special, string(Lib),
+			OptionTable0, ok(OptionTable)) :-
+	OptionTable =
+	    list__foldl(append_to_accumulating_option, [
+	    	link_libraries - Lib,
+		mercury_libraries - Lib,
+		init_files - (Lib ++ ".init")
+		], OptionTable0).
+special_handler(quoted_cflag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(cflags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_java_flag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(java_flags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_ilasm_flag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(ilasm_flags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_mcpp_flag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(mcpp_flags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_csharp_flag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(csharp_flags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_link_flag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(link_flags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_ld_flag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(ld_flags, Flag, OptionTable0, OptionTable).
+special_handler(quoted_ld_libflag, string(Flag),
+			OptionTable0, ok(OptionTable)) :-
+	handle_quoted_flag(ld_libflags, Flag, OptionTable0, OptionTable).
+
+%-----------------------------------------------------------------------------%
+
+option_table_add_mercury_library_directory(OptionTable0, Dir) =
+	% The link_library_directories for Mercury libraries are grade
+	% dependent, so they need to be handled in handle_options.m
+	% when we know the grade.
+	list__foldl(append_to_accumulating_option, [
+	    	search_directories - dir__make_path_name(Dir, "ints"),
+		c_include_directory - dir__make_path_name(Dir, "inc"),
+		init_file_directories - dir__make_path_name(Dir, "modules"),
+		mercury_library_directories - Dir
+	], OptionTable0).
+	  
+:- func append_to_accumulating_option(pair(option, string),
+		option_table) = option_table.
+
+append_to_accumulating_option(Option - Value, OptionTable0) =
+	OptionTable0 ^ elem(Option) :=
+	    accumulating(
+		getopt__lookup_accumulating_option(OptionTable0, Option)
+		++ [Value]).
 
 :- pred set_opt_level(int, option_table, option_table).
 :- mode set_opt_level(in, in, out) is det.
@@ -1604,6 +1975,7 @@ opt_space([
 	optimize_labels		-	bool(yes),
 	optimize_dups		-	bool(yes),
 	optimize_fulljumps	-	bool(no),
+	optimize_reassign	-	bool(yes),
 	inline_alloc		-	bool(no),
 	use_macro_for_redo_fail	-	bool(no)
 ]).
@@ -1665,14 +2037,7 @@ opt_level(2, _, [
 	common_struct		-	bool(yes),
 	user_guided_type_specialization
 				-	bool(yes),
-/****
-% XXX optimize_duplicate_calls is broken --
-% it doesn't take type information into account.
-% See tests/hard_coded/dupcall_types_bug.m.
-% We should re-enable the optimization only
-% when we have fixed that bug.
 	optimize_duplicate_calls -	bool(yes),
-****/
 	simple_neg		-	bool(yes),
 
 	optimize_rl		-	bool(yes),
@@ -1687,12 +2052,13 @@ opt_level(2, _, [
 
 opt_level(3, _, [
 %%%	optimize_copyprop	-	bool(yes),
-	optimize_saved_vars	-	bool(yes),
+	optimize_saved_vars_const -	bool(yes),
 	optimize_unused_args	-	bool(yes),	
 	optimize_higher_order	-	bool(yes),
 	deforestation		-	bool(yes),
 	local_constraint_propagation -	bool(yes),
 	constant_propagation	-	bool(yes),
+	optimize_reassign	-	bool(yes),
 	% Disabled until a bug in extras/trailed_update/var.m is resolved.
 	%introduce_accumulators	-	bool(yes),
 	optimize_repeat		-	int(4)
@@ -1717,12 +2083,15 @@ opt_level(4, _, [
 % Currently this enables the search for construction unifications that can be
 % delayed past failing computations, allows more passes of the low-level
 % optimizations, and increases the inlining thresholds still further.
+% We also enable eliminate_local_vars only at this level,
+% because that pass is implemented pretty inefficiently.
 
 opt_level(5, _, [
 	optimize_repeat		-	int(5),
 	delay_construct		-	bool(yes),
 	inline_compound_threshold -	int(100),
-	higher_order_size_limit -	int(40)
+	higher_order_size_limit -	int(40),
+	eliminate_local_vars	-	bool(yes)
 ]).
 
 % Optimization level 6: apply optimizations which may have any
@@ -1739,6 +2108,80 @@ opt_level(6, _, [
 	inline_alloc		-	bool(yes),
 	use_macro_for_redo_fail	-	bool(yes)
 ]).
+
+% The following optimization options are not enabled at any level:
+%
+% 	checked_nondet_tailcalls:
+%		This is deliberate, because the transformation
+%		might make code run slower.
+%
+% 	constraint_propagation:
+%		I think this is deliberate, because the transformation
+%		might make code run slower?
+%
+%	prev_code:
+%		Not useful?
+%
+%	unneeded_code:
+%	type_specialization:
+%	optimize_rl_invariant:
+%		XXX why not?
+%
+%	introduce_accumulators:
+%		XXX Disabled until a bug in extras/trailed_update/var.m
+%		is resolved.
+%
+%	optimize_rl_cse:
+%	optimize_constructor_last_call:
+%		Not implemented yet.
+
+%-----------------------------------------------------------------------------%
+
+:- pred handle_quoted_flag(option::in, string::in, option_table::in,
+		option_table::out) is det.
+
+handle_quoted_flag(Option, Flag, Table,
+	append_to_accumulating_option(Option - quote_arg(Flag), Table)).
+
+quote_arg(Arg0) = Arg :-
+	ArgList = quote_arg_2(string__to_char_list(Arg0)),
+	(
+		ArgList = []
+	->
+		Arg = """"""
+	;
+		list__member(Char, ArgList),
+		\+ ( char__is_alnum_or_underscore(Char)
+		; Char = ('-')
+		; Char = ('/')
+		; Char = ('.')
+		; Char = (',')
+		; Char = (':')
+		)
+	->
+		Arg = """" ++ string__from_char_list(ArgList) ++ """"
+	;
+		Arg = string__from_char_list(ArgList)
+	).
+
+:- func quote_arg_2(list(char)) = list(char).
+
+quote_arg_2([]) = [].
+quote_arg_2([Char | Chars0]) = Chars :-
+	Chars1 = quote_arg_2(Chars0),
+	( quote_char(Char) ->
+		Chars = [('\\'), Char | Chars1]
+	;
+		Chars = [Char | Chars1]	
+	).	
+
+
+:- pred quote_char(char::in) is semidet.
+
+quote_char('\\').
+quote_char('"').
+quote_char('`').
+quote_char('$').
 
 %-----------------------------------------------------------------------------%
 
@@ -1760,8 +2203,9 @@ options_help -->
 	options_help_mlds_mlds_optimization,
 	options_help_rl_rl_optimization,
 	options_help_output_optimization,
-	options_help_object_optimization,
+	options_help_target_code_compilation,
 	options_help_link,
+	options_help_build_system,
 	options_help_misc.
 
 :- pred options_help_warning(io__state::di, io__state::uo) is det.
@@ -1791,6 +2235,9 @@ options_help_warning -->
 		"--no-warn-det-decls-too-lax",
 		"\tDon't warn about determinism declarations",
 		"\twhich could have been stricter.",
+		"--no-warn-inferred-erroneous",
+		"\tDon't warn about procedures whose determinism is inferred",
+		"\terroneous but whose determinism declarations are laxer.",
 		"--no-warn-nothing-exported",
 		"\tDon't warn about modules which export nothing.",
 		"--warn-unused-args",
@@ -1825,7 +2272,13 @@ options_help_warning -->
 		"\tDisable warnings for modules whose `:- module'",
 		"\tdeclaration does not match the module's file name.",
 		"--no-warn-smart-recompilation",
-		"\tDisable warnings from the smart recompilation system."
+		"\tDisable warnings from the smart recompilation system.",
+		"--no-warn-undefined-options-variables",
+		"\tWarn about references to undefined variables in",
+		"\toptions files with `--make'.",
+		"--warn-non-tail-recursion",
+		"\tWarn about any directly recursive calls that are not tail calls.",
+		"\tThis requires --high-level-code."
 	]).
 
 :- pred options_help_verbosity(io__state::di, io__state::uo) is det.
@@ -1835,18 +2288,27 @@ options_help_verbosity -->
 	write_tabbed_lines([
 		"-v, --verbose",
 		"\tOutput progress messages at each stage in the compilation.",
-		"-V, --very_verbose",
+		"-V, --very-verbose",
 		"\tOutput very verbose progress messages.",
 		"-E, --verbose-error-messages",
 		"\tExplain error messages.  Asks the compiler to give you a more",
 		"\tdetailed explanation of any errors it finds in your program.",
-% `--make' is not yet implemented.
-%		"--verbose-make",
-%		"\tOutput progress messages about the progress of the",
-%		"\t`--make' option.",
+		"--no-verbose-make",
+		"\tDisable messages about the progress of builds using",
+		"\tthe `--make' option.",
+		"--output-compile-error-lines <n>",
+		"\tWith `--make', output the first <n> lines of the `.err'",
+		"\tfile after compiling a module (default: 15).",
+		"--verbose-commands",
+		"\tOutput each external command before it is run.",
+		"\tNote that some commands will only be printed",
+		"\tprinted with `--verbose'.",
 		"--verbose-recompilation",
-		"\tWhen using `--smart-recompilation', output messages\n",
+		"\tWhen using `--smart-recompilation', output messages",
 		"\texplaining why a module needs to be recompiled.",
+		"--find-all-recompilation-reasons",
+		"\tFind all the reasons why a module needs to be recompiled,",
+		"\tnot just the first.  Implies `--verbose-recompilation'.",
 		"-S, --statistics",
 		"\tOutput messages about the compiler's time/space usage.",
 		"\tAt the moment this option implies `--no-trad-passes', so you get",
@@ -1868,10 +2330,9 @@ options_help_verbosity -->
 		"\tOutput detailed debugging traces of Aditi-RL optimization.",
 		"--debug-liveness <pred_id>",
 		"\tOutput detailed debugging traces of the liveness analysis",
-		"\tof the predicate with the given predicate id."
-% `--make' is not yet implemented.
-%		"--debug-make",
-%		"\tOutput detailed debugging traces of the `--make' option."
+		"\tof the predicate with the given predicate id.",
+		"--debug-make",
+		"\tOutput detailed debugging traces of the `--make' option."
 	]).
 
 :- pred options_help_output(io__state::di, io__state::uo) is det.
@@ -1883,6 +2344,14 @@ options_help_output -->
 		"Only the first one specified will apply.",
 		"If none of these options are specified, the default action",
 		"is to link the named modules to produce an executable.\n",
+		"-f, --generate-source-file-mapping",
+		"\tOutput the module name to file name mapping for the list",
+		"\tof source files given as non-option arguments to mmc",
+		"\tto `Mercury.modules'. This must be done before",
+		"\t`mmc --generate-dependencies' if there are any modules",
+		"\tfor which the file name does not match the module name.",
+		"\tIf there are no such modules the mapping need not be",
+		"\tgenerated.",
 		"-M, --generate-dependencies",
 		"\tOutput `Make'-style dependencies for the module",
 		"\tand all of its dependencies to `<module>.dep'.",
@@ -1926,6 +2395,9 @@ options_help_output -->
 		"-c, --compile-only",
 		"\tGenerate C code in `<module>.c' and object code in `<module>.o'",
 		"\tbut do not attempt to link the named modules.",
+		% --compile-to-shared-lib is intended only for use
+		% by the debugger's interactive query facility,
+		% so it isn't documented.
 		"--aditi-only",
 		"\tWrite Aditi-RL bytecode to `<module>.rlo' and",
 		"\tdo not compile to C.",
@@ -1950,6 +2422,15 @@ options_help_aux_output -->
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
 		"\tdo not assume the availability of GNU Make extensions.",
+		"\tWhen generating `.dep' files, generate dependencies",
+		"\tfor use by `mmc --make' in addition to the dependencies",
+		"\tused by mmake.",
+		"--generate-mmc-deps",
+		"--generate-mmc-make-module-dependencies",
+		"\tGenerate dependencies for use by `mmc --make' even",
+		"\twhen using Mmake. This is recommended when building a",
+		"\tlibrary for installation.",
+
 % declarative debugging is not documented yet, since it is still experimental
 %		"--trace {minimum, shallow, deep, decl, rep, default}",
 		"--trace {minimum, shallow, deep, default}",
@@ -1965,10 +2446,17 @@ options_help_aux_output -->
 %		"--trace-table-io",
 %		"\tEnable the tabling of I/O actions, to allow the debugger",
 %		"\tto execute retry commands across I/O actions.",
+%		"--trace-table-io-decl",
+%		"\tSet up I/O tabling so that the declarative debugger can",
+%		"\tmake use of it.",
 %		"--trace-table-io-states",
 %		"\tWhen tabling I/O actions, table the io__state arguments",
 %		"\ttogether with the others. This should be required iff",
 %		"\tvalues of type io__state actually contain information.",
+%		"--trace-table-io-require",
+%		"\tRequire the tabling of I/O actions, i.e. generate an error",
+%		"\tif an I/O primitive does not have the tabled_for_io",
+%		"\tannotation.",
 		"--no-delay-death",
 		"\tWhen the trace level is `deep', the compiler normally",
 		"\tpreserves the values of variables as long as possible, even",
@@ -2008,11 +2496,15 @@ options_help_aux_output -->
 		"\tcorresponding letter occurs in the option argument",
 		"\t(see the Mercury User's Guide for details).",
 		"--dump-mlds <stage number or name>",
-		"\tDump the MLDS (medium level intermediate representation) after",
-		"\tthe specified stage to `<module>.mlds_dump.<num>-<name>',",
-		"\t`<module>.c_dump.<num>-<name>' and `<module>.h_dump.<num>-<name>'.",
+		"\tDump the MLDS (medium level intermediate representation)",
+		"\tafter the specified stage, as C code,",
+		"\tto`<module>.c_dump.<num>-<name>',",
+		"\tand `<module>.h_dump.<num>-<name>'.",
 		"\tStage numbers range from 1-99.",
 		"\tMultiple dump options accumulate.",
+		"--verbose-dump-mlds <stage number or name>",
+		"\tDump the internal compiler representation of the MLDS, after",
+		"\tthe specified stage, to `<module>.mlds_dump.<num>-<name>'.",
 		"--dump-rl",
 		"\tOutput a human readable form of the compiler's internal",
 		"\trepresentation of the generated Aditi-RL code to",
@@ -2033,11 +2525,13 @@ options_help_aux_output -->
 		"\tTo use assemblies created with this command all the Mercury",
 		"\tmodules must be compiled with this option enabled.",
 		"\tThis option is specific to the IL backend, and is likely",
-		"\tto be deprecated at a later date.",
+		"\tto be deprecated at a later date."
 
+		/* XXX currently broken.
 		"--separate-assemblies",
 		"\tPlace sub-modules in separate assemblies.",
 		"\tThis option is specific to the IL backend."
+		*/
 	]).
 
 :- pred options_help_semantics(io__state::di, io__state::uo) is det.
@@ -2161,7 +2655,7 @@ options_help_compilation_model -->
 % and the --gcc-nested-functions option is not yet documented.
 %		"\t`hl', `hl_nest', `hlc_nest'",
 		"\tor one of those with one or more of the grade modifiers",
-		"\t`.gc', `.prof', `.memprof', `.tr', `.rt', `.debug', `.par'",
+		"\t`.gc', `.mps', `.prof', `.memprof', `.tr', `.rt', `.debug', `.par'",
 		"\tand/or `.pic_reg' appended.",
 		"\tDepending on your particular installation, only a subset",
 		"\tof these possible grades will have been installed.",
@@ -2191,6 +2685,13 @@ options_help_compilation_model -->
 		"\tAn abbreviation for `--target il --target-code-only'.",
 		"\tGenerate IL code in `<module>.il', but do not generate",
 		"\tobject code.",
+
+		"--dotnet-library-version <version-number>",
+		"\tThe version number for the mscorlib assembly distributed",
+		"\twith the Microsoft .NET SDK.",
+
+		"--no-support-ms-clr",
+		"\tDon't use MS CLR specific workarounds in the generated code.",
 		
 		"--java",
 		"\tAn abbreviation for `--target java'.",
@@ -2256,16 +2757,19 @@ your program compiled with different options.
 	]),
 	io__write_string("      Miscellaneous optional features\n"),
 	write_tabbed_lines([
-		"--gc {none, conservative, accurate}",
-		"--garbage-collection {none, conservative, accurate}",
-		"\t\t\t\t(`.gc' grades use `--gc conservative',",
+		"--gc {none, conservative, boehm, mps, accurate}",
+		"--garbage-collection {none, conservative, boehm, mps, accurate}",
+		"\t\t\t\t(`.gc' grades use `--gc boehm',",
+		"\t\t\t\t`.mps' grades use `--gc mps',",
 		"\t\t\t\tother grades use `--gc none'.)",
 		"\tSpecify which method of garbage collection to use",
-		"\t(default: conservative).  `accurate' GC is not yet implemented.",
+		"\t(default: boehm).  `accurate' GC is not yet implemented.",
+		"\t`conservative' or `boehm' is Hans Boehm et al's conservative collector.",
+		"\t`mps' is a different conservative collector, based on",
+		"\tRavenbrook Limited's MPS (Memory Pool System) kit.",
 		"\tThis option is ignored for the IL and Java back-ends,",
 		"\twhich always use the garbage collector of the underlying",
 		"\tIL or Java implementation.",
-		"\t`--high-level-code' requires `conservative' GC.",
 		"--use-trail\t\t\t(grade modifier: `.tr')",
 		"\tEnable use of a trail.",
 		"\tThis is necessary for interfacing with constraint solvers,",
@@ -2402,6 +2906,15 @@ your program compiled with different options.
 	% 	"\t\t`--tags none' implies `--num-tag-bits 0'.",
 		"--num-tag-bits <n>\t\t(This option is not for general use.)",
 		"\tUse <n> tag bits.",
+		"--num-reserved-addresses <n>\t(This option is not for general use.)",
+		"\tTreat the integer values from 0 up to <n> - 1 as reserved",
+		"\taddresses that can be used to represent nullary constructors",
+		"\t(constants) of discriminated union types.",
+		"--num-reserved-objects <n>\t(This option is not for general use.)",
+		"\tAllocate up to <n> global objects per type,",
+		"\tfor representing nullary constructors",
+		"\t(constants) of discriminated union types.",
+
 
 		"--reserve-tag\t\t\t(grade modifier: `.rt')",
 		"\tReserve a tag in the data representation of the generated ",
@@ -2501,32 +3014,6 @@ options_help_code_generation -->
 		"\tThe generated assembler code will be written to",
 		"\t`<module>.pic_s' rather than to `<module>.s'.",
 
-		"--target-debug",
-		"\tEnable debugging of the generated target code.",
-		"\tIf the target language is C, this has the same effect as",
-		"`--c-debug' (see below).",
-                "\tIf the target language is IL, this causes the compiler to",
-		"\tpass `/debug' to the IL assembler.)",
-
-		"--c-debug",
-		"\tEnable debugging of the generated C code.",
-		"\t(This has the same effect as",
-		"\t`--cflags ""-g"" --link-flags ""--no-strip""'.)",
-
-		"--javac",
-		"--java-compiler",
-		"\tSpecify which Java compiler to use.  The default is javac.",
-		
-		"--java-flags",
-		"\tSpecify options to be passed to the Java compiler.",
-
-		"--java-classpath",
-		"\tSet the classpath for the Java compiler.",
-
-		"--java-object-file-extension",
-		"\tSpecify an extension for Java object (bytecode) files",
-		"\tBy default this is `.class'.",
-
 		"--no-trad-passes",
 		"\tThe default `--trad-passes' completely processes each predicate",
 		"\tbefore going on to the next predicate.",
@@ -2543,27 +3030,6 @@ options_help_code_generation -->
 		"\tDon't reclaim heap on backtracking in semidet code.",
 		"--no-reclaim-heap-on-failure",
 		"\tCombines the effect of the two options above.",
-
-		"--cc <compiler-name>",
-		"\tSpecify which C compiler to use.",
-		"--c-include-directory <dir>",
-		"\tAppend <dir> to the list of directories to be searched for",
-		"\tC header files.  Note that if you want to override",
-		"\tthis list, rather than append to it, then you can set the",
-		"\t`MERCURY_MC_ALL_C_INCL_DIRS' environment variable to a",
-		"\tsequence of `--c-include-directory' options.",
-
-		"--cflags <options>",
-		"\tSpecify options to be passed to the C compiler.",
-
-		% The --cflags-for-regs, --cflags-for-gotos,
-		% --cflags-for-threads, --cflags-for-pic options,
-		% --c-flag-to-name-object-file, --object-file-extension,
-		% --pic-object-file-extension, --shared-library-extension,
-		% --library-extension, --executable-file-extension
-		% --create-archive-command and --create-archive-command-flags
-		% options are are reserved for use by the `mmc' script;
-		% they are deliberately not documented.
 
 		"--max-jump-table-size",
 		"\tThe maximum number of entries a jump table can have.",
@@ -2600,6 +3066,10 @@ options_help_code_generation -->
 %		"\tThis option has no effect unless the `--high-level-code' option",
 %		"\tis enabled.  It also has no effect if the `--target' option is",
 %		"\tset to `il'.",
+% This optimization is for implementors only. Turning this option on provides
+% the fairest possible test of --optimize-saved-vars-cell.
+%		"--no-opt-no-return-calls",
+%		"\tDo not optimize the stack usage of calls that cannot return.",
 
 	]),
 
@@ -2644,6 +3114,10 @@ options_help_optimization -->
 		"--transitive-intermodule-optimization",
 		"\tImport the transitive intermodule optimization data.",
 		"\tThis data is imported from `<module>.trans_opt' files.",
+		"--no-read-opt-files-transitively",
+		"\tOnly read the inter-module optimization information",
+		"\tfor directly imported modules, not the transitive",
+		"\tclosure of the imports.",
 		"--use-opt-files",
 		"\tPerform inter-module optimization using any",
 		"\t`.opt' files which are already built,",
@@ -2734,9 +3208,17 @@ options_help_hlds_hlds_optimization -->
 		"--delay-constructs",
 		"\tReorder goals to move construction unifications after",
 		"\tprimitive goals that can fail.",
+		% "--optimize-saved-vars-const",
+		% "\tMinimize the number of variables saved across calls by",
+		% "\tintroducing duplicate copies of variables bound to",
+		% "\tconstants in each interval between flushes where they",
+		% "\tare needed.",
+		% "--optimize-saved-vars-cell",
+		% "\tMinimize the number of variables saved across calls by",
+		% "\ttrying to use saved variables pointing to cells to reach",
+		% "\tthe variables stored in those cells.",
 		"--optimize-saved-vars",
-		"\tReorder goals to minimize the number of variables",
-		"\tthat have to be saved across calls.",
+		"\tMinimize the number of variables saved across calls.",
 		"--optimize-unused-args",
 		"\tRemove unused predicate arguments.",
 		"\tThis will cause the compiler to generate more",
@@ -2885,6 +3367,9 @@ options_help_llds_llds_optimization -->
 		"\tDisable stack frame optimizations.",
 		"--no-optimize-delay-slot",
 		"\tDisable branch delay slot optimizations.",
+		"--optimize-reassign",
+		"\tOptimize away assignments to locations that already hold",
+		"\tthe assigned value.",
 		"--optimize-repeat <n>",
 		"\tIterate most optimizations at most <n> times (default: 3)."
 	]).
@@ -2902,7 +3387,10 @@ options_help_mlds_mlds_optimization -->
 		"--no-optimize-initializations",
 		"\tLeave initializations of local variables as",
 		"\tassignment statements, rather than converting such",
-		"\tassignment statements into initializers."
+		"\tassignment statements into initializers.",
+		"--eliminate-local-vars",
+		"\tEliminate local variables with known values, where possible,",
+		"\tby replacing occurrences of such variables with their values."
 	]).
 
 
@@ -2952,21 +3440,95 @@ options_help_output_optimization -->
 		"\tseverely stress the C compiler on large modules."
 	]).
 
-:- pred options_help_object_optimization(io__state::di, io__state::uo) is det.
+:- pred options_help_target_code_compilation(io__state::di,
+		io__state::uo) is det.
 
-options_help_object_optimization -->
-	io__write_string("\n    Object-level (C -> object code) optimizations:\n"),
+options_help_target_code_compilation -->
+	io__write_string("\n    Target code compilation:\n"),
 	write_tabbed_lines([
 		"\tNote that if you are using Mmake, you need to pass these",
-		"\toptions to `mgnuc' rather than to `mmc'.",
+		"\toptions to the target code compiler (e.g. `mgnuc')",
+		"\trather than to `mmc'.",
+
+		"--target-debug",
+		"\tEnable debugging of the generated target code.",
+		"\tIf the target language is C, this has the same effect as",
+		"\t`--c-debug' (see below).",
+                "\tIf the target language is IL, this causes the compiler to",
+		"\tpass `/debug' to the IL assembler.)",
+
+		"--cc <compiler-name>",
+		"\tSpecify which C compiler to use.",
+
 		"--no-c-optimize",
 		"\tDon't enable the C compiler's optimizations.",
+
+		"--c-debug",
+		"\tEnable debugging of the generated C code.",
+		"\t(This has the same effect as",
+		"\t`--cflags ""-g"" --link-flags ""--no-strip""'.)",
+
+		"--c-include-directory <dir>",
+		"\tAppend <dir> to the list of directories to be searched for",
+		"\tC header files.  Note that if you want to override",
+		"\tthis list, rather than append to it, then you can set the",
+		"\t`MERCURY_MC_ALL_C_INCL_DIRS' environment variable to a",
+		"\tsequence of `--c-include-directory' options.",
+
 		"--inline-alloc",
 		"\tInline calls to GC_malloc().",
 		"\tThis can improve performance a fair bit,",
 		"\tbut may significantly increase code size.",
-		"\tThis option has no effect if `--gc conservative'",
-		"\tis not set or if the C compiler is not GNU C."
+		"\tThis option has no effect if `--gc boehm'",
+		"\tis not set or if the C compiler is not GNU C.",
+
+		"--cflags <options>, --cflag <option>",
+		"\tSpecify options to be passed to the C compiler.",
+		"\t`--cflag' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
+
+		% The --cflags-for-regs, --cflags-for-gotos,
+		% --cflags-for-threads, --cflags-for-pic options,
+		% --c-flag-to-name-object-file, --object-file-extension,
+		% and --pic-object-file-extension
+		% options are are reserved for use by the `mmc' script;
+		% they are deliberately not documented.
+
+		"--javac",
+		"--java-compiler",
+		"\tSpecify which Java compiler to use.  The default is javac.",
+		
+		"--java-flags <options>, --java-flag <option>",
+		"\tSpecify options to be passed to the Java compiler.",
+		"\t`--java-flag' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
+
+		"--java-classpath <path>",
+		"\tSet the classpath for the Java compiler.",
+
+		"--java-object-file-extension <ext>",
+		"\tSpecify an extension for Java object (bytecode) files",
+		"\tBy default this is `.class'.",
+
+		"--il-assembler <ilasm>",
+		"\tThe Microsoft IL Assembler.",
+		"--ilasm-flags <options>, --ilasm-flag <options>",
+		"\tSpecify options to be passed to the IL assembler.",
+		"\t`--ilasm-flag' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
+		"--mcpp-compiler <cl>",
+		"\tSpecify the name of the Microsoft Managed C++ Compiler.",
+		"--mcpp-flags <options>, --mcpp-flag <option>",
+		"\tSpecify options to be passed to the Managed C++ compiler.",
+		"\t`--mcpp-flag' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
+
+		"--csharp-compiler <csc>",
+		"\tSpecify the name of the Microsoft C# Compiler.",
+		"--csharp-flags <options>, --csharp-flag <option>",
+		"\tSpecify options to be passed to the C# compiler.",
+		"\t`--csharp-flag' should be used for single words which need",
+		"\tto be quoted when passed to the shell."
 	]).
 
 :- pred options_help_link(io__state::di, io__state::uo) is det.
@@ -2978,32 +3540,116 @@ options_help_link -->
 		"\tSpecify the name of the final executable.",
 		"\t(The default executable name is the same as the name",
 		"\tof the first module on the command line.)",
-		"--link-flags <options>",
-		"\tSpecify options to be passed to the linker.",
+		"\tThis option is ignored by `mmc --make'.",
+		"--link-flags <options>, --ml-flags <options>",
+		"--link-flag <option>, --ml-flag <option>",
+		"\tSpecify options to be passed to ml, the Mercury linker.",
+		"\t`--ml-flag' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
+		"--ld-flags <options>, --ld-flags <option>",
+		"\tSpecify options to be passed to the linker command",
+		"\tinvoked by ml to link an executable.",
+		"\tUse `ml --print-link-command' to find out which",
+		"\tcommand is used.",
+		"\t`--ld-flag' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
+		"--ld-libflags <options>, --ld-libflag <option>",
+		"\tSpecify options to be passed to the linker command",
+		"\tinvoked by ml to link a shared library.",
+		"\tUse `ml --print-shared-lib-link-command' to find out",
+		"\twhich command is used.",
+		"\t`--ld-libflags' should be used for single words which need",
+		"\tto be quoted when passed to the shell.",
 		"-L <directory>, --library-directory <directory>",
 		"\tAppend <directory> to the list of directories in which",
 		"\tto search for libraries.",
 		"-l <library>, --library <library>",
 		"\tLink with the specified library.",
 		"--link-object <object-file>",
-		"\tLink with the specified object file."
+		"\tLink with the specified object file.",
+		"--mld <directory>, --mercury-library-directory <directory>",
+		"\tAppend <directory> to the list of directories to",
+		"\tbe searched for Mercury libraries. This will add",
+		"\t`--search-directory', `--library-directory',",
+		"\t`--init-file-directory' and `--c-include-directory'",
+		"\toptions as needed.",
+		"--mercury-standard-library-directory <directory>",
+		"--mercury-stdlib-dir <directory>",
+		"\tSearch <directory> for the Mercury standard library.",
+		"--no-mercury-standard-library-directory",
+		"--no-mercury-stdlib-dir",
+		"\tDon't use the Mercury standard library.",
+		"--ml <library>, --mercury-library <library>",
+		"\tLink with the specified Mercury library.",
+		"--init-file-directory <directory>",
+		"\tAppend <directory> to the list of directories to",
+		"\tbe searched for `.init' files by c2init.",
+		"--init-file <init-file>",
+		"\tAppend <init-file> to the list of `.init' files to",
+		"\tbe passed to c2init.",
+		"--trace-init-file <init-file>",
+		"\tAppend <init-file> to the list of `.init' files to",
+		"\tbe passed to c2init when tracing is enabled."
+		
+		% The --shared-library-extension,
+		% --library-extension, --executable-file-extension
+		% --create-archive-command, --create-archive-command-flags
+		% --create-archive-command-output-flag and --ranlib-command
+		% options are are reserved for use by the `mmc' script;
+		% they are deliberately not documented.
+		% options are are reserved for use by the `mmc' script;
+		% they are deliberately not documented.
 	]).
 
-:- pred options_help_misc(io__state::di, io__state::uo) is det.
+:- pred options_help_build_system(io__state::di, io__state::uo) is det.
 
-options_help_misc -->
-	io__write_string("\nMiscellaneous Options:\n"),
+options_help_build_system -->
+	io__write_string("\nBuild System Options:\n"),
 	write_tabbed_lines([
-% `--make' is not yet implemented.
-%		"-m, --make",
-%		"\tTreat the non-option arguments to `mmc' as files to",
-%		"\tmake, rather than source files.",
-%		"-r, --rebuild",
-%		"\tSame as `--make', but always rebuild the target files",
-%		"\teven if they are up to date."j
-%		"-k, --keep-going",
-%		"\tWith `--make' or `--rebuild', keep going as far as",
-%		"\tpossible even if an error is detected.",
+		% `--invoked-by-mmc-make' is for internal use by the
+		% compiler. `mmc --make' passes it as the first argument
+		% when compiling a module.
+		"-m, --make",
+		"\tTreat the non-option arguments to `mmc' as files to",
+		"\tmake, rather than source files.",
+		"-r, --rebuild",
+		"\tSame as `--make', but always rebuild the target files",
+		"\teven if they are up to date.",
+		"-k, --keep-going",
+		"\tWith `--make', keep going as far as",
+		"\tpossible even if an error is detected.",
+		"--pre-link-command <command>",
+		"\tSpecify a command to run before linking with `mmc --make'.",
+		"\tThis can be used to compile C source files which rely on",
+		"\theader files generated by the Mercury compiler.",
+		"\tOccurrences of `@' in the command will be replaced with",
+		"\tthe name of the main module with `.' as the module",
+		"\tqualifier. Occurrences of `%' in the command will be",
+		"\treplaced with the list of modules making up the library.",
+		"\tOccurrences of `@@' and `%%' will be replaced with `@'",
+		"\tand `%' respectively.",
+		"--extra-init-command <command>",
+		"\tSpecify a command to produce extra entries in the `.init'",
+		"\tfile for a library. Occurrences of `@' and `%' in the command",
+		"\tare substituted as for the `--pre-link-command' option.",
+		"--install-prefix <dir>",
+		"\tThe directory under which to install Mercury libraries.",
+		"--install-command <command>",
+		"\tSpecify the command to use to install the files in",
+		"\tMercury libraries. The given command will be invoked as",
+		"\t`<command> <source> <target>' to install each file",
+		"\tin a Mercury library. The default command is `cp'.",
+		"--libgrade <grade>",
+		"\tAdd <grade> to the list of compilation grades in",
+		"\twhich a library to be installed should be built.",
+		"--options-file <file>",
+		"\tAdd <file> to the list of options files to be processed.",
+		"\tIf <file> is `-', an options file will be read from the",
+		"\tstandard input.  By default the file `Mercury.options'",
+		"\tin the current directory will be read.",
+		"--options-search-directory <dir>",
+		"\tAdd <dir> to the list of directories to be searched for",
+		"\toptions files.",
 		"-I <dir>, --search-directory <dir>",
 		"\tAppend <dir> to the list of directories to be searched for",
 		"\timported modules.",
@@ -3016,7 +3662,21 @@ options_help_misc -->
 		"\tdirectories given by `--intermod-directory'.",
 		"--use-subdirs",
 		"\tGenerate intermediate files in a `Mercury' subdirectory,",
-		"\trather than generating them in the current directory.",
+		"\trather than generating them in the current directory."
+
+		% `--use-grade-subdirs' is not documented because it
+		% is only intended for use in library installation
+		% with `mmc --make' (it doesn't work at all with Mmake).
+		% Documenting it would require documenting (and setting
+		% in stone) the layout of the `Mercury' directory, which
+		% is probably a bad idea.
+	]).
+
+:- pred options_help_misc(io__state::di, io__state::uo) is det.
+
+options_help_misc -->
+	io__write_string("\nMiscellaneous Options:\n"),
+	write_tabbed_lines([
 		"--filenames-from-stdin",
 		"\tRead then compile a newline terminated module name or",
 		"\tfile name from the standard input. Repeat this until EOF",
@@ -3035,6 +3695,9 @@ options_help_misc -->
 		"\tDefaults to the value of the `USER' environment",
 		"\tvariable. If `$USER' is not set, `--aditi-user'",
 		"\tdefaults to the string ""guest""."
+
+		% The `--fullarch' option is reserved for
+		% use by the mmc script.
 	]).
 
 :- pred write_tabbed_lines(list(string), io__state, io__state).

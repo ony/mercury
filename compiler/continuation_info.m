@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2000 The University of Melbourne.
+% Copyright (C) 1997-2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -47,12 +47,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module continuation_info.
+:- module ll_backend__continuation_info.
 
 :- interface.
 
-:- import_module llds, hlds_module, hlds_pred, hlds_goal, prog_data.
-:- import_module (inst), instmap, trace, globals.
+:- import_module ll_backend__llds, hlds__hlds_module, hlds__hlds_pred.
+:- import_module hlds__hlds_goal, parse_tree__prog_data.
+:- import_module (parse_tree__inst), hlds__instmap, ll_backend__trace.
+:- import_module backend_libs__rtti, libs__globals.
 :- import_module bool, std_util, list, assoc_list, set, map.
 
 	%
@@ -61,6 +63,8 @@
 	%
 :- type proc_layout_info
 	--->	proc_layout_info(
+			rtti_proc_label	:: rtti_proc_label,
+					% The identity of the procedure.
 			entry_label	:: label,
 					% Determines which stack is used.
 			detism		:: determinism,
@@ -88,8 +92,13 @@
 					% rN register that can contain useful
 					% information during a call to MR_trace
 					% from within this procedure.
-			proc_body	:: hlds_goal,
-					% The body of the procedure.
+			head_vars	:: list(prog_var),
+					% The head variables, in order,
+					% including the ones introduced by the
+					% compiler.
+			maybe_proc_body	:: maybe(hlds_goal),
+					% The body of the procedure, if
+					% required.
 			initial_instmap	:: instmap,
 					% The instmap at the start of the
 					% procedure body.
@@ -104,9 +113,16 @@
 			varset		:: prog_varset,
 					% The names of all the variables.
 			vartypes	:: vartypes,
-			internal_map	:: proc_label_layout_info
+			internal_map	:: proc_label_layout_info,
 					% Info for each internal label,
 					% needed for basic_stack_layouts.
+			table_io_decl	:: maybe(table_io_decl_info),
+					% True if the effective trace level
+					% of the procedure is not none.
+			is_being_traced :: bool,
+					% True iff we need the names of all the
+					% variables.
+			need_all_names	:: bool
 		).
 
 	%
@@ -288,8 +304,8 @@
 :- pred continuation_info__generate_return_live_lvalues(
 	assoc_list(prog_var, arg_loc)::in, instmap::in, list(prog_var)::in,
 	map(prog_var, set(lval))::in, assoc_list(lval, slot_contents)::in,
-	proc_info::in, module_info::in, globals::in, list(liveinfo)::out)
-	is det.
+	proc_info::in, module_info::in, globals::in, bool::in,
+	list(liveinfo)::out) is det.
 
 	% Generate the layout information we need for a resumption point,
 	% a label where forward execution can restart after backtracking.
@@ -307,12 +323,19 @@
 	map(prog_var, set(lval))::in, proc_info::in,
 	map(tvar, set(layout_locn))::out) is det.
 
+:- pred continuation_info__generate_table_decl_io_layout(proc_info::in,
+	assoc_list(prog_var, int)::in, table_io_decl_info::out) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module hlds_goal, code_util, type_util, inst_match, options.
+:- import_module hlds__hlds_goal, hlds__hlds_llds.
+:- import_module check_hlds__type_util, check_hlds__inst_match.
+:- import_module ll_backend__code_util.
+:- import_module libs__options.
+
 :- import_module string, require, term, varset.
 
 %-----------------------------------------------------------------------------%
@@ -505,11 +528,11 @@ continuation_info__some_arg_is_higher_order(PredInfo) :-
 
 continuation_info__generate_return_live_lvalues(OutputArgLocs, ReturnInstMap,
 		Vars, VarLocs, Temps, ProcInfo, ModuleInfo, Globals,
-		LiveLvalues) :-
+		OkToDeleteAny, LiveLvalues) :-
 	globals__want_return_var_layouts(Globals, WantReturnVarLayout),
 	proc_info_stack_slots(ProcInfo, StackSlots),
 	continuation_info__find_return_var_lvals(Vars, StackSlots,
-		OutputArgLocs, VarLvals),
+		OkToDeleteAny, OutputArgLocs, VarLvals),
 	continuation_info__generate_var_live_lvalues(VarLvals, ReturnInstMap,
 		VarLocs, ProcInfo, ModuleInfo,
 		WantReturnVarLayout, VarLiveLvalues),
@@ -517,21 +540,26 @@ continuation_info__generate_return_live_lvalues(OutputArgLocs, ReturnInstMap,
 	list__append(VarLiveLvalues, TempLiveLvalues, LiveLvalues).
 
 :- pred continuation_info__find_return_var_lvals(list(prog_var)::in,
-	stack_slots::in, assoc_list(prog_var, arg_loc)::in,
+	stack_slots::in, bool::in, assoc_list(prog_var, arg_loc)::in,
 	assoc_list(prog_var, lval)::out) is det.
 
-continuation_info__find_return_var_lvals([], _, _, []).
+continuation_info__find_return_var_lvals([], _, _, _, []).
 continuation_info__find_return_var_lvals([Var | Vars], StackSlots,
-		OutputArgLocs, [Var - Lval | VarLvals]) :-
+		OkToDeleteAny, OutputArgLocs, VarLvals) :-
+	continuation_info__find_return_var_lvals(Vars, StackSlots,
+		OkToDeleteAny, OutputArgLocs, TailVarLvals),
 	( assoc_list__search(OutputArgLocs, Var, ArgLoc) ->
 		% On return, output arguments are in their registers.
-		code_util__arg_loc_to_register(ArgLoc, Lval)
-	;
+		code_util__arg_loc_to_register(ArgLoc, Lval),
+		VarLvals = [Var - Lval | TailVarLvals]
+	; map__search(StackSlots, Var, Lval) ->
 		% On return, other live variables are in their stack slots.
-		map__lookup(StackSlots, Var, Lval)
-	),
-	continuation_info__find_return_var_lvals(Vars, StackSlots,
-		OutputArgLocs, VarLvals).
+		VarLvals = [Var - Lval | TailVarLvals]
+	; OkToDeleteAny = yes ->
+		VarLvals = TailVarLvals
+	;
+		error("continuation_info__find_return_var_lvals: no slot")
+	).
 
 :- pred continuation_info__generate_temp_live_lvalues(
 	assoc_list(lval, slot_contents)::in, list(liveinfo)::out) is det.
@@ -727,6 +755,75 @@ continuation_info__find_typeinfos_for_tvars(TypeVars, VarLocs, ProcInfo,
 			string__format("%s: %s %s",
 			    [s("continuation_info__find_typeinfos_for_tvars"),
 				s("can't find rval for type_info var"),
+				s(VarString)], ErrStr),
+			error(ErrStr)
+		)
+	)),
+	list__map(FindLocn, TypeInfoLocns, TypeInfoVarLocns),
+	map__from_corresponding_lists(TypeVars, TypeInfoVarLocns,
+		TypeInfoDataMap).
+
+%---------------------------------------------------------------------------%
+
+continuation_info__generate_table_decl_io_layout(ProcInfo, NumberedVars,
+		TableIoDeclLayout) :-
+	proc_info_vartypes(ProcInfo, VarTypes),
+	set__init(TypeVars0),
+	continuation_info__build_table_io_decl_arg_info(VarTypes,
+		NumberedVars, ArgLayouts, TypeVars0, TypeVars),
+	set__to_sorted_list(TypeVars, TypeVarsList),
+	continuation_info__find_typeinfos_for_tvars_table_io_decl(TypeVarsList,
+		NumberedVars, ProcInfo, TypeInfoDataMap),
+	TableIoDeclLayout = table_io_decl_info(ArgLayouts, TypeInfoDataMap).
+
+:- pred continuation_info__build_table_io_decl_arg_info(vartypes::in,
+	assoc_list(prog_var, int)::in, list(table_io_decl_arg_info)::out,
+	set(tvar)::in, set(tvar)::out) is det.
+
+continuation_info__build_table_io_decl_arg_info(_, [], [], TypeVars, TypeVars).
+continuation_info__build_table_io_decl_arg_info(VarTypes,
+		[Var - SlotNum | NumberedVars], [ArgLayout | ArgLayouts],
+		TypeVars0, TypeVars) :-
+	map__lookup(VarTypes, Var, Type),
+	ArgLayout = table_io_decl_arg_info(Var, SlotNum, Type),
+	type_util__real_vars(Type, VarTypeVars),
+	set__insert_list(TypeVars0, VarTypeVars, TypeVars1),
+	continuation_info__build_table_io_decl_arg_info(VarTypes,
+		NumberedVars, ArgLayouts, TypeVars1, TypeVars).
+
+%---------------------------------------------------------------------------%
+
+:- pred continuation_info__find_typeinfos_for_tvars_table_io_decl(
+	list(tvar)::in, assoc_list(prog_var, int)::in, proc_info::in,
+	map(tvar, table_io_decl_locn)::out) is det.
+
+continuation_info__find_typeinfos_for_tvars_table_io_decl(TypeVars,
+		NumberedVars, ProcInfo, TypeInfoDataMap) :-
+	proc_info_varset(ProcInfo, VarSet),
+	proc_info_typeinfo_varmap(ProcInfo, TypeInfoMap),
+	map__apply_to_list(TypeVars, TypeInfoMap, TypeInfoLocns),
+	FindLocn = lambda([TypeInfoLocn::in, Locn::out] is det, (
+		(
+			(
+				TypeInfoLocn = typeclass_info(TypeInfoVar,
+					FieldNum),
+				assoc_list__search(NumberedVars, TypeInfoVar,
+					Slot),
+				LocnPrime = indirect(Slot, FieldNum)
+			;
+				TypeInfoLocn = type_info(TypeInfoVar),
+				assoc_list__search(NumberedVars, TypeInfoVar,
+					Slot),
+				LocnPrime = direct(Slot)
+			)
+		->
+			Locn = LocnPrime
+		;
+			type_info_locn_var(TypeInfoLocn, TypeInfoVar),
+			varset__lookup_name(VarSet, TypeInfoVar, VarString),
+			string__format("%s: %s %s",
+				[s("continuation_info__find_typeinfos_for_tvars_table_io_decl"),
+				s("can't find slot for type_info var"),
 				s(VarString)], ErrStr),
 			error(ErrStr)
 		)

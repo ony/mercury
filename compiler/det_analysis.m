@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -48,13 +48,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module det_analysis.
+:- module check_hlds__det_analysis.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_goal, hlds_module, hlds_pred, hlds_data, instmap.
-:- import_module det_report, det_util, globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_module, hlds__hlds_pred.
+:- import_module hlds__hlds_data, hlds__instmap.
+:- import_module check_hlds__det_report, check_hlds__det_util, libs__globals.
 :- import_module list, std_util, io.
 
 	% Perform determinism inference for local predicates with no
@@ -101,6 +102,9 @@
 :- pred det_par_conjunction_detism(determinism, determinism, determinism).
 :- mode det_par_conjunction_detism(in, in, out) is det.
 
+:- pred det_switch_detism(determinism, determinism, determinism).
+:- mode det_switch_detism(in, in, out) is det.
+
 :- pred det_disjunction_maxsoln(soln_count, soln_count, soln_count).
 :- mode det_disjunction_maxsoln(in, in, out) is det.
 
@@ -120,9 +124,10 @@
 
 :- implementation.
 
-:- import_module purity.
-:- import_module type_util, modecheck_call, mode_util, options, passes_aux.
-:- import_module hlds_out, mercury_to_mercury.
+:- import_module check_hlds__purity.
+:- import_module check_hlds__type_util, check_hlds__modecheck_call.
+:- import_module check_hlds__mode_util, libs__options, hlds__passes_aux.
+:- import_module hlds__hlds_out, parse_tree__mercury_to_mercury.
 :- import_module assoc_list, bool, map, set, require, term.
 
 %-----------------------------------------------------------------------------%
@@ -247,10 +252,20 @@ det_infer_proc(PredId, ProcId, ModuleInfo0, ModuleInfo, Globals,
 		% context or not.  Currently we only assume so if
 		% the predicate has an explicit determinism declaration
 		% that says so.
+	det_get_soln_context(Detism0, OldInferredSolnContext),
 	proc_info_declared_determinism(Proc0, MaybeDeclaredDetism),
 	( MaybeDeclaredDetism = yes(DeclaredDetism) ->
-		det_get_soln_context(DeclaredDetism, SolnContext)
+		det_get_soln_context(DeclaredDetism, DeclaredSolnContext)
 	;	
+		DeclaredSolnContext = all_solns
+	),
+	(
+		( DeclaredSolnContext = first_soln
+		; OldInferredSolnContext = first_soln
+		)
+	->
+		SolnContext = first_soln
+	;
 		SolnContext = all_solns
 	),
 
@@ -277,7 +292,7 @@ det_infer_proc(PredId, ProcId, ModuleInfo0, ModuleInfo, Globals,
 
 		% Now see if the evaluation model can change the detism
 	proc_info_eval_method(Proc0, EvalMethod),
-	eval_method_change_determinism(EvalMethod, Detism2, Detism),		
+	Detism = eval_method_change_determinism(EvalMethod, Detism2),		
 			
 		% Save the newly inferred information
 	proc_info_set_goal(Proc0, Goal, Proc1),
@@ -297,28 +312,44 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 	goal_info_get_instmap_delta(GoalInfo0, DeltaInstMap),
 
 	% If a pure or semipure goal has no output variables,
-	% then the goal is in single-solution context
+	% then the goal is in a single-solution context.
 
 	(
 		det_no_output_vars(NonLocalVars, InstMap0, DeltaInstMap,
 			DetInfo),
 		\+ goal_info_is_impure(GoalInfo0)
 	->
-		OutputVars = no,
+		AddPruning = yes,
 		SolnContext = first_soln
 	;
-		OutputVars = yes,
+		AddPruning = no,
 		SolnContext = SolnContext0
+	),
+
+	% Some other part of the compiler has determined that we need to keep
+	% the cut represented by this quantification. This can happen e.g.
+	% when deep profiling adds impure code to the goal inside the some;
+	% it doesn't want to change the behavior of the some, even though
+	% the addition of impurity would make the if-then-else treat it
+	% differently.
+
+	(
+		Goal0 = some(_, _, _),
+		goal_info_has_feature(GoalInfo0, keep_this_commit)
+	->
+		Prune = yes
+	;
+		Prune = AddPruning
 	),
 
 	det_infer_goal_2(Goal0, GoalInfo0, InstMap0, SolnContext, DetInfo,
 		NonLocalVars, DeltaInstMap, Goal1, InternalDetism0, Msgs1),
 
 	determinism_components(InternalDetism0, InternalCanFail,
-				InternalSolns0),
+		InternalSolns0),
 	(
-		% if mode analysis notices that a goal cannot succeed,
-		% then determinism analysis should notice this too
+		% If mode analysis notices that a goal cannot succeed,
+		% then determinism analysis should notice this too.
 
 		instmap_delta_is_unreachable(DeltaInstMap)
 	->
@@ -328,20 +359,15 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 	),
 
 	(
-		% If a pure or semipure goal with multiple solutions
-		% has no output variables,
-		% then it really it has only one solution
-		% (we will need to do pruning)
-
 		( InternalSolns = at_most_many
 		; InternalSolns = at_most_many_cc
 		),
-		OutputVars = no
+		Prune = yes
 	->
 		Solns = at_most_one
 	;
-		% If a goal with multiple solutions occurs in a single-solution
-		% context, then we will need to do pruning
+		% If a goal with multiple solutions occurs in a
+		% single-solution context, then we will need to do pruning.
 
 		InternalSolns = at_most_many,
 		SolnContext = first_soln
@@ -373,7 +399,7 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 		% code generator.  (Both the MLDS and LLDS
 		% back-ends rely on this.)
 		%
-		Goal1 = if_then_else(_, _ - CondInfo, _, _, _),
+		Goal1 = if_then_else(_, _ - CondInfo, _, _),
 		goal_info_get_determinism(CondInfo, CondDetism),
 		determinism_components(CondDetism, _, at_most_many),
 		Solns \= at_most_many
@@ -413,7 +439,7 @@ det_infer_goal(Goal0 - GoalInfo0, InstMap0, SolnContext0, DetInfo,
 		% choice point at all, rather than wrapping a
 		% some [] around a nondet disj, which would
 		% create a choice point and then prune it.
-		Goal1 \= disj(_, _),	
+		Goal1 \= disj(_),	
 
 		% do we already have a commit?
 		Goal1 \= some(_, _, _)
@@ -446,8 +472,8 @@ det_infer_goal_2(conj(Goals0), _, InstMap0, SolnContext, DetInfo, _, _,
 	det_infer_conj(Goals0, InstMap0, SolnContext, DetInfo,
 		Goals, Detism, Msgs).
 
-det_infer_goal_2(par_conj(Goals0, SM), GoalInfo, InstMap0, SolnContext,
-		DetInfo, _, _, par_conj(Goals, SM), Detism, Msgs) :-
+det_infer_goal_2(par_conj(Goals0), GoalInfo, InstMap0, SolnContext,
+		DetInfo, _, _, par_conj(Goals), Detism, Msgs) :-
 	det_infer_par_conj(Goals0, InstMap0, SolnContext, DetInfo,
 		Goals, Detism, Msgs0),
 	(
@@ -463,8 +489,8 @@ det_infer_goal_2(par_conj(Goals0, SM), GoalInfo, InstMap0, SolnContext,
 		Msgs = [Msg|Msgs0]
 	).
 
-det_infer_goal_2(disj(Goals0, SM), _, InstMap0, SolnContext, DetInfo, _, _,
-		disj(Goals, SM), Detism, Msgs) :-
+det_infer_goal_2(disj(Goals0), _, InstMap0, SolnContext, DetInfo, _, _,
+		disj(Goals), Detism, Msgs) :-
 	det_infer_disj(Goals0, InstMap0, SolnContext, DetInfo,
 		can_fail, at_most_zero, Goals, Detism, Msgs).
 
@@ -473,9 +499,9 @@ det_infer_goal_2(disj(Goals0, SM), _, InstMap0, SolnContext, DetInfo, _, _,
 	% then it is semideterministic or worse - this is determined
 	% in switch_detection.m and handled via the SwitchCanFail field.
 
-det_infer_goal_2(switch(Var, SwitchCanFail, Cases0, SM), GoalInfo,
+det_infer_goal_2(switch(Var, SwitchCanFail, Cases0), GoalInfo,
 		InstMap0, SolnContext, DetInfo, _, _,
-		switch(Var, SwitchCanFail, Cases, SM), Detism, Msgs) :-
+		switch(Var, SwitchCanFail, Cases), Detism, Msgs) :-
 	det_infer_switch(Cases0, InstMap0, SolnContext, DetInfo,
 		cannot_fail, at_most_zero, Cases, CasesDetism, Msgs0),
 	determinism_components(CasesDetism, CasesCanFail, CasesSolns),
@@ -503,8 +529,8 @@ det_infer_goal_2(switch(Var, SwitchCanFail, Cases0, SM), GoalInfo,
 	% This is the point at which annotations start changing
 	% when we iterate to fixpoint for global determinism inference.
 
-det_infer_goal_2(call(PredId, ModeId0, A, B, C, N), GoalInfo, _, SolnContext,
-		DetInfo, _, _,
+det_infer_goal_2(call(PredId, ModeId0, A, B, C, N), GoalInfo, _,
+		SolnContext, DetInfo, _, _,
 		call(PredId, ModeId, A, B, C, N), Detism, Msgs) :-
 	det_lookup_detism(DetInfo, PredId, ModeId0, Detism0),
 	%
@@ -600,9 +626,9 @@ det_infer_goal_2(unify(LT, RT0, M, U, C), GoalInfo, InstMap0, SolnContext,
 		UnifyNumSolns, Msgs),
 	determinism_components(UnifyDet, UnifyCanFail, UnifyNumSolns).
 
-det_infer_goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM), _GoalInfo0,
+det_infer_goal_2(if_then_else(Vars, Cond0, Then0, Else0), _GoalInfo0,
 		InstMap0, SolnContext, DetInfo, _NonLocalVars, _DeltaInstMap,
-		if_then_else(Vars, Cond, Then, Else, SM), Detism, Msgs) :-
+		if_then_else(Vars, Cond, Then, Else), Detism, Msgs) :-
 
 	% We process the goal right-to-left, doing the `then' before
 	% the condition of the if-then-else, so that we can propagate
@@ -813,11 +839,32 @@ det_infer_disj([], _InstMap0, _SolnContext, _DetInfo, CanFail, MaxSolns,
 	determinism_components(Detism, CanFail, MaxSolns).
 det_infer_disj([Goal0 | Goals0], InstMap0, SolnContext, DetInfo, CanFail0,
 		MaxSolns0, [Goal | Goals1], Detism, Msgs) :-
-	det_infer_goal(Goal0, InstMap0, SolnContext, DetInfo,
-			Goal, Detism1, Msgs1),
+	det_infer_goal(Goal0, InstMap0, SolnContext, DetInfo, Goal, Detism1,
+		Msgs1),
 	determinism_components(Detism1, CanFail1, MaxSolns1),
+	Goal = _ - GoalInfo,
+	% If a disjunct cannot succeed but is marked with the
+	% preserve_backtrack_into feature, treat it as being able to succeed
+	% when computing the max number of solutions of the disjunction as a
+	% whole, *provided* that some earlier disjuct could succeed. The idea
+	% is that ( marked failure ; det ) should be treated as det, since all
+	% backtracking is local within it, while disjunctions of the form
+	% ( det ; marked failure ) should be treated as multi, since we want
+	% to be able to backtrack to the second disjunct from *outside*
+	% the disjunction. This is useful for program transformation that want
+	% to get control on exits to and redos into model_non procedures.
+	% Deep profiling is one such transformation.
+	(
+		MaxSolns0 \= at_most_zero,
+		MaxSolns1 = at_most_zero,
+		goal_info_has_feature(GoalInfo, preserve_backtrack_into)
+	->
+		AdjMaxSolns1 = at_most_one
+	;
+		AdjMaxSolns1 = MaxSolns1
+	),
 	det_disjunction_canfail(CanFail0, CanFail1, CanFail2),
-	det_disjunction_maxsoln(MaxSolns0, MaxSolns1, MaxSolns2),
+	det_disjunction_maxsoln(MaxSolns0, AdjMaxSolns1, MaxSolns2),
 	% if we're in a single-solution context,
 	% convert `at_most_many' to `at_most_many_cc'
 	( SolnContext = first_soln, MaxSolns2 = at_most_many ->
@@ -1015,6 +1062,13 @@ det_par_conjunction_detism(DetismA, DetismB, Detism) :-
 	determinism_components(DetismB, CanFailB, MaxSolnB),
 	det_conjunction_canfail(CanFailA, CanFailB, CanFail),
 	det_conjunction_maxsoln(MaxSolnA, MaxSolnB, MaxSoln),
+	determinism_components(Detism, CanFail, MaxSoln).
+
+det_switch_detism(DetismA, DetismB, Detism) :-
+	determinism_components(DetismA, CanFailA, MaxSolnA),
+	determinism_components(DetismB, CanFailB, MaxSolnB),
+	det_switch_canfail(CanFailA, CanFailB, CanFail),
+	det_switch_maxsoln(MaxSolnA, MaxSolnB, MaxSoln),
 	determinism_components(Detism, CanFail, MaxSoln).
 
 % For the at_most_zero, at_most_one, at_most_many,

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2001 The University of Melbourne.
+% Copyright (C) 1995-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,13 +10,13 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module det_report.
+:- module check_hlds__det_report.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_module, hlds_pred, hlds_goal.
-:- import_module det_util.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module check_hlds__det_util.
 
 :- import_module io, list.
 
@@ -135,11 +135,12 @@
 
 :- implementation.
 
-:- import_module prog_out. 
-:- import_module hlds_data, type_util, mode_util, inst_match.
-:- import_module hlds_out, mercury_to_mercury.
-:- import_module code_util, passes_aux.
-:- import_module globals, options.
+:- import_module parse_tree__prog_out. 
+:- import_module hlds__hlds_data, check_hlds__type_util.
+:- import_module check_hlds__mode_util, check_hlds__inst_match.
+:- import_module hlds__hlds_out, parse_tree__mercury_to_mercury.
+:- import_module ll_backend__code_util, hlds__passes_aux.
+:- import_module libs__globals, libs__options.
 
 :- import_module assoc_list, bool, int, map, set, std_util, require, string.
 :- import_module getopt, term, varset.
@@ -180,6 +181,9 @@ check_determinism(PredId, ProcId, PredInfo0, ProcInfo0,
 			globals__io_lookup_bool_option(
 				warn_det_decls_too_lax,
 				ShouldIssueWarning),
+			globals__io_lookup_bool_option(
+				warn_inferred_erroneous,
+				WarnAboutInferredErroneous),
 			{ pred_info_get_markers(PredInfo0, Markers) },
 			(
 				{ ShouldIssueWarning = yes },
@@ -199,7 +203,18 @@ check_determinism(PredId, ProcId, PredInfo0, ProcInfo0,
 				% happen for the Unify pred for the unit type,
 				% if such types are not boxed (as they are not
 				% boxed for the IL backend).
-				{ \+ code_util__compiler_generated(PredInfo0) }
+				{ \+ code_util__compiler_generated(PredInfo0) },
+
+				% Don't warn about predicates which are
+				% inferred erroneous when the appropiate
+				% option is set.  This is to avoid
+				% warnings about unimplemented
+				% predicates.
+				{ WarnAboutInferredErroneous = yes,
+					true
+				; WarnAboutInferredErroneous = no,
+					InferredDetism \= erroneous
+				}
 			->
 				{ Message = "  warning: determinism declaration could be tighter.\n" },
 				report_determinism_problem(PredId,
@@ -231,7 +246,8 @@ check_determinism(PredId, ProcId, PredInfo0, ProcInfo0,
 	% make sure the code model is valid given the eval method
 	{ proc_info_eval_method(ProcInfo0, EvalMethod) },
 	( 
-		{ valid_determinism_for_eval_method(EvalMethod, InferredDetism) }
+		{ valid_determinism_for_eval_method(EvalMethod,
+			InferredDetism) = yes }
 	->
 		{
 		    proc_info_set_eval_method(ProcInfo0, EvalMethod, ProcInfo),
@@ -244,7 +260,7 @@ check_determinism(PredId, ProcId, PredInfo0, ProcInfo0,
 	;
 		{ proc_info_context(ProcInfo0, Context) },
 		prog_out__write_context(Context),
-		{ eval_method_to_string(EvalMethod, EvalMethodS) },
+		{ EvalMethodS = eval_method_to_string(EvalMethod) },
 		io__write_string("Error: `pragma "),
 		io__write_string(EvalMethodS),
 		io__write_string("' declaration not allowed for procedure\n"),
@@ -269,7 +285,7 @@ check_determinism(PredId, ProcId, PredInfo0, ProcInfo0,
 
 get_valid_dets(EvalMethod, Detism) :-
 	determinism(Detism),
-	valid_determinism_for_eval_method(EvalMethod, Detism).
+	valid_determinism_for_eval_method(EvalMethod, Detism) = yes.
 
 	% generate all the possible determinisms
 :- pred determinism(determinism).
@@ -504,11 +520,11 @@ det_diagnose_goal_2(conj(Goals), _GoalInfo, Desired, _Actual, Context, DetInfo,
 		Diagnosed) -->
 	det_diagnose_conj(Goals, Desired, Context, DetInfo, Diagnosed).
 
-det_diagnose_goal_2(par_conj(Goals, _SM), _GoalInfo, Desired, _Actual,
+det_diagnose_goal_2(par_conj(Goals), _GoalInfo, Desired, _Actual,
 		Context, DetInfo, Diagnosed) -->
 	det_diagnose_conj(Goals, Desired, Context, DetInfo, Diagnosed).
 
-det_diagnose_goal_2(disj(Goals, _), GoalInfo, Desired, Actual, SwitchContext,
+det_diagnose_goal_2(disj(Goals), GoalInfo, Desired, Actual, SwitchContext,
 		DetInfo, Diagnosed) -->
 	det_diagnose_disj(Goals, Desired, Actual, SwitchContext, DetInfo, 0,
 		ClausesWithSoln, Diagnosed1),
@@ -531,7 +547,7 @@ det_diagnose_goal_2(disj(Goals, _), GoalInfo, Desired, Actual, SwitchContext,
 	% then it is semideterministic or worse - this is determined
 	% in switch_detection.m and handled via the CanFail field.
 
-det_diagnose_goal_2(switch(Var, SwitchCanFail, Cases, _), GoalInfo,
+det_diagnose_goal_2(switch(Var, SwitchCanFail, Cases), GoalInfo,
 		Desired, _Actual, SwitchContext, DetInfo, Diagnosed) -->
 	(
 		{ SwitchCanFail = can_fail },
@@ -548,7 +564,7 @@ det_diagnose_goal_2(switch(Var, SwitchCanFail, Cases, _), GoalInfo,
 			{ det_lookup_var_type(ModuleInfo, ProcInfo, Var,
 				TypeDefn) },
 			{ hlds_data__get_type_defn_body(TypeDefn, TypeBody) },
-			{ TypeBody = du_type(_, ConsTable, _, _) }
+			{ TypeBody = du_type(_, ConsTable, _, _, _) }
 		->
 			{ map__keys(ConsTable, ConsIds) },
 			{ det_diagnose_missing_consids(ConsIds, Cases,
@@ -594,7 +610,7 @@ det_diagnose_goal_2(unify(LT, RT, _, _, UnifyContext), GoalInfo,
 		det_report_unify_context(First, Last, Context, UnifyContext,
 			DetInfo, LT, RT), Context).
 
-det_diagnose_goal_2(if_then_else(_Vars, Cond, Then, Else, _), _GoalInfo,
+det_diagnose_goal_2(if_then_else(_Vars, Cond, Then, Else), _GoalInfo,
 		Desired, _Actual, SwitchContext, DetInfo, Diagnosed) -->
 	{
 		determinism_components(Desired, _DesiredCanFail, DesiredSolns),
@@ -1202,10 +1218,10 @@ det_report_msg(cc_unify_can_fail(GoalInfo, Var, Type, VarSet, GoalContext),
 	io__write_string("unification for non-canonical type\n"),
 	prog_out__write_context(Context),
 	io__write_string("  `"),
-	( { type_to_type_id(Type, TypeId, _TypeArgs) } ->
-		hlds_out__write_type_id(TypeId)
+	( { type_to_ctor_and_args(Type, TypeCtor, _TypeArgs) } ->
+		hlds_out__write_type_ctor(TypeCtor)
 	;
-		{ error("det_report_message: type_to_type_id failed") }
+		{ error("det_report_message: type_to_ctor_and_args failed") }
 	),
 	io__write_string("'\n"),
 	prog_out__write_context(Context),
@@ -1249,10 +1265,10 @@ det_report_msg(cc_unify_in_wrong_context(GoalInfo, Var, Type, VarSet,
 	io__write_string("unification for non-canonical type\n"),
 	prog_out__write_context(Context),
 	io__write_string("  `"),
-	( { type_to_type_id(Type, TypeId, _TypeArgs) } ->
-		hlds_out__write_type_id(TypeId)
+	( { type_to_ctor_and_args(Type, TypeCtor, _TypeArgs) } ->
+		hlds_out__write_type_ctor(TypeCtor)
 	;
-		{ error("det_report_message: type_to_type_id failed") }
+		{ error("det_report_message: type_to_ctor_and_args failed") }
 	),
 	io__write_string("'\n"),
 	prog_out__write_context(Context),

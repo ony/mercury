@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,11 +10,11 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module opt_util.
+:- module ll_backend__opt_util.
 
 :- interface.
 :- import_module bool, map, list, std_util.
-:- import_module llds.
+:- import_module ll_backend__llds.
 
 :- type instrmap == map(label, instruction).
 :- type lvalmap == map(label, maybe(instruction)).
@@ -120,8 +120,8 @@
 
  	% Is the following code a test of r1, followed in both continuations
 	% by a semidet proceed? Is the code in both continuations the same,
-	% modulo livevals annotations and the value assigned to r1? Is TRUE
-	% assigned to r1 in the success continuation and FALSE in the failure
+	% modulo livevals annotations and the value assigned to r1? Is MR_TRUE
+	% assigned to r1 in the success continuation and MR_FALSE in the failure
 	% continuation? If the answer is yes to all these questions, return
 	% the code shared by the two continuations.
 
@@ -321,7 +321,8 @@
 
 :- implementation.
 
-:- import_module builtin_ops, exprn_aux, llds_out, hlds_pred.
+:- import_module backend_libs__builtin_ops, ll_backend__exprn_aux.
+:- import_module ll_backend__llds_out, hlds__hlds_pred.
 :- import_module int, string, set, require.
 
 opt_util__get_prologue(Instrs0, LabelInstr, Comments, Instrs) :-
@@ -1340,7 +1341,7 @@ pragma_c_component_get_rvals_and_lvals(pragma_c_noop,
 
 pragma_c_inputs_get_rvals([], []).
 pragma_c_inputs_get_rvals([I|Inputs], [R|Rvals]) :-
-	I = pragma_c_input(_Name, _Type, R),
+	I = pragma_c_input(_Name, _Type, R, _),
 	pragma_c_inputs_get_rvals(Inputs, Rvals).
 
 	% extract the lvals from the pragma_c_output
@@ -1349,7 +1350,7 @@ pragma_c_inputs_get_rvals([I|Inputs], [R|Rvals]) :-
 
 pragma_c_outputs_get_lvals([], []).
 pragma_c_outputs_get_lvals([O|Outputs], [L|Lvals]) :-
-	O = pragma_c_output(L, _Type, _Name),
+	O = pragma_c_output(L, _Type, _Name, _),
 	pragma_c_outputs_get_lvals(Outputs, Lvals).
 
 % determine all the rvals and lvals referenced by a list of instructions

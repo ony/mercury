@@ -1,10 +1,10 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 %
-:- module higher_order.
+:- module transform_hlds__higher_order.
 % Main author: stayl
 %
 % Specializes calls to higher order or polymorphic predicates where the value
@@ -25,7 +25,7 @@
 
 :- interface.
 
-:- import_module hlds_module.
+:- import_module hlds__hlds_module.
 :- import_module io.
 
 :- pred specialize_higher_order(module_info::in, module_info::out,
@@ -35,11 +35,15 @@
 
 :- implementation.
 
-:- import_module hlds_pred, hlds_goal, hlds_data, instmap, (inst).
-:- import_module code_util, globals, mode_util, goal_util.
-:- import_module type_util, options, prog_data, prog_out, quantification.
-:- import_module mercury_to_mercury, inlining, polymorphism, prog_util.
-:- import_module special_pred, unify_proc, passes_aux.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
+:- import_module hlds__instmap, (parse_tree__inst).
+:- import_module ll_backend__code_util, libs__globals, check_hlds__mode_util.
+:- import_module hlds__goal_util.
+:- import_module check_hlds__type_util, libs__options, parse_tree__prog_data.
+:- import_module parse_tree__prog_out, hlds__quantification.
+:- import_module parse_tree__mercury_to_mercury, transform_hlds__inlining.
+:- import_module check_hlds__polymorphism, parse_tree__prog_util.
+:- import_module hlds__special_pred, check_hlds__unify_proc, hlds__passes_aux.
 
 :- import_module assoc_list, bool, char, int, list, map, require, set.
 :- import_module std_util, string, varset, term.
@@ -422,18 +426,18 @@ fixup_proc_info(MustRecompute, Goal0, Info0, Info) :-
 traverse_goal_2(conj(Goals0) - Info, conj(Goals) - Info) -->
 	list__map_foldl(traverse_goal_2, Goals0, Goals).
 
-traverse_goal_2(par_conj(Goals0, SM) - Info, par_conj(Goals, SM) - Info) -->
+traverse_goal_2(par_conj(Goals0) - Info, par_conj(Goals) - Info) -->
 		% traverse_disj treats its list of goals as independent
 		% rather than specifically disjoint, so we can use it
 		% to process a list of independent parallel conjuncts.
 	traverse_disj(Goals0, Goals).
 
-traverse_goal_2(disj(Goals0, SM) - Info, disj(Goals, SM) - Info) -->
+traverse_goal_2(disj(Goals0) - Info, disj(Goals) - Info) -->
 	traverse_disj(Goals0, Goals).
 
 		% a switch is treated as a disjunction
-traverse_goal_2(switch(Var, CanFail, Cases0, SM) - Info,
-		switch(Var, CanFail, Cases, SM) - Info) -->
+traverse_goal_2(switch(Var, CanFail, Cases0) - Info,
+		switch(Var, CanFail, Cases) - Info) -->
 	traverse_cases(Cases0, Cases).
 
 		% check whether this call could be specialized
@@ -462,7 +466,7 @@ traverse_goal_2(Goal0, Goal) -->
 
 		% if-then-elses are handled as disjunctions
 traverse_goal_2(Goal0, Goal) -->
-	{ Goal0 = if_then_else(Vars, Cond0, Then0, Else0, SM) - GoalInfo },
+	{ Goal0 = if_then_else(Vars, Cond0, Then0, Else0) - GoalInfo },
 	get_pre_branch_info(PreInfo),
 	traverse_goal_2(Cond0, Cond),
 	traverse_goal_2(Then0, Then),
@@ -470,7 +474,7 @@ traverse_goal_2(Goal0, Goal) -->
 	set_pre_branch_info(PreInfo),
 	traverse_goal_2(Else0, Else),
 	get_post_branch_info(PostElseInfo),
-	{ Goal = if_then_else(Vars, Cond, Then, Else, SM) - GoalInfo },
+	{ Goal = if_then_else(Vars, Cond, Then, Else) - GoalInfo },
 	{ merge_post_branch_infos(PostThenInfo, PostElseInfo, PostInfo) },
 	set_post_branch_info(PostInfo).
 
@@ -954,10 +958,10 @@ get_typeclass_info_args_2(TypeClassInfoVar, PredId, ProcId, SymName,
 		[IndexGoal, CallGoal | Goals],
 		[ResultVar | Vars], ProcInfo0, ProcInfo) :-
 	MakeResultType(Arg, ResultType),
-	proc_info_create_var_from_type(ProcInfo0, ResultType,
+	proc_info_create_var_from_type(ProcInfo0, ResultType, no,
 		ResultVar, ProcInfo1),
 	MaybeContext = no,
-	make_int_const_construction(Index, IndexGoal,
+	make_int_const_construction(Index, no, IndexGoal,
 		IndexVar, ProcInfo1, ProcInfo2),
 	CallArgs = [TypeClassInfoVar, IndexVar, ResultVar],
 
@@ -1001,7 +1005,7 @@ maybe_specialize_call(Goal0 - GoalInfo, Goal - GoalInfo, Info0, Info) :-
 		Goal0 = call(_, _, _, _, _, _)
 	->
 		Goal0 = call(CalledPred, CalledProc, Args0, IsBuiltin,
-					MaybeContext, _SymName0)
+			MaybeContext, _SymName0)
 	;
 		error("higher_order.m: call expected")
 	),
@@ -1012,8 +1016,8 @@ maybe_specialize_call(Goal0 - GoalInfo, Goal - GoalInfo, Info0, Info) :-
 	(
 		% Look for calls to unify/2 and compare/3 which can
 		% be specialized.
-		specialize_special_pred(CalledPred, CalledProc,
-			Args0, MaybeContext, HaveSpecialPreds, Goal1,
+		specialize_special_pred(CalledPred, CalledProc, Args0,
+			MaybeContext, GoalInfo, HaveSpecialPreds, Goal1,
 			Info0, Info1)
 	->
 		Goal = Goal1,
@@ -1150,7 +1154,7 @@ maybe_specialize_pred_const(Goal0 - GoalInfo, Goal - GoalInfo) -->
 			{ Unify = construct(LVar, NewConsId,
 				NewArgs, UniModes, HowToConstruct,
 				CellIsUnique, MaybeExprn) },
-			{ Goal2 = unify(LVar, functor(NewConsId, NewArgs),
+			{ Goal2 = unify(LVar, functor(NewConsId, no, NewArgs),
 				UniMode, Unify, Context) },
 
 			% Make sure any constants in the
@@ -1854,11 +1858,12 @@ interpret_typeclass_info_manipulator(Manipulator, Args,
 	% Succeed if the called pred is "unify" or "compare" and
 	% is specializable, returning a specialized goal.
 :- pred specialize_special_pred(pred_id::in, proc_id::in, list(prog_var)::in,
-	maybe(call_unify_context)::in, bool::in, hlds_goal_expr::out,
-	higher_order_info::in, higher_order_info::out) is semidet.
+	maybe(call_unify_context)::in, hlds_goal_info::in, bool::in,
+	hlds_goal_expr::out, higher_order_info::in, higher_order_info::out)
+	is semidet.
 
-specialize_special_pred(CalledPred, CalledProc, Args,
-		MaybeContext, HaveSpecialPreds, Goal, Info0, Info) :-
+specialize_special_pred(CalledPred, CalledProc, Args, MaybeContext,
+		OrigGoalInfo, HaveSpecialPreds, Goal, Info0, Info) :-
 	ModuleInfo = Info0 ^ global_info ^ module_info,
 	ProcInfo0 = Info0 ^ proc_info,
 	PredVars = Info0 ^ pred_vars,
@@ -1884,7 +1889,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 	Args = [TypeInfoVar | SpecialPredArgs],
 	map__search(PredVars, TypeInfoVar,
 		constant(_TypeInfoConsId, TypeInfoVarArgs)),
-	type_to_type_id(SpecialPredType, _ - TypeArity, _),
+	type_to_ctor_and_args(SpecialPredType, _ - TypeArity, _),
 	( TypeArity = 0 ->
 		TypeInfoArgs = []
 	;
@@ -1939,10 +1944,11 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 				Info = Info0
 			;
 				NeedIntCast = yes,
-				generate_unsafe_type_cast(ModuleInfo,
+				goal_info_get_context(OrigGoalInfo, Context),
+				generate_unsafe_type_cast(ModuleInfo, Context,
 					CompareType, Arg1, CastArg1, CastGoal1,
 					ProcInfo0, ProcInfo1),
-				generate_unsafe_type_cast(ModuleInfo,
+				generate_unsafe_type_cast(ModuleInfo, Context,
 					CompareType, Arg2, CastArg2, CastGoal2,
 					ProcInfo1, ProcInfo),
 				NewCallArgs = [ComparisonResult,
@@ -1958,7 +1964,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 					InstMapDelta),
 				Detism = det,
 				goal_info_init(NonLocals, InstMapDelta,
-					Detism, GoalInfo),
+					Detism, Context, GoalInfo),
 				Goal = conj([CastGoal1, CastGoal2,
 						Call - GoalInfo]),
 				Info = Info0 ^ proc_info := ProcInfo
@@ -1996,9 +2002,10 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 			SpecialId = compare,
 			SpecialPredArgs = [_, Arg1, Arg2]
 		),
-		unwrap_no_tag_arg(WrappedType, Constructor, Arg1,
+		goal_info_get_context(OrigGoalInfo, Context),
+		unwrap_no_tag_arg(WrappedType, Context, Constructor, Arg1,
 			UnwrappedArg1, ExtractGoal1, ProcInfo0, ProcInfo1),
-		unwrap_no_tag_arg(WrappedType, Constructor, Arg2,
+		unwrap_no_tag_arg(WrappedType, Context, Constructor, Arg2,
 			UnwrappedArg2, ExtractGoal2, ProcInfo1, ProcInfo2),
 		set__list_to_set([UnwrappedArg1, UnwrappedArg2], NonLocals0),
 		(
@@ -2012,7 +2019,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 				simple_test(UnwrappedArg1, UnwrappedArg2),
 				unify_context(explicit, [])),
 			goal_info_init(NonLocals, InstMapDelta, Detism,
-				GoalInfo),
+				Context, GoalInfo),
 			Goal = conj([ExtractGoal1, ExtractGoal2,
 					SpecialGoal - GoalInfo]),
 			Info = Info0 ^ proc_info := ProcInfo2
@@ -2039,16 +2046,16 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 					SpecialProcId, NewCallArgs,
 					not_builtin, MaybeContext, SymName),
 				goal_info_init(NonLocals, InstMapDelta, Detism,
-					GoalInfo),
+					Context, GoalInfo),
 				Goal = conj([ExtractGoal1, ExtractGoal2,
 						SpecialGoal - GoalInfo]),
 				Info = Info0 ^ proc_info := ProcInfo2
 			;
 				NeedIntCast = yes,
-				generate_unsafe_type_cast(ModuleInfo,
+				generate_unsafe_type_cast(ModuleInfo, Context,
 					CompareType, UnwrappedArg1, CastArg1,
 					CastGoal1, ProcInfo2, ProcInfo3),
-				generate_unsafe_type_cast(ModuleInfo,
+				generate_unsafe_type_cast(ModuleInfo, Context,
 					CompareType, UnwrappedArg2, CastArg2,
 					CastGoal2, ProcInfo3, ProcInfo4),
 				NewCallArgs = [ComparisonResult,
@@ -2057,7 +2064,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 					SpecialProcId, NewCallArgs,
 					not_builtin, MaybeContext, SymName),
 				goal_info_init(NonLocals, InstMapDelta, Detism,
-					GoalInfo),
+					Context, GoalInfo),
 				Goal = conj([ExtractGoal1, CastGoal1,
 						ExtractGoal2, CastGoal2,
 						SpecialGoal - GoalInfo]),
@@ -2097,11 +2104,11 @@ find_special_proc(Type, SpecialId, SymName, PredId, ProcId, Info0, Info) :-
 	    ProcId = ProcId0,
 	    Info = Info0
 	;
-	    type_to_type_id(Type, TypeId, _),
-	    special_pred_is_generated_lazily(ModuleInfo, TypeId),
+	    type_to_ctor_and_args(Type, TypeCtor, _),
+	    special_pred_is_generated_lazily(ModuleInfo, TypeCtor),
 	    (
 		SpecialId = compare,
-		unify_proc__add_lazily_generated_compare_pred_decl(TypeId,
+		unify_proc__add_lazily_generated_compare_pred_decl(TypeCtor,
 			PredId, ModuleInfo0, ModuleInfo),
 		hlds_pred__initial_proc_id(ProcId)
 	    ;
@@ -2123,7 +2130,7 @@ find_special_proc(Type, SpecialId, SymName, PredId, ProcId, Info0, Info) :-
 		% added. This case shouldn't come up unless an optimization
 		% does reordering which requires rescheduling a conjunction.
 		%
-		unify_proc__add_lazily_generated_unify_pred(TypeId,
+		unify_proc__add_lazily_generated_unify_pred(TypeCtor,
 			PredId, ModuleInfo0, ModuleInfo),
 		hlds_pred__in_in_unification_proc_id(ProcId)
 	    ),
@@ -2186,11 +2193,11 @@ specializeable_special_call(SpecialId, CalledProc) :-
 		SpecialId = compare
 	).
 
-:- pred generate_unsafe_type_cast(module_info::in, (type)::in,
-	prog_var::in, prog_var::out, hlds_goal::out,
+:- pred generate_unsafe_type_cast(module_info::in, prog_context::in,
+	(type)::in, prog_var::in, prog_var::out, hlds_goal::out,
 	proc_info::in, proc_info::out) is det.
 
-generate_unsafe_type_cast(ModuleInfo, ToType, Arg, CastArg, Goal,
+generate_unsafe_type_cast(ModuleInfo, Context, ToType, Arg, CastArg, Goal,
 		ProcInfo0, ProcInfo) :-
 	module_info_get_predicate_table(ModuleInfo, PredicateTable),
 	mercury_private_builtin_module(MercuryBuiltin),
@@ -2203,21 +2210,23 @@ generate_unsafe_type_cast(ModuleInfo, ToType, Arg, CastArg, Goal,
 		error("generate_unsafe_type_cast: pred table lookup failed")
 	),
 	hlds_pred__initial_proc_id(ProcId),
-	proc_info_create_var_from_type(ProcInfo0, ToType, CastArg, ProcInfo),
+	proc_info_create_var_from_type(ProcInfo0, ToType, no,
+		CastArg, ProcInfo),
 	set__list_to_set([Arg, CastArg], NonLocals),
 	instmap_delta_from_assoc_list([CastArg - ground(shared, none)],
 		InstMapDelta),
-	goal_info_init(NonLocals, InstMapDelta, det, GoalInfo),
+	goal_info_init(NonLocals, InstMapDelta, det, Context, GoalInfo),
 	Goal = call(PredId, ProcId, [Arg, CastArg], inline_builtin,
 		no, qualified(MercuryBuiltin, "unsafe_type_cast")) - GoalInfo.
 
-:- pred unwrap_no_tag_arg((type)::in, sym_name::in, prog_var::in,
-	prog_var::out, hlds_goal::out, proc_info::in, proc_info::out) is det.
+:- pred unwrap_no_tag_arg((type)::in, prog_context::in, sym_name::in,
+	prog_var::in, prog_var::out, hlds_goal::out,
+	proc_info::in, proc_info::out) is det.
 
-unwrap_no_tag_arg(WrappedType, Constructor, Arg, UnwrappedArg,
+unwrap_no_tag_arg(WrappedType, Context, Constructor, Arg, UnwrappedArg,
 		Goal, ProcInfo0, ProcInfo) :-
-	proc_info_create_var_from_type(ProcInfo0, WrappedType, UnwrappedArg,
-		ProcInfo),
+	proc_info_create_var_from_type(ProcInfo0, WrappedType, no,
+		UnwrappedArg, ProcInfo),
 	ConsId = cons(Constructor, 1),
 	UniModes = [(ground(shared, none) - free) ->
 			(ground(shared, none) - ground(shared, none))],
@@ -2227,8 +2236,8 @@ unwrap_no_tag_arg(WrappedType, Constructor, Arg, UnwrappedArg,
 	% This will be recomputed later.
 	instmap_delta_from_assoc_list([UnwrappedArg - ground(shared, none)],
 		InstMapDelta),
-	goal_info_init(NonLocals, InstMapDelta, det, GoalInfo),
-	Goal = unify(Arg, functor(ConsId, [UnwrappedArg]), In - Out,
+	goal_info_init(NonLocals, InstMapDelta, det, Context, GoalInfo),
+	Goal = unify(Arg, functor(ConsId, no, [UnwrappedArg]), In - Out,
 		deconstruct(Arg, ConsId, [UnwrappedArg], UniModes,
 			cannot_fail, no),
 		unify_context(explicit, [])) - GoalInfo.
@@ -3023,7 +3032,7 @@ construct_higher_order_terms(ModuleInfo, HeadVars0, NewHeadVars, ArgModes0,
 			ConstInstMapDelta),
 		goal_info_init(ConstNonLocals, ConstInstMapDelta,
 			det, ConstGoalInfo),
-		RHS = functor(ConsId, CurriedHeadVars1),
+		RHS = functor(ConsId, no, CurriedHeadVars1),
 		UniMode = (free -> ConstInst) - (ConstInst -> ConstInst),
 		ConstGoal = unify(LVar, RHS, UniMode,
 			construct(LVar, ConsId, CurriedHeadVars1, UniModes,

@@ -31,9 +31,16 @@ major algorithms and data structures it uses, etc.
 
 <p>
 
-Each type or predicate that is exported from a module should have
+Everything that is exported from a module should have
 sufficient documentation that it can be understood without reference
 to the module's implementation section.
+
+<p>
+
+Each procedure that is implemented using foreign code
+should have sufficient documentation about its interface that it
+can be implemented just by referring to that documentation,
+without reference to the module's implementation section.
 
 <p>
 
@@ -61,8 +68,6 @@ cause anyone's existing code to break.
 Any new compiler modules or other major design changes should
 be documented in `compiler/notes/compiler_design.html'.
 
-<p>
-
 <h2> Naming </h2>
 
 <p>
@@ -88,9 +93,6 @@ Predicates which get or set a field of a structure or ADT should
 be named bar_get_foo and bar_set_foo respectively, where bar
 is the name of the structure or ADT and foo is the name of the field.
 
-<p>
-
-
 <h2> Coding </h2>
 
 <p>
@@ -109,9 +111,6 @@ No fixed limits please!
 (If you really must have a fixed limit, include detailed documentation
 explaining why it was so hard to avoid.)
 
-<p>
-
-
 <h2> Error Handling </h2>
 
 <p>
@@ -128,7 +127,8 @@ scripts, or if you are interfacing with the OS.)
 
 Calls to error/1 should always indicate an internal software error, not
 merely incorrect inputs from the user, or failure of some library routine
-or system call.
+or system call.  In the compiler,
+use unexpected/2 or sorry/2 from error_util.m rather than error/1.
 
 <p>
 
@@ -156,23 +156,29 @@ error message should be printed with perror() or should contain
 strerror(errno).  If it was a function manipulating some file, the
 error message should include the filename.
 
-<p>
-
-
 <h2> Layout </h2>
+
+<p>
 
 Code should be indented consistently.
 Tabs should be every 8 spaces.
 Indentation should be one tab per level of indentation.
 except for highly intended code which may be
 indented at 4 spaces per level of indentation.
+
+<p>
+
 Each line should not extend beyond 79 characters,
 unless this is necessary due to the use of long string literals.
+The reason we don't allow 80 character lines is that
+these lines wrap around in diffs,
+since diff adds an extra character at the start of each line.
+
+<p>
+
 If-then-elses should always be parenthesized,
 except that an if-then-else that occurs as the else
 part of another if-then-else doesn't need to be parenthesized.
-The semicolon of a disjunction should never be at the
-end of a line -- put it at the start of the next line instead.
 The condition of an if-then-else can either be on the same
 line as the opening parenthesis and the `->',
 
@@ -212,6 +218,14 @@ or, if the test is complicated, it can be on a line of its own:
 
 </pre>
 
+<p>
+
+Disjunctions should always be parenthesized.
+The semicolon of a disjunction should never be at the
+end of a line -- put it at the start of the next line instead.
+
+<p>
+
 Type definitions should be formatted in the following style:
 
 <pre>
@@ -231,6 +245,8 @@ Type definitions should be formatted in the following style:
 		;	quux.
 
 </pre>
+
+<p>
 
 If an individual clause is long, it should be broken into sections,
 and each section should have a "block comment" describing what it does;
@@ -264,6 +280,8 @@ or an "inline" comment
 </pre>
 
 should be used.
+
+<p>
 	
 At a higher level, code should be grouped into bunches of related
 predicates, functions, etc., and sections of code that are conceptually
@@ -281,7 +299,8 @@ Double-dashed lines, i.e.
 </pre>
 
 can also be used to indicate divisions into major sections.
-
+Note that these dividing lines should not exceed the 79 character limit
+(see above).
 
 <h2> Testing </h2>
 
@@ -305,9 +324,6 @@ the test suite.  Every time you add a new feature, you should add some
 test cases for that new feature to the test suite.  Every time you fix
 a bug, you should add a regression test to the test suite.
 
-<p>
-
-
 <h2> Committing changes </h2>
 
 <p>
@@ -317,7 +333,8 @@ changes.
 
 <p>
 
-The file "REVIEWS" contains more information on review policy.
+The file <a href="reviews.html">compiler/notes/reviews.html</a>
+contains more information on review policy.
 
 
 
@@ -325,6 +342,6 @@ The file "REVIEWS" contains more information on review policy.
 <hr>
 <!-------------------------->
 
-Last update was $Date: 2001-02-07 14:32:13 $ by $Author: petdr $@cs.mu.oz.au. <br>
+Last update was $Date: 2002-09-11 07:37:31 $ by $Author: nancy $@cs.mu.oz.au. <br>
 </body>
 </html>

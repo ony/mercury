@@ -9,14 +9,16 @@
 
 % Main authors: fjh, conway.
 
-:- module hlds_pred.
+:- module hlds__hlds_pred.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_data, hlds_goal, hlds_module, instmap, term_util.
-:- import_module mode_errors.
-:- import_module globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_data, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__instmap, hlds__hlds_llds.
+:- import_module check_hlds__mode_errors.
+:- import_module transform_hlds__term_util.
+:- import_module libs__globals.
 
 :- import_module bool, list, set, map, std_util, term, varset.
 :- import_module pa_alias_as, pa_datastruct.
@@ -25,14 +27,15 @@
 :- implementation.
 
 % Parse tree modules.
-:- import_module prog_util.
+:- import_module parse_tree__prog_util.
 
 % HLDS modules.
-:- import_module code_aux, goal_util, make_hlds.
-:- import_module inst_match, mode_util, type_util.
+:- import_module hlds__goal_util, hlds__make_hlds, hlds__goal_form.
+:- import_module check_hlds__inst_match, check_hlds__mode_util.
+:- import_module check_hlds__type_util.
 
 % Misc
-:- import_module options.
+:- import_module libs__options.
 
 % Standard library modules.
 :- import_module int, string, require, assoc_list.
@@ -241,7 +244,7 @@
 			;	clauses		
 			;	clauses_and_pragmas 
 						% both clauses and pragmas
-			;	(assertion)
+			;	promise(promise_type)
 			;	none.
 
 	% Note: `liveness' and `liveness_info' record liveness in the sense
@@ -318,6 +321,11 @@
 	% in any way exported -- that is, if it could be used
 	% by any other module, or by sub-modules of this module.
 :- pred status_is_exported(import_status::in, bool::out) is det.
+
+	% returns yes if the status indicates that the item was
+	% exported to importing modules (not just to sub-modules).
+:- pred status_is_exported_to_non_submodules(import_status::in,
+		bool::out) is det.
 
 	% returns yes if the status indicates that the item was
 	% in any way imported -- that is, if it was defined in
@@ -609,6 +617,10 @@
 :- pred pred_info_exported_procids(pred_info, list(proc_id)).
 :- mode pred_info_exported_procids(in, out) is det.
 
+	% Remove a procedure from the pred_info.
+:- pred pred_info_remove_procid(pred_info, proc_id, pred_info).
+:- mode pred_info_remove_procid(in, in, out) is det.
+
 :- pred pred_info_arg_types(pred_info, list(type)).
 :- mode pred_info_arg_types(in, out) is det.
 
@@ -705,6 +717,9 @@
 
 :- pred pred_info_pragma_goal_type(pred_info).
 :- mode pred_info_pragma_goal_type(in) is semidet.
+
+:- pred pred_info_update_goal_type(pred_info, goal_type, pred_info).
+:- mode pred_info_update_goal_type(in, in, out) is det.
 
 :- pred pred_info_set_goal_type(pred_info, goal_type, pred_info).
 :- mode pred_info_set_goal_type(in, in, out) is det.
@@ -879,6 +894,16 @@ status_is_exported(pseudo_exported,		yes).
 status_is_exported(exported_to_submodules,	yes).
 status_is_exported(local,			no).
 
+status_is_exported_to_non_submodules(Status, Result) :-
+	(
+		status_is_exported(Status, yes),
+		Status \= exported_to_submodules
+	->
+		Result = yes
+	;
+		Result = no
+	).
+
 status_is_imported(Status, Imported) :-
 	status_defined_in_this_module(Status, InThisModule),
 	bool__not(InThisModule, Imported).
@@ -911,7 +936,12 @@ import_status_to_minimal_string(external(_), "external").
 
 	% The information specific to a predicate, as opposed to a procedure.
 	% (Functions count as predicates.)
-
+	%
+	% Note that it is an invariant that any type_info-related
+	% variables in the arguments of a predicate must precede any
+	% polymorphically-typed arguments whose type depends on the
+	% values of those type_info-related variables;
+	% accurate GC for the MLDS back-end relies on this.
 :- type pred_info
 	--->	predicate(
 			decl_typevarset	:: tvarset,
@@ -1125,6 +1155,10 @@ pred_info_exported_procids(PredInfo, ProcIds) :-
 		ProcIds = []
 	).
 
+pred_info_remove_procid(PredInfo0, ProcId, PredInfo) :-
+	pred_info_procedures(PredInfo0, Procs0),
+	map__delete(Procs0, ProcId, Procs),
+	pred_info_set_procedures(PredInfo0, Procs, PredInfo).
 
 pred_info_clauses_info(PredInfo, PredInfo^clauses_info).
 
@@ -1217,14 +1251,47 @@ pred_info_set_typevarset(PredInfo, X, PredInfo^typevarset := X).
 pred_info_get_goal_type(PredInfo, PredInfo^goal_type).
 
 pred_info_clause_goal_type(PredInfo) :- 
-	( PredInfo ^ goal_type = clauses 
-	; PredInfo ^ goal_type = clauses_and_pragmas
-	).
+	clause_goal_type(PredInfo ^ goal_type).
 
 pred_info_pragma_goal_type(PredInfo) :- 
-	( PredInfo ^ goal_type = pragmas 
-	; PredInfo ^ goal_type = clauses_and_pragmas
-	).
+	pragma_goal_type(PredInfo ^ goal_type).
+
+:- pred clause_goal_type(goal_type::in) is semidet.
+
+clause_goal_type(clauses).
+clause_goal_type(clauses_and_pragmas).
+
+:- pred pragma_goal_type(goal_type::in) is semidet.
+
+pragma_goal_type(pragmas).
+pragma_goal_type(clauses_and_pragmas).
+
+pred_info_update_goal_type(PredInfo0, GoalType1, PredInfo) :-
+	pred_info_get_goal_type(PredInfo0, GoalType0),
+	(
+		GoalType0 = none, GoalType = GoalType1
+	;
+		GoalType0 = pragmas,
+		( clause_goal_type(GoalType1) ->
+			GoalType = clauses_and_pragmas
+		;
+			GoalType = pragmas
+		)
+	;
+		GoalType0 = clauses,
+		( pragma_goal_type(GoalType1) ->
+			GoalType = clauses_and_pragmas
+		;
+			GoalType = clauses
+		)
+
+	;
+		GoalType0 = clauses_and_pragmas,
+		GoalType = GoalType0
+	;
+		GoalType0 = promise(_), error("pred_info_update_goal_type")
+	),
+	pred_info_set_goal_type(PredInfo0, GoalType, PredInfo).	
 
 pred_info_set_goal_type(PredInfo, X, PredInfo^goal_type := X).
 
@@ -1435,7 +1502,7 @@ hlds_pred__define_new_pred(Goal0, Goal, ArgVars0, ExtraTypeInfos, InstMap0,
 
 		% Approximate the termination information
 		% for the new procedure.
-	( code_aux__goal_cannot_loop(ModuleInfo0, Goal0) ->
+	( goal_cannot_loop(ModuleInfo0, Goal0) ->
 		TermInfo = yes(cannot_loop)
 	;
 		TermInfo = no
@@ -1518,6 +1585,26 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% left-to-right, from zero.)
 		).
 
+:- type table_io_decl_arg_info
+	--->	table_io_decl_arg_info(
+			headvar		:: prog_var,
+			slot_num	:: int,
+			arg_type	:: (type)
+		).
+
+	% This type is analogous to llds:layout_locn, but it refers to slots in
+	% the extended answer blocks used by I/O action tabling for declarative
+	% debugging, not to lvals.
+:- type table_io_decl_locn
+	--->	direct(int)
+	;	indirect(int, int).
+
+:- type table_io_decl_info
+	--->	table_io_decl_info(
+			list(table_io_decl_arg_info),
+			map(tvar, table_io_decl_locn)
+		).
+
 :- pred proc_info_init(arity, list(type), list(mode), maybe(list(mode)),
 	maybe(list(is_live)), maybe(determinism), prog_context,
 	is_address_taken, proc_info).
@@ -1526,7 +1613,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set(maybe(determinism), prog_varset, vartypes,
 	list(prog_var), list(mode), inst_varset, maybe(list(is_live)), 
 	hlds_goal, prog_context, stack_slots, determinism, bool,
-	list(arg_info), liveness_info, type_info_varmap,
+	maybe(list(arg_info)), liveness_info, type_info_varmap,
 	typeclass_info_varmap, maybe(arg_size_info),
 	maybe(termination_info), is_address_taken, proc_info).
 :- mode proc_info_set(in, in, in, in, in, in, in, in, in, in, in, in,
@@ -1585,13 +1672,6 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_headvars(proc_info, list(prog_var), proc_info).
 :- mode proc_info_set_headvars(in, in, out) is det.
 
-	% retreive the list of real headvars. With real headvars
-	% we think of those variables with which the predicate
-	% was initially declared (and not containing additional
-	% headvars that are added during the compilation process).
-:- pred proc_info_real_headvars(proc_info, list(prog_var)).
-:- mode proc_info_real_headvars(in, out) is det.
-
 :- pred proc_info_argmodes(proc_info, list(mode)).
 :- mode proc_info_argmodes(in, out) is det.
 
@@ -1637,6 +1717,9 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 
 :- pred proc_info_arg_info(proc_info, list(arg_info)).
 :- mode proc_info_arg_info(in, out) is det.
+
+:- pred proc_info_maybe_arg_info(proc_info, maybe(list(arg_info))).
+:- mode proc_info_maybe_arg_info(in, out) is det.
 
 :- pred proc_info_set_arg_info(proc_info, list(arg_info), proc_info).
 :- mode proc_info_set_arg_info(in, in, out) is det.
@@ -1745,6 +1828,13 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_call_table_tip(proc_info, maybe(prog_var), proc_info).
 :- mode proc_info_set_call_table_tip(in, in, out) is det.
 
+:- pred proc_info_get_table_io_decl(proc_info, maybe(table_io_decl_info)).
+:- mode proc_info_get_table_io_decl(in, out) is det.
+
+:- pred proc_info_set_table_io_decl(proc_info, maybe(table_io_decl_info),
+	proc_info).
+:- mode proc_info_set_table_io_decl(in, in, out) is det.
+
 :- pred proc_info_get_maybe_deep_profile_info(proc_info::in,
 	maybe(deep_profile_proc_info)::out) is det.
 
@@ -1772,8 +1862,9 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- mode proc_info_ensure_unique_names(in, out) is det.
 
 	% Create a new variable of the given type to the procedure.
-:- pred proc_info_create_var_from_type(proc_info, type, prog_var, proc_info).
-:- mode proc_info_create_var_from_type(in, in, out, out) is det.
+:- pred proc_info_create_var_from_type(proc_info, type, maybe(string),
+	prog_var, proc_info).
+:- mode proc_info_create_var_from_type(in, in, in, out, out) is det.
 
 	% Create a new variable for each element of the list of types.
 :- pred proc_info_create_vars_from_types(proc_info,
@@ -1861,14 +1952,12 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_is_valid_mode(proc_info::in) is semidet.
 
 :- implementation.
-:- import_module mode_errors.
+:- import_module check_hlds__mode_errors.
 
 :- type proc_info
 	--->	procedure(
 			prog_varset	:: prog_varset,
 			var_types	:: vartypes,
-			real_head_vars  :: list(prog_var),
-					% see proc_info_real_headvars/2
 			head_vars	:: list(prog_var),
 			actual_head_modes :: list(mode),
 			mode_errors	:: list(mode_error_info),
@@ -1895,7 +1984,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% mode checking etc. for complicated
 					% modes of unification procs until
 					% the end of the unique_modes pass.)
-			arg_pass_info	:: list(arg_info),
+			arg_pass_info	:: maybe(list(arg_info)),
 					% calling convention of each arg:
 					% information computed by arg_info.m
 					% (based on the modes etc.)
@@ -1987,6 +2076,18 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% relevant backend must record this
 					% fact in a place accessible to the
 					% debugger.
+ 			table_io_decl	:: maybe(table_io_decl_info),
+					% If set, it means that procedure is an
+					% I/O primitive that has been subject
+					% to the --trace-table-decl-io
+					% transformation. The argument will
+					% then describe the structure of the
+					% answer block used by the transformed
+					% code. By putting this information
+					% into a data structure in the
+					% generated code, the compiler
+					% enables the runtime system to print
+					% out I/O action goals.
 			maybe_deep_profile_proc_info
 					:: maybe(deep_profile_proc_info)
 		).
@@ -2039,7 +2140,7 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	InferredDet = erroneous,
 	map__init(StackSlots),
 	set__init(InitialLiveness),
-	ArgInfo = [],
+	ArgInfo = no,
 	goal_info_init(GoalInfo),
 	ClauseBody = conj([]) - GoalInfo,
 	CanProcess = yes,
@@ -2047,12 +2148,12 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	map__init(TCVarsMap),
 	RLExprn = no,
 	NewProc = procedure(
-		BodyVarSet, BodyTypes, HeadVars, HeadVars,
+		BodyVarSet, BodyTypes, HeadVars,
 		Modes, ModeErrors, InstVarSet,
 		MaybeArgLives, ClauseBody, MContext, StackSlots, MaybeDet,
 		InferredDet, CanProcess, ArgInfo, InitialLiveness, TVarsMap,
 		TCVarsMap, eval_normal, no, no, DeclaredModes, IsAddressTaken,
-		RLExprn, pa_sr_info_init, no, no, no
+		RLExprn, pa_sr_info_init, no, no, no, no
 	).
 
 proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
@@ -2063,12 +2164,12 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 	RLExprn = no,
 	ModeErrors = [],
 	ProcInfo = procedure(
-		BodyVarSet, BodyTypes, HeadVars, HeadVars, HeadModes,
+		BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		ModeErrors, InstVarSet, HeadLives, Goal, Context,
 		StackSlots, DeclaredDetism, InferredDetism, CanProcess, ArgInfo,
 		Liveness, TVarMap, TCVarsMap, eval_normal, ArgSizes,
 		Termination, no, IsAddressTaken, RLExprn,
-		pa_sr_info_init, no, no, no).
+		pa_sr_info_init, no, no, no, no).
 
 proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet,
 		Detism, Goal, Context, TVarMap, TCVarsMap,
@@ -2085,11 +2186,11 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet,
 	MaybeHeadLives = no,
 	RLExprn = no,
 	ModeErrors = [],
-	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadVars, HeadModes, ModeErrors,
+	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, ModeErrors,
 		InstVarSet, MaybeHeadLives, Goal, Context, StackSlots,
-		MaybeDeclaredDetism, Detism, yes, [], Liveness, TVarMap,
+		MaybeDeclaredDetism, Detism, yes, no, Liveness, TVarMap,
 		TCVarsMap, eval_normal, no, no, no, IsAddressTaken,
-		RLExprn, pa_sr_info_init, no, no, no).
+		RLExprn, pa_sr_info_init, no, no, no, no).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-
@@ -2157,7 +2258,6 @@ proc_info_declared_determinism(ProcInfo, ProcInfo^declared_detism).
 proc_info_varset(ProcInfo, ProcInfo^prog_varset).
 proc_info_vartypes(ProcInfo, ProcInfo^var_types).
 proc_info_headvars(ProcInfo, ProcInfo^head_vars).
-proc_info_real_headvars(ProcInfo, ProcInfo^real_head_vars).
 proc_info_argmodes(ProcInfo, ProcInfo^actual_head_modes).
 proc_info_inst_varset(ProcInfo, ProcInfo^inst_varset).
 proc_info_maybe_arglives(ProcInfo, ProcInfo^head_var_caller_liveness).
@@ -2166,7 +2266,14 @@ proc_info_context(ProcInfo, ProcInfo^proc_context).
 proc_info_stack_slots(ProcInfo, ProcInfo^stack_slots).
 proc_info_inferred_determinism(ProcInfo, ProcInfo^inferred_detism).
 proc_info_can_process(ProcInfo, ProcInfo^can_process).
-proc_info_arg_info(ProcInfo, ProcInfo^arg_pass_info).
+proc_info_maybe_arg_info(ProcInfo, ProcInfo^arg_pass_info).
+proc_info_arg_info(ProcInfo, ArgInfo) :-
+	( yes(ArgInfo0) = ProcInfo^arg_pass_info ->
+		ArgInfo = ArgInfo0
+
+	;
+		error("proc_info_arg_info: arg_pass_info not set")
+	).
 proc_info_liveness_info(ProcInfo, ProcInfo^initial_liveness).
 proc_info_typeinfo_varmap(ProcInfo, ProcInfo^proc_type_info_varmap).
 proc_info_typeclass_info_varmap(ProcInfo, ProcInfo^proc_typeclass_info_varmap).
@@ -2188,6 +2295,7 @@ proc_info_static_terms(ProcInfo, AliasReuseInfo^static_terms):-
 	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
 proc_info_get_need_maxfr_slot(ProcInfo, ProcInfo^need_maxfr_slot).
 proc_info_get_call_table_tip(ProcInfo, ProcInfo^call_table_tip).
+proc_info_get_table_io_decl(ProcInfo, ProcInfo^table_io_decl).
 proc_info_get_maybe_deep_profile_info(ProcInfo,
 	ProcInfo^maybe_deep_profile_proc_info).
 
@@ -2203,7 +2311,7 @@ proc_info_set_stack_slots(ProcInfo, SS, ProcInfo^stack_slots := SS).
 proc_info_set_inferred_determinism(ProcInfo, ID,
 	ProcInfo^inferred_detism := ID).
 proc_info_set_can_process(ProcInfo, CP, ProcInfo^can_process := CP).
-proc_info_set_arg_info(ProcInfo, AP, ProcInfo^arg_pass_info := AP).
+proc_info_set_arg_info(ProcInfo, AP, ProcInfo^arg_pass_info := yes(AP)).
 proc_info_set_liveness_info(ProcInfo, IL, ProcInfo^initial_liveness := IL).
 proc_info_set_typeinfo_varmap(ProcInfo, TI,
 	ProcInfo^proc_type_info_varmap := TI).
@@ -2244,8 +2352,9 @@ proc_info_set_static_terms(ProcInfo0, StaticTerms, ProcInfo):-
 			ProcInfo). 
 proc_info_set_need_maxfr_slot(ProcInfo, NMS, ProcInfo^need_maxfr_slot := NMS).
 proc_info_set_call_table_tip(ProcInfo, CTT, ProcInfo^call_table_tip := CTT).
-proc_info_set_maybe_deep_profile_info(ProcInfo, CTT,
-	ProcInfo^maybe_deep_profile_proc_info := CTT).
+proc_info_set_table_io_decl(ProcInfo, TID, ProcInfo^table_io_decl := TID).
+proc_info_set_maybe_deep_profile_info(ProcInfo, DPI,
+	ProcInfo^maybe_deep_profile_proc_info := DPI).
 
 proc_info_get_typeinfo_vars(Vars, VarTypes, TVarMap, TypeInfoVars) :-
 	set__to_sorted_list(Vars, VarList),
@@ -2313,10 +2422,10 @@ proc_info_ensure_unique_names(ProcInfo0, ProcInfo) :-
 	varset__ensure_unique_names(AllVars, "p", VarSet0, VarSet),
 	proc_info_set_varset(ProcInfo0, VarSet, ProcInfo).
 
-proc_info_create_var_from_type(ProcInfo0, Type, NewVar, ProcInfo) :-
+proc_info_create_var_from_type(ProcInfo0, Type, MaybeName, NewVar, ProcInfo) :-
 	proc_info_varset(ProcInfo0, VarSet0),
 	proc_info_vartypes(ProcInfo0, VarTypes0),
-	varset__new_var(VarSet0, NewVar, VarSet),
+	varset__new_maybe_named_var(VarSet0, MaybeName, NewVar, VarSet),
 	map__det_insert(VarTypes0, NewVar, Type, VarTypes),
 	proc_info_set_varset(ProcInfo0, VarSet, ProcInfo1),
 	proc_info_set_vartypes(ProcInfo1, VarTypes, ProcInfo).
@@ -2796,12 +2905,10 @@ hlds_pred__is_differential(ModuleInfo, PredId) :-
 
 	% Check if the given evaluation method is allowed with
 	% the given determinism.
-:- pred valid_determinism_for_eval_method(eval_method, determinism).
-:- mode valid_determinism_for_eval_method(in, in) is semidet.
+:- func valid_determinism_for_eval_method(eval_method, determinism) = bool.
 
 	% Convert an evaluation method to a string.
-:- pred eval_method_to_string(eval_method, string).
-:- mode eval_method_to_string(in, out) is det.
+:- func eval_method_to_string(eval_method) = string.
 
 	% Return true if the given evaluation method requires a
 	% stratification check.
@@ -2826,64 +2933,81 @@ hlds_pred__is_differential(ModuleInfo, PredId) :-
 
 	% Return the change a given evaluation method can do to a given
 	% determinism.
-:- pred eval_method_change_determinism(eval_method, determinism,
-		determinism).
-:- mode eval_method_change_determinism(in, in, out) is det.
+:- func eval_method_change_determinism(eval_method, determinism) = determinism.
 
 :- implementation.
 
-:- import_module det_analysis.
+:- import_module check_hlds__det_analysis.
 
-valid_determinism_for_eval_method(eval_normal, _).
-valid_determinism_for_eval_method(eval_loop_check, _).
-valid_determinism_for_eval_method(eval_table_io, _) :-
+valid_determinism_for_eval_method(eval_normal, _) = yes.
+valid_determinism_for_eval_method(eval_loop_check, _) = yes.
+valid_determinism_for_eval_method(eval_table_io(_, _), _) = _ :-
 	error("valid_determinism_for_eval_method called after tabling phase").
-valid_determinism_for_eval_method(eval_memo, _).
-valid_determinism_for_eval_method(eval_minimal, Determinism) :-
-	determinism_components(Determinism, can_fail, _).
+valid_determinism_for_eval_method(eval_memo, _) = yes.
+valid_determinism_for_eval_method(eval_minimal, Determinism) = Valid :-
+	( determinism_components(Determinism, can_fail, _) ->
+		Valid = yes
+	;
+		Valid = no
+	).
 
-eval_method_to_string(eval_normal,		"normal").
-eval_method_to_string(eval_loop_check,		"loop_check").
-eval_method_to_string(eval_table_io,		"table_io").
-eval_method_to_string(eval_memo,		"memo").
-eval_method_to_string(eval_minimal, 		"minimal_model").
+eval_method_to_string(eval_normal) =		"normal".
+eval_method_to_string(eval_loop_check) =	"loop_check".
+eval_method_to_string(eval_memo) =		"memo".
+eval_method_to_string(eval_minimal) = 		"minimal_model".
+eval_method_to_string(eval_table_io(IsDecl, IsUnitize)) = Str :-
+	(
+                IsDecl = table_io_decl,
+                DeclStr = "decl, "
+        ;
+                IsDecl = table_io_proc,
+                DeclStr = "proc, "
+        ),
+        (
+                IsUnitize = table_io_unitize,
+                UnitizeStr = "unitize"
+        ;
+                IsUnitize = table_io_alone,
+                UnitizeStr = "alone"
+        ),
+	Str = "table_io(" ++ DeclStr ++ UnitizeStr ++ ")".
 
 eval_method_needs_stratification(eval_normal) = no.
 eval_method_needs_stratification(eval_loop_check) = no.
-eval_method_needs_stratification(eval_table_io) = no.
+eval_method_needs_stratification(eval_table_io(_, _)) = no.
 eval_method_needs_stratification(eval_memo) = no.
 eval_method_needs_stratification(eval_minimal) = yes.
 
 eval_method_has_per_proc_tabling_pointer(eval_normal) = no.
 eval_method_has_per_proc_tabling_pointer(eval_loop_check) = yes.
-eval_method_has_per_proc_tabling_pointer(eval_table_io) = no.
+eval_method_has_per_proc_tabling_pointer(eval_table_io(_, _)) = no.
 eval_method_has_per_proc_tabling_pointer(eval_memo) = yes.
 eval_method_has_per_proc_tabling_pointer(eval_minimal) = yes.
 
 eval_method_requires_tabling_transform(eval_normal) = no.
 eval_method_requires_tabling_transform(eval_loop_check) = yes.
-eval_method_requires_tabling_transform(eval_table_io) = yes.
+eval_method_requires_tabling_transform(eval_table_io(_, _)) = yes.
 eval_method_requires_tabling_transform(eval_memo) = yes.
 eval_method_requires_tabling_transform(eval_minimal) = yes.
 
 eval_method_requires_ground_args(eval_normal) = no.
 eval_method_requires_ground_args(eval_loop_check) = yes.
-eval_method_requires_ground_args(eval_table_io) = yes.
+eval_method_requires_ground_args(eval_table_io(_, _)) = yes.
 eval_method_requires_ground_args(eval_memo) = yes.
 eval_method_requires_ground_args(eval_minimal) = yes.
 
 eval_method_destroys_uniqueness(eval_normal) = no.
 eval_method_destroys_uniqueness(eval_loop_check) = yes.
-eval_method_destroys_uniqueness(eval_table_io) = no.
+eval_method_destroys_uniqueness(eval_table_io(_, _)) = no.
 eval_method_destroys_uniqueness(eval_memo) = yes.
 eval_method_destroys_uniqueness(eval_minimal) = yes.
 
-eval_method_change_determinism(eval_normal, Detism, Detism).
-eval_method_change_determinism(eval_loop_check, Detism, Detism).
-eval_method_change_determinism(eval_table_io, Detism, Detism).
-eval_method_change_determinism(eval_memo, Detism, Detism).
-eval_method_change_determinism(eval_minimal, Det0, Det) :-
-	det_conjunction_detism(semidet, Det0, Det).
+eval_method_change_determinism(eval_normal, Detism) = Detism.
+eval_method_change_determinism(eval_loop_check, Detism) = Detism.
+eval_method_change_determinism(eval_table_io(_, _), Detism) = Detism.
+eval_method_change_determinism(eval_memo, Detism) = Detism.
+eval_method_change_determinism(eval_minimal, Detism0) = Detism :-
+	det_conjunction_detism(semidet, Detism0, Detism).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

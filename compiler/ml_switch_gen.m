@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -7,10 +7,10 @@
 % File: ml_switch_gen.m
 % Author: fjh (adapted from switch_gen.m)
 %
-% This module handles the generation of code for switches for the MLDS back-end.
-% Switches are disjunctions that do not require backtracking.  They are
-% detected in switch_detection.m.  This is the module that determines what
-% sort of indexing to use for each switch and then actually generates the
+% This module handles the generation of code for switches for the MLDS
+% back-end. Switches are disjunctions that do not require backtracking.
+% They are detected in switch_detection.m.  This is the module that determines
+% what sort of indexing to use for each switch and then actually generates the
 % code.  The code here is quite similar to the code in switch_gen.m, which
 % does the same thing for the LLDS back-end.
 %
@@ -33,7 +33,7 @@
 %	    we generate an MLDS switch statement.
 %
 % 2.	For switches on strings, there are several possibilities.
-%	a)  If the target supports indirect gotos, we should we lookup the
+%	a)  If the target supports indirect gotos, we should look up the
 %           address to jump to in a hash table (e.g. using open addressing to
 %           resolve hash collisions), and then jump to it using an indirect
 %	    goto, unless the target supports string switch statements and
@@ -58,15 +58,15 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module ml_switch_gen.
+:- module ml_backend__ml_switch_gen.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_goal, hlds_data.
-:- import_module code_model.
-:- import_module mlds, ml_code_util.
-:- import_module globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_data.
+:- import_module backend_libs__code_model.
+:- import_module ml_backend__mlds, ml_backend__ml_code_util.
+:- import_module libs__globals.
 
 :- import_module list.
 
@@ -96,12 +96,13 @@
 
 :- implementation.
 
-:- import_module ml_tag_switch, ml_string_switch.
-:- import_module ml_code_gen, ml_unify_gen, ml_code_util, ml_simplify_switch.
-:- import_module switch_util, type_util.
-:- import_module options.
+:- import_module ml_backend__ml_tag_switch, ml_backend__ml_string_switch.
+:- import_module ml_backend__ml_code_gen, ml_backend__ml_unify_gen.
+:- import_module ml_backend__ml_code_util, ml_backend__ml_simplify_switch.
+:- import_module backend_libs__switch_util, check_hlds__type_util.
+:- import_module backend_libs__foreign, libs__options.
 
-:- import_module bool, int, string, map, tree, std_util, require.
+:- import_module bool, int, string, map, libs__tree, std_util, require.
 
 %-----------------------------------------------------------------------------%
 
@@ -121,12 +122,28 @@ ml_gen_switch(CaseVar, CanFail, Cases, CodeModel, Context,
 	{ list__sort_and_remove_dups(TaggedCases0, TaggedCases) },
 
 	%
-	% Figure out what kind of switch this is
+	% Figure out what kind of switch this is.
 	%
 	ml_switch_gen__determine_category(CaseVar, SwitchCategory),
 	ml_gen_info_get_globals(Globals),
 	{ globals__lookup_bool_option(Globals, smart_indexing, Indexing) },
 	(
+		% Check for a switch on a type whose representation
+		% uses reserved addresses.
+		{ list__member(Case, TaggedCases) },	
+		{ Case = case(_Priority, Tag, _ConsId, _Goal) },
+		{
+			Tag = reserved_address(_)
+		;
+			Tag = shared_with_reserved_addresses(_, _)
+		}
+	->
+		% XXX This may be inefficient in some cases.
+		ml_switch_generate_if_else_chain(TaggedCases, CaseVar,
+			CodeModel, CanFail, Context,
+			MLDS_Decls, MLDS_Statements)
+	;
+		
 /**************
 XXX Lookup switches are NYI
 When we do get around to implementing them,
@@ -154,7 +171,7 @@ they should probably be handled in ml_simplify_switch rather than here.
 	;
 **************/
 		%
-		% Try using a string hash switch
+		% Try using a string hash switch.
 		%
 		{ Indexing = yes },
 		{ SwitchCategory = string_switch },
@@ -185,7 +202,7 @@ they should probably be handled in ml_simplify_switch rather than here.
 			CanFail, Context, MLDS_Decls, MLDS_Statements)
 	;
 		%
-		% Try using a tag switch
+		% Try using a tag switch.
 		%
 		{ Indexing = yes },
 		{ SwitchCategory = tag_switch },
@@ -395,8 +412,9 @@ ml_switch_generate_mlds_switch(Cases, Var, CodeModel, CanFail,
 ml_switch_gen_range(MLDS_Type, Range) -->
 	=(MLGenInfo),
 	{
-		MLDS_Type = mercury_type(Type, TypeCategory),
 		ml_gen_info_get_module_info(MLGenInfo, ModuleInfo),
+		ExportedType = to_exported_type(ModuleInfo, Type),
+		MLDS_Type = mercury_type(Type, TypeCategory, ExportedType),
 		switch_util__type_range(TypeCategory, Type, ModuleInfo,
 			MinRange, MaxRange)
 	->

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -42,12 +42,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module trace.
+:- module ll_backend__trace.
 
 :- interface.
 
-:- import_module hlds_goal, hlds_pred, hlds_module.
-:- import_module globals, prog_data, llds, code_info.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_pred, hlds__hlds_module.
+:- import_module ll_backend__code_info, ll_backend__llds.
+:- import_module libs__globals.
 :- import_module map, std_util, set.
 
 	% The kinds of external ports for which the code we generate will
@@ -107,21 +109,13 @@
 					% at the time of the call. Otherwise,
 					% it will be no.
 
-		slot_call_table		:: maybe(int),
+		slot_call_table		:: maybe(int)
 					% If the procedure's evaluation method
 					% is memo, loopcheck or minimal model, 
 					% this will be yes(M), where stack slot
 					% M holds the variable that represents
 					% the tip of the call table. Otherwise,
 					% it will be no.
-
-		slot_decl		:: maybe(int)
-					% If --trace-decl is set, this will
-					% be yes(M), where stack slots M
-					% and M+1 are reserved for the runtime
-					% system to use in building proof
-					% trees for the declarative debugger.
-					% Otherwise, it will be no.
 	).
 
 	% Return the set of input variables whose values should be preserved
@@ -135,7 +129,7 @@
 
 	% Figure out whether we need a slot for storing the value of maxfr
 	% on entry, and record the result in the proc info.
-:- pred trace__do_we_need_maxfr_slot(globals::in, proc_info::in,
+:- pred trace__do_we_need_maxfr_slot(globals::in, pred_info::in, proc_info::in,
 	proc_info::out) is det.
 
 	% Return the number of slots reserved for tracing information.
@@ -144,17 +138,17 @@
 	% It is possible that one of these reserved slots contains a variable.
 	% If so, the variable and its slot number are returned in the last
 	% argument.
-:- pred trace__reserved_slots(module_info::in, proc_info::in, globals::in,
-	int::out, maybe(pair(prog_var, int))::out) is det.
+:- pred trace__reserved_slots(module_info::in, pred_info::in, proc_info::in,
+	globals::in, int::out, maybe(pair(prog_var, int))::out) is det.
 
 	% Construct and return an abstract struct that represents the
 	% tracing-specific part of the code generator state. Return also
 	% info about the non-fixed slots used by the tracing system,
 	% for eventual use in the constructing the procedure's layout
 	% structure.
-:- pred trace__setup(module_info::in, proc_info::in, globals::in,
-	trace_slot_info::out, trace_info::out, code_info::in, code_info::out)
-	is det.
+:- pred trace__setup(module_info::in, pred_info::in, proc_info::in,
+	globals::in, trace_slot_info::out, trace_info::out,
+	code_info::in, code_info::out) is det.
 
 	% Generate code to fill in the reserved stack slots.
 :- pred trace__generate_slot_fill_code(trace_info::in, code_tree::out,
@@ -218,9 +212,14 @@
 
 :- implementation.
 
-:- import_module continuation_info, trace_params, llds_out, layout_out, tree.
-:- import_module type_util, (inst), instmap, inst_match, mode_util.
-:- import_module code_model, code_util, options.
+:- import_module parse_tree__inst.
+:- import_module hlds__instmap, hlds__hlds_llds.
+:- import_module check_hlds__type_util.
+:- import_module check_hlds__inst_match, check_hlds__mode_util.
+:- import_module ll_backend__llds_out, ll_backend__layout_out.
+:- import_module ll_backend__continuation_info, ll_backend__code_util.
+:- import_module backend_libs__code_model.
+:- import_module libs__options, libs__trace_params, libs__tree.
 
 :- import_module list, bool, int, string, map, std_util, require, term, varset.
 
@@ -253,11 +252,11 @@ trace__fail_vars(ModuleInfo, ProcInfo, FailVars) :-
 		error("length mismatch in trace__fail_vars")
 	).
 
-trace__do_we_need_maxfr_slot(Globals, ProcInfo0, ProcInfo) :-
+trace__do_we_need_maxfr_slot(Globals, PredInfo0, ProcInfo0, ProcInfo) :-
 	globals__get_trace_level(Globals, TraceLevel),
 	proc_info_interface_code_model(ProcInfo0, CodeModel),
 	(
-		trace_level_is_none(TraceLevel) = no,
+		eff_trace_level_is_none(PredInfo0, ProcInfo0, TraceLevel) = no,
 		CodeModel \= model_non,
 		proc_info_goal(ProcInfo0, Goal),
 		code_util__goal_may_alloc_temp_frame(Goal)
@@ -286,21 +285,14 @@ trace__do_we_need_maxfr_slot(Globals, ProcInfo0, ProcInfo) :-
 	%		in the maybe_from_full field in the proc layout;
 	%		if there is no such slot, that field will contain -1.
 	%
-	% stage 4:	If --trace-decl is given, allocate the next two
-	%		available slots to hold the pointers to the proof tree
-	%		node of the parent and of this call respectively.
-	%		The number of the first of these two slots is recorded
-	%		in the maybe_decl_debug field in the proc layout;
-	%		if there are no such slots, that field will contain -1.
-	%
-	% stage 5:	If --trace-table-io is given, allocate the next slot
+	% stage 4:	If --trace-table-io is given, allocate the next slot
 	%		to hold the saved value of the io sequence number,
 	%		for use in implementing retry. The number of this slot
 	%		is recorded in the maybe_io_seq field in the proc
 	%		layout; if there is no such slot, that field will
 	%		contain -1.
 	%
-	% stage 6:	If --use-trail is set (given or implied), allocate
+	% stage 5:	If --use-trail is set (given or implied), allocate
 	%		two slots to hold the saved value of the trail pointer
 	%		and the ticket counter at the point of the call, for
 	%		use in implementing retry. The number of the first of
@@ -308,7 +300,7 @@ trace__do_we_need_maxfr_slot(Globals, ProcInfo0, ProcInfo) :-
 	%		in the proc layout; if there are no such slots, that
 	%		field will contain -1.
 	%
-	% stage 7:	If the procedure lives on the det stack but can put
+	% stage 6:	If the procedure lives on the det stack but can put
 	%		frames on the nondet stack, allocate a slot to hold
 	%		the saved value of maxfr at the point of the call,
 	%		for use in implementing retry. The number of this
@@ -316,7 +308,7 @@ trace__do_we_need_maxfr_slot(Globals, ProcInfo0, ProcInfo) :-
 	%		layout; if there is no such slot, that field will
 	%		contain -1.
 	%
-	% stage 8:	If the procedure's evaluation method is memo, loopcheck
+	% stage 7:	If the procedure's evaluation method is memo, loopcheck
 	%		or minimal model, we allocate a slot to hold the
 	%		variable that represents the tip of the call table.
 	%		The debugger needs this, because when it executes a
@@ -336,10 +328,11 @@ trace__do_we_need_maxfr_slot(Globals, ProcInfo0, ProcInfo) :-
 	% do not have a from-full slot, but their slots 1 through 4 are always
 	% valid; the label handling their redos accesses those slots directly.
 	% Shallow traced procedures do have a from-full slot, and their slots
-	% 1-4 are valid only if the from-full slot is TRUE; the label handling
-	% their redos thus checks this slot to see whether it can (or should)
-	% access the other slots. In shallow-traced model_non procedures
-	% that generate redo events, the from-full flag is always in slot 5.
+	% 1-4 are valid only if the from-full slot is MR_TRUE; the label
+	% handling their redos thus checks this slot to see whether it can
+	% (or should) access the other slots. In shallow-traced model_non
+	% procedures that generate redo events, the from-full flag is always
+	% in slot 5.
 	%
 	% The slots allocated by stages 1 and 2 are only ever referred to
 	% by the runtime system if they are guaranteed to exist. The runtime
@@ -349,12 +342,13 @@ trace__do_we_need_maxfr_slot(Globals, ProcInfo0, ProcInfo) :-
 	% which answers such questions, for later inclusion in the
 	% procedure's layout structure.
 
-trace__reserved_slots(_ModuleInfo, ProcInfo, Globals, ReservedSlots,
+trace__reserved_slots(_ModuleInfo, PredInfo, ProcInfo, Globals, ReservedSlots,
 		MaybeTableVarInfo) :-
 	globals__get_trace_level(Globals, TraceLevel),
 	globals__get_trace_suppress(Globals, TraceSuppress),
 	globals__lookup_bool_option(Globals, trace_table_io, TraceTableIo),
-	FixedSlots = trace_level_needs_fixed_slots(TraceLevel),
+	FixedSlots = eff_trace_level_needs_fixed_slots(PredInfo, ProcInfo,
+		TraceLevel),
 	(
 		FixedSlots = no,
 		ReservedSlots = 0,
@@ -364,21 +358,20 @@ trace__reserved_slots(_ModuleInfo, ProcInfo, Globals, ReservedSlots,
 		Fixed = 3, % event#, call#, call depth
 		(
 			proc_info_interface_code_model(ProcInfo, model_non),
-			trace_needs_port(TraceLevel, TraceSuppress, redo) = yes
+			eff_trace_needs_port(PredInfo, ProcInfo, TraceLevel,
+				TraceSuppress, redo) = yes
 		->
 			RedoLayout = 1
 		;
 			RedoLayout = 0
 		),
-		( trace_level_needs_from_full_slot(TraceLevel) = yes ->
+		(
+			eff_trace_level_needs_from_full_slot(PredInfo,
+				ProcInfo, TraceLevel) = yes
+		->
 			FromFull = 1
 		;
 			FromFull = 0
-		),
-		( trace_level_needs_decl_debug_slots(TraceLevel) = yes ->
-			DeclDebug = 2
-		;
-			DeclDebug = 0
 		),
 		( TraceTableIo = yes ->
 			IoSeq = 1
@@ -400,7 +393,7 @@ trace__reserved_slots(_ModuleInfo, ProcInfo, Globals, ReservedSlots,
 			Maxfr = 0
 		),
 		ReservedSlots0 = Fixed + RedoLayout + FromFull + IoSeq
-			+ Trail + Maxfr + DeclDebug,
+			+ Trail + Maxfr,
 		proc_info_get_call_table_tip(ProcInfo, MaybeCallTableVar),
 		( MaybeCallTableVar = yes(CallTableVar) ->
 			ReservedSlots = ReservedSlots0 + 1,
@@ -411,12 +404,14 @@ trace__reserved_slots(_ModuleInfo, ProcInfo, Globals, ReservedSlots,
 		)
 	).
 
-trace__setup(_ModuleInfo, ProcInfo, Globals, TraceSlotInfo, TraceInfo) -->
+trace__setup(_ModuleInfo, PredInfo, ProcInfo, Globals, TraceSlotInfo,
+		TraceInfo) -->
 	code_info__get_proc_model(CodeModel),
 	{ globals__get_trace_level(Globals, TraceLevel) },
 	{ globals__get_trace_suppress(Globals, TraceSuppress) },
 	{ globals__lookup_bool_option(Globals, trace_table_io, TraceTableIo) },
-	{ trace_needs_port(TraceLevel, TraceSuppress, redo) = TraceRedo },
+	{ TraceRedo = eff_trace_needs_port(PredInfo, ProcInfo, TraceLevel,
+		TraceSuppress, redo) },
 	(
 		{ TraceRedo = yes },
 		{ CodeModel = model_non }
@@ -428,7 +423,8 @@ trace__setup(_ModuleInfo, ProcInfo, Globals, TraceSlotInfo, TraceInfo) -->
 		{ MaybeRedoLayoutLabel = no },
 		{ NextSlotAfterRedoLayout = 4 }
 	),
-	{ trace_level_needs_from_full_slot(TraceLevel) = FromFullSlot },
+	{ FromFullSlot = eff_trace_level_needs_from_full_slot(PredInfo,
+		ProcInfo, TraceLevel) },
 	{
 		FromFullSlot = no,
 		MaybeFromFullSlot = no,
@@ -440,30 +436,20 @@ trace__setup(_ModuleInfo, ProcInfo, Globals, TraceSlotInfo, TraceInfo) -->
 		CallFromFullSlot = llds__stack_slot_num_to_lval(
 			CodeModel, NextSlotAfterRedoLayout),
 		MaybeFromFullSlotLval = yes(CallFromFullSlot),
-		NextSlotAfterFromFull is NextSlotAfterRedoLayout + 1
-	},
-	{ trace_level_needs_decl_debug_slots(TraceLevel) = DeclDebugSlots },
-	{
-		DeclDebugSlots = yes,
-		MaybeDeclSlots = yes(NextSlotAfterFromFull),
-		NextSlotAfterDecl = NextSlotAfterFromFull + 2
-	;
-		DeclDebugSlots = no,
-		MaybeDeclSlots = no,
-		NextSlotAfterDecl = NextSlotAfterFromFull
+		NextSlotAfterFromFull = NextSlotAfterRedoLayout + 1
 	},
 	{
 		TraceTableIo = yes,
-		MaybeIoSeqSlot = yes(NextSlotAfterDecl),
+		MaybeIoSeqSlot = yes(NextSlotAfterFromFull),
 		IoSeqLval = llds__stack_slot_num_to_lval(CodeModel,
-			NextSlotAfterDecl),
+			NextSlotAfterFromFull),
 		MaybeIoSeqLval = yes(IoSeqLval),
-		NextSlotAfterIoSeq = NextSlotAfterDecl + 1
+		NextSlotAfterIoSeq = NextSlotAfterFromFull + 1
 	;
 		TraceTableIo = no,
 		MaybeIoSeqSlot = no,
 		MaybeIoSeqLval = no,
-		NextSlotAfterIoSeq = NextSlotAfterDecl
+		NextSlotAfterIoSeq = NextSlotAfterFromFull
 	},
 	{ globals__lookup_bool_option(Globals, use_trail, yes) ->
 		MaybeTrailSlot = yes(NextSlotAfterIoSeq),
@@ -502,8 +488,7 @@ trace__setup(_ModuleInfo, ProcInfo, Globals, TraceSlotInfo, TraceInfo) -->
 		MaybeCallTableLval = no
 	},
 	{ TraceSlotInfo = trace_slot_info(MaybeFromFullSlot, MaybeIoSeqSlot,
-		MaybeTrailSlot, MaybeMaxfrSlot, MaybeCallTableSlot,
-		MaybeDeclSlots) },
+		MaybeTrailSlot, MaybeMaxfrSlot, MaybeCallTableSlot) },
 	{ TraceInfo = trace_info(TraceLevel, TraceSuppress,
 		MaybeFromFullSlotLval, MaybeIoSeqLval, MaybeTrailLvals,
 		MaybeMaxfrLval, MaybeCallTableLval, MaybeRedoLayoutLabel) }.
@@ -526,14 +511,14 @@ trace__generate_slot_fill_code(TraceInfo, TraceCode) -->
 	string__append_list([
 		"\t\t", EventNumStr, " = MR_trace_event_number;\n",
 		"\t\t", CallNumStr, " = MR_trace_incr_seq();\n",
-		"\t\t", CallDepthStr, " = MR_trace_incr_depth();"
+		"\t\t", CallDepthStr, " = MR_trace_incr_depth();\n"
 	], FillThreeSlots),
 	(
 		MaybeIoSeqSlot = yes(IoSeqLval),
 		trace__stackref_to_string(IoSeqLval, IoSeqStr),
 		string__append_list([
-			FillThreeSlots, "\n",
-			"\t\t", IoSeqStr, " = MR_io_tabling_counter;"
+			FillThreeSlots,
+			"\t\t", IoSeqStr, " = MR_io_tabling_counter;\n"
 		], FillSlotsUptoIoSeq)
 	;
 		MaybeIoSeqSlot = no,
@@ -546,10 +531,10 @@ trace__generate_slot_fill_code(TraceInfo, TraceCode) -->
 		LayoutAddrStr =
 			layout_out__make_label_layout_name(RedoLayoutLabel),
 		string__append_list([
-			FillSlotsUptoIoSeq, "\n",
+			FillSlotsUptoIoSeq,
 			"\t\t", RedoLayoutStr,
 				" = (MR_Word) (const MR_Word *) &",
-				LayoutAddrStr, ";"
+				LayoutAddrStr, ";\n"
 		], FillSlotsUptoRedo),
 		MaybeLayoutLabel = yes(RedoLayoutLabel)
 	;
@@ -566,9 +551,9 @@ trace__generate_slot_fill_code(TraceInfo, TraceCode) -->
 		trace__stackref_to_string(TrailLval, TrailLvalStr),
 		trace__stackref_to_string(TicketLval, TicketLvalStr),
 		string__append_list([
-			FillSlotsUptoRedo, "\n",
+			FillSlotsUptoRedo,
 			"\t\tMR_mark_ticket_stack(", TicketLvalStr, ");\n",
-			"\t\tMR_store_ticket(", TrailLvalStr, ");"
+			"\t\tMR_store_ticket(", TrailLvalStr, ");\n"
 		], FillSlotsUptoTrail)
 	;
 		MaybeTrailLvals = no,
@@ -581,10 +566,10 @@ trace__generate_slot_fill_code(TraceInfo, TraceCode) -->
 		string__append_list([
 			"\t\t", CallFromFullSlotStr, " = MR_trace_from_full;\n",
 			"\t\tif (MR_trace_from_full) {\n",
-			FillSlotsUptoTrail, "\n",
+			FillSlotsUptoTrail,
 			"\t\t} else {\n",
 			"\t\t\t", CallDepthStr, " = MR_trace_call_depth;\n",
-			"\t\t}"
+			"\t\t}\n"
 		], TraceStmt1)
 	;
 		MaybeFromFullSlot = no,
@@ -609,7 +594,7 @@ trace__generate_slot_fill_code(TraceInfo, TraceCode) -->
 		MaybeCallTableLval = yes(CallTableLval),
 		trace__stackref_to_string(CallTableLval, CallTableLvalStr),
 		string__append_list([
-			"\t\t", CallTableLvalStr, " = 0;"
+			"\t\t", CallTableLvalStr, " = 0;\n"
 		], TraceStmt3),
 		TraceCode3 = node([
 			pragma_c([], [pragma_c_raw_code(TraceStmt3,
@@ -638,10 +623,10 @@ trace__prepare_for_call(TraceCode) -->
 		], ResetDepthStmt),
 		(
 			MaybeFromFullSlot = yes(_),
-			ResetFromFullStmt = "MR_trace_from_full = FALSE;\n"
+			ResetFromFullStmt = "MR_trace_from_full = MR_FALSE;\n"
 		;
 			MaybeFromFullSlot = no,
-			ResetFromFullStmt = "MR_trace_from_full = TRUE;\n"
+			ResetFromFullStmt = "MR_trace_from_full = MR_TRUE;\n"
 		),
 		TraceCode = node([
 			c_code(ResetFromFullStmt, live_lvals_info(set__init))
@@ -687,7 +672,10 @@ trace__maybe_generate_internal_event_code(Goal, Code) -->
 			error("trace__generate_internal_event_code: bad path")
 		},
 		(
-			{ trace_needs_port(TraceInfo ^ trace_level,
+			code_info__get_pred_info(PredInfo),
+			code_info__get_proc_info(ProcInfo),
+			{ eff_trace_needs_port(PredInfo, ProcInfo,
+				TraceInfo ^ trace_level,
 				TraceInfo ^ trace_suppress_items, Port) = yes }
 		->
 			{ goal_info_get_pre_deaths(GoalInfo, PreDeaths) },
@@ -713,7 +701,10 @@ trace__maybe_generate_negated_event_code(Goal, NegPort, Code) -->
 			NegPort = neg_success,
 			Port = neg_success
 		},
-		{ trace_needs_port(TraceInfo ^ trace_level,
+		code_info__get_pred_info(PredInfo),
+		code_info__get_proc_info(ProcInfo),
+		{ eff_trace_needs_port(PredInfo, ProcInfo,
+			TraceInfo ^ trace_level,
 			TraceInfo ^ trace_suppress_items, Port) = yes }
 	->
 		{ Goal = _ - GoalInfo },
@@ -730,7 +721,10 @@ trace__maybe_generate_pragma_event_code(PragmaPort, Context, Code) -->
 	(
 		{ MaybeTraceInfo = yes(TraceInfo) },
 		{ trace__convert_nondet_pragma_port_type(PragmaPort, Port) },
-		{ trace_needs_port(TraceInfo ^ trace_level,
+		code_info__get_pred_info(PredInfo),
+		code_info__get_proc_info(ProcInfo),
+		{ eff_trace_needs_port(PredInfo, ProcInfo,
+			TraceInfo ^ trace_level,
 			TraceInfo ^ trace_suppress_items, Port) = yes }
 	->
 		trace__generate_event_code(Port, nondet_pragma, TraceInfo,
@@ -743,7 +737,10 @@ trace__generate_external_event_code(ExternalPort, TraceInfo, Context,
 		MaybeExternalInfo) -->
 	{ trace__convert_external_port_type(ExternalPort, Port) },
 	(
-		{ trace_needs_port(TraceInfo ^ trace_level,
+		code_info__get_pred_info(PredInfo),
+		code_info__get_proc_info(ProcInfo),
+		{ eff_trace_needs_port(PredInfo, ProcInfo,
+			TraceInfo ^ trace_level,
 			TraceInfo ^ trace_suppress_items, Port) = yes }
 	->
 		trace__generate_event_code(Port, external, TraceInfo,
@@ -821,7 +818,7 @@ trace__generate_event_code(Port, PortInfo, TraceInfo, Context,
 	DeclStmt = "\t\tMR_Code *MR_jumpaddr;\n",
 	SaveStmt = "\t\tMR_save_transient_registers();\n",
 	RestoreStmt = "\t\tMR_restore_transient_registers();\n",
-	GotoStmt = "\t\tif (MR_jumpaddr != NULL) MR_GOTO(MR_jumpaddr);"
+	GotoStmt = "\t\tif (MR_jumpaddr != NULL) MR_GOTO(MR_jumpaddr);\n"
 	},
 	{ string__append_list([
 		"\t\tMR_jumpaddr = MR_trace(\n",
@@ -916,6 +913,16 @@ trace__maybe_setup_redo_event(TraceInfo, Code) :-
 trace__produce_vars([], _, _, Tvars, Tvars, [], empty) --> [].
 trace__produce_vars([Var | Vars], VarSet, InstMap, Tvars0, Tvars,
 		[VarInfo | VarInfos], tree(VarCode, VarsCode)) -->
+	trace__produce_var(Var, VarSet, InstMap, Tvars0, Tvars1,
+		VarInfo, VarCode),
+	trace__produce_vars(Vars, VarSet, InstMap, Tvars1, Tvars,
+		VarInfos, VarsCode).
+
+:- pred trace__produce_var(prog_var::in, prog_varset::in, instmap::in,
+	set(tvar)::in, set(tvar)::out, var_info::out, code_tree::out,
+	code_info::in, code_info::out) is det.
+
+trace__produce_var(Var, VarSet, InstMap, Tvars0, Tvars, VarInfo, VarCode) -->
 	code_info__produce_variable_in_reg_or_stack(Var, VarCode, Lval),
 	code_info__variable_type(Var, Type),
 	code_info__get_module_info(ModuleInfo),
@@ -934,11 +941,8 @@ trace__produce_vars([Var | Vars], VarSet, InstMap, Tvars0, Tvars,
 	LiveType = var(Var, Name, Type, LldsInst),
 	VarInfo = var_info(direct(Lval), LiveType),
 	type_util__real_vars(Type, TypeVars),
-
-	set__insert_list(Tvars0, TypeVars, Tvars1)
-	},
-	trace__produce_vars(Vars, VarSet, InstMap, Tvars1, Tvars,
-		VarInfos, VarsCode).
+	set__insert_list(Tvars0, TypeVars, Tvars)
+	}.
 
 %-----------------------------------------------------------------------------%
 

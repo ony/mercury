@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -25,8 +25,11 @@
 % library modules
 :- import_module list, int, io, term.
 
+% XXX parent modules
+:- import_module hlds, parse_tree.
 % compiler modules
-:- import_module hlds_data, prog_data, hlds_module.
+:- import_module hlds__hlds_data, hlds__hlds_module.
+:- import_module parse_tree__prog_data.
 
 
 %-------------------------------------------------------------------%
@@ -107,9 +110,14 @@
 % library modules
 :- import_module require, string, std_util, bool.
 
+% XXX parent modules
+:- import_module check_hlds.
+
 % compiler modules
-:- import_module mercury_to_mercury, prog_io, type_util.
-:- import_module hlds_pred, prog_out, hlds_out.
+:- import_module parse_tree__mercury_to_mercury, parse_tree__prog_io.
+:- import_module parse_tree__prog_out.
+:- import_module check_hlds__type_util.
+:- import_module hlds__hlds_pred, hlds__hlds_out.
 
 
 init([]).
@@ -367,47 +375,47 @@ normalize_wti_2(VarType, HLDS, B0, Acc0, SEL0, SEL):-
 :- func index_error_message(module_info, (type), cons_id, int) = string. 
 index_error_message(HLDS, VarType, CONS, INDEX) = Msg :- 
 	get_type_defn(HLDS,VarType,TypeDefn),
-	get_type_id(VarType,TypeID),
+
+	(
+		type_util__type_to_ctor_and_args(VarType, TypeCTor0, _)
+	->
+		TypeCTor = TypeCTor0
+	; 
+		error("(pa_selector) index_error_message: type is not a non-var type.")
+	),
+	
+	type_util__type_ctor_module(HLDS, TypeCTor, ModuleName),	
+	type_util__type_ctor_name(HLDS, TypeCTor, TypeName),
+	type_util__type_ctor_arity(HLDS, TypeCTor, Arity),
+
 	hlds_data__get_type_defn_status(TypeDefn, TypeImportStatus),
 	hlds_data__get_type_defn_body(TypeDefn, TypeBody), 
 
 	hlds_type_body_to_minimal_string(TypeBody, BodyString),
 	hlds_pred__import_status_to_minimal_string(TypeImportStatus,
 		StatusString),
-	type_util__type_id_name(HLDS,TypeID,TypeName),
-	type_util__type_id_module(HLDS,TypeID, ModuleName),
+
 	prog_out__sym_name_to_string(ModuleName, "__", SModuleName),	
 	hlds_out__cons_id_to_string(CONS,SCONS),
 	string__int_to_string(INDEX,SINDEX),
+	string__int_to_string(Arity, SArity),
 	string__append_list([
 		"\n(pa_selector) normalize_wti_2: index not found.\n",
-		"(pa)              type is ", SModuleName, "::",TypeName, 
-				" -> ", SCONS, " -- ", SINDEX, "\n",
+		"(pa)              type is ", SModuleName, "::",TypeName, "/",
+				SArity, " -> ", SCONS, " -- ", SINDEX, "\n",
 		"(pa)              (", BodyString, " and ", 
 					StatusString, ").\n"], 
 		Msg).
 	
-
-:- pred get_type_id((type),type_id).
-:- mode get_type_id(in,out) is det.
-
-get_type_id(Type, TypeID):- 
-	(
-		type_util__type_to_type_id(Type, TypeID0, _)
-	->
-		TypeID = TypeID0
-	;
-		error("(pa_selector) get_type_id: type is not a non-variable type.")
-	).
 
 :- pred get_type_defn(module_info,(type),hlds_type_defn).
 :- mode get_type_defn(in,in,out) is det.
 
 get_type_defn(HLDS,VarType,TypeDefn):-
 	(
-		type_to_type_id(VarType,TypeId,_TypeArgs),
+		type_to_ctor_and_args(VarType, TypeCTor, _TypeArgs),
 		module_info_types(HLDS,Types),
-		map__lookup(Types,TypeId,TypeDefn0)
+		map__lookup(Types,TypeCTor,TypeDefn0)
 	->
 		TypeDefn = TypeDefn0
 	;
@@ -417,10 +425,10 @@ get_type_defn(HLDS,VarType,TypeDefn):-
 :- pred hlds_type_body_to_minimal_string(hlds_type_body, string).
 :- mode hlds_type_body_to_minimal_string(in,out) is det.
 
-hlds_type_body_to_minimal_string(du_type(_,_,_,_), "du_type").
-hlds_type_body_to_minimal_string(uu_type(_), "uu_type").
+hlds_type_body_to_minimal_string(du_type(_,_,_,_,_), "du_type").
 hlds_type_body_to_minimal_string(eqv_type(_), "eqv_type").
 hlds_type_body_to_minimal_string(abstract_type, "abstract_type").
+hlds_type_body_to_minimal_string(foreign_type(_), "foreign_type").
 
 
 

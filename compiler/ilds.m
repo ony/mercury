@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,7 +17,7 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module ilds.
+:- module ml_backend__ilds.
 
 :- interface.
 
@@ -169,10 +169,12 @@
 	;	native_float
 	;	bool
 	;	char			% A unicode character.
+	;	object
+	;	string
 	;	refany			% a reference to value with an attached
 					% type
 	; 	class(class_name)
-	;	value_class(class_name)
+	;	valuetype(class_name)
 	;	interface(class_name)
 	;	'[]'(ilds__type, bounds) % An array
 	;	'&'(ilds__type)		 % A managed pointer
@@ -377,7 +379,7 @@
 
 	% Add an extra identifier to the end of an IL class name, e.g.
 	% append Bar to [mercury]mercury.runtime.Foo to make
-	% [mercury]mercury.runtime.Foo.Bar
+	% [mercury]mercury.runtime.Foo/Bar
 
 :- func append_nested_class_name(ilds__class_name, ilds__nested_class_name) =
 	ilds__class_name.
@@ -385,7 +387,7 @@
 :- implementation.
 
 :- import_module int, require.
-:- import_module error_util.
+:- import_module hlds__error_util.
 
 get_class_suffix(structured_name(_, OuterClassFullName, NestedClass))
 		= SuffixName :-
@@ -415,7 +417,8 @@ append_toplevel_class_name(structured_name(Assembly, Namespace, NestedClass),
 		"append_toplevel_class_name: namespace name has nested class?"),
 	list__append(Namespace, [Class], ClassName).
 
-append_nested_class_name(StructuredName0, ExtraNestedClasses) = StructuredName :-
+append_nested_class_name(StructuredName0, ExtraNestedClasses)
+		= StructuredName :-
 	StructuredName0 = structured_name(Assembly, Class, NestedClasses),
 	StructuredName = structured_name(Assembly, Class,
 				NestedClasses ++ ExtraNestedClasses).

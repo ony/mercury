@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -21,15 +21,19 @@
 % if it is not.  The `Term' there should be the term which
 % is syntactically incorrect.
 
-:- module prog_io_util.
+:- module parse_tree__prog_io_util.
 
 :- interface.
 
-:- import_module prog_data, (inst).
+:- import_module parse_tree__prog_data, (parse_tree__inst).
 :- import_module list, map, std_util, term, io.
 
 :- type maybe2(T1, T2)	--->	error(string, term)
 			;	ok(T1, T2).
+
+:- type maybe3(T1, T2, T3)
+	--->	error(string, term)
+	;	ok(T1, T2, T3).
 
 :- type maybe1(T)	== 	maybe1(T, generic).
 :- type maybe1(T, U)	--->	error(string, term(U))
@@ -62,6 +66,12 @@
 :- pred parse_list_of_vars(term(T), list(var(T))).
 :- mode parse_list_of_vars(in, out) is semidet.
 
+	% Parse a list of quantified variables, splitting it into
+	% state variables and ordinary logic variables, respectively.
+	%
+:- pred parse_quantifier_vars(term(T), list(var(T)), list(var(T))).
+:- mode parse_quantifier_vars(in, out, out) is semidet.
+
 :- pred parse_name_and_arity(module_name, term(_T), sym_name, arity).
 :- mode parse_name_and_arity(in, in, out, out) is semidet.
 
@@ -87,17 +97,21 @@
 :- pred convert_type(term(T), type).
 :- mode convert_type(in, out) is det.
 
-:- pred convert_mode_list(list(term), list(mode)).
-:- mode convert_mode_list(in, out) is semidet.
+:- type allow_constrained_inst_var
+	--->	allow_constrained_inst_var
+	;	no_allow_constrained_inst_var.
 
-:- pred convert_mode(term, mode).
-:- mode convert_mode(in, out) is semidet.
+:- pred convert_mode_list(allow_constrained_inst_var, list(term), list(mode)).
+:- mode convert_mode_list(in, in, out) is semidet.
 
-:- pred convert_inst_list(list(term), list(inst)).
-:- mode convert_inst_list(in, out) is semidet.
+:- pred convert_mode(allow_constrained_inst_var, term, mode).
+:- mode convert_mode(in, in, out) is semidet.
 
-:- pred convert_inst(term, inst).
-:- mode convert_inst(in, out) is semidet.
+:- pred convert_inst_list(allow_constrained_inst_var, list(term), list(inst)).
+:- mode convert_inst_list(in, in, out) is semidet.
+
+:- pred convert_inst(allow_constrained_inst_var, term, inst).
+:- mode convert_inst(in, in, out) is semidet.
 
 :- pred standard_det(string, determinism).
 :- mode standard_det(in, out) is semidet.
@@ -153,14 +167,15 @@
 
 :- implementation.
 
-:- import_module prog_io, prog_io_goal, options, globals.
+:- import_module parse_tree__prog_io, parse_tree__prog_io_goal, libs__options.
+:- import_module libs__globals.
 
 % XXX we should not need to import hlds*.m here.
 % But currently we need to import hlds_data.m for the `cons_id' type
 % that is used in insts.
-:- import_module hlds_data.
+:- import_module hlds__hlds_data.
 
-:- import_module bool, string, std_util, term.
+:- import_module bool, string, std_util, term, set.
 
 add_context(error(M, T), _, error(M, T)).
 add_context(ok(Item), Context, ok(Item, Context)).
@@ -257,10 +272,10 @@ strip_prog_context(term__functor(F, As, _)) =
 			list__map(strip_prog_context, As),
 			term__context_init).
 
-convert_mode_list([], []).
-convert_mode_list([H0|T0], [H|T]) :-
-	convert_mode(H0, H),
-	convert_mode_list(T0, T).
+convert_mode_list(_, [], []).
+convert_mode_list(AllowConstrainedInstVar, [H0|T0], [H|T]) :-
+	convert_mode(AllowConstrainedInstVar, H0, H),
+	convert_mode_list(AllowConstrainedInstVar, T0, T).
 
 
 	% 
@@ -273,7 +288,7 @@ convert_mode_list([H0|T0], [H|T]) :-
 	% Eventually we can stop supporting :: and -> in :- mode
 	% declarations altogether.
 	%
-convert_mode(Term, Mode) :-
+convert_mode(AllowConstrainedInstVar, Term, Mode) :-
 	(
 		( 
 			Term = term__functor(term__atom(">>"), 
@@ -283,8 +298,8 @@ convert_mode(Term, Mode) :-
 				[InstA, InstB], _)
 		)
 	->
-		convert_inst(InstA, ConvertedInstA),
-		convert_inst(InstB, ConvertedInstB),
+		convert_inst(AllowConstrainedInstVar, InstA, ConvertedInstA),
+		convert_inst(AllowConstrainedInstVar, InstB, ConvertedInstB),
 		Mode = (ConvertedInstA -> ConvertedInstB)
 	;
 		% Handle higher-order predicate modes:
@@ -300,7 +315,8 @@ convert_mode(Term, Mode) :-
 	->
 		DetTerm = term__functor(term__atom(DetString), [], _),
 		standard_det(DetString, Detism),
-		convert_mode_list(ArgModesTerms, ArgModes),
+		convert_mode_list(AllowConstrainedInstVar, ArgModesTerms,
+			ArgModes),
 		PredInstInfo = pred_inst_info(predicate, ArgModes, Detism),
 		Inst = ground(shared, higher_order(PredInstInfo)),
 		Mode = (Inst -> Inst)
@@ -320,8 +336,9 @@ convert_mode(Term, Mode) :-
 	->
 		DetTerm = term__functor(term__atom(DetString), [], _),
 		standard_det(DetString, Detism),
-		convert_mode_list(ArgModesTerms, ArgModes0),
-		convert_mode(RetModeTerm, RetMode),
+		convert_mode_list(AllowConstrainedInstVar, ArgModesTerms,
+			ArgModes0),
+		convert_mode(AllowConstrainedInstVar, RetModeTerm, RetMode),
 		list__append(ArgModes0, [RetMode], ArgModes),
 		FuncInstInfo = pred_inst_info(function, ArgModes, Detism),
 		Inst = ground(shared, higher_order(FuncInstInfo)),
@@ -329,18 +346,18 @@ convert_mode(Term, Mode) :-
 	;
 		parse_qualified_term(Term, Term, "mode definition", R),
 		R = ok(Name, Args),	% should improve error reporting
-		convert_inst_list(Args, ConvertedArgs),
+		convert_inst_list(AllowConstrainedInstVar, Args, ConvertedArgs),
 		Mode = user_defined_mode(Name, ConvertedArgs)
 	).
 
-convert_inst_list([], []).
-convert_inst_list([H0|T0], [H|T]) :-
-	convert_inst(H0, H),
-	convert_inst_list(T0, T).
+convert_inst_list(_, [], []).
+convert_inst_list(AllowConstrainedInstVar, [H0|T0], [H|T]) :-
+	convert_inst(AllowConstrainedInstVar, H0, H),
+	convert_inst_list(AllowConstrainedInstVar, T0, T).
 
-convert_inst(term__variable(V0), inst_var(V)) :-
+convert_inst(_, term__variable(V0), inst_var(V)) :-
 	term__coerce_var(V0, V).
-convert_inst(Term, Result) :-
+convert_inst(AllowConstrainedInstVar, Term, Result) :-
 	Term = term__functor(Name, Args0, _Context),
 	% `free' insts
 	( Name = term__atom("free"), Args0 = [] ->
@@ -382,7 +399,8 @@ convert_inst(Term, Result) :-
 	->
 		DetTerm = term__functor(term__atom(DetString), [], _),
 		standard_det(DetString, Detism),
-		convert_mode_list(ArgModesTerm, ArgModes),
+		convert_mode_list(AllowConstrainedInstVar, ArgModesTerm,
+			ArgModes),
 		PredInst = pred_inst_info(predicate, ArgModes, Detism),
 		Result = ground(shared, higher_order(PredInst))
 	;
@@ -401,8 +419,9 @@ convert_inst(Term, Result) :-
 	->
 		DetTerm = term__functor(term__atom(DetString), [], _),
 		standard_det(DetString, Detism),
-		convert_mode_list(ArgModesTerm, ArgModes0),
-		convert_mode(RetModeTerm, RetMode),
+		convert_mode_list(AllowConstrainedInstVar, ArgModesTerm,
+			ArgModes0),
+		convert_mode(AllowConstrainedInstVar, RetModeTerm, RetMode),
 		list__append(ArgModes0, [RetMode], ArgModes),
 		FuncInst = pred_inst_info(function, ArgModes, Detism),
 		Result = ground(shared, higher_order(FuncInst))
@@ -413,20 +432,30 @@ convert_inst(Term, Result) :-
 
 	% `bound' insts
 	; Name = term__atom("bound"), Args0 = [Disj] ->
-		parse_bound_inst_list(Disj, shared, Result)
+		parse_bound_inst_list(AllowConstrainedInstVar, Disj, shared,
+			Result)
 /* `bound_unique' is for backwards compatibility - use `unique' instead */
 	; Name = term__atom("bound_unique"), Args0 = [Disj] ->
-		parse_bound_inst_list(Disj, unique, Result)
+		parse_bound_inst_list(AllowConstrainedInstVar, Disj, unique,
+			Result)
 	; Name = term__atom("unique"), Args0 = [Disj] ->
-		parse_bound_inst_list(Disj, unique, Result)
+		parse_bound_inst_list(AllowConstrainedInstVar, Disj, unique,
+			Result)
 	; Name = term__atom("mostly_unique"), Args0 = [Disj] ->
-		parse_bound_inst_list(Disj, mostly_unique, Result)
-
+		parse_bound_inst_list(AllowConstrainedInstVar, Disj,
+			mostly_unique, Result)
+	; Name = term__atom("=<"), Args0 = [VarTerm, InstTerm] ->
+		AllowConstrainedInstVar = allow_constrained_inst_var,
+		VarTerm = term__variable(Var),
+		% Do not allow nested constrained_inst_vars.
+		convert_inst(no_allow_constrained_inst_var, InstTerm, Inst),
+		Result = constrained_inst_vars(set__make_singleton_set(
+				term__coerce_var(Var)), Inst)
 	% anything else must be a user-defined inst
 	;
 		parse_qualified_term(Term, Term, "inst",
 			ok(QualifiedName, Args1)),
-		convert_inst_list(Args1, Args),
+		convert_inst_list(AllowConstrainedInstVar, Args1, Args),
 		Result = defined_inst(user_inst(QualifiedName, Args))
 	).
 
@@ -440,11 +469,13 @@ standard_det("semidet", semidet).
 standard_det("erroneous", erroneous).
 standard_det("failure", failure).
 
-:- pred parse_bound_inst_list(term::in, uniqueness::in, (inst)::out) is semidet.
+:- pred parse_bound_inst_list(allow_constrained_inst_var::in, term::in,
+		uniqueness::in, (inst)::out) is semidet.
 
-parse_bound_inst_list(Disj, Uniqueness, bound(Uniqueness, Functors)) :-
+parse_bound_inst_list(AllowConstrainedInstVar, Disj, Uniqueness,
+		bound(Uniqueness, Functors)) :-
 	disjunction_to_list(Disj, List),
-	convert_bound_inst_list(List, Functors0),
+	convert_bound_inst_list(AllowConstrainedInstVar, List, Functors0),
 	list__sort(Functors0, Functors),
 	% check that the list doesn't specify the same functor twice
 	\+ (
@@ -454,18 +485,19 @@ parse_bound_inst_list(Disj, Uniqueness, bound(Uniqueness, Functors)) :-
 		F2 = functor(ConsId, _)
 	).
 
-:- pred convert_bound_inst_list(list(term), list(bound_inst)).
-:- mode convert_bound_inst_list(in, out) is semidet.
+:- pred convert_bound_inst_list(allow_constrained_inst_var, list(term),
+		list(bound_inst)).
+:- mode convert_bound_inst_list(in, in, out) is semidet.
 
-convert_bound_inst_list([], []).
-convert_bound_inst_list([H0|T0], [H|T]) :-
-	convert_bound_inst(H0, H),
-	convert_bound_inst_list(T0, T).
+convert_bound_inst_list(_, [], []).
+convert_bound_inst_list(AllowConstrainedInstVar, [H0|T0], [H|T]) :-
+	convert_bound_inst(AllowConstrainedInstVar, H0, H),
+	convert_bound_inst_list(AllowConstrainedInstVar, T0, T).
 
-:- pred convert_bound_inst(term, bound_inst).
-:- mode convert_bound_inst(in, out) is semidet.
+:- pred convert_bound_inst(allow_constrained_inst_var, term, bound_inst).
+:- mode convert_bound_inst(in, in, out) is semidet.
 
-convert_bound_inst(InstTerm, functor(ConsId, Args)) :-
+convert_bound_inst(AllowConstrainedInstVar, InstTerm, functor(ConsId, Args)) :-
 	InstTerm = term__functor(Functor, Args0, _),
 	( Functor = term__atom(_) ->
 		parse_qualified_term(InstTerm, InstTerm, "inst",
@@ -477,7 +509,7 @@ convert_bound_inst(InstTerm, functor(ConsId, Args)) :-
 		list__length(Args1, Arity),
 		make_functor_cons_id(Functor, Arity, ConsId)
 	),
-	convert_inst_list(Args1, Args).
+	convert_inst_list(AllowConstrainedInstVar, Args1, Args).
 
 disjunction_to_list(Term, List) :-
 	binop_term_to_list(";", Term, List).
@@ -537,14 +569,13 @@ combine_list_results(ok(X), ok(Xs), ok([X|Xs])).
 %-----------------------------------------------------------------------------%
 
 report_warning(Message) -->
-	io__stderr_stream(StdErr),
 	globals__io_lookup_bool_option(halt_at_warn, HaltAtWarn),
 	( { HaltAtWarn = yes } ->
 		io__set_exit_status(1)
 	;
 		[]
 	),
-	io__write_string(StdErr, Message).
+	io__write_string(Message).
 
 report_warning(Stream, Message) -->
 	globals__io_lookup_bool_option(halt_at_warn, HaltAtWarn),
@@ -558,8 +589,7 @@ report_warning(Stream, Message) -->
 report_warning(FileName, LineNum, Message) -->
 	{ string__format("%s:%3d: Warning: %s\n",
 		[s(FileName), i(LineNum), s(Message)], FullMessage) },
-	io__stderr_stream(StdErr),
-	io__write_string(StdErr, FullMessage),
+	io__write_string(FullMessage),
 	globals__io_lookup_bool_option(halt_at_warn, HaltAtWarn),
 	( { HaltAtWarn = yes } ->
 		io__set_exit_status(1)
@@ -567,4 +597,20 @@ report_warning(FileName, LineNum, Message) -->
 		[]
 	).
 
+%------------------------------------------------------------------------------%
+
+parse_quantifier_vars(functor(atom("[]"),  [],     _), [],  []).
+
+parse_quantifier_vars(functor(atom("[|]"), [H, T], _), SVs, Vs) :-
+	(
+		H   = functor(atom("!"), [variable(SV)], _),
+		SVs = [SV | SVs0],
+		parse_quantifier_vars(T, SVs0, Vs)
+	;
+		H   = variable(V),
+		Vs = [V | Vs0],
+		parse_quantifier_vars(T, SVs, Vs0)
+	).
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,7 +17,11 @@
 :- module sr_dead.
 :- interface.
 
-:- import_module hlds_pred, hlds_module, hlds_goal.
+% XXX parent modules.
+:- import_module hlds.
+
+% compiler modules.
+:- import_module hlds__hlds_pred, hlds__hlds_module, hlds__hlds_goal.
 
 :- pred sr_dead__process_goal(pred_id::in, proc_info::in, module_info::in, 
 				hlds_goal::in, hlds_goal::out) is det.
@@ -28,17 +32,20 @@
 
 :- implementation.
 
+% XXX parent modules
+:- import_module parse_tree.
+
 :- import_module assoc_list, int, require. 
 :- import_module set, list, map, std_util.
-:- import_module hlds_goal, prog_data, hlds_data.
+:- import_module parse_tree__prog_data, hlds__hlds_data.
 :- import_module sr_data, sr_live.
 :- import_module pa_alias_as, pa_run.
 :- import_module sr_util.
 
 process_goal(_PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
 	pa_alias_as__init(Alias0), 
-	hlds_pred__proc_info_real_headvars(ProcInfo, RealHeadVars), 
-	dead_cell_pool_init(RealHeadVars, Pool0), 
+	hlds_pred__proc_info_headvars(ProcInfo, HeadVars), 
+	dead_cell_pool_init(HeadVars, Pool0), 
 	annotate_goal(ProcInfo, ModuleInfo, Goal0, Goal, 
 			Pool0, _Pool, Alias0, _Alias).
 		
@@ -83,7 +90,7 @@ annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal,
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = switch(A, B, Cases0, SM),
+	Expr0 = switch(A, B, Cases0),
 	goal_info_get_outscope(Info0, Outscope), 
 	sr_util__list_map3(annotate_case(ProcInfo, HLDS, Pool0, Alias0),
 			Cases0, Cases, ListPools, ListAliases),
@@ -91,7 +98,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 			ListAliases, Alias),
 	Info = Info0, 
-	Expr = switch(A, B, Cases, SM), 
+	Expr = switch(A, B, Cases), 
 	Goal = Expr - Info. 
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
@@ -111,7 +118,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = disj(Goals0, SM),
+	Expr0 = disj(Goals0),
 	goal_info_get_outscope(Info0, Outscope), 
 	(
 		Goals0 = []
@@ -136,7 +143,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 			HLDS, Info0, ListAliases, Alias)
 	),
 	Info = Info0,
-	Expr = disj(Goals, SM),
+	Expr = disj(Goals),
 	Goal = Expr - Info. 
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
@@ -160,7 +167,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM),
+	Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
 	goal_info_get_outscope(Info0, Outscope), 
 	annotate_goal(ProcInfo, HLDS, Cond0, Cond, Pool0, 
 			PoolCond, Alias0, AliasCond),
@@ -173,7 +180,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 			[ AliasThen, AliasElse ], Alias),
 	Info = Info0, 
-	Expr = if_then_else(Vars, Cond, Then, Else, SM),
+	Expr = if_then_else(Vars, Cond, Then, Else),
 	Goal = Expr - Info. 
 	
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
@@ -187,7 +194,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	
 annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
-	Expr0 = par_conj(_, _),
+	Expr0 = par_conj(_),
 	Pool = Pool0,
 	pa_alias_as__top("unhandled goal", Alias),
 	Goal = Expr0 - Info0. 

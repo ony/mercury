@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,9 +14,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- import_module hlds_pred.
-:- import_module pa_alias_as.
+% library modules. 
 :- import_module list.
+
+% XXX parent modules
+:- import_module hlds.
+% compiler modules
+:- import_module hlds__hlds_pred.
+:- import_module pa_alias_as.
 
 :- type pa_fixpoint_table.
 
@@ -113,8 +118,11 @@ pa_fixpoint_table_get_final_as_semidet(PRED_PROC_ID, ALIAS_AS, T):-
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, list.
-:- import_module prog_data.
+% XXX parent modules
+:- import_module parse_tree.
+
+:- import_module hlds__hlds_module, hlds__hlds_pred, list.
+:- import_module parse_tree__prog_data.
 
 :- pred arg_types_are_all_primitive(module_info, pred_info).
 :- mode arg_types_are_all_primitive(in,in) is semidet.
@@ -123,7 +131,9 @@ pa_fixpoint_table_get_final_as_semidet(PRED_PROC_ID, ALIAS_AS, T):-
 
 :- implementation. 
 
-:- import_module type_util.
+% XXX parent modules
+:- import_module check_hlds. 
+:- import_module check_hlds__type_util.
 
 arg_types_are_all_primitive(HLDS, PredInfo):-
         hlds_pred__pred_info_arg_types(PredInfo, ArgTypes),
@@ -132,7 +142,7 @@ arg_types_are_all_primitive(HLDS, PredInfo):-
 types_are_primitive(HLDS, TYPES) :- 
         list__filter(pred(TYPE::in) is semidet :-
 		(
-			type_util__type_is_guaranteed_atomic(TYPE,HLDS)
+			type_util__type_is_atomic(TYPE,HLDS)
 		),
 		TYPES,
 		_TrueList, 

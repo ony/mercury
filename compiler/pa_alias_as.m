@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -18,11 +18,13 @@
 :- import_module set, list, map, string, int, varset.
 :- import_module io, term, std_util.
 
+% XXX parent modules
+:- import_module parse_tree, hlds.
 % compiler modules
-:- import_module prog_data.
-:- import_module hlds_goal.
-:- import_module hlds_pred, hlds_module.
-:- import_module instmap.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_pred, hlds__hlds_module.
+:- import_module hlds__instmap.
 :- import_module sr_live.
 :- import_module pa_datastruct.
 
@@ -213,11 +215,15 @@
 % library modules
 :- import_module require, term, assoc_list.
 
+% XXX parent modules
+:- import_module check_hlds.
 % compiler modules
 :- import_module pa_alias, pa_util, pa_sr_util.
 :- import_module pa_alias_set.
-:- import_module mercury_to_mercury.
-:- import_module type_util.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module check_hlds__type_util.
+:- import_module hlds__hlds_llds.
+:- import_module pa_sr_util.
 
 %-----------------------------------------------------------------------------%
 %-- type definitions 
@@ -301,10 +307,10 @@ project_set(SetVar, ASin, ASout):-
 project_on_live_vars(ProcInfo, GoalInfo, Alias0, Alias):- 
 	goal_info_get_lfu(GoalInfo, LFUi), 
 	goal_info_get_lbu(GoalInfo, LBUi), 
-	proc_info_real_headvars(ProcInfo, ListRealHeadVars), 
-	set__list_to_set(ListRealHeadVars, RealHeadVars),
+	proc_info_headvars(ProcInfo, ListHeadVars), 
+	set__list_to_set(ListHeadVars, HeadVars),
         set__union(LFUi, LBUi, IN_USEi),
-        set__union(IN_USEi, RealHeadVars, AliveVars),
+        set__union(IN_USEi, HeadVars, AliveVars),
 	project_set(AliveVars, Alias0, Alias). 
 
 	
@@ -349,11 +355,19 @@ rename(MapVar, ASin, ASout):-
 	).
 
 rename_types(FromTypes, ToTypes, ASin, ASout) :- 
-	assoc_list__from_corresponding_lists(FromTypes, ToTypes, 
+	(
+		ASin = real_as(AliasSet0)
+	-> 
+		assoc_list__from_corresponding_lists(FromTypes, ToTypes, 
 				FromToTypes), 
-	list__foldl(rename_type_det, FromToTypes, 
+		list__foldl(rename_type_det, FromToTypes, 
 				map__init, Substitution), 
-	rename_types(Substitution, ASin, ASout). 
+		pa_alias_set__rename_types(Substitution, AliasSet0, 
+				AliasSet),
+		ASout = real_as(AliasSet)
+	; 
+		ASout = ASin 	% bottom or top
+	).
 
 rename_types(Substitution, A0, A) :- 
 	(
@@ -507,7 +521,7 @@ extend_unification(ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout):-
 optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 	proc_info_headvars(ProcInfo, HeadVars), 
 	set__list_to_set(HeadVars, HeadVarsSet), 
-	hlds_goal__goal_info_get_post_deaths(GI, Deaths0),
+	hlds_llds__goal_info_get_post_deaths(GI, Deaths0),
 	set__difference(Deaths0, HeadVarsSet, Deaths), 
 	set__to_sorted_list(Deaths, DeathsList),
 	(
@@ -650,7 +664,7 @@ typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, [Alias | Rest]):-
 	map__is_empty(Substitution),
 	typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, Rest).
 		
-:- import_module std_util, inst_match.
+:- import_module std_util, check_hlds__inst_match.
 
 :- pred maybe_modes_to_modes(list(maybe(pair(string, mode))), list(mode)).
 :- mode maybe_modes_to_modes(in, out) is semidet.
@@ -697,7 +711,7 @@ to_trios(Vars, Modes, Types, Trios):-
 :- pred collect_all_input_vars(module_info::in,
 		list(trio)::in, list(trio)::out) is det.
 
-:- import_module mode_util.
+:- import_module check_hlds__mode_util.
 
 collect_all_output_vars(HLDS, VarsIN, VarsOUT):- 
 	list__filter(

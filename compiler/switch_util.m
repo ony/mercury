@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,9 +12,10 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module switch_util.
+:- module backend_libs__switch_util.
 :- interface.
-:- import_module prog_data, hlds_goal, hlds_data, hlds_module, type_util.
+:- import_module parse_tree__prog_data, hlds__hlds_goal, hlds__hlds_data.
+:- import_module hlds__hlds_module, check_hlds__type_util.
 :- import_module list, assoc_list, map, std_util.
 
 %-----------------------------------------------------------------------------%
@@ -276,11 +277,16 @@ switch_util__type_cat_to_switch_cat(tuple_type, other_switch).
 	%
 switch_util__switch_priority(no_tag, 0).		% should never occur
 switch_util__switch_priority(int_constant(_), 1).
+switch_util__switch_priority(reserved_address(_), 1).
 switch_util__switch_priority(shared_local_tag(_, _), 1).
+switch_util__switch_priority(single_functor, 2).
 switch_util__switch_priority(unshared_tag(_), 2).
 switch_util__switch_priority(float_constant(_), 3).
 switch_util__switch_priority(shared_remote_tag(_, _), 4).
 switch_util__switch_priority(string_constant(_), 5).
+switch_util__switch_priority(shared_with_reserved_addresses(RAs, Tag), N) :-
+	switch_util__switch_priority(Tag, N0),
+	N = N0 + list__length(RAs).
 	% The following tags should all never occur in switches.
 switch_util__switch_priority(pred_closure_tag(_, _, _), 6).
 switch_util__switch_priority(code_addr_constant(_, _), 6).
@@ -288,6 +294,7 @@ switch_util__switch_priority(type_ctor_info_constant(_, _, _), 6).
 switch_util__switch_priority(base_typeclass_info_constant(_, _, _), 6).
 switch_util__switch_priority(tabling_pointer_constant(_, _), 6).
 switch_util__switch_priority(deep_profiling_proc_static_tag(_), 6).
+switch_util__switch_priority(table_io_decl_tag(_), 6).
 
 	% Determine the range of an atomic type.
 	% Fail if the type isn't the sort of type that has a range
@@ -302,15 +309,15 @@ switch_util__type_range(char_type, _, _, MinChar, MaxChar) :-
 	char__min_char_value(MinChar),
 	char__max_char_value(MaxChar).
 switch_util__type_range(enum_type, Type, ModuleInfo, 0, MaxEnum) :-
-	( type_to_type_id(Type, TypeId0, _) ->
-		TypeId = TypeId0
+	( type_to_ctor_and_args(Type, TypeCtorPrime, _) ->
+		TypeCtor = TypeCtorPrime
 	;
 		error("dense_switch__type_range: invalid enum type?")
 	),
 	module_info_types(ModuleInfo, TypeTable),
-	map__lookup(TypeTable, TypeId, TypeDefn),
+	map__lookup(TypeTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-	( TypeBody = du_type(_, ConsTable, _, _) ->
+	( TypeBody = du_type(_, ConsTable, _, _, _) ->
 		map__count(ConsTable, TypeRange),
 		MaxEnum = TypeRange - 1
 	;
@@ -323,15 +330,15 @@ switch_util__type_range(enum_type, Type, ModuleInfo, 0, MaxEnum) :-
 	% of the given variable.
 
 switch_util__get_ptag_counts(Type, ModuleInfo, MaxPrimary, PtagCountMap) :-
-	( type_to_type_id(Type, TypeIdPrime, _) ->
-		TypeId = TypeIdPrime
+	( type_to_ctor_and_args(Type, TypeCtorPrime, _) ->
+		TypeCtor = TypeCtorPrime
 	;
 		error("unknown type in switch_util__get_ptag_counts")
 	),
 	module_info_types(ModuleInfo, TypeTable),
-	map__lookup(TypeTable, TypeId, TypeDefn),
+	map__lookup(TypeTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, Body),
-	( Body = du_type(_, ConsTable, _, _) ->
+	( Body = du_type(_, ConsTable, _, _, _) ->
 		map__to_assoc_list(ConsTable, ConsList),
 		switch_util__cons_list_to_tag_list(ConsList, TagList)
 	;
@@ -348,7 +355,11 @@ switch_util__get_ptag_counts(Type, ModuleInfo, MaxPrimary, PtagCountMap) :-
 switch_util__get_ptag_counts_2([], Max, Max, PtagCountMap, PtagCountMap).
 switch_util__get_ptag_counts_2([ConsTag | TagList], MaxPrimary0, MaxPrimary,
 		PtagCountMap0, PtagCountMap) :-
-	( ConsTag = unshared_tag(Primary) ->
+	(
+		( ConsTag = single_functor, Primary = 0
+		; ConsTag = unshared_tag(Primary)
+		)
+	->
 		int__max(MaxPrimary0, Primary, MaxPrimary1),
 		( map__search(PtagCountMap0, Primary, _) ->
 			error("unshared tag is shared")
@@ -402,7 +413,11 @@ switch_util__get_ptag_counts_2([ConsTag | TagList], MaxPrimary0, MaxPrimary,
 switch_util__group_cases_by_ptag([], PtagCaseMap, PtagCaseMap).
 switch_util__group_cases_by_ptag([Case0 | Cases0], PtagCaseMap0, PtagCaseMap) :-
 	Case0 = case(_Priority, Tag, _ConsId, Goal),
-	( Tag = unshared_tag(Primary) ->
+	(
+		( Tag = single_functor, Primary = 0
+		; Tag = unshared_tag(Primary)
+		)
+	->
 		( map__search(PtagCaseMap0, Primary, _Group) ->
 			error("unshared tag is shared")
 		;

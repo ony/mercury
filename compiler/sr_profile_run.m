@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -11,7 +11,13 @@
 
 :- interface.
 
-:- import_module io, hlds_module. 
+% library modules. 
+:- import_module io.
+
+% XXX parent modules
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_module. 
 
 :- pred structure_reuse_profiling(module_info::in, io__state::di, 
 			io__state::uo) is det.
@@ -21,11 +27,15 @@
 
 :- import_module list, map, bool, std_util. 
 
-:- import_module hlds_pred.
-:- import_module globals, options, passes_aux, prog_out. 
+% XXX parent modules
+:- import_module libs, parse_tree.
+
+:- import_module hlds__hlds_pred.
+:- import_module libs__globals, libs__options, hlds__passes_aux.
+:- import_module parse_tree__prog_out. 
 :- import_module pa_alias_as.
 :- import_module sr_profile, sr_data.
-:- import_module hlds_goal.
+:- import_module hlds__hlds_goal.
 
 
 structure_reuse_profiling(HLDS) -->
@@ -186,7 +196,7 @@ collect_profiling_information_4(HLDS, Expr - Info, Prof0, Prof) :-
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = generic_call(_, _, _, _). 
 collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
-	Expr = switch(_, _, Cases, _), 
+	Expr = switch(_, _, Cases), 
 	list__foldl(
 		pred(C::in, P0::in, P::out) is det :-
 		(	
@@ -215,7 +225,7 @@ collect_profiling_information_4(_HLDS, Expr - Info, Prof0, Prof) :-
 		Prof = Prof0
 	).
 collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
-	Expr = disj(Goals, _),
+	Expr = disj(Goals),
 	list__foldl(collect_profiling_information_4(HLDS), 
 			Goals, Prof0, Prof). 
 collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
@@ -225,14 +235,14 @@ collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :-
 	Expr = some(_, _, Goal), 
 	collect_profiling_information_4(HLDS, Goal, Prof0, Prof). 
 collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
-	Expr = if_then_else(_, If, Then, Else, _), 
+	Expr = if_then_else(_, If, Then, Else), 
 	collect_profiling_information_4(HLDS, If, Prof0, Prof1), 
 	collect_profiling_information_4(HLDS, Then, Prof1, Prof2), 
 	collect_profiling_information_4(HLDS, Else, Prof2, Prof). 
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = foreign_proc(_, _, _, _, _, _, _). 
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
-	Expr = par_conj(_, _).
+	Expr = par_conj(_).
 collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = shorthand(_).
 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,11 +14,12 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module type_util.
+:- module check_hlds__type_util.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_data, prog_data, globals.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_data.
+:- import_module parse_tree__prog_data, libs__globals.
 :- import_module term.
 :- import_module std_util, list, map.
 
@@ -30,14 +31,8 @@
 :- pred type_is_atomic(type, module_info).
 :- mode type_is_atomic(in, in) is semidet.
 
-	% Succeed iff type is guaranteed to be represented as atomic. 
-	% Basically it succeeds if the type_is_atomic succeed, and the
-	% type is not a float. 
-:- pred type_is_guaranteed_atomic(type, module_info).
-:- mode type_is_guaranteed_atomic(in, in) is semidet.
-
-:- pred type_id_is_atomic(type_id, module_info).
-:- mode type_id_is_atomic(in, in) is semidet.
+:- pred type_ctor_is_atomic(type_ctor, module_info).
+:- mode type_ctor_is_atomic(in, in) is semidet.
 
 	% type_is_higher_order(Type, PredOrFunc, ArgTypes) succeeds iff
 	% Type is a higher-order predicate or function type with the specified
@@ -53,14 +48,14 @@
 :- pred type_is_tuple(type, list(type)).
 :- mode type_is_tuple(in, out) is semidet.
 
-	% type_id_is_higher_order(TypeId, PredOrFunc) succeeds iff
-	% TypeId is a higher-order predicate or function type.
-:- pred type_id_is_higher_order(type_id, pred_or_func, lambda_eval_method).
-:- mode type_id_is_higher_order(in, out, out) is semidet.
+	% type_ctor_is_higher_order(TypeCtor, PredOrFunc) succeeds iff
+	% TypeCtor is a higher-order predicate or function type.
+:- pred type_ctor_is_higher_order(type_ctor, pred_or_func, lambda_eval_method).
+:- mode type_ctor_is_higher_order(in, out, out) is semidet.
 
-	% type_id_is_tuple(TypeId) succeeds iff TypeId is a tuple type.
-:- pred type_id_is_tuple(type_id).
-:- mode type_id_is_tuple(in) is semidet.
+	% type_ctor_is_tuple(TypeCtor) succeeds iff TypeCtor is a tuple type.
+:- pred type_ctor_is_tuple(type_ctor).
+:- mode type_ctor_is_tuple(in) is semidet.
 
 	% return true iff there was a `where equality is <predname>'
 	% declaration for the specified type, and return the name of
@@ -85,8 +80,8 @@
 :- pred type_is_aditi_state(type).
 :- mode type_is_aditi_state(in) is semidet.
 
-:- pred type_id_is_array(type_id).
-:- mode type_id_is_array(in) is semidet.
+:- pred type_ctor_is_array(type_ctor).
+:- mode type_ctor_is_array(in) is semidet.
 
 	% Remove an `aditi:state' from the given list if one is present.
 :- pred type_util__remove_aditi_state(list(type), list(T), list(T)).
@@ -97,16 +92,24 @@
 	% structures describing the types. Since the RTTI will be hand defined,
 	% the compiler shouldn't generate RTTI for these types.
 
-:- pred type_id_has_hand_defined_rtti(type_id).
-:- mode type_id_has_hand_defined_rtti(in) is semidet.
+:- pred type_ctor_has_hand_defined_rtti(type_ctor).
+:- mode type_ctor_has_hand_defined_rtti(in) is semidet.
 
 	% A test for type_info-related types that are introduced by
-	% polymorphism.m.  Mode inference never infers unique modes
+	% polymorphism.m.  These need to be handled specially in certain
+	% places.  For example, mode inference never infers unique modes
 	% for these types, since it would not be useful, and since we
 	% want to minimize the number of different modes that we infer.
 
 :- pred is_introduced_type_info_type(type).
 :- mode is_introduced_type_info_type(in) is semidet.
+
+	% Given a list of variables, return the permutation
+	% of that list which has all the type_info-related variables
+	% preceding the non-type_info-related variables (with the relative
+	% order of variables within each group being the same as in the
+	% original list).
+:- func put_typeinfo_vars_first(list(prog_var), vartypes) = list(prog_var).
 
 	% In the forwards mode, this predicate checks for a "new " prefix
 	% at the start of the functor name, and removes it if present;
@@ -122,9 +125,9 @@
 :- pred classify_type(type, module_info, builtin_type).
 :- mode classify_type(in, in, out) is det.
 
-	% Given a type_id, determine what sort of type it is.
-:- pred classify_type_id(module_info, type_id, builtin_type).
-:- mode classify_type_id(in, in, out) is det.
+	% Given a type_ctor, determine what sort of type it is.
+:- pred classify_type_ctor(module_info, type_ctor, builtin_type).
+:- mode classify_type_ctor(in, in, out) is det.
 
 :- type builtin_type	--->	int_type
 			;	char_type
@@ -138,8 +141,8 @@
 
 	% Given a non-variable type, return its type-id and argument types.
 
-:- pred type_to_type_id(type, type_id, list(type)).
-:- mode type_to_type_id(in, out, out) is semidet.
+:- pred type_to_ctor_and_args(type, type_ctor, list(type)).
+:- mode type_to_ctor_and_args(in, out, out) is semidet.
 
 	% Given a variable type, return its type variable.
 	
@@ -147,10 +150,10 @@
 :- mode type_util__var(in, out) is semidet.
 :- mode type_util__var(out, in) is det.
 
-	% Given a type_id and a list of argument types, 
+	% Given a type_ctor and a list of argument types, 
 	% construct a type.
 
-:- pred construct_type(type_id, list(type), (type)).
+:- pred construct_type(type_ctor, list(type), (type)).
 :- mode construct_type(in, in, out) is det.
 
 :- pred construct_higher_order_type(pred_or_func, lambda_eval_method,
@@ -171,23 +174,26 @@
 :- func float_type = (type).
 :- func char_type = (type).
 :- func c_pointer_type = (type).
+:- func heap_pointer_type = (type).
+:- func sample_type_info_type = (type).
+:- func sample_typeclass_info_type = (type).
 
-	% Given a constant and an arity, return a type_id.
+	% Given a constant and an arity, return a type_ctor.
 	% Fails if the constant is not an atom.
 
-:- pred make_type_id(const, int, type_id).
-:- mode make_type_id(in, in, out) is semidet.
+:- pred make_type_ctor(const, int, type_ctor).
+:- mode make_type_ctor(in, in, out) is semidet.
 
-	% Given a type_id, look up its module/name/arity
+	% Given a type_ctor, look up its module/name/arity
 
-:- pred type_util__type_id_module(module_info, type_id, module_name).
-:- mode type_util__type_id_module(in, in, out) is det.
+:- pred type_util__type_ctor_module(module_info, type_ctor, module_name).
+:- mode type_util__type_ctor_module(in, in, out) is det.
 
-:- pred type_util__type_id_name(module_info, type_id, string).
-:- mode type_util__type_id_name(in, in, out) is det.
+:- pred type_util__type_ctor_name(module_info, type_ctor, string).
+:- mode type_util__type_ctor_name(in, in, out) is det.
 
-:- pred type_util__type_id_arity(module_info, type_id, arity).
-:- mode type_util__type_id_arity(in, in, out) is det.
+:- pred type_util__type_ctor_arity(module_info, type_ctor, arity).
+:- mode type_util__type_ctor_arity(in, in, out) is det.
 
 	% If the type is a du type or a tuple type,
 	% return the list of its constructors.
@@ -204,9 +210,13 @@
 :- pred type_util__switch_type_num_functors(module_info::in, (type)::in,
 	int::out) is semidet.
 
-	% Work out the types of the arguments of a functor.
+	% Work out the types of the arguments of a functor,
+	% given the cons_id and type of the functor.
 	% Aborts if the functor is existentially typed.
 	% The cons_id is expected to be un-module-qualified.
+	% Note that this will substitute appropriate values for
+	% any type variables in the functor's argument types,
+	% to match their bindings in the functor's type.
 :- pred type_util__get_cons_id_arg_types(module_info::in, (type)::in,
 		cons_id::in, list(type)::out) is det.
 
@@ -225,13 +235,27 @@
 
 	% Given a type and a cons_id, look up the definitions of that
 	% type and constructor. Aborts if the cons_id is not user-defined.
+	% Note that this will NOT bind type variables in the
+	% functor's argument types; they will be left unbound,
+	% so the caller can find out the original types from the constructor
+	% definition.  The caller must do that sustitution itself if required.
 :- pred type_util__get_type_and_cons_defn(module_info, (type), cons_id,
 		hlds_type_defn, hlds_cons_defn).
 :- mode type_util__get_type_and_cons_defn(in, in, in, out, out) is det.
 
+	% Like type_util__get_type_and_cons_defn (above), except that it
+	% only returns the definition of the constructor, not the type.
+:- pred type_util__get_cons_defn(module_info::in, type_ctor::in, cons_id::in,
+		hlds_cons_defn::out) is semidet.
+
+
 	% Given a type and a cons_id, look up the definition of that
 	% constructor; if it is existentially typed, return its definition,
 	% otherwise fail.
+	% Note that this will NOT bind type variables in the
+	% functor's argument types; they will be left unbound,
+	% so the caller can find out the original types from the constructor
+	% definition.  The caller must do that sustitution itself if required.
 :- pred type_util__get_existq_cons_defn(module_info::in,
 		(type)::in, cons_id::in, ctor_defn::out) is semidet.
 
@@ -462,56 +486,41 @@
 
 :- implementation.
 
-:- import_module prog_io, prog_io_goal, prog_util, options, globals.
+:- import_module parse_tree__prog_io, parse_tree__prog_io_goal.
+:- import_module parse_tree__prog_util, libs__options, libs__globals.
 :- import_module bool, char, int, string.
 :- import_module assoc_list, require, varset.
 
-type_util__type_id_module(_ModuleInfo, TypeName - _Arity, ModuleName) :-
+type_util__type_ctor_module(_ModuleInfo, TypeName - _Arity, ModuleName) :-
 	sym_name_get_module_name(TypeName, unqualified(""), ModuleName).
 
-type_util__type_id_name(_ModuleInfo, Name0 - _Arity, Name) :-
+type_util__type_ctor_name(_ModuleInfo, Name0 - _Arity, Name) :-
 	unqualify_name(Name0, Name).
 
-type_util__type_id_arity(_ModuleInfo, _Name - Arity, Arity).
+type_util__type_ctor_arity(_ModuleInfo, _Name - Arity, Arity).
 
 type_is_atomic(Type, ModuleInfo) :-
-	type_to_type_id(Type, TypeId, _),
-	type_id_is_atomic(TypeId, ModuleInfo).
+	type_to_ctor_and_args(Type, TypeCtor, _),
+	type_ctor_is_atomic(TypeCtor, ModuleInfo).
 
-type_is_guaranteed_atomic(Type, ModuleInfo) :- 
-	type_to_type_id(Type, TypeId, _), 
-	type_id_is_guaranteed_atomic(TypeId, ModuleInfo).
-
-:- pred type_id_is_guaranteed_atomic(type_id, module_info).
-:- mode type_id_is_guaranteed_atomic(in, in) is semidet.
-
-type_id_is_guaranteed_atomic(TypeId, ModuleInfo) :-
-	classify_type_id(ModuleInfo, TypeId, BuiltinType),
-	% XXX temporarely floats are still seen as always atomic.
-	% BuiltinType \= float_type,
+type_ctor_is_atomic(TypeCtor, ModuleInfo) :-
+	classify_type_ctor(ModuleInfo, TypeCtor, BuiltinType),
 	BuiltinType \= polymorphic_type,
 	BuiltinType \= tuple_type,
 	BuiltinType \= pred_type,
 	BuiltinType \= user_type.
 
-type_id_is_atomic(TypeId, ModuleInfo) :-
-	classify_type_id(ModuleInfo, TypeId, BuiltinType),
-	BuiltinType \= polymorphic_type,
-	BuiltinType \= tuple_type,
-	BuiltinType \= pred_type,
-	BuiltinType \= user_type.
-
-type_id_is_array(qualified(unqualified("array"), "array") - 1).
+type_ctor_is_array(qualified(unqualified("array"), "array") - 1).
 
 type_util__var(term__variable(Var), Var).
 
-type_id_has_hand_defined_rtti(qualified(PB, "type_info") - 1) :-
+type_ctor_has_hand_defined_rtti(qualified(PB, "type_info") - 1) :-
 	mercury_private_builtin_module(PB).
-type_id_has_hand_defined_rtti(qualified(PB, "type_ctor_info") - 1) :-
+type_ctor_has_hand_defined_rtti(qualified(PB, "type_ctor_info") - 1) :-
 	mercury_private_builtin_module(PB).
-type_id_has_hand_defined_rtti(qualified(PB, "typeclass_info") - 1) :-
+type_ctor_has_hand_defined_rtti(qualified(PB, "typeclass_info") - 1) :-
 	mercury_private_builtin_module(PB).
-type_id_has_hand_defined_rtti(qualified(PB, "base_typeclass_info") - 1) :-
+type_ctor_has_hand_defined_rtti(qualified(PB, "base_typeclass_info") - 1) :-
 	mercury_private_builtin_module(PB).
 
 is_introduced_type_info_type(Type) :-
@@ -524,6 +533,13 @@ is_introduced_type_info_type(Type) :-
 	),
 	mercury_private_builtin_module(PrivateBuiltin).
 
+put_typeinfo_vars_first(VarsList, VarTypes) =
+		TypeInfoVarsList ++ NonTypeInfoVarsList :-
+	list__filter((pred(Var::in) is semidet :-
+			Type = map__lookup(VarTypes, Var),
+			is_introduced_type_info_type(Type)),
+		VarsList, TypeInfoVarsList, NonTypeInfoVarsList).
+
 remove_new_prefix(unqualified(Name0), unqualified(Name)) :-
 	string__append("new ", Name, Name0).
 remove_new_prefix(qualified(Module, Name0), qualified(Module, Name)) :-
@@ -534,26 +550,26 @@ remove_new_prefix(qualified(Module, Name0), qualified(Module, Name)) :-
 	% Given a type, determine what sort of type it is.
 
 classify_type(VarType, ModuleInfo, Type) :-
-	( type_to_type_id(VarType, TypeId, _) ->
-		classify_type_id(ModuleInfo, TypeId, Type)
+	( type_to_ctor_and_args(VarType, TypeCtor, _) ->
+		classify_type_ctor(ModuleInfo, TypeCtor, Type)
 	;
 		Type = polymorphic_type
 	).
 
-classify_type_id(ModuleInfo, TypeId, Type) :-
-	( TypeId = unqualified("character") - 0 ->
+classify_type_ctor(ModuleInfo, TypeCtor, Type) :-
+	( TypeCtor = unqualified("character") - 0 ->
 		Type = char_type
-	; TypeId = unqualified("int") - 0 ->
+	; TypeCtor = unqualified("int") - 0 ->
 		Type = int_type
-	; TypeId = unqualified("float") - 0 ->
+	; TypeCtor = unqualified("float") - 0 ->
 		Type = float_type
-	; TypeId = unqualified("string") - 0 ->
+	; TypeCtor = unqualified("string") - 0 ->
 		Type = str_type
-	; type_id_is_higher_order(TypeId, _, _) ->
+	; type_ctor_is_higher_order(TypeCtor, _, _) ->
 		Type = pred_type
-	; type_id_is_tuple(TypeId) ->
+	; type_ctor_is_tuple(TypeCtor) ->
 		Type = tuple_type
-	; type_id_is_enumeration(TypeId, ModuleInfo) ->
+	; type_ctor_is_enumeration(TypeCtor, ModuleInfo) ->
 		Type = enum_type
 	;
 		Type = user_type
@@ -575,8 +591,8 @@ type_is_higher_order(Type, PredOrFunc, EvalMethod, PredArgTypes) :-
 	).
 
 type_is_tuple(Type, ArgTypes) :-
-	type_to_type_id(Type, TypeId, ArgTypes),
-	type_id_is_tuple(TypeId).
+	type_to_ctor_and_args(Type, TypeCtor, ArgTypes),
+	type_ctor_is_tuple(TypeCtor).
 
 	% From the type of a lambda expression, work out how it should
 	% be evaluated and extract the argument types.
@@ -600,7 +616,7 @@ get_lambda_eval_method_and_args(PorFStr, Type0, EvalMethod, ArgTypes) :-
 		)
 	).
 
-type_id_is_higher_order(SymName - _Arity, PredOrFunc, EvalMethod) :-
+type_ctor_is_higher_order(SymName - _Arity, PredOrFunc, EvalMethod) :-
 	(
 		SymName = qualified(unqualified(EvalMethodStr), PorFStr),
 		(
@@ -622,14 +638,14 @@ type_id_is_higher_order(SymName - _Arity, PredOrFunc, EvalMethod) :-
 		PredOrFunc = function
 	).
 
-type_id_is_tuple(unqualified("{}") - _).
+type_ctor_is_tuple(unqualified("{}") - _).
 
 type_has_user_defined_equality_pred(ModuleInfo, Type, SymName) :-
 	module_info_types(ModuleInfo, TypeTable),
-	type_to_type_id(Type, TypeId, _TypeArgs),
-	map__search(TypeTable, TypeId, TypeDefn),
+	type_to_ctor_and_args(Type, TypeCtor, _TypeArgs),
+	map__search(TypeTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-	TypeBody = du_type(_, _, _, yes(SymName)).
+	TypeBody ^ du_type_usereq = yes(SymName).
 
 	% Certain types, e.g. io__state and store__store(S),
 	% are just dummy types used to ensure logical semantics;
@@ -657,12 +673,12 @@ type_util__constructors_are_dummy_argument_type([Ctor]) :-
 	Ctor = ctor([], [], qualified(unqualified("store"), "store"), [_]).
 
 type_is_io_state(Type) :-
-        type_to_type_id(Type,
-		qualified(unqualified("io"), "state") - 0, []).
+        type_to_ctor_and_args(Type, TypeCtor, []),
+	TypeCtor = qualified(unqualified("io"), "state") - 0.
 
 type_is_aditi_state(Type) :-
-        type_to_type_id(Type,
-		qualified(unqualified("aditi"), "state") - 0, []).
+        type_to_ctor_and_args(Type, TypeCtor, []),
+	TypeCtor = qualified(unqualified("aditi"), "state") - 0.
 
 type_util__remove_aditi_state([], [], []).
 type_util__remove_aditi_state([], [_|_], _) :-
@@ -677,17 +693,16 @@ type_util__remove_aditi_state([Type | Types], [Arg | Args0], Args) :-
 		Args = [Arg | Args1]
 	).
 
-:- pred type_id_is_enumeration(type_id, module_info).
-:- mode type_id_is_enumeration(in, in) is semidet.
+:- pred type_ctor_is_enumeration(type_ctor, module_info).
+:- mode type_ctor_is_enumeration(in, in) is semidet.
 
-type_id_is_enumeration(TypeId, ModuleInfo) :-
+type_ctor_is_enumeration(TypeCtor, ModuleInfo) :-
 	module_info_types(ModuleInfo, TypeDefnTable),
-	map__search(TypeDefnTable, TypeId, TypeDefn),
+	map__search(TypeDefnTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-	TypeBody = du_type(_, _, IsEnum, _),
-	IsEnum = yes.
+	TypeBody ^ du_type_is_enum = yes.
 
-type_to_type_id(Type, SymName - Arity, Args) :-
+type_to_ctor_and_args(Type, SymName - Arity, Args) :-
 	Type \= term__variable(_),
 
 	% higher order types may have representations where
@@ -726,8 +741,8 @@ type_to_type_id(Type, SymName - Arity, Args) :-
 		% and should only appear as the argument of a
 		% `typeclass:info/1' type.
 		% It behaves sort of like a type variable, so according to the
-		% specification of `type_to_type_id', it should cause failure.
-		% There isn't a definition in the type table.
+		% specification of `type_to_ctor_and_args', it should
+		% cause failure. There isn't a definition in the type table.
 		\+ (
 			SymName = qualified(ModuleName, UnqualName),
 			UnqualName = "constraint",
@@ -737,11 +752,11 @@ type_to_type_id(Type, SymName - Arity, Args) :-
 		list__length(Args, Arity)
 	).
 
-construct_type(TypeId, Args, Type) :-
-	( type_id_is_higher_order(TypeId, PredOrFunc, EvalMethod) ->
+construct_type(TypeCtor, Args, Type) :-
+	( type_ctor_is_higher_order(TypeCtor, PredOrFunc, EvalMethod) ->
 		construct_higher_order_type(PredOrFunc, EvalMethod, Args, Type)
 	;
-		TypeId = SymName - _,
+		TypeCtor = SymName - _,
 		construct_qualified_term(SymName, Args, Type)
 	).
 
@@ -794,22 +809,36 @@ c_pointer_type = Type :-
 	mercury_public_builtin_module(BuiltinModule),
 	construct_type(qualified(BuiltinModule, "c_pointer") - 0, [], Type).
 
+heap_pointer_type = Type :-
+	mercury_private_builtin_module(BuiltinModule),
+	construct_type(qualified(BuiltinModule, "heap_pointer") - 0, [], Type).
+
+sample_type_info_type = Type :-
+	mercury_private_builtin_module(BuiltinModule),
+	construct_type(qualified(BuiltinModule,
+		"sample_type_info") - 0, [], Type).
+
+sample_typeclass_info_type = Type :-
+	mercury_private_builtin_module(BuiltinModule),
+	construct_type(qualified(BuiltinModule,
+		"sample_typeclass_info") - 0, [], Type).
+
 %-----------------------------------------------------------------------------%
 
-	% Given a constant and an arity, return a type_id.
+	% Given a constant and an arity, return a type_ctor.
 	% This really ought to take a name and an arity -
 	% use of integers/floats/strings as type names should
 	% be rejected by the parser in prog_io.m, not in module_qual.m.
 
-make_type_id(term__atom(Name), Arity, unqualified(Name) - Arity).
+make_type_ctor(term__atom(Name), Arity, unqualified(Name) - Arity).
 
 %-----------------------------------------------------------------------------%
 
 	% If the type is a du type, return the list of its constructors.
 
 type_constructors(Type, ModuleInfo, Constructors) :-
-	type_to_type_id(Type, TypeId, TypeArgs),
-	( type_id_is_tuple(TypeId) ->
+	type_to_ctor_and_args(Type, TypeCtor, TypeArgs),
+	( type_ctor_is_tuple(TypeCtor) ->
 		% Tuples are never existentially typed.
 		ExistQVars = [],	
 		ClassConstraints = [],
@@ -818,33 +847,31 @@ type_constructors(Type, ModuleInfo, Constructors) :-
 				unqualified("{}"), CtorArgs)]
 	;
 		module_info_types(ModuleInfo, TypeTable),
-		map__search(TypeTable, TypeId, TypeDefn),
+		map__search(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_tparams(TypeDefn, TypeParams),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-		TypeBody = du_type(Constructors0, _, _, _),
-		substitute_type_args(TypeParams, TypeArgs, Constructors0,
-			Constructors)
+		substitute_type_args(TypeParams, TypeArgs,
+			TypeBody ^ du_type_ctors, Constructors)
 	).
 
 %-----------------------------------------------------------------------------%
 
 type_util__switch_type_num_functors(ModuleInfo, Type, NumFunctors) :-
-	type_to_type_id(Type, TypeId, _),
-	( TypeId = unqualified("character") - 0 ->
+	type_to_ctor_and_args(Type, TypeCtor, _),
+	( TypeCtor = unqualified("character") - 0 ->
 		% XXX the following code uses the source machine's character
 		% size, not the target's, so it won't work if cross-compiling
 		% to a machine with a different size character.
 		char__max_char_value(MaxChar),
 		char__min_char_value(MinChar),
 		NumFunctors is MaxChar - MinChar + 1
-	; type_id_is_tuple(TypeId) ->
+	; type_ctor_is_tuple(TypeCtor) ->
 		NumFunctors = 1
 	;
 		module_info_types(ModuleInfo, TypeTable),
-		map__search(TypeTable, TypeId, TypeDefn),
+		map__search(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-		TypeBody = du_type(_, ConsTable, _, _),
-		map__count(ConsTable, NumFunctors)
+		map__count(TypeBody ^ du_type_cons_tag_values, NumFunctors)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -872,16 +899,16 @@ type_util__get_cons_id_non_existential_arg_types(ModuleInfo, Type, ConsId,
 type_util__get_cons_id_arg_types_2(EQVarAction, ModuleInfo, VarType, ConsId,
 		ArgTypes) :-
     (
-	type_to_type_id(VarType, TypeId, TypeArgs)
+	type_to_ctor_and_args(VarType, TypeCtor, TypeArgs)
     ->
 	(
 		% The argument types of a tuple cons_id are the
 		% arguments of the tuple type.
-		type_id_is_tuple(TypeId)
+		type_ctor_is_tuple(TypeCtor)
 	->
 		ArgTypes = TypeArgs
 	;
-		type_util__do_get_type_and_cons_defn(ModuleInfo, TypeId,
+		type_util__do_get_type_and_cons_defn(ModuleInfo, TypeCtor,
 			ConsId, TypeDefn, ConsDefn),
 		ConsDefn = hlds_cons_defn(ExistQVars0, _Constraints0,
 				Args, _, _),
@@ -914,18 +941,17 @@ type_util__get_cons_id_arg_types_2(EQVarAction, ModuleInfo, VarType, ConsId,
     ).
 
 type_util__cons_id_arg_types(ModuleInfo, VarType, ConsId, ArgTypes) :-
-	type_to_type_id(VarType, TypeId, TypeArgs),
+	type_to_ctor_and_args(VarType, TypeCtor, TypeArgs),
 	module_info_types(ModuleInfo, Types),
-	map__search(Types, TypeId, TypeDefn),
+	map__search(Types, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeDefnBody),
-	TypeDefnBody = du_type(_, ConsTags, _, _),
-	map__member(ConsTags, ConsId, _),
+	map__member(TypeDefnBody ^ du_type_cons_tag_values, ConsId, _),
 	
 	module_info_ctors(ModuleInfo, Ctors),
 	map__lookup(Ctors, ConsId, ConsDefns),
 	list__member(ConsDefn, ConsDefns),
 	
-	ConsDefn = hlds_cons_defn(ExistQVars0, _, Args, TypeId, _),
+	ConsDefn = hlds_cons_defn(ExistQVars0, _, Args, TypeCtor, _),
 
 	% XXX handle ExistQVars
 	ExistQVars0 = [],
@@ -945,8 +971,8 @@ type_util__is_existq_cons(ModuleInfo, VarType, ConsId) :-
 		(type)::in, cons_id::in, hlds_cons_defn::out) is semidet.
 
 type_util__is_existq_cons(ModuleInfo, VarType, ConsId, ConsDefn) :-
-	type_to_type_id(VarType, TypeId, _),
-	type_util__get_cons_defn(ModuleInfo, TypeId, ConsId, ConsDefn),
+	type_to_ctor_and_args(VarType, TypeCtor, _),
+	type_util__get_cons_defn(ModuleInfo, TypeCtor, ConsId, ConsDefn),
 	ConsDefn = hlds_cons_defn(ExistQVars, _, _, _, _),
 	ExistQVars \= [].
 
@@ -958,21 +984,21 @@ type_util__get_existq_cons_defn(ModuleInfo, VarType, ConsId, CtorDefn) :-
 	ConsDefn = hlds_cons_defn(ExistQVars, Constraints, Args, _, _),
 	assoc_list__values(Args, ArgTypes),
 	module_info_types(ModuleInfo, Types),
-	type_to_type_id(VarType, TypeId, _),
-	map__lookup(Types, TypeId, TypeDefn),
+	type_to_ctor_and_args(VarType, TypeCtor, _),
+	map__lookup(Types, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_tvarset(TypeDefn, TypeVarSet),
 	hlds_data__get_type_defn_tparams(TypeDefn, TypeDefnParams),
-	type_to_type_id(VarType, TypeId, _),
-	construct_type(TypeId, TypeDefnParams, RetType),
+	type_to_ctor_and_args(VarType, TypeCtor, _),
+	construct_type(TypeCtor, TypeDefnParams, RetType),
 	CtorDefn = ctor_defn(TypeVarSet, ExistQVars, Constraints,
 		ArgTypes, RetType).
 
 type_util__get_type_and_cons_defn(ModuleInfo, Type, ConsId,
 		TypeDefn, ConsDefn) :-
 	(
-		type_to_type_id(Type, TypeId, _),
+		type_to_ctor_and_args(Type, TypeCtor, _),
 		type_util__do_get_type_and_cons_defn(ModuleInfo,
-			TypeId, ConsId, TypeDefn0, ConsDefn0)
+			TypeCtor, ConsId, TypeDefn0, ConsDefn0)
 	->
 		TypeDefn = TypeDefn0,
 		ConsDefn = ConsDefn0
@@ -981,33 +1007,30 @@ type_util__get_type_and_cons_defn(ModuleInfo, Type, ConsId,
 	).
 
 :- pred type_util__do_get_type_and_cons_defn(module_info::in,
-		type_id::in, cons_id::in, hlds_type_defn::out,
+		type_ctor::in, cons_id::in, hlds_type_defn::out,
 		hlds_cons_defn::out) is semidet.
 
-type_util__do_get_type_and_cons_defn(ModuleInfo, TypeId, ConsId,
+type_util__do_get_type_and_cons_defn(ModuleInfo, TypeCtor, ConsId,
 		TypeDefn, ConsDefn) :-
-	type_util__get_cons_defn(ModuleInfo, TypeId, ConsId, ConsDefn),
+	type_util__get_cons_defn(ModuleInfo, TypeCtor, ConsId, ConsDefn),
 	module_info_types(ModuleInfo, Types),
-	map__lookup(Types, TypeId, TypeDefn).
+	map__lookup(Types, TypeCtor, TypeDefn).
 
-:- pred type_util__get_cons_defn(module_info::in, type_id::in, cons_id::in,
-		hlds_cons_defn::out) is semidet.
-
-type_util__get_cons_defn(ModuleInfo, TypeId, ConsId, ConsDefn) :-
+type_util__get_cons_defn(ModuleInfo, TypeCtor, ConsId, ConsDefn) :-
 	module_info_ctors(ModuleInfo, Ctors),
 	% will fail for builtin cons_ids.
 	map__search(Ctors, ConsId, ConsDefns),
 	MatchingCons = lambda([ThisConsDefn::in] is semidet, (
-			ThisConsDefn = hlds_cons_defn(_, _, _, TypeId, _)
+			ThisConsDefn = hlds_cons_defn(_, _, _, TypeCtor, _)
 		)),
 	list__filter(MatchingCons, ConsDefns, [ConsDefn]).
 	
 %-----------------------------------------------------------------------------%
 
 type_is_no_tag_type(ModuleInfo, Type, Ctor, ArgType) :-
-	type_to_type_id(Type, TypeId, TypeArgs),
+	type_to_ctor_and_args(Type, TypeCtor, TypeArgs),
 	module_info_no_tag_types(ModuleInfo, NoTagTypes),
-	map__search(NoTagTypes, TypeId, NoTagType),
+	map__search(NoTagTypes, TypeCtor, NoTagType),
 	NoTagType = no_tag_type(TypeParams0, Ctor, ArgType0),
 	( TypeParams0 = [] ->
 		ArgType = ArgType0
@@ -1337,8 +1360,8 @@ replace_eqv_type(Functor, Arity, Args, EqvType) :-
 
 	% XXX magically_obtain(TypeTable)
 
-	make_type_id(Functor, Arity, TypeId),
-	map__search(TypeTable, TypeId, TypeDefn),
+	make_type_ctor(Functor, Arity, TypeCtor),
+	map__search(TypeTable, TypeCtor, TypeDefn),
 	get_type_defn_body(TypeDefn, TypeBody),
 	TypeBody = eqv_type(EqvType0),
 	get_type_defn_tparams(TypeDefn, TypeParams0),

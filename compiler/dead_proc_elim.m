@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,11 +14,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module dead_proc_elim.
+:- module transform_hlds__dead_proc_elim.
 
 :- interface.
 
-:- import_module prog_data, hlds_module, hlds_pred.
+:- import_module parse_tree__prog_data, hlds__hlds_module, hlds__hlds_pred.
 :- import_module map, std_util, io.
 
 :- pred dead_proc_elim(module_info, module_info, io__state, io__state).
@@ -50,8 +50,10 @@
 
 :- implementation.
 
-:- import_module hlds_goal, hlds_data, prog_util, llds.
-:- import_module passes_aux, globals, options, code_util.
+:- import_module hlds__hlds_goal, hlds__hlds_data, parse_tree__prog_util.
+:- import_module ll_backend__llds.
+:- import_module hlds__passes_aux, libs__globals, libs__options.
+:- import_module ll_backend__code_util.
 
 :- import_module int, string, list, set, queue, bool, require.
 
@@ -176,9 +178,8 @@ dead_proc_elim__initialize_pragma_exports([PragmaProc | PragmaProcs],
 dead_proc_elim__initialize_base_gen_infos([], Queue, Queue, Needed, Needed).
 dead_proc_elim__initialize_base_gen_infos([TypeCtorGenInfo | TypeCtorGenInfos],
 		Queue0, Queue, Needed0, Needed) :-
-	TypeCtorGenInfo = type_ctor_gen_info(_TypeId, ModuleName, TypeName,
-		Arity, _Status, _HldsDefn, _Unify, _Compare,
-		_Solver, _Init, _Pretty),
+	TypeCtorGenInfo = type_ctor_gen_info(_TypeCtor, ModuleName, TypeName,
+		Arity, _Status, _HldsDefn, _Unify, _Compare),
 	(
 		% XXX: We'd like to do this, but there are problems.
 		% status_is_exported(Status, yes)
@@ -331,18 +332,12 @@ dead_proc_elim__examine_base_gen_info(ModuleName, TypeName, Arity, ModuleInfo,
 dead_proc_elim__find_base_gen_info(ModuleName, TypeName, TypeArity,
 		[TypeCtorGenInfo | TypeCtorGenInfos], Refs) :-
 	(
-		TypeCtorGenInfo = type_ctor_gen_info(_TypeId, ModuleName,
+		TypeCtorGenInfo = type_ctor_gen_info(_TypeCtor, ModuleName,
 			TypeName, TypeArity, _Status, _HldsDefn,
-			MaybeUnify, MaybeCompare,
-			MaybeSolver, MaybeInit, MaybePretty)
+			Unify, Compare)
 	->
-		Refs0 = [],
-		dead_proc_elim__maybe_add_ref(MaybeUnify,   Refs0, Refs1),
-		dead_proc_elim__maybe_add_ref(MaybeCompare, Refs1, Refs2),
-		dead_proc_elim__maybe_add_ref(MaybeSolver,  Refs2, Refs3),
-		dead_proc_elim__maybe_add_ref(MaybeInit,    Refs3, Refs4),
-		dead_proc_elim__maybe_add_ref(MaybePretty,  Refs4, Refs5),
-		Refs = Refs5
+		Refs = [Unify, Compare]
+		% dead_proc_elim__maybe_add_ref(MaybePretty,  Refs0, Refs)
 	;
 		dead_proc_elim__find_base_gen_info(ModuleName, TypeName,
 			TypeArity, TypeCtorGenInfos, Refs)
@@ -428,7 +423,7 @@ dead_proc_elim__examine_goal(GoalExpr - _, CurrProc, Queue0, Queue,
 	entity_queue, entity_queue, needed_map, needed_map).
 :- mode dead_proc_elim__examine_expr(in, in, in, out, in, out) is det.
 
-dead_proc_elim__examine_expr(disj(Goals, _), CurrProc, Queue0, Queue,
+dead_proc_elim__examine_expr(disj(Goals), CurrProc, Queue0, Queue,
 		Needed0, Needed) :-
 	dead_proc_elim__examine_goals(Goals, CurrProc, Queue0, Queue,
 		Needed0, Needed).
@@ -436,7 +431,7 @@ dead_proc_elim__examine_expr(conj(Goals), CurrProc, Queue0, Queue,
 		Needed0, Needed) :-
 	dead_proc_elim__examine_goals(Goals, CurrProc, Queue0, Queue,
 		Needed0, Needed).
-dead_proc_elim__examine_expr(par_conj(Goals, _SM), CurrProc, Queue0, Queue,
+dead_proc_elim__examine_expr(par_conj(Goals), CurrProc, Queue0, Queue,
 		Needed0, Needed) :-
 	dead_proc_elim__examine_goals(Goals, CurrProc, Queue0, Queue,
 		Needed0, Needed).
@@ -448,11 +443,11 @@ dead_proc_elim__examine_expr(some(_, _, Goal), CurrProc, Queue0, Queue,
 		Needed0, Needed) :-
 	dead_proc_elim__examine_goal(Goal, CurrProc, Queue0, Queue,
 		Needed0, Needed).
-dead_proc_elim__examine_expr(switch(_, _, Cases, _), CurrProc, Queue0, Queue,
+dead_proc_elim__examine_expr(switch(_, _, Cases), CurrProc, Queue0, Queue,
 		Needed0, Needed) :-
 	dead_proc_elim__examine_cases(Cases, CurrProc, Queue0, Queue,
 		Needed0, Needed).
-dead_proc_elim__examine_expr(if_then_else(_, Cond, Then, Else, _),
+dead_proc_elim__examine_expr(if_then_else(_, Cond, Then, Else),
 		CurrProc, Queue0, Queue, Needed0, Needed) :-
 	dead_proc_elim__examine_goal(Cond, CurrProc, Queue0, Queue1,
 		Needed0, Needed1),
@@ -671,21 +666,15 @@ dead_proc_elim__eliminate_base_gen_infos([TypeCtorGenInfo0 | TypeCtorGenInfos0],
 		Needed, TypeCtorGenInfos) :-
 	dead_proc_elim__eliminate_base_gen_infos(TypeCtorGenInfos0, Needed,	
 		TypeCtorGenInfos1),
-	TypeCtorGenInfo0 = type_ctor_gen_info(TypeId, ModuleName,
-		TypeName, Arity, Status, HldsDefn,
-		_MaybeUnify, _MaybeCompare,
-		_MaybeSolver, _MaybeInit, _MaybePretty),
+	TypeCtorGenInfo0 = type_ctor_gen_info(_TypeCtor, ModuleName,
+		TypeName, Arity, _Status, _HldsDefn, _Unify, _Compare),
 	(
 		Entity = base_gen_info(ModuleName, TypeName, Arity),
 		map__search(Needed, Entity, _)
 	->
 		TypeCtorGenInfos = [TypeCtorGenInfo0 | TypeCtorGenInfos1]
 	;
-		NeuteredTypeCtorGenInfo = type_ctor_gen_info(TypeId,
-			ModuleName, TypeName, Arity, Status, HldsDefn,
-			no, no, no, no, no),
-		TypeCtorGenInfos = [NeuteredTypeCtorGenInfo |
-			TypeCtorGenInfos1]
+		TypeCtorGenInfos = TypeCtorGenInfos1
 	).
 
 %-----------------------------------------------------------------------------%
@@ -813,11 +802,11 @@ dead_pred_elim_initialize(PredId, DeadInfo0, DeadInfo) :-
 			string__remove_suffix(PredName, "_init_any", _),
 			PredArity = 1
 		;
-			% Don't eliminate the clauses for assertions.
-			pred_info_get_goal_type(PredInfo, assertion)
-		;
 			% Don't eliminate any reuse predicates
 			string__prefix(PredName, "reuse__")
+		;
+			% Don't eliminate the clauses for promises.
+			pred_info_get_goal_type(PredInfo, promise(_))
 		)
 	->
 		set__insert(NeededNames0, qualified(PredModule, PredName), 
@@ -865,13 +854,13 @@ dead_pred_elim_process_clause(clause(_, Goal, _, _)) -->
 
 pre_modecheck_examine_goal(conj(Goals) - _) -->
 	list__foldl(pre_modecheck_examine_goal, Goals).
-pre_modecheck_examine_goal(par_conj(Goals, _) - _) -->
+pre_modecheck_examine_goal(par_conj(Goals) - _) -->
 	list__foldl(pre_modecheck_examine_goal, Goals).
-pre_modecheck_examine_goal(disj(Goals, _) - _) -->
+pre_modecheck_examine_goal(disj(Goals) - _) -->
 	list__foldl(pre_modecheck_examine_goal, Goals).
-pre_modecheck_examine_goal(if_then_else(_, If, Then, Else, _) - _) -->
+pre_modecheck_examine_goal(if_then_else(_, If, Then, Else) - _) -->
 	list__foldl(pre_modecheck_examine_goal, [If, Then, Else]).
-pre_modecheck_examine_goal(switch(_, _, Cases, _) - _) -->
+pre_modecheck_examine_goal(switch(_, _, Cases) - _) -->
 	{ ExamineCase = lambda([Case::in, Info0::in, Info::out] is det, (
 		Case = case(_, Goal),
 		pre_modecheck_examine_goal(Goal, Info0, Info)
@@ -896,7 +885,7 @@ pre_modecheck_examine_goal(shorthand(_) - _) -->
 		dead_pred_info::in, dead_pred_info::out) is det.
 
 pre_modecheck_examine_unify_rhs(var(_)) --> [].
-pre_modecheck_examine_unify_rhs(functor(Functor, _)) -->
+pre_modecheck_examine_unify_rhs(functor(Functor, _, _)) -->
 	( { Functor = cons(Name, _) } ->
 		dead_pred_info_add_pred_name(Name)
 	;

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-2001 The University of Melbourne.
+% Copyright (C) 1993-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -51,28 +51,42 @@
 %     be det and should return a meaningful indication of where an
 %     error occured).
 
-:- module prog_io.
+:- module parse_tree__prog_io.
 
 :- interface.
 
-:- import_module prog_data, prog_io_util, timestamp.
+:- import_module parse_tree__prog_data, parse_tree__prog_io_util.
+:- import_module libs__timestamp, (parse_tree__inst).
+
 :- import_module bool, varset, term, list, io, std_util. 
 
 %-----------------------------------------------------------------------------%
 
 % This module (prog_io) exports the following predicates:
 
-	% prog_io__read_module(FileName, DefaultModuleName, Search,
-	%		ReturnTimestamp, Error, ActualModuleName,
-	%		Messages, Program, MaybeModuleTimestamp)
-	% Reads and parses the module in file `FileName',
-	% using the default module name `DefaultModuleName'.
-	% If Search is `yes', search directories given by the option
-	% search_directories.
+:- type file_name == string.
+:- type dir_name == string.
+
+	% Open a source or interface file, returning `ok(FileInfo)' on
+	% success (where FileInfo is information about the file such as
+	% the file name or the directory in which it was found), or
+	% `error(Message)' on failure.
+:- type open_file(FileInfo) ==
+		pred(maybe_error(FileInfo), io__state, io__state).
+:- inst open_file == (pred(out, di, uo) is det).
+
+	% prog_io__read_module(OpenFile, FileName, DefaultModuleName,
+	%		ReturnTimestamp, Error, MaybeFileInfo,
+	%		ActualModuleName, Messages, Program,
+	%		MaybeModuleTimestamp)
+	% Reads and parses the file opened by OpenFile
+	% using the default module name DefaultModuleName.
 	% If ReturnTimestamp is `yes', attempt to return the 
 	% modification timestamp in MaybeModuleTimestamp.
 	% Error is `fatal' if the file coudn't be opened, `yes'
 	% if a syntax error was detected, and `no' otherwise.
+	% MaybeFileInfo is the information about the file (usually
+	% the file or directory name) returned by OpenFile.
 	% ActualModuleName is the module name specified in the
 	% `:- module' declaration, if any, or the DefaultModuleName
 	% if there is no `:- module' declaration.
@@ -84,28 +98,26 @@
 	;	some_module_errors	% some syntax errors
 	;	fatal_module_errors.	% couldn't open the file
 
-:- type file_name == string.
-:- type dir_name == string.
-
-:- pred prog_io__read_module(file_name, module_name, bool, bool,
-		module_error, module_name, message_list, item_list,
-		maybe(io__res(timestamp)), io__state, io__state).
-:- mode prog_io__read_module(in, in, in, in, out, out, out, out,
-		out, di, uo) is det.
-
-:- pred prog_io__read_module_if_changed(file_name, module_name, bool,
-		timestamp, module_error, module_name, message_list,
+:- pred prog_io__read_module(open_file(FileInfo), module_name, bool,
+		module_error, maybe(FileInfo), module_name, message_list,
 		item_list, maybe(io__res(timestamp)), io__state, io__state).
-:- mode prog_io__read_module_if_changed(in, in, in, in,
-		out, out, out, out, out, di, uo) is det.
+:- mode prog_io__read_module(in(open_file), in, in,
+		out, out, out, out, out, out, di, uo) is det.
+
+:- pred prog_io__read_module_if_changed(open_file(FileInfo), module_name,
+		timestamp, module_error, maybe(FileInfo), module_name,
+		message_list, item_list, maybe(io__res(timestamp)),
+		io__state, io__state).
+:- mode prog_io__read_module_if_changed(in(open_file), in, in, 
+		out, out, out, out, out, out, di, uo) is det.
 
 	% Same as prog_io__read_module, but use intermod_directories
 	% instead of search_directories when searching for the file.
 	% Also report an error if the actual module name doesn't match
 	% the expected module name.
-:- pred prog_io__read_opt_file(file_name, module_name, bool,
-		module_error, message_list, item_list, io__state, io__state).
-:- mode prog_io__read_opt_file(in, in, in, out, out, out, di, uo) is det.
+:- pred prog_io__read_opt_file(file_name, module_name, module_error,
+		message_list, item_list, io__state, io__state).
+:- mode prog_io__read_opt_file(in, in, out, out, out, di, uo) is det.
 
 	% check_module_has_expected_name(FileName, ExpectedName, ActualName):
 	%	Check that two module names are equal,
@@ -114,11 +126,38 @@
 		io__state, io__state).
 :- mode check_module_has_expected_name(in, in, in, di, uo) is det.
 
-	% search_for_file(Dirs, FileName, Found, IO0, IO)
+	% search_for_file(Dirs, FileName, FoundFileName, IO0, IO)
 	%
-	% Search Dirs for FileName, opening the file if it is found.
-:- pred search_for_file(list(dir_name), file_name, bool, io__state, io__state).
+	% Search Dirs for FileName, opening the file if it is found,
+	% and returning the path name of the file that was found.
+:- pred search_for_file(list(dir_name), file_name, maybe_error(file_name),
+		io__state, io__state).
 :- mode search_for_file(in, in, out, di, uo) is det.
+
+	% search_for_file_returning_dir(Dirs, FileName, FoundDirName, IO0, IO)
+	%
+	% Search Dirs for FileName, opening the file if it is found,
+	% and returning the name of the directory in which the file
+	% was found.
+:- pred search_for_file_returning_dir(list(dir_name), file_name,
+		maybe_error(dir_name), io__state, io__state).
+:- mode search_for_file_returning_dir(in, in, out, di, uo) is det.
+
+	% search_for_module_source(Dirs, ModuleName,
+	%	FoundSourceFileName, IO0, IO)
+	%
+	% Look for the source for ModuleName in Dirs.
+	% This will also search for files matching partially
+	% qualified versions of ModuleName.
+	% For example, module foo:bar:baz can be found
+	% in foo.bar.m, bar.baz.m or bar.m.
+:- pred search_for_module_source(list(dir_name), module_name,
+		maybe_error(file_name), io__state, io__state).
+:- mode search_for_module_source(in, in, out, di, uo) is det.
+
+	% Read the first item from the given file to find the module name.
+:- pred find_module_name(file_name, maybe(module_name), io__state, io__state).
+:- mode find_module_name(in, out, di, uo) is det.
 
 	% parse_item(ModuleName, VarSet, Term, MaybeItem)
 	%
@@ -137,6 +176,12 @@
 	% name.
 :- pred parse_decl(module_name, varset, term, maybe_item_and_context).
 :- mode parse_decl(in, in, in, out) is det.
+
+	% parse_type_defn_head(ModuleName, Head, Body, HeadResult).
+	%
+	% Check the head of a type definition for errors.
+:- pred parse_type_defn_head(module_name, term, term, maybe_functor).
+:- mode parse_type_defn_head(in, in, in, out) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -188,39 +233,62 @@
 :- mode parse_implicitly_qualified_term(in, in, in, in, out) is det.
 
 %-----------------------------------------------------------------------------%
+
+	% Replace all occurrences of inst_var(I) with
+	% constrained_inst_var(I, ground(shared, none)).
+:- pred constrain_inst_vars_in_mode(mode, mode).
+:- mode constrain_inst_vars_in_mode(in, out) is det.
+
+	% Replace all occurrences of inst_var(I) with
+	% constrained_inst_var(I, Inst) where I -> Inst is in the inst_var_sub.
+	% If I is not in the inst_var_sub, default to ground(shared, none).
+:- pred constrain_inst_vars_in_mode(inst_var_sub, mode, mode).
+:- mode constrain_inst_vars_in_mode(in, in, out) is det.
+
+%-----------------------------------------------------------------------------%
+
+	% Check that for each constrained_inst_var all occurrences have the
+	% same constraint.
+:- pred inst_var_constraints_are_consistent_in_modes(list(mode)).
+:- mode inst_var_constraints_are_consistent_in_modes(in) is semidet.
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module prog_io_goal, prog_io_dcg, prog_io_pragma, prog_io_util.
-:- import_module prog_io_typeclass.
-:- import_module hlds_data, hlds_pred, prog_util, prog_out.
-:- import_module globals, options, (inst).
-:- import_module recompilation, recompilation_version.
+:- import_module parse_tree__prog_io_goal, parse_tree__prog_io_dcg.
+:- import_module parse_tree__prog_io_pragma, parse_tree__prog_io_util.
+:- import_module parse_tree__prog_io_typeclass, parse_tree__modules.
+:- import_module hlds__hlds_data, hlds__hlds_pred, parse_tree__prog_util.
+:- import_module parse_tree__prog_out.
+:- import_module libs__globals, libs__options.
+:- import_module parse_tree__modules, recompilation, recompilation__version.
 
 :- import_module int, string, std_util, parser, term_io, dir, require.
-:- import_module assoc_list, map, time.
+:- import_module assoc_list, map, time, set.
 
 %-----------------------------------------------------------------------------%
 
-prog_io__read_module(FileName, DefaultModuleName, Search, ReturnTimestamp,
-		Error, ModuleName, Messages, Items, MaybeModuleTimestamp) -->
-	prog_io__read_module_2(FileName, DefaultModuleName, Search,
-		search_directories, no, ReturnTimestamp, Error, ModuleName,
+prog_io__read_module(OpenFile, DefaultModuleName,
+		ReturnTimestamp, Error, FileData, ModuleName,
+		Messages, Items, MaybeModuleTimestamp) -->
+	prog_io__read_module_2(OpenFile, DefaultModuleName,
+		no, ReturnTimestamp, Error, FileData, ModuleName,
 		Messages, Items, MaybeModuleTimestamp).
 
-prog_io__read_module_if_changed(FileName, DefaultModuleName, Search,
-		OldTimestamp, Error, ModuleName, Messages,
+prog_io__read_module_if_changed(OpenFile, DefaultModuleName,
+		OldTimestamp, Error, FileData, ModuleName, Messages,
 		Items, MaybeModuleTimestamp) -->
-	prog_io__read_module_2(FileName, DefaultModuleName, Search,
-		search_directories, yes(OldTimestamp), yes, Error, ModuleName,
-		Messages, Items, MaybeModuleTimestamp).
+	prog_io__read_module_2(OpenFile, DefaultModuleName,
+		yes(OldTimestamp), yes, Error, FileData,
+		ModuleName, Messages, Items, MaybeModuleTimestamp).
 
-prog_io__read_opt_file(FileName, DefaultModuleName, Search,
-		Error, Messages, Items) -->
-	prog_io__read_module_2(FileName, DefaultModuleName, Search, 
-		intermod_directories, no, no, Error,
-		ModuleName, Messages, Items, _),
+prog_io__read_opt_file(FileName, DefaultModuleName, Error, Messages, Items) -->
+	globals__io_lookup_accumulating_option(intermod_directories, Dirs),
+	prog_io__read_module_2(search_for_file(Dirs, FileName),
+		DefaultModuleName, no, no, Error, _, ModuleName,
+		Messages, Items, _),
 	check_module_has_expected_name(FileName,
 		DefaultModuleName, ModuleName).
 
@@ -228,8 +296,7 @@ check_module_has_expected_name(FileName, ExpectedName, ActualName) -->
 	( { ActualName \= ExpectedName } ->
 		{ prog_out__sym_name_to_string(ActualName, ActualString) },
 		{ prog_out__sym_name_to_string(ExpectedName, ExpectedString) },
-		io__stderr_stream(ErrStream),
-		io__write_strings(ErrStream, [
+		io__write_strings([
 			"Error: file `", FileName,
 				"' contains the wrong module.\n",
 			"Expected module `", ExpectedString,
@@ -249,27 +316,22 @@ check_module_has_expected_name(FileName, ExpectedName, ActualName) -->
 % and then reverse them afterwards.  (Using difference lists would require
 % late-input modes.)
 
-:- pred prog_io__read_module_2(file_name, module_name, bool, option,
-	maybe(timestamp), bool, module_error, module_name, message_list,
-	item_list, maybe(io__res(timestamp)), io__state, io__state).
-:- mode prog_io__read_module_2(in, in, in, in, in, in, out, out, out, out,
-	out, di, uo) is det.
+:- pred prog_io__read_module_2(open_file(T), module_name,
+	maybe(timestamp), bool, module_error, maybe(T), module_name,
+	message_list, item_list, maybe(io__res(timestamp)),
+	io__state, io__state).
+:- mode prog_io__read_module_2(in(open_file), in, in, in,
+	out, out, out, out, out, out, di, uo) is det.
 
-prog_io__read_module_2(FileName, DefaultModuleName, Search, SearchOpt,
+prog_io__read_module_2(OpenFile, DefaultModuleName,
 		MaybeOldTimestamp, ReturnTimestamp, Error,
-		ModuleName, Messages, Items, MaybeModuleTimestamp) -->
-	( 
-		{ Search = yes }
-	->
-		globals__io_lookup_accumulating_option(SearchOpt, 
-			Dirs)
-	;
-		{ dir__this_directory(CurrentDir) },
-		{ Dirs = [CurrentDir] }
-	),
+		MaybeFileData, ModuleName, Messages, Items,
+		MaybeModuleTimestamp) -->
 	io__input_stream(OldInputStream),
-	search_for_file(Dirs, FileName, R),
-	( { R = yes } ->
+	OpenFile(OpenResult),
+	(
+		{ OpenResult = ok(FileData) },
+		{ MaybeFileData = yes(FileData) },
 		( { ReturnTimestamp = yes } ->
 			io__input_stream_name(InputStreamName),
 			io__file_modification_time(InputStreamName,
@@ -304,37 +366,98 @@ prog_io__read_module_2(FileName, DefaultModuleName, Search, SearchOpt,
 			read_all_items(DefaultModuleName, ModuleName,
 				Messages, Items, Error)
 		),
-		io__seen,
-		io__set_input_stream(OldInputStream, _)
+		io__set_input_stream(OldInputStream, ModuleInputStream),
+		io__close_input(ModuleInputStream)
 	;
-		io__progname_base("prog_io.m", Progname),
+		{ OpenResult = error(Message0) },
+		io__progname_base("mercury_compile", Progname),
 		{
-		  string__append(Progname, ": can't open file `", Message1),
-		  string__append(Message1, FileName, Message2),
-		  string__append(Message2, "'", Message),
+		  Message = Progname ++ ": " ++ Message0,
 		  dummy_term(Term),
 		  Messages = [Message - Term],
 		  Error = fatal_module_errors,
 		  Items = [],
 		  ModuleName = DefaultModuleName,
+		  MaybeFileData = no,
 		  MaybeModuleTimestamp = no
 		}
 	).
 
-search_for_file([], _, no) --> [].
-search_for_file([Dir | Dirs], FileName, R) -->
+search_for_file(Dirs, FileName, Result) -->
+	search_for_file_returning_dir(Dirs, FileName, Result0),
+	{
+		Result0 = ok(Dir),
+		( dir__this_directory(Dir) ->
+			PathName = FileName
+		;
+			PathName = dir__make_path_name(Dir, FileName)
+		),
+		Result = ok(PathName)
+	;
+		Result0 = error(Message),
+		Result = error(Message)
+	}.	
+
+search_for_file_returning_dir([], FileName,
+		error("cannot open `" ++ FileName ++ "'")) -->
+	[].
+search_for_file_returning_dir([Dir | Dirs], FileName, R) -->
 	{ dir__this_directory(Dir) ->
 		ThisFileName = FileName
 	;
-		dir__directory_separator(Separator),
-		string__first_char(Tmp1, Separator, FileName),
-		string__append(Dir, Tmp1, ThisFileName)
+		ThisFileName = dir__make_path_name(Dir, FileName)
 	},
 	io__see(ThisFileName, R0),
 	( { R0 = ok } ->
-		{ R = yes }
+		{ R = ok(Dir) }
 	;
-		search_for_file(Dirs, FileName, R)
+		search_for_file_returning_dir(Dirs, FileName, R)
+	).
+
+search_for_module_source(Dirs, ModuleName, MaybeFileName) -->
+	search_for_module_source(Dirs, ModuleName, ModuleName, MaybeFileName).	
+
+:- pred search_for_module_source(list(dir_name), module_name, module_name,
+		maybe_error(file_name), io__state, io__state).
+:- mode search_for_module_source(in, in, in, out, di, uo) is det.
+
+search_for_module_source(Dirs, ModuleName, PartialModuleName, Result) -->
+	module_name_to_file_name(PartialModuleName, ".m", no, FileName),
+	search_for_file(Dirs, FileName, Result0),
+	(
+		{ Result0 = ok(_) },
+		{ Result = Result0 }
+	;
+		{ Result0 = error(_) },
+		(
+			{ PartialModuleName1 =
+				drop_one_qualifier(PartialModuleName) }
+		->
+			search_for_module_source(Dirs, ModuleName,
+				PartialModuleName1, Result)
+		;
+			{ sym_name_to_string(ModuleName, ModuleNameStr) },
+			{ Result = error("can't find source for module `" ++
+					ModuleNameStr ++ "'") }
+		)
+	).
+
+:- func drop_one_qualifier(module_name) = module_name is semidet.
+
+drop_one_qualifier(qualified(ParentQual, ChildName)) =
+	drop_one_qualifier_2(ParentQual, ChildName).
+
+:- func drop_one_qualifier_2(module_name, string) = module_name.
+
+drop_one_qualifier_2(ParentQual, ChildName) =  PartialQual :-
+	(
+		ParentQual = unqualified(_ParentName),
+		PartialQual = unqualified(ChildName)
+	;
+		ParentQual = qualified(GrandParentQual, ParentName),
+		PartialGrandParentQual = drop_one_qualifier_2(GrandParentQual,
+			ParentName),
+		PartialQual = qualified(PartialGrandParentQual, ChildName)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -433,6 +556,36 @@ dummy_term_with_context(Context, Term) :-
 
 %-----------------------------------------------------------------------------%
 
+find_module_name(FileName, MaybeModuleName) -->
+	io__open_input(FileName, OpenRes),
+	(
+		{ OpenRes = ok(InputStream) },
+		io__set_input_stream(InputStream, OldInputStream),
+		{ string__remove_suffix(FileName, ".m", PartialFileName0) ->
+			PartialFileName = PartialFileName0
+		;
+			PartialFileName = FileName
+		},
+		{ file_name_to_module_name(dir__basename(PartialFileName),
+			DefaultModuleName) },
+		read_first_item(DefaultModuleName, FileName,
+			ModuleName, RevMessages, _, _, _),
+		{ MaybeModuleName = yes(ModuleName) },
+		prog_out__write_messages(list__reverse(RevMessages)),
+		io__set_input_stream(OldInputStream, _),
+		io__close_input(InputStream)
+	;
+		{ OpenRes = error(Error) },
+		io__progname_base("mercury_compile", Progname),
+		io__write_string(Progname),
+		io__write_string(": error opening `"),
+		io__write_string(FileName),
+		io__write_string("': "),
+		io__write_string(io__error_message(Error)),
+		io__write_string(".\n"),
+		{ MaybeModuleName = no }
+	).	
+
  	% Read a source file from standard in, first reading in
 	% the input term by term and then parsing those terms and producing
 	% a high-level representation.
@@ -458,19 +611,33 @@ read_all_items(DefaultModuleName, ModuleName, Messages, Items, Error) -->
 	io__input_stream(Stream),
 	io__input_stream_name(Stream, SourceFileName),
 	read_first_item(DefaultModuleName, SourceFileName, ModuleName,
-		RevMessages, RevItems0, Error0),
+		RevMessages0, RevItems0, MaybeSecondTerm, Error0),
+	(
+		{ MaybeSecondTerm = yes(SecondTerm) },
+		{ process_read_term(ModuleName, SecondTerm,
+			MaybeSecondItem) },
+
+		read_items_loop_2(MaybeSecondItem, ModuleName, SourceFileName,
+			RevMessages0, RevItems0, Error0,
+			RevMessages1, RevItems1, Error1)
+	;
+		{ MaybeSecondTerm = no },
+		read_items_loop(ModuleName, SourceFileName,
+			RevMessages0, RevItems0, Error0,
+			RevMessages1, RevItems1, Error1)
+	),
 
 	%
 	% get the end_module declaration (if any),
 	% check that it matches the initial module declaration (if any),
 	% and remove both of them from the final item list.
 	%
-	{ get_end_module(RevItems0, ModuleName, RevItems, EndModule) },
-	{ list__reverse(RevMessages, Messages0) },
-	{ list__reverse(RevItems, Items0) },
+	{ get_end_module(RevItems1, ModuleName, RevItems, EndModule) },
 	check_end_module(EndModule,
-			Messages0, Items0, Error0,
-			Messages, Items, Error).
+			RevMessages1, Items0, Error1,
+			RevMessages, Items, Error),
+	{ list__reverse(RevMessages, Messages) },
+	{ list__reverse(RevItems, Items0) }.
 
 %
 % We need to jump through a few hoops when reading the first item,
@@ -486,11 +653,12 @@ read_all_items(DefaultModuleName, ModuleName, Messages, Items, Error) -->
 % we reparse it in the default module scope.  Blecchh.
 %
 :- pred read_first_item(module_name, file_name, module_name,
-		message_list, item_list, module_error, io__state, io__state).
-:- mode read_first_item(in, in, out, out, out, out, di, uo) is det.
+		message_list, item_list, maybe(read_term), module_error,
+		io__state, io__state).
+:- mode read_first_item(in, in, out, out, out, out, out, di, uo) is det.
 
 read_first_item(DefaultModuleName, SourceFileName, ModuleName,
-	Messages, Items, Error) -->
+	Messages, Items, MaybeSecondTerm, Error) -->
 
 	globals__io_lookup_bool_option(warn_missing_module_name, WarnMissing),
 	globals__io_lookup_bool_option(warn_wrong_module_name, WarnWrong),
@@ -514,7 +682,7 @@ read_first_item(DefaultModuleName, SourceFileName, ModuleName,
 	    { FirstItem = pragma(source_file(NewSourceFileName)) }
 	->
 	    read_first_item(DefaultModuleName, NewSourceFileName,
-	    	ModuleName, Messages, Items, Error)
+	    	ModuleName, Messages, Items, MaybeSecondTerm, Error)
 	;
 	    %
 	    % check if the first term was a `:- module' decl
@@ -532,12 +700,12 @@ read_first_item(DefaultModuleName, SourceFileName, ModuleName,
 		match_sym_name(StartModuleName, DefaultModuleName)
 	    ->
 		ModuleName = DefaultModuleName,
-		Messages0 = []
+		Messages = []
 	    ;
 		match_sym_name(DefaultModuleName, StartModuleName)
 	    ->
 		ModuleName = StartModuleName,
-		Messages0 = []
+		Messages = []
 	    ;
 	    	prog_out__sym_name_to_string(StartModuleName,
 			StartModuleNameString),
@@ -545,7 +713,7 @@ read_first_item(DefaultModuleName, SourceFileName, ModuleName,
 			"' contains module named `", StartModuleNameString,
 			"'"], WrongModuleWarning),
 	        maybe_add_warning(WarnWrong, MaybeFirstTerm, FirstContext,
-			WrongModuleWarning, [], Messages0),
+			WrongModuleWarning, [], Messages),
 
 		% Which one should we use here?
 		% We used to use the default module name
@@ -554,11 +722,9 @@ read_first_item(DefaultModuleName, SourceFileName, ModuleName,
 		ModuleName = StartModuleName
 	    },
 	    { make_module_decl(ModuleName, FirstContext, FixedFirstItem) },
-	    { Items0 = [FixedFirstItem] },
-	    { Error0 = no_module_errors },
-	    read_items_loop(ModuleName, SourceFileName,
-			Messages0, Items0, Error0,
-			Messages, Items, Error)
+	    { Items = [FixedFirstItem] },
+	    { Error = no_module_errors },
+	    { MaybeSecondTerm = no }
 	;
 	    %
 	    % if the first term was not a `:- module' decl,
@@ -574,9 +740,9 @@ read_first_item(DefaultModuleName, SourceFileName, ModuleName,
 		dummy_term_with_context(FirstContext, FirstTerm),
 		add_warning(
 			"module should start with a `:- module' declaration",
-			FirstTerm, [], Messages0)
+			FirstTerm, [], Messages)
 	    ;
-		Messages0 = []
+		Messages = []
 	    },
 	    { ModuleName = DefaultModuleName },
 	    { make_module_decl(ModuleName, FirstContext, FixedFirstItem) },
@@ -586,15 +752,9 @@ read_first_item(DefaultModuleName, SourceFileName, ModuleName,
 	    % occuring within the scope of the implicit
 	    % `:- module' decl rather than in the root module.
 	    % 
-	    { MaybeSecondTerm = MaybeFirstTerm },
-	    { process_read_term(ModuleName, MaybeSecondTerm,
-		MaybeSecondItem) },
-
-	    { Items0 = [FixedFirstItem] },
-	    { Error0 = no_module_errors },
-	    read_items_loop_2(MaybeSecondItem, ModuleName, SourceFileName,
-		Messages0, Items0, Error0,
-		Messages, Items, Error)
+	    { MaybeSecondTerm = yes(MaybeFirstTerm) },
+	    { Items = [FixedFirstItem] },
+	    { Error = no_module_errors }
 	).
 
 :- pred make_module_decl(module_name, term__context, item_and_context).
@@ -856,7 +1016,7 @@ process_func_clause(error(ErrMessage, Term0), _, _, _,
 
 :- type decl_attribute
 	--->	purity(purity)
-	;	quantifier(quantifier_type, list(tvar))
+	;	quantifier(quantifier_type, list(var))
 	;	constraints(quantifier_type, term).
 		% the term here is the (not yet parsed) list of constraints
 
@@ -926,8 +1086,7 @@ process_decl(ModuleName, VarSet, "func", [FuncDecl], Attributes, Result) :-
 	parse_type_decl_func(ModuleName, VarSet, FuncDecl, Attributes, Result).
 
 process_decl(ModuleName, VarSet, "mode", [ModeDecl], Attributes, Result) :-
-	parse_mode_decl(ModuleName, VarSet, ModeDecl, Result0),
-	check_no_attributes(Result0, Attributes, Result).
+	parse_mode_decl(ModuleName, VarSet, ModeDecl, Attributes, Result).
 
 process_decl(ModuleName, VarSet, "inst", [InstDecl], Attributes, Result) :-
 	parse_inst_decl(ModuleName, VarSet, InstDecl, Result0),
@@ -1136,8 +1295,23 @@ process_decl(ModuleName, VarSet, "pragma", Pragma, Attributes, Result):-
 	check_no_attributes(Result0, Attributes, Result).
 
 process_decl(ModuleName, VarSet, "promise", Assertion, Attributes, Result):-
-	parse_assertion(ModuleName, VarSet, Assertion, Result0),
+	parse_promise(ModuleName, true, VarSet, Assertion, Attributes, Result0),
 	check_no_attributes(Result0, Attributes, Result).
+
+process_decl(ModuleName, VarSet, "promise_exclusive", PromiseGoal, Attributes,
+		Result):-
+	parse_promise(ModuleName, exclusive, VarSet, PromiseGoal, Attributes, 
+			Result).
+
+process_decl(ModuleName, VarSet, "promise_exhaustive", PromiseGoal, Attributes,
+		Result):-
+	parse_promise(ModuleName, exhaustive, VarSet, PromiseGoal, Attributes, 
+			Result).
+
+process_decl(ModuleName, VarSet, "promise_exclusive_exhaustive", PromiseGoal, 
+		Attributes, Result):-
+	parse_promise(ModuleName, exclusive_exhaustive, VarSet, PromiseGoal, 
+		Attributes, Result).
 
 process_decl(ModuleName, VarSet, "typeclass", Args, Attributes, Result):-
 	parse_typeclass(ModuleName, VarSet, Args, Result0),
@@ -1159,7 +1333,7 @@ process_decl(ModuleName, VarSet0, "version_numbers",
 		(
 			ModuleNameResult = ok(ModuleName)
 		->
-			recompilation_version__parse_version_numbers(
+			recompilation__version__parse_version_numbers(
 				VersionNumbersTerm, Result0),
 			(
 				Result0 = ok(VersionNumbers),
@@ -1203,13 +1377,11 @@ parse_decl_attribute("<=", [Decl, Constraints],
 		constraints(univ, Constraints), Decl).
 parse_decl_attribute("=>", [Decl, Constraints],
 		constraints(exist, Constraints), Decl).
-parse_decl_attribute("some", [TVars0, Decl],
+parse_decl_attribute("some", [TVars, Decl],
 		quantifier(exist, TVarsList), Decl) :-
-	term__coerce(TVars0, TVars),
 	parse_list_of_vars(TVars, TVarsList).
-parse_decl_attribute("all", [TVars0, Decl],
+parse_decl_attribute("all", [TVars, Decl],
 		quantifier(univ, TVarsList), Decl) :-
-	term__coerce(TVars0, TVars),
 	parse_list_of_vars(TVars, TVarsList).
 
 :- pred check_no_attributes(maybe1(item), decl_attrs, maybe1(item)).
@@ -1239,14 +1411,29 @@ attribute_description(constraints(exist, _),
 
 %-----------------------------------------------------------------------------%
 
-	% parse the assertion declaration. 
-:- pred parse_assertion(module_name, varset, list(term), maybe1(item)).
-:- mode parse_assertion(in, in, in, out) is semidet.
-
-parse_assertion(_ModuleName, VarSet, [AssertionTerm], Result) :-
-	varset__coerce(VarSet, ProgVarSet),
-	parse_goal(AssertionTerm, ProgVarSet, AssertGoal, AssertVarSet),
-	Result = ok(assertion(AssertGoal, AssertVarSet)).
+:- pred parse_promise(module_name, promise_type, varset, list(term), decl_attrs,
+		maybe1(item)).
+:- mode parse_promise(in, in, in, in, in, out) is semidet.
+parse_promise(ModuleName, PromiseType, VarSet, [Term], Attributes, Result) :-
+	varset__coerce(VarSet, ProgVarSet0),
+	parse_goal(Term, ProgVarSet0, Goal0, ProgVarSet),
+	
+		% get universally quantified variables
+	( PromiseType = true ->
+		( Goal0 = all(UnivVars0, AllGoal) - _Context -> 
+			UnivVars0 = UnivVars,
+			Goal = AllGoal 
+		;
+			UnivVars = [],
+			Goal = Goal0
+		)
+	;
+		get_quant_vars(univ, ModuleName, Attributes, [], _, UnivVars0),
+		list__map(term__coerce_var, UnivVars0, UnivVars),
+		Goal0 = Goal
+	),
+	
+	Result = ok(promise(PromiseType, Goal, ProgVarSet, UnivVars)).
 
 %-----------------------------------------------------------------------------%
 
@@ -1313,10 +1500,6 @@ parse_type_decl_type(ModuleName, "--->", [H, B], Condition, R) :-
 	get_maybe_equality_pred(B, Body, EqualityPred),
 	process_du_type(ModuleName, H, Body, EqualityPred, R).
 
-parse_type_decl_type(ModuleName, "=", [H, B], Condition, R) :-
-	get_condition(B, Body, Condition),
-	process_uu_type(ModuleName, H, Body, R).
-
 parse_type_decl_type(ModuleName, "==", [H, B], Condition, R) :-
 	get_condition(B, Body, Condition),
 	process_eqv_type(ModuleName, H, Body, R).
@@ -1333,19 +1516,52 @@ parse_type_decl_type(ModuleName, "==", [H, B], Condition, R) :-
 parse_type_decl_pred(ModuleName, VarSet, Pred, Attributes, R) :-
 	get_condition(Pred, Body, Condition),
 	get_determinism(Body, Body2, MaybeDeterminism),
-        process_type_decl_pred(ModuleName, MaybeDeterminism, VarSet, Body2,
-                                Condition, Attributes, R).
+	get_with_inst(Body2, Body3, WithInst),	
+	get_with_type(Body3, Body4, WithType),
+	process_type_decl_pred_or_func(predicate, ModuleName,
+		WithType, WithInst, MaybeDeterminism, VarSet, Body4,
+		Condition, Attributes, R).
 
-:- pred process_type_decl_pred(module_name, maybe1(maybe(determinism)), varset,
-				term, condition, decl_attrs, maybe1(item)).
-:- mode process_type_decl_pred(in, in, in, in, in, in, out) is det.
+:- pred process_type_decl_pred_or_func(pred_or_func, module_name, maybe(type),
+		maybe1(maybe(inst)), maybe1(maybe(determinism)), varset,
+		term, condition, decl_attrs, maybe1(item)).
+:- mode process_type_decl_pred_or_func(in, in, in, in, in, in,
+		in, in, in, out) is det.
 
-process_type_decl_pred(_MNm, error(Term, Reason), _, _, _, _,
-			error(Term, Reason)).
-process_type_decl_pred(ModuleName, ok(MaybeDeterminism), VarSet, Body,
+process_type_decl_pred_or_func(PredOrFunc, ModuleName, WithType, WithInst0,
+			MaybeDeterminism0, VarSet, Body,
 			Condition, Attributes, R) :-
-        process_pred(ModuleName, VarSet, Body, Condition, MaybeDeterminism,
-		     Attributes, R).
+    (
+	MaybeDeterminism0 = ok(MaybeDeterminism),
+	(
+	    WithInst0 = ok(WithInst),
+	    ( MaybeDeterminism = yes(_), WithInst = yes(_) ->
+		R = error("`with_inst` and determinism both specified", Body)
+	    ; WithInst = yes(_), WithType = no ->
+		R = error("`with_inst` specified without `with_type`", Body)
+	    ;
+		(
+		    % Function declarations with `with_type` annotations have
+		    % the same form as predicate declarations.
+		    PredOrFunc = function,
+		    WithType = no
+		->
+		    process_func(ModuleName, VarSet, Body, Condition,
+				MaybeDeterminism, Attributes, R)
+		;
+		    process_pred_or_func(PredOrFunc, ModuleName, VarSet,
+		    		Body, Condition, WithType, WithInst,
+				MaybeDeterminism, Attributes, R)
+		)
+	    )
+	;
+	    WithInst0 = error(E, T),
+	    R = error(E, T)
+	)
+    ;
+	MaybeDeterminism0 = error(E, T),
+	R = error(E, T)
+    ).
 
 %-----------------------------------------------------------------------------%
 
@@ -1359,8 +1575,11 @@ process_type_decl_pred(ModuleName, ok(MaybeDeterminism), VarSet, Body,
 parse_type_decl_func(ModuleName, VarSet, Func, Attributes, R) :-
 	get_condition(Func, Body, Condition),
 	get_determinism(Body, Body2, MaybeDeterminism),
-        process_maybe1_to_t(process_func(ModuleName, VarSet, Body2, Condition,
-					 Attributes), MaybeDeterminism, R).
+	get_with_inst(Body2, Body3, WithInst),	
+	get_with_type(Body3, Body4, WithType),
+	process_type_decl_pred_or_func(function, ModuleName,
+		WithType, WithInst, MaybeDeterminism, VarSet, Body4,
+		Condition, Attributes, R).
 
 %-----------------------------------------------------------------------------%
 
@@ -1368,14 +1587,36 @@ parse_type_decl_func(ModuleName, VarSet, Func, Attributes, R) :-
 	% if Pred is a predicate mode declaration, and binds Condition
 	% to the condition for that declaration (if any), and Result to
 	% a representation of the declaration.
-:- pred parse_mode_decl_pred(module_name, varset, term, maybe1(item)).
-:- mode parse_mode_decl_pred(in, in, in, out) is det.
+:- pred parse_mode_decl_pred(module_name, varset, term, decl_attrs,
+		maybe1(item)).
+:- mode parse_mode_decl_pred(in, in, in, in, out) is det.
 
-parse_mode_decl_pred(ModuleName, VarSet, Pred, Result) :-
-	get_condition(Pred, Body, Condition),
-	get_determinism(Body, Body2, MaybeDeterminism),
-	process_maybe1_to_t(process_mode(ModuleName, VarSet, Body2, Condition),
-			MaybeDeterminism, Result).
+parse_mode_decl_pred(ModuleName, VarSet, Pred, Attributes, Result) :-
+    get_condition(Pred, Body, Condition),
+    get_determinism(Body, Body2, MaybeDeterminism0),
+    get_with_inst(Body2, Body3, WithInst0),
+    (
+	MaybeDeterminism0 = ok(MaybeDeterminism),
+        (
+	    WithInst0 = ok(WithInst),
+	    (
+	    	MaybeDeterminism = yes(_),
+		WithInst = yes(_)
+	    ->
+		Result = error("`with_inst` and determinism both specified",
+				Body)
+	    ;
+		process_mode(ModuleName, VarSet, Body3, Condition,
+			Attributes, WithInst, MaybeDeterminism, Result)
+	    )
+	;
+    	    WithInst0 = error(E, T),
+    	    Result = error(E, T)
+	)
+    ;
+	MaybeDeterminism0 = error(E, T),
+    	Result = error(E, T)
+    ).
 
 %-----------------------------------------------------------------------------%
 
@@ -1445,6 +1686,44 @@ get_determinism(B, Body, Determinism) :-
 		Determinism = ok(no)
 	).
 
+	% Process the `with_inst` part of a declaration of the form:
+	% :- mode p(int) `with_inst` (pred(in, out) is det).
+:- pred get_with_inst(term, term, maybe1(maybe(inst))).
+:- mode get_with_inst(in, out, out) is det.
+
+get_with_inst(Body0, Body, WithInst) :-
+	(
+		Body0 = term__functor(term__atom("with_inst"),
+				[Body1, Inst1], _)
+	->
+		( convert_inst(allow_constrained_inst_var, Inst1, Inst) ->
+			WithInst = ok(yes(Inst))
+		;
+			WithInst = error("invalid inst in `with_inst`",
+					Body0)
+		),
+		Body = Body1
+	;
+		Body = Body0,
+		WithInst = ok(no)
+	).
+
+:- pred get_with_type(term, term, maybe(type)).
+:- mode get_with_type(in, out, out) is det.
+
+get_with_type(Body0, Body, WithType) :-
+	(
+		Body0 = term__functor(term__atom("with_type"),
+			[Body1, Type1], _)
+	->	
+		Body = Body1,
+		convert_type(Type1, Type),
+		WithType = yes(Type)
+	;
+		Body = Body0,
+		WithType = no
+	).
+
 %-----------------------------------------------------------------------------%
 
 	% get_condition(Term0, Term, Condition) binds Condition
@@ -1490,29 +1769,13 @@ get_condition(B, Body, Condition) :-
 		type_defn
 	).
 
-	% This is for "Head = Body" (undiscriminated union) definitions.
-:- pred process_uu_type(module_name, term, term, maybe1(processed_type_body)).
-:- mode process_uu_type(in, in, in, out) is det.
-process_uu_type(ModuleName, Head, Body, Result) :-
-	check_for_errors(ModuleName, Head, Body, Result0),
-	process_uu_type_2(Result0, Body, Result).
-
-:- pred process_uu_type_2(maybe_functor, term, maybe1(processed_type_body)).
-:- mode process_uu_type_2(in, in, out) is det.
-process_uu_type_2(error(Error, Term), _, error(Error, Term)).
-process_uu_type_2(ok(Name, Args0), Body,
-		ok(processed_type_body(Name, Args, uu_type(List)))) :-
-	list__map(term__coerce, Args0, Args),
-	sum_to_list(Body, List0),
-	list__map(convert_type, List0, List).
-
 %-----------------------------------------------------------------------------%
 
 	% This is for "Head == Body" (equivalence) definitions.
 :- pred process_eqv_type(module_name, term, term, maybe1(processed_type_body)).
 :- mode process_eqv_type(in, in, in, out) is det.
 process_eqv_type(ModuleName, Head, Body, Result) :-
-	check_for_errors(ModuleName, Head, Body, Result0),
+	parse_type_defn_head(ModuleName, Head, Body, Result0),
 	process_eqv_type_2(Result0, Body, Result).
 
 :- pred process_eqv_type_2(maybe_functor, term, maybe1(processed_type_body)).
@@ -1545,7 +1808,7 @@ process_eqv_type_2(ok(Name, Args0), Body0, Result) :-
 			maybe1(processed_type_body)).
 :- mode process_du_type(in, in, in, in, out) is det.
 process_du_type(ModuleName, Head, Body, EqualityPred, Result) :-
-	check_for_errors(ModuleName, Head, Body, Result0),
+	parse_type_defn_head(ModuleName, Head, Body, Result0),
 	process_du_type_2(ModuleName, Result0, Body, EqualityPred, Result).
 
 :- pred process_du_type_2(module_name, maybe_functor, term,
@@ -1645,7 +1908,7 @@ process_du_type_2(ModuleName, ok(Functor, Args0), Body, MaybeEqualityPred,
 :- mode process_abstract_type(in, in, out) is det.
 process_abstract_type(ModuleName, Head, Result) :-
 	dummy_term(Body),
-	check_for_errors(ModuleName, Head, Body, Result0),
+	parse_type_defn_head(ModuleName, Head, Body, Result0),
 	process_abstract_type_2(Result0, Result).
 
 :- pred process_abstract_type_2(maybe_functor, maybe1(processed_type_body)).
@@ -1657,11 +1920,7 @@ process_abstract_type_2(ok(Functor, Args0),
 
 %-----------------------------------------------------------------------------%
 
-	%  check a type definition for errors
-
-:- pred check_for_errors(module_name, term, term, maybe_functor).
-:- mode check_for_errors(in, in, in, out) is det.
-check_for_errors(ModuleName, Head, Body, Result) :-
+parse_type_defn_head(ModuleName, Head, Body, Result) :-
 	( Head = term__variable(_) ->
 		%
 		% `Head' has no term__context, so we need to get the
@@ -1676,18 +1935,18 @@ check_for_errors(ModuleName, Head, Body, Result) :-
 	;
 		parse_implicitly_qualified_term(ModuleName,
 			Head, Head, "type definition", R),
-		check_for_errors_2(R, Body, Head, Result)
+		parse_type_defn_head_2(R, Body, Head, Result)
 	).
 
-:- pred check_for_errors_2(maybe_functor, term, term, maybe_functor).
-:- mode check_for_errors_2(in, in, in, out) is det.
-check_for_errors_2(error(Msg, Term), _, _, error(Msg, Term)).
-check_for_errors_2(ok(Name, Args), Body, Head, Result) :-
-	check_for_errors_3(Name, Args, Body, Head, Result).
+:- pred parse_type_defn_head_2(maybe_functor, term, term, maybe_functor).
+:- mode parse_type_defn_head_2(in, in, in, out) is det.
+parse_type_defn_head_2(error(Msg, Term), _, _, error(Msg, Term)).
+parse_type_defn_head_2(ok(Name, Args), Body, Head, Result) :-
+	parse_type_defn_head_3(Name, Args, Body, Head, Result).
 
-:- pred check_for_errors_3(sym_name, list(term), term, term, maybe_functor).
-:- mode check_for_errors_3(in, in, in, in, out) is det.
-check_for_errors_3(Name, Args, _Body, Head, Result) :-
+:- pred parse_type_defn_head_3(sym_name, list(term), term, term, maybe_functor).
+:- mode parse_type_defn_head_3(in, in, in, in, out) is det.
+parse_type_defn_head_3(Name, Args, _Body, Head, Result) :-
 	% check that all the head args are variables
 	( %%%	some [Arg]
 		(
@@ -1704,7 +1963,8 @@ check_for_errors_3(Name, Args, _Body, Head, Result) :-
 			list__member(Arg2, OtherArgs)
 		)
 	->
-		Result = error("repeated type parameters in LHS of type defn", Head)
+		Result = error("repeated type parameters in LHS of type defn",
+			Head)
 	;
 		Result = ok(Name, Args)
 	).
@@ -1765,52 +2025,84 @@ convert_constructor(ModuleName, Term0, Result) :-
 
 %-----------------------------------------------------------------------------%
 
-	% parse a `:- pred p(...)' declaration
+	% parse a `:- pred p(...)' declaration or a
+	% `:- func f(...) `with_type` t' declaration
 
-:- pred process_pred(module_name, varset, term, condition, maybe(determinism),
-			decl_attrs, maybe1(item)).
-:- mode process_pred(in, in, in, in, in, in, out) is det.
+:- pred process_pred_or_func(pred_or_func, module_name, varset, term,
+	condition, maybe(type), maybe(inst), maybe(determinism),
+	decl_attrs, maybe1(item)).
+:- mode process_pred_or_func(in, in, in, in, in, in, in, in, in, out) is det.
 
-process_pred(ModuleName, VarSet, PredType, Cond, MaybeDet, Attributes0,
-		Result) :-
-	get_class_context(ModuleName, Attributes0, Attributes, MaybeContext),
+process_pred_or_func(PredOrFunc, ModuleName, VarSet, PredType, Cond, WithType,
+		WithInst, MaybeDet, Attributes0, Result) :-
+	get_class_context_and_inst_constraints(ModuleName, Attributes0,
+		Attributes, MaybeContext),
 	(
-		MaybeContext = ok(ExistQVars, Constraints),
+		MaybeContext = ok(ExistQVars, Constraints, InstConstraints),
 		parse_implicitly_qualified_term(ModuleName,
-			PredType, PredType, "`:- pred' declaration",
-			R),
-		process_pred_2(R, PredType, VarSet, MaybeDet, Cond,
-			ExistQVars, Constraints, Attributes, Result)
+			PredType, PredType,
+			pred_or_func_decl_string(PredOrFunc), R),
+		process_pred_or_func_2(PredOrFunc, R, PredType, VarSet,
+			WithType, WithInst, MaybeDet, Cond, ExistQVars,
+			Constraints, InstConstraints, Attributes, Result)
 	;
 		MaybeContext = error(String, Term),
 		Result = error(String, Term)
 	).
 
-:- pred process_pred_2(maybe_functor, term, varset, maybe(determinism),
-			condition, existq_tvars, class_constraints, decl_attrs,
-			maybe1(item)).
-:- mode process_pred_2(in, in, in, in, in, in, in, in, out) is det.
+:- pred process_pred_or_func_2(pred_or_func, maybe_functor, term, varset,
+		maybe(type), maybe(inst), maybe(determinism), condition,
+		existq_tvars, class_constraints, inst_var_sub,
+		decl_attrs, maybe1(item)).
+:- mode process_pred_or_func_2(in, in, in, in, in, in, in,
+		in, in, in, in, in, out) is det.
 
-process_pred_2(ok(F, As0), PredType, VarSet0, MaybeDet, Cond, ExistQVars,
-		ClassContext, Attributes0, Result) :-
-	( convert_type_and_mode_list(As0, As) ->
-		( verify_type_and_mode_list(As) ->
-	        	get_purity(Attributes0, Purity, Attributes),
-			varset__coerce(VarSet0, TVarSet),
-			varset__coerce(VarSet0, IVarSet),
-			Result0 = ok(pred_or_func(TVarSet, IVarSet, ExistQVars,
-				predicate, F, As, MaybeDet, Cond, Purity,
-				ClassContext)),
-			check_no_attributes(Result0, Attributes, Result)
-		;
-			Result = error("some but not all arguments have modes",
+process_pred_or_func_2(PredOrFunc, ok(F, As0), PredType, VarSet0,
+		WithType, WithInst, MaybeDet, Cond, ExistQVars,
+		ClassContext, InstConstraints, Attributes0, Result) :-
+    ( convert_type_and_mode_list(InstConstraints, As0, As) ->
+	( verify_type_and_mode_list(As) ->
+	    (
+		WithInst = yes(_),
+		As = [type_only(_) | _]
+	    ->
+		Result = error("`with_inst` specified without argument modes",
 				PredType)
-		)
+	    ;
+		WithInst = no,
+		WithType = yes(_),
+		As = [type_and_mode(_, _) | _]
+	    ->
+		Result = error(
+			"arguments have modes but `with_inst` not specified",
+			PredType)
+	    ;
+		\+ inst_var_constraints_are_consistent_in_type_and_modes(As)
+	    ->
+		Result = error(
+			"inconsistent constraints on inst variables in "
+				++ pred_or_func_decl_string(PredOrFunc),
+			PredType)
+	    ;
+		get_purity(Attributes0, Purity, Attributes),
+		varset__coerce(VarSet0, TVarSet),
+		varset__coerce(VarSet0, IVarSet),
+		Result0 = ok(pred_or_func(TVarSet, IVarSet,
+			ExistQVars, PredOrFunc, F, As,
+			WithType, WithInst, MaybeDet, Cond,
+			Purity, ClassContext)),
+		check_no_attributes(Result0, Attributes, Result)
+	    )
 	;
-		Result = error("syntax error in `:- pred' declaration",
-				PredType)
-	).
-process_pred_2(error(M, T), _, _, _, _, _, _, _, error(M, T)).
+	    Result = error("some but not all arguments have modes", PredType)
+	)
+    ;
+	Result = error("syntax error in " ++
+			pred_or_func_decl_string(PredOrFunc),
+			PredType)
+    ).
+process_pred_or_func_2(_, error(M, T),
+	_, _, _, _, _, _, _, _, _, _, error(M, T)).
 
 :- pred get_purity(decl_attrs, purity, decl_attrs).
 :- mode get_purity(in, out, out) is det.
@@ -1824,23 +2116,33 @@ get_purity(Attributes0, Purity, Attributes) :-
 		Attributes = Attributes0
 	).
 
+:- func pred_or_func_decl_string(pred_or_func) = string.
+
+pred_or_func_decl_string(function) = "`:- func' declaration".
+pred_or_func_decl_string(predicate) = "`:- pred' declaration".
+
 %-----------------------------------------------------------------------------%
 
 	% We could perhaps get rid of some code duplication between here and
 	% prog_io_typeclass.m?
 
-	% get_class_context(ModuleName, Attributes0, Attributes, MaybeContext):
-	% Parse type quantifiers and type class constraints from the
-	% declaration attributes in Attributes0.
+	% get_class_context_and_inst_constraints(ModuleName, Attributes0,
+	%	Attributes, MaybeContext, MaybeInstConstraints):
+	% Parse type quantifiers, type class constraints and inst constraints
+	% from the declaration attributes in Attributes0.
 	% MaybeContext is either bound to the correctly parsed context, or
 	% an appropriate error message (if there was a syntax error).
+	% MaybeInstConstraints is either bound to a map containing the inst
+	% constraints or an appropriate error message (if there was a syntax
+	% error).
 	% Attributes is bound to the remaining attributes.
 
-:- pred get_class_context(module_name, decl_attrs, decl_attrs,
-			maybe2(existq_tvars, class_constraints)).
-:- mode get_class_context(in, in, out, out) is det.
+:- pred get_class_context_and_inst_constraints(module_name, decl_attrs,
+	decl_attrs, maybe3(existq_tvars, class_constraints, inst_var_sub)).
+:- mode get_class_context_and_inst_constraints(in, in, out, out) is det.
 
-get_class_context(ModuleName, RevAttributes0, RevAttributes, MaybeContext) :-
+get_class_context_and_inst_constraints(ModuleName, RevAttributes0,
+		RevAttributes, MaybeContext) :-
 	%
 	% constraints and quantifiers should occur in the following
 	% order (outermost to innermost):
@@ -1876,10 +2178,11 @@ get_class_context(ModuleName, RevAttributes0, RevAttributes, MaybeContext) :-
 	% error message.)
 
 	list__reverse(RevAttributes0, Attributes0),
-	get_quant_tvars(univ, ModuleName, Attributes0, [],
+	get_quant_vars(univ, ModuleName, Attributes0, [],
 					Attributes1, _UnivQVars),
-	get_quant_tvars(exist, ModuleName, Attributes1, [],
-					Attributes2, ExistQVars),
+	get_quant_vars(exist, ModuleName, Attributes1, [],
+					Attributes2, ExistQVars0),
+	list__map(term__coerce_var, ExistQVars0, ExistQVars),
 	get_constraints(univ, ModuleName, Attributes2,
 					Attributes3, MaybeUnivConstraints),
 	get_constraints(exist, ModuleName, Attributes3,
@@ -1889,36 +2192,37 @@ get_class_context(ModuleName, RevAttributes0, RevAttributes, MaybeContext) :-
 	combine_quantifier_results(MaybeUnivConstraints, MaybeExistConstraints,
 			ExistQVars, MaybeContext).
 
-:- pred combine_quantifier_results(maybe1(list(class_constraint)),
-		maybe1(list(class_constraint)), existq_tvars,
-		maybe2(existq_tvars, class_constraints)).
+:- pred combine_quantifier_results(maybe_class_and_inst_constraints,
+		maybe_class_and_inst_constraints, existq_tvars,
+		maybe3(existq_tvars, class_constraints, inst_var_sub)).
 :- mode combine_quantifier_results(in, in, in, out) is det.
 
 combine_quantifier_results(error(Msg, Term), _, _, error(Msg, Term)).
-combine_quantifier_results(ok(_), error(Msg, Term), _, error(Msg, Term)).
-combine_quantifier_results(
-	ok(UnivConstraints), ok(ExistConstraints), ExistQVars,
-	ok(ExistQVars, constraints(UnivConstraints, ExistConstraints))).
+combine_quantifier_results(ok(_, _), error(Msg, Term), _, error(Msg, Term)).
+combine_quantifier_results(ok(UnivConstraints, InstConstraints0),
+	ok(ExistConstraints, InstConstraints1), ExistQVars,
+	ok(ExistQVars, constraints(UnivConstraints, ExistConstraints),
+		InstConstraints0 `map__merge` InstConstraints1)).
 
-:- pred get_quant_tvars(quantifier_type, module_name, decl_attrs, list(tvar),
-		decl_attrs, list(tvar)).
-:- mode get_quant_tvars(in, in, in, in, out, out) is det.
+:- pred get_quant_vars(quantifier_type, module_name, decl_attrs, list(var),
+		decl_attrs, list(var)).
+:- mode get_quant_vars(in, in, in, in, out, out) is det.
 
-get_quant_tvars(QuantType, ModuleName, Attributes0, TVars0,
-		Attributes, TVars) :-
+get_quant_vars(QuantType, ModuleName, Attributes0, Vars0,
+		Attributes, Vars) :-
 	(	
-		Attributes0 = [quantifier(QuantType, TVars1) - _ | Attributes1]
+		Attributes0 = [quantifier(QuantType, Vars1) - _ | Attributes1]
 	->
-		list__append(TVars0, TVars1, TVars2),
-		get_quant_tvars(QuantType, ModuleName, Attributes1, TVars2,
-			Attributes, TVars)
+		list__append(Vars0, Vars1, Vars2),
+		get_quant_vars(QuantType, ModuleName, Attributes1, Vars2,
+			Attributes, Vars)
 	;
 		Attributes = Attributes0,
-		TVars = TVars0
+		Vars = Vars0
 	).
 
 :- pred get_constraints(quantifier_type, module_name, decl_attrs, decl_attrs, 
-			maybe1(list(class_constraint))).
+			maybe_class_and_inst_constraints).
 :- mode get_constraints(in, in, in, out, out) is det.
 
 get_constraints(QuantType, ModuleName, Attributes0, Attributes,
@@ -1927,7 +2231,7 @@ get_constraints(QuantType, ModuleName, Attributes0, Attributes,
 		Attributes0 = [constraints(QuantType, ConstraintsTerm) - _Term
 				| Attributes1]
 	->
-		parse_class_constraints(ModuleName, ConstraintsTerm,
+		parse_class_and_inst_constraints(ModuleName, ConstraintsTerm,
 			MaybeConstraints0),
 		% there may be more constraints of the same type --
 		% collect them all and combine them
@@ -1937,18 +2241,17 @@ get_constraints(QuantType, ModuleName, Attributes0, Attributes,
 			MaybeConstraints0, MaybeConstraints)
 	;
 		Attributes = Attributes0,
-		MaybeConstraints = ok([])
+		MaybeConstraints = ok([], map__init)
 	).
 
-:- pred combine_constraint_list_results(maybe1(list(class_constraint)),
-	maybe1(list(class_constraint)), maybe1(list(class_constraint))).
+:- pred combine_constraint_list_results(maybe_class_and_inst_constraints,
+	maybe_class_and_inst_constraints, maybe_class_and_inst_constraints).
 :- mode combine_constraint_list_results(in, in, out) is det.
 
 combine_constraint_list_results(error(Msg, Term), _, error(Msg, Term)).
-combine_constraint_list_results(ok(_), error(Msg, Term), error(Msg, Term)).
-combine_constraint_list_results(ok(Constraints0), ok(Constraints1),
-		ok(Constraints)) :-
-	list__append(Constraints0, Constraints1, Constraints).
+combine_constraint_list_results(ok(_, _), error(Msg, Term), error(Msg, Term)).
+combine_constraint_list_results(ok(CC0, IC0), ok(CC1, IC1),
+		ok(CC0 ++ CC1, IC0 `map__merge` IC1)).
 
 :- pred get_existential_constraints_from_term(module_name, term, term,
 			maybe1(list(class_constraint))).
@@ -1998,217 +2301,375 @@ verify_type_and_mode_list_2([Head | Tail], First) :-
 
 	% parse a `:- func p(...)' declaration
 
-:- pred process_func(module_name, varset, term, condition, decl_attrs,
-			maybe(determinism), maybe1(item)).
+:- pred process_func(module_name, varset, term, condition,
+		maybe(determinism), decl_attrs, maybe1(item)).
 :- mode process_func(in, in, in, in, in, in, out) is det.
 
-process_func(ModuleName, VarSet, Term, Cond, Attributes0, MaybeDet, Result) :-
-	get_class_context(ModuleName, Attributes0, Attributes, MaybeContext),
+process_func(ModuleName, VarSet, Term, Cond, MaybeDet, Attributes0, Result) :-
+	get_class_context_and_inst_constraints(ModuleName, Attributes0,
+		Attributes, MaybeContext),
 	(
-		MaybeContext = ok(ExistQVars, Constraints),
+		MaybeContext = ok(ExistQVars, Constraints, InstConstraints),
 		process_func_2(ModuleName, VarSet, Term,
-			Cond, MaybeDet, ExistQVars, Constraints, Attributes,
-			Result) 
+			Cond, MaybeDet, ExistQVars, Constraints,
+			InstConstraints, Attributes, Result) 
 	;
 		MaybeContext = error(String, ErrorTerm),
 		Result = error(String, ErrorTerm)
 	).
 
 :- pred process_func_2(module_name, varset, term, condition,
-	maybe(determinism), existq_tvars, class_constraints, decl_attrs,
-	maybe1(item)).
-:- mode process_func_2(in, in, in, in, in, in, in, in, out) is det.
+	maybe(determinism), existq_tvars, class_constraints, inst_var_sub,
+	decl_attrs, maybe1(item)).
+:- mode process_func_2(in, in, in, in, in, in, in, in, in, out) is det.
 
 process_func_2(ModuleName, VarSet, Term, Cond, MaybeDet, 
-		ExistQVars, Constraints, Attributes, Result) :-
+		ExistQVars, Constraints, InstConstraints, Attributes, Result) :-
 	(
 		Term = term__functor(term__atom("="),
 				[FuncTerm, ReturnTypeTerm], _Context)
 	->
 		parse_implicitly_qualified_term(ModuleName, FuncTerm, Term,
 			"`:- func' declaration", R),
-		process_func_3(R, FuncTerm, ReturnTypeTerm, VarSet, MaybeDet,
-				Cond, ExistQVars, Constraints, Attributes,
-				Result)
+		process_func_3(R, FuncTerm, ReturnTypeTerm, Term, VarSet,
+			MaybeDet, Cond, ExistQVars, Constraints,
+			InstConstraints, Attributes, Result)
 	;
 		Result = error("`=' expected in `:- func' declaration", Term)
 	).
 
 
-:- pred process_func_3(maybe_functor, term, term, varset, maybe(determinism),
-			condition, existq_tvars, class_constraints, decl_attrs,
-			maybe1(item)).
-:- mode process_func_3(in, in, in, in, in, in, in, in, in, out) is det.
+:- pred process_func_3(maybe_functor, term, term, term, varset,
+	maybe(determinism), condition, existq_tvars, class_constraints,
+	inst_var_sub, decl_attrs, maybe1(item)).
+:- mode process_func_3(in, in, in, in, in, in, in, in, in, in, in, out) is det.
 
-process_func_3(ok(F, As0), FuncTerm, ReturnTypeTerm, VarSet0, MaybeDet, Cond,
-		ExistQVars, ClassContext, Attributes0, Result) :-
-	( convert_type_and_mode_list(As0, As) ->
-		( \+ verify_type_and_mode_list(As) ->
-			Result = error("some but not all arguments have modes",
-					FuncTerm)
-		; convert_type_and_mode(ReturnTypeTerm, ReturnType) ->
-			(
-				As = [type_and_mode(_, _) | _],
-				ReturnType = type_only(_)
-			->
-				Result = error(
+process_func_3(ok(F, As0), FuncTerm, ReturnTypeTerm, FullTerm, VarSet0,
+		MaybeDet, Cond, ExistQVars, ClassContext, InstConstraints,
+		Attributes0, Result) :-
+	( convert_type_and_mode_list(InstConstraints, As0, As) ->
+	    (
+		\+ verify_type_and_mode_list(As)
+	    ->
+		Result = error("some but not all arguments have modes",
+		    FuncTerm)
+	    ;
+		convert_type_and_mode(InstConstraints, ReturnTypeTerm,
+		    ReturnType)
+	    ->
+		(
+		    As = [type_and_mode(_, _) | _],
+		    ReturnType = type_only(_)
+		->
+		    Result = error(
 		"function arguments have modes, but function result doesn't",
-					FuncTerm)
-			;
-				As = [type_only(_) | _],
-				ReturnType = type_and_mode(_, _)
-			->
-				Result = error(
-		"function result has mode, but function arguments don't",
-					FuncTerm)
-			;
-				get_purity(Attributes0, Purity, Attributes),
-				varset__coerce(VarSet0, TVarSet),
-				varset__coerce(VarSet0, IVarSet),
-				list__append(As, [ReturnType], Args),
-				Result0 = ok(pred_or_func(TVarSet, IVarSet,
-					ExistQVars, function, F, Args,
-					MaybeDet, Cond, Purity, ClassContext)),
-				check_no_attributes(Result0, Attributes,
-					Result)
-			)
+				    FuncTerm)
 		;
+		    As = [type_only(_) | _],
+		    ReturnType = type_and_mode(_, _)
+		->
+		    Result = error(
+		"function result has mode, but function arguments don't",
+				    FuncTerm)
+		;
+		    get_purity(Attributes0, Purity, Attributes),
+		    varset__coerce(VarSet0, TVarSet),
+		    varset__coerce(VarSet0, IVarSet),
+		    list__append(As, [ReturnType], Args),
+		    (
+			inst_var_constraints_are_consistent_in_type_and_modes(
+			    Args)
+		    ->
+				
+			Result0 = ok(pred_or_func(TVarSet, IVarSet, ExistQVars,
+			    function, F, Args, no, no, MaybeDet, Cond, Purity,
+			    ClassContext)),
+			check_no_attributes(Result0, Attributes, Result)
+		    ;
 			Result = error(
-			"syntax error in return type of `:- func' declaration",
-					ReturnTypeTerm)
+	"inconsistent constraints on inst variables in function declaration",
+			    FullTerm)
+		    )
 		)
-	;
+	    ;
 		Result = error(
-			"syntax error in arguments of `:- func' declaration",
+		    "syntax error in return type of `:- func' declaration",
+					ReturnTypeTerm)
+	    )
+	;
+	    Result = error("syntax error in arguments of `:- func' declaration",
 					FuncTerm)
 	).
-process_func_3(error(M, T), _, _, _, _, _, _, _, _, error(M, T)).
+process_func_3(error(M, T), _, _, _, _, _, _, _, _, _, _, error(M, T)).
 
 %-----------------------------------------------------------------------------%
 
 	% parse a `:- mode p(...)' declaration
 
-:- pred process_mode(module_name, varset, term, condition, maybe(determinism),
-		maybe1(item)).
-:- mode process_mode(in, in, in, in, in, out) is det.
+:- pred process_mode(module_name, varset, term, condition, decl_attrs,
+		maybe(inst), maybe(determinism), maybe1(item)).
+:- mode process_mode(in, in, in, in, in, in, in, out) is det.
 
-process_mode(ModuleName, VarSet, Term, Cond, MaybeDet, Result) :-
+process_mode(ModuleName, VarSet, Term, Cond, Attributes,
+		WithInst, MaybeDet, Result) :-
 	(
+		WithInst = no,
 		Term = term__functor(term__atom("="),
 				[FuncTerm, ReturnTypeTerm], _Context)
 	->
 		parse_implicitly_qualified_term(ModuleName, FuncTerm, Term,
 				"function `:- mode' declaration", R),
-		process_func_mode(R, FuncTerm, ReturnTypeTerm, VarSet, MaybeDet,
-				Cond, Result)
+		process_func_mode(R, ModuleName, FuncTerm, ReturnTypeTerm,
+		    Term, VarSet, MaybeDet, Cond, Attributes, Result)
 	;
 		parse_implicitly_qualified_term(ModuleName, Term, Term,
-				"predicate `:- mode' declaration", R),
-		process_pred_mode(R, Term, VarSet, MaybeDet, Cond, Result)
+			"`:- mode' declaration", R),
+		process_pred_or_func_mode(R, ModuleName, Term, VarSet,
+			WithInst, MaybeDet, Cond, Attributes, Result)
 	).
 
-:- pred process_pred_mode(maybe_functor, term, varset, maybe(determinism),
-			condition, maybe1(item)).
-:- mode process_pred_mode(in, in, in, in, in, out) is det.
+:- pred process_pred_or_func_mode(maybe_functor, module_name, term, varset,
+	maybe(inst), maybe(determinism), condition, decl_attrs, maybe1(item)).
+:- mode process_pred_or_func_mode(in, in, in, in, in, in, in, in, out) is det.
 
-process_pred_mode(ok(F, As0), PredMode, VarSet0, MaybeDet, Cond, Result) :-
+process_pred_or_func_mode(ok(F, As0), ModuleName, PredMode, VarSet0, WithInst,
+		MaybeDet, Cond, Attributes0, Result) :-
 	(
-		convert_mode_list(As0, As1)
+	    convert_mode_list(allow_constrained_inst_var, As0, As1)
 	->
-		list__map(constrain_inst_vars_in_mode, As1, As),
+	    get_class_context_and_inst_constraints(ModuleName, Attributes0,
+		Attributes, MaybeConstraints),
+	    (
+		MaybeConstraints = ok(_, _, InstConstraints),
+		list__map(constrain_inst_vars_in_mode(InstConstraints),
+			As1, As),
 		varset__coerce(VarSet0, VarSet),
-		Result = ok(pred_or_func_mode(VarSet, predicate, F, As,
-				MaybeDet, Cond))
-	;
-		Result = error("syntax error in predicate mode declaration",
-				PredMode)
-	).
-process_pred_mode(error(M, T), _, _, _, _, error(M, T)).
-
-:- pred process_func_mode(maybe_functor, term, term, varset, maybe(determinism),
-			condition, maybe1(item)).
-:- mode process_func_mode(in, in, in, in, in, in, out) is det.
-
-process_func_mode(ok(F, As0), FuncMode, RetMode0, VarSet0, MaybeDet, Cond,
-		Result) :-
-	(
-		convert_mode_list(As0, As1)
-	->
-		list__map(constrain_inst_vars_in_mode, As1, As),
-		( convert_mode(RetMode0, RetMode1) ->
-			constrain_inst_vars_in_mode(RetMode1, RetMode),
-			varset__coerce(VarSet0, VarSet),
-			list__append(As, [RetMode], ArgModes),
-			Result = ok(pred_or_func_mode(VarSet, function, F,
-					ArgModes, MaybeDet, Cond))
+		( inst_var_constraints_are_consistent_in_modes(As) ->
+		    (
+			WithInst = no,
+			PredOrFunc = yes(predicate)
+		    ;
+			WithInst = yes(_),
+			% We don't know whether it's a predicate or
+			% a function until we expand out the inst.
+			PredOrFunc = no
+		    ),
+		    Result0 = ok(pred_or_func_mode(VarSet, PredOrFunc, F, As,
+				WithInst, MaybeDet, Cond))
 		;
-			Result = error(
-		"syntax error in return mode of function mode declaration",
-					RetMode0)
+		    Result0 = error("inconsistent constraints on inst variables in predicate mode declaration",
+			PredMode)
 		)
+	    ;
+		MaybeConstraints = error(String, Term),
+		Result0 = error(String, Term)
+	    ),
+	    check_no_attributes(Result0, Attributes, Result)
 	;
-		Result = error(
-		"syntax error in arguments of function mode declaration",
-				FuncMode)
+	    Result = error("syntax error in mode declaration", PredMode)
 	).
-process_func_mode(error(M, T), _, _, _, _, _, error(M, T)).
+process_pred_or_func_mode(error(M, T), _, _, _, _, _, _, _, error(M, T)).
+
+:- pred process_func_mode(maybe_functor, module_name, term, term, term, varset,
+		maybe(determinism), condition, decl_attrs, maybe1(item)).
+:- mode process_func_mode(in, in, in, in, in, in, in, in, in, out) is det.
+
+process_func_mode(ok(F, As0), ModuleName, FuncMode, RetMode0, FullTerm,
+		VarSet0, MaybeDet, Cond, Attributes0, Result) :-
+	(
+	    convert_mode_list(allow_constrained_inst_var, As0, As1)
+	->
+	    get_class_context_and_inst_constraints(ModuleName, Attributes0,
+		Attributes, MaybeConstraints),
+	    (
+		MaybeConstraints = ok(_, _, InstConstraints),
+		list__map(constrain_inst_vars_in_mode(InstConstraints),
+		    As1, As),
+		(
+		    convert_mode(allow_constrained_inst_var, RetMode0, RetMode1)
+		->
+		    constrain_inst_vars_in_mode(InstConstraints, RetMode1,
+			RetMode),
+		    varset__coerce(VarSet0, VarSet),
+		    list__append(As, [RetMode], ArgModes),
+		    ( inst_var_constraints_are_consistent_in_modes(ArgModes) ->
+			Result0 = ok(pred_or_func_mode(VarSet, yes(function),
+			    F, ArgModes, no, MaybeDet, Cond))
+		    ;
+			Result0 = error(
+	"inconsistent constraints on inst variables in function mode declaration",
+			    FullTerm)
+		    )
+		;
+		    Result0 = error(
+		    "syntax error in return mode of function mode declaration",
+			RetMode0)
+		)
+	    ;
+		MaybeConstraints = error(String, Term),
+		Result0 = error(String, Term)
+	    ),
+	    check_no_attributes(Result0, Attributes, Result)
+	;
+	    Result = error(
+		"syntax error in arguments of function mode declaration",
+		FuncMode)
+	).
+process_func_mode(error(M, T), _, _, _, _, _, _, _, _, error(M, T)).
 
 %-----------------------------------------------------------------------------%
 
-% Replace all occurrences of inst_var(I) with
-% ground(shared, constrained_inst_var(I)).
+constrain_inst_vars_in_mode(Mode0, Mode) :-
+	constrain_inst_vars_in_mode(map__init, Mode0, Mode).
 
-:- pred constrain_inst_vars_in_mode(mode, mode).
-:- mode constrain_inst_vars_in_mode(in, out) is det.
-
-constrain_inst_vars_in_mode(I0 -> F0, I -> F) :-
-	constrain_inst_vars_in_inst(I0, I),
-	constrain_inst_vars_in_inst(F0, F).
-constrain_inst_vars_in_mode(user_defined_mode(Name, Args0),
+constrain_inst_vars_in_mode(InstConstraints, I0 -> F0, I -> F) :-
+	constrain_inst_vars_in_inst(InstConstraints, I0, I),
+	constrain_inst_vars_in_inst(InstConstraints, F0, F).
+constrain_inst_vars_in_mode(InstConstraints, user_defined_mode(Name, Args0),
 		user_defined_mode(Name, Args)) :-
-	list__map(constrain_inst_vars_in_inst, Args0, Args).
+	list__map(constrain_inst_vars_in_inst(InstConstraints), Args0, Args).
 
-:- pred constrain_inst_vars_in_inst(inst, inst).
-:- mode constrain_inst_vars_in_inst(in, out) is det.
+:- pred constrain_inst_vars_in_inst(inst_var_sub, inst, inst).
+:- mode constrain_inst_vars_in_inst(in, in, out) is det.
 
-constrain_inst_vars_in_inst(any(U), any(U)).
-constrain_inst_vars_in_inst(free, free).
-constrain_inst_vars_in_inst(free(T), free(T)).
-constrain_inst_vars_in_inst(bound(U, BIs0), bound(U, BIs)) :-
+constrain_inst_vars_in_inst(_, any(U), any(U)).
+constrain_inst_vars_in_inst(_, free, free).
+constrain_inst_vars_in_inst(_, free(T), free(T)).
+constrain_inst_vars_in_inst(InstConstraints, bound(U, BIs0), bound(U, BIs)) :-
 	list__map((pred(functor(C, Is0)::in, functor(C, Is)::out) is det :-
-		list__map(constrain_inst_vars_in_inst, Is0, Is)), BIs0, BIs).
-constrain_inst_vars_in_inst(ground(U, none), ground(U, none)).
-constrain_inst_vars_in_inst(ground(U, higher_order(PredInstInfo0)),
+	    list__map(constrain_inst_vars_in_inst(InstConstraints), Is0, Is)),
+	    BIs0, BIs).
+constrain_inst_vars_in_inst(_, ground(U, none), ground(U, none)).
+constrain_inst_vars_in_inst(InstConstraints,
+		ground(U, higher_order(PredInstInfo0)),
 		ground(U, higher_order(PredInstInfo))) :-
-	constrain_inst_vars_in_pred_inst_info(PredInstInfo0, PredInstInfo).
-constrain_inst_vars_in_inst(ground(U, constrained_inst_var(V)),
-		ground(U, constrained_inst_var(V))).
-constrain_inst_vars_in_inst(not_reached, not_reached).
-constrain_inst_vars_in_inst(inst_var(V),
-		ground(shared, constrained_inst_var(V))).
-constrain_inst_vars_in_inst(defined_inst(Name0), defined_inst(Name)) :-
-	constrain_inst_vars_in_inst_name(Name0, Name).
-constrain_inst_vars_in_inst(abstract_inst(N, Is0), abstract_inst(N, Is)) :-
-	list__map(constrain_inst_vars_in_inst, Is0, Is).
+	constrain_inst_vars_in_pred_inst_info(InstConstraints, PredInstInfo0,
+		PredInstInfo).
+constrain_inst_vars_in_inst(InstConstraints,
+		constrained_inst_vars(Vars0, Inst0),
+		constrained_inst_vars(Vars, Inst)) :-
+	constrain_inst_vars_in_inst(InstConstraints, Inst0, Inst1),
+	( Inst1 = constrained_inst_vars(Vars2, Inst2) ->
+		Vars = Vars0 `set__union` Vars2,
+		Inst = Inst2
+	;
+		Vars = Vars0,
+		Inst = Inst1
+	).
+constrain_inst_vars_in_inst(_, not_reached, not_reached).
+constrain_inst_vars_in_inst(InstConstraints, inst_var(Var),
+		constrained_inst_vars(set__make_singleton_set(Var), Inst)) :-
+	Inst = ( map__search(InstConstraints, Var, Inst0) -> 
+	    	Inst0
+	;
+		ground(shared, none)
+	).
+constrain_inst_vars_in_inst(InstConstraints, defined_inst(Name0),
+		defined_inst(Name)) :-
+	constrain_inst_vars_in_inst_name(InstConstraints, Name0, Name).
+constrain_inst_vars_in_inst(InstConstraints, abstract_inst(N, Is0),
+		abstract_inst(N, Is)) :-
+	list__map(constrain_inst_vars_in_inst(InstConstraints), Is0, Is).
 
-:- pred constrain_inst_vars_in_pred_inst_info(pred_inst_info, pred_inst_info).
-:- mode constrain_inst_vars_in_pred_inst_info(in, out) is det.
+:- pred constrain_inst_vars_in_pred_inst_info(inst_var_sub, pred_inst_info,
+		pred_inst_info).
+:- mode constrain_inst_vars_in_pred_inst_info(in, in, out) is det.
 
-constrain_inst_vars_in_pred_inst_info(PII0, PII) :-
+constrain_inst_vars_in_pred_inst_info(InstConstraints, PII0, PII) :-
 	PII0 = pred_inst_info(PredOrFunc, Modes0, Det),
-	list__map(constrain_inst_vars_in_mode, Modes0, Modes),
+	list__map(constrain_inst_vars_in_mode(InstConstraints), Modes0, Modes),
 	PII = pred_inst_info(PredOrFunc, Modes, Det).
 
-:- pred constrain_inst_vars_in_inst_name(inst_name, inst_name).
-:- mode constrain_inst_vars_in_inst_name(in, out) is det.
+:- pred constrain_inst_vars_in_inst_name(inst_var_sub, inst_name, inst_name).
+:- mode constrain_inst_vars_in_inst_name(in, in, out) is det.
 
-constrain_inst_vars_in_inst_name(Name0, Name) :-
+constrain_inst_vars_in_inst_name(InstConstraints, Name0, Name) :-
 	( Name0 = user_inst(SymName, Args0) ->
-		list__map(constrain_inst_vars_in_inst, Args0, Args),
+		list__map(constrain_inst_vars_in_inst(InstConstraints),
+			Args0, Args),
 		Name = user_inst(SymName, Args)
 	;
 		Name = Name0
 	).
+
+%-----------------------------------------------------------------------------%
+
+inst_var_constraints_are_consistent_in_modes(Modes) :-
+	inst_var_constraints_are_consistent_in_modes(Modes, map__init, _).
+
+:- pred inst_var_constraints_are_consistent_in_modes(list(mode),
+		inst_var_sub, inst_var_sub).
+:- mode inst_var_constraints_are_consistent_in_modes(in, in, out) is semidet.
+
+inst_var_constraints_are_consistent_in_modes(Modes) -->
+	list__foldl(inst_var_constraints_are_consistent_in_mode, Modes).
+
+:- pred inst_var_constraints_are_consistent_in_type_and_modes(
+		list(type_and_mode)).
+:- mode inst_var_constraints_are_consistent_in_type_and_modes(in) is semidet.
+
+inst_var_constraints_are_consistent_in_type_and_modes(TypeAndModes) :-
+	list__foldl((pred(TypeAndMode::in, in, out) is semidet -->
+		( { TypeAndMode = type_only(_) }
+		; { TypeAndMode = type_and_mode(_, Mode) },
+			inst_var_constraints_are_consistent_in_mode(Mode)
+		)), TypeAndModes, map__init, _).
+
+:- pred inst_var_constraints_are_consistent_in_mode(mode, inst_var_sub,
+		inst_var_sub).
+:- mode inst_var_constraints_are_consistent_in_mode(in, in, out) is semidet.
+
+inst_var_constraints_are_consistent_in_mode(InitialInst -> FinalInst) -->
+	inst_var_constraints_are_consistent_in_inst(InitialInst),
+	inst_var_constraints_are_consistent_in_inst(FinalInst).
+inst_var_constraints_are_consistent_in_mode(user_defined_mode(_, ArgInsts)) -->
+	inst_var_constraints_are_consistent_in_insts(ArgInsts).
+
+:- pred inst_var_constraints_are_consistent_in_insts(list(inst), inst_var_sub,
+		inst_var_sub).
+:- mode inst_var_constraints_are_consistent_in_insts(in, in, out) is semidet.
+
+inst_var_constraints_are_consistent_in_insts(Insts) -->
+	list__foldl(inst_var_constraints_are_consistent_in_inst, Insts).
+
+:- pred inst_var_constraints_are_consistent_in_inst(inst, inst_var_sub,
+		inst_var_sub).
+:- mode inst_var_constraints_are_consistent_in_inst(in, in, out) is semidet.
+
+inst_var_constraints_are_consistent_in_inst(any(_)) --> [].
+inst_var_constraints_are_consistent_in_inst(free) --> [].
+inst_var_constraints_are_consistent_in_inst(free(_)) --> [].
+inst_var_constraints_are_consistent_in_inst(bound(_, BoundInsts)) -->
+	list__foldl((pred(functor(_, Insts)::in, in, out) is semidet -->
+		inst_var_constraints_are_consistent_in_insts(Insts)),
+		BoundInsts).
+inst_var_constraints_are_consistent_in_inst(ground(_, GroundInstInfo)) -->
+	( { GroundInstInfo = none }
+	; { GroundInstInfo = higher_order(pred_inst_info(_, Modes, _)) },
+		inst_var_constraints_are_consistent_in_modes(Modes)
+	).
+inst_var_constraints_are_consistent_in_inst(not_reached) --> [].
+inst_var_constraints_are_consistent_in_inst(inst_var(_)) -->
+	{ error("inst_var_constraints_are_consistent_in_inst: unconstrained inst_var") }.
+inst_var_constraints_are_consistent_in_inst(defined_inst(InstName)) -->
+	( { InstName = user_inst(_, Insts) } ->
+		inst_var_constraints_are_consistent_in_insts(Insts)
+	;
+		[]
+	).
+inst_var_constraints_are_consistent_in_inst(abstract_inst(_, Insts)) -->
+	inst_var_constraints_are_consistent_in_insts(Insts).
+inst_var_constraints_are_consistent_in_inst(
+		constrained_inst_vars(InstVars, Inst)) -->
+	set__fold((pred(InstVar::in, in, out) is semidet -->
+		( Inst0 =^ map__elem(InstVar) ->
+			% Check that the inst_var constraint is consistent with
+			% the previous constraint on this inst_var.
+			{ Inst = Inst0 }
+		;
+			^ map__elem(InstVar) := Inst
+		)), InstVars),
+	inst_var_constraints_are_consistent_in_inst(Inst).
 
 %-----------------------------------------------------------------------------%
 
@@ -2294,7 +2755,8 @@ convert_inst_defn_2(ok(Name, ArgTerms), Head, Body, Result) :-
 			% inst, i.e. that it does not have the form of
 			% one of the builtin insts
 			\+ (
-				convert_inst(Head, UserInst),
+				convert_inst(no_allow_constrained_inst_var,
+					Head, UserInst),
 				UserInst = defined_inst(user_inst(_, _))
 			)
 		->
@@ -2302,7 +2764,8 @@ convert_inst_defn_2(ok(Name, ArgTerms), Head, Body, Result) :-
 		;
 			% should improve the error message here
 			(
-				convert_inst(Body, ConvertedBody)
+				convert_inst(no_allow_constrained_inst_var,
+					Body, ConvertedBody)
 			->
 				list__map(term__coerce_var, Args, InstArgs),
 				Result = ok(
@@ -2369,9 +2832,10 @@ make_inst_defn(VarSet0, Cond, processed_inst_body(Name, Params, InstDefn),
 
 	% parse a `:- mode foo :: ...' or `:- mode foo = ...' definition.
 
-:- pred parse_mode_decl(module_name, varset, term, maybe1(item)).
-:- mode parse_mode_decl(in, in, in, out) is det.
-parse_mode_decl(ModuleName, VarSet, ModeDefn, Result) :-
+:- pred parse_mode_decl(module_name, varset, term, decl_attrs, maybe1(item)).
+:- mode parse_mode_decl(in, in, in, in, out) is det.
+
+parse_mode_decl(ModuleName, VarSet, ModeDefn, Attributes, Result) :-
 	( %%% some [H, B]
 		mode_op(ModeDefn, H, B)
 	->
@@ -2379,7 +2843,8 @@ parse_mode_decl(ModuleName, VarSet, ModeDefn, Result) :-
 		convert_mode_defn(ModuleName, H, Body, R),
 		process_maybe1(make_mode_defn(VarSet, Condition), R, Result)
 	;
-		parse_mode_decl_pred(ModuleName, VarSet, ModeDefn, Result)
+		parse_mode_decl_pred(ModuleName, VarSet, ModeDefn, Attributes,
+			Result)
 	).
 
 	% People never seemed to remember what the right operator to use
@@ -2452,7 +2917,8 @@ convert_mode_defn_2(ok(Name, ArgTerms), Head, Body, Result) :-
 		;
 			% should improve the error message here
 			(
-				convert_mode(Body, ConvertedBody)
+				convert_mode(no_allow_constrained_inst_var,
+					Body, ConvertedBody)
 			->
 				list__map(term__coerce_var, Args, InstArgs),
 				Result = ok(processed_mode_body(Name,
@@ -2469,23 +2935,24 @@ convert_mode_defn_2(ok(Name, ArgTerms), Head, Body, Result) :-
 		Result = error("mode parameters must be variables", Head)
 	).
 
-:- pred convert_type_and_mode_list(list(term), list(type_and_mode)).
-:- mode convert_type_and_mode_list(in, out) is semidet.
-convert_type_and_mode_list([], []).
-convert_type_and_mode_list([H0|T0], [H|T]) :-
-	convert_type_and_mode(H0, H),
-	convert_type_and_mode_list(T0, T).
+:- pred convert_type_and_mode_list(inst_var_sub, list(term),
+		list(type_and_mode)).
+:- mode convert_type_and_mode_list(in, in, out) is semidet.
+convert_type_and_mode_list(_, [], []).
+convert_type_and_mode_list(InstConstraints, [H0|T0], [H|T]) :-
+	convert_type_and_mode(InstConstraints, H0, H),
+	convert_type_and_mode_list(InstConstraints, T0, T).
 
-:- pred convert_type_and_mode(term, type_and_mode).
-:- mode convert_type_and_mode(in, out) is semidet.
-convert_type_and_mode(Term, Result) :-
+:- pred convert_type_and_mode(inst_var_sub, term, type_and_mode).
+:- mode convert_type_and_mode(in, in, out) is semidet.
+convert_type_and_mode(InstConstraints, Term, Result) :-
 	(
 		Term = term__functor(term__atom("::"), [TypeTerm, ModeTerm],
 				_Context)
 	->
 		convert_type(TypeTerm, Type),
-		convert_mode(ModeTerm, Mode0),
-		constrain_inst_vars_in_mode(Mode0, Mode),
+		convert_mode(allow_constrained_inst_var, ModeTerm, Mode0),
+		constrain_inst_vars_in_mode(InstConstraints, Mode0, Mode),
 		Result = type_and_mode(Type, Mode)
 	;
 		convert_type(Term, Type),
@@ -3080,4 +3547,5 @@ convert_constructor_arg_list(ModuleName, [Term | Terms], [Arg | Args]) :-
 :- pred root_module_name(module_name::out) is det.
 root_module_name(unqualified("")).
 
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -16,12 +16,13 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module term_traversal.
+:- module transform_hlds__term_traversal.
 
 :- interface.
 
-:- import_module term_util, term_errors.
-:- import_module hlds_module, hlds_pred, hlds_goal, prog_data.
+:- import_module transform_hlds__term_util, transform_hlds__term_errors.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module parse_tree__prog_data.
 :- import_module list, bag, map, std_util, set.
 
 :- type traversal_info
@@ -96,7 +97,7 @@
 
 :- implementation.
 
-:- import_module hlds_data, type_util.
+:- import_module hlds__hlds_data, check_hlds__type_util.
 :- import_module bool, int, require.
 
 traverse_goal(Goal, Params, Info0, Info) :-
@@ -159,14 +160,14 @@ traverse_goal_2(conj(Goals), _, Params, Info0, Info) :-
 	list__reverse(Goals, RevGoals),
 	traverse_conj(RevGoals, Params, Info0, Info).
 
-traverse_goal_2(par_conj(Goals, _SM), _, Params, Info0, Info) :-
+traverse_goal_2(par_conj(Goals), _, Params, Info0, Info) :-
 	list__reverse(Goals, RevGoals),
 	traverse_conj(RevGoals, Params, Info0, Info).
 
-traverse_goal_2(switch(_, _, Cases, _), _, Params, Info0, Info) :-
+traverse_goal_2(switch(_, _, Cases), _, Params, Info0, Info) :-
 	traverse_switch(Cases, Params, Info0, Info).
 
-traverse_goal_2(disj(Goals, _StoreMap), _, Params, Info0, Info) :-
+traverse_goal_2(disj(Goals), _, Params, Info0, Info) :-
 	traverse_disj(Goals, Params, Info0, Info).
 
 traverse_goal_2(not(Goal), _, Params, Info0, Info) :-
@@ -178,7 +179,7 @@ traverse_goal_2(not(Goal), _, Params, Info0, Info) :-
 traverse_goal_2(some(_Vars, _, Goal), _GoalInfo, Params, Info0, Info) :-
 	traverse_goal(Goal, Params, Info0, Info).
 
-traverse_goal_2(if_then_else(_, Cond, Then, Else, _), _, Params, Info0, Info) :-
+traverse_goal_2(if_then_else(_, Cond, Then, Else), _, Params, Info0, Info) :-
 	traverse_conj([Then, Cond], Params, Info0, Info1),
 	traverse_goal(Else, Params, Info0, Info2),
 	combine_paths(Info1, Info2, Params, Info).
@@ -443,9 +444,9 @@ unify_change(OutVar, ConsId, Args0, Modes0, Params, Gamma, InVars, OutVars) :-
 	params_get_var_types(Params, VarTypes),
 	map__lookup(VarTypes, OutVar, Type),
 	\+ type_is_higher_order(Type, _, _, _),
-	( type_to_type_id(Type, TypeId, _) ->
+	( type_to_ctor_and_args(Type, TypeCtor, _) ->
 		params_get_module_info(Params, Module),
-		functor_norm(FunctorInfo, TypeId, ConsId, Module,
+		functor_norm(FunctorInfo, TypeCtor, ConsId, Module,
 			Gamma, Args0, Args, Modes0, Modes),
 		split_unification_vars(Args, Modes, Module, InVars, OutVars)
 	;

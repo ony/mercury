@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -121,10 +121,11 @@
 %
 
 
-:- module purity.
+:- module check_hlds__purity.
 :- interface.
 
-:- import_module prog_data, hlds_module, hlds_goal, hlds_pred.
+:- import_module parse_tree__prog_data, hlds__hlds_module, hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
 :- import_module io, bool, list.
 
 % The purity type itself is defined in prog_data.m as follows:
@@ -205,12 +206,16 @@
 
 :- implementation.
 
-:- import_module hlds_data, prog_io_util.
-:- import_module type_util, mode_util, code_util, prog_data, unify_proc.
-:- import_module globals, options, mercury_to_mercury, hlds_out.
-:- import_module passes_aux, typecheck, module_qual, clause_to_proc.
-:- import_module inst_util, prog_out.
-:- import_module post_typecheck.
+:- import_module hlds__hlds_data, parse_tree__prog_io_util.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
+:- import_module ll_backend__code_util, parse_tree__prog_data.
+:- import_module check_hlds__unify_proc.
+:- import_module libs__globals, libs__options, parse_tree__mercury_to_mercury.
+:- import_module hlds__hlds_out.
+:- import_module hlds__passes_aux, check_hlds__typecheck.
+:- import_module parse_tree__module_qual, check_hlds__clause_to_proc.
+:- import_module check_hlds__inst_util, parse_tree__prog_out.
+:- import_module check_hlds__post_typecheck.
 
 :- import_module map, varset, term, string, require, std_util.
 :- import_module assoc_list, bool, int, set.
@@ -222,14 +227,10 @@
 puritycheck(FoundTypeError, HLDS0, PostTypecheckError, HLDS) -->
 	globals__io_lookup_bool_option(statistics, Statistics),
 	globals__io_lookup_bool_option(verbose, Verbose),
-	io__stderr_stream(StdErr),
-	io__set_output_stream(StdErr, OldStream),
 
 	maybe_write_string(Verbose, "% Purity-checking clauses...\n"),
 	check_preds_purity(FoundTypeError, HLDS0, PostTypecheckError, HLDS),
-	maybe_report_stats(Statistics),
-
-	io__set_output_stream(OldStream, _).
+	maybe_report_stats(Statistics).
 
 
 %  worst_purity/3 could be written more compactly, but this definition
@@ -330,79 +331,55 @@ purity_name((impure), "impure").
 check_preds_purity(FoundTypeError, ModuleInfo0,
 		PostTypecheckError, ModuleInfo) -->
 	{ module_info_predids(ModuleInfo0, PredIds) },
-	check_preds_purity_2(PredIds, FoundTypeError, ModuleInfo0,
-		ModuleInfo1, 0, NumErrors, no, PostTypecheckError),
-	{ module_info_num_errors(ModuleInfo1, Errs0) },
+
+	% Only report error messages for unbound type variables
+	% if we didn't get any type errors already; this avoids
+	% a lot of spurious diagnostics.
+	{ ReportTypeErrors = bool__not(FoundTypeError) },
+	post_typecheck__finish_preds(PredIds, ReportTypeErrors, NumErrors1,
+		PostTypecheckError, ModuleInfo0, ModuleInfo1),
+
+	check_preds_purity_2(PredIds, ModuleInfo1, ModuleInfo2,
+		NumErrors1, NumErrors),
+	{ module_info_num_errors(ModuleInfo2, Errs0) },
 	{ Errs is Errs0 + NumErrors },
-	{ module_info_set_num_errors(ModuleInfo1, Errs, ModuleInfo) }.
+	{ module_info_set_num_errors(ModuleInfo2, Errs, ModuleInfo) }.
 
+:- pred check_preds_purity_2(list(pred_id), module_info, module_info,
+			int, int, io__state, io__state).
+:- mode check_preds_purity_2(in, in, out, in, out, di, uo) is det.
 
-:- pred check_preds_purity_2(list(pred_id), bool, module_info, module_info,
-			int, int, bool, bool, io__state, io__state).
-:- mode check_preds_purity_2(in, in, in, out, in, out, in, out, di, uo) is det.
-
-check_preds_purity_2([], _, ModuleInfo, ModuleInfo, NumErrors, NumErrors,
-		PostTypecheckError, PostTypecheckError) --> [].
-check_preds_purity_2([PredId | PredIds], FoundTypeError, ModuleInfo0,
-		ModuleInfo, NumErrors0, NumErrors,
-		PostTypecheckError0, PostTypecheckError) -->
-	{ module_info_preds(ModuleInfo0, Preds0) },
-	{ map__lookup(Preds0, PredId, PredInfo0) },
+check_preds_purity_2([], ModuleInfo, ModuleInfo, NumErrors, NumErrors) --> [].
+check_preds_purity_2([PredId | PredIds], ModuleInfo0, ModuleInfo,
+		NumErrors0, NumErrors) -->
+	{ module_info_pred_info(ModuleInfo0, PredId, PredInfo0) },
 	(	
 		{ pred_info_is_imported(PredInfo0)
 		; pred_info_is_pseudo_imported(PredInfo0) }
 	->
-		post_typecheck__finish_imported_pred(ModuleInfo0, PredId,
-				PredInfo0, PredInfo),
-		{ NumErrors1 = NumErrors0 },
-		{ PostTypecheckError1 = PostTypecheckError0 }
+		{ ModuleInfo1 = ModuleInfo0 },
+		{ PredInfo = PredInfo0 },
+		{ NumErrors1 = NumErrors0 }
 	;
 		write_pred_progress_message("% Purity-checking ", PredId,
 					    ModuleInfo0),
-		%
-		% Only report error messages for unbound type variables
-		% if we didn't get any type errors already; this avoids
-		% a lot of spurious diagnostics.
-		%
-		{ bool__not(FoundTypeError, ReportErrs) },
-		post_typecheck__check_type_bindings(PredId, PredInfo0,
-				ModuleInfo0, ReportErrs,
-				PredInfo1, UnboundTypeErrsInThisPred),
-		%
-		% if there were any unsatisfied type class constraints,
-		% then that can cause internal errors in polymorphism.m
-		% if we try to continue, so we need to halt compilation
-		% after this pass.
-		%
-		{ UnboundTypeErrsInThisPred \= 0 ->
-			PostTypecheckError1 = yes
-		;
-			PostTypecheckError1 = PostTypecheckError0
-		},
-		puritycheck_pred(PredId, PredInfo1, PredInfo2, ModuleInfo0,
+		puritycheck_pred(PredId, PredInfo0, PredInfo, ModuleInfo0,
 				PurityErrsInThisPred),
-		post_typecheck__finish_pred(ModuleInfo0, PredId, PredInfo2,
-				PredInfo),
-		{ NumErrors1 is NumErrors0 + UnboundTypeErrsInThisPred
-					   + PurityErrsInThisPred }
+		{ NumErrors1 = NumErrors0 + PurityErrsInThisPred },
+		{ module_info_set_pred_info(ModuleInfo0, PredId,
+				PredInfo, ModuleInfo1) }
 	),
-	{ map__det_update(Preds0, PredId, PredInfo, Preds) },
-	{ module_info_get_predicate_table(ModuleInfo0, PredTable0) },
-	{ predicate_table_set_preds(PredTable0, Preds, PredTable) },
-	{ module_info_set_predicate_table(ModuleInfo0, PredTable,
-					  ModuleInfo1) },
 
-	(
-		{ pred_info_get_goal_type(PredInfo0, assertion) }
-	->
-		post_typecheck__finish_assertion(ModuleInfo1,
+		% finish processing of promise declarations
+	{ pred_info_get_goal_type(PredInfo, GoalType) },
+	( { GoalType = promise(PromiseType) } ->
+		post_typecheck__finish_promise(PromiseType, ModuleInfo1,
 				PredId, ModuleInfo2)
 	;
 		{ ModuleInfo2 = ModuleInfo1 }
 	),
-	check_preds_purity_2(PredIds, FoundTypeError, ModuleInfo2, ModuleInfo,
-				  NumErrors1, NumErrors,
-				  PostTypecheckError1, PostTypecheckError).
+	check_preds_purity_2(PredIds, ModuleInfo2, ModuleInfo,
+			  NumErrors1, NumErrors).
 
 	% Purity-check the code for single predicate, reporting any errors.
 
@@ -431,46 +408,32 @@ check_preds_purity_2([PredId | PredIds], FoundTypeError, ModuleInfo0,
 puritycheck_pred(PredId, PredInfo0, PredInfo, ModuleInfo, NumErrors) -->
 	{ pred_info_get_purity(PredInfo0, DeclPurity) } ,
 	{ pred_info_get_promised_purity(PredInfo0, PromisedPurity) },
-	( { pred_info_get_goal_type(PredInfo0, pragmas) } ->
-		{ WorstPurity = (impure) },
-		{ IsPragmaCCode = yes },
-			% This is where we assume pragma foreign_proc is
-			% pure.
-		{ Purity = pure },
-		{ PredInfo = PredInfo0 },
-		{ NumErrors0 = 0 }
-	;   
-		{ pred_info_clauses_info(PredInfo0, ClausesInfo0) },
-		{ pred_info_procids(PredInfo0, ProcIds) },
-		{ clauses_info_clauses(ClausesInfo0, Clauses0) },
-		{ clauses_info_vartypes(ClausesInfo0, VarTypes0) },
-		{ clauses_info_varset(ClausesInfo0, VarSet0) },
-		{ RunPostTypecheck = yes },
-		{ PurityInfo0 = purity_info(ModuleInfo, RunPostTypecheck,
-			PredInfo0, VarTypes0, VarSet0, []) },
-		{ compute_purity(Clauses0, Clauses, ProcIds, pure, Purity,
-			PurityInfo0, PurityInfo) },
-		{ PurityInfo = purity_info(_, _, PredInfo1,
-			VarTypes, VarSet, RevMessages) },
-		{ clauses_info_set_vartypes(ClausesInfo0,
-			VarTypes, ClausesInfo1) },
-		{ clauses_info_set_varset(ClausesInfo1,
-			VarSet, ClausesInfo2) },
-		{ Messages = list__reverse(RevMessages) },
-		list__foldl(report_post_typecheck_message(ModuleInfo),
-			Messages),
-		{ NumErrors0 = list__length(
-				list__filter((pred(error(_)::in) is semidet),
-				Messages)) },
-		{ clauses_info_set_clauses(ClausesInfo2, Clauses,
-				ClausesInfo) },
-		{ pred_info_set_clauses_info(PredInfo1, ClausesInfo,
-				PredInfo) },
-		{ WorstPurity = Purity },
-		{ IsPragmaCCode = no }
-	),
+
+	{ pred_info_clauses_info(PredInfo0, ClausesInfo0) },
+	{ pred_info_procids(PredInfo0, ProcIds) },
+	{ clauses_info_clauses(ClausesInfo0, Clauses0) },
+	{ clauses_info_vartypes(ClausesInfo0, VarTypes0) },
+	{ clauses_info_varset(ClausesInfo0, VarSet0) },
+	{ RunPostTypecheck = yes },
+	{ PurityInfo0 = purity_info(ModuleInfo, RunPostTypecheck,
+		PredInfo0, VarTypes0, VarSet0, []) },
+	{ pred_info_get_goal_type(PredInfo0, GoalType) },
+	{ compute_purity(GoalType, Clauses0, Clauses, ProcIds, pure, Purity,
+		PurityInfo0, PurityInfo) },
+	{ PurityInfo = purity_info(_, _, PredInfo1,
+		VarTypes, VarSet, RevMessages) },
+	{ clauses_info_set_vartypes(ClausesInfo0, VarTypes, ClausesInfo1) },
+	{ clauses_info_set_varset(ClausesInfo1, VarSet, ClausesInfo2) },
+	{ Messages = list__reverse(RevMessages) },
+	list__foldl(report_post_typecheck_message(ModuleInfo), Messages),
+	{ NumErrors0 = list__length(
+			list__filter((pred(error(_)::in) is semidet),
+			Messages)) },
+	{ clauses_info_set_clauses(ClausesInfo2, Clauses, ClausesInfo) },
+	{ pred_info_set_clauses_info(PredInfo1, ClausesInfo, PredInfo) },
+	{ WorstPurity = Purity },
 	{ perform_pred_purity_checks(PredInfo, Purity, DeclPurity,
-		PromisedPurity, IsPragmaCCode, PurityCheckResult) },
+		PromisedPurity, PurityCheckResult) },
 	( { PurityCheckResult = inconsistent_promise },
 		{ NumErrors is NumErrors0 + 1 },
 		error_inconsistent_promise(ModuleInfo, PredInfo, PredId,
@@ -565,20 +528,25 @@ repuritycheck_proc(ModuleInfo, proc(_PredId, ProcId), PredInfo0, PredInfo) :-
 
 % Infer the purity of a single (non-pragma c_code) predicate
 
-:- pred compute_purity(list(clause), list(clause), list(proc_id),
+:- pred compute_purity(goal_type, list(clause), list(clause), list(proc_id),
 	purity, purity, purity_info, purity_info).
-:- mode compute_purity(in, out, in, in, out, in, out) is det.
+:- mode compute_purity(in, in, out, in, in, out, in, out) is det.
 
-compute_purity([], [], _, Purity, Purity) --> [].
-compute_purity([Clause0|Clauses0], [Clause|Clauses], ProcIds,
+compute_purity(_, [], [], _, Purity, Purity) --> [].
+compute_purity(GoalType, [Clause0|Clauses0], [Clause|Clauses], ProcIds,
 		Purity0, Purity) -->
 	{ Clause0 = clause(Ids, Body0 - Info0, Lang, Context) },
 	compute_expr_purity(Body0, Body, Info0, no, Bodypurity0),
 	% If this clause doesn't apply to all modes of this procedure,
 	% i.e. the procedure has different clauses for different modes,
 	% then we must treat it as impure.
+	% the default impurity of foreign_proc procedures is handled when
+	% processing the foreign_proc goal -- they are not counted as impure
+	% here simply because they have different clauses for different modes
 	{
-		applies_to_all_modes(Clause0, ProcIds)
+		( applies_to_all_modes(Clause0, ProcIds)
+		; GoalType = pragmas
+		)
 	->
 		Clausepurity = (pure)
 	;
@@ -588,7 +556,7 @@ compute_purity([Clause0|Clauses0], [Clause|Clauses], ProcIds,
 	{ add_goal_info_purity_feature(Info0, Bodypurity, Info) },
 	{ worst_purity(Purity0, Bodypurity, Purity1) },
 	{ Clause = clause(Ids, Body - Info, Lang, Context) },
-	compute_purity(Clauses0, Clauses, ProcIds, Purity1, Purity).
+	compute_purity(GoalType, Clauses0, Clauses, ProcIds, Purity1, Purity).
 
 :- pred applies_to_all_modes(clause::in, list(proc_id)::in) is semidet.
 
@@ -611,7 +579,7 @@ applies_to_all_modes(clause(ClauseProcIds, _, _, _), ProcIds) :-
 
 compute_expr_purity(conj(Goals0), conj(Goals), _, InClosure, Purity) -->
 	compute_goals_purity(Goals0, Goals, InClosure, pure, Purity).
-compute_expr_purity(par_conj(Goals0, SM), par_conj(Goals, SM), _,
+compute_expr_purity(par_conj(Goals0), par_conj(Goals), _,
 		InClosure, Purity) -->
 	compute_goals_purity(Goals0, Goals, InClosure, pure, Purity).
 compute_expr_purity(call(PredId0,ProcId,Vars,BIState,UContext,Name0),
@@ -673,8 +641,8 @@ compute_expr_purity(generic_call(GenericCall0, Args, Modes0, Det),
 
 		{ GoalExpr = generic_call(GenericCall, Args, Modes, Det) }
 	).
-compute_expr_purity(switch(Var,Canfail,Cases0,Storemap),
-		switch(Var,Canfail,Cases,Storemap), _, InClosure, Purity) -->
+compute_expr_purity(switch(Var, Canfail, Cases0),
+		switch(Var, Canfail, Cases), _, InClosure, Purity) -->
 	compute_cases_purity(Cases0, Cases, InClosure, pure, Purity).
 compute_expr_purity(Unif0, GoalExpr, GoalInfo, InClosure,
 		ActualPurity) -->
@@ -723,7 +691,7 @@ compute_expr_purity(Unif0, GoalExpr, GoalInfo, InClosure,
 		{ GoalExpr = unify(Var, RHS, Mode, Unification, UnifyContext) },
 		{ ActualPurity = pure }
 	;
-		{ RHS0 = functor(ConsId, Args) } 
+		{ RHS0 = functor(ConsId, _, Args) } 
 	->
 		RunPostTypecheck =^ run_post_typecheck,
 		(
@@ -758,8 +726,7 @@ compute_expr_purity(Unif0, GoalExpr, GoalInfo, InClosure,
 		{ GoalExpr = Unif0 },
 		{ ActualPurity = pure }
 	).
-compute_expr_purity(disj(Goals0,Store), disj(Goals,Store), _,
-		InClosure, Purity) -->
+compute_expr_purity(disj(Goals0), disj(Goals), _, InClosure, Purity) -->
 	compute_goals_purity(Goals0, Goals, InClosure, pure, Purity).
 compute_expr_purity(not(Goal0), NotGoal, GoalInfo0, InClosure, Purity) -->
 	%
@@ -776,20 +743,34 @@ compute_expr_purity(not(Goal0), NotGoal, GoalInfo0, InClosure, Purity) -->
 compute_expr_purity(some(Vars, CanRemove, Goal0), some(Vars, CanRemove, Goal),
 		_, InClosure, Purity) -->
 	compute_goal_purity(Goal0, Goal, InClosure, Purity).
-compute_expr_purity(if_then_else(Vars,Goali0,Goalt0,Goale0,Store),
-		if_then_else(Vars,Goali,Goalt,Goale,Store), _,
+compute_expr_purity(if_then_else(Vars, Cond0, Then0, Else0),
+		if_then_else(Vars, Cond, Then, Else), _,
 		InClosure, Purity) -->
-	compute_goal_purity(Goali0, Goali, InClosure, Purity1),
-	compute_goal_purity(Goalt0, Goalt, InClosure, Purity2),
-	compute_goal_purity(Goale0, Goale, InClosure, Purity3),
+	compute_goal_purity(Cond0, Cond, InClosure, Purity1),
+	compute_goal_purity(Then0, Then, InClosure, Purity2),
+	compute_goal_purity(Else0, Else, InClosure, Purity3),
 	{ worst_purity(Purity1, Purity2, Purity12) },
 	{ worst_purity(Purity12, Purity3, Purity) }.
-compute_expr_purity(Ccode, Ccode, _, _, Purity) -->
-	{ Ccode = foreign_proc(_,PredId,_,_,_,_,_) },
+compute_expr_purity(ForeignProc0, ForeignProc, _, _, Purity) -->
+	{ ForeignProc0 = foreign_proc(_, _, _, _, _, _, _) },
+	{ Attributes = ForeignProc0 ^ foreign_attr },
+	{ PredId = ForeignProc0 ^ foreign_pred_id },
 	ModuleInfo =^ module_info,
-	{ module_info_preds(ModuleInfo, Preds) },
-	{ map__lookup(Preds, PredId, CalledPredInfo) },
-	{ pred_info_get_purity(CalledPredInfo, Purity) }.
+	{ 
+		legacy_purity_behaviour(Attributes, yes)
+	->
+			% get the purity from the declaration, and set it 
+			% here so that it is correct for later use
+		module_info_pred_info(ModuleInfo, PredId, PredInfo),
+		pred_info_get_purity(PredInfo, Purity),
+		set_purity(Attributes, Purity, NewAttributes),
+		ForeignProc = ForeignProc0 ^ foreign_attr := NewAttributes
+	;
+		ForeignProc = ForeignProc0,
+		purity(Attributes, AttributesPurity),
+		Purity = AttributesPurity
+	}.
+
 compute_expr_purity(shorthand(_), _, _, _, _) -->
 	% these should have been expanded out by now
 	{ error("compute_expr_purity: unexpected shorthand") }.
@@ -868,9 +849,9 @@ check_higher_order_purity(GoalInfo, ConsId, Var, Args, ActualPurity) -->
 	% InPragmaCCode: Is this a pragma c code?
 	% Promised: Did we promise this pred as pure?
 :- pred perform_pred_purity_checks(pred_info::in, purity::in, purity::in,
-	purity::in, bool::in, purity_check_result::out) is det.
+	purity::in, purity_check_result::out) is det.
 perform_pred_purity_checks(PredInfo, ActualPurity, DeclaredPurity,
-		PromisedPurity, IsPragmaCCode, PurityCheckResult) :-
+		PromisedPurity, PurityCheckResult) :-
 	( 
 		% The declared purity must match any promises.
 		% (A promise of impure means no promise was made).
@@ -879,7 +860,9 @@ perform_pred_purity_checks(PredInfo, ActualPurity, DeclaredPurity,
 		PurityCheckResult = inconsistent_promise
 	;
 		% You shouldn't promise pure unnecessarily.
-		PromisedPurity \= (impure), ActualPurity = PromisedPurity
+		% It's OK in the case of foreign_procs though.
+		PromisedPurity \= (impure), ActualPurity = PromisedPurity,
+		not pred_info_pragma_goal_type(PredInfo)
 	->
 		PurityCheckResult = unnecessary_promise_pure
 	;
@@ -908,8 +891,11 @@ perform_pred_purity_checks(PredInfo, ActualPurity, DeclaredPurity,
 			% assume they are pure, but you can declare them
 			% to be impure.
 		pred_info_get_markers(PredInfo, Markers),
+		pred_info_get_goal_type(PredInfo, GoalType),
 		( 
-			IsPragmaCCode = yes
+			GoalType = pragmas
+		;
+			GoalType = clauses_and_pragmas
 		;
 			check_marker(Markers, class_method) 
 		;

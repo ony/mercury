@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -25,25 +25,30 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module code_info.
+:- module ll_backend__code_info.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, instmap.
-:- import_module code_model.
-:- import_module llds, continuation_info, trace.
-:- import_module globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module hlds__hlds_data, hlds__hlds_llds, hlds__instmap.
+:- import_module ll_backend__llds, ll_backend__continuation_info.
+:- import_module ll_backend__trace.
+:- import_module backend_libs__code_model.
+:- import_module libs__globals.
 
 :- import_module bool, set, list, map, std_util, assoc_list, counter.
 
 :- implementation.
 
-:- import_module prog_out.
-:- import_module type_util, mode_util.
-:- import_module arg_info, code_util, code_exprn, exprn_aux, var_locn.
-:- import_module trace_params, llds_out.
-:- import_module options, tree.
+:- import_module parse_tree__prog_out.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
+:- import_module ll_backend__arg_info, ll_backend__code_util.
+:- import_module ll_backend__code_exprn, ll_backend__exprn_aux.
+:- import_module ll_backend__var_locn.
+:- import_module ll_backend__llds_out.
+:- import_module libs__trace_params.
+:- import_module libs__options, libs__tree.
 
 :- import_module term, varset.
 :- import_module set, stack.
@@ -72,8 +77,9 @@
 		% outermost resumption point, and info about the non-fixed
 		% stack slots used for tracing purposes.
 :- pred code_info__init(bool::in, globals::in, pred_id::in, proc_id::in,
-	proc_info::in, follow_vars::in, module_info::in, counter::in,
-	resume_point_info::out, trace_slot_info::out, code_info::out) is det.
+	pred_info::in, proc_info::in, follow_vars::in, module_info::in,
+	counter::in, resume_point_info::out, trace_slot_info::out,
+	code_info::out) is det.
 
 		% Get the globals table.
 :- pred code_info__get_globals(globals::out,
@@ -93,6 +99,11 @@
 
 		% Get the HLDS of the procedure we are generating code for.
 :- pred code_info__get_proc_info(proc_info::out,
+	code_info::in, code_info::out) is det.
+
+		% Get the HLDS of the predicate containing the procedure
+		% we are generating code for.
+:- pred code_info__get_pred_info(pred_info::out,
 	code_info::in, code_info::out) is det.
 
 		% Get the variables for the current procedure.
@@ -168,6 +179,9 @@
 	code_info::in, code_info::out) is det.
 
 :- pred code_info__set_maybe_trace_info(maybe(trace_info)::in,
+	code_info::in, code_info::out) is det.
+
+:- pred code_info__get_opt_no_return_calls(bool::out,
 	code_info::in, code_info::out) is det.
 
 :- pred code_info__get_zombies(set(prog_var)::out,
@@ -263,7 +277,10 @@
 		proc_id :: proc_id,
 				% The id of the current procedure.
 		proc_info :: proc_info,
-				% The proc_info for the this procedure.
+				% The proc_info for this procedure.
+		pred_info :: pred_info,
+				% The pred_info for the predicate containing
+				% this procedure.
 		varset :: prog_varset,
 				% The variables in this procedure.
 		var_slot_count :: int,
@@ -271,11 +288,12 @@
 				% for storing variables.
 				% (Some extra stack slots are used
 				% for saving and restoring registers.)
-		maybe_trace_info :: maybe(trace_info)
+		maybe_trace_info :: maybe(trace_info),
 				% Information about which stack slots
 				% the call sequence number and depth
 				% are stored in, provided tracing is
 				% switched on.
+		opt_no_resume_calls :: bool
 	).
 
 :- type code_info_loc_dep --->
@@ -357,22 +375,19 @@
 
 %---------------------------------------------------------------------------%
 
-code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
-		ModuleInfo, CellCounter, ResumePoint, TraceSlotInfo, CodeInfo)
-		:-
+code_info__init(SaveSuccip, Globals, PredId, ProcId, PredInfo, ProcInfo,
+		FollowVars, ModuleInfo, CellCounter, ResumePoint,
+		TraceSlotInfo, CodeInfo) :-
 	proc_info_get_initial_instmap(ProcInfo, ModuleInfo, InstMap),
 	proc_info_liveness_info(ProcInfo, Liveness),
-	proc_info_headvars(ProcInfo, HeadVars),
-	proc_info_arg_info(ProcInfo, ArgInfos),
 	proc_info_interface_code_model(ProcInfo, CodeModel),
-	assoc_list__from_corresponding_lists(HeadVars, ArgInfos, Args),
-	arg_info__build_input_arg_list(Args, ArgList),
+	arg_info__build_input_arg_list(ProcInfo, ArgList),
 	proc_info_varset(ProcInfo, VarSet),
 	proc_info_stack_slots(ProcInfo, StackSlots),
 	globals__lookup_bool_option(Globals, lazy_code, LazyCode),
 	globals__get_options(Globals, Options),
 	globals__get_trace_level(Globals, TraceLevel),
-	( trace_level_is_none(TraceLevel) = no ->
+	( eff_trace_level_is_none(PredInfo, ProcInfo, TraceLevel) = no ->
 		trace__fail_vars(ModuleInfo, ProcInfo, FailVars),
 		MaybeFailVars = yes(FailVars),
 		set__union(Liveness, FailVars, EffLiveness)
@@ -409,8 +424,11 @@ code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
 	set__init(Zombies),
 	map__init(LayoutMap),
 	code_info__max_var_slot(StackSlots, VarSlotMax),
-	trace__reserved_slots(ModuleInfo, ProcInfo, Globals, FixedSlots, _),
+	trace__reserved_slots(ModuleInfo, PredInfo, ProcInfo, Globals,
+		FixedSlots, _),
 	int__max(VarSlotMax, FixedSlots, SlotMax),
+	globals__lookup_bool_option(Globals, opt_no_return_calls,
+		OptNoReturnCalls),
 	CodeInfo0 = code_info(
 		code_info_static(
 			Globals,
@@ -418,9 +436,11 @@ code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
 			PredId,
 			ProcId,
 			ProcInfo,
+			PredInfo,
 			VarSet,
 			SlotMax,
-			no
+			no,
+			OptNoReturnCalls
 		),
 		code_info_loc_dep(
 			Liveness,
@@ -444,23 +464,23 @@ code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
 			no
 		)
 	),
-	code_info__init_maybe_trace_info(TraceLevel, Globals, ProcInfo,
-		ModuleInfo, TraceSlotInfo, CodeInfo0, CodeInfo1),
+	code_info__init_maybe_trace_info(TraceLevel, Globals, ModuleInfo,
+		PredInfo, ProcInfo, TraceSlotInfo, CodeInfo0, CodeInfo1),
 	code_info__init_fail_info(CodeModel, MaybeFailVars, ResumePoint,
 		CodeInfo1, CodeInfo).
 
 :- pred code_info__init_maybe_trace_info(trace_level::in, globals::in,
-	proc_info::in, module_info::in, trace_slot_info::out,
+	module_info::in, pred_info::in, proc_info::in, trace_slot_info::out,
 	code_info::in, code_info::out) is det.
 
-code_info__init_maybe_trace_info(TraceLevel, Globals, ProcInfo, ModuleInfo,
-		TraceSlotInfo) -->
-	( { trace_level_is_none(TraceLevel) = no } ->
-		trace__setup(ModuleInfo, ProcInfo, Globals,
+code_info__init_maybe_trace_info(TraceLevel, Globals, ModuleInfo, PredInfo,
+		ProcInfo, TraceSlotInfo) -->
+	( { eff_trace_level_is_none(PredInfo, ProcInfo, TraceLevel) = no } ->
+		trace__setup(ModuleInfo, PredInfo, ProcInfo, Globals,
 			TraceSlotInfo, TraceInfo),
 		code_info__set_maybe_trace_info(yes(TraceInfo))
 	;
-		{ TraceSlotInfo = trace_slot_info(no, no, no, no, no, no) }
+		{ TraceSlotInfo = trace_slot_info(no, no, no, no, no) }
 	).
 
 %---------------------------------------------------------------------------%
@@ -470,9 +490,12 @@ code_info__get_module_info(CI^code_info_static^module_info, CI, CI).
 code_info__get_pred_id(CI^code_info_static^pred_id, CI, CI).
 code_info__get_proc_id(CI^code_info_static^proc_id, CI, CI).
 code_info__get_proc_info(CI^code_info_static^proc_info, CI, CI).
+code_info__get_pred_info(CI^code_info_static^pred_info, CI, CI).
 code_info__get_varset(CI^code_info_static^varset, CI, CI).
 code_info__get_var_slot_count(CI^code_info_static^var_slot_count, CI, CI).
 code_info__get_maybe_trace_info(CI^code_info_static^maybe_trace_info, CI, CI).
+code_info__get_opt_no_return_calls(CI^code_info_static^opt_no_resume_calls,
+	CI, CI).
 code_info__get_forward_live_vars(CI^code_info_loc_dep^forward_live_vars,
 	CI, CI).
 code_info__get_instmap(CI^code_info_loc_dep^instmap, CI, CI).
@@ -790,13 +813,13 @@ code_info__variable_type(Var, Type) -->
 
 code_info__lookup_type_defn(Type, TypeDefn) -->
 	code_info__get_module_info(ModuleInfo),
-	{ type_to_type_id(Type, TypeIdPrime, _) ->
-		TypeId = TypeIdPrime
+	{ type_to_ctor_and_args(Type, TypeCtorPrime, _) ->
+		TypeCtor = TypeCtorPrime
 	;
 		error("unknown type in code_info__lookup_type_defn")
 	},
 	{ module_info_types(ModuleInfo, TypeTable) },
-	{ map__lookup(TypeTable, TypeId, TypeDefn) }.
+	{ map__lookup(TypeTable, TypeCtor, TypeDefn) }.
 
 code_info__cons_id_to_tag(Var, ConsId, ConsTag) -->
 	code_info__variable_type(Var, Type),
@@ -1018,7 +1041,20 @@ code_info__generate_branch_end(StoreMap, MaybeEnd0, MaybeEnd, Code) -->
 		code_info__set_follow_vars(follow_vars(FollowVarsMap,
 			MaxMentionedReg + 1))
 	),
-	code_info__place_vars(VarLocs, Code),
+	code_info__get_instmap(InstMap),
+	( { instmap__is_reachable(InstMap) } ->
+		code_info__place_vars(VarLocs, Code)
+	;
+		% With --opt-no-return-call, the variables that we would have
+		% saved across a call that cannot return have had the last
+		% of their code generation state destroyed, so calling
+		% place_vars would cause a code generator abort. However,
+		% pretending that all the variables are where the store map
+		% says they should be is perfectly fine, since we can never
+		% reach the end of *this* branch anyway.
+		code_info__remake_with_store_map(StoreMap),
+		{ Code = empty }
+	),
 	=(EndCodeInfo1),
 	{
 		MaybeEnd0 = no,
@@ -1242,8 +1278,8 @@ code_info__save_hp_in_branch(Code, Slot, Pos0, Pos) :-
 :- pred code_info__set_resume_point_to_unknown(code_info::in, code_info::out)
 	is det.
 
-	% Call this predicate to say "we have just returned a model_non call;
-	% we don't know what address the following code will need to
+	% Call this predicate to say "we have just returned from a model_non
+	% call; we don't know what address the following code will need to
 	% backtrack to, and there may now be nondet frames on top of ours
 	% that do not have their redofr slots pointing to our frame".
 
@@ -1830,13 +1866,13 @@ code_info__prepare_for_semi_commit(SemiCommitInfo, Code) -->
 			% inside MR_commit_{mark,cut}.
 			Components = [
 				pragma_c_raw_code(
-					"\tMR_save_transient_registers();\n",
+					"\t\tMR_save_transient_registers();\n",
 					live_lvals_info(set__init)),
 				pragma_c_raw_code(
-					"\tMR_commit_mark();\n",
+					"\t\tMR_commit_mark();\n",
 					live_lvals_info(set__init)),
 				pragma_c_raw_code(
-					"\tMR_restore_transient_registers();\n",
+					"\t\tMR_restore_transient_registers();\n",
 					live_lvals_info(set__init))
 			],
 			MarkCode = node([
@@ -1915,7 +1951,7 @@ code_info__generate_semi_commit(SemiCommitInfo, Code) -->
 			UseMinimalModel = yes,
 			% See the comment in prepare_for_semi_commit above.
 			Components = [
-				pragma_c_raw_code("\tMR_commit_cut();\n",
+				pragma_c_raw_code("\t\tMR_commit_cut();\n",
 					live_lvals_info(set__init))
 			],
 			CutCode = node([
@@ -2403,19 +2439,15 @@ code_info__make_resume_point(ResumeVars, ResumeLocs, FullMap, ResumePoint) -->
 		{ ResumePoint = orig_only(OrigMap, OrigAddr) }
 	;
 		{ ResumeLocs = stack_only },
-		{ map__select(StackSlots, ResumeVars, StackMap0) },
-		{ map__to_assoc_list(StackMap0, StackList0) },
-		{ code_info__make_singleton_sets(StackList0, StackList) },
-		{ map__from_assoc_list(StackList, StackMap) },
+		{ code_info__make_stack_resume_map(ResumeVars,
+			StackSlots, StackMap) },
 		code_info__get_next_label(StackLabel),
 		{ StackAddr = label(StackLabel) },
 		{ ResumePoint = stack_only(StackMap, StackAddr) }
 	;
 		{ ResumeLocs = orig_and_stack },
-		{ map__select(StackSlots, ResumeVars, StackMap0) },
-		{ map__to_assoc_list(StackMap0, StackList0) },
-		{ code_info__make_singleton_sets(StackList0, StackList) },
-		{ map__from_assoc_list(StackList, StackMap) },
+		{ code_info__make_stack_resume_map(ResumeVars,
+			StackSlots, StackMap) },
 		code_info__get_next_label(OrigLabel),
 		{ OrigAddr = label(OrigLabel) },
 		code_info__get_next_label(StackLabel),
@@ -2424,10 +2456,8 @@ code_info__make_resume_point(ResumeVars, ResumeLocs, FullMap, ResumePoint) -->
 			StackMap, StackAddr) }
 	;
 		{ ResumeLocs = stack_and_orig },
-		{ map__select(StackSlots, ResumeVars, StackMap0) },
-		{ map__to_assoc_list(StackMap0, StackList0) },
-		{ code_info__make_singleton_sets(StackList0, StackList) },
-		{ map__from_assoc_list(StackList, StackMap) },
+		{ code_info__make_stack_resume_map(ResumeVars,
+			StackSlots, StackMap) },
 		code_info__get_next_label(StackLabel),
 		{ StackAddr = label(StackLabel) },
 		code_info__get_next_label(OrigLabel),
@@ -2435,6 +2465,15 @@ code_info__make_resume_point(ResumeVars, ResumeLocs, FullMap, ResumePoint) -->
 		{ ResumePoint = stack_and_orig(StackMap, StackAddr,
 			OrigMap, OrigAddr) }
 	).
+
+:- pred code_info__make_stack_resume_map(set(prog_var)::in, stack_slots::in,
+	map(prog_var, set(lval))::out) is det.
+
+code_info__make_stack_resume_map(ResumeVars, StackSlots, StackMap) :-
+	map__select(StackSlots, ResumeVars, StackMap0),
+	map__to_assoc_list(StackMap0, StackList0),
+	code_info__make_singleton_sets(StackList0, StackList),
+	map__from_assoc_list(StackList, StackMap).
 
 :- pred code_info__make_singleton_sets(assoc_list(prog_var, lval)::in,
 	assoc_list(prog_var, set(lval))::out) is det.
@@ -3105,7 +3144,7 @@ code_info__maybe_reset_discard_and_release_ticket(MaybeTicketSlot, Reason,
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
-	% Submodule to deal with code_exprn.
+	% Submodule to deal with code_exprn or var_locn.
 
 :- interface.
 
@@ -3168,6 +3207,11 @@ code_info__maybe_reset_discard_and_release_ticket(MaybeTicketSlot, Reason,
 	% - The variables that need to be saved across the call (either because
 	%   they are forward live after the call or because they are protected
 	%   by an enclosing resumption point) will be saved on the stack.
+	%   Note that if the call cannot succeed and the trace level is none,
+	%   then no variables need to be saved across the call. (If the call
+	%   cannot succeed but the trace level is not none, then we still
+	%   save the usual variables on the stack to make them available
+	%   for up-level printing in the debugger.)
 	%
 	% - The input arguments will be moved to their registers.
 
@@ -3186,7 +3230,12 @@ code_info__maybe_reset_discard_and_release_ticket(MaybeTicketSlot, Reason,
 
 :- pred code_info__eager_unlock_regs(code_info::in, code_info::out) is det.
 
-:- pred code_info__clear_all_registers(code_info::in, code_info::out) is det.
+	% Record the fact that all the registers have been clobbered (as by a
+	% call). If the bool argument is true, then the call cannot return, and
+	% thus it is OK for this action to delete the last record of the state
+	% of a variable.
+:- pred code_info__clear_all_registers(bool::in,
+	code_info::in, code_info::out) is det.
 
 :- pred code_info__clobber_regs(list(lval)::in,
 	code_info::in, code_info::out) is det.
@@ -3548,22 +3597,34 @@ code_info__setup_call(GoalInfo, ArgInfos, LiveLocs, Code) -->
 	{ partition_args(ArgInfos, InArgInfos, OutArgInfos, _UnusedArgInfos) },
 	{ assoc_list__keys(OutArgInfos, OutVars) },
 	{ set__list_to_set(OutVars, OutVarSet) },
-	code_info__compute_forward_live_var_saves(OutVarSet, ForwardVarLocs),
-
-	{ goal_info_get_code_model(GoalInfo, CodeModel) },
-	( { CodeModel = model_non } ->
-			% Save variables protected by the nearest resumption
-			% point on the stack. XXX This should be unnecessary;
-			% with the current setup, the code that established
-			% the resume point should have saved those variables
-			% on the stack already. However, later we should
-			% arrange things so that this saving of the resume vars
-			% on the stack is delayed until the first call after
-			% the setup of the resume point.
-		code_info__compute_resume_var_stack_locs(ResumeVarLocs),
-		{ list__append(ResumeVarLocs, ForwardVarLocs, StackVarLocs) }
+	{ goal_info_get_determinism(GoalInfo, Detism) },
+	code_info__get_opt_no_return_calls(OptNoReturnCalls),
+	(
+		{ Detism = erroneous },
+		{ OptNoReturnCalls = yes }
+	->
+		{ StackVarLocs = [] }
 	;
-		{ StackVarLocs = ForwardVarLocs }
+		code_info__compute_forward_live_var_saves(OutVarSet,
+			ForwardVarLocs),
+		{ goal_info_get_code_model(GoalInfo, CodeModel) },
+		( { CodeModel = model_non } ->
+				% Save variables protected by the nearest
+				% resumption point on the stack. XXX This
+				% should be unnecessary; with the current
+				% setup, the code that established the resume
+				% point should have saved those variables
+				% on the stack already. However, later we
+				% should arrange things so that this saving
+				% of the resume vars on the stack is delayed
+				% until the first call after the setup of
+				% the resume point.
+			code_info__compute_resume_var_stack_locs(ResumeVarLocs),
+			{ list__append(ResumeVarLocs, ForwardVarLocs,
+				StackVarLocs) }
+		;
+			{ StackVarLocs = ForwardVarLocs }
+		)
 	),
 
 	code_info__get_var_locns_info(VarInfo0),
@@ -3779,7 +3840,7 @@ code_info__get_lazy_var_locns_info(Exprn) -->
 	% As a sanity check, we could test whether any known variable
 	% has its only value in a register, but we do so only with eager
 	% code generation.
-code_info__clear_all_registers -->
+code_info__clear_all_registers(OkToDeleteAny) -->
 	code_info__get_var_locns_info(VarInfo0),
 	{
 		VarInfo0 = exprn_info(Exprn0),
@@ -3787,7 +3848,7 @@ code_info__clear_all_registers -->
 		VarInfo = exprn_info(Exprn)
 	;
 		VarInfo0 = var_locn_info(VarLocn0),
-		var_locn__clobber_all_regs(VarLocn0, VarLocn),
+		var_locn__clobber_all_regs(OkToDeleteAny, VarLocn0, VarLocn),
 		VarInfo = var_locn_info(VarLocn)
 	},
 	code_info__set_var_locns_info(VarInfo).
@@ -3867,8 +3928,8 @@ code_info__max_reg_in_use(Max) -->
 	is det.
 
 :- pred code_info__generate_return_live_lvalues(
-	assoc_list(prog_var, arg_loc)::in, instmap::in, list(liveinfo)::out,
-	code_info::in, code_info::out) is det.
+	assoc_list(prog_var, arg_loc)::in, instmap::in, bool::in,
+	list(liveinfo)::out, code_info::in, code_info::out) is det.
 
 %---------------------------------------------------------------------------%
 
@@ -3922,7 +3983,7 @@ code_info__generate_input_var_vn([InputArgLoc | InputArgLocs], Vals0, Vals) :-
 %---------------------------------------------------------------------------%
 
 code_info__generate_return_live_lvalues(OutputArgLocs, ReturnInstMap,
-		LiveLvalues) -->
+		OkToDeleteAny, LiveLvalues) -->
 	code_info__variable_locations(VarLocs),
 	code_info__get_known_variables(Vars),
 	code_info__get_active_temps_data(Temps),
@@ -3931,7 +3992,7 @@ code_info__generate_return_live_lvalues(OutputArgLocs, ReturnInstMap,
 	code_info__get_module_info(ModuleInfo),
 	{ continuation_info__generate_return_live_lvalues(OutputArgLocs,
 		ReturnInstMap, Vars, VarLocs, Temps, ProcInfo, ModuleInfo,
-		Globals, LiveLvalues) }.
+		Globals, OkToDeleteAny, LiveLvalues) }.
 
 :- pred code_info__generate_resume_layout(label::in, resume_map::in,
 	code_info::in, code_info::out) is det.

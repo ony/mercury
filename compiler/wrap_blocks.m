@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,11 +17,11 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module wrap_blocks.
+:- module ll_backend__wrap_blocks.
 
 :- interface.
 
-:- import_module llds.
+:- import_module ll_backend__llds.
 :- import_module list.
 
 :- pred wrap_blocks(list(instruction)::in, list(instruction)::out)
@@ -29,7 +29,7 @@
 
 :- implementation.
 
-:- import_module opt_util.
+:- import_module ll_backend__opt_util.
 :- import_module bool, int, std_util, require.
 
 wrap_blocks(Instrs0, Instrs) :-

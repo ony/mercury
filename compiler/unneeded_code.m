@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -53,11 +53,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module unneeded_code.
+:- module transform_hlds__unneeded_code.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred.
+:- import_module hlds__hlds_module, hlds__hlds_pred.
 :- import_module io.
 
 :- pred unneeded_code__process_proc_msg(pred_id::in, proc_id::in,
@@ -69,11 +69,15 @@
 
 :- implementation.
 
-:- import_module prog_data, hlds_goal, prog_data.
-:- import_module inst_match, instmap, mode_util.
-:- import_module passes_aux, hlds_out, globals, options.
-:- import_module code_aux, goal_path, quantification.
-:- import_module std_util, bool, int, list, assoc_list, map, set, require.
+:- import_module parse_tree__prog_data, parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__instmap, hlds__quantification.
+:- import_module hlds__goal_form, hlds__passes_aux, hlds__hlds_out.
+:- import_module check_hlds__inst_match, check_hlds__mode_util.
+:- import_module check_hlds__goal_path.
+:- import_module ll_backend__code_aux.
+:- import_module libs__globals, libs__options.
+
+:- import_module bool, int, list, assoc_list, map, set, std_util, require.
 
 	% The branch_alts and branch_point types record the information the
 	% transform needs to know about a particular branched control
@@ -454,13 +458,13 @@ unneeded_code__adjust_where_needed(Goal, Options, WhereInfo0, WhereInfo) :-
 				% With --fully-strict, we cannot optimize away
 				% infinite loops or exceptions.
 			Options^fully_strict = yes,
-			code_aux__goal_can_loop_or_throw(Goal)
+			goal_can_loop_or_throw(Goal)
 		;
 				% With --no-reorder-conj, we cannot move
 				% infinite loops or exceptions, but we can
 				% delete them.
 			Options^reorder_conj = no,
-			code_aux__goal_can_loop_or_throw(Goal),
+			goal_can_loop_or_throw(Goal),
 			WhereInfo0 = branches(BranchMap),
 			\+ map__is_empty(BranchMap)
 		;
@@ -623,7 +627,7 @@ unneeded_code__process_goal_internal(Goal0, Goal, InstMap0, InstMap,
 		RefinedGoals = RefinedGoals0,
 		Changed = Changed0
 	;
-		GoalExpr0 = par_conj(_, _),
+		GoalExpr0 = par_conj(_),
 		Goal = Goal0,
 		unneeded_code__demand_inputs(Goal, ModuleInfo, InstMap0,
 			everywhere, WhereNeededMap0, WhereNeededMap),
@@ -638,7 +642,7 @@ unneeded_code__process_goal_internal(Goal0, Goal, InstMap0, InstMap,
 		GoalExpr = conj(Conjuncts),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = switch(SwitchVar, CanFail, Cases0, StoreMap),
+		GoalExpr0 = switch(SwitchVar, CanFail, Cases0),
 		(
 			Cases0 = [case(_, _ - FirstCaseGoalInfo) | _],
 			goal_info_get_goal_path(FirstCaseGoalInfo,
@@ -664,10 +668,10 @@ unneeded_code__process_goal_internal(Goal0, Goal, InstMap0, InstMap,
 			WhereNeededMap1, BranchNeededMap, WhereNeededMap2),
 		unneeded_code__demand_var(GoalPath, everywhere, SwitchVar,
 			WhereNeededMap2, WhereNeededMap),
-		GoalExpr = switch(SwitchVar, CanFail, Cases, StoreMap),
+		GoalExpr = switch(SwitchVar, CanFail, Cases),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = disj(Disjuncts0, StoreMap),
+		GoalExpr0 = disj(Disjuncts0),
 		goal_info_get_goal_path(GoalInfo0, GoalPath),
 		map__map_values(unneeded_code__demand_var_everywhere,
 			WhereNeededMap0, WhereNeededMap1),
@@ -675,10 +679,10 @@ unneeded_code__process_goal_internal(Goal0, Goal, InstMap0, InstMap,
 			VarTypes, ModuleInfo, Options, GoalPath, Disjuncts,
 			WhereNeededMap1, WhereNeededMap1, WhereNeededMap,
 			RefinedGoals0, RefinedGoals, Changed0, Changed),
-		GoalExpr = disj(Disjuncts, StoreMap),
+		GoalExpr = disj(Disjuncts),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = if_then_else(Quant, Cond0, Then0, Else0, StoreMap),
+		GoalExpr0 = if_then_else(Quant, Cond0, Then0, Else0),
 		goal_info_get_goal_path(GoalInfo0, GoalPath),
 		BranchPoint = branch_point(GoalPath, ite), 
 		map__map_values(unneeded_code__demand_var_everywhere,
@@ -688,7 +692,7 @@ unneeded_code__process_goal_internal(Goal0, Goal, InstMap0, InstMap,
 			GoalPath, Cond, Then, Else, WhereNeededMap1,
 			WhereNeededMap, RefinedGoals0, RefinedGoals, Changed0,
 			Changed),
-		GoalExpr = if_then_else(Quant, Cond, Then, Else, StoreMap),
+		GoalExpr = if_then_else(Quant, Cond, Then, Else),
 		Goal = GoalExpr - GoalInfo0
 	;
 		GoalExpr0 = not(NegGoal0),
@@ -967,7 +971,7 @@ unneeded_code__refine_goal(Goal0, RefinedGoals0, Goal, RefinedGoals) :-
 		Goal = Goal0,
 		RefinedGoals = RefinedGoals0
 	;
-		GoalExpr0 = par_conj(_, _),
+		GoalExpr0 = par_conj(_),
 		Goal = Goal0,
 		RefinedGoals = RefinedGoals0
 	;
@@ -977,25 +981,25 @@ unneeded_code__refine_goal(Goal0, RefinedGoals0, Goal, RefinedGoals) :-
 		GoalExpr = conj(Conjuncts),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = switch(SwitchVar, CanFail, Cases0, StoreMap),
+		GoalExpr0 = switch(SwitchVar, CanFail, Cases0),
 		goal_info_get_goal_path(GoalInfo0, GoalPath),
 		unneeded_code__refine_cases(Cases0, RefinedGoals0,
 			GoalPath, 1, Cases, RefinedGoals),
-		GoalExpr = switch(SwitchVar, CanFail, Cases, StoreMap),
+		GoalExpr = switch(SwitchVar, CanFail, Cases),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = disj(Disjuncts0, StoreMap),
+		GoalExpr0 = disj(Disjuncts0),
 		goal_info_get_goal_path(GoalInfo0, GoalPath),
 		unneeded_code__refine_disj(Disjuncts0, RefinedGoals0,
 			GoalPath, 1, Disjuncts, RefinedGoals),
-		GoalExpr = disj(Disjuncts, StoreMap),
+		GoalExpr = disj(Disjuncts),
 		Goal = GoalExpr - GoalInfo0
 	;
-		GoalExpr0 = if_then_else(Quant, Cond0, Then0, Else0, StoreMap),
+		GoalExpr0 = if_then_else(Quant, Cond0, Then0, Else0),
 		goal_info_get_goal_path(GoalInfo0, GoalPath),
 		unneeded_code__refine_ite(Cond0, Then0, Else0, RefinedGoals0,
 			GoalPath, Cond, Then, Else, RefinedGoals),
-		GoalExpr = if_then_else(Quant, Cond, Then, Else, StoreMap),
+		GoalExpr = if_then_else(Quant, Cond, Then, Else),
 		Goal = GoalExpr - GoalInfo0
 	;
 		GoalExpr0 = not(NegGoal0),

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,14 +12,15 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module ml_code_util.
+:- module ml_backend__ml_code_util.
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_module, hlds_pred.
-:- import_module builtin_ops, rtti, code_model.
-:- import_module mlds.
-:- import_module globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred.
+:- import_module backend_libs__builtin_ops, backend_libs__rtti.
+:- import_module backend_libs__code_model.
+:- import_module ml_backend__mlds.
+:- import_module libs__globals.
 
 :- import_module bool, int, list, map, std_util.
 
@@ -105,6 +106,18 @@
 
 %-----------------------------------------------------------------------------%
 %
+% Routines for generating expressions.
+%
+
+	% conjunction: ml_gen_and(X,Y) = binop((and), X, Y),
+	% except that it does some constant folding on the result.
+:- func ml_gen_and(mlds__rval, mlds__rval) = mlds__rval.
+
+	% negation: ml_gen_not(X) = unop(std_unop(not), X),
+:- func ml_gen_not(mlds__rval) = mlds__rval.
+
+%-----------------------------------------------------------------------------%
+%
 % Routines for generating types.
 %
 
@@ -126,14 +139,29 @@
 	%
 :- func ml_string_type = mlds__type.
 
+	% Allocate some fresh type variables to use as the Mercury types
+	% of boxed objects (e.g. to get the argument types for tuple
+	% constructors or closure constructors).  Note that this should
+	% only be used in cases where the tvarset doesn't matter.
+:- func ml_make_boxed_types(arity) = list(prog_type).
+
 %-----------------------------------------------------------------------------%
 %
 % Routines for generating function declarations (i.e. mlds__func_params).
 %
 
+% Note that when generating function *definitions*,
+% the versions that take an ml_gen_info pair should be used,
+% since those are the only ones that will generate the
+% correct GC tracing code for the parameters.
+
 	% Generate the function prototype for a given procedure.
 	%
 :- func ml_gen_proc_params(module_info, pred_id, proc_id) = mlds__func_params.
+
+:- pred ml_gen_proc_params(pred_id, proc_id, mlds__func_params,
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_proc_params(in, in, out, in, out) is det.
 
 :- func ml_gen_proc_params_from_rtti(module_info, rtti_proc_label) =
 	mlds__func_params.
@@ -143,6 +171,11 @@
 	%
 :- func ml_gen_params(module_info, list(mlds__var_name), list(prog_type),
 		list(mode), pred_or_func, code_model) = mlds__func_params.
+
+:- pred ml_gen_params(list(mlds__var_name), list(prog_type),
+		list(mode), pred_or_func, code_model, mlds__func_params,
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_params(in, in, in, in, in, out, in, out) is det.
 
 	% Given a list of variables and their corresponding modes,
 	% return a list containing only those variables which have
@@ -249,19 +282,22 @@
 
 	% Generate a declaration for an MLDS variable, given its HLDS type.
 	%
-:- func ml_gen_var_decl(var_name, prog_type, mlds__context, module_info) =
-	mlds__defn.
-
-	% Generate a declaration for an MLDS variable, given its MLDS type.
-	%
-:- func ml_gen_mlds_var_decl(mlds__data_name, mlds__type, mlds__context) =
-	mlds__defn.
+:- pred ml_gen_var_decl(var_name, prog_type, prog_context, mlds__defn,
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_var_decl(in, in, in, out, in, out) is det.
 
 	% Generate a declaration for an MLDS variable, given its MLDS type
-	% and initializer.
+	% and the code to trace it for accurate GC (if needed).
+	%
+:- func ml_gen_mlds_var_decl(mlds__data_name, mlds__type,
+	maybe(mlds__statement), mlds__context) = mlds__defn.
+
+	% Generate a declaration for an MLDS variable, given its MLDS type
+	% and initializer, and given the code to trace it for accurate GC
+	% (if needed).
 	%
 :- func ml_gen_mlds_var_decl(mlds__data_name, mlds__type, mlds__initializer,
-	mlds__context) = mlds__defn.
+	maybe(mlds__statement), mlds__context) = mlds__defn.
 
 	% Generate declaration flags for a local variable
 	%
@@ -280,17 +316,24 @@
 % Routines for dealing with static constants
 %
 
+	% ml_format_reserved_object_name(CtorName, CtorArity, ReservedObjName):
+	% Generate a name for a specially reserved global variable
+	% (or static member variable)
+	% whose address is used to represent the specified constructor.
+:- func ml_format_reserved_object_name(string, arity) = mlds__var_name.
+
 	% Generate a name for a local static constant.
 	%
 :- pred ml_format_static_const_name(string, const_seq, mlds__var_name,
 		ml_gen_info, ml_gen_info).
 :- mode ml_format_static_const_name(in, in, out, in, out) is det.
 
-	% Generate a definition of a local static constant,
-	% given the constant's name, type, and initializer.
+	% Generate a definition of a static constant,
+	% given the constant's name, type, accessibility,
+	% and initializer.
 	%
-:- func ml_gen_static_const_defn(mlds__var_name, mlds__type, mlds__initializer,
-		prog_context) = mlds__defn.
+:- func ml_gen_static_const_defn(mlds__var_name, mlds__type, mlds__access,
+		mlds__initializer, prog_context) = mlds__defn.
 
 	% Return the declaration flags appropriate for an
 	% initialized local static constant.
@@ -298,7 +341,7 @@
 :- func ml_static_const_decl_flags = mlds__decl_flags.
 
 	% Succeed iff the specified mlds__defn defines
-	% a static constant.
+	% a local static constant.
 	%
 :- pred ml_decl_is_static_const(mlds__defn::in) is semidet.
 
@@ -313,7 +356,8 @@
 :- func ml_gen_field_name(maybe(ctor_field_name), int) = mlds__field_name.
 
 	% Succeed iff the specified type must be boxed when used as a field.
-	% We need to box types that are not word-sized, because the code
+	% For the MLDS->C and MLDS->asm back-ends,
+	% we need to box types that are not word-sized, because the code
 	% for `arg' etc. in std_util.m rely on all arguments being word-sized.
 :- pred ml_must_box_field_type(prog_type, module_info).
 :- mode ml_must_box_field_type(in, in) is semidet.
@@ -442,11 +486,63 @@
 :- pred ml_get_env_ptr(mlds__rval, ml_gen_info, ml_gen_info).
 :- mode ml_get_env_ptr(out, in, out) is det.
 
-	% Return an rval for a pointer to the current environment
+	% Return an mlds__argument for a pointer to the current environment
 	% (the set of local variables in the containing procedure).
-:- pred ml_declare_env_ptr_arg(pair(mlds__entity_name, mlds__type),
-		ml_gen_info, ml_gen_info).
+:- pred ml_declare_env_ptr_arg(mlds__argument, ml_gen_info, ml_gen_info).
 :- mode ml_declare_env_ptr_arg(out, in, out) is det.
+
+%-----------------------------------------------------------------------------%
+%
+% Code to handle accurate GC
+%
+
+	% ml_gen_maybe_gc_trace_code(Var, Type, Context, Code):
+	%
+	% If accurate GC is enabled, and the specified
+	% variable might contain pointers, generate code to call
+	% `private_builtin__gc_trace' to trace the variable.
+:- pred ml_gen_maybe_gc_trace_code(var_name, prog_type, prog_context,
+		maybe(mlds__statement), ml_gen_info, ml_gen_info).
+:- mode ml_gen_maybe_gc_trace_code(in, in, in, out, in, out) is det.
+
+	% ml_gen_maybe_gc_trace_code(Var, DeclType, ActualType, Context, Code):
+	%
+	% This is the same as the //4 version (above), except that it takes
+	% two type arguments, rather than one.  The first
+	% (DeclType) is the type that the variable was declared with,
+	% while the second (ActualType) is that type that the variable
+	% is known to have.  This is used to generate GC tracing code
+	% for the temporaries variables used when calling procedures with
+	% polymorphically-typed output arguments.
+	% In that case, DeclType may be a type variable from the callee's
+	% type declaration, but ActualType will be the type from the caller.
+	%
+	% We can't just use DeclType to generate the GC trace code,
+	% because there's no way to compute the type_info for type variables
+	% that come from the callee rather than the current procedure.
+	% And we can't just use ActualType, since DeclType may contain
+	% pointers even when ActualType doesn't (e.g. because DeclType
+	% may be a boxed float).  So we need to pass both.
+	% 
+:- pred ml_gen_maybe_gc_trace_code(var_name, prog_type, prog_type, prog_context,
+		maybe(mlds__statement), ml_gen_info, ml_gen_info).
+:- mode ml_gen_maybe_gc_trace_code(in, in, in, in, out, in, out) is det.
+
+	% ml_gen_maybe_gc_trace_code_with_typeinfo(Var, DeclType, TypeInfoRval,
+	%	Context, Code):
+	% This is the same as ml_gen_maybe_gc_trace_code//5,
+	% except that rather than passing ActualType,
+	% the caller constructs the type-info itself,
+	% and just passes the rval for it to this routine.
+	%
+	% This is used by ml_closure_gen.m to generate GC tracing code
+	% for the the local variables in closure wrapper functions.
+	%
+:- pred ml_gen_maybe_gc_trace_code_with_typeinfo(var_name, prog_type,
+		mlds__rval, prog_context, maybe(mlds__statement),
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_maybe_gc_trace_code_with_typeinfo(in, in, in, in, out, in, out)
+		is det.
 
 %-----------------------------------------------------------------------------%
 %
@@ -474,6 +570,13 @@
 	% Get the value of the appropriate --det-copy-out or --nondet-copy-out
 	% option, depending on the code model.
 :- func get_copy_out_option(globals, code_model) = bool.
+
+	% Add the qualifier `builtin' to any unqualified name.
+	% Although the builtin types `int', `float', etc. are treated as part
+	% of the `builtin' module, for historical reasons they don't have
+	% any qualifiers in the HLDS, so we need to add the `builtin'
+	% qualifier before converting such names to MLDS.
+:- func fixup_builtin_module(module_name) = module_name.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -698,12 +801,17 @@
 
 :- implementation.
 
-:- import_module ml_call_gen.
-:- import_module prog_util, type_util, mode_util, special_pred, error_util.
-:- import_module code_util. % XXX for `code_util__compiler_generated'.
-:- import_module globals, options.
+:- import_module parse_tree__prog_data, parse_tree__prog_io.
+:- import_module hlds__hlds_goal, (parse_tree__inst), hlds__instmap.
+:- import_module check_hlds__polymorphism.
+:- import_module backend_libs__foreign.
+:- import_module parse_tree__prog_util, check_hlds__type_util.
+:- import_module check_hlds__mode_util, hlds__special_pred, hlds__error_util.
+:- import_module ll_backend__code_util. % XXX for `code_util__compiler_generated'.
+:- import_module ml_backend__ml_code_gen, ml_backend__ml_call_gen.
+:- import_module libs__globals, libs__options.
 
-:- import_module stack, string, require, term, varset.
+:- import_module counter, stack, string, require, set, term, varset.
 
 %-----------------------------------------------------------------------------%
 %
@@ -725,7 +833,9 @@ ml_append_return_statement(CodeModel, CopiedOutputVarLvals, Context,
 		MLDS_Statements0, MLDS_Statements) -->
 	( { CodeModel = model_semi } ->
 		ml_gen_test_success(Succeeded),
-		{ ReturnStmt = return([Succeeded]) },
+		{ CopiedOutputVarRvals = list__map(func(Lval) = lval(Lval),
+			CopiedOutputVarLvals) },
+		{ ReturnStmt = return([Succeeded | CopiedOutputVarRvals]) },
 		{ ReturnStatement = mlds__statement(ReturnStmt,
 			mlds__make_context(Context)) },
 		{ MLDS_Statements = list__append(MLDS_Statements0,
@@ -804,7 +914,7 @@ ml_combine_conj(FirstCodeModel, Context, DoGenFirst, DoGenRest,
 		%	model_semi goal:
 		%		<Goal, Goals>
 		% 	===>
-		%		bool succeeded;
+		%		MR_bool succeeded;
 		%
 		%		<succeeded = Goal>;
 		%		if (succeeded) {
@@ -884,7 +994,7 @@ ml_combine_conj(FirstCodeModel, Context, DoGenFirst, DoGenRest,
 	%
 ml_decl_is_static_const(Defn) :-
 	Defn = mlds__defn(Name, _Context, Flags, _DefnBody),
-	Name = data(var(_)),
+	Name = data(_),
 	Flags = ml_static_const_decl_flags.
 
 	% Given a function label and the statement which will comprise
@@ -944,6 +1054,22 @@ ml_gen_label_func_decl_flags = MLDS_DeclFlags :-
 
 %-----------------------------------------------------------------------------%
 %
+% Code for generating expressions.
+%
+
+ml_gen_and(X, Y) =
+	(if X = const(true) then
+		Y
+	else if Y = const(true) then
+		X
+	else
+		binop((and), X, Y)
+	).
+
+ml_gen_not(X) = unop(std_unop(not), X).
+
+%-----------------------------------------------------------------------------%
+%
 % Code for generating types.
 %
 
@@ -956,7 +1082,13 @@ ml_gen_array_elem_type(elem_type_string) = ml_string_type.
 ml_gen_array_elem_type(elem_type_int) = mlds__native_int_type.
 ml_gen_array_elem_type(elem_type_generic) = mlds__generic_type.
 
-ml_string_type = mercury_type(string_type, str_type).
+ml_string_type = mercury_type(string_type, str_type,
+				non_foreign_type(string_type)).
+
+ml_make_boxed_types(Arity) = BoxedTypes :-
+	varset__init(TypeVarSet0),
+	varset__new_vars(TypeVarSet0, Arity, BoxedTypeVars, _TypeVarSet),
+	term__var_list_to_term_list(BoxedTypeVars, BoxedTypes).
 
 %-----------------------------------------------------------------------------%
 %
@@ -978,6 +1110,32 @@ ml_gen_proc_params(ModuleInfo, PredId, ProcId) = FuncParams :-
 	FuncParams = ml_gen_params(ModuleInfo, HeadVarNames, HeadTypes,
 		HeadModes, PredOrFunc, CodeModel).
 
+ml_gen_proc_params(PredId, ProcId, FuncParams, MLGenInfo0, MLGenInfo) :-
+	ModuleInfo = MLGenInfo0 ^ module_info,
+	module_info_pred_proc_info(ModuleInfo, PredId, ProcId,
+		PredInfo, ProcInfo),
+	proc_info_varset(ProcInfo, VarSet),
+	proc_info_headvars(ProcInfo, HeadVars),
+	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
+	pred_info_arg_types(PredInfo, HeadTypes),
+	proc_info_argmodes(ProcInfo, HeadModes),
+	proc_info_interface_code_model(ProcInfo, CodeModel),
+	HeadVarNames = ml_gen_var_names(VarSet, HeadVars),
+	% we must not generate GC tracing code for no_type_info_builtin
+	% procedures, because the generated GC tracing code would refer
+	% to type_infos that don't get passed
+	pred_info_module(PredInfo, PredModule),
+	pred_info_name(PredInfo, PredName),
+	pred_info_arity(PredInfo, PredArity),
+	( no_type_info_builtin(PredModule, PredName, PredArity) ->
+		FuncParams = ml_gen_params(ModuleInfo, HeadVarNames, HeadTypes,
+			HeadModes, PredOrFunc, CodeModel),
+		MLGenInfo = MLGenInfo0
+	;
+		ml_gen_params(HeadVarNames, HeadTypes, HeadModes, PredOrFunc,
+			CodeModel, FuncParams, MLGenInfo0, MLGenInfo)
+	).
+
 	% As above, but from the rtti_proc_id rather than
 	% from the module_info, pred_id, and proc_id.
 	%
@@ -989,8 +1147,8 @@ ml_gen_proc_params_from_rtti(ModuleInfo, RttiProcId) = FuncParams :-
 	PredOrFunc = RttiProcId^pred_or_func,
 	CodeModel = RttiProcId^proc_interface_code_model,
 	HeadVarNames = ml_gen_var_names(VarSet, HeadVars),
-	FuncParams = ml_gen_params_base(ModuleInfo, HeadVarNames,
-		ArgTypes, ArgModes, PredOrFunc, CodeModel).
+	ml_gen_params_base(ModuleInfo, HeadVarNames, ArgTypes, ArgModes,
+		PredOrFunc, CodeModel, FuncParams, no, _).
 	
 	% Generate the function prototype for a procedure with the
 	% given argument types, modes, and code model.
@@ -998,18 +1156,35 @@ ml_gen_proc_params_from_rtti(ModuleInfo, RttiProcId) = FuncParams :-
 ml_gen_params(ModuleInfo, HeadVarNames, HeadTypes, HeadModes, PredOrFunc,
 		CodeModel) = FuncParams :-
 	modes_to_arg_modes(ModuleInfo, HeadModes, HeadTypes, ArgModes),
-	FuncParams = ml_gen_params_base(ModuleInfo, HeadVarNames,
-		HeadTypes, ArgModes, PredOrFunc, CodeModel).
+	ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, ArgModes,
+		PredOrFunc, CodeModel, FuncParams, no, _).
 
-:- func ml_gen_params_base(module_info, list(mlds__var_name), list(prog_type),
-		list(arg_mode), pred_or_func, code_model) = mlds__func_params.
+ml_gen_params(HeadVarNames, HeadTypes, HeadModes, PredOrFunc,
+		CodeModel, FuncParams, MLGenInfo0, MLGenInfo) :-
+	ModuleInfo = MLGenInfo0 ^ module_info,
+	modes_to_arg_modes(ModuleInfo, HeadModes, HeadTypes, ArgModes),
+	ml_gen_params_base(ModuleInfo, HeadVarNames,
+		HeadTypes, ArgModes, PredOrFunc, CodeModel, FuncParams,
+		yes(MLGenInfo0), MaybeMLGenInfo),
+	( MaybeMLGenInfo = yes(MLGenInfo1) ->
+		MLGenInfo = MLGenInfo1
+	;
+		error("ml_gen_params: missing ml_gen_info")
+	).
+
+:- pred ml_gen_params_base(module_info, list(mlds__var_name), list(prog_type),
+		list(arg_mode), pred_or_func, code_model, mlds__func_params,
+		maybe(ml_gen_info), maybe(ml_gen_info)).
+:- mode ml_gen_params_base(in, in, in, in, in, in, out, in, out) is det.
 
 ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
-		PredOrFunc, CodeModel) = FuncParams :-
+		PredOrFunc, CodeModel, FuncParams,
+		MaybeMLGenInfo0, MaybeMLGenInfo) :-
 	module_info_globals(ModuleInfo, Globals),
 	CopyOut = get_copy_out_option(Globals, CodeModel),
 	ml_gen_arg_decls(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
-		CopyOut, FuncArgs0, RetTypes0),
+		CopyOut, FuncArgs0, RetTypes0,
+		MaybeMLGenInfo0, MaybeMLGenInfo),
 	(
 		CodeModel = model_det,
 		%
@@ -1024,8 +1199,9 @@ ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
 			pred_args_to_func_args(HeadTypes, _, ResultType),
 			\+ type_util__is_dummy_argument_type(ResultType)
 		->
-			pred_args_to_func_args(FuncArgs0, FuncArgs,
-				_RetArgName - RetTypePtr),
+			pred_args_to_func_args(FuncArgs0, FuncArgs, RetArg),
+			RetArg = mlds__argument(_RetArgName, RetTypePtr,
+					_GC_TraceCode),
 			( RetTypePtr = mlds__ptr_type(RetType) ->
 				RetTypes = [RetType]
 			;
@@ -1056,19 +1232,29 @@ ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
 			RetTypes = RetTypes0
 		),
 		ContName = data(var(var_name("cont", no))),
-		ContArg = ContName - ContType,
+		% The cont variable always points to code, not to the heap,
+		% so the GC never needs to trace it.
+		ContGCTraceCode = no,
+		ContArg = mlds__argument(ContName, ContType, ContGCTraceCode),
 		ContEnvType = mlds__generic_env_ptr_type,
 		ContEnvName = data(var(var_name("cont_env_ptr", no))),
-		ContEnvArg = ContEnvName - ContEnvType,
+		% The cont_env_ptr always points to the stack,
+		% since continuation environments are always allocated
+		% on the stack (unless put_nondet_env_on_heap is true,
+		% which won't be the case when doing our own GC --
+		% this is enforced in handle_options.m).
+		% So the GC doesn't need to trace it.
+		ContEnvGCTraceCode = no,
+		ContEnvArg = mlds__argument(ContEnvName, ContEnvType,
+			ContEnvGCTraceCode),
 		globals__lookup_bool_option(Globals, gcc_nested_functions,
 			NestedFunctions),
 		(
 			NestedFunctions = yes
 		->
-			FuncArgs = list__append(FuncArgs0, [ContArg])
+			FuncArgs = FuncArgs0 ++ [ContArg]
 		;
-			FuncArgs = list__append(FuncArgs0,
-				[ContArg, ContEnvArg])
+			FuncArgs = FuncArgs0 ++ [ContArg, ContEnvArg]
 		)
 	),
 	FuncParams = mlds__func_params(FuncArgs, RetTypes).
@@ -1078,22 +1264,25 @@ ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
 	% and return types.
 	%
 :- pred ml_gen_arg_decls(module_info, list(mlds__var_name), list(prog_type),
-		list(arg_mode), bool, mlds__arguments, mlds__return_types).
-:- mode ml_gen_arg_decls(in, in, in, in, in, out, out) is det.
+		list(arg_mode), bool, mlds__arguments, mlds__return_types,
+		maybe(ml_gen_info), maybe(ml_gen_info)).
+:- mode ml_gen_arg_decls(in, in, in, in, in, out, out, in, out) is det.
 
 ml_gen_arg_decls(ModuleInfo, HeadVars, HeadTypes, HeadModes, CopyOut,
-		FuncArgs, RetTypes) :-
+		FuncArgs, RetTypes, MaybeMLGenInfo0, MaybeMLGenInfo) :-
 	(
 		HeadVars = [], HeadTypes = [], HeadModes = []
 	->
-		FuncArgs = [], RetTypes = []
+		FuncArgs = [], RetTypes = [],
+		MaybeMLGenInfo = MaybeMLGenInfo0
 	;	
 		HeadVars = [Var | Vars],
 		HeadTypes = [Type | Types],
 		HeadModes = [Mode | Modes]
 	->
 		ml_gen_arg_decls(ModuleInfo, Vars, Types, Modes, CopyOut,
-			FuncArgs0, RetTypes0),
+			FuncArgs0, RetTypes0,
+			MaybeMLGenInfo0, MaybeMLGenInfo1),
 		(
 			%
 			% exclude types such as io__state, etc.
@@ -1101,7 +1290,8 @@ ml_gen_arg_decls(ModuleInfo, HeadVars, HeadTypes, HeadModes, CopyOut,
 			type_util__is_dummy_argument_type(Type)
 		->
 			FuncArgs = FuncArgs0,
-			RetTypes = RetTypes0
+			RetTypes = RetTypes0,
+			MaybeMLGenInfo = MaybeMLGenInfo1
 		;
 			%
 			% for by-value outputs, generate a return type
@@ -1111,13 +1301,15 @@ ml_gen_arg_decls(ModuleInfo, HeadVars, HeadTypes, HeadModes, CopyOut,
 		->
 			RetType = mercury_type_to_mlds_type(ModuleInfo, Type),
 			RetTypes = [RetType | RetTypes0],
-			FuncArgs = FuncArgs0
+			FuncArgs = FuncArgs0,
+			MaybeMLGenInfo = MaybeMLGenInfo1
 		;
 			%
 			% for inputs and by-reference outputs,
 			% generate argument
 			%
-			ml_gen_arg_decl(ModuleInfo, Var, Type, Mode, FuncArg),
+			ml_gen_arg_decl(ModuleInfo, Var, Type, Mode, FuncArg,
+				MaybeMLGenInfo1, MaybeMLGenInfo),
 			FuncArgs = [FuncArg | FuncArgs0],
 			RetTypes = RetTypes0
 		)
@@ -1129,10 +1321,11 @@ ml_gen_arg_decls(ModuleInfo, HeadVars, HeadTypes, HeadModes, CopyOut,
 	% generate an MLDS argument declaration for it.
 	%
 :- pred ml_gen_arg_decl(module_info, var_name, prog_type, arg_mode,
-			pair(mlds__entity_name, mlds__type)).
-:- mode ml_gen_arg_decl(in, in, in, in, out) is det.
+		mlds__argument, maybe(ml_gen_info), maybe(ml_gen_info)).
+:- mode ml_gen_arg_decl(in, in, in, in, out, in, out) is det.
 
-ml_gen_arg_decl(ModuleInfo, Var, Type, ArgMode, FuncArg) :-
+ml_gen_arg_decl(ModuleInfo, Var, Type, ArgMode, FuncArg,
+		MaybeMLGenInfo0, MaybeMLGenInfo) :-
 	MLDS_Type = mercury_type_to_mlds_type(ModuleInfo, Type),
 	( ArgMode \= top_in ->
 		MLDS_ArgType = mlds__ptr_type(MLDS_Type)
@@ -1140,7 +1333,17 @@ ml_gen_arg_decl(ModuleInfo, Var, Type, ArgMode, FuncArg) :-
 		MLDS_ArgType = MLDS_Type
 	),
 	Name = data(var(Var)),
-	FuncArg = Name - MLDS_ArgType.
+	( MaybeMLGenInfo0 = yes(MLGenInfo0) ->
+		% XXX We should fill in this Context properly
+		term__context_init(Context),
+		ml_gen_maybe_gc_trace_code(Var, Type, Context,
+			Maybe_GC_TraceCode, MLGenInfo0, MLGenInfo),
+		MaybeMLGenInfo = yes(MLGenInfo)
+	;
+		Maybe_GC_TraceCode = no,
+		MaybeMLGenInfo = no
+	),
+	FuncArg = mlds__argument(Name, MLDS_ArgType, Maybe_GC_TraceCode).
 
 
 ml_is_output_det_function(ModuleInfo, PredId, ProcId, RetArgVar) :-
@@ -1239,16 +1442,16 @@ ml_gen_pred_label_from_rtti(ModuleInfo, RttiProcLabel, MLDS_PredLabel,
 	->
 		(
 			special_pred_get_type(PredName, ArgTypes, Type),
-			type_to_type_id(Type, TypeId, _),
-			% All type_ids other than tuples here should be
+			type_to_ctor_and_args(Type, TypeCtor, _),
+			% All type_ctors other than tuples here should be
 			% module qualified, since builtin types are handled
 			% separately in polymorphism.m.
 			(
-				TypeId = unqualified(TypeName) - TypeArity,
-				type_id_is_tuple(TypeId),
+				TypeCtor = unqualified(TypeName) - TypeArity,
+				type_ctor_is_tuple(TypeCtor),
 				mercury_public_builtin_module(TypeModule)
 			;
-				TypeId = qualified(TypeModule, TypeName)
+				TypeCtor = qualified(TypeModule, TypeName)
 						- TypeArity
 			)
 		->
@@ -1402,6 +1605,17 @@ ml_gen_var_name(VarSet, Var) = UniqueVarName :-
 	term__var_to_int(Var, VarNumber),
 	UniqueVarName = mlds__var_name(VarName, yes(VarNumber)).
 
+	% ml_format_reserved_object_name(CtorName, CtorArity, ReservedObjName):
+	% Generate a name for a specially reserved global variable
+	% (or static member variable)
+	% whose address is used to represent the specified constructor.
+	%
+	% We add the "obj_" prefix to avoid any potential name clashes.
+	%
+ml_format_reserved_object_name(CtorName, CtorArity) = ReservedObjName :-
+	Name = string__format("obj_%s_%d", [s(CtorName), i(CtorArity)]),
+	ReservedObjName = var_name(Name, no).
+
 	% Generate a name for a local static constant.
 	%
 	% To ensure that the names are unique, we qualify them with the
@@ -1429,33 +1643,43 @@ ml_gen_var_lval(VarName, VarType, QualifiedVarLval) -->
 
 	% Generate a declaration for an MLDS variable, given its HLDS type.
 	%
-ml_gen_var_decl(VarName, Type, Context, ModuleInfo) =
-	ml_gen_mlds_var_decl(var(VarName),
-		mercury_type_to_mlds_type(ModuleInfo, Type), Context).
+ml_gen_var_decl(VarName, Type, Context, MLDS_Defn) -->
+	=(MLDSGenInfo),
+	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
+	ml_gen_maybe_gc_trace_code(VarName, Type, Context, GC_TraceCode),
+	{ MLDS_Defn = ml_gen_mlds_var_decl(var(VarName),
+		mercury_type_to_mlds_type(ModuleInfo, Type),
+		GC_TraceCode, mlds__make_context(Context)) }.
 
 	% Generate a declaration for an MLDS variable, given its MLDS type.
 	%
-ml_gen_mlds_var_decl(DataName, MLDS_Type, Context) = 
-	ml_gen_mlds_var_decl(DataName, MLDS_Type, no_initializer, Context).
+ml_gen_mlds_var_decl(DataName, MLDS_Type, GC_TraceCode, Context) = 
+	ml_gen_mlds_var_decl(DataName, MLDS_Type, no_initializer, GC_TraceCode,
+		Context).
 	
 
 	% Generate a declaration for an MLDS variable, given its MLDS type
 	% and initializer.
 	%
-ml_gen_mlds_var_decl(DataName, MLDS_Type, Initializer, Context) = MLDS_Defn :-
+ml_gen_mlds_var_decl(DataName, MLDS_Type, Initializer, GC_TraceCode, Context) =
+		MLDS_Defn :-
 	Name = data(DataName),
-	Defn = data(MLDS_Type, Initializer),
+	Defn = data(MLDS_Type, Initializer, GC_TraceCode),
 	DeclFlags = ml_gen_local_var_decl_flags,
 	MLDS_Defn = mlds__defn(Name, Context, DeclFlags, Defn).
 
 	% Generate a definition of a local static constant,
 	% given the constant's name, type, and initializer.
 	%
-ml_gen_static_const_defn(ConstName, ConstType, Initializer, Context) =
+ml_gen_static_const_defn(ConstName, ConstType, Access, Initializer, Context) =
 		MLDS_Defn :-
 	Name = data(var(ConstName)),
-	Defn = data(ConstType, Initializer),
-	DeclFlags = ml_static_const_decl_flags,
+	% The GC never needs to trace static constants,
+	% because they can never point into the heap
+	% (only to other static constants).
+	GC_TraceCode = no,
+	Defn = data(ConstType, Initializer, GC_TraceCode),
+	DeclFlags = mlds__set_access(ml_static_const_decl_flags, Access),
 	MLDS_Context = mlds__make_context(Context),
 	MLDS_Defn = mlds__defn(Name, MLDS_Context, DeclFlags, Defn).
 
@@ -1485,6 +1709,8 @@ ml_gen_local_var_decl_flags = MLDS_DeclFlags :-
 
 	% Return the declaration flags appropriate for an
 	% initialized local static constant.
+	% Note that rtti_decl_flags, in rtti_to_mlds.m,
+	% must be the same as this apart from the access.
 	%
 ml_static_const_decl_flags = MLDS_DeclFlags :-
 	Access = local,
@@ -1500,7 +1726,6 @@ ml_var_name_to_string(var_name(Var, yes(Num))) =
 	string__format("%s_%d", [s(Var), i(Num)]).
 ml_var_name_to_string(var_name(Var, no)) = Var.
 	
-
 %-----------------------------------------------------------------------------%
 %
 % Code for dealing with fields
@@ -1524,8 +1749,12 @@ ml_gen_field_name(MaybeFieldName, ArgNum) = FieldName :-
 	).
 
 	% Succeed iff the specified type must be boxed when used as a field.
-	% We need to box types that are not word-sized, because the code
+	% For the MLDS->C and MLDS->asm back-ends,
+	% we need to box types that are not word-sized, because the code
 	% for `arg' etc. in std_util.m rely on all arguments being word-sized.
+	% XXX Currently we box such types even for the other MLDS based
+	% back-ends that don't need it, e.g. the .NET and Java back-ends.
+	% This routine should be modified to check the target.
 ml_must_box_field_type(Type, ModuleInfo) :-
 	classify_type(Type, ModuleInfo, Category),
 	( Category = float_type
@@ -1552,7 +1781,7 @@ ml_gen_success(model_semi, Context, [SetSuccessTrue]) -->
 	% semidet succeed:
 	%	<do true>
 	% ===>
-	%	succeeded = TRUE;
+	%	succeeded = MR_TRUE;
 	%
 	ml_gen_set_success(const(true), Context, SetSuccessTrue).
 ml_gen_success(model_non, Context, [CallCont]) -->
@@ -1574,7 +1803,7 @@ ml_gen_failure(model_semi, Context, [SetSuccessFalse]) -->
 	% semidet fail:
 	%	<do fail>
 	% ===>
-	%	succeeded = FALSE;
+	%	succeeded = MR_FALSE;
 	%
 	ml_gen_set_success(const(false), Context, SetSuccessFalse).
 ml_gen_failure(model_non, _, MLDS_Statements) -->
@@ -1592,7 +1821,7 @@ ml_gen_failure(model_non, _, MLDS_Statements) -->
 	%
 ml_gen_succeeded_var_decl(Context) =
 	ml_gen_mlds_var_decl(var(var_name("succeeded", no)),
-		mlds__native_bool_type, Context).
+		mlds__native_bool_type, no, Context).
 
 	% Return the lval for the `succeeded' flag.
 	% (`succeeded' is a boolean variable used to record
@@ -1627,7 +1856,7 @@ ml_gen_cond_var_name(CondVar) =
 
 ml_gen_cond_var_decl(CondVar, Context) =
 	ml_gen_mlds_var_decl(var(ml_gen_cond_var_name(CondVar)),
-		mlds__native_bool_type, Context).
+		mlds__native_bool_type, no, Context).
 
 ml_cond_var_lval(CondVar, CondVarLval) -->
 	ml_gen_var_lval(ml_gen_cond_var_name(CondVar), mlds__native_bool_type,
@@ -1699,9 +1928,9 @@ ml_gen_call_current_success_cont(Context, MLDS_Statement) -->
 	{ Signature = mlds__func_signature(ArgTypes, RetTypes) },
 	{ ObjectRval = no },
 	{ RetLvals = [] },
-	{ CallOrTailcall = call },
+	{ CallKind = ordinary_call },
 	{ MLDS_Stmt = call(Signature, FuncRval, ObjectRval, ArgRvals, RetLvals,
-			CallOrTailcall) },
+			CallKind) },
 	{ MLDS_Statement = mlds__statement(MLDS_Stmt,
 			mlds__make_context(Context)) }.
 
@@ -1730,7 +1959,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 	{ Signature = mlds__func_signature(ArgTypes, RetTypes) },
 	{ ObjectRval = no },
 	{ RetLvals = [] },
-	{ CallOrTailcall = call },
+	{ CallKind = ordinary_call },
 
 	{ MLDS_Context = mlds__make_context(Context) },
 	=(MLDSGenInfo),
@@ -1746,7 +1975,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 	ml_gen_cont_params(ArgTypes0, InnerFuncParams0),
 	{ InnerFuncParams0 = func_params(InnerArgs0, Rets) },
 	{ InnerArgRvals = list__map(
-		(func(Data - Type) 
+		(func(mlds__argument(Data, Type, _GC) )
 		= lval(var(qual(MLDS_Module, VarName), Type)) :-
 			( Data = data(var(VarName0)) ->
 				VarName = VarName0		
@@ -1757,14 +1986,18 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 			InnerArgs0) },
 	{ InnerFuncArgType = mlds__cont_type(ArgTypes0) },
 	{ PassedContVarName = mlds__var_name("passed_cont", no) },
+	% The passed_cont variable always points to code, not to heap,
+	% so the GC never needs to trace it.
+	{ PassedContGCTraceCode = no },
+	{ PassedContArg = mlds__argument(data(var(PassedContVarName)),
+		InnerFuncArgType, PassedContGCTraceCode) },
 	{ InnerFuncRval = lval(var(qual(MLDS_Module, PassedContVarName),
 		InnerFuncArgType)) },
-	{ InnerFuncParams = func_params(
-		[data(var(PassedContVarName)) - InnerFuncArgType | InnerArgs0],
+	{ InnerFuncParams = func_params([PassedContArg | InnerArgs0],
 			Rets) },
 
 	{ InnerMLDS_Stmt = call(Signature, InnerFuncRval, ObjectRval, 
-			InnerArgRvals, RetLvals, CallOrTailcall) },
+			InnerArgRvals, RetLvals, CallKind) },
 	{ InnerMLDS_Statement = statement(InnerMLDS_Stmt, MLDS_Context) },
 
 	ml_gen_label_func(1, InnerFuncParams, Context, 
@@ -1786,7 +2019,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 
 		% Put it inside a block where we call it.
 		MLDS_Stmt = call(ProxySignature, ProxyFuncRval, ObjectRval,
-			ProxyArgRvals, RetLvals, CallOrTailcall),
+			ProxyArgRvals, RetLvals, CallKind),
 		MLDS_Statement = mlds__statement(
 			block([Defn], [statement(MLDS_Stmt, MLDS_Context)]), 
 			MLDS_Context)
@@ -1813,8 +2046,505 @@ ml_get_env_ptr(lval(EnvPtrLval)) -->
 
 	% Return an rval for a pointer to the current environment
 	% (the set of local variables in the containing procedure).
-ml_declare_env_ptr_arg(Name - mlds__generic_env_ptr_type) -->
-	{ Name = data(var(mlds__var_name("env_ptr_arg", no))) }.
+ml_declare_env_ptr_arg(mlds__argument(Name, Type, GC_TraceCode)) -->
+	{ Name = data(var(mlds__var_name("env_ptr_arg", no))) },
+	{ Type = mlds__generic_env_ptr_type },
+	% The env_ptr_arg always points to the stack,
+	% since continuation environments are always allocated
+	% on the stack (unless put_nondet_env_on_heap is true,
+	% which won't be the case when doing our own GC --
+	% this is enforced in handle_options.m).
+	% So the GC doesn't need to trace it.
+	{ GC_TraceCode = no }.
+
+%-----------------------------------------------------------------------------%
+%
+% Code to handle accurate GC
+%
+
+	% If accurate GC is enabled, and the specified
+	% variable might contain pointers, generate code to call
+	% `private_builtin__gc_trace' to trace the variable.
+	%
+ml_gen_maybe_gc_trace_code(VarName, Type, Context, Maybe_GC_TraceCode) -->
+	ml_gen_maybe_gc_trace_code(VarName, Type, Type, Context,
+		Maybe_GC_TraceCode).
+
+ml_gen_maybe_gc_trace_code(VarName, DeclType, ActualType, Context,
+		Maybe_GC_TraceCode) -->
+	{ HowToGetTypeInfo = construct_from_type(ActualType) },
+	ml_gen_maybe_gc_trace_code_2(VarName, DeclType, HowToGetTypeInfo,
+		Context, Maybe_GC_TraceCode).
+
+ml_gen_maybe_gc_trace_code_with_typeinfo(VarName, DeclType, TypeInfoRval,
+		Context, Maybe_GC_TraceCode) -->
+	{ HowToGetTypeInfo = already_provided(TypeInfoRval) },
+	ml_gen_maybe_gc_trace_code_2(VarName, DeclType, HowToGetTypeInfo,
+		Context, Maybe_GC_TraceCode).
+
+:- type how_to_get_type_info
+	--->	construct_from_type(prog_type)
+	;	already_provided(mlds__rval).
+
+:- pred ml_gen_maybe_gc_trace_code_2(var_name, prog_type, how_to_get_type_info,
+		prog_context, maybe(mlds__statement), ml_gen_info, ml_gen_info).
+:- mode ml_gen_maybe_gc_trace_code_2(in, in, in, in, out, in, out)
+		is det.
+
+ml_gen_maybe_gc_trace_code_2(VarName, DeclType, HowToGetTypeInfo, Context,
+		Maybe_GC_TraceCode) -->
+	=(MLDSGenInfo),
+	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
+	{ module_info_globals(ModuleInfo, Globals) },
+	{ globals__get_gc_method(Globals, GC) },
+	(
+		{ GC = accurate },
+		{ MLDS_DeclType = mercury_type_to_mlds_type(ModuleInfo,
+			DeclType) },
+		{ ml_type_might_contain_pointers(MLDS_DeclType) = yes },
+		% don't generate GC tracing code in no_type_info_builtins
+		{ ml_gen_info_get_pred_id(MLDSGenInfo, PredId) },
+		{ predicate_id(ModuleInfo, PredId,
+			PredModule, PredName, PredArity) },
+		\+ { no_type_info_builtin(PredModule, PredName, PredArity) }
+	->
+		(
+			{ HowToGetTypeInfo = construct_from_type(ActualType0) },
+			% We need to handle type_info/1 and typeclass_info/1
+			% types specially, to avoid infinite recursion here...
+			{ trace_type_info_type(ActualType0, ActualType1) ->
+				ActualType = ActualType1
+			;
+				ActualType = ActualType0
+			},
+			ml_gen_gc_trace_code(VarName, DeclType, ActualType,
+				Context, GC_TraceCode)
+		;
+			{ HowToGetTypeInfo = already_provided(TypeInfoRval) },
+			ml_gen_trace_var(VarName, DeclType, TypeInfoRval,
+				Context, GC_TraceCode)
+		),
+		{ Maybe_GC_TraceCode = yes(GC_TraceCode) }
+	;
+		{ Maybe_GC_TraceCode = no }
+	).
+
+	% Return `yes' if the type needs to be traced by
+	% the accurate garbage collector, i.e. if it might
+	% contain pointers.
+	%
+	% Any type for which we return `yes' here must be word-sized,
+	% because we will call private_builtin__gc_trace with its address,
+	% and that procedure assumes that its argument is an `MR_Word *'.
+	%
+	% For floats, we can (and must) return `no' even though they might
+	% get boxed in some circumstances, because if they are
+	% boxed then they will be represented as mlds__generic_type.
+	%
+	% Note that with --gcc-nested-functions,
+	% cont_type will be a function pointer that
+	% may point to a trampoline function,
+	% which might in fact contain pointers.
+	% But the pointers will only be pointers to
+	% code and pointers to the stack, not pointers
+	% to the heap, so we don't need to trace them
+	% for accurate GC.
+	% Hence we can return `no' here for mlds__cont_type.
+
+:- func ml_type_might_contain_pointers(mlds__type) = bool.
+
+ml_type_might_contain_pointers(mercury_type(_Type, TypeCategory, _)) =
+	ml_type_category_might_contain_pointers(TypeCategory).
+ml_type_might_contain_pointers(mercury_array_type(_)) = yes.
+ml_type_might_contain_pointers(mlds__native_int_type) = no.
+ml_type_might_contain_pointers(mlds__native_float_type) = no.
+ml_type_might_contain_pointers(mlds__native_bool_type) = no.
+ml_type_might_contain_pointers(mlds__native_char_type) = no.
+ml_type_might_contain_pointers(mlds__foreign_type(_)) = no.
+	% We assume that foreign types are not allowed to contain pointers
+	% to the Mercury heap.  XXX is this requirement too strict?
+ml_type_might_contain_pointers(mlds__class_type(_, _, Category)) =
+	(if Category = mlds__enum then no else yes).
+ml_type_might_contain_pointers(mlds__ptr_type(_)) = yes.
+ml_type_might_contain_pointers(mlds__array_type(_)) = yes.
+ml_type_might_contain_pointers(mlds__func_type(_)) = no.
+ml_type_might_contain_pointers(mlds__generic_type) = yes.
+ml_type_might_contain_pointers(mlds__generic_env_ptr_type) = yes.
+ml_type_might_contain_pointers(mlds__type_info_type) = yes.
+ml_type_might_contain_pointers(mlds__pseudo_type_info_type) = yes.
+ml_type_might_contain_pointers(mlds__cont_type(_)) = no. 
+ml_type_might_contain_pointers(mlds__commit_type) = no.
+ml_type_might_contain_pointers(mlds__rtti_type(_)) = yes.
+ml_type_might_contain_pointers(mlds__unknown_type) = yes.
+
+:- func ml_type_category_might_contain_pointers(builtin_type) = bool.
+ml_type_category_might_contain_pointers(int_type) = no.
+ml_type_category_might_contain_pointers(char_type) = no.
+ml_type_category_might_contain_pointers(str_type) = yes.
+ml_type_category_might_contain_pointers(float_type) = no.
+ml_type_category_might_contain_pointers(pred_type) = yes.
+ml_type_category_might_contain_pointers(tuple_type) = yes.
+ml_type_category_might_contain_pointers(enum_type) = no.
+ml_type_category_might_contain_pointers(polymorphic_type) = yes.
+ml_type_category_might_contain_pointers(user_type) = yes.
+
+	% trace_type_info_type(Type, RealType):
+	%	Succeed iff Type is a type_info-related type
+	%	which needs to be copied as if it were some other type,
+	%	binding RealType to that other type.
+:- pred trace_type_info_type(prog_type::in, prog_type::out) is semidet.
+trace_type_info_type(Type, RealType) :-
+	sym_name_and_args(Type, TypeName, _),
+	TypeName = qualified(PrivateBuiltin, Name),
+	mercury_private_builtin_module(PrivateBuiltin),
+	( Name = "type_info", RealType = sample_type_info_type
+	; Name = "type_ctor_info", RealType = c_pointer_type
+	; Name = "typeclass_info", RealType = sample_typeclass_info_type
+	; Name = "base_typeclass_info", RealType = c_pointer_type
+	).
+
+	% Generate code to call to `private_builtin__gc_trace'
+	% to trace the specified variable.
+	%
+:- pred ml_gen_gc_trace_code(var_name, prog_type, prog_type, prog_context,
+		mlds__statement, ml_gen_info, ml_gen_info).
+:- mode ml_gen_gc_trace_code(in, in, in, in, out, in, out) is det.
+
+ml_gen_gc_trace_code(VarName, DeclType, ActualType, Context, GC_TraceCode) -->
+	% Build HLDS code to construct the type_info for this type.
+	ml_gen_make_type_info_var(ActualType, Context,
+		TypeInfoVar, HLDS_TypeInfoGoals),
+	{ NonLocalsList = list__map(
+		(func(_G - GI) = NL :- goal_info_get_nonlocals(GI, NL)),
+		HLDS_TypeInfoGoals) },
+	{ NonLocals = set__union_list(NonLocalsList) },
+	{ instmap_delta_from_assoc_list([TypeInfoVar - ground(shared, none)],
+		InstMapDelta) },
+        { goal_info_init(NonLocals, InstMapDelta, det, GoalInfo) },
+	{ conj_list_to_goal(HLDS_TypeInfoGoals, GoalInfo, Conj) },
+
+	% Convert this HLDS code to MLDS
+	ml_gen_goal(model_det, Conj, MLDS_TypeInfoStatement0),
+
+	% Replace all heap allocation (new_object instructions)
+	% with stack allocation (local variable declarations)
+	% in the code to construct type_infos.  This is safe
+	% because those type_infos will only be used in the
+	% immediately following call to gc_trace/1.
+	=(MLGenInfo),
+	{ ml_gen_info_get_module_info(MLGenInfo, ModuleInfo) },
+	{ module_info_name(ModuleInfo, ModuleName) },
+	{ fixup_newobj(MLDS_TypeInfoStatement0,
+		mercury_module_name_to_mlds(ModuleName),
+		MLDS_TypeInfoStatement, MLDS_NewobjLocals) },
+
+	% Build MLDS code to trace the variable
+	ml_gen_var(TypeInfoVar, TypeInfoLval),
+	ml_gen_trace_var(VarName, DeclType, lval(TypeInfoLval), Context,
+		MLDS_TraceStatement),
+
+	% Generate declarations for any type_info variables used.
+	%
+	% Note: this will generate local declarations even for
+	% type_info variables which are not local to this goal.
+	% However, fortunately ml_elim_nested.m will transform
+	% the GC code to use the original definitions, which will
+	% get put in the GC frame, rather than these declarations,
+	% which will get ignored.
+	% XXX This is not a very robust way of doing things...
+	{ ml_gen_info_get_varset(MLGenInfo, VarSet) },
+	{ ml_gen_info_get_var_types(MLGenInfo, VarTypes) },
+	{ MLDS_Context = mlds__make_context(Context) },
+	{ GenLocalVarDecl =
+		(func(Var) = MLDS_Defn :-
+			LocalVarName = ml_gen_var_name(VarSet, Var),
+			map__lookup(VarTypes, Var, LocalVarType),
+			MLDS_Defn = ml_gen_mlds_var_decl(var(LocalVarName),
+				mercury_type_to_mlds_type(ModuleInfo,
+					LocalVarType),
+				no, MLDS_Context)
+		) },
+	{ set__to_sorted_list(NonLocals, NonLocalVarList) },
+	{ MLDS_NonLocalVarDecls = list__map(GenLocalVarDecl, NonLocalVarList) },
+
+	% Combine the MLDS code fragments together.
+	{ GC_TraceCode = ml_gen_block(
+		MLDS_NewobjLocals ++ MLDS_NonLocalVarDecls,
+		[MLDS_TypeInfoStatement] ++ [MLDS_TraceStatement],
+		Context) }.
+
+	% ml_gen_trace_var(VarName, DeclType, TypeInfo, Context, Code):
+	% Generate a call to `private_builtin__gc_trace'
+	% for the specified variable, given the variable's name, type,
+	% and the already-constructed type_info for that type.
+	%
+:- pred ml_gen_trace_var(var_name::in, prog_type::in, mlds__rval::in,
+		prog_context::in, mlds__statement::out,
+		ml_gen_info::in, ml_gen_info::out) is det.
+
+ml_gen_trace_var(VarName, Type, TypeInfoRval, Context, MLDS_TraceStatement) -->
+	%
+	% Generate the lval for Var
+	%
+	=(MLGenInfo),
+	{ ml_gen_info_get_module_info(MLGenInfo, ModuleInfo) },
+	{ MLDS_Type = mercury_type_to_mlds_type(ModuleInfo, Type) },
+	ml_gen_var_lval(VarName, MLDS_Type, VarLval),
+	%
+	% Generate the address of `private_builtin__gc_trace/1#0'
+	%
+	{ PredName = "gc_trace" },
+	{ PredOrigArity = 1 },
+	{ Pred = pred((predicate), no, PredName, PredOrigArity, model_det,
+		no) },
+	{ hlds_pred__initial_proc_id(ProcId) },
+	{ mercury_private_builtin_module(PredModule) },
+	{ MLDS_Module = mercury_module_name_to_mlds(PredModule) },
+	{ Proc = qual(MLDS_Module, Pred - ProcId) },
+	{ CPointerType = mercury_type(c_pointer_type, user_type,
+			non_foreign_type(c_pointer_type)) },
+	{ ArgTypes = [mlds__pseudo_type_info_type, CPointerType] },
+	{ Signature = mlds__func_signature(ArgTypes, []) },
+	{ FuncAddr = const(code_addr_const(proc(Proc, Signature))) },
+	%
+	% Generate the call
+	% `private_builtin__gc_trace(TypeInfo, (MR_C_Pointer) &Var);'.
+	%
+	{ CastVarAddr = unop(cast(CPointerType), mem_addr(VarLval)) },
+	{ MLDS_TraceStatement = mlds__statement(
+		call(Signature, FuncAddr, no,	
+			[TypeInfoRval, CastVarAddr], [], ordinary_call
+		), mlds__make_context(Context)) }.
+
+	% Generate HLDS code to construct the type_info for this type.
+	%
+:- pred ml_gen_make_type_info_var(prog_type::in, prog_context::in,
+		prog_var::out, hlds_goals::out,
+		ml_gen_info::in, ml_gen_info::out) is det.
+
+ml_gen_make_type_info_var(Type, Context, TypeInfoVar, TypeInfoGoals,
+		MLGenInfo0, MLGenInfo) :-
+	%
+	% Extract the relevant information from the ml_gen_info
+	%
+	ModuleInfo0 = MLGenInfo0 ^ module_info,
+	PredId = MLGenInfo0 ^ pred_id,
+	ProcId = MLGenInfo0 ^ proc_id,
+	module_info_pred_proc_info(ModuleInfo0, PredId, ProcId,
+		PredInfo0, ProcInfo0),
+
+	%
+	% Call polymorphism.m to generate the HLDS code to
+	% create the type_infos.
+	%
+	create_poly_info(ModuleInfo0, PredInfo0, ProcInfo0, PolyInfo0),
+	polymorphism__make_type_info_var(Type, Context,
+		TypeInfoVar, TypeInfoGoals, PolyInfo0, PolyInfo),
+	poly_info_extract(PolyInfo, PredInfo0, PredInfo,
+		ProcInfo0, ProcInfo, ModuleInfo1),
+
+	%
+	% Save the new information back in the ml_gen_info
+	%
+	module_info_set_pred_proc_info(ModuleInfo1, PredId, ProcId,
+		PredInfo, ProcInfo, ModuleInfo),
+	proc_info_varset(ProcInfo, VarSet),
+	proc_info_vartypes(ProcInfo, VarTypes),
+	MLGenInfo = (((MLGenInfo0 ^ module_info := ModuleInfo)
+				  ^ varset := VarSet)
+				  ^ var_types := VarTypes).
+
+%-----------------------------------------------------------------------------%
+
+:- type fixup_newobj_info
+	---> fixup_newobj_info(
+		module_name :: mlds_module_name,% the current module
+		context :: mlds__context,	% the current context
+		locals :: mlds__defns,	% the local variable declarations
+					% accumulated so far
+		next_id :: counter	% a counter used to allocate
+					% variable names
+	).
+
+	% Replace all heap allocation (new_object instructions)
+	% with stack allocation (local variable declarations)
+	% in the specified statement, returning the local
+	% variable declarations needed for the stack allocation.
+	%
+:- pred fixup_newobj(mlds__statement::in, mlds_module_name::in,
+	 mlds__statement::out, mlds__defns::out) is det.
+
+fixup_newobj(Statement0, ModuleName, Statement, Defns) :-
+	Statement0 = mlds__statement(Stmt0, Context),
+	Info0 = fixup_newobj_info(ModuleName, Context, [], counter__init(0)),
+	fixup_newobj_in_stmt(Stmt0, Stmt, Info0, Info),
+	Statement = mlds__statement(Stmt, Context),
+	Defns = Info^locals.
+
+:- pred fixup_newobj_in_statement(mlds__statement::in, mlds__statement::out,
+		fixup_newobj_info::in, fixup_newobj_info::out) is det.
+fixup_newobj_in_statement(MLDS_Statement0, MLDS_Statement) -->
+	{ MLDS_Statement0 = mlds__statement(MLDS_Stmt0, Context) },
+	^context := Context,
+	fixup_newobj_in_stmt(MLDS_Stmt0, MLDS_Stmt),
+	{ MLDS_Statement = mlds__statement(MLDS_Stmt, Context) }.
+
+:- pred fixup_newobj_in_stmt(mlds__stmt::in, mlds__stmt::out,
+		fixup_newobj_info::in, fixup_newobj_info::out) is det.
+
+fixup_newobj_in_stmt(Stmt0, Stmt) -->
+	(
+		{ Stmt0 = block(Defns, Statements0) },
+		list__map_foldl(fixup_newobj_in_statement,
+			Statements0, Statements),
+		{ Stmt = block(Defns, Statements) }
+	;
+		{ Stmt0 = while(Rval, Statement0, Once) },
+		fixup_newobj_in_statement(Statement0, Statement),
+		{ Stmt = while(Rval, Statement, Once) }
+	;
+		{ Stmt0 = if_then_else(Cond, Then0, MaybeElse0) },
+		fixup_newobj_in_statement(Then0, Then),
+		fixup_newobj_in_maybe_statement(MaybeElse0, MaybeElse),
+		{ Stmt = if_then_else(Cond, Then, MaybeElse) }
+	;
+		{ Stmt0 = switch(Type, Val, Range, Cases0, Default0) },
+		list__map_foldl(fixup_newobj_in_case, Cases0, Cases),
+		fixup_newobj_in_default(Default0, Default),
+		{ Stmt = switch(Type, Val, Range, Cases, Default) }
+	;
+		{ Stmt0 = label(_) },
+		{ Stmt = Stmt0 }
+	;
+		{ Stmt0 = goto(_) },
+		{ Stmt = Stmt0 }
+	;
+		{ Stmt0 = computed_goto(Rval, Labels) },
+		{ Stmt = computed_goto(Rval, Labels) }
+	;
+		{ Stmt0 = call(_Sig, _Func, _Obj, _Args, _RetLvals,
+			_TailCall) },
+		{ Stmt = Stmt0 }
+	;
+		{ Stmt0 = return(_Rvals) },
+		{ Stmt = Stmt0 }
+	;
+		{ Stmt0 = do_commit(_Ref) },
+		{ Stmt = Stmt0 }
+	;
+		{ Stmt0 = try_commit(Ref, Statement0, Handler0) },
+		fixup_newobj_in_statement(Statement0, Statement),
+		fixup_newobj_in_statement(Handler0, Handler),
+		{ Stmt = try_commit(Ref, Statement, Handler) }
+	;
+		{ Stmt0 = atomic(AtomicStmt0) },
+		fixup_newobj_in_atomic_statement(AtomicStmt0, Stmt)
+	).
+
+:- pred fixup_newobj_in_case(mlds__switch_case, mlds__switch_case,
+		fixup_newobj_info, fixup_newobj_info).
+:- mode fixup_newobj_in_case(in, out, in, out) is det.
+
+fixup_newobj_in_case(Conds - Statement0, Conds - Statement) -->
+	fixup_newobj_in_statement(Statement0, Statement).
+
+:- pred fixup_newobj_in_maybe_statement(maybe(mlds__statement),
+		maybe(mlds__statement), fixup_newobj_info, fixup_newobj_info).
+:- mode fixup_newobj_in_maybe_statement(in, out, in, out) is det.
+
+fixup_newobj_in_maybe_statement(no, no) --> [].
+fixup_newobj_in_maybe_statement(yes(Statement0), yes(Statement)) -->
+	fixup_newobj_in_statement(Statement0, Statement).
+
+:- pred fixup_newobj_in_default(mlds__switch_default, mlds__switch_default,
+		fixup_newobj_info, fixup_newobj_info).
+:- mode fixup_newobj_in_default(in, out, in, out) is det.
+
+fixup_newobj_in_default(default_is_unreachable, default_is_unreachable) --> [].
+fixup_newobj_in_default(default_do_nothing, default_do_nothing) --> [].
+fixup_newobj_in_default(default_case(Statement0), default_case(Statement)) -->
+	fixup_newobj_in_statement(Statement0, Statement).
+
+:- pred fixup_newobj_in_atomic_statement(mlds__atomic_statement::in,
+		mlds__stmt::out, fixup_newobj_info::in,
+		fixup_newobj_info::out) is det.
+fixup_newobj_in_atomic_statement(AtomicStatement0, Stmt, Info0, Info) :-
+	(
+		AtomicStatement0 = new_object(Lval, MaybeTag, _HasSecTag,
+			PointerType, _MaybeSizeInWordsRval, _MaybeCtorName,
+			ArgRvals, _ArgTypes)
+	->
+		%
+		% generate the declaration of the new local variable
+		%
+		% XXX Using array(generic_type) is wrong for
+		% --high-level-data.
+		%
+		% We need to specify an initializer to tell the
+		% C back-end what the length of the array is.
+		% We initialize it with null pointers and then
+		% later generate assignment statements to fill
+		% in the values properly (see below).
+		%
+		counter__allocate(Id, Info0 ^ next_id, NextId),
+		VarName = var_name("new_obj", yes(Id)),
+		VarType = mlds__array_type(mlds__generic_type),
+		NullPointers = list__duplicate(list__length(ArgRvals),
+			init_obj(const(mlds__null(mlds__generic_type)))),
+		Initializer = init_array(NullPointers),
+		% this is used for the type_infos allocated during tracing,
+		% and we don't need to trace them
+		MaybeGCTraceCode = no,
+		Context = Info0 ^ context,
+		VarDecl = ml_gen_mlds_var_decl(var(VarName),
+			VarType, Initializer, MaybeGCTraceCode, Context),
+		Info1 = Info0 ^ next_id := NextId,
+		Info = Info1 ^ locals := Info1 ^ locals ++ [VarDecl],
+		%
+		% Generate code to initialize the variable.
+		%
+		% Note that we need to use assignment statements,
+		% rather than an initializer, to initialize the
+		% local variable, because the initialization code
+		% needs to occur at exactly the point where the
+		% atomic_statement occurs, rather than at the
+		% local variable declaration.
+		%
+		VarLval = mlds__var(qual(Info ^ module_name, VarName),
+			VarType),
+		PtrRval = mlds__unop(cast(PointerType), mem_addr(VarLval)),
+		list__map_foldl(
+			init_field_n(PointerType, PtrRval, Context),
+			ArgRvals, ArgInitStatements, 0, _NumFields),
+		%
+		% generate code to assign the address of the new local
+		% variable to the Lval
+		%
+		TaggedPtrRval = maybe_tag_rval(MaybeTag, PointerType, PtrRval),
+		AssignStmt = atomic(assign(Lval, TaggedPtrRval)),
+		AssignStatement = mlds__statement(AssignStmt, Context),
+		Stmt = block([], ArgInitStatements ++ [AssignStatement])
+	;
+		Stmt = atomic(AtomicStatement0),
+		Info = Info0
+	).
+
+:- pred init_field_n(mlds__type::in, mlds__rval::in,
+		mlds__context::in, mlds__rval::in, mlds__statement::out,
+		int::in, int::out) is det.
+init_field_n(PointerType, PointerRval, Context, ArgRval, Statement,
+		FieldNum, FieldNum + 1) :-
+	FieldId = offset(const(int_const(FieldNum))),
+	% XXX FieldType is wrong for --high-level-data
+	FieldType = mlds__generic_type,
+	MaybeTag = yes(0),
+	Field = field(MaybeTag, PointerRval, FieldId, FieldType, PointerType),
+	AssignStmt = atomic(assign(Field, ArgRval)),
+	Statement = mlds__statement(AssignStmt, Context).
+
+:- func maybe_tag_rval(maybe(mlds__tag), mlds__type, mlds__rval) = mlds__rval.
+maybe_tag_rval(no, _Type, Rval) = Rval.
+maybe_tag_rval(yes(Tag), Type, Rval) = unop(cast(Type), mkword(Tag, Rval)).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1835,6 +2565,11 @@ ml_declare_env_ptr_arg(Name - mlds__generic_env_ptr_type) -->
 	--->	ml_gen_info(
 			%
 			% these fields remain constant for each procedure
+			%
+			% (unless accurate GC is enabled, in which case the
+			% varset and var_types may get updated if we create
+			% fresh variables for type_info variables needed
+			% for calls to private_builtin__gc_trace)
 			%
 
 			module_info :: module_info,
@@ -2076,6 +2811,21 @@ get_copy_out_option(Globals, CodeModel) = CopyOut :-
 		globals__lookup_bool_option(Globals,
 			det_copy_out, CopyOut)
 	).
+
+	% Add the qualifier `builtin' to any unqualified name.
+fixup_builtin_module(ModuleName0) = ModuleName :-
+	( ModuleName0 = unqualified("") ->
+		mercury_public_builtin_module(ModuleName)
+	;
+		ModuleName = ModuleName0
+	).
+
+%-----------------------------------------------------------------------------%
+
+:- func this_file = string.
+this_file = "ml_code_util.m".
+
+:- end_module ml_code_util.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

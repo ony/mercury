@@ -39,8 +39,12 @@
 :- module structure_reuse.
 :- interface.
 
+% library modules 
 :- import_module list,io.
-:- import_module hlds_module, hlds_pred.
+% XXX parent modules
+:- import_module hlds.
+% compiler modules
+:- import_module hlds__hlds_module, hlds__hlds_pred.
 
 :- pred structure_reuse(module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
@@ -52,9 +56,23 @@
 
 :- implementation.
 
-:- import_module passes_aux, sr_direct, sr_indirect, sr_split, sr_util.
+% library modules
 :- import_module list, map, varset, std_util, int, bool.
+:- import_module term.
+% XXX parent modules
+:- import_module libs, parse_tree.
+% compiler modules
+:- import_module hlds__passes_aux.
+:- import_module libs__globals, libs__options.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_out.
+:- import_module sr_direct, sr_indirect, sr_split, sr_util.
 :- import_module sr_profile_run.
+:- import_module sr_data, sr_split.
+:- import_module pa_sr_util.	
+:- import_module parse_tree__mercury_to_mercury, parse_tree__prog_data.
+
+
 
 structure_reuse(HLDS00, HLDS) -->
 	% Before starting the actual reuse-analysis, process all the reuse
@@ -83,12 +101,6 @@ structure_reuse(HLDS00, HLDS) -->
 	sr_profile_run__structure_reuse_profiling(HLDS). 
 
 %-----------------------------------------------------------------------------%
-:- import_module term, varset.
-:- import_module sr_data, sr_split.
-:- import_module globals, options.
-:- import_module hlds_module.
-:- import_module hlds_out.
-
 :- pred process_unproc_reuse_pragma(unproc_reuse_pragma, module_info, 
 		module_info, io__state, io__state).
 :- mode process_unproc_reuse_pragma(in, in, out, di, uo) is det.
@@ -100,16 +112,17 @@ process_unproc_reuse_pragma(UnprocReusePragma, Module0, Module) -->
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 
 	{ module_info_get_predicate_table(Module0, Preds) }, 
+	{ module_info_preds(Module0, PredTable0) },
 	{ list__length(Modes, Arity) },
-	(
-		{ predicate_table_search_pf_sym_arity_declmodes(Module0, 
-			Preds, PredOrFunc, SymName, Arity, Modes, 
-			PredId, ProcId) }
+	( 
+		{ predicate_table_search_pf_sym_arity_declmodes(
+				Module0, Preds, PredOrFunc, SymName, 
+				Arity, Modes, PredId, ProcId) }
 	->
-		{ module_info_preds(Module0, PredTable0) },
 		{ map__lookup(PredTable0, PredId, PredInfo0) },
 		{ pred_info_procedures(PredInfo0, ProcTable0) },
 		{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+
 		write_proc_progress_message("(Reuse) Looking into ", 
 			PredId, ProcId, Module0),
 
@@ -178,9 +191,6 @@ write_pragma_reuse_info( HLDS, SpecPredIds, PredId ) -->
 	;
 		[]
 	).
-
-:- import_module sr_data, pa_sr_util.	
-:- import_module mercury_to_mercury, prog_data.
 
 :- pred write_pred_proc_sr_reuse_info( module_info, pred_id,
                                 proc_id, io__state, io__state).

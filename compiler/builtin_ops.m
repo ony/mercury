@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,9 +14,9 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module builtin_ops.
+:- module backend_libs__builtin_ops.
 :- interface.
-:- import_module prog_data, hlds_pred.
+:- import_module parse_tree__prog_data, hlds__hlds_pred.
 :- import_module list.
 
 
@@ -191,7 +191,7 @@ builtin_translation("int", "*", 0, [X, Y, Z],
 	assign(Z, binary((*), leaf(X), leaf(Y)))).
 builtin_translation("int", "unchecked_quotient", 0, [X, Y, Z],
 	assign(Z, binary((/), leaf(X), leaf(Y)))).
-builtin_translation("int", "rem", 0, [X, Y, Z],
+builtin_translation("int", "unchecked_rem", 0, [X, Y, Z],
 	assign(Z, binary((mod), leaf(X), leaf(Y)))).
 builtin_translation("int", "unchecked_left_shift", 0, [X, Y, Z],
 	assign(Z, binary((<<), leaf(X), leaf(Y)))).

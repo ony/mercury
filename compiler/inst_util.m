@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -38,10 +38,11 @@ in the general case.
 
 %-----------------------------------------------------------------------------%
 
-:- module inst_util.
+:- module check_hlds__inst_util.
 :- interface.
 
-:- import_module hlds_module, hlds_data, prog_data, (inst).
+:- import_module hlds__hlds_module, hlds__hlds_data, parse_tree__prog_data.
+:- import_module (parse_tree__inst).
 :- import_module list, std_util.
 
 :- pred abstractly_unify_inst(is_live, inst, inst, unify_is_real, module_info,
@@ -98,10 +99,40 @@ in the general case.
 	%       the same in both.
 
 %-----------------------------------------------------------------------------%
+
+:- pred inst_contains_nonstandard_func_mode(inst, module_info).
+:- mode inst_contains_nonstandard_func_mode(in, in) is semidet.
+
+	% inst_contains_nonstandard_func_mode(Inst, ModuleInfo) succeeds iff the
+	% inst contains a higher-order function inst that does not match the
+	% standard function mode `(in, ..., in) = out is det'.
+	% E.g. this predicate fails for "func(in) = uo" because that matches the
+	% standard func mode "func(in) = out", even though it isn't the same as
+	% the standard func mode.
+
+:- pred pred_inst_info_is_nonstandard_func_mode(pred_inst_info, module_info).
+:- mode pred_inst_info_is_nonstandard_func_mode(in, in) is semidet.
+
+	% Succeed iff the first argument is a function pred_inst_info
+	% whose mode does not match the standard func mode.
+
+:- pred ground_inst_info_is_nonstandard_func_mode(ground_inst_info,
+			module_info).
+:- mode ground_inst_info_is_nonstandard_func_mode(in, in) is semidet.
+
+	% Succeed iff the first argument is a function ground_inst_info
+	% whose mode does not match the standard func mode.
+
+:- func pred_inst_info_standard_func_mode(arity) = pred_inst_info.
+
+	% Return the standard mode for a function of the given arity.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module hlds_data, inst_match, mode_util, det_analysis, type_util.
+:- import_module hlds__hlds_data, check_hlds__inst_match.
+:- import_module check_hlds__mode_util, check_hlds__det_analysis.
+:- import_module check_hlds__type_util.
 :- import_module bool, std_util, require, map, list, set, int.
 
 	% Abstractly unify two insts.
@@ -175,6 +206,14 @@ abstractly_unify_inst_2(IsLive, InstA, InstB, UnifyIsReal, ModuleInfo0,
 		Inst = not_reached,
 		Det = det,
 		ModuleInfo = ModuleInfo0
+	; InstA = constrained_inst_vars(InstVars, InstA1) ->
+		abstractly_unify_constrained_inst_vars(IsLive, InstVars, InstA1,
+			InstB, UnifyIsReal, ModuleInfo0, Inst, Det,
+			ModuleInfo)
+	; InstB = constrained_inst_vars(InstVars, InstB1) ->
+		abstractly_unify_constrained_inst_vars(IsLive, InstVars, InstB1,
+			InstA, UnifyIsReal, ModuleInfo0, Inst, Det,
+			ModuleInfo)
 	;
 		abstractly_unify_inst_3(IsLive, InstA, InstB, UnifyIsReal,
 			ModuleInfo0, Inst, Det, ModuleInfo)
@@ -294,27 +333,6 @@ abstractly_unify_inst_3(live, ground(Uniq, none), Inst0, Real, M0,
 				Inst, Det, M) :-
 	make_ground_inst(Inst0, live, Uniq, Real, M0, Inst, Det, M).
 
-abstractly_unify_inst_3(live, ground(UniqX, constrained_inst_var(Var)),
-		any(UniqY), Real, M, ground(Uniq, constrained_inst_var(Var)),
-		semidet, M) :-
-	unify_uniq(live, Real, det, UniqX, UniqY, Uniq).
-
-abstractly_unify_inst_3(live, ground(Uniq0, constrained_inst_var(Var)), free,
-		Real, M, ground(Uniq, constrained_inst_var(Var)), det, M) :-
-	unify_uniq(live, Real, det, unique, Uniq0, Uniq).
-
-abstractly_unify_inst_3(live, ground(UniqX, constrained_inst_var(_)),
-		bound(UniqY, BoundInsts0), Real, M0, bound(Uniq, BoundInsts),
-		Det, M) :-
-	unify_uniq(live, Real, semidet, UniqX, UniqY, Uniq),
-	make_ground_bound_inst_list(BoundInsts0, live, UniqX, Real, M0,
-			BoundInsts, Det1, M),
-	det_par_conjunction_detism(Det1, semidet, Det).
-
-abstractly_unify_inst_3(live, ground(UniqA, constrained_inst_var(_V)),
-		ground(UniqB, GII), Real, M, ground(Uniq, GII), semidet, M) :-
-	unify_uniq(live, Real, semidet, UniqA, UniqB, Uniq).
-
 % abstractly_unify_inst_3(live, abstract_inst(_,_), free,       _, _, _, _, _)
 %       :- fail.
 
@@ -409,28 +427,6 @@ abstractly_unify_inst_3(dead, ground(Uniq, none), Inst0, Real, M0,
 				Inst, Det, M) :-
 	make_ground_inst(Inst0, dead, Uniq, Real, M0, Inst, Det, M).
 
-abstractly_unify_inst_3(dead, ground(UniqX, constrained_inst_var(Var)),
-		any(UniqY), Real, M, ground(Uniq, constrained_inst_var(Var)),
-		semidet, M) :-
-	allow_unify_bound_any(Real),
-	unify_uniq(dead, Real, semidet, UniqX, UniqY, Uniq).
-
-abstractly_unify_inst_3(dead, ground(Uniq, constrained_inst_var(Var)), free,
-		_Real, M, ground(Uniq, constrained_inst_var(Var)), det, M).
-
-abstractly_unify_inst_3(dead, ground(UniqA, constrained_inst_var(_)),
-		bound(UniqB, BoundInsts0), Real, M0, bound(Uniq, BoundInsts),
-		Det, M) :-
-	unify_uniq(dead, Real, semidet, UniqA, UniqB, Uniq),
-	make_ground_bound_inst_list(BoundInsts0, dead, UniqA, Real, M0,
-					BoundInsts, Det1, M),
-	det_par_conjunction_detism(Det1, semidet, Det).
-
-abstractly_unify_inst_3(dead, ground(UniqA, constrained_inst_var(_Var)),
-				ground(UniqB, GroundInstInfo), Real, M,
-				ground(Uniq, GroundInstInfo), det, M) :-
-	unify_uniq(dead, Real, det, UniqA, UniqB, Uniq).
-
 /***** abstract insts aren't really supported
 abstractly_unify_inst_3(dead, abstract_inst(N,As), bound(List), Real,
 			ModuleInfo, Result, Det, ModuleInfo) :-
@@ -483,8 +479,36 @@ abstractly_unify_inst_list([X|Xs], [Y|Ys], Live, Real, ModuleInfo0,
 abstractly_unify_inst_functor(Live, InstA, ConsId, ArgInsts, ArgLives,
 		Real, ModuleInfo0, Inst, Det, ModuleInfo) :-
 	inst_expand(ModuleInfo0, InstA, InstA2),
-	abstractly_unify_inst_functor_2(Live, InstA2, ConsId, ArgInsts,
-			ArgLives, Real, ModuleInfo0, Inst, Det, ModuleInfo).
+	( InstA2 = constrained_inst_vars(InstVars, InstA3) ->
+		abstractly_unify_inst_functor(Live, InstA3, ConsId, ArgInsts,
+			ArgLives, Real, ModuleInfo0, Inst0, Det, ModuleInfo),
+		(
+			inst_matches_final(Inst0, InstA3, ModuleInfo)
+		->
+			% We can keep the constrained_inst_vars.
+			Inst = constrained_inst_vars(InstVars, Inst0)
+		;
+			% The inst has become too instantiated so we must remove
+			% the constrained_inst_var.
+			% XXX This throws away the information that Inst is at
+			% least as ground as InstVars and is a subtype of
+			% InstVars.  I don't think this is likely to be a
+			% problem in practice because:
+			% a)	I don't think it's likely to occur very often in
+			% 	typical uses of polymorphic modes (I suspect
+			% 	InstA3 will nearly always be `ground' or `any'
+			% 	in which case the only way inst_matches_final
+			% 	can fail is if Inst0 is clobbered -- it can't be
+			% 	less instantiated than InstA3); and
+			% b)	Even if this information is retained, I can't
+			% 	see what sort of situations it would actually be
+			% 	useful for.
+			Inst = Inst0
+		)
+	;
+		abstractly_unify_inst_functor_2(Live, InstA2, ConsId, ArgInsts,
+			ArgLives, Real, ModuleInfo0, Inst, Det, ModuleInfo)
+	).
 
 :- pred abstractly_unify_inst_functor_2(is_live, inst, cons_id, list(inst),
 			list(is_live), unify_is_real, module_info,
@@ -545,7 +569,6 @@ abstractly_unify_inst_functor_2(dead, ground(Uniq, _), ConsId, ArgInsts,
 %-----------------------------------------------------------------------------%
 
 	% This code performs abstract unification of two bound(...) insts.
-	% like a sorted merge operation.  If two elements have the
 	% The lists of bound_inst are guaranteed to be sorted.
 	% Abstract unification of two bound(...) insts proceeds
 	% like a sorted merge operation.  If two elements have the
@@ -554,6 +577,10 @@ abstractly_unify_inst_functor_2(dead, ground(Uniq, _), ConsId, ArgInsts,
 	% (If it can't, the whole thing fails).  If a functor name
 	% occurs in only one of the two input lists, it is not inserted
 	% in the output list.
+	%
+	% One way of looking at this code is that it simulates mode
+	% and determinism checking of the goal for the unification
+	% predicate for the type.
 
 :- pred abstractly_unify_bound_inst_list(is_live, list(bound_inst),
 		list(bound_inst), unify_is_real, module_info,
@@ -563,67 +590,70 @@ abstractly_unify_inst_functor_2(dead, ground(Uniq, _), ConsId, ArgInsts,
 
 abstractly_unify_bound_inst_list(Live, Xs, Ys, Real, ModuleInfo0, L, Det,
 		ModuleInfo) :-
-	abstractly_unify_bound_inst_list_2(Live, Xs, Ys, Real,
-		ModuleInfo0, 0, L, Det0, ModuleInfo),
-	( L = [] ->
-		det_par_conjunction_detism(Det0, erroneous, Det)
+	( ( Xs = [] ; Ys = [] ) ->
+		%
+		% This probably shouldn't happen. If we get here,
+		% it means that a previous goal had determinism
+		% `failure' or `erroneous', but we should have optimized
+		% away the rest of the conjunction after that goal.
+		%
+		L = [],
+		Det = erroneous,
+		ModuleInfo = ModuleInfo0
 	;
-		Det = Det0
+		abstractly_unify_bound_inst_list_2(Live, Xs, Ys, Real,
+			ModuleInfo0, L, Det0, ModuleInfo),
+
+		%
+		% If there are multiple alternatives for either of
+		% the inputs, or the constructor of the single
+		% alternative for each input doesn't match, then the
+		% unification can fail, so adjust the determinism.
+		%
+		( Xs = [functor(ConsId, _)], Ys = [functor(ConsId, _)] ->
+			Det = Det0
+		;
+			determinism_components(Det0, _, MaxSoln),
+			determinism_components(Det, can_fail, MaxSoln)
+		)
 	).
 
 :- pred abstractly_unify_bound_inst_list_2(is_live, list(bound_inst),
-		list(bound_inst), unify_is_real, module_info, int,
+		list(bound_inst), unify_is_real, module_info,
 		list(bound_inst), determinism, module_info).
-:- mode abstractly_unify_bound_inst_list_2(in, in, in, in, in, in,
+:- mode abstractly_unify_bound_inst_list_2(in, in, in, in, in,
 		out, out, out) is semidet.
 
-abstractly_unify_bound_inst_list_2(_, [], [], _, ModuleInfo, N, [], Det,
-		ModuleInfo) :-
-	(
-			% The only time an abstract unification should
-			% be det, is when both of the bound_inst lists
-			% are of length one and have the same cons_ids.
-			%
-			% If N=0, we need to make the determinism det
-			% so that determinism is inferred as erroneous
-			% rather then failure in 
-			% abstractly_unify_bound_inst_list
-		N =< 1
-	->
-		Det = det
-	;
-		Det = semidet
-	).
-abstractly_unify_bound_inst_list_2(_, [], [_|_], _, M, _, [], semidet, M).
-abstractly_unify_bound_inst_list_2(_, [_|_], [], _, M, _, [], semidet, M).
+abstractly_unify_bound_inst_list_2(_, [], [], _, M, [], erroneous, M).
+abstractly_unify_bound_inst_list_2(_, [], [_|_], _, M, [], failure, M).
+abstractly_unify_bound_inst_list_2(_, [_|_], [], _, M, [], failure, M).
 abstractly_unify_bound_inst_list_2(Live, [X|Xs], [Y|Ys], Real, ModuleInfo0,
-		N, L, Det, ModuleInfo) :-
+		L, Det, ModuleInfo) :-
 	X = functor(ConsIdX, ArgsX),
 	Y = functor(ConsIdY, ArgsY),
 	( ConsIdX = ConsIdY ->
 		abstractly_unify_inst_list(ArgsX, ArgsY, Live, Real,
 			ModuleInfo0, Args, Det1, ModuleInfo1),
 		abstractly_unify_bound_inst_list_2(Live, Xs, Ys, Real,
-					ModuleInfo1, N+1, L1, Det2, ModuleInfo),
+					ModuleInfo1, L1, Det2, ModuleInfo),
 
 		% If the unification of the two cons_ids is guaranteed
 		% not to succeed, don't include it in the list.
 		( determinism_components(Det1, _, at_most_zero) ->
-			L = L1,
-			Det = Det2
+			L = L1
 		;
-			L = [functor(ConsIdX, Args) | L1],
-			det_par_conjunction_detism(Det1, Det2, Det)
-		)
+			L = [functor(ConsIdX, Args) | L1]
+		),
+		det_switch_detism(Det1, Det2, Det)
 	;
 		( compare(<, ConsIdX, ConsIdY) ->
 			abstractly_unify_bound_inst_list_2(Live, Xs, [Y|Ys],
-				Real, ModuleInfo0, N+1, L, Det1, ModuleInfo)
+				Real, ModuleInfo0, L, Det1, ModuleInfo)
 		;
 			abstractly_unify_bound_inst_list_2(Live, [X|Xs], Ys,
-				Real, ModuleInfo0, N+1, L, Det1, ModuleInfo)
+				Real, ModuleInfo0, L, Det1, ModuleInfo)
 		),
-		det_par_conjunction_detism(Det1, semidet, Det)
+		det_switch_detism(Det1, failure, Det)
 	).
 
 :- pred abstractly_unify_bound_inst_list_lives(list(bound_inst), cons_id,
@@ -662,6 +692,34 @@ abstractly_unify_inst_list_lives([X|Xs], [Y|Ys], [Live|Lives], Real,
 	abstractly_unify_inst_list_lives(Xs, Ys, Lives, Real, ModuleInfo1,
 			Zs, Det2, ModuleInfo),
 	det_par_conjunction_detism(Det1, Det2, Det).
+
+%-----------------------------------------------------------------------------%
+
+:- pred abstractly_unify_constrained_inst_vars(is_live, set(inst_var), inst,
+	inst, unify_is_real, module_info, inst, determinism, module_info).
+:- mode abstractly_unify_constrained_inst_vars(in, in, in, in, in, in, out,
+	out, out) is semidet.
+
+abstractly_unify_constrained_inst_vars(IsLive, InstVars, InstConstraint, InstB,
+		UnifyIsReal, ModuleInfo0, Inst, Det, ModuleInfo) :-
+	abstractly_unify_inst(IsLive, InstConstraint, InstB, UnifyIsReal,
+		ModuleInfo0, Inst0, Det, ModuleInfo),
+	( 
+		\+ inst_matches_final(Inst0, InstConstraint, ModuleInfo)
+	->
+		% The inst has become too instantiated so the
+		% constrained_inst_vars must be removed.
+		Inst = Inst0
+	;
+		Inst0 = constrained_inst_vars(InstVars0, Inst1)
+	->
+		% Avoid nested constrained_inst_vars.
+		Inst = constrained_inst_vars(set__union(InstVars0, InstVars),
+				Inst1)
+	;
+		% We can keep the constrained_inst_vars.
+		Inst = constrained_inst_vars(InstVars, Inst0)
+	).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -817,11 +875,15 @@ make_ground_inst(bound(Uniq0, BoundInsts0), IsLive, Uniq1, Real, M0,
 	make_ground_bound_inst_list(BoundInsts0, IsLive, Uniq1, Real, M0,
 					BoundInsts, Det1, M),
 	det_par_conjunction_detism(Det1, semidet, Det).
-make_ground_inst(ground(Uniq0, _GII0), IsLive, Uniq1, Real, M,
-		ground(Uniq, none), semidet, M) :-
+make_ground_inst(ground(Uniq0, GroundInstInfo), IsLive, Uniq1, Real, M,
+		ground(Uniq, GroundInstInfo), semidet, M) :-
 	unify_uniq(IsLive, Real, semidet, Uniq0, Uniq1, Uniq).
 make_ground_inst(inst_var(_), _, _, _, _, _, _, _) :-
 	error("free inst var").
+make_ground_inst(constrained_inst_vars(InstVars, InstConstraint), IsLive,
+		Uniq, Real, M0, Inst, Det, M) :-
+	abstractly_unify_constrained_inst_vars(IsLive, InstVars,
+		InstConstraint, ground(Uniq, none), Real, M0, Inst, Det, M).
 make_ground_inst(abstract_inst(_,_), _, _, _, M, ground(shared, none),
 		semidet, M).
 make_ground_inst(defined_inst(InstName), IsLive, Uniq, Real, ModuleInfo0,
@@ -932,6 +994,10 @@ make_any_inst(ground(Uniq0, PredInst), IsLive, Uniq1, Real, M,
 	unify_uniq(IsLive, Real, semidet, Uniq0, Uniq1, Uniq).
 make_any_inst(inst_var(_), _, _, _, _, _, _, _) :-
 	error("free inst var").
+make_any_inst(constrained_inst_vars(InstVars, InstConstraint), IsLive,
+		Uniq, Real, M0, Inst, Det, M) :-
+	abstractly_unify_constrained_inst_vars(IsLive, InstVars,
+		InstConstraint, any(Uniq), Real, M0, Inst, Det, M).
 make_any_inst(abstract_inst(_,_), _, _, _, M, any(shared),
 		semidet, M).
 make_any_inst(defined_inst(InstName), IsLive, Uniq, Real, ModuleInfo0,
@@ -1070,6 +1136,16 @@ make_shared_inst(ground(Uniq0, PredInst), M, ground(Uniq, PredInst), M) :-
 	make_shared(Uniq0, Uniq).
 make_shared_inst(inst_var(_), _, _, _) :-
 	error("free inst var").
+make_shared_inst(constrained_inst_vars(InstVars, Inst0), ModuleInfo0, Inst,
+		ModuleInfo) :-
+	make_shared_inst(Inst0, ModuleInfo0, Inst1, ModuleInfo),
+	(
+		\+ inst_matches_final(Inst1, Inst0, ModuleInfo)
+	->
+		Inst = Inst1
+	;
+		Inst = constrained_inst_vars(InstVars, Inst1)
+	).
 make_shared_inst(abstract_inst(_,_), M, _, M) :-
 	error("make_shared_inst(abstract_inst)").
 make_shared_inst(defined_inst(InstName), ModuleInfo0, Inst, ModuleInfo) :-
@@ -1161,6 +1237,16 @@ make_mostly_uniq_inst(ground(Uniq0, PredInst), M, ground(Uniq, PredInst), M) :-
 	make_mostly_uniq(Uniq0, Uniq).
 make_mostly_uniq_inst(inst_var(_), _, _, _) :-
 	error("free inst var").
+make_mostly_uniq_inst(constrained_inst_vars(InstVars, Inst0), ModuleInfo0, Inst,
+		ModuleInfo) :-
+	make_mostly_uniq_inst(Inst0, ModuleInfo0, Inst1, ModuleInfo),
+	(
+		\+ inst_matches_final(Inst1, Inst0, ModuleInfo)
+	->
+		Inst = Inst1
+	;
+		Inst = constrained_inst_vars(InstVars, Inst1)
+	).
 make_mostly_uniq_inst(abstract_inst(_,_), M, _, M) :-
 	error("make_mostly_uniq_inst(abstract_inst)").
 make_mostly_uniq_inst(defined_inst(InstName), ModuleInfo0, Inst, ModuleInfo) :-
@@ -1331,6 +1417,34 @@ inst_merge_2(InstA, InstB, MaybeType, ModuleInfo0, Inst, ModuleInfo) :-
 :- pred inst_merge_3(inst, inst, maybe(type), module_info, inst, module_info).
 :- mode inst_merge_3(in, in, in, in, out, out) is semidet.
 
+inst_merge_3(InstA, InstB, MaybeType, ModuleInfo0, Inst, ModuleInfo) :-
+	( InstA = constrained_inst_vars(InstVarsA, InstA1) ->
+		( InstB = constrained_inst_vars(InstVarsB, InstB1) ->
+			inst_merge(InstA1, InstB1, MaybeType,
+				ModuleInfo0, Inst0, ModuleInfo),
+			InstVars = InstVarsA `set__intersect` InstVarsB,
+			( set__non_empty(InstVars) ->
+				Inst = constrained_inst_vars(InstVars, Inst0)
+				% We can keep the constrained_inst_vars here
+				% since Inst0 = InstA1 `lub` InstB1 and the
+				% original constraint on the InstVars, InstC,
+				% must have been such that
+				% InstA1 `lub` InstB1 =< InstC
+			;
+				Inst = Inst0
+			)
+		;
+			inst_merge(InstA1, InstB, MaybeType, ModuleInfo0,
+				Inst, ModuleInfo)
+		)
+	;
+		inst_merge_4(InstA, InstB, MaybeType, ModuleInfo0, Inst,
+			ModuleInfo)
+	).
+
+:- pred inst_merge_4(inst, inst, maybe(type), module_info, inst, module_info).
+:- mode inst_merge_4(in, in, in, in, out, out) is semidet.
+
 % We do not yet allow merging of `free' and `any',
 % except in the case where the any is `mostly_clobbered_any'
 % or `clobbered_any', because that would require inserting
@@ -1343,12 +1457,12 @@ inst_merge_2(InstA, InstB, MaybeType, ModuleInfo0, Inst, ModuleInfo) :-
 % too weak -- it might not be able to detect bugs as well
 % as it can currently.
 
-inst_merge_3(any(UniqA), any(UniqB), _, M, any(Uniq), M) :-
+inst_merge_4(any(UniqA), any(UniqB), _, M, any(Uniq), M) :-
 	merge_uniq(UniqA, UniqB, Uniq).
-inst_merge_3(any(Uniq), free, _, M, any(Uniq), M) :-
+inst_merge_4(any(Uniq), free, _, M, any(Uniq), M) :-
 	% we do not yet allow merge of any with free, except for clobbered anys
 	( Uniq = clobbered ; Uniq = mostly_clobbered ).
-inst_merge_3(any(UniqA), bound(UniqB, ListB), _, ModInfo, any(Uniq), ModInfo) :-
+inst_merge_4(any(UniqA), bound(UniqB, ListB), _, ModInfo, any(Uniq), ModInfo) :-
 	merge_uniq_bound(UniqA, UniqB, ListB, ModInfo, Uniq),
 	% we do not yet allow merge of any with free, except for clobbered anys
 	( ( Uniq = clobbered ; Uniq = mostly_clobbered ) ->
@@ -1356,16 +1470,16 @@ inst_merge_3(any(UniqA), bound(UniqB, ListB), _, ModInfo, any(Uniq), ModInfo) :-
 	;
 		bound_inst_list_is_ground_or_any(ListB, ModInfo)
 	).
-inst_merge_3(any(UniqA), ground(UniqB, _), _, M, any(Uniq), M) :-
+inst_merge_4(any(UniqA), ground(UniqB, _), _, M, any(Uniq), M) :-
 	merge_uniq(UniqA, UniqB, Uniq).
-inst_merge_3(any(UniqA), abstract_inst(_, _), _, M, any(Uniq), M) :-
+inst_merge_4(any(UniqA), abstract_inst(_, _), _, M, any(Uniq), M) :-
 	merge_uniq(UniqA, shared, Uniq),
 	% we do not yet allow merge of any with free, except for clobbered anys
 	( Uniq = clobbered ; Uniq = mostly_clobbered ).
-inst_merge_3(free, any(Uniq), _, M, any(Uniq), M) :-
+inst_merge_4(free, any(Uniq), _, M, any(Uniq), M) :-
 	% we do not yet allow merge of any with free, except for clobbered anys
 	( Uniq = clobbered ; Uniq = mostly_clobbered ).
-inst_merge_3(bound(UniqA, ListA), any(UniqB), _, ModInfo, any(Uniq), ModInfo) :-
+inst_merge_4(bound(UniqA, ListA), any(UniqB), _, ModInfo, any(Uniq), ModInfo) :-
 	merge_uniq_bound(UniqB, UniqA, ListA, ModInfo, Uniq),
 	% we do not yet allow merge of any with free, except for clobbered anys
 	( ( Uniq = clobbered ; Uniq = mostly_clobbered ) ->
@@ -1373,27 +1487,27 @@ inst_merge_3(bound(UniqA, ListA), any(UniqB), _, ModInfo, any(Uniq), ModInfo) :-
 	;
 		bound_inst_list_is_ground_or_any(ListA, ModInfo)
 	).
-inst_merge_3(ground(UniqA, _), any(UniqB), _, M, any(Uniq), M) :-
+inst_merge_4(ground(UniqA, _), any(UniqB), _, M, any(Uniq), M) :-
 	merge_uniq(UniqA, UniqB, Uniq).
-inst_merge_3(abstract_inst(_, _), any(UniqB), _, M, any(Uniq), M) :-
+inst_merge_4(abstract_inst(_, _), any(UniqB), _, M, any(Uniq), M) :-
 	merge_uniq(shared, UniqB, Uniq),
 	% we do not yet allow merge of any with free, except for clobbered anys
 	( Uniq = clobbered ; Uniq = mostly_clobbered ).
-inst_merge_3(free, free, _, M, free, M).
-inst_merge_3(bound(UniqA, ListA), bound(UniqB, ListB), MaybeType, ModuleInfo0,
+inst_merge_4(free, free, _, M, free, M).
+inst_merge_4(bound(UniqA, ListA), bound(UniqB, ListB), MaybeType, ModuleInfo0,
 		bound(Uniq, List), ModuleInfo) :-
 	merge_uniq(UniqA, UniqB, Uniq),
 	bound_inst_list_merge(ListA, ListB, MaybeType, ModuleInfo0, List,
 		ModuleInfo).
-inst_merge_3(bound(UniqA, ListA), ground(UniqB, _), MaybeType, ModuleInfo0,
+inst_merge_4(bound(UniqA, ListA), ground(UniqB, _), MaybeType, ModuleInfo0,
 		Result, ModuleInfo) :-
 	inst_merge_bound_ground(UniqA, ListA, UniqB, MaybeType,
 		ModuleInfo0, Result, ModuleInfo).
-inst_merge_3(ground(UniqA, _), bound(UniqB, ListB), MaybeType, ModuleInfo0,
+inst_merge_4(ground(UniqA, _), bound(UniqB, ListB), MaybeType, ModuleInfo0,
 		Result, ModuleInfo) :-
 	inst_merge_bound_ground(UniqB, ListB, UniqA, MaybeType,
 		ModuleInfo0, Result, ModuleInfo).
-inst_merge_3(ground(UniqA, GroundInstInfoA), ground(UniqB, GroundInstInfoB),
+inst_merge_4(ground(UniqA, GroundInstInfoA), ground(UniqB, GroundInstInfoB),
 		_, ModuleInfo, ground(Uniq, GroundInstInfo), ModuleInfo) :-
 	(
 		GroundInstInfoA = higher_order(PredA),
@@ -1407,24 +1521,30 @@ inst_merge_3(ground(UniqA, GroundInstInfoA), ground(UniqB, GroundInstInfoB),
 		; pred_inst_matches(PredB, PredA, ModuleInfo) ->
 			GroundInstInfo = higher_order(PredA)
 		;
+			% If either is a function inst with non-standard
+			% modes, don't allow the higher-order
+			% information to be lost.
+			\+ pred_inst_info_is_nonstandard_func_mode(PredA,
+				ModuleInfo),
+			\+ pred_inst_info_is_nonstandard_func_mode(PredB,
+				ModuleInfo),
 			GroundInstInfo = none
 		)
 	;       
-		GroundInstInfoA = constrained_inst_var(V),
-		GroundInstInfoB = constrained_inst_var(V)
-	->
-		GroundInstInfo = constrained_inst_var(V)
-	;
+		\+ ground_inst_info_is_nonstandard_func_mode(GroundInstInfoA,
+			ModuleInfo),
+		\+ ground_inst_info_is_nonstandard_func_mode(GroundInstInfoB,
+			ModuleInfo),
 		GroundInstInfo = none
 	),
 	merge_uniq(UniqA, UniqB, Uniq).
-inst_merge_3(abstract_inst(Name, ArgsA), abstract_inst(Name, ArgsB),
+inst_merge_4(abstract_inst(Name, ArgsA), abstract_inst(Name, ArgsB),
 		_, ModuleInfo0, abstract_inst(Name, Args), ModuleInfo) :-
 	% We don't know the arguments types of an abstract inst.
 	MaybeTypes = list__duplicate(list__length(ArgsA), no),
 	inst_list_merge(ArgsA, ArgsB, MaybeTypes, ModuleInfo0, Args,
 		ModuleInfo).
-inst_merge_3(not_reached, Inst, _, M, Inst, M).
+inst_merge_4(not_reached, Inst, _, M, Inst, M).
 
 :- pred merge_uniq(uniqueness, uniqueness, uniqueness).
 :- mode merge_uniq(in, in, out) is det.
@@ -1509,6 +1629,10 @@ merge_inst_uniq(defined_inst(InstName), UniqB, ModuleInfo,
 merge_inst_uniq(not_reached, Uniq, _, Expansions, Expansions, Uniq).
 merge_inst_uniq(inst_var(_), _, _, Expansions, Expansions, _) :-
 	error("merge_inst_uniq: unexpected inst_var").
+merge_inst_uniq(constrained_inst_vars(_InstVars, Inst0), UniqB, ModuleInfo,
+		Expansions0, Expansions, Uniq) :-
+	merge_inst_uniq(Inst0, UniqB, ModuleInfo, Expansions0, Expansions,
+		Uniq).
 
 %-----------------------------------------------------------------------------%
 
@@ -1532,7 +1656,7 @@ inst_merge_bound_ground(UniqA, ListA, UniqB, MaybeType, ModuleInfo0,
 			constructors_to_bound_insts(Constructors, UniqB,
 				ModuleInfo0, ListB0),
 			list__sort_and_remove_dups(ListB0, ListB),
-			inst_merge_3(bound(UniqA, ListA),
+			inst_merge_4(bound(UniqA, ListA),
 				bound(UniqB, ListB), MaybeType,
 				ModuleInfo0, Result, ModuleInfo)
 		;
@@ -1601,4 +1725,48 @@ bound_inst_list_merge(Xs, Ys, MaybeType, ModuleInfo0, Zs, ModuleInfo) :-
 	).
 
 %-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+inst_contains_nonstandard_func_mode(Inst, ModuleInfo) :-
+	set__init(Expansions0),
+	inst_contains_nonstandard_func_mode_2(Inst, ModuleInfo, Expansions0).
+
+:- pred inst_contains_nonstandard_func_mode_2(inst, module_info, set(inst)).
+:- mode inst_contains_nonstandard_func_mode_2(in, in, in) is semidet.
+
+inst_contains_nonstandard_func_mode_2(ground(_, GroundInstInfo), ModuleInfo,
+		_Expansions) :-
+	ground_inst_info_is_nonstandard_func_mode(GroundInstInfo, ModuleInfo).
+inst_contains_nonstandard_func_mode_2(bound(_, BoundInsts), ModuleInfo,
+		Expansions) :-
+	list__member(functor(_, Insts), BoundInsts),
+	list__member(Inst, Insts),
+	inst_contains_nonstandard_func_mode_2(Inst, ModuleInfo, Expansions).
+inst_contains_nonstandard_func_mode_2(inst_var(_), _, _) :-
+	error("internal error: uninstantiated inst parameter").
+inst_contains_nonstandard_func_mode_2(Inst, ModuleInfo, Expansions0) :-
+	Inst = defined_inst(InstName),
+	\+ set__member(Inst, Expansions0),
+	set__insert(Expansions0, Inst, Expansions1),
+	inst_lookup(ModuleInfo, InstName, Inst2),
+	inst_contains_nonstandard_func_mode_2(Inst2, ModuleInfo, Expansions1).
+
+%-----------------------------------------------------------------------------%
+
+pred_inst_info_is_nonstandard_func_mode(PredInstInfo, ModuleInfo) :-
+	PredInstInfo = pred_inst_info(function, ArgModes, _),
+	Arity = list__length(ArgModes),
+	\+ pred_inst_matches(PredInstInfo,
+		pred_inst_info_standard_func_mode(Arity), ModuleInfo).
+
+ground_inst_info_is_nonstandard_func_mode(GroundInstInfo, ModuleInfo) :-
+	GroundInstInfo = higher_order(PredInstInfo),
+	pred_inst_info_is_nonstandard_func_mode(PredInstInfo, ModuleInfo).
+
+pred_inst_info_standard_func_mode(Arity) =
+		pred_inst_info(function, ArgModes, det) :-
+	in_mode(InMode),
+	out_mode(OutMode),
+	ArgModes = list__duplicate(Arity - 1, InMode) ++ [OutMode].
+
 %-----------------------------------------------------------------------------%

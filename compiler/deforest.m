@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 University of Melbourne.
+% Copyright (C) 1999-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -29,11 +29,11 @@
 % <http://www.cs.mu.oz.au/research/mercury/information/papers/stayl_hons.ps.gz>
 %
 %-----------------------------------------------------------------------------%
-:- module deforest.
+:- module transform_hlds__deforest.
 
 :- interface.
 
-:- import_module hlds_module.
+:- import_module hlds__hlds_module.
 :- import_module io.
 
 :- pred deforestation(module_info::in, module_info::out,
@@ -43,13 +43,22 @@
 
 :- implementation.
 
-:- import_module pd_cost, pd_debug, pd_info, pd_term, pd_util.
-:- import_module hlds_pred, hlds_goal, inlining, passes_aux.
-:- import_module (inst), instmap, inst_match, simplify.
-:- import_module dependency_graph, hlds_data, det_analysis, globals.
-:- import_module mode_util, goal_util, prog_data, prog_util, purity.
-:- import_module modes, mode_info, unique_modes, options, hlds_out.
-:- import_module prog_out, quantification, det_report.
+:- import_module transform_hlds__pd_cost, transform_hlds__pd_debug.
+:- import_module transform_hlds__pd_info, transform_hlds__pd_term.
+:- import_module transform_hlds__pd_util.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, transform_hlds__inlining.
+:- import_module hlds__passes_aux.
+:- import_module (parse_tree__inst), hlds__instmap, check_hlds__inst_match.
+:- import_module check_hlds__simplify.
+:- import_module transform_hlds__dependency_graph, hlds__hlds_data.
+:- import_module check_hlds__det_analysis, libs__globals.
+:- import_module check_hlds__mode_util, hlds__goal_util.
+:- import_module parse_tree__prog_data, parse_tree__prog_util.
+:- import_module check_hlds__purity.
+:- import_module check_hlds__modes, check_hlds__mode_info.
+:- import_module check_hlds__unique_modes, libs__options, hlds__hlds_out.
+:- import_module parse_tree__prog_out, hlds__quantification.
+:- import_module check_hlds__det_report.
 
 :- import_module assoc_list, bool, getopt, int, list, map, require.
 :- import_module set, std_util, string, term, varset.
@@ -123,9 +132,17 @@ deforestation(ModuleInfo0, ModuleInfo, IO0, IO) :-
 reset_inferred_proc_determinism(PredProcId, ModuleInfo0, ModuleInfo) :-
 	module_info_pred_proc_info(ModuleInfo0, PredProcId,
 		PredInfo, ProcInfo0),
-	proc_info_set_inferred_determinism(ProcInfo0, erroneous, ProcInfo),
-	module_info_set_pred_proc_info(ModuleInfo0, PredProcId,
-		PredInfo, ProcInfo, ModuleInfo).
+	proc_info_inferred_determinism(ProcInfo0, Detism0),
+	( determinism_components(Detism0, _, at_most_many_cc) ->
+		% `cc_multi' or `cc_nondet' determinisms are never inferred,
+		% so resetting the determinism would cause determinism errors.
+		ModuleInfo = ModuleInfo0
+	;	
+		proc_info_set_inferred_determinism(ProcInfo0, erroneous,
+			ProcInfo),
+		module_info_set_pred_proc_info(ModuleInfo0, PredProcId,
+			PredInfo, ProcInfo, ModuleInfo)
+	).
 
 :- pred proc_arg_info_init(map(pred_proc_id, pd_proc_arg_info)::out) is det.
 
@@ -263,13 +280,13 @@ deforest__goal(conj(Goals0) - Info, conj(Goals) - Info) -->
 	pd_info_set_instmap(InstMap0).
 
 	% XXX cannot deforest across parallel_conjunctions!
-deforest__goal(par_conj(Goals, SM) - Info, par_conj(Goals, SM) - Info) --> [].
+deforest__goal(par_conj(Goals) - Info, par_conj(Goals) - Info) --> [].
 
-deforest__goal(disj(Goals0, SM) - Info, disj(Goals, SM) - Info) -->
+deforest__goal(disj(Goals0) - Info, disj(Goals) - Info) -->
 	deforest__disj(Goals0, Goals).
 
-deforest__goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info, 
-		if_then_else(Vars, Cond, Then, Else, SM) - Info) -->
+deforest__goal(if_then_else(Vars, Cond0, Then0, Else0) - Info, 
+		if_then_else(Vars, Cond, Then, Else) - Info) -->
 	pd_info_get_instmap(InstMap0),
 	deforest__goal(Cond0, Cond),
 	pd_info_update_goal(Cond),
@@ -278,8 +295,8 @@ deforest__goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info,
 	deforest__goal(Else0, Else),
 	pd_info_set_instmap(InstMap0).
 		
-deforest__goal(switch(Var, CanFail, Cases0, SM) - Info,
-		switch(Var, CanFail, Cases, SM) - Info) -->
+deforest__goal(switch(Var, CanFail, Cases0) - Info,
+		switch(Var, CanFail, Cases) - Info) -->
 	deforest__cases(Var, Cases0, Cases).
 
 deforest__goal(Goal, Goal) -->
@@ -1612,12 +1629,12 @@ deforest__push_goal_into_goal(NonLocals, DeforestInfo, EarlierGoal,
 		BetweenGoals, LaterGoal, Goal) -->
 	pd_info_get_instmap(InstMap0),
 	{ EarlierGoal = EarlierGoalExpr - _ },
-	( { EarlierGoalExpr = switch(Var1, CanFail1, Cases1, SM) } ->
+	( { EarlierGoalExpr = switch(Var1, CanFail1, Cases1) } ->
 		{ set__insert(NonLocals, Var1, CaseNonLocals) },
 		deforest__append_goal_to_cases(Var1, Cases1, BetweenGoals, 
 			LaterGoal, CaseNonLocals, 1, DeforestInfo, Cases),
-		{ GoalExpr = switch(Var1, CanFail1, Cases, SM) }
-	; { EarlierGoalExpr = if_then_else(Vars, Cond, Then0, Else0, SM) } ->
+		{ GoalExpr = switch(Var1, CanFail1, Cases) }
+	; { EarlierGoalExpr = if_then_else(Vars, Cond, Then0, Else0) } ->
 		pd_info_update_goal(Cond),
 		{ Cond = _ - CondInfo },
 		{ goal_info_get_nonlocals(CondInfo, CondNonLocals) },
@@ -1627,11 +1644,11 @@ deforest__push_goal_into_goal(NonLocals, DeforestInfo, EarlierGoal,
 		pd_info_set_instmap(InstMap0),
 		deforest__append_goal(Else0, BetweenGoals,
 			LaterGoal, NonLocals, 2, DeforestInfo, Else),
-		{ GoalExpr = if_then_else(Vars, Cond, Then, Else, SM) }
-	; { EarlierGoalExpr = disj(Disjuncts0, SM) } ->
+		{ GoalExpr = if_then_else(Vars, Cond, Then, Else) }
+	; { EarlierGoalExpr = disj(Disjuncts0) } ->
 		deforest__append_goal_to_disjuncts(Disjuncts0, BetweenGoals, 
 			LaterGoal, NonLocals, 1, DeforestInfo, Disjuncts),
-		{ GoalExpr = disj(Disjuncts, SM) }
+		{ GoalExpr = disj(Disjuncts) }
 	;
 		{ error("deforest__push_goal_into_goal") }
 	),

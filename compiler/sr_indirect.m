@@ -14,7 +14,13 @@
 :- module sr_indirect.
 :- interface.
 
-:- import_module hlds_module, io.
+% library modules.
+:- import_module io. 
+
+% XXX parent modules. 
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_module.
 
 :- pred sr_indirect__compute_fixpoint(module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
@@ -24,14 +30,18 @@
 
 :- implementation.
 
+% XXX parent modules. 
+:- import_module transform_hlds, parse_tree, libs.
+
 :- import_module map, list, std_util, require, set, string, bool.
-:- import_module hlds_pred, passes_aux.
-:- import_module dependency_graph, hlds_goal, prog_data, prog_util.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__passes_aux.
+:- import_module transform_hlds__dependency_graph.
+:- import_module parse_tree__prog_data, parse_tree__prog_util.
 :- import_module pa_alias_as, pa_run.
 :- import_module pa_sr_util.
 :- import_module sr_data, sr_util, sr_live.
 :- import_module sr_fixpoint_table.
-:- import_module globals, options.
+:- import_module libs__globals, libs__options.
 :- import_module pa_datastruct. 
 
 compute_fixpoint(HLDS0, HLDSout) -->
@@ -164,7 +174,7 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 		pa_alias_as__init(Alias0),
 		%	OK
 		% 4. initialize reuses-information
-		hlds_pred__proc_info_real_headvars(ProcInfo, HVs), 
+		hlds_pred__proc_info_headvars(ProcInfo, HVs), 
 		% do not change the state of the fixpoint table by
 		% simply consulting it now for initialization.
 		sr_fixpoint_table_get_final_reuse(PredProcId, 
@@ -273,7 +283,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr - Info. 
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = switch(Var, CanFail, Cases0, SM),
+	Expr0 = switch(Var, CanFail, Cases0),
 	list__map_foldl(
 		(pred(case(ConsId, Gin)::in, Tuple::out,
 				FPin::in, FPout::out) is det :-
@@ -307,11 +317,11 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	AI = analysis_info(Alias, Pool, Static, FP),
 
 	Info = Info0,
-	Expr = switch(Var, CanFail, Cases, SM),
+	Expr = switch(Var, CanFail, Cases),
 	Goal = Expr - Info. 
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = disj(Goals0, SM),
+	Expr0 = disj(Goals0),
 	(
 		Goals0 = []
 	->
@@ -353,7 +363,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	),
 
 	Info = Info0,
-	Expr = disj(Goals, SM),
+	Expr = disj(Goals),
 	Goal = Expr - Info. 
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
@@ -371,7 +381,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr - Info.
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM),
+	Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
 	analyse_goal(ProcInfo, HLDS, Cond0, Cond, AI0, AI_Cond),
 	analyse_goal(ProcInfo, HLDS, Then0, Then, AI_Cond, AI_Then),
 
@@ -394,7 +404,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	AI = analysis_info(Alias, Pool, Static, AI1 ^ table),
 
 	Info = Info0,
-	Expr = if_then_else(Vars, Cond, Then, Else, SM),
+	Expr = if_then_else(Vars, Cond, Then, Else),
 	Goal = Expr - Info.
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
@@ -407,7 +417,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr0 - Info0. 
 
 analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = par_conj(_, _), 
+	Expr0 = par_conj(_), 
 	pa_alias_as__top("unhandled goal (par_conj)", Alias), 
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0. 
@@ -705,7 +715,7 @@ indirect_reuse_pool_least_upper_bound_disjunction(List, Pool):-
 		require__error("(sr_indirect) indirect_reuse_pool_least_upper_bound_disjunction: list is empty")
 	).
 
-:- import_module instmap.
+:- import_module hlds__instmap.
 
 indirect_reuse_pool_least_upper_bound(Pool1, Pool2, Pool):-
 	Pool1 = pool(HVS, Memo1), 

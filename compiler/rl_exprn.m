@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -47,11 +47,13 @@
 % to specify which constructor to use.
 %
 %-----------------------------------------------------------------------------%
-:- module rl_exprn.
+:- module aditi_backend__rl_exprn.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, rl, rl_code, rl_file, prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, aditi_backend__rl.
+:- import_module aditi_backend__rl_code, aditi_backend__rl_file.
+:- import_module parse_tree__prog_data.
 :- import_module list.
 
 	% rl_exprn__generate_compare_exprn(ModuleInfo, SortSpec,
@@ -124,10 +126,13 @@
 
 :- implementation.
 
-:- import_module code_util, hlds_pred, hlds_data, inst_match.
-:- import_module instmap, mode_util, tree, type_util, prog_out.
-:- import_module rl_out, inlining, hlds_goal, prog_util, error_util.
-:- import_module builtin_ops.
+:- import_module ll_backend__code_util, hlds__hlds_pred, hlds__hlds_data.
+:- import_module check_hlds__inst_match.
+:- import_module hlds__instmap, check_hlds__mode_util, libs__tree.
+:- import_module check_hlds__type_util, parse_tree__prog_out.
+:- import_module aditi_backend__rl_out, transform_hlds__inlining.
+:- import_module hlds__hlds_goal, parse_tree__prog_util, hlds__error_util.
+:- import_module backend_libs__builtin_ops.
 
 :- import_module assoc_list, bool, char, int, map.
 :- import_module require, set, std_util, string, term, varset.
@@ -505,6 +510,9 @@ rl_exprn__set_term_arg_cons_id_code(tabling_pointer_const(_, _),
 rl_exprn__set_term_arg_cons_id_code(deep_profiling_proc_static(_),
 		_, _, _, _, _, _) -->
 	{ error("rl_exprn__set_term_arg_cons_id_code") }.
+rl_exprn__set_term_arg_cons_id_code(table_io_decl(_),
+		_, _, _, _, _, _) -->
+	{ error("rl_exprn__set_term_arg_cons_id_code") }.
 
 :- pred rl_exprn__set_term_arg_cons_id_code_2(aditi_type::in, tuple_num::in,
 		int::in, bool::in, bytecode::out) is det.
@@ -824,7 +832,7 @@ rl_exprn__goal(not(NegGoal) - _, Fail, Code) -->
 		tree(Fail, 
 		node([rl_PROC_label(EndLabel)])
 	)) }.
-rl_exprn__goal(if_then_else(_, Cond, Then, Else, _) - _, Fail, Code) -->
+rl_exprn__goal(if_then_else(_, Cond, Then, Else) - _, Fail, Code) -->
 	rl_exprn_info_get_next_label_id(StartElse),
 	rl_exprn_info_get_next_label_id(EndIte),
 	{ CondFail = node([rl_EXP_jmp(StartElse)]) },
@@ -840,16 +848,16 @@ rl_exprn__goal(if_then_else(_, Cond, Then, Else, _) - _, Fail, Code) -->
 	)))) }.
 rl_exprn__goal(conj(Goals) - _, Fail, Code) -->
 	rl_exprn__goals(Goals, Fail, Code).
-rl_exprn__goal(par_conj(_, _) - _, _, _) -->
+rl_exprn__goal(par_conj(_) - _, _, _) -->
 	{ error("rl_exprn__goal: par_conj not yet implemented") }.
-rl_exprn__goal(disj(Goals, _) - _Info, Fail, Code) -->
+rl_exprn__goal(disj(Goals) - _Info, Fail, Code) -->
 		% Nondet disjunctions should have been transformed into
 		% separate Aditi predicates by dnf.m.
 	rl_exprn_info_get_next_label_id(EndDisj),
 	{ GotoEnd = node([rl_EXP_jmp(EndDisj)]) },
 	rl_exprn__disj(Goals, GotoEnd, Fail, DisjCode),
 	{ Code = tree(DisjCode, node([rl_PROC_label(EndDisj)])) }.
-rl_exprn__goal(switch(Var, _, Cases, _) - _, Fail, Code) -->
+rl_exprn__goal(switch(Var, _, Cases) - _, Fail, Code) -->
 	rl_exprn_info_get_next_label_id(EndSwitch),
 	{ GotoEnd = node([rl_EXP_jmp(EndSwitch)]) },
 	rl_exprn__cases(Var, Cases, GotoEnd, Fail, SwitchCode),
@@ -1154,6 +1162,9 @@ rl_exprn__unify(construct(Var, ConsId, Args, UniModes, _, _, _),
 	; 
 		{ ConsId = deep_profiling_proc_static(_) },
 		{ error("rl_exprn__unify: unsupported cons_id - deep_profiling_proc_static") }
+	; 
+		{ ConsId = table_io_decl(_) },
+		{ error("rl_exprn__unify: unsupported cons_id - table_io_decl") }
 	).
 		
 rl_exprn__unify(deconstruct(Var, ConsId, Args, UniModes, CanFail, _CanCGC),
@@ -1266,7 +1277,7 @@ rl_exprn__functor_test(Var, ConsId, Fail, Code) -->
 
 rl_exprn__is_char_cons_id(ConsId, Type, Int) :-
 	ConsId = cons(unqualified(CharStr), 0),
-	type_to_type_id(Type, unqualified("character") - 0, _),
+	type_to_ctor_and_args(Type, unqualified("character") - 0, _),
 		% Convert characters to integers.
 	( string__to_char_list(CharStr, [Char]) ->
 		char__to_int(Char, Int)
@@ -1357,11 +1368,11 @@ rl_exprn__cons_id_to_rule_number(ConsId, Type, RuleNo) -->
 rl_exprn__cons_id_to_rule_number(ConsId, Type, ExprnTuple, RuleNo) -->
 	( 
 		{ ConsId = cons(ConsName, Arity) },
-		{ type_to_type_id(Type, TypeId, Args) }
+		{ type_to_ctor_and_args(Type, TypeCtor, Args) }
 	->
 		% These names should not be quoted, since they are not
 		% being parsed, just compared against other strings.
-		{ rl__mangle_type_name(TypeId, Args, MangledTypeName) },
+		{ rl__mangle_type_name(TypeCtor, Args, MangledTypeName) },
 		{ rl__mangle_ctor_name(ConsName, Arity, MangledConsName) },
 		{ Rule = rl_rule(MangledTypeName, MangledConsName, Arity) },
 		rl_exprn_info_lookup_rule(Rule - ExprnTuple, RuleNo)
@@ -2000,14 +2011,14 @@ rl_exprn__compare_bytecode(term(_), rl_EXP_term_cmp).
 :- pred rl_exprn__type_to_aditi_type((type)::in, aditi_type::out) is det.
 
 rl_exprn__type_to_aditi_type(Type, AditiType) :-
-	( type_to_type_id(Type, TypeId, _) ->
-		( TypeId = unqualified("int") - 0 ->
+	( type_to_ctor_and_args(Type, TypeCtor, _) ->
+		( TypeCtor = unqualified("int") - 0 ->
 			AditiType = int
-		; TypeId = unqualified("character") - 0 ->
+		; TypeCtor = unqualified("character") - 0 ->
 			AditiType = int
-		; TypeId = unqualified("string") - 0 ->
+		; TypeCtor = unqualified("string") - 0 ->
 			AditiType = string
-		; TypeId = unqualified("float") - 0 ->
+		; TypeCtor = unqualified("float") - 0 ->
 			AditiType = float
 		;
 			AditiType = term(Type)

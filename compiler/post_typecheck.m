@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,31 +12,30 @@
 %
 %	- it resolves predicate overloading
 %	- it resolves function overloading
+%	- it expands field access functions
+%	- it propagates type information into the modes of procedures
 %	- it checks for unbound type variables and if there are any,
 %	  it reports an error (or a warning, binding them to the type `void').
+%	- it reports errors for unbound inst variables in predicate or
+%	  function mode declarations
+%	- it reports errors for unsatisfied type class constraints
+%	- it reports an error if there are indistinguishable modes for
+%	  a predicate of function.
 %
 % These actions cannot be done until after type inference is complete,
 % so they need to be a separate "post-typecheck pass".  For efficiency
 % reasons, this is in fact done at the same time as purity analysis --
 % the routines here are called from purity.m rather than mercury_compile.m.
 %
-% This module also copies the clause_info structure
-% to the proc_info structures. This is done in the post_typecheck pass
-% and not at the start of modecheck because modecheck may be
-% reinvoked after HLDS transformations. Any transformation that
-% needs typechecking should work with the clause_info structure.
-% Type information is also propagated into the modes of procedures
-% by this pass if the ModeError parameter is no. 
-% ModeError should be yes if any undefined modes	
-% were found by previous passes.
-%
 
-:- module post_typecheck.
+:- module check_hlds__post_typecheck.
 :- interface.
-:- import_module hlds_data, hlds_goal, hlds_module, hlds_pred, prog_data.
+:- import_module hlds__hlds_data, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__hlds_pred, parse_tree__prog_data.
 :- import_module list, io, bool, std_util.
 
-	% check_type_bindings(PredId, PredInfo, ModuleInfo, ReportErrors):
+	% post_typecheck__finish_preds(PredIds, ReportTypeErrors,
+	%	NumErrors, FoundTypeError, Module0, Module)
 	%
 	% Check that all Aditi predicates have an `aditi__state' argument.
 	% Check that the all of the types which have been inferred
@@ -49,11 +48,37 @@
 	% Note that when checking assertions we take the conservative
 	% approach of warning about unbound type variables.  There may
 	% be cases for which this doesn't make sense.
+	% FoundTypeError will be `yes' if there were errors which
+	% should prevent further processing (e.g. polymorphism or
+	% mode analysis).
 	%
-:- pred post_typecheck__check_type_bindings(pred_id, pred_info, module_info,
-		bool, pred_info, int, io__state, io__state).
-:- mode post_typecheck__check_type_bindings(in, in, in, in, out, out, di, uo)
-		is det.
+:- pred post_typecheck__finish_preds(list(pred_id), bool,
+	int, bool, module_info, module_info, io__state, io__state).
+:- mode post_typecheck__finish_preds(in, in, out, out,
+	in, out, di, uo) is det.
+
+	% As above, but don't check for `aditi__state's and return
+	% the list of procedures containing unbound inst variables
+	% instead of reporting the errors directly.
+	%
+:- pred post_typecheck__finish_pred_no_io(module_info, list(proc_id),
+		pred_info, pred_info).
+:- mode post_typecheck__finish_pred_no_io(in, out, in, out) is det.
+
+:- pred post_typecheck__finish_imported_pred_no_io(module_info,
+		list(proc_id), pred_info, pred_info).
+:- mode post_typecheck__finish_imported_pred_no_io(in, out, in, out) is det.
+
+:- pred post_typecheck__finish_ill_typed_pred(module_info, pred_id,
+		pred_info, pred_info, io__state, io__state).
+:- mode post_typecheck__finish_ill_typed_pred(in, in, in, out, di, uo) is det.
+
+	% Now that the assertion has finished being typechecked,
+	% remove it from further processing and store it in the
+	% assertion_table.
+:- pred post_typecheck__finish_promise(promise_type, module_info, pred_id,
+		module_info, io__state, io__state) is det.
+:- mode post_typecheck__finish_promise(in, in, in, out, di, uo) is det.
 
 	% Handle any unresolved overloading for a predicate call.
 	%
@@ -91,54 +116,108 @@
 :- mode post_typecheck__resolve_unify_functor(in, in, in, in, in, in,
 		in, in, in, out, in, out, in, out, out) is det.
 
-	% Do the stuff needed to initialize the pred_infos and proc_infos
-	% so that a pred is ready for running polymorphism and then
-	% mode checking.
-	% Also check that all predicates with an `aditi' marker have
-	% an `aditi__state' argument.
-	%
-:- pred post_typecheck__finish_pred(module_info, pred_id, pred_info, pred_info,
-		io__state, io__state).
-:- mode post_typecheck__finish_pred(in, in, in, out, di, uo) is det.
-
-:- pred post_typecheck__finish_imported_pred(module_info, pred_id,
-		pred_info, pred_info, io__state, io__state).
-:- mode post_typecheck__finish_imported_pred(in, in, in, out, di, uo) is det.
-
-	% As above, but don't check for `aditi__state's and return
-	% the list of procedures containing unbound inst variables
-	% instead of reporting the errors directly.
-	%
-:- pred post_typecheck__finish_pred_no_io(module_info, list(proc_id),
-		pred_info, pred_info).
-:- mode post_typecheck__finish_pred_no_io(in, out, in, out) is det.
-
-:- pred post_typecheck__finish_imported_pred_no_io(module_info,
-		list(proc_id), pred_info, pred_info).
-:- mode post_typecheck__finish_imported_pred_no_io(in, out, in, out) is det.
-
-:- pred post_typecheck__finish_ill_typed_pred(module_info, pred_id,
-		pred_info, pred_info, io__state, io__state).
-:- mode post_typecheck__finish_ill_typed_pred(in, in, in, out, di, uo) is det.
-
-	% Now that the assertion has finished being typechecked,
-	% remove it from further processing and store it in the
-	% assertion_table.
-:- pred post_typecheck__finish_assertion(module_info, pred_id,
-		module_info, io__state, io__state) is det.
-:- mode post_typecheck__finish_assertion(in, in, out, di, uo) is det.
-
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module (assertion), code_util, typecheck, clause_to_proc.
-:- import_module mode_util, inst_match, (inst), prog_util, error_util.
-:- import_module mercury_to_mercury, prog_out, hlds_out, type_util.
-:- import_module globals, options.
+:- import_module (hlds__assertion), ll_backend__code_util.
+:- import_module check_hlds__typecheck, check_hlds__clause_to_proc.
+:- import_module check_hlds__mode_util, check_hlds__inst_match.
+:- import_module (parse_tree__inst), parse_tree__prog_util, hlds__error_util.
+:- import_module parse_tree__mercury_to_mercury, parse_tree__prog_out.
+:- import_module check_hlds__mode_errors, check_hlds__modecheck_call.
+:- import_module hlds__hlds_out, check_hlds__type_util, hlds__goal_util.
+:- import_module hlds__special_pred.
+:- import_module libs__globals, libs__options.
 
 :- import_module map, set, assoc_list, term, require, int.
 :- import_module string, varset.
+
+%-----------------------------------------------------------------------------%
+
+post_typecheck__finish_preds(PredIds, ReportTypeErrors, NumErrors,
+		FoundTypeError, ModuleInfo0, ModuleInfo) -->
+	post_typecheck__finish_preds(PredIds, ReportTypeErrors,
+		ModuleInfo0, ModuleInfo, 0, NumErrors, no, FoundTypeError).
+
+:- pred post_typecheck__finish_preds(list(pred_id), bool,
+	module_info, module_info, int, int, bool, bool, io__state, io__state).
+:- mode post_typecheck__finish_preds(in, in, in, out, in, out,
+	in, out, di, uo) is det.
+
+post_typecheck__finish_preds([], _, ModuleInfo, ModuleInfo,
+		NumErrors, NumErrors,
+		PostTypecheckError, PostTypecheckError) --> [].
+post_typecheck__finish_preds([PredId | PredIds], ReportTypeErrors,
+		ModuleInfo0, ModuleInfo, NumErrors0, NumErrors,
+		FoundTypeError0, FoundTypeError) -->
+	{ module_info_pred_info(ModuleInfo0, PredId, PredInfo0) },
+	(	
+		{ pred_info_is_imported(PredInfo0)
+		; pred_info_is_pseudo_imported(PredInfo0) }
+	->
+		post_typecheck__finish_imported_pred(ModuleInfo0, PredId,
+				PredInfo0, PredInfo),
+		{ NumErrors1 = NumErrors0 },
+		{ FoundTypeError1 = FoundTypeError0 }
+	;
+		%
+		% Only report error messages for unbound type variables
+		% if we didn't get any type errors already; this avoids
+		% a lot of spurious diagnostics.
+		%
+		post_typecheck__check_type_bindings(PredId, PredInfo0,
+				ModuleInfo0, ReportTypeErrors,
+				PredInfo1, UnboundTypeErrsInThisPred),
+
+		%
+		% if there were any unsatisfied type class constraints,
+		% then that can cause internal errors in polymorphism.m
+		% if we try to continue, so we need to halt compilation
+		% after this pass.
+		%
+		{ UnboundTypeErrsInThisPred \= 0 ->
+			FoundTypeError1 = yes
+		;
+			FoundTypeError1 = FoundTypeError0
+		},
+
+		{ post_typecheck__finish_pred_no_io(ModuleInfo0,
+			ErrorProcs, PredInfo1, PredInfo2) },
+		report_unbound_inst_vars(ModuleInfo0, PredId,
+			ErrorProcs, PredInfo2, PredInfo3),
+		check_for_indistinguishable_modes(ModuleInfo0, PredId,
+			PredInfo3, PredInfo),
+
+		%
+		% check that main/2 has the right type
+		%
+		( { ReportTypeErrors = yes } ->
+			check_type_of_main(PredInfo)
+		;
+			[]
+		),
+
+		%
+		% Check that all Aditi predicates have an `aditi__state'
+		% argument. This must be done after typechecking because
+		% of type inference -- the types of some Aditi predicates
+		% may not be known before.
+		%
+		{ pred_info_get_markers(PredInfo, Markers) },
+		( { ReportTypeErrors = yes, check_marker(Markers, aditi) } ->
+			check_aditi_state(ModuleInfo0, PredInfo)
+		;
+			[]
+		),
+	 
+		{ NumErrors1 is NumErrors0 + UnboundTypeErrsInThisPred }
+	),
+	{ module_info_set_pred_info(ModuleInfo0, PredId,
+		PredInfo, ModuleInfo1) },
+	post_typecheck__finish_preds(PredIds, ReportTypeErrors,
+		ModuleInfo1, ModuleInfo, NumErrors1, NumErrors,
+		FoundTypeError1, FoundTypeError).
 
 %-----------------------------------------------------------------------------%
 %			Check for unbound type variables
@@ -147,6 +226,11 @@
 %  for the variables in the clause do not contain any unbound type
 %  variables other than those that occur in the types of head
 %  variables, and that there are no unsatisfied type class constraints.
+
+:- pred post_typecheck__check_type_bindings(pred_id, pred_info, module_info,
+		bool, pred_info, int, io__state, io__state).
+:- mode post_typecheck__check_type_bindings(in, in, in, in, out, out, di, uo)
+		is det.
 
 post_typecheck__check_type_bindings(PredId, PredInfo0, ModuleInfo, ReportErrs,
 		PredInfo, NumErrors, IOState0, IOState) :-
@@ -176,16 +260,16 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, ModuleInfo, ReportErrs,
 			[], Errs, Set0, Set),
 	( Errs = [] ->
 		PredInfo = PredInfo0,
-		IOState2 = IOState1
+		IOState = IOState1
 	;
 		( ReportErrs = yes ->
 			%
 			% report the warning
 			%
 			report_unresolved_type_warning(Errs, PredId, PredInfo0,
-				ModuleInfo, VarSet, IOState1, IOState2)
+				ModuleInfo, VarSet, IOState1, IOState)
 		;
-			IOState2 = IOState1
+			IOState = IOState1
 		),
 
 		%
@@ -198,27 +282,6 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, ModuleInfo, ReportErrs,
 			ClausesInfo),
 		pred_info_set_clauses_info(PredInfo0, ClausesInfo, PredInfo1),
 		pred_info_set_constraint_proofs(PredInfo1, Proofs, PredInfo)
-	),
-
-	%
-	% check that main/2 has the right type
-	%
-	( ReportErrs = yes ->
-		check_type_of_main(PredInfo, IOState2, IOState3)
-	;
-		IOState3 = IOState2
-	),
-
-	%
-	% Check that all Aditi predicates have an `aditi__state' argument.
-	% This must be done after typechecking because of type inference --
-	% the types of some Aditi predicates may not be known before.
-	%
-	pred_info_get_markers(PredInfo, Markers),
-	( ReportErrs = yes, check_marker(Markers, aditi) ->
-		check_aditi_state(ModuleInfo, PredInfo, IOState3, IOState)
-	;
-		IOState = IOState3
 	).
 
 :- pred check_type_bindings_2(assoc_list(prog_var, (type)), list(tvar),
@@ -622,16 +685,6 @@ report_aditi_builtin_error(
 
 %-----------------------------------------------------------------------------%
 
-	% 
-	% Ensure that all constructors occurring in predicate mode 
-	% declarations are module qualified.
-	% 
-post_typecheck__finish_pred(ModuleInfo, PredId, PredInfo0, PredInfo) -->
-	{ post_typecheck__finish_pred_no_io(ModuleInfo,
-			ErrorProcs, PredInfo0, PredInfo1) },
-	report_unbound_inst_vars(ModuleInfo, PredId,
-			ErrorProcs, PredInfo1, PredInfo).
-
 post_typecheck__finish_pred_no_io(ModuleInfo, ErrorProcs,
 		PredInfo0, PredInfo) :-
 	post_typecheck__propagate_types_into_modes(ModuleInfo,
@@ -647,13 +700,19 @@ post_typecheck__finish_ill_typed_pred(ModuleInfo, PredId,
 	{ post_typecheck__propagate_types_into_modes(ModuleInfo,
 			ErrorProcs, PredInfo0, PredInfo1) },
 	report_unbound_inst_vars(ModuleInfo, PredId,
-			ErrorProcs, PredInfo1, PredInfo).
+			ErrorProcs, PredInfo1, PredInfo2),
+	check_for_indistinguishable_modes(ModuleInfo, PredId,
+			PredInfo2, PredInfo).
 
 	% 
 	% For imported preds, we just need to ensure that all
 	% constructors occurring in predicate mode declarations are
 	% module qualified.
 	% 
+:- pred post_typecheck__finish_imported_pred(module_info, pred_id,
+		pred_info, pred_info, io__state, io__state).
+:- mode post_typecheck__finish_imported_pred(in, in, in, out, di, uo) is det.
+
 post_typecheck__finish_imported_pred(ModuleInfo, PredId,
 		PredInfo0, PredInfo) -->
 	{ pred_info_get_markers(PredInfo0, Markers) },
@@ -669,7 +728,9 @@ post_typecheck__finish_imported_pred(ModuleInfo, PredId,
 	{ post_typecheck__finish_imported_pred_no_io(ModuleInfo, ErrorProcs,
 		PredInfo0, PredInfo1) },
 	report_unbound_inst_vars(ModuleInfo, PredId,
-		ErrorProcs, PredInfo1, PredInfo).
+		ErrorProcs, PredInfo1, PredInfo2),
+	check_for_indistinguishable_modes(ModuleInfo, PredId,
+		PredInfo2, PredInfo).
 
 post_typecheck__finish_imported_pred_no_io(ModuleInfo, Errors,
 		PredInfo0, PredInfo) :-
@@ -691,42 +752,92 @@ post_typecheck__finish_imported_pred_no_io(ModuleInfo, Errors,
 		Errors, PredInfo1, PredInfo).
 
 	%
-	% Now that the assertion has finished being typechecked,
+	% Now that the promise has finished being typechecked,
 	% and has had all of its pred_ids identified,
-	% remove the assertion from the list of pred ids to be processed
+	% remove the promise from the list of pred ids to be processed
 	% in the future and place the pred_id associated with the
-	% assertion into the assertion table.
+	% promise into the assertion or promise_ex table.
 	% For each assertion that is in the interface, you need to check
 	% that it doesn't refer to any symbols which are local to that
 	% module.
 	% Also record for each predicate that is used in an assertion
-	% which assertion it is used in.
-	% 
-post_typecheck__finish_assertion(Module0, PredId, Module) -->
-		% store into assertion table.
-	{ module_info_assertion_table(Module0, AssertTable0) },
-	{ assertion_table_add_assertion(PredId,
-			AssertTable0, AssertionId, AssertTable) },
-	{ module_info_set_assertion_table(Module0, AssertTable, Module1) },
-		
+	% which assertion it is used in, or for a promise ex declaration
+	% record in the promise ex table the predicates used by the
+	% declaration.
+	%
+post_typecheck__finish_promise(PromiseType, Module0, PromiseId, Module) -->
+		% Store the declaration in the appropriate table and get
+		% the goal for the promise
+	{ store_promise(PromiseType, Module0, PromiseId, Module1, Goal) },
+			
 		% Remove from further processing.
-	{ module_info_remove_predid(Module1, PredId, Module2) },
+	{ module_info_remove_predid(Module1, PromiseId, Module2) },
 
-		% If the assertion is in the interface, then ensure that
+		% If the promise is in the interface, then ensure that
 		% it doesn't refer to any local symbols.
-	{ module_info_pred_info(Module2, PredId, PredInfo) },
-	{ assertion__goal(AssertionId, Module2, Goal) },
-	(
-		{ pred_info_is_exported(PredInfo) }
-	->
-		assertion__in_interface_check(Goal, PredInfo, Module2, Module3)
+	{ module_info_pred_info(Module2, PromiseId, PredInfo) },
+	( { pred_info_is_exported(PredInfo) } ->
+		assertion__in_interface_check(Goal, PredInfo, 
+				Module2, Module)
 	;
-		{ Module3 = Module2 }
-	),
+		{ Module2 = Module }
+	).
 
-		% record which predicates are used in assertions
-	{ assertion__record_preds_used_in(Goal, AssertionId, Module3, Module) }.
-	
+	% store promise declaration, normalise goal and return new
+	% module_info and the goal for further processing
+:- pred store_promise(promise_type, module_info, pred_id, module_info, 
+		hlds_goal).
+:- mode store_promise(in, in, in, out, out) is det.
+store_promise(PromiseType, Module0, PromiseId, Module, Goal) :-
+	( 
+		% case for assertions
+		PromiseType = true
+	->
+		module_info_assertion_table(Module0, AssertTable0),
+		assertion_table_add_assertion(PromiseId, AssertTable0, 
+				AssertionId, AssertTable),
+		module_info_set_assertion_table(Module0, AssertTable, 
+				Module1),
+		assertion__goal(AssertionId, Module1, Goal),
+		assertion__record_preds_used_in(Goal, AssertionId, Module1,
+				Module)
+	;
+		% case for exclusivity
+		(
+			PromiseType = exclusive
+		;
+			PromiseType = exclusive_exhaustive
+		)
+	->
+		promise_ex_goal(PromiseId, Module0, Goal),
+		predids_from_goal(Goal, PredIds),
+		module_info_exclusive_table(Module0, Table0),
+		list__foldl(exclusive_table_add(PromiseId), PredIds, Table0,
+				Table),
+		module_info_set_exclusive_table(Module0, Table, Module)
+
+	;
+		% case for exhaustiveness -- XXX not yet implemented
+		promise_ex_goal(PromiseId, Module0, Goal),
+		Module0 = Module
+	).
+
+	% get the goal from a promise_ex declaration
+:- pred promise_ex_goal(pred_id, module_info, hlds_goal).
+:- mode promise_ex_goal(in, in, out) is det.
+promise_ex_goal(ExclusiveDecl, Module, Goal) :-
+        module_info_pred_info(Module, ExclusiveDecl, PredInfo),
+        pred_info_clauses_info(PredInfo, ClausesInfo),
+        clauses_info_clauses(ClausesInfo, Clauses),
+        (
+		Clauses = [clause(_ProcIds, Goal0, _Lang, _Context)]
+	->
+		assertion__normalise_goal(Goal0, Goal)
+	;
+		error("promise_ex__goal: not an promise")
+	).
+
+
 %-----------------------------------------------------------------------------%
 
 :- pred check_type_of_main(pred_info, io__state, io__state).
@@ -849,6 +960,89 @@ unbound_inst_var_error(PredId, ProcInfo, ModuleInfo) -->
 	io__write_string("  error: unbound inst variable(s).\n"),
 	prog_out__write_context(Context),
 	io__write_string("  (Sorry, polymorphic modes are not supported.)\n").
+
+%-----------------------------------------------------------------------------%
+
+:- pred check_for_indistinguishable_modes(module_info, pred_id,
+		pred_info, pred_info, io__state, io__state).
+:- mode check_for_indistinguishable_modes(in, in, in, out, di, uo) is det.
+
+check_for_indistinguishable_modes(ModuleInfo, PredId, PredInfo0, PredInfo) -->
+	(
+		%
+		% Don't check for indistinguishable modes in unification
+		% predicates.  The default (in, in) mode must be
+		% semidet, but for single-value types we also want to
+		% create a det mode which will be indistinguishable
+		% from the semidet mode.
+		% (When the type is known, the det mode is called,
+		% but the polymorphic unify needs to be able to call
+		% the semidet mode.)
+		%
+		{ special_pred_name_arity(unify, _, PredName, PredArity) },
+		{ pred_info_name(PredInfo0, PredName) },
+		{ pred_info_arity(PredInfo0, PredArity) }
+	->
+		{ PredInfo = PredInfo0 }
+	;
+		{ pred_info_procids(PredInfo0, ProcIds) },
+		check_for_indistinguishable_modes(ModuleInfo, PredId,
+			ProcIds, [], PredInfo0, PredInfo)
+	).
+
+:- pred check_for_indistinguishable_modes(module_info, pred_id, list(proc_id),
+		list(proc_id), pred_info, pred_info, io__state, io__state).
+:- mode check_for_indistinguishable_modes(in, in, in,
+		in, in, out, di, uo) is det.
+
+check_for_indistinguishable_modes(_, _, [], _, PredInfo, PredInfo) --> [].
+check_for_indistinguishable_modes(ModuleInfo, PredId, [ProcId | ProcIds],
+		PrevProcIds, PredInfo0, PredInfo) -->
+	check_for_indistinguishable_mode(ModuleInfo, PredId, ProcId,
+		PrevProcIds, PredInfo0, PredInfo1),
+	check_for_indistinguishable_modes(ModuleInfo, PredId, ProcIds,
+		[ProcId | PrevProcIds], PredInfo1, PredInfo).
+
+:- pred check_for_indistinguishable_mode(module_info, pred_id, proc_id,
+		list(proc_id), pred_info, pred_info, io__state, io__state).
+:- mode check_for_indistinguishable_mode(in, in, in,
+		in, in, out, di, uo) is det.
+
+check_for_indistinguishable_mode(_, _, _, [], PredInfo, PredInfo) --> [].
+check_for_indistinguishable_mode(ModuleInfo, PredId, ProcId1,
+		[ProcId | ProcIds], PredInfo0, PredInfo) -->
+	(
+		{ modes_are_indistinguishable(ProcId, ProcId1,
+			PredInfo0, ModuleInfo) }
+	->
+		{ pred_info_import_status(PredInfo0, Status) },
+		globals__io_lookup_bool_option(intermodule_optimization,
+			Intermod),
+		globals__io_lookup_bool_option(make_optimization_interface,
+			MakeOptInt),
+		(
+			% With `--intermodule-optimization' we can read
+			% the declarations for a predicate from the `.int'
+			% and `.int0' files, so ignore the error in that case.
+			{
+				status_defined_in_this_module(Status, yes)
+			;
+				Intermod = no
+			;
+				MakeOptInt = yes
+			}
+		->
+			report_indistinguishable_modes_error(ProcId1,
+				ProcId, PredId, PredInfo0, ModuleInfo)
+		;
+			[]
+		),
+		{ pred_info_remove_procid(PredInfo0, ProcId1, PredInfo1) }
+	;
+		{ PredInfo1 = PredInfo0 }
+	),
+	check_for_indistinguishable_mode(ModuleInfo, PredId, ProcId1,
+		ProcIds, PredInfo1, PredInfo).
 
 %-----------------------------------------------------------------------------%
 
@@ -1052,7 +1246,7 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		invalid_proc_id(ProcId),
 		list__append(ArgVars0, [X0], ArgVars),
 		FuncCallUnifyContext = call_unify_context(X0,
-			functor(ConsId0, ArgVars0), UnifyContext),
+			functor(ConsId0, no, ArgVars0), UnifyContext),
 		FuncCall = call(PredId, ProcId, ArgVars, not_builtin,
 			yes(FuncCallUnifyContext), QualifiedFuncName),
 
@@ -1087,7 +1281,7 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 	->
 		get_proc_id(ModuleInfo, PredId, ProcId),
 		ConsId = pred_const(PredId, ProcId, EvalMethod),
-		Goal = unify(X0, functor(ConsId, ArgVars0), Mode0,
+		Goal = unify(X0, functor(ConsId, no, ArgVars0), Mode0,
 			Unification0, UnifyContext) - GoalInfo0,
 		PredInfo = PredInfo0,
 		VarTypes = VarTypes0,
@@ -1136,15 +1330,15 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		VarSet = VarSet0,
 		(
 			ConsId0 = cons(Name0, Arity),
-			type_to_type_id(TypeOfX, TypeIdOfX, _),
-			TypeIdOfX = qualified(TypeModule, _) - _
+			type_to_ctor_and_args(TypeOfX, TypeCtorOfX, _),
+			TypeCtorOfX = qualified(TypeModule, _) - _
 		->
 			unqualify_name(Name0, Name),
 			ConsId = cons(qualified(TypeModule, Name), Arity)	
 		;
 			ConsId = ConsId0
 		),
-		Goal = unify(X0, functor(ConsId, ArgVars0), Mode0,
+		Goal = unify(X0, functor(ConsId, no, ArgVars0), Mode0,
 				Unification0, UnifyContext) - GoalInfo0
 	).
 
@@ -1157,18 +1351,18 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 :- mode find_matching_constructor(in, in, in, in, in) is semidet.
 
 find_matching_constructor(ModuleInfo, TVarSet, ConsId, Type, ArgTypes) :-
-	type_to_type_id(Type, TypeId, _),
+	type_to_ctor_and_args(Type, TypeCtor, _),
 	module_info_ctors(ModuleInfo, ConsTable),
 	map__search(ConsTable, ConsId, ConsDefns),
 	list__member(ConsDefn, ConsDefns),
 
 	% Overloading resolution ignores the class constraints.
 	ConsDefn = hlds_cons_defn(ConsExistQVars, _,
-			ConsArgs, ConsTypeId, _),
-	ConsTypeId = TypeId,
+			ConsArgs, ConsTypeCtor, _),
+	ConsTypeCtor = TypeCtor,
 
 	module_info_types(ModuleInfo, Types),
-	map__search(Types, TypeId, TypeDefn),
+	map__search(Types, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_tvarset(TypeDefn, TypeTVarSet),
 
 	assoc_list__values(ConsArgs, ConsArgTypes),
@@ -1267,7 +1461,7 @@ post_typecheck__translate_get_function(ModuleInfo, PredInfo0, PredInfo,
 
 	goal_info_get_nonlocals(OldGoalInfo, RestrictNonLocals),
 	create_atomic_unification_with_nonlocals(TermInputVar,
-		functor(ConsId, ArgVars), OldGoalInfo,
+		functor(ConsId, no, ArgVars), OldGoalInfo,
 		RestrictNonLocals, [FieldVar, TermInputVar],
 		UnifyContext, FunctorGoal),
 	FunctorGoal = GoalExpr - _.
@@ -1311,7 +1505,7 @@ post_typecheck__translate_set_function(ModuleInfo, PredInfo0, PredInfo,
 		DeconstructRestrictNonLocals),
 
 	create_atomic_unification_with_nonlocals(TermInputVar,
-		functor(ConsId0, DeconstructArgs), OldGoalInfo,
+		functor(ConsId0, no, DeconstructArgs), OldGoalInfo,
 		DeconstructRestrictNonLocals, [TermInputVar | DeconstructArgs],
 		UnifyContext, DeconstructGoal),
 
@@ -1338,7 +1532,7 @@ post_typecheck__translate_set_function(ModuleInfo, PredInfo0, PredInfo,
 	),
 
 	create_atomic_unification_with_nonlocals(TermOutputVar,
-		functor(ConsId, ConstructArgs), OldGoalInfo,
+		functor(ConsId, no, ConstructArgs), OldGoalInfo,
 		ConstructRestrictNonLocals, [TermOutputVar | ConstructArgs],
 		UnifyContext, ConstructGoal),
 	
@@ -1382,11 +1576,11 @@ get_cons_id_arg_types_adding_existq_tvars(ModuleInfo, ConsId, TermType,
 	),
 	hlds_data__get_type_defn_tparams(TypeDefn, TypeParams),
 	term__term_list_to_var_list(TypeParams, TypeDefnArgs),
-	( type_to_type_id(TermType, _, TypeArgs) ->
+	( type_to_ctor_and_args(TermType, _, TypeArgs) ->
 		map__from_corresponding_lists(TypeDefnArgs, TypeArgs, TSubst)
 	;
 		error(
-	"get_cons_id_arg_types_adding_existq_tvars: type_to_type_id failed")
+	"get_cons_id_arg_types_adding_existq_tvars: type_to_ctor_and_args failed")
 
 	),
 	term__apply_substitution_to_list(ArgTypes1, TSubst, ArgTypes).
@@ -1416,16 +1610,16 @@ split_list_at_index(Index, List, Before, At, After) :-
 
 get_constructor_containing_field(ModuleInfo, TermType, FieldName,
 		ConsId, FieldNumber) :-
-	( type_to_type_id(TermType, TermTypeId0, _) ->
-		TermTypeId = TermTypeId0
+	( type_to_ctor_and_args(TermType, TermTypeCtor0, _) ->
+		TermTypeCtor = TermTypeCtor0
 	;
 		error(
-		"get_constructor_containing_field: type_to_type_id failed")
+		"get_constructor_containing_field: type_to_ctor_and_args failed")
 	),
 	module_info_types(ModuleInfo, Types),
-	map__lookup(Types, TermTypeId, TermTypeDefn),
+	map__lookup(Types, TermTypeCtor, TermTypeDefn),
 	hlds_data__get_type_defn_body(TermTypeDefn, TermTypeBody),
-	( TermTypeBody = du_type(Ctors, _, _, _) ->
+	( TermTypeBody = du_type(Ctors, _, _, _, _) ->
 		get_constructor_containing_field_2(Ctors, FieldName, ConsId,
 			FieldNumber)
 	;

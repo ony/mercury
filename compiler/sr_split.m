@@ -14,8 +14,14 @@
 :- module sr_split.
 :- interface.
 
-:- import_module hlds_module, io, string.
-:- import_module hlds_pred, sr_data, std_util, hlds_goal.
+% library modules.
+:- import_module std_util, io, string.
+
+% XXX parent modules.
+:- import_module hlds.
+% compiler modules. 
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred, sr_data, hlds__hlds_goal.
 
 	% create_multiple_versions(ReuseHLDS, FinalHLDS).
 	% Starting from the VirginHLDS, it computes a new HLDS where for
@@ -36,10 +42,12 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
+% XXX parent modules.
+:- import_module parse_tree.
 
 :- import_module bool, std_util, require, list, set, map.
-:- import_module hlds_pred. 
-:- import_module hlds_goal, prog_data, hlds_data, prog_util. 
+:- import_module parse_tree__prog_data, hlds__hlds_data.
+:- import_module parse_tree__prog_util. 
 :- import_module sr_data. 
 
 
@@ -305,7 +313,7 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 	Goal = Goal0, 
 	GoalInfo = GoalInfo0.
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
-	Goal0 = switch(X,Y,Cases0,Z),
+	Goal0 = switch(X, Y, Cases0),
 	list__map(
 		pred(C0::in, C::out) is det:-
 			( C0 = case(Id, G0), 
@@ -313,7 +321,7 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 			C = case(Id, G)),
 		Cases0,
 		Cases),
-	Goal = switch(X, Y, Cases, Z),
+	Goal = switch(X, Y, Cases),
 	GoalInfo = GoalInfo0.
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
 	Goal0 = unify(_,_,_,_,_),
@@ -322,9 +330,9 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 	convert_reuse(Reuse0,Reuse), 
 	goal_info_set_reuse(GoalInfo0, Reuse, GoalInfo).
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
-	Goal0 = disj(Goals0, SM),
+	Goal0 = disj(Goals0),
 	list__map(convert_potential_reuse_to_reuse, Goals0, Goals), 
-	Goal = disj(Goals, SM), 
+	Goal = disj(Goals), 
 	GoalInfo = GoalInfo0.
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
 	Goal0 = not(NegGoal0),
@@ -337,18 +345,18 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 	Goal = some(A, B, SG),
 	GoalInfo = GoalInfo0. 
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
-	Goal0 = if_then_else(A, If0, Then0, Else0, B),
+	Goal0 = if_then_else(A, If0, Then0, Else0),
 	convert_potential_reuse_to_reuse(If0, If), 
 	convert_potential_reuse_to_reuse(Then0, Then), 
 	convert_potential_reuse_to_reuse(Else0, Else), 
-	Goal = if_then_else(A, If, Then, Else, B),
+	Goal = if_then_else(A, If, Then, Else),
 	GoalInfo0 = GoalInfo. 
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
 	Goal0 = foreign_proc(_,_,_,_,_,_,_),
 	Goal = Goal0, 
 	GoalInfo = GoalInfo0.
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
-	Goal0 = par_conj(_,_),
+	Goal0 = par_conj(_),
 	Goal = Goal0, 
 	GoalInfo = GoalInfo0.
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
@@ -436,16 +444,16 @@ process_goal(_, Goal0 - _GoalInfo, _) -->
 	{ error("structure_reuse: shorthand.\n") }.
 
 process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
 	process_goal(LocalReuseOnly, If0, If),
 	process_goal(LocalReuseOnly, Then0, Then),
 	process_goal(LocalReuseOnly, Else0, Else),
-	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
+	{ Goal = if_then_else(Vars, If, Then, Else) }.
 
 process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	{ Goal0 = switch(Var, CanFail, Cases0) },
 	process_goal_cases(LocalReuseOnly, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
+	{ Goal = switch(Var, CanFail, Cases) }.
 
 process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
@@ -457,11 +465,11 @@ process_goal(LocalReuseOnly, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
 process_goal(LocalReuseOnly, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	process_goal_list(LocalReuseOnly, Goal0s, Goals).
-process_goal(LocalReuseOnly, disj(Goal0s, SM) - GoalInfo,
-		disj(Goals, SM) - GoalInfo) -->
+process_goal(LocalReuseOnly, disj(Goal0s) - GoalInfo,
+		disj(Goals) - GoalInfo) -->
 	process_goal_list(LocalReuseOnly, Goal0s, Goals).
-process_goal(LocalReuseOnly, par_conj(Goal0s, SM) - GoalInfo,
-		par_conj(Goals, SM) - GoalInfo) -->
+process_goal(LocalReuseOnly, par_conj(Goal0s) - GoalInfo,
+		par_conj(Goals) - GoalInfo) -->
 	process_goal_list(LocalReuseOnly, Goal0s, Goals).
 
 :- pred process_goal_cases(bool::in, list(case)::in, list(case)::out,

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,15 +14,80 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module foreign.
+:- module backend_libs__foreign.
 
 :- interface.
 
-:- import_module prog_data, globals.
-:- import_module hlds_module, hlds_pred.
-:- import_module llds.
+:- import_module parse_tree__prog_data, libs__globals.
+:- import_module hlds__hlds_module, hlds__hlds_pred.
 
-:- import_module list, bool.
+:- import_module bool, list, string, term.
+
+:- type foreign_decl_info ==	list(foreign_decl_code).	
+		% in reverse order
+:- type foreign_import_module_info == list(foreign_import_module).
+		% in reverse order
+:- type foreign_body_info   ==	list(foreign_body_code).
+		% in reverse order
+
+:- type foreign_decl_code	--->	
+		foreign_decl_code(foreign_language, string, prog_context).
+:- type foreign_import_module	--->
+		foreign_import_module(foreign_language, module_name,
+			prog_context).
+:- type foreign_body_code	--->
+		foreign_body_code(foreign_language, string, prog_context).
+
+:- type foreign_export_defns == list(foreign_export).
+:- type foreign_export_decls
+	--->	foreign_export_decls(
+			foreign_decl_info,
+			list(foreign_export_decl)
+		).
+
+:- type foreign_export_decl
+	---> foreign_export_decl(
+		foreign_language,	% language of the export
+		string,		% return type
+		string,		% function name
+		string		% argument declarations
+	).
+
+	% Some code from a `pragma foreign_code' declaration that is not
+	% associated with a given procedure.
+:- type user_foreign_code
+	--->	user_foreign_code(
+			foreign_language,	% language of this code
+			string,			% code
+			term__context		% source code location
+		).
+
+	% the code for `pragma export' is generated directly as strings
+	% by export.m.
+:- type foreign_export	==	string.
+
+	% A type which is used to determine the string representation of a
+	% mercury type for various foreign languages.
+:- type exported_type.
+
+	% Given a type which is not defined as a foreign type, get the
+	% exported_type representation of that type.
+:- func foreign__non_foreign_type((type)) = exported_type.
+
+	% Given an arbitary mercury type, get the exported_type representation
+	% of that type on the current backend.
+:- func foreign__to_exported_type(module_info, (type)) = exported_type.
+
+	% Given the exported_type representation for a type,
+	% determine whether or not it is a foreign type.
+:- func foreign__is_foreign_type(exported_type) = bool.
+
+	% Given a representation of a type, determine the string which
+	% corresponds to that type in the specified foreign language,
+	% for use with foreign language interfacing (`pragma export' or
+	% `pragma foreign_proc').
+:- func foreign__to_type_string(foreign_language, exported_type) = string.
+:- func foreign__to_type_string(foreign_language, module_info, (type)) = string.
 
 	% Filter the decls for the given foreign language. 
 	% The first return value is the list of matches, the second is
@@ -30,6 +95,13 @@
 :- pred foreign__filter_decls(foreign_language, foreign_decl_info,
 		foreign_decl_info, foreign_decl_info).
 :- mode foreign__filter_decls(in, in, out, out) is det.
+
+	% Filter the module imports for the given foreign language. 
+	% The first return value is the list of matches, the second is
+	% the list of mis-matches.
+:- pred foreign__filter_imports(foreign_language, foreign_import_module_info,
+		foreign_import_module_info, foreign_import_module_info).
+:- mode foreign__filter_imports(in, in, out, out) is det.
 
 	% Filter the bodys for the given foreign language. 
 	% The first return value is the list of matches, the second is
@@ -92,26 +164,43 @@
 	% for use in machine-readable name mangling.
 :- func simple_foreign_language_string(foreign_language) = string.
 
+	% Sub-type of foreign_language for languages for which
+	% we generate external files for foreign code.
+:- inst lang_gen_ext_file 
+	--->	c
+	;	managed_cplusplus
+	;	csharp
+	.
+
 	% The file extension used for this foreign language (including
 	% the dot).
 	% Not all foreign languages generate external files,
 	% so this function only succeeds for those that do.
-:- func foreign_language_file_extension(foreign_language) = string
-		is semidet.
+:- func foreign_language_file_extension(foreign_language) = string.
+:- mode foreign_language_file_extension(in) = out is semidet.
+:- mode foreign_language_file_extension(in(lang_gen_ext_file)) = out is det.
 
 	% The module name used for this foreign language.
 	% Not all foreign languages generate external modules 
 	% so this function only succeeds for those that do.
 :- func foreign_language_module_name(module_name, foreign_language) =
-		module_name is semidet.
+		module_name.
+:- mode foreign_language_module_name(in, in) = out is semidet.
+:- mode foreign_language_module_name(in, in(lang_gen_ext_file)) = out is det.
+
+	% The name of the #define which can be used to guard declarations with
+	% to prevent entities being declared twice.
+:- func decl_guard(sym_name) = string.
 
 :- implementation.
 
-:- import_module list, map, assoc_list, std_util, string, varset, int.
+:- import_module list, map, assoc_list, std_util, string, varset, int, term.
 :- import_module require.
 
-:- import_module hlds_pred, hlds_module, type_util, mode_util, error_util.
-:- import_module code_model, globals.
+:- import_module hlds__hlds_pred, hlds__hlds_module, check_hlds__type_util.
+:- import_module check_hlds__mode_util, hlds__error_util.
+:- import_module hlds__hlds_data, parse_tree__prog_out.
+:- import_module backend_libs__code_model, libs__globals.
 
 	% Currently we don't use the globals to compare foreign language
 	% interfaces, but if we added appropriate options we might want
@@ -161,6 +250,12 @@ foreign__filter_decls(WantedLang, Decls0, LangDecls, NotLangDecls) :-
 	list__filter((pred(foreign_decl_code(Lang, _, _)::in) is semidet :-
 			WantedLang = Lang),
 		Decls0, LangDecls, NotLangDecls).
+
+foreign__filter_imports(WantedLang, Imports0, LangImports, NotLangImports) :-
+	list__filter(
+		(pred(foreign_import_module(Lang, _, _)::in) is semidet :-
+			WantedLang = Lang),
+		Imports0, LangImports, NotLangImports).
 
 foreign__filter_bodys(WantedLang, Bodys0, LangBodys, NotLangBodys) :-
 	list__filter((pred(foreign_body_code(Lang, _, _)::in) is semidet :-
@@ -496,9 +591,114 @@ foreign_language_module_name(M, L) = FM :-
 		FM = qualified(Module, Name ++ Ending)
 	).
 
+%-----------------------------------------------------------------------------%
 
+:- type exported_type
+	--->	foreign(sym_name)	% A type defined by a
+					% pragma foreign_type.
+	;	mercury((type)).	% Any other mercury type.
 
+non_foreign_type(Type) = mercury(Type).
+
+to_exported_type(ModuleInfo, Type) = ExportType :-
+	module_info_types(ModuleInfo, Types),
+	module_info_globals(ModuleInfo, Globals),
+	globals__get_target(Globals, Target),
+	(
+		type_to_ctor_and_args(Type, TypeCtor, _),
+		map__search(Types, TypeCtor, TypeDefn)
+	->
+		hlds_data__get_type_defn_body(TypeDefn, Body),
+		( Body = foreign_type(foreign_type_body(MaybeIL, MaybeC)) ->
+			( Target = c,
+				( MaybeC = yes(c(NameStr)),
+					Name = unqualified(NameStr)
+				; MaybeC = no,
+					unexpected(this_file,
+						"to_exported_type: no C type")
+				)
+			; Target = il, 
+				( MaybeIL = yes(il(_, _, Name))
+				; MaybeIL = no,
+					unexpected(this_file,
+						"to_exported_type: no IL type")
+				)
+			; Target = java,
+				sorry(this_file, "to_exported_type for java")
+			; Target = asm,
+				( MaybeC = yes(c(NameStr)),
+					Name = unqualified(NameStr)
+				; MaybeC = no,
+					unexpected(this_file,
+						"to_exported_type: no C type")
+				)
+			),
+			ExportType = foreign(Name)
+		;
+			ExportType = mercury(Type)
+		)
+	;
+		ExportType = mercury(Type)
+	).
+
+is_foreign_type(foreign(_)) = yes.
+is_foreign_type(mercury(_)) = no.
+
+to_type_string(Lang, ModuleInfo, Type) =
+	to_type_string(Lang, to_exported_type(ModuleInfo, Type)).
+
+to_type_string(c, foreign(ForeignType)) = Result :-
+	( ForeignType = unqualified(Result0) ->
+		Result = Result0
+	;
+		unexpected(this_file, "to_type_string: qualified C type")
+	).
+to_type_string(csharp, foreign(ForeignType)) = Result :-
+	sym_name_to_string(ForeignType, ".", Result).
+to_type_string(managed_cplusplus, foreign(ForeignType)) = Result ++ " *":-
+	sym_name_to_string(ForeignType, "::", Result).
+to_type_string(il, foreign(ForeignType)) = Result :-
+	sym_name_to_string(ForeignType, ".", Result).
+
+	% XXX does this do the right thing for high level data?
+to_type_string(c, mercury(Type)) = Result :-
+	( Type = term__functor(term__atom("int"), [], _) ->
+		Result = "MR_Integer"
+	; Type = term__functor(term__atom("float"), [], _) ->
+		Result = "MR_Float"
+	; Type = term__functor(term__atom("string"), [], _) ->
+		Result = "MR_String"
+	; Type = term__functor(term__atom("character"), [], _) ->
+		Result = "MR_Char"
+	;
+		Result = "MR_Word"
+	).
+to_type_string(csharp, mercury(_Type)) = _ :-
+	sorry(this_file, "to_type_string for csharp").
+to_type_string(managed_cplusplus, mercury(Type)) = TypeString :-
+	( 
+		type_util__var(Type, _)
+	->
+		TypeString = "MR_Box"
+	;
+		TypeString = to_type_string(c, mercury(Type))
+	).
+to_type_string(il, mercury(_Type)) = _ :-
+	sorry(this_file, "to_type_string for il").
+
+%-----------------------------------------------------------------------------%
+
+:- import_module ll_backend__llds_out.
+
+decl_guard(ModuleName) = UppercaseModuleName ++ "_DECL_GUARD" :-
+	llds_out__sym_name_mangle(ModuleName, MangledModuleName),
+	string__to_upper(MangledModuleName, UppercaseModuleName).
+
+%-----------------------------------------------------------------------------%
 
 :- func this_file = string.
+
 this_file = "foreign.m".
 
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -24,10 +24,12 @@
 % library modules
 :- import_module list, set, map, io, term.
 
+% XXX parent modules
+:- import_module hlds, parse_tree. 
 % compiler modules
 :- import_module pa_datastruct. 
-:- import_module hlds_module, hlds_pred.
-:- import_module prog_data. 
+:- import_module hlds__hlds_module, hlds__hlds_pred.
+:- import_module parse_tree__prog_data. 
 :- import_module pa_alias.
 
 

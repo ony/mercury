@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -8,11 +8,12 @@
 %
 % Debugging routines for partial deduction.
 %-----------------------------------------------------------------------------%
-:- module pd_debug.
+:- module transform_hlds__pd_debug.
 
 :- interface.
 
-:- import_module pd_info, hlds_goal, hlds_pred, prog_data.
+:- import_module transform_hlds__pd_info, hlds__hlds_goal, hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
 :- import_module list, string.
 
 :- pred pd_debug__do_io(pred(io__state, io__state)::pred(di, uo) is det,
@@ -46,8 +47,10 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module globals, hlds_module, hlds_out, instmap, options.
-:- import_module instmap, prog_out, goal_util, mercury_to_mercury.
+:- import_module libs__globals, hlds__hlds_module, hlds__hlds_out.
+:- import_module hlds__instmap, libs__options.
+:- import_module hlds__instmap, parse_tree__prog_out, hlds__goal_util.
+:- import_module parse_tree__mercury_to_mercury.
 :- import_module bool, io, set, std_util.
 
 pd_debug__do_io(Pred) -->
@@ -161,7 +164,7 @@ pd_debug__write_instmap -->
 
 pd_debug__write_pred_proc_id_list(PredProcIds) -->
 	pd_info_get_module_info(ModuleInfo),
-	pd_debug__do_io(
+	pd_debug__do_io(pred(di, uo) is det -->
 		io__write_list(PredProcIds, ", ",
 			pd_debug__write_pred_proc_id(ModuleInfo))
 	).

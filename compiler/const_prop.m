@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -15,11 +15,12 @@
 % 
 %------------------------------------------------------------------------------%
 
-:- module const_prop.
+:- module transform_hlds__const_prop.
 
 :- interface.
 
-:- import_module hlds_module, hlds_goal, hlds_pred, prog_data, instmap.
+:- import_module hlds__hlds_module, hlds__hlds_goal, hlds__hlds_pred.
+:- import_module parse_tree__prog_data, hlds__instmap.
 :- import_module list.
 
 :- pred evaluate_builtin(pred_id, proc_id, list(prog_var), hlds_goal_info,
@@ -31,12 +32,17 @@
 
 :- implementation.
 
-:- import_module code_aux, det_analysis, follow_code, goal_util.
-:- import_module hlds_goal, hlds_data, instmap, inst_match.
-:- import_module globals, options, passes_aux, prog_data, mode_util, type_util.
-:- import_module code_util, quantification, modes.
+:- import_module ll_backend__code_aux, check_hlds__det_analysis.
+:- import_module ll_backend__follow_code, hlds__goal_util.
+:- import_module hlds__hlds_goal, hlds__hlds_data, hlds__instmap.
+:- import_module check_hlds__inst_match.
+:- import_module libs__globals, libs__options, hlds__passes_aux.
+:- import_module parse_tree__prog_data, check_hlds__mode_util.
+:- import_module check_hlds__type_util.
+:- import_module ll_backend__code_util, hlds__quantification.
+:- import_module check_hlds__modes.
 :- import_module bool, list, int, float, map, require.
-:- import_module (inst), hlds_out, std_util.
+:- import_module (parse_tree__inst), hlds__hlds_out, std_util.
 
 %------------------------------------------------------------------------------%
 
@@ -186,11 +192,18 @@ evaluate_builtin_tri("int", "mod", 0, X, Y, Z, Z, int_const(ZVal)) :-
 	YVal \= 0,
 	ZVal is XVal mod YVal.
 
+	% This isn't actually a builtin.
 evaluate_builtin_tri("int", "rem", 0, X, Y, Z, Z, int_const(ZVal)) :-
 	X = _XVar - bound(_XUniq, [functor(int_const(XVal), [])]),
 	Y = _YVar - bound(_YUniq, [functor(int_const(YVal), [])]),
 	YVal \= 0,
 	ZVal is XVal rem YVal.
+
+evaluate_builtin_tri("int", "unchecked_rem", 0, X, Y, Z, Z, int_const(ZVal)) :-
+	X = _XVar - bound(_XUniq, [functor(int_const(XVal), [])]),
+	Y = _YVar - bound(_YUniq, [functor(int_const(YVal), [])]),
+	YVal \= 0,
+	ZVal is unchecked_rem(XVal, YVal).
 
 evaluate_builtin_tri("int", "unchecked_left_shift",
 		0, X, Y, Z, Z, int_const(ZVal)) :-
@@ -369,7 +382,6 @@ make_construction(Var - _, ConsId, Goal) :-
 :- mode make_true_or_fail(in, in, out, out) is det.
 
 make_true_or_fail(yes, GoalInfo, conj([]), GoalInfo).
-make_true_or_fail(no, GoalInfo, disj([], SM), GoalInfo) :-
-	map__init(SM).
+make_true_or_fail(no, GoalInfo, disj([]), GoalInfo).
 
 %------------------------------------------------------------------------------%

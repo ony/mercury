@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,11 +12,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module error_util.
+:- module hlds__error_util.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, parse_tree__prog_data.
 :- import_module assoc_list, char, io, list, std_util.
 
 	% Given a context, a starting indentation level and a list of words,
@@ -67,6 +67,12 @@
 :- pred write_error_pieces(prog_context::in, int::in,
 	list(format_component)::in, io__state::di, io__state::uo) is det.
 
+	% Display the given error message, but indent the first line.
+	% This is useful when adding extra lines to an already
+	% displayed message.
+:- pred write_error_pieces_not_first_line(prog_context::in, int::in,
+	list(format_component)::in, io__state::di, io__state::uo) is det.
+
 :- pred write_error_pieces_maybe_with_context(maybe(prog_context)::in, int::in,
 	list(format_component)::in, io__state::di, io__state::uo) is det.
 
@@ -98,6 +104,8 @@
 :- func error_util__describe_sym_name(sym_name) = string.
 
 :- func error_util__describe_sym_name_and_arity(sym_name_and_arity) = string.
+
+:- func error_util__pred_or_func_to_string(pred_or_func) = string.
 
 	% Append a punctuation character to a message, avoiding unwanted
 	% line splitting between the message and the punctuation.
@@ -132,7 +140,8 @@
 
 :- implementation.
 
-:- import_module prog_out, prog_util, globals, options.
+:- import_module parse_tree__prog_out, parse_tree__prog_util, libs__globals.
+:- import_module libs__options.
 :- import_module bool, io, list, term, char, string, int, require.
 
 error_util__list_to_pieces([], []).
@@ -164,10 +173,23 @@ report_warning(Context, Indent, Components) -->
 	write_error_pieces(Context, Indent, Components).
 
 write_error_pieces(Context, Indent, Components) -->
-	write_error_pieces_maybe_with_context(yes(Context),
+	write_error_pieces_maybe_with_context(yes, yes(Context),
+		Indent, Components).
+
+write_error_pieces_not_first_line(Context, Indent, Components) -->
+	write_error_pieces_maybe_with_context(no, yes(Context),
 		Indent, Components).
 
 write_error_pieces_maybe_with_context(MaybeContext, Indent, Components) -->
+	write_error_pieces_maybe_with_context(yes, MaybeContext,
+		Indent, Components).
+
+:- pred write_error_pieces_maybe_with_context(bool::in,
+	maybe(prog_context)::in, int::in, list(format_component)::in,
+	io__state::di, io__state::uo) is det.
+
+write_error_pieces_maybe_with_context(IsFirst, MaybeContext,
+		Indent, Components) -->
 	{
 			% The fixed characters at the start of the line are:
 			% filename
@@ -194,11 +216,16 @@ write_error_pieces_maybe_with_context(MaybeContext, Indent, Components) -->
 			MaybeContext = no,
 			ContextLength = 0
 		),
-		Remain is 79 - (ContextLength + Indent),
+		NotFirstIndent = (IsFirst = yes -> 0 ; 2),
+		Remain = 79 - (ContextLength + Indent + NotFirstIndent),
 		convert_components_to_word_list(Components, [], [], Words),
-		group_words(yes, Words, Remain, Lines)
+		group_words(IsFirst, Words, Remain, Lines)
 	},
-	write_lines(Lines, MaybeContext, Indent).
+	( { IsFirst = yes } ->
+		write_lines(Lines, MaybeContext, Indent)
+	;
+		write_nonfirst_lines(Lines, MaybeContext, Indent + 2)
+	).
 
 :- pred write_lines(list(list(string))::in, maybe(prog_context)::in, int::in,
 	io__state::di, io__state::uo) is det.
@@ -406,19 +433,12 @@ error_util__describe_one_pred_name(Module, PredId, Piece) :-
 	pred_info_name(PredInfo, PredName),
 	pred_info_arity(PredInfo, Arity),
 	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
+	PredOrFuncPart = pred_or_func_to_string(PredOrFunc),
+	adjust_func_arity(PredOrFunc, OrigArity, Arity),
 	(
-		PredOrFunc = predicate,
-		PredOrFuncPart = "predicate",
-		OrigArity = Arity
-	;
-		PredOrFunc = function,
-		PredOrFuncPart = "function",
-		OrigArity is Arity - 1
-	),
-	(
-		pred_info_get_goal_type(PredInfo, assertion)
+		pred_info_get_goal_type(PredInfo, promise(PromiseType))
 	->
-		Piece = "promise"
+		Piece = "`" ++ promise_to_string(PromiseType) ++ "' declaration"
 	;
 		string__int_to_string(OrigArity, ArityPart),
 		string__append_list([
@@ -472,6 +492,8 @@ error_util__describe_sym_name(SymName) =
 		string__append_list(["`", SymNameString, "'"]) :-
 	sym_name_to_string(SymName, SymNameString).
 
+error_util__pred_or_func_to_string(predicate) = "predicate".
+error_util__pred_or_func_to_string(function) = "function".
 
 error_util__append_punctuation([], _) = _ :-
 	error(

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -20,10 +20,10 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module ml_simplify_switch.
+:- module ml_backend__ml_simplify_switch.
 :- interface.
 
-:- import_module mlds, ml_code_util.
+:- import_module ml_backend__mlds, ml_backend__ml_code_util.
 
 :- pred ml_simplify_switch(mlds__stmt::in, mlds__context::in,
 		mlds__statement::out,
@@ -33,8 +33,9 @@
 
 :- implementation.
 
-:- import_module ml_switch_gen, builtin_ops, type_util.
-:- import_module globals, options.
+:- import_module ml_backend__ml_switch_gen, backend_libs__builtin_ops.
+:- import_module check_hlds__type_util.
+:- import_module libs__globals, libs__options.
 
 :- import_module bool, int, list, map, require, std_util.
 
@@ -93,6 +94,18 @@ ml_simplify_switch(Stmt0, MLDS_Context, Statement) -->
 		{ Statement = ml_switch_to_if_else_chain(Cases, Default, Rval,
 			MLDS_Context) }
 	;
+	%
+	% Optimize away trivial switches
+	% (these can occur e.g. with --tags none, where the
+	% primary tag test always has only one reachable case)
+	%
+		{ Stmt0 = switch(_Type, _Rval, _Range, Cases, Default) },
+		{ Cases = [SingleCase] },
+		{ Default = default_is_unreachable }
+	->
+		{ SingleCase = _MatchCondition - CaseStatement },
+		{ Statement = CaseStatement }
+	;
 		{ Stmt = Stmt0 },
 		{ Statement = mlds__statement(Stmt, MLDS_Context) }
 	).
@@ -100,9 +113,9 @@ ml_simplify_switch(Stmt0, MLDS_Context, Statement) -->
 :- pred is_integral_type(mlds__type::in) is semidet.
 is_integral_type(mlds__native_int_type).
 is_integral_type(mlds__native_char_type).
-is_integral_type(mlds__mercury_type(_, int_type)).
-is_integral_type(mlds__mercury_type(_, char_type)).
-is_integral_type(mlds__mercury_type(_, enum_type)).
+is_integral_type(mlds__mercury_type(_, int_type, _)).
+is_integral_type(mlds__mercury_type(_, char_type, _)).
+is_integral_type(mlds__mercury_type(_, enum_type, _)).
 
 :- pred is_dense_switch(list(mlds__switch_case)::in, int::in) is semidet.
 is_dense_switch(Cases, ReqDensity) :-
@@ -328,7 +341,7 @@ generate_case(Case, EndLabel, CaseLabelsMap0, CaseLabelsMap,
 		atomic(comment("branch to end of dense switch")),
 		MLDS_Context) },
 	{ JumpCode = mlds__statement(
-		goto(EndLabel),
+		goto(label(EndLabel)),
 		MLDS_Context) },
 	{ MLDS_Decls = [] },
 	{ MLDS_Statements = [LabelComment, LabelCode, CaseStatement,

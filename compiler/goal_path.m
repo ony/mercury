@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 University of Melbourne.
+% Copyright (C) 1997-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,18 +9,19 @@
 
 % Main author: zs.
 
-:- module goal_path.
+:- module check_hlds__goal_path.
 
 :- interface.
 
-:- import_module hlds_pred, hlds_module.
+:- import_module hlds__hlds_pred, hlds__hlds_module.
 
 :- pred goal_path__fill_slots(proc_info::in, module_info::in, proc_info::out)
 	is det.
 
 :- implementation.
 
-:- import_module prog_data, hlds_data, hlds_goal, type_util.
+:- import_module parse_tree__prog_data, hlds__hlds_data, hlds__hlds_goal.
+:- import_module check_hlds__type_util.
 :- import_module char, int, list, map, std_util, require.
 
 :- type slot_info
@@ -49,13 +50,13 @@ fill_goal_slots(Expr0 - Info0, Path0, SlotInfo, Expr - Info) :-
 
 fill_expr_slots(conj(Goals0), _, Path0, SlotInfo, conj(Goals)) :-
 	fill_conj_slots(Goals0, Path0, 0, SlotInfo, Goals).
-fill_expr_slots(par_conj(Goals0, SM), _, Path0, SlotInfo,
-		par_conj(Goals, SM)) :-
+fill_expr_slots(par_conj(Goals0), _, Path0, SlotInfo,
+		par_conj(Goals)) :-
 	fill_conj_slots(Goals0, Path0, 0, SlotInfo, Goals).
-fill_expr_slots(disj(Goals0, B), _, Path0, SlotInfo, disj(Goals, B)) :-
+fill_expr_slots(disj(Goals0), _, Path0, SlotInfo, disj(Goals)) :-
 	fill_disj_slots(Goals0, Path0, 0, SlotInfo, Goals).
-fill_expr_slots(switch(Var, B, Cases0, D), _, Path0, SlotInfo,
-		switch(Var, B, Cases, D)) :-
+fill_expr_slots(switch(Var, B, Cases0), _, Path0, SlotInfo,
+		switch(Var, B, Cases)) :-
 	SlotInfo = slot_info(VarTypes, ModuleInfo),
 	map__lookup(VarTypes, Var, Type),
 	(
@@ -80,8 +81,8 @@ fill_expr_slots(some(A, B, Goal0), OuterInfo, Path0, SlotInfo,
 		MaybeCut = cut
 	),
 	fill_goal_slots(Goal0, [exist(MaybeCut) | Path0], SlotInfo, Goal).
-fill_expr_slots(if_then_else(A, Cond0, Then0, Else0, E), _, Path0, SlotInfo,
-		if_then_else(A, Cond, Then, Else, E)) :-
+fill_expr_slots(if_then_else(A, Cond0, Then0, Else0), _, Path0, SlotInfo,
+		if_then_else(A, Cond, Then, Else)) :-
 	fill_goal_slots(Cond0, [ite_cond | Path0], SlotInfo, Cond),
 	fill_goal_slots(Then0, [ite_then | Path0], SlotInfo, Then),
 	fill_goal_slots(Else0, [ite_else | Path0], SlotInfo, Else).
@@ -99,7 +100,7 @@ fill_expr_slots(shorthand(_), _, _, _, _) :-
 
 fill_conj_slots([], _, _, _, []).
 fill_conj_slots([Goal0 | Goals0], Path0, N0, SlotInfo, [Goal | Goals]) :-
-	N1 is N0 + 1,
+	N1 = N0 + 1,
 	fill_goal_slots(Goal0, [conj(N1) | Path0], SlotInfo, Goal),
 	fill_conj_slots(Goals0, Path0, N1, SlotInfo, Goals).
 
@@ -108,7 +109,7 @@ fill_conj_slots([Goal0 | Goals0], Path0, N0, SlotInfo, [Goal | Goals]) :-
 
 fill_disj_slots([], _, _, _, []).
 fill_disj_slots([Goal0 | Goals0], Path0, N0, SlotInfo, [Goal | Goals]) :-
-	N1 is N0 + 1,
+	N1 = N0 + 1,
 	fill_goal_slots(Goal0, [disj(N1) | Path0], SlotInfo, Goal),
 	fill_disj_slots(Goals0, Path0, N1, SlotInfo, Goals).
 
@@ -118,6 +119,6 @@ fill_disj_slots([Goal0 | Goals0], Path0, N0, SlotInfo, [Goal | Goals]) :-
 fill_switch_slots([], _, _, _, _, []).
 fill_switch_slots([case(A, Goal0) | Cases0], Path0, N0, NumCases, SlotInfo,
 		[case(A, Goal) | Cases]) :-
-	N1 is N0 + 1,
+	N1 = N0 + 1,
 	fill_goal_slots(Goal0, [switch(N1, NumCases) | Path0], SlotInfo, Goal),
 	fill_switch_slots(Cases0, Path0, N1, NumCases, SlotInfo, Cases).

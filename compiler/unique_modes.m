@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -33,9 +33,10 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module unique_modes.
+:- module check_hlds__unique_modes.
 :- interface. 
-:- import_module hlds_module, hlds_pred, hlds_goal, mode_info.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module check_hlds__mode_info.
 :- import_module io, bool.
 
 	% check every predicate in a module
@@ -57,10 +58,15 @@
 
 :- implementation.
 
-:- import_module hlds_data, mode_debug, modecheck_unify, modecheck_call.
-:- import_module mode_util, prog_out, hlds_out, mercury_to_mercury, passes_aux.
-:- import_module modes, prog_data, mode_errors, llds, unify_proc.
-:- import_module (inst), instmap, inst_match, inst_util.
+:- import_module hlds__hlds_data, check_hlds__mode_debug.
+:- import_module check_hlds__modecheck_unify, check_hlds__modecheck_call.
+:- import_module check_hlds__mode_util, parse_tree__prog_out, hlds__hlds_out.
+:- import_module parse_tree__mercury_to_mercury, hlds__passes_aux.
+:- import_module check_hlds__modes, parse_tree__prog_data.
+:- import_module check_hlds__mode_errors, ll_backend__llds.
+:- import_module check_hlds__unify_proc.
+:- import_module (parse_tree__inst), hlds__instmap, check_hlds__inst_match.
+:- import_module check_hlds__inst_util.
 :- import_module term, varset.
 :- import_module assoc_list, bag, int, list, map.
 :- import_module require, set, std_util, string.
@@ -260,8 +266,8 @@ unique_modes__check_goal_2(conj(List0), _GoalInfo0, conj(List)) -->
 	),
 	mode_checkpoint(exit, "conj").
 
-unique_modes__check_goal_2(par_conj(List0, SM), GoalInfo0,
-		par_conj(List, SM)) -->
+unique_modes__check_goal_2(par_conj(List0), GoalInfo0,
+		par_conj(List)) -->
 	mode_checkpoint(enter, "par_conj"),
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
 	mode_info_add_live_vars(NonLocals),
@@ -274,7 +280,7 @@ unique_modes__check_goal_2(par_conj(List0, SM), GoalInfo0,
 	mode_info_remove_live_vars(NonLocals),
 	mode_checkpoint(exit, "par_conj").
 
-unique_modes__check_goal_2(disj(List0, SM), GoalInfo0, disj(List, SM)) -->
+unique_modes__check_goal_2(disj(List0), GoalInfo0, disj(List)) -->
 	mode_checkpoint(enter, "disj"),
 	( { List0 = [] } ->
 		{ List = [] },
@@ -315,7 +321,7 @@ unique_modes__check_goal_2(disj(List0, SM), GoalInfo0, disj(List, SM)) -->
 	),
 	mode_checkpoint(exit, "disj").
 
-unique_modes__check_goal_2(if_then_else(Vs, Cond0, Then0, Else0, SM),
+unique_modes__check_goal_2(if_then_else(Vs, Cond0, Then0, Else0),
 		GoalInfo0, Goal) -->
 	mode_checkpoint(enter, "if-then-else"),
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
@@ -383,7 +389,7 @@ unique_modes__check_goal_2(if_then_else(Vs, Cond0, Then0, Else0, SM),
 	mode_info_dcg_get_instmap(InstMapElse),
 	mode_info_set_instmap(InstMap0),
 	instmap__merge(NonLocals, [InstMapThen, InstMapElse], if_then_else),
-	{ Goal = if_then_else(Vs, Cond, Then, Else, SM) },
+	{ Goal = if_then_else(Vs, Cond, Then, Else) },
 	mode_checkpoint(exit, "if-then-else").
 
 unique_modes__check_goal_2(not(A0), GoalInfo0, not(A)) -->
@@ -492,8 +498,8 @@ unique_modes__check_goal_2(unify(A0, B0, _, UnifyInfo0, UnifyContext),
 	mode_info_unset_call_context,
 	mode_checkpoint(exit, "unify").
 
-unique_modes__check_goal_2(switch(Var, CanFail, Cases0, SM), GoalInfo0,
-		switch(Var, CanFail, Cases, SM)) -->
+unique_modes__check_goal_2(switch(Var, CanFail, Cases0), GoalInfo0,
+		switch(Var, CanFail, Cases)) -->
 	mode_checkpoint(enter, "switch"),
 	( { Cases0 = [] } ->
 		{ Cases = [] },

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -14,14 +14,14 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module unify_gen.
+:- module ll_backend__unify_gen.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_goal, hlds_data.
-:- import_module code_model.
-:- import_module llds, code_info.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_data.
+:- import_module backend_libs__code_model.
+:- import_module ll_backend__llds, ll_backend__code_info.
 
 :- type test_sense
 	--->	branch_on_success
@@ -38,11 +38,16 @@
 
 :- implementation.
 
-:- import_module rtti, layout, builtin_ops.
-:- import_module hlds_module, hlds_pred, prog_data, prog_out, code_util.
-:- import_module mode_util, type_util, code_aux, hlds_out, tree, arg_info.
-:- import_module globals, options, continuation_info, stack_layout.
-:- import_module rl, trace.
+:- import_module backend_libs__rtti, ll_backend__layout.
+:- import_module backend_libs__builtin_ops.
+:- import_module hlds__hlds_module, hlds__hlds_pred, parse_tree__prog_data.
+:- import_module parse_tree__prog_out, ll_backend__code_util.
+:- import_module check_hlds__mode_util, check_hlds__type_util.
+:- import_module ll_backend__code_aux, hlds__hlds_out, libs__tree.
+:- import_module ll_backend__arg_info.
+:- import_module libs__globals, libs__options, ll_backend__continuation_info.
+:- import_module ll_backend__stack_layout.
+:- import_module aditi_backend__rl, ll_backend__trace, hlds__error_util.
 
 :- import_module term, bool, string, int, list, map, require, std_util.
 
@@ -161,7 +166,7 @@ unify_gen__generate_tag_test(Var, ConsId, Sense, ElseLab, Code) -->
 		code_info__lookup_type_defn(Type, TypeDefn),
 		{ hlds_data__get_type_defn_body(TypeDefn, TypeBody) },
 		{
-			TypeBody = du_type(_, ConsTable, _, _)
+			TypeBody = du_type(_, ConsTable, _, _, _)
 		->
 			map__to_assoc_list(ConsTable, ConsList),
 			(
@@ -256,7 +261,12 @@ unify_gen__generate_tag_test_rval_2(tabling_pointer_constant(_, _), _, _) :-
 unify_gen__generate_tag_test_rval_2(deep_profiling_proc_static_tag(_), _, _) :-
 	% This should never happen
 	error("Attempted deep_profiling_proc_static_tag unification").
+unify_gen__generate_tag_test_rval_2(table_io_decl_tag(_), _, _) :-
+	% This should never happen
+	error("Attempted table_io_decl_tag unification").
 unify_gen__generate_tag_test_rval_2(no_tag, _Rval, TestRval) :-
+	TestRval = const(true).
+unify_gen__generate_tag_test_rval_2(single_functor, _Rval, TestRval) :-
 	TestRval = const(true).
 unify_gen__generate_tag_test_rval_2(unshared_tag(UnsharedTag), Rval,
 		TestRval) :-
@@ -274,6 +284,34 @@ unify_gen__generate_tag_test_rval_2(shared_local_tag(Bits, Num), Rval,
 		TestRval) :-
 	TestRval = binop(eq,	Rval,
 			mkword(Bits, unop(mkbody, const(int_const(Num))))).
+
+unify_gen__generate_tag_test_rval_2(reserved_address(RA), Rval, TestRval) :-
+	TestRval = binop(eq,	Rval,
+			unify_gen__generate_reserved_address(RA)).
+
+unify_gen__generate_tag_test_rval_2(
+		shared_with_reserved_addresses(ReservedAddrs, ThisTag),
+		Rval, FinalTestRval) :-
+	%
+	% We first check that the Rval doesn't match any of the
+	% ReservedAddrs, and then check that it matches ThisTag.
+	%
+	CheckReservedAddrs = (func(RA, TestRval0) = TestRval :-
+		unify_gen__generate_tag_test_rval_2(reserved_address(RA), Rval,
+			EqualRA),
+		TestRval = binop((and), unop(not, EqualRA), TestRval0)
+	),
+	unify_gen__generate_tag_test_rval_2(ThisTag, Rval, MatchesThisTag),
+	FinalTestRval = list__foldr(CheckReservedAddrs, ReservedAddrs,
+			MatchesThisTag).
+
+
+:- func unify_gen__generate_reserved_address(reserved_address) = rval.
+unify_gen__generate_reserved_address(null_pointer) = const(int_const(0)).
+unify_gen__generate_reserved_address(small_pointer(N)) = const(int_const(N)).
+unify_gen__generate_reserved_address(reserved_object(_, _, _)) = _ :-
+	% These should only be used for the MLDS back-end
+	unexpected(this_file, "reserved_object").
 
 %---------------------------------------------------------------------------%
 
@@ -321,8 +359,11 @@ unify_gen__generate_construction_2(no_tag, Var, Args, Modes, _HowToConstruct,
 		{ error(
 		"unify_gen__generate_construction_2: no_tag: arity != 1") }
 	).
-
-	% RRR need to modify this code!
+unify_gen__generate_construction_2(single_functor,
+		Var, Args, Modes, HowToConstruct, AditiInfo, GoalInfo, Code) -->
+	% treat single_functor the same as unshared_tag(0)
+	unify_gen__generate_construction_2(unshared_tag(0),
+		Var, Args, Modes, HowToConstruct, AditiInfo, GoalInfo, Code).
 unify_gen__generate_construction_2(unshared_tag(Ptag),
 		Var, Args, Modes, HowToConstruct, _, _, Code) -->
 	code_info__get_module_info(ModuleInfo),
@@ -360,8 +401,8 @@ unify_gen__generate_construction_2(type_ctor_info_constant(ModuleName,
 	;
 		{ error("unify_gen: type-info constant has args") }
 	),
-	{ RttiTypeId = rtti_type_id(ModuleName, TypeName, TypeArity) },
-	{ DataAddr = rtti_addr(RttiTypeId, type_ctor_info) },
+	{ RttiTypeCtor = rtti_type_ctor(ModuleName, TypeName, TypeArity) },
+	{ DataAddr = rtti_addr(RttiTypeCtor, type_ctor_info) },
 	code_info__assign_const_to_var(Var, const(data_addr_const(DataAddr))).
 unify_gen__generate_construction_2(base_typeclass_info_constant(ModuleName,
 		ClassId, Instance), Var, Args, _HowToConstruct,
@@ -395,6 +436,15 @@ unify_gen__generate_construction_2(
 	),
 	{ DataAddr = layout_addr(proc_static(RttiProcLabel)) },
 	code_info__assign_const_to_var(Var, const(data_addr_const(DataAddr))).
+unify_gen__generate_construction_2(table_io_decl_tag(RttiProcLabel),
+		Var, Args, _Modes, _HowToConstruct, _, _, empty) -->
+	( { Args = [] } ->
+		[]
+	;
+		{ error("unify_gen: table_io_decl has args") }
+	),
+	{ DataAddr = layout_addr(table_io_decl(RttiProcLabel)) },
+	code_info__assign_const_to_var(Var, const(data_addr_const(DataAddr))).
 unify_gen__generate_construction_2(code_addr_constant(PredId, ProcId),
 		Var, Args, _Modes, _HowToConstruct, _, _, empty) -->
 	( { Args = [] } ->
@@ -405,6 +455,23 @@ unify_gen__generate_construction_2(code_addr_constant(PredId, ProcId),
 	code_info__get_module_info(ModuleInfo),
 	code_info__make_entry_label(ModuleInfo, PredId, ProcId, no, CodeAddr),
 	code_info__assign_const_to_var(Var, const(code_addr_const(CodeAddr))).
+unify_gen__generate_construction_2(reserved_address(RA),
+		Var, Args, _Modes, _HowToConstruct, _, _, empty) -->
+	( { Args = [] } ->
+		[]
+	;
+		{ error("unify_gen: reserved_address constant has args") }
+	),
+	code_info__assign_const_to_var(Var,
+		unify_gen__generate_reserved_address(RA)).
+unify_gen__generate_construction_2(
+		shared_with_reserved_addresses(_RAs, ThisTag),
+		Var, Args, Modes, HowToConstruct, AditiInfo, GoalInfo, Code) -->
+	% For shared_with_reserved_address, the sharing is only
+	% important for tag tests, not for constructions,
+	% so here we just recurse on the real representation.
+	unify_gen__generate_construction_2(ThisTag,
+		Var, Args, Modes, HowToConstruct, AditiInfo, GoalInfo, Code).
 unify_gen__generate_construction_2(
 		pred_closure_tag(PredId, ProcId, EvalMethod),
 		Var, Args, _Modes, HowToConstruct,
@@ -725,6 +792,14 @@ unify_gen__make_fields_and_argvars([Var | Vars], Rval, Field0, TagNum,
 
 unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 	code_info__cons_id_to_tag(Var, Cons, Tag),
+	unify_gen__generate_det_deconstruction_2(Var, Cons, Args, Modes,
+		Tag, Code).
+
+:- pred unify_gen__generate_det_deconstruction_2(prog_var::in, cons_id::in,
+	list(prog_var)::in, list(uni_mode)::in, cons_tag::in,
+	code_tree::out, code_info::in, code_info::out) is det.
+
+unify_gen__generate_det_deconstruction_2(Var, Cons, Args, Modes, Tag, Code) -->
 	% For constants, if the deconstruction is det, then we already know
 	% the value of the constant, so Code = empty.
 	(
@@ -755,6 +830,9 @@ unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 		{ Tag = deep_profiling_proc_static_tag(_) },
 		{ Code = empty }
 	;
+		{ Tag = table_io_decl_tag(_) },
+		{ error("unify_gen__generate_det_deconstruction: table_io_decl_tag") }
+	;
 		{ Tag = no_tag },
 		( { Args = [Arg], Modes = [Mode] } ->
 			code_info__variable_type(Arg, Type),
@@ -763,6 +841,11 @@ unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 		;
 			{ error("unify_gen__generate_det_deconstruction: no_tag: arity != 1") }
 		)
+	;
+		{ Tag = single_functor },
+		% treat single_functor the same as unshared_tag(0)
+		unify_gen__generate_det_deconstruction_2(Var, Cons, Args,
+			Modes, unshared_tag(0), Code)
 	;
 		{ Tag = unshared_tag(Ptag) },
 		{ Rval = var(Var) },
@@ -782,6 +865,16 @@ unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 	;
 		{ Tag = shared_local_tag(_Ptag, _Sectag2) },
 		{ Code = empty } % if this is det, then nothing happens
+	;
+		{ Tag = reserved_address(_RA) },
+		{ Code = empty } % if this is det, then nothing happens
+	;
+		% For shared_with_reserved_address, the sharing is only
+		% important for tag tests, not for det deconstructions,
+		% so here we just recurse on the real representation.
+		{ Tag = shared_with_reserved_addresses(_RAs, ThisTag) },
+		unify_gen__generate_det_deconstruction_2(Var, Cons, Args, Modes,
+			ThisTag, Code)
 	).
 
 %---------------------------------------------------------------------------%
@@ -930,14 +1023,19 @@ unify_gen__generate_sub_assign(ref(Lvar), ref(Rvar), empty) -->
 :- pred unify_gen__var_type_msg((type)::in, string::out) is det.
 
 unify_gen__var_type_msg(Type, Msg) :-
-	( type_to_type_id(Type, TypeId, _) ->
-		TypeId = TypeSym - TypeArity,
+	( type_to_ctor_and_args(Type, TypeCtor, _) ->
+		TypeCtor = TypeSym - TypeArity,
 		prog_out__sym_name_to_string(TypeSym, TypeSymStr),
 		string__int_to_string(TypeArity, TypeArityStr),
 		string__append_list([TypeSymStr, "/", TypeArityStr], Msg)
 	;
 		error("type is still a type variable in var_type_msg")
 	).
+
+%---------------------------------------------------------------------------%
+
+:- func this_file = string.
+this_file = "unify_gen.m".
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
