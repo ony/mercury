@@ -1599,10 +1599,12 @@ polymorphism__process_existq_unify_functor(CtorDefn, IsConstruction,
 			PolyInfo3, PolyInfo),
 
 	%
-	% the type_class_info variables go before the type_info variables
+	% the type_class_info variables go AFTER the type_info variables
+	% (for consistency with the order for argument passing,
+	% and because the RTTI support in the runtime system relies on it)
 	%
-	list__append(ExtraTypeClassGoals, ExtraTypeInfoGoals, ExtraGoals),
-	list__append(ExtraTypeClassVars, ExtraTypeInfoVars, ExtraVars).
+	list__append(ExtraTypeInfoGoals, ExtraTypeClassGoals, ExtraGoals),
+	list__append(ExtraTypeInfoVars, ExtraTypeClassVars, ExtraVars).
 
 %-----------------------------------------------------------------------------%
 
@@ -3318,9 +3320,17 @@ expand_one_body(hlds_class_proc(PredId, ProcId), ProcNum0, ProcNum,
 	(
 		Detism0 = yes(Detism1)
 	->
-		Detism = Detism1
+		Detism = Detism1,
+		ModuleInfo1 = ModuleInfo0
 	;
-		error("missing determinism decl. How did we get this far?")
+		% Omitting the determinism for a method is not allowed.
+		% But make_hlds.m will have already detected and reported
+		% the error.  So here we can just pick some value at random;
+		% hopefully something that won't cause flow-on errors.
+		% We also mark the predicate as invalid, also to avoid
+		% flow-on errors.
+		Detism = nondet,
+		module_info_remove_predid(ModuleInfo0, PredId, ModuleInfo1)
 	),
 
 		% Work out which argument corresponds to the constraint which
@@ -3365,7 +3375,7 @@ expand_one_body(hlds_class_proc(PredId, ProcId), ProcNum0, ProcNum,
 	),
 
 	map__det_update(PredTable0, PredId, PredInfo, PredTable),
-	module_info_set_preds(ModuleInfo0, PredTable, ModuleInfo),
+	module_info_set_preds(ModuleInfo1, PredTable, ModuleInfo),
 
 	ProcNum is ProcNum0 + 1.
 	

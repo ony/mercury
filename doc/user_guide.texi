@@ -1297,7 +1297,8 @@ then its three components will have the paths
 @samp{d2;c3;?;}, @samp{d2;c3;t;} and @samp{d2;c3;e;}.
 
 Paths refer to the internal form of the procedure definition.
-When debugging is enabled (and the option --trace-optimized is not given),
+When debugging is enabled
+(and the option @samp{--trace-optimized} is not given),
 the compiler will try to keep this form
 as close as possible to the source form of the procedure,
 in order to make event paths as useful as possible to the programmer.
@@ -3036,12 +3037,6 @@ Output detailed debugging traces of determinism analysis.
 Output detailed debugging traces of the optimization process.
 
 @sp 1
-@item --debug-vn <n>
-Output detailed debugging traces of the value numbering optimization pass.
-The different bits in the number argument of this option control the
-printing of different types of tracing messages.
-
-@sp 1
 @item --debug-pd
 Output detailed debugging traces of the partial
 deduction and deforestation process.
@@ -4140,6 +4135,11 @@ Remove excess assignment unifications.
 Optimize away multiple calls to a predicate with the same input arguments.
 
 @sp 1
+@item --delay-constructs
+Reorder goals to move construction unifications after
+primitive goals that can fail.
+
+@sp 1
 @item --optimize-saved-vars
 Reorder goals to minimize the number of variables
 that have to be saved across calls.
@@ -4280,6 +4280,11 @@ when this requires a runtime check. This option tries to
 minimize stack consumption, possibly at the expense of speed.
 
 @sp 1
+@item --use-local-vars
+Disable the transformation to use local variables in C code
+blocks whereever possible.
+
+@sp 1
 @item --no-optimize-labels
 Disable elimination of dead labels and code.
 
@@ -4292,14 +4297,6 @@ Enable elimination of duplicate code.
 @c Enable the copy propagation optimization.
 
 @sp 1
-@item --optimize-value-number
-Perform value numbering on extended basic blocks.
-
-@sp 1
-@item --pred-value-number
-Extend value numbering to whole procedures, rather than just basic blocks.
-
-@sp 1
 @item --no-optimize-frames
 Disable stack frame optimizations.
 
@@ -4310,10 +4307,6 @@ Disable branch delay slot optimizations.
 @sp 1
 @item --optimize-repeat @var{n}
 Iterate most optimizations at most @var{n} times (default: 3).
-
-@sp 1
-@item --optimize-vnrepeat @var{n}
-Iterate value numbering at most @var{n} times (default: 1).
 
 @end table
 

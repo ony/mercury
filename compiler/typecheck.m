@@ -4856,7 +4856,8 @@ report_error_functor_arg_types(TypeCheckInfo, Var, ConsDefnList,
 			Mismatches) },
 		{ Mismatches = [_|_] }
 	->
-		report_mismatched_args(Mismatches, yes, VarSet, Context)
+		report_mismatched_args(Mismatches, yes, VarSet, Functor,
+			Context)
 	;
 
 		{ conv_args_type_assign_set(ArgsTypeAssignSet,
@@ -4934,20 +4935,40 @@ find_mismatched_args([Arg - ExpType | ArgExpTypes], TypeAssignSet, ArgNum0,
 				TVarSet) | Mismatched1]
 	).
 
-:- pred report_mismatched_args(list(mismatch_info), bool, prog_varset,
+:- pred report_mismatched_args(list(mismatch_info), bool, prog_varset, cons_id,
 		prog_context, io__state, io__state).
-:- mode report_mismatched_args(in, in, in, in, di, uo) is det.
+:- mode report_mismatched_args(in, in, in, in, in, di, uo) is det.
 
-report_mismatched_args([], _, _, _) --> [].
-report_mismatched_args([Mismatch | Mismatches], First, VarSet, Context) -->
+report_mismatched_args([], _, _, _, _) --> [].
+report_mismatched_args([Mismatch | Mismatches], First, VarSet, Functor,
+		Context) -->
 	{ Mismatch = mismatch(ArgNum, Var, ActType, ExpType, TVarSet) },
 	prog_out__write_context(Context),
-	( { First = yes } ->
-		io__write_string("  Argument ")
+	(
+		% Handle higher-order syntax such as ''(F, A) specially:
+		% output 
+		%	Functor (F) has type ...;
+		%	argument 1 (A) has type ...
+		% instead of
+		%	Argument 1 (F) has type ...;
+		%	argument 2 (A) has type ...
+		{ Functor = cons(unqualified(""), Arity) },
+		{ Arity > 0 }
+	->
+		( { First = yes } ->
+			io__write_string("  Functor")
+		;
+			io__write_string("  argument "),
+			io__write_int(ArgNum - 1)
+		)
 	;
-		io__write_string("  argument ")
+		( { First = yes } ->
+			io__write_string("  Argument ")
+		;
+			io__write_string("  argument ")
+		),
+		io__write_int(ArgNum)
 	),
-	io__write_int(ArgNum),
 	( { varset__search_name(VarSet, Var, _) } ->
 		io__write_string(" ("),
 		mercury_output_var(Var, VarSet, no),
@@ -4965,7 +4986,7 @@ report_mismatched_args([Mismatch | Mismatches], First, VarSet, Context) -->
 		io__write_string("'.\n")
 	;
 		io__write_string("';\n"),
-		report_mismatched_args(Mismatches, no, VarSet, Context)
+		report_mismatched_args(Mismatches, no, VarSet, Functor, Context)
 	).
 
 :- pred write_types_of_vars(list(prog_var), prog_varset, prog_context,
@@ -5007,12 +5028,17 @@ write_functor_name(Functor, Arity) -->
 			prog_out__write_sym_name(Name)
 		;
 			hlds_out__write_cons_id(Functor1)
-		)
+		),
+		io__write_string("'")
+	; { Functor = cons(unqualified(""), _) } ->
+		io__write_string("higher-order term (with arity "),
+		io__write_int(Arity - 1),
+		io__write_string(")")
 	;
 		io__write_string("functor `"),
-		hlds_out__write_cons_id(Functor1)
-	),
-	io__write_string("'").
+		hlds_out__write_cons_id(Functor1),
+		io__write_string("'")
+	).
 
 :- pred write_type_of_var(typecheck_info, type_assign_set, prog_var,
 				io__state, io__state).
@@ -5942,11 +5968,14 @@ report_ambiguity_error(TypeCheckInfo, TypeAssign1, TypeAssign2) -->
 		prog_out__write_context(Context),
 		io__write_string("  Try adding explicit module qualifiers.\n")
 	; { VerboseErrors = yes } ->
-		io__write_string("\tYou will need to add an explicit type qualification to resolve the\n"),
-		io__write_string("\ttype ambiguity.\n"),
-		io__write_string("\tThe way to add an explicit type qualification\n"),
-		io__write_string("\tis to insert a call to a dummy predicate whose `:- pred'\n"),
-		io__write_string("\tdeclaration specifies the appropriate argument types.\n")
+		io__write_strings([
+"\tYou will need to add an explicit type qualification to resolve the\n",
+"\ttype ambiguity.\n",
+"\tThe way to add an explicit type qualification is to use ""with_type"".\n",
+"\tFor details see the ""Explicit type qualification"" sub-section\n",
+"\tof the ""Data-terms"" section of the ""Syntax"" chapter\n",
+"\tof the Mercury langauge reference manual.\n"
+		])
 	;
 		[]
 	).

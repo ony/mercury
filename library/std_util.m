@@ -1343,7 +1343,7 @@ __Compare____type_desc_0_0(
 static int
 do_unify__type_desc_0_0(MR_Box x, MR_Box y)
 {
-    return mercury::std_util__c_code::__Unify____type_desc_0_0(
+    return mercury::std_util__cpp_code::mercury_code::__Unify____type_desc_0_0(
 	    dynamic_cast<MR_Word>(x),
 	    dynamic_cast<MR_Word>(y));
 }
@@ -1352,7 +1352,7 @@ static void
 do_compare__type_desc_0_0(
     MR_Word_Ref result, MR_Box x, MR_Box y)
 {
-    mercury::std_util__c_code::__Compare____type_desc_0_0(
+    mercury::std_util__cpp_code::mercury_code::__Compare____type_desc_0_0(
 	    result,
 	    dynamic_cast<MR_Word>(x),
 	    dynamic_cast<MR_Word>(y));
@@ -2952,8 +2952,7 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                                     MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(
                                         type_info),
                                     functor_desc->MR_du_functor_arg_types[i],
-                                    (MR_Word *) MR_body(data, ptag),
-                                    functor_desc);
+                                    arg_vector, functor_desc);
                         } else {
                             expand_info->arg_type_infos[i] =
                                 MR_pseudo_type_info_is_ground(
@@ -3910,8 +3909,7 @@ get_functor_info(Univ, FunctorInfo) :-
                                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(
                                     type_info),
                                 functor_desc->MR_du_functor_arg_types[i],
-                                (MR_Word *) MR_body(value, Ptag),
-                                functor_desc);
+                                arg_vector, functor_desc);
                         } else {
                             arg_type_info = MR_pseudo_type_info_is_ground(
                                 functor_desc->MR_du_functor_arg_types[i]);

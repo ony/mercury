@@ -72,7 +72,6 @@
 		;	debug_modes
 		;	debug_det
 		;	debug_opt
-		;	debug_vn	% vn = value numbering
 		;	debug_pd	% pd = partial deduction/deforestation
 		;	debug_rl_gen
 		;	debug_rl_opt
@@ -345,6 +344,7 @@
 		;	constant_propagation
 		;	excess_assign
 		;	optimize_saved_vars
+		;	delay_construct
 		;	follow_code
 		;	prev_code
 		;	optimize_dead_procs
@@ -389,16 +389,13 @@
 		;	optimize_jumps
 		;	optimize_fulljumps
 		;	checked_nondet_tailcalls
+		;	use_local_vars
 		;	optimize_labels
 		;	optimize_dups
 %%% unused:	;	optimize_copyprop
-		;	optimize_value_number
 		;	optimize_frames
 		;	optimize_delay_slot
 		;	optimize_repeat
-		;	optimize_vnrepeat
-		;	pred_value_number
-		;	vn_fudge
 	%	- RL
 		;	optimize_rl
 		;	optimize_rl_cse
@@ -495,7 +492,6 @@ option_defaults_2(verbosity_option, [
 	debug_modes		- 	bool(no),
 	debug_det		- 	bool(no),
 	debug_opt		- 	bool(no),
-	debug_vn		- 	int(0),
 	debug_pd		-	bool(no),
 	debug_rl_gen		-	bool(no),
 	debug_rl_opt		-	bool(no),
@@ -747,6 +743,7 @@ option_defaults_2(optimization_option, [
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
 	optimize_saved_vars	-	bool(no),
+	delay_construct		-	bool(no),
 	prev_code		-	bool(no),
 	follow_code		-	bool(no),
 	optimize_unused_args	-	bool(no),
@@ -791,18 +788,14 @@ option_defaults_2(optimization_option, [
 	optimize_peep		-	bool(no),
 	optimize_jumps		-	bool(no),
 	optimize_fulljumps	-	bool(no),
-	checked_nondet_tailcalls	-	bool(no),
+	checked_nondet_tailcalls -	bool(no),
+	use_local_vars		-	bool(no),
 	optimize_labels		-	bool(no),
 	optimize_dups		-	bool(no),
 %%%	optimize_copyprop	-	bool(no),
-	optimize_value_number	-	bool(no),
 	optimize_frames		-	bool(no),
 	optimize_delay_slot	-	bool(no),
 	optimize_repeat		-	int(0),
-	optimize_vnrepeat	-	int(1),		% ineffective unless
-							% value_number is set
-	pred_value_number	-	bool(no),
-	vn_fudge		-	int(1000),
 
 % LLDS -> C
 	use_macro_for_redo_fail	-	bool(no),
@@ -902,7 +895,6 @@ long_option("debug-modes",		debug_modes).
 long_option("debug-determinism",	debug_det).
 long_option("debug-det",		debug_det).
 long_option("debug-opt",		debug_opt).
-long_option("debug-vn",			debug_vn).
 long_option("debug-pd",			debug_pd).
 long_option("debug-rl-gen",		debug_rl_gen).
 long_option("debug-rl-opt",		debug_rl_opt).
@@ -1031,6 +1023,7 @@ long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
 long_option("type-layout",		type_layout).
 long_option("use-foreign-language",	use_foreign_language).
+long_option("backend-foreign-language",	backend_foreign_language).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -1148,6 +1141,8 @@ long_option("optimise-constant-propagation", constant_propagation).
 long_option("optimize-constant-propagation", constant_propagation).
 long_option("optimize-saved-vars",	optimize_saved_vars).
 long_option("optimise-saved-vars",	optimize_saved_vars).
+long_option("delay-construct",		delay_construct).
+long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
 long_option("follow-code",		follow_code).
 long_option("constraint-propagation",	constraint_propagation).
@@ -1243,24 +1238,19 @@ long_option("optimise-jumps",		optimize_jumps).
 long_option("optimize-fulljumps",	optimize_fulljumps).
 long_option("optimise-fulljumps",	optimize_fulljumps).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
+long_option("use-local-vars",		use_local_vars).
 long_option("optimize-labels",		optimize_labels).
 long_option("optimise-labels",		optimize_labels).
 long_option("optimize-dups",		optimize_dups).
 long_option("optimise-dups",		optimize_dups).
 %%% long_option("optimize-copyprop",	optimize_copyprop).
 %%% long_option("optimise-copyprop",	optimize_copyprop).
-long_option("optimize-value-number",	optimize_value_number).
-long_option("optimise-value-number",	optimize_value_number).
 long_option("optimize-frames",		optimize_frames).
 long_option("optimise-frames",		optimize_frames).
 long_option("optimize-delay-slot",	optimize_delay_slot).
 long_option("optimise-delay-slot",	optimize_delay_slot).
 long_option("optimize-repeat",		optimize_repeat).
 long_option("optimise-repeat",		optimize_repeat).
-long_option("optimize-vnrepeat",	optimize_vnrepeat).
-long_option("optimise-vnrepeat",	optimize_vnrepeat).
-long_option("pred-value-number",	pred_value_number).
-long_option("vn-fudge",			vn_fudge).
 
 % RL optimizations
 long_option("optimize-rl",		optimize_rl).
@@ -1558,12 +1548,11 @@ opt_level(3, _, [
 % Optimization level 4: apply optimizations which may have some
 % payoff even if they increase compilation time quite a bit
 
-% Currently this enables value_number
+% Currently this enables the use of local variables
 % and increases the inlining thresholds
 
 opt_level(4, _, [
-	lazy_code		-	bool(yes),
-	optimize_value_number	-	bool(yes),
+	use_local_vars		-	bool(yes),
 	inline_simple_threshold	-	int(8),
 	inline_compound_threshold -	int(20),
 	higher_order_size_limit -	int(30)
@@ -1572,13 +1561,13 @@ opt_level(4, _, [
 % Optimization level 5: apply optimizations which may have some
 % payoff even if they increase compilation time a lot
 
-% Currently this enables pred_value_number
-% and runs a second pass of value numbering
+% Currently this enables the search for construction unifications that can be
+% delayed past failing computations, allows more passes of the low-level
+% optimizations, and increases the inlining thresholds still further.
 
 opt_level(5, _, [
-	pred_value_number	-	bool(yes),
 	optimize_repeat		-	int(5),
-	optimize_vnrepeat	-	int(2),
+	delay_construct		-	bool(yes),
 	inline_compound_threshold -	int(100),
 	higher_order_size_limit -	int(40)
 ]).
@@ -1708,11 +1697,6 @@ options_help_verbosity -->
 		"\tOutput detailed debugging traces of determinism analysis.",
 		"--debug-opt",
 		"\tOutput detailed debugging traces of the optimization process.",
-		"--debug-vn <n>",
-		"\tOutput detailed debugging traces of the value numbering",
-		"\toptimization pass. The different bits in the number",
-		"\targument of this option control the printing of",
-		"\tdifferent types of tracing messages.",
 		"--debug-pd",
 		"\tOutput detailed debugging traces of the partial",
 		"\tdeduction and deforestation process.",
@@ -2504,6 +2488,9 @@ options_help_hlds_hlds_optimization -->
 		"--optimize-duplicate-calls",
 		"\tOptimize away multiple calls to a predicate",
 		"\twith the same input arguments.",
+		"--delay-constructs",
+		"\tReorder goals to move construction unifications after",
+		"\tprimitive goals that can fail.",
 		"--optimize-saved-vars",
 		"\tReorder goals to minimize the number of variables",
 		"\tthat have to be saved across calls.",
@@ -2632,24 +2619,21 @@ options_help_llds_llds_optimization -->
 		"\tConvert nondet calls into tail calls whenever possible, even",
 		"\twhen this requires a runtime check. This option tries to",
 		"\tminimize stack consumption, possibly at the expense of speed.",
+		"--use-local-vars",
+		"\tDisable the transformation to use local variables in C code",
+		"\tblocks whereever possible.",
 		"--no-optimize-labels",
 		"\tDisable elimination of dead labels and code.",
 		"--optimize-dups",
 		"\tEnable elimination of duplicate code.",
 %%%		"--optimize-copyprop",
 %%%		"\tEnable the copy propagation optimization.",
-		"--optimize-value-number",
-		"\tPerform value numbering on extended basic blocks.",
 		"--no-optimize-frames",
 		"\tDisable stack frame optimizations.",
 		"--no-optimize-delay-slot",
 		"\tDisable branch delay slot optimizations.",
 		"--optimize-repeat <n>",
-		"\tIterate most optimizations at most <n> times (default: 3).",
-		"--optimize-vnrepeat <n>",
-		"\tIterate value numbering at most <n> times (default: 1).",
-		"--pred-value-number",
-		"\tExtend value numbering to entire predicates."
+		"\tIterate most optimizations at most <n> times (default: 3)."
 	]).
 
 :- pred options_help_mlds_mlds_optimization(io__state::di, io__state::uo) is det.

@@ -475,7 +475,7 @@ mercury_output_item(assertion(Goal, VarSet), _) -->
 	io__write_string(".\n").
 
 mercury_output_item(nothing, _) --> [].
-mercury_output_item(typeclass(Constraints, ClassName, Vars, Methods, 
+mercury_output_item(typeclass(Constraints, ClassName, Vars, Interface, 
 		VarSet), _) --> 
 	io__write_string(":- typeclass "),
 
@@ -497,11 +497,15 @@ mercury_output_item(typeclass(Constraints, ClassName, Vars, Methods,
 	mercury_output_class_constraint_list(Constraints, VarSet, "<=",
 		AppendVarnums),
 
-	io__write_string(" where [\n"),
-
-	output_class_methods(Methods),
-	
-	io__write_string("\n].\n").
+	(
+		{ Interface = abstract },
+		io__write_string(".\n")
+	;
+		{ Interface = concrete(Methods) },
+		io__write_string(" where [\n"),
+		output_class_methods(Methods),
+		io__write_string("\n].\n")
+	).
 mercury_output_item(instance(Constraints, ClassName, Types, Body, 
 		VarSet, _InstanceModuleName), _) --> 
 	io__write_string(":- instance "),
@@ -2612,6 +2616,16 @@ mercury_output_term(term__variable(Var), VarSet, AppendVarnums, _) -->
 mercury_output_term(term__functor(Functor, Args, _), VarSet, AppendVarnums,
 		NextToGraphicToken) -->
 	(
+	    	{ Functor = term__atom("") },
+		{ Args = [F, X | Xs] }
+	->
+		mercury_output_term(F, VarSet, AppendVarnums,
+			NextToGraphicToken),
+		io__write_string("("),
+		mercury_output_term(X, VarSet, AppendVarnums),
+		mercury_output_remaining_terms(Xs, VarSet, AppendVarnums),
+		io__write_string(")")
+	;
 	    	{ Functor = term__atom(".") },
 		{ Args = [X, Xs] }
 	->

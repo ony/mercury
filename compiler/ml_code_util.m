@@ -92,6 +92,17 @@
 		mlds__statement, mlds__defn, ml_gen_info, ml_gen_info).
 :- mode ml_gen_label_func(in, in, in, in, out, in, out) is det.
 
+	%
+	% Test to see if the procedure is 
+	% a model_det function whose function result has an output mode
+	% (whose type is not a dummy argument type like io__state),
+	% and if so, bind RetVar to the procedure's return value.
+	% These procedures need to handled specially: for such functions,
+	% we map the Mercury function result to an MLDS return value.
+	%
+:- pred ml_is_output_det_function(module_info, pred_id, proc_id, prog_var).
+:- mode ml_is_output_det_function(in, in, in, out) is semidet.
+
 %-----------------------------------------------------------------------------%
 %
 % Routines for generating types.
@@ -121,7 +132,7 @@
 	% Generate the function prototype for a procedure with the
 	% given argument types, modes, and code model.
 	%
-:- func ml_gen_params(module_info, list(string), list(prog_type),
+:- func ml_gen_params(module_info, list(mlds__var_name), list(prog_type),
 		list(mode), pred_or_func, code_model) = mlds__func_params.
 
 	% Given a list of variables and their corresponding modes,
@@ -168,9 +179,9 @@
 		mlds__pred_label, mlds_module_name).
 :- mode ml_gen_pred_label(in, in, in, out, out) is det.
 
-:- pred ml_gen_pred_label_from_rtti(rtti_proc_label,
+:- pred ml_gen_pred_label_from_rtti(module_info, rtti_proc_label,
 		mlds__pred_label, mlds_module_name).
-:- mode ml_gen_pred_label_from_rtti(in, out, out) is det.
+:- mode ml_gen_pred_label_from_rtti(in, in, out, out) is det.
 
 	% Allocate a new label name, for use in label statements.
 	%
@@ -251,6 +262,10 @@
 	% of a class.
 	%
 :- func ml_gen_public_field_decl_flags = mlds__decl_flags.
+
+	% Apply the usual %s_%d formatting to a MLDS variable name.
+:- func ml_var_name_to_string(mlds__var_name) = string.
+
 %-----------------------------------------------------------------------------%
 %
 % Routines for dealing with static constants
@@ -494,6 +509,13 @@
 :- pred ml_gen_info_set_byref_output_vars(list(prog_var),
 		ml_gen_info, ml_gen_info).
 :- mode ml_gen_info_set_byref_output_vars(in, in, out) is det.
+
+:- pred ml_gen_info_get_value_output_vars(ml_gen_info, list(prog_var)).
+:- mode ml_gen_info_get_value_output_vars(in, out) is det.
+
+:- pred ml_gen_info_set_value_output_vars(list(prog_var),
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_info_set_value_output_vars(in, in, out) is det.
 
 :- pred ml_gen_info_get_globals(globals, ml_gen_info, ml_gen_info).
 :- mode ml_gen_info_get_globals(out, in, out) is det.
@@ -963,7 +985,7 @@ ml_gen_params(ModuleInfo, HeadVarNames, HeadTypes, HeadModes, PredOrFunc,
 	FuncParams = ml_gen_params_base(ModuleInfo, HeadVarNames,
 		HeadTypes, ArgModes, PredOrFunc, CodeModel).
 
-:- func ml_gen_params_base(module_info, list(string), list(prog_type),
+:- func ml_gen_params_base(module_info, list(mlds__var_name), list(prog_type),
 		list(arg_mode), pred_or_func, code_model) = mlds__func_params.
 
 ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
@@ -1017,10 +1039,10 @@ ml_gen_params_base(ModuleInfo, HeadVarNames, HeadTypes, HeadModes,
 			ContType = mlds__cont_type([]),
 			RetTypes = RetTypes0
 		),
-		ContName = data(var("cont")),
+		ContName = data(var(var_name("cont", no))),
 		ContArg = ContName - ContType,
 		ContEnvType = mlds__generic_env_ptr_type,
-		ContEnvName = data(var("cont_env_ptr")),
+		ContEnvName = data(var(var_name("cont_env_ptr", no))),
 		ContEnvArg = ContEnvName - ContEnvType,
 		globals__lookup_bool_option(Globals, gcc_nested_functions,
 			NestedFunctions),
@@ -1104,6 +1126,26 @@ ml_gen_arg_decl(ModuleInfo, Var, Type, ArgMode, FuncArg) :-
 	Name = data(var(Var)),
 	FuncArg = Name - MLDS_ArgType.
 
+
+ml_is_output_det_function(ModuleInfo, PredId, ProcId, RetArgVar) :-
+	module_info_pred_proc_info(ModuleInfo, PredId, ProcId, PredInfo,
+			ProcInfo),
+	
+	pred_info_get_is_pred_or_func(PredInfo, function),
+	proc_info_interface_code_model(ProcInfo, model_det),
+
+	proc_info_argmodes(ProcInfo, Modes),
+	pred_info_arg_types(PredInfo, ArgTypes),
+	proc_info_headvars(ProcInfo, ArgVars),
+	modes_to_arg_modes(ModuleInfo, Modes, ArgTypes, ArgModes),
+	pred_args_to_func_args(ArgModes, _InputArgModes, RetArgMode),
+	pred_args_to_func_args(ArgTypes, _InputArgTypes, RetArgType),
+	pred_args_to_func_args(ArgVars, _InputArgVars, RetArgVar),
+
+	RetArgMode = top_out,
+	\+ type_util__is_dummy_argument_type(RetArgType).
+
+
 %-----------------------------------------------------------------------------%
 %
 % Code for generating mlds__entity_names.
@@ -1166,13 +1208,14 @@ ml_gen_new_func_label(MaybeParams, FuncLabel, FuncLabelRval) -->
 	%
 ml_gen_pred_label(ModuleInfo, PredId, ProcId, MLDS_PredLabel, MLDS_Module) :-
 	RttiProcLabel = rtti__make_proc_label(ModuleInfo, PredId, ProcId),
-	ml_gen_pred_label_from_rtti(RttiProcLabel,
+	ml_gen_pred_label_from_rtti(ModuleInfo, RttiProcLabel,
 		MLDS_PredLabel, MLDS_Module).
 
-ml_gen_pred_label_from_rtti(RttiProcLabel, MLDS_PredLabel, MLDS_Module) :-
+ml_gen_pred_label_from_rtti(ModuleInfo, RttiProcLabel, MLDS_PredLabel,
+		MLDS_Module) :-
 	RttiProcLabel = rtti_proc_label(PredOrFunc, ThisModule, PredModule,	
-		PredName, PredArity, ArgTypes, _PredId, ProcId,
-		_VarSet, _HeadVars, _ArgModes, _CodeModel,
+		PredName, PredArity, ArgTypes, PredId, ProcId,
+		_VarSet, _HeadVars, _ArgModes, CodeModel,
 		IsImported, _IsPseudoImported, _IsExported,
 		IsSpecialPredInstance),
 	(
@@ -1234,8 +1277,18 @@ ml_gen_pred_label_from_rtti(RttiProcLabel, MLDS_PredLabel, MLDS_Module) :-
 			DefiningModule = PredModule,
 			MaybeDeclaringModule = no
 		),
+		(
+			PredOrFunc = function,
+			\+ ml_is_output_det_function(ModuleInfo, PredId,
+				ProcId, _)
+		->
+			NonOutputFunc = yes
+		;
+			NonOutputFunc = no
+		),
 		MLDS_PredLabel = pred(PredOrFunc, MaybeDeclaringModule,
-				PredName, PredArity)
+				PredName, PredArity, CodeModel,
+				NonOutputFunc)
 	),
 	MLDS_Module = mercury_module_name_to_mlds(DefiningModule).
 
@@ -1289,7 +1342,8 @@ ml_gen_var_with_type(Var, Type, Lval) -->
 		{ mercury_private_builtin_module(PrivateBuiltin) },
 		{ MLDS_Module = mercury_module_name_to_mlds(PrivateBuiltin) },
 		ml_gen_type(Type, MLDS_Type),
-		{ Lval = var(qual(MLDS_Module, "dummy_var"), MLDS_Type) }
+		{ Lval = var(qual(MLDS_Module, var_name("dummy_var", no)),
+			MLDS_Type) }
 	;
 		=(MLDSGenInfo),
 		{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
@@ -1330,7 +1384,7 @@ ml_gen_var_names(VarSet, Vars) = list__map(ml_gen_var_name(VarSet), Vars).
 ml_gen_var_name(VarSet, Var) = UniqueVarName :-
 	varset__lookup_name(VarSet, Var, VarName),
 	term__var_to_int(Var, VarNumber),
-	string__format("%s_%d", [s(VarName), i(VarNumber)], UniqueVarName).
+	UniqueVarName = mlds__var_name(VarName, yes(VarNumber)).
 
 	% Generate a name for a local static constant.
 	%
@@ -1344,8 +1398,9 @@ ml_format_static_const_name(BaseName, SequenceNum, ConstName) -->
 	{ ml_gen_info_get_proc_id(MLDSGenInfo, ProcId) },
 	{ pred_id_to_int(PredId, PredIdNum) },
 	{ proc_id_to_int(ProcId, ProcIdNum) },
-	{ string__format("const_%d_%d_%d_%s", [i(PredIdNum), i(ProcIdNum),
-		i(SequenceNum), s(BaseName)], ConstName) }.
+	{ ConstName = mlds__var_name(
+		string__format("const_%d_%d_%d_%s", [i(PredIdNum),
+			i(ProcIdNum), i(SequenceNum), s(BaseName)]), no) }.
 
 	% Qualify the name of the specified variable
 	% with the current module name.
@@ -1424,6 +1479,11 @@ ml_static_const_decl_flags = MLDS_DeclFlags :-
 	Abstractness = concrete,
 	MLDS_DeclFlags = init_decl_flags(Access, PerInstance,
 		Virtuality, Finality, Constness, Abstractness).
+
+ml_var_name_to_string(var_name(Var, yes(Num))) =
+	string__format("%s_%d", [s(Var), i(Num)]).
+ml_var_name_to_string(var_name(Var, no)) = Var.
+	
 
 %-----------------------------------------------------------------------------%
 %
@@ -1515,13 +1575,15 @@ ml_gen_failure(model_non, _, MLDS_Statements) -->
 	% Generate the declaration for the built-in `succeeded' variable.
 	%
 ml_gen_succeeded_var_decl(Context) =
-	ml_gen_mlds_var_decl(var("succeeded"), mlds__native_bool_type, Context).
+	ml_gen_mlds_var_decl(var(var_name("succeeded", no)),
+		mlds__native_bool_type, Context).
 
 	% Return the lval for the `succeeded' flag.
 	% (`succeeded' is a boolean variable used to record
 	% the success or failure of model_semi procedures.)
 ml_success_lval(SucceededLval) -->
-	ml_gen_var_lval("succeeded", mlds__native_bool_type, SucceededLval).
+	ml_gen_var_lval(var_name("succeeded", no),
+		mlds__native_bool_type, SucceededLval).
 
 	% Return an rval which will test the value of the `succeeded' flag.
 	% (`succeeded' is a boolean variable used to record
@@ -1542,9 +1604,10 @@ ml_gen_set_success(Value, Context, MLDS_Statement) -->
 
 	% Generate the name for the specified `cond_<N>' variable.
 	%
-:- func ml_gen_cond_var_name(cond_seq) = string.
+:- func ml_gen_cond_var_name(cond_seq) = mlds__var_name.
 ml_gen_cond_var_name(CondVar) =
-	string__append("cond_", string__int_to_string(CondVar)).
+	mlds__var_name(string__append("cond_", string__int_to_string(CondVar)),
+		no).
 
 ml_gen_cond_var_decl(CondVar, Context) =
 	ml_gen_mlds_var_decl(var(ml_gen_cond_var_name(CondVar)),
@@ -1572,9 +1635,10 @@ ml_initial_cont(OutputVarLvals0, OutputVarTypes0, Cont) -->
 	% We expect OutputVarlvals0 and OutputVarTypes0 to be empty if
 	% `--nondet-copy-out' is not enabled.
 	%
-	ml_gen_var_lval("cont", mlds__cont_type(MLDS_OutputVarTypes), ContLval),
-	ml_gen_var_lval("cont_env_ptr", mlds__generic_env_ptr_type,
-		ContEnvLval),
+	ml_gen_var_lval(mlds__var_name("cont", no), 
+		mlds__cont_type(MLDS_OutputVarTypes), ContLval),
+	ml_gen_var_lval(mlds__var_name("cont_env_ptr", no),
+		mlds__generic_env_ptr_type, ContEnvLval),
 	{ Cont = success_cont(lval(ContLval), lval(ContEnvLval),
 		MLDS_OutputVarTypes, OutputVarLvals) }.
 
@@ -1676,10 +1740,11 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 		), 
 			InnerArgs0) },
 	{ InnerFuncArgType = mlds__cont_type(ArgTypes0) },
-	{ InnerFuncRval = lval(var(qual(MLDS_Module, "passed_cont"), 
+	{ PassedContVarName = mlds__var_name("passed_cont", no) },
+	{ InnerFuncRval = lval(var(qual(MLDS_Module, PassedContVarName),
 		InnerFuncArgType)) },
 	{ InnerFuncParams = func_params(
-		[data(var("passed_cont")) - InnerFuncArgType | InnerArgs0],
+		[data(var(PassedContVarName)) - InnerFuncArgType | InnerArgs0],
 			Rets) },
 
 	{ InnerMLDS_Stmt = call(Signature, InnerFuncRval, ObjectRval, 
@@ -1727,12 +1792,13 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 	% is `mlds__unknown_type'.  
 	%
 ml_get_env_ptr(lval(EnvPtrLval)) -->
-	ml_gen_var_lval("env_ptr", mlds__unknown_type, EnvPtrLval).
+	ml_gen_var_lval(mlds__var_name("env_ptr", no),
+		mlds__unknown_type, EnvPtrLval).
 
 	% Return an rval for a pointer to the current environment
 	% (the set of local variables in the containing procedure).
 ml_declare_env_ptr_arg(Name - mlds__generic_env_ptr_type) -->
-	{ Name = data(var("env_ptr_arg")) }.
+	{ Name = data(var(mlds__var_name("env_ptr_arg", no))) }.
 
 %-----------------------------------------------------------------------------%
 %
@@ -1763,6 +1829,8 @@ ml_declare_env_ptr_arg(Name - mlds__generic_env_ptr_type) -->
 			byref_output_vars :: list(prog_var),
 				% output arguments that are passed by
 				% reference
+			value_output_vars :: list(prog_var),
+				% output arguments that are returned as values
 
 			%
 			% these fields get updated as we traverse
@@ -1799,6 +1867,7 @@ ml_gen_info_init(ModuleInfo, PredId, ProcId) = MLDSGenInfo :-
 	proc_info_argmodes(ProcInfo, HeadModes),
 	ByRefOutputVars = select_output_vars(ModuleInfo, HeadVars, HeadModes,
 		VarTypes),
+	ValueOutputVars = [],
 
 	LabelCounter = 0,
 	FuncLabelCounter = 0,
@@ -1818,6 +1887,7 @@ ml_gen_info_init(ModuleInfo, PredId, ProcId) = MLDSGenInfo :-
 			VarSet,
 			VarTypes,
 			ByRefOutputVars,
+			ValueOutputVars,
 			LabelCounter,
 			FuncLabelCounter,
 			CommitLabelCounter,
@@ -1841,8 +1911,11 @@ ml_gen_info_get_proc_id(Info, Info^proc_id).
 ml_gen_info_get_varset(Info, Info^varset).
 ml_gen_info_get_var_types(Info, Info^var_types).
 ml_gen_info_get_byref_output_vars(Info, Info^byref_output_vars).
+ml_gen_info_get_value_output_vars(Info, Info^value_output_vars).
 ml_gen_info_set_byref_output_vars(OutputVars, Info,
 		Info^byref_output_vars := OutputVars).
+ml_gen_info_set_value_output_vars(OutputVars, Info,
+		Info^value_output_vars := OutputVars).
 
 ml_gen_info_use_gcc_nested_functions(UseNestedFuncs) -->
 	ml_gen_info_get_globals(Globals),

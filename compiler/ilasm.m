@@ -117,6 +117,15 @@
 			maybe(int32),		% offset for explicit layout
 			field_initializer	% initializer
 		)
+		% .class (a nested class)
+	;	nested_class(
+			list(classattr),	% attributes for the class
+			ilds__id,		% name of the class
+			extends,		% what is the parent class
+			implements, 		% what interfaces are 
+						% implemented
+			list(classdecl)		% methods and fields
+		)
 		% comments
 	;	comment_term(term)
 	;	comment(string)
@@ -309,11 +318,15 @@ ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 	ilasm__write_list(Contents, "\n", output_classdecl, Info2, Info),
 	io__write_string("\n}").
 ilasm__output_decl(namespace(DottedName, Contents), Info0, Info) --> 
-	io__write_string(".namespace "),
-	output_dotted_name(DottedName),
-	io__write_string(" {\n"),
-	output(Contents, Info0, Info),
-	io__write_string("}\n").
+	( { DottedName \= [] } ->
+		io__write_string(".namespace "),
+		output_dotted_name(DottedName),
+		io__write_string(" {\n"),
+		output(Contents, Info0, Info),
+		io__write_string("}\n")
+	;
+		output(Contents, Info0, Info)
+	).
 ilasm__output_decl(method(MethodHead, MethodDecls), Info0, Info) --> 
 	io__write_string(".method "),
 	output_methodhead(MethodHead, Info0, Info1),
@@ -417,6 +430,11 @@ ilasm__output_classdecl(
 	io__write_string(" "),
 	output_id(IlId),
 	output_field_initializer(Initializer).
+
+ilasm__output_classdecl(nested_class(Attrs, Id, Extends, Implements, Contents),
+		Info0, Info) --> 
+	ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
+		Info0, Info).
 
 ilasm__output_classdecl(comment(CommentStr), Info, Info) --> 
 	globals__io_lookup_bool_option(auto_comments, PrintComments),

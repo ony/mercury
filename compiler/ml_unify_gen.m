@@ -602,7 +602,8 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 
 	% then insert the `closure_arg' parameter
 	{ ClosureArgType = mlds__generic_type },
-	{ ClosureArg = data(var("closure_arg")) - ClosureArgType },
+	{ ClosureArg = data(var(
+		var_name("closure_arg", no))) - ClosureArgType },
 	{ WrapperParams0 = mlds__func_params(WrapperArgs0, WrapperRetType) },
 	{ WrapperParams = mlds__func_params([ClosureArg | WrapperArgs0],
 		WrapperRetType) },
@@ -626,8 +627,8 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	% #endif
 	%	closure = closure_arg;
 	%
-	{ ClosureName = "closure" },
-	{ ClosureArgName = "closure_arg" },
+	{ ClosureName = mlds__var_name("closure", no) },
+	{ ClosureArgName = mlds__var_name("closure_arg", no) },
 	{ MLDS_Context = mlds__make_context(Context) },
 	{ ClosureType = mlds__generic_type },
 	{ ClosureDecl = ml_gen_mlds_var_decl(var(ClosureName),
@@ -730,14 +731,14 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	{ WrapperFuncType = mlds__func_type(WrapperParams) },
 	ml_gen_info_add_extra_defn(WrapperFunc).
 
-:- func ml_gen_wrapper_head_var_names(int, int) = list(string).
+:- func ml_gen_wrapper_head_var_names(int, int) = list(mlds__var_name).
 ml_gen_wrapper_head_var_names(Num, Max) = Names :-
 	( Num > Max ->
 		Names = []
 	;
 		Name = string__format("wrapper_arg_%d", [i(Num)]),
 		Names1 = ml_gen_wrapper_head_var_names(Num + 1, Max),
-		Names = [Name | Names1]
+		Names = [mlds__var_name(Name, no) | Names1]
 	).
 
 	% ml_gen_wrapper_arg_lvals(HeadVarNames, Types, ArgModes,
@@ -1139,9 +1140,8 @@ ml_gen_box_const_rval(Type, Rval, Context, ConstDefns, BoxedRval) -->
 		{ ml_gen_info_get_proc_id(MLDSGenInfo, ProcId) },
 		{ pred_id_to_int(PredId, PredIdNum) },
 		{ proc_id_to_int(ProcId, ProcIdNum) },
-		{ string__format("float_%d_%d_%d",
-			[i(PredIdNum), i(ProcIdNum), i(SequenceNum)],
-			ConstName) },
+		{ ConstName = mlds__var_name(string__format("float_%d_%d_%d",
+			[i(PredIdNum), i(ProcIdNum), i(SequenceNum)]), no) },
 		{ Initializer = init_obj(Rval) },
 		{ ConstDefn = ml_gen_static_const_defn(ConstName, Type,
 			Initializer, Context) },
@@ -1184,7 +1184,8 @@ ml_gen_static_const_name(Var, ConstName) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
 	{ VarName = ml_gen_var_name(VarSet, Var) },
-	ml_format_static_const_name(VarName, SequenceNum, ConstName).
+	ml_format_static_const_name(ml_var_name_to_string(VarName),
+		SequenceNum, ConstName).
 
 :- pred ml_lookup_static_const_name(prog_var, mlds__var_name,
 		ml_gen_info, ml_gen_info).
@@ -1194,7 +1195,8 @@ ml_lookup_static_const_name(Var, ConstName) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
 	{ VarName = ml_gen_var_name(VarSet, Var) },
-	ml_format_static_const_name(VarName, SequenceNum, ConstName).
+	ml_format_static_const_name(ml_var_name_to_string(VarName),
+		SequenceNum, ConstName).
 
 	% Generate an rval containing the address of the local static constant
 	% for a given variable.
