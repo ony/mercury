@@ -26,14 +26,12 @@
 %		io__state, io__state).
 %:- mode node2html(in, in, in, in, di, uo) is det.
 
-:- func compress_profile(int, int, int, int, int, int, int) = own_prof_info.
-:- func compress_profile(own_prof_info) = own_prof_info.
-
 :- func u(T) = T.
 :- mode (u(in) = array_uo) is det.
 
 :- implementation.
 
+:- import_module measurements.
 :- import_module char, std_util.
 
 :- type ptr_info --->
@@ -59,11 +57,13 @@ read_call_graph(FileName, Res) -->
 			call_site_dynamic_ptr(-1),
 			init(1, call_site_dynamic(
 					proc_dynamic_ptr(-1),
-					% should be zero_own_profile
-					zdet(0, 0, 0)
+					zero_own_prof_info
 				)),
 			init(1, proc_dynamic(proc_static_ptr(-1), array([]))),
-			init(1, call_site_static(normal_call, -1, "")),
+			init(1, call_site_static(
+					proc_static_ptr(-1), -1,
+					normal_call, -1, ""
+				)),
 			init(1, proc_static(dummy_proc_id, "", array([])))
 		) },
 		{ PI0 = ptr_info(0, 0, 0, 0) },
@@ -142,7 +142,10 @@ read_call_site_static(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 		read_string,
 		(pred(Ptr::in, Kind::in, LineNumber::in, Str::in, Res0::out)
 				is det :-
-			CSS = call_site_static(Kind, LineNumber, Str),
+			DummyPSPtr = proc_static_ptr(-1),
+			DummySlotNum = -1,
+			CSS = call_site_static(DummyPSPtr, DummySlotNum,
+				Kind, LineNumber, Str),
 			insert(InitDeep0 ^ init_call_site_statics,
 				Ptr, CSS, CSSs),
 			InitDeep = InitDeep0 ^ init_call_site_statics := CSSs,
@@ -281,7 +284,8 @@ read_proc_dynamic(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 			{ Res2 = ok(Refs) },
 			{ PSPtr = proc_static_ptr(SPtr) },
 			{ PD = proc_dynamic(PSPtr, array(Refs)) },
-			{ insert(InitDeep0 ^ init_proc_dynamics, Ptr, PD, PDs) },
+			{ insert(InitDeep0 ^ init_proc_dynamics,
+				Ptr, PD, PDs) },
 			{ InitDeep1 = InitDeep0 ^ init_proc_dynamics := PDs },
 			{ PtrInfo1 = PtrInfo0 ^ pd := max(PtrInfo0 ^ pd, Ptr) },
 			read_call_graph2(InitDeep1, Res, PtrInfo1, PtrInfo)
@@ -313,12 +317,14 @@ read_call_site_dynamic(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 				{ Res3 = ok(Profile) },
 				{ PDPtr = proc_dynamic_ptr(Ptr2) },
 				{ CD = call_site_dynamic(PDPtr, Profile) },
-				{ insert(InitDeep0 ^ init_call_site_dynamics, Ptr1,
-						CD, CDs) },
-				{ InitDeep1 = InitDeep0 ^ init_call_site_dynamics := CDs },
+				{ insert(InitDeep0 ^ init_call_site_dynamics,
+					Ptr1, CD, CDs) },
+				{ InitDeep1 = InitDeep0
+					^ init_call_site_dynamics := CDs },
 				{ PtrInfo1 = PtrInfo0 ^ csd :=
-						max(PtrInfo0 ^ csd, Ptr1) },
-				read_call_graph2(InitDeep1, Res, PtrInfo1, PtrInfo)
+					max(PtrInfo0 ^ csd, Ptr1) },
+				read_call_graph2(InitDeep1, Res,
+					PtrInfo1, PtrInfo)
 			;
 				{ Res3 = error(Err) },
 				{ Res = error(Err) },
@@ -418,55 +424,6 @@ maybe_read_num_handle_error(Value, MaybeError0, MaybeError) -->
 		{ Res = error(Error) },
 		{ Value = 0 },
 		{ MaybeError = yes(Error) }
-	).
-
-compress_profile(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words) = PI :-
-	(
-		Calls = Exits,
-		Fails = 0,
-		Redos = 0
-	->
-		(
-			Quanta = 0
-		->
-			PI = zdet(Calls, Mallocs, Words)
-		;
-			PI = det(Calls, Quanta, Mallocs, Words)
-		)
-	;
-		PI = all(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words)
-	).
-
-compress_profile(PI0) = PI :-
-	(
-		PI0 = all(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words),
-		(
-			Calls = Exits,
-			Fails = 0,
-			Redos = 0
-		->
-			(
-				Quanta = 0
-			->
-				PI = zdet(Calls, Mallocs, Words)
-			;
-				PI = det(Calls, Quanta, Mallocs, Words)
-			)
-		;
-			PI = PI0
-		)
-	;
-		PI0 = det(Calls, Quanta, Mallocs, Words),
-		(
-			Quanta = 0
-		->
-			PI = zdet(Calls, Mallocs, Words)
-		;
-			PI = PI0
-		)
-	;
-		PI0 = zdet(_, _, _),
-		PI = PI0
 	).
 
 :- pred read_call_site_ref(deep_result(call_site_array_slot)::out,

@@ -3,6 +3,8 @@
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
+%
+% XXX The cgi executable should be copied to /usr/lib/cgi-bin/deep.
 
 :- module cgi.
 
@@ -55,26 +57,19 @@ main -->
 			write_string(Str)
 		;
 			{
-				Pieces = ["procs", SortStr,
-					FirstStr, LastStr],
+				Pieces = ["procs", SortStr, InclDescStr,
+					LimitStr],
 				Fields = default_fields
 			;
-				Pieces = ["procs", SortStr, Fields,
-					FirstStr, LastStr],
+				Pieces = ["procs", SortStr, InclDescStr,
+					LimitStr, Fields],
 				validate_fields(Fields)
 			},
-			{
-				SortStr = "self",
-				Sort = self
-			;
-				SortStr = "both",
-				Sort = self_and_desc
-			},
-			{ string__to_int(FirstStr, First) },
-			{ string__to_int(LastStr, Last) }
+			{ translate_criteria(SortStr, Sort,
+				InclDescStr, InclDesc, LimitStr, Limit) }
 		->
 			to("/var/tmp/toDeep",
-				procs(Sort, Fields, First, Last)),
+				top_procs(Sort, InclDesc, Limit, Fields)),
 			from("/var/tmp/fromDeep", html(Str)),
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)
@@ -110,6 +105,46 @@ main -->
 		)
 	;
 		{ MQStr = no }
+	).
+
+:- pred translate_criteria(string::in, sort_measurement::out,
+	string::in, include_descendants::out, string::in, display_limit::out)
+	is semidet.
+
+translate_criteria(SortStr, Sort, InclDescStr, InclDesc, LimitStr, Limit) :-
+	(
+		SortStr = "calls",
+		Sort = calls
+	;
+		SortStr = "time",
+		Sort = time
+	;
+		SortStr = "allocs",
+		Sort = allocs
+	;
+		SortStr = "words",
+		Sort = words
+	),
+	(
+		InclDescStr = "self",
+		InclDesc = self
+	;
+		InclDescStr = "both",
+		InclDesc = self_and_desc
+	),
+	(
+		split(LimitStr, '-', Pieces),
+		Pieces = [FirstStr, LastStr],
+		string__to_int(FirstStr, First),
+		string__to_int(LastStr, Last)
+	->
+		Limit = rank_range(First, Last)
+	;
+		string__to_float(LimitStr, Threshold)
+	->
+		Limit = threshold(Threshold)
+	;
+		fail
 	).
 
 :- func default_fields = fields.

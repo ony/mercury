@@ -17,13 +17,23 @@
 	;	menu
 	;	root(fields)
 	;	clique(int, fields)
-	;	procs(sort, fields, int, int)
 	;	proc(int, fields)
-	.
+	;	top_procs(sort_measurement, include_descendants,
+			display_limit, fields).
 
-:- type sort
+:- type sort_measurement
+	--->	calls
+	;	time
+	;	allocs
+	;	words.
+
+:- type include_descendants
 	--->	self
 	;	self_and_desc.
+
+:- type display_limit
+	--->	rank_range(int, int)
+	;	threshold(float).
 
 :- type resp
 	--->	html(string).

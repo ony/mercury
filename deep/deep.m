@@ -15,6 +15,7 @@
 
 :- implementation.
 
+:- import_module measurements.
 :- import_module array, bool, char, getopt, int, list, assoc_list.
 :- import_module map, require, set, std_util, string.
 
@@ -46,12 +47,12 @@
 		clique_maybe_child	:: array(maybe(clique_ptr)),
 					   % index: call_site_dynamic_ptr int
 			% Reverse links
-		proc_callers		:: array(set(call_site_dynamic_ptr)),
+		proc_callers		:: array(list(call_site_dynamic_ptr)),
 					   % index: proc_static_ptr int
-		call_site_caller	:: array(call_site_caller),
+		call_site_static_map	:: call_site_static_map,
 					   % index: call_site_dynamic_ptr int
 		call_site_calls		:: array(map(proc_static_ptr,
-						set(call_site_dynamic_ptr))),
+						list(call_site_dynamic_ptr))),
 					   % index: call_site_static_ptr int
 			% Propagated timing info
 		pd_own			:: array(own_prof_info),
@@ -69,6 +70,7 @@
 :- type proc_statics == array(proc_static).
 :- type call_site_dynamics == array(call_site_dynamic).
 :- type call_site_statics == array(call_site_static).
+:- type call_site_static_map == array(call_site_static_ptr).
 
 :- type proc_dynamic_ptr
 	--->	proc_dynamic_ptr(int).
@@ -108,6 +110,9 @@
 
 :- type call_site_static
 	--->	call_site_static(
+			proc_static_ptr,	% the containing procedure
+			int,			% slot number in the
+						% containing procedure
 			call_site_kind,
 			int,			% line number
 			string			% goal path
@@ -155,31 +160,7 @@
 
 :- type call_site_caller
 	--->	call_site_caller(
-			proc_static_ptr,	% in this procedure,
-			int,			% at this slot in the
-						% call_site_ids array
 			call_site_static_ptr
-		).
-
-%-----------------------------------------------------------------------------%
-
-:- type own_prof_info
-	--->	all(int, int, int, int, int, int, int)
-					% calls, exits, fails, redos, quanta,
-					% memory_mallocs, memory_words
-	;	det(int, int, int, int)	% calls, quanta, mallocs, words;
-					% implicit exits == calls,
-					% implicit fails == redos == 0
-	;	zdet(int, int, int).	% calls, mallocs, words;
-					% implicit exits == calls,
-					% implicit fails == redos == 0
-					% implicit quanta == 0
-
-:- type inherit_prof_info
-	--->	inherit_prof_info(
-			int, 		% quanta
-			int, 		% memory_mallocs
-			int 		% memory_words
 		).
 
 %-----------------------------------------------------------------------------%
@@ -257,7 +238,7 @@ main -->
 main2(Globals0) -->
 	stderr_stream(StdErr),
 	io__report_stats,
-	write_string(StdErr, "Reading graph data...\n"),
+	write_string(StdErr, "  Reading graph data...\n"),
 	{ get_global(Globals0, options) = options(Options) },
 	( { map__lookup(Options, data_file, maybe_string(yes(FileName0))) } ->
 		{ FileName = FileName0 }
@@ -265,11 +246,10 @@ main2(Globals0) -->
 		{ FileName = "Deep.data" }
 	),
 	read_call_graph(FileName, Res),
-	write_string(StdErr, "Done.\n"),
+	write_string(StdErr, "  Done.\n"),
 	io__report_stats,
 	(
 		{ Res = ok(InitialDeep) },
-		write_string(StdErr, "Merging cycles in the graph.\n"),
 		startup(InitialDeep, Deep),
 		write_string(StdErr, "Done.\n"),
 		{ array_foldl(sum_all_csd_quanta, Deep ^ call_site_dynamics,
@@ -328,13 +308,22 @@ main3(Globals, Deep) -->
 	%).
 	[].
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- pred startup(initial_deep::in, deep::out, io__state::di, io__state::uo)
 	is det.
 
 startup(InitialDeep, Deep) -->
 	stderr_stream(StdErr),
+
+	{ InitialDeep = initial_deep(Root, CallSiteDynamics, ProcDynamics,
+		CallSiteStatics0, ProcStatics) },
+
+	format(StdErr, "  Mapping call sites to containing procedures...\n",
+		[]),
+	{ array_foldl(record_containing_procedures, ProcStatics,
+		u(CallSiteStatics0), CallSiteStatics) },
+	format(StdErr, "  Done.\n", []),
 	io__report_stats,
 
 	format(StdErr, "  Constructing graph...\n", []),
@@ -364,9 +353,7 @@ startup(InitialDeep, Deep) -->
 	format(StdErr, "  Done.\n", []),
 	io__report_stats,
 
-	format(StdErr, "  Constructing indexes...\n", []),
-	{ InitialDeep = initial_deep(Root, CallSiteDynamics, ProcDynamics,
-		CallSiteStatics, ProcStatics) },
+	format(StdErr, "  Constructing clique indexes...\n", []),
 	flush_output(StdErr),
 
 	{ array__max(ProcDynamics, PDMax) },
@@ -375,7 +362,7 @@ startup(InitialDeep, Deep) -->
 	{ NCSDs = CSDMax + 1 },
 	{ array__max(ProcStatics, PSMax) },
 	{ NPSs = PSMax + 1 },
-	{ array__max(InitialDeep ^ init_call_site_statics, CSSMax) },
+	{ array__max(CallSiteStatics, CSSMax) },
 	{ NCSSs = CSSMax + 1 },
 
 	{ array__init(NPDs, clique_ptr(-1), CliqueIndex0) },
@@ -391,6 +378,10 @@ startup(InitialDeep, Deep) -->
 			array__set(I1, Y, clique_ptr(CliqueN), I2)
 		), CliqueMembers, I0, I)
 	), Cliques, CliqueIndex0, CliqueIndex) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
+
+	format(StdErr, "  Constructing clique parent map...\n", []),
 
 		% For each CallSiteDynamic pointer, if it points to
 		% a ProcDynamic which is in a different clique to
@@ -417,20 +408,27 @@ startup(InitialDeep, Deep) -->
 	{ array__set(CliqueParents1, RootCliqueN, Root, CliqueParents) },
 	{ array__set(CliqueMaybeChildren1, RootI, yes(RootCliquePtr),
 		CliqueMaybeChildren) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
 
-	{ array__init(NPSs, set__init, ProcCallers0) },
+	format(StdErr, "  Finding procedure callers...\n", []),
+	{ array__init(NPSs, [], ProcCallers0) },
 	{ array_foldl(construct_proc_callers(InitialDeep), CallSiteDynamics,
 		ProcCallers0, ProcCallers) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
 
-	{ array__init(NCSDs, call_site_caller(proc_static_ptr(-1),
-		-1, call_site_static_ptr(-1)), CallSiteCaller0) },
+	format(StdErr, "  Constructing call site static map...\n", []),
+	{ array__init(NCSDs, call_site_static_ptr(-1), CallSiteStaticMap0) },
 	{ array_foldl(construct_call_site_caller(InitialDeep), ProcDynamics,
-		CallSiteCaller0, CallSiteCaller) },
+		CallSiteStaticMap0, CallSiteStaticMap) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
 
+	format(StdErr, "  Finding call site calls...\n", []),
 	{ array__init(NCSSs, map__init, CallSiteCalls0) },
 	{ array_foldl(construct_call_site_calls(InitialDeep), ProcDynamics,
 		CallSiteCalls0, CallSiteCalls) },
-
 	format(StdErr, "  Done.\n", []),
 	io__report_stats,
 
@@ -449,7 +447,7 @@ startup(InitialDeep, Deep) -->
 	{ Deep0 = deep(Root, CallSiteDynamics, ProcDynamics,
 		CallSiteStatics, ProcStatics,
 		CliqueIndex, Cliques, CliqueParents, CliqueMaybeChildren,
-		ProcCallers, CallSiteCaller, CallSiteCalls,
+		ProcCallers, CallSiteStaticMap, CallSiteCalls,
 		PDOwn, PDDesc0, CSDDesc0,
 		PSOwn0, PSDesc0, CSSOwn0, CSSDesc0) },
 
@@ -461,10 +459,46 @@ startup(InitialDeep, Deep) -->
 	{ summarize_proc_dynamics(Deep1, Deep2) },
 	{ summarize_call_site_dynamics(Deep2, Deep) },
 	format(StdErr, "  Done.\n", []),
-	io__report_stats,
-
-	format(StdErr, "  Done.\n", []),
 	io__report_stats.
+
+:- pred record_containing_procedures(int::in, proc_static::in,
+	array(call_site_static)::array_di,
+	array(call_site_static)::array_uo) is det.
+
+record_containing_procedures(PSI, PS, CallSiteStatics0, CallSiteStatics) :-
+	PS = proc_static(_, _, CSSPtrs),
+	PSPtr = proc_static_ptr(PSI),
+	array__max(CSSPtrs, MaxCS),
+	record_containing_procedures_2(MaxCS, PSPtr, CSSPtrs,
+		CallSiteStatics0, CallSiteStatics).
+
+:- pred record_containing_procedures_2(int::in, proc_static_ptr::in,
+	array(call_site_static_ptr)::in,
+	array(call_site_static)::array_di,
+	array(call_site_static)::array_uo) is det.
+
+record_containing_procedures_2(SlotNum, PSPtr, CSSPtrs,
+		CallSiteStatics0, CallSiteStatics) :-
+	( SlotNum >= 0 ->
+		array__lookup(CSSPtrs, SlotNum, CSSPtr),
+		lookup_call_site_statics(CallSiteStatics0, CSSPtr, CSS0),
+		CSS0 = call_site_static(PSPtr0, SlotNum0,
+			Kind, LineNumber, GoalPath),
+		require(unify(PSPtr0, proc_static_ptr(-1)),
+			"record_containing_procedures_2: real proc_static_ptr"),
+		require(unify(SlotNum0, -1),
+			"record_containing_procedures_2: real slot_num"),
+		CSS = call_site_static(PSPtr, SlotNum,
+			Kind, LineNumber, GoalPath),
+		update_call_site_statics(CallSiteStatics0, CSSPtr, CSS,
+			CallSiteStatics1),
+		record_containing_procedures_2(SlotNum - 1, PSPtr, CSSPtrs,
+			CallSiteStatics1, CallSiteStatics)
+	;
+		CallSiteStatics = CallSiteStatics0
+	).
+
+%-----------------------------------------------------------------------------%
 
 :- pred construct_clique_parents(initial_deep::in, array(clique_ptr)::in,
 	int::in, clique_ptr::in,
@@ -528,8 +562,8 @@ construct_clique_parents_2(InitialDeep, CliqueIndex, ParentCliquePtr, CSDPtr,
 
 :- pred construct_proc_callers(initial_deep::in, int::in,
 	call_site_dynamic::in,
-	array(set(call_site_dynamic_ptr))::array_di,
-	array(set(call_site_dynamic_ptr))::array_uo) is det.
+	array(list(call_site_dynamic_ptr))::array_di,
+	array(list(call_site_dynamic_ptr))::array_uo) is det.
 
 construct_proc_callers(InitialDeep, CSDI, CSD, ProcCallers0, ProcCallers) :-
 	CSD = call_site_dynamic(PDPtr, _),
@@ -539,72 +573,73 @@ construct_proc_callers(InitialDeep, CSDI, CSD, ProcCallers0, ProcCallers) :-
 		PD = proc_dynamic(PSPtr, _),
 		PSPtr = proc_static_ptr(PSI),
 		array__lookup(ProcCallers0, PSI, Callers0),
-		Callers = set__insert(Callers0, call_site_dynamic_ptr(CSDI)),
+		Callers = [call_site_dynamic_ptr(CSDI) | Callers0],
 		array__set(ProcCallers0, PSI, Callers, ProcCallers)
 	;
 		ProcCallers = ProcCallers0
 	).
 
 :- pred construct_call_site_caller(initial_deep::in, int::in, proc_dynamic::in,
-	array(call_site_caller)::array_di,
-	array(call_site_caller)::array_uo) is det.
+	array(call_site_static_ptr)::array_di,
+	array(call_site_static_ptr)::array_uo) is det.
 
 construct_call_site_caller(InitialDeep, _PDI, PD,
-		CallSiteCaller0, CallSiteCaller) :-
+		CallSiteStaticMap0, CallSiteStaticMap) :-
 	PD = proc_dynamic(PSPtr, CSDArraySlots),
 	PSPtr = proc_static_ptr(PSI),
 	array__lookup(InitialDeep ^ init_proc_statics, PSI, PS),
 	PS = proc_static(_, _, CSSPtrs),
 	array__max(CSDArraySlots, MaxCS),
-	construct_call_site_caller_2(MaxCS, PSPtr, CSSPtrs, CSDArraySlots,
-		CallSiteCaller0, CallSiteCaller).
+	construct_call_site_caller_2(MaxCS,
+		InitialDeep ^ init_call_site_dynamics, CSSPtrs, CSDArraySlots,
+		CallSiteStaticMap0, CallSiteStaticMap).
 
-:- pred construct_call_site_caller_2(int::in, proc_static_ptr::in,
+:- pred construct_call_site_caller_2(int::in, call_site_dynamics::in,
 	array(call_site_static_ptr)::in,
 	array(call_site_array_slot)::in,
-	array(call_site_caller)::array_di,
-	array(call_site_caller)::array_uo) is det.
+	array(call_site_static_ptr)::array_di,
+	array(call_site_static_ptr)::array_uo) is det.
 
-construct_call_site_caller_2(SlotNum, PSPtr, CSSPtrs, CSDArraySlots,
-		CallSiteCaller0, CallSiteCaller) :-
+construct_call_site_caller_2(SlotNum, Deep, CSSPtrs, CSDArraySlots,
+		CallSiteStaticMap0, CallSiteStaticMap) :-
 	( SlotNum >= 0 ->
 		array__lookup(CSDArraySlots, SlotNum, CSDArraySlot),
 		array__lookup(CSSPtrs, SlotNum, CSSPtr),
 		(
 			CSDArraySlot = normal(CSDPtr),
-			construct_call_site_caller_3(PSPtr, SlotNum, CSSPtr,
-				-1, CSDPtr, CallSiteCaller0, CallSiteCaller1)
+			construct_call_site_caller_3(Deep, CSSPtr, -1, CSDPtr,
+				CallSiteStaticMap0, CallSiteStaticMap1)
 
 		;
 			CSDArraySlot = multi(CSDPtrs),
-			array_foldl0(construct_call_site_caller_3(
-				PSPtr, SlotNum, CSSPtr), CSDPtrs,
-				CallSiteCaller0, CallSiteCaller1)
+			array_foldl0(
+				construct_call_site_caller_3(Deep, CSSPtr),
+				CSDPtrs,
+				CallSiteStaticMap0, CallSiteStaticMap1)
 		),
-		construct_call_site_caller_2(SlotNum - 1, PSPtr, CSSPtrs,
-			CSDArraySlots, CallSiteCaller1, CallSiteCaller)
+		construct_call_site_caller_2(SlotNum - 1, Deep, CSSPtrs,
+			CSDArraySlots, CallSiteStaticMap1, CallSiteStaticMap)
 	;
-		CallSiteCaller = CallSiteCaller0
+		CallSiteStaticMap = CallSiteStaticMap0
 	).
 
-:- pred construct_call_site_caller_3(proc_static_ptr::in, int::in,
+:- pred construct_call_site_caller_3(call_site_dynamics::in,
 	call_site_static_ptr::in, int::in, call_site_dynamic_ptr::in,
-	array(call_site_caller)::array_di,
-	array(call_site_caller)::array_uo) is det.
+	array(call_site_static_ptr)::array_di,
+	array(call_site_static_ptr)::array_uo) is det.
 
-construct_call_site_caller_3(PSPtr, SlotNum, CSSPtr, _Dummy, CSDPtr,
-		CallSiteCaller0, CallSiteCaller) :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	( CSDI > 0 ->
-		Caller = call_site_caller(PSPtr, SlotNum, CSSPtr),
-		array__set(CallSiteCaller0, CSDI, Caller, CallSiteCaller)
+construct_call_site_caller_3(CallSiteDynamics, CSSPtr, _Dummy, CSDPtr,
+		CallSiteStaticMap0, CallSiteStaticMap) :-
+	( valid_call_site_dynamic_ptr_raw(CallSiteDynamics, CSDPtr) ->
+		update_call_site_static_map(CallSiteStaticMap0,
+			CSDPtr, CSSPtr, CallSiteStaticMap)
 	;
-		CallSiteCaller = CallSiteCaller0
+		CallSiteStaticMap = CallSiteStaticMap0
 	).
 
 :- pred construct_call_site_calls(initial_deep::in, int::in, proc_dynamic::in,
-	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_di,
-	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_uo)
+	array(map(proc_static_ptr, list(call_site_dynamic_ptr)))::array_di,
+	array(map(proc_static_ptr, list(call_site_dynamic_ptr)))::array_uo)
 	is det.
 
 construct_call_site_calls(InitialDeep, _PDI, PD,
@@ -622,8 +657,8 @@ construct_call_site_calls(InitialDeep, _PDI, PD,
 :- pred construct_call_site_calls_2(call_site_dynamics::in, proc_dynamics::in,
 	int::in, array(call_site_static_ptr)::in,
 	array(call_site_array_slot)::in,
-	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_di,
-	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_uo)
+	array(map(proc_static_ptr, list(call_site_dynamic_ptr)))::array_di,
+	array(map(proc_static_ptr, list(call_site_dynamic_ptr)))::array_uo)
 	is det.
 
 construct_call_site_calls_2(CallSiteDynamics, ProcDynamics, SlotNum,
@@ -652,8 +687,8 @@ construct_call_site_calls_2(CallSiteDynamics, ProcDynamics, SlotNum,
 
 :- pred construct_call_site_calls_3(call_site_dynamics::in, proc_dynamics::in,
 	call_site_static_ptr::in, int::in, call_site_dynamic_ptr::in,
-	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_di,
-	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_uo)
+	array(map(proc_static_ptr, list(call_site_dynamic_ptr)))::array_di,
+	array(map(proc_static_ptr, list(call_site_dynamic_ptr)))::array_uo)
 	is det.
 
 construct_call_site_calls_3(CallSiteDynamics, ProcDynamics, CSSPtr,
@@ -668,12 +703,12 @@ construct_call_site_calls_3(CallSiteDynamics, ProcDynamics, CSSPtr,
 
 		CSSPtr = call_site_static_ptr(CSSI),
 		array__lookup(CallSiteCalls0, CSSI, CallMap0),
-		( map__search(CallMap0, PSPtr, CallSet0) ->
-			set__insert(CallSet0, CSDPtr, CallSet),
-			map__det_update(CallMap0, PSPtr, CallSet, CallMap)
+		( map__search(CallMap0, PSPtr, CallList0) ->
+			CallList = [CSDPtr | CallList0],
+			map__det_update(CallMap0, PSPtr, CallList, CallMap)
 		;
-			set__singleton_set(CallSet, CSDPtr),
-			map__det_insert(CallMap0, PSPtr, CallSet, CallMap)
+			CallList = [CSDPtr],
+			map__det_insert(CallMap0, PSPtr, CallList, CallMap)
 		),
 		array__set(CallSiteCalls0, CSSI, CallMap, CallSiteCalls)
 	;
@@ -737,7 +772,7 @@ summarize_call_site_dynamics(Deep0, Deep) :-
 	CSSOwn0 = Deep0 ^ css_own,
 	CSSDesc0 = Deep0 ^ css_desc,
 	array_foldl2(summarize_call_site_dynamic(Deep0 ^ root,
-		Deep0 ^ call_site_caller, Deep0 ^ csd_desc),
+		Deep0 ^ call_site_static_map, Deep0 ^ csd_desc),
 		Deep0 ^ call_site_dynamics,
 		copy(CSSOwn0), CSSOwn, copy(CSSDesc0), CSSDesc),
 	Deep = ((Deep0
@@ -745,17 +780,17 @@ summarize_call_site_dynamics(Deep0, Deep) :-
 		^ css_desc := CSSDesc).
 
 :- pred summarize_call_site_dynamic(call_site_dynamic_ptr::in,
-	array(call_site_caller)::in, array(inherit_prof_info)::in,
+	call_site_static_map::in, array(inherit_prof_info)::in,
 	int::in, call_site_dynamic::in,
 	array(own_prof_info)::array_di, array(own_prof_info)::array_uo,
 	array(inherit_prof_info)::array_di, array(inherit_prof_info)::array_uo)
 	is det.
 
-summarize_call_site_dynamic(Root, CallSiteCallers, CSDDescs, CSDI, CSD,
+summarize_call_site_dynamic(Root, CallSiteStaticMap, CSDDescs, CSDI, CSD,
 		CSSOwn0, CSSOwn, CSSDesc0, CSSDesc) :-
 	( call_site_dynamic_ptr(CSDI) \= Root ->
-		array__lookup(CallSiteCallers, CSDI, CallSiteCaller),
-		CallSiteCaller = call_site_caller(_, _, CSSPtr),
+		CSDPtr = call_site_dynamic_ptr(CSDI),
+		lookup_call_site_static_map(CallSiteStaticMap, CSDPtr, CSSPtr),
 		CSSPtr = call_site_static_ptr(CSSI),
 		( CSSI > 0 ->
 			CSD = call_site_dynamic(_, CSDOwnPI),
@@ -859,59 +894,6 @@ require_isnt(Goal, Message) :-
 
 is_member(Elem, List) :-
 	member(Elem, List).
-
-:- func add_inherit_to_inherit(inherit_prof_info, inherit_prof_info)
-	= inherit_prof_info.
-
-add_inherit_to_inherit(PI1, PI2) = SumPI :-
-	Quanta = inherit_quanta(PI1) + inherit_quanta(PI2),
-	Mallocs = inherit_mallocs(PI1) + inherit_mallocs(PI2),
-	Words = inherit_words(PI1) + inherit_words(PI2),
-	SumPI = inherit_prof_info(Quanta, Mallocs, Words).
-
-:- func add_own_to_inherit(own_prof_info, inherit_prof_info)
-	= inherit_prof_info.
-
-add_own_to_inherit(PI1, PI2) = SumPI :-
-	Quanta = quanta(PI1) + inherit_quanta(PI2),
-	Mallocs = mallocs(PI1) + inherit_mallocs(PI2),
-	Words = words(PI1) + inherit_words(PI2),
-	SumPI = inherit_prof_info(Quanta, Mallocs, Words).
-
-:- func subtract_own_from_inherit(own_prof_info, inherit_prof_info)
-	= inherit_prof_info.
-
-subtract_own_from_inherit(PI1, PI2) = SumPI :-
-	Quanta = inherit_quanta(PI2) - quanta(PI1),
-	Mallocs = inherit_mallocs(PI2) - mallocs(PI1),
-	Words = inherit_words(PI2) - words(PI1),
-	SumPI = inherit_prof_info(Quanta, Mallocs, Words).
-
-:- func add_inherit_to_own(inherit_prof_info, own_prof_info) = own_prof_info.
-
-add_inherit_to_own(PI1, PI2) = SumPI :-
-	Calls = calls(PI2),
-	Exits = exits(PI2),
-	Fails = fails(PI2),
-	Redos = redos(PI2),
-	Quanta = inherit_quanta(PI1) + quanta(PI2),
-	Mallocs = inherit_mallocs(PI1) + mallocs(PI2),
-	Words = inherit_words(PI1) + words(PI2),
-	SumPI = compress_profile(Calls, Exits, Fails, Redos,
-		Quanta, Mallocs, Words).
-
-:- func add_own_to_own(own_prof_info, own_prof_info) = own_prof_info.
-
-add_own_to_own(PI1, PI2) = SumPI :-
-	Calls = calls(PI1) + calls(PI2),
-	Exits = exits(PI1) + exits(PI2),
-	Fails = fails(PI1) + fails(PI2),
-	Redos = redos(PI1) + redos(PI2),
-	Quanta = quanta(PI1) + quanta(PI2),
-	Mallocs = mallocs(PI1) + mallocs(PI2),
-	Words = words(PI1) + words(PI2),
-	SumPI = compress_profile(Calls, Exits, Fails, Redos,
-		Quanta, Mallocs, Words).
 
 :- pred mlookup(array(T), int, T, string).
 :- mode mlookup(in, in, out, in) is det.
@@ -1084,6 +1066,149 @@ proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 
 %-----------------------------------------------------------------------------%
 
+:- pred valid_clique_ptr(deep::in, clique_ptr::in) is semidet.
+
+valid_clique_ptr(Deep, clique_ptr(CliqueNum)) :-
+	CliqueNum > 0,
+	array__in_bounds(Deep ^ clique_members, CliqueNum).
+
+:- pred valid_proc_dynamic_ptr(deep::in, proc_dynamic_ptr::in) is semidet.
+
+valid_proc_dynamic_ptr(Deep, proc_dynamic_ptr(PDI)) :-
+	PDI > 0,
+	array__in_bounds(Deep ^ proc_dynamics, PDI).
+
+:- pred valid_proc_static_ptr(deep::in, proc_static_ptr::in) is semidet.
+
+valid_proc_static_ptr(Deep, proc_static_ptr(PSI)) :-
+	PSI > 0,
+	array__in_bounds(Deep ^ proc_statics, PSI).
+
+:- pred valid_call_site_dynamic_ptr(deep::in, call_site_dynamic_ptr::in)
+	is semidet.
+
+valid_call_site_dynamic_ptr(Deep, call_site_dynamic_ptr(CSDI)) :-
+	CSDI > 0,
+	array__in_bounds(Deep ^ call_site_dynamics, CSDI).
+
+:- pred valid_call_site_static_ptr(deep::in, call_site_static_ptr::in)
+	is semidet.
+
+valid_call_site_static_ptr(Deep, call_site_static_ptr(CSSI)) :-
+	CSSI > 0,
+	array__in_bounds(Deep ^ call_site_statics, CSSI).
+
+%-----------------------------------------------------------------------------%
+
+:- pred valid_proc_dynamic_ptr_raw(proc_dynamics::in, proc_dynamic_ptr::in)
+	is semidet.
+
+valid_proc_dynamic_ptr_raw(ProcDynamics, proc_dynamic_ptr(PDI)) :-
+	PDI > 0,
+	array__in_bounds(ProcDynamics, PDI).
+
+:- pred valid_proc_static_ptr_raw(proc_statics::in, proc_static_ptr::in)
+	is semidet.
+
+valid_proc_static_ptr_raw(ProcStatics, proc_static_ptr(PSI)) :-
+	PSI > 0,
+	array__in_bounds(ProcStatics, PSI).
+
+:- pred valid_call_site_dynamic_ptr_raw(call_site_dynamics::in,
+	call_site_dynamic_ptr::in) is semidet.
+
+valid_call_site_dynamic_ptr_raw(CallSiteDynamics, call_site_dynamic_ptr(CSDI)) :-
+	CSDI > 0,
+	array__in_bounds(CallSiteDynamics, CSDI).
+
+:- pred valid_call_site_static_ptr_raw(call_site_statics::in,
+	call_site_static_ptr::in) is semidet.
+
+valid_call_site_static_ptr_raw(CallSiteStatics, call_site_static_ptr(CSSI)) :-
+	CSSI > 0,
+	array__in_bounds(CallSiteStatics, CSSI).
+
+%-----------------------------------------------------------------------------%
+
+:- pred lookup_call_site_dynamics(call_site_dynamics::in,
+	call_site_dynamic_ptr::in, call_site_dynamic::out) is det.
+
+lookup_call_site_dynamics(CallSiteDynamics, CSDPtr, CSD) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	array__lookup(CallSiteDynamics, CSDI, CSD).
+
+:- pred lookup_call_site_statics(call_site_statics::in,
+	call_site_static_ptr::in, call_site_static::out) is det.
+
+lookup_call_site_statics(CallSiteStatics, CSSPtr, CSS) :-
+	CSSPtr = call_site_static_ptr(CSSI),
+	array__lookup(CallSiteStatics, CSSI, CSS).
+
+:- pred lookup_proc_dynamics(proc_dynamics::in,
+	proc_dynamic_ptr::in, proc_dynamic::out) is det.
+
+lookup_proc_dynamics(ProcDynamics, PDPtr, PD) :-
+	PDPtr = proc_dynamic_ptr(PDI),
+	array__lookup(ProcDynamics, PDI, PD).
+
+:- pred lookup_proc_statics(proc_statics::in,
+	proc_static_ptr::in, proc_static::out) is det.
+
+lookup_proc_statics(ProcStatics, PSPtr, PS) :-
+	PSPtr = proc_static_ptr(PSI),
+	array__lookup(ProcStatics, PSI, PS).
+
+:- pred lookup_call_site_static_map(call_site_static_map::in,
+	call_site_dynamic_ptr::in, call_site_static_ptr::out) is det.
+
+lookup_call_site_static_map(CallSiteStaticMap, CSDPtr, CSSPtr) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	array__lookup(CallSiteStaticMap, CSDI, CSSPtr).
+
+%-----------------------------------------------------------------------------%
+
+:- pred update_call_site_dynamics(call_site_dynamics::array_di,
+	call_site_dynamic_ptr::in, call_site_dynamic::in,
+	call_site_dynamics::array_uo) is det.
+
+update_call_site_dynamics(CallSiteDynamics0, CSDPtr, CSD, CallSiteDynamics) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	array__set(CallSiteDynamics0, CSDI, CSD, CallSiteDynamics).
+
+:- pred update_call_site_statics(call_site_statics::array_di,
+	call_site_static_ptr::in, call_site_static::in,
+	call_site_statics::array_uo) is det.
+
+update_call_site_statics(CallSiteStatics0, CSSPtr, CSS, CallSiteStatics) :-
+	CSSPtr = call_site_static_ptr(CSSI),
+	array__set(CallSiteStatics0, CSSI, CSS, CallSiteStatics).
+
+:- pred update_proc_dynamics(proc_dynamics::array_di,
+	proc_dynamic_ptr::in, proc_dynamic::in,
+	proc_dynamics::array_uo) is det.
+
+update_proc_dynamics(ProcDynamics0, PDPtr, PD, ProcDynamics) :-
+	PDPtr = proc_dynamic_ptr(PDI),
+	array__set(ProcDynamics0, PDI, PD, ProcDynamics).
+
+:- pred update_proc_statics(proc_statics::array_di,
+	proc_static_ptr::in, proc_static::in, proc_statics::array_uo) is det.
+
+update_proc_statics(ProcStatics0, PSPtr, PS, ProcStatics) :-
+	PSPtr = proc_static_ptr(PSI),
+	array__set(ProcStatics0, PSI, PS, ProcStatics).
+
+:- pred update_call_site_static_map(call_site_static_map::array_di,
+	call_site_dynamic_ptr::in, call_site_static_ptr::in,
+	call_site_static_map::array_uo) is det.
+
+update_call_site_static_map(CallSiteStaticMap0, CSDPtr, CSSPtr,
+		CallSiteStaticMap) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	array__set(CallSiteStaticMap0, CSDI, CSSPtr, CallSiteStaticMap).
+
+%-----------------------------------------------------------------------------%
+
 :- pred array_foldl(pred(int, T, U, U), array(T), U, U).
 :- mode array_foldl(pred(in, in, di, uo) is det, in, di, uo) is det.
 :- mode array_foldl(pred(in, in, array_di, array_uo) is det, in,
@@ -1171,57 +1296,7 @@ array_list_foldl2(P, [X | Xs], AccU0, AccU, AccV0, AccV) :-
 	call(P, X, AccU0, AccU1, AccV0, AccV1),
 	array_list_foldl2(P, Xs, AccU1, AccU, AccV1, AccV).
 
-%------------------------------------------------------------------------------%
-
-:- func calls(own_prof_info) = int.
-:- func exits(own_prof_info) = int.
-:- func fails(own_prof_info) = int.
-:- func redos(own_prof_info) = int.
-:- func quanta(own_prof_info) = int.
-:- func mallocs(own_prof_info) = int.
-:- func words(own_prof_info) = int.
-
-calls(zdet(Calls, _, _)) = Calls.
-exits(zdet(Calls, _, _)) = Calls.
-fails(zdet(_, _, _)) = 0.
-redos(zdet(_, _, _)) = 0.
-quanta(zdet(_, _, _)) = 0.
-mallocs(zdet(_, Mallocs, _)) = Mallocs.
-words(zdet(_, _, Words)) = Words.
-
-calls(det(Calls, _, _, _)) = Calls.
-exits(det(Calls, _, _, _)) = Calls.
-fails(det(_, _, _, _)) = 0.
-redos(det(_, _, _, _)) = 0.
-quanta(det(_, Quanta, _, _)) = Quanta.
-mallocs(det(_, _, Mallocs, _)) = Mallocs.
-words(det(_, _, _, Words)) = Words.
-
-calls(all(Calls, _, _, _, _, _, _)) = Calls.
-exits(all(_, Exits, _, _, _, _, _)) = Exits.
-fails(all(_, _, Fails, _, _, _, _)) = Fails.
-redos(all(_, _, _, Redos, _, _, _)) = Redos.
-quanta(all(_, _, _, _, Quanta, _, _)) = Quanta.
-mallocs(all(_, _, _, _, _, Mallocs, _)) = Mallocs.
-words(all(_, _, _, _, _, _, Words)) = Words.
-
-:- func zero_own_prof_info = own_prof_info.
-
-zero_own_prof_info = zdet(0, 0, 0).
-
-:- func inherit_quanta(inherit_prof_info) = int.
-:- func inherit_mallocs(inherit_prof_info) = int.
-:- func inherit_words(inherit_prof_info) = int.
-
-inherit_quanta(inherit_prof_info(Quanta, _, _)) = Quanta.
-inherit_mallocs(inherit_prof_info(_, Mallocs, _)) = Mallocs.
-inherit_words(inherit_prof_info(_, _, Words)) = Words.
-
-:- func zero_inherit_prof_info = inherit_prof_info.
-
-zero_inherit_prof_info = inherit_prof_info(0, 0, 0).
-
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- pred short(char, option).
 :- mode short(in, out) is semidet.
