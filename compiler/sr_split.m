@@ -82,6 +82,7 @@ create_versions( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 	proc_info_reuse_information( ProcInfo0, Memo), 
 	module_info_pred_proc_info( VirginHLDS, PredProcId, _, 
 				CleanProcInfo), 
+	proc_info_goal( ProcInfo0, ReuseGoal), 
 
 	(
 		Memo = no
@@ -94,7 +95,6 @@ create_versions( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 			memo_reuse_is_conditional(Memo) 
 		->
 			% fetch the reuse goal
-			proc_info_goal( ProcInfo0, ReuseGoal), 
 			create_reuse_pred(Memo, yes(ReuseGoal), 
 					PredInfo0, ProcInfo0,
 					ReusePredInfo, ReuseProcInfo0,
@@ -130,7 +130,14 @@ create_versions( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 		;
 			% memo_reuse is unconditional -- perfect -- 
 			% nothing to be done! 
-			HLDS = WorkingHLDS
+			process_goal( ReuseGoal, ReuseGoal2, WorkingHLDS, _),
+			proc_info_set_goal( ProcInfo0, ReuseGoal2, 
+					ReuseProcInfo1), 
+			module_info_set_pred_proc_info( WorkingHLDS, 
+					PredProcId, 
+					PredInfo0, ReuseProcInfo1, 
+					HLDS) 
+
 		)
 	).
 
