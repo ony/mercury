@@ -1809,8 +1809,9 @@ proc_info_set_possible_aliases(ProcInfo, Aliases,
 		ProcInfo^maybe_alias_as := yes(Aliases)).
 proc_info_set_global_use(ProcInfo, GLOBAL_USE, 
 		ProcInfo^maybe_global_use := yes(GLOBAL_USE)).
-proc_info_set_reuse_information(ProcInfo, REUSE,
-		ProcInfo^structure_reuse:= REUSE).
+proc_info_set_reuse_information(ProcInfo, Reuse0,
+		ProcInfo^structure_reuse:= Reuse):- 
+	memo_reuse_simplify(Reuse0, Reuse).
 
 proc_info_get_typeinfo_vars(Vars, VarTypes, TVarMap, TypeInfoVars) :-
 	set__to_sorted_list(Vars, VarList),

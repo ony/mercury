@@ -101,6 +101,8 @@
 			reuse_condition, reuse_condition ).
 :- mode reuse_condition_update( in, in, in, in, in, in, in, out) is det.
 
+:- pred reuse_conditions_simplify( list(reuse_condition)::in, 
+		list(reuse_condition)::out) is det.
 %-----------------------------------------------------------------------------%
 % memo_reuse predicates
 %-----------------------------------------------------------------------------%
@@ -276,6 +278,8 @@ reuse_condition_verify( ProcInfo, HLDS,  Live0, Alias0,
 		NodesList,
 		[] ).
 
+:- import_module instmap. 
+
 reuse_condition_update( _ProcInfo, _HLDS, 
 		_LFUi, _LBUi, _ALIASi, _HVs, always, always ).
 reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
@@ -312,7 +316,13 @@ reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 			% operation.  
 		pa_alias_as__extend( ProcInfo, HLDS, 
 					OLD_LAiH, ALIASi, NewALIASi),
-		pa_alias_as__project( HVs, NewALIASi, NEW_LAiH),
+		pa_alias_as__project( HVs, NewALIASi, NEW_LAiH0),
+			% XXX instmap here simply initialized, as currently
+			% it's not used in the normalization anyway.. 	
+		instmap__init_reachable(InstMap0), 
+		pa_alias_as__normalize( ProcInfo, HLDS, InstMap0, 
+				NEW_LAiH0, NEW_LAiH), 
+
 		set__union(LFUi, LBUi, LUi),
 		set__union(LUi, OLD_LUiH, NEW_LUi),
 		set__list_to_set(HVs, HVsSet),
@@ -321,8 +331,6 @@ reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 		CONDITION = condition( NORM_NODES_set, NEW_LUiH, NEW_LAiH )
 	).
 
-:- pred reuse_conditions_simplify( list(reuse_condition)::in, 
-		list(reuse_condition)::out) is det.
 
 reuse_conditions_simplify( OLD, NEW ):- 
 	list__foldl( 

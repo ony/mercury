@@ -68,10 +68,17 @@ pred_defined_in_this_module(HLDS,ID):-
 
 annotate_lfu_in_pred( PRED_ID, HLDSin, HLDSout ) --> 
 	{ hlds_module__module_info_pred_info( HLDSin, PRED_ID, PredInfo) }, 
-	passes_aux__write_pred_progress_message( 
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	( 
+		{ VeryVerbose = yes }
+	->
+		passes_aux__write_pred_progress_message(
 			"% LFU-annotating ", 
 			PRED_ID, 
-			HLDSin), 
+			HLDSin)
+	;
+		[]
+	),
 
 	% fetching the procids
 	{ pred_info_procids(PredInfo, PROC_IDS) },

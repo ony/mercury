@@ -24,12 +24,13 @@
 
 :- implementation.
 
-:- import_module map, list, std_util, require, set.
-:- import_module hlds_pred.
+:- import_module map, list, std_util, require, set, string, bool.
+:- import_module hlds_pred, passes_aux.
 :- import_module dependency_graph, hlds_goal, prog_data, prog_util.
 :- import_module pa_alias_as, pa_run.
 :- import_module sr_data, sr_util, sr_live.
 :- import_module sr_fixpoint_table.
+:- import_module globals, options.
 
 compute_fixpoint(HLDS0, HLDSout) -->
 		% compute the strongly connected components
@@ -98,8 +99,8 @@ some_are_special_preds( SCC, HLDS ):-
 :- pred pred_id_in( list(pred_id), pred_proc_id ).
 :- mode pred_id_in( in, in) is semidet.
 
-pred_id_in( IDS, PRED_PROC_ID):-
-	PRED_PROC_ID = proc( PRED_ID, _),
+pred_id_in( IDS, PredProcId):-
+	PredProcId = proc( PRED_ID, _),
 	list__member( PRED_ID, IDS ). 
 
 :- pred not_defined_in_this_module(module_info, pred_proc_id).
@@ -108,7 +109,7 @@ pred_id_in( IDS, PRED_PROC_ID):-
 not_defined_in_this_module( HLDS, proc(PREDID, _) ):-
 	hlds_module__pred_not_defined_in_this_module(HLDS,
 		PREDID).
-	% module_info_pred_proc_info(HLDS, PRED_PROC_ID, PRED_INFO, _), 
+	% module_info_pred_proc_info(HLDS, PredProcId, PRED_INFO, _), 
 	% pred_info_import_status(PRED_INFO, STATUS), 
 	% status_defined_in_this_module(STATUS, no).
 
@@ -155,10 +156,37 @@ update_goal_in_module_info( FP, PredProcId, HLDS0, HLDS) :-
 				io__state, io__state).
 :- mode analyse_pred_proc( in, in, in, out, di, uo) is det.
 
-analyse_pred_proc( HLDS, PRED_PROC_ID, FPin, FPout) --> 
-	{ module_info_pred_proc_info( HLDS, PRED_PROC_ID,_PredInfo,ProcInfo) },
-	{ PRED_PROC_ID = proc(PredId, _ProcId) },
+analyse_pred_proc( HLDS, PredProcId, FPin, FPout) --> 
+	{ module_info_pred_proc_info( HLDS, PredProcId,_PredInfo,ProcInfo) },
+	{ PredProcId = proc(PredId, ProcId) },
 
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose), 
+	(
+		{ VeryVerbose = no }
+	->
+		[]
+	;
+		{ sr_fixpoint_table_which_run(FPin, Run) }, 
+		{ string__int_to_string( Run, SRun ) }, 
+		{ string__append_list([ 
+			"% Indirect reuse analysing (run ", SRun, ") "],
+			Msg) },
+		passes_aux__write_proc_progress_message( Msg, 
+			PredId, ProcId, HLDS), 
+		{ sr_fixpoint_table_get_final_reuse( PredProcId, M, _, FPin) }, 
+
+		( 
+			{ M = yes( Conditions ) }
+		-> 
+			{ list__length(Conditions, Length) }, 
+			{ string__int_to_string(Length, LengthS ) }, 
+			{ string__append_list(["%\tNumber of conditions:\t",
+					LengthS, "\n"], Msg2) } ,
+			maybe_write_string(VeryVerbose, Msg2)
+		; 
+			maybe_write_string(VeryVerbose, "%\t No reuse.\n")
+		)
+	),
 	{ 
 		% initialize all the necessary information to get the
 		% analysis started.
@@ -175,7 +203,7 @@ analyse_pred_proc( HLDS, PRED_PROC_ID, FPin, FPout) -->
 		compute_real_headvars( HLDS, PredId, ProcInfo, HVs), 
 		% do not change the state of the fixpoint table by
 		% simply consulting it now for initialization.
-		sr_fixpoint_table_get_final_reuse( PRED_PROC_ID, 
+		sr_fixpoint_table_get_final_reuse( PredProcId, 
 				MemoStarting, _, FPin ),
 		indirect_reuse_pool_init( HVs, MemoStarting, Pool0 ), 
 		% 5. analyse_goal
@@ -187,7 +215,7 @@ analyse_pred_proc( HLDS, PRED_PROC_ID, FPin, FPout) -->
 		% 	OK
 		% 6. update all kind of information
 		indirect_reuse_pool_get_memo_reuse( Pool, Memo ), 
-		sr_fixpoint_table_new_reuse( PRED_PROC_ID,
+		sr_fixpoint_table_new_reuse( PredProcId,
 				Memo, Goal, FP1, FPout )
 	}.
 
@@ -470,10 +498,10 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 	%    no special treatment necessary for primitive predicates and
 	%    alike, as the default of predicates is no reuse anyway.
 lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):- 
-	PRED_PROC_ID = proc(PredId, ProcId),
+	PredProcId = proc(PredId, ProcId),
 	(
 		% 1 - check in table
-		sr_fixpoint_table_get_reuse( PRED_PROC_ID, 
+		sr_fixpoint_table_get_reuse( PredProcId, 
 					Memo1, FP0, FP1 )
 	->
 		Memo = Memo1,
@@ -481,7 +509,7 @@ lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):-
 	;
 		FP = FP0,
 		% 2 - lookup in module_info
-		module_info_pred_proc_info( HLDS, PRED_PROC_ID, _PredInfo,
+		module_info_pred_proc_info( HLDS, PredProcId, _PredInfo,
 						ProcInfo ),
 		proc_info_reuse_information( ProcInfo, Memo)
 	).
@@ -546,7 +574,8 @@ indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse,
 			reuse_condition_update(ProcInfo, HLDS, 
 				LFUi, LBUi, Alias, HVS ), 
 			OldConditions,
-			NewConditions),
+			NewConditions0),
+		reuse_conditions_simplify(NewConditions0, NewConditions), 
 		memo_reuse_merge(ExistingMemo, yes(NewConditions), 
 				NewMemo), 
 		Pool = pool( HVS, NewMemo )
