@@ -8,8 +8,8 @@
 
 :- interface.
 
-:- pred server(string::in, globals::in, deep::in, io__state::di, io__state::uo)
-	is det.
+:- pred server(string::in, string::in, int::in, string::in, deep::in,
+	io__state::di, io__state::uo) is det.
 
 :- implementation.
 
@@ -20,15 +20,16 @@
 	--->	call_site_line_number
 	;	no_call_site_line_number.
 
-server(Machine, _Globals, Deep) -->
+server(InputFileName, OutputFileName, Wait, Machine, Deep) -->
 	{ string__append_list(["http://www.", Machine,
 		".cs.mu.oz.au/cgi-bin/deep"], URLprefix) },
-	server_loop(URLprefix, Deep).
+	server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep).
 
-:- pred server_loop(string::in, deep::in, io__state::di, io__state::uo) is det.
+:- pred server_loop(string::in, string::in, int::in, string::in, deep::in,
+	io__state::di, io__state::uo) is det.
 
-server_loop(URLprefix, Deep) -->
-	io__see("/var/tmp/toDeep", _),
+server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep) -->
+	io__see(InputFileName, _),
 	read(Res0),
 	stderr_stream(StdErr),
 	write(StdErr, Res0), nl(StdErr),
@@ -36,26 +37,44 @@ server_loop(URLprefix, Deep) -->
 	(
 		{ Res0 = eof },
 		write_string(StdErr, "eof.\n"),
-		server_loop(URLprefix, Deep)
+		server_loop(InputFileName, OutputFileName, Wait,
+			URLprefix, Deep)
 	;
 		{ Res0 = error(Msg, Line) },
 		format(StdErr, "error reading input line %d: %s\n",
 			[i(Line), s(Msg)]),
-		server_loop(URLprefix, Deep)
+		server_loop(InputFileName, OutputFileName, Wait,
+			URLprefix, Deep)
 	;
 		{ Res0 = ok(Cmd) },
 		{ exec(Cmd, URLprefix, Deep, HTML, Continue) },
-		tell("/var/tmp/fromDeep", _),
-		write(html(HTML)),
-		write_string(".\n"),
-		told,
+		( { Wait > 0 } ->
+			io__tell(OutputFileName, _),
+			io__write_string(HTML),
+			io__write_string(".\n"),
+			io__told,
+			{ wait(Wait) }
+		;
+			io__tell(OutputFileName, _),
+			io__write(html(HTML)),
+			io__write_string(".\n"),
+			io__told
+		),
 		(
 			{ Continue = yes },
-			server_loop(URLprefix, Deep)
+			server_loop(InputFileName, OutputFileName, Wait,
+				URLprefix, Deep)
 		;
 			{ Continue = no }
 		)
 	).
+
+:- pred wait(int::in) is det.
+
+:- pragma foreign_code("C", wait(Seconds::in), [will_not_call_mercury], "
+	#include <unistd.h>
+	sleep(Seconds);
+").
 
 %-----------------------------------------------------------------------------%
 
@@ -106,7 +125,7 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 
 exec(Cmd, URLprefix, Deep, HTML, yes) :-
 	Cmd = clique(CliqueNum, Fields),
-	( CliqueNum > 0 ->
+	( valid_clique_ptr(Deep, clique_ptr(CliqueNum)) ->
 		HTML =
 			banner ++
 			"<TABLE>\n" ++
@@ -316,8 +335,8 @@ clique_to_html(URLprefix, CliquePtr, Deep, Fields) = HTML :-
 	proc_dynamic_ptr) = string.
 
 proc_in_clique_to_html(URLprefix, CliquePtr, Deep, Fields, PDPtr) = HTML :-
-	PDPtr = proc_dynamic_ptr(PDI),
-	( PDI > 0 ->
+	( valid_proc_dynamic_ptr(Deep, PDPtr) ->
+		PDPtr = proc_dynamic_ptr(PDI),
 		InitialSeparator = separator_row(Fields),
 		array__lookup(Deep ^ pd_own, PDI, ProcOwn),
 		array__lookup(Deep ^ pd_desc, PDI, ProcDesc),
@@ -405,8 +424,8 @@ call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair) = HTML :-
 
 call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 		ThisCliquePtr, CSDPtr, Tuple0) = Tuple :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	( array__in_bounds(Deep ^ call_site_dynamics, CSDI) ->
+	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
+		CSDPtr = call_site_dynamic_ptr(CSDI),
 		Tuple0 = { HTML0, Own0, Desc0 },
 		HTML1 = call_site_to_html(URLprefix, Deep, Fields,
 			PrintCallSiteLineNmber, ThisCliquePtr, CSDPtr),
@@ -426,8 +445,8 @@ call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 
 call_site_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 		ThisCliquePtr, CSDPtr) = HTML :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	( array__in_bounds(Deep ^ call_site_dynamics, CSDI) ->
+	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
+		CSDPtr = call_site_dynamic_ptr(CSDI),
 		array__lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 		CSD = call_site_dynamic(ToPtr, CallSiteOwn),
 		array__lookup(Deep ^ csd_desc, CSDI, CallSiteDesc),
@@ -496,7 +515,7 @@ own_and_desc_to_html(Own, Desc, Deep, Fields) = HTML :-
 	TotalWords = inherit_words(OwnPlusDesc),
 	RootWords = inherit_words(Root),
 	OwnWordProp = 100.0 * float(OwnWords) / float(RootWords),
-	TotalWordProp = 100.0 * float(TotalWords) / float(RootAllocs),
+	TotalWordProp = 100.0 * float(TotalWords) / float(RootWords),
 
 	HTML =
 		( show_port_counts(Fields) ->
@@ -804,6 +823,40 @@ refs(CSDPtr, Deep) = CallSiteArraySlots :-
 
 %-----------------------------------------------------------------------------%
 
+:- pred valid_clique_ptr(deep::in, clique_ptr::in) is semidet.
+
+valid_clique_ptr(Deep, clique_ptr(CliqueNum)) :-
+	CliqueNum > 0,
+	array__in_bounds(Deep ^ clique_members, CliqueNum).
+
+:- pred valid_proc_dynamic_ptr(deep::in, proc_dynamic_ptr::in) is semidet.
+
+valid_proc_dynamic_ptr(Deep, proc_dynamic_ptr(PDI)) :-
+	PDI > 0,
+	array__in_bounds(Deep ^ proc_dynamics, PDI).
+
+:- pred valid_proc_static_ptr(deep::in, proc_static_ptr::in) is semidet.
+
+valid_proc_static_ptr(Deep, proc_static_ptr(PSI)) :-
+	PSI > 0,
+	array__in_bounds(Deep ^ proc_statics, PSI).
+
+:- pred valid_call_site_dynamic_ptr(deep::in, call_site_dynamic_ptr::in)
+	is semidet.
+
+valid_call_site_dynamic_ptr(Deep, call_site_dynamic_ptr(CSDI)) :-
+	CSDI > 0,
+	array__in_bounds(Deep ^ call_site_dynamics, CSDI).
+
+:- pred valid_call_site_static_ptr(deep::in, call_site_static_ptr::in)
+	is semidet.
+
+valid_call_site_static_ptr(Deep, call_site_static_ptr(CSSI)) :-
+	CSSI > 0,
+	array__in_bounds(Deep ^ call_site_statics, CSSI).
+
+%-----------------------------------------------------------------------------%
+
 :- func quantum_time(int) = string.
 
 quantum_time(Quanta) = TimeStr :-
@@ -824,10 +877,10 @@ commas(Num) = Str :-
 
 :- func milliseconds_to_seconds([char]) = [char].
 
-milliseconds_to_seconds([]) = ['0', '.', '0', '0'].
-milliseconds_to_seconds([_C]) = ['0', '.', '0', '0'].
-milliseconds_to_seconds([_C, D]) = ['0', '.', '0', D].
-milliseconds_to_seconds([_C, D, E]) = ['0', '.', D, E].
+milliseconds_to_seconds([]) = ['0', '0', '.', '0'].
+milliseconds_to_seconds([_C]) = ['0', '0', '.', '0'].
+milliseconds_to_seconds([_C, D]) = [D, '0', '.', '0'].
+milliseconds_to_seconds([_C, D, E]) = [D, E, '.', '0'].
 milliseconds_to_seconds([_C, D, E, F | R]) = [D, E, '.' | add_commas([F | R])].
 
 :- func add_commas([char]) = [char].

@@ -190,7 +190,7 @@
 :- type option
 	--->	help
 		% Input options
-	;	file
+	;	data_file
 	
 		% Output generation options
 	;	depth
@@ -202,7 +202,12 @@
 	;	dot
 	;	dump
 	;	html
+
+		% XXX
 	;	server
+	;	input_file
+	;	output_file
+	;	wait
 	.
 
 :- type options ---> options.
@@ -254,7 +259,7 @@ main2(Globals0) -->
 	io__report_stats,
 	write_string(StdErr, "Reading graph data...\n"),
 	{ get_global(Globals0, options) = options(Options) },
-	( { map__lookup(Options, file, maybe_string(yes(FileName0))) } ->
+	( { map__lookup(Options, data_file, maybe_string(yes(FileName0))) } ->
 		{ FileName = FileName0 }
 	;
 		{ FileName = "Deep.data" }
@@ -299,9 +304,12 @@ main3(Globals, Deep) -->
 	%),
 	(
 		{ search(Options, server, string(MachineName)) },
-		{ MachineName \= "" }
+		{ MachineName \= "" },
+		{ map__search(Options, input_file, string(InputFileName)) },
+		{ map__search(Options, output_file, string(OutputFileName)) },
+		{ map__search(Options, wait, int(Wait)) }
 	->
-		server(MachineName, Globals, Deep)
+		server(InputFileName, OutputFileName, Wait, MachineName, Deep)
 	;
 		[]
 	),
@@ -526,12 +534,16 @@ construct_clique_parents_2(InitialDeep, CliqueIndex, ParentCliquePtr, CSDPtr,
 construct_proc_callers(InitialDeep, CSDI, CSD, ProcCallers0, ProcCallers) :-
 	CSD = call_site_dynamic(PDPtr, _),
 	PDPtr = proc_dynamic_ptr(PDI),
-	array__lookup(InitialDeep ^ init_proc_dynamics, PDI, PD),
-	PD = proc_dynamic(PSPtr, _),
-	PSPtr = proc_static_ptr(PSI),
-	array__lookup(ProcCallers0, PSI, Callers0),
-	Callers = set__insert(Callers0, call_site_dynamic_ptr(CSDI)),
-	array__set(ProcCallers0, PSI, Callers, ProcCallers).
+	( PDI > 0, array__in_bounds(InitialDeep ^ init_proc_dynamics, PDI) ->
+		array__lookup(InitialDeep ^ init_proc_dynamics, PDI, PD),
+		PD = proc_dynamic(PSPtr, _),
+		PSPtr = proc_static_ptr(PSI),
+		array__lookup(ProcCallers0, PSI, Callers0),
+		Callers = set__insert(Callers0, call_site_dynamic_ptr(CSDI)),
+		array__set(ProcCallers0, PSI, Callers, ProcCallers)
+	;
+		ProcCallers = ProcCallers0
+	).
 
 :- pred construct_call_site_caller(initial_deep::in, int::in, proc_dynamic::in,
 	array(call_site_caller)::array_di,
@@ -1224,8 +1236,11 @@ short('g',	gprof).
 short('D',	dot).
 short('G',	dump).
 short('H',	html).
-short('f',	file).
+short('f',	data_file).
 short('S',	server).
+short('I',	input_file).
+short('O',	output_file).
+short('W',	wait).
 
 :- pred long(string, option).
 :- mode long(in, out) is semidet.
@@ -1240,8 +1255,10 @@ long("gprof",	gprof).
 long("dot",	dot).
 long("dump",	dump).
 long("html",	html).
-long("file",	file).
 long("server",	server).
+long("data-file",	data_file).
+long("input-file",	input_file).
+long("wait",	wait).
 
 :- pred defaults(option, option_data).
 :- mode defaults(out, out) is nondet.
@@ -1263,8 +1280,11 @@ defaults0(gprof,	bool(no)).
 defaults0(dot,		bool(no)).
 defaults0(dump,		bool(no)).
 defaults0(html,		bool(no)).
-defaults0(file,		maybe_string(no)).
+defaults0(data_file,	maybe_string(no)).
 defaults0(server,	string("")).
+defaults0(input_file,	string("/var/tmp/toDeep")).
+defaults0(output_file,	string("/var/tmp/fromDeep")).
+defaults0(wait,		int(0)).
 
 :- func (get_global(globals, Key) = Value) <= global(Key, Value).
 
