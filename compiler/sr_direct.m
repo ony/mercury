@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -63,7 +63,8 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% Select which cells will be reused and which can be
 		% compile time garbage collected.
 	maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
-	{ sr_choice__process_goal(strategy(same_cons_id, random),
+	sr_choice__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
+	{ sr_choice__process_goal(Strategy,
 			Goal1, Goal, MaybeReuseConditions) },
 	(
 		{ VeryVerbose = yes } 
@@ -88,6 +89,5 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		
 	{ proc_info_set_reuse_information( ProcInfo2, MaybeReuseConditions, 
 			ProcInfo3 ) },
-	{ proc_info_set_goal( ProcInfo3, Goal, ProcInfo ) },
-	{ ModuleInfo = ModuleInfo0 }.
+	{ proc_info_set_goal( ProcInfo3, Goal, ProcInfo ) }.
 

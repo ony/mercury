@@ -357,6 +357,9 @@
 		;	termination_norm
 		;	termination_error_limit
 		;	termination_path_limit
+		;	structure_reuse_constraint
+		;	structure_reuse_constraint_arg
+		;	structure_reuse_selection
 	%	- HLDS->LLDS
 		;	smart_indexing
 		;	  dense_switch_req_density
@@ -703,7 +706,11 @@ option_defaults_2(special_optimization_option, [
 	termination_norm	-	string("total"),
 	termination_error_limit	-	int(3),
 	termination_path_limit	-	int(256),
-	split_c_files		-	bool(no)
+	split_c_files		-	bool(no),
+
+	structure_reuse_constraint -	string("within_n_cells"),
+	structure_reuse_constraint_arg - int(0),
+	structure_reuse_selection -	string("lifo")
 ]).
 option_defaults_2(optimization_option, [
 		% Optimization options
@@ -1165,6 +1172,12 @@ long_option("enable-term",		termination).
 long_option("check-termination",	check_termination).
 long_option("check-term",		check_termination).
 long_option("chk-term",			check_termination).
+long_option("sr-constraint",		structure_reuse_constraint).
+long_option("structure-reuse-constraint",structure_reuse_constraint).
+long_option("sr-constraint-arg",	structure_reuse_constraint_arg).
+long_option("structure-reuse-constraint-arg",structure_reuse_constraint_arg).
+long_option("sr-selection",		structure_reuse_selection).
+long_option("structure-reuse-selection",structure_reuse_selection).
 long_option("verbose-check-termination",verbose_check_termination).
 long_option("verb-check-term",		verbose_check_termination).
 long_option("verb-chk-term",		verbose_check_termination).
@@ -1887,6 +1900,15 @@ options_help_semantics -->
 		"--infer-structure-reuse",
 		"\tAnnotate the program point with information about which",
 		"\tdatastructures can be reused and where they can be reused.",
+
+		"--structure-reuse-constraint",
+		"\tConstraint on the set of cells that we consider available",
+		"\tfor reuse.  Currently within_n_cells_difference(N) or",
+		"\tsame_cons_id.",
+
+		"--structure-reuse-selection",
+		"\tStrategy to decide which of the possible cells available",
+		"\tfor reuse is reused.  Currently lifo or random.",
 
 		"--no-infer-det, --no-infer-determinism",
 		"\tIf there is no determinism declaration for a procedure,",

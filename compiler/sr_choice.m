@@ -17,8 +17,8 @@
 :- module sr_choice.
 :- interface.
 
-:- import_module hlds_goal, sr_data.
-:- import_module list, std_util.
+:- import_module hlds_goal, hlds_module, sr_data.
+:- import_module io, list, std_util.
 
 :- type strategy
 	--->	strategy(
@@ -43,6 +43,9 @@
 
 :- pred sr_choice__process_goal(strategy::in, hlds_goal::in, hlds_goal::out,
 		maybe(list(reuse_condition))::out) is det.
+:- pred get_strategy(strategy::out, module_info::in, module_info::out,
+		io__state::di, io__state::uo) is det.
+
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -50,7 +53,8 @@
 :- implementation.
 
 :- import_module hlds_data, prog_data.
-:- import_module assoc_list, bool, int, multi_map, require, set.
+:- import_module assoc_list, bool, globals, int. 
+:- import_module multi_map, options, require, set.
 
 process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
@@ -550,5 +554,36 @@ select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
 select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = complicated_unify(_, _, _) }.
 
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------% %-----------------------------------------------------------------------------%
+
+get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
+	io_lookup_string_option(structure_reuse_constraint, ConstraintStr),
+	( { ConstraintStr = "same_cons_id" } ->
+		{ Constraint = same_cons_id },
+		{ ModuleInfo1 = ModuleInfo0 }
+	; { ConstraintStr = "within_n_cells_difference" } ->
+		io_lookup_int_option(structure_reuse_constraint_arg, NCells),
+		{ Constraint = within_n_cells_difference(NCells) },
+		{ ModuleInfo1 = ModuleInfo0 }
+	;
+		{ Constraint = same_cons_id },
+		io__write_string("error: Invalid argument to --structure-reuse-constraint.\n"),
+		io__set_exit_status(1),
+		{ module_info_incr_errors(ModuleInfo0, ModuleInfo1) }
+	),
+	io_lookup_string_option(structure_reuse_selection, SelectionStr),
+	( { SelectionStr = "lifo" } ->
+		{ Selection = lifo },
+		{ ModuleInfo = ModuleInfo1 }
+	; { SelectionStr = "random" } ->
+		{ Selection = random },
+		{ ModuleInfo = ModuleInfo1 }
+	; 
+		{ Selection = lifo },
+		io__write_string("error: Invalid argument to --structure-reuse-selection.\n"),
+		io__set_exit_status(1),
+		{ module_info_incr_errors(ModuleInfo1, ModuleInfo) }
+	),
+	{ Strategy = strategy(Constraint, Selection) }.
+
+%-----------------------------------------------------------------------------% %-----------------------------------------------------------------------------%
