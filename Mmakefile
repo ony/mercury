@@ -56,9 +56,9 @@ library/$(deps_subdir)library.dep:
 	cd library && $(SUBDIR_MMAKE) depend
 
 .PHONY: dep_browser
-dep_browser: browser/$(deps_subdir)browser.dep
+dep_browser: browser/$(deps_subdir)browser_library.dep
 
-browser/$(deps_subdir)browser.dep:
+browser/$(deps_subdir)browser_library.dep:
 	cd browser && $(SUBDIR_MMAKE) depend
 
 .PHONY: dep_compiler
@@ -212,7 +212,7 @@ tar: README INSTALL
 	cd compiler && $(SUBDIR_MMAKE) cs tags
 	cd profiler && $(SUBDIR_MMAKE) depend
 	cd profiler && $(SUBDIR_MMAKE) cs tags
-	cd doc && $(SUBDIR_MMAKE) info html dvi
+	cd doc && $(SUBDIR_MMAKE) info html dvi mdb_doc
 	cd bindist && $(SUBDIR_MMAKE) bindist.configure
 	# the following command might fail on Windows?
 	-cd bindist && $(SUBDIR_MMAKE) bindist.build_vars
@@ -224,6 +224,7 @@ tar: README INSTALL
 	-rm -f config.status config.cache config.log configure.log
 	-rm -f runtime/mercury_conf.h boehm_gc/mercury_boehm_gc_conf.h
 	-rm -f Mmake.common
+	chmod -R a+r *
 	# Package up the mercury directory with some subdirectories
 	# excluded, into a gzipped tar archive that will unpack into
 	# mercury-compiler-$(VERSION).
@@ -255,6 +256,10 @@ tar: README INSTALL
 .PHONY: version
 version:
 	@echo $(VERSION)
+
+.PHONY: fullarch
+fullarch:
+	@echo $(FULLARCH)
 
 #-----------------------------------------------------------------------------#
 
