@@ -22,8 +22,8 @@
 :- import_module term_errors, prog_data.
 :- import_module hlds_module, hlds_pred, hlds_data, hlds_goal.
 
-:- import_module std_util, bimap, bool, int, list, lp_rational, map, bag, 
-	set.
+:- import_module bag, bimap, bool, int, list, lp_rational, map, 
+	set, std_util. 
 
 %-----------------------------------------------------------------------------%
 
@@ -127,69 +127,61 @@
 %-----------------------------------------------------------------------------%
 
 :- type constraint_info 
-				%XXX Comment the invariants in this.
 	---> 	constr_info(  
-
-			%bimap(prog_var, size_var),		
-					% The bimap
-					% stores the correspondence between
-					% vars (i.e. variables
-					% appearing in a particular procedure)
-					% and SizeVars from the single varset 
-					% used to get variables for passing to 
-					% lp.
 
 			size_varset,	% A varset is used to create a set of
 					% non-clashing variables to pass to
 					% project and convex_hull.  
-
-			%set(prog_var),	% A set of all the variables discovered
-					% to have zero-size-type.
-
 			 
 			eqn_info	% All the constraints found so far
-					% (possibly "false").
+					% If this isn't "false_equation", 
+					% it should imply that all the
+					% variables are non-negative, except
+					% possibly for those known to be of
+					% zero-size type.
 		).			
  
  :- type eqn_info 
  	--->	eqns(equations)	 	% All the constraints found so far.	
 
-	;	false_equation. 	% Indicates that we found a 
+	;	false_equation. 	% Bottom. Indicates that we found a 
 					% call to a procedure that has 
-					% not yet been approximated.
+					% not yet been approximated,
+					% or that we found the conjunction of
+					% two or more mutually inconsistent
+					% approximations.
 				
 
 %-----------------------------------------------------------------------------%
 
 % These predicates are for dealing with equations.
 
+% rename_vars: takes a list of prog_vars and outputs the corresponding
+% list of size_vars, based on the given bimap.
 :- pred rename_vars(list(prog_var), list(size_var), bimap(prog_var, size_var)).
 :- mode rename_vars(in, out, in) is det.
 
 :- pred rename_var(prog_var, size_var, bimap(prog_var, size_var)).
 :- mode rename_var(in, out, in) is det.  
 
-% Inserts a new variable into the set of zero-size-variables (does
-% nothing if that variable is already there).
-%XXX Obsolete: delete this.
-%:- pred new_zero_var(prog_var, constraint_info, constraint_info).
-%:- mode new_zero_var(in, in, out) is det.
-
-% Compares two equations, assumed to be in canonical form.  Two equations
-% are equal if they have the same coefficients, operation and constant.
-% Eqn1 < Eqn2 if they are parallel but the constant in Eqn1 is greater than
-% that in Eqn2 (i.e. Eqn1 is weaker than Eqn2, since canonical form includes
-% only (=<) as an op).
-% Non-parallel equations are sorted according to lexicographic order of
-% their variable names (there isn't a good reason for choosing this particular
-% order, except that it's easy to compute.  Anything that sorts on variables 
-% is acceptable).
+% compare_eqns(Eqn1, Eqn2, Result). 
+% Compares two equations, assumed to be in canonical form.
+% If Eqn1 is implied by Eqn2, then the result is '>'.  Otherwise, order
+% is determined by compare_var_lists, for which any two equations with the
+% same variables are 'equal'.
 :- pred compare_eqns(equation, equation, comparison_result).
 :- mode compare_eqns(in, in, out) is det.
 
-%##Write what this does.
-:- pred compare_coeff_lists(list(coeff), list(coeff), comparison_result).
-:- mode compare_coeff_lists(in, in, out) is det.
+% Compares a list of coefficients, by lexicographic order on the corresponding
+% list of variables.  Individual variables are compared using the compare 
+% builtin.  The rat in the coefficient is ignored.
+:- pred compare_var_lists(list(coeff), list(coeff), comparison_result).
+:- mode compare_var_lists(in, in, out) is det.
+
+% Compares a list of coefficients, by lexicographic order on the corresponding
+% list of rationals.
+:- pred compare_rat_lists(list(coeff), list(coeff), comparison_result).
+:- mode compare_rat_lists(in, in, out) is det.
 
 % Put equations into a canonical form:  Every equation contains =<, 
 % has its coefficients listed in increasing order of variable name,
@@ -202,8 +194,26 @@
 :- pred remove_zero_vars(set(size_var), equations, equations).
 :- mode remove_zero_vars(in, in, out) is det.
 
-%-----------------------------------------------------------------------------%
+% Returns a set containing all the size_vars corresponding to prog_vars
+% that have a type that is always of zero size.
+:- pred find_zero_size_vars(module_info, bimap(prog_var, size_var),
+                map(prog_var, type), set(size_var)).
+:- mode find_zero_size_vars(in, in, in, out) is det.
 
+
+% This checks every pair of equations in the set for pairwise implication.
+% It is not as sophisticated as checking for each new equation whether all
+% the other constraints entail it, but it is faster.
+% This is necessary before widening by testing for
+% parallel weaker equations, since otherwise we might widen unnecessarily.
+% For example, if x =< 1 is in the old constraints and x =< 2 is in the new
+% constraints, we don't need to remove this equation if x =< 1 also occurs
+% in the new constraints.
+:- pred remove_redundant_eqns(equations, equations).
+:- mode remove_redundant_eqns(in, out) is det.
+
+
+%-----------------------------------------------------------------------------
 
 % This predicate partitions the arguments of a call into a list of input
 % variables and a list of output variables,
@@ -290,29 +300,6 @@ rename_vars(Vars, RenamedVars, VarToSizeVarMap) :-
 	)),
 	list__map(Rename_Var, Vars, RenamedVars).
 
-%:- pred rename_vars_acc(list(prog_var), list(size_var), list(size_var), 
-%						map(prog_var, size_var)).
-%:- mode rename_vars_acc(in, in, out, in) is det.
-
-%rename_vars_acc([], Renamed_Vars0, Renamed_Vars, _):-
-%	list__reverse(Renamed_Vars0, Renamed_Vars).
-
-
-%rename_vars_acc([V|Vars], Renamed_Vars0, Renamed_Vars, VarToSizeVarMap) :-
-	
-	
-	%map__lookup(VarTypes, V, Type),
-	%( zero_size_type(Type, Module) ->
-	%	new_zero_var(V, Constr_info0, Constr_info1),
-	%	Renamed_Vars1 = Renamed_Vars0
-%
-%	;
-%		rename_var(V, RV, Constr_info0, Constr_info1),
-%		Renamed_Vars1 = [RV|Renamed_Vars0]
-%	),
-%	rename_vars_acc(Vars, Renamed_Vars1, Renamed_Vars, Module, VarTypes, 
-%						Constr_info1, Constr_info).
-
 
 rename_var(Var, SizeVar, VarToSizeVarMap) :-
 	(bimap__search(VarToSizeVarMap, Var, SizeVar0) ->
@@ -320,41 +307,6 @@ rename_var(Var, SizeVar, VarToSizeVarMap) :-
 	;
 		error("term_util: tried to rename a variable not in map")
 	).
-
-
-
-%rename_var(Var, SizeVar, VarToSizeVarMap) :-
-% see code in lp_rat.  
-	%Constr_info0 = constr_info(BMap0, Vars0, ZeroVars0, Eqn_info0),
-
-%	(bimap__search(BMap0, Var, SizeVar0) ->
-%		SizeVar = SizeVar,
-%		Vars = Vars0,
-%		BMap = BMap0,
-%		Eqn_info = Eqn_info0
-%	;
-%		size_varset__new_var(Vars0, NewVar, Vars),
-%		(bimap__insert(BMap0, Var0, NewVar, BMap1) ->
-%			Var1 = NewVar,
-%			BMap = BMap1,
-%			( Eqn_info0 = eqns(Eqns0) ->
-%				Eqn_info = eqns([eqn([NewVar-one], (>=), zero) 
-%						| Eqns0])
-%			;
-%				Eqn_info = false_equation
-%			)
-%		;
-%			error("term_util: bimap__insert failed\n")
-%		)
-%	),
-%	Constr_info = constr_info(BMap, Vars, ZeroVars0, Eqn_info).
-
-
-%XXX This is almost certainly obsolete.
-%new_zero_var(Var, constr_info(Vars, Map, Zeros0, Eqns), 
-%			constr_info(Vars, Map, Zeros, Eqns) ) :-
-%	set__insert(Zeros0, Var, Zeros).
-	
 
 remove_zero_vars(Zeros, Equations0, Equations) :-
 	Simplify_eqns = lambda([Eqn::in, Eqns0::in, Eqns::out] is det, (
@@ -388,48 +340,113 @@ simplify_coeffs(Zeros, [Var0-Rat0|Coeffs0], Coeffs) :-
 	).
 	
 
+find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros) :-
+	Is_zero = lambda([VarA::in] is semidet, (
+		lookup(VarTypes, VarA, Type), 
+		zero_size_type(Type, Module)
+	)),
+	bimap__ordinates(VarToSizeVarMap, Vars),
+	list__filter(Is_zero, Vars, ZeroVars),
 
+	% Build Zeros from corresponding size_vars
+	VarToSize = lambda([VarB::in, SizeVar::out] is det, (
+		lookup(VarToSizeVarMap, VarB, SizeVar)
+	)),
+	list__map(VarToSize, ZeroVars, ZerosList),
+	list_to_set(ZerosList, Zeros).
+						  
+
+% If Eqn1 is implied by Eqn2, then the result is '>'.  Otherwise, order
+% is determined by compare_var_lists, for which any two equations with the
+% same variables are 'equal'.
 compare_eqns(Eqn1, Eqn2, Result) :-
-        (
-                Eqn1 = eqn(Coeffs1, (=<), Const1),
-                Eqn2 = eqn(Coeffs2, (=<), Const2)
+	(
+		Eqn1 = eqn(Coeffs1, (=<), _Const1),
+                Eqn2 = eqn(Coeffs2, (=<), _Const2)
         ->
-                compare_coeff_lists(Coeffs1, Coeffs2, Coeffs_result),
-		( Coeffs_result = (=) ->
-			( rat:'<'(Const1, Const2) ->
+		( Eqn1 = Eqn2 ->
+			Result = (=)
+		;
+			( 
+				fm_standardize_equations([Eqn1, Eqn2], 
+					[Std1, Std2]),
+				eqns_to_vectors([Std1], [Vec1]),
+				eqns_to_vectors([Std2], [Vec2]),
+				implied_eqn(Vec1, Vec2) 
+			->
+
 				Result = (>)
 			;
-				( rat:'='(Const1, Const2) ->
-					Result = (=)
+				compare_var_lists(Coeffs1, Coeffs2, Result1),
+				( Result1 = (=) ->
+					compare_rat_lists(Coeffs1, Coeffs2, 
+									Result)
 				;
-					Result = (<)
+					Result = Result1
 				)
 			)
-		;
-			Result = Coeffs_result
 		)
 	;
 		error("term_util: Non-canonical equation passed to 
 								compare_eqns\n")
 	).
 
-compare_coeff_lists([], [], (=)).
-compare_coeff_lists([], [_|_], (<)).
-compare_coeff_lists([_|_], [], (>)).
-compare_coeff_lists([C1|Coeffs1], [C2|Coeffs2], Result) :-
-	compare_coeffs(C1, C2, Coeff_Result),
+% lexicographic order on list of vars.
+compare_var_lists([], [], (=)).
+compare_var_lists([], [_|_], (<)).
+compare_var_lists([_|_], [], (>)).
+compare_var_lists([C1|Coeffs1], [C2|Coeffs2], Result) :-
+	compare_vars(C1, C2, Coeff_Result),
 	( Coeff_Result = (=) ->
-		compare_coeff_lists(Coeffs1, Coeffs2, Result)
+		compare_var_lists(Coeffs1, Coeffs2, Result)
 	;
 		Result = Coeff_Result
 	).
 
+
+:- pred compare_vars(coeff, coeff, comparison_result).
+:- mode compare_vars(in, in, uo) is det.
+compare_vars(Var1-_, Var2-_, Result) :-
+	compare(Result, Var1, Var2).
+
+% lexicographic order on list of rats.
+compare_rat_lists([], [], (=)).
+compare_rat_lists([], [_|_], (<)).
+compare_rat_lists([_|_], [], (>)).
+compare_rat_lists([C1|Coeffs1], [C2|Coeffs2], Result) :-
+	compare_rats(C1, C2, Rat_Result),
+	( Rat_Result = (=) ->
+		compare_rat_lists(Coeffs1, Coeffs2, Result)
+	;
+		Result = Rat_Result
+	).
+
+
+:- pred compare_rats(coeff, coeff, comparison_result).
+:- mode compare_rats(in, in, uo) is det.
+compare_rats(_-Rat1, _-Rat2, Result) :-
+	( rat:'<'(Rat1, Rat2) ->
+		Result = (>)
+	;
+		( rat:'>'(Rat1, Rat2) ->
+			Result = (<)
+		;
+			Result = (=)
+		)
+	).
+
+% Outputs an equation with coefficients sorted in increasing order on variable.
+% These are normalised on the smallest variable (i.e. multiplied by a constant
+% so that that variable has coefficient 1 or -1), which ends up as the first
+% variable in the list of coefficients.
 canonical_form(Eqns0, Canonical_eqns) :-
         fm_standardize_equations(Eqns0, Standardized_eqns),
         eqns_to_vectors(Standardized_eqns, Vectors),
 
-        Normalize_on_first_var = lambda([Vec1::in, Norm_vec::out] is det,(
-                Vec1 = pair(Map0, _),
+	%XXX I think the fact that this is normalised on smallest var is
+	% never used.
+        Normalize_on_smallest_var = lambda([Vec1::in, Norm_vec::out] is det,(
+                Vec1 = Map0-_,
 		( map__remove_smallest(Map0, LeastVar, _, _) ->
 			normalize_vector(Vec1, LeastVar, Norm_vec)
 		;
@@ -437,20 +454,170 @@ canonical_form(Eqns0, Canonical_eqns) :-
 
 		)
 	)),
-	list__map(Normalize_on_first_var, Vectors, Canonical_vecs),
+	list__map(Normalize_on_smallest_var, Vectors, Canonical_vecs),
 
 	vectors_to_eqns(Canonical_vecs, Almost_canonical_eqns),
 
-	Sort_coeffs = lambda([eqn(Coeffs, Op, Num)::in, Sort_eqn::out] is det, (
-		list__sort(compare_coeffs, Coeffs, Sorted_coeffs),
+	Sort_vars = lambda([eqn(Coeffs, Op, Num)::in, Sort_eqn::out] is det, (
+		list__sort(compare_vars, Coeffs, Sorted_coeffs),
 		Sort_eqn = eqn(Sorted_coeffs, Op, Num)
 	)),
-	list__map(Sort_coeffs, Almost_canonical_eqns, Canonical_eqns).
+	list__map(Sort_vars, Almost_canonical_eqns, Canonical_eqns).
 
-:- pred compare_coeffs(coeff, coeff, comparison_result).
-:- mode compare_coeffs(in, in, uo) is det.
-compare_coeffs(Var1-_, Var2-_, Result) :-
-	compare(Result, Var1, Var2).
+	
+remove_redundant_eqns(Eqns0, Eqns) :-
+	fm_standardize_equations(Eqns0, StdEqns),
+	eqns_to_vectors(StdEqns, Vectors0),
+	remove_redundant_eqns2(Vectors0, Vectors1),
+	vectors_to_eqns(Vectors1, Eqns1),
+	list__sort(compare_eqns, Eqns1, Eqns).
+
+
+% The non-redundant equations have the property that, for any particular
+% equation in the list, there is no other equation in the list that
+% implies it or is implied by it.
+% They _don't_ have the property that no equation is implied by any set
+% of the other equations - only pairwise implication is considered.
+:- pred remove_redundant_eqns2(list(vector), list(vector)).
+:- mode remove_redundant_eqns2(in, out) is det.
+
+remove_redundant_eqns2([], []).
+remove_redundant_eqns2([Eqn1|Eqns], Non_redundant_eqns) :-
+	remove_comparable_eqns(Eqn1, Strongest_eqn, Eqns, Filtered_eqns0),
+	remove_redundant_eqns2(Filtered_eqns0, Non_redundant_eqns0),
+	Non_redundant_eqns = [Strongest_eqn | Non_redundant_eqns0].
+
+
+% remove_comparable_eqns(Eqn, Strongest_eqn, Eqns0, Eqns).
+% Strongest_eqn is an equation implying all other equations
+% implied by Eqn, such that there are no other equations in Eqns0
+% that imply Strongest_eqn (Note that this isn't necessarily unique, 
+% but that doesn't matter). 
+% This removes all equations implied by Strongest_eqn (including
+% Strongest_eqn itself) from Eqns0.
+% It makes a special case of "non-negative" equations, i.e. those of the
+% form "x >= 0".  They have to be kept unless there is also an equation
+% "x >= a" where a > 0.
+
+:- pred remove_comparable_eqns(vector, vector, list(vector), list(vector)).
+:- mode remove_comparable_eqns(in, out, in, out) is det.
+remove_comparable_eqns(Eqn, Eqn, [], []). 
+remove_comparable_eqns(Eqn, Strongest_eqn, [Eqn0|Eqns0], Filtered_eqns) :-
+	( 	implied_eqn(Eqn0, Eqn), 
+		\+ non_redundant_nonneg(Eqn0, Eqn)
+	->
+		remove_comparable_eqns(Eqn, Strongest_eqn, Eqns0, Filtered_eqns)
+	;
+		( 
+			implied_eqn(Eqn, Eqn0),
+			\+ non_redundant_nonneg(Eqn, Eqn0)
+		->
+			remove_comparable_eqns(Eqn0, Strongest_eqn, Eqns0,
+								Filtered_eqns)
+		;
+			remove_comparable_eqns(Eqn, Strongest_eqn, Eqns0,
+								Filtered_eqns1),
+			Filtered_eqns = [Eqn0|Filtered_eqns1]
+		)
+	).
+	
+
+
+% implied_eqn(Eqn1, Eqn2): 
+% Succeeds if Eqn1 is implied by Eqn2.  Assumes that both are in canonical
+% form.
+% The implication is only correct under the additional assumption that 
+% all the variables are non-negative.
+% There are some implied equations that won't be caught, i.e. those where
+% Eqn1 contains a proper subset or superset of the variables in Eqn2
+% (e.g. x + y <= 3 implies x <= 3). 
+:- pred implied_eqn(vector, vector).
+:- mode implied_eqn(in, in) is semidet.
+implied_eqn(CoeffMap1-Rat1, CoeffMap2-Rat2) :-
+	map__sorted_keys(CoeffMap1, SortedVars1),
+	map__sorted_keys(CoeffMap2, SortedVars2),
+	SortedVars1 = SortedVars2,
+	implied_eqn2(SortedVars1, CoeffMap1-Rat1, CoeffMap2-Rat2).
+
+:- pred implied_eqn2(list(size_var), vector, vector).
+:- mode implied_eqn2(in, in, in) is semidet.
+implied_eqn2([], _, _) :-
+	fail.
+
+implied_eqn2([Var|Vars], Vec1, Vec2) :-
+	(
+		normalize_vector(Vec1, Var, NormedMap1-NormedRat1),
+		map__to_sorted_assoc_list(NormedMap1, Coeff_list1),
+
+		normalize_vector(Vec2, Var, NormedMap2-NormedRat2),
+		map__to_sorted_assoc_list(NormedMap2, Coeff_list2),
+
+		\+ any_larger_coeffs(Coeff_list1, Coeff_list2),
+		rat:'>='(NormedRat1, NormedRat2)
+	;
+		implied_eqn2(Vars, Vec1, Vec2)
+	).
+
+
+% Succeeds if any of the coefficients in the first list are larger than
+% the corresponding one in the second list. (e.g. 2x is larger than 1x and
+% -3x is larger than -4x).
+:- pred any_larger_coeffs(list(coeff), list(coeff)).
+:- mode any_larger_coeffs(in, in) is semidet.
+
+any_larger_coeffs([], []) :-
+	fail.
+any_larger_coeffs([_|_], []) :-
+	error("term_util: unequal length coefficient lists in
+		any_larger_coeffs").
+any_larger_coeffs([], [_|_]) :-
+	error("term_util: unequal length coefficient lists in
+		any_larger_coeffs").
+any_larger_coeffs([Var1-Rat1 | Coeffs1], [Var2-Rat2 | Coeffs2]) :-
+	Var1 = Var2, 
+	(	
+		rat:'>'(Rat1, Rat2)
+	;
+		any_larger_coeffs(Coeffs1, Coeffs2)
+	).
+
+% obvious_eqn: Succeeds iff the equation is implied by the
+% assumption that all variables are non-negative.
+:- pred obvious_eqn(equation).
+:- mode obvious_eqn(in) is semidet.
+
+obvious_eqn(eqn(Coeffs, (=<), Rat)) :-
+	list__length(Coeffs, Length),
+	Length >= 2,
+	rat:'>='(Rat, zero),
+	all_negative(Coeffs).
+
+:- pred all_negative(list(coeff)).
+:- mode all_negative(in) is semidet.
+all_negative([]).
+all_negative([_-Rat | Coeffs] ) :-
+	rat:'<'(Rat, zero),
+	all_negative(Coeffs).
+
+% non_redundant_nonneg(Maybe_nonneg, Maybe_stronger): Succeeds if 
+% Maybe_nonneg is of the form "-x =< b", and 
+% Maybe_stronger is not of the form " -x =< a" where a =< b. 
+% This assumes that both equations are in canonical form, i.e. all the
+% inequalities are "=<".
+:- pred non_redundant_nonneg(vector, vector).
+:- mode non_redundant_nonneg(in, in) is semidet.
+
+non_redundant_nonneg(Map1-Const1, Map2-Const2) :-
+	map__values(Map1, [Rat1]),
+	map__keys(Map1, [SVar]),
+	rat:'<'(Rat1, zero),
+	
+	\+ ( 
+		map__values(Map2, [Rat2]),
+		map__keys(Map2, [SVar]),
+		rat:'<'(Rat2, zero),
+		rat:'=<'(Const1, Const2)
+	).
 
 %-----------------------------------------------------------------------------%
 % Calculate the weight to be assigned to each function symbol for the

@@ -96,9 +96,7 @@
 :- implementation.
 
 :- import_module term_pass1, term_pass2, term_errors.
-:- import_module term_constr_pass1, term_constr_traversal. %XXX Only need
-			% the latter for derive_nonneg.. which will go in
-			% term_util.
+:- import_module term_constr_pass1, term_constr_traversal. 
 :- import_module inst_match, passes_aux, options, globals.
 :- import_module hlds_data, hlds_goal, dependency_graph, varset.
 :- import_module mode_util, hlds_out, code_util, prog_out, prog_util.
@@ -107,7 +105,7 @@
 
 :- import_module list, map, bimap, int, char, string, relation.
 :- import_module require, bag, set, term.
-:- import_module lp_rational, safe_varset, rat. 
+:- import_module lp_rational, rat.
 :- import_module polymorphism.
 
 %----------------------------------------------------------------------------%
@@ -206,7 +204,6 @@ termination__process_scc_vanessa(SCC, Module0, SizeVars0, PassInfo, Module,
 
 	term_constr_pass1__find_arg_sizes_in_scc(SCC, Module0, SizeVars0, 
 			PassInfo, WideningInfo, Module, SizeVars).
-	%#####?
 
 :- pred termination__process_scc_chris(list(pred_proc_id), module_info,
 	pass_info, module_info, io__state, io__state).
@@ -488,11 +485,8 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 			change_procs_termination_info(ProcIds, no,
 				TerminationInfo, ProcTable0, ProcTable1)
 		),
-		%%### Check that this is OK.
 		( (Vanessa = yes ) ->
-			bimap__init(Map), % Should have a maybe(bimap) in
-					  % arg_size_info instead of doing
-					  % this?	
+			bimap__init(Map), 
 			set__init(Zeros),
 			ArgSizeInfo = constraints([], Zeros, Map) 
 		;
@@ -609,8 +603,7 @@ special_pred_id_to_termination(index, HeadVars, ArgSize, Termination) :-
 		list(prog_var)::in, module_info::in, map(prog_var, type)::in, 
 		arg_size_info::out, termination_info::out) is det.
 
-
-%XX Check that these do the right thing.
+%XXX Check that these do the right thing.
 special_pred_id_to_termination_v(compare, HeadVars, Module, VarTypes, 
 				ArgSize, Termination) :-
 	list__length(HeadVars, Length),
@@ -682,8 +675,6 @@ make_info(HeadVars, Module, VarTypes, ArgSize, Termination) :-
 fill_var_to_sizevar_map(HeadVars, SizeVarset, VarToSizeVarMap) :-
 	varset__init(SizeVarset0),
 	bimap__init(VarToSizeVarMap0),
-	%XXX This is exactly like the code in pass1. Put something in
-	%term_util. 
 	Insert_var = lambda([Var::in, Map0::in, Map::out, VSet0::in,
 							 VSet::out] is det, (
 		varset__new_var(VSet0, SizeVar, VSet),
@@ -723,7 +714,7 @@ set_builtin_terminates([ProcId | ProcIds], PredId, PredInfo, Module,
 		proc_info_headvars(ProcInfo0, HeadVars),
 		proc_info_vartypes(ProcInfo0, VarTypes),
 
-		%### This is a work around while some preds have vars with
+		% This is a work-around while some preds have vars with
 		% no corresponding type in the VarTypes map.
 		pred_info_module(PredInfo, PredModule),
 		pred_info_name(PredInfo, PredName),
@@ -739,18 +730,9 @@ set_builtin_terminates([ProcId | ProcIds], PredId, PredInfo, Module,
 			list__sort(compare_eqns, CanonicalEqns, SortedEqns)
 		; all_args_input_or_zero_size(Module, PredInfo, ProcInfo0) ->
 			SortedEqns = []
-			%rename_vars(HeadVars, ZeroSizeSizeVars, Module, 
-			%	VarTypes, Constraint_info0, 
-			%	constr_info(VarToSizeVarMap, _SizeVarset, 
-			%					Zeros, _)),
-				% Last arg will just be non-negativity equations
-				% for the vars we are about to set to zero.
-			%list__map(make_zero_eqn, ZeroSizeSizeVars, ZeroEqns)
 		;
 			error("termination: builtin with non-zero-size args")
 		),
-		%### These are probably unnecessary, since there isn't
-		% going to be a second iteration on this.
 		ArgSizeInfo = yes(constraints(SortedEqns,Zeros,VarToSizeVarMap))
 	;
 		( all_args_input_or_zero_size(Module, PredInfo, ProcInfo0) ->
@@ -779,9 +761,13 @@ set_builtin_terminates([ProcId | ProcIds], PredId, PredInfo, Module,
 :- mode process_special_builtin(in, in, in, out) is det.
 process_special_builtin(PredName, HeadVars, VarToSizeVarMap, Eqn) :-
 
-	%### Check the layout of this if_then_else.
-	( (HeadVars = [HVar1, HVar2], (PredName = "unsafe_type_cast" ; 
-					PredName = "unsafe_promise_unique")) 
+	( 
+		HeadVars = [HVar1, HVar2], 
+		(	
+			PredName = "unsafe_type_cast" 
+		; 
+			PredName = "unsafe_promise_unique"
+		) 
 	->
 		rename_var(HVar1, SizeVar1, VarToSizeVarMap), 
 		rename_var(HVar2, SizeVar2, VarToSizeVarMap),
@@ -1011,8 +997,6 @@ termination__write_maybe_arg_size_info(MaybeArgSizeInfo, Verbose) -->
 		io__write_string(")")
 	;
 		{ MaybeArgSizeInfo = yes(constraints(Constraints, _, _)) },
-		%#### Should the written constraints include a write-out of
-		% the mapping between vars?
 		termination__write_constraints(Constraints)
 	).
 

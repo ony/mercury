@@ -83,10 +83,7 @@
 	;	satisfiable(rat, map(lp_var, rat))
 	.
 
-:- type vector ---> pair(map(lp_var, rat), rat).
-
-% XX Should that be:  :- type vector == pair(map(lp_var, rat), rat).
-%    Maybe we can change this later.
+:- type vector == pair(map(lp_var, rat), rat).
 
 :- type matrix == list(vector).
 
@@ -1144,8 +1141,7 @@ fm_standardize_equations_acc([Eqn0|Eqns], Acc0, Acc) :-
 
 
 eqns_to_vectors(Eqns, Vecs) :-
-	Eqn_to_vec = lambda([eqn(List, Op, Num)::in, 
-						pair(Map, Num)::out] is det, (
+	Eqn_to_vec = lambda([eqn(List, Op, Num)::in, Map-Num::out] is det, (
 		( Op = (=<) ->
 			map__init(Map0),	
 			coeff_list_to_map(List, Map0, Map)
@@ -1160,7 +1156,7 @@ eqns_to_vectors(Eqns, Vecs) :-
 %:- mode vectors_to_eqns(in, out) is det.
 
 vectors_to_eqns(Vectors, Equations) :-
-	Vec_to_eqn = lambda([pair(Map,Rat)::in, Eqn::out] is det, (
+	Vec_to_eqn = lambda([Map-Rat::in, Eqn::out] is det, (
 		map__to_assoc_list(Map, List),
 		Eqn = eqn(List, (=<), Rat)
 	)),
@@ -1197,7 +1193,7 @@ coeff_list_to_map([Var-Num | Coeffs], Map0, Map) :-
 %:- pred normalize_vector(vector, lp_var, vector).
 %:- mode normalize_vector(in, in, out) is det.
 
-normalize_vector(pair(Map0, Num0), Var0, pair(Map, Num)) :-
+normalize_vector(Map0-Num0, Var0, Map-Num) :-
 	( map__search(Map0, Var0, Coeff) ->
 		Is_map_key = lambda([Var::out] is nondet, (
 			map__member(Map0, Var, _)	
@@ -1261,14 +1257,14 @@ separate_vectors_acc([Vec0|Vectors], Var, Pos0, Neg0, Zeros0, Pos, Neg, Zeros):-
 :- pred get_var_coeff(vector, lp_var, rat).
 :- mode get_var_coeff(in, in, out) is semidet.
 
-get_var_coeff(pair(Varmap, _), Var, Num) :-
+get_var_coeff(Varmap-_, Var, Num) :-
 	map__search(Varmap, Var, Num).
 
 % add_vectors(Vec0, Vec1, Vec2): Vec2 is the sum of Vec0 and Vec1.
 :- pred add_vectors(vector, vector, vector).
 :- mode add_vectors(in, in, out) is det.
 
-add_vectors(pair(Map0, Rat0), pair(Map1, Rat1), pair(Map2, Rat2)) :- 
+add_vectors(Map0-Rat0, Map1-Rat1, Map2-Rat2) :- 
 	Rat2 = Rat0 + Rat1,
 	Is_map_key = lambda([Var::out] is nondet, (
 		map__member(Map0, Var, _)
@@ -1298,7 +1294,7 @@ eliminate_var(_, [], _, Matrix, Matrix).
 eliminate_var(Var, [Vec_P|Pos], Neg, Zeros, Result) :-
 	Add_vec = lambda([Vec0::in, Vec1::out] is semidet, (
 		add_vectors(Vec_P, Vec0, Vec1),
-		Vec1 = pair(Map1, Const),
+		Vec1 = Map1-Const,
 		not ( map__is_empty(Map1), Const >= zero )
 	)),
 	list__filter_map(Add_vec, Neg, Zeros1),
@@ -1368,7 +1364,7 @@ find_strongest_remove_weaker(Vec0, Vec, Matrix0, Matrix) :-
 :- pred compare_constraints(vector, vector, vector).
 :- mode compare_constraints(in, in, out) is semidet.
 
-compare_constraints(pair(Map0,Rat0), pair(Map1,Rat1), pair(Map3,Rat)) :-
+compare_constraints(Map0-Rat0, Map1-Rat1, Map3-Rat) :-
 	map__keys(Map0, Keylist),
 	Del_same_keys = lambda([Var0::in, Map4::in, Map5::out] is semidet, (
 		map__lookup(Map0, Var0, Num0),
@@ -1651,7 +1647,7 @@ write_vectors(Matrix, IO0, IO) :-
 
 :- pred write_vector(vector, io__state, io__state).
 :- mode write_vector(in, di, uo) is det.
-write_vector(pair(Map, Rat)) --> 
+write_vector(Map-Rat) --> 
 	{ map__to_assoc_list(Map, List) },
 	io__write_list(List, " ", write_term),
 	io__write_char(' '),
@@ -1667,16 +1663,23 @@ write_vector(pair(Map, Rat)) -->
 :- mode write_term(in, di, uo) is det.
 
 write_term(Var-Rat) -->
-	( { Rat = one } ->
-		io__write_char('+'),
-		io__write_char(' ')
+	( { Rat > zero } ->
+		io__write_char('+')
 	;
-		io__write_char('('),
-		io__write_int(numer(Rat)),
-		io__write_char('/'),
-		io__write_int(denom(Rat)),
-		io__write_char(')')
+		io__write_char('-')
 	),
+	io__write_char(' '),
+	io__write_char('('),
+	{ abs(numer(Rat), AbsNumerator) },
+	io__write_int(AbsNumerator),
+	( { denom(Rat) \= 1 } ->
+		io__write_char('/'),
+		io__write_int(denom(Rat))
+	;
+		[]
+	),
+	io__write_char(')'),
 	io__write_char('x'),
 	{ term__var_to_int(Var, Int) },
 	io__write_int(Int).
+
