@@ -59,12 +59,6 @@
 		alias_as, list(pa_datastruct__datastruct)).
 :- mode collect_aliases_of_datastruct(in, in, in, in, out) is det.
 
-	% extend_prog_vars_from_alias( Vars, Alias, NewVars)
-	% ( X \in NewVars <=> X \in Vars or alias(X,Y) \in Alias and
-	%				    Y \in Vars
-:- pred extend_prog_vars_from_alias( set(prog_var), alias_as, set(prog_var)). 
-:- mode extend_prog_vars_from_alias( in, in, out) is det.
-
 	% rename abstract substitution according to a mapping
 	% of prog_vars (map (FROM_VARS, TO_VARS) ).
 :- pred rename( map(prog_var, prog_var), alias_as, alias_as).
@@ -86,8 +80,14 @@
 :- pred equal( alias_as, alias_as).
 :- mode equal( in, in) is semidet.
 
+	% less_or_equal( ModuleInfo, ProcInfo, AliasAs1, AliasAs2 ). 
 	% first abstract subst. is less than or equal to second
-	% abstract subst. (for fixpoint). (not used)
+	% abstract subst. (for fixpoint). i.e. The first abstract
+	% substitution expresses less than the second one: for each
+	% alias Alias1 expressed by AliasAs1, there exists an alias
+	% Alias2 from AliasAs2 such that Alias1 is tighter than 
+	% Alias2. And there are no aliases from AliasAs2 which are not
+	% greater than any of the aliases from AliasAs1. 
 :- pred less_or_equal( module_info, proc_info, alias_as, alias_as).
 :- mode less_or_equal( in, in, in, in) is semidet.
 
@@ -178,12 +178,13 @@
 
 % compiler modules
 :- import_module pa_alias, pa_util, pa_sr_util.
+:- import_module pa_alias_set.
 
 %-----------------------------------------------------------------------------%
 %-- type definitions 
 
 :- type alias_as ---> 
-			real_as( list(alias) )
+			real_as( alias_set )
 		;	bottom
 		; 	top(list(string)).
 	% where list(alias) contains no doubles!
@@ -204,7 +205,7 @@ init(bottom).
 
 	% is_bottom
 is_bottom(bottom).
-is_bottom(real_as([])).
+is_bottom(real_as(AliasSet) ):- pa_alias_set__is_empty(AliasSet).
 
 	% top
 top( Msg, top([NewMsg]) ):- 
@@ -239,17 +240,16 @@ is_top( top(_) ).
 
 size( bottom ) = 0.
 size( top(_) ) = 999999.
-size( real_as( LIST ) ) = L :- 
-	list__length( LIST, L ).
+size( real_as( AliasSet ) ) = L :- 
+	pa_alias_set__get_size(AliasSet, L). 
 
 	% project
 project( Listvar, ASin , ASout):-
 	(
-		ASin = real_as(Aliases)
+		ASin = real_as(AliasSet0)
 	->
-		list__filter( pa_alias__contains_vars( Listvar ), Aliases, 
-				PAliases),
-		wrap( PAliases, ASout)
+		pa_alias_set__project( Listvar, AliasSet0, AliasSet), 
+		wrap( AliasSet, ASout)
 	;
 		% ASin is bottom or top(_)
 		ASout = ASin
@@ -259,20 +259,17 @@ project_set( SetVar, ASin, ASout ):-
 	set__to_sorted_list( SetVar, ListVar),
 	project( ListVar, ASin, ASout).
 
-collect_aliases_of_datastruct( ModuleInfo, ProcInfo, DATA, AS, LIST ):-
+collect_aliases_of_datastruct( ModuleInfo, ProcInfo, Datastruct, AS, 
+				AliasList ):-
 	(
-		AS = real_as(ALIASES)
+		AS = real_as(AliasSet)
 	->
-		list__filter_map(
-			pred( A::in, D::out) is semidet :-
-			    ( pa_alias__aliased_to( ModuleInfo, ProcInfo, 
-					A, DATA, D)),
-			ALIASES,
-			LIST)
+		pa_alias_set__collect_aliases_of_datastruct( ModuleInfo, 
+			ProcInfo, Datastruct, AliasSet, AliasList )
 	;
 		is_bottom(AS)
 	->
-		LIST = []
+		AliasList = []
 	;
 		% is_top
 		error("(pa_alias_as) collect_aliases_of_datastruct: alias_as is top.")
@@ -280,35 +277,11 @@ collect_aliases_of_datastruct( ModuleInfo, ProcInfo, DATA, AS, LIST ):-
 	
 			
 
-extend_prog_vars_from_alias( VarsIN, AS, VarsOUT):- 
-	(
-		AS = real_as( LIST )
-	-> 
-		VarsOUT = set__fold(
-			extend_prog_var_from_alias_list(LIST), 
-			VarsIN, 
-			VarsIN)
-	; 
-		VarsOUT = VarsIN
-	). 
-
-:- func extend_prog_var_from_alias_list( list(alias), prog_var, 
-			set(prog_var)) = set(prog_var).
-:- mode extend_prog_var_from_alias_list( in, in, in) = out is det.
-
-extend_prog_var_from_alias_list( AS, Var, Vars) = NewVars :- 
-	list__foldl( 
-		pa_alias__extend_prog_var_from_alias(Var),
-		AS,
-		Vars, 
-		NewVars).
-
-rename( Mapvar, ASin, ASout ):-
+rename( MapVar, ASin, ASout ):-
 	(
 		ASin = real_as(Aliases)
 	->
-		list__map( pa_alias__rename( Mapvar ), 
-				Aliases, RAliases),
+		pa_alias_set__rename( MapVar, Aliases, RAliases), 
 		wrap(RAliases, ASout)
 	;
 		% ASin is bottom or top(_)
@@ -324,13 +297,11 @@ rename_types( FromTypes, ToTypes, ASin, ASout ) :-
 
 rename_types( Substitution, A0, A) :- 
 	(
-		A0 = real_as( Aliases0 )
+		A0 = real_as( AliasSet0 )
 	-> 
-		list__map(
-			pa_alias__rename_types(Substitution), 
-			Aliases0, 
-			Aliases ), 
-		A = real_as( Aliases )
+		pa_alias_set__rename_types( Substitution, AliasSet0, 
+				AliasSet ), 
+		A = real_as( AliasSet)
 	; 
 		A = A0
 	).
@@ -338,16 +309,9 @@ rename_types( Substitution, A0, A) :-
 
 equal( AS1, AS2 ):-
 	(
-		AS1 = real_as(LIST1)
-	->
-		AS2 = real_as(LIST2), 
-		list__length(LIST1, L),
-		list__length(LIST2, L),
-		list__takewhile(
-			pred(AL::in) is semidet :-
-			    ( pa_alias__occurs_in(AL, LIST2)),
-		   	LIST1,_, AfterList),
-		AfterList = []
+		AS1 = real_as(AliasSet1),
+		AS2 = real_as(AliasSet2), 
+		pa_alias_set__equal( AliasSet1, AliasSet2 )
 	;
 		% AS1 is bottom or top(_)
 		( AS1 = bottom, AS2 = bottom)
@@ -357,30 +321,24 @@ equal( AS1, AS2 ):-
 
 less_or_equal( ModuleInfo, ProcInfo, AS1, AS2 ):-
 	(
-		AS1 = real_as(LIST1)
-	->
-		AS2 = real_as(LIST2),
-		list__takewhile(
-			pred(AL::in) is semidet :- 
-			 	( pa_alias__subsumed_by_list(ProcInfo, 
-					ModuleInfo,AL, LIST2)),
-			LIST1,_,
-			AfterList),
-		AfterList = []
+		AS1 = real_as(AliasSet1),
+		AS2 = real_as(AliasSet2),
+		pa_alias_set__less_or_equal( ModuleInfo, ProcInfo, 
+				AliasSet1, AliasSet2 ) 
 	;
 		( AS1 = bottom ; AS2 = top(_) )
 	).
 
 least_upper_bound( ProcInfo, HLDS, AS1, AS2, RESULT) :-
 	( 
-		AS1 = real_as(LIST1)
+		AS1 = real_as(AliasSet1)
 	->
 		(
-			AS2 = real_as(LIST2)
+			AS2 = real_as(AliasSet2)
 		->
-			pa_alias__least_upper_bound_lists(ProcInfo, 
-				HLDS, LIST1,LIST2,Aliases),
-			wrap_and_control( HLDS, ProcInfo, Aliases, RESULT)
+			pa_alias_set__least_upper_bound( HLDS, ProcInfo, 
+				AliasSet1, AliasSet2, AliasSet ), 
+			wrap_and_control( HLDS, ProcInfo, AliasSet, RESULT)
 		;
 			AS2 = top(_)
 		->
@@ -404,60 +362,9 @@ least_upper_bound( ProcInfo, HLDS, AS1, AS2, RESULT) :-
 		RESULT = AS2
 	).
 
-:- pred simplify_upon_subsumption(proc_info, module_info, 
-			alias_as, alias_as).
-:- mode simplify_upon_subsumption(in,in,in,out) is det.
-
-simplify_upon_subsumption( ProcInfo, HLDS, AS, RESULT):-
-	(
-		AS = real_as(LIST)
-	->
-		pa_alias__least_upper_bound_lists(ProcInfo,HLDS,
-				LIST,[],Aliases),
-		wrap_and_control(HLDS, ProcInfo, Aliases,RESULT)
-	;
-		% AS is bottom or top(_)
-		RESULT = AS
-	).
-		
-least_upper_bound_list( ProcInfo, HLDS, GoalInfo, Alias_list0, AS ) :-
-	list__map(
-		maybe_normalize( ProcInfo, HLDS, GoalInfo ), 
-		Alias_list0, 
-		Alias_list), 
-	list__foldl(least_upper_bound(ProcInfo, HLDS) , Alias_list, 
+least_upper_bound_list( ProcInfo, HLDS, _GoalInfo, Alias_list0, AS ) :-
+	list__foldl(least_upper_bound(ProcInfo, HLDS) , Alias_list0, 
 			bottom, AS).
-
-:- pred maybe_normalize( proc_info, module_info, hlds_goal_info, 
-			alias_as, alias_as). 
-:- mode maybe_normalize( in, in, in, in, out ) is det. 
-
-maybe_normalize( ProcInfo, HLDS, GoalInfo, Alias0, Alias ) :- 
-	(
-		Alias0 = top(_),
-		Alias = Alias0
-	; 
-		Alias0 = bottom, 
-		Alias = Alias0
-	; 
-		Alias0 = real_as(AliasList0), 
-		SIZE = size(Alias0), 
-		(
-			SIZE > top_limit
-		->
-			pa_alias__apply_widening_list( HLDS, ProcInfo, 
-				AliasList0, AliasList ), 
-			Alias = real_as(AliasList)
-			% top("Size too big", Alias)
-		;
-			SIZE > alias_limit
-		-> 
-			normalize_with_goal_info( ProcInfo, HLDS, GoalInfo, 
-				Alias0, Alias)
-		;
-			Alias = Alias0
-		)
-	). 
 
 extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 	(
@@ -466,7 +373,7 @@ extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 		(
 			A2 = real_as(OLD)
 		->
-			pa_alias__extend(ProcInfo, HLDS, 
+			pa_alias_set__extend(HLDS, ProcInfo, 
 				NEW, OLD, Aliases),
 			wrap_and_control(HLDS, ProcInfo, Aliases, RESULT)
 		;
@@ -495,13 +402,13 @@ extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 
 add( AS1, AS2, AS ) :- 
 	(
-		AS1 = real_as( List1)
+		AS1 = real_as( AliasSet1)
 	->
 		(
-			AS2 = real_as( List2 )
+			AS2 = real_as( AliasSet2  )
 		->
-			list__append(List1, List2, List),
-			AS = real_as( List )
+			pa_alias_set__add( AliasSet1, AliasSet2, AliasSet), 
+			AS = real_as( AliasSet )
 		;
 			AS2 = bottom
 		->
@@ -522,8 +429,8 @@ add( AS1, AS2, AS ) :-
 %-----------------------------------------------------------------------------%
 extend_unification( ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout ):-
 	pa_alias__from_unification( ProcInfo, HLDS, Unif, GoalInfo, AUnif),
-	wrap(AUnif, ASUnif),
-%	extend( ProcInfo, HLDS, ASUnif, ASin, ASout). 
+	pa_alias_set__from_pair_alias_list( AUnif, AliasSetUnif ), 
+	wrap(AliasSetUnif, ASUnif),
 	extend( ProcInfo, HLDS, ASUnif, ASin, ASout0), 
 	(
 		Unif = construct(_, _, _, _, _, _, _)
@@ -551,22 +458,14 @@ optimization_remove_deaths( ProcInfo, ASin, GI, ASout ) :-
 		->
 		 	ASout = ASin
 		;
-			
-			list__filter( 	
-				does_not_contain_vars( DeathsList ), 
-				Aliases0, 
-				Aliases),
+			pa_alias_set__remove_vars( DeathsList, Aliases0, 
+				Aliases), 
 			wrap(Aliases, ASout)
 		)
 	;
 		ASout = ASin
 	).
 
-:- pred does_not_contain_vars( list(prog_var), alias).
-:- mode does_not_contain_vars( in, in) is semidet.
-
-does_not_contain_vars( Vars, Alias) :- 
-	not contains_one_of_vars_in_list( Vars, Alias).
 
 %-----------------------------------------------------------------------------%
 extend_foreign_code( _ProcInfo, HLDS, GoalInfo, 
@@ -711,10 +610,7 @@ normalize_with_goal_info( ProcInfo, HLDS, GoalInfo, Alias0, Alias):-
 
 normalize( ProcInfo, HLDS, _InstMap, Alias0, Alias):- 
 	% normalize only using type-info's
-	normalize_wti( ProcInfo, HLDS, Alias0, Alias1),
-	% removing doubles is not enough -- subsumption should
-	% be verified. 
-	simplify_upon_subsumption( ProcInfo, HLDS, Alias1, Alias).
+	normalize_wti( ProcInfo, HLDS, Alias0, Alias).
 
 :- pred normalize_wti( proc_info, module_info, alias_as, alias_as).
 :- mode normalize_wti( in, in, in, out) is det.
@@ -723,8 +619,8 @@ normalize_wti( ProcInfo, HLDS, ASin, ASout ):-
 	(
 		ASin = real_as(Aliases0)
 	->
-		list__map(pa_alias__normalize_wti(ProcInfo, HLDS), Aliases0, 
-			Aliases),
+		pa_alias_set__normalize( HLDS, ProcInfo, Aliases0, 
+				Aliases), 
 		wrap(Aliases, ASout)
 	;
 		ASout = ASin
@@ -756,8 +652,8 @@ print_possible_aliases( AS, ProcInfo, PredInfo ) -->
 	(
 		{ AS = real_as(Aliases) }
 	->
-		io__write_list( Aliases, "", 
-			pa_alias__print(ProcInfo, PredInfo, "% ", "\n"))
+		pa_alias_set__print( PredInfo, ProcInfo, Aliases, 
+				"% ", "\n" )
 	;
 		{ AS = top(Msgs) }
 	->
@@ -790,8 +686,8 @@ print_aliases( AS, ProcInfo, PredInfo ) -->
 		{ AS = real_as(Aliases) }
 	->
 		io__write_string("["),
-		io__write_list( Aliases, ",", 
-			pa_alias__print(ProcInfo,PredInfo," ","")),
+		pa_alias_set__print( PredInfo, ProcInfo, Aliases, 
+				" ", ""),
 		io__write_string("]")
 	;
 		{ AS = top(_Msgs) }
@@ -828,7 +724,9 @@ parse_read_aliases_from_single_term( OneITEM, AS ) :-
 			CONS = "."
 		->
 			parse_list_alias_term( OneITEM, Aliases),
-			wrap(Aliases, AS)
+			pa_alias_set__from_pair_alias_list( Aliases, 
+					AliasSet ), 
+			wrap(AliasSet, AS)
 			% AS = bottom
 		;
 			CONS = "bottom"
@@ -882,12 +780,12 @@ parse_list_alias_term( TERM, Aliases ) :-
         ).
 
 
-:- pred wrap( list(alias), alias_as).
+:- pred wrap( pa_alias_set__alias_set, alias_as).
 :- mode wrap( in, out) is det.
 
-wrap( LIST, AS) :-
+wrap( AliasSet, AS) :-
 	(
-		LIST = []
+		pa_alias_set__get_size( AliasSet, 0 ) 
 	->
 		AS = bottom
 	;
@@ -896,14 +794,14 @@ wrap( LIST, AS) :-
 %	->
 %		top("Size too big", AS)
 %	;
-		AS = real_as(LIST)
+		AS = real_as(AliasSet)
 	).
 
 :- pred wrap_and_control( module_info::in, proc_info::in, 
-				list(alias)::in, alias_as::out) is det.
+				alias_set::in, alias_as::out) is det.
 
-wrap_and_control( _ModuleInfo, _ProcInfo, AliasList, AS ):-
-	wrap( AliasList, AS ).
+wrap_and_control( _ModuleInfo, _ProcInfo, AliasSet, AS ):-
+	wrap( AliasSet, AS ).
 /**
 	(
 		AliasList = []
@@ -948,8 +846,9 @@ live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 		
 	;
 		% most general case
-		AS = real_as(Aliases)
+		AS = real_as(AliasSet)
 	->
+		pa_alias_set__to_pair_alias_list( AliasSet, Aliases), 
 		live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, Aliases, LIVE)
 	;
 		error("(pa_alias_as) live: impossible situation.")	

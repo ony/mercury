@@ -261,6 +261,9 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 		},
 		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
 					NormS, "\n"])
+	
+%		pa_alias_as__print_aliases(Alias, ProcInfo, PredInfo),
+%		io__write_string("\n")
 /**
 		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
 					NormS, "\n"]),

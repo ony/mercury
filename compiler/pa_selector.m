@@ -67,14 +67,6 @@
 :- pred termshift(selector, selector, selector).
 :- mode termshift(in, in, out) is det.
 
-	% less_or_equal(S1, S2, EXT).
-	% Predicate holds when S1 is less than or equal to S2 ("is 
-	% subsumed by"), i.e. S1 can be selected by extending S2 with
-	% the extension EXT (output).
-	% PRECONDITION: the selectors do not contain any type-selectors. 
-:- pred less_or_equal(selector, selector, selector).
-:- mode less_or_equal(in, in, out) is semidet.
-
 	% less_or_equal( HLDS, S1, S2, T, EXT):
 	% Find out whether selector S1 of a variable of type T is
 	% less or equal to another selector S2 belonging to the same
@@ -132,6 +124,14 @@ select_first_part( SEL0, US, SEL ):-
 unit_termshift( S0, US, S ):-
 	termshift(S0,[US],S).
 termshift(S1,S2,S):- list__append(S1,S2,S).
+
+	% less_or_equal(S1, S2, EXT).
+	% Predicate holds when S1 is less than or equal to S2 ("is 
+	% subsumed by"), i.e. S1 can be selected by extending S2 with
+	% the extension EXT (output).
+	% PRECONDITION: the selectors do not contain any type-selectors. 
+:- pred less_or_equal(selector, selector, selector).
+:- mode less_or_equal(in, in, out) is semidet.
 
 less_or_equal( S1, S2, EXT ) :- 
 	list__append(S2, EXT , S1). 
@@ -247,10 +247,16 @@ parse_unit_selector( TERM, US ):-
 
 
 normalize_wti( VarType, HLDS, SEL0, SEL ):-
-	branch_map_init( B0 ), 
-	init( TOP ),
-	branch_map_insert( VarType, TOP, B0, B1 ),
-	normalize_wti_2( VarType, HLDS, B1, TOP, SEL0, SEL).
+	(
+		type_util__is_introduced_type_info_type(VarType)
+	->
+		SEL = SEL0
+	; 
+		branch_map_init( B0 ), 
+		init( TOP ),
+		branch_map_insert( VarType, TOP, B0, B1 ),
+		normalize_wti_2( VarType, HLDS, B1, TOP, SEL0, SEL)
+	).
 
 :- pred normalize_wti_2( type, module_info, branch_map, 
 				selector, selector, selector).
@@ -267,9 +273,10 @@ normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 			% switch on the kind of selector, unit selector
 			% or type selector. 
 			(
+			    (
 				US = us(CONS, INDEX),
-				type_util__get_cons_id_arg_types(HLDS, 
-						VarType, CONS, ArgTypes ),
+				type_util__get_cons_id_non_existential_arg_types(HLDS, 
+					VarType, CONS, ArgTypes ),
 				(
 					list__index1(ArgTypes, INDEX, SubType )
 				->
@@ -278,22 +285,27 @@ normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 					error(index_error_message(HLDS, 
 						VarType, CONS, INDEX))
 				)
-			;
+			    ;
 				US = ts( CType )
-			), 
-			( 
-				branch_map_search( B0, CType,
-					BSel )
+			    )
 			->
-				normalize_wti_2( CType, HLDS,
-					B0, BSel, SELR, SEL )
+				( 
+					branch_map_search( B0, CType,
+						BSel )
+				->
+					normalize_wti_2( CType, HLDS,
+						B0, BSel, SELR, SEL )
+				;
+					unit_termshift( Acc0, US, 
+						Acc1 ),
+					branch_map_insert( CType, 
+						Acc1, B0, B1 ),
+					normalize_wti_2( CType, HLDS, 
+						B1, Acc1, SELR, SEL )
+				)
 			;
-				unit_termshift( Acc0, US, 
-					Acc1 ),
-				branch_map_insert( CType, 
-					Acc1, B0, B1 ),
-				normalize_wti_2( CType, HLDS, 
-					B1, Acc1, SELR, SEL )
+				% existentially typed functor.
+				append( Acc0, SEL0, SEL)
 			)
 		;
 			% if it's not a user type, SELR will be empty

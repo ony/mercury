@@ -222,14 +222,8 @@ normalize_wti(ProcInfo, HLDS, Din, Dout):-
 normalize_wti_2( VarTypes, HLDS, D0, D ):-
 	D0 = cel( ProgVar, SEL0 ), 
 	map__lookup(VarTypes, ProgVar, VarType),
-	(
-		type_util__is_introduced_type_info_type(VarType)
-	->
-		D = D0
-	;
-		pa_selector__normalize_wti( VarType, HLDS, SEL0, SEL),
-		D = cel( ProgVar, SEL )
-	).
+	pa_selector__normalize_wti( VarType, HLDS, SEL0, SEL),
+	D = cel( ProgVar, SEL ).
 
 apply_widening( ModuleInfo, ProcInfo, D0, D ):- 
 	D0 = cel( ProgVar, Sel0 ), 

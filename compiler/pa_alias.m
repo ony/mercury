@@ -29,7 +29,8 @@
 %-------------------------------------------------------------------%
 %-- exported types
 
-:- type alias.
+% :- type alias.
+:- type alias == pair(datastruct).
 
 %-------------------------------------------------------------------%
 %-- exported predicates
@@ -188,7 +189,7 @@
 %-------------------------------------------------------------------%
 %-- type definitions 
 
-:- type alias == pair(datastruct).
+%:- type alias == pair(datastruct).
 
 %-------------------------------------------------------------------%
 
@@ -631,12 +632,41 @@ number_args( ARGS, NUMBEREDARGS ) :-
 		1, _ ).
 	
 from_unification( _ProcInfo, _HLDS, 
-		construct( VAR, CONS, ARGS, _, _, _, _ ), _Info, AS ) :-
+		construct( VAR, CONS, ARGS0, _, _, _, _ ), _Info, AS ) :-
+	get_rid_of_damn_typeinfos(CONS,ARGS0, ARGS),
 	number_args( ARGS, NUMBEREDARGS), 
 	list__foldl( alias_from_unif(VAR,CONS),NUMBEREDARGS, [], AS).
 
+:- pred get_rid_of_damn_typeinfos( cons_id::in, list(prog_var)::in, 
+			list(prog_var)::out) is det. 
+get_rid_of_damn_typeinfos( Cons, Args0, Args ) :- 
+	cons_id_maybe_arity( Cons, MaybeArity ), 
+	(
+		MaybeArity = yes( RealArity )
+	-> 
+		list__length( Args0, PseudoArity),
+		(
+			RealArity = PseudoArity
+		-> 
+			Args = Args0
+		;
+			Diff = PseudoArity - RealArity,
+			(
+				list__drop( Diff, Args0, Args1 )
+			->
+				Args = Args1
+			; 	
+				require__error("Blabla")
+			)
+		)	
+	;
+		Args = Args0
+	).
+	
+
 from_unification( _ProcInfo, _HLDS, 
-		deconstruct( VAR, CONS, ARGS, _, _, _ ), Info, AS) :-
+		deconstruct( VAR, CONS, ARGS0, _, _, _ ), Info, AS) :-
+	get_rid_of_damn_typeinfos( CONS, ARGS0, ARGS), 
 	number_args( ARGS, NUMBEREDARGS),
 	optimize_for_deconstruct(NUMBEREDARGS, Info, ReducedARGS),
 	list__foldl( alias_from_unif(VAR,CONS),ReducedARGS, [], AS).
@@ -700,15 +730,20 @@ keep_only_the_prebirths( TODO, ACC, RES, PREB ) :-
 
 keep_only_the_prebirths_v2( PreB, AllArgs, RES ) :- 
 	set__to_sorted_list( PreB, ListPreB), 
+	/** 
+	% This length-test is not correct anymore in the presence 
+	% of those *LLFD* typeinfos.
 	list__length( ListPreB, L1), 
 	list__length( AllArgs, L2), 
+
 	(
 		L1 = L2
 	->
 		RES = AllArgs
 	;
-		keep_only_the_prebirths_v2_2( ListPreB, AllArgs, [], RES)
-	).
+	**/
+	keep_only_the_prebirths_v2_2( ListPreB, AllArgs, [], RES).
+	
 
 :- pred keep_only_the_prebirths_v2_2( list(prog_var), 
 		list(pair(int, prog_var)),
@@ -720,9 +755,16 @@ keep_only_the_prebirths_v2_2( PreB, AllArgs, ACC, RES):-
 	(
 		PreB = [ X | Xs ]
 	->
-		list_find( X, Arg, AllArgs, AllArgs0),
-		ACC0 = [ Arg | ACC ],
-		keep_only_the_prebirths_v2_2( Xs, AllArgs0, ACC0, RES)
+		( 
+			list_find( X, Arg, AllArgs, AllArgs0)
+		-> 
+			ACC0 = [ Arg | ACC ],
+			AllArgs1 = AllArgs0
+		; 
+			ACC0 = ACC,
+			AllArgs1 = AllArgs
+		), 
+		keep_only_the_prebirths_v2_2( Xs, AllArgs1, ACC0, RES)
 	;
 		RES = ACC
 	).
@@ -730,23 +772,18 @@ keep_only_the_prebirths_v2_2( PreB, AllArgs, ACC, RES):-
 :- pred list_find( prog_var, pair(int, prog_var), 
 			list(pair(int, prog_var)), 
 			list(pair(int, prog_var))).
-:- mode list_find( in, out, in, out) is det.
+:- mode list_find( in, out, in, out) is semidet.
 
 list_find( Var, Arg, Lin, Lout) :-
+	Lin = [ First | Rest ],
 	(
-		Lin = [ First | Rest ]
+		First = std_util:'-'(_, Var)
 	->
-		(
-			First = std_util:'-'(_, Var)
-		->
-			Arg = First,
-			Lout = Rest
-		;
-			list_find( Var, Arg, Rest, Tmp), 
-			Lout = [ First | Tmp ]
-		)
+		Arg = First,
+		Lout = Rest
 	;
-		require__error("(pa_alias) list_find: could not find prog_var in list of args.")
+		list_find( Var, Arg, Rest, Tmp), 
+		Lout = [ First | Tmp ]
 	).
 			
 
