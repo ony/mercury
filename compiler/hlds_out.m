@@ -1162,27 +1162,40 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 		{ set__to_sorted_list(LFU, LFU_list) },
 			hlds_out__write_indent(Indent),
 			io__write_string("% lfu: "),
-			mercury_output_vars(LFU_list, VarSet,
+			mercury_output_vars(LFU_list, VarSet, 
 				AppendVarnums),
 			io__write_string("\n"),
 
 		{ goal_info_get_reuse(GoalInfo, REUSE) } ,
 	        (
-			{ REUSE = reuse(no_reuse) ; REUSE = empty }
+			{ REUSE = potential_reuse(no_reuse); 
+			  REUSE = reuse(no_reuse) ; 
+			  REUSE = empty }
 		->
 			[]
 		; 
-			hlds_out__write_indent(Indent),
-			io__write_string("% reuse: "),
+			{ REUSE = potential_reuse(SR) ; REUSE = reuse(SR) }
+		-> 
+			hlds_out__write_indent(Indent), 
+			io__write_string("% reuse"),
+			( 
+				{ REUSE = potential_reuse(_) }
+			-> 
+				io__write_string(" (potential)")
+			;	
+				[]
+			),
+			io__write_string(": "),
 			(
-				{ REUSE = reuse(cell_died) }
-			->
+				{ SR = no_reuse },
+				io__write_string("nothing.\n")
+			;
+				{ SR = cell_died },
 				io__write_string("cell just died (deconstruction).\n") 
 			;
-				{ REUSE = reuse(cell_reused(ProgVar,
+				{ SR = cell_reused(ProgVar,
 						IntroducesCondition,
-						ConsIds, _ReuseFields)) }
-			->
+						ConsIds, _ReuseFields) },
 				io__write_string("cell "),
 				mercury_output_var(ProgVar, VarSet, 
 					AppendVarnums),
@@ -1198,9 +1211,7 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 				),
 				io__nl
 			;
-				{ REUSE = reuse(
-					reuse_call(IntroducesCondition)) }
-			->
+				{ SR = reuse_call(IntroducesCondition) },
 				( { IntroducesCondition = yes } ->
 					io__write_string("Conditional ")
 				;
@@ -1208,13 +1219,12 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 				),
 				io__write_string("call to procedure with reuse.\n")
 			;
-				{ REUSE = reuse(missed_reuse_call(Causes)) } 
-			->
+				{ SR = missed_reuse_call(Causes) } ,
 				io__write_string("failed reuse call:\n"),
 				write_missed_reuse_call_text(Indent,Causes)
-			;
-				{ require__error("Not a legal alternative for short_reuse_info at this stage.\n") }
 			)
+		;
+			[]
 		),
 
 		{ goal_info_get_lbu(GoalInfo, Lbu) },

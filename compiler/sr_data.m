@@ -24,10 +24,14 @@
 	% structure reuse.
 	% This field should be initilaised to empty.
 	% The sr_dead module replaces empty with choice.
-	% The sr_choice module replaces choice with reuse.
+	% The sr_choice&sr_indirect module replaces choice with 
+	% 	potential_reuse.
+	% The sr_split module replaces potential_reuse with reuse for
+	% 	the reuse-version of a procedure. 
 :- type reuse_goal_info
 	--->	empty
 	;	choice(choice_info)
+	; 	potential_reuse(short_reuse_info)
 	;	reuse(short_reuse_info).
 
 :- type short_reuse_info --->
@@ -91,6 +95,13 @@
 		).
 
 :- type memo_reuse == maybe(list(reuse_condition)).
+
+
+%-----------------------------------------------------------------------------%
+% small predicates for manipulating/transforming reuse_goal_info
+%-----------------------------------------------------------------------------%
+
+% :- func reuse_to_string(reuse_goal_info) = string. 
 
 %-----------------------------------------------------------------------------%
 % reuse_condition predicates 
@@ -173,6 +184,24 @@
 :- import_module pa_datastruct, pa_alias_as.
 :- import_module mercury_to_mercury, prog_out, prog_io, prog_io_util.
 :- import_module sr_util, pa_sr_util.
+
+%-----------------------------------------------------------------------------%
+/**
+reuse_to_string(Reuse) = String :- 
+	Reuse = empty, 
+	String = "empty".
+reuse_to_string(Reuse) = String :- 
+	Reuse = choice(_), 
+	String = "choice".
+reuse_to_string(Reuse) = String :- 
+	Reuse = potential_reuse(_), 
+	String = "potential_reuse".
+reuse_to_string(Reuse) = String :- 
+	Reuse = reuse, 
+	String = "reuse".
+**/
+%-----------------------------------------------------------------------------%
+
 
 reuse_condition_merge(C1, C2, C):-
 	(

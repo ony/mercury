@@ -17,12 +17,12 @@
 :- import_module hlds_module, io, string.
 :- import_module hlds_pred, sr_data, std_util, hlds_goal.
 
-	% create_multiple_versions(VirginHLDS, ReuseHLDS, FinalHLDS).
+	% create_multiple_versions(ReuseHLDS, FinalHLDS).
 	% Starting from the VirginHLDS, it computes a new HLDS where for
 	% each procedure having conditional reuse (ReuseHLDS), a new
 	% separate reuse-procedure is added. The calls can then also 
 	% be corrected so that they point to the correct reuse-versions.
-:- pred sr_split__create_multiple_versions(module_info::in, module_info::in,
+:- pred sr_split__create_multiple_versions(module_info::in,
 		module_info::out, io__state::di, io__state::uo) is det.
 
 :- pred create_reuse_pred(pred_proc_id::in, memo_reuse::in,
@@ -46,9 +46,9 @@
 reuse_predicate_name(PredName) :- 
 	string__prefix(PredName, "reuse__").
 
-sr_split__create_multiple_versions(VirginHLDS, ReuseHLDS, HLDS) --> 
+sr_split__create_multiple_versions(ReuseHLDS, HLDS) --> 
 		% compute the strongly connected components
-	{ create_versions(VirginHLDS, ReuseHLDS, HLDS1) },
+	{ create_versions(ReuseHLDS, HLDS1) },
 	{ reprocess_all_goals(HLDS1, HLDS) }.
 
 	% reprocess each of the procedures to make sure that all calls
@@ -104,28 +104,27 @@ reprocess_all_goals_3(HLDS, ProcId, ProcTable0, ProcTable) :-
 	).
 
 
-:- pred create_versions(module_info, module_info, module_info).
-:- mode create_versions(in, in, out) is det.
+:- pred create_versions(module_info, module_info).
+:- mode create_versions(in, out) is det.
 
-create_versions(VirginHLDS, ReuseHLDS, HLDS) :- 
+create_versions(ReuseHLDS, HLDS) :- 
 	module_info_predids(ReuseHLDS, PredIds), 
 	list__foldl(
-		create_versions_2(VirginHLDS),
+		create_versions_2,
 		PredIds,
 		ReuseHLDS, 
 		HLDS).
 
-:- pred create_versions_2(module_info::in, pred_id::in, 
+:- pred create_versions_2(pred_id::in, 
 			module_info::in, module_info::out) is det.
 
-create_versions_2(VirginHLDS, PredId , HLDS0, HLDS) :- 
+create_versions_2(PredId , HLDS0, HLDS) :- 
 	module_info_pred_info(HLDS0, PredId, PredInfo0), 
 	pred_info_procids(PredInfo0, ProcIds), 
 	list__foldl(
 		pred(Id::in, H0::in, H::out) is det :- 
 		(
-			create_versions_3(VirginHLDS, 
-				proc(PredId, Id), 
+			create_versions_3(proc(PredId, Id), 
 				H0, H)
 		),
 		ProcIds,
@@ -133,23 +132,24 @@ create_versions_2(VirginHLDS, PredId , HLDS0, HLDS) :-
 		HLDS
 	).
 
-:- pred create_versions_3(module_info::in, pred_proc_id::in, 
+:- pred create_versions_3(pred_proc_id::in, 
 		module_info::in, module_info::out) is det.
 
-create_versions_3(VirginHLDS, PredProcId, WorkingHLDS, HLDS):- 
+create_versions_3(PredProcId, WorkingHLDS, HLDS):- 
 	module_info_pred_proc_info(WorkingHLDS, PredProcId, 
 				PredInfo0, ProcInfo0),
 	proc_info_reuse_information(ProcInfo0, Memo), 
-	module_info_pred_proc_info(VirginHLDS, PredProcId, _, 
-				CleanProcInfo), 
+% 	module_info_pred_proc_info(VirginHLDS, PredProcId, _, 
+%        			CleanProcInfo), 
 	proc_info_goal(ProcInfo0, ReuseGoal), 
 
 	(
 		Memo = no
 	-> 
 		% restore the old status of the procedure
-		module_info_set_pred_proc_info(WorkingHLDS, PredProcId,
-				PredInfo0, CleanProcInfo, HLDS)
+		% module_info_set_pred_proc_info(WorkingHLDS, PredProcId,
+	       	% 		PredInfo0, CleanProcInfo, HLDS)
+		HLDS = WorkingHLDS
 	;
 		(
 			memo_reuse_is_conditional(Memo) 
@@ -242,7 +242,8 @@ create_reuse_pred(TabledReuse, PredProcId, MaybeReuseGoal, PredInfo, ProcInfo,
 	proc_info_set_reuse_information(ProcInfo, 
 				TabledReuse, ReuseProcInfo0),
 	(
-		MaybeReuseGoal = yes(ReuseGoal),
+		MaybeReuseGoal = yes(PotReuseGoal),
+		convert_potential_reuse_to_reuse(PotReuseGoal, ReuseGoal),
 		proc_info_set_goal(ReuseProcInfo0, ReuseGoal, ReuseProcInfo)
 	;
 		MaybeReuseGoal = no,
@@ -276,6 +277,83 @@ create_reuse_pred(TabledReuse, PredProcId, MaybeReuseGoal, PredInfo, ProcInfo,
 			ReuseProcId, ReusePredInfo).
 
 %-----------------------------------------------------------------------------%
+
+:- pred convert_potential_reuse_to_reuse(hlds_goal::in, 
+						hlds_goal::out) is det.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = conj(Goals0),
+	list__map(convert_potential_reuse_to_reuse, Goals0, Goals), 
+	Goal = conj(Goals), 
+	GoalInfo = GoalInfo0.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = call(_,_,_,_,_,_),
+	Goal = Goal0, 
+	goal_info_get_reuse(GoalInfo0, Reuse0), 
+	convert_reuse(Reuse0, Reuse), 
+	goal_info_set_reuse(GoalInfo0, Reuse, GoalInfo).
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = generic_call(_,_,_,_),
+	Goal = Goal0, 
+	GoalInfo = GoalInfo0.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = switch(X,Y,Cases0,Z),
+	list__map(
+		pred(C0::in, C::out) is det:-
+			( C0 = case(Id, G0), 
+			convert_potential_reuse_to_reuse(G0, G), 
+			C = case(Id, G)),
+		Cases0,
+		Cases),
+	Goal = switch(X, Y, Cases, Z),
+	GoalInfo = GoalInfo0.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = unify(_,_,_,_,_),
+	Goal = Goal0, 
+	goal_info_get_reuse(GoalInfo0, Reuse0), 
+	convert_reuse(Reuse0,Reuse), 
+	goal_info_set_reuse(GoalInfo0, Reuse, GoalInfo).
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = disj(Goals0, SM),
+	list__map(convert_potential_reuse_to_reuse, Goals0, Goals), 
+	Goal = disj(Goals, SM), 
+	GoalInfo = GoalInfo0.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = not(NegGoal0),
+	convert_potential_reuse_to_reuse(NegGoal0, NegGoal), 
+	Goal = not(NegGoal), 
+	GoalInfo = GoalInfo0. 
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = some(A, B, SG0), 
+	convert_potential_reuse_to_reuse(SG0, SG), 
+	Goal = some(A, B, SG),
+	GoalInfo = GoalInfo0. 
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = if_then_else(A, If0, Then0, Else0, B),
+	convert_potential_reuse_to_reuse(If0, If), 
+	convert_potential_reuse_to_reuse(Then0, Then), 
+	convert_potential_reuse_to_reuse(Else0, Else), 
+	Goal = if_then_else(A, If, Then, Else, B),
+	GoalInfo0 = GoalInfo. 
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = foreign_proc(_,_,_,_,_,_,_),
+	Goal = Goal0, 
+	GoalInfo = GoalInfo0.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = par_conj(_,_),
+	Goal = Goal0, 
+	GoalInfo = GoalInfo0.
+convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
+	Goal0 = shorthand(_),
+	Goal = Goal0, 
+	GoalInfo = GoalInfo0.
+
+:- pred convert_reuse(reuse_goal_info::in, reuse_goal_info::out) is det.
+convert_reuse(R0, R):- R0 = empty, R = R0.
+convert_reuse(R0, _R):- R0 = choice(_),
+	error("(sr_split) convert_reuse: reuse_goal_info should not be choice/1 at this stage. ").
+convert_reuse(R0, R):- R0 = potential_reuse(S), R = reuse(S).
+convert_reuse(R0, R):- R0 = reuse(_), R = R0.
+
 %-----------------------------------------------------------------------------%
 :- pred process_goal(bool::in, hlds_goal::in, hlds_goal::out,
 		module_info::in, module_info::out) is det.

@@ -514,7 +514,8 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 				Memo, LFUi, LBUi, 
 				Alias0, ConditionalReuse, Pool0, Pool),
 			goal_info_set_reuse(Info0,
-					reuse(reuse_call(ConditionalReuse)),
+					potential_reuse(
+						reuse_call(ConditionalReuse)),
 					Info),
 			YesNo = yes
 		;
@@ -526,7 +527,7 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 					Cause), 
 			
 			goal_info_set_reuse(Info0, 
-				reuse(missed_reuse_call(Cause)), Info), 
+				potential_reuse(missed_reuse_call(Cause)), Info), 
 			YesNo = no
 		)
 	).

@@ -71,7 +71,7 @@ structure_reuse(HLDS0, HLDS) -->
 		% Do the fixpoint computation to determine all the indirect
 		% reuse, and the implied conditions.
 	sr_indirect__compute_fixpoint(HLDS1, HLDS2),
-	sr_split__create_multiple_versions(HLDS0, HLDS2, HLDS), 
+	sr_split__create_multiple_versions(HLDS2, HLDS), 
 	sr_profile_run__structure_reuse_profiling(HLDS). 
 
 

@@ -690,7 +690,8 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 			ConditionalReuse = yes
 		},
 		{ goal_info_set_reuse(GoalInfo0,
-				reuse(cell_reused(ReuseVar, ConditionalReuse,
+				potential_reuse(cell_reused(ReuseVar, 
+						ConditionalReuse,
 						ConsIds, ReuseFields)),
 				GoalInfo) },
 		ReuseConditions =^ reuse_conds,
@@ -698,7 +699,7 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 	;
 		{ LocalReused = LocalReused0 },
 		{ goal_info_set_reuse(GoalInfo0,
-				reuse(no_reuse),
+				potential_reuse(no_reuse),
 				GoalInfo) }
 	),
 	^ local_used := LocalReused.
@@ -812,7 +813,8 @@ determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
 	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
 		(
 			MaybeDies = yes(Condition),
-			goal_info_set_reuse(GoalInfo0, reuse(cell_died),
+			goal_info_set_reuse(GoalInfo0, 
+					potential_reuse(cell_died),
 					GoalInfo),
 			( set__member(Var, ReusedVars) ->
 				CanCGC = no
@@ -832,7 +834,8 @@ determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
 		;
 			MaybeDies = no,
 			CanCGC = no,
-			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+			goal_info_set_reuse(GoalInfo0, 
+					potential_reuse(no_reuse),
 					GoalInfo)
 		)
 	;
