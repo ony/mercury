@@ -1,12 +1,20 @@
+/*
+** Copyright (C) 1995, 2001 The University of Melbourne.
+** This file may only be copied under the terms of the GNU Library General
+** Public License - see the file COPYING.LIB in the Mercury distribution.
+*/
+
 /*****************************************************************
   File     : bryant.h
-  RCS      : $Id: bryant.h,v 1.1 2000-03-10 05:17:21 dmo Exp $
+  RCS      : $Id: bryant.h,v 1.1.10.1 2001-02-06 02:18:25 dmo Exp $
   Author   : Peter Schachte
   Origin   : Sun Jul 30 15:08:53 1995
   Purpose  : header file for users of bryant.c ROBDD package
-  Copyright: © 1995 Peter Schachte.  All rights reserved.
 
 *****************************************************************/
+
+#ifndef BRYANT_H
+#define BRYANT_H
 
 #if defined(QUINTUS)
 #include <quintus/quintus.h>
@@ -14,7 +22,14 @@
 #include <string.h>
 #include <assert.h>
 #include "var.h"
-
+#if defined(CONSERVATIVE_GC)
+  #define GC_I_HIDE_POINTERS
+  #include "gc.h"
+  #define BRYANT_CONSERVATIVE_GC
+#else
+  #define HIDE_POINTER(p) (p)
+  #define REVEAL_POINTER(p) (p)
+#endif
 /*****************************************************************
 			  Tunable Parameters
 *****************************************************************/
@@ -63,8 +78,19 @@ typedef struct graphnode {
 	int value;		/* contains name of variable */
 	struct graphnode *tr;	/* true (then) child */
 	struct graphnode *fa;	/* false (else) child */
+#if defined(BRYANT_CONSERVATIVE_GC)
+	GC_hidden_pointer unique; /* pointer to next elt in unique table */
+	GC_hidden_pointer uprev;  /* pointer to the prev elt in unique table */
+#else
 	struct graphnode *unique;  /* pointer to next elt in unique table */
+#endif
 } node, type;
+
+#if defined(BRYANT_CONSERVATIVE_GC)
+  typedef GC_hidden_pointer BRYANT_hidden_node_pointer;
+#else
+  typedef node *BRYANT_hidden_node_pointer;
+#endif
 
 /* zero and one are terminal nodes (sinks). */
 #define zero         ((node *) 0)
@@ -244,6 +270,8 @@ extern bitmask preceding_bits[BITS_PER_WORD];
 /* this must be called before any other function in this file */
 extern void initRep(void);
 
+extern void init_caches(void);
+
 /* this should be called when you're done calling functions in this file */
 /* to clean up memory used by ROBDDs.  After calling this, you must call */
 /* InitRep() again before calling any other functions in this file */
@@ -260,6 +288,19 @@ extern node *falseVar(void);
 /* returns var, as an ROBDD.  */
 extern node *variableRep(int var);
 
+/* if then else algorithm */
+extern node *ite(node *f, node *g, node *h);
+
+/* This is sort of an "approximate ite()."  It returns zero or one if
+** that's what ite() would do.  Otherwise it just returns the
+** pseudo-node `nonterminal' or some real node.  In any case, it does
+** not create any new nodes.
+*/
+#ifdef USE_ITE_CONSTANT
+extern node *ite_constant(node *f,node *g,node *h);
+#endif
+
+extern node *ite_var(int f, node *g, node *h);
 
 /* returns a \wedge b */
 extern node *glb(node *a, node *b);
@@ -269,7 +310,7 @@ extern node *lub(node *a, node *b);
 extern node *implies(node *a, node *b);
 
 /* returns \exists c . a */
-/* extern node *restrict(int c, node *a); */
+extern node *restrict(int c, node *f);
 
 /* returns \bigglb_{0 \leq i \leq n} array[i] */
 extern node *glb_array(int n, int arr[]);
@@ -403,3 +444,5 @@ extern int equiv(node *a, node *b);
 extern node *renameTerm(node *in, QP_term_ref term);
 extern node *reverseRenameTerm(node *in, QP_term_ref term);
 #endif /* QUINTUS */
+
+#endif /* BRYANT_H */

@@ -1,9 +1,14 @@
+/*
+** Copyright (C) 1995, 2001 The University of Melbourne.
+** This file may only be copied under the terms of the GNU Library General
+** Public License - see the file COPYING.LIB in the Mercury distribution.
+*/
+
 /*****************************************************************
   File     : bryant.c
-  RCS      : $Id: bryant.c,v 1.1 2000-03-10 05:17:21 dmo Exp $
+  RCS      : $Id: bryant.c,v 1.1.10.1 2001-02-06 02:18:24 dmo Exp $
   Author   : Peter Schachte, based on code by Tania Armstrong
   Purpose  : Manipulation of boolean functions
-  Copyright: © 1995 Peter Schachte.  All rights reserved.
 
 *****************************************************************/
 
@@ -99,6 +104,29 @@
 #include "bryant.h"
 
 
+#ifdef BRYANT_CONSERVATIVE_GC
+  #include "mercury_imp.h"
+
+  /* Don't use pools of nodes with the conservative GC. */
+  #undef POOL
+
+  /* Redefine malloc() and free() to use the GC versions */
+  #define malloc(n) GC_malloc(n)
+  #define free(p) GC_free(p)
+
+  /* Use MR_memset instead of the standard C memset (see
+  ** mercury/runtime/mercury_reg_workarounds.h for an explanation of why
+  ** we do this.
+  */
+  #define BRYANT_memset(d, c, n) MR_memset(d, c, n)
+
+#else /* !BRYANT_CONSERVATIVE_GC */
+  #define POOL
+  #define BRYANT_memset(d, c, n) memset(d, c, n)
+#endif /* BRYANT_CONSERVATIVE_GC */
+
+#define REVEAL_NODE_POINTER(p) ((node *) REVEAL_POINTER(p))
+
 #define UNUSED_MAPPING -1	/* this MUST BE -1 */
 
 #if !defined(max)
@@ -110,10 +138,12 @@
 
 #define PERCENTAGE(x,y) ((100.0 * (float)(x)) / (float)(y))
 
+#ifdef POOL
 typedef struct pool {
     node data[POOL_SIZE];
     struct pool *prev;
 } pool;
+#endif POOL
 
 
 #if defined(NO_CHEAP_SHIFT) && BITS_PER_WORD == 32
@@ -192,7 +222,7 @@ bitset emptyset;
 
 #if defined(COMPUTED_TABLE) && defined(CLEAR_CACHES)
 #define CLEAR_CACHE(op)	\
-memset(op##_computed_cache, 0, sizeof(op##_computed_cache))
+BRYANT_memset(op##_computed_cache, 0, sizeof(op##_computed_cache))
 #else /* !CLEAR_CACHES || !COMPUTED_TABLE */
 #define CLEAR_CACHE(op)
 #endif
@@ -238,7 +268,7 @@ do {									\
 	       op##_computed_hits, op##_computed_misses,		\
 		PERCENTAGE(op##_computed_hits,				\
 			   op##_computed_hits + op##_computed_misses));	\
-	memset(size_count, 0, sizeof(size_count));			\
+	BRYANT_memset(size_count, 0, sizeof(size_count));			\
 	for (i=0; i<COMPUTED_TABLE_SIZE; ++i) {				\
 	    int count = op##_computed_cache[i].count;			\
 	    ++size_count[(count<=MAX_COUNT ? count : MAX_COUNT+1)];	\
@@ -276,17 +306,23 @@ do {									\
 #endif
 
 #if defined(CLEAR_CACHES)
+#if defined(POOL)
 #define INIT_UNIQUE_TABLE				\
     do {						\
-	memset(unique_table, 0, sizeof(unique_table));	\
+	BRYANT_memset(unique_table, (char) 0,		\
+	    		sizeof(unique_table));		\
 	while (curr_pool!=NULL) {			\
 	    pool *p = curr_pool->prev;			\
 	    free(curr_pool);				\
 	    curr_pool = p;				\
 	}						\
 	curr_pool_ptr = curr_pool_end_ptr = NULL;	\
-	pool_count = 0;					\
+	node_count = 0;					\
     } while (0)
+#else /* !POOL */
+#define INIT_UNIQUE_TABLE				\
+    BRYANT_memset(unique_table, (char) 0, sizeof(unique_table));
+#endif /* POOL */
 #else /* !CLEAR_CACHES */
 #define INIT_UNIQUE_TABLE
 #endif /* CLEAR_CACHES */
@@ -517,6 +553,13 @@ do {									\
 
 #if defined(SHARING) && defined(NEW)
 DECLARE_CACHE(complete_one_or, bin_cache_entry);
+#endif /* SHARING && NEW */
+
+#if defined(USE_THRESH)
+DECLARE_CACHE(restrictThresh, bin_cache_entry);
+#endif /* USE_THRESH */
+
+#if (defined(SHARING) && defined(NEW)) || defined(USE_THRESH)
 
 #define DECLARE_ASYM_BIN_CACHE_ENTRY bin_cache_entry *cache;
 
@@ -531,7 +574,7 @@ do {									\
 	    return cache->result;					\
 	}								\
 } while (0)
-#endif /* SHARING && NEW */
+#endif /* (SHARING && NEW) || USE_THRESH */
 
 /**************************** the cache for rglb ***********************/
 
@@ -686,7 +729,8 @@ do {					\
  ****************************************************************/
 
 
-static node *unique_table[UNIQUE_TABLE_SIZE];
+static BRYANT_hidden_node_pointer unique_table[UNIQUE_TABLE_SIZE];
+
 
 #define UNIQUE_HASH(var,tr,fa) \
   (((var)+INTCAST(tr)+(INTCAST(fa)<<1)) % UNIQUE_TABLE_SIZE)
@@ -920,6 +964,7 @@ __inline int prev_nonelement(bitset *set, int *var, int *word, bitmask *mask)
 
 
 /* returns 1 if set1 is identical to set2 */
+__inline int bitset_equal(bitset *set1, bitset *set2);
 __inline int bitset_equal(bitset *set1, bitset *set2)
     {
 	bitmask *ptr1 = &set1->bits[0];
@@ -935,6 +980,7 @@ __inline int bitset_equal(bitset *set1, bitset *set2)
     }
 
 /* returns 1 if 2 sets are disjoint, else 0 */
+__inline int bitset_disjoint(bitset *set1, bitset *set2);
 __inline int bitset_disjoint(bitset *set1, bitset *set2)
     {
 	bitmask *ptr1 = &set1->bits[0];
@@ -950,6 +996,7 @@ __inline int bitset_disjoint(bitset *set1, bitset *set2)
 
 
 /* returns 1 if set1 is a subset of set2 */
+__inline int bitset_subset(bitset *set1, bitset *set2);
 __inline int bitset_subset(bitset *set1, bitset *set2)
     {
 	bitmask *ptr1 = &set1->bits[0];
@@ -966,6 +1013,7 @@ __inline int bitset_subset(bitset *set1, bitset *set2)
 
 
 /* returns 1 if set1 is a subset of set2 */
+__inline int bitset_empty(bitset *set);
 __inline int bitset_empty(bitset *set)
     {
 	bitmask *ptr = &set->bits[0];
@@ -985,26 +1033,61 @@ __inline int bitset_empty(bitset *set)
 
  ****************************************************************/
 
+#if defined(BRYANT_CONSERVATIVE_GC)
+
+static int removed_nodes = 0;
+
+void remove_node(GC_PTR obj, GC_PTR client_data);
+void remove_node(GC_PTR obj, GC_PTR client_data)
+    {
+    	node *n = (node *) obj;
+    	BRYANT_hidden_node_pointer *bucket =
+	  		(BRYANT_hidden_node_pointer *) client_data;
+
+    	if (REVEAL_NODE_POINTER(n->unique) != NULL)
+	    REVEAL_NODE_POINTER(n->unique)->uprev = n->uprev;
+
+	if (REVEAL_NODE_POINTER(n->uprev) != NULL)
+	    REVEAL_NODE_POINTER(n->uprev)->unique = n->unique;
+
+	if (REVEAL_NODE_POINTER(*bucket) == n)
+	    *bucket = n->unique;
+
+    	removed_nodes++;
+    }
+#endif /* BRYANT_CONSERVATIVE_GC */
+
+
+#if defined(POOL)
 static pool *curr_pool = NULL;
 static node *curr_pool_ptr = NULL;
 static node *curr_pool_end_ptr = NULL;
-static int pool_count = 0;
+#endif /* POOL */
+static int node_count = 0;
 
-static node *alloc_node(int value, node* tr, node* fa)
+static node *alloc_node(int value, node* tr, node* fa,
+    			BRYANT_hidden_node_pointer *bucket)
     {
-	pool *newpool;
 	node *n;
+#if defined(POOL)
+	pool *newpool;
 
 	if (curr_pool_ptr >= curr_pool_end_ptr) {
 	    /* allocate a new pool */
-            newpool = malloc(sizeof(pool));
+            newpool = (pool *) malloc(sizeof(pool));
             newpool->prev = curr_pool;
             curr_pool = newpool;
             curr_pool_ptr = &(newpool->data[0]);
             curr_pool_end_ptr = &(newpool->data[POOL_SIZE]);
-            ++pool_count;
         }
 	n = curr_pool_ptr++;
+#else /* !POOL */
+	n = (node *) malloc(sizeof(node));
+#if defined(BRYANT_CONSERVATIVE_GC)
+	GC_register_finalizer(n, remove_node, bucket, 0, 0);
+#endif
+#endif /* POOL */
+        node_count++;
         n->value = value;
         n->tr = tr;
         n->fa = fa;
@@ -1014,7 +1097,7 @@ static node *alloc_node(int value, node* tr, node* fa)
 /* return the number of graph nodes that have been created. */
 int nodes_in_use(void)
     {
-        return pool_count*POOL_SIZE - (curr_pool_end_ptr - curr_pool_ptr);
+        return node_count;
     }
 
 
@@ -1022,7 +1105,7 @@ DECLARE_FN_COUNT(make_node)
 
 node *make_node(int var, node *tr, node *fa)
     {
-	node **bucket;
+	BRYANT_hidden_node_pointer *bucket;
 	node *ptr;
 
 	assert(var>=0);
@@ -1035,9 +1118,17 @@ node *make_node(int var, node *tr, node *fa)
 	if (tr == fa) return tr;
 
 	bucket = &unique_table[UNIQUE_HASH(var,tr,fa)];
-	ptr = *bucket;
-	while (ptr!=NULL && (var!=ptr->value || tr!=ptr->tr || fa!=ptr->fa))
-	    ptr = ptr->unique;
+
+	/* The following check avoids the need to initialise the unique_table
+	** elements to HIDE_POINTER(NULL).
+	*/
+	if (*bucket == 0)
+		*bucket = HIDE_POINTER(NULL);
+
+	ptr = REVEAL_NODE_POINTER(*bucket);
+	while (ptr!=NULL && (var!=ptr->value || tr!=ptr->tr || fa!=ptr->fa)) {
+	    ptr = REVEAL_NODE_POINTER(ptr->unique);
+	}
 
 	if (ptr!=NULL) {
 	    COUNT_UNIQUE_HIT;
@@ -1046,9 +1137,14 @@ node *make_node(int var, node *tr, node *fa)
 
 	/* node doesn't exist so create it and put in bucket */
 	COUNT_UNIQUE_MISS;
-	ptr = alloc_node(var, tr, fa);
+	ptr = alloc_node(var, tr, fa, bucket);
 	ptr->unique = *bucket;
-	*bucket = ptr;
+	*bucket = HIDE_POINTER(ptr);
+#ifdef BRYANT_CONSERVATIVE_GC
+	ptr->uprev = HIDE_POINTER(NULL);
+	if (REVEAL_NODE_POINTER(ptr->unique) != NULL)
+	    REVEAL_NODE_POINTER(ptr->unique)->uprev = HIDE_POINTER(ptr);
+#endif
 	return ptr;
     }
 
@@ -1066,6 +1162,7 @@ void free_rep(node *n)
 
  ****************************************************************/
 
+int max_variable(void);
 int max_variable(void)
     {
 	return MAXVAR;
@@ -1417,9 +1514,16 @@ node *restrictThresh(int thresh, node *f)
 	if (IS_TERMINAL(f)) {
 	    return f;
 	} else if (f->value <= thresh) {
-	    return make_node(f->value,
+	    node *result;	    
+	    DECLARE_ASYM_BIN_CACHE_ENTRY;
+
+	    TRY_ASYM_BIN_CACHE((node *) thresh, f, restrictThresh);
+
+	    result = make_node(f->value,
 			     restrictThresh(thresh, f->tr),
 			     restrictThresh(thresh, f->fa));
+	    UPDATE_ASYM_BIN_CACHE((node *) thresh, f, result, restrictThresh);
+	    return result;
 	} else {
 	    return one;
 	}
@@ -1691,7 +1795,7 @@ node *reverseRenameArray(node *f, int count, int mapping[])
 
 	COUNT_FN(reverseRenameArray);
 	/* NB:  four -1 bytes is the same as a -1 word */
-	memset(rev_map, -1, sizeof(rev_map));
+	BRYANT_memset(rev_map, ~((char) 0), sizeof(rev_map));
 	for (i=1,max=-1; i<=count; ++i) {
 	    rev_map[(val=mapping[i])] = i;
 	    if (max < val) max = val;
@@ -2888,12 +2992,18 @@ void initRep(void)
 
 	INIT_UNIQUE_TABLE;
 
+	init_caches();
+}
+
+void init_caches(void)
+    {
 	INIT_CACHE(ite);
 #if defined(USE_ITE_CONSTANT)
 	INIT_CACHE(ite_constant);
 #endif /* USE_ITE_CONSTANT */
 #if defined(SHARING)
 	INIT_CACHE(upclose);
+	INIT_CACHE(bin);
 	INIT_CACHE(complete);
 #if defined(NEW)
 	INIT_CACHE(complete_one);
@@ -2906,19 +3016,21 @@ void initRep(void)
 	INIT_CACHE(lub);
 #if defined(USE_RGLB)
 	INIT_CACHE(rglb);
+	INIT_CACHE(var_entailed);
 #endif /* USE_RGLB */
 #if defined(NEW)
 	INIT_CACHE(ite_var);
 	INIT_CACHE(vars_entailed);
 #endif /* NEW */
-    }
 
+    }
 
 void concludeRep(void)
     {
 #if defined(STATISTICS)
 	node *ptr;
 	int size_count[MAX_COUNT+2];
+
 	int i, count;
 
 	printf("\n\n\n================ Operation Counts ================\n\n");
@@ -2957,9 +3069,9 @@ void concludeRep(void)
 			  unique_table_hits+unique_table_misses));
 	memset(size_count, 0, sizeof(size_count));
 	for (i=0; i<UNIQUE_TABLE_SIZE; ++i) {
-	    for (ptr=unique_table[i],count=0;
+	    for (ptr=REVEAL_NODE_POINTER(unique_table[i]),count=0;
 		 ptr!=NULL;
-		 ptr=ptr->unique,++count);
+		 ptr=REVEAL_NODE_POINTER(ptr->unique),++count);
 	    ++size_count[(count<=MAX_COUNT ? count : MAX_COUNT+1)];
 	}
 	print_distribution(size_count, MAX_COUNT);
