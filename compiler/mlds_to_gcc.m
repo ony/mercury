@@ -1912,13 +1912,12 @@ build_rtti_type(notag_functor_desc, _, GCC_Type) -->
 	% typedef struct {
 	%     MR_ConstString      MR_notag_functor_name;
 	%     MR_PseudoTypeInfo   MR_notag_functor_arg_type;
-	% XXX need to add the following field when I do a cvs update:
-	% /***MR_ConstString      MR_notag_functor_arg_name;***/
+	%     MR_ConstString      MR_notag_functor_arg_name;
 	% } MR_NotagFunctorDesc;
 	build_struct_type("MR_NotagFunctorDesc",
 		['MR_ConstString'	- "MR_notag_functor_name",
-		 'MR_PseudoTypeInfo'	- "MR_notag_functor_arg_type"],
-		 %%% 'MR_ConstString'	- "MR_notag_functor_arg_name"],
+		 'MR_PseudoTypeInfo'	- "MR_notag_functor_arg_type",
+		 'MR_ConstString'	- "MR_notag_functor_arg_name"],
 		GCC_Type).
 build_rtti_type(du_functor_desc(_), _, GCC_Type) -->
 	% typedef struct {
@@ -1938,9 +1937,7 @@ build_rtti_type(du_functor_desc(_), _, GCC_Type) -->
 	gcc__build_pointer_type(MR_DuExistInfo, MR_DuExistInfoPtr),
 	gcc__build_pointer_type('MR_ConstString', MR_ConstStringPtr),
 	build_struct_type("MR_DuFunctorDesc",
-		['MR_ConstString'	- "MR_notag_functor_name",
-		 'MR_PseudoTypeInfo'	- "MR_notag_functor_arg_type",
-		 'MR_ConstString'	- "MR_du_functor_name",
+		['MR_ConstString'	- "MR_du_functor_name",
 		 'MR_int_least16_t'	- "MR_du_functor_orig_arity",
 		 'MR_int_least16_t'	- "MR_du_functor_arg_type_contains_var",
 		 'MR_Sectag_Locn'	- "MR_du_functor_sectag_locn",
