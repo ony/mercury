@@ -3027,9 +3027,10 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 			{ Memo = yes(_MemoReuse) }
 		->
 			hlds_out__write_indent(Indent), 
-			io__write_string("% Reuse version: \n"), 
+			io__write_string("% Reuse version = "), 
 			sr_data__memo_reuse_print_dump(Memo, Proc, 
-				PredInfo)
+				PredInfo), 
+			io__write_string("\n")
 		;
 			[]
 		)
