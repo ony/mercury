@@ -1817,7 +1817,7 @@ mlds_type_to_ilds_type(mlds__native_float_type) = ilds__type([], float64).
 
 mlds_type_to_ilds_type(mlds__foreign_type(ForeignType, Assembly))
 	= ilds__type([], Class) :-
-	sym_name_to_class_name(ForeignType, ForeignClassName),
+	sym_name_to_class_name(ForeignType, no, ForeignClassName),
 	Class = class(structured_name(Assembly, ForeignClassName)).
 	
 
@@ -2054,7 +2054,7 @@ mlds_to_il__sym_name_to_string_2(unqualified(Name), _) -->
 mlds_module_name_to_class_name(MldsModuleName) = 
 		structured_name(AssemblyName, ClassName) :-
 	SymName = mlds_module_name_to_sym_name(MldsModuleName),
-	sym_name_to_class_name(SymName, ClassName),
+	sym_name_to_class_name(SymName, yes, ClassName),
 	( 
 		ClassName = ["mercury" | _]
 	->
@@ -2063,11 +2063,18 @@ mlds_module_name_to_class_name(MldsModuleName) =
 		mlds_to_il__sym_name_to_string(SymName, AssemblyName)
 	).
 
-:- pred sym_name_to_class_name(sym_name, list(ilds__id)).
-:- mode sym_name_to_class_name(in, out) is det.
-sym_name_to_class_name(SymName, Ids) :-
+:- pred sym_name_to_class_name(sym_name, bool, list(ilds__id)).
+:- mode sym_name_to_class_name(in, in, out) is det.
+sym_name_to_class_name(SymName, AddMercuryCode, Ids) :-
 	sym_name_to_class_name_2(SymName, Ids0),
-	list__reverse(["mercury_code" | Ids0], Ids).
+	(
+		AddMercuryCode = yes,
+		Ids1 = ["mercury_code" | Ids0]
+	;
+		AddMercuryCode = no,
+		Ids1 = Ids0
+	),
+	list__reverse(Ids1, Ids).
 
 :- pred sym_name_to_class_name_2(sym_name, list(ilds__id)).
 :- mode sym_name_to_class_name_2(in, out) is det.
