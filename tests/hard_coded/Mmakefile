@@ -1,0 +1,187 @@
+#-----------------------------------------------------------------------------#
+
+main_target: check
+
+include ../Mmake.common
+
+#-----------------------------------------------------------------------------#
+
+PROGS=	\
+	address_of_builtins \
+	agg \
+	bidirectional \
+	bigtest \
+	boyer \
+	c_write_string \
+	cc_and_non_cc_test \
+	cc_nondet_disj \
+	cc_multi_bug \
+	closure_extension \
+	common_type_cast \
+	construct \
+	curry \
+	curry2 \
+	cut_test \
+ 	cycles \
+ 	cycles2 \
+	deep_copy_bug \
+	det_in_semidet_cntxt \
+	division_test \
+	dupcall_types_bug \
+	elim_special_pred \
+	existential_bound_tvar \
+	eqv_type_bug \
+	error_func \
+	erroneous_liveness \
+	expand \
+	export_test \
+	factt \
+	float_map \
+	float_reg \
+	float_rounding_bug \
+	free_free_mode \
+	func_and_pred \
+	func_ctor_ambig \
+	func_test \
+	getopt_test \
+	ground_dd \
+	higher_order_func_test \
+	higher_order_syntax \
+	higher_order_type_manip \
+	ho_func_reg \
+	ho_order \
+	ho_order2 \
+	ho_solns \
+	ho_univ_to_type \
+	impossible_unify \
+	impure_prune \
+	integer_test \
+	merge_and_remove_dups \
+	minint_bug \
+	mode_choice \
+	name_mangling \
+	no_fully_strict \
+	no_inline \
+	nondet_c \
+	nondet_ctrl_vn \
+	nullary_ho_func \
+	pragma_c_code \
+	pragma_inline \
+	pragma_import \
+	purity \
+	qual_adv_test \
+	qual_basic_test \
+	qual_is_test \
+	quantifier \
+	quoting_bug_test \
+	rational_test \
+	relation_test \
+	remove_file \
+	reorder_di \
+	rev_arith \
+	reverse_arith \
+	rnd \
+	rtc_bug \
+	shift_test \
+	space \
+	string_alignment \
+	string_alignment_bug \
+	string_loop \
+	test_imported_no_tag \
+	term_io_test \
+	tim_qual1 \
+	type_spec \
+	write \
+	write_reg1
+
+# we do no pass the following tests
+#	var_not_found -- "sorry, not implemented" in polymorphism.m.
+
+#-----------------------------------------------------------------------------#
+
+# some tests need to be compiled with particular options
+
+MCFLAGS-bigtest		=	--intermodule-optimization -O3
+MCFLAGS-lp		=	--intermodule-optimization -O3
+MCFLAGS-boyer		=	--infer-all
+MCFLAGS-func_test	=	--infer-all
+MCFLAGS-ho_order	=	--optimize-higher-order
+MCFLAGS-ho_order2	=	--optimize-higher-order
+MCFLAGS-no_fully_strict	=	--no-fully-strict
+MCFLAGS-nondet_ctrl_vn	=	--optimize-value-number
+MCFLAGS-rnd		=	-O6
+MCFLAGS-type_spec	=	--user-guided-type-specialization
+
+# In grade `none' with options `-O1 --opt-space' on kryten
+# (a sparc-sun-solaris2.5 system), mode_choice needs to be linked
+# with `--no-strip', otherwise it gets a seg fault. 
+# The test case ../hard_coded/string_test suffers from a similar problem.
+# This is probably a bug in one of the underlying tools (e.g. the Solaris
+# linker) rather than a bug in Mercury, and since it is goes away when you
+# compile with debugging information, it is very difficult to debug.
+# It is much easier to just work around it this way rather than
+# tracking it down.
+MLFLAGS-mode_choice = --no-strip
+
+# these tests run out of memory unless we have GC
+GRADEFLAGS-integer_test		=	--gc conservative
+GRADEFLAGS-integer_test_init	=	--gc conservative
+GRADEFLAGS-rational_test 	=	--gc conservative
+GRADEFLAGS-rational_test_init	=	--gc conservative
+
+# no_fully_strict is expected to fail (it calls error/1)
+# so we need to ignore the exit status (hence the leading `-')
+no_fully_strict.out: no_fully_strict
+	-./no_fully_strict > no_fully_strict.out 2>&1;
+
+#-----------------------------------------------------------------------------#
+
+DEPS=	$(PROGS:%=%.dep)
+DEPENDS=$(PROGS:%=%.depend)
+OUTS=	$(PROGS:%=%.out)
+RESS=	$(PROGS:%=%.res)
+
+#-----------------------------------------------------------------------------#
+
+SUBDIRS = typeclasses sub-modules
+
+#-----------------------------------------------------------------------------#
+
+MMAKEFLAGS =
+
+SUBDIR_MMAKE = mmake $(MMAKEFLAGS) \
+			GRADE='$(GRADE)' \
+			EXTRA_CFLAGS='$(EXTRA_CFLAGS)' \
+			EXTRA_MCFLAGS='$(EXTRA_MCFLAGS)'
+
+dep:	$(DEPS)
+	for dir in $(SUBDIRS); do \
+		(cd $$dir && $(SUBDIR_MMAKE) dep) || exit 1; \
+	done
+
+depend:	$(DEPENDS)
+	for dir in $(SUBDIRS); do \
+		(cd $$dir && $(SUBDIR_MMAKE) depend) || exit 1; \
+	done
+
+check:	$(OUTS) $(RESS)
+	for dir in $(SUBDIRS); do \
+		(cd $$dir && $(SUBDIR_MMAKE) check) || exit 1; \
+	done
+
+all:	$(PROGS)
+	for dir in $(SUBDIRS); do \
+		(cd $$dir && $(SUBDIR_MMAKE) all) || exit 1; \
+	done
+
+clean:
+	for dir in $(SUBDIRS); do \
+		(cd $$dir && $(SUBDIR_MMAKE) clean) || exit 1; \
+	done
+
+realclean:
+	for dir in $(SUBDIRS); do \
+		(cd $$dir && $(SUBDIR_MMAKE) realclean) || exit 1; \
+	done
+
+#-----------------------------------------------------------------------------#
