@@ -121,6 +121,7 @@
 		;	generate_schemas
 		;	dump_rl
 		;	dump_rl_bytecode
+		;	sign_assembly
 	% Language semantics options
 		;	reorder_conj
 		;	reorder_disj
@@ -367,6 +368,7 @@
 		;	common_struct
 		;	common_goal
 		;	constraint_propagation
+		;	local_constraint_propagation
 		;	optimize_unused_args
 		;	intermod_unused_args
 		;	optimize_higher_order
@@ -575,6 +577,7 @@ option_defaults_2(aux_output_option, [
 	dump_mlds		-	accumulating([]),
 	dump_rl			-	bool(no),
 	dump_rl_bytecode	-	bool(no),
+	sign_assembly		-	bool(no),
 	generate_schemas	-	bool(no)
 ]).
 option_defaults_2(language_semantics_option, [
@@ -796,6 +799,7 @@ option_defaults_2(optimization_option, [
 		% common_goal is not really an optimization, since
 		% it affects the semantics
 	constraint_propagation	-	bool(no),
+	local_constraint_propagation	-	bool(no),
 	optimize_duplicate_calls -	bool(no),
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
@@ -1016,6 +1020,7 @@ long_option("dump-hlds-options",	dump_hlds_options).
 long_option("dump-mlds",		dump_mlds).
 long_option("dump-rl",			dump_rl).
 long_option("dump-rl-bytecode",		dump_rl_bytecode).
+long_option("sign-assembly",		sign_assembly).
 long_option("generate-schemas",		generate_schemas).
 
 % language semantics options
@@ -1223,6 +1228,7 @@ long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
 long_option("follow-code",		follow_code).
 long_option("constraint-propagation",	constraint_propagation).
+long_option("local-constraint-propagation",	local_constraint_propagation).
 long_option("optimize-unused-args",	optimize_unused_args).
 long_option("optimise-unused-args",	optimize_unused_args).
 long_option("intermod-unused-args",	intermod_unused_args).
@@ -1612,6 +1618,7 @@ opt_level(3, _, [
 	optimize_unused_args	-	bool(yes),	
 	optimize_higher_order	-	bool(yes),
 	deforestation		-	bool(yes),
+	local_constraint_propagation -	bool(yes),
 	constant_propagation	-	bool(yes),
 	% Disabled until a bug in extras/trailed_update/var.m is resolved.
 	%introduce_accumulators	-	bool(yes),
@@ -1857,7 +1864,8 @@ options_help_aux_output -->
 		"\tWhen compiling, write program dependency information",
 		"\tto be used to avoid unnecessary recompilations if an",
 		"\timported module's interface changes in a way which does",
-		"\tnot invalidate the compiled code.",
+		"\tnot invalidate the compiled code. `--smart-recompilation'",
+		"\tdoes not yet work with `--intermodule-optimization'.",
 		"--no-assume-gmake",
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
@@ -1938,7 +1946,14 @@ options_help_aux_output -->
 		"\tto `<module>.base_schema' and for Aditi derived",
 		"\trelations to `<module>.derived_schema'.",
 		"\tA schema string is a representation of the types",
-		"\tof a relation."
+		"\tof a relation.",
+
+		"--sign-assembly",
+		"\tSign the current assembly with the Mercury strong name.",
+		"\tTo use assemblies created with this command all the Mercury",
+		"\tmodules must be compiled with this option enabled.",
+		"\tThis option is specific to the IL backend, and is likely",
+		"\tto be deprecated at a later date."
 	]).
 
 :- pred options_help_semantics(io__state::di, io__state::uo) is det.
@@ -2582,8 +2597,14 @@ options_help_hlds_hlds_optimization -->
 		"\tdetects only common deconstruction unifications.",
 		"\tDisabling this optimization reduces the class of predicates",
 		"\tthat the compiler considers to be deterministic.",
-	% 	"\t--constraint-propagation",
-	% 	"\t\tEnable the C-tranformation.  (Doesn't work.)",
+	 	"--constraint-propagation",
+	 	"\tEnable the constraint propagation transformation,",
+		"\twhich attemps to transform the code so that goals",
+		"\twhich can fail are executed as early as possible.",
+	 	"--local-constraint-propagation",
+		"\tEnable the constraint propagation transformation,",
+		"\tbut only rearrange goals within each procedure.",
+		"\tSpecialized versions of procedures will not be created.",
 		"--prev-code",
 		"\tMigrate into the start of branched goals.",
 		"--no-follow-code",
