@@ -35,10 +35,9 @@
 :- import_module pa_alias_as, pa_run.
 :- import_module sr_util.
 
-process_goal( PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
+process_goal( _PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
 	pa_alias_as__init(Alias0), 
-	sr_util__compute_real_headvars(ModuleInfo, PredId, 
-				ProcInfo, RealHeadVars), 
+	hlds_pred__proc_info_real_headvars(ProcInfo, RealHeadVars), 
 	dead_cell_pool_init(RealHeadVars, Pool0), 
 	annotate_goal(ProcInfo, ModuleInfo, Goal0, Goal, 
 			Pool0, _Pool, Alias0, _Alias).

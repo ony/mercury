@@ -1332,6 +1332,10 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_headvars(proc_info, list(prog_var), proc_info).
 :- mode proc_info_set_headvars(in, in, out) is det.
 
+	% retreive the list of real headvars. With real headvars
+	% we think of those variables with which the predicate
+	% was initially declared (and not containing additional
+	% headvars that are added during the compilation process).
 :- pred proc_info_real_headvars(proc_info, list(prog_var)).
 :- mode proc_info_real_headvars(in, out) is det.
 
@@ -1567,6 +1571,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 			prog_varset	:: prog_varset,
 			var_types	:: vartypes,
 			real_head_vars  :: list(prog_var),
+					% see proc_info_real_headvars/2
 			head_vars	:: list(prog_var),
 			actual_head_modes :: list(mode),
 			inst_varset :: inst_varset,

@@ -202,7 +202,7 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		pa_alias_as__init(Alias0),
 		%	OK
 		% 4. initialize reuses-information
-		compute_real_headvars( HLDS, PredId, ProcInfo, HVs), 
+		hlds_pred__proc_info_real_headvars(ProcInfo, HVs), 
 		% do not change the state of the fixpoint table by
 		% simply consulting it now for initialization.
 		sr_fixpoint_table_get_final_reuse( PredProcId, 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,44 +13,38 @@
 :- interface.
 
 :- import_module list.
-:- import_module hlds_module, hlds_pred, prog_data.
 
-:- pred compute_real_headvars(module_info, pred_id, proc_info, 
-		list(prog_var)).
-:- mode compute_real_headvars(in, in, in, out) is det.
+:- pred sr_util__list_drop_det(int,list(T),list(T)).
+:- mode sr_util__list_drop_det(in,in,out) is det.
 
 
-:- pred list_drop_det(int,list(T),list(T)).
-:- mode list_drop_det(in,in,out) is det.
-
-
-:- pred list_map3( pred( T, T1, T2, T3 ), list(T), list(T1), list(T2), 
+:- pred sr_util__list_map3( pred( T, T1, T2, T3 ), list(T), list(T1), list(T2), 
 			list(T3) ).
-:- mode list_map3( pred( in, out, out, out) is det, in, 
+:- mode sr_util__list_map3( pred( in, out, out, out) is det, in, 
 			out, out, out) is det.
 
-:- pred list_map_foldl2( 
+:- pred sr_util__list_map_foldl2( 
 		pred( T, T1, T2, T2, T3, T3 ), 
 		list(T), 
 		list(T1),
 		T2, T2, T3, T3).
-:- mode list_map_foldl2( pred( in, out, in, out, in, out) is det,
+:- mode sr_util__list_map_foldl2( pred( in, out, in, out, in, out) is det,
 			in, out, in, out, in, out) is det.
 
-:- pred list_map3_foldl( pred(T1, T2, T3, T4, T5, T5), 
+:- pred sr_util__list_map3_foldl( pred(T1, T2, T3, T4, T5, T5), 
 			list(T1), list(T2), list(T3), list(T4),
 			T5, T5).
-:- mode list_map3_foldl( pred(in, out, out, out, in, out) is det,
+:- mode sr_util__list_map3_foldl( pred(in, out, out, out, in, out) is det,
 			in, out, out, out, in, out) is det.
 
-:- pred list_map_foldl3( pred(T1, T2, T3, T3, T4, T4, T5, T5), 
+:- pred sr_util__list_map_foldl3( pred(T1, T2, T3, T3, T4, T4, T5, T5), 
 			list(T1), list(T2),
 			T3, T3, T4, T4, T5, T5).
-:- mode list_map_foldl3( pred(in, out, in, out, in, out, in, out) is det,
+:- mode sr_util__list_map_foldl3( pred(in, out, in, out, in, out, in, out) is det,
 			in, out, in, out, in, out, in, out) is det.
 
-:- pred list_ho_member(pred(T,T), T, list(T)).
-:- mode list_ho_member(pred(in, in) is semidet, in, in) is semidet.
+:- pred sr_util__list_ho_member(pred(T,T), T, list(T)).
+:- mode sr_util__list_ho_member(pred(in, in) is semidet, in, in) is semidet.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -58,15 +52,6 @@
 :- implementation.
 
 :- import_module int.
-
-compute_real_headvars( HLDS, PredId, ProcInfo, HVS ) :- 
-	module_info_pred_info( HLDS, PredId, PredInfo),
-	pred_info_arity(PredInfo, Arity),
-	proc_info_headvars(ProcInfo, HeadVars),
-	list__length(HeadVars, PseudoArity) ,
-        NumberOfTypeInfos = PseudoArity - Arity ,
-        list_drop_det(NumberOfTypeInfos, HeadVars, RealHeadVars) ,
-        HVS = RealHeadVars.
 
 list_drop_det(Len,List,End):-
         (
