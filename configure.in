@@ -111,7 +111,7 @@ if test "$BOOTSTRAP_MC" != ""; then
 EOF
 	if
 	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
-	 	$BOOTSTRAP_MC --fixed-user-guided-type-specialization \
+	 	$BOOTSTRAP_MC --no-warn-smart-recompilation \
 			--halt-at-warn --link-flags "--static" conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
@@ -457,7 +457,7 @@ case "$host" in
 		ac_cv_func_mprotect=no ;;
 esac
 AC_HAVE_FUNCS(sysconf getpagesize memalign mprotect sigaction setitimer)
-AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat)
+AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat stat)
 AC_HAVE_FUNCS(vsnprintf _vsnprintf)
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(unistd.h, HAVE_UNISTD_H=1)
@@ -1753,6 +1753,46 @@ AC_TRY_CPP([
 AC_MSG_RESULT($mercury_cv_profiling)
 
 #-----------------------------------------------------------------------------#
+AC_MSG_CHECKING(if C compiler is egcs)
+case "`$CC --version < /dev/null 2>&1`" in
+    egcs-*)
+    	mercury_cv_egcs=yes
+	;;
+    *)
+    	mercury_cv_egcs=no
+	;;
+esac
+AC_MSG_RESULT($mercury_cv_egcs)
+#-----------------------------------------------------------------------------#
+#
+# Add an option that disables the deep profiler.
+#
+AC_MSG_CHECKING(whether to enable the deep profiler)
+
+    # This test may need to be made more specific at a later date.
+    # Currently it only distinguishes between systems which have
+    # unistd.h or not, but at a later date we may also need to test for
+    # other posix features.
+if test "$HAVE_UNISTD_H" = 1; then
+    mercury_cv_enable_deep_profiler=yes
+else
+    mercury_cv_enable_deep_profiler=no
+fi
+
+# on x86, gcc version egcs-1.1.2 has a bug which causes it to get
+# an internal compiler error when compiling library/random.c
+# (when that file was build with mmc --intermodule-optimization -O4)
+# So if we're using an egcs version of gcc, disable deep profiling.
+case "$host" in i*86-*-*)
+    case "$mercury_cv_egcs" in yes)
+	mercury_cv_enable_deep_profiler=no ;;
+    esac ;;
+esac
+
+AC_MSG_RESULT($mercury_cv_enable_deep_profiler)
+ENABLE_DEEP_PROFILER=$mercury_cv_enable_deep_profiler
+AC_SUBST(ENABLE_DEEP_PROFILER)
+#-----------------------------------------------------------------------------#
 
 # Figure out which flavour of pthreads to use, since none of the
 # implementations seem to be exactly the same
@@ -1981,7 +2021,6 @@ fi
 
 if test "$enable_prof_grades" = yes; then
 	# add `.prof' (--profiling) grades, if time profiling is supported,
-	# and a `.memprof' (--memory-profiling) grade.
 	if test $mercury_cv_profiling = yes; then
 		if test "$enable_nogc_grades" = yes; then
 			DEFAULT_GRADE_NOGC="`echo $DEFAULT_GRADE | sed 's/\.gc$//'`"
@@ -1998,7 +2037,15 @@ if test "$enable_prof_grades" = yes; then
 			fi
 		fi
 	fi
-	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof $DEFAULT_GRADE.profdeep"
+
+	# add a `.memprof' (--memory-profiling) grade
+	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof"
+
+	# add a `.profdeep' (--deep-profiling) grade,
+	# if deep profiling is enabled.
+	if test $mercury_cv_enable_deep_profiler = yes; then
+		LIBGRADES="$LIBGRADES $DEFAULT_GRADE.profdeep"
+	fi
 fi
 
 if test "$enable_trail_grades" = yes; then
@@ -2105,25 +2152,6 @@ mercury_cv_enable_decl_debug="$enableval",mercury_cv_enable_decl_debug=yes)
 if test "$mercury_cv_enable_decl_debug" = "no"; then
 	AC_DEFINE(MR_DISABLE_DECLARATIVE_DEBUGGER)
 fi
-#-----------------------------------------------------------------------------#
-#
-# Add an option that disables the deep profiler.
-#
-AC_MSG_CHECKING(whether to enable the deep profiler)
-
-    # This test may need to be made more specific at a later date.
-    # Currently it only distinguishes between systems which have
-    # unistd.h or not, but at a later date we may also need to test for
-    # other posix features.
-if test "$HAVE_UNISTD_H" = 1; then
-    mercury_cv_enable_deep_profiler=yes
-else
-    mercury_cv_enable_deep_profiler=no
-fi
-
-AC_MSG_RESULT($mercury_cv_enable_deep_profiler)
-ENABLE_DEEP_PROFILER=$mercury_cv_enable_deep_profiler
-AC_SUBST(ENABLE_DEEP_PROFILER)
 #-----------------------------------------------------------------------------#
 
 # Determine how many of the r registers (r1, r2, ...) are real registers.
@@ -2263,6 +2291,7 @@ if test $mercury_cv_cannot_use_structure_assignment = "yes"; then
 	AC_DEFINE(MR_CANNOT_USE_STRUCTURE_ASSIGNMENT)
 fi
 #-----------------------------------------------------------------------------#
+AC_PATH_PROG(GCC,gcc)
 AC_MSG_CHECKING(whether Mercury supports shared libraries on this system)
 # We ought to use $target here rather than $host - but we don't
 # support cross-compilation at the moment anyhow.
@@ -2271,8 +2300,13 @@ AC_MSG_CHECKING(whether Mercury supports shared libraries on this system)
 # see Mmake.common.in for documentation on the meaning of these variables
 LINK_SHARED_OBJ="$CC -shared"
 LINK_SHARED_OBJ_SH="$CC -shared"
-SHARED_LIBS='`gcc -print-libgcc-file-name` $(MATH_LIB) -lc'
-SHARED_LIBS_SH='`gcc -print-libgcc-file-name` $MATH_LIB -lc'
+if test "$GCC" != ""; then
+	SHARED_LIBS='`gcc -print-libgcc-file-name` $(MATH_LIB) -lc'
+	SHARED_LIBS_SH='`gcc -print-libgcc-file-name` $MATH_LIB -lc'
+else
+	SHARED_LIBS='$(MATH_LIB) -lc'
+	SHARED_LIBS_SH='$MATH_LIB -lc'
+fi
 EXE_RPATH_OPT="-Wl,-rpath,"
 EXE_RPATH_SEP=" -Wl,-rpath,"
 SHLIB_RPATH_OPT="-Wl,-rpath,"
@@ -2370,7 +2404,8 @@ case "$host" in
 		# actually do the fixups at runtime for non-PIC code.
 		# (The code is mapped copy-on-write, and when the linker
 		# does the fixups, it gets copied.  Hence the lack of
-		# runtime sharing.)  We need to link with `gcc -G'
+		# runtime sharing.) 
+		# We need to link with `gcc -shared -mimpure-text'
 		# rather than `gcc -shared', because `gcc -shared'
 		# passes `-z text' to the linker, which causes it to
 		# report an error if any runtime fixups would be needed.

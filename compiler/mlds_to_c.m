@@ -458,8 +458,7 @@ mlds_output_calls_to_init_entry(_ModuleName, []) --> [].
 mlds_output_calls_to_init_entry(ModuleName, [FuncDefn | FuncDefns]) --> 
 	{ FuncDefn = mlds__defn(EntityName, _, _, _) },
 	io__write_string("\tMR_init_entry("),
-	mlds_output_fully_qualified_name(
-			qual(ModuleName, ModuleName, EntityName)),
+	mlds_output_fully_qualified_name(qual(ModuleName, EntityName)),
 	io__write_string(");\n"),
 	mlds_output_calls_to_init_entry(ModuleName, FuncDefns).
 
@@ -474,8 +473,7 @@ mlds_output_calls_to_register_tci(ModuleName,
 		[TypeCtorInfoDefn | TypeCtorInfoDefns]) --> 
 	{ TypeCtorInfoDefn = mlds__defn(EntityName, _, _, _) },
 	io__write_string("\tMR_register_type_ctor_info(&"),
-	mlds_output_fully_qualified_name(
-			qual(ModuleName, ModuleName, EntityName)),
+	mlds_output_fully_qualified_name(qual(ModuleName, EntityName)),
 	io__write_string(");\n"),
 	mlds_output_calls_to_register_tci(ModuleName, TypeCtorInfoDefns).
 
@@ -572,7 +570,7 @@ mlds_output_pragma_export_defn(ModuleName, Indent, PragmaExport) -->
 
 mlds_output_pragma_export_func_name(ModuleName, Indent,
 		ml_pragma_export(C_name, _MLDS_Name, Signature, Context)) -->
-	{ Name = qual(ModuleName, ModuleName, export(C_name)) },
+	{ Name = qual(ModuleName, export(C_name)) },
 	mlds_indent(Context, Indent),
 	% For functions exported using `pragma export',
 	% we use the default C calling convention.
@@ -679,7 +677,7 @@ write_func_args(ModuleName, [Arg | Args]) -->
 
 mlds_output_name_with_cast(ModuleName, Name - Type) -->
 	mlds_output_cast(Type),
-	mlds_output_fully_qualified_name(qual(ModuleName, ModuleName, Name)).
+	mlds_output_fully_qualified_name(qual(ModuleName, Name)).
 
 	%
 	% Generates the signature for det functions in the forward mode.
@@ -792,8 +790,8 @@ mlds_output_decl(Indent, ModuleName, Defn) -->
 		%
 		mlds_indent(Context, Indent),
 		mlds_output_decl_flags(Flags, forward_decl, Name, DefnBody),
-		mlds_output_decl_body(Indent,
-			qual(ModuleName, ModuleName, Name), Context, DefnBody)
+		mlds_output_decl_body(Indent, qual(ModuleName, Name), Context,
+			DefnBody)
 	).
 
 :- pred mlds_output_type_forward_decls(indent, list(mlds__type),
@@ -872,8 +870,8 @@ mlds_output_defn(Indent, ModuleName, Defn) -->
 	),
 	mlds_indent(Context, Indent),
 	mlds_output_decl_flags(Flags, definition, Name, DefnBody),
-	mlds_output_defn_body(Indent, qual(ModuleName, ModuleName, Name),
-			Context, DefnBody).
+	mlds_output_defn_body(Indent, qual(ModuleName, Name), Context,
+			DefnBody).
 
 :- pred mlds_output_decl_body(indent, mlds__qualified_entity_name,
 		mlds__context, mlds__entity_defn, io__state, io__state).
@@ -946,7 +944,7 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	% of discriminated union types.)
 	% Here we compute the appropriate qualifier.
 	%
-	{ Name = qual(_PackageName, ModuleName, UnqualName) },
+	{ Name = qual(ModuleName, UnqualName) },
 	{ UnqualName = type(ClassName, ClassArity) ->
 		ClassModuleName = mlds__append_class_qualifier(ModuleName,
 			ClassName, ClassArity)
@@ -1062,8 +1060,7 @@ mlds_output_enum_constant(Indent, EnumModuleName, Defn) -->
 		{ DefnBody = data(Type, Initializer) }
 	->
 		mlds_indent(Context, Indent),
-		mlds_output_fully_qualified_name(
-				qual(EnumModuleName, EnumModuleName, Name)),
+		mlds_output_fully_qualified_name(qual(EnumModuleName, Name)),
 		mlds_output_initializer(Type, Initializer)
 	;
 		{ error("mlds_output_enum_constant: constant is not data") }
@@ -1238,7 +1235,7 @@ mlds_output_func_decl_ho(Indent, QualifiedName, Context,
 	io__write_char(' '),
 	io__write_string(CallingConvention),
 	mlds_output_fully_qualified_name(QualifiedName),
-	{ QualifiedName = qual(_, ModuleName, _) },
+	{ QualifiedName = qual(ModuleName, _) },
 	mlds_output_params(OutputPrefix, OutputSuffix,
 			Indent, ModuleName, Context, Parameters),
 	( { RetTypes = [RetType2] } ->
@@ -1277,7 +1274,7 @@ mlds_output_param(OutputPrefix, OutputSuffix, Indent,
 		ModuleName, Context, Name - Type) -->
 	mlds_indent(Context, Indent),
 	mlds_output_data_decl_ho(OutputPrefix, OutputSuffix,
-			qual(ModuleName, ModuleName, Name), Type).
+			qual(ModuleName, Name), Type).
 
 :- pred mlds_output_func_type_prefix(func_params, io__state, io__state).
 :- mode mlds_output_func_type_prefix(in, di, uo) is det.
@@ -1333,7 +1330,7 @@ mlds_output_param_type(_Name - Type) -->
 :- mode mlds_output_fully_qualified_name(in, di, uo) is det.
 
 mlds_output_fully_qualified_name(QualifiedName) -->
-	{ QualifiedName = qual(_Package, _ModuleName, Name) },
+	{ QualifiedName = qual(_ModuleName, Name) },
 	(
 		(
 			%
@@ -1372,7 +1369,7 @@ mlds_output_fully_qualified_proc_label(QualifiedName) -->
 		%
 		% don't module-qualify main/2
 		%
-		{ QualifiedName = qual(_Package, _ModuleName, Name) },
+		{ QualifiedName = qual(_ModuleName, Name) },
 		{ Name = PredLabel - _ProcId },
 		{ PredLabel = pred(predicate, no, "main", 2, model_det, no) }
 	->
@@ -1387,7 +1384,7 @@ mlds_output_fully_qualified_proc_label(QualifiedName) -->
 :- mode mlds_output_fully_qualified(in, pred(in, di, uo) is det,
 		di, uo) is det.
 
-mlds_output_fully_qualified(qual(_Package, ModuleName, Name), OutputFunc) -->
+mlds_output_fully_qualified(qual(ModuleName, Name), OutputFunc) -->
 	{ SymName = mlds_module_name_to_sym_name(ModuleName) },
 	{ llds_out__sym_name_mangle(SymName, MangledModuleName) },
 	io__write_string(MangledModuleName),
@@ -1873,7 +1870,7 @@ mlds_output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
 	io__write_string("{\n"),
 	( { Defns \= [] } ->
 		{ FuncInfo = func_info(FuncName, _) },
-		{ FuncName = qual(_, ModuleName, _) },
+		{ FuncName = qual(ModuleName, _) },
 		mlds_output_defns(Indent + 1, ModuleName, Defns),
 		io__write_string("\n")
 	;
@@ -2279,7 +2276,7 @@ mlds_maybe_output_heap_profile_instr(Context, Indent, Args, FuncName,
 		io__write_string(""", "),
 		( { MaybeCtorName = yes(CtorId) } ->
 			io__write_char('"'),
-			{ CtorId = qual(_Package, _ModuleName, CtorDefn) },
+			{ CtorId = qual(_ModuleName, CtorDefn) },
 			{ CtorDefn = ctor_id(CtorName, _CtorArity) },
 			c_util__output_quoted_string(CtorName),
 			io__write_char('"')
@@ -2433,7 +2430,7 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	io__write_string(", "),
 	( { MaybeCtorName = yes(QualifiedCtorId) } ->
 		io__write_char('"'),
-		{ QualifiedCtorId = qual(_Package, _ModuleName, CtorDefn) },
+		{ QualifiedCtorId = qual(_ModuleName, CtorDefn) },
 		{ CtorDefn = ctor_id(CtorName, _CtorArity) },
 		c_util__output_quoted_string(CtorName),
 		io__write_char('"')
@@ -2532,13 +2529,13 @@ mlds_output_init_args([Arg|Args], [ArgType|ArgTypes], Context,
 	% represented as MR_Box, so we need to box them if necessary.
 	%
 	mlds_indent(Context, Indent),
-	io__write_string("MR_field("),
+	io__write_string("MR_hl_field("),
 	mlds_output_tag(Tag),
 	io__write_string(", "),
 	mlds_output_lval(Target),
 	io__write_string(", "),
 	io__write_int(ArgNum),
-	io__write_string(") = (MR_Word) "),
+	io__write_string(") = "),
 	mlds_output_boxed_rval(ArgType, Arg),
 	io__write_string(";\n"),
 	mlds_output_init_args(Args, ArgTypes, Context,
@@ -2559,35 +2556,33 @@ mlds_output_lval(field(MaybeTag, Rval, offset(OffsetRval),
 		; FieldType = mlds__mercury_type(term__variable(_), _, _)
 		}
 	->
-		% XXX this generated code is ugly;
-		% it would be nicer to use a different macro
-		% than MR_field(), one which had type `MR_Box'
-		% rather than `MR_Word'.
-		io__write_string("(* (MR_Box *) &")
+		io__write_string("(")
 	;
 		% The field type for field(_, _, offset(_), _, _) lvals
 		% must be something that maps to MR_Box.
 		{ error("unexpected field type") }
 	),
 	( { MaybeTag = yes(Tag) } ->
-		io__write_string("MR_field("),
+		io__write_string("MR_hl_field("),
 		mlds_output_tag(Tag),
 		io__write_string(", ")
 	;
-		io__write_string("MR_mask_field(")
+		io__write_string("MR_hl_mask_field("),
+		io__write_string("(MR_Word) ")
 	),
-	io__write_string("(MR_Word) "),
 	mlds_output_rval(Rval),
 	io__write_string(", "),
 	mlds_output_rval(OffsetRval),
 	io__write_string("))").
 mlds_output_lval(field(MaybeTag, PtrRval, named_field(FieldName, CtorType),
-		_FieldType, _PtrType)) -->
-	% XXX we shouldn't bother with this cast in the case where
-	% PtrType == CtorType
+		_FieldType, PtrType)) -->
 	io__write_string("("),
-	mlds_output_cast(CtorType),
 	( { MaybeTag = yes(0) } ->
+		( { PtrType \= CtorType } ->
+			mlds_output_cast(CtorType)
+		;
+			[]
+		),
 		( { PtrRval = mem_addr(Lval) } ->
 			mlds_output_lval(Lval),
 			io__write_string(").")
@@ -2596,6 +2591,7 @@ mlds_output_lval(field(MaybeTag, PtrRval, named_field(FieldName, CtorType),
 			io__write_string(")->")
 		)
 	;
+		mlds_output_cast(CtorType),
 		( { MaybeTag = yes(Tag) } ->
 			io__write_string("MR_body("),
 			mlds_output_rval(PtrRval),
@@ -2672,16 +2668,16 @@ mlds_output_rval(lval(Lval)) -->
 /**** XXX do we need this?
 mlds_output_rval(lval(Lval)) -->
 	% if a field is used as an rval, then we need to use
-	% the MR_const_field() macro, not the MR_field() macro,
+	% the MR_hl_const_field() macro, not the MR_hl_field() macro,
 	% to avoid warnings about discarding const,
 	% and similarly for MR_mask_field.
 	( { Lval = field(MaybeTag, Rval, FieldNum, _, _) } ->
 		( { MaybeTag = yes(Tag) } ->
-			io__write_string("MR_const_field("),
+			io__write_string("MR_hl_const_field("),
 			mlds_output_tag(Tag),
 			io__write_string(", ")
 		;
-			io__write_string("MR_const_mask_field(")
+			io__write_string("MR_hl_const_mask_field(")
 		),
 		mlds_output_rval(Rval),
 		io__write_string(", "),
@@ -2693,7 +2689,7 @@ mlds_output_rval(lval(Lval)) -->
 ****/
 
 mlds_output_rval(mkword(Tag, Rval)) -->
-	io__write_string("(MR_Word) MR_mkword("),
+	io__write_string("MR_mkword("),
 	mlds_output_tag(Tag),
 	io__write_string(", "),
 	mlds_output_rval(Rval),
@@ -2713,7 +2709,7 @@ mlds_output_rval(mem_addr(Lval)) -->
 	io__write_string("&"),
 	mlds_output_lval(Lval).
 
-mlds_output_rval(self) -->
+mlds_output_rval(self(_)) -->
 	{ error("mlds_to_c: self rval encountered.\n") }.
 
 :- pred mlds_output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
@@ -2748,6 +2744,12 @@ mlds_output_cast(Type) -->
 	
 mlds_output_boxed_rval(Type, Exprn) -->
 	(
+		{ Exprn = unop(cast(OtherType), InnerExprn) },
+		{ Type = OtherType }
+	->
+		% avoid unnecessary double-casting -- strip away the inner cast
+		mlds_output_boxed_rval(Type, InnerExprn)
+	;
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
 				[], _), _, _)
 		; Type = mlds__native_float_type

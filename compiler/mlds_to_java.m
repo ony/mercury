@@ -361,8 +361,7 @@ wrap_predicate(ModuleName, Defn, ClassDefn) :-
 		),
 		InterfaceModuleName = mercury_module_name_to_mlds(
 			qualified(unqualified("mercury"), "runtime")), 
-		Interface = qual(InterfaceModuleName,
-				InterfaceModuleName, InterfaceName),
+		Interface = qual(InterfaceModuleName, InterfaceName),
 		%
 		% Create the new class
 		%
@@ -484,7 +483,6 @@ generate_wrapper_decls(ModuleName, Context, [Arg | Args],
 	Flags = ml_gen_local_var_decl_flags,
 	ArrayIndex = const(int_const(Count)),		
 	NewVarName = qual(mercury_module_name_to_mlds(ModuleName), 
-		mercury_module_name_to_mlds(ModuleName), 
 		var_name("args", no)),
 	NewArgLval = var(NewVarName, mlds__generic_type),
 	%	
@@ -618,8 +616,7 @@ output_defn(Indent, ModuleName, Defn) -->
 	{ Defn = mlds__defn(Name, Context, Flags, DefnBody) },
 	indent_line(Context, Indent),
 	output_decl_flags(Flags, Name),
-	output_defn_body(Indent,
-		qual(ModuleName, ModuleName, Name), Context, DefnBody).
+	output_defn_body(Indent, qual(ModuleName, Name), Context, DefnBody).
 
 :- pred output_defn_body(indent, mlds__qualified_entity_name,
 		mlds__context, mlds__entity_defn, io__state, io__state).
@@ -645,7 +642,7 @@ output_defn_body(Indent, Name, Context, mlds__class(ClassDefn)) -->
 :- mode output_class(in, in, in, in, di, uo) is det.
 
 output_class(Indent, Name, _Context, ClassDefn) -->
-	{ Name = qual(_Package, ModuleName, UnqualName) },
+	{ Name = qual(ModuleName, UnqualName) },
 	( { UnqualName = type(_, _) } ->
 		[]	
 	;
@@ -699,10 +696,7 @@ output_implements_list(InterfaceList) -->
 :- mode output_interface(in, di, uo) is det.
 
 output_interface(Interface) -->
-	 ( 
-	 	{ Interface = class_type(qual(_Package, ModuleQualifier, Name),
-			Arity, _) }
-	->
+	 ( { Interface = class_type(qual(ModuleQualifier, Name), Arity, _) } ->
 		{ SymName = mlds_module_name_to_sym_name(ModuleQualifier) },	
 		{ mangle_mlds_sym_name_for_java(SymName, ModuleName) },
 		io__format("%s.%s", [s(ModuleName), s(Name)]),
@@ -741,7 +735,7 @@ output_class_body(_Indent, mlds__struct, _, _AllMembers, _) -->
 
 output_class_body(Indent, mlds__enum, Name, AllMembers, _) -->
 	{ list__filter(defn_is_const, AllMembers, EnumConsts) },
-	{ Name = qual(_Package, ModuleName, UnqualName) },
+	{ Name = qual(ModuleName, UnqualName) },
 	output_enum_constants(Indent + 1, ModuleName, EnumConsts),
 	indent_line(Indent + 1),
 	io__write_string("public int value;\n\n"),  
@@ -806,8 +800,7 @@ output_enum_constant(Indent, EnumModuleName, Defn) -->
 	->
 		indent_line(Indent),
 		io__write_string("public static final int "),
-		output_fully_qualified_name(
-			qual(EnumModuleName, EnumModuleName, Name)),
+		output_fully_qualified_name(qual(EnumModuleName, Name)),
 		output_initializer(Type, Initializer),
 		io__write_char(';')
 	;
@@ -1014,7 +1007,7 @@ output_func_decl(Indent, QualifiedName, Context, Signature) -->
 		io__write_string("java.lang.Object []")
 	),
 	io__write_char(' '),
-	{ QualifiedName = qual(_Package, ModuleName, Name) },
+	{ QualifiedName = qual(ModuleName, Name) },
 	output_name(Name),	
 	output_params(Indent, ModuleName, Context, Parameters).
 
@@ -1041,7 +1034,7 @@ output_param(Indent, ModuleName, Context, Name - Type) -->
 	indent_line(Context, Indent),
 	output_type(Type),
 	io__write_char(' '),
-	output_fully_qualified_name(qual(ModuleName, ModuleName, Name)).
+	output_fully_qualified_name(qual(ModuleName, Name)).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1054,7 +1047,7 @@ output_param(Indent, ModuleName, Context, Name - Type) -->
 :- mode output_fully_qualified_name(in, di, uo) is det.
 
 output_fully_qualified_name(QualifiedName) -->
-	{ QualifiedName = qual(_Package, _ModuleName, Name) },
+	{ QualifiedName = qual(_ModuleName, Name) },
 	%
 	% Don't module qualify data names, otherwise all 
 	% variable declarations will be qualified with the
@@ -1079,7 +1072,7 @@ output_fully_qualified_proc_label(QualifiedName) -->
 		pred(T, io__state, io__state), io__state, io__state).
 :- mode output_fully_qualified(in, pred(in, di, uo) is det, di, uo) is det.
 
-output_fully_qualified(qual(_Package, ModuleName, Name), OutputFunc) -->
+output_fully_qualified(qual(ModuleName, Name), OutputFunc) -->
 	{ SymName = mlds_module_name_to_sym_name(ModuleName) },
 	{ mangle_mlds_sym_name_for_java(SymName, MangledModuleName) },
 	( { qualified_name_is_stdlib(SymName) } ->
@@ -1416,7 +1409,7 @@ output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
 	io__write_string("{\n"),
 	( { Defns \= [] } ->
 		{ FuncInfo = func_info(FuncName, _) },
-		{ FuncName = qual(_Package, ModuleName, _) },
+		{ FuncName = qual(ModuleName, _) },
 		output_defns(Indent + 1, ModuleName, Defns),
 		io__write_string("\n")
 	;
@@ -1583,7 +1576,7 @@ output_stmt(Indent, FuncInfo, return(Results), _Context) -->
 		( 
 	   		{ Rval = mlds__lval(Lval) },
 	   		{ Lval = var(VarName, _) },
-	   		{ VarName = qual(_, _, UnqualName) },
+	   		{ VarName = qual(_, UnqualName) },
 	   		{ UnqualName = var_name("dummy_var", no) } 
 		->
 			[]
@@ -1787,7 +1780,7 @@ output_atomic_stmt(Indent, _FuncInfo, NewObject, Context) -->
 	( { MaybeCtorName = yes(QualifiedCtorId) } ->
 		output_type(Type),
 		io__write_char('.'),
-		{ QualifiedCtorId = qual(_Package, _ModuleName, CtorDefn) },
+		{ QualifiedCtorId = qual(_ModuleName, CtorDefn) },
 		{ CtorDefn = ctor_id(CtorName, CtorArity) },
 		{ llds_out__name_mangle(CtorName, MangledCtorName) },
 		io__format("%s_%d", [s(MangledCtorName), i(CtorArity)])
@@ -1929,7 +1922,7 @@ output_lval(field(_MaybeTag, _Rval, offset(_), _FieldType, _ClassType)) -->
 output_lval(field(_MaybeTag, PtrRval, named_field(FieldName, CtorType),
 		_FieldType, _PtrType)) -->
 	( 
-		{ FieldName = qual(_, _, UnqualFieldName) }, 
+		{ FieldName = qual(_, UnqualFieldName) }, 
 	 	{ llds_out__name_mangle(UnqualFieldName, MangledFieldName) },
 	  	{ MangledFieldName = "data_tag" } 
 	->
@@ -1952,13 +1945,13 @@ output_lval(field(_MaybeTag, PtrRval, named_field(FieldName, CtorType),
 		output_bracketed_rval(PtrRval),  % the actual variable
 		io__write_string(").")
 	),
-	{ FieldName = qual(_, _, UnqualFieldName) },
+	{ FieldName = qual(_, UnqualFieldName) },
 	output_mangled_name(UnqualFieldName).    % the field name
 
 output_lval(mem_ref(Rval, _Type)) -->
 	output_bracketed_rval(Rval).
 
-output_lval(var(qual(_Package, _ModuleName, Name), _VarType)) -->
+output_lval(var(qual(_ModuleName, Name), _VarType)) -->
 	output_mlds_var_name(Name).
 		
 :- pred output_mangled_name(string, io__state, io__state).
@@ -2022,9 +2015,8 @@ output_rval(binop(Op, Rval1, Rval2)) -->
 output_rval(mem_addr(_Lval)) -->
 	{ unexpected(this_file, "output_rval: mem_addr(_) not supported") }.
 
-output_rval(self) -->
-	% XXX how do we reference the self pointer in Java?
-	{ sorry(this_file, "output_rval: self not yet implemented") }.
+output_rval(self(_)) -->
+	io__write_string("this").
 
 :- pred output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode output_unop(in, in, di, uo) is det.

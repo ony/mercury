@@ -213,7 +213,7 @@ construct_ctor_body(ModuleInfo, ForeignClass, PredId, ProcId) = Stmt :-
 	Rvals = list__map((func(A) = R :-
 			A = EntityName - Type,
 			( EntityName = data(var(V)) ->
-				Var = qual(MLDS_Name, MLDS_Name, V),
+				Var = qual(MLDS_Name, V),
 				R = lval(var(Var, Type))
 			;
 				error("rvals")
@@ -322,7 +322,7 @@ rvals(ModuleInfo, PredId, ProcId) = Rvals :-
 	Rvals = list__map((func(A) = R :-
 			A = EntityName - Type,
 			( EntityName = data(var(V)) ->
-				Var = qual(MLDS_Name, MLDS_Name, V),
+				Var = qual(MLDS_Name, V),
 				R = lval(var(Var, Type))
 			;
 				error("rvals")
@@ -337,7 +337,7 @@ returns(ModuleInfo, Context, Type) = Lval - VarDefn :-
 	MLDS_Name = mercury_module_name_to_mlds(Name),
 		% XXX what if there is more then one return value!
 	VarName = var_name("return", no),
-	Var = qual(MLDS_Name, MLDS_Name, VarName),
+	Var = qual(MLDS_Name, VarName),
 
 	VarDefn = ml_gen_mlds_var_decl(var(VarName), Type,
 			no_initializer, Context),
@@ -357,7 +357,9 @@ construct_method_body(ModuleInfo, ForeignClass, ClassProc) = Stmt :-
 		% Compute the function address
 	FunctionToCall = ml_gen_proc_addr_rval(ModuleInfo, PredId, ProcId),
 
-	ThisPtr = self,
+	ForeignClassType = mercury_type_to_mlds_type(ModuleInfo,
+			ForeignClass ^ (type)),
+	ThisPtr = self(ForeignClassType),
 
 		% Compute the lval which refers to the internal state of
 		% the object.
@@ -396,18 +398,17 @@ construct_method_body(ModuleInfo, ForeignClass, ClassProc) = Stmt :-
 :- func state_lval(module_info, foreign_class_defn) = mlds__lval.
 
 state_lval(ModuleInfo, ForeignClass) = Lval :-
-	ThisPtr = self,
-	FieldType = mercury_type_to_mlds_type(ModuleInfo,
+	ForeignClassType = mercury_type_to_mlds_type(ModuleInfo,
 			ForeignClass ^ (type)),
+	ThisPtr = self(ForeignClassType),
 	CtorType = mlds__native_int_type,	% XXX
 	PtrType = mlds__native_int_type,	% XXX
 	module_info_name(ModuleInfo, Name),
-	FieldName = qual(mercury_module_name_to_mlds(Name),
-			mercury_module_name_to_mlds(qualified(Name,
-				ForeignClass ^ foreign_name)),
+	FieldName = qual(mercury_module_and_package_name_to_mlds(Name,
+			qualified(Name, ForeignClass ^ foreign_name)),
 			"state"),
 	Lval = field(no, ThisPtr, named_field(FieldName, CtorType),
-			FieldType, PtrType).
+			ForeignClassType, PtrType).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

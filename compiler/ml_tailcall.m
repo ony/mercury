@@ -456,8 +456,7 @@ check_const(Const, Locals) :-
 	; Const = data_addr_const(DataAddr) ->
 		DataAddr = data_addr(ModuleName, DataName),
 		( DataName = var(VarName) ->
-			\+ var_is_local(
-				qual(ModuleName, ModuleName, VarName), Locals)
+			\+ var_is_local(qual(ModuleName, VarName), Locals)
 		;
 			true
 		)
@@ -482,7 +481,7 @@ check_const(Const, Locals) :-
 var_is_local(Var, Locals) :-
 		% XXX we ignore the ModuleName --
 		% that is safe, but overly conservative
-	Var = qual(_PackageName, _ModuleName, VarName),
+	Var = qual(_ModuleName, VarName),
 	some [Local] (
 		locals_member(Local, Locals),
 		Local = data(var(VarName))
@@ -506,7 +505,7 @@ function_is_local(CodeAddr, Locals) :-
 	),
 		% XXX we ignore the ModuleName --
 		% that is safe, but might be overly conservative
-	QualifiedProcLabel = qual(_PackageName, _ModuleName, ProcLabel),
+	QualifiedProcLabel = qual(_ModuleName, ProcLabel),
 	ProcLabel = PredLabel - ProcId,
 	some [Local] (
 		locals_member(Local, Locals),

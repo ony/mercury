@@ -21,7 +21,7 @@
 
 :- interface.
 
-:- import_module prog_data, module_qual.
+:- import_module prog_data, module_qual, recompilation.
 :- import_module hlds_pred, hlds_data, unify_proc, special_pred.
 :- import_module globals, llds.
 :- import_module relation, map, std_util, list, set, multi_map, counter.
@@ -117,8 +117,8 @@
 	% the module_info.
 	%
 :- pred module_info_init(module_name, item_list, globals,
-		partial_qualifier_info, module_info).
-:- mode module_info_init(in, in, in, in, out) is det.
+		partial_qualifier_info, maybe(recompilation_info), module_info).
+:- mode module_info_init(in, in, in, in, in, out) is det.
 
 :- pred module_info_get_predicate_table(module_info, predicate_table).
 :- mode module_info_get_predicate_table(in, out) is det.
@@ -219,6 +219,14 @@
 :- pred module_info_set_cell_counter(module_info, counter, module_info).
 :- mode module_info_set_cell_counter(in, in, out) is det.
 
+:- pred module_info_get_maybe_recompilation_info(module_info,
+		maybe(recompilation_info)).
+:- mode module_info_get_maybe_recompilation_info(in, out) is det.
+
+:- pred module_info_set_maybe_recompilation_info(module_info,
+		maybe(recompilation_info), module_info).
+:- mode module_info_set_maybe_recompilation_info(in, in, out) is det.
+
 :- pred module_add_imported_module_specifiers(list(module_specifier),
 		module_info, module_info).
 :- mode module_add_imported_module_specifiers(in, in, out) is det.
@@ -234,6 +242,13 @@
 :- pred module_info_get_indirectly_imported_module_specifiers(module_info,
 		set(module_specifier)).
 :- mode module_info_get_indirectly_imported_module_specifiers(in, out) is det.
+
+	% The visible modules are the current module, any
+	% imported modules, and any ancestor modules.
+	% It excludes transitively imported modules (those
+	% for which we read `.int2' files).
+:- pred visible_module(module_name, module_info).
+:- mode visible_module(out, in) is multi.
 
 	% This returns all the modules that this module's code depends on,
 	% i.e. all modules that have been used or imported by this module,
@@ -486,11 +501,13 @@
 		foreign_class_table ::		foreign_class_table,
 		assertion_table ::		assertion_table,
 		ctor_field_table ::		ctor_field_table,
-		cell_counter ::			counter
+		cell_counter ::			counter,
 					% cell count, passed into code_info
 					% and used to generate unique label
 					% numbers for constant terms in the
 					% generated C code
+
+		maybe_recompilation_info ::	maybe(recompilation_info)
 	).
 
 :- type module_sub_info --->
@@ -545,7 +562,8 @@
 
 	% A predicate which creates an empty module
 
-module_info_init(Name, Items, Globals, QualifierInfo, ModuleInfo) :-
+module_info_init(Name, Items, Globals, QualifierInfo, RecompInfo,
+		ModuleInfo) :-
 	predicate_table_init(PredicateTable),
 	unify_proc__init_requests(Requests),
 	map__init(UnifyPredMap),
@@ -585,7 +603,7 @@ module_info_init(Name, Items, Globals, QualifierInfo, ModuleInfo) :-
 	ModuleInfo = module(ModuleSubInfo, PredicateTable, Requests,
 		UnifyPredMap, QualifierInfo, Types, Insts, Modes, Ctors,
 		ClassTable, SuperClassTable, InstanceTable, ForeignClassTable,
-		AssertionTable, FieldNameTable, counter__init(1)).
+		AssertionTable, FieldNameTable, counter__init(1), RecompInfo).
 
 %-----------------------------------------------------------------------------%
 
@@ -606,6 +624,7 @@ module_info_foreign_classes(MI, MI ^ foreign_class_table).
 module_info_assertion_table(MI, MI ^ assertion_table).
 module_info_ctor_field_table(MI, MI ^ ctor_field_table).
 module_info_get_cell_counter(MI, MI ^ cell_counter).
+module_info_get_maybe_recompilation_info(MI, MI ^ maybe_recompilation_info).
 
 %-----------------------------------------------------------------------------%
 
@@ -627,6 +646,8 @@ module_info_set_foreign_classes(MI, A, MI ^ foreign_class_table := A).
 module_info_set_assertion_table(MI, A, MI ^ assertion_table := A).
 module_info_set_ctor_field_table(MI, CF, MI ^ ctor_field_table := CF).
 module_info_set_cell_counter(MI, CC, MI ^ cell_counter := CC).
+module_info_set_maybe_recompilation_info(MI, I,
+	MI ^ maybe_recompilation_info := I).
 
 %-----------------------------------------------------------------------------%
 
@@ -852,6 +873,18 @@ module_info_optimize(ModuleInfo0, ModuleInfo) :-
 	module_info_ctors(ModuleInfo6, Ctors0),
 	map__optimize(Ctors0, Ctors),
 	module_info_set_ctors(ModuleInfo6, Ctors, ModuleInfo).
+
+visible_module(VisibleModule, ModuleInfo) :-
+	module_info_name(ModuleInfo, ThisModule),
+	module_info_get_imported_module_specifiers(ModuleInfo, ImportedModules),
+	(
+		VisibleModule = ThisModule
+	;
+		set__member(VisibleModule, ImportedModules)
+	;
+		get_ancestors(ThisModule, ParentModules),
+		list__member(VisibleModule, ParentModules)
+	).
 
 module_info_get_all_deps(ModuleInfo, AllImports) :-
 	module_info_name(ModuleInfo, ModuleName),

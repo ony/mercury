@@ -274,9 +274,8 @@ magic_util__construct_db_call(ModuleInfo, PredId, ProcId,
 
 %-----------------------------------------------------------------------------%
 
-magic_util__adjust_index(ArgTypes0, index_spec(IndexType, Attrs0),
+magic_util__adjust_index(ArgTypes, index_spec(IndexType, Attrs0),
 		index_spec(IndexType, Attrs)) :-
-	strip_prog_contexts(ArgTypes0, ArgTypes),
 	construct_type(qualified(unqualified("aditi"), "state") - 0,
 		[], StateType),
 	( list__nth_member_search(ArgTypes, StateType, StateIndex) ->

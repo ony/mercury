@@ -1201,7 +1201,7 @@ ml_gen_new_func_label(MaybeParams, FuncLabel, FuncLabelRval) -->
 		),
 		Signature = mlds__func_signature(ArgTypes, [])
 	},
-	{ ProcLabel = qual(PredModule, PredModule, PredLabel - ProcId) },
+	{ ProcLabel = qual(PredModule, PredLabel - ProcId) },
 	{ FuncLabelRval = const(code_addr_const(internal(ProcLabel,
 		FuncLabel, Signature))) }.
 
@@ -1344,8 +1344,8 @@ ml_gen_var_with_type(Var, Type, Lval) -->
 		{ mercury_private_builtin_module(PrivateBuiltin) },
 		{ MLDS_Module = mercury_module_name_to_mlds(PrivateBuiltin) },
 		ml_gen_type(Type, MLDS_Type),
-		{ Lval = var(qual(MLDS_Module, MLDS_Module,
-			var_name("dummy_var", no)), MLDS_Type) }
+		{ Lval = var(qual(MLDS_Module, var_name("dummy_var", no)),
+			MLDS_Type) }
 	;
 		=(MLDSGenInfo),
 		{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
@@ -1411,8 +1411,7 @@ ml_gen_var_lval(VarName, VarType, QualifiedVarLval) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_module_name(MLDSGenInfo, ModuleName) },
 	{ MLDS_Module = mercury_module_name_to_mlds(ModuleName) },
-	{ QualifiedVarLval = var(
-		qual(MLDS_Module, MLDS_Module, VarName), VarType) }.
+	{ QualifiedVarLval = var(qual(MLDS_Module, VarName), VarType) }.
 
 	% Generate a declaration for an MLDS variable, given its HLDS type.
 	%
@@ -1734,7 +1733,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 	{ InnerFuncParams0 = func_params(InnerArgs0, Rets) },
 	{ InnerArgRvals = list__map(
 		(func(Data - Type) 
-		= lval(var(qual(MLDS_Module, MLDS_Module, VarName), Type)) :-
+		= lval(var(qual(MLDS_Module, VarName), Type)) :-
 			( Data = data(var(VarName0)) ->
 				VarName = VarName0		
 			;
@@ -1744,8 +1743,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 			InnerArgs0) },
 	{ InnerFuncArgType = mlds__cont_type(ArgTypes0) },
 	{ PassedContVarName = mlds__var_name("passed_cont", no) },
-	{ InnerFuncRval = lval(var(
-		qual(MLDS_Module, MLDS_Module, PassedContVarName),
+	{ InnerFuncRval = lval(var(qual(MLDS_Module, PassedContVarName),
 		InnerFuncArgType)) },
 	{ InnerFuncParams = func_params(
 		[data(var(PassedContVarName)) - InnerFuncArgType | InnerArgs0],
@@ -1767,8 +1765,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 			yes(SeqNum), _), _, _, function(_, _, yes(_), _))
 	->
 		% We call the proxy function.
-		QualProcLabel = qual(MLDS_Module, MLDS_Module,
-			PredLabel - ProcId),
+		QualProcLabel = qual(MLDS_Module, PredLabel - ProcId),
 		ProxyFuncRval = const(code_addr_const(
 			internal(QualProcLabel, SeqNum, ProxySignature))),
 

@@ -1264,7 +1264,7 @@ gen_class(Name, Context, ClassDefn, GlobalInfo0, GlobalInfo) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		AllMembers) },
+		_Ctors, AllMembers) },
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -1663,6 +1663,8 @@ build_type(Type, GlobalInfo, GCC_Type) -->
 
 build_type(mercury_type(Type, TypeCategory, _ExportType), _, _, GCC_Type) -->
 	build_mercury_type(Type, TypeCategory, GCC_Type).
+build_type(mlds__foreign_type(_, _), _, _, _) --> 
+	{ sorry(this_file, "foreign_type not implemented") }.
 build_type(mlds__native_int_type, _, _, gcc__integer_type_node) --> [].
 build_type(mlds__native_float_type, _, _, gcc__double_type_node) --> [].
 build_type(mlds__native_bool_type, _, _, gcc__boolean_type_node) --> [].
@@ -2960,6 +2962,9 @@ build_rval(binop(Op, Rval1, Rval2), DefnInfo, Expr) -->
 build_rval(mem_addr(Lval), DefnInfo, AddrExpr) -->
 	build_lval(Lval, DefnInfo, Expr),
 	gcc__build_addr_expr(Expr, AddrExpr).
+
+build_rval(self(_), _DefnInfo, _Expr) -->
+	{ unexpected(this_file, "self rval") }.
 
 :- pred build_unop(mlds__unary_op, mlds__rval, defn_info, gcc__expr,
 		io__state, io__state).

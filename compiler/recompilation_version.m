@@ -420,6 +420,9 @@ item_to_item_id_2(nothing(_), no).
 
 is_pred_pragma(foreign_decl(_, _), no).
 is_pred_pragma(foreign_code(_, _), no).
+is_pred_pragma(foreign_type(_, _, _, _), no).
+is_pred_pragma(foreign_class(_, _, _, _), no).
+is_pred_pragma(attribute(Name, Arity, _), yes(no - Name / Arity)).
 is_pred_pragma(foreign_proc(_, Name, PredOrFunc, Args, _, _),
 		yes(yes(PredOrFunc) - Name / Arity)) :-
 	adjust_func_arity(PredOrFunc, Arity, list__length(Args)).

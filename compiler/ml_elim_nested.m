@@ -169,12 +169,7 @@ ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 		ml_create_env(EnvName, [], Context, ModuleName, Globals,
 			_EnvTypeDefn, EnvTypeName, _EnvDecls, _InitEnv),
 		
-		globals__get_target(Globals, Target),
-		( Target = il ->
-			EnvPtrTypeName = EnvTypeName
-		;
-			EnvPtrTypeName = mlds__ptr_type(EnvTypeName)
-		),
+		EnvPtrTypeName = ml_make_env_ptr_type(Globals, EnvTypeName),
 
 		%
 		% traverse the function body, finding (and removing)
@@ -326,14 +321,13 @@ ml_maybe_copy_args([Arg|Args], FuncBody, ModuleName, ClassType, EnvPtrTypeName,
 		% struct:
 		%	env_ptr->foo = foo;
 		%
-		QualVarName = qual(ModuleName, ModuleName, VarName),
+		QualVarName = qual(ModuleName, VarName),
 		EnvModuleName = ml_env_module_name(ClassType),
 		FieldNameString = ml_var_name_to_string(VarName),
-		FieldName = named_field(
-			qual(EnvModuleName, EnvModuleName, FieldNameString),
+		FieldName = named_field(qual(EnvModuleName, FieldNameString),
 			EnvPtrTypeName),
 		Tag = yes(0),
-		EnvPtr = lval(var(qual(ModuleName, ModuleName,
+		EnvPtr = lval(var(qual(ModuleName,
 				mlds__var_name("env_ptr", no)),
 			EnvPtrTypeName)),
 		EnvArgLval = field(Tag, EnvPtr, FieldName, FieldType, 
@@ -376,7 +370,7 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	%	};
 	%
 	EnvTypeKind = mlds__struct,
-	EnvTypeName = class_type(qual(ModuleName, ModuleName, EnvClassName), 0,
+	EnvTypeName = class_type(qual(ModuleName, EnvClassName), 0,
 		EnvTypeKind),
 	EnvTypeEntityName = type(EnvClassName, 0),
 	EnvTypeFlags = env_type_decl_flags,
@@ -401,7 +395,7 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	% declare the `env_ptr' var, and
 	% initialize the `env_ptr' with the address of `env'
 	%
-	EnvVar = qual(ModuleName, ModuleName, mlds__var_name("env", no)),
+	EnvVar = qual(ModuleName, mlds__var_name("env", no)),
 	globals__get_target(Globals, Target),
 		% IL uses classes instead of structs, so the code
 		% generated needs to be a little different.
@@ -470,14 +464,16 @@ ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 	(
 		DefnBody0 = mlds__function(PredProcId, Params, yes(FuncBody0),
 			Attributes),
-		statement_contains_var(FuncBody0, qual(ModuleName, ModuleName,
+		statement_contains_var(FuncBody0, qual(ModuleName,
 			mlds__var_name("env_ptr", no)))
 	->
-		EnvPtrVal = lval(var(qual(ModuleName, ModuleName,
+		EnvPtrVal = lval(var(qual(ModuleName,
 				mlds__var_name("env_ptr_arg", no)),
 				mlds__generic_env_ptr_type)),
-		ml_init_env(TypeName, EnvPtrVal, Context, ModuleName, Globals,
-			EnvPtrDecl, InitEnvPtr),
+		EnvPtrVarType = ml_make_env_ptr_type(Globals, TypeName),
+		CastEnvPtrVal = unop(cast(EnvPtrVarType), EnvPtrVal),
+		ml_init_env(TypeName, CastEnvPtrVal, Context, ModuleName,
+			Globals, EnvPtrDecl, InitEnvPtr),
 		FuncBody = mlds__statement(block([EnvPtrDecl],
 				[InitEnvPtr, FuncBody0]), Context),
 		DefnBody = mlds__function(PredProcId, Params, yes(FuncBody),
@@ -487,6 +483,19 @@ ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 	;
 		Defn = Defn0,
 		Init = Init0
+	).
+
+:- func ml_make_env_ptr_type(globals, mlds__type) = mlds__type.
+ml_make_env_ptr_type(Globals, EnvType)  = EnvPtrType :-
+		% IL uses classes instead of structs, so the type
+		% is a little different.
+		% XXX Perhaps if we used value classes this could go
+		% away.
+	globals__get_target(Globals, Target),
+	( Target = il ->
+		EnvPtrType = EnvType
+	;
+		EnvPtrType = mlds__ptr_type(EnvType)
 	).
 
 	% Create the environment pointer and initialize it:
@@ -508,16 +517,7 @@ ml_init_env(EnvTypeName, EnvPtrVal, Context, ModuleName, Globals,
 	%
 	EnvPtrVarName = data(var(mlds__var_name("env_ptr", no))),
 	EnvPtrVarFlags = ml_gen_local_var_decl_flags,
-	globals__get_target(Globals, Target),
-		% IL uses classes instead of structs, so the type
-		% is a little different.
-		% XXX Perhaps if we used value classes this could go
-		% away.
-	( Target = il ->
-		EnvPtrVarType = EnvTypeName
-	;
-		EnvPtrVarType = mlds__ptr_type(EnvTypeName)
-	),
+	EnvPtrVarType = ml_make_env_ptr_type(Globals, EnvTypeName),
 	EnvPtrVarDefnBody = mlds__data(EnvPtrVarType, no_initializer),
 	EnvPtrVarDecl = mlds__defn(EnvPtrVarName, Context, EnvPtrVarFlags,
 		EnvPtrVarDefnBody),
@@ -525,13 +525,13 @@ ml_init_env(EnvTypeName, EnvPtrVal, Context, ModuleName, Globals,
 	%
 	% generate the following statement:
 	%
-	%	env_ptr = (EnvPtrVarType) <EnvPtrVal>;
+	%	env_ptr = <EnvPtrVal>;
 	%
-	% XXX Do we need the cast? If so, why?
+	% (note that the caller of this routine is responsible
+	% for inserting a cast in <EnvPtrVal> if needed).
 	%
-	EnvPtrVar = qual(ModuleName, ModuleName, mlds__var_name("env_ptr", no)),
-	AssignEnvPtr = assign(var(EnvPtrVar, EnvPtrVarType),
-		unop(cast(EnvPtrVarType), EnvPtrVal)),
+	EnvPtrVar = qual(ModuleName, mlds__var_name("env_ptr", no)),
+	AssignEnvPtr = assign(var(EnvPtrVar, EnvPtrVarType), EnvPtrVal),
 	InitEnvPtr = mlds__statement(atomic(AssignEnvPtr), Context).
 
 	% Given the declaration for a function parameter, produce a
@@ -881,7 +881,7 @@ flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
 
 ml_should_add_local_data(ModuleName, VarName,
 		FollowingDefns, FollowingStatements) :-
-	QualVarName = qual(ModuleName, ModuleName, VarName),
+	QualVarName = qual(ModuleName, VarName),
 	(
 		list__member(FollowingDefn, FollowingDefns)
 	;
@@ -967,8 +967,7 @@ fixup_target_code_component(target_code_input(Rval0),
 fixup_target_code_component(target_code_output(Lval0),
 		target_code_output(Lval)) -->
 	fixup_lval(Lval0, Lval).
-fixup_target_code_component(name(Name `with_type` mlds__qualified_entity_name),
-		name(Name)) --> [].
+fixup_target_code_component(name(Name), name(Name)) --> [].
 
 :- pred fixup_trail_op(trail_op, trail_op, elim_info, elim_info).
 :- mode fixup_trail_op(in, out, in, out) is det.
@@ -1015,7 +1014,7 @@ fixup_rval(binop(Op, X0, Y0), binop(Op, X, Y)) -->
 	fixup_rval(Y0, Y).
 fixup_rval(mem_addr(Lval0), mem_addr(Lval)) -->
 	fixup_lval(Lval0, Lval).
-fixup_rval(self, self) --> [].
+fixup_rval(self(T), self(T)) --> [].
 
 :- pred fixup_lvals(list(mlds__lval), list(mlds__lval), elim_info, elim_info).
 :- mode fixup_lvals(in, out, in, out) is det.
@@ -1048,7 +1047,7 @@ fixup_lval(var(Var0, VarType), VarLval) -->
 :- mode fixup_var(in, in, out, in, out) is det.
 
 fixup_var(ThisVar, ThisVarType, Lval, ElimInfo, ElimInfo) :-
-	ThisVar = qual(_ThisVarPackageName, ThisVarModuleName, ThisVarName),
+	ThisVar = qual(ThisVarModuleName, ThisVarName),
 	ModuleName = elim_info_get_module_name(ElimInfo),
 	Locals = elim_info_get_local_data(ElimInfo),
 	ClassType = elim_info_get_env_type_name(ElimInfo),
@@ -1068,16 +1067,15 @@ fixup_var(ThisVar, ThisVarType, Lval, ElimInfo, ElimInfo) :-
 			),
 		solutions(IsLocalVar, [FieldType])
 	->
-		EnvPtr = lval(var(qual(ModuleName, ModuleName,
+		EnvPtr = lval(var(qual(ModuleName,
 			mlds__var_name("env_ptr", no)),
 			EnvPtrVarType)),
 		EnvModuleName = ml_env_module_name(ClassType),
 		ThisVarFieldName = ml_var_name_to_string(ThisVarName),
-		FieldName = named_field(
-			qual(EnvModuleName, EnvModuleName, ThisVarFieldName),
+		FieldName = named_field(qual(EnvModuleName, ThisVarFieldName),
 			EnvPtrVarType),
 		Tag = yes(0),
-		Lval = field(Tag, EnvPtr, FieldName, FieldType, ClassType)
+		Lval = field(Tag, EnvPtr, FieldName, FieldType, EnvPtrVarType)
 	;
 		%
 		% leave everything else unchanged
@@ -1157,11 +1155,7 @@ make_envptr_ref(Depth, CurEnvPtr, EnvPtrVar, Var) = Lval :-
 
 :- func ml_env_module_name(mlds__type) = mlds_module_name.
 ml_env_module_name(ClassType) = EnvModuleName :-
-	( 
-		ClassType = class_type(
-				qual(_ClassPackage, ClassModule, ClassName),
-				Arity, _Kind)
-	->
+	( ClassType = class_type(qual(ClassModule, ClassName), Arity, _Kind) ->
 		EnvModuleName = mlds__append_class_qualifier(ClassModule,
 			ClassName, Arity)
 	;
@@ -1479,8 +1473,8 @@ target_code_component_contains_var(target_code_input(Rval), Name) :-
 target_code_component_contains_var(target_code_output(Lval), Name) :-
 	lval_contains_var(Lval, Name).
 target_code_component_contains_var(name(EntityName), VarName) :-
-	EntityName = qual(PackageName, ModuleName, data(var(UnqualVarName))),
-	VarName = qual(PackageName, ModuleName, UnqualVarName).
+	EntityName = qual(ModuleName, data(var(UnqualVarName))),
+	VarName = qual(ModuleName, UnqualVarName).
 
 %-----------------------------------------------------------------------------%
 
