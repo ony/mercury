@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-1998,2001 The University of Melbourne.
+% Copyright (C) 1994-1998,2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -59,7 +59,7 @@
 :- mode in    * in    = uo  is det.
 
 	% division
-	% Throws an `math__domain_error' exception if the right
+	% Throws a `math__domain_error' exception if the right
 	% operand is zero. See the comments at the top of math.m
 	% to find out how to disable this check.
 :- func float / float = float.
@@ -135,9 +135,9 @@
 :- func min(float, float) = float.
 
 	% pow(Base, Exponent) returns Base raised to the power Exponent.
-	% The exponent must be an integer greater or equal to 0.
-	% Currently this function runs at O(n), where n is the value
-	% of the exponent.
+	% Fewer domain restrictions than math__pow: works for negative Base,
+	% and float__pow(B, 0) = 1.0 for all B, even B=0.0.
+	% Only pow(0, <negative>) throws a `math__domain_error' exception.
 :- func pow(float, int) = float.
 
 	% Compute a non-negative integer hash value for a float.
@@ -194,124 +194,6 @@
 %---------------------------------------------------------------------------%
 
 :- implementation.
-:- interface.
-
-	% Everything below here will not appear in the
-	% Mercury Library Reference Manual.
-
-%---------------------------------------------------------------------------%
-
-%
-% Obsolete predicate versions of the functions declared above.
-% These were intended for use in programs that need to work
-% in both Prolog and Mercury. Running Mercury programs using
-% Prolog is no longer supported.
-%
-
-%
-% Conversion predicates
-%
-
-	% float__ceiling_to_int(X, Ceil) is true if Ceil is the
-	% smallest integer not less than X.
-:- pragma obsolete(float__ceiling_to_int/2).
-:- pred float__ceiling_to_int(float, int).
-:- mode float__ceiling_to_int(in, out) is det.
-
-	% float__floor_to_int(X, Ceil) is true if Ceil is the
-	% largest integer not greater than X.
-:- pragma obsolete(float__floor_to_int/2).
-:- pred float__floor_to_int(float, int).
-:- mode float__floor_to_int(in, out) is det.
-
-	% float__round_to_int(X, Round) is true if Round is the
-	% integer closest to X.  If X has a fractional value of
-	% 0.5, it is rounded up.
-:- pragma obsolete(float__round_to_int/2).
-:- pred float__round_to_int(float, int).
-:- mode float__round_to_int(in, out) is det.
-
-	% float__truncate_to_int(X, Trunc) is true if Trunc is
-	% the integer closest to X such that |Trunc| =< |X|.
-:- pragma obsolete(float__truncate_to_int/2).
-:- pred float__truncate_to_int(float, int).
-:- mode float__truncate_to_int(in, out) is det.
-
-%
-% Miscellaneous predicates
-%
-
-	% absolute value
-:- pragma obsolete(float__abs/2).
-:- pred float__abs(float, float).
-:- mode float__abs(in, out) is det.
-
-	% maximum
-:- pragma obsolete(float__max/3).
-:- pred float__max(float, float, float).
-:- mode float__max(in, in, out) is det.
-
-	% minimum
-:- pragma obsolete(float__min/3).
-:- pred float__min(float, float, float).
-:- mode float__min(in, in, out) is det.
-
-	% float__pow(Base, Exponent, Answer) is true iff Answer is
-	% Base raised to the power Exponent. Currently this function runs
-	% at O(n), where n is the value of the exponent.
-	% Throws a `math__domain_error' exception if the exponent is negative.
-:- pragma obsolete(float__pow/3).
-:- pred float__pow(float, int, float).
-:- mode float__pow(in, in, out) is det.
-
-	% Compute a non-negative integer hash value for a float.
-:- pragma obsolete(float__hash/2).
-:- pred float__hash(float, int).
-:- mode float__hash(in, out) is det.
-
-%
-% System constant predicates
-%
-
-	% Maximum floating-point number
-:- pragma obsolete(float__max/1).
-:- pred float__max(float).
-:- mode float__max(out) is det.
-
-	% Minimum normalised floating-point number
-:- pragma obsolete(float__min/1).
-:- pred float__min(float).
-:- mode float__min(out) is det.
-
-	% Smallest number x such that 1.0 + x \= 1.0
-:- pragma obsolete(float__epsilon/1).
-:- pred float__epsilon(float).
-:- mode float__epsilon(out) is det.
-
-	% Radix of the floating-point representation.
-:- pragma obsolete(float__radix/1).
-:- pred float__radix(int).
-:- mode float__radix(out) is det.
-
-	% The number of base-radix digits in the mantissa.
-:- pragma obsolete(float__mantissa_digits/1).
-:- pred float__mantissa_digits(int).
-:- mode float__mantissa_digits(out) is det.
-
-	% Smallest exponent of a normalised floating-point number.
-:- pragma obsolete(float__min_exponent/1).
-:- pred float__min_exponent(int).
-:- mode float__min_exponent(out) is det.
-
-	% Largest exponent of a normalised floating-point number.
-:- pragma obsolete(float__max_exponent/1).
-:- pred float__max_exponent(int).
-:- mode float__max_exponent(out) is det.
-
-%---------------------------------------------------------------------------%
-%---------------------------------------------------------------------------%
-
-:- implementation.
 :- import_module exception, int, math.
 
 %
@@ -347,22 +229,28 @@ X / Y = Z :-
 :- pragma inline(domain_checks/0).
 
 :- pragma foreign_proc("C", domain_checks,
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 #ifdef ML_OMIT_MATH_DOMAIN_CHECKS
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #else
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").
 
 :- pragma foreign_proc("MC++", domain_checks,
-		[thread_safe], "
+		[thread_safe, promise_pure], "
 #if ML_OMIT_MATH_DOMAIN_CHECKS
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #else
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").
+
+domain_checks :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__domain_checks").
+
 %---------------------------------------------------------------------------%
 %
 % Conversion functions
@@ -374,62 +262,70 @@ float(Int) = Float :-
 	% float__ceiling_to_int(X) returns the
 	% smallest integer not less than X.
 :- pragma foreign_proc("C", float__ceiling_to_int(X :: in) = (Ceil :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Ceil = (MR_Integer) ceil(X);
 ").
 :- pragma foreign_proc("C#", float__ceiling_to_int(X :: in) = (Ceil :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Ceil = System.Convert.ToInt32(System.Math.Ceiling(X));
 ").
-
-float__ceiling_to_int(X, float__ceiling_to_int(X)).
+float__ceiling_to_int(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__ceiling_to_int").
 
 	% float__floor_to_int(X) returns the
 	% largest integer not greater than X.
 :- pragma foreign_proc("C", float__floor_to_int(X :: in) = (Floor :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Floor = (MR_Integer) floor(X);
 ").
 :- pragma foreign_proc("C#", float__floor_to_int(X :: in) = (Floor :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Floor = System.Convert.ToInt32(System.Math.Floor(X));
 ").
-
-float__floor_to_int(X, float__floor_to_int(X)).
+float__floor_to_int(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__floor_to_int").
 
 	% float__round_to_int(X) returns the integer closest to X.
 	% If X has a fractional value of 0.5, it is rounded up.
 :- pragma foreign_proc("C", float__round_to_int(X :: in) = (Round :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Round = (MR_Integer) floor(X + 0.5);
 ").
 :- pragma foreign_proc("C#", float__round_to_int(X :: in) = (Round :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Round = System.Convert.ToInt32(System.Math.Floor(X + 0.5));
 ").
-
-float__round_to_int(X, float__round_to_int(X)).
+float__round_to_int(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__round_to_int").
 
 	% float__truncate_to_int(X) returns the integer closest
 	% to X such that |float__truncate_to_int(X)| =< |X|.
 :- pragma foreign_proc("C", float__truncate_to_int(X :: in) = (Trunc :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Trunc = (MR_Integer) X;
 ").
 :- pragma foreign_proc("C#", float__truncate_to_int(X :: in) = (Trunc :: out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	Trunc = System.Convert.ToInt32(X);
 ").
-
-float__truncate_to_int(X, float__truncate_to_int(X)).
+float__truncate_to_int(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__truncate_to_int").
 
 %---------------------------------------------------------------------------%
 %
@@ -445,8 +341,6 @@ float__abs(Num) = Abs :-
 		Abs = Num
 	).
 
-float__abs(Num, float__abs(Num)).
-
 float__max(X, Y) = Max :-
 	(
 		X >= Y
@@ -455,8 +349,6 @@ float__max(X, Y) = Max :-
 	;
 		Max = Y
 	).
-
-float__max(X, Y, float__max(X, Y)).
 
 float__min(X, Y) = Min :-
 	(
@@ -467,37 +359,72 @@ float__min(X, Y) = Min :-
 		Min = Y
 	).
 
-float__min(X, Y, float__min(X, Y)).
 
-% float_pow(Base, Exponent) = Answer.
-%	XXXX This function could be more efficient, with an int_mod pred, to
-%	reduce O(N) to O(logN) of the exponent.
-float__pow(X, Exp) = Ans :-
-	( Exp < 0 ->
-		throw(math__domain_error("float__pow"))
-	; Exp = 1 ->
-		Ans =  X
-	; Exp = 0 ->
-		Ans = 1.0
+float__pow(Base, Exp) = Ans :-
+	( Exp >= 0 ->
+		Ans = float__multiply_by_pow(1.0, Base, Exp)
 	;
-		New_e is Exp - 1,
-		Ans is X * float__pow(X, New_e)
+		( domain_checks, Base = 0.0 ->
+			throw(math__domain_error("float:pow"))
+		;
+			Ans = unchecked_quotient(1.0,
+				float__multiply_by_pow(1.0, Base, -Exp))
+			% See below re use of unchecked_quotient.
+		)
 	).
 
-float__pow(X, Exp, float__pow(X, Exp)).
+:- func float__multiply_by_pow(float, float, int) = float.
+	% Returns Scale0 * (Base ** Exp) (where X ** 0 == 1.0 for all X).
+	% Requires that Exp >= 0.
+	% Uses a simple "Russian peasants" algorithm.  O(lg(Exp+1)).
+float__multiply_by_pow(Scale0, Base, Exp) = Result :-
+	( Exp = 0 ->
+		Result = Scale0
+	;
+		( odd(Exp) ->
+			Scale1 = Scale0 * Base
+		;
+			Scale1 = Scale0
+		),
+		Result = float__multiply_by_pow(Scale1, Base * Base, Exp div 2)
+	).
+
+	% The reason for using unchecked_quotient in float__pow is so
+	% that float__pow(+/-0.5, -1111) gives +/-infinity rather than
+	% a domain error.  (N.B. This relies on unchecked_quotient(1.0,
+	% +/-0.0) giving +/-infinity, whereas the documentation in
+	% float.m says that the results are undefined.)
+	% Using Result = float__multiply_by_pow(1.0, 1.0 / Base, -Exp)
+	% would give the right behaviour for underflow, but isn't
+	% generally as accurate.
+
+	% (Efficiency note: An optimization used by `power' in SGI's STL
+	%  implementation is to test for Exp=0 and (for non-zero Exp) handle
+	%  low zero bits in Exp before calling this loop: the loop for the low
+	%  zero bits needs only square Base, it needn't update Acc until the
+	%  end of that loop at which point Acc can be simply assigned from the
+	%  then-current value of Base.  This optimization would be especially
+	%  valuable for expensive `*' operations; maybe provide a
+	%  std_util__monoid_pow(func(T,T)=T MonoidOperator, T Identity, int
+	%  Exp, T Base) = T Result function to complement the existing
+	%  std_util__pow function.)
+
+%---------------------------------------------------------------------------%
 
 :- pragma foreign_proc("C", float__hash(F::in) = (H::out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	H = MR_hash_float(F);
 ").
 :- pragma foreign_proc("C#", float__hash(F::in) = (H::out),
-	[will_not_call_mercury, thread_safe, no_aliasing],
+	[will_not_call_mercury, promise_pure, thread_safe, no_aliasing],
 "
 	H = F.GetHashCode();
 ").
-
-float__hash(F, float__hash(F)).
+float__hash(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__hash").
 
 %---------------------------------------------------------------------------%
 %
@@ -510,7 +437,7 @@ float__hash(F, float__hash(F)).
 
 	#define	ML_FLOAT_RADIX	FLT_RADIX	/* There is no DBL_RADIX. */
 
-	#if defined USE_SINGLE_PREC_FLOAT
+	#if defined MR_USE_SINGLE_PREC_FLOAT
 		#define	ML_FLOAT_MAX		FLT_MAX
 		#define	ML_FLOAT_MIN		FLT_MIN
 		#define	ML_FLOAT_EPSILON	FLT_EPSILON
@@ -530,88 +457,88 @@ float__hash(F, float__hash(F)).
 
 	% Maximum floating-point number
 :- pragma foreign_proc("C", float__max = (Max::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Max = ML_FLOAT_MAX;").
 :- pragma foreign_proc("C#", float__max = (Max::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Max = System.Double.MaxValue;").
-
-
-float__max(float__max).
+float__max = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__max").
 
 	% Minimum normalised floating-point number */
 :- pragma foreign_proc("C", float__min = (Min::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Min = ML_FLOAT_MIN;").
 :- pragma foreign_proc("C#", float__min = (Min::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Min = System.Double.MinValue;").
-
-float__min(float__min).
+float__min = _ :=
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__min").
 
 	% Smallest x such that x \= 1.0 + x
 :- pragma foreign_proc("C", float__epsilon = (Eps::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Eps = ML_FLOAT_EPSILON;").
 :- pragma foreign_proc("C#", float__epsilon = (Eps::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Eps = System.Double.Epsilon;").
-
-float__epsilon(float__epsilon).
+float__epsilon = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__epsilon").
 
 	% Radix of the floating-point representation.
 :- pragma foreign_proc("C", float__radix = (Radix::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"Radix = ML_FLOAT_RADIX;").
-:- pragma foreign_proc("C#", float__radix = (_Radix::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
-	mercury.runtime.Errors.SORRY(""foreign code for this function"");
-	_Radix = 0;
-").
-
-float__radix(float__radix).
+float__radix = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__radix").
 
 	% The number of base-radix digits in the mantissa.
 :- pragma foreign_proc("C", float__mantissa_digits = (MantDig::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"MantDig = ML_FLOAT_MANT_DIG;").
-:- pragma foreign_proc("C#", float__mantissa_digits = (_MantDig::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
-	mercury.runtime.Errors.SORRY(""foreign code for this function"");
-	_MantDig = 0;
-").
-
-float__mantissa_digits(float__mantissa_digits).
+float__mantissa_digits = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__mantissa_digits").
 
 	% Minimum negative integer such that:
 	%	radix ** (min_exponent - 1)
 	% is a normalised floating-point number.
 :- pragma foreign_proc("C", float__min_exponent = (MinExp::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing],
 	"MinExp = ML_FLOAT_MIN_EXP;").
-:- pragma foreign_proc("C#", float__min_exponent = (_MinExp::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "	
-	mercury.runtime.Errors.SORRY(""foreign code for this function"");
-	_MinExp = 0;
-").
-
-float__min_exponent(float__min_exponent).
+float__min_exponent = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__min_exponent").
 
 	% Maximum integer such that:
 	%	radix ** (max_exponent - 1)
 	% is a normalised floating-point number.
 :- pragma foreign_proc("C", float__max_exponent = (MaxExp::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, promise_pure, thread_safe],
 	"MaxExp = ML_FLOAT_MAX_EXP;").
-
-:- pragma foreign_proc("C#", float__max_exponent = (_MaxExp::out),
-		[will_not_call_mercury, thread_safe], "	
-	mercury.runtime.Errors.SORRY(""foreign code for this function"");
-	_MaxExp = 0;
-").
-
-
-float__max_exponent(float__max_exponent).
+float__max_exponent = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("float__max_exponent").
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%

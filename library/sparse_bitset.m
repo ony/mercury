@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -769,7 +769,7 @@ mask(N) = \ unchecked_left_shift(\ 0, N).
 	% Doing this slows down the compiler by about 1%,
 	% but in a library module it's better to be safe.
 :- pragma foreign_proc("C", make_bitset_elem(A::in, B::in) = (Pair::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, promise_pure, thread_safe],
 "{
 
 #define ML_BITSET_TAG MR_FIRST_UNRESERVED_RAW_TAG
@@ -780,17 +780,7 @@ mask(N) = \ unchecked_left_shift(\ 0, N).
 	MR_field(MR_mktag(ML_BITSET_TAG), Pair, 1) = B;
 }").
 
-% XXX this needs to take reserve-tag into account too
-:- pragma foreign_proc("C#", make_bitset_elem(A::in, B::in) = (Pair::out),
-		[will_not_call_mercury, thread_safe],
-"{
-#if MR_RESERVE_TAG
-    #error ""sparse_bitset not implemented for .NET in .rt grades""
-#endif
-	Pair = mercury.runtime.LowLevelData.make_MR_Word(0, 2);
-	mercury.runtime.LowLevelData.set_MR_Word_field(Pair, 1, A);
-	mercury.runtime.LowLevelData.set_MR_Word_field(Pair, 2, B);
-}").
+make_bitset_elem(Offset, Bits) = bitset_elem(Offset, Bits).
 
 %-----------------------------------------------------------------------------%
 

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -126,6 +126,15 @@
 :- pred unsafe_promise_unique(T, T).
 :- mode unsafe_promise_unique(in, uo) is det.
 
+:- func unsafe_promise_unique(T) = T.
+:- mode unsafe_promise_unique(in) = uo is det.
+
+% A synonym for fail/0; the name is more in keeping with Mercury's
+% declarative style rather than its Prolog heritage.
+
+:- pred false.
+:- mode false is failure.
+
 %-----------------------------------------------------------------------------%
 
 % A call to the function `promise_only_solution(Pred)' constitutes a
@@ -166,19 +175,6 @@
 
 %-----------------------------------------------------------------------------%
 
-
-% We define !/0 (and !/2 for dcgs) to be equivalent to `true'.  This is for
-% backwards compatibility with Prolog systems.  But of course it only works
-% if all your cuts are green cuts.
-
-:- pred ! is det.
-
-:- pred !(T, T).
-:- mode !(di, uo) is det.
-:- mode !(in, out) is det.
-
-%-----------------------------------------------------------------------------%
-
 	% unify(X, Y) is true iff X = Y.
 :- pred unify(T::in, T::in) is semidet.
 
@@ -216,16 +212,46 @@
 %	call/N
 
 %-----------------------------------------------------------------------------%
+:- implementation.
+
+% Everything below here is not intended to be part of the public interface,
+% and will not be included in the Mercury library reference manual.
+
+%-----------------------------------------------------------------------------%
+:- interface.
+
+% `get_one_solution' and `get_one_solution_io' are impure alternatives
+% to `promise_one_solution' and `promise_one_solution_io', respectively.
+% They get a solution to the procedure, without requiring any promise
+% that there is only one solution.  However, they can only be used in
+% impure code.
+
+:- impure func get_one_solution(pred(T)) = T.
+:-        mode get_one_solution(pred(out) is cc_multi) = out is det.
+:-        mode get_one_solution(pred(out) is cc_nondet) = out is semidet.
+
+:- impure pred get_one_solution_io(pred(T, IO, IO), T, IO, IO).
+:-        mode get_one_solution_io(pred(out, di, uo) is cc_multi,
+		out, di, uo) is det.
 
 :- implementation.
 :- import_module require, string, std_util, int, float, char, string, list.
 
 %-----------------------------------------------------------------------------%
 
-promise_only_solution(Pred) = OutVal :-
-        call(cc_cast(Pred), OutVal).
+false :- fail.
 
-:- func cc_cast(pred(T)) = pred(T).
+%-----------------------------------------------------------------------------%
+
+:- pragma promise_pure(promise_only_solution/1).
+promise_only_solution(CCPred) = OutVal :-
+	impure OutVal = get_one_solution(CCPred).
+
+get_one_solution(CCPred) = OutVal :-
+	impure Pred = cc_cast(CCPred),
+	call(Pred, OutVal).
+
+:- impure func cc_cast(pred(T)) = pred(T).
 :- mode cc_cast(pred(out) is cc_nondet) = out(pred(out) is semidet) is det.
 :- mode cc_cast(pred(out) is cc_multi) = out(pred(out) is det) is det.
 
@@ -245,11 +271,21 @@ promise_only_solution(Pred) = OutVal :-
                         (Y :: out(pred(out) is semidet)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
+cc_cast(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("builtin__cc_cast").
 
+:- pragma promise_pure(promise_only_solution_io/4).
 promise_only_solution_io(Pred, X) -->
-	call(cc_cast_io(Pred), X).
+	impure get_one_solution_io(Pred, X).
 
-:- func cc_cast_io(pred(T, IO, IO)) = pred(T, IO, IO).
+get_one_solution_io(Pred, X) -->
+	{ impure DetPred = cc_cast_io(Pred) },
+	call(DetPred, X).
+
+:- impure func cc_cast_io(pred(T, IO, IO)) = pred(T, IO, IO).
 :- mode cc_cast_io(pred(out, di, uo) is cc_multi) =
 	out(pred(out, di, uo) is det) is det.
 
@@ -263,11 +299,11 @@ promise_only_solution_io(Pred, X) -->
 		(Y :: out(pred(out, di, uo) is det)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
-
-%-----------------------------------------------------------------------------%
-
-!.
-!(X, X).
+cc_cast_io(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("builtin__cc_cast_io").
 
 %-----------------------------------------------------------------------------%
 
@@ -277,157 +313,6 @@ promise_only_solution_io(Pred, X) -->
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_decl("C", "#include ""mercury_type_info.h""").
-
-:- pragma foreign_code("C", "
-
-/* forward decls, to suppress gcc -Wmissing-decl warning */
-void sys_init_builtin_types_module_init(void);
-void sys_init_builtin_types_module_init_type_tables(void);
-#ifdef MR_DEEP_PROFILING
-void sys_init_builtin_types_module_write_out_proc_statics(FILE *fp);
-#endif
-
-#ifndef MR_HIGHLEVEL_CODE
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, int, 0,
-	MR_TYPECTOR_REP_INT,
-	mercury__builtin_unify_int_2_0,
-	mercury__builtin_compare_int_3_0);
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, character, 0,
-	MR_TYPECTOR_REP_CHAR,
-	mercury__builtin_unify_character_2_0,
-	mercury__builtin_compare_character_3_0);
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, string, 0,
-	MR_TYPECTOR_REP_STRING,
-	mercury__builtin_unify_string_2_0,
-	mercury__builtin_compare_string_3_0);
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, float, 0,
-	MR_TYPECTOR_REP_FLOAT,
-	mercury__builtin_unify_float_2_0,
-	mercury__builtin_compare_float_3_0);
-
-	/* 
-	** One of the following two is used for all higher-order types.
-	** Note that they use the same unify and compare predicates.
-	*/
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, func, 0,
-	MR_TYPECTOR_REP_PRED,
-	mercury__builtin_unify_pred_2_0,
-	mercury__builtin_compare_pred_3_0);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, pred, 0,
-	MR_TYPECTOR_REP_PRED,
-	mercury__builtin_unify_pred_2_0,
-	mercury__builtin_compare_pred_3_0);
-
-	/*
-	** All tuple types use the following type_ctor_info.
-	*/
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, tuple, 0,
-	MR_TYPECTOR_REP_TUPLE,
-	mercury__builtin_unify_tuple_2_0,
-	mercury__builtin_compare_tuple_3_0);
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(void, 0, MR_TYPECTOR_REP_VOID);
-
-#ifdef	NATIVE_GC
-
-/*
-** The following type_ctor_infos are used only by accurate gc.
-*/
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(succip, 0, MR_TYPECTOR_REP_SUCCIP);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(hp, 0, MR_TYPECTOR_REP_HP);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(curfr, 0, MR_TYPECTOR_REP_CURFR);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(maxfr, 0, MR_TYPECTOR_REP_MAXFR);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(redofr, 0, MR_TYPECTOR_REP_REDOFR);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(redoip, 0, MR_TYPECTOR_REP_REDOIP);
-
-#endif /* NATIVE_GC */
-
-/*
-** The following type_ctor_infos are used both accurate gc and by the debugger.
-*/
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(trailptr, 0, MR_TYPECTOR_REP_TRAIL_PTR);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(ticket, 0, MR_TYPECTOR_REP_TICKET);
-
-/*
-INIT sys_init_builtin_types_module
-*/
-MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc builtin_types_module;
-extern void mercury__private_builtin__init(void);
-
-#endif /* ! HIGHLEVEL_CODE */
-
-void
-sys_init_builtin_types_module_init(void)
-{
-#ifndef	MR_HIGHLEVEL_CODE
-	/* 
-	** We had better call this init() because we use the
-	** labels for the special preds of int, float, pred, 
-	** character and string. If they aren't initialized,
-	** we might initialize the type_ctor_info with
-	** garbage.
-	*/
-	mercury__private_builtin__init();
-
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_int_0, _int_);
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_float_0, _float_);
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_character_0, _character_);
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_string_0, _string_);
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_pred_0, _pred_);
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_func_0, _pred_);
-	MR_INIT_BUILTIN_TYPE_CTOR_INFO(
-		mercury_data___type_ctor_info_tuple_0, _tuple_);
-	MR_INIT_TYPE_CTOR_INFO_WITH_PRED(
-		mercury_data___type_ctor_info_void_0, mercury__unused_0_0);
-#endif
-}
-
-void
-sys_init_builtin_types_module_init_type_tables(void)
-{
-#ifndef	MR_HIGHLEVEL_CODE
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_int_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_float_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_character_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_string_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_pred_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_func_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_tuple_0);
-	MR_register_type_ctor_info(
-		&mercury_data___type_ctor_info_void_0);
-#endif
-}
-
-#ifdef	MR_DEEP_PROFILING
-void
-sys_init_builtin_types_module_write_out_proc_statics(FILE *fp)
-{
-	/* no proc_statics to write out */
-}
-#endif
-
-").
-
 
 :- interface.
 :- pred call_rtti_generic_unify(T::in, T::in) is semidet.
@@ -442,26 +327,30 @@ call_rtti_generic_compare(Res, X, Y) :-
 
 :- pragma foreign_code("MC++", "
 
-static void compare_3(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+static void compare_3(MR_TypeInfo TypeInfo_for_T,
+		MR_Ref(MR_ComparisonResult) Res, 
 		MR_Box X, MR_Box Y) 
 {
 	mercury::builtin::mercury_code::call_rtti_generic_compare_3(
 			TypeInfo_for_T, Res, X, Y);
 }
 
-void compare_3_m1(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+void compare_3_m1(MR_TypeInfo TypeInfo_for_T,
+		MR_Ref(MR_ComparisonResult) Res, 
 		MR_Box X, MR_Box Y) 
 {
 	compare_3(TypeInfo_for_T, Res, X, Y);
 }
 
-void compare_3_m2(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+void compare_3_m2(MR_TypeInfo TypeInfo_for_T,
+		MR_Ref(MR_ComparisonResult) Res, 
 		MR_Box X, MR_Box Y) 
 {
 	compare_3(TypeInfo_for_T, Res, X, Y);
 }
 
-void compare_3_m3(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+void compare_3_m3(MR_TypeInfo TypeInfo_for_T,
+		MR_Ref(MR_ComparisonResult) Res, 
 		MR_Box X, MR_Box Y) 
 {
 	compare_3(TypeInfo_for_T, Res, X, Y);
@@ -486,7 +375,7 @@ void copy_2_m1(MR_TypeInfo TypeInfo_for_T,
 
 :- pragma foreign_code("MC++", "
 
-static MR_Integer unify_2_p(MR_TypeInfo ti, MR_Box X, MR_Box Y) 
+static MR_bool unify_2_p(MR_TypeInfo ti, MR_Box X, MR_Box Y) 
 {
 	return mercury::builtin::mercury_code::call_rtti_generic_unify_2_p(
 			ti, X, Y);
@@ -503,7 +392,7 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, c_pointer, 0,
 	MR_TYPECTOR_REP_C_POINTER) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, void, 0, MR_TYPECTOR_REP_VOID) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, float, 0, MR_TYPECTOR_REP_FLOAT) 
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, func, 0, MR_TYPECTOR_REP_PRED) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, func, 0, MR_TYPECTOR_REP_FUNC) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, pred, 0, MR_TYPECTOR_REP_PRED) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, tuple, 0, MR_TYPECTOR_REP_TUPLE) 
 
@@ -812,12 +701,11 @@ do_compare__tuple_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
 		""called compare/3 for tuple type"");
 }
 
-
 ").
 
 %-----------------------------------------------------------------------------%
 
-% unsafe_promise_unique/2 is a compiler builtin.
+% unsafe_promise_unique is a compiler builtin.
 
 %-----------------------------------------------------------------------------%
 
@@ -832,12 +720,12 @@ Using `pragma c_code' doesn't work, due to the lack of support for
 aliasing, and in particular the lack of support for `ui' modes.
 :- pragma c_code(copy(Value::ui, Copy::uo), "
 	MR_save_transient_registers();
-	Copy = MR_deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
+	Copy = MR_deep_copy(Value, TypeInfo_for_T, NULL, NULL);
 	MR_restore_transient_registers();
 ").
 :- pragma c_code(copy(Value::in, Copy::uo), "
 	MR_save_transient_registers();
-	Copy = MR_deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
+	Copy = MR_deep_copy(Value, TypeInfo_for_T, NULL, NULL);
 	MR_restore_transient_registers();
 ").
 *************/
@@ -865,7 +753,7 @@ mercury__builtin__copy_2_p_0(MR_Mercury_Type_Info type_info,
 	MR_Box value, MR_Box *copy)
 {
 	MR_Word val = (MR_Word) value;
-	*copy = (MR_Box) MR_deep_copy(&val, (MR_TypeInfo) type_info,
+	*copy = (MR_Box) MR_deep_copy(val, (MR_TypeInfo) type_info,
 		NULL, NULL);
 }
 
@@ -882,8 +770,8 @@ void sys_init_copy_module(void);
 #else /* ! MR_HIGHLEVEL_CODE */
 
 #ifdef	MR_DEEP_PROFILING
-MR_proc_static_user_builtin_empty(copy, 2, 0, ""builtin.m"", 0, TRUE);
-MR_proc_static_user_builtin_empty(copy, 2, 1, ""builtin.m"", 0, TRUE);
+MR_proc_static_user_builtin_empty(copy, 2, 0, ""builtin.m"", 0, MR_TRUE);
+MR_proc_static_user_builtin_empty(copy, 2, 1, ""builtin.m"", 0, MR_TRUE);
 #endif
 
 MR_define_extern_entry(mercury__copy_2_0);
@@ -906,7 +794,7 @@ MR_BEGIN_CODE
   #define first_slot			3
 
   #define copy_body(proc_label, proc_static)				\
-		MR_incr_sp_push_msg(6, ""builtin:copy/2"");		\
+		MR_incr_sp_push_msg(6, ""pred builtin:copy/2"");	\
 		MR_stackvar(6) = (MR_Word) MR_succip;			\
 		MR_stackvar(1) = MR_r1;					\
 		MR_stackvar(2) = MR_r2;					\
@@ -922,7 +810,7 @@ MR_BEGIN_CODE
 		value = MR_stackvar(2);					\
 									\
 		MR_save_transient_registers();				\
-		copy = MR_deep_copy(&value, type_info, NULL, NULL);	\
+		copy = MR_deep_copy(value, type_info, NULL, NULL);	\
 		MR_restore_transient_registers();			\
 									\
 		MR_stackvar(1) = copy;					\
@@ -945,7 +833,7 @@ MR_BEGIN_CODE
 		value = MR_r2;						\
 									\
 		MR_save_transient_registers();				\
-		copy = MR_deep_copy(&value, type_info, NULL, NULL);	\
+		copy = MR_deep_copy(value, type_info, NULL, NULL);	\
 		MR_restore_transient_registers();			\
 									\
 		MR_r1 = copy;						\
@@ -1005,133 +893,6 @@ sys_init_copy_module_write_out_proc_statics(FILE *fp)
 		&mercury_data__proc_static__mercury__copy_2_0);
 	MR_write_out_proc_static(fp, (MR_ProcStatic *)
 		&mercury_data__proc_static__mercury__copy_2_1);
-}
-#endif
-
-").
-
-%-----------------------------------------------------------------------------%
-
-% The type c_pointer can be used by predicates which use the C interface.
-
-:- pragma foreign_code("C", "
-
-#include ""mercury_deep_profiling_hand.h""
-
-/* Ensure that the initialization code for the above module gets run. */
-/*
-INIT sys_init_c_pointer_module
-*/
-
-/* duplicate declarations to suppress gcc -Wmissing-decl warning */
-void sys_init_c_pointer_module_init(void);
-void sys_init_c_pointer_module_init_type_tables(void);
-#ifdef	MR_DEEP_PROFILING
-void sys_init_c_pointer_module_write_out_proc_statics(FILE *fp);
-#endif
-
-#ifndef MR_HIGHLEVEL_CODE
-
-#ifdef	MR_DEEP_PROFILING
-MR_proc_static_compiler_empty(builtin, __Unify__,   c_pointer,
-	0, 0, ""builtin.m"", 0, TRUE);
-MR_proc_static_compiler_empty(builtin, __Compare__, c_pointer,
-	0, 0, ""builtin.m"", 0, TRUE);
-#endif
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(builtin, c_pointer, 0,
-	MR_TYPECTOR_REP_C_POINTER,
-	mercury____Unify___builtin__c_pointer_0_0,
-	mercury____Compare___builtin__c_pointer_0_0);
-
-MR_declare_entry(mercury____Unify___builtin__c_pointer_0_0);
-MR_declare_entry(mercury____Index___builtin__c_pointer_0_0);
-MR_declare_entry(mercury____Compare___builtin__c_pointer_0_0);
-
-MR_BEGIN_MODULE(c_pointer_module)
-	MR_init_entry(mercury____Unify___builtin__c_pointer_0_0);
-	MR_init_entry(mercury____Compare___builtin__c_pointer_0_0);
-#ifdef	MR_DEEP_PROFILING
-	MR_init_label(mercury____Unify___builtin__c_pointer_0_0_i1);
-	MR_init_label(mercury____Unify___builtin__c_pointer_0_0_i2);
-	MR_init_label(mercury____Unify___builtin__c_pointer_0_0_i3);
-	MR_init_label(mercury____Unify___builtin__c_pointer_0_0_i4);
-	MR_init_label(mercury____Compare___builtin__c_pointer_0_0_i1);
-	MR_init_label(mercury____Compare___builtin__c_pointer_0_0_i2);
-#endif
-MR_BEGIN_CODE
-
-	/*
-	** For c_pointer, we assume that equality and comparison
-	** can be based on object identity (i.e. using address comparisons).
-	** This is correct for types like io__stream, and necessary since
-	** the io__state contains a map(io__stream, filename).
-	** However, it might not be correct in general...
-	*/
-
-#define	proc_label	mercury____Unify___builtin__c_pointer_0_0
-#define	proc_static	MR_proc_static_compiler_name(builtin, __Unify__, \
-				c_pointer, 0, 0)
-#define	body_code	do { MR_r1 = (MR_r1 == MR_r2); } while(0)
-
-#include ""mercury_hand_unify_body.h""
-
-#undef	body_code
-#undef	proc_static
-#undef	proc_label
-
-#define	proc_label	mercury____Compare___builtin__c_pointer_0_0
-#define	proc_static	MR_proc_static_compiler_name(builtin, __Compare__, \
-				c_pointer, 0, 0)
-#define	body_code	do {						     \
-				MR_r1 = (MR_r1 == MR_r2 ? MR_COMPARE_EQUAL : \
-					MR_r1 < MR_r2 ? MR_COMPARE_LESS :    \
-					MR_COMPARE_GREATER);		     \
-			} while (0)
-
-#include ""mercury_hand_compare_body.h""
-
-#undef	body_code
-#undef	proc_static
-#undef	proc_label
-
-MR_END_MODULE
-
-MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc c_pointer_module;
-
-#endif /* ! MR_HIGHLEVEL_CODE */
-
-void
-sys_init_c_pointer_module_init(void)
-{
-#ifndef	MR_HIGHLEVEL_CODE
-	c_pointer_module();
-
-	MR_INIT_TYPE_CTOR_INFO(
-		mercury_data_builtin__type_ctor_info_c_pointer_0,
-		builtin__c_pointer_0_0);
-#endif
-}
-
-void
-sys_init_c_pointer_module_init_type_tables(void)
-{
-#ifndef	MR_HIGHLEVEL_CODE
-	MR_register_type_ctor_info(
-		&mercury_data_builtin__type_ctor_info_c_pointer_0);
-#endif
-}
-
-#ifdef	MR_DEEP_PROFILING
-void
-sys_init_c_pointer_module_write_out_proc_statics(FILE *fp)
-{
-	MR_write_out_proc_static(fp, (MR_ProcStatic *)
-		&MR_proc_static_compiler_name(builtin, __Unify__, c_pointer,
-			0, 0));
-	MR_write_out_proc_static(fp, (MR_ProcStatic *)
-		&MR_proc_static_compiler_name(builtin, __Compare__, c_pointer,
-			0, 0));
 }
 #endif
 

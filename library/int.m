@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -119,6 +119,12 @@
 :- func int // int = int.
 :- mode in  // in  = uo  is det.
 
+	% (/)/2 is a synonym for (//)/2 to bring Mercury into line with
+	% the common convention for naming integer division.
+	%
+:- func int / int = int.
+:- mode in  / in  = uo  is det.
+
 	% unchecked_quotient(X, Y) is the same as X // Y, but the
 	% behaviour is undefined if the right operand is zero.
 :- func unchecked_quotient(int, int) = int.
@@ -133,8 +139,17 @@
 	% X rem Y = X - (X // Y) * Y
 	% `mod' has nicer mathematical properties for negative X,
 	% but `rem' is typically more efficient.
+	%
+	% Throws a `math__domain_error' exception if the right operand
+	% is zero. See the comments at the top of math.m to find out how to
+	% disable domain checks.
 :- func int rem int = int.
 :- mode in rem in = uo is det.
+
+	% unchecked_rem(X, Y) is the same as X rem Y, but the
+	% behaviour is undefined if the right operand is zero.
+:- func unchecked_rem(int, int) = int.
+:- mode unchecked_rem(in, in) = uo is det.
 
 	% Left shift.
 	% X << Y returns X "left shifted" by Y bits. 
@@ -163,6 +178,14 @@
 	% It will typically be implemented more efficiently than X >> Y.
 :- func unchecked_right_shift(int, int) = int.
 :- mode unchecked_right_shift(in, in) = uo is det.
+
+	% even(X) is equivalent to (X mod 2 = 0).
+:- pred even(int).
+:- mode even(in) is semidet.
+
+	% odd(X) is equivalent to (not even(X)), i.e. (X mod 2 = 1).
+:- pred odd(int).
+:- mode odd(in) is semidet.
 
 	% bitwise and
 :- func int /\ int = int.
@@ -292,31 +315,47 @@ X // Y = Div :-
 		Div = unchecked_quotient(X, Y)
 	).
 
+:- pragma inline('/'/2).
+X / Y = X // Y.
+
+:- pragma inline(rem/2).
+X rem Y = Rem :-
+	( domain_checks, Y = 0 ->
+		throw(math__domain_error("int:rem"))
+	;
+		Rem = unchecked_rem(X, Y)
+	).
+
 	% This code is included here rather than just calling
 	% the version in math.m because we currently don't do
 	% transitive inter-module inlining, so code which uses
 	% `//'/2 but doesn't import math.m couldn't have the
-	% domain check optimized away..
+	% domain check optimized away.
 :- pred domain_checks is semidet.
 :- pragma inline(domain_checks/0).
 
 :- pragma foreign_proc("C", domain_checks,
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 #ifdef ML_OMIT_MATH_DOMAIN_CHECKS
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #else
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").
 
 :- pragma foreign_proc("MC++", domain_checks,
-		[thread_safe], "
+		[thread_safe, promise_pure], "
 #if ML_OMIT_MATH_DOMAIN_CHECKS
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #else
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").
+
+domain_checks :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("domain_checks").
 
 :- pragma inline(floor_to_multiple_of_bits_per_int/1).
 floor_to_multiple_of_bits_per_int(X) = Floor :-
@@ -364,6 +403,14 @@ X >> Y = Z :-
 		)
 	).
 
+:- pragma inline(even/1).
+even(X):-
+	(X /\ 1) = 0.
+
+:- pragma inline(odd/1).
+odd(X):-
+	(X /\ 1) \= 0.
+
 int__abs(Num) = Abs :-
 	int__abs(Num, Abs).
 
@@ -400,26 +447,29 @@ int__min(X, Y, Min) :-
 		Min = Y
 	).
 
-int__pow(Val, Exp) = Result :-
-	int__pow(Val, Exp, Result).
+int__pow(Base, Exp) = Result :-
+	int__pow(Base, Exp, Result).
 
-int__pow(Val, Exp, Result) :-
+int__pow(Base, Exp, Result) :-
 	( domain_checks, Exp < 0 ->
 		throw(math__domain_error("int__pow"))
 	;
-		int__pow_2(Val, Exp, 1, Result)
+		Result = int__multiply_by_pow(1, Base, Exp)
 	).
 
-:- pred int__pow_2(int, int, int, int).
-:- mode int__pow_2(in, in, in, out) is det.
-
-int__pow_2(Val, Exp, Result0, Result) :-
+:- func int__multiply_by_pow(int, int, int) = int.
+	% Returns Scale0 * (Base ** Exp).
+	% Requires that Exp >= 0.
+int__multiply_by_pow(Scale0, Base, Exp) = Result :-
 	( Exp = 0 ->
-		Result = Result0
+		Result = Scale0
 	;
-		Exp1 is Exp - 1,
-		Result1 is Result0 * Val,
-		int__pow_2(Val, Exp1, Result1, Result)
+		( odd(Exp) ->
+			Scale1 = Scale0 * Base
+		;
+			Scale1 = Scale0
+		),
+		Result = int__multiply_by_pow(Scale1, Base * Base, Exp div 2)
 	).
 
 int__log2(X) = N :-
@@ -459,15 +509,19 @@ is(X, X).
 :- mode int__to_float(in, out) is det.
 */
 :- pragma foreign_proc("C", int__to_float(IntVal::in, FloatVal::out),
-		[will_not_call_mercury, no_aliasing],
+		[will_not_call_mercury, promise_pure, no_aliasing],
 "
 	FloatVal = IntVal;
 ").
 :- pragma foreign_proc("MC++", int__to_float(IntVal::in, FloatVal::out),
-		[will_not_call_mercury, no_aliasing],
+		[will_not_call_mercury, promise_pure, no_aliasing],
 "
 	FloatVal = (MR_Float) IntVal;
 ").
+int__to_float(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__to_float").
 
 %-----------------------------------------------------------------------------%
 
@@ -487,9 +541,8 @@ is(X, X).
 
 ").
 
-
 :- pragma foreign_proc("C", int__max_int(Max::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	if (sizeof(MR_Integer) == sizeof(int))
 		Max = INT_MAX;
 	else if (sizeof(MR_Integer) == sizeof(long))
@@ -499,7 +552,7 @@ is(X, X).
 ").
 
 :- pragma foreign_proc("C", int__min_int(Min::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	if (sizeof(MR_Integer) == sizeof(int))
 		Min = INT_MIN;
 	else if (sizeof(MR_Integer) == sizeof(long))
@@ -509,56 +562,64 @@ is(X, X).
 ").
 
 :- pragma foreign_proc("C", int__bits_per_int(Bits::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Bits = ML_BITS_PER_INT;
 ").
 
 :- pragma foreign_proc("C", int__quot_bits_per_int(Int::in) = (Div::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Div = Int / ML_BITS_PER_INT;
 ").
 
 :- pragma foreign_proc("C", int__times_bits_per_int(Int::in) = (Result::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Result = Int * ML_BITS_PER_INT;
 ").
 
 :- pragma foreign_proc("C", int__rem_bits_per_int(Int::in) = (Rem::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Rem = Int % ML_BITS_PER_INT;
 ").
 
 
 :- pragma foreign_proc("MC++", int__max_int(Max::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Max = System::Int32::MaxValue;
 ").
 
 :- pragma foreign_proc("MC++", int__min_int(Min::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Min = System::Int32::MinValue;
 ").
 
 :- pragma foreign_proc("MC++", int__bits_per_int(Bits::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Bits = ML_BITS_PER_INT;
 ").
 
-:- pragma foreign_proc("MC++", int__quot_bits_per_int(Int::in) = (Div::out),
-		[will_not_call_mercury, thread_safe], "
-	Div = Int / ML_BITS_PER_INT;
-").
+int__max_int(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__max_int").
 
-:- pragma foreign_proc("MC++", int__times_bits_per_int(Int::in) = (Result::out),
-		[will_not_call_mercury, thread_safe], "
-	Result = Int * ML_BITS_PER_INT;
-").
+int__min_int(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__min_int").
 
-:- pragma foreign_proc("MC++", int__rem_bits_per_int(Int::in) = (Rem::out),
-		[will_not_call_mercury, thread_safe], "
-	Rem = Int % ML_BITS_PER_INT;
-").
+int__bits_per_int(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__bits_per_int").
 
+int__quot_bits_per_int(Int::in) = (Result::out) :-
+	Result = Int // int__bits_per_int.
+
+int__times_bits_per_int(Int::in) = (Result::out) :-
+	Result = Int * int__bits_per_int.
+
+int__rem_bits_per_int(Int::in) = (Result::out) :-
+	Result = Int rem int__bits_per_int.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -25,3 +25,5 @@ MCFLAGS-std_util += --no-halt-at-warn
 MGNUCFLAGS-io =	--no-ansi
 
 MCFLAGS-mer_std = --no-warn-nothing-exported
+
+EXTRA_MCFLAGS += $(LIBRARY_MCFLAGS)

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -12,8 +12,8 @@
 % module.  It is intended for builtins that are just implementation details,
 % such as procedures that the compiler generates implicit calls to when
 % implementing polymorphism, unification, compare/3, etc.
-% Note that the builtins used for tabling are in a separate module
-% (table_builtin.m).
+% Note that the builtins used for tabling and deep profiling are in separate
+% modules (table_builtin.m and profiling_builtin.m).
 
 % This module is a private part of the Mercury implementation;
 % user modules should never explicitly import this module.
@@ -32,16 +32,6 @@
 %-----------------------------------------------------------------------------%
 
 :- interface.
-
-	% free_heap/1 is used internally by the compiler to implement
-	% compile-time garbage collection. Don't use it in programs.
-	% The `di' mode on the argument is overly conservative -- only
-	% the top-level cell is clobbered. This is handled correctly by
-	% mode_util__recompute_instmap_delta.
-:- pred free_heap(_T).
-:- mode free_heap(di) is det.
-
-%-----------------------------------------------------------------------------%
 
 	% This section of the module contains predicates that are used
 	% by the compiler, to implement polymorphism. These predicates
@@ -131,19 +121,6 @@ static MR_Word dummy_var;
 :- pragma inline(builtin_compare_string/3).
 :- pragma inline(builtin_compare_float/3).
 
-:- pragma foreign_decl("C", "
-	#include ""mercury_heap.h""	/* for MR_free_heap() */
-").
-
-:- pragma foreign_proc("C", free_heap(Val::di),
-	[will_not_call_mercury, thread_safe],
-	"MR_free_heap((void *) Val);").
-
-:- pragma foreign_proc("MC++", free_heap(_Val::di),
-	[will_not_call_mercury, thread_safe], "
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-").
-
 builtin_unify_int(X, X).
 
 builtin_compare_int(R, X, Y) :-
@@ -184,16 +161,20 @@ builtin_compare_string(R, S1, S2) :-
 :- mode builtin_strcmp(out, in, in) is det.
 
 :- pragma foreign_proc("C", builtin_strcmp(Res::out, S1::in, S2::in),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, promise_pure, thread_safe],
 	"Res = strcmp(S1, S2);").
 
 :- pragma foreign_proc("MC++", builtin_strcmp(Res::out, S1::in, S2::in),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, promise_pure, thread_safe],
 "
 	Res = System::String::Compare(S1, S2);
 ").
-	
 
+builtin_strcmp(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("builtin_strcmp").
+	
 builtin_unify_float(F, F).
 
 builtin_compare_float(R, F1, F2) :-
@@ -281,7 +262,6 @@ typed_compare(R, X, Y) :-
 		R = R0
 	).
 
-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -318,6 +298,12 @@ typed_compare(R, X, Y) :-
 :- type typeclass_info(T) ---> typeclass_info(base_typeclass_info(T)
 						/*, ... */).
 :- type base_typeclass_info(_) ---> typeclass_info(int /*, ... */).
+
+	% The following types are used by compiler/ml_code_util.m
+	% as the types used for copying type_info/1 and typeclass_info/1
+	% types.  XXX Document me better
+:- type sample_type_info ---> sample_type_info(type_info(int)).
+:- type sample_typeclass_info ---> sample_typeclass_info(typeclass_info(int)).
 
 	% type_info_from_typeclass_info(TypeClassInfo, Index, TypeInfo)
 	% extracts TypeInfo from TypeClassInfo, where TypeInfo is the Indexth
@@ -362,148 +348,12 @@ typed_compare(R, X, Y) :-
 
 	% The definitions for type_ctor_info/1 and type_info/1.
 
-:- pragma c_header_code("
-#ifdef MR_DEEP_PROFILING
-#include ""mercury_deep_profiling.h""
-#endif
-").
-
-:- pragma foreign_code("C", "
-
-/* forward decls, to suppress gcc -Wmissing-decl warnings */
-void sys_init_type_info_module_init(void);
-void sys_init_type_info_module_init_type_tables(void);
-#ifdef	MR_DEEP_PROFILING
-void sys_init_type_info_module_write_out_proc_statics(FILE *fp);
-#endif
-
-#ifndef MR_HIGHLEVEL_CODE
-
-	/*
-	** For most purposes, type_ctor_info can be treated just like
-	** type_info.  The code that handles type_infos can also handle
-	** type_ctor_infos.
-	*/
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(private_builtin, type_ctor_info, 1,
-	MR_TYPECTOR_REP_TYPEINFO,
-	mercury____Unify___private_builtin__type_info_1_0,
-	mercury____Compare___private_builtin__type_info_1_0);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, type_info, 1,
-	MR_TYPECTOR_REP_TYPEINFO);
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(private_builtin, base_typeclass_info, 1,
-	MR_TYPECTOR_REP_TYPECLASSINFO,
-	mercury____Unify___private_builtin__typeclass_info_1_0,
-	mercury____Compare___private_builtin__typeclass_info_1_0);
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, typeclass_info, 1,
-	MR_TYPECTOR_REP_TYPECLASSINFO);
-
-MR_BEGIN_MODULE(type_info_module)
-	MR_init_entry(mercury____Unify___private_builtin__type_info_1_0);
-	MR_init_entry(mercury____Compare___private_builtin__type_info_1_0);
-	MR_init_entry(mercury____Unify___private_builtin__typeclass_info_1_0);
-	MR_init_entry(mercury____Compare___private_builtin__typeclass_info_1_0);
-MR_BEGIN_CODE
-MR_define_entry(mercury____Unify___private_builtin__type_info_1_0);
-{
-	/*
-	** Unification for type_info.
-	**
-	** The two inputs are in the registers named by unify_input[12].
-	** The success/failure indication should go in unify_output.
-	*/
-	int	comp;
-
-	MR_save_transient_registers();
-	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
-	MR_restore_transient_registers();
-	MR_r1 = (comp == MR_COMPARE_EQUAL);
-	MR_proceed();
-}
-
-MR_define_entry(mercury____Compare___private_builtin__type_info_1_0);
-{
-	/*
-	** Comparison for type_info:
-	**
-	** The two inputs are in the registers named by compare_input[12].
-	** The result should go in compare_output.
-	*/
-	int	comp;
-
-	MR_save_transient_registers();
-	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
-	MR_restore_transient_registers();
-	MR_r1 = comp;
-	MR_proceed();
-}
-
-MR_define_entry(mercury____Unify___private_builtin__typeclass_info_1_0);
-{
-	MR_fatal_error(""attempt to unify typeclass_info"");
-}
-
-MR_define_entry(mercury____Compare___private_builtin__typeclass_info_1_0);
-{
-	MR_fatal_error(""attempt to compare typeclass_info"");
-}
-MR_END_MODULE
-
-/* Ensure that the initialization code for the above module gets run. */
-/*
-INIT sys_init_type_info_module
-*/
-MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc type_info_module;
-
-#endif /* ! MR_HIGHLEVEL_CODE */
-
-void
-sys_init_type_info_module_init(void)
-{
-#ifndef	MR_HIGHLEVEL_CODE
-	type_info_module();
-
-	MR_INIT_TYPE_CTOR_INFO(
-	  mercury_data_private_builtin__type_ctor_info_type_ctor_info_1,
-	  private_builtin__type_info_1_0);
-	MR_INIT_TYPE_CTOR_INFO(
-	  mercury_data_private_builtin__type_ctor_info_type_info_1,
-	  private_builtin__type_info_1_0);
-	MR_INIT_TYPE_CTOR_INFO(
-	  mercury_data_private_builtin__type_ctor_info_base_typeclass_info_1,
-	  private_builtin__typeclass_info_1_0);
-	MR_INIT_TYPE_CTOR_INFO(
-	  mercury_data_private_builtin__type_ctor_info_typeclass_info_1,
-	  private_builtin__typeclass_info_1_0);
-#endif
-}
-
-void
-sys_init_type_info_module_init_type_tables(void)
-{
-#ifndef	MR_HIGHLEVEL_CODE
-	MR_register_type_ctor_info(
-	  &mercury_data_private_builtin__type_ctor_info_type_ctor_info_1);
-	MR_register_type_ctor_info(
-	  &mercury_data_private_builtin__type_ctor_info_type_info_1);
-	MR_register_type_ctor_info(
-	  &mercury_data_private_builtin__type_ctor_info_base_typeclass_info_1);
-	MR_register_type_ctor_info(
-	  &mercury_data_private_builtin__type_ctor_info_typeclass_info_1);
-#endif
-}
-
-#ifdef	MR_DEEP_PROFILING
-void
-sys_init_type_info_module_write_out_proc_statics(FILE *fp)
-{
-	/* no proc_statics to write out */
-}
-#endif
-
-").
-
+	% XXX probably redundant
+% :- pragma c_header_code("
+% #ifdef MR_DEEP_PROFILING
+% #include ""mercury_deep_profiling.h""
+% #endif
+% ").
 
 :- pragma foreign_code("MC++", "
 
@@ -515,7 +365,7 @@ static MR_TypeInfo MR_typeclass_info_type_info(
 
 	tmp = dynamic_cast<MR_Word> (tcinfo[0]);
 	t1 = System::Convert::ToInt32(tmp[0]) + index;
-	return dynamic_cast<MR_Word> (tcinfo[t1]);
+	return dynamic_cast<MR_TypeInfo> (tcinfo[t1]);
 }
 static MR_TypeInfo MR_typeclass_info_unconstrained_type_info(
 	MR_TypeClassInfo tcinfo, int index) 
@@ -547,11 +397,11 @@ static MR_TypeClassInfo MR_typeclass_info_arg_typeclass_info(
 :- pragma foreign_code("MC++", "
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, type_ctor_info, 1,
-	MR_TYPECTOR_REP_TYPEINFO) 
+	MR_TYPECTOR_REP_TYPECTORINFO) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, type_info, 1,
 	MR_TYPECTOR_REP_TYPEINFO) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, base_typeclass_info, 1,
-	MR_TYPECTOR_REP_TYPECLASSINFO) 
+	MR_TYPECTOR_REP_BASETYPECLASSINFO) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, typeclass_info, 1,
 	MR_TYPECTOR_REP_TYPECLASSINFO) 
 
@@ -566,44 +416,50 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, typeclass_info, 1,
 	// See runtime/mercury_mcpp.cpp for discussion of why we aren't using
 	// enums or const static ints here.
 
-static int MR_TYPECTOR_REP_ENUM 			= MR_TYPECTOR_REP_ENUM_val;
+static int MR_TYPECTOR_REP_ENUM 		= MR_TYPECTOR_REP_ENUM_val;
 static int MR_TYPECTOR_REP_ENUM_USEREQ 		= MR_TYPECTOR_REP_ENUM_USEREQ_val;
-static int MR_TYPECTOR_REP_DU				= MR_TYPECTOR_REP_DU_val;
+static int MR_TYPECTOR_REP_DU			= MR_TYPECTOR_REP_DU_val;
 static int MR_TYPECTOR_REP_DU_USEREQ		= 3;
-static int MR_TYPECTOR_REP_NOTAG			= 4;
+static int MR_TYPECTOR_REP_NOTAG		= 4;
 static int MR_TYPECTOR_REP_NOTAG_USEREQ		= 5;
-static int MR_TYPECTOR_REP_EQUIV			= 6;
-static int MR_TYPECTOR_REP_EQUIV_VAR		= 7;
+static int MR_TYPECTOR_REP_EQUIV		= 6;
+static int MR_TYPECTOR_REP_FUNC			= 7;
 static int MR_TYPECTOR_REP_INT		    	= 8;
 static int MR_TYPECTOR_REP_CHAR		    	= 9;
-static int MR_TYPECTOR_REP_FLOAT			=10;
-static int MR_TYPECTOR_REP_STRING			=11;
+static int MR_TYPECTOR_REP_FLOAT		=10;
+static int MR_TYPECTOR_REP_STRING		=11;
 static int MR_TYPECTOR_REP_PRED		    	=12;
 static int MR_TYPECTOR_REP_UNIV		    	=13;
 static int MR_TYPECTOR_REP_VOID		    	=14;
 static int MR_TYPECTOR_REP_C_POINTER		=15;
-static int MR_TYPECTOR_REP_TYPEINFO			=16;
+static int MR_TYPECTOR_REP_TYPEINFO		=16;
 static int MR_TYPECTOR_REP_TYPECLASSINFO	=17;
-static int MR_TYPECTOR_REP_ARRAY			=18;
-static int MR_TYPECTOR_REP_SUCCIP			=19;
-static int MR_TYPECTOR_REP_HP				=20;
-static int MR_TYPECTOR_REP_CURFR			=21;
-static int MR_TYPECTOR_REP_MAXFR			=22;
-static int MR_TYPECTOR_REP_REDOFR			=23;
-static int MR_TYPECTOR_REP_REDOIP			=24;
+static int MR_TYPECTOR_REP_ARRAY		=18;
+static int MR_TYPECTOR_REP_SUCCIP		=19;
+static int MR_TYPECTOR_REP_HP			=20;
+static int MR_TYPECTOR_REP_CURFR		=21;
+static int MR_TYPECTOR_REP_MAXFR		=22;
+static int MR_TYPECTOR_REP_REDOFR		=23;
+static int MR_TYPECTOR_REP_REDOIP		=24;
 static int MR_TYPECTOR_REP_TRAIL_PTR		=25;
-static int MR_TYPECTOR_REP_TICKET			=26;
+static int MR_TYPECTOR_REP_TICKET		=26;
 static int MR_TYPECTOR_REP_NOTAG_GROUND		=27;
 static int MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ	=28;
 static int MR_TYPECTOR_REP_EQUIV_GROUND		=29;
 static int MR_TYPECTOR_REP_TUPLE		=30;
-static int MR_TYPECTOR_REP_UNKNOWN		=31;
+static int MR_TYPECTOR_REP_RESERVED_ADDR	=31;
+static int MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ	=32;
+static int MR_TYPECTOR_REP_TYPECTORINFO		=33;
+static int MR_TYPECTOR_REP_BASETYPECLASSINFO	=34;
+static int MR_TYPECTOR_REP_TYPEDESC		=35;
+static int MR_TYPECTOR_REP_TYPECTORDESC		=36;
+static int MR_TYPECTOR_REP_FOREIGN		=37;
+static int MR_TYPECTOR_REP_UNKNOWN		=38;
 
 static int MR_SECTAG_NONE				= 0;
 static int MR_SECTAG_LOCAL				= 1;
 static int MR_SECTAG_REMOTE				= 2;
 static int MR_SECTAG_VARIABLE				= 3;
-
 
 static int
 __Unify____type_info_1_0(
@@ -755,14 +611,16 @@ static void init_runtime(void)
 
 :- pragma foreign_proc("C",
 	type_info_from_typeclass_info(TypeClassInfo::in, Index::in,
-		TypeInfo::out), [will_not_call_mercury, thread_safe],
+		TypeInfo::out),
+			[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeInfo = MR_typeclass_info_type_info(TypeClassInfo, Index);
 ").
 
 :- pragma foreign_proc("C",
 	unconstrained_type_info_from_typeclass_info(TypeClassInfo::in,
-		Index::in, TypeInfo::out), [will_not_call_mercury, thread_safe],
+		Index::in, TypeInfo::out),
+			[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeInfo = MR_typeclass_info_unconstrained_type_info(TypeClassInfo,
 			Index);
@@ -770,7 +628,8 @@ static void init_runtime(void)
 
 :- pragma foreign_proc("C",
 	superclass_from_typeclass_info(TypeClassInfo0::in, Index::in,
-		TypeClassInfo::out), [will_not_call_mercury, thread_safe],
+		TypeClassInfo::out),
+			[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeClassInfo =
 		MR_typeclass_info_superclass_info(TypeClassInfo0, Index);
@@ -779,7 +638,7 @@ static void init_runtime(void)
 :- pragma foreign_proc("C",
 	instance_constraint_from_typeclass_info(TypeClassInfo0::in,
 		Index::in, TypeClassInfo::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeClassInfo =
 		MR_typeclass_info_arg_typeclass_info(TypeClassInfo0, Index);
@@ -787,14 +646,16 @@ static void init_runtime(void)
 
 :- pragma foreign_proc("MC++",
 	type_info_from_typeclass_info(TypeClassInfo::in, Index::in,
-		TypeInfo::out), [will_not_call_mercury, thread_safe],
+		TypeInfo::out),
+		[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeInfo = MR_typeclass_info_type_info(TypeClassInfo, Index);
 ").
 
 :- pragma foreign_proc("MC++",
 	unconstrained_type_info_from_typeclass_info(TypeClassInfo::in,
-		Index::in, TypeInfo::out), [will_not_call_mercury, thread_safe],
+		Index::in, TypeInfo::out),
+		[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeInfo = MR_typeclass_info_unconstrained_type_info(TypeClassInfo,
 			Index);
@@ -802,7 +663,8 @@ static void init_runtime(void)
 
 :- pragma foreign_proc("MC++",
 	superclass_from_typeclass_info(TypeClassInfo0::in, Index::in,
-		TypeClassInfo::out), [will_not_call_mercury, thread_safe],
+		TypeClassInfo::out),
+		[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeClassInfo =
 		MR_typeclass_info_superclass_info(TypeClassInfo0, Index);
@@ -811,12 +673,31 @@ static void init_runtime(void)
 :- pragma foreign_proc("MC++",
 	instance_constraint_from_typeclass_info(TypeClassInfo0::in,
 		Index::in, TypeClassInfo::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, promise_pure, thread_safe],
 "
 	TypeClassInfo =
 		MR_typeclass_info_arg_typeclass_info(TypeClassInfo0, Index);
 ").
 
+type_info_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("type_info_from_typeclass_info").
+
+unconstrained_type_info_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("unconstrained_type_info_from_typeclass_info").
+
+superclass_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("superclass_from_typeclass_info").
+
+instance_constraint_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("instance_constraint_from_typeclass_info").
 
 %-----------------------------------------------------------------------------%
 
@@ -853,6 +734,36 @@ static void init_runtime(void)
 	% N.B. interface continued below.
 
 :- implementation.
+
+% Default (Mercury) implementations.
+% These should be overridden by the appropriate foreign language implementation.
+store_ticket(_Ticket::out) :-
+	impure imp,
+	sorry("private_builtin__store_ticket/1").
+reset_ticket_undo(_Ticket::in) :-
+	impure imp,
+	sorry("private_builtin__reset_ticket_undo/1").
+reset_ticket_commit(_Ticket::in) :-
+	impure imp,
+	sorry("private_builtin__reset_ticket_commit/1").
+reset_ticket_solve(_Ticket::in) :-
+	impure imp,
+	sorry("private_builtin__reset_ticket_solve/1").
+mark_ticket_stack(_TicketCounter::out) :-
+	impure imp,
+	sorry("private_builtin__mark_ticket_stack/1").
+prune_tickets_to(_TicketCounter::in) :-
+	impure imp,
+	sorry("private_builtin__prune_tickets_to/1").
+/****
+% XXX we can't give default Mercury implementations for these,
+% because you can't write a mode-specific clause for a zero-arity
+% procedure.
+discard_ticket :-
+	sorry("private_builtin__discard_ticket/0").
+prune_ticket :-
+	sorry("private_builtin__prune_ticket/0").
+****/
 
 :- pragma foreign_proc("C", store_ticket(Ticket::out),
 	[will_not_call_mercury, thread_safe],
@@ -998,15 +909,214 @@ static void init_runtime(void)
 #endif
 ").
 
-
 trailed_nondet_pragma_foreign_code :-
 	Msg = string__append_list([
 		"Sorry, not implemented:\n",
 		"for the MLDS back-end (`--high-level-code')\n",
 		"nondet `pragma c_code' or `pragma foreign_code'\n",
-		"is not supported when trailing (`--use_trail') is enabled."
+		"is not supported when trailing (`--use-trail') is enabled."
 	]),
 	error(Msg).
+
+%-----------------------------------------------------------------------------%
+
+	% This section of the module contains predicates that are used
+	% internally by the compiler for manipulating the heap.
+	% These predicates should not be used by user programs directly.
+
+:- interface.
+
+	% free_heap/1 is used internally by the compiler to implement
+	% compile-time garbage collection.
+	% (Note that currently compile-time garbage collection
+	% is not yet fully implemented.)
+	% free_heap/1 explicitly deallocates a cell on the heap.
+	% It works by calling GC_free(), which will put the cell
+	% on the appropriate free list.
+	% It can only be used when doing conservative GC,
+	% since with `--gc none' or `--gc accurate',
+	% allocation does not use a free list.
+	% The `di' mode on the argument is overly conservative -- only
+	% the top-level cell is clobbered. This is handled correctly by
+	% mode_util__recompute_instmap_delta.
+:- impure pred free_heap(T::di) is det.
+
+	% gc_trace/1 is used for accurate garbage collection in the
+	% the MLDS->C backend.  It takes as parameters a pointer to
+	% a variable (normally on the stack) and, implicitly,
+	% a type_info which describes the type of that variable.
+	% It traverses the heap object(s) pointed to by that variable,
+	% copying them to the new heap area, and updating the
+	% variable to point to the new copy.  This is done by calling
+	% MR_agc_deep_copy() (from runtime/mercury_deep_copy*).
+
+:- type mutvar(T) ---> mutvar(c_pointer).
+	% a no_tag type, i.e. the representation is just a c_pointer.
+
+:- impure pred gc_trace(mutvar(T)::in) is det.
+
+	% mark_hp/1 and restore_hp/1 are used by the MLDS back-end,
+	% to implement heap reclamation on failure.
+	% (The LLDS back-end does not use these; instead it inserts
+	% the corresponding LLDS instructions directly during code
+	% generation.)
+	% For documentation, see the corresponding LLDS instructions
+	% in compiler/llds.m.  See also compiler/notes/trailing.html.
+
+:- type heap_pointer.
+
+:- impure pred mark_hp(heap_pointer::out) is det.
+:- impure pred restore_hp(heap_pointer::in) is det.
+
+	% XXX currently we don't support nondet pragma
+	% foreign_code when trailing is enabled.
+	% Instead we generate code which calls this procedure,
+	% which will call error/1 with an appropriate message.
+:- pred reclaim_heap_nondet_pragma_foreign_code is erroneous.
+
+	% N.B. interface continued below.
+
+:- implementation.
+
+/*
+** These routines are defined in C in ways which may make it not obvious
+** to the Mercury compiler that they are worth inlining.
+**
+** (Note: it's probably not worth inlining gc_trace/1...)
+*/
+:- pragma inline(free_heap/1).
+:- pragma inline(mark_hp/1).
+:- pragma inline(restore_hp/1).
+
+:- pragma foreign_decl("C", "
+	#include ""mercury_heap.h""	/* for MR_free_heap() */
+").
+
+% default (Mercury) implementation for gc_trace/1
+% This should be overridden by the appropriate foreign language implementation.
+gc_trace(_::in) :-
+	impure imp,
+	sorry("private_builtin__gc_trace/1").
+
+:- pragma foreign_proc("C", gc_trace(Pointer::in),
+	[will_not_call_mercury, thread_safe],
+"
+#ifdef MR_NATIVE_GC
+	*(MR_Word *)Pointer =
+		MR_agc_deep_copy(* (MR_Word *) Pointer,
+			(MR_TypeInfo) TypeInfo_for_T,
+			MR_ENGINE(MR_eng_heap_zone2->min),
+                        MR_ENGINE(MR_eng_heap_zone2->hardmax));
+#else
+	MR_fatal_error(""private_builtin__gc_trace/2: ""
+		""called when accurate GC not enabled"");
+#endif
+").
+
+% default (Mercury) implementation for free_heap/1
+% This should be overridden by the appropriate foreign language implementation.
+free_heap(_::di) :-
+	impure imp,
+	sorry("private_builtin__free_heap/1").
+
+:- pragma foreign_proc("C", free_heap(Val::di),
+	[will_not_call_mercury, promise_pure, thread_safe],
+	"MR_free_heap((void *) Val);").
+
+% default (Mercury) implementations for mark_hp/1 and restore_hp/1.
+% This should be overridden by the appropriate foreign language implementation.
+mark_hp(_::out) :-
+	impure imp,
+	sorry("private_builtin__mark_hp/1").
+restore_hp(_::in) :-
+	impure imp,
+	sorry("private_builtin__restore_hp/1").
+
+:- pragma foreign_proc("C", mark_hp(SavedHeapPointer::out),
+	[will_not_call_mercury, thread_safe],
+"
+#ifndef MR_CONSERVATIVE_GC
+	MR_mark_hp(SavedHeapPointer);
+#else
+	/* We can't do heap reclamation with conservative GC. */
+	SavedHeapPointer = 0;
+#endif
+").
+
+:- pragma foreign_proc("C", restore_hp(SavedHeapPointer::in),
+	[will_not_call_mercury, thread_safe],
+"
+#ifndef MR_CONSERVATIVE_GC
+	MR_restore_hp(SavedHeapPointer);
+#endif
+").
+
+:- pragma foreign_proc("MC++", mark_hp(SavedHeapPointer::out),
+	[will_not_call_mercury, thread_safe],
+"
+	/* We can't do heap reclamation on failure in the .NET back-end. */
+	SavedHeapPointer = 0;
+").
+
+:- pragma foreign_proc("MC++", restore_hp(SavedHeapPointer::in),
+	[will_not_call_mercury, thread_safe],
+"
+	/* We can't do heap reclamation on failure in the .NET back-end. */
+").
+
+reclaim_heap_nondet_pragma_foreign_code :-
+	Msg = string__append_list([
+		"Sorry, not implemented:\n",
+		"for the MLDS back-end (`--high-level-code')\n",
+		"nondet `pragma c_code' or `pragma foreign_code'\n",
+		"is not supported when `--reclaim-heap-on-failure' is enabled."
+	]),
+	error(Msg).
+
+%-----------------------------------------------------------------------------%
+
+% Code to define the `heap_pointer' type for the .NET back-end.
+% (For the C back-ends, it is defined in runtime/mercury_builtin_types.[ch].)
+
+:- pragma foreign_code("MC++", "
+	
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(private_builtin, heap_pointer, 0,
+	MR_TYPECTOR_REP_HP) 
+
+static int
+__Unify__private_builtin__heap_pointer_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `private_builtin:heap_pointer'"");
+	return 0;
+}
+
+static void
+__Compare__private_builtin__heap_pointer_0_0(
+	MR_Word_Ref result, MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `private_builtin:heap_pointer'"");
+}
+
+static int
+do_unify__heap_pointer_0_0(MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `private_builtin:heap_pointer'"");
+	return 0;
+}
+
+static void
+do_compare__heap_pointer_0_0(
+	MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `private_builtin:heap_pointer'"");
+	return;
+}
+
+").
 
 %-----------------------------------------------------------------------------%
 
@@ -1026,6 +1136,11 @@ trailed_nondet_pragma_foreign_code :-
 
 :- pred unused is det.
 
+	% N.B. interface continued below.
+
+:- pred nyi_foreign_type_unify(T::in, T::in) is semidet.
+:- pred nyi_foreign_type_compare(comparison_result::uo, T::in, T::in) is det.
+
 :- implementation.
 
 % unsafe_type_cast is a builtin; the compiler generates inline code for it
@@ -1036,6 +1151,20 @@ unused :-
 	;
 		% the following is never executed
 		true
+	).
+
+nyi_foreign_type_unify(_, _) :-
+	( semidet_succeed ->
+		sorry("unify for foreign types")
+	;
+		semidet_succeed
+	).
+
+nyi_foreign_type_compare(Result, _, _) :-
+	( semidet_succeed ->
+		sorry("compare for foreign types")
+	;
+		Result = (=)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -1058,48 +1187,34 @@ unused :-
 :- 	  mode nonvar(in) is det.
 :- 	  mode nonvar(unused) is failure.
 
+% sorry/1 is used to apologize about the fact that we have not implemented
+% some predicate or function in the library for a given back end. The argument
+% should give the name of the predicate or function.
+
+:- pred sorry(string::in) is erroneous.
+
+% imp/0 is used to make pure predicates impure.
+:- impure pred imp is det.
+
+%-----------------------------------------------------------------------------%
+
 :- implementation.
 
-:- pragma foreign_proc("C", var(_X::ui),
-		[thread_safe, will_not_call_mercury], "
-	SUCCESS_INDICATOR = FALSE;
-").
-:- pragma foreign_proc("C", var(_X::in),
-		[thread_safe, will_not_call_mercury], "
-	SUCCESS_INDICATOR = FALSE;
-").
-:- pragma foreign_proc("C", var(_X::unused),
-		[thread_safe, will_not_call_mercury], "").
+var(_::ui) :- fail.
+var(_::in) :- fail.
+var(_::unused) :- true.
 
-:- pragma foreign_proc("C", nonvar(_X::ui),
-		[thread_safe, will_not_call_mercury], "").
-:- pragma foreign_proc("C", nonvar(_X::in),
-		[thread_safe, will_not_call_mercury], "").
-:- pragma foreign_proc("C", nonvar(_X::unused),
-		[thread_safe, will_not_call_mercury], "
-	SUCCESS_INDICATOR = FALSE;
-").
+nonvar(_::ui) :- true.
+nonvar(_::in) :- true.
+nonvar(_::unused) :- fail.
 
-:- pragma foreign_proc("MC++", var(_X::ui),
-		[thread_safe, will_not_call_mercury], "
-	SUCCESS_INDICATOR = FALSE;
-").
-:- pragma foreign_proc("MC++", var(_X::in),
-		[thread_safe, will_not_call_mercury], "
-	SUCCESS_INDICATOR = FALSE;
-").
-:- pragma foreign_proc("MC++", var(_X::unused),
-		[thread_safe, will_not_call_mercury], "").
+sorry(PredName) :-
+	error("sorry, `" ++ PredName ++ "' not implemented\n" ++
+		"for this target language (or compiler back-end).").
 
-:- pragma foreign_proc("MC++", nonvar(_X::ui),
-		[thread_safe, will_not_call_mercury], "").
-:- pragma foreign_proc("MC++", nonvar(_X::in),
-		[thread_safe, will_not_call_mercury], "").
-:- pragma foreign_proc("MC++", nonvar(_X::unused),
-		[thread_safe, will_not_call_mercury], "
-	SUCCESS_INDICATOR = FALSE;
-").
-
+:- pragma foreign_proc(c, imp, [will_not_call_mercury, thread_safe], "").
+:- pragma foreign_proc(il, imp,
+		[will_not_call_mercury, thread_safe, max_stack_size(0)], "").
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

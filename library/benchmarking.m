@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -38,9 +38,16 @@
 % specify how many times Pred should be called inside the timed interval.
 % The number of milliseconds required to execute Pred with input In this
 % many times is returned as Time.
+%
+% benchmark_func(Func, In, Out, Repeats, Time) does for functions exactly
+% what benchmark_det does for predicates.
 
 :- pred benchmark_det(pred(T1, T2), T1, T2, int, int).
 :- mode benchmark_det(pred(in, out) is det, in, out, in, out) is cc_multi.
+:- mode benchmark_det(pred(in, out) is cc_multi, in, out, in, out) is cc_multi.
+
+:- pred benchmark_func(func(T1) = T2, T1, T2, int, int).
+:- mode benchmark_func(func(in) = out is det, in, out, in, out) is cc_multi.
 
 % benchmark_nondet(Pred, In, Count, Repeats, Time) is for benchmarking
 % the nondet predicate Pred. benchmark_nondet is similar to benchmark_det,
@@ -68,27 +75,31 @@ extern void ML_report_full_memory_stats(void);
 
 "). % end pragma foreign_decl
 
-:- pragma foreign_proc("C", report_stats, will_not_call_mercury,
+:- pragma foreign_proc("C", report_stats,
+	[will_not_call_mercury],
 "
 	ML_report_stats();
 ").
 
-:- pragma foreign_proc("C", report_full_memory_stats, will_not_call_mercury,
+:- pragma foreign_proc("C", report_full_memory_stats,
+	[will_not_call_mercury],
 "
 #ifdef	MR_MPROF_PROFILE_MEMORY
 	ML_report_full_memory_stats();
 #endif
 ").
 
-:- pragma foreign_proc("MC++", report_stats, will_not_call_mercury,
-"
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-").
+report_stats :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("report_stats").
 
-:- pragma foreign_proc("MC++", report_full_memory_stats, will_not_call_mercury,
-"
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-").
+report_full_memory_stats :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("report_full_memory_stats").
 
 %-----------------------------------------------------------------------------%
 
@@ -143,7 +154,7 @@ extern void ML_report_full_memory_stats(void);
 				ML_memprof_report_entry *table, int next_slot);
 
   static void ML_memory_profile_report(const ML_memprof_report_entry *,
-				int num_entries, bool complete);
+				int num_entries, MR_bool complete);
 
   static int  ML_memory_profile_compare_final(const void *, const void *);
 
@@ -153,7 +164,7 @@ void
 ML_report_stats(void)
 {
 	int			time_at_prev_stat;
-#ifndef MR_HIGHLEVEL_CODE
+#if !defined(MR_HIGHLEVEL_CODE) || !defined(MR_CONSERVATIVE_GC)
 	MercuryEngine		*eng;
 #endif
 #ifdef MR_MPROF_PROFILE_MEMORY
@@ -168,7 +179,7 @@ ML_report_stats(void)
 	time_at_prev_stat = MR_time_at_last_stat;
 	MR_time_at_last_stat = MR_get_user_cpu_miliseconds();
 
-#ifndef MR_HIGHLEVEL_CODE
+#if !defined(MR_HIGHLEVEL_CODE) || !defined(MR_CONSERVATIVE_GC)
 	eng = MR_get_engine();
 #endif
 
@@ -189,7 +200,7 @@ ML_report_stats(void)
 	);
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 	{ char local_var;
 	  fprintf(stderr, "" C Stack: %.3fk,"",
 		labs(&local_var - (char *) GC_stackbottom) / 1024.0);
@@ -208,7 +219,22 @@ ML_report_stats(void)
 	** Print heap usage information.
 	*/
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
+  #ifdef MR_MPS_GC
+  	{
+		size_t committed, spare;
+
+		committed = mps_arena_committed(mercury_mps_arena);
+		spare = mps_arena_spare_committed(mercury_mps_arena);
+
+		fprintf(stderr, 
+			""\\nHeap in use: %.3fk, spare: %.3fk, total: %.3fk"",
+			(committed - spare) / 1024.0,
+			spare / 1024.0,
+			committed / 1024.0);
+	}
+  #endif /* MR_MPS_GC */
+  #ifdef MR_BOEHM_GC
 	fprintf(stderr, 
 		""\\n#GCs: %lu, ""
 		""Heap used since last GC: %.3fk, Total used: %.3fk"",
@@ -216,12 +242,13 @@ ML_report_stats(void)
 		GC_get_bytes_since_gc() / 1024.0,
 		GC_get_heap_size() / 1024.0
 	);
-#else
+  #endif
+#else /* !MR_CONSERVATIVE_GC */
 	fprintf(stderr, 
 		""\\nHeap: %.3fk"",
 		((char *) MR_hp - (char *) eng->MR_eng_heap_zone->min) / 1024.0
 	);
-#endif
+#endif /* !MR_CONSERVATIVE_GC */
 
 #ifdef	MR_MPROF_PROFILE_MEMORY
 
@@ -237,7 +264,7 @@ ML_report_stats(void)
 	num_table_entries = ML_memory_profile_top_table(MR_memprof_procs.root,
 		table, MEMORY_PROFILE_SIZE, 0);
 	fprintf(stderr, ""\\nMemory profile by procedure\\n"");
-	ML_memory_profile_report(table, num_table_entries, FALSE);
+	ML_memory_profile_report(table, num_table_entries, MR_FALSE);
 
 	/*
 	** Print out the per-type memory profile (top N entries)
@@ -245,7 +272,7 @@ ML_report_stats(void)
 	num_table_entries = ML_memory_profile_top_table(MR_memprof_types.root,
 		table, MEMORY_PROFILE_SIZE, 0);
 	fprintf(stderr, ""\\nMemory profile by type\\n"");
-	ML_memory_profile_report(table, num_table_entries, FALSE);
+	ML_memory_profile_report(table, num_table_entries, MR_FALSE);
 
 	/*
 	** Print out the overall memory usage.
@@ -305,7 +332,7 @@ ML_report_full_memory_stats(void)
 	fprintf(stderr, ""\\nMemory profile by procedure\\n"");
 	fprintf(stderr, ""%14s %14s  %s\\n"",
 		""Cells"", ""Words"", ""Procedure label"");
-	ML_memory_profile_report(table, num_table_entries, TRUE);
+	ML_memory_profile_report(table, num_table_entries, MR_TRUE);
 
 	/*
 	** Print the by-type memory profile
@@ -318,7 +345,7 @@ ML_report_full_memory_stats(void)
 	fprintf(stderr, ""\\nMemory profile by type\\n"");
 	fprintf(stderr, ""%14s %14s  %s\\n"",
 		""Cells"", ""Words"", ""Procedure label"");
-	ML_memory_profile_report(table, num_table_entries, TRUE);
+	ML_memory_profile_report(table, num_table_entries, MR_TRUE);
 
 	/*
 	** Deallocate space for the table
@@ -488,7 +515,7 @@ ML_memory_profile_fill_table(MR_memprof_record *node,
 */
 static void
 ML_memory_profile_report(const ML_memprof_report_entry *table, int num_entries,
-	bool complete)
+	MR_bool complete)
 {
 	int		i;
 	const char	*name;
@@ -579,6 +606,7 @@ benchmark_det(Pred, In, Out, Repeats, Time) :-
 
 :- impure pred benchmark_det_loop(pred(T1, T2), T1, T2, int).
 :- mode benchmark_det_loop(pred(in, out) is det, in, out, in) is det.
+:- mode benchmark_det_loop(pred(in, out) is cc_multi, in, out, in) is cc_multi.
 
 benchmark_det_loop(Pred, In, Out, Repeats) :-
 	% The call to do_nothing/1 here is to make sure the compiler
@@ -587,6 +615,28 @@ benchmark_det_loop(Pred, In, Out, Repeats) :-
 	impure do_nothing(Out0),
 	( Repeats > 1 ->
 		impure benchmark_det_loop(Pred, In, Out, Repeats - 1)
+	;
+		Out = Out0
+	).
+
+:- pragma promise_pure(benchmark_func/5).
+benchmark_func(Func, In, Out, Repeats, Time) :-
+	impure get_user_cpu_miliseconds(StartTime),
+	impure benchmark_func_loop(Func, In, Out, Repeats),
+	impure get_user_cpu_miliseconds(EndTime),
+	Time0 = EndTime - StartTime,
+	cc_multi_equal(Time0, Time).
+
+:- impure pred benchmark_func_loop(func(T1) = T2, T1, T2, int).
+:- mode benchmark_func_loop(func(in) = out is det, in, out, in) is det.
+
+benchmark_func_loop(Func, In, Out, Repeats) :-
+	% The call to do_nothing/1 here is to make sure the compiler
+	% doesn't optimize away the call to `Func'.
+	Out0 = Func(In),
+	impure do_nothing(Out0),
+	( Repeats > 1 ->
+		impure benchmark_func_loop(Func, In, Out, Repeats - 1)
 	;
 		Out = Out0
 	).
@@ -627,18 +677,23 @@ repeat(N) :-
 "
 	Time = MR_get_user_cpu_miliseconds();
 ").
+/* XXX Can't seem to get this to work -- perhaps Diagnostics isn't yet
+ * available in Beta 1 of the .NET framework.
 :- pragma foreign_proc("MC++",
 	get_user_cpu_miliseconds(_Time::out), [will_not_call_mercury],
 "
 	// This won't return the elapsed time since program start,
 	// as it begins timing after the first call.
 	// For computing time differences it should be fine.
-	// Time = (int) (1000 * System::Diagnostics::Counter::GetElapsed());
-	// XXX Can't seem to get this to work -- perhaps Diagnositcs isn't
-	// yet available in Beta 1 of the .NET frameworks.
-
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	Time = (int) (1000 * System::Diagnostics::Counter::GetElapsed());
 ").
+*/
+
+get_user_cpu_miliseconds(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("get_user_cpu_miliseconds").
 
 /*
 ** To prevent the C compiler from optimizing the benchmark code
@@ -662,14 +717,21 @@ repeat(N) :-
 ** away, we assign the benchmark output to a volatile static variable.
 ** XXX at least, we should do this but it doesn't seem to work.
 */
+/*
 :- pragma foreign_proc("MC++", 
 	do_nothing(X::in), [will_not_call_mercury, thread_safe],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-/*	static volatile MR_Word ML_benchmarking_dummy_word;
+	static volatile MR_Word ML_benchmarking_dummy_word;
 	ML_benchmarking_dummy_word = (MR_Word) X;
-*/
 ").
+*/
+
+do_nothing(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("benchmaring__do_nothing").
 
 %-----------------------------------------------------------------------------%
 
@@ -681,17 +743,16 @@ repeat(N) :-
 :- impure pred new_int_reference(int::in, int_reference::out) is det.
 :- pragma inline(new_int_reference/2).
 :- pragma foreign_proc("C",
-	new_int_reference(X::in, Ref::out), will_not_call_mercury,
+	new_int_reference(X::in, Ref::out), [will_not_call_mercury],
 "
 	MR_incr_hp(Ref, 1);
 	* (MR_Integer *) Ref = X;
 ").
-:- pragma foreign_proc("MC++",
-	new_int_reference(_X::in, _Ref::out), will_not_call_mercury, 
-"
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-").
-
+new_int_reference(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("benchmarking__new_int_reference").
 
 :- impure pred incr_ref(int_reference::in) is det.
 incr_ref(Ref) :-
@@ -700,24 +761,28 @@ incr_ref(Ref) :-
 
 :- semipure pred ref_value(int_reference::in, int::out) is det.
 :- pragma inline(ref_value/2).
-:- pragma foreign_proc("C",
-	ref_value(Ref::in, X::out), will_not_call_mercury, "
+:- pragma promise_semipure(ref_value/2).
+:- pragma foreign_proc("C", ref_value(Ref::in, X::out),
+		[will_not_call_mercury],
+"
 	X = * (MR_Integer *) Ref;
 ").
-:- pragma foreign_proc("MC++",
-	ref_value(_Ref::in, _X::out), will_not_call_mercury, "
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-").
+ref_value(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("benchmarking__ref_value").
 
 :- impure pred update_ref(int_reference::in, T::in) is det.
 :- pragma inline(update_ref/2).
 :- pragma foreign_proc("C",
-	update_ref(Ref::in, X::in), will_not_call_mercury, "
+	update_ref(Ref::in, X::in), [will_not_call_mercury], "
 	* (MR_Integer *) Ref = X;
 ").
-:- pragma foreign_proc("MC++",
-	update_ref(_Ref::in, _X::in), will_not_call_mercury, "
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-").
+update_ref(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("benchmarking__update_ref").
 
 %-----------------------------------------------------------------------------%

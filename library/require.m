@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-1999 The University of Melbourne.
+% Copyright (C) 1993-1999,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -23,6 +23,13 @@
 %		Throw a `software_error(Message)' exception.
 %		This will normally cause execution to abort with an error
 %		message.
+
+:- func func_error(string) = _.
+:- mode func_error(in) = out is erroneous.
+
+%	func_error(Message)
+%		An expression that results in a `software_error(Message)'
+%		exception being thrown.
 
 :- pred	require(pred, string).
 :- mode	require((pred) is semidet, in) is det.
@@ -88,6 +95,12 @@ report_lookup_error(Msg, K, V) :-
 
 error(Message) :- 
 	throw(software_error(Message)).
+
+% Hopefully func_error/1 won't be called often (!), so no point inlining it.
+:- pragma no_inline(func_error/1). 
+
+func_error(Message) = _ :-
+	error(Message).
 
 :- end_module require.
 

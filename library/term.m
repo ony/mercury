@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1993-2000 The University of Melbourne.
+% Copyright (C) 1993-2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -278,6 +278,11 @@
 %	term__create_var(VarSupply0, Variable, VarSupply) :
 %		create a fresh variable (var) and return the
 %		updated var_supply.
+
+:- func term__var_id(var(T)) = int.
+%	term__var_id(Variable) :
+%		returns a unique number associated with this variable w.r.t.
+%		its originating var_supply.
 
 %-----------------------------------------------------------------------------%
 
@@ -1073,6 +1078,10 @@ term__init_var_supply(var_supply(0)).
 
 term__create_var(var_supply(V0), var(V), var_supply(V)) :-
 	V is V0 + 1.
+
+%------------------------------------------------------------------------------%
+
+term__var_id(var(V)) = V.
 
 %-----------------------------------------------------------------------------%
 

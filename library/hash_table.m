@@ -1,6 +1,6 @@
 % ---------------------------------------------------------------------------- %
 % hash_table.m
-% Copyright (C) 2001 Ralph Becket <rbeck@microsoft.com>
+% Copyright (C) 2001-2002 Ralph Becket <rbeck@microsoft.com>
 % Tue Jan 30 15:21:45 GMT 2001
 % vim: ts=4 sw=4 et tw=0 wm=0 ff=unix ft=mercury
 %
@@ -181,7 +181,7 @@
 
 :- implementation.
 
-:- import_module exception, math, bool, exception, list, std_util.
+:- import_module math, bool, exception, list, require, std_util.
 
 
 
@@ -229,11 +229,13 @@
 
 new(HashPred, N, MaxOccupancy) = HT :-
     (      if N =< 1 then
-            throw("hash_table__new_hash_table: N =< 1")
+            throw(software_error("hash_table__new_hash_table: N =< 1"))
       else if N >= int__bits_per_int then
-            throw("hash_table__new_hash_table: N >= int__bits_per_int")
+            throw(software_error(
+                "hash_table__new_hash_table: N >= int__bits_per_int"))
       else if MaxOccupancy =< 0.0 ; 1.0 =< MaxOccupancy  then
-            throw("hash_table__new_hash_table: MaxOccupancy not in (0.0, 1.0)")
+            throw(software_error(
+                "hash_table__new_hash_table: MaxOccupancy not in (0.0, 1.0)"))
       else
             NumBuckets   = 1 << N,
             MaxOccupants = ceiling_to_int(float(NumBuckets) * MaxOccupancy),
@@ -269,7 +271,7 @@ find_slot(HT, K) = H :-
     (HT ^ hash_pred)(K, Hash1a, Hash2a),
     int__abs(Hash1a, Hash1),
     int__abs(Hash2a, Hash2),
-    H0    = Hash1 `rem` HT ^ num_buckets,
+    H0    = Hash1 rem HT ^ num_buckets,
     Delta = Hash2 + Hash2 + 1,          % Have to ensure it's odd and non-zero.
     H     = find_slot_2(HT, K, H0, Delta).
 
@@ -285,7 +287,7 @@ find_slot_2(HT, K, H0, Delta) = H :-
       else if HT ^ keys ^ elem(H0) = K then
         H  = H0
       else
-        H1 = (H0 + Delta) `rem` HT ^ num_buckets,
+        H1 = (H0 + Delta) rem HT ^ num_buckets,
         H  = find_slot_2(HT, K, H1, Delta)
     ).
 
@@ -335,7 +337,7 @@ search(HT, K, V) :-
 
 det_insert(HT, K, V) =
     ( if bitmap__is_set(HT ^ bitmap, H) then
-        throw("hash_table__det_insert: key already present")
+        throw(software_error("hash_table__det_insert: key already present"))
       else if HT ^ num_occupants = HT ^ max_occupants then
         set(expand(HT), K, V)
       else
@@ -352,7 +354,7 @@ det_insert(HT, K, V) =
 
 det_update(HT, K, V) =
     ( if bitmap__is_clear(HT ^ bitmap, H) then
-        throw("hash_table__det_update: key not found")
+        throw(software_error("hash_table__det_update: key not found"))
       else
         HT ^ values ^ elem(H) := V
     )
@@ -364,7 +366,7 @@ det_update(HT, K, V) =
 lookup(HT, K) =
     ( if search(HT, K, V)
       then V
-      else throw("hash_table__lookup: key not found")
+      else throw(software_error("hash_table__lookup: key not found"))
     ).
 
 elem(K, HT) = lookup(HT, K).

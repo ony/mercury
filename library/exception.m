@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 The University of Melbourne.
+% Copyright (C) 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -193,9 +193,6 @@
 :- mode try_all(in(bound(nondet)),  pred(out) is nondet,
 				    	     out(try_all_nondet)) is cc_multi.
 
-% The functors in this type must be in the same order as the
-% enumeration constants in the foreign language enums `ML_Determinism'
-% defined below.
 :- type determinism
 	--->	det
 	;	semidet
@@ -222,159 +219,54 @@
 :- mode get_determinism_2(pred(out, di, uo) is cc_multi, out(bound(cc_multi)))
 	is cc_multi.
 
-% Unfortunately the only way to implement get_determinism/2 is to use
-% the C interface, since Mercury doesn't allow different code for different
-% modes.
+% The calls to error/1 here are needed to ensure that the
+% declarative semantics of each clause is equivalent,
+% but operationally they are unreachable;
+% since each mode has determinism cc_multi,
+% it will pick the first disjunct and discard the call to error/1.
+% This relies on --no-reorder-disj.
 
-:- pragma foreign_decl("C", "
-/* The `#ifndef ... #define ... #endif' guards against multiple inclusion */
-#ifndef ML_DETERMINISM_GUARD
-#define ML_DETERMINISM_GUARD
-	/*
-	** The enumeration constants in this enum must be in the same
-	** order as the functors in the Mercury type `determinism'
-	** defined above.
-	*/
-	typedef enum {
-		ML_DET,
-		ML_SEMIDET,
-		ML_CC_MULTI,
-		ML_CC_NONDET,
-		ML_MULTI,
-		ML_NONDET,
-		ML_ERRONEOUS,
-		ML_FAILURE
-	} ML_Determinism;
-#endif
-").
+:- pragma promise_pure(get_determinism/2).
 
-:- pragma foreign_proc("C",
-	get_determinism(_Pred::pred(out) is det,
-			Det::out(bound(det))),
-	will_not_call_mercury,
-	"Det = ML_DET"
-).
-:- pragma foreign_proc("C",
-	get_determinism(_Pred::pred(out) is semidet,
-			Det::out(bound(semidet))),
-	will_not_call_mercury,
-	"Det = ML_SEMIDET"
-).
-:- pragma foreign_proc("C",
-	get_determinism(_Pred::pred(out) is cc_multi,
-			Det::out(bound(cc_multi))),
-	will_not_call_mercury,
-	"Det = ML_CC_MULTI"
-).
-:- pragma foreign_proc("C",
-	get_determinism(_Pred::pred(out) is cc_nondet,
-			Det::out(bound(cc_nondet))),
-	will_not_call_mercury,
-	"Det = ML_CC_NONDET"
-).
-:- pragma foreign_proc("C",
-	get_determinism(_Pred::pred(out) is multi,
-			Det::out(bound(multi))),
-	will_not_call_mercury,
-	"Det = ML_MULTI"
-).
-:- pragma foreign_proc("C",
-	get_determinism(_Pred::pred(out) is nondet,
-			Det::out(bound(nondet))),
-	will_not_call_mercury,
-	"Det = ML_NONDET"
-).
+get_determinism(_Pred::(pred(out) is det), Det::out(bound(det))) :-
+	( cc_multi_equal(det, Det)
+	; error("get_determinism")
+	).
+get_determinism(_Pred::(pred(out) is semidet), Det::out(bound(semidet))) :-
+	( cc_multi_equal(semidet, Det)
+	; error("get_determinism")
+	).
+get_determinism(_Pred::(pred(out) is cc_multi), Det::out(bound(cc_multi))) :-
+	( cc_multi_equal(cc_multi, Det)
+	; error("get_determinism")
+	).
+get_determinism(_Pred::(pred(out) is cc_nondet), Det::out(bound(cc_nondet))) :-
+	( cc_multi_equal(cc_nondet, Det)
+	; error("get_determinism")
+	).
+get_determinism(_Pred::(pred(out) is multi), Det::out(bound(multi))) :-
+	( cc_multi_equal(multi, Det)
+	; error("get_determinism")
+	).
+get_determinism(_Pred::(pred(out) is nondet), Det::out(bound(nondet))) :-
+	( cc_multi_equal(nondet, Det)
+	; error("get_determinism")
+	).
 
-:- pragma foreign_proc("C",
-	get_determinism_2(_Pred::pred(out, di, uo) is det,
-			Det::out(bound(det))),
-	will_not_call_mercury,
-	"Det = ML_DET"
-).
+:- pragma promise_pure(get_determinism_2/2).
 
-:- pragma foreign_proc("C",
-	get_determinism_2(_Pred::pred(out, di, uo) is cc_multi,
-			Det::out(bound(cc_multi))),
-	will_not_call_mercury,
-	"Det = ML_CC_MULTI"
-).
-
-:- pragma foreign_decl("MC++", "
-/* The `#ifndef ... #define ... #endif' guards against multiple inclusion */
-#ifndef ML_DETERMINISM_GUARD
-#define ML_DETERMINISM_GUARD
-
-	/*
-	** The constants in these #defines must be in the same
-	** order as the functors in the Mercury type `determinism'
-	** defined above.
-	** XXX It would be nice to use an enum here, but at the moment
-	** I can't convince the MC++ compiler to accept the syntax for it.
-	*/
-
-#define ML_DET	0
-#define	ML_SEMIDET	1
-#define	ML_CC_MULTI	2
-#define	ML_CC_NONDET	3
-#define	ML_MULTI	4
-#define	ML_NONDET	5
-#define	ML_ERRONEOUS	6
-#define	ML_FAILURE	7
-
-#endif
-").
-
-:- pragma foreign_proc("MC++",
-	get_determinism(_Pred::pred(out) is det,
-			Det::out(bound(det))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_DET);"
-).
-:- pragma foreign_proc("MC++",
-	get_determinism(_Pred::pred(out) is semidet,
-			Det::out(bound(semidet))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_SEMIDET);"
-).
-:- pragma foreign_proc("MC++",
-	get_determinism(_Pred::pred(out) is cc_multi,
-			Det::out(bound(cc_multi))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_CC_MULTI);"
-).
-:- pragma foreign_proc("MC++",
-	get_determinism(_Pred::pred(out) is cc_nondet,
-			Det::out(bound(cc_nondet))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_CC_NONDET);"
-).
-:- pragma foreign_proc("MC++",
-	get_determinism(_Pred::pred(out) is multi,
-			Det::out(bound(multi))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_MULTI);"
-).
-:- pragma foreign_proc("MC++",
-	get_determinism(_Pred::pred(out) is nondet,
-			Det::out(bound(nondet))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_NONDET);"
-).
-
-:- pragma foreign_proc("MC++",
-	get_determinism_2(_Pred::pred(out, di, uo) is det,
-			Det::out(bound(det))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_DET);"
-).
-
-:- pragma foreign_proc("MC++",
-	get_determinism_2(_Pred::pred(out, di, uo) is cc_multi,
-			Det::out(bound(cc_multi))),
-	will_not_call_mercury,
-	"MR_newenum(Det, ML_CC_MULTI);"
-).
-
+get_determinism_2(
+	_Pred::pred(out, di, uo) is det,
+			Det::out(bound(det))) :-
+	( cc_multi_equal(det, Det)
+	; error("get_determinism_2")
+	).
+get_determinism_2(
+	_Pred::pred(out, di, uo) is cc_multi,
+			Det::out(bound(cc_multi))) :-
+	( cc_multi_equal(cc_multi, Det)
+	; error("get_determinism_2")
+	).
 
 % These are not worth inlining, since they will
 % (presumably) not be called frequently, and so
@@ -663,8 +555,8 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 
 :- pragma c_header_code("
 /* protect against multiple inclusion */
-#ifndef MR_HLC_EXCEPTION_GUARD
-#define MR_HLC_EXCEPTION_GUARD
+#ifndef ML_HLC_EXCEPTION_GUARD
+#define ML_HLC_EXCEPTION_GUARD
 
 #ifdef MR_HIGHLEVEL_CODE
 
@@ -684,7 +576,7 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 		MR_Pred pred, MR_Pred handler_pred, MR_Box *output);
 
 	/* semidet */
-	bool MR_CALL
+	MR_bool MR_CALL
 	mercury__exception__builtin_catch_3_p_1(MR_Mercury_Type_Info type_info,
 		MR_Pred pred, MR_Pred handler_pred, MR_Box *output);
 
@@ -694,7 +586,7 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 		MR_Pred pred, MR_Pred handler_pred, MR_Box *output);
 
 	/* cc_nondet */
-	bool MR_CALL
+	MR_bool MR_CALL
 	mercury__exception__builtin_catch_3_p_3(MR_Mercury_Type_Info type_info,
 		MR_Pred pred, MR_Pred handler_pred, MR_Box *output);
 
@@ -743,7 +635,7 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 	void MR_CALL mercury__exception__builtin_catch_model_det(
 		MR_Mercury_Type_Info type_info, MR_Pred pred,
 		MR_Pred handler_pred, MR_Box *output);
-	bool MR_CALL mercury__exception__builtin_catch_model_semi(
+	MR_bool MR_CALL mercury__exception__builtin_catch_model_semi(
 		MR_Mercury_Type_Info type_info, MR_Pred pred,
 		MR_Pred handler_pred, MR_Box *output);
 	void MR_CALL mercury__exception__builtin_catch_model_non(
@@ -753,7 +645,7 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 
 #endif /* MR_HIGHLEVEL_CODE */
 
-#endif /* MR_HLC_EXCEPTION_GUARD */
+#endif /* ML_HLC_EXCEPTION_GUARD */
 ").
 
 :- pragma c_code("
@@ -783,7 +675,7 @@ mercury__exception__builtin_catch_3_p_0(MR_Mercury_Type_Info type_info,
 }
 
 /* semidet ==> model_semi */
-bool MR_CALL
+MR_bool MR_CALL
 mercury__exception__builtin_catch_3_p_1(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output)
 {
@@ -801,7 +693,7 @@ mercury__exception__builtin_catch_3_p_2(MR_Mercury_Type_Info type_info,
 }
 
 /* cc_nondet ==> model_semi */
-bool MR_CALL
+MR_bool MR_CALL
 mercury__exception__builtin_catch_3_p_3(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output)
 {
@@ -841,11 +733,11 @@ ML_call_goal_det_handcoded(MR_Mercury_Type_Info type_info,
 	(*code)((void *) closure, result);
 }
 
-static bool
+static MR_bool
 ML_call_goal_semi_handcoded(MR_Mercury_Type_Info type_info,
 	MR_Pred closure, MR_Box *result)
 {
-	typedef bool MR_CALL SemidetFuncType(void *, MR_Box *);
+	typedef MR_bool MR_CALL SemidetFuncType(void *, MR_Box *);
 	SemidetFuncType *code = (SemidetFuncType *)
 		MR_field(MR_mktag(0), closure, (MR_Integer) 1);
 	return (*code)((void *) closure, result);
@@ -885,6 +777,10 @@ typedef struct ML_ExceptionHandler_struct {
 	MR_Univ		exception;
 } ML_ExceptionHandler;
 
+/*
+** XXX This is currently not thread-safe!
+** The ML_exception_handler variable should be thread-local.
+*/
 ML_ExceptionHandler *ML_exception_handler;
 
 void MR_CALL
@@ -903,14 +799,91 @@ mercury__exception__builtin_throw_1_p_0(MR_Univ exception)
 	}
 }
 
+#ifdef MR_NATIVE_GC
+
+/*
+** The following code is needed to trace the local variables
+** in the builtin_catch_* functions for accurate GC.
+*/
+
+struct mercury__exception__builtin_catch_locals {
+	/* fixed fields, from struct MR_StackChain */
+	struct MR_StackChain *prev;
+	void (*trace)(void *this_frame);
+	/* locals for this function */
+	MR_Mercury_Type_Info type_info;
+	MR_Pred handler_pred;
+};
+
+static void
+mercury__exception__builtin_catch_gc_trace(void *frame)
+{
+	struct mercury__exception__builtin_catch_locals *agc_locals = frame;
+	/*
+	** Construct a type_info for the type `pred(univ, T)',
+	** which is the type of the handler_pred.
+	*/
+	MR_VAR_ARITY_TYPEINFO_STRUCT(s, 2) type_info_for_handler_pred;
+	type_info_for_handler_pred.MR_ti_type_ctor_info = 
+		&mercury__builtin__builtin__type_ctor_info_pred_0;
+	type_info_for_handler_pred.MR_ti_var_arity_arity = 2;
+	type_info_for_handler_pred.MR_ti_var_arity_arg_typeinfos[0] =
+		(MR_TypeInfo)
+		&mercury__std_util__std_util__type_ctor_info_univ_0;
+	type_info_for_handler_pred.MR_ti_var_arity_arg_typeinfos[1] =
+		(MR_TypeInfo) agc_locals->type_info;
+	/*
+	** Call gc_trace/1 to trace the two local variables in this frame.
+	*/
+	mercury__private_builtin__gc_trace_1_p_0(
+		(MR_Word)
+		&mercury__type_desc__type_desc__type_ctor_info_type_desc_0,
+		(MR_Word) &agc_locals->type_info);
+	mercury__private_builtin__gc_trace_1_p_0(
+		(MR_Word) &type_info_for_handler_pred,
+		(MR_Word) &agc_locals->handler_pred);
+}
+
+ #define ML_DECLARE_AGC_HANDLER \
+	struct mercury__exception__builtin_catch_locals agc_locals;
+
+ #define ML_INSTALL_AGC_HANDLER(TYPE_INFO, HANDLER_PRED) \
+ 	do { \
+	    agc_locals.prev = mercury__private_builtin__stack_chain; \
+	    agc_locals.trace = mercury__exception__builtin_catch_gc_trace; \
+	    agc_locals.type_info = (TYPE_INFO); \
+	    agc_locals.handler_pred = (HANDLER_PRED); \
+	    mercury__private_builtin__stack_chain = &agc_locals; \
+	} while(0)
+
+ #define ML_UNINSTALL_AGC_HANDLER() \
+ 	do { \
+	    mercury__private_builtin__stack_chain = agc_locals.prev; \
+	} while (0)
+
+  #define ML_AGC_LOCAL(NAME) (agc_locals.NAME)
+
+#else /* !MR_NATIVE_GC */
+
+  /* If accurate GC is not enabled, we define all of these as NOPs. */
+  #define ML_DECLARE_AGC_HANDLER
+  #define ML_INSTALL_AGC_HANDLER(type_info, handler_pred)
+  #define ML_UNINSTALL_AGC_HANDLER()
+  #define ML_AGC_LOCAL(name) (name)
+
+#endif /* !MR_NATIVE_GC */
+
 void MR_CALL
 mercury__exception__builtin_catch_model_det(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output)
 {
 	ML_ExceptionHandler this_handler;
-
+	ML_DECLARE_AGC_HANDLER
+	
 	this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &this_handler;
+
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
 
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""detcatch setjmp %p\\n"", this_handler.handler);
@@ -919,6 +892,7 @@ mercury__exception__builtin_catch_model_det(MR_Mercury_Type_Info type_info,
 	if (setjmp(this_handler.handler) == 0) {
 		ML_call_goal_det_handcoded(type_info, pred, output);
 		ML_exception_handler = this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 	} else {
 #ifdef	MR_DEBUG_JMPBUFS
 		fprintf(stderr, ""detcatch caught jmp %p\\n"",
@@ -926,28 +900,34 @@ mercury__exception__builtin_catch_model_det(MR_Mercury_Type_Info type_info,
 #endif
 
 		ML_exception_handler = this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			this_handler.exception, output);
 	}
 }
 
-bool MR_CALL
+MR_bool MR_CALL
 mercury__exception__builtin_catch_model_semi(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output)
 {
 	ML_ExceptionHandler this_handler;
+	ML_DECLARE_AGC_HANDLER
 
 	this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &this_handler;
+
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
 
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""semicatch setjmp %p\\n"", this_handler.handler);
 #endif
 
 	if (setjmp(this_handler.handler) == 0) {
-		bool result = ML_call_goal_semi_handcoded(type_info, pred,
+		MR_bool result = ML_call_goal_semi_handcoded(type_info, pred,
 			output);
 		ML_exception_handler = this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 		return result;
 	} else {
 #ifdef	MR_DEBUG_JMPBUFS
@@ -956,9 +936,11 @@ mercury__exception__builtin_catch_model_semi(MR_Mercury_Type_Info type_info,
 #endif
 
 		ML_exception_handler = this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			this_handler.exception, output);
-		return TRUE;
+		return MR_TRUE;
 	}
 }
 
@@ -970,6 +952,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	MR_NestedCont cont)
 {
 	ML_ExceptionHandler this_handler;
+	ML_DECLARE_AGC_HANDLER
 
 	auto void MR_CALL success_cont(void);
 	void MR_CALL success_cont(void) {
@@ -994,6 +977,8 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &this_handler;
 
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
+
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""noncatch setjmp %p\\n"", this_handler.handler);
 #endif
@@ -1002,6 +987,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 		ML_call_goal_non_handcoded(type_info, pred, output,
 			success_cont);
 		ML_exception_handler = this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 	} else {
 #ifdef	MR_DEBUG_JMPBUFS
 		fprintf(stderr, ""noncatch caught jmp %p\\n"",
@@ -1009,7 +995,9 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 #endif
 
 		ML_exception_handler = this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			this_handler.exception, output);
 		(*cont)();
 	}
@@ -1050,12 +1038,15 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output,
 	MR_Cont cont, void *cont_env)
 {
+	ML_DECLARE_AGC_HANDLER
 	struct ML_catch_env locals;
 	locals.cont = cont;
 	locals.cont_env = cont_env;
 
 	locals.this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &locals.this_handler;
+
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
 
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""noncatch setjmp %p\\n"", locals.this_handler.handler);
@@ -1071,6 +1062,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 		** handler 
 		*/
 		ML_exception_handler = locals.this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 		return;
 	} else {
 		/*
@@ -1087,7 +1079,9 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 
 
 		ML_exception_handler = locals.this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			locals.this_handler.exception, output);
 		cont(cont_env);
 	}
@@ -1102,14 +1096,31 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	% For the .NET backend we override throw_impl as it is easier to 
 	% implement these things using foreign_proc.
 
-:- pragma foreign_proc("C#", throw_impl(T::in), [will_not_call_mercury], "
+:- pragma foreign_decl("MC++", "
+namespace mercury {
+	namespace runtime {
+		__gc public class Exception : public System::Exception
+		{
+		public:
+		   Exception(MR_Univ data) 
+		   {
+			mercury_exception = data;	
+		   }
+		   MR_Univ mercury_exception;
+		};
+	}
+}
+").
+
+:- pragma foreign_proc("C#", throw_impl(T::in),
+		[will_not_call_mercury, promise_pure], "
 	throw new mercury.runtime.Exception(T);
 ").
 
 
 :- pragma foreign_proc("C#", 
-	catch_impl(Pred::pred(out) is det,
-		Handler::in(handler), T::out), [will_not_call_mercury], "
+	catch_impl(Pred::pred(out) is det, Handler::in(handler), T::out),
+		[will_not_call_mercury, promise_pure], "
 	try {
 		mercury.exception.mercury_code.ML_call_goal_det(
 			TypeInfo_for_T, Pred, ref T);
@@ -1120,8 +1131,8 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	}
 ").
 :- pragma foreign_proc("C#", 
-	catch_impl(Pred::pred(out) is cc_multi,
-		Handler::in(handler), T::out), [will_not_call_mercury], "
+	catch_impl(Pred::pred(out) is cc_multi, Handler::in(handler), T::out),
+		[will_not_call_mercury, promise_pure], "
 	try {
 		mercury.exception.mercury_code.ML_call_goal_det(
 			TypeInfo_for_T, Pred, ref T);
@@ -1137,14 +1148,14 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	% for the C# interface.
 
 :- pragma foreign_proc("C#", 
-	catch_impl(Pred::pred(out) is semidet,
-		Handler::in(handler), T::out), [will_not_call_mercury], "
+	catch_impl(Pred::pred(out) is semidet, Handler::in(handler), T::out),
+		[will_not_call_mercury, promise_pure], "
 	mercury.runtime.Errors.SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("C#", 
-	catch_impl(Pred::pred(out) is cc_nondet,
-		Handler::in(handler), T::out), [will_not_call_mercury], "
+	catch_impl(Pred::pred(out) is cc_nondet, Handler::in(handler), T::out),
+		[will_not_call_mercury, promise_pure], "
 	mercury.runtime.Errors.SORRY(""foreign code for this function"");
 ").
 
@@ -1153,8 +1164,8 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	% is not possible.
 
 :- pragma foreign_proc("C#", 
-	catch_impl(_Pred::pred(out) is multi,
-		_Handler::in(handler), _T::out), [will_not_call_mercury], 
+	catch_impl(_Pred::pred(out) is multi, _Handler::in(handler), _T::out),
+		[will_not_call_mercury, promise_pure], 
 	local_vars(""),
 	first_code(""),
 	retry_code(""),
@@ -1163,8 +1174,8 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	")
 ).
 :- pragma foreign_proc("C#", 
-	catch_impl(_Pred::pred(out) is nondet,
-		_Handler::in(handler), _T::out), [will_not_call_mercury], 
+	catch_impl(_Pred::pred(out) is nondet, _Handler::in(handler), _T::out),
+		[will_not_call_mercury, promise_pure], 
 	local_vars(""),
 	first_code(""),
 	retry_code(""),
@@ -1272,7 +1283,7 @@ void mercury_sys_init_exceptions_write_out_proc_statics(FILE *fp);
 */
 
 static MR_Code *
-MR_trace_throw(MR_Code *success_pointer, MR_Word *base_sp, MR_Word *base_curfr)
+ML_trace_throw(MR_Code *success_pointer, MR_Word *base_sp, MR_Word *base_curfr)
 {
 	const MR_Internal	*label;
 	const MR_Label_Layout	*return_label_layout;
@@ -1321,7 +1332,7 @@ MR_trace_throw(MR_Code *success_pointer, MR_Word *base_sp, MR_Word *base_curfr)
 		*/
 		result = MR_stack_walk_step(entry_layout, &return_label_layout,
 			&base_sp, &base_curfr, &problem);
-		if (result != STEP_OK) {
+		if (result != MR_STEP_OK) {
 			WARNING(problem);
 			return NULL;
 		}
@@ -1408,6 +1419,15 @@ MR_declare_label(mercury__exception__builtin_catch_3_4_i7);
 MR_declare_label(mercury__exception__builtin_catch_3_5_i7);
 #endif
 
+#ifdef	MR_DEEP_PROFILING
+MR_declare_label(mercury__exception__builtin_catch_3_0_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_1_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_2_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_3_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_4_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_5_i8);
+#endif
+
 MR_declare_label(mercury__exception__builtin_throw_1_0_i1);
 
 /*
@@ -1482,6 +1502,15 @@ MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 7);
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 7);
 #endif
 
+#ifdef	MR_DEEP_PROFILING
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_0, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_1, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_2, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_3, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 8);
+#endif
+
 MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_throw_1_0,
         MR_DETISM_DET, 1, MR_LONG_LVAL_STACKVAR(1),
         MR_PREDICATE, ""exception"", ""builtin_throw"", 1, 0);
@@ -1490,23 +1519,23 @@ MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_throw_1_0, 1);
 #ifdef	MR_DEEP_PROFILING
 /* XXX the 0s are fake line numbers */
 MR_proc_static_user_ho(exception, builtin_catch, 3, 0,
-	""exception.m"", 0, TRUE);
+	""exception.m"", 0, MR_TRUE);
 MR_proc_static_user_ho(exception, builtin_catch, 3, 1,
-	""exception.m"", 0, TRUE);
+	""exception.m"", 0, MR_TRUE);
 MR_proc_static_user_ho(exception, builtin_catch, 3, 2,
-	""exception.m"", 0, TRUE);
+	""exception.m"", 0, MR_TRUE);
 MR_proc_static_user_ho(exception, builtin_catch, 3, 3,
-	""exception.m"", 0, TRUE);
+	""exception.m"", 0, MR_TRUE);
 MR_proc_static_user_ho(exception, builtin_catch, 3, 4,
-	""exception.m"", 0, TRUE);
+	""exception.m"", 0, MR_TRUE);
 MR_proc_static_user_ho(exception, builtin_catch, 3, 5,
-	""exception.m"", 0, TRUE);
+	""exception.m"", 0, MR_TRUE);
 /*
 ** XXX Builtin_throw will eventually be able to make calls in deep profiling
 ** grades. In the meantime, we need its proc_static structure for its callers.
 */
 MR_proc_static_user_empty(exception, builtin_throw, 1, 0,
-	""exception.m"", 0, FALSE);
+	""exception.m"", 0, MR_FALSE);
 #endif
 
 MR_BEGIN_MODULE(exceptions_module)
@@ -1557,6 +1586,15 @@ MR_BEGIN_MODULE(exceptions_module)
 #ifdef	MR_DEEP_PROFILING
 	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i7);
 	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i7);
+#endif
+
+#ifdef	MR_DEEP_PROFILING
+	MR_init_label(mercury__exception__builtin_catch_3_0_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_1_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_2_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_3_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_4_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_5_i8);
 #endif
 
 	MR_init_entry_sl(mercury__exception__builtin_throw_1_0);
@@ -1671,7 +1709,7 @@ MR_BEGIN_CODE
 #define	model			""[model non]""
 #define	save_results()		save_r1
 #define	restore_results()	restore_r1
-#define	version_model_non	TRUE
+#define	version_model_non	MR_TRUE
 #define	handle_ticket_on_exit()	((void) 0)
 #define	handle_ticket_on_fail()	do {					\
 					MR_prune_ticket();		\
@@ -1730,7 +1768,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		MR_Code *MR_jumpaddr;
 		MR_trace_set_exception_value(exception);
 		MR_save_transient_registers();
-		MR_jumpaddr = MR_trace_throw(MR_succip, MR_sp, MR_curfr);
+		MR_jumpaddr = ML_trace_throw(MR_succip, MR_sp, MR_curfr);
 		MR_restore_transient_registers();
 		if (MR_jumpaddr != NULL) MR_GOTO(MR_jumpaddr);
 	}
@@ -1789,15 +1827,15 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 			if (MR_trace_enabled) {
 				/*
 				** The stack has already been unwound
-				** by MR_trace_throw(), so we can't dump it.
+				** by ML_trace_throw(), so we can't dump it.
 				** (In fact, if we tried to dump the now-empty
 				** stack, we'd get incorrect results, since
-				** MR_trace_throw() does not restore MR_succip
+				** ML_trace_throw() does not restore MR_succip
 				** to the appropriate value.)
 				*/
 			} else {
 				MR_dump_stack(MR_succip, MR_sp, MR_curfr,
-					FALSE);
+					MR_FALSE);
 			}
 			exit(1);
 		}
@@ -1829,7 +1867,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		MR_exception);
 	MR_discard_tickets_to(MR_EXCEPTION_STRUCT->MR_excp_ticket_counter);
 #endif
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
 	/*
 	** Reset the heap.  But we need to be careful to preserve the
 	** thrown exception object.
@@ -1864,7 +1902,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	assert(MR_EXCEPTION_STRUCT->MR_excp_heap_ptr <=
 		MR_EXCEPTION_STRUCT->MR_excp_heap_zone->top);
 	MR_save_transient_registers();
-	exception = MR_deep_copy(&exception,
+	exception = MR_deep_copy(exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
 		MR_EXCEPTION_STRUCT->MR_excp_heap_ptr,
 		MR_EXCEPTION_STRUCT->MR_excp_heap_zone->top);
@@ -1881,7 +1919,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	assert(MR_EXCEPTION_STRUCT->MR_excp_solns_heap_ptr <=
 		MR_ENGINE(MR_eng_solutions_heap_zone)->top);
 	MR_save_transient_registers();
-	exception = MR_deep_copy(&exception,
+	exception = MR_deep_copy(exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
 		saved_solns_heap_ptr,
 		MR_ENGINE(MR_eng_solutions_heap_zone)->top);
@@ -1911,7 +1949,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		MR_sol_hp = MR_EXCEPTION_STRUCT->MR_excp_solns_heap_ptr;
 	}
 }
-#endif /* !defined(CONSERVATIVE_GC) */
+#endif /* !defined(MR_CONSERVATIVE_GC) */
 
 	/*
 	** Pop the final exception handler frame off the nondet stack,
@@ -1957,7 +1995,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 
 	/*
 	** If the catch was semidet, we need to set the success indicator
-	** MR_r1 to TRUE and return the result in MR_r2; otherwise, we return
+	** MR_r1 to MR_TRUE and return the result in MR_r2; otherwise, we return
 	** the result in MR_r1, which is where mercury__do_call_closure puts
 	** it, so we can do a tailcall.
 	*/
@@ -1965,7 +2003,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		MR_tailcall(MR_ENTRY(mercury__do_call_closure), 
 			MR_ENTRY(mercury__exception__builtin_throw_1_0));
 	}
-	MR_incr_sp_push_msg(1, ""builtin_throw/1"");
+	MR_incr_sp_push_msg(1, ""pred builtin_throw/1"");
 	MR_stackvar(1) = (MR_Word) MR_succip;
 	MR_call(MR_ENTRY(mercury__do_call_closure), 
 		MR_LABEL(mercury__exception__builtin_throw_1_0_i1),
@@ -1976,7 +2014,7 @@ MR_define_label(mercury__exception__builtin_throw_1_0_i1);
 		MR_LABEL(mercury__exception__builtin_throw_1_0));
 	/* we've just returned from mercury__do_call_closure */
 	MR_r2 = MR_r1;
-	MR_r1 = TRUE;
+	MR_r1 = MR_TRUE;
 	MR_succip = (MR_Code *) MR_stackvar(1);
 	MR_decr_sp_pop_msg(1);
 	MR_proceed(); /* return to the caller of `builtin_catch' */
@@ -2051,7 +2089,7 @@ report_uncaught_exception(Exception) -->
 report_uncaught_exception_2(Exception, unit) -->
 	io__flush_output,
 	io__stderr_stream(StdErr),
-	io__write_string(StdErr, "Uncaught exception:\n"),
+	io__write_string(StdErr, "Uncaught Mercury exception:\n"),
 	( { univ_to_type(Exception, software_error(Message)) } ->
 		io__format(StdErr, "Software Error: %s\n", [s(Message)])
 	;

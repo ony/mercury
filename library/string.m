@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1993-2001 The University of Melbourne.
+% Copyright (C) 1993-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -34,7 +34,7 @@
 
 :- pred string__append(string, string, string).
 :- mode string__append(in, in, in) is semidet.	% implied
-:- mode string__append(in, out, in) is semidet.
+:- mode string__append(in, uo, in) is semidet.
 :- mode string__append(in, in, uo) is det.
 :- mode string__append(out, out, in) is multi.
 %	Append two strings together.
@@ -63,36 +63,46 @@
 	% string__prefix(String, Prefix) is true iff Prefix is a
 	% prefix of String.  Same as string__append(Prefix, _, String).
 
+:- pred string__suffix(string, string).
+:- mode string__suffix(in, in) is semidet.
+:- mode string__suffix(in, out) is multi.
+	% string__suffix(String, Suffix) is true iff Suffix is a
+	% suffix of String.  Same as string__append(_, Suffix, String).
+
 :- func string__char_to_string(char) = string.
+:- mode string__char_to_string(in) = uo is det.
 :- pred string__char_to_string(char, string).
-:- mode string__char_to_string(in, out) is det.
+:- mode string__char_to_string(in, uo) is det.
 :- mode string__char_to_string(out, in) is semidet.
 %	string__char_to_string(Char, String).
 %		Converts a character (single-character atom) to a string
 %		or vice versa.
 
 :- func string__int_to_string(int) = string.
+:- mode string__int_to_string(in) = uo is det.
 :- pred string__int_to_string(int, string).
-:- mode string__int_to_string(in, out) is det.
+:- mode string__int_to_string(in, uo) is det.
 %	Convert an integer to a string.
 
 :- func string__int_to_base_string(int, int) = string.
+:- mode string__int_to_base_string(in, in) = uo is det.
 :- pred string__int_to_base_string(int, int, string).
-:- mode string__int_to_base_string(in, in, out) is det.
+:- mode string__int_to_base_string(in, in, uo) is det.
 %	string__int_to_base_string(Int, Base, String):
 %	Convert an integer to a string in a given Base (between 2 and 36).
 
 :- func string__float_to_string(float) = string.
+:- mode string__float_to_string(in) = uo is det.
 :- pred string__float_to_string(float, string).
-:- mode string__float_to_string(in, out) is det.
+:- mode string__float_to_string(in, uo) is det.
 %	Convert an float to a string.
 
 :- pred string__first_char(string, char, string).
 :- mode string__first_char(in, in, in) is semidet.	% implied
-:- mode string__first_char(in, out, in) is semidet.	% implied
-:- mode string__first_char(in, in, out) is semidet.	% implied
-:- mode string__first_char(in, out, out) is semidet.
-:- mode string__first_char(out, in, in) is det.
+:- mode string__first_char(in, uo, in) is semidet.	% implied
+:- mode string__first_char(in, in, uo) is semidet.	% implied
+:- mode string__first_char(in, uo, uo) is semidet.
+:- mode string__first_char(uo, in, in) is det.
 %	string__first_char(String, Char, Rest) is true iff
 %		Char is the first character of String, and Rest is the
 %		remainder.
@@ -105,28 +115,31 @@
 %		Use string__foldl or string__to_char_list instead.
 
 :- pred string__replace(string, string, string, string).
-:- mode string__replace(in, in, in, out) is semidet.
+:- mode string__replace(in, in, in, uo) is semidet.
 % string__replace(String0, Search, Replace, String):
 % 	string__replace replaces the first occurence of the second string in 
 % 	the first string with the third string to give the fourth string.
 % 	It fails if the second string does not occur in the first.
 
 :- func string__replace_all(string, string, string) = string.
+:- mode string__replace_all(in, in, in) = uo is det.
 :- pred string__replace_all(string, string, string, string).
-:- mode string__replace_all(in, in, in, out) is det.
+:- mode string__replace_all(in, in, in, uo) is det.
 % string__replace_all(String0, Search, Replace, String):
 % 	string__replace_all replaces any occurences of the second string in 
 % 	the first string with the third string to give the fourth string.
 
 :- func string__to_lower(string) = string.
+:- mode string__to_lower(in) = uo is det.
 :- pred string__to_lower(string, string).
-:- mode string__to_lower(in, out) is det.
+:- mode string__to_lower(in, uo) is det.
 :- mode string__to_lower(in, in) is semidet.		% implied
 %	Converts a string to lowercase.
 
 :- func string__to_upper(string) = string.
+:- mode string__to_upper(in) = uo is det.
 :- pred string__to_upper(string, string).
-:- mode string__to_upper(in, out) is det.
+:- mode string__to_upper(in, uo) is det.
 :- mode string__to_upper(in, in) is semidet.		% implied
 %	Converts a string to uppercase.
 
@@ -143,16 +156,18 @@
 :- func string__to_char_list(string) = list(char).
 :- pred string__to_char_list(string, list(char)).
 :- mode string__to_char_list(in, out) is det.
-:- mode string__to_char_list(out, in) is det.
+:- mode string__to_char_list(uo, in) is det.
 
 :- func string__from_char_list(list(char)) = string.
+:- mode string__from_char_list(in) = uo is det.
 :- pred string__from_char_list(list(char), string).
-:- mode string__from_char_list(in, out) is det.
+:- mode string__from_char_list(in, uo) is det.
 :- mode string__from_char_list(out, in) is det.
 
 :- func string__from_rev_char_list(list(char)) = string.
+:- mode string__from_rev_char_list(in) = uo is det.
 :- pred string__from_rev_char_list(list(char), string).
-:- mode string__from_rev_char_list(in, out) is det.
+:- mode string__from_rev_char_list(in, uo) is det.
 %	Same as string__from_char_list, except that it reverses the order
 %	of the characters.
 
@@ -213,8 +228,9 @@
 %	as long as `Width', giving `String'.
 
 :- func string__duplicate_char(char, int) = string.
+:- mode string__duplicate_char(in, in) = uo is det.
 :- pred string__duplicate_char(char, int, string).
-:- mode string__duplicate_char(in, in, out) is det.
+:- mode string__duplicate_char(in, in, uo) is det.
 %	string__duplicate_char(Char, Count, String):
 %	construct a string consisting of `Count' occurrences of `Char'
 %	in sequence.
@@ -225,7 +241,7 @@
 %	succeed if `Char' occurs in `String'.
 
 :- pred string__index(string, int, char).
-:- mode string__index(in, in, out) is semidet.
+:- mode string__index(in, in, uo) is semidet.
 %	string__index(String, Index, Char):
 %	`Char' is the (`Index' + 1)-th character of `String'.
 %	Fails if `Index' is out of range (negative, or greater than or
@@ -252,7 +268,9 @@
 
 :- pred string__set_char(char, int, string, string).
 :- mode string__set_char(in, in, in, out) is semidet.
-:- mode string__set_char(in, in, di, uo) is semidet.
+% XXX This mode is disabled because the compiler puts constant
+% strings into static data even when they might be updated.
+%:- mode string__set_char(in, in, di, uo) is semidet.
 %	string__set_char(Char, Index, String0, String):
 %	`String' is `String0' with the (`Index' + 1)-th character
 %	set to `Char'.
@@ -262,7 +280,9 @@
 :- func string__set_char_det(char, int, string) = string.
 :- pred string__set_char_det(char, int, string, string).
 :- mode string__set_char_det(in, in, in, out) is det.
-:- mode string__set_char_det(in, in, di, uo) is det.
+% XXX This mode is disabled because the compiler puts constant
+% strings into static data even when they might be updated.
+%:- mode string__set_char_det(in, in, di, uo) is det.
 %	string__set_char_det(Char, Index, String0, String):
 %	`String' is `String0' with the (`Index' + 1)-th character
 %	set to `Char'.
@@ -271,10 +291,15 @@
 
 :- func string__unsafe_set_char(char, int, string) = string.
 :- mode string__unsafe_set_char(in, in, in) = out is det.
-:- mode string__unsafe_set_char(in, in, di) = uo is det.
+% XXX This mode is disabled because the compiler puts constant
+% strings into static data even when they might be updated.
+%:- mode string__unsafe_set_char(in, in, di) = uo is det.
+
 :- pred string__unsafe_set_char(char, int, string, string).
 :- mode string__unsafe_set_char(in, in, in, out) is det.
-:- mode string__unsafe_set_char(in, in, di, uo) is det.
+% XXX This mode is disabled because the compiler puts constant
+% strings into static data even when they might be updated.
+%:- mode string__unsafe_set_char(in, in, di, uo) is det.
 %	string__unsafe_set_char(Char, Index, String0, String):
 %	`String' is `String0' with the (`Index' + 1)-th character
 %	set to `Char'.
@@ -300,6 +325,48 @@
 %		list__foldl(Closure, Chars, Acc0, Acc)
 %	but is implemented more efficiently.)
 
+:- func string__foldl_substring(func(char, T) = T, string, int, int, T) = T.
+:- pred string__foldl_substring(pred(char, T, T), string, int, int, T, T).
+:- mode string__foldl_substring(pred(in, in, out) is det, in, in, in,
+		in, out) is det.
+:- mode string__foldl_substring(pred(in, di, uo) is det, in, in, in,
+		di, uo) is det.
+:- mode string__foldl_substring(pred(in, in, out) is semidet, in, in, in,
+		in, out) is semidet.
+:- mode string__foldl_substring(pred(in, in, out) is nondet, in, in, in,
+		in, out) is nondet.
+:- mode string__foldl_substring(pred(in, in, out) is multi, in, in, in,
+		in, out) is multi.
+%	string__foldl_substring(Closure, String, Start, Count, Acc0, Acc)
+%	is equivalent to string__foldl(Closure, SubString, Acc0, Acc)
+%	where SubString = string__substring(String, Start, Count).
+
+:- func string__foldr(func(char, T) = T, string, T) = T.
+:- pred string__foldr(pred(char, T, T), string, T, T).
+:- mode string__foldr(pred(in, in, out) is det, in, in, out) is det.
+:- mode string__foldr(pred(in, di, uo) is det, in, di, uo) is det.
+:- mode string__foldr(pred(in, in, out) is semidet, in, in, out) is semidet.
+:- mode string__foldr(pred(in, in, out) is nondet, in, in, out) is nondet.
+:- mode string__foldr(pred(in, in, out) is multi, in, in, out) is multi.
+%	string__foldr(Closure, String, Acc0, Acc):
+%	As string__foldl/4, except that processing proceeds right-to-left.
+
+:- func string__foldr_substring(func(char, T) = T, string, int, int, T) = T.
+:- pred string__foldr_substring(pred(char, T, T), string, int, int, T, T).
+:- mode string__foldr_substring(pred(in, in, out) is det, in, in, in,
+		in, out) is det.
+:- mode string__foldr_substring(pred(in, di, uo) is det, in, in, in,
+		di, uo) is det.
+:- mode string__foldr_substring(pred(in, in, out) is semidet, in, in, in,
+		in, out) is semidet.
+:- mode string__foldr_substring(pred(in, in, out) is nondet, in, in, in,
+		in, out) is nondet.
+:- mode string__foldr_substring(pred(in, in, out) is multi, in, in, in,
+		in, out) is multi.
+%	string__foldr_substring(Closure, String, Start, Count, Acc0, Acc)
+%	is equivalent to string__foldr(Closure, SubString, Acc0, Acc)
+%	where SubString = string__unsafe_substring(String, Start, Count).
+
 :- func string__words(pred(char), string) = list(string).
 :- mode string__words(pred(in) is semidet, in) = out is det.
 %	string__words(SepP, String) returns the list of
@@ -310,8 +377,11 @@
 %	string__words(char__is_whitespace, " the cat  sat on the  mat") =
 %		["the", "cat", "sat", "on", "the", "mat"]
 
+:- func string__words(string) = list(string).
+%	string__words(String) = string__words(char__is_whitespace, String).
+
 :- pred string__split(string, int, string, string).
-:- mode string__split(in, in, out, out) is det.
+:- mode string__split(in, in, uo, uo) is det.
 %	string__split(String, Count, LeftSubstring, RightSubstring):
 %	`LeftSubstring' is the left-most `Count' characters of `String',
 %	and `RightSubstring' is the remainder of `String'.
@@ -319,24 +389,27 @@
 %	treated as if it were the nearest end-point of that range.)
 
 :- func string__left(string, int) = string.
+:- mode string__left(in, in) = uo is det.
 :- pred string__left(string, int, string).
-:- mode string__left(in, in, out) is det.
+:- mode string__left(in, in, uo) is det.
 %	string__left(String, Count, LeftSubstring):
 %	`LeftSubstring' is the left-most `Count' characters of `String'.
 %	(If `Count' is out of the range [0, length of `String'], it is
 %	treated as if it were the nearest end-point of that range.)
 
 :- func string__right(string, int) = string.
+:- mode string__right(in, in) = uo is det.
 :- pred string__right(string, int, string).
-:- mode string__right(in, in, out) is det.
+:- mode string__right(in, in, uo) is det.
 %	string__right(String, Count, RightSubstring):
 %	`RightSubstring' is the right-most `Count' characters of `String'.
 %	(If `Count' is out of the range [0, length of `String'], it is
 %	treated as if it were the nearest end-point of that range.)
 
 :- func string__substring(string, int, int) = string.
+:- mode string__substring(in, in, in) = uo is det.
 :- pred string__substring(string, int, int, string).
-:- mode string__substring(in, in, in, out) is det.
+:- mode string__substring(in, in, in, uo) is det.
 %	string__substring(String, Start, Count, Substring):
 %	`Substring' is first the `Count' characters in what would
 %	remain of `String' after the first `Start' characters were
@@ -347,8 +420,9 @@
 %	treated as if it were the nearest end-point of that range.)
 
 :- func string__unsafe_substring(string, int, int) = string.
+:- mode string__unsafe_substring(in, in, in) = uo is det.
 :- pred string__unsafe_substring(string, int, int, string).
-:- mode string__unsafe_substring(in, in, in, out) is det.
+:- mode string__unsafe_substring(in, in, in, uo) is det.
 %	string__unsafe_substring(String, Start, Count, Substring):
 %	`Substring' is first the `Count' characters in what would
 %	remain of `String' after the first `Start' characters were
@@ -452,7 +526,6 @@
 :- import_module bool, std_util, int, float, require.
 
 :- pred string__to_int_list(string, list(int)).
-:- mode string__to_int_list(out, in) is det.
 :- mode string__to_int_list(in, out) is det.
 
 string__replace(String, SubString0, SubString1, StringOut) :-
@@ -546,13 +619,13 @@ string__base_string_to_int(Base, String, Int) :-
 	string__index(String, 0, Char),
 	Len = string__length(String),
 	(      if Char = ('-') then
-		string__foldl2(accumulate_int(Base), String, 1, Len, 0, N),
+		foldl_substring(accumulate_int(Base), String, 1, Len - 1, 0, N),
 		Int = -N
 	  else if Char = ('+') then
-		string__foldl2(accumulate_int(Base), String, 1, Len, 0, N),
+		foldl_substring(accumulate_int(Base), String, 1, Len - 1, 0, N),
 		Int = N
 	  else
-		string__foldl2(accumulate_int(Base), String, 0, Len, 0, N),
+		foldl_substring(accumulate_int(Base), String, 0, Len, 0, N),
 		Int = N
 	).
 
@@ -581,30 +654,38 @@ string__set_char_det(Char, Int, String0, String) :-
 
 string__foldl(Closure, String, Acc0, Acc) :-
 	string__length(String, Length),
-	string__foldl2(Closure, String, 0, Length, Acc0, Acc).
+	string__foldl_substring(Closure, String, 0, Length, Acc0, Acc).
 
-:- pred string__foldl2(pred(char, T, T), string, int, int, T, T).
-:- mode string__foldl2(pred(in, in, out) is det, in, in, in, in, out) is det.
-:- mode string__foldl2(pred(in, di, uo) is det, in, in, in, di, uo) is det.
-:- mode string__foldl2(pred(in, in, out) is semidet, in, in, in, in, out)
-		is semidet.
-:- mode string__foldl2(pred(in, in, out) is nondet, in, in, in, in, out)
-		is nondet.
-:- mode string__foldl2(pred(in, in, out) is multi, in, in, in, in, out)
-		is multi.
-
-string__foldl2(Closure, String, N, Max, Acc0, Acc) :-
-	(
-		N >= Max
-	->
-		Acc = Acc0
-	;
-		string__unsafe_index(String, N, Char),
-		call(Closure, Char, Acc0, Acc1),
-		N1 is N + 1,
-		string__foldl2(Closure, String, N1, Max, Acc1, Acc)
+string__foldl_substring(Closure, String, I, Count, Acc0, Acc) :-
+	( if 0 < Count then
+		Closure(string__unsafe_index(String, I), Acc0, Acc1),
+		string__foldl_substring(Closure, String, I + 1, Count - 1,
+			Acc1, Acc)
+	  else
+	  	Acc = Acc0
 	).
 
+string__foldr(F, String, Acc0) = Acc :-
+	Closure = ( pred(X::in, Y::in, Z::out) is det :- Z = F(X, Y)),
+	string__foldr(Closure, String, Acc0, Acc).
+
+string__foldr_substring(F, String, Start, Count, Acc0) = Acc :-
+	Closure = ( pred(X::in, Y::in, Z::out) is det :- Z = F(X, Y) ),
+	string__foldr_substring(Closure, String, Start, Count, Acc0, Acc).
+
+string__foldr(Closure, String, Acc0, Acc) :-
+	string__foldr_substring(Closure, String, 0, length(String), Acc0, Acc).
+
+string__foldr_substring(Closure, String, I, Count, Acc0, Acc) :-
+	( if 0 < Count then
+		Closure(string__unsafe_index(String, I + Count - 1),
+			Acc0, Acc1),
+		string__foldr_substring(Closure, String, I, Count - 1,
+			Acc1, Acc )
+	  else
+	  	Acc = Acc0
+	).
+  		
 string__left(String, Count, LeftString) :-
 	string__split(String, Count, LeftString, _RightString).
 
@@ -614,17 +695,81 @@ string__right(String, RightCount, RightString) :-
 	string__split(String, LeftCount, _LeftString, RightString).
 
 string__remove_suffix(A, B, C) :-
-	string__to_int_list(A, LA),
-	string__to_int_list(B, LB),
-	string__to_int_list(C, LC),
+	string__to_char_list(A, LA),
+	string__to_char_list(B, LB),
+	string__to_char_list(C, LC),
 	list__remove_suffix(LA, LB, LC).
 
-string__prefix(String, Prefix) :-
-	string__append(Prefix, _, String).
+:- pragma promise_pure(string__prefix/2).
+
+string__prefix(String::in, Prefix::in) :-
+	Len    = length(String),
+	PreLen = length(Prefix),
+	PreLen =< Len,
+	prefix_2_iii(String, Prefix, PreLen - 1).
+
+:- pred prefix_2_iii(string, string, int).
+:- mode prefix_2_iii(in, in, in) is semidet.
+
+prefix_2_iii(String, Prefix, I) :-
+	( if 0 =< I then
+		(String `unsafe_index` I) =
+			(Prefix `unsafe_index` I) `with_type` char,
+		prefix_2_iii(String, Prefix, I - 1)
+	  else
+	  	true
+	).
+
+string__prefix(String::in, Prefix::out) :-
+	Len = length(String),
+	prefix_2_ioii(String, Prefix, 0, Len).
+
+:- pred prefix_2_ioii(string, string, int, int).
+:- mode prefix_2_ioii(in, out, in, in) is multi.
+
+prefix_2_ioii(String, Prefix, PreLen, _Len) :-
+	Prefix = unsafe_substring(String, 0, PreLen).
+
+prefix_2_ioii(String, Prefix, PreLen, Len) :-
+	PreLen < Len,
+	prefix_2_ioii(String, Prefix, PreLen + 1, Len).
+
+:- pragma promise_pure(string__suffix/2).
+
+string__suffix(String::in, Suffix::in) :-
+	Len    = length(String),
+	PreLen = length(Suffix),
+	PreLen =< Len,
+	suffix_2_iiii(String, Suffix, Len - PreLen, Len).
+
+:- pred suffix_2_iiii(string, string, int, int).
+:- mode suffix_2_iiii(in, in, in, in) is semidet.
+
+suffix_2_iiii(String, Suffix, I, Len) :-
+	( if I < Len then
+		(String `unsafe_index` I) =
+			(Suffix `unsafe_index` I) `with_type` char,
+		suffix_2_iiii(String, Suffix, I + 1, Len)
+	  else
+	  	true
+	).
+
+string__suffix(String::in, Suffix::out) :-
+	Len = length(String),
+	suffix_2_ioii(String, Suffix, 0, Len).
+
+:- pred suffix_2_ioii(string, string, int, int).
+:- mode suffix_2_ioii(in, out, in, in) is multi.
+
+suffix_2_ioii(String, Suffix, SufLen, Len) :-
+	Suffix = unsafe_substring(String, Len - SufLen, SufLen).
+
+suffix_2_ioii(String, Suffix, SufLen, Len) :-
+	SufLen < Len,
+	suffix_2_ioii(String, Suffix, SufLen + 1, Len).
 
 string__char_to_string(Char, String) :-
-	string__to_int_list(String, [Code]),
-	char__to_int(Char, Code).
+	string__to_char_list(String, [Char]).
 
 string__int_to_string(N, Str) :-
 	string__int_to_base_string(N, 10, Str).
@@ -640,7 +785,7 @@ string__int_to_base_string(N, Base, Str) :-
 	string__int_to_base_string_1(N, Base, Str).
 
 :- pred string__int_to_base_string_1(int, int, string).
-:- mode string__int_to_base_string_1(in, in, out) is det.
+:- mode string__int_to_base_string_1(in, in, uo) is det.
 
 string__int_to_base_string_1(N, Base, Str) :-
 	% Note that in order to handle MININT correctly,
@@ -658,7 +803,7 @@ string__int_to_base_string_1(N, Base, Str) :-
 	).
 
 :- pred string__int_to_base_string_2(int, int, string).
-:- mode string__int_to_base_string_2(in, in, out) is det.
+:- mode string__int_to_base_string_2(in, in, uo) is det.
 
 string__int_to_base_string_2(NegN, Base, Str) :-
 	(
@@ -683,12 +828,14 @@ string__from_char_list(CharList, Str) :-
 
 /*
 :- pred string__to_char_list(string, list(char)).
-:- mode string__to_char_list(in, out) is det.
-:- mode string__to_char_list(out, in) is det.
+:- mode string__to_char_list(in, uo) is det.
+:- mode string__to_char_list(uo, in) is det.
 */
 
+:- pragma promise_pure(string__to_char_list/2).
 :- pragma foreign_proc("C", string__to_char_list(Str::in, CharList::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	MR_ConstString p = Str + strlen(Str);
 	CharList = MR_list_empty_msg(MR_PROC_LABEL);
 	while (p > Str) {
@@ -698,9 +845,10 @@ string__from_char_list(CharList, Str) :-
 	}
 }").
 
-:- pragma foreign_proc("C", string__to_char_list(Str::out, CharList::in),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
-		/* mode (out, in) is det */
+:- pragma foreign_proc("C", string__to_char_list(Str::uo, CharList::in),
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
+		/* mode (uo, in) is det */
 	MR_Word char_list_ptr;
 	size_t size;
 /*
@@ -734,6 +882,27 @@ string__from_char_list(CharList, Str) :-
 	Str[size] = '\\0';
 }").
 
+
+string__to_char_list(Str::in, CharList::out) :-
+	string__to_char_list_2(Str, 0, CharList).
+string__to_char_list(Str::uo, CharList::in) :-
+	( CharList = [],
+		Str = ""
+	; CharList = [C | Cs],
+		string__to_char_list(Str0, Cs),
+		Str = string__char_to_string(C) ++ Str0
+	).
+
+:- pred string__to_char_list_2(string::in, int::in, list(char)::uo) is det.
+string__to_char_list_2(Str, Index, CharList) :-
+	( string__index(Str, Index, Char) ->
+		string__to_char_list_2(Str, Index + 1, CharList0),
+		CharList = [Char | CharList0]
+	;
+		CharList = []
+	).
+	
+
 /*-----------------------------------------------------------------------*/
 
 %
@@ -741,8 +910,9 @@ string__from_char_list(CharList, Str) :-
 % but the optimized implementation in C below is there for efficiency since
 % it improves the overall speed of parsing by about 7%.
 %
-:- pragma foreign_proc("C", string__from_rev_char_list(Chars::in, Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+:- pragma foreign_proc("C", string__from_rev_char_list(Chars::in, Str::uo),
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "
 {
 	MR_Word list_ptr;
 	MR_Word size, len;
@@ -780,42 +950,7 @@ string__from_char_list(CharList, Str) :-
 	}
 }").
 
-:- pragma foreign_proc("MC++", string__to_char_list(Str::in, CharList::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
-        MR_Integer length, i; 
-        MR_Word tmp;
-        MR_Word prev;
-
-        length = Str->get_Length();
-      
-        MR_list_nil(prev);
-
-        for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp, __box(Str->get_Chars(i)), prev);
-		prev = tmp;
-        }
-        CharList = tmp;
-}").
-
-:- pragma foreign_proc("MC++", string__to_char_list(Str::out, CharList::in),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
-        System::Text::StringBuilder *tmp;
-	MR_Char c;
-       
-        tmp = new System::Text::StringBuilder();
-        while (1) {
-            if (MR_list_is_cons(CharList)) {
-		c = System::Convert::ToChar(MR_list_head(CharList));
-                tmp->Append(c);
-                CharList = MR_list_tail(CharList);
-            } else {
-                break;
-            }
-        }
-        Str = tmp->ToString();
-}").
-
-string__from_rev_char_list(Chars::in, Str::out) :- 
+string__from_rev_char_list(Chars::in, Str::uo) :- 
 	Str = string__from_char_list(list__reverse(Chars)).
 
 :- pred string__int_list_to_char_list(list(int), list(char)).
@@ -941,7 +1076,8 @@ string__append_list(Lists, string__append_list(Lists)).
 	% Implementation of string__append_list that uses C as this
 	% minimises the amount of garbage created.
 :- pragma foreign_proc("C", string__append_list(Strs::in) = (Str::uo),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
 	size_t	len;
@@ -972,18 +1108,18 @@ string__append_list(Lists, string__append_list(Lists)).
 	% Implementation of string__join_list that uses C as this
 	% minimises the amount of garbage created.
 :- pragma foreign_proc("C", string__join_list(Sep::in, Strs::in) = (Str::uo),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
 	size_t	len = 0;
 	size_t	sep_len;
-	bool	add_sep;
+	MR_bool	add_sep;
 
 	sep_len = strlen(Sep);
 
 		/* Determine the total length of all strings */
 	len = 0;
-	add_sep = FALSE;
+	add_sep = MR_FALSE;
 	while (!MR_list_is_empty(list)) {
 		if (add_sep) {
 			len += sep_len;
@@ -991,7 +1127,7 @@ string__append_list(Lists, string__append_list(Lists)).
 		
 		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
-		add_sep = TRUE;
+		add_sep = MR_TRUE;
 	}
 
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
@@ -999,7 +1135,7 @@ string__append_list(Lists, string__append_list(Lists)).
 		/* Copy the strings into the new memory */
 	len = 0;
 	list = Strs;
-	add_sep = FALSE;
+	add_sep = MR_FALSE;
 	while (!MR_list_is_empty(list)) {
 		if (add_sep) {
 			strcpy((MR_String) Str + len, Sep);
@@ -1009,26 +1145,12 @@ string__append_list(Lists, string__append_list(Lists)).
 		strcpy((MR_String) Str + len, (MR_String) MR_list_head(list));
 		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
-		add_sep = TRUE;
+		add_sep = MR_TRUE;
 	}
 
 		/* Set the last character to the null char */
 	Str[len] = '\\0';
 }").
-
-:- pragma foreign_proc("C#",
-		string__append_list(Strs::in) = (Str::uo),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
-{
-        System.Text.StringBuilder tmp = new System.Text.StringBuilder();
-
-	while (mercury.runtime.LowLevelData.list_is_cons(Strs)) {
-		tmp.Append(mercury.runtime.LowLevelData.list_get_head(Strs));
-		Strs = mercury.runtime.LowLevelData.list_get_tail(Strs);
-	}
-	Str = tmp.ToString();
-}
-").
 
 string__append_list(Strs::in) = (Str::uo) :-
 	( Strs = [X | Xs] ->
@@ -1037,23 +1159,16 @@ string__append_list(Strs::in) = (Str::uo) :-
 		Str = ""
 	).
 
-:- pragma foreign_proc("C#",
-		string__join_list(Sep::in, Strs::in) = (Str::uo),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
-{	
-	System.Text.StringBuilder tmpStr = new System.Text.StringBuilder();
+string__join_list(_, []) = "".
+string__join_list(Sep, [H|T]) = H ++ string__join_list_2(Sep, T).
 
-	while(mercury.runtime.LowLevelData.list_is_cons(Strs)) {
-		tmpStr.Append(mercury.runtime.LowLevelData.list_get_head(Strs));
-		Strs = mercury.runtime.LowLevelData.list_get_tail(Strs);
+:- func string__join_list_2(string::in, list(string)::in) = (string::uo) is det.
 
-		if (mercury.runtime.LowLevelData.list_is_cons(Strs)) {
-			tmpStr.Append(Sep);
-		}
-	}
+string__join_list_2(_, []) = "".
+string__join_list_2(Sep, [H|T]) = Sep ++ H ++ string__join_list_2(Sep, T).
 
-	Str = tmpStr.ToString();
-}").
+	
+
 
 %-----------------------------------------------------------------------------%
 
@@ -1086,24 +1201,45 @@ string__combine_hash(H0, X, H) :-
 
 :- pragma foreign_proc("C", 
 	string__sub_string_search(WholeString::in, SubString::in,
-			Index::out) , [will_not_call_mercury, thread_safe],
+			Index::out),
+	[will_not_call_mercury, promise_pure, thread_safe],
 "{
 	char *match;
 	match = strstr(WholeString, SubString);
 	if (match) {
 		Index = match - WholeString;
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
 
 :- pragma foreign_proc("MC++", 
 	string__sub_string_search(WholeString::in, SubString::in,
-			Index::out) , [will_not_call_mercury, thread_safe],
+			Index::out),
+	[will_not_call_mercury, promise_pure, thread_safe],
 "{
 	Index = WholeString->IndexOf(SubString);
 }").
+
+string__sub_string_search(String, SubString, Index) :-
+	sub_string_search_2(String, SubString, 0, length(String), Index).
+
+	% Brute force string searching.  For short Strings this is
+	% good; for longer strings Boyer-Moore is much better.
+	%
+:- pred sub_string_search_2(string::in, string::in, int::in, int::in,
+		int::out) is semidet.
+
+sub_string_search_2(String, SubString, I, Length, Index) :-
+	( if
+		I < Length,
+		string__prefix(String, SubString)
+	  then
+	  	Index = I
+	  else
+	  	sub_string_search_2(String, SubString, I + 1, Length, Index)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1468,13 +1604,17 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) =
 :- pred using_sprintf is semidet.
 
 :- pragma foreign_proc("C", using_sprintf,
-	[will_not_call_mercury, thread_safe], "
-	SUCCESS_INDICATOR = TRUE;
+	[will_not_call_mercury, promise_pure, thread_safe], "
+	SUCCESS_INDICATOR = MR_TRUE;
 ").
 :- pragma foreign_proc("MC++", using_sprintf,
-	[will_not_call_mercury, thread_safe], "
-	SUCCESS_INDICATOR = FALSE;
+	[will_not_call_mercury, promise_pure, thread_safe], "
+	SUCCESS_INDICATOR = MR_FALSE;
 ").
+using_sprintf :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__using_sprintf").
 		
 
 	% Construct a format string suitable to passing to sprintf.
@@ -1539,16 +1679,22 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- func int_length_modifer = string.
 :- pragma foreign_proc("C", 
 	int_length_modifer = (LengthModifier::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	MR_make_aligned_string(LengthModifier,
 		(MR_String) (MR_Word) MR_INTEGER_LENGTH_MODIFIER);
 }").
 
 :- pragma foreign_proc("C#", 
 	int_length_modifer = (LengthModifier::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	LengthModifier = """";
 }").
+int_length_modifer = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int_length_modifer").
 
 
 	% Create a string from a float using the format string.
@@ -1557,16 +1703,22 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- func format_float(string, float) = string.
 :- pragma foreign_proc("C",
 	format_float(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	MR_save_transient_hp();
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, (double) Val);
 	MR_restore_transient_hp();
 }").
 :- pragma foreign_proc("C#",
 	format_float(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	Str = System.String.Format(FormatStr, Val);
 }").
+format_float(_, _) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("format_float").
 
 	% Create a string from a int using the format string.
 	% Note it is the responsibility of the caller to ensure that the
@@ -1574,16 +1726,22 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- func format_int(string, int) = string.
 :- pragma foreign_proc("C",
 	format_int(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	MR_save_transient_hp();
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 	MR_restore_transient_hp();
 }").
 :- pragma foreign_proc("C#",
 	format_int(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	Str = System.String.Format(FormatStr, Val);
 }").
+format_int(_, _) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("format_int").
 
 	% Create a string from a string using the format string.
 	% Note it is the responsibility of the caller to ensure that the
@@ -1591,14 +1749,20 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- func format_string(string, string) = string.
 :- pragma foreign_proc("C", 
 	format_string(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 }").
 :- pragma foreign_proc("C#", 
 	format_string(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	Str = System.String.Format(FormatStr, Val);
 }").
+format_string(_, _) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("format_string").
 
 	% Create a string from a char using the format string.
 	% Note it is the responsibility of the caller to ensure that the
@@ -1606,23 +1770,29 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- func format_char(string, char) = string.
 :- pragma foreign_proc("C", 
 	format_char(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	MR_save_transient_hp();
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 	MR_restore_transient_hp();
 }").
 :- pragma foreign_proc("C#", 
 	format_char(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	Str = System.String.Format(FormatStr, Val);
 }").
-
+format_char(_, _) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("format_char").
 
 %-----------------------------------------------------------------------------%
 
 % The remaining routines are implemented using the C interface.
 
 :- pragma c_header_code("
+#include <ctype.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -1633,8 +1803,9 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_proc("C",
-	string__float_to_string(FloatVal::in, FloatString::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__float_to_string(FloatVal::in, FloatString::uo),
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	char buf[500];
 	sprintf(buf, ""%#.15g"", FloatVal);
 	MR_allocate_aligned_string_msg(FloatString, strlen(buf), MR_PROC_LABEL);
@@ -1643,9 +1814,16 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 
 :- pragma foreign_proc("MC++",
 	string__float_to_string(FloatVal::in, FloatString::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	FloatString = System::Convert::ToString(FloatVal);
 }").
+
+string__float_to_string(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__float_to_string").
+
 
 	% Beware that the implementation of string__format depends
 	% on the details of what string__float_to_f_string/2 outputs.
@@ -1654,52 +1832,74 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 
 :- pragma foreign_proc("C",
 	string__float_to_f_string(FloatVal::in, FloatString::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	char buf[500];
 	sprintf(buf, ""%.15f"", FloatVal);
 	MR_allocate_aligned_string_msg(FloatString, strlen(buf), MR_PROC_LABEL);
 	strcpy(FloatString, buf);
 }").
 
+:- pragma foreign_proc("MC++",
+	string__float_to_f_string(FloatVal::in, FloatString::out),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
+	FloatString = System::Convert::ToString(FloatVal);
+}").
+
+string__float_to_f_string(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__float_to_f_string").
+
 :- pragma foreign_proc("C",
 	string__to_float(FloatString::in, FloatVal::out),
-		[will_not_call_mercury, thread_safe], "{
-	/* use a temporary, since we can't don't know whether FloatVal
-	   is a double or float */
-	double tmp;
-	SUCCESS_INDICATOR = (sscanf(FloatString, ""%lf"", &tmp) == 1);
-		/* TRUE if sscanf succeeds, FALSE otherwise */
-	FloatVal = tmp;
+		[will_not_call_mercury, promise_pure, thread_safe], "{
+	/*
+	** Use a temporary, since we can't don't know whether FloatVal is a
+	** double or float.  The %c checks for any erroneous characters
+	** appearing after the float; if there are then sscanf() will
+	** return 2 rather than 1.
+	*/
+	double tmpf;
+	char   tmpc;
+	SUCCESS_INDICATOR =
+		(!MR_isspace(FloatString[0])) &&
+		(sscanf(FloatString, ""%lf%c"", &tmpf, &tmpc) == 1);
+		/* MR_TRUE if sscanf succeeds, MR_FALSE otherwise */
+	FloatVal = tmpf;
 }").
 
 :- pragma foreign_proc("MC++",
 	string__float_to_f_string(FloatVal::in, FloatString::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "{
 	FloatString = System::Convert::ToString(FloatVal);
 }").
 
 :- pragma foreign_proc("MC++",
 	string__to_float(FloatString::in, FloatVal::out),
-		[will_not_call_mercury, thread_safe], "{
-	SUCCESS_INDICATOR = TRUE;
+		[will_not_call_mercury, promise_pure, thread_safe], "{
+	SUCCESS_INDICATOR = MR_TRUE;
 	try {
 	    FloatVal = System::Convert::ToDouble(FloatString);
 	} catch (System::InvalidCastException *e) {
-	     SUCCESS_INDICATOR = FALSE;
+	     SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
+
+string__to_float(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__to_float").
 
 /*-----------------------------------------------------------------------*/
 
 /*
 :- pred string__to_int_list(string, list(int)).
 :- mode string__to_int_list(in, out) is det.
-:- mode string__to_int_list(out, in) is det.
 */
-
 :- pragma foreign_proc("C",
 	string__to_int_list(Str::in, IntList::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_ConstString p = Str + strlen(Str);
 	IntList = MR_list_empty_msg(MR_PROC_LABEL);
 	while (p > Str) {
@@ -1708,81 +1908,9 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 			MR_PROC_LABEL);
 	}
 }").
-
-:- pragma foreign_proc("C",
-	string__to_int_list(Str::out, IntList::in),
-		[will_not_call_mercury, thread_safe], "{
-		/* mode (out, in) is det */
-	MR_Word int_list_ptr;
-	size_t size;
-	MR_Word str_ptr;
-/*
-** loop to calculate list length + sizeof(MR_Word) in `size' using list in
-** `int_list_ptr'
-*/
-	size = sizeof(MR_Word);
-	int_list_ptr = IntList;
-	while (! MR_list_is_empty(int_list_ptr)) {
-		size++;
-		int_list_ptr = MR_list_tail(int_list_ptr);
-	}
-/*
-** allocate (length + 1) bytes of heap space for string
-** i.e. (length + 1 + sizeof(MR_Word) - 1) / sizeof(MR_Word) words
-*/
-	MR_allocate_aligned_string_msg(Str, size, MR_PROC_LABEL);
-
-/*
-** loop to copy the characters from the int_list to the string
-*/
-	size = 0;
-	int_list_ptr = IntList;
-	while (! MR_list_is_empty(int_list_ptr)) {
-		Str[size++] = MR_list_head(int_list_ptr);
-		int_list_ptr = MR_list_tail(int_list_ptr);
-	}
-/*
-** null terminate the string
-*/
-	Str[size] = '\\0';
-}").
-
-:- pragma foreign_proc("MC++",
-	string__to_int_list(Str::in, IntList::out),
-		[will_not_call_mercury, thread_safe], "{
-        MR_Integer length, i; 
-        MR_Word tmp;
-        MR_Word prev;
-
-        length = Str->get_Length();
-      
-        MR_list_nil(prev);
-
-        for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp, __box((MR_Integer) Str->get_Chars(i)), prev);
-		prev = tmp;
-        }
-        IntList = tmp;
-}").
-
-:- pragma foreign_proc("MC++",
-	string__to_int_list(Str::out, IntList::in),
-		[will_not_call_mercury, thread_safe], "{
-        System::Text::StringBuilder *tmp;
-       
-        tmp = new System::Text::StringBuilder();
-        while (1) {
-            if (System::Convert::ToInt32(IntList->GetValue(0))) {
-                tmp->Append(System::Convert::ToChar(
-			IntList->GetValue(1)));
-                IntList = dynamic_cast<MR_Word>(IntList->GetValue(2));
-            } else {
-                break;
-            }
-        }
-        Str = tmp->ToString();
-}").
-
+string__to_int_list(String, IntList) :-
+	string__to_char_list(String, CharList),
+	IntList = list__map(char__to_int, CharList).
 
 /*-----------------------------------------------------------------------*/
 
@@ -1790,14 +1918,31 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- pred string__contains_char(string, char).
 :- mode string__contains_char(in, in) is semidet.
 */
+	% strchr always returns true when searching for '\0',
+	% but the '\0' is an implementation detail which really
+	% shouldn't be considered to be part of the string itself.
 :- pragma foreign_proc("C", string__contains_char(Str::in, Ch::in),
-		[will_not_call_mercury, thread_safe], "
-	SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL);
+		[will_not_call_mercury, promise_pure, thread_safe], "
+	SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL) && Ch != '\\0';
 ").
 :- pragma foreign_proc("MC++", string__contains_char(Str::in, Ch::in),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	SUCCESS_INDICATOR = (Str->IndexOf(Ch) != -1);
 ").
+string__contains_char(String, Char) :-
+	string__contains_char(String, Char, 0, string__length(Char)).
+
+:- pred string__contains_char(string::in, char::in,
+		int::in, int::in) is semidet.
+
+string__contains_char(Str, Char, Index, Length) :-
+	Index < Length,
+	string__unsafe_index(Str, Index, IndexChar),
+	( IndexChar = Char ->
+		true
+	;
+		string__contains_char(Str, Char, Index + 1, Length)
+	).
 
 /*-----------------------------------------------------------------------*/
 
@@ -1805,8 +1950,8 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 :- pred string__index(string, int, char).
 :- mode string__index(in, in, out) is semidet.
 */
-:- pragma foreign_proc("C", string__index(Str::in, Index::in, Ch::out),
-		[will_not_call_mercury, thread_safe], "
+:- pragma foreign_proc("C", string__index(Str::in, Index::in, Ch::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "
 
                 /*
 		** We do not test for negative values of Index
@@ -1819,51 +1964,75 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
                 */
 
 	if ((MR_Unsigned) Index >= strlen(Str)) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		Ch = Str[Index];
 	}
 ").
-:- pragma foreign_proc("MC++", string__index(Str::in, Index::in, Ch::out),
-		[will_not_call_mercury, thread_safe], "
+:- pragma foreign_proc("MC++", string__index(Str::in, Index::in, Ch::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	if (Index < 0 || Index >= Str->get_Length()) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		Ch = Str->get_Chars(Index);
 	}
 ").
+string__index(Str, Index, Char) :-
+	string__first_char(Str, First, Rest),
+	( Index = 0 ->
+		Char = First
+	;
+		string__index(Rest, Index - 1, Char)
+	).
 
 /*-----------------------------------------------------------------------*/
 
 :- pragma foreign_proc("C", 
 	string__unsafe_index(Str::in, Index::in, Ch::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Ch = Str[Index];
 ").
 :- pragma foreign_proc("MC++", 
 	string__unsafe_index(Str::in, Index::in, Ch::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Ch = Str->get_Chars(Index);
 ").
+string__unsafe_index(Str, Index, Char) :-
+	( string__index(Str, Index, IndexChar) ->
+		Char = IndexChar
+	;
+		error("string__unsafe_index: out of bounds")
+	).
 
 /*-----------------------------------------------------------------------*/
 
 :- pragma c_header_code("
-#ifdef USE_GCC_GLOBAL_REGISTERS
+#ifdef MR_USE_GCC_GLOBAL_REGISTERS
 	/*
 	** GNU C version egcs-1.1.2 crashes with `fixed or forbidden
 	** register spilled' in grade asm_fast.gc.tr.debug
 	** if we write this inline.
 	*/
-	static void MR_set_char(MR_String str, MR_Integer ind, MR_Char ch)
-	{
-		str[ind] = ch;
-	}
+	extern void MR_set_char(MR_String str, MR_Integer ind, MR_Char ch);
 #else
 	#define MR_set_char(str, ind, ch) \\
 		((str)[ind] = (ch))
+#endif
+").
+
+:- pragma c_code("
+#ifdef MR_USE_GCC_GLOBAL_REGISTERS
+	/*
+	** GNU C version egcs-1.1.2 crashes with `fixed or forbidden
+	** register spilled' in grade asm_fast.gc.tr.debug
+	** if we write this inline.
+	*/
+	void MR_set_char(MR_String str, MR_Integer ind, MR_Char ch)
+	{
+		str[ind] = ch;
+	}
 #endif
 ").
 
@@ -1873,12 +2042,12 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 */
 :- pragma foreign_proc("C",
 	string__set_char(Ch::in, Index::in, Str0::in, Str::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	size_t len = strlen(Str0);
 	if ((MR_Unsigned) Index >= len) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 		strcpy(Str, Str0);
 		MR_set_char(Str, Index, Ch);
@@ -1886,28 +2055,34 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 ").
 :- pragma foreign_proc("MC++",
 	string__set_char(Ch::in, Index::in, Str0::in, Str::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "
 	if (Index >= Str0->get_Length()) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str = System::String::Concat(Str0->Substring(0, Index),
 			System::Convert::ToString(Ch), 
 			Str0->Substring(Index + 1));
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 ").
+string__set_char(Ch, Index, Str0, Str) :-
+	string__to_char_list(Str0, List0),
+	list__replace_nth(List0, Index + 1, Ch, List),
+	string__to_char_list(Str, List).
 
 /*
 :- pred string__set_char(char, int, string, string).
 :- mode string__set_char(in, in, di, uo) is semidet.
 */
+/*
 :- pragma foreign_proc("C",
 	string__set_char(Ch::in, Index::in, Str0::di, Str::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	if ((MR_Unsigned) Index >= strlen(Str0)) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 		Str = Str0;
 		MR_set_char(Str, Index, Ch);
 	}
@@ -1915,16 +2090,18 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 
 :- pragma foreign_proc("MC++",
 	string__set_char(Ch::in, Index::in, Str0::di, Str::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "
 	if (Index >= Str0->get_Length()) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str = System::String::Concat(Str0->Substring(0, Index),
 			System::Convert::ToString(Ch), 
 			Str0->Substring(Index + 1));
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 ").
+*/
 
 /*-----------------------------------------------------------------------*/
 
@@ -1934,7 +2111,7 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 */
 :- pragma foreign_proc("C",
 	string__unsafe_set_char(Ch::in, Index::in, Str0::in, Str::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	size_t len = strlen(Str0);
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 	strcpy(Str, Str0);
@@ -1942,29 +2119,37 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 ").
 :- pragma foreign_proc("MC++",
 	string__unsafe_set_char(Ch::in, Index::in, Str0::in, Str::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "
 	Str = System::String::Concat(Str0->Substring(0, Index),
 		System::Convert::ToString(Ch), 
 		Str0->Substring(Index + 1));
 ").
+string__unsafe_set_char(_, _, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__unsafe_set_char").
 
 /*
 :- pred string__unsafe_set_char(char, int, string, string).
 :- mode string__unsafe_set_char(in, in, di, uo) is det.
 */
+/*
 :- pragma foreign_proc("C",
 	string__unsafe_set_char(Ch::in, Index::in, Str0::di, Str::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Str = Str0;
 	MR_set_char(Str, Index, Ch);
 ").
 :- pragma foreign_proc("MC++",
 	string__unsafe_set_char(Ch::in, Index::in, Str0::di, Str::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "
 	Str = System::String::Concat(Str0->Substring(0, Index),
 		System::Convert::ToString(Ch), 
 		Str0->Substring(Index + 1));
 ").
+*/
 
 /*-----------------------------------------------------------------------*/
 
@@ -1974,12 +2159,12 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 */
 :- pragma foreign_proc("C",
 	string__length(Str::in, Length::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Length = strlen(Str);
 ").
 :- pragma foreign_proc("MC++",
 	string__length(Str::in, Length::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Length = Str->get_Length();
 ").
 
@@ -1989,14 +2174,28 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 */
 :- pragma foreign_proc("C",
 	string__length(Str::ui, Length::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Length = strlen(Str);
 ").
 :- pragma foreign_proc("MC++",
 	string__length(Str::ui, Length::uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Length = Str->get_Length();
 ").
+
+:- pragma promise_pure(string__length/2).
+string__length(Str0, Len) :-
+		% XXX This copy is only necessary because of the ui.
+	copy(Str0, Str),
+	string__length_2(Str, 0, Len).
+
+:- pred string__length_2(string::in, int::di, int::uo) is det.
+string__length_2(Str, Index, Length) :-
+	( string__index(Str, Index, _) ->
+		string__length_2(Str, Index + 1, Length)
+	;
+		Length = Index
+	).
 
 /*-----------------------------------------------------------------------*/
 
@@ -2004,7 +2203,7 @@ make_format_dotnet(_Flags, MaybeWidth, MaybePrec, _LengthMod, Spec0) = String :-
 
 string__append(S1::in, S2::in, S3::in) :-
 	string__append_iii(S1, S2, S3).
-string__append(S1::in, S2::out, S3::in) :-
+string__append(S1::in, S2::uo, S3::in) :-
 	string__append_ioi(S1, S2, S3).
 string__append(S1::in, S2::in, S3::uo) :-
 	string__append_iio(S1, S2, S3).
@@ -2015,7 +2214,7 @@ string__append(S1::out, S2::out, S3::in) :-
 
 :- pragma foreign_proc("C",
 	string__append_iii(S1::in, S2::in, S3::in),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	size_t len_1 = strlen(S1);
 	SUCCESS_INDICATOR = (
 		strncmp(S1, S3, len_1) == 0 &&
@@ -2025,20 +2224,23 @@ string__append(S1::out, S2::out, S3::in) :-
 
 :- pragma foreign_proc("MC++",
 	string__append_iii(S1::in, S2::in, S3::in),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	SUCCESS_INDICATOR = S3->Equals(System::String::Concat(S1, S2));
 }").
 
-:- pred string__append_ioi(string::in, string::out, string::in) is semidet.
+string__append_iii(X, Y, Z) :-
+	string__mercury_append(X, Y, Z).
+
+:- pred string__append_ioi(string::in, string::uo, string::in) is semidet.
 
 :- pragma foreign_proc("C",
-	string__append_ioi(S1::in, S2::out,S3::in),
-		[will_not_call_mercury, thread_safe], "{
+	string__append_ioi(S1::in, S2::uo,S3::in),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	size_t len_1, len_2, len_3;
 
 	len_1 = strlen(S1);
 	if (strncmp(S1, S3, len_1) != 0) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		len_3 = strlen(S3);
 		len_2 = len_3 - len_1;
@@ -2048,26 +2250,29 @@ string__append(S1::out, S2::out, S3::in) :-
 		*/
 		MR_allocate_aligned_string_msg(S2, len_2, MR_PROC_LABEL);
 		strcpy(S2, S3 + len_1);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 
 :- pragma foreign_proc("MC++",
 	string__append_ioi(S1::in, S2::out, S3::in),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	if (S3->StartsWith(S1)) {
 		S2 = S3->Remove(0, S1->Length);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
+
+string__append_ioi(X, Y, Z) :-
+	string__mercury_append(X, Y, Z).
 
 :- pred string__append_iio(string::in, string::in, string::uo) is det.
 
 :- pragma foreign_proc("C",
 	string__append_iio(S1::in, S2::in, S3::uo),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	size_t len_1, len_2;
 	len_1 = strlen(S1);
 	len_2 = strlen(S2);
@@ -2078,9 +2283,12 @@ string__append(S1::out, S2::out, S3::in) :-
 
 :- pragma foreign_proc("MC++",
 	string__append_iio(S1::in, S2::in, S3::uo),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	S3 = System::String::Concat(S1, S2);
 }").
+
+string__append_iio(X, Y, Z) :-
+	string__mercury_append(X, Y, Z).
 
 :- pred string__append_ooi(string::out, string::out, string::in) is multi.
 
@@ -2109,7 +2317,7 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 
 :- pragma foreign_proc("C",
 	string__append_ooi_3(S1Len::in, S3Len::in, S1::out, S2::out, S3::in),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_allocate_aligned_string_msg(S1, S1Len, MR_PROC_LABEL);
 	memcpy(S1, S3, S1Len);
 	S1[S1Len] = '\\0';
@@ -2120,20 +2328,36 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 :- pragma foreign_proc("MC++",
 	string__append_ooi_3(S1Len::in, _S3Len::in,
 			S1::out, S2::out, S3::in),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing], "
 	S1 = S3->Substring(0, S1Len);
 	S2 = S3->Substring(S1Len);
 ").
+
+string__append_ooi_3(S1Len, _S3Len, S1, S2, S3) :-
+	string__split(S3, S1Len, S1, S2).
+
+:- pred string__mercury_append(string, string, string).
+:- mode string__mercury_append(in, in, in) is semidet.	% implied
+:- mode string__mercury_append(in, uo, in) is semidet.
+:- mode string__mercury_append(in, in, uo) is det.
+:- mode string__mercury_append(uo, uo, in) is multi.
+
+string__mercury_append(X, Y, Z) :-
+	string__to_char_list(X, XList),
+	string__to_char_list(Y, YList),
+	string__to_char_list(Z, ZList),
+	list__append(XList, YList, ZList).
 
 /*-----------------------------------------------------------------------*/
 
 /*
 :- pred string__substring(string, int, int, string).
-:- mode string__substring(in, in, in, out) is det.
+:- mode string__substring(in, in, in, uo) is det.
 %	string__substring(String, Start, Count, Substring):
 */
 
-string__substring(Str::in, Start::in, Count::in, SubStr::out) :-
+string__substring(Str::in, Start::in, Count::in, SubStr::uo) :-
 	End = min(Start + Count, string__length(Str)),
 	SubStr = string__from_char_list(strchars(Start, End, Str)).
 
@@ -2147,8 +2371,8 @@ strchars(I, End, Str) =
 
 :- pragma foreign_proc("C",
 	string__substring(Str::in, Start::in, Count::in,
-		SubString::out),
-		[will_not_call_mercury, thread_safe],
+		SubString::uo),
+		[will_not_call_mercury, promise_pure, thread_safe],
 "{
 	MR_Integer len;
 	MR_Word tmp;
@@ -2175,8 +2399,8 @@ strchars(I, End, Str) =
 
 :- pragma foreign_proc("C",
 	string__unsafe_substring(Str::in, Start::in, Count::in,
-		SubString::out),
-		[will_not_call_mercury, thread_safe],
+		SubString::uo),
+		[will_not_call_mercury, promise_pure, thread_safe],
 "{
 	MR_Integer len;
 	MR_allocate_aligned_string_msg(SubString, Count, MR_PROC_LABEL);
@@ -2185,17 +2409,21 @@ strchars(I, End, Str) =
 }").
 :- pragma foreign_proc("MC++",
 	string__unsafe_substring(Str::in, Start::in, Count::in,
-		SubString::out),
-		[will_not_call_mercury, thread_safe],
+		SubString::uo),
+		[will_not_call_mercury, promise_pure, thread_safe, 
+			no_aliasing],
 "{
 	SubString = Str->Substring(Start, Count);
 }").
 
-
+string__unsafe_substring(_, _, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__unsafe_substring").
 
 /*
 :- pred string__split(string, int, string, string).
-:- mode string__split(in, in, out, out) is det.
+:- mode string__split(in, in, uo, uo) is det.
 %	string__split(String, Count, LeftSubstring, RightSubstring):
 %	`LeftSubstring' is the left-most `Count' characters of `String',
 %	and `RightSubstring' is the remainder of `String'.
@@ -2204,8 +2432,8 @@ strchars(I, End, Str) =
 */
 
 :- pragma foreign_proc("C",
-	string__split(Str::in, Count::in, Left::out, Right::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__split(Str::in, Count::in, Left::uo, Right::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_Integer len;
 	MR_Word tmp;
 	if (Count <= 0) {
@@ -2229,8 +2457,8 @@ strchars(I, End, Str) =
 }").
 
 :- pragma foreign_proc("MC++",
-	string__split(Str::in, Count::in, Left::out, Right::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__split(Str::in, Count::in, Left::uo, Right::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_Integer len;
 	MR_Word tmp;
 	if (Count <= 0) {
@@ -2246,16 +2474,36 @@ strchars(I, End, Str) =
 	}
 }").
 
+string__split(Str, Count, Left, Right) :-
+	( Count =< 0 ->
+		Left = "",
+		Right = Str
+	;
+		string__to_char_list(Str, List),
+		Len = string__length(Str),
+		( Count > Len ->
+			Num = Len
+		;
+			Num = Count
+		),
+		( list__split_list(Num, List, LeftList, RightList) ->
+			string__to_char_list(Left, LeftList),
+			string__to_char_list(Right, RightList)
+		;
+			error("string__split")
+		)
+	).
+
 
 /*-----------------------------------------------------------------------*/
 
 /*
 :- pred string__first_char(string, char, string).
 :- mode string__first_char(in, in, in) is semidet.	% implied
-:- mode string__first_char(in, out, in) is semidet.	% implied
-:- mode string__first_char(in, in, out) is semidet.	% implied
-:- mode string__first_char(in, out, out) is semidet.
-:- mode string__first_char(out, in, in) is det.
+:- mode string__first_char(in, uo, in) is semidet.	% implied
+:- mode string__first_char(in, in, uo) is semidet.	% implied
+:- mode string__first_char(in, uo, uo) is semidet.
+:- mode string__first_char(uo, in, in) is det.
 %	string__first_char(String, Char, Rest) is true iff
 %		Char is the first character of String, and Rest is the
 %		remainder.
@@ -2266,7 +2514,7 @@ strchars(I, End, Str) =
 */
 :- pragma foreign_proc("C",
 	string__first_char(Str::in, First::in, Rest::in),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	SUCCESS_INDICATOR = (
 		Str[0] == First &&
 		First != '\\0' &&
@@ -2275,7 +2523,7 @@ strchars(I, End, Str) =
 ").
 :- pragma foreign_proc("MC++",
 	string__first_char(Str::in, First::in, Rest::in),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	MR_Integer len = Str->get_Length();
 	SUCCESS_INDICATOR = (
 		len > 0 &&
@@ -2285,35 +2533,35 @@ strchars(I, End, Str) =
 ").
 
 /*
-:- mode string__first_char(in, out, in) is semidet.	% implied
+:- mode string__first_char(in, uo, in) is semidet.	% implied
 */
 :- pragma foreign_proc("C",
-	string__first_char(Str::in, First::out, Rest::in),
-		[will_not_call_mercury, thread_safe], "
+	string__first_char(Str::in, First::uo, Rest::in),
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	First = Str[0];
 	SUCCESS_INDICATOR = (First != '\\0' && strcmp(Str + 1, Rest) == 0);
 ").
 :- pragma foreign_proc("MC++",
-	string__first_char(Str::in, First::out, Rest::in),
-		[will_not_call_mercury, thread_safe], "
+	string__first_char(Str::in, First::uo, Rest::in),
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	MR_Integer len = Str->get_Length();
 	if (len > 0) {
 		SUCCESS_INDICATOR = 
 			(System::String::Compare(Str, 1, Rest, 0, len) == 0);
 		First = Str->get_Chars(0);
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 ").
 
 /*
-:- mode string__first_char(in, in, out) is semidet.	% implied
+:- mode string__first_char(in, in, uo) is semidet.	% implied
 */
 :- pragma foreign_proc("C",
-	string__first_char(Str::in, First::in, Rest::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__first_char(Str::in, First::in, Rest::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	if (Str[0] != First || First == '\\0') {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str++;
 		/*
@@ -2323,30 +2571,30 @@ strchars(I, End, Str) =
 		MR_allocate_aligned_string_msg(Rest, strlen(Str),
 			MR_PROC_LABEL);
 		strcpy(Rest, Str);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 :- pragma foreign_proc("MC++",
-	string__first_char(Str::in, First::in, Rest::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__first_char(Str::in, First::in, Rest::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_Integer len = Str->get_Length();
 	if (len > 0) {
 		SUCCESS_INDICATOR = (First == Str->get_Chars(0));
 		Rest = (Str)->Substring(1);
 	} else {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	}
 }").
 
 /*
-:- mode string__first_char(in, out, out) is semidet.
+:- mode string__first_char(in, uo, uo) is semidet.
 */
 :- pragma foreign_proc("C", 
-	string__first_char(Str::in, First::out, Rest::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__first_char(Str::in, First::uo, Rest::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	First = Str[0];
 	if (First == '\\0') {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		Str++;
 		/*
@@ -2356,41 +2604,47 @@ strchars(I, End, Str) =
 		MR_allocate_aligned_string_msg(Rest, strlen(Str),
 			MR_PROC_LABEL);
 		strcpy(Rest, Str);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
 	}
 }").
 :- pragma foreign_proc("MC++", 
-	string__first_char(Str::in, First::out, Rest::out),
-		[will_not_call_mercury, thread_safe], "{
+	string__first_char(Str::in, First::uo, Rest::uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	if (Str->get_Length() == 0) {
-		SUCCESS_INDICATOR = FALSE;
+		SUCCESS_INDICATOR = MR_FALSE;
 	} else {
 		First = Str->get_Chars(0);
 		Rest = (Str)->Substring(1);
-		SUCCESS_INDICATOR = TRUE;
+		SUCCESS_INDICATOR = MR_TRUE;
         }
 }").
 
 
 /*
-:- mode string__first_char(out, in, in) is det.
+:- mode string__first_char(uo, in, in) is det.
 */
 :- pragma foreign_proc("C",
-	string__first_char(Str::out, First::in, Rest::in),
-		[will_not_call_mercury, thread_safe], "{
+	string__first_char(Str::uo, First::in, Rest::in),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	size_t len = strlen(Rest) + 1;
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 	Str[0] = First;
 	strcpy(Str + 1, Rest);
 }").
 :- pragma foreign_proc("MC++",
-	string__first_char(Str::out, First::in, Rest::in),
-		[will_not_call_mercury, thread_safe], "{
+	string__first_char(Str::uo, First::in, Rest::in),
+		[will_not_call_mercury, promise_pure, thread_safe], "{
 	MR_String FirstStr;
 	FirstStr = new System::String(First, 1);
 	Str = System::String::Concat(FirstStr, Rest);
 }").
 
+
+:- pragma promise_pure(string__first_char/3).
+string__first_char(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("string__first_char").
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -2464,6 +2718,10 @@ string__foldl(F, S, A) = B :-
 	P = ( pred(X::in, Y::in, Z::out) is det :- Z = F(X, Y) ),
 	string__foldl(P, S, A, B).
 
+string__foldl_substring(F, S, Start, Count, A) = B :-
+	P = ( pred(X::in, Y::in, Z::out) is det :- Z = F(X, Y) ),
+	string__foldl_substring(P, S, Start, Count, A, B).
+
 string__left(S1, N) = S2 :-
 	string__left(S1, N, S2).
 
@@ -2482,13 +2740,13 @@ string__hash(S) = N :-
 string__format(S1, PT) = S2 :-
 	string__format(S1, PT, S2).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
 
 string__words(SepP, String) = Words :-
 	I = preceding_boundary(isnt(SepP), String, string__length(String) - 1),
 	Words = words_2(SepP, String, I, []).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
 
 :- func words_2(pred(char), string, int, list(string)) = list(string).
 :- mode words_2(pred(in) is semidet, in, in, in) = out is det.
@@ -2504,7 +2762,11 @@ words_2(SepP, String, WordEnd, Words0) = Words :-
 		Words = words_2(SepP, String, PrevWordEnd, [Word | Words0])
 	).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
+
+string__words(String) = string__words(char__is_whitespace, String).
+
+%------------------------------------------------------------------------------%
 
 	% preceding_boundary(SepP, String, I) returns the largest index J =< I
 	% in String of the char that is SepP and min(-1, I) if there is no
@@ -2524,15 +2786,15 @@ preceding_boundary(SepP, String, I) =
 		preceding_boundary(SepP, String, I - 1)
 	).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
 
 S1 ++ S2 = string__append(S1, S2).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
 
 string__det_to_int(S) = string__det_base_string_to_int(10, S).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
 
 string__det_base_string_to_int(Base, S) = N :-
 	( if string__base_string_to_int(Base, S, N0) then
@@ -2541,9 +2803,9 @@ string__det_base_string_to_int(Base, S) = N :-
 	  	error("string__det_base_string_to_int/2: conversion failed")
 	).
 
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
 
 :- end_module string.
 
-% ---------------------------------------------------------------------------- %
-% ---------------------------------------------------------------------------- %
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%

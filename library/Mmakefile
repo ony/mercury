@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1997-2001 The University of Melbourne.
+# Copyright (C) 1997-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -13,33 +13,20 @@
 EXTRA_LDFLAGS =
 EXTRA_LDLIBS =
 #-----------------------------------------------------------------------------#
-
+ 
 MERCURY_DIR=..
+LINK_RUNTIME_ONLY=yes
 include $(MERCURY_DIR)/Mmake.common
+
+# Module-specific options should go in Mercury.options so they
+# can be found by `mmc --make'.
+include Mercury.options
+
+MERCURY_MAIN_MODULES = mer_std
 
 MAIN_TARGET=mercury
 
 VPATH=.
-
-#-----------------------------------------------------------------------------#
-#
-# XXX The following is needed only for bootstrapping
-# the new modes of int__xor.
-#
-
-MCFLAGS-int = --no-halt-at-warn
-MCFLAGS-float = --no-halt-at-warn
-EXTRA_MCFLAGS += $(LIBRARY_MCFLAGS)
-
-# Modules which use user-guided type specialization need to be
-# compiled with these flags to make sure all calls
-# to the builtin comparison routines are inlined.
-TYPE_SPEC_FLAGS = --inline-vars-threshold 10000
-MCFLAGS-list += $(TYPE_SPEC_FLAGS)
-MCFLAGS-map += $(TYPE_SPEC_FLAGS)
-MCFLAGS-tree234 += $(TYPE_SPEC_FLAGS)
-MCFLAGS-set += $(TYPE_SPEC_FLAGS)
-MCFLAGS-set_ordlist += $(TYPE_SPEC_FLAGS)
 
 #-----------------------------------------------------------------------------#
 
@@ -54,7 +41,7 @@ ifeq ($(LIBRARY_INTERMODULE),yes)
 # just disable the warnings here.
 INTERMODULE_OPTS = --transitive-intermodule-optimization \
 			--no-warn-smart-recompilation
-ENABLE_TERM_OPTS = # --enable-termination
+ENABLE_TERM_OPTS = --enable-termination
 CHECK_TERM_OPTS =
 # If you want to actually check termination for the library, then you need
 #	CHECK_TERM_OPTS = --check-termination
@@ -69,43 +56,33 @@ CHECK_TERM_OPTS =
 
 endif
 
-M_ENV	=	MERCURY_INT_DIR=. \
-		MERCURY_ALL_C_INCL_DIRS="\
-			-I$(TRACE_DIR) \
-			-I$(RUNTIME_DIR) \
-			-I$(BOEHM_GC_DIR) \
-			-I$(BOEHM_GC_DIR)/include \
-		"
-MCD	=	$(M_ENV) $(MC) --generate-dependencies $(INTERMODULE_OPTS)
-MCI	=	$(M_ENV) $(MC) --make-interface $(INTERMODULE_OPTS) \
-			$(ENABLE_TERM_OPTS)
-MCPI	=	$(M_ENV) $(MC) --make-private-interface $(INTERMODULE_OPTS) \
-			$(ENABLE_TERM_OPTS)
-MCSI	=	$(M_ENV) $(MC) --make-short-interface $(INTERMODULE_OPTS) \
-			$(ENABLE_TERM_OPTS)
-MCOI	=	$(M_ENV) $(MC) --make-opt-int $(INTERMODULE_OPTS) \
-			$(ENABLE_TERM_OPTS)
-MCTOI	=	$(M_ENV) $(MC) --make-trans-opt $(INTERMODULE_OPTS) \
-			$(ENABLE_TERM_OPTS)
-MCG	=	$(M_ENV) $(MC) --compile-to-c --trace minimum \
-			$(INTERMODULE_OPTS) $(CHECK_TERM_OPTS)
-MCS	=	$(M_ENV) $(MC) --split-c-files -c --cflags "$(ALL_CFLAGS)" \
-			$(INTERMODULE_OPTS) $(CHECK_TERM_OPTS)
-MGNUC	=	$(M_ENV) $(SCRIPTS_DIR)/mgnuc
-MGNUCFLAGS =	$(DLL_CFLAGS)
-LDFLAGS	=	-L$(BOEHM_GC_DIR) -L$(RUNTIME_DIR)
-ALL_LDFLAGS =	$(LDFLAGS) $(EXTRA_LDFLAGS)
-LDLIBS	=	-l$(RT_LIB_NAME) \
-		` case "$(GRADE)" in 					\
-		    *.par*.gc*.prof*)	echo "-lpar_gc_prof" ;;		\
-		    *.par*.gc*)		echo "-lpar_gc" ;;		\
-		    *.gc*.prof*)	echo "-lgc_prof" ;;		\
-		    *.gc*)		echo "-lgc" ;;			\
-		  esac							\
-		`
-ALL_LDLIBS =	$(LDLIBS) $(EXTRA_LDLIBS)
+# We need to compile the library with --strict-sequential for two reasons:
+# (1) Otherwise Mercury code that is compiled with --strict-sequential
+#     might do the wrong thing, because the standard library wasn't compiled
+#     with --strict-sequential.  (We could make it a separate grade, but
+#     that's not worth it.)
+# (2) The code for get_determinism in library/exception.m relies on it
+#     (in particular it relies on --no-reorder-disj).
+#
+# We compile the files in the library directory with --trace minimum by
+# default, which has no effect in non-debugging grades and causes the
+# library to be shallow traced, not deep traced, in debugging grades.
+# This is probably what most users want, and it makes it much easier to
+# maintain the expected output of the debugging test cases in debugging grades.
+#
+# Always generate dependencies for use by `mmc --make'.
+MCFLAGS += --strict-sequential --trace minimum --generate-mmc-deps \
+		$(INTERMODULE_OPTS) $(ENABLE_TERM_OPTS) $(CHECK_TERM_OPTS)
+
+#-----------------------------------------------------------------------------#
+
+CFLAGS	+=	$(DLL_CFLAGS) -I$(TRACE_DIR)
+MLFLAGS	+=	-R$(FINAL_INSTALL_MERC_LIB_DIR) \
+		-R$(FINAL_INSTALL_MERC_GC_LIB_DIR)
 
 MTAGS	=	$(SCRIPTS_DIR)/mtags
+
+LN	=	ln
 
 #-----------------------------------------------------------------------------#
 
@@ -124,11 +101,6 @@ DLL_DEF_LIB =
 
 endif
 
-# io.m uses library features that are supported by POSIX but which are not
-# part of ANSI C, such as `struct stat', fileno(), and putenv().
-# We need to pass --no-ansi to mgnuc to ensure that these are declared.
-MGNUCFLAGS-io =	--no-ansi
-
 #-----------------------------------------------------------------------------#
 
 # targets
@@ -137,15 +109,15 @@ MGNUCFLAGS-io =	--no-ansi
 all : mercury
 
 .PHONY: mercury
-mercury : all-ints lib_std
+mercury : lib_std
 
 #-----------------------------------------------------------------------------#
 
 .PHONY: depend
-depend		: library.depend
+depend		: $(STD_LIB_NAME).depend
 
 .PHONY: check
-check		: library.check
+check		: $(STD_LIB_NAME).check
 
 .PHONY: all-ints 
 
@@ -160,46 +132,55 @@ all-ints: ints int3s
 endif
 
 .PHONY: ints 
-ints		: library.ints
+ints		: $(STD_LIB_NAME).ints
 
 .PHONY: int3s 
-int3s		: library.int3s
+int3s		: $(STD_LIB_NAME).int3s
 
 .PHONY: opts 
-opts		: library.opts
+opts		: $(STD_LIB_NAME).opts
 
 .PHONY: trans_opts 
-trans_opts		: library.trans_opts
-library.trans_opts	: $(library.trans_opts)
+trans_opts		: $(STD_LIB_NAME).trans_opts
+$(STD_LIB_NAME).trans_opts	: $($(STD_LIB_NAME).trans_opts)
 
 #-----------------------------------------------------------------------------#
 
-tags		: $(MTAGS) $(library.ms)
-	$(MTAGS) $(library.ms)
+tags		: $(MTAGS) $($(STD_LIB_NAME).ms)
+	$(MTAGS) $($(STD_LIB_NAME).ms)
 
-library.stats : $(COMPILER_DIR)/source_stats.awk $(library.ms)
-	awk -f $(COMPILER_DIR)/source_stats.awk `vpath_find $(library.ms)` > $@
+$(STD_LIB_NAME).stats : $(COMPILER_DIR)/source_stats.awk $($(STD_LIB_NAME).ms)
+	awk -f $(COMPILER_DIR)/source_stats.awk \
+		`vpath_find $($(STD_LIB_NAME).ms)` > $@
 	
 #-----------------------------------------------------------------------------#
 
 .PHONY: dates
 dates		:
-	touch $(library.dates)
+	touch $($(STD_LIB_NAME).dates)
 
 #-----------------------------------------------------------------------------#
 
-# Note that we need to explicitly mention $(library.pic_ss) somewhere
+# Note that we need to explicitly mention $($(STD_LIB_NAME).pic_ss) somewhere
 # in the Mmakefile, otherwise it won't build properly with --target asm:
 # GNU Make's pattern rule algorithm will try to use the .m -> .c -> .pic_o
 # rule chain rather than the .m -> .pic_s_date -> .pic_s -> .pic_o chain.
 # So don't remove the pic_ss target here.
 
 .PHONY: os cs ss pic_ss ils 
-os: $(library.os)
-cs: $(library.cs)
-ss: $(library.ss)
-pic_ss: $(library.pic_ss)
-ils: $(library.ils)
+ifeq ($(MMAKE_USE_MMC_MAKE),no)
+os: $($(STD_LIB_NAME).os)
+cs: $($(STD_LIB_NAME).cs)
+ss: $($(STD_LIB_NAME).ss)
+pic_ss: $($(STD_LIB_NAME).pic_ss)
+ils: $($(STD_LIB_NAME).ils)
+else
+os: $(STD_LIB_NAME).os
+cs: $(STD_LIB_NAME).cs
+ss: $(STD_LIB_NAME).ss
+pic_ss: $(STD_LIB_NAME).pic_ss
+ils: $(STD_LIB_NAME).ils
+endif
 
 #-----------------------------------------------------------------------------#
 
@@ -233,9 +214,10 @@ MS_ILASMFLAGS=$(DEBUG_MS_ILASMFLAGS)
 library_strong_name.sn:
 	sn -k library_strong_name.sn
 
-mercury.dll: copy_runtime_dlls $(library.dlls) $(library.foreign_dlls) library_strong_name.sn
+mercury.dll: copy_runtime_dlls lib$(STD_LIB_NAME) library_strong_name.sn
 	$(MS_AL) -v:0.0.0.0 -keyf:library_strong_name.sn -out:mercury.dll \
-		$(library.dlls) $(library.foreign_dlls) $(RUNTIME_DLLS) 
+		$($(STD_LIB_NAME).dlls) $($(STD_LIB_NAME).foreign_dlls) \
+		$(RUNTIME_DLLS) 
 
 # The runtime DLLs must be copied into this directory from the runtime
 # directory so they can be installed properly.
@@ -248,39 +230,38 @@ mercury_il.dll: ../runtime/mercury_il.dll
 mercury_mcpp.dll: ../runtime/mercury_mcpp.dll
 	cp ../runtime/mercury_mcpp.dll .
 
+exception__csharp_code.dll : exception__cpp_code.dll
+CSHARP_ASSEMBLY_REFS-exception__csharp_code += /addmodule:exception__cpp_code.dll
+
+else	# GRADE != il
+
+# The following dependency is just there to improve compilation speed;
+# making tree234.$O first improves effective parallelism with parallel makes.
+# `mmc --make' does not support parallel makes, so this dependency just
+# slows things down.
+ifeq ($(MMAKE_USE_MMC_MAKE),no)
+lib_std: $(os_subdir)tree234.$O
+endif
+lib_std: lib$(STD_LIB_NAME)
+
+ifeq ($(MMAKE_USE_MMC_MAKE),no)
+
+EXTRA_INIT_COMMAND = \
+	for file in $($(STD_LIB_NAME).ms); do \
+		grep '^INIT ' $$file; \
+		true; \
+	done
+
 else
 
-# the following dependency is just there to improve compilation speed;
-# making tree234.$O first improves effective parallelism with parallel makes.
-lib_std: $(os_subdir)tree234.$O
-lib_std: lib$(STD_LIB_NAME).$A lib$(STD_LIB_NAME).$(EXT_FOR_SHARED_LIB)
-lib_std: $(STD_LIB_NAME).init
-
-lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A : $(library.os)
-	rm -f lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A
-	$(AR) $(ALL_ARFLAGS) \
-		$(AR_LIBFILE_OPT)lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A \
-		$(library.os)
-	$(RANLIB) lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A
-
-RPATH_1=$(SHLIB_RPATH_OPT)$(FINAL_INSTALL_MERC_LIB_DIR)
-RPATH_2=$(SHLIB_RPATH_SEP)$(FINAL_INSTALL_MERC_GC_LIB_DIR)
-
-lib$(STD_LIB_NAME).so : $(library.pic_os)
-	$(LINK_SHARED_OBJ) $(ERROR_UNDEFINED) 				\
-		-o lib$(STD_LIB_NAME).so $(library.pic_os)		\
-		$(RPATH_1)$(RPATH_2)					\
-		$(ALL_LDFLAGS) $(ALL_LDLIBS)				\
-		$(SHARED_LIBS)
-
+MCFLAGS += --extra-init-command \
+		"for module in %; do \
+			grep '^INIT ' $$$${module}.m; \
+			true; \
+		done"
 endif
 
-$(STD_LIB_NAME).init: $(deps_subdir)library.dep
-	for file in $(library.ms); do \
-		grep '^INIT ' $$file; \
-		echo "INIT mercury__`basename $$file .m`__init"; \
-	done > $(STD_LIB_NAME).init
-
+endif	# GRADE != il
 #-----------------------------------------------------------------------------#
 
 # Ensure we recompile library__version if VERSION is changed.
@@ -295,15 +276,47 @@ $(os_subdir)library.pic_o \
 # require some files in the library to be recompiled.
 $(os_subdir)benchmarking.$O \
 $(os_subdir)benchmarking.pic_o \
+$(os_subdir)construct.$O \
+$(os_subdir)construct.pic_o \
+$(os_subdir)deconstruct.$O \
+$(os_subdir)deconstruct.pic_o \
 $(os_subdir)std_util.$O \
 $(os_subdir)std_util.pic_o \
 	: ../runtime/mercury_stack_layout.h
 
+$(os_subdir)deconstruct.$O \
+$(os_subdir)deconstruct.pic_o \
+$(os_subdir)std_util.$O \
+$(os_subdir)std_util.pic_o \
+	: ../runtime/mercury_ml_functor_body.h \
+	../runtime/mercury_ml_arg_body.h \
+	../runtime/mercury_ml_deconstruct_body.h \
+	../runtime/mercury_deconstruct_macros.h \
+	../runtime/mercury_deconstruct.h
+
+$(os_subdir)construct.$O \
+$(os_subdir)construct.pic_o \
+$(os_subdir)std_util.$O \
+$(os_subdir)std_util.pic_o \
+	: ../runtime/mercury_construct.h
+
+$(os_subdir)type_desc.$O \
+$(os_subdir)type_desc.pic_o \
+$(os_subdir)std_util.$O \
+$(os_subdir)std_util.pic_o \
+	: ../runtime/mercury_type_desc.h
+
+$(os_subdir)table_builtin.$O \
+$(os_subdir)table_builtin.pic_o \
+	: ../runtime/mercury_tabling_macros.h
+
 #-----------------------------------------------------------------------------#
 
+# In the past we generated liblibrary.* and then linked
+# libmer_std.* to the files.
 realclean_local:
-	rm -f $(library.mods:%=%.h)
-	rm -f lib$(STD_LIB_NAME).$A lib$(STD_LIB_NAME).so $(STD_LIB_NAME).init
+	rm -f liblibrary.$A liblibrary.so library.init
+	rm -f $($(STD_LIB_NAME).mods:%=%.h)
 	rm -f tags
 
 #-----------------------------------------------------------------------------#
@@ -328,15 +341,10 @@ install_all: install_mercury
 install_mercury: install_ints install_hdrs install_init install_library
 
 .PHONY: install_ints
-install_ints: liblibrary.install_ints
+install_ints: lib$(STD_LIB_NAME).install_ints
 
 .PHONY: install_hdrs
-install_hdrs: liblibrary.install_hdrs
-
-# The following rules are hand-coded, rather than using the
-# liblibrary.* targets automatically generated by `mmake depend',
-# because they override the name used for the standard library:
-# they use $(STD_LIB_NAME) rather than `library'.
+install_hdrs: lib$(STD_LIB_NAME).install_hdrs
 
 .PHONY: install_init
 install_init: $(STD_LIB_NAME).init install_lib_dirs
@@ -353,7 +361,7 @@ ifneq (,$(findstring il,$(GRADE)))
 
 .PHONY: install_library
 install_library: mercury.dll install_grade_dirs install_gac install_strong_name
-	cp `vpath_find $(library.foreign_dlls) $(library.dlls) \
+	cp `vpath_find $($(STD_LIB_NAME).foreign_dlls) $($(STD_LIB_NAME).dlls) \
 		mercury.dll` $(INSTALL_MERC_LIB_DIR)
 
 # The GAC is the global assembly cache, which is the system managed
@@ -371,54 +379,56 @@ install_strong_name: library_strong_name.sn
 else
 
 .PHONY: install_library
-install_library: lib$(STD_LIB_NAME).$A \
-		lib$(STD_LIB_NAME).$(EXT_FOR_SHARED_LIB) install_grade_dirs
-	cp `vpath_find lib$(STD_LIB_NAME).$A \
-		lib$(STD_LIB_NAME).$(EXT_FOR_SHARED_LIB)` \
-		$(INSTALL_MERC_LIB_DIR)
+install_library: lib$(STD_LIB_NAME).install_library
 
 endif	# non IL grades
 
-# library.split.$A is a version of lib$(STD_LIB_NAME).$A that has been compiled
-# with `--split-c-files'.
+# $(STD_LIB_NAME).split.$A is a version of lib$(STD_LIB_NAME).$A
+# that has been compiled with `--split-c-files'.
 .PHONY: install_split_library
-install_split_library: library.split.$A install_grade_dirs
-	cp `vpath_find library.split.$A` \
-		$(INSTALL_MERC_LIB_DIR)/lib$(STD_LIB_NAME).$A
+install_split_library: lib$(STD_LIB_NAME).install_split_library
 
 else
 
 .PHONY: install
 install:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_all
 install_all:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_mercury
 install_mercury:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_ints
 install_ints:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_hdrs
 install_hdrs:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_init
 install_init:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_library
 install_library:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 .PHONY: install_split_library
 install_split_library:
 	echo "Can't do make install without LIBRARY_INTERMODULE=yes"
+	exit 1
 
 endif
 

@@ -1,6 +1,6 @@
 % ---------------------------------------------------------------------------- %
 % bitmap.m
-% Copyright (C) 2001 Ralph Becket <rbeck@microsoft.com>
+% Copyright (C) 2001-2002 Ralph Becket <rbeck@microsoft.com>
 % Thu Feb  1 14:38:31 GMT 2001
 % vim: ts=4 sw=4 et tw=0 wm=0 ff=unix ft=mercury
 %
@@ -115,7 +115,7 @@
     % Set operations; the second argument is altered in all cases.
     %
 :- func complement(bitmap) = bitmap.
-:- mode complement(bitmap_ui) = bitmap_uo is det.
+:- mode complement(bitmap_di) = bitmap_uo is det.
 
 :- func union(bitmap, bitmap) = bitmap.
 :- mode union(bitmap_ui, bitmap_di) = bitmap_uo is det.
@@ -140,7 +140,7 @@
 
 :- implementation.
 
-:- import_module exception.
+:- import_module exception, require.
 
     % A bitmap is represented as an array of ints where each int stores
     % int__bits_per_int bits.  The first element of the array (index 0)
@@ -157,7 +157,7 @@
 
 new(N, B) = BM :-
     ( if N < 0 then
-        throw("bitmap__new: negative size")
+        throw(software_error("bitmap__new: negative size"))
       else
         X    = initializer(B),
         BM0  = (array__init(num_ints_required(N), X) ^ elem(0) := N),
@@ -226,19 +226,19 @@ in_range(BM, I) :- 0 =< I, I < num_bits(BM).
 set(BM, I) =
     ( if in_range(BM, I)
       then BM ^ elem(int_offset(I)) := BM ^ elem(int_offset(I)) \/ bitmask(I)
-      else throw("bitmap__set: out of range")
+      else throw(software_error("bitmap__set: out of range"))
     ).
 
 clear(BM, I) =
     ( if in_range(BM, I)
       then BM ^ elem(int_offset(I)) := BM ^ elem(int_offset(I)) /\ \bitmask(I)
-      else throw("bitmap__clear: out of range")
+      else throw(software_error("bitmap__clear: out of range"))
     ).
 
 flip(BM, I) =
     ( if in_range(BM, I)
       then BM ^ elem(int_offset(I)) := BM ^ elem(int_offset(I)) `xor` bitmask(I)
-      else throw("bitmap__flip: out of range")
+      else throw(software_error("bitmap__flip: out of range"))
     ).
 
 % ---------------------------------------------------------------------------- %
@@ -257,13 +257,13 @@ unsafe_flip(BM, I) =
 is_set(BM, I) :-
     ( if in_range(BM, I)
       then BM ^ elem(int_offset(I)) /\ bitmask(I) \= 0
-      else throw("bitmap__is_set: out of range")
+      else throw(software_error("bitmap__is_set: out of range"))
     ).
 
 is_clear(BM, I) :-
     ( if in_range(BM, I)
       then BM ^ elem(int_offset(I)) /\ bitmask(I) = 0
-      else throw("bitmap__is_clear: out of range")
+      else throw(software_error("bitmap__is_clear: out of range"))
     ).
 
 % ---------------------------------------------------------------------------- %

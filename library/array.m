@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-1995, 1997-2001 The University of Melbourne.
+% Copyright (C) 1993-1995, 1997-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -229,7 +229,7 @@
 	% Field update for arrays.
 	% (Array ^ elem(Index) := Value) = array__set(Array, Index, Value).
 :- func 'array__elem :='(int, array(T), T) = array(T).
-:- mode 'array__elem :='(in, array_ui, in) = array_uo is det.
+:- mode 'array__elem :='(in, array_di, in) = array_uo is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -388,7 +388,7 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module exception, int, require.
+:- import_module exception, int, require, string.
 
 /****
 lower bounds other than zero are not supported
@@ -410,9 +410,9 @@ lower bounds other than zero are not supported
 
 :- pragma foreign_decl("C", "
 #ifdef MR_HIGHLEVEL_CODE
-  bool MR_CALL mercury__array__do_unify__array_1_0(
+  MR_bool MR_CALL mercury__array__do_unify__array_1_0(
   	MR_Mercury_Type_Info type_info, MR_Box x, MR_Box y);
-  bool MR_CALL mercury__array____Unify____array_1_0(
+  MR_bool MR_CALL mercury__array____Unify____array_1_0(
 	MR_Mercury_Type_Info type_info, MR_Array x, MR_Array y);
   void MR_CALL mercury__array__do_compare__array_1_0(MR_Mercury_Type_Info
  	 type_info, MR_Comparison_Result *result, MR_Box x, MR_Box y);
@@ -425,16 +425,19 @@ lower bounds other than zero are not supported
 
 #include ""mercury_deep_profiling_hand.h""
 
+
+#ifdef	MR_DEEP_PROFILING
+MR_proc_static_compiler_plain(array, __Unify__,   array, 1, 0,
+	array, array_equal,   2, 0, ""array.m"", 99, MR_TRUE);
+MR_proc_static_compiler_plain(array, __Compare__, array, 1, 0,
+	array, array_compare, 3, 0, ""array.m"", 99, MR_TRUE);
+#endif
+
+MR_DEFINE_TYPE_CTOR_INFO(array, array, 1, ARRAY);
+
 #ifdef MR_HIGHLEVEL_CODE
 
-MR_define_type_ctor_info(array, array, 1, MR_TYPECTOR_REP_ARRAY);
-
-/* forward decl, to suppress gcc -Wmissing-decl warning */
-void sys_init_array_module_builtins(void);
-void sys_init_array_module_builtins_init(void);
-void sys_init_array_module_builtins_init_type_tables(void);
-
-bool MR_CALL
+MR_bool MR_CALL
 mercury__array__do_unify__array_1_0(MR_Mercury_Type_Info type_info,
 	MR_Box x, MR_Box y)
 {
@@ -442,7 +445,7 @@ mercury__array__do_unify__array_1_0(MR_Mercury_Type_Info type_info,
 		type_info, (MR_Array) x, (MR_Array) y);
 }
 
-bool MR_CALL
+MR_bool MR_CALL
 mercury__array____Unify____array_1_0(MR_Mercury_Type_Info type_info,
 	MR_Array x, MR_Array y)
 {
@@ -467,15 +470,6 @@ mercury__array____Compare____array_1_0(
 }
 
 #else
-
-#ifdef	MR_DEEP_PROFILING
-MR_proc_static_compiler_plain(array, __Unify__,   array, 1, 0,
-	array, array_equal,   2, 0, ""array.m"", 99, TRUE);
-MR_proc_static_compiler_plain(array, __Compare__, array, 1, 0,
-	array, array_compare, 3, 0, ""array.m"", 99, TRUE);
-#endif
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY);
 
 MR_declare_entry(mercury__array__array_equal_2_0);
 MR_declare_entry(mercury__array__array_compare_3_0);
@@ -556,6 +550,10 @@ MR_define_entry(mercury____Compare___array__array_1_0);
 
 MR_END_MODULE
 
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc array_module_builtins;
+
+#endif /* ! MR_HIGHLEVEL_CODE */
+
 /* Ensure that the initialization code for the above module gets run. */
 /*
 INIT sys_init_array_module_builtins
@@ -567,10 +565,6 @@ void sys_init_array_module_builtins_init_type_tables(void);
 #ifdef	MR_DEEP_PROFILING
 void sys_init_array_module_builtins_write_out_proc_statics(FILE *fp);
 #endif
-
-MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc array_module_builtins;
-
-#endif /* ! MR_HIGHLEVEL_CODE */
 
 void
 sys_init_array_module_builtins_init(void)
@@ -609,7 +603,7 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
     MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY)
 
     static int
-    special___Unify___array_1_0(MR_Word type_info, MR_Array x, MR_Array y)
+    special___Unify___array_1_0(MR_TypeInfo type_info, MR_Array x, MR_Array y)
     {
             return mercury::array::mercury_code::ML_array_equal(
 	    	type_info, x, y);
@@ -617,14 +611,14 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
 
     static void
     special___Compare___array_1_0(
-            MR_Word type_info, MR_Word_Ref result, MR_Array x, MR_Array y)
+            MR_TypeInfo type_info, MR_ComparisonResult *result, MR_Array x, MR_Array y)
     {
             mercury::array::mercury_code::ML_array_compare(
 	    	type_info, result, x, y);
     }
 
     static int
-    do_unify__array_1_0(MR_Word type_info, MR_Box x, MR_Box y)
+    do_unify__array_1_0(MR_TypeInfo type_info, MR_Box x, MR_Box y)
     {
             return mercury::array__cpp_code::mercury_code::special___Unify___array_1_0(
                     type_info, 
@@ -634,7 +628,7 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
 
     static void
     do_compare__array_1_0(
-            MR_Word type_info, MR_Word_Ref result, MR_Box x, MR_Box y)
+            MR_TypeInfo type_info, MR_ComparisonResult *result, MR_Box x, MR_Box y)
     {
             mercury::array__cpp_code::mercury_code::special___Compare___array_1_0(
                     type_info, result, 
@@ -666,7 +660,7 @@ array__equal_elements(N, Size, Array1, Array2) :-
 	;
 		array__lookup(Array1, N, Elem),
 		array__lookup(Array2, N, Elem),
-		N1 is N + 1,
+		N1 = N + 1,
 		array__equal_elements(N1, Size, Array1, Array2)
 	).
 
@@ -694,7 +688,7 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 		array__lookup(Array2, N, Elem2),
 		compare(ElemResult, Elem1, Elem2),
 		( ElemResult = (=) ->
-			N1 is N + 1,
+			N1 = N + 1,
 			array__compare_elements(N1, Size, Array1, Array2,
 				Result)
 		;
@@ -708,22 +702,27 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 :- pragma inline(bounds_checks/0).
 
 :- pragma foreign_proc("C", bounds_checks,
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 #ifdef ML_OMIT_ARRAY_BOUNDS_CHECKS
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #else
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").		
 
 :- pragma foreign_proc("MC++", bounds_checks,
-		[thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 #if ML_OMIT_ARRAY_BOUNDS_CHECKS
-	SUCCESS_INDICATOR = FALSE;
+	SUCCESS_INDICATOR = MR_FALSE;
 #else
-	SUCCESS_INDICATOR = TRUE;
+	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").		
+
+bounds_checks :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__bounds_checks").
 
 %-----------------------------------------------------------------------------%
 
@@ -733,22 +732,23 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 ").
 
 :- pragma foreign_decl("C", "
-MR_ArrayType *ML_make_array(MR_Integer size, MR_Word item);
+void ML_init_array(MR_ArrayType *, MR_Integer size, MR_Word item);
 ").
 
 :- pragma foreign_code("C", "
-MR_ArrayType *
-ML_make_array(MR_Integer size, MR_Word item)
+/*
+** The caller is responsible for allocating the memory for the array.
+** This routine does the job of initializing the already-allocated memory.
+*/
+void
+ML_init_array(MR_ArrayType *array, MR_Integer size, MR_Word item)
 {
 	MR_Integer i;
-	MR_ArrayType *array;
 
-	array = MR_make_array(size);
 	array->size = size;
 	for (i = 0; i < size; i++) {
 		array->elements[i] = item;
 	}
-	return array;
 }
 ").
 
@@ -764,23 +764,24 @@ array__init(Size, Item, Array) :-
 
 :- pragma foreign_proc("C", 
 		array__init_2(Size::in, Item::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe,
 		alias( yes(int, T, array(T)), 
 		 	[cel(Item,[]) - cel(Array,[T])])], "
-	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
-	Array = (MR_Word) ML_make_array(Size, Item);
+	MR_incr_hp_msg(Array, Size + 1, MR_PROC_LABEL, ""array:array/1"");
+	ML_init_array((MR_ArrayType *)Array, Size, Item);
 ").
 
 :- pragma foreign_proc("C",
 		array__make_empty_array(Array::array_uo),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
-	MR_maybe_record_allocation(1, MR_PROC_LABEL, ""array:array/1"");
-	Array = (MR_Word) ML_make_array(0, 0);
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
+	MR_incr_hp_msg(Array, 1, MR_PROC_LABEL, ""array:array/1"");
+	ML_init_array((MR_ArrayType *)Array, 0, 0);
 ").
 
 :- pragma foreign_proc("C#", 
 		array__init_2(Size::in, Item::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias( yes(int, T, array(T)), 
 			[cel(Item,[]) - cel(Array,[T])])], "
 	Array = System.Array.CreateInstance(Item.GetType(), Size);
@@ -789,62 +790,84 @@ array__init(Size, Item, Array) :-
 	}
 ").
 
-:- pragma foreign_proc("C#",
-		array__make_empty_array(_Array::array_uo),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
-        mercury.runtime.Errors.SORRY(""foreign code for this predicate"");
-").
+array__init_2(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__init_2").
 
+array__make_empty_array(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__make_empty_array").
 
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_proc("C",
 		array__min(Array::array_ui, Min::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	/* Array not used */
 	Min = 0;
 ").
 :- pragma foreign_proc("C", 
 		array__min(Array::in, Min::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	/* Array not used */
 	Min = 0;
 ").
 
 :- pragma foreign_proc("C#",
 		array__min(Array::array_ui, Min::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	/* Array not used */
 	Min = 0;
 ").
 :- pragma foreign_proc("C#", 
 		array__min(Array::in, Min::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	/* Array not used */
 	Min = 0;
 ").
 
+:- pragma promise_pure(array__min/2).
+array__min(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__min").
+
+:- pragma promise_pure(array__max/2).
 :- pragma foreign_proc("C", 
 		array__max(Array::array_ui, Max::out), 
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = ((MR_ArrayType *)Array)->size - 1;
 ").
 :- pragma foreign_proc("C",
 		array__max(Array::in, Max::out), 
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = ((MR_ArrayType *)Array)->size - 1;
 ").
 :- pragma foreign_proc("C#", 
 		array__max(Array::array_ui, Max::out), 
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = Array.Length - 1;
 ").
 :- pragma foreign_proc("C#",
 		array__max(Array::in, Max::out), 
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = Array.Length - 1;
 ").
 
+array__max(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__max").
 
 array__bounds(Array, Min, Max) :-
 	array__min(Array, Min),
@@ -854,26 +877,35 @@ array__bounds(Array, Min, Max) :-
 
 :- pragma foreign_proc("C",
 		array__size(Array::array_ui, Max::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = ((MR_ArrayType *)Array)->size;
 ").
 :- pragma foreign_proc("C",
 		array__size(Array::in, Max::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = ((MR_ArrayType *)Array)->size;
 ").
 
 :- pragma foreign_proc("C#",
 		array__size(Array::array_ui, Max::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = Array.Length;
 ").
 :- pragma foreign_proc("C#",
 		array__size(Array::in, Max::out),
-		[will_not_call_mercury, thread_safe, no_aliasing], "
+		[will_not_call_mercury, promise_pure, thread_safe, 
+		no_aliasing], "
 	Max = Array.Length;
 ").
 
+:- pragma promise_pure(array__size/2).
+array__size(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__size").
 
 %-----------------------------------------------------------------------------%
 
@@ -901,7 +933,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 
 array__lookup(Array, Index, Item) :-
 	( bounds_checks, \+ array__in_bounds(Array, Index) ->
-		throw(array__index_out_of_bounds("array__lookup"))
+		out_of_bounds_error(Array, Index, "array__lookup")
 	;
 		array__unsafe_lookup(Array, Index, Item)
 	).
@@ -912,7 +944,7 @@ array__lookup(Array, Index, Item) :-
 
 :- pragma foreign_proc("C",
 		array__unsafe_lookup(Array::array_ui, Index::in, Item::out),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias(yes(array(T), int, T), 
 			[ cel(Array, [T]) - cel(Item, []) ]) ], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array;
@@ -920,7 +952,7 @@ array__lookup(Array, Index, Item) :-
 }").
 :- pragma foreign_proc("C",
 		array__unsafe_lookup(Array::in, Index::in, Item::out),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias(yes(array(T), int, T), 
 			[ cel(Array, [T]) - cel(Item, []) ]) ], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array;
@@ -929,25 +961,30 @@ array__lookup(Array, Index, Item) :-
 
 :- pragma foreign_proc("C#",
 		array__unsafe_lookup(Array::array_ui, Index::in, Item::out),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias(yes(array(T), int, T), 
 			[ cel(Array, [T]) - cel(Item, []) ]) ], "{
 	Item = Array.GetValue(Index);
 }").
 :- pragma foreign_proc("C#",
 		array__unsafe_lookup(Array::in, Index::in, Item::out),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias(yes(array(T), int, T), 
 			[ cel(Array, [T]) - cel(Item, []) ]) ], "{
 	Item = Array.GetValue(Index);
 }").
 
+:- pragma promise_pure(array__unsafe_lookup/3).
+array__unsafe_lookup(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__unsafe_lookup").
 
 %-----------------------------------------------------------------------------%
 
 array__set(Array0, Index, Item, Array) :-
 	( bounds_checks, \+ array__in_bounds(Array0, Index) ->
-		throw(array__index_out_of_bounds("array__set"))
+		out_of_bounds_error(Array0, Index, "array__set")
 	;
 		array__unsafe_set(Array0, Index, Item, Array)
 	).
@@ -958,7 +995,7 @@ array__set(Array0, Index, Item, Array) :-
 :- pragma foreign_proc("C",
 		array__unsafe_set(Array0::array_di, Index::in,
 		Item::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias( yes(array(T), int, T, array(T)), 
 			[ cel(Item,[]) - cel(Array, [T]),
 			  cel(Array0,[]) - cel(Array,[]) ]) ], "{
@@ -970,7 +1007,7 @@ array__set(Array0, Index, Item, Array) :-
 :- pragma foreign_proc("C#",
 		array__unsafe_set(Array0::array_di, Index::in,
 		Item::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias( yes(array(T), int, T, array(T)), 
 			[ cel(Item,[]) - cel(Array, [T]),
 			  cel(Array0,[]) - cel(Array, []) ]) ], "{
@@ -978,30 +1015,37 @@ array__set(Array0, Index, Item, Array) :-
 	Array = Array0;
 }").
 
+array__unsafe_set(_, _, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__unsafe_set").
 
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_decl("C", "
-MR_ArrayType * ML_resize_array(MR_ArrayType *old_array,
+void ML_resize_array(MR_ArrayType *new_array, MR_ArrayType *old_array,
 					MR_Integer array_size, MR_Word item);
 ").
 
 :- pragma foreign_code("C", "
-MR_ArrayType *
-ML_resize_array(MR_ArrayType *old_array, MR_Integer array_size,
-				MR_Word item)
+/*
+** The caller is responsible for allocating the storage for the new array.
+** This routine does the job of copying the old array elements to the
+** new array, initializing any additional elements in the new array,
+** and deallocating the old array.
+*/
+void
+ML_resize_array(MR_ArrayType *array, MR_ArrayType *old_array,
+	MR_Integer array_size, MR_Word item)
 {
 	MR_Integer i;
-	MR_ArrayType* array;
 	MR_Integer elements_to_copy;
 
 	elements_to_copy = old_array->size;
-	if (elements_to_copy == array_size) return old_array;
 	if (elements_to_copy > array_size) {
 		elements_to_copy = array_size;
 	}
 
-	array = (MR_ArrayType *) MR_GC_NEW_ARRAY(MR_Word, array_size + 1);
 	array->size = array_size;
 	for (i = 0; i < elements_to_copy; i++) {
 		array->elements[i] = old_array->elements[i];
@@ -1014,27 +1058,33 @@ ML_resize_array(MR_ArrayType *old_array, MR_Integer array_size,
 	** since the mode on the old array is `array_di', it is safe to
 	** deallocate the storage for it
 	*/
-	MR_GC_free(old_array);
-
-	return array;
+#ifdef MR_CONSERVATIVE_GC
+	GC_FREE(old_array);
+#endif
 }
 ").
 
 :- pragma foreign_proc("C",
 		array__resize(Array0::array_di, Size::in, Item::in,
 		Array::array_uo), 
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias( yes(array(T), int, T, array(T)), 
 			[ cel(Item,[]) - cel(Array, [T]),
 			  cel(Array0,[]) - cel(Array, []) ]) ], "
-	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
-	Array = (MR_Word) ML_resize_array(
-				(MR_ArrayType *) Array0, Size, Item);
+	if (((MR_ArrayType *)Array0)->size == Size) {
+		Array = Array0;
+	} else {
+		MR_incr_hp_msg(Array, Size + 1, MR_PROC_LABEL,
+			""array:array/1"");
+		ML_resize_array((MR_ArrayType *) Array,
+			(MR_ArrayType *) Array0, Size, Item);
+	}
 ").
 
 :- pragma foreign_proc("C#",
 		array__resize(Array0::array_di, Size::in, Item::in,
-		Array::array_uo), [will_not_call_mercury, thread_safe], "
+		Array::array_uo),
+		[will_not_call_mercury, promise_pure, thread_safe], "
 
 	if (Array0.Length == Size) {
 		Array = Array0;
@@ -1050,26 +1100,30 @@ ML_resize_array(MR_ArrayType *old_array, MR_Integer array_size,
 	}
 ").
 
+array__resize(_, _, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__resize").
 
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_decl("C", "
-MR_ArrayType * ML_shrink_array(MR_ArrayType *old_array,
+void ML_shrink_array(MR_ArrayType *array, MR_ArrayType *old_array,
 					MR_Integer array_size);
 ").
 
 :- pragma foreign_code("C", "
-MR_ArrayType *
-ML_shrink_array(MR_ArrayType *old_array, MR_Integer array_size)
+/*
+** The caller is responsible for allocating the storage for the new array.
+** This routine does the job of copying the old array elements to the
+** new array and deallocating the old array.
+*/
+void
+ML_shrink_array(MR_ArrayType *array, MR_ArrayType *old_array,
+	MR_Integer array_size)
 {
 	MR_Integer i;
-	MR_ArrayType* array;
-	MR_Integer old_array_size;
 
-	old_array_size = old_array->size;
-	if (old_array_size == array_size) return old_array;
-
-	array = (MR_ArrayType *) MR_GC_NEW_ARRAY(MR_Word, array_size + 1);
 	array->size = array_size;
 	for (i = 0; i < array_size; i++) {
 		array->elements[i] = old_array->elements[i];
@@ -1079,15 +1133,18 @@ ML_shrink_array(MR_ArrayType *old_array, MR_Integer array_size)
 	** since the mode on the old array is `array_di', it is safe to
 	** deallocate the storage for it
 	*/
-	MR_GC_free(old_array);
-
-	return array;
+#ifdef MR_CONSERVATIVE_GC
+	GC_FREE(old_array);
+#endif
 }
 ").
 
 array__shrink(Array0, Size, Array) :-
-	( Size > array__size(Array0) ->
+	OldSize = array__size(Array0),
+	( Size > OldSize ->
 		error("array__shrink: can't shrink to a larger size")
+	; Size = OldSize ->
+		Array = Array0
 	;
 		array__shrink_2(Array0, Size, Array)
 	).
@@ -1097,31 +1154,39 @@ array__shrink(Array0, Size, Array) :-
 
 :- pragma foreign_proc("C",
 		array__shrink_2(Array0::array_di, Size::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias( no, [cel(Array0,[]) - cel(Array,[])])], "
-	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
-	Array = (MR_Word) ML_shrink_array(
-				(MR_ArrayType *) Array0, Size);
+	MR_incr_hp_msg(Array, Size + 1, MR_PROC_LABEL, ""array:array/1"");
+	ML_shrink_array((MR_ArrayType *)Array, (MR_ArrayType *) Array0,
+		Size);
 ").
 
 :- pragma foreign_proc("C#",
 		array__shrink_2(Array0::array_di, Size::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 	Array = System.Array.CreateInstance(
 				Array0.GetType().GetElementType(), Size);
 	System.Array.Copy(Array0, Array, Size);
 ").
 
+array__shrink_2(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__shrink_2").
 
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_decl("C", "
-MR_ArrayType *ML_copy_array(MR_ArrayType *old_array);
+void ML_copy_array(MR_ArrayType *array, const MR_ArrayType *old_array);
 ").
 
 :- pragma foreign_code("C", "
-MR_ArrayType *
-ML_copy_array(MR_ArrayType *old_array)
+/*
+** The caller is responsible for allocating the storage for the new array.
+** This routine does the job of copying the array elements.
+*/
+void
+ML_copy_array(MR_ArrayType *array, const MR_ArrayType *old_array)
 {
 	/*
 	** Any changes to this function will probably also require
@@ -1129,42 +1194,40 @@ ML_copy_array(MR_ArrayType *old_array)
 	*/
 
 	MR_Integer i;
-	MR_ArrayType* array;
 	MR_Integer array_size;
 
 	array_size = old_array->size;
-	array = MR_make_array(array_size);
 	array->size = array_size;
 	for (i = 0; i < array_size; i++) {
 		array->elements[i] = old_array->elements[i];
 	}
-	return array;
+
 }
 ").
 
 :- pragma foreign_proc("C",
 		array__copy(Array0::array_ui, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias(yes(array(T),array(T)),
 			[ cel(Array0,[T]) - cel(Array,[T])])], "
-	MR_maybe_record_allocation((((MR_ArrayType *) Array0)->size) + 1,
+	MR_incr_hp_msg(Array, (((const MR_ArrayType *) Array0)->size) + 1,
 		MR_PROC_LABEL, ""array:array/1"");
-	Array = (MR_Word) ML_copy_array((MR_ArrayType *) Array0);
+	ML_copy_array((MR_ArrayType *)Array, (const MR_ArrayType *) Array0);
 ").
 
 :- pragma foreign_proc("C",
 		array__copy(Array0::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe, 
+		[will_not_call_mercury, promise_pure, thread_safe, 
 		alias(yes(array(T),array(T)),
 			[ cel(Array0,[T]) - cel(Array,[T])])], "
-	MR_maybe_record_allocation((((MR_ArrayType *) Array0)->size) + 1,
+	MR_incr_hp_msg(Array, (((const MR_ArrayType *) Array0)->size) + 1,
 		MR_PROC_LABEL, ""array:array/1"");
-	Array = (MR_Word) ML_copy_array((MR_ArrayType *) Array0);
+	ML_copy_array((MR_ArrayType *)Array, (const MR_ArrayType *) Array0);
 ").
 
 :- pragma foreign_proc("C#",
 		array__copy(Array0::array_ui, Array::array_uo),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, promise_pure, thread_safe], "
 
 	// XXX we implement the same as ML_copy_array, which doesn't appear
 	// to deep copy the array elements
@@ -1173,13 +1236,11 @@ ML_copy_array(MR_ArrayType *old_array)
 	System.Array.Copy(Array0, Array, Array0.Length); 
 ").
 
-:- pragma foreign_proc("C#",
-		array__copy(Array0::in, Array::array_uo),
-		[will_not_call_mercury, thread_safe], "
-	mercury.runtime.Errors.SORRY(""foreign code for this function"");
-		// XXX need to deep copy it
-	Array = Array0;
-").
+:- pragma promise_pure(array__copy/2).
+array__copy(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("array__copy").
 
 %-----------------------------------------------------------------------------%
 
@@ -1202,7 +1263,7 @@ array__from_list(List, Array) :-
 array__insert_items([], _N, Array, Array).
 array__insert_items([Head|Tail], N, Array0, Array) :-
         array__set(Array0, N, Head, Array1),
-        N1 is N + 1,
+        N1 = N + 1,
         array__insert_items(Tail, N1, Array1, Array).
 
 %-----------------------------------------------------------------------------%
@@ -1227,7 +1288,7 @@ array__bsearch(A, El, Compare, Result) :-
 :- mode array__bsearch_2(in, in, in, in, pred(in, in, out) is det,
 				out) is det.
 array__bsearch_2(Array, Lo, Hi, El, Compare, Result) :-
-	Width is Hi - Lo,
+	Width = Hi - Lo,
 
 	% If Width < 0, there is no range left.
 	( Width < 0 ->
@@ -1249,12 +1310,12 @@ array__bsearch_2(Array, Lo, Hi, El, Compare, Result) :-
 	        array__lookup(Array, Mid, XMid),
 	        call(Compare, XMid, El, Comp),
 	        ( Comp = (<),
-		    Mid1 is Mid + 1,
+		    Mid1 = Mid + 1,
 		    array__bsearch_2(Array, Mid1, Hi, El, Compare, Result)
 	        ; Comp = (=),
 		    array__bsearch_2(Array, Lo, Mid, El, Compare, Result)
 	        ; Comp = (>),
-		    Mid1 is Mid - 1,
+		    Mid1 = Mid - 1,
 		    array__bsearch_2(Array, Lo, Mid1, El, Compare, Result)
 	        )
 	    )
@@ -1634,6 +1695,27 @@ merge_subarrays(A, B0, Lo1, Hi1, Lo2, Hi2, I) = B :-
             B = merge_subarrays(A, B0^elem(I) := X2, Lo1, Hi1, Lo2+1, Hi2, I+1)
         )
     ).
+
+%------------------------------------------------------------------------------%
+
+	% throw an exception indicating an array bounds error
+:- pred out_of_bounds_error(array(T), int, string).
+:- mode out_of_bounds_error(array_ui, in, in) is erroneous.
+:- mode out_of_bounds_error(in, in, in) is erroneous.
+
+	% Note: we deliberately do not include the array element type name
+	% in the error message here, for performance reasons:
+	% using the type name could prevent the compiler from optimizing
+	% away the construction of the type_info in the caller,
+	% because it would prevent unused argument elimination.
+	% Performance is important here, because array__set and array__lookup
+	% are likely to be used in the inner loops of performance-critical
+	% applications.
+out_of_bounds_error(Array, Index, PredName) :-
+	array__bounds(Array, Min, Max),
+	throw(array__index_out_of_bounds(
+		string__format("%s: index %d not in range [%d, %d]",
+			[s(PredName), i(Index), i(Min), i(Max)]))).
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
