@@ -1,4 +1,4 @@
-# Copyright (c) 1999-2001 by Red Hat, Inc. All rights reserved.
+# Copyright (c) 1999-2002 by Red Hat, Inc. All rights reserved.
 # 
 # THIS MATERIAL IS PROVIDED AS IS, WITH ABSOLUTELY NO WARRANTY EXPRESSED
 # OR IMPLIED.  ANY USE IS AT YOUR OWN RISK.
