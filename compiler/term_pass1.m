@@ -84,7 +84,7 @@ proc_inequalities_2(Module0, [ SCC | SCCs ], Module) -->
 		[], Module2),
 	proc_inequalities_2(Module2, SCCs, Module).
 
-% this is passed the same list of pred_proc_ids as the 2nd and 3rd
+% This is passed the same list of pred_proc_ids as the 2nd and 3rd
 % arguments.  The first list is used for recursion.  The second list is
 % used in the base case, as the base case needs to know which procedures it
 % is processing.
@@ -99,7 +99,7 @@ proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs,
 	% If a fixed point has not been reached, then recurse on the new
 	% used args.
 	( { OldUsedArgs = NewUsedArgs } ->
-		% A fixed pointhas been reached.  Set used_args, then
+		% A fixed point has been reached.  Set used_args, then
 		% process the constraints that have been created.
 		{ module_info_preds(Module0, PredTable0) },
 		{ set_used_args(PredTable0, SCC, NewUsedArgs, PredTable) },
@@ -190,9 +190,8 @@ proc_inequalities_3(Module0, [PPId | PPIds], SCC - OldUsedArgsMap,
 			{ set_pred_proc_ids_const(SCC, inf(yes(Error)), 
 				Module0, Module2) },
 			( 
-				{ (
-			 	Error = _ - horder_call
-				; Error = _ - horder_args(_)
+				{ ( Error = _Context - horder_call
+				;   Error = _Context - horder_args(_)
 				) }
 			->
 				do_ppid_check_terminates(SCC, yes(Error), 

@@ -115,11 +115,11 @@
 % XXX most (all) places that use this predicate immediatly use
 % bag__from_list to change the output lists into bags.  Therefore this
 % predicate should output bags directly.
-:- pred partition_call_args(module_info, list(mode),
-		list(var), list(var), list(var)).
+:- pred partition_call_args(module_info, list(mode), list(var), list(var),
+	list(var)).
 :- mode partition_call_args(in, in, in, out, out) is det.
 
-% removes vars from the InVarBag that are not used in the call
+% Removes variables from the InVarBag that are not used in the call.
 % remove_unused_args(InVarBag0, VarList, BoolList, InVarBag)
 % VarList and BoolList are corresponding lists.  Any variable in VarList
 % that has a 'no' in the corresponding place in the BoolList is removed
