@@ -444,17 +444,21 @@
 			maybe(pred_proc_id),	% identifies the original
 						% Mercury procedure, if any
 			mlds__func_params,	% the arguments & return types
-			maybe(mlds__statement)	% the function body, or `no'
-						% if the function is abstract
-						% or if the function is defined
-						% externally (i.e. the original
-						% Mercury procedure was declared
-						% `:- external').
+			mlds__function_body	% the function body
+
 		)
 		% packages, classes, interfaces, structs, enums
 	;	mlds__class(
 			mlds__class_defn
 		).
+
+	% It is possible for the function to be defined externally
+	% (i.e. the original Mercury procedure was declared `:- external').
+	% (If you want to generate an abstract body consider adding another
+	% alternative here).
+:- type mlds__function_body 
+	--->	defined_here(mlds__statement)
+	;	external.
 
 	% Note that `one_copy' variables *must* have an initializer
 	% (the GCC back-end relies on this).
@@ -650,8 +654,8 @@
 				% access: accessible to anything defined
 				% in the same package.
 	%
-	% used for entities defined in a block/2 statement,
-	% i.e. local variables and nested functions
+	% Used for entities defined in a block/2 statement,
+	% i.e. local variables and nested functions.
 	%
 	;	local		% only accessible within the block
 				% in which the entity (variable or
@@ -764,7 +768,7 @@
 	%
 	% sequence
 	%
-		block(mlds__defns, list(mlds__statement))
+		block(mlds__defns, list(mlds__statement))	
 
 	%
 	% iteration
@@ -1144,15 +1148,17 @@ XXX Full exception handling support is not yet implemented.
 	;	lang_GNU_C
 	;	lang_C_minus_minus
 	;	lang_asm
+	;	lang_il
 	;	lang_java_asm
 	;	lang_java_bytecode
 	.
 
 :- type target_code_component
-	--->	user_target_code(string, maybe(prog_context))
+	--->	user_target_code(string, maybe(prog_context),
+				target_code_attributes)
 			% user_target_code holds C code from
 			% the user's `pragma c_code' declaration
-	;	raw_target_code(string)
+	;	raw_target_code(string, target_code_attributes)
 			% raw_target_code holds C code that the
 			% compiler has generated.  To ensure that
 			% following `#line' directives work OK,
@@ -1165,6 +1171,11 @@ XXX Full exception handling support is not yet implemented.
 	;	target_code_output(mlds__lval)
 	;	name(mlds__qualified_entity_name)
 	.
+
+:- type target_code_attributes == list(target_code_attribute).
+
+:- type target_code_attribute
+	--->	max_stack_size(int).
 
 	%
 	% constructor id

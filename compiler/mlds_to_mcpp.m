@@ -210,7 +210,8 @@ generate_method_mcpp_code(ModuleName,
 		defn(function(PredLabel, ProcId, MaybeSeqNum, _PredId), 
 	_Context, _DeclFlags, Entity)) -->
 	( 
-		{ Entity = mlds__function(_, Params, yes(Statement)) },
+		{ Entity = mlds__function(_, Params,
+			defined_here(Statement)) },
 		( 
 			{ has_inline_target_code_statement(Statement) }
 		;
@@ -369,9 +370,10 @@ write_managed_cpp_statement(Statement) -->
 :- pred write_managed_cpp_code_component(mlds__target_code_component, 
 	io__state, io__state).
 :- mode write_managed_cpp_code_component(in, di, uo) is det.
-write_managed_cpp_code_component(user_target_code(Code, _MaybeContext)) -->
+write_managed_cpp_code_component(user_target_code(Code, _MaybeContext,
+		_Attrs)) -->
 	io__write_string(Code).
-write_managed_cpp_code_component(raw_target_code(Code)) -->
+write_managed_cpp_code_component(raw_target_code(Code, _Attrs)) -->
 	io__write_string(Code).
 		% XXX we don't handle name yet.
 write_managed_cpp_code_component(name(_)) --> [].

@@ -161,7 +161,8 @@ ml_elim_nested(MLDS0, MLDS) -->
 		mlds__defn) = list(mlds__defn).
 ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 	Defn0 = mlds__defn(Name, Context, Flags, DefnBody0),
-	( DefnBody0 = mlds__function(PredProcId, Params, yes(FuncBody0)) ->
+	( DefnBody0 = mlds__function(PredProcId, Params,
+			defined_here(FuncBody0)) ->
 		EnvName = ml_env_name(Name),
 			% XXX this should be optimized to generate 
 			% EnvTypeName from just EnvName
@@ -190,6 +191,12 @@ ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 		%
 		list__filter(ml_decl_is_static_const, Locals,
 			LocalStatics, LocalVars),
+		%
+		% Fix up access flags on the statics that we're going to hoist:
+		% convert "local" to "private"
+		%
+		HoistedStatics = list__map(convert_local_to_global, LocalStatics),
+
 
 		%
 		% if there were no nested functions, then we just
@@ -197,7 +204,7 @@ ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 		%
 		( NestedFuncs0 = [] ->
 			FuncBody = FuncBody1,
-			HoistedDefns = LocalStatics
+			HoistedDefns = HoistedStatics
 		;
 			%
 			% Create a struct to hold the local variables,
@@ -214,7 +221,7 @@ ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 					no, InsertedEnv),
 
 			% Hoist out the local statics and the nested functions
-			HoistedDefns0 = list__append(LocalStatics, NestedFuncs),
+			HoistedDefns0 = list__append(HoistedStatics, NestedFuncs),
 
 			% 
 			% It's possible that none of the nested
@@ -265,7 +272,9 @@ ml_elim_nested_defns(ModuleName, Globals, OuterVars, Defn0) = FlatDefns :-
 				HoistedDefns = HoistedDefns0
 			)
 		),
-		DefnBody = mlds__function(PredProcId, Params, yes(FuncBody)),
+
+		DefnBody = mlds__function(PredProcId, Params,
+			defined_here(FuncBody)),
 		Defn = mlds__defn(Name, Context, Flags, DefnBody),
 		FlatDefns = list__append(HoistedDefns, [Defn])
 	;
@@ -367,7 +376,16 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	%		<LocalVars>
 	%	};
 	%
-	EnvTypeKind = mlds__struct,
+		% IL uses classes instead of structs, so the code
+		% generated needs to be a little different.
+		% XXX Perhaps if we used value classes this could go
+		% away.
+	globals__get_target(Globals, Target),
+	( Target = il ->
+		EnvTypeKind = mlds__class
+	;
+		EnvTypeKind = mlds__struct
+	),
 	EnvTypeName = class_type(qual(ModuleName, EnvClassName), 0,
 		EnvTypeKind),
 	EnvTypeEntityName = type(EnvClassName, 0),
@@ -378,7 +396,6 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 		% generated needs to be a little different.
 		% XXX Perhaps if we used value classes this could go
 		% away.
-	globals__get_target(Globals, Target),
 	( Target = il ->
 			% Generate a ctor for the class.
 
@@ -387,7 +404,7 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 		Stmt = mlds__statement(block([], []), Context),
 
 		Ctor = mlds__function(no, func_params([], []),
-				yes(Stmt)),
+				defined_here(Stmt)),
 		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
 				overridable, modifiable, concrete),
 
@@ -461,6 +478,18 @@ convert_local_to_field(mlds__defn(Name, Context, Flags0, Body)) =
 		Flags = Flags0
 	).
 
+	% Similarly, when converting local statics into
+	% global statics, we need to change `local' access
+	% to something else -- we use `private'.
+:- func convert_local_to_global(mlds__defn) = mlds__defn.
+convert_local_to_global(mlds__defn(Name, Context, Flags0, Body)) =
+		mlds__defn(Name, Context, Flags, Body) :-
+	( access(Flags0) = local ->
+		Flags = set_access(Flags0, private)
+	;
+		Flags = Flags0
+	).
+
 	% ml_insert_init_env:
 	%	If the definition is a nested function definition, and it's
 	%	body makes use of the environment pointer (`env_ptr'), then
@@ -486,7 +515,8 @@ convert_local_to_field(mlds__defn(Name, Context, Flags0, Body)) =
 ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 	Defn0 = mlds__defn(Name, Context, Flags, DefnBody0),
 	(
-		DefnBody0 = mlds__function(PredProcId, Params, yes(FuncBody0)),
+		DefnBody0 = mlds__function(PredProcId, Params, 
+			defined_here(FuncBody0)),
 		statement_contains_var(FuncBody0, qual(ModuleName,
 			mlds__var_name("env_ptr", no)))
 	->
@@ -499,7 +529,8 @@ ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 			Globals, EnvPtrDecl, InitEnvPtr),
 		FuncBody = mlds__statement(block([EnvPtrDecl],
 				[InitEnvPtr, FuncBody0]), Context),
-		DefnBody = mlds__function(PredProcId, Params, yes(FuncBody)),
+		DefnBody = mlds__function(PredProcId, Params,
+			defined_here(FuncBody)),
 		Defn = mlds__defn(Name, Context, Flags, DefnBody),
 		Init = yes
 	;
@@ -671,6 +702,7 @@ ml_module_name_string(ModuleName) = ModuleNameString :-
 
 %
 % flatten_maybe_statement:
+% flatten_function_body:
 % flatten_statements:
 % flatten_statement:
 %	Recursively process the statement(s), calling fixup_var on every
@@ -678,6 +710,14 @@ ml_module_name_string(ModuleName) = ModuleNameString :-
 %	for every definition they contain (e.g. definitions of local
 %	variables and nested functions).
 %
+
+:- pred flatten_function_body(function_body, function_body,
+		elim_info, elim_info).
+:- mode flatten_function_body(in, out, in, out) is det.
+
+flatten_function_body(external, external) --> [].
+flatten_function_body(defined_here(Statement0), defined_here(Statement)) -->
+	flatten_statement(Statement0, Statement).
 
 :- pred flatten_maybe_statement(maybe(mlds__statement), maybe(mlds__statement),
 		elim_info, elim_info).
@@ -813,7 +853,7 @@ flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
 		%
 		% recursively flatten the nested function
 		%
-		flatten_maybe_statement(FuncBody0, FuncBody),
+		flatten_function_body(FuncBody0, FuncBody),
 
 		%
 		% mark the function as private / one_copy,
@@ -855,9 +895,20 @@ flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
 		=(ElimInfo),
 		{ ModuleName = elim_info_get_module_name(ElimInfo) },
 		(
-			{ Name = data(var(VarName)) },
-			{ ml_should_add_local_data(ModuleName, VarName,
-				FollowingDefns, FollowingStatements) }
+			(
+				% For IL and Java, we need to hoist all
+				% static constants out to the top level,
+				% so that they can be initialized in the
+				% class constructor.
+				% To keep things consistent (and reduce
+				% the testing burden), we do the same for
+				% the other back-ends too.
+				{ ml_decl_is_static_const(Defn0) }
+			;
+				{ Name = data(var(VarName)) },
+				{ ml_should_add_local_data(ModuleName, VarName,
+					FollowingDefns, FollowingStatements) }
+			)
 		->
 			elim_info_add_local_data(Defn0),
 			{ Defns = [] }
@@ -885,15 +936,16 @@ flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
 	%
 	% This checks for a nested function definition
 	% or static initializer that references the variable.
-	% This is conservative; we only need to hoist out
+	% This is conservative; for the MLDS->C and MLDS->GCC
+	% back-ends, we only need to hoist out
 	% static variables if they are referenced by
 	% static initializers which themselves need to be
 	% hoisted because they are referenced from a nested
 	% function.  But checking the last part of that
-	% is tricky, so currently we just hoist more
-	% of the static consts than we strictly need to.
-	% Perhaps it would be simpler to just hoist *all*
-	% static consts.
+	% is tricky, and for the Java and IL back-ends we
+	% need to hoist out all static constants anyway,
+	% so to keep things simple we do the same for the
+	% C back-end to, i.e. we always hoist all static constants.
 	%
 :- pred ml_should_add_local_data(mlds_module_name, mlds__var_name,
 		mlds__defns, mlds__statements).
@@ -977,10 +1029,10 @@ fixup_case_cond(match_range(Low0, High0), match_range(Low, High)) -->
 		target_code_component, elim_info, elim_info).
 :- mode fixup_target_code_component(in, out, in, out) is det.
 
-fixup_target_code_component(raw_target_code(Code),
-		raw_target_code(Code)) --> [].
-fixup_target_code_component(user_target_code(Code, Context),
-		user_target_code(Code, Context)) --> [].
+fixup_target_code_component(raw_target_code(Code, Attrs),
+		raw_target_code(Code, Attrs)) --> [].
+fixup_target_code_component(user_target_code(Code, Context, Attrs),
+		user_target_code(Code, Context, Attrs)) --> [].
 fixup_target_code_component(target_code_input(Rval0),
 		target_code_input(Rval)) -->
 	fixup_rval(Rval0, Rval).
@@ -1097,6 +1149,15 @@ fixup_var(ThisVar, ThisVarType, Lval, ElimInfo, ElimInfo) :-
 		Tag = yes(0),
 		Lval = field(Tag, EnvPtr, FieldName, FieldType, EnvPtrVarType)
 	;
+		% Check for references to the env_ptr itself.
+		% For those, the code generator will have left the
+		% type as mlds__unknown_type, and we need to fill
+		% it in here.
+		ThisVarName = mlds__var_name("env_ptr", no),
+		ThisVarType = mlds__unknown_type
+	->
+		Lval = var(ThisVar, EnvPtrVarType)
+	;
 		%
 		% leave everything else unchanged
 		%
@@ -1188,6 +1249,7 @@ ml_env_module_name(ClassType) = EnvModuleName :-
 % defn_contains_defn:
 % defn_body_contains_defn:
 % maybe_statement_contains_defn:
+% function_body_contains_defn:
 % statements_contains_defn:
 % statement_contains_defn:
 %	Nondeterministically return all the definitions contained
@@ -1212,9 +1274,9 @@ defn_contains_defn(mlds__defn(_Name, _Context, _Flags, DefnBody), Defn) :-
 :- mode defn_body_contains_defn(in, out) is nondet.
 
 % defn_body_contains_defn(mlds__data(_Type, _Initializer), _Defn) :- fail.
-defn_body_contains_defn(mlds__function(_PredProcId, _Params, MaybeBody),
+defn_body_contains_defn(mlds__function(_PredProcId, _Params, FunctionBody),
 		Name) :-
-	maybe_statement_contains_defn(MaybeBody, Name).
+	function_body_contains_defn(FunctionBody, Name).
 defn_body_contains_defn(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
 		CtorDefns, FieldDefns),
@@ -1234,6 +1296,13 @@ statements_contains_defn(Statements, Defn) :-
 
 % maybe_statement_contains_defn(no, _Defn) :- fail.
 maybe_statement_contains_defn(yes(Statement), Defn) :-
+	statement_contains_defn(Statement, Defn).
+
+:- pred function_body_contains_defn(function_body, mlds__defn).
+:- mode function_body_contains_defn(in, out) is nondet.
+
+% function_body_contains_defn(external, _Defn) :- fail.
+function_body_contains_defn(defined_here(Statement), Defn) :-
 	statement_contains_defn(Statement, Defn).
 
 :- pred statement_contains_defn(mlds__statement, mlds__defn).
@@ -1315,7 +1384,7 @@ default_contains_defn(default_case(Statement), Defn) :-
 % defns_contains_var:
 % defn_contains_var:
 % defn_body_contains_var:
-% maybe_statement_contains_var:
+% function_body_contains_var:
 % statements_contains_var:
 % statement_contains_var:
 % trail_op_contains_var:
@@ -1342,9 +1411,9 @@ defn_contains_var(mlds__defn(_Name, _Context, _Flags, DefnBody), Name) :-
 
 defn_body_contains_var(mlds__data(_Type, Initializer), Name) :-
 	initializer_contains_var(Initializer, Name).
-defn_body_contains_var(mlds__function(_PredProcId, _Params, MaybeBody),
+defn_body_contains_var(mlds__function(_PredProcId, _Params, FunctionBody),
 		Name) :-
-	maybe_statement_contains_var(MaybeBody, Name).
+	function_body_contains_var(FunctionBody, Name).
 defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
 		CtorDefns, FieldDefns),
@@ -1357,6 +1426,13 @@ defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 
 % maybe_statement_contains_var(no, _) :- fail.
 maybe_statement_contains_var(yes(Statement), Name) :-
+	statement_contains_var(Statement, Name).
+
+:- pred function_body_contains_var(function_body, mlds__var).
+:- mode function_body_contains_var(in, in) is semidet.
+
+% function_body_contains_var(external, _) :- fail.
+function_body_contains_var(defined_here(Statement), Name) :-
 	statement_contains_var(Statement, Name).
 	
 :- pred statements_contains_var(mlds__statements, mlds__var).

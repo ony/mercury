@@ -193,13 +193,11 @@ dates		:
 
 #-----------------------------------------------------------------------------#
 
-.PHONY: os cs ss ils library.dlls dlls
+.PHONY: os cs ss ils 
 os: $(library.os)
 cs: $(library.cs)
 ss: $(library.ss)
 ils: $(library.ils)
-library.dlls = $(library.mods:%=%.dll)
-dlls: $(library.dlls)
 
 #-----------------------------------------------------------------------------#
 
@@ -208,54 +206,15 @@ dlls: $(library.dlls)
 # The ilc and il grades target Microsoft's .NET frameworks.  
 ifeq ($(findstring il,$(GRADE)),il)        
 
-lib_std: dlls mercury.dll
+lib_std: mercury.dll
 
 # Instead of generating UNIX style libraries, we general a bunch of
 # DLLs.  We have to hardcode the names of the C code files and the
 # runtime files.
 RUNTIME_DLLS=../runtime/mercury_mcpp.dll ../runtime/mercury_il.dll
 
-MODULES_CONTAINING_C_CODE=	\
-		array 		\
-		benchmarking	\
-		builtin		\
-		char		\
-		exception	\
-		float		\
-		gc		\
-		int		\
-		io		\
-		library		\
-		math		\
-		private_builtin	\
-		sparse_bitset	\
-		std_util	\
-		store		\
-		string		\
-		table_builtin	\
-		time
-
-CPP_DLLS=$(MODULES_CONTAINING_C_CODE:%=%__c_code.dll)
-
-ALL_DLLS=$(CPP_DLLS) $(library.dlls) $(RUNTIME_DLLS) 
-
-ALL_DLLS_BASE  = $(ALL_DLLS:%.dll=%)
-EMBED_ALL_DLLS = $(foreach dll_name,$(ALL_DLLS_BASE),$(EMBED_ONE_DLL))
-EMBED_ONE_DLL  = /embed:$(dll_name).dll,$(dll_name)
-
-# For the moment we generate the library using one big DLL, as there are bugs
-# in the assembly cache installer (gacutil) that prevent us from installing
-# large numbers of assemblies.  The HACK_* versions of the variables implement
-# the big file hack.
-HACK_ALL_DLLS=$(CPP_DLLS) mercury_all.dll $(RUNTIME_DLLS)
-
-HACK_ALL_DLLS_BASE  = $(HACK_ALL_DLLS:%.dll=%)
-HACK_EMBED_ALL_DLLS = $(foreach dll_name,$(HACK_ALL_DLLS_BASE),$(EMBED_ONE_DLL))
-
-
 # Turn this on if you wish to enable .NET debugging.
 #MS_ILASMFLAGS = /debug
-
 
 # If you do generate a new strong name, you had better update
 # compiler/mlds_to_il.m to generate references to it.  It is also hard-coded
@@ -265,19 +224,10 @@ HACK_EMBED_ALL_DLLS = $(foreach dll_name,$(HACK_ALL_DLLS_BASE),$(EMBED_ONE_DLL))
 library_strong_name.sn:
 	sn -k library_strong_name.sn
 
-$(os_subdir)mercury_all.dll : $(library.ils)
-	rm -f $@
-	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /dll /quiet /OUT=$@ $(library.ils)
-
-mercury.dll: $(HACK_ALL_DLLS) mercury_all.dll library_strong_name.sn
+mercury.dll: $(library.dlls) $(library.foreign_dlls) library_strong_name.sn
 	cp $(RUNTIME_DLLS) .
-	$(MS_AL) -v:0.0.0.0 -keyf:library_strong_name.sn -out:mercury.dll $(HACK_ALL_DLLS)
-
-
-# al is the assembly linker, it will create an assembly that references
-# all the modules (.dll files) in the library and runtime.
-#mercury.dll: $(ALL_DLLS) library_strong_name.sn
-#	$(MS_AL) -v:0.0.0.0 -keyf:library_strong_name.sn -out:mercury.dll $(ALL_DLLS) $(EMBED_ALL_DLLS) 
+	$(MS_AL) -v:0.0.0.0 -keyf:library_strong_name.sn -out:mercury.dll \
+		$(library.dlls) $(library.foreign_dlls) $(RUNTIME_DLLS) 
 
 else
 
@@ -384,9 +334,13 @@ install_init: $(STD_LIB_NAME).init install_lib_dirs
 ifneq (,$(findstring il,$(GRADE)))
 
 .PHONY: install_library
-install_library: $(library.dlls) $(CPP_DLLS) install_grade_dirs
-	cp `vpath_find $(library.dlls) $(CPP_DLLS) mercury.dll` \
-		$(INSTALL_MERC_LIB_DIR)
+install_library: mercury.dll install_grade_dirs install_gac
+	cp `vpath_find $(library.foreign_dlls) $(library.dlls) \
+		mercury.dll` $(INSTALL_MERC_LIB_DIR)
+
+.PHONY: install_gac
+install_gac: mercury.dll
+	gacutil -i mercury.dll
 	
 else
 

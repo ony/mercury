@@ -22,8 +22,15 @@
 :- import_module mlds.
 :- import_module io.
 
-:- pred mlds_to_c__output_mlds(mlds, io__state, io__state).
-:- mode mlds_to_c__output_mlds(in, di, uo) is det.
+	% output_mlds(MLDS, Suffix):
+	%	Output C code to the appropriate C file and header file.
+	%	The file names are determined by the module name,
+	%	with the specified Suffix appended at the end.
+	%	(The suffix is used for debugging dumps.  For normal
+	%	output, the suffix should be the empty string.)
+	%	
+:- pred mlds_to_c__output_mlds(mlds, string, io__state, io__state).
+:- mode mlds_to_c__output_mlds(in, in, di, uo) is det.
 
 	% output an MLDS context in C #line format. 
 	% this is useful for other foreign language interfaces such as
@@ -64,7 +71,7 @@
 
 %-----------------------------------------------------------------------------%
 
-mlds_to_c__output_mlds(MLDS) -->
+mlds_to_c__output_mlds(MLDS, Suffix) -->
 	%
 	% We need to use the MLDS package name to compute the header file
 	% names, giving e.g. `mercury.io.h', `mercury.time.h' etc.,
@@ -90,11 +97,14 @@ mlds_to_c__output_mlds(MLDS) -->
 	% next time Mmake is run.
 	%
 	{ ModuleName = mlds__get_module_name(MLDS) },
-	module_name_to_file_name(ModuleName, ".c", yes, SourceFile),
+	module_name_to_file_name(ModuleName, ".c" ++ Suffix, yes,
+		SourceFile),
 	{ MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName) },
 	{ ModuleSymName = mlds_module_name_to_sym_name(MLDS_ModuleName) },
-	module_name_to_file_name(ModuleSymName, ".h.tmp", yes, TmpHeaderFile),
-	module_name_to_file_name(ModuleSymName, ".h", yes, HeaderFile),
+	module_name_to_file_name(ModuleSymName, ".h" ++ Suffix ++ ".tmp", yes,
+		TmpHeaderFile),
+	module_name_to_file_name(ModuleSymName, ".h" ++ Suffix, yes,
+		HeaderFile),
 	{ Indent = 0 },
 	output_to_file(SourceFile, mlds_output_src_file(Indent, MLDS)),
 	output_to_file(TmpHeaderFile, mlds_output_hdr_file(Indent, MLDS)),
@@ -539,6 +549,8 @@ mlds_output_c_defn(_Indent, user_foreign_code(managed_cplusplus, _, _)) -->
 	{ sorry(this_file, "foreign code other than C") }.
 mlds_output_c_defn(_Indent, user_foreign_code(csharp, _, _)) -->
 	{ sorry(this_file, "foreign code other than C") }.
+mlds_output_c_defn(_Indent, user_foreign_code(il, _, _)) -->
+	{ sorry(this_file, "foreign code other than C") }.
 
 :- pred mlds_output_pragma_export_decl(mlds_module_name, indent,
 		mlds__pragma_export, io__state, io__state).
@@ -959,14 +971,9 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		Ctors, AllMembers) },
-
-	{ Ctors = [] ->
-		true
-	;
-		unexpected(this_file,
-			"mlds_output_class: non empty constructor list")
-	},
+		Ctors, Members) },
+	
+	{ AllMembers = Ctors ++ Members },
 
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
@@ -1188,16 +1195,16 @@ mlds_output_pred_proc_id(proc(PredId, ProcId)) -->
 	).
 
 :- pred mlds_output_func(indent, qualified_entity_name, mlds__context,
-		func_params, maybe(statement), io__state, io__state).
+		func_params, function_body, io__state, io__state).
 :- mode mlds_output_func(in, in, in, in, in, di, uo) is det.
 
-mlds_output_func(Indent, Name, Context, Signature, MaybeBody) -->
+mlds_output_func(Indent, Name, Context, Signature, FunctionBody) -->
 	mlds_output_func_decl(Indent, Name, Context, Signature),
 	(
-		{ MaybeBody = no },
+		{ FunctionBody = external },
 		io__write_string(";\n")
 	;
-		{ MaybeBody = yes(Body) },
+		{ FunctionBody = defined_here(Body) },
 		io__write_string("\n"),
 
 		mlds_indent(Context, Indent),
@@ -1803,7 +1810,7 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 		{ Name \= type(_, _) },
 		% Don't output "static" for functions that don't have a body.
 		% This can happen for Mercury procedures declared `:- external'
-		{ DefnBody \= mlds__function(_, _, no) }
+		{ DefnBody \= mlds__function(_, _, external) }
 	->
 		io__write_string("static ")
 	;
@@ -2489,7 +2496,7 @@ mlds_output_atomic_stmt(_Indent, _FuncInfo,
 :- mode mlds_output_target_code_component(in, in, di, uo) is det.
 
 mlds_output_target_code_component(Context,
-		user_target_code(CodeString, MaybeUserContext)) -->
+		user_target_code(CodeString, MaybeUserContext, _Attrs)) -->
 	( { MaybeUserContext = yes(UserContext) } ->
 		mlds_to_c__output_context(mlds__make_context(UserContext))
 	;
@@ -2497,7 +2504,8 @@ mlds_output_target_code_component(Context,
 	),
 	io__write_string(CodeString),
 	io__write_string("\n").
-mlds_output_target_code_component(Context, raw_target_code(CodeString)) -->
+mlds_output_target_code_component(Context, raw_target_code(CodeString,
+		_Attrs)) -->
 	mlds_to_c__output_context(Context),
 	io__write_string(CodeString).
 mlds_output_target_code_component(Context, target_code_input(Rval)) -->

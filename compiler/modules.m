@@ -729,46 +729,57 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 		% output files intended for use by the user,
 		% and phony Mmake targets names go in the current directory
 		%
-		{ Ext = ".m"
-		% executable files
-		; Ext = ""
-		; Ext = ".split"
-		% library files
-		; Ext = ".a"
-		; Ext = ".$A"
-		; Ext = ".so"
-		; Ext = ".$(EXT_FOR_SHARED_LIB)"
-		; Ext = ".split.a"
-		; Ext = ".split.$A"
-		; Ext = ".split.so"
-		; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
-		; Ext = ".init"
-		% output files intended for use by the user
-		; Ext = ".h"
-		; Ext = ".err"
-		; Ext = ".ugly"
-		; Ext = ".hlds_dump"
-		; Ext = ".dependency_graph"
-		; Ext = ".order"
-		; Ext = ".rla"
-		; Ext = ".rl_dump"
-		% Mmake targets
-		; Ext = ".clean"
-		; Ext = ".realclean"
-		; Ext = ".depend"
-		; Ext = ".install_ints"
-		; Ext = ".install_hdrs"
-		; Ext = ".check"
-		; Ext = ".ints"
-		; Ext = ".int3s"
-		; Ext = ".rlos"
-		; Ext = ".ils"
-		; Ext = ".opts"
-		; Ext = ".trans_opts"
-		% The current interface to `mercury_update_interface'
-		% requires .h.tmp files to be in the same directory as
-		% the .h files
-		; Ext = ".h.tmp"
+		{
+			( Ext = ".m"
+			% executable files
+			; Ext = ""
+			; Ext = ".split"
+			% library files
+			; Ext = ".a"
+			; Ext = ".$A"
+			; Ext = ".so"
+			; Ext = ".$(EXT_FOR_SHARED_LIB)"
+			; Ext = ".split.a"
+			; Ext = ".split.$A"
+			; Ext = ".split.so"
+			; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
+			; Ext = ".init"
+			% output files intended for use by the user
+			% (the .h_dump* and .c_dump* MLDS dumps also
+			% fit into this category, but for efficiency,
+			% to keep this as a switch, we deal with them below)
+			; Ext = ".h"
+			; Ext = ".err"
+			; Ext = ".ugly"
+			; Ext = ".hlds_dump"
+			; Ext = ".mlds_dump"
+			; Ext = ".dependency_graph"
+			; Ext = ".order"
+			; Ext = ".rla"
+			; Ext = ".rl_dump"
+			% Mmake targets
+			; Ext = ".clean"
+			; Ext = ".realclean"
+			; Ext = ".depend"
+			; Ext = ".install_ints"
+			; Ext = ".install_hdrs"
+			; Ext = ".check"
+			; Ext = ".ints"
+			; Ext = ".int3s"
+			; Ext = ".rlos"
+			; Ext = ".ils"
+			; Ext = ".opts"
+			; Ext = ".trans_opts"
+			% The current interface to `mercury_update_interface'
+			% requires .h.tmp files to be in the same directory as
+			% the .h files
+			; Ext = ".h.tmp"
+			)
+		;
+			% output files intended for use by the user
+			( string__prefix(Ext, ".c_dump")
+			; string__prefix(Ext, ".h_dump")
+			)
 		}
 	->
 		{ FileName0 = BaseName }
@@ -901,7 +912,8 @@ make_private_interface(SourceFileName, ModuleName, MaybeTimestamp, Items0) -->
 		%
 		% Check whether we succeeded
 		%
-	( { Error = yes } ->
+	% XXX zs: why does this code not check for fatal_module_errors?
+	( { Error = some_module_errors } ->
 		module_name_to_file_name(ModuleName, ".int0", no, FileName),
 		io__write_strings(["Error reading interface files.\n",
 				"`", FileName, "' not written.\n"])
@@ -954,7 +966,8 @@ make_interface(SourceFileName, ModuleName, MaybeTimestamp, Items0) -->
 		% Check whether we succeeded
 		%
 	{ module_imports_get_items(Module0, InterfaceItems1) },
-	( { Error = yes } ->
+	% XXX zs: why does this code not check for fatal_module_errors?
+	( { Error = some_module_errors } ->
 		module_name_to_file_name(ModuleName, ".int", no, IntFileName),
 		module_name_to_file_name(ModuleName, ".int2", no, Int2FileName),
 		io__write_strings(["Error reading short interface files.\n",
@@ -1245,7 +1258,7 @@ write_interface_file(_SourceFileName, ModuleName, Suffix,
 				"Reading old interface for module", yes, no,
 				OldItems0, OldError, _OldIntFileName,
 				_OldTimestamp),
-			( { OldError = no } ->
+			( { OldError = no_module_errors } ->
 				{ strip_off_interface_decl(OldItems0,
 					OldItems) },
 				{ MaybeOldItems = yes(OldItems) }
@@ -1533,7 +1546,8 @@ find_read_module(ReadModules, ModuleName, Suffix, ReturnTimestamp,
 init_module_imports(SourceFileName, ModuleName, Items, PublicChildren,
 			FactDeps, MaybeTimestamps, Module) :-
 	Module = module_imports(SourceFileName, ModuleName, [], [], [], [],
-		PublicChildren, FactDeps, unknown, Items, no, MaybeTimestamps).
+		PublicChildren, FactDeps, unknown, Items, no_module_errors,
+		MaybeTimestamps).
 
 module_imports_get_source_file_name(Module, Module ^ source_file_name).
 module_imports_get_module_name(Module, Module ^ module_name).
@@ -1762,7 +1776,7 @@ warn_if_duplicate_use_import_decls(ModuleName,
 write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 	{ Module = module_imports(SourceFileName, ModuleName, ParentDeps,
 			IntDeps, ImplDeps, IndirectDeps, _InclDeps, FactDeps0,
-			_ContainsForeignCode, _Items, _Error, _Timestamps) },
+			ContainsForeignCode, Items, _Error, _Timestamps) },
 	globals__io_lookup_bool_option(verbose, Verbose),
 	{ module_name_to_make_var_name(ModuleName, MakeVarName) },
 	module_name_to_file_name(ModuleName, ".d", yes, DependencyFileName),
@@ -1869,7 +1883,6 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			PicAsmDateFileName),
 		module_name_to_file_name(ModuleName, ".$O", no, ObjFileName),
 		module_name_to_file_name(ModuleName, ".rlo", no, RLOFileName),
-		module_name_to_file_name(ModuleName, ".il", no, ILFileName),
 		module_name_to_file_name(ModuleName, ".il_date", no,
 			ILDateFileName),
 		module_name_to_file_name(ModuleName, ".pic_o", no,
@@ -1885,7 +1898,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			ErrFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
-			ILFileName, " : ",
+			ILDateFileName, " : ",
 			SourceFileName
 		] ),
 		write_dependencies_list(ParentDeps, ".int0", DepStream),
@@ -2016,8 +2029,66 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				SourceFileName, "\n",
 			"\trm -rf ", DirFileName, "\n",
 			"\t$(MCS) $(ALL_GRADEFLAGS) $(ALL_MCSFLAGS) ",
-				SourceFileName, "\n"
+				SourceFileName, "\n\n"
 		]),
+
+		% Generate the following dependency.  This dependency is
+		% needed because module__cpp_code.dll might refer to
+		% high level data in any of the mercury modules it
+		% imports plus itself.
+		%
+		% 	module__cpp_code.dll : module.dll imports.dll
+		% 
+		%
+		% Generate the following sequence of rules which state
+		% how to generate the module__cpp_code.dll.
+		%
+		%	module__cpp_code.dll : module__cpp_code.cpp
+		%	module__cpp_code.cpp : module.il
+		%
+		globals__io_get_target(Target),
+		(
+			{ Target = il },
+			{
+				ContainsForeignCode = contains_foreign_code
+			;
+				ContainsForeignCode = unknown,
+				item_list_contains_foreign_code(Items)
+			}
+		->
+			globals__io_lookup_foreign_language_option(
+					backend_foreign_language, ForeignLang),
+			{ ForeignExt = simple_foreign_language_string(
+					ForeignLang) },
+			{ ForeignCodeExt = "__" ++ ForeignExt ++ "_code." },
+			module_name_to_file_name(ModuleName,
+					ForeignCodeExt ++ ForeignExt,
+					no, ForeignFileName),
+			module_name_to_file_name(ModuleName, ".il", no,
+					IlFileName),
+			module_name_to_file_name(ModuleName, ".dll", no,
+					DllFileName),
+			module_name_to_file_name(ModuleName,
+					ForeignCodeExt ++ "dll",
+					no, ForeignDllFileName),
+
+			io__write_strings(DepStream, [
+				ForeignDllFileName, " : ", DllFileName]),
+			% XXX This change doesn't work correctly because
+			% mmake can't find the dlls which don't reside
+			% in the current directory.
+			/*
+			write_dll_dependencies_list(ModuleName,
+					AllDeps, DepStream),
+			*/
+			io__nl(DepStream),
+
+			io__write_strings(DepStream, [
+				ForeignDllFileName, " : ", ForeignFileName,"\n",
+				ForeignFileName, " : ", IlFileName, "\n\n"])
+		;
+			[]
+		),
 
 		module_name_to_file_name(ModuleName, ".int0", no,
 							Int0FileName),
@@ -2392,7 +2463,7 @@ generate_dependencies(ModuleName, DepsMap0) -->
 	%
 	{ map__lookup(DepsMap, ModuleName, deps(_, ModuleImports)) },
 	{ module_imports_get_error(ModuleImports, Error) },
-	( { Error = fatal } ->
+	( { Error = fatal_module_errors } ->
 		{ prog_out__sym_name_to_string(ModuleName, ModuleString) },
 		{ string__append_list(["can't read source file for module `",
 			ModuleString, "'."], Message) },
@@ -2559,7 +2630,7 @@ generate_dependencies_write_d_files([Dep | Deps],
 	% the current Module depends on, a .d file is still produced, even
 	% though it probably contains incorrect information.
 	{ module_imports_get_error(Module, Error) },
-	( { Error \= fatal } ->
+	( { Error \= fatal_module_errors } ->
 		write_dependency_file(Module,
 			set__list_to_set(IndirectOptDeps), yes(TransOptDeps))
 	;
@@ -2636,7 +2707,7 @@ deps_list_to_deps_rel([Deps | DepsList], DepsMap,
 		IntRel0, IntRel, ImplRel0, ImplRel) :-
 	Deps = deps(_, ModuleImports),
 	ModuleError = ModuleImports ^ error,
-	( ModuleError \= fatal ->
+	( ModuleError \= fatal_module_errors ->
 		%
 		% Add interface dependencies to the interface deps relation.
 		%
@@ -2848,18 +2919,51 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".mods ="),
 	write_dependencies_list(Modules, "", DepStream),
+	io__write_string(DepStream, "\n"),
+
+	globals__io_get_target(Target),
+	globals__io_lookup_foreign_language_option(
+			backend_foreign_language, ForeignLang),
+	{ ForeignExt = "." ++ simple_foreign_language_string(ForeignLang) },
+	( { Target = il } ->
+		{ ForeignModules = foreign_modules(ForeignLang,
+				Modules, DepsMap) }
+	;
+		{ ForeignModules = [] }
+	),
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".foreign ="),
+	write_dependencies_list(ForeignModules, "", DepStream),
 	io__write_string(DepStream, "\n\n"),
 
 	globals__io_lookup_bool_option(assume_gmake, Gmake),
 	( { Gmake = yes } ->
 		{ string__append(MakeVarName, ".mods", ModsVarName) },
-		{ Basis = yes(ModsVarName - "") }
+		{ Basis = yes(ModsVarName - "") },
+
+		{ string__append(MakeVarName, ".foreign", ForeignVarName) },
+		{ ForeignBasis = yes(ForeignVarName - "") }
 	;
-		{ Basis = no }
+		{ Basis = no },
+		{ ForeignBasis = no }
 	),
 
-	globals__io_get_target(Target),
 	{ get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
+
+		% .foreign_cs are the source files which have had
+		% foreign code placed in them.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".foreign_cs = "),
+	write_compact_dependencies_list(ForeignModules, "$(os_subdir)",
+					ForeignExt, ForeignBasis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+		% The dlls which contain the foreign_code.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".foreign_dlls = "),
+	write_compact_dependencies_list(ForeignModules, "$(dlls_subdir)",
+					".dll", ForeignBasis, DepStream),
+	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".init_cs = "),
@@ -2872,6 +2976,12 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".init_cs) "),
 	write_extra_link_dependencies_list(ExtraLinkObjs, ".c", DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".dlls = "),
+	write_compact_dependencies_list(Modules, "$(dlls_subdir)", ".dll",
+					Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -3254,15 +3364,33 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	%
 
 	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
-	io__write_strings(DepStream, [
-		ExeFileName, " : $(", MakeVarName, ".cs_or_ss) ",
+
+	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
+	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe ",
+			"$(", MakeVarName, ".dlls) ",
+			"$(", MakeVarName, ".foreign_dlls)\n"] },
+	{ Else = ["else\n"] },
+	{ MainRule =
+		[ExeFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".os) ",
 			InitObjFileName, " $(MLOBJS) ", All_MLLibsDepString,
 			"\n",
 		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -o ",
 			ExeFileName, " ", InitObjFileName, " \\\n",
-		"\t	$(", MakeVarName, ".os) $(MLOBJS) $(ALL_MLLIBS)\n\n"
-	]),
+		"\t	$(", MakeVarName, ".os) $(MLOBJS) $(ALL_MLLIBS)\n"] },
+	{ EndIf = ["endif\n"] },
+
+	globals__io_get_target(Target),
+	{ Gmake = yes,
+		Rules = If ++ ILMainRule ++ Else ++ MainRule ++ EndIf
+	; Gmake = no,
+		( Target = il ->
+			Rules = ILMainRule
+		;
+			Rules = MainRule
+		)
+	},
+	io__write_strings(DepStream, Rules),
 
 	module_name_to_file_name(SourceModuleName, ".split", yes,
 				SplitExeFileName),
@@ -3394,7 +3522,6 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_lib_file_name("lib", ModuleName, ".install_hdrs", no,
 				LibInstallHdrsTargetName),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	globals__io_get_target(Target),
 	( { HighLevelCode = yes, ( Target = c ; Target = asm ) } ->
 		%
 		% XXX  Note that we install the header files in two places:
@@ -3485,6 +3612,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-rm -f $(", MakeVarName, ".ils)\n",
 		"\t-rm -f $(", MakeVarName, ".profs)\n",
 		"\t-rm -f $(", MakeVarName, ".errs)\n",
+		"\t-rm -f $(", MakeVarName, ".foreign_cs)\n",
 		"\t-rm -f $(", MakeVarName, ".schemas)\n"
 	]),
 
@@ -3510,6 +3638,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-rm -f $(", MakeVarName, ".trans_opts)\n",
 		"\t-rm -f $(", MakeVarName, ".ds)\n",
 		"\t-rm -f $(", MakeVarName, ".all_hs)\n",
+		"\t-rm -f $(", MakeVarName, ".dlls)\n",
+		"\t-rm -f $(", MakeVarName, ".foreign_dlls)\n",
 		"\t-rm -f $(", MakeVarName, ".rlos)\n"
 	]),
 	io__write_strings(DepStream, [
@@ -3561,6 +3691,22 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 
 modules_that_need_headers(Modules, DepsMap) =
 	list__filter(module_needs_header(DepsMap), Modules).
+
+:- func foreign_modules(foreign_language, list(module_name), deps_map)  =
+		list(module_name).
+
+foreign_modules(ForeignLang, Modules, DepsMap) = ForeignModules :-
+	P = (pred(M::in, FM::out) is semidet :-
+		Ext = "__" ++ simple_foreign_language_string(ForeignLang) ++
+				"_code",
+		module_needs_header(DepsMap, M),
+		( M = unqualified(Name),
+			FM = unqualified(Name ++ Ext)
+		; M = qualified(Module, Name),
+			FM = qualified(Module, Name ++ Ext)
+		)
+	),
+	list__filter_map(P, Modules, ForeignModules).
 
 	% Succeed iff we need to generate a C header file for the specified
 	% module, assuming we're compiling with `--target asm'.
@@ -3660,7 +3806,7 @@ select_ok_modules([], _, []).
 select_ok_modules([Module | Modules0], DepsMap, Modules) :-
 	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
 	module_imports_get_error(ModuleImports, Error),
-	( Error = fatal ->
+	( Error = fatal_module_errors ->
 		Modules = Modules1
 	;
 		Modules = [Module | Modules1]
@@ -3679,6 +3825,40 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, " \\\n\t"),
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
+
+:- pred write_dll_dependencies_list(module_name,
+		list(module_name), io__output_stream, io__state, io__state).
+:- mode write_dll_dependencies_list(in, in, in, di, uo) is det.
+
+write_dll_dependencies_list(Module, Modules0, DepStream) -->
+		% If we are not compiling a module in the mercury
+		% std library then replace all the std library dlls with
+		% one reference to mercury.dll.
+	{ Module = unqualified(Str), mercury_std_library_module(Str) ->
+		Modules = Modules0
+	;
+		F = (func(M) =
+			( if 
+				M = unqualified(S),
+				mercury_std_library_module(S)
+			then
+				unqualified("mercury")
+			else
+				M
+			)
+		),
+		Modules = list__remove_dups(list__map(F, Modules0))
+	},
+	list__foldl(write_dll_dependency(DepStream), Modules).
+
+:- pred write_dll_dependency(io__output_stream, module_name,
+				io__state, io__state).
+:- mode write_dll_dependency(in, in, di, uo) is det.
+
+write_dll_dependency(DepStream, Module) -->
+	module_name_to_file_name(Module, ".dll", no, FileName),
+	io__write_string(DepStream, " \\\n\t"),
+	io__write_string(DepStream, FileName).
 
 :- pred write_fact_table_dependencies_list(module_name, list(file_name),
 			string, io__output_stream, io__state, io__state).
@@ -3831,7 +4011,7 @@ read_dependencies(ModuleName, Search, ModuleImportsList) -->
 	read_mod_ignore_errors(ModuleName, ".m",
 		"Getting dependencies for module", Search, no, Items0, Error,
 		FileName0, _),
-	( { Items0 = [], Error = fatal } ->
+	( { Items0 = [], Error = fatal_module_errors } ->
 		read_mod_ignore_errors(ModuleName, ".int", 
 		    "Getting dependencies for module interface", Search, no,
 		    Items, _Error, FileName, _),
@@ -3875,10 +4055,11 @@ init_dependencies(FileName, Error, Globals, ModuleName - Items,
 	get_fact_table_dependencies(Items, FactTableDeps),
 
 	% Figure out whether the items contain foreign code.
-	% As an optimization, we do this only if target = asm,
-	% since that is the only time we'll need that field.
+	% As an optimization, we do this only if target = asm or target = il
+	% since those are the only times we'll need that field.
+	globals__get_target(Globals, Target),
 	ContainsForeignCode =
-		(if globals__get_target(Globals, asm) then
+		(if (Target = asm ; Target = il) then
 			(if item_list_contains_foreign_code(Items) then
 				contains_foreign_code
 			else
@@ -3966,7 +4147,7 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 	% level of module qualifiers.
 	%
 	(
-		{ Error0 = fatal },
+		{ Error0 = fatal_module_errors },
 		{ Items0 = [] },
 		{ Extension = ".m" },
 		{ PartialModuleName = qualified(Parent, Child) }
@@ -3981,7 +4162,7 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 		check_timestamp(FileName0, MaybeTimestamp0, MaybeTimestamp),
 		( { IgnoreErrors = yes } ->
 			(
-				{ Error0 = fatal },
+				{ Error0 = fatal_module_errors },
 				{ Items0 = [] }
 			->
 				maybe_write_string(VeryVerbose, "not found.\n")
@@ -3989,15 +4170,18 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 				maybe_write_string(VeryVerbose, "done.\n")
 			)
 		;
-			( { Error0 = fatal } ->
+			(
+				{ Error0 = fatal_module_errors },
 				maybe_write_string(VeryVerbose,
 					"fatal error(s).\n"),
 				io__set_exit_status(1)
-			; { Error0 = yes } ->
+			;
+				{ Error0 = some_module_errors },
 				maybe_write_string(VeryVerbose,
 					"parse error(s).\n"),
 				io__set_exit_status(1)
 			;
+				{ Error0 = no_module_errors },
 				maybe_write_string(VeryVerbose,
 					"successful parse.\n")
 			),
@@ -4024,13 +4208,16 @@ read_mod_from_file(FileName, Extension, Descr, Search, ReturnTimestamp,
 		ReturnTimestamp, Error, ModuleName, Messages, Items,
 		MaybeTimestamp0),
 	check_timestamp(FullFileName, MaybeTimestamp0, MaybeTimestamp),
-	( { Error = fatal } ->
+	(
+		{ Error = fatal_module_errors },
 		maybe_write_string(VeryVerbose, "fatal error(s).\n"),
 		io__set_exit_status(1)
-	; { Error = yes } ->
+	;
+		{ Error = some_module_errors },
 		maybe_write_string(VeryVerbose, "parse error(s).\n"),
 		io__set_exit_status(1)
 	;
+		{ Error = no_module_errors },
 		maybe_write_string(VeryVerbose, "successful parse.\n")
 	),
 	prog_out__write_messages(Messages).
@@ -4121,7 +4308,7 @@ process_module_private_interfaces(ReadModules, [Ancestor | Ancestors],
 		globals__io_lookup_bool_option(statistics, Statistics),
 		maybe_report_stats(Statistics),
 
-		( { PrivateIntError = fatal } ->
+		( { PrivateIntError = fatal_module_errors } ->
 			{ ModAncestors = ModAncestors0 }
 		;
 			{ ModAncestors = [Ancestor | ModAncestors0] }
@@ -4177,7 +4364,7 @@ process_module_long_interfaces(ReadModules, NeedQualifier, [Import | Imports],
 		globals__io_lookup_bool_option(statistics, Statistics),
 		maybe_report_stats(Statistics),
 
-		( { LongIntError = fatal } ->
+		( { LongIntError = fatal_module_errors } ->
 			{ ModImplementationImports =
 				ModImplementationImports0 },
 			{ Module1 = Module0 }
@@ -4397,8 +4584,8 @@ strip_off_interface_decl(Items0, Items) :-
 :- mode maybe_add_int_error(in, in, out) is det.
 
 maybe_add_int_error(InterfaceError, ModError0, ModError) :-
-	( InterfaceError \= no ->
-		ModError = yes
+	( InterfaceError \= no_module_errors ->
+		ModError = some_module_errors
 	;
 		ModError = ModError0
 	).

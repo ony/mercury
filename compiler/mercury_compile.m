@@ -772,8 +772,8 @@ make_private_interface(SourceFileName, MaybeTimestamp, ModuleName - Items) -->
 :- pred halt_at_module_error(bool, module_error).
 :- mode halt_at_module_error(in, in) is semidet.
 
-halt_at_module_error(_, fatal).
-halt_at_module_error(HaltSyntax, yes) :- HaltSyntax = yes.
+halt_at_module_error(_, fatal_module_errors).
+halt_at_module_error(HaltSyntax, some_module_errors) :- HaltSyntax = yes.
 
 :- pred module_to_link(pair(module_name, item_list), string,
 			io__state, io__state).
@@ -896,7 +896,7 @@ compile(SourceFileName, RootModuleName - NestedSubModules0,
 	check_for_no_exports(Items, ModuleName),
 	grab_imported_modules(SourceFileName, ModuleName, ReadModules,
 		MaybeTimestamp, Items, Module, Error2),
-	( { Error2 \= fatal } ->
+	( { Error2 \= fatal_module_errors } ->
 		{ ModuleName = RootModuleName ->
 			NestedSubModules = NestedSubModules0
 		;
@@ -1356,7 +1356,8 @@ mercury_compile__frontend_pass(HLDS1, QualInfo0, FoundUndefTypeError,
 	    %
 	    % Next typecheck the clauses.
 	    %
-	    typecheck(HLDS2b, HLDS3, FoundTypeError),
+	    typecheck(HLDS2b, HLDS3, FoundTypeError,
+	    		ExceededTypeCheckIterationLimit),
 	    ( { FoundTypeError = yes } ->
 		maybe_write_string(Verbose,
 			"% Program contains type error(s).\n"),
@@ -1370,13 +1371,23 @@ mercury_compile__frontend_pass(HLDS1, QualInfo0, FoundUndefTypeError,
 	    % We can't continue after an undefined inst/mode
 	    % error, since propagate_types_into_proc_modes
 	    % (in post_typecheck.m -- called by purity.m)
-	    % and mode analysis would get internal errors
+	    % and mode analysis would get internal errors.
 	    %
+	    % We can't continue if the type inference iteration
+	    % limit was exceeeded because the code to resolve
+	    % overloading in post_typecheck.m (called by purity.m)
+	    % could abort.
 	    ( { FoundUndefModeError = yes } ->
 		{ FoundError = yes },
 		{ HLDS = HLDS3 },
 		maybe_write_string(Verbose,
 	"% Program contains undefined inst or undefined mode error(s).\n"),
+		io__set_exit_status(1)
+	    ; { ExceededTypeCheckIterationLimit = yes } ->
+		% FoundTypeError will always be true here, so we've already
+		% printed a message about the program containing type errors.
+		{ FoundError = yes },
+		{ HLDS = HLDS3 },
 		io__set_exit_status(1)
 	    ;
 	        %
@@ -3201,7 +3212,7 @@ mercury_compile__mlds_to_high_level_c(MLDS) -->
 	globals__io_lookup_bool_option(statistics, Stats),
 
 	maybe_write_string(Verbose, "% Converting MLDS to C...\n"),
-	mlds_to_c__output_mlds(MLDS),
+	mlds_to_c__output_mlds(MLDS, ""),
 	maybe_write_string(Verbose, "% Finished converting MLDS to C.\n"),
 	maybe_report_stats(Stats).
 
@@ -3889,7 +3900,11 @@ mercury_compile__maybe_dump_mlds(MLDS, StageNum, StageName) -->
 		{ string__append_list(
 			[BaseFileName, ".", StageNum, "-", StageName],
 			DumpFile) },
-		mercury_compile__dump_mlds(DumpFile, MLDS)
+		mercury_compile__dump_mlds(DumpFile, MLDS),
+
+		{ string__append_list(["_dump.", StageNum, "-", StageName],
+			DumpSuffix) },
+		mlds_to_c__output_mlds(MLDS, DumpSuffix)
 	;
 		[]
 	).

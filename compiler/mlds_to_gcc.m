@@ -261,7 +261,7 @@ mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 		% them from the asm file!) and pass that to mlds_to_c.m
 		{ ForeignMLDS = mlds(ModuleName, ForeignCode, Imports,
 			list__map(make_public, ForeignDefns)) },
-		mlds_to_c__output_mlds(ForeignMLDS),
+		mlds_to_c__output_mlds(ForeignMLDS, ""),
 		% XXX currently the only foreign code we handle is C;
 		%     see comments above (at the declaration for
 		%     mlds_to_c__compile_to_asm)
@@ -364,7 +364,8 @@ gen_init_fn_defns(MLDS_ModuleName, GlobalInfo0, GlobalInfo) -->
 		qual(MLDS_ModuleName, Name),
 		SymbolTable, LabelTable) },
 	{ term__context_init(Context) },
-	{ FuncBody = mlds__statement(block([], []), mlds__make_context(Context)) },
+	{ FuncBody = mlds__statement(block([], []),
+		mlds__make_context(Context)) },
 	gcc__start_function(GCC_FuncDecl),
 	gen_statement(DefnInfo, FuncBody),
 	gcc__end_function.
@@ -788,8 +789,8 @@ gen_defn_body(Name, Context, Flags, DefnBody, GlobalInfo0, GlobalInfo) -->
 		{ GlobalInfo = GlobalInfo0 ^ global_vars := GlobalVars }
 	;
 		{ DefnBody = mlds__function(_MaybePredProcId, Signature,
-			MaybeBody) },
-		gen_func(Name, Context, Flags, Signature, MaybeBody,
+			FunctionBody) },
+		gen_func(Name, Context, Flags, Signature, FunctionBody,
 			GlobalInfo0, GlobalInfo)
 	;
 		{ DefnBody = mlds__class(ClassDefn) },
@@ -1428,7 +1429,7 @@ mlds_output_enum_constant(Indent, EnumModuleName, Defn) -->
 %
 
 :- pred gen_func(qualified_entity_name, mlds__context,
-		mlds__decl_flags, func_params, maybe(statement),
+		mlds__decl_flags, func_params, function_body,
 		global_info, global_info, io__state, io__state).
 :- mode gen_func(in, in, in, in, in, in, out, di, uo) is det.
 
@@ -1436,9 +1437,9 @@ gen_func(Name, Context, Flags, Signature, MaybeBody,
 		GlobalInfo0, GlobalInfo) -->
 	{ GlobalInfo = GlobalInfo0 },
 	(
-		{ MaybeBody = no }
+		{ MaybeBody = external }
 	;
-		{ MaybeBody = yes(Body) },
+		{ MaybeBody = defined_here(Body) },
 		gcc__push_gc_context,
 		make_func_decl_for_defn(Name, Signature, GlobalInfo0,
 			FuncDecl, SymbolTable),

@@ -195,7 +195,7 @@ generate_method_csharp_code(_ModuleName,
 	_Context, _DeclFlags, Entity)) -->
 
 	( 
-		{ Entity = mlds__function(_, Params, yes(Statement)) },
+		{ Entity = mlds__function(_, Params, defined_here(Statement)) },
 		{ has_foreign_languages(Statement, Langs) },
 		{ list__member(csharp, Langs) }
 	->
@@ -272,9 +272,9 @@ write_csharp_statement(statement(Statement, _Context)) -->
 :- pred write_csharp_code_component(mlds__target_code_component, 
 	io__state, io__state).
 :- mode write_csharp_code_component(in, di, uo) is det.
-write_csharp_code_component(user_target_code(Code, _MaybeContext)) -->
+write_csharp_code_component(user_target_code(Code, _MaybeContext, _Attrrs)) -->
 	io__write_string(Code).
-write_csharp_code_component(raw_target_code(Code)) -->
+write_csharp_code_component(raw_target_code(Code, _Attrs)) -->
 	io__write_string(Code).
 		% XXX we don't handle name yet.
 write_csharp_code_component(name(_)) --> [].
