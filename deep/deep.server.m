@@ -18,15 +18,15 @@
 server(Globals, Deep) -->
 	io__see("/var/tmp/toDeep", _),
 	read(Res0),
+	stderr_stream(StdErr),
+	write(StdErr, Res0), nl(StdErr),
 	io__seen,
 	(
 		{ Res0 = eof },
-		stderr_stream(StdErr),
 		write_string(StdErr, "eof.\n"),
 		server(Globals, Deep)
 	;
 		{ Res0 = error(Msg, Line) },
-		stderr_stream(StdErr),
 		format(StdErr, "error reading input line %d: %s\n",
 			[i(Line), s(Msg)]),
 		server(Globals, Deep)
@@ -214,13 +214,13 @@ proc_in_clique_to_html(URL, Clique, Deep, PDPtr, PDStr) :-
 		( CSDStrs = [] ->
 			Rows = Rows0
 		;
-			Rows = "<TR><TD COLSPAN=8>.</TD></TR>\n" ++ Rows0
+			Rows = "<TR><TD COLSPAN=8>&nbsp;</TD></TR>\n" ++ Rows0
 		),
 		lookup(Deep ^ pd_desc, PDI, SubTotalDesc),
 		lookup(Deep ^ pd_own, PDI, SubTotalOwn),
 		add_own_to_inherit(SubTotalOwn, SubTotalDesc) = SubTotal,
 		PDStr =
-			"<TR><TD COLSPAN=8>.</TD></TR>\n" ++
+			"<TR><TD COLSPAN=8>&nbsp;</TD></TR>\n" ++
 			pred_name(Id, RootInherit, SubTotalOwn, SubTotal) ++
 			Rows
 	;
@@ -287,39 +287,13 @@ callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
 		"</TR>\n".
 
 :- func procs2html(string, deep, sort, int, int) = string.
-procs2html(_URL, Deep, Sort, First, Last) = HTML :-
-	foldl((pred(PSI::in, PS::in, Xs0::in, Xs::out) is det :-
+procs2html(URL, Deep, Sort, First, Last) = HTML :-
+	foldl((pred(PSI::in, _PS::in, Xs0::in, Xs::out) is det :-
 	(
 		PSI >= First,
 		PSI =< Last
 	->
-		lookup(Deep ^ ps_own, PSI, PI),
-		PS = proc_static(Id, _),
-		Calls = calls(PI), Exits = exits(PI),
-		Fails = fails(PI), Redos = redos(PI),
-		OwnQuanta = quanta(PI),
-		lookup(Deep ^ ps_desc, PSI, PSIDesc),
-		DescQuanta = inherit_quanta(PSIDesc),
-		Quanta = OwnQuanta + DescQuanta,
-		OwnQ = float(OwnQuanta),
-		Q = float(Quanta),
-		OwnProp = 100.0 * OwnQ / RQ,
-		Prop = 100.0 * Q / RQ,
-		RootInherit = root_inherit_info(Deep),
-		RootQuanta = inherit_quanta(RootInherit),
-		RQ = float(RootQuanta),
-		Row = "<TR>\n" ++
-		 "<TD> </TD>\n" ++
-		 format("<TD>%s</TD>\n", [s(Id)]) ++
-		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
-		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
-		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
-		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
-		 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(OwnQuanta))]) ++
-		 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
-		 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
-		 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
-			"</TR>\n",
+		Row = proc2html(URL, Deep, PSI, OwnQuanta, Quanta),
 		(
 			Sort = self,
 			K = OwnQuanta
@@ -337,6 +311,59 @@ procs2html(_URL, Deep, Sort, First, Last) = HTML :-
 		Strs2 = [RStr|Strs1]
 	), KeyedRows, [], RowStrs),
 	append_list(RowStrs, HTML).
+
+:- type boldness
+	--->	normal
+	;	bold
+	.
+
+:- func proc2html(string, deep, int, int, int) = string.
+:- mode (proc2html(in, in, in, out, out) = out) is det.
+
+proc2html(URL, Deep, PSI, OwnQuanta, Quanta) =
+	proc2html(normal, URL, Deep, PSI, OwnQuanta, Quanta).
+
+:- func proc2html(boldness, string, deep, int, int, int) = string.
+:- mode (proc2html(in, in, in, in, out, out) = out) is det.
+
+proc2html(Boldness, _URL, Deep, PSI, OwnQuanta, Quanta) = HTML :-
+	lookup(Deep ^ proc_statics, PSI, PS),
+	PS = proc_static(Id, _),
+	lookup(Deep ^ ps_own, PSI, PI),
+	Calls = calls(PI), Exits = exits(PI),
+	Fails = fails(PI), Redos = redos(PI),
+	OwnQuanta = quanta(PI),
+	lookup(Deep ^ ps_desc, PSI, PSIDesc),
+	DescQuanta = inherit_quanta(PSIDesc),
+	Quanta = OwnQuanta + DescQuanta,
+	OwnQ = float(OwnQuanta),
+	Q = float(Quanta),
+	OwnProp = 100.0 * OwnQ / RQ,
+	Prop = 100.0 * Q / RQ,
+	RootInherit = root_inherit_info(Deep),
+	RootQuanta = inherit_quanta(RootInherit),
+	RQ = float(RootQuanta),
+	(
+		Boldness = normal,
+		BS = "",
+		BE = ""
+	;
+		Boldness = bold,
+		BS = "<B>",
+		BE = "</B>"
+	),
+	HTML = "<TR>\n" ++
+	 "<TD> </TD>\n" ++
+	 format("<TD>%s%s%s</TD>\n", [s(BS),s(Id),s(BE)]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(OwnQuanta))]) ++
+	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
+	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
+		"</TR>\n".
 
 :- func label(call_site_dynamic_ptr, deep) = string.
 

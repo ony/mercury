@@ -35,15 +35,14 @@
 
 :- implementation.
 
-:- import_module hash.
 :- import_module char, std_util.
 
 :- type ptr_info --->
 		ptr_info(
-			ps	:: {hashtable(int), int},
-			css	:: {hashtable(int), int},
-			pd	:: {hashtable(int), int},
-			csd	:: {hashtable(int), int}
+			ps	:: int,
+			css	:: int,
+			pd	:: int,
+			csd	:: int
 		).
 
 :- type ptr_kind
@@ -72,14 +71,12 @@ read_call_graph(FileName, Res) -->
 			array([]),
 			array([]),
 			array([]),
+			array([]),
+			array([]),
+			array([]),
 			array([])
 		) },
-		{ PI0 = ptr_info(
-				{ init(10007), 1 },
-				{ init(10007), 1 },
-				{ init(10007), 1 },
-				{ init(10007), 1 }
-			) },
+		{ PI0 = ptr_info(0, 0, 0, 0) },
 		read_call_graph2(Deep0, Res1, PI0, PI),
 		io__seen_binary,
 		{ resize_arrays(Res1, PI, Res) }
@@ -129,15 +126,15 @@ read_call_graph2(Deep0, Res, PtrInfo0, PtrInfo) -->
 
 read_root(Deep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading root.\n", []),
-	read_ptr(csd, Res0, PtrInfo0, PtrInfo1),
+	read_ptr(csd, Res0),
 	(
 		{ Res0 = ok(Ptr) },
 		{ Deep1 = Deep0^root := call_site_dynamic_ptr(Ptr) },
-		read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
+		read_call_graph2(Deep1, Res, PtrInfo0, PtrInfo)
 	;
 		{ Res0 = error(Err) },
 		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo1 }
+		{ PtrInfo = PtrInfo0 }
 	).
 
 :- pred read_call_site_static(deep, deep_result(deep), ptr_info, ptr_info,
@@ -155,16 +152,17 @@ read_call_site_static(Deep0, Res, PtrInfo0, PtrInfo) -->
 			CSS = call_site_static(Kind, Str),
 			insert(Deep0^call_site_statics, Ptr, CSS, CSSs),
 			Deep = Deep0^call_site_statics := CSSs,
-			Res0 = ok(Deep)
+			Res0 = ok({Deep, Ptr})
 		),
-		Res1, PtrInfo0, PtrInfo1),
+		Res1),
 	(
-		{ Res1 = ok(Deep1) },
+		{ Res1 = ok({Deep1, NewPtr}) },
+		{ PtrInfo1 = PtrInfo0^css := max(PtrInfo0^css, NewPtr) },
 		read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
 	;
 		{ Res1 = error(Err) },
 		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo1 }
+		{ PtrInfo = PtrInfo0 }
 	).
 
 
@@ -181,10 +179,10 @@ read_proc_static(Deep0, Res, PtrInfo0, PtrInfo) -->
 		(pred(Ptr0::in, Id0::in, N0::in, Stuff0::out) is det :-
 			Stuff0 = ok({Ptr0, Id0, N0})
 		),
-		Res1, PtrInfo0, PtrInfo1),
+		Res1),
 	(
 		{ Res1 = ok({Ptr, Id, N}) },
-		read_n_things(N, read_ptr(css), Res2, PtrInfo1, PtrInfo2),
+		read_n_things(N, read_ptr(css), Res2),
 		(
 			{ Res2 = ok(Ptrs0) },
 			{ map((pred(Ptr1::in, Ptr2::out) is det :-
@@ -193,16 +191,17 @@ read_proc_static(Deep0, Res, PtrInfo0, PtrInfo) -->
 			{ ProcStatic = proc_static(Id, array(Ptrs)) },
 			{ insert(Deep0^proc_statics, Ptr, ProcStatic, PSs) },
 			{ Deep1 = Deep0^proc_statics := PSs },
-			read_call_graph2(Deep1, Res, PtrInfo2, PtrInfo)
+			{ PtrInfo1 = PtrInfo0 ^ ps := max(PtrInfo0^ps, Ptr) },
+			read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
 		;
 			{ Res2 = error(Err) },
 			{ Res = error(Err) },
-			{ PtrInfo = PtrInfo2 }
+			{ PtrInfo = PtrInfo0 }
 		)
 	;
 		{ Res1 = error(Err) },
 		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo1 }
+		{ PtrInfo = PtrInfo0 }
 	).
 
 :- pred read_proc_dynamic(deep, deep_result(deep), ptr_info, ptr_info,
@@ -218,26 +217,27 @@ read_proc_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 		(pred(Ptr0::in, Ptr1::in, N0::in, Stuff0::out) is det :-
 			Stuff0 = ok({Ptr0, Ptr1, N0})
 		),
-		Res1, PtrInfo0, PtrInfo1),
+		Res1),
 	(
 		{ Res1 = ok({Ptr, SPtr, N}) },
-		read_n_things(N, read_call_site_ref, Res2, PtrInfo1, PtrInfo2),
+		read_n_things(N, read_call_site_ref, Res2),
 		(
 			{ Res2 = ok(Refs) },
 			{ PSPtr = proc_static_ptr(SPtr) },
 			{ PD = proc_dynamic(PSPtr, array(Refs)) },
 			{ insert(Deep0^proc_dynamics, Ptr, PD, PDs) },
 			{ Deep1 = Deep0^proc_dynamics := PDs },
-			read_call_graph2(Deep1, Res, PtrInfo2, PtrInfo)
+			{ PtrInfo1 = PtrInfo0 ^ pd := max(PtrInfo0^pd, Ptr) },
+			read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
 		;
 			{ Res2 = error(Err) },
 			{ Res = error(Err) },
-			{ PtrInfo = PtrInfo2 }
+			{ PtrInfo = PtrInfo0 }
 		)
 	;
 		{ Res1 = error(Err) },
 		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo1 }
+		{ PtrInfo = PtrInfo0 }
 	).
 
 :- pred read_call_site_dynamic(deep, deep_result(deep),
@@ -246,10 +246,10 @@ read_proc_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 
 read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading call_site_dynamic.\n", []),
-	read_ptr(csd, Res1, PtrInfo0, PtrInfo1),
+	read_ptr(csd, Res1),
 	(
 		{ Res1 = ok(Ptr1) },
-		read_ptr(pd, Res2, PtrInfo1, PtrInfo2),
+		read_ptr(pd, Res2),
 		(
 			{ Res2 = ok(Ptr2) },
 			read_profile(Res3),
@@ -260,21 +260,23 @@ read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 				{ insert(Deep0^call_site_dynamics, Ptr1,
 						CD, CDs) },
 				{ Deep1 = Deep0^call_site_dynamics := CDs },
-				read_call_graph2(Deep1, Res, PtrInfo2, PtrInfo)
+				{ PtrInfo1 = PtrInfo0 ^ csd :=
+						max(PtrInfo0^csd, Ptr1) },
+				read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
 			;
 				{ Res3 = error(Err) },
 				{ Res = error(Err) },
-				{ PtrInfo = PtrInfo2 }
+				{ PtrInfo = PtrInfo0 }
 			)
 		;
 			{ Res2 = error(Err) },
 			{ Res = error(Err) },
-			{ PtrInfo = PtrInfo2 }
+			{ PtrInfo = PtrInfo0 }
 		)
 	;
 		{ Res1 = error(Err) },
 		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo1 }
+		{ PtrInfo = PtrInfo0 }
 	).
 
 :- pred read_profile(deep_result(own_prof_info), io__state, io__state).
@@ -372,17 +374,16 @@ cons_profile(Values) = PI :-
 		error("cons_profile: missing values")
 	).
 
-:- pred read_call_site_ref(deep_result(call_site_ref), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_call_site_ref(out, in, out, di, uo) is det.
+:- pred read_call_site_ref(deep_result(call_site_ref), io__state, io__state).
+:- mode read_call_site_ref(out, di, uo) is det.
 
-read_call_site_ref(Res, PtrInfo0, PtrInfo) -->
+read_call_site_ref(Res) -->
 	%format("reading call_site_ref.\n", []),
 	read_call_site_kind(Res1),
 	(
 		{ Res1 = ok(Kind) },
 		( { Kind = normal } ->
-			read_ptr(csd, Res2, PtrInfo0, PtrInfo),
+			read_ptr(csd, Res2),
 			(
 				{ Res2 = ok(Ptr) },
 				{ CDPtr = call_site_dynamic_ptr(Ptr) },
@@ -392,7 +393,7 @@ read_call_site_ref(Res, PtrInfo0, PtrInfo) -->
 				{ Res = error(Err) }
 			)
 		;
-			read_things(read_ptr(csd), Res2, PtrInfo0, PtrInfo),
+			read_things(read_ptr(csd), Res2),
 			(
 				{ Res2 = ok(Ptrs0) },
 				{ map((pred(PtrX::in, PtrY::out) is det :-
@@ -406,19 +407,10 @@ read_call_site_ref(Res, PtrInfo0, PtrInfo) -->
 		)
 	;
 		{ Res1 = error(Err) },
-		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo0 }
+		{ Res = error(Err) }
 	).
 
-:- pred read_call_site_kind(deep_result(call_site_kind), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_call_site_kind(out, in, out, di, uo) is det.
-
-read_call_site_kind(Res, PtrInfo, PtrInfo) -->
-	read_call_site_kind(Res).
-
-:- pred read_call_site_kind(deep_result(call_site_kind),
-		io__state, io__state).
+:- pred read_call_site_kind(deep_result(call_site_kind), io__state, io__state).
 :- mode read_call_site_kind(out, di, uo) is det.
 
 read_call_site_kind(Res) -->
@@ -443,14 +435,12 @@ read_call_site_kind(Res) -->
 		{ Res = error(Err) }
 	).
 
-:- pred read_n_things(int, pred(deep_result(T), ptr_info, ptr_info,
-		io__state, io__state),
-		deep_result(list(T)), ptr_info, ptr_info, io__state, io__state).
-:- mode read_n_things(in, pred(out, in, out, di, uo) is det, out, in, out,
-		di, uo) is det.
+:- pred read_n_things(int, pred(deep_result(T), io__state, io__state),
+		deep_result(list(T)), io__state, io__state).
+:- mode read_n_things(in, pred(out, di, uo) is det, out, di, uo) is det.
 
-read_n_things(N, ThingReader, Res, PtrInfo0, PtrInfo) -->
-	read_n_things(N, ThingReader, [], Res0, PtrInfo0, PtrInfo),
+read_n_things(N, ThingReader, Res) -->
+	read_n_things(N, ThingReader, [], Res0),
 	(
 		{ Res0 = ok(Things0) },
 		{ reverse(Things0, Things) },
@@ -460,38 +450,30 @@ read_n_things(N, ThingReader, Res, PtrInfo0, PtrInfo) -->
 		{ Res = error(Err) }
 	).
 
-:- pred read_n_things(int, pred(deep_result(T), ptr_info, ptr_info,
-		io__state, io__state),
-		list(T), deep_result(list(T)), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_n_things(in, pred(out, in, out, di, uo) is det, in, out, in, out,
-		di, uo) is det.
+:- pred read_n_things(int, pred(deep_result(T), io__state, io__state),
+		list(T), deep_result(list(T)), io__state, io__state).
+:- mode read_n_things(in, pred(out, di, uo) is det, in, out, di, uo) is det.
 
-read_n_things(N, ThingReader, Things0, Res, PtrInfo0, PtrInfo) -->
+read_n_things(N, ThingReader, Things0, Res) -->
 	( { N =< 0 } ->
-		{ Res = ok(Things0) },
-		{ PtrInfo = PtrInfo0 }
+		{ Res = ok(Things0) }
 	;
-		call(ThingReader, Res1, PtrInfo0, PtrInfo1),
+		call(ThingReader, Res1),
 		(
 			{ Res1 = ok(Thing) },
-			read_n_things(N - 1, ThingReader, [Thing|Things0], Res,
-				PtrInfo1, PtrInfo)
+			read_n_things(N - 1, ThingReader, [Thing|Things0], Res)
 		;
 			{ Res1 = error(Err) },
-			{ Res = error(Err) },
-			{ PtrInfo = PtrInfo1 }
+			{ Res = error(Err) }
 		)
 	).
 
-:- pred read_things(pred(deep_result(T), ptr_info, ptr_info,
-		io__state, io__state),
-		deep_result(list(T)), ptr_info, ptr_info, io__state, io__state).
-:- mode read_things(pred(out, in, out, di, uo) is det, out, in,
-		out, di, uo) is det.
+:- pred read_things(pred(deep_result(T), io__state, io__state),
+		deep_result(list(T)), io__state, io__state).
+:- mode read_things(pred(out, di, uo) is det, out, di, uo) is det.
 
-read_things(ThingReader, Res, PtrInfo0, PtrInfo) -->
-	read_things(ThingReader, [], Res0, PtrInfo0, PtrInfo),
+read_things(ThingReader, Res) -->
+	read_things(ThingReader, [], Res0),
 	(
 		{ Res0 = ok(Things0) },
 		{ reverse(Things0, Things) },
@@ -501,60 +483,53 @@ read_things(ThingReader, Res, PtrInfo0, PtrInfo) -->
 		{ Res = error(Err) }
 	).
 
-:- pred read_things(pred(deep_result(T), ptr_info, ptr_info,
-		io__state, io__state),
-		list(T), deep_result(list(T)), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_things(pred(out, in, out, di, uo) is det, in, out, in, out,
-		di, uo) is det.
+:- pred read_things(pred(deep_result(T), io__state, io__state),
+		list(T), deep_result(list(T)), io__state, io__state).
+:- mode read_things(pred(out, di, uo) is det, in, out, di, uo) is det.
 
-read_things(ThingReader, Things0, Res, PtrInfo0, PtrInfo) -->
+read_things(ThingReader, Things0, Res) -->
 	read_deep_byte(Res0),
 	(
 		{ Res0 = ok(Byte) },
 		( { Byte = 0 } ->
-			{ Res = ok(Things0) },
-			{ PtrInfo = PtrInfo0 }
+			{ Res = ok(Things0) }
 		;
 			putback_byte(Byte),
-			call(ThingReader, Res1, PtrInfo0, PtrInfo1),
+			call(ThingReader, Res1),
 			(
 				{ Res1 = ok(Thing) },
-				read_things(ThingReader, [Thing|Things0], Res,
-					PtrInfo1, PtrInfo)
+				read_things(ThingReader, [Thing|Things0], Res)
 			;
 				{ Res1 = error(Err) },
-				{ Res = error(Err) },
-				{ PtrInfo = PtrInfo1 }
+				{ Res = error(Err) }
 			)
 		)
 	;
 		{ Res0 = error(Err) },
-		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo0 }
+		{ Res = error(Err) }
 	).
 
 :- pred read_sequence3(
-		pred(deep_result(T1), ptr_info, ptr_info, io__state, io__state),
-		pred(deep_result(T2), ptr_info, ptr_info, io__state, io__state),
-		pred(deep_result(T3), ptr_info, ptr_info, io__state, io__state),
+		pred(deep_result(T1), io__state, io__state),
+		pred(deep_result(T2), io__state, io__state),
+		pred(deep_result(T3), io__state, io__state),
 		pred(T1, T2, T3, deep_result(T4)),
-		deep_result(T4), ptr_info, ptr_info, io__state, io__state).
+		deep_result(T4), io__state, io__state).
 :- mode read_sequence3(
-		pred(out, in, out, di, uo) is det,
-		pred(out, in, out, di, uo) is det,
-		pred(out, in, out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
 		pred(in, in, in, out) is det,
-		out, in, out, di, uo) is det.
+		out, di, uo) is det.
 
-read_sequence3(P1, P2, P3, Combine, Res, PtrInfo0, PtrInfo) -->
-	call(P1, Res1, PtrInfo0, PtrInfo1),
+read_sequence3(P1, P2, P3, Combine, Res) -->
+	call(P1, Res1),
 	(
 		{ Res1 = ok(T1) },
-		call(P2, Res2, PtrInfo1, PtrInfo2),
+		call(P2, Res2),
 		(
 			{ Res2 = ok(T2) },
-			call(P3, Res3, PtrInfo2, PtrInfo),
+			call(P3, Res3),
 			(
 				{ Res3 = ok(T3) },
 				{ call(Combine, T1, T2, T3, Res) }
@@ -564,21 +539,12 @@ read_sequence3(P1, P2, P3, Combine, Res, PtrInfo0, PtrInfo) -->
 			)
 		;
 			{ Res2 = error(Err) },
-			{ Res = error(Err) },
-			{ PtrInfo = PtrInfo2 }
+			{ Res = error(Err) }
 		)
 	;
 		{ Res1 = error(Err) },
-		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo1 }
+		{ Res = error(Err) }
 	).
-
-:- pred read_string(deep_result(string), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_string(out, in, out, di, uo) is det.
-
-read_string(Res, PtrInfo, PtrInfo) -->
-	read_string(Res).
 
 :- pred read_string(deep_result(string), io__state, io__state).
 :- mode read_string(out, di, uo) is det.
@@ -609,58 +575,10 @@ read_string(Res) -->
 		{ Res = error(Err) }
 	).
 
-:- pred read_ptr(ptr_kind, deep_result(int), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_ptr(in, out, in, out, di, uo) is det.
+:- pred read_ptr(ptr_kind, deep_result(int), io__state, io__state).
+:- mode read_ptr(in, out, di, uo) is det.
 
-read_ptr(Kind, Res, PtrInfo0, PtrInfo) -->
-	read_num(Res0),
-	%write(Res0), nl,
-	(
-		{ Res0 = ok(Ptr0) },
-		{ map_pointer(Kind, Ptr0, Ptr, PtrInfo0, PtrInfo) },
-		{ Res = ok(Ptr) }
-	;
-		{ Res0 = error(Err) },
-		{ Res = error(Err) },
-		{ PtrInfo = PtrInfo0 }
-	).
-
-:- pred map_pointer(ptr_kind, int, int, ptr_info, ptr_info).
-:- mode map_pointer(in, in, out, in, out) is det.
-
-map_pointer(Kind, Ptr0, Ptr, PI0, PI) :-
-	( Ptr0 = 0 ->
-		Ptr = Ptr0,
-		PI = PI0
-	;
-		( Kind = ps,	Ptrs0 = PI0^ps
-		; Kind = css,	Ptrs0 = PI0^css
-		; Kind = pd,	Ptrs0 = PI0^pd
-		; Kind = csd,	Ptrs0 = PI0^csd
-		),
-		Ptrs0 = { PMap0a, Next0 },
-		PMap0 = u(PMap0a),
-		( search(PMap0, Ptr0) = Ptr1 ->
-			Ptr = Ptr1,
-			PI = PI0
-		;
-			Ptr = Next0,
-			Next = Next0 + 1,
-			PMap = insert(PMap0, Ptr0, Ptr),
-			Ptrs = { PMap, Next },
-			( Kind = ps,	PI = PI0^ps := Ptrs
-			; Kind = css,	PI = PI0^css := Ptrs
-			; Kind = pd,	PI = PI0^pd := Ptrs
-			; Kind = csd,	PI = PI0^csd := Ptrs
-			)
-		)
-	).
-
-:- pred read_num(deep_result(int), ptr_info, ptr_info, io__state, io__state).
-:- mode read_num(out, in, out, di, uo) is det.
-
-read_num(Res, PtrInfo, PtrInfo) -->
+read_ptr(_Kind, Res) -->
 	read_num(Res).
 
 :- pred read_num(deep_result(int), io__state, io__state).
@@ -758,6 +676,9 @@ insert(A0, Ind, Thing, A) :-
 
 :- pragma c_code(u(A::in) = (B::array_uo),
 		[will_not_call_mercury, thread_safe], "B = A;").
+
+:- func max(int, int) = int.
+max(A, B) = (A > B -> A ; B).
 
 %------------------------------------------------------------------------------%
 
@@ -1023,31 +944,27 @@ refs(CSDPtr, Deep) = Refs :-
 
 resize_arrays(error(Err), _, error(Err)).
 resize_arrays(ok(Deep0), PI, ok(Deep)) :-
-	PI^csd = CSDInfo,
-	CSDInfo = { _, CSDSize },
+	PI^csd = CSDMax,
 	CSDs0 = Deep0^call_site_dynamics,
 	lookup(CSDs0, 0, CSDx),
-	resize(u(CSDs0), CSDSize, CSDx, CSDs),
+	resize(u(CSDs0), CSDMax + 1, CSDx, CSDs),
 	Deep1 = Deep0^call_site_dynamics := CSDs,
 
-	PI^pd = PDInfo,
-	PDInfo = { _, PDSize },
+	PI^pd = PDMax,
 	PDs0 = Deep1^proc_dynamics,
 	lookup(PDs0, 0, PDx),
-	resize(u(PDs0), PDSize, PDx, PDs),
+	resize(u(PDs0), PDMax + 1, PDx, PDs),
 	Deep2 = Deep1^proc_dynamics := PDs,
 
-	PI^css = CSSInfo,
-	CSSInfo = { _, CSSSize },
+	PI^css = CSSMax,
 	CSSs0 = Deep2^call_site_statics,
 	lookup(CSSs0, 0, CSSx),
-	resize(u(CSSs0), CSSSize, CSSx, CSSs),
+	resize(u(CSSs0), CSSMax + 1, CSSx, CSSs),
 	Deep3 = Deep2^call_site_statics := CSSs,
 
-	PI^ps = PSInfo,
-	PSInfo = { _, PSSize },
+	PI^ps = PSMax,
 	PSs0 = Deep3^proc_statics,
 	lookup(PSs0, 0, PSx),
-	resize(u(PSs0), PSSize, PSx, PSs),
+	resize(u(PSs0), PSMax + 1, PSx, PSs),
 	Deep = Deep3^proc_statics := PSs.
 
