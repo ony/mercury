@@ -74,7 +74,7 @@ det.
 
 :- implementation. 
 
-:- import_module bool, relation, require, set, time, list, std_util. 
+:- import_module bool, relation, require, set, time, list, std_util, map. 
 :- import_module dependency_graph, hlds_out, hlds_pred.
 
 init( P ) :- 
@@ -192,7 +192,7 @@ write_profiling( String, Prof, HLDS ) -->
 
 		io__write_string( Stream, "*/\ndigraph "),
 		io__write_string(Stream, String), 
-		io__write_string(Stream, " {\n"),
+		io__write_string(Stream, " {\nrankdir=LR;\n"),
 		{ dependency_graph__build_dependency_graph(HLDS,
 				no, DepInfo) },
 		{ hlds_dependency_info_get_dependency_graph(DepInfo,
@@ -235,20 +235,61 @@ write_profiling( String, Prof, HLDS ) -->
 		pred_proc_id::in, io__state::di, io__state::uo) is det.
 
 write_procedure_node(HLDS, Stream, PredProcId) -->
+	{ module_info_structure_reuse_info(HLDS, HLDSReuseInfo) },
+	{ HLDSReuseInfo = structure_reuse_info( ReuseMap ) }, 
 	io__set_output_stream(Stream, OldStream),
 	{ PredProcId = proc(PredId, ProcId) },
-	{ module_info_pred_proc_info(HLDS, PredProcId, _PredInfo, ProcInfo) },
+	{ module_info_pred_proc_info(HLDS, PredProcId, PredInfo, ProcInfo) },
 	{ proc_info_reuse_information(ProcInfo, ReuseInfo) },
+	{ pred_info_import_status(PredInfo, ImportStatus) }, 
+
+	{ 
+	( 
+		ImportStatus = exported
+	->
+		Shape = "box", 
+		Periferies = "2"
+	;
+		ImportStatus = local
+	->
+		Shape = "ellipse",
+		Periferies = "1"
+	;
+		Shape = "ellipse", 
+		Periferies = "2"
+	), 
+
+	(
+		ReuseInfo = yes(Conds)
+	->
+		(
+			Conds = [],
+			Color = "style=filled, color=chartreuse2"
+		;
+			Conds = [_|_],
+			Color = "style=filled, color=tomato"
+		)
+	;
+		(
+			map__contains(ReuseMap, PredProcId)
+		->
+			% meaning: the predproc has a reuse version
+			% but is not used here. 
+			Color = "style=filled, color=mistyrose"
+		;
+			Color = "color=black"
+		)
+	) },
+	{ string__append_list( ["[", Color,
+				",shape=",Shape,
+				",peripheries=", Periferies, "];\n"], 
+				Options ) }, 
 
 	io__write_char('"'),
 	hlds_out__write_pred_proc_id(HLDS, PredId, ProcId),
 	io__write_char('"'),
 
-	( { ReuseInfo = yes(_) } ->
-		io__write_string(" [style=filled,color=red,shape=box];\n")
-	;
-		io__write_string(";\n")
-	),
+	io__write_string(Options), 
 
 	io__set_output_stream(OldStream, _).
 
