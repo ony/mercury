@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -900,10 +900,10 @@ qualify_type(Type0, Type, Info0, Info) -->
 
 qualify_pragma(source_file(File), source_file(File), Info, Info) --> [].
 qualify_pragma(foreign_decl(L, Code), foreign_decl(L, Code), Info, Info) --> [].
-qualify_pragma(foreign(L, C), foreign(L, C), Info, Info) --> [].
+qualify_pragma(foreign_code(L, C), foreign_code(L, C), Info, Info) --> [].
 qualify_pragma(
-	    foreign(Rec, SymName, PredOrFunc, PragmaVars0, Varset, Code),
-	    foreign(Rec, SymName, PredOrFunc, PragmaVars, Varset, Code), 
+	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars0, Varset, Code),
+	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars, Varset, Code), 
 		Info0, Info) -->
 	qualify_pragma_vars(PragmaVars0, PragmaVars, Info0, Info).
 qualify_pragma(tabled(A, B, C, D, MModes0), tabled(A, B, C, D, MModes), 
@@ -963,6 +963,8 @@ qualify_pragma(psn(SymName, Arity), psn(SymName, Arity),
 qualify_pragma(owner(SymName, Arity, Owner), owner(SymName, Arity, Owner),
 		Info, Info) --> [].
 qualify_pragma(promise_pure(SymName, Arity), promise_pure(SymName, Arity),
+		Info, Info) --> [].
+qualify_pragma(promise_semipure(SymName, Arity), promise_pure(SymName, Arity),
 		Info, Info) --> [].
 qualify_pragma(termination_info(PredOrFunc, SymName, ModeList0, Args, Term), 
 		termination_info(PredOrFunc, SymName, ModeList, Args, Term), 

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -57,7 +57,8 @@ MR_c_file_to_mercury_file(FILE *c_file, MercuryFile *mercury_file)
 void
 MR_trace_browse(MR_Word type_info, MR_Word value, MR_Browse_Format format)
 {
-	MercuryFile mdb_in, mdb_out;
+	MercuryFile	mdb_in, mdb_out;
+	MR_Word		maybe_mark;
 
 	MR_trace_browse_ensure_init();
 
@@ -76,7 +77,7 @@ MR_trace_browse(MR_Word type_info, MR_Word value, MR_Browse_Format format)
 		MR_TRACE_CALL_MERCURY(
 			ML_BROWSE_browse(type_info, value,
 				(MR_Word) &mdb_in, (MR_Word) &mdb_out,
-				MR_trace_browser_persistent_state,
+				&maybe_mark, MR_trace_browser_persistent_state,
 				&MR_trace_browser_persistent_state);
 		);
 	}
@@ -142,8 +143,8 @@ MR_trace_print(MR_Word type_info, MR_Word value, MR_Browse_Caller_Type caller,
 
 bool
 MR_trace_set_browser_param(MR_Bool print, MR_Bool browse, MR_Bool print_all,
-		MR_Bool flat, MR_Bool pretty, MR_Bool verbose,
-		const char *param, const char *value)
+		MR_Bool flat, MR_Bool raw_pretty, MR_Bool verbose, 
+		MR_Bool pretty, const char *param, const char *value)
 {
 	int			depth, size, width, lines;
 	MR_Browse_Format	new_format;
@@ -163,7 +164,7 @@ MR_trace_set_browser_param(MR_Bool print, MR_Bool browse, MR_Bool print_all,
 	{
 		MR_TRACE_CALL_MERCURY(
 			ML_BROWSE_set_param_depth(print, browse, print_all,
-				flat, pretty, verbose, depth,
+				flat, raw_pretty, verbose, pretty, depth,
 				MR_trace_browser_persistent_state,
 				&MR_trace_browser_persistent_state);
 		);
@@ -172,7 +173,7 @@ MR_trace_set_browser_param(MR_Bool print, MR_Bool browse, MR_Bool print_all,
 	{
 		MR_TRACE_CALL_MERCURY(
 			ML_BROWSE_set_param_size(print, browse, print_all,
-				flat, pretty, verbose, size,
+				flat, raw_pretty, verbose, pretty, size,
 				MR_trace_browser_persistent_state,
 				&MR_trace_browser_persistent_state);
 		);
@@ -181,7 +182,7 @@ MR_trace_set_browser_param(MR_Bool print, MR_Bool browse, MR_Bool print_all,
 	{
 		MR_TRACE_CALL_MERCURY(
 			ML_BROWSE_set_param_width(print, browse, print_all,
-				flat, pretty, verbose, width,
+				flat, raw_pretty, verbose, pretty, width,
 				MR_trace_browser_persistent_state,
 				&MR_trace_browser_persistent_state);
 		);
@@ -190,7 +191,7 @@ MR_trace_set_browser_param(MR_Bool print, MR_Bool browse, MR_Bool print_all,
 	{
 		MR_TRACE_CALL_MERCURY(
 			ML_BROWSE_set_param_lines(print, browse, print_all,
-				flat, pretty, verbose, lines,
+				flat, raw_pretty, verbose, pretty, lines,
 				MR_trace_browser_persistent_state,
 				&MR_trace_browser_persistent_state);
 		);
@@ -214,14 +215,16 @@ MR_trace_is_portray_format(const char *str, MR_Browse_Format *format)
 	if (streq(str, "flat")) {
 		*format = MR_BROWSE_FORMAT_FLAT;
 		return TRUE;
-	} else if (streq(str, "pretty")) {
-		*format = MR_BROWSE_FORMAT_PRETTY;
+	} else if (streq(str, "raw_pretty")) {
+		*format = MR_BROWSE_FORMAT_RAW_PRETTY;
 		return TRUE;
 	} else if (streq(str, "verbose")) {
 		*format = MR_BROWSE_FORMAT_VERBOSE;
 		return TRUE;
+	} else if (streq(str, "pretty")) {
+		*format = MR_BROWSE_FORMAT_PRETTY;
+		return TRUE;
 	}
-
 	return FALSE;
 }
 

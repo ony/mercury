@@ -295,7 +295,7 @@
 			% e.g. computed_goto(2, [A, B, C, D])
 			% will branch to label C.
 
-	;	c_code(string)
+	;	c_code(string, c_code_live_lvals)
 			% Do whatever is specified by the string,
 			% which can be any piece of C code that
 			% does not have any non-local flow of control.
@@ -415,7 +415,7 @@
 
 	;	pragma_c(list(pragma_c_decl), list(pragma_c_component),
 				may_call_mercury, maybe(label), maybe(label),
-				maybe(label), bool)
+				maybe(label), maybe(label), bool)
 			% The first argument says what local variable
 			% declarations are required for the following
 			% components, which in turn can specify how
@@ -440,16 +440,20 @@
 			% the fourth, fifth or sixth arg. The fourth argument
 			% may give the name of a label whose name is fixed
 			% because it embedded in raw C code, and which does
-			% not have a layout structure. The fifth argument
-			% may give the name of a label whose name is fixed
-			% because it does have an associated label layout
-			% structure (it may appear in C code as well).
-			% The sixth argument may give the name of a label
-			% that can be changed (because it is not mentioned
-			% in C code and has no associated layout structure,
-			% being mentioned only in pragma_c_fail_to components).
+			% not have a layout structure. The fifth and sixth
+			% arguments may give the names of labels whose names
+			% are fixed because they do have an associated label
+			% layout structure. The label in the fifth argument
+			% may appear in C code; the label in the sixth argument
+			% may not (such a label may therefore may be deleted
+			% from the LLDS code if it is not referred to from
+			% anywhere else). The seventh argument may give the
+			% name of a label that can be changed (because it is
+			% not mentioned in C code and has no associated layout
+			% structure, being mentioned only in pragma_c_fail_to
+			% components).
 			%
-			% The seventh argument says whether the contents
+			% The last argument says whether the contents
 			% of the pragma C code can refer to stack slots.
 			% User-written shouldn't refer to stack slots,
 			% the question is whether the compiler-generated
@@ -501,6 +505,17 @@
 						% also contain this struct
 						% (for use by a model_non
 						% pragma C code).
+		).
+
+:- type c_code_live_lvals
+	--->	no_live_lvals_info	% There is no information available
+					% about the live lvals used in
+					% the c_code.
+
+	;	live_lvals_info(	
+			set(lval)	% The set of lvals defined before the
+					% c_code that are live inside the
+					% c_code.
 		).
 
 	% Temporary frames on the nondet stack exist only to provide a failure
@@ -560,7 +575,7 @@
 	--->	pragma_c_inputs(list(pragma_c_input))
 	;	pragma_c_outputs(list(pragma_c_output))
 	;	pragma_c_user_code(maybe(prog_context), string)
-	;	pragma_c_raw_code(string)
+	;	pragma_c_raw_code(string, c_code_live_lvals)
 	;	pragma_c_fail_to(label)
 	;	pragma_c_noop.
 
@@ -1159,6 +1174,7 @@ llds__const_type(label_entry(_), code_ptr).
 llds__unop_return_type(mktag, word).
 llds__unop_return_type(tag, word).
 llds__unop_return_type(unmktag, word).
+llds__unop_return_type(strip_tag, word).
 llds__unop_return_type(mkbody, word).
 llds__unop_return_type(unmkbody, word).
 llds__unop_return_type(hash_string, integer).
@@ -1168,6 +1184,7 @@ llds__unop_return_type(not, bool).
 llds__unop_arg_type(mktag, word).
 llds__unop_arg_type(tag, word).
 llds__unop_arg_type(unmktag, word).
+llds__unop_arg_type(strip_tag, word).
 llds__unop_arg_type(mkbody, word).
 llds__unop_arg_type(unmkbody, word).
 llds__unop_arg_type(hash_string, word).
@@ -1256,11 +1273,8 @@ get_defining_module_name(special_proc(ModuleName, _, _, _, _, _)) = ModuleName.
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- interface.
-
 :- type proc_var_map	==	map(pred_proc_id, comp_gen_c_var).
 :- type proc_layout_map	==	map(pred_proc_id, proc_layout_info).
-
 
 :- type global_data
 	--->	global_data(
@@ -1288,8 +1302,6 @@ get_defining_module_name(special_proc(ModuleName, _, _, _, _, _)) = ModuleName.
 						% because their construction
 						% ensures no overlaps.
 		).
-
-:- implementation.
 
 :- func wrap_layout_data(layout_data) = comp_gen_c_data.
 

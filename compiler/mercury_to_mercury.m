@@ -83,7 +83,7 @@
 :- mode mercury_output_pragma_decl(in, in, in, in, di, uo) is det.
 
 :- pred mercury_output_pragma_foreign_code(
-		pragma_foreign_code_attributes, sym_name,
+		pragma_foreign_proc_attributes, sym_name,
 		pred_or_func, list(pragma_var), prog_varset,
 		pragma_foreign_code_impl, io__state, io__state).
 :- mode mercury_output_pragma_foreign_code(
@@ -350,10 +350,10 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = foreign_decl(Lang, ForeignHeaderString) },
 		mercury_output_pragma_foreign_decl(Lang, ForeignHeaderString)
 	;
-		{ Pragma = foreign(Lang, Code) }, 
+		{ Pragma = foreign_code(Lang, Code) }, 
 		mercury_output_pragma_foreign_body_code(Lang, Code)
 	;
-		{ Pragma = foreign(Attributes, Pred, PredOrFunc, Vars,
+		{ Pragma = foreign_proc(Attributes, Pred, PredOrFunc, Vars,
 			VarSet, PragmaCode) }, 
 		mercury_output_pragma_foreign_code(Attributes, Pred,
 			PredOrFunc, Vars, VarSet, PragmaCode)
@@ -430,6 +430,10 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = promise_pure(Pred, Arity) },
 		mercury_output_pragma_decl(Pred, Arity, predicate,
 					   "promise_pure")
+	;
+		{ Pragma = promise_semipure(Pred, Arity) },
+		mercury_output_pragma_decl(Pred, Arity, predicate,
+					   "promise_semipure")
 	;
 		{ Pragma = termination_info(PredOrFunc, PredName, 
 			ModeList, MaybePragmaArgSizeInfo,
@@ -2225,15 +2229,38 @@ mercury_output_pragma_foreign_body_code(Lang, ForeignCodeString) -->
 mercury_output_pragma_foreign_code(Attributes, PredName, PredOrFunc, Vars0,
 		VarSet, PragmaCode) -->
 	(
-		{ PragmaCode = import(_, _, _, _) }
-	->
-		io__write_string(":- pragma import(")
+		{ PragmaCode = import(C_Function, _, _, _) },
+		% The predicate or function arguments in a `:- pragma import'
+		% declaration are not named.
+		{ ImportModes = list__map(
+			(func(pragma_var(_, _, ImportMode)) = ImportMode),
+			Vars0) },
+
+		mercury_output_pragma_import(PredName, PredOrFunc,
+			ImportModes, Attributes, C_Function)
 	;
-		io__write_string(":- pragma foreign_code("),
-		{ foreign_language(Attributes, Lang) },
-		mercury_output_foreign_language_string(Lang),
-		io__write_string(", ")
-	),
+		{ PragmaCode = ordinary(_, _) },
+		mercury_output_pragma_foreign_code_2(Attributes, PredName,
+			PredOrFunc, Vars0, VarSet, PragmaCode)
+	;
+		{ PragmaCode = nondet(_, _, _, _, _, _, _, _, _) },
+		mercury_output_pragma_foreign_code_2(Attributes, PredName,
+			PredOrFunc, Vars0, VarSet, PragmaCode)
+	).
+
+:- pred mercury_output_pragma_foreign_code_2(
+		pragma_foreign_proc_attributes, sym_name,
+		pred_or_func, list(pragma_var), prog_varset,
+		pragma_foreign_code_impl, io__state, io__state).
+:- mode mercury_output_pragma_foreign_code_2(
+		in, in, in, in, in, in, di, uo) is det.
+
+mercury_output_pragma_foreign_code_2(Attributes, PredName, PredOrFunc, Vars0,
+		VarSet, PragmaCode) -->
+	io__write_string(":- pragma foreign_proc("),
+	{ foreign_language(Attributes, Lang) },
+	mercury_output_foreign_language_string(Lang),
+	io__write_string(", "),
 	mercury_output_sym_name(PredName),
 	{
 		PredOrFunc = predicate,
@@ -2290,10 +2317,9 @@ mercury_output_pragma_foreign_code(Attributes, PredName, PredOrFunc, Vars0,
 		mercury_output_foreign_code_string(Shared),
 		io__write_string(")")
 	;
-		{ PragmaCode = import(Name, _, _, _) },
-		io__write_string(""""),
-		io__write_string(Name),
-		io__write_string("""")
+		{ PragmaCode = import(_, _, _, _) },
+		% This should be handle in mercury_output_pragma_foreign_code.
+		{ error("mercury_output_pragma_foreign_code_2") }
 	),
 	io__write_string(").\n").
 
@@ -2424,7 +2450,7 @@ mercury_output_pragma_decl(PredName, Arity, PredOrFunc, PragmaName) -->
 %-----------------------------------------------------------------------------%
 
 :- pred mercury_output_pragma_import(sym_name, pred_or_func, list(mode),
-	pragma_foreign_code_attributes, string, io__state, io__state).
+	pragma_foreign_proc_attributes, string, io__state, io__state).
 :- mode mercury_output_pragma_import(in, in, in, in, in, di, uo) is det.
 
 mercury_output_pragma_import(Name, PredOrFunc, ModeList, Attributes,
@@ -2447,9 +2473,9 @@ mercury_output_pragma_import(Name, PredOrFunc, ModeList, Attributes,
 	),
 	io__write_string(", "),
 	mercury_output_pragma_foreign_attributes(Attributes),
-	io__write_string(", "),
+	io__write_string(", """),
 	io__write_string(C_Function),
-	io__write_string(").\n").
+	io__write_string(""").\n").
 
 :- pred mercury_output_pragma_export(sym_name, pred_or_func, list(mode),
 	string, io__state, io__state).
@@ -2549,7 +2575,7 @@ mercury_output_tabs(Indent) -->
 %-----------------------------------------------------------------------------%
 
 :- pred mercury_output_pragma_foreign_attributes(
-		pragma_foreign_code_attributes, io__state, io__state).
+		pragma_foreign_proc_attributes, io__state, io__state).
 :- mode mercury_output_pragma_foreign_attributes(in, di, uo) is det.
 
 mercury_output_pragma_foreign_attributes(Attributes) -->

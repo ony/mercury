@@ -271,9 +271,8 @@ extern const MR_TypeCtorInfo_Struct
 	mercury__builtin__builtin__type_ctor_info_tuple_0
 
 /*
-** The compiler generates references to this constant.
-** This avoids the need for the mlds__rval type to
-** have a `sizeof' operator.
+** The compiler used to generate references to this constant.
+** XXX This should only be needed for bootstrapping now.
 */
 #ifdef MR_AVOID_MACROS
   enum { mercury__private_builtin__SIZEOF_WORD = sizeof(MR_Word) };
@@ -304,7 +303,7 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
 **	2.  The call to __builtin_longjmp() must not be in the same
 **	    function as the call to __builtin_setjmp().
 */
-#ifdef __GNUC__
+#if (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 8))
   #define MR_builtin_setjmp(buf)	__builtin_setjmp((buf))
   #define MR_builtin_longjmp(buf, val)	__builtin_longjmp((buf), (val))
 #else

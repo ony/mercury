@@ -153,6 +153,8 @@ MR_deep_profile_update_closure_history(MR_Closure *closure)
 ** Functions for writing out the data at the end of the execution.
 */
 
+static	void	MR_write_out_id_string(FILE *fp);
+
 static	void	MR_write_out_call_site_static(FILE *fp,
 			const MR_CallSiteStatic *ptr);
 static	void	MR_write_out_call_site_dynamic(FILE *fp,
@@ -164,11 +166,6 @@ static	void	MR_write_out_ho_call_site_ptrs(FILE *fp,
 			const MR_CallSiteDynList *dynlist);
 static	void	MR_write_out_ho_call_site_nodes(FILE *fp,
 			MR_CallSiteDynList *dynlist);
-
-/*
-static	void	MR_write_out_proc_layout(FILE *fp,
-			const MR_Proc_Layout *layout);
-*/
 
 typedef enum node_kind {
 	kind_csd, kind_pd, kind_css, kind_ps
@@ -259,6 +256,7 @@ MR_write_out_profiling_tree(void)
 	}
 #endif
 
+	MR_write_out_id_string(fp);
 	MR_write_fixed_size_int(fp, 0);
 	MR_write_fixed_size_int(fp, 0);
 	MR_write_fixed_size_int(fp, 0);
@@ -295,6 +293,7 @@ MR_write_out_profiling_tree(void)
 	(*MR_address_of_write_out_proc_statics)(fp);
 
 	rewind(fp);
+	MR_write_out_id_string(fp);
 	MR_write_fixed_size_int(fp, MR_call_site_dynamic_table->last_id);
 	MR_write_fixed_size_int(fp, MR_call_site_static_table->last_id);
 	MR_write_fixed_size_int(fp, MR_proc_dynamic_table->last_id);
@@ -320,6 +319,18 @@ MR_write_out_profiling_tree(void)
 			MR_dictionary_search_lengths[i]);
 	}
 #endif
+}
+
+static void
+MR_write_out_id_string(FILE *fp)
+{
+	/* This string must match id_string deep/deep.io.m */
+	const char	*id_string = "Mercury deep profiler data";
+	int		i;
+
+	for (i = 0; id_string[i] != '\0'; i++) {
+		putc(id_string[i], fp);
+	}
 }
 
 void
@@ -746,7 +757,7 @@ MR_write_byte(FILE *fp, const char byte)
 #ifdef	MR_DEEP_PROFILING_DETAIL_DEBUG
 	fprintf(debug_fp, "byte: %d\n", (int) byte);
 #endif
-	fputc(byte, fp);
+	putc(byte, fp);
 }
 
 static void
@@ -771,9 +782,9 @@ MR_write_num(FILE *fp, unsigned long num)
 	i--;
 
 	while (i > 0) {
-		fputc(pieces[i--] | 0x80, fp);
+		putc(pieces[i--] | 0x80, fp);
 	}
-	fputc(pieces[0], fp);
+	putc(pieces[0], fp);
 }
 
 static void
@@ -788,7 +799,7 @@ MR_write_fixed_size_int(FILE *fp, unsigned long num)
 	MR_deep_assert((int) num >= 0);
 
 	for (i = 0; i < MR_FIXED_SIZE_INT_BYTES; i++) {
-		fputc(num & ((1 << 8) - 1), fp);
+		putc(num & ((1 << 8) - 1), fp);
 		num = num >> 8;
 	}
 }
@@ -805,7 +816,7 @@ MR_write_string(FILE *fp, const char *ptr)
 	len = strlen(ptr);
 	MR_write_num(fp, len);
 	for (i = 0; i < len; i++) {
-		fputc(ptr[i], fp);
+		putc(ptr[i], fp);
 	}
 }
 

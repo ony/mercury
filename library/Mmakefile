@@ -26,11 +26,11 @@ MCFLAGS-int = --no-halt-at-warn
 # compiled with these flags to make sure all calls
 # to the builtin comparison routines are inlined.
 TYPE_SPEC_FLAGS = --inline-vars-threshold 10000
-MCFLAGS-list = $(TYPE_SPEC_FLAGS)
-MCFLAGS-map = $(TYPE_SPEC_FLAGS)
-MCFLAGS-tree234 = $(TYPE_SPEC_FLAGS)
-MCFLAGS-set = $(TYPE_SPEC_FLAGS)
-MCFLAGS-set_ordlist = $(TYPE_SPEC_FLAGS)
+MCFLAGS-list += $(TYPE_SPEC_FLAGS)
+MCFLAGS-map += $(TYPE_SPEC_FLAGS)
+MCFLAGS-tree234 += $(TYPE_SPEC_FLAGS)
+MCFLAGS-set += $(TYPE_SPEC_FLAGS)
+MCFLAGS-set_ordlist += $(TYPE_SPEC_FLAGS)
 
 #-----------------------------------------------------------------------------#
 
@@ -207,7 +207,7 @@ dlls: $(library.dlls)
 .PHONY: lib_std
 
 # The ilc and il grades target Microsoft's .NET frameworks.  
-ifneq (,$(findstring il,$(GRADE)))
+ifeq ($(findstring il,$(GRADE)),il)        
 
 lib_std: dlls mercury.dll
 

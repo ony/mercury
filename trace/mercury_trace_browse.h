@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -15,7 +15,8 @@
 #define MERCURY_TRACE_BROWSE_H
 
 #include "mercury_conf.h"	/* for MR_USE_EXTERNAL_DEBUGGER */
-#include "mercury_types.h"	/* for MR_Word, MR_String */
+#include "mercury_types.h"	/* for MR_Word, MR_String       */
+#include "mercury_std.h"	/* for bool                     */
 
 /*
 ** The following types must correspond with browse_caller_type and
@@ -29,8 +30,9 @@ typedef enum {
 
 typedef enum {
 	MR_BROWSE_FORMAT_FLAT,
-	MR_BROWSE_FORMAT_PRETTY,
-	MR_BROWSE_FORMAT_VERBOSE
+	MR_BROWSE_FORMAT_RAW_PRETTY,
+	MR_BROWSE_FORMAT_VERBOSE,
+	MR_BROWSE_FORMAT_PRETTY
 } MR_Browse_Format;
 
 /*
@@ -58,8 +60,9 @@ extern	void	MR_trace_print(MR_Word type_info, MR_Word value,
 ** Set browser parameters.
 */
 extern	bool	MR_trace_set_browser_param(MR_Bool print, MR_Bool browse,
-			MR_Bool print_all, MR_Bool flat, MR_Bool pretty,
-			MR_Bool verbose, const char *param, const char *value);
+			MR_Bool print_all, MR_Bool flat, MR_Bool raw_pretty,
+			MR_Bool verbose, MR_Bool pretty, const char *param, 
+			const char *value);
 
 /*
 ** Invoke an interactive query.

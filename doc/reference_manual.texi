@@ -4018,7 +4018,6 @@ constraints on existentially quantified type variables.
 * Existential class constraints::
 * Existentially typed data types::
 * Some idioms using existentially quantified types::
-* Known bugs in the current implementation::
 @end menu
 
 @node Existentially typed predicates and functions
@@ -4252,7 +4251,7 @@ For example:
 :- typeclass showable(T) where [ func show(T) = string ].
 :- type showable_list
 	---> nil
-	;    some [T] (cons(T, list_of_any) => showable(T)).
+	;    some [T] (cons(T, showable_list) => showable(T)).
 
 % A different way of doing the same kind of thing, this
 % time using the standard type list(T).
@@ -4406,30 +4405,6 @@ harder_example(Name, Showable) :-
 	),
 	Univ = mkshowable(Showable).
 @end example
-
-@node Known bugs in the current implementation
-@section Known bugs in the current implementation
-
-The current implementation does not properly deal with most cases
-that involve both existentially quantified constraints and
-mode reordering due to the modes of type variables.
-Note that this can easily arise if you're using nested function calls.
-The symptom in such cases is usually spurious mode errors,
-or sometimes internal compiler errors of the form
-
-@example
-Software error: map__lookup: key not found
-Key Type: prog_data:class_constraint
-Key Functor: constraint/2
-Value Type: hlds_data:constraint_proof
-@end example
-
-@noindent
-The work-around is to write such code in the correct order manually
-rather than relying on the compiler's mode reordering.
-For nested function calls, you may need to split them up using
-temporary variables, e.g. instead of @samp{X = f(g(Y))},
-write @samp{G = g(Y), X = f(G)}.
 
 @node Semantics
 @chapter Semantics
@@ -5871,20 +5846,23 @@ Because the inferred purity of the predicate is calculated from the
 declared purity of the calls it executes,  the lowest purity bound is
 propagated up from callee to caller through the program.
 
-However, some predicates which call impure or semipure predicates are
-themselves pure. 
-The only way for the programmer to stop the propagation of impurity is
-to explicitly promise that a predicate or function is pure.
+In some cases the impurity of a predicate's body is an implementation
+detail which should not be exposed to callers. These predicates are
+pure or semipure even though they call impure or semipure predicates.
+The only way for the programmer to stop the propagation of impurity is to
+explicitly promise that the predicate or function is pure or semipure.
 
-Of course, the Mercury compiler cannot verify that a predicate is pure,
-so it is the programmer's responsibility to ensure this.  If a predicate
-is promised pure and is not, the behaviour of the program is undefined.
+Of course, the Mercury compiler cannot verify that the predicate's
+purity matches the promise, so it is the programmer's responsibility
+to ensure this.  If a predicate is promised pure or semipure and is not,
+the behaviour of the program is undefined.
 
-The programmer may promise that a predicate is pure using the
-@code{promise_pure} pragma:
+The programmer may promise that a predicate or function is pure or semipure
+using the @code{promise_pure} and @code{promise_semipure} pragmas:
 
 @example
 :- pragma promise_pure(@var{Name}/@var{Arity}).
+:- pragma promise_semipure(@var{Name}/@var{Arity}).
 @end example
 
 

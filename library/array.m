@@ -505,6 +505,8 @@ MR_BEGIN_CODE
 
 #ifdef	MR_DEEP_PROFILING
 
+/* XXX missing prepare_for_normal_call */
+
 #define	proc_label	mercury____Unify___array__array_1_0
 #define proc_static	MR_proc_static_compiler_name(array, __Unify__,	\
 				array, 1, 0)
@@ -520,6 +522,8 @@ MR_BEGIN_CODE
 #undef	body_code
 #undef	proc_static
 #undef	proc_label
+
+/* XXX missing prepare_for_normal_call */
 
 #define	proc_label	mercury____Compare___array__array_1_0
 #define proc_static	MR_proc_static_compiler_name(array, __Compare__,\
@@ -693,6 +697,7 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_decl("C", "
+#include ""mercury_heap.h""		/* for MR_maybe_record_allocation() */
 #include ""mercury_library_types.h""	/* for MR_ArrayType */
 /* #include ""exception.h""		for ML_throw_string() */
 extern	void	ML_throw_string(const char *msg);
@@ -718,7 +723,7 @@ ML_make_array(MR_Integer size, MR_Word item)
 }
 ").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		array__init(Size::in, Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 #ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
@@ -730,14 +735,14 @@ ML_make_array(MR_Integer size, MR_Word item)
 	Array = (MR_Word) ML_make_array(Size, Item);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__make_empty_array(Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_make_array(0, 0);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		array__init(Size::in, Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
@@ -745,7 +750,7 @@ ML_make_array(MR_Integer size, MR_Word item)
 	Array = (MR_Word) System::Array::CreateInstance(Item->GetType(), Size);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__make_empty_array(Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
@@ -758,27 +763,27 @@ ML_make_array(MR_Integer size, MR_Word item)
 
 %-----------------------------------------------------------------------------%
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__min(Array::array_ui, Min::out),
 		[will_not_call_mercury, thread_safe], "
 	/* Array not used */
 	Min = 0;
 ").
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		array__min(Array::in, Min::out),
 		[will_not_call_mercury, thread_safe], "
 	/* Array not used */
 	Min = 0;
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__min(Array::array_ui, Min::out),
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
 	/* Array not used */
 	Min = 0;
 ").
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		array__min(Array::in, Min::out),
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
@@ -786,23 +791,23 @@ ML_make_array(MR_Integer size, MR_Word item)
 	Min = 0;
 ").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		array__max(Array::array_ui, Max::out), 
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size - 1;
 ").
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__max(Array::in, Max::out), 
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size - 1;
 ").
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		array__max(Array::array_ui, Max::out), 
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
 	Max = Array->get_Length() - 1;
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__max(Array::in, Max::out), 
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
@@ -816,24 +821,24 @@ array__bounds(Array, Min, Max) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__size(Array::array_ui, Max::out),
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size;
 ").
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__size(Array::in, Max::out),
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size;
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__size(Array::array_ui, Max::out),
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
 	Max = Array->get_Length() - 1;
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__size(Array::in, Max::out),
 		[will_not_call_mercury, thread_safe], "
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
@@ -865,7 +870,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__lookup(Array::array_ui, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array;
@@ -876,7 +881,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 #endif
 	Item = array->elements[Index];
 }").
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__lookup(Array::in, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array;
@@ -888,13 +893,13 @@ array__slow_set(Array0, Index, Item, Array) :-
 	Item = array->elements[Index];
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__lookup(Array::array_ui, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
 	Item = Array->GetValue(Index);
 }").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__lookup(Array::in, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
@@ -904,7 +909,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__set(Array0::array_di, Index::in,
 		Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "{
@@ -918,7 +923,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 	Array = Array0;
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__set(Array0::array_di, Index::in,
 		Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "{
@@ -969,14 +974,14 @@ ML_resize_array(MR_ArrayType *old_array, MR_Integer array_size,
 }
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__resize(Array0::array_di, Size::in, Item::in,
 		Array::array_uo), [will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_resize_array(
 				(MR_ArrayType *) Array0, Size, Item);
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__resize(_Array0::array_di, _Size::in, _Item::in,
 		_Array::array_uo), [will_not_call_mercury, thread_safe], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
@@ -1021,14 +1026,14 @@ ML_shrink_array(MR_ArrayType *old_array, MR_Integer array_size)
 }
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__shrink(Array0::array_di, Size::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_shrink_array(
 				(MR_ArrayType *) Array0, Size);
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__shrink(_Array0::array_di, _Size::in, _Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
@@ -1064,7 +1069,7 @@ ML_copy_array(MR_ArrayType *old_array)
 }
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__copy(Array0::array_ui, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation((((MR_ArrayType *) Array0)->size) + 1,
@@ -1072,7 +1077,7 @@ ML_copy_array(MR_ArrayType *old_array)
 	Array = (MR_Word) ML_copy_array((MR_ArrayType *) Array0);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		array__copy(Array0::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation((((MR_ArrayType *) Array0)->size) + 1,
@@ -1080,7 +1085,7 @@ ML_copy_array(MR_ArrayType *old_array)
 	Array = (MR_Word) ML_copy_array((MR_ArrayType *) Array0);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__copy(Array0::array_ui, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 		// XXX need to deep copy it
@@ -1089,7 +1094,7 @@ ML_copy_array(MR_ArrayType *old_array)
 
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		array__copy(Array0::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
@@ -1278,105 +1283,9 @@ array__elem(Index, Array) = array__lookup(Array, Index).
 :- pragma type_spec(array__sort/1, T = int).
 :- pragma type_spec(array__sort/1, T = string).
 
-array__sort(A) = merge_sort(A).
+array__sort(A) = samsort_subarray(A, array__min(A), array__max(A)).
 
 %------------------------------------------------------------------------------%
-
-    % Merge sort an array.
-    %
-:- func merge_sort(array(T)) = array(T).
-:- mode merge_sort(array_di) = array_uo is det.
-
-:- pragma type_spec(merge_sort/1, T = int).
-:- pragma type_spec(merge_sort/1, T = string).
-
-merge_sort(A) =
-    merge_sort_2(A, array__copy(A), 1, array__min(A), array__max(A)).
-
-
-
-    % Keep performing merging passes and doubling the size of the
-    % sorted subarrays until we're done.
-    %
-:- func merge_sort_2(array(T), array(T), int, int, int) = array(T).
-:- mode merge_sort_2(array_ui, array_di, in, in, in) = array_uo is det.
-
-:- pragma type_spec(merge_sort_2/5, T = int).
-:- pragma type_spec(merge_sort_2/5, T = string).
-
-merge_sort_2(A, B, N, Lo, Hi) =
-    ( if N >= Hi
-      then A
-      else merge_sort_2(merge_sort_3(A, B, Lo, N, Hi), A, N + N, Lo, Hi)
-    ).
-
-
-
-    % Perform a merge operation over each successive pair of
-    % sorted subarrays.
-    %
-:- func merge_sort_3(array(T), array(T), int, int, int) = array(T).
-:- mode merge_sort_3(array_ui, array_di, in, in, in) = array_uo is det.
-
-:- pragma type_spec(merge_sort_3/5, T = int).
-:- pragma type_spec(merge_sort_3/5, T = string).
-
-merge_sort_3(A, B0, I, N, Hi) = B :-
-    (      if I + N > Hi then
-                B  = copy_subarray(A, B0, I, Hi, I)
-      else if I + N + N > Hi then
-                B  = merge_subarrays(A, B0, I, I+N-1, I+N, Hi, I)
-      else
-                B1 = merge_subarrays(A, B0, I, I+N-1, I+N, I+N+N-1, I),
-                B  = merge_sort_3(A, B1, I+N+N, N, Hi)
-    ).
-
-%------------------------------------------------------------------------------%
-
-    % merges the two sorted consecutive subarrays Lo1 .. Hi1 and
-    % Lo2 .. Hi2 from A into the subarray starting at I in B.
-    % 
-:- func merge_subarrays(array(T), array(T), int, int, int, int, int) = array(T).
-:- mode merge_subarrays(array_ui, array_di, in, in, in, in, in) = array_uo
-            is det.
-
-:- pragma type_spec(merge_subarrays/7, T = int).
-:- pragma type_spec(merge_subarrays/7, T = string).
-
-merge_subarrays(A, B0, Lo1, Hi1, Lo2, Hi2, I) = B :-
-    (      if Lo1 > Hi1 then B = copy_subarray(A, B0, Lo2, Hi2, I)
-      else if Lo2 > Hi2 then B = copy_subarray(A, B0, Lo1, Hi1, I)
-      else
-        X1 = A ^ elem(Lo1),
-        X2 = A ^ elem(Lo2),
-        compare(R, X1, X2),
-        (
-            R = (<),
-            B = merge_subarrays(A, B0^elem(I) := X1, Lo1+1, Hi1, Lo2, Hi2, I+1)
-        ;
-            R = (=),
-            B = merge_subarrays(A, B0^elem(I) := X1, Lo1+1, Hi1, Lo2, Hi2, I+1)
-        ;
-            R = (>),
-            B = merge_subarrays(A, B0^elem(I) := X2, Lo1, Hi1, Lo2+1, Hi2, I+1)
-        )
-    ).
-
-%------------------------------------------------------------------------------%
-
-:- func copy_subarray(array(T), array(T), int, int, int) = array(T).
-:- mode copy_subarray(array_ui, array_di, in, in, in) = array_uo is det.
-
-:- pragma type_spec(copy_subarray/5, T = int).
-:- pragma type_spec(copy_subarray/5, T = string).
-
-copy_subarray(A, B, Lo, Hi, I) =
-    ( if Lo > Hi
-      then B
-      else copy_subarray(A, B ^ elem(I) := A ^ elem(Lo), Lo + 1, Hi, I + 1)
-    ).
-
-% ---------------------------------------------------------------------------- %
 
 array__random_permutation(A0, A, RS0, RS) :-
 	Lo = array__min(A0),
@@ -1450,3 +1359,202 @@ foldr_0(Fn, A, X, Min, I) =
 
 % ---------------------------------------------------------------------------- %
 % ---------------------------------------------------------------------------- %
+
+    % SAMsort (smooth applicative merge) invented by R.A. O'Keefe.
+    %
+    % SAMsort is a mergesort variant that works by identifying contiguous
+    % monotonic sequences and merging them, thereby taking advantage of
+    % any existing order in the input sequence.
+    %
+:- func samsort_subarray(array(T), int, int) = array(T).
+:- mode samsort_subarray(array_di, in, in) = array_uo is det.
+
+:- pragma type_spec(samsort_subarray/3, T = int).
+:- pragma type_spec(samsort_subarray/3, T = string).
+
+samsort_subarray(A0, Lo, Hi) = A :-
+    samsort_up(0, A0, _, array__copy(A0), A, Lo, Hi, Lo).
+
+
+
+:- pred samsort_up(int, array(T), array(T), array(T), array(T), int, int, int).
+:- mode samsort_up(in, array_di, array_uo, array_di, array_uo, in, in, in)
+            is det.
+
+:- pragma type_spec(samsort_up/8, T = int).
+:- pragma type_spec(samsort_up/8, T = string).
+
+    % Precondition:
+    %   We are N levels from the bottom (leaf nodes) of the tree.
+    %   A0 is sorted from Lo .. I - 1.
+    %   A0 and B0 are identical from I .. Hi.
+    % Postcondition:
+    %   B is sorted from Lo .. Hi.
+    %
+samsort_up(N, A0, A, B0, B, Lo, Hi, I) :-
+
+    ( if I > Hi then
+
+        A = A0,
+        B = B0
+
+      else if N > 0 then
+
+        samsort_down(N - 1, B0, B1, A0, A1, I, Hi, J),
+
+            % A1 is sorted from I .. J - 1.
+            % A1 and B1 are identical from J .. Hi.
+
+        B2 = merge_subarrays(A1, B1, Lo, I - 1, I, J - 1, Lo),
+        A2 = A1,
+
+            % B2 is sorted from Lo .. J - 1.
+
+        samsort_up(N + 1, B2, B, A2, A, Lo, Hi, J)
+
+      else /* N = 0, I = Lo */
+
+        copy_run_ascending(A0, B0, B1, Lo, Hi, J),
+
+            % B1 is sorted from Lo .. J - 1.
+
+        samsort_up(N + 1, B1, B, A0, A, Lo, Hi, J)
+    ).
+
+
+
+:- pred samsort_down(int,array(T),array(T),array(T),array(T),int,int,int).
+:- mode samsort_down(in, array_di, array_uo, array_di, array_uo, in, in, out)
+            is det.
+
+:- pragma type_spec(samsort_down/8, T = int).
+:- pragma type_spec(samsort_down/8, T = string).
+
+    % Precondition:
+    %   We are N levels from the bottom (leaf nodes) of the tree.
+    %   A0 and B0 are identical from Lo .. Hi.
+    % Postcondition:
+    %   B is sorted from Lo .. I - 1.
+    %   A and B are identical from I .. Hi.
+    %
+samsort_down(N, A0, A, B0, B, Lo, Hi, I) :-
+
+    ( if Lo > Hi then
+
+        A = A0,
+        B = B0,
+        I = Lo
+
+      else if N > 0 then
+
+        samsort_down(N - 1, B0, B1, A0, A1, Lo, Hi, J),
+        samsort_down(N - 1, B1, B2, A1, A2, J,  Hi, I),
+
+            % A2 is sorted from Lo .. J - 1.
+            % A2 is sorted from J  .. I - 1.
+
+        A = A2,
+        B = merge_subarrays(A2, B2, Lo, J - 1, J, I - 1, Lo)
+
+            % B is sorted from Lo .. I - 1.
+
+      else
+
+        A = A0,
+        copy_run_ascending(A0, B0, B, Lo, Hi, I)
+
+            % B is sorted from Lo .. I - 1.
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- pred copy_run_ascending(array(T), array(T), array(T), int, int, int).
+:- mode copy_run_ascending(array_ui, array_di, array_uo, in, in, out) is det.
+
+:- pragma type_spec(copy_run_ascending/6, T = int).
+:- pragma type_spec(copy_run_ascending/6, T = string).
+
+copy_run_ascending(A, B0, B, Lo, Hi, I) :-
+    ( if Lo < Hi, compare((>), A ^ elem(Lo), A ^ elem(Lo + 1)) then
+        I = search_until((<), A, Lo, Hi),
+        B = copy_subarray_reverse(A, B0, Lo, I - 1, I - 1)
+      else
+        I = search_until((>), A, Lo, Hi),
+        B = copy_subarray(A, B0, Lo, I - 1, Lo)
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- func search_until(comparison_result, array(T), int, int) = int.
+:- mode search_until(in, array_ui, in, in) = out is det.
+
+:- pragma type_spec(search_until/4, T = int).
+:- pragma type_spec(search_until/4, T = string).
+
+search_until(R, A, Lo, Hi) =
+    ( if Lo < Hi, not compare(R, A ^ elem(Lo), A ^ elem(Lo + 1))
+      then search_until(R, A, Lo + 1, Hi)
+      else Lo + 1
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- func copy_subarray(array(T), array(T), int, int, int) = array(T).
+:- mode copy_subarray(array_ui, array_di, in, in, in) = array_uo is det.
+
+:- pragma type_spec(copy_subarray/5, T = int).
+:- pragma type_spec(copy_subarray/5, T = string).
+
+copy_subarray(A, B, Lo, Hi, I) =
+    ( if Lo =< Hi
+      then copy_subarray(A, B ^ elem(I) := A ^ elem(Lo), Lo + 1, Hi, I + 1)
+      else B
+    ).
+
+%------------------------------------------------------------------------------%
+
+:- func copy_subarray_reverse(array(T), array(T), int, int, int) = array(T).
+:- mode copy_subarray_reverse(array_ui, array_di, in, in, in) = array_uo is det.
+
+:- pragma type_spec(copy_subarray_reverse/5, T = int).
+:- pragma type_spec(copy_subarray_reverse/5, T = string).
+
+copy_subarray_reverse(A, B, Lo, Hi, I) =
+    ( if Lo =< Hi
+      then copy_subarray_reverse(A, B ^ elem(I) := A ^ elem(Lo), Lo+1, Hi, I-1)
+      else B
+    ).
+
+%------------------------------------------------------------------------------%
+
+    % merges the two sorted consecutive subarrays Lo1 .. Hi1 and
+    % Lo2 .. Hi2 from A into the subarray starting at I in B.
+    % 
+:- func merge_subarrays(array(T), array(T), int, int, int, int, int) = array(T).
+:- mode merge_subarrays(array_ui, array_di, in, in, in, in, in) = array_uo
+            is det.
+
+:- pragma type_spec(merge_subarrays/7, T = int).
+:- pragma type_spec(merge_subarrays/7, T = string).
+
+merge_subarrays(A, B0, Lo1, Hi1, Lo2, Hi2, I) = B :-
+    (      if Lo1 > Hi1 then B = copy_subarray(A, B0, Lo2, Hi2, I)
+      else if Lo2 > Hi2 then B = copy_subarray(A, B0, Lo1, Hi1, I)
+      else
+        X1 = A ^ elem(Lo1),
+        X2 = A ^ elem(Lo2),
+        compare(R, X1, X2),
+        (
+            R = (<),
+            B = merge_subarrays(A, B0^elem(I) := X1, Lo1+1, Hi1, Lo2, Hi2, I+1)
+        ;
+            R = (=),
+            B = merge_subarrays(A, B0^elem(I) := X1, Lo1+1, Hi1, Lo2, Hi2, I+1)
+        ;
+            R = (>),
+            B = merge_subarrays(A, B0^elem(I) := X2, Lo1, Hi1, Lo2+1, Hi2, I+1)
+        )
+    ).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%

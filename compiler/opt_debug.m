@@ -874,6 +874,7 @@ opt_debug__dump_layout_name(proc_static_call_sites(RttiProcLabel), Str) :-
 opt_debug__dump_unop(mktag, "mktag").
 opt_debug__dump_unop(tag, "tag").
 opt_debug__dump_unop(unmktag, "unmktag").
+opt_debug__dump_unop(strip_tag, "strip_tag").
 opt_debug__dump_unop(mkbody, "mkbody").
 opt_debug__dump_unop(unmkbody, "unmkbody").
 opt_debug__dump_unop(not, "not").
@@ -1041,7 +1042,7 @@ opt_debug__dump_instr(computed_goto(Rval, Labels), Str) :-
 	opt_debug__dump_rval(Rval, R_str),
 	opt_debug__dump_labels(Labels, L_str),
 	string__append_list(["computed_goto(", R_str, ", ", L_str, ")"], Str).
-opt_debug__dump_instr(c_code(Code), Str) :-
+opt_debug__dump_instr(c_code(Code, _), Str) :-
 	string__append_list(["c_code(", Code, ")"], Str).
 opt_debug__dump_instr(if_val(Rval, CodeAddr), Str) :-
 	opt_debug__dump_rval(Rval, R_str),
@@ -1106,7 +1107,7 @@ opt_debug__dump_instr(join_and_continue(Lval, Label), Str) :-
 	opt_debug__dump_label(Label, LabelStr),
 	string__append_list(["join(", LvalStr, ", ", LabelStr, ")"], Str).
 % XXX  should probably give more info than this
-opt_debug__dump_instr(pragma_c(_, Comps, _, _, _, _, _), Str) :-
+opt_debug__dump_instr(pragma_c(_, Comps, _, _, _, _, _, _), Str) :-
 	opt_debug__dump_components(Comps, C_str),
 	string__append_list(["pragma_c(", C_str, ")"], Str).
 
@@ -1125,7 +1126,7 @@ opt_debug__dump_components([Comp | Comps], Str) :-
 opt_debug__dump_component(pragma_c_inputs(_), "").
 opt_debug__dump_component(pragma_c_outputs(_), "").
 opt_debug__dump_component(pragma_c_user_code(_, Code), Code).
-opt_debug__dump_component(pragma_c_raw_code(Code), Code).
+opt_debug__dump_component(pragma_c_raw_code(Code, _), Code).
 opt_debug__dump_component(pragma_c_fail_to(Label), Code) :-
 	opt_debug__dump_label(Label, LabelStr),
 	string__append_list(["fail to ", LabelStr], Code).

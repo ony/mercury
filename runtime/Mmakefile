@@ -226,14 +226,17 @@ mercury_ho_call.o:	mercury_unify_compare_body.h
 
 #-----------------------------------------------------------------------------#
 
-ifneq (,$(findstring il,$(GRADE)))
+ifeq ($(findstring il,$(GRADE)),il)        
 
 # Managed C++ files compiled in this directory should not be put in an
 # assembly of their own.  We put the runtime and library dlls into a single
 # assembly called `mercury'
 MS_CL_NOASM=:noAssembly
+
+# We need to build the following DLLs for the .NET runtime
+DOTNET_DLLS=mercury_il.dll mercury_mcpp.dll
  
-runtime: mercury_il.dll mercury_mcpp.dll
+runtime: $(DOTNET_DLLS)
 
 mercury_mcpp.dll: mercury_il.dll
  
@@ -277,57 +280,13 @@ tags: $(CFILES) $(HDRS) $(BODY_HDRS)
 
 #-----------------------------------------------------------------------------#
 #
-# `mmake check_headers' performs various checks on the header files
-# to make sure that the conform with our coding standards.
+# `mmake check_namespace' performs various checks on the header files
+# and object files to make sure that they conform with our coding standards.
 #
 
-#
-# $(HDR_CHECK_OBJS) is used to check that the header files are self-contained.
-# The rule for foo_check.$O checks that the header file foo.h is properly
-# self-contained, i.e. that the header file foo.h includes any other
-# header files that define types used by foo.h.
-# It does this by compiling a foo_check.c file that contains only a single
-# `#include' statement that includes foo.h.
-#
-
-%_check.c : %.h
-	echo "#include \"$*.h\"" > $*_check.c
-
-# The mercury_deep_copy_body.h header is not meant to be self-contained.
-# So the following rule is used to suppress that check for this header.
-mercury_deep_copy_body_check.$O:
-	@true
-	
-#
-# $(HDR_CHECK_MACROS) is used to check that the headers are properly
-# namespace-clean, with regard to the macros that they define.
-# For each header file foo.h, the rule below produces a file
-# foo_check.macros that contains a list of all the macros defined
-# by the header file (or by headers that it includes, excluding
-# standard headers) that do not start with `GC_', `MR_', or `MERCURY_'.
-# We define MERCURY_BOOTSTRAP_H to avoid including the contents of
-# that header; stuff there is for backwards compatibility and is
-# therefore excluded from these checks.
-# 
-
-AWK = awk
-%_check.macros: %.h %_check.c
-	-$(MGNUC) $(ALL_GRADEFLAGS) $(ALL_MGNUCFLAGS) \
-		-DMERCURY_BOOTSTRAP_H \
-		-E $*_check.c \
-		-nostdinc -dN \
-		2> /dev/null | $(AWK) '/^#define/ { print $$2; }' | \
-		grep -v -e '^MR_' -e '^GC_' -e '^MERCURY_' | \
-		fgrep -v -x -f RESERVED_MACRO_NAMES | \
-		sort -u > $@
-	@if cmp -s /dev/null $@; then \
-		true; \
-	else \
-		echo "** Macro name(s) in user namespace:"; \
-		cat $@; \
-		echo "(You may need to add MR_ prefixes to these names.)"; \
-		exit 1; \
-	fi
+HEADER_CLEAN_FILTER = \
+	grep -v -e '^MR_' -e '^GC_' -e '^MERCURY_' | \
+	fgrep -v -x -f RESERVED_MACRO_NAMES
 
 .PHONY: check_headers_self_contained
 check_headers_self_contained: $(HDR_CHECK_OBJS)
@@ -337,27 +296,6 @@ check_headers_macros: $(HDR_CHECK_MACROS)
 
 .PHONY: check_headers
 check_headers: check_headers_self_contained check_headers_macros
-
-#
-# $(OBJ_CHECKS) is used to check that the objects are properly
-# namespace-clean, with regard to the global symbols that they define.
-# For each object file foo.o, the rule below produces a file
-# foo.o.obj_check that contains a list of all the globals defined
-# by that object that do not start with `MR_', `mercury_', or `entry_'.
-# 
-
-%.obj_check: %
-	nm -g $< | awk '$$1 != "U" { print $$3; }' | \
-		grep -v -e '^_entry' -e '^MR_' -e '^mercury_' | \
-		sort -u > $@
-	@if cmp -s /dev/null $@; then \
-		true; \
-	else \
-		echo "** Global symbols in user namespace:"; \
-		cat $@; \
-		echo "(You may need to add MR_ prefixes to these names.)"; \
-		exit 1; \
-	fi
 
 .PHONY: check_objs
 check_objs: $(OBJ_CHECKS)
@@ -379,11 +317,24 @@ install_dirs:
 	-[ -d $(INSTALL_MODULE_DIR) ] || mkdir -p $(INSTALL_MODULE_DIR)
 	-[ -d $(INSTALL_MERC_LIB_DIR) ] || mkdir -p $(INSTALL_MERC_LIB_DIR)
 
-.PHONY: install_headers
-install_headers: $(HDRS) $(BODY_HDRS) $(MACHHDRS) $(LIB_GLOBALS_H) \
-		$(MCPP_HDRS) install_dirs
-	cp `vpath_find $(HDRS) $(BODY_HDRS) $(LIB_GLOBALS_H)` $(INSTALL_INC_DIR)
+ifeq ($(findstring il,$(GRADE)),il)        
+
+.PHONY: install_headers 
+install_headers: $(MCPP_HDRS) install_dirs
 	cp `vpath_find $(MCPP_HDRS)` $(INSTALL_INC_DIR)
+
+.PHONY: install_init
+install_init: 
+
+.PHONY: install_lib 
+install_lib: $(DOTNET_DLLS) install_dirs
+	cp `vpath_find $(DOTNET_DLLS)` $(INSTALL_MERC_LIB_DIR)
+
+else
+
+.PHONY: install_headers
+install_headers: $(HDRS) $(BODY_HDRS) $(MACHHDRS) $(LIB_GLOBALS_H) install_dirs
+	cp `vpath_find $(HDRS) $(BODY_HDRS) $(LIB_GLOBALS_H)` $(INSTALL_INC_DIR)
 	-chmod u+w $(INSTALL_INC_DIR)/mercury_conf.h
 	cp `vpath_find $(MACHHDRS)` $(INSTALL_INC_DIR)/machdeps
 
@@ -395,12 +346,15 @@ install_init: $(RT_LIB_NAME).init install_dirs
 	# then delete it; otherwise the initialization would get done twice.
 	rm -f $(INSTALL_MODULE_DIR)/runtime.init
 
-.PHONY: install_lib
+.PHONY: install_lib install_dirs
 install_lib: lib$(RT_LIB_NAME).$A lib$(RT_LIB_NAME).$(EXT_FOR_SHARED_LIB) \
 		install_dirs
 	cp `vpath_find lib$(RT_LIB_NAME).$A \
 		lib$(RT_LIB_NAME).$(EXT_FOR_SHARED_LIB)` \
 		$(INSTALL_MERC_LIB_DIR)
+
+endif
+
 
 #-----------------------------------------------------------------------------#
 
@@ -420,6 +374,7 @@ clean_check:
 	rm -f $(HDR_CHECK_OBJS) $(HDR_CHECK_CS) $(HDR_CHECK_MACROS)
 	rm -f $(OBJ_CHECKS)
 
+.PHONY: realclean_local
 realclean_local:
 	rm -f lib$(RT_LIB_NAME).$A lib$(RT_LIB_NAME).so $(RT_LIB_NAME).init
 	rm -f mercury_conf.h mercury_conf.h.date

@@ -81,8 +81,7 @@ how to build and debug Mercury programs.
 * Using Aditi::     Executing Mercury predicates using the Aditi
                     deductive database.
 * Debugging::       The Mercury debugger @samp{mdb}.
-* Profiling::       The Mercury profiler @samp{mprof}, a tool for analyzing
-                    program performance.
+* Profiling::       Analyzing the performance of Mercury programs.
 * Invocation::      List of options for the Mercury compiler.
 * Environment::     Environment variables used by the compiler and utilities.
 * C compilers::     How to use a C compiler other than GNU C.
@@ -916,6 +915,11 @@ Mmake will then ensure that the appropriate directories are searched for
 the relevant interface files, module initialisation files, compiled
 libraries, etc.
 
+Beware that the directory name that you must use in @samp{EXTRA_LIB_DIRS}
+is not quite the same as the name that was specified in the
+@samp{INSTALL_PREFIX} when the library was installed --- the name in
+@samp{EXTRA_LIB_DIRS} needs to have @samp{/lib/mercury} appended.
+
 One can specify extra libraries to be used on a program-by-program
 basis.  For instance, if the program @samp{foo} also uses the library
 @samp{mylib4foo}, but the other programs governed by the Mmakefile don't,
@@ -1292,7 +1296,8 @@ then its three components will have the paths
 @samp{d2;c3;?;}, @samp{d2;c3;t;} and @samp{d2;c3;e;}.
 
 Paths refer to the internal form of the procedure definition.
-When debugging is enabled (and the option --trace-optimized is not given),
+When debugging is enabled
+(and the option @samp{--trace-optimized} is not given),
 the compiler will try to keep this form
 as close as possible to the source form of the procedure,
 in order to make event paths as useful as possible to the programmer.
@@ -2516,54 +2521,67 @@ the Mmakefile in @file{$ADITI_HOME/demos/transactions} as a template.
 
 @menu
 * Profiling introduction::          What is profiling useful for?
-* Building profiled applications::  How to enable profiling.
+* The Mercury graph profiler::      A gprof-style profiler
+* The Mercury deep profiler::       A new kind of profiler
+@end menu
+
+@node Profiling introduction
+@section Profiling introduction
+
+To obtain the best trade-off between productivity and efficiency,
+programmers should not spend too much time optimizing their code
+until they know which parts of the code are really taking up most of the time.
+Only once the code has been profiled should the programmer consider
+making optimizations that would improve efficiency
+at the expense of readability or ease of maintenance.
+A good profiler is therefore a tool
+that should be part of every software engineer's toolkit.
+
+Mercury programs can be analyzed using two distinct profilers.
+The Mercury profiler @samp{mprof} is a conventional graph profiler
+in the style of gprof.
+The Mercury deep profiler @samp{mdprof} is a new kind of profiler
+that associates a lot more context with each measurement.
+
+@node The Mercury graph profiler
+@section The Mercury graph profiler
+
+@menu
+* Building graph profiled applications:: How to enable graph profiling.
 * Time profiling methods::          Choose user, user + system, or real time.
 * Creating the profile::            How to create profile data.
 * Displaying the profile::          How to display the profile data.
 * Analysis of results::             How to interpret the output.
 * Memory profiling::                Profiling memory usage rather than time.
+* Profiling and shared libraries::  Profiling dynamically linked executables.
 @end menu
 
-@node Profiling introduction
-@section Introduction
+@node Building graph profiled applications
+@subsection Building graph profiled applications
 
-The Mercury profiler @samp{mprof} is a tool which can be used to
-analyze a Mercury program's performance, so that the programmer can
-determine which predicates or functions are taking up a
-disproportionate amount of the execution time.
-
-To obtain the best trade-off between productivity and efficiency,
-programmers should not spend too much time optimizing their code
-until they know which parts of the code are really taking up most
-of the time.  Only once the code has been profiled should the
-programmer consider making optimizations that would improve
-efficiency at the expense of readability or ease of maintenance.
-
-A good profiler is a tool that should be part of every software
-engineer's toolkit.
-
-@node Building profiled applications
-@section Building profiled applications
-
-To enable profiling, your program must be built with profiling enabled.
-This can be done by passing the @samp{-p} (@samp{--profiling}) option
-to @samp{mmc} (and also to @samp{mgnuc} and @samp{ml}, if you invoke them
-separately).  If you are using Mmake, then
-you can do this by setting the @samp{GRADEFLAGS} variable in your Mmakefile,
+To enable graph profiling,
+your program must be built with graph profiling enabled.
+This can be done by passing
+the @samp{-p} (@samp{--profiling}) option to @samp{mmc}
+(and also to @samp{mgnuc} and @samp{ml}, if you invoke them separately).
+If you are using Mmake, then you can do this
+by setting the @samp{GRADEFLAGS} variable in your Mmakefile,
 e.g. by adding the line @samp{GRADEFLAGS=--profiling}. 
-For more information about the different grades, see
-@ref{Compilation model options}.
+For more information about the different grades,
+see @ref{Compilation model options}.
 
-Enabling profiling has several effects.  Firstly, it causes the
-compiler to generate slightly modified code which counts the number
-of times each predicate or function is called, and for every call,
-records the caller and callee.  Secondly, your program will be linked
-with versions of the library and runtime that were compiled with
-profiling enabled.  (It also has the effect for each source file the compiler
+Enabling graph profiling has several effects.
+First, it causes the compiler to generate
+slightly modified code which counts
+the number of times each predicate or function is called,
+and for every call, records the caller and callee.
+Second, your program will be linked with versions of the library and runtime
+that were compiled with graph profiling enabled.
+(It also has the effect that for each source file the compiler
 generates the static call graph for that file in @samp{@var{module}.prof}.)
 
 @node Time profiling methods
-@section Time profiling methods
+@subsection Time profiling methods
 
 You can control whether profiling measures
 real (elapsed) time, user time plus system time, or user time only,
@@ -2587,78 +2605,94 @@ When measuring user time only, profiling does not count
 time inside the operating system at all.
 
 @node Creating the profile
-@section Creating the profile
+@subsection Creating the profile
 
-The next step is to run your program.  The profiling version of your
-program will collect profiling information during execution, and
-save this information in the files @file{Prof.Counts}, @file{Prof.Decls},
-and @file{Prof.CallPair}.
-(@file{Prof.Decl} contains the names of the procedures and their
-associated addresses, @file{Prof.CallPair} records the number of times
-each procedure was called by each different caller, and @file{Prof.Counts}
-records the number of times that execution was in each procedure
-when a profiling interrupt occurred.)
+The next step is to run your program.
+The profiling version of your program
+will collect profiling information during execution,
+and save this information in the files
+@file{Prof.Counts}, @file{Prof.Decls}, and @file{Prof.CallPair}.
+(@file{Prof.Decl} contains the names
+of the procedures and their associated addresses,
+@file{Prof.CallPair} records the number of times
+each procedure was called by each different caller,
+and @file{Prof.Counts} records the number of times
+that execution was in each procedure when a profiling interrupt occurred.)
 
-It is also possible to combine profiling results from multiple runs of
-your program.  You can do by running your program several times, and
-typing @samp{mprof_merge_counts} after each run.
+It is also possible to combine profiling results
+from multiple runs of your program.
+You can do by running your program several times,
+and typing @samp{mprof_merge_counts} after each run.
 
 Due to a known timing-related bug in our code, you may occasionally get
 segmentation violations when running your program with time profiling enabled.
 If this happens, just run it again --- the problem occurs only very rarely.
 
 @node Displaying the profile
-@section Displaying the profile
+@subsection Displaying the profile
 
-To display the profile, just type @samp{mprof}.  This will read the
-@file{Prof.*} files and display the flat profile in a nice human-readable
-format.  If you also want to see the call graph profile, which takes a lot
-longer to generate, type @samp{mprof -c}.
+To display the profile, just type @samp{mprof}.
+This will read the @file{Prof.*} files
+and display the flat profile in a nice human-readable format.
+If you also want to see the call graph profile,
+which takes a lot longer to generate, type @samp{mprof -c}.
 
-Note that @samp{mprof} can take quite a while to execute, and will
-usually produce quite a lot of output, so you will usually want to
-redirect the output into a file with a command such as
-@samp{mprof > mprof.out}.
+Note that @samp{mprof} can take quite a while to execute,
+and will usually produce quite a lot of output,
+so you will usually want to redirect the output into a file
+with a command such as @samp{mprof > mprof.out}.
 
-For programs built with @samp{--high-level-code}, you need to also
-pass the @samp{--no-demangle} option to @samp{mprof}.
+For programs built with @samp{--high-level-code},
+you need to also pass the @samp{--no-demangle} option to @samp{mprof}.
 
 @node Analysis of results
-@section Analysis of results
+@subsection Analysis of results
 
-The profile output consists of three major sections.  These are
-named the call graph profile, the flat profile and the alphabetic listing.
+The profile output consists of three major sections.
+These are named the call graph profile,
+the flat profile and the alphabetic listing.
 
-The call graph profile presents the local call graph of each
-procedure.  For each procedure it shows the parents (callers) and
-children (callees) of that procedure, and shows the execution time and
-call counts for each parent and child.  It is sorted on the total
-amount of time spent in the procedure and all of its descendents (i.e.
-all of the procedures that it calls, directly or indirectly.)
+The call graph profile presents the local call graph of each procedure.
+For each procedure it shows
+the parents (callers) and children (callees) of that procedure,
+and shows the execution time and call counts for each parent and child.
+It is sorted on the total amount of time spent
+in the procedure and all of its descendents
+(i.e. all of the procedures that it calls, directly or indirectly.)
 
 The flat profile presents the just execution time spent in each procedure.
 It does not count the time spent in descendents of a procedure.
 
 The alphabetic listing just lists the procedures in alphabetical order,
-along with their index number in the call graph profile, so that you can
-quickly find the entry for a particular procedure in the call graph profile.
+along with their index number in the call graph profile,
+so that you can quickly find the entry for a particular procedure
+in the call graph profile.
 
 The profiler works by interrupting the program at frequent intervals,
 and each time recording the currently active procedure and its caller.
-It uses these counts to determine the proportion of the total time spent in
-each procedure.  This means that the figures calculated for these times
-are only a statistical approximation to the real values, and so they
-should be treated with some caution.
+It uses these counts to determine
+the proportion of the total time spent in each procedure.
+This means that the figures calculated for these times
+are only a statistical approximation to the real values,
+and so they should be treated with some caution.
+In particular, if the profiler's assumption
+that calls to a procedure from different callers have roughly similar costs
+is not true,
+the graph profile can be quite misleading.
 
 The time spent in a procedure and its descendents is calculated by
-propagating the times up the call graph, assuming that each call to a
-procedure from a particular caller takes the same amount of time.
-This assumption is usually reasonable, but again the results should
-be treated with caution.
+propagating the times up the call graph,
+assuming that each call to a procedure from a particular caller
+takes the same amount of time.
+This assumption is usually reasonable,
+but again the results should be treated with caution.
+(The deep profiler does not make such an assumption,
+and hence its output is significantly more reliable.)
 
-Note that any time spent in a C function (e.g. time spent in
-@samp{GC_malloc()}, which does memory allocation and garbage collection) is
-credited to the Mercury procedure that called that C function.
+Note that any time spent in a C function
+(e.g. time spent in @samp{GC_malloc()},
+which does memory allocation and garbage collection)
+is credited to the Mercury procedure that called that C function.
 
 Here is a small portion of the call graph profile from an example program.
 
@@ -2793,7 +2827,7 @@ time due to that parent.  These times are obtained using the assumption that
 each call contributes equally to the total time of the current procedure.
 
 @node Memory profiling
-@section Memory profiling
+@subsection Memory profiling
 
 It is also possible to profile memory allocation.  To enable memory
 profiling, your program must be built with memory profiling enabled,
@@ -2824,6 +2858,42 @@ allocation, not about deallocation (garbage collection).
 It can tell you how much memory was allocated by each procedure,
 but it won't tell you how long the memory was live for,
 or how much of that memory was garbage-collected.
+
+@node Profiling and shared libraries
+@subsection Profiling and shared libraries
+
+On some operating systems, Mercury's profiling doesn't work properly
+with shared libraries.  The symptom is errors ("map__lookup failed")
+or warnings from @samp{mprof}.  On some systems, the problem occurs
+because the C implementation fails to conform to the semantics
+specified by the ISO C standard for programs that use shared
+libraries.  For other systems, we have not been able to analyze the
+cause of the failure (but we suspect that the cause may be the same as
+on those systems where we have been able to analyze it).
+
+If you get errors or warnings from @samp{mprof}, and your program is
+dynamically linked, try rebuilding your application statically linked,
+e.g. by using @samp{MLFLAGS=--static} in your Mmakefile.  Another
+work-around that sometimes works is to set the environment variable
+@samp{LD_BIND_NOW} to a non-null value before running the program.
+
+@node The Mercury deep profiler
+@section The Mercury deep profiler
+
+@menu
+* Building deep profiled applications::
+* Creating deep profiles::
+* Displaying deep profiles::
+@end menu
+
+@node Building deep profiled applications
+@subsection Building deep profiled applications
+
+@node Creating deep profiles
+@subsection Creating deep profiles
+
+@node Displaying deep profiles
+@subsection Displaying deep profiles
 
 @node Invocation
 @chapter Invocation
@@ -3034,6 +3104,12 @@ Output detailed debugging traces of Aditi-RL optimization
 (@pxref{Using Aditi}).
 @end ifset
 @c aditi
+
+@sp 1
+@item --debug-liveness <n>
+Output detailed debugging traces of the liveness analysis
+of the predicate with the given predicate id.
+
 @end table
 
 @node Output options
@@ -3130,6 +3206,7 @@ Check the module for errors, but do not generate any code.
 @item -C
 @itemx --target-code-only
 Generate target code (i.e. C in @file{@var{module}.c},
+assembler in @file{@var{module}.s} or @file{@var{module}.pic_s},
 IL in @file{@var{module}.il} or Java in @file{@var{module}.java}),
 but not object code.
 
@@ -3445,6 +3522,9 @@ and @samp{memprof}
 @item Whether to enable the trail:
 @samp{tr} (the default is no trailing).
 
+@item Whether or not to reserve a tag in the data representation of the generated code:
+@samp{rt} (the default is no reserved tag)
+
 @item What debugging features to enable:
 @samp{debug} (the default is no debugging features).
 
@@ -3491,7 +3571,7 @@ and grade modifier; they are followed by descriptions of those options.
 @item @samp{hlc}
 @code{--target c --high-level-code}.
 
-@item @samp{il}
+@item @samp{ilc}
 @code{--target il --high-level-code}.
 
 @item @samp{java}
@@ -3527,6 +3607,9 @@ and grade modifier; they are followed by descriptions of those options.
 @item @samp{.tr}
 @code{--use-trail}.
 
+@item @samp{.rt}
+@code{--reserve-tag}.
+
 @item @samp{.debug}
 @code{--debug}.
 
@@ -3534,13 +3617,13 @@ and grade modifier; they are followed by descriptions of those options.
 
 @sp 1
 @item @code{--target c} (grades: none, reg, jump, fast, asm_jump, asm_fast, hlc)
+@item @code{--target asm} (grades: hlc)
 @itemx @code{--il}, @code{--target il} (grades: ilc)
 @itemx @code{--java}, @code{--target java} (grades: java)
-Specify the target language used for compilation: C, IL or Java.
+Specify the target language used for compilation: C, assembler, IL or Java.
 C means ANSI/ISO C, optionally with GNU C extensions (see below).
 IL means the Microsoft .NET Intermediate Language.
-@samp{--target il} implies @samp{--high-level-code}.
-@samp{--target java} implies @samp{--high-level-code}.
+Targets other than C imply @samp{--high-level-code}.
 
 @sp 1
 @item @code{--il-only}
@@ -3581,7 +3664,7 @@ for inline assembler labels.
 This option is ignored if the @samp{--high-level-code} option is enabled.
 
 @sp 1
-@item @code{-H}, @code{--high-level-code} (grades: hlc, ilc)
+@item @code{-H}, @code{--high-level-code} (grades: hlc, ilc, java)
 Use an alternative back-end that generates high-level code
 rather than the very low-level code that is generated by our
 original back-end.
@@ -3593,6 +3676,8 @@ Specify which method of garbage collection to use.
 Grades containing @samp{.gc} use @samp{--gc conservative},
 other grades use @samp{--gc none}.
 @samp{accurate} is not yet implemented.
+This option is ignored by the IL and Java back-ends, which always use
+the underlying IL or Java implementation's garbage collector.
 
 @sp 1
 @item @code{--profiling}, @code{--time-profiling} (grades: any grade containing @samp{.prof})
@@ -3600,6 +3685,7 @@ Enable time profiling.  Insert profiling hooks in the
 generated code, and also output some profiling
 information (the static call graph) to the file
 @samp{@var{module}.prof}.  @xref{Profiling}.
+This option is not supported for the IL and Java back-ends.
 
 @sp 1
 @item @code{--memory-profiling} (grades: any grade containing @samp{.memprof})
@@ -3607,6 +3693,7 @@ Enable memory profiling.  Insert memory profiling hooks in the
 generated code, and also output some profiling
 information (the static call graph) to the file
 @samp{@var{module}.prof}.  @xref{Memory profiling}.
+This option is not supported for the IL and Java back-ends.
 
 @ignore
 	The following are basically useless, hence undocumented.
@@ -3637,7 +3724,21 @@ has a small effect on the execution speed.
 @item @code{--debug} (grades: any grade containing @samp{.debug})
 Enables the inclusion in the executable of code and data structures
 that allow the program to be debugged with @samp{mdb} (see @ref{Debugging}).
+This option is not yet supported for the @samp{--high-level-code} back-ends.
 
+@sp 1
+@item @code{--use-trail} (grades: any grade containing @samp{.tr})
+Enable use of a trail.
+This is necessary for interfacing with constraint solvers,
+or for backtrackable destructive update.
+This option is not yet supported for the IL or Java back-ends.
+@sp 1
+@item @code{--reserve-tag} (grades: any grade containing @samp{.rt})
+Reserve a tag in the data representation of the generated 
+code. This tag is intended to be used to give an explicit
+representation to free variables.
+This is necessary for a seamless Herbrand constraint solver --- 
+for use with HAL.
 @sp 1
 @item @code{--pic-reg} (grades: any grade containing `.pic_reg')
 [For Unix with intel x86 architecture only.]
@@ -3708,6 +3809,13 @@ used to debug the Mercury compiler's low-level code generation.
 This option is not likely to be useful to anyone except the Mercury
 implementors.  It causes the generated code to become very big and very
 inefficient, and slows down compilation a lot.
+
+@sp 1
+@item @code{--pic}
+Generate position independent code.
+This option is only used by the @samp{--target asm} back-end.
+The generated assembler will be written to @samp{@var{module}.pic_s}
+rather than to @samp{@var{module}.s}.
 
 @sp 1
 @item @code{--target-debug}
@@ -4078,6 +4186,11 @@ Remove excess assignment unifications.
 Optimize away multiple calls to a predicate with the same input arguments.
 
 @sp 1
+@item --delay-constructs
+Reorder goals to move construction unifications after
+primitive goals that can fail.
+
+@sp 1
 @item --optimize-saved-vars
 Reorder goals to minimize the number of variables
 that have to be saved across calls.
@@ -4107,7 +4220,7 @@ by turning self-tailcalls into loops.
 
 @item --no-optimize-initializations
 Leave initializations of local variables as assignment statements,
-rather converting such assignments statements into initializers.
+rather than converting such assignments statements into initializers.
 
 @end table
 
@@ -4216,6 +4329,11 @@ Disable elimination of jumps to ordinary code.
 Convert nondet calls into tail calls whenever possible, even
 when this requires a runtime check. This option tries to
 minimize stack consumption, possibly at the expense of speed.
+
+@sp 1
+@item --use-local-vars
+Disable the transformation to use local variables in C code
+blocks whereever possible.
 
 @sp 1
 @item --no-optimize-labels

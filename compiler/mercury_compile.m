@@ -38,7 +38,8 @@
 :- import_module check_typeclass, intermod, trans_opt, table_gen, (lambda).
 :- import_module type_ctor_info, termination, higher_order, accumulator.
 :- import_module inlining, deforest, dnf, magic, dead_proc_elim.
-:- import_module unused_args, unneeded_code, lco, deep_profiling.
+:- import_module delay_construct, unused_args, unneeded_code, lco.
+:- import_module deep_profiling.
 
 	% the LLDS back-end
 :- import_module saved_vars, liveness.
@@ -65,6 +66,7 @@
 :- import_module mlds_to_java.			% MLDS -> Java
 :- import_module mlds_to_ilasm.			% MLDS -> IL assembler
 :- import_module maybe_mlds_to_gcc.		% MLDS -> GCC back-end
+:- import_module ml_util.			% MLDS utility predicates 
 
 	% miscellaneous compiler modules
 :- import_module prog_data, hlds_module, hlds_pred, hlds_out, llds, rl.
@@ -415,11 +417,12 @@ compile(SourceFileName, ModuleName - Items) -->
 :- mode mercury_compile(in, di, uo) is det.
 
 mercury_compile(Module) -->
+	{ module_imports_get_module_name(Module, ModuleName) },
+	% If we are only typechecking or error checking, then we should not
+	% modify any files, this includes writing to .d files.
 	globals__io_lookup_bool_option(typecheck_only, TypeCheckOnly),
 	globals__io_lookup_bool_option(errorcheck_only, ErrorCheckOnly),
 	{ bool__or(TypeCheckOnly, ErrorCheckOnly, DontWriteDFile) },
-	% If we are only typechecking or error checking, then we should not
-	% modify any files, this includes writing to .d files.
 	mercury_compile__pre_hlds_pass(Module, DontWriteDFile,
 		HLDS1, QualInfo, UndefTypes, UndefModes, Errors1),
 	mercury_compile__frontend_pass(HLDS1, QualInfo, UndefTypes,
@@ -457,7 +460,6 @@ mercury_compile(Module) -->
 	    ; { MakeTransOptInt = yes } ->
 	    	mercury_compile__output_trans_opt_file(HLDS21)
 	    ;
-		{ module_imports_get_module_name(Module, ModuleName) },
 		mercury_compile__maybe_output_prof_call_graph(HLDS21,
 			Verbose, Stats, HLDS25),
 		mercury_compile__middle_pass(ModuleName, HLDS25, HLDS50,
@@ -551,7 +553,15 @@ mercury_compile(Module) -->
 				MaybeRLFile, ModuleName, _CompileErrors)
 		    )
 		;
-		    []
+		    	% If the number of errors is > 0, make sure that
+			% the compiler exits with a non-zero exit
+			% status.
+		    io__get_exit_status(ExitStatus),
+		    ( { ExitStatus = 0 } ->
+		    	io__set_exit_status(1)
+		    ;
+		    	[]
+		    )
 		)
 	    )
 	;
@@ -563,10 +573,7 @@ mercury_compile(Module) -->
 mercury_compile__mlds_has_main(MLDS) =
 	(
 		MLDS = mlds(_, _, _, Defns),
-		list__member(Defn, Defns),
-		Defn = mlds__defn(Name, _, _, _),
-		Name = function(FuncName, _, _, _), 
-		FuncName = pred(predicate, _, "main", 2)
+		defns_contain_main(Defns)
 	->
 		yes
 	;
@@ -1146,11 +1153,13 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50,
 	mercury_compile__maybe_do_inlining(HLDS33, Verbose, Stats, HLDS34),
 	mercury_compile__maybe_dump_hlds(HLDS34, "34", "inlining"),
 
-	mercury_compile__maybe_deforestation(HLDS34, 
-			Verbose, Stats, HLDS36),
+	mercury_compile__maybe_deforestation(HLDS34, Verbose, Stats, HLDS36),
 	mercury_compile__maybe_dump_hlds(HLDS36, "36", "deforestation"),
 
-	mercury_compile__maybe_unused_args(HLDS36, Verbose, Stats, HLDS39),
+	mercury_compile__maybe_delay_construct(HLDS36, Verbose, Stats, HLDS37),
+	mercury_compile__maybe_dump_hlds(HLDS37, "37", "delay_construct"),
+
+	mercury_compile__maybe_unused_args(HLDS37, Verbose, Stats, HLDS39),
 	mercury_compile__maybe_dump_hlds(HLDS39, "39", "unused_args"),
 
 	mercury_compile__maybe_unneeded_code(HLDS39, Verbose, Stats, HLDS40),
@@ -1465,7 +1474,8 @@ mercury_compile__backend_pass_by_preds_4(PredInfo, ProcInfo0, ProcId, PredId,
 	),
 	write_proc_progress_message("% Computing liveness in ", PredId, ProcId,
 		ModuleInfo3),
-	{ detect_liveness_proc(ProcInfo3, PredId, ModuleInfo3, ProcInfo4) },
+	detect_liveness_proc(PredId, ProcId, ModuleInfo3,
+		ProcInfo3, ProcInfo4),
 	write_proc_progress_message("% Allocating stack slots in ", PredId,
 		                ProcId, ModuleInfo3),
 	{ allocate_stack_slots_in_proc(ProcInfo4, PredId, ModuleInfo3,
@@ -2025,6 +2035,25 @@ add_aditi_procs(HLDS0, PredId, AditiPreds0, AditiPreds) :-
 		AditiPreds = AditiPreds0
 	).
 
+:- pred mercury_compile__maybe_delay_construct(module_info::in,
+	bool::in, bool::in, module_info::out, io__state::di, io__state::uo)
+	is det.
+
+mercury_compile__maybe_delay_construct(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(delay_construct, DelayConstruct),
+	( { DelayConstruct = yes } ->
+		maybe_write_string(Verbose,
+			"% Delaying construction unifications ...\n"),
+		maybe_flush_output(Verbose),
+		process_all_nonimported_procs(
+			update_proc_io(delay_construct_proc),
+			HLDS0, HLDS),
+		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS0 = HLDS }
+	).
+
 :- pred mercury_compile__maybe_unused_args(module_info, bool, bool, module_info,
 	io__state, io__state).
 :- mode mercury_compile__maybe_unused_args(in, in, in, out, di, uo) is det.
@@ -2213,7 +2242,7 @@ mercury_compile__compute_liveness(HLDS0, Verbose, Stats, HLDS) -->
 	maybe_write_string(Verbose, "% Computing liveness...\n"),
 	maybe_flush_output(Verbose),
 	process_all_nonimported_nonaditi_procs(
-		update_proc_predid(detect_liveness_proc),
+		update_proc_io(detect_liveness_proc),
 		HLDS0, HLDS),
 	maybe_write_string(Verbose, "% done.\n"),
 	maybe_report_stats(Stats).

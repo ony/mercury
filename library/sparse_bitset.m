@@ -1,7 +1,7 @@
 %-----------------------------------------------------------------------------%
 % Copyright (C) 2000-2001 The University of Melbourne.
-% This file may only be copied under the terms of the GNU General
-% Public License - see the file COPYING in the Mercury distribution.
+% This file may only be copied under the terms of the GNU Library General
+% Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 % File: sparse_bitset.m.
 % Author: stayl
@@ -759,23 +759,34 @@ mask(N) = \ unchecked_left_shift(\ 0, N).
 
 %make_bitset_elem(A, B) = bitset_elem(A, B).
 
+:- pragma foreign_decl("C", "
+	#include ""mercury_heap.h""	/* for MR_incr_hp_atomic_msg() */
+").
+
 	% The bit pattern will often look like a pointer,
 	% so allocate the pairs using GC_malloc_atomic()
 	% to avoid unnecessary memory retention.
 	% Doing this slows down the compiler by about 1%,
 	% but in a library module it's better to be safe.
-:- pragma foreign_code("C", make_bitset_elem(A::in, B::in) = (Pair::out),
+:- pragma foreign_proc("C", make_bitset_elem(A::in, B::in) = (Pair::out),
 		[will_not_call_mercury, thread_safe],
 "{
-	MR_incr_hp_atomic_msg(Pair, 2, MR_PROC_LABEL,
-			""sparse_bitset:bitset_elem/0"");
-	MR_field(MR_mktag(0), Pair, 0) = A;
-	MR_field(MR_mktag(0), Pair, 1) = B;
+
+#define ML_BITSET_TAG MR_FIRST_UNRESERVED_RAW_TAG
+
+	MR_tag_incr_hp_atomic_msg(Pair, MR_mktag(ML_BITSET_TAG), 
+			2, MR_PROC_LABEL, ""sparse_bitset:bitset_elem/0"");
+	MR_field(MR_mktag(ML_BITSET_TAG), Pair, 0) = A;
+	MR_field(MR_mktag(ML_BITSET_TAG), Pair, 1) = B;
 }").
 
-:- pragma foreign_code("MC++", make_bitset_elem(A::in, B::in) = (Pair::out),
+% XXX this needs to take reserve-tag into account too
+:- pragma foreign_proc("MC++", make_bitset_elem(A::in, B::in) = (Pair::out),
 		[will_not_call_mercury, thread_safe],
 "{
+#ifdef MR_RESERVE_TAG
+    #error ""sparse_bitset not implemented for MC++ in .rt grades""
+#endif
 	MR_newobj((Pair), 0, 2);
 	MR_objset((Pair), 1, (mercury::runtime::Convert::ToObject(A)));	
 	MR_objset((Pair), 2, (mercury::runtime::Convert::ToObject(B)));

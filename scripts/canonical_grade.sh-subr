@@ -89,6 +89,11 @@ case $use_trail in
 	false)		;;
 esac
 
+case $reserve_tag in
+	true)		GRADE="$GRADE.rt" ;;
+	false)		;;
+esac
+
 case $use_minimal_model in
 	true)	GRADE="$GRADE.mm" ;;
 	false)	;;

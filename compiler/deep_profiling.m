@@ -245,7 +245,7 @@ apply_tail_recursion_to_goal(Goal0, ApplyInfo, Goal,
 		FoundTailCall0, FoundTailCall, Continue) :-
 	Goal0 = GoalExpr0 - GoalInfo0,
 	(
-		GoalExpr0 = pragma_foreign_code(_, _, _, _, _, _, _),
+		GoalExpr0 = foreign_proc(_, _, _, _, _, _, _),
 		Goal = Goal0,
 		FoundTailCall = FoundTailCall0,
 		Continue = no
@@ -341,8 +341,8 @@ apply_tail_recursion_to_goal(Goal0, ApplyInfo, Goal,
 		FoundTailCall = FoundTailCall0,
 		Continue = no
 	;
-		GoalExpr0 = bi_implication(_, _),
-		error("bi_implication in apply_tail_recursion_to_goal")
+		GoalExpr0 = shorthand(_),
+		error("shorthand in apply_tail_recursion_to_goal")
 	).
 
 :- pred apply_tail_recursion_process_assign(list(prog_var)::in,
@@ -416,7 +416,7 @@ apply_tail_recursion_to_cases([case(ConsId, Goal0) | Cases0], ApplyInfo,
 figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
 	Goal = GoalExpr - GoalInfo,
 	(
-		GoalExpr = pragma_foreign_code(Attrs, _, _, _, _, _, _),
+		GoalExpr = foreign_proc(Attrs, _, _, _, _, _, _),
 		( may_call_mercury(Attrs, may_call_mercury) ->
 			N = N0 + 1
 		;
@@ -477,8 +477,8 @@ figure_out_rec_call_numbers(Goal, N0, N, TailCallSites0, TailCallSites) :-
 		figure_out_rec_call_numbers(Goal1, N0, N,
 			TailCallSites0, TailCallSites)
 	;
-		GoalExpr = bi_implication(_, _),
-		error("bi_implication in apply_tail_recursion_to_goal")
+		GoalExpr = shorthand(_),
+		error("shorthand in apply_tail_recursion_to_goal")
 	).
 
 :- pred figure_out_rec_call_numbers_in_goal_list(list(hlds_goal), int, int,
@@ -535,7 +535,7 @@ maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 	predicate_module(ModuleInfo, PredId, PredModuleName),
 	(
 		% XXX We need to eliminate nondet C code...
-		Goal0 = pragma_foreign_code(_,_,_,_,_,_, Impl) - _,
+		Goal0 = foreign_proc(_,_,_,_,_,_, Impl) - _,
 		Impl = nondet(_, _, _, _, _, _, _, _, _)
 	->
 		error("deep profiling is incompatible with nondet foreign code")
@@ -1010,11 +1010,11 @@ transform_goal(Path, if_then_else(IVars, Cond0, Then0, Else0, SM) - Info,
 	transform_goal([ite_then | Path], Then0, Then),
 	transform_goal([ite_else | Path], Else0, Else).
 
-transform_goal(_, bi_implication(_, _) - _, _) -->
-	{ error("transform_goal/5: bi_implications should have gone by now") }.
+transform_goal(_, shorthand(_) - _, _) -->
+	{ error("transform_goal/5: shorthand should have gone by now") }.
 
 transform_goal(Path0, Goal0 - Info0, GoalAndInfo) -->
-	{ Goal0 = pragma_foreign_code(Attrs, _, _, _, _, _, _) },
+	{ Goal0 = foreign_proc(Attrs, _, _, _, _, _, _) },
 	( { may_call_mercury(Attrs, may_call_mercury) } ->
 		{ reverse(Path0, Path) },
 		wrap_foreign_code(Path, Goal0 - Info0, GoalAndInfo)
@@ -1370,8 +1370,7 @@ compress_filename(Deep, FileName0, FileName) :-
 			% For calls to unify/2 and compare/3
 	;	special(pred_proc_id, prog_var)
 			% For higher order and typeclass method calls
-	;	generic(generic_call)
-	.
+	;	generic(generic_call).
 
 :- pred classify_call(module_info::in, hlds_goal_expr::in,
 	call_class::out) is det.

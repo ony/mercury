@@ -8,7 +8,8 @@
 % Main author: fjh.
 
 % This module defines utility routines that are useful when
-% generating and/or emitting C code.
+% generating and/or emitting C code.  Changes to this module may require
+% changes to be made to java_util.m
 
 %-----------------------------------------------------------------------------%
 
@@ -211,6 +212,7 @@ c_util__unary_prefix_op(tag,			"MR_tag").
 c_util__unary_prefix_op(unmktag,		"MR_unmktag").
 c_util__unary_prefix_op(mkbody,			"MR_mkbody").
 c_util__unary_prefix_op(unmkbody,		"MR_unmkbody").
+c_util__unary_prefix_op(strip_tag,		"MR_strip_tag").
 c_util__unary_prefix_op(hash_string,		"MR_hash_string").
 c_util__unary_prefix_op(bitwise_complement,	"~").
 c_util__unary_prefix_op(not,			"!").

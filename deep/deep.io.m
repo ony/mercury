@@ -61,36 +61,67 @@ read_call_graph(FileName, Res) -->
 	io__see_binary(FileName, Res0),
 	(
 		{ Res0 = ok },
-		read_sequence6(
-			read_fixed_size_int,
-			read_fixed_size_int,
-			read_fixed_size_int,
-			read_fixed_size_int,
-			read_num,
-			read_num,
-			(pred(NumCSDs::in, NumCSSs::in, NumPDs::in, NumPSs::in,
-					InstrumentQuanta::in, UserQuanta::in,
-					ResInitDeep::out) is det :-
-				init_deep(NumCSDs, NumCSSs, NumPDs, NumPSs,
-					InstrumentQuanta, UserQuanta,
-					InitDeep0),
-				ResInitDeep = ok(InitDeep0)
-			),
-			Res1),
+		read_id_string(Res1),
 		(
-			{ Res1 = ok(InitDeep) },
-			read_all_nodes(InitDeep, Res2),
-			io__seen_binary,
-			{ resize_arrays(Res2, Res) }
+			{ Res1 = ok(_) },
+			read_sequence6(
+				read_fixed_size_int,
+				read_fixed_size_int,
+				read_fixed_size_int,
+				read_fixed_size_int,
+				read_num,
+				read_num,
+				(pred(NumCSDs::in, NumCSSs::in,
+						NumPDs::in, NumPSs::in,
+						InstrumentQuanta::in,
+						UserQuanta::in,
+						ResInitDeep::out) is det :-
+					init_deep(NumCSDs, NumCSSs,
+						NumPDs, NumPSs,
+						InstrumentQuanta, UserQuanta,
+						InitDeep0),
+					ResInitDeep = ok(InitDeep0)
+				),
+				Res2),
+			(
+				{ Res2 = ok(InitDeep) },
+				read_all_nodes(InitDeep, Res3),
+				io__seen_binary,
+				{ resize_arrays(Res3, Res) }
+			;
+				{ Res2 = error(Err) },
+				{ Res = error(Err) }
+			)
 		;
-			{ Res1 = error(Err) },
-			{ Res = error(Err) }
+			{ Res1 = error(Msg) },
+			{ Res = error(Msg) }
 		)
 	;
 		{ Res0 = error(Err) },
 		{ io__error_message(Err, Msg) },
 		{ Res = error(Msg) }
 	).
+
+:- pred read_id_string(deep_result(string)::out,
+	io__state::di, io__state::uo) is det.
+
+read_id_string(Res) -->
+	read_n_byte_string(string__length(id_string), Res0),
+	(
+		{ Res0 = ok(String) },
+		( { String = id_string } ->
+			{ Res = ok(id_string) }
+		;
+			{ Res = error("not a deep profiling data file") }
+		)
+	;
+		{ Res0 = error(Err) },
+		{ Res = error(Err) }
+	).
+
+:- func id_string = string.
+
+id_string = "Mercury deep profiler data".
 
 :- pred init_deep(int::in, int::in, int::in, int::in, int::in, int::in,
 	initial_deep::out) is det.
@@ -1155,30 +1186,40 @@ read_string(Res) -->
 	read_num(Res0),
 	(
 		{ Res0 = ok(Length) },
-		read_n_bytes(Length, Res1),
-		(
-			{ Res1 = ok(Bytes) },
-			(
-				{ map((pred(I::in, C::out) is semidet :-
-					char__to_int(C, I)
-				), Bytes, Chars) }
-			->
-				{ string__from_char_list(Chars, Str) },
-				{ Res = ok(Str) }
-			;
-				{ Res = error("string contained bad char") }
-			)
+		( { Length = 0 } ->
+			{ Res = ok("") }
 		;
-			{ Res1 = error(Err) },
-			{ Res = error(Err) }
+			read_n_byte_string(Length, Res)
 		)
-		% io__write_string("string "),
-		% io__write(Res),
-		% io__write_string("\n")
 	;
 		{ Res0 = error(Err) },
 		{ Res = error(Err) }
 	).
+
+:- pred read_n_byte_string(int::in, deep_result(string)::out,
+	io__state::di, io__state::uo) is det.
+
+read_n_byte_string(Length, Res) -->
+	read_n_bytes(Length, Res1),
+	(
+		{ Res1 = ok(Bytes) },
+		(
+			{ map((pred(I::in, C::out) is semidet :-
+				char__to_int(C, I)
+			), Bytes, Chars) }
+		->
+			{ string__from_char_list(Chars, Str) },
+			{ Res = ok(Str) }
+		;
+			{ Res = error("string contained bad char") }
+		)
+	;
+		{ Res1 = error(Err) },
+		{ Res = error(Err) }
+	).
+	% io__write_string("string "),
+	% io__write(Res),
+	% io__write_string("\n")
 
 :- pred read_ptr(ptr_kind::in, deep_result(int)::out,
 	io__state::di, io__state::uo) is det.

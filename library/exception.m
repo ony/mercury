@@ -19,7 +19,7 @@
 %-----------------------------------------------------------------------------%
 :- module exception.
 :- interface.
-:- import_module std_util, list, io.
+:- import_module std_util, list, io, store.
 
 %
 % throw(Exception):
@@ -84,6 +84,17 @@
 :- mode try_io(pred(out, di, uo) is det,
 		out(cannot_fail), di, uo) is cc_multi.
 :- mode try_io(pred(out, di, uo) is cc_multi,
+		out(cannot_fail), di, uo) is cc_multi.
+
+%
+% try_store(Goal, Result, Store_0, Store):
+%    Just like try_io, but for stores rather than io__states.
+%
+:- pred try_store(pred(T, store(S), store(S)),
+		exception_result(T), store(S), store(S)).
+:- mode try_store(pred(out, di, uo) is det,     
+		out(cannot_fail), di, uo) is cc_multi.
+:- mode try_store(pred(out, di, uo) is cc_multi,
 		out(cannot_fail), di, uo) is cc_multi.
 
 %
@@ -168,6 +179,13 @@
 :- mode try_io(in(bound(cc_multi)), pred(out, di, uo) is cc_multi,
 				    out(cannot_fail), di, uo) is cc_multi.
 
+:- pred try_store(determinism, 	    pred(T, store(S), store(S)),
+				    exception_result(T), store(S), store(S)).
+:- mode try_store(in(bound(det)),   pred(out, di, uo) is det,
+				    out(cannot_fail), di, uo) is cc_multi.
+:- mode try_store(in(bound(cc_multi)), pred(out, di, uo) is cc_multi,
+				    out(cannot_fail), di, uo) is cc_multi.
+
 :- pred try_all(determinism,        pred(T), list(exception_result(T))).
 :- mode try_all(in(bound(det)),	    pred(out) is det,
 				    	     out(try_all_det)) is cc_multi.
@@ -201,7 +219,7 @@
 :- mode get_determinism(pred(out) is cc_nondet, out(bound(cc_nondet)))
 								  is cc_multi.
 
-:- pred get_determinism_2(pred(T, io__state, io__state), determinism).
+:- pred get_determinism_2(pred(T, S, S),                 determinism).
 :- mode get_determinism_2(pred(out, di, uo) is det,      out(bound(det)))
 	is cc_multi.
 :- mode get_determinism_2(pred(out, di, uo) is cc_multi, out(bound(cc_multi)))
@@ -233,51 +251,51 @@
 #endif
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism(_Pred::pred(out) is det,
 			Det::out(bound(det))),
 	will_not_call_mercury,
 	"Det = ML_DET"
 ).
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism(_Pred::pred(out) is semidet,
 			Det::out(bound(semidet))),
 	will_not_call_mercury,
 	"Det = ML_SEMIDET"
 ).
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism(_Pred::pred(out) is cc_multi,
 			Det::out(bound(cc_multi))),
 	will_not_call_mercury,
 	"Det = ML_CC_MULTI"
 ).
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism(_Pred::pred(out) is cc_nondet,
 			Det::out(bound(cc_nondet))),
 	will_not_call_mercury,
 	"Det = ML_CC_NONDET"
 ).
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism(_Pred::pred(out) is multi,
 			Det::out(bound(multi))),
 	will_not_call_mercury,
 	"Det = ML_MULTI"
 ).
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism(_Pred::pred(out) is nondet,
 			Det::out(bound(nondet))),
 	will_not_call_mercury,
 	"Det = ML_NONDET"
 ).
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism_2(_Pred::pred(out, di, uo) is det,
 			Det::out(bound(det))),
 	will_not_call_mercury,
 	"Det = ML_DET"
 ).
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	get_determinism_2(_Pred::pred(out, di, uo) is cc_multi,
 			Det::out(bound(cc_multi))),
 	will_not_call_mercury,
@@ -307,51 +325,51 @@
 #endif
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism(_Pred::pred(out) is det,
 			Det::out(bound(det))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_DET);"
 ).
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism(_Pred::pred(out) is semidet,
 			Det::out(bound(semidet))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_SEMIDET);"
 ).
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism(_Pred::pred(out) is cc_multi,
 			Det::out(bound(cc_multi))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_CC_MULTI);"
 ).
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism(_Pred::pred(out) is cc_nondet,
 			Det::out(bound(cc_nondet))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_CC_NONDET);"
 ).
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism(_Pred::pred(out) is multi,
 			Det::out(bound(multi))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_MULTI);"
 ).
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism(_Pred::pred(out) is nondet,
 			Det::out(bound(nondet))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_NONDET);"
 ).
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism_2(_Pred::pred(out, di, uo) is det,
 			Det::out(bound(det))),
 	will_not_call_mercury,
 	"MR_newenum(Det, ML_DET);"
 ).
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	get_determinism_2(_Pred::pred(out, di, uo) is cc_multi,
 			Det::out(bound(cc_multi))),
 	will_not_call_mercury,
@@ -478,6 +496,54 @@ incremental_try_all(Goal, AccPred, Acc0, Acc) :-
 			wrap_exception, Result)),
 		AccPred, Acc0, Acc).
 
+% We need to switch on the Detism argument
+% for the same reason as above.
+
+try_store(StoreGoal, Result) -->
+	{ get_determinism_2(StoreGoal, Detism) },
+	try_store(Detism, StoreGoal, Result).
+
+	% Store0 is not really unique in the calls to unsafe_promise_unique
+	% below, since it is also used in the calls to handle_store_result.
+	% But it is safe to treat it as if it were unique, because the
+	% other reference is only used in the case when an exception is
+	% thrown, and in that case the declarative semantics of this
+	% predicate say that the final store returned is unspecified.
+try_store(det, StoreGoal, Result, Store0, Store) :-
+	Goal = (pred({R, S}::out) is det :-
+		unsafe_promise_unique(Store0, S0),
+		StoreGoal(R, S0, S)),
+	try(det, Goal, Result0),
+	handle_store_result(Result0, Result, Store0, Store).
+try_store(cc_multi, StoreGoal, Result, Store0, Store) :-
+	Goal = (pred({R, S}::out) is cc_multi :-
+		unsafe_promise_unique(Store0, S0),
+		StoreGoal(R, S0, S)),
+	try(cc_multi, Goal, Result0),
+	handle_store_result(Result0, Result, Store0, Store).
+
+:- pred handle_store_result(exception_result({T, store(S)})::in(cannot_fail),
+		exception_result(T)::out(cannot_fail),
+		store(S)::in, store(S)::uo) is det.
+handle_store_result(Result0, Result, Store0, Store) :-
+	(
+		Result0 = succeeded({Res, S1}),
+		Result = succeeded(Res),
+		% S1 is now unique because the only other reference to the
+		% store was from Store0, which we're throwing away here
+		unsafe_promise_unique(S1, Store)
+	;
+		Result0 = exception(E0),
+		% We need to make a copy of the exception object, in case
+		% it contains a value returned from store__extract_ref_value.
+		% See tests/hard_coded/exceptions/tricky_try_store.m.
+		copy(E0, E),
+		Result = exception(E),
+		% Store0 is now unique because the only other reference to
+		% the store was from the goal which just threw an exception.
+		unsafe_promise_unique(Store0, Store)
+	).
+
 try_io(IO_Goal, Result) -->
 	{ get_determinism_2(IO_Goal, Detism) },
 	try_io(Detism, IO_Goal, Result).
@@ -509,15 +575,15 @@ very_unsafe_perform_io(Goal, Result) :-
 	impure consume_io_state(IOState).
 
 :- impure pred make_io_state(io__state::uo) is det.
-:- pragma foreign_code("C", make_io_state(_IO::uo),
+:- pragma foreign_proc("C", make_io_state(_IO::uo),
 		[will_not_call_mercury, thread_safe], "").
-:- pragma foreign_code("MC++", make_io_state(_IO::uo),
+:- pragma foreign_proc("MC++", make_io_state(_IO::uo),
 		[will_not_call_mercury, thread_safe], "").
 
 :- impure pred consume_io_state(io__state::di) is det.
-:- pragma foreign_code("C", consume_io_state(_IO::di),
+:- pragma foreign_proc("C", consume_io_state(_IO::di),
 		[will_not_call_mercury, thread_safe], "").
-:- pragma foreign_code("MC++", consume_io_state(_IO::di),
+:- pragma foreign_proc("MC++", consume_io_state(_IO::di),
 		[will_not_call_mercury, thread_safe], "").
 
 :- pred wrap_exception(univ::in, exception_result(T)::out) is det.
@@ -1000,7 +1066,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 
 XXX :- external stops us from using this
 
-:- pragma foreign_code("MC++", builtin_throw(_T::in), [will_not_call_mercury], "
+:- pragma foreign_proc("MC++", builtin_throw(_T::in), [will_not_call_mercury], "
         mercury_exception *ex;
 
         // XXX should look for string objects and set them as the message
@@ -1014,27 +1080,27 @@ XXX :- external stops us from using this
         throw ex;
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++", 
 	builtin_catch(_Pred::pred(out) is det,
 		_Handler::in(handler), _T::out), [will_not_call_mercury], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++", 
 	builtin_catch(_Pred::pred(out) is semidet,
 		_Handler::in(handler), _T::out), [will_not_call_mercury], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++", 
 	builtin_catch(_Pred::pred(out) is cc_multi,
 		_Handler::in(handler), _T::out), [will_not_call_mercury], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++", 
 	builtin_catch(_Pred::pred(out) is cc_nondet,
 		_Handler::in(handler), _T::out), [will_not_call_mercury], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++", 
 	builtin_catch(_Pred::pred(out) is multi,
 		_Handler::in(handler), _T::out), [will_not_call_mercury],
 	local_vars(""),
@@ -1044,7 +1110,7 @@ XXX :- external stops us from using this
 		mercury::runtime::Errors::SORRY(""foreign code for this function"");
 	")
 ).
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++", 
 	builtin_catch(_Pred::pred(out) is nondet,
 		_Handler::in(handler), _T::out), [will_not_call_mercury],
 	local_vars(""),

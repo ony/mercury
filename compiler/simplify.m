@@ -639,7 +639,10 @@ simplify__goal_2(switch(Var, SwitchCanFail0, Cases0, SM),
 			goal_info_get_determinism(GoalInfo0, CaseDetism),
 			det_conjunction_detism(semidet, CaseDetism, Detism),
 			goal_info_init(NonLocals, InstMapDelta, Detism, 
-				CombinedGoalInfo),
+				CombinedGoalInfo0),
+			goal_list_purity(GoalList, Purity),
+			add_goal_info_purity_feature(CombinedGoalInfo0,
+				Purity, CombinedGoalInfo),
 
 			simplify_info_set_requantify(Info3, Info4),
 			Goal = conj(GoalList),
@@ -1142,7 +1145,7 @@ simplify__goal_2(some(Vars1, CanRemove0, Goal1), SomeInfo,
 	).
 
 simplify__goal_2(Goal0, GoalInfo, Goal, GoalInfo, Info0, Info) :-
-	Goal0 = pragma_foreign_code(_, PredId, ProcId, Args, _, _, _),
+	Goal0 = foreign_proc(_, PredId, ProcId, Args, _, _, _),
 	(
 		simplify_do_calls(Info0),
 		goal_info_is_pure(GoalInfo)
@@ -1154,9 +1157,9 @@ simplify__goal_2(Goal0, GoalInfo, Goal, GoalInfo, Info0, Info) :-
 		Goal = Goal0
 	).
 
-simplify__goal_2(bi_implication(_, _), _, _, _, _, _) :-
+simplify__goal_2(shorthand(_), _, _, _, _, _) :-
 	% these should have been expanded out by now
-	error("simplify__goal_2: unexpected bi_implication").
+	error("simplify__goal_2: unexpected shorthand").
 
 %-----------------------------------------------------------------------------%
 
@@ -2290,7 +2293,7 @@ simplify_info_maybe_clear_structs(BeforeAfter, Goal, Info0, Info) :-
 			Goal = GoalExpr - _,
 			GoalExpr \= call(_, _, _, _, _, _),
 			GoalExpr \= generic_call(_, _, _, _),
-			GoalExpr \= pragma_foreign_code(_, _, _, _, _, _, _)
+			GoalExpr \= foreign_proc(_, _, _, _, _, _, _)
 		)
 	->
 		simplify_info_get_common_info(Info0, CommonInfo0),

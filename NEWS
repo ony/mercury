@@ -1,38 +1,30 @@
-NEWS since Mercury release 0.10
--------------------------------
-Note that Mercury 0.10 has not actually been released yet;
+NEWS since Mercury release 0.10.1
+---------------------------------
+Note that Mercury 0.10.1 has not actually been officially announced;
 this section documents changes in the development version of
 Mercury since we established a feature freeze for Mercury 0.10
 and split development of that version off onto a separate branch
-of our CVS repository.
+of our CVS repository (the `version-0_10_y' branch).
 
-Changes to the standard library:
+Changes to the Mercury language:
+* We now allow `:- pragma promise_semipure' declarations. For more
+  information, see the "Impurity" chapter of the Mercury Language
+  Reference Manual.
 
-* We've changed the semantics of deconstruct/4, in light of the introduction
-  of existentially quantified types. Previously, if deconstruct/4 was given
-  a value of type `univ' it automagically unwrapped it and gave back the
-  functor, arity and arguments of the unwrapped value. This behaviour was
-  not documented, but made sense because there was no way to unwrap a
-  univ without knowing (or guessing) its type. Now that univ is defined
-  as a normal (existentially quantified) type, this behaviour is unnecessary,
-  and a wart besides, so has been removed. If you have a univ and you want
-  to get the unwrapped value's functor, arity and arguments, then you can
-  call "univ_value(Univ)" to extract the value before calling deconstruct.
-  (Doing that also works in Mercury 0.9 and Mercury 0.10.)
+Changes to the Mercury standard library:
+* The exception module has a new predicate `try_store', which is
+  like `try_io', but which works with stores rather than io__states.
 
-* We've addes some new library predicates: assoc_list__keys_and_values,
-  list__map2 and list__map3.
 
-* We've added func versions of the remaining preds in int.m that
-  did not already have them.
+NEWS for Mercury release 0.10.1:
+--------------------------------
 
-* We've added a new `bitmap' library module.
+This is mainly a bug-fix release.
 
-* We've added std_util__dynamic_cast/2 for type-safe runtime dynamic
-  type casting for ground types.
+There are however some new packages in the mercury-extras distribution:
+* lex: a lexical analyzer library for Mercury.
+* curs: a simplified binding to the ncurses/panel libraries for terminal I/O.
 
-* We've extended the array module with array__sort/1, array__foldl/3 and
-  array__foldr/3.
 
 NEWS for Mercury release 0.10:
 ------------------------------
@@ -53,8 +45,11 @@ Changes to the Mercury standard library:
 * We've added several new standard library modules:
   - `pprint', for pretty printing.
   - `counter', for managing counters.
-  - `sparse_bitset', an abstract data type for storing sets of integers.
   - `enum', a typeclass for types which can be converted to and from integers.
+  - `sparse_bitset', an abstract data type for storing sparse sets of integers
+     or enumerations.
+  - `bitmap', an abstract data type for storing sets of integers.
+  - `hash_table', an generic hash table implementation
 * The `store' module now makes use of existential types.
 
 Changes to the Mercury implementation:
@@ -62,7 +57,17 @@ Changes to the Mercury implementation:
   This features improved compilation speed, offers better portability,
   and sometimes generates substantially better code.
   (The original back-end is still included.)
+* There's a version of the new back-end which generates code
+  for Microsoft's new .NET system.
+* There's a version of the new back-end which compiles directly
+  to assembler, using the GCC back-end.
 * Various improvements to `mtags'.
+
+Additional packages in the mercury-extras distribution:
+* Moose: a parser generator for Mercury.
+* concurrency: support for multi-threading/concurrency.
+* stream: an implementation of generic I/O streams, using type classes.
+* xml: a library for parsing XML.
 
 DETAILED LISTING
 ================
@@ -168,7 +173,7 @@ Changes to the standard library:
 * There is a new library module `counter' for managing counters.
 
 * We've added a new library module `sparse_bitset', which implements
-  an abstract data type for storing sets of integers.
+  an abstract data type for storing sets of integers or enumerations.
 
 * There is a new library module `enum' which contains a typeclass
   describing types which can be converted to and from integers.
@@ -209,6 +214,34 @@ Changes to the standard library:
 	  printf(), they are rounded rather than being truncated.
 
 * We've added a new function, math__solve_quadratic/3.
+
+* We've changed the semantics of deconstruct/4, in light of the introduction
+  of existentially quantified types. Previously, if deconstruct/4 was given
+  a value of type `univ' it automagically unwrapped it and gave back the
+  functor, arity and arguments of the unwrapped value. This behaviour was
+  not documented, but made sense because there was no way to unwrap a
+  univ without knowing (or guessing) its type. Now that univ is defined
+  as a normal (existentially quantified) type, this behaviour is unnecessary,
+  and a wart besides, so has been removed. If you have a univ and you want
+  to get the unwrapped value's functor, arity and arguments, then you can
+  call "univ_value(Univ)" to extract the value before calling deconstruct.
+  (Doing that also works in Mercury 0.9 and Mercury 0.10.)
+
+* We've addes some new library predicates: assoc_list__keys_and_values,
+  list__map2 and list__map3.
+
+* We've added func versions of the remaining preds in int.m that
+  did not already have them.
+
+* We've added a new `bitmap' library module.
+
+* We've added std_util__dynamic_cast/2 for type-safe runtime dynamic
+  type casting for ground types.
+
+* We've extended the array module with array__sort/1, array__foldl/3 and
+  array__foldr/3.
+
+* We've added a new `hash_table' library module.
 
 Changes to the Mercury implementation:
 
@@ -258,11 +291,75 @@ Changes to the Mercury implementation:
 	  extras/dynamic/dl.m in the mercury-extras distribution)
 	  for procedures with arguments of type `float' or `char'
 
+* There's a new back-end that targets .NET.
+
+  Thanks to Microsoft's generous and ongoing support, both financial
+  and otherwise, we've been able to port Mercury to Microsoft's new
+  .NET system.  There's another new back-end for the Mercury compiler,
+  based on the `--high-level-code' back-end, that compiles to IL, the
+  Microsoft .NET Intermediate Language.
+
+  This back-end is enabled using the new `--target il' option
+  (or just `--il' for short), or the `ilc' grade.
+
+  Compiler support for this new back-end is mostly complete,
+  but large parts of the standard library are still not yet
+  implemented for this new port.
+
+  This is still work in progress.
+  
+  For more details, see the README.DotNet file, and
+  <http://www.cs.mu.oz.au/research/mercury/dotnet.html>.
+
+* Native code compiler.
+
+  There's a new back-end for the Mercury compiler that compiles
+  directly to assembler, rather than than going via C.  This
+  back-end is enabled using the new `--target asm' option.
+
+  This new back-end is implemented by linking the Mercury compiler
+  with the (relatively) language independent GNU Compiler Collection
+  back-end.  In other words, there is now a Mercury front-end for GCC.
+
+  Note that this should be considered as a beta release of the native
+  code compiler.  Furthermore our current version of the native code
+  compiler is based on an unreleased snapshot version of the GCC
+  back-end.
+
+  So far we have only tested it on i686-pc-linux-gnu (Intel x86-based
+  PCs running Linux).  But in theory it should work fine on other
+  platforms too.
+
+  For details see <http://www.cs.mu.oz.au/mercury/download/gcc-backend.html>.
+
+* The old back-end now generates faster code at low optimization levels.
+
+* The compiler is now a little bit faster.
+
 * The names of some of the `--enable-*' options to `configure' have changed.
 
   See the output of `configure --help' for details.
 
 Changes to the development environment:
+
+* The debugger has been improved in several respects:
+
+  - It has some new forward movement commands:
+    * `next' steps over a call, like gdb's `next' command;
+    * `exception' skips forward until an exception is thrown.
+  - It can perform retry across I/O.
+  - It can now print parts of terms, and fields of terms can be
+    specified by field name as well as by position number.
+  - It has a more flexible mechanism for setting browsing parameters.
+  - It now handles ambiguous procedure specifications in "break"
+    commands gracefully.
+  - The state of the debugger can now be saved and restored, using the
+    `save' and `source' commands (respectively).
+
+  For details, see the documentation of the `next', `exception',
+  `break', `set', and `save' commands in the "Debugger commands" section
+  of the "Debugging" chapter of the Mercury User's Guide.  (The changes
+  to `retry' and `print' have unfortunately not been documented yet.)
 
 * Several improvements have been made to `mtags' to make it easier to
   find predicate/function definitions and to improve support for

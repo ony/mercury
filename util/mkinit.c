@@ -23,14 +23,18 @@
 #include	<string.h>
 #include	<ctype.h>
 #include	<errno.h>
-#include	<sys/stat.h>
+
+#include	"mercury_conf.h"
+
+#ifdef HAVE_SYS_STAT_H
+  #include	<sys/stat.h>
+#endif
 
 #ifdef HAVE_UNISTD_H
   #include	<unistd.h>
 #endif
 
 #include	"getopt.h"
-#include	"mercury_conf.h"
 #include	"mercury_std.h"
 
 /* --- adjustable limits --- */
@@ -358,7 +362,7 @@ static const char aditi_rl_data_str[] = "mercury__aditi_rl_data__";
 static	void	parse_options(int argc, char *argv[]);
 static	void	usage(void);
 static	void	do_path_search(void);
-static	char	*find_init_file(const char *basename);
+static	char	*find_init_file(const char *filebasename);
 static	bool	file_exists(const char *filename);
 static	void	output_headers(void);
 static	int	output_sub_init_functions(Purpose purpose);
@@ -375,7 +379,7 @@ static	void	output_init_function(const char *func_name,
 			int *num_bunches_ptr, int *num_calls_in_cur_bunch_ptr,
 			Purpose purpose, bool special_module);
 static	void	add_rl_data(char *data);
-static	int	getline(FILE *file, char *line, int line_max);
+static	int	get_line(FILE *file, char *line, int line_max);
 static	void	*checked_malloc(size_t size);
 
 /*---------------------------------------------------------------------------*/
@@ -561,7 +565,7 @@ do_path_search(void)
 	** holding the full path name when it is no longer needed.
 	*/
 static char *
-find_init_file(const char *basename)
+find_init_file(const char *filebasename)
 {
 	char *filename;
 	char *dirname;
@@ -570,12 +574,12 @@ find_init_file(const char *basename)
 	int baselen;
 	int len;
 
-	if (file_exists(basename)) {
+	if (file_exists(filebasename)) {
 		/* File is in current directory, so no search required */
 		return NULL;
 	}
 
-	baselen = strlen(basename);
+	baselen = strlen(filebasename);
 
 	for (dir_ptr = init_file_dirs; dir_ptr != NULL;
 			dir_ptr = dir_ptr->next)
@@ -587,7 +591,7 @@ find_init_file(const char *basename)
 		filename = (char *) checked_malloc(len + 1);
 		strcpy(filename, dirname);
 		filename[dirlen] = '/';
-		strcpy(filename + dirlen + 1, basename);
+		strcpy(filename + dirlen + 1, filebasename);
 
 		if (file_exists(filename))
 			return filename;
@@ -601,15 +605,23 @@ find_init_file(const char *basename)
 
 	/*
 	** Check whether a file exists.
-	** At some point in the future it may be worth making this
-	** implementation more portable.
 	*/
 static bool
 file_exists(const char *filename)
 {
+#ifdef HAVE_SYS_STAT_H
 	struct stat buf;
 
 	return (stat(filename, &buf) == 0);
+#else
+	FILE *f = fopen(filename, "rb");
+	if (f != NULL) {
+		fclose(f);
+		return TRUE;
+	} else {
+		return FALSE;
+	}
+#endif
 }
 
 /*---------------------------------------------------------------------------*/
@@ -844,7 +856,7 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 		return;
 	}
 
-	while (getline(cfile, line, MAXLINE) > 0) {
+	while (get_line(cfile, line, MAXLINE) > 0) {
 		if (strncmp(line, init_str, init_strlen) == 0) {
 			char	*func_name;
 			int	func_name_len;
@@ -1038,8 +1050,8 @@ add_rl_data(char *data)
 
 /*---------------------------------------------------------------------------*/
 
-static int
-getline(FILE *file, char *line, int line_max)
+static int 
+get_line(FILE *file, char *line, int line_max)
 {
 	int	c, num_chars, limit;
 

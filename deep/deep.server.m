@@ -8,15 +8,15 @@
 
 :- interface.
 
-:- pred test_server(string::in, string::in, deep::in, string::in,
+:- pred test_server(string::in, deep::in, string::in,
 	io__state::di, io__state::uo) is cc_multi.
 
-:- pred server(string::in, string::in, int::in, bool::in, deep::in,
+:- pred server(int::in, bool::in, bool::in, deep::in,
 	io__state::di, io__state::uo) is cc_multi.
 
 :- implementation.
 
-:- import_module cgi_interface, measurements, timeout, deep:util.
+:- import_module interface, measurements, timeout, deep:util.
 :- import_module int, string, float, exception, require.
 
 :- type call_site_line_number
@@ -25,34 +25,34 @@
 
 %-----------------------------------------------------------------------------%
 
-test_server(DirName, URLprefix, Deep, Fields) -->
+test_server(DirName, Deep, Fields) -->
 	{ string__format("mkdir -p %s", [s(DirName)], Cmd) },
 	io__call_system(Cmd, _),
 	{ array__max(Deep ^ clique_members, NumCliques) },
-	test_cliques(1, NumCliques, DirName, URLprefix, Deep, Fields),
+	test_cliques(1, NumCliques, DirName, Deep, Fields),
 	{ array__max(Deep ^ proc_statics, NumProcStatics) },
-	test_procs(1, NumProcStatics, DirName, URLprefix, Deep, Fields).
+	test_procs(1, NumProcStatics, DirName, Deep, Fields).
 
-:- pred test_cliques(int::in, int::in, string::in, string::in, deep::in,
+:- pred test_cliques(int::in, int::in, string::in, deep::in,
 	string::in, io__state::di, io__state::uo) is cc_multi.
 
-test_cliques(Cur, Max, DirName, URLprefix, Deep, Fields) -->
+test_cliques(Cur, Max, DirName, Deep, Fields) -->
 	( { Cur =< Max } ->
-		{ try_exec(clique(Cur, Fields), URLprefix, Deep, HTML) },
+		{ try_exec(clique(Cur, Fields), Deep, HTML) },
 		write_html(DirName, "clique", Cur, HTML),
-		test_cliques(Cur + 1, Max, DirName, URLprefix, Deep, Fields)
+		test_cliques(Cur + 1, Max, DirName, Deep, Fields)
 	;
 		[]
 	).
 
-:- pred test_procs(int::in, int::in, string::in, string::in, deep::in,
+:- pred test_procs(int::in, int::in, string::in, deep::in,
 	string::in, io__state::di, io__state::uo) is cc_multi.
 
-test_procs(Cur, Max, DirName, URLprefix, Deep, Fields) -->
+test_procs(Cur, Max, DirName, Deep, Fields) -->
 	( { Cur =< Max } ->
-		{ try_exec(proc(Cur, Fields), URLprefix, Deep, HTML) },
+		{ try_exec(proc(Cur, Fields), Deep, HTML) },
 		write_html(DirName, "proc", Cur, HTML),
-		test_procs(Cur + 1, Max, DirName, URLprefix, Deep, Fields)
+		test_procs(Cur + 1, Max, DirName, Deep, Fields)
 	;
 		[]
 	).
@@ -78,78 +78,158 @@ write_html(DirName, BaseName, Num, HTML) -->
 
 %-----------------------------------------------------------------------------%
 
-server(BaseName, URLprefix, TimeOut, CreatePipes, Deep) -->
-	{ string__append(BaseName, "_to_server", InputFileName) },
-	{ string__append(BaseName, "_from_server", OutputFileName) },
+server(TimeOut, CreatePipes, Debug, Deep) -->
+	{ DataFileName = Deep ^ data_file_name },
+	{ InputPipe = to_server_pipe_name(DataFileName) },
+	{ OutputPipe = from_server_pipe_name(DataFileName) },
 	(
 		{ CreatePipes = yes },
-		{ format("mknod -m a=rw %s p", [s(InputFileName)],
+		{ format("mknod -m a=rw %s p", [s(InputPipe)],
 			MakeInputPipeCmd) },
-		{ format("mknod -m a=rw %s p", [s(OutputFileName)],
+		{ format("mknod -m a=rw %s p", [s(OutputPipe)],
 			MakeOutputPipeCmd) },
 		io__call_system(MakeInputPipeCmd, InputRes),
 		( { InputRes = ok(0) } ->
 			[]
 		;
-			{ error("could not make pipe to server") }
+			[]
+			% { error("could not make pipe to server") }
 		),
 		io__call_system(MakeOutputPipeCmd, OutputRes),
 		( { OutputRes = ok(0) } ->
 			[]
 		;
-			{ error("could not make pipe from server") }
+			[]
+			% { error("could not make pipe from server") }
 		)
 	;
 		{ CreatePipes = no }
 	),
-	server_loop(InputFileName, OutputFileName, URLprefix, TimeOut, Deep).
+	detach_server_loop,
+	server_loop(InputPipe, OutputPipe, TimeOut, Debug, 0, Deep).
 
-:- pred server_loop(string::in, string::in, string::in, int::in, deep::in,
-	io__state::di, io__state::uo) is cc_multi.
+:- pragma foreign_decl("C", "
+#include <unistd.h>
+").
 
-server_loop(InputFileName, OutputFileName, URLprefix, TimeOut, Deep) -->
-	setup_timeout(InputFileName, OutputFileName, TimeOut),
-	io__see(InputFileName, _),
-	read(Res0),
-	% stderr_stream(StdErr),
-	% write(StdErr, Res0), nl(StdErr),
-	io__seen,
+:- pred detach_server_loop(io__state::di, io__state::uo) is cc_multi.
+
+:- pragma foreign_proc("C", detach_server_loop(S0::di, S::uo),
+	[will_not_call_mercury], "
+{
+	int	status;
+
+	S = S0;
+	fflush(stdout);
+	fflush(stderr);
+	status = fork();
+	if (status < 0) {
+		/*
+		** The fork failed; we cannot detach the server loop from the
+		** startup process. The cgi script would therefore wait forever
+		** if we did not exit now
+		*/
+
+		exit(1);
+	} else if (status > 0) {
+		/*
+		** The fork succeeded; we are in the parent. We therefore exit
+		** now to let the io__call_system in the cgi script succeed.
+		*/
+
+		exit(0);
+	}
+
+	/*
+	** Else the fork succeeded; we are in the child. We continue
+	** executing, and start serving answers to queries.
+	*/
+}").
+
+:- pred server_loop(string::in, string::in, int::in, bool::in, int::in,
+	deep::in, io__state::di, io__state::uo) is cc_multi.
+
+server_loop(InputPipe, OutputPipe, TimeOut, Debug, QueryNum, Deep) -->
+	setup_timeout(InputPipe, OutputPipe, TimeOut),
+	io__see(InputPipe, SeeRes),
 	(
-		{ Res0 = eof },
-		% write_string(StdErr, "eof.\n"),
-		server_loop(InputFileName, OutputFileName, URLprefix,
-			TimeOut, Deep)
-	;
-		{ Res0 = error(Msg, Line) },
+		{ SeeRes = ok },
+		io__read(ReadRes),
 		stderr_stream(StdErr),
-		format(StdErr, "error reading input line %d: %s\n",
-			[i(Line), s(Msg)]),
-		server_loop(InputFileName, OutputFileName, URLprefix,
-			TimeOut, Deep)
-	;
-		{ Res0 = ok(Cmd) },
-		{ try_exec(Cmd, URLprefix, Deep, HTML) },
-		io__tell(OutputFileName, _),
-		io__write(html(HTML)),
-		io__write_string(".\n"),
-		io__told,
-		( { Cmd = quit } ->
-			[]
-		; { Cmd = timeout(NewTimeOut) } ->
-			server_loop(InputFileName, OutputFileName, URLprefix,
-				NewTimeOut, Deep)
+		(
+			{ Debug = yes },
+			io__write(StdErr, ReadRes),
+			io__nl(StdErr)
 		;
-			server_loop(InputFileName, OutputFileName, URLprefix,
-				TimeOut, Deep)
+			{ Debug = no }
+		),
+		(
+			{ ReadRes = eof },
+			(
+				{ Debug = yes },
+				write_string(StdErr, "eof.\n")
+			;
+				{ Debug = no }
+			),
+			server_loop(InputPipe, OutputPipe,
+				TimeOut, Debug, QueryNum + 1, Deep)
+		;
+			{ ReadRes = error(Msg, Line) },
+			(
+				{ Debug = yes },
+				format(StdErr,
+					"error reading input line %d: %s\n",
+					[i(Line), s(Msg)])
+			;
+				{ Debug = no }
+			),
+			server_loop(InputPipe, OutputPipe,
+				TimeOut, Debug, QueryNum + 1, Deep)
+		;
+			{ ReadRes = ok(Cmd) },
+			{ try_exec(Cmd, Deep, HTML) },
+			(
+				{ Debug = yes },
+				format(StdErr, "query %d output:\n%s\n",
+					[i(QueryNum), s(HTML)])
+			;
+				{ Debug = no }
+			),
+
+			% If we can't open the output pipe, then we have
+			% no way to report our failure anyway.
+			io__tell(OutputPipe, _),
+			io__write(html(HTML)),
+			io__write_string(".\n"),
+			io__told,
+			( { Cmd = quit } ->
+				{ format("rm -f %s %s",
+					[s(InputPipe), s(OutputPipe)],
+					RemovePipesCmd) },
+				% If we can't open remove the pipes, then
+				% we have no way to report our failure anyway.
+				io__call_system(RemovePipesCmd, _)
+			; { Cmd = timeout(NewTimeOut) } ->
+				server_loop(InputPipe, OutputPipe,
+					NewTimeOut, Debug, QueryNum + 1, Deep)
+			;
+				server_loop(InputPipe, OutputPipe,
+					TimeOut, Debug, QueryNum + 1, Deep)
+			)
 		)
+	;
+		{ SeeRes = error(Error) },
+		{ io__error_message(Error, Msg) },
+		io__write_string(Msg),
+		io__set_exit_status(1)
 	).
 
 %-----------------------------------------------------------------------------%
 
-:- pred try_exec(cmd::in, string::in, deep::in, string::out) is cc_multi.
+:- pred try_exec(cmd::in, deep::in, string::out) is cc_multi.
 
-try_exec(Cmd, URLprefix, Deep, HTML) :-
-	try(exec(Cmd, URLprefix, Deep), Result),
+try_exec(Cmd, Deep, HTML) :-
+	try(exec(Cmd, Deep), Result),
 	(
 		Result = succeeded(HTML)
 	;
@@ -164,18 +244,18 @@ try_exec(Cmd, URLprefix, Deep, HTML) :-
 				[s(Msg)])
 	).
 
-:- pred exec(cmd::in, string::in, deep::in, string::out) is det.
+:- pred exec(cmd::in, deep::in, string::out) is det.
 
-exec(Cmd, _URLprefix, _Deep, HTML) :-
+exec(Cmd, _Deep, HTML) :-
 	Cmd = quit,
 	HTML =
 		"<H1>Shutting down deep profiler.</H1>\n".
 
-exec(Cmd, _URLprefix, _Deep, HTML) :-
+exec(Cmd, _Deep, HTML) :-
 	Cmd = timeout(TimeOut),
 	HTML = format("<H1>Timeout set to %d minutes</H1>\n", [i(TimeOut)]).
 
-exec(Cmd, URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = menu,
 	HTML =
 		banner ++
@@ -183,76 +263,74 @@ exec(Cmd, URLprefix, Deep, HTML) :-
 		menu_text ++
 		"<ul>\n" ++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("root"),
+		menu_item(Deep, root(default_fields),
 			"Exploring the call graph.") ++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+time+self+1-100"),
+		menu_item(Deep, top_procs(time, self,
+			rank_range(1, 100), default_fields),
 			"Top 100 most expensive procedures: time, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+time+both+1-100"),
+		menu_item(Deep, top_procs(time, self_and_desc,
+			rank_range(1, 100), default_fields),
 			"Top 100 most expensive procedures: time, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+words+self+1-100"),
+		menu_item(Deep, top_procs(words, self,
+			rank_range(1, 100), default_fields),
 			"Top 100 most expensive procedures: words, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+words+both+1-100"),
+		menu_item(Deep, top_procs(words, self_and_desc,
+			rank_range(1, 100), default_fields),
 			"Top 100 most expensive procedures: words, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+time+self+0.1"),
+		menu_item(Deep, top_procs(time, self,
+			threshold(0.1), default_fields),
 			"Procedures above 0.1% threshold: time, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+time+both+1"),
+		menu_item(Deep, top_procs(time, self_and_desc,
+			threshold(1.0), default_fields),
 			"Procedures above 1% threshold: time, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+words+self+0.1"),
+		menu_item(Deep, top_procs(words, self,
+			threshold(0.1), default_fields),
 			"Procedures above 0.1% threshold: words, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix,
-			add_default_fields("procs+words+both+1"),
+		menu_item(Deep, top_procs(words, self_and_desc,
+			threshold(1.0), default_fields),
 			"Procedures above 1% threshold: words, self+desc.")
 			++
 		"</ul>\n" ++
 		"<p>\n" ++
 		present_stats(Deep) ++
-		"<p>\n" ++
-		footer(URLprefix, Cmd, Deep).
+		footer(Cmd, Deep).
 
-exec(Cmd, URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = root(Fields),
 	deep_lookup_clique_index(Deep, Deep ^ root, RootCliquePtr),
 	RootCliquePtr = clique_ptr(RootCliqueNum),
-	exec(clique(RootCliqueNum, Fields), URLprefix, Deep, HTML).
+	exec(clique(RootCliqueNum, Fields), Deep, HTML).
 
-exec(Cmd, URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = clique(CliqueNum, Fields),
 	( valid_clique_ptr(Deep, clique_ptr(CliqueNum)) ->
 		HTML =
 			banner ++
 			"<TABLE>\n" ++
 			fields_header(Fields) ++
-			clique_to_html(URLprefix, Deep, Fields,
+			clique_to_html(Deep, Fields,
 				clique_ptr(CliqueNum)) ++
 			"</TABLE>\n" ++
-			footer(URLprefix, Cmd, Deep)
+			footer(Cmd, Deep)
 	;
 		HTML =
 			banner ++
 			"There is no clique with that number.\n" ++
-			footer(URLprefix, Cmd, Deep)
+			footer(Cmd, Deep)
 	).
 
-exec(Cmd, URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = top_procs(Sort, InclDesc, Limit, Fields),
 	find_top_procs(Sort, InclDesc, Limit, Deep, MaybeTopPSIs),
 	(
@@ -260,18 +338,17 @@ exec(Cmd, URLprefix, Deep, HTML) :-
 		HTML =
 			banner ++
 			ErrorMessage ++ "\n" ++
-			footer(URLprefix, Cmd, Deep)
+			footer(Cmd, Deep)
 	;
 		MaybeTopPSIs = ok(TopPSIs),
 		( TopPSIs = [] ->
 			HTML =
 				banner ++
 				"No procedures match the specification.\n" ++
-				footer(URLprefix, Cmd, Deep)
+				footer(Cmd, Deep)
 		;
 			TopProcSummaries = list__map(
-				proc_total_summary_to_html(URLprefix,
-					Deep, Fields),
+				proc_total_summary_to_html(Deep, Fields),
 				TopPSIs),
 			HTML =
 				banner ++
@@ -279,22 +356,22 @@ exec(Cmd, URLprefix, Deep, HTML) :-
 				fields_header(Fields) ++
 				string__append_list(TopProcSummaries) ++
 				"</TABLE>\n" ++
-				footer(URLprefix, Cmd, Deep)
+				footer(Cmd, Deep)
 		)
 	).
 
-exec(Cmd, URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = proc(PSI, Fields),
 	HTML =
 		"<HTML>\n" ++
 		banner ++
 		"<TABLE>\n" ++
 		fields_header(Fields) ++
-		proc_summary_to_html(URLprefix, Deep, Fields, PSI) ++
+		proc_summary_to_html(Deep, Fields, PSI) ++
 		"</TABLE>\n" ++
-		footer(URLprefix, Cmd, Deep).
+		footer(Cmd, Deep).
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = proc_static(PSI),
 	PSPtr = proc_static_ptr(PSI),
 	( valid_proc_static_ptr(Deep, PSPtr) ->
@@ -314,7 +391,7 @@ exec(Cmd, _URLprefix, Deep, HTML) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = proc_dynamic(PDI),
 	PDPtr = proc_dynamic_ptr(PDI),
 	( valid_proc_dynamic_ptr(Deep, PDPtr) ->
@@ -333,7 +410,7 @@ exec(Cmd, _URLprefix, Deep, HTML) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = call_site_static(CSSI),
 	CSSPtr = call_site_static_ptr(CSSI),
 	( valid_call_site_static_ptr(Deep, CSSPtr) ->
@@ -355,7 +432,7 @@ exec(Cmd, _URLprefix, Deep, HTML) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = call_site_dynamic(CSDI),
 	CSDPtr = call_site_dynamic_ptr(CSDI),
 	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
@@ -375,7 +452,7 @@ exec(Cmd, _URLprefix, Deep, HTML) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = raw_clique(CI),
 	CliquePtr = clique_ptr(CI),
 	( valid_clique_ptr(Deep, CliquePtr) ->
@@ -395,28 +472,28 @@ exec(Cmd, _URLprefix, Deep, HTML) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = num_proc_dynamics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_pds) ++
 		"</HTML>\n".
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = num_call_site_dynamics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_csds) ++
 		"</HTML>\n".
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = num_proc_statics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_pss) ++
 		"</HTML>\n".
 
-exec(Cmd, _URLprefix, Deep, HTML) :-
+exec(Cmd, Deep, HTML) :-
 	Cmd = num_call_site_statics,
 	HTML =
 		"<HTML>\n" ++
@@ -501,11 +578,10 @@ present_stats(Deep) = HTML :-
 
 %-----------------------------------------------------------------------------%
 
-:- func clique_to_html(string, deep, fields, clique_ptr) = string.
+:- func clique_to_html(deep, fields, clique_ptr) = string.
 
-clique_to_html(URLprefix, Deep, Fields, CliquePtr) = HTML :-
-	Ancestors = clique_ancestors_to_html(URLprefix, Deep, Fields,
-		CliquePtr),
+clique_to_html(Deep, Fields, CliquePtr) = HTML :-
+	Ancestors = clique_ancestors_to_html(Deep, Fields, CliquePtr),
 	deep_lookup_clique_members(Deep, CliquePtr, PDPtrs),
 	list__foldl(group_proc_dynamics_by_proc_static(Deep), PDPtrs,
 		map__init, PStoPDsMap),
@@ -522,12 +598,12 @@ clique_to_html(URLprefix, Deep, Fields, CliquePtr) = HTML :-
 		PStoPDsList = PStoPDsList0
 	),
 
-	PDsStrs = list__map(
-		procs_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr),
+	PDsStrs = list__map(procs_in_clique_to_html(Deep, Fields, CliquePtr),
 		PStoPDsList),
 	string__append_list(PDsStrs, ProcGroups),
 	HTML =
 		Ancestors ++
+		"<a name=""after_ancestors"">\n" ++
 		ProcGroups.
 
 :- pred proc_group_contains(proc_dynamic_ptr::in,
@@ -536,23 +612,23 @@ clique_to_html(URLprefix, Deep, Fields, CliquePtr) = HTML :-
 proc_group_contains(EntryPDPtr, _ - PDPtrs) :-
 	list__member(EntryPDPtr, PDPtrs).
 
-:- func clique_ancestors_to_html(string, deep, fields, clique_ptr) = string.
+:- func clique_ancestors_to_html(deep, fields, clique_ptr) = string.
 
-clique_ancestors_to_html(URLprefix, Deep, Fields, CliquePtr) = HTML :-
+clique_ancestors_to_html(Deep, Fields, CliquePtr) = HTML :-
 	deep_lookup_clique_index(Deep, Deep ^ root, RootCliquePtr),
 	( CliquePtr = RootCliquePtr ->
 		HTML = ""
 	;
 		deep_lookup_clique_parents(Deep, CliquePtr, EntryCSDPtr),
-		ThisHTML = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+		ThisHTML = call_site_dynamic_to_html(Deep, Fields,
 			call_site_line_number, no, EntryCSDPtr),
 		deep_lookup_call_site_dynamics(Deep, EntryCSDPtr, EntryCSD),
 		EntryCSD = call_site_dynamic(EntryPDPtr, _, _),
 		require(valid_proc_dynamic_ptr(Deep, EntryPDPtr),
 			"clique_ancestors_to_html: invalid proc_dynamic"),
 		deep_lookup_clique_index(Deep, EntryPDPtr, EntryCliquePtr),
-		AncestorHTML = clique_ancestors_to_html(URLprefix,
-			Deep, Fields, EntryCliquePtr),
+		AncestorHTML = clique_ancestors_to_html(Deep, Fields,
+			EntryCliquePtr),
 		HTML =
 			AncestorHTML ++
 			ThisHTML
@@ -574,26 +650,24 @@ group_proc_dynamics_by_proc_static(Deep, PDPtr, PStoPDsMap0, PStoPDsMap) :-
 		map__det_insert(PStoPDsMap0, PSPtr, [PDPtr], PStoPDsMap)
 	).
 
-:- func procs_in_clique_to_html(string, deep, fields,
-	clique_ptr, pair(proc_static_ptr, list(proc_dynamic_ptr))) = string.
+:- func procs_in_clique_to_html(deep, fields, clique_ptr,
+	pair(proc_static_ptr, list(proc_dynamic_ptr))) = string.
 
-procs_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PSPtr - PDPtrs)
-		= HTML :-
+procs_in_clique_to_html(Deep, Fields, CliquePtr, PSPtr - PDPtrs) = HTML :-
 	( PDPtrs = [] ->
 		HTML = ""
 	; PDPtrs = [PDPtr] ->
-		HTML = proc_in_clique_to_html(URLprefix, Deep, Fields,
-			CliquePtr, PDPtr)
+		HTML = proc_in_clique_to_html(Deep, Fields, CliquePtr, PDPtr)
 	;
 		Separator = separator_row(Fields),
 		list__map(deep_lookup_pd_own(Deep), PDPtrs, ProcOwns),
 		list__map(deep_lookup_pd_desc(Deep), PDPtrs, ProcDescs),
 		ProcOwn = sum_own_infos(ProcOwns),
 		ProcDesc = sum_inherit_infos(ProcDescs),
-		ProcTotal = proc_total_in_clique(URLprefix, Deep, Fields,
+		ProcTotal = proc_total_in_clique(Deep, Fields,
 			PSPtr, no, ProcOwn, ProcDesc),
-		ComponentHTMLs = list__map(proc_in_clique_to_html(URLprefix,
-			Deep, Fields, CliquePtr), PDPtrs),
+		ComponentHTMLs = list__map(proc_in_clique_to_html(Deep, Fields,
+			CliquePtr), PDPtrs),
 		string__append_list(ComponentHTMLs, ComponentHTML),
 		HTML =
 			Separator ++
@@ -602,22 +676,22 @@ procs_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PSPtr - PDPtrs)
 			ComponentHTML
 	).
 
-:- func proc_in_clique_to_html(string, deep, fields,
-	clique_ptr, proc_dynamic_ptr) = string.
+:- func proc_in_clique_to_html(deep, fields, clique_ptr, proc_dynamic_ptr)
+	= string.
 
-proc_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PDPtr) = HTML :-
+proc_in_clique_to_html(Deep, Fields, CliquePtr, PDPtr) = HTML :-
 	( valid_proc_dynamic_ptr(Deep, PDPtr) ->
 		InitialSeparator = separator_row(Fields),
 		deep_lookup_pd_own(Deep, PDPtr, ProcOwn),
 		deep_lookup_pd_desc(Deep, PDPtr, ProcDesc),
 		deep_lookup_proc_dynamics(Deep, PDPtr, PD),
 		PD = proc_dynamic(PSPtr, _),
-		ProcTotal = proc_total_in_clique(URLprefix, Deep, Fields,
+		ProcTotal = proc_total_in_clique(Deep, Fields,
 			PSPtr, yes, ProcOwn, ProcDesc),
 		child_call_sites(Deep ^ proc_dynamics, Deep ^ proc_statics,
 			PDPtr, GroupPairs),
-		list__foldl(call_site_group_to_html(URLprefix, Deep,
-			Fields, CliquePtr), GroupPairs, map__init, GroupMap),
+		list__foldl(call_site_group_to_html(Deep, Fields, CliquePtr),
+			GroupPairs, map__init, GroupMap),
 		map__to_assoc_list(GroupMap, GroupPairLists),
 		assoc_list__values(GroupPairLists, GroupLists),
 		list__condense(GroupLists, GroupList),
@@ -635,11 +709,11 @@ proc_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PDPtr) = HTML :-
 		HTML = ""
 	).
 
-:- func proc_total_in_clique(string, deep, fields, proc_static_ptr, bool,
+:- func proc_total_in_clique(deep, fields, proc_static_ptr, bool,
 	own_prof_info, inherit_prof_info) = string.
 
-proc_total_in_clique(URLprefix, Deep, Fields, PSPtr, Only, Own, Desc) = HTML :-
-	ProcName = proc_static_to_html_ref(URLprefix, Deep, Fields, PSPtr),
+proc_total_in_clique(Deep, Fields, PSPtr, Only, Own, Desc) = HTML :-
+	ProcName = proc_static_to_html_ref(Deep, Fields, PSPtr),
 	(
 		Only = no,
 		OnlyStr = "summary "
@@ -654,12 +728,12 @@ proc_total_in_clique(URLprefix, Deep, Fields, PSPtr, Only, Own, Desc) = HTML :-
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
 
-:- pred call_site_group_to_html(string::in, deep::in, fields::in,
+:- pred call_site_group_to_html(deep::in, fields::in,
 	clique_ptr::in, pair(call_site_static_ptr, call_site_array_slot)::in,
 	map(pair(string, int), list(string))::in,
 	map(pair(string, int), list(string))::out) is det.
 
-call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair,
+call_site_group_to_html(Deep, Fields, ThisCliquePtr, Pair,
 		GroupMap0, GroupMap) :-
 	Pair = CSSPtr - CallSiteArray,
 	deep_lookup_call_site_statics(Deep, CSSPtr, CSS),
@@ -672,7 +746,7 @@ call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair,
 		;
 			error("call_site_group_to_html: normal_call error")
 		),
-		HTML = maybe_call_site_dynamic_to_html(URLprefix, Deep, Fields,
+		HTML = maybe_call_site_dynamic_to_html(Deep, Fields,
 			call_site_line_number, ThisCliquePtr, CSDPtr)
 	;
 		( CallSiteArray = multi(CSDPtrs0) ->
@@ -681,8 +755,8 @@ call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair,
 			error("call_site_group_to_html: non-normal_call error")
 		),
 		Tuple0 = { "", zero_own_prof_info, zero_inherit_prof_info },
-		Tuple = list__foldl(call_site_array_to_html(URLprefix,
-			Deep, Fields, no_call_site_line_number, ThisCliquePtr),
+		Tuple = list__foldl(call_site_array_to_html(Deep, Fields,
+			no_call_site_line_number, ThisCliquePtr),
 			CSDPtrs, Tuple0),
 		Tuple = { GroupHTML, SumOwn, SumDesc },
 		CallSiteName0 = call_site_kind_and_callee_to_html(Kind),
@@ -707,16 +781,16 @@ call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair,
 		map__det_insert(GroupMap0, Key, [HTML], GroupMap)
 	).
 
-:- func call_site_array_to_html(string, deep, fields, call_site_line_number,
+:- func call_site_array_to_html(deep, fields, call_site_line_number,
 	clique_ptr, call_site_dynamic_ptr,
 	{string, own_prof_info, inherit_prof_info}) =
 	{string, own_prof_info, inherit_prof_info}.
 
-call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
+call_site_array_to_html(Deep, Fields, PrintCallSiteLineNmber,
 		ThisCliquePtr, CSDPtr, Tuple0) = Tuple :-
 	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
 		Tuple0 = { HTML0, Own0, Desc0 },
-		HTML1 = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+		HTML1 = call_site_dynamic_to_html(Deep, Fields,
 			PrintCallSiteLineNmber, yes(ThisCliquePtr), CSDPtr),
 		string__append(HTML0, HTML1, HTML),
 		deep_lookup_csd_own(Deep, CSDPtr, CallSiteOwn),
@@ -761,13 +835,12 @@ process_call_site_dynamics_group([CSDPtr | CSDPtrs], Deep, CalleePSPtr,
 	process_call_site_dynamics_group(CSDPtrs, Deep, CalleePSPtr,
 		MaybeToCliquePtr1, MaybeToCliquePtr, Own1, Own, Desc1, Desc).
 
-:- func call_site_dynamics_to_html(string, deep, fields,
-	maybe(pair(string, int)), clique_ptr, clique_ptr,
-	proc_static_ptr, own_prof_info, inherit_prof_info) = string.
+:- func call_site_dynamics_to_html(deep, fields, maybe(pair(string, int)),
+	clique_ptr, clique_ptr, proc_static_ptr,
+	own_prof_info, inherit_prof_info) = string.
 
-call_site_dynamics_to_html(URLprefix, Deep, Fields, MaybeFileNameLineNumber,
-		ThisCliquePtr, ToCliquePtr, PSPtr, Own, Desc)
-		= HTML :-
+call_site_dynamics_to_html(Deep, Fields, MaybeFileNameLineNumber,
+		ThisCliquePtr, ToCliquePtr, PSPtr, Own, Desc) = HTML :-
 	deep_lookup_proc_statics(Deep, PSPtr, PS),
 	CalleeName = PS ^ ps_refined_id,
 	( ThisCliquePtr = ToCliquePtr ->
@@ -775,10 +848,11 @@ call_site_dynamics_to_html(URLprefix, Deep, Fields, MaybeFileNameLineNumber,
 		ProcName = CalleeName
 	;
 		ToCliquePtr = clique_ptr(ToCliqueNum),
+		ToCliqueURL = deep_cmd_to_url(Deep,
+			clique(ToCliqueNum, Fields)),
 		ProcName =
-			format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
-				[s(URLprefix), s(Fields),
-				i(ToCliqueNum), s(CalleeName)])
+			format("<A HREF=""%s"">%s</A>\n",
+				[s(ToCliqueURL), s(CalleeName)])
 	),
 	( MaybeFileNameLineNumber = yes(FileName - LineNumber) ->
 		SourceField =
@@ -794,22 +868,22 @@ call_site_dynamics_to_html(URLprefix, Deep, Fields, MaybeFileNameLineNumber,
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
 
-:- func maybe_call_site_dynamic_to_html(string, deep, fields,
-	call_site_line_number, clique_ptr, call_site_dynamic_ptr) = string.
+:- func maybe_call_site_dynamic_to_html(deep, fields, call_site_line_number,
+	clique_ptr, call_site_dynamic_ptr) = string.
 
-maybe_call_site_dynamic_to_html(URLprefix, Deep, Fields,
-		PrintCallSiteLineNmber, ThisCliquePtr, CSDPtr) = HTML :-
+maybe_call_site_dynamic_to_html(Deep, Fields, PrintCallSiteLineNmber,
+		ThisCliquePtr, CSDPtr) = HTML :-
 	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
-		HTML = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+		HTML = call_site_dynamic_to_html(Deep, Fields,
 			PrintCallSiteLineNmber, yes(ThisCliquePtr), CSDPtr)
 	;
 		HTML = ""
 	).
 
-:- func call_site_dynamic_to_html(string, deep, fields, call_site_line_number,
+:- func call_site_dynamic_to_html(deep, fields, call_site_line_number,
 	maybe(clique_ptr), call_site_dynamic_ptr) = string.
 
-call_site_dynamic_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
+call_site_dynamic_to_html(Deep, Fields, PrintCallSiteLineNmber,
 		MaybeThisCliquePtr, CSDPtr) = HTML :-
 	require(valid_call_site_dynamic_ptr(Deep, CSDPtr),
 		"call_site_dynamic_to_html: invalid call_site_dynamic_ptr"),
@@ -827,10 +901,11 @@ call_site_dynamic_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 			ProcName = CalleeName
 		;
 			ToCliquePtr = clique_ptr(ToCliqueNum),
+			ToCliqueURL = deep_cmd_to_url(Deep,
+				clique(ToCliqueNum, Fields)),
 			ProcName =
-				format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
-					[s(URLprefix), s(Fields),
-					i(ToCliqueNum), s(CalleeName)])
+				format("<A HREF=""%s"">%s</A>\n",
+					[s(ToCliqueURL), s(CalleeName)])
 		)
 	;
 		ProcName = "builtin special procedure"
@@ -856,40 +931,38 @@ call_site_dynamic_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 
 %-----------------------------------------------------------------------------%
 
-:- func proc_summary_to_html(string, deep, string, int) = string.
+:- func proc_summary_to_html(deep, string, int) = string.
 
-proc_summary_to_html(URLprefix, Deep, Fields, PSI) = HTML :-
+proc_summary_to_html(Deep, Fields, PSI) = HTML :-
 	deep_lookup_proc_statics(Deep, proc_static_ptr(PSI), PS),
 	CSSPtrsArray = PS ^ ps_sites,
 	array__to_list(CSSPtrsArray, CSSPtrs),
 	CallSiteSummaryList =
-		list__map(call_site_summary_to_html(URLprefix, Deep, Fields),
-			CSSPtrs),
+		list__map(call_site_summary_to_html(Deep, Fields), CSSPtrs),
 	string__append_list(CallSiteSummaryList, CallSiteSummaries),
 	HTML =
-		proc_total_summary_to_html(URLprefix, Deep, Fields, PSI) ++
+		proc_total_summary_to_html(Deep, Fields, PSI) ++
 		CallSiteSummaries.
 
-:- func proc_total_summary_to_html(string, deep, string, int) = string.
+:- func proc_total_summary_to_html(deep, string, int) = string.
 
-proc_total_summary_to_html(URLprefix, Deep, Fields, PSI) = HTML :-
+proc_total_summary_to_html(Deep, Fields, PSI) = HTML :-
 	PSPtr = proc_static_ptr(PSI),
 	deep_lookup_ps_own(Deep, PSPtr, Own),
 	deep_lookup_ps_desc(Deep, PSPtr, Desc),
 	HTML =
 		"<TR>\n" ++
 		format("<TD COLSPAN=2>%s</TD>\n",
-			[s(proc_static_to_html_ref(URLprefix,
-				Deep, Fields, proc_static_ptr(PSI)))]) ++
+			[s(proc_static_to_html_ref(Deep, Fields,
+				proc_static_ptr(PSI)))]) ++
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
 
 %-----------------------------------------------------------------------------%
 
-:- func call_site_summary_to_html(string, deep, string, call_site_static_ptr)
-	= string.
+:- func call_site_summary_to_html(deep, string, call_site_static_ptr) = string.
 
-call_site_summary_to_html(URLprefix, Deep, Fields, CSSPtr) = HTML :-
+call_site_summary_to_html(Deep, Fields, CSSPtr) = HTML :-
 	deep_lookup_css_own(Deep, CSSPtr, Own),
 	deep_lookup_css_desc(Deep, CSSPtr, Desc),
 	deep_lookup_call_site_statics(Deep, CSSPtr, CSS),
@@ -927,8 +1000,7 @@ call_site_summary_to_html(URLprefix, Deep, Fields, CSSPtr) = HTML :-
 				[s(CallSiteName)]) ++
 			own_and_desc_to_html(Own, Desc, Deep, Fields),
 		CallSiteCallLines = list__map(
-			call_site_summary_group_to_html(URLprefix,
-				Deep, Fields),
+			call_site_summary_group_to_html(Deep, Fields),
 			CallSiteCallList),
 		string__append_list(CallSiteCallLines, AdditionalLines)
 	),
@@ -947,18 +1019,16 @@ call_site_kind_and_callee_to_html(higher_order_call) = "higher_order_call".
 call_site_kind_and_callee_to_html(method_call) =       "method_call".
 call_site_kind_and_callee_to_html(callback) =          "callback".
 
-:- func call_site_summary_group_to_html(string, deep, string,
+:- func call_site_summary_group_to_html(deep, string,
 	pair(proc_static_ptr, list(call_site_dynamic_ptr))) = string.
 
-call_site_summary_group_to_html(URLprefix, Deep, Fields, PSPtr - CSDPtrs)
-		= HTML :-
+call_site_summary_group_to_html(Deep, Fields, PSPtr - CSDPtrs) = HTML :-
 	list__foldl2(accumulate_csd_prof_info(Deep), CSDPtrs,
 		zero_own_prof_info, Own, zero_inherit_prof_info, Desc),
 	HTML =
 		"<TR>\n" ++
 		format("<TD></TD><TD>%s</TD>\n",
-			[s(proc_static_to_html_ref(URLprefix,
-				Deep, Fields, PSPtr))]) ++
+			[s(proc_static_to_html_ref(Deep, Fields, PSPtr))]) ++
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
 
@@ -993,16 +1063,15 @@ call_site_dynamic_label(Deep, CSDPtr) = Name :-
 		Name = "unknown procedure"
 	).
 
-:- func proc_static_to_html_ref(string, deep, string, proc_static_ptr) = string.
+:- func proc_static_to_html_ref(deep, string, proc_static_ptr) = string.
 
-proc_static_to_html_ref(URLprefix, Deep, Fields, PSPtr) = HTML :-
+proc_static_to_html_ref(Deep, Fields, PSPtr) = HTML :-
 	( valid_proc_static_ptr(Deep, PSPtr) ->
 		deep_lookup_proc_statics(Deep, PSPtr, PS),
 		PSPtr = proc_static_ptr(PSI),
-		HTML =
-			format("<A HREF=""%s?proc+%s+%d"">%s</A>\n",
-				[s(URLprefix), s(Fields), i(PSI),
-				s(PS ^ ps_refined_id)])
+		PSURL = deep_cmd_to_url(Deep, proc(PSI, Fields)),
+		HTML = format("<A HREF=""%s"">%s</A>\n",
+				[s(PSURL), s(PS ^ ps_refined_id)])
 	;
 		HTML =
 			"mercury_runtime"
@@ -1358,9 +1427,9 @@ banner =
 	"<HTML>\n" ++
 	"<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n".
 
-:- func footer(string, cmd, deep) = string.
+:- func footer(cmd, deep) = string.
 
-footer(_URLprefix, _Cmd, _Deep) =
+footer(_Cmd, _Deep) =
 	% Link back to root,
 	% Search, etc, etc.
 	"</HTML>\n".
@@ -1368,13 +1437,13 @@ footer(_URLprefix, _Cmd, _Deep) =
 :- func menu_text = string.
 
 menu_text =
-	"You can start exploring the deep profile at the following points.".
+	"You can start exploring the deep profile at the following points.\n".
 
-:- func menu_item(string, string, string) = string.
+:- func menu_item(deep, cmd, string) = string.
 
-menu_item(URLprefix, URLsuffix, Text) = 
-	format("<A HREF=""%s?%s"">%s</A>\n",
-		[s(URLprefix), s(URLsuffix), s(Text)]).
+menu_item(Deep, Cmd, Text) = 
+	format("<A HREF=""%s"">%s</A>\n",
+		[s(deep_cmd_to_url(Deep, Cmd)), s(Text)]).
 
 %-----------------------------------------------------------------------------%
 
@@ -1396,10 +1465,6 @@ root_own_info(Deep) = RootOwn :-
 	deep_lookup_pd_own(Deep, Deep ^ root, RootOwn).
 
 %-----------------------------------------------------------------------------%
-
-:- func add_default_fields(string) = string.
-
-add_default_fields(Str0) = string__append_list([Str0, "+", default_fields]).
 
 :- func fields_header(fields) = string.
 
@@ -1603,5 +1668,10 @@ own_and_desc_to_html(Own, Desc, Deep, Fields) = HTML :-
 		;
 			""
 		).
+
+:- func deep_cmd_to_url(deep, cmd) = string.
+
+deep_cmd_to_url(Deep, Cmd) = URL :-
+	cmd_to_url(Deep ^ server_name, Deep ^ data_file_name, Cmd, URL).
 
 %-----------------------------------------------------------------------------%

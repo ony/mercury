@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -178,7 +178,7 @@ first_order_check_goal(not(Goal - GoalInfo), _GoalInfo, _Negated,
 		WholeScc, ThisPredProcId, Error, Module0, Module) -->
 	first_order_check_goal(Goal, GoalInfo, yes, WholeScc, ThisPredProcId,
 		Error, Module0, Module).
-first_order_check_goal(pragma_foreign_code(_Attributes, CPred,
+first_order_check_goal(foreign_proc(_Attributes, CPred,
 			CProc, _, _, _, _), 
 		GoalInfo, Negated, WholeScc, ThisPredProcId, 
 		Error, Module0, Module) -->
@@ -213,9 +213,9 @@ first_order_check_goal(call(CPred, CProc, _Args, _BuiltinState, _Contex, _Sym),
 first_order_check_goal(generic_call(_Var, _Vars, _Modes, _Det),
 	_GInfo, _Negated, _WholeScc, _ThisPredProcId, 
 	_Error,  Module, Module) --> []. 
-first_order_check_goal(bi_implication(_, _), _, _, _, _, _, _, _) -->
+first_order_check_goal(shorthand(_), _, _, _, _, _, _, _) -->
 	% these should have been expanded out by now
-	{ error("first_order_check_goal: unexpected bi_implication") }.
+	{ error("first_order_check_goal: unexpected shorthand") }.
 
 :- pred first_order_check_goal_list(list(hlds_goal), bool, 
 	list(pred_proc_id), pred_proc_id, bool, module_info, 
@@ -335,7 +335,7 @@ higher_order_check_goal(not(Goal - GoalInfo), _GoalInfo, _Negated, WholeScc,
 		ThisPredProcId, HighOrderLoops, Error, Module0, Module) -->
 	higher_order_check_goal(Goal, GoalInfo, yes, WholeScc, ThisPredProcId,
 		HighOrderLoops, Error, Module0, Module).
-higher_order_check_goal(pragma_foreign_code(_IsRec, _, _, _, _, _, _),
+higher_order_check_goal(foreign_proc(_IsRec, _, _, _, _, _, _),
 	_GoalInfo, _Negated, _WholeScc, _ThisPredProcId, _HighOrderLoops, 
 	_, Module, Module) --> [].
 higher_order_check_goal(unify(_Var, _RHS, _Mode, _Uni, _Context), _GoalInfo,
@@ -381,9 +381,9 @@ higher_order_check_goal(generic_call(GenericCall, _Vars, _Modes, _Det),
 	;
 		{ Module = Module0 }
 	).
-higher_order_check_goal(bi_implication(_, _), _, _, _, _, _, _, _, _) -->
+higher_order_check_goal(shorthand(_), _, _, _, _, _, _, _, _) -->
 	% these should have been expanded out by now
-	{ error("higher_order_check_goal: unexpected bi_implication") }.
+	{ error("higher_order_check_goal: unexpected shorthand") }.
 
 :- pred higher_order_check_goal_list(list(hlds_goal), bool, set(pred_proc_id),
 	pred_proc_id, bool, bool, module_info, module_info, 
@@ -822,12 +822,12 @@ check_goal1(not(Goal - _GoalInfo), Calls0, Calls, HasAT0, HasAT, CallsHO0,
 		CallsHO) :- 
 	check_goal1(Goal, Calls0, Calls, HasAT0, HasAT, CallsHO0, CallsHO).
 
-check_goal1(pragma_foreign_code(_Attrib, _CPred, _CProc, _, _, _, _),
+check_goal1(foreign_proc(_Attrib, _CPred, _CProc, _, _, _, _),
 		Calls, Calls, HasAT, HasAT, CallsHO, CallsHO).
 
-check_goal1(bi_implication(_, _), _, _, _, _, _, _) :-
+check_goal1(shorthand(_), _, _, _, _, _, _) :-
 	% these should have been expanded out by now
-	error("check_goal1: unexpected bi_implication").
+	error("check_goal1: unexpected shorthand").
 	
 :- pred check_goal_list(list(hlds_goal), set(pred_proc_id), set(pred_proc_id), 
 	set(pred_proc_id), set(pred_proc_id), bool, bool). 
@@ -913,11 +913,11 @@ get_called_procs(some(_Vars, _, Goal - _GoalInfo), Calls0, Calls) :-
 	get_called_procs(Goal, Calls0, Calls).
 get_called_procs(not(Goal - _GoalInfo), Calls0, Calls) :-
 	get_called_procs(Goal, Calls0, Calls).
-get_called_procs(pragma_foreign_code(_Attrib, _CPred, _CProc,
+get_called_procs(foreign_proc(_Attrib, _CPred, _CProc,
 		_, _, _, _), Calls, Calls).
-get_called_procs(bi_implication(_, _), _, _) :-
+get_called_procs(shorthand(_), _, _) :-
 	% these should have been expanded out by now
-	error("get_called_procs: unexpected bi_implication").
+	error("get_called_procs: unexpected shorthand").
 
 :- pred check_goal_list(list(hlds_goal), list(pred_proc_id), 
 	list(pred_proc_id)).

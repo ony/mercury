@@ -21,6 +21,7 @@
 
 /* DEFINITIONS FOR MANIPULATING THE DET STACK */
 
+/* Stack slots start numbering at 1 */
 #define	MR_based_stackvar(base_sp, n)	((base_sp)[-(n)])
 #define	MR_stackvar(n)			MR_based_stackvar(MR_sp, (n))
 
@@ -124,9 +125,6 @@
 				MR_debugmkframe(predname);		\
 				MR_nondstack_overflow_check();		\
 			} while (0)
-
-/* convert a size in bytes to a size in words, rounding up if necessary */
-#define MR_bytes_to_words(x) (((x) + sizeof(MR_Word) - 1) / sizeof(MR_Word))
 
 /* just like mkframe, but also reserves space for a struct     */
 /* with the given tag at the bottom of the nondet stack frame  */

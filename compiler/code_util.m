@@ -475,12 +475,12 @@ code_util__goal_may_allocate_heap_2(unify(_, _, _, Unification, _), May) :-
 	;
 		May = no
 	).
-	% We cannot safely say that a C code fragment does not allocate memory
-	% without knowing all the #defined macros that expand to incr_hp and
-	% variants thereof.
-	% XXX although you could make it an attribute of the C code and
+	% We cannot safely say that a foreign code fragment does not
+	% allocate memory without knowing all the #defined macros that
+	% expand to incr_hp and variants thereof.
+	% XXX although you could make it an attribute of the foreign code and
 	% trust the programmer
-code_util__goal_may_allocate_heap_2(pragma_foreign_code(_,_,_,_,_,_,_), yes).
+code_util__goal_may_allocate_heap_2(foreign_proc(_,_,_,_,_,_,_), yes).
 code_util__goal_may_allocate_heap_2(some(_Vars, _, Goal), May) :-
 	code_util__goal_may_allocate_heap(Goal, May).
 code_util__goal_may_allocate_heap_2(not(Goal), May) :-
@@ -500,12 +500,20 @@ code_util__goal_may_allocate_heap_2(if_then_else(_Vars, C, T, E, _), May) :-
 	;
 		code_util__goal_may_allocate_heap(E, May)
 	).
-code_util__goal_may_allocate_heap_2(bi_implication(G1, G2), May) :-
+code_util__goal_may_allocate_heap_2(shorthand(ShorthandGoal), May) :-
+	code_util__goal_may_allocate_heap_2_shorthand(ShorthandGoal, May).
+
+:- pred code_util__goal_may_allocate_heap_2_shorthand(shorthand_goal_expr::in, 
+	bool::out) is det.
+	
+code_util__goal_may_allocate_heap_2_shorthand(bi_implication(G1, G2), May) :-
 	( code_util__goal_may_allocate_heap(G1, yes) ->
 		May = yes
 	;
 		code_util__goal_may_allocate_heap(G2, May)
 	).
+
+
 
 :- pred code_util__goal_list_may_allocate_heap(list(hlds_goal)::in, bool::out)
 	is det.
@@ -544,11 +552,11 @@ code_util__goal_may_alloc_temp_frame(Goal - _GoalInfo, May) :-
 code_util__goal_may_alloc_temp_frame_2(generic_call(_, _, _, _), no).
 code_util__goal_may_alloc_temp_frame_2(call(_, _, _, _, _, _), no).
 code_util__goal_may_alloc_temp_frame_2(unify(_, _, _, _, _), no).
-	% We cannot safely say that a C code fragment does not allocate
+	% We cannot safely say that a foreign code fragment does not allocate
 	% temporary nondet frames without knowing all the #defined macros
 	% that expand to mktempframe and variants thereof. The performance
 	% impact of being too conservative is probably not too bad.
-code_util__goal_may_alloc_temp_frame_2(pragma_foreign_code(_,_,_,_,_,_,_),
+code_util__goal_may_alloc_temp_frame_2(foreign_proc(_,_,_,_,_,_,_),
 		yes).
 code_util__goal_may_alloc_temp_frame_2(some(_Vars, _, Goal), May) :-
 	Goal = _ - GoalInfo,
@@ -576,12 +584,20 @@ code_util__goal_may_alloc_temp_frame_2(if_then_else(_Vars, C, T, E, _), May) :-
 	;
 		code_util__goal_may_alloc_temp_frame(E, May)
 	).
-code_util__goal_may_alloc_temp_frame_2(bi_implication(G1, G2), May) :-
+code_util__goal_may_alloc_temp_frame_2(shorthand(ShorthandGoal), May) :-
+	code_util__goal_may_alloc_temp_frame_2_shorthand(ShorthandGoal,May).
+		
+:- pred code_util__goal_may_alloc_temp_frame_2_shorthand(
+		shorthand_goal_expr::in, bool::out) is det.
+
+code_util__goal_may_alloc_temp_frame_2_shorthand(bi_implication(G1, G2), 
+		May) :-
 	( code_util__goal_may_alloc_temp_frame(G1, yes) ->
 		May = yes
 	;
 		code_util__goal_may_alloc_temp_frame(G2, May)
 	).
+
 
 :- pred code_util__goal_list_may_alloc_temp_frame(list(hlds_goal)::in,
 	bool::out) is det.
@@ -813,7 +829,7 @@ code_util__count_recursive_calls_2(some(_, _, Goal),
 code_util__count_recursive_calls_2(unify(_, _, _, _, _), _, _, 0, 0).
 code_util__count_recursive_calls_2(generic_call(_, _, _, _), _, _,
 		0, 0).
-code_util__count_recursive_calls_2(pragma_foreign_code(_, _, _, _, _, _, _),
+code_util__count_recursive_calls_2(foreign_proc(_, _, _, _, _, _, _),
 		_, _, 0, 0).
 code_util__count_recursive_calls_2(call(CallPredId, CallProcId, _, _, _, _),
 		PredId, ProcId, Count, Count) :-
@@ -844,10 +860,10 @@ code_util__count_recursive_calls_2(if_then_else(_, Cond, Then, Else, _),
 	CTMax is CMax + TMax,
 	int__min(CTMin, EMin, Min),
 	int__max(CTMax, EMax, Max).
-code_util__count_recursive_calls_2(bi_implication(_, _),
+code_util__count_recursive_calls_2(shorthand(_),
 		_, _, _, _) :-
 	% these should have been expanded out by now
-	error("code_util__count_recursive_calls_2: unexpected bi_implication").
+	error("code_util__count_recursive_calls_2: unexpected shorthand").
 
 :- pred code_util__count_recursive_calls_conj(list(hlds_goal),
 	pred_id, proc_id, int, int, int, int).

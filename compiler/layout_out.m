@@ -251,11 +251,6 @@ output_layout_name(proc_static_call_sites(RttiProcLabel)) -->
 	io__write_string("_proc_static_call_sites__"),
 	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
 	output_proc_label(ProcLabel).
-	% % This should not be necessary, but type specialization
-	% % can produce (e.g. in set_ordlist) more than one copy of a predicate.
-	% io__write_string("_id"),
-	% { pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
-	% io__write_int(PredId).
 
 output_layout_name_storage_type_name(label_layout(Label, LabelVars),
 		_BeingDefined) -->

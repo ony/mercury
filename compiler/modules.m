@@ -554,6 +554,7 @@ mercury_std_library_module("gc").
 mercury_std_library_module("getopt").
 mercury_std_library_module("graph").
 mercury_std_library_module("group").
+mercury_std_library_module("hash_table").
 mercury_std_library_module("int").
 mercury_std_library_module("integer").
 mercury_std_library_module("io").
@@ -791,8 +792,9 @@ make_directory(DirName) -->
 	( { dir__this_directory(DirName) } ->
 		[]
 	;
-		{ string__format("[ -d %s ] || mkdir -p %s",
-			[s(DirName), s(DirName)], Command) },
+		{ make_command_string(string__format(
+			"[ -d %s ] || mkdir -p %s",
+			[s(DirName), s(DirName)]), forward, Command) },
 		io__call_system(Command, _Result)
 	).
 
@@ -848,7 +850,7 @@ make_private_interface(SourceFileName, ModuleName, Items0) -->
 	% and use these to qualify all items in the interface as much as
 	% possible. Then write out the .int and .int2 files.
 make_interface(SourceFileName, ModuleName, Items0) -->
-	{ get_interface(Items0, no, InterfaceItems0) },
+	{ get_interface(Items0, InterfaceItems0) },
 		% 
 		% Get the .int3 files for imported modules
 		%
@@ -894,7 +896,7 @@ make_interface(SourceFileName, ModuleName, Items0) -->
 			check_int_for_no_exports(InterfaceItems, ModuleName),
 			write_interface_file(ModuleName, ".int",
 							InterfaceItems),
-			{ get_short_interface(InterfaceItems,
+			{ get_short_interface(InterfaceItems, int2,
 						ShortInterfaceItems) },
 			write_interface_file(ModuleName, ".int2",
 						ShortInterfaceItems),
@@ -905,12 +907,12 @@ make_interface(SourceFileName, ModuleName, Items0) -->
 	% This qualifies everything as much as it can given the
 	% information in the current module and writes out the .int3 file.
 make_short_interface(ModuleName, Items0) -->
-	{ get_interface(Items0, no, InterfaceItems0) },
+	{ get_interface(Items0, InterfaceItems0) },
 		% assertions are also stripped since they should
 		% only be written to .opt files,
 	{ strip_assertions(InterfaceItems0, InterfaceItems1) },
 	check_for_clauses_in_interface(InterfaceItems1, InterfaceItems),
-	{ get_short_interface(InterfaceItems, ShortInterfaceItems0) },
+	{ get_short_interface(InterfaceItems, int3, ShortInterfaceItems0) },
 	module_qual__module_qualify_items(ShortInterfaceItems0,
 			ShortInterfaceItems, ModuleName, no, _, _, _, _),
 	write_interface_file(ModuleName, ".int3", ShortInterfaceItems),
@@ -1025,8 +1027,8 @@ split_clauses_and_decls([ItemAndContext0 | Items0],
 % header file, which currently we don't.
 
 pragma_allowed_in_interface(foreign_decl(_, _), no).
-pragma_allowed_in_interface(foreign(_, _), no).
-pragma_allowed_in_interface(foreign(_, _, _, _, _, _), no).
+pragma_allowed_in_interface(foreign_code(_, _), no).
+pragma_allowed_in_interface(foreign_proc(_, _, _, _, _, _), no).
 pragma_allowed_in_interface(inline(_, _), no).
 pragma_allowed_in_interface(no_inline(_, _), no).
 pragma_allowed_in_interface(obsolete(_, _), yes).
@@ -1037,6 +1039,7 @@ pragma_allowed_in_interface(source_file(_), yes).
 pragma_allowed_in_interface(fact_table(_, _, _), no).
 pragma_allowed_in_interface(tabled(_, _, _, _, _), no).
 pragma_allowed_in_interface(promise_pure(_, _), no).
+pragma_allowed_in_interface(promise_semipure(_, _), no).
 pragma_allowed_in_interface(unused_args(_, _, _, _, _), no).
 pragma_allowed_in_interface(type_spec(_, _, _, _, _, _, _), yes).
 pragma_allowed_in_interface(termination_info(_, _, _, _, _), yes).
@@ -1061,7 +1064,7 @@ check_for_no_exports(Items, ModuleName) -->
 	( { ExportWarning = no } ->
 		[]
 	;
-		{ get_interface(Items, no, InterfaceItems) },
+		{ get_interface(Items, InterfaceItems) },
 		check_int_for_no_exports(InterfaceItems, ModuleName)
 	).
 
@@ -1217,7 +1220,7 @@ grab_imported_modules(SourceFileName, ModuleName, Items0, Module, Error) -->
 			ImpUsedModules0, ImpUsedModules),
 
 	{ get_fact_table_dependencies(Items0, FactDeps) },
-	{ get_interface(Items0, no, InterfaceItems) },
+	{ get_interface(Items0, InterfaceItems) },
 	{ get_children(InterfaceItems, PublicChildren) },
 	{ init_module_imports(SourceFileName, ModuleName, Items0,
 		PublicChildren, FactDeps, Module0) },
@@ -1989,15 +1992,40 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__close_output(DepStream),
 		io__rename_file(TmpDependencyFileName, DependencyFileName,
 			Result3),
-		( { Result3 = error(Error) } ->
-			maybe_write_string(Verbose, " failed.\n"),
-			maybe_flush_output(Verbose),
-			{ io__error_message(Error, ErrorMsg) },
-			{ string__append_list(["can't rename file `",
-				TmpDependencyFileName, "' as `",
-				DependencyFileName, "': ", ErrorMsg],
-				Message) },
-			report_error(Message)
+		( { Result3 = error(_) } ->
+			% On some systems, we need to remove the existing file
+			% first, if any.  So try again that way.
+			io__remove_file(DependencyFileName, Result4),
+			( { Result4 = error(Error4) } ->
+				maybe_write_string(Verbose, " failed.\n"),
+				maybe_flush_output(Verbose),
+				{ io__error_message(Error4, ErrorMsg) },
+				{ string__append_list(["can't remove file `",
+					DependencyFileName, "': ", ErrorMsg],
+					Message) },
+				report_error(Message)
+			;
+				io__rename_file(TmpDependencyFileName,
+					DependencyFileName, Result5),
+				( { Result5 = error(Error5) } ->
+					maybe_write_string(Verbose,
+						" failed.\n"),
+					maybe_flush_output(Verbose),
+					{ io__error_message(Error5,
+						ErrorMsg) },
+					{ string__append_list(
+						["can't rename file `",
+						TmpDependencyFileName,
+						"' as `",
+						DependencyFileName,
+						"': ",
+						ErrorMsg],
+						Message) },
+					report_error(Message)
+				;
+					maybe_write_string(Verbose, " done.\n")
+				)
+			)
 		;
 			maybe_write_string(Verbose, " done.\n")
 		)
@@ -2711,6 +2739,8 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	write_compact_dependencies_list(Modules, "$(os_subdir)",
 					".$(EXT_FOR_PIC_OBJECTS)",
 					Basis, DepStream),
+	write_extra_link_dependencies_list(ExtraLinkObjs,
+					".$(EXT_FOR_PIC_OBJECTS)", DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -3063,7 +3093,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_lib_file_name("lib", ModuleName, ".install_hdrs", no,
 				LibInstallHdrsTargetName),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	( { HighLevelCode = yes } ->
+	globals__io_get_target(Target),
+	( { HighLevelCode = yes, ( Target = c ; Target = asm ) } ->
 		%
 		% XXX  Note that we install the header files in two places:
 		% in the `inc' directory, so that the C compiler will find
@@ -3214,6 +3245,7 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 	]).
 
 %-----------------------------------------------------------------------------%
+
 	% get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
 	% Find any extra .$O files that should be linked into the executable.
 	% These include fact table object files and object files for foreign
@@ -3279,8 +3311,8 @@ item_list_contains_foreign_code([Item|Items]) :-
 		% do if there is some foreign_code, not just foreign_decls.
 		% Counting foreign_decls here causes problems with
 		% intermodule optimization.
-		(	Pragma = foreign(_Lang, _)
-		;	Pragma = foreign(_, _, _, _, _, _)
+		(	Pragma = foreign_code(_Lang, _)
+		;	Pragma = foreign_proc(_, _, _, _, _, _)
 		;	% XXX `pragma export' should not be treated as
 			% foreign, but currently mlds_to_gcc.m doesn't
 			% handle that declaration, and instead just punts
@@ -3489,7 +3521,7 @@ init_dependencies(FileName, Error, Globals, ModuleName - Items,
 		ImplImportDeps, ImplUseDeps),
 	list__append(ImplImportDeps, ImplUseDeps, ImplementationDeps),
 
-	get_interface(Items, no, InterfaceItems),
+	get_interface(Items, InterfaceItems),
 	get_dependencies(InterfaceItems, InterfaceImportDeps0,
 		InterfaceUseDeps0),
 	add_implicit_imports(InterfaceItems, Globals,
@@ -4322,24 +4354,22 @@ report_error_implementation_in_interface(ModuleName, Context) -->
 
 	% Given a module (well, a list of items), extract the interface
 	% part of that module, i.e. all the items between `:- interface'
-	% and `:- implementation'. If IncludeImported is yes, also
-	% include all items after a `:- imported'. This is useful for
-	% making the .int file.
+	% and `:- implementation'.
 	% The bodies of instance definitions are removed because
 	% the instance methods have not yet been module qualified.
-:- pred get_interface(item_list, bool, item_list).
-:- mode get_interface(in, in, out) is det.
+:- pred get_interface(item_list, item_list).
+:- mode get_interface(in, out) is det.
 
-get_interface(Items0, IncludeImported, Items) :-
-	get_interface_2(Items0, no, IncludeImported, [], RevItems),
+get_interface(Items0, Items) :-
+	get_interface_2(Items0, no, [], RevItems),
 	list__reverse(RevItems, Items).
 
-:- pred get_interface_2(item_list, bool, bool, item_list, item_list).
-:- mode get_interface_2(in, in, in, in, out) is det.
+:- pred get_interface_2(item_list, bool, item_list, item_list).
+:- mode get_interface_2(in, in, in, out) is det.
 
-get_interface_2([], _, _, Items, Items).
+get_interface_2([], _, Items, Items).
 get_interface_2([Item - Context | Rest], InInterface0,
-				IncludeImported, Items0, Items) :-
+				Items0, Items) :-
 	( Item = module_defn(_, interface) ->
 		Items1 = Items0,
 		InInterface1 = yes
@@ -4349,13 +4379,12 @@ get_interface_2([Item - Context | Rest], InInterface0,
 		; Defn = used(_)
 		)
 	->
-		% module_qual.m needs the :- imported declaration.
-		( IncludeImported = yes, InInterface0 = yes ->
-			Items1 = [Item - Context | Items0]
-		;
-			Items1 = Items0
-		),
-		InInterface1 = InInterface0
+		% This should never happen;
+		% `:- imported' and `:- used' declarations should only
+		% get inserted *after* get_interface is called.
+		error("get_interface: `:- imported' or `:- used' declaration")
+		% Items1 = Items0,
+		% InInterface1 = InInterface0
 	;
 		Item = module_defn(_, implementation) 
 	->
@@ -4374,7 +4403,7 @@ get_interface_2([Item - Context | Rest], InInterface0,
 		),
 		InInterface1 = InInterface0
 	),
-	get_interface_2(Rest, InInterface1, IncludeImported, Items1, Items).
+	get_interface_2(Rest, InInterface1, Items1, Items).
 
 	% Given a module interface (well, a list of items), extract the
 	% short interface part of that module, i.e. the exported
@@ -4388,11 +4417,15 @@ get_interface_2([Item - Context | Rest], InInterface0,
 	% type declarations, then it doesn't need any import_module
 	% declarations.
 
-:- pred get_short_interface(item_list, item_list).
-:- mode get_short_interface(in, out) is det.
+:- type short_interface_kind
+	--->	int2	% the qualified short interface, for the .int2 file
+	;	int3.	% the unqualified short interface, for the .int3 file
 
-get_short_interface(Items0, Items) :-
-	get_short_interface_2(Items0, [], [], no,
+:- pred get_short_interface(item_list, short_interface_kind, item_list).
+:- mode get_short_interface(in, in, out) is det.
+
+get_short_interface(Items0, Kind, Items) :-
+	get_short_interface_2(Items0, [], [], no, Kind,
 			RevItems, RevImports, NeedsImports),
 	list__reverse(RevItems, Items1),
 	( NeedsImports = yes ->
@@ -4403,13 +4436,13 @@ get_short_interface(Items0, Items) :-
 	).
 
 :- pred get_short_interface_2(item_list, item_list, item_list, bool,
-				item_list, item_list, bool).
-:- mode get_short_interface_2(in, in, in, in, out, out, out) is det.
+		short_interface_kind, item_list, item_list, bool).
+:- mode get_short_interface_2(in, in, in, in, in, out, out, out) is det.
 
-get_short_interface_2([], Items, Imports, NeedsImports,
+get_short_interface_2([], Items, Imports, NeedsImports, _Kind,
 			Items, Imports, NeedsImports).
 get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
-			Items, Imports, NeedsImports) :-
+			Kind, Items, Imports, NeedsImports) :-
 	ItemAndContext = Item0 - Context,
 	( Item0 = module_defn(_, import(_)) ->
 		Items1 = Items0,
@@ -4419,7 +4452,7 @@ get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
 		Items1 = Items0,
 		Imports1 = [ItemAndContext | Imports0],
 		NeedsImports1 = NeedsImports0
-	; make_abstract_type_defn(Item0, Item1) ->
+	; make_abstract_type_defn(Item0, Kind, Item1) ->
 		Imports1 = Imports0,
 		Items1 = [Item1 - Context | Items0],
 		NeedsImports1 = NeedsImports0
@@ -4432,7 +4465,7 @@ get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
 		Imports1 = Imports0,
 		NeedsImports1 = NeedsImports0
 	),
-	get_short_interface_2(Rest, Items1, Imports1, NeedsImports1,
+	get_short_interface_2(Rest, Items1, Imports1, NeedsImports1, Kind,
 				Items, Imports, NeedsImports).
 
 :- pred include_in_short_interface(item).
@@ -4444,13 +4477,25 @@ include_in_short_interface(mode_defn(_, _, _)).
 include_in_short_interface(module_defn(_, _)).
 include_in_short_interface(typeclass(_, _, _, _, _)).
 
-:- pred make_abstract_type_defn(item, item).
-:- mode make_abstract_type_defn(in, out) is semidet.
+:- pred make_abstract_type_defn(item, short_interface_kind, item).
+:- mode make_abstract_type_defn(in, in, out) is semidet.
 
-make_abstract_type_defn(type_defn(VarSet, du_type(Name, Args, _, _), Cond),
+make_abstract_type_defn(type_defn(VarSet, du_type(Name, Args, _, _), Cond), _,
 			type_defn(VarSet, abstract_type(Name, Args), Cond)).
-make_abstract_type_defn(type_defn(VarSet, abstract_type(Name, Args), Cond),
+make_abstract_type_defn(type_defn(VarSet, abstract_type(Name, Args), Cond), _,
 			type_defn(VarSet, abstract_type(Name, Args), Cond)).
+make_abstract_type_defn(type_defn(VarSet, eqv_type(Name, Args, _), Cond),
+			ShortInterfaceKind,
+			type_defn(VarSet, abstract_type(Name, Args), Cond)) :-
+	% For the `.int2' files, we need the full definitions of
+	% equivalence types.  They are needed to ensure that
+	% non-abstract equivalence types always get fully expanded
+	% before code generation, even in modules that only indirectly
+	% import the definition of the equivalence type.
+	% But the full definitions are not needed for the `.int3' files.
+	% So we convert equivalence types into abstract types only for
+	% the `.int3' files.
+	ShortInterfaceKind = int3.
 
 	% All instance declarations must be written
 	% to `.int' files as abstract instance

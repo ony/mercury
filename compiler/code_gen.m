@@ -734,7 +734,7 @@ code_gen__generate_entry(CodeModel, Goal, OutsideResumePoint, FrameInfo,
 		{ code_info__resume_point_stack_addr(OutsideResumePoint,
 			OutsideResumeAddress) },
 		(
-			{ Goal = pragma_foreign_code(_, _, _, _, _, _,
+			{ Goal = foreign_proc(_, _, _, _, _, _,
 				PragmaCode) - _},
 			{ PragmaCode = nondet(Fields, FieldsContext,
 				_,_,_,_,_,_,_) }
@@ -745,14 +745,16 @@ code_gen__generate_entry(CodeModel, Goal, OutsideResumePoint, FrameInfo,
 				Fields, FieldsContext) },
 			{ string__format("#define\tMR_ORDINARY_SLOTS\t%d\n",
 				[i(TotalSlots)], DefineStr) },
-			{ DefineComponents = [pragma_c_raw_code(DefineStr)] },
+			{ DefineComponents = [pragma_c_raw_code(DefineStr,
+				live_lvals_info(set__init))] },
 			{ NondetFrameInfo = ordinary_frame(PushMsg, TotalSlots,
 				yes(Struct)) },
 			{ AllocCode = node([
 				mkframe(NondetFrameInfo, OutsideResumeAddress)
 					- "Allocate stack frame",
 				pragma_c([], DefineComponents,
-					will_not_call_mercury, no, no, no, no)
+					will_not_call_mercury, no, no, no, no,
+					no)
 					- ""
 			]) },
 			{ NondetPragma = yes }
@@ -836,10 +838,11 @@ code_gen__generate_exit(CodeModel, FrameInfo, TraceSlotInfo, BodyContext,
 	{ FrameInfo = frame(TotalSlots, MaybeSuccipSlot, NondetPragma) },
 	( { NondetPragma = yes } ->
 		{ UndefStr = "#undef\tMR_ORDINARY_SLOTS\n" },
-		{ UndefComponents = [pragma_c_raw_code(UndefStr)] },
+		{ UndefComponents = [pragma_c_raw_code(UndefStr,
+			live_lvals_info(set__init))] },
 		{ UndefCode = node([
 			pragma_c([], UndefComponents,
-				will_not_call_mercury, no, no, no, no)
+				will_not_call_mercury, no, no, no, no, no)
 				- ""
 		]) },
 		{ RestoreDeallocCode = empty },	% always empty for nondet code
@@ -1143,7 +1146,7 @@ code_gen__generate_goal_2(call(PredId, ProcId, Args, BuiltinState, _, _),
 		call_gen__generate_builtin(CodeModel, PredId, ProcId, Args,
 			Code)
 	).
-code_gen__generate_goal_2(pragma_foreign_code(Attributes,
+code_gen__generate_goal_2(foreign_proc(Attributes,
 		PredId, ModeId, Args, ArgNames, OrigArgTypes, PragmaCode),
 		GoalInfo, CodeModel, Instr) -->
 	( 
@@ -1155,9 +1158,9 @@ code_gen__generate_goal_2(pragma_foreign_code(Attributes,
 	;
 		{ error("code_gen__generate_goal_2: foreign code other than C unexpected") }
 	).
-code_gen__generate_goal_2(bi_implication(_, _), _, _, _) -->
+code_gen__generate_goal_2(shorthand(_), _, _, _) -->
 	% these should have been expanded out by now
-	{ error("code_gen__generate_goal_2: unexpected bi_implication") }.
+	{ error("code_gen__generate_goal_2: unexpected shorthand") }.
 
 %---------------------------------------------------------------------------%
 
@@ -1239,8 +1242,7 @@ code_gen__add_saved_succip([Instrn0 - Comment | Instrns0 ], StackLoc,
 	list(instruction)::out) is det.
 
 code_gen__bytecode_stub(ModuleInfo, PredId, ProcId, BytecodeInstructions) :-
-	
-%	module_info_name(ModuleInfo, ModuleSymName),
+
 	module_info_pred_info(ModuleInfo, PredId, PredInfo),
 	pred_info_module(PredInfo, ModuleSymName),
 
@@ -1256,10 +1258,7 @@ code_gen__bytecode_stub(ModuleInfo, PredId, ProcId, BytecodeInstructions) :-
 	int_to_string(Arity, ArityStr),
 	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
 
-	CallStructName = "bytecode_call__" ++
-		(PredOrFunc = function -> "fn__" ; "") ++
-		ModuleName ++ "__" ++ PredName ++ "_" ++ ArityStr ++ "_" ++
-		ProcStr,
+	CallStructName = "bytecode_call_info",
 
 	append_list([
 		"\t\tstatic MB_Call ", CallStructName, " = {\n",
@@ -1288,12 +1287,12 @@ code_gen__bytecode_stub(ModuleInfo, PredId, ProcId, BytecodeInstructions) :-
 		pragma_c(
 		[],
 		[
-		pragma_c_raw_code("\t{\n"),
-		pragma_c_raw_code(CallStruct),
-		pragma_c_raw_code(BytecodeCall),
-		pragma_c_raw_code("\t}\n")
+		pragma_c_raw_code("\t{\n", live_lvals_info(set__init)),
+		pragma_c_raw_code(CallStruct, live_lvals_info(set__init)),
+		pragma_c_raw_code(BytecodeCall, no_live_lvals_info),
+		pragma_c_raw_code("\t}\n", live_lvals_info(set__init))
 		],
-		may_call_mercury, no, no, no, no
+		may_call_mercury, no, no, no, no, no
 		) - "Entry stub"
 	].
 

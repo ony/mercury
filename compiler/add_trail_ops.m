@@ -252,7 +252,7 @@ goal_expr_add_trail_ops(generic_call(A,B,C,D), GI, generic_call(A,B,C,D) - GI)
 goal_expr_add_trail_ops(unify(A,B,C,D,E), GI, unify(A,B,C,D,E) - GI) --> [].
 
 goal_expr_add_trail_ops(PragmaForeign, GoalInfo, Goal) -->
-	{ PragmaForeign = pragma_foreign_code(_,_,_,_,_,_,Impl) },
+	{ PragmaForeign = foreign_proc(_,_,_,_,_,_,Impl) },
 	( { Impl = nondet(_,_,_,_,_,_,_,_,_) } ->
 		% XXX Implementing trailing for nondet pragma foreign_code
 		% via transformation is difficult, because there's nowhere
@@ -271,9 +271,9 @@ goal_expr_add_trail_ops(PragmaForeign, GoalInfo, Goal) -->
 		{ Goal = PragmaForeign - GoalInfo }
 	).
 
-goal_expr_add_trail_ops(bi_implication(_, _), _, _) -->
+goal_expr_add_trail_ops(shorthand(_), _, _) -->
 	% these should have been expanded out by now
-	{ error("goal_expr_add_trail_ops: unexpected bi_implication") }.
+	{ error("goal_expr_add_trail_ops: unexpected shorthand") }.
 
 :- pred conj_add_trail_ops(hlds_goals::in, hlds_goals::out,
 		trail_ops_info::in, trail_ops_info::out) is det.

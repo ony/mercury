@@ -8,8 +8,8 @@
 
 :- interface.
 
-:- pred startup(initial_deep::in, deep::out, io__state::di, io__state::uo)
-	is det.
+:- pred startup(string::in, string::in, initial_deep::in, deep::out,
+	io__state::di, io__state::uo) is det.
 
 :- implementation.
 
@@ -17,7 +17,7 @@
 
 %-----------------------------------------------------------------------------%
 
-startup(InitialDeep, Deep) -->
+startup(Machine, DataFileName, InitialDeep, Deep) -->
 	stderr_stream(StdErr),
 
 	{ InitialDeep = initial_deep(InitStats, Root,
@@ -149,7 +149,7 @@ startup(InitialDeep, Deep) -->
 	{ array__init(NCSSs, zero_own_prof_info, CSSOwn0) },
 	{ array__init(NCSSs, zero_inherit_prof_info, CSSDesc0) },
 
-	{ Deep0 = deep(InitStats, Root,
+	{ Deep0 = deep(InitStats, Machine, DataFileName, Root,
 		CallSiteDynamics, ProcDynamics, CallSiteStatics, ProcStatics,
 		CliqueIndex, Cliques, CliqueParents, CliqueMaybeChildren,
 		ProcCallers, CallSiteStaticMap, CallSiteCalls,

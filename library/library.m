@@ -40,6 +40,7 @@
 :- import_module time.
 :- import_module pprint.
 :- import_module bitmap.
+:- import_module hash_table.
 
 :- import_module builtin, private_builtin, table_builtin, profiling_builtin.
 
@@ -49,7 +50,7 @@
 % at configuration time, because that would cause bootstrapping problems --
 % might not have a Mercury compiler around to compile library.m with.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	library__version(Version::out), will_not_call_mercury,
 "
 	MR_ConstString version_string = 
@@ -65,7 +66,7 @@
 	#include ""mercury_conf.h""
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	library__version(Version::out), will_not_call_mercury,
 "
 	// XXX we should use string literals with an S at the start

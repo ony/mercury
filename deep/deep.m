@@ -10,8 +10,7 @@
 
 :- import_module io.
 
-:- pred main(io__state, io__state).
-:- mode main(di, uo) is cc_multi.
+:- pred main(io__state::di, io__state::uo) is cc_multi.
 
 :- implementation.
 
@@ -44,6 +43,8 @@
 :- type deep --->
 	deep(
 		profile_stats		:: profile_stats,
+		server_name		:: string,
+		data_file_name		:: string,
 
 		root			:: proc_dynamic_ptr,
 			% The main arrays, each indexed by own xxx_ptr int
@@ -191,36 +192,6 @@
 
 %-----------------------------------------------------------------------------%
 
-:- type globals == (univ -> univ).
-:- typeclass global(T1, T2) where [].
-
-:- type option
-	--->	help
-		% Input options
-	;	data_file
-	
-		% Output generation options
-	;	depth
-
-		% Output formats
-	;	flat
-	%;	browse
-	;	dot
-	;	dump
-
-	;	server
-	;	create_pipes
-	;	pipes_base_name
-	;	test
-	;	test_dir
-	;	test_fields
-	;	timeout
-	.
-
-:- type options ---> options.
-:- type option_table ---> options(option_table(option)).
-:- instance global(options, option_table) where [].
-
 :- type [A | B] == list(A).
 :- type [] ---> [].
 :- type (A -> B) == map(A, B).
@@ -232,6 +203,7 @@
 :- include_module deep:server.
 :- include_module deep:startup.
 :- include_module deep:util.
+:- include_module deep:globals.
 
 %:- import_module deep:browse.
 :- import_module deep:array.
@@ -239,6 +211,7 @@
 :- import_module deep:io.
 :- import_module deep:server.
 :- import_module deep:startup.
+:- import_module deep:globals.
 
 main -->
 	stderr_stream(StdErr),
@@ -254,16 +227,17 @@ main -->
 		main2(Globs1)
 	;
 		{ MaybeOptions = error(Msg) },
+		io__set_exit_status(1),
 		format(StdErr, "error parsing options: %s\n", [s(Msg)])
 	).
 
 :- pred main2(globals::in, io__state::di, io__state::uo) is cc_multi.
 
-main2(Globals0) -->
+main2(Globals) -->
 	stderr_stream(StdErr),
 	io__report_stats,
 	write_string(StdErr, "  Reading graph data...\n"),
-	{ get_global(Globals0, options) = options(Options) },
+	{ get_global(Globals, options) = options(Options) },
 	( { map__lookup(Options, data_file, maybe_string(yes(FileName0))) } ->
 		{ FileName = FileName0 }
 	;
@@ -274,14 +248,20 @@ main2(Globals0) -->
 	io__report_stats,
 	(
 		{ Res = ok(InitialDeep) },
-		startup(InitialDeep, Deep),
-		write_string(StdErr, "Done.\n"),
-		{ array_foldl(sum_all_csd_quanta, Deep ^ call_site_dynamics,
-			0, Total) },
-		format(StdErr, "Total quanta %d\n", [i(Total)]),
-		main3(Globals0, Deep)
+		( { map__search(Options, server, string(Machine)) } ->
+			startup(Machine, FileName, InitialDeep, Deep),
+			write_string(StdErr, "Done.\n"),
+			{ array_foldl(sum_all_csd_quanta,
+				Deep ^ call_site_dynamics, 0, Total) },
+			format(StdErr, "Total quanta %d\n", [i(Total)]),
+			main3(Globals, Deep)
+		;
+			io__set_exit_status(1),
+			io__write_string(StdErr, "bad server name option\n")
+		)
 	;
 		{ Res = error(Err) },
+		io__set_exit_status(1),
 		format(StdErr, "%s\n", [s(Err)])
 	).
 
@@ -310,31 +290,18 @@ main3(Globals, Deep) -->
 		{ map__search(Options, test, bool(Test)) },
 		{ Test = yes },
 		{ map__search(Options, test_dir, string(TestDir)) },
-		{ map__search(Options, test_fields, string(TestFields)) },
-		{ map__search(Options, server, string(Machine)) }
+		{ map__search(Options, test_fields, string(TestFields)) }
 	->
-		{ string__append_list(["http://", Machine, "/cgi-bin/deep"],
-			URLprefix) },
-		test_server(TestDir, URLprefix, Deep, TestFields)
+		test_server(TestDir, Deep, TestFields)
 	;
-		{ map__search(Options, server, string(Machine)) },
-		{ Machine \= "" },
-		{ map__search(Options, pipes_base_name, string(BaseName)) },
 		{ map__search(Options, timeout, int(TimeOut)) },
-		{ map__search(Options, create_pipes, bool(CreatePipes)) }
+		{ map__search(Options, create_pipes, bool(CreatePipes)) },
+		{ map__search(Options, debug, bool(Debug)) }
 	->
-		{ string__append_list(["http://", Machine, "/cgi-bin/deep"],
-			URLprefix) },
-		server(BaseName, URLprefix, TimeOut, CreatePipes, Deep)
+		server(TimeOut, CreatePipes, Debug, Deep)
 	;
-		[]
-	),
-	%( { search(Options, browse, bool(yes)) } ->
-	%	browse(Globals, Deep)
-	%;
-	%	[]
-	%).
-	[].
+		io__set_exit_status(1)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -474,83 +441,3 @@ main_parent_proc_id = user_defined(predicate, "mercury_runtime",
 	"mercury_runtime", "main_parent", 0, 0).
 
 %-----------------------------------------------------------------------------%
-
-:- pred short(char, option).
-:- mode short(in, out) is semidet.
-
-%short('b',	browse).
-
-short('C',	create_pipes).
-short('D',	dot).
-short('F',	flat).
-short('G',	dump).
-short('P',	pipes_base_name).
-short('S',	server).
-short('T',	test).
-short('d',	depth).
-short('f',	data_file).
-short('h',	help).
-short('t',	timeout).
-
-:- pred long(string, option).
-:- mode long(in, out) is semidet.
-
-%long("browse",		browse).
-
-long("create-pipes",	create_pipes).
-long("data-file",	data_file).
-long("depth",		depth).
-long("dot",		dot).
-long("dump",		dump).
-long("flat",		flat).
-long("help",		help).
-long("pipes-base-name",	pipes_base_name).
-long("server",		server).
-long("test",		test).
-long("test-dir",	test_dir).
-long("test-fields",	test_fields).
-long("timeout",		timeout).
-
-:- pred defaults(option, option_data).
-:- mode defaults(out, out) is nondet.
-
-defaults(Option, Data) :-
-	semidet_succeed,
-	defaults0(Option, Data).
-
-:- pred defaults0(option, option_data).
-:- mode defaults0(out, out) is multi.
-
-%defaults0(browse,		bool(yes)).
-
-defaults0(create_pipes,		bool(no)).
-defaults0(help,			bool(no)).
-defaults0(depth,		int(1000)).
-defaults0(flat,			bool(no)).
-defaults0(dot,			bool(no)).
-defaults0(dump,			bool(no)).
-defaults0(data_file,		maybe_string(no)).
-defaults0(server,		string("")).
-defaults0(pipes_base_name,	string("/var/tmp/pipes")).
-defaults0(test,			bool(no)).
-defaults0(test_dir,		string("deep_test")).
-defaults0(test_fields,		string("pqw")).
-defaults0(timeout,		int(30)).
-
-:- func (get_global(globals, Key) = Value) <= global(Key, Value).
-
-get_global(Globs, Key) = Value :-
-	( map__search(Globs, univ(Key), ValueUniv) ->
-		( ValueUniv = univ(Value0) ->
-			Value = Value0
-		;
-			error("get_global: value did not have expected type")
-		)
-	;
-		error("get_global: global not found")
-	).
-
-:- func (set_global(globals, Key, Value) = globals) <= global(Key, Value).
-
-set_global(Globs0, Key, Value) = Globs :-
-	map__set(Globs0, univ(Key), univ(Value), Globs).

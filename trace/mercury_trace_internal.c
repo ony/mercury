@@ -178,9 +178,10 @@ static	bool	MR_trace_options_format(MR_Browse_Format *format,
 			const char *item);
 static	bool	MR_trace_options_param_set(MR_Bool *print_set,
 			MR_Bool *browse_set, MR_Bool *print_all_set,
-			MR_Bool *flat_format, MR_Bool *pretty_format,
-			MR_Bool *verbose_format, char ***words,
-			int *word_count, const char *cat, const char *item);
+			MR_Bool *flat_format, MR_Bool *raw_pretty_format,
+			MR_Bool *verbose_format, MR_Bool *pretty_format, 
+			char ***words, int *word_count, const char *cat, 
+			const char *item);
 static	void	MR_trace_usage(const char *cat, const char *item);
 static	void	MR_trace_do_noop(void);
 
@@ -465,7 +466,7 @@ static const char *
 MR_trace_browse_exception(MR_Event_Info *event_info, MR_Browser browser,
 		MR_Browse_Caller_Type caller, MR_Browse_Format format)
 {
-	MR_Word		type_info;
+	MR_TypeInfo	type_info;
 	MR_Word		value;
 	MR_Word		exception;
 
@@ -478,12 +479,9 @@ MR_trace_browse_exception(MR_Event_Info *event_info, MR_Browser browser,
 		return "missing exception value";
 	}
 
-	type_info = MR_field(MR_mktag(0), exception,
-			MR_UNIV_OFFSET_FOR_TYPEINFO);
-	value = MR_field(MR_mktag(0), exception,
-			MR_UNIV_OFFSET_FOR_DATA);
+	MR_unravel_univ(exception, type_info, value);
 
-	(*browser)(type_info, value, caller, format);
+	(*browser)((MR_Word)type_info, value, caller, format);
 
 	return (const char *) NULL;
 }
@@ -1093,21 +1091,23 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 		MR_Bool			browse_set;
 		MR_Bool			print_all_set;
 		MR_Bool			flat_format;
-		MR_Bool			pretty_format;
+		MR_Bool			raw_pretty_format;
 		MR_Bool			verbose_format;
+		MR_Bool			pretty_format;
 
 		if (! MR_trace_options_param_set(&print_set, &browse_set,
-				&print_all_set, &flat_format, &pretty_format,
-				&verbose_format, &words, &word_count,
-				"browsing", "set"))
+				&print_all_set, &flat_format, 
+				&raw_pretty_format, &verbose_format, 
+				&pretty_format, &words, &word_count, "browsing",
+				"set"))
 		{
 			; /* the usage message has already been printed */
 		}
 		else if (word_count != 3 ||
 				! MR_trace_set_browser_param(print_set,
 					browse_set, print_all_set, flat_format,
-					pretty_format, verbose_format,
-					words[1], words[2]))
+					raw_pretty_format, verbose_format, 
+					pretty_format, words[1], words[2]))
 		{
 			MR_trace_usage("browsing", "set");
 		}
@@ -2407,8 +2407,9 @@ MR_trace_options_ignore(bool *ignore_errors, char ***words, int *word_count,
 static struct MR_option MR_trace_format_opts[] = 
 {
 	{ "flat",	FALSE,	NULL,	'f' },
-	{ "pretty",	FALSE,	NULL,	'p' },
+	{ "raw_pretty",	FALSE,	NULL,	'r' },
 	{ "verbose",	FALSE,	NULL,	'v' },
+	{ "pretty",	FALSE,	NULL,	'p' },
 	{ NULL,		FALSE,	NULL,	0 }
 };
 
@@ -2420,7 +2421,7 @@ MR_trace_options_format(MR_Browse_Format *format, char ***words,
 
 	*format = MR_BROWSE_DEFAULT_FORMAT;
 	MR_optind = 0;
-	while ((c = MR_getopt_long(*word_count, *words, "fpv",
+	while ((c = MR_getopt_long(*word_count, *words, "frvp",
 			MR_trace_format_opts, NULL)) != EOF)
 	{
 		switch (c) {
@@ -2429,12 +2430,16 @@ MR_trace_options_format(MR_Browse_Format *format, char ***words,
 				*format = MR_BROWSE_FORMAT_FLAT;
 				break;
 
-			case 'p':
-				*format = MR_BROWSE_FORMAT_PRETTY;
+			case 'r':
+				*format = MR_BROWSE_FORMAT_RAW_PRETTY;
 				break;
 
 			case 'v':
 				*format = MR_BROWSE_FORMAT_VERBOSE;
+				break;
+
+			case 'p':
+				*format = MR_BROWSE_FORMAT_PRETTY;
 				break;
 
 			default:
@@ -2451,8 +2456,9 @@ MR_trace_options_format(MR_Browse_Format *format, char ***words,
 static struct MR_option MR_trace_param_set_opts[] = 
 {
 	{ "flat",	FALSE,	NULL,	'f' },
-	{ "pretty",	FALSE,	NULL,	'p' },
+	{ "raw_pretty",	FALSE,	NULL,	'r' },
 	{ "verbose",	FALSE,	NULL,	'v' },
+	{ "pretty",	FALSE,	NULL,	'p' },	
 	{ "print",	FALSE,	NULL,	'P' },
 	{ "browse",	FALSE,	NULL,	'B' },
 	{ "print-all",	FALSE,	NULL,	'A' },
@@ -2461,9 +2467,10 @@ static struct MR_option MR_trace_param_set_opts[] =
 
 static bool
 MR_trace_options_param_set(MR_Bool *print_set, MR_Bool *browse_set,
-	MR_Bool *print_all_set, MR_Bool *flat_format, MR_Bool *pretty_format,
-	MR_Bool *verbose_format, char ***words, int *word_count,
-	const char *cat, const char *item)
+	MR_Bool *print_all_set, MR_Bool *flat_format, 
+	MR_Bool *raw_pretty_format, MR_Bool *verbose_format, 
+	MR_Bool *pretty_format, char ***words, int *word_count, const char *cat,
+	const char *item)
 {
 	int	c;
 
@@ -2471,11 +2478,12 @@ MR_trace_options_param_set(MR_Bool *print_set, MR_Bool *browse_set,
 	*browse_set = FALSE;
 	*print_all_set = FALSE;
 	*flat_format = FALSE;
-	*pretty_format = FALSE;
+	*raw_pretty_format = FALSE;
 	*verbose_format = FALSE;
+	*pretty_format = FALSE;
 
 	MR_optind = 0;
-	while ((c = MR_getopt_long(*word_count, *words, "PBAfpv",
+	while ((c = MR_getopt_long(*word_count, *words, "PBAfrvp",
 			MR_trace_param_set_opts, NULL)) != EOF)
 	{
 		switch (c) {
@@ -2484,12 +2492,16 @@ MR_trace_options_param_set(MR_Bool *print_set, MR_Bool *browse_set,
 				*flat_format = TRUE;
 				break;
 
-			case 'p':
-				*pretty_format = TRUE;
+			case 'r':
+				*raw_pretty_format = TRUE;
 				break;
 
 			case 'v':
 				*verbose_format = TRUE;
+				break;
+
+			case 'p':
+				*pretty_format = TRUE;
 				break;
 
 			case 'P':
@@ -2528,6 +2540,8 @@ MR_trace_usage(const char *cat, const char *item)
 /*
 ** Read lines until we find one that contains only "end".
 ** Return the lines concatenated together.
+** The memory returned is allocated with MR_malloc();
+** it is the caller's responsibility to MR_free() it when appropriate.
 */
 
 static const char *
@@ -2542,7 +2556,8 @@ MR_trace_read_help_text(void)
 
 	next_char_slot = 0;
 	while ((text = MR_trace_getline("cat> ", MR_mdb_in, MR_mdb_out))
-			!= NULL) {
+			!= NULL)
+	{
 		if (streq(text, "end")) {
 			MR_free(text);
 			break;
@@ -2561,6 +2576,8 @@ MR_trace_read_help_text(void)
 		MR_free(text);
 	}
 
+	MR_ensure_big_enough(next_char_slot, doc_char, char,
+			MR_INIT_DOC_CHARS);
 	doc_chars[next_char_slot] = '\0';
 	return doc_chars;
 }
@@ -2577,6 +2594,9 @@ MR_trace_read_help_text(void)
 ** *words_max strings. The number of strings (words) filled in will be
 ** given by *word_count.
 **
+** The space for the *words array is allocated with MR_malloc().
+** It is the caller's responsibility to free it when appropriate.
+** The elements of the *words array point to memory from the line array.
 ** The lifetime of the elements of the *words array expires when
 ** the line array is MR_free()'d or further modified or when
 ** MR_trace_parse_line is called again, whichever comes first.
@@ -2659,7 +2679,8 @@ MR_trace_parse_line(char *line, char ***words, int *word_max, int *word_count)
 **
 ** On return *words will point to an array of strings, with space for
 ** *words_max strings. The number of strings filled in will be given by
-** the return value.
+** the return value.  The memory for *words is allocated with MR_malloc(),
+** and it is the responsibility of the caller to MR_free() it when appropriate.
 */
 
 static int
@@ -2819,6 +2840,11 @@ MR_trace_get_command(const char *prompt, FILE *mdb_in, FILE *mdb_out)
 ** newline).
 ** If EOF occurs on a nonempty line, treat the EOF as a newline; if EOF
 ** occurs on an empty line, return NULL.
+**
+** Whether the line is read from the queue or from mdb_in, if this function
+** returns a non-NULL value, then the memory for the line returned will have
+** been allocated with MR_malloc(), and it is the caller's resposibility
+** to MR_free() it when appropriate.
 */
 
 char *
@@ -2848,6 +2874,9 @@ MR_trace_getline(const char *prompt, FILE *mdb_in, FILE *mdb_out)
 
 /*
 ** If there any lines waiting in the queue, return the first of these.
+** The memory for the line will have been allocated with MR_malloc(),
+** and it is the caller's resposibility to MR_free() it when appropriate.
+** If there are no lines in the queue, this function returns NULL.
 */
 
 static char *
