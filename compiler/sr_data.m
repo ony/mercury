@@ -15,8 +15,35 @@
 :- module sr_data.
 :- interface.
 
-:- import_module pa_alias_as, pa_datastruct, prog_data.
-:- import_module list, set.
+:- import_module hlds_goal, pa_alias_as, pa_datastruct, prog_data.
+:- import_module list, set, std_util.
+
+	% The information placed in the goal info which is used by
+	% structure reuse.
+	% This field should be initilaised to empty.
+	% The sr_dead module replaces empty with choice.
+	% The sr_choice module replaces choice with reuse.
+:- type reuse_goal_info
+	--->	empty
+	;	choice(choice_info)
+	;	reuse(short_reuse_info)
+	.
+
+:- type choice_info
+	--->	deconstruct(
+				% The cells which could possibly use the
+				% cell from this deconstruction provided
+				% that the cell dies
+			maybe(set(prog_var))
+		)
+	;	construct(
+				% The cells which could be reused by the
+				% current construction unification and
+				% the condition associated with reusing
+				% that cell.
+			set(pair(prog_var, reuse_condition))
+		)
+	.
 
 	% A reuse, whether direct or indirect, is only allowed as long
 	% as the caller fulfills some conditions.  This type keeps track
