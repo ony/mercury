@@ -30,7 +30,7 @@
 	% reuse.
 :- type constraint
 	--->	same_cons_id
-	;	same_size
+	;	within_n_cells_difference(int)
 	.
 
 	% After the constraint has been applied to the set of cells
@@ -50,7 +50,7 @@
 :- implementation.
 
 :- import_module hlds_data, prog_data.
-:- import_module multi_map, require, set.
+:- import_module int, multi_map, require, set.
 
 process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
@@ -197,7 +197,7 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			multi_map__search(Map, CandidateVar, [ConsId])
 		)}
 	;
-		{ Constraint = same_size },
+		{ Constraint = within_n_cells_difference(Difference) },
 
 			% XXX Are two cells with the same arity the same
 			% size?  I think not, because the cell may
@@ -214,7 +214,7 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			=>
 				(
 					cons_id_arity(ReuseConsId, ReuseArity),
-					ReuseArity = Arity
+					ReuseArity - Arity =< Difference
 				)
 			)
 		)}
