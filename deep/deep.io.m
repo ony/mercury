@@ -28,7 +28,8 @@
 %		io__state, io__state).
 %:- mode node2html(in, in, in, in, di, uo) is det.
 
-:- func cons_profile([int]) = own_prof_info.
+:- func compress_profile(int, int, int, int, int, int, int) = own_prof_info.
+:- func compress_profile(own_prof_info) = own_prof_info.
 
 :- func u(T) = T.
 :- mode (u(in) = array_uo) is det.
@@ -59,7 +60,8 @@ read_call_graph(FileName, Res) -->
 		{ Deep0 = deep(call_site_dynamic_ptr(-1),
 			init(1, call_site_dynamic(
 					proc_dynamic_ptr(-1),
-					cons_profile([0,0,0,0,0,0])
+					% should be zero_own_profile
+					zdet(0, 0, 0)
 				)),
 			init(1, proc_dynamic(proc_static_ptr(-1), array([]))),
 			init(1, call_site_static(normal, "")),
@@ -287,92 +289,131 @@ read_profile(Res) -->
 	read_num(Res0),
 	(
 		{ Res0 = ok(Mask) },
+		{ MaybeError0 = no },
 		( { Mask /\ 0x0001 \= 0 } ->
-			{ GetCalls = yes }
+			maybe_read_num_handle_error(Calls,
+				MaybeError0, MaybeError1)
 		;
-			{ GetCalls = no }
+			{ Calls = 0 },
+			{ MaybeError1 = MaybeError0 }
 		),
 		( { Mask /\ 0x0002 \= 0 } ->
-			{ GetExits = yes }
+			maybe_read_num_handle_error(Exits,
+				MaybeError1, MaybeError2)
 		;
-			{ GetExits = no }
+			{ Exits = 0 },
+			{ MaybeError2 = MaybeError1 }
 		),
 		( { Mask /\ 0x0004 \= 0 } ->
-			{ GetFails = yes }
+			maybe_read_num_handle_error(Fails,
+				MaybeError2, MaybeError3)
 		;
-			{ GetFails = no }
+			{ Fails = 0 },
+			{ MaybeError3 = MaybeError2 }
 		),
 		( { Mask /\ 0x0008 \= 0 } ->
-			{ GetRedos = yes }
+			maybe_read_num_handle_error(Redos,
+				MaybeError3, MaybeError4)
 		;
-			{ GetRedos = no }
+			{ Redos = 0 },
+			{ MaybeError4 = MaybeError3 }
 		),
 		( { Mask /\ 0x0010 \= 0 } ->
-			{ GetQuant = yes }
+			maybe_read_num_handle_error(Quanta,
+				MaybeError4, MaybeError5)
 		;
-			{ GetQuant = no }
+			{ Quanta = 0 },
+			{ MaybeError5 = MaybeError4 }
 		),
 		( { Mask /\ 0x0020 \= 0 } ->
-			{ GetMems = yes }
+			maybe_read_num_handle_error(Mallocs,
+				MaybeError5, MaybeError6)
 		;
-			{ GetMems = no }
+			{ Mallocs = 0 },
+			{ MaybeError6 = MaybeError5 }
 		),
-		read_profile2([GetCalls, GetExits,
-			GetFails, GetRedos, GetQuant, GetMems], [], Res1),
-		(
-			{ Res1 = ok(Values) },
-			{ Res = ok(cons_profile(Values)) }
+		( { Mask /\ 0x0040 \= 0 } ->
+			maybe_read_num_handle_error(Words,
+				MaybeError6, MaybeError7)
 		;
-			{ Res1 = error(Err) },
-			{ Res = error(Err) }
+			{ Words = 0 },
+			{ MaybeError7 = MaybeError6 }
+		),
+		(
+			{ MaybeError7 = yes(Error) },
+			{ Res = error(Error) }
+		;
+			{ MaybeError7 = no },
+			{ Res = ok(compress_profile(Calls, Exits, Fails, Redos, 
+				Quanta, Mallocs, Words)) }
 		)
 	;
-		{ Res0 = error(Err) },
-		{ Res = error(Err) }
+		{ Res0 = error(Error) },
+		{ Res = error(Error) }
 	).
 
-:- pred read_profile2([bool], [int], deep_result([int]), io__state, io__state).
-:- mode read_profile2(in, in, out, di, uo) is det.
+:- pred maybe_read_num_handle_error(int::out,
+	maybe(string)::in, maybe(string)::out,
+	io__state::di, io__state::uo) is det.
 
-read_profile2([], Values, ok(reverse(Values))) --> [].
-read_profile2([B|Bs], Values0, Res) -->
+maybe_read_num_handle_error(Value, MaybeError0, MaybeError) -->
+	read_num(Res),
 	(
-		{ B = yes },
-		read_num(Res0),
-		(
-			{ Res0 = ok(Val) },
-			read_profile2(Bs, [Val|Values0], Res)
-		;
-			{ Res0 = error(Err) },
-			{ Res = error(Err) }
-		)
+		{ Res = ok(Value) },
+		{ MaybeError = MaybeError0 }
 	;
-		{ B = no },
-		read_profile2(Bs, [0|Values0], Res)
+		{ Res = error(Error) },
+		{ Value = 0 },
+		{ MaybeError = yes(Error) }
 	).
 
-cons_profile(Values) = PI :-
-	( Values = [Calls, Exits, Fails, Redos, Quanta, Mem] ->
+compress_profile(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words) = PI :-
+	(
+		Calls = Exits,
+		Fails = 0,
+		Redos = 0
+	->
+		(
+			Quanta = 0
+		->
+			PI = zdet(Calls, Mallocs, Words)
+		;
+			PI = det(Calls, Quanta, Mallocs, Words)
+		)
+	;
+		PI = all(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words)
+	).
+
+compress_profile(PI0) = PI :-
+	(
+		PI0 = all(Calls, Exits, Fails, Redos, Quanta, Mallocs, Words),
 		(
 			Calls = Exits,
 			Fails = 0,
-			Redos = 0,
-			Quanta = 0,
-			Mem = 0
+			Redos = 0
 		->
-			PI = zdet(Calls)
+			(
+				Quanta = 0
+			->
+				PI = zdet(Calls, Mallocs, Words)
+			;
+				PI = det(Calls, Quanta, Mallocs, Words)
+			)
 		;
-			Calls = Exits,
-			Fails = 0,
-			Redos = 0,
-			Mem = 0
-		->
-			PI = det(Calls, Quanta)
-		;
-			PI = all(Calls, Exits, Fails, Redos, Quanta, Mem)
+			PI = PI0
 		)
 	;
-		error("cons_profile: missing values")
+		PI0 = det(Calls, Quanta, Mallocs, Words),
+		(
+			Quanta = 0
+		->
+			PI = zdet(Calls, Mallocs, Words)
+		;
+			PI = PI0
+		)
+	;
+		PI0 = zdet(_, _, _),
+		PI = PI0
 	).
 
 :- pred read_call_site_ref(deep_result(call_site_ref), io__state, io__state).

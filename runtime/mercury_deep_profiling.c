@@ -18,10 +18,20 @@
 
 #include <stdio.h>
 
-MR_CallSiteDynamic MR_mainCallSite = { NULL };
+MR_CallSiteDynamic MR_main_call_site = {
+	NULL,
+	{ 0, 0, 0, 0,
+#ifdef	MR_DEEP_PROFILING_TIMING
+	0,
+#endif
+#ifdef	MR_DEEP_PROFILING_MEMORY
+	0, 0
+#endif
+	}
+};
 
-MR_CallSiteDynamic *MR_rootCallSites[] = {
-	&MR_mainCallSite,
+MR_CallSiteDynamic *MR_root_call_sites[] = {
+	&MR_main_call_site,
 	NULL
 };
 
@@ -30,7 +40,7 @@ volatile MR_CallSiteDynamic
 
 #ifdef MR_DEEP_PROFILING_DELAYED_CSD_UPDATE
 volatile MR_CallSiteDynamic
-		*MR_next_call_site_dynamic = &MR_mainCallSite;
+		*MR_next_call_site_dynamic = &MR_main_call_site;
 #endif
 
 #ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
@@ -38,10 +48,10 @@ volatile MR_Bool MR_inside_deep_profiling_code = FALSE;
 #endif
 
 volatile MR_CallSiteDynamic
-		*MR_current_call_site_dynamic = &MR_mainCallSite;
+		*MR_current_call_site_dynamic = &MR_main_call_site;
 
 volatile MR_CallSiteDynamic
-		**MR_current_callback_site = &(MR_rootCallSites[1]);
+		**MR_current_callback_site = &(MR_root_call_sites[1]);
 
 #ifdef MR_DEEP_PROFILING_STATISTICS
 int MR_number_of_profiling_entries = 0;
@@ -209,11 +219,11 @@ MR_write_out_profiling_tree(FILE *fp)
 	MR_proc_static_table  = MR_create_hash_table(MR_hash_table_size);
 
 #ifdef MR_DEEP_PROFILING_DEBUG
-	fprintf(stderr, "root = %p\n", &MR_mainCallSite);
+	fprintf(stderr, "root = %p\n", &MR_main_call_site);
 #endif
 	MR_write_byte(fp, root);
-	if (MR_hash_table_insert(MR_call_site_dynamic_table, &MR_mainCallSite,
-		&root_node_id, NULL, FALSE))
+	if (MR_hash_table_insert(MR_call_site_dynamic_table,
+		&MR_main_call_site, &root_node_id, NULL, FALSE))
 	{
 		MR_fatal_error(
 			"MR_write_out_profiling_tree: root seen before");
@@ -221,7 +231,7 @@ MR_write_out_profiling_tree(FILE *fp)
 
 	MR_write_ptr(fp, kind_csd, root_node_id);
 
-	MR_write_out_callsite_dynamic(fp, &MR_mainCallSite);
+	MR_write_out_callsite_dynamic(fp, &MR_main_call_site);
 
 	for (i = 0; i < MR_proc_static_table->length; i++) {
 		n = MR_proc_static_table->nodes[i];
@@ -393,8 +403,10 @@ MR_write_out_callsite_dynamic(FILE *fp, const MR_CallSiteDynamic *ptr)
 		bitmask |= 0x0010;
 #endif
 #ifdef MR_DEEP_PROFILING_MEMORY
-	if (ptr->profiling_metrics.memory != 0)
+	if (ptr->profiling_metrics.memory_mallocs != 0)
 		bitmask |= 0x0020;
+	if (ptr->profiling_metrics.memory_words != 0)
+		bitmask |= 0x0040;
 #endif
 
 	MR_write_num(fp, bitmask);
@@ -416,8 +428,10 @@ MR_write_out_callsite_dynamic(FILE *fp, const MR_CallSiteDynamic *ptr)
 #endif
 
 #ifdef MR_DEEP_PROFILING_MEMORY
-	if (ptr->profiling_metrics.memory != 0)
-		MR_write_num(fp, ptr->profiling_metrics.memory);
+	if (ptr->profiling_metrics.memory_mallocs != 0)
+		MR_write_num(fp, ptr->profiling_metrics.memory_mallocs);
+	if (ptr->profiling_metrics.memory_words != 0)
+		MR_write_num(fp, ptr->profiling_metrics.memory_words);
 #endif
 
 	MR_write_out_proc_dynamic(fp, ptr->call_site_callee_ptr);

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2000 The University of Melbourne.
+** Copyright (C) 1997-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -205,7 +205,29 @@
 **
 ** PROFILE_MEMORY
 ** Enables profiling of memory usage.
+**
+** MR_DEEP_PROFILING_CALL_COUNTS.
+** Enables deep profiling of call counts.
+**
+** MR_DEEP_PROFILING_TIMING.
+** Enables deep profiling of time.
+**
+** MR_DEEP_PROFILING_MEMORY.
+** Enables deep profiling of memory usage.
 */
+
+#ifdef	MR_DEEP_PROFILING
+  /* this is the default set of measurements in deep profiling grades */
+  #define MR_DEEP_PROFILING_CALL_COUNTS
+  #ifndef MR_DEEP_PROFILING_PERF_TEST
+    #define MR_DEEP_PROFILING_TIMING
+    #define MR_DEEP_PROFILING_MEMORY
+  #endif
+#else
+  #undef  MR_DEEP_PROFILING_CALL_COUNTS
+  #undef  MR_DEEP_PROFILING_TIMING
+  #undef  MR_DEEP_PROFILING_MEMORY
+#endif
 
 /*
 ** Experimental options:

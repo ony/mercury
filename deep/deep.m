@@ -96,16 +96,22 @@
 	.
 
 :- type own_prof_info
-	--->	zdet(int)		% calls == exits, quanta == 0
-	;	det(int, int)		% calls == exits, quanta
-	;	all(int, int, int, int, int, int)
-	.				% calls, exits, fails, redos,
-					%	quanta, memory
+	--->	all(int, int, int, int, int, int, int)
+					% calls, exits, fails, redos, quanta,
+					% memory_mallocs, memory_words
+	;	det(int, int, int, int)	% calls, quanta, mallocs, words;
+					% implicit exits == calls,
+					% implicit fails == redos == 0
+	;	zdet(int, int, int).	% calls, mallocs, words;
+					% implicit exits == calls,
+					% implicit fails == redos == 0
+					% implicit quanta == 0
 
 :- type inherit_prof_info
 	--->	inherit_prof_info(
 			int, 		% quanta
-			int 		% memory
+			int, 		% memory_mallocs
+			int 		% memory_words
 		).
 
 :- type ptr ---> ptr(int).
@@ -137,7 +143,7 @@
 :- type option_table ---> options(option_table(option)).
 :- instance global(options, option_table) where [].
 
-:- type [A|B] == list(A).
+:- type [A | B] == list(A).
 :- type [] ---> [].
 :- type (A -> B) == map(A, B).
 
@@ -195,7 +201,8 @@ main2(Globals0) -->
 		write_string(StdErr, "Merging cycles in the graph.\n"),
 		merge_cliques(Deep0, Deep),
 		write_string(StdErr, "Done.\n"),
-		{ foldl(sum_all_csds, Deep ^ call_site_dynamics, 0, Total) },
+		{ foldl(sum_all_csd_quanta, Deep ^ call_site_dynamics,
+			0, Total) },
 		format(StdErr, "Total quanta %d\n", [i(Total)]),
 		main3(Globals0, Deep)
 	;
@@ -203,9 +210,10 @@ main2(Globals0) -->
 		format(StdErr, "%s\n", [s(Err)])
 	).
 
-:- pred sum_all_csds(int::in, call_site_dynamic::in, int::in, int::out) is det.
+:- pred sum_all_csd_quanta(int::in, call_site_dynamic::in, int::in, int::out)
+	is det.
 
-sum_all_csds(_, call_site_dynamic(_, OwnPI), Sum0, Sum0 + quanta(OwnPI)).
+sum_all_csd_quanta(_, call_site_dynamic(_, OwnPI), Sum0, Sum0 + quanta(OwnPI)).
 
 :- pred main3(globals, deep, io__state, io__state).
 :- mode main3(in, in, di, uo) is det.
@@ -269,7 +277,7 @@ merge_cliques(Deep0, Deep) -->
 		map((pred(PDI::in, PDPtr::out) is det :-
 			PDPtr = proc_dynamic_ptr(PDI)
 		), List0, List),
-		L = [List|L0]
+		L = [List | L0]
 	), CliqueList0, [], CliqueList) },
 		% It's actually more convenient to have the list in
 		% reverse order so that foldl works from the bottom
@@ -279,7 +287,7 @@ merge_cliques(Deep0, Deep) -->
 
 	format(StdErr, "  Constructing indexes...\n", []),
 	flush_output(StdErr),
-	{ array__max(Deep0^proc_dynamics, PDMax) },
+	{ array__max(Deep0 ^ proc_dynamics, PDMax) },
 	{ NPDs = PDMax + 1 },
 	{ init(NPDs, clique(-1), CliqueIndex0) },
 
@@ -311,7 +319,7 @@ merge_cliques(Deep0, Deep) -->
 		lfoldl((pred(CCSDPtr::in, C3::array_di, C4::array_uo) is det :-
 			CCSDPtr = call_site_dynamic_ptr(CCSDI),
 			( CCSDI > 0 ->
-				lookup(Deep0^call_site_dynamics, CCSDI, CCSD),
+				lookup(Deep0 ^ call_site_dynamics, CCSDI, CCSD),
 				CCSD = call_site_dynamic(CPDPtr, _),
 				CPDPtr = proc_dynamic_ptr(CPDI),
 				( CPDI > 0 ->
@@ -333,23 +341,23 @@ merge_cliques(Deep0, Deep) -->
 	    	error("emit nasal daemons")
 	    )
 	), CliqueIndex, CliqueParents0, CliqueParents1) },
-	{ Deep0^root = call_site_dynamic_ptr(RootI) },
-	{ lookup(Deep0^call_site_dynamics, RootI, RootCSD) },
+	{ Deep0 ^ root = call_site_dynamic_ptr(RootI) },
+	{ lookup(Deep0 ^ call_site_dynamics, RootI, RootCSD) },
 	{ RootCSD = call_site_dynamic(RootPD, _) },
 	{ RootPD = proc_dynamic_ptr(RootPDI) },
 	{ lookup(CliqueIndex, RootPDI, clique(RootCliqueN)) },
-	{ set(CliqueParents1, RootCliqueN, Deep0^root, CliqueParents) },
+	{ set(CliqueParents1, RootCliqueN, Deep0 ^ root, CliqueParents) },
 
-	{ array__max(Deep0^call_site_dynamics, CSDMax) },
+	{ array__max(Deep0 ^ call_site_dynamics, CSDMax) },
 	{ NCSDs = CSDMax + 1 },
 	{ init(NCSDs, call_site_static_ptr(-1), CallSiteIndex0) },
-	{ foldl(construct_call_site_index(Deep0), Deep0^proc_dynamics,
+	{ foldl(construct_call_site_index(Deep0), Deep0 ^ proc_dynamics,
 		CallSiteIndex0, CallSiteIndex) },
 
 	{ array__max(Deep0 ^ call_site_statics, CSSMax) },
 	{ NCSSs = CSSMax + 1 },
 	{ init(NCSSs, proc_static_ptr(-1), ProcStaticIndex0) },
-	{ foldl(construct_proc_static_index(Deep0), Deep0^proc_dynamics,
+	{ foldl(construct_proc_static_index(Deep0), Deep0 ^ proc_dynamics,
 		ProcStaticIndex0, ProcStaticIndex) },
 
 	format(StdErr, "  Done.\n", []),
@@ -358,30 +366,13 @@ merge_cliques(Deep0, Deep) -->
 	format(StdErr, "  Propagating time up call graph...\n", []),
 
 	{ init(NPDs, zero_own_prof_info, PDOwn0) },
-	{ foldl((pred(_::in, CSD::in, PDO0::array_di, PDO::array_uo)
-								is det :-
-		CSD = call_site_dynamic(PDPtr, PI),
-		PDPtr = proc_dynamic_ptr(PDI),
-		( PDI > 0 ->
-			lookup(PDO0, PDI, OwnPI0),
-			Calls = calls(PI) + calls(OwnPI0),
-			Exits = exits(PI) + exits(OwnPI0),
-			Fails = fails(PI) + fails(OwnPI0),
-			Redos = redos(PI) + redos(OwnPI0),
-			Quanta = quanta(PI) + quanta(OwnPI0),
-			Memory = memory(PI) + memory(OwnPI0),
-			OwnPI = cons_profile([Calls, Exits,
-					Fails, Redos, Quanta, Memory]),
-			set(PDO0, PDI, OwnPI, PDO)
-		;
-			PDO = PDO0
-		)
-	), Deep0^call_site_dynamics, PDOwn0, PDOwn) },
-	
+	{ foldl(sum_call_sites_in_proc_dynamic,
+		Deep0 ^ call_site_dynamics, PDOwn0, PDOwn) },
+
 	{ init(NPDs, zero_inherit_prof_info, PDDesc0) },
 	{ init(NCSDs, zero_inherit_prof_info, CSDDesc0) },
 
-	{ array__max(Deep0^proc_statics, PSMax) },
+	{ array__max(Deep0 ^ proc_statics, PSMax) },
 	{ NPSs = PSMax + 1 },
 	{ init(NPSs, zero_own_prof_info, PSOwn0) },
 	{ init(NPSs, zero_inherit_prof_info, PSDesc0) },
@@ -471,7 +462,7 @@ construct_proc_static_index(Deep, _PDI, PD,
 	PD = proc_dynamic(PSPtr, Refs),
 	array__max(Refs, MaxCS),
 	PSPtr = proc_static_ptr(PSI),
-	lookup(Deep^proc_statics, PSI, PS),
+	lookup(Deep ^ proc_statics, PSI, PS),
 	PS = proc_static(_Id, CSSPtrs),
 	construct_proc_static_index2(MaxCS, Deep, Refs, CSSPtrs,
 		ProcStaticIndex0, ProcStaticIndex).
@@ -492,11 +483,11 @@ construct_proc_static_index2(N, Deep, Refs, CSSPtrs,
 			Ref = normal(CSDPtr),
 			CSDPtr = call_site_dynamic_ptr(CSDI),
 			( CSDI > 0 ->
-				lookup(Deep^call_site_dynamics, CSDI, CSD),
+				lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 				CSD = call_site_dynamic(PDPtr, _),
 				PDPtr = proc_dynamic_ptr(PDI),
 				( PDI > 0 ->
-					lookup(Deep^proc_dynamics, PDI, PD),
+					lookup(Deep ^ proc_dynamics, PDI, PD),
 					PD = proc_dynamic(PSPtr, _),
 					set(ProcStaticIndex0, CSSI, PSPtr,
 						ProcStaticIndex1)
@@ -512,11 +503,11 @@ construct_proc_static_index2(N, Deep, Refs, CSSPtrs,
 				PIdx0::array_di, PIdx1::array_uo) is det :-
 			CSDPtr = call_site_dynamic_ptr(CSDI),
 			( CSDI > 0 ->
-				lookup(Deep^call_site_dynamics, CSDI, CSD),
+				lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 				CSD = call_site_dynamic(PDPtr, _),
 				PDPtr = proc_dynamic_ptr(PDI),
 				( PDI > 0 ->
-					lookup(Deep^proc_dynamics, PDI, PD),
+					lookup(Deep ^ proc_dynamics, PDI, PD),
 					PD = proc_dynamic(PSPtr, _),
 					set(PIdx0, CSSI, PSPtr, PIdx1)
 				;
@@ -531,6 +522,20 @@ construct_proc_static_index2(N, Deep, Refs, CSSPtrs,
 			ProcStaticIndex1, ProcStaticIndex)
 	;
 		ProcStaticIndex = ProcStaticIndex0
+	).
+
+:- pred sum_call_sites_in_proc_dynamic(int::in, call_site_dynamic::in,
+	array(own_prof_info)::array_di, array(own_prof_info)::array_uo) is det.
+
+sum_call_sites_in_proc_dynamic(_, CSD, PDO0, PDO) :-
+	CSD = call_site_dynamic(PDPtr, PI),
+	PDPtr = proc_dynamic_ptr(PDI),
+	( PDI > 0 ->
+		lookup(PDO0, PDI, OwnPI0),
+		OwnPI = add_own_to_own(PI, OwnPI0),
+		set(PDO0, PDI, OwnPI, PDO)
+	;
+		PDO = PDO0
 	).
 
 :- pred summarize_proc_dynamic(int::in, proc_dynamic::in, deep::in, deep::out)
@@ -677,24 +682,27 @@ is_member(Elem, List) :-
 
 add_inherit_to_inherit(PI1, PI2) = SumPI :-
 	Quanta = inherit_quanta(PI1) + inherit_quanta(PI2),
-	Memory = inherit_memory(PI1) + inherit_memory(PI2),
-	SumPI = inherit_prof_info(Quanta, Memory).
+	Mallocs = inherit_mallocs(PI1) + inherit_mallocs(PI2),
+	Words = inherit_words(PI1) + inherit_words(PI2),
+	SumPI = inherit_prof_info(Quanta, Mallocs, Words).
 
 :- func add_own_to_inherit(own_prof_info, inherit_prof_info)
 	= inherit_prof_info.
 
 add_own_to_inherit(PI1, PI2) = SumPI :-
 	Quanta = quanta(PI1) + inherit_quanta(PI2),
-	Memory = memory(PI1) + inherit_memory(PI2),
-	SumPI = inherit_prof_info(Quanta, Memory).
+	Mallocs = mallocs(PI1) + inherit_mallocs(PI2),
+	Words = words(PI1) + inherit_words(PI2),
+	SumPI = inherit_prof_info(Quanta, Mallocs, Words).
 
 :- func subtract_own_from_inherit(own_prof_info, inherit_prof_info)
 	= inherit_prof_info.
 
 subtract_own_from_inherit(PI1, PI2) = SumPI :-
 	Quanta = inherit_quanta(PI2) - quanta(PI1),
-	Memory = inherit_memory(PI2) - memory(PI1),
-	SumPI = inherit_prof_info(Quanta, Memory).
+	Mallocs = inherit_mallocs(PI2) - mallocs(PI1),
+	Words = inherit_words(PI2) - words(PI1),
+	SumPI = inherit_prof_info(Quanta, Mallocs, Words).
 
 :- func add_inherit_to_own(inherit_prof_info, own_prof_info) = own_prof_info.
 
@@ -704,8 +712,10 @@ add_inherit_to_own(PI1, PI2) = SumPI :-
 	Fails = fails(PI2),
 	Redos = redos(PI2),
 	Quanta = inherit_quanta(PI1) + quanta(PI2),
-	Memory = inherit_memory(PI1) + memory(PI2),
-	SumPI = cons_profile([Calls, Exits, Fails, Redos, Quanta, Memory]).
+	Mallocs = inherit_mallocs(PI1) + mallocs(PI2),
+	Words = inherit_words(PI1) + words(PI2),
+	SumPI = compress_profile(Calls, Exits, Fails, Redos,
+		Quanta, Mallocs, Words).
 
 :- func add_own_to_own(own_prof_info, own_prof_info) = own_prof_info.
 
@@ -715,8 +725,10 @@ add_own_to_own(PI1, PI2) = SumPI :-
 	Fails = fails(PI1) + fails(PI2),
 	Redos = redos(PI1) + redos(PI2),
 	Quanta = quanta(PI1) + quanta(PI2),
-	Memory = memory(PI1) + memory(PI2),
-	SumPI = cons_profile([Calls, Exits, Fails, Redos, Quanta, Memory]).
+	Mallocs = mallocs(PI1) + mallocs(PI2),
+	Words = words(PI1) + words(PI2),
+	SumPI = compress_profile(Calls, Exits, Fails, Redos,
+		Quanta, Mallocs, Words).
 
 :- pred mlookup(array(T), int, T, string).
 :- mode mlookup(in, in, out, in) is det.
@@ -744,7 +756,7 @@ call_sites(Deep, PDPtr, CSDPtrs) :-
 		    	Ref = normal(CSDPtr),
 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
 			( CSDI > 0 ->
-				CSDPtrs1 = [[CSDPtr]|CSDPtrs0]
+				CSDPtrs1 = [[CSDPtr] | CSDPtrs0]
 			;
 				CSDPtrs1 = CSDPtrs0
 			)
@@ -755,7 +767,7 @@ call_sites(Deep, PDPtr, CSDPtrs) :-
 				CSDPtr = call_site_dynamic_ptr(CSDI),
 				CSDI > 0
 			), PtrList0, PtrList1),
-			CSDPtrs1 = [PtrList1|CSDPtrs0]
+			CSDPtrs1 = [PtrList1 | CSDPtrs0]
 		    )
 		), RefList, [], CSDPtrsList0),
 		reverse(CSDPtrsList0, CSDPtrsList),
@@ -769,7 +781,7 @@ call_sites(Deep, PDPtr, CSDPtrs) :-
 
 kids(Deep, Index, PDPtr, Kids) :-
 	( PDPtr = proc_dynamic_ptr(PDI), PDI > 0 ->
-		lookup(Deep^proc_dynamics, PDI, PD),
+		lookup(Deep ^ proc_dynamics, PDI, PD),
 		PD = proc_dynamic(_PSPtr, Refs),
 		solutions((pred(Kid::out) is nondet :-
 		    array__to_list(Refs, RefList),
@@ -778,7 +790,7 @@ kids(Deep, Index, PDPtr, Kids) :-
 		    	Ref = normal(CSDPtr),
 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
 			CSDI > 0,
-			lookup(Deep^call_site_dynamics, CSDI, CSD),
+			lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 			CSD = call_site_dynamic(CPDPtr, _Prof),
 			CPDPtr = proc_dynamic_ptr(CPDI),
 			CPDI > 0,
@@ -789,7 +801,7 @@ kids(Deep, Index, PDPtr, Kids) :-
 		    	member(CSDPtr, PtrList),
 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
 			CSDI > 0,
-			lookup(Deep^call_site_dynamics, CSDI, CSD),
+			lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 			CSD = call_site_dynamic(CPDPtr, _Prof),
 			CPDPtr = proc_dynamic_ptr(CPDI),
 			CPDI > 0,
@@ -813,7 +825,8 @@ make_graph(Deep, Graph) -->
 		    (
 			{ CSR = normal(call_site_dynamic_ptr(CSDI)) },
 			( { CSDI > 0 } ->
-				{ lookup(Deep^call_site_dynamics, CSDI, CSD) },
+				{ lookup(Deep ^ call_site_dynamics,
+					CSDI, CSD) },
 				{ CSD = call_site_dynamic(CPDPtr, _) },
 				{ CPDPtr = proc_dynamic_ptr(To) },
 				{ add_arc(G5, From, To, G6) }
@@ -827,7 +840,8 @@ make_graph(Deep, Graph) -->
 					di, uo) is det -->
 			    { CSDPtr1 = call_site_dynamic_ptr(CSDI) },
 			    ( { CSDI > 0 } ->
-			    	{ lookup(Deep^call_site_dynamics, CSDI, CSD) },
+			    	{ lookup(Deep ^ call_site_dynamics,
+					CSDI, CSD) },
 			       	{ CSD = call_site_dynamic(CPDPtr, _) },
 			    	{ CPDPtr = proc_dynamic_ptr(To) },
 			    	{ add_arc(G7, From, To, G8) }
@@ -837,7 +851,7 @@ make_graph(Deep, Graph) -->
 			), CallSites, G5, G6)
 		    )
 	        ), CallSiteRefList, G1, G2)
-	), Deep^proc_dynamics, Graph0, Graph).
+	), Deep ^ proc_dynamics, Graph0, Graph).
 
 :- pred foldl(pred(int, T, U, U), array(T), U, U).
 :- mode foldl(pred(in, in, in, out) is det, in, in, out) is det.
@@ -901,7 +915,7 @@ foldl2(N, Max, P, A, U0, U, V0, V) :-
 		array_di, array_uo) is det.
 
 lfoldl(_, []) --> [].
-lfoldl(P, [X|Xs]) -->
+lfoldl(P, [X | Xs]) -->
 	call(P, X),
 	lfoldl(P, Xs).
 
@@ -912,42 +926,48 @@ lfoldl(P, [X|Xs]) -->
 :- func fails(own_prof_info) = int.
 :- func redos(own_prof_info) = int.
 :- func quanta(own_prof_info) = int.
-:- func memory(own_prof_info) = int.
+:- func mallocs(own_prof_info) = int.
+:- func words(own_prof_info) = int.
 
-calls(zdet(Calls)) = Calls.
-exits(zdet(Calls)) = Calls.
-fails(zdet(_)) = 0.
-redos(zdet(_)) = 0.
-quanta(zdet(_)) = 0.
-memory(zdet(_)) = 0.
+calls(zdet(Calls, _, _)) = Calls.
+exits(zdet(Calls, _, _)) = Calls.
+fails(zdet(_, _, _)) = 0.
+redos(zdet(_, _, _)) = 0.
+quanta(zdet(_, _, _)) = 0.
+mallocs(zdet(_, Mallocs, _)) = Mallocs.
+words(zdet(_, _, Words)) = Words.
 
-calls(det(Calls, _)) = Calls.
-exits(det(Calls, _)) = Calls.
-fails(det(_, _)) = 0.
-redos(det(_, _)) = 0.
-quanta(det(_, Quanta)) = Quanta.
-memory(det(_, _)) = 0.
+calls(det(Calls, _, _, _)) = Calls.
+exits(det(Calls, _, _, _)) = Calls.
+fails(det(_, _, _, _)) = 0.
+redos(det(_, _, _, _)) = 0.
+quanta(det(_, Quanta, _, _)) = Quanta.
+mallocs(det(_, _, Mallocs, _)) = Mallocs.
+words(det(_, _, _, Words)) = Words.
 
-calls(all(Calls, _, _, _, _, _)) = Calls.
-exits(all(_, Exits, _, _, _, _)) = Exits.
-fails(all(_, _, Fails, _, _, _)) = Fails.
-redos(all(_, _, _, Redos, _, _)) = Redos.
-quanta(all(_, _, _, _, Quanta, _)) = Quanta.
-memory(all(_, _, _, _, _, Memory)) = Memory.
+calls(all(Calls, _, _, _, _, _, _)) = Calls.
+exits(all(_, Exits, _, _, _, _, _)) = Exits.
+fails(all(_, _, Fails, _, _, _, _)) = Fails.
+redos(all(_, _, _, Redos, _, _, _)) = Redos.
+quanta(all(_, _, _, _, Quanta, _, _)) = Quanta.
+mallocs(all(_, _, _, _, _, Mallocs, _)) = Mallocs.
+words(all(_, _, _, _, _, _, Words)) = Words.
 
 :- func zero_own_prof_info = own_prof_info.
 
-zero_own_prof_info = zdet(0).
+zero_own_prof_info = zdet(0, 0, 0).
 
 :- func inherit_quanta(inherit_prof_info) = int.
-:- func inherit_memory(inherit_prof_info) = int.
+:- func inherit_mallocs(inherit_prof_info) = int.
+:- func inherit_words(inherit_prof_info) = int.
 
-inherit_quanta(inherit_prof_info(Quanta, _)) = Quanta.
-inherit_memory(inherit_prof_info(_, Memory)) = Memory.
+inherit_quanta(inherit_prof_info(Quanta, _, _)) = Quanta.
+inherit_mallocs(inherit_prof_info(_, Mallocs, _)) = Mallocs.
+inherit_words(inherit_prof_info(_, _, Words)) = Words.
 
 :- func zero_inherit_prof_info = inherit_prof_info.
 
-zero_inherit_prof_info = inherit_prof_info(0, 0).
+zero_inherit_prof_info = inherit_prof_info(0, 0, 0).
 
 %------------------------------------------------------------------------------%
 

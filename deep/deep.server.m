@@ -66,6 +66,8 @@ exec(quit, _, _) -->
 	told.
 
 exec(root, Globs, Deep) -->
+	{ RootTotal = root_total_info(Deep) },
+	{ RootOwn = root_own_info(Deep) },
 	{ RootInherit = root_inherit_info(Deep) },
 	{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
 	{ HTML =
@@ -73,8 +75,8 @@ exec(root, Globs, Deep) -->
 		banner ++
 		"<TABLE>\n" ++
 		clique_table_header ++
-		pred_name("Call graph root", RootInherit,
-			zdet(1), RootInherit) ++
+		pred_name("Call graph root", RootTotal,
+			RootOwn, RootInherit) ++
 		callsite2html(URL, Deep, clique(-1), Deep ^ root) ++
 		"</TABLE>\n" ++
 		footer(Deep) },
@@ -84,11 +86,27 @@ exec(root, Globs, Deep) -->
 	told,
 	server(Globs, Deep).
 
+:- func root_total_info(deep) = inherit_prof_info.
+
+root_total_info(Deep) = RootTotal :-
+	Deep ^ root = call_site_dynamic_ptr(RootI),
+	lookup(Deep ^ csd_desc, RootI, RootInherit),
+	lookup(Deep ^ call_site_dynamics, RootI, RootCsd),
+	RootCsd = call_site_dynamic(_, RootOwn),
+	add_own_to_inherit(RootOwn, RootInherit) = RootTotal.
+
 :- func root_inherit_info(deep) = inherit_prof_info.
 
 root_inherit_info(Deep) = RootInherit :-
 	Deep ^ root = call_site_dynamic_ptr(RootI),
 	lookup(Deep ^ csd_desc, RootI, RootInherit).
+
+:- func root_own_info(deep) = own_prof_info.
+
+root_own_info(Deep) = RootOwn :-
+	Deep ^ root = call_site_dynamic_ptr(RootI),
+	lookup(Deep ^ call_site_dynamics, RootI, RootCsd),
+	RootCsd = call_site_dynamic(_, RootOwn).
 
 exec(clique(N), Globs, Deep) -->
 	( { N > 0 } ->
@@ -217,7 +235,7 @@ clique2html(URL, Deep, Clique) = HTML :-
 proc_in_clique_to_html(URL, Clique, Deep, PDPtr, PDStr) :-
 	PDPtr = proc_dynamic_ptr(PDI),
 	( PDI > 0 ->
-		RootInherit = root_inherit_info(Deep),
+		RootTotal = root_total_info(Deep),
 
 		lookup(Deep ^ proc_dynamics, PDI, PD),
 		PD = proc_dynamic(PSPtr, _),
@@ -238,7 +256,7 @@ proc_in_clique_to_html(URL, Clique, Deep, PDPtr, PDStr) :-
 		add_own_to_inherit(SubTotalOwn, SubTotalDesc) = SubTotal,
 		PDStr =
 			"<TR><TD COLSPAN=8>&nbsp;</TD></TR>\n" ++
-			pred_name(Id, RootInherit, SubTotalOwn, SubTotal) ++
+			pred_name(Id, RootTotal, SubTotalOwn, SubTotal) ++
 			Rows
 	;
 		PDStr = ""
@@ -259,8 +277,8 @@ addTime(P, T0, SM0, SM) :-
 
 :- func callsite2html(string, deep, clique, call_site_dynamic_ptr) = string.
 callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
-	RootInherit = root_inherit_info(Deep),
-	RootQuanta = inherit_quanta(RootInherit),
+	RootTotal = root_total_info(Deep),
+	RootQuanta = inherit_quanta(RootTotal),
 	RQ = float(RootQuanta),
 
 	label(CSDPtr, Deep) = CalleeName,
@@ -384,11 +402,11 @@ proc2html(Boldness, _URL, Deep, PSI, OwnQuanta, Quanta) = HTML :-
 	Quanta = OwnQuanta + DescQuanta,
 	OwnQ = float(OwnQuanta),
 	Q = float(Quanta),
+	RootQuanta = inherit_quanta(RootTotal),
+	RQ = float(RootQuanta),
 	OwnProp = 100.0 * OwnQ / RQ,
 	Prop = 100.0 * Q / RQ,
-	RootInherit = root_inherit_info(Deep),
-	RootQuanta = inherit_quanta(RootInherit),
-	RQ = float(RootQuanta),
+	RootTotal = root_total_info(Deep),
 	(
 		Boldness = normal,
 		BS = "",
@@ -424,8 +442,8 @@ css2html(_URL, Deep, Id, PI, PSIDesc) = HTML :-
 	Q = float(Quanta),
 	OwnProp = 100.0 * OwnQ / RQ,
 	Prop = 100.0 * Q / RQ,
-	RootInherit = root_inherit_info(Deep),
-	RootQuanta = inherit_quanta(RootInherit),
+	RootTotal = root_total_info(Deep),
+	RootQuanta = inherit_quanta(RootTotal),
 	RQ = float(RootQuanta),
 	HTML = "<TR>\n" ++
 	 "<TD> </TD>\n" ++
