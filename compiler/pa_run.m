@@ -350,9 +350,40 @@ analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	analyse_goal( ProcInfo, HLDS, ELSE, T2, T, A0, A3),
 	pa_alias_as__least_upper_bound( ProcInfo, HLDS, A2, A3, A).
 
-analyse_goal_expr( pragma_foreign_code( _,_,_,_,_,_,_,_  ), _Info, _, _ , 
-							T, T, _A, A) :- 
-	pa_alias_as__top("pragma_c_code not handled", A).
+analyse_goal_expr( pragma_foreign_code( _,_,_,_, Vars, MaybeModes,Types,_  ), 
+			_Info, _, HLDS , 
+			T, T, Ain, A) :- 
+	to_trios(Vars, MaybeModes, Types, Trios), 
+	% remove all unique objects
+	remove_all_unique_vars( HLDS, Trios, NonUniqueVars), 
+	% keep only the output vars
+	collect_all_output_vars( HLDS, NonUniqueVars, OutputVars), 
+	(
+		(
+			OutputVars = [] 
+		; 
+			% XXXXXXXXXXXXXXXXX !!
+			OutputVars = [_]
+		)
+	->
+		A = Ain
+	;
+		list__map( 
+			pred( Trio::in, Type::out ) is det:-
+			( 
+				Trio = trio(_, _, Type)
+			), 
+			OutputVars,
+			OutputTypes),
+		(
+			types_are_primitive( HLDS, OutputTypes) 
+		-> 
+			A = Ain
+		; 
+			pa_alias_as__top("pragma_c_code not handled", A)
+		)
+	).
+
 	% error( "(pa) pragma_c_code not handled") .
 analyse_goal_expr( par_conj( _Goals, _SM), _Info, _, _ , T, T, _A, A) :-  
 	pa_alias_as__top("par_conj not handled", A).
@@ -361,7 +392,95 @@ analyse_goal_expr( bi_implication( _G1, _G2),_Info, _,  _ , T, T, _A, A) :-
 	pa_alias_as__top("bi_implication not handled", A).
 	% error( "(pa) bi_implication not handled") .
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+
+
+:- import_module std_util, inst_match.
+
+:- type trio ---> trio( prog_var, mode, type). 
+
+:- pred to_trios( list(prog_var), list(maybe(pair(string, mode))), 
+			list(type), list(trio)).
+:- mode to_trios( in, in, in, out) is det.
+
+to_trios( Vars, MaybeModes, Types, Trios ):-
+	(
+		Vars = [ V1 | VR ]
+	->
+		(
+			MaybeModes = [ M1 | MR ],
+			Types = [ T1 | TR ]
+		->
+			(
+				M1 = yes( _String - Mode )
+			->
+				Trio1 = trio( V1, Mode, T1), 
+				to_trios( VR, MR, TR, TrioR), 
+				Trios = [ Trio1 | TrioR ]
+			;
+				to_trios( VR, MR, TR, Trios )
+			)
+		;
+			require__error("(pa_run) to_trios: lists of different length.")
+		)
+	;
+		(
+			MaybeModes = [], Types = []
+		->
+			Trios = []
+		;
+			require__error("(pa_run) to_trios: not all lists empty.")
+		)
+	).
+			
+:- pred collect_all_output_vars( module_info::in, 
+		list(trio)::in, list(trio)::out) is det.
+:- pred remove_all_unique_vars( module_info::in, 
+		list(trio)::in, list(trio)::out) is det.
+:- pred collect_all_input_vars( module_info::in,
+		list(trio)::in, list(trio)::out) is det.
+
+:- import_module mode_util.
+
+collect_all_output_vars( HLDS, VarsIN, VarsOUT):- 
+	list__filter(
+		pred( P0::in ) is semidet :- 
+		(
+			P0 = trio(_, Mode, Type), 
+			mode_to_arg_mode(HLDS, Mode, Type, ArgMode), 
+			ArgMode = top_out
+		), 
+		VarsIN, 
+		VarsOUT
+	).
+	
+remove_all_unique_vars( HLDS, VarsIN, VarsOUT):- 
+	list__filter(
+		pred( P0::in ) is semidet :- 
+		(
+			P0 = trio(_, Mode, _), 
+			Mode = (_LeftInst -> RightInst), 
+			\+ inst_is_unique(HLDS, RightInst), 
+			\+ inst_is_clobbered(HLDS, RightInst)
+		),
+		VarsIN, 
+		VarsOUT
+	).
+
+collect_all_input_vars( HLDS, VarsIN, VarsOUT):- 
+	list__filter(
+		pred( P0::in ) is semidet :- 
+		(
+			P0 = trio(_, Mode, Type), 
+			mode_to_arg_mode(HLDS, Mode, Type, ArgMode), 
+			ArgMode = top_in
+		), 
+		VarsIN, 
+		VarsOUT
+	).
+
+%-----------------------------------------------------------------------------%
 
 	% lookup the alias of the procedure with given pred_proc_id and
 	% find it's output abstract substitution. 
@@ -375,7 +494,7 @@ analyse_goal_expr( bi_implication( _G1, _G2),_Info, _,  _ , T, T, _A, A) :-
 	%     * either compiler generated predicates
 	%     * or predicates from builtin.m and private_builtin.m
 :- pred lookup_call_alias( pred_proc_id, module_info, pa_fixpoint_table,
-			 	pa_fixpoint_table, alias_as ).
+				pa_fixpoint_table, alias_as ).
 :- mode lookup_call_alias( in, in, in, out, out) is det.
 
 lookup_call_alias( PRED_PROC_ID, HLDS, FPtable0, FPtable, Alias) :-
@@ -407,13 +526,13 @@ extend_with_call_alias( HLDS, ProcInfo,
 
 lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :- 
 	module_info_pred_proc_info( HLDS, PRED_PROC_ID, PredInfo,
-                                    ProcInfo),
-        (
-            	proc_info_possible_aliases(ProcInfo, MaybeAliases),
-                MaybeAliases = yes( SomeAL)
-        ->
-                Alias = SomeAL
-        ;
+				    ProcInfo),
+	(
+		proc_info_possible_aliases(ProcInfo, MaybeAliases),
+		MaybeAliases = yes( SomeAL)
+	->
+		Alias = SomeAL
+	;
 		% check whether the args are primitive types
 		arg_types_are_all_primitive(HLDS, PredInfo)
 	->
@@ -426,8 +545,10 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 		(
 			special_pred_name_arity(_, Name, _, Arity),
 			pred_info_module(PredInfo, ModuleName),
-			( mercury_private_builtin_module(ModuleName)
-			; mercury_public_builtin_module(ModuleName)
+			( 
+				mercury_private_builtin_module(ModuleName)
+			; 
+				mercury_public_builtin_module(ModuleName)
 			)
 		;
 			special_pred_name_arity(_, _, Name, Arity)
@@ -436,25 +557,32 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 		% no aliases created
 		init(Alias)
 	;
+		% XXX Any call to private_builtin.m module!
+		pred_info_module(PredInfo, ModuleName),
+		mercury_private_builtin_module(ModuleName)
+	->
+		% no aliases created
+		init(Alias)
+	;
 		% if all else fails --> ERROR !! 
 		
-                PRED_PROC_ID = proc(PRED_ID, PROC_ID),
-                pred_info_name(PredInfo, PNAME), 
+		PRED_PROC_ID = proc(PRED_ID, PROC_ID),
+		pred_info_name(PredInfo, PNAME), 
 		pred_info_module(PredInfo, PMODULE),
 		prog_out__sym_name_to_string(PMODULE, SPMODULE),	
 		pred_info_import_status(PredInfo, Status),
 		import_status_to_minimal_string(Status, SStatus),
-                pred_id_to_int(PRED_ID, IPRED_ID),
-                proc_id_to_int(PROC_ID, IPROC_ID),
-                string__int_to_string(IPRED_ID, SPRED_ID),
-                string__int_to_string(IPROC_ID, SPROC_ID),
-                string__append_list(["lookup alias failed for ", 
+		pred_id_to_int(PRED_ID, IPRED_ID),
+		proc_id_to_int(PROC_ID, IPROC_ID),
+		string__int_to_string(IPRED_ID, SPRED_ID),
+		string__int_to_string(IPROC_ID, SPROC_ID),
+		string__append_list(["lookup alias failed for ", 
 			SPMODULE, "::",
 			PNAME,"(",SPRED_ID, ",", SPROC_ID, ",",
 				SStatus, ")"], 
 			ErrMsg), 
 		top(ErrMsg, Alias)
-        ).
+	).
 
 :- import_module type_util.
 
@@ -463,14 +591,22 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 
 arg_types_are_all_primitive(HLDS, PredInfo):-
 	hlds_pred__pred_info_arg_types(PredInfo, ArgTypes),
+	types_are_primitive( HLDS, ArgTypes).
+
+:- pred types_are_primitive( module_info::in, list(type)::in) is semidet.
+
+types_are_primitive( HLDS, TYPES ) :- 
 	list__filter( pred( TYPE::in ) is semidet :-
 		(
 			type_util__type_is_atomic(TYPE,HLDS)
 		),
-		ArgTypes,
+		TYPES,
 		_TrueList, 
 		[] ).
-	
+
+
+
+
 :- pred rename_call_alias( pred_proc_id, module_info, list(prog_var),
 				alias_as, alias_as).
 :- mode rename_call_alias( in, in, in, in, out) is det.
