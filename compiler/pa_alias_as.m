@@ -176,8 +176,10 @@
 
 % constants
 :- func alias_limit = int. 
+:- func top_limit = int. 
 
-alias_limit = 100000.
+alias_limit = 100.
+top_limit = 1000.
 
 %-----------------------------------------------------------------------------%
 
@@ -402,6 +404,10 @@ maybe_normalize( ProcInfo, HLDS, GoalInfo, Alias0, Alias ) :-
 	; 
 		Alias0 = real_as(_), 
 		(
+			size(Alias0) > top_limit
+		->
+			top("Size too big", Alias)
+		;
 			size(Alias0) > alias_limit
 		-> 
 			normalize_with_goal_info( ProcInfo, HLDS, GoalInfo, 
@@ -418,7 +424,8 @@ extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 		(
 			A2 = real_as(OLD)
 		->
-			pa_alias__extend(ProcInfo, HLDS, OLD, NEW, Aliases),
+			pa_alias__extend(ProcInfo, HLDS, 
+				OLD, NEW, Aliases),
 			wrap(Aliases,RESULT)
 		;
 			A2 = top(_)
@@ -840,6 +847,11 @@ wrap( LIST, AS) :-
 		LIST = []
 	->
 		AS = bottom
+	;
+		list__length(LIST,Length), 
+		Length > top_limit
+	->
+		top("Size too big", AS)
 	;
 		AS = real_as(LIST)
 	).
