@@ -72,7 +72,8 @@ process_query(ActualQuery, MangledFileName) -->
 	io__state::di, io__state::uo) is det.
 
 create_server(DataFileName, MaybeError) -->
-	{ ServerCmd = string__format("%s -C -S %s -f %s 2> %s",
+	{ ServerCmd = string__format(
+		"%s -C -S %s -f %s < /dev/null > /dev/null 2> %s",
 		[s(server_path_name), s(machine_name), s(DataFileName),
 			s(server_startup_name(DataFileName))]) },
 	io__call_system(ServerCmd, Res),
