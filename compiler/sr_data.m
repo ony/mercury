@@ -57,6 +57,7 @@
 		   local_alias_headvars :: alias_as 
 		).
 
+
 :- pred reuse_condition_merge( reuse_condition::in, 
 				reuse_condition::in,
 				reuse_condition::out) is det.
