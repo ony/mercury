@@ -59,6 +59,15 @@
 		alias_as, list(pa_datastruct__datastruct)).
 :- mode collect_aliases_of_datastruct(in, in, in, in, out) is det.
 
+	% Fully rename a given alias originating from a call
+	% to a procedure with given pred_proc_id. 
+	% rename_call_alias(PredProcId, ModuleInfo, ActualVars, 
+	% 	ActualTypes, FormalAlias, ActualAlias). 
+:- pred rename_call_alias( pred_proc_id, module_info, list(prog_var),
+				list( (type) ), 
+				alias_as, alias_as).
+:- mode rename_call_alias( in, in, in, in, in, out) is det.
+
 	% rename abstract substitution according to a mapping
 	% of prog_vars (map (FROM_VARS, TO_VARS)).
 :- pred rename(map(prog_var, prog_var), alias_as, alias_as).
@@ -112,13 +121,14 @@
 :- pred extend_unification(proc_info, module_info, 
 			hlds_goal__unification, 
 			hlds_goal__hlds_goal_info, alias_as, alias_as).
+
 :- mode extend_unification(in, in, in, in, in, out) is det.
 
-:- pred extend_foreign_code(proc_info, module_info, hlds_goal_info,
-			pragma_foreign_code_attributes,
-			list(prog_var), list(maybe(pair(string, mode))),
-                        list(type), alias_as, alias_as).
-:- mode extend_foreign_code(in, in, in, in, in, in, in, in, out) is det.
+:- pred extend_foreign_code(module_info::in, proc_info::in,
+		pragma_foreign_code_attributes::in, pred_id::in, proc_id::in, 
+		list(prog_var)::in, list(maybe(pair(string, mode)))::in,
+                list(type)::in, hlds_goal_info::in, 
+		alias_as::in, alias_as::out) is det.
 
 	% Add two abstract substitutions to each other. These
 	% abstract substitutions come from different contexts, and have
@@ -285,7 +295,17 @@ collect_aliases_of_datastruct(ModuleInfo, ProcInfo, Datastruct, AS,
 		error("(pa_alias_as) collect_aliases_of_datastruct: alias_as is top.")
 	).
 	
-			
+		
+rename_call_alias(PredProcId, ModuleInfo, ActualVars, ActualTypes,
+		FormalAlias, ActualAlias):- 
+	module_info_pred_proc_info(ModuleInfo, PredProcId, PredInfo,
+			ProcInfo),
+	pred_info_arg_types(PredInfo, FormalTypes), 
+	proc_info_headvars(ProcInfo, FormalVars),
+	map__from_corresponding_lists(FormalVars, ActualVars, Dict), 
+	pa_alias_as__rename(Dict, FormalAlias, FormalAlias1),
+	pa_alias_as__rename_types(FormalTypes,  ActualTypes, 
+			FormalAlias1, ActualAlias).
 
 rename(MapVar, ASin, ASout):-
 	(
@@ -478,47 +498,84 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 
 
 %-----------------------------------------------------------------------------%
-extend_foreign_code(ProcInfo, HLDS, GoalInfo,
-			Attrs, Vars, MaybeModes, Types, Alias0, Alias):-
-	to_trios(Vars, MaybeModes, Types, Trios), 
-	% remove all unique objects
-	remove_all_unique_vars(HLDS, Trios, NonUniqueVars), 
-	% keep only the output vars
-	collect_all_output_vars(HLDS, NonUniqueVars, OutputVars), 
+extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
+		Vars, MaybeModes, Types, Info, Ain, A) :- 
+	from_foreign_code(ProcInfo, HLDS, Info, Attrs, Vars, 
+		MaybeModes, Types, ForeignAlias),
 	(
-		aliasing(Attrs, UserDefinedAlias),
-		UserDefinedAlias = aliasing(_MaybeTypes, UserAlias),
+		( is_bottom(ForeignAlias); is_top(ForeignAlias) ) 
+	-> 	
+		% easy extend
+		pa_alias_as__extend(ProcInfo, HLDS, ForeignAlias, Ain, A)
+	; 
+		% rename variables and types !
+		proc_info_vartypes(ProcInfo, VarTypes), 
+		list__map(map__lookup(VarTypes), Vars, ActualTypes), 
+		rename_call_alias(proc(PredId, ProcId), HLDS, Vars, 
+				ActualTypes, ForeignAlias, RenamedForeign), 
+%		RenamedForeign = ForeignAlias, 
+		pa_alias_as__extend(ProcInfo, HLDS, RenamedForeign, Ain, A)
+	). 
+
+:- pred i_said_get_rid_of_those_typeinfos(proc_info::in, 
+		list(type)::in, list(type)::out) is det.
+i_said_get_rid_of_those_typeinfos(ProcInfo, Types0, Types):-
+	proc_info_real_headvars(ProcInfo, Hvs), 
+	list__length(Hvs, RealArity), 
+	list__length(Types0, TooBigArity), 
+	Diff = TooBigArity - RealArity, 
+	(
+		list__drop(Diff, Types0, Types1)
+	->
+		Types = Types1
+	; 
+		require__error("(pa_alias_as) problems getting rid of typeinfos.")
+	).
+				
+:- pred from_foreign_code(proc_info, module_info, hlds_goal_info,
+			pragma_foreign_code_attributes,
+			list(prog_var), list(maybe(pair(string, mode))),
+                        list(type), alias_as).
+:- mode from_foreign_code(in, in, in, in, in, in, in, out) is det.
+
+from_foreign_code(_ProcInfo, HLDS, GoalInfo, Attrs, Vars, 
+		MaybeModes, Types, Alias):-
+	(
+		aliasing(Attrs, UserDefinedAlias), 
+		UserDefinedAlias = aliasing(_, UserAlias),
 		UserAlias \= top(_)
 	->
-		extend(ProcInfo, HLDS, UserAlias, Alias0, Alias)
-	;	
+		Alias = UserAlias
+	;
+		% else --> apply heuristics
+		to_trios(Vars, MaybeModes, Types, Trios), 
+		% remove all unique objects
+		remove_all_unique_vars(HLDS, Trios, NonUniqueVars), 
+		% keep only the output vars
+		collect_all_output_vars(HLDS, NonUniqueVars, OutputVars), 
 		(
 			OutputVars = [] 
-%		; 
-%			% XXXXXXXXXXXXXXXXX !!
-%			OutputVars = [_], InputVars = []
-		)
-	->
-		Alias = Alias0
-	;
-		list__map( 
-			pred(Trio::in, Type::out) is det:-
-			( 
-				Trio = trio(_, _, Type)
-			), 
-			OutputVars,
-			OutputTypes),
-		(
-			types_are_primitive(HLDS, OutputTypes) 
-		-> 
-			Alias = Alias0
-		; 
-
-			goal_info_get_context(GoalInfo, Context), 
-			format_context(Context, ContextStr), 
-			string__append_list(["pragma_foreign_code:",
+		->
+			Alias = bottom
+		;
+			list__map( 
+				pred(Trio::in, Type::out) is det:-
+				( 
+					Trio = trio(_, _, Type)
+				), 
+				OutputVars,
+				OutputTypes),
+			(
+				types_are_primitive(HLDS, OutputTypes) 
+			-> 
+				Alias = bottom
+			; 
+				goal_info_get_context(GoalInfo, Context), 
+				format_context(Context, ContextStr), 
+				string__append_list(["pragma_foreign_code:",
 						" (",ContextStr, ")"], Msg), 
-			pa_alias_as__top(Alias0, Msg, Alias)
+				pa_alias_as__top(Msg, Alias)
+			)
 		)
 	).
 	

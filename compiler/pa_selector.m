@@ -479,16 +479,14 @@ less_or_equal( HLDS, S1, S2, MainType, EXT ):-
 		;
 			fail	% the walks do not correspond
 		)
-	; 
-		(
-			split_upto_type_selector(S1, _S1_part1, _TS1, 
-				_S2_part2 )
-		->
-			fail
-		; 
-			% normal case without type-selectors
+	; 	
+		% In the case that the second selector S2 has no type-
+		% selectors, the first one S1 can still be less or
+		% equal to the second one if all the selectors of S2
+		% correspond exactly to the first steps of S1, 
+		% so just: S1 = S2.ext, or rather: 
+		% less_or_equal(S2, S1, Extension) (the simple case)
 			less_or_equal(S1, S2, EXT )
-		)
 	). 
 
 apply_widening( ModuleInfo, MainType, Selector0, Selector ) :-

@@ -14,7 +14,7 @@
 
 :- interface.
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- import_module io, list.
 :- import_module hlds_module, hlds_pred.
@@ -57,8 +57,8 @@
 			list( (type) ), alias_as, alias_as). 
 :- mode pa_run__extend_with_call_alias( in, in, in, in, in, in, in, out) is det.
 
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 :- implementation.
 
 :- import_module require.
@@ -78,7 +78,7 @@
 :- import_module sr_lbu, sr_lfu.
 
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 pa_run__aliases_pass( HLDSin, HLDSout ) -->
 
@@ -154,9 +154,9 @@ run_with_dependency_until_fixpoint( SCC, FPtable0, HLDSin, HLDSout ) -->
 				HLDSin, HLDSout )
 	).
 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % THE KERNEL 
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 :- pred analyse_pred_proc( module_info, pred_proc_id, pa_fixpoint_table, 
 				pa_fixpoint_table, io__state, io__state).
 :- mode analyse_pred_proc( in, in, in, out, di, uo) is det.
@@ -243,12 +243,8 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 		;
 			io__write_string("\n")
 		)
-	
-%		pa_alias_as__print_aliases(Alias, ProcInfo, PredInfo),
-%		io__write_string("\n")
 /**
-		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
-					NormS, "\n"]),
+		,	
 		(
 			{ dummy_test(PRED_PROC_ID) }
 		-> 
@@ -266,7 +262,7 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	).
 
 :- pred dummy_test( pred_proc_id::in) is semidet. 
-dummy_test( proc(PredId, _) ):- pred_id_to_int(PredId, 39). 
+dummy_test( proc(PredId, _) ):- pred_id_to_int(PredId, 16). 
 :- pred dummy_test_here( alias_as::in ) is det.
 dummy_test_here(_). 
 
@@ -336,8 +332,7 @@ analyse_goal( ProcInfo, HLDS,
 analyse_goal_expr( conj(Goals), _Info, ProcInfo, HLDS , T0, T, A0, A) :-
 	list__foldl2( analyse_goal(ProcInfo, HLDS),  Goals, 
 		T0, T, A0, A).
-	
-	
+
 analyse_goal_expr( call(PredID, ProcID, ARGS, _,_, _PName), _Info, 
 			ProcInfo, HLDS, T0, T, A0, A):- 
 	PRED_PROC_ID = proc(PredID, ProcID),
@@ -430,11 +425,12 @@ analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	analyse_goal( ProcInfo, HLDS, ELSE, T2, T, A0, A3),
 	pa_alias_as__least_upper_bound( ProcInfo, HLDS, A2, A3, A).
 
-analyse_goal_expr(pragma_foreign_code(Attrs, _, _, Vars, MaybeModes, Types, _), 
+analyse_goal_expr(pragma_foreign_code(Attrs, PredId, ProcId, 
+			Vars, MaybeModes, Types, _), 
 			Info, ProcInfo, HLDS, 
 			T, T, Ain, A) :- 
-	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info, Attrs, Vars, 
-		MaybeModes, Types, Ain, A). 
+	extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
+			Vars, MaybeModes, Types, Info, Ain, A). 
 
 	% error( "(pa) pragma_c_code not handled") .
 analyse_goal_expr( par_conj( _Goals, _SM), Info, _, _ , T, T, A0, A) :-  
@@ -587,21 +583,9 @@ lookup_call_alias_in_module_info( HLDS, PRED_PROC_ID, Alias) :-
 		top(ErrMsg, Alias)
 	).
 
-:- pred rename_call_alias( pred_proc_id, module_info, list(prog_var),
-				list( (type) ), 
-				alias_as, alias_as).
-:- mode rename_call_alias( in, in, in, in, in, out) is det.
 
-rename_call_alias( PRED_PROC_ID, HLDS, ARGS, ActualTypes, A0, A ):-
-	module_info_pred_proc_info( HLDS, PRED_PROC_ID, PredInfo, ProcInfo),
-	pred_info_arg_types(PredInfo, FormalTypes), 
-	proc_info_headvars(ProcInfo, Headvars),
-	map__from_corresponding_lists(Headvars,ARGS,Dict),
-	pa_alias_as__rename( Dict, A0, A1 ),
-	pa_alias_as__rename_types( FormalTypes, ActualTypes, A1, A).
-
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % easy stuff
 
 	% once the abstract alias substitution is computed for
@@ -620,8 +604,8 @@ update_alias_in_module_info( FPtable, PRED_PROC_ID, HLDSin, HLDSout) :-
 					NewProcInfo, HLDSout).
 
 
-%-------------------------------------------------------------------%
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % make the interface
 
 :- import_module globals, modules, passes_aux, bool, options.
