@@ -15,7 +15,7 @@
 @ifinfo
 This file is an aid for people porting Prolog programs to Mercury.
 
-Copyright (C) 1995-2000 The University of Melbourne.
+Copyright (C) 1995-2002 The University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -39,12 +39,13 @@ into another language, under the above conditions for modified versions.
 
 @titlepage
 @title The Prolog to Mercury transition guide
+@subtitle Version <VERSION>
 @author Thomas Conway
 @author Zoltan Somogyi
 @author Fergus Henderson
 @page
 @vskip 0pt plus 1filll
-Copyright @copyright{} 1995-2000 The University of Melbourne.
+Copyright @copyright{} 1995--2002 The University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -63,7 +64,7 @@ into another language, under the above conditions for modified versions.
 
 @ifinfo
 @node Top,,, (mercury)
-@top The Prolog to Mercury transition guide
+@top The Prolog to Mercury Transition Guide, version <VERSION>
 
 This guide gives some advice about
 translating Prolog programs into Mercury.
@@ -105,85 +106,9 @@ Prolog and Mercury have very similar syntax.
 Although there are a few differences,
 by and large if a program is accepted by a Prolog system,
 it will be accepted by Mercury.
-There are however a few extra operators defined by the Mercury term parser.
-Here's a complete list of the operators in Mercury.
-
-@example
-OPERATOR        ASSOCIATIVITY   PRECEDENCE
-*               yfx             400
-**              xfy             300
-+               yfx             500
-++              xfy             500
-+               fx              500
-,               xfy             1000
--               yfx             500
---              yfx             500
--               fx              500
---->            xfy             1179
--->             xfx             1200
-->              xfy             1050
-.               xfy             600
-/               yfx             400
-//              yfx             400
-/\              yfx             500
-:-              xfx             1200
-:-              fx              1200
-::              xfx             1175
-:=              xfx             650
-;               xfy             1100
-<               xfx             700
-<<              yfx             400
-<=              xfy             920
-<=>             xfy             920
-=               xfx             700
-=<              xfx             700
-==              xfx             700
-==>             xfx             1175
-=>              xfy             920
-=^              xfx             650
->               xfx             700
->=              xfx             700
->>              yfx             400
-\               fx              500
-\+              fy              900
-\/              yfx             500
-\=              xfx             700
-^               xfy             99
-^               fx              100
-~               fy              900
-aditi_bottom_up fx              500
-aditi_top_down  fx              500
-all             fxy             950
-and             xfy             720
-div             yfx             400
-else            xfy             1170
-end_module      fx              1199
-func            fx              800
-if              fx              1160
-import_module   fx              1199
-include_module  fx              1199
-impure          fy              800
-inst            fx              1199
-instance        fx              1199
-is              xfx             701
-lambda          fxy             950
-mod             xfx             300
-mode            fx              1199
-module          fx              1199
-not             fy              900
-or              xfy             740
-pragma          fx              1199
-pred            fx              800
-promise         fx              1199
-rule            fx              1199
-semipure        fy              800
-some            fxy             950
-then            xfx             1150
-type            fx              1180
-typeclass       fx              1199
-when            xfx             900
-where           xfx             1175
-@end example
+There are however a few extra operators defined by the Mercury term parser
+(see the ``Builtin Operators'' section of the ``Syntax'' chapter of the
+Mercury Language Reference Manual).
 
 In addition, Mercury implements both existential and universal quantification
 using the syntax
@@ -198,6 +123,8 @@ and
 @example
 all Vars Goal
 @end example
+
+The constructor for lists in Mercury is @samp{[|]/2}, not @samp{./2}.
 
 Terms with functor '@{@}/@var{N}' are treated slightly differently in Mercury
 than in ISO Prolog. ISO Prolog specifies that ``@{1, 2, 3@}'' is parsed as
@@ -384,17 +311,9 @@ and easier for the compiler to optimize.
 @chapter Cuts and indexing
 
 The cut operator is not part of the Mercury language.
-The builtin library does contain a predicate !/0 (and !/2 for DCGs),
-but it is just defined as being identical to @samp{true},
-and is there primarily for historical reasons@footnote{
-The Mercury compiler was originally bootstrapped using
-NU-Prolog and SICStus Prolog.  We needed to use cuts for
-efficiency in a few places.  Of course, now that we compile
-the Mercury compiler with itself the cuts are not needed
---- and it runs much faster anyway.}.
 In addition, the conditional operator @samp{-> ;}
 does not do a hard cut across the condition
-- only a soft cut which prunes away either the `then' goal or the `else' goal.
+--- only a soft cut which prunes away either the `then' goal or the `else' goal.
 If there are multiple solutions to the condition,
 they will all be found on backtracking.
 
@@ -452,8 +371,8 @@ whereas if you use a disjunction you will get a determinism error
 that pinpoints which part of the code needs changing.
 Second, in some situations the code generator
 can implement an indexed disjunction (which we call a @emph{switch})
-using a jump table or a hash table,
-which is faster than a chain of if-then-elses.
+using binary search, a jump table or a hash table,
+which can be faster than a chain of if-then-elses.
 
 @node Accumulators
 @chapter Accumulators and Difference lists
@@ -492,7 +411,7 @@ appending elements to the tail of a difference list to produce the
 output, Mercury will in fact reorder the code so that it traverses
 the input list right-to-left and constructs the output list bottom-up
 rather than top-down.  In this particular case, the reordered code is still
-tail recursive - but it is tail-recursive on the first recursive call,
+tail recursive --- but it is tail-recursive on the first recursive call,
 not the second one!
 
 If the occasional loss of tail recursion causes efficiency problems,
@@ -508,13 +427,13 @@ it is still linear in complexity, and it probably still runs faster
 than the Prolog code using difference lists.
 
 In most circumstances, the need for difference lists is negated by
-the simple fact that Mercury is efficient enough for them to be
-unnecessary.  Occasionally they can lead to a significant improvement
-in the complexity of an operation (mixed insertions and deletions
-from a long queue, for example) and in these situations an alternative
-solution should
-be sought (in the case of queues, the Mercury library uses the
-pair of lists proposed by Richard O'Keefe).
+the simple fact that Mercury is efficient enough for them to be unnecessary.
+Occasionally they can lead to a significant improvement
+in the complexity of an operation
+(mixed insertions and deletions from a long queue, for example)
+and in these situations an alternative solution should be sought
+(in the case of queues,
+the Mercury library uses the pair of lists proposed by Richard O'Keefe).
 
 @node Determinism
 @chapter Determinism
@@ -583,8 +502,8 @@ factorial(N, F) :-
 
 Prolog's various different all-solutions predicates (findall/3, bagof/3,
 and setof/3) all have semantic problems.
-Mercury's has a different set of all-solutions predicates (solutions/2,
-solutions_set/2, and unsorted_solutions/2 -- all defined in the library
+Mercury has a different set of all-solutions predicates (solutions/2,
+solutions_set/2, and unsorted_solutions/2 --- all defined in the library
 module @samp{std_util}) that
 address the problems of the Prolog versions.
 To avoid the variable scoping problems of the Prolog
