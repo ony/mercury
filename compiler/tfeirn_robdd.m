@@ -111,25 +111,31 @@
 
 	% Succeed iff the var is entailed by the xROBDD.
 :- pred var_entailed(tfeirn(T)::ni_tfeirn, var(T)::in) is semidet.
+:- pragma type_spec(var_entailed/2, T = mc_type).
 
 	% Return the set of vars entailed by the xROBDD.
 :- func vars_entailed(tfeirn(T)::ni_tfeirn) = 
 		(vars_entailed_result(T)::out) is det.
+:- pragma type_spec(vars_entailed/1, T = mc_type).
 
 	% Return the set of vars disentailed by the xROBDD.
 :- func vars_disentailed(tfeirn(T)::ni_tfeirn) =
 		(vars_entailed_result(T)::out) is det.
+:- pragma type_spec(vars_disentailed/1, T = mc_type).
 
 	% Existentially quantify away the var in the xROBDD.
 :- func restrict(var(T)::in, tfeirn(T)::ni_tfeirn) =
 		(tfeirn(T)::no_tfeirn) is det.
+:- pragma type_spec(restrict/2, T = mc_type).
 
 	% Existentially quantify away all vars greater than the specified var.
 :- func restrict_threshold(var(T)::in, tfeirn(T)::ni_tfeirn) =
 		(tfeirn(T)::no_tfeirn) is det.
+:- pragma type_spec(restrict_threshold/2, T = mc_type).
 
 :- func restrict_filter(pred(var(T))::(pred(in) is semidet),
 		tfeirn(T)::ni_tfeirn) = (tfeirn(T)::no_tfeirn) is det.
+:- pragma type_spec(restrict_filter/2, T = mc_type).
 
 %-----------------------------------------------------------------------------%
 
@@ -668,6 +674,7 @@ normalise_true_false_equivalent_vars(Changed, T0, T, F0, F) -->
 
 :- pred extract_equivalent_vars_from_robdd(bool::out, robdd(T)::in,
 	robdd(T)::out, equiv_vars(T)::in, equiv_vars(T)::out) is det.
+:- pragma type_spec(extract_equivalent_vars_from_robdd/5, T = mc_type).
 
 extract_equivalent_vars_from_robdd(Changed, Robdd0, Robdd, EQVars0, EQVars) :-
 	( RobddEQVars = equivalent_vars_in_robdd(Robdd0) ->
