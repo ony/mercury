@@ -17,7 +17,7 @@
   #define MR_HAVE_A_VSNPRINTF
 #endif
 
-#define BUFFER_SIZE	4096
+#define BUFFER_SIZE	32768
 
 MR_String
 MR_make_string(MR_Code *proclabel, const char *fmt, ...) {
