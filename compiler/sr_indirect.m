@@ -655,7 +655,7 @@ examine_cause_of_missed_condition(ModuleInfo, ProcInfo,
 		% check whether reason for no reuse is StaticVars
 		list__filter_map(
 			(pred(Node::in, Var::out) is semidet :- 
-				get_var(Node, Var),
+				Var = Node^sc_var, 
 				set__member(Var, StaticVars)
 			), 
 			NodesL, 

@@ -69,8 +69,8 @@
 	% The operation produces a software error when called with
 	% a top alias description. 
 :- pred collect_aliases_of_datastruct(module_info::in, proc_info::in, 
-		pa_datastruct__datastruct::in, alias_as::in, 
-		list(pa_datastruct__datastruct)::out) is det.
+		prog_data__datastruct::in, alias_as::in, 
+		list(prog_data__datastruct)::out) is det.
 
 	% If AliasIn is the exit description stored for a particular
 	% procedure definition (identified by its pred_proc_id, Id), then
@@ -991,7 +991,7 @@ parse_read_aliases_from_single_term(OneITEM, AS) :-
 	).
 
 
-:- pred parse_list_alias_term(term(T), list(pa_alias__alias)).
+:- pred parse_list_alias_term(term(T), list(prog_data__alias)).
 :- mode parse_list_alias_term(in, out) is det.
 
 parse_list_alias_term(TERM, Aliases) :-
@@ -1104,7 +1104,7 @@ parse_single_user_declared_alias(Term, Alias):-
 
 % might be better to move this code to pa_datastruct ? 
 :- pred parse_user_datastruct(term::in, 
-		pa_datastruct__datastruct::out) is det. 
+		prog_data__datastruct::out) is det. 
 parse_user_datastruct(Term, Data):- 
 	(
 		Term = term__functor(term__atom("cel"),
@@ -1288,7 +1288,7 @@ live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 	% live_2(IN_USE, Aliases, Liveset)
 	% pre-condition: IN_USE is not empty
 :- pred live_2(module_info, proc_info, set(prog_var),sr_live__live_set,
-		list(pa_alias__alias), sr_live__live_set).
+		list(prog_data__alias), sr_live__live_set).
 :- mode live_2(in, in, in, in, in, out) is det.
 
 live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, ALIASES, LIVE) :- 

@@ -25,14 +25,14 @@
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
-:- import_module possible_alias__pa_selector.
 
 :- import_module map, io, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
 
-:- type datastruct.
+% Type-definition has become public and is moved to prog_data.
+% :- type datastruct.
 
 %-------------------------------------------------------------------%
 %-- exported predicates
@@ -53,12 +53,6 @@
 	% with a selector consisting of only one unit selector, namely the one
 	% identified by the constructor and index within that constructor. 
 :- pred init(prog_var::in, cons_id::in, int::in, datastruct::out) is det.
-
-:- pred get_var(datastruct::in, prog_var::out) is det.
-:- func var(datastruct) = prog_var. 
-
-:- pred get_selector(datastruct::in, selector::out) is det.
-:- func selector(datastruct) = selector. 
 
 	% Extend the given datastructure with an additional path.
 :- pred termshift(datastruct::in, selector::in, datastruct::out) is det. 
@@ -110,67 +104,66 @@
 :- implementation.
 
 :- import_module check_hlds__type_util.
+:- import_module possible_alias__pa_selector.
 
 :- import_module string, varset, require, list.
 
-:- type datastruct ---> cel(prog_var, pa_selector__selector).
+% :- type datastruct ---> cel(prog_var, pa_selector__selector).
 
-get_var(cel(Var, _Sel), Var).
-var(cel(Var, _Sel)) = Var. 
-get_selector(cel(_Var, Sel), Sel).
-selector(cel(_Var, Sel)) = Sel.
+% get_var(cel(Var, _Sel), Var).
+% var(cel(Var, _Sel)) = Var. 
+% get_selector(cel(_Var, Sel), Sel).
+% selector(cel(_Var, Sel)) = Sel.
 
 
 rename(MAP, DATAin, DATAout) :-
-	DATAin = cel(VAR, SEL),
+	DATAin = selected_cel(VAR, SEL),
 	map__lookup(MAP, VAR, RVAR),
-	DATAout = cel(RVAR, SEL).
+	DATAout = selected_cel(RVAR, SEL).
 
 rename_types(Subst, Data0, Data) :- 
-	Data0 = cel(Var, Sel0), 
+	Data0 = selected_cel(Var, Sel0), 
 	pa_selector__rename_types(Subst, Sel0, Sel), 
-	Data = cel(Var, Sel). 
+	Data = selected_cel(Var, Sel). 
 
 equal(D1, D2):- D1 = D2.
 
-same_vars(D1, D2):-
-	get_var(D1,V),
-	get_var(D2,V).
+same_vars(D1, D2):- 
+	D1^sc_var = D2^sc_var.
 
 less_or_equal(ModuleInfo, ProcInfo, D1,D2, EXT):-
 	same_vars(D1,D2),
-	get_var(D1,ProgVar), 
 	proc_info_vartypes(ProcInfo, VarTypes), 
-	map__lookup(VarTypes, ProgVar, ProgVarType), 
+	map__lookup(VarTypes, D1^sc_var, ProgVarType), 
 	(
 		equal(D1,D2)
 	->
 		pa_selector__init(EXT)
 	;
-		get_selector(D1,S1),
-		get_selector(D2,S2),
+		S1 = D1^sc_selector, 
+		S2 = D2^sc_selector, 
 		pa_selector__less_or_equal(ModuleInfo,S1,S2,ProgVarType,EXT)
 	).
 
 termshift(Din, S, Dout):-
-	Din = cel(V,Sin),
+	Din = selected_cel(V,Sin),
 	pa_selector__termshift(Sin,S,Sout),
-	Dout = cel(V,Sout).
+	Dout = selected_cel(V,Sout).
 
 init(V, CONS, INDEX, Dout) :-
 	pa_selector__init(CONS,INDEX, SEL),
-	Dout = cel(V,SEL).
+	Dout = selected_cel(V,SEL).
 
 init(V, Dout) :-
 	SEL = [],
-	Dout = cel(V, SEL).
+	Dout = selected_cel(V, SEL).
 init(V) = D :- init(V, D).
 
 init(V, Sel, Dout) :- 
-	Dout = cel(V, Sel). 
+	Dout = selected_cel(V, Sel). 
 
 print(PredInfo, ProcInfo, D) --> 
-	{ D = cel(ProgVar, SEL) },
+	{ D = selected_cel(ProgVar, SEL) },
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ varset__lookup_name(ProgVarset, ProgVar, ProgName) },
 	io__write_string("cel("),
@@ -181,7 +174,7 @@ print(PredInfo, ProcInfo, D) -->
 	io__write_string(")").
 
 to_user_declared(Data, ProgVarSet, TypeVarSet, String):- 
-	Data = cel(ProgVar, Selector), 
+	Data = selected_cel(ProgVar, Selector), 
 	varset__lookup_name(ProgVarSet, ProgVar, ProgName), 
 	pa_selector__to_user_declared(Selector, TypeVarSet, 
 			SelectorString), 
@@ -203,7 +196,7 @@ parse_term(TERM, Data) :-
 	   ->
 	      term__coerce_var(VAR, PROGVAR),
 	      pa_selector__parse_term(SelectorTerm, SELECTOR),
-	      Data = cel(PROGVAR, SELECTOR)
+	      Data = selected_cel(PROGVAR, SELECTOR)
 	   ;
 	      error("(pa_datastruct) parse_term: wrong term. variable, should be functor")
 	   )
@@ -234,17 +227,17 @@ normalize_wti(HLDS, ProcInfo, Din, Dout):-
 :- mode normalize_wti_2(in, in, in, out) is det.
 
 normalize_wti_2(HLDS, VarTypes, D0, D):-
-	D0 = cel(ProgVar, SEL0), 
+	D0 = selected_cel(ProgVar, SEL0), 
 	map__lookup(VarTypes, ProgVar, VarType),
 	pa_selector__normalize_wti(HLDS, VarType, SEL0, SEL),
-	D = cel(ProgVar, SEL).
+	D = selected_cel(ProgVar, SEL).
 
 apply_widening(ModuleInfo, ProcInfo, D0, D):- 
-	D0 = cel(ProgVar, Sel0), 
+	D0 = selected_cel(ProgVar, Sel0), 
 	proc_info_vartypes(ProcInfo, VarTypes), 
 	map__lookup(VarTypes, ProgVar, ProgVarType), 
 	pa_selector__apply_widening(ModuleInfo, ProgVarType, Sel0, Sel), 
-	D = cel(ProgVar, Sel). 
+	D = selected_cel(ProgVar, Sel). 
 
 apply_widening(ModuleInfo, ProcInfo, D0) = D :- 
 	apply_widening(ModuleInfo, ProcInfo, D0, D).
@@ -254,7 +247,7 @@ type_of_node(ModuleInfo, ProcInfo, Data) = Type :-
 	Type = type_of_node_with_vartypes(ModuleInfo, VarTypes, Data). 
 
 type_of_node_with_vartypes(ModuleInfo, VarTypes, Data) = Type :- 
-	Data = cel(ProgVar, Sel), 
+	Data = selected_cel(ProgVar, Sel), 
 	map__lookup(VarTypes, ProgVar, ProgVarType), 
 	Type = pa_selector__type_of_node(ModuleInfo, ProgVarType, Sel). 
 

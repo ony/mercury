@@ -20,7 +20,6 @@
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_alias_as.
-:- import_module possible_alias__pa_datastruct.
 :- import_module structure_reuse__sr_live.
 
 :- import_module bool, map, set, std_util, list, io, term.
@@ -94,7 +93,7 @@
 :- type reuse_condition
 	--->	always
 	;	condition(
-		   nodes 		:: set(pa_datastruct__datastruct),
+		   nodes 		:: set(prog_data__datastruct),
 		   local_use_headvars 	:: set(prog_var),
 		   local_alias_headvars :: alias_as 
 		).
@@ -279,7 +278,7 @@ reuse_condition_init(ModuleInfo, ProcInfo,
 			ALIASi, AliasedData),
 		list__filter(
 			pred(Data::in) is semidet :-
-			  (list__member(Data^var, HVs)),
+			  (list__member(Data^sc_var, HVs)),
 			AliasedData,
 			Nodes)
 	),
@@ -290,6 +289,11 @@ reuse_condition_init(ModuleInfo, ProcInfo,
 	;
 		set__union(LFUi, LBUi, LUi),
 		set__list_to_set(HVs, HVsSet),
+			% XXX This is not what the theory sais. LUi should be
+			% extended w.r.t. the local aliases, and the resulting
+			% set of datastructures projected on the set of
+			% headvariables. 
+			% XXX Thus: WRONG here!!
 		set__intersect(LUi, HVsSet, LUiHVs),
 		pa_alias_as__project(HVs, ALIASi, LAiHVs),
 		set__list_to_set(Nodes, Nodes_set),
@@ -373,7 +377,7 @@ reuse_condition_verify(ProcInfo, HLDS,  Live0, Alias0, Static,
 		% constructed.
 	list__filter_map(
 		(pred(Node::in, Var::out) is semidet :-
-			get_var(Node, Var),
+			Var = Node^sc_var,
 			set__member(Var, Static)
 		), set__to_sorted_list(Nodes), []),
 	
@@ -403,7 +407,7 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 	list__condense([ OLD_NODES | LISTS_ALL_NEW_NODES], ALL_NEW_NODES),
 	list__filter(
 		pred(DATA::in) is semidet :-
-		  (list__member(DATA^var, HVs)),
+		  (list__member(DATA^sc_var, HVs)),
 		ALL_NEW_NODES,
 		NEW_NODES),
 	(
@@ -440,13 +444,13 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 	% Collect the nodes a reuse-condition is talking about. Fail 
 	% if the reuse condition is `always'. 
 :- pred reuse_condition_get_nodes(reuse_condition::in, 
-			set(pa_datastruct__datastruct)::out) is semidet.
+			set(prog_data__datastruct)::out) is semidet.
 reuse_condition_get_nodes(Condition, Condition ^ nodes). 
 
 	% Collect the nodes a reuse-condition is talking about. Fail 
 	% if the reuse condition is `always'. 
 :- pred reuse_condition_get_nodes_list(reuse_condition::in, 
-			list(pa_datastruct__datastruct)::out) is semidet.
+			list(prog_data__datastruct)::out) is semidet.
 reuse_condition_get_nodes_list(Condition, List):-
 	set__to_sorted_list(Condition ^ nodes, List). 
 
@@ -650,7 +654,7 @@ condition_parse(Term, Cond) :-
 		error("(sr_data) condition_parse: term is not a functor")
 	).
 
-:- pred nodes_parse(term(T)::in, list(pa_datastruct__datastruct)::out) is det.
+:- pred nodes_parse(term(T)::in, list(prog_data__datastruct)::out) is det.
 
 nodes_parse(Term, Datastructs) :- 
 	(
@@ -777,8 +781,8 @@ no_aliases_between_reuse_nodes(ModuleInfo, ProcInfo,
 	).
 
 :- pred no_aliases_between_reuse_nodes_2(module_info::in, proc_info::in,
-		pa_datastruct__datastruct::in, 
-		list(pa_datastruct__datastruct)::in, 
+		prog_data__datastruct::in, 
+		list(prog_data__datastruct)::in, 
 		alias_as::in) is semidet. 
 no_aliases_between_reuse_nodes_2(ModuleInfo, ProcInfo, Node, OtherNodes, 
 		Alias):- 
@@ -805,8 +809,8 @@ no_aliases_between_reuse_nodes_2(ModuleInfo, ProcInfo, Node, OtherNodes,
 	% Data): This procedure succeeds if Data is subsumed or subsumes
 	% some of the datastructures in Datastructs. 
 :- pred there_is_a_subsumption_relation(module_info::in, proc_info::in, 
-		list(pa_datastruct__datastruct)::in, 
-		pa_datastruct__datastruct::in) is semidet.
+		list(prog_data__datastruct)::in, 
+		prog_data__datastruct::in) is semidet.
 there_is_a_subsumption_relation(ModuleInfo, ProcInfo, 
 		Datastructs0, Data0):-
 	list__filter(

@@ -16,7 +16,6 @@
 :- import_module hlds__hlds_module. 
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
-:- import_module possible_alias__pa_datastruct.
 
 :- import_module set.
 :- import_module list.
@@ -35,7 +34,7 @@
 :- pred init(set(prog_var),live_set).
 :- mode init(in,out) is det.
 
-:- pred from_datastructs(list(pa_datastruct__datastruct), live_set).
+:- pred from_datastructs(list(prog_data__datastruct), live_set).
 :- mode from_datastructs(in, out) is det.
 
 :- pred bottom(live_set).
@@ -46,7 +45,7 @@
 :- mode top(out) is det.
 :- mode top(in) is semidet.
 
-:- pred get_datastructs(live_set, list(pa_datastruct__datastruct)).
+:- pred get_datastructs(live_set, list(prog_data__datastruct)).
 :- mode get_datastructs(in, out) is det.
 
 :- pred union(list(live_set), live_set).
@@ -56,7 +55,7 @@
 :- mode is_live(in, in) is semidet.
 
 :- pred is_live_datastruct(module_info, proc_info, 
-			pa_datastruct__datastruct, live_set).
+			prog_data__datastruct, live_set).
 :- mode is_live_datastruct(in, in, in, in) is semidet.
 
 :- pred project(list(prog_var), live_set, live_set).
@@ -67,6 +66,7 @@
 :- implementation.
 
 :- import_module require.
+:- import_module possible_alias__pa_datastruct.
 
 %-------------------------------------------------------------------%
 %-- additional types 
@@ -74,7 +74,7 @@
 :- type live_set ---> 
 			bottom
 		; 	top
-		; 	live(list(pa_datastruct__datastruct)).
+		; 	live(list(prog_data__datastruct)).
 
 
 %-------------------------------------------------------------------%
@@ -92,7 +92,7 @@ from_datastructs(DATASTRUCTS, LIVE) :-
 	% check whether minimal !! 
 	live_wrap(DATASTRUCTS, LIVE).
 
-:- func func_datastruct_init(prog_var) =  pa_datastruct__datastruct.
+:- func func_datastruct_init(prog_var) =  prog_data__datastruct.
 :- mode func_datastruct_init(in) = out is det.
 
 func_datastruct_init(VAR) = DATA :-
@@ -103,7 +103,7 @@ func_datastruct_init(VAR) = DATA :-
 bottom(bottom).
 top(top).
 
-:- pred live_wrap(list(pa_datastruct__datastruct), live_set).
+:- pred live_wrap(list(prog_data__datastruct), live_set).
 :- mode live_wrap(in,out) is det.
 
 live_wrap(List, Live):-
@@ -203,7 +203,7 @@ project(VARS, Lin, Lout) :-
 		list__filter(
 			pred(D::in) is semidet :- 
 			    (
-				list__member(D^var, VARS)
+				list__member(D^sc_var, VARS)
 			    ),
 			Datastructs, 
 			FilteredDatastructs),

@@ -17,17 +17,16 @@
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
-:- import_module possible_alias__pa_datastruct.
 :- import_module structure_reuse__sr_live. % XXX should be removed, eventually.
 
-:- import_module set, list, std_util.
+:- import_module set, list.
 :- import_module io, string, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
 
 % :- type alias.
-:- type alias == pair(datastruct).
+% :- type alias == pair(datastruct).
 
 %-------------------------------------------------------------------%
 %-- exported predicates
@@ -66,7 +65,7 @@
 :- import_module possible_alias__pa_selector.
 :- import_module possible_alias__pa_sr_util.
 
-:- import_module varset, require, int, map.
+:- import_module varset, require, int, map, std_util.
 
 %-------------------------------------------------------------------%
 % printing routines
@@ -133,8 +132,8 @@ pa_alias__parse_term(Term,  A) :-
 
 contains_one_of_vars(Set, Alias, DATA) :- 
 	Alias = Data1 - Data2,
-	Var1 = Data1^var,
-	Var2 = Data2^var,
+	Var1 = Data1^sc_var,
+	Var2 = Data2^sc_var,
 	(
 		set__member(Var1, Set)
 	->
@@ -435,8 +434,8 @@ live_from_live0(ModuleInfo, ProcInfo, Live0, Aliases, Live):-
 	% 	   or
 	%		sy.s2 = s1 => sx1 = sx.s2
 :- pred one_of_vars_is_live(module_info::in, proc_info::in, 
-		list(pa_datastruct__datastruct)::in, alias::in, 
-		list(pa_datastruct__datastruct)::out) is det.
+		list(prog_data__datastruct)::in, alias::in, 
+		list(prog_data__datastruct)::out) is det.
 one_of_vars_is_live(ModuleInfo, ProcInfo, Datastructs0, 
 		Alias0, Datastructs) :- 
 	one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, 
@@ -447,8 +446,8 @@ one_of_vars_is_live(ModuleInfo, ProcInfo, Datastructs0,
 	list__append(L1,L2, Datastructs).
 
 :- pred one_of_vars_is_live_ordered(module_info::in, proc_info::in,
-		list(pa_datastruct__datastruct)::in, alias::in,
-		list(pa_datastruct__datastruct)::out) is det.
+		list(prog_data__datastruct)::in, alias::in,
+		list(prog_data__datastruct)::out) is det.
 one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, List, ALIAS, List_Xsx1) :- 
 	ALIAS = Xsx - Ysy,
 	list__filter(same_vars(Ysy), List, Y_List),

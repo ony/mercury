@@ -23,10 +23,11 @@
 %-------------------------------------------------------------------%
 %-- exported types
 
-:- type selector == list(unit_sel).
-:- type unit_sel ---> 
-		us(hlds_data__cons_id, int) ;  % normal selector
-		ts(prog_data__type).		 % type selector
+% Moved to prog_data.m
+% :- type selector == list(unit_sel).
+% :- type unit_sel ---> 
+%		us(hlds_data__cons_id, int) ;  % normal selector
+%		ts(prog_data__type).		 % type selector
 			
 
 %-------------------------------------------------------------------%
@@ -103,7 +104,7 @@
 
 init([]).
 init(Cons, Index, Sel):-
-	US = us(Cons, Index),
+	US = ns(Cons, Index),
 	Sel = [US].
 init(Types, Selector):- 
 	list__map(
@@ -147,7 +148,7 @@ rename_types(Subst, Sel0, Sel):-
 
 unit_selector_rename_types(Subst, US0, US) :- 
 	(
-		US0 = us(_,_),
+		US0 = ns(_,_),
 		US = US0
 	;
 		US0 = ts(Type0), 
@@ -163,7 +164,7 @@ print(Selector, ProgVarSet) -->
 :- pred print_unit_selector(tvarset::in, unit_sel::in, 
 		io__state::di, io__state::uo) is det.
 
-print_unit_selector(_ProgVarSet, us(Cons, Index)) -->
+print_unit_selector(_ProgVarSet, ns(Cons, Index)) -->
 	{ hlds_data__cons_id_arity(Cons, Arity) },
 	io__write_string("sel("),
 	mercury_output_cons_id(Cons, needs_brackets),
@@ -203,7 +204,7 @@ to_user_declared_2([First | Rest], TVarSet, String):-
 	). 
 
 :- pred us_to_user_declared(unit_sel::in, tvarset::in, string::out) is det.
-us_to_user_declared(us(_,_), _, _):- 
+us_to_user_declared(ns(_,_), _, _):- 
 	require__error("(pa_selector) us_to_user_declared: only type-selectors are allowed in user-alias-declaration.").
 us_to_user_declared(ts(Type), TVarSet, 
 		mercury_type_to_string(TVarSet, Type)). 
@@ -243,22 +244,22 @@ parse_unit_selector(Term, US):-
             PosTerm = term__functor(term__integer(Pos), _, _)
          ->
 	    ConsID = cons(ConsID_SN, Arity),
-	    US = us(ConsID, Pos)
+	    US = ns(ConsID, Pos)
 	 ;
 	    ConsTerm = term__functor(term__integer(X), _, _)
 	 ->
 	    ConsID = int_const(X), 
-	    US = us(ConsID, 0)
+	    US = ns(ConsID, 0)
 	 ;
 	    ConsTerm = term__functor(term__float(X), _, _)
 	 ->
 	    ConsID = float_const(X),
-	    US = us(ConsID, 0)
+	    US = ns(ConsID, 0)
 	 ;
 	    ConsTerm = term__functor(term__string(S), _, _)
 	 ->
 	    ConsID = string_const(S),
-	    US = us(ConsID, 0)
+	    US = ns(ConsID, 0)
 	 ;
 	    error("(pa_selector) parse_unit_selector: unknown cons_id in unit selector")
 	 )
@@ -305,7 +306,7 @@ normalize_wti_2(HLDS, VarType, B0, Acc0, SEL0, SEL):-
 			% or type selector. 
 			(
 			    (
-				US = us(CONS, INDEX),
+				US = ns(CONS, INDEX),
 				type_util__get_cons_id_non_existential_arg_types(HLDS, 
 					VarType, CONS, ArgTypes),
 				(
@@ -541,7 +542,7 @@ get_type_of_node(ModuleInfo, StartType, Selector, SubType):-
 		Selector = [ US | RestSelector ]
 	->
 		(
-			US = us(CONS_ID, CHOICE),
+			US = ns(CONS_ID, CHOICE),
 			select_subtype(ModuleInfo, StartType, CONS_ID, 
 				CHOICE, SubType0) 
 		; 
@@ -619,7 +620,7 @@ type_on_path_2(Step, ModuleInfo, FromType, ToType, Path, RemainderPath) :-
 						Rest, RemainderPath)
 			)
 		;
-			US = us(CONS_ID, CHOICE), 
+			US = ns(CONS_ID, CHOICE), 
 			select_subtype(ModuleInfo, FromType, CONS_ID, 
 				CHOICE, SubType),
 			(

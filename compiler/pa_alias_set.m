@@ -19,8 +19,6 @@
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data. 
-:- import_module possible_alias__pa_alias.
-:- import_module possible_alias__pa_datastruct. 
 
 :- import_module list, set, map, io, term, bool.
 
@@ -46,8 +44,8 @@
 	% Compute all the datastructures that point to the same memory space
 	% occupied by a given data structure. 
 :- pred collect_aliases_of_datastruct(module_info::in, proc_info::in, 
-		pa_datastruct__datastruct::in, alias_set::in,
-		list(pa_datastruct__datastruct)::out) is det.
+		prog_data__datastruct::in, alias_set::in,
+		list(prog_data__datastruct)::out) is det.
 
 	% Rename the prog_vars occurring in the alias_set, using
 	% a map that maps the to-be-replaced-vars with on the
@@ -132,7 +130,9 @@
 
 :- implementation.
 
+:- import_module possible_alias__pa_alias.
 :- import_module possible_alias__pa_selector.
+:- import_module possible_alias__pa_datastruct. 
 
 :- import_module std_util.
 :- import_module int, bool, assoc_list. 
@@ -250,8 +250,8 @@ new_entry(Alias, AliasSet0, AliasSet):-
 				alias_set::in, alias_set::out) is det.
 new_directed_entry(FromData, ToData, AliasSet0, AliasSet):- 
 	AliasSet0 = alias_set(Size0, Map0), 
-	get_var(FromData, Var), 
-	get_selector(FromData, Selector), 
+	Var = FromData^sc_var, 
+	Selector = FromData^sc_selector, 
 	(
 		map__search(Map0, Var, Selectors0)
 	->
@@ -292,7 +292,7 @@ to_pair_alias_list(AliasSet, Aliases):-
 				pred(SelData::in, Alias::out) is semidet:- 
 				    (
 					SelData = Selector - Datastruct, 
-					term__var_to_int(Datastruct^var,
+					term__var_to_int(Datastruct^sc_var,
 						DataVarInt),
 					DataVarInt =< VarInt, 
 					pa_datastruct__init(Var, 
@@ -354,10 +354,9 @@ project_set(VarsSet, AliasSet0, AliasSet):-
 collect_aliases_of_datastruct(ModuleInfo, ProcInfo, Datastruct, 
 			AliasSet, Datastructs):- 
 	AliasSet = alias_set(_Size, Map), 
-	get_var(Datastruct, Var), 
+	Datastruct = selected_cel(Var, Selector), 
 	proc_info_vartypes(ProcInfo, VarTypes), 
 	map__lookup(VarTypes, Var, VarType), 
-	get_selector(Datastruct, Selector),
 	(
 		map__search(Map, Var, SelectorSet)
 	->
@@ -1077,7 +1076,7 @@ alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar,
 			pa_datastruct__init(ProgVar, Sel0, Data0), 
 			pa_datastruct__apply_widening(ModuleInfo, 
 				ProcInfo, Data0, Data), 
-			Sel = Data^selector,
+			Sel = Data^sc_selector,
 
 			% regroup the widened dataset with the dataset
 			% that is associated with the widened Sel, as this
@@ -1169,7 +1168,7 @@ data_set_project(Vars, DataSet0, DataSet):-
 	data_set_filter(
 		pred(Data::in) is semidet :- 
 		(
-			get_var(Data, Var), 
+			Var = Data^sc_var,
 			list__member(Var, Vars)
 		),
 		DataSet0, 
@@ -1256,7 +1255,7 @@ data_set_remove_vars(Vars, DataSet0, DataSet):-
 	data_set_filter(
 		pred(DataStruct::in) is semidet :- 
 		(
-			get_var(DataStruct, Var), 
+			Var = DataStruct^sc_var,
 			\+ list__member(Var, Vars)
 		), 
 		DataSet0, 

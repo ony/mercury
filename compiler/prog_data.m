@@ -22,6 +22,10 @@
 % Any types which are needed in both the parse tree and in the HLDS
 % should be defined here, rather than in hlds*.m.
 
+	% XXX temporary. Type "cons_id" needed for selector.
+:- import_module hlds.
+:- import_module hlds__hlds_data.
+
 :- import_module (parse_tree__inst), libs__options, libs__globals.
 :- import_module recompilation.
 :- import_module bool, list, assoc_list, map, set, varset, term, std_util.
@@ -428,6 +432,64 @@
 	---> 	cannot_loop	% This procedure definitely terminates for all
 				% possible inputs.
 	;	can_loop.	% This procedure might not terminate.
+
+%
+% Stuff for the 'pa_alias_info' and 'sr_reuse_info' pragma's.
+% These pragma's are used for the compile-time garbage collection system as
+% developed in Nancy Mazur's phd-thesis "Compile-time garbage collection for
+% the declarative language Mercury" (K.U.Leuven, May 2004).
+% 
+
+	% A selector describes a path in the type-tree of some specific type. 
+:- type selector == list(unit_sel).
+
+	% Unit-selectors are either normal selectors or type selector.
+	% A normal selector consisting of a functor f (identified by the
+	% cons_id) and an integer n, selects the n'th argument of that functor
+	% f. A type selector designates any node in a type-tree that has that
+	% type. 
+:- type unit_sel 
+	---> 	ns(cons_id, int) ;  	% normal selector
+		ts(type).		% type selector
+
+	% A datastructure is used to describe a particular subterm of the term
+	% to which a given variable may be bound at run-time. It simply
+	% consists of a variable, and a valid selector that can be used on the
+	% type of that variable. 
+:- type datastruct 
+	---> 	selected_cel(
+			sc_var::	prog_var, 
+			sc_selector:: 	selector
+		).
+
+	% The memory sharing between two terms at run-time is described using
+	% the notion of an alias. An alias can be described as a pair of
+	% datasutructures. 
+:- type alias == pair(datastruct).
+:- type aliases == list(alias).
+
+	% A reuse-tuple is used to describe the condition for which reuse
+	% within a particular procedure is allowed. 
+:- type reuse_tuple
+	---> 	unconditional
+	; 	conditional(
+		    reuse_nodes		:: set(datastruct),
+		    		% The set of datastructures pointing to
+				% the memory that becomes 'dead' and thus
+				% will be reused. This set is restricted to the
+				% head variables of the involved procedure. 
+		    live_headvars	:: set(datastruct), 
+		    		% The set of datastructures inherently live at
+				% the moment where the reuse_nodes become dead. 
+				% This set is restricted to the head variables
+				% of the procedure the reuse condition refers
+				% to. 
+		    alias_headvars	:: aliases
+		    		% The set of aliases existing at the moment
+				% where the reuse_nodes become dead. These
+				% aliases are also restricted to the
+				% headvariables of the concerned procedure. 
+		).
 
 
 %

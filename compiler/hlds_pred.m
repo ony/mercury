@@ -23,7 +23,6 @@
 :- import_module bool, list, set, map, std_util, term, varset.
 :- import_module possible_alias.
 :- import_module possible_alias__pa_alias_as.
-:- import_module possible_alias__pa_datastruct.
 :- import_module structure_reuse.
 :- import_module structure_reuse__sr_data.
 
@@ -1811,12 +1810,11 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 		maybe(list(sr_data__reuse_condition)), proc_info).
 :- mode proc_info_set_reuse_information(in, in, out) is det.
 
-:- pred proc_info_static_terms(proc_info, 
-		maybe(set(pa_datastruct__datastruct))).
+:- pred proc_info_static_terms(proc_info, maybe(set(datastruct))).
 :- mode proc_info_static_terms(in, out) is det.
 
 :- pred proc_info_set_static_terms(proc_info, 
-		maybe(set(pa_datastruct__datastruct)), proc_info).
+		maybe(set(datastruct)), proc_info).
 :- mode proc_info_set_static_terms(in, in, out) is det.
 
 :- pred proc_info_get_need_maxfr_slot(proc_info, bool).
@@ -2118,7 +2116,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% Possible set of datastructures that
 					% might be static after calling
 					% the procedure. 
-			static_terms:: maybe(set(pa_datastruct__datastruct))
+			static_terms:: maybe(set(prog_data__datastruct))
 	).
 
 :- func pa_sr_info_init = pa_sr_info. 
