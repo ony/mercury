@@ -116,6 +116,9 @@
 :- impure pred restore_recursion_depth_count_exit(
 		call_site_dynamic::in, int::in, int::in) is det.
 
+:- impure pred restore_recursion_depth_count_fail(
+		call_site_dynamic::in, int::in, int::in) is det.
+
 %------------------------------------------------------------------------------%
 :- implementation.
 
@@ -949,9 +952,34 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	inner_csd = csd->call_site_dynamic->proc_static->
 			call_site_ptr_ptrs[CSN];
 	inner_count = inner_csd->depth_count;
+	inner_csd->depth_count = 0;
 
 	inner_csd->profiling_metrics->calls += inner_count;
 	inner_csd->profiling_metrics->exits += inner_count;
+
+	inner_csd->depth_count = OuterCount;
+#else
+	fatal_error(""save_recursion_depth_count: no depth counts"");
+#endif
+#endif
+}").
+
+:- pragma c_code(restore_recursion_depth_count_fail(
+		CSD::in, CSN::in, OuterCount::in),
+		[thread_safe, will_not_call_mercury], "{
+#ifdef MR_DEEP_PROFILING
+#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
+	MR_CallSiteDynamic *csd = (MR_CallSiteDynamic *) CSD;
+	MR_CallSiteDynamic *inner_csd;
+	int inner_count;
+	
+	inner_csd = csd->call_site_dynamic->proc_static->
+			call_site_ptr_ptrs[CSN];
+	inner_count = inner_csd->depth_count;
+	inner_csd->depth_count = 0;
+
+	inner_csd->profiling_metrics->calls += inner_count;
+	inner_csd->profiling_metrics->fails += inner_count;
 
 	inner_csd->depth_count = OuterCount;
 #else
