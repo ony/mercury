@@ -176,11 +176,17 @@ main2(Globals0) -->
 		write_string(StdErr, "Merging cycles in the graph.\n"),
 		merge_cliques(Deep0, Deep),
 		write_string(StdErr, "Done.\n"),
+		{ foldl(sum_all_csds, Deep ^ call_site_dynamics, 0, Total) },
+		format(StdErr, "Total quanta %d\n", [i(Total)]),
 		main3(Globals0, Deep)
 	;
 		{ Res = error(Err) },
 		format(StdErr, "%s\n", [s(Err)])
 	).
+
+:- pred sum_all_csds(int::in, call_site_dynamic::in, int::in, int::out) is det.
+
+sum_all_csds(_, call_site_dynamic(_, OwnPI), Sum0, Sum0 + quanta(OwnPI)).
 
 :- pred main3(globals, deep, io__state, io__state).
 :- mode main3(in, in, di, uo) is det.
@@ -345,103 +351,140 @@ merge_cliques(Deep0, Deep) -->
 	{ NCSDs = CSDMax + 1 },
 	{ init(NPDs, zero_inherit_prof_info, PDDesc0) },
 	{ init(NCSDs, zero_inherit_prof_info, CSDDesc0) },
-	{ foldl((pred(Cn::in, Members::in, Stuff0::in, Stuff::out) is det :-
-	    lookup(CliqueParents, Cn, ParentCSDPtr),
-	    ParentCSDPtr = call_site_dynamic_ptr(ParentCSDI),
-	    foldl((pred(PDPtr::in, Stuff2::in, Stuff3::out) is det :-
-		call_sites(Deep0, PDPtr, CSDPtrs),
-		foldl((pred(CSDPtr::in, Stuff5::in, Stuff6::out) is det :-
-		    CSDPtr = call_site_dynamic_ptr(CSDI),
-		    ( CSDI > 0 ->
-		        lookup(Deep0^call_site_dynamics, CSDI, CSD),
-			CSD = call_site_dynamic(CPDPtr, CPI),
-			CPDPtr = proc_dynamic_ptr(CPDI),
-			( CPDI > 0 ->
-			    lookup(CliqueIndex, CPDI, clique(CCn)),
-			    ( CCn \= Cn ->
-			    	Stuff5 = {PDDesc5, CSDDesc5},
-				PDPtr = proc_dynamic_ptr(PPDI),
-				lookup(PDDesc5, PPDI, PDTotal0),
-				lookup(CSDDesc5, CSDI, CDesc),
-				add_own_to_inherit(CPI, PDTotal0) = PDTotal1,
-				add_inherit_to_inherit(CDesc, PDTotal1)
-					= PDTotal,
-				set(u(PDDesc5), PDI, PDTotal, PDDesc6),
-				Stuff6 = {PDDesc6, CSDDesc5}
-			    ;
-			        Stuff6 = Stuff5
-			    )
-			;
-			    Stuff6 = Stuff5
-			)
-		    ;
-		        Stuff6 = Stuff5
-		    )
-		), CSDPtrs, Stuff2, Stuff4),
-		Stuff4 = {PDDesc4, CSDDesc4},
-		lookup(CSDDesc4, ParentCSDI, CliqueTotal0),
-		PDPtr = proc_dynamic_ptr(PDI),
-		lookup(PDDesc4, PDI, DescPI),
-		lookup(PDOwn, PDI, OwnPI),
-		add_own_to_inherit(OwnPI, CliqueTotal0) = CliqueTotal1,
-		add_inherit_to_inherit(DescPI, CliqueTotal1) = CliqueTotal,
-		set(u(CSDDesc4), ParentCSDI, CliqueTotal, CSDDesc3),
-		Stuff3 = {PDDesc4, CSDDesc3}
-	    ), Members, Stuff0, Stuff1),
-	    Stuff1 = {PDDesc1, CSDDesc1},
-	    lookup(Deep0^call_site_dynamics, ParentCSDI, ParentCSD),
-	    ParentCSD = call_site_dynamic(_, ParentPI),
-	    lookup(CSDDesc1, ParentCSDI, ParentTotal0),
-	    ParentTotal = subtract_own_from_inherit(ParentPI, ParentTotal0),
-	    set(u(CSDDesc1), ParentCSDI, ParentTotal, CSDDescx),
-	    Stuff = {PDDesc1, CSDDescx}
-	), Cliques, {PDDesc0, CSDDesc0}, {PDDesc, CSDDesc}) },
 
 	{ array__max(Deep0^proc_statics, PSMax) },
 	{ NPSs = PSMax + 1 },
 	{ init(NPSs, zero_own_prof_info, PSOwn0) },
 	{ init(NPSs, zero_inherit_prof_info, PSDesc0) },
 
-	{ foldl((pred(PDI::in, PD::in,
-			PSOwn1::array_di, PSOwn2::array_uo) is det :-
-		PD = proc_dynamic(PSPtr, _),
-		PSPtr = proc_static_ptr(PSI),
-		( PSI > 0 ->
-			lookup(PSOwn1, PSI, PSOwnPI0),
-			lookup(PDOwn, PDI, PDOwnPI),
-			add_own_to_own(PDOwnPI, PSOwnPI0) = PSOwnPI,
-			set(PSOwn1, PSI, PSOwnPI, PSOwn2)
-		;
-			error("emit nasal devils")
-			% PSOwn2 = PSOwn1
-		)
-	), Deep0^proc_dynamics, PSOwn0, PSOwn) },
+	{ Deep1 = ((((((((Deep0
+		^ clique_index := CliqueIndex)
+		^ clique_members := Cliques)
+		^ clique_parents := CliqueParents)
+		^ pd_own := PDOwn)
+		^ pd_desc := PDDesc0)
+		^ csd_desc := CSDDesc0)
+		^ ps_own := PSOwn0)
+		^ ps_desc := PSDesc0) },
 
-	{ foldl((pred(PDI::in, PD::in,
-			PSDesc1::array_di, PSDesc2::array_uo) is det :-
-		PD = proc_dynamic(PSPtr, _),
-		PSPtr = proc_static_ptr(PSI),
-		( PSI > 0 ->
-			lookup(PDDesc, PDI, Desc),
-			lookup(PSDesc1, PSI, DescTotal0),
-			add_inherit_to_inherit(Desc, DescTotal0) = DescTotal,
-			set(PSDesc1, PSI, DescTotal, PSDesc2)
-		;
-			PSDesc2 = PSDesc1
-		)
-	), Deep0^proc_dynamics, PSDesc0, PSDesc) },
+	{ foldl(propagate_to_clique, Cliques, Deep1, Deep2) },
+
+	{ foldl(summarize_proc_dynamic, Deep2 ^ proc_dynamics, Deep2, Deep) },
 
 	format(StdErr, "  Done.\n", []),
-	io__report_stats,
+	io__report_stats.
 
-	{ Deep1 = Deep0^clique_index := CliqueIndex },
-	{ Deep2 = Deep1^clique_members := Cliques },
-	{ Deep3 = Deep2^clique_parents := CliqueParents },
-	{ Deep4 = Deep3^pd_own := PDOwn },
-	{ Deep5 = Deep4^pd_desc := PDDesc },
-	{ Deep6 = Deep5^csd_desc := CSDDesc },
-	{ Deep7 = Deep6^ps_own := PSOwn },
-	{ Deep  = Deep7^ps_desc := PSDesc }.
+:- pred summarize_proc_dynamic(int::in, proc_dynamic::in, deep::in, deep::out)
+	is det.
+
+summarize_proc_dynamic(PDI, PD, Deep0, Deep) :-
+	PD = proc_dynamic(PSPtr, _),
+	PSPtr = proc_static_ptr(PSI),
+	( PSI > 0 ->
+		PDOwn = Deep0 ^ pd_own,
+		PDDesc = Deep0 ^ pd_desc,
+		lookup(PDOwn, PDI, PDOwnPI),
+		lookup(PDDesc, PDI, PDDescPI),
+
+		PSOwn0 = Deep0 ^ ps_own,
+		PSDesc0 = Deep0 ^ ps_desc,
+		lookup(PSOwn0, PSI, PSOwnPI0),
+		lookup(PSDesc0, PSI, PSDescPI0),
+
+		add_own_to_own(PDOwnPI, PSOwnPI0) = PSOwnPI,
+		add_inherit_to_inherit(PDDescPI, PSDescPI0) = PSDescPI,
+		set(u(PSOwn0), PSI, PSOwnPI, PSOwn),
+		set(u(PSDesc0), PSI, PSDescPI, PSDesc),
+
+		Deep = (Deep0 ^ ps_own := PSOwn) ^ ps_desc := PSDesc
+	;
+		error("emit nasal devils")
+	).
+
+:- pred propagate_to_clique(int::in, list(proc_dynamic_ptr)::in,
+	deep::in, deep::out) is det.
+
+propagate_to_clique(CliqueNumber, Members, Deep0, Deep) :-
+	lookup(Deep0 ^ clique_parents, CliqueNumber, ParentCSDPtr),
+	ParentCSDPtr = call_site_dynamic_ptr(ParentCSDI),
+	foldl(propagate_to_proc_dynamic(CliqueNumber, Members, ParentCSDPtr),
+		Members, Deep0, Deep1),
+	lookup(Deep1 ^ call_site_dynamics, ParentCSDI, ParentCSD),
+	ParentCSD = call_site_dynamic(_, ParentOwnPI),
+	lookup(Deep1 ^ csd_desc, ParentCSDI, CliqueTotal0),
+	subtract_own_from_inherit(ParentOwnPI, CliqueTotal0) = CliqueTotal,
+	set(u(Deep1 ^ csd_desc), ParentCSDI, CliqueTotal, CSDDesc),
+	Deep = Deep1 ^ csd_desc := CSDDesc.
+
+:- pred propagate_to_proc_dynamic(int::in, list(proc_dynamic_ptr)::in,
+	call_site_dynamic_ptr::in, proc_dynamic_ptr::in, deep::in, deep::out)
+	is det.
+
+propagate_to_proc_dynamic(CliqueNumber, Members, ParentCSDPtr, PDPtr,
+		Deep0, Deep) :-
+	call_sites(Deep0, PDPtr, CSDPtrs),
+	foldl(propagate_to_call_site(CliqueNumber, PDPtr, Members),
+		CSDPtrs, Deep0, Deep1),
+	ParentCSDPtr = call_site_dynamic_ptr(ParentCSDI),
+	lookup(Deep1 ^ csd_desc, ParentCSDI, CliqueTotal0),
+	PDPtr = proc_dynamic_ptr(PDI),
+	lookup(Deep1 ^ pd_desc, PDI, DescPI),
+	lookup(Deep1 ^ pd_own, PDI, OwnPI),
+	add_own_to_inherit(OwnPI, CliqueTotal0) = CliqueTotal1,
+	add_inherit_to_inherit(DescPI, CliqueTotal1) = CliqueTotal,
+	set(u(Deep1 ^ csd_desc), ParentCSDI, CliqueTotal, CSDDesc),
+	Deep = Deep1 ^ csd_desc := CSDDesc.
+
+:- pred propagate_to_call_site(int::in, proc_dynamic_ptr::in,
+	list(proc_dynamic_ptr)::in, call_site_dynamic_ptr::in,
+	deep::in, deep::out) is det.
+
+propagate_to_call_site(CliqueNumber, PDPtr, Members, CSDPtr, Deep0, Deep) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( CSDI > 0 ->
+		lookup(Deep0 ^ call_site_dynamics, CSDI, CSD),
+		CSD = call_site_dynamic(CPDPtr, CPI),
+		CPDPtr = proc_dynamic_ptr(CPDI),
+		( CPDI > 0 ->
+			lookup(Deep0 ^ clique_index, CPDI,
+				clique(ChildCliqueNumber)),
+			( ChildCliqueNumber \= CliqueNumber ->
+				require_isnt(is_member(CPDPtr, Members),
+					"nasal gremlims"),
+				PDPtr = proc_dynamic_ptr(PDI),
+				lookup(Deep0 ^ pd_desc, PDI, PDTotal0),
+				lookup(Deep0 ^ csd_desc, CSDI, CDesc),
+				add_own_to_inherit(CPI, PDTotal0) = PDTotal1,
+				add_inherit_to_inherit(CDesc, PDTotal1)
+					= PDTotal,
+				set(u(Deep0 ^ pd_desc), PDI, PDTotal, PDDesc),
+				Deep = Deep0 ^ pd_desc := PDDesc
+			;
+				require(is_member(CPDPtr, Members),
+					"nasal demons"),
+				Deep = Deep0
+			)
+		;
+			Deep = Deep0
+		)
+	;
+		Deep = Deep0
+	).
+
+:- pred require_isnt(pred, string).
+:- mode require_isnt((pred) is semidet, in) is det.
+
+require_isnt(Goal, Message) :-
+	( call(Goal) ->
+		error(Message)
+	;
+		true
+	).
+
+:- pred is_member(T::in, list(T)::in) is semidet.
+
+is_member(Elem, List) :-
+	member(Elem, List).
 
 :- func add_inherit_to_inherit(inherit_prof_info, inherit_prof_info)
 	= inherit_prof_info.
@@ -463,8 +506,8 @@ add_own_to_inherit(PI1, PI2) = SumPI :-
 	= inherit_prof_info.
 
 subtract_own_from_inherit(PI1, PI2) = SumPI :-
-	Quanta = inherit_quanta(PI2) + quanta(PI1),
-	Memory = inherit_memory(PI2) + memory(PI1),
+	Quanta = inherit_quanta(PI2) - quanta(PI1),
+	Memory = inherit_memory(PI2) - memory(PI1),
 	SumPI = inherit_prof_info(Quanta, Memory).
 
 :- func add_inherit_to_own(inherit_prof_info, own_prof_info) = own_prof_info.
@@ -507,7 +550,7 @@ mlookup(A, I, T, S) :-
 
 call_sites(Deep, PDPtr, CSDPtrs) :-
 	( PDPtr = proc_dynamic_ptr(PDI), PDI > 0 ->
-		lookup(Deep^proc_dynamics, PDI, PD),
+		lookup(Deep ^ proc_dynamics, PDI, PD),
 		PD = proc_dynamic(_PSPtr, Refs),
 		solutions((pred(CSDPtr::out) is nondet :-
 		    array__to_list(Refs, RefList),

@@ -72,8 +72,9 @@ exec(root, Globs, Deep) -->
 		banner ++
 		"<TABLE>\n" ++
 		clique_table_header ++
-		pred_name("Call graph root", RootInherit, RootInherit) ++
-		callsite2html(URL, Deep, clique(-1), Deep^root) ++
+		pred_name("Call graph root", RootInherit,
+			zdet(1), RootInherit) ++
+		callsite2html(URL, Deep, clique(-1), Deep ^ root) ++
 		"</TABLE>\n" ++
 		footer(Deep) },
 	tell("/var/tmp/fromDeep", _),
@@ -85,8 +86,8 @@ exec(root, Globs, Deep) -->
 :- func root_inherit_info(deep) = inherit_prof_info.
 
 root_inherit_info(Deep) = RootInherit :-
-	Deep^root = call_site_dynamic_ptr(RootI),
-	lookup(Deep^csd_desc, RootI, RootInherit).
+	Deep ^ root = call_site_dynamic_ptr(RootI),
+	lookup(Deep ^ csd_desc, RootI, RootInherit).
 
 exec(clique(N), Globs, Deep) -->
 	( { N > 0 } ->
@@ -146,17 +147,30 @@ clique_table_header =
 	"<TD ALIGN=RIGHT>% of root</TD>\n" ++
 	"</TR>\n".
 
-:- func pred_name(string, inherit_prof_info, inherit_prof_info) = string.
-pred_name(Name, Root, Total) =
+:- func pred_name(string, inherit_prof_info, own_prof_info, inherit_prof_info)
+	= string.
+
+pred_name(ProcName, Root, Own, OwnPlusDesc) =
 		"<TR>\n" ++
-		format("<TD COLSPAN=8><B>%s</B></TD>\n", [s(Name)]) ++
+		format("<TD COLSPAN=2><B>%s</B></TD>\n", [s(ProcName)]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
+		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(OwnQuanta))]) ++
+		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
 		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(TotalQ))]) ++
-		format("<TD ALIGN=RIGHT>%2.2f</TD>\n", [f(PropQ)]) ++
-		"</TR>\n" ++
-		"<TR><TD>.</TD></TR>\n" :-
-	TotalQ = inherit_quanta(Total),
+		format("<TD ALIGN=RIGHT>%2.2f</TD>\n", [f(TotalProp)]) ++
+		"</TR>\n" :-
+	Calls = calls(Own),
+	Exits = exits(Own),
+	Fails = fails(Own),
+	Redos = redos(Own),
+	OwnQuanta = quanta(Own),
+	TotalQ = inherit_quanta(OwnPlusDesc),
 	RootQ = inherit_quanta(Root),
-	PropQ = 100.0 * float(TotalQ) / float(RootQ).
+	OwnProp = 100.0 * float(OwnQuanta) / float(RootQ),
+	TotalProp = 100.0 * float(TotalQ) / float(RootQ).
 
 :- func footer(deep) = string.
 footer(_Deep) =
@@ -167,41 +181,52 @@ footer(_Deep) =
 :- func clique2html(string, deep, clique) = string.
 clique2html(URL, Deep, Clique) = HTML :-
 	Clique = clique(CliqueN),
-	HTML =
-		SummaryLine ++
-		CliqueHTML,
 
-	lookup(Deep^clique_members, CliqueN, PDPtrs),
-	lookup(Deep^clique_parents, CliqueN, CallerCSDPtr),
-
-	RootInherit = root_inherit_info(Deep),
+	lookup(Deep ^ clique_members, CliqueN, PDPtrs),
+	lookup(Deep ^ clique_parents, CliqueN, CallerCSDPtr),
 
 	SummaryLine = callsite2html(URL, Deep, Clique, CallerCSDPtr),
 
-	map((pred(PDPtr::in, PDStr::out) is det :-
-		PDPtr = proc_dynamic_ptr(PDI),
-		( PDI > 0 ->
-			lookup(Deep^proc_dynamics, PDI, PD),
-			PD = proc_dynamic(PSPtr, _),
-			PSPtr = proc_static_ptr(PSI),
-			lookup(Deep^proc_statics, PSI, PS),
-			PS = proc_static(Id, _),
-			call_sites(Deep, PDPtr, CSDPtrs),
-			CSDStrs = map(callsite2html(URL, Deep, Clique),
-				CSDPtrs),
-			append_list(CSDStrs, Rows),
-			lookup(Deep^pd_desc, PDI, SubTotalDesc),
-			lookup(Deep^pd_own, PDI, SubTotalOwn),
-			add_own_to_inherit(SubTotalOwn, SubTotalDesc)
-				= SubTotal,
-			PDStr = pred_name(Id, RootInherit, SubTotal) ++ Rows ++
-				"<TR><TD COLSPAN=8>.</TD></TR>\n"
+	map(proc_in_clique_to_html(URL, Clique, Deep), PDPtrs, PDStrs),
+	append_list(PDStrs, CliqueHTML),
+
+	HTML =
+		SummaryLine ++
+		CliqueHTML.
+
+:- pred proc_in_clique_to_html(string::in, clique::in, deep::in,
+		proc_dynamic_ptr::in, string::out) is det.
+
+proc_in_clique_to_html(URL, Clique, Deep, PDPtr, PDStr) :-
+	PDPtr = proc_dynamic_ptr(PDI),
+	( PDI > 0 ->
+		RootInherit = root_inherit_info(Deep),
+
+		lookup(Deep ^ proc_dynamics, PDI, PD),
+		PD = proc_dynamic(PSPtr, _),
+		PSPtr = proc_static_ptr(PSI),
+		lookup(Deep ^ proc_statics, PSI, PS),
+		PS = proc_static(Id, _),
+		call_sites(Deep, PDPtr, CSDPtrs),
+		CSDStrs = map(callsite2html(URL, Deep, Clique),
+			CSDPtrs),
+		append_list(CSDStrs, Rows0),
+		( CSDStrs = [] ->
+			Rows = Rows0
 		;
-			PDStr = ""
-		)
-	), PDPtrs, PDStrs),
-	append_list(PDStrs, CliqueHTML).
-		
+			Rows = "<TR><TD COLSPAN=8>.</TD></TR>\n" ++ Rows0
+		),
+		lookup(Deep ^ pd_desc, PDI, SubTotalDesc),
+		lookup(Deep ^ pd_own, PDI, SubTotalOwn),
+		add_own_to_inherit(SubTotalOwn, SubTotalDesc) = SubTotal,
+		PDStr =
+			"<TR><TD COLSPAN=8>.</TD></TR>\n" ++
+			pred_name(Id, RootInherit, SubTotalOwn, SubTotal) ++
+			Rows
+	;
+		PDStr = ""
+	).
+
 :- pred addTime(proc_dynamic_ptr, int,
 		(proc_dynamic_ptr -> int), (proc_dynamic_ptr -> int)).
 :- mode addTime(in, in, in, out) is det.
@@ -223,23 +248,25 @@ callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
 
 	label(CSDPtr, Deep) = CalleeName,
 	CSDPtr = call_site_dynamic_ptr(CSDI),
-	lookup(Deep^call_site_dynamics, CSDI, CSD),
+	lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 	CSD = call_site_dynamic(ToPtr, OwnPI),
 	ToPtr = proc_dynamic_ptr(ToInd),
-	lookup(Deep^clique_index, ToInd, clique(To)),
+	lookup(Deep ^ clique_index, ToInd, clique(To)),
 
 		% We don't link recursive calls
 	( clique(To) = ThisClique ->
 		ProcName = CalleeName
 	;
-		ProcName = 
-		format("<A HREF=""%s?clique+%d"">%s</A>\n",
-			[s(URL), i(To), s(CalleeName)])
+		ProcName =
+			format("<A HREF=""%s?clique+%d"">%s</A>\n",
+				[s(URL), i(To), s(CalleeName)])
 	),
-	Calls = calls(OwnPI), Exits = exits(OwnPI),
-	Fails = fails(OwnPI), Redos = redos(OwnPI),
+	Calls = calls(OwnPI),
+	Exits = exits(OwnPI),
+	Fails = fails(OwnPI),
+	Redos = redos(OwnPI),
 	OwnQuanta = quanta(OwnPI),
-	lookup(Deep^csd_desc, CSDI, CSDDPI),
+	lookup(Deep ^ csd_desc, CSDI, CSDDPI),
 	DescQuanta = inherit_quanta(CSDDPI),
 	Quanta = OwnQuanta + DescQuanta,
 	OwnQ = float(OwnQuanta),
@@ -266,12 +293,12 @@ procs2html(_URL, Deep, Sort, First, Last) = HTML :-
 		PSI >= First,
 		PSI =< Last
 	->
-		lookup(Deep^ps_own, PSI, PI),
+		lookup(Deep ^ ps_own, PSI, PI),
 		PS = proc_static(Id, _),
 		Calls = calls(PI), Exits = exits(PI),
 		Fails = fails(PI), Redos = redos(PI),
 		OwnQuanta = quanta(PI),
-		lookup(Deep^ps_desc, PSI, PSIDesc),
+		lookup(Deep ^ ps_desc, PSI, PSIDesc),
 		DescQuanta = inherit_quanta(PSIDesc),
 		Quanta = OwnQuanta + DescQuanta,
 		OwnQ = float(OwnQuanta),
@@ -304,7 +331,7 @@ procs2html(_URL, Deep, Sort, First, Last) = HTML :-
 		Xs = [X|Xs0]
 	;
 		Xs = Xs0
-	)), Deep^proc_statics, [], KeyedRows0),
+	)), Deep ^ proc_statics, [], KeyedRows0),
 	sort(KeyedRows0, KeyedRows),
 	foldl((pred({_, RStr}::in, Strs1::in, Strs2::out) is det :-
 		Strs2 = [RStr|Strs1]
@@ -316,13 +343,13 @@ procs2html(_URL, Deep, Sort, First, Last) = HTML :-
 label(CSDPtr, Deep) = Name :-
 	(
 		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
-		lookup(Deep^call_site_dynamics, CSDI, CSD),
+		lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 		CSD = call_site_dynamic(PDPtr, _),
 		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
-		lookup(Deep^proc_dynamics, PDI, PD),
+		lookup(Deep ^ proc_dynamics, PDI, PD),
 		PD = proc_dynamic(PSPtr, _),
 		PSPtr = proc_static_ptr(PSI), PSI > 0,
-		lookup(Deep^proc_statics, PSI, PS),
+		lookup(Deep ^ proc_statics, PSI, PS),
 		PS = proc_static(Id, _)
 	->
 		Name = Id
@@ -335,10 +362,10 @@ label(CSDPtr, Deep) = Name :-
 refs(CSDPtr, Deep) = Refs :-
 	(
 		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
-		lookup(Deep^call_site_dynamics, CSDI, CSD),
+		lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 		CSD = call_site_dynamic(PDPtr, _),
 		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
-		lookup(Deep^proc_dynamics, PDI, PD),
+		lookup(Deep ^ proc_dynamics, PDI, PD),
 		PD = proc_dynamic(_, Refs0)
 	->
 		Refs = Refs0
