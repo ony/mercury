@@ -713,7 +713,7 @@ option_defaults_2(special_optimization_option, [
 
 	structure_reuse_constraint - 	string("within_n_cells_difference"),
 	structure_reuse_constraint_arg - int(0),
-	structure_reuse_selection -	string("lifo"),
+	structure_reuse_selection -	string("graph"),
 	
 	possible_alias_widening - 	int(0)
 ]).
@@ -1907,8 +1907,8 @@ options_help_semantics -->
 
 		"--structure-reuse-selection",
 		"\tStrategy to decide which of the possible cells available",
-		"\tfor reuse is reused.  Currently lifo or random",
-		"\t(default = lifo).",
+		"\tfor reuse is reused.  Currently lifo, random, or graph",
+		"\t(default = graph).",
 
 		"--cell-cache",
 		"\tTurn on a cache of compile time garbage collected cells.",

@@ -30,7 +30,11 @@
 :- import_module assoc_list.
 :- import_module require.
 
-:- import_module sr_lfu, sr_lbu, sr_dead, sr_choice, sr_data, sr_live.
+:- import_module sr_lfu, sr_lbu, sr_dead, sr_data, sr_live.
+:- import_module sr_choice. 
+:- import_module sr_choice_util. 
+:- import_module sr_choice_graphing.
+:- import_module goal_path.
 :- import_module hlds_goal, hlds_data, prog_data.
 :- import_module hlds_pred, passes_aux.
 :- import_module globals, options.
@@ -41,7 +45,10 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	{ sr_lfu__process_proc(ProcInfo0, ProcInfo1) },
 
 		% Determine the LBU (local backward use)
-	{ sr_lbu__process_proc(ModuleInfo0, ProcInfo1, ProcInfo2) },
+	{ sr_lbu__process_proc(ModuleInfo0, ProcInfo1, ProcInfo2b) },
+
+		% Annotate the goals with their goal-paths.
+	{ goal_path__fill_slots(ProcInfo2b, ModuleInfo0, ProcInfo2) }, 
 
 		% Determine which cells die and can be reused and what
 		% the conditions on that reuse are
@@ -63,10 +70,25 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% Select which cells will be reused and which can be
 		% compile time garbage collected.
 	maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
-	sr_choice__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
-	{ proc_info_vartypes(ProcInfo0, VarTypes) },
-	{ sr_choice__process_goal(Strategy, VarTypes, ModuleInfo,
-			ProcInfo0, Goal1, Goal, MaybeReuseConditions) },
+	% sr_choice__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
+	% { proc_info_vartypes(ProcInfo0, VarTypes) },
+	% { sr_choice__process_goal(Strategy, VarTypes, ModuleInfo,
+	%		ProcInfo0, Goal1, Goal, MaybeReuseConditions) },
+	{ proc_info_vartypes(ProcInfo0, VarTypes) }, 
+	% { ModuleInfo = ModuleInfo0 }, 
+	sr_choice_util__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
+	{ Strategy = strategy(Constraint, Selection) },
+	(
+		{ Selection = graph }
+	->
+		{ sr_choice_graphing__set_background_info(Constraint, 
+			ModuleInfo, VarTypes, Background) }, 
+		sr_choice_graphing__process_goal(Background, Goal1, Goal,
+			MaybeReuseConditions)
+	;
+		{ sr_choice__process_goal(Strategy, VarTypes, ModuleInfo, 
+			ProcInfo0, Goal1, Goal, MaybeReuseConditions) }
+	),
 	(
 		{ VeryVerbose = yes } 
 	->

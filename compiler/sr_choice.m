@@ -18,34 +18,12 @@
 :- interface.
 
 :- import_module hlds_goal, hlds_pred, hlds_module, sr_data.
-:- import_module io, list, std_util.
-
-:- type strategy
-	--->	strategy(
-			constraint,
-			selection
-		).
-
-	% The constraint on the cells that we consider available for
-	% reuse.
-:- type constraint
-	--->	same_cons_id
-	;	within_n_cells_difference(int)
-	.
-
-	% After the constraint has been applied to the set of cells
-	% which are available for reuse, determine which of that set we
-	% select.
-:- type selection
-	--->	lifo
-	;	random
-	.
+:- import_module list, std_util.
+:- import_module sr_choice_util.
 
 :- pred sr_choice__process_goal(strategy::in, vartypes::in, module_info::in,
 		proc_info::in, hlds_goal::in, hlds_goal::out,
 		maybe(list(reuse_condition))::out) is det.
-:- pred get_strategy(strategy::out, module_info::in, module_info::out,
-		io__state::di, io__state::uo) is det.
 
 
 %-----------------------------------------------------------------------------%
@@ -210,7 +188,10 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 	;
 		error("sr_choice__apply_constraint_unification")
 	},
-	has_secondary_tag(Var, ConsId, HasSecondaryTag),
+	ModuleInfo =^ module_info, 
+	VarTypes =^ vartypes, 
+	{ has_secondary_tag(ModuleInfo, VarTypes, Var, 
+			ConsId, HasSecondaryTag) },
 	Map =^ map,
 	(
 		{ Constraint = same_cons_id },
@@ -231,15 +212,12 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
-		ProcInfo =^ proc_info,
-		ModuleInfo =^ module_info, 
-
 			% XXX recode this more efficiently at some stage.
 		{ P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
 			
-			\+ no_tag_type(CandidateVar, ModuleInfo, ProcInfo),
+			\+ no_tag_type(ModuleInfo, VarTypes, CandidateVar),
 
 			multi_map__search(Map, CandidateVar, CandidateData),
 			ConsIds = list__remove_dups(
@@ -269,16 +247,12 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			choice(construct(set__list_to_set(Candidates))),
 			GoalInfo) }.
 
-:- pred no_tag_type(prog_var::in, module_info::in, proc_info::in) is semidet. 
-no_tag_type(Var, ModuleInfo, ProcInfo):- 
-	proc_info_vartypes(ProcInfo, VarTypes), 
-	map__lookup(VarTypes, Var, VarType), 
-	type_is_no_tag_type(ModuleInfo, VarType, _, _). 
-
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC) },
 	Map0 =^ map,
-	has_secondary_tag(Var, ConsId, SecondaryTag),
+	ModuleInfo =^ module_info, 
+	VarTypes =^ vartypes, 
+	{ has_secondary_tag(ModuleInfo, VarTypes, Var, ConsId, SecondaryTag) },
 	{ multi_map__set(Map0, Var, data(ConsId, Vars, SecondaryTag), Map) },
 	^ map := Map.
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
@@ -288,52 +262,6 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = complicated_unify(_, _, _) }.
 
-
-	%
-	% has_secondary_tag(Var, ConsId, HasSecTag) is true iff the
-	% variable, Var, with cons_id, ConsId, requires a remote
-	% secondary tag to distinguish between its various functors.
-	%
-:- pred has_secondary_tag(prog_var::in, cons_id::in, bool::out,
-		constraint_info::in, constraint_info::out) is det.
-
-has_secondary_tag(Var, ConsId, SecondaryTag) -->
-	ModuleInfo =^ module_info,
-	VarTypes =^ vartypes,
-	{
-		map__lookup(VarTypes, Var, Type),
-		type_to_type_id(Type, TypeId, _Args)
-	->
-		module_info_types(ModuleInfo, Types),
-		( map__search(Types, TypeId, TypeDefn) ->
-			hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-			( TypeBody = du_type(_, ConsTagValues, _, _) ->
-				(
-						% The search can fail
-						% for such types as
-						% private_builtin:type_info,
-						% if the search fails we
-						% will not have a
-						% secondary tag.
-					map__search(ConsTagValues, ConsId,
-							ConsTag),
-					ConsTag = shared_remote_tag(_, _)
-				->
-					SecondaryTag = yes
-				;
-					SecondaryTag = no
-				)
-			;
-				error("has_secondary_tag: not du type.")
-			)
-		;
-				% Must be a basic type.
-			SecondaryTag = no
-		)
-	;
-		error("has_secondary_tag: type_to_type_id failed.")
-		
-	}.
 
 	%
 	% Determine which of the fields already contain references to
@@ -357,58 +285,6 @@ reuse_fields(HasSecTag, Vars, CandidateData)
 			error("reuse_fields: empty list")
 		).
 
-	%
-	% already_correct_fields(HasSecTagC, VarsC, HasSecTagR, VarsR)
-	% takes a list of variables, VarsC, which are the arguments for
-	% the cell to be constructed and the list of variables, VarsR,
-	% which are the arguments for the cell to be reused and returns
-	% a list of bool where each yes indicates that argument already
-	% has the correct value stored in it.  To do this correctly we
-	% need to know whether each cell has a secondary tag field.
-	%
-:- func already_correct_fields(bool, prog_vars,
-		pair(bool, prog_vars)) = list(bool).
-
-already_correct_fields(SecTagC, CurrentCellVars, SecTagR - ReuseCellVars)
-	= Bools ++ list__duplicate(LengthC - LengthB, no) :-
-		Bools = already_correct_fields_2(SecTagC, CurrentCellVars,
-				SecTagR, ReuseCellVars),
-		LengthC = list__length(CurrentCellVars),
-		LengthB = list__length(Bools).
-
-:- func already_correct_fields_2(bool, prog_vars, bool, prog_vars) = list(bool).
-
-already_correct_fields_2(yes, CurrentCellVars, yes, ReuseCellVars)
-	= equals(CurrentCellVars, ReuseCellVars).
-already_correct_fields_2(yes, CurrentCellVars, no, ReuseCellVars)
-	= [no | equals(CurrentCellVars, drop_one(ReuseCellVars))].
-already_correct_fields_2(no, CurrentCellVars, yes, ReuseCellVars) 
-	= [no | equals(drop_one(CurrentCellVars), ReuseCellVars)].
-already_correct_fields_2(no, CurrentCellVars, no, ReuseCellVars) 
-	= equals(CurrentCellVars, ReuseCellVars).
-
-	%
-	% equals(ListA, ListB) produces a list of bools which indicates
-	% whether the corresponding elements from ListA and ListB were
-	% equal.  If ListA and ListB are of different lengths, the
-	% resulting list is the length of the shorter of the two.
-	%
-:- func equals(list(T), list(T)) = list(bool).
-
-equals([], []) = [].
-equals([], [_|_]) = [].
-equals([_|_], []) = [].
-equals([X | Xs], [Y | Ys]) = [Bool | equals(Xs, Ys)] :-
-	( X = Y ->
-		Bool = yes
-	;
-		Bool = no
-	).
-
-:- func drop_one(list(T)) = list(T).
-
-drop_one([]) = [].
-drop_one([_ | Xs]) = Xs.
 
 :- func and_list(list(bool), list(bool)) = list(bool).
 
@@ -668,6 +544,9 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 		)},
 
 		{ solutions(P, Candidates) }
+	;
+		{ Selection = graph },
+		{ require__error("(sr_choice) select_reuses_unification: selection graph is not an option at this place.") }
 	),
 	( { Candidates = [Candidate | _] } ->
 		{ Candidate = reuse_var(ReuseVar, ReuseCond,
@@ -852,38 +731,5 @@ determine_cgc_unification(_ReusedVars, Unif, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = complicated_unify(_, _, _) }.
 
 
-
-%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
-	io_lookup_string_option(structure_reuse_constraint, ConstraintStr),
-	( { ConstraintStr = "same_cons_id" } ->
-		{ Constraint = same_cons_id },
-		{ ModuleInfo1 = ModuleInfo0 }
-	; { ConstraintStr = "within_n_cells_difference" } ->
-		io_lookup_int_option(structure_reuse_constraint_arg, NCells),
-		{ Constraint = within_n_cells_difference(NCells) },
-		{ ModuleInfo1 = ModuleInfo0 }
-	;
-		{ Constraint = same_cons_id },
-		io__write_string("error: Invalid argument to --structure-reuse-constraint.\n"),
-		io__set_exit_status(1),
-		{ module_info_incr_errors(ModuleInfo0, ModuleInfo1) }
-	),
-	io_lookup_string_option(structure_reuse_selection, SelectionStr),
-	( { SelectionStr = "lifo" } ->
-		{ Selection = lifo },
-		{ ModuleInfo = ModuleInfo1 }
-	; { SelectionStr = "random" } ->
-		{ Selection = random },
-		{ ModuleInfo = ModuleInfo1 }
-	; 
-		{ Selection = lifo },
-		io__write_string("error: Invalid argument to --structure-reuse-selection.\n"),
-		io__set_exit_status(1),
-		{ module_info_incr_errors(ModuleInfo1, ModuleInfo) }
-	),
-	{ Strategy = strategy(Constraint, Selection) }.
-
-%-----------------------------------------------------------------------------% %-----------------------------------------------------------------------------%
