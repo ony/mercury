@@ -225,7 +225,7 @@ parse_term(TERM, SEL):-
 		TERM = term__functor(term__atom(CONS), Args, _)
 	->
 		(
-			CONS = ".",
+			CONS = "[|]",
 			Args = [ First , Rest ]
 		->
 			parse_unit_selector(First, US),

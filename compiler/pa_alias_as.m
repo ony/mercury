@@ -865,7 +865,7 @@ parse_read_aliases_from_single_term(OneITEM, AS) :-
 		OneITEM = term__functor(term__atom(CONS), _TERMS, Context)
 	->
 		(
-			CONS = "."
+			CONS = "[|]"
 		->
 			parse_list_alias_term(OneITEM, Aliases),
 			pa_alias_set__from_pair_alias_list(Aliases, 
@@ -903,7 +903,7 @@ parse_list_alias_term(TERM, Aliases) :-
 		TERM = term__functor(term__atom(CONS), Args, _)
 	->
 		(
-		        CONS = ".",
+		        CONS = "[|]",
                         Args = [ AliasTerm, Rest]
                 ->
 			pa_alias__parse_term(AliasTerm, Alias),
@@ -980,7 +980,7 @@ parse_user_declared_aliases_2(ListTerm, AliasAS):-
 parse_list_term(ListTerm, Terms):- 
 	ListTerm = term__functor(term__atom(Cons), Args, _), 
 	(
-		Cons = "."
+		Cons = "[|]"
 	->
 		Args = [FirstTerm, RestTerm],
 		parse_list_term(RestTerm, RestList), 

@@ -54,7 +54,7 @@ ifeq ($(LIBRARY_INTERMODULE),yes)
 # just disable the warnings here.
 INTERMODULE_OPTS = --transitive-intermodule-optimization \
 			--no-warn-smart-recompilation
-ENABLE_TERM_OPTS = --enable-termination
+ENABLE_TERM_OPTS = # --enable-termination
 CHECK_TERM_OPTS =
 # If you want to actually check termination for the library, then you need
 #	CHECK_TERM_OPTS = --check-termination

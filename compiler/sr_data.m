@@ -652,7 +652,7 @@ nodes_parse(Term, Datastructs) :-
 		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			Cons = ".",
+			Cons = "[|]",
 			Args = [First, Rest]
 		->
 			pa_datastruct__parse_term(First, D1),
@@ -683,7 +683,7 @@ vars_parse_list(Term, Vars) :-
 		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			Cons = ".",
+			Cons = "[|]",
 			Args = [First, Rest]
 		->
 			( 
@@ -716,7 +716,7 @@ condition_rest_parse(Term, Conds) :-
 		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			Cons = ".",
+			Cons = "[|]",
 			Args = [First, Rest]
 		->
 			condition_parse(First, Cond1),
