@@ -14,7 +14,7 @@
 
 :- import_module parse_tree__prog_data.
 
-:- import_module io, term.
+:- import_module io, term, std_util.
 
 %-----------------------------------------------------------------------------%
 % Printing routines. 
@@ -31,6 +31,40 @@
 % 3. alias.
 :- pred print_alias(prog_varset::in, tvarset::in, string::in, string::in, 
 		alias::in, io__state::di, io__state::uo) is det.
+
+% 4. aliases.
+	% print_aliases(ProgVarSet, TypeVarSet, MaybeThreshold, 
+	%	StartString, Separator, EndString, Aliases, !IO).
+	% Print the set of aliases using StartString to precede the set of
+	% aliases, using EndString to end the set of aliases, using Separator
+	% to separate each of the aliases occuring in the list. If a threshold,
+	% say N, is given, then only the first N aliases are printed. 
+:- pred print_aliases(prog_varset::in, tvarset::in, maybe(int)::in, 
+		string::in, string::in, string::in, aliases::in, 
+		io__state::di, io__state::uo) is det.
+
+% 5. aliases_domain.
+	% Print the aliases as either "top", "bottom", or as a list of 
+	% alias-pairs. If a threshold N is given, then only print the first N
+	% aliases of the list of aliases.
+:- pred print_aliases_domain(prog_varset::in, tvarset::in, 
+		maybe(int)::in, aliases_domain::in,
+		io__state::di, io__state::uo) is det.
+
+% 6. maybe(aliases_domain).
+	% Print the aliases as a mercury-comment, used in the hlds-dump. 
+	% The msg's in top-aliases are fully printed. 
+:- pred dump_maybe_aliases_domain(prog_varset::in, tvarset::in, 
+		maybe(aliases_domain)::in, 
+		io__state::di, io__state::uo) is det.
+
+	% Print the aliases in a form suitable for the transitive-optimisation
+	% files. The msg's in top-aliases are discarded: a top alias set is
+	% simply printed as "top". 
+:- pred print_interface_maybe_aliases_domain(prog_varset::in, tvarset::in, 
+		maybe(aliases_domain)::in, 
+		io__state::di, io__state::uo) is det.
+
 
 %-----------------------------------------------------------------------------%
 % Transform to string routines. 
@@ -71,7 +105,7 @@
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
 
-:- import_module string, list, require, bool, varset, std_util. 
+:- import_module string, list, require, bool, varset, std_util, int. 
 
 %-----------------------------------------------------------------------------%
 print_selector(TVarSet, Selector, !IO) :-
@@ -93,6 +127,78 @@ print_alias(ProgVarSet, TypeVarSet, FrontString, EndString, Alias0, !IO) :-
 	print_datastruct(ProgVarSet, TypeVarSet, D2, !IO),
 	io__write_string(") ", !IO),
 	io__write_string(EndString, !IO).
+
+:- pred print_alias(prog_varset::in, tvarset::in, alias::in, 
+		io__state::di, io__state::uo) is det.
+print_alias(ProgVarSet, TypeVarSet, Alias0, !IO) :- 
+	Alias0 = D1 - D2,
+	io__write_string("pair(", !IO),
+	print_datastruct(ProgVarSet, TypeVarSet, D1, !IO),
+	io__write_string(", ", !IO),
+	print_datastruct(ProgVarSet, TypeVarSet, D2, !IO),
+	io__write_string(")", !IO).
+
+print_aliases(ProgVarSet, TypeVarSet, yes(Limit), Start, Sep, End, 
+		Aliases, !IO) :- 
+	list__take_upto(Limit, Aliases, Aliases1), 
+	io__write_string(Start, !IO), 
+	print_aliases_2(ProgVarSet, TypeVarSet, Sep, 
+			Aliases1, !IO), 
+	io__write_string(Sep, !IO), 
+	io__write_string("...", !IO), 
+	io__write_string(End, !IO). 
+
+print_aliases(ProgVarSet, TypeVarSet, no, 
+		Start, Sep, End, Aliases, !IO) :- 
+	io__write_string(Start, !IO), 
+	print_aliases_2(ProgVarSet, TypeVarSet, Sep, 
+			Aliases, !IO), 
+	io__write_string(End, !IO).
+
+:- pred print_aliases_2(prog_varset::in, tvarset::in, string::in, 
+		aliases::in, io__state::di, io__state::uo) is det.
+
+print_aliases_2(ProgVarSet, TypeVarSet, Sep, Aliases, !IO) :- 
+	io__write_list(Aliases, Sep, 
+		print_alias(ProgVarSet, TypeVarSet), !IO).
+
+dump_maybe_aliases_domain(_ProgVarSet, _TypeVarSet, no, !IO) :- 
+	io__write_string("not available.\n", !IO).
+dump_maybe_aliases_domain(ProgVarSet, TypeVarSet, yes(AliasesDomain), !IO) :- 
+	(
+		AliasesDomain = bottom,
+		io__write_string("aliases are bottom.\n", !IO)
+	; 
+		AliasesDomain = top(Msgs),
+		TopString = string__join_list("\n%\t", Msgs),
+		io__write_string("aliases are top: \n%\t", !IO),
+		io__write_string(TopString, !IO),
+		io__nl(!IO)
+	;
+		AliasesDomain = real(Aliases),
+		print_aliases(ProgVarSet, TypeVarSet, no, 
+			"\n% ", "\n% ", "\n", Aliases, !IO)
+	).
+
+print_interface_maybe_aliases_domain(_ProgVarSet, _TVarSet, no, !IO) :- 
+	io__write_string("not_available", !IO). 
+print_interface_maybe_aliases_domain(ProgVarSet, TVarSet, yes(Aliases), !IO) :-
+	io__write_string("yes(", !IO), 
+	print_aliases_domain(ProgVarSet, TVarSet, no, Aliases, !IO). 
+
+print_aliases_domain(ProgVarSet, TVarSet, MaybeThreshold, Aliases, !IO) :- 
+	(
+		Aliases = top(_),
+		io__write_string("top", !IO)
+	; 
+		Aliases = bottom,
+		io__write_string("bottom", !IO)
+	; 
+		Aliases = real(AliasList), 
+		print_aliases(ProgVarSet, TVarSet, MaybeThreshold, "[", ", ", 
+			"]", AliasList, !IO)
+	).
+	
 %-----------------------------------------------------------------------------%
 to_user_declared_selector(TVarSet, Selector, String):- 
 	(

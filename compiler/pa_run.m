@@ -84,6 +84,7 @@
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__modules.
 :- import_module parse_tree__prog_data.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module parse_tree__prog_out.
 :- import_module parse_tree__prog_util.
 :- import_module possible_alias__pa_alias_as.
@@ -100,6 +101,7 @@
 :- import_module std_util, string.
 :- import_module term.
 :- import_module varset, bool.
+
 
 %-----------------------------------------------------------------------------%
 
@@ -803,8 +805,10 @@ pa_run__make_pa_interface_pred_proc(PredInfo, ProcTable, ProcId) -->
 		% write alias information
 
 	{ proc_info_possible_aliases(ProcInfo, MaybeAliases) },
-	pa_alias_as__print_maybe_interface_aliases(MaybeAliases, 
-					ProcInfo, PredInfo),
+	{ proc_info_varset(ProcInfo, ProgVarSet) }, 
+	{ pred_info_typevarset(PredInfo, TVarSet) }, 
+	print_interface_maybe_aliases_domain(ProgVarSet, TVarSet, 
+		MaybeAliases),
 
 	io__write_string(").\n").
 

@@ -218,37 +218,6 @@
 		alias_as::in, alias_as::out) is det.
 
 %-----------------------------------------------------------------------------%
-% Printing routines. 
-% XXX Should eventually move to some other place? 
-%-----------------------------------------------------------------------------%
-	% Dump the alias information (used in hlds_dumps). 
-	% Each alias will be preceded by the string "% ". 
-:- pred print_maybe_possible_aliases(maybe(aliases_domain)::in, proc_info::in, 
-		pred_info::in, io__state::di, io__state::uo) is det.
-
-	% Dump the alias information printing a given string between each alias
-	% expressed by the abstract description. 
-:- pred print_maybe_possible_aliases(string::in, maybe(aliases_domain)::in, 
-		proc_info::in, pred_info::in, 
-		io__state::di, io__state::uo) is det.
-
-	% Print alias information suitable for using in the trans_opt interface
-	% files, and therefore mmc-readable. 
-:- pred print_maybe_interface_aliases(maybe(aliases_domain)::in, 
-		proc_info::in, pred_info::in, 
-		io__state::di, io__state::uo) is det.
-
-	% Print mmc-readable aliases. Mainly used for printing intermediate
-	% aliasing descriptions during the analysis process, with Verbosity
-	% switched on. 
-:- pred print_aliases(aliases_domain, proc_info, pred_info, 
-		io__state, io__state).
-:- mode print_aliases(in, in, in, di, uo) is det.
-
-:- pred print_brief_aliases(int::in, aliases_domain::in, proc_info::in,
-		pred_info::in, io__state::di, io__state::uo) is det.
-
-%-----------------------------------------------------------------------------%
 % Parsing routines. 
 % XXX Should eventually move to some other place? 
 %-----------------------------------------------------------------------------%
@@ -934,99 +903,6 @@ normalize_wti(HLDS, ProcInfo, ASin, ASout):-
 		ASout = ASin
 	).
 		
-%-----------------------------------------------------------------------------%
-% printing routines
-%-----------------------------------------------------------------------------%
-
-	% MaybeAs = yes(Alias_as) -> print out Alias_as
-	%         = no		   -> print "not available"
-print_maybe_possible_aliases(MaybeAS, ProcInfo, PredInfo) -->
-	print_maybe_possible_aliases("% ", MaybeAS, ProcInfo, PredInfo). 
-
-print_maybe_possible_aliases(RepeatingStart, MaybeAS, ProcInfo, PredInfo) -->
-	(
-		{ MaybeAS = yes(AS) }
-	->
-		print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo)
-	;
-		io__write_string("% not available.")
-	).
-
-	% print_possible_aliases(Abstract Substitution, Proc Info).
-	% print alias abstract substitution
-:- pred print_possible_aliases(string::in, aliases_domain::in, proc_info::in, 
-		pred_info::in, io__state::di, io__state::uo) is det.
-print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo) -->
-	(
-		{ AS = real(Aliases) }
-	->
-		io__nl, 
-		print(PredInfo, ProcInfo, Aliases, 
-				RepeatingStart, ",\n", "")
-	;
-		{ AS = top(Msgs) }
-	->
-		{ list__map(
-			pred(S0::in, S::out) is det :- 
-				(string__append_list(["%\t",S0,"\n"], S)),
-			Msgs, 
-			MsgsF) }, 
-		{ string__append_list([RepeatingStart, "aliases are top:\n" |MsgsF],Msg) },
-		io__write_string(Msg)
-	;
-		{ string__append_list([RepeatingStart, "aliases = bottom"],
-			Msg) }, 
-		io__write_string(Msg)
-	).
-
-
-
-	% MaybeAs = yes(Alias_as) -> print `yes(printed Alias_as)'
-	%         = no		  -> print `not_available'
-print_maybe_interface_aliases(MaybeAS, ProcInfo, PredInfo) -->
-	(
-		{ MaybeAS = yes(AS) }
-	->
-		io__write_string("yes("),
-		print_aliases(AS, ProcInfo, PredInfo),
-		io__write_string(")")
-	;
-		io__write_string("not_available")
-	).
-
-print_aliases(AS, ProcInfo, PredInfo) --> 
-	(
-		{ AS = real(Aliases) }
-	->
-		io__write_string("["),
-		print(PredInfo, ProcInfo, Aliases, 
-				" ", ""),
-		io__write_string("]")
-	;
-		{ AS = top(_Msgs) }
-	->
-		io__write_string("top")
-	;
-		io__write_string("bottom")
-	).
-
-print_brief_aliases(Threshold, AS, ProcInfo, PredInfo) --> 
-	(
-		{ AS = real(Aliases) }
-	->
-		io__write_string("["),
-		print_brief(Threshold, PredInfo, ProcInfo, Aliases, 
-				" ", ""),
-		io__write_string("]")
-	;
-		{ AS = top(_Msgs) }
-	->
-		io__write_string("top")
-	;
-		io__write_string("bottom")
-	).
-
-
 %-----------------------------------------------------------------------------%
 % parsing routines
 %-----------------------------------------------------------------------------%

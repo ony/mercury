@@ -20,7 +20,7 @@
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data. 
 
-:- import_module list, set, map, io, term, bool.
+:- import_module list, set, map, term, bool.
 
 %-----------------------------------------------------------------------------%
 :- type alias_set. 
@@ -104,36 +104,6 @@
 	% which case the boolean is set to "true". 
 :- pred apply_widening(module_info::in, proc_info::in, int::in, 
 		alias_set::in, alias_set::out, bool::out) is det.
-
-%----------------------------------------------------------------------------%
-% printing predicates
-%----------------------------------------------------------------------------%
-
-	% print(PredInfo, ProcInfo, AliasSet, StartingString, EndString)
-	% Prints each alias as a parsable pair of datastructs, each
-	% alias preceded with the StartingString, and ended with the
-	% EndString.
-:- pred print(pred_info::in, proc_info::in, aliases::in, 
-		string::in, string::in, 
-		io__state::di, io__state::uo) is det.
-
-:- pred print_brief(int::in, pred_info::in, proc_info::in, aliases::in, 
-		string::in, string::in, 
-		io__state::di, io__state::uo) is det.
-
-	% print(PredInfo, ProcInfo, AliasSet, StartingString,
-	% MiddleString, EndString)
-	% Prints each alias as a parsable pair of datastructs. Each alias
-	% is preceded with a StartingString, and Ended with an EndString. 
-	% Between aliases, the MiddleString is printed. 
-:- pred print(pred_info::in, proc_info::in, aliases::in, 
-		string::in, string::in, string::in, 
-		io__state::di, io__state::uo) is det.
-
-:- pred print_brief(maybe(int)::in, pred_info::in, proc_info::in,
-		aliases::in, string::in, 
-		string::in, string::in, 
-		io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -670,43 +640,6 @@ apply_widening(ModuleInfo, ProcInfo, Threshold, AliasSet0, AliasSet,
 		AliasSet = AliasSet0, 
 		Widening = no
 	).
-
-print(PredInfo, ProcInfo, AliasList, StartingString, EndString) -->
-	print(PredInfo, ProcInfo, AliasList, StartingString, ", ", EndString).
-
-print_brief(Threshold, PredInfo, ProcInfo, AliasList, 
-		StartingString, EndString) --> 
-	print_brief(yes(Threshold), PredInfo, ProcInfo, AliasList, 
-		StartingString, ", ", EndString).
-
-print(PredInfo, ProcInfo, AliasList, StartingString, MiddleString, 
-		EndString) --> 
-	print_brief(no, PredInfo, ProcInfo, AliasList, 
-		StartingString, MiddleString, EndString).
-
-print_brief(MaybeThreshold, PredInfo, ProcInfo, AliasList, 
-		StartingString, MiddleString, EndString) --> 
-	{ proc_info_varset(ProcInfo, ProgVarSet) }, 
-	{ pred_info_typevarset(PredInfo, TypeVarSet) }, 
-	% { to_pair_alias_list(AliasSet, AliasList) },
-	(
-		{ MaybeThreshold = yes(Limit) }
- 	-> 
-		{ list__take_upto(Limit, AliasList, NewList) }
-	; 
-		{ NewList = AliasList }
-	),
-	io__write_list(NewList, MiddleString, 
-		print_alias(ProgVarSet, TypeVarSet, StartingString, 
-			EndString)),
-	(
-		{ MaybeThreshold = yes(_) }
-	-> 
-		io__write_string("...")
-	;
-		[]
-	).
-
 
 :- pred alias_set_fold(pred(alias_set2, alias_set2), 
 				alias_set, alias_set).

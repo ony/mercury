@@ -362,14 +362,13 @@ reuse_condition_print(ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
 
 		% write out LUiH, list of prog_vars
 	io__write_string("["),
-	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ set__to_sorted_list(LUiH, ListLUiH) },
-	mercury_output_vars(ListLUiH, ProgVarset, bool__no), 
+	mercury_output_vars(ListLUiH, ProgVarSet, bool__no), 
 	io__write_string("], "),
 
 		% write out LAiH, the aliases at the reuse-point
 	{ from_alias_as_to_aliases_domain(LAiH, PublicLAiH) },
-	pa_alias_as__print_aliases(PublicLAiH, ProcInfo, PredInfo),	
+	print_aliases_domain(ProgVarSet, TypeVarSet, no, PublicLAiH),
 
 	io__write_string(")").
 

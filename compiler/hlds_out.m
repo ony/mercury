@@ -259,6 +259,7 @@
 % Parse tree modules.
 :- import_module parse_tree__prog_out, parse_tree__prog_util.
 :- import_module parse_tree__inst, parse_tree__mercury_to_mercury.
+:- import_module parse_tree__prog_io_pasr.
 
 % HLDS modules.
 :- import_module hlds__special_pred, hlds__instmap, hlds__hlds_llds.
@@ -282,8 +283,6 @@
 :- import_module int, string, set, assoc_list, map, multi_map.
 :- import_module require, getopt, std_util, term_io, varset.
 
-:- import_module possible_alias.
-:- import_module possible_alias__pa_alias_as.
 :- import_module structure_reuse.
 :- import_module structure_reuse__sr_data.
 
@@ -3420,9 +3419,8 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	->
 		hlds_out__write_indent(Indent),
 		io__write_string("% Possible aliases: "),
-		pa_alias_as__print_maybe_possible_aliases(MaybeAliases,
-					Proc, PredInfo),
-		io__nl
+		dump_maybe_aliases_domain(VarSet, TVarSet, 
+				MaybeAliases)
 	;
 		[]
 	),
