@@ -25,7 +25,7 @@
 :- import_module (inst).
 :- import_module bool, list, assoc_list, map, varset, term, std_util.
 :- import_module pa_alias_as.
-:- import_module sr_reuse.
+:- import_module sr_data.
 
 %-----------------------------------------------------------------------------%
 
@@ -270,7 +270,7 @@
 			% These pragma's are used in opt.pa files
 
 	; 	sr_reuse_info(pred_or_func, sym_name, list(mode), 
-				list(prog_var), tabled_reuse, maybe(sym_name))
+				list(prog_var), memo_reuse, maybe(sym_name))
 
 	;	terminates(sym_name, arity)
 			% Predname, Arity

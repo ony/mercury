@@ -77,7 +77,7 @@
 :- import_module set, string, list, map, varset, term, std_util.
 
 :- import_module pa_run.
-:- import_module sr_run.
+:- import_module structure_reuse.
 
 %-----------------------------------------------------------------------------%
 
@@ -179,9 +179,9 @@ trans_opt__write_optfile(Module) -->
 			{ StructureReuse = yes }
 		->
 		% output structure-reuse information
-		io__write_string(
+		 io__write_string(
 			"\n%----------- sr_reuse_info/3 ------------- \n\n"),
-		list__foldl( sr_run__write_pred_sr_reuse_info(Module, 
+		list__foldl( structure_reuse__write_pragma_reuse_info(Module, 
 							AllSpecialPredIds),
 				PredIds)
 		;

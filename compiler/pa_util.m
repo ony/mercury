@@ -67,13 +67,13 @@
 
 :- import_module fixpoint_table.
 
-:- instance tc_element(alias_as) where [
-	pred(equal/2) is pa_alias_as__equal,
-	pred(init/1) is pa_alias_as__init
-	].
+:- pred wrapped_init( pred_proc_id, pa_alias_as__alias_as).
+:- mode wrapped_init( in, out ) is det.
+wrapped_init( _, E ) :- pa_alias_as__init(E).
 
 pa_fixpoint_table_init( KEYS, TABLE):- 
-	fp_init( KEYS, TABLE).
+	fp_init( wrapped_init, KEYS, TABLE).
+
 
 pa_fixpoint_table_new_run( Tin, Tout ) :-
 	fp_new_run(Tin,Tout).
@@ -85,7 +85,7 @@ pa_fixpoint_table_all_stable( TABLE ) :-
 	fp_stable(TABLE).
 
 pa_fixpoint_table_new_as( PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
-	fp_add(PRED_PROC_ID, ALIAS_AS, Tin, Tout).
+	fp_add(pa_alias_as__equal, PRED_PROC_ID, ALIAS_AS, Tin, Tout).
 
 pa_fixpoint_table_get_as( PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
 	fp_get(PRED_PROC_ID, ALIAS_AS, Tin, Tout).

@@ -32,6 +32,7 @@
 
 :- import_module sr_lfu, sr_lbu, sr_dead, sr_choice, sr_data, sr_live.
 :- import_module hlds_goal, hlds_data, prog_data.
+:- import_module hlds_pred.
 
 process_proc(PredId, _ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% Determine the LFU (local forward use)
@@ -43,14 +44,14 @@ process_proc(PredId, _ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% Determine which cells die and can be reused and what
 		% the conditions on that reuse are
 	{ proc_info_goal(ProcInfo2, Goal0) },
-
 	{ sr_dead__process_goal(PredId,ProcInfo0,ModuleInfo0,Goal0,Goal1) },
 
 		% Select which cells will be reused and which can be
 		% compile time garbage collected.
 	{ sr_choice__process_goal(strategy(same_cons_id, random),
-			Goal1, Goal, _MaybeReuseConditions) },
-
-	{ proc_info_set_goal( ProcInfo2, Goal, ProcInfo ) },
+			Goal1, Goal, MaybeReuseConditions) },
+	{ proc_info_set_reuse_information( ProcInfo2, MaybeReuseConditions, 
+			ProcInfo3 ) },
+	{ proc_info_set_goal( ProcInfo3, Goal, ProcInfo ) },
 	{ ModuleInfo = ModuleInfo0 }.
 

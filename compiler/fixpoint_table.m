@@ -17,31 +17,24 @@
 
 :- import_module list.
 
-:- typeclass tc_element(T) where [
-	pred equal(T, T),
- 	mode equal(in,in) is semidet,
-
-	pred init(T),
-	mode init(out) is det
-].
-
 :- type fixpoint_table( K, E ). 
 
 	% initialise the table
 	% The first parameter is a list of keys which will be allowed in 
 	% the table. 
-:- pred fp_init(list(K),fixpoint_table(K, E)) <= tc_element(E).
-:- mode fp_init(in,out) is det.
+	% fp_init(Initializer, Keys, Table).
+:- pred fp_init(pred(K, E), list(K),fixpoint_table(K, E)).
+:- mode fp_init(pred(in, out) is det, in,out) is det.
 
 	% inform the table that a new run has begun
-:- pred fp_new_run(fixpoint_table(K, E),fixpoint_table(K, E)) <= tc_element(E).
+:- pred fp_new_run(fixpoint_table(K, E),fixpoint_table(K, E)).
 :- mode fp_new_run(in,out) is det.
 
-:- pred fp_which_run(fixpoint_table(K,E), int) <= tc_element(E).
+:- pred fp_which_run(fixpoint_table(K,E), int).
 :- mode fp_which_run(in,out) is det.
 
 	% check whether a fixpoint has been reached
-:- pred fp_stable(fixpoint_table(K, E)) <= tc_element(E).
+:- pred fp_stable(fixpoint_table(K, E)).
 :- mode fp_stable(in) is semidet.
 
 	% add a new element (E) associated with key (K) to the table.
@@ -53,20 +46,21 @@
 	%   - if the element was not yet present in the table, add it
 	%     to the table (which does not change the stability of the
 	%     table) 
-:- pred fp_add(K,E,fixpoint_table(K, E),fixpoint_table(K, E)) <= tc_element(E).
-:- mode fp_add(in,in,in,out) is det.
+	% fp_add( EqualityTest, Key, Element, TableIn, TableOut).
+:- pred fp_add(pred(E,E),K,E,fixpoint_table(K, E),fixpoint_table(K, E)).
+:- mode fp_add(pred(in,in) is semidet, in,in,in,out) is det.
 
 	% retreive an element (E) associated with key (K) from the table.
-	% This operation can change the state of the table if the element
-	% is not yet present in the table. This means that we're facing
+	% This operation will change the state of the table if the
+	% element _is_ present in the table. This means we're facing
 	% a recursive calltree. If the key is not an element of the
-	% allowed keys, then the procedure will fail. 
-:- pred fp_get(K,E,fixpoint_table(K, E),fixpoint_table(K, E)) <= tc_element(E).
+	% allowed keys, then the procedure will fail.
+:- pred fp_get(K,E,fixpoint_table(K, E),fixpoint_table(K, E)).
 :- mode fp_get(in,out,in,out) is semidet.
 
 	% retreive an element (E) associated with key (K) from the table. 
 	% The operation reports an error when the element is not present. 
-:- pred fp_get_final(K,E,fixpoint_table(K,E)) <= tc_element(E).
+:- pred fp_get_final(K,E,fixpoint_table(K,E)).
 :- mode fp_get_final(in,out,in) is det.
 
 :- implementation. 
@@ -82,10 +76,19 @@
 		     mapping 	:: map( K, E )
 		).
 
-fp_init( Ks, T ) :- 
+fp_init( Init, Ks, T ) :- 
 	Run = 0,
 	Stable = yes,
-	map__init(Map),
+	map__init(Map0),
+	list__foldl(
+		(pred(K::in, M0::in, M::out) is det :- 
+			Init(K, ELEM),
+			map__det_insert(M0, K, ELEM, M)
+		),
+		Ks, 
+		Map0, 
+		Map
+	),
 	T = ft(Ks,Run,Stable,Map).
 
 fp_new_run( T0, T0^run := NewRun ) :- 
@@ -95,14 +98,14 @@ fp_which_run( T0, T0^run ).
 fp_stable( T ) :- 
 		T^stable = yes .
 	
-fp_add( INDEX, ELEM, Tin, Tout ) :- 
+fp_add( Equal, INDEX, ELEM, Tin, Tout ) :- 
 	Map = Tin^mapping, 
 	Sin = Tin^stable,
 	( 
 		map__search( Map, INDEX, TabledELEM)
 	->
 		(
-			equal(TabledELEM,ELEM)
+			Equal(TabledELEM,ELEM)
 		->
 			S = yes
 		;
@@ -132,17 +135,18 @@ fp_get( INDEX, ELEM, Tin, Tout) :-
 	List = Tin^keys, 
 	list__member(INDEX,List), % can fail
 	MAPin = Tin^mapping,
-	Sin = Tin^stable,
+	% Sin = Tin^stable,
 	(	
 		map__search( MAPin, INDEX, TabledELEM)
 	->
 		ELEM = TabledELEM,
-		Sout = Sin,
+		Sout = no,
 		MAPout = MAPin
 	;
-		init(ELEM),
-		Sout = no,
-		map__det_insert(MAPin, INDEX, ELEM, MAPout)
+		require__error("(fixpoint_table): key not in map")
+		% init(ELEM),
+		% Sout = no,
+		% map__det_insert(MAPin, INDEX, ELEM, MAPout)
 	),
 	Tout = (Tin^mapping := MAPout)^stable := Sout.
 

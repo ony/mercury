@@ -143,7 +143,7 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	},
 	{ module_info_pred_proc_info(HLDS, ReusePredId, ReuseProcId,
 			_ReusePredInfo, ReuseProcInfo) },
-	{ proc_info_reuse_information(ReuseProcInfo, TREUSE) },
+	{ proc_info_reuse_information_obsolete(ReuseProcInfo, TREUSE) },
 	sr_reuse__tabled_reuse_print( TREUSE, ReuseName, ReuseProcInfo) ,
 
 	io__write_string(").\n").

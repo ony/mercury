@@ -17,7 +17,7 @@
 :- import_module globals, term_util.
 :- import_module bool, list, set, map, std_util, term, varset.
 :- import_module pa_alias_as.
-:- import_module sr_reuse.
+:- import_module sr_data.
 
 :- implementation.
 
@@ -1440,10 +1440,12 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_global_use(proc_info, set(prog_var), proc_info).
 :- mode proc_info_set_global_use(in, in, out) is det.
 
-:- pred proc_info_reuse_information(proc_info, tabled_reuse).
+:- pred proc_info_reuse_information(proc_info, 
+		maybe(list(sr_data__reuse_condition))).
 :- mode proc_info_reuse_information(in, out) is det.
 
-:- pred proc_info_set_reuse_information(proc_info, tabled_reuse, proc_info).
+:- pred proc_info_set_reuse_information(proc_info, 
+		maybe(list(sr_data__reuse_condition)), proc_info).
 :- mode proc_info_set_reuse_information(in, in, out) is det.
 
 	% For a set of variables V, find all the type variables in the types 
@@ -1616,7 +1618,16 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% (corresponds to the final set
 					% of Local Forward Use in the goal)
 					% (set during structure_reuse phase)
-			structure_reuse:: tabled_reuse
+
+					% Set of possible reuses within
+					% the given procedure. 
+					% XXX This will
+					% become obsolete and should be
+					% replaced by our new 
+					% reuse_conditions in our new
+					% approach.
+			structure_reuse:: maybe(list(sr_data__reuse_condition))
+
 		).
 
 	% Some parts of the procedure aren't known yet. We initialize
@@ -1644,13 +1655,13 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	RLExprn = no,
 	ALIAS = no,
 	GLOBAL_USE = no, 
-	sr_reuse__tabled_reuse_init(TREUSE),
+	REUSE = no, 
 	NewProc = procedure(
 		MaybeDet, BodyVarSet, BodyTypes, HeadVars, Modes, MaybeArgLives,
 		ClauseBody, MContext, StackSlots, InferredDet, CanProcess,
 		ArgInfo, InitialLiveness, TVarsMap, TCVarsMap, eval_normal,
 		no, no, DeclaredModes, IsAddressTaken, RLExprn, ALIAS,
-		GLOBAL_USE, TREUSE
+		GLOBAL_USE, REUSE
 	).
 
 proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
@@ -1660,13 +1671,13 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 	RLExprn = no,
 	ALIAS = no,
 	GLOBAL_USE = no, 
-	sr_reuse__tabled_reuse_init(TREUSE),
+	REUSE = no, 
 	ProcInfo = procedure(
 		DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		HeadLives, Goal, Context, StackSlots, InferredDetism,
 		CanProcess, ArgInfo, Liveness, TVarMap, TCVarsMap, eval_normal, 
 		ArgSizes, Termination, no, IsAddressTaken, RLExprn, 
-		ALIAS, GLOBAL_USE, TREUSE).
+		ALIAS, GLOBAL_USE, REUSE).
 
 proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, Detism, Goal,
 		Context, TVarMap, TCVarsMap, IsAddressTaken, ProcInfo) :-
@@ -1676,11 +1687,11 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, Detism, Goal,
 	RLExprn = no,
 	ALIAS = no,
 	GLOBAL_USE = no, 
-	sr_reuse__tabled_reuse_init(TREUSE),
+	REUSE = no,
 	ProcInfo = procedure(yes(Detism), VarSet, VarTypes, HeadVars, HeadModes,
 		MaybeHeadLives, Goal, Context, StackSlots, Detism, yes, [],
 		Liveness, TVarMap, TCVarsMap, eval_normal, no, no, no, 
-		IsAddressTaken, RLExprn, ALIAS, GLOBAL_USE, TREUSE).
+		IsAddressTaken, RLExprn, ALIAS, GLOBAL_USE, REUSE).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-
@@ -1798,8 +1809,8 @@ proc_info_set_possible_aliases(ProcInfo, Aliases,
 		ProcInfo^maybe_alias_as := yes(Aliases)).
 proc_info_set_global_use(ProcInfo, GLOBAL_USE, 
 		ProcInfo^maybe_global_use := yes(GLOBAL_USE)).
-proc_info_set_reuse_information(ProcInfo, TREUSE,
-		ProcInfo^structure_reuse := TREUSE).
+proc_info_set_reuse_information(ProcInfo, REUSE,
+		ProcInfo^structure_reuse:= REUSE).
 
 proc_info_get_typeinfo_vars(Vars, VarTypes, TVarMap, TypeInfoVars) :-
 	set__to_sorted_list(Vars, VarList),

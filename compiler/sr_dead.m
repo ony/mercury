@@ -33,38 +33,16 @@
 :- import_module hlds_goal, prog_data, hlds_data.
 :- import_module sr_data, sr_live.
 :- import_module pa_alias_as, pa_run.
+:- import_module sr_util.
 
 process_goal( PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
 	pa_alias_as__init(Alias0), 
-	compute_real_headvars(ModuleInfo, PredId, ProcInfo, RealHeadVars), 
+	sr_util__compute_real_headvars(ModuleInfo, PredId, 
+				ProcInfo, RealHeadVars), 
 	dead_cell_pool_init(RealHeadVars, Pool0), 
 	annotate_goal(ProcInfo, ModuleInfo, Goal0, Goal, 
 			Pool0, _Pool, Alias0, _Alias).
 		
-:- pred compute_real_headvars(module_info, pred_id, proc_info, 
-		list(prog_var)).
-:- mode compute_real_headvars(in, in, in, out) is det.
-
-compute_real_headvars( HLDS, PredId, ProcInfo, HVS ) :- 
-	module_info_pred_info( HLDS, PredId, PredInfo),
-	pred_info_arity(PredInfo, Arity),
-	proc_info_headvars(ProcInfo, HeadVars),
-	list__length(HeadVars, PseudoArity) ,
-        NumberOfTypeInfos = PseudoArity - Arity ,
-        list_drop_det(NumberOfTypeInfos, HeadVars, RealHeadVars) ,
-        HVS = RealHeadVars.
-
-:- pred list_drop_det(int,list(T),list(T)).
-:- mode list_drop_det(in,in,out) is det.
-
-list_drop_det(Len,List,End):-
-        (
-                list__drop(Len,List,End0)
-        ->
-                End = End0
-        ;
-                End = List
-        ).
 	
 %-----------------------------------------------------------------------------%
 
@@ -83,7 +61,7 @@ annotate_goal( ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, Alias0, AliasRed) :-
 		% * conjunction
 		Expr0 = conj(Goals0)
 	->
-		list_map_foldl2( 
+		sr_util__list_map_foldl2( 
 			annotate_goal(ProcInfo, HLDS),
 			Goals0, Goals,
 			Pool0, Pool,
@@ -103,7 +81,7 @@ annotate_goal( ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, Alias0, AliasRed) :-
 		% * switch
 		Expr0 = switch(A, B, Cases0, SM)
 	->
-		list_map3( 
+		sr_util__list_map3( 
 			annotate_case(ProcInfo, HLDS, Pool0, Alias0),
 			Cases0, Cases,
 			ListPools, ListAliases),
@@ -255,52 +233,6 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
-
-:- pred list_map3( pred( T, T1, T2, T3 ), list(T), list(T1), list(T2), 
-			list(T3) ).
-:- mode list_map3( pred( in, out, out, out) is det, in, 
-			out, out, out) is det.
-
-list_map3( P, L, A, B, C) :- 
-	(
-		L = [ L1 | LR ]
-	->
-		P( L1, A1, B1, C1),
-		list_map3( P, LR, AR, BR, CR ),
-		A = [ A1 | AR ],
-		B = [ B1 | BR ],
-		C = [ C1 | CR ]
-	;
-		A = [],
-		B = [],
-		C = []
-	).
-
-:- pred list_map_foldl2( 
-		pred( T, T1, T2, T2, T3, T3 ), 
-		list(T), 
-		list(T1),
-		T2, T2, T3, T3).
-:- mode list_map_foldl2( pred( in, out, in, out, in, out) is det,
-			in, out, in, out, in, out) is det.
-
-list_map_foldl2( P, L0, L1, A0, A, B0, B) :- 
-	(
-		L0 = [ LE0 | LR0 ]
-	->
-		P( LE0, LE1, A0, A1, B0, B1), 
-		list_map_foldl2( P, LR0, LR1, A1, A, B1, B),
-		L1 = [ LE1 | LR1 ]
-	;
-		L1 = [],
-		A = A0, 
-		B = B0
-	).
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
-
 	% type used for threading through all the information about
 	% eventual dead cells.
 :- type dead_cell_pool ---> 
@@ -376,14 +308,20 @@ add_dead_cell( Var, Cons, ReuseCond, pool(HVS, Pool0),
 				     pool(HVS, Pool) ) :- 
 		% XXX Candidates are always zero. For the
 		% moment we will not try to track this ! 
-	cons_id_arity( Cons, Arity ), 
-	Extra = extra( Arity, ReuseCond, [] ),
-	( 
-		map__insert( Pool0, Var, Extra, Pool1)
+	cons_id_maybe_arity( Cons, MaybeArity ), 
+	(
+		MaybeArity = yes(Arity)
 	->
-		Pool = Pool1
+		Extra = extra( Arity, ReuseCond, [] ),
+		( 
+			map__insert( Pool0, Var, Extra, Pool1)
+		->
+			Pool = Pool1
+		;
+			require__error("(sr_direct) add_dead_cell: trying to add dead variable whilst already being marked as dead?")
+		)
 	;
-		require__error("(sr_direct) add_dead_cell: trying to add dead variable whilst already being marked as dead?")
+		Pool = Pool0
 	).
 
 
@@ -460,17 +398,23 @@ dead_cell_pool_leave_scope( ScopeVarsSet, P0, P ) :-
 	
 dead_cell_pool_try_to_reuse( Cons, Pool, Set) :-
 	Pool = pool( _HVS, Map ), 
-	cons_id_arity( Cons, Arity ), 
-	map__to_assoc_list( Map, AssocList),
-	list__filter(
-		cons_can_reuse( Arity ), 
-		AssocList, 
-		CellsThatCanBeReused),
-	list__map(
-		to_pair_var_condition, 
-		CellsThatCanBeReused,
-		VarConditionPairs),
-	set__list_to_set(VarConditionPairs, Set).
+	cons_id_maybe_arity( Cons, MaybeArity ), 
+	(
+		MaybeArity = yes(Arity)
+	->
+		map__to_assoc_list( Map, AssocList),
+		list__filter(
+			cons_can_reuse( Arity ), 
+			AssocList, 
+			CellsThatCanBeReused),
+		list__map(
+			to_pair_var_condition, 
+			CellsThatCanBeReused,
+			VarConditionPairs),
+		set__list_to_set(VarConditionPairs, Set)
+	;
+		set__init(Set)
+	).
 
 :- pred cons_can_reuse( arity, pair( prog_var, dead_extra_info )).
 :- mode cons_can_reuse( in, in ) is semidet.

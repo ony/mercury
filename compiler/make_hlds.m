@@ -99,7 +99,6 @@
 :- import_module fact_table, purity, goal_util, term_util, export, llds.
 :- import_module error_util.
 :- import_module pa_run, pa_alias_as.
-:- import_module sr_reuse, sr_reuse_run.
 
 :- import_module string, char, int, set, bintree, map, multi_map, require.
 :- import_module bag, term, varset, getopt, assoc_list, term_io.
@@ -536,11 +535,16 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
                                         HeadVars,MaybeAlias, Module0, Module)
 		
 	;
+		{ Pragma = sr_reuse_info(_PredOrFunc, _SymName, _ModeList,
+			_HeadVars, _TREUSE, _MaybeReuseSymName) },
+		{ Module = Module0 }
+		/** DO NOTHING
 		{ Pragma = sr_reuse_info(PredOrFunc, SymName, ModeList,
 			HeadVars, TREUSE, MaybeReuseSymName) },
 		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
 					HeadVars, TREUSE, MaybeReuseSymName,
 					Module0, Module)
+		**/
 	;
 		{ Pragma = terminates(Name, Arity) },
 		add_pred_marker(Module0, "terminates", Name, Arity,
@@ -1482,6 +1486,7 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 
 %-----------------------------------------------------------------------------%
 
+/**********
 :- pred add_pragma_reuse_info( pred_or_func, sym_name, list(mode),
 		list(var(T)), sr_reuse__tabled_reuse, maybe(sym_name),
 		module_info, module_info, 
@@ -1548,7 +1553,7 @@ add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
 	   % { module_info_incr_errors(Module0, Module) }
 	).
 
-
+************/
 
 %-----------------------------------------------------------------------------%
 

@@ -69,7 +69,7 @@
 :- import_module options, globals, trace_params, passes_aux.
 
 :- import_module pa_run. % possible aliases
-:- import_module sr_run. % structure reuse
+% :- import_module sr_run. % structure reuse
 
 	% library modules
 :- import_module int, list, map, set, std_util, dir, require, string, bool.
@@ -1660,10 +1660,10 @@ mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS ) -->
 	->
 		maybe_write_string(Verbose, "% Structure-reuse analysis...\n"),
 		maybe_flush_output(Verbose),
-		sr_run__structure_reuse_pass( HLDS0, HLDS), 
+		% sr_run__structure_reuse_pass( HLDS0, HLDS), 
 
 			% XXX plug in the new structure reuse framework
-		structure_reuse(HLDS0, _),
+		structure_reuse(HLDS0, HLDS),
 
 		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
