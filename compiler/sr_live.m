@@ -123,8 +123,8 @@ live_wrap(List, Live):-
 		Live = live(List)
 	).
 
-get_datastructs( LiveSet, List ):-
-	( 
+get_datastructs(LiveSet, List):-
+	(
 		LiveSet = live(L)
 	->
 		List = L
@@ -137,8 +137,8 @@ get_datastructs( LiveSet, List ):-
 		require__error("(sr_live) get_datastructure: trying to collect datastructures from top-live-set.")
 	).
 
-union( LIVE_SETS, LIVE_SET ) :- 
-	list__foldl( 
+union(LIVE_SETS, LIVE_SET) :- 
+	list__foldl(
 		union, 
 		LIVE_SETS,
 		bottom,
@@ -155,7 +155,7 @@ union(L1, L2, L):-
 		list__append(D1,D2,D),
 		from_datastructs(D, L)
 	;
-		( top(L1) ; top(L2) )
+		(top(L1) ; top(L2))
 	->
 		top(L)
 	;
@@ -188,11 +188,11 @@ is_live_datastruct(ModuleInfo, ProcInfo, Data, Live):-
 		Live = live(Datastructs)
 	->
 		list__filter(
-			pred( D::in ) is semidet :- 
-			    ( pa_datastruct__less_or_equal(ModuleInfo,
-					ProcInfo, Data, D, _S) ),
+			pred(D::in) is semidet :- 
+			    (pa_datastruct__less_or_equal(ModuleInfo,
+					ProcInfo, Data, D, _S)),
 			Datastructs,
-			R ),
+			R),
 		R = [_ | _ ]
 		
 	;
@@ -204,16 +204,16 @@ is_live_datastruct(ModuleInfo, ProcInfo, Data, Live):-
 		fail
 	).
 
-project( VARS, Lin, Lout ) :- 
+project(VARS, Lin, Lout) :- 
 	(
 		Lin = live(Datastructs)
 	->
 		list__filter(
-			pred( D::in ) is semidet :- 
+			pred(D::in) is semidet :- 
 			    (
-				pa_datastruct__get_var( D, Var ),
-				list__member( Var, VARS )
-			     ),
+				pa_datastruct__get_var(D, Var),
+				list__member(Var, VARS)
+			    ),
 			Datastructs, 
 			FilteredDatastructs),
 		live_wrap(FilteredDatastructs, Lout)

@@ -58,7 +58,7 @@
 :- pred init(prog_var, cons_id, int, datastruct).
 :- mode init(in, in, in, out) is det.
 
-:- pred create( prog_var::in, selector::in, datastruct::out) is det.
+:- pred create(prog_var::in, selector::in, datastruct::out) is det.
 
 	% Extend the given datastructure with an additional path.
 :- pred termshift(datastruct, selector, datastruct). 
@@ -84,7 +84,7 @@
 :- pred rename(map(prog_var,prog_var), datastruct, datastruct).
 :- mode rename(in, in, out) is det.
 
-:- pred rename_types( term__substitution(tvar_type)::in, 
+:- pred rename_types(term__substitution(tvar_type)::in, 
 			datastruct::in, datastruct::out) is det. 
 
 	% Printing routines
@@ -92,13 +92,13 @@
 :- mode print(in, in, in, di, uo) is det.
 
 	% Parsing routines
-:- pred parse_term( term(T), datastruct ).
-:- mode parse_term( in, out ) is det.
+:- pred parse_term(term(T), datastruct).
+:- mode parse_term(in, out) is det.
 
 :- pred normalize_wti(proc_info, module_info, datastruct, datastruct).
 :- mode normalize_wti(in, in, in, out) is det.
 
-:- pred apply_widening( module_info::in, proc_info::in, datastruct::in, 
+:- pred apply_widening(module_info::in, proc_info::in, datastruct::in, 
 			datastruct::out) is det.
 :- func apply_widening(module_info, proc_info, datastruct) = datastruct.
 
@@ -118,17 +118,17 @@ get_var(cel(VAR, _Sel), VAR).
 get_selector(cel(_Var, SEL), SEL).
 
 
-rename( MAP, DATAin, DATAout) :-
+rename(MAP, DATAin, DATAout) :-
 	DATAin = cel(VAR, SEL),
-	map__lookup( MAP, VAR, RVAR),
+	map__lookup(MAP, VAR, RVAR),
 	DATAout = cel(RVAR, SEL).
 
-rename_types( Subst, Data0, Data) :- 
-	Data0 = cel( Var, Sel0), 
-	pa_selector__rename_types( Subst, Sel0, Sel), 
-	Data = cel( Var, Sel). 
+rename_types(Subst, Data0, Data) :- 
+	Data0 = cel(Var, Sel0), 
+	pa_selector__rename_types(Subst, Sel0, Sel), 
+	Data = cel(Var, Sel). 
 
-equal( D1, D2 ):- D1 = D2.
+equal(D1, D2):- D1 = D2.
 
 same_vars(D1, D2):-
 	get_var(D1,V),
@@ -138,7 +138,7 @@ less_or_equal(ModuleInfo, ProcInfo, D1,D2, EXT):-
 	same_vars(D1,D2),
 	get_var(D1,ProgVar), 
 	proc_info_vartypes(ProcInfo, VarTypes), 
-	map__lookup( VarTypes, ProgVar, ProgVarType), 
+	map__lookup(VarTypes, ProgVar, ProgVarType), 
 	(
 		equal(D1,D2)
 	->
@@ -154,30 +154,30 @@ termshift(Din, S, Dout):-
 	pa_selector__termshift(Sin,S,Sout),
 	Dout = cel(V,Sout).
 
-init( V, CONS, INDEX, Dout) :-
+init(V, CONS, INDEX, Dout) :-
 	pa_selector__init(CONS,INDEX, SEL),
 	Dout = cel(V,SEL).
 
-init( V, Dout) :-
+init(V, Dout) :-
 	SEL = [],
 	Dout = cel(V, SEL).
-create( V, Sel, Dout ) :- 
-	Dout = cel( V, Sel). 
+create(V, Sel, Dout) :- 
+	Dout = cel(V, Sel). 
 
-print( D, ProcInfo, PredInfo) -->
-	{ D = cel( ProgVar, SEL ) },
+print(D, ProcInfo, PredInfo) -->
+	{ D = cel(ProgVar, SEL) },
 	{ proc_info_varset(ProcInfo, ProgVarset) },
-	{ varset__lookup_name( ProgVarset, ProgVar, ProgName ) },
+	{ varset__lookup_name(ProgVarset, ProgVar, ProgName) },
 	io__write_string("cel("),
-	io__write_string( ProgName ), 
+	io__write_string(ProgName), 
 	io__write_string(", "),
-	{ pred_info_typevarset( PredInfo, TypeVarSet ) }, 
+	{ pred_info_typevarset(PredInfo, TypeVarSet) }, 
 	pa_selector__print(SEL, TypeVarSet),
 	io__write_string(")").
 
-parse_term( TERM, Data ) :- 
+parse_term(TERM, Data) :- 
    (
-      TERM = term__functor( term__atom( CONS ), Args, _ )
+      TERM = term__functor(term__atom(CONS), Args, _)
    ->
       (
          CONS = "cel"
@@ -196,7 +196,7 @@ parse_term( TERM, Data ) :-
 	   )
 	 ;
 	   list__length(Args, L),
-	   string__int_to_string( L, LS),
+	   string__int_to_string(L, LS),
 	   string__append_list(["(pa_datastruct) parse_term: wrong number of arguments. cel/",LS,
 	   			"should be cel/2"],Msg),
 	   error(Msg)
@@ -212,26 +212,26 @@ parse_term( TERM, Data ) :-
 
 
 normalize_wti(ProcInfo, HLDS, Din, Dout):-
-	proc_info_vartypes( ProcInfo, VarTypes ), 
-	normalize_wti_2( VarTypes, HLDS, Din, Dout). 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	normalize_wti_2(VarTypes, HLDS, Din, Dout). 
 
 	% normalize with type information
-:- pred normalize_wti_2( vartypes, module_info, 
-		datastruct, datastruct ).
-:- mode normalize_wti_2( in, in, in, out) is det.
+:- pred normalize_wti_2(vartypes, module_info, 
+		datastruct, datastruct).
+:- mode normalize_wti_2(in, in, in, out) is det.
 
-normalize_wti_2( VarTypes, HLDS, D0, D ):-
-	D0 = cel( ProgVar, SEL0 ), 
+normalize_wti_2(VarTypes, HLDS, D0, D):-
+	D0 = cel(ProgVar, SEL0), 
 	map__lookup(VarTypes, ProgVar, VarType),
-	pa_selector__normalize_wti( VarType, HLDS, SEL0, SEL),
-	D = cel( ProgVar, SEL ).
+	pa_selector__normalize_wti(VarType, HLDS, SEL0, SEL),
+	D = cel(ProgVar, SEL).
 
-apply_widening( ModuleInfo, ProcInfo, D0, D ):- 
-	D0 = cel( ProgVar, Sel0 ), 
+apply_widening(ModuleInfo, ProcInfo, D0, D):- 
+	D0 = cel(ProgVar, Sel0), 
 	proc_info_vartypes(ProcInfo, VarTypes), 
-	map__lookup( VarTypes, ProgVar, ProgVarType), 
-	pa_selector__apply_widening( ModuleInfo, ProgVarType, Sel0, Sel), 
-	D = cel( ProgVar, Sel ). 
+	map__lookup(VarTypes, ProgVar, ProgVarType), 
+	pa_selector__apply_widening(ModuleInfo, ProgVarType, Sel0, Sel), 
+	D = cel(ProgVar, Sel). 
 
 apply_widening(ModuleInfo, ProcInfo, D0) = D :- 
 	apply_widening(ModuleInfo, ProcInfo, D0, D).

@@ -48,6 +48,9 @@
 :- pred project(list(prog_var), alias_as, alias_as).
 :- mode project(in, in, out) is det.
 
+:- pred project_on_live_vars(proc_info::in, hlds_goal_info::in, 
+		alias_as::in, alias_as::out) is det.
+
 :- pred project_set(set(prog_var), alias_as, alias_as).
 :- mode project_set(in, in, out) is det.
 
@@ -63,10 +66,10 @@
 	% to a procedure with given pred_proc_id. 
 	% rename_call_alias(PredProcId, ModuleInfo, ActualVars, 
 	% 	ActualTypes, FormalAlias, ActualAlias). 
-:- pred rename_call_alias( pred_proc_id, module_info, list(prog_var),
-				list( (type) ), 
+:- pred rename_call_alias(pred_proc_id, module_info, list(prog_var),
+				list((type)), 
 				alias_as, alias_as).
-:- mode rename_call_alias( in, in, in, in, in, out) is det.
+:- mode rename_call_alias(in, in, in, in, in, out) is det.
 
 	% rename abstract substitution according to a mapping
 	% of prog_vars (map (FROM_VARS, TO_VARS)).
@@ -279,6 +282,17 @@ project_set(SetVar, ASin, ASout):-
 	set__to_sorted_list(SetVar, ListVar),
 	project(ListVar, ASin, ASout).
 
+project_on_live_vars(ProcInfo, GoalInfo, Alias0, Alias):- 
+	goal_info_get_lfu(GoalInfo, LFUi), 
+	goal_info_get_lbu(GoalInfo, LBUi), 
+	proc_info_real_headvars(ProcInfo, ListRealHeadVars), 
+	set__list_to_set(ListRealHeadVars, RealHeadVars),
+        set__union(LFUi, LBUi, IN_USEi),
+        set__union(IN_USEi, RealHeadVars, AliveVars),
+	project_set(AliveVars, Alias0, Alias). 
+
+	
+
 collect_aliases_of_datastruct(ModuleInfo, ProcInfo, Datastruct, AS, 
 				AliasList):-
 	(
@@ -483,7 +497,7 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 	(
 		ASin = real_as(Aliases0)
 	->
-		( 
+		(
 			DeathsList = []
 		->
 		 	ASout = ASin
@@ -503,7 +517,7 @@ extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId,
 	from_foreign_code(ProcInfo, HLDS, Info, Attrs, Vars, 
 		MaybeModes, Types, ForeignAlias),
 	(
-		( is_bottom(ForeignAlias); is_top(ForeignAlias) ) 
+		(is_bottom(ForeignAlias); is_top(ForeignAlias)) 
 	-> 	
 		% easy extend
 		pa_alias_as__extend(ProcInfo, HLDS, ForeignAlias, Ain, A)
@@ -558,9 +572,9 @@ from_foreign_code(_ProcInfo, HLDS, GoalInfo, Attrs, Vars,
 		->
 			Alias = bottom
 		;
-			list__map( 
+			list__map(
 				pred(Trio::in, Type::out) is det:-
-				( 
+				(
 					Trio = trio(_, _, Type)
 				), 
 				OutputVars,
@@ -937,7 +951,7 @@ parse_user_datastruct(Term, Data):-
 			VarTerm = term__variable(GenericVar),
 			term__coerce_var(GenericVar, ProgVar) 
 		-> 
-			( 
+			(
 				parse_list_term(TypesTerm, ListTypesTerms)
 			-> 
 				list__map(term__coerce, ListTypesTerms, Types),

@@ -76,11 +76,11 @@
 print(ProcInfo, PredInfo, FrontString, EndString, Alias0) -->
 	{ Alias0 = D1 - D2 },
 	io__write_string(FrontString),
-	io__write_string("pair( "),
+	io__write_string("pair("),
 	pa_datastruct__print(D1, ProcInfo, PredInfo),
 	io__write_string(" , "),
 	pa_datastruct__print(D2, ProcInfo, PredInfo),
-	io__write_string(" ) "),
+	io__write_string(") "),
 	io__write_string(EndString).
 
 %-------------------------------------------------------------------%
@@ -91,7 +91,7 @@ pa_alias__parse_term(Term,  A) :-
 	(
 		Term = term__functor(term__atom(Cons), Args, _)
 	->
-		( 
+		(
 			Cons = "pair"
 		->
 			(
@@ -136,7 +136,7 @@ contains_one_of_vars(Set, Alias, DATA) :-
 	Alias = Data1 - Data2,
 	pa_datastruct__get_var(Data1, Var1),
 	pa_datastruct__get_var(Data2, Var2),
-	( 
+	(
 		set__member(Var1, Set)
 	->
 		not(set__member(Var2, Set)),
@@ -156,12 +156,12 @@ contains_one_of_vars(Set, Alias, DATA) :-
 :- pred number_args(list(prog_var)::in, 
 		list(pair(int, prog_var))::out) is det.
 number_args(Args, NumberedArgs) :- 
-	list__map_foldl( 
+	list__map_foldl(
 		pred(A::in, AP::out, Nin::in, Nout::out) is det:- 
-		    (
+		(
 			AP = std_util:'-'(Nin, A),
 			Nout = Nin + 1
-		    ),
+		),
 		Args,
 		NumberedArgs,
 		1, _).
@@ -202,14 +202,14 @@ internal_aliases(NumberedArgs, PosList):-
 		pred(ProgVar::in, List0::in, List::out) is det :- 
 		    (
 			map__lookup(FrequencyMap0, ProgVar, Positions),
-			( 
-				( Positions = [] ; Positions = [_] )
+			(
+				(Positions = [] ; Positions = [_])
 			-> 
 				List = List0
 			; 	
 				List = [Positions | List0]
 			)
-		    ), 
+		   ), 
 		Keys, 
 		[],
 		PosList). 
@@ -223,7 +223,7 @@ create_internal_aliases(MainVar, ConsId, PositionLists, Aliases):-
 			solutions_set(two_by_two(Positions), SetPairs), 
 			set__to_sorted_list(SetPairs, Pairs),
 			list__append(Pairs, List0, List)
-		    ), 
+		   ), 
 		PositionLists, 
 		[], 
 		PositionPairs), 
@@ -305,7 +305,7 @@ optimize_for_deconstruct(Args, Info, ReducedArgs) :-
 	hlds_goal__goal_info_get_pre_births(Info, PreB),
 	keep_only_the_prebirths_v2(PreB, Args, ReducedArgs).
 
-:- pred keep_only_the_prebirths_v2(set( prog_var)::in, 
+:- pred keep_only_the_prebirths_v2(set(prog_var)::in, 
 		list(pair(int, prog_var))::in,
 		list(pair(int, prog_var))::out) is det.
 
@@ -321,7 +321,7 @@ keep_only_the_prebirths_v2_2(PreB, AllArgs, ACC, RES):-
 	(
 		PreB = [ X | Xs ]
 	->
-		( 
+		(
 			list_find(X, Arg, AllArgs, AllArgs0)
 		-> 
 			ACC0 = [ Arg | ACC ],
@@ -444,7 +444,7 @@ one_of_vars_is_live(ModuleInfo, ProcInfo, Datastructs0,
 one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, List, ALIAS, List_Xsx1) :- 
 	ALIAS = Xsx - Ysy,
 	pa_datastruct__get_var(Ysy, Y),
-	list__filter( 
+	list__filter(
 		pred(D::in) is semidet :-
 			(pa_datastruct__get_var(D,Y)),
 		List,
@@ -455,7 +455,7 @@ one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, List, ALIAS, List_Xsx1) :-
 		% Ys1 in Y_List (sy = s1.s2)
 		list__filter(
 			pred(Ys1::in) is semidet :-
-			    (pa_datastruct__less_or_equal( ModuleInfo, 
+			    (pa_datastruct__less_or_equal(ModuleInfo, 
 					ProcInfo, Ysy, Ys1, _s2)),
 			Y_List,
 			FY_List),
@@ -471,7 +471,7 @@ one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, List, ALIAS, List_Xsx1) :-
 		% is not minimal, while this should be somehow guaranteed).
 		list__filter_map(
 			pred(Ys1::in, S2::out) is semidet :-
-			    (pa_datastruct__less_or_equal( ModuleInfo, 
+			    (pa_datastruct__less_or_equal(ModuleInfo, 
 					ProcInfo, Ysy, Ys1, S2)),
 			Y_List,
 			SelectorList),

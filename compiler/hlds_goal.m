@@ -1182,9 +1182,27 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 				% analysis in the context of memory
 				% reuse.
 		lbu :: set(prog_var), 		% the local backward use set
-				% XXX, documentation needed
+				% This set contains the instantiated
+				% variables that will still be needed upon
+				% backtracking (i.e. syntactically appearing
+				% in a nondet call preceding this 
+				% goal. 
+
 		outscope :: set(prog_var), 	% outscope-vars
-				% XXX, documentation needed
+				% This is a generalisation of the
+				% concept of nonlocal variables. While
+				% nonlocals variables are limited to
+				% those variables appearing in the current
+				% goal and which are also needed outside
+				% the goal. The set of outscope vars is
+				% the set of all variables appearing outside
+				% of this goal, limited though to those
+				% variables of which the scope reaches to
+				% this goal. This information is especially
+				% being used when checking for reuse
+				% (the dead-cells being potentially reusable
+				% must be in the scope of the unification
+				% where it can be reused). 
 
 		reuse :: reuse_goal_info,
 				% Any structure reuse information

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,8 +17,8 @@
 :- import_module io.
 :- import_module hlds_module, hlds_pred. 
 
-:- pred sr_lfu__lfu_pass( module_info, module_info, io__state, io__state).
-:- mode sr_lfu__lfu_pass( in, out, di, uo) is det.
+:- pred sr_lfu__lfu_pass(module_info, module_info, io__state, io__state).
+:- mode sr_lfu__lfu_pass(in, out, di, uo) is det.
 
 :- pred sr_lfu__process_proc(proc_info::in, proc_info::out) is det.
 
@@ -40,21 +40,21 @@
 :- import_module liveness.
 
 
-sr_lfu__lfu_pass( HLDSin , HLDSout) --> 
+sr_lfu__lfu_pass(HLDSin , HLDSout) --> 
 	% get all the predicate id's 
-	{ hlds_module__module_info_predids( HLDSin, ALL_PRED_IDS ) },
+	{ hlds_module__module_info_predids(HLDSin, ALL_PRED_IDS) },
 	% get all the id's of special predicates
-	{ hlds_module__module_info_get_special_pred_map( HLDSin, SPEC_MAP) },
-	{ map__values( SPEC_MAP, SPEC_PRED_IDS) }, 
+	{ hlds_module__module_info_get_special_pred_map(HLDSin, SPEC_MAP) },
+	{ map__values(SPEC_MAP, SPEC_PRED_IDS) }, 
 	% remove the special pred_ids from the set of pred_ids
-	{ list__delete_elems( ALL_PRED_IDS, SPEC_PRED_IDS, PRED_IDS0) },
+	{ list__delete_elems(ALL_PRED_IDS, SPEC_PRED_IDS, PRED_IDS0) },
 	% filter out the predids of predicates not defined in this 
 	% module 
-	{ list__filter( 
+	{ list__filter(
 		pred_defined_in_this_module(HLDSin),
-		PRED_IDS0, PRED_IDS ) },
+		PRED_IDS0, PRED_IDS) },
 
-	list__foldl2( annotate_lfu_in_pred, PRED_IDS, HLDSin, HLDSout ).
+	list__foldl2(annotate_lfu_in_pred, PRED_IDS, HLDSin, HLDSout).
 
 :- pred pred_defined_in_this_module(module_info, pred_id).
 :- mode pred_defined_in_this_module(in,in) is semidet.
@@ -66,10 +66,10 @@ pred_defined_in_this_module(HLDS,ID):-
 		io__state).
 :- mode annotate_lfu_in_pred(in,in,out,di,uo) is det.
 
-annotate_lfu_in_pred( PRED_ID, HLDSin, HLDSout ) --> 
-	{ hlds_module__module_info_pred_info( HLDSin, PRED_ID, PredInfo) }, 
+annotate_lfu_in_pred(PRED_ID, HLDSin, HLDSout) --> 
+	{ hlds_module__module_info_pred_info(HLDSin, PRED_ID, PredInfo) }, 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
-	( 
+	(
 		{ VeryVerbose = yes }
 	->
 		passes_aux__write_pred_progress_message(
@@ -84,21 +84,21 @@ annotate_lfu_in_pred( PRED_ID, HLDSin, HLDSout ) -->
 	{ pred_info_procids(PredInfo, PROC_IDS) },
 	
 	% handling all procids
-	{ list__foldl( annotate_lfu_in_proc(HLDSin, PRED_ID), 
+	{ list__foldl(annotate_lfu_in_proc(HLDSin, PRED_ID), 
 			PROC_IDS, PredInfo, NewPredInfo) },
 
 	% and updating the module_info with the new predinfo-state. 
-	{ module_info_set_pred_info( HLDSin, PRED_ID, NewPredInfo, 
+	{ module_info_set_pred_info(HLDSin, PRED_ID, NewPredInfo, 
 			HLDSout) }.
 
 
-:- pred annotate_lfu_in_proc( module_info, pred_id, proc_id, 
+:- pred annotate_lfu_in_proc(module_info, pred_id, proc_id, 
 		pred_info, pred_info).
-:- mode annotate_lfu_in_proc( in, in, in, in, out) is det.
+:- mode annotate_lfu_in_proc(in, in, in, in, out) is det.
 
-annotate_lfu_in_proc( _HLDS, _PRED_ID, PROC_ID, PredInfo0, PredInfo) :- 
-	pred_info_procedures( PredInfo0, Procedures0 )  , 
-	map__lookup(Procedures0, PROC_ID, ProcInfo0 )  , 
+annotate_lfu_in_proc(_HLDS, _PRED_ID, PROC_ID, PredInfo0, PredInfo) :- 
+	pred_info_procedures(PredInfo0, Procedures0)  , 
+	map__lookup(Procedures0, PROC_ID, ProcInfo0)  , 
 	% fill the 4 liveness-related fields:
 	/** this should already have been done in the alias-pass 
 	liveness__detect_liveness_proc(ProcInfo0, PRED_ID, HLDS, 
@@ -109,7 +109,7 @@ annotate_lfu_in_proc( _HLDS, _PRED_ID, PROC_ID, PredInfo0, PredInfo) :-
 	sr_lfu__process_proc(ProcInfo01, ProcInfo),
 
 	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
-	pred_info_set_procedures( PredInfo0, Procedures, PredInfo).
+	pred_info_set_procedures(PredInfo0, Procedures, PredInfo).
 
 process_proc(ProcInfo01, ProcInfo) :-
 	proc_info_goal(ProcInfo01, Goal0),
@@ -121,7 +121,7 @@ process_proc(ProcInfo01, ProcInfo) :-
 	set__init(DeadVars0),
 	
 		% annotate each of the goals	
-	annotate_lfu_in_goal( InstVars0, DeadVars0, Inst, Dead, Goal0, Goal01), 
+	annotate_lfu_in_goal(InstVars0, DeadVars0, Inst, Dead, Goal0, Goal01), 
 	
 
 	% explicitly make the lfu-set of the top-level goal to be 
@@ -147,10 +147,10 @@ process_proc(ProcInfo01, ProcInfo) :-
 
 	% annotate_lfu_in_goal(InstantiatedVars0, DiedVars0, 
 	%		       InstantiatedVars, DiedVars, Goalin, Goalout).
-:- pred annotate_lfu_in_goal( set(prog_var), set(prog_var), 
+:- pred annotate_lfu_in_goal(set(prog_var), set(prog_var), 
 		set(prog_var), set(prog_var),
 		hlds_goal, hlds_goal).
-:- mode annotate_lfu_in_goal( in, in, out, out, in, out) is det.
+:- mode annotate_lfu_in_goal(in, in, out, out, in, out) is det.
 
 annotate_lfu_in_goal(Inst0, Dead0, Inst, Dead, Goal0, Goal):- 
 	Goal0 = Expr0 - Info0,
@@ -166,13 +166,13 @@ annotate_lfu_in_goal(Inst0, Dead0, Inst, Dead, Goal0, Goal):-
 		annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, Goal0, Goal)
 	).
 
-	% calculateInstDead( info, instantiatedvars0, deadvars0, 
+	% calculateInstDead(info, instantiatedvars0, deadvars0, 
 	%		instantiatedvars, deadvars)
-:- pred calculateInstDead( hlds_goal_info, set(prog_var), set(prog_var),
+:- pred calculateInstDead(hlds_goal_info, set(prog_var), set(prog_var),
 		set(prog_var), set(prog_var)).
-:- mode calculateInstDead( in, in, in, out, out) is det.
+:- mode calculateInstDead(in, in, in, out, out) is det.
 
-calculateInstDead( Info, Inst0, Dead0, Inst, Dead) :- 
+calculateInstDead(Info, Inst0, Dead0, Inst, Dead) :- 
 	% Inst = Inst0 + birth-set
 	% Dead = Dead0 + death-set 
 	goal_info_get_pre_births(Info, PreBirths), 
@@ -186,32 +186,32 @@ calculateInstDead( Info, Inst0, Dead0, Inst, Dead) :-
 	set__union(Births, Inst0, Inst),
 	set__union(Deaths, Dead0, Dead).
 
-:- pred annotate_lfu_in_goal_2( set(prog_var), set(prog_var), 
+:- pred annotate_lfu_in_goal_2(set(prog_var), set(prog_var), 
 		set(prog_var), set(prog_var), 
 		hlds_goal, hlds_goal).
-:- mode annotate_lfu_in_goal_2( in, in, out, out, in, out) is det.
+:- mode annotate_lfu_in_goal_2(in, in, out, out, in, out) is det.
 
-annotate_lfu_in_goal_2( Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
+annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
 	TopGoal0 = Expr0 - Info0,
 	(
 		Expr0 = conj(Goals0)
 	->
-		annotate_lfu_in_conj( Inst0, Dead0, Inst, Dead, Goals0, Goals),
+		annotate_lfu_in_conj(Inst0, Dead0, Inst, Dead, Goals0, Goals),
 		Expr = conj(Goals)
 	;
 		Expr0 = switch(A,B,Cases0,C)
 	->
-		annotate_lfu_in_cases( Inst0, Dead0, Inst, Dead, Cases0, Cases),
+		annotate_lfu_in_cases(Inst0, Dead0, Inst, Dead, Cases0, Cases),
 		Expr = switch(A,B,Cases,C)
 	;
 		Expr0 = disj(Disj0,S)
 	->
-		annotate_lfu_in_disjs( Inst0, Dead0, Inst, Dead, Disj0, Disj),
+		annotate_lfu_in_disjs(Inst0, Dead0, Inst, Dead, Disj0, Disj),
 		Expr = disj(Disj, S)
 	;
 		Expr0 = not(Goal0)
 	->
-		annotate_lfu_in_goal( Inst0, Dead0, Inst, Dead, Goal0, Goal),
+		annotate_lfu_in_goal(Inst0, Dead0, Inst, Dead, Goal0, Goal),
 		Expr = not(Goal)
 	;
 		Expr0 = some(V, C, Goal0)
@@ -238,62 +238,62 @@ annotate_lfu_in_goal_2( Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
 	goal_info_set_lfu(Info0, LFU, Info),
 	TopGoal = Expr - Info. 
 
-:- pred annotate_lfu_in_conj( set(prog_var), set(prog_var),
+:- pred annotate_lfu_in_conj(set(prog_var), set(prog_var),
 				set(prog_var), set(prog_var), 
 				list(hlds_goal), list(hlds_goal)).
-:- mode annotate_lfu_in_conj( in, in, out, out, in, out) is det.
+:- mode annotate_lfu_in_conj(in, in, out, out, in, out) is det.
 
-annotate_lfu_in_conj( Inst0, Dead0, Inst, Dead, Goals0, Goals) :- 
-	map_foldl2( 
-		pred( Goal0::in, Goal::out, 
+annotate_lfu_in_conj(Inst0, Dead0, Inst, Dead, Goals0, Goals) :- 
+	map_foldl2(
+		pred(Goal0::in, Goal::out, 
 		      I0::in, I::out,
-		      D0::in, D::out ) is det :- 
-			( annotate_lfu_in_goal(I0, D0, I, D, Goal0, Goal) ), 
+		      D0::in, D::out) is det :- 
+			(annotate_lfu_in_goal(I0, D0, I, D, Goal0, Goal)), 
 		Goals0, 
 		Goals, 
 		Inst0, Inst,
 		Dead0, Dead).
 
-:- pred annotate_lfu_in_cases( set(prog_var), set(prog_var), 
+:- pred annotate_lfu_in_cases(set(prog_var), set(prog_var), 
 			 	set(prog_var), set(prog_var), 
 				list(case), list(case)).
-:- mode annotate_lfu_in_cases( in, in, out, out, in, out) is det.
+:- mode annotate_lfu_in_cases(in, in, out, out, in, out) is det.
 
-annotate_lfu_in_cases( Inst0, Dead0, Inst, Dead, Cases0, Cases) :- 
+annotate_lfu_in_cases(Inst0, Dead0, Inst, Dead, Cases0, Cases) :- 
 	map_foldl2(
-		pred( Case0::in, Case::out, 
+		pred(Case0::in, Case::out, 
 			I0::in, I::out, 
-			D0::in, D::out ) is det :- 
-			( Case0 = case(Cons,Goal0), 
-			  annotate_lfu_in_goal( Inst0, Dead0, NI, ND ,
+			D0::in, D::out) is det :- 
+			(Case0 = case(Cons,Goal0), 
+			  annotate_lfu_in_goal(Inst0, Dead0, NI, ND ,
 				Goal0, Goal), 
 			  Case = case(Cons,Goal), 
 			  set__union(I0, NI, I), 
-			  set__union(D0, ND, D) ), 
+			  set__union(D0, ND, D)), 
 		Cases0, 
 		Cases, 
 		Inst0, Inst, 
-		Dead0, Dead ).
+		Dead0, Dead).
 
-:- pred annotate_lfu_in_disjs( set(prog_var), set(prog_var),
+:- pred annotate_lfu_in_disjs(set(prog_var), set(prog_var),
 			       	set(prog_var), set(prog_var), 
 				list(hlds_goal), list(hlds_goal)).
-:- mode annotate_lfu_in_disjs( in, in, out, out, in, out ) is det.
+:- mode annotate_lfu_in_disjs(in, in, out, out, in, out) is det.
 
-annotate_lfu_in_disjs( Inst0, Dead0, Inst, Dead, Goals0, Goals) :-
+annotate_lfu_in_disjs(Inst0, Dead0, Inst, Dead, Goals0, Goals) :-
 	map_foldl2(
-		pred( Goal0::in, Goal::out, 
+		pred(Goal0::in, Goal::out, 
 			I0::in, I::out, 
-			D0::in, D::out ) is det :- 
-			( 
-			  annotate_lfu_in_goal( Inst0, Dead0, NI, ND ,
+			D0::in, D::out) is det :- 
+			(
+			  annotate_lfu_in_goal(Inst0, Dead0, NI, ND ,
 				Goal0, Goal), 
 			  set__union(I0, NI, I), 
-			  set__union(D0, ND, D) ), 
+			  set__union(D0, ND, D)), 
 		Goals0, 
 		Goals, 
 		Inst0, Inst, 
-		Dead0, Dead ).
+		Dead0, Dead).
 
 	
 :- pred map_foldl2(pred(T1,T2,T3,T3,T4,T4), list(T1), list(T2), T3, T3, 

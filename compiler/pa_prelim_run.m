@@ -57,11 +57,11 @@ annotate_all_liveness_in_module(HLDSin, HLDSout) -->
 		module_info::out, io__state::di, io__state::uo) is det.
 
 annotate_all_liveness_in_module_2(PredId, HLDSin, HLDSout) -->
-	{ module_info_pred_info( HLDSin, PredId, PredInfo0) },
+	{ module_info_pred_info(HLDSin, PredId, PredInfo0) },
 	{ pred_info_procids(PredInfo0, ProcIds) }, 
 	list__foldl2(annotate_all_liveness_in_pred(PredId, HLDSin),
 			ProcIds, PredInfo0, PredInfo),
-	{ module_info_set_pred_info( HLDSin, PredId, PredInfo, HLDSout) }.
+	{ module_info_set_pred_info(HLDSin, PredId, PredInfo, HLDSout) }.
 
 :- pred annotate_all_liveness_in_pred(pred_id::in, module_info::in, 
 		proc_id::in, pred_info::in, pred_info::out,
@@ -89,7 +89,7 @@ annotate_all_outscope_vars_in_module(HLDSin, HLDSout) :-
 		module_info).	
 :- mode annotate_all_outscope_vars_in_module_2(in, in, out) is det.
 
-annotate_all_outscope_vars_in_module_2(PredId, HLDSin, HLDSout ):- 
+annotate_all_outscope_vars_in_module_2(PredId, HLDSin, HLDSout):- 
 	module_info_pred_info(HLDSin, PredId, PredInfo0),
 	pred_info_procids(PredInfo0, ProcIds), 
 	list__foldl(annotate_all_outscope_vars_in_pred,
@@ -101,8 +101,8 @@ annotate_all_outscope_vars_in_module_2(PredId, HLDSin, HLDSout ):-
 
 annotate_all_outscope_vars_in_pred(ProcId, PredInfo0, PredInfo) :- 
 	pred_info_procedures(PredInfo0, Procedures0),
-	map__lookup(Procedures0, ProcId, ProcInfo0 ), 
-	proc_info_goal(ProcInfo0, Goal0 ), 
+	map__lookup(Procedures0, ProcId, ProcInfo0), 
+	proc_info_goal(ProcInfo0, Goal0), 
 	set__init(Outscope), 
 	annotate_all_outscope_vars_in_goal(Goal0, Outscope, Goal, _NewOutscope),
 	proc_info_set_goal(ProcInfo0, Goal, ProcInfo),
@@ -117,9 +117,9 @@ annotate_all_outscope_vars_in_goal(Goal0, Outscope, Goal, NewOutscope) :-
 	Goal0 = Expr0 - Info0, 
 	(
 		% 1. conjunction
-		Expr0 = conj( Goals0 )
+		Expr0 = conj(Goals0)
 	->
-		list__map_foldl( 
+		list__map_foldl(
 			(pred(G0::in, G::out, OSin::in, OSout::out) is det :- 
 				annotate_all_outscope_vars_in_goal(G0,
 						OSin, G, OSout)
@@ -138,7 +138,7 @@ annotate_all_outscope_vars_in_goal(Goal0, Outscope, Goal, NewOutscope) :-
 		Expr0 = switch(A, B, Cases0, D)
 	->
 		list__map(
-			(pred( C0::in, C::out) is det :- 
+			(pred(C0::in, C::out) is det :- 
 				C0 = case(ConsId, G0),
 				annotate_all_outscope_vars_in_goal(G0,
 						Outscope, G, _),

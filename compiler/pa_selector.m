@@ -34,8 +34,8 @@
 
 :- type selector == list(unit_sel).
 :- type unit_sel ---> 
-		us( hlds_data__cons_id, int ) ;  % normal selector
-		ts( prog_data__type ).		 % type selector
+		us(hlds_data__cons_id, int) ;  % normal selector
+		ts(prog_data__type).		 % type selector
 			
 
 %-------------------------------------------------------------------%
@@ -69,29 +69,29 @@
 :- pred termshift(selector, selector, selector).
 :- mode termshift(in, in, out) is det.
 
-	% less_or_equal( HLDS, S1, S2, T, EXT):
+	% less_or_equal(HLDS, S1, S2, T, EXT):
 	% Find out whether selector S1 of a variable of type T is
 	% less or equal to another selector S2 belonging to the same
 	% variable of type T. If so, return the extension such that
 	% S1 == S2.EXT
-:- pred less_or_equal( module_info::in, selector::in, selector::in, 
+:- pred less_or_equal(module_info::in, selector::in, selector::in, 
 		(type)::in, selector::out) is semidet.
 
-:- pred rename_types( term__substitution(tvar_type)::in, 
+:- pred rename_types(term__substitution(tvar_type)::in, 
 		selector::in, selector::out) is det.
 
-:- pred print( selector::in, tvarset::in, 
+:- pred print(selector::in, tvarset::in, 
 		io__state::di, io__state::uo) is det. 
 
-:- pred parse_term( term(T), selector).
-:- mode parse_term( in, out ) is det.
+:- pred parse_term(term(T), selector).
+:- mode parse_term(in, out) is det.
 
 	% normalize with type information
-:- pred normalize_wti( (type), module_info, selector, selector).
-:- mode normalize_wti( in, in, in, out) is det.
+:- pred normalize_wti((type), module_info, selector, selector).
+:- mode normalize_wti(in, in, in, out) is det.
 
 	% widening
-:- pred apply_widening( module_info::in, (type)::in,
+:- pred apply_widening(module_info::in, (type)::in,
 		selector::in, selector::out) is det.
 
 %-------------------------------------------------------------------%
@@ -121,7 +121,7 @@ from_types(Types, Selector):-
 
 top([]).
 
-select_first_part( SEL0, US, SEL ):-
+select_first_part(SEL0, US, SEL):-
 	(
 		SEL0 = [ F | R ]
 	->
@@ -130,7 +130,7 @@ select_first_part( SEL0, US, SEL ):-
 		error("(pa_selector): trying to split empty selector!")
 	).
 
-unit_termshift( S0, US, S ):-
+unit_termshift(S0, US, S):-
 	termshift(S0,[US],S).
 termshift(S1,S2,S):- list__append(S1,S2,S).
 
@@ -142,59 +142,59 @@ termshift(S1,S2,S):- list__append(S1,S2,S).
 :- pred less_or_equal(selector, selector, selector).
 :- mode less_or_equal(in, in, out) is semidet.
 
-less_or_equal( S1, S2, EXT ) :- 
+less_or_equal(S1, S2, EXT) :- 
 	list__append(S2, EXT , S1). 
 
 
-rename_types( Subst, Sel0, Sel ):- 
-	list__map( unit_selector_rename_types( Subst ), Sel0, Sel ).
+rename_types(Subst, Sel0, Sel):- 
+	list__map(unit_selector_rename_types(Subst), Sel0, Sel).
 
-:- pred unit_selector_rename_types( term__substitution(tvar_type)::in,
-		unit_sel::in, unit_sel::out ) is det.
+:- pred unit_selector_rename_types(term__substitution(tvar_type)::in,
+		unit_sel::in, unit_sel::out) is det.
 
-unit_selector_rename_types( Subst, US0, US ) :- 
+unit_selector_rename_types(Subst, US0, US) :- 
 	(
 		US0 = us(_,_),
 		US = US0
 	;
-		US0 = ts( Type0 ), 
-		term__apply_substitution( Type0, Subst, Type ), 
-		US = ts( Type )
+		US0 = ts(Type0), 
+		term__apply_substitution(Type0, Subst, Type), 
+		US = ts(Type)
 	).
 	
-print( Selector, ProgVarSet ) -->
+print(Selector, ProgVarSet) -->
 	io__write_string("["),
-	io__write_list(Selector, ",", print_unit_selector(ProgVarSet) ),
+	io__write_list(Selector, ",", print_unit_selector(ProgVarSet)),
 	io__write_string("]").
 
-:- pred print_unit_selector( tvarset, unit_sel, io__state, io__state).
-:- mode print_unit_selector( in, in, di, uo) is det.
+:- pred print_unit_selector(tvarset, unit_sel, io__state, io__state).
+:- mode print_unit_selector(in, in, di, uo) is det.
 
-print_unit_selector( _ProgVarSet, us( Cons, Index ) ) -->
-	{ hlds_data__cons_id_arity( Cons, Arity ) },
-	io__write_string( "sel("),
+print_unit_selector(_ProgVarSet, us(Cons, Index)) -->
+	{ hlds_data__cons_id_arity(Cons, Arity) },
+	io__write_string("sel("),
 	mercury_output_cons_id(Cons, needs_brackets),
-	io__write_string( "," ),
-	io__write_int( Arity ),
+	io__write_string(","),
+	io__write_int(Arity),
 	io__write_string(","),
 	io__write_int(Index),
 	io__write_string(")").
-print_unit_selector( ProgVarSet, ts( Type )) --> 
-	io__write_string( "typesel("), 
-	mercury_output_term( Type, ProgVarSet, bool__no), 
-	io__write_string( ")").
+print_unit_selector(ProgVarSet, ts(Type)) --> 
+	io__write_string("typesel("), 
+	mercury_output_term(Type, ProgVarSet, bool__no), 
+	io__write_string(")").
 
 
-parse_term( TERM, SEL ):- 
+parse_term(TERM, SEL):- 
 	(
-		TERM = term__functor( term__atom(CONS), Args, _)
+		TERM = term__functor(term__atom(CONS), Args, _)
 	->
 		(
 			CONS = ".",
 			Args = [ First , Rest ]
 		->
-			parse_unit_selector( First, US),
-			parse_term( Rest, SELrest ),
+			parse_unit_selector(First, US),
+			parse_term(Rest, SELrest),
 			SEL = [ US | SELrest ]
 		;
 			SEL = []
@@ -203,40 +203,40 @@ parse_term( TERM, SEL ):-
 		error("(pa_selector) parse_term: term not a functor")
 	).
 
-:- pred parse_unit_selector( term(T), unit_sel).
-:- mode parse_unit_selector( in, out) is det.
+:- pred parse_unit_selector(term(T), unit_sel).
+:- mode parse_unit_selector(in, out) is det.
 
-parse_unit_selector( TERM, US ):- 
+parse_unit_selector(TERM, US):- 
    (
-      TERM = term__functor( term__atom(CONS), Args, _)
+      TERM = term__functor(term__atom(CONS), Args, _)
    ->
       (
          CONS = "sel",
          Args = [ CONS_TERM, ARITY_TERM, POS_TERM ]
       ->
-         ( 
-            prog_io__sym_name_and_args( CONS_TERM, ConsID_SN, ConsID_ARGS ),
+         (
+            prog_io__sym_name_and_args(CONS_TERM, ConsID_SN, ConsID_ARGS),
             ConsID_ARGS = [],
-	    ARITY_TERM = term__functor( term__integer( Arity ), _, _),
-            POS_TERM = term__functor( term__integer( Pos ), _, _ )
+	    ARITY_TERM = term__functor(term__integer(Arity), _, _),
+            POS_TERM = term__functor(term__integer(Pos), _, _)
          ->
-	    ConsID = cons( ConsID_SN, Arity ),
-	    US = us( ConsID, Pos )
+	    ConsID = cons(ConsID_SN, Arity),
+	    US = us(ConsID, Pos)
 	 ;
-	    CONS_TERM = term__functor( term__integer( X ), _, _)
+	    CONS_TERM = term__functor(term__integer(X), _, _)
 	 ->
-	    ConsID = int_const( X ), 
-	    US = us( ConsID, 0 )
+	    ConsID = int_const(X), 
+	    US = us(ConsID, 0)
 	 ;
-	    CONS_TERM = term__functor( term__float( X ), _, _)
+	    CONS_TERM = term__functor(term__float(X), _, _)
 	 ->
-	    ConsID = float_const( X ),
-	    US = us( ConsID, 0)
+	    ConsID = float_const(X),
+	    US = us(ConsID, 0)
 	 ;
-	    CONS_TERM = term__functor( term__string( S ), _, _)
+	    CONS_TERM = term__functor(term__string(S), _, _)
 	 ->
-	    ConsID = string_const( S ),
-	    US = us( ConsID, 0 )
+	    ConsID = string_const(S),
+	    US = us(ConsID, 0)
 	 ;
 	    error("(pa_selector) parse_unit_selector: unknown cons_id in unit selector")
 	 )
@@ -245,8 +245,8 @@ parse_unit_selector( TERM, US ):-
          CONS = "typesel",
 	 Args = [ TypeSelectorTerm ]
       ->
- 	 term__coerce( TypeSelectorTerm, TypeSelector ), 
-	 US = ts( TypeSelector )
+ 	 term__coerce(TypeSelectorTerm, TypeSelector), 
+	 US = ts(TypeSelector)
       ;
 	 error("(pa_selector) parse_unit_selector: top constructor should be sel/3 or typesel/1.")
       )
@@ -255,27 +255,27 @@ parse_unit_selector( TERM, US ):-
    ).
 
 
-normalize_wti( VarType, HLDS, SEL0, SEL ):-
+normalize_wti(VarType, HLDS, SEL0, SEL):-
 	(
 		type_util__is_introduced_type_info_type(VarType)
 	->
 		SEL = SEL0
 	; 
-		branch_map_init( B0 ), 
-		init( TOP ),
-		branch_map_insert( VarType, TOP, B0, B1 ),
-		normalize_wti_2( VarType, HLDS, B1, TOP, SEL0, SEL)
+		branch_map_init(B0), 
+		init(TOP),
+		branch_map_insert(VarType, TOP, B0, B1),
+		normalize_wti_2(VarType, HLDS, B1, TOP, SEL0, SEL)
 	).
 
-:- pred normalize_wti_2( type, module_info, branch_map, 
+:- pred normalize_wti_2(type, module_info, branch_map, 
 				selector, selector, selector).
-:- mode normalize_wti_2( in, in, in, in, in, out) is det.
+:- mode normalize_wti_2(in, in, in, in, in, out) is det.
 
-normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
+normalize_wti_2(VarType, HLDS, B0, Acc0, SEL0, SEL):-
 	(
 		SEL0 = [ US | SELR ]
 	->
-		type_util__classify_type( VarType, HLDS, Class ),
+		type_util__classify_type(VarType, HLDS, Class),
 		(
 			Class = user_type
 		->
@@ -285,9 +285,9 @@ normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 			    (
 				US = us(CONS, INDEX),
 				type_util__get_cons_id_non_existential_arg_types(HLDS, 
-					VarType, CONS, ArgTypes ),
+					VarType, CONS, ArgTypes),
 				(
-					list__index1(ArgTypes, INDEX, SubType )
+					list__index1(ArgTypes, INDEX, SubType)
 				->
 					CType = SubType
 				;
@@ -295,32 +295,32 @@ normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 						VarType, CONS, INDEX))
 				)
 			    ;
-				US = ts( CType )
+				US = ts(CType)
 			    )
 			->
-				( 
-					branch_map_search( B0, CType,
-						BSel )
+				(
+					branch_map_search(B0, CType,
+						BSel)
 				->
-					normalize_wti_2( CType, HLDS,
-						B0, BSel, SELR, SEL )
+					normalize_wti_2(CType, HLDS,
+						B0, BSel, SELR, SEL)
 				;
-					unit_termshift( Acc0, US, 
-						Acc1 ),
-					branch_map_insert( CType, 
-						Acc1, B0, B1 ),
-					normalize_wti_2( CType, HLDS, 
-						B1, Acc1, SELR, SEL )
+					unit_termshift(Acc0, US, 
+						Acc1),
+					branch_map_insert(CType, 
+						Acc1, B0, B1),
+					normalize_wti_2(CType, HLDS, 
+						B1, Acc1, SELR, SEL)
 				)
 			;
 				% existentially typed functor.
-				append( Acc0, SEL0, SEL)
+				append(Acc0, SEL0, SEL)
 			)
 		;
 			% if it's not a user type, SELR will be empty
 			% anyhow, and normalization stops.
 			% Resulting selector = accumulator.sel0
-			% selector_add_us( Acc0, US, SEL)
+			% selector_add_us(Acc0, US, SEL)
 			append(Acc0,SEL0,SEL)
 
 		)
@@ -329,8 +329,8 @@ normalize_wti_2( VarType, HLDS, B0, Acc0, SEL0, SEL ):-
 		SEL = Acc0
 	).
 
-:- func index_error_message( module_info, (type), cons_id, int ) = string. 
-index_error_message( HLDS, VarType, CONS, INDEX ) = Msg :- 
+:- func index_error_message(module_info, (type), cons_id, int) = string. 
+index_error_message(HLDS, VarType, CONS, INDEX) = Msg :- 
 	get_type_defn(HLDS,VarType,TypeDefn),
 	get_type_id(VarType,TypeID),
 	hlds_data__get_type_defn_status(TypeDefn, TypeImportStatus),
@@ -356,7 +356,7 @@ index_error_message( HLDS, VarType, CONS, INDEX ) = Msg :-
 :- pred get_type_id((type),type_id).
 :- mode get_type_id(in,out) is det.
 
-get_type_id( Type, TypeID ):- 
+get_type_id(Type, TypeID):- 
 	(
 		type_util__type_to_type_id(Type, TypeID0, _)
 	->
@@ -416,7 +416,7 @@ branch_map_search([ (T1 - S1) | Ms ], T2, S):-
                 % The two types are considered equal if they
 		% unify
                 % under an empty substitution
-        ( 
+        (
 		type_unify(T1, T2, [], Empty, Subst), 
 		map__is_empty(Subst)
 	->
@@ -431,20 +431,20 @@ branch_map_search([ (T1 - S1) | Ms ], T2, S):-
 % additional predicates
 %-------------------------------------------------------------------%
 
-	% split_upto_type_selector( Sin, S1, TS, S2 ): 
+	% split_upto_type_selector(Sin, S1, TS, S2): 
 	%	this predicate succeeds if there exists a typeselector
-	% 	TS, such that Sin is equivalent to append(S1, [TS | S2] )
+	% 	TS, such that Sin is equivalent to append(S1, [TS | S2])
 	% 	and S1 contains no other type selector. It fails otherwise. 
 :- pred split_upto_type_selector(selector::in, selector::out, 
 		unit_sel::out,
 		selector::out) is semidet.
 
-split_upto_type_selector( Sin, S1, TS, S2 ):-
-	split_upto_type_selector_acc( Sin, [], S1, TS, S2). 
+split_upto_type_selector(Sin, S1, TS, S2):-
+	split_upto_type_selector_acc(Sin, [], S1, TS, S2). 
 
-:- pred split_upto_type_selector_acc( selector::in, selector::in, 
+:- pred split_upto_type_selector_acc(selector::in, selector::in, 
 		selector::out, unit_sel::out, selector::out) is semidet.
-split_upto_type_selector_acc( [ US | SEL ], ACC, S1, TS, S2 ):-
+split_upto_type_selector_acc([ US | SEL ], ACC, S1, TS, S2):-
 	(
 		US = ts(_)
 	->
@@ -453,18 +453,18 @@ split_upto_type_selector_acc( [ US | SEL ], ACC, S1, TS, S2 ):-
 		S2 = SEL
 	; 
 		append(ACC, [US], ACC2),
-		split_upto_type_selector_acc( SEL, ACC2, S1, TS, S2 )
+		split_upto_type_selector_acc(SEL, ACC2, S1, TS, S2)
 	). 
 
 
-less_or_equal( HLDS, S1, S2, MainType, EXT ):- 
+less_or_equal(HLDS, S1, S2, MainType, EXT):- 
 	(
-		split_upto_type_selector(S2, S2_part1, TS, S2_part2 ),
-		TS = ts( SubType )
+		split_upto_type_selector(S2, S2_part1, TS, S2_part2),
+		TS = ts(SubType)
 	->
 		(
 
-			less_or_equal( HLDS, S1, S2_part1, MainType, Rest)
+			less_or_equal(HLDS, S1, S2_part1, MainType, Rest)
 			% append(S2_part1, Rest, S1) % walk past S2_part1
 						% S1 = S2_part1.Rest
 		->
@@ -472,10 +472,10 @@ less_or_equal( HLDS, S1, S2, MainType, EXT ):-
 			% can be formulated as: starting from S2_part1,
 			% does the remainder of the path Rest lead through
 			% some node of type TSType ? 
-			get_type_of_node( HLDS, MainType, S2_part1, NodeType), 
+			get_type_of_node(HLDS, MainType, S2_part1, NodeType), 
 				% from NodeType, to TS
-			type_on_path( HLDS, NodeType, SubType, Rest, Remainder),
-			less_or_equal( HLDS, Remainder, S2_part2, SubType, EXT)
+			type_on_path(HLDS, NodeType, SubType, Rest, Remainder),
+			less_or_equal(HLDS, Remainder, S2_part2, SubType, EXT)
 		;
 			fail	% the walks do not correspond
 		)
@@ -486,49 +486,49 @@ less_or_equal( HLDS, S1, S2, MainType, EXT ):-
 		% correspond exactly to the first steps of S1, 
 		% so just: S1 = S2.ext, or rather: 
 		% less_or_equal(S2, S1, Extension) (the simple case)
-			less_or_equal(S1, S2, EXT )
+			less_or_equal(S1, S2, EXT)
 	). 
 
-apply_widening( ModuleInfo, MainType, Selector0, Selector ) :-
+apply_widening(ModuleInfo, MainType, Selector0, Selector) :-
 	(
 		Selector0 = []
 	-> 
 		Selector = Selector0
 	; 
-		get_type_of_node( ModuleInfo, MainType, Selector0, SubType), 
-		Selector = [ ts( SubType ) ]
+		get_type_of_node(ModuleInfo, MainType, Selector0, SubType), 
+		Selector = [ ts(SubType) ]
 	).
 
 
-	% get_type_of_node( ModuleInfo, StartType, Selector, SubType)
+	% get_type_of_node(ModuleInfo, StartType, Selector, SubType)
 	% determines the type SybType of the node obtained by traversing
 	% the StartType using the path Selector. 
-:- pred get_type_of_node( module_info::in, (type)::in, selector::in, 
+:- pred get_type_of_node(module_info::in, (type)::in, selector::in, 
 		(type)::out) is det.
-get_type_of_node( ModuleInfo, StartType, Selector, SubType ):-
+get_type_of_node(ModuleInfo, StartType, Selector, SubType):-
 	(
 		Selector = [ US | RestSelector ]
 	->
 		(
-			US = us( CONS_ID, CHOICE ),
-			select_subtype( ModuleInfo, StartType, CONS_ID, 
-				CHOICE, SubType0 ) 
+			US = us(CONS_ID, CHOICE),
+			select_subtype(ModuleInfo, StartType, CONS_ID, 
+				CHOICE, SubType0) 
 		; 
-			US = ts( SubType0 )
+			US = ts(SubType0)
 		),
-		get_type_of_node( ModuleInfo, SubType0, 
-				RestSelector, SubType )	
+		get_type_of_node(ModuleInfo, SubType0, 
+				RestSelector, SubType)	
 	;
 		SubType = StartType
 	).
 
-	% select_subtype( ModuleInfo, Type, ConsID, Position, SubType):
+	% select_subtype(ModuleInfo, Type, ConsID, Position, SubType):
 	% select the subtype of a type Type, selecting ConsId's position
 	% Position. Position counts starting from 1 (and not 0). 
 	% Predicate aborts if subtype cannot be determined. 
-:- pred select_subtype( module_info::in, (type)::in, 
+:- pred select_subtype(module_info::in, (type)::in, 
 		cons_id::in, int::in, (type)::out) is det.
-select_subtype( ModuleInfo, Type, ConsID, Choice, SubType) :-
+select_subtype(ModuleInfo, Type, ConsID, Choice, SubType) :-
 	(
 		type_util__get_cons_id_non_existential_arg_types(ModuleInfo, 
 			Type, ConsID, ArgTypes)
@@ -553,22 +553,22 @@ select_subtype( ModuleInfo, Type, ConsID, Choice, SubType) :-
 	% XXX this predicate should be nondet as Path might lead through
 	% different nodes of type ToType, each yielding a different
 	% Remainder. 
-:- pred type_on_path( module_info::in, (type)::in, (type)::in, 
+:- pred type_on_path(module_info::in, (type)::in, (type)::in, 
 		selector::in, selector::out) is semidet.
 
-type_on_path( ModuleInfo, FromType, ToType, Path, RemainderPath) :-
+type_on_path(ModuleInfo, FromType, ToType, Path, RemainderPath) :-
 	% require at least one step!
 	% Why? The meaning of a type-selector is that it is a shortcut
 	% notation of any non-zero selector which selects a node of
 	% the type described in the type-selector. 
-	type_on_path_2( first, ModuleInfo, FromType, 
+	type_on_path_2(first, ModuleInfo, FromType, 
 			ToType, Path, RemainderPath).
 
 :- type step ---> first ; subsequent. 
-:- pred type_on_path_2( step::in, module_info::in, (type)::in, (type)::in, 
+:- pred type_on_path_2(step::in, module_info::in, (type)::in, (type)::in, 
 		selector::in, selector::out) is semidet.
 
-type_on_path_2( Step, ModuleInfo, FromType, ToType, Path, RemainderPath) :- 
+type_on_path_2(Step, ModuleInfo, FromType, ToType, Path, RemainderPath) :- 
 	(
 		FromType = ToType, 
 		Step = subsequent	
@@ -577,26 +577,26 @@ type_on_path_2( Step, ModuleInfo, FromType, ToType, Path, RemainderPath) :-
 	; 
 		Path = [ US | Rest ],
 		(
-			US = ts( SubType ),
+			US = ts(SubType),
 			(
 				SubType = ToType
 			->
 				RemainderPath = Rest
 			;
-				type_on_path_2( subsequent, ModuleInfo, 
+				type_on_path_2(subsequent, ModuleInfo, 
 						SubType, ToType, 
 						Rest, RemainderPath)
 			)
 		;
-			US = us( CONS_ID, CHOICE ), 
-			select_subtype( ModuleInfo, FromType, CONS_ID, 
-				CHOICE, SubType ),
+			US = us(CONS_ID, CHOICE), 
+			select_subtype(ModuleInfo, FromType, CONS_ID, 
+				CHOICE, SubType),
 			(
 				SubType = ToType
 			->
 				RemainderPath = Rest
 			;
-				type_on_path_2( subsequent, 
+				type_on_path_2(subsequent, 
 					ModuleInfo, SubType, ToType, 
 					Rest, RemainderPath)
 			)

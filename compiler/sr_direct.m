@@ -47,10 +47,10 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% the conditions on that reuse are
 	{ proc_info_goal(ProcInfo2, Goal0) },
 
-	( 
+	(
 		{ VeryVerbose = yes }
 	->
-		passes_aux__write_proc_progress_message( 
+		passes_aux__write_proc_progress_message(
 			"% Analysing ", PredId, ProcId, ModuleInfo0), 
 		io__write_string("%\tdeadness analysis...")
 	; 
@@ -73,22 +73,22 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		(
 			{ MaybeReuseConditions = yes(Cs) }
 		->
-			{ list__length( Cs, LCs ) },
-			{ reuse_conditions_simplify( Cs, RCs ) }, 
-			{ list__length( RCs, LRCs ) }, 
-			{ string__int_to_string( LCs, LCS )}, 
-			{ string__int_to_string( LRCs, LRCS ) }, 
+			{ list__length(Cs, LCs) },
+			{ reuse_conditions_simplify(Cs, RCs) }, 
+			{ list__length(RCs, LRCs) }, 
+			{ string__int_to_string(LCs, LCS)}, 
+			{ string__int_to_string(LRCs, LRCS) }, 
 			{ string__append_list([" done (", LCS, " / ", 
 					LRCS, ").\n"], Msg3) }, 
-			io__write_string( Msg3 )
+			io__write_string(Msg3)
 		; 
-			io__write_string( "done (no direct reuse).\n")
+			io__write_string("done (no direct reuse).\n")
 		)
 	; 
 		[]
 	), 
 		
-	{ proc_info_set_reuse_information( ProcInfo2, MaybeReuseConditions, 
-			ProcInfo3 ) },
-	{ proc_info_set_goal( ProcInfo3, Goal, ProcInfo ) }.
+	{ proc_info_set_reuse_information(ProcInfo2, MaybeReuseConditions, 
+			ProcInfo3) },
+	{ proc_info_set_goal(ProcInfo3, Goal, ProcInfo) }.
 

@@ -13,7 +13,7 @@
 
 :- import_module io, hlds_module. 
 
-:- pred structure_reuse_profiling( module_info::in, io__state::di, 
+:- pred structure_reuse_profiling(module_info::in, io__state::di, 
 			io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
@@ -28,61 +28,61 @@
 :- import_module hlds_goal.
 
 
-structure_reuse_profiling( HLDS ) -->
+structure_reuse_profiling(HLDS) -->
 	globals__io_lookup_bool_option(very_verbose, Verbose), 
-	maybe_write_string( Verbose, 
-			"% Collecting reuse-profiling information... " ), 
+	maybe_write_string(Verbose, 
+			"% Collecting reuse-profiling information... "), 
 
-	{ collect_profiling_information( HLDS, Profiling) }, 
-	{ module_info_name( HLDS, ModuleName ) }, 
-	{ prog_out__sym_name_to_string( ModuleName, ModuleNameString) }, 
-	sr_profile__write_profiling( ModuleNameString, Profiling, HLDS ), 
-	maybe_write_string( Verbose, "done.\n"). 
+	{ collect_profiling_information(HLDS, Profiling) }, 
+	{ module_info_name(HLDS, ModuleName) }, 
+	{ prog_out__sym_name_to_string(ModuleName, ModuleNameString) }, 
+	sr_profile__write_profiling(ModuleNameString, Profiling, HLDS), 
+	maybe_write_string(Verbose, "done.\n"). 
 
-:- pred collect_profiling_information( module_info::in, 
-		profiling_info::out ) is det.
+:- pred collect_profiling_information(module_info::in, 
+		profiling_info::out) is det.
 
-collect_profiling_information( HLDS, Prof ) :- 
+collect_profiling_information(HLDS, Prof) :- 
 	sr_profile__init(Prof0), 
-	module_info_predids( HLDS, PredIds0 ), 
-	module_info_get_special_pred_map( HLDS, Map), 
-	map__values( Map, SpecialPredIds ), 
+	module_info_predids(HLDS, PredIds0), 
+	module_info_get_special_pred_map(HLDS, Map), 
+	map__values(Map, SpecialPredIds), 
 	list__filter(
-		pred( Id::in ) is semidet :- 
+		pred(Id::in) is semidet :- 
 		( \+ member(Id, SpecialPredIds), 
 		  \+ hlds_module__pred_not_defined_in_this_module(HLDS, Id) 
 		), 
 		PredIds0,
 		PredIds), 
 	list__foldl(
-		collect_profiling_information_2( HLDS ), 
+		collect_profiling_information_2(HLDS), 
 		PredIds, 
 		Prof0,
 		Prof).
 
-:- pred collect_profiling_information_2( module_info::in, pred_id::in, 
+:- pred collect_profiling_information_2(module_info::in, pred_id::in, 
 			profiling_info::in, profiling_info::out) is det.
-collect_profiling_information_2( HLDS, PredId, Prof0, Prof):- 
-	module_info_pred_info( HLDS, PredId, PredInfo), 
-	pred_info_import_status( PredInfo, ImportStatus), 
-	pred_info_procedures( PredInfo, Procedures ), 
-	map__values( Procedures, ProcInfos ), 
+collect_profiling_information_2(HLDS, PredId, Prof0, Prof):- 
+	module_info_pred_info(HLDS, PredId, PredInfo), 
+	pred_info_import_status(PredInfo, ImportStatus), 
+	pred_info_procedures(PredInfo, Procedures), 
+	map__values(Procedures, ProcInfos), 
 	list__foldl(
-		collect_profiling_information_3( HLDS, ImportStatus),
+		collect_profiling_information_3(HLDS, ImportStatus),
 		ProcInfos, 
 		Prof0, 
 		Prof).
 
-:- pred collect_profiling_information_3( module_info::in,
+:- pred collect_profiling_information_3(module_info::in,
 			import_status::in, proc_info::in,
 			profiling_info::in, profiling_info::out) is det.
 
-collect_profiling_information_3( HLDS, ImportStatus, ProcInfo)  --> 
+collect_profiling_information_3(HLDS, ImportStatus, ProcInfo)  --> 
 	% first record some info about the procedure in general... 
 	{ 
 		status_is_exported(ImportStatus, IsExported),
 
-		proc_info_reuse_information( ProcInfo, ReuseInfo),
+		proc_info_reuse_information(ProcInfo, ReuseInfo),
 		(
 			ReuseInfo = yes(List)
 		->
@@ -101,7 +101,7 @@ collect_profiling_information_3( HLDS, ImportStatus, ProcInfo)  -->
 			UnconditionalReuse = no,
 			DefinedInModule = yes
 		),
-		proc_info_possible_aliases( ProcInfo, PosAliases ), 
+		proc_info_possible_aliases(ProcInfo, PosAliases), 
 		(
 			PosAliases = yes(As)
 		->
@@ -153,41 +153,41 @@ collect_profiling_information_3( HLDS, ImportStatus, ProcInfo)  -->
 	% 10. alias top?
 	maybe_increment([TopAlias], inc_top_procs),
 
-	{ proc_info_goal( ProcInfo, Goal ) }, 
-	collect_profiling_information_4( HLDS, Goal ).
+	{ proc_info_goal(ProcInfo, Goal) }, 
+	collect_profiling_information_4(HLDS, Goal).
 
-:- pred collect_profiling_information_4( module_info::in, hlds_goal::in, 
+:- pred collect_profiling_information_4(module_info::in, hlds_goal::in, 
 		profiling_info::in, profiling_info::out) is det.
 
-collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :- 
+collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
 	Expr = conj(Goals),
-	list__foldl( collect_profiling_information_4(HLDS),
+	list__foldl(collect_profiling_information_4(HLDS),
 			Goals, Prof0, Prof). 
-collect_profiling_information_4( HLDS, Expr - Info, Prof0, Prof ) :- 
-	Expr = call( PredId, ProcId, _, _, _, _), 
+collect_profiling_information_4(HLDS, Expr - Info, Prof0, Prof) :- 
+	Expr = call(PredId, ProcId, _, _, _, _), 
 	inc_pred_calls(Prof0, Prof1),
-	goal_info_get_reuse( Info, Reuse ),
+	goal_info_get_reuse(Info, Reuse),
 	(
 		Reuse = reuse(ShortReuse),
 		ShortReuse = reuse_call(_)
 	->
-		inc_reuse_calls( Prof1, Prof )
+		inc_reuse_calls(Prof1, Prof)
 	;
 		module_info_structure_reuse_info(HLDS, ReuseInfo),
 		ReuseInfo = structure_reuse_info(ReuseMap),
 		(
 			map__contains(ReuseMap, proc(PredId, ProcId))
 		->
-			inc_no_reuse_calls( Prof1, Prof )
+			inc_no_reuse_calls(Prof1, Prof)
 		;
 			Prof = Prof1
 		)
 	).
-collect_profiling_information_4( _HLDS, Expr - _Info, Prof, Prof ) :- 
-	Expr = generic_call( _, _, _, _). 
-collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :- 
+collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
+	Expr = generic_call(_, _, _, _). 
+collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
 	Expr = switch(_, _, Cases, _), 
-	list__foldl( 
+	list__foldl(
 		pred(C::in, P0::in, P::out) is det :-
 		(	
 			C = case(_, G),
@@ -196,58 +196,58 @@ collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :-
 		Cases,
 		Prof0, 
 		Prof).
-collect_profiling_information_4( _HLDS, Expr - Info, Prof0, Prof ) :- 
+collect_profiling_information_4(_HLDS, Expr - Info, Prof0, Prof) :- 
 	Expr = unify(_, _, _, Unification, _), 
 	(
 		Unification = deconstruct(_, _, _, _, _, _)
 	-> 
-		inc_deconstructs( Prof0, Prof1),
-		goal_info_get_reuse( Info, Reuse), 
+		inc_deconstructs(Prof0, Prof1),
+		goal_info_get_reuse(Info, Reuse), 
 		(
 			Reuse = reuse(ShortReuse), 
 			ShortReuse = cell_died
 		->
-			inc_direct_reuses( Prof1, Prof)
+			inc_direct_reuses(Prof1, Prof)
 		;
 			Prof = Prof1
 		)
 	;
 		Prof = Prof0
 	).
-collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :- 
+collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
 	Expr = disj(Goals, _),
-	list__foldl( collect_profiling_information_4(HLDS), 
+	list__foldl(collect_profiling_information_4(HLDS), 
 			Goals, Prof0, Prof). 
-collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :- 
+collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
 	Expr = not(Goal), 
-	collect_profiling_information_4( HLDS, Goal, Prof0, Prof). 
-collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :- 
+	collect_profiling_information_4(HLDS, Goal, Prof0, Prof). 
+collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
 	Expr = some(_, _, Goal), 
-	collect_profiling_information_4( HLDS, Goal, Prof0, Prof). 
-collect_profiling_information_4( HLDS, Expr - _Info, Prof0, Prof ) :- 
+	collect_profiling_information_4(HLDS, Goal, Prof0, Prof). 
+collect_profiling_information_4(HLDS, Expr - _Info, Prof0, Prof) :- 
 	Expr = if_then_else(_, If, Then, Else, _), 
-	collect_profiling_information_4( HLDS, If, Prof0, Prof1), 
-	collect_profiling_information_4( HLDS, Then, Prof1, Prof2), 
-	collect_profiling_information_4( HLDS, Else, Prof2, Prof). 
-collect_profiling_information_4( _HLDS, Expr - _Info, Prof, Prof ) :- 
+	collect_profiling_information_4(HLDS, If, Prof0, Prof1), 
+	collect_profiling_information_4(HLDS, Then, Prof1, Prof2), 
+	collect_profiling_information_4(HLDS, Else, Prof2, Prof). 
+collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = pragma_foreign_code(_, _, _, _, _, _, _). 
-collect_profiling_information_4( _HLDS, Expr - _Info, Prof, Prof ) :- 
+collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = par_conj(_, _).
-collect_profiling_information_4( _HLDS, Expr - _Info, Prof, Prof ) :- 
+collect_profiling_information_4(_HLDS, Expr - _Info, Prof, Prof) :- 
 	Expr = bi_implication(_, _).
 
 		
 		
-:- pred maybe_increment( list(bool), pred( profiling_info, profiling_info), 
+:- pred maybe_increment(list(bool), pred(profiling_info, profiling_info), 
 			profiling_info, profiling_info).
-:- mode maybe_increment( in, pred(in, out) is det, in, out) is det.
+:- mode maybe_increment(in, pred(in, out) is det, in, out) is det.
 
-maybe_increment( Bools, IncOp, Prof0, Prof ) :- 
-	bool__and_list( Bools, Result ), 
+maybe_increment(Bools, IncOp, Prof0, Prof) :- 
+	bool__and_list(Bools, Result), 
 	(
 		Result = yes
 	->
-		IncOp( Prof0, Prof)
+		IncOp(Prof0, Prof)
 	;
 		Prof = Prof0
 	).

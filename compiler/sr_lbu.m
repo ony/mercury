@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -38,8 +38,8 @@
 :- import_module io.
 :- import_module hlds_module, hlds_pred. 
 
-:- pred sr_lbu__lbu_pass( module_info, module_info, io__state, io__state).
-:- mode sr_lbu__lbu_pass( in, out, di, uo) is det.
+:- pred sr_lbu__lbu_pass(module_info, module_info, io__state, io__state).
+:- mode sr_lbu__lbu_pass(in, out, di, uo) is det.
 
 :- pred sr_lbu__process_proc(module_info::in,
 		proc_info::in, proc_info::out) is det.
@@ -62,21 +62,21 @@
 
 :- import_module sr_live.
 
-sr_lbu__lbu_pass( HLDSin , HLDSout) --> 
+sr_lbu__lbu_pass(HLDSin , HLDSout) --> 
 	% get all the predicate id's 
-	{ hlds_module__module_info_predids( HLDSin, ALL_PRED_IDS ) },
+	{ hlds_module__module_info_predids(HLDSin, ALL_PRED_IDS) },
 	% get all the id's of special predicates
-	{ hlds_module__module_info_get_special_pred_map( HLDSin, SPEC_MAP) },
-	{ map__values( SPEC_MAP, SPEC_PRED_IDS) }, 
+	{ hlds_module__module_info_get_special_pred_map(HLDSin, SPEC_MAP) },
+	{ map__values(SPEC_MAP, SPEC_PRED_IDS) }, 
 	% remove the special pred_ids from the set of pred_ids
-	{ list__delete_elems( ALL_PRED_IDS, SPEC_PRED_IDS, PRED_IDS0) },
+	{ list__delete_elems(ALL_PRED_IDS, SPEC_PRED_IDS, PRED_IDS0) },
 	% filter out the predids of predicates not defined in this 
 	% module 
-	{ list__filter( 
+	{ list__filter(
 		pred_defined_in_this_module(HLDSin),
-		PRED_IDS0, PRED_IDS ) },
+		PRED_IDS0, PRED_IDS) },
 
-	list__foldl2( annotate_lbu_in_pred, PRED_IDS, HLDSin, HLDSout ).
+	list__foldl2(annotate_lbu_in_pred, PRED_IDS, HLDSin, HLDSout).
 
 :- pred pred_defined_in_this_module(module_info, pred_id).
 :- mode pred_defined_in_this_module(in,in) is semidet.
@@ -88,10 +88,10 @@ pred_defined_in_this_module(HLDS,ID):-
 		io__state).
 :- mode annotate_lbu_in_pred(in,in,out,di,uo) is det.
 
-annotate_lbu_in_pred( PRED_ID, HLDSin, HLDSout ) --> 
-	{ hlds_module__module_info_pred_info( HLDSin, PRED_ID, PredInfo) }, 
+annotate_lbu_in_pred(PRED_ID, HLDSin, HLDSout) --> 
+	{ hlds_module__module_info_pred_info(HLDSin, PRED_ID, PredInfo) }, 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
-	( 
+	(
 		{ VeryVerbose = yes }
 	->
 		passes_aux__write_pred_progress_message(
@@ -106,27 +106,27 @@ annotate_lbu_in_pred( PRED_ID, HLDSin, HLDSout ) -->
 	{ pred_info_procids(PredInfo, PROC_IDS) },
 	
 	% handling all procids
-	{ list__foldl( annotate_lbu_in_proc(HLDSin, PRED_ID), 
+	{ list__foldl(annotate_lbu_in_proc(HLDSin, PRED_ID), 
 			PROC_IDS, PredInfo, NewPredInfo) } ,
 
 	% and updating the module_info with the new predinfo-state. 
-	{ module_info_set_pred_info( HLDSin, PRED_ID, NewPredInfo, 
+	{ module_info_set_pred_info(HLDSin, PRED_ID, NewPredInfo, 
 			HLDSout) }.
 
 
-:- pred annotate_lbu_in_proc( module_info, pred_id, proc_id, 
-		pred_info, pred_info ).
-:- mode annotate_lbu_in_proc( in, in, in, in, out) is det.
+:- pred annotate_lbu_in_proc(module_info, pred_id, proc_id, 
+		pred_info, pred_info).
+:- mode annotate_lbu_in_proc(in, in, in, in, out) is det.
 
-annotate_lbu_in_proc( HLDS, _PRED_ID, PROC_ID, PredInfo0, 
+annotate_lbu_in_proc(HLDS, _PRED_ID, PROC_ID, PredInfo0, 
 		PredInfo) :- 
-	pred_info_procedures( PredInfo0, Procedures0 )  , 
-	map__lookup(Procedures0, PROC_ID, ProcInfo0 )  , 
+	pred_info_procedures(PredInfo0, Procedures0)  , 
+	map__lookup(Procedures0, PROC_ID, ProcInfo0)  , 
 
 	sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo),
 
 	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
-	pred_info_set_procedures( PredInfo0, Procedures, PredInfo) .
+	pred_info_set_procedures(PredInfo0, Procedures, PredInfo) .
 
 sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo) :-
 	proc_info_goal(ProcInfo0, Goal0),
@@ -139,7 +139,7 @@ sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo) :-
 	% 	new Alias set
 
 	set__init(Lbu0), 
-	annotate_lbu_in_goal( HLDS, ProcInfo0, 
+	annotate_lbu_in_goal(HLDS, ProcInfo0, 
 				Lbu0, _Lbu, Goal0, Goal), 
 
 	proc_info_set_goal(ProcInfo0, Goal, ProcInfo).
@@ -220,12 +220,12 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		%%%%%%%%%%%%%%%%%%%%
 		% (6) if_then_else %
 		%%%%%%%%%%%%%%%%%%%%
-		Expr0 = if_then_else( Vars, Cond0, Then0, Else0, SM)
+		Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM)
 	->
 			% annotating the condition
 			% starting from Lbu_01 (where resume_vars are
 			% taken into account)
-		annotate_lbu_in_goal( HLDS, ProcInfo, Lbu_01, 
+		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
 				_LbuCond, Cond0, Cond),
 			% when annotating the then-part, 
 			% the lbu used for it may not contain the
@@ -236,14 +236,14 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		goal_info_set_resume_point(CondInfo0, no_resume_point, 
 				InfoTmp),
 		CondTmp = CondGoal0 - InfoTmp, 
-		annotate_lbu_in_goal( HLDS, ProcInfo, Lbu_01,  
+		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01,  
 				Lbu0Then, CondTmp, _),
-		annotate_lbu_in_goal( HLDS, ProcInfo, Lbu0Then,  
+		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu0Then,  
 				LbuThen, Then0, Then),
-		annotate_lbu_in_goal( HLDS, ProcInfo, Lbu_01, 
+		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
 				LbuElse, Else0, Else),
 		set__union(LbuThen, LbuElse, Lbu),
-		Expr = if_then_else( Vars, Cond, Then, Else, SM),
+		Expr = if_then_else(Vars, Cond, Then, Else, SM),
 		Info = Info0
 	;
 		%%%%%%%%%%%
@@ -252,7 +252,7 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		Expr0 = not(Goal0)
 		% handled as if(Goal0) then fail else true
 	->
-		annotate_lbu_in_goal( HLDS, ProcInfo, Lbu_01, 
+		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
 				Lbu, Goal0, Goal),
 		% in the if_then_else context as above this would be:
 		% Lbu = union(LbuThen, LbuElse),
@@ -267,11 +267,11 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		%%%%%%%%%%%%
 		% (8) some %
 		%%%%%%%%%%%%
-		Expr0 = some( Vars, CR, Goal0 )
+		Expr0 = some(Vars, CR, Goal0)
 	->
-		annotate_lbu_in_goal( HLDS, ProcInfo, Lbu_01,  
+		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01,  
 				Lbu, Goal0, Goal),
-		Expr = some( Vars, CR, Goal ),
+		Expr = some(Vars, CR, Goal),
 		Info = Info0
 	;
 		%%%%%%%%%%%%%%%%%%%%%%%
@@ -287,57 +287,57 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 	goal_info_set_lbu(Info, Lbu, Info_new), 
 	TopGoal = Expr - Info_new. 	
 
-:- pred annotate_lbu_in_conj( module_info, proc_info, set(prog_var),  
+:- pred annotate_lbu_in_conj(module_info, proc_info, set(prog_var),  
 			set(prog_var), 
 			list(hlds_goal), list(hlds_goal)). 
 :- mode annotate_lbu_in_conj(in, in, in, out, in, out) is det.
 
-annotate_lbu_in_conj( HLDS, ProcInfo, Lbu0,  
+annotate_lbu_in_conj(HLDS, ProcInfo, Lbu0,  
 				Lbu, Goals0, Goals) :- 
 	list__map_foldl(
-		pred( Goal0::in, Goal::out, 
-		      L0::in, L::out ) is det :-
-			( annotate_lbu_in_goal( HLDS, ProcInfo, L0,  
-					L, Goal0, Goal) ),
+		pred(Goal0::in, Goal::out, 
+		      L0::in, L::out) is det :-
+			(annotate_lbu_in_goal(HLDS, ProcInfo, L0,  
+					L, Goal0, Goal)),
 		Goals0, Goals, 
 		Lbu0, Lbu).
 
-:- pred annotate_lbu_in_switch( module_info, proc_info, 
+:- pred annotate_lbu_in_switch(module_info, proc_info, 
 			set(prog_var), 
 			set(prog_var), 
 			list(case), list(case)).
-:- mode annotate_lbu_in_switch( in, in, in, out, in, out) is det.
+:- mode annotate_lbu_in_switch(in, in, in, out, in, out) is det.
 
-annotate_lbu_in_switch( HLDS, ProcInfo, Lbu0, Lbu, 
+annotate_lbu_in_switch(HLDS, ProcInfo, Lbu0, Lbu, 
 			Cases0, Cases) :- 
 	list__map_foldl(
-		pred( Case0::in, Case::out, 
+		pred(Case0::in, Case::out, 
 		      L0::in, L::out) is det :-
-			( 
+			(
 			Case0 = case(CONS,Goal0), 
-			annotate_lbu_in_goal( HLDS, ProcInfo, Lbu0, 
+			annotate_lbu_in_goal(HLDS, ProcInfo, Lbu0, 
 					Lnew, Goal0, Goal),
 			Case  = case(CONS,Goal),
-			set__union( L0, Lnew, L )
+			set__union(L0, Lnew, L)
 			),
 		Cases0, Cases, 
 		Lbu0, Lbu).
 
-:- pred annotate_lbu_in_disj( module_info, proc_info, 
+:- pred annotate_lbu_in_disj(module_info, proc_info, 
 			set(prog_var), 
 			set(prog_var), 
 			list(hlds_goal), list(hlds_goal)).
-:- mode annotate_lbu_in_disj( in, in, in, out, in, out) is det.
+:- mode annotate_lbu_in_disj(in, in, in, out, in, out) is det.
 
-annotate_lbu_in_disj( HLDS, ProcInfo, Lbu0, Lbu, 
+annotate_lbu_in_disj(HLDS, ProcInfo, Lbu0, Lbu, 
 			Goals0, Goals) :- 
 	list__map_foldl(
-		pred( Goal0::in, Goal::out, 
-		      L0::in, L::out ) is det :-
-			( 
-			annotate_lbu_in_goal( HLDS, ProcInfo, Lbu0, 
+		pred(Goal0::in, Goal::out, 
+		      L0::in, L::out) is det :-
+			(
+			annotate_lbu_in_goal(HLDS, ProcInfo, Lbu0, 
 					Lnew, Goal0, Goal),
-			set__union( L0, Lnew, L )
+			set__union(L0, Lnew, L)
 			),
 		Goals0, Goals, 
 		Lbu0, Lbu).

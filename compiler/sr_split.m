@@ -17,12 +17,12 @@
 :- import_module hlds_module, io, string.
 :- import_module hlds_pred, sr_data, std_util, hlds_goal.
 
-	% create_multiple_versions( VirginHLDS, ReuseHLDS, FinalHLDS ).
+	% create_multiple_versions(VirginHLDS, ReuseHLDS, FinalHLDS).
 	% Starting from the VirginHLDS, it computes a new HLDS where for
 	% each procedure having conditional reuse (ReuseHLDS), a new
 	% separate reuse-procedure is added. The calls can then also 
 	% be corrected so that they point to the correct reuse-versions.
-:- pred sr_split__create_multiple_versions( module_info::in, module_info::in,
+:- pred sr_split__create_multiple_versions(module_info::in, module_info::in,
 		module_info::out, io__state::di, io__state::uo) is det.
 
 :- pred create_reuse_pred(pred_proc_id::in, memo_reuse::in,
@@ -46,47 +46,47 @@
 reuse_predicate_name(PredName) :- 
 	string__prefix(PredName, "reuse__").
 
-sr_split__create_multiple_versions( VirginHLDS, ReuseHLDS, HLDS) --> 
+sr_split__create_multiple_versions(VirginHLDS, ReuseHLDS, HLDS) --> 
 		% compute the strongly connected components
-	{ create_versions( VirginHLDS, ReuseHLDS, HLDS1) },
-	{ reprocess_all_goals( HLDS1, HLDS ) }.
+	{ create_versions(VirginHLDS, ReuseHLDS, HLDS1) },
+	{ reprocess_all_goals(HLDS1, HLDS) }.
 
 	% reprocess each of the procedures to make sure that all calls
 	% to reuse preds are correct. 
 :- pred reprocess_all_goals(module_info::in, module_info::out) is det.
 
-reprocess_all_goals( HLDS0, HLDS ) :- 
-	module_info_predids( HLDS0, PredIds), 
+reprocess_all_goals(HLDS0, HLDS) :- 
+	module_info_predids(HLDS0, PredIds), 
 	list__foldl(
 		reprocess_all_goals_2,
 		PredIds,
 		HLDS0, 
 		HLDS).
 
-:- pred reprocess_all_goals_2( pred_id::in, module_info::in, 
-		module_info::out ) is det. 
-reprocess_all_goals_2( PredId, HLDS0, HLDS ) :- 
-	module_info_pred_info( HLDS0, PredId, PredInfo0 ), 
-	pred_info_procids( PredInfo0, ProcIds ), 
-	pred_info_procedures( PredInfo0, Procedures0 ), 
+:- pred reprocess_all_goals_2(pred_id::in, module_info::in, 
+		module_info::out) is det. 
+reprocess_all_goals_2(PredId, HLDS0, HLDS) :- 
+	module_info_pred_info(HLDS0, PredId, PredInfo0), 
+	pred_info_procids(PredInfo0, ProcIds), 
+	pred_info_procedures(PredInfo0, Procedures0), 
 	list__foldl(
 		reprocess_all_goals_3(HLDS0),
 		ProcIds,
 		Procedures0, 
 		Procedures
 		), 
-	pred_info_set_procedures( PredInfo0, Procedures, PredInfo), 
-	module_info_set_pred_info( HLDS0, PredId, PredInfo, HLDS ). 
+	pred_info_set_procedures(PredInfo0, Procedures, PredInfo), 
+	module_info_set_pred_info(HLDS0, PredId, PredInfo, HLDS). 
 
-:- pred reprocess_all_goals_3( module_info::in, proc_id::in, 
+:- pred reprocess_all_goals_3(module_info::in, proc_id::in, 
 		proc_table::in, proc_table::out) is det.
-reprocess_all_goals_3( HLDS, ProcId, ProcTable0, ProcTable) :- 
-	map__lookup( ProcTable0, ProcId, ProcInfo0), 
-	proc_info_reuse_information( ProcInfo0 , Memo ), 
+reprocess_all_goals_3(HLDS, ProcId, ProcTable0, ProcTable) :- 
+	map__lookup(ProcTable0, ProcId, ProcInfo0), 
+	proc_info_reuse_information(ProcInfo0 , Memo), 
 	(
 		Memo = yes(Conditions)
 	->
-		proc_info_goal( ProcInfo0, Goal0), 
+		proc_info_goal(ProcInfo0, Goal0), 
 			% If the conditions on the reuse are empty, then
 			% we have unconditional reuse, so make sure when
 			% processing the goal we don't do any actions
@@ -96,35 +96,35 @@ reprocess_all_goals_3( HLDS, ProcId, ProcTable0, ProcTable) :-
 		;
 			LocalReuseOnly = no
 		),
-		process_goal(LocalReuseOnly, Goal0, Goal, HLDS, _ ), 
-		proc_info_set_goal( ProcInfo0, Goal, ProcInfo), 
-		map__det_update( ProcTable0, ProcId, ProcInfo, ProcTable)
+		process_goal(LocalReuseOnly, Goal0, Goal, HLDS, _), 
+		proc_info_set_goal(ProcInfo0, Goal, ProcInfo), 
+		map__det_update(ProcTable0, ProcId, ProcInfo, ProcTable)
 	;
 		ProcTable = ProcTable0
 	).
 
 
-:- pred create_versions( module_info, module_info, module_info).
-:- mode create_versions( in, in, out) is det.
+:- pred create_versions(module_info, module_info, module_info).
+:- mode create_versions(in, in, out) is det.
 
-create_versions( VirginHLDS, ReuseHLDS, HLDS) :- 
-	module_info_predids( ReuseHLDS, PredIds), 
+create_versions(VirginHLDS, ReuseHLDS, HLDS) :- 
+	module_info_predids(ReuseHLDS, PredIds), 
 	list__foldl(
 		create_versions_2(VirginHLDS),
 		PredIds,
 		ReuseHLDS, 
 		HLDS).
 
-:- pred create_versions_2( module_info::in, pred_id::in, 
+:- pred create_versions_2(module_info::in, pred_id::in, 
 			module_info::in, module_info::out) is det.
 
-create_versions_2( VirginHLDS, PredId , HLDS0, HLDS ) :- 
-	module_info_pred_info( HLDS0, PredId, PredInfo0 ), 
-	pred_info_procids( PredInfo0, ProcIds ), 
+create_versions_2(VirginHLDS, PredId , HLDS0, HLDS) :- 
+	module_info_pred_info(HLDS0, PredId, PredInfo0), 
+	pred_info_procids(PredInfo0, ProcIds), 
 	list__foldl(
-		pred( Id::in, H0::in, H::out ) is det :- 
+		pred(Id::in, H0::in, H::out) is det :- 
 		(
-			create_versions_3( VirginHLDS, 
+			create_versions_3(VirginHLDS, 
 				proc(PredId, Id), 
 				H0, H)
 		),
@@ -133,25 +133,25 @@ create_versions_2( VirginHLDS, PredId , HLDS0, HLDS ) :-
 		HLDS
 	).
 
-:- pred create_versions_3( module_info::in, pred_proc_id::in, 
+:- pred create_versions_3(module_info::in, pred_proc_id::in, 
 		module_info::in, module_info::out) is det.
 
-create_versions_3( VirginHLDS, PredProcId, WorkingHLDS, HLDS):- 
-	module_info_pred_proc_info( WorkingHLDS, PredProcId, 
+create_versions_3(VirginHLDS, PredProcId, WorkingHLDS, HLDS):- 
+	module_info_pred_proc_info(WorkingHLDS, PredProcId, 
 				PredInfo0, ProcInfo0),
-	proc_info_reuse_information( ProcInfo0, Memo), 
-	module_info_pred_proc_info( VirginHLDS, PredProcId, _, 
+	proc_info_reuse_information(ProcInfo0, Memo), 
+	module_info_pred_proc_info(VirginHLDS, PredProcId, _, 
 				CleanProcInfo), 
-	proc_info_goal( ProcInfo0, ReuseGoal), 
+	proc_info_goal(ProcInfo0, ReuseGoal), 
 
 	(
 		Memo = no
 	-> 
 		% restore the old status of the procedure
-		module_info_set_pred_proc_info( WorkingHLDS, PredProcId,
+		module_info_set_pred_proc_info(WorkingHLDS, PredProcId,
 				PredInfo0, CleanProcInfo, HLDS)
 	;
-		( 
+		(
 			memo_reuse_is_conditional(Memo) 
 		->
 			% fetch the reuse goal
@@ -184,7 +184,7 @@ create_versions_3( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 			proc_info_set_reuse_information(ProcInfo0,
 					yes([]), ProcInfo),
 
-			module_info_set_pred_proc_info( WorkingHLDS2,
+			module_info_set_pred_proc_info(WorkingHLDS2,
 				PredProcId, PredInfo0, ProcInfo, HLDS)
 		;
 			% memo_reuse is unconditional -- perfect -- 
@@ -199,7 +199,7 @@ create_versions_3( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
 					ProcInfo0),
-	( memo_reuse_is_conditional(TREUSE) ->
+	(memo_reuse_is_conditional(TREUSE) ->
 		create_reuse_pred(TREUSE, PRED_PROC_ID,
 				MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
 				ReusePredInfo, _ReuseProcInfo,

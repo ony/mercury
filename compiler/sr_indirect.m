@@ -36,32 +36,32 @@
 
 compute_fixpoint(HLDS0, HLDSout) -->
 		% compute the strongly connected components
-	{ module_info_ensure_dependency_info( HLDS0, HLDS1) },
-	{ module_info_get_maybe_dependency_info( HLDS1, MaybeDepInfo) } ,
+	{ module_info_ensure_dependency_info(HLDS0, HLDS1) },
+	{ module_info_get_maybe_dependency_info(HLDS1, MaybeDepInfo) } ,
 	(
 		{ MaybeDepInfo = yes(DepInfo) }
 	->
-		{ hlds_dependency_info_get_dependency_ordering( DepInfo,
-				DepOrdering ) },
+		{ hlds_dependency_info_get_dependency_ordering(DepInfo,
+				DepOrdering) },
 		% perform the analysis, and annotate the procedures
-		run_with_dependencies( DepOrdering, HLDS1, HLDS2),
+		run_with_dependencies(DepOrdering, HLDS1, HLDS2),
 		{ HLDSout = HLDS2 }
 	;
 		{ error("(sr_indirect) compute_fixpoint: no dependency info") }
 	).
 
-:- pred run_with_dependencies( dependency_ordering, module_info, 
+:- pred run_with_dependencies(dependency_ordering, module_info, 
 					module_info, io__state, io__state).
-:- mode run_with_dependencies( in, in, out, di, uo) is det.
+:- mode run_with_dependencies(in, in, out, di, uo) is det.
 
-run_with_dependencies( Deps, HLDSin, HLDSout) -->
-	list__foldl2( run_with_dependency, Deps, HLDSin, HLDSout ).
+run_with_dependencies(Deps, HLDSin, HLDSout) -->
+	list__foldl2(run_with_dependency, Deps, HLDSin, HLDSout).
 
-:- pred run_with_dependency( list(pred_proc_id), module_info, module_info,
+:- pred run_with_dependency(list(pred_proc_id), module_info, module_info,
 				io__state, io__state).
-:- mode run_with_dependency( in, in, out, di, uo ) is det.
+:- mode run_with_dependency(in, in, out, di, uo) is det.
 
-run_with_dependency(SCC, HLDSin, HLDSout ) -->
+run_with_dependency(SCC, HLDSin, HLDSout) -->
 	(
 		% analysis ignores special predicates
 		{ pa_sr_util__some_are_special_preds(SCC, HLDSin) }
@@ -70,28 +70,28 @@ run_with_dependency(SCC, HLDSin, HLDSout ) -->
 	;
 		% for each list of strongly connected components, 
 		% perform a fixpoint computation.
-		{ sr_fixpoint_table_init( HLDSin, SCC, FPtable0 ) } , 
-		run_with_dependency_until_fixpoint( SCC, FPtable0, 
-					HLDSin, HLDSout )
+		{ sr_fixpoint_table_init(HLDSin, SCC, FPtable0) } , 
+		run_with_dependency_until_fixpoint(SCC, FPtable0, 
+					HLDSin, HLDSout)
 	).
 
 %-----------------------------------------------------------------------------%
-:- pred run_with_dependency_until_fixpoint( list(pred_proc_id), 
+:- pred run_with_dependency_until_fixpoint(list(pred_proc_id), 
 		sr_fixpoint_table__table, module_info, module_info,
-		io__state, io__state ).
-:- mode run_with_dependency_until_fixpoint( in, in, in, out, di, uo) is det.
+		io__state, io__state).
+:- mode run_with_dependency_until_fixpoint(in, in, in, out, di, uo) is det.
 
-run_with_dependency_until_fixpoint( SCC, FPtable0, HLDSin, HLDSout ) -->
-	list__foldl2( analyse_pred_proc( HLDSin ), SCC, FPtable0, FPtable),
+run_with_dependency_until_fixpoint(SCC, FPtable0, HLDSin, HLDSout) -->
+	list__foldl2(analyse_pred_proc(HLDSin), SCC, FPtable0, FPtable),
 	(
-		{ sr_fixpoint_table_all_stable( FPtable) }
+		{ sr_fixpoint_table_all_stable(FPtable) }
 	->
-		{ list__foldl( update_goal_in_module_info(FPtable), SCC,
+		{ list__foldl(update_goal_in_module_info(FPtable), SCC,
 				HLDSin, HLDSout) }
 	;
 		{ sr_fixpoint_table_new_run(FPtable, 
 				FPtable1) },
-		run_with_dependency_until_fixpoint( SCC, FPtable1, HLDSin, 
+		run_with_dependency_until_fixpoint(SCC, FPtable1, HLDSin, 
 				HLDSout)
 	).
 
@@ -137,11 +137,11 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 			PredId, ProcId, HLDS), 
 		{ sr_fixpoint_table_get_final_reuse(PredProcId, M, _, FPin) }, 
 
-		( 
+		(
 			{ M = yes(Conditions) }
 		-> 
 			{ list__length(Conditions, Length) }, 
-			{ string__int_to_string(Length, LengthS ) }, 
+			{ string__int_to_string(Length, LengthS) }, 
 			{ string__append_list(
 					["%\tNumber of conditions (before):\t",
 					LengthS, "\n"], Msg2) } ,
@@ -177,11 +177,11 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 					analysis_info(_Alias, Pool,
 							_Static, FP1)),
 		/*
-		analyse_goal( ProcInfo, HLDS, 
+		analyse_goal(ProcInfo, HLDS, 
 					Goal0, Goal,
 					Pool0, Pool,
 					Alias0, _Alias, 
-					FPin, FP1 ),
+					FPin, FP1),
 		*/
 		% 	OK
 		% 6. update all kind of information
@@ -196,11 +196,11 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 	;
 		{ sr_fixpoint_table_get_final_reuse(PredProcId,M1,_,FPout) }, 
 
-		( 
-			{ M1 = yes( Conditions1 ) }
+		(
+			{ M1 = yes(Conditions1) }
 		-> 
 			{ list__length(Conditions1, Length1) }, 
-			{ string__int_to_string(Length1, LengthS1 ) }, 
+			{ string__int_to_string(Length1, LengthS1) }, 
 			{ string__append_list(
 					["%\tNumber of conditions (after):\t",
 					LengthS1, "\n"], Msg21) } ,
@@ -225,36 +225,36 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 			hlds_goal::in, hlds_goal::out,
 			analysis_info::in, analysis_info::out) is det.
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = conj(Goals0), 
 	list__map_foldl(analyse_goal(ProcInfo, HLDS), Goals0, Goals, AI0, AI),
 	Expr = conj(Goals),
 	Info = Info0,
 	Goal = Expr - Info. 
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
-	proc_info_vartypes( ProcInfo, VarTypes),
-	list__map( 
-		map__lookup( VarTypes ), 
+	proc_info_vartypes(ProcInfo, VarTypes),
+	list__map(
+		map__lookup(VarTypes), 
 		ActualVars,
 		ActualTypes), 
-	call_verify_reuse( ProcInfo, HLDS,
+	call_verify_reuse(ProcInfo, HLDS,
 			PredId, ProcId, ActualVars, 
 			ActualTypes, Info0, Info, AI0, AI1, _),
-	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
+	pa_run__extend_with_call_alias(HLDS, ProcInfo, 
 		PredId, ProcId, ActualVars, ActualTypes, AI0 ^ alias, Alias),
 	AI = AI1 ^ alias := Alias,
 	Expr = Expr0, 
 	Goal = Expr - Info.
 
-analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = generic_call(_, _, _, _), 
 	pa_alias_as__top("unhandled goal", Alias), 
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0. 
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context), 
 
 		% Record the statically constructed variables.
@@ -271,10 +271,10 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr = Expr0, 
 	Goal = Expr - Info. 
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = switch(Var, CanFail, Cases0, SM),
 	list__map_foldl(
-		(pred( case(ConsId, Gin)::in, Tuple::out,
+		(pred(case(ConsId, Gin)::in, Tuple::out,
 				FPin::in, FPout::out) is det :-
 			analyse_goal(ProcInfo, HLDS, Gin, Gout, 
 				analysis_info(AI0 ^ alias, AI0 ^ pool,
@@ -301,8 +301,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	set__power_union(set__list_to_set(ListStatic), Static),
 
 	% reduce the aliases
-	goal_info_get_outscope(Info, Outscope),
-	pa_alias_as__project_set(Outscope, Alias1, Alias),
+	project_on_live_vars(ProcInfo, Info0, Alias1, Alias),
 
 	AI = analysis_info(Alias, Pool, Static, FP),
 
@@ -310,8 +309,8 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr = switch(Var, CanFail, Cases, SM),
 	Goal = Expr - Info. 
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = disj( Goals0, SM ),
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = disj(Goals0, SM),
 	(
 		Goals0 = []
 	->
@@ -320,7 +319,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	;
 		% XXX up to here
 		list__map_foldl(
-			(pred( Gin::in, Tuple::out,
+			(pred(Gin::in, Tuple::out,
 					FPin::in, FPout::out) is det :-
 				analyse_goal(ProcInfo, HLDS, Gin, Gout, 
 					analysis_info(AI0 ^ alias, AI0 ^ pool,
@@ -346,8 +345,8 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 					Alias1),
 
 		% reduce the aliases
-		goal_info_get_outscope(Info, Outscope),
-		pa_alias_as__project_set(Outscope, Alias1, Alias),
+		pa_alias_as__project_on_live_vars(ProcInfo, Info, Alias1, 
+					Alias),
 
 		AI = analysis_info(Alias, Pool, Static, FP)
 	),
@@ -356,29 +355,29 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr = disj(Goals, SM),
 	Goal = Expr - Info. 
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = not(NegatedGoal0),
 	analyse_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal, AI0, AI),
 	Info = Info0, 
 	Expr = not(NegatedGoal),
 	Goal = Expr - Info. 
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = some(A, B, SomeGoal0), 
 	analyse_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, AI0, AI),
 	Info = Info0, 
 	Expr = some(A, B, SomeGoal), 
 	Goal = Expr - Info.
 
-analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = if_then_else( Vars, Cond0, Then0, Else0, SM),
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM),
 	analyse_goal(ProcInfo, HLDS, Cond0, Cond, AI0, AI_Cond),
 	analyse_goal(ProcInfo, HLDS, Then0, Then, AI_Cond, AI_Then),
 
 	AI1 = AI0 ^ table := AI_Then ^ table,
 	analyse_goal(ProcInfo, HLDS, Else0, Else, AI1, AI_Else),
 
-	indirect_reuse_pool_least_upper_bound_disjunction( 
+	indirect_reuse_pool_least_upper_bound_disjunction(
 				[AI_Then ^ pool, AI_Else ^ pool],
 				Pool),
 
@@ -388,18 +387,18 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Static = AI_Then ^ static `set__union` AI_Else ^ static,
 	
 	% reduce the aliases
-	goal_info_get_outscope( Info, Outscope ),
-	pa_alias_as__project_set( Outscope, Alias1, Alias ),
+	goal_info_get_outscope(Info, Outscope),
+	pa_alias_as__project_set(Outscope, Alias1, Alias),
 
 	AI = analysis_info(Alias, Pool, Static, AI1 ^ table),
 
 	Info = Info0,
-	Expr = if_then_else( Vars, Cond, Then, Else, SM),
+	Expr = if_then_else(Vars, Cond, Then, Else, SM),
 	Goal = Expr - Info.
 
 analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = pragma_foreign_code(Attrs, PredId, ProcId, 
-					Vars, MaybeModes, Types, _ ), 
+					Vars, MaybeModes, Types, _), 
 	pa_alias_as__extend_foreign_code(HLDS, ProcInfo, Attrs, 
 			PredId, ProcId, Vars, 
 			MaybeModes, Types, Info0, AI0 ^ alias, Alias),
@@ -407,7 +406,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr0 - Info0. 
 
 analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
-	Expr0 = par_conj( _, _), 
+	Expr0 = par_conj(_, _), 
 	pa_alias_as__top("unhandled goal (par_conj)", Alias), 
 	AI = AI0 ^ alias := Alias,
 	Goal = Expr0 - Info0. 
@@ -419,9 +418,9 @@ analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Goal = Expr0 - Info0. 
 
 
-:- pred call_verify_reuse( proc_info::in, module_info::in,
+:- pred call_verify_reuse(proc_info::in, module_info::in,
 		pred_id::in, proc_id::in, list(prog_var)::in,
-		list( (type) )::in, 
+		list((type))::in, 
 		hlds_goal_info::in, hlds_goal_info::out, 
 		analysis_info::in, analysis_info::out, bool::out) is det.
 
@@ -434,22 +433,22 @@ call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
 			Alias0, Static, Pool0, Pool, GoalInfo0, GoalInfo,
 			FP0, FP, YesNo).
 
-:- pred call_verify_reuse( proc_info::in, module_info::in, pred_id::in,
-		proc_id::in, list(prog_var)::in, list( (type) )::in, 
+:- pred call_verify_reuse(proc_info::in, module_info::in, pred_id::in,
+		proc_id::in, list(prog_var)::in, list((type))::in, 
 		alias_as::in,
 		set(prog_var)::in, indirect_reuse_pool::in,
 		indirect_reuse_pool::out, hlds_goal_info::in ,
 		hlds_goal_info::out, sr_fixpoint_table__table::in,
 		sr_fixpoint_table__table::out, bool::out) is det.
 
-call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, 
+call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0, 
 			ActualVars, ActualTypes, Alias0, 
 			StaticTerms, Pool0, Pool, 
-			Info0, Info, FP0, FP, YesNo ) :- 
+			Info0, Info, FP0, FP, YesNo) :- 
 
 	module_info_structure_reuse_info(HLDS, ReuseInfo),
 	ReuseInfo = structure_reuse_info(ReuseMap),
-	( map__search(ReuseMap, proc(PredId0, ProcId0), Result) ->
+	(map__search(ReuseMap, proc(PredId0, ProcId0), Result) ->
 		Result = proc(PredId, ProcId) - _Name
 	;
 		PredId = PredId0,
@@ -457,10 +456,10 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 	),
 
 	% 0. fetch the procinfo of the called procedure:
-	module_info_pred_proc_info( HLDS, PredId, ProcId, PredInfo, 
+	module_info_pred_proc_info(HLDS, PredId, ProcId, PredInfo, 
 					ProcInfo0),
 	% 1. find the tabled reuse for the called predicate
-	lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP,
+	lookup_memo_reuse(PredId, ProcId, HLDS, FP0, FP,
 					FormalMemo),	
 	% 2. once found, we can immediately handle the case where
 	% the tabled reuse would say that reuse is not possible anyway:
@@ -468,12 +467,12 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 		% unconditional reuse
 		FormalMemo = yes([])
 	->
-		indirect_reuse_pool_add_unconditional( Pool0, Pool ), 
+		indirect_reuse_pool_add_unconditional(Pool0, Pool), 
 		Info = Info0, 
 		YesNo = yes
 	;
 		% no reuse possible anyway
-		( 
+		(
 			memo_reuse_top(FormalMemo) ; 
 			pa_alias_as__is_top(Alias0)
 		)
@@ -482,10 +481,10 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 		Info = Info0, 
 		YesNo = no
 	;
-		memo_reuse_rename( ProcInfo0, ActualVars, FormalMemo, 
-					Memo0 ), 
-		pred_info_arg_types( PredInfo, FormalTypes) ,
-		memo_reuse_rename_types( FormalTypes, ActualTypes, 
+		memo_reuse_rename(ProcInfo0, ActualVars, FormalMemo, 
+					Memo0), 
+		pred_info_arg_types(PredInfo, FormalTypes) ,
+		memo_reuse_rename_types(FormalTypes, ActualTypes, 
 					Memo0, Memo),
 		% 3. compute the Live variables upon a procedure entry:
 		% 3.a. compute the full live set at the program point of
@@ -499,19 +498,19 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 		goal_info_get_lfu(Info0, LFUi),
 		goal_info_get_lbu(Info0, LBUi),
 		set__union(LFUi, LBUi, LUi),
-		pa_alias_as__live( HLDS, ProcInfo, LUi, LIVE0, Alias0, Live_i),
+		pa_alias_as__live(HLDS, ProcInfo, LUi, LIVE0, Alias0, Live_i),
 		% 3.b. project the live-set to the actual vars:
-		sr_live__project( ActualVars, Live_i, ActualLive_i ),
+		sr_live__project(ActualVars, Live_i, ActualLive_i),
 		% 4. project the aliases to the actual vars
-		pa_alias_as__project( ActualVars, Alias0, ActualAlias_i),
+		pa_alias_as__project(ActualVars, Alias0, ActualAlias_i),
 		(
 				% XXX replace that with the actual
 				% static set!
-			memo_reuse_verify_reuse( ProcInfo, HLDS, 
+			memo_reuse_verify_reuse(ProcInfo, HLDS, 
 				Memo, ActualLive_i, ActualAlias_i,
 				StaticTerms)
 		->
-			indirect_reuse_pool_add( HLDS, ProcInfo,
+			indirect_reuse_pool_add(HLDS, ProcInfo,
 				Memo, LFUi, LBUi, 
 				Alias0, ConditionalReuse, Pool0, Pool),
 			goal_info_set_reuse(Info0,
@@ -521,10 +520,10 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 		;
 			Pool = Pool0,
 	
-			examine_cause_of_missed_reuse( HLDS, ProcInfo, 
+			examine_cause_of_missed_reuse(HLDS, ProcInfo, 
 					LFUi, LBUi, 
 					StaticTerms, Memo, 
-					Cause ), 
+					Cause), 
 			
 			goal_info_set_reuse(Info0, 
 				reuse(missed_reuse_call(Cause)), Info), 
@@ -532,15 +531,15 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 		)
 	).
 
-:- pred examine_cause_of_missed_reuse( module_info::in, 
+:- pred examine_cause_of_missed_reuse(module_info::in, 
 			proc_info::in, 
 			set(prog_var)::in, 
 			set(prog_var)::in, 
 			set(prog_var)::in, 
 			memo_reuse::in, list(string)::out) is det. 
-examine_cause_of_missed_reuse( ModuleInfo, ProcInfo, 
-		LFU, LBU, Static, Memo, Causes ) :- 
-	( 
+examine_cause_of_missed_reuse(ModuleInfo, ProcInfo, 
+		LFU, LBU, Static, Memo, Causes) :- 
+	(
 		Memo = yes(Conditions) 
 	->
 		list__filter_map(
@@ -554,7 +553,7 @@ examine_cause_of_missed_reuse( ModuleInfo, ProcInfo,
 		Causes = [Cause]
 	).
 
-:- pred examine_cause_of_missed_condition( module_info::in, 
+:- pred examine_cause_of_missed_condition(module_info::in, 
 			proc_info::in, 
 			set(prog_var)::in, 
 			set(prog_var)::in, 
@@ -562,15 +561,15 @@ examine_cause_of_missed_reuse( ModuleInfo, ProcInfo,
 			reuse_condition::in, 
 			string::out) is semidet.
 
-examine_cause_of_missed_condition( ModuleInfo, ProcInfo, 
-		LFU, LBU, StaticVars, Condition, Cause ) :- 
+examine_cause_of_missed_condition(ModuleInfo, ProcInfo, 
+		LFU, LBU, StaticVars, Condition, Cause) :- 
 	sr_live__init(DummyLive), 
-	pa_alias_as__init( BottomAlias), 
-	pa_alias_as__live( ModuleInfo, ProcInfo, 
+	pa_alias_as__init(BottomAlias), 
+	pa_alias_as__live(ModuleInfo, ProcInfo, 
 			LFU, DummyLive, BottomAlias, LFU_Live), 
-	pa_alias_as__live( ModuleInfo, ProcInfo, 
+	pa_alias_as__live(ModuleInfo, ProcInfo, 
 			LBU, DummyLive, BottomAlias, LBU_Live), 
-	Condition = condition( Nodes, _LU, _LA ), 
+	Condition = condition(Nodes, _LU, _LA), 
 	% 
 	NodesL = set__to_sorted_list(Nodes),
 	(
@@ -590,8 +589,8 @@ examine_cause_of_missed_condition( ModuleInfo, ProcInfo,
 		% not due to static vars
 		% check for LFU
 		list__filter(
-			( pred(D::in) is semidet :- 
-			  sr_live__is_live_datastruct( ModuleInfo, 
+			(pred(D::in) is semidet :- 
+			  sr_live__is_live_datastruct(ModuleInfo, 
 				ProcInfo, D, LFU_Live)
 			), 
 			NodesL, 
@@ -604,8 +603,8 @@ examine_cause_of_missed_condition( ModuleInfo, ProcInfo,
 		% not due to LFU
 		% check LBU
 		list__filter(
-			( pred(D::in) is semidet :- 
-			  sr_live__is_live_datastruct( ModuleInfo, 
+			(pred(D::in) is semidet :- 
+			  sr_live__is_live_datastruct(ModuleInfo, 
 				ProcInfo, D, LBU_Live)
 			), 
 			NodesL, 
@@ -621,31 +620,31 @@ examine_cause_of_missed_condition( ModuleInfo, ProcInfo,
 				
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
-:- pred lookup_memo_reuse( pred_id, proc_id, module_info, 
+:- pred lookup_memo_reuse(pred_id, proc_id, module_info, 
 		sr_fixpoint_table__table, sr_fixpoint_table__table, 
-		memo_reuse ).
-:- mode lookup_memo_reuse( in, in, in, in, out, out) is det.
+		memo_reuse).
+:- mode lookup_memo_reuse(in, in, in, in, out, out) is det.
 
 	% similar to the lookup_call_alias from pa_run:
 	% 1. check in fixpoint table
 	% 2. check in module_info (already fully analysed or imported pred)
 	%    no special treatment necessary for primitive predicates and
 	%    alike, as the default of predicates is no reuse anyway.
-lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):- 
+lookup_memo_reuse(PredId, ProcId, HLDS, FP0, FP, Memo):- 
 	PredProcId = proc(PredId, ProcId),
 	(
 		% 1 - check in table
-		sr_fixpoint_table_get_reuse( PredProcId, 
-					Memo1, FP0, FP1 )
+		sr_fixpoint_table_get_reuse(PredProcId, 
+					Memo1, FP0, FP1)
 	->
 		Memo = Memo1,
 		FP = FP1
 	;
 		FP = FP0,
 		% 2 - lookup in module_info
-		module_info_pred_proc_info( HLDS, PredProcId, _PredInfo,
-						ProcInfo ),
-		proc_info_reuse_information( ProcInfo, Memo)
+		module_info_pred_proc_info(HLDS, PredProcId, _PredInfo,
+						ProcInfo),
+		proc_info_reuse_information(ProcInfo, Memo)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -660,16 +659,16 @@ lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):-
 :- pred indirect_reuse_pool_init(list(prog_var)::in, 
 		memo_reuse::in, 
 		indirect_reuse_pool::out) is det.
-:- pred indirect_reuse_pool_get_memo_reuse( indirect_reuse_pool::in, 
+:- pred indirect_reuse_pool_get_memo_reuse(indirect_reuse_pool::in, 
 		memo_reuse::out) is det.
-:- pred indirect_reuse_pool_least_upper_bound_disjunction( 
+:- pred indirect_reuse_pool_least_upper_bound_disjunction(
 		list(indirect_reuse_pool)::in, 
 		indirect_reuse_pool::out) is det.
-:- pred indirect_reuse_pool_least_upper_bound( 
+:- pred indirect_reuse_pool_least_upper_bound(
 		indirect_reuse_pool::in,
 		indirect_reuse_pool::in, 
-		indirect_reuse_pool::out ) is det.
-:- pred indirect_reuse_pool_add( module_info::in, proc_info::in, 
+		indirect_reuse_pool::out) is det.
+:- pred indirect_reuse_pool_add(module_info::in, proc_info::in, 
 		memo_reuse::in, 
 		set(prog_var)::in, set(prog_var)::in, alias_as::in, bool::out,
 		indirect_reuse_pool::in, indirect_reuse_pool::out) is det. 
@@ -677,10 +676,10 @@ lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):-
 		indirect_reuse_pool::out) is det.
 		
 
-indirect_reuse_pool_init( HVs, MEMO, pool( HVs, MEMO) ).
-indirect_reuse_pool_get_memo_reuse( pool(_, MEMO), MEMO). 
+indirect_reuse_pool_init(HVs, MEMO, pool(HVs, MEMO)).
+indirect_reuse_pool_get_memo_reuse(pool(_, MEMO), MEMO). 
 
-indirect_reuse_pool_least_upper_bound_disjunction( List, Pool ):-
+indirect_reuse_pool_least_upper_bound_disjunction(List, Pool):-
 	(
 		List = [ P1 | R ]
 	->
@@ -695,13 +694,13 @@ indirect_reuse_pool_least_upper_bound_disjunction( List, Pool ):-
 
 :- import_module instmap.
 
-indirect_reuse_pool_least_upper_bound( Pool1, Pool2, Pool ):-
-	Pool1 = pool( HVS, Memo1 ), 
-	Pool2 = pool( _, Memo2 ), 
-	memo_reuse_merge( Memo1, Memo2, Memo), 
+indirect_reuse_pool_least_upper_bound(Pool1, Pool2, Pool):-
+	Pool1 = pool(HVS, Memo1), 
+	Pool2 = pool(_, Memo2), 
+	memo_reuse_merge(Memo1, Memo2, Memo), 
 	Pool = pool(HVS, Memo). 
 
-indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse, 	
+indirect_reuse_pool_add(HLDS, ProcInfo, MemoReuse, 	
 		LFUi, LBUi, Alias0, ConditionalReuse, Pool0, Pool) :- 
 
 	(
@@ -710,13 +709,13 @@ indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse,
 			% XXX instmap here simply initialized, as currently
 			% it's not used in the normalization anyway.. 	
 		instmap__init_reachable(InstMap0), 
-		pa_alias_as__normalize( ProcInfo, HLDS, InstMap0, 
+		pa_alias_as__normalize(ProcInfo, HLDS, InstMap0, 
 				Alias0, Alias), 
 		
-		Pool0 = pool( HVS, ExistingMemo), 
+		Pool0 = pool(HVS, ExistingMemo), 
 		list__map(
 			reuse_condition_update(ProcInfo, HLDS, 
-				LFUi, LBUi, Alias, HVS ), 
+				LFUi, LBUi, Alias, HVS), 
 			OldConditions,
 			NewConditions0),
 		reuse_conditions_simplify(NewConditions0, NewConditions), 
@@ -729,13 +728,13 @@ indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse,
 		),
 		memo_reuse_merge(ExistingMemo, yes(NewConditions), 
 				NewMemo), 
-		Pool = pool( HVS, NewMemo )
+		Pool = pool(HVS, NewMemo)
 	;
 		error("indirect_reuse_pool_add: never enter.")
 	).
 
-indirect_reuse_pool_add_unconditional( Pool0, Pool ) :- 
-	Pool0 = pool( Hvs, Memo0 ),
+indirect_reuse_pool_add_unconditional(Pool0, Pool) :- 
+	Pool0 = pool(Hvs, Memo0),
 	(
 		Memo0 = no
 	->
@@ -743,7 +742,7 @@ indirect_reuse_pool_add_unconditional( Pool0, Pool ) :-
 	;
 		Memo = Memo0
 	),
-	Pool = pool( Hvs, Memo).
+	Pool = pool(Hvs, Memo).
 
 
 
