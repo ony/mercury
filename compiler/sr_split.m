@@ -15,6 +15,7 @@
 :- interface.
 
 :- import_module hlds_module, io.
+:- import_module hlds_pred, sr_data, std_util, hlds_goal.
 
 	% create_multiple_versions( VirginHLDS, ReuseHLDS, FinalHLDS ).
 	% Starting from the VirginHLDS, it computes a new HLDS where for
@@ -24,6 +25,9 @@
 :- pred sr_split__create_multiple_versions( module_info::in, module_info::in,
 		module_info::out, io__state::di, io__state::uo) is det.
 
+:- pred create_reuse_pred(pred_proc_id::in, memo_reuse::in,
+		maybe(hlds_goal)::in,
+		module_info::in, module_info::out) is det.
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -131,6 +135,40 @@ create_versions( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 	).
 
 	
+create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
+	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
+					ProcInfo0),
+	( memo_reuse_is_conditional(TREUSE) ->
+		create_reuse_pred(TREUSE, MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
+				ReusePredInfo, _ReuseProcInfo,
+				ReuseProcId, ReuseName),
+
+		module_info_get_predicate_table(HLDSin, PredTable0),
+		predicate_table_insert(PredTable0, ReusePredInfo,
+				ReusePredId, PredTable),
+		module_info_structure_reuse_info(HLDSin, StrReuseInfo0),
+		StrReuseInfo0 = structure_reuse_info(ReuseMap0),
+		map__det_insert(ReuseMap0, PRED_PROC_ID,
+				proc(ReusePredId, ReuseProcId) - ReuseName,
+				ReuseMap),
+		StrReuseInfo = structure_reuse_info(ReuseMap),
+		module_info_set_structure_reuse_info(HLDSin,
+				StrReuseInfo, HLDSin1),
+		module_info_set_predicate_table(HLDSin1, PredTable, HLDSout)
+	% ; contains_unconditional_reuse(TREUSE) ->
+	;
+		proc_info_set_reuse_information(ProcInfo0, 
+						TREUSE, ProcInfo1),
+		(
+			MaybeHLDS_GOAL = yes(HLDS_GOAL),
+			proc_info_set_goal(ProcInfo1, HLDS_GOAL, ProcInfo)
+		;
+			MaybeHLDS_GOAL = no,
+			ProcInfo = ProcInfo1
+		),
+		module_info_set_pred_proc_info(HLDSin, PRED_PROC_ID, 
+				PredInfo0, ProcInfo, HLDSout)
+	).
 
 :- pred create_reuse_pred(memo_reuse::in, maybe(hlds_goal)::in,
 		pred_info::in, proc_info::in,

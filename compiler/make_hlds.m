@@ -99,9 +99,11 @@
 :- import_module fact_table, purity, goal_util, term_util, export, llds.
 :- import_module error_util.
 :- import_module pa_run, pa_alias_as.
+:- import_module sr_data, sr_split.
 
 :- import_module string, char, int, set, bintree, map, multi_map, require.
 :- import_module bag, term, varset, getopt, assoc_list, term_io.
+
 
 parse_tree_to_hlds(module(Name, Items), MQInfo0, EqvMap, Module, QualInfo,
 		UndefTypes, UndefModes) -->
@@ -535,16 +537,11 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
                                         HeadVars,MaybeAlias, Module0, Module)
 		
 	;
-		{ Pragma = sr_reuse_info(_PredOrFunc, _SymName, _ModeList,
-			_HeadVars, _TREUSE, _MaybeReuseSymName) },
-		{ Module = Module0 }
-		/** DO NOTHING
 		{ Pragma = sr_reuse_info(PredOrFunc, SymName, ModeList,
-			HeadVars, TREUSE, MaybeReuseSymName) },
+			HeadVars, Memo, MaybeReuseSymName) },
 		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
-					HeadVars, TREUSE, MaybeReuseSymName,
+					HeadVars, Memo, MaybeReuseSymName,
 					Module0, Module)
-		**/
 	;
 		{ Pragma = terminates(Name, Arity) },
 		add_pred_marker(Module0, "terminates", Name, Arity,
@@ -1486,9 +1483,8 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 
 %-----------------------------------------------------------------------------%
 
-/**********
 :- pred add_pragma_reuse_info( pred_or_func, sym_name, list(mode),
-		list(var(T)), sr_reuse__tabled_reuse, maybe(sym_name),
+		list(var(T)), sr_data__memo_reuse, maybe(sym_name),
 		module_info, module_info, 
 		io__state, io__state).
 :- mode add_pragma_reuse_info( in, in, in, in, in, in, in, out, di, uo) 
@@ -1519,9 +1515,10 @@ add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
 			{ list__map( term__coerce_var, HeadVars, CHeadVars )},
 			{ map__from_corresponding_lists(CHeadVars,
 				ProcHeadVars, MapHeadVars) },
-			{ sr_reuse__tabled_reuse_rename( MapHeadVars, TREUSE, 
+			{ sr_data__memo_reuse_rename( MapHeadVars, TREUSE, 
 						RenTREUSE) },
-			{ create_reuse_pred(proc(PredId, ProcId), RenTREUSE,
+			{ sr_split__create_reuse_pred(proc(PredId, ProcId),
+					RenTREUSE,
 					no, Module0, Module) }
 		;
 
@@ -1552,8 +1549,6 @@ add_pragma_reuse_info(PredOrFunc,SymName, Modes, HeadVars, TREUSE,
 	   io__set_exit_status(1)
 	   % { module_info_incr_errors(Module0, Module) }
 	).
-
-************/
 
 %-----------------------------------------------------------------------------%
 
