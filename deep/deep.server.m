@@ -98,31 +98,31 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 		menu_item(URLprefix, "root",
 			"Exploring the call graph.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+self+time+1-100",
+		menu_item(URLprefix, "procs+time+self+1-100",
 			"Top 100 most expensive procedures: time, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+both+time+1-100",
+		menu_item(URLprefix, "procs+time+both+1-100",
 			"Top 100 most expensive procedures: time, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+self+words+1-100",
+		menu_item(URLprefix, "procs+words+self+1-100",
 			"Top 100 most expensive procedures: words, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+both+words+1-100",
+		menu_item(URLprefix, "procs+words+both+1-100",
 			"Top 100 most expensive procedures: words, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+self+time+0.1",
+		menu_item(URLprefix, "procs+time+self+0.1",
 			"Procedures above 0.1% threshold: time, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+both+time+0.1",
+		menu_item(URLprefix, "procs+time+both+0.1",
 			"Procedures above 0.1% threshold: time, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+self+words+0.1",
+		menu_item(URLprefix, "procs+words+self+0.1",
 			"Procedures above 0.1% threshold: words, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+both+words+0.1",
+		menu_item(URLprefix, "procs+words+both+0.1",
 			"Procedures above 0.1% threshold: words, self+desc.")
 			++
 		"</ul>\n" ++
