@@ -500,8 +500,6 @@ mercury_output_item(typeclass(Constraints, ClassName, Vars, Interface,
 	mercury_output_class_constraint_list(Constraints, VarSet, "<=",
 		AppendVarnums),
 
-	io__write_string(" where [\n"),
-
 	(
 		{ Interface = abstract },
 		io__write_string(".\n")
