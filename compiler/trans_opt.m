@@ -123,7 +123,7 @@ trans_opt__write_optfile(Module) -->
 			io__write_string(":- use_module "),
 			io__write_list(Modules, ",",
 					mercury_output_bracketed_sym_name),
-			io__write_string(".")
+			io__write_string(".\n")
 		;
 			[]
 		),
