@@ -432,6 +432,7 @@ tabled_reuse_parse( ReuseInformation, ParsedReuse, MaybeReuseName ) :-
 		ParsedReuse = yes(Conditions)
 	).
 
+
 :- pred conditions_list_parse( list(term(T)),
 		list(reuse_condition), sym_name).
 :- mode conditions_list_parse( in, out, out ) is det.
@@ -864,19 +865,52 @@ direct_reuse_list_order( Lin, Lout ) :-
 
 direct_reuses_try_to_reuse( CONS_ID, DRsIN, Var, DRsOUT ) :- 
 	DRsIN = direct_reuses( Gin, L),
-	map__search( Gin, CONS_ID, LIST_REUSES_in), 
+	map__keys( Gin, ALL_CONSES), 
+	select_most_matching_cons( ALL_CONSES, CONS_ID, SELECTED_CONS_ID), 
+	map__lookup( Gin, SELECTED_CONS_ID, LIST_REUSES_in),
 	direct_reuse_list_try_to_reuse( LIST_REUSES_in, Var, LIST_REUSES_out),
-	map__det_update( Gin, CONS_ID, LIST_REUSES_out, Gout),
+	map__det_update( Gin, SELECTED_CONS_ID, LIST_REUSES_out, Gout),
 	DRsOUT = direct_reuses( Gout, L).
+
+:- pred select_most_matching_cons( list(cons_id), cons_id, cons_id).
+:- mode select_most_matching_cons( in, in, out ) is semidet.
+
+select_most_matching_cons( LIST, C, MATCH ) :- 
+	(
+		list__member( C, LIST )
+	->
+		MATCH = C
+	;
+		% cons_id_arity(C, ARITY),
+		% select_same_arity_cons( LIST, ARITY, MATCH)
+		fail
+	).
+
+	% picks out the first cons_id occuring in the given list that
+	% has the same arity as the given cons_id.	
+:- pred select_same_arity_cons( list(cons_id), int, cons_id).
+:- mode select_same_arity_cons( in, in, out) is semidet.
+
+select_same_arity_cons( LIST, ARITY, MATCH ):-
+	LIST = [ CONS | REST ], 
+	(
+		cons_id_arity( CONS, ARITY )
+	->
+		MATCH = CONS
+	; 
+		select_same_arity_cons( REST, ARITY, MATCH )
+	).
+	
 
 :- pred direct_reuse_list_try_to_reuse( list(direct_reuse), prog_var, 
 					list(direct_reuse) ).
-:- mode direct_reuse_list_try_to_reuse( in, out, out) is det.
+:- mode direct_reuse_list_try_to_reuse( in, out, out) is semidet.
 
 direct_reuse_list_try_to_reuse( Lin, Var, Lout) :- 
 	(
 		Lin = [ Fin | R ] 
 	->
+		direct_reuse_get_candidates(Fin, 0),
 		direct_reuse_get_var(Fin, Var), 
 		direct_reuse_update_candidates( Fin, 1, Fout ),
 		direct_reuse_list_order( [Fout | R ], Lout)
