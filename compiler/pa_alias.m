@@ -379,7 +379,7 @@ from_unification(_ProcInfo, _HLDS, complicated_unify(_,_,_), _, AS):-
 is_of_a_primitive_type(ProcInfo, HLDS, Var):-
 	proc_info_vartypes(ProcInfo, VarTypes),
 	map__lookup(VarTypes, Var, VarType), 
-	type_util__type_is_atomic(VarType, HLDS).
+	type_util__type_is_guaranteed_atomic(VarType, HLDS).
 
 :- pred alias_from_unif(module_info::in, proc_info::in, 
 		prog_var::in, cons_id::in, pair(int, prog_var)::in, 
