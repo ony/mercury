@@ -216,7 +216,7 @@ annotate_case(ProcInfo, HLDS, Pool0, Alias0, Case0, Case, Pool, Alias) :-
 unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 		Pool0, Pool, Info0, Info) :- 
 	(
-		Unification = deconstruct(Var, ConsId, _, _, _, _)
+		Unification = deconstruct(Var, _ConsId, Vars, _, _, _)
 	->
 		goal_info_get_lfu(Info0, LFU), 
 		goal_info_get_lbu(Info0, LBU),
@@ -237,7 +237,7 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 			Pool = Pool0
 		;
 			add_dead_cell(ModuleInfo, ProcInfo, 
-					Var, ConsId, 
+					Var, list__length(Vars), 
 					LFU, LBU,
 					Alias0, Pool0, Pool, 
 					ReuseCondition),
@@ -246,9 +246,18 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 					yes(ReuseCondition))), Info) 
 		)
 	;
-		Unification = construct(_, ConsId, _, _, _, _, _)
+		Unification = construct(_, ConsId, Vars, _, _, _, _)
 	->
-		dead_cell_pool_try_to_reuse(ConsId, Pool0, ReuseVarsConds),
+			% XXX to avoid trying to reuse cells such as
+			% pred_const, which don't have a valid cons_id
+			% passed to them in ml_gen_new_object. ie
+			% pred_const's
+		( cons_id_maybe_arity(ConsId, no) ->
+			set__init(ReuseVarsConds)
+		;
+			dead_cell_pool_try_to_reuse(list__length(Vars),
+					Pool0, ReuseVarsConds)
+		),
 		goal_info_set_reuse(Info0, choice(construct(ReuseVarsConds)),
 				Info),
 		Pool = Pool0
@@ -276,10 +285,11 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 	% who would be interested in reusing the dead cell. 
 :- type dead_extra_info --->
 		extra(
-			arity, 		% instead of keeping the cons, 
-					% just keep it's size as a way to
-					% compare cons'es and their
-					% mutual reusability.
+			int, 		% the number of variables in the
+					% cell, note that is different
+					% to the arity of the cell.
+					% ie type_info's, existentially
+					% typed data constructors
 			reuse_condition, 
 			list(prog_var) 	% XXX for the moment always kept
 					% empty
@@ -290,14 +300,14 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 	% test if empty
 :- pred dead_cell_pool_is_empty(dead_cell_pool::in) is semidet.
 
-:- pred add_dead_cell(module_info, proc_info, prog_var, cons_id, set(prog_var), 
+:- pred add_dead_cell(module_info, proc_info, prog_var, int, set(prog_var), 
 			set(prog_var), alias_as, 
 			dead_cell_pool, dead_cell_pool, 
 			reuse_condition).
 :- mode add_dead_cell(in, in, in, in, in, in, in, in, out, out) is det.
 
 	% given its reuse_condition, add the dead cell to dr_info.
-:- pred add_dead_cell(prog_var, cons_id, reuse_condition, 
+:- pred add_dead_cell(prog_var, int, reuse_condition, 
 			dead_cell_pool, dead_cell_pool) is det.
 :- mode add_dead_cell(in, in, in, in, out) is det.
 
@@ -318,7 +328,7 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 					dead_cell_pool).
 :- mode dead_cell_pool_leave_scope(in, in, out) is det.
 
-:- pred dead_cell_pool_try_to_reuse(cons_id, dead_cell_pool, 
+:- pred dead_cell_pool_try_to_reuse(int, dead_cell_pool, 
 		set(reuse_var)).
 :- mode dead_cell_pool_try_to_reuse(in, in, out) is det.
 
@@ -328,32 +338,34 @@ dead_cell_pool_init(HVS, Pool):-
 dead_cell_pool_is_empty(pool(_, Pool)):- 
 	map__is_empty(Pool).
 
-add_dead_cell(ModuleInfo, ProcInfo, Var, Cons, LFU, LBU, 
+add_dead_cell(ModuleInfo, ProcInfo, Var, Size, LFU, LBU, 
 			Alias0, Pool0, Pool, Condition) :- 
 	Pool0 = pool(HVS, _Map0), 
 	reuse_condition_init(ModuleInfo, ProcInfo, Var, LFU, LBU, 
 			Alias0, HVS, Condition),
-	add_dead_cell(Var, Cons, Condition, Pool0, Pool).
+
+		% XXX This needs to be investigated more, but cells of
+		% size 0 are things like characters and integers and so
+		% forth which aren't represented on the heap, so we
+		% don't want to reuse their storage, I think.
+	( Size > 0 ->
+		add_dead_cell(Var, Size, Condition, Pool0, Pool)
+	;
+		Pool = Pool0
+	).
 
 
-add_dead_cell(Var, Cons, ReuseCond, pool(HVS, Pool0), 
+add_dead_cell(Var, Size, ReuseCond, pool(HVS, Pool0), 
 				     pool(HVS, Pool)) :- 
 		% XXX Candidates are always zero. For the
 		% moment we will not try to track this ! 
-	cons_id_maybe_arity(Cons, MaybeArity), 
+	Extra = extra(Size, ReuseCond, []),
 	(
-		MaybeArity = yes(Arity)
+		map__insert(Pool0, Var, Extra, Pool1)
 	->
-		Extra = extra(Arity, ReuseCond, []),
-		(
-			map__insert(Pool0, Var, Extra, Pool1)
-		->
-			Pool = Pool1
-		;
-			require__error("(sr_direct) add_dead_cell: trying to add dead variable whilst already being marked as dead?")
-		)
+		Pool = Pool1
 	;
-		Pool = Pool0
+		error("(sr_dead) add_dead_cell: trying to add dead variable whilst already being marked as dead?")
 	).
 
 
@@ -428,32 +440,20 @@ dead_cell_pool_leave_scope(ScopeVarsSet, P0, P) :-
 	map__from_assoc_list(AssocList, Pool),
 	P = pool(HVS, Pool).
 	
-dead_cell_pool_try_to_reuse(Cons, Pool, Set) :-
+dead_cell_pool_try_to_reuse(Size, Pool, Set) :-
 	Pool = pool(_HVS, Map), 
-	cons_id_maybe_arity(Cons, MaybeArity), 
-	(
-		MaybeArity = yes(Arity)
-	->
-		map__to_assoc_list(Map, AssocList),
-		list__filter(
-			cons_can_reuse(Arity), 
-			AssocList, 
-			CellsThatCanBeReused),
-		list__map(
-			to_pair_var_condition, 
-			CellsThatCanBeReused,
-			VarConditionPairs),
-		set__list_to_set(VarConditionPairs, Set)
-	;
-		set__init(Set)
-	).
+	map__to_assoc_list(Map, AssocList),
+	list__filter(cons_can_reuse(Size), AssocList, CellsThatCanBeReused),
+	list__map(to_pair_var_condition, 
+			CellsThatCanBeReused, VarConditionPairs),
+	set__list_to_set(VarConditionPairs, Set).
 
-:- pred cons_can_reuse(arity, pair(prog_var, dead_extra_info)).
+:- pred cons_can_reuse(int, pair(prog_var, dead_extra_info)).
 :- mode cons_can_reuse(in, in) is semidet.
 
-cons_can_reuse(Arity, _Var - Extra) :- 
-	Extra = extra(DeadArity, _, _), 
-	Arity =< DeadArity.
+cons_can_reuse(Size, _Var - Extra) :- 
+	Extra = extra(DeadSize, _, _), 
+	Size =< DeadSize.
 
 :- pred to_pair_var_condition(pair(prog_var, dead_extra_info), reuse_var).
 :- mode to_pair_var_condition(in, out) is det.

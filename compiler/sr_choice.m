@@ -70,7 +70,8 @@ process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 
 :- type constraint_info
 	--->	constraint_info(
-			map	:: multi_map(prog_var, cons_id)
+			map	:: multi_map(prog_var,
+					pair(cons_id, prog_vars))
 		).
 
 :- pred constraint_info_init(constraint_info::out) is det.
@@ -184,7 +185,7 @@ merge(InfoA, Info0, Info) :-
 		constraint_info::in, constraint_info::out) is det.
 
 apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
-	{ Unif = construct(_Var, ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi) },
+	{ Unif = construct(_Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi) },
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
 	{ ReuseInfo = choice(construct(Pairs)) ->
 		PossibleCandidates = set__to_sorted_list(Pairs)
@@ -199,30 +200,30 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 		{ P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
-			multi_map__search(Map, CandidateVar, ConsIds),
+			multi_map__search(Map, CandidateVar, CandidateData),
+			list__map(fst, CandidateData, ConsIds),
 			list__remove_dups(ConsIds, [ConsId]),
 			Candidate = Candidate0 ^ cons_ids := yes([ConsId])
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
 
-			% XXX Are two cells with the same arity the same
-			% size?  I think not, because the cell may
-			% contain existentially typed compenents which
-			% require storage of the corresponding type
-			% infos.
+			% XXX recode this more efficiently at some stage.
 		{ P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
-			multi_map__search(Map, CandidateVar, ConsIds0),
-			list__remove_dups(ConsIds0, ConsIds),
-			cons_id_arity(ConsId, Arity),
-			all [ReuseConsId] (
-				list__member(ReuseConsId, ConsIds)
+			multi_map__search(Map, CandidateVar, CandidateData),
+			ConsIds = list__remove_dups(
+					list__map(fst, CandidateData)),
+			ReuseSizes = list__map(
+					(func(Data) = list__length(snd(Data))),
+					CandidateData),
+			Size = list__length(Vars),
+			all [ReuseSize] (
+				list__member(ReuseSize, ReuseSizes)
 			=>
 				(
-					cons_id_arity(ReuseConsId, ReuseArity),
-					ReuseArity - Arity =< Difference
+					ReuseSize - Size =< Difference
 				)
 			),
 			Candidate = Candidate0 ^ cons_ids := yes(ConsIds)
@@ -234,7 +235,7 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			GoalInfo) }.
 
 apply_constraint_unification(_Constraint, Unif, GoalInfo0, GoalInfo) -->
-	{ Unif = deconstruct(Var, ConsId, _Vars, _Modes, _CanFail, _CanCGC) },
+	{ Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC) },
 
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
 	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
@@ -252,7 +253,7 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo0, GoalInfo) -->
 	},
 
 	Map0 =^ map,
-	{ multi_map__set(Map0, Var, ConsId, Map) },
+	{ multi_map__set(Map0, Var, ConsId - Vars, Map) },
 	^ map := Map.
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = assign(_, _) }.
