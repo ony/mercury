@@ -63,12 +63,12 @@
 		;	warn_duplicate_calls
 		;	warn_missing_module_name
 		;	warn_wrong_module_name
-		;	warn_smart_recompilation	% not yet used.
+		;	warn_smart_recompilation
 	% Verbosity options
 		;	verbose
 		;	very_verbose
 		;	verbose_errors
-		;	verbose_recompilation		% not yet used.
+		;	verbose_recompilation
 		;	statistics
 		;	debug_types
 		;	debug_modes
@@ -95,11 +95,11 @@
 		;	aditi_only
 		;	output_grade_string
 	% Auxiliary output options
-		;	smart_recompilation		% not yet used.
+		;	smart_recompilation
 
 				% This option is used to control output
 				% of version numbers in interface files.
-				% It is implied by smart_recompilation,
+				% It is implied by --smart-recompilation,
 				% and cannot be set explicitly by the user.
 		;	generate_item_version_numbers
 		;	assume_gmake
@@ -347,11 +347,12 @@
 		;	optimize_unused_args
 		;	intermod_unused_args
 		;	optimize_higher_order
+		;	higher_order_size_limit
+		;	higher_order_arg_limit
 		;	unneeded_code
 		;	unneeded_code_copy_limit
 		;	type_specialization
 		;	user_guided_type_specialization
-		;	higher_order_size_limit
 		;	introduce_accumulators
 		;	optimize_constructor_last_call
 		;	optimize_duplicate_calls
@@ -757,11 +758,12 @@ option_defaults_2(optimization_option, [
 	optimize_unused_args	-	bool(no),
 	intermod_unused_args	-	bool(no),
 	optimize_higher_order	-	bool(no),
+	higher_order_size_limit	-	int(20),
+	higher_order_arg_limit -	int(10),
 	unneeded_code		-	bool(no),
 	unneeded_code_copy_limit	-	int(10),
 	type_specialization	-	bool(no),
 	user_guided_type_specialization	-	bool(no),
-	higher_order_size_limit	-	int(20),
 	introduce_accumulators -	bool(no),
 	optimize_constructor_last_call -	bool(no),
 	optimize_dead_procs	-	bool(no),
@@ -1159,6 +1161,8 @@ long_option("optimise-unused-args",	optimize_unused_args).
 long_option("intermod-unused-args",	intermod_unused_args).
 long_option("optimize-higher-order",	optimize_higher_order).
 long_option("optimise-higher-order",	optimize_higher_order).
+long_option("higher-order-size-limit",	higher_order_size_limit).
+long_option("higher-order-arg-limit",	higher_order_arg_limit).
 long_option("unneeded-code",		unneeded_code).
 long_option("unneeded-code-copy-limit",	unneeded_code_copy_limit).
 long_option("type-specialization",	type_specialization).
@@ -1173,7 +1177,6 @@ long_option("user-guided-type-specialisation",
 	% eventually be removed.
 long_option("fixed-user-guided-type-specialization",
 					user_guided_type_specialization).
-long_option("higher-order-size-limit",	higher_order_size_limit).
 long_option("introduce-accumulators",	introduce_accumulators).
 long_option("optimise-constructor-last-call",	optimize_constructor_last_call).
 long_option("optimize-constructor-last-call",	optimize_constructor_last_call).
@@ -1672,7 +1675,9 @@ options_help_warning -->
 		"\ta `:- module' declaration.",
 		"--no-warn-wrong-module-name",
 		"\tDisable warnings for modules whose `:- module'",
-		"\tdeclaration does not match the module's file name."
+		"\tdeclaration does not match the module's file name.",
+		"--no-warn-smart-recompilation",
+		"\tDisable warnings from the smart recompilation system."
 	]).
 
 :- pred options_help_verbosity(io__state::di, io__state::uo) is det.
@@ -1687,6 +1692,9 @@ options_help_verbosity -->
 		"-E, --verbose-error-messages",
 		"\tExplain error messages.  Asks the compiler to give you a more",
 		"\tdetailed explanation of any errors it finds in your program.",
+		"--verbose-recompilation",
+		"\tWhen using `--smart-recompilation', output messages\n",
+		"\texplaining why a module needs to be recompiled.",
 		"-S, --statistics",
 		"\tOutput messages about the compiler's time/space usage.",
 		"\tAt the moment this option implies `--no-trad-passes', so you get",
@@ -1777,6 +1785,11 @@ options_help_output -->
 options_help_aux_output -->
 	io__write_string("\nAuxiliary Output Options:\n"),
 	write_tabbed_lines([
+		"--smart-recompilation",
+		"\tWhen compiling, write program dependency information",
+		"\tto be used to avoid unnecessary recompilations if an",
+		"\timported module's interface changes in a way which does",
+		"\tnot invalidate the compiled code.",
 		"--no-assume-gmake",
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
@@ -2462,16 +2475,6 @@ options_help_hlds_hlds_optimization -->
 
 		"--optimize-higher-order",
 		"\tEnable specialization of higher-order predicates.",
-		"--unneeded-code",
-		"\tRemove goals from computation paths where their outputs are",
-		"\tnot needed, provided the semantics options allow the deletion",
-		"\tor movement of the goal.",
-		"--unneeded-code-copy-limit",
-		"\tGives the maximum number of places to which a goal may be copied",
-		"\twhen removing it from computation paths on which its outputs are",
-		"\tnot needed. A value of zero forbids goal movement and allows",
-		"\tonly goal deletion; a value of one prevents any increase in the",
-		"\tsize of the code.",
 		"--type-specialization",
 		"\tEnable specialization of polymorphic predicates where the",
 		"\tpolymorphic types are known.",
@@ -2483,6 +2486,20 @@ options_help_hlds_hlds_optimization -->
 		"\t`--optimize-higher-order' and `--type-specialization'.",
 		"\tGoal size is measured as the number of calls, unifications",
 		"\tand branched goals.",
+		"--higher-order-arg-limit",
+		"\tSet the maximum size of higher-order arguments to",
+		"\tbe specialized by `--optimize-higher-order' and",
+		"\t`--type-specialization'.",
+		"--unneeded-code",
+		"\tRemove goals from computation paths where their outputs are",
+		"\tnot needed, provided the semantics options allow the deletion",
+		"\tor movement of the goal.",
+		"--unneeded-code-copy-limit",
+		"\tGives the maximum number of places to which a goal may be copied",
+		"\twhen removing it from computation paths on which its outputs are",
+		"\tnot needed. A value of zero forbids goal movement and allows",
+		"\tonly goal deletion; a value of one prevents any increase in the",
+		"\tsize of the code.",
 		"--introduce-accumulators",
 		"\tAttempt to introduce accumulating variables into",
 		"\tprocedures, so as to make them tail recursive.",

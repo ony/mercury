@@ -100,8 +100,6 @@ if test "$BOOTSTRAP_MC" != ""; then
 		foo(X::out) :-
 			X = 42.
 
-		% Currently we test that mmc accepts the
-		% --fixed-user-guided-type-specialization flag.
 		main --> 
 			( { foo(42) } ->
 				print("Hello, world\n")
@@ -111,36 +109,12 @@ if test "$BOOTSTRAP_MC" != ""; then
 EOF
 	if
 	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
-	 	$BOOTSTRAP_MC --fixed-user-guided-type-specialization \
+	 	$BOOTSTRAP_MC \
 			--halt-at-warn --link-flags "--static" conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
 	then
-		rm -f conftest*
-		cat > conftest.m << EOF
-			% This module generates an assignment of the address of
-			% the MR_do_fail label to a redoip slot.
-			:- module conftest.
-
-			:- interface.
-
-			:- pred p(int::out) is multi.
-
-			:- implementation.
-
-			p(1).
-			p(2).
-EOF
-		if 
-			$BOOTSTRAP_MC --compile-to-c --grade asm_fast.gc -O0 \
-				conftest </dev/null >&AC_FD_CC 2>&1 &&
-			grep "MR_ENTRY(MR_do_fail);" conftest.c >/dev/null 2>&1
-		then
 		AC_MSG_RESULT(yes)
-		else
-			BOOTSTRAP_MC=
-			AC_MSG_RESULT(no)
-		fi
 	else
 		BOOTSTRAP_MC=
 		AC_MSG_RESULT(no)
@@ -189,7 +163,7 @@ case $enable_gcc_back_end in
 		done
 		;;
 	*)
-		# The user has specifies the gcc source directory via
+		# The user has specified the gcc source directory via
 		# `--enable-gcc-back-end=<directory>'.  Check that
 		# they specified it correctly.
 		gcc_src_dir="$enable_gcc_back_end"
@@ -457,7 +431,7 @@ case "$host" in
 		ac_cv_func_mprotect=no ;;
 esac
 AC_HAVE_FUNCS(sysconf getpagesize memalign mprotect sigaction setitimer)
-AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat)
+AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat stat)
 AC_HAVE_FUNCS(vsnprintf _vsnprintf)
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(unistd.h, HAVE_UNISTD_H=1)
@@ -1753,6 +1727,92 @@ AC_TRY_CPP([
 AC_MSG_RESULT($mercury_cv_profiling)
 
 #-----------------------------------------------------------------------------#
+AC_MSG_CHECKING(if C compiler is egcs)
+case "`$CC --version < /dev/null 2>&1`" in
+    egcs-*)
+    	mercury_cv_egcs=yes
+	;;
+    *)
+    	mercury_cv_egcs=no
+	;;
+esac
+AC_MSG_RESULT($mercury_cv_egcs)
+#-----------------------------------------------------------------------------#
+#
+# Add an option that disables the deep profiler.
+#
+AC_ARG_ENABLE(deep-profiler,
+[  --enable-deep-profiler=<directory>
+                          install deep profiler CGI script in <directory>],
+enable_deep_profiler="$enableval",enable_deep_profiler=default)
+AC_MSG_CHECKING(whether to enable the deep profiler)
+
+    # This test may need to be made more specific at a later date.
+    # Currently it only distinguishes between systems which have
+    # unistd.h or not, but at a later date we may also need to test for
+    # other posix features.
+if test "$HAVE_UNISTD_H" = 1; then
+    mercury_cv_can_enable_deep_profiler=yes
+else
+    mercury_cv_can_enable_deep_profiler=no
+fi
+
+# on x86, gcc version egcs-1.1.2 has a bug which causes it to get
+# an internal compiler error when compiling library/random.c
+# (when that file was build with mmc --intermodule-optimization -O4)
+# So if we're using an egcs version of gcc, disable deep profiling.
+case "$host" in i*86-*-*)
+    case "$mercury_cv_egcs" in yes)
+	mercury_cv_can_enable_deep_profiler=no ;;
+    esac ;;
+esac
+
+mercury_cv_default_cgi_dir=/usr/lib/cgi-bin
+case $enable_deep_profiler in
+	default)
+		if test -d $mercury_cv_default_cgi_dir; then
+			mercury_cv_enable_deep_profiler=$mercury_cv_can_enable_deep_profiler
+			mercury_cv_cgi_dir=$mercury_cv_default_cgi_dir
+		else
+			mercury_cv_enable_deep_profiler=no
+		fi
+		;;
+	no)
+		mercury_cv_enable_deep_profiler=no
+		;;
+	*)
+		if test $enable_deep_profiler = yes; then
+			mercury_cv_cgi_dir=$mercury_cv_default_cgi_dir
+		else
+			mercury_cv_cgi_dir=$enable_deep_profiler
+		fi
+
+		if test $mercury_cv_can_enable_deep_profiler = no; then
+			echo
+			AC_MSG_ERROR(--enable-deep-profiler specified but system does not support it)
+			exit 1
+		fi
+
+		mercury_cv_enable_deep_profiler=yes
+		;;
+esac
+
+if test $mercury_cv_enable_deep_profiler = yes; then
+	if test -d $mercury_cv_cgi_dir; then
+		true
+	else
+		echo
+		AC_MSG_ERROR(CGI script directory $mercury_cv_cgi_dir does not exist)
+		exit 1
+	fi		
+fi
+
+AC_MSG_RESULT($mercury_cv_enable_deep_profiler)
+ENABLE_DEEP_PROFILER=$mercury_cv_enable_deep_profiler
+AC_SUBST(ENABLE_DEEP_PROFILER)
+CGIDIR=$mercury_cv_cgi_dir
+AC_SUBST(CGIDIR)
+#-----------------------------------------------------------------------------#
 
 # Figure out which flavour of pthreads to use, since none of the
 # implementations seem to be exactly the same
@@ -1981,7 +2041,6 @@ fi
 
 if test "$enable_prof_grades" = yes; then
 	# add `.prof' (--profiling) grades, if time profiling is supported,
-	# and a `.memprof' (--memory-profiling) grade.
 	if test $mercury_cv_profiling = yes; then
 		if test "$enable_nogc_grades" = yes; then
 			DEFAULT_GRADE_NOGC="`echo $DEFAULT_GRADE | sed 's/\.gc$//'`"
@@ -1998,7 +2057,15 @@ if test "$enable_prof_grades" = yes; then
 			fi
 		fi
 	fi
-	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof $DEFAULT_GRADE.profdeep"
+
+	# add a `.memprof' (--memory-profiling) grade
+	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof"
+
+	# add a `.profdeep' (--deep-profiling) grade,
+	# if deep profiling is enabled.
+	if test $mercury_cv_enable_deep_profiler = yes; then
+		LIBGRADES="$LIBGRADES $DEFAULT_GRADE.profdeep"
+	fi
 fi
 
 if test "$enable_trail_grades" = yes; then
@@ -2053,7 +2120,10 @@ if test "$enable_libgrades_given" = yes; then
 		grade_error=false
 		for raw_grade in $raw_grades
 		do
-			if scripts/canonical_grade --grade $raw_grade > .confgrade
+			if ! test -x scripts/canonical_grade
+			then
+				canonical_grades="$canonical_grades $raw_grade"
+			elif scripts/canonical_grade --grade $raw_grade > .confgrade
 			then
 				canonical_grades="$canonical_grades `cat .confgrade`"
 			else
@@ -2105,25 +2175,6 @@ mercury_cv_enable_decl_debug="$enableval",mercury_cv_enable_decl_debug=yes)
 if test "$mercury_cv_enable_decl_debug" = "no"; then
 	AC_DEFINE(MR_DISABLE_DECLARATIVE_DEBUGGER)
 fi
-#-----------------------------------------------------------------------------#
-#
-# Add an option that disables the deep profiler.
-#
-AC_MSG_CHECKING(whether to enable the deep profiler)
-
-    # This test may need to be made more specific at a later date.
-    # Currently it only distinguishes between systems which have
-    # unistd.h or not, but at a later date we may also need to test for
-    # other posix features.
-if test "$HAVE_UNISTD_H" = 1; then
-    mercury_cv_enable_deep_profiler=yes
-else
-    mercury_cv_enable_deep_profiler=no
-fi
-
-AC_MSG_RESULT($mercury_cv_enable_deep_profiler)
-ENABLE_DEEP_PROFILER=$mercury_cv_enable_deep_profiler
-AC_SUBST(ENABLE_DEEP_PROFILER)
 #-----------------------------------------------------------------------------#
 
 # Determine how many of the r registers (r1, r2, ...) are real registers.
@@ -2263,6 +2314,7 @@ if test $mercury_cv_cannot_use_structure_assignment = "yes"; then
 	AC_DEFINE(MR_CANNOT_USE_STRUCTURE_ASSIGNMENT)
 fi
 #-----------------------------------------------------------------------------#
+AC_PATH_PROG(GCC,gcc)
 AC_MSG_CHECKING(whether Mercury supports shared libraries on this system)
 # We ought to use $target here rather than $host - but we don't
 # support cross-compilation at the moment anyhow.
@@ -2271,8 +2323,13 @@ AC_MSG_CHECKING(whether Mercury supports shared libraries on this system)
 # see Mmake.common.in for documentation on the meaning of these variables
 LINK_SHARED_OBJ="$CC -shared"
 LINK_SHARED_OBJ_SH="$CC -shared"
-SHARED_LIBS='`gcc -print-libgcc-file-name` $(MATH_LIB) -lc'
-SHARED_LIBS_SH='`gcc -print-libgcc-file-name` $MATH_LIB -lc'
+if test "$GCC" != ""; then
+	SHARED_LIBS='`gcc -print-libgcc-file-name` $(MATH_LIB) -lc'
+	SHARED_LIBS_SH='`gcc -print-libgcc-file-name` $MATH_LIB -lc'
+else
+	SHARED_LIBS='$(MATH_LIB) -lc'
+	SHARED_LIBS_SH='$MATH_LIB -lc'
+fi
 EXE_RPATH_OPT="-Wl,-rpath,"
 EXE_RPATH_SEP=" -Wl,-rpath,"
 SHLIB_RPATH_OPT="-Wl,-rpath,"
@@ -2370,7 +2427,8 @@ case "$host" in
 		# actually do the fixups at runtime for non-PIC code.
 		# (The code is mapped copy-on-write, and when the linker
 		# does the fixups, it gets copied.  Hence the lack of
-		# runtime sharing.)  We need to link with `gcc -G'
+		# runtime sharing.) 
+		# We need to link with `gcc -shared -mimpure-text'
 		# rather than `gcc -shared', because `gcc -shared'
 		# passes `-z text' to the linker, which causes it to
 		# report an error if any runtime fixups would be needed.
@@ -2799,55 +2857,67 @@ fi
 #-----------------------------------------------------------------------------#
 MERCURY_CHECK_READLINE
 #-----------------------------------------------------------------------------#
-to_keep=""
-to_delete=""
-if test "$BOOTSTRAP_MC" != "" ; then
-    MERCURY_MSG("checking whether any C files need to be rebuilt...")
-    for c_file in library/*.c compiler/*.c browser/*.c profiler/*.c deep_profiler/*.c \
-    		library/Mercury/cs/*.c compiler/Mercury/cs/*.c \
-		browser/Mercury/cs/*.c profiler/Mercury/cs/*.c \
-		deep_profiler/Mercury/cs/*.c 
+
+check_c_files () {
+    c_dir=$1
+    c_date_dir=$2
+
+    for c_file in $c_dir/*.c
     do
         case $c_file in
         */'*.c')
             ;;
         */*_init.c)
-            to_keep="$to_keep $c_file"
+            some_kept=true
             ;;
         *)
             sed -e '/END_OF_C_GRADE_INFO/q' < $c_file > confscratch
             if grep "TAG_BITS=$mercury_cv_low_tag_bits" \
-	    	confscratch > /dev/null 2>&1
+                    confscratch > /dev/null 2>&1 \
+                && grep "UNBOXED_FLOAT=$mercury_cv_unboxed_floats" \
+                    confscratch > /dev/null 2>&1
             then
-                if grep "UNBOXED_FLOAT=$mercury_cv_unboxed_floats" \
-			confscratch > /dev/null 2>&1
-                then
-                    to_keep="$to_keep $c_file"
-                else
-                    to_delete="$to_delete $c_file"
-                fi
+                some_kept=true
             else
-                to_delete="$to_delete $c_file"
+                c_date_file="$c_date_dir/`basename $c_file .c`.c_date"
+                to_delete="$to_delete $c_file $c_date_file"
             fi
             ;;
         esac
     done
+}
+
+some_kept=false
+to_delete=""
+if test "$BOOTSTRAP_MC" != "" ; then
+    MERCURY_MSG("checking whether any C files need to be rebuilt...")
+    for directory in library compiler profiler deep_profiler
+    do
+        check_c_files $directory $directory
+        check_c_files $directory/Mercury/cs $directory/Mercury/c_dates
+    done
     if test "$to_delete" = "" ; then
-        if test "$to_keep" != "" ; then
+        case $some_kept in
+          true)
             MERCURY_MSG("no - they are compatible with autoconfigured settings")
-        else
+            ;;
+          false)
             MERCURY_MSG("there are no existing Mercury-generated C files")
-        fi
+            ;;
+          esac 
     else
-        if test "$to_keep" != "" ; then
+        case $some_kept in
+          true)
             MERCURY_MSG("the following C files must be rebuilt in a grade")
             MERCURY_MSG("that is consistent with autoconfigured settings")
             MERCURY_MSG("$to_delete")
-        else
+            ;;
+          false)
             MERCURY_MSG("all Mercury generated C files must be rebuilt")
             MERCURY_MSG("in a grade that is consistent with the")
             MERCURY_MSG("autoconfigured settings")
-        fi
+            ;;
+        esac
         MERCURY_MSG("installation may take longer than usual")
     fi
     rm -f confscratch $to_delete

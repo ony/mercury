@@ -594,7 +594,7 @@ dynamic_cast_to_array(X, A) :-
 % WARNING: this may not give a valid value of the type.  Be very careful.
 :- func null = T.
 
-:- pragma foreign_code("C", null = (X::out),
+:- pragma foreign_proc("C", null = (X::out),
         [will_not_call_mercury, thread_safe], "X = (Word) 0;").
 
 % ---------------------------------------------------------------------------- %

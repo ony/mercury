@@ -959,7 +959,14 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		AllMembers) },
+		Ctors, AllMembers) },
+
+	{ Ctors = [] ->
+		true
+	;
+		error("mlds_output_class: non empty constructor list")
+	},
+
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -2525,13 +2532,13 @@ mlds_output_init_args([Arg|Args], [ArgType|ArgTypes], Context,
 	% represented as MR_Box, so we need to box them if necessary.
 	%
 	mlds_indent(Context, Indent),
-	io__write_string("MR_field("),
+	io__write_string("MR_hl_field("),
 	mlds_output_tag(Tag),
 	io__write_string(", "),
 	mlds_output_lval(Target),
 	io__write_string(", "),
 	io__write_int(ArgNum),
-	io__write_string(") = (MR_Word) "),
+	io__write_string(") = "),
 	mlds_output_boxed_rval(ArgType, Arg),
 	io__write_string(";\n"),
 	mlds_output_init_args(Args, ArgTypes, Context,
@@ -2552,35 +2559,33 @@ mlds_output_lval(field(MaybeTag, Rval, offset(OffsetRval),
 		; FieldType = mlds__mercury_type(term__variable(_), _)
 		}
 	->
-		% XXX this generated code is ugly;
-		% it would be nicer to use a different macro
-		% than MR_field(), one which had type `MR_Box'
-		% rather than `MR_Word'.
-		io__write_string("(* (MR_Box *) &")
+		io__write_string("(")
 	;
 		% The field type for field(_, _, offset(_), _, _) lvals
 		% must be something that maps to MR_Box.
 		{ error("unexpected field type") }
 	),
 	( { MaybeTag = yes(Tag) } ->
-		io__write_string("MR_field("),
+		io__write_string("MR_hl_field("),
 		mlds_output_tag(Tag),
 		io__write_string(", ")
 	;
-		io__write_string("MR_mask_field(")
+		io__write_string("MR_hl_mask_field("),
+		io__write_string("(MR_Word) ")
 	),
-	io__write_string("(MR_Word) "),
 	mlds_output_rval(Rval),
 	io__write_string(", "),
 	mlds_output_rval(OffsetRval),
 	io__write_string("))").
 mlds_output_lval(field(MaybeTag, PtrRval, named_field(FieldName, CtorType),
-		_FieldType, _PtrType)) -->
-	% XXX we shouldn't bother with this cast in the case where
-	% PtrType == CtorType
+		_FieldType, PtrType)) -->
 	io__write_string("("),
-	mlds_output_cast(CtorType),
 	( { MaybeTag = yes(0) } ->
+		( { PtrType \= CtorType } ->
+			mlds_output_cast(CtorType)
+		;
+			[]
+		),
 		( { PtrRval = mem_addr(Lval) } ->
 			mlds_output_lval(Lval),
 			io__write_string(").")
@@ -2589,6 +2594,7 @@ mlds_output_lval(field(MaybeTag, PtrRval, named_field(FieldName, CtorType),
 			io__write_string(")->")
 		)
 	;
+		mlds_output_cast(CtorType),
 		( { MaybeTag = yes(Tag) } ->
 			io__write_string("MR_body("),
 			mlds_output_rval(PtrRval),
@@ -2665,16 +2671,16 @@ mlds_output_rval(lval(Lval)) -->
 /**** XXX do we need this?
 mlds_output_rval(lval(Lval)) -->
 	% if a field is used as an rval, then we need to use
-	% the MR_const_field() macro, not the MR_field() macro,
+	% the MR_hl_const_field() macro, not the MR_hl_field() macro,
 	% to avoid warnings about discarding const,
 	% and similarly for MR_mask_field.
 	( { Lval = field(MaybeTag, Rval, FieldNum, _, _) } ->
 		( { MaybeTag = yes(Tag) } ->
-			io__write_string("MR_const_field("),
+			io__write_string("MR_hl_const_field("),
 			mlds_output_tag(Tag),
 			io__write_string(", ")
 		;
-			io__write_string("MR_const_mask_field(")
+			io__write_string("MR_hl_const_mask_field(")
 		),
 		mlds_output_rval(Rval),
 		io__write_string(", "),
@@ -2686,7 +2692,7 @@ mlds_output_rval(lval(Lval)) -->
 ****/
 
 mlds_output_rval(mkword(Tag, Rval)) -->
-	io__write_string("(MR_Word) MR_mkword("),
+	io__write_string("MR_mkword("),
 	mlds_output_tag(Tag),
 	io__write_string(", "),
 	mlds_output_rval(Rval),
@@ -2705,6 +2711,9 @@ mlds_output_rval(mem_addr(Lval)) -->
 	% XXX are parentheses needed?
 	io__write_string("&"),
 	mlds_output_lval(Lval).
+
+mlds_output_rval(self(_)) -->
+	{ error("mlds_to_c: self rval encountered.\n") }.
 
 :- pred mlds_output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode mlds_output_unop(in, in, di, uo) is det.
@@ -2738,6 +2747,12 @@ mlds_output_cast(Type) -->
 	
 mlds_output_boxed_rval(Type, Exprn) -->
 	(
+		{ Exprn = unop(cast(OtherType), InnerExprn) },
+		{ Type = OtherType }
+	->
+		% avoid unnecessary double-casting -- strip away the inner cast
+		mlds_output_boxed_rval(Type, InnerExprn)
+	;
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
 				[], _), _)
 		; Type = mlds__native_float_type
@@ -2827,7 +2842,7 @@ mlds_output_std_unop(UnaryOp, Exprn) -->
 	
 mlds_output_binop(Op, X, Y) -->
 	(
-		{ Op = array_index }
+		{ Op = array_index(_Type) }
 	->
 		mlds_output_bracketed_rval(X),
 		io__write_string("["),

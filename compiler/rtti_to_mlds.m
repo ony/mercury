@@ -104,7 +104,7 @@ rtti_data_decl_flags(Exported) = MLDS_DeclFlags :-
 	;
 		Access = private
 	),
-	PerInstance = per_instance,
+	PerInstance = one_copy,
 	Virtuality = non_virtual,
 	Finality = overridable,
 	Constness = const,
@@ -247,9 +247,6 @@ gen_init_rtti_data_defn(base_typeclass_info(_InstanceModule, _ClassId,
 	]).
 gen_init_rtti_data_defn(pseudo_type_info(Pseudo), ModuleName, _, Init, []) :-
 	Init = gen_init_pseudo_type_info_defn(Pseudo, ModuleName).
-
-:- func ml_string_type = mlds__type.
-ml_string_type = mercury_type(string_type, str_type).
 
 :- func gen_init_functors_info(type_ctor_functors_info, module_name,
 		rtti_type_id) = mlds__initializer.

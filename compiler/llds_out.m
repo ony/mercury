@@ -780,7 +780,7 @@ output_write_proc_static_list_decls([], DeclSet, DeclSet) --> [].
 output_write_proc_static_list_decls([Data | Datas], DeclSet0, DeclSet) -->
 	(
 		{ Data = layout_data(LayoutData) },
-		{ LayoutData = proc_static_data(_, _, _) }
+		{ LayoutData = proc_static_data(_, _, _, _, _) }
 	->
 		output_maybe_layout_data_decl(LayoutData, DeclSet0, DeclSet1)
 	;
@@ -796,7 +796,7 @@ output_write_proc_static_list([]) --> [].
 output_write_proc_static_list([Data | Datas]) -->
 	(
 		{ Data = layout_data(LayoutData) },
-		{ LayoutData = proc_static_data(RttiProcLabel, _, _) }
+		{ LayoutData = proc_static_data(RttiProcLabel, _, _, _, _) }
 	->
 		io__write_string("\tMR_write_out_proc_static(fp, "),
 		io__write_string("(MR_ProcStatic *)\n\t\t&"),
@@ -3798,7 +3798,7 @@ output_rval(unop(UnaryOp, Exprn)) -->
 	io__write_string(")").
 output_rval(binop(Op, X, Y)) -->
 	(
-		{ Op = array_index }
+		{ Op = array_index(_Type) }
 	->
 		io__write_string("("),
 		output_rval_as_type(X, data_ptr),

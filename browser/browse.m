@@ -456,15 +456,21 @@ portray_pretty(Debugger, Univ, Params) -->
 max_print_size(60).
 
 term_size_left_from_max(Univ, MaxSize, RemainingSize) :-
-	( MaxSize < 0 ->
+	(
+		MaxSize < 0
+	->
 		RemainingSize = MaxSize
 	;
-		deconstruct(univ_value(Univ), Functor, Arity, Args),
+		limited_deconstruct(univ_value(Univ), MaxSize,
+			Functor, Arity, Args)
+	->
 		string__length(Functor, FunctorSize),
 		PrincipalSize = FunctorSize + Arity * 2,
 		MaxArgsSize = MaxSize - PrincipalSize,
 		list__foldl(term_size_left_from_max,
 			Args, MaxArgsSize, RemainingSize)
+	;
+		RemainingSize = -1
 	).
 
 %---------------------------------------------------------------------------%
@@ -486,18 +492,22 @@ term_to_string(Univ, MaxSize, MaxDepth, Str) :-
 :- pred term_to_string_2(univ, int, int, int, int, int, string).
 :- mode term_to_string_2(in, in, in, out, in, in, out) is det.
 term_to_string_2(Univ, MaxSize, CurSize, NewSize, MaxDepth, CurDepth, Str) :-
-	( ( (CurSize >= MaxSize) ; (CurDepth >= MaxDepth) ) ->
-		% Str = "...",
-		term_compress(Univ, Str),
-		NewSize = CurSize
-	;
-		deconstruct(univ_value(Univ), Functor, _Arity, Args),
+	(
+		CurSize < MaxSize,
+		CurDepth < MaxDepth,
+		limited_deconstruct(univ_value(Univ), MaxSize, Functor,
+			_Arity, Args)
+	->
 		CurSize1 is CurSize + 1,
 		CurDepth1 is CurDepth + 1,
 		term_to_string_list(Args, MaxSize, CurSize1, NewSize,
 			MaxDepth, CurDepth1, ArgStrs),
 		brack_args(ArgStrs, BrackArgsStr),
 		string__append_list([Functor, BrackArgsStr], Str)
+	;
+		% Str = "...",
+		term_compress(Univ, Str),
+		NewSize = CurSize
 	).
 
 :- pred term_to_string_list(list(univ), int, int, int, int, int, list(string)).
@@ -543,7 +553,7 @@ comma_args(Args, Str) :-
 :- pred term_compress(univ, string).
 :- mode term_compress(in, out) is det.
 term_compress(Univ, Str) :-
-	deconstruct(univ_value(Univ), Functor, Arity, _Args),
+	functor(univ_value(Univ), Functor, Arity),
 	( Arity = 0 ->
 		Str = Functor
 	;
@@ -551,7 +561,6 @@ term_compress(Univ, Str) :-
 		append_list([Functor, "/", ArityS], Str)
 	).
 	
-
 %---------------------------------------------------------------------------%
 %
 % Print using the pretty printer from the standard library.
@@ -587,12 +596,12 @@ term_to_string_verbose(Univ, MaxSize, MaxDepth, X, Y, Str) :-
 :- mode term_to_string_verbose_2(in, in, in, out, in, in, out) is det.
 term_to_string_verbose_2(Univ, MaxSize, CurSize, NewSize,
 		MaxDepth, CurDepth, Frame) :-
-	( ((CurSize >= MaxSize) ; (CurDepth >= MaxDepth)) ->
-		term_compress(Univ, Line),
-		Frame = [Line],
-		NewSize = CurSize
-	;
-		deconstruct(univ_value(Univ), Functor, _Arity, Args),
+	(
+		CurSize < MaxSize,
+		CurDepth < MaxDepth,
+		limited_deconstruct(univ_value(Univ), MaxSize, Functor,
+			_Arity, Args)
+	->
 		CurSize1 is CurSize + 1,
 		CurDepth1 is CurDepth + 1,
 		ArgNum = 1,
@@ -600,6 +609,10 @@ term_to_string_verbose_2(Univ, MaxSize, CurSize, NewSize,
 			MaxSize, CurSize1, NewSize,
 			MaxDepth, CurDepth1, ArgsFrame),
 		frame__vglue([Functor], ArgsFrame, Frame)
+	;
+		term_compress(Univ, Line),
+		Frame = [Line],
+		NewSize = CurSize
 	).
 
 :- pred term_to_string_verbose_list(list(univ), int, int, int, int,
@@ -720,8 +733,19 @@ deref_subterm_2(Univ, Path, SubUniv) :-
 		Univ = SubUniv
 	; 
 		Path = [N | Ns],
-		deconstruct(univ_value(Univ), _Functor, _Arity, Args),
-		list__index1(Args, N, ArgN),
+		(
+			TypeCtor = type_ctor(univ_type(Univ)),
+			type_ctor_name(TypeCtor) = "array",
+			type_ctor_module_name(TypeCtor) = "array"
+		->
+			% The first element of an array is at index zero.
+			ArgN = argument(univ_value(Univ), N)
+		;
+			% The first argument of a non-array is numbered
+			% argument 1 by the user but argument 0 by
+			% std_util:argument.
+			ArgN = argument(univ_value(Univ), N - 1)
+		),
 		deref_subterm_2(ArgN, Ns, SubUniv)
 	).
 

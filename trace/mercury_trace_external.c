@@ -125,7 +125,19 @@ static	MR_external_debugger_mode_type
 ** a collect request.
 */
 
-static  MR_Word	MR_collecting_variable;
+static  MR_Word	MR_accumulator_variable;
+
+/*
+** Global variable that is sent to collect caller.
+*/
+
+static  MR_Word	MR_collected_variable;
+
+/*
+** Function pointer used to post-process the result of the collect activity
+*/
+
+static void	(*post_process_ptr)(MR_Word, MR_Word *);
 
 /*
 ** Function pointer used to sent the collecting variable to the external 
@@ -175,7 +187,7 @@ static bool	MR_found_match(const MR_Label_Layout *layout,
 			const char *path, MR_Word search_data);
 static void	MR_output_current_slots(const MR_Label_Layout *layout,
 			MR_Trace_Port port, MR_Unsigned seqno,
-			MR_Unsigned depth, const char *path);
+			MR_Unsigned depth, const char *path, int lineno);
 static void	MR_output_current_vars(MR_Word var_list, MR_Word string_list);
 static void	MR_output_current_nth_var(MR_Word var);
 static void	MR_output_current_live_var_names(MR_Word var_names_list, 
@@ -494,6 +506,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 	MR_Word			modules_list;
 	MR_Retry_Result		retry_result;
 	static MR_String	MR_object_file_name;
+	int			lineno = 0;
 
 	MR_trace_enabled = FALSE;
 
@@ -540,6 +553,8 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 		default:
 	       		MR_fatal_error("Software error in the debugger.\n");
 	}
+	
+	lineno = MR_get_line_number(event_info->MR_saved_regs, layout, port);
 
 	/* loop to process requests read from the debugger socket */
 	for(;;) {
@@ -597,7 +612,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 						"REQUEST_CURRENT_SLOTS\n");
 				}
 				MR_output_current_slots(layout, port, seqno, 
-							depth, path);
+					depth, path, lineno);
 				break;
 
 			case MR_REQUEST_RETRY:
@@ -752,7 +767,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 			case MR_REQUEST_LINK_COLLECT:
 			  {
 			        MR_Char	result;
-				MR_Word	MR_collecting_variable_type;
+				MR_Word	MR_accumulator_variable_type;
 
 				if (MR_debug_socket) {
 					fprintf(stderr, "\nMercury runtime: "
@@ -765,6 +780,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 			       		    MR_object_file_name,
 					    (MR_Word *) &cmd->MR_filter_ptr,
 					    (MR_Word *) &initialize_ptr,
+					    (MR_Word *) &post_process_ptr,
 					    (MR_Word *) &send_collect_result_ptr,
 					    (MR_Word *) &get_collect_var_type_ptr,
 					    &collect_lib_maybe_handle,
@@ -776,12 +792,12 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 						"link_collect_succeeded");
 					MR_TRACE_CALL_MERCURY(
 					    (*get_collect_var_type_ptr)(
-						&MR_collecting_variable_type));
-					MR_collecting_variable = 
+						&MR_accumulator_variable_type));
+					MR_accumulator_variable = 
 					    MR_make_permanent(
-						MR_collecting_variable,
+						MR_accumulator_variable,
 						(MR_TypeInfo) 
-						MR_collecting_variable_type);
+						MR_accumulator_variable_type);
 				} else {
 					MR_send_message_to_socket(
 						"link_collect_failed");
@@ -799,7 +815,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 						"collect_linked");
 					external_debugger_mode = MR_collecting;
 					MR_TRACE_CALL_MERCURY(
-					  (*initialize_ptr)(&MR_collecting_variable));
+					  (*initialize_ptr)(&MR_accumulator_variable));
 
 					/*
 					** In order to perform the collect from
@@ -808,8 +824,8 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 					*/
 					MR_COLLECT_filter(cmd->MR_filter_ptr,
 						seqno, depth, port, layout, path, 
-						&stop_collecting);
-					
+						lineno, &stop_collecting);
+
 					if (stop_collecting) {
 						MR_send_collect_result();
 						MR_send_message_to_socket(
@@ -900,7 +916,7 @@ done:
 static void
 MR_output_current_slots(const MR_Label_Layout *layout,
 	MR_Trace_Port port, MR_Unsigned seqno, MR_Unsigned depth,
-	const char *path)
+	const char *path, int lineno)
 {
 	if (MR_PROC_LAYOUT_COMPILER_GENERATED(layout->MR_sll_entry)) {
 		MR_TRACE_CALL_MERCURY(
@@ -921,6 +937,7 @@ MR_output_current_slots(const MR_Label_Layout *layout,
 			layout->MR_sll_entry->MR_sle_comp.MR_comp_mode,
 			layout->MR_sll_entry->MR_sle_detism,
 			(MR_String) (MR_Word) path,
+			lineno,
 			(MR_Word) &MR_debugger_socket_out);
 		    );
 	} else {
@@ -941,6 +958,7 @@ MR_output_current_slots(const MR_Label_Layout *layout,
 			layout->MR_sll_entry->MR_sle_user.MR_user_mode,
 			layout->MR_sll_entry->MR_sle_detism,
 			(MR_String) (MR_Word) path,
+			lineno,
 			(MR_Word) &MR_debugger_socket_out);
 		    );
 	}
@@ -1463,7 +1481,7 @@ MR_trace_browse_one_external(MR_Var_Spec var_spec)
 void
 MR_COLLECT_filter(MR_FilterFuncPtr filter_ptr, MR_Unsigned seqno, 
 	MR_Unsigned depth, MR_Trace_Port port, const MR_Label_Layout *layout, 
-	const char *path, bool *stop_collecting)
+	const char *path, int lineno, bool *stop_collecting)
 {
 	MR_Char	result;		
 	MR_Word	arguments;
@@ -1498,18 +1516,57 @@ MR_COLLECT_filter(MR_FilterFuncPtr filter_ptr, MR_Unsigned seqno,
 		arguments,
 		layout->MR_sll_entry->MR_sle_detism,
 		(MR_String) path,
-		MR_collecting_variable,
-		&MR_collecting_variable,
+		lineno,
+		MR_accumulator_variable,
+		&MR_accumulator_variable,
 		&result));
 	*stop_collecting = (result == 'y');
+}
+
+/*
+** This function retrieves the line number of the current goal.
+*/
+int
+MR_get_line_number(MR_Word *saved_regs, const MR_Label_Layout *layout, 
+	MR_Trace_Port port)
+{
+	const char		*filename;
+	const MR_Label_Layout	*parent_layout;
+	const char		*problem; 
+	int			lineno = 0;
+	MR_Word			*base_sp, *base_curfr;
+
+	
+	if MR_port_is_interface(port)
+	/* 
+	** At external events, we want the line number 
+	** where the call is made, not the one where the 
+	** procedure is defined.
+	*/
+	{
+		base_sp = MR_saved_sp(saved_regs);
+		base_curfr = MR_saved_curfr(saved_regs);
+		parent_layout = MR_find_nth_ancestor(layout, 1,
+			&base_sp, &base_curfr, &problem);
+		if (parent_layout != NULL) {
+			(void) MR_find_context(parent_layout, &filename, &lineno);
+		}
+	} else {
+		(void) MR_find_context(layout, &filename, &lineno);
+	} ;
+	return lineno;
 }
 
 static void
 MR_send_collect_result(void)
 {
 	MR_TRACE_CALL_MERCURY(
+		(*post_process_ptr)(
+			MR_accumulator_variable, 
+			&MR_collected_variable);
+
 		(*send_collect_result_ptr)(
-			MR_collecting_variable, 
+			MR_collected_variable, 
 			(MR_Word) &MR_debugger_socket_out));
 #if defined(HAVE_DLFCN_H) && defined(HAVE_DLCLOSE)
 	MR_TRACE_CALL_MERCURY(

@@ -326,18 +326,26 @@
 :- type mlds__package_name == mlds_module_name.
 
 % Given the name of a Mercury module, return the name of the corresponding
-% MLDS package.
-:- func mercury_module_name_to_mlds(mercury_module_name) = mlds__package_name.
+% MLDS package in which this module is defined.
+:- func mercury_module_name_to_mlds(mercury_module_name) = mlds_module_name.
 
-% Given the name of a Mercury module, return the name of the corresponding
-% MLDS package.
+% Given the name of a Mercury module return the fully qualified module
+% name.  ie For the name System.Object which is defined in the source
+% package mscorlib it will return System.Object.
 :- func mlds_module_name_to_sym_name(mlds__package_name) = sym_name.
+
+% Give the name of a Mercury module, return the name of the corresponding 
+% MLDS package.
+:- func mlds_module_name_to_package_name(mlds_module_name) = sym_name.
 
 % Given an MLDS module name (e.g. `foo.bar'), append another class qualifier
 % (e.g. for a class `baz'), and return the result (e.g. `foo.bar.baz').
 % The `arity' argument specifies the arity of the class.
 :- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name, arity) =
 	mlds_module_name.
+
+:- func mlds__append_mercury_code(mlds_module_name) = mlds_module_name.
+:- func mlds__append_name(mlds_module_name, string) = mlds_module_name.
 
 :- type mlds__defns == list(mlds__defn).
 :- type mlds__defn
@@ -487,6 +495,7 @@
 						% inherits these base classes
 		implements ::	list(mlds__interface_id),
 						% implements these interfaces
+		ctors	::	mlds__defns,	% has these constructors
 		members ::	mlds__defns	% contains these members
 	).
 
@@ -1243,8 +1252,15 @@ XXX Full exception handling support is not yet implemented.
 
 	;	binop(binary_op, mlds__rval, mlds__rval)
 
-	;	mem_addr(mlds__lval).
+	;	mem_addr(mlds__lval)
 		% The address of a variable, etc.
+
+	;	self(mlds__type).
+		% The equivalent of the `this' pointer in C++ with the
+		% type of the object.  Note that this rval is valid iff
+		% we are targetting an object oriented backend and we
+		% are in an instance method (procedures which have the
+		% per_instance flag set).
 
 :- type mlds__unary_op
 	--->	box(mlds__type)
@@ -1432,14 +1448,23 @@ mlds__get_func_signature(func_params(Parameters, RetTypes)) =
 
 %-----------------------------------------------------------------------------%
 
-% Mercury module names are the same as MLDS package names, except that
-% modules in the Mercury standard library map get a `mercury' prefix
-% e.g. `mercury.builtin', `mercury.io', `mercury.std_util', etc.,
+% A mercury module name consists of two parts.  One part is the package
+% which the module name is defined in, and the other part is the actual
+% module name.  For example the module name System.XML could be defined
+% in the package XML.
+%
+% Note that modules in the Mercury standard library map get a `mercury'
+% prefix e.g. `mercury.builtin', `mercury.io', `mercury.std_util', etc.,
 % when mapped to MLDS package names.
 
-:- type mlds_module_name == prog_data__module_name.
+% :- type mlds_module_name == prog_data__module_name.
+:- type mlds_module_name
+	---> name(
+		package_name	:: prog_data__module_name,
+		module_name	:: prog_data__module_name
+	).
 
-mercury_module_name_to_mlds(MercuryModule) = MLDS_Package :-
+mercury_module_name_to_mlds(MercuryModule) = name(MLDS_Package, MLDS_Package) :-
 	(
 		MercuryModule = unqualified(ModuleName),
 		mercury_std_library_module(ModuleName)
@@ -1449,12 +1474,20 @@ mercury_module_name_to_mlds(MercuryModule) = MLDS_Package :-
 		MLDS_Package = MercuryModule
 	).
 
-mlds_module_name_to_sym_name(MLDS_Package) = MLDS_Package.
+mlds_module_name_to_sym_name(Module) = Module ^ module_name.
 
-mlds__append_class_qualifier(Package, ClassName, ClassArity) =
-		qualified(Package, ClassQualifier) :-
+mlds_module_name_to_package_name(Module) = Module ^ package_name.
+
+mlds__append_class_qualifier(name(Package, Module), ClassName, ClassArity) =
+		name(Package, qualified(Module, ClassQualifier)) :-
 	string__format("%s_%d", [s(ClassName), i(ClassArity)],
 		ClassQualifier).
+
+mlds__append_mercury_code(name(Package, Module))
+	= name(Package, qualified(Module, "mercury_code")).
+
+mlds__append_name(name(Package, Module), Name)
+	= name(Package, qualified(Module, Name)).
 
 %-----------------------------------------------------------------------------%
 

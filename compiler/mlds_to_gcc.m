@@ -1264,7 +1264,12 @@ gen_class(Name, Context, ClassDefn, GlobalInfo0, GlobalInfo) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		AllMembers) },
+		Ctors, AllMembers) },
+	{ Ctors = [] ->
+		true
+	;
+		sorry(this_file, "constructors")
+	},
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -2961,6 +2966,9 @@ build_rval(mem_addr(Lval), DefnInfo, AddrExpr) -->
 	build_lval(Lval, DefnInfo, Expr),
 	gcc__build_addr_expr(Expr, AddrExpr).
 
+build_rval(self(_), _DefnInfo, _Expr) -->
+	{ unexpected(this_file, "self rval") }.
+
 :- pred build_unop(mlds__unary_op, mlds__rval, defn_info, gcc__expr,
 		io__state, io__state).
 :- mode build_unop(in, in, in, out, di, uo) is det.
@@ -3101,7 +3109,17 @@ build_std_binop(BinaryOp, Arg1, Arg2, DefnInfo, Expr) -->
 		%
 		build_rval(Arg1, DefnInfo, GCC_Arg1),
 		build_rval(Arg2, DefnInfo, GCC_Arg2),
-		{ convert_binary_op(BinaryOp, GCC_BinaryOp, GCC_ResultType) },
+		( { BinaryOp = array_index(ElemType) } ->
+			% for array index operations,
+			% we need to convert the element type into a GCC type
+			{ GCC_BinaryOp = gcc__array_ref },
+			{ MLDS_Type = ml_gen_array_elem_type(ElemType) },
+			build_type(MLDS_Type, DefnInfo ^ global_info,
+				GCC_ResultType)
+		;
+			{ convert_binary_op(BinaryOp, GCC_BinaryOp,
+				GCC_ResultType) }
+		),
 		gcc__build_binop(GCC_BinaryOp, GCC_ResultType,
 			GCC_Arg1, GCC_Arg2, Expr)
 	).
@@ -3140,11 +3158,8 @@ convert_binary_op((or),		gcc__truth_orif_expr, gcc__boolean_type_node).
 convert_binary_op(eq,		gcc__eq_expr,	     gcc__boolean_type_node).
 convert_binary_op(ne,		gcc__ne_expr,	     gcc__boolean_type_node).
 convert_binary_op(body,		gcc__minus_expr,     'MR_intptr_t').
-convert_binary_op(array_index,  gcc__array_ref,	     Type) :-
-	% XXX temp hack -- this is wrong.
-	% We should change builtin_ops:array_index
-	% so that it takes the type as an argument.
-	Type = 'MR_Integer'.
+convert_binary_op(array_index(_), _, _) :-
+				unexpected(this_file, "array_index").
 convert_binary_op(str_eq, _, _) :- unexpected(this_file, "str_eq").
 convert_binary_op(str_ne, _, _) :- unexpected(this_file, "str_ne").
 convert_binary_op(str_lt, _, _) :- unexpected(this_file, "str_lt").

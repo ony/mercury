@@ -198,6 +198,19 @@ and @file{.trans_opt_date}
 files associated with the module are used as date stamps;
 they are used when deciding whether the interface files need to be regenerated.
 
+@file{.c_date}, @file{.il_date}, @file{.s_date} and @file{.pic_s_date} files
+perform a similar function for @file{.c}, @file{.il}, @file{.s} and
+@file{.pic_s} files respectively. When smart recompilation
+(@pxref{Auxiliary output options}) works out that a module
+does not need to be recompiled, the timestamp file for the
+target file is updated, and the timestamp of the target file
+is left unchanged.
+@findex --smart-recompilation
+
+@file{.used} files contain dependency information for smart recompilation
+(@pxref{Auxiliary output options}).
+@findex --smart-recompilation
+
 Files ending in @file{.d} are automatically-generated Makefile fragments
 which contain the dependencies for a module.
 Files ending in @file{.dep} are automatically-generated Makefile fragments
@@ -522,7 +535,7 @@ Removes the automatically generated files
 that contain the compiled code of the program
 and the error messages produced by the compiler.
 Specifically, this will remove all the @samp{.c}, @samp{.s}, @samp{.o},
-@samp{.pic_o}, @samp{.prof}, @samp{.no}, @samp{.ql},
+@samp{.pic_o}, @samp{.prof}, @samp{.no}, @samp{.ql}, @samp{.used},
 @ifset aditi
 @samp{.schema},
 @end ifset
@@ -3387,6 +3400,11 @@ Disable warnings for modules that do not start with a
 Disable warnings for modules whose @samp{:- module} declaration
 does not match the module's file name.
 
+@sp 1
+@item --no-warn-smart-recompilation
+@findex --no-warn-smart-recompilation
+Disable warnings from the smart recompilation system.
+
 @end table
 
 @node Verbosity options
@@ -3413,6 +3431,12 @@ Output very verbose progress messages.
 @findex --verbose-error-messages
 Explain error messages.  Asks the compiler to give you a more
 detailed explanation of any errors it finds in your program.
+
+@sp 1
+@item --verbose-recompilation
+@findex --verbose-recompilation
+When using @samp{--smart-recompilation}, output messages
+explaining why a module needs to be recompiled.
 
 @sp 1
 @item -S
@@ -3621,6 +3645,13 @@ string and print it on the standard output.
 @node Auxiliary output options
 @section Auxiliary output options
 @table @code
+@item --smart-recompilation
+@findex --smart-recompilation
+When compiling, write program dependency information
+to be used to avoid unnecessary recompilations if an
+imported module's interface changes in a way which does
+not invalidate the compiled code.
+
 @item --no-assume-gmake
 @findex --no-assume-gmake
 @findex --assume-gmake
@@ -4834,6 +4865,13 @@ Goal size is measured as the number of calls, unifications
 and branched goals.
 
 @sp 1
+@item --higher-order-arg-limit
+@item --higher-order-arg-limit
+Set the maximum size of higher-order arguments to
+be specialized by @samp{--optimize-higher-order} and
+@samp{--type-specialization}.
+
+@sp 1
 @item --optimize-constant-propagation
 @findex --optimize-constant-propagation
 Evaluate constant expressions at compile time.
@@ -5536,6 +5574,11 @@ Sets the size of the det stack to @var{size} kilobytes.
 @item --nondetstack-size @var{size}
 @findex --nondetstack-size (runtime option)
 Sets the size of the nondet stack to @var{size} kilobytes.
+
+@sp 1
+@item --solutions-heap-size @var{size}
+@findex --solutions-heap-size (runtime option)
+Sets the size of the solutions heap to @var{size} kilobytes.
 
 @sp 1
 @item --trail-size @var{size}

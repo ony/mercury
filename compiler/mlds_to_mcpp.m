@@ -93,8 +93,8 @@ generate_mcplusplus_code(MLDS) -->
 
 	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
 	{ prog_out__sym_name_to_string(ModuleName, ModuleNameStr) },
-	{ ClassName = mlds_module_name_to_class_name(
-		mercury_module_name_to_mlds(ModuleName), yes) },
+	{ ClassName = class_name(mercury_module_name_to_mlds(ModuleName),
+			"mercury_code") },
 
 	io__nl,
 	io__write_strings([
@@ -425,6 +425,9 @@ write_managed_cpp_rval(binop(Binop, Rval1, Rval2)) -->
 
 write_managed_cpp_rval(mem_addr(_)) -->
 	io__write_string(" /* mem_addr rval -- unimplemented */ ").
+
+write_managed_cpp_rval(self(_)) -->
+	io__write_string(" /* self rval -- unimplemented */ ").
 	
 :- pred write_managed_cpp_rval_const(mlds__rval_const, io__state, io__state).
 :- mode write_managed_cpp_rval_const(in, di, uo) is det.

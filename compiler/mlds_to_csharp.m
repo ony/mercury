@@ -90,8 +90,8 @@ output_src_end(ModuleName) -->
 generate_csharp_code(MLDS) -->
 
 	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
-	{ ClassName = mlds_module_name_to_class_name(
-		mercury_module_name_to_mlds(ModuleName), yes) },
+	{ ClassName = class_name(mercury_module_name_to_mlds(ModuleName), 
+			"mercury_code") },
 
 	io__nl,
 	io__write_strings([
@@ -327,6 +327,9 @@ write_csharp_rval(binop(Binop, Rval1, Rval2)) -->
 
 write_csharp_rval(mem_addr(_)) -->
 	{ sorry(this_file, "mem_addr rval") }.
+	
+write_csharp_rval(self(_)) -->
+	{ sorry(this_file, "self rval") }.
 	
 :- pred write_csharp_rval_const(mlds__rval_const, io__state, io__state).
 :- mode write_csharp_rval_const(in, di, uo) is det.

@@ -49,7 +49,7 @@
 %		     small
 %                    )).
 %
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 18, Line(s) = 16
 %
 % big(
@@ -69,7 +69,7 @@
 %     "Level 2", 
 %     small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 16, Line(s) = 16
 % 
 % big(
@@ -83,7 +83,7 @@
 %     "Level 2", 
 %     small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 50, Line(s) = 4
 % 
 % big(
@@ -91,7 +91,7 @@
 %  "Level 1", 
 %   big(big/3, "Level 2", small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 56, Line(s) = 4
 % 
 % big(
@@ -99,12 +99,12 @@
 %   "Level 1", 
 %   big(big(small, "Level 3", small), "Level 2", small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 30, Line(s) = 5
 % 
 % big(big/3, "Level 1", big/3)
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 33, Line(s) = 5
 % 
 % big(
@@ -112,12 +112,12 @@
 %   "Level 1", 
 %   big(big/3, "Level 2", small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 75, Line(s) = 1
 % 
 % big(big(big/3, "Level 2", small), "Level 1", big(big/3, "Level 2", small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 20, Line(s) = 10
 % 
 % big(
@@ -131,7 +131,7 @@
 %     "Level 2", 
 %     small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 40, Line(s) = 10
 % 
 % big(
@@ -145,17 +145,17 @@
 %     "Level 2", 
 %     small))
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 29, Line(s) = 1
 % 
 % big(big/3, "Level 1", big/3)
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Width = 20, Line(s) = 1
 % 
 % big/3
 % 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 
 :- module mdb__sized_pretty.
 
@@ -168,7 +168,7 @@
 	% The Limit is number of lines.
 :- pred univ_to_string_line(univ::in, int::in, int::in, string::out) is det.
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 
 :- implementation.
 
@@ -218,24 +218,32 @@
 	func add_measures(T, T, MeasureParams) = T is det,
 	func subtract_measures(T, T, MeasureParams) = T is det,
 
-		% given a term, it's arity, and a limit, this method decides
-		% the partial limit that each of the argument should be
-		% given. It's arguments in order are term, measure parameter(s),
-		% limit, arity, a flag (once the limit for the subterms 
-		% is determined the subterms are flagged with this limit), size 
-		% of the Functor, partial limit, adjusted limit, adjusted 
-		% measure parameter(s).
-		% Also a term is not deconstructed unless it has enough space
-		% to print functor and the functors of it's arguments.
-		% If the bool is `yes', we check that there is enough space to 
-		% print the functor and the functors of its arguments before 
-		% deconstructing the term. 
+		% Given a measurement and the measure parameters,
+		% calculate an upper bound on the number of functors
+		% that could fit in that space.
+	func maximum_functors(T, MeasureParams) = int,
+
+		% Given a term, its arity, and a limit, this method decides
+		% the partial limit that each of the arguments should be
+		% given. Its arguments in order are:
+		%	- the term to print,
+		%	- measure parameter(s),
+		%	- measurement of the available space,
+		% 	- arity of the principal functor of the term,
+		%	- a boolean which hints that the size of the principal
+		%	  functors of arguments should be checked before
+		%	  analyzing the term,
+		%	- size of the principal functor of the term,
+		%	- maybe an initial estimate of the measurement for
+		%	  each argument,
+		%	- adjusted measurement of available space,
+		%	- adjusted measure parameter(s).
 	pred measured_split(univ::in, MeasureParams::in, T::in, int::in,
 	     bool::in, T::out, maybe(T)::out, T::out, MeasureParams::out) is det
 		
 ].
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% When the space (to print the term) is given in number of lines there
 	% is an inital check that has to be done. This is due to the fact that
 	% size_count_split assumes that every term is part of a bigger term and
@@ -246,7 +254,7 @@
 	% character_count(LineWidth - 3).
 univ_to_string_line(Univ, LineWidth, Lines, String) :-
 	Params = measure_params(LineWidth),
-	deconstruct(univ_value(Univ), _, Arity, _),
+	functor(univ_value(Univ), _, Arity),
 	( 	Arity \= 0,
 		Lines \= 0,
 		(Lines - 1) // Arity = 0 
@@ -260,7 +268,7 @@ univ_to_string_line(Univ, LineWidth, Lines, String) :-
 	Doc = to_doc_sized(AnnotTerm),
 	String = pprint__to_string(LineWidth, Doc).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% first_pass gives an idea of how much space each term takes
 	% In this pass the space is unevenly distributed. First come first
 	% served. And once the space runs out, the term is not deconstructed
@@ -275,54 +283,61 @@ annotate_with_size(Univ, Params, Limit, Size2) :-
 	first_pass(Univ, Params, Limit, Size1),
 	second_pass(Size1, Params, Limit, Size2).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	
 :- pred first_pass(univ::in, MeasureParams::in, T::in,
 	size_annotated_term(T)::out) is det
 	<= measure_with_params(T, MeasureParams).
 
 first_pass(Univ, Params, Limit, Size) :-
-	deconstruct(univ_value(Univ), Functor, Arity, Args),	
-	measured_split(Univ, Params, Limit, Arity, yes, FunctorSize, 
-					Flag, NewLimit, NewParams),
-	flag_with(Args, Flag, FlaggedUnivArgs),
-	( (Arity \= 0, Flag = no) ->
-		Exact0 = no
-	;
-		Exact0 = yes
-	),
-        annotate_args_with_size(FlaggedUnivArgs, NewParams, NewLimit, 
-		FunctorSize, SoFar, Exact0, Exact, MaybeArgSizes),
+	MaxFunctors = maximum_functors(Limit, Params),
 	(
-		Exact = no,
-	        Size = at_least(Univ, SoFar,
-	                        deconstructed(Functor, Arity, MaybeArgSizes))
+		limited_deconstruct(univ_value(Univ), MaxFunctors,
+				Functor, Arity, UnivArgs)
+	->
+		measured_split(Univ, Params, Limit, Arity, yes, FunctorSize, 
+					MaybeInitArgLimit, NewLimit, NewParams),
+		( (Arity \= 0, MaybeInitArgLimit = no) ->
+			Exact0 = no
+		;
+			Exact0 = yes
+		),
+		annotate_args_with_size(UnivArgs, MaybeInitArgLimit, NewParams,
+			NewLimit, FunctorSize, SoFar, Exact0, Exact,
+			MaybeArgSizes),
+		(
+			Exact = no,
+			Size = at_least(Univ, SoFar,
+				deconstructed(Functor, Arity, MaybeArgSizes))
+		;
+			Exact = yes,
+			Size = exact(Univ, SoFar, Functor, Arity, MaybeArgSizes)
+		)
 	;
-	        Exact = yes,
-	        Size = exact(Univ, SoFar, Functor, Arity, MaybeArgSizes)
+		Size = at_least(Univ, zero_measure, not_deconstructed)
 	).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% annotating the arguments.
-:- pred annotate_args_with_size(assoc_list(maybe(T), univ)::in,
+:- pred annotate_args_with_size(list(univ)::in, maybe(T)::in,
 	MeasureParams::in, T::in, T::in, T::out, bool::in, bool::out, 
 	size_annotated_args(T)::out) is det <= measure_with_params(T, 
 	MeasureParams).
 
-annotate_args_with_size([], _, _, SoFar, SoFar, Exact, Exact, []).
-annotate_args_with_size([Flag - Arg | FlaggedArgs], Params, Limit,
+annotate_args_with_size([], _, _, _, SoFar, SoFar, Exact, Exact, []).
+annotate_args_with_size([Arg | Args], MaybeInitArgLimit, Params, Limit,
 		SoFar0, SoFar, Exact0, Exact,
-		[MaybeFlaggedSize | MaybeFlaggedSizes]) :-
+		[MaybeArgSize | MaybeArgSizes]) :-
 	(
-		Flag = yes(ArgLimit),
+		MaybeInitArgLimit = yes(InitArgLimit),
 		( compare_measures(SoFar0, Limit) = (>) ->
-			AppliedArgLimit = ArgLimit
+			AppliedArgLimit = InitArgLimit
 		;
-			AppliedArgLimit = max_measure(ArgLimit,
+			AppliedArgLimit = max_measure(InitArgLimit,
 				subtract_measures(Limit, SoFar0, Params))
 		),
 		first_pass(Arg, Params, AppliedArgLimit, Size),
-		MaybeFlaggedSize = yes(ArgLimit - Size),
+		MaybeArgSize = yes(InitArgLimit - Size),
 		extract_size_from_annotation(Size) = ArgSize,
 		SoFar1 = add_measures(SoFar0, ArgSize, Params),
 		(
@@ -333,8 +348,8 @@ annotate_args_with_size([Flag - Arg | FlaggedArgs], Params, Limit,
 			Exact1 = no
 		)
 	;
-		Flag = no,
-		MaybeFlaggedSize = no,
+		MaybeInitArgLimit = no,
+		MaybeArgSize = no,
 		SoFar1 = SoFar0,
 		Exact1 = Exact0
 	),
@@ -343,42 +358,24 @@ annotate_args_with_size([Flag - Arg | FlaggedArgs], Params, Limit,
 	;
 		Exact2 = Exact1
 	),
-	annotate_args_with_size(FlaggedArgs, Params, Limit, SoFar1, SoFar, 
-		Exact2, Exact, MaybeFlaggedSizes).
+	annotate_args_with_size(Args, MaybeInitArgLimit, Params, Limit,
+		SoFar1, SoFar, Exact2, Exact, MaybeArgSizes).
 
-%------------------------------------------------------------------------------%
-	% Annotates the arguments with zero limit.
-:- pred annotate_args_with_zero_size(assoc_list(maybe(T), univ)::in, T::in,
-	size_annotated_args(T)::out) is det <= measure(T).
-
-annotate_args_with_zero_size([], _, []).
-annotate_args_with_zero_size([Flag - Univ | FlaggedArgs], ZeroMeasure,
-		[FlaggedSize | FlaggedSizes]) :-
-	(
-		Flag = yes(ArgLimit),
-		FlaggedSize = yes(ArgLimit -
-			at_least(Univ, ZeroMeasure, not_deconstructed))
-	;
-		Flag = no,
-		FlaggedSize = no
-	),
-	annotate_args_with_zero_size(FlaggedArgs, ZeroMeasure, FlaggedSizes).
-
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 
 :- func extract_size_from_annotation(size_annotated_term(T)) = T.
 
 extract_size_from_annotation(exact(_, Size, _, _, _)) = Size.
 extract_size_from_annotation(at_least(_, Size, _)) = Size.
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 
 :- func extract_univ_from_annotation(size_annotated_term(T)) = univ.
 
 extract_univ_from_annotation(exact(Univ, _, _, _, _)) = Univ.
 extract_univ_from_annotation(at_least(Univ, _, _)) = Univ.
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% This predicate basically ensures that the arguments that
 	% take up smaller "Space" than their fair share is fully
 	% printed and the rest the Space is shared equally between
@@ -399,19 +396,17 @@ second_pass(OldSizeTerm, Params, Limit, NewSizeTerm) :-
 	;
     		OldSizeTerm = at_least(Univ, _Size, deconstructed(Functor, 
 			Arity,MaybeArgs)),
-		measured_split(Univ, Params, Limit, Arity, yes, FSize, Flag,
-			NewLimit, NewParams),
-		( if Flag = yes(X) then
-	    		ArgLimit = X,
-	    		check_args(NewParams, MaybeArgs, ArgLimit, Passed, 
+		measured_split(Univ, Params, Limit, Arity, yes, FSize,
+			MaybeInitLimit, NewLimit, NewParams),
+		( if MaybeInitLimit = yes(InitLimit) then
+	    		check_args(NewParams, MaybeArgs, InitLimit, Passed, 
 				FSize, Used),
 			LeftOver = add_measures(subtract_measures(NewLimit, 
 			  	Used, Params), FSize, Params),
 	    		measured_split(Univ, Params, LeftOver, Arity - Passed, 
-				no, _, Flag2, _, _),
-	    		( if Flag2 = yes(Y) then
-	        		SplitLimit = Y,
-	        		process_args(NewParams, MaybeArgs, ArgLimit, 
+				no, _, MaybeSplitLimit, _, _),
+	    		( if MaybeSplitLimit = yes(SplitLimit) then
+	        		process_args(NewParams, MaybeArgs, InitLimit,
 					SplitLimit, NewArgs, NewSize0),
 				NewSize = add_measures(FSize, NewSize0, 
 					NewParams),
@@ -430,11 +425,11 @@ second_pass(OldSizeTerm, Params, Limit, NewSizeTerm) :-
 					not_deconstructed)
 	    		)
 		else
-	    	NewSizeTerm = at_least(Univ, FSize, not_deconstructed)
+			NewSizeTerm = at_least(Univ, FSize, not_deconstructed)
 		)
 	).
 	
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% Given a list of size annotated terms(ie arguments) and a
 	% Limit, this predicate returns the values "Passed" and 
 	% "Used". Where "Passed" represents the number of terms that
@@ -465,7 +460,7 @@ check_args(Params, [HeadArg | Rest], ArgLimit, Passed, Used0, Used) :-
     	else
 		check_args(Params, Rest, ArgLimit, Passed, Used0, Used).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% This predicate accepts a list of size annotated terms(paired
 	% with a flag) and returns a list of the same type. This new
 	% list would consist of the same number of terms as the other
@@ -507,7 +502,7 @@ process_args(Params, [HeadArg | Rest], ArgLimit, SplitLimit,
     	),
     	process_args(Params, Rest, ArgLimit, SplitLimit, NewRest, RestSize).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% checking if an size-annotated arg is an exact type (fully represented)
 :- func check_if_exact(maybe(pair(T, size_annotated_term(T)))) = bool.
 
@@ -521,13 +516,13 @@ check_if_exact(yes(_ - Term)) = Result:-
 		Result = no
 	).	
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% A function to convert a size annotated term to a 'doc' type,
 	% a type defined in pprint.m.
 :- func to_doc_sized(size_annotated_term(T)) = doc.
 
 to_doc_sized(at_least(Univ, _, not_deconstructed)) = Doc :-
-	deconstruct(univ_value(Univ), Functor, Arity, _Args),
+	functor(univ_value(Univ), Functor, Arity),
 	Doc = text(Functor) `<>` text("/") `<>` poly(i(Arity)).
 
 to_doc_sized(at_least(_, _, deconstructed(Functor, Arity, MaybeArgs))) = Doc :-
@@ -536,7 +531,7 @@ to_doc_sized(at_least(_, _, deconstructed(Functor, Arity, MaybeArgs))) = Doc :-
 to_doc_sized(exact(_, _, Functor, Arity, MaybeArgs)) = Doc :-
 	Doc = to_doc_sized_2(Functor, Arity, MaybeArgs).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% Assumes that every argument must be on a different line
 	% or all of them should be on the same line.
 :- func to_doc_sized_2(string, int, size_annotated_args(T)) = doc.
@@ -553,23 +548,14 @@ to_doc_sized_2(Functor, Arity, [HeadArg|Tail]) = Doc :-
         	Doc = text(Functor) `<>` text("/") `<>` poly(i(Arity))
     	).
 	
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 
 :- func handle_arg(maybe(pair(T,size_annotated_term(T)))) = doc.
 
 handle_arg(yes(_ - Arg_Term)) = to_doc_sized(Arg_Term). 
 handle_arg(no) = nil.
 
-%------------------------------------------------------------------------------%
-	% A predicate that creates an associated list of Univ and their
-	% individual Limit
-:- pred flag_with(list(univ)::in, maybe(T)::in, assoc_list(maybe(T), univ)::out)
-	is det.
-flag_with([], _, []).
-flag_with([Arg | Args], Flag, [Flag - Arg | FlaggedArgs]) :-
-	flag_with(Args, Flag, FlaggedArgs).
-
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% functor_count is a representation where the size of a term
 	% is measured by the number of function symbols.
 
@@ -586,6 +572,10 @@ add_functor_count(functor_count(A), functor_count(B), _) = functor_count(A + B).
 
 subtract_functor_count(functor_count(A), functor_count(B), _) =
 	functor_count(A - B).
+
+:- func maximum_functor_count(functor_count, no_measure_params) = int.
+
+maximum_functor_count(functor_count(N), _) = N.
 
 :- func compare_functor_count(functor_count, functor_count) = comparison_result.
 
@@ -606,15 +596,15 @@ zero_functor_count = functor_count(0).
 	functor_count::out, no_measure_params::out) is det.
 
 functor_count_split(_, Params, functor_count(Limit), Arity, _, functor_count(1),
-		Flag, functor_count(Limit), Params) :-
+		MaybeArgLimit, functor_count(Limit), Params) :-
 	( Arity = 0 ->
-		Flag = no
+		MaybeArgLimit = no
 	;
 		( Limit =< (Arity + 1) ->			
-			Flag = no
+			MaybeArgLimit = no
 		;
 			RoundUp = (Limit + Arity - 1) // Arity,
-			Flag = yes(functor_count(RoundUp))
+			MaybeArgLimit = yes(functor_count(RoundUp))
 		)
 	).
 
@@ -627,11 +617,12 @@ functor_count_split(_, Params, functor_count(Limit), Arity, _, functor_count(1),
 :- instance measure_with_params(functor_count, no_measure_params) where [
 	func(add_measures/3) is add_functor_count,
 	func(subtract_measures/3) is subtract_functor_count,
+	func(maximum_functors/2) is maximum_functor_count,
 	pred(measured_split/9) is functor_count_split
 ].
 
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% char_count is a representation where the size of a term is
 	% measured by the number of characters.
 
@@ -647,6 +638,12 @@ add_char_count(char_count(A), char_count(B), _) = char_count(A + B).
 
 subtract_char_count(char_count(A), char_count(B), _) =
 	char_count(A - B).
+
+:- func maximum_char_count(char_count, no_measure_params) = int.
+
+maximum_char_count(char_count(N), _) = Max :-
+	% Each functor except the first takes a minimum of three chars.
+	Max = (N + 2) div 3.
 
 :- func compare_char_count(char_count, char_count) = comparison_result.
 
@@ -667,7 +664,9 @@ zero_char_count = char_count(0).
 	char_count::out, no_measure_params::out) is det.
 
 char_count_split(Univ, Params, char_count(Limit), Arity, Check, 
-		char_count(FunctorSize), Flag, char_count(Limit), Params) :-
+		char_count(FunctorSize), MaybeArgLimit, char_count(Limit),
+		Params) :-
+
 	deconstruct(univ_value(Univ), Functor, _, Args),
 	( Check = yes ->
 		get_arg_length(Args, TotalLength, _)
@@ -676,13 +675,13 @@ char_count_split(Univ, Params, char_count(Limit), Arity, Check,
 	),
 	FunctorSize = string__length(Functor) + 2*(Arity),
 	( Arity = 0 ->
-		Flag = no
+		MaybeArgLimit = no
 	;
 		( Limit =< (FunctorSize + TotalLength) ->
-			Flag = no
+			MaybeArgLimit = no
 		;
 			RoundUp = (Limit + Arity - FunctorSize) // Arity,
-			Flag = yes(char_count(RoundUp))
+			MaybeArgLimit = yes(char_count(RoundUp))
 		)
 	).
 
@@ -695,10 +694,11 @@ char_count_split(Univ, Params, char_count(Limit), Arity, Check,
 :- instance measure_with_params(char_count, no_measure_params) where [
         func(add_measures/3) is add_char_count,
         func(subtract_measures/3) is subtract_char_count,
+	func(maximum_functors/2) is maximum_char_count,
         pred(measured_split/9) is char_count_split
 ].
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% size_count is representation where the size of a term is
 	% measured by number of lines or number of characters.
 
@@ -781,6 +781,19 @@ subtract_size_count(line_count(A), line_count(B), _) = Result :-
 		Result = line_count(0)
 	).
 
+:- func maximum_size_count(size_count, measure_params) = int.
+
+maximum_size_count(character_count(N), _) = Max :-
+	% Each functor except the first takes a minimum of three chars.
+	Max = (N + 2) div 3.
+
+maximum_size_count(line_count(N), measure_params(LineWidth)) = Max :-
+	% We can't assume any particular layout, so we go by how many
+	% functors will fit in the area covered by N lines.  Each functor
+	% except the first takes a minimum of three chars.
+	Area = N * LineWidth,
+	Max = (Area + 2) div 3.
+
 :- func compare_size_count(size_count, size_count) = comparison_result.
 
 compare_size_count(character_count(C1), character_count(C2)) = R :-
@@ -813,7 +826,7 @@ zero_size_count = character_count(0).
 	size_count::out, measure_params::out) is det.
 
 size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize, 
-		Flag, NewLimit, NewParams) :-
+		MaybeArgLimit, NewLimit, NewParams) :-
 	% LineWidth is length of the line in which the functor is printed.
 	Params = measure_params(LineWidth),
     	deconstruct(univ_value(Univ), Functor, ActualArity, Args),
@@ -828,7 +841,7 @@ size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize,
     	( 
 		Arity = 0 
 	->
-		Flag = no,
+		MaybeArgLimit = no,
     		FunctorSize = character_count(FSize),
 		NewLimit = Limit,
 		NewParams = Params
@@ -843,7 +856,7 @@ size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize,
 			(LineWidth - 2) >= MaxLength
 		->
 			Line = (LineLimit - 1) // Arity,
-			Flag = yes(line_count(Line)),
+			MaybeArgLimit = yes(line_count(Line)),
 			FunctorSize = line_count(1),
 	    		NewLimit = Limit,
 	    		NewParams = measure_params(LineWidth - 2)
@@ -857,7 +870,7 @@ size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize,
 		->
 	    		% "Arity - 1" is for rounding up.
 			Char = (LineWidth - 3 - FSize + Arity - 1) // Arity ,
-	    		Flag = yes(character_count(Char)),
+	    		MaybeArgLimit = yes(character_count(Char)),
 	    		FunctorSize = character_count(FSize),
 	    		NewLimit = character_count(LineWidth - 3),
 	    		NewParams = Params
@@ -866,12 +879,12 @@ size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize,
 			CharLimit >= (FSize + TotalLength)
 		->
 	   		Char = (CharLimit - FSize + Arity - 1) // Arity,
-	   		Flag = yes(character_count(Char)),
+	   		MaybeArgLimit = yes(character_count(Char)),
 	   		FunctorSize = character_count(FSize),
 	   		NewLimit = Limit,
 	   		NewParams = Params
 		;
-	   		Flag = no,
+	   		MaybeArgLimit = no,
 			% If a term is not deconstructed, it is printed as
 			% "functor/Arity". The "+ 2" accounts for that.
 	   		FunctorSize = 
@@ -890,10 +903,11 @@ size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize,
 :- instance measure_with_params(size_count, measure_params) where [
 	func(add_measures/3) is add_size_count,
 	func(subtract_measures/3) is subtract_size_count,
+	func(maximum_functors/2) is maximum_size_count,
 	pred(measured_split/9) is size_count_split
 ].
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 	% This predicate determines how many characters it will take
 	% to print the functors of the arguments. Also determines the
 	% length of biggest functor.
@@ -901,7 +915,7 @@ size_count_split(Univ, Params, Limit, Arity, Check, FunctorSize,
 
 get_arg_length([], 0, 0).
 get_arg_length([HeadUniv | Rest], TotalLength, MaxLength) :-
-	deconstruct(univ_value(HeadUniv), Functor, Arity, _),
+	functor(univ_value(HeadUniv), Functor, Arity),
 	( Rest = [] ->
 		Correction = 2
 	;
@@ -919,4 +933,4 @@ get_arg_length([HeadUniv | Rest], TotalLength, MaxLength) :-
 	int__max((Length + Correction), RestMaxLength, MaxLength),
 	get_arg_length(Rest, RestTotalLength, RestMaxLength).
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
