@@ -54,10 +54,12 @@ else
 	PREFIX="$prefix"
 fi
 LIBDIR="$PREFIX/lib/mercury"
+WINDOWS_LIBDIR="`cygpath -w $LIBDIR 2>/dev/null`"
 NONSHARED_LIB_DIR=${MERCURY_NONSHARED_LIB_DIR=$PREFIX/lib/nonshared}
 AC_SUBST(PREFIX)
 AC_SUBST(NONSHARED_LIB_DIR)
 AC_SUBST(LIBDIR)
+AC_SUBST(WINDOWS_LIBDIR)
 DEFAULT_MERCURY_DEBUGGER_INIT_DIR=$LIBDIR/mdb
 AC_SUBST(DEFAULT_MERCURY_DEBUGGER_INIT_DIR)
 #-----------------------------------------------------------------------------#
@@ -87,14 +89,16 @@ if test "$BOOTSTRAP_MC" != ""; then
 
 		:- implementation.
 	
-		% Check that we can declare foreign_proc for C and MC++.
-		:- pred foo(int::out) is det.
-		:- pragma foreign_proc("C",    foo(X::out),
-			[[will_not_call_mercury, thread_safe]],
-			" X = 42; ").
-		:- pragma foreign_proc("MC++", foo(X::out),
-			[[will_not_call_mercury, thread_safe]],
-			" X = 42; ").
+        
+		% Different bodies for different modes.
+		:- pragma promise_pure(foo/1).
+		:- pred foo(int).
+		:- mode foo(out) is det.
+		:- mode foo(in) is semidet.
+		foo(X::in) :-
+			X = 42.
+		foo(X::out) :-
+			X = 42.
 
 		% Currently we test that mmc accepts the
 		% --fixed-user-guided-type-specialization flag.
@@ -289,6 +293,9 @@ fi
 if test "$MKFIFO" = ""; then
 	AC_MSG_WARN(cannot find a working \`mkfifo' or \`mknod')
 	MKFIFO=none
+	AC_DEFINE_UNQUOTED(MR_MKFIFO, "")
+else
+	AC_DEFINE_UNQUOTED(MR_MKFIFO, "$MKFIFO")
 fi
 AC_SUBST(MKFIFO)
 test "$MKNOD" = "" && MKNOD=mknod
@@ -336,6 +343,12 @@ AC_SUBST(INFO)
 #-----------------------------------------------------------------------------#
 AC_PATH_PROG(PERL,perl)
 AC_SUBST(PERL)
+#-----------------------------------------------------------------------------#
+AC_PATH_PROG(HOSTNAMECMD,hostname uname)
+case "$HOSTNAMECMD" in
+	*hostname)	HOSTNAMECMD="$HOSTNAMECMD -f" ;;
+esac
+AC_DEFINE_UNQUOTED(MR_HOSTNAMECMD, "$HOSTNAMECMD")
 #-----------------------------------------------------------------------------#
 AC_PROG_CC
 AC_SUBST(CC)
@@ -1985,7 +1998,7 @@ if test "$enable_prof_grades" = yes; then
 			fi
 		fi
 	fi
-	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof"
+	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof $DEFAULT_GRADE.profdeep"
 fi
 
 if test "$enable_trail_grades" = yes; then
@@ -2771,9 +2784,10 @@ to_keep=""
 to_delete=""
 if test "$BOOTSTRAP_MC" != "" ; then
     MERCURY_MSG("checking whether any C files need to be rebuilt...")
-    for c_file in library/*.c compiler/*.c browser/*.c profiler/*.c \
+    for c_file in library/*.c compiler/*.c browser/*.c profiler/*.c deep_profiler/*.c \
     		library/Mercury/cs/*.c compiler/Mercury/cs/*.c \
-		browser/Mercury/cs/*.c profiler/Mercury/cs/*.c 
+		browser/Mercury/cs/*.c profiler/Mercury/cs/*.c \
+		deep_profiler/Mercury/cs/*.c 
     do
         case $c_file in
         */'*.c')
@@ -2820,9 +2834,9 @@ if test "$BOOTSTRAP_MC" != "" ; then
     rm -f confscratch $to_delete
 fi
 #-----------------------------------------------------------------------------#
-AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mprof
-scripts/mercury_update_interface scripts/mgnuc scripts/ml
-scripts/mmake scripts/c2init scripts/mdb scripts/mdbrc 
+AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mercury.bat
+scripts/mprof scripts/mercury_update_interface scripts/mgnuc scripts/ml
+scripts/mmake scripts/c2init scripts/mdb scripts/mdbrc scripts/mdprof
 scripts/sicstus_conv scripts/mkfifo_using_mknod bindist/bindist.build_vars
 ,
 for header in $CONFIG_HEADERS ; do

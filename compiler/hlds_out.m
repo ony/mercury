@@ -251,7 +251,7 @@
 
 % HLDS modules.
 :- import_module mercury_to_mercury, purity, special_pred, instmap.
-:- import_module termination, term_errors, check_typeclass.
+:- import_module termination, term_errors, check_typeclass, rtti.
 
 % RL back-end modules (XXX should avoid using those here).
 :- import_module rl.
@@ -306,6 +306,8 @@ hlds_out__cons_id_to_string(base_typeclass_info_const(_, _, _, _),
 	"<base_typeclass_info>").
 hlds_out__cons_id_to_string(tabling_pointer_const(_, _),
 	"<tabling_pointer>").
+hlds_out__cons_id_to_string(deep_profiling_proc_static(_),
+	"<deep_profiling_proc_static>").
 
 hlds_out__write_cons_id(cons(SymName, Arity)) -->
 	prog_out__write_sym_name_and_arity(SymName / Arity).
@@ -325,6 +327,8 @@ hlds_out__write_cons_id(base_typeclass_info_const(_, _, _, _)) -->
 	io__write_string("<base_typeclass_info>").
 hlds_out__write_cons_id(tabling_pointer_const(_, _)) -->
 	io__write_string("<tabling_pointer>").
+hlds_out__write_cons_id(deep_profiling_proc_static(_)) -->
+	io__write_string("<deep_profiling_proc_static>").
 
 	% The code of this predicate duplicates the functionality of
 	% error_util__describe_one_pred_name. Changes here should be made
@@ -940,7 +944,7 @@ hlds_out__write_clause(Indent, ModuleInfo, PredId, VarSet,
 		Clause = clause(
 			Modes,
 			Goal,
-			_Context
+			Context
 		),
 		Indent1 is Indent + 1
 	},
@@ -955,8 +959,24 @@ hlds_out__write_clause(Indent, ModuleInfo, PredId, VarSet,
 	;
 		[]
 	),
-	hlds_out__write_clause_head(ModuleInfo, PredId, VarSet, AppendVarnums,
-		HeadTerms, PredOrFunc),
+	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
+	{ pred_info_procids(PredInfo, ProcIds) },
+	( { Modes = [] ; Modes = ProcIds } ->
+		hlds_out__write_clause_head(ModuleInfo, PredId, VarSet,
+			AppendVarnums, HeadTerms, PredOrFunc)
+	; { Modes = [SingleMode] } ->
+		{ module_info_pred_proc_info(ModuleInfo, PredId, SingleMode,
+			_PredInfo, ProcInfo) },
+		{ proc_info_argmodes(ProcInfo, ArgModes) },
+		{ assoc_list__from_corresponding_lists(HeadTerms, ArgModes, 
+			AnnotatedPairs) },
+		{ AnnotatedHeadTerms = list__map(add_mode_qualifier(Context),
+			AnnotatedPairs) },
+		hlds_out__write_clause_head(ModuleInfo, PredId, VarSet,
+			AppendVarnums, AnnotatedHeadTerms, PredOrFunc)
+	;
+		{ error("No syntax for clause which applies to >1 mode") }
+	),
 	( { Goal = conj([]) - _GoalInfo } ->
 		io__write_string(".\n")
 	;
@@ -2118,6 +2138,16 @@ hlds_out__write_functor_cons_id(ConsId, ArgVars, VarSet, ModuleInfo,
 		{ proc_id_to_int(ProcId, ProcIdInt) },
 		io__write_int(ProcIdInt),
 		io__write_string(")")
+	;
+		{ ConsId = deep_profiling_proc_static(RttiProcLabel) },
+		{ rtti__proc_label_pred_proc_id(RttiProcLabel,
+			PredId, ProcId) },
+		io__write_string("deep_profiling_proc_static("),
+		hlds_out__write_pred_id(ModuleInfo, PredId),
+		{ proc_id_to_int(ProcId, ProcIdInt) },
+		io__write_string(" (mode "),
+		io__write_int(ProcIdInt),
+		io__write_string("))")
 	).
 
 hlds_out__write_var_modes([], [], _, _, _) --> [].
@@ -2915,6 +2945,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_eval_method(Proc, EvalMethod) },
 	{ proc_info_is_address_taken(Proc, IsAddressTaken) },
 	{ proc_info_get_call_table_tip(Proc, MaybeCallTableTip) },
+	{ proc_info_get_maybe_deep_profile_info(Proc, MaybeDeepProfileInfo) },
 	{ Indent1 is Indent + 1 },
 
 	hlds_out__write_indent(Indent1),
@@ -2972,6 +3003,27 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	( { MaybeCallTableTip = yes(CallTableTip) } ->
 		io__write_string("% call table tip: "),
 		mercury_output_var(CallTableTip, VarSet, AppendVarnums),
+		io__write_string("\n")
+	;
+		[]
+	),
+
+	( { MaybeDeepProfileInfo = yes(DeepProfileInfo) } ->
+		{ DeepProfileInfo = deep_profile_proc_info(Role, _SCC) },
+		io__write_string("% deep profile info: "),
+		(
+			{ Role = inner_proc(DeepPredProcId) },
+			io__write_string("inner, outer is ")
+		;
+			{ Role = outer_proc(DeepPredProcId) },
+			io__write_string("outer, inner is ")
+		),
+		{ DeepPredProcId = proc(DeepPredId, DeepProcId) },
+		{ pred_id_to_int(DeepPredId, DeepPredInt) },
+		{ proc_id_to_int(DeepProcId, DeepProcInt) },
+		io__write_int(DeepPredInt),
+		io__write_string("/"),
+		io__write_int(DeepProcInt),
 		io__write_string("\n")
 	;
 		[]
@@ -3108,6 +3160,8 @@ hlds_out__write_eval_method(eval_minimal) -->
 hlds_out__write_eval_method(eval_table_io) -->
 	io__write_string("table_io").
 
+%-----------------------------------------------------------------------------%
+
 :- pred hlds_out__write_indent(int, io__state, io__state).
 :- mode hlds_out__write_indent(in, di, uo) is det.
 
@@ -3123,6 +3177,7 @@ hlds_out__write_indent(Indent) -->
 	).
 
 %-----------------------------------------------------------------------------%
+
 :- pred hlds_out__write_constraint_proofs(int, tvarset,
 	map(class_constraint, constraint_proof), bool, io__state, io__state).
 :- mode hlds_out__write_constraint_proofs(in, in, in, in, di, uo) is det.
@@ -3154,6 +3209,186 @@ hlds_out__write_constraint_proof(Indent, VarSet, AppendVarnums,
 		io__write_string("super class of "),
 		mercury_output_constraint(VarSet, AppendVarnums, Super)
 	).
+
+%-----------------------------------------------------------------------------%
+
+:- func add_mode_qualifier(prog_context, pair(prog_term, mode)) = prog_term.
+add_mode_qualifier(Context, HeadTerm - Mode) = AnnotatedTerm :-
+	construct_qualified_term(unqualified("::"),
+		[HeadTerm, mode_to_term(Context, Mode)],
+		Context, AnnotatedTerm).
+
+:- func mode_to_term(term__context, mode) = prog_term.
+mode_to_term(Context, (InstA -> InstB)) = Term :-
+	( 
+		%
+		% check for higher-order pred or func modes, and output them
+		% in a nice format
+		%
+		InstA = ground(_Uniq, higher_order(_)),
+		InstB = InstA
+	->
+		Term = inst_to_term(InstA, Context)
+	;
+		construct_qualified_term(unqualified(">>"),
+			[inst_to_term(InstA, Context),
+			 inst_to_term(InstB, Context)],
+			Context, Term)
+	).
+mode_to_term(Context, user_defined_mode(Name, Args)) = Term :-
+	construct_qualified_term(Name,
+		list__map(map_inst_to_term(Context), Args),
+		Context, Term).
+
+:- func make_atom(string, prog_context) = prog_term.
+make_atom(Name, Context) =
+	term__functor(term__atom(Name), [], Context).
+
+:- func map_inst_to_term(prog_context, inst) = prog_term.
+map_inst_to_term(Context, Inst) = inst_to_term(Inst, Context).
+
+:- func inst_to_term(inst, prog_context) = prog_term.
+inst_to_term(any(Uniq), Context) =
+	make_atom(any_inst_uniqueness(Uniq), Context).
+inst_to_term(free, Context) =
+	make_atom("free", Context).
+inst_to_term(free(Type), Context) =
+	term__functor(term__atom("free"), [term__coerce(Type)], Context).
+inst_to_term(bound(Uniq, BoundInsts), Context) = Term :-
+	construct_qualified_term(unqualified(inst_uniqueness(Uniq, "bound")),
+		[bound_insts_to_term(BoundInsts, Context)], Context, Term).
+inst_to_term(ground(Uniq, GroundInstInfo), Context) = Term :-
+	(	
+		GroundInstInfo = higher_order(pred_inst_info(PredOrFunc,
+				Modes, Det)),
+		/* XXX we ignore Uniq */
+		(
+			PredOrFunc = predicate,
+			construct_qualified_term(unqualified("pred"),
+				list__map(mode_to_term(Context), Modes),
+				Context, ModesTerm)
+		;
+			PredOrFunc = function,
+			pred_args_to_func_args(Modes, ArgModes, RetMode),
+			construct_qualified_term(unqualified("func"),
+				list__map(mode_to_term(Context), ArgModes),
+				Context, ArgModesTerm),
+			construct_qualified_term(unqualified("="),
+				[ArgModesTerm, mode_to_term(Context, RetMode)],
+				Context, ModesTerm)
+		),
+		construct_qualified_term(unqualified("is"), [
+			ModesTerm, det_to_term(Det, Context)], Context, Term)
+	;
+		GroundInstInfo = constrained_inst_var(Var),
+		Term = term__coerce(term__variable(Var))
+	;
+		GroundInstInfo = none,
+		Term = make_atom(inst_uniqueness(Uniq, "ground"), Context)
+	).
+inst_to_term(inst_var(Var), _) =
+	term__coerce(term__variable(Var)).
+inst_to_term(abstract_inst(Name, Args), Context) =
+	inst_name_to_term(user_inst(Name, Args), Context).
+inst_to_term(defined_inst(InstName), Context) =
+	inst_name_to_term(InstName, Context).
+inst_to_term(not_reached, Context) =
+	make_atom("not_reached", Context).
+
+:- func inst_name_to_term(inst_name, prog_context) = prog_term.
+
+inst_name_to_term(user_inst(Name, Args), Context) = Term :-
+	construct_qualified_term(Name,
+		list__map(map_inst_to_term(Context), Args),
+		Context, Term).
+inst_name_to_term(merge_inst(InstA, InstB), Context) = Term :-
+	construct_qualified_term(unqualified("$merge_inst"),
+		list__map(map_inst_to_term(Context), [InstA, InstB]),
+		Context, Term).
+inst_name_to_term(shared_inst(InstName), Context) = Term :-
+	construct_qualified_term(unqualified("$shared_inst"),
+		[inst_name_to_term(InstName, Context)],
+		Context, Term).
+inst_name_to_term(mostly_uniq_inst(InstName), Context) = Term :-
+	construct_qualified_term(unqualified("$mostly_uniq_inst"),
+		[inst_name_to_term(InstName, Context)],
+		Context, Term).
+inst_name_to_term(unify_inst(Liveness, InstA, InstB, Real), Context) = Term :-
+	construct_qualified_term(unqualified("$unify"),
+		[make_atom((Liveness = live -> "live" ; "dead"), Context)] ++
+		 list__map(map_inst_to_term(Context), [InstA, InstB]) ++
+		[make_atom((Real = real_unify -> "real" ; "fake"), Context)],
+		Context, Term).
+inst_name_to_term(ground_inst(InstName, IsLive, Uniq, Real), Context) = Term :-
+	construct_qualified_term(unqualified("$ground"),
+		[inst_name_to_term(InstName, Context),
+		 make_atom((IsLive = live -> "live" ; "dead"), Context),
+		 make_atom(inst_uniqueness(Uniq, "shared"), Context),
+		 make_atom((Real = real_unify -> "real" ; "fake"), Context)],
+		Context, Term).
+inst_name_to_term(any_inst(InstName, IsLive, Uniq, Real), Context) = Term :-
+	construct_qualified_term(unqualified("$any"),
+		[inst_name_to_term(InstName, Context),
+		 make_atom((IsLive = live -> "live" ; "dead"), Context),
+		 make_atom(inst_uniqueness(Uniq, "shared"), Context),
+		 make_atom((Real = real_unify -> "real" ; "fake"), Context)],
+		Context, Term).
+inst_name_to_term(typed_ground(Uniq, Type), Context) = Term :-
+	construct_qualified_term(unqualified("$typed_ground"),
+		[make_atom(inst_uniqueness(Uniq, "shared"), Context),
+		 term__coerce(Type)],
+		Context, Term).
+inst_name_to_term(typed_inst(Type, InstName), Context) = Term :-
+	construct_qualified_term(unqualified("$typed_inst"),
+		[term__coerce(Type),
+		 inst_name_to_term(InstName, Context)],
+		Context, Term).
+
+:- func any_inst_uniqueness(uniqueness) = string.
+any_inst_uniqueness(shared) = "any".
+any_inst_uniqueness(unique) = "unique_any".
+any_inst_uniqueness(mostly_unique) = "mostly_unique_any".
+any_inst_uniqueness(clobbered) = "clobbered_any".
+any_inst_uniqueness(mostly_clobbered) = "mostly_clobbered_any".
+
+:- func inst_uniqueness(uniqueness, string) = string.
+inst_uniqueness(shared, SharedName) = SharedName.
+inst_uniqueness(unique, _) = "unique".
+inst_uniqueness(mostly_unique, _) = "mostly_unique".
+inst_uniqueness(clobbered, _) = "clobbered".
+inst_uniqueness(mostly_clobbered, _) = "mostly_clobbered".
+
+:- func bound_insts_to_term(list(bound_inst), prog_context) = prog_term.
+bound_insts_to_term([], _) = _ :-
+	error("bound_insts_to_term([])").
+bound_insts_to_term([functor(ConsId, Args) | BoundInsts], Context) = Term :-
+	( cons_id_and_args_to_term(ConsId,
+		list__map(map_inst_to_term(Context), Args), FirstTerm)
+	->
+		( BoundInsts = [] ->
+			Term = FirstTerm
+		;
+			construct_qualified_term(unqualified(";"),
+				[FirstTerm,
+				 bound_insts_to_term(BoundInsts, Context)],
+				Context, Term)
+		)
+	;
+		error("bound_insts_to_term: cons_id_and_args_to_term failed")
+	).
+
+:- func det_to_term(determinism, prog_context) = prog_term.
+det_to_term(Det, Context) = make_atom(det_to_string(Det), Context).
+
+:- func det_to_string(determinism) = string.
+det_to_string(erroneous) = "erroneous".
+det_to_string(failure) = "failure".
+det_to_string(det) = "det".
+det_to_string(semidet) = "semidet".
+det_to_string(cc_multidet) = "cc_multi".
+det_to_string(cc_nondet) = "cc_nondet".
+det_to_string(multidet) = "multi".
+det_to_string(nondet) = "nondet".
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
