@@ -1216,15 +1216,16 @@ MR_trace_throw(MR_Code *success_pointer, MR_Word *det_stack_pointer,
 	MR_MemoryZone	*swap_heaps_temp_hp_zone;			\\
 									\\
 	swap_heaps_temp_hp = MR_hp;					\\
-	swap_heaps_temp_hp_zone = MR_ENGINE(heap_zone);			\\
+	swap_heaps_temp_hp_zone = MR_ENGINE(MR_eng_heap_zone);		\\
 									\\
 	/* set heap to solutions heap */				\\
 	MR_hp = MR_sol_hp;						\\
-	MR_ENGINE(heap_zone) = MR_ENGINE(solutions_heap_zone);		\\
+	MR_ENGINE(MR_eng_heap_zone) =					\\
+		MR_ENGINE(MR_eng_solutions_heap_zone);			\\
 									\\
 	/* set the solutions heap to be the old heap */			\\
 	MR_sol_hp = swap_heaps_temp_hp;					\\
-	MR_ENGINE(solutions_heap_zone) = swap_heaps_temp_hp_zone;	\\
+	MR_ENGINE(MR_eng_solutions_heap_zone) = swap_heaps_temp_hp_zone;\\
 }
 
 MR_define_extern_entry(mercury__exception__builtin_catch_3_0); /* det */
@@ -1321,7 +1322,7 @@ MR_BEGIN_CODE
 ** On exit, we should put Result in MR_r1.
 */
 MR_define_entry(mercury__exception__builtin_catch_3_0); /* det */
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
 {
 	MR_tailcall(MR_ENTRY(mercury__exception__builtin_catch_3_2), 
 		MR_ENTRY(mercury__exception__builtin_catch_3_0));
@@ -1372,7 +1373,7 @@ MR_define_label(mercury__exception__builtin_catch_3_2_i2);
 ** and on exit, we should put Result in MR_r2.
 */
 MR_define_entry(mercury__exception__builtin_catch_3_1); /* semidet */
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
 {
 	MR_tailcall(MR_ENTRY(mercury__exception__builtin_catch_3_3), 
 		MR_ENTRY(mercury__exception__builtin_catch_3_1));
@@ -1428,7 +1429,7 @@ MR_define_label(mercury__exception__builtin_catch_3_3_i2);
 ** On exit, we should put Result in MR_r1.
 */
 MR_define_entry(mercury__exception__builtin_catch_3_4); /* multi */
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
 {
 	MR_tailcall(MR_ENTRY(mercury__exception__builtin_catch_3_5), 
 		MR_ENTRY(mercury__exception__builtin_catch_3_4));
@@ -1524,7 +1525,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 			!= MR_ENTRY(MR_exception_handler_do_fail))
 	{
 		MR_curfr = MR_succfr_slot(MR_curfr);
-		if (MR_curfr < MR_CONTEXT(nondetstack_zone)->min) {
+		if (MR_curfr < MR_CONTEXT(MR_ctxt_nondetstack_zone)->min) {
 			MR_Word *save_succip;
 			/*
 			** There was no exception handler.
@@ -1580,8 +1581,8 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	/*
 	** Save the handler we found
 	*/
-	catch_code_model = MR_EXCEPTION_FRAMEVARS->code_model;
-	handler = MR_EXCEPTION_FRAMEVARS->handler;	
+	catch_code_model = MR_EXCEPTION_FRAMEVARS->MR_excp_code_model;
+	handler = MR_EXCEPTION_FRAMEVARS->MR_excp_handler;	
 
 	/*
 	** Reset the success ip (i.e. return address).
@@ -1593,14 +1594,15 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	/*
 	** Reset the det stack.
 	*/
-	MR_sp = MR_EXCEPTION_FRAMEVARS->stack_ptr;
+	MR_sp = MR_EXCEPTION_FRAMEVARS->MR_excp_stack_ptr;
 
 #ifdef MR_USE_TRAIL
 	/*
 	** Reset the trail.
 	*/
-	MR_reset_ticket(MR_EXCEPTION_FRAMEVARS->trail_ptr, MR_exception);
-	MR_discard_tickets_to(MR_EXCEPTION_FRAMEVARS->ticket_counter);
+	MR_reset_ticket(MR_EXCEPTION_FRAMEVARS->MR_excp_trail_ptr,
+		MR_exception);
+	MR_discard_tickets_to(MR_EXCEPTION_FRAMEVARS->MR_excp_ticket_counter);
 #endif
 #ifndef CONSERVATIVE_GC
 	/*
@@ -1621,7 +1623,9 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	MR_Word * saved_solns_heap_ptr;
 
 	/* switch to the solutions heap */
-	if (MR_ENGINE(heap_zone) == MR_EXCEPTION_FRAMEVARS->heap_zone) {
+	if (MR_ENGINE(MR_eng_heap_zone) ==
+		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone)
+	{
 		swap_heaps();
 	}
 
@@ -1632,33 +1636,35 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	** Note that we need to save/restore the hp register, if it
 	** is transient, before/after calling MR_deep_copy().
 	*/
-	assert(MR_EXCEPTION_FRAMEVARS->heap_ptr <=
-		MR_EXCEPTION_FRAMEVARS->heap_zone->top);
+	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr <=
+		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone->top);
 	MR_save_transient_registers();
 	exception = MR_deep_copy(&exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
-		MR_EXCEPTION_FRAMEVARS->heap_ptr,
-		MR_EXCEPTION_FRAMEVARS->heap_zone->top);
+		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr,
+		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone->top);
 	MR_restore_transient_registers();
 
 	/* switch back to the ordinary heap */
 	swap_heaps();
 
 	/* reset the heap */
-	assert(MR_EXCEPTION_FRAMEVARS->heap_ptr <= MR_hp);
-	MR_hp = MR_EXCEPTION_FRAMEVARS->heap_ptr;
+	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr <= MR_hp);
+	MR_hp = MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr;
 
 	/* MR_deep_copy the exception back to the ordinary heap */
-	assert(MR_EXCEPTION_FRAMEVARS->solns_heap_ptr <=
-		MR_ENGINE(solutions_heap_zone)->top);
+	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr <=
+		MR_ENGINE(MR_eng_solutions_heap_zone)->top);
 	MR_save_transient_registers();
 	exception = MR_deep_copy(&exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
-		saved_solns_heap_ptr, MR_ENGINE(solutions_heap_zone)->top);
+		saved_solns_heap_ptr,
+		MR_ENGINE(MR_eng_solutions_heap_zone)->top);
 	MR_restore_transient_registers();
 
 	/* reset the solutions heap */
-	assert(MR_EXCEPTION_FRAMEVARS->solns_heap_ptr <= saved_solns_heap_ptr);
+	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr
+		<= saved_solns_heap_ptr);
 	assert(saved_solns_heap_ptr <= MR_sol_hp);
 	if (catch_code_model == MR_MODEL_NON_HANDLER) {
 		/*
@@ -1677,7 +1683,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		** we can safely reset the solutions heap to where
 		** it was when it try (catch) was entered.
 		*/
-		MR_sol_hp = MR_EXCEPTION_FRAMEVARS->solns_heap_ptr;
+		MR_sol_hp = MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr;
 	}
 }
 #endif /* !defined(CONSERVATIVE_GC) */
@@ -1702,12 +1708,12 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	if (catch_code_model == MR_C_LONGJMP_HANDLER) {
 #ifdef	MR_DEBUG_JMPBUFS
 		fprintf(stderr, ""throw longjmp %p\\n"",
-			*(MR_ENGINE(e_jmp_buf)));
+			*(MR_ENGINE(MR_eng_jmp_buf)));
 #endif
 
-		MR_ENGINE(e_exception) = (MR_Word *) exception;
+		MR_ENGINE(MR_eng_exception) = (MR_Word *) exception;
 		MR_save_registers();
-		longjmp(*(MR_ENGINE(e_jmp_buf)), 1);
+		longjmp(*(MR_ENGINE(MR_eng_jmp_buf)), 1);
 	}
 
 	/*
@@ -1774,8 +1780,10 @@ void mercury_sys_init_exceptions(void) {
 
 report_uncaught_exception(Exception) -->
 	try_io(report_uncaught_exception_2(Exception), Result),
-	(	{ Result = succeeded(_) }
-	;	{ Result = exception(_) }
+	(
+		{ Result = succeeded(_) }
+	;
+		{ Result = exception(_) }
 		% if we got a further exception while trying to report
 		% the uncaught exception, just ignore it
 	).

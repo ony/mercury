@@ -475,6 +475,11 @@ MR_trace_retry(MR_Event_Info *event_info, MR_Event_Details *event_details,
 	MR_Retry_Result			result;
 #endif
 
+#ifdef	MR_DEEP_PROFILING
+	*problem = "retry is incompatible with deep profiling.";
+	return MR_RETRY_ERROR;
+#endif
+
 	args = NULL;
 	MR_init_call_table_array();
 
@@ -1325,4 +1330,12 @@ MR_abandon_call_table_array(void)
 	if (MR_call_table_ptrs != NULL) {
 		MR_free(MR_call_table_ptrs);
 	}
+}
+
+void
+MR_trace_init_modules(void)
+{
+	MR_do_init_modules();
+	MR_do_init_modules_type_tables();
+	MR_do_init_modules_debugger();
 }

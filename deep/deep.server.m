@@ -13,7 +13,7 @@
 
 :- implementation.
 
-:- import_module cgi_interface, measurements.
+:- import_module cgi_interface, measurements, deep:util.
 :- import_module float.
 
 :- type call_site_line_number
@@ -22,7 +22,8 @@
 
 server(InputFileName, OutputFileName, Wait, Machine, Deep) -->
 	{ string__append_list(["http://", Machine,
-		".cs.mu.oz.au/cgi-bin/deep"], URLprefix) },
+		"/cgi-bin/deep"], URLprefix) },
+		% ".cs.mu.oz.au/cgi-bin/deep"], URLprefix) },
 	server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep).
 
 :- pred server_loop(string::in, string::in, int::in, string::in, deep::in,
@@ -31,16 +32,17 @@ server(InputFileName, OutputFileName, Wait, Machine, Deep) -->
 server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep) -->
 	io__see(InputFileName, _),
 	read(Res0),
-	stderr_stream(StdErr),
-	write(StdErr, Res0), nl(StdErr),
+	% stderr_stream(StdErr),
+	% write(StdErr, Res0), nl(StdErr),
 	io__seen,
 	(
 		{ Res0 = eof },
-		write_string(StdErr, "eof.\n"),
+		% write_string(StdErr, "eof.\n"),
 		server_loop(InputFileName, OutputFileName, Wait,
 			URLprefix, Deep)
 	;
 		{ Res0 = error(Msg, Line) },
+		stderr_stream(StdErr),
 		format(StdErr, "error reading input line %d: %s\n",
 			[i(Line), s(Msg)]),
 		server_loop(InputFileName, OutputFileName, Wait,
@@ -78,6 +80,10 @@ server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep) -->
 
 %-----------------------------------------------------------------------------%
 
+:- func add_default_fields(string) = string.
+
+add_default_fields(Str0) = string__append_list([Str0, "+", default_fields]).
+
 :- pred exec(cmd::in, string::in, deep::in, string::out, bool::out) is det.
 
 exec(Cmd, URLprefix, Deep, HTML, no) :-
@@ -95,55 +101,59 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 		menu_text ++
 		"<ul>\n" ++
 		"<li>\n" ++
-		menu_item(URLprefix, "root",
+		menu_item(URLprefix,
+			add_default_fields("root"),
 			"Exploring the call graph.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+time+self+1-100",
+		menu_item(URLprefix,
+			add_default_fields("procs+time+self+1-100"),
 			"Top 100 most expensive procedures: time, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+time+both+1-100",
+		menu_item(URLprefix,
+			add_default_fields("procs+time+both+1-100"),
 			"Top 100 most expensive procedures: time, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+words+self+1-100",
+		menu_item(URLprefix,
+			add_default_fields("procs+words+self+1-100"),
 			"Top 100 most expensive procedures: words, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+words+both+1-100",
+		menu_item(URLprefix,
+			add_default_fields("procs+words+both+1-100"),
 			"Top 100 most expensive procedures: words, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+time+self+0.1",
+		menu_item(URLprefix,
+			add_default_fields("procs+time+self+0.1"),
 			"Procedures above 0.1% threshold: time, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+time+both+0.1",
-			"Procedures above 0.1% threshold: time, self+desc.")
+		menu_item(URLprefix,
+			add_default_fields("procs+time+both+1"),
+			"Procedures above 1% threshold: time, self+desc.")
 			++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+words+self+0.1",
+		menu_item(URLprefix,
+			add_default_fields("procs+words+self+0.1"),
 			"Procedures above 0.1% threshold: words, self.") ++
 		"<li>\n" ++
-		menu_item(URLprefix, "procs+words+both+0.1",
-			"Procedures above 0.1% threshold: words, self+desc.")
+		menu_item(URLprefix,
+			add_default_fields("procs+words+both+1"),
+			"Procedures above 1% threshold: words, self+desc.")
 			++
 		"</ul>\n" ++
 		"<p>\n" ++
+		format("Number of quanta in user code: %d.\n",
+			[i(Deep ^ outside_quanta)]) ++
+		format("Number of quanta in instrumentation: %d.\n",
+			[i(Deep ^ inside_quanta)]) ++
+		"<p>\n" ++
 		footer(URLprefix, Cmd, Deep).
 
-exec(Cmd, URLprefix, Deep, HTML, yes) :-
-	Cmd = root(Fields), 
-	RootOwn = root_own_info(Deep),
-	RootInherit = root_inherit_info(Deep),
-	HTML =
-		banner ++
-		"<TABLE>\n" ++
-		fields_header(Fields) ++
-		proc_total_in_clique(main_parent_proc_id, Deep, Fields,
-			RootOwn, RootInherit) ++
-		call_site_to_html(URLprefix, Deep, Fields,
-			no_call_site_line_number, clique_ptr(-1), Deep ^ root)
-			++
-		"</TABLE>\n" ++
-		footer(URLprefix, Cmd, Deep).
+exec(Cmd, URLprefix, Deep, HTML, Continue) :-
+	Cmd = root(Fields),
+	deep_lookup_clique_index(Deep, Deep ^ root, RootCliquePtr),
+	RootCliquePtr = clique_ptr(RootCliqueNum),
+	exec(clique(RootCliqueNum, Fields), URLprefix, Deep, HTML, Continue).
 
 exec(Cmd, URLprefix, Deep, HTML, yes) :-
 	Cmd = clique(CliqueNum, Fields),
@@ -152,8 +162,8 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 			banner ++
 			"<TABLE>\n" ++
 			fields_header(Fields) ++
-			clique_to_html(URLprefix, clique_ptr(CliqueNum),
-				Deep, Fields) ++
+			clique_to_html(URLprefix, Deep, Fields,
+				clique_ptr(CliqueNum)) ++
 			"</TABLE>\n" ++
 			footer(URLprefix, Cmd, Deep)
 	;
@@ -181,7 +191,8 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 				footer(URLprefix, Cmd, Deep)
 		;
 			TopProcSummaries = list__map(
-				proc_summary_to_html(URLprefix, Deep, Fields),
+				proc_total_summary_to_html(URLprefix,
+					Deep, Fields),
 				TopPSIs),
 			HTML =
 				banner ++
@@ -206,189 +217,54 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 
 %-----------------------------------------------------------------------------%
 
-:- func banner = string.
+:- func clique_to_html(string, deep, fields, clique_ptr) = string.
 
-banner =
-	"<HTML>\n" ++
-	"<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n".
-
-:- func footer(string, cmd, deep) = string.
-
-footer(_URLprefix, _Cmd, _Deep) =
-	% Link back to root,
-	% Search, etc, etc.
-	"</HTML>\n".
-
-:- func menu_text = string.
-
-menu_text =
-	"You can start exploring the deep profile at the following points.".
-
-:- func menu_item(string, string, string) = string.
-
-menu_item(URLprefix, URLsuffix, Text) = 
-	format("<A HREF=""%s?%s"">%s</A>\n",
-		[s(URLprefix), s(URLsuffix), s(Text)]).
-
-%-----------------------------------------------------------------------------%
-
-:- func root_total_info(deep) = inherit_prof_info.
-
-root_total_info(Deep) = RootTotal :-
-	Deep ^ root = call_site_dynamic_ptr(RootI),
-	lookup(Deep ^ csd_desc, RootI, RootInherit),
-	lookup(Deep ^ call_site_dynamics, RootI, RootCsd),
-	RootCsd = call_site_dynamic(_, RootOwn),
-	add_own_to_inherit(RootOwn, RootInherit) = RootTotal.
-
-:- func root_inherit_info(deep) = inherit_prof_info.
-
-root_inherit_info(Deep) = RootInherit :-
-	Deep ^ root = call_site_dynamic_ptr(RootI),
-	lookup(Deep ^ csd_desc, RootI, RootInherit).
-
-:- func root_own_info(deep) = own_prof_info.
-
-root_own_info(Deep) = RootOwn :-
-	Deep ^ root = call_site_dynamic_ptr(RootI),
-	lookup(Deep ^ call_site_dynamics, RootI, RootCsd),
-	RootCsd = call_site_dynamic(_, RootOwn).
-
-%-----------------------------------------------------------------------------%
-
-:- func fields_header(fields) = string.
-
-fields_header(Fields) =
-	"<TR>\n" ++
-	"<TD>Source</TD>\n" ++
-	"<TD>Procedure</TD>\n" ++
-	( show_port_counts(Fields) ->
-		"<TD ALIGN=RIGHT>Calls</TD>\n" ++
-		"<TD ALIGN=RIGHT>Exits</TD>\n" ++
-		"<TD ALIGN=RIGHT>Fails</TD>\n" ++
-		"<TD ALIGN=RIGHT>Redos</TD>\n"
-	;
-		""
-	) ++
-	( show_quanta(Fields) ->
-		"<TD ALIGN=RIGHT>Self quanta</TD>\n"
-	;
-		""
-	) ++
-	( show_times(Fields) ->
-		"<TD ALIGN=RIGHT>Self time</TD>\n"
-	;
-		""
-	) ++
-	( (show_quanta(Fields) ; show_times(Fields)) ->
-		"<TD ALIGN=RIGHT>% of root</TD>\n"
-	;
-		""
-	) ++
-	( show_quanta(Fields) ->
-		"<TD ALIGN=RIGHT>Total quanta</TD>\n"
-	;
-		""
-	) ++
-	( show_times(Fields) ->
-		"<TD ALIGN=RIGHT>Total time</TD>\n"
-	;
-		""
-	) ++
-	( (show_quanta(Fields) ; show_times(Fields)) ->
-		"<TD ALIGN=RIGHT>% of root</TD>\n"
-	;
-		""
-	) ++
-	( show_allocs(Fields) ->
-		"<TD ALIGN=RIGHT>Self allocs</TD>\n" ++
-		"<TD ALIGN=RIGHT>% of root</TD>\n" ++
-		"<TD ALIGN=RIGHT>Total allocs</TD>\n" ++
-		"<TD ALIGN=RIGHT>% of root</TD>\n"
-	;
-		""
-	) ++
-	( show_words(Fields) ->
-		"<TD ALIGN=RIGHT>Self words</TD>\n" ++
-		"<TD ALIGN=RIGHT>% of root</TD>\n" ++
-		"<TD ALIGN=RIGHT>Total words</TD>\n" ++
-		"<TD ALIGN=RIGHT>% of root</TD>\n"
-	;
-		""
-	) ++
-	"</TR>\n".
-
-:- func separator_row(fields) = string.
-
-separator_row(Fields) = Separator :-
-	Fixed = 2,	% Source, Procedure
-	( show_port_counts(Fields) ->
-		Port = 4
-	;
-		Port = 4
-	),
-	( show_quanta(Fields) ->
-		Quanta = 2
-	;
-		Quanta = 0
-	),
-	( show_times(Fields) ->
-		Times = 2
-	;
-		Times = 0
-	),
-	( (show_quanta(Fields) ; show_times(Fields)) ->
-		Percentage = 2
-	;
-		Percentage = 0
-	),
-	( show_allocs(Fields) ->
-		Allocs = 4
-	;
-		Allocs = 0
-	),
-	( show_words(Fields) ->
-		Words = 4
-	;
-		Words = 0
-	),
-	Count = Fixed + Port + Quanta + Times + Percentage + Allocs + Words,
-	Separator = string__format("<TR><TD COLSPAN=%d>&nbsp;</TD></TR>\n",
-		[i(Count)]).
-
-%-----------------------------------------------------------------------------%
-
-:- func clique_to_html(string, clique_ptr, deep, fields) = string.
-
-clique_to_html(URLprefix, CliquePtr, Deep, Fields) = HTML :-
-	CliquePtr = clique_ptr(CliqueNum),
-	array__lookup(Deep ^ clique_members, CliqueNum, PDPtrs),
-	array__lookup(Deep ^ clique_parents, CliqueNum, CallerCSDPtr),
-	EntryCallSite = call_site_to_html(URLprefix, Deep, Fields,
-		call_site_line_number, CliquePtr, CallerCSDPtr),
-	PDStrs = list__map(proc_in_clique_to_html(URLprefix, CliquePtr,
-		Deep, Fields), PDPtrs),
+clique_to_html(URLprefix, Deep, Fields, CliquePtr) = HTML :-
+	Ancestors = clique_ancestors_to_html(URLprefix, Deep, Fields,
+		CliquePtr),
+	deep_lookup_clique_members(Deep, CliquePtr, PDPtrs),
+	PDStrs = list__map(
+		proc_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr),
+		PDPtrs),
 	string__append_list(PDStrs, ProcGroups),
 	HTML =
-		EntryCallSite ++
+		Ancestors ++
 		ProcGroups.
 
-:- func proc_in_clique_to_html(string, clique_ptr, deep, fields,
-	proc_dynamic_ptr) = string.
+:- func clique_ancestors_to_html(string, deep, fields, clique_ptr) = string.
 
-proc_in_clique_to_html(URLprefix, CliquePtr, Deep, Fields, PDPtr) = HTML :-
+clique_ancestors_to_html(URLprefix, Deep, Fields, CliquePtr) = HTML :-
+	deep_lookup_clique_index(Deep, Deep ^ root, RootCliquePtr),
+	( CliquePtr = RootCliquePtr ->
+		HTML = ""
+	;
+		deep_lookup_clique_parents(Deep, CliquePtr, EntryCSDPtr),
+		ThisHTML = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+			call_site_line_number, no, EntryCSDPtr),
+		deep_lookup_call_site_dynamics(Deep, EntryCSDPtr, EntryCSD),
+		EntryCSD = call_site_dynamic(EntryPDPtr, _, _),
+		require(valid_proc_dynamic_ptr(Deep, EntryPDPtr),
+			"clique_ancestors_to_html: invalid proc_dynamic"),
+		deep_lookup_clique_index(Deep, EntryPDPtr, EntryCliquePtr),
+		AncestorHTML = clique_ancestors_to_html(URLprefix,
+			Deep, Fields, EntryCliquePtr),
+		HTML =
+			AncestorHTML ++
+			ThisHTML
+	).
+
+:- func proc_in_clique_to_html(string, deep, fields,
+	clique_ptr, proc_dynamic_ptr) = string.
+
+proc_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PDPtr) = HTML :-
 	( valid_proc_dynamic_ptr(Deep, PDPtr) ->
-		PDPtr = proc_dynamic_ptr(PDI),
 		InitialSeparator = separator_row(Fields),
-		array__lookup(Deep ^ pd_own, PDI, ProcOwn),
-		array__lookup(Deep ^ pd_desc, PDI, ProcDesc),
-		array__lookup(Deep ^ proc_dynamics, PDI, PD),
+		deep_lookup_pd_own(Deep, PDPtr, ProcOwn),
+		deep_lookup_pd_desc(Deep, PDPtr, ProcDesc),
+		deep_lookup_proc_dynamics(Deep, PDPtr, PD),
 		PD = proc_dynamic(PSPtr, _),
-		PSPtr = proc_static_ptr(PSI),
-		array__lookup(Deep ^ proc_statics, PSI, PS),
-		PS = proc_static(Id, _, _),
-		ProcTotal = proc_total_in_clique(Id, Deep, Fields,
-			ProcOwn, ProcDesc),
+		ProcTotal = proc_total_in_clique(URLprefix, Deep, Fields,
+			PSPtr, ProcOwn, ProcDesc),
 		child_call_sites(Deep ^ proc_dynamics, Deep ^ proc_statics,
 			PDPtr, GroupPairs),
 		GroupStrs = list__map(call_site_group_to_html(URLprefix,
@@ -407,11 +283,11 @@ proc_in_clique_to_html(URLprefix, CliquePtr, Deep, Fields, PDPtr) = HTML :-
 		HTML = ""
 	).
 
-:- func proc_total_in_clique(proc_id, deep, fields,
-	own_prof_info, inherit_prof_info) = string.
+:- func proc_total_in_clique(string, deep, fields,
+	proc_static_ptr, own_prof_info, inherit_prof_info) = string.
 
-proc_total_in_clique(ProcId, Deep, Fields, Own, Desc) = HTML :-
-	ProcName = proc_id_to_string(ProcId),
+proc_total_in_clique(URLprefix, Deep, Fields, PSPtr, Own, Desc) = HTML :-
+	ProcName = proc_static_to_html_ref(URLprefix, Deep, Fields, PSPtr),
 	HTML = 
 		"<TR>\n" ++
 		format("<TD COLSPAN=2><B>%s</B></TD>\n", [s(ProcName)]) ++
@@ -423,17 +299,17 @@ proc_total_in_clique(ProcId, Deep, Fields, Own, Desc) = HTML :-
 
 call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair) = HTML :-
 	Pair = CSSPtr - CallSiteArray,
-	lookup_call_site_statics(Deep ^ call_site_statics, CSSPtr, CSS),
+	deep_lookup_call_site_statics(Deep, CSSPtr, CSS),
 	CSS = call_site_static(PSPtr, _SlotNum, Kind, LineNumber, _GoalPath),
-	lookup_proc_statics(Deep ^ proc_statics, PSPtr, PS),
-	PS = proc_static(_ProcId, FileName, _CallSites),
-	( Kind = normal_call ->
+	deep_lookup_proc_statics(Deep, PSPtr, PS),
+	FileName = PS ^ ps_filename,
+	( Kind = normal_call(_CalleePSPtr, _) ->
 		( CallSiteArray = normal(CSDPtr0) ->
 			CSDPtr = CSDPtr0
 		;
 			error("call_site_group_to_html: normal_call error")
 		),
-		HTML = call_site_to_html(URLprefix, Deep, Fields,
+		HTML = maybe_call_site_dynamic_to_html(URLprefix, Deep, Fields,
 			call_site_line_number, ThisCliquePtr, CSDPtr)
 	;
 		( CallSiteArray = multi(CSDPtrs0) ->
@@ -446,13 +322,14 @@ call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair) = HTML :-
 			Deep, Fields, no_call_site_line_number, ThisCliquePtr),
 			CSDPtrs, Tuple0),
 		Tuple = { GroupHTML, SumOwn, SumDesc },
-		CallSiteName0 = call_site_kind_to_html(Kind),
+		CallSiteName0 = call_site_kind_and_callee_to_html(Kind),
 		( GroupHTML = "" ->
 			CallSiteName = CallSiteName0 ++ " (no calls made)"
 		;
 			CallSiteName = CallSiteName0
 		),
-		HTML = "<TR>\n" ++
+		HTML =
+			"<TR>\n" ++
 			format("<TD>%s:%d</TD>\n",
 				[s(FileName), i(LineNumber)]) ++
 			format("<TD>%s</TD>\n", [s(CallSiteName)]) ++
@@ -469,14 +346,12 @@ call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair) = HTML :-
 call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 		ThisCliquePtr, CSDPtr, Tuple0) = Tuple :-
 	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
-		CSDPtr = call_site_dynamic_ptr(CSDI),
 		Tuple0 = { HTML0, Own0, Desc0 },
-		HTML1 = call_site_to_html(URLprefix, Deep, Fields,
-			PrintCallSiteLineNmber, ThisCliquePtr, CSDPtr),
+		HTML1 = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+			PrintCallSiteLineNmber, yes(ThisCliquePtr), CSDPtr),
 		string__append(HTML0, HTML1, HTML),
-		array__lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-		CSD = call_site_dynamic(_, CallSiteOwn),
-		array__lookup(Deep ^ csd_desc, CSDI, CallSiteDesc),
+		deep_lookup_csd_own(Deep, CSDPtr, CallSiteOwn),
+		deep_lookup_csd_desc(Deep, CSDPtr, CallSiteDesc),
 		Own = add_own_to_own(Own0, CallSiteOwn),
 		Desc = add_inherit_to_inherit(Desc0, CallSiteDesc),
 		Tuple = { HTML, Own, Desc }
@@ -484,266 +359,124 @@ call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 		Tuple = Tuple0
 	).
 
-:- func call_site_to_html(string, deep, fields, call_site_line_number,
-	clique_ptr, call_site_dynamic_ptr) = string.
+:- func maybe_call_site_dynamic_to_html(string, deep, fields,
+	call_site_line_number, clique_ptr, call_site_dynamic_ptr) = string.
 
-call_site_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
-		ThisCliquePtr, CSDPtr) = HTML :-
+maybe_call_site_dynamic_to_html(URLprefix, Deep, Fields,
+		PrintCallSiteLineNmber, ThisCliquePtr, CSDPtr) = HTML :-
 	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
-		CSDPtr = call_site_dynamic_ptr(CSDI),
-		lookup_call_site_dynamics(Deep ^ call_site_dynamics,
-			CSDPtr, CSD),
-		CSD = call_site_dynamic(ToPtr, CallSiteOwn),
-		array__lookup(Deep ^ csd_desc, CSDI, CallSiteDesc),
-		ToPtr = proc_dynamic_ptr(ToInd),
-		lookup(Deep ^ clique_index, ToInd, ToCliquePtr),
-		CalleeName = label(CSDPtr, Deep),
-		( ThisCliquePtr = ToCliquePtr ->
-			% We don't link recursive calls
-			ProcName = CalleeName
-		;
-			ToCliquePtr = clique_ptr(ToCliqueNum),
-			ProcName =
-				format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
-					[s(URLprefix), s(Fields),
-					i(ToCliqueNum), s(CalleeName)])
-		),
-		(
-			PrintCallSiteLineNmber = call_site_line_number,
-			lookup_call_site_static_map(
-				Deep ^ call_site_static_map, CSDPtr, CSSPtr),
-			lookup_call_site_statics(Deep ^ call_site_statics,
-				CSSPtr, CSS),
-			CSS = call_site_static(PSPtr, _, _, LineNumber, _),
-			lookup_proc_statics(Deep ^ proc_statics, PSPtr, PS),
-			PS = proc_static(_, FileName, _)
-		->
-			SourceField =
-				format("<TD>%s:%d</TD>\n",
-					[s(FileName), i(LineNumber)])
-		;
-			SourceField = "<TD> </TD>\n"
-		),
-		HTML = "<TR>\n" ++
-			SourceField ++
-			format("<TD>%s</TD>\n", [s(ProcName)]) ++
-			own_and_desc_to_html(CallSiteOwn, CallSiteDesc,
-				Deep, Fields) ++
-			"</TR>\n"
+		HTML = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+			PrintCallSiteLineNmber, yes(ThisCliquePtr), CSDPtr)
 	;
 		HTML = ""
 	).
 
-:- func own_and_desc_to_html(own_prof_info, inherit_prof_info,
-	deep, fields) = string.
+:- func call_site_dynamic_to_html(string, deep, fields, call_site_line_number,
+	maybe(clique_ptr), call_site_dynamic_ptr) = string.
 
-own_and_desc_to_html(Own, Desc, Deep, Fields) = HTML :-
-	add_own_to_inherit(Own, Desc) = OwnPlusDesc,
-	Root = root_total_info(Deep),
-	Calls = calls(Own),
-	Exits = exits(Own),
-	Fails = fails(Own),
-	Redos = redos(Own),
-
-	OwnQuanta = quanta(Own),
-	TotalQuanta = inherit_quanta(OwnPlusDesc),
-	RootQuanta = inherit_quanta(Root),
-	OwnQuantaProp = 100.0 * float(OwnQuanta) / float(RootQuanta),
-	TotalQuantaProp = 100.0 * float(TotalQuanta) / float(RootQuanta),
-
-	OwnAllocs = mallocs(Own),
-	TotalAllocs = inherit_mallocs(OwnPlusDesc),
-	RootAllocs = inherit_mallocs(Root),
-	OwnAllocProp = 100.0 * float(OwnAllocs) / float(RootAllocs),
-	TotalAllocProp = 100.0 * float(TotalAllocs) / float(RootAllocs),
-
-	OwnWords = words(Own),
-	TotalWords = inherit_words(OwnPlusDesc),
-	RootWords = inherit_words(Root),
-	OwnWordProp = 100.0 * float(OwnWords) / float(RootWords),
-	TotalWordProp = 100.0 * float(TotalWords) / float(RootWords),
-
-	HTML =
-		( show_port_counts(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(Calls))]) ++
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(Exits))]) ++
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(Fails))]) ++
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(Redos))])
-		;
-			""
-		) ++
-		( show_quanta(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(OwnQuanta))])
-		;
-			""
-		) ++
-		( show_times(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(quantum_time(OwnQuanta))])
-		;
-			""
-		) ++
-		( (show_quanta(Fields) ; show_times(Fields)) ->
-			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
-				[f(OwnQuantaProp)])
-		;
-			""
-		) ++
-		( show_quanta(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(TotalQuanta))])
-		;
-			""
-		) ++
-		( show_times(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(quantum_time(TotalQuanta))])
-		;
-			""
-		) ++
-		( (show_quanta(Fields) ; show_times(Fields)) ->
-			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
-				[f(TotalQuantaProp)])
-		;
-			""
-		) ++
-		( show_allocs(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(OwnAllocs))]) ++
-			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
-				[f(OwnAllocProp)]) ++
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(TotalAllocs))]) ++
-			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
-				[f(TotalAllocProp)])
-		;
-			""
-		) ++
-		( show_words(Fields) ->
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(OwnWords))]) ++
-			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
-				[f(OwnWordProp)]) ++
-			format("<TD ALIGN=RIGHT>%s</TD>\n",
-				[s(commas(TotalWords))]) ++
-			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
-				[f(TotalWordProp)])
-		;
-			""
-		).
-
-%-----------------------------------------------------------------------------%
-
-:- type boldness
-	--->	normal
-	;	bold.
-
-:- func proc_summary_to_html(string, deep, fields, int) = string.
-
-proc_summary_to_html(URLprefix, Deep, Fields, PSI) = HTML :-
-	lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(_, _, CSSPtrsArray),
-	array__to_list(CSSPtrsArray, CSSPtrs),
-	map((pred(CSSPtr::in, CSSStr::out) is det :-
-		CSSPtr = call_site_static_ptr(CSSI),
-		( CSSI > 0 ->
-			CSSStr = call_site_summary_to_html(Deep, Fields, CSSPtr)
-		;
-			CSSStr = ""
-		)
-	), CSSPtrs, CallSiteSummaryList),
-	string__append_list(CallSiteSummaryList, CallSiteSummaries),
-	HTML =
-		proc2html(bold, URLprefix, Deep, PSI, _, _) ++
-		CallSiteSummaries.
-
-:- func proc2html(string, deep, int, int, int) = string.
-:- mode (proc2html(in, in, in, out, out) = out) is det.
-
-proc2html(URLprefix, Deep, PSI, OwnQuanta, Quanta) =
-	proc2html(normal, URLprefix, Deep, PSI, OwnQuanta, Quanta).
-
-:- func proc2html(boldness, string, deep, int, int, int) = string.
-:- mode (proc2html(in, in, in, in, out, out) = out) is det.
-
-proc2html(Boldness, _URLprefix, Deep, PSI, OwnQuanta, Quanta) = HTML :-
-	lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(Id, _, _),
-	lookup(Deep ^ ps_own, PSI, PI),
-	Calls = calls(PI), Exits = exits(PI),
-	Fails = fails(PI), Redos = redos(PI),
-	OwnQuanta = quanta(PI),
-	lookup(Deep ^ ps_desc, PSI, PSIDesc),
-	DescQuanta = inherit_quanta(PSIDesc),
-	Quanta = OwnQuanta + DescQuanta,
-	OwnQ = float(OwnQuanta),
-	Q = float(Quanta),
-	RootQuanta = inherit_quanta(RootTotal),
-	RQ = float(RootQuanta),
-	OwnProp = 100.0 * OwnQ / RQ,
-	Prop = 100.0 * Q / RQ,
-	RootTotal = root_total_info(Deep),
+call_site_dynamic_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
+		MaybeThisCliquePtr, CSDPtr) = HTML :-
+	require(valid_call_site_dynamic_ptr(Deep, CSDPtr),
+		"call_site_dynamic_to_html: invalid call_site_dynamic_ptr"),
+	deep_lookup_call_site_dynamics(Deep, CSDPtr, CSD),
+	CSD = call_site_dynamic(_FromPtr, ToProcPtr, CallSiteOwn),
+	deep_lookup_csd_desc(Deep, CSDPtr, CallSiteDesc),
+	deep_lookup_clique_index(Deep, ToProcPtr, ToCliquePtr),
+	CalleeName = call_site_dynamic_label(Deep, CSDPtr),
 	(
-		Boldness = normal,
-		BS = "",
-		BE = ""
+		MaybeThisCliquePtr = yes(ThisCliquePtr),
+		ThisCliquePtr = ToCliquePtr
+	->
+		% We don't link recursive calls
+		ProcName = CalleeName
 	;
-		Boldness = bold,
-		BS = "<B>",
-		BE = "</B>"
+		ToCliquePtr = clique_ptr(ToCliqueNum),
+		ProcName =
+			format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
+				[s(URLprefix), s(Fields),
+				i(ToCliqueNum), s(CalleeName)])
 	),
-	HTML = "<TR>\n" ++
-	 "<TD> </TD>\n" ++
-	 format("<TD>%s%s%s</TD>\n",
-	 	[s(BS), s(proc_id_to_string(Id)), s(BE)]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(OwnQuanta))]) ++
-	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
-	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
+	( PrintCallSiteLineNmber = call_site_line_number ->
+		deep_lookup_call_site_static_map(Deep, CSDPtr, CSSPtr),
+		deep_lookup_call_site_statics(Deep, CSSPtr, CSS),
+		CSS = call_site_static(PSPtr, _, _, LineNumber, _),
+		deep_lookup_proc_statics(Deep, PSPtr, PS),
+		SourceField =
+			format("<TD>%s:%d</TD>\n",
+				[s(PS ^ ps_filename), i(LineNumber)])
+	;
+		SourceField = "<TD> </TD>\n"
+	),
+	HTML =
+		"<TR>\n" ++
+		SourceField ++
+		format("<TD>%s</TD>\n", [s(ProcName)]) ++
+		own_and_desc_to_html(CallSiteOwn, CallSiteDesc,
+			Deep, Fields) ++
 		"</TR>\n".
 
 %-----------------------------------------------------------------------------%
 
-:- func call_site_summary_to_html(deep, string, call_site_static_ptr) = string.
+:- func proc_summary_to_html(string, deep, string, int) = string.
 
-call_site_summary_to_html(Deep, Fields, CSSPtr) = HTML :-
-	CSSPtr = call_site_static_ptr(CSSI),
-	array__lookup(Deep ^ css_own, CSSI, Own),
-	array__lookup(Deep ^ css_desc, CSSI, Desc),
-	array__lookup(Deep ^ call_site_statics, CSSI, CSS),
+proc_summary_to_html(URLprefix, Deep, Fields, PSI) = HTML :-
+	deep_lookup_proc_statics(Deep, proc_static_ptr(PSI), PS),
+	CSSPtrsArray = PS ^ ps_sites,
+	array__to_list(CSSPtrsArray, CSSPtrs),
+	CallSiteSummaryList =
+		list__map(call_site_summary_to_html(URLprefix, Deep, Fields),
+			CSSPtrs),
+	string__append_list(CallSiteSummaryList, CallSiteSummaries),
+	HTML =
+		proc_total_summary_to_html(URLprefix, Deep, Fields, PSI) ++
+		CallSiteSummaries.
+
+:- func proc_total_summary_to_html(string, deep, string, int) = string.
+
+proc_total_summary_to_html(URLprefix, Deep, Fields, PSI) = HTML :-
+	PSPtr = proc_static_ptr(PSI),
+	deep_lookup_ps_own(Deep, PSPtr, Own),
+	deep_lookup_ps_desc(Deep, PSPtr, Desc),
+	HTML =
+		"<TR>\n" ++
+		format("<TD COLSPAN=2>%s</TD>\n",
+			[s(proc_static_to_html_ref(URLprefix,
+				Deep, Fields, proc_static_ptr(PSI)))]) ++
+		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
+		"</TR>\n".
+
+%-----------------------------------------------------------------------------%
+
+:- func call_site_summary_to_html(string, deep, string, call_site_static_ptr)
+	= string.
+
+call_site_summary_to_html(URLprefix, Deep, Fields, CSSPtr) = HTML :-
+	deep_lookup_css_own(Deep, CSSPtr, Own),
+	deep_lookup_css_desc(Deep, CSSPtr, Desc),
+	deep_lookup_call_site_statics(Deep, CSSPtr, CSS),
 	CSS = call_site_static(PSPtr, _, Kind, LineNumber, _GoalPath),
-	lookup_proc_statics(Deep ^ proc_statics, PSPtr, PS),
-	PS = proc_static(_, FileName, _),
-	array__lookup(Deep ^ call_site_calls, CSSI, CallSiteCallMap),
+	deep_lookup_proc_statics(Deep, PSPtr, PS),
+	FileName = PS ^ ps_filename,
+	deep_lookup_call_site_calls(Deep, CSSPtr, CallSiteCallMap),
 	map__to_assoc_list(CallSiteCallMap, CallSiteCallList),
-	( Kind = normal_call ->
+	( Kind = normal_call(CalleePSPtr, _) ->
 		( CallSiteCallList = [] ->
-			% XXX should get it from Kind
-			CalleeProcId = dummy_proc_id
+			deep_lookup_proc_statics(Deep, CalleePSPtr, CalleePS)
 		; CallSiteCallList = [CallSiteCall] ->
-			CallSiteCall = CalleePSPtr - _CallSet,
-			lookup_proc_statics(Deep ^ proc_statics, CalleePSPtr,
-				CalleePS),
-			CalleePS = proc_static(CalleeProcId, _, _)
+			CallSiteCall = CalleePSPtr2 - _CallSet,
+			require(unify(CalleePSPtr, CalleePSPtr2),
+				"call_site_summary_to_html: callee mismatch"),
+			deep_lookup_proc_statics(Deep, CalleePSPtr, CalleePS)
 		;
 			error("normal call site calls more than one procedure")
 		),
 		MainLineRest =
 			format("<TD>%s</TD>\n",
-				[s(proc_id_to_string(CalleeProcId))]) ++
+				[s(CalleePS ^ ps_refined_id)]) ++
 			own_and_desc_to_html(Own, Desc, Deep, Fields),
 		AdditionalLines = ""
 	;
-		CallSiteName0 = call_site_kind_to_html(Kind),
+		CallSiteName0 = call_site_kind_and_callee_to_html(Kind),
 		( CallSiteCallList = [] ->
 			CallSiteName = CallSiteName0 ++
 				" (no&nbps;calls&nbps;made)"
@@ -755,7 +488,8 @@ call_site_summary_to_html(Deep, Fields, CSSPtr) = HTML :-
 				[s(CallSiteName)]) ++
 			own_and_desc_to_html(Own, Desc, Deep, Fields),
 		CallSiteCallLines = list__map(
-			call_site_summary_group_to_html(Deep, Fields),
+			call_site_summary_group_to_html(URLprefix,
+				Deep, Fields),
 			CallSiteCallList),
 		string__append_list(CallSiteCallLines, AdditionalLines)
 	),
@@ -766,83 +500,73 @@ call_site_summary_to_html(Deep, Fields, CSSPtr) = HTML :-
 		"</TR>\n" ++
 		AdditionalLines.
 
-:- func call_site_kind_to_html(call_site_kind) = string.
+:- func call_site_kind_and_callee_to_html(call_site_kind_and_callee) = string.
 
-call_site_kind_to_html(normal_call) =       "normal_call".
-call_site_kind_to_html(special_call) =      "special_call".
-call_site_kind_to_html(higher_order_call) = "higher_order_call".
-call_site_kind_to_html(method_call) =       "method_call".
-call_site_kind_to_html(callback) =          "callback".
+call_site_kind_and_callee_to_html(normal_call(_, _)) = "normal_call".
+call_site_kind_and_callee_to_html(special_call) =      "special_call".
+call_site_kind_and_callee_to_html(higher_order_call) = "higher_order_call".
+call_site_kind_and_callee_to_html(method_call) =       "method_call".
+call_site_kind_and_callee_to_html(callback) =          "callback".
 
-:- func call_site_summary_group_to_html(deep, string,
+:- func call_site_summary_group_to_html(string, deep, string,
 	pair(proc_static_ptr, list(call_site_dynamic_ptr))) = string.
 
-call_site_summary_group_to_html(Deep, Fields, PSPtr - CSDPtrs) = HTML :-
-	PSPtr = proc_static_ptr(PSI),
-	array__lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(ProcId, _, _),
-	CallSiteDynamics = Deep ^ call_site_dynamics,
-	CallSiteDescs = Deep ^ csd_desc,
-	list__foldl2(accumulate_csd_prof_info(CallSiteDynamics, CallSiteDescs),
-		CSDPtrs, zero_own_prof_info, Own,
-		zero_inherit_prof_info, Desc),
+call_site_summary_group_to_html(URLprefix, Deep, Fields, PSPtr - CSDPtrs)
+		= HTML :-
+	list__foldl2(accumulate_csd_prof_info(Deep), CSDPtrs,
+		zero_own_prof_info, Own, zero_inherit_prof_info, Desc),
 	HTML =
 		"<TR>\n" ++
-		format("<TD>%s</TD>\n", [s(proc_id_to_string(ProcId))]) ++
+		format("<TD>%s</TD>\n",
+			[s(proc_static_to_html_ref(URLprefix,
+				Deep, Fields, PSPtr))]) ++
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
 
-:- pred accumulate_csd_prof_info(
-	call_site_dynamics::in, array(inherit_prof_info)::in,
-	call_site_dynamic_ptr::in,
+:- pred accumulate_csd_prof_info(deep::in, call_site_dynamic_ptr::in,
 	own_prof_info::in, own_prof_info::out,
 	inherit_prof_info::in, inherit_prof_info::out) is det.
 
-accumulate_csd_prof_info(CallSiteDynamics, CSDDescs, CSDPtr,
-		Own0, Own, Desc0, Desc) :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(CallSiteDynamics, CSDI, CSD),
-	CSD = call_site_dynamic(_, CSDOwn),
-	array__lookup(CSDDescs, CSDI, CSDDesc),
+accumulate_csd_prof_info(Deep, CSDPtr, Own0, Own, Desc0, Desc) :-
+	deep_lookup_csd_own(Deep, CSDPtr, CSDOwn),
+	deep_lookup_csd_desc(Deep, CSDPtr, CSDDesc),
 
 	add_own_to_own(Own0, CSDOwn) = Own,
 	add_inherit_to_inherit(Desc0, CSDDesc) = Desc.
 
 %-----------------------------------------------------------------------------%
 
-:- func label(call_site_dynamic_ptr, deep) = string.
+:- func call_site_dynamic_label(deep, call_site_dynamic_ptr) = string.
 
-label(CSDPtr, Deep) = Name :-
+call_site_dynamic_label(Deep, CSDPtr) = Name :-
 	(
-		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
-		lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-		CSD = call_site_dynamic(PDPtr, _),
-		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
-		lookup(Deep ^ proc_dynamics, PDI, PD),
+		valid_call_site_dynamic_ptr(Deep, CSDPtr),
+		deep_lookup_call_site_dynamics(Deep, CSDPtr, CSD),
+		CSD = call_site_dynamic(_, PDPtr, _),
+		valid_proc_dynamic_ptr(Deep, PDPtr),
+		deep_lookup_proc_dynamics(Deep, PDPtr, PD),
 		PD = proc_dynamic(PSPtr, _),
-		PSPtr = proc_static_ptr(PSI), PSI > 0,
-		lookup(Deep ^ proc_statics, PSI, PS),
-		PS = proc_static(Id, _, _)
+		valid_proc_static_ptr(Deep, PSPtr),
+		deep_lookup_proc_statics(Deep, PSPtr, PS)
 	->
-		Name = proc_id_to_string(Id)
+		Name = PS ^ ps_refined_id
 	;
-		Name = "-"
+		Name = "unknown procedure"
 	).
 
-:- func refs(call_site_dynamic_ptr, deep) = array(call_site_array_slot).
+:- func proc_static_to_html_ref(string, deep, string, proc_static_ptr) = string.
 
-refs(CSDPtr, Deep) = CallSiteArraySlots :-
-	(
-		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
-		lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-		CSD = call_site_dynamic(PDPtr, _),
-		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
-		lookup(Deep ^ proc_dynamics, PDI, PD),
-		PD = proc_dynamic(_, CallSiteArraySlots0)
-	->
-		CallSiteArraySlots = CallSiteArraySlots0
+proc_static_to_html_ref(URLprefix, Deep, Fields, PSPtr) = HTML :-
+	( valid_proc_static_ptr(Deep, PSPtr) ->
+		deep_lookup_proc_statics(Deep, PSPtr, PS),
+		PSPtr = proc_static_ptr(PSI),
+		HTML =
+			format("<A HREF=""%s?proc+%d+%s"">%s</A>\n",
+				[s(URLprefix), i(PSI), s(Fields),
+				s(PS ^ ps_refined_id)])
 	;
-		CallSiteArraySlots = array([])
+		HTML =
+			"mercury_runtime"
 	).
 
 %-----------------------------------------------------------------------------%
@@ -1103,12 +827,12 @@ threshold_ps_time_self(Deep, Threshold, PSI) :-
 	PSOwn = Deep ^ ps_own,
 	array__lookup(PSOwn, PSI, Own),
 	RootOwn = root_own_info(Deep),
-	RootDesc = root_inherit_info(Deep),
+	RootDesc = root_desc_info(Deep),
 	OwnQuanta = quanta(Own),
 	RootOwnQuanta = quanta(RootOwn),
 	RootDescQuanta = inherit_quanta(RootDesc),
 	RootTotalQuanta = RootOwnQuanta + RootDescQuanta,
-	float(OwnQuanta) > Threshold * float(RootTotalQuanta).
+	100.0 * float(OwnQuanta) > Threshold * float(RootTotalQuanta).
 
 :- pred threshold_ps_time_both(deep::in, float::in, int::in) is semidet.
 
@@ -1118,14 +842,14 @@ threshold_ps_time_both(Deep, Threshold, PSI) :-
 	array__lookup(PSOwn, PSI, Own),
 	array__lookup(PSDesc, PSI, Desc),
 	RootOwn = root_own_info(Deep),
-	RootDesc = root_inherit_info(Deep),
+	RootDesc = root_desc_info(Deep),
 	OwnQuanta = quanta(Own),
 	RootOwnQuanta = quanta(RootOwn),
 	DescQuanta = inherit_quanta(Desc),
 	RootDescQuanta = inherit_quanta(RootDesc),
 	TotalQuanta = OwnQuanta + DescQuanta,
 	RootTotalQuanta = RootOwnQuanta + RootDescQuanta,
-	float(TotalQuanta) > Threshold * float(RootTotalQuanta).
+	100.0 * float(TotalQuanta) > Threshold * float(RootTotalQuanta).
 
 :- pred threshold_ps_allocs_self(deep::in, float::in, int::in) is semidet.
 
@@ -1133,12 +857,12 @@ threshold_ps_allocs_self(Deep, Threshold, PSI) :-
 	PSOwn = Deep ^ ps_own,
 	array__lookup(PSOwn, PSI, Own),
 	RootOwn = root_own_info(Deep),
-	RootDesc = root_inherit_info(Deep),
+	RootDesc = root_desc_info(Deep),
 	OwnAllocs = mallocs(Own),
 	RootOwnAllocs = mallocs(RootOwn),
 	RootDescAllocs = inherit_mallocs(RootDesc),
 	RootTotalAllocs = RootOwnAllocs + RootDescAllocs,
-	float(OwnAllocs) > Threshold * float(RootTotalAllocs).
+	100.0 * float(OwnAllocs) > Threshold * float(RootTotalAllocs).
 
 :- pred threshold_ps_allocs_both(deep::in, float::in, int::in) is semidet.
 
@@ -1148,14 +872,14 @@ threshold_ps_allocs_both(Deep, Threshold, PSI) :-
 	array__lookup(PSOwn, PSI, Own),
 	array__lookup(PSDesc, PSI, Desc),
 	RootOwn = root_own_info(Deep),
-	RootDesc = root_inherit_info(Deep),
+	RootDesc = root_desc_info(Deep),
 	OwnAllocs = mallocs(Own),
 	RootOwnAllocs = mallocs(RootOwn),
 	DescAllocs = inherit_mallocs(Desc),
 	RootDescAllocs = inherit_mallocs(RootDesc),
 	TotalAllocs = OwnAllocs + DescAllocs,
 	RootTotalAllocs = RootOwnAllocs + RootDescAllocs,
-	float(TotalAllocs) > Threshold * float(RootTotalAllocs).
+	100.0 * float(TotalAllocs) > Threshold * float(RootTotalAllocs).
 
 :- pred threshold_ps_words_self(deep::in, float::in, int::in) is semidet.
 
@@ -1163,12 +887,12 @@ threshold_ps_words_self(Deep, Threshold, PSI) :-
 	PSOwn = Deep ^ ps_own,
 	array__lookup(PSOwn, PSI, Own),
 	RootOwn = root_own_info(Deep),
-	RootDesc = root_inherit_info(Deep),
+	RootDesc = root_desc_info(Deep),
 	OwnWords = words(Own),
 	RootOwnWords = words(RootOwn),
 	RootDescWords = inherit_words(RootDesc),
 	RootTotalWords = RootOwnWords + RootDescWords,
-	float(OwnWords) > Threshold * float(RootTotalWords).
+	100.0 * float(OwnWords) > Threshold * float(RootTotalWords).
 
 :- pred threshold_ps_words_both(deep::in, float::in, int::in) is semidet.
 
@@ -1178,13 +902,263 @@ threshold_ps_words_both(Deep, Threshold, PSI) :-
 	array__lookup(PSOwn, PSI, Own),
 	array__lookup(PSDesc, PSI, Desc),
 	RootOwn = root_own_info(Deep),
-	RootDesc = root_inherit_info(Deep),
+	RootDesc = root_desc_info(Deep),
 	OwnWords = words(Own),
 	RootOwnWords = words(RootOwn),
 	DescWords = inherit_words(Desc),
 	RootDescWords = inherit_words(RootDesc),
 	TotalWords = OwnWords + DescWords,
 	RootTotalWords = RootOwnWords + RootDescWords,
-	float(TotalWords) > Threshold * float(RootTotalWords).
+	100.0 * float(TotalWords) > Threshold * float(RootTotalWords).
+
+%-----------------------------------------------------------------------------%
+
+:- func banner = string.
+
+banner =
+	"<HTML>\n" ++
+	"<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n".
+
+:- func footer(string, cmd, deep) = string.
+
+footer(_URLprefix, _Cmd, _Deep) =
+	% Link back to root,
+	% Search, etc, etc.
+	"</HTML>\n".
+
+:- func menu_text = string.
+
+menu_text =
+	"You can start exploring the deep profile at the following points.".
+
+:- func menu_item(string, string, string) = string.
+
+menu_item(URLprefix, URLsuffix, Text) = 
+	format("<A HREF=""%s?%s"">%s</A>\n",
+		[s(URLprefix), s(URLsuffix), s(Text)]).
+
+%-----------------------------------------------------------------------------%
+
+:- func root_total_info(deep) = inherit_prof_info.
+
+root_total_info(Deep) = RootTotal :-
+	deep_lookup_pd_own(Deep, Deep ^ root, RootOwn),
+	deep_lookup_pd_desc(Deep, Deep ^ root, RootDesc),
+	add_own_to_inherit(RootOwn, RootDesc) = RootTotal.
+
+:- func root_desc_info(deep) = inherit_prof_info.
+
+root_desc_info(Deep) = RootDesc :-
+	deep_lookup_pd_desc(Deep, Deep ^ root, RootDesc).
+
+:- func root_own_info(deep) = own_prof_info.
+
+root_own_info(Deep) = RootOwn :-
+	deep_lookup_pd_own(Deep, Deep ^ root, RootOwn).
+
+%-----------------------------------------------------------------------------%
+
+:- func fields_header(fields) = string.
+
+fields_header(Fields) =
+	"<TR>\n" ++
+	"<TD>Source</TD>\n" ++
+	"<TD>Procedure</TD>\n" ++
+	( show_port_counts(Fields) ->
+		"<TD ALIGN=RIGHT>Calls</TD>\n" ++
+		"<TD ALIGN=RIGHT>Exits</TD>\n" ++
+		"<TD ALIGN=RIGHT>Fails</TD>\n" ++
+		"<TD ALIGN=RIGHT>Redos</TD>\n"
+	;
+		""
+	) ++
+	( show_quanta(Fields) ->
+		"<TD ALIGN=RIGHT>Self quanta</TD>\n"
+	;
+		""
+	) ++
+	( show_times(Fields) ->
+		"<TD ALIGN=RIGHT>Self time</TD>\n"
+	;
+		""
+	) ++
+	( (show_quanta(Fields) ; show_times(Fields)) ->
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	( show_quanta(Fields) ->
+		"<TD ALIGN=RIGHT>Total quanta</TD>\n"
+	;
+		""
+	) ++
+	( show_times(Fields) ->
+		"<TD ALIGN=RIGHT>Total time</TD>\n"
+	;
+		""
+	) ++
+	( (show_quanta(Fields) ; show_times(Fields)) ->
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	( show_allocs(Fields) ->
+		"<TD ALIGN=RIGHT>Self allocs</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n" ++
+		"<TD ALIGN=RIGHT>Total allocs</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	( show_words(Fields) ->
+		"<TD ALIGN=RIGHT>Self words</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n" ++
+		"<TD ALIGN=RIGHT>Total words</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	"</TR>\n".
+
+:- func separator_row(fields) = string.
+
+separator_row(Fields) = Separator :-
+	Fixed = 2,	% Source, Procedure
+	( show_port_counts(Fields) ->
+		Port = 4
+	;
+		Port = 4
+	),
+	( show_quanta(Fields) ->
+		Quanta = 2
+	;
+		Quanta = 0
+	),
+	( show_times(Fields) ->
+		Times = 2
+	;
+		Times = 0
+	),
+	( (show_quanta(Fields) ; show_times(Fields)) ->
+		Percentage = 2
+	;
+		Percentage = 0
+	),
+	( show_allocs(Fields) ->
+		Allocs = 4
+	;
+		Allocs = 0
+	),
+	( show_words(Fields) ->
+		Words = 4
+	;
+		Words = 0
+	),
+	Count = Fixed + Port + Quanta + Times + Percentage + Allocs + Words,
+	Separator = string__format("<TR><TD COLSPAN=%d>&nbsp;</TD></TR>\n",
+		[i(Count)]).
+
+:- func own_and_desc_to_html(own_prof_info, inherit_prof_info,
+	deep, fields) = string.
+
+own_and_desc_to_html(Own, Desc, Deep, Fields) = HTML :-
+	add_own_to_inherit(Own, Desc) = OwnPlusDesc,
+	Root = root_total_info(Deep),
+	Calls = calls(Own),
+	Exits = exits(Own),
+	Fails = fails(Own),
+	Redos = redos(Own),
+
+	OwnQuanta = quanta(Own),
+	TotalQuanta = inherit_quanta(OwnPlusDesc),
+	RootQuanta = inherit_quanta(Root),
+	OwnQuantaProp = 100.0 * float(OwnQuanta) / float(RootQuanta),
+	TotalQuantaProp = 100.0 * float(TotalQuanta) / float(RootQuanta),
+
+	OwnAllocs = mallocs(Own),
+	TotalAllocs = inherit_mallocs(OwnPlusDesc),
+	RootAllocs = inherit_mallocs(Root),
+	OwnAllocProp = 100.0 * float(OwnAllocs) / float(RootAllocs),
+	TotalAllocProp = 100.0 * float(TotalAllocs) / float(RootAllocs),
+
+	OwnWords = words(Own),
+	TotalWords = inherit_words(OwnPlusDesc),
+	RootWords = inherit_words(Root),
+	OwnWordProp = 100.0 * float(OwnWords) / float(RootWords),
+	TotalWordProp = 100.0 * float(TotalWords) / float(RootWords),
+
+	HTML =
+		( show_port_counts(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Calls))]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Exits))]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Fails))]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Redos))])
+		;
+			""
+		) ++
+		( show_quanta(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(OwnQuanta))])
+		;
+			""
+		) ++
+		( show_times(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(quantum_time(OwnQuanta))])
+		;
+			""
+		) ++
+		( (show_quanta(Fields) ; show_times(Fields)) ->
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(OwnQuantaProp)])
+		;
+			""
+		) ++
+		( show_quanta(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(TotalQuanta))])
+		;
+			""
+		) ++
+		( show_times(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(quantum_time(TotalQuanta))])
+		;
+			""
+		) ++
+		( (show_quanta(Fields) ; show_times(Fields)) ->
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(TotalQuantaProp)])
+		;
+			""
+		) ++
+		( show_allocs(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(OwnAllocs))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(OwnAllocProp)]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(TotalAllocs))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(TotalAllocProp)])
+		;
+			""
+		) ++
+		( show_words(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(OwnWords))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(OwnWordProp)]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(TotalWords))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(TotalWordProp)])
+		;
+			""
+		).
 
 %-----------------------------------------------------------------------------%

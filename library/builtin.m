@@ -998,7 +998,7 @@ MR_BEGIN_MODULE(copy_module)
 	MR_init_entry(mercury__copy_2_1);
 MR_BEGIN_CODE
 
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
   #define fallthru(target, caller) { MR_tailcall((target), (caller)); }
 #else
   #define fallthru(target, caller)
@@ -1018,9 +1018,6 @@ MR_define_entry(mercury__copy_2_1);
 	MR_restore_transient_registers();
 
 	MR_r1 = copy;
-#ifdef MR_DEEP_PROFILING
-	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
-#endif
 	MR_proceed();
 }
 MR_END_MODULE
@@ -1086,18 +1083,12 @@ MR_define_entry(mercury____Unify___builtin__c_pointer_0_0);
 	** However, it might not be correct in general...
 	*/
 	MR_r1 = (MR_r1 == MR_r2);
-#ifdef MR_DEEP_PROFILING
-	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
-#endif
 	MR_proceed();
 
 MR_define_entry(mercury____Compare___builtin__c_pointer_0_0);
 	MR_r1 = (MR_r1 == MR_r2 ? MR_COMPARE_EQUAL :
 			  MR_r1 < MR_r2 ? MR_COMPARE_LESS :
 			  MR_COMPARE_GREATER);
-#ifdef MR_DEEP_PROFILING
-	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
-#endif
 	MR_proceed();
 
 MR_END_MODULE

@@ -115,6 +115,7 @@ char **		mercury_argv;
 int		mercury_exit_status = 0;
 
 bool		MR_profiling = TRUE;
+bool		MR_deep_profiling_save_results = TRUE;
 
 #ifdef	MR_TYPE_CTOR_STATS
 
@@ -175,11 +176,14 @@ void	(*MR_address_of_mercury_init_io)(void);
 void	(*MR_address_of_init_modules)(void);
 void	(*MR_address_of_init_modules_type_tables)(void);
 void	(*MR_address_of_init_modules_debugger)(void);
+#ifdef	MR_DEEP_PROFILING
+void	(*MR_address_of_write_out_proc_statics)(FILE *fp);
+#endif
 
 int	(*MR_address_of_do_load_aditi_rl_code)(void);
 
-char *	(*MR_address_of_trace_getline)(const char *, FILE *, FILE *);
-char *	(*MR_address_of_trace_get_command)(const char *, FILE *, FILE *);
+char	*(*MR_address_of_trace_getline)(const char *, FILE *, FILE *);
+char	*(*MR_address_of_trace_get_command)(const char *, FILE *, FILE *);
 
 #ifdef	MR_USE_EXTERNAL_DEBUGGER
 void	(*MR_address_of_trace_init_external)(void);
@@ -281,14 +285,16 @@ mercury_runtime_init(int argc, char **argv)
 	MR_save_regs_to_mem(c_regs);
 
 #if defined(MR_LOWLEVEL_DEBUG) || defined(MR_TABLE_DEBUG)
-	/*
-	** Ensure stdio & stderr are unbuffered even if redirected.
-	** Using setvbuf() is more complicated than using setlinebuf(),
-	** but also more portable.
-	*/
+	if (MR_unbufdebug) {
+		/*
+		** Ensure stdio & stderr are unbuffered even if redirected.
+		** Using setvbuf() is more complicated than using setlinebuf(),
+		** but also more portable.
+		*/
 
-	setvbuf(stdout, NULL, _IONBF, 0);
-	setvbuf(stderr, NULL, _IONBF, 0);
+		setvbuf(stdout, NULL, _IONBF, 0);
+		setvbuf(stderr, NULL, _IONBF, 0);
+	}
 #endif
 
 #ifdef CONSERVATIVE_GC
@@ -348,7 +354,18 @@ mercury_runtime_init(int argc, char **argv)
 #endif /* ! MR_HIGHLEVEL_CODE */
 
 	/* initialize profiling */
-	if (MR_profiling) MR_prof_init();
+
+#if defined(MR_MPROF_PROFILE_TIME) || defined(MR_MPROF_PROFILE_CALLS) \
+		|| defined(MR_MPROF_PROFILE_MEMORY)
+	if (MR_profiling) {
+		MR_prof_init();
+	}
+#endif
+#if defined(MR_DEEP_PROFILING)
+	if (MR_profiling) {
+		MR_deep_prof_init();
+	}
+#endif
 
 	/*
 	** We need to call MR_save_registers(), since we're about to
@@ -366,7 +383,7 @@ mercury_runtime_init(int argc, char **argv)
 	(*MR_library_initializer)();
 
 #ifndef MR_HIGHLEVEL_CODE
-	MR_save_context(&(MR_ENGINE(context)));
+	MR_save_context(&(MR_ENGINE(MR_eng_context)));
 #endif
 
 	/*
@@ -688,7 +705,7 @@ process_options(int argc, char **argv)
 	int		c;
 	int		long_index;
 
-	while ((c = MR_getopt_long(argc, argv, "acC:d:e:D:i:m:o:P:pr:tT:x",
+	while ((c = MR_getopt_long(argc, argv, "acC:d:e:D:i:m:o:P:pr:stT:x",
 		MR_long_opts, &long_index)) != EOF)
 	{
 		switch (c)
@@ -836,6 +853,8 @@ process_options(int argc, char **argv)
 				MR_tracedebug   = TRUE;
 			else if (streq(MR_optarg, "T"))
 				MR_tabledebug   = TRUE;
+			else if (streq(MR_optarg, "u"))
+				MR_unbufdebug   = TRUE;
 			else
 				usage();
 
@@ -876,6 +895,10 @@ process_options(int argc, char **argv)
 			if (sscanf(MR_optarg, "%d", &repeats) != 1)
 				usage();
 
+			break;
+
+		case 's':	
+			MR_deep_profiling_save_results = FALSE;
 			break;
 
 		case 't':	
@@ -952,6 +975,11 @@ mercury_runtime_main(void)
 	unsigned char	safety_buffer[SAFETY_BUFFER_SIZE];
 #endif
 
+#ifdef	MR_DEEP_PROFILING
+	MR_CallSiteDynList	**saved_cur_callback;
+	MR_CallSiteDynamic	*saved_cur_csd;
+#endif
+
 	static	int	repcounter;
 
 #ifdef MR_MSVC_STRUCTURED_EXCEPTIONS
@@ -999,22 +1027,36 @@ mercury_runtime_main(void)
 
 #ifdef MR_LOWLEVEL_DEBUG
   #ifndef CONSERVATIVE_GC
-	MR_ENGINE(heap_zone)->max      = MR_ENGINE(heap_zone)->min;
+	MR_ENGINE(MR_eng_heap_zone)->max =
+		MR_ENGINE(MR_eng_heap_zone)->min;
   #endif
-	MR_CONTEXT(detstack_zone)->max  = MR_CONTEXT(detstack_zone)->min;
-	MR_CONTEXT(nondetstack_zone)->max = MR_CONTEXT(nondetstack_zone)->min;
+	MR_CONTEXT(MR_ctxt_detstack_zone)->max =
+		MR_CONTEXT(MR_ctxt_detstack_zone)->min;
+	MR_CONTEXT(MR_ctxt_nondetstack_zone)->max =
+		MR_CONTEXT(MR_ctxt_nondetstack_zone)->min;
 #endif
 
 	MR_time_at_start = MR_get_user_cpu_miliseconds();
 	MR_time_at_last_stat = MR_time_at_start;
 
 	for (repcounter = 0; repcounter < repeats; repcounter++) {
+#ifdef	MR_DEEP_PROFILING
+		saved_cur_callback = MR_current_callback_site;
+		saved_cur_csd = MR_current_call_site_dynamic;
+		MR_setup_callback(MR_program_entry_point);
+#endif
+
 #ifdef MR_HIGHLEVEL_CODE
 		MR_do_interpreter();
 #else
 		MR_debugmsg0("About to call engine\n");
 		(void) MR_call_engine(MR_ENTRY(MR_do_interpreter), FALSE);
 		MR_debugmsg0("Returning from MR_call_engine()\n");
+#endif
+
+#ifdef	MR_DEEP_PROFILING
+		MR_current_call_site_dynamic = saved_cur_csd;
+		MR_current_callback_site = saved_cur_callback;
 #endif
 	}
 
@@ -1040,22 +1082,33 @@ mercury_runtime_main(void)
 		printf("\n");
   #ifndef CONSERVATIVE_GC
 		printf("max heap used:      %6ld words\n",
-			(long) (MR_ENGINE(heap_zone)->max
-				- MR_ENGINE(heap_zone)->min));
+			(long) (MR_ENGINE(MR_eng_heap_zone)->max
+				- MR_ENGINE(MR_eng_heap_zone)->min));
   #endif
 		printf("max detstack used:  %6ld words\n",
-			(long)(MR_CONTEXT(detstack_zone)->max
-			       - MR_CONTEXT(detstack_zone)->min));
+			(long)(MR_CONTEXT(MR_ctxt_detstack_zone)->max
+			       - MR_CONTEXT(MR_ctxt_detstack_zone)->min));
 		printf("max nondstack used: %6ld words\n",
-			(long) (MR_CONTEXT(nondetstack_zone)->max
-				- MR_CONTEXT(nondetstack_zone)->min));
+			(long) (MR_CONTEXT(MR_ctxt_nondetstack_zone)->max
+				- MR_CONTEXT(MR_ctxt_nondetstack_zone)->min));
 	}
 #endif
 
+	/*
+	** XXX some of the following code should be
+	** in mercury_runtime_terminate
+	*/
+
 #ifdef MR_DEEP_PROFILING
-	{
-	    FILE *fp = fopen("Deep.data", "w");
-	    MR_write_out_profiling_tree(fp);
+	if (MR_deep_profiling_save_results) {
+		FILE	*fp;
+
+		fp = fopen("Deep.data", "w");
+		if (fp != NULL) {
+			MR_write_out_profiling_tree(fp);
+		} else {
+			MR_fatal_error("Cannot open Deep.data");
+		}
 	}
 #endif
 
@@ -1261,15 +1314,19 @@ print_register_usage_counts(void)
 static void
 MR_do_interpreter(void)
 {
-  #ifdef  PROFILE_TIME
-	if (MR_profiling) MR_prof_turn_on_time_profiling();
+  #ifdef  MR_MPROF_PROFILE_TIME
+	if (MR_profiling) {
+		MR_prof_turn_on_time_profiling();
+	}
   #endif
 
 	/* call the Mercury predicate main/2 */
 	(*MR_program_entry_point)();
 
-  #ifdef  PROFILE_TIME
-	if (MR_profiling) MR_prof_turn_off_time_profiling();
+  #ifdef  MR_MPROF_PROFILE_TIME
+	if (MR_profiling)  {
+		MR_prof_turn_off_time_profiling();
+	}
   #endif
 }
 
@@ -1303,10 +1360,17 @@ MR_define_entry(MR_do_interpreter);
 		MR_fatal_error("no program entry point supplied");
 	}
 
-#ifdef  PROFILE_TIME
+#ifdef  MR_MPROF_PROFILE_TIME
 	MR_set_prof_current_proc(MR_program_entry_point);
 	if (MR_profiling) {
 		MR_prof_turn_on_time_profiling();
+	}
+#endif
+
+#ifdef  MR_DEEP_PROFILING_TIMING
+	/* XXX should be mercury_runtime_init */
+	if (MR_profiling) {
+		MR_deep_prof_turn_on_time_profiling();
 	}
 #endif
 
@@ -1342,9 +1406,16 @@ MR_define_label(global_fail);
 
 MR_define_label(all_done);
 
-#ifdef  PROFILE_TIME
+#ifdef  MR_MPROF_PROFILE_TIME
 	if (MR_profiling) {
 		MR_prof_turn_off_time_profiling();
+	}
+#endif
+
+#ifdef  MR_DEEP_PROFILING_TIMING
+	/* XXX should be mercury_runtime_terminate */
+	if (MR_profiling) {
+		MR_deep_prof_turn_off_time_profiling();
 	}
 #endif
 

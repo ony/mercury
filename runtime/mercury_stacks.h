@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-2000 The University of Melbourne.
+** Copyright (C) 1995-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -137,7 +137,7 @@
 									\
 		prevfr = MR_maxfr;					\
 		succfr = MR_curfr;					\
-		MR_maxfr += MR_NONDET_FIXED_SIZE + numslots + 		\
+		MR_maxfr += MR_NONDET_FIXED_SIZE + numslots +		\
 			MR_bytes_to_words(sizeof(struct structname));	\
 		MR_curfr = MR_maxfr;					\
 		MR_redoip_slot(MR_curfr) = redoip;			\
@@ -243,8 +243,8 @@ enum MR_HandlerCodeModel {
 	/*
 	** For this value, the exception will be handled by C code using
 	** setjmp/longjmp.  If an exception occurs, then after the Mercury
-	** stacks have been unwound, `MR_longjmp(MR_ENGINE(e_jmp_buf))' will
-	** be called.
+	** stacks have been unwound, `MR_longjmp(MR_ENGINE(MR_eng_jmp_buf))'
+	** will be called.
 	*/
 	MR_C_LONGJMP_HANDLER
 };
@@ -263,7 +263,7 @@ typedef struct MR_Exception_Handler_Frame_struct {
 	** (see above), but it is declared to have type `MR_Word' to ensure
 	** that everything remains word-aligned.
 	*/
-	MR_Word code_model;
+	MR_Word MR_excp_code_model;
 
 	/*
 	** If code_model is MR_MODEL_*_HANDLER, then
@@ -271,7 +271,7 @@ typedef struct MR_Exception_Handler_Frame_struct {
 	** which will be a closure of the specified determinism.
 	** If code_model is MR_C_LONGJMP, then this field is unused.
 	*/
-	MR_Word handler;
+	MR_Word MR_excp_handler;
 
 	/*
 	** The remaining fields hold stuff that must be saved in order
@@ -279,19 +279,19 @@ typedef struct MR_Exception_Handler_Frame_struct {
 	*/
 
 	/* the det stack pointer */
-	MR_Word *stack_ptr;
+	MR_Word *MR_excp_stack_ptr;
 
 	/* the trail state */
 	MR_IF_USE_TRAIL(
-		MR_Word trail_ptr;
-		MR_Word ticket_counter;
+		MR_Word MR_excp_trail_ptr;
+		MR_Word MR_excp_ticket_counter;
 	)
 
 	/* the heap state */
 	MR_IF_NOT_CONSERVATIVE_GC(
-		MR_Word *heap_ptr;
-		MR_Word *solns_heap_ptr;
-		MR_MemoryZone *heap_zone;
+		MR_Word *MR_excp_heap_ptr;
+		MR_Word *MR_excp_solns_heap_ptr;
+		MR_MemoryZone *MR_excp_heap_zone;
 	)
 } MR_Exception_Handler_Frame;
 
@@ -312,23 +312,26 @@ typedef struct MR_Exception_Handler_Frame_struct {
 			MR_Exception_Handler_Frame_struct,		      \
 			MR_ENTRY(MR_exception_handler_do_fail));	      \
 		/* record the handler's code model */			      \
-		MR_EXCEPTION_FRAMEVARS->code_model = (handler_code_model);    \
+		MR_EXCEPTION_FRAMEVARS->MR_excp_code_model =		      \
+			(handler_code_model);				      \
 		/* save the handler's closure */			      \
-		MR_EXCEPTION_FRAMEVARS->handler = (handler_closure);	      \
+		MR_EXCEPTION_FRAMEVARS->MR_excp_handler = (handler_closure);  \
 		/* save the det stack pointer */			      \
-		MR_EXCEPTION_FRAMEVARS->stack_ptr = MR_sp;		      \
+		MR_EXCEPTION_FRAMEVARS->MR_excp_stack_ptr = MR_sp;	      \
 		MR_IF_NOT_CONSERVATIVE_GC(				      \
 			/* save the heap and solutions heap pointers */	      \
-			MR_EXCEPTION_FRAMEVARS->heap_ptr = MR_hp;	      \
-			MR_EXCEPTION_FRAMEVARS->solns_heap_ptr = MR_sol_hp;   \
-			MR_EXCEPTION_FRAMEVARS->heap_zone = 		      \
-				MR_ENGINE(heap_zone);			      \
+			MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr = MR_hp;     \
+			MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr =      \
+				MR_sol_hp;				      \
+			MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone =	      \
+				MR_ENGINE(MR_eng_heap_zone);		      \
 		)							      \
 		MR_IF_USE_TRAIL(					      \
 			/* save the trail state */			      \
-			MR_mark_ticket_stack(				      \
-				MR_EXCEPTION_FRAMEVARS->ticket_counter);      \
-			MR_store_ticket(MR_EXCEPTION_FRAMEVARS->trail_ptr);   \
+			MR_mark_ticket_stack(MR_EXCEPTION_FRAMEVARS->	      \
+				MR_excp_ticket_counter);		      \
+			MR_store_ticket(MR_EXCEPTION_FRAMEVARS->	      \
+				MR_excp_trail_ptr);			      \
 		)							      \
 									      \
 		/*							      \
@@ -346,7 +349,7 @@ typedef struct MR_Exception_Handler_Frame_struct {
 		** so we can avoid this by creating a second frame	      \
 		** above the special frame.)				      \
 		*/							      \
-		MR_mktempframe(redoip);				      	      \
+		MR_mktempframe(redoip);					      \
 	} while (0)
 
 

@@ -888,9 +888,9 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	MR_MemoryZone *temp_zone;
 	MR_Word *temp_hp;
 
-	temp_zone = MR_ENGINE(heap_zone);
-	MR_ENGINE(heap_zone) = MR_ENGINE(solutions_heap_zone);
-	MR_ENGINE(solutions_heap_zone) = temp_zone;
+	temp_zone = MR_ENGINE(MR_eng_heap_zone);
+	MR_ENGINE(MR_eng_heap_zone) = MR_ENGINE(MR_eng_solutions_heap_zone);
+	MR_ENGINE(MR_eng_solutions_heap_zone) = temp_zone;
 	temp_hp = MR_hp;
 	MR_hp = MR_sol_hp;
 	MR_sol_hp = temp_hp;
@@ -942,7 +942,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 		MR_save_transient_hp();					\\
 		NewVal = MR_deep_copy(&OldVal, (MR_TypeInfo) TypeInfo_for_T,\\
 				(const MR_Word *) SolutionsHeapPtr,	\\
-				MR_ENGINE(solutions_heap_zone)->top);	\\
+				MR_ENGINE(MR_eng_solutions_heap_zone)->top);\\
 		MR_restore_transient_hp();				\\
 	} while (0)
 #endif
@@ -1275,9 +1275,6 @@ MR_define_entry(mercury____Unify___std_util__type_desc_0_0);
 	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
 	MR_restore_transient_registers();
 	MR_r1 = (comp == MR_COMPARE_EQUAL);
-#ifdef MR_DEEP_PROFILING
-	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
-#endif
 	MR_proceed();
 }
 
@@ -1292,9 +1289,6 @@ MR_define_entry(mercury____Compare___std_util__type_desc_0_0);
 	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
 	MR_restore_transient_registers();
 	MR_r1 = comp;
-#ifdef MR_DEEP_PROFILING
-	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
-#endif
 	MR_proceed();
 }
 

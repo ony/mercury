@@ -1,10 +1,12 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2000 The University of Melbourne. 
+# Copyright (C) 1995-2001 The University of Melbourne. 
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
 
-# Mmake - this is Mmake file for building the Mercury profiler
+# Mmake - this is Mmake file for building the Mercury deep profiler
+
+include Mmake.deep.params
 
 MERCURY_DIR=..
 include $(MERCURY_DIR)/Mmake.common
@@ -60,44 +62,48 @@ MTAGS	=	$(SCRIPTS_DIR)/mtags
 #-----------------------------------------------------------------------------#
 
 .PHONY: depend
-depend : deep.depend cgi.depend
+depend:	deep.depend cgi.depend
 
 .PHONY: all
-all : deep cgi
+all:	deep cgi
 
 #-----------------------------------------------------------------------------#
 
 # Add some additional dependencies, so that Mmake knows to remake the
 # profiler if one of the libraries changes.
 
-deep: $(RUNTIME_DIR)/lib$(RT_LIB_NAME).$A
-deep: $(LIBRARY_DIR)/lib$(STD_LIB_NAME).$A
-cgi: $(RUNTIME_DIR)/lib$(RT_LIB_NAME).$A
-cgi: $(LIBRARY_DIR)/lib$(STD_LIB_NAME).$A
+deep:	$(RUNTIME_DIR)/lib$(RT_LIB_NAME).$A
+deep:	$(LIBRARY_DIR)/lib$(STD_LIB_NAME).$A
+cgi:	$(RUNTIME_DIR)/lib$(RT_LIB_NAME).$A
+cgi:	$(LIBRARY_DIR)/lib$(STD_LIB_NAME).$A
 # Should also depend on $(BOEHM_GC_DIR)/libgc(_prof).$A, but only
 # if in .gc(.prof) grade; GNU make does not support dynamic dependencies,
 # so just leave it out.
 
-$(cs_subdir)deep_init.c: $(UTIL_DIR)/mkinit
-$(cs_subdir)cgi_init.c: $(UTIL_DIR)/mkinit
+$(cs_subdir)deep_init.c:	$(UTIL_DIR)/mkinit
+$(cs_subdir)cgi_init.c:		$(UTIL_DIR)/mkinit
 
 #-----------------------------------------------------------------------------#
 
 .PHONY: check
-check		: deep.check cgi.check
+check:	deep.check cgi.check
 
 .PHONY: ints 
-ints		: deep.ints cgi.ints
+ints:	deep.ints cgi.ints
 
 #-----------------------------------------------------------------------------#
 
-tags		: $(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
-	$(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
+.PHONY:		tags
+tags:		.deep.tags
+
+.deep.tags:	$(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
+		$(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
+		touch .deep.tags
 
 #-----------------------------------------------------------------------------#
 
 .PHONY: dates
-dates		:
+dates:
 	touch $(deep.dates) $(cgi.dates)
 
 #-----------------------------------------------------------------------------#
@@ -113,3 +119,15 @@ realclean_local:
 
 #-----------------------------------------------------------------------------#
 
+# Installation targets
+
+.PHONY: install
+install: install_deep
+
+.PHONY: install_deep
+install_deep: deep cgi
+	-[ -d $(INSTALL_MERC_BIN_DIR) ] || mkdir -p $(INSTALL_MERC_BIN_DIR)
+	cp `vpath_find deep$(EXT_FOR_EXE)` $(INSTALL_MERC_BIN_DIR)/mdprof
+	cp `vpath_find cgi$(EXT_FOR_EXE)` $(INSTALL_MERC_BIN_DIR)/cgi_mdprof
+
+#-----------------------------------------------------------------------------#

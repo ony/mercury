@@ -161,7 +161,7 @@ export__get_foreign_export_defns(Module, ExportedProcsCode) :-
 	%
 	% #if MR_DEEP_PROFILING
 	%	saved_csd = MR_current_call_site_dynamic;
-	%	MR_prepare_for_callback(MR_ENTRY(<label of called proc>));
+	%	MR_setup_callback(MR_ENTRY(<label of called proc>));
 	% #endif
 	%		/* 
 	%		** restore Mercury's registers that were saved as
@@ -183,6 +183,10 @@ export__get_foreign_export_defns(Module, ExportedProcsCode) :-
 	%		/* clobbered by the return from the C function    */
 	%		/* MR_call_engine()				  */
 	%	MR_restore_transient_registers();
+	% #if MR_DEEP_PROFILING
+	% 	MR_current_call_site_dynamic = saved_csd;
+	%	MR_current_callback_site = saved_call_site_addr;
+	% #endif
 	% #if SEMIDET
 	%	if (!MR_r1) {
 	%		MR_restore_regs_from_mem(c_regs);
@@ -192,10 +196,6 @@ export__get_foreign_export_defns(Module, ExportedProcsCode) :-
 	%	<copy return value register into retval>
 	% #endif
 	%	<copy output args from registers into *Mercury__Arguments>
-	% #if MR_DEEP_PROFILING
-	% 	MR_current_call_site_dynamic = saved_csd;
-	%	MR_current_callback_site = saved_call_site_addr;
-	% #endif
 	% #if MR_THREAD_SAFE
 	% 	if (must_finalize_engine) {
 	% 		MR_finalize_thread_engine();
@@ -229,54 +229,54 @@ export__to_c(Preds, [E|ExportedProcs], Module, ExportedProcsCode) :-
 	code_util__make_proc_label(Module, PredId, ProcId, ProcLabel),
 	llds_out__get_proc_label(ProcLabel, yes, ProcLabelString),
 
-	string__append_list([	"\n",
-				DeclareString, "(", ProcLabelString, ");\n",
-				"\n",
-				C_RetType, "\n", 
-				C_Function, "(", ArgDecls, ")\n{\n",
-				"#if MR_NUM_REAL_REGS > 0\n",
-				"\tMR_Word c_regs[MR_NUM_REAL_REGS];\n",
-				"#endif\n",
-				"#if MR_THREAD_SAFE\n",
-				"\tMR_Bool must_finalize_engine;\n", 
-				"#endif\n",
-				"#if MR_DEEP_PROFILING\n",
-				"\tMR_CallSiteDynamic **saved_csd_addr;\n",
-				"\tMR_CallSiteDynamic *saved_csd;\n",
-				"#endif\n",
-				MaybeDeclareRetval,
-				"\n",
-				"\tMR_save_regs_to_mem(c_regs);\n", 
-				"#if MR_THREAD_SAFE\n",
-				"\tmust_finalize_engine = MR_init_thread(MR_use_now);\n", 
-				"#endif\n",
-				"#if MR_DEEP_PROFILING\n",
-				"\tsaved_csd_addr = MR_current_callback_site;\n",
-				"\tsaved_csd = MR_current_call_site_dynamic;\n",
-				"\tMR_prepare_for_callback(MR_ENTRY(",
-					ProcLabelString, "));\n",
-				"#endif\n",
-				"\tMR_restore_registers();\n", 
-				InputArgs,
-				"\tMR_save_transient_registers();\n",
-				"\t(void) MR_call_engine(MR_ENTRY(",
-					ProcLabelString, "), FALSE);\n",
-				"\tMR_restore_transient_registers();\n",
-				MaybeFail,
-				OutputArgs,
-				"#if MR_DEEP_PROFILING\n",
-				"\tMR_current_call_site_dynamic = saved_csd;\n",
-				"\tMR_current_callback_site = saved_csd_addr;\n",
-				"#endif\n",
-				"#if MR_THREAD_SAFE\n",
-				"\tif (must_finalize_engine) {\n", 
-				"\t\t MR_finalize_thread_engine();\n", 
-				"\t}\n", 
-				"#endif\n",
-				"\tMR_restore_regs_from_mem(c_regs);\n", 
-				MaybeSucceed,
-				"}\n\n"],
-				Code),
+	string__append_list([
+		"\n",
+		DeclareString, "(", ProcLabelString, ");\n",
+		"\n",
+		C_RetType, "\n", 
+		C_Function, "(", ArgDecls, ")\n{\n",
+		"#if MR_NUM_REAL_REGS > 0\n",
+		"\tMR_Word c_regs[MR_NUM_REAL_REGS];\n",
+		"#endif\n",
+		"#if MR_THREAD_SAFE\n",
+		"\tMR_Bool must_finalize_engine;\n", 
+		"#endif\n",
+		"#if MR_DEEP_PROFILING\n",
+		"\tMR_CallSiteDynList **saved_cur_callback;\n",
+		"\tMR_CallSiteDynamic *saved_cur_csd;\n",
+		"#endif\n",
+		MaybeDeclareRetval,
+		"\n",
+		"\tMR_save_regs_to_mem(c_regs);\n", 
+		"#if MR_THREAD_SAFE\n",
+		"\tmust_finalize_engine = MR_init_thread(MR_use_now);\n", 
+		"#endif\n",
+		"#if MR_DEEP_PROFILING\n",
+		"\tsaved_cur_callback = MR_current_callback_site;\n",
+		"\tsaved_cur_csd = MR_current_call_site_dynamic;\n",
+		"\tMR_setup_callback(MR_ENTRY(", ProcLabelString, "));\n",
+		"#endif\n",
+		"\tMR_restore_registers();\n", 
+		InputArgs,
+		"\tMR_save_transient_registers();\n",
+		"\t(void) MR_call_engine(MR_ENTRY(",
+			ProcLabelString, "), FALSE);\n",
+		"\tMR_restore_transient_registers();\n",
+		"#if MR_DEEP_PROFILING\n",
+		"\tMR_current_call_site_dynamic = saved_cur_csd;\n",
+		"\tMR_current_callback_site = saved_cur_callback;\n",
+		"#endif\n",
+		MaybeFail,
+		OutputArgs,
+		"#if MR_THREAD_SAFE\n",
+		"\tif (must_finalize_engine) {\n", 
+		"\t\t MR_finalize_thread_engine();\n", 
+		"\t}\n", 
+		"#endif\n",
+		"\tMR_restore_regs_from_mem(c_regs);\n", 
+		MaybeSucceed,
+		"}\n\n"],
+		Code),
 
 	export__to_c(Preds, ExportedProcs, Module, TheRest),
 	ExportedProcsCode = [Code|TheRest].

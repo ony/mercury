@@ -21,7 +21,7 @@ typedef enum {
 	MR_higher_order_call,
 	MR_method_call,
 	MR_callback
-} MR_CallsiteKind;
+} MR_CallSite_Kind;
 
 typedef struct MR_CallSiteStatic_Struct		MR_CallSiteStatic;
 typedef struct MR_CallSiteDynamic_Struct	MR_CallSiteDynamic;
@@ -35,105 +35,285 @@ typedef struct MR_CallSiteDynList_Struct	MR_CallSiteDynList;
 
 struct MR_ProfilingMetrics_Struct {
 #ifdef MR_DEEP_PROFILING_CALL_COUNTS
-	unsigned		calls;
-	unsigned		exits;
-	unsigned		fails;
-	unsigned		redos;
+	unsigned				MR_own_calls;
+	unsigned				MR_own_exits;
+	unsigned				MR_own_fails;
+	unsigned				MR_own_redos;
 #endif
 #ifdef MR_DEEP_PROFILING_TIMING
-	unsigned		quanta;
+	unsigned				MR_own_quanta;
 #endif
 #ifdef MR_DEEP_PROFILING_MEMORY
-	unsigned		memory_mallocs;
-	unsigned		memory_words;
+	unsigned				MR_own_allocs;
+	unsigned				MR_own_words;
 #endif
 };
 
 struct MR_CallSiteStatic_Struct {
-    	MR_CallsiteKind				call_site_kind;
-	int					call_site_line_number;
-	MR_ConstString				call_site_goal_path;
+    	MR_CallSite_Kind			MR_css_kind;
+	MR_ProcStatic				*MR_css_callee_ptr_if_known;
+	MR_ConstString				MR_css_type_subst_if_known;
+	MR_ConstString				MR_css_file_name;
+	int					MR_css_line_number;
+	MR_ConstString				MR_css_goal_path;
 };
 
 struct MR_ProcStatic_Struct {
-	MR_Proc_Id				ps_proc_id;
-	MR_ConstString				ps_file_name;
-	int					num_call_sites;
-	MR_CallSiteStatic			*call_sites;
+	MR_Proc_Id				MR_ps_proc_id;
+	MR_ConstString				MR_ps_file_name;
+	int					MR_ps_num_call_sites;
+	const MR_CallSiteStatic			*MR_ps_call_sites;
 #ifdef MR_USE_ACTIVATION_COUNTS
-	int					activation_count;
+	int					MR_ps_activation_count;
 #endif
-	MR_ProcDynamic				*outermost_activation_ptr;
+	MR_ProcDynamic				*MR_ps_outermost_activation_ptr;
 };
 
 struct MR_User_ProcStatic_Struct {
-	MR_User_Proc_Id				ps_proc_id;
-	MR_ConstString				ps_file_name;
-	int					num_call_sites;
-	MR_CallSiteStatic			*call_sites;
+	MR_User_Proc_Id				MR_ps_proc_id;
+	MR_ConstString				MR_ps_file_name;
+	int					MR_ps_num_call_sites;
+	const MR_CallSiteStatic			*MR_ps_call_sites;
 #ifdef MR_USE_ACTIVATION_COUNTS
-	int					activation_count;
+	int					MR_ps_activation_count;
 #endif
-	MR_ProcDynamic				*outermost_activation_ptr;
+	MR_ProcDynamic				*MR_ps_outermost_activation_ptr;
 };
 
 struct MR_Compiler_ProcStatic_Struct {
-	MR_Compiler_Proc_Id			ps_proc_id;
-	MR_ConstString				ps_file_name;
-	int					num_call_sites;
-	MR_CallSiteStatic			*call_sites;
+	MR_Compiler_Proc_Id			MR_ps_proc_id;
+	MR_ConstString				MR_ps_file_name;
+	int					MR_ps_num_call_sites;
+	const MR_CallSiteStatic			*MR_ps_call_sites;
 #ifdef MR_USE_ACTIVATION_COUNTS
-	int					activation_count;
+	int					MR_ps_activation_count;
 #endif
-	MR_ProcDynamic				*outermost_activation_ptr;
+	MR_ProcDynamic				*MR_ps_outermost_activation_ptr;
 };
 
 struct MR_CallSiteDynamic_Struct {
-	MR_ProcDynamic				*call_site_callee_ptr;
-	MR_ProfilingMetrics			profiling_metrics;
-	unsigned long				depth_count;
+	MR_ProcDynamic				*MR_csd_callee_ptr;
+	MR_ProfilingMetrics			MR_csd_own;
+	unsigned long				MR_csd_depth_count;
 };
 
 struct MR_ProcDynamic_Struct {
-	MR_ProcStatic				*proc_static;
-	MR_CallSiteDynamic			**call_site_ptr_ptrs;
+	MR_ProcStatic				*MR_pd_proc_static;
+	MR_CallSiteDynamic			**MR_pd_call_site_ptr_ptrs;
 };
 
 struct MR_CallSiteDynList_Struct {
-	MR_CallSiteDynamic			*call_site;
-	const void				*key;
-	MR_CallSiteDynList			*next;
+	MR_CallSiteDynamic			*MR_csdlist_call_site;
+	const void				*MR_csdlist_key;
+	MR_CallSiteDynList			*MR_csdlist_next;
 };
 
 typedef enum {
-	end = 0,
-	root,
-	callsite_static,
-	callsite_dynamic,
-	proc_static,
-	proc_dynamic,
-	normal_call,
-	higher_order_call,
-	callbacks,
-	isa_predicate,
-	isa_function,
-	isa_compiler_generated
-} MR_Profile_Encoding_Tokens;
+	MR_deep_token_end = 0,
+	MR_deep_token_root,
+	MR_deep_token_call_site_static,
+	MR_deep_token_call_site_dynamic,
+	MR_deep_token_proc_static,
+	MR_deep_token_proc_dynamic,
+	MR_deep_token_normal_call,
+	MR_deep_token_special_call,
+	MR_deep_token_higher_order_call,
+	MR_deep_token_method_call,
+	MR_deep_token_callback,
+	MR_deep_token_isa_predicate,
+	MR_deep_token_isa_function,
+	MR_deep_token_isa_compiler_generated
+} MR_Profile_Encoding_Token;
 
-/* XXX MR_parent_call_site_dynamic is obsolete */
-/* XXX MR_inside_deep_profiling_code should be type bool */
-/* If these are volatile, a lot of other things must be too */
-extern	MR_CallSiteDynamic		*MR_parent_call_site_dynamic;
-extern	MR_CallSiteDynamic		*MR_next_call_site_dynamic;
-extern	MR_CallSiteDynamic		*MR_current_call_site_dynamic;
-extern	MR_CallSiteDynamic		**MR_current_callback_site;
-#ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
-extern	bool				MR_inside_deep_profiling_code;
+#define	MR_enter_instrumentation()					\
+	do { MR_inside_deep_profiling_code = TRUE; } while (0)
+#define	MR_leave_instrumentation()					\
+	do { MR_inside_deep_profiling_code = FALSE; } while (0)
+
+#ifdef MR_DEEP_PROFILING_CALL_COUNTS
+  #define MR_init_own_ports(csd)					\
+  	do {								\
+		(csd)->MR_csd_own.MR_own_calls = 0;			\
+		(csd)->MR_csd_own.MR_own_exits = 0;			\
+		(csd)->MR_csd_own.MR_own_fails = 0;			\
+		(csd)->MR_csd_own.MR_own_redos = 0;			\
+	} while (0)
+#else
+  #define MR_init_own_ports(csd)					\
+  	((void) 0)
 #endif
 
-extern	MR_CallSiteDynamic			*MR_rootCallSites[];
+#ifdef MR_DEEP_PROFILING_TIMING
+  #define MR_init_own_quanta(csd)					\
+  	do {								\
+		(csd)->MR_csd_own.MR_own_quanta = 0;			\
+	} while (0)
+#else
+  #define MR_init_own_quanta(csd)					\
+  	((void) 0)
+#endif
 
-extern	void	MR_write_out_profiling_tree(FILE *fp);
+#ifdef MR_DEEP_PROFILING_MEMORY
+  #define MR_init_own_memory(csd)					\
+  	do {								\
+		(csd)->MR_csd_own.MR_own_allocs = 0;			\
+		(csd)->MR_csd_own.MR_own_words = 0;			\
+	} while (0)
+#else
+  #define MR_init_own_memory(csd)					\
+  	((void) 0)
+#endif
+
+#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
+  #define MR_init_depth_count(csd)					\
+  	do {								\
+		(csd)->MR_csd_depth_count = 0;				\
+	} while (0)
+#else
+  #define MR_init_depth_count(csd)					\
+  	((void) 0)
+#endif
+
+#define	MR_new_call_site_dynamic(newcsd)				\
+	do {								\
+		newcsd = MR_PROFILING_MALLOC(MR_CallSiteDynamic);	\
+									\
+		newcsd->MR_csd_callee_ptr = NULL;			\
+		MR_init_own_ports(newcsd);				\
+		MR_init_own_quanta(newcsd);				\
+		MR_init_own_memory(newcsd);				\
+		MR_init_depth_count(newcsd);				\
+	} while (0)
+
+#define	MR_new_proc_dynamic(pd, ps)					\
+	do {								\
+		int	i;						\
+									\
+		MR_incr_profiling_entries();				\
+		(pd) = MR_PROFILING_MALLOC(MR_ProcDynamic);		\
+		(pd)->MR_pd_proc_static = (ps);				\
+		(pd)->MR_pd_call_site_ptr_ptrs =			\
+			MR_PROFILING_MALLOC_ARRAY(MR_CallSiteDynamic *,	\
+				(ps)->MR_ps_num_call_sites);		\
+									\
+		for (i = 0; i < (ps)->MR_ps_num_call_sites; i++) {	\
+			(pd)->MR_pd_call_site_ptr_ptrs[i] = NULL;	\
+		}							\
+	} while (0)
+
+#ifdef MR_DEEP_PROFILING_STATISTICS
+ #define MR_incr_profiling_entries()					\
+ 	do { MR_number_of_profiling_entries++; } while (0)
+ #define MR_incr_activation_loads()					\
+ 	do { MR_number_of_activation_loads++; } while (0)
+#else
+ #define MR_incr_profiling_entries()					\
+ 	((void) 0)
+ #define MR_incr_activation_loads()					\
+ 	((void) 0)
+#endif
+
+#ifdef	MR_DEEP_PROFILING_STATISTICS
+  extern int	MR_deep_prof_search_len;
+  extern void	MR_deep_profile_update_special_history(MR_TypeCtorInfo);
+  extern void	MR_deep_profile_update_closure_history(MR_Closure *);
+
+  #define MR_maybe_init_search_len()					\
+  	do ( MR_deep_prof_search_len = 0; } do while(0)
+  #define MR_maybe_increment_search_len()				\
+  	do { MR_deep_prof_search_len++; } while (0)
+  #define MR_maybe_deep_profile_update_special_history(typectorinfo) 	\
+	MR_deep_profile_update_special_history(typectorinfo)
+  #define MR_maybe_deep_profile_update_closure_history(closure) 	\
+	MR_deep_profile_update_closure_history(closure)
+#else
+  #define MR_maybe_init_search_len()					\
+	((void) 0)
+  #define MR_maybe_increment_search_len()				\
+	((void) 0)
+  #define MR_maybe_deep_profile_update_special_history(typeinfo)	\
+	((void) 0)
+  #define MR_maybe_deep_profile_update_closure_history(closure)		\
+	((void) 0)
+#endif
+
+#ifdef MR_DEEP_PROFILING_MOVE_TO_FRONT_LISTS
+  #define MR_maybe_update_prev(csdlist, prev)				\
+	do { (prev) = (csdlist); } while (0)
+  #define MR_maybe_move_to_front(csdlist, prev, pd, csn)		\
+	if (prev != NULL) {						\
+		prev->MR_csd_next = csdlist->MR_csd_next;		\
+		csdlist->MR_csdlist_next = (MR_CallSiteDynList *)	\
+			pd->MR_pd_call_site_ptr_ptrs[csn];		\
+		pd->MR_pd_call_site_ptr_ptrs[csn] =			\
+			(MR_CallSiteDynamic *) csdlist;			\
+	}
+#else
+  #define MR_maybe_update_prev(csdlist, prev)				\
+	((void) 0)
+  #define MR_maybe_move_to_front(csdlist, prev, pd, csn)		\
+	((void) 0)
+#endif
+
+#define	MR_search_csdlist(csdlist, prev, pd, csn, void_key)		\
+	do {								\
+		(csdlist) = (MR_CallSiteDynList *) (pd)->		\
+			MR_pd_call_site_ptr_ptrs[(csn)];		\
+		while ((csdlist) != NULL) {				\
+			MR_maybe_increment_search_len();		\
+			if ((csdlist)->MR_csdlist_key == (void_key)) {	\
+				MR_maybe_move_to_front((csdlist), (prev),\
+					(pd), (csn));			\
+				break;					\
+			}						\
+			MR_maybe_update_prev((csdlist), (prev));	\
+			(csdlist) = (csdlist)->MR_csdlist_next;		\
+		}							\
+	} while (0)
+
+#define	MR_make_and_link_csdlist(csdlist, newcsd, pd, csn, void_key)	\
+	do {								\
+		(csdlist) = MR_PROFILING_MALLOC(MR_CallSiteDynList);	\
+		(csdlist)->MR_csdlist_key = (void_key);			\
+		(csdlist)->MR_csdlist_call_site = (newcsd);		\
+		(csdlist)->MR_csdlist_next = (MR_CallSiteDynList *)	\
+			(pd)->MR_pd_call_site_ptr_ptrs[csn];		\
+		pd->MR_pd_call_site_ptr_ptrs[(csn)]			\
+			= (MR_CallSiteDynamic *) (csdlist);		\
+	} while (0)
+
+#define	MR_make_and_link_csdlist_callback(csdlist, newcsd, void_key)	\
+	do {								\
+		(csdlist) = MR_PROFILING_MALLOC(MR_CallSiteDynList);	\
+		(csdlist)->MR_csdlist_key = (void_key);			\
+		(csdlist)->MR_csdlist_call_site = (newcsd);		\
+		(csdlist)->MR_csdlist_next = *MR_current_callback_site;	\
+		*MR_current_callback_site = (csdlist);			\
+	} while (0)
+
+#define	MR_DEEP_CHECKS
+#ifdef	MR_DEEP_CHECKS
+  #define MR_deep_assert(cond)						\
+ 	do {								\
+		if (!(cond)) {						\
+			MR_deep_assert_failed(MR_STRINGIFY(cond),	\
+				__FILE__, __LINE__);			\
+		}							\
+	} while (0)
+#else
+  #define MR_deep_assert(cond)						\
+  	((void) 0)
+#endif
+
+/* If these are volatile, a lot of other things must be too */
+extern	MR_CallSiteDynamic		*MR_current_call_site_dynamic;
+extern	MR_CallSiteDynamic		*MR_next_call_site_dynamic;
+extern	MR_CallSiteDynList		**MR_current_callback_site;
+extern	MR_CallSiteDynamic		*MR_root_call_sites[];
+
+extern	volatile bool			MR_inside_deep_profiling_code;
+extern	unsigned long			MR_quanta_inside_deep_profiling_code;
+extern	unsigned long			MR_quanta_outside_deep_profiling_code;
 
 #ifdef MR_DEEP_PROFILING_STATISTICS
 
@@ -143,29 +323,26 @@ extern	int	MR_amount_of_memory;
 extern	int	MR_profiling_tree_memory;
 
 #define MR_MAX_CLOSURE_LIST_LENGTH 256
-#define MR_HISTORY_LENGTH 4096
 
 extern	int	MR_dictionary_search_lengths[MR_MAX_CLOSURE_LIST_LENGTH];
-extern	int	MR_dictionary_history_counter;
-
-extern struct MR_DICTIONARY_SEARCH_HISTORY_STRUCT {
-	MR_TypeCtorInfo type_ctor;
-	int		count;
-} MR_dictionary_history[MR_HISTORY_LENGTH];
-
 extern	int	MR_closure_search_lengths[MR_MAX_CLOSURE_LIST_LENGTH];
-extern	int	MR_closure_history_counter;
-
-extern struct MR_CLOSURE_SEARCH_HISTORY_STRUCT {
-	MR_Closure_Layout	*closure;
-	int			count;
-} MR_closure_history[MR_HISTORY_LENGTH];
-
-extern	int	MR_history_thresh;
 
 #endif	/* MR_DEEP_PROFILING_STATISTICS */
 
-extern	void	MR_prepare_for_callback(void *entry);
+extern	void	MR_deep_assert_failed(const char *cond,
+			const char *filename, int linenumber);
+extern	void	MR_setup_callback(void *entry);
+extern	void	MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ptr);
+extern	void	MR_write_out_profiling_tree(FILE *fp);
+
+extern	void	MR_deep_prof_init(void);
+
+#ifdef	MR_DEEP_PROFILING_TIMING
+
+extern	void	MR_deep_prof_turn_on_time_profiling(void);
+extern	void	MR_deep_prof_turn_off_time_profiling(void);
+
+#endif
 
 #define MR_PROFILING_MALLOC(type)		MR_NEW(type)
 #define MR_PROFILING_MALLOC_ARRAY(type, nelems) MR_NEW_ARRAY(type, nelems)

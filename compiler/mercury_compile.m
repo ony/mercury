@@ -66,7 +66,6 @@
 :- import_module mlds_to_ilasm.			% MLDS -> IL assembler
 :- import_module maybe_mlds_to_gcc.		% MLDS -> GCC back-end
 
-
 	% miscellaneous compiler modules
 :- import_module prog_data, hlds_module, hlds_pred, hlds_out, llds, rl.
 :- import_module mercury_to_mercury, mercury_to_goedel, hlds_data.
@@ -2086,7 +2085,7 @@ mercury_compile__maybe_dead_procs(HLDS0, Verbose, Stats, HLDS) -->
 	globals__io_lookup_bool_option(optimize_dead_procs, Dead),
 	( { Dead = yes } ->
 		maybe_write_string(Verbose,
-			"% Applying deep profiling transformation...\n"),
+			"% Eliminating dead procedures...\n"),
 		maybe_flush_output(Verbose),
 		dead_proc_elim(HLDS0, HLDS),
 		maybe_write_string(Verbose, "% done.\n"),
@@ -2094,7 +2093,6 @@ mercury_compile__maybe_dead_procs(HLDS0, Verbose, Stats, HLDS) -->
 	;
 		{ HLDS0 = HLDS }
 	).
-
 
 :- pred mercury_compile__maybe_deep_profiling(module_info, bool, bool,
 	module_info, list(layout_data), io__state, io__state).
@@ -2117,7 +2115,6 @@ mercury_compile__maybe_deep_profiling(HLDS0, Verbose, Stats, HLDS,
 		{ DeepProfilingStructures = [] }
 	).
 
-
 :- pred mercury_compile__maybe_introduce_accumulators(module_info, bool, bool,
 	module_info, io__state, io__state).
 :- mode mercury_compile__maybe_introduce_accumulators(in, in, in, out, di, uo)
@@ -2137,7 +2134,6 @@ mercury_compile__maybe_introduce_accumulators(HLDS0, Verbose, Stats, HLDS) -->
 	;
 		{ HLDS0 = HLDS }
 	).
-
 
 :- pred mercury_compile__maybe_lco(module_info, bool, bool,
 	module_info, io__state, io__state).
@@ -2613,7 +2609,6 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	{ MLDS = MLDS40 },
 	mercury_compile__maybe_dump_mlds(MLDS, "99", "final").
 
-
 :- pred mercury_compile__mlds_gen_rtti_data(module_info, mlds, mlds).
 :- mode mercury_compile__mlds_gen_rtti_data(in, in, out) is det.
 
@@ -2855,21 +2850,27 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 	},
 	globals__io_lookup_bool_option(profile_calls, ProfileCalls),
 	{ ProfileCalls = yes ->
-		ProfileCallsOpt = "-DPROFILE_CALLS "
+		ProfileCallsOpt = "-DMR_MPROF_PROFILE_CALLS "
 	;
 		ProfileCallsOpt = ""
 	},
 	globals__io_lookup_bool_option(profile_time, ProfileTime),
 	{ ProfileTime = yes ->
-		ProfileTimeOpt = "-DPROFILE_TIME "
+		ProfileTimeOpt = "-DMR_MPROF_PROFILE_TIME "
 	;
 		ProfileTimeOpt = ""
 	},
 	globals__io_lookup_bool_option(profile_memory, ProfileMemory),
 	{ ProfileMemory = yes ->
-		ProfileMemoryOpt = "-DPROFILE_MEMORY "
+		ProfileMemoryOpt = "-DMR_MPROF_PROFILE_MEMORY "
 	;
 		ProfileMemoryOpt = ""
+	},
+	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
+	{ ProfileDeep = yes ->
+		ProfileDeepOpt = "-DMR_DEEP_PROFILING "
+	;
+		ProfileDeepOpt = ""
 	},
 	globals__io_lookup_bool_option(pic_reg, PIC_Reg),
 	{ PIC_Reg = yes ->
@@ -2978,7 +2979,7 @@ mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
 		CFLAGS_FOR_REGS, " ", CFLAGS_FOR_GOTOS, " ",
 		CFLAGS_FOR_THREADS, " ",
 		GC_Opt, ProfileCallsOpt, ProfileTimeOpt, ProfileMemoryOpt,
-		PIC_Reg_Opt, TagsOpt, NumTagBitsOpt,
+		ProfileDeepOpt, PIC_Reg_Opt, TagsOpt, NumTagBitsOpt,
 		Target_DebugOpt, LL_DebugOpt,
 		StackTraceOpt, RequireTracingOpt,
 		UseTrailOpt, MinimalModelOpt, TypeLayoutOpt,

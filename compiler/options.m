@@ -145,7 +145,7 @@
 		;	profiling		% profile_time + profile_calls
 		;	time_profiling		% profile_time + profile_calls
 		;	memory_profiling	% profime_mem + profile_calls
-		;	deep_profiling		% profile_time + profile_deep
+		;	deep_profiling		% profile_deep
 		;	profile_calls
 		;	profile_time
 		;	profile_memory
@@ -1331,7 +1331,7 @@ special_handler(memory_profiling, none, OptionTable0, ok(OptionTable)) :-
         map__set(OptionTable2, profile_memory, bool(yes), OptionTable3),
         map__set(OptionTable3, profile_deep, bool(no), OptionTable).
 special_handler(deep_profiling, none, OptionTable0, ok(OptionTable)) :-
-	map__set(OptionTable0, profile_time, bool(yes), OptionTable1),
+	map__set(OptionTable0, profile_time, bool(no), OptionTable1),
 	map__set(OptionTable1, profile_calls, bool(no), OptionTable2),
         map__set(OptionTable2, profile_memory, bool(no), OptionTable3),
         map__set(OptionTable3, profile_deep, bool(yes), OptionTable).

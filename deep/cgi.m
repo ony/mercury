@@ -147,14 +147,6 @@ translate_criteria(SortStr, Sort, InclDescStr, InclDesc, LimitStr, Limit) :-
 		fail
 	).
 
-:- func default_fields = fields.
-
-default_fields = "apqtw".
-
-:- func all_fields = fields.
-
-all_fields = "apqtw".
-
 :- pred validate_fields(string::in) is semidet.
 
 validate_fields(String) :-

@@ -74,7 +74,7 @@
   #define MR_make_label(n, a, l)		/* nothing */
 #endif
 
-#if defined(MR_INSERT_LABELS) || defined(PROFILE_CALLS)
+#if defined(MR_INSERT_LABELS) || defined(MR_MPROF_PROFILE_CALLS)
   #define MR_make_local(n, a, l)		MR_make_local_ai(n, a, l)
 #else 
   #define MR_make_local(n, a, l)		/* nothing */
@@ -88,7 +88,7 @@
 ** to the MLDS back-end too, you may also need to change the
 ** `need_to_init_entries' predicate in compiler/mlds_to_c.m.
 */
-#if defined(MR_INSERT_LABELS) || defined(PROFILE_CALLS)
+#if defined(MR_INSERT_LABELS) || defined(MR_MPROF_PROFILE_CALLS)
   #define MR_make_entry(n, a, l)		MR_make_entry_ai(n, a, l)
 #else
   #define MR_make_entry(n, a, l)		/* nothing */

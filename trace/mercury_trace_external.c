@@ -646,7 +646,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 					fprintf(stderr, "\nMercury runtime: "
 						"REQUEST_STACK\n");
 				}
-				MR_do_init_modules();
+				MR_trace_init_modules();
 				message = MR_dump_stack_from_layout(
 					stdout, layout,
 					MR_saved_sp(saved_regs),
@@ -667,7 +667,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 					fprintf(stderr, "\nMercury runtime: "
 						"REQUEST_NONDET_STACK\n");
 				}
-				MR_do_init_modules();
+				MR_trace_init_modules();
 				/* 
 			        ** XXX As in stack dump, we could send the
 				** output of this function on the socket. But

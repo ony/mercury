@@ -197,13 +197,13 @@
 ** uses which occur inside debugging routines, so to get an accurate
 ** count you should not also enable low-level debugging.)
 **
-** PROFILE_CALLS
+** MR_MPROF_PROFILE_CALLS
 ** Enables call count profiling.
 **
-** PROFILE_TIME
+** MR_MPROF_PROFILE_TIME
 ** Enables time profiling.
 **
-** PROFILE_MEMORY
+** MR_MPROF_PROFILE_MEMORY
 ** Enables profiling of memory usage.
 **
 ** MR_DEEP_PROFILING_CALL_COUNTS.
@@ -322,7 +322,7 @@
 #ifdef MR_INSERT_ENTRY_LABEL_NAMES
   #error "MR_INSERT_ENTRY_LABEL_NAMES should not be defined on the command line"
 #endif
-#if defined(PROFILE_CALLS) || defined(MR_LOWLEVEL_DEBUG) \
+#if defined(MR_MPROF_PROFILE_CALLS) || defined(MR_DEBUG_GOTOS) \
 		|| defined(MR_DEBUG_AGC_SCHEDULING)
   #define MR_INSERT_ENTRY_LABEL_NAMES
 #endif
@@ -338,7 +338,7 @@
 #ifdef MR_INSERT_INTERNAL_LABEL_NAMES
   #error "MR_INSERT_INTERNAL_LABEL_NAMES should not be defined on the command line"
 #endif
-#if defined(MR_LOWLEVEL_DEBUG) || defined(MR_DEBUG_AGC_SCHEDULING)
+#if defined(MR_DEBUG_GOTOS) || defined(MR_DEBUG_AGC_SCHEDULING)
   #define MR_INSERT_INTERNAL_LABEL_NAMES
 #endif
 
@@ -355,8 +355,8 @@
 #ifdef MR_NEED_INITIALIZATION_AT_START
   #error "MR_NEED_INITIALIZATION_AT_START should not be defined on the command line"
 #endif
-#if !defined(MR_STATIC_CODE_ADDRESSES) || defined(PROFILE_CALLS) \
-	|| defined(PROFILE_TIME) || defined(DEBUG_LABELS)
+#if !defined(MR_STATIC_CODE_ADDRESSES) || defined(MR_MPROF_PROFILE_CALLS) \
+	|| defined(MR_MPROF_PROFILE_TIME) || defined(DEBUG_LABELS)
   #define MR_NEED_INITIALIZATION_AT_START
 #endif
 

@@ -995,7 +995,7 @@ grade_component_table("agc", gc, [gc - string("accurate")]).
 grade_component_table("prof", prof, [profile_time - bool(yes),
 	profile_deep - bool(no), profile_calls - bool(yes),
 	profile_memory - bool(no)]).
-grade_component_table("profdeep", prof, [profile_time - bool(yes),
+grade_component_table("profdeep", prof, [profile_time - bool(no),
 	profile_deep - bool(yes), profile_calls - bool(no),
 	profile_memory - bool(no)]).
 grade_component_table("proftime", prof, [profile_time - bool(yes),

@@ -29,10 +29,22 @@
 :- pred output_layout_data_defn(layout_data::in, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
 
+	% Given the name of a layout structure, output the declaration
+	% of the C global variable which will hold it.
+:- pred output_layout_name_decl(layout_name::in, io__state::di, io__state::uo)
+	is det.
+
+	% Given the name of a layout structure, output the declaration
+	% of the C global variable which will hold it, if it has
+	% not already been declared.
+:- pred output_maybe_layout_name_decl(layout_name::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
 	% Given a Mercury representation of a layout structure, output the
-	% declaration of the C global variable which will hold it.
-:- pred output_layout_data_decl(layout_data::in, decl_set::in, decl_set::out,
-	io__state::di, io__state::uo) is det.
+	% declaration of the C global variable which will hold it, if it has
+	% not already been declared.
+:- pred output_maybe_layout_data_decl(layout_data::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
 
 	% Given a reference to a layout structure, output the storage class
 	% (e.g. static), type and name of the global variable that will
@@ -95,12 +107,25 @@ output_layout_data_defn(proc_static_data(RttiProcLabel, FileName, CallSites),
 
 %-----------------------------------------------------------------------------%
 
-output_layout_data_decl(LayoutData, DeclSet0, DeclSet) -->
+output_layout_name_decl(LayoutName) -->
 	output_layout_name_storage_type_name(LayoutName, no),
-	io__write_string(";\n"),
+	io__write_string(";\n").
+
+output_maybe_layout_name_decl(LayoutName, DeclSet0, DeclSet) -->
+	(
+		{ decl_set_is_member(data_addr(layout_addr(LayoutName)),
+			DeclSet0) }
+	->
+		{ DeclSet = DeclSet0 }
+	;
+		output_layout_name_decl(LayoutName),
+		{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
+			DeclSet) }
+	).
+
+output_maybe_layout_data_decl(LayoutData, DeclSet0, DeclSet) -->
 	{ extract_layout_name(LayoutData, LayoutName) },
-	{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
-		DeclSet) }.
+	output_maybe_layout_name_decl(LayoutName, DeclSet0, DeclSet).
 
 :- pred extract_layout_name(layout_data::in, layout_name::out) is det.
 
@@ -217,22 +242,20 @@ output_layout_name(proc_static(RttiProcLabel)) -->
 	io__write_string(mercury_data_prefix),
 	io__write_string("_proc_static__"),
 	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
-	output_proc_label(ProcLabel),
-	% This should not be necessary, but type specialization
-	% can produce (e.g. in set_ordlist) more than one copy of a predicate.
-	io__write_string("_id"),
-	{ pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
-	io__write_int(PredId).
+	output_proc_label(ProcLabel).
+	% io__write_string("_id").
+	% { pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
+	% io__write_int(PredId).
 output_layout_name(proc_static_call_sites(RttiProcLabel)) -->
 	io__write_string(mercury_data_prefix),
 	io__write_string("_proc_static_call_sites__"),
 	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
-	output_proc_label(ProcLabel),
-	% This should not be necessary, but type specialization
-	% can produce (e.g. in set_ordlist) more than one copy of a predicate.
-	io__write_string("_id"),
-	{ pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
-	io__write_int(PredId).
+	output_proc_label(ProcLabel).
+	% % This should not be necessary, but type specialization
+	% % can produce (e.g. in set_ordlist) more than one copy of a predicate.
+	% io__write_string("_id"),
+	% { pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
+	% io__write_int(PredId).
 
 output_layout_name_storage_type_name(label_layout(Label, LabelVars),
 		_BeingDefined) -->
@@ -311,7 +334,7 @@ output_layout_name_storage_type_name(proc_static(RttiProcLabel),
 	output_layout_name(proc_static(RttiProcLabel)).
 output_layout_name_storage_type_name(proc_static_call_sites(RttiProcLabel),
 		_BeingDefined) -->
-	io__write_string("static MR_CallSiteStatic "),
+	io__write_string("static const MR_CallSiteStatic "),
 	output_layout_name(proc_static_call_sites(RttiProcLabel)),
 	io__write_string("[]").
 
@@ -1037,8 +1060,10 @@ output_data_addr_in_vector(Prefix, DataAddr) -->
 
 output_proc_static_data_defn(RttiProcLabel, FileName, CallSites,
 		DeclSet0, DeclSet) -->
-	output_call_site_static_array(RttiProcLabel, CallSites,
+	list__foldl2(output_call_site_static_decl, CallSites,
 		DeclSet0, DeclSet1),
+	output_call_site_static_array(RttiProcLabel, CallSites,
+		DeclSet1, DeclSet2),
 	{ LayoutName = proc_static(RttiProcLabel) },
 	io__write_string("\n"),
 	output_layout_name_storage_type_name(LayoutName, yes),
@@ -1056,7 +1081,7 @@ output_proc_static_data_defn(RttiProcLabel, FileName, CallSites,
 	io__write_string("\t0,\n"),
 	io__write_string("#endif\n"),
 	io__write_string("\tNULL\n};\n"),
-	{ decl_set_insert(DeclSet1, data_addr(layout_addr(LayoutName)),
+	{ decl_set_insert(DeclSet2, data_addr(layout_addr(LayoutName)),
 		DeclSet) }.
 
 :- pred output_call_site_static_array(rtti_proc_label::in,
@@ -1077,29 +1102,64 @@ output_call_site_static_array(RttiProcLabel, CallSites, DeclSet0, DeclSet) -->
 	io__state::di, io__state::uo) is det.
 
 output_call_site_static(CallSiteStatic) -->
-	{
-		CallSiteStatic = normal_call(_Callee, LineNumber, GoalPath),
-		Kind = "MR_normal_call"
-	;
-		CallSiteStatic = special_call(LineNumber, GoalPath),
-		Kind = "MR_special_call"
-	;
-		CallSiteStatic = higher_order_call(LineNumber, GoalPath),
-		Kind = "MR_higher_order_call"
-	;
-		CallSiteStatic = method_call(LineNumber, GoalPath),
-		Kind = "MR_method_call"
-	;
-		CallSiteStatic = callback(LineNumber, GoalPath),
-		Kind = "MR_callback"
-	},
 	io__write_string("\t{ "),
-	io__write_string(Kind),
-	io__write_string(", "),
+	(
+		{ CallSiteStatic = normal_call(Callee, TypeSubst,
+			FileName, LineNumber, GoalPath) },
+		io__write_string("MR_normal_call, (MR_ProcStatic *)\n\t  &"),
+		output_layout_name(proc_static(Callee)),
+		( { TypeSubst = "" } ->
+			io__write_string(",\n\t  NULL, ")
+		;
+			io__write_string(",\n\t  """),
+			io__write_string(TypeSubst),
+			io__write_string(""", ")
+		)
+	;
+		{ CallSiteStatic = special_call(FileName, LineNumber,
+			GoalPath) },
+		io__write_string("MR_special_call, NULL,\n\t  NULL, ")
+	;
+		{ CallSiteStatic = higher_order_call(FileName, LineNumber,
+			GoalPath) },
+		io__write_string("MR_higher_order_call, NULL,\n\t  NULL, ")
+	;
+		{ CallSiteStatic = method_call(FileName, LineNumber,
+			GoalPath) },
+		io__write_string("MR_method_call, NULL,\n\t  NULL, ")
+	;
+		{ CallSiteStatic = callback(FileName, LineNumber, GoalPath) },
+		io__write_string("MR_callback, NULL,\n\t  NULL, ")
+	),
+	io__write_string(""""),
+	io__write_string(FileName),
+	io__write_string(""", "),
 	io__write_int(LineNumber),
 	io__write_string(", """),
 	{ trace__path_to_string(GoalPath, GoalPathStr) },
 	io__write_string(GoalPathStr),
 	io__write_string(""" },\n").
+
+:- pred output_call_site_static_decl(call_site_static_data::in,
+	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
+
+output_call_site_static_decl(CallSiteStatic, DeclSet0, DeclSet) -->
+	(
+		{ CallSiteStatic = normal_call(Callee, _, _, _, _) },
+		output_maybe_layout_name_decl(proc_static(Callee),
+			DeclSet0, DeclSet)
+	;
+		{ CallSiteStatic = special_call(_, _, _) },
+		{ DeclSet = DeclSet0 }
+	;
+		{ CallSiteStatic = higher_order_call(_, _, _) },
+		{ DeclSet = DeclSet0 }
+	;
+		{ CallSiteStatic = method_call(_, _, _) },
+		{ DeclSet = DeclSet0 }
+	;
+		{ CallSiteStatic = callback(_, _, _) },
+		{ DeclSet = DeclSet0 }
+	).
 
 %-----------------------------------------------------------------------------%

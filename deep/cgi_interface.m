@@ -45,3 +45,13 @@
 					% a: memory allocations
 					% w: memory words
 					% The characters must be sorted.
+
+:- func default_fields = string.
+
+:- func all_fields = string.
+
+:- implementation.
+
+default_fields = "pqw".
+
+all_fields = "apqtw".

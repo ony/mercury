@@ -143,12 +143,12 @@
 #if	defined (MR_DEEP_PROFILING) && defined(MR_DEEP_PROFILING_MEMORY)
   #define MR_maybe_record_allocation(count, proclabel, type)		\
 	(								\
-		MR_current_call_site_dynamic->profiling_metrics.	\
-			memory_mallocs++,				\
-		MR_current_call_site_dynamic->profiling_metrics.	\
-			memory_words += (count)				\
+		MR_current_call_site_dynamic->MR_csd_own.MR_own_allocs	\
+			+= 1,						\
+		MR_current_call_site_dynamic->MR_csd_own.MR_own_words	\
+			+= (count)					\
 	)
-#elif	defined(PROFILE_MEMORY)
+#elif	defined(MR_MPROF_PROFILE_MEMORY)
   #define MR_maybe_record_allocation(count, proclabel, type)		\
 	MR_record_allocation((count), MR_ENTRY(proclabel), 		\
 		MR_STRINGIFY(proclabel), (type))

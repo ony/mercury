@@ -125,6 +125,11 @@ else
 fi
 type_stats=""
 
+if test -d .KEEP_OBJS
+then
+	keep_objs=true
+fi
+
 # If you change these, you will also need to change scripts/ml.in,
 # scripts/c2init.in, Mmake.common.in, tools/binary, tools/binary_step
 # and tools/linear.
@@ -195,7 +200,7 @@ while [ $# -gt 0 ]; do
 	-n|--no-bootcheck)
 		do_bootcheck=false ;;
 
-	--no-check_namespace)
+	--no-check-namespace)
 		check_namespace=false ;;
 
 	-t|--no-test-suite)
@@ -355,6 +360,14 @@ then
 		fi
 	fi
 
+	# Turn off the writing out of deep profiling files, since Deep.data
+	# will be overwritten many times in each directory, and thus the time
+	# spent writing them out is wasted. If deep profiling debugging is
+	# enabled, this also avoids the writing of *huge* amounts of stuff
+	# on stderr.
+	MERCURY_OPTIONS="$MERCURY_OPTIONS -s"
+	export MERCURY_OPTIONS
+
 	MERCURY_COMPILER=$root/compiler/mercury_compile
 	export MERCURY_COMPILER
 	MERCURY_INT_DIR=$root/stage2/library
@@ -453,6 +466,7 @@ then
 	fi
 	$LN_S $root/doc .
 	$LN_S $root/scripts .
+	$LN_S $root/tools .
 	$LN_S $root/util .
 	if $copy_profiler
 	then
@@ -774,19 +788,25 @@ then
 		/bin/rm -fr $root/stage3/* < /dev/null
 		/bin/rm -fr $root/stage3/.[a-zA-Z]* < /dev/null
 
-		case "$grade" in
-			*debug*)
-				# These files take up a lot of disk space,
-				# so we compress them. This reduces the
-				# probability that running the tests will
-				# run out of disk space, while still allowing
-				# the original files to be reconstructed
-				# relatively quickly.
-				gzip $root/stage2/library/*.c
-				gzip $root/stage2/browser/*.c
-				gzip $root/stage2/compiler/*.c
-				;;
-		esac
+		if $keep_objs
+		then
+			true
+		else
+			case "$grade" in
+				*debug*)
+					# These files take up a lot of disk
+					# space, so we compress them. This
+					# reduces the probability that running
+					# the tests will run out of disk space,
+					# while still allowing the original
+					# files to be reconstructed
+					# relatively quickly.
+					gzip $root/stage2/library/*.c
+					gzip $root/stage2/browser/*.c
+					gzip $root/stage2/compiler/*.c
+					;;
+			esac
+		fi
 	fi
 
 	echo "finishing stage3 at `date`"

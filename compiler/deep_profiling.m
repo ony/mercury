@@ -384,12 +384,15 @@ apply_tail_recursion_to_conj([Goal0 | Goals0], ApplyInfo0, [Goal | Goals],
 	bool::in, bool::out) is det.
 
 apply_tail_recursion_to_disj([], _, [], FoundTailCall, FoundTailCall).
-apply_tail_recursion_to_disj([Goal0 | Goals0], ApplyInfo,
-		[Goal | Goals], FoundTailCall0, FoundTailCall) :-
+apply_tail_recursion_to_disj([Goal0], ApplyInfo, [Goal],
+		FoundTailCall0, FoundTailCall) :-
 	apply_tail_recursion_to_goal(Goal0, ApplyInfo, Goal,
-		FoundTailCall0, FoundTailCall1, _),
+		FoundTailCall0, FoundTailCall, _).
+apply_tail_recursion_to_disj([Goal0 | Goals0], ApplyInfo, [Goal0 | Goals],
+		FoundTailCall0, FoundTailCall) :-
+	Goals0 = [_ | _],
 	apply_tail_recursion_to_disj(Goals0, ApplyInfo, Goals,
-		FoundTailCall1, FoundTailCall).
+		FoundTailCall0, FoundTailCall).
 
 :- pred apply_tail_recursion_to_cases(list(case)::in,
 	apply_tail_recursion_info::in, list(case)::out,
@@ -538,7 +541,7 @@ maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 			% We don't want to transform the procedures for
 			% managing the deep profiling call graph, or we'd get
 			% infinite recursion.
-			PredModuleName = unqualified("profiling_builtin")
+			mercury_profiling_builtin_module(PredModuleName)
 		)
 	->
 		ProcTable = ProcTable0,
@@ -555,10 +558,8 @@ maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 
 transform_procedure2(ModuleInfo, PredProcId, Proc0, Proc,
 		ProcStaticList0, ProcStaticList) :-
-	proc_info_goal(Proc0, Goal0),
 	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
-	Goal0 = _ - GoalInfo0,
-	goal_info_get_code_model(GoalInfo0, CodeModel),		% XXX zs: bug?
+	proc_info_interface_code_model(Proc0, CodeModel),
 	(
 		CodeModel = model_det,
 		( MRecInfo = yes(RecInfo), RecInfo ^ role = inner_proc(_) ->
@@ -594,6 +595,7 @@ transform_procedure2(ModuleInfo, PredProcId, Proc0, Proc,
 			call_sites		:: list(call_site_static_data),
 			vars			:: prog_varset,
 			var_types		:: vartypes,
+			proc_filename		:: string,
 			maybe_rec_info		:: maybe(deep_profile_proc_info)
 		).
 
@@ -613,13 +615,15 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	varset__new_var(Vars2, ProcStaticVar, Vars3),
 	map__set(VarTypes2, ProcStaticVar, CPointerType, VarTypes3),
 	module_info_globals(ModuleInfo, Globals),
-	globals__lookup_bool_option(Globals,
-		use_activation_counts, UseActivationCounts),
-	( UseActivationCounts = no ->
+	globals__lookup_bool_option(Globals, use_activation_counts,
+		UseActivationCounts),
+	(
+		UseActivationCounts = no,
 		varset__new_var(Vars3, ActivationPtr0, Vars5),
 		map__set(VarTypes3, ActivationPtr0, CPointerType, VarTypes5),
 		MActivationPtr = yes(ActivationPtr0)
 	;
+		UseActivationCounts = yes,
 		Vars5 = Vars3,
 		VarTypes5 = VarTypes3,
 		MActivationPtr = no
@@ -630,7 +634,7 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
 	
 	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars5, VarTypes5, MRecInfo),
+			[], Vars5, VarTypes5, FileName, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -652,22 +656,19 @@ transform_det_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	ProcStaticConsId = deep_profiling_proc_static(RttiProcLabel),
 	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
 
-	( MActivationPtr = yes(ActivationPtr1) ->
-		generate_call(ModuleInfo, "det_call_port_code", 4,
+	(
+		MActivationPtr = yes(ActivationPtr1),
+		generate_call(ModuleInfo, "det_call_port_code_sr", 4,
 			[ProcStaticVar, TopCSD, MiddleCSD, ActivationPtr1],
-			[TopCSD, MiddleCSD, ActivationPtr1], CallPortCode)
+			[TopCSD, MiddleCSD, ActivationPtr1], CallPortCode),
+		generate_call(ModuleInfo, "det_exit_port_code_ac", 3,
+			[TopCSD, MiddleCSD, ActivationPtr1], [], ExitPortCode)
 	;
-		generate_call(ModuleInfo, "det_call_port_code", 3,
+		MActivationPtr = no,
+		generate_call(ModuleInfo, "det_call_port_code_ac", 3,
 			[ProcStaticVar, TopCSD, MiddleCSD],
-			[TopCSD, MiddleCSD], CallPortCode)
-	),
-
-
-	( MActivationPtr = yes(ActivationPtr2) ->
-		generate_call(ModuleInfo, "det_exit_port_code", 3,
-			[TopCSD, MiddleCSD, ActivationPtr2], [], ExitPortCode)
-	;
-		generate_call(ModuleInfo, "det_exit_port_code", 2,
+			[TopCSD, MiddleCSD], CallPortCode),
+		generate_call(ModuleInfo, "det_exit_port_code_ac", 2,
 			[TopCSD, MiddleCSD], [], ExitPortCode)
 	),
 
@@ -697,13 +698,15 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	varset__new_var(Vars2, ProcStaticVar, Vars3),
 	map__set(VarTypes2, ProcStaticVar, CPointerType, VarTypes3),
 	module_info_globals(ModuleInfo, Globals),
-	globals__lookup_bool_option(Globals,
-		use_activation_counts, UseActivationCounts),
-	( UseActivationCounts = no ->
+	globals__lookup_bool_option(Globals, use_activation_counts,
+		UseActivationCounts),
+	(
+		UseActivationCounts = no,
 		varset__new_var(Vars3, ActivationPtr0, Vars5),
 		map__set(VarTypes3, ActivationPtr0, CPointerType, VarTypes5),
 		MActivationPtr = yes(ActivationPtr0)
 	;
+		UseActivationCounts = yes,
 		Vars5 = Vars3,
 		VarTypes5 = VarTypes3,
 		MActivationPtr = no
@@ -714,7 +717,7 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
 	
 	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars5, VarTypes5, MRecInfo),
+			[], Vars5, VarTypes5, FileName, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -736,35 +739,31 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	ProcStaticConsId = deep_profiling_proc_static(RttiProcLabel),
 	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
 
-	( MActivationPtr = yes(ActivationPtr1) ->
-		generate_call(ModuleInfo, "semi_call_port_code", 4,
+	(
+		MActivationPtr = yes(ActivationPtr1),
+		generate_call(ModuleInfo, "semi_call_port_code_sr", 4,
 			[ProcStaticVar, TopCSD, MiddleCSD, ActivationPtr1],
 			[TopCSD, MiddleCSD, ActivationPtr1], CallPortCode),
-		generate_call(ModuleInfo, "semi_exit_port_code", 3,
+		generate_call(ModuleInfo, "semi_exit_port_code_sr", 3,
 			[TopCSD, MiddleCSD, ActivationPtr1], [], ExitPortCode),
-		generate_call(ModuleInfo, "semi_fail_port_code", 3,
+		generate_call(ModuleInfo, "semi_fail_port_code_sr", 3,
 			[TopCSD, MiddleCSD, ActivationPtr1], no, failure,
 			FailPortCode),
 		NewNonlocals = list_to_set([MiddleCSD, ActivationPtr1])
 	;
-		generate_call(ModuleInfo, "semi_call_port_code", 3,
+		MActivationPtr = no,
+		generate_call(ModuleInfo, "semi_call_port_code_ac", 3,
 			[ProcStaticVar, TopCSD, MiddleCSD],
 			[TopCSD, MiddleCSD], CallPortCode),
-		generate_call(ModuleInfo, "semi_exit_port_code", 2,
+		generate_call(ModuleInfo, "semi_exit_port_code_ac", 2,
 			[TopCSD, MiddleCSD], [], ExitPortCode),
-		generate_call(ModuleInfo, "semi_fail_port_code", 2,
+		generate_call(ModuleInfo, "semi_fail_port_code_ac", 2,
 			[TopCSD, MiddleCSD], no, failure, FailPortCode),
 		NewNonlocals = list_to_set([MiddleCSD])
 	),
 
-	goal_info_get_nonlocals(GoalInfo0, NonLocals0),
-	NonLocals1 = union(NonLocals0, NewNonlocals),
-	goal_info_set_nonlocals(GoalInfo0, NonLocals1, GoalInfo1),
-
-	NonLocals2 = union(NewNonlocals, list_to_set([TopCSD])),
-	instmap_delta_init_unreachable(InstMapDelta),
-	Determinism = failure,
-	goal_info_init(NonLocals2, InstMapDelta, Determinism, GoalInfo2),
+	ExitConjGoalInfo = goal_info_add_nonlocals_make_impure(GoalInfo0,
+		NewNonlocals),
 
 	Goal = conj([
 		BindProcStaticVarGoal,
@@ -773,11 +772,9 @@ transform_semi_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			conj([
 				TransformedGoal,
 				ExitPortCode
-			]) - GoalInfo1,
-			conj([
-				FailPortCode
-			]) - GoalInfo2
-		], init) - GoalInfo1
+			]) - ExitConjGoalInfo,
+			FailPortCode
+		], map__init) - ExitConjGoalInfo
 	]) - GoalInfo0,
 	proc_info_set_varset(Proc0, Vars, Proc1),
 	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
@@ -799,9 +796,10 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	varset__new_var(Vars2, ProcStaticVar, Vars3),
 	map__set(VarTypes2, ProcStaticVar, CPointerType, VarTypes3),
 	module_info_globals(ModuleInfo, Globals),
-	globals__lookup_bool_option(Globals,
-		use_activation_counts, UseActivationCounts),
-	( UseActivationCounts = no ->
+	globals__lookup_bool_option(Globals, use_activation_counts,
+		UseActivationCounts),
+	(
+		UseActivationCounts = no,
 		varset__new_var(Vars3, OldOutermostProcDyn0, Vars4),
 		map__set(VarTypes3, OldOutermostProcDyn0, CPointerType,
 			VarTypes4),
@@ -810,6 +808,7 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			VarTypes5),
 		MOldActivationPtr = yes(OldOutermostProcDyn0)
 	;
+		UseActivationCounts = yes,
 		varset__new_var(Vars3, NewOutermostProcDyn, Vars5),
 		map__set(VarTypes3, NewOutermostProcDyn, CPointerType,
 			VarTypes5),
@@ -821,7 +820,7 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
 	
 	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars5, VarTypes5, MRecInfo),
+			[], Vars5, VarTypes5, FileName, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -835,48 +834,48 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 	ProcStaticConsId = deep_profiling_proc_static(RttiProcLabel),
 	generate_unify(ProcStaticConsId, ProcStaticVar, BindProcStaticVarGoal),
 
-	( MOldActivationPtr = yes(OldOutermostProcDyn2) ->
-		generate_call(ModuleInfo, "non_call_port_code", 5,
+	(
+		MOldActivationPtr = yes(OldOutermostProcDyn2),
+		generate_call(ModuleInfo, "non_call_port_code_sr", 5,
 			[ProcStaticVar, TopCSD, MiddleCSD,
 			OldOutermostProcDyn2, NewOutermostProcDyn],
 			[TopCSD, MiddleCSD,
 				OldOutermostProcDyn2, NewOutermostProcDyn],
 			CallPortCode),
-		generate_call(ModuleInfo, "non_exit_port_code", 3,
+		generate_call(ModuleInfo, "non_exit_port_code_sr", 3,
 			[TopCSD, MiddleCSD, OldOutermostProcDyn2], [],
 			ExitPortCode),
-		generate_call(ModuleInfo, "non_fail_port_code", 3,
+		generate_call(ModuleInfo, "non_fail_port_code_sr", 3,
 			[TopCSD, MiddleCSD, OldOutermostProcDyn2], no,
 			failure, FailPortCode),
-		generate_call(ModuleInfo, "non_redo_port_code2", 2,
+		generate_call(ModuleInfo, "non_redo_port_code_sr", 2,
 			[MiddleCSD, NewOutermostProcDyn], no,
 			failure, RedoPortCode),
 		NewNonlocals = list_to_set(
 			[TopCSD, MiddleCSD, OldOutermostProcDyn2])
 	;
-		generate_call(ModuleInfo, "non_call_port_code", 4,
+		MOldActivationPtr = no,
+		generate_call(ModuleInfo, "non_call_port_code_ac", 4,
 			[ProcStaticVar, TopCSD, MiddleCSD, NewOutermostProcDyn],
 			[TopCSD, MiddleCSD, NewOutermostProcDyn],
 			CallPortCode),
-		generate_call(ModuleInfo, "non_exit_port_code", 2,
+		generate_call(ModuleInfo, "non_exit_port_code_ac", 2,
 			[TopCSD, MiddleCSD], [], ExitPortCode),
-		generate_call(ModuleInfo, "non_fail_port_code", 2,
+		generate_call(ModuleInfo, "non_fail_port_code_ac", 2,
 			[TopCSD, MiddleCSD], no, failure, FailPortCode),
-		generate_call(ModuleInfo, "non_redo_port_code1", 2,
+		generate_call(ModuleInfo, "non_redo_port_code_ac", 2,
 			[MiddleCSD, NewOutermostProcDyn], no,
 			failure, RedoPortCode),
 		NewNonlocals = list_to_set([TopCSD, MiddleCSD])
 	),
 
-	DetMulti = multidet,
-	instmap_delta_init_unreachable(Unreachable),
-	goal_info_get_nonlocals(GoalInfo0, NonLocals0),
+	ExitRedoNonLocals = set__union(NewNonlocals,
+		list_to_set([NewOutermostProcDyn])),
+	ExitRedoGoalInfo = impure_reachable_init_goal_info(ExitRedoNonLocals,
+		multidet),
 
-	NonLocals3 = union(NewNonlocals, list_to_set([NewOutermostProcDyn])),
-	goal_info_init(NonLocals3, Unreachable, DetMulti, GoalInfo3),
-
-	NonLocals4 = union(NonLocals0, NonLocals3),
-	goal_info_set_nonlocals(GoalInfo0, NonLocals4, GoalInfo4),
+	CallExitRedoGoalInfo = goal_info_add_nonlocals_make_impure(GoalInfo0,
+		ExitRedoNonLocals),
 
 	Goal = conj([
 		BindProcStaticVarGoal,
@@ -887,10 +886,10 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 				disj([
 					ExitPortCode,
 					RedoPortCode
-				], init) - GoalInfo3
-			]) - GoalInfo4,
+				], map__init) - ExitRedoGoalInfo
+			]) - CallExitRedoGoalInfo,
 			FailPortCode
-		], init) - GoalInfo4
+		], map__init) - CallExitRedoGoalInfo
 	]) - GoalInfo0,
 	proc_info_set_varset(Proc0, Vars, Proc1),
 	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
@@ -912,10 +911,13 @@ transform_inner_proc(ModuleInfo, PredProcId, Proc0, Proc, no) :-
 	varset__new_var(Vars2, ProcStaticVar, Vars3),
 	map__set(VarTypes2, ProcStaticVar, CPointerType, VarTypes3),
 
+	goal_info_get_context(GoalInfo0, Context),
+	FileName = term__context_file(Context),
+
 	proc_info_get_maybe_deep_profile_info(Proc0, MRecInfo),
 	
 	PInfo0 = deep_info(ModuleInfo, MiddleCSD, 0,
-			[], Vars3, VarTypes3, MRecInfo),
+			[], Vars3, VarTypes3, FileName, MRecInfo),
 
 	transform_goal([], Goal0, TransformedGoal, PInfo0, PInfo),
 
@@ -1069,35 +1071,40 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	DeepInfo2 = DeepInfo1 ^ var_types := VarTypes,
 
 	goal_info_get_context(GoalInfo0, Context),
+	FileName0 = term__context_file(Context),
 	LineNumber = term__context_line(Context),
+	compress_filename(DeepInfo0, FileName0, FileName),
 	classify_call(ModuleInfo, GoalExpr, CallKind),
 	(
 		CallKind = normal(PredProcId),
-		generate_call(ModuleInfo, "make_new_csd_for_normal_call", 2,
+		generate_call(ModuleInfo, "prepare_for_normal_call", 2,
 			[MiddleCSD, SiteNumVar], [], PrepareGoal),
 		PredProcId = proc(PredId, ProcId),
 		RttiProcLabel = rtti__make_proc_label(ModuleInfo,
 			PredId, ProcId),
-		CallSite = normal_call(RttiProcLabel, LineNumber, GoalPath),
+		TypeSubst = compute_type_subst(GoalExpr, DeepInfo2),
+		CallSite = normal_call(RttiProcLabel, TypeSubst,
+			FileName, LineNumber, GoalPath),
 		Goal1 = Goal0,
 		DeepInfo3 = DeepInfo2
 	;
 		CallKind = special(_PredProcId, TypeInfoVar),
-		generate_call(ModuleInfo, "make_new_csd_for_special_call", 3,
+		generate_call(ModuleInfo, "prepare_for_special_call", 3,
 			[MiddleCSD, SiteNumVar, TypeInfoVar], [], PrepareGoal),
-		CallSite = special_call(LineNumber, GoalPath),
+		CallSite = special_call(FileName, LineNumber, GoalPath),
 		Goal1 = Goal0,
 		DeepInfo3 = DeepInfo2
 	;
 		CallKind = generic(Generic),
-		generate_call(ModuleInfo, "make_new_csd_for_ho_call", 3,
+		generate_call(ModuleInfo, "prepare_for_ho_call", 3,
 			[MiddleCSD, SiteNumVar, ClosureVar], [], PrepareGoal),
 		(
 			Generic = higher_order(ClosureVar, _, _),
-			CallSite = higher_order_call(LineNumber, GoalPath)
+			CallSite = higher_order_call(FileName, LineNumber,
+				GoalPath)
 		;
 			Generic = class_method(ClosureVar, _, _, _),
-			CallSite = method_call(LineNumber, GoalPath)
+			CallSite = method_call(FileName, LineNumber, GoalPath)
 		;
 			Generic = aditi_builtin(_, _),
 			error("deep profiling and aditi do not mix")
@@ -1114,14 +1121,15 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 			DeepInfo3 = DeepInfo2
 		)
 	),
-	DeepInfo4 = DeepInfo3^next_site_num := SiteNum + 1,
-	DeepInfo5 = DeepInfo4^call_sites := DeepInfo4^call_sites ++ [CallSite],
+	DeepInfo4 = DeepInfo3 ^ next_site_num := SiteNum + 1,
+	DeepInfo5 = DeepInfo4 ^ call_sites :=
+		DeepInfo4 ^ call_sites ++ [CallSite],
 	(
 		member(tailcall, GoalFeatures),
 		DeepInfo5 ^ maybe_rec_info = yes(RecInfo),
 		RecInfo ^ role = outer_proc(_)
 	->
-		generate_recursion_counter_saves_and_resotres(
+		generate_recursion_counter_saves_and_restores(
 			MiddleCSD, RecInfo ^ visible_scc,
 			BeforeGoals, ExitGoals, FailGoals, ExtraVarList,
 			DeepInfo5, DeepInfo),
@@ -1132,25 +1140,24 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 		( CodeModel = model_det ->
 			condense([
 				BeforeGoals,
-				[SiteNumVarGoal, PrepareGoal, Goal1, ReturnGoal],
+				[SiteNumVarGoal, PrepareGoal, Goal1,
+					ReturnGoal],
 				ExitGoals
 			], Goals),
 			Goal = conj(Goals) - GoalInfo
 		;
-			goal_info_get_nonlocals(GoalInfo, OrigGoalNonlocals),
 			ExtraVars = list_to_set(ExtraVarList),
-			Nonlocals1 = union(OrigGoalNonlocals, ExtraVars),
-			goal_info_set_nonlocals(GoalInfo, Nonlocals1,
-				GoalInfo2),
+			WrappedGoalGoalInfo =
+				goal_info_add_nonlocals_make_impure(GoalInfo,
+					ExtraVars),
 
-			insert(ExtraVars, MiddleCSD, Nonlocals2),
-			instmap_delta_init_unreachable(Unreachable),
-			goal_info_init(Nonlocals2, Unreachable, failure,
-				GoalInfo3),
+			insert(ExtraVars, MiddleCSD, ReturnFailsNonLocals),
+			ReturnFailsGoalInfo =
+				impure_unreachable_init_goal_info(
+					ReturnFailsNonLocals, failure),
 
-			goal_info_init(init, Unreachable, failure,
-				FailGoalInfo0),
-			FailGoal = disj([], init) - FailGoalInfo0,
+			FailGoalInfo = fail_goal_info,
+			FailGoal = disj([], init) - FailGoalInfo,
 
 			append(FailGoals, [FailGoal], FailGoalsAndFail),
 
@@ -1161,14 +1168,14 @@ wrap_call(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 						SiteNumVarGoal,
 						PrepareGoal,
 						Goal1,
-						ReturnGoal|
+						ReturnGoal |
 						ExitGoals
-					]) - GoalInfo2,
+					]) - WrappedGoalGoalInfo,
 					conj([
-						ReturnGoal|
+						ReturnGoal |
 						FailGoalsAndFail
-					]) - GoalInfo3
-				], init) - GoalInfo2]
+					]) - ReturnFailsGoalInfo
+				], init) - WrappedGoalGoalInfo]
 			], Goals),
 			Goal = conj(Goals) - GoalInfo
 		)
@@ -1193,7 +1200,7 @@ transform_higher_order_call(CodeModel, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	map__set(VarTypes1, SavedPtrVar, CPointerType, VarTypes),
 	DeepInfo1 = DeepInfo0 ^ vars := Vars,
 	DeepInfo = DeepInfo1 ^ var_types := VarTypes,
-	Goal0 = _ - GoalInfo,
+	Goal0 = _ - GoalInfo0,
 	MiddleCSD = DeepInfo ^ current_csd,
 	generate_call(DeepInfo ^ module_info,
 		"save_and_zero_activation_info", 3,
@@ -1203,24 +1210,27 @@ transform_higher_order_call(CodeModel, Goal0, Goal, DeepInfo0, DeepInfo) :-
 		[MiddleCSD, SavedCountVar, SavedPtrVar], [], RestoreStuff),
 	generate_call(DeepInfo ^ module_info, "rezero_activation_info", 1,
 		[MiddleCSD], [], ReZeroStuff),
-	
-	goal_info_get_nonlocals(GoalInfo, GoalNonlocals),
-	ExtNonlocals = union(
-		list_to_set([MiddleCSD, SavedCountVar, SavedPtrVar]),
-		GoalNonlocals),
-	goal_info_set_nonlocals(GoalInfo, ExtNonlocals, ExtGoalInfo),
 
-	instmap_delta_init_unreachable(Unreachable),
+	% XXX We should create goal_exprs and goal_infos only in determinisms
+	% that need them.
+	ExtGoalInfo = goal_info_add_nonlocals_make_impure(GoalInfo0,
+		list_to_set([MiddleCSD, SavedCountVar, SavedPtrVar])),
 
-	goal_info_init(init, Unreachable, failure, FailGoalInfo0),
-	FailGoal = disj([], init) - FailGoalInfo0,
+	% XXX We should build up NoBindExtGoalInfo from scratch.
+	instmap_delta_init_reachable(EmptyDelta),
+	goal_info_set_instmap_delta(ExtGoalInfo, EmptyDelta,
+		NoBindExtGoalInfo),
 
-	FailVars1 = list_to_set([MiddleCSD, SavedCountVar, SavedPtrVar]),
-	goal_info_init(FailVars1, Unreachable, failure, FailGoalInfo1),
+	FailGoalInfo = fail_goal_info,
+	FailGoal = disj([], init) - FailGoalInfo,
 
-	FailVars2 = list_to_set([MiddleCSD]),
-	goal_info_init(FailVars2, Unreachable, failure, FailGoalInfo2),
+	RestoreFailGoalInfo = impure_unreachable_init_goal_info(
+		list_to_set([MiddleCSD, SavedCountVar, SavedPtrVar]), failure),
 
+	RezeroFailGoalInfo = impure_unreachable_init_goal_info(
+		list_to_set([MiddleCSD]), failure),
+
+	goal_info_add_feature(GoalInfo0, impure, GoalInfo),
 	(
 		CodeModel = model_det,
 		Goal = conj([
@@ -1240,7 +1250,7 @@ transform_higher_order_call(CodeModel, Goal0, Goal, DeepInfo0, DeepInfo) :-
 				conj([
 					RestoreStuff,
 					FailGoal
-				]) - FailGoalInfo1
+				]) - RestoreFailGoalInfo
 			], init) - ExtGoalInfo
 		]) - GoalInfo
 	;
@@ -1255,17 +1265,13 @@ transform_higher_order_call(CodeModel, Goal0, Goal, DeepInfo0, DeepInfo) :-
 						conj([
 							ReZeroStuff,
 							FailGoal
-						]) - FailGoalInfo2,
-						conj([
-							RestoreStuff,
-							FailGoal
-						]) - FailGoalInfo1
-					], init) - ExtGoalInfo
+						]) - RezeroFailGoalInfo
+					], init) - NoBindExtGoalInfo
 				]) - ExtGoalInfo,
 				conj([
 					RestoreStuff,
 					FailGoal
-				]) - FailGoalInfo1
+				]) - RestoreFailGoalInfo
 			], init) - ExtGoalInfo
 		]) - GoalInfo
 	).
@@ -1289,12 +1295,14 @@ wrap_foreign_code(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 	map__set(DeepInfo0 ^ var_types, SiteNumVar, IntType, VarTypes),
 	generate_unify(int_const(SiteNum), SiteNumVar, SiteNumVarGoal),
 
-	generate_call(ModuleInfo, "make_new_csd_for_foreign_call", 2,
+	generate_call(ModuleInfo, "prepare_for_callback", 2,
 		[MiddleCSD, SiteNumVar], [], PrepareGoal),
 
 	goal_info_get_context(GoalInfo0, Context),
 	LineNumber = term__context_line(Context),
-	CallSite = callback(LineNumber, GoalPath),
+	FileName0 = term__context_file(Context),
+	compress_filename(DeepInfo0, FileName0, FileName),
+	CallSite = callback(FileName, LineNumber, GoalPath),
 
 	Goal = conj([
 		SiteNumVarGoal,
@@ -1306,6 +1314,15 @@ wrap_foreign_code(GoalPath, Goal0, Goal, DeepInfo0, DeepInfo) :-
 		:= DeepInfo1 ^ call_sites ++ [CallSite],
 	DeepInfo3 = DeepInfo2 ^ vars := Vars,
 	DeepInfo = DeepInfo3 ^ var_types := VarTypes.
+
+:- pred compress_filename(deep_info::in, string::in, string::out) is det.
+
+compress_filename(Deep, FileName0, FileName) :-
+	( FileName0 = Deep ^ proc_filename ->
+		FileName = ""
+	;
+		FileName = FileName0
+	).
 
 :- type call_class
 			% For normal first order calls
@@ -1344,18 +1361,23 @@ classify_call(ModuleInfo, Expr, Class) :-
 		error("unexpected goal type in classify_call/2")
 	).
 
-:- pred generate_recursion_counter_saves_and_resotres(
+:- func compute_type_subst(hlds_goal_expr, deep_info) = string.
+
+% XXX we don't compute type substitution strings yet.
+compute_type_subst(_, _) = "".
+
+:- pred generate_recursion_counter_saves_and_restores(
 		prog_var, list(visible_scc_data), list(hlds_goal),
 		list(hlds_goal), list(hlds_goal), list(prog_var),
 		deep_info, deep_info).
-:- mode generate_recursion_counter_saves_and_resotres(in, in, out, out, out,
+:- mode generate_recursion_counter_saves_and_restores(in, in, out, out, out,
 		out, in, out) is det.
 
-generate_recursion_counter_saves_and_resotres(_, [], [], [], [], [],
+generate_recursion_counter_saves_and_restores(_, [], [], [], [], [],
 		DInfo, DInfo).
-generate_recursion_counter_saves_and_resotres(CSDVar, [Vis|Viss],
+generate_recursion_counter_saves_and_restores(CSDVar, [Vis|Viss],
 		Befores, Exits, Fails, Vars, DeepInfo0, DeepInfo) :-
-	generate_recursion_counter_saves_and_resotres_2(Vis^rec_call_sites,
+	generate_recursion_counter_saves_and_restores_2(Vis ^ rec_call_sites,
 		CSDVar, Befores0, Exits0, Fails0, Vars0, DeepInfo0, DeepInfo1),
 	(
 		Viss = [],
@@ -1366,20 +1388,20 @@ generate_recursion_counter_saves_and_resotres(CSDVar, [Vis|Viss],
 		DeepInfo = DeepInfo1
 	;
 		Viss = [_|_],
-		error("generate_recursion_counter_saves_and_resotres: not implemented")
+		error("generate_recursion_counter_saves_and_restores: not implemented")
 		% generate a call to get the outermost csd for the next
 		% procedure in the clique, then make the recursive call
 	).
 
-:- pred generate_recursion_counter_saves_and_resotres_2(
+:- pred generate_recursion_counter_saves_and_restores_2(
 		list(int), prog_var, list(hlds_goal), list(hlds_goal),
 		list(hlds_goal), list(prog_var), deep_info, deep_info).
-:- mode generate_recursion_counter_saves_and_resotres_2(in, in, out, out,
+:- mode generate_recursion_counter_saves_and_restores_2(in, in, out, out,
 		out, out, in, out) is det.
 
-generate_recursion_counter_saves_and_resotres_2([], _, [], [], [], [],
+generate_recursion_counter_saves_and_restores_2([], _, [], [], [], [],
 		DInfo, DInfo).
-generate_recursion_counter_saves_and_resotres_2([CSN|CSNs], CSDVar,
+generate_recursion_counter_saves_and_restores_2([CSN|CSNs], CSDVar,
 		[Unify, Before|Befores], [Exit|Exits], [Fail|Fails],
 		[CSNVar, DepthVar|ExtraVars], DeepInfo0, DeepInfo) :-
 	varset__new_var(DeepInfo0 ^ vars, CSNVar, Vars1),
@@ -1396,7 +1418,7 @@ generate_recursion_counter_saves_and_resotres_2([CSN|CSNs], CSDVar,
 		[CSDVar, CSNVar, DepthVar], [], Exit),
 	generate_call(ModuleInfo, "restore_recursion_depth_count_fail", 3,
 		[CSDVar, CSNVar, DepthVar], [], Fail),
-	generate_recursion_counter_saves_and_resotres_2(CSNs, CSDVar,
+	generate_recursion_counter_saves_and_restores_2(CSNs, CSDVar,
 		Befores, Exits, Fails, ExtraVars, DeepInfo1, DeepInfo).
 
 %:- pred generate_ho_save_goal(ho_call_info, module_info, hlds_goal).
@@ -1451,8 +1473,7 @@ generate_call(ModuleInfo, Name, Arity, ArgVars, MOutputVars, Detism, Goal) :-
 		MOutputVars = no,
 		instmap_delta_init_unreachable(InstMapDelta)
 	),
-	goal_info_init(NonLocals, InstMapDelta, Detism, GoalInfo0),
-	goal_info_add_feature(GoalInfo0, (impure), GoalInfo),
+	GoalInfo = impure_init_goal_info(NonLocals, InstMapDelta, Detism),
 	Goal = call(PredId, ProcId, ArgVars, not_builtin, no,
 		unqualified(Name)) - GoalInfo.
 
@@ -1478,7 +1499,7 @@ generate_unify(ConsId, Var, Goal) :-
 	pred_id::out, proc_id::out) is det.
 
 get_deep_profile_builtin_ppid(ModuleInfo, Name, Arity, PredId, ProcId) :-
-	ModuleName = unqualified("profiling_builtin"),
+	mercury_profiling_builtin_module(ModuleName),
 	module_info_get_predicate_table(ModuleInfo, PredTable),
 	(
 		predicate_table_search_pred_m_n_a(PredTable,
@@ -1510,5 +1531,45 @@ get_deep_profile_builtin_ppid(ModuleInfo, Name, Arity, PredId, ProcId) :-
 			[s(Name), i(Arity)], Msg),
 		error(Msg)
 	).
+
+%------------------------------------------------------------------------------%
+
+:- func impure_init_goal_info(set(prog_var), instmap_delta, determinism)
+	= hlds_goal_info.
+
+impure_init_goal_info(NonLocals, InstMapDelta, Determinism) = GoalInfo :-
+	goal_info_init(NonLocals, InstMapDelta, Determinism, GoalInfo0),
+	goal_info_add_feature(GoalInfo0, impure, GoalInfo).
+
+:- func impure_reachable_init_goal_info(set(prog_var), determinism)
+	= hlds_goal_info.
+
+impure_reachable_init_goal_info(NonLocals, Determinism) = GoalInfo :-
+	instmap_delta_init_reachable(InstMapDelta),
+	goal_info_init(NonLocals, InstMapDelta, Determinism, GoalInfo0),
+	goal_info_add_feature(GoalInfo0, impure, GoalInfo).
+
+:- func impure_unreachable_init_goal_info(set(prog_var), determinism)
+	= hlds_goal_info.
+
+impure_unreachable_init_goal_info(NonLocals, Determinism) = GoalInfo :-
+	instmap_delta_init_unreachable(InstMapDelta),
+	goal_info_init(NonLocals, InstMapDelta, Determinism, GoalInfo0),
+	goal_info_add_feature(GoalInfo0, impure, GoalInfo).
+
+:- func goal_info_add_nonlocals_make_impure(hlds_goal_info, set(prog_var))
+	= hlds_goal_info.
+
+goal_info_add_nonlocals_make_impure(GoalInfo0, NewNonLocals) = GoalInfo :- 
+	goal_info_get_nonlocals(GoalInfo0, NonLocals0),
+	NonLocals = set__union(NonLocals0, NewNonLocals),
+	goal_info_set_nonlocals(GoalInfo0, NonLocals, GoalInfo1),
+	goal_info_add_feature(GoalInfo1, impure, GoalInfo).
+
+:- func fail_goal_info = hlds_goal_info.
+
+fail_goal_info = GoalInfo :-
+	instmap_delta_init_unreachable(InstMapDelta),
+	goal_info_init(set__init, InstMapDelta, failure, GoalInfo).
 
 %------------------------------------------------------------------------------%

@@ -71,22 +71,28 @@
 :- type call_site_static_data
 	--->	normal_call(
 			normal_callee		:: rtti_proc_label,
+			normal_type_subst	:: string,
+			normal_filename		:: string,
 			normal_line_number	:: int,
 			normal_goal_path	:: goal_path
 		)
 	;	special_call(
+			special_filename	:: string,
 			special_line_number	:: int,
 			special_goal_path	:: goal_path
 		)
 	;	higher_order_call(
+			higher_order_filename	:: string,
 			ho_line_number		:: int,
 			ho_goal_path		:: goal_path
 		)
 	;	method_call(
+			method_filename		:: string,
 			method_line_number	:: int,
 			method_goal_path	:: goal_path
 		)
 	;	callback(
+			callback_filename	:: string,
 			callback_line_number	:: int,
 			callback_goal_path	:: goal_path
 		).

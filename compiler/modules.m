@@ -3205,7 +3205,8 @@ get_source_file(DepsMap, ModuleName, FileName) :-
 :- mode append_to_init_list(in, in, in, di, uo) is det.
 
 append_to_init_list(DepStream, InitFileName, Module) -->
-	{ llds_out__make_init_name(Module, InitFuncName) },
+	{ llds_out__make_init_name(Module, InitFuncName0) },
+	{ string__append(InitFuncName0, "init", InitFuncName) },
 	{ llds_out__make_rl_data_name(Module, RLName) },
 	io__write_strings(DepStream, [
 		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n",
