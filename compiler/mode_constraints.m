@@ -977,8 +977,8 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
 	*/
 	{ Usage = map__to_assoc_list(Usage0) }, % XXX needed for deep profiler
-	{ Constraint2 = ensure_normalised(Constraint1) },
-	% { Constraint2 = Constraint1 },
+	% { Constraint2 = ensure_normalised(Constraint1) },
+	{ Constraint2 = Constraint1 },
 	list__foldl2((pred((V - Ps)::in, Cn0::in, Cn::out, in, out) is det -->
 		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
 			get_var(V `at` P, CV)
