@@ -1,3 +1,0 @@
-This directory, mercury/tools, contains scripts that are not intended
-for use by users.  The scripts here are used by the Mercury developers
-for maintaining the Mercury compiler.
