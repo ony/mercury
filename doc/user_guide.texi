@@ -131,10 +131,12 @@ Files ending in @file{.int}, @file{.int2} and @file{.int3} are interface files;
 these are generated automatically by the compiler,
 using the @samp{--make-interface} (or @samp{--make-int})
 and @samp{--make-short-interface} (or @samp{--make-short-int}) options.
-Files ending in @file{.opt} are 
-interface files used in inter-module optimization,
-and are created using the @samp{--make-optimization-interface} 
-(or @samp{--make-opt-int}) option.
+Files ending in @file{.opt} are interface files used in inter-module
+optimization, and are created using the @samp{--make-optimization-interface}
+option (or @samp{--make-opt-int}) option.
+Files ending in @file{.trans_opt} are interface files used in 
+transitive inter-module otimization, and are created using the 
+@samp{--make-transitive-optimization-interface} option.
 
 Since the interface of a module changes less often than its implementation,
 the @file{.int}, @file{.int2}, @file{.int3}, and @file{.opt}
@@ -215,7 +217,15 @@ If you are going to compile with @samp{--intermodule-optimization} enabled,
 then you also need to create the optimization interface files.
 
 @example
+mc --make-optimization-interface @var{module1}.m @var{module2}.m ...
 mc --make-opt-int @var{module1}.m @var{module2}.m ...
+@end example
+
+If you are going to compile with @samp{--transitive-intermodule-optimization}
+enabled, then you also need to create the transitive optimization files.
+
+@example
+mc -make-transitive-optimization-interface @var{module1}.m @var{module2}.m ...
 @end example
 
 Given that you have made all the interface files,
@@ -594,7 +604,7 @@ or its imported modules.
 Removes all the automatically generated files.
 In addition to the files removed by @var{main-module}.clean, this
 removes the @samp{.date}, @samp{.int}, @samp{.int2}, @samp{.int3},
-@samp{.opt},
+@samp{.opt}, @samp{.optdate}, @samp{.date3}, 
 @samp{.d}, and @samp{.dep} belonging to one of the modules of the program,
 and also the various possible executables for the program ---
 @samp{@var{main-module}}, 
@@ -1045,7 +1055,7 @@ Output progress messages at each stage in the compilation.
 
 @sp 1
 @item -V
-@itemx --very_verbose
+@itemx --very-verbose
 Output very verbose progress messages.
 
 @sp 1
@@ -1119,6 +1129,15 @@ Write the unqualified version of the short interface to
 @itemx --make-optimization-interface
 Write information used for inter-module optimization to
 @file{@var{module}.opt}.
+
+@sp 1
+@item --make-transitive-optimization-interface
+@itemx --make-trans-opt
+Write the @file{@var{module}.trans_opt} file.  This file is used to store
+information about the module. The information is read in when the compiler 
+is invoked with the --transitive-otimization option. The file is transitive 
+as a @file{@var{module}.trans_opt} file may depend on other 
+@file{@var{module}.trans_opt} files.
 
 @sp 1
 @item -G
@@ -1237,6 +1256,7 @@ n - nonlocal variables of goals,
 p - pre-birth, post-birth, pre-death and post-death sets of goals,
 r - resume points of goals,
 s - store maps of goals,
+t - termination information,
 u - unification categories,
 v - variable numbers in variable names.
 The special argument value ``all''
@@ -1547,6 +1567,27 @@ and turn off optimizations that significantly increase code size.
 @item --intermodule-optimization
 Perform inlining and higher-order specialization of the code for
 predicates or functions imported from other modules.
+
+@sp 1
+@item --transitive-intermodule-optimization
+@item --trans-intermod-opt
+Use the information stored in other @file{@var{module}.trans_opt} files
+to make intermodule optimizations.  The @file{@var{module}.trans_opt} is
+different to the @file{@var{module}.opt} as @file{@var{module}.trans_opt}
+files may depend on other @file{@var{module}.trans_opt} files.
+@file{@var{module}.opt} files may only depend on the
+@file{@var{module}.m} file.  
+
+@sp 1
+@item --check-termination
+@item --check-term
+@item --chk-term
+Enable termination analysis.  Termination analysis analyses each mode of each
+predicate to see whether it terminates.  @samp{pragma terminates} and
+@samp{pragma check_termination} pragmas have no effect unless termination
+analysis is enabled.  When using termination,
+@samp{--transitive-intermodule-optimization} should be enabled, as it greatly
+improves the accuracy of the analysis.
 
 @sp 1
 @item --split-c-files
