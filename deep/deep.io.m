@@ -74,6 +74,7 @@ read_call_graph(FileName, Res) -->
 			array([]),
 			array([]),
 			array([]),
+			array([]),
 			array([])
 		) },
 		{ PI0 = ptr_info(0, 0, 0, 0) },

@@ -40,6 +40,7 @@ server(Globals, Deep) -->
 	;	root
 	;	clique(int)
 	;	procs(sort, int, int)
+	;	proc(int)
 	.
 
 :- type sort
@@ -120,6 +121,22 @@ exec(procs(Sort, First, Last), Globs, Deep) -->
 		"<TABLE>\n" ++
 		clique_table_header ++
 		procs2html(URL, Deep, Sort, First, Last) ++
+		"</TABLE>\n" ++
+		footer(Deep) },
+	tell("/var/tmp/fromDeep", _),
+	write(html(HTML)),
+	write_string(".\n"),
+	told,
+	server(Globs, Deep).
+
+exec(proc(PSI), Globs, Deep) -->
+	{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
+	{ HTML =
+		"<HTML>\n" ++
+		banner ++
+		"<TABLE>\n" ++
+		clique_table_header ++
+		proc_summary_to_html(URL, Deep, PSI) ++
 		"</TABLE>\n" ++
 		footer(Deep) },
 	tell("/var/tmp/fromDeep", _),
@@ -317,6 +334,35 @@ procs2html(URL, Deep, Sort, First, Last) = HTML :-
 	;	bold
 	.
 
+:- func proc_summary_to_html(string, deep, int) = string.
+
+proc_summary_to_html(URL, Deep, PSI) = HTML :-
+	lookup(Deep ^ proc_statics, PSI, PS),
+	PS = proc_static(_Id, CSSPtrsArray),
+	array__to_list(CSSPtrsArray, CSSPtrs),
+	map((pred(CSSPtr::in, CSSStr::out) is det :-
+		CSSPtr = call_site_static_ptr(CSSI),
+		( CSSI > 0 ->
+			lookup(Deep ^ proc_static_index, CSSI, PSPtr),
+			PSPtr = proc_static_ptr(CPSI),
+			( CPSI > 0 ->
+				lookup(Deep ^ proc_statics, CPSI, CPS),
+				CPS = proc_static(Name, _)
+			;
+				Name = "unknown"
+			),
+			lookup(Deep ^ css_own, CSSI, OwnPI),
+			lookup(Deep ^ css_desc, CSSI, DescPI),
+			CSSStr = css2html(URL, Deep, Name, OwnPI, DescPI)
+		;
+			CSSStr = ""
+		)
+	), CSSPtrs, CallSiteSummaryList),
+	string__append_list(CallSiteSummaryList, CallSiteSummaries),
+	HTML =
+		proc2html(bold, URL, Deep, PSI, _, _) ++
+		CallSiteSummaries.
+
 :- func proc2html(string, deep, int, int, int) = string.
 :- mode (proc2html(in, in, in, out, out) = out) is det.
 
@@ -355,6 +401,35 @@ proc2html(Boldness, _URL, Deep, PSI, OwnQuanta, Quanta) = HTML :-
 	HTML = "<TR>\n" ++
 	 "<TD> </TD>\n" ++
 	 format("<TD>%s%s%s</TD>\n", [s(BS),s(Id),s(BE)]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(OwnQuanta))]) ++
+	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
+	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
+	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
+		"</TR>\n".
+
+:- func css2html(string, deep, string,
+		own_prof_info, inherit_prof_info) = string.
+
+css2html(_URL, Deep, Id, PI, PSIDesc) = HTML :-
+	Calls = calls(PI), Exits = exits(PI),
+	Fails = fails(PI), Redos = redos(PI),
+	OwnQuanta = quanta(PI),
+	DescQuanta = inherit_quanta(PSIDesc),
+	Quanta = OwnQuanta + DescQuanta,
+	OwnQ = float(OwnQuanta),
+	Q = float(Quanta),
+	OwnProp = 100.0 * OwnQ / RQ,
+	Prop = 100.0 * Q / RQ,
+	RootInherit = root_inherit_info(Deep),
+	RootQuanta = inherit_quanta(RootInherit),
+	RQ = float(RootQuanta),
+	HTML = "<TR>\n" ++
+	 "<TD> </TD>\n" ++
+	 format("<TD>%s</TD>\n", [s(Id)]) ++
 	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
 	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
 	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++

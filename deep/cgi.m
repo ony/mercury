@@ -1,3 +1,9 @@
+%-----------------------------------------------------------------------------%
+% Copyright (C) 2001 The University of Melbourne.
+% This file may only be copied under the terms of the GNU General
+% Public License - see the file COPYING in the Mercury distribution.
+%-----------------------------------------------------------------------------%
+
 :- module cgi.
 
 :- interface.
@@ -16,6 +22,7 @@
 	;	root
 	;	clique(int)
 	;	procs(sort, int, int)
+	;	proc(int)
 	.
 
 :- type sort
@@ -36,6 +43,14 @@ main -->
 			{ string__to_int(NStr, N) }
 		->
 			to("/var/tmp/toDeep", clique(N)),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["proc", NStr] },
+			{ string__to_int(NStr, N) }
+		->
+			to("/var/tmp/toDeep", proc(N)),
 			from("/var/tmp/fromDeep", html(Str)),
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)

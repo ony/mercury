@@ -31,6 +31,7 @@
 			clique_parents		:: array(call_site_dynamic_ptr),
 				% Call site index
 			call_site_index		:: array(call_site_static_ptr),
+			proc_static_index	:: array(proc_static_ptr),
 				% Propagated timing info
 			pd_own			:: array(own_prof_info),
 			pd_desc			:: array(inherit_prof_info),
@@ -339,6 +340,18 @@ merge_cliques(Deep0, Deep) -->
 	{ lookup(CliqueIndex, RootPDI, clique(RootCliqueN)) },
 	{ set(CliqueParents1, RootCliqueN, Deep0^root, CliqueParents) },
 
+	{ array__max(Deep0^call_site_dynamics, CSDMax) },
+	{ NCSDs = CSDMax + 1 },
+	{ init(NCSDs, call_site_static_ptr(-1), CallSiteIndex0) },
+	{ foldl(construct_call_site_index(Deep0), Deep0^proc_dynamics,
+		CallSiteIndex0, CallSiteIndex) },
+
+	{ array__max(Deep0 ^ call_site_statics, CSSMax) },
+	{ NCSSs = CSSMax + 1 },
+	{ init(NCSSs, proc_static_ptr(-1), ProcStaticIndex0) },
+	{ foldl(construct_proc_static_index(Deep0), Deep0^proc_dynamics,
+		ProcStaticIndex0, ProcStaticIndex) },
+
 	format(StdErr, "  Done.\n", []),
 	io__report_stats,
 
@@ -365,30 +378,23 @@ merge_cliques(Deep0, Deep) -->
 		)
 	), Deep0^call_site_dynamics, PDOwn0, PDOwn) },
 	
-	{ array__max(Deep0^call_site_dynamics, CSDMax) },
-	{ NCSDs = CSDMax + 1 },
 	{ init(NPDs, zero_inherit_prof_info, PDDesc0) },
 	{ init(NCSDs, zero_inherit_prof_info, CSDDesc0) },
-	{ init(NCSDs, call_site_static_ptr(-1), CallSiteIndex0) },
-
-	{ foldl(construct_call_site_index(Deep0), Deep0^proc_dynamics,
-		CallSiteIndex0, CallSiteIndex) },
 
 	{ array__max(Deep0^proc_statics, PSMax) },
 	{ NPSs = PSMax + 1 },
 	{ init(NPSs, zero_own_prof_info, PSOwn0) },
 	{ init(NPSs, zero_inherit_prof_info, PSDesc0) },
 
-	{ array__max(Deep0 ^ call_site_statics, CSSMax) },
-	{ NCSSs = CSSMax + 1 },
 	{ init(NCSSs, zero_own_prof_info, CSSOwn0) },
 	{ init(NCSSs, zero_inherit_prof_info, CSSDesc0) },
 
-	{ Deep1 = (((((((((((Deep0
+	{ Deep1 = ((((((((((((Deep0
 		^ clique_index := CliqueIndex)
 		^ clique_members := Cliques)
 		^ clique_parents := CliqueParents)
 		^ call_site_index := CallSiteIndex)
+		^ proc_static_index := ProcStaticIndex)
 		^ pd_own := PDOwn)
 		^ pd_desc := PDDesc0)
 		^ csd_desc := CSDDesc0)
@@ -454,6 +460,77 @@ construct_call_site_index2(N, Refs, CSSPtrs, CallSiteIndex0, CallSiteIndex) :-
 			CallSiteIndex1, CallSiteIndex)
 	;
 		CallSiteIndex = CallSiteIndex0
+	).
+
+:- pred construct_proc_static_index(deep::in, int::in, proc_dynamic::in,
+		array(proc_static_ptr)::array_di,
+		array(proc_static_ptr)::array_uo) is det.
+
+construct_proc_static_index(Deep, _PDI, PD,
+		ProcStaticIndex0, ProcStaticIndex) :-
+	PD = proc_dynamic(PSPtr, Refs),
+	array__max(Refs, MaxCS),
+	PSPtr = proc_static_ptr(PSI),
+	lookup(Deep^proc_statics, PSI, PS),
+	PS = proc_static(_Id, CSSPtrs),
+	construct_proc_static_index2(MaxCS, Deep, Refs, CSSPtrs,
+		ProcStaticIndex0, ProcStaticIndex).
+
+:- pred construct_proc_static_index2(int::in,
+		deep::in,
+		array(call_site_ref)::in, array(call_site_static_ptr)::in,
+		array(proc_static_ptr)::array_di,
+		array(proc_static_ptr)::array_uo) is det.
+
+construct_proc_static_index2(N, Deep, Refs, CSSPtrs,
+		ProcStaticIndex0, ProcStaticIndex) :-
+	( N >= 0 ->
+		lookup(Refs, N, Ref),
+		lookup(CSSPtrs, N, CSSPtr),
+		CSSPtr = call_site_static_ptr(CSSI),
+		(
+			Ref = normal(CSDPtr),
+			CSDPtr = call_site_dynamic_ptr(CSDI),
+			( CSDI > 0 ->
+				lookup(Deep^call_site_dynamics, CSDI, CSD),
+				CSD = call_site_dynamic(PDPtr, _),
+				PDPtr = proc_dynamic_ptr(PDI),
+				( PDI > 0 ->
+					lookup(Deep^proc_dynamics, PDI, PD),
+					PD = proc_dynamic(PSPtr, _),
+					set(ProcStaticIndex0, CSSI, PSPtr,
+						ProcStaticIndex1)
+				;
+					ProcStaticIndex1 = ProcStaticIndex0
+				)
+			;
+				ProcStaticIndex1 = ProcStaticIndex0
+			)
+		;
+			Ref = multi(CSDPtrs),
+			foldl0((pred(_::in, CSDPtr::in,
+				PIdx0::array_di, PIdx1::array_uo) is det :-
+			CSDPtr = call_site_dynamic_ptr(CSDI),
+			( CSDI > 0 ->
+				lookup(Deep^call_site_dynamics, CSDI, CSD),
+				CSD = call_site_dynamic(PDPtr, _),
+				PDPtr = proc_dynamic_ptr(PDI),
+				( PDI > 0 ->
+					lookup(Deep^proc_dynamics, PDI, PD),
+					PD = proc_dynamic(PSPtr, _),
+					set(PIdx0, CSSI, PSPtr, PIdx1)
+				;
+					PIdx1 = PIdx0
+				)
+			;
+				PIdx1 = PIdx0
+				)
+			), CSDPtrs, ProcStaticIndex0, ProcStaticIndex1)
+		),
+		construct_proc_static_index2(N - 1, Deep, Refs, CSSPtrs,
+			ProcStaticIndex1, ProcStaticIndex)
+	;
+		ProcStaticIndex = ProcStaticIndex0
 	).
 
 :- pred summarize_proc_dynamic(int::in, proc_dynamic::in, deep::in, deep::out)
