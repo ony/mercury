@@ -91,9 +91,9 @@ mode_constraints__process_scc(SCC, {ModuleInfo0, PredConstraintMap0},
 	{ PredConstraintMap = list__foldl((func(PredId, PCM) =
 		    map__det_insert(PCM, PredId,
 			{ModeConstraint, ModeConstraintInfo^pred_id := PredId})
-		), SCC, PredConstraintMap0) },
+		), SCC, PredConstraintMap0) }.
 		
-	clear_caches.
+	%clear_caches.
 
 :- type number_robdd_info
 	--->	number_robdd_info(
@@ -978,6 +978,7 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	*/
 	{ Usage = map__to_assoc_list(Usage0) }, % XXX needed for deep profiler
 	{ Constraint2 = ensure_normalised(Constraint1) },
+	% { Constraint2 = Constraint1 },
 	list__foldl2((pred((V - Ps)::in, Cn0::in, Cn::out, in, out) is det -->
 		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
 			get_var(V `at` P, CV)

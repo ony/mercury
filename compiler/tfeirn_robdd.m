@@ -121,7 +121,8 @@
 		(vars_entailed_result(T)::out) is det.
 
 	% Existentially quantify away the var in the xROBDD.
-:- func restrict(var(T)::in, tfeirn(T)::ni_tfeirn) = (tfeirn(T)::out) is det.
+:- func restrict(var(T)::in, tfeirn(T)::ni_tfeirn) =
+		(tfeirn(T)::no_tfeirn) is det.
 
 	% Existentially quantify away all vars greater than the specified var.
 :- func restrict_threshold(var(T), tfeirn(T)) = tfeirn(T).
@@ -460,12 +461,22 @@ disj_vars_eq(Vars, Var, X) =
 		( empty(Vars1) ->
 			X ^ eq_vars(Var, Var1)
 		;
-			X `x` (disj_vars(Vars) =:= var(Var))
+			(X ^ imp_vars_set(Vars, Var)) `x`
+				(var(Var) =< disj_vars(Vars))
 		)
 	;
 		X ^ not_var(Var)
 	) :-
 	X = xrobdd(T, F, _E, _I, _R, _N).
+
+	% imp_vars_set({V1, ..., Vn}, V) <===> (V1 =< V) * ... * (Vn % =< V)
+:- func imp_vars_set(vars(T)::in, var(T)::in, tfeirn(T)::di_tfeirn) =
+		(tfeirn(T)::uo_tfeirn) is det.
+:- pragma type_spec(imp_vars_set/3, T = mc_type).
+
+imp_vars_set(Vars, Var, xrobdd(T, F, E, I0, R, _)) =
+		xrobdd(T, F, E, I, R, no) :-
+	I = I0 ^ foldl(func(VarA, I1) = I1 ^ imp_vars(VarA, Var), Vars).
 
 var_restrict_true(V, xrobdd(T, F, E, I, R, N)) = X :-
 	( F `contains` V ->
@@ -687,11 +698,18 @@ extract_equivalent_vars_from_robdd(Changed, Robdd0, Robdd, EQVars0, EQVars) :-
 :- func x(tfeirn(T)::di_tfeirn, robdd(T)::in) = (tfeirn(T)::uo_tfeirn) is det.
 :- pragma type_spec(x/2, T = mc_type).
 
+%/*
 x(xrobdd(TA, FA, EA, IA, RA, _), RB) =
 		xrobdd(TA `union` T1, FA `union` F1, EA * E1, IA * I1,
 			RA * R1, no) :-
 	xrobdd(T1, F1, E1, I1, R1, _) =
 		normalise(xrobdd(TA, FA, EA, IA, RB, no)).
+%*/
+
+/*
+x(xrobdd(TA, FA, EA, IA, RA, _), RB) =
+		xrobdd(TA, FA, EA, IA, RA * RB, no).
+*/
 
 %---------------------------------------------------------------------------%
 
