@@ -708,6 +708,14 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 	% 2. once found, we can immediately handle the case where
 	% the tabled reuse would say that reuse is not possible anyway:
 	(
+		% unconditional reuse
+		FormalMemo = yes([])
+	->
+		indirect_reuse_pool_add_unconditional( Pool0, Pool ), 
+		Info = Info0, 
+		YesNo = yes
+	;
+		% no reuse possible anyway
 		( 
 			memo_reuse_top(FormalMemo) ; 
 			pa_alias_as__is_top(Alias0)
@@ -716,13 +724,6 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		Pool = Pool0,
 		Info = Info0, 
 		YesNo = no
-	;
-		% unconditional reuse
-		FormalMemo = yes([])
-	->
-		indirect_reuse_pool_add_unconditional( Pool0, Pool ), 
-		Info = Info0, 
-		YesNo = yes
 	;
 		memo_reuse_rename( ProcInfo0, ActualVars, FormalMemo, 
 					Memo ), 

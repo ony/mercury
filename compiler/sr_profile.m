@@ -208,7 +208,13 @@ write_profiling( String, Prof, HLDS ) -->
 					pred_info_import_status(PredInfo,
 							ImportStatus),
 					status_defined_in_this_module(
-							ImportStatus, yes)
+							ImportStatus, yes),
+					module_info_get_special_pred_map(
+							HLDS, SpecialPredMap),
+					map__values(SpecialPredMap,
+							SpecialPredIds),
+					\+ list__member( PredId, 
+							SpecialPredIds)
 				;
 					\+ set__singleton_set(ComponentSet, _)
 				),
@@ -285,9 +291,7 @@ write_procedure_node(HLDS, Stream, PredProcId) -->
 				",peripheries=", Periferies, "];\n"], 
 				Options ) }, 
 
-	io__write_char('"'),
-	hlds_out__write_pred_proc_id(HLDS, PredId, ProcId),
-	io__write_char('"'),
+	write_node_name(HLDS, PredId, ProcId), 
 
 	io__write_string(Options), 
 
@@ -302,17 +306,28 @@ write_procedure_link(HLDS, Stream, Parent, Child) -->
 	{ Parent = proc(ParentPredId, ParentProcId) },
 	{ Child = proc(ChildPredId, ChildProcId) },
 
-	io__write_char('"'),
-	hlds_out__write_pred_proc_id(HLDS, ParentPredId, ParentProcId),
-	io__write_string("\" -> "),
+	write_node_name( HLDS, ParentPredId, ParentProcId), 
+	io__write_string(" -> "),
 
-	io__write_char('"'),
-	hlds_out__write_pred_proc_id(HLDS, ChildPredId, ChildProcId),
-	io__write_string("\";\n"),
+	write_node_name( HLDS, ChildPredId, ChildProcId), 
+	io__write_string(";\n"),
 
 	io__set_output_stream(OldStream, _).
 	
 
+:- pred write_node_name( module_info::in, pred_id::in, proc_id::in, 
+			io__state::di, io__state::uo) is det.
+write_node_name( HLDS, PredId, ProcId ) --> 
+	{ pred_id_to_int( PredId, PredIdInt ) }, 
+	{ proc_id_to_int( ProcId, ProcIdInt ) }, 
+	io__write_char('"'), 
+	hlds_out__write_pred_proc_id( HLDS, PredId, ProcId), 
+	io__write_string("\\n"), 
+	io__write_int(PredIdInt), 
+	io__write_char('/'), 
+	io__write_int(ProcIdInt), 
+	io__write_char('"'). 
+	
 :- pred write_prof_item( io__output_stream, pred(profiling_info, int), 
 			profiling_info, 
 			string, io__state, io__state).
