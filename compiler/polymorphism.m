@@ -189,7 +189,7 @@
 :- module polymorphism.
 :- interface.
 
-:- import_module hlds_goal, hlds_module, hlds_pred, hlds_data.
+:- import_module hlds_goal, hlds_module, hlds_pred.
 :- import_module prog_data, special_pred.
 
 :- import_module io, list, term, map.
@@ -307,20 +307,20 @@
 :- mode polymorphism__get_special_proc(in, in, in, out, out, out) is semidet.
 
 	% convert a higher-order pred term to a lambda goal
-:- pred convert_pred_to_lambda_goal(pred_or_func, lambda_eval_method,
-		prog_var, cons_id, sym_name, list(prog_var), list(type),
-		tvarset, unification, unify_context, hlds_goal_info, context,
+:- pred convert_pred_to_lambda_goal(lambda_eval_method,
+		prog_var, pred_id, proc_id, list(prog_var), list(type),
+		unify_context, hlds_goal_info, context,
 		module_info, prog_varset, map(prog_var, type),
 		unify_rhs, prog_varset, map(prog_var, type)).
-:- mode convert_pred_to_lambda_goal(in, in, in, in, in, in, in, in, 
-		in, in, in, in, in, in, in, out, out, out) is det.
+:- mode convert_pred_to_lambda_goal(in, in, in, in, in, in, in, 
+		in, in, in, in, in, out, out, out) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module typecheck, llds, prog_io.
+:- import_module hlds_data, typecheck, llds, prog_io.
 :- import_module type_util, mode_util, quantification, instmap, prog_out.
 :- import_module code_util, unify_proc, prog_util.
 :- import_module (inst), hlds_out, base_typeclass_info, goal_util, passes_aux.
@@ -1092,7 +1092,8 @@ polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
 	;
 		{ list__length(ExtraVars, NumExtraVars) },
 		{ polymorphism__process_c_code(PredInfo, NumExtraVars,
-			OrigArgTypes0, OrigArgTypes, ArgInfo0, ArgInfo) },
+			PragmaCode0, OrigArgTypes0, OrigArgTypes, 
+			ArgInfo0, ArgInfo) },
 
 		%
 		% Add the type info arguments to the list of variables
@@ -1323,19 +1324,18 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 	%
 
 		% check if variable has a higher-order type
-		type_is_higher_order(TypeOfX, PredOrFunc,
+		type_is_higher_order(TypeOfX, _,
 			EvalMethod, PredArgTypes),
-		ConsId0 = cons(PName, _)
+		ConsId0 = pred_const(PredId, ProcId, _)
 	->
 		%
 		% convert the higher-order pred term to a lambda goal
 		%
 		poly_info_get_varset(PolyInfo0, VarSet0),
-		poly_info_get_typevarset(PolyInfo0, TVarSet),
 		goal_info_get_context(GoalInfo0, Context),
-		convert_pred_to_lambda_goal(PredOrFunc, EvalMethod,
-			X0, ConsId0, PName, ArgVars0, PredArgTypes, TVarSet,
-			Unification0, UnifyContext, GoalInfo0, Context,
+		convert_pred_to_lambda_goal(EvalMethod,
+			X0, PredId, ProcId, ArgVars0, PredArgTypes,
+			UnifyContext, GoalInfo0, Context,
 			ModuleInfo0, VarSet0, VarTypes0,
 			Functor0, VarSet, VarTypes),
 		poly_info_set_varset_and_types(VarSet, VarTypes,
@@ -1402,9 +1402,8 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		PolyInfo = PolyInfo0
 	).
 
-convert_pred_to_lambda_goal(PredOrFunc, EvalMethod, X0, ConsId0, PName,
-		ArgVars0, PredArgTypes, TVarSet,
-		Unification0, UnifyContext, GoalInfo0, Context,
+convert_pred_to_lambda_goal(EvalMethod, X0, PredId, ProcId,
+		ArgVars0, PredArgTypes, UnifyContext, GoalInfo0, Context,
 		ModuleInfo0, VarSet0, VarTypes0,
 		Functor, VarSet, VarTypes) :-
 	%
@@ -1418,32 +1417,17 @@ convert_pred_to_lambda_goal(PredOrFunc, EvalMethod, X0, ConsId0, PName,
 	% Build up the hlds_goal_expr for the call that will form
 	% the lambda goal
 	%
-	map__apply_to_list(Args, VarTypes, ArgTypes),
-	(
-		% If we are redoing mode analysis, use the
-		% pred_id and proc_id found before, to avoid aborting
-		% in get_pred_id_and_proc_id if there are multiple
-		% matching procedures.
-		Unification0 = construct(_, 
-			pred_const(PredId0, ProcId0, _),
-			_, _, _, _, _)
-	->
-		PredId = PredId0,
-		ProcId = ProcId0
-	;
-		get_pred_id_and_proc_id(PName, PredOrFunc, TVarSet, 
-			ArgTypes, ModuleInfo0, PredId, ProcId)
-	),
 	module_info_pred_proc_info(ModuleInfo0, PredId, ProcId,
 				PredInfo, ProcInfo),
 
-	% module-qualify the pred name (is this necessary?)
 	pred_info_module(PredInfo, PredModule),
-	unqualify_name(PName, UnqualPName),
-	QualifiedPName = qualified(PredModule, UnqualPName),
+	pred_info_name(PredInfo, PredName),
+	QualifiedPName = qualified(PredModule, PredName),
 
 	CallUnifyContext = call_unify_context(X0,
-			functor(ConsId0, ArgVars0), UnifyContext),
+			functor(cons(QualifiedPName, list__length(ArgVars0)),
+				ArgVars0),
+			UnifyContext),
 	LambdaGoalExpr = call(PredId, ProcId, Args, not_builtin,
 			yes(CallUnifyContext), QualifiedPName),
 
@@ -1484,6 +1468,7 @@ convert_pred_to_lambda_goal(PredOrFunc, EvalMethod, X0, ConsId0, PName,
 	%
 	% construct the lambda expression
 	%
+	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
 	Functor = lambda_goal(PredOrFunc, EvalMethod, modes_are_ok,
 		ArgVars0, LambdaVars, LambdaModes, LambdaDet, LambdaGoal).
 
@@ -1608,11 +1593,12 @@ polymorphism__process_existq_unify_functor(CtorDefn, IsConstruction,
 
 %-----------------------------------------------------------------------------%
 
-:- pred polymorphism__process_c_code(pred_info, int, list(type), list(type),
+:- pred polymorphism__process_c_code(pred_info, int, pragma_foreign_code_impl,
+	list(type), list(type),
 	list(maybe(pair(string, mode))), list(maybe(pair(string, mode)))).
-:- mode polymorphism__process_c_code(in, in, in, out, in, out) is det.
+:- mode polymorphism__process_c_code(in, in, in, in, out, in, out) is det.
 
-polymorphism__process_c_code(PredInfo, NumExtraVars, OrigArgTypes0,
+polymorphism__process_c_code(PredInfo, NumExtraVars, Impl, OrigArgTypes0,
 		OrigArgTypes, ArgInfo0, ArgInfo) :-
 	pred_info_arg_types(PredInfo, PredTypeVarSet, ExistQVars,
 			PredArgTypes),
@@ -1648,10 +1634,11 @@ polymorphism__process_c_code(PredInfo, NumExtraVars, OrigArgTypes0,
 		"list length mismatch in polymorphism processing pragma_c"),
 
 	polymorphism__c_code_add_typeinfos(
-			PredTypeVars, PredTypeVarSet, ExistQVars, 
+			PredTypeVars, PredTypeVarSet, ExistQVars, Impl,
 			ArgInfo0, ArgInfo1),
 	polymorphism__c_code_add_typeclass_infos(
-			UnivCs, ExistCs, PredTypeVarSet, ArgInfo1, ArgInfo),
+			UnivCs, ExistCs, PredTypeVarSet, Impl,
+			ArgInfo1, ArgInfo),
 
 	%
 	% insert type_info/typeclass_info types for all the inserted 
@@ -1668,29 +1655,33 @@ polymorphism__process_c_code(PredInfo, NumExtraVars, OrigArgTypes0,
 
 :- pred polymorphism__c_code_add_typeclass_infos(
 		list(class_constraint), list(class_constraint), 
-		tvarset, list(maybe(pair(string, mode))),
+		tvarset, pragma_foreign_code_impl,
+		list(maybe(pair(string, mode))),
 		list(maybe(pair(string, mode)))). 
-:- mode polymorphism__c_code_add_typeclass_infos(in, in, in, in, out) is det.
+:- mode polymorphism__c_code_add_typeclass_infos(in, in, in, in, 
+		in, out) is det.
 
 polymorphism__c_code_add_typeclass_infos(UnivCs, ExistCs, 
-		PredTypeVarSet, ArgInfo0, ArgInfo) :-
+		PredTypeVarSet, Impl, ArgInfo0, ArgInfo) :-
 	in_mode(In),
 	out_mode(Out),
 	polymorphism__c_code_add_typeclass_infos_2(ExistCs, Out, 
-		PredTypeVarSet, ArgInfo0, ArgInfo1),
+		PredTypeVarSet, Impl, ArgInfo0, ArgInfo1),
 	polymorphism__c_code_add_typeclass_infos_2(UnivCs, In, 
-		PredTypeVarSet, ArgInfo1, ArgInfo).
+		PredTypeVarSet, Impl, ArgInfo1, ArgInfo).
 
 :- pred polymorphism__c_code_add_typeclass_infos_2(
 		list(class_constraint), mode,
-		tvarset, list(maybe(pair(string, mode))),
+		tvarset, pragma_foreign_code_impl,
+		list(maybe(pair(string, mode))),
 		list(maybe(pair(string, mode)))). 
-:- mode polymorphism__c_code_add_typeclass_infos_2(in, in, in, in, out) is det.  
-polymorphism__c_code_add_typeclass_infos_2([], _, _, ArgNames, ArgNames).
-polymorphism__c_code_add_typeclass_infos_2([C|Cs], Mode, TypeVarSet, 
+:- mode polymorphism__c_code_add_typeclass_infos_2(in, in, in, in, 
+	in, out) is det.  
+polymorphism__c_code_add_typeclass_infos_2([], _, _, _, ArgNames, ArgNames).
+polymorphism__c_code_add_typeclass_infos_2([C|Cs], Mode, TypeVarSet, Impl,
 		ArgNames0, ArgNames) :-
 	polymorphism__c_code_add_typeclass_infos_2(Cs, Mode, TypeVarSet, 
-		ArgNames0, ArgNames1),
+		Impl, ArgNames0, ArgNames1),
 	C = constraint(Name0, Types),
 	prog_out__sym_name_to_string(Name0, "__", Name),
 	term__vars_list(Types, TypeVars),
@@ -1703,39 +1694,79 @@ polymorphism__c_code_add_typeclass_infos_2([C|Cs], Mode, TypeVarSet,
 	list__map(GetName, TypeVars, TypeVarNames),
 	string__append_list(["TypeClassInfo_for_", Name|TypeVarNames],
 		C_VarName),
-	ArgNames = [yes(C_VarName - Mode) | ArgNames1].
+	(
+		% If the variable name corresponding to the
+		% typeclass-info isn't mentioned in the C code
+		% fragment, don't pass the variable to the
+		% C code at all.
+
+		foreign_code_does_not_use_variable(Impl, C_VarName)
+	->
+		ArgNames = [no | ArgNames1]
+	;
+		ArgNames = [yes(C_VarName - Mode) | ArgNames1]
+	).
 
 :- pred polymorphism__c_code_add_typeinfos(list(tvar),
-		tvarset, existq_tvars, list(maybe(pair(string, mode))),
+		tvarset, existq_tvars, pragma_foreign_code_impl,
+		list(maybe(pair(string, mode))),
 		list(maybe(pair(string, mode)))). 
-:- mode polymorphism__c_code_add_typeinfos(in, in, in, in, out) is det.
+:- mode polymorphism__c_code_add_typeinfos(in, in, in, in, in, out) is det.
 
 polymorphism__c_code_add_typeinfos(TVars, TypeVarSet,
-		ExistQVars, ArgNames0, ArgNames) :-
+		ExistQVars, Impl, ArgNames0, ArgNames) :-
 	list__filter(lambda([X::in] is semidet, (list__member(X, ExistQVars))),
 		TVars, ExistUnconstrainedVars, UnivUnconstrainedVars),
 	in_mode(In),
 	out_mode(Out),
 	polymorphism__c_code_add_typeinfos_2(ExistUnconstrainedVars, TypeVarSet,
-		Out, ArgNames0, ArgNames1),
+		Out, Impl, ArgNames0, ArgNames1),
 	polymorphism__c_code_add_typeinfos_2(UnivUnconstrainedVars, TypeVarSet,
-		In, ArgNames1, ArgNames).
+		In, Impl, ArgNames1, ArgNames).
 
 :- pred polymorphism__c_code_add_typeinfos_2(list(tvar),
-		tvarset, mode, list(maybe(pair(string, mode))),
+		tvarset, mode, pragma_foreign_code_impl,
+		list(maybe(pair(string, mode))),
 		list(maybe(pair(string, mode)))). 
-:- mode polymorphism__c_code_add_typeinfos_2(in, in, in, in, out) is det.
+:- mode polymorphism__c_code_add_typeinfos_2(in, in, in, in, in, out) is det.
 
-polymorphism__c_code_add_typeinfos_2([], _, _, ArgNames, ArgNames).
-polymorphism__c_code_add_typeinfos_2([TVar|TVars], TypeVarSet, Mode,
+polymorphism__c_code_add_typeinfos_2([], _, _, _, ArgNames, ArgNames).
+polymorphism__c_code_add_typeinfos_2([TVar|TVars], TypeVarSet, Mode, Impl,
 		ArgNames0, ArgNames) :-
 	polymorphism__c_code_add_typeinfos_2(TVars, TypeVarSet,
-		Mode, ArgNames0, ArgNames1),
+		Mode, Impl, ArgNames0, ArgNames1),
 	( varset__search_name(TypeVarSet, TVar, TypeVarName) ->
 		string__append("TypeInfo_for_", TypeVarName, C_VarName),
-		ArgNames = [yes(C_VarName - Mode) | ArgNames1]
+		(
+			% If the variable name corresponding to the
+			% type-info isn't mentioned in the C code
+			% fragment, don't pass the variable to the
+			% C code at all.
+
+			foreign_code_does_not_use_variable(Impl, C_VarName)
+		->
+			ArgNames = [no | ArgNames1]
+		;
+			ArgNames = [yes(C_VarName - Mode) | ArgNames1]
+		)
 	;
 		ArgNames = [no | ArgNames1]
+	).
+
+:- pred foreign_code_does_not_use_variable(pragma_foreign_code_impl, string).
+:- mode foreign_code_does_not_use_variable(in, in) is semidet.
+
+foreign_code_does_not_use_variable(Impl, VarName) :-
+	(
+		Impl = ordinary(ForeignBody, _),
+		\+ string__sub_string_search(ForeignBody,
+			VarName, _)
+	;
+		Impl = nondet(FB1,_,FB2,_,FB3,_,_,FB4,_),
+		\+ string__sub_string_search(FB1, VarName, _),
+		\+ string__sub_string_search(FB2, VarName, _),
+		\+ string__sub_string_search(FB3, VarName, _),
+		\+ string__sub_string_search(FB4, VarName, _)
 	).
 
 :- pred polymorphism__process_goal_list(list(hlds_goal), list(hlds_goal),

@@ -17,7 +17,7 @@
 
 :- import_module prog_data.
 :- import_module hlds_module, hlds_pred.
-:- import_module rtti, code_model.
+:- import_module builtin_ops, rtti, code_model.
 :- import_module mlds.
 :- import_module globals.
 
@@ -116,6 +116,15 @@
 	%
 :- pred ml_gen_type(prog_type, mlds__type, ml_gen_info, ml_gen_info).
 :- mode ml_gen_type(in, out, in, out) is det.
+
+	% Convert the element type for an array_index operator
+	% to an MLDS type.
+	%
+:- func ml_gen_array_elem_type(builtin_ops__array_elem_type) = mlds__type.
+
+	% Return the MLDS type corresponding to a Mercury string type.
+	%
+:- func ml_string_type = mlds__type.
 
 %-----------------------------------------------------------------------------%
 %
@@ -926,7 +935,7 @@ ml_gen_label_func(FuncLabel, FuncParams, Context, Statement, Func) -->
 ml_gen_label_func_decl_flags = MLDS_DeclFlags :-
 	Access = private,  % XXX if we're using nested functions,
 			   % this should be `local' rather than `private'
-	PerInstance = per_instance,
+	PerInstance = one_copy,
 	Virtuality = non_virtual,
 	Finality = overridable,
 	Constness = modifiable,
@@ -943,6 +952,12 @@ ml_gen_type(Type, MLDS_Type) -->
 	=(Info),
 	{ ml_gen_info_get_module_info(Info, ModuleInfo) },
 	{ MLDS_Type = mercury_type_to_mlds_type(ModuleInfo, Type) }.
+
+ml_gen_array_elem_type(elem_type_string) = ml_string_type.
+ml_gen_array_elem_type(elem_type_int) = mlds__native_int_type.
+ml_gen_array_elem_type(elem_type_generic) = mlds__generic_type.
+
+ml_string_type = mercury_type(string_type, str_type, "MR_String").
 
 %-----------------------------------------------------------------------------%
 %

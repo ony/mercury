@@ -577,6 +577,14 @@
 :- pred touch_interface_datestamp(module_name, string, io__state, io__state).
 :- mode touch_interface_datestamp(in, in, di, uo) is det.
 
+	% touch_datestamp(FileName).
+	%
+	% Update the modification time for the given file,
+	% clobbering the contents of the file.
+	
+:- pred touch_datestamp(file_name, io__state, io__state).
+:- mode touch_datestamp(in, di, uo) is det.
+
 	% update_interface(FileName)
 	%
 	% Call the shell script mercury_update_interface to update the
@@ -1302,7 +1310,9 @@ update_interface(OutputFileName) -->
 
 touch_interface_datestamp(ModuleName, Ext) -->
 	module_name_to_file_name(ModuleName, Ext, yes, OutputFileName),
+	touch_datestamp(OutputFileName).
 
+touch_datestamp(OutputFileName) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	maybe_write_string(Verbose, "% Touching `"),
 	maybe_write_string(Verbose, OutputFileName),
@@ -1854,12 +1864,17 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		},
 		module_name_to_file_name(ModuleName, ".optdate", no,
 					OptDateFileName),
-		module_name_to_file_name(ModuleName, ".c", no, CFileName),
-		module_name_to_file_name(ModuleName, ".s", no, AsmFileName),
-		module_name_to_file_name(ModuleName, ".pic_s", no, PicAsmFileName),
+		module_name_to_file_name(ModuleName, ".c_date", no,
+			CDateFileName),
+		module_name_to_file_name(ModuleName, ".s_date", no,
+			AsmDateFileName),
+		module_name_to_file_name(ModuleName, ".pic_s_date", no,
+			PicAsmDateFileName),
 		module_name_to_file_name(ModuleName, ".$O", no, ObjFileName),
 		module_name_to_file_name(ModuleName, ".rlo", no, RLOFileName),
 		module_name_to_file_name(ModuleName, ".il", no, ILFileName),
+		module_name_to_file_name(ModuleName, ".il_date", no,
+			ILDateFileName),
 		module_name_to_file_name(ModuleName, ".pic_o", no,
 							PicObjFileName),
 		module_name_to_split_c_file_pattern(ModuleName, ".$O",
@@ -1867,9 +1882,9 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__write_strings(DepStream, ["\n\n",
 			OptDateFileName, " ",
 			TransOptDateFileName, " ",
-			CFileName, " ",
-			AsmFileName, " ",
-			PicAsmFileName, " ",
+			CDateFileName, " ",
+			AsmDateFileName, " ",
+			PicAsmDateFileName, " ",
 			ErrFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
@@ -1901,7 +1916,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		( { Intermod = yes; UseOptFiles = yes } ->
 			io__write_strings(DepStream, [
 				"\n\n", 
-				CFileName, " ",
+				CDateFileName, " ",
 				TransOptDateFileName, " ",
 				ErrFileName, " ", 
 				SplitObjPattern, " :"
@@ -1930,7 +1945,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					".opt", DepStream),
 				io__write_strings(DepStream, [
 					"\n\n", 
-					CFileName, " ",
+					CDateFileName, " ",
 					ErrFileName, " ", 
 					SplitObjPattern, " :"
 				]),
@@ -1976,7 +1991,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 							HeaderFileName),
 			io__write_strings(DepStream, [
 					"\n\n", HeaderFileName, 
-					" : ", CFileName
+					" : ", CDateFileName
 			])
 		;
 			[]
@@ -2082,15 +2097,15 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				TransOptDateFileName, " : ", SourceFileName,
 					"\n",
 				"\t$(MCTOI) $(ALL_MCTOIFLAGS) $<\n",
-				CFileName, " : ", SourceFileName, "\n",
+				CDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"$< > ", ErrFileName, " 2>&1\n",
 				"ifeq ($(TARGET_ASM),yes)\n",
-				AsmFileName, " : ", SourceFileName, "\n",
+				AsmDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--target-code-only $< > ", ErrFileName,
 					" 2>&1\n",
-				PicAsmFileName, " : ", SourceFileName, "\n",
+				PicAsmDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--target-code-only --pic ",
 					"\\\n",
@@ -2098,7 +2113,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					"$< > ", ErrFileName,
 					" 2>&1\n",
 				"endif # TARGET_ASM\n",
-				ILFileName, " : ", SourceFileName, "\n",
+				ILDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--il-only $< > ", ErrFileName,
 					" 2>&1\n",
@@ -2863,24 +2878,120 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".os = "),
-	% for --target asm, we only generate separate object files
-	% for top-level modules and separate sub-modules, not for
-	% nested sub-modules.
+	io__write_string(DepStream, ".all_ss = "),
+	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".s",
+		Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_pic_ss = "),
+	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".pic_s",
+		Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_s_dates = "),
+	write_compact_dependencies_list(Modules, "$(s_dates_subdir)",
+					".s_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_pic_s_dates = "),
+	write_compact_dependencies_list(Modules, "$(pic_s_dates_subdir)",
+					".pic_s_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_os = "),
+	write_compact_dependencies_list(Modules, "$(os_subdir)", ".$O",
+		Basis, DepStream),
+	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_pic_os = "),
+	write_compact_dependencies_list(Modules, "$(os_subdir)",
+		".$(EXT_FOR_PIC_OBJECTS)", Basis, DepStream),
+	write_extra_link_dependencies_list(ExtraLinkObjs,
+		".$(EXT_FOR_PIC_OBJECTS)", DepStream),
+	io__write_string(DepStream, "\n"),
+
 	{ IsNested = (pred(Mod::in) is semidet :-
 		get_submodule_kind(Mod, DepsMap) = nested_submodule) },
 	(
+		% For --target asm, we only generate separate object files
+		% for top-level modules and separate sub-modules, not for
+		% nested sub-modules.
 		{ Target = asm },
-		{ list__filter(IsNested, Modules, NestedModules, MainModules) },
+		{ list__filter(IsNested, Modules,
+			NestedModules, MainModules) },
 		{ NestedModules \= [] }
 	->
-		write_dependencies_list(MainModules, ".$O", DepStream)
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".ss = "),
+		write_dependencies_list(MainModules, ".s", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_ss = "),
+		write_dependencies_list(MainModules, ".pic_s", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".s_dates = "),
+		write_dependencies_list(MainModules, ".s_date", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_s_dates = "),
+		write_dependencies_list(MainModules, ".pic_s_date", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".os = "),
+		write_dependencies_list(MainModules, ".$O", DepStream),
+		write_extra_link_dependencies_list(ExtraLinkObjs, ".$O",
+			DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_os = "),
+		write_dependencies_list(MainModules, ".$(EXT_FOR_PIC_OBJECTS)",
+			DepStream),
+		write_extra_link_dependencies_list(ExtraLinkObjs,
+			".$(EXT_FOR_PIC_OBJECTS)", DepStream),
+		io__write_string(DepStream, "\n")
 	;
-		write_compact_dependencies_list(Modules, "$(os_subdir)",
-			".$O", Basis, DepStream)
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".ss = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_ss)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_ss = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_pic_ss)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".s_dates = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_s_dates)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_s_dates = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_pic_s_dates)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".os = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_os)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_os = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_pic_os)\n")
 	),
-	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
-	io__write_string(DepStream, "\n"),
 
 	%
 	% $(foo.cs_or_ss) contains the names of the generated intermediate
@@ -2898,7 +3009,6 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		MakeVarName, ".cs_or_ss =$(", MakeVarName, ".cs)\n",
 		"endif\n\n"
 	]),
-
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".rlos = "),
@@ -2919,15 +3029,6 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".pic_os = "),
-	write_compact_dependencies_list(Modules, "$(os_subdir)",
-					".$(EXT_FOR_PIC_OBJECTS)",
-					Basis, DepStream),
-	write_extra_link_dependencies_list(ExtraLinkObjs,
-					".$(EXT_FOR_PIC_OBJECTS)", DepStream),
-	io__write_string(DepStream, "\n"),
-
-	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".dirs = "),
 	write_compact_dependencies_list(Modules, "$(dirs_subdir)", ".dir",
 					Basis, DepStream),
@@ -2936,12 +3037,6 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".dir_os = "),
 	write_compact_dependencies_list(Modules, "$(dirs_subdir)", ".dir/*.$O",
-					Basis, DepStream),
-	io__write_string(DepStream, "\n"),
-
-	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".ss = "),
-	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".s",
 					Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -2973,6 +3068,18 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, ".trans_opt_dates = "),
 	write_compact_dependencies_list(Modules, "$(trans_opt_dates_subdir)",
 					".trans_opt_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".c_dates = "),
+	write_compact_dependencies_list(Modules, "$(c_dates_subdir)",
+					".c_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".il_dates = "),
+	write_compact_dependencies_list(Modules, "$(il_dates_subdir)",
+					".il_date", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -3367,10 +3474,16 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		CleanTargetName, " :\n",
 		"\t-rm -rf $(", MakeVarName, ".dirs)\n",
 		"\t-rm -f $(", MakeVarName, ".cs) ", InitCFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".ss) ", InitAsmFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".os) ", InitObjFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".pic_os) ", InitPicObjFileName,
-									"\n",
+		"\t-rm -f $(", MakeVarName, ".all_ss) ", InitAsmFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".all_pic_ss) ",
+					InitAsmFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".all_os) ", InitObjFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".all_pic_os) ",
+					InitPicObjFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".c_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".il_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".all_s_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".all_pic_s_dates)\n",
 		"\t-rm -f $(", MakeVarName, ".useds)\n",
 		"\t-rm -f $(", MakeVarName, ".ils)\n",
 		"\t-rm -f $(", MakeVarName, ".profs)\n",

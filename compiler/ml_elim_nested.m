@@ -375,8 +375,41 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	EnvTypeEntityName = type(EnvClassName, 0),
 	EnvTypeFlags = env_type_decl_flags,
 	Fields = list__map(convert_local_to_field, LocalVars),
+
+		% IL uses classes instead of structs, so the code
+		% generated needs to be a little different.
+		% XXX Perhaps if we used value classes this could go
+		% away.
+	globals__get_target(Globals, Target),
+	( Target = il ->
+			% Generate a ctor for the class which
+			% initilaises the commit field.
+		ThisPtr = self(mlds__commit_type),
+		FieldType = mlds__commit_type,
+		CtorType = mlds__commit_type,
+		PtrType = EnvTypeName,	
+			
+			% Note we have to do the correct name mangling
+			% for the IL backend.
+		FieldName = qual(mlds__append_name(ModuleName,
+				EnvClassName ++ "_0"), "commit_1"),
+		Lval = field(no, ThisPtr, named_field(FieldName, CtorType),
+				FieldType, PtrType),
+
+		Rval = new_object(Lval, no, FieldType, no, no, [], []),
+
+		Stmt = mlds__statement(atomic(Rval), Context),
+		Ctor = mlds__function(no, func_params([], []), yes(Stmt), []),
+		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
+				overridable, modifiable, concrete),
+		CtorDefn = mlds__defn(export("unused"), Context, CtorFlags,
+				Ctor),
+		Ctors = [CtorDefn]
+	;
+		Ctors = []
+	),
 	EnvTypeDefnBody = mlds__class(mlds__class_defn(EnvTypeKind, [], 
-		[mlds__generic_env_ptr_type], [], [], Fields)),
+		[mlds__generic_env_ptr_type], [], Ctors, Fields)),
 	EnvTypeDefn = mlds__defn(EnvTypeEntityName, Context, EnvTypeFlags,
 		EnvTypeDefnBody),
 
@@ -396,11 +429,7 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	% initialize the `env_ptr' with the address of `env'
 	%
 	EnvVar = qual(ModuleName, mlds__var_name("env", no)),
-	globals__get_target(Globals, Target),
-		% IL uses classes instead of structs, so the code
-		% generated needs to be a little different.
-		% XXX Perhaps if we used value classes this could go
-		% away.
+
 	( Target = il ->
 		EnvVarAddr = lval(var(EnvVar, EnvTypeName)),
 		ml_init_env(EnvTypeName, EnvVarAddr, Context, ModuleName,
@@ -552,7 +581,10 @@ ml_conv_arg_to_var(Context, Name - Type, LocalVar) :-
 	% type declaration.
 :- func env_type_decl_flags = mlds__decl_flags.
 env_type_decl_flags = MLDS_DeclFlags :-
-	Access = private,
+		% On the IL backend we use classes instead of structs so
+		% these fields must be accessible to the mercury_code
+		% class in the same assembly, hence the public access.
+	Access = public,
 	PerInstance = one_copy,
 	Virtuality = non_virtual,
 	Finality = overridable,
@@ -1197,8 +1229,10 @@ defn_body_contains_defn(mlds__function(_PredProcId, _Params, MaybeBody, _Attrs),
 	maybe_statement_contains_defn(MaybeBody, Name).
 defn_body_contains_defn(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
-		_Ctors, FieldDefns),
-	defns_contains_defn(FieldDefns, Name).
+		CtorDefns, FieldDefns),
+	( defns_contains_defn(FieldDefns, Name)
+	; defns_contains_defn(CtorDefns, Name)
+	).
 
 :- pred statements_contains_defn(mlds__statements, mlds__defn).
 :- mode statements_contains_defn(in, out) is nondet.
@@ -1325,8 +1359,10 @@ defn_body_contains_var(mlds__function(_PredProcId, _Params, MaybeBody, _Attrs),
 	maybe_statement_contains_var(MaybeBody, Name).
 defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
-		_Ctors, FieldDefns),
-	defns_contains_var(FieldDefns, Name).
+		CtorDefns, FieldDefns),
+	( defns_contains_var(FieldDefns, Name)
+	; defns_contains_var(CtorDefns, Name)
+	).
 
 :- pred maybe_statement_contains_var(maybe(mlds__statement), mlds__var).
 :- mode maybe_statement_contains_var(in, in) is semidet.

@@ -960,7 +960,15 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		_Ctors, AllMembers) },
+		Ctors, AllMembers) },
+
+	{ Ctors = [] ->
+		true
+	;
+		unexpected(this_file,
+			"mlds_output_class: non empty constructor list")
+	},
+
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -2839,7 +2847,7 @@ mlds_output_std_unop(UnaryOp, Exprn) -->
 	
 mlds_output_binop(Op, X, Y) -->
 	(
-		{ Op = array_index }
+		{ Op = array_index(_Type) }
 	->
 		mlds_output_bracketed_rval(X),
 		io__write_string("["),

@@ -298,14 +298,19 @@
 %
 :- type mlds
 	---> mlds(
-		mercury_module_name,	% The Mercury module name
+			% The Mercury module name.
+		mname		:: mercury_module_name,
 
-		mlds__foreign_code,	% Code defined in some other language,
-					% e.g. for `pragma c_header_code', etc.
+			% Code defined in some other language, e.g.  for
+			% `pragma c_header_code', etc.
+		foreign_code	:: mlds__foreign_code,
 
-		% The MLDS code itself
-		mlds__imports,		% Packages/classes to import
-		mlds__defns		% Definitions of code and data
+			% The MLDS code itself
+			% Packages/classes to import
+		toplevel_imports :: mlds__imports,
+
+			% Definitions of code and data
+		defns		:: mlds__defns
 	).
 
 :- func mlds__get_module_name(mlds) = mercury_module_name.
@@ -335,8 +340,8 @@
 % (not all backends use the package name).
 :- func mercury_module_name_to_mlds(mercury_module_name) = mlds_module_name.
 
-% Given the name of a Mercury module, and a package name, 
-% return the name of the corresponding MLDS module name in which this module is
+% Given the name of a Mercury module, and a package name, return the
+% name of the corresponding MLDS module name in which this module is
 % defined.
 % In this case, the package is specified as the first parameter (c.f.
 % mercury_module_name_to_mlds above).
@@ -357,6 +362,14 @@
 % The `arity' argument specifies the arity of the class.
 :- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name, arity) =
 	mlds_module_name.
+
+% Append a mercury_code qualifier to the module name and leave the
+% package name unchanged.
+:- func mlds__append_mercury_code(mlds_module_name) = mlds_module_name.
+
+% Append an arbitarty qualifier to the module name and leave the package
+% name unchanged.
+:- func mlds__append_name(mlds_module_name, string) = mlds_module_name.
 
 :- type mlds__defns == list(mlds__defn).
 :- type mlds__defn
@@ -507,7 +520,7 @@
 						% inherits these base classes
 		implements ::	list(mlds__interface_id),
 						% implements these interfaces
-		ctors ::	mlds__defns,	% contains these constructors
+		ctors	::	mlds__defns,	% has these constructors
 		members ::	mlds__defns	% contains these members
 	).
 
@@ -620,8 +633,9 @@
 	;	protected	% only accessible to the class and to
 				% derived classes
 	;	private		% only accessible to the class
-	;	default		% Java "default" access: accessible to anything
-				% defined in the same package.
+	;	default		% Java "default" access or .NET assembly
+				% access: accessible to anything defined
+				% in the same package.
 	%
 	% used for entities defined in a block/2 statement,
 	% i.e. local variables and nested functions
@@ -1508,11 +1522,8 @@ mlds__get_func_signature(func_params(Parameters, RetTypes)) =
 		module_name	:: prog_data__module_name
 	).
 
-mercury_module_and_package_name_to_mlds(MLDS_Package, MercuryModule) = 
-	name(
-		MLDS_Package,
-		mercury_module_name_to_mlds(MercuryModule) ^ module_name
-	).
+mercury_module_and_package_name_to_mlds(MLDS_Package, MercuryModule)
+	= name(MLDS_Package, MercuryModule).
 
 mercury_module_name_to_mlds(MercuryModule) = name(MLDS_Package, MLDS_Package) :-
 	(
@@ -1532,6 +1543,11 @@ mlds__append_class_qualifier(name(Package, Module), ClassName, ClassArity) =
 		name(Package, qualified(Module, ClassQualifier)) :-
 	string__format("%s_%d", [s(ClassName), i(ClassArity)],
 		ClassQualifier).
+
+mlds__append_mercury_code(Name) = mlds__append_name(Name, "mercury_code").
+
+mlds__append_name(name(Package, Module), Name)
+	= name(Package, qualified(Module, Name)).
 
 %-----------------------------------------------------------------------------%
 

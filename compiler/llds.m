@@ -1207,7 +1207,7 @@ llds__binop_return_type((and), bool).
 llds__binop_return_type((or), bool).
 llds__binop_return_type(eq, bool).
 llds__binop_return_type(ne, bool).
-llds__binop_return_type(array_index, word).
+llds__binop_return_type(array_index(_Type), word).
 llds__binop_return_type(str_eq, bool).
 llds__binop_return_type(str_ne, bool).
 llds__binop_return_type(str_lt, bool).
