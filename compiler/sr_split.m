@@ -28,6 +28,7 @@
 :- pred create_reuse_pred(pred_proc_id::in, memo_reuse::in,
 		maybe(hlds_goal)::in,
 		module_info::in, module_info::out) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -139,7 +140,8 @@ create_versions_3( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 			memo_reuse_is_conditional(Memo) 
 		->
 			% fetch the reuse goal
-			create_reuse_pred(Memo, yes(ReuseGoal), 
+
+			create_reuse_pred(Memo, PredProcId, yes(ReuseGoal), 
 					PredInfo0, ProcInfo0,
 					ReusePredInfo, _ReuseProcInfo0,
 					ReuseProcId, ReuseName),
@@ -179,7 +181,8 @@ create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
 					ProcInfo0),
 	( memo_reuse_is_conditional(TREUSE) ->
-		create_reuse_pred(TREUSE, MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
+		create_reuse_pred(TREUSE, PRED_PROC_ID,
+				MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
 				ReusePredInfo, _ReuseProcInfo,
 				ReuseProcId, ReuseName),
 
@@ -210,12 +213,12 @@ create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
 				PredInfo0, ProcInfo, HLDSout)
 	).
 
-:- pred create_reuse_pred(memo_reuse::in, maybe(hlds_goal)::in,
-		pred_info::in, proc_info::in,
+:- pred create_reuse_pred(memo_reuse::in, pred_proc_id::in,
+		maybe(hlds_goal)::in, pred_info::in, proc_info::in,
 		pred_info::out, proc_info::out,
 		proc_id::out, sym_name::out) is det.
 
-create_reuse_pred(TabledReuse, MaybeReuseGoal, PredInfo, ProcInfo,
+create_reuse_pred(TabledReuse, PredProcId, MaybeReuseGoal, PredInfo, ProcInfo,
 		ReusePredInfo, ReuseProcInfo, ReuseProcId, SymName) :-
 	proc_info_set_reuse_information(ProcInfo, 
 				TabledReuse, ReuseProcInfo0),
@@ -239,8 +242,11 @@ create_reuse_pred(TabledReuse, MaybeReuseGoal, PredInfo, ProcInfo,
 
 	set__init(Assertions),
 
+	PredProcId = proc(_PredId, ProcId),
+	proc_id_to_int(ProcId, ProcIdInt),
+
 	Line = 0,
-	Counter = 0,
+	Counter = ProcIdInt,
 
 	make_pred_name_with_context(ModuleName, "reuse", PredOrFunc, Name,
 		Line, Counter, SymName),

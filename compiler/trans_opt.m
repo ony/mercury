@@ -162,9 +162,10 @@ trans_opt__write_optfile(Module) -->
 			      )
 			    ),
 			AllTypes, 
-			Types ) },
+			_Types ) },
 		% { Types = AllTypes },
-		intermod__write_types( Types ), 
+			% XXX not necessary!
+		% intermod__write_types( Types ), 
 
 		% output possible-alias information.
 		io__write_string(
