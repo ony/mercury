@@ -92,8 +92,8 @@
 	% check whether the given live_set and alias_as satisfy
 	% the condition for reuse. 
 :- pred reuse_condition_verify( proc_info, module_info, 
-			live_set, alias_as, reuse_condition ).
-:- mode reuse_condition_verify( in, in, in, in, in ) is semidet.
+			live_set, alias_as, set(prog_var), reuse_condition ).
+:- mode reuse_condition_verify( in, in, in, in, in, in ) is semidet.
 
 :- pred reuse_condition_update( proc_info, module_info, 
 			set(prog_var), set(prog_var), 
@@ -119,7 +119,8 @@
 :- pred memo_reuse_parse( term(T)::in, memo_reuse::out, 
 		maybe(sym_name)::out) is semidet.
 :- pred memo_reuse_verify_reuse( proc_info::in, module_info::in, 
-		memo_reuse::in, live_set::in, alias_as::in) is semidet.
+		memo_reuse::in, live_set::in, alias_as::in,
+		set(prog_var)::in) is semidet.
 :- pred memo_reuse_is_conditional( memo_reuse::in ) is semidet.
 :- pred memo_reuse_is_unconditional( memo_reuse::in) is semidet.
 :- pred memo_reuse_simplify( memo_reuse::in, memo_reuse::out) is det.
@@ -266,9 +267,18 @@ reuse_condition_print( ProcInfo, condition(Nodes, LUiH, LAiH)) -->
 
 	io__write_string(")").
 
-reuse_condition_verify( _ProcInfo, _HLDS, _Live0, _Alias0, always).
-reuse_condition_verify( ProcInfo, HLDS,  Live0, Alias0, 
+reuse_condition_verify( _ProcInfo, _HLDS, _Live0, _Alias0, _Static, always).
+reuse_condition_verify( ProcInfo, HLDS,  Live0, Alias0, Static,
 		condition( Nodes, LUiH, LAiH ) ):- 
+
+		% We cannot reuse a variable which was statically
+		% constructed.
+	list__filter_map(
+		(pred(Node::in, Var::out) is semidet :-
+			get_var(Node, Var),
+			set__member(Var, Static)
+		), set__to_sorted_list(Nodes), []),
+	
 	pa_alias_as__extend( ProcInfo, HLDS, Alias0, LAiH, Alias),
 	pa_alias_as__live( LUiH, Live0, Alias, Live), 
 	set__to_sorted_list(Nodes, NodesList), 
@@ -588,10 +598,10 @@ condition_rest_parse( Term, CONDS ) :-
 		error("(sr_data) condition_rest_parse: term not a functor")
 	).
 
-memo_reuse_verify_reuse( ProcInfo, HLDS, TREUSE, Live0, Alias0 ) :-
+memo_reuse_verify_reuse( ProcInfo, HLDS, TREUSE, Live0, Alias0, Static ) :-
 	TREUSE = yes(CONDITIONS), 
 	list__takewhile( reuse_condition_verify( ProcInfo, HLDS, 
-						Live0, Alias0 ), 
+						Live0, Alias0, Static ), 
 				CONDITIONS, _, [] ).
 
 memo_reuse_is_conditional( yes([_|_]) ).

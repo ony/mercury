@@ -210,8 +210,10 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		% 5. analyse_goal
 		analyse_goal( ProcInfo, HLDS, 
 					Goal0, Goal,
-					analysis_info(Alias0, Pool0, FPin),
-					analysis_info(_Alias, Pool, FP1)),
+					analysis_info(Alias0, Pool0,
+							set__init, FPin),
+					analysis_info(_Alias, Pool,
+							_Static, FP1)),
 		/*
 		analyse_goal( ProcInfo, HLDS, 
 					Goal0, Goal,
@@ -253,6 +255,7 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 	--->	analysis_info(
 			alias	:: alias_as,
 			pool	:: indirect_reuse_pool,
+			static	:: set(prog_var),
 			table	:: sr_fixpoint_table__table
 		).
 
@@ -292,9 +295,17 @@ analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 
 analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context), 
+
+		% Record the statically constructed variables.
+	( Unification = construct(Var, _, _, _,
+			construct_statically(_), _, _) ->
+		AI1 = AI0 ^ static := set__insert(AI0 ^ static, Var)
+	;
+		AI1 = AI0
+	),
 	pa_alias_as__extend_unification(ProcInfo, HLDS, 
 			Unification, Info, AI0 ^ alias, Alias),	
-	AI = AI0 ^ alias := Alias,
+	AI = AI1 ^ alias := Alias,
 	Info = Info0,
 	Expr = Expr0, 
 	Goal = Expr - Info. 
@@ -305,18 +316,20 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 		(pred( case(ConsId, Gin)::in, Tuple::out,
 				FPin::in, FPout::out) is det :-
 			analyse_goal(ProcInfo, HLDS, Gin, Gout, 
-				analysis_info(AI0 ^ alias,
-						AI0 ^ pool, FPin),
+				analysis_info(AI0 ^ alias, AI0 ^ pool,
+						AI0 ^ static, FPin),
 				analysis_info(NewAlias,
-						NewPool, FPout)),
-			Tuple = { case(ConsId, Gout), NewAlias, NewPool }
+						NewPool, NewStatic, FPout)),
+			Tuple = { case(ConsId, Gout), NewAlias, NewPool,
+					NewStatic }
 		),
 		Cases0, Tuples,
 		AI0 ^ table, FP),
 
-	Cases = list__map((func({C, _A, _P}) = C), Tuples),
-	ListPools = list__map((func({_G, _A, P}) = P), Tuples),
-	ListAliases = list__map((func({_G, A, _P}) = A), Tuples),
+	Cases = list__map((func({C, _A, _P, _S}) = C), Tuples),
+	ListPools = list__map((func({_G, _A, P, _S}) = P), Tuples),
+	ListAliases = list__map((func({_G, A, _P, _S}) = A), Tuples),
+	ListStatic = list__map((func({_G, _A, _P, S}) = S), Tuples),
 
 	indirect_reuse_pool_least_upper_bound_disjunction(
 				ListPools,
@@ -324,12 +337,13 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
 				ListAliases,
 				Alias1),
+	set__power_union(set__list_to_set(ListStatic), Static),
 
 	% reduce the aliases
 	goal_info_get_outscope(Info, Outscope),
 	pa_alias_as__project_set(Outscope, Alias1, Alias),
 
-	AI = analysis_info(Alias, Pool, FP),
+	AI = analysis_info(Alias, Pool, Static, FP),
 
 	Info = Info0,
 	Expr = switch(Var, CanFail, Cases, SM),
@@ -348,18 +362,20 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 			(pred( Gin::in, Tuple::out,
 					FPin::in, FPout::out) is det :-
 				analyse_goal(ProcInfo, HLDS, Gin, Gout, 
-					analysis_info(AI0 ^ alias,
-							AI0 ^ pool, FPin),
-					analysis_info(NewAlias,
-							NewPool, FPout)),
-				Tuple = { Gout, NewAlias, NewPool }
+					analysis_info(AI0 ^ alias, AI0 ^ pool,
+							AI0 ^ static, FPin),
+					analysis_info(NewAlias, NewPool,
+							NewStatic, FPout)),
+				Tuple = { Gout, NewAlias, NewPool, NewStatic }
 			),
 			Goals0, Tuples,
 			AI0 ^ table, FP),
 
-		Goals = list__map((func({G, _A, _P}) = G), Tuples),
-		ListPools = list__map((func({_G, _A, P}) = P), Tuples),
-		ListAliases = list__map((func({_G, A, _P}) = A), Tuples),
+		Goals = list__map((func({G, _A, _P, _S}) = G), Tuples),
+		ListPools = list__map((func({_G, _A, P, _S}) = P), Tuples),
+		ListAliases = list__map((func({_G, A, _P, _S}) = A), Tuples),
+		ListStatic = list__map((func({_G, _A, _P, S}) = S), Tuples),
+		set__power_union(set__list_to_set(ListStatic), Static),
 
 		indirect_reuse_pool_least_upper_bound_disjunction(
 					ListPools,
@@ -372,7 +388,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 		goal_info_get_outscope(Info, Outscope),
 		pa_alias_as__project_set(Outscope, Alias1, Alias),
 
-		AI = analysis_info(Alias, Pool, FP)
+		AI = analysis_info(Alias, Pool, Static, FP)
 	),
 
 	Info = Info0,
@@ -408,11 +424,13 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
 				[AI_Then ^ alias, AI_Else ^ alias],
 				Alias1),
+	Static = AI_Then ^ static `set__union` AI_Else ^ static,
+	
 	% reduce the aliases
 	goal_info_get_outscope( Info, Outscope ),
 	pa_alias_as__project_set( Outscope, Alias1, Alias ),
 
-	AI = analysis_info(Alias, Pool, AI1 ^ table),
+	AI = analysis_info(Alias, Pool, Static, AI1 ^ table),
 
 	Info = Info0,
 	Expr = if_then_else( Vars, Cond, Then, Else, SM),
@@ -469,7 +487,7 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 		FP = FP0
 	;
 		call_verify_reuse( ProcInfo, HLDS,
-			PredId, ProcId, ActualVars, Alias0, 
+			PredId, ProcId, ActualVars, Alias0, set__init,
 			Pool0, Pool,
 			Info0, Info, 
 			FP0, FP, _)
@@ -668,24 +686,21 @@ analyse_case( ProcInfo, HLDS, Reuses0, Alias0, Case0, Case,
 		analysis_info::in, analysis_info::out, bool::out) is det.
 
 call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
-		GoalInfo0, GoalInfo, analysis_info(Alias0, Pool0, FP0),
-		analysis_info(Alias0, Pool, FP), YesNo) :-
+		GoalInfo0, GoalInfo, analysis_info(Alias0, Pool0, Static, FP0),
+		analysis_info(Alias0, Pool, Static, FP), YesNo) :-
 	call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
-			Alias0, Pool0, Pool, GoalInfo0, GoalInfo,
+			Alias0, Static, Pool0, Pool, GoalInfo0, GoalInfo,
 			FP0, FP, YesNo).
 
-:- pred call_verify_reuse( proc_info, module_info, pred_id, proc_id, 
-			list(prog_var), alias_as, 
-			indirect_reuse_pool, indirect_reuse_pool, 
-			hlds_goal_info , hlds_goal_info, 
-			sr_fixpoint_table__table, sr_fixpoint_table__table, 
-			bool).
-:- mode call_verify_reuse( in, in, in, in, in, in, 
-				in, out, 
-				in, out,
-				in, out, out) is det.
+:- pred call_verify_reuse( proc_info::in, module_info::in, pred_id::in,
+		proc_id::in, list(prog_var)::in, alias_as::in,
+		set(prog_var)::in, indirect_reuse_pool::in,
+		indirect_reuse_pool::out, hlds_goal_info::in ,
+		hlds_goal_info::out, sr_fixpoint_table__table::in,
+		sr_fixpoint_table__table::out, bool::out) is det.
 
 call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0, 
+					StaticTerms,
 					Pool0, Pool, 
 					Info0, Info, FP0, FP, YesNo ) :- 
 
@@ -737,7 +752,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 				% static set!
 			memo_reuse_verify_reuse( ProcInfo, HLDS, 
 				Memo, ActualLive_i, ActualAlias_i,
-				set__init)
+				StaticTerms)
 		->
 			indirect_reuse_pool_add( HLDS, ProcInfo,
 				Memo, LFUi, LBUi, 

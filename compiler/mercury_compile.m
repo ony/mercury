@@ -1084,8 +1084,12 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50) -->
 	mercury_compile__maybe_dead_procs(HLDS46, Verbose, Stats, HLDS47),
 	mercury_compile__maybe_dump_hlds(HLDS47, "47", "dead_procs"),
 
+	mercury_compile__maybe_mark_static_terms(HLDS47, Verbose, Stats,
+		HLDS47a),
+	mercury_compile__maybe_dump_hlds(HLDS47a, "47a", "mark_static"),
+
 	% possible aliases
-	mercury_compile__possible_aliases(HLDS47, Verbose, 
+	mercury_compile__possible_aliases(HLDS47a, Verbose, 
 		Stats, HLDS48),
 	mercury_compile__maybe_dump_hlds(HLDS48,"48",
 		"possible_aliases"),
@@ -2448,9 +2452,12 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 		process_all_nonimported_nonaditi_procs, HLDS53),
 	mercury_compile__maybe_dump_hlds(HLDS53, "53", "simplify2"),
 
+	/*
 	mercury_compile__maybe_mark_static_terms(HLDS53, Verbose, Stats,
 		HLDS60),
 	mercury_compile__maybe_dump_hlds(HLDS60, "60", "mark_static"),
+	*/
+	{ HLDS60 = HLDS53 },
 
 	{ HLDS = HLDS60 },
 	mercury_compile__maybe_dump_hlds(HLDS, "99", "final"),
