@@ -1886,11 +1886,12 @@ polymorphism__process_call(PredId, ArgVars0, GoalInfo0,
 		polymorphism__make_type_info_vars(PredTypes, PredExistQVars,
 			Context, ExtraTypeInfoVars, ExtraTypeInfoGoals,
 			Info4, Info),
+		list__append(ExtraTypeClassVars, ArgVars0, ArgVars1),
+		list__append(ExtraTypeInfoVars, ArgVars1, ArgVars),
 		list__append(ExtraTypeClassGoals, ExtraTypeInfoGoals,
 			ExtraGoals),
 		list__append(ExtraTypeClassVars, ExtraTypeInfoVars,
 			ExtraVars),
-		list__append(ExtraVars, ArgVars0, ArgVars),
 
 		%
 		% update the non-locals
