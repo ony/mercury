@@ -1074,7 +1074,7 @@ intermod__write_intermod_info(IntermodInfo0) -->
 		io__state::uo) is det.
 
 intermod__write_intermod_info_2(IntermodInfo) -->
-	{ IntermodInfo = info(_, Preds0, PredDecls0, Instances, Types, _,
+	{ IntermodInfo = info(_, Preds0, PredDecls0, Instances, _Types, _,
 				ModuleInfo, WriteHeader, _, _) },
 	{ set__to_sorted_list(Preds0, Preds) }, 
 	{ set__to_sorted_list(PredDecls0, PredDecls) },
@@ -1090,6 +1090,18 @@ intermod__write_intermod_info_2(IntermodInfo) -->
 	;
 		[]
 	),
+
+	{ module_info_types( ModuleInfo, TypesMap ) }, 
+	{ map__to_assoc_list( TypesMap, AllTypes) }, 
+	{ list__filter( 
+		pred(P::in) is semidet :- 
+		    ( P = _TId - TDefn, 
+		      hlds_data__get_type_defn_status( TDefn, Stat), 
+		      hlds_pred__status_defined_in_this_module(Stat, yes)
+		      
+		    ),
+		AllTypes, 
+		Types ) },
 
 	intermod__write_types(Types),
 	intermod__write_insts(ModuleInfo),
