@@ -573,6 +573,11 @@ mode_info_set_call_arg_context(ArgNum, ModeInfo0, ModeInfo) :-
 		mode_info_set_mode_context(
 			higher_order_call(PredOrFunc, ArgNum),
 			ModeInfo0, ModeInfo)
+	; ModeContext0 = unify(_UnifyContext, _Side) ->
+		% This only happens when checking that the typeinfo variables
+		% for polymorphic complicated unifications are ground.
+		% For that case, we don't care about the ArgNum.
+		ModeInfo = ModeInfo0
 	;
 		error("mode_info_set_call_arg_context")
 	).
