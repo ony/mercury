@@ -6,7 +6,7 @@
 
 /*****************************************************************
   File     : bryant.h
-  RCS      : $Id: bryant.h,v 1.1.12.2 2002-05-08 09:35:29 zs Exp $
+  RCS      : $Id: bryant.h,v 1.1.12.3 2002-08-16 06:43:09 zs Exp $
   Author   : Peter Schachte
   Origin   : Sun Jul 30 15:08:53 1995
   Purpose  : header file for users of bryant.c ROBDD package
@@ -17,7 +17,7 @@
 #define BRYANT_H
 
 #if defined(QUINTUS)
-#include <quintus/quintus.h>
+  #include <quintus/quintus.h>
 #endif
 #include <string.h>
 #include <assert.h>
@@ -36,28 +36,29 @@
 
 #if defined(AMIGA)
 
-/* number of buckets in unique table */
-#define UNIQUE_TABLE_SIZE 4096
+  /* number of buckets in unique table */
+  #define UNIQUE_TABLE_SIZE 4096
 
-/* number of entries in ite computed table */
-#define ITE_COMPUTED_TABLE_SIZE 4096
+  /* number of entries in ite computed table */
+  #define ITE_COMPUTED_TABLE_SIZE 4096
 
-/* number of entries in computed table for binary functions (and, or) */
-#define BINARY_CACHE_SIZE 4096
+  /* number of entries in computed table for binary functions (and, or) */
+  #define BINARY_CACHE_SIZE 4096
 
-/* allocate bryant nodes this many at a time */
-#define POOL_SIZE 4096
+  /* allocate bryant nodes this many at a time */
+  #define POOL_SIZE 4096
 
 #else
 
-/* number of buckets in unique table */
-#define UNIQUE_TABLE_SIZE 65537		/* first prime number > 64K */
+  /* number of buckets in unique table */
+  #define UNIQUE_TABLE_SIZE 65537		/* first prime number > 64K */
 
-/* number of entries in ite computed table */
-#define COMPUTED_TABLE_SIZE 16411	/* first prime number > 16K */
+  /* number of entries in ite computed table */
+  #define COMPUTED_TABLE_SIZE 16411	/* first prime number > 16K */
 
-/* allocate bryant nodes this many at a time */
-#define POOL_SIZE 65535
+  /* allocate bryant nodes this many at a time */
+  #define POOL_SIZE 65535
+
 #endif
 
 /* number of bits in an unsigned long, and the log (base 2) of that */
@@ -127,11 +128,11 @@ typedef unsigned long bitmask;
 
 /* important bit masks */
 #if defined(NO_CHEAP_SHIFT) && BITS_PER_WORD == 32
-#define FOLLOWING_BITS(n) following_bits[n]
-#define PRECEDING_BITS(n) preceding_bits[n]
+  #define FOLLOWING_BITS(n) following_bits[n]
+  #define PRECEDING_BITS(n) preceding_bits[n]
 #else /* ! NO_CHEAP_SHIFT */
-#define FOLLOWING_BITS(n) ((~0UL)<<(n))
-#define PRECEDING_BITS(n) ((~0UL)>>(BITS_PER_WORD-1-(n)))
+  #define FOLLOWING_BITS(n) ((~0UL)<<(n))
+  #define PRECEDING_BITS(n) ((~0UL)>>(BITS_PER_WORD-1-(n)))
 #endif /* NO_CHEAP_SHIFT */
 
 #define BITSET_IS_MEMBER(set,n) \
@@ -167,7 +168,6 @@ typedef unsigned long bitmask;
 #define BITSET_SUBSET(set1, set2) bitset_subset(&set1, &set2)
 #define BITSET_EMPTY(set) bitset_empty(&set)
 
-
 /* Successor and predecessor for possible set elements.  These are
  * expressions that are false if there are no more possible elements.
  */
@@ -175,7 +175,6 @@ typedef unsigned long bitmask;
   (++var<MAXVAR && ((mask<<=1) || (mask=1,++word)))
 #define PREV_POSSIBLE_ELEMENT(var,word,mask) \
   (--var>=0 && ((mask>>=1) || (mask=1<<(BITS_PER_WORD-1),--word)))
-
 
 /* Enumerating sets.  Use these like for loops:  follow the macro call with
  * a statement (or an open brace, some statements, and a close brace).  The
@@ -203,17 +202,15 @@ typedef unsigned long bitmask;
        prev_nonelement(&set,&var,&word,&mask); \
        (void) PREV_POSSIBLE_ELEMENT(var,word,mask))
 
-
 /*****************************************************************
 			  Other Definitions
 *****************************************************************/
 
-
 #ifndef TRUE
-#define TRUE 1
+  #define TRUE 1
 #endif
 #ifndef FALSE
-#define FALSE 0
+  #define FALSE 0
 #endif
 
 /* sneaky trick to make NEW the default */
@@ -222,38 +219,37 @@ typedef unsigned long bitmask;
       && !defined(OLD) \
       && !defined(NAIVE) \
       && !defined(NEW)
-#define NEW
+  #define NEW
 #endif
 
 #if defined(NEW)
-#define USE_RGLB
+  #define USE_RGLB
 #endif /* NEW */
 
 #if defined(USE_RGLB)
-#define USE_THRESH
+  #define USE_THRESH
 #endif /* USE_RGLB */
 
 #if defined(USE_THRESH)
-#define OLD
-#if !defined(NEW)
-#define USE_ITE_CONSTANT /* for var_entailed */
-#endif /* !NEW */
+  #define OLD
+  #if !defined(NEW)
+    #define USE_ITE_CONSTANT /* for var_entailed */
+  #endif /* !NEW */
 #endif /* USE_THRESH */
 
 #if defined(NEW)
-#define WHICH "NEW"
+  #define WHICH "NEW"
 #elif defined(USE_RGLB)
-#define WHICH "RGLB"
+  #define WHICH "RGLB"
 #elif defined(USE_THRESH)
-#define WHICH "THRESH"
+  #define WHICH "THRESH"
 #elif defined(OLD)
-#define WHICH "OLD"
+  #define WHICH "OLD"
 #elif defined(NAIVE)
-#define WHICH "NAIVE"
+  #define WHICH "NAIVE"
 #else
-#error "must define one of NEW, USE_RGLB, USE_THRESH, OLD, or NAIVE."
+  #error "must define one of NEW, USE_RGLB, USE_THRESH, OLD, or NAIVE."
 #endif
-
 
 /*****************************************************************
 				 Public Data
@@ -263,8 +259,8 @@ extern unsigned char first_one_bit[256];
 extern unsigned char last_one_bit[256];
 
 #if defined(NO_CHEAP_SHIFT) && BITS_PER_WORD == 32
-extern bitmask following_bits[BITS_PER_WORD];
-extern bitmask preceding_bits[BITS_PER_WORD];
+  extern bitmask following_bits[BITS_PER_WORD];
+  extern bitmask preceding_bits[BITS_PER_WORD];
 #endif
 
 /*****************************************************************
@@ -280,7 +276,6 @@ extern void init_caches(void);
 /* to clean up memory used by ROBDDs.  After calling this, you must call */
 /* InitRep() again before calling any other functions in this file */
 extern void concludeRep(void);
-
 
 /* the basic make a node or return an existing node operation */
 extern node *make_node(int var, node *tr, node *fa);
@@ -301,7 +296,7 @@ extern node *ite(node *f, node *g, node *h);
 ** not create any new nodes.
 */
 #ifdef USE_ITE_CONSTANT
-extern node *ite_constant(node *f,node *g,node *h);
+  extern node *ite_constant(node *f,node *g,node *h);
 #endif
 
 extern node *ite_var(int f, node *g, node *h);
@@ -371,48 +366,50 @@ int next_nonelement(bitset *set, int *var, int *word, bitmask *mask);
 /* are updated correspondingly.  Returns TRUE iff there is such an n. */
 int prev_nonelement(bitset *set, int *var, int *word, bitmask *mask);
 
-
 #if !defined(USE_THRESH) && !defined(RESTRICT_SET)
 
-/* returns a with all variables lo \leq v \leq hi restricted away */
-extern node *restrictThresh(int lo, int hi, node *a);
+  /* returns a with all variables lo \leq v \leq hi restricted away */
+  extern node *restrictThresh(int lo, int hi, node *a);
 
-/* returns f \wedge g with all variables lo \leq v \leq hi restricted away */
-extern node *restricted_glb(int lo, int hi, node *f, node *g);
+  /* returns f \wedge g with all variables lo \leq v \leq hi restricted away */
+  extern node *restricted_glb(int lo, int hi, node *f, node *g);
 
-/* computes g = f with variable 0 renamed to mapping[0], 1 renamed to */
-/* mapping[1], ... count renamed to mapping[count].  Returns context */
-/* \wedge g with all variables lo \leq v \leq hi restricted away */
-extern node *abstract_exit(node *context, node *f, int count, int mapping[],
+  /* computes g = f with variable 0 renamed to mapping[0], 1 renamed to */
+  /* mapping[1], ... count renamed to mapping[count].  Returns context */
+  /* \wedge g with all variables lo \leq v \leq hi restricted away */
+  extern node *abstract_exit(node *context, node *f, int count, int mapping[],
 		    int lo, int hi);
-/* returns f \wedge (v0 \leftrightarrow \bigwedge_{i=0}^{n} arr[i]), */
-/* with all variables lo \leq v \leq hi restricted away */
-extern node *abstract_unify(node *f, int v0, int n, int arr[], int lo, int hi);
+  /* returns f \wedge (v0 \leftrightarrow \bigwedge_{i=0}^{n} arr[i]), */
+  /* with all variables lo \leq v \leq hi restricted away */
+  extern node *abstract_unify(node *f, int v0, int n, int arr[],
+		    int lo, int hi);
+
 #else /* USE_THRESH || RESTRICT_SET */
 
-/* returns a with all variables lo \leq v \leq hi restricted away */
-extern node *restrictThresh(int c,node *a);
+  /* returns a with all variables lo \leq v \leq hi restricted away */
+  extern node *restrictThresh(int c,node *a);
 
-/* returns f \wedge g with all variables v \geq c restricted away */
-extern node *restricted_glb(int c, node *f, node *g);
+  /* returns f \wedge g with all variables v \geq c restricted away */
+  extern node *restricted_glb(int c, node *f, node *g);
 
-/* computes g = f with variable 0 renamed to mapping[0], 1 renamed to */
-/* mapping[1], ... count renamed to mapping[count].  Returns context */
-/* \wedge g with all variables v \geq thresh restricted away */
-extern node *abstract_exit(node *context, node *f, int count, int mapping[],
+  /* computes g = f with variable 0 renamed to mapping[0], 1 renamed to */
+  /* mapping[1], ... count renamed to mapping[count].  Returns context */
+  /* \wedge g with all variables v \geq thresh restricted away */
+  extern node *abstract_exit(node *context, node *f, int count, int mapping[],
 		    int thresh);
 
-/* returns f \wedge (v0 \leftrightarrow \bigwedge_{i=0}^{n} arr[i]), */
-/* with all variables v \eq thresh restricted away */
-extern node *abstract_unify(node *f, int v0, int n, int arr[], int thresh);
+  /* returns f \wedge (v0 \leftrightarrow \bigwedge_{i=0}^{n} arr[i]), */
+  /* with all variables v \eq thresh restricted away */
+  extern node *abstract_unify(node *f, int v0, int n, int arr[], int thresh);
+
 #endif /* !OLD || USE_THRESH */
 
 #if !defined(NEW)
-/* returns the set of all v entailed by f where v \leq topvar */
-extern bitset *vars_entailed(node *f, int topvar);
+  /* returns the set of all v entailed by f where v \leq topvar */
+  extern bitset *vars_entailed(node *f, int topvar);
 #else /* NEW */
-/* returns the set of all v entailed by f */
-extern bitset *vars_entailed(node *f);
+  /* returns the set of all v entailed by f */
+  extern bitset *vars_entailed(node *f);
 #endif /* NEW */
 
 /* return the initial set sharing representation for n variables */
@@ -431,7 +428,6 @@ extern int nodes_in_use(void);
 /* as possible, whatever variables are #defined */
 node *testing_iff_conj_array(int v0, int n, int arr[]);
 
-
 /* These are not really useful for ROBDDs but are needed for other */
 /* representations of Boolean functions. */
 /* free n */
@@ -445,8 +441,8 @@ extern int equiv(node *a, node *b);
 
 /* for a more efficient interface from Quintus Prolog. */
 #if defined(QUINTUS)
-extern node *renameTerm(node *in, QP_term_ref term);
-extern node *reverseRenameTerm(node *in, QP_term_ref term);
+  extern node *renameTerm(node *in, QP_term_ref term);
+  extern node *reverseRenameTerm(node *in, QP_term_ref term);
 #endif /* QUINTUS */
 
 #endif /* BRYANT_H */

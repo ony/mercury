@@ -306,7 +306,7 @@
 :- import_module hash_table.
 
 % XXX
-:- import_module unsafe.
+% :- import_module unsafe.
 
 :- type robdd(T) ---> robdd(int).
 % :- type robdd(T) ---> robdd(c_pointer).
@@ -315,7 +315,7 @@
 
 empty_vars_set = sparse_bitset__init.
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 
 #define	NDEBUG
 #define	CLEAR_CACHES
@@ -332,22 +332,40 @@ empty_vars_set = sparse_bitset__init.
 #include ""../robdd/bryant.c""
 ").
 
-:- pragma c_code(one = (F::out), [will_not_call_mercury],
-		"F = (Word) trueVar();").
+:- pragma foreign_proc("C",
+	one = (F::out),
+	[will_not_call_mercury, promise_pure],
+"
+	F = (Word) trueVar();
+").
 
-:- pragma c_code(zero = (F::out), [will_not_call_mercury],
-		"F = (Word) falseVar();").
+:- pragma foreign_proc("C",
+	zero = (F::out),
+	[will_not_call_mercury, promise_pure],
+"
+	F = (Word) falseVar();
+").
 
-:- pragma c_code(var(V::in) = (F::out), [will_not_call_mercury],
-		"F = (Word) variableRep(V);").
+:- pragma foreign_proc("C",
+	var(V::in) = (F::out),
+	[will_not_call_mercury, promise_pure],
+"
+	F = (Word) variableRep(V);
+").
 
-:- pragma c_code(ite(F::in, G::in, H::in) = (ITE::out),
-		[will_not_call_mercury],
-		"ITE = (Word) ite((node *) F, (node *) G, (node *) H);").
+:- pragma foreign_proc("C",
+	ite(F::in, G::in, H::in) = (ITE::out),
+	[will_not_call_mercury, promise_pure],
+"
+	ITE = (Word) ite((node *) F, (node *) G, (node *) H);
+").
 
-:- pragma c_code(ite_var(V::in, G::in, H::in) = (ITE::out), 
-		[will_not_call_mercury],
-		"ITE = (Word) ite_var(V, (node *) G, (node *) H);").
+:- pragma foreign_proc("C",
+	ite_var(V::in, G::in, H::in) = (ITE::out), 
+	[will_not_call_mercury, promise_pure],
+"
+	ITE = (Word) ite_var(V, (node *) G, (node *) H);
+").
 
 :- pragma promise_pure('*'/2).
 X * Y = R :-
@@ -363,19 +381,35 @@ X * Y = R :-
 
 % XXX :- pragma c_code((X::in) * (Y::in) = (F::out), [will_not_call_mercury],
 :- func glb(robdd(T), robdd(T)) = robdd(T).
-:- pragma c_code(glb(X::in, Y::in) = (F::out), [will_not_call_mercury],
-		"F = (Word) glb((node *) X, (node *) Y);").
+:- pragma foreign_proc("C",
+	glb(X::in, Y::in) = (F::out),
+	[will_not_call_mercury, promise_pure],
+"
+	F = (Word) glb((node *) X, (node *) Y);
+").
 
 % XXX
 :- impure pred report_zero_constraint is det.
-:- pragma c_code(report_zero_constraint, [will_not_call_mercury],
-		"fprintf(stderr, ""Zero constraint!!!\\n"");").
+:- pragma foreign_proc("C",
+	report_zero_constraint,
+	[will_not_call_mercury],
+"
+	fprintf(stderr, ""Zero constraint!!!\\n"");
+").
 
-:- pragma c_code((X::in) + (Y::in) = (F::out), [will_not_call_mercury],
-		"F = (Word) lub((node *) X, (node *) Y);").
+:- pragma foreign_proc("C",
+	(X::in) + (Y::in) = (F::out),
+	[will_not_call_mercury, promise_pure],
+"
+	F = (Word) lub((node *) X, (node *) Y);
+").
 
-:- pragma c_code(((X::in) =< (Y::in)) = (F::out), [will_not_call_mercury],
-		"F = (Word) implies((node *) X, (node *) Y);").
+:- pragma foreign_proc("C",
+	((X::in) =< (Y::in)) = (F::out),
+	[will_not_call_mercury, promise_pure],
+"
+	F = (Word) implies((node *) X, (node *) Y);
+").
 
 (F =:= G) = ite(F, G, ~G).
 
@@ -383,12 +417,19 @@ X * Y = R :-
 
 (~F) = ite(F, zero, one).
 
-:- pragma c_code(entails(X::in, Y::in), [will_not_call_mercury],
-	"SUCCESS_INDICATOR =
-		(ite_constant((node *) X, (node *) Y, one) == one);").
+:- pragma foreign_proc("C",
+	entails(X::in, Y::in),
+	[will_not_call_mercury, promise_pure],
+"
+	SUCCESS_INDICATOR = (ite_constant((node *) X, (node *) Y, one) == one);
+").
 
-:- pragma c_code(var_entailed(F::in, V::in), [will_not_call_mercury],
-		"SUCCESS_INDICATOR = var_entailed((node *) F, (int) V);").
+:- pragma foreign_proc("C",
+	var_entailed(F::in, V::in),
+	[will_not_call_mercury, promise_pure],
+"
+	SUCCESS_INDICATOR = var_entailed((node *) F, (int) V);
+").
 
 :- pragma memo(vars_entailed/1).
 
@@ -707,12 +748,26 @@ some_vars(Vs) `insert` V = some_vars(Vs `insert` V).
 :- func tr(robdd(T)) = robdd(T).
 :- func fa(robdd(T)) = robdd(T).
 
-:- pragma c_code(value(F::in) = (Value::out), [will_not_call_mercury],
-		"Value = (Word) ((node *) F)->value;").
-:- pragma c_code(tr(F::in) = (Tr::out), [will_not_call_mercury],
-		"Tr = (Word) ((node *) F)->tr;").
-:- pragma c_code(fa(F::in) = (Fa::out), [will_not_call_mercury],
-		"Fa = (Word) ((node *) F)->fa;").
+:- pragma foreign_proc("C",
+	value(F::in) = (Value::out),
+	[will_not_call_mercury, promise_pure],
+"
+	Value = (Word) ((node *) F)->value;
+").
+
+:- pragma foreign_proc("C",
+	tr(F::in) = (Tr::out),
+	[will_not_call_mercury, promise_pure],
+"
+	Tr = (Word) ((node *) F)->tr;
+").
+
+:- pragma foreign_proc("C",
+	fa(F::in) = (Fa::out),
+	[will_not_call_mercury, promise_pure],
+"
+	Fa = (Word) ((node *) F)->fa;
+").
 
 :- pragma inline(value/1).
 :- pragma inline(tr/1).
@@ -802,12 +857,19 @@ print_robdd_2(F, Trues, Falses) -->
 		[]
 	).
 
-:- pragma c_code(restrict(V::in, F::in) = (R::out), [will_not_call_mercury],
-		"R = (Word) restrict(V, (node *) F);").
+:- pragma foreign_proc("C",
+	restrict(V::in, F::in) = (R::out),
+	[will_not_call_mercury, promise_pure],
+"
+	R = (Word) restrict(V, (node *) F);
+").
 
-:- pragma c_code(restrict_threshold(V::in, F::in) = (R::out),
-		[will_not_call_mercury],
-		"R = (Word) restrictThresh(V, (node *) F);").
+:- pragma foreign_proc("C",
+	restrict_threshold(V::in, F::in) = (R::out),
+	[will_not_call_mercury, promise_pure],
+"
+	R = (Word) restrictThresh(V, (node *) F);
+").
 
 :- pragma memo(rename_vars/2).
 
@@ -826,9 +888,12 @@ rename_vars(Subst, F) =
 % variables in both the Then and Else sub graphs are > Var.
 
 :- func make_node(var(T), robdd(T), robdd(T)) = robdd(T).
-:- pragma c_code(make_node(Var::in, Then::in, Else::in) = (Node::out),
-		[will_not_call_mercury],
-	"Node = (Word) make_node((int) Var, (node *) Then, (node *) Else);").
+:- pragma foreign_proc("C",
+	make_node(Var::in, Then::in, Else::in) = (Node::out),
+	[will_not_call_mercury, promise_pure],
+"
+	Node = (Word) make_node((int) Var, (node *) Then, (node *) Else);
+").
 
 
 not_var(V) = make_node(V, zero, one).
@@ -932,39 +997,37 @@ var_restrict_false(V, F0) = F :-
 		)
 	).
 
-/*
-restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
-    size(R0, _Nodes, _Depth), % XXX
-	P = (pred(V::in, di, uo) is det --> io__write_int(var_to_int(V))), % XXX
-	unsafe_perform_io(robdd_to_dot(R0, P, "rtf.dot")), % XXX
-	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R).
+% restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
+%     size(R0, _Nodes, _Depth), % XXX
+% 	P = (pred(V::in, di, uo) is det --> io__write_int(var_to_int(V))), % XXX
+% 	unsafe_perform_io(robdd_to_dot(R0, P, "rtf.dot")), % XXX
+% 	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R).
+% 
+% :- pred restrict_true_false_vars_2(vars(T)::in, vars(T)::in,
+% 	robdd(T)::in, robdd(T)::out) is det.
+% 
+% - pragma memo(restrict_true_false_vars_2/4).
+% 
+% restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R) :-
+% 	( is_terminal(R0) ->
+% 	    R = R0
+% 	; empty(TrueVars0), empty(FalseVars0) ->
+% 	    R = R0
+% 	;	
+% 	    Var = R0 ^ value,
+% 	    TrueVars = TrueVars0 `remove_leq` Var,
+% 	    FalseVars = FalseVars0 `remove_leq` Var,
+% 	    ( TrueVars0 `contains` Var ->
+% 		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ tr, R)
+% 	    ; FalseVars0 `contains` Var ->
+% 		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ fa, R)
+% 	    ;
+% 		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ tr, R_tr),
+% 		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ fa, R_fa),
+% 		R = make_node(R0 ^ value, R_tr, R_fa)
+% 	    )
+% 	).
 
-:- pred restrict_true_false_vars_2(vars(T)::in, vars(T)::in,
-	robdd(T)::in, robdd(T)::out) is det.
-
-%:- pragma memo(restrict_true_false_vars_2/4).
-
-restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R) :-
-	( is_terminal(R0) ->
-	    R = R0
-	; empty(TrueVars0), empty(FalseVars0) ->
-	    R = R0
-	;	
-	    Var = R0 ^ value,
-	    TrueVars = TrueVars0 `remove_leq` Var,
-	    FalseVars = FalseVars0 `remove_leq` Var,
-	    ( TrueVars0 `contains` Var ->
-		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ tr, R)
-	    ; FalseVars0 `contains` Var ->
-		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ fa, R)
-	    ;
-		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ tr, R_tr),
-		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ fa, R_fa),
-		R = make_node(R0 ^ value, R_tr, R_fa)
-	    )
-	).
-*/
-%/*
 restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
 	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R,
 %		hash_table__new(robdd_double_hash, 12, 0.9),
@@ -1005,7 +1068,6 @@ restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R, Seen0, Seen) :-
 		),
 		Seen = det_insert(Seen2, R0, R)
 	).
-%*/
 
 :- pred robdd_double_hash(robdd(T)::in, int::out, int::out) is det.
 
@@ -1149,8 +1211,9 @@ expand_equiv_2([V | Vs], LM, Trues, R0, R) -->
 
 %------------------------------------------------------------------------%
 
-% XXX this could be made much more efficient by doing something similar to what
-% we do in expand_equiv.
+% XXX this could be made much more efficient by doing something similar
+% to what we do in expand_equiv.
+
 expand_implications(ImpVars, R) = R ^
 		expand_implications_2(not_var, var, Imps) ^
 		expand_implications_2(var, not_var, RevImps) ^
@@ -1169,8 +1232,12 @@ expand_implications_2(FA, FB, IM, R0) =
 	    IM, R0).
 
 %------------------------------------------------------------------------%
-:- pragma c_code(is_terminal(F::in), [will_not_call_mercury, thread_safe],
-	"SUCCESS_INDICATOR = IS_TERMINAL(F);").
+:- pragma foreign_proc("C",
+	is_terminal(F::in),
+	[will_not_call_mercury, thread_safe, promise_pure],
+"
+	SUCCESS_INDICATOR = IS_TERMINAL(F);
+").
 
 size(F, Nodes, Depth) :-
 	size(F, Nodes, Depth, _).
@@ -1320,8 +1387,12 @@ node_name(R) =
 	).
 
 :- func node_num(robdd(T)) = int.
-:- pragma c_code(node_num(R::in) = (N::out), [will_not_call_mercury],
-	"N = (Integer)R;\n").
+:- pragma foreign_proc("C",
+	node_num(R::in) = (N::out),
+	[will_not_call_mercury, promise_pure],
+"
+	N = (Integer) R;
+").
 
 :- func terminal_name(robdd(T)) = string.
 
@@ -1382,7 +1453,7 @@ minimal_model(Vars, R, TrueVars, FalseVars) :-
 	).
 
 :- pred minimal_model_2(list(var(T))::in, robdd(T)::in, vars(T)::in,
-		vars(T)::out, vars(T)::in, vars(T)::out) is semidet.
+	vars(T)::out, vars(T)::in, vars(T)::out) is semidet.
 
 minimal_model_2([], _, TrueVars, TrueVars, FalseVars, FalseVars).
 minimal_model_2([V | Vs], R0, TrueVars0, TrueVars, FalseVars0, FalseVars) :-
@@ -1403,7 +1474,12 @@ minimal_model_2([V | Vs], R0, TrueVars0, TrueVars, FalseVars0, FalseVars) :-
 clear_caches -->
 	{ impure clear_caches }.
 
-:- pragma c_code(clear_caches, [will_not_call_mercury], "init_caches();").
+:- pragma foreign_proc("C",
+	clear_caches,
+	[will_not_call_mercury],
+"
+	init_caches();
+").
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -171,13 +171,16 @@
 	% this structure holds option values, extracted from the globals
 :- type inline_params
 	--->	params(
-			simple				:: bool,
-			single_use			:: bool,
-			size_threshold			:: int,
-			simple_goal_threshold		:: int,
-			var_threshold			:: int,
-			highlevel_code			:: bool,
-			tracing				:: bool
+			simple			:: bool,
+			single_use		:: bool,
+			size_threshold		:: int,
+			simple_goal_threshold	:: int,
+			var_threshold		:: int,
+			highlevel_code		:: bool,
+			any_tracing		:: bool
+						% Is any procedure being traced
+						% in the module?
+						
 		).
 
 inlining(ModuleInfo0, ModuleInfo) -->
@@ -204,9 +207,9 @@ inlining(ModuleInfo0, ModuleInfo) -->
 	globals__io_lookup_int_option(inline_vars_threshold, VarThreshold),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
 	globals__io_get_trace_level(TraceLevel),
-	{ Tracing = bool__not(trace_level_is_none(TraceLevel)) },
+	{ AnyTracing = bool__not(given_trace_level_is_none(TraceLevel)) },
 	{ Params = params(Simple, SingleUse, CompoundThreshold,
-		SimpleThreshold, VarThreshold, HighLevelCode, Tracing) },
+		SimpleThreshold, VarThreshold, HighLevelCode, AnyTracing) },
 
 		%
 		% Get the usage counts for predicates
@@ -428,9 +431,9 @@ inlining__mark_proc_as_inlined(proc(PredId, ProcId), ModuleInfo,
 
 inlining__in_predproc(PredProcId, InlinedProcs, Params,
 		ModuleInfo0, ModuleInfo, IoState0, IoState) :-
-	VarThresh = Params^var_threshold,
-	HighLevelCode = Params^highlevel_code,
-	Tracing = Params^tracing,
+	VarThresh = Params ^ var_threshold,
+	HighLevelCode = Params ^ highlevel_code,
+	AnyTracing = Params ^ any_tracing,
 
 	PredProcId = proc(PredId, ProcId),
 
@@ -453,7 +456,7 @@ inlining__in_predproc(PredProcId, InlinedProcs, Params,
 	DetChanged0 = no,
 	PurityChanged0 = no,
 
-	InlineInfo0 = inline_info(VarThresh, HighLevelCode, Tracing,
+	InlineInfo0 = inline_info(VarThresh, HighLevelCode, AnyTracing,
 		InlinedProcs, ModuleInfo0, UnivQTVars, Markers,
 		VarSet0, VarTypes0, TypeVarSet0, TypeInfoVarMap0,
 		DidInlining0, Requantify0, DetChanged0, PurityChanged0),
@@ -555,7 +558,7 @@ inlining__inlining_in_goal(some(Vars, CanRemove, Goal0) - GoalInfo,
 inlining__inlining_in_goal(call(PredId, ProcId, ArgVars, Builtin, Context,
 		Sym) - GoalInfo0, Goal - GoalInfo, InlineInfo0, InlineInfo) :-
 
-	InlineInfo0 = inline_info(VarThresh, HighLevelCode, Tracing,
+	InlineInfo0 = inline_info(VarThresh, HighLevelCode, AnyTracing,
 		InlinedProcs, ModuleInfo, HeadTypeParams, Markers,
 		VarSet0, VarTypes0, TypeVarSet0, TypeInfoVarMap0,
 		DidInlining0, Requantify0, DetChanged0, PurityChanged0),
@@ -563,7 +566,7 @@ inlining__inlining_in_goal(call(PredId, ProcId, ArgVars, Builtin, Context,
 	% should we inline this call?
 	(
 		inlining__should_inline_proc(PredId, ProcId, Builtin,
-			HighLevelCode, Tracing, InlinedProcs, Markers,
+			HighLevelCode, AnyTracing, InlinedProcs, Markers,
 			ModuleInfo),
 			% okay, but will we exceed the number-of-variables
 			% threshold?
@@ -628,7 +631,7 @@ inlining__inlining_in_goal(call(PredId, ProcId, ArgVars, Builtin, Context,
 		DetChanged = DetChanged0,
 		PurityChanged = PurityChanged0
 	),
-	InlineInfo = inline_info(VarThresh, HighLevelCode, Tracing,
+	InlineInfo = inline_info(VarThresh, HighLevelCode, AnyTracing,
 		InlinedProcs, ModuleInfo, HeadTypeParams, Markers,
 		VarSet, VarTypes, TypeVarSet, TypeInfoVarMap, DidInlining,
 		Requantify, DetChanged, PurityChanged).
@@ -727,7 +730,13 @@ inlining__do_inline_call(HeadTypeParams, ArgVars, PredInfo, ProcInfo,
 
 	apply_substitutions_to_var_map(CalleeTypeInfoVarMap0, 
 		TypeRenaming, TypeSubn, Subn, CalleeTypeInfoVarMap1),
-	map__merge(TypeInfoVarMap0, CalleeTypeInfoVarMap1,
+
+	% Prefer the type_info_locn from the caller.
+	% The type_infos or typeclass_infos passed to the callee may
+	% have been produced by extracting type_infos or typeclass_infos
+	% from typeclass_infos in the caller, so they won't necessarily
+	% be the same.
+	map__overlay(CalleeTypeInfoVarMap1, TypeInfoVarMap0,
 		TypeInfoVarMap).
 
 inlining__get_type_substitution(HeadTypes, ArgTypes,
@@ -835,10 +844,10 @@ inlining__inlining_in_conj([Goal0 | Goals0], Goals) -->
 	is semidet.
 
 inlining__should_inline_proc(PredId, ProcId, BuiltinState, HighLevelCode,
-		Tracing, InlinedProcs, CallingPredMarkers, ModuleInfo) :-
+		_Tracing, InlinedProcs, CallingPredMarkers, ModuleInfo) :-
 	InlinePromisedPure = yes,
 	inlining__can_inline_proc(PredId, ProcId, BuiltinState,
-		HighLevelCode, Tracing, InlinePromisedPure,
+		HighLevelCode, InlinePromisedPure,
 		CallingPredMarkers, ModuleInfo),
 
 	% OK, we could inline it - but should we?  Apply our heuristic.
@@ -854,18 +863,16 @@ inlining__can_inline_proc(PredId, ProcId, BuiltinState, InlinePromisedPure,
 		CallingPredMarkers, ModuleInfo) :-
 	module_info_globals(ModuleInfo, Globals),
 	globals__lookup_bool_option(Globals, highlevel_code, HighLevelCode), 
-	globals__get_trace_level(Globals, TraceLevel),
-	Tracing = bool__not(trace_level_is_none(TraceLevel)),
 	inlining__can_inline_proc(PredId, ProcId, BuiltinState,
-		HighLevelCode, Tracing, InlinePromisedPure,
+		HighLevelCode, InlinePromisedPure,
 		CallingPredMarkers, ModuleInfo).
 
 :- pred inlining__can_inline_proc(pred_id, proc_id, builtin_state, bool,
-	bool, bool, pred_markers, module_info).
-:- mode inlining__can_inline_proc(in, in, in, in, in, in, in, in) is semidet.
+	bool, pred_markers, module_info).
+:- mode inlining__can_inline_proc(in, in, in, in, in, in, in) is semidet.
 
 inlining__can_inline_proc(PredId, ProcId, BuiltinState, HighLevelCode,
-		Tracing, InlinePromisedPure, CallingPredMarkers, ModuleInfo) :-
+		InlinePromisedPure, CallingPredMarkers, ModuleInfo) :-
 
 	% don't inline builtins, the code generator will handle them
 	BuiltinState = not_builtin,
@@ -904,22 +911,6 @@ inlining__can_inline_proc(PredId, ProcId, BuiltinState, HighLevelCode,
 		CalledGoal = foreign_proc(_,_,_,_,_,_,_) - _,
 		proc_info_interface_determinism(ProcInfo, Detism),
 		( Detism = nondet ; Detism = multidet )
-	),
-
-	% XXX:
-	% If tracing is enabled, then the code generator will need to figure
-	% out the locations of typeinfos inside typeclass_infos. At the moment,
-	% due to a bug, the algorithm for doing this figuring can cause a
-	% compiler abort if we inline calls that have typeclass constraints.
-	(
-		Tracing = yes
-	=>
-		(
-			pred_info_clauses_info(PredInfo, ClausesInfo),
-			TypeClassInfoVarMap = ClausesInfo ^
-				clause_typeclass_info_varmap,
-			map__is_empty(TypeClassInfoVarMap)
-		)
 	),
 
 	% Only inline foreign_code if it is appropriate for

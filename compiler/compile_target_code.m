@@ -588,7 +588,7 @@ compile_java_file(ErrorStream, ModuleName, Succeeded) -->
 		{ join_string_list(Java_Incl_Dirs, "", "",
 			PathSeparator, ClassPath) },
 		{ InclOpt = string__append_list([
-			"-classpath ", ClassPath, " "]) }
+			"-classpath ", quote_arg(ClassPath), " "]) }
 	),
 	globals__io_lookup_bool_option(target_debug, Target_Debug),
 	{ Target_Debug = yes ->
@@ -639,16 +639,6 @@ assemble(ErrorStream, PIC, ModuleName, Succeeded) -->
 %-----------------------------------------------------------------------------%
 
 make_init_file(ErrorStream, MainModuleName, AllModules, Succeeded) -->
-    globals__io_lookup_maybe_string_option(make_init_file_command,
-		MaybeInitFileCommand),
-    (
-	{ MaybeInitFileCommand = yes(InitFileCommand0) },
-	{ InitFileCommand = substitute_user_command(InitFileCommand0,
-		MainModuleName, AllModules) },
-	invoke_shell_command(ErrorStream, verbose_commands,
-		InitFileCommand, Succeeded)
-    ;
-	{ MaybeInitFileCommand = no },
 	module_name_to_file_name(MainModuleName, ".init.tmp",
 		yes, TmpInitFileName),
 	io__open_output(TmpInitFileName, InitFileRes),
@@ -674,10 +664,25 @@ make_init_file(ErrorStream, MainModuleName, AllModules, Succeeded) -->
 				[]
 			)
 		    ), AllModules),
+		globals__io_lookup_maybe_string_option(extra_init_command,
+			MaybeInitFileCommand),
+		(
+			{ MaybeInitFileCommand = yes(InitFileCommand0) },
+			{ InitFileCommand = substitute_user_command(
+				InitFileCommand0, MainModuleName,
+				AllModules) },
+			invoke_shell_command(InitFileStream, verbose_commands,
+				InitFileCommand, Succeeded0)
+		;
+			{ MaybeInitFileCommand = no },
+			{ Succeeded0 = yes }
+		),
+
 		io__close_output(InitFileStream),
 		module_name_to_file_name(MainModuleName, ".init",
 			yes, InitFileName),
-		update_interface(InitFileName, Succeeded)
+		update_interface(InitFileName, Succeeded1),
+		{ Succeeded = Succeeded0 `and` Succeeded1 }
 	;
 		{ InitFileRes = error(Error) },
 		io__progname_base("mercury_compile", ProgName),
@@ -689,8 +694,7 @@ make_init_file(ErrorStream, MainModuleName, AllModules, Succeeded) -->
 		io__write_string(ErrorStream, io__error_message(Error)),
 		io__nl(ErrorStream),
 		{ Succeeded = no }
-	)
-    ).
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -791,7 +795,7 @@ make_init_obj_file(ErrorStream, MustCompile, ModuleName,
 	maybe_write_string(Verbose, "% Creating initialization file...\n"),
 
 	globals__io_get_trace_level(TraceLevel),
-	{ trace_level_is_none(TraceLevel) = no ->
+	{ given_trace_level_is_none(TraceLevel) = no ->
 		TraceOpt = "--trace "
 	;
 		TraceOpt = ""
@@ -817,14 +821,16 @@ make_init_obj_file(ErrorStream, MustCompile, ModuleName,
 
 	globals__io_lookup_accumulating_option(init_file_directories,
 		InitFileDirsList),
-	{ join_string_list(InitFileDirsList, "-I ", "", " ", InitFileDirs) },
+	{ join_quoted_string_list(InitFileDirsList,
+		"-I ", "", " ", InitFileDirs) },
 
 	globals__io_lookup_accumulating_option(init_files, InitFileNamesList),
-	{ join_string_list(InitFileNamesList, "", "", " ", InitFileNames) },
+	{ join_quoted_string_list(InitFileNamesList,
+		"", "", " ", InitFileNames) },
 
 	globals__io_lookup_accumulating_option(trace_init_files,
 		TraceInitFileNamesList),
-	{ join_string_list(TraceInitFileNamesList, "--trace-init-file ",
+	{ join_quoted_string_list(TraceInitFileNamesList, "--trace-init-file ",
 		"", " ", TraceInitFileNames) },
 
 	{ TmpInitCFileName = InitCFileName ++ ".tmp" },
@@ -893,7 +899,7 @@ link(ErrorStream, LinkTargetType, ModuleName,
 	globals__io_lookup_bool_option(statistics, Stats),
 
 	globals__io_get_trace_level(TraceLevel),
-	{ trace_level_is_none(TraceLevel) = no ->
+	{ given_trace_level_is_none(TraceLevel) = no ->
 		TraceOpt = "--trace "
 	;
 		TraceOpt = ""
@@ -946,11 +952,11 @@ link(ErrorStream, LinkTargetType, ModuleName,
 		globals__io_lookup_accumulating_option(
 				link_library_directories,
 				LinkLibraryDirectoriesList),
-		{ join_string_list(LinkLibraryDirectoriesList, "-L", "",
+		{ join_quoted_string_list(LinkLibraryDirectoriesList, "-L", "",
 				" ", LinkLibraryDirectories) },
 		globals__io_lookup_accumulating_option(link_libraries,
 				LinkLibrariesList),
-		{ join_string_list(LinkLibrariesList, "-l", "", " ",
+		{ join_quoted_string_list(LinkLibrariesList, "-l", "", " ",
 				LinkLibraries) },
 
 		% Note that LDFlags may contain `-l' options
@@ -1025,6 +1031,16 @@ join_string_list([String | Strings], Prefix, Suffix, Separator, Result) :-
 			Result0], Result)
 	).
 
+	% As above, but quote the strings first.
+	% Note that the strings in values of the *flags options are
+	% already quoted.
+:- pred join_quoted_string_list(list(string), string, string, string, string).
+:- mode join_quoted_string_list(in, in, in, in, out) is det.
+
+join_quoted_string_list(Strings, Prefix, Suffix, Separator, Result) :-
+	join_string_list(map(quote_arg, Strings),
+		Prefix, Suffix, Separator, Result).
+
 	% join_module_list(ModuleNames, Extension, Terminator, Result)
 	%
 	% The list of strings `Result' is computed from the list of strings
@@ -1052,7 +1068,7 @@ join_module_list([Module | Modules], Extension, Terminator,
 write_num_split_c_files(ModuleName, NumChunks, Succeeded) -->
 	module_name_to_file_name(ModuleName, ".num_split", yes,
 		NumChunksFileName),
-       io__open_output(NumChunksFileName, Res),
+	io__open_output(NumChunksFileName, Res),
 	( { Res = ok(OutputStream) } ->
 		io__write_int(OutputStream, NumChunks),
 		io__nl(OutputStream),

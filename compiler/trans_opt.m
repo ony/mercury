@@ -160,7 +160,7 @@ read_trans_opt_files([Import | Imports],
 	maybe_write_string(VeryVerbose, "'... "),
 	maybe_flush_output(VeryVerbose),
 
-	module_name_to_file_name(Import, ".trans_opt", no, FileName),
+	module_name_to_search_file_name(Import, ".trans_opt", FileName),
 	prog_io__read_opt_file(FileName, Import,
 			ModuleError, Messages, Items1),
 

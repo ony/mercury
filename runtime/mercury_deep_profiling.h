@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2001 The University of Melbourne.
+** Copyright (C) 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -22,16 +22,6 @@ typedef enum {
 	MR_method_call,
 	MR_callback
 } MR_CallSite_Kind;
-
-typedef struct MR_CallSiteStatic_Struct		MR_CallSiteStatic;
-typedef struct MR_CallSiteDynamic_Struct	MR_CallSiteDynamic;
-typedef struct MR_User_ProcStatic_Struct	MR_User_ProcStatic;
-typedef struct MR_Compiler_ProcStatic_Struct	MR_Compiler_ProcStatic;
-typedef struct MR_ProcStatic_Struct		MR_ProcStatic;
-typedef struct MR_ProcDynamic_Struct		MR_ProcDynamic;
-typedef struct MR_ProfilingMetrics_Struct	MR_ProfilingMetrics;
-
-typedef struct MR_CallSiteDynList_Struct	MR_CallSiteDynList;
 
 struct MR_ProfilingMetrics_Struct {
 #ifdef MR_DEEP_PROFILING_PORT_COUNTS
@@ -328,7 +318,7 @@ extern	MR_CallSiteDynamic		*MR_next_call_site_dynamic;
 extern	MR_CallSiteDynList		**MR_current_callback_site;
 extern	MR_CallSiteDynamic		*MR_root_call_sites[];
 
-extern	volatile MR_bool			MR_inside_deep_profiling_code;
+extern	volatile MR_bool		MR_inside_deep_profiling_code;
 extern	volatile unsigned		MR_quanta_inside_deep_profiling_code;
 extern	volatile unsigned		MR_quanta_outside_deep_profiling_code;
 

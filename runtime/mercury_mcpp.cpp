@@ -25,19 +25,6 @@ namespace mercury {
 
 namespace runtime {
 
-	// A user exception -- really just a wrapper for the exception
-	// data.
-
-__gc public class Exception : public System::Exception
-{
-public:
-   Exception(MR_Word data) 
-   {
-   	mercury_exception = data;	
-   }
-   MR_Word mercury_exception;
-};
-
 __gc public class SystemException : public System::Exception
 {
 public:
@@ -162,7 +149,8 @@ __gc public class Constants {
     static int MR_TYPECTOR_REP_BASETYPECLASSINFO        =34;
     static int MR_TYPECTOR_REP_TYPEDESC	        	=35;
     static int MR_TYPECTOR_REP_TYPECTORDESC	        =36;
-    static int MR_TYPECTOR_REP_UNKNOWN		        =37;
+    static int MR_TYPECTOR_REP_FOREIGN			=37;
+    static int MR_TYPECTOR_REP_UNKNOWN		        =38;
 
     static int MR_SECTAG_NONE				= 0;
     static int MR_SECTAG_LOCAL				= 1;

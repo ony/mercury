@@ -10,14 +10,13 @@
 
 :- interface.
 
-:- implementation.
-
 :- import_module int.
 
-:- pred p(int::out) is det.
+:- func f(int) = int.
 
-    % Warning about referring to "uninitialized" !.X.
+:- implementation.
+
+    % Illegally uses !Y as a func result.
     %
-p(!:X) :-
-    !.X = 1.
+f(!X) = !Y.
 

@@ -1092,17 +1092,7 @@ generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassMember) -->
 			[], UnivMercuryType) },	
 		{ UnivMLDSType = mercury_type(UnivMercuryType,
 				user_type, non_foreign_type(UnivMercuryType)) },
-		%
-		% XXX Nasty hack alert!
-		%
-		% Currently the library doesn't build with --high-level-data.
-		% So here we explicitly set --high-level-data to `no'
-		% to reflect the fact that we're linking against the
-		% version of the library compiled with --low-level-data.
-		%
-		{ XXX_LibraryDataRep = DataRep ^ highlevel_data := no },
-		{ UnivType = mlds_type_to_ilds_type(XXX_LibraryDataRep,
-			UnivMLDSType) },
+		{ UnivType = mlds_type_to_ilds_type(DataRep, UnivMLDSType) },
 
 		{ RenameNode = (func(N) = list__map(RenameRets, N)) },
 
@@ -2054,7 +2044,22 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, HasSecTag, Type, Size,
 			Arg0 = Index - S0,
 			I0 = instr_node(dup),
 			load(const(int_const(Index)), I1, S0, S1),
-			load(Rval, I2, S1, S), 
+
+				% XXX the MLDS code generator is meant to
+				% be responsible for boxing the args, but
+				% when compiled with the highlevel_data
+				% where we have overridden the type to use a
+				% lowlevel representation it doesn't get this
+				% right.
+			rval_to_type(Rval, RvalType),
+			ILRvalType = mlds_type_to_ilds_type(DataRep, RvalType),
+			( already_boxed(ILRvalType) ->
+				NewRval = Rval
+			;
+				NewRval = unop(box(RvalType), Rval)
+			),
+
+			load(NewRval, I2, S1, S), 
 			I3 = instr_node(stelem(il_generic_simple_type)),
 			I = tree__list([I0, I1, I2, I3]),
 			Arg = (Index + 1) - S
@@ -3319,6 +3324,7 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 				; Name = "type_info", Arity = 1
 				; Name = "base_typeclass_info", Arity = 1
 				; Name = "typeclass_info", Arity = 1
+				; Name = "heap_pointer", Arity = 0
 				)
 			)		  
 		;

@@ -166,11 +166,7 @@
 **
 ** MR_DEBUG_AGC_SCHEDULING
 **	Display debugging information while scheduling accurate garbage
-**	collection.
-**
-** MR_DEBUG_AGC_COLLECTION
-**	Display debugging information while collecting garbage using the
-**	accurate garbage collector.
+**	collection (for the low-level back-end).
 **
 ** MR_DEBUG_AGC_FORWARDING
 **	Display debugging information when leaving or finding forwarding
@@ -185,11 +181,16 @@
 **	collection.
 **
 ** MR_DEBUG_AGC_SMALL_HEAP
-**	Use a small heap to trigger garbage collection more often.
+**	Use a small heap (52k) to trigger garbage collection more often.
+**	This is the same as setting MERCURY_OPTIONS="--heap-size 52".
 **
 ** MR_DEBUG_AGC_ALL
 ** 	Turn on all debugging information for accurate garbage
 ** 	collection.  (Equivalent to all MR_DEBUG_AGC_* macros above).
+**
+**      Note that general debugging information about accurate
+**	garbage collection is printed if -dG is included in MERCURY_OPTIONS.
+**      This works even if none of the MR_DEBUG_AGC_* macros are enabled.
 **
 ** MR_TABLE_DEBUG
 ** 	Enables low-level debugging messages from the tabling system.
@@ -488,7 +489,7 @@
   #error "MR_NEED_INITIALIZATION_AT_START should not be defined on the command line"
 #endif
 #if !defined(MR_STATIC_CODE_ADDRESSES) || defined(MR_MPROF_PROFILE_CALLS) \
-	|| defined(MR_MPROF_PROFILE_TIME) || defined(DEBUG_LABELS)
+	|| defined(MR_MPROF_PROFILE_TIME) || defined(MR_DEBUG_LABEL_NAMES)
   #define MR_NEED_INITIALIZATION_AT_START
 #endif
 

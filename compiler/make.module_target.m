@@ -164,14 +164,22 @@ make_dependency_files(TargetFile, DepFilesToMake, TouchedTargetFiles,
 	%
 	globals__io_lookup_bool_option(keep_going, KeepGoing),
 	foldl2_maybe_stop_at_error(KeepGoing, make_module_target,
-		DepFilesToMake, _, Info0, Info1),
+		DepFilesToMake, MakeDepsSuccess, Info0, Info1),
 
 	%
 	% Check that the target files exist.
 	%
-	list__map_foldl2(get_target_timestamp, TouchedTargetFiles,
+	list__map_foldl2(get_target_timestamp(no), TouchedTargetFiles,
 			TargetTimestamps, Info1, Info2),
-	( { list__member(error(_), TargetTimestamps) } ->
+	(
+		{ MakeDepsSuccess = no }
+	->
+		debug_file_msg(TargetFile, "error making dependencies"),
+		{ DepsResult = error },
+		{ Info = Info2 }
+	;
+		{ list__member(error(_), TargetTimestamps) }
+	->
 		debug_file_msg(TargetFile, "target file does not exist"),
 		{ DepsResult = out_of_date },
 		{ Info = Info2 }
@@ -190,7 +198,7 @@ make_dependency_files(TargetFile, DepFilesToMake, TouchedTargetFiles,
 		{ MaybeOldestTimestamp = list__foldl(find_oldest_timestamp, 
 			TouchedFileTimestamps, MaybeOldestTimestamp0) },
 
-		get_file_name(TargetFile, TargetFileName, Info4, Info5),
+		get_file_name(no, TargetFile, TargetFileName, Info4, Info5),
 		check_dependencies(TargetFileName,
 			MaybeOldestTimestamp, DepFilesToMake,
 			DepsResult, Info5, Info)
@@ -237,7 +245,7 @@ build_target_2(ModuleName, process_module(ModuleTask), _Imports,
 		{ AllArgs = list__append(AllOptionArgs, [ModuleArg]) },
 		io__write_string("Invoking command `mmc "),
 		% XXX Don't write the default options.
-		io__write_list(quote_args(AllArgs), " ",
+		io__write_list(list__map(quote_arg, AllArgs), " ",
 			io__write_string),
 		io__write_string("'"),
 		io__nl
@@ -361,7 +369,8 @@ call_mercury_compile_main(Args, Succeeded) -->
 
 invoke_mmc(ErrorStream, Args, Succeeded) -->
 	{ CommandVerbosity = verbose }, % We've already written the command.
-	{ Command = string__join_list(" ", ["mmc" | quote_args(Args)]) },
+	{ Command = string__join_list(" ",
+			["mmc" | list__map(quote_arg, Args)]) },
 	invoke_shell_command(ErrorStream, CommandVerbosity,
 		Command, Succeeded).
 
@@ -396,7 +405,7 @@ record_made_target_2(Succeeded, TargetFile, TouchedTargetFiles,
 		MakeInfo = MakeInfo0 ^ file_timestamps :=
 			map__delete(MakeInfo0 ^ file_timestamps, TouchedFile)
 	    ) },
-	list__map_foldl2(get_file_name, TouchedTargetFiles,
+	list__map_foldl2(get_file_name(no), TouchedTargetFiles,
 		TouchedTargetFileNames, Info2, Info3),
 	{ list__foldl(DeleteTimestamp, TouchedTargetFileNames, Info3, Info4) },
 	{ list__foldl(DeleteTimestamp, OtherTouchedFiles, Info4, Info) }.
@@ -548,20 +557,10 @@ touched_files(TargetFile, process_module(Task), TouchedTargetFiles,
 	    ),
 
 	    { ( CompilationTarget = c ; CompilationTarget = asm ) ->
-		    %
-		    % We only generate a `.mh' file if the module contains
-		    % `:- pragma export' declarations.
-		    %
-	    	PragmaExportModuleNames =
-			list__filter_map(
-			    (func(MImports) =
-			    		MImports ^ module_name is semidet :-
-				contains_foreign_export =
-				    MImports ^ contains_foreign_export
-			    ), ModuleImportsList),
-	    	HeaderTargets =
-			make_target_list(PragmaExportModuleNames, c_header(mh))
-			++ HeaderTargets0
+		Names = list__map((func(MI) = MI ^ module_name),
+				ModuleImportsList),
+	    	HeaderTargets = make_target_list(Names, c_header(mh))
+				++ HeaderTargets0
 	    ;
 		HeaderTargets = HeaderTargets0
 	    },
@@ -679,10 +678,10 @@ external_foreign_code_files(Imports, ForeignFiles) -->
 	->
 		module_name_to_file_name(
 			foreign_language_module_name(ModuleName, c), ".c",
-			no, CCodeFileName),
+			yes, CCodeFileName),
 		module_name_to_file_name(
 			foreign_language_module_name(ModuleName, c), ObjExt,
-			no, ObjFileName),
+			yes, ObjFileName),
 		{ ForeignFiles0 =
 			[foreign_code_file(c, CCodeFileName, ObjFileName) ] }
 	;
@@ -726,9 +725,9 @@ external_foreign_code_files_for_il(ModuleName, Language,
 					Language) },
 		{ ForeignExt = foreign_language_file_extension(Language) }
 	->
-		module_name_to_file_name(ForeignModuleName, ForeignExt, no, 
+		module_name_to_file_name(ForeignModuleName, ForeignExt, yes, 
 			ForeignFileName),
-		module_name_to_file_name(ForeignModuleName, ".dll", no, 
+		module_name_to_file_name(ForeignModuleName, ".dll", yes, 
 			ForeignDLLFileName),
 		{ ForeignFiles = [foreign_code_file(Language, ForeignFileName,
 					ForeignDLLFileName)] }

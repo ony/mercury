@@ -235,8 +235,8 @@ hhf__unify(lambda_goal(A,B,C,D,E,F,G,LambdaGoal0), NonLocals, _, X, Mode,
 	hhf__goal(NonLocals, LambdaGoal0, LambdaGoal),
 	{ GoalExpr = unify(X, lambda_goal(A,B,C,D,E,F,G,LambdaGoal), Mode,
 			Unif, Context) }.
-hhf__unify(functor(ConsId0, ArgsA), NonLocals, GoalInfo0, X, Mode, Unif,
-		Context, GoalExpr) -->
+hhf__unify(functor(ConsId0, IsExistConstruct, ArgsA), NonLocals, GoalInfo0,
+		X, Mode, Unif, Context, GoalExpr) -->
 	TypeOfX =^ vartypes ^ det_elem(X),
 	{ qualify_cons_id(TypeOfX, ArgsA, ConsId0, _, ConsId) },
 	InstGraph0 =^ inst_graph,
@@ -259,8 +259,8 @@ hhf__unify(functor(ConsId0, ArgsA), NonLocals, GoalInfo0, X, Mode, Unif,
 	{ goal_info_get_nonlocals(GoalInfo0, GINonlocals0) },
 	{ GINonlocals = GINonlocals0 `set__union` list_to_set(Args) },
 	{ goal_info_set_nonlocals(GoalInfo0, GINonlocals, GoalInfo) },
-	{ UnifyGoal = unify(X, functor(ConsId, Args), Mode, Unif, Context)
-		- GoalInfo },
+	{ UnifyGoal = unify(X, functor(ConsId, IsExistConstruct, Args),
+		Mode, Unif, Context) - GoalInfo },
 	{ GoalExpr = conj([UnifyGoal | Unifications]) }.
 
 :- pred hhf__make_unifications(list(prog_var), list(prog_var), hlds_goal_info,

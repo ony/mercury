@@ -262,4 +262,8 @@ typedef	char		MR_bool;
 
 /*---------------------------------------------------------------------------*/
 
+#define MR_SORRY(msg) MR_fatal_error("Sorry, not yet implemented: " msg);
+
+/*---------------------------------------------------------------------------*/
+
 #endif /* not MERCURY_STD_H */

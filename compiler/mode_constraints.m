@@ -290,7 +290,7 @@ number_robdd_variables_in_unify(_, _, Vars, RHS, RHS) -->
 	{ RHS = var(VarR) },
 	{ Vars = [VarR] }.
 number_robdd_variables_in_unify(_, _, Vars, RHS, RHS) -->
-	{ RHS = functor(_, Args) },
+	{ RHS = functor(_, _, Args) },
 	{ Vars = Args }. % XXX
 number_robdd_variables_in_unify(InstGraph, GoalPath, Vars, RHS0, RHS) -->
 	{ RHS0 = lambda_goal(A, B, C, LambdaNonLocals, LambdaVars, F, G,
@@ -1350,7 +1350,7 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 	^ho_modes := HoModes.
 
 unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
-	{ RHS = functor(_ConsId, Args) },
+	{ RHS = functor(_ConsId, _IsExistConstruct, Args) },
 	get_var(out(A), Aout),
 	{ Constraint1 = Constraint0 ^ var(Aout) },
 	( update_mc_info(using_simple_mode_constraints) ->

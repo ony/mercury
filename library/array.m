@@ -425,14 +425,17 @@ lower bounds other than zero are not supported
 
 #include ""mercury_deep_profiling_hand.h""
 
+
+#ifdef	MR_DEEP_PROFILING
+MR_proc_static_compiler_plain(array, __Unify__,   array, 1, 0,
+	array, array_equal,   2, 0, ""array.m"", 99, MR_TRUE);
+MR_proc_static_compiler_plain(array, __Compare__, array, 1, 0,
+	array, array_compare, 3, 0, ""array.m"", 99, MR_TRUE);
+#endif
+
+MR_DEFINE_TYPE_CTOR_INFO(array, array, 1, ARRAY);
+
 #ifdef MR_HIGHLEVEL_CODE
-
-MR_define_type_ctor_info(array, array, 1, MR_TYPECTOR_REP_ARRAY);
-
-/* forward decl, to suppress gcc -Wmissing-decl warning */
-void sys_init_array_module_builtins(void);
-void sys_init_array_module_builtins_init(void);
-void sys_init_array_module_builtins_init_type_tables(void);
 
 MR_bool MR_CALL
 mercury__array__do_unify__array_1_0(MR_Mercury_Type_Info type_info,
@@ -467,15 +470,6 @@ mercury__array____Compare____array_1_0(
 }
 
 #else
-
-#ifdef	MR_DEEP_PROFILING
-MR_proc_static_compiler_plain(array, __Unify__,   array, 1, 0,
-	array, array_equal,   2, 0, ""array.m"", 99, MR_TRUE);
-MR_proc_static_compiler_plain(array, __Compare__, array, 1, 0,
-	array, array_compare, 3, 0, ""array.m"", 99, MR_TRUE);
-#endif
-
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY);
 
 MR_declare_entry(mercury__array__array_equal_2_0);
 MR_declare_entry(mercury__array__array_compare_3_0);
@@ -556,6 +550,10 @@ MR_define_entry(mercury____Compare___array__array_1_0);
 
 MR_END_MODULE
 
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc array_module_builtins;
+
+#endif /* ! MR_HIGHLEVEL_CODE */
+
 /* Ensure that the initialization code for the above module gets run. */
 /*
 INIT sys_init_array_module_builtins
@@ -567,10 +565,6 @@ void sys_init_array_module_builtins_init_type_tables(void);
 #ifdef	MR_DEEP_PROFILING
 void sys_init_array_module_builtins_write_out_proc_statics(FILE *fp);
 #endif
-
-MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc array_module_builtins;
-
-#endif /* ! MR_HIGHLEVEL_CODE */
 
 void
 sys_init_array_module_builtins_init(void)
@@ -609,7 +603,7 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
     MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY)
 
     static int
-    special___Unify___array_1_0(MR_Word type_info, MR_Array x, MR_Array y)
+    special___Unify___array_1_0(MR_TypeInfo type_info, MR_Array x, MR_Array y)
     {
             return mercury::array::mercury_code::ML_array_equal(
 	    	type_info, x, y);
@@ -617,14 +611,14 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
 
     static void
     special___Compare___array_1_0(
-            MR_Word type_info, MR_Word_Ref result, MR_Array x, MR_Array y)
+            MR_TypeInfo type_info, MR_ComparisonResult *result, MR_Array x, MR_Array y)
     {
             mercury::array::mercury_code::ML_array_compare(
 	    	type_info, result, x, y);
     }
 
     static int
-    do_unify__array_1_0(MR_Word type_info, MR_Box x, MR_Box y)
+    do_unify__array_1_0(MR_TypeInfo type_info, MR_Box x, MR_Box y)
     {
             return mercury::array__cpp_code::mercury_code::special___Unify___array_1_0(
                     type_info, 
@@ -634,7 +628,7 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
 
     static void
     do_compare__array_1_0(
-            MR_Word type_info, MR_Word_Ref result, MR_Box x, MR_Box y)
+            MR_TypeInfo type_info, MR_ComparisonResult *result, MR_Box x, MR_Box y)
     {
             mercury::array__cpp_code::mercury_code::special___Compare___array_1_0(
                     type_info, result, 
@@ -666,7 +660,7 @@ array__equal_elements(N, Size, Array1, Array2) :-
 	;
 		array__lookup(Array1, N, Elem),
 		array__lookup(Array2, N, Elem),
-		N1 is N + 1,
+		N1 = N + 1,
 		array__equal_elements(N1, Size, Array1, Array2)
 	).
 
@@ -694,7 +688,7 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 		array__lookup(Array2, N, Elem2),
 		compare(ElemResult, Elem1, Elem2),
 		( ElemResult = (=) ->
-			N1 is N + 1,
+			N1 = N + 1,
 			array__compare_elements(N1, Size, Array1, Array2,
 				Result)
 		;
@@ -1230,7 +1224,7 @@ array__from_list(List, Array) :-
 array__insert_items([], _N, Array, Array).
 array__insert_items([Head|Tail], N, Array0, Array) :-
         array__set(Array0, N, Head, Array1),
-        N1 is N + 1,
+        N1 = N + 1,
         array__insert_items(Tail, N1, Array1, Array).
 
 %-----------------------------------------------------------------------------%
@@ -1255,7 +1249,7 @@ array__bsearch(A, El, Compare, Result) :-
 :- mode array__bsearch_2(in, in, in, in, pred(in, in, out) is det,
 				out) is det.
 array__bsearch_2(Array, Lo, Hi, El, Compare, Result) :-
-	Width is Hi - Lo,
+	Width = Hi - Lo,
 
 	% If Width < 0, there is no range left.
 	( Width < 0 ->
@@ -1277,12 +1271,12 @@ array__bsearch_2(Array, Lo, Hi, El, Compare, Result) :-
 	        array__lookup(Array, Mid, XMid),
 	        call(Compare, XMid, El, Comp),
 	        ( Comp = (<),
-		    Mid1 is Mid + 1,
+		    Mid1 = Mid + 1,
 		    array__bsearch_2(Array, Mid1, Hi, El, Compare, Result)
 	        ; Comp = (=),
 		    array__bsearch_2(Array, Lo, Mid, El, Compare, Result)
 	        ; Comp = (>),
-		    Mid1 is Mid - 1,
+		    Mid1 = Mid - 1,
 		    array__bsearch_2(Array, Lo, Mid1, El, Compare, Result)
 	        )
 	    )

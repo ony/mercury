@@ -706,8 +706,8 @@ intermod__module_qualify_unify_rhs(_LVar,
 	% Fully module-qualify the right-hand-side of a unification.
 	% For function calls and higher-order terms, call intermod__add_proc
 	% so that the predicate or function will be exported if necessary.
-intermod__module_qualify_unify_rhs(_LVar, functor(Functor, Vars),
-				functor(Functor, Vars), DoWrite) -->
+intermod__module_qualify_unify_rhs(_LVar, functor(Functor, E, Vars),
+				functor(Functor, E, Vars), DoWrite) -->
 	(
 		%
 		% Is this a higher-order predicate or higher-order function
@@ -1104,28 +1104,28 @@ intermod__write_intermod_info_2(IntermodInfo) -->
 	globals__io_set_option(dump_hlds_options, string("")),
 	( { WriteHeader = yes } ->
 		{ module_info_get_foreign_decl(ModuleInfo, RevForeignDecls) },
+		{ module_info_get_pragma_exported_procs(ModuleInfo,
+				PragmaExportedProcs) },
 		{ module_info_get_foreign_import_module(ModuleInfo,
 			RevForeignImports) },
-		{ module_info_get_pragma_exported_procs(ModuleInfo,
-			PragmaExportedProcs) },
-		{ ForeignDecls = list__reverse(RevForeignDecls) },
 		{ ForeignImports0 = list__reverse(RevForeignImports) },
 
 		%
-		% If this module contains `:- pragma export' declarations,
+		% If this module contains `:- pragma export' or
+		% `:- pragma foreign_decl' declarations,
 		% they may be referred to by the C code we are writing
 		% to the `.opt' file, so write the implicit
 		% `:- pragma foreign_import_module("C", ModuleName).' 
 		% to the `.opt' file.
 		%
-		% XXX We should do this, but mmake can't handle
-		% the extra dependencies properly yet, so building
-		% the standard library fails (mmake attempts to build
-		% tree234.o before std_util.h is built).
-		%
-		{ semidet_fail, PragmaExportedProcs \= [] ->
-			% XXX Currently we only handle procedures
-			% exported to C.
+		% XXX Currently we only handle procedures
+		% exported to C.
+		{
+			% Check that the  import could contain anything.
+			( PragmaExportedProcs \= []
+			; RevForeignDecls \= []
+			)
+		->
 			module_info_name(ModuleInfo, ModuleName),
 			ForeignImportThisModule = foreign_import_module(c,
 				ModuleName, term__context_init),
@@ -1134,19 +1134,14 @@ intermod__write_intermod_info_2(IntermodInfo) -->
 		;
 			ForeignImports = ForeignImports0
 		},
+
 		list__foldl(
 		    (pred(ForeignImport::in, di, uo) is det -->
 		    	{ ForeignImport = foreign_import_module(Lang,
 						Import, _) },
 		    	mercury_output_pragma_foreign_import_module(Lang,
 				Import)
-		    ), ForeignImports),
-
-		list__foldl(
-		    (pred(ForeignDecl::in, di, uo) is det -->
-		    	{ ForeignDecl = foreign_decl_code(Lang, Header, _) },
-		    	mercury_output_pragma_foreign_decl(Lang, Header)
-		    ), ForeignDecls)
+		    ), ForeignImports)
 	;
 		[]
 	),
@@ -1593,7 +1588,7 @@ strip_headvar_unifications_from_goal_list([Goal | Goals0], HeadVars,
 			RHS = var(RHSVar),
 			RHSTerm = term__variable(RHSVar)
 		;
-			RHS = functor(ConsId, Args),
+			RHS = functor(ConsId, _, Args),
 			term__context_init(Context),
 			(
 				ConsId = int_const(Int),
@@ -2184,7 +2179,7 @@ read_optimization_interfaces(Transitive, ModuleName,
 	maybe_write_string(VeryVerbose, "'...\n"),
 	maybe_flush_output(VeryVerbose),
 
-	module_name_to_file_name(ModuleToRead, ".opt", no, FileName),
+	module_name_to_search_file_name(ModuleToRead, ".opt", FileName),
 	prog_io__read_opt_file(FileName, ModuleToRead,
 			ModuleError, Messages, OptItems),
 	update_error_status(opt, FileName, ModuleError, Messages,

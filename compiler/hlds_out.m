@@ -263,6 +263,7 @@
 % HLDS modules.
 :- import_module hlds__special_pred, hlds__instmap, hlds__hlds_llds.
 :- import_module check_hlds__purity, check_hlds__check_typeclass.
+:- import_module check_hlds__type_util.
 :- import_module transform_hlds__termination, transform_hlds__term_errors.
 
 % RL back-end modules (XXX should avoid using those here).
@@ -2240,8 +2241,15 @@ hlds_out__write_unify_rhs_2(Rhs, ModuleInfo, VarSet, InstVarSet, AppendVarnums,
 
 hlds_out__write_unify_rhs_3(var(Var), _, VarSet, _, AppendVarnums, _, _, _) -->
 	mercury_output_var(Var, VarSet, AppendVarnums).
-hlds_out__write_unify_rhs_3(functor(ConsId, ArgVars), ModuleInfo, VarSet, _,
-		AppendVarnums, _Indent, MaybeType, TypeQual) -->
+hlds_out__write_unify_rhs_3(functor(ConsId0, IsExistConstruct, ArgVars),
+		ModuleInfo, VarSet, _, AppendVarnums, _Indent,
+		MaybeType, TypeQual) -->
+	{ IsExistConstruct = yes, ConsId0 = cons(SymName0, Arity) ->
+		remove_new_prefix(SymName, SymName0),
+		ConsId = cons(SymName, Arity)
+	;
+		ConsId = ConsId0
+	},
 	hlds_out__write_functor_cons_id(ConsId, ArgVars, VarSet, ModuleInfo,
 		AppendVarnums),
 	( { MaybeType = yes(Type), TypeQual = yes(TVarSet, _) } ->
@@ -3126,7 +3134,7 @@ hlds_out__write_subclass_details(Indent, SuperClassId, SubClassDetails) -->
 	{ SuperClassId = class_id(SuperSymName, _SuperArity) },
 	prog_out__write_sym_name(SuperSymName),
 	io__write_char('('),
-	io__write_list(SuperClassVars, ", ", PrintVar),
+	io__write_list(SuperClassVars, ", ", term_io__write_term(VarSet)),
 	io__write_char(')').
 
 %-----------------------------------------------------------------------------%
@@ -3528,10 +3536,23 @@ hlds_out__write_eval_method(eval_memo) -->
 	io__write_string("memo").
 hlds_out__write_eval_method(eval_minimal) -->
 	io__write_string("minimal").
-hlds_out__write_eval_method(eval_table_io) -->
-	io__write_string("table_io").
-hlds_out__write_eval_method(eval_table_io_decl) -->
-	io__write_string("table_io_decl").
+hlds_out__write_eval_method(eval_table_io(IsDecl, IsUnitize)) -->
+	io__write_string("table_io("),
+	(
+		{ IsDecl = table_io_decl },
+		io__write_string("decl, ")
+	;
+		{ IsDecl = table_io_proc },
+		io__write_string("proc, ")
+	),
+	(
+		{ IsUnitize = table_io_unitize },
+		io__write_string("unitize")
+	;
+		{ IsUnitize = table_io_alone },
+		io__write_string("alone")
+	),
+	io__write_string(")").
 
 %-----------------------------------------------------------------------------%
 

@@ -880,40 +880,6 @@ string__from_char_list(CharList, Str) :-
 	Str[size] = '\\0';
 }").
 
-:- pragma foreign_proc("MC++", string__to_char_list(Str::in, CharList::uo),
-		[will_not_call_mercury, promise_pure, thread_safe], "{
-        MR_Integer length, i; 
-        MR_Word tmp;
-        MR_Word prev;
-
-        length = Str->get_Length();
-      
-        MR_list_nil(prev);
-
-        for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp, __box(Str->get_Chars(i)), prev);
-		prev = tmp;
-        }
-        CharList = tmp;
-}").
-
-:- pragma foreign_proc("MC++", string__to_char_list(Str::uo, CharList::in),
-		[will_not_call_mercury, promise_pure, thread_safe], "{
-        System::Text::StringBuilder *tmp;
-	MR_Char c;
-       
-        tmp = new System::Text::StringBuilder();
-        while (1) {
-            if (MR_list_is_cons(CharList)) {
-		c = System::Convert::ToChar(MR_list_head(CharList));
-                tmp->Append(c);
-                CharList = MR_list_tail(CharList);
-            } else {
-                break;
-            }
-        }
-        Str = tmp->ToString();
-}").
 
 string__to_char_list(Str::in, CharList::out) :-
 	string__to_char_list_2(Str, 0, CharList).
@@ -981,40 +947,6 @@ string__to_char_list_2(Str, Index, CharList) :-
 	}
 }").
 
-:- pragma foreign_proc("MC++", string__to_char_list(Str::in, CharList::uo),
-		[will_not_call_mercury, promise_pure, thread_safe], "{
-        MR_Integer length, i; 
-        MR_Word tmp;
-        MR_Word prev;
-
-        length = Str->get_Length();
-      
-        MR_list_nil(prev);
-
-        for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp, __box(Str->get_Chars(i)), prev);
-		prev = tmp;
-        }
-        CharList = tmp;
-}").
-
-:- pragma foreign_proc("MC++", string__to_char_list(Str::uo, CharList::in),
-		[will_not_call_mercury, promise_pure, thread_safe], "{
-        System::Text::StringBuilder *tmp;
-	MR_Char c;
-       
-        tmp = new System::Text::StringBuilder();
-        while (1) {
-            if (MR_list_is_cons(CharList)) {
-		c = System::Convert::ToChar(MR_list_head(CharList));
-                tmp->Append(c);
-                CharList = MR_list_tail(CharList);
-            } else {
-                break;
-            }
-        }
-        Str = tmp->ToString();
-}").
 
 string__from_rev_char_list(Chars::in, Str::uo) :- 
 	Str = string__from_char_list(list__reverse(Chars)).
@@ -1217,20 +1149,6 @@ string__append_list(Lists, string__append_list(Lists)).
 	Str[len] = '\\0';
 }").
 
-:- pragma foreign_proc("C#",
-		string__append_list(Strs::in) = (Str::uo),
-		[will_not_call_mercury, promise_pure, thread_safe], "
-{
-        System.Text.StringBuilder tmp = new System.Text.StringBuilder();
-
-	while (mercury.runtime.LowLevelData.list_is_cons(Strs)) {
-		tmp.Append(mercury.runtime.LowLevelData.list_get_head(Strs));
-		Strs = mercury.runtime.LowLevelData.list_get_tail(Strs);
-	}
-	Str = tmp.ToString();
-}
-").
-
 string__append_list(Strs::in) = (Str::uo) :-
 	( Strs = [X | Xs] ->
 		Str = X ++ append_list(Xs)
@@ -1238,23 +1156,16 @@ string__append_list(Strs::in) = (Str::uo) :-
 		Str = ""
 	).
 
-:- pragma foreign_proc("C#",
-		string__join_list(Sep::in, Strs::in) = (Str::uo),
-		[will_not_call_mercury, promise_pure, thread_safe], "
-{	
-	System.Text.StringBuilder tmpStr = new System.Text.StringBuilder();
+string__join_list(_, []) = "".
+string__join_list(Sep, [H|T]) = H ++ string__join_list_2(Sep, T).
 
-	while(mercury.runtime.LowLevelData.list_is_cons(Strs)) {
-		tmpStr.Append(mercury.runtime.LowLevelData.list_get_head(Strs));
-		Strs = mercury.runtime.LowLevelData.list_get_tail(Strs);
+:- func string__join_list_2(string::in, list(string)::in) = (string::uo) is det.
 
-		if (mercury.runtime.LowLevelData.list_is_cons(Strs)) {
-			tmpStr.Append(Sep);
-		}
-	}
+string__join_list_2(_, []) = "".
+string__join_list_2(Sep, [H|T]) = Sep ++ H ++ string__join_list_2(Sep, T).
 
-	Str = tmpStr.ToString();
-}").
+	
+
 
 %-----------------------------------------------------------------------------%
 
@@ -1981,23 +1892,6 @@ string__to_float(_, _) :-
 			MR_PROC_LABEL);
 	}
 }").
-:- pragma foreign_proc("MC++",
-	string__to_int_list(Str::in, IntList::out),
-		[will_not_call_mercury, promise_pure, thread_safe], "{
-        MR_Integer length, i; 
-        MR_Word tmp;
-        MR_Word prev;
-
-        length = Str->get_Length();
-      
-        MR_list_nil(prev);
-
-        for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp, __box((MR_Integer) Str->get_Chars(i)), prev);
-		prev = tmp;
-        }
-        IntList = tmp;
-}").
 string__to_int_list(String, IntList) :-
 	string__to_char_list(String, CharList),
 	IntList = list__map(char__to_int, CharList).
@@ -2008,25 +1902,30 @@ string__to_int_list(String, IntList) :-
 :- pred string__contains_char(string, char).
 :- mode string__contains_char(in, in) is semidet.
 */
+	% strchr always returns true when searching for '\0',
+	% but the '\0' is an implementation detail which really
+	% shouldn't be considered to be part of the string itself.
 :- pragma foreign_proc("C", string__contains_char(Str::in, Ch::in),
 		[will_not_call_mercury, promise_pure, thread_safe], "
-	SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL);
+	SUCCESS_INDICATOR = (strchr(Str, Ch) != NULL) && Ch != '\\0';
 ").
 :- pragma foreign_proc("MC++", string__contains_char(Str::in, Ch::in),
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	SUCCESS_INDICATOR = (Str->IndexOf(Ch) != -1);
 ").
 string__contains_char(String, Char) :-
-	string__contains_char(String, Char, 0).
+	string__contains_char(String, Char, 0, string__length(Char)).
 
-:- pred string__contains_char(string::in, char::in, int::in) is semidet.
+:- pred string__contains_char(string::in, char::in,
+		int::in, int::in) is semidet.
 
-string__contains_char(Str, Char, Index) :-
-	string__index(Str, Index, IndexChar),
+string__contains_char(Str, Char, Index, Length) :-
+	Index < Length,
+	string__unsafe_index(Str, Index, IndexChar),
 	( IndexChar = Char ->
 		true
 	;
-		string__contains_char(Str, Char, Index + 1)
+		string__contains_char(Str, Char, Index + 1, Length)
 	).
 
 /*-----------------------------------------------------------------------*/
@@ -2100,13 +1999,24 @@ string__unsafe_index(Str, Index, Char) :-
 	** register spilled' in grade asm_fast.gc.tr.debug
 	** if we write this inline.
 	*/
-	static void MR_set_char(MR_String str, MR_Integer ind, MR_Char ch)
-	{
-		str[ind] = ch;
-	}
+	extern void MR_set_char(MR_String str, MR_Integer ind, MR_Char ch);
 #else
 	#define MR_set_char(str, ind, ch) \\
 		((str)[ind] = (ch))
+#endif
+").
+
+:- pragma c_code("
+#ifdef MR_USE_GCC_GLOBAL_REGISTERS
+	/*
+	** GNU C version egcs-1.1.2 crashes with `fixed or forbidden
+	** register spilled' in grade asm_fast.gc.tr.debug
+	** if we write this inline.
+	*/
+	void MR_set_char(MR_String str, MR_Integer ind, MR_Char ch)
+	{
+		str[ind] = ch;
+	}
 #endif
 ").
 

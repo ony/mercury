@@ -220,7 +220,7 @@ mode_ordering__goal_2(unify(VarA, RHS0, UnifyMode, Unification0, Context),
 				fail
 			))) }
 	;
-		{ RHS0 = functor(_ConsId, ArgVars) },
+		{ RHS0 = functor(_ConsId, _IsExistConstruct, ArgVars) },
 		{ RHS = RHS0 },
 		{ ProdVars `contains` VarA ->
 			% Unification = construct(VarA, ConsId, ArgVars,

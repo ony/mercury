@@ -51,23 +51,26 @@
 
 :- implementation.
 
-:- pragma c_header_code("#include ""unsafe.h""").
+%-----------------------------------------------------------------------------%
+
+:- pragma foreign_proc("C",
+	unsafe_promise_ground(X::in(any)) = (Y::out),
+	[will_not_call_mercury, promise_pure],
+"
+	Y = X;
+").
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_code(unsafe_promise_ground(X::in(any)) = (Y::out), "Y = X;").
-
-%-----------------------------------------------------------------------------%
-
-:- pragma c_code(
-unsafe_perform_io(P::(pred(di, uo) is det)),
-	may_call_mercury,
+:- pragma foreign_proc("C",
+	unsafe_perform_io(P::(pred(di, uo) is det)),
+	[may_call_mercury],
 "{
 	call_io_pred_det(P);
 }").
-:- pragma c_code(
-unsafe_perform_io(P::(pred(di, uo) is cc_multi)),
-	may_call_mercury,
+:- pragma foreign_proc("C",
+	unsafe_perform_io(P::(pred(di, uo) is cc_multi)),
+	[may_call_mercury],
 "{
 	call_io_pred_cc_multi(P);
 }").

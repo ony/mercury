@@ -858,8 +858,7 @@ mercury__exception__builtin_catch_gc_trace(void *frame)
 
  #define ML_UNINSTALL_AGC_HANDLER() \
  	do { \
-	    mercury__private_builtin__stack_chain = ((struct MR_StackChain *) \
-		mercury__private_builtin__stack_chain)->prev; \
+	    mercury__private_builtin__stack_chain = agc_locals.prev; \
 	} while (0)
 
   #define ML_AGC_LOCAL(NAME) (agc_locals.NAME)
@@ -1096,6 +1095,22 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 
 	% For the .NET backend we override throw_impl as it is easier to 
 	% implement these things using foreign_proc.
+
+:- pragma foreign_decl("MC++", "
+namespace mercury {
+	namespace runtime {
+		__gc public class Exception : public System::Exception
+		{
+		public:
+		   Exception(MR_Univ data) 
+		   {
+			mercury_exception = data;	
+		   }
+		   MR_Univ mercury_exception;
+		};
+	}
+}
+").
 
 :- pragma foreign_proc("C#", throw_impl(T::in),
 		[will_not_call_mercury, promise_pure], "
@@ -1404,6 +1419,15 @@ MR_declare_label(mercury__exception__builtin_catch_3_4_i7);
 MR_declare_label(mercury__exception__builtin_catch_3_5_i7);
 #endif
 
+#ifdef	MR_DEEP_PROFILING
+MR_declare_label(mercury__exception__builtin_catch_3_0_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_1_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_2_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_3_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_4_i8);
+MR_declare_label(mercury__exception__builtin_catch_3_5_i8);
+#endif
+
 MR_declare_label(mercury__exception__builtin_throw_1_0_i1);
 
 /*
@@ -1476,6 +1500,15 @@ MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 6);
 #ifdef	MR_DEEP_PROFILING
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 7);
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 7);
+#endif
+
+#ifdef	MR_DEEP_PROFILING
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_0, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_1, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_2, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_3, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 8);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 8);
 #endif
 
 MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_throw_1_0,
@@ -1553,6 +1586,15 @@ MR_BEGIN_MODULE(exceptions_module)
 #ifdef	MR_DEEP_PROFILING
 	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i7);
 	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i7);
+#endif
+
+#ifdef	MR_DEEP_PROFILING
+	MR_init_label(mercury__exception__builtin_catch_3_0_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_1_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_2_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_3_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_4_i8);
+	MR_init_label(mercury__exception__builtin_catch_3_5_i8);
 #endif
 
 	MR_init_entry_sl(mercury__exception__builtin_throw_1_0);
@@ -2047,7 +2089,7 @@ report_uncaught_exception(Exception) -->
 report_uncaught_exception_2(Exception, unit) -->
 	io__flush_output,
 	io__stderr_stream(StdErr),
-	io__write_string(StdErr, "Uncaught exception:\n"),
+	io__write_string(StdErr, "Uncaught Mercury exception:\n"),
 	( { univ_to_type(Exception, software_error(Message)) } ->
 		io__format(StdErr, "Software Error: %s\n", [s(Message)])
 	;

@@ -191,7 +191,7 @@ mlds_output_src_import(_Indent, Import) -->
 		unexpected(this_file, "foreign import in C backend")
 	},
 
-	module_name_to_file_name(ModuleName, HeaderExt, no, HeaderFile),
+	module_name_to_search_file_name(ModuleName, HeaderExt, HeaderFile),
 	io__write_strings(["#include """, HeaderFile, """\n"]).
 
 
@@ -309,6 +309,11 @@ mlds_output_src_start(Indent, ModuleName, ForeignCode) -->
 	io__write_string("/* :- implementation. */\n"),
 	mlds_output_src_bootstrap_defines, io__nl,
 
+	mlds_output_src_import(Indent,
+		mercury_import(
+			compiler_visible_interface,
+			mercury_module_name_to_mlds(ModuleName))),
+
 	%
 	% If there are `:- pragma export' declarations,
 	% #include the `.mh' file.
@@ -321,10 +326,6 @@ mlds_output_src_start(Indent, ModuleName, ForeignCode) -->
 			user_visible_interface,
 			mercury_module_name_to_mlds(ModuleName)))
 	),
-	mlds_output_src_import(Indent,
-		mercury_import(
-			compiler_visible_interface,
-			mercury_module_name_to_mlds(ModuleName))),
 	io__nl.
 
 	%
@@ -547,11 +548,20 @@ mlds_output_calls_to_register_tci(ModuleName,
 		io__state, io__state).
 :- mode mlds_output_c_hdr_decls(in, in, in, di, uo) is det.
 
-mlds_output_c_hdr_decls(_ModuleName, Indent, ForeignCode) -->
+mlds_output_c_hdr_decls(ModuleName, Indent, ForeignCode) -->
 	{ ForeignCode = mlds__foreign_code(RevHeaderCode, _RevImports,
 		_RevBodyCode, _ExportDefns) },
 	{ HeaderCode = list__reverse(RevHeaderCode) },
-	io__write_list(HeaderCode, "\n", mlds_output_c_hdr_decl(Indent)).
+	{ is_std_lib_module(ModuleName, ModuleNameStr) ->
+		SymName = unqualified(ModuleNameStr)
+	;
+		SymName = mlds_module_name_to_sym_name(ModuleName)
+	},
+	{ DeclGuard = decl_guard(SymName) },
+	io__write_strings(["#ifndef ", DeclGuard,
+			 "\n#define ", DeclGuard, "\n"]),
+	io__write_list(HeaderCode, "\n", mlds_output_c_hdr_decl(Indent)),
+	io__write_string("\n#endif\n").
 
 :- pred mlds_output_c_hdr_decl(indent,
 	foreign_decl_code, io__state, io__state).
@@ -1828,8 +1838,8 @@ mlds_output_type_prefix(mlds__commit_type) -->
 		io__write_string("jmp_buf")
 	).
 mlds_output_type_prefix(mlds__rtti_type(RttiName)) -->
-	io__write_string("MR_"),
-	io__write_string(mlds_rtti_type_name(RttiName)).
+	{ rtti_name_c_type(RttiName, CType, _IsArray) },
+	io__write_string(CType).
 mlds_output_type_prefix(mlds__unknown_type) -->
 	{ error("mlds_to_c.m: prefix has unknown type") }.
 

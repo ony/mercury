@@ -102,11 +102,12 @@
 	% or static after initialization should have this prefix.
 :- func mercury_data_prefix = string.
 
-	% Given the default linkage of a data item, and a bool saying whether
-	% it is being defined, return a C string that gives its storage class.
+	% c_data_linkage_string(Globals, DefaultLinkage, StaticEvenIfSplit,
+	%	BeingDefined):
+	% Return a C string that gives the storage class appropriate for the
+	% definition of a global variable with the specified properties.
 
-:- pred c_data_linkage_string(globals::in, linkage::in, bool::in, string::out)
-	is det.
+:- func c_data_linkage_string(globals, linkage, bool, bool) = string.
 
 	% Given a boolean that states whether a data item includes code
 	% addresses or not, return a C string that gives its "const-ness".
@@ -262,14 +263,16 @@
 
 :- implementation.
 
-:- import_module backend_libs__rtti, ll_backend__rtti_out, ll_backend__layout.
-:- import_module ll_backend__layout_out, libs__options, libs__trace_params.
+:- import_module parse_tree__modules, parse_tree__prog_out.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module hlds__hlds_pred, hlds__passes_aux.
+:- import_module ll_backend__layout, ll_backend__layout_out.
+:- import_module ll_backend__rtti_out.
 :- import_module ll_backend__exprn_aux, parse_tree__prog_util.
-:- import_module parse_tree__prog_out, hlds__hlds_pred.
-:- import_module backend_libs__export, parse_tree__mercury_to_mercury.
-:- import_module parse_tree__modules, hlds__passes_aux.
+:- import_module backend_libs__rtti, backend_libs__export.
 :- import_module backend_libs__c_util, backend_libs__foreign.
 :- import_module backend_libs__compile_target_code.
+:- import_module libs__options, libs__trace_params.
 
 :- import_module int, char, string, std_util.
 :- import_module set, bintree_set, assoc_list, require.
@@ -335,7 +338,7 @@ output_split_user_foreign_codes([UserForeignCode | UserForeignCodes],
 	{ CFile = c_file(ModuleName, C_HeaderLines,
 		[UserForeignCode], [], [], [], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_user_foreign_codes(UserForeignCodes, ModuleName,
 		C_HeaderLines, StackLayoutLabels, Num1, Num).
 
@@ -349,7 +352,7 @@ output_split_c_exports([Export | Exports], ModuleName, C_HeaderLines,
 	{ CFile = c_file(ModuleName, C_HeaderLines,
 		[], [Export], [], [], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_c_exports(Exports, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -362,7 +365,7 @@ output_split_comp_gen_c_vars([Var | Vars], ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num0, Num) -->
 	{ CFile = c_file(ModuleName, C_HeaderLines, [], [], [Var], [], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_comp_gen_c_vars(Vars, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -375,7 +378,7 @@ output_split_comp_gen_c_datas([Data | Datas], ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num0, Num) -->
 	{ CFile = c_file(ModuleName, C_HeaderLines, [], [], [], [Data], []) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_comp_gen_c_datas(Datas, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -389,7 +392,7 @@ output_split_comp_gen_c_modules([Module | Modules], ModuleName, C_HeaderLines,
 	{ CFile = c_file(ModuleName, C_HeaderLines,
 		[], [], [], [], [Module]) },
 	output_single_c_file(CFile, yes(Num0), StackLayoutLabels, no),
-	{ Num1 is Num0 + 1 },
+	{ Num1 = Num0 + 1 },
 	output_split_comp_gen_c_modules(Modules, ModuleName, C_HeaderLines,
 		StackLayoutLabels, Num1, Num).
 
@@ -434,7 +437,7 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 
 output_c_file_mercury_headers -->
 	globals__io_get_trace_level(TraceLevel),
-	( { trace_level_is_none(TraceLevel) = no } ->
+	( { given_trace_level_is_none(TraceLevel) = no } ->
 		io__write_string("#include ""mercury_imp.h""\n"),
 		io__write_string("#include ""mercury_trace_base.h""\n")
 	;
@@ -692,7 +695,7 @@ output_init_bunch_defs([Bunch | Bunches], ModuleName, InitStatus, Seq,
 	io__write_string("{\n"),
 	output_init_bunch_def(Bunch, ModuleName, SplitFiles),
 	io__write_string("}\n\n"),
-	{ NextSeq is Seq + 1 },
+	{ NextSeq = Seq + 1 },
 	output_init_bunch_defs(Bunches, ModuleName, InitStatus, NextSeq,
 		SplitFiles).
 
@@ -725,7 +728,7 @@ output_init_bunch_calls([_ | Bunches], ModuleName, InitStatus, Seq) -->
 	io__write_string("\t"),
 	output_bunch_name(ModuleName, InitStatus, Seq),
 	io__write_string("();\n"),
-	{ NextSeq is Seq + 1 },
+	{ NextSeq = Seq + 1 },
 	output_init_bunch_calls(Bunches, ModuleName, InitStatus, NextSeq).
 
 	% Output MR_INIT_TYPE_CTOR_INFO(TypeCtorInfo, Typector);
@@ -1402,10 +1405,10 @@ llds_out__is_while_label(Label, [Instr0 - Comment0 | Instrs0], Instrs,
 		Count = Count0,
 		Instrs = [Instr0 - Comment0 | Instrs0]
 	; Instr0 = goto(label(Label)) ->
-		Count1 is Count0 + 1,
+		Count1 = Count0 + 1,
 		llds_out__is_while_label(Label, Instrs0, Instrs, Count1, Count)
 	; Instr0 = if_val(_, label(Label)) ->
-		Count1 is Count0 + 1,
+		Count1 = Count0 + 1,
 		llds_out__is_while_label(Label, Instrs0, Instrs, Count1, Count)
 	;
 		llds_out__is_while_label(Label, Instrs0, Instrs, Count0, Count)
@@ -2213,7 +2216,7 @@ output_temp_decls_2(Next, Max, Type) -->
 		io__write_string("MR_temp"),
 		io__write_string(Type),
 		io__write_int(Next),
-		{ Next1 is Next + 1 },
+		{ Next1 = Next + 1 },
 		output_temp_decls_2(Next1, Max, Type)
 	;
 		[]
@@ -2259,7 +2262,7 @@ output_rval_decls(const(Const), FirstIndent, LaterIndent, N0, N,
 				{ string__float_to_string(FloatVal,
 					FloatString) },
 				output_indent(FirstIndent, LaterIndent, N0),
-				{ N is N0 + 1 },
+				{ N = N0 + 1 },
 				io__write_strings([
 					"static const MR_Float ",
 					"mercury_float_const_", FloatName,
@@ -2306,7 +2309,7 @@ output_rval_decls(binop(Op, Rval1, Rval2), FirstIndent, LaterIndent, N0, N,
 		;
 			{ decl_set_insert(DeclSet2, FloatLabel, DeclSet) },
 			output_indent(FirstIndent, LaterIndent, N2),
-			{ N is N2 + 1 },
+			{ N = N2 + 1 },
 			io__write_string("static const "),
 			output_llds_type(float),
 			io__write_string(" mercury_float_const_"),
@@ -2477,7 +2480,7 @@ output_const_term_decl(ArgVals, CreateArgTypes, DeclId, Exported,
 		[]
 	),
 	output_indent(FirstIndent, LaterIndent, N1),
-	{ N is N1 + 1 },
+	{ N = N1 + 1 },
 	(
 		{ Decl = yes }
 	->
@@ -2604,7 +2607,7 @@ output_uniform_cons_arg_types([Arg | Args], MaybeType, Indent, ArgNum) -->
 		io__write_string(" f"),
 		io__write_int(ArgNum),
 		io__write_string(";\n"),
-		{ ArgNum1 is ArgNum + 1 },
+		{ ArgNum1 = ArgNum + 1 },
 		output_uniform_cons_arg_types(Args, MaybeType, Indent, ArgNum1)
 	;
 		{ error("output_uniform_cons_arg_types: missing arg") }
@@ -2640,8 +2643,8 @@ output_initial_cons_arg_types_2([Arg | Args], N, MaybeType, InitTypes,
 			io__write_string(" f"),
 			io__write_int(ArgNum),
 			io__write_string(";\n"),
-			{ ArgNum1 is ArgNum + 1 },
-			{ N1 is N - 1 },
+			{ ArgNum1 = ArgNum + 1 },
+			{ N1 = N - 1 },
 			output_initial_cons_arg_types_2(Args, N1, MaybeType,
 				InitTypes, RestTypes, Indent, ArgNum1)
 		;
@@ -2801,7 +2804,7 @@ output_initial_cons_args_2([Arg | Args], N, MaybeType, InitTypes, RestTypes,
 			Indent)
 	;
 		( { Arg = yes(Rval) } ->
-			{ N1 is N - 1 },
+			{ N1 = N - 1 },
 			io__write_string(Indent),
 			( { MaybeType = yes(_) } ->
 				output_static_rval(Rval)
@@ -2892,7 +2895,7 @@ output_code_addr_decls(CodeAddress, FirstIndent, LaterIndent, N0, N,
 		need_code_addr_decls(CodeAddress, NeedDecl),
 		( { NeedDecl = yes } ->
 			output_indent(FirstIndent, LaterIndent, N0),
-			{ N is N0 + 1 },
+			{ N = N0 + 1 },
 			output_code_addr_decls(CodeAddress)
 		;
 			{ N = N0 }
@@ -3046,7 +3049,7 @@ output_data_addr_decls(DataAddr, FirstIndent, LaterIndent, N0, N,
 
 output_data_addr_decls_2(DataAddr, FirstIndent, LaterIndent, N0, N) -->
 	output_indent(FirstIndent, LaterIndent, N0),
-	{ N is N0 + 1 },
+	{ N = N0 + 1 },
 	(
 		{ DataAddr = data_addr(ModuleName, DataVarName) },
 		output_data_addr_storage_type_name(ModuleName, DataVarName, no,
@@ -3069,11 +3072,12 @@ output_data_addrs_decls([DataAddr | DataAddrs], FirstIndent, LaterIndent,
 	output_data_addrs_decls(DataAddrs, FirstIndent, LaterIndent, N1, N,
 		DeclSet1, DeclSet).
 
-c_data_linkage_string(Globals, DefaultLinkage, BeingDefined, LinkageStr) :-
+c_data_linkage_string(Globals, DefaultLinkage, StaticEvenIfSplit, BeingDefined)
+		= LinkageStr :-
 	globals__lookup_bool_option(Globals, split_c_files, SplitFiles),
 	(
 		( DefaultLinkage = extern
-		; SplitFiles = yes
+		; SplitFiles = yes, StaticEvenIfSplit = no
 		)
 	->
 		(
@@ -3121,8 +3125,8 @@ output_data_addr_storage_type_name(ModuleName, DataVarName, BeingDefined,
 	;
 		{ data_name_linkage(DataVarName, Linkage) },
 		globals__io_get_globals(Globals),
-		{ c_data_linkage_string(Globals, Linkage, BeingDefined,
-			LinkageStr) },
+		{ LinkageStr = c_data_linkage_string(Globals, Linkage,
+			no, BeingDefined) },
 		io__write_string(LinkageStr),
 
 		{ InclCodeAddr =
@@ -3612,7 +3616,7 @@ llds_out__get_proc_label(proc(DefiningModule, PredOrFunc, PredModule,
 	get_label_name(DefiningModule, PredOrFunc, PredModule,
 		PredName, Arity, AddPrefix, LabelName),
 	( PredOrFunc = function ->
-		OrigArity is Arity - 1
+		OrigArity = Arity - 1
 	;
 		OrigArity = Arity
 	),

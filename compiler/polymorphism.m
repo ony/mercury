@@ -1204,7 +1204,7 @@ polymorphism__process_unify(XVar, Y, Mode, Unification0, UnifyContext,
 		{ Goal = unify(XVar, Y, Mode, Unification,
 		 		UnifyContext) - GoalInfo }
 	; 
-		{ Y = functor(ConsId, Args) },
+		{ Y = functor(ConsId, _, Args) },
 		polymorphism__process_unify_functor(XVar, ConsId, Args, Mode,
 			Unification0, UnifyContext, GoalInfo0, Goal)
 	;
@@ -1416,8 +1416,8 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		polymorphism__unification_typeinfos(TypeOfX, Unification0,
 			GoalInfo1, Unification, GoalInfo, PolyInfo1, PolyInfo),
 
-		Unify = unify(X0, functor(ConsId, ArgVars), Mode0,
-				Unification, UnifyContext) - GoalInfo,
+		Unify = unify(X0, functor(ConsId, IsConstruction, ArgVars),
+				Mode0, Unification, UnifyContext) - GoalInfo,
 		list__append(ExtraGoals, [Unify], GoalList),
 		conj_list_to_goal(GoalList, GoalInfo0, Goal)
 	;
@@ -1428,7 +1428,7 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		%
 		polymorphism__unification_typeinfos(TypeOfX, Unification0,
 			GoalInfo0, Unification, GoalInfo, PolyInfo0, PolyInfo),
-		Goal = unify(X0, functor(ConsId0, ArgVars0), Mode0,
+		Goal = unify(X0, functor(ConsId0, no, ArgVars0), Mode0,
 			Unification, UnifyContext) - GoalInfo
 	).
 
@@ -1456,7 +1456,7 @@ convert_pred_to_lambda_goal(EvalMethod, X0, PredId, ProcId,
 
 	CallUnifyContext = call_unify_context(X0,
 			functor(cons(QualifiedPName, list__length(ArgVars0)),
-				ArgVars0),
+				no, ArgVars0),
 			UnifyContext),
 	LambdaGoalExpr = call(PredId, ProcId, Args, not_builtin,
 			yes(CallUnifyContext), QualifiedPName),
@@ -2115,9 +2115,11 @@ polymorphism__make_typeclass_info_vars(PredClassContext,
 	ExtraVars0 = [],
 	ExtraGoals0 = [],
 
+	SeenInstances = [],
+
 		% do the work
 	polymorphism__make_typeclass_info_vars_2(PredClassContext, 
-		ExistQVars, Context,
+		SeenInstances, ExistQVars, Context,
 		ExtraVars0, ExtraVars1, 
 		ExtraGoals0, ExtraGoals1,
 		Info0, Info),
@@ -2129,38 +2131,39 @@ polymorphism__make_typeclass_info_vars(PredClassContext,
 % Accumulator version of the above.
 :- pred polymorphism__make_typeclass_info_vars_2(
 	list(class_constraint),
+	list(class_constraint),
 	existq_tvars, prog_context,
 	list(prog_var), list(prog_var), 
 	list(hlds_goal), list(hlds_goal), 
 	poly_info, poly_info).
-:- mode polymorphism__make_typeclass_info_vars_2(in, in, in,
+:- mode polymorphism__make_typeclass_info_vars_2(in, in, in, in,
 	in, out, in, out, in, out) is det.
 
-polymorphism__make_typeclass_info_vars_2([], _ExistQVars,
+polymorphism__make_typeclass_info_vars_2([], _Seen, _ExistQVars,
 		_Context, ExtraVars, ExtraVars, 
 		ExtraGoals, ExtraGoals, 
 		Info, Info).
-polymorphism__make_typeclass_info_vars_2([C|Cs], ExistQVars,
+polymorphism__make_typeclass_info_vars_2([C|Cs], Seen, ExistQVars,
 		Context, ExtraVars0, ExtraVars,
 		ExtraGoals0, ExtraGoals, 
 		Info0, Info) :-
-	polymorphism__make_typeclass_info_var(C, ExistQVars,
+	polymorphism__make_typeclass_info_var(C, [C | Seen], ExistQVars,
 			Context, ExtraGoals0, ExtraGoals1, 
 			Info0, Info1, MaybeExtraVar),
 	maybe_insert_var(MaybeExtraVar, ExtraVars0, ExtraVars1),
-	polymorphism__make_typeclass_info_vars_2(Cs,
+	polymorphism__make_typeclass_info_vars_2(Cs, Seen,
 			ExistQVars, Context, 
 			ExtraVars1, ExtraVars,
 			ExtraGoals1, ExtraGoals, 
 			Info1, Info).
 
 :- pred polymorphism__make_typeclass_info_var(class_constraint,
-	existq_tvars, prog_context, list(hlds_goal), list(hlds_goal),
-	poly_info, poly_info, maybe(prog_var)). 
-:- mode polymorphism__make_typeclass_info_var(in, in, in, in, out,
+	list(class_constraint), existq_tvars, prog_context, list(hlds_goal),
+	list(hlds_goal), poly_info, poly_info, maybe(prog_var)). 
+:- mode polymorphism__make_typeclass_info_var(in, in, in, in, in, out,
 	in, out, out) is det.
 
-polymorphism__make_typeclass_info_var(Constraint, ExistQVars,
+polymorphism__make_typeclass_info_var(Constraint, Seen, ExistQVars,
 		Context, ExtraGoals0, ExtraGoals, 
 		Info0, Info, MaybeVar) :-
 	(
@@ -2183,9 +2186,9 @@ polymorphism__make_typeclass_info_var(Constraint, ExistQVars,
 
 		map__search(Info0^proof_map, Constraint, Proof)
 	->
-		polymorphism__make_typeclass_info_from_proof(Constraint, Proof,
-			ExistQVars, Context, MaybeVar, ExtraGoals0, ExtraGoals,
-			Info0, Info)
+		polymorphism__make_typeclass_info_from_proof(Constraint, Seen,
+			Proof, ExistQVars, Context, MaybeVar, ExtraGoals0,
+			ExtraGoals, Info0, Info)
 	;
 		polymorphism__make_typeclass_info_head_var(Constraint,
 			NewVar, Info0, Info1),
@@ -2197,13 +2200,15 @@ polymorphism__make_typeclass_info_var(Constraint, ExistQVars,
 	).
 
 :- pred polymorphism__make_typeclass_info_from_proof(class_constraint,
-	constraint_proof, existq_tvars, prog_context, maybe(prog_var),
-	list(hlds_goal), list(hlds_goal), poly_info, poly_info).
-:- mode polymorphism__make_typeclass_info_from_proof(in, in, in, in, out, 
+	list(class_constraint), constraint_proof, existq_tvars, prog_context,
+	maybe(prog_var), list(hlds_goal), list(hlds_goal), poly_info,
+	poly_info).
+:- mode polymorphism__make_typeclass_info_from_proof(in, in, in, in, in, out, 
 	in, out, in, out) is det.
 
-polymorphism__make_typeclass_info_from_proof(Constraint, Proof, ExistQVars, 
-		Context, MaybeVar, ExtraGoals0, ExtraGoals, Info0, Info) :-
+polymorphism__make_typeclass_info_from_proof(Constraint, Seen, Proof,
+		ExistQVars, Context, MaybeVar, ExtraGoals0, ExtraGoals,
+		Info0, Info) :-
 	Info0 = poly_info(VarSet0, VarTypes0, TypeVarSet, TypeInfoMap0, 
 		TypeClassInfoMap0, Proofs, PredName, ModuleInfo),
 	Constraint = constraint(ClassName, ConstrainedTypes),
@@ -2247,7 +2252,9 @@ polymorphism__make_typeclass_info_from_proof(Constraint, Proof, ExistQVars,
 		apply_subst_to_constraint_list(RenameSubst,
 			InstanceConstraints0, InstanceConstraints1),
 		apply_rec_subst_to_constraint_list(InstanceSubst,
-			InstanceConstraints1, InstanceConstraints),
+			InstanceConstraints1, InstanceConstraints2),
+		InstanceConstraints =
+			InstanceConstraints2 `list__delete_elems` Seen,
 		apply_subst_to_constraint_proofs(RenameSubst,
 			SuperClassProofs0, SuperClassProofs1),
 		apply_rec_subst_to_constraint_proofs(InstanceSubst,
@@ -2276,7 +2283,7 @@ polymorphism__make_typeclass_info_from_proof(Constraint, Proof, ExistQVars,
 			% constraints from the context of the
 			% instance decl.
 		polymorphism__make_typeclass_info_vars_2(
-			InstanceConstraints,
+			InstanceConstraints, Seen,
 			ExistQVars, Context,
 			[], InstanceExtraTypeClassInfoVars0, 
 			ExtraGoals0, ExtraGoals1, 
@@ -2343,7 +2350,7 @@ polymorphism__make_typeclass_info_from_proof(Constraint, Proof, ExistQVars,
 
 			% Make the typeclass_info for the subclass
 		polymorphism__make_typeclass_info_var(
-			SubClassConstraint,
+			SubClassConstraint, Seen,
 			ExistQVars, Context,
 			ExtraGoals0, ExtraGoals1, 
 			Info1, Info2,
@@ -2475,7 +2482,7 @@ polymorphism__construct_typeclass_info(ArgUnconstrainedTypeInfoVars,
 		InstanceString),
 	ConsId = base_typeclass_info_const(InstanceModuleName, ClassId,
 		InstanceNum, InstanceString),
-	BaseTypeClassInfoTerm = functor(ConsId, []),
+	BaseTypeClassInfoTerm = functor(ConsId, no, []),
 
 		% create the construction unification to initialize the variable
 	RLExprnId = no,
@@ -2501,7 +2508,7 @@ polymorphism__construct_typeclass_info(ArgUnconstrainedTypeInfoVars,
 	mercury_private_builtin_module(PrivateBuiltin),
 	NewConsId = cons(qualified(PrivateBuiltin, "typeclass_info"), 1),
 	NewArgVars = [BaseVar|ArgVars],
-	TypeClassInfoTerm = functor(NewConsId, NewArgVars),
+	TypeClassInfoTerm = functor(NewConsId, no, NewArgVars),
 
 		% introduce a new variable
 	polymorphism__new_typeclass_info_var(VarSet1, VarTypes1,
@@ -2593,7 +2600,7 @@ polymorphism__make_superclasses_from_proofs([C|Cs],
 	polymorphism__make_superclasses_from_proofs(Cs,
 		ExistQVars, Goals0, Goals1, Info0, Info1, Vars0, Vars1),
 	term__context_init(Context),
-	polymorphism__make_typeclass_info_var(C,
+	polymorphism__make_typeclass_info_var(C, [],
 		ExistQVars, Context, Goals1, Goals, Info1, Info,
 		MaybeVar),
 	maybe_insert_var(MaybeVar, Vars1, Vars).
@@ -2747,12 +2754,14 @@ get_type_info_locn(TypeVar, TypeInfoLocn, Info0, Info) :-
 		% variable, and set the location for this type
 		% variable to be that type_info variable.
 		%
-		% XXX This is wrong if the type variable is one of
+		% This is wrong if the type variable is one of
 		% the existentially quantified variables of a called
 		% predicate and the variable occurs in an existential
 		% type-class constraint. In that case the type-info
 		% will be stored in the typeclass_info variable produced
 		% by the predicate, not in a type_info variable.
+		% make_typeclass_info_headvar will fix this up when
+		% the typeclass_info is created.
 		%
 		type_util__var(Type, TypeVar),
 		polymorphism__new_type_info_var(Type, "type_info",
@@ -2873,7 +2882,7 @@ polymorphism__init_with_int_constant(CountVar, Num, CountUnifyGoal) :-
 	CountUnification = construct(CountVar, CountConsId, [], [],
 		construct_dynamically, cell_is_shared, RLExprnId),
 
-	CountTerm = functor(CountConsId, []),
+	CountTerm = functor(CountConsId, no, []),
 	CountInst = bound(unique, [functor(int_const(Num), [])]),
 	CountUnifyMode = (free -> CountInst) - (CountInst -> CountInst),
 	CountUnifyContext = unify_context(explicit, []),
@@ -2974,7 +2983,7 @@ polymorphism__init_type_info_var(Type, ArgVars, Symbol, VarSet0, VarTypes0,
 
 	mercury_private_builtin_module(PrivateBuiltin),
 	ConsId = cons(qualified(PrivateBuiltin, Symbol), 1),
-	TypeInfoTerm = functor(ConsId, ArgVars),
+	TypeInfoTerm = functor(ConsId, no, ArgVars),
 
 	% introduce a new variable
 	polymorphism__new_type_info_var_raw(Type, Symbol, typeinfo_prefix,
@@ -3033,7 +3042,7 @@ polymorphism__init_const_type_ctor_info_var(Type, TypeCtor,
 	type_util__type_ctor_name(ModuleInfo, TypeCtor, TypeName),
 	TypeCtor = _ - Arity,
 	ConsId = type_ctor_info_const(ModuleName, TypeName, Arity),
-	TypeInfoTerm = functor(ConsId, []),
+	TypeInfoTerm = functor(ConsId, no, []),
 
 	% introduce a new variable
 	polymorphism__new_type_info_var_raw(Type, "type_ctor_info",

@@ -167,7 +167,10 @@ main(Args) -->
 
 :- pred gc_init(io__state::di, io__state::uo) is det.
 
-:- pragma c_code(gc_init(_IO0::di, _IO::uo), [will_not_call_mercury], "
+:- pragma foreign_proc("C",
+	gc_init(_IO0::di, _IO::uo),
+	[will_not_call_mercury, promise_pure, tabled_for_io],
+"
 #ifdef MR_CONSERVATIVE_GC
 	/*
 	** Explicitly force the initial heap size to be at least 4 Mb.
@@ -366,7 +369,7 @@ compile_using_gcc_backend(FirstFileOrModule, CallBack, ModulesToLink) -->
 		{ file_name_to_module_name(Module, ModuleName) },
 		globals__io_lookup_bool_option(pic, Pic),
 		{ AsmExt = (Pic = yes -> ".pic_s" ; ".s") },
-		module_name_to_file_name(ModuleName, AsmExt, no,
+		module_name_to_file_name(ModuleName, AsmExt, yes,
 			AsmFile),
 		(
 			{ ModuleName \= FirstModuleName }
@@ -920,7 +923,7 @@ halt_at_module_error(HaltSyntax, some_module_errors) :- HaltSyntax = yes.
 :- mode module_to_link(in, out, di, uo) is det.
 
 module_to_link(ModuleName - _Items, ModuleToLink) -->
-	module_name_to_file_name(ModuleName, "", no, ModuleToLink).
+	{ module_name_to_file_name(ModuleName, ModuleToLink) }.
 
 %-----------------------------------------------------------------------------%
 
@@ -1682,8 +1685,8 @@ mercury_compile__maybe_write_optfile(MakeOptInt, HLDS0, HLDS) -->
 			{ UpdateStatus = yes }
 		; { UseOptFiles = yes } ->
 			{ module_info_name(HLDS0, ModuleName) },
-			module_name_to_file_name(ModuleName,
-				".opt", no, OptName),
+			module_name_to_search_file_name(ModuleName,
+				".opt", OptName),
 			search_for_file(IntermodDirs, OptName, Found),
 			( { Found = ok(_) } ->
 				{ UpdateStatus = yes },
@@ -2225,7 +2228,7 @@ mercury_compile__backend_pass_by_preds_4(PredInfo, ProcInfo0, ProcId, PredId,
 	{ allocate_store_maps(final_allocation, ProcInfoStackSlot,
 		PredId, ModuleInfoSimplify, ProcInfoStoreAlloc) },
 	globals__io_get_trace_level(TraceLevel),
-	( { trace_level_is_none(TraceLevel) = no } ->
+	( { given_trace_level_is_none(TraceLevel) = no } ->
 		write_proc_progress_message(
 			"% Calculating goal paths in ",
 			PredId, ProcId, ModuleInfoSimplify),
@@ -2622,7 +2625,7 @@ mercury_compile__tabling(HLDS0, Verbose, HLDS) -->
 	maybe_write_string(Verbose,
 		"% Transforming tabled predicates..."),
 	maybe_flush_output(Verbose),
-	{ table_gen__process_module(HLDS0, HLDS) },
+	table_gen__process_module(HLDS0, HLDS),
 	maybe_write_string(Verbose, " done.\n").
 
 %-----------------------------------------------------------------------------%
@@ -3132,7 +3135,7 @@ mercury_compile__allocate_store_map(HLDS0, Verbose, Stats, HLDS) -->
 
 mercury_compile__maybe_goal_paths(HLDS0, Verbose, Stats, HLDS) -->
 	globals__io_get_trace_level(TraceLevel),
-	( { trace_level_is_none(TraceLevel) = no } ->
+	( { given_trace_level_is_none(TraceLevel) = no } ->
 		maybe_write_string(Verbose, "% Calculating goal paths..."),
 		maybe_flush_output(Verbose),
 		process_all_nonimported_procs(
@@ -3223,7 +3226,8 @@ get_c_interface_info(HLDS, UseForeignLanguage, Foreign_InterfaceInfo) :-
 	% If this module contains `:- pragma export' declarations,
 	% add a "#include <module>.h" declaration.
 	% XXX pragma export is only supported for C.
-	( UseForeignLanguage = c, Foreign_ExportDecls \= [] ->
+	Foreign_ExportDecls = foreign_export_decls(_, ExportDecls),
+	( UseForeignLanguage = c, ExportDecls \= [] ->
 		% We put the new include at the end since the list is
 		% stored in reverse, and we want this include to come
 		% first.
@@ -3293,8 +3297,8 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 	{ list__condense([CommonableData, NonCommonStaticData, ClosureLayouts,
 		TypeCtorTables, TypeClassInfos, PossiblyDynamicLayouts],
 		AllData) },
-	mercury_compile__construct_c_file(C_InterfaceInfo, Procs1, GlobalVars,
-		AllData, CFile, NumChunks),
+	mercury_compile__construct_c_file(HLDS, C_InterfaceInfo,
+		Procs1, GlobalVars, AllData, CFile, NumChunks),
 	mercury_compile__output_llds(ModuleName, CFile, LayoutLabels,
 		MaybeRLFile, Verbose, Stats),
 
@@ -3318,13 +3322,14 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 
 	% Split the code up into bite-size chunks for the C compiler.
 
-:- pred mercury_compile__construct_c_file(foreign_interface_info,
+:- pred mercury_compile__construct_c_file(module_info, foreign_interface_info,
 	list(c_procedure), list(comp_gen_c_var), list(comp_gen_c_data),
 	c_file, int, io__state, io__state).
-:- mode mercury_compile__construct_c_file(in, in, in, in, out, out, di, uo)
+:- mode mercury_compile__construct_c_file(in, in, in, in, in, out, out, di, uo)
 	is det.
 
-mercury_compile__construct_c_file(C_InterfaceInfo, Procedures, GlobalVars,
+mercury_compile__construct_c_file(_Module,
+		C_InterfaceInfo, Procedures, GlobalVars,
 		AllData, CFile, ComponentCount) -->
 	{ C_InterfaceInfo = foreign_interface_info(ModuleSymName,
 		C_HeaderCode0, C_Includes, C_BodyCode0,
@@ -3345,7 +3350,10 @@ mercury_compile__construct_c_file(C_InterfaceInfo, Procedures, GlobalVars,
 	),
 	list__map_foldl(make_foreign_import_header_code, C_Includes,
 		C_HeaderCode1),
-	{ C_HeaderCode = C_HeaderCode0 ++ C_HeaderCode1 },
+
+	{ make_decl_guards(ModuleSymName, Start, End) },
+	{ C_HeaderCode = [End | C_HeaderCode0] ++ [Start | C_HeaderCode1] },
+
 	{ CFile = c_file(ModuleSymName, C_HeaderCode, C_BodyCode,
 		C_ExportDefns, GlobalVars, AllData, ChunkedModules) },
 	{ list__length(C_BodyCode, UserCCodeCount) },
@@ -3356,6 +3364,16 @@ mercury_compile__construct_c_file(C_InterfaceInfo, Procedures, GlobalVars,
 	{ ComponentCount is UserCCodeCount + ExportCount
 		+ CompGenVarCount + CompGenDataCount + CompGenCodeCount }.
 
+:- pred make_decl_guards(sym_name::in,
+		foreign_decl_code::out, foreign_decl_code::out) is det.
+
+make_decl_guards(ModuleName, StartGuard, EndGuard) :-
+	Define = decl_guard(ModuleName),
+	Start = "#ifndef " ++ Define ++ "\n#define " ++ Define ++ "\n",
+	End = "\n#endif",
+	StartGuard = foreign_decl_code(c, Start, term__context_init),
+	EndGuard = foreign_decl_code(c, End, term__context_init).
+
 :- pred make_foreign_import_header_code(foreign_import_module,
 		foreign_decl_code, io__state, io__state).
 :- mode make_foreign_import_header_code(in, out, di, uo) is det.
@@ -3365,8 +3383,8 @@ make_foreign_import_header_code(
 		Include) -->
 	(
 		{ Lang = c },
-		module_name_to_file_name(ModuleName, ".mh",
-			no, HeaderFileName),
+		module_name_to_search_file_name(ModuleName, ".mh",
+			HeaderFileName),
 		{ string__append_list(
 			["#include """, HeaderFileName, """\n"],
 			IncludeString) },

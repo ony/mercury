@@ -40,11 +40,17 @@
 :- import_module random, rational, rbtree, relation, require, robdd.
 :- import_module set, set_bbbtree, set_ordlist, set_unordlist, sparse_bitset.
 :- import_module stack, std_util, store, string.
-:- import_module term, term_io, tree234, time, type_desc, unsafe, varset.
+:- import_module term, term_io, tree234, time, type_desc, varset.
 
 % The modules intended for Mercury system implementors.
-:- import_module private_builtin, table_builtin, profiling_builtin.
+:- import_module private_builtin, profiling_builtin, table_builtin.
 :- import_module rtti_implementation.
+
+% Uncomment this temporarily (in your own workspace) if you need access to
+% unsafe predicates. In MLDS grades, you would also have to add unsafe to 
+% the list in mercury_std_library_module in the compiler you use to compile
+% the library.
+:- import_module unsafe.
 
 % library__version must be implemented using pragma c_code,
 % so we can get at the MR_VERSION and MR_FULLARCH configuration
@@ -53,7 +59,8 @@
 % might not have a Mercury compiler around to compile library.m with.
 
 :- pragma foreign_proc("C",
-	library__version(Version::out), [will_not_call_mercury, promise_pure],
+	library__version(Version::out),
+	[will_not_call_mercury, promise_pure],
 "
 	MR_ConstString version_string = 
 		MR_VERSION "", configured for "" MR_FULLARCH;
@@ -69,7 +76,8 @@
 ").
 
 :- pragma foreign_proc("MC++",
-	library__version(Version::out), [will_not_call_mercury, promise_pure],
+	library__version(Version::out),
+	[will_not_call_mercury, promise_pure],
 "
 	// XXX we should use string literals with an S at the start
 	// so this code uses just managed types.

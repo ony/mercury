@@ -754,7 +754,7 @@ add_item_clause(pragma(Pragma), Status, Status, Context,
 			{ module_info_incr_errors(Module0, Module) },
 			prog_out__write_context(Context),
 			io__write_string("Error: `:- pragma "),
-			{ eval_method_to_string(Type, EvalMethodS) },
+			{ EvalMethodS = eval_method_to_string(Type) },
 			io__write_string(EvalMethodS),
 			io__write_string(
 "' declaration requires the type_ctor_layout\n"),
@@ -952,7 +952,8 @@ add_pragma_foreign_type(Context, item_status(ImportStatus, NeedQual),
 			error_util__write_error_pieces(Context, 0, ErrorPieces),
 			{ module_info_incr_errors(Module0, Module) }
 		;
-			module_add_type_defn_2(Module0, TVarSet, Name,
+			{ module_info_contains_foreign_type(Module0, Module1) },
+			module_add_type_defn_2(Module1, TVarSet, Name,
 				Args, Body, Cond, Context,
 				item_status(ImportStatus, NeedQual),
 				Module)
@@ -2694,11 +2695,10 @@ module_add_class_defn(Module0, Constraints, Name, Vars, Interface, VarSet,
 						SuperTypes),
 					list__length(SuperTypes,
 						SuperClassArity),
-					term__vars_list(SuperTypes, SuperVars),
 					SuperClassId = class_id(SuperName,
 						SuperClassArity),
 					SubClassDetails =
-					    subclass_details(SuperVars,
+					    subclass_details(SuperTypes,
 						ClassId, Vars, VarSet),
 					multi_map__set(Ss0, SuperClassId,
 						SubClassDetails, Ss)
@@ -4615,7 +4615,7 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 module_add_pragma_tabled(EvalMethod, PredName, Arity, MaybePredOrFunc, 
 		MaybeModes, Status, Context, ModuleInfo0, ModuleInfo) --> 
 	{ module_info_get_predicate_table(ModuleInfo0, PredicateTable0) }, 
- 	{ eval_method_to_string(EvalMethod, EvalMethodS) },
+ 	{ EvalMethodS = eval_method_to_string(EvalMethod) },
 		
 	% Find out if we are tabling a predicate or a function 
 	(
@@ -4692,7 +4692,7 @@ module_add_pragma_tabled_2(EvalMethod, PredName, Arity0, MaybePredOrFunc,
 	{ adjust_func_arity(PredOrFunc, Arity0, Arity) },
 		
 		% print out a progress message
-	{ eval_method_to_string(EvalMethod, EvalMethodS) },
+	{ EvalMethodS = eval_method_to_string(EvalMethod) },
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 	( 
 		{ VeryVerbose = yes }
@@ -5177,8 +5177,8 @@ warn_singletons_in_unify(X, var(Y), GoalInfo, QuantVars, VarSet, CallPredId, _)
 	warn_singletons([X, Y], NonLocals, QuantVars, VarSet,
 			Context, CallPredId).
 
-warn_singletons_in_unify(X, functor(_ConsId, Vars), GoalInfo, QuantVars, VarSet,
-				CallPredId, _) -->
+warn_singletons_in_unify(X, functor(_ConsId, _, Vars), GoalInfo,
+			QuantVars, VarSet, CallPredId, _) -->
 	{ goal_info_get_nonlocals(GoalInfo, NonLocals) },
 	{ goal_info_get_context(GoalInfo, Context) },
 	warn_singletons([X | Vars], NonLocals, QuantVars, VarSet,
@@ -5974,9 +5974,9 @@ transform_goal_2(if_then_else(Vars0, StateVars0, A0, B0, C0), Context,
 	transform_goal(C0, VarSet3, Subst, C1, VarSet4, Info2, Info,
 		SInfo0, SInfoC),
 
-	{ goal_info_init(GoalInfo) },
+	{ goal_info_init(Context, GoalInfo) },
 
-	{ finish_if_then_else(Context, GoalInfo, B1, B, C1, C,
+	{ finish_if_then_else(Context, B1, B, C1, C,
 		SInfo0, SInfoA, SInfoB, SInfoC, SInfo, VarSet4, VarSet) }.
 
 transform_goal_2(if_then(Vars0, StateVars, A0, B0), Context, Subst, VarSet0,
@@ -6047,16 +6047,17 @@ transform_goal_2(equivalent(P0, Q0), _, VarSet0, Subst, Goal, VarSet,
 
 transform_goal_2(call(Name, Args0, Purity), Context, VarSet0, Subst, Goal,
 		VarSet, Info0, Info, SInfo0, SInfo) -->
-	{ prepare_for_call(SInfo0, SInfo1) },
 	{ Args1 = expand_bang_state_var_args(Args0) },
 	( 
 		{ Name = unqualified("\\=") },
 		{ Args1 = [LHS, RHS] }
 	->
+		{ prepare_for_call(SInfo0, SInfo1) },
 			% `LHS \= RHS' is defined as `not (LHS = RHS)'
 		transform_goal_2(not(unify(LHS, RHS, Purity) - Context),
 			Context, VarSet0, Subst, Goal, VarSetX, Info0, Info,
-			SInfo1, SInfoX)
+			SInfo1, SInfoX),
+		{ finish_call(VarSetX, VarSet, SInfoX, SInfo) }
 	;
 		% check for a DCG field access goal:
 		% get:  Field =^ field
@@ -6066,9 +6067,11 @@ transform_goal_2(call(Name, Args0, Purity), Context, VarSet0, Subst, Goal,
 		; { Operator = ":=" }
 		)
 	->
+		{ prepare_for_call(SInfo0, SInfo1) },
 		{ term__apply_substitution_to_list(Args1, Subst, Args2) },
 		transform_dcg_record_syntax(Operator, Args2, Context,
-			VarSet0, Goal, VarSetX, Info0, Info, SInfo1, SInfoX)
+			VarSet0, Goal, VarSetX, Info0, Info, SInfo1, SInfoX),
+		{ finish_call(VarSetX, VarSet, SInfoX, SInfo) }
 	;
 		% check for an Aditi builtin
 		{ Purity = pure },
@@ -6086,8 +6089,9 @@ transform_goal_2(call(Name, Args0, Purity), Context, VarSet0, Subst, Goal,
 	->
 		{ term__apply_substitution_to_list(Args1, Subst, Args2) },
 		transform_aditi_builtin(Name1, Args2, Context, VarSet0,
-			Goal, VarSetX, Info0, Info, SInfo1, SInfoX)
+			Goal, VarSet, Info0, Info, SInfo0, SInfo)
 	;
+		{ prepare_for_call(SInfo0, SInfo1) },
 		{ term__apply_substitution_to_list(Args1, Subst, Args) },
 		{ make_fresh_arg_vars(Args, VarSet0, HeadVars, VarSet1) },
 		{ list__length(Args, Arity) },
@@ -6146,9 +6150,9 @@ transform_goal_2(call(Name, Args0, Purity), Context, VarSet0, Subst, Goal,
 			Info0, Info1) },
 		insert_arg_unifications(HeadVars, Args, Context, call(CallId),
 			Goal0, VarSet1, Goal, VarSetX, Info1, Info,
-			SInfo1, SInfoX)
-	),
-	{ finish_call(VarSetX, VarSet, SInfoX, SInfo) }.
+			SInfo1, SInfoX),
+		{ finish_call(VarSetX, VarSet, SInfoX, SInfo) }
+	).
 
 transform_goal_2(unify(A0, B0, Purity), Context, VarSet0, Subst, Goal, VarSet,
 		Info0, Info, SInfo0, SInfo) -->
@@ -6448,7 +6452,7 @@ expand_set_field_function_call_2(Context, MainContext, SubContext0,
 	{ ArgContext = functor(Functor, MainContext, SubContext0) },
 	{ goal_info_init(Context, GoalInfo) },
 	{ conj_list_to_goal(Goals1, GoalInfo, Conj0) },
-	append_arg_unifications(FieldArgVars, FieldArgs, Context, ArgContext,
+	insert_arg_unifications(FieldArgVars, FieldArgs, Context, ArgContext,
 		Conj0, VarSet4, Conj, VarSet, Info3, Info, SInfo1, SInfo),
 	{ goal_to_conj_list(Conj, Goals) }.
 
@@ -6565,7 +6569,7 @@ expand_get_field_function_call_2(Context, MainContext, SubContext0,
 	{ ArgContext = functor(Functor, MainContext, SubContext0) },
 	{ goal_info_init(Context, GoalInfo) },
 	{ conj_list_to_goal(Goals2, GoalInfo, Conj0) },
-	append_arg_unifications(FieldArgVars, FieldArgs, Context, ArgContext,
+	insert_arg_unifications(FieldArgVars, FieldArgs, Context, ArgContext,
 		Conj0, VarSet3, Conj, VarSet, Info2, Info, SInfo1, SInfo),
 	{ goal_to_conj_list(Conj, Goals) }.
 
@@ -6582,7 +6586,7 @@ construct_field_access_function_call(AccessType, Context,
 	field_access_function_name(AccessType, FieldName, FuncName),
 	list__length(Args, Arity),
 	Functor = cons(FuncName, Arity),
-	make_atomic_unification(RetArg, functor(Functor, Args),
+	make_atomic_unification(RetArg, functor(Functor, no, Args),
 		Context, MainContext, SubContext, Goal, Info0, Info).
 
 :- type field_list == assoc_list(ctor_field_name, list(prog_term)).
@@ -6853,13 +6857,25 @@ transform_aditi_insert_delete_modify(Descr, InsertDelMod, Args0, Context,
 		{ make_fresh_arg_vars(HeadArgs1, VarSet0, HeadArgs, VarSet1) },
 		{ term__coerce(GoalTerm1, GoalTerm) },
 		{ parse_goal(GoalTerm, VarSet1, ParsedGoal, VarSet2) },
-		{ map__init(Substitution) },
-		transform_goal(ParsedGoal, VarSet2, Substitution,
-			PredGoal0, VarSet3, Info0, Info1, SInfo0, SInfo1),
+
+		{ prepare_for_lambda(SInfo0, SInfo1) },
+
+		{ hlds_goal__true_goal(PredHead0) },
 		{ ArgContext = head(PredOrFunc, PredArity) },
 		insert_arg_unifications(HeadArgs, HeadArgs1, Context,
-			ArgContext, PredGoal0, VarSet3, PredGoal1, VarSet4,
-			Info1, Info2, SInfo1, SInfo2), 
+			ArgContext, PredHead0, VarSet2, PredHead, VarSet3,
+			Info0, Info1, SInfo1, SInfo2), 
+
+		{ prepare_for_body(FinalSVarMap, VarSet3, VarSet4,
+			SInfo2, SInfo3) },
+
+		{ map__init(Substitution) },
+		transform_goal(ParsedGoal, VarSet4, Substitution,
+			PredBody, VarSet5, Info1, Info2, SInfo3, SInfo4),
+
+		{ finish_head_and_body(Context, FinalSVarMap,
+			PredHead, PredBody, PredGoal0, SInfo4) },
+
 		% Quantification will reduce this down to
 		% the proper set of nonlocal arguments.
 		{ goal_util__goal_vars(PredGoal, LambdaGoalVars0) }, 
@@ -6869,7 +6885,7 @@ transform_aditi_insert_delete_modify(Descr, InsertDelMod, Args0, Context,
 		{ aditi_delete_insert_delete_modify_goal_info(InsertDelMod,
 			PredOrFunc, SymName, PredArity, HeadArgs,
 			LambdaPredOrFunc, EvalMethod, LambdaModes,
-			Detism, PredGoal1, PredGoal) },
+			Detism, PredGoal0, PredGoal) },
 		{ ModifiedCallId = PredOrFunc - SymName/PredArity },
 
 		{ invalid_pred_id(PredId) },
@@ -6879,7 +6895,7 @@ transform_aditi_insert_delete_modify(Descr, InsertDelMod, Args0, Context,
 			call(generic_call(
 				aditi_builtin(Builtin, ModifiedCallId)),
 			1) }, 
-		{ varset__new_var(VarSet4, LambdaVar, VarSet5) },
+		{ varset__new_var(VarSet5, LambdaVar, VarSet6) },
 
 		% Tell purity.m to change the mode of the `aditi__state'
 		% arguments of the closure to `unused', to make sure
@@ -6900,9 +6916,9 @@ transform_aditi_insert_delete_modify(Descr, InsertDelMod, Args0, Context,
 			Info2, Info3) },
 
 		{ make_fresh_arg_var(AditiState0Term, AditiState0Var, [],
-			VarSet5, VarSet6) },
-		{ make_fresh_arg_var(AditiStateTerm, AditiStateVar, [],
 			VarSet6, VarSet7) },
+		{ make_fresh_arg_var(AditiStateTerm, AditiStateVar, [],
+			VarSet7, VarSet8) },
 		{ AllArgs = [LambdaVar, AditiState0Var, AditiStateVar] },
 		
 		% post_typecheck.m will fill this in.
@@ -6930,7 +6946,7 @@ transform_aditi_insert_delete_modify(Descr, InsertDelMod, Args0, Context,
 			[term__variable(LambdaVar), AditiState0Term,
 				AditiStateTerm],
 			Context, CallId, UpdateConj,
-			VarSet7, UpdateGoal, VarSet, Info4, Info, SInfo2, SInfo)
+			VarSet8, UpdateGoal, VarSet, Info4, Info, SInfo4, SInfo)
 	;
 		%
 		% Second syntax -
@@ -7705,7 +7721,7 @@ unravel_unification_2(term__variable(X), RHS,
 			SInfo1, SInfo2),
 
 		{ ArgContext = functor(Functor, MainContext, SubContext) },
-		append_arg_unifications([InputTermVar], [InputTerm],
+		insert_arg_unifications([InputTermVar], [InputTerm],
 			FunctorContext, ArgContext, Goal0,
 			VarSet3, Goal, VarSet, Info2, Info, SInfo2, SInfo)
 	;
@@ -7731,24 +7747,16 @@ unravel_unification_2(term__variable(X), RHS,
 
 		{ TermArgContext = functor(Functor, MainContext, SubContext) },
 		{ TermArgNumber = 1 },
-		append_arg_unification(InputTermVar, InputTerm,
-			FunctorContext, TermArgContext, TermArgNumber,
-			TermUnifyConj, VarSet4, VarSet5, Info2, Info3,
-			SInfo2, SInfo3),
-
 		{ FieldArgContext = functor(InnerFunctor,
 			MainContext, FieldSubContext) },
 		{ FieldArgNumber = 2 },
-		append_arg_unification(FieldValueVar, FieldValueTerm,
-			FunctorContext, FieldArgContext, FieldArgNumber,
-			FieldUnifyConj, VarSet5, VarSet, Info3, Info,
-			SInfo3, SInfo),
-
-		{ Goal0 = _ - GoalInfo0 },
-		{ goal_to_conj_list(Goal0, GoalList0) },
-		{ list__condense([GoalList0, TermUnifyConj, FieldUnifyConj],
-			GoalList) },
-		{ conj_list_to_goal(GoalList, GoalInfo0, Goal) }
+		{ ArgContexts = [TermArgNumber - TermArgContext,
+				FieldArgNumber - FieldArgContext] },
+		insert_arg_unifications_with_supplied_contexts(
+			[InputTermVar, FieldValueVar],
+			[InputTerm, FieldValueTerm], ArgContexts,
+			Context, Goal0, VarSet4, Goal, VarSet, Info2, Info,
+			SInfo2, SInfo)
 	;
 		{ parse_qualified_term(RHS, RHS, "", MaybeFunctor) },
 		(
@@ -7764,7 +7772,7 @@ unravel_unification_2(term__variable(X), RHS,
 			{ FunctorArgs = Args }
 		),
 		( { FunctorArgs = [] } ->
-			{ make_atomic_unification(X, functor(ConsId, []),
+			{ make_atomic_unification(X, functor(ConsId, no, []),
 				Context, MainContext, SubContext, Goal0,
 				Info0, Info) },
 			{ Goal0 = GoalExpr - GoalInfo0 },
@@ -7777,7 +7785,7 @@ unravel_unification_2(term__variable(X), RHS,
 			{ make_fresh_arg_vars(FunctorArgs, VarSet1,
 				HeadVars, VarSet2) },
 			{ make_atomic_unification(X,
-				functor(ConsId, HeadVars), Context,
+				functor(ConsId, no, HeadVars), Context,
 				MainContext, SubContext, Goal0,
 				Info0, Info1) },
 			{ ArgContext = functor(ConsId,
@@ -8055,7 +8063,7 @@ do_construct_pred_or_func_call(PredId, PredOrFunc, SymName, Args,
 		ConsId = cons(SymName, Arity),
 		goal_info_get_context(GoalInfo, Context),
 		hlds_goal__create_atomic_unification(RetArg,
-			functor(ConsId, FuncArgs), Context,
+			functor(ConsId, no, FuncArgs), Context,
 			explicit, [], GoalExpr - _),
 		Goal = GoalExpr - GoalInfo
 	).
@@ -8074,7 +8082,7 @@ make_atomic_unification(Var, Rhs, Context, MainContext, SubContext,
 		Rhs = lambda_goal(_, _, _, _, _, _, _, _),
 		Info = Info0
 	;
-		Rhs = functor(ConsId, _),
+		Rhs = functor(ConsId, _, _),
 		record_used_functor(ConsId, Info0, Info)
 	),
 	hlds_goal__create_atomic_unification(Var, Rhs, Context,
@@ -9426,14 +9434,13 @@ del_locals(StateVars, MapBefore, Map) =
 	% We construct new mappings for the state variables and then
 	% add unifiers.
 	%
-:- pred finish_if_then_else(prog_context, hlds_goal_info,
-		hlds_goal, hlds_goal, hlds_goal, hlds_goal,
-		svar_info, svar_info, svar_info, svar_info, svar_info,
-		prog_varset, prog_varset).
-:- mode finish_if_then_else(in, in, in, out, in, out, in, in, in, in, out,
+:- pred finish_if_then_else(prog_context, hlds_goal, hlds_goal, hlds_goal,
+		hlds_goal, svar_info, svar_info, svar_info, svar_info,
+		svar_info, prog_varset, prog_varset).
+:- mode finish_if_then_else(in, in, out, in, out, in, in, in, in, out,
 		in, out) is det.
 
-finish_if_then_else(Context, GoalInfo, Then0, Then, Else0, Else,
+finish_if_then_else(Context, Then0, Then, Else0, Else,
 		SInfo0, SInfoC, SInfoT0, SInfoE, SInfo,
 		VarSet0, VarSet) :-
 
@@ -9444,6 +9451,7 @@ finish_if_then_else(Context, GoalInfo, Then0, Then, Else0, Else,
 		%
 	StateVars  = list__merge_and_remove_dups(map__keys(SInfoT0 ^ dot),
 						 map__keys(SInfoE  ^ dot)),
+	Then0 = _ - GoalInfo,
 	goal_to_conj_list(Then0, Thens0),
 	add_then_arm_specific_unifiers(Context, StateVars,
 		SInfo0, SInfoC, SInfoT0, SInfoT,
@@ -9459,9 +9467,9 @@ finish_if_then_else(Context, GoalInfo, Then0, Then, Else0, Else,
 		% Add unifiers to each arm to ensure they both construct
 		% the same final state variable mappings. 
 		%
-	Then       = add_disj_unifiers(Context, GoalInfo, SInfo, StateVars,
+	Then       = add_disj_unifiers(Context, SInfo, StateVars,
 				{Then1, SInfoT}),
-	Else       = add_disj_unifiers(Context, GoalInfo, SInfo, StateVars,
+	Else       = add_disj_unifiers(Context, SInfo, StateVars,
 				{Else0, SInfoE}).
 
 
@@ -9545,9 +9553,8 @@ finish_negation(SInfoBefore, SInfoNeg, SInfo) :-
 finish_disjunction(Context, VarSet, DisjSInfos, Disjs, SInfo) :-
 	SInfo      = reconciled_disj_svar_info(VarSet, DisjSInfos),
 	StateVars  = map__keys(SInfo ^ dot),
-	goal_info_init(Context, GoalInfo),
 	Disjs      = list__map(
-			add_disj_unifiers(Context, GoalInfo, SInfo, StateVars),
+			add_disj_unifiers(Context, SInfo, StateVars),
 			DisjSInfos).
 
 
@@ -9677,13 +9684,14 @@ reconciled_svar_infos_colons(VarSet, SInfoX, StateVar, SInfo0) = SInfo :-
 	).
  
 
-:- func add_disj_unifiers(prog_context, hlds_goal_info, svar_info, svars,
+:- func add_disj_unifiers(prog_context, svar_info, svars,
 		hlds_goal_svar_info) = hlds_goal.
 
-add_disj_unifiers(Context, GoalInfo, SInfo, StateVars, {GoalX, SInfoX}) =
+add_disj_unifiers(Context, SInfo, StateVars, {GoalX, SInfoX}) =
 		Goal :-
 	Unifiers = list__foldl(add_disj_unifier(Context, SInfo, SInfoX),
 			StateVars, []),
+	GoalX = _ - GoalInfo,
 	goal_to_conj_list(GoalX, GoalsX),
 	conj_list_to_goal(GoalsX ++ Unifiers, GoalInfo, Goal).
 
@@ -10095,7 +10103,7 @@ report_illegal_state_var_update(Context, VarSet, StateVar) -->
 	{ Name = varset__lookup_name(VarSet, StateVar) },
 	prog_out__write_context(Context),
 	report_error(string__format("\
-cannot use !:%s in this context;\n", [s(Name)])),
+cannot use !:%s in this context;", [s(Name)])),
 	prog_out__write_context(Context),
 	io__format("\
   however !.%s may be used here.\n", [s(Name)]).
@@ -10110,7 +10118,7 @@ report_non_visible_state_var(DorC, Context, VarSet, StateVar) -->
 	{ Name = varset__lookup_name(VarSet, StateVar) },
 	prog_out__write_context(Context),
 	report_error(string__format("\
-state variable !%s%s is not visible in this context.\n", [s(DorC), s(Name)])).
+state variable !%s%s is not visible in this context.", [s(DorC), s(Name)])).
 
 %------------------------------------------------------------------------------%
 
@@ -10133,7 +10141,7 @@ report_illegal_func_svar_result(Context, VarSet, StateVar) -->
 	{ Name = varset__lookup_name(VarSet, StateVar) },
 	prog_out__write_context(Context),
 	report_error(string__format("\
-!%s cannot be a function result.\n", [s(Name)])),
+!%s cannot be a function result.", [s(Name)])),
 	prog_out__write_context(Context),
 	io__format("\
   You probably meant !.%s or !:%s.\n", [s(Name), s(Name)]).
@@ -10148,7 +10156,7 @@ report_illegal_bang_svar_lambda_arg(Context, VarSet, StateVar) -->
 	{ Name = varset__lookup_name(VarSet, StateVar) },
 	prog_out__write_context(Context),
 	report_error(string__format("\
-!%s cannot be a lambda argument.\n", [s(Name)])),
+!%s cannot be a lambda argument.", [s(Name)])),
 	prog_out__write_context(Context),
 	io__format("\
   Perhaps you meant !.%s or !:%s.\n", [s(Name), s(Name)]).

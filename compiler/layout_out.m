@@ -720,9 +720,25 @@ write_maybe_slot_num(no) -->
 eval_method_to_c_string(eval_normal) =	      "MR_EVAL_METHOD_NORMAL".
 eval_method_to_c_string(eval_loop_check) =    "MR_EVAL_METHOD_LOOP_CHECK".
 eval_method_to_c_string(eval_memo) =          "MR_EVAL_METHOD_MEMO".
-eval_method_to_c_string(eval_table_io) =      "MR_EVAL_METHOD_TABLE_IO".
-eval_method_to_c_string(eval_table_io_decl) = "MR_EVAL_METHOD_TABLE_IO_DECL".
 eval_method_to_c_string(eval_minimal) =	      "MR_EVAL_METHOD_MINIMAL".
+eval_method_to_c_string(eval_table_io(Decl, Unitize)) = Str :-
+	(
+		Decl = table_io_proc,
+		Unitize = table_io_alone,
+		Str = "MR_EVAL_METHOD_TABLE_IO"
+	;
+		Decl = table_io_proc,
+		Unitize = table_io_unitize,
+		Str = "MR_EVAL_METHOD_TABLE_IO_UNITIZE"
+	;
+		Decl = table_io_decl,
+		Unitize = table_io_alone,
+		Str = "MR_EVAL_METHOD_TABLE_IO_DECL"
+	;
+		Decl = table_io_decl,
+		Unitize = table_io_unitize,
+		Str = "MR_EVAL_METHOD_TABLE_IO_UNITIZE_DECL"
+	).
 
 :- pred output_proc_layout_head_var_nums(proc_label::in, list(int)::in,
 	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
@@ -950,14 +966,7 @@ output_module_string_table_chars(CurIndex, MaxIndex, String) -->
 	),
 	{ string__unsafe_index(String, CurIndex, Char) },
 	io__write_char(''''),
-	( { char__to_int(Char, 0) } ->
-		io__write_string("\\0")
-	; { c_util__quote_char(Char, QuoteChar) } ->
-		io__write_char('\\'),
-		io__write_char(QuoteChar)
-	;
-		io__write_char(Char)
-	),
+	c_util__output_quoted_char(Char),
 	io__write_char(''''),
 	( { CurIndex < MaxIndex } ->
 		io__write_string(", "),
@@ -1172,16 +1181,18 @@ output_call_site_static_array(RttiProcLabel, CallSites, DeclSet0, DeclSet) -->
 	io__write_string("\n"),
 	output_layout_name_storage_type_name(LayoutName, yes),
 	io__write_string(" = {\n"),
-	list__foldl(output_call_site_static, CallSites),
+	list__foldl2(output_call_site_static, CallSites, 0, _),
 	io__write_string("};\n"),
 	{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
 		DeclSet) }.
 
-:- pred output_call_site_static(call_site_static_data::in,
+:- pred output_call_site_static(call_site_static_data::in, int::in, int::out,
 	io__state::di, io__state::uo) is det.
 
-output_call_site_static(CallSiteStatic) -->
-	io__write_string("\t{ "),
+output_call_site_static(CallSiteStatic, Index, Index + 1) -->
+	io__write_string("\t{ /* "),
+	io__write_int(Index),
+	io__write_string(" */ "),
 	(
 		{ CallSiteStatic = normal_call(Callee, TypeSubst,
 			FileName, LineNumber, GoalPath) },

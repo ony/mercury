@@ -111,7 +111,7 @@ MR_call_msg(/* const */ MR_Code *proc, /* const */ MR_Code *succ_cont)
 	}
 
 #ifdef	MR_DEEP_PROFILING
-	MR_print_deep_prof_vars(stdout);
+	MR_print_deep_prof_vars(stdout, "MR_call_msg");
 #endif
 }
 
@@ -127,7 +127,7 @@ MR_tailcall_msg(/* const */ MR_Code *proc)
 	}
 
 #ifdef	MR_DEEP_PROFILING
-	MR_print_deep_prof_vars(stdout);
+	MR_print_deep_prof_vars(stdout, "MR_tailcall_msg");
 #endif
 }
 
@@ -140,7 +140,7 @@ MR_proceed_msg(void)
 	}
 
 #ifdef	MR_DEEP_PROFILING
-	MR_print_deep_prof_vars(stdout);
+	MR_print_deep_prof_vars(stdout, "MR_proceed_msg");
 #endif
 }
 
@@ -236,7 +236,7 @@ MR_printstring(const char *s)
 	if (MR_print_raw_addrs) {
 		printf("string %p %s\n", (const void *) s, s);
 	} else {
-		printf("string %s\n", s, s);
+		printf("string %s\n", s);
 	}
 }
 

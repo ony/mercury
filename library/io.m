@@ -1303,8 +1303,12 @@
 ").
 
 :- pragma foreign_code("MC++", "
+#ifdef MR_HIGHLEVEL_DATA
+	static mercury::tree234::tree234_2 __gc	*ML_io_stream_names;
+#else
 	static MR_Word		ML_io_stream_names;
-	static MR_Word		ML_io_user_globals;
+#endif
+	static MR_Univ		ML_io_user_globals;
 	static int next_id;
 	static System::Text::ASCIIEncoding *ascii_encoder;
 ").
@@ -1940,8 +1944,8 @@ io__file_modification_time(File, Result) -->
 :- mode io__file_modification_time_2(in, out, out, out, di, uo) is det.
 
 :- pragma foreign_proc("C", io__file_modification_time_2(FileName::in,
-		Status::out, Msg::out, Time::out, IO0::di, IO::uo),
-		[will_not_call_mercury, promise_pure, thread_safe],
+	Status::out, Msg::out, Time::out, IO0::di, IO::uo),
+	[will_not_call_mercury, promise_pure, tabled_for_io, thread_safe],
 "{
 #ifdef MR_HAVE_STAT
 	struct stat s;
@@ -1979,8 +1983,7 @@ io__file_modification_time_2(_, _, _, _) -->
 :- pred io__alloc_buffer(int::in, buffer::uo) is det.
 :- pragma foreign_proc("C", 
 	io__alloc_buffer(Size::in, Buffer::uo),
-		[will_not_call_mercury, promise_pure, tabled_for_io,
-			thread_safe],
+	[will_not_call_mercury, promise_pure, tabled_for_io, thread_safe],
 "{
 	MR_incr_hp_atomic_msg(Buffer,
 		(Size * sizeof(MR_Char) + sizeof(MR_Word) - 1)
@@ -3373,6 +3376,8 @@ int		ML_fprintf(MercuryFile* mf, const char *format, ...);
 
 	// XXX currently we only handle text streams.
 
+namespace mercury {
+namespace io__cpp_code {
 __gc struct MR_MercuryFileStruct {
 public:
 	// Note that stream reader and writer might be null, if they are
@@ -3387,6 +3392,9 @@ public:
 };
 
 typedef __gc struct MR_MercuryFileStruct *MR_MercuryFile;
+
+}
+}
 
 	// These macros aren't very safe -- they don't enforce
 	// safe casts in anyway.  Make sure you use them for good
@@ -5234,14 +5242,18 @@ io__handle_system_command_exit_code(Status0::in) = (Status::out) :-
 	io__command_line_arguments(Args::out, IO0::di, IO::uo),
 		[will_not_call_mercury, promise_pure, tabled_for_io,
 			thread_safe], "
+#ifdef MR_HIGHLEVEL_DATA
+	mercury::runtime::Errors::SORRY(""io__command_line_arguments"");
+#else
 	MR_String arg_vector __gc[] = System::Environment::GetCommandLineArgs();
 	int i = arg_vector->Length;
 	MR_list_nil(Args);
-		/* We don't get the 0th argument: it is the executable name */
+		// We don't get the 0th argument: it is the executable name
 	while (--i > 0) {
 		MR_list_cons(Args, arg_vector[i], Args);
 	}
 	update_io(IO0, IO);
+#endif
 ").
 
 :- pragma foreign_proc("MC++",
