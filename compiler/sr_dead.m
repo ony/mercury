@@ -7,10 +7,13 @@
 % Module:	sr_dead
 % Main authors: nancy
 % 
-% Mark each cell that dies with its reuse_condition, and mark each
-% construction with the cells that construction could possibly reuse.
-% sr_choice is responsible for deciding which cell will actually be
-% reused.
+% Determine the deconstructions at which the deconstructed data structure
+% may potentially die. Record these dead data structures with the conditions
+% for reusing them (i.e. the conditions in which they die). For each dead
+% data structure we also keep track of the constructions which might be
+% interested in reusing that structure. 
+% It is up to the choice analysis to make a choice between these possible
+% candidates for reuse. 
 %
 %-----------------------------------------------------------------------------%
 
@@ -118,7 +121,6 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = disj(Goals0),
-	goal_info_get_outscope(Info0, Outscope), 
 	(
 		Goals0 = []
 	->
@@ -136,6 +138,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 			),
 			Goals0, Goals, 
 			ListPools, ListAliases),
+		goal_info_get_outscope(Info0, Outscope), 
 		dead_cell_pool_least_upper_bound_disj(Outscope,
 			ListPools, Pool),
 		pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, 
@@ -144,7 +147,7 @@ annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Info = Info0,
 	Expr = disj(Goals),
 	Goal = Expr - Info. 
-	
+
 annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = not(NegatedGoal0),

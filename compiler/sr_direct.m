@@ -8,7 +8,9 @@
 % Main authors: nancy, petdr
 % 
 % Determine the direct reuse in one procedure.  Direct reuse consists of
-% identifying which cells die.
+% identifying the deconstructions in which cell die if the procedure is called
+% in the appropriate way. The "appropriate way" is described by a reuse
+% condition. 
 %
 %-----------------------------------------------------------------------------%
 
@@ -50,44 +52,49 @@
 :- import_module assoc_list.
 :- import_module require.
 
+	% The direct-reuse analysis consists of three steps: 
+	% 1. pre-annotations (local forward use, local backward use)
+	% 2. 'deadness' analysis, i.e. identifying where datastructures
+	% potentially die. 
+	% 3. 'choice' analysis, i.e. identify where dead datastructure can be
+	% reused. 
 process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
-		% Determine the LFU (local forward use)
-	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	% Some pre-processing: 
+	% - Initialise the reuse information.
+	% - Annotate goals with local forward use (lfu).
+	% - Annotate goals with local backward use (lbu). 
+	% - Annotate the goals with their goal-paths (used to identify the
+	% unifications, later in the choice analysis)
+	% XXX these goal-paths should become the main way of identifying the
+	% places of reuse, instead of annotating the actual goals.
 	{ initialise_reuse_info(ProcInfo0, ProcInfo00) },
 	{ sr_lfu__process_proc(ProcInfo00, ProcInfo1) },
-
-		% Determine the LBU (local backward use)
 	{ sr_lbu__process_proc(ModuleInfo0, ProcInfo1, ProcInfo2b) },
-
-		% Annotate the goals with their goal-paths.
 	{ goal_path__fill_slots(ProcInfo2b, ModuleInfo0, ProcInfo2) }, 
 
-		% Determine which cells die and can be reused and what
-		% the conditions on that reuse are
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+
+	% After the preliminary annotations, perform the actual analysis of the
+	% procedure goal. 
+	passes_aux__write_proc_progress_message("% Analysing ", 
+			PredId, ProcId, ModuleInfo0), 
+
 	{ proc_info_goal(ProcInfo2, Goal0) },
 
-	(
-		{ VeryVerbose = yes }
-	->
-		passes_aux__write_proc_progress_message(
-			"% Analysing ", PredId, ProcId, ModuleInfo0), 
-		io__write_string("%\tdeadness analysis...")
-	; 
-		[]
-	),
+	% 'Deadness' analysis: determine the deconstructions in which data
+	% structures potentially die. 
+	passes_aux__maybe_write_string(VeryVerbose, "%\tdeadness analysis..."),
 	{ sr_dead__process_goal(PredId,ProcInfo0,ModuleInfo0,Goal0,Goal1) },
+	passes_aux__maybe_write_string(VeryVerbose, "done.\n"),
 
-	maybe_write_string(VeryVerbose, "done.\n"),
-
-		% Select which cells will be reused and which can be
-		% compile time garbage collected.
-	maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
-	% sr_choice__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
-	% { proc_info_vartypes(ProcInfo0, VarTypes) },
-	% { sr_choice__process_goal(Strategy, VarTypes, ModuleInfo,
-	%		ProcInfo0, Goal1, Goal, MaybeReuseConditions) },
+	% 'Choice' analysis: determine how the detected dead data structures
+	% can be reused locally. 
+	passes_aux__maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
 	{ proc_info_vartypes(ProcInfo0, VarTypes) }, 
-	% { ModuleInfo = ModuleInfo0 }, 
+
+	% XXX Getting the strategy also performs the check whether the
+	% arguments given to the mmc were correct. This is definitely not the
+	% right moment to check these arguments. Should be done way earlier. 
 	sr_choice_util__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
 	{ Strategy = strategy(Constraint, Selection) },
 	(

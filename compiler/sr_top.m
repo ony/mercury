@@ -19,8 +19,10 @@
 % 		H3 := H2
 % 	;
 % 			% Cell H1 dies provided some condition about the
-% 			% aliasing of H1 is true.  This is a direct
-% 			% reuse.
+% 			% aliasing of H1 is true.  A deconstruction
+% 			% generating a dead cell, followed by a
+% 			% construction reusing that cell, is called a direct
+% 			% reuse. 
 % 		H1 => [X | Xs],
 %
 % 			% If the condition about the aliasing of H1
@@ -44,9 +46,13 @@
 
 :- import_module list, io.
 
+	% Perform the structure reuse analysis. 
 :- pred structure_reuse(module_info::in, module_info::out,
 	io::di, io::uo) is det.
 
+	% Write the reuse information of a module as pragma's in the trans_opt
+	% of that module. 
+	% XXX This procedure should be defined elsewhere. 
 :- pred write_pragma_reuse_info(module_info::in, list(pred_id)::in,
 	pred_id::in, io::di, io::uo) is det.
 
@@ -82,7 +88,9 @@ structure_reuse(HLDS00, HLDS) -->
 		process_unproc_reuse_pragma, UnprocReusePragmas, 
 		HLDS00, HLDS01), 
 	{ module_info_remove_unproc_reuse_pragmas(HLDS01, HLDS0) }, 
-	
+
+	% We do not want to analyse predicates that are introduced by the
+	% compiler. We will therefore filter out these predicates.
 	{ module_info_get_special_pred_map(HLDS0, SpecialPredMap) },
 	{ map__values(SpecialPredMap, SpecialPredIds) },
 
