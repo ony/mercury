@@ -1638,8 +1638,10 @@ mercury_compile__possible_aliases(HLDS0, Verbose, Stats, HLDS ) -->
 	( 	
 		{ InferAliases = yes }
 	->
+		maybe_write_string(Verbose, "% Possible alias analysis...\n"),
+		maybe_flush_output(Verbose),
 		pa_run__aliases_pass( HLDS0, HLDS ),
-		maybe_write_string(Verbose, "% Alias analysis done.\n"),
+		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
 	;
 		{ HLDS = HLDS0 }
@@ -1657,12 +1659,10 @@ mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS ) -->
 	( 	
 		{ StrucReuse = yes }
 	->
-		maybe_write_string(Verbose, 
-				"% Structure-reuse analysis...\n"),
+		maybe_write_string(Verbose, "% Structure-reuse analysis...\n"),
 		maybe_flush_output(Verbose),
 		sr_run__structure_reuse_pass( HLDS0, HLDS), 
-		maybe_write_string(Verbose, 
-				"% Structure-reuse analysis done.\n"),
+		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
 	;
 		{ HLDS = HLDS0 }
