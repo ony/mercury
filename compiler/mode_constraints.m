@@ -1246,6 +1246,10 @@ conj_constraints(UseKnownVars, KnownTrue, KnownFalse, GoalPath, Usage0,
 		    ), Ps, ConstraintVars0),
 	        get_var(V `at` GoalPath, VConj),
 	        { ConstraintVars = list_to_set(ConstraintVars0) },
+
+		% If UseKnownVars = yes we want to only generate the constraints
+		% which are 2-sat.  If UseKnownVars = no, we generate the other
+		% constraints.
 		{ KnownFalse `contains` VConj ->
 		    Cn = ( UseKnownVars = yes ->
 		    	Cn0 ^ conj_not_vars(ConstraintVars)
