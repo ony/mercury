@@ -452,8 +452,18 @@ disj_vars_eq(Vars, Var, X) =
 		;
 			X ^ disj_vars(Vars)
 		)
+	; some [V] ( member(V, Vars), member(V, T) ) ->
+		X ^ var(Var)
+	; Vars `subset` F ->
+		X ^ not_var(Var)
+	; remove_least(Vars, Var1, Vars1) ->
+		( empty(Vars1) ->
+			X ^ eq_vars(Var, Var1)
+		;
+			X `x` (disj_vars(Vars) =:= var(Var))
+		)
 	;
-		X `x` (disj_vars(Vars) =:= var(Var))
+		X ^ not_var(Var)
 	) :-
 	X = xrobdd(T, F, _E, _I, _R, _N).
 
