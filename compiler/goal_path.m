@@ -13,15 +13,23 @@
 
 :- interface.
 
+:- import_module bool.
 :- import_module hlds__hlds_pred, hlds__hlds_module, hlds__hlds_goal.
 
 :- pred goal_path__fill_slots(proc_info::in, module_info::in, proc_info::out)
 	is det.
 
 	% Fill in the goal_paths for goals in the clauses_info of the predicate.
-	% Clauses are given goal paths `disj(1)', ...,  `disj(N)'.
+	% Clauses are given goal paths `disj(1)', ...,  `disj(N)'.  If the bool
+	% argument is true then the goal paths are stored in a form where any
+	% prefix consisting of `disj(_)', `neg', `exist(_)' and `ite_else'
+	% components is removed.  This is used to optimise the constraint-based
+	% mode analysis where the instantiatedness of a variable at such a goal
+	% path is always equivalent to its instantiatedness at the parent goal
+	% path.
+
 :- pred goal_path__fill_slots_in_clauses(pred_info::in, module_info::in,
-	pred_info::out) is det.
+	bool::in, pred_info::out) is det.
 
 :- pred goal_path__fill_slots_in_goal(hlds_goal::in, vartypes::in,
 		module_info::in, hlds_goal::out) is det.
@@ -35,8 +43,9 @@
 
 :- type slot_info
 	--->	slot_info(
-			vartypes,
-			module_info
+			vartypes			:: vartypes,
+			module_info			:: module_info,
+			omit_mode_equiv_prefix	 	:: bool
 		).
 
 goal_path__fill_slots(Proc0, ModuleInfo, Proc) :-
@@ -46,11 +55,14 @@ goal_path__fill_slots(Proc0, ModuleInfo, Proc) :-
 	goal_path__fill_slots_in_goal(Goal0, VarTypes, ModuleInfo, Goal),
 	proc_info_set_goal(Proc0, Goal, Proc).
 
-goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo, PredInfo) :-
+goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo, OmitModeEquivPrefix,
+		PredInfo) :-
 	pred_info_clauses_info(PredInfo0, ClausesInfo0),
 	clauses_info_clauses(ClausesInfo0, Clauses0),
 	clauses_info_vartypes(ClausesInfo0, VarTypes),
-	SlotInfo = slot_info(VarTypes, ModuleInfo),
+	SlotInfo ^ vartypes = VarTypes,
+	SlotInfo ^ module_info = ModuleInfo,
+	SlotInfo ^ omit_mode_equiv_prefix = OmitModeEquivPrefix,
 	list__map_foldl(
 		(pred(clause(A, Goal0, C, D)::in, clause(A, Goal, C, D)::out,
 				N::in, (N + 1)::out) is det :-
@@ -60,14 +72,24 @@ goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo, PredInfo) :-
 	pred_info_set_clauses_info(PredInfo0, ClausesInfo, PredInfo).
 
 goal_path__fill_slots_in_goal(Goal0, VarTypes, ModuleInfo, Goal) :-
-	SlotInfo = slot_info(VarTypes, ModuleInfo),
+	SlotInfo ^ vartypes = VarTypes,
+	SlotInfo ^ module_info = ModuleInfo,
+	SlotInfo ^ omit_mode_equiv_prefix = no,
 	fill_goal_slots(Goal0, [], SlotInfo, Goal).
 
 :- pred fill_goal_slots(hlds_goal::in, goal_path::in, slot_info::in,
 	hlds_goal::out) is det.
 
 fill_goal_slots(Expr0 - Info0, Path0, SlotInfo, Expr - Info) :-
-	goal_info_set_goal_path(Info0, Path0, Info),
+	( SlotInfo ^ omit_mode_equiv_prefix = yes ->
+		list__takewhile((pred(Step::in) is semidet :-
+			( Step = disj(_) ; Step = neg ; Step = exist(_) 
+			; Step = ite_else )),
+		    Path0, _, Path)
+	;
+		Path = Path0
+	),
+	goal_info_set_goal_path(Info0, Path, Info),
 	fill_expr_slots(Expr0, Info, Path0, SlotInfo, Expr).
 
 :- pred fill_expr_slots(hlds_goal_expr::in, hlds_goal_info::in, goal_path::in,
@@ -82,7 +104,8 @@ fill_expr_slots(disj(Goals0), _, Path0, SlotInfo, disj(Goals)) :-
 	fill_disj_slots(Goals0, Path0, 0, SlotInfo, Goals).
 fill_expr_slots(switch(Var, B, Cases0), _, Path0, SlotInfo,
 		switch(Var, B, Cases)) :-
-	SlotInfo = slot_info(VarTypes, ModuleInfo),
+	VarTypes = SlotInfo ^ vartypes,
+	ModuleInfo = SlotInfo ^ module_info,
 	map__lookup(VarTypes, Var, Type),
 	(
 		type_util__switch_type_num_functors(ModuleInfo, Type,

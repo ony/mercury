@@ -167,8 +167,18 @@ number_robdd_variables_in_pred(PredId, ModuleInfo0, ModuleInfo) -->
 
 	save_min_var_for_pred(PredId),
 
+	% Variables in each branch of a branched goal are always equivalent.
+	% Likewise, a variable in a negated or existentially quantified goal
+	% will always be equivalent to the variable in the parent goal.  This
+	% means we can use the same mode_constraint_var for each of these
+	% equivalent variables, avoiding adding lots of equivalence constraints
+	% to the ROBDD.  This is a good thing since equivalence constraints tend
+	% to cause exponential explosions in ROBDDs.  We achieve this by passing
+	% `OmitModeEquivPrefix = yes' to `goal_path__fill_slots_in_clauses'.
+
+	{ OmitModeEquivPrefix = yes },
 	{ goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo0,
-		PredInfo1) },
+		OmitModeEquivPrefix, PredInfo1) },
 
 	{ pred_info_clauses_info(PredInfo1, ClausesInfo0) },
 	{ clauses_info_headvars(ClausesInfo0, HeadVars) },

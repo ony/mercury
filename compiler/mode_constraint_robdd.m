@@ -187,7 +187,7 @@ mode_constraint_var(PredId, RepVar0, RobddVar, Info0, Info) :-
 		RobddVar = Info0 ^ zero_var,
 		Info = Info0
 	;
-		RepVar = remove_goal_path_branches(RepVar0),
+		RepVar = RepVar0,
 		LambdaPath = Info0^lambda_path,
 		Key = key(RepVar, PredId, LambdaPath),
 		( bimap__search(Info0^varmap, Key, RobddVar0) ->
@@ -201,31 +201,7 @@ mode_constraint_var(PredId, RepVar0, RobddVar, Info0, Info) :-
 	).
 
 mode_constraint_var(Info, RepVar) = bimap__lookup(Info^varmap, Key) :-
-	Key = key(remove_goal_path_branches(RepVar), Info^pred_id,
-			Info^lambda_path).
-
-:- func remove_goal_path_branches(rep_var) = rep_var.
-
-remove_goal_path_branches(RepVar) =
-	(
-		RepVar = ProgVar `at` Path0,
-		list__takewhile((pred(Step::in) is semidet :-
-			( Step = disj(_) ; Step = neg ; Step = exist(_) 
-			; Step = ite_else )),
-		    Path0, _, Path)
-	->
-		% Variables in each branch of a branched goal are always
-		% equivalent.  Likewise, a variable in a negated or
-		% existentially quantified goal will always be equivalent to the
-		% variable in the parent goal.  This means we can use the same
-		% mode_constraint_var for each of these equivalent variables,
-		% avoiding adding lots of equivalence constraints to the ROBDD.
-		% This is a good thing since equivalence constraints tend to
-		% cause exponential explosions in ROBDDs.
-		ProgVar `at` Path
-	;
-		RepVar
-	).
+	Key = key(RepVar, Info^pred_id, Info^lambda_path).
 
 enter_lambda_goal(GoalPath) -->
 	LambdaPath0 =^ lambda_path,
