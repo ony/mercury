@@ -888,7 +888,7 @@ write_mode_context(higher_order_call(PredOrFunc, ArgNum), Context, _ModuleInfo)
 write_mode_context(call(PredId, ArgNum), Context, ModuleInfo) -->
 	prog_out__write_context(Context),
 	io__write_string("  in "),
-	( { ArgNum = 0 } ->
+	( { ArgNum =< 0 } ->
 		[]
 	;
 		io__write_string("argument "),

@@ -493,20 +493,31 @@ polymorphism__maybe_process_pred(PredId, ModuleInfo0, ModuleInfo) -->
 
 %---------------------------------------------------------------------------%
 
-polymorphism__no_type_info_builtin(MercuryBuiltin, "unsafe_type_cast", 2) :-
-	mercury_private_builtin_module(MercuryBuiltin).
-polymorphism__no_type_info_builtin(MercuryBuiltin,
-		"unsafe_promise_unique", 2) :-
-	mercury_public_builtin_module(MercuryBuiltin).
-polymorphism__no_type_info_builtin(MercuryBuiltin,
-		"superclass_from_typeclass_info", 3) :-
-	mercury_private_builtin_module(MercuryBuiltin).
-polymorphism__no_type_info_builtin(MercuryBuiltin,
-		"instance_constraint_from_typeclass_info", 3) :-
-	mercury_private_builtin_module(MercuryBuiltin).
-polymorphism__no_type_info_builtin(MercuryBuiltin,
-		"type_info_from_typeclass_info", 3) :-
-	mercury_private_builtin_module(MercuryBuiltin).
+polymorphism__no_type_info_builtin(ModuleName, PredName, Arity) :-
+	no_type_info_builtin_2(ModuleNameType, PredName, Arity),
+	check_module_name(ModuleNameType, ModuleName).
+
+:- type builtin_mod ---> builtin ; private_builtin.
+
+:- pred check_module_name(builtin_mod, module_name).
+:- mode check_module_name(in, in) is semidet.
+
+check_module_name(builtin, Module) :-
+	mercury_public_builtin_module(Module).
+check_module_name(private_builtin, Module) :-
+	mercury_private_builtin_module(Module).
+
+:- pred no_type_info_builtin_2(builtin_mod, string, int).
+:- mode no_type_info_builtin_2(out, in, out) is semidet.
+
+no_type_info_builtin_2(private_builtin, "unsafe_type_cast", 2).
+no_type_info_builtin_2(builtin, "unsafe_promise_unique", 2).
+no_type_info_builtin_2(private_builtin, "superclass_from_typeclass_info", 3).
+no_type_info_builtin_2(private_builtin,
+				"instance_constraint_from_typeclass_info", 3).
+no_type_info_builtin_2(private_builtin, "type_info_from_typeclass_info", 3).
+no_type_info_builtin_2(private_builtin, "table_restore_any_ans", 3).
+no_type_info_builtin_2(private_builtin, "table_lookup_insert_enum", 4).
 
 %---------------------------------------------------------------------------%
 

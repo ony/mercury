@@ -28,7 +28,10 @@
 :- type mode_context
 	--->	call(	
 			pred_id,	% pred name / arity
-			int		% argument number
+			int		% argument number (offset so that
+					% the real arguments start at number 1
+					% whereas the type_info arguments
+					% have numbers <= 0).
 		)
 	;	higher_order_call(
 			pred_or_func,	% is it call/N (higher-order pred call)

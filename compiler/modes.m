@@ -202,6 +202,16 @@ a variable live if its value will be used later on in the computation.
 :- pred get_live_vars(list(prog_var), list(is_live), list(prog_var)).
 :- mode get_live_vars(in, in, out) is det.
 
+	%
+	% calculate the argument number offset that needs to be passed to
+	% modecheck_var_list_is_live, modecheck_var_has_inst_list, and
+	% modecheck_set_var_inst_list.  This offset number is calculated
+	% so that real arguments get positive argument numbers and
+	% type_info arguments get argument numbers less than or equal to 0.
+	%
+:- pred compute_arg_offset(pred_info, int).
+:- mode compute_arg_offset(in, out) is det.
+
 	% Given a list of variables and a list of expected liveness, ensure
 	% that the inst of each variable satisfies the corresponding expected
 	% liveness.
@@ -224,8 +234,8 @@ a variable live if its value will be used later on in the computation.
 :- mode modecheck_set_var_inst(in, in, mode_info_di, mode_info_uo) is det.
 
 :- pred modecheck_set_var_inst_list(list(prog_var), list(inst), list(inst),
-		list(prog_var), extra_goals, mode_info, mode_info).
-:- mode modecheck_set_var_inst_list(in, in, in, out, out,
+		int, list(prog_var), extra_goals, mode_info, mode_info).
+:- mode modecheck_set_var_inst_list(in, in, in, in, out, out,
 					mode_info_di, mode_info_uo) is det.
 
 	% check that the final insts of the head vars of a lambda
@@ -1639,6 +1649,21 @@ get_all_conjunct_nonlocals([G|Gs], NonLocals0, NonLocals) :-
 
 %-----------------------------------------------------------------------------%
 
+	%
+	% calculate the argument number offset that needs to be passed to
+	% modecheck_var_list_is_live, modecheck_var_has_inst_list, and
+	% modecheck_set_var_inst_list.  This offset number is calculated
+	% so that real arguments get positive argument numbers and
+	% type_info arguments get argument numbers less than or equal to 0.
+	%
+compute_arg_offset(PredInfo, ArgOffset) :-
+	pred_info_arity(PredInfo, OrigArity),
+	pred_info_arg_types(PredInfo, ArgTypes),
+	list__length(ArgTypes, CurrentArity),
+	ArgOffset = OrigArity - CurrentArity.
+
+%-----------------------------------------------------------------------------%
+
 	% Given a list of variables and a list of expected livenesses,
 	% ensure the liveness of each variable satisfies the corresponding
 	% expected liveness.
@@ -1710,10 +1735,11 @@ modecheck_var_has_inst(VarId, Inst, ModeInfo0, ModeInfo) :-
 
 %-----------------------------------------------------------------------------%
 
-modecheck_set_var_inst_list(Vars0, InitialInsts, FinalInsts, Vars, Goals) -->
+modecheck_set_var_inst_list(Vars0, InitialInsts, FinalInsts, ArgOffset,
+		Vars, Goals) -->
 	(
 		modecheck_set_var_inst_list_2(Vars0, InitialInsts, FinalInsts,
-			no_extra_goals, 0, Vars1, Goals1)
+			no_extra_goals, ArgOffset, Vars1, Goals1)
 	->
 		{ Vars = Vars1, Goals = Goals1 }
 	;

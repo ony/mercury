@@ -318,11 +318,14 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
-		% warn about this (if the goal wasn't `fail')
+		% warn about this, unless the goal was an explicit
+		% `fail', or some goal containing `fail'.
+
 		goal_info_get_context(GoalInfo0, Context),
 		(
 			simplify_do_warn(Info0),
-			Goal0 \= disj([], _) - _
+			\+ (goal_contains_goal(Goal0, SubGoal),
+			    SubGoal = disj([], _) - _)
 		->
 			simplify_info_add_msg(Info0,
 				goal_cannot_succeed(Context), Info1)
@@ -365,16 +368,22 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 	->
 		% warn about this, if the goal wasn't `true'
 		% and wasn't a deconstruction unification.
-		% (We don't warn about deconstruction unifications
+		% We don't warn about deconstruction unifications
 		% with no outputs that always succeed, because that
 		% would result in bogus warnings, since switch detection
 		% converts deconstruction unifications that can fail
 		% into ones that always succeed by moving the test into
-		% the switch.)
+		% the switch.
+		% We also don't warn about conjunctions or existential
+		% quantifications, because it seems that warnings in those
+		% cases are usually spurious.
+		% XXX perhaps it would be best to just disable this entirely.
 		goal_info_get_context(GoalInfo0, Context),
 		(
 			simplify_do_warn(Info0),
-			Goal0 \= conj([]) - _,
+			% Goal0 \= conj([]) - _,
+			Goal0 \= conj(_) - _,
+			Goal0 \= some(_, _) - _,
 			\+ (Goal0 = unify(_, _, _, Unification, _) - _,
 			    Unification = deconstruct(_, _, _, _, _))
 		->
@@ -2064,3 +2073,35 @@ simplify_info_undo_goal_updates(Info1, Info2, Info) :-
 	simplify_info_set_common_info(Info2, CommonInfo0, Info3),
 	simplify_info_get_instmap(Info1, InstMap),
 	simplify_info_set_instmap(Info3, InstMap, Info).
+
+%-----------------------------------------------------------------------------%
+
+:- pred goal_contains_goal(hlds_goal, hlds_goal).
+:- mode goal_contains_goal(in, out) is multi.
+
+goal_contains_goal(Goal, Goal).
+goal_contains_goal(Goal - _, SubGoal) :-
+	direct_subgoal(Goal, DirectSubGoal),
+	goal_contains_goal(DirectSubGoal, SubGoal).
+
+:- pred direct_subgoal(hlds_goal_expr, hlds_goal).
+:- mode direct_subgoal(in, out) is nondet.
+
+direct_subgoal(some(_, Goal), Goal).
+direct_subgoal(not(Goal), Goal).
+direct_subgoal(if_then_else(_, If, Then, Else, _), Goal) :-
+	( Goal = If
+	; Goal = Then
+	; Goal = Else
+	).
+direct_subgoal(conj(ConjList), Goal) :-
+	list__member(Goal, ConjList).
+direct_subgoal(par_conj(ConjList, _), Goal) :-
+	list__member(Goal, ConjList).
+direct_subgoal(disj(DisjList, _), Goal) :-
+	list__member(Goal, DisjList).
+direct_subgoal(switch(_, _, CaseList, _), Goal) :-
+	list__member(Case, CaseList),
+	Case = case(_, Goal).
+
+%-----------------------------------------------------------------------------%

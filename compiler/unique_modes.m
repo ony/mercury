@@ -395,7 +395,8 @@ unique_modes__check_goal_2(higher_order_call(PredVar, Args, Types, Modes, Det,
 		NeverSucceeds = no
 	},
 	{ determinism_to_code_model(Det, CodeModel) },
-	unique_modes__check_call_modes(Args, Modes, CodeModel, NeverSucceeds),
+	unique_modes__check_call_modes(Args, Modes, 0,
+			CodeModel, NeverSucceeds),
 	{ Goal = higher_order_call(PredVar, Args, Types, Modes, Det,
 			PredOrFunc) },
 	mode_info_unset_call_context,
@@ -416,7 +417,8 @@ unique_modes__check_goal_2(class_method_call(TCVar, Num, Args, Types, Modes,
 		NeverSucceeds = no
 	},
 	{ determinism_to_code_model(Det, CodeModel) },
-	unique_modes__check_call_modes(Args, Modes, CodeModel, NeverSucceeds),
+	unique_modes__check_call_modes(Args, Modes, 0,
+			CodeModel, NeverSucceeds),
 	{ Goal = class_method_call(TCVar, Num, Args, Types, Modes, Det) },
 	mode_info_unset_call_context,
 	mode_checkpoint(exit, "class method call").
@@ -490,12 +492,14 @@ unique_modes__check_call(PredId, ProcId0, ArgVars, ProcId,
 	% first off, try using the existing mode
 	%
 	mode_info_get_module_info(ModeInfo0, ModuleInfo),
-	module_info_pred_proc_info(ModuleInfo, PredId, ProcId0, _, ProcInfo),
+	module_info_pred_proc_info(ModuleInfo, PredId, ProcId0,
+		PredInfo, ProcInfo),
+	compute_arg_offset(PredInfo, ArgOffset),
 	proc_info_argmodes(ProcInfo, ProcArgModes0),
 	proc_info_interface_code_model(ProcInfo, CodeModel),
 	proc_info_never_succeeds(ProcInfo, NeverSucceeds),
-	unique_modes__check_call_modes(ArgVars, ProcArgModes0, CodeModel,
-				NeverSucceeds, ModeInfo1, ModeInfo2),
+	unique_modes__check_call_modes(ArgVars, ProcArgModes0, ArgOffset,
+			CodeModel, NeverSucceeds, ModeInfo1, ModeInfo2),
 
 	%
 	% see whether or not that worked
@@ -550,21 +554,21 @@ unique_modes__check_call(PredId, ProcId0, ArgVars, ProcId,
 	% argument if the variable is nondet-live and the required initial
 	% inst was unique.
 
-:- pred unique_modes__check_call_modes(list(prog_var), list(mode), code_model,
-		bool, mode_info, mode_info).
-:- mode unique_modes__check_call_modes(in, in, in, in,
+:- pred unique_modes__check_call_modes(list(prog_var), list(mode), int,
+		code_model, bool, mode_info, mode_info).
+:- mode unique_modes__check_call_modes(in, in, in, in, in,
 			mode_info_di, mode_info_uo) is det.
 
-unique_modes__check_call_modes(ArgVars, ProcArgModes, CodeModel, NeverSucceeds,
-			ModeInfo0, ModeInfo) :-
+unique_modes__check_call_modes(ArgVars, ProcArgModes, ArgOffset,
+		CodeModel, NeverSucceeds, ModeInfo0, ModeInfo) :-
 	mode_info_get_module_info(ModeInfo0, ModuleInfo),
 	mode_list_get_initial_insts(ProcArgModes, ModuleInfo,
 				InitialInsts),
-	modecheck_var_has_inst_list(ArgVars, InitialInsts, 0,
+	modecheck_var_has_inst_list(ArgVars, InitialInsts, ArgOffset,
 				ModeInfo0, ModeInfo1),
 	mode_list_get_final_insts(ProcArgModes, ModuleInfo, FinalInsts),
 	modecheck_set_var_inst_list(ArgVars, InitialInsts, FinalInsts,
-		NewArgVars, ExtraGoals, ModeInfo1, ModeInfo2),
+		ArgOffset, NewArgVars, ExtraGoals, ModeInfo1, ModeInfo2),
 	( NewArgVars = ArgVars, ExtraGoals = no_extra_goals ->
 		true
 	;	
