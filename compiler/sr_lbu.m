@@ -36,10 +36,13 @@
 %-------------------------------------------------------------------%
 
 :- import_module io.
-:- import_module hlds_module. 
+:- import_module hlds_module, hlds_pred. 
 
 :- pred sr_lbu__lbu_pass( module_info, module_info, io__state, io__state).
 :- mode sr_lbu__lbu_pass( in, out, di, uo) is det.
+
+:- pred sr_lbu__process_proc(module_info::in,
+		proc_info::in, proc_info::out) is det.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -53,7 +56,6 @@
 
 % mercury-compiler modules
 :- import_module globals, options.
-:- import_module hlds_pred. 
 :- import_module passes_aux.
 :- import_module hlds_goal.
 :- import_module prog_data.
@@ -116,6 +118,13 @@ annotate_lbu_in_proc( HLDS, _PRED_ID, PROC_ID, PredInfo0,
 		PredInfo) :- 
 	pred_info_procedures( PredInfo0, Procedures0 )  , 
 	map__lookup(Procedures0, PROC_ID, ProcInfo0 )  , 
+
+	sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo),
+
+	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
+	pred_info_set_procedures( PredInfo0, Procedures, PredInfo) .
+
+sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo) :-
 	proc_info_goal(ProcInfo0, Goal0),
 
 	% extra info to be caried around for each program point: 
@@ -129,9 +138,7 @@ annotate_lbu_in_proc( HLDS, _PRED_ID, PROC_ID, PredInfo0,
 	annotate_lbu_in_goal( HLDS, ProcInfo0, 
 				Lbu0, _Lbu, Goal0, Goal), 
 
-	proc_info_set_goal(ProcInfo0, Goal, ProcInfo) ,
-	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
-	pred_info_set_procedures( PredInfo0, Procedures, PredInfo) .
+	proc_info_set_goal(ProcInfo0, Goal, ProcInfo).
 
 :- pred annotate_lbu_in_goal(module_info, proc_info, 
 			set(prog_var), set(prog_var), 

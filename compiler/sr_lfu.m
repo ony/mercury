@@ -15,10 +15,12 @@
 %-------------------------------------------------------------------%
 
 :- import_module io.
-:- import_module hlds_module. 
+:- import_module hlds_module, hlds_pred. 
 
 :- pred sr_lfu__lfu_pass( module_info, module_info, io__state, io__state).
 :- mode sr_lfu__lfu_pass( in, out, di, uo) is det.
+
+:- pred sr_lfu__process_proc(proc_info::in, proc_info::out) is det.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -32,7 +34,6 @@
 
 % mercury-compiler modules
 :- import_module globals, options.
-:- import_module hlds_pred. 
 :- import_module passes_aux.
 :- import_module hlds_goal.
 :- import_module prog_data.
@@ -97,6 +98,13 @@ annotate_lfu_in_proc( _HLDS, _PRED_ID, PROC_ID, PredInfo0, PredInfo) :-
 					ProcInfo01) , 
 	**/
 	ProcInfo01 = ProcInfo0,
+
+	sr_lfu__process_proc(ProcInfo01, ProcInfo),
+
+	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
+	pred_info_set_procedures( PredInfo0, Procedures, PredInfo).
+
+process_proc(ProcInfo01, ProcInfo) :-
 	proc_info_goal(ProcInfo01, Goal0),
 
 		% the set of variables initially instantiated 
@@ -127,9 +135,8 @@ annotate_lfu_in_proc( _HLDS, _PRED_ID, PROC_ID, PredInfo0, PredInfo) :-
 	% by the lbu-pass). 
 
 	proc_info_set_global_use(ProcInfo01, GlobalUse, ProcInfo02),
-	proc_info_set_goal(ProcInfo02, Goal, ProcInfo) ,
-	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
-	pred_info_set_procedures( PredInfo0, Procedures, PredInfo).
+	proc_info_set_goal(ProcInfo02, Goal, ProcInfo).
+
 
 	% annotate_lfu_in_goal(InstantiatedVars0, DiedVars0, 
 	%		       InstantiatedVars, DiedVars, Goalin, Goalout).
