@@ -180,7 +180,8 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		-> 
 			{ list__length(Conditions, Length) }, 
 			{ string__int_to_string(Length, LengthS ) }, 
-			{ string__append_list(["%\tNumber of conditions:\t",
+			{ string__append_list(
+					["%\tNumber of conditions (before):\t",
 					LengthS, "\n"], Msg2) } ,
 			maybe_write_string(VeryVerbose, Msg2)
 		; 
@@ -217,7 +218,27 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		indirect_reuse_pool_get_memo_reuse( Pool, Memo ), 
 		sr_fixpoint_table_new_reuse( PredProcId,
 				Memo, Goal, FP1, FPout )
-	}.
+	},
+	(
+		{ VeryVerbose = no }
+	->
+		[]
+	;
+		{ sr_fixpoint_table_get_final_reuse(PredProcId,M1,_,FPout) }, 
+
+		( 
+			{ M1 = yes( Conditions1 ) }
+		-> 
+			{ list__length(Conditions1, Length1) }, 
+			{ string__int_to_string(Length1, LengthS1 ) }, 
+			{ string__append_list(
+					["%\tNumber of conditions (after):\t",
+					LengthS1, "\n"], Msg21) } ,
+			maybe_write_string(VeryVerbose, Msg21)
+		; 
+			maybe_write_string(VeryVerbose, "%\tNo reuse.\n")
+		)
+	).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -269,7 +290,7 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 				PredId, ProcId, ActualVars, Alias0, 
 				Pool0, Pool,
 				Info0, Info, 
-				FP0, FP)
+				FP0, FP, _)
 		),
 		pa_run__extend_with_call_alias( HLDS, ProcInfo, 
 	    		PredId, ProcId, ActualVars, Alias0, Alias),
@@ -419,15 +440,16 @@ analyse_case( ProcInfo, HLDS, Reuses0, Alias0, Case0, Case,
 			list(prog_var), alias_as, 
 			indirect_reuse_pool, indirect_reuse_pool, 
 			hlds_goal_info , hlds_goal_info, 
-			sr_fixpoint_table__table, sr_fixpoint_table__table).
+			sr_fixpoint_table__table, sr_fixpoint_table__table, 
+			bool).
 :- mode call_verify_reuse( in, in, in, in, in, in, 
 				in, out, 
 				in, out,
-				in, out) is det.
+				in, out, out) is det.
 
 call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0, 
 					Pool0, Pool, 
-					Info0, Info, FP0, FP ) :- 
+					Info0, Info, FP0, FP, YesNo ) :- 
 
 	module_info_structure_reuse_info(HLDS, ReuseInfo),
 	ReuseInfo = structure_reuse_info(ReuseMap),
@@ -450,7 +472,8 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		memo_reuse_top(FormalMemo)
 	->
 		Pool = Pool0,
-		Info = Info0
+		Info = Info0, 
+		YesNo = no
 	;
 		memo_reuse_rename( ProcInfo0, ActualVars, FormalMemo, 
 					Memo ), 
@@ -478,10 +501,12 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 			indirect_reuse_pool_add( HLDS, ProcInfo,
 				Memo, LFUi, LBUi, 
 				Alias0, Pool0, Pool),
-			goal_info_set_reuse(Info0, reuse(reuse_call), Info)
+			goal_info_set_reuse(Info0, reuse(reuse_call), Info),
+			YesNo = yes
 		;
 			Pool = Pool0,
-			Info = Info0
+			Info = Info0,
+			YesNo = no
 		)
 	).
 	
@@ -557,6 +582,8 @@ indirect_reuse_pool_least_upper_bound_disjunction( List, Pool ):-
 		require__error("(sr_indirect) indirect_reuse_pool_least_upper_bound_disjunction: list is empty")
 	).
 
+:- import_module instmap.
+
 indirect_reuse_pool_least_upper_bound( Pool1, Pool2, Pool ):-
 	Pool1 = pool( HVS, Memo1 ), 
 	Pool2 = pool( _, Memo2 ), 
@@ -564,11 +591,17 @@ indirect_reuse_pool_least_upper_bound( Pool1, Pool2, Pool ):-
 	Pool = pool(HVS, Memo). 
 
 indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse, 	
-		LFUi, LBUi, Alias, Pool0, Pool) :- 
+		LFUi, LBUi, Alias0, Pool0, Pool) :- 
 
 	(
 		MemoReuse = yes(OldConditions)
 	->
+			% XXX instmap here simply initialized, as currently
+			% it's not used in the normalization anyway.. 	
+		instmap__init_reachable(InstMap0), 
+		pa_alias_as__normalize( ProcInfo, HLDS, InstMap0, 
+				Alias0, Alias), 
+		
 		Pool0 = pool( HVS, ExistingMemo), 
 		list__map(
 			reuse_condition_update(ProcInfo, HLDS, 

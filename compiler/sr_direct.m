@@ -26,7 +26,7 @@
 
 :- implementation.
 
-:- import_module map, list, set, std_util, int, bool.
+:- import_module map, list, set, std_util, int, bool, string.
 :- import_module assoc_list.
 :- import_module require.
 
@@ -65,7 +65,27 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
 	{ sr_choice__process_goal(strategy(same_cons_id, random),
 			Goal1, Goal, MaybeReuseConditions) },
-	maybe_write_string(VeryVerbose, "done.\n"),
+	(
+		{ VeryVerbose = yes } 
+	->
+		(
+			{ MaybeReuseConditions = yes(Cs) }
+		->
+			{ list__length( Cs, LCs ) },
+			{ reuse_conditions_simplify( Cs, RCs ) }, 
+			{ list__length( RCs, LRCs ) }, 
+			{ string__int_to_string( LCs, LCS )}, 
+			{ string__int_to_string( LRCs, LRCS ) }, 
+			{ string__append_list([" done (", LCS, " / ", 
+					LRCS, ").\n"], Msg3) }, 
+			io__write_string( Msg3 )
+		; 
+			io__write_string( "done (no direct reuse).\n")
+		)
+	; 
+		[]
+	), 
+		
 	{ proc_info_set_reuse_information( ProcInfo2, MaybeReuseConditions, 
 			ProcInfo3 ) },
 	{ proc_info_set_goal( ProcInfo3, Goal, ProcInfo ) },
