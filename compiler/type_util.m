@@ -136,12 +136,6 @@
 :- pred type_list_subsumes(list(type), list(type), tsubst).
 :- mode type_list_subsumes(in, in, out) is semidet.
 
-	% type_list_matches_exactly(TypesA, TypesB) succeeds iff TypesA and
-	% TypesB are exactly the same modulo variable renaming. 
-:- pred type_and_constraint_list_matches_exactly(list(type),
-		class_constraints, list(type), class_constraints).
-:- mode type_and_constraint_list_matches_exactly(in, in, in, in) is semidet.
-
 	% apply a type substitution (i.e. map from tvar -> type)
 	% to all the types in a variable typing (i.e. map from var -> type).
 
@@ -468,24 +462,6 @@ type_list_subsumes(TypesA, TypesB, TypeSubst) :-
 	term__vars_list(TypesB, TypesBVars),
 	map__init(TypeSubst0),
 	type_unify_list(TypesA, TypesB, TypesBVars, TypeSubst0, TypeSubst).
-
-%-----------------------------------------------------------------------------%
-
-	% If this becomes a performance bottleneck, it can probably be coded
-	% more efficiently.
-type_and_constraint_list_matches_exactly(TypesA, ConstraintsA0, 
-		TypesB, ConstraintsB) :-
-	type_list_subsumes(TypesA, TypesB, Subst),
-	type_list_subsumes(TypesB, TypesA, _),
-	apply_subst_to_constraints(Subst, ConstraintsA0, ConstraintsA),
-	ConstraintsA = constraints(UnivCsA, ExistCsA),
-	ConstraintsB = constraints(UnivCsB, ExistCsB),
-	list__sort(UnivCsA, SortedUnivCsA),
-	list__sort(UnivCsB, SortedUnivCsB),
-	SortedUnivCsA = SortedUnivCsB,
-	list__sort(ExistCsA, SortedExistCsA),
-	list__sort(ExistCsB, SortedExistCsB),
-	SortedExistCsA = SortedExistCsB.
 
 %-----------------------------------------------------------------------------%
 

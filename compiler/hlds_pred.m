@@ -327,6 +327,9 @@
 :- pred pred_info_get_exist_quant_tvars(pred_info, existq_tvars).
 :- mode pred_info_get_exist_quant_tvars(in, out) is det.
 
+:- pred pred_info_get_univ_quant_tvars(pred_info, existq_tvars).
+:- mode pred_info_get_univ_quant_tvars(in, out) is det.
+
 :- type head_type_params == list(tvar).
 
 :- pred pred_info_get_head_type_params(pred_info, head_type_params).
@@ -761,6 +764,13 @@ pred_info_get_constraint_proofs(PredInfo, ConstraintProofs) :-
 pred_info_get_exist_quant_tvars(PredInfo, ExistQVars) :-
 	PredInfo = predicate(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _,
 		_, ExistQVars, _).
+
+pred_info_get_univ_quant_tvars(PredInfo, UnivQVars) :-
+	pred_info_arg_types(PredInfo, ArgTypes),
+	term__vars_list(ArgTypes, ArgTypeVars0),
+	list__sort_and_remove_dups(ArgTypeVars0, ArgTypeVars),
+	pred_info_get_exist_quant_tvars(PredInfo, ExistQVars),
+	list__delete_elems(ArgTypeVars, ExistQVars, UnivQVars).
 
 pred_info_get_head_type_params(PredInfo, HeadTypeParams) :-
 	PredInfo = predicate(_, _, _, _, _, _, _, _, _, _, _, _, _, _, _,

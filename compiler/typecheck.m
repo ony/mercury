@@ -83,9 +83,6 @@
 %
 % Known Bugs:
 %
-% XXX	Type inference loops for some type-incorrect programs, e.g.
-%		p([X]) :- p(X).
-%
 % XXX	Type inference doesn't handle ambiguity as well as it could do.
 %	We should do a topological sort, and then typecheck it all
 %	bottom-up.  If we infer an ambiguous type for a pred, we should
@@ -1091,6 +1088,10 @@ get_overloaded_pred_arg_types([PredId | PredIds], Preds, CallingPredStatus,
 
 %-----------------------------------------------------------------------------%
 
+	% Note: calls to preds declared in .opt files should always be 
+	% module qualified, so they should not be considered
+	% when resolving overloading.
+
 typecheck__resolve_pred_overloading(ModuleInfo, Args, VarTypes, TVarSet,
 		 PredName0, PredName, PredId) :-
 	module_info_get_predicate_table(ModuleInfo, PredTable),
@@ -1124,17 +1125,13 @@ typecheck__resolve_pred_overloading(ModuleInfo, Args, VarTypes, TVarSet,
 typecheck__find_matching_pred_id([PredId | PredIds], ModuleInfo,
 		TVarSet, ArgTypes, ThePredId, PredName) :-
 	(
-		% Calls to preds declared in .opt files should always be 
-		% module qualified, so they should not be considered
-		% when resolving overloading.
-		module_info_pred_info(ModuleInfo, PredId, PredInfo),
-
 		%
 		% lookup the argument types of the candidate predicate
 		% (or the argument types + return type of the candidate
 		% function)
 		%
-		pred_info_arg_types(PredInfo, PredTVarSet, _PredExistQVars0,
+		module_info_pred_info(ModuleInfo, PredId, PredInfo),
+		pred_info_arg_types(PredInfo, PredTVarSet, PredExistQVars0,
 			PredArgTypes0),
 
 		%
@@ -1143,16 +1140,39 @@ typecheck__find_matching_pred_id([PredId | PredIds], ModuleInfo,
 		varset__merge_subst(TVarSet, PredTVarSet, _TVarSet1, Subst),
 		term__apply_substitution_to_list(PredArgTypes0, Subst,
 					PredArgTypes),
-		% apply_partial_map_to_list(_PredExistQVars0, Subst,
-		% 			_PredExistQVars),
+		map__apply_to_list(PredExistQVars0, Subst, PredExistQTypes0),
 
 		%
 		% check that the types of the candidate predicate/function
 		% subsume the actual argument types
-		% (XXX what about existential types?  Do we need to
-		% do something with _PredExistQVars0 here?)
+		% [This is the right thing to do even for calls to
+		% existentially typed preds, because we're using the
+		% type variables from the callee's pred decl (obtained
+		% from the pred_info via pred_info_arg_types) not the types
+		% inferred from the callee's clauses (and stored in the
+		% clauses_info and proc_info) -- the latter
+		% might not subsume the actual argument types.
 		%
-		type_list_subsumes(PredArgTypes, ArgTypes, _TypeSubst)
+		type_list_subsumes(PredArgTypes, ArgTypes, TypeSubst),
+
+		%
+		% check that the type substitution did not bind any
+		% existentially typed variables to non-ground types
+		%
+		( PredExistQTypes0 = [] ->
+			% optimize common case
+			true
+		;
+			term__apply_rec_substitution_to_list(PredExistQTypes0,
+				TypeSubst, PredExistQTypes),
+			all [T] (list__member(T, PredExistQTypes) => 
+					type_util__var(T, _))
+			% it might make sense to also check that
+			% the type substitution did not bind any
+			% existentially typed variables to universally 
+			% quantified type variables in the caller's
+			% argument types
+		)
 	->
 		%
 		% we've found a matching predicate
