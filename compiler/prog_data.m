@@ -317,20 +317,34 @@
 % clause/4 defined above
 
 :- type goal		==	pair(goal_expr, term__context).
+
 :- type goal_expr	
-	--->	(goal,goal)
-	;	true	
-			% could use conj(goals) instead 
-	;	{goal;goal}		% {...} quotes ';'/2.
-	;	fail	
-			% could use disj(goals) instead
+	% conjunctions
+	--->	(goal , goal)	% (non-empty) conjunction
+	;	true		% empty conjunction
+	;	(goal & goal)	% parallel conjunction
+
+	% disjunctions
+	;	{goal ; goal}	% (non-empty) disjunction
+				% (The curly braces just quote the ';'/2.)
+	;	fail		% empty disjunction
+
+	% quantifiers
+	;	{ some(vars,goal) }
+				% existential quantification
+				% (The curly braces just quote the 'some'/2.)
+	;	all(vars,goal)	% universal quantification
+
+	% implications
+	;	implies(goal,goal)	% A => B
+	;	equivalent(goal,goal)	% A <=> B
+
+	% negation and if-then-else
 	;	not(goal)
-	;	{ some(vars,goal) }	% {...} quotes 'some'/2
-	;	all(vars,goal)
-	;	implies(goal,goal)
-	;	equivalent(goal,goal)
 	;	if_then(vars,goal,goal)
 	;	if_then_else(vars,goal,goal,goal)
+
+	% atomic goals
 	;	call(sym_name, list(term), purity)
 	;	unify(term, term).
 

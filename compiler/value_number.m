@@ -408,7 +408,8 @@ value_number__optimize_fragment_2(Instrs0, LiveMap, Params, ParEntries,
 		{ value_number__push_livevals_back(Instrs3, Instrs4) },
 		{ value_number__convert_back_modframe(Instrs4, Instrs5) },
 		{ vn_filter__block(Instrs5, Instrs6) },
-		{ peephole__optimize(Instrs6, Instrs7, _) },
+		globals__io_get_gc_method(GC_Method),
+		{ peephole__optimize(GC_Method, Instrs6, Instrs7, _) },
 
 		vn_debug__cost_header_msg("original code sequence"),
 		vn_cost__block_cost(Instrs0, Params, yes, OrigCost),
@@ -1092,6 +1093,10 @@ value_number__boundary_instr(mark_ticket_stack(_), no).
 value_number__boundary_instr(discard_tickets_to(_), no).
 value_number__boundary_instr(incr_sp(_, _), yes).
 value_number__boundary_instr(decr_sp(_), yes).
+value_number__boundary_instr(init_sync_term(_, _), no).
+value_number__boundary_instr(fork(_, _, _), yes).
+value_number__boundary_instr(join_and_terminate(_), yes).
+value_number__boundary_instr(join_and_continue(_, _), yes).
 value_number__boundary_instr(pragma_c(_, _, _, _, _), yes).
 
 %-----------------------------------------------------------------------------%

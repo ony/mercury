@@ -170,9 +170,17 @@
 					% (With inlining, the actual types may
 					% be instances of the original types.)
 			pragma_c_code_impl
-					% Info about the code that does the
-					% actual work.
-		).
+					% Extra information for model_non
+					% pragma_c_codes; none for others.
+		)
+
+	;	par_conj(hlds_goals, store_map)
+					% parallel conjunction
+					% The store_map specifies the locations
+					% in which live variables should be
+					% stored at the start of the parallel
+					% conjunction.
+	.
 
 	% Given the variable info field from a pragma c_code, get all the
 	% variable names.
@@ -623,6 +631,13 @@ get_pragma_c_var_names_2([MaybeName | MaybeNames], Names0, Names) :-
 :- pred goal_to_conj_list(hlds_goal, list(hlds_goal)).
 :- mode goal_to_conj_list(in, out) is det.
 
+	% Convert a goal to a list of parallel conjuncts.
+	% If the goal is a parallel conjunction, then return its conjuncts,
+	% otherwise return the goal as a singleton list.
+
+:- pred goal_to_par_conj_list(hlds_goal, list(hlds_goal)).
+:- mode goal_to_par_conj_list(in, out) is det.
+
 	% Convert a goal to a list of disjuncts.
 	% If the goal is a disjunction, then return its disjuncts,
 	% otherwise return the goal as a singleton list.
@@ -637,6 +652,14 @@ get_pragma_c_var_names_2([MaybeName | MaybeNames], Names0, Names) :-
 
 :- pred conj_list_to_goal(list(hlds_goal), hlds_goal_info, hlds_goal).
 :- mode conj_list_to_goal(in, in, out) is det.
+
+	% Convert a list of parallel conjuncts to a goal.
+	% If the list contains only one goal, then return that goal,
+	% otherwise return the parallel conjunction of the conjuncts,
+	% with the specified goal_info.
+
+:- pred par_conj_list_to_goal(list(hlds_goal), hlds_goal_info, hlds_goal).
+:- mode par_conj_list_to_goal(in, in, out) is det.
 
 	% Convert a list of disjuncts to a goal.
 	% If the list contains only one goal, then return that goal,
@@ -670,9 +693,15 @@ get_pragma_c_var_names_2([MaybeName | MaybeNames], Names0, Names) :-
 :- pred true_goal(hlds_goal).
 :- mode true_goal(out) is det.
 
+:- pred true_goal(term__context, hlds_goal).
+:- mode true_goal(in, out) is det.
+
 	% Return the HLDS equivalent of `fail'.
 :- pred fail_goal(hlds_goal).
 :- mode fail_goal(out) is det.
+
+:- pred fail_goal(term__context, hlds_goal).
+:- mode fail_goal(in, out) is det.
 
        % Return the union of all the nonlocals of a list of goals.
 :- pred goal_list_nonlocals(list(hlds_goal), set(var)).
@@ -861,6 +890,17 @@ goal_to_conj_list(Goal, ConjList) :-
 		ConjList = [Goal]
 	).
 
+	% Convert a goal to a list of parallel conjuncts.
+	% If the goal is a conjunction, then return its conjuncts,
+	% otherwise return the goal as a singleton list.
+
+goal_to_par_conj_list(Goal, ConjList) :-
+	( Goal = (par_conj(List, _) - _) ->
+		ConjList = List
+	;
+		ConjList = [Goal]
+	).
+
 	% Convert a goal to a list of disjuncts.
 	% If the goal is a disjunction, then return its disjuncts
 	% otherwise return the goal as a singleton list.
@@ -882,6 +922,19 @@ conj_list_to_goal(ConjList, GoalInfo, Goal) :-
 		Goal = Goal0
 	;
 		Goal = conj(ConjList) - GoalInfo
+	).
+
+	% Convert a list of parallel conjuncts to a goal.
+	% If the list contains only one goal, then return that goal,
+	% otherwise return the parallel conjunction of the conjuncts,
+	% with the specified goal_info.
+
+par_conj_list_to_goal(ConjList, GoalInfo, Goal) :-
+	( ConjList = [Goal0] ->
+		Goal = Goal0
+	;
+		map__init(StoreMap),
+		Goal = par_conj(ConjList, StoreMap) - GoalInfo
 	).
 
 	% Convert a list of disjuncts to a goal.
@@ -933,12 +986,20 @@ true_goal(conj([]) - GoalInfo) :-
 	instmap_delta_init_reachable(InstMapDelta),
 	goal_info_set_instmap_delta(GoalInfo1, InstMapDelta, GoalInfo).
 
+true_goal(Context, Goal - GoalInfo) :-
+	true_goal(Goal - GoalInfo0),
+	goal_info_set_context(GoalInfo0, Context, GoalInfo).
+
 fail_goal(disj([], SM) - GoalInfo) :-
 	map__init(SM),
 	goal_info_init(GoalInfo0),
 	goal_info_set_determinism(GoalInfo0, failure, GoalInfo1), 
 	instmap_delta_init_unreachable(InstMapDelta),
 	goal_info_set_instmap_delta(GoalInfo1, InstMapDelta, GoalInfo).
+
+fail_goal(Context, Goal - GoalInfo) :-
+	fail_goal(Goal - GoalInfo0),
+	goal_info_set_context(GoalInfo0, Context, GoalInfo).
 
 %-----------------------------------------------------------------------------%
 

@@ -277,12 +277,6 @@
 					% switched on.
 	).
 
-:- type slot_contents 
-	--->	ticket			% a ticket (trail pointer)
-	;	ticket_counter		% a copy of the ticket counter
-	;	trace_data
-	;	lval(lval).
-
 %---------------------------------------------------------------------------%
 
 code_info__init(Varset, Liveness, StackSlots, SaveSuccip, Globals,
@@ -714,9 +708,9 @@ code_info__set_maybe_trace_info(V, CI0, CI) :-
 :- pred code_info__succip_is_used(code_info, code_info).
 :- mode code_info__succip_is_used(in, out) is det.
 
-:- pred code_info__add_layout_for_label(label, internal_layout_info,
+:- pred code_info__add_trace_layout_for_label(label, layout_label_info,
 	code_info, code_info).
-:- mode code_info__add_layout_for_label(in, in, in, out) is det.
+:- mode code_info__add_trace_layout_for_label(in, in, in, out) is det.
 
 %---------------------------------------------------------------------------%
 
@@ -1002,14 +996,22 @@ code_info__get_next_cell_number(N) -->
 code_info__succip_is_used -->
 	code_info__set_succip_used(yes).
 
-code_info__add_layout_for_label(Label, LayoutInfo) -->
+code_info__add_trace_layout_for_label(Label, LayoutInfo) -->
 	code_info__get_layout_info(Internals0),
-	( { map__contains(Internals0, Label) } ->
-		{ error("adding layout for already known label") }
+	{ map__search(Internals0, Label, Internal0) ->
+		Internal0 = internal_layout_info(Exec0, Agc),
+		( Exec0 = no ->
+			true
+		;
+			error("adding trace layout for already known label")
+		),
+		Internal = internal_layout_info(yes(LayoutInfo), Agc),
+		map__set(Internals0, Label, Internal, Internals)
 	;
-		{ map__det_insert(Internals0, Label, LayoutInfo, Internals) },
-		code_info__set_layout_info(Internals)
-	).
+		Internal = internal_layout_info(yes(LayoutInfo), no),
+		map__det_insert(Internals0, Label, Internal, Internals)
+	},
+	code_info__set_layout_info(Internals).
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
@@ -2874,7 +2876,17 @@ code_info__generate_stack_livelvals(Args, AfterCallInstMap, LiveVals) -->
 	{ set__to_sorted_list(LiveVals1, LiveVals2) },
 	code_info__get_globals(Globals),
 	{ globals__get_gc_method(Globals, GC_Method) },
-	code_info__livevals_to_livelvals(LiveVals2, GC_Method, 
+	{ globals__get_trace_level(Globals, TraceLevel) },
+	{
+		( GC_Method = accurate
+		; trace_level_trace_returns(TraceLevel, yes)
+		)
+	->
+		NeedVarInfo = yes
+	;
+		NeedVarInfo = no
+	},
+	code_info__livevals_to_livelvals(LiveVals2, NeedVarInfo, 
 		AfterCallInstMap, LiveVals3),
 	code_info__get_temps_in_use(TempsSet),
 	{ map__to_assoc_list(TempsSet, Temps) },
@@ -2931,17 +2943,17 @@ code_info__generate_commit_livelvals(Triples0, LiveInfo0, LiveInfo) :-
 				LiveInfo3]
 	).
 
-:- pred code_info__livevals_to_livelvals(assoc_list(lval, var), gc_method,
+:- pred code_info__livevals_to_livelvals(assoc_list(lval, var), bool,
 	instmap, list(liveinfo), code_info, code_info).
 :- mode code_info__livevals_to_livelvals(in, in, in, out, in, out) is det.
 
-code_info__livevals_to_livelvals([], _GC_Method, _, []) --> [].
-code_info__livevals_to_livelvals([Lval - Var | Ls], GC_Method, AfterCallInstMap,
-		[LiveLval | Lives]) -->
+code_info__livevals_to_livelvals([], _, _, []) --> [].
+code_info__livevals_to_livelvals([Lval - Var | Ls], NeedVarInfo,
+		AfterCallInstMap, [LiveLval | Lives]) -->
 	code_info__get_varset(VarSet),
 	{ varset__lookup_name(VarSet, Var, Name) },
 	(
-		{ GC_Method = accurate }
+		{ NeedVarInfo = yes }
 	->
 		{ instmap__lookup_var(AfterCallInstMap, Var, Inst) },
 
@@ -2953,7 +2965,7 @@ code_info__livevals_to_livelvals([Lval - Var | Ls], GC_Method, AfterCallInstMap,
 	;
 		{ LiveLval = live_lvalue(Lval, unwanted, Name, []) }
 	),
-	code_info__livevals_to_livelvals(Ls, GC_Method, AfterCallInstMap, 
+	code_info__livevals_to_livelvals(Ls, NeedVarInfo, AfterCallInstMap, 
 		Lives).
 
 :- pred code_info__get_live_value_type(slot_contents, live_value_type).
@@ -2979,6 +2991,7 @@ code_info__get_live_value_type(ticket, unwanted). % XXX we may need to
 					% modify this, if the GC is going
 					% to garbage-collect the trail.
 code_info__get_live_value_type(ticket_counter, unwanted).
+code_info__get_live_value_type(sync_term, unwanted).
 code_info__get_live_value_type(trace_data, unwanted).
 
 %---------------------------------------------------------------------------%
@@ -3016,6 +3029,15 @@ code_info__get_live_value_type(trace_data, unwanted).
 
 :- interface.
 
+:- type slot_contents 
+	--->	ticket			% a ticket (trail pointer)
+	;	ticket_counter		% a copy of the ticket counter
+	;	trace_data
+	;	sync_term		% a syncronization term used
+					% at the end of par_conjs.
+					% see par_conj_gen.m for details.
+	;	lval(lval).
+
 	% Returns the total stackslot count, but not including space for
 	% succip.
 :- pred code_info__get_total_stackslot_count(int, code_info, code_info).
@@ -3023,11 +3045,6 @@ code_info__get_live_value_type(trace_data, unwanted).
 
 :- pred code_info__get_trace_slot(lval, code_info, code_info).
 :- mode code_info__get_trace_slot(out, in, out) is det.
-
-%---------------------------------------------------------------------------%
-%---------------------------------------------------------------------------%
-
-:- implementation.
 
 :- pred code_info__acquire_temp_slot(slot_contents, lval,
 	code_info, code_info).
@@ -3039,11 +3056,19 @@ code_info__get_live_value_type(trace_data, unwanted).
 :- pred code_info__get_variable_slot(var, lval, code_info, code_info).
 :- mode code_info__get_variable_slot(in, out, in, out) is det.
 
-:- pred code_info__max_var_slot(stack_slots, int).
-:- mode code_info__max_var_slot(in, out) is det.
+%---------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
+
+:- implementation.
 
 :- pred code_info__stack_variable(int, lval, code_info, code_info).
 :- mode code_info__stack_variable(in, out, in, out) is det.
+
+:- pred code_info__stack_variable_reference(int, rval, code_info, code_info).
+:- mode code_info__stack_variable_reference(in, out, in, out) is det.
+
+:- pred code_info__max_var_slot(stack_slots, int).
+:- mode code_info__max_var_slot(in, out) is det.
 
 code_info__get_trace_slot(StackVar) -->
 	code_info__acquire_temp_slot(trace_data, StackVar).
@@ -3119,6 +3144,15 @@ code_info__stack_variable(Num, Lval) -->
 		{ Lval = framevar(Num1) }
 	;
 		{ Lval = stackvar(Num) }	% stackvars start at one
+	).
+
+code_info__stack_variable_reference(Num, mem_addr(Ref)) -->
+	code_info__get_proc_model(CodeModel),
+	( { CodeModel = model_non } ->
+		{ Num1 is Num - 1 },		% framevars start at zero
+		{ Ref = framevar_ref(Num1) }
+	;
+		{ Ref = stackvar_ref(Num) }	% stackvars start at one
 	).
 
 %---------------------------------------------------------------------------%

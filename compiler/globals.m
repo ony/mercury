@@ -46,10 +46,11 @@
 	;	num_data_elems
 	;	size_data_elems.
 
-:- type trace_level
-	--->	minimal
-	;	interface
-	;	full.
+:- type trace_level.
+
+:- pred trace_level_trace_interface(trace_level::in, bool::out) is det.
+:- pred trace_level_trace_ports(trace_level::in, bool::out) is det.
+:- pred trace_level_trace_returns(trace_level::in, bool::out) is det.
 
 :- pred convert_gc_method(string::in, gc_method::out) is semidet.
 :- pred convert_tags_method(string::in, tags_method::out) is semidet.
@@ -77,6 +78,9 @@
 :- pred globals__get_trace_level(globals::in, trace_level::out) is det.
 
 :- pred globals__set_options(globals::in, option_table::in, globals::out)
+	is det.
+
+:- pred globals__set_trace_level(globals::in, trace_level::in, globals::out)
 	is det.
 
 :- pred globals__lookup_option(globals::in, option::in, option_data::out)
@@ -136,6 +140,11 @@
 :- pred globals__io_set_option(option::in, option_data::in,
 	io__state::di, io__state::uo) is det.
 
+:- pred globals__io_set_trace_level(trace_level::in,
+	io__state::di, io__state::uo) is det.
+
+:- pred globals__io_set_trace_level_none(io__state::di, io__state::uo) is det.
+
 :- pred globals__io_lookup_option(option::in, option_data::out,
 	io__state::di, io__state::uo) is det.
 
@@ -159,6 +168,27 @@
 
 :- import_module exprn_aux.
 :- import_module map, std_util, io, require.
+
+:- type trace_level
+	--->	none
+	;	interface
+	;	interface_ports
+	;	interface_ports_returns.
+
+trace_level_trace_interface(none, no).
+trace_level_trace_interface(interface, yes).
+trace_level_trace_interface(interface_ports, yes).
+trace_level_trace_interface(interface_ports_returns, yes).
+
+trace_level_trace_ports(none, no).
+trace_level_trace_ports(interface, no).
+trace_level_trace_ports(interface_ports, yes).
+trace_level_trace_ports(interface_ports_returns, yes).
+
+trace_level_trace_returns(none, no).
+trace_level_trace_returns(interface, no).
+trace_level_trace_returns(interface_ports, no).
+trace_level_trace_returns(interface_ports_returns, yes).
 
 %-----------------------------------------------------------------------------%
 
@@ -192,12 +222,13 @@ convert_termination_norm("total", total).
 convert_termination_norm("num-data-elems", num_data_elems).
 convert_termination_norm("size-data-elems", size_data_elems).
 
-convert_trace_level("minimum", no, minimal).
+convert_trace_level("minimum", no, none).
 convert_trace_level("minimum", yes, interface).
 convert_trace_level("interfaces", _, interface).
-convert_trace_level("all", _, full).
-convert_trace_level("default", no, minimal).
-convert_trace_level("default", yes, full).
+convert_trace_level("most", _, interface_ports).
+convert_trace_level("all", _, interface_ports_returns).
+convert_trace_level("default", no, none).
+convert_trace_level("default", yes, interface_ports).
 
 %-----------------------------------------------------------------------------%
 
@@ -229,6 +260,9 @@ globals__get_trace_level(globals(_, _, _, _, _, _, TraceLevel), TraceLevel).
 
 globals__set_options(globals(_, B, C, D, E, F, G), Options,
 	globals(Options, B, C, D, E, F, G)).
+
+globals__set_trace_level(globals(A, B, C, D, E, F, _), TraceLevel,
+	globals(A, B, C, D, E, F, TraceLevel)).
 
 globals__lookup_option(Globals, Option, OptionData) :-
 	globals__get_options(Globals, OptionTable),
@@ -352,6 +386,19 @@ globals__io_set_option(Option, OptionData) -->
 		% uniqueness and io__set_globals
 	{ unsafe_promise_unique(Globals1, Globals) },
 	globals__io_set_globals(Globals).
+
+globals__io_set_trace_level(TraceLevel) -->
+	globals__io_get_globals(Globals0),
+	{ globals__set_trace_level(Globals0, TraceLevel, Globals1) },
+	{ unsafe_promise_unique(Globals1, Globals) },
+		% XXX there is a bit of a design flaw with regard to
+		% uniqueness and io__set_globals
+	globals__io_set_globals(Globals).
+
+	% This predicate is needed because mercury_compile.m doesn't know
+	% anything about type trace_level.
+globals__io_set_trace_level_none -->
+	globals__io_set_trace_level(none).
 
 %-----------------------------------------------------------------------------%
 

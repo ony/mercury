@@ -174,6 +174,10 @@
 :- pred mercury_output_quantifier(tvarset, existq_tvars, io__state, io__state).
 :- mode mercury_output_quantifier(in, in, di, uo) is det.
 
+:- pred mercury_output_instance_methods(instance_interface, io__state,
+	io__state).
+:- mode mercury_output_instance_methods(in, di, uo) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -397,7 +401,7 @@ mercury_output_item(instance(Constraints, ClassName, Types, Methods,
 
 	io__write_string(" where [\n"),
 
-	output_instance_methods(Methods),
+	mercury_output_instance_methods(Methods),
 	
 	io__write_string("\n].\n").
 
@@ -439,10 +443,7 @@ output_class_method(Method) -->
 			Mode, Detism, Context, "", "")
 	).
 
-:- pred output_instance_methods(instance_interface, io__state, io__state).
-:- mode output_instance_methods(in, di, uo) is det.
-
-output_instance_methods(Methods) -->
+mercury_output_instance_methods(Methods) -->
 	io__write_list(Methods, ",\n", output_instance_method).
 
 :- pred output_instance_method(instance_method, io__state, io__state).
@@ -1686,6 +1687,16 @@ mercury_output_goal_2((A,B), VarSet, Indent) -->
 	mercury_output_newline(Indent),
 	mercury_output_goal(B, VarSet, Indent).
 
+mercury_output_goal_2((A & B), VarSet, Indent) -->
+	io__write_string("("),
+	{ Indent1 is Indent + 1 },
+	mercury_output_newline(Indent1),
+	mercury_output_goal(A, VarSet, Indent1),
+	mercury_output_par_conj(B, VarSet, Indent),
+	mercury_output_newline(Indent),
+	io__write_string(")").
+
+
 mercury_output_goal_2((A;B), VarSet, Indent) -->
 	io__write_string("("),
 	{ Indent1 is Indent + 1 },
@@ -1738,6 +1749,23 @@ mercury_output_disj(Goal, VarSet, Indent) -->
 	->
 		mercury_output_goal(A, VarSet, Indent1),
 		mercury_output_disj(B, VarSet, Indent)
+	;
+		mercury_output_goal(Goal, VarSet, Indent1)
+	).
+
+:- pred mercury_output_par_conj(goal, varset, int, io__state, io__state).
+:- mode mercury_output_par_conj(in, in, in, di, uo) is det.
+
+mercury_output_par_conj(Goal, VarSet, Indent) -->
+	mercury_output_newline(Indent),
+	io__write_string("&"),
+	{ Indent1 is Indent + 1 },
+	mercury_output_newline(Indent1),
+	(
+		{ Goal = (A & B) - _Context }
+	->
+		mercury_output_goal(A, VarSet, Indent1),
+		mercury_output_par_conj(B, VarSet, Indent)
 	;
 		mercury_output_goal(Goal, VarSet, Indent1)
 	).

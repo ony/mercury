@@ -273,7 +273,7 @@ postprocess_options_2(OptionTable, GC_Method, TagsMethod, ArgsMethod,
 	%	  paths across optimization levels
 	% 	- enabling stack layouts
 	% 	- enabling typeinfo liveness
-	( { TraceLevel = interface ; TraceLevel = full } ->
+	( { trace_level_trace_interface(TraceLevel, yes) } ->
 			% The following options modify the structure
 			% of the program, which makes it difficult to
 			% relate the trace to the source code (although
@@ -325,10 +325,12 @@ postprocess_options_2(OptionTable, GC_Method, TagsMethod, ArgsMethod,
 	% `trace' stack layouts need `procid' stack layouts
 	option_implies(trace_stack_layout, procid_stack_layout, bool(yes)),
 
-	% --gc accurate requires `agc' stack layouts and typeinfo liveness.
+	% --gc accurate requires `agc' stack layouts, typeinfo liveness,
+	% and needs frameopt to be switched off.
 	( { GC_Method = accurate } ->
 		globals__io_set_option(agc_stack_layout, bool(yes)),
-		globals__io_set_option(typeinfo_liveness, bool(yes)) 
+		globals__io_set_option(typeinfo_liveness, bool(yes)),
+		globals__io_set_option(optimize_frames, bool(no)) 
 	;
 		[]
 	),
@@ -442,6 +444,7 @@ compute_grade(Globals, Grade) :-
 	globals__lookup_bool_option(Globals, unboxed_float, UnboxedFloat),
 */
 	globals__get_args_method(Globals, ArgsMethod),
+	globals__lookup_bool_option(Globals, parallel, Parallel),
 	globals__lookup_bool_option(Globals, stack_trace, StackTrace),
 	globals__lookup_bool_option(Globals, require_tracing, RequireTracing),
 /*
@@ -465,6 +468,9 @@ compute_grade(Globals, Grade) :-
 		;
 			Part2 = "none"
 		)
+	),
+	( Parallel = yes, Part2a = ".par"
+	; Parallel = no, Part2a = ""
 	),
 	( GC_Method = conservative, Part3 = ".gc"
 	; GC_Method = accurate, Part3 = ".agc"
@@ -556,7 +562,7 @@ compute_grade(Globals, Grade) :-
 *******/
 	Part10 = "",
 
-	string__append_list( [Part1, Part2, Part3, Part4, Part5,
+	string__append_list( [Part1, Part2, Part2a, Part3, Part4, Part5,
 				Part6, Part7, Part8, Part9, Part10], Grade).
 
 	% IMPORTANT: any changes here may require similar changes to
@@ -642,13 +648,13 @@ convert_grade_option(Grade0) -->
 	),
 	% part 3
 	( { string__remove_suffix(Grade14, ".gc", Grade15) } ->
-		{ Grade = Grade15 },
+		{ Grade16 = Grade15 },
 		{ GC = conservative }
 	; { string__remove_suffix(Grade14, ".agc", Grade15) } ->
-		{ Grade = Grade15 },
+		{ Grade16 = Grade15 },
 		{ GC = accurate }
 	;
-		{ Grade = Grade14 },
+		{ Grade16 = Grade14 },
 		{ GC = none }
 	),
 	% Set the type of gc that the grade option implies.
@@ -662,6 +668,12 @@ convert_grade_option(Grade0) -->
 	;
 		{ GC = none },
 		set_string_opt(gc, "none")
+	),
+	( { string__remove_suffix(Grade16, ".par", Grade17) } ->
+		{ Grade = Grade17 },
+		set_bool_opt(parallel, yes)
+	;
+		{ Grade = Grade16 }
 	),
 	% parts 2 & 1
 	convert_grade_option_2(Grade).
