@@ -708,7 +708,7 @@ option_defaults_2(special_optimization_option, [
 	termination_path_limit	-	int(256),
 	split_c_files		-	bool(no),
 
-	structure_reuse_constraint -	string("within_n_cells"),
+	structure_reuse_constraint - 	string("within_n_cells_difference"),
 	structure_reuse_constraint_arg - int(0),
 	structure_reuse_selection -	string("lifo")
 ]).

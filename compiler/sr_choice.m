@@ -106,10 +106,11 @@ apply_constraint(_Constraint, Goal0 - _GoalInfo, _) -->
 
 apply_constraint(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	=(BeforeIfInfo),
 	apply_constraint(Constraint, If0, If),
 	=(IfInfo),
 	{ apply_constraint(Constraint, Then0, Then, IfInfo, ThenInfo) },
-	{ apply_constraint(Constraint, Else0, Else, IfInfo, ElseInfo) },
+	{ apply_constraint(Constraint, Else0, Else, BeforeIfInfo, ElseInfo) },
 	merge(ThenInfo),
 	merge(ElseInfo),
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
@@ -200,7 +201,7 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			CandidateVar = Candidate0 ^ var,
 			multi_map__search(Map, CandidateVar, ConsIds),
 			list__remove_dups(ConsIds, [ConsId]),
-			Candidate = Candidate0 ^ cons_ids := yes(ConsIds)
+			Candidate = Candidate0 ^ cons_ids := yes([ConsId])
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
@@ -213,7 +214,8 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 		{ P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
-			multi_map__search(Map, CandidateVar, ConsIds),
+			multi_map__search(Map, CandidateVar, ConsIds0),
+			list__remove_dups(ConsIds0, ConsIds),
 			cons_id_arity(ConsId, Arity),
 			all [ReuseConsId] (
 				list__member(ReuseConsId, ConsIds)
@@ -313,12 +315,12 @@ select_reuses(_Selection, Goal0 - _GoalInfo, _) -->
 
 select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
-	select_reuses(Selection, If0, If),
 	selection_start_branch,
-	=(IfInfo),
+	=(BeforeIfInfo),
+	{ select_reuses(Selection, If0, If, BeforeIfInfo, IfInfo) },
 	{ select_reuses(Selection, Then0, Then, IfInfo, ThenInfo) },
-	{ select_reuses(Selection, Else0, Else, IfInfo, ElseInfo) },
 	selection_merge(ThenInfo),
+	{ select_reuses(Selection, Else0, Else, BeforeIfInfo, ElseInfo) },
 	selection_merge(ElseInfo),
 	selection_end_branch,
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
