@@ -38,6 +38,7 @@
 :- import_module integer, rational.
 :- import_module exception, gc.
 :- import_module time.
+:- import_module robdd.
 :- import_module pprint.
 
 :- import_module builtin, private_builtin, table_builtin.
