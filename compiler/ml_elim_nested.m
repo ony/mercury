@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2000 The University of Melbourne.
+% Copyright (C) 1999-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -134,7 +134,7 @@
 :- implementation.
 :- import_module bool, int, list, std_util, string, require.
 
-:- import_module ml_code_util.
+:- import_module ml_code_util, ml_util.
 
 % the following imports are needed for mangling pred names
 :- import_module hlds_pred, prog_data, prog_out.
@@ -329,10 +329,11 @@ ml_maybe_copy_args([Arg|Args], FuncBody, ModuleName, ClassType, EnvPtrTypeName,
 		FieldName = named_field(qual(EnvModuleName, VarName),
 			EnvPtrTypeName),
 		Tag = yes(0),
-		EnvPtr = lval(var(qual(ModuleName, "env_ptr"))),
+		EnvPtr = lval(var(qual(ModuleName, "env_ptr"),
+			EnvPtrTypeName)),
 		EnvArgLval = field(Tag, EnvPtr, FieldName, FieldType, 
 			EnvPtrTypeName),
-		ArgRval = lval(var(QualVarName)),
+		ArgRval = lval(var(QualVarName, FieldType)),
 		AssignToEnv = assign(EnvArgLval, ArgRval),
 		CodeToCopyArg = mlds__statement(atomic(AssignToEnv), Context),
 
@@ -401,18 +402,20 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 		% XXX Perhaps if we used value classes this could go
 		% away.
 	( Target = il ->
-		EnvVarAddr = lval(var(EnvVar)),
+		EnvVarAddr = lval(var(EnvVar, EnvTypeName)),
 		ml_init_env(EnvTypeName, EnvVarAddr, Context, ModuleName,
 			 Globals, EnvPtrVarDecl, InitEnv0),
+		
 		NewObj = mlds__statement(
-				atomic(new_object(var(EnvVar), 
-					no, EnvTypeName, no, yes(""), [], [])),
+				atomic(new_object(
+					var(EnvVar, EnvTypeName), 
+					no, EnvTypeName, no, no, [], [])),
 				Context),
 		InitEnv = mlds__statement(block([], 
 			[NewObj, InitEnv0]), Context),
 		EnvDecls = [EnvVarDecl, EnvPtrVarDecl]
 	;
-		EnvVarAddr = mem_addr(var(EnvVar)),
+		EnvVarAddr = mem_addr(var(EnvVar, EnvTypeName)),
 		ml_init_env(EnvTypeName, EnvVarAddr, Context, ModuleName,
 			Globals, EnvPtrVarDecl, InitEnv),
 		EnvDecls = [EnvVarDecl, EnvPtrVarDecl]
@@ -447,7 +450,8 @@ ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 		DefnBody0 = mlds__function(PredProcId, Params, yes(FuncBody0)),
 		statement_contains_var(FuncBody0, qual(ModuleName, "env_ptr"))
 	->
-		EnvPtrVal = lval(var(qual(ModuleName, "env_ptr_arg"))),
+		EnvPtrVal = lval(var(qual(ModuleName, "env_ptr_arg"),
+			mlds__generic_env_ptr_type)),
 		ml_init_env(TypeName, EnvPtrVal, Context, ModuleName, Globals,
 			EnvPtrDecl, InitEnvPtr),
 		FuncBody = mlds__statement(block([EnvPtrDecl],
@@ -498,9 +502,11 @@ ml_init_env(EnvTypeName, EnvPtrVal, Context, ModuleName, Globals,
 	%
 	%	env_ptr = (EnvPtrVarType) <EnvPtrVal>;
 	%
+	% XXX Do we need the cast? If so, why?
+	%
 	EnvPtrVar = qual(ModuleName, "env_ptr"),
-	AssignEnvPtr = assign(var(EnvPtrVar), unop(cast(EnvPtrVarType), 
-		EnvPtrVal)),
+	AssignEnvPtr = assign(var(EnvPtrVar, EnvPtrVarType),
+		unop(cast(EnvPtrVarType), EnvPtrVal)),
 	InitEnvPtr = mlds__statement(atomic(AssignEnvPtr), Context).
 
 	% Given the declaration for a function parameter, produce a
@@ -986,8 +992,8 @@ fixup_lval(field(MaybeTag, Rval0, FieldId, FieldType, PtrType),
 	fixup_rval(Rval0, Rval).
 fixup_lval(mem_ref(Rval0, Type), mem_ref(Rval, Type)) --> 
 	fixup_rval(Rval0, Rval).
-fixup_lval(var(Var0), VarLval) --> 
-	fixup_var(Var0, VarLval).
+fixup_lval(var(Var0, VarType), VarLval) --> 
+	fixup_var(Var0, VarType, VarLval).
 
 %-----------------------------------------------------------------------------%
 
@@ -997,10 +1003,10 @@ fixup_lval(var(Var0), VarLval) -->
 %	containing function to go via the environment pointer
 %
 
-:- pred fixup_var(mlds__var, mlds__lval, elim_info, elim_info).
-:- mode fixup_var(in, out, in, out) is det.
+:- pred fixup_var(mlds__var, mlds__type, mlds__lval, elim_info, elim_info).
+:- mode fixup_var(in, in, out, in, out) is det.
 
-fixup_var(ThisVar, Lval, ElimInfo, ElimInfo) :-
+fixup_var(ThisVar, ThisVarType, Lval, ElimInfo, ElimInfo) :-
 	ThisVar = qual(ThisVarModuleName, ThisVarName),
 	ModuleName = elim_info_get_module_name(ElimInfo),
 	Locals = elim_info_get_local_data(ElimInfo),
@@ -1021,7 +1027,8 @@ fixup_var(ThisVar, Lval, ElimInfo, ElimInfo) :-
 			),
 		solutions(IsLocalVar, [FieldType])
 	->
-		EnvPtr = lval(var(qual(ModuleName, "env_ptr"))),
+		EnvPtr = lval(var(qual(ModuleName, "env_ptr"),
+			EnvPtrVarType)),
 		EnvModuleName = ml_env_module_name(ClassType),
 		FieldName = named_field(qual(EnvModuleName, ThisVarName),
 			EnvPtrVarType),
@@ -1031,7 +1038,7 @@ fixup_var(ThisVar, Lval, ElimInfo, ElimInfo) :-
 		%
 		% leave everything else unchanged
 		%
-		Lval = var(ThisVar)
+		Lval = var(ThisVar, ThisVarType)
 	).
 /*****************************
 The following code is what we would have to use if we couldn't
@@ -1069,7 +1076,7 @@ just hoist all local variables out to the outermost function.
 		%
 		% leave everything else unchanged
 		%
-		Lval = var(ThisVar)
+		Lval = var(ThisVar, ThisVarType)
 	).
 
 	% check if the specified variable is contained in the
@@ -1247,13 +1254,8 @@ default_contains_defn(default_case(Statement), Defn) :-
 % maybe_statement_contains_var:
 % statements_contains_var:
 % statement_contains_var:
-% atomic_stmt_contains_var:
-% rvals_contains_var:
-% maybe_rval_contains_var:
-% rval_contains_var:
 % trail_op_contains_var:
-% lvals_contains_var:
-% lval_contains_var:
+% atomic_stmt_contains_var:
 %	Succeeds iff the specified construct contains a reference to
 %	the specified variable.
 %
@@ -1283,19 +1285,6 @@ defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
 		FieldDefns),
 	defns_contains_var(FieldDefns, Name).
-
-:- pred initializer_contains_var(mlds__initializer, mlds__var).
-:- mode initializer_contains_var(in, in) is semidet.
-
-% initializer_contains_var(no_initializer, _) :- fail.
-initializer_contains_var(init_obj(Rval), Name) :-
-	rval_contains_var(Rval, Name).
-initializer_contains_var(init_struct(Inits), Name) :-
-	list__member(Init, Inits),
-	initializer_contains_var(Init, Name).
-initializer_contains_var(init_array(Inits), Name) :-
-	list__member(Init, Inits),
-	initializer_contains_var(Init, Name).
 
 :- pred maybe_statement_contains_var(maybe(mlds__statement), mlds__var).
 :- mode maybe_statement_contains_var(in, in) is semidet.
@@ -1444,53 +1433,6 @@ target_code_component_contains_var(target_code_output(Lval), Name) :-
 target_code_component_contains_var(name(EntityName), VarName) :-
 	EntityName = qual(ModuleName, data(var(UnqualVarName))),
 	VarName = qual(ModuleName, UnqualVarName).
-
-:- pred rvals_contains_var(list(mlds__rval), mlds__var).
-:- mode rvals_contains_var(in, in) is semidet.
-
-rvals_contains_var(Rvals, Name) :-
-	list__member(Rval, Rvals),
-	rval_contains_var(Rval, Name).
-
-:- pred maybe_rval_contains_var(maybe(mlds__rval), mlds__var).
-:- mode maybe_rval_contains_var(in, in) is semidet.
-
-% maybe_rval_contains_var(no, _Name) :- fail.
-maybe_rval_contains_var(yes(Rval), Name) :-
-	rval_contains_var(Rval, Name).
-
-:- pred rval_contains_var(mlds__rval, mlds__var).
-:- mode rval_contains_var(in, in) is semidet.
-
-rval_contains_var(lval(Lval), Name) :-
-	lval_contains_var(Lval, Name).
-rval_contains_var(mkword(_Tag, Rval), Name) :-
-	rval_contains_var(Rval, Name).
-% rval_contains_var(const(_Const), _Name) :- fail.
-rval_contains_var(unop(_Op, Rval), Name) :-
-	rval_contains_var(Rval, Name).
-rval_contains_var(binop(_Op, X, Y), Name) :-
-	( rval_contains_var(X, Name)
-	; rval_contains_var(Y, Name)
-	).
-rval_contains_var(mem_addr(Lval), Name) :-
-	lval_contains_var(Lval, Name).
-
-:- pred lvals_contains_var(list(mlds__lval), mlds__var).
-:- mode lvals_contains_var(in, in) is semidet.
-
-lvals_contains_var(Lvals, Name) :-
-	list__member(Lval, Lvals),
-	lval_contains_var(Lval, Name).
-
-:- pred lval_contains_var(mlds__lval, mlds__var).
-:- mode lval_contains_var(in, in) is semidet.
-
-lval_contains_var(field(_MaybeTag, Rval, _FieldId, _, _), Name) :-
-	rval_contains_var(Rval, Name).
-lval_contains_var(mem_ref(Rval, _Type), Name) :-
-	rval_contains_var(Rval, Name).
-lval_contains_var(var(Name), Name).  /* this is where we can succeed! */
 
 %-----------------------------------------------------------------------------%
 

@@ -71,6 +71,9 @@
 % any references to types or instances defined in the dynamically loaded
 % module, as might be the case if you're using existentially quantified
 % data types, since they too can contain references to static data.
+%
+% (Note that using builtin__copy/2, to make copies rather than
+% keeping references, is *not* guaranteed to work in all cases.)
 % 
 :- pred dl__close(handle::in, dl__result::out,
 	io__state::di, io__state::uo) is det.
@@ -308,7 +311,8 @@ ML_DL_generic_closure_wrapper(void *closure,
 		mercury_proc::in, mercury_proc::out) is det.
 check_proc_spec_matches_result_type(_Result, Value, Proc0, Proc) :-
 	Proc0 = mercury_proc(IsPredOrFunc, _Module, _Name, ProcArity, _Mode),
-	type_ctor_name_and_arity(type_ctor(type_of(Value)),
+	ResultType = type_of(Value),
+	type_ctor_name_and_arity(type_ctor(ResultType),
 		TypeModule, TypeName, TypeArity),
 	( TypeName = "func" ->
 		TypeProcArity = TypeArity - 1
@@ -321,7 +325,9 @@ check_proc_spec_matches_result_type(_Result, Value, Proc0, Proc) :-
 		)
 	->
 		error(
-		"dl__mercury_sym: result type is not a higher-order type")
+		"dl__mercury_sym: result type (`" ++
+		type_name(ResultType) ++
+		"') is not a higher-order type")
 	;
 		IsPredOrFunc = predicate, TypeName \= "pred"
 	->
