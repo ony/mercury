@@ -2259,6 +2259,8 @@ hlds_out__write_import_status(local) -->
 	io__write_string("local").
 hlds_out__write_import_status(exported) -->
 	io__write_string("exported").
+hlds_out__write_import_status(opt_exported) -->
+	io__write_string("opt_exported").
 hlds_out__write_import_status(abstract_exported) -->
 	io__write_string("abstract_exported").
 hlds_out__write_import_status(pseudo_exported) -->

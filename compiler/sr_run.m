@@ -65,7 +65,7 @@ sr_run__write_pred_sr_reuse_info( HLDS, SpecPredIds, PredId) -->
 		->
 			[]
 		;
-			{ pred_info_exported_procids( PredInfo , ProcIds ) } ,
+			{ pred_info_procids(PredInfo, ProcIds) },
 			{ pred_info_procedures( PredInfo, ProcTable ) },
 			list__foldl( 
 				write_pred_proc_sr_reuse_info( PredInfo, 

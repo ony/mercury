@@ -198,6 +198,7 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	globals__io_lookup_bool_option(very_verbose,Verbose),
 
 	{ module_info_pred_proc_info( HLDS, PRED_PROC_ID,_PredInfo,ProcInfo) },
+
 	{ PRED_PROC_ID = proc(PredId, ProcId) },
 
 	{ pa_util__pa_fixpoint_table_which_run(FPtable0, Run) },
@@ -572,7 +573,7 @@ pa_run__make_pa_interface_pred( HLDS, SpecPredIds, PredId ) -->
 		->
 			[]
 		;
-			{ pred_info_exported_procids( PredInfo , ProcIds ) } ,
+			{ pred_info_procids(PredInfo, ProcIds) },
 			{ pred_info_procedures( PredInfo, ProcTable ) },
 			list__foldl( make_pa_interface_pred_proc( PredInfo, ProcTable),
 					ProcIds )

@@ -836,6 +836,7 @@ is_defined_in_implementation_section(opt_imported, no).
 is_defined_in_implementation_section(abstract_imported, no).
 is_defined_in_implementation_section(pseudo_imported, no).
 is_defined_in_implementation_section(exported, no).
+is_defined_in_implementation_section(opt_exported, no).
 is_defined_in_implementation_section(pseudo_exported, no).
 
 %-----------------------------------------------------------------------------%
