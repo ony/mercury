@@ -42,7 +42,7 @@
 % library modules
 :- import_module require.
 :- import_module bool, set, list, map, int.
-:- import_module std_util, string.
+:- import_module std_util, string, term.
 
 % compiler modules
 :- import_module dependency_graph.
@@ -70,7 +70,10 @@ sr_reuse_run__reuse_pass( HLDSin, HLDSout ) -->
 	->
 		{ hlds_dependency_info_get_dependency_ordering( DepInfo, DepOrdering ) },
 		% perform the analysis, and annotate the procedures
-		run_with_dependencies( DepOrdering, HLDS1, HLDSout) %,
+		run_with_dependencies( DepOrdering, HLDS1, HLDS2),
+		process_all_nonimported_procs(
+			update_module_io(process_proc),
+			HLDS2, HLDSout)
 	;
 		{ error("(sr_reuse_run) reuse_pass: no dependency info") }
 	).
@@ -415,9 +418,19 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 				in, out,
 				in, out) is det.
 
-call_verify_reuse( ProcInfo, HLDS, PredId, ProcId, ActualVars, Alias0, 
+call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0, 
 					Reuses0, Reuses, 
 					Info0, Info, FP0, FP ) :- 
+
+	module_info_structure_reuse_info(HLDS, ReuseInfo),
+	ReuseInfo = structure_reuse_info(ReuseMap),
+	( map__search(ReuseMap, proc(PredId0, ProcId0), Result) ->
+		Result = proc(PredId, ProcId) - _Name
+	;
+		PredId = PredId0,
+		ProcId = ProcId0
+	),
+
 	% 0. fetch the procinfo of the called procedure:
 	module_info_pred_proc_info( HLDS, PredId, ProcId, _, 
 					ProcInfo0),
@@ -465,11 +478,6 @@ call_verify_reuse( ProcInfo, HLDS, PredId, ProcId, ActualVars, Alias0,
 		)
 	).
 				
-			
-		
-
-			
-
 :- pred unification_verify_reuse( hlds_goal__unification, 
 			alias_as, reuses, reuses, 
 			hlds_goal_info, hlds_goal_info).
@@ -579,14 +587,73 @@ list_map_foldl3( P, L1, L, A1, A, B1, B, C1, C) :-
 :- mode update_reuse_in_module_info(in, in, in, out) is det.
 
 update_reuse_in_module_info( FP, PRED_PROC_ID ,HLDSin, HLDSout) :- 
-	module_info_pred_proc_info( HLDSin, PRED_PROC_ID, PredInfo0, 
+	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
 					ProcInfo0),
-	sr_reuse_util__sr_fixpoint_table_get_final_reuse( PRED_PROC_ID,
-			TREUSE, HLDS_GOAL, FP ),
-	proc_info_set_reuse_information( ProcInfo0, TREUSE, ProcInfo1 ),
-	proc_info_set_goal( ProcInfo1, HLDS_GOAL, ProcInfo),
-	module_info_set_pred_proc_info( HLDSin, PRED_PROC_ID, 
-			PredInfo0, ProcInfo, HLDSout).
+	sr_reuse_util__sr_fixpoint_table_get_final_reuse(PRED_PROC_ID,
+			TREUSE, HLDS_GOAL, FP),
+	( contains_conditional_reuse(TREUSE) ->
+		create_reuse_pred(TREUSE, HLDS_GOAL, PredInfo0, ProcInfo0,
+				ReusePredInfo, _ReuseProcInfo,
+				ReuseProcId, ReuseName),
+
+		module_info_get_predicate_table(HLDSin, PredTable0),
+		predicate_table_insert(PredTable0, ReusePredInfo,
+				ReusePredId, PredTable),
+		module_info_structure_reuse_info(HLDSin, StrReuseInfo0),
+		StrReuseInfo0 = structure_reuse_info(ReuseMap0),
+		map__det_insert(ReuseMap0, PRED_PROC_ID,
+				proc(ReusePredId, ReuseProcId) - ReuseName,
+				ReuseMap),
+		StrReuseInfo = structure_reuse_info(ReuseMap),
+		module_info_set_structure_reuse_info(HLDSin,
+				StrReuseInfo, HLDSin1),
+		module_info_set_predicate_table(HLDSin1, PredTable, HLDSout)
+	; contains_unconditional_reuse(TREUSE) ->
+		proc_info_set_reuse_information(ProcInfo0, TREUSE, ProcInfo1),
+		proc_info_set_goal(ProcInfo1, HLDS_GOAL, ProcInfo),
+		module_info_set_pred_proc_info(HLDSin, PRED_PROC_ID, 
+				PredInfo0, ProcInfo, HLDSout)
+	;
+		HLDSout = HLDSin
+	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred create_reuse_pred(tabled_reuse::in, hlds_goal::in,
+		pred_info::in, proc_info::in,
+		pred_info::out, proc_info::out,
+		proc_id::out, sym_name::out) is det.
+
+create_reuse_pred(TabledReuse, ReuseGoal, PredInfo, ProcInfo,
+		ReusePredInfo, ReuseProcInfo, ReuseProcId, SymName) :-
+	proc_info_set_reuse_information(ProcInfo, TabledReuse, ReuseProcInfo0),
+	proc_info_set_goal(ReuseProcInfo0, ReuseGoal, ReuseProcInfo),
+
+	pred_info_module(PredInfo, ModuleName),
+	pred_info_name(PredInfo, Name),
+	pred_info_arg_types(PredInfo, TypeVarSet, ExistQVars, Types),
+	Cond = true,
+	pred_info_context(PredInfo, PredContext),
+	pred_info_get_markers(PredInfo, Markers),
+	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
+	pred_info_get_class_context(PredInfo, ClassContext),
+	pred_info_get_aditi_owner(PredInfo, Owner),
+
+	set__init(Assertions),
+
+	proc_info_context(ProcInfo, Context),
+	term__context_line(Context, Line),
+	Counter = 0,
+
+	make_pred_name_with_context(ModuleName, "Reuse", PredOrFunc, Name,
+		Line, Counter, SymName),
+
+	pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types,
+			Cond, PredContext, local, Markers, PredOrFunc,
+			ClassContext, Owner, Assertions, ReuseProcInfo, 
+			ReuseProcId, ReusePredInfo).
+
+%-----------------------------------------------------------------------------%
 
 :- pred lookup_tabled_reuse( pred_id, proc_id, module_info, 
 		sr_fixpoint_table, sr_fixpoint_table, 
@@ -628,3 +695,98 @@ arg_types_are_all_primitive(HLDS, PredInfo):-
                 _TrueList, 
                 [] ).
  
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- pred process_proc(pred_id::in, proc_id::in, proc_info::in,
+		proc_info::out, module_info::in, module_info::out,
+		io__state::di, io__state::uo) is det.
+
+process_proc(_PredId, _ProcId, ProcInfo0, ProcInfo, 
+		ModuleInfo0, ModuleInfo) -->
+	{ proc_info_goal(ProcInfo0, Goal0) },
+	{ process_goal(Goal0, Goal, ModuleInfo0, ModuleInfo) },
+	{ proc_info_set_goal(ProcInfo0, Goal, ProcInfo) }.
+
+%-----------------------------------------------------------------------------%
+
+:- pred process_goal(hlds_goal::in, hlds_goal::out,
+		module_info::in, module_info::out) is det.
+
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = call(PredId0, ProcId0, Args, Builtin, MaybeContext, Name0) },
+	=(ModuleInfo),
+	{ module_info_structure_reuse_info(ModuleInfo, ReuseInfo) },
+	{ ReuseInfo = structure_reuse_info(ReuseMap) },
+	{
+		goal_info_get_reuse(GoalInfo, reuse_call),
+		map__search(ReuseMap, proc(PredId0, ProcId0), Result)
+	->
+		Result = proc(PredId, ProcId) - Name
+	;
+		PredId = PredId0,
+		ProcId = ProcId0,
+		Name = Name0
+	},
+	{ Goal = call(PredId, ProcId, Args, Builtin, MaybeContext, Name) }.
+
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = unify(_, _, _, _, _) },
+	{ Goal = Goal0 }.
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = generic_call(_, _, _, _) },
+	{ Goal = Goal0 }.
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _, _) },
+	{ Goal = Goal0 }.
+process_goal(Goal0 - _GoalInfo, _) -->
+	{ Goal0 = bi_implication(_, _) },
+	{ error("structure_reuse: bi_implication.\n") }.
+
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
+	process_goal(If0, If),
+	process_goal(Then0, Then),
+	process_goal(Else0, Else),
+	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
+
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	process_goal_cases(Cases0, Cases),
+	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
+
+process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
+	process_goal(SomeGoal0, SomeGoal),
+	{ Goal = some(Vars, CanRemove, SomeGoal) }.
+
+process_goal(not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+	process_goal(Goal0, Goal).
+process_goal(conj(Goal0s) - GoalInfo, conj(Goals) - GoalInfo) -->
+	process_goal_list(Goal0s, Goals).
+process_goal(disj(Goal0s, SM) - GoalInfo, disj(Goals, SM) - GoalInfo) -->
+	process_goal_list(Goal0s, Goals).
+process_goal(par_conj(Goal0s, SM) - GoalInfo,
+		par_conj(Goals, SM) - GoalInfo) -->
+	process_goal_list(Goal0s, Goals).
+
+:- pred process_goal_cases(list(case)::in, list(case)::out,
+		module_info::in, module_info::out) is det.
+
+process_goal_cases([], []) --> [].
+process_goal_cases([Case0 | Case0s], [Case | Cases]) -->
+	{ Case0 = case(ConsId, Goal0) },
+	process_goal(Goal0, Goal),
+	{ Case = case(ConsId, Goal) },
+	process_goal_cases(Case0s, Cases).
+
+:- pred process_goal_list(hlds_goals::in, hlds_goals::out,
+		module_info::in, module_info::out) is det.
+
+process_goal_list([], []) --> [].
+process_goal_list([Goal0 | Goal0s], [Goal | Goals]) -->
+	process_goal(Goal0, Goal),
+	process_goal_list(Goal0s, Goals).
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%

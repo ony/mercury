@@ -100,6 +100,14 @@
 					% becomes exported.
 	).
 
+:- type structure_reuse_info
+	---> structure_reuse_info(
+		map(pred_proc_id, pair(pred_proc_id, sym_name))
+					% Given a procedure, determine
+					% the structure reuse version of
+					% that procedure.
+	).
+		
 	% This field should be set to `do_aditi_compilation' if there
 	% are local Aditi predicates.
 :- type do_aditi_compilation
@@ -312,6 +320,13 @@
 		type_spec_info, module_info).
 :- mode module_info_set_type_spec_info(in, in, out) is det.
 
+:- pred module_info_structure_reuse_info(module_info, structure_reuse_info).
+:- mode module_info_structure_reuse_info(in, out) is det.
+
+:- pred module_info_set_structure_reuse_info(module_info,
+		structure_reuse_info, module_info).
+:- mode module_info_set_structure_reuse_info(in, in, out) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- pred module_info_preds(module_info, pred_table).
@@ -499,9 +514,13 @@
 		do_aditi_compilation ::		do_aditi_compilation,
 					% are there any local Aditi predicates
 					% for which Aditi-RL must be produced.
-		type_spec_info ::		type_spec_info
+		type_spec_info ::		type_spec_info,
 					% data used for user-guided type
 					% specialization.
+		structure_reuse_info ::		structure_reuse_info
+					% information about which
+					% procedures use structure
+					% reuse.
 	).
 
 	% A predicate which creates an empty module
@@ -524,6 +543,9 @@ module_info_init(Name, Globals, QualifierInfo, ModuleInfo) :-
 	TypeSpecInfo = type_spec_info(TypeSpecPreds,
 		TypeSpecForcePreds, SpecMap, PragmaMap),
 
+	map__init(ReuseMap),
+	ReuseSpecInfo = structure_reuse_info(ReuseMap),
+
 	map__init(ClassTable),
 	map__init(InstanceTable),
 	map__init(SuperClassTable),
@@ -539,7 +561,8 @@ module_info_init(Name, Globals, QualifierInfo, ModuleInfo) :-
 
 	ModuleSubInfo = module_sub(Name, Globals, [], [], no, 0, 0, [], 
 		[], StratPreds, UnusedArgInfo, 0, ImportedModules,
-		IndirectlyImportedModules, no_aditi_compilation, TypeSpecInfo),
+		IndirectlyImportedModules, no_aditi_compilation, TypeSpecInfo,
+		ReuseSpecInfo),
 	ModuleInfo = module(ModuleSubInfo, PredicateTable, Requests,
 		UnifyPredMap, QualifierInfo, Types, Insts, Modes, Ctors,
 		ClassTable, SuperClassTable, InstanceTable, AssertionTable,
@@ -609,6 +632,7 @@ module_info_get_imported_module_specifiers(MI,
 module_info_get_indirectly_imported_module_specifiers(MI,
 	MI^sub_info^indirectly_imported_module_specifiers).
 module_info_type_spec_info(MI, MI^sub_info^type_spec_info).
+module_info_structure_reuse_info(MI, MI^sub_info^structure_reuse_info).
 module_info_get_do_aditi_compilation(MI,
 	MI^sub_info^do_aditi_compilation).
 
@@ -647,6 +671,8 @@ module_add_indirectly_imported_module_specifiers(Modules, MI,
 		MI^sub_info^indirectly_imported_module_specifiers, Modules)).
 module_info_set_type_spec_info(MI, NewVal,
 	MI^sub_info^type_spec_info := NewVal).
+module_info_set_structure_reuse_info(MI, NewVal,
+	MI^sub_info^structure_reuse_info := NewVal).
 module_info_set_do_aditi_compilation(MI,
 	MI^sub_info^do_aditi_compilation := do_aditi_compilation).
 

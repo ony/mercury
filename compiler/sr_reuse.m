@@ -165,7 +165,14 @@
 				tabled_reuse).
 :- mode tabled_reuse_rename( in, in, out ) is det.
 
+	% The procedure contains reuse which requires we check
+	% conditions before being able to use the reuse.  This implies
+	% that we need to create a new version of the code.
+:- pred contains_conditional_reuse(tabled_reuse::in) is semidet.
 			
+	% The procedure contains unconditional reuse.
+:- pred contains_unconditional_reuse(tabled_reuse::in) is semidet.
+
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -371,6 +378,9 @@ filter_conditions( ReusesIN, Conditions) :-
 %-------------------------------------------------------------------%
 
 :- type tabled_reuse == maybe(list(reuse_condition)).
+
+contains_conditional_reuse(yes([_ | _])).
+contains_unconditional_reuse(yes([])).
 
 to_tabled_reuse( ReusesIN, TabledReuse ):-
 		% remove all the dead deconstructs which do not have
