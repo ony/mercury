@@ -260,7 +260,11 @@ output_imports(Imports) -->
 :- mode output_import(in, di, uo) is det.
 
 output_import(Import) -->
-	{ SymName = mlds_module_name_to_sym_name(Import ^ name) },
+	{ Import = mercury_import(ImportName)
+	; Import = foreign_import(_),
+		unexpected(this_file, "foreign import in java backend")
+	},
+	{ SymName = mlds_module_name_to_sym_name(ImportName) },
 	{ prog_out__sym_name_to_string(SymName, ".", File) }, 
 	( { qualified_name_is_stdlib(SymName) } ->
 		{ enforce_java_names(File, ClassFile) }
@@ -1777,8 +1781,8 @@ output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval), _) -->
 	{ error("mlds_to_java.m: delete_object not supported in Java.") }.
 
 output_atomic_stmt(Indent, _FuncInfo, NewObject, Context) -->
-	{ NewObject = new_object(Target, _MaybeTag, Type, _MaybeSize,
-		MaybeCtorName, Args, ArgTypes) },
+	{ NewObject = new_object(Target, _MaybeTag, _HasSecTag, Type,
+		_MaybeSize, MaybeCtorName, Args, ArgTypes) },
 	
 	indent_line(Indent),
 	io__write_string("{\n"),

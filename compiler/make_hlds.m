@@ -401,25 +401,20 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 				PredIds, Name, Context), ForeignClasses) },
 		{ module_info_set_foreign_classes(Module1,
 				ForeignClasses, Module) }
-	;	
-		% XXXX
-		{ Pragma = foreign_type(MercuryType, _, ForeignType,
-				ForeignTypeLocation) },
-		{ module_info_types(Module0, Types0) },
-
-		{ type_to_type_id(MercuryType, TypeId, _) ->
-			Body = foreign_type(ForeignType, ForeignTypeLocation),
-
-			hlds_data__set_type_defn(varset__init, [], Body,
-					ImportStatus, Context, TypeDefn),
-
-			% XXX do we need to add special preds!
-			map__set(Types0, TypeId, TypeDefn, Types),
-			module_info_set_types(Module0, Types, Module)
-		;
-			error("add_item_decl_pass_2: type_to_type_id failed")
-		}
 	;
+		{ Pragma = foreign_type(Backend, _MercuryType, Name,
+				ForeignType) },
+
+		{ Backend = il(ForeignTypeLocation) },
+
+		{ varset__init(VarSet) },
+		{ Args = [] },
+		{ Body = foreign_type(ForeignType, ForeignTypeLocation) },
+		{ Cond = true },
+
+		module_add_type_defn_2(Module0, VarSet, Name, Args, Body,
+			Cond, Context, Status, Module)
+	;	
 		% Handle pragma tabled decls later on (when we process
 		% clauses).
 		{ Pragma = tabled(_, _, _, _, _) },
@@ -1854,11 +1849,25 @@ modes_add(Modes0, VarSet, Name, Args, eqv_mode(Body),
 :- mode module_add_type_defn(in, in, in, in, in,
 		in, in, in, out, di, uo) is det.
 
-module_add_type_defn(Module0, TVarSet, Name, Args, TypeDefn, _Cond, Context,
+module_add_type_defn(Module0, TVarSet, Name, Args, TypeDefn, Cond, Context,
+		item_status(Status0, NeedQual), Module) -->
+	globals__io_get_globals(Globals),
+	{ list__length(Args, Arity) },
+	{ TypeId = Name - Arity },
+	{ convert_type_defn(TypeDefn, TypeId, Globals, Body) },
+	module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, Cond,
+			Context, item_status(Status0, NeedQual), Module).
+
+:- pred module_add_type_defn_2(module_info, tvarset, sym_name, list(type_param),
+		hlds_type_body, condition, prog_context, item_status,
+		module_info, io__state, io__state).
+:- mode module_add_type_defn_2(in, in, in, in, in,
+		in, in, in, out, di, uo) is det.
+
+module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, _Cond, Context,
 		item_status(Status0, NeedQual), Module) -->
 	{ module_info_types(Module0, Types0) },
 	globals__io_get_globals(Globals),
-	{ convert_type_defn(TypeDefn, Globals, Body) },
 	{ list__length(Args, Arity) },
 	{ TypeId = Name - Arity },
 	{ Body = abstract_type ->
@@ -2081,15 +2090,15 @@ combine_status_abstract_imported(Status2, Status) :-
 		Status = abstract_imported
 	).
 
-:- pred convert_type_defn(type_defn, globals, hlds_type_body).
-:- mode convert_type_defn(in, in, out) is det.
+:- pred convert_type_defn(type_defn, type_id, globals, hlds_type_body).
+:- mode convert_type_defn(in, in, in, out) is det.
 
-convert_type_defn(du_type(Body, EqualityPred), Globals,
+convert_type_defn(du_type(Body, EqualityPred), TypeId, Globals,
 		du_type(Body, CtorTags, IsEnum, EqualityPred)) :-
-	assign_constructor_tags(Body, Globals, CtorTags, IsEnum).
-convert_type_defn(uu_type(Body), _, uu_type(Body)).
-convert_type_defn(eqv_type(Body), _, eqv_type(Body)).
-convert_type_defn(abstract_type, _, abstract_type).
+	assign_constructor_tags(Body, TypeId, Globals, CtorTags, IsEnum).
+convert_type_defn(uu_type(Body), _, _, uu_type(Body)).
+convert_type_defn(eqv_type(Body), _, _, eqv_type(Body)).
+convert_type_defn(abstract_type, _, _, abstract_type).
 
 :- pred ctors_add(list(constructor), type_id, tvarset, need_qualifier,
 		partial_qualifier_info, prog_context, import_status,
@@ -3733,7 +3742,10 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 		{ code_util__predinfo_is_builtin(PredInfo1) }
 	->
 		prog_out__write_context(Context),
-		report_warning("Warning: clause for builtin.\n"),
+		% XXX Disabled while a change to add domain checking to
+		% `int__rem/2' is bootstrapped.
+		% report_warning("Warning: clause for builtin.\n"),
+		io__write_string("Warning: clause for builtin.\n"),
 		{ ModuleInfo = ModuleInfo1 },
 		{ Info = Info0 }
 	;

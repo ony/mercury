@@ -96,7 +96,7 @@
 % HLDS modules
 :- import_module hlds_out, hlds_data, mode_util, inst_match.
 % LLDS back-end modules
-:- import_module arg_info, llds, llds_out, code_util, export.
+:- import_module arg_info, llds, llds_out, code_util, export, foreign.
 % Modules shared between different back-ends.
 :- import_module passes_aux, code_model.
 % Misc
@@ -3251,7 +3251,7 @@ generate_argument_vars_code_2(PragmaVars0, ArgInfos0, Types0, Module, DeclCode,
 		string::out) is det.
 
 generate_arg_decl_code(Name, Type, Module, DeclCode) :-
-	export__type_to_type_string(Module, Type, C_Type),
+	C_Type = to_type_string(c, Module, Type),
 	string__format("\t\t%s %s;\n", [s(C_Type), s(Name)], DeclCode).
 
 :- pred generate_arg_input_code(string::in, (type)::in, int::in, int::in,

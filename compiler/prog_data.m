@@ -162,10 +162,6 @@
 			% Instance name, instance argument type,
 			% list of constructors, foreign name
 
-	;	foreign_type((type), sym_name, sym_name, string)
-			% MercuryType, MercuryTypeName, ForeignType,
-			% ForeignTypeLocation
-	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
 			maybe(list(mode)), type_subst, tvarset, set(type_id))
 			% PredName, SpecializedPredName, Arity,
@@ -173,6 +169,10 @@
 			% specified, type substitution (using the variable
 			% names from the pred declaration), TVarSet,
 			% Equivalence types used
+
+	;	foreign_type(backend, (type), sym_name, sym_name)
+			% Backend, MercuryType, MercuryTypeName,
+			% ForeignType, ForeignTypeLocation
 
 	;	inline(sym_name, arity)
 			% Predname, Arity
@@ -284,6 +284,14 @@
 	
 	;	attribute(sym_name, arity, type).
 			% Predname, Arity, TypeName
+
+%
+% Stuff for the foreign interfacing pragmas.
+%
+
+:- type backend
+			% The location of the il name.
+	--->	il(string).
 
 %
 % Stuff for tabling pragmas

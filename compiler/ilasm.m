@@ -699,8 +699,57 @@ output_simple_type(object, I, I) --> io__write_string("object").
 output_simple_type(string, I, I) --> io__write_string("string").
 output_simple_type(refany, I, I) --> io__write_string("refany").
 output_simple_type(class(Name), Info0, Info) --> 
-	io__write_string("class "),
-	output_structured_name(Name, Info0, Info).
+	{ Name = structured_name(AssemblyName, QualifiedName, _) },
+		% Parition II section 'Built-in Types' (7.2 in Beta2) states
+		% that all builtin types *must* be rereferenced by their
+		% special encoding.  See Parition I 'Built-In Types' 
+		% (8.2.2 in Beta2) for the list of all builtin types.
+	( 
+		{ AssemblyName = assembly("mscorlib") },
+		{ QualifiedName = ["System", TypeName] }
+	->
+		( { TypeName = "Boolean" } ->
+			output_simple_type(bool, Info0, Info)
+		; { TypeName = "Char" } ->
+			output_simple_type(char, Info0, Info)
+		; { TypeName = "Object" } ->
+			output_simple_type(object, Info0, Info)
+		; { TypeName = "String" } ->
+			output_simple_type(string, Info0, Info)
+		; { TypeName = "Single" } ->
+			output_simple_type(float32, Info0, Info)
+		; { TypeName = "Double" } ->
+			output_simple_type(float64, Info0, Info)
+		; { TypeName = "SByte" } ->
+			output_simple_type(int8, Info0, Info)
+		; { TypeName = "Int16" } ->
+			output_simple_type(int16, Info0, Info)
+		; { TypeName = "Int32" } ->
+			output_simple_type(int32, Info0, Info)
+		; { TypeName = "Int64" } ->
+			output_simple_type(int64, Info0, Info)
+		; { TypeName = "IntPtr" } ->
+			output_simple_type(native_int, Info0, Info)
+		; { TypeName = "UIntPtr" } ->
+			output_simple_type(native_uint, Info0, Info)
+		; { TypeName = "TypedReference" } ->
+			output_simple_type(refany, Info0, Info)
+		; { TypeName = "Byte" } ->
+			output_simple_type(uint8, Info0, Info)
+		; { TypeName = "UInt16" } ->
+			output_simple_type(uint16, Info0, Info)
+		; { TypeName = "UInt32" } ->
+			output_simple_type(uint32, Info0, Info)
+		; { TypeName = "UInt64" } ->
+			output_simple_type(uint64, Info0, Info)
+		;
+			io__write_string("class "),
+			output_structured_name(Name, Info0, Info)
+		)
+	;
+		io__write_string("class "),
+		output_structured_name(Name, Info0, Info)
+	).
 output_simple_type(value_class(Name), Info0, Info) --> 
 	io__write_string("valuetype "),
 	output_structured_name(Name, Info0, Info).

@@ -247,7 +247,7 @@ collect_mq_info_2(module_defn(_, ModuleDefn), Info0, Info) :-
 collect_mq_info_2(pred_or_func(_,_,__,_,_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pred_or_func_mode(_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pragma(Pragma), Info0, Info) :-
-	( Pragma = foreign_type(Type, SymName, _ForeignType, _ForeignLoc) ->
+	( Pragma = foreign_type(_, Type, SymName, _ForeignType) ->
 		( type_to_type_id(Type, _ - Arity0, _) ->
 			Arity = Arity0
 		;
@@ -896,8 +896,8 @@ qualify_pragma(foreign_code(L, C), foreign_code(L, C), Info, Info) --> [].
 qualify_pragma(foreign_class(A, Type0, C, D),
 		foreign_class(A, Type, C, D), Info0, Info) -->
 	qualify_type(Type0, Type, Info0, Info).
-qualify_pragma(foreign_type(Type0, SymName, F, L),
-		foreign_type(Type, SymName, F, L), Info0, Info) -->
+qualify_pragma(foreign_type(Backend, Type0, SymName, F),
+		foreign_type(Backend, Type, SymName, F), Info0, Info) -->
 	qualify_type(Type0, Type, Info0, Info).
 qualify_pragma(
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars0, Varset, Code),

@@ -143,6 +143,7 @@
 :- import_module ilasm, il_peephole.
 :- import_module ml_util, ml_code_util, error_util.
 :- import_module ml_type_gen.
+:- import_module foreign.
 :- use_module llds. /* for user_foreign_code */
 
 :- import_module bool, int, map, string, set, list, assoc_list, term.
@@ -254,7 +255,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 			% reference
 		list__map((pred(F::in, I::out) is det :-
 				mangle_foreign_code_module(ModuleName, F, N),
-				I = import(N, yes)
+				I = mercury_import(N)
 			),
 			set__to_sorted_list(ForeignLangs),
 			ForeignCodeAssemblerRefs),
@@ -409,8 +410,8 @@ rename_cond(match_range(RvalA, RvalB))
 rename_atomic(comment(S)) = comment(S).
 rename_atomic(assign(L, R)) = assign(rename_lval(L), rename_rval(R)).
 rename_atomic(delete_object(O)) = delete_object(rename_lval(O)).
-rename_atomic(new_object(L, Tag, Type, MaybeSize, Ctxt, Args, Types))
-	= new_object(rename_lval(L), Tag, Type, MaybeSize,
+rename_atomic(new_object(L, Tag, HasSecTag, Type, MaybeSize, Ctxt, Args, Types))
+	= new_object(rename_lval(L), Tag, HasSecTag, Type, MaybeSize,
 			Ctxt, list__map(rename_rval, Args), Types).
 rename_atomic(mark_hp(L)) = mark_hp(rename_lval(L)).
 rename_atomic(restore_hp(R)) = restore_hp(rename_rval(R)).
@@ -1026,7 +1027,7 @@ generate_method(ClassName, IsCons,
 		{ UnivMercuryType = term__functor(term__atom("univ"), [], 
 			context("", 0)) },
 		{ UnivMLDSType = mercury_type(UnivMercuryType,
-				user_type, "XXX") },
+				user_type, non_foreign_type(UnivMercuryType)) },
 		{ UnivType = mlds_type_to_ilds_type(DataRep, UnivMLDSType) },
 
 		{ RenameNode = (func(N) = list__map(RenameRets, N)) },
@@ -1984,8 +1985,8 @@ atomic_statement_to_il(delete_object(Target), Instrs) -->
 	get_load_store_lval_instrs(Target, LoadInstrs, StoreInstrs),
 	{ Instrs = tree__list([LoadInstrs, instr_node(ldnull), StoreInstrs]) }.
 
-atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
-		Args0, ArgTypes), Instrs) -->
+atomic_statement_to_il(new_object(Target, _MaybeTag, HasSecTag, Type, Size,
+		MaybeCtorName, Args0, ArgTypes0), Instrs) -->
 	DataRep =^ il_data_rep,
 	( 
 		{ 
@@ -2019,25 +2020,24 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 		;
 		 	{ ClassName = ClassName0 }
 		),
-		{ Type = mlds__generic_env_ptr_type ->
-			ILArgTypes = [],
+			% Skip the secondary tag, if any
+		{ HasSecTag = yes ->
+			(
+				ArgTypes0 = [_SecondaryTag | ArgTypes1],
+				Args0 = [_SecondaryTagVal | Args1]
+			->
+				Args = Args1,
+				ArgTypes = ArgTypes1
+			;
+				unexpected(this_file,
+					"newobj without secondary tag")
+			)
+		;
+			ArgTypes = ArgTypes0,
 			Args = Args0
-		;
-			% It must be a user-defined type.
-			% Skip the secondary tag.
-			% We assume there is always a secondary tag,
-			% since ml_type_gen always generates one
-			% if we have --tags none, which the IL back-end
-			% requires.
-			ArgTypes = [_SecondaryTag | ArgTypes1],
-			Args0 = [_SecondaryTagVal | Args1]
-		->
-			Args = Args1,
-			ILArgTypes = list__map(mlds_type_to_ilds_type(DataRep),
-				ArgTypes1)
-		;
-			sorry(this_file, "newobj without secondary tag")
 		},
+		{ ILArgTypes = list__map(mlds_type_to_ilds_type(DataRep),
+					ArgTypes) },
 		list__map_foldl(load, Args, ArgsLoadInstrsTrees),
 		{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
 		get_load_store_lval_instrs(Target, LoadMemRefInstrs,
@@ -2078,7 +2078,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 		{ Box = (pred(A - T::in, B::out) is det :- 
 			B = unop(box(T), A)   
 		) },
-		{ assoc_list__from_corresponding_lists(Args0, ArgTypes,
+		{ assoc_list__from_corresponding_lists(Args0, ArgTypes0,
 			ArgsAndTypes) },
 		{ list__map(Box, ArgsAndTypes, BoxedArgs) },
 	
@@ -2844,10 +2844,10 @@ make_class_constructor_class_member(DoneFieldRef, Imports, AllocInstrs,
 	test_rtti_initialization_field(DoneFieldRef, TestInstrs),
 	set_rtti_initialization_field(DoneFieldRef, SetInstrs),
 	{ CCtorCalls = list__filter_map(
-		(func(X::in) = (C::out) is semidet :-
-			X ^ mercury = yes,
+		(func(I::in) = (C::out) is semidet :-
+			I = mercury_import(ImportName),
 			C = call_class_constructor(
-				class_name(X ^ name, wrapper_class_name))
+				class_name(ImportName, wrapper_class_name))
 		), Imports) },
 	{ AllInstrs = list__condense([TestInstrs, AllocInstrs, SetInstrs,
 		CCtorCalls, InitInstrs, [ret]]) },
@@ -3014,46 +3014,9 @@ mlds_type_to_ilds_type(_, mlds__native_float_type) = ilds__type([], float64).
 
 mlds_type_to_ilds_type(_, mlds__foreign_type(ForeignType, Assembly))
 	= ilds__type([], Class) :-
-	( ForeignType = qualified(unqualified("System"), "Boolean") ->
-		Class = bool
-	; ForeignType = qualified(unqualified("System"), "Char") ->
-		Class = char
-	; ForeignType = qualified(unqualified("System"), "Object") ->
-		Class = object
-	; ForeignType = qualified(unqualified("System"), "String") ->
-		Class = string
-	; ForeignType = qualified(unqualified("System"), "Single") ->
-		Class = float32
-	; ForeignType = qualified(unqualified("System"), "Double") ->
-		Class = float64
-	; ForeignType = qualified(unqualified("System"), "SByte") ->
-		Class = int8
-	; ForeignType = qualified(unqualified("System"), "Int16") ->
-		Class = int16
-	; ForeignType = qualified(unqualified("System"), "Int32") ->
-		Class = int32
-	; ForeignType = qualified(unqualified("System"), "Int64") ->
-		Class = int64
-	; ForeignType = qualified(unqualified("System"), "IntPtr") ->
-		Class = native_int
-	; ForeignType = qualified(unqualified("System"), "UIntPtr") ->
-		Class = native_uint
-	; ForeignType = qualified(unqualified("System"), "TypedReference") ->
-		Class = refany
-	; ForeignType = qualified(unqualified("System"), "Byte") ->
-		Class = uint8
-	; ForeignType = qualified(unqualified("System"), "UInt16") ->
-		Class = uint16
-	; ForeignType = qualified(unqualified("System"), "UInt32") ->
-		Class = uint32
-	; ForeignType = qualified(unqualified("System"), "UInt64") ->
-		Class = uint64
-	;
-		sym_name_to_class_name(ForeignType, ForeignClassName),
-		Class = class(structured_name(assembly(Assembly),
-				ForeignClassName, []))
-	).
-
+	sym_name_to_class_name(ForeignType, ForeignClassName),
+	Class = class(structured_name(assembly(Assembly),
+			ForeignClassName, [])).
 
 mlds_type_to_ilds_type(ILDataRep, mlds__ptr_type(MLDSType)) =
 	ilds__type([], '&'(mlds_type_to_ilds_type(ILDataRep, MLDSType))).
@@ -3585,21 +3548,19 @@ rval_const_to_type(data_addr_const(_)) =
 rval_const_to_type(code_addr_const(_)) = mlds__func_type(
 		mlds__func_params([], [])).
 rval_const_to_type(int_const(_)) 
-	= mercury_type(term__functor(term__atom("int"), [], context("", 0)),
-			int_type, "MR_Integer").
-rval_const_to_type(float_const(_))
-	= mercury_type(term__functor(term__atom("float"), [], context("", 0)),
-		float_type, "MR_Float").
+	= mercury_type(IntType, int_type, non_foreign_type(IntType)) :-
+	IntType = term__functor(term__atom("int"), [], context("", 0)).
+rval_const_to_type(float_const(_)) 
+	= mercury_type(FloatType, float_type, non_foreign_type(FloatType)) :-
+	FloatType = term__functor(term__atom("float"), [], context("", 0)).
 rval_const_to_type(false) = mlds__native_bool_type.
 rval_const_to_type(true) = mlds__native_bool_type.
-rval_const_to_type(string_const(_))
-	= mercury_type(
-		term__functor(term__atom("string"), [], context("", 0)),
-			str_type, "MR_String").
-rval_const_to_type(multi_string_const(_, _))
-	= mercury_type(term__functor(term__atom("string"), [], context("", 0)),
-			% XXX Should this be MR_Word instead?
-			str_type, "MR_String").
+rval_const_to_type(string_const(_)) 
+	= mercury_type(StrType, str_type, non_foreign_type(StrType)) :-
+	StrType = term__functor(term__atom("string"), [], context("", 0)).
+rval_const_to_type(multi_string_const(_, _)) 
+	= mercury_type(StrType, str_type, non_foreign_type(StrType)) :-
+	StrType = term__functor(term__atom("string"), [], context("", 0)).
 rval_const_to_type(null(MldsType)) = MldsType.
 
 %-----------------------------------------------------------------------------%
@@ -3801,10 +3762,12 @@ simple_type_to_value_class(bool) =
 	ilds__type([], value_class(il_system_name(["Boolean"]))).
 simple_type_to_value_class(char) = 
 	ilds__type([], value_class(il_system_name(["Char"]))).
-simple_type_to_value_class(object) = 
-	ilds__type([], value_class(il_system_name(["Object"]))).
-simple_type_to_value_class(string) = 
-	ilds__type([], value_class(il_system_name(["String"]))).
+simple_type_to_value_class(object) = _ :-
+	% ilds__type([], value_class(il_system_name(["Object"]))).
+	error("no value class for System.Object").
+simple_type_to_value_class(string) = _ :-
+	% ilds__type([], value_class(il_system_name(["String"]))).
+	error("no value class for System.String").
 simple_type_to_value_class(refany) = _ :-
 	error("no value class for refany").
 simple_type_to_value_class(class(_)) = _ :-
@@ -4023,7 +3986,11 @@ il_system_namespace_name = "System".
 mlds_to_il__generate_extern_assembly(CurrentAssembly, SignAssembly,
 		SeparateAssemblies, Imports, AllDecls) :-
 	Gen = (pred(Import::in, Decl::out) is semidet :-
-		AsmName = mlds_module_name_to_assembly_name(Import ^ name),
+		( Import = mercury_import(ImportName)
+		; Import = foreign_import(ForeignImportName),
+			ForeignImportName = il_assembly_name(ImportName)
+		),
+		AsmName = mlds_module_name_to_assembly_name(ImportName),
 		( AsmName = assembly(Assembly),
 			Assembly \= "mercury",
 			Decl = [extern_assembly(Assembly,
@@ -4064,7 +4031,7 @@ mlds_to_il__generate_extern_assembly(CurrentAssembly, SignAssembly,
 
 assembly_decls(Assembly, Import, SignAssembly) =
 	(
-		Import ^ mercury = no,
+		Import = foreign_import(il_assembly_name(_)),
 		string__append("System", _, Assembly)
 	->
 		system_assembly_decls

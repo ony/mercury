@@ -99,7 +99,7 @@
 :- import_module ml_tag_switch, ml_string_switch.
 :- import_module ml_code_gen, ml_unify_gen, ml_code_util, ml_simplify_switch.
 :- import_module switch_util, type_util.
-:- import_module export, options.
+:- import_module foreign, options.
 
 :- import_module bool, int, string, map, tree, std_util, require.
 
@@ -127,6 +127,22 @@ ml_gen_switch(CaseVar, CanFail, Cases, CodeModel, Context,
 	ml_gen_info_get_globals(Globals),
 	{ globals__lookup_bool_option(Globals, smart_indexing, Indexing) },
 	(
+		% Check for a switch on a type whose representation
+		% uses reserved addresses 
+		{ list__member(Case, TaggedCases) },	
+		{ Case = case(_Priority, Tag, _ConsId, _Goal) },
+		{
+			Tag = reserved_address(_)
+		;
+			Tag = shared_with_reserved_addresses(_, _)
+		}
+	->
+		% XXX This may be be inefficient in some cases.
+		ml_switch_generate_if_else_chain(TaggedCases, CaseVar,
+			CodeModel, CanFail, Context,
+			MLDS_Decls, MLDS_Statements)
+	;
+		
 /**************
 XXX Lookup switches are NYI
 When we do get around to implementing them,
@@ -396,8 +412,8 @@ ml_switch_gen_range(MLDS_Type, Range) -->
 	=(MLGenInfo),
 	{
 		ml_gen_info_get_module_info(MLGenInfo, ModuleInfo),
-		export__type_to_type_string(ModuleInfo, Type, TypeString),
-		MLDS_Type = mercury_type(Type, TypeCategory, TypeString),
+		ExportedType = to_exported_type(ModuleInfo, Type),
+		MLDS_Type = mercury_type(Type, TypeCategory, ExportedType),
 		switch_util__type_range(TypeCategory, Type, ModuleInfo,
 			MinRange, MaxRange)
 	->

@@ -280,17 +280,24 @@
 % Routines for dealing with static constants
 %
 
+	% ml_format_reserved_object_name(CtorName, CtorArity, ReservedObjName):
+	% Generate a name for a specially reserved global variable
+	% (or static member variable)
+	% whose address is used to represent the specified constructor.
+:- func ml_format_reserved_object_name(string, arity) = mlds__var_name.
+
 	% Generate a name for a local static constant.
 	%
 :- pred ml_format_static_const_name(string, const_seq, mlds__var_name,
 		ml_gen_info, ml_gen_info).
 :- mode ml_format_static_const_name(in, in, out, in, out) is det.
 
-	% Generate a definition of a local static constant,
-	% given the constant's name, type, and initializer.
+	% Generate a definition of a static constant,
+	% given the constant's name, type, accessibility,
+	% and initializer.
 	%
-:- func ml_gen_static_const_defn(mlds__var_name, mlds__type, mlds__initializer,
-		prog_context) = mlds__defn.
+:- func ml_gen_static_const_defn(mlds__var_name, mlds__type, mlds__access,
+		mlds__initializer, prog_context) = mlds__defn.
 
 	% Return the declaration flags appropriate for an
 	% initialized local static constant.
@@ -298,7 +305,7 @@
 :- func ml_static_const_decl_flags = mlds__decl_flags.
 
 	% Succeed iff the specified mlds__defn defines
-	% a static constant.
+	% a local static constant.
 	%
 :- pred ml_decl_is_static_const(mlds__defn::in) is semidet.
 
@@ -699,6 +706,7 @@
 :- implementation.
 
 :- import_module ml_call_gen.
+:- import_module foreign.
 :- import_module prog_util, type_util, mode_util, special_pred, error_util.
 :- import_module code_util. % XXX for `code_util__compiler_generated'.
 :- import_module globals, options.
@@ -956,7 +964,8 @@ ml_gen_array_elem_type(elem_type_string) = ml_string_type.
 ml_gen_array_elem_type(elem_type_int) = mlds__native_int_type.
 ml_gen_array_elem_type(elem_type_generic) = mlds__generic_type.
 
-ml_string_type = mercury_type(string_type, str_type, "MR_String").
+ml_string_type = mercury_type(string_type, str_type,
+				non_foreign_type(string_type)).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1402,6 +1411,17 @@ ml_gen_var_name(VarSet, Var) = UniqueVarName :-
 	term__var_to_int(Var, VarNumber),
 	UniqueVarName = mlds__var_name(VarName, yes(VarNumber)).
 
+	% ml_format_reserved_object_name(CtorName, CtorArity, ReservedObjName):
+	% Generate a name for a specially reserved global variable
+	% (or static member variable)
+	% whose address is used to represent the specified constructor.
+	%
+	% We add the "obj_" prefix to avoid any potential name clashes.
+	%
+ml_format_reserved_object_name(CtorName, CtorArity) = ReservedObjName :-
+	Name = string__format("obj_%s_%d", [s(CtorName), i(CtorArity)]),
+	ReservedObjName = var_name(Name, no).
+
 	% Generate a name for a local static constant.
 	%
 	% To ensure that the names are unique, we qualify them with the
@@ -1451,11 +1471,11 @@ ml_gen_mlds_var_decl(DataName, MLDS_Type, Initializer, Context) = MLDS_Defn :-
 	% Generate a definition of a local static constant,
 	% given the constant's name, type, and initializer.
 	%
-ml_gen_static_const_defn(ConstName, ConstType, Initializer, Context) =
+ml_gen_static_const_defn(ConstName, ConstType, Access, Initializer, Context) =
 		MLDS_Defn :-
 	Name = data(var(ConstName)),
 	Defn = data(ConstType, Initializer),
-	DeclFlags = ml_static_const_decl_flags,
+	DeclFlags = mlds__set_access(ml_static_const_decl_flags, Access),
 	MLDS_Context = mlds__make_context(Context),
 	MLDS_Defn = mlds__defn(Name, MLDS_Context, DeclFlags, Defn).
 

@@ -60,6 +60,7 @@
 :- import_module ml_code_util.	% for ml_gen_public_field_decl_flags, which is
 				% used by the code that handles derived classes
 :- import_module ml_type_gen.	% for ml_gen_type_name
+:- import_module foreign.
 :- import_module globals, options, passes_aux.
 :- import_module builtin_ops, c_util, modules.
 :- import_module prog_data, prog_out, type_util, error_util, code_model.
@@ -171,15 +172,18 @@ mlds_output_src_imports(Indent, Imports) -->
 		% been declared.
 		[]
 	;
-		list__foldl(mlds_output_src_import(Indent), 
-				list__map((func(I) = I ^ name), Imports))
+		list__foldl(mlds_output_src_import(Indent), Imports)
 	).
 
-:- pred mlds_output_src_import(indent::in, mlds__package_name::in,
+:- pred mlds_output_src_import(indent::in, mlds__import::in,
 		io__state::di, io__state::uo) is det.
 
 mlds_output_src_import(_Indent, Import) -->
-	{ SymName = mlds_module_name_to_sym_name(Import) },
+	{ Import = mercury_import(ImportName)
+	; Import = foreign_import(_),
+		unexpected(this_file, "foreign import in C backend")
+	},
+	{ SymName = mlds_module_name_to_sym_name(ImportName) },
 	module_name_to_file_name(SymName, ".h", no, HeaderFile),
 	io__write_strings(["#include """, HeaderFile, """\n"]).
 
@@ -297,7 +301,7 @@ mlds_output_src_start(Indent, ModuleName) -->
 	io__write_string("/* :- implementation. */\n"),
 	mlds_output_src_bootstrap_defines, io__nl,
 	mlds_output_src_import(Indent,
-		mercury_module_name_to_mlds(ModuleName)),
+		mercury_import(mercury_module_name_to_mlds(ModuleName))),
 	io__nl.
 
 	%
@@ -622,8 +626,8 @@ mlds_output_pragma_export_type(suffix, _Type) --> [].
 		% Array types are exported as MR_Word
 mlds_output_pragma_export_type(prefix, mercury_array_type(_ElemType)) -->
 	io__write_string("MR_Word").
-mlds_output_pragma_export_type(prefix, mercury_type(_, _, TypeString)) -->
-	io__write_string(TypeString).
+mlds_output_pragma_export_type(prefix, mercury_type(_, _, ExportedType)) -->
+	io__write_string(to_type_string(c, ExportedType)).
 mlds_output_pragma_export_type(prefix, mlds__cont_type(_)) -->
 	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mlds__commit_type) -->
@@ -1869,6 +1873,14 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 	->
 		io__write_string("extern ")
 	;
+		% forward declarations for GNU C nested functions need
+		% to be prefixed with "auto"
+		{ DeclOrDefn = forward_decl },
+		{ Name = function(_, _, _, _) },
+		{ Access = local }
+	->
+		io__write_string("auto ")
+	;
 		[]
 	).
 
@@ -1932,6 +1944,19 @@ mlds_output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
 	( { Defns \= [] } ->
 		{ FuncInfo = func_info(FuncName, _) },
 		{ FuncName = qual(ModuleName, _) },
+
+		% output forward declarations for any nested functions
+		% defined in this block, in case they are referenced before
+		% they are defined
+		{ list__filter(defn_is_function, Defns, NestedFuncDefns) },
+		( { NestedFuncDefns \= [] } ->
+			mlds_output_decls(Indent + 1, ModuleName,
+				NestedFuncDefns),
+			io__write_string("\n")
+		;
+			[]
+		),
+
 		mlds_output_defns(Indent + 1, ModuleName, Defns),
 		io__write_string("\n")
 	;
@@ -2447,7 +2472,7 @@ mlds_output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval), _) -->
 	{ error("mlds_to_c.m: sorry, delete_object not implemented") }.
 
 mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
-	{ NewObject = new_object(Target, MaybeTag, Type, MaybeSize,
+	{ NewObject = new_object(Target, MaybeTag, _HasSecTag, Type, MaybeSize,
 		MaybeCtorName, Args, ArgTypes) },
 	mlds_indent(Indent),
 	io__write_string("{\n"),

@@ -132,45 +132,42 @@ parse_pragma_type(ModuleName, "foreign_class", PragmaTerms,
 
 parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
             ErrorTerm, _VarSet, Result) :-
-    ( PragmaTerms = [MercuryName, ForeignName, ForeignLocation] ->
-	parse_implicitly_qualified_term(ModuleName, MercuryName,
-		ErrorTerm, "`:- pragma foreign_type' declaration",
-		MaybeMercuryType),
-	(
-	    MaybeMercuryType = ok(MercuryTypeSymName, MercuryArgs),
-	    ( MercuryArgs = [] ->
-		parse_qualified_term(ForeignName, ErrorTerm,
-		    "`:- pragma foreign_type' declaration",
-		    MaybeForeignType),
-		(
-		    MaybeForeignType = ok(ForeignType, ForeignArgs),
-		    ( ForeignArgs = [] ->
-			( 
-			    ForeignLocation = term__functor(
-				    term__string(ForeignLocationString), [], _)
-			->
+    ( PragmaTerms = [MercuryName, ForeignName, Target] ->
+    	(
+	    parse_backend(Target, Backend)
+	->
+	    parse_implicitly_qualified_term(ModuleName, MercuryName,
+		    ErrorTerm, "`:- pragma foreign_type' declaration",
+		    MaybeMercuryType),
+	    (
+		MaybeMercuryType = ok(MercuryTypeSymName, MercuryArgs),
+		( MercuryArgs = [] ->
+		    parse_qualified_term(ForeignName, ErrorTerm,
+			"`:- pragma foreign_type' declaration",
+			MaybeForeignType),
+		    (
+			MaybeForeignType = ok(ForeignType, ForeignArgs),
+			( ForeignArgs = [] ->
 			    term__coerce(MercuryName, MercuryType),
-			    Result = ok(pragma(foreign_type(MercuryType,
-				    MercuryTypeSymName, ForeignType,
-				    ForeignLocationString)))
+			    Result = ok(pragma(foreign_type(Backend,
+				    MercuryType, MercuryTypeSymName,
+				    ForeignType)))
 			;
-			    Result = error(
-				    "foreign type location not a string",
-				    ForeignLocation)
+			    Result = error("foreign type arity not 0", ErrorTerm)
 			)
 		    ;
-			Result = error("foreign type arity not 0", ErrorTerm)
+			MaybeForeignType = error(String, Term),
+			Result = error(String, Term)
 		    )
 		;
-		    MaybeForeignType = error(String, Term),
-		    Result = error(String, Term)
+		    Result = error("mercury type arity not 0", ErrorTerm)
 		)
 	    ;
-		Result = error("mercury type arity not 0", ErrorTerm)
+		MaybeMercuryType = error(String, Term),
+		Result = error(String, Term)
 	    )
 	;
-	    MaybeMercuryType = error(String, Term),
-	    Result = error(String, Term)
+	    Result = error("invalid backend parameter", Target)
 	)
     ;
         Result = error(
@@ -237,6 +234,14 @@ parse_pragma_type(ModuleName, "c_code", PragmaTerms,
 
 parse_foreign_language(term__functor(term__string(String), _, _), Lang) :-
 	globals__convert_foreign_language(String, Lang).
+
+:- pred parse_backend(term, backend).
+:- mode parse_backend(in, out) is semidet.
+
+parse_backend(term__functor(Functor, Args, _), Backend) :-
+	Functor = term__atom("il"),
+	Args = [term__functor(term__string(Module), [], _)],
+	Backend = il(Module).
 
 	% This predicate parses both c_header_code and foreign_decl pragmas.
 :- pred parse_pragma_foreign_decl_pragma(module_name, string,

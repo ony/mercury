@@ -154,23 +154,22 @@
 	;	volatile.
 
 :- type simple_type
-	---> 	bool
-	;	char
-	;	object
-	;	string
-	;	float32
+	--->	float32
 	;	float64
 	;	int8
 	;	int16
 	;	int32
 	;	int64	
-	;	native_int	
-	;	native_uint		% Also used for unmanaged pointers.
 	;	uint8
 	;	uint16
 	;	uint32
 	;	uint64
-
+	;	native_int	
+	;	native_uint		% Also used for unmanaged pointers.
+	;	bool
+	;	char			% A unicode character.
+	;	object
+	;	string
 	;	refany			% a reference to value with an attached
 					% type
 

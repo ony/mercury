@@ -42,7 +42,7 @@
 :- implementation.
 
 :- import_module hlds_module, hlds_pred, llds_out, trace, tree.
-:- import_module code_util, export.
+:- import_module code_util, foreign.
 :- import_module options, globals.
 
 :- import_module bool, string, int, assoc_list, set, map, require, term.
@@ -1136,7 +1136,7 @@ make_pragma_decls([Arg | Args], Module, Decls) :-
 	(
 		var_is_not_singleton(ArgName, Name)
 	->
-		export__type_to_type_string(Module, OrigType, OrigTypeString),
+		OrigTypeString = to_type_string(c, Module, OrigType),
 		Decl = pragma_c_arg_decl(OrigType, OrigTypeString, Name),
 		make_pragma_decls(Args, Module, Decls1),
 		Decls = [Decl | Decls1]

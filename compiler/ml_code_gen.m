@@ -839,15 +839,21 @@ ml_gen_foreign_code(ModuleInfo, All_MLDS_ForeignCode) -->
 :- mode ml_gen_imports(in, out) is det.
 
 ml_gen_imports(ModuleInfo, MLDS_ImportList) :-
+		% Determine all the mercury imports.
 	module_info_get_all_deps(ModuleInfo, AllImports),
+	P = (func(Name) = mercury_import(mercury_module_name_to_mlds(Name))),
+
+		% For every foreign type determine the import needed to
+		% find the declaration for that type.
 	module_info_types(ModuleInfo, Types),
 	list__filter_map((pred(TypeDefn::in, Import::out) is semidet :-
 			hlds_data__get_type_defn_body(TypeDefn, Body),
 			Body = foreign_type(_, Location),
-			Import = import(mercury_module_name_to_mlds(
-					unqualified(Location)), no)
+			Name = il_assembly_name(mercury_module_name_to_mlds(
+					unqualified(Location))),
+			Import = foreign_import(Name)
 		), map__values(Types), ForeignTypeImports),
-	P = (func(Name) = import(mercury_module_name_to_mlds(Name), yes)),
+
 	MLDS_ImportList = ForeignTypeImports ++ 
 			list__map(P, set__to_sorted_list(AllImports)).
 
@@ -2775,15 +2781,15 @@ ml_gen_pragma_c_decls(Lang, [Arg|Args], [Decl|Decls]) -->
 		ml_c_arg::in, target_code_component::out,
 		ml_gen_info::in, ml_gen_info::out) is det.
 
-ml_gen_pragma_c_decl(Lang, ml_c_arg(_Var, MaybeNameAndMode, Type), Decl) -->
+ml_gen_pragma_c_decl(Lang, ml_c_arg(_Var, MaybeNameAndMode, Type),
+		Decl) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
 	{
 		MaybeNameAndMode = yes(ArgName - _Mode),
 		\+ var_is_singleton(ArgName)
 	->
-		TypeString = foreign_type_to_type_string(Lang,
-			ModuleInfo, Type),
+		TypeString = to_type_string(Lang, ModuleInfo, Type),
 		string__format("\t%s %s;\n", [s(TypeString), s(ArgName)],
 			DeclString)
 	;
@@ -2792,19 +2798,6 @@ ml_gen_pragma_c_decl(Lang, ml_c_arg(_Var, MaybeNameAndMode, Type), Decl) -->
 		DeclString = ""
 	},
 	{ Decl = raw_target_code(DeclString, []) }.
-
-:- func foreign_type_to_type_string(foreign_language, module_info,
-		prog_data__type) = string.
-
-foreign_type_to_type_string(Lang, ModuleInfo, Type) = TypeString :-
-	( 
-		type_util__var(Type, _),
-		Lang = managed_cplusplus
-	->
-		TypeString = "MR_Box"
-	;
-		export__type_to_type_string(ModuleInfo, Type, TypeString)
-	).
 
 %-----------------------------------------------------------------------------%
 
@@ -2873,8 +2866,7 @@ ml_gen_pragma_c_input_arg(Lang, ml_c_arg(Var, MaybeNameAndMode, OrigType),
 			% --high-level-data, so we always use a cast here.
 			% (Strictly speaking the cast is not needed for
 			% a few cases like `int', but it doesn't do any harm.)
-			TypeString = foreign_type_to_type_string(Lang,
-				ModuleInfo, OrigType),
+			TypeString = to_type_string(Lang, ModuleInfo, OrigType),
 			string__format("(%s)", [s(TypeString)], Cast)
 		;
 			% For --no-high-level-data, we only need to use
@@ -2960,8 +2952,7 @@ ml_gen_pragma_c_output_arg(Lang, ml_c_arg(Var, MaybeNameAndMode, OrigType),
 			% Note that we can't easily obtain the type string
 			% for the RHS of the assignment, so instead we
 			% cast the LHS.
-			TypeString = foreign_type_to_type_string(Lang,
-				ModuleInfo, OrigType),
+			TypeString = to_type_string(Lang, ModuleInfo, OrigType),
 			string__format("*(%s *)&", [s(TypeString)], LHS_Cast),
 			RHS_Cast = ""
 		;

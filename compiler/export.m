@@ -48,11 +48,6 @@
 % Utilities for generating C code which interfaces with Mercury.  
 % The {MLDS,LLDS}->C backends and fact tables use this code.
 
-	% Convert the type to a string corresponding to its C type.
-	% (Defaults to MR_Word).
-:- pred export__type_to_type_string(module_info, type, string).
-:- mode export__type_to_type_string(in, in, out) is det.
-
 	% Generate C code to convert an rval (represented as a string), from
 	% a C type to a mercury C type (ie. convert strings and floats to
 	% words) and return the resulting C code as a string.
@@ -70,6 +65,7 @@
 
 :- implementation.
 
+:- import_module foreign.
 :- import_module modules.
 :- import_module hlds_data, hlds_pred, type_util.
 :- import_module code_model.
@@ -336,7 +332,7 @@ get_export_info(Preds, PredId, ProcId, Globals, Module,
 			RetArgMode = top_out,
 			\+ type_util__is_dummy_argument_type(RetType)
 		->
-			export__type_to_type_string(Module, RetType, C_RetType),
+			C_RetType = to_type_string(c, Module, RetType),
 			argloc_to_string(RetArgLoc, RetArgString0),
 			convert_type_from_mercury(RetArgString0, RetType,
 				RetArgString),
@@ -436,7 +432,7 @@ get_argument_declaration(ArgInfo, Type, Num, NameThem, Module,
 	;
 		ArgName = ""
 	),
-	export__type_to_type_string(Module, Type, TypeString0),
+	TypeString0 = to_type_string(c, Module, Type),
 	(
 		Mode = top_out
 	->
@@ -629,42 +625,5 @@ export__produce_header_file_2([E|ExportedProcs]) -->
 		{ error("export__produce_header_file_2: foreign languages other than C unimplemented") }
 	),
 	export__produce_header_file_2(ExportedProcs).
-
-	% Convert a term representation of a variable type to a string which
-	% represents the C type of the variable
-	% Apart from special cases, local variables become MR_Words
-export__type_to_type_string(ModuleInfo, Type, Result) :-
-	( Type = term__functor(term__atom("int"), [], _) ->
-		Result = "MR_Integer"
-	; Type = term__functor(term__atom("float"), [], _) ->
-		Result = "MR_Float"
-	; Type = term__functor(term__atom("string"), [], _) ->
-		Result = "MR_String"
-	; Type = term__functor(term__atom("character"), [], _) ->
-		Result = "MR_Char"
-	;
-		module_info_types(ModuleInfo, Types),
-		(
-			type_to_type_id(Type, TypeId, _),
-			map__search(Types, TypeId, TypeDefn)
-		->
-				% XXX how we output the type depends on
-				% which foreign language we are using.
-			hlds_data__get_type_defn_body(TypeDefn, Body),
-			( Body = foreign_type(ForeignType, _) ->
-				Result = sym_name_to_string(ForeignType) ++ " *"
-			;
-				Result = "MR_Word"
-			)
-		;
-			Result = "MR_Word"
-		)
-	).
-
-:- func sym_name_to_string(sym_name) = string.
-
-sym_name_to_string(unqualified(Name)) = Name.
-sym_name_to_string(qualified(ModuleSpec, Name)) 
-	= sym_name_to_string(ModuleSpec) ++ ("::" ++ Name).
 
 %-----------------------------------------------------------------------------%

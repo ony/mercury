@@ -280,7 +280,7 @@
 
 :- import_module hlds_module, hlds_pred, hlds_data.
 :- import_module prog_data, builtin_ops, rtti, code_model.
-:- import_module type_util.
+:- import_module foreign, type_util.
 
 % To avoid duplication, we use a few things from the LLDS
 % (specifically stuff for the C interface).
@@ -318,16 +318,18 @@
 
 :- type mlds__imports == list(mlds__import).
 
-% This might need to be expanded to cater to different kinds of imports,
-% e.g. imports with wild-cards ("import java.lang.*").
+% This might perhaps need to be expanded to cater to different kinds of
+% imports, e.g. imports with wild-cards ("import java.lang.*").
 :- type mlds__import
-	---> 	import(
-				% Specifies the name of a package or
-				% class to import.
-			name	:: mlds_module_name,
-				% Is this module a mercury module?
-			mercury	:: bool			
+	--->	mercury_import(
+			import_name		:: mlds_module_name
+		)
+	;	foreign_import(
+			foreign_import_name	:: foreign_import_name
 		).
+
+:- type foreign_import_name
+	--->	il_assembly_name(mlds_module_name).
 
 % An mlds_module_name specifies the name of an mlds package or class.
 :- type mlds_module_name.
@@ -361,8 +363,8 @@
 % Given an MLDS module name (e.g. `foo.bar'), append another class qualifier
 % (e.g. for a class `baz'), and return the result (e.g. `foo.bar.baz').
 % The `arity' argument specifies the arity of the class.
-:- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name, arity) =
-	mlds_module_name.
+:- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name,
+		arity) = mlds_module_name.
 
 % Append a wrapper class qualifier to the module name and leave the
 % package name unchanged.
@@ -545,11 +547,14 @@
 :- type mlds__type
 	--->	% Mercury data types
 		mercury_type(
-			prog_data__type, % the exact Mercury type
-			builtin_type,	% what kind of type it is:
-					% enum, float, etc.
-			string		% the result of 
-					% export__type_to_type_string
+			prog_data__type,	% the exact Mercury type
+			builtin_type,		% what kind of type it is:
+						% enum, float, etc.
+			exported_type		% a representation of the type
+						% which can be used to
+						% determine the foreign
+						% language representation of
+						% the type.
 		)
 
 	 	% The Mercury array type is treated specially, some backends
@@ -1089,9 +1094,13 @@ XXX Full exception handling support is not yet implemented.
 			mlds__lval,	% The target to assign the new object's
 					% address to.
 			maybe(mlds__tag),
-					% A tag to tag the address with
-					% before assigning the result to the
-					% target.
+					% A (primary) tag to tag the address
+					% with before assigning the result to
+					% the target.
+			bool,		% Indicates whether or not there is
+					% a secondary tag.  If so, it will
+					% be stored as the first argument
+					% in the argument list (see below).
 			mlds__type,	% The type of the object being
 					% allocated.
 			maybe(mlds__rval),
@@ -1519,7 +1528,7 @@ XXX Full exception handling support is not yet implemented.
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module export, modules.
+:- import_module foreign, modules.
 :- import_module int, map, require, string, term.  
 
 %-----------------------------------------------------------------------------%
@@ -1562,8 +1571,8 @@ mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
 		MLDSType = mlds__foreign_type(ForeignType, ForeignLocation)
 	;
 		classify_type(Type, ModuleInfo, Category),
-		export__type_to_type_string(ModuleInfo, Type, TypeString),
-		MLDSType = mercury_type(Type, Category, TypeString)
+		ExportedType = to_exported_type(ModuleInfo, Type),
+		MLDSType = mercury_type(Type, Category, ExportedType)
 	).
 
 %-----------------------------------------------------------------------------%
