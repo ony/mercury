@@ -110,15 +110,15 @@ about unbound type variables.
 :- mode process_all_nonimported_procs(task, in, out, di, uo) is det.
 
 	% Process procedures for which a given test succeeds.
-:- pred process_matching_nonimported_procs(task, pred(pred_info),
+:- pred process_matching_nonimported_procs(task, pred(pred_id, pred_info),
 	module_info, module_info, io__state, io__state).
-:- mode process_matching_nonimported_procs(task, pred(in) is semidet,
+:- mode process_matching_nonimported_procs(task, pred(in, in) is semidet,
 	in, out, di, uo) is det.
 
-:- pred process_matching_nonimported_procs(task, task, pred(pred_info),
+:- pred process_matching_nonimported_procs(task, task, pred(pred_id, pred_info),
 	module_info, module_info, io__state, io__state).
 :- mode process_matching_nonimported_procs(task, out(task),
-	pred(in) is semidet, in, out, di, uo) is det.
+	pred(in, in) is semidet, in, out, di, uo) is det.
 
 :- pred process_all_nonimported_nonaditi_procs(task, module_info, module_info,
 	io__state, io__state).
@@ -176,12 +176,12 @@ about unbound type variables.
 :- import_module int, map, tree234, require, string.
 
 process_all_nonimported_procs(Task, ModuleInfo0, ModuleInfo) -->
-	{ True = lambda([_PredInfo::in] is semidet, true) },
+	{ True = lambda([_PredId::in, _PredInfo::in] is semidet, true) },
 	process_matching_nonimported_procs(Task, True, 
 		ModuleInfo0, ModuleInfo).
 
 process_all_nonimported_nonaditi_procs(Task, ModuleInfo0, ModuleInfo) -->
-	{ NotAditi = lambda([PredInfo::in] is semidet, (
+	{ NotAditi = lambda([_PredId::in, PredInfo::in] is semidet, (
 			\+ hlds_pred__pred_info_is_aditi_relation(PredInfo)
 		)) }, 
 	process_matching_nonimported_procs(Task, NotAditi, 
@@ -189,14 +189,14 @@ process_all_nonimported_nonaditi_procs(Task, ModuleInfo0, ModuleInfo) -->
 
 process_all_nonimported_nonaditi_procs(Task0, Task,
 		ModuleInfo0, ModuleInfo) -->
-	{ NotAditi = lambda([PredInfo::in] is semidet, (
+	{ NotAditi = lambda([_PredId::in, PredInfo::in] is semidet, (
 			\+ hlds_pred__pred_info_is_aditi_relation(PredInfo)
 		)) }, 
 	process_matching_nonimported_procs(Task0, Task, NotAditi, 
 		ModuleInfo0, ModuleInfo).
 
 process_all_nonimported_procs(Task0, Task, ModuleInfo0, ModuleInfo) -->
-	{ True = lambda([_PredInfo::in] is semidet, true) },
+	{ True = lambda([_PredId::in, _PredInfo::in] is semidet, true) },
 	process_matching_nonimported_procs(Task0, Task, True, 
 		ModuleInfo0, ModuleInfo).
 
@@ -216,17 +216,17 @@ process_matching_nonimported_procs(Task0, Task, Filter,
 	process_nonimported_procs_in_preds(PredIds, Task0, Task, Filter,
 		ModuleInfo0, ModuleInfo).
 
-:- pred process_nonimported_pred(pred_error_task, pred(pred_info), pred_id, 
-	module_info, module_info, io__state, io__state).
-:- mode process_nonimported_pred(in(pred_error_task), pred(in) is semidet, in,
-	in, out, di, uo) is det.
+:- pred process_nonimported_pred(pred_error_task, pred(pred_id, pred_info),
+	pred_id, module_info, module_info, io__state, io__state).
+:- mode process_nonimported_pred(in(pred_error_task), pred(in, in) is semidet,
+	in, in, out, di, uo) is det.
 
 process_nonimported_pred(Task, Filter, PredId, ModuleInfo0, ModuleInfo,
 		IO0, IO) :-
 	module_info_pred_info(ModuleInfo0, PredId, PredInfo0),
 	(
 		( pred_info_is_imported(PredInfo0)
-		; \+ call(Filter, PredInfo0)
+		; \+ call(Filter, PredId, PredInfo0)
 		)
 	->
 		ModuleInfo = ModuleInfo0,
@@ -241,9 +241,10 @@ process_nonimported_pred(Task, Filter, PredId, ModuleInfo0, ModuleInfo,
 	).
 
 :- pred process_nonimported_procs_in_preds(list(pred_id), task, task,
-	pred(pred_info), module_info, module_info, io__state, io__state).
+	pred(pred_id, pred_info), module_info, module_info,
+	io__state, io__state).
 :- mode process_nonimported_procs_in_preds(in, task, out(task), 
-	pred(in) is semidet, in, out, di, uo) is det.
+	pred(in, in) is semidet, in, out, di, uo) is det.
 
 process_nonimported_procs_in_preds([], Task, Task, _, ModuleInfo, ModuleInfo)
 		--> [].
@@ -251,7 +252,7 @@ process_nonimported_procs_in_preds([PredId | PredIds], Task0, Task, Filter,
 		ModuleInfo0, ModuleInfo) -->
 	{ module_info_preds(ModuleInfo0, PredTable) },
 	{ map__lookup(PredTable, PredId, PredInfo) },
-	( { call(Filter, PredInfo) } ->
+	( { call(Filter, PredId, PredInfo) } ->
 		{ pred_info_non_imported_procids(PredInfo, ProcIds) },
 		process_nonimported_procs(ProcIds, PredId, Task0, Task1,
 			ModuleInfo0, ModuleInfo1)

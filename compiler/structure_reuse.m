@@ -51,11 +51,18 @@
 :- implementation.
 
 :- import_module passes_aux, sr_direct, sr_indirect.
+:- import_module list, map.
 
 structure_reuse(HLDS0, HLDS) -->
+	{ module_info_get_special_pred_map(HLDS0, SpecialPredMap) },
+	{ map__values(SpecialPredMap, SpecialPredIds) },
+
 		% Do the direct reuse analysis phase.
-	process_all_nonimported_procs(
+	process_matching_nonimported_procs(
 			update_module_io(sr_direct__process_proc),
+			(pred(PredId::in, _PredInfo::in) is semidet :-
+				\+ list__member(PredId, SpecialPredIds)
+			),
 			HLDS0, HLDS1),
 
 		% Do the fixpoint computation to determine all the indirect

@@ -190,8 +190,9 @@ magic__process_module(ModuleInfo0, ModuleInfo) -->
 	{ simplify__find_simplifications(no, Globals, Simplifications) },
 	process_matching_nonimported_procs(
 		update_module_io(
-			magic__ite_to_disj_and_simplify(Simplifications)),
-		_, hlds_pred__pred_info_is_aditi_relation,
+			magic__ite_to_disj_and_simplify(Simplifications)), _,
+		(pred(_PredId::in, PredInfo::in) is semidet :-
+			hlds_pred__pred_info_is_aditi_relation(PredInfo)),
 		ModuleInfo0, ModuleInfo1),
 
 	% We need to run dead_proc_elim before working out the
