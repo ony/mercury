@@ -450,4 +450,11 @@ install_split_library:
 
 endif
 
+
+# Ensure that unsafe.h is created before it is needed.
+robdd.o: unsafe.c
+robdd.pic_o: unsafe.c
+unsafe.opt: unsafe.c
+
+
 #-----------------------------------------------------------------------------#
