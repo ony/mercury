@@ -96,7 +96,7 @@
 
 :- pred find_weights(module_info::in, weight_table::out) is det.
 
-% This predicate is computes the weight of a functor and the set of arguments
+% This predicate computes the weight of a functor and the set of arguments
 % of that functor whose sizes should be counted towards the size of the whole
 % term.
 
@@ -118,7 +118,7 @@
 
 			%bimap(var, size_var),		
 					% The bimap
-					% stores the corespondence between
+					% stores the correspondence between
 					% vars (i.e. variables
 					% appearing in a particular procedure)
 					% and SizeVars from the single varset 
@@ -425,7 +425,8 @@ canonical_form(Eqns0, Canonical_eqns) :-
 	list__map(Normalize_on_first_var, Vectors, Canonical_vecs),
 
 	vectors_to_eqns(Canonical_vecs, Almost_canonical_eqns),
-											Sort_coeffs = lambda([eqn(Coeffs, Op, Num)::in, Sort_eqn::out] is det, (
+
+	Sort_coeffs = lambda([eqn(Coeffs, Op, Num)::in, Sort_eqn::out] is det, (
 		list__sort(compare_coeffs, Coeffs, Sorted_coeffs),
 		Sort_eqn = eqn(Sorted_coeffs, Op, Num)
 	)),

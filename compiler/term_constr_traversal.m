@@ -7,6 +7,9 @@
 % file: term_constr_traversal.m
 % main author: vjteag 
 
+% This module provides "do_traversal", that traverses a goal and
+% collects constraints on arguments sizes for this goal.
+
 
 :- module term_constr_traversal.
 
@@ -30,8 +33,9 @@
 								in, out) is det.
 
 				
-% derive_nonneg_eqns : takes a var-sizevar bimap and returns an
-% "x >= 0" equation for every sizevar in the map.
+% derive_nonneg_eqns : takes a var-sizevar bimap and a size_var list, and 
+% returns an "x >= 0" equation for every sizevar in the map that is not
+% in the list. The list uses to be a zero-size variable list.
 %### This should probably go in term_util?
 
 :- pred derive_nonneg_eqns(bimap(var,size_var), set(size_var), equations).
@@ -46,7 +50,8 @@
 	set, std_util, term, term_util, type_util, size_varset, varset.
 
 do_traversal(Goal, Params, Size_varset0, Constr_info, IO0, IO) :-
-	
+
+		% Build non negative eqns for non zero-sized sizevars
 	params_get_zeros(Params, Zeros),
 	params_get_var_to_sizevar_map(Params, VarToSizeVarMap),
 	derive_nonneg_eqns(VarToSizeVarMap, Zeros, NonNegEqns),
@@ -65,6 +70,8 @@ traverse_goal(Goal, Params, Constr_info0, Constr_info, IO0, IO) :-
 		goal_info_get_determinism(GoalInfo, Detism),
 		determinism_components(Detism, _, at_most_zero)
 	->
+			% Goals that return no solutions do not
+			% need to be taken into account.
 		Constr_info = Constr_info0,
 		IO = IO0
 	;
@@ -122,20 +129,25 @@ traverse_goal_2(if_then_else(_, Cond, Then, Else, _)-_, Params,
 	% The calls to traverse_conj and traverse_goal should have the same 
 	% input constraints,
 	% because they are disjoined, so the constraints appended to 
-	% Constraints0 by traverse_conj should not be passed to 
+	% Constraints_in by traverse_conj should not be passed to 
 	% traverse_goal.
 
 	traverse_conj([Cond, Then], Params, Constr_info_in, Then_constr_info, 
 							IO0, IO1),
-
-	Constr_info_in = constr_info(_, Constraints_in),
 	Then_constr_info = constr_info(Then_varset, Then_constraints),
 
+	Constr_info_in = constr_info(_, Constraints_in),
 	params_get_var_to_sizevar_map(Params, VarToSizeVarMap),
 	params_get_zeros(Params, Zeros),
 	derive_nonneg_eqns(VarToSizeVarMap, Zeros, NonNegs),
 	combine_eqns(eqns(NonNegs), Constraints_in, Into_else_constraints),
 
+	% XX In order to pass only Constraints_in for the ELSE goal and
+	% to pass the not(Cond) in addition, should not this call be :
+	% traverse_conj([not(Cond), Else], Params, constr_info(Then_varset,
+	% Constraints_in), Else_constr_info, IO1, IO)
+	% (and this way, you add the variables from Cond and the related
+	% equations).
 	traverse_goal(Else, Params, constr_info(Then_varset, 
 		Into_else_constraints), constr_info(Else_varset, 
 						Else_constraints), IO1, IO),
@@ -170,11 +182,11 @@ traverse_goal_2(call(CallPredId, CallProcId, Args, _, _, _)-_, Params,
 		constr_info(Varset0, Constraints0), constr_info(Varset0,
 			Constraints), IO0, IO) :-
 
-  	params_get_module_info(Params, Module),
-
+  		% Get information about the relative sizes of the input
+		% and output args of the procedure.
+	params_get_module_info(Params, Module),
         module_info_pred_proc_info(Module, CallPredId, CallProcId, _,
                 CallProcInfo),
-
 	proc_info_get_maybe_arg_size_info(CallProcInfo, CallArgSizeInfo),
 
 	(
@@ -195,6 +207,10 @@ traverse_goal_2(call(CallPredId, CallProcId, Args, _, _, _)-_, Params,
 			Size_info = constraints(Eqns, _Zeros, HeadToSizeVarMap)
 		),
 
+			% Build a size_var-size_var bimap (args to
+			% headvars, i.e. New to Old) and then substitute 
+			% in the original eqns to get new ones involving 
+			% args sizevars.
 		proc_info_headvars(CallProcInfo, Headvars),
 
 		rename_vars_params(Args, RenamedArgs, Params),
@@ -205,12 +221,14 @@ traverse_goal_2(call(CallPredId, CallProcId, Args, _, _, _)-_, Params,
 		
 		substitute_size_vars(Eqns, SizeToSizeVarMap,EqnsInCorrectVbles),
 
+			% Remove zero-sized vars from eqns.
 		params_get_zeros(Params, CallingPredZeros),
 		remove_zero_vars(CallingPredZeros, EqnsInCorrectVbles,  
 				EqnsWithoutZeroSizeVars),
+		
 		io__write("term_constr_traversal:found equations :", IO0, IO1),
 		io__nl(IO1, IO2),
-		% These really aren't the variables we want to read about.
+		% XX These really aren't the variables we want to read about.
 		write_equations(EqnsWithoutZeroSizeVars, IO2, IO3),	
 		io__nl(IO3, IO),
 
@@ -285,9 +303,11 @@ traverse_goal_2(par_conj(Goals, _)-_, Params, Constr_info0,
 
 
 %------------------------------------------------------------------------------
+
 :- pred traverse_conj(hlds_goals, traversal_params, constraint_info,
 				constraint_info, io__state, io__state).
 :- mode traverse_conj(in, in, in, out, di, uo) is det.
+
 traverse_conj([], _, Constr_info, Constr_info, IO, IO).  
 
 traverse_conj([Goal|Goals], Params, Constr_info0, Constr_info, IO0, IO) :-
@@ -302,6 +322,7 @@ traverse_conj([Goal|Goals], Params, Constr_info0, Constr_info, IO0, IO) :-
 :- pred traverse_disj(hlds_goals, traversal_params, constraint_info, 
 				constraint_info, io__state, io__state).
 :- mode traverse_disj(in, in, in, out, di, uo) is det.
+
 traverse_disj(Goals, Params, Constr_info0, Constr_info, IO0, IO):-
 
 	traverse_disj_acc(Goals, Params, [], Disj_constraints, 
@@ -317,9 +338,7 @@ traverse_disj(Goals, Params, Constr_info0, Constr_info, IO0, IO):-
 			Eqn_info = eqns(Eqns),
 			Constrs = [Eqns | Constrs0 ]
 		)
-			
 	)),
-
 	list__foldl(Make_polys, Disj_constraints, [], Non_false_polys),
 
 	( Non_false_polys = [] ->
@@ -355,10 +374,10 @@ traverse_disj_acc([Goal|Goals], Params, Disjunction_constraints0,
 		Disjunction_constraints, Constr_info_top, Varset, IO0, IO) :-
 
 	Constr_info_top = constr_info(_, Constraints_top),
-
+	
 	traverse_goal(Goal, Params, Constr_info_top,
 		Constr_info_disjunct, IO0, IO1),
-
+	
 	Constr_info_disjunct = constr_info(Varset_disjunct, 
 							Constraints_disjunct),
 
@@ -372,7 +391,6 @@ traverse_disj_acc([Goal|Goals], Params, Disjunction_constraints0,
 
 
 %-----------------------------------------------------------------------------
-
 
 derive_nonneg_eqns(Bimap, Zeros, NonNegs) :-
 	bimap__coordinates(Bimap, Sizevars),
@@ -393,6 +411,7 @@ derive_nonneg_eqns(Bimap, Zeros, NonNegs) :-
 % Otherwise, it appends the two lists.
 :- pred combine_eqns(eqn_info, eqn_info, eqn_info).
 :- mode combine_eqns(in, in, out) is det.
+
 combine_eqns(false_equation, false_equation, false_equation).
 combine_eqns(false_equation, eqns(_), false_equation).
 combine_eqns(eqns(_), false_equation, false_equation).
@@ -402,6 +421,7 @@ combine_eqns(eqns(Eqns0), eqns(Eqns1), eqns(Eqns)) :-
 
 :- pred write_first_equation(constraint_info, io__state, io__state).
 :- mode write_first_equation(in, di, uo) is det.
+
 write_first_equation(Constr_info, IO0, IO) :-
 	( Constr_info = constr_info(_, eqns([Eqn|_])) ->
 		io__write("found equation ", IO0, IO1),
@@ -414,7 +434,7 @@ write_first_equation(Constr_info, IO0, IO) :-
 
 % info_to_eqn : Takes some info about a unification and appends to the
 % current constraints the
-% equation that that corresponds to it.  Used for deconstruction and 
+% equation that corresponds to it.  Used for deconstruction and 
 % construction unifications.  i.e. for a unification of the form
 % X = f(U,V,W), if the functor norm counts the first and
 % second arguments, the equation returned is |X| - |U| - |V| = |f|.
@@ -425,6 +445,7 @@ write_first_equation(Constr_info, IO0, IO) :-
 :- pred info_to_eqn(var, cons_id, list(var), list(uni_mode), traversal_params, 
 				constraint_info, constraint_info).
 :- mode info_to_eqn(in, in, in, in, in, in, out) is semidet.
+
 info_to_eqn(Var, ConsId, ArgVars0, Modes, Params, Constr_info0, Constr_info) :-
 
 	params_get_functor_info(Params, FunctorInfo),
@@ -433,15 +454,19 @@ info_to_eqn(Var, ConsId, ArgVars0, Modes, Params, Constr_info0, Constr_info) :-
 	
 	params_get_module_info(Params, Module),
 
+		% Fails for higher-order unifications.
 	\+ type_is_higher_order(Type, _, _),
+	
+		% Build the equation, except if Var has a variable type 
+		% (i.e. polymorphic, ...).
 	( type_to_type_id(Type, TypeId, _) ->
 		functor_norm(FunctorInfo, TypeId, ConsId, Module, 
 			Const, ArgVars0, CountedVars, Modes, _) 
 
-		%So eqn is Var = Const + sum(CountedVars).
+		% So eqn is Var = Const + sum(CountedVars).
 	
 	;
-		error("variable type in traverse_goal_2")	
+		error("variable type in info_to_eqn")	
 	),
 	
 	params_get_zeros(Params, Zeros),
@@ -480,7 +505,8 @@ info_to_eqn(Var, ConsId, ArgVars0, Modes, Params, Constr_info0, Constr_info) :-
 		Constr_info = constr_info(Varset0, NewConstraints)
 	).	
 
-% simple_info_to_eqn : Takes some info about a unification and appends the
+% simple_info_to_eqn : Takes some info about a unification and appends to the
+% current constraints the
 % equation that corresponds to it.  Used for assignment and simple_test
 % unifications.  i.e. for a unification of the form X = Y,
 % the equation returned is |X| - |Y| = 0.
@@ -519,6 +545,8 @@ simple_info_to_eqn(LVar, RVar, Params, Constr_info0, Constr_info) :-
 % Because quantification returns a conservative estimate of nonlocal
 % vars, this returns a list of local vars which may omit some of 
 % the real local vars.  #### This may be a problem!
+%                       According to Tom, this should work. (They use
+%                       pretty the same in the code generator.)
 :- pred get_local_vars(hlds_goal, list(var)).
 :- mode get_local_vars(in, out) is det.
 
@@ -595,14 +623,17 @@ compose_bijections([ArgSize|Args], [HeadVar|Headvars], HeadToSizeVarMap,
 
 :- pred rename_vars_params(list(var), list(size_var), traversal_params). 
 :- mode rename_vars_params(in, out, in) is det.
+
 rename_vars_params(Vars, SizeVars, Params) :-
 	params_get_var_to_sizevar_map(Params, VarToSizeVarMap),
 	rename_vars(Vars, SizeVars, VarToSizeVarMap).
 
 %-----------------------------------------------------------------------------
 
+% XX Obsolete
 :- pred has_false_eqn(equations).
 :- mode has_false_eqn(in) is semidet.
+
 has_false_eqn([Eqn|_]) :-
 	is_false(Eqn).
 has_false_eqn([_|Eqns]) :-

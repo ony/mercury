@@ -37,6 +37,7 @@
 		widen_after_fixed_iterations(int).
 
 %-----------------------------------------------------------------------------%
+
 :- implementation.
 
 :- import_module bimap, bool, hlds_goal, hlds_module, hlds_pred, int, io, list, 
@@ -139,7 +140,9 @@ find_constraints_pred(PPID, Module_info0, SizeVars0, Func_info, Widening_info,
 								IO0, IO),
 
 			Change_flag = yes,
-			%XXCheck for eqns. 
+			%XX Check for eqns.
+			%   Change_flag should simply be set after the
+			%   following test.
 
 			( Constraint_info = eqns(Constraints) ->
 				update_arg_size_info(PPID, Constraints, Zeros, 
@@ -187,7 +190,6 @@ find_constraints_pred(PPID, Module_info0, SizeVars0, Func_info, Widening_info,
 				VarToSizeVarMap, Module_info0, Module_info)
 		)
 	).
-
 
 
 :- pred update_arg_size_info(pred_proc_id, equations, set(size_var), 
@@ -321,6 +323,7 @@ remove_weakening_constraints2([Neqn|New_eqns], [Oeqn|Old_eqns], Acc,
 % in the new constraints.
 :- pred remove_redundant_eqns(equations, equations).
 :- mode remove_redundant_eqns(in, out) is det.
+
 remove_redundant_eqns(Eqns1, Eqns2) :-
 	remove_redundant_eqns2(Eqns1, [], Reversed_eqns2),
 	list__reverse(Reversed_eqns2, Eqns2).
@@ -328,6 +331,7 @@ remove_redundant_eqns(Eqns1, Eqns2) :-
 
 :- pred remove_redundant_eqns2(equations, equations, equations).
 :- mode remove_redundant_eqns2(in, in, out) is det.
+
 remove_redundant_eqns2([], Eqns, Eqns).
 remove_redundant_eqns2([Eqn], Eqns, [Eqn|Eqns]).
 remove_redundant_eqns2([Eqn1,Eqn2|Eqns], Acc_eqns, Output_eqns) :-
@@ -353,12 +357,15 @@ remove_redundant_eqns2([Eqn1,Eqn2|Eqns], Acc_eqns, Output_eqns) :-
 
 
 find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros) :-
+		% Find variables having zero-sized type
 	Is_zero = lambda([VarA::in] is semidet, (
 		lookup(VarTypes, VarA, Type),
 		zero_size_type(Type, Module)
 	)),
 	bimap__ordinates(VarToSizeVarMap, Vars),
 	list__filter(Is_zero, Vars, ZeroVars),
+
+		% Build Zeros = corresponding size_vars
 	VarToSize = lambda([VarB::in, SizeVar::out] is det, (
 		lookup(VarToSizeVarMap, VarB, SizeVar)
 	)),
@@ -369,6 +376,7 @@ find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros) :-
 :- pred fill_var_to_sizevar_map(hlds_goal, size_varset, size_varset, 
 							bimap(var, size_var)).
 :- mode fill_var_to_sizevar_map(in, in, out, out) is det.
+
 fill_var_to_sizevar_map(Goal, Varset0, Varset, VarToSizeVarMap) :-
 	bimap__init(VarToSizeVarMap0),
 	quantification__goal_vars(Goal, VarsSet),

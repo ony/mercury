@@ -40,6 +40,24 @@
 % 			functor_alg type.
 %
 % termination.m		To change the set_functor_info predicate.
+%
+%
+% The second termination analysis (mainly written by vjtaeg) is based on Benoy
+% and King's paper "Inferring argument size relationships with CLP(R)".
+% You can find it at http://www.cs.ukc.ac.uk/pubs/1997/510/index.html.
+% This (currently) uses the following files :
+% 
+% termination.m			XXX to be completed
+% 
+% term_constr_pass1.m   	where you can find the fixpoint algorithm to
+% 				find constraints on arguments sizes.
+%
+% term_constr_traversal.m 	who provides the predicate that traverses 
+% 				a goal and collects constraints for this goal.
+% 			
+% term_util.m			that defines the types, predicates for 
+% 				computing functor norms and utility
+% 				predicates used by termination analysis.
 % 			
 %----------------------------------------------------------------------------%
 

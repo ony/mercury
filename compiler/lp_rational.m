@@ -4,7 +4,7 @@
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 %
-% file: lpQ.m
+% file: lp_rational.m
 % main authors: conway,	vjteag.
 %
 % This module implements:
@@ -82,6 +82,9 @@
 
 :- type vector ---> pair(map(size_var, rat), rat).
 
+% XX Should that be:  :- type vector == pair(map(size_var, rat), rat).
+%    Maybe we can change this later.
+
 :- type matrix == list(vector).
 
 %------------------------------------------------------------------------------%
@@ -94,7 +97,7 @@
 	% the objective and inequations are from `Varset' which is passed
 	% so that the solver can allocate fresh variables as required.
 	% URSVars is the list of variable that are unrestricted in sign.
-	% lp_solve binds Result to `unbounded' if the the objective
+	% lp_solve binds Result to `unbounded' if the objective
 	% function is not bounded by the constraints, to 'inconsistent'
 	% if the given constraints are inconsistent, or to 
 	% `satisfiable(ObjVal, MapFromObjVarsToVals)'.
@@ -239,7 +242,7 @@ lp_solve(Eqns, Dir, Obj, Varset, URSVars, Result) :-
 %
 % lp_solve2(Eqns, Dir, Obj, Res, LPInfo0, LPInfo) takes a list
 % of inequations `Eqns', a direction for optimization `Dir', an objective
-% function `Obj', an I/O state `IO0' and an lp_info structure `LPInfo0'.
+% function `Obj' and an lp_info structure `LPInfo0'.
 % See inline comments for details on the algorithm.
 %
 
@@ -255,7 +258,7 @@ lp_solve2(Eqns0, Dir, Obj0, Result, Info0, Info) :-
 	standardize_equations(Eqns0, Eqns, Info0, Info1),
 
 		% If we're maximizing the objective function then we need
-		% to negate all the coefficients in the objective.w
+		% to negate all the coefficients in the objective.
 	(
 		Dir = max,
 		negate_equation(eqn(Obj0, (=), zero), eqn(Obj1, _, _))
@@ -1161,6 +1164,7 @@ vectors_to_eqns(Vectors, Equations) :-
 	list__map(Vec_to_eqn, Vectors, Equations).	
 		
 
+% Add a list of coefficients to a map and returns the resulting map.
 % Ensures that there are no zeros in the resulting map.
 :- pred coeff_list_to_map(list(coeff), map(size_var, rat), map(size_var, rat)).
 :- mode coeff_list_to_map(in, in, out) is det.
@@ -1184,7 +1188,8 @@ coeff_list_to_map([Var-Num | Coeffs], Map0, Map) :-
 
 
 % normalize_vector(Vec0, Var, Vec1) divides all coefficients in
-% Vec0 by the absolute value of the coefficient of Var. 
+% Vec0 by the absolute value of the coefficient of Var.
+% (We are considering here the values, not the "coeff" type.)
 % It is an error if the map contains a zero coefficient.
 %:- pred normalize_vector(vector, size_var, vector).
 %:- mode normalize_vector(in, in, out) is det.
@@ -1197,7 +1202,7 @@ normalize_vector(pair(Map0, Num0), Var0, pair(Map, Num)) :-
 		Divide_map_val = lambda([Var::in, Map1::in, Map2::out] is det, (
 			map__lookup(Map1, Var, Coeff0),
 			( Coeff0 = zero ->
-				error("Divide by zero in normalize_vector")
+				error("normalize_vector: map contains a zero coefficient")
 			;
 				require(nz(Coeff), 
 					"normalize_vector: zero divisor"),
@@ -1213,7 +1218,7 @@ normalize_vector(pair(Map0, Num0), Var0, pair(Map, Num)) :-
 		Num = Num0 
 	).
 
-% separate_vectors(List1, Variable, Posititves, Negatives, Zeroes):
+% separate_vectors(List1, Variable, Positives, Negatives, Zeroes):
 % Breaks a list of vectors up into three lists of vectors according to
 % whether the coefficient of Variable is positive, negative or zero.
 % Applies normalize_vector to each vector.
@@ -1255,11 +1260,13 @@ separate_vectors_acc([Vec0|Vectors], Var, Pos0, Neg0, Zeros0, Pos, Neg, Zeros):-
 
 get_var_coeff(pair(Varmap, _), Var, Num) :-
 	map__search(Varmap, Var, Num).
+
+% add_vectors(Vec0, Vec1, Vec2): Vec2 is the sum of Vec0 and Vec1.
 :- pred add_vectors(vector, vector, vector).
 :- mode add_vectors(in, in, out) is det.
 
-add_vectors(pair(Map0, Float0), pair(Map1, Float1), pair(Map2, Float2)) :- 
-	Float2 = Float0 + Float1,
+add_vectors(pair(Map0, Rat0), pair(Map1, Rat1), pair(Map2, Rat2)) :- 
+	Rat2 = Rat0 + Rat1,
 	Is_map_key = lambda([Var::out] is nondet, (
 		map__member(Map0, Var, _)
 	)),
@@ -1348,14 +1355,17 @@ find_strongest_remove_weaker(Vec0, Vec, Matrix0, Matrix) :-
 	)),
 	list__foldl2(Comp_constraints, Matrix0, Vec0, Vec, [], Matrix).
 
-%lXXX%Comment these.
 
 % Fails if neither constraint implies the other.
 % Otherwise, returns the stronger constraint.
+% XX Works only with normalized vectors 
+%    because   x +  y <= 2   should imply   2x + 2y <= 4   and it doesn't.
+%    OR must be specified : normalized vectors in input.
+
 :- pred compare_constraints(vector, vector, vector).
 :- mode compare_constraints(in, in, out) is semidet.
 
-compare_constraints(pair(Map0,Float0), pair(Map1,Float1), pair(Map3,Float)) :-
+compare_constraints(pair(Map0,Rat0), pair(Map1,Rat1), pair(Map3,Rat)) :-
 	map__keys(Map0, Keylist),
 	Del_same_keys = lambda([Var0::in, Map4::in, Map5::out] is semidet, (
 		map__lookup(Map0, Var0, Num0),
@@ -1365,10 +1375,10 @@ compare_constraints(pair(Map0,Float0), pair(Map1,Float1), pair(Map3,Float)) :-
 	list__foldl(Del_same_keys, Keylist, Map1, Map2),
 	map__is_empty(Map2),
 	Map3 = Map0,
-	( Float0 < Float1 ->
-		Float = Float0
+	( Rat0 < Rat1 ->
+		Rat = Rat0
 	;
-		Float = Float1
+		Rat = Rat1
 	). 
 
 
@@ -1379,28 +1389,28 @@ compare_constraints(pair(Map0,Float0), pair(Map1,Float1), pair(Map3,Float)) :-
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
-
 % Convex Hull
+
 
 :- type var_info 
 	---> 	var_info(
 			 list(map(size_var,size_var)), 	% Maps from original variables
 						% to new (temporary) ones.
-						% A variables which occurs in 
-						% more than one polygon is
+						% A variable which occurs in 
+						% more than one polyhedron is
 						% mapped to a separate variable
 						% for each one.
 						% This list contains one map
-						% for each polygon.
+						% for each polyhedron.
 
-			 list(size_var), 		% List of sigma variables.
+			 list(size_var), 	% List of sigma variables.
 
 			 size_varset
 			).
 
 :- type eqn_info
 	---> 	eqn_info(
-			 map(size_var, size_var),		% Map from original variables
+			 map(size_var, size_var),	% Map from original variables
 						% to new (temporary) ones.
 						% There is one of these for
 						% each equation. 
@@ -1414,11 +1424,21 @@ convex_hull([], [], Vars, Vars).
 convex_hull([Poly], Poly, Vars, Vars).
 convex_hull([Poly0,Poly1|Polys_in], Poly, Vars1, Vars) :-
 	Polys0 = [Poly0,Poly1|Polys_in],
+	
+		% tranform all equations in '=<' equations
 	list__map(fm_standardize_equations, Polys0, Polys),
+
+		% rename all variables in the equations of the polyhedra 
+		% and add sigma variables (and the related equations)
 	transform_polys(Polys, Eqns1, var_info([], [], Vars1), 
 					var_info(Map_list, Sigmas, Vars)),
 	add_sigma_eqns(Eqns1, Sigmas, Eqns2),
+	
+		% add the equations related to the original variables
 	add_last_eqns(Eqns2, Map_list, Eqns3),
+
+		% project all the equations on the original variables,
+		% that is eliminating sigma and new (temporary) variables
 	Append_values = lambda([Map::in, Varlist0::in, Varlist::out] is det, (
 		map__values(Map, List),
 		append(List, Varlist0, Varlist)
@@ -1457,7 +1477,10 @@ transform_poly(Poly, Polys0, Polys, var_info(Maps0, Sigmas0, Vars0), Var_info):-
 	append(New_eqns, Polys0, Polys),
 	Var_info = var_info([Map|Maps0], [Sigma|Sigmas0], Vars).  
  
-
+% transform_eqn: takes an equation (with original variables) and the sigma 
+% variable to add, and returns the equation where the original variables 
+% are substituted for new ones and where the sigma variable is included. 
+% The map of old to new variables is updated if necessary.
 :- pred transform_eqn(equation, equation, size_var, eqn_info, eqn_info).
 :- mode transform_eqn(in, out, in, in, out) is det.
 
@@ -1542,6 +1565,8 @@ original_var_to_eqn(Original_var, Maplist, Eqn) :-
 	Eqn = eqn([Original_var-one|Coefflist], (=), zero).
 
 
+% get_map_keys: Given a list of maps, return a list of all the keys in 
+% the list of maps.
 :- pred get_map_keys(list(map(size_var,size_var)), list(size_var), list(size_var)).
 :- mode get_map_keys(in, in, out) is det.
 
@@ -1554,7 +1579,7 @@ get_map_keys([Map|Maps], Keys0, Keys) :-
 %-----------------------------------------------------------------------------%
 % Widening
 
-% widen(Cs1, Cs2, Cs, Vars): Relaxes the constraints Cs1 by selecting
+% widen(Cs1, Cs2, Vars, Cs): Relaxes the constraints Cs1 by selecting
 % those constraints from Cs1 which are implied by Cs2. 
 widen(Poly1, Poly2, Vars, Wide_poly) :-
 	Entailed_by_Poly2 = lambda([Constraint::in] is semidet, (
@@ -1578,6 +1603,9 @@ entailed(eqn(Coeff_list, (=<), Const), Poly, Vars) :-
 	;
 		Result = inconsistent,
 		error("inconsistent polygon passed to entailed")
+	;
+		Result = unbounded,
+		fail
 	).
 	
 
@@ -1589,7 +1617,10 @@ entailed(eqn(Coeff_list, (>=), Const), Poly, Vars) :-
 		Min_val >= Const	
 	;
 		Result = inconsistent,
-		error("inconsistent polygon passed to entails")
+		error("inconsistent polygon passed to entailed")
+	;
+		Result = unbounded,
+		fail
 	).
 	
 
@@ -1597,9 +1628,11 @@ entailed(eqn(Coeff_list, (=), Const), Poly, Vars) :-
 	entailed(eqn(Coeff_list, (=<), Const), Poly, Vars),
 	entailed(eqn(Coeff_list, (>=), Const), Poly, Vars).
 
+
 :- pred nz(rat::in) is semidet.
 
 nz(X) :- X \= zero.
+
 
 %-----------------------------------------------------------------------------
 % Printing equations and vectors.
@@ -1633,14 +1666,13 @@ write_term(Var-Rat) -->
 	( { Rat = one } ->
 		io__write_char('+'),
 		io__write_char(' '),
-		io__write_char('x')
 	;
 		io__write_char('('),
 		io__write_int(numer(Rat)),
 		io__write_char('/'),
 		io__write_int(denom(Rat)),
 		io__write_char(')'),
-		io__write_char('x')
 	),
+	io__write_char('x')
 	{ size_varset__size_var_to_int(Var, Int) },
 	io__write_int(Int).
