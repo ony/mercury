@@ -22,7 +22,7 @@
 
 :- interface.
 
-:- import_module hlds_module.
+:- import_module hlds_module, io.
 
 :- pred annotate_all_liveness_in_module(module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
