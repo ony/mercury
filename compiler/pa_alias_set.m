@@ -4,17 +4,15 @@
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-% module pa_alias_set: defines the datastructure alias_set which represents
-%		       a set of aliases. This module will replace the
-%		       module pa_alias which only took care of representing
-% 		       one single alias. In this new representation we will
-%		       not represent single aliases anymore. 
+% module pa_alias_set: defines the actual (hidden) representation for
+% lists of aliased data structures.
+
 % main author: nancy
 
 % TO DO: 
 % 	- record type of the selectorset immediately in the set. 
 
-:- module possible_alias__pa_alias_set. 
+:- module possible_alias__pa_alias_as__pa_alias_set. 
 
 :- interface.
 
@@ -27,51 +25,45 @@
 :- import_module list, set, map, io, term, bool.
 
 %-----------------------------------------------------------------------------%
-%-- exported types
-
 :- type alias_set. 
-% :- type alias == pair(pa_datastruct__datastruct, pa_datastruct__datastruct).
-
-%-----------------------------------------------------------------------------%
-%-- exported predicates
 
 :- pred init(alias_set::out) is det.
 :- func init = alias_set is det. 
 :- pred is_empty(alias_set::in) is semidet.
-:- pred get_size(alias_set::in, int::out) is det.
+:- func size(alias_set) = int.
 
-	% conversion between list of aliases to alias_set's
+	% Conversion between list of aliases to alias_set's and vice versa.
 :- pred from_pair_alias_list(list(alias)::in, alias_set::out) is det.
 :- pred to_pair_alias_list(alias_set::in, list(alias)::out) is det.
 
-	% projection-operations. Given a list or set of prog_vars, 
-	% keep only that part of the alias_set which relates to those
+	% Projection-operations. Given a list or set of prog_vars, 
+	% keep only that part of the alias_set that relates to those
 	% prog_vars. 
 :- pred project(list(prog_var)::in, alias_set::in, alias_set::out) is det. 
 :- pred project_set(set(prog_var)::in, alias_set::in, 
 		alias_set::out) is det.
 
-	% compute all the datastructures to which a certain datastruct
-	% is aliased. This returns a list of datastructs. 
+	% Compute all the datastructures that point to the same memory space
+	% occupied by a given data structure. 
 :- pred collect_aliases_of_datastruct(module_info::in, proc_info::in, 
 		pa_datastruct__datastruct::in, alias_set::in,
 		list(pa_datastruct__datastruct)::out) is det.
 
-	% rename the prog_vars occurring in the alias_set, using
-	% a map which maps the to-be-replaced-vars with unto the
+	% Rename the prog_vars occurring in the alias_set, using
+	% a map that maps the to-be-replaced-vars with on the
 	% new prog_vars. 
 :- pred rename(map(prog_var,prog_var)::in, alias_set::in, 
 		alias_set::out) is det. 
 	
-	% rename the types occurring in the alias_set, applying
+	% Rename the types occurring in the alias_set, applying
 	% the given substitution to each of the types encountered. 
 :- pred rename_types(term__substitution(tvar_type)::in, 
 		alias_set::in, alias_set::out) is det.
 
-	% equality test. Needed for the fixpoint computation. 
+	% Equality test. Needed for the fixpoint computation. 
 :- pred equal(alias_set::in, alias_set::in) is semidet. 
 
-	% compute the least upper bound of alias_sets.
+	% Compute the least upper bound of alias_sets.
 :- pred least_upper_bound(module_info::in, proc_info::in, 
 		alias_set::in, alias_set::in, alias_set::out) is det.
 :- pred least_upper_bound_list(module_info::in, proc_info::in, 
@@ -81,19 +73,21 @@
 	%			ComputedAliasSet). 
 	% Extend a given OldAliasSet with the information contained
 	% in the NewAliasSet. Note that order here is very important!
-	% The NewAliasSet is the alias_set which was computed for
+	% The NewAliasSet is the alias_set that was computed for
 	% one specific atom. This information needs to be computed
-	% with the aliases which already existed at the program point
-	% corresponding with this atom (the OldAliasSet). 
+	% with the aliases that already existed at the program point
+	% corresponding to this atom (the OldAliasSet). 
 	% ==> alternating closure.
 :- pred extend(module_info::in, proc_info::in, alias_set::in, 
 		alias_set::in, alias_set::out) is det.
 
-	% add two alias_sets together without bothering to extend
+	% Add two alias_sets together without bothering to extend
 	% one against the other. 
+	% XXX What makes this operation so different from the
+	% least_upper_bound? Check!
 :- pred add(alias_set::in, alias_set::in, alias_set::out) is det.
 	
-	% normalize all the selectors within the alias_set and
+	% Normalize all the selectors within the alias_set and
 	% simplify if necessary. 
 :- pred normalize(module_info::in, proc_info::in,  
 		alias_set::in, alias_set::out) is det.
@@ -102,15 +96,20 @@
 :- pred less_or_equal(module_info::in, proc_info::in, 
 		alias_set::in, alias_set::in) is semidet.
 
-	% remove all the information regading the given list of
+	% Remove all the information regarding the given list of
 	% variables. 
 :- pred remove_vars(list(prog_var)::in, alias_set::in, 
 		alias_set::out) is det. 
 
+	% Apply widening. The integer represents a threshold.  If the size of
+	% the set is larger than that threshold, widening is performed, in
+	% which case the boolean is set to "true". 
 :- pred apply_widening(module_info::in, proc_info::in, int::in, 
 		alias_set::in, alias_set::out, bool::out) is det.
 
-	% printing predicates
+%----------------------------------------------------------------------------%
+% printing predicates
+%----------------------------------------------------------------------------%
 
 	% print(PredInfo, ProcInfo, AliasSet, StartingString, EndString)
 	% Prints each alias as a parsable pair of datastructs, each
@@ -133,9 +132,6 @@
 
 :- implementation.
 
-%-----------------------------------------------------------------------------%
-%-- import module
-
 :- import_module possible_alias__pa_selector.
 
 :- import_module std_util.
@@ -145,9 +141,30 @@
 %-----------------------------------------------------------------------------%
 %-- type definitions
 
-	% the alias set is represented as a mapping: each prog_var is
-	% associated with a new set representing the structures with 	
-	% which is aliased. 
+% Example of how the aliases are represented:
+% 1. { (X^\epsilon - Y^\epsilon) } is represented as: 
+% 	alias_set(2, 		% size is two (as every alias is counted twice)
+% 	    { 
+%		X -> 
+%		   alias_sel_set(1,
+%			{ \epsilon -> Y^\epsilon }
+%			)
+%		Y -> 
+%		   alias_sel_set(1,
+%			{ \epsilon -> X^\epsilon }
+%			)
+% 	    }
+%	)
+% 
+% 
+
+	% In the alias_set we keep a mapping of every prog_var to a
+	% description of the aliases it is involved with. Each of these
+	% aliases is represented by yet another mapping. This time the
+	% mapping maps selectors on a data set. If (Sel-Data) is in the
+	% mapping for a variable V, then this means that V^Sel is aliased with
+	% each of the data structures kept in Data.
+	% We explicitly keep track of the size of the alias_set. 
 :- type alias_set ---> 
 		alias_set(
 			int, 		% total number of aliases 
@@ -157,52 +174,55 @@
 						% the actual mapping
 		). 
 
-	% the structures with which a variable can be aliased are
-	% represented by a new mapping: for each selector of that
-	% precise variable, we keep track of the datastructures
-	% with which it is aliased. 
 :- type alias_set2 ---> 
 		alias_sel_set(
-			int, 
+			int, 		% total number of data structures kept
+					% in the data_sets of the map. 
 			map(selector,data_set)
 		).
 
 :- type data_set --->
 		datastructs(
-			int, 
+			int, 		% size of the set of data structures.
 			set(datastruct)
 		).
 
 %-----------------------------------------------------------------------------%
 %-- predicate definitions
 
-pa_alias_set__init(Init) :- Init = pa_alias_set__init. 
-pa_alias_set__init = alias_set(0, map__init). 
-pa_alias_set__is_empty(alias_set(0, Map)):- map__is_empty(Map). 
-pa_alias_set__get_size(alias_set(Size, _) , Size).
+init(Init) :- Init = init. 
+init = alias_set(0, map__init). 
+is_empty(alias_set(0, Map)):- map__is_empty(Map). 
+		% XXX the test for the empty map shouldn't be necessary. 
 
-pa_alias_set__from_pair_alias_list(Aliases, AliasSet):- 
-	pa_alias_set__new_entries(Aliases, pa_alias_set__init, AliasSet). 
+size(alias_set(Size, _)) =  Size.
 
-:- pred pa_alias_set__new_entries(list(alias)::in, 
+from_pair_alias_list(Aliases, AliasSet):- 
+	new_entries(Aliases, init, AliasSet). 
+
+	% Add a list of alias-pairs into the given alias_set. Each alias (A-B)
+	% is in fact added twice: once as (A-B), and once as (B-A). 
+:- pred new_entries(list(alias)::in, 
 		alias_set::in, alias_set::out) is det.
-pa_alias_set__new_entries(Aliases, AliasSet0, AliasSet) :- 
+new_entries(Aliases, AliasSet0, AliasSet) :- 
 	list__foldl(
-		pa_alias_set__new_entry, 
+		new_entry, 
 		Aliases, 
 		AliasSet0, 
 		AliasSet). 
 
-	% Alias = From - To
-	% This will be entered as From = Var - Selector --> To in DataSet
-:- pred pa_alias_set__new_directed_entries(list(alias)::in, 
+	% Add a list of alias-pairs into the given alias_set, yet by taking
+	% into account the direction of the pairs. I.e. for each alias (A-B),
+	% only insert (A-B) and not (B-A) as would have been the case with
+	% procedure 'new_entries/3'. 
+:- pred new_directed_entries(list(alias)::in, 
 		alias_set::in, alias_set::out) is det.
-pa_alias_set__new_directed_entries(Aliases, AliasSet0, AliasSet):- 
+new_directed_entries(Aliases, AliasSet0, AliasSet):- 
 	list__foldl(
 		pred(A::in, S0::in, S::out) is det:- 
 		(
 			A = From - To,
-			pa_alias_set__new_entry(From, To, S0, S)
+			new_directed_entry(From, To, S0, S)
 		),
 		Aliases, 
 		AliasSet0, 
@@ -210,22 +230,25 @@ pa_alias_set__new_directed_entries(Aliases, AliasSet0, AliasSet):-
 			
 
 
-:- pred pa_alias_set__new_entry(alias::in, alias_set::in, 
+	% XXX This predicate should first check whether the new alias is not
+	% already subsumed by the aliases within the existing alias_set!
+	% Currently, this check is not done. 
+:- pred new_entry(alias::in, alias_set::in, 
 				alias_set::out) is det.
-pa_alias_set__new_entry(Alias, AliasSet0, AliasSet):- 
+new_entry(Alias, AliasSet0, AliasSet):- 
 	Alias = Data1 - Data2, 
-	pa_alias_set__new_entry(Data1, Data2, AliasSet0, AliasSet1), 
+	new_directed_entry(Data1, Data2, AliasSet0, AliasSet1), 
 	(
 		pa_datastruct__equal(Data1, Data2)
 	->
 		AliasSet = AliasSet1
 	;
-		pa_alias_set__new_entry(Data2, Data1, AliasSet1, AliasSet)
+		new_directed_entry(Data2, Data1, AliasSet1, AliasSet)
 	).
 
-:- pred pa_alias_set__new_entry(datastruct::in, datastruct::in, 
+:- pred new_directed_entry(datastruct::in, datastruct::in, 
 				alias_set::in, alias_set::out) is det.
-pa_alias_set__new_entry(FromData, ToData, AliasSet0, AliasSet):- 
+new_directed_entry(FromData, ToData, AliasSet0, AliasSet):- 
 	AliasSet0 = alias_set(Size0, Map0), 
 	get_var(FromData, Var), 
 	get_selector(FromData, Selector), 
@@ -247,12 +270,15 @@ pa_alias_set__new_entry(FromData, ToData, AliasSet0, AliasSet):-
 		alias_set2_empty(Selectors0),
 		alias_set2_new_entry(Selector, ToData, Selectors0, 
 				Selectors), 
-		map_det_insert(Map0, Var, Selectors, Map, 
-				"(pa_alias_set) pa_alias_set__new entry/4"), 
+		map__det_insert(Map0, Var, Selectors, Map), 
 		Size = Size0 + 1
 	), 
 	AliasSet = alias_set(Size, Map). 
 
+	% XXX I guess the result is a list in which each alias (A-B) appears
+	% twice if A != B, namely as (A-B) and (B-A).
+	% XXX Why are sets used here, and then converted to lists? Seems
+	% superfluous? 
 to_pair_alias_list(AliasSet, Aliases):- 
 	AliasSet = alias_set(_, Map), 
 	map__to_assoc_list(Map, Pairs), 
@@ -288,34 +314,35 @@ project(Vars, AliasSet0, AliasSet):-
 	AliasSet0 = alias_set(_, Map0), 
 	map__select(Map0, set__list_to_set(Vars), Map1),
 	map__foldl(
-		pred(Var::in, SelSet0::in, M0::in, M::out) is det :- 
+		pred(Var::in, SelSet0::in, S0::in, S::out) is det :- 
 		    (
 			alias_set2_project(Vars, SelSet0, SelSet), 
 			(
 				alias_set2_empty(SelSet)
 			->
-				M = M0
+				S = S0
 			;
-				map_det_insert(M0, Var, SelSet, M, 
-				"(pa_alias_set) project/3")
+		    		S0 = alias_set(Size0, M0), 	
+				map__det_insert(M0, Var, SelSet, M),
+				Size = Size0 +
+					alias_set2_size(SelSet),
+				S = alias_set(Size, M)
 			)
 		   ), 
 		Map1, 
-		map__init, 
-		Map), 
-	recount(alias_set(0, Map), AliasSet).
-		
+		pa_alias_set__init, 
+		AliasSet).
 
-:- pred pa_alias_set__recount(alias_set::in, alias_set::out) is det.
-
-pa_alias_set__recount(AliasSet0, AliasSet):-
+	% XXX check where they are used, and avoid these recounts if possible.
+	% The counters should be set correctly as soon as the set is altered. 
+:- pred recount(alias_set::in, alias_set::out) is det.
+recount(AliasSet0, AliasSet):-
 	AliasSet0 = alias_set(_, Map), 
 	map__foldl(
 		pred(_K::in, Selectors::in, 
 				Counter0::in, Counter::out) is det :- 
 		(
-			alias_set2_get_size(Selectors, S), 
-			Counter = Counter0 + S 
+			Counter = Counter0 + alias_set2_size(Selectors)
 		), 
 		Map, 
 		0, 
@@ -359,8 +386,7 @@ rename(Dict, AliasSet0, AliasSet):-
 					SelectorSet2, SelectorSet), 
 				map__det_update(M0, Var, SelectorSet, M)
 			; 
-				map_det_insert(M0, Var, SelectorSet1, M, 
-				"(pa_alias_set) rename/3")
+				map__det_insert(M0, Var, SelectorSet1, M)
 			)
 		   ),
 		Map0, 
@@ -404,11 +430,9 @@ least_upper_bound(ModuleInfo, ProcInfo, AliasSet0, AliasSet1, AliasSet):-
 		alias_set::out) is det.
 
 least_upper_bound2(ModuleInfo, ProcInfo, Map0, Map1, AliasSet):- 
-	map__keys(Map0, Vars), 
-	list__foldl(
-		pred(Var::in, M0::in, M::out) is det :- 
+	map__foldl(
+		pred(Var::in, SelectorSet0::in, M0::in, M::out) is det :- 
 		(
-			map__lookup(Map0, Var, SelectorSet0), 
 			(
 				map__search(M0, Var, SelectorSet1)
 			->
@@ -420,20 +444,19 @@ least_upper_bound2(ModuleInfo, ProcInfo, Map0, Map1, AliasSet):-
 					SelectorSet), 
 				map__det_update(M0, Var, SelectorSet, M)
 			;
-				map_det_insert(M0, Var, SelectorSet0, M, 
-				"(pa_alias_set) least_upper_bound2/5")
+				map__det_insert(M0, Var, SelectorSet0, M)
 			)
 		),
-		Vars,
+		Map0,
 		Map1, 
 		Map),
-	pa_alias_set__recount(alias_set(0, Map), AliasSet). 
+	recount(alias_set(0, Map), AliasSet). 
 	
 least_upper_bound_list(ModuleInfo, ProcInfo, List, AliasSet):-
 	list__foldl(
 		least_upper_bound(ModuleInfo, ProcInfo), 
 		List, 
-		pa_alias_set__init,
+		init,
 		AliasSet).
 
 extend(ModuleInfo, ProcInfo, NewAliasSet, OldAliasSet, AliasSet):- 
@@ -446,11 +469,16 @@ extend(ModuleInfo, ProcInfo, NewAliasSet, OldAliasSet, AliasSet):-
 	
 	% With the OldNewAliasSet, compute the NewOldNewAliasSet 
 	% in the same-way. 
+	% XXX This seems wrong. Instead of the last argument, the second last
+	% should be used, as we only want to use the NewOldNewAliasSet, while 
+	% FullNewOldNewAliasSet will contain also OldNewNew combinations,
+	% hence, not the alternating closure. 
+	% XXX To be checked!!!!
 	altclos_two(ModuleInfo, ProcInfo, OldNewAliasSet, NewAliasSet, 
 		_, FullNewOldNewAliasSet), 
 
 	list__foldl(
-		pa_alias_set__add,
+		add,
 		[ NewAliasSet, FullOldNewAliasSet, 
 		  FullNewOldNewAliasSet ], 
 		OldAliasSet, 
@@ -477,7 +505,7 @@ altclos_two(ModuleInfo, ProcInfo, NewAliasSet, OldAliasSet,
 			map__lookup(VarTypes, Var, Type), 	
 			map__lookup(NewMap, Var, NewSelectorSet), 
 			map__lookup(OldMap, Var, OldSelectorSet), 
-			alias_set2_altclos(ModuleInfo, ProcInfo, 
+			pa_alias_set__alias_set2_altclos(ModuleInfo, ProcInfo, 
 					Type, NewSelectorSet, OldSelectorSet,
 					DirectedAliases), 
 				% Directed = FromOld to ToNew
@@ -565,32 +593,28 @@ add(AliasSet0, AliasSet1, AliasSet):-
 				SelectorSet), 
 			map__det_update(M0, Var, SelectorSet, M)
 		    ; 
-			map_det_insert(M0, Var, SelectorSet0, M, 
-				"(pa_alias_set) add/3")
+			map__det_insert(M0, Var, SelectorSet0, M)
 		), 
 		Map0, 
 		Map1, 
 		Map), 	
-	pa_alias_set__recount(alias_set(0,Map), AliasSet).
+	recount(alias_set(0,Map), AliasSet).
 	
 normalize(ModuleInfo, ProcInfo, AliasSet0, AliasSet) :- 
 	proc_info_vartypes(ProcInfo, VarTypes), 
 	AliasSet0 = alias_set(_, Map0), 
-	map__keys(Map0, Vars), 
-	list__foldl(
-		pred(Var::in, M0::in, M::out) is det :- 
+	map__foldl(
+		pred(Var::in, SelectorSet0::in, M0::in, M::out) is det :- 
 		(
-			map__lookup(Map0, Var, SelectorSet0), 
 			map__lookup(VarTypes, Var, VarType), 
 			alias_set2_normalize(ModuleInfo, ProcInfo, VarType, 
 				SelectorSet0, SelectorSet), 
-			map_det_insert(M0, Var, SelectorSet, M, 
-				"(pa_alias_set) normalize/4")
+			map__det_insert(M0, Var, SelectorSet, M)
 		), 
-		Vars, 
+		Map0, 
 		map__init, 
 		Map), 
-	pa_alias_set__recount(alias_set(0, Map), AliasSet).
+	recount(alias_set(0, Map), AliasSet).
 
 less_or_equal(ModuleInfo, ProcInfo, AliasSet1, AliasSet2):- 
 	AliasSet1 = alias_set(_, Map1), 
@@ -621,9 +645,8 @@ apply_widening(ModuleInfo, ProcInfo, Threshold, AliasSet0, AliasSet,
 		Threshold \= 0
 	-> 
 		normalize(ModuleInfo, ProcInfo, AliasSet0, AliasSet01),
-		get_size(AliasSet01, Size),
 		(
-			Size > Threshold
+			size(AliasSet01) > Threshold
 		-> 
 			alias_set_map_values_with_key(
 				alias_set2_apply_widening(ModuleInfo, ProcInfo),
@@ -645,7 +668,7 @@ print(PredInfo, ProcInfo, AliasSet, StartingString, EndString) -->
 
 print(PredInfo, ProcInfo, AliasSet, StartingString, MiddleString, 
 		EndString) --> 
-	{ pa_alias_set__to_pair_alias_list(AliasSet, AliasList) },
+	{ to_pair_alias_list(AliasSet, AliasList) },
 	io__write_list(AliasList, MiddleString, 
 		pa_alias__print(ProcInfo, PredInfo, StartingString, 
 			EndString)).
@@ -702,7 +725,7 @@ alias_set_map_values_with_key(Pred, AliasSet0, AliasSet) :-
 			alias_set2::in, bool::out, alias_set2::out) is det.
 :- pred alias_set2_new_entry(selector::in, datastruct::in, 
 			alias_set2::in, alias_set2::out) is det.
-:- pred alias_set2_get_size(alias_set2::in, int::out) is det.
+:- func alias_set2_size(alias_set2) = int.
 :- pred alias_set2_unfold(alias_set2::in, 
 			list(pair(selector, datastruct))::out) is det.
 :- pred alias_set2_project(list(prog_var)::in, alias_set2::in, 
@@ -751,15 +774,14 @@ alias_set2_new_entry(Selector, Datastruct, AliasSet0, Added, AliasSet):-
 		data_set_new_entry(Datastruct, EmptyDataSet, DataSet), 
 		Size = Size0 + 1, 
 		Added = yes,
-		map_det_insert(Map0, Selector, DataSet, Map, 
-			"(pa_alias_set) alias_set2_new_entry/5")
+		map__det_insert(Map0, Selector, DataSet, Map)
 	), 
 	AliasSet = alias_sel_set(Size, Map). 
 
 alias_set2_new_entry(Selector, Datastruct, AliasSet0, AliasSet):-
 	alias_set2_new_entry(Selector, Datastruct, AliasSet0, _, AliasSet).
 
-alias_set2_get_size(alias_sel_set(Size, _), Size). 
+alias_set2_size(alias_sel_set(Size, _)) = Size. 
 alias_set2_unfold(AliasSet, List):- 
 	AliasSet = alias_sel_set(_, Map), 
 	map__to_assoc_list(Map, Pairs), 
@@ -792,8 +814,7 @@ alias_set2_project(Vars, AliasSet0, AliasSet):-
 			->
 				M0 = M
 			;
-				map_det_insert(M0, Sel0, DataSet, M, 
-				"(pa_alias_set) alias_set2_project/3")
+				map__det_insert(M0, Sel0, DataSet, M)
 			)
 		), 
 		Map0, 
@@ -808,8 +829,7 @@ alias_set2_recount(AliasSet0, AliasSet):-
 		pred(_K::in, DataSet::in, 
 				Counter0::in, Counter::out) is det :- 
 		(
-			data_set_get_size(DataSet, S), 
-			Counter = Counter0 + S 
+			Counter = Counter0 + data_set_size(DataSet)
 		), 
 		Map, 
 		0, 
@@ -821,16 +841,14 @@ alias_set2_rename(Dict, AliasSet0, AliasSet):-
 
 alias_set2_rename_types(Subst, AliasSet0, AliasSet):- 
 	AliasSet0 = alias_sel_set(Size, Map0), 
-	map__to_assoc_list(Map0, AssocList0), 
-	list__foldl(
-		pred(Pair::in, M0::in, M::out) is det :-
+	map__foldl(
+		pred(Sel0::in, DataSet0::in, M0::in, M::out) is det :-
 		(
-			Pair = Sel0 - DataSet0, 
 			pa_selector__rename_types(Subst, Sel0, Sel), 
 			data_set_rename_types(Subst, DataSet0, DataSet), 
 			map__det_insert(M0, Sel, DataSet, M)
 		), 
-		AssocList0, 
+		Map0,
 		map__init, 
 		Map), 
 	AliasSet = alias_sel_set(Size, Map). 
@@ -853,11 +871,9 @@ alias_set2_equal2([ Sel0 | Sels ], [ DataSet0 | DataSets ], Map0):-
 alias_set2_add(AliasSet0, AliasSet1, AliasSet):- 
 	AliasSet0 = alias_sel_set(_, Map0), 
 	AliasSet1 = alias_sel_set(_, Map1),
-	map__to_assoc_list(Map0, Pairs), 
-	list__foldl(
-		pred(Pair::in, M0::in, M::out) is det :-
+	map__foldl(
+		pred(Sel::in, DataSet0::in, M0::in, M::out) is det :-
 		(
-			Pair = Sel - DataSet0, 
 			(
 				map__search(M0, Sel, DataSet1)
 			->
@@ -867,7 +883,7 @@ alias_set2_add(AliasSet0, AliasSet1, AliasSet):-
 				map__det_insert(M0, Sel, DataSet0, M)
 			)
 		),
-		Pairs, 
+		Map0, 
 		Map1, 
 		Map), 
 	alias_set2_recount(alias_sel_set(0, Map), AliasSet).
@@ -885,9 +901,8 @@ alias_set2_map_values(Pred, AliasSet0, AliasSet):-
 alias_set2_collect_aliases(ModuleInfo, Type, 
 				Selector, SelectorSet, Datastructs):- 
 	SelectorSet = alias_sel_set(_Size, Map), 
-	map__keys(Map, Selectors), 
-	list__foldl(
-		pred(Sel::in, Data0::in, Data::out) is det:-
+	map__foldl(
+		pred(Sel::in, DataSet0::in, Data0::in, Data::out) is det:-
 		(
 			% if Sel is more general than Selector, i.e.
 			% Selector = Sel.Extension, apply this extension
@@ -896,7 +911,6 @@ alias_set2_collect_aliases(ModuleInfo, Type,
 				less_or_equal(ModuleInfo,  Selector,
 					Sel, Type, Extension)
 			->
-				map__lookup(Map, Sel, DataSet0), 
 				data_set_termshift(DataSet0, Extension, 
 					DataSet),
 				data_set_add(Data0, DataSet, Data)
@@ -904,7 +918,7 @@ alias_set2_collect_aliases(ModuleInfo, Type,
 				Data = Data0
 			)
 		), 
-		Selectors, 
+		Map, 
 		data_set_empty, 
 		CollectedDataSet), 
 	data_set_get_datastructs(CollectedDataSet, Datastructs).
@@ -913,10 +927,9 @@ alias_set2_least_upper_bound(ModuleInfo, Type,
 		SelectorSet0, SelectorSet1, SelectorSet):- 
 	SelectorSet0 = alias_sel_set(_Size0, Map0), 
 	SelectorSet1 = alias_sel_set(_Size1, Map1),
-	map__to_assoc_list(Map0, Assoc0), 
-	list__foldl(
+	map__foldl(
 		alias_set2_lub(ModuleInfo, Type),
-		Assoc0, 
+		Map0, 
 		Map1,
 		Map),
 	alias_set2_add(alias_sel_set(0,Map), SelectorSet0, SelectorSet).
@@ -928,12 +941,11 @@ alias_set2_least_upper_bound(ModuleInfo, Type,
 	% not contain superfluous entries, e.g. Hv1/[] - Hv2/[] and
 	% in the same time Hv1/el - Hv2/el .
 :- pred alias_set2_lub(module_info::in, (type)::in,
-			pair(selector,data_set)::in, 
+			selector::in, data_set::in, 
 			map(selector, data_set)::in, 
 			map(selector, data_set)::out) is det.
-alias_set2_lub(ModuleInfo, Type, Pair0, M0, M):- 
+alias_set2_lub(ModuleInfo, Type, Sel0, DataSet0, M0, M):- 
 	map__keys(M0, Selectors), 
-	Pair0 = Sel0 - DataSet0,
 	list__foldl2(
 		alias_set2_lub2(ModuleInfo, Type, Sel0),	
 		Selectors, 
@@ -1012,13 +1024,11 @@ alias_set2_lub2(ModuleInfo, Type, FirstSel0, OtherSel,
 alias_set2_normalize(ModuleInfo, ProcInfo, Type, SelectorSet0, 
 				SelectorSet):- 
 	SelectorSet0 = alias_sel_set(_, Map0), 
-	map__keys(Map0, Selectors), 
-	list__foldl(
-		pred(Sel0::in, M0::in, M::out) is det:- 
+	map__foldl(
+		pred(Sel0::in, DataSet0::in, M0::in, M::out) is det:- 
 		(
 			pa_selector__normalize_wti(Type, ModuleInfo, 
 					Sel0, Sel0Norm), 
-			map__lookup(Map0, Sel0, DataSet0), 
 			data_set_normalize(ModuleInfo, ProcInfo,  
 					DataSet0, DataSet1), 
 			(
@@ -1030,7 +1040,7 @@ alias_set2_normalize(ModuleInfo, ProcInfo, Type, SelectorSet0,
 				map__det_insert(M0, Sel0Norm, DataSet1, M)
 			)
 		),
-		Selectors, 
+		Map0, 
 		map__init, 
 		Map),
 	alias_set2_recount(alias_sel_set(0, Map), SelectorSet). 
@@ -1038,11 +1048,9 @@ alias_set2_normalize(ModuleInfo, ProcInfo, Type, SelectorSet0,
 
 alias_set2_remove_vars(Vars, SelectorSet0, SelectorSet):- 
 	SelectorSet0 = alias_sel_set(_, Map0), 
-	map__keys(Map0, Selectors0), 
-	list__foldl(
-		pred(Sel0::in, M0::in, M::out) is det :- 
+	map__foldl(
+		pred(Sel0::in, DataSet0::in, M0::in, M::out) is det :- 
 		(
-			map__lookup(Map0, Sel0, DataSet0),
 			data_set_remove_vars(Vars, DataSet0, DataSet), 
 			(
 				data_set_empty(DataSet)
@@ -1052,7 +1060,7 @@ alias_set2_remove_vars(Vars, SelectorSet0, SelectorSet):-
 				map__det_insert(M0, Sel0, DataSet, M)
 			)
 		), 
-		Selectors0, 
+		Map0, 
 		map__init, 
 		Map), 
 	alias_set2_recount(alias_sel_set(0, Map), SelectorSet).
@@ -1060,12 +1068,10 @@ alias_set2_remove_vars(Vars, SelectorSet0, SelectorSet):-
 alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar, 
 		SelectorSet0, SelectorSet):- 
 	SelectorSet0 = alias_sel_set(_, Map0), 
-	map__keys(Map0, Selectors),
-	list__foldl(
-		pred(Sel0::in, M0::in, M::out) is det:- 
+	map__foldl(
+		pred(Sel0::in, DataSet0::in, M0::in, M::out) is det:- 
 		(
 			% widening of the associated datastructures
-			map__lookup(Map0, Sel0, DataSet0), 
 			data_set_apply_widening(ModuleInfo, ProcInfo, 
 				DataSet0, DataSet1), 
 
@@ -1089,7 +1095,7 @@ alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar,
 			), 
 			map__set(M0, Sel, DataSet, M)
 		),
-		Selectors,
+		Map0,
 		map__init, 
 		Map1), 
 	% the precaution of checking whether the widened selector might
@@ -1113,7 +1119,7 @@ alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar,
 				bool::out, data_set::out) is det.
 :- pred data_set_new_entry(datastruct::in, data_set::in, data_set::out) is det.
 :- pred data_set_member(datastruct::in, data_set::in) is semidet.
-:- pred data_set_get_size(data_set::in, int::out) is det.
+:- func data_set_size(data_set) = int.
 :- pred data_set_get_datastructs(data_set::in, list(datastruct)::out) is det.
 :- pred data_set_project(list(prog_var)::in, 
 				data_set::in, data_set::out) is det.
@@ -1157,8 +1163,7 @@ data_set_member(Data, DataSet) :-
 	DataSet = datastructs(N, DataStructs), 
 	N \= 0,
 	set__member(Data, DataStructs). 
-data_set_get_size(DataSet, Size):- 
-	DataSet = datastructs(Size, _). 
+data_set_size(datastructs(Size,_)) = Size. 
 data_set_get_datastructs(DataSet, ListDatastructs):- 
 	DataSet = datastructs(_, SetDatastructs), 
 	set__to_sorted_list(SetDatastructs, ListDatastructs). 
@@ -1287,16 +1292,4 @@ set_cross_product(Set0, Set1, CrossProduct):-
 		CrossProduct).
 
 %-----------------------------------------------------------------------------%
-
-:- pred map_det_insert(map(K,V)::in, K::in, V::in, 
-			map(K,V)::out, string::in) is det.
-map_det_insert(Map0, K, V, Map, Msg) :- 
-	(
-		map__insert(Map0, K, V, Map1)
-	->
-		Map = Map1
-	; 
-		string__append_list([ Msg, ": map_det_insert-problem"], Msg2),
-		require__error(Msg2)
-	). 
 

@@ -12,7 +12,6 @@
 
 :- include_module pa_alias.
 :- include_module pa_alias_as.
-:- include_module pa_alias_set.
 :- include_module pa_datastruct.
 :- include_module pa_prelim_run.
 :- include_module pa_run.

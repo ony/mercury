@@ -65,14 +65,9 @@
 
 	% Extend the current data structure to the full set of data
 	% structures referring to the same memory space. 
-	% This partially corresponds to the "extend" operation used in Nancy's
-	% Phd. The difference is that the extend operation will also return the
-	% data structures that share with subterms of the original data
-	% structure, while this operation returns only those data structures
-	% that share with the complete term pointed at by the original data
-	% structure. 
-	% The operation produces a software error when called with a top alias
-	% description. 
+	% This corresponds to the "extend" operation used in Nancy's Phd. 
+	% The operation produces a software error when called with
+	% a top alias description. 
 :- pred collect_aliases_of_datastruct(module_info::in, proc_info::in, 
 		pa_datastruct__datastruct::in, alias_as::in, 
 		list(pa_datastruct__datastruct)::out) is det.
@@ -119,6 +114,11 @@
 	% XXX Ideally, equal should be defined as A1 <= A2, and A2 <= A1 (where
 	% "<=" means "less or equal"). This is currently not the case. Replace,
 	% and check whether the same results are still obtained. 
+	% This means that the implementation of the procedures "equal",
+	% "less_or_equal" and "least_upper_bound" need to be checked. The
+	% central operation should be "less_or_equal". In the current
+	% implementation, less_or_equal relies on "least_upper_bound" and
+	% "equal". 
 :- pred equal(alias_as::in, alias_as::in) is semidet.
 
 	% less_or_equal(ModuleInfo, ProcInfo, AliasAs1, AliasAs2). 
@@ -189,6 +189,10 @@
 	% variables (?). 
 	% XXX The instmap is clearly not used. What was the initial idea of
 	% passing the instmap? To be checked.
+	% XXX This operation should eventually be dropped altogether. We should
+	% try to keep a compact representation all the time. But this may mean
+	% that the module_info needs to be passed around for each update of the
+	% alias_sets... hmmm, needs some more thinking. 
 :- pred normalize(module_info::in, proc_info::in, instmap::in, 
 		alias_as::in, alias_as::out) is det.
 
@@ -288,13 +292,14 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
+:- include_module pa_alias_set.
 :- import_module check_hlds__inst_match.
 :- import_module check_hlds__mode_util.
 :- import_module check_hlds__type_util.
 :- import_module hlds__hlds_llds.
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module possible_alias__pa_alias.
-:- import_module possible_alias__pa_alias_set.
+:- import_module possible_alias__pa_alias_as__pa_alias_set.
 :- import_module possible_alias__pa_selector. 
 :- import_module possible_alias__pa_sr_util.
 :- import_module possible_alias__pa_util.
@@ -327,7 +332,7 @@ init(bottom).
 
 	% is_bottom
 is_bottom(bottom).
-is_bottom(real_as(AliasSet)):- pa_alias_set__is_empty(AliasSet).
+is_bottom(real_as(AliasSet)):- is_empty(AliasSet).
 
 	% top
 top(Msg, top([NewMsg])):- 
@@ -362,15 +367,14 @@ is_top(top(_)).
 
 size(bottom) = 0.
 size(top(_)) = 9999999.
-size(real_as(AliasSet)) = L :- 
-	pa_alias_set__get_size(AliasSet, L). 
+size(real_as(AliasSet)) = size(AliasSet). 
 
 	% project
 project(Listvar, ASin , ASout):-
 	(
 		ASin = real_as(AliasSet0)
 	->
-		pa_alias_set__project(Listvar, AliasSet0, AliasSet), 
+		project(Listvar, AliasSet0, AliasSet), 
 		wrap(AliasSet, ASout)
 	;
 		% ASin is bottom or top(_)
@@ -397,7 +401,7 @@ collect_aliases_of_datastruct(ModuleInfo, ProcInfo, Datastruct, AS,
 	(
 		AS = real_as(AliasSet)
 	->
-		pa_alias_set__collect_aliases_of_datastruct(ModuleInfo, 
+		collect_aliases_of_datastruct(ModuleInfo, 
 			ProcInfo, Datastruct, AliasSet, AliasList)
 	;
 		is_bottom(AS)
@@ -424,7 +428,7 @@ rename(MapVar, ASin, ASout):-
 	(
 		ASin = real_as(Aliases)
 	->
-		pa_alias_set__rename(MapVar, Aliases, RAliases), 
+		rename(MapVar, Aliases, RAliases), 
 		wrap(RAliases, ASout)
 	;
 		% ASin is bottom or top(_)
@@ -439,7 +443,7 @@ rename_types(FromTypes, ToTypes, ASin, ASout) :-
 				FromToTypes), 
 		list__foldl(rename_type_det, FromToTypes, 
 				map__init, Substitution), 
-		pa_alias_set__rename_types(Substitution, AliasSet0, 
+		rename_types(Substitution, AliasSet0, 
 				AliasSet),
 		ASout = real_as(AliasSet)
 	; 
@@ -450,7 +454,7 @@ rename_types(Substitution, A0, A) :-
 	(
 		A0 = real_as(AliasSet0)
 	-> 
-		pa_alias_set__rename_types(Substitution, AliasSet0, 
+		rename_types(Substitution, AliasSet0, 
 				AliasSet), 
 		A = real_as(AliasSet)
 	; 
@@ -462,7 +466,7 @@ equal(AS1, AS2):-
 	(
 		AS1 = real_as(AliasSet1),
 		AS2 = real_as(AliasSet2), 
-		pa_alias_set__equal(AliasSet1, AliasSet2)
+		equal(AliasSet1, AliasSet2)
 	;
 		% AS1 is bottom or top(_)
 		(AS1 = bottom, AS2 = bottom)
@@ -478,7 +482,7 @@ less_or_equal(ModuleInfo, ProcInfo, AS1, AS2):-
 	(
 		AS1 = real_as(AliasSet1),
 		AS2 = real_as(AliasSet2),
-		pa_alias_set__less_or_equal(ModuleInfo, ProcInfo, 
+		less_or_equal(ModuleInfo, ProcInfo, 
 				AliasSet1, AliasSet2) 
 	;
 		(AS1 = bottom ; AS2 = top(_))
@@ -491,7 +495,7 @@ least_upper_bound(HLDS, ProcInfo, AS1, AS2, RESULT) :-
 		(
 			AS2 = real_as(AliasSet2)
 		->
-			pa_alias_set__least_upper_bound(HLDS, ProcInfo, 
+			least_upper_bound(HLDS, ProcInfo, 
 				AliasSet1, AliasSet2, AliasSet), 
 			wrap_and_control(HLDS, ProcInfo, AliasSet, RESULT)
 		;
@@ -528,7 +532,7 @@ extend(HLDS, ProcInfo, A1, A2, RESULT):-
 		(
 			A2 = real_as(OLD)
 		->
-			pa_alias_set__extend(HLDS, ProcInfo, 
+			extend(HLDS, ProcInfo, 
 				NEW, OLD, Aliases),
 			wrap_and_control(HLDS, ProcInfo, Aliases, RESULT)
 		;
@@ -562,7 +566,7 @@ add(AS1, AS2, AS) :-
 		(
 			AS2 = real_as(AliasSet2)
 		->
-			pa_alias_set__add(AliasSet1, AliasSet2, AliasSet), 
+			add(AliasSet1, AliasSet2, AliasSet), 
 			AS = real_as(AliasSet)
 		;
 			AS2 = bottom
@@ -584,7 +588,7 @@ add(AS1, AS2, AS) :-
 %-----------------------------------------------------------------------------%
 extend_unification(HLDS, ProcInfo, Unif, GoalInfo, ASin, ASout):-
 	pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif),
-	pa_alias_set__from_pair_alias_list(AUnif, AliasSetUnif), 
+	from_pair_alias_list(AUnif, AliasSetUnif), 
 	wrap(AliasSetUnif, ASUnif),
 	extend(HLDS, ProcInfo, ASUnif, ASin, ASout0), 
 	(
@@ -613,7 +617,7 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 		->
 		 	ASout = ASin
 		;
-			pa_alias_set__remove_vars(DeathsList, Aliases0, 
+			remove_vars(DeathsList, Aliases0, 
 				Aliases), 
 			wrap(Aliases, ASout)
 		)
@@ -852,7 +856,7 @@ normalize_wti(HLDS, ProcInfo, ASin, ASout):-
 	(
 		ASin = real_as(Aliases0)
 	->
-		pa_alias_set__normalize(HLDS, ProcInfo, Aliases0, 
+		normalize(HLDS, ProcInfo, Aliases0, 
 				Aliases), 
 		wrap(Aliases, ASout)
 	;
@@ -886,7 +890,7 @@ print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo) -->
 		{ AS = real_as(Aliases) }
 	->
 		io__nl, 
-		pa_alias_set__print(PredInfo, ProcInfo, Aliases, 
+		print(PredInfo, ProcInfo, Aliases, 
 				RepeatingStart, ",\n", "")
 	;
 		{ AS = top(Msgs) }
@@ -922,7 +926,7 @@ print_aliases(AS, ProcInfo, PredInfo) -->
 		{ AS = real_as(Aliases) }
 	->
 		io__write_string("["),
-		pa_alias_set__print(PredInfo, ProcInfo, Aliases, 
+		print(PredInfo, ProcInfo, Aliases, 
 				" ", ""),
 		io__write_string("]")
 	;
@@ -960,7 +964,7 @@ parse_read_aliases_from_single_term(OneITEM, AS) :-
 			CONS = "[|]"
 		->
 			parse_list_alias_term(OneITEM, Aliases),
-			pa_alias_set__from_pair_alias_list(Aliases, 
+			from_pair_alias_list(Aliases, 
 					AliasSet), 
 			wrap(AliasSet, AS)
 			% AS = bottom
@@ -1062,7 +1066,7 @@ parse_user_declared_aliases_2(ListTerm, AliasAS):-
 	-> 
 		list__map(parse_single_user_declared_alias, 
 				AllTerms, AliasList),
-		pa_alias_set__from_pair_alias_list(AliasList, AliasSet),
+		from_pair_alias_list(AliasList, AliasSet),
 		wrap(AliasSet, AliasAS)
 	;
 		error("(pa_alias_as) parse_user_declared_aliases_2: term not a functor")
@@ -1154,7 +1158,7 @@ to_user_declared_aliases( aliasing(MaybeTypes, TypeVarSet, real_as(AliasSet)),
 	;
 		TypesString = "no"
 	), 
-	pa_alias_set__to_pair_alias_list(AliasSet, AliasList), 
+	to_pair_alias_list(AliasSet, AliasList), 
 	alias_list_to_user_declared_aliases(AliasList, 
 			ProgVarSet, TypeVarSet, AliasString0), 
 	string__append_list(["[",AliasString0,"]"], AliasString), 
@@ -1198,12 +1202,12 @@ alias_to_user_declared_alias(Alias, ProgVarSet, TypeVarSet, String):-
 %-----------------------------------------------------------------------------%
 % Extra 
 %-----------------------------------------------------------------------------%
-:- pred wrap(pa_alias_set__alias_set, alias_as).
+:- pred wrap(alias_set, alias_as).
 :- mode wrap(in, out) is det.
 
 wrap(AliasSet, AS) :-
 	(
-		pa_alias_set__get_size(AliasSet, 0) 
+		is_empty(AliasSet)
 	->
 		AS = bottom
 	;
@@ -1241,7 +1245,7 @@ apply_widening(ModuleInfo, ProcInfo, Threshold, A0, A, Widening) :-
 	(	A0 = bottom, A = bottom, Widening = no
 	; 	A0 = top(_), A = A0, Widening = no
 	; 	A0 = real_as(AliasSet0), 
-		pa_alias_set__apply_widening(ModuleInfo, ProcInfo, 
+		apply_widening(ModuleInfo, ProcInfo, 
 			Threshold, AliasSet0, AliasSet, Widening), 
 		A = real_as(AliasSet)
 	).
@@ -1274,7 +1278,7 @@ live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 		% most general case
 		AS = real_as(AliasSet)
 	->
-		pa_alias_set__to_pair_alias_list(AliasSet, Aliases), 
+		to_pair_alias_list(AliasSet, Aliases), 
 		live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, Aliases, LIVE)
 	;
 		error("(pa_alias_as) live: impossible situation.")	
