@@ -45,8 +45,6 @@
 % [ ] Computed gotos need testing.
 % [ ] :- extern doesn't work -- it needs to be treated like pragma c code.
 % [ ] nested modules need testing
-% [ ] We generate too many castclasses, it would be good to check if we
-%     really to do it before generating it.  Same with isinst.
 % [ ] Implement pragma export.
 % [ ] Fix issues with abstract types so that we can implement C
 %     pointers as MR_Box rather than MR_Word.
@@ -196,7 +194,7 @@
 %-----------------------------------------------------------------------------%
 
 generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
-	mlds(MercuryModuleName, _, Imports, Defns)= transform_mlds(MLDS),
+	mlds(MercuryModuleName, _, Imports, Defns) = transform_mlds(MLDS),
 
 	ModuleName = mercury_module_name_to_mlds(MercuryModuleName),
 	prog_out__sym_name_to_string(mlds_module_name_to_sym_name(ModuleName),
@@ -208,7 +206,9 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 	globals__io_lookup_bool_option(il_byref_tailcalls, ByRefTailCalls,
 			IO3, IO4),
 	globals__io_lookup_bool_option(sign_assembly, SignAssembly,
-			IO4, IO),
+			IO4, IO5),
+	globals__io_lookup_bool_option(separate_assemblies, SeparateAssemblies,
+			IO5, IO),
 
 	IlInfo0 = il_info_init(ModuleName, AssemblyName, Imports,
 			ILDataRep, DebugIlAsm, VerifiableCode, ByRefTailCalls),
@@ -219,7 +219,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 	ForeignLangs = IlInfo ^ file_foreign_langs,
 
 	ClassName = mlds_module_name_to_class_name(ModuleName),
-	ClassName = structured_name(_, NamespaceName),
+	ClassName = structured_name(_, NamespaceName, _),
 
 		% Make this module an assembly unless it is in the standard
 		% library.  Standard library modules all go in the one
@@ -234,11 +234,15 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 	;
 			% If the package name is qualified then the
 			% we have a sub-module which shouldn't be placed
-			% in its own assembly.
-		( PackageName = unqualified(_) ->
-			ThisAssembly = [assembly(AssemblyName)]
-		;
+			% in its own assembly provided we have
+			% --no-separate-assemblies
+		(
+			PackageName = qualified(_, _),
+			SeparateAssemblies = no
+		->
 			ThisAssembly = []
+		;
+			ThisAssembly = [assembly(AssemblyName)]
 		),
 
 			% XXX at a later date we should make foreign
@@ -255,7 +259,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 			ForeignCodeAssemblerRefs),
 		AssemblerRefs = list__append(ForeignCodeAssemblerRefs, Imports)
 	),
-	generate_extern_assembly(AssemblyName, SignAssembly,
+	generate_extern_assembly(AssemblyName, SignAssembly, SeparateAssemblies,
 			AssemblerRefs, ExternAssemblies),
 	Namespace = [namespace(NamespaceName, ILDecls)],
 	ILAsm = list__condense([ThisAssembly, ExternAssemblies, Namespace]).
@@ -280,9 +284,10 @@ transform_mlds(MLDS0) = MLDS :-
 			; D = mlds__defn(_, _, _, mlds__data(_, _))
 			)
 		), MLDS0 ^ defns, MercuryCodeMembers, Others),
-	MLDS = MLDS0 ^ defns := [wrapper_class(
-			list__map(rename_defn, MercuryCodeMembers)) | 
-			list__map(rename_defn, Others)].
+	WrapperClass = wrapper_class(list__map(rename_defn, MercuryCodeMembers)),
+		% Note that ILASM requires that the type definitions in Others
+		% must precede the references to those types in WrapperClass.
+	MLDS = MLDS0 ^ defns := list__map(rename_defn, Others) ++ [WrapperClass].
 
 
 :- func wrapper_class(mlds__defns) = mlds__defn.
@@ -490,12 +495,12 @@ mlds_defn_to_ilasm_decl(defn(_Name, _Context, _Flags,
 		function(_MaybePredProcId, _Params, _MaybeStmts, _Attrs)),
 		_Decl, Info, Info) :-
 	sorry(this_file, "top level function definition!").
-mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags0, class(ClassDefn)),
+mlds_defn_to_ilasm_decl(defn(Name, Context, Flags0, class(ClassDefn)),
 		Decl, Info0, Info) :-
 	il_info_new_class(ClassDefn, Info0, Info1),
 
-	generate_class_body(Name, ClassDefn, ClassName, EntityName, Extends,
-			Interfaces, MethodsAndFieldsAndCtors, Info1, Info2),
+	generate_class_body(Name, Context, ClassDefn, ClassName, EntityName,
+		Extends, Interfaces, MethodsAndFieldsAndCtors, Info1, Info2),
 
 		% Only the wrapper class needs to have the
 		% initialization instructions executed by the class
@@ -527,7 +532,7 @@ mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags0, class(ClassDefn)),
 		% when that assembly is created by al.exe.
 		% This occurs for nondet environment classes in the
 		% mercury std library.
-	( ClassName = structured_name(assembly("mercury"), _) ->
+	( ClassName = structured_name(assembly("mercury"), _, _) ->
 		Flags = set_access(Flags0, public)
 	;
 		Flags = Flags0
@@ -535,29 +540,55 @@ mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags0, class(ClassDefn)),
 	Decl = class(decl_flags_to_classattrs(Flags), EntityName, Extends,
 			Interfaces, merge_properties(MethodDecls)).
 
-:- pred generate_class_body(mlds__entity_name::in, mlds__class_defn::in,
+:- pred generate_class_body(mlds__entity_name::in, mlds__context::in,
+		mlds__class_defn::in,
 		ilds__class_name::out, ilds__id::out, extends::out,
 		implements::out, list(class_member)::out,
 		il_info::in, il_info::out) is det.
 
-generate_class_body(Name, ClassDefn, ClassName, EntityName, Extends, Interfaces,
-		ClassDecls, Info0, Info) :-
+generate_class_body(Name, Context, ClassDefn,
+		ClassName, EntityName, Extends, Interfaces, ClassDecls,
+		Info0, Info) :-
 	EntityName = entity_name_to_ilds_id(Name),
 	ClassDefn = class_defn(Kind, _Imports, Inherits, Implements,
-			Ctors, Members),
+			Ctors0, Members),
 	Parent - Extends = generate_parent_and_extends(Info0 ^ il_data_rep,
 			Kind, Inherits),
 	Interfaces = implements(
 			list__map(interface_id_to_class_name, Implements)),
-
 	ClassName = class_name(Info0 ^ module_name, EntityName),
 	list__map_foldl(generate_method(ClassName, no), Members,
 			MethodsAndFields, Info0, Info1),
+	Ctors = maybe_add_empty_ctor(Ctors0, Kind, Context),
 	list__map_foldl(generate_method(ClassName, yes(Parent)), Ctors,
 			IlCtors, Info1, Info),
 	ClassDecls = list__condense(IlCtors) ++
 			list__condense(MethodsAndFields).
 
+	% For IL, every class needs a constructor,
+	% otherwise you can't use the newobj instruction to
+	% allocate instances of the class.
+	% So if a class doesn't already have one, we add an empty one.
+:- func maybe_add_empty_ctor(mlds__defns, mlds__class_kind, mlds__context) =
+	mlds__defns.
+maybe_add_empty_ctor(Ctors0, Kind, Context) = Ctors :-
+	(
+		Kind = mlds__class,
+		Ctors0 = [] 
+	->
+		% Generate an empty block for the body of the constructor.
+		Stmt = mlds__statement(block([], []), Context),
+
+		Ctor = mlds__function(no, func_params([], []),
+				defined_here(Stmt), []),
+		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
+				overridable, modifiable, concrete),
+
+		CtorDefn = mlds__defn(export(".ctor"), Context, CtorFlags, Ctor),
+		Ctors = [CtorDefn]
+	;
+		Ctors = Ctors0
+	).
 
 :- func generate_parent_and_extends(il_data_rep, mlds__class_kind,
 		list(mlds__class_id)) = pair(ilds__class_name, extends).
@@ -585,7 +616,8 @@ generate_parent_and_extends(DataRep, Kind, Inherits) = Parent - Extends :-
 	).
 
 class_name(Module, Name)
-	= append_class_name(mlds_module_name_to_class_name(Module), [Name]).
+	= append_toplevel_class_name(mlds_module_name_to_class_name(Module),
+		Name).
 
 :- func sym_name_to_list(sym_name) = list(string).
 
@@ -746,7 +778,7 @@ interface_id_to_class_name(_) = Result :-
 	( semidet_succeed ->
 		sorry(this_file, "interface_id_to_class_name NYI")
 	;
-		Result = structured_name(assembly("XXX"), [])
+		Result = structured_name(assembly("XXX"), [], [])
 		
 	).
 
@@ -978,10 +1010,11 @@ generate_method(ClassName, IsCons,
 		{ RenameNode = (func(N) = list__map(RenameRets, N)) },
 
 		{ ExceptionClassName = structured_name(assembly("mscorlib"),
-				["System", "Exception"]) },
+				["System", "Exception"], []) },
 
-		{ ConsoleWriteName = class_member_name(structured_name(
-				il_system_assembly_name, ["System", "Console"]),
+		{ ConsoleWriteName = class_member_name(
+				structured_name(il_system_assembly_name,
+					["System", "Console"], []),
 				id("Write")) },
 		{ WriteString = methoddef(call_conv(no, default),
 					void, ConsoleWriteName,
@@ -1033,7 +1066,7 @@ generate_method(ClassName, IsCons,
 
 		% Check to see whether we should generate a property
 		% decl as well.
-	{ ClassName = structured_name(_, QualifiedName) },
+	{ ClassName = structured_name(_, QualifiedName, _) },
 	{
 			% XXX Very hacky.  Only classes which are not
 			% the wrapper class can have properties in them.
@@ -1070,9 +1103,9 @@ generate_method(ClassName, IsCons,
 		ClassDecls = [Method]
 	}.
 
-generate_method(_, _, defn(Name, _Context, Flags, Entity), [ClassDecl]) -->
+generate_method(_, _, defn(Name, Context, Flags, Entity), [ClassDecl]) -->
 	{ Entity = class(ClassDefn) },
-	generate_class_body(Name, ClassDefn, _ClassName, EntityName,
+	generate_class_body(Name, Context, ClassDefn, _ClassName, EntityName,
 			Extends, Interfaces, ClassDecls),
 	{ ClassDecl = nested_class(decl_flags_to_nestedclassattrs(Flags),
 			EntityName, Extends, Interfaces, ClassDecls) }.
@@ -1674,8 +1707,10 @@ atomic_statement_to_il(inline_target_code(lang_C, _Code), Instrs) -->
 			% return a useful value.
 		{ RetType = void ->
 			StoreReturnInstr = empty
-		;
+		; RetType = simple_type(int32) ->
 			StoreReturnInstr = instr_node(stloc(name("succeeded")))
+		;
+			sorry(this_file, "functions in MC++")
 		},
 		MethodName =^ method_name,
 		{ assoc_list__keys(Params, TypeParams) },
@@ -1738,7 +1773,7 @@ atomic_statement_to_il(delete_object(Target), Instrs) -->
 	get_load_store_lval_instrs(Target, LoadInstrs, StoreInstrs),
 	{ Instrs = tree__list([LoadInstrs, instr_node(ldnull), StoreInstrs]) }.
 
-atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
+atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 		Args, ArgTypes), Instrs) -->
 	DataRep =^ il_data_rep,
 	( 
@@ -1762,7 +1797,17 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 			%	call ClassName::.ctor
 			%	... store to memory reference ...
 			%
-		{ ClassName = mlds_type_to_ilds_class_name(DataRep, Type) },
+		{ ClassName0 = mlds_type_to_ilds_class_name(DataRep, Type) },
+		( { MaybeCtorName = yes(QualifiedCtorName) } ->
+			{ QualifiedCtorName = qual(_,
+				ctor_id(CtorName, CtorArity)) },
+			{ CtorType = entity_name_to_ilds_id(
+				type(CtorName, CtorArity)) },
+		 	{ ClassName = append_nested_class_name(ClassName0,
+				[CtorType]) }
+		;
+		 	{ ClassName = ClassName0 }
+		),
 		list__map_foldl(load, Args, ArgsLoadInstrsTrees),
 		{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
 		get_load_store_lval_instrs(Target, LoadMemRefInstrs,
@@ -1924,10 +1969,12 @@ get_load_store_lval_instrs(Lval, LoadMemRefInstrs,
 		{ StoreLvalInstrs = instr_node(stind(SimpleType)) } 
 	; { Lval = field(_MaybeTag, FieldRval, FieldNum, FieldType, 
 			ClassType) } -> 
-		{ FieldRef = get_fieldref(DataRep, FieldNum, FieldType,
-			ClassType) },
+		{ get_fieldref(DataRep, FieldNum, FieldType, ClassType,
+			FieldRef, CastClassInstrs) },
 		load(FieldRval, LoadMemRefInstrs),
-		{ StoreLvalInstrs = instr_node(stfld(FieldRef)) } 
+		{ StoreLvalInstrs = tree__list([
+			CastClassInstrs,
+			instr_node(stfld(FieldRef))]) } 
 	;
 		{ LoadMemRefInstrs = empty },
 		store(Lval, StoreLvalInstrs)
@@ -1968,15 +2015,17 @@ load(lval(Lval), Instrs) -->
 			{ SimpleFieldType = mlds_type_to_ilds_simple_type(
 				DataRep, FieldType) },
 			load(OffSet, OffSetLoadInstrs),
+			{ CastClassInstrs = empty },
 			{ LoadInstruction = ldelem(SimpleFieldType) }
 		;
-			{ FieldRef = get_fieldref(DataRep, FieldNum, FieldType,
-				ClassType) },
+			{ get_fieldref(DataRep, FieldNum, FieldType, ClassType,
+				FieldRef, CastClassInstrs) },
 			{ LoadInstruction = ldfld(FieldRef) },
 			{ OffSetLoadInstrs = empty }
 		),
 		{ Instrs = tree__list([
 				RvalLoadInstrs, 
+				CastClassInstrs,
 				OffSetLoadInstrs, 
 				instr_node(LoadInstruction)
 				]) }
@@ -2050,11 +2099,12 @@ load(mem_addr(Lval), Instrs) -->
 			Instrs = instr_node(ldsfld(FieldRef))
 		}
 	; { Lval = field(_MaybeTag, Rval, FieldNum, FieldType, ClassType) },
-		{ FieldRef = get_fieldref(DataRep, FieldNum, FieldType,
-			ClassType) },
+		{ get_fieldref(DataRep, FieldNum, FieldType, ClassType,
+			FieldRef, CastClassInstrs) },
 		load(Rval, RvalLoadInstrs),
 		{ Instrs = tree__list([
 			RvalLoadInstrs, 
+			CastClassInstrs,
 			instr_node(ldflda(FieldRef))
 			]) }
 	; { Lval = mem_ref(_, _) },
@@ -2069,9 +2119,13 @@ load(self(_), tree__list([instr_node(ldarg(index(0)))])) --> [].
 
 store(field(_MaybeTag, Rval, FieldNum, FieldType, ClassType), Instrs) -->
 	DataRep =^ il_data_rep,
-	{ FieldRef = get_fieldref(DataRep, FieldNum, FieldType, ClassType) },
+	{ get_fieldref(DataRep, FieldNum, FieldType, ClassType,
+		FieldRef, CastClassInstrs) },
 	load(Rval, RvalLoadInstrs),
-	{ Instrs = tree__list([RvalLoadInstrs, instr_node(stfld(FieldRef))]) }.
+	{ Instrs = tree__list([
+		RvalLoadInstrs,
+		CastClassInstrs,
+		instr_node(stfld(FieldRef))]) }.
 
 store(mem_ref(_Rval, _Type), _Instrs, Info, Info) :- 
 		% you always need load the reference first, then
@@ -2732,7 +2786,8 @@ mlds_type_to_ilds_type(_, mlds__native_float_type) = ilds__type([], float64).
 mlds_type_to_ilds_type(_, mlds__foreign_type(ForeignType, Assembly))
 	= ilds__type([], Class) :-
 	sym_name_to_class_name(ForeignType, ForeignClassName),
-	Class = class(structured_name(assembly(Assembly), ForeignClassName)).
+	Class = class(structured_name(assembly(Assembly),
+			ForeignClassName, [])).
 	
 mlds_type_to_ilds_type(ILDataRep, mlds__ptr_type(MLDSType)) =
 	ilds__type([], '&'(mlds_type_to_ilds_type(ILDataRep, MLDSType))).
@@ -2793,9 +2848,8 @@ mercury_type_to_highlevel_class_type(MercuryType) = ILType :-
 mlds_class_name_to_ilds_class_name(
 		qual(MldsModuleName, MldsClassName0), Arity) = IldsClassName :-
 	MldsClassName = string__format("%s_%d", [s(MldsClassName0), i(Arity)]),
-	IldsClassName = append_class_name(
-		mlds_module_name_to_class_name(MldsModuleName),
-		[MldsClassName]).
+	IldsClassName = append_toplevel_class_name(
+		mlds_module_name_to_class_name(MldsModuleName), MldsClassName).
 
 mlds_type_to_ilds_class_name(DataRep, MldsType) = 
 	get_ilds_type_class_name(mlds_type_to_ilds_type(DataRep, MldsType)).
@@ -2803,7 +2857,9 @@ mlds_type_to_ilds_class_name(DataRep, MldsType) =
 :- func get_ilds_type_class_name(ilds__type) = ilds__class_name.
 get_ilds_type_class_name(ILType) = ClassName :-
 	( 
-		ILType = ilds__type(_, class(ClassName0))
+		( ILType = ilds__type(_, class(ClassName0))
+		; ILType = ilds__type(_, value_class(ClassName0))
+		)
 	->
 		ClassName = ClassName0
 	;
@@ -3131,7 +3187,7 @@ mlds_to_il__sym_name_to_string_2(unqualified(Name), _) -->
 :- func mlds_module_name_to_class_name(mlds_module_name) = ilds__class_name.
 
 mlds_module_name_to_class_name(MldsModuleName) = 
-		structured_name(AssemblyName, ClassName) :-
+		structured_name(AssemblyName, ClassName, []) :-
 	SymName = mlds_module_name_to_sym_name(MldsModuleName),
 	sym_name_to_class_name(SymName, ClassName),
 	AssemblyName = mlds_module_name_to_assembly_name(MldsModuleName).
@@ -3325,32 +3381,76 @@ data_addr_constant_to_fieldref(data_addr(ModuleName, DataName), FieldRef) :-
 	% XXX we remove byrefs from fields here.  Perhaps we ought to do
 	% this in a separate pass.   See defn_to_class_decl which does
 	% the same thing when creating the fields.
-:- func get_fieldref(il_data_rep, field_id, mlds__type, mlds__type) = fieldref.
-get_fieldref(DataRep, FieldNum, FieldType, ClassType) = FieldRef :-
-		FieldILType0 = mlds_type_to_ilds_type(DataRep,
-			FieldType),
-		( FieldILType0 = ilds__type(_, '&'(FieldILType1)) ->
-			FieldILType = FieldILType1
-		;
-			FieldILType = FieldILType0
-		),
-		( 
-			FieldNum = offset(OffsetRval),
-			ClassName = mlds_type_to_ilds_class_name(DataRep,
-				ClassType),
-			( OffsetRval = const(int_const(Num)) ->
-				string__format("f%d", [i(Num)], FieldId)
-			;
-				sorry(this_file, 
-					"offsets for non-int_const rvals")
-			)
-		; 
-			FieldNum = named_field(qual(ModuleName, FieldId),
-				_Type),
-			ClassName = mlds_module_name_to_class_name(ModuleName)
-		),
-		FieldRef = make_fieldref(FieldILType, ClassName, FieldId).
+:- pred get_fieldref(il_data_rep, field_id, mlds__type, mlds__type,
+		fieldref, instr_tree).
+:- mode get_fieldref(in, in, in, in, out, out) is det.
 
+get_fieldref(DataRep, FieldNum, FieldType, ClassType0,
+		FieldRef, CastClassInstrs) :-
+	( ClassType0 = mlds__ptr_type(ClassType1) ->
+		ClassType = ClassType1
+	;
+		ClassType = ClassType0
+	),
+	FieldILType0 = mlds_type_to_ilds_type(DataRep,
+		FieldType),
+	( FieldILType0 = ilds__type(_, '&'(FieldILType1)) ->
+		FieldILType = FieldILType1
+	;
+		FieldILType = FieldILType0
+	),
+	( 
+		FieldNum = offset(OffsetRval),
+		ClassName = mlds_type_to_ilds_class_name(DataRep, ClassType),
+		( OffsetRval = const(int_const(Num)) ->
+			string__format("f%d", [i(Num)], FieldId)
+		;
+			sorry(this_file, 
+				"offsets for non-int_const rvals")
+		),
+		CastClassInstrs = empty
+	; 
+		FieldNum = named_field(qual(ModuleName, FieldId), _CtorType),
+		% The MLDS doesn't record which qualifiers are class qualifiers
+		% and which are namespace qualifiers... we first generate
+		% a name for the CtorClass as if it wasn't nested, and then
+		% we call fixup_class_qualifiers to make it correct.
+		CtorClassName = mlds_module_name_to_class_name(ModuleName),
+		BaseClassName = mlds_type_to_ilds_class_name(DataRep, ClassType),
+		ClassName = fixup_class_qualifiers(CtorClassName, BaseClassName),
+		(
+			BaseClassName = CtorClassName
+		->
+			CastClassInstrs = empty
+		;
+			CastClassInstrs = instr_node(
+				castclass(ilds__type([], class(ClassName))))
+		)
+	),
+	FieldRef = make_fieldref(FieldILType, ClassName, FieldId).
+
+	% The CtorClass will be nested inside the BaseClass.
+	% But when we initially generate the name, we don't
+	% know that it is nested.  This routine fixes up the
+	% CtorClassName by moving the nested parts into the
+	% third field of the structured_name.
+:- func fixup_class_qualifiers(ilds__class_name, ilds__class_name) =
+	ilds__class_name.
+fixup_class_qualifiers(CtorClassName0, BaseClassName) = CtorClassName :-
+	BaseClassName  = structured_name(BaseAssembly, BaseClass, BaseNested),
+	CtorClassName0 = structured_name(CtorAssembly, CtorClass, CtorNested),
+	(
+		list__append(BaseClass, NestedClasses, CtorClass),
+		% some sanity checks
+		BaseAssembly = CtorAssembly,
+		BaseNested = [],
+		CtorNested = []
+	->
+		CtorClassName = structured_name(CtorAssembly, BaseClass,
+			NestedClasses)
+	;
+		unexpected(this_file, "fixup_class_qualifiers")
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -3591,29 +3691,21 @@ il_commit_class_name = mercury_runtime_name(["Commit"]).
 	% qualifiy a name with "[mercury]mercury."
 :- func mercury_library_name(ilds__namespace_qual_name) = ilds__class_name.
 mercury_library_name(Name) = 
-	append_class_name(mercury_library_namespace_name, Name).
-
-:- func mercury_library_namespace_name = ilds__class_name.
-mercury_library_namespace_name
-	= structured_name(assembly("mercury"), ["mercury"]).
+	structured_name(assembly("mercury"), ["mercury" | Name], []).
 
 %-----------------------------------------------------------------------------
 
 	% qualifiy a name with "[mercury]mercury.runtime."
 :- func mercury_runtime_name(ilds__namespace_qual_name) = ilds__class_name.
 mercury_runtime_name(Name) = 
-	append_class_name(mercury_runtime_class_name, Name).
-
-:- func mercury_runtime_class_name = ilds__class_name.
-mercury_runtime_class_name
-	= structured_name(assembly("mercury"), ["mercury", "runtime"]).
+	structured_name(assembly("mercury"), ["mercury", "runtime" | Name], []).
 
 %-----------------------------------------------------------------------------
 
 	% qualifiy a name with "[mscorlib]System."
 :- func il_system_name(ilds__namespace_qual_name) = ilds__class_name.
 il_system_name(Name) = structured_name(il_system_assembly_name, 
-		[il_system_namespace_name | Name]).
+		[il_system_namespace_name | Name], []).
 
 :- func il_system_assembly_name = assembly_name.
 il_system_assembly_name = assembly("mscorlib").
@@ -3624,11 +3716,11 @@ il_system_namespace_name = "System".
 %-----------------------------------------------------------------------------
 
 	% Generate extern decls for any assembly we reference.
-:- pred mlds_to_il__generate_extern_assembly(string::in, bool::in,
+:- pred mlds_to_il__generate_extern_assembly(string::in, bool::in, bool::in,
 		mlds__imports::in, list(decl)::out) is det.
 
 mlds_to_il__generate_extern_assembly(CurrentAssembly, SignAssembly,
-		Imports, AllDecls) :-
+		SeparateAssemblies, Imports, AllDecls) :-
 	Gen = (pred(Import::in, Decl::out) is semidet :-
 		AsmName = mlds_module_name_to_assembly_name(Import ^ name),
 		( AsmName = assembly(Assembly),
@@ -3637,13 +3729,19 @@ mlds_to_il__generate_extern_assembly(CurrentAssembly, SignAssembly,
 					assembly_decls(Assembly, Import,
 						SignAssembly))]
 		; AsmName = module(ModuleName, Assembly),
-			( Assembly = CurrentAssembly ->
-				ModuleStr = ModuleName ++ ".dll",
-				Decl = [file(ModuleStr),
-					extern_module(ModuleStr)]
-			;
-				Assembly \= "mercury",
-				Decl = [extern_assembly(Assembly,
+			( SeparateAssemblies = no,
+				( Assembly = CurrentAssembly ->
+					ModuleStr = ModuleName ++ ".dll",
+					Decl = [file(ModuleStr),
+						extern_module(ModuleStr)]
+				;
+					Assembly \= "mercury",
+					Decl = [extern_assembly(Assembly,
+						assembly_decls(Assembly, Import,
+							SignAssembly))]
+				)
+			; SeparateAssemblies = yes,
+				Decl = [extern_assembly(ModuleName,
 					assembly_decls(Assembly, Import,
 						SignAssembly))]
 			)
@@ -3792,7 +3890,7 @@ runtime_initialization_instrs = [
 :- func runtime_init_module_name = ilds__class_name.
 runtime_init_module_name = 
 	structured_name(assembly("mercury"),
-		["mercury", "private_builtin__cpp_code", wrapper_class_name]).
+		["mercury", "private_builtin__cpp_code", wrapper_class_name], []).
 
 :- func runtime_init_method_name = ilds__member_name.
 runtime_init_method_name = id("init_runtime").
