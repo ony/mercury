@@ -54,6 +54,7 @@
 
 :- import_module passes_aux, sr_direct, sr_indirect, sr_split, sr_util.
 :- import_module list, map, varset, std_util, int, bool.
+:- import_module sr_profile_run.
 
 structure_reuse(HLDS0, HLDS) -->
 	{ module_info_get_special_pred_map(HLDS0, SpecialPredMap) },
@@ -70,7 +71,8 @@ structure_reuse(HLDS0, HLDS) -->
 		% Do the fixpoint computation to determine all the indirect
 		% reuse, and the implied conditions.
 	sr_indirect__compute_fixpoint(HLDS1, HLDS2),
-	sr_split__create_multiple_versions(HLDS0, HLDS2, HLDS).
+	sr_split__create_multiple_versions(HLDS0, HLDS2, HLDS), 
+	sr_profile_run__structure_reuse_profiling(HLDS). 
 
 
 write_pragma_reuse_info( HLDS, SpecPredIds, PredId ) --> 
