@@ -114,6 +114,7 @@ EOF
 	 	$BOOTSTRAP_MC \
 			--halt-at-warn --link-flags "--static" conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
+		test -f ./conftest.c_date &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
 	then
 		AC_MSG_RESULT(yes)
