@@ -61,6 +61,9 @@
 	% for use in machine-readable name mangling.
 :- func simple_foreign_language_string(foreign_language) = string.
 
+	% The extension for files of this foreign language.
+:- func foreign_lang_ext(foreign_language) = string.
+
 %-----------------------------------------------------------------------------%
 
 	% Access predicates for the `globals' structure.
@@ -215,6 +218,11 @@ simple_foreign_language_string(c) = "c".
 simple_foreign_language_string(managed_cplusplus) = "cpp". % XXX mcpp is better
 simple_foreign_language_string(csharp) = "csharp".
 simple_foreign_language_string(il) = "il".
+
+foreign_lang_ext(c) = "c".
+foreign_lang_ext(managed_cplusplus) = "cpp". % XXX mcpp is better
+foreign_lang_ext(csharp) = "cs".
+foreign_lang_ext(il) = "il".
 
 convert_gc_method("none", none).
 convert_gc_method("conservative", conservative).

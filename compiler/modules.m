@@ -2061,9 +2061,12 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		->
 			globals__io_lookup_foreign_language_option(
 					backend_foreign_language, ForeignLang),
-			{ ForeignExt = simple_foreign_language_string(
+			{ ForeignExt = "." ++ foreign_lang_ext(ForeignLang) },
+			{ ForeignStr = simple_foreign_language_string(
 					ForeignLang) },
-			{ ForeignCodeExt = "__" ++ ForeignExt ++ "_code." },
+			{ ForeignCodeExt = "__" ++ ForeignStr ++ "_code" },
+			module_name_to_file_name(ModuleName, "", no,
+					Name),
 			module_name_to_file_name(ModuleName,
 					ForeignCodeExt ++ ForeignExt,
 					no, ForeignFileName),
@@ -2072,7 +2075,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			module_name_to_file_name(ModuleName, ".dll", no,
 					DllFileName),
 			module_name_to_file_name(ModuleName,
-					ForeignCodeExt ++ "dll",
+					ForeignCodeExt ++ ".dll",
 					no, ForeignDllFileName),
 
 			io__write_strings(DepStream, [
@@ -2082,13 +2085,22 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			% in the current directory.
 			/*
 			write_dll_dependencies_list(ModuleName,
-					AllDeps, DepStream),
+					AllDeps, "", DepStream),
 			*/
 			io__nl(DepStream),
 
 			io__write_strings(DepStream, [
 				ForeignDllFileName, " : ", ForeignFileName,"\n",
-				ForeignFileName, " : ", IlFileName, "\n\n"])
+				ForeignFileName, " : ", IlFileName, "\n\n"]),
+
+			% Store in the variable REFS-foreign_code_name
+			% the command line argument to reference all the
+			% dlls the foreign code module references.
+			io__write_strings(DepStream,
+				["REFS-", Name, ForeignCodeExt, "="]),
+			write_dll_dependencies_list(ModuleName,
+						AllDeps, "/r:", DepStream),
+			io__nl(DepStream)
 		;
 			[]
 		),
@@ -2927,7 +2939,7 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	globals__io_get_target(Target),
 	globals__io_lookup_foreign_language_option(
 			backend_foreign_language, ForeignLang),
-	{ ForeignExt = "." ++ simple_foreign_language_string(ForeignLang) },
+	{ ForeignExt = "." ++ foreign_lang_ext(ForeignLang) },
 	( { Target = il } ->
 		{ ForeignModules = foreign_modules(ForeignLang,
 				Modules, DepsMap) }
@@ -3829,11 +3841,11 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
 
-:- pred write_dll_dependencies_list(module_name,
-		list(module_name), io__output_stream, io__state, io__state).
-:- mode write_dll_dependencies_list(in, in, in, di, uo) is det.
+:- pred write_dll_dependencies_list(module_name, list(module_name),
+		string, io__output_stream, io__state, io__state).
+:- mode write_dll_dependencies_list(in, in, in, in, di, uo) is det.
 
-write_dll_dependencies_list(Module, Modules0, DepStream) -->
+write_dll_dependencies_list(Module, Modules0, Prefix, DepStream) -->
 		% If we are not compiling a module in the mercury
 		% std library then replace all the std library dlls with
 		% one reference to mercury.dll.
@@ -3852,15 +3864,16 @@ write_dll_dependencies_list(Module, Modules0, DepStream) -->
 		),
 		Modules = list__remove_dups(list__map(F, Modules0))
 	},
-	list__foldl(write_dll_dependency(DepStream), Modules).
+	list__foldl(write_dll_dependency(DepStream, Prefix), Modules).
 
-:- pred write_dll_dependency(io__output_stream, module_name,
+:- pred write_dll_dependency(io__output_stream, string, module_name,
 				io__state, io__state).
-:- mode write_dll_dependency(in, in, di, uo) is det.
+:- mode write_dll_dependency(in, in, in, di, uo) is det.
 
-write_dll_dependency(DepStream, Module) -->
+write_dll_dependency(DepStream, Prefix, Module) -->
 	module_name_to_file_name(Module, ".dll", no, FileName),
 	io__write_string(DepStream, " \\\n\t"),
+	io__write_string(DepStream, Prefix),
 	io__write_string(DepStream, FileName).
 
 :- pred write_fact_table_dependencies_list(module_name, list(file_name),
