@@ -56,13 +56,13 @@ mode_constraints__process_module(ModuleInfo0, ModuleInfo) -->
 
 	% Stage 1: Process SCCs bottom-up to determine variable producers.
 	list__foldl2(mode_constraints__process_scc, SCCs,
-		{ModuleInfo1, map__init}, {ModuleInfo, _PredConstraintMap}),
+		{ModuleInfo1, map__init}, {ModuleInfo2, PredConstraintMap}),
 		
 	% Stage 2: Process SCCs top-down to determine execution order of
 	% conjuctions and which modes are needed for each predicate.
 	% XXX
-	% mode_ordering(PredConstraintMap, list__reverse(SCCs),
-	%	ModuleInfo2, ModuleInfo),
+	mode_ordering(PredConstraintMap, list__reverse(SCCs),
+		ModuleInfo2, ModuleInfo),
 		
 	clear_caches.
 
@@ -833,8 +833,8 @@ mode_constraints__process_clauses_info(ModuleInfo, SCC, ClausesInfo0,
 	{ NonLocals = set__list_to_set(HeadVars) },
 	{ GoalVars = set__sorted_list_to_set(map__sorted_keys(InstGraph)) },
 
-	{ goal_constraints_2(EmptyGoalPath, NonLocals, GoalVars, DisjGoal,
-		_, Constraint1, Constraint2, Info0, Info1) },
+	{ goal_constraints_2(EmptyGoalPath, NonLocals, GoalVars, _CanSucceed,
+		DisjGoal, _, Constraint1, Constraint2, Info0, Info1) },
 	%constrict_to_vars(HeadVars, GoalVars, [], Constraint2, Constraint3,
 	% 	Info1, Info2),
 	{ Constraint3 = Constraint2 },
@@ -896,12 +896,13 @@ input_output_constraints(HeadVars, InstGraph, V, Node,
 			)
 		), Children, Constraint1, Constraint).
 
+:- type can_succeed == bool.
 
-:- pred goal_constraints(set(prog_var)::in, hlds_goal::in, hlds_goal::out,
-	mode_constraint::in, mode_constraint::out, goal_constraints_info::in,
-	goal_constraints_info::out) is det.
+:- pred goal_constraints(set(prog_var)::in, can_succeed::out, hlds_goal::in,
+	hlds_goal::out, mode_constraint::in, mode_constraint::out,
+	goal_constraints_info::in, goal_constraints_info::out) is det.
 
-goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
+goal_constraints(ParentNonLocals, CanSucceed, GoalExpr0 - GoalInfo0,
 		GoalExpr - GoalInfo, Constraint0, Constraint) -->
 	( { goal_is_atomic(GoalExpr0) } ->
 		add_atomic_goal(GoalPath)
@@ -923,8 +924,8 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	InstGraph =^ inst_graph,
 	{ NonLocalReachable = solutions_set(inst_graph__reachable_from_list(
 		InstGraph, to_sorted_list(NonLocals))) },
-	goal_constraints_2(GoalPath, NonLocals, Vars, GoalExpr0, GoalExpr,
-		Constraint0, Constraint1),
+	goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, GoalExpr0,
+		GoalExpr, Constraint0, Constraint1),
 
 	constrain_local_vars(Vars `difference` NonLocalReachable, GoalPath,
 		Constraint1, Constraint2),
@@ -954,8 +955,8 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	{ unsafe_perform_io(io__flush_output) },
 	*/
 
-	constrain_non_occurring_vars(ParentNonLocals, Vars, GoalPath,
-		Constraint3, Constraint),
+	constrain_non_occurring_vars(CanSucceed, ParentNonLocals, Vars,
+		GoalPath, Constraint3, Constraint),
 	%{ unsafe_perform_io(dump_constraints(ModuleInfo, ProgVarset, Constraint)) },
 	%{ goal_info_set_mode_constraint(GoalInfo0, Constraint, GoalInfo) }.
 	{ GoalInfo = GoalInfo0 }.
@@ -963,15 +964,15 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 % :- pragma promise_pure(goal_constraints_2/9).
 
 :- pred goal_constraints_2(goal_path::in, set(prog_var)::in,
-		set(prog_var)::in, hlds_goal_expr::in, hlds_goal_expr::out,
-		mode_constraint::in, mode_constraint::out, 
+		set(prog_var)::in, can_succeed::out, hlds_goal_expr::in,
+		hlds_goal_expr::out, mode_constraint::in, mode_constraint::out,
 		goal_constraints_info::in, goal_constraints_info::out) is det.
 
-goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
-		Constraint0, Constraint) -->
+goal_constraints_2(GoalPath, NonLocals, _, CanSucceed, conj(Goals0),
+		conj(Goals), Constraint0, Constraint) -->
 	{ multi_map__init(Empty) },
-	conj_constraints(NonLocals, Constraint0, Constraint1, Goals0, Goals,
-		Empty, Usage0),
+	conj_constraints(NonLocals, CanSucceed, Constraint0, Constraint1,
+		Goals0, Goals, Empty, Usage0),
 	/*
 	Info =^ mc_info, VarSet =^ prog_varset, % XXX
 	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
@@ -989,10 +990,10 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 			^ disj_vars_eq(ConstraintVars, VConj) }
 	    ), Usage, Constraint2, Constraint).
 
-goal_constraints_2(GoalPath, NonLocals, Vars, disj(Goals0, SM),
+goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, disj(Goals0, SM),
 		disj(Goals, SM), Constraint0, Constraint) -->
-	disj_constraints(NonLocals, Constraint0, Constraint1, Goals0, Goals,
-		[], DisjunctPaths),
+	disj_constraints(NonLocals, CanSucceed, Constraint0, Constraint1,
+		Goals0, Goals, [], DisjunctPaths),
 	list__foldl2((pred(V::in, Cons0::in, Cons::out, in, out) is det -->
 		get_var(V `at` GoalPath, Vgp),
 		list__foldl2((pred(Path::in, C0::in, C::out, in, out) is det -->
@@ -1001,35 +1002,37 @@ goal_constraints_2(GoalPath, NonLocals, Vars, disj(Goals0, SM),
 		    ), DisjunctPaths, Cons0, Cons)
 	    ), set__to_sorted_list(Vars), Constraint1, Constraint).
 
-goal_constraints_2(GoalPath, _NonLocals, _, GoalExpr0, GoalExpr,
+goal_constraints_2(GoalPath, _NonLocals, _, CanSucceed, GoalExpr0, GoalExpr,
 		Constraint0, Constraint) -->
 	{ GoalExpr0 = unify(Var, RHS0, C, D, E) },
 	unify_constraints(Var, GoalPath, RHS0, RHS, Constraint0, Constraint),
-	{ GoalExpr = unify(Var, RHS, C, D, E) }.
+	{ GoalExpr = unify(Var, RHS, C, D, E) },
+	{ CanSucceed = yes }. 	% XXX Can we be more precise here?
 
-goal_constraints_2(GoalPath, _NonLocals, _, GoalExpr, GoalExpr,
+goal_constraints_2(GoalPath, _NonLocals, _, CanSucceed, GoalExpr, GoalExpr,
 		Constraint0, Constraint) -->
 	{ GoalExpr = call(PredId, _, Args, _, _, _) },
 	SCC =^ scc,
 	InstGraph =^ inst_graph,
+	ModuleInfo =^ module_info,
+	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
+
+	{ CanSucceed = ( pred_can_succeed(PredInfo) -> yes ; no ) },
+
 	( { PredId `list__member` SCC } ->
 	    % This is a recursive call.
 	    % XXX we currently assume that all recursive calls are to the
 	    % same mode of the predicate.
-	    ModuleInfo =^ module_info,
-	    { module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 	    { pred_info_clauses_info(PredInfo, ClausesInfo) },
 	    { clauses_info_headvars(ClausesInfo, HeadVars) },
 	    call_constraints(GoalPath, PredId, HeadVars, Args, Constraint0,
 		Constraint)
 	;
 	    % This is a non-recursive call.
-	    ModuleInfo =^ module_info,
 	    ( { pred_has_mode_decl(ModuleInfo, PredId) } ->
 		% The predicate has mode declarations so use them
 		% to obtain the constraints for the call.
 
-		{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 		{ pred_info_procedures(PredInfo, ProcTable) },
 		{ map__values(ProcTable, ProcInfos) },
 		update_md_info((pred(C::out, in, out) is det -->
@@ -1045,7 +1048,6 @@ goal_constraints_2(GoalPath, _NonLocals, _, GoalExpr, GoalExpr,
 		% The called predicate is from a lower (i.e. already
 		% mode-analysed) SCC, but does not have any mode
 		% declarations.
-		{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 		{ ArgModes = PredInfo^modes },
 		{ PredInstGraph = 
 		    PredInfo^inst_graph_info^interface_inst_graph },
@@ -1077,7 +1079,7 @@ goal_constraints_2(GoalPath, _NonLocals, _, GoalExpr, GoalExpr,
 	    { Constraint = Constraint0 * CallConstraint }
 	).
 
-goal_constraints_2(GoalPath, _NonLocals, _Vars, GoalExpr, GoalExpr,
+goal_constraints_2(GoalPath, _NonLocals, _Vars, CanSucceed, GoalExpr, GoalExpr,
 		Constraint0, Constraint)  -->
 	{ GoalExpr = generic_call(GenericCall, Args, _Modes, _Det) },
 	% Note: `_Modes' is invalid for for higher_order calls at this point.
@@ -1092,7 +1094,9 @@ goal_constraints_2(GoalPath, _NonLocals, _Vars, GoalExpr, GoalExpr,
 		update_mc_info(get_prog_var_level(Var), VarLevel),
 		{ multi_map__set(HoCalls0, VarLevel, GoalPath - Args,
 		    HoCalls) },
-		^ho_calls := HoCalls
+		^ho_calls := HoCalls,
+
+		{ CanSucceed = yes } % XXX should check this
 	;
 		{ GenericCall = class_method(Var, _, _, _) },
 		generic_call_constrain_var(Var, GoalPath, Constraint0,
@@ -1103,12 +1107,14 @@ goal_constraints_2(GoalPath, _NonLocals, _Vars, GoalExpr, GoalExpr,
 		{ error("mode_constraints.m: aditi_builtin call NYI") }
 	).
 
-goal_constraints_2(_,_,_,switch(_,_,_,_),_,_,_)  --> { error("NYI") }.
+goal_constraints_2(_,_,_,_,switch(_,_,_,_),_,_,_)  --> { error("NYI") }.
 
-goal_constraints_2(GoalPath, NonLocals, Vars, not(Goal0), not(Goal),
-		Constraint0, Constraint) -->
-	goal_constraints(NonLocals, Goal0, Goal, Constraint0,
+goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed,
+		not(Goal0), not(Goal), Constraint0, Constraint) -->
+	goal_constraints(NonLocals, _, Goal0, Goal, Constraint0,
 		Constraint1),
+
+	{ CanSucceed = yes },
 
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
@@ -1119,9 +1125,9 @@ goal_constraints_2(GoalPath, NonLocals, Vars, not(Goal0), not(Goal),
 	% Make sure the negation doesn't bind any nonlocal variables.
 	negation_constraints(GoalPath, NonLocals, Constraint2, Constraint).
 
-goal_constraints_2(GoalPath, NonLocals, Vars, some(A, B, Goal0),
+goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed, some(A, B, Goal0),
 		some(A, B, Goal), Constraint0, Constraint) -->
-	goal_constraints(NonLocals, Goal0, Goal,
+	goal_constraints(NonLocals, CanSucceed, Goal0, Goal,
 		Constraint0, Constraint1),
 
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
@@ -1130,7 +1136,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, some(A, B, Goal0),
 			{ C = C0 ^ eq_vars(Vgp, Vexist) }
 		), set__to_sorted_list(Vars), Constraint1, Constraint).
 
-goal_constraints_2(GoalPath, NonLocals, Vars,
+goal_constraints_2(GoalPath, NonLocals, Vars, CanSucceed,
 		if_then_else(IteNonLocals, Cond0, Then0, Else0, SM),
 		if_then_else(IteNonLocals, Cond, Then, Else, SM),
 		Constraint0, Constraint) -->
@@ -1140,9 +1146,14 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 	negation_constraints(goal_path(Cond0), NonLocals,
 		Constraint0, Constraint1),
 
-	goal_constraints(NonLocals, Cond0, Cond, Constraint1, Constraint2),
-	goal_constraints(NonLocals, Then0, Then, Constraint2, Constraint3),
-	goal_constraints(NonLocals, Else0, Else, Constraint3, Constraint4),
+	goal_constraints(NonLocals, CanSucceed0, Cond0, Cond, Constraint1,
+		Constraint2),
+	goal_constraints(NonLocals, CanSucceed1, Then0, Then, Constraint2,
+		Constraint3),
+	goal_constraints(NonLocals, CanSucceed2, Else0, Else, Constraint3,
+		Constraint4),
+
+	{ CanSucceed = (CanSucceed0 `and` CanSucceed1) `or` CanSucceed2 },
 
 	InstGraph =^ inst_graph,
 	{ NonLocalReachable = solutions(inst_graph__reachable_from_list(
@@ -1182,40 +1193,46 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 		), Locals, Constraint6, Constraint).
 
 
-goal_constraints_2(_,_,_,foreign_proc(_,_,_,_,_,_,_),_,_,_) -->
+goal_constraints_2(_,_,_,_,foreign_proc(_,_,_,_,_,_,_),_,_,_) -->
 	{ error("NYI") }.
-goal_constraints_2(_,_,_,par_conj(_,_),_,_,_) --> { error("NYI") }.
-goal_constraints_2(_,_,_,shorthand(_),_,_,_) -->
+goal_constraints_2(_,_,_,_,par_conj(_,_),_,_,_) --> { error("NYI") }.
+goal_constraints_2(_,_,_,_,shorthand(_),_,_,_) -->
 	{ error("mode_constraints:goal_constraints_2: shorthand") }.
 
-:- pred conj_constraints(set(prog_var)::in, mode_constraint::in,
-	mode_constraint::out, hlds_goals::in, hlds_goals::out,
+:- pred conj_constraints(set(prog_var)::in, can_succeed::out,
+	mode_constraint::in, mode_constraint::out,
+	hlds_goals::in, hlds_goals::out,
 	multi_map(prog_var, goal_path)::in, multi_map(prog_var, goal_path)::out,
 	goal_constraints_info::in, goal_constraints_info::out) is det.
 
-conj_constraints(_, Constraint, Constraint, [], [], Usage, Usage) --> [].
-conj_constraints(NonLocals, Constraint0, Constraint,
+conj_constraints(_, yes, Constraint, Constraint, [], [], Usage, Usage) --> [].
+conj_constraints(NonLocals, CanSucceed, Constraint0, Constraint,
 		[Goal0 | Goals0], [Goal | Goals], Usage0, Usage) -->
-	goal_constraints(NonLocals, Goal0, Goal, Constraint0, Constraint1),
+	goal_constraints(NonLocals, CanSucceed0, Goal0, Goal, Constraint0,
+		Constraint1),
 
 	{ list__foldl((pred(V::in, U0::in, U::out) is det :-
 			multi_map__set(U0, V, goal_path(Goal), U)
 		), set__to_sorted_list(vars(Goal)), Usage0, Usage1) },
 
-	conj_constraints(NonLocals, Constraint1, Constraint, Goals0, Goals,
-		Usage1, Usage).
+	conj_constraints(NonLocals, CanSucceed1, Constraint1, Constraint,
+		Goals0, Goals, Usage1, Usage),
+	{ CanSucceed = CanSucceed0 `bool__and` CanSucceed1 }.
 
-:- pred disj_constraints(set(prog_var)::in, mode_constraint::in,
-	mode_constraint::out, hlds_goals::in, hlds_goals::out,
+:- pred disj_constraints(set(prog_var)::in, can_succeed::out,
+	mode_constraint::in, mode_constraint::out,
+	hlds_goals::in, hlds_goals::out,
 	list(goal_path)::in, list(goal_path)::out,
 	goal_constraints_info::in, goal_constraints_info::out) is det.
 
-disj_constraints(_, Constraint, Constraint, [], [], Paths, Paths) --> [].
-disj_constraints(NonLocals, Constraint0, Constraint,
+disj_constraints(_, no, Constraint, Constraint, [], [], Paths, Paths) --> [].
+disj_constraints(NonLocals, CanSucceed, Constraint0, Constraint,
 		[Goal0 | Goals0], [Goal | Goals], Paths0, Paths) -->
-	goal_constraints(NonLocals, Goal0, Goal, Constraint0, Constraint1),
-	disj_constraints(NonLocals, Constraint1, Constraint, Goals0, Goals,
-		[goal_path(Goal) | Paths0], Paths).
+	goal_constraints(NonLocals, CanSucceed0, Goal0, Goal,
+		Constraint0, Constraint1),
+	disj_constraints(NonLocals, CanSucceed1, Constraint1, Constraint,
+		Goals0, Goals, [goal_path(Goal) | Paths0], Paths),
+	{ CanSucceed = CanSucceed0 `bool__or` CanSucceed1 }.
 
 	% See 1.2.3 The literals themselves
 :- pred unify_constraints(prog_var::in, goal_path::in, unify_rhs::in,
@@ -1320,7 +1337,8 @@ unify_constraints(Var, GoalPath, RHS0, RHS, Constraint0, Constraint) -->
 		[i(NumNodes5), i(Depth5)])) }, % XXX
 	*/
 
-	goal_constraints(set__init, Goal0, Goal, Constraint5, Constraint),
+	goal_constraints(set__init, _CanSucceed, Goal0, Goal, Constraint5,
+		Constraint),
 	/*
 	{ size(Constraint, NumNodes, Depth) }, % XXX
 	{ unsafe_perform_io(io__format(
@@ -1547,11 +1565,13 @@ constrain_local_vars(Locals, GoalPath, Constraint0, Constraint) -->
 		{ C = C0 ^ eq_vars(Vgp, Vout) }
 	    ), to_sorted_list(Locals), Constraint0, Constraint).
 
-:- pred constrain_non_occurring_vars(set(prog_var)::in, set(prog_var)::in,
-	goal_path::in, mode_constraint::in, mode_constraint::out,
-	goal_constraints_info::in, goal_constraints_info::out) is det.
+:- pred constrain_non_occurring_vars(can_succeed::in, set(prog_var)::in,
+	set(prog_var)::in, goal_path::in, mode_constraint::in,
+	mode_constraint::out, goal_constraints_info::in,
+	goal_constraints_info::out) is det.
 
-constrain_non_occurring_vars(ParentNonLocals, OccurringVars, GoalPath,
+constrain_non_occurring_vars(no, _, _, _, Constraint, Constraint) --> [].
+constrain_non_occurring_vars(yes, ParentNonLocals, OccurringVars, GoalPath,
 		Constraint0, Constraint) -->
 	InstGraph =^ inst_graph,
 	aggregate2((pred(V::out) is nondet :-
@@ -1713,6 +1733,36 @@ vars(_ - GoalInfo) = OccurringVars :-
 	goal_info_get_occurring_vars(GoalInfo, OccurringVars).
 
 %------------------------------------------------------------------------%
+
+	% A predicate can succeed if at least one of its procedures can
+	% succeed.
+:- pred pred_can_succeed(pred_info::in) is semidet.
+
+pred_can_succeed(PredInfo) :-
+	pred_info_procedures(PredInfo, ProcTable),
+	some [ProcInfo] (
+		map__member(ProcTable, _ProcId, ProcInfo),
+		proc_can_succeed(ProcInfo)
+	).
+		
+	% A procedure can possibly succeed if it has no declared determinism or
+	% it has a declared determinism that allows more than zero solutions.
+	% (This is a conservative approximation since we can't use the results
+	% of determinism inference -- it hasn't been run yet.)
+:- pred proc_can_succeed(proc_info::in) is semidet.
+
+proc_can_succeed(ProcInfo) :-
+	proc_info_declared_determinism(ProcInfo, MaybeDet),
+	(
+		MaybeDet = no
+	;
+		MaybeDet = yes(Detism),
+		determinism_components(Detism, _, SolnCount),
+		SolnCount \= at_most_zero
+	).
+
+%------------------------------------------------------------------------%
+%------------------------------------------------------------------------%
 %------------------------------------------------------------------------%
 
 /*
@@ -1728,3 +1778,5 @@ conj_to_dot(MC, VS, CI) -->
 :- pragma c_header_code("static Integer conjnum;\n").
 :- pragma c_code(conjnum = (N::out), [will_not_call_mercury],
 	"N = conjnum++;").
+
+% vim:tw=80:sw=4:ts=8

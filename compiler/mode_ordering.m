@@ -70,7 +70,7 @@ mode_ordering__pred(PredConstraintMap, _SCC, PredId, ModuleInfo0, ModuleInfo) :-
 			PredInfo = PredInfo0
 		)
 	;
-		pred_info_procids(PredInfo0, ProcIds),
+		pred_info_non_imported_procids(PredInfo0, ProcIds),
 		list__foldl(mode_ordering__check_proc(ModeConstraint0,
 				ModeConstraintInfo, ModuleInfo0,
 				PredConstraintMap),
