@@ -11,7 +11,15 @@
 MERCURY_DIR=..
 include $(MERCURY_DIR)/Mmake.common
 
-MAIN_TARGET=mdprof_cgi mdprof_server
+ifeq ("$(ENABLE_DEEP_PROFILER)","yes")
+	MAIN_TARGET=mdprof_cgi mdprof_server
+	DEPEND=mdprof_cgi.depend mdprof_server.depend
+	INSTALL=install_deep
+else
+	MAIN_TARGET=nothing
+	DEPEND=nothing
+	INSTALL=nothing
+endif
 
 VPATH=$(LIBRARY_DIR)
 
@@ -61,8 +69,11 @@ MTAGS	=	$(SCRIPTS_DIR)/mtags
 
 #-----------------------------------------------------------------------------#
 
+.PHONY: nothing
+nothing:
+
 .PHONY: depend
-depend:	mdprof_cgi.depend mdprof_server.depend
+depend:	$(DEPEND)
 
 .PHONY: all
 all:	mdprof_cgi mdprof_server
@@ -129,7 +140,7 @@ realclean_local:
 # Installation targets
 
 .PHONY: install
-install: install_deep
+install: $(INSTALL)
 
 .PHONY: install_deep
 install_deep: mdprof_cgi mdprof_server

@@ -2106,6 +2106,25 @@ if test "$mercury_cv_enable_decl_debug" = "no"; then
 	AC_DEFINE(MR_DISABLE_DECLARATIVE_DEBUGGER)
 fi
 #-----------------------------------------------------------------------------#
+#
+# Add an option that disables the deep profiler.
+#
+AC_MSG_CHECKING(whether to enable the deep profiler)
+
+    # This test may need to be made more specific at a later date.
+    # Currently it only distinguishes between systems which have
+    # unistd.h or not, but at a later date we may also need to test for
+    # other posix features.
+if test "$HAVE_UNISTD_H" = 1; then
+    mercury_cv_enable_deep_profiler=yes
+else
+    mercury_cv_enable_deep_profiler=no
+fi
+
+AC_MSG_RESULT($mercury_cv_enable_deep_profiler)
+ENABLE_DEEP_PROFILER=$mercury_cv_enable_deep_profiler
+AC_SUBST(ENABLE_DEEP_PROFILER)
+#-----------------------------------------------------------------------------#
 
 # Determine how many of the r registers (r1, r2, ...) are real registers.
 # Determine how many temporaries may be allocated real registers.
