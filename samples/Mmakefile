@@ -15,6 +15,7 @@ DEPENDS=$(PROGS:%=%.depend)
 
 MAIN_TARGET=all
 
+MCFLAGS = --dump-mode-constraints -V
 #-----------------------------------------------------------------------------#
 
 # targets

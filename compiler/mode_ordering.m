@@ -52,8 +52,8 @@ mode_ordering__pred(PredConstraintMap, _SCC, PredId, ModuleInfo0, ModuleInfo) :-
 	RequestedProcsMap0 = map__init,
 
 	module_info_pred_info(ModuleInfo0, PredId, PredInfo0),
-	map__lookup(PredConstraintMap, PredId,
-		{ModeConstraint0, ModeConstraintInfo}),
+	lookup_pred_constraint(PredConstraintMap, PredId,
+		ModeConstraint0, ModeConstraintInfo),
 	( pred_info_infer_modes(PredInfo0) ->
 		( map__search(RequestedProcsMap0, PredId, RequestedProcs) ->
 			list__foldl(mode_ordering__infer_proc(ModeConstraint0,
@@ -269,9 +269,23 @@ mode_ordering__goal_2(some(Vars, CanRemove, Goal0), some(Vars, CanRemove, Goal),
 	mode_ordering__goal(Goal0, Goal),
 	{ goal_info_copy_mode_var_sets(Goal ^ snd, GoalInfo0, GoalInfo) }.
 
-mode_ordering__goal_2(if_then_else(_Locals, _Cond0, _Then0, _Else0, _SM), _, _,
-		_) -->
-	{ error("mode_ordering__goal_2: if_then_else NYI") }.
+mode_ordering__goal_2(if_then_else(Locals, Cond0, Then0, Else0, SM),
+		if_then_else(Locals, Cond, Then, Else, SM),
+		GoalInfo0, GoalInfo) -->
+	mode_ordering__goal(Cond0, Cond),
+	mode_ordering__goal(Then0, Then),
+	mode_ordering__goal(Else0, Else),
+	% XXX Ned to make sure that Cond can be scheduled before Then and Else.
+
+	{ union_mode_vars_sets([Cond, Then], GoalInfo0, GoalInfo1) },
+	{ ConsVars = GoalInfo1 ^ consuming_vars },
+	{ GoalInfo2 = GoalInfo1 ^ consuming_vars :=
+			ConsVars `difference` GoalInfo1 ^ producing_vars },
+	{ NeedVars = GoalInfo2 ^ need_visible_vars },
+	{ GoalInfo3 = GoalInfo2 ^ need_visible_vars :=
+			NeedVars `difference` GoalInfo2 ^ make_visible_vars },
+
+	{ combine_mode_vars_sets(Else ^ snd, GoalInfo3, GoalInfo) }.
 
 mode_ordering__goal_2(pragma_foreign_code(A, B, C, ArgVars, Modes, F, G),
 		pragma_foreign_code(A, B, C, ArgVars, Modes, F, G),
@@ -299,6 +313,11 @@ mode_ordering__disj([_ - GI | Goals]) -->
 		hlds_goal_info::out) is det.
 
 mode_ordering__disj_2(_ - GI) -->
+	combine_mode_vars_sets(GI).
+
+:- pred combine_mode_vars_sets(hlds_goal_info::in, hlds_goal_info::in,
+		hlds_goal_info::out) is det.
+combine_mode_vars_sets(GI) -->
 	ProdVars0 =^ producing_vars,
 	ConsumVars0 =^ consuming_vars,
 	MakeVisibleVars0 =^ make_visible_vars,
@@ -429,7 +448,7 @@ find_matching_proc(PredId, Args, ProdVars, ProcId, ConsumingVars) -->
 	ModuleInfo =^ module_info,
 	CallerInstGraph =^ inst_graph,
 	PredConstraintMap =^ pred_constraint_map,
-	{ map__lookup(PredConstraintMap, PredId, {_, MCInfo}) },
+	{ lookup_pred_constraint(PredConstraintMap, PredId, _, MCInfo) },
 	
 	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 	{ CalleeInstGraph = PredInfo^inst_graph_info^interface_inst_graph },
@@ -498,3 +517,9 @@ report_mode_errors(_) --> [].
 	% XXX
 	%io__stderr_stream(StdErr),
 	%io__write_string(StdErr, "Mode error reporting NYI").
+
+:- pred lookup_pred_constraint(pred_constraint_map::in, pred_id::in,
+		mode_constraint::out, mode_constraint_info::out) is det.
+
+lookup_pred_constraint(PCM, PredId, MC, MCInfo) :-
+	map__lookup(PCM, PredId, {MC, MCInfo}).

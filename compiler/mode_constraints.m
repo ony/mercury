@@ -148,23 +148,23 @@ number_robdd_variables_in_pred(PredId, ModuleInfo0, ModuleInfo) -->
 
 	save_min_var_for_pred(PredId),
 
-	( { pred_info_is_imported(PredInfo0) } ->
-	    { ModuleInfo = ModuleInfo0 }
-	;
-	    { goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo0,
+	{ goal_path__fill_slots_in_clauses(PredInfo0, ModuleInfo0,
 		PredInfo1) },
 
-	    { pred_info_clauses_info(PredInfo1, ClausesInfo0) },
-	    { clauses_info_headvars(ClausesInfo0, HeadVars) },
-	    aggregate(inst_graph__reachable_from_list(InstGraph, HeadVars),
+	{ pred_info_clauses_info(PredInfo1, ClausesInfo0) },
+	{ clauses_info_headvars(ClausesInfo0, HeadVars) },
+	{ InstGraph = PredInfo1^inst_graph_info^implementation_inst_graph },
+	aggregate(inst_graph__reachable_from_list(InstGraph, HeadVars),
 		( pred(V::in, in, out) is det -->
 		    mode_constraint_var(in(V), _),
 		    mode_constraint_var(out(V), _),
 		    mode_constraint_var(V `at` [], _)
 		)),
 
+	( { pred_info_is_imported(PredInfo0) } ->
+	    { ModuleInfo = ModuleInfo0 }
+	;
 	    { clauses_info_clauses(ClausesInfo0, Clauses0) },
-	    { InstGraph = PredInfo1^inst_graph_info^implementation_inst_graph },
 	    { clauses_info_vartypes(ClausesInfo0, VarTypes) },
 	    =(MCInfo0),
 	    { NRInfo0 = number_robdd_info(MCInfo0, ModuleInfo0, VarTypes) },
@@ -617,7 +617,8 @@ mode_constraints__mode_decl_to_constraint(ModuleInfo, InstGraph, HeadVars,
 mode_constraints__process_mode_decl_for_proc(ModuleInfo, InstGraph, HeadVars,
 		InitialFree, InitialBound, InitialHO, FinalFree, FinalBound,
 		FinalHO, ProcInfo, Constraint0, Constraint) -->
-	{ proc_info_declared_argmodes(ProcInfo, ArgModes) },
+	%{ proc_info_declared_argmodes(ProcInfo, ArgModes) },
+	{ proc_info_argmodes(ProcInfo, ArgModes) },
 	mode_constraints__process_mode_decl(ModuleInfo, InstGraph, HeadVars,
 		InitialFree, InitialBound, InitialHO, FinalFree, FinalBound,
 		FinalHO, ArgModes, Constraint0, Constraint).
@@ -1394,7 +1395,9 @@ keep_var(NonLocals, GoalVars, GoalPath, _AtomicGoals, InstGraph, RepVar) :-
 		)
 	).
 
-:- pred get_predicate_sccs(module_info::in, list(list(pred_id))::out) is det.
+:- type sccs == list(list(pred_id)).
+
+:- pred get_predicate_sccs(module_info::in, sccs::out) is det.
 
 get_predicate_sccs(ModuleInfo, SCCs) :-
 	% Obtain the SCCs for the module.
@@ -1407,10 +1410,15 @@ get_predicate_sccs(ModuleInfo, SCCs) :-
 	% the rest of their SCC since the mode declaration can be used in any
 	% calls to them.  Such predicates should be processed last to take
 	% advantage of mode info inferred from other predicates.
-	extract_mode_decl_preds(ModuleInfo, [], SCCs0, SCCs).
+	extract_mode_decl_preds(ModuleInfo, [], SCCs0, SCCs1),
 
-:- pred extract_mode_decl_preds(module_info::in, list(list(pred_id))::in,
-		list(list(pred_id))::in, list(list(pred_id))::out) is det.
+	% We add imported preds to the end of the SCC list, one SCC per pred.
+	% This allows a constraint to be created for each imported pred based on
+	% its mode declarations.
+	add_imported_preds(ModuleInfo, SCCs1, SCCs).
+
+:- pred extract_mode_decl_preds(module_info::in, sccs::in, sccs::in, sccs::out)
+		is det.
 
 extract_mode_decl_preds(_ModuleInfo, DeclaredPreds, [], DeclaredPreds).
 extract_mode_decl_preds(ModuleInfo, DeclaredPreds0, [SCC0 | SCCs0], SCCs) :-
@@ -1434,6 +1442,16 @@ extract_mode_decl_preds(ModuleInfo, DeclaredPreds0, [SCC0 | SCCs0], SCCs) :-
 pred_has_mode_decl(ModuleInfo, PredId) :-
 	module_info_pred_info(ModuleInfo, PredId, PredInfo),
 	\+ pred_info_infer_modes(PredInfo).
+
+:- pred add_imported_preds(module_info::in, sccs::in, sccs::out) is det.
+
+add_imported_preds(ModuleInfo, SCCs0, SCCs) :-
+	module_info_predids(ModuleInfo, PredIds),
+	list__filter_map((pred(PredId::in, [PredId]::out) is semidet :-
+			module_info_pred_info(ModuleInfo, PredId, PredInfo),
+			pred_info_is_imported(PredInfo)
+		), PredIds, ImportedPredIds),
+	SCCs = SCCs0 ++ ImportedPredIds.
 
 :- pred cons_id_in_bound_insts(cons_id::in, list(bound_inst)::in,
 		list(inst)::out) is semidet.

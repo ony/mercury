@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1993-2000 The University of Melbourne.
+% Copyright (C) 1993-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -71,6 +71,10 @@
 
 :- pred map__upper_bound_lookup(map(K,V), K, K, V).
 :- mode map__upper_bound_lookup(in, in, out, out) is det.
+
+:- func map__max_key(map(K,V)) = K is semidet.
+
+:- func map__min_key(map(K,V)) = K is semidet.
 
 	% Search map for data.
 :- pred map__inverse_search(map(K,V), V, K).
@@ -437,6 +441,10 @@ map__upper_bound_lookup(Map, SearchK, K, V) :-
 		report_lookup_error("map__upper_bound_lookup: key not found",
 			SearchK, V)
 	).
+
+map__max_key(M) = tree234__max_key(M).
+
+map__min_key(M) = tree234__min_key(M).
 
 map__insert(Map0, K, V, Map) :-
 	tree234__insert(Map0, K, V, Map).

@@ -12,6 +12,8 @@ include ../Mmake.common
 # C2INITFLAGS=-w "`extract $(*:_init=) '' BenchEntry`"
 # MLFLAGS=-- -static
 
+MCFLAGS = --dump-mode-constraints -V
+
 #-----------------------------------------------------------------------------#
 
 ifeq ($(HAVE_NUPROLOG),yes)

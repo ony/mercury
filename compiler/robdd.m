@@ -48,7 +48,7 @@
 
 :- interface.
 
-:- import_module term, io, sparse_bitset, list.
+:- import_module term, io, sparse_bitset, list, map.
 
 :- type robdd(T).
 :- type robdd == robdd(generic).
@@ -150,9 +150,15 @@
 :- pred definite_vars(robdd(T)::in, vars_entailed_result(T)::out,
 		vars_entailed_result(T)::out) is det.
 
-:- type vars_entailed_result(T)
+:- func equivalent_vars(robdd(T)) = equivalent_result(T).
+
+:- type entailment_result(T)
 	--->	all_vars
-	;	some_vars(vars(T)).
+	;	some_vars(vars :: T).
+
+:- type vars_entailed_result(T) == entailment_result(vars(T)).
+
+:- type equivalent_result(T) == entailment_result(map(var(T), var(T))).
 
 	% Existentially quantify away the var in the ROBDD.
 :- func restrict(var(T), robdd(T)) = robdd(T).
@@ -164,7 +170,26 @@
 :- func restrict_filter(pred(var(T)), robdd(T)) = robdd(T).
 :- mode restrict_filter(pred(in) is semidet, in) = out is det.
 
+	% restrict_filter(P, D, R)
+	%	Existentially quantify away all vars for which P fails,
+	%	except, if D fails for a var, do not existentially quantify away
+	%	that var on any greater than it.  I.e D can be used to set a
+	%	depth limit on the existential quantification.
+:- func restrict_filter(pred(var(T)), pred(var(T)), robdd(T)) = robdd(T).
+:- mode restrict_filter(pred(in) is semidet, pred(in) is semidet, in) = out
+		is det.
+
 :- func restrict_true_false_vars(vars(T), vars(T), robdd(T)) = robdd(T).
+
+	% Given a leader map, remove all but the least variable in each
+	% equivalence class from the ROBDD.
+	% Note: the leader map MUST correspond to actual equivalences within the
+	% ROBDD, (e.g. have been produced by 'equivalent_vars/1').
+:- func squeeze_equiv(map(var(T), var(T)), robdd(T)) = robdd(T).
+
+:- func make_equiv(map(var(T), var(T))) = robdd(T).
+
+:- func expand_equiv(map(var(T), var(T)), robdd(T)) = robdd(T).
 
 %-----------------------------------------------------------------------------%
 
@@ -252,7 +277,10 @@
 :- import_module multi_map, require.
 :- import_module hash_table.
 
-:- type robdd(T) ---> robdd(c_pointer).
+:- type robdd(T) ---> robdd(int).
+% :- type robdd(T) ---> robdd(c_pointer).
+	% Can't use a c_pointer since we want to memo ROBDD operations and
+	% pragma memo does not support c_pointers.
 
 empty_vars_set = sparse_bitset__init.
 
@@ -316,6 +344,8 @@ X * Y = R :-
 :- pragma c_code(var_entailed(F::in, V::in), [will_not_call_mercury],
 		"SUCCESS_INDICATOR = var_entailed((node *) F, (int) V);").
 
+:- pragma memo(vars_entailed/1).
+
 vars_entailed(R) =
 	( R = one ->
 		some_vars(empty_vars_set)
@@ -325,12 +355,14 @@ vars_entailed(R) =
 		(
 			R^fa = zero
 		->
-			(vars_entailed(R^tr) `intersect` vars_entailed(R^fa))
+			(vars_entailed(R^tr) `intersection` vars_entailed(R^fa))
 				`insert` R^value
 		;
-			vars_entailed(R^tr) `intersect` vars_entailed(R^fa)
+			vars_entailed(R^tr) `intersection` vars_entailed(R^fa)
 		)
 	).
+
+:- pragma memo(vars_disentailed/1).
 
 vars_disentailed(R) =
 	( R = one ->
@@ -341,13 +373,15 @@ vars_disentailed(R) =
 		(
 			R^tr = zero
 		->
-			(vars_disentailed(R^tr) `intersect`
+			(vars_disentailed(R^tr) `intersection`
 				vars_disentailed(R^fa)) `insert` R^value
 		;
-			vars_disentailed(R^tr) `intersect`
+			vars_disentailed(R^tr) `intersection`
 				vars_disentailed(R^fa)
 		)
 	).
+
+:- pragma memo(definite_vars/3).
 
 definite_vars(R, T, F) :-
 	( R = one ->
@@ -359,8 +393,8 @@ definite_vars(R, T, F) :-
 	;
 		definite_vars(R^tr, T_tr, F_tr),
 		definite_vars(R^fa, T_fa, F_fa),
-		T0 = T_tr `intersect` T_fa,
-		F0 = F_tr `intersect` F_fa,
+		T0 = T_tr `intersection` T_fa,
+		F0 = F_tr `intersection` F_fa,
 		( R^fa = zero ->
 			T = T0 `insert` R^value,
 			F = F0
@@ -373,12 +407,97 @@ definite_vars(R, T, F) :-
 		)
 	).
 
-:- func vars_entailed_result(T) `intersect` vars_entailed_result(T) =
-		vars_entailed_result(T).
+equivalent_vars(R) = rev_map(equivalent_vars_2(R)).
 
-all_vars `intersect` R = R.
-some_vars(Vs) `intersect` all_vars = some_vars(Vs).
-some_vars(Vs0) `intersect` some_vars(Vs1) = some_vars(Vs0 `intersect` Vs1).
+:- type equivalent_vars_map(T) ---> equivalent_vars_map(map(var(T), vars(T))).
+
+:- func equivalent_vars_2(robdd(T)) = entailment_result(equivalent_vars_map(T)).
+
+:- pragma memo(equivalent_vars_2/1).
+
+equivalent_vars_2(R) = EQ :-
+	( R = one ->
+		EQ = some_vars(equivalent_vars_map(map__init))
+	; R = zero ->
+		EQ = all_vars
+	;
+		EQVars = vars_entailed(R ^ tr) `intersection`
+				vars_disentailed(R ^ fa),
+		EQ0 = equivalent_vars_2(R ^ tr) `intersection`
+				equivalent_vars_2(R ^ fa),
+		(
+		    EQVars = all_vars,
+		    error("equivalent_vars: unexpected result")
+		    % If this condition occurs it means the ROBDD invariants
+		    % have been violated somewhere since both branches of R
+		    % must have been zero.
+		;
+		    EQVars = some_vars(Vars),
+		    ( empty(Vars) ->
+			EQ = EQ0
+		    ;
+			(
+			    EQ0 = all_vars,
+			    error("equivalent_vars: unexpected result")
+			    % If this condition occurs it means the ROBDD
+			    % invariants have been violated somewhere since both
+			    % branches of R must have been zero.
+			;
+			    EQ0 = some_vars(equivalent_vars_map(M0)),
+			    map__det_insert(M0, R ^ value, Vars, M),
+			    EQ = some_vars(equivalent_vars_map(M))
+			)
+		    )
+		)
+	).
+
+:- func rev_map(entailment_result(equivalent_vars_map(T))) =
+		equivalent_result(T).
+
+rev_map(all_vars) = all_vars.
+rev_map(some_vars(equivalent_vars_map(EQ0))) = some_vars(EQ) :-
+	map__foldl2(
+		( pred(V::in, Vs::in, Seen0::in, Seen::out, in, out) is det -->
+		    ( { Seen0 `contains` V } ->
+			{ Seen = Seen0 }
+		    ;
+			^ elem(V) := V,
+			sparse_bitset__foldl((pred(Ve::in, in, out) is det -->
+				^ elem(Ve) := V
+			    ), Vs),
+			{ Seen = Seen0 `sparse_bitset__union` Vs }
+		    )
+		), EQ0, sparse_bitset__init, _, map__init, EQ).
+
+:- typeclass intersectable(T) where [
+	func T `intersection` T = T
+].
+
+:- instance intersectable(sparse_bitset(T)) where [
+	func(intersection/2) is sparse_bitset__intersect
+].
+
+:- instance intersectable(entailment_result(T)) <= intersectable(T) where [
+	( all_vars `intersection` R = R ),
+	( some_vars(Vs) `intersection` all_vars = some_vars(Vs) ),
+	( some_vars(Vs0) `intersection` some_vars(Vs1) =
+		some_vars(Vs0 `intersection` Vs1) )
+].
+
+:- instance intersectable(equivalent_vars_map(T)) where [
+	( equivalent_vars_map(MapA) `intersection` equivalent_vars_map(MapB) =
+		equivalent_vars_map(map__foldl((func(V, VsA, M) =
+			( Vs = VsA `intersect` (MapB ^ elem(V)) ->
+				( empty(Vs) ->
+					M
+				;
+					M ^ elem(V) := Vs
+				)
+			;
+				M
+			)), MapA, map__init))
+	)
+].
 
 :- func vars_entailed_result(T) `insert` var(T) = vars_entailed_result(T).
 
@@ -451,7 +570,7 @@ rename_vars(Subst, F) =
 	( is_terminal(F) ->
 		F
 	;
-		ite_var(Subst(F^value),
+		ite(var(Subst(F^value)),
 			rename_vars(Subst, F^tr),
 			rename_vars(Subst, F^fa))
 	).
@@ -526,6 +645,8 @@ at_most_one_of_2(Vars, OneOf0, NoneOf0) = R :-
 		), list__reverse(to_sorted_list(Vars)), 
 		OneOf0, R, NoneOf0, _).
 
+:- pragma memo(var_restrict_true/2).
+
 var_restrict_true(V, F0) = F :-
 	( is_terminal(F0) ->
 		F = F0
@@ -544,6 +665,8 @@ var_restrict_true(V, F0) = F :-
 			F = F0
 		)
 	).
+
+:- pragma memo(var_restrict_false/2).
 
 var_restrict_false(V, F0) = F :-
 	( is_terminal(F0) ->
@@ -564,9 +687,42 @@ var_restrict_false(V, F0) = F :-
 		)
 	).
 
+%/*
+restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
+    size(R0, _Nodes, _Depth), % XXX
+	P = (pred(V::in, di, uo) is det --> io__write_int(var_to_int(V))), % XXX
+	unsafe_perform_io(robdd_to_dot(R0, P, "rtf.dot")), % XXX
+	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R).
+
+:- pred restrict_true_false_vars_2(vars(T)::in, vars(T)::in,
+	robdd(T)::in, robdd(T)::out) is det.
+
+%:- pragma memo(restrict_true_false_vars_2/4).
+
+restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R) :-
+	( is_terminal(R0) ->
+	    R = R0
+	; empty(TrueVars0), empty(FalseVars0) ->
+	    R = R0
+	;	
+	    Var = R0 ^ value,
+	    TrueVars = TrueVars0 `remove_leq` Var,
+	    FalseVars = FalseVars0 `remove_leq` Var,
+	    ( TrueVars0 `contains` Var ->
+		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ tr, R)
+	    ; FalseVars0 `contains` Var ->
+		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ fa, R)
+	    ;
+		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ tr, R_tr),
+		restrict_true_false_vars_2(TrueVars, FalseVars, R0 ^ fa, R_fa),
+		R = make_node(R0 ^ value, R_tr, R_fa)
+	    )
+	).
+%*/
+/*
 restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
 	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R,
-		hash_table__new(robdd_double_hash, 8, 0.9), _).
+		hash_table__new(robdd_double_hash, 12, 0.9), _).
 
 :- pred restrict_true_false_vars_2(vars(T)::in, vars(T)::in,
 	robdd(T)::in, robdd(T)::out,
@@ -602,21 +758,33 @@ restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R, Seen0, Seen) :-
 		),
 		Seen = det_insert(Seen2, R0, R)
 	).
+*/
 
 :- pred robdd_double_hash(robdd(T)::in, int::out, int::out) is det.
 
 robdd_double_hash(R, H1, H2) :-
 	int_double_hash(node_num(R), H1, H2).
 
-restrict_filter(P, F0) = F :- filter_2(P, F0, F, map__init, _, map__init, _).
+restrict_filter(P, F0) =
+	restrict_filter(P, (pred(_::in) is semidet :- true), F0).
 
-:- pred filter_2(pred(var(T)), robdd(T), robdd(T),
-		map(var(T), bool), map(var(T), bool), map(robdd(T), robdd(T)),
-		map(robdd(T), robdd(T))).
-:- mode filter_2(pred(in) is semidet, in, out, in, out, in, out) is det.
+restrict_filter(P, D, F0) = F :-
+	filter_2(P, D, F0, F, map__init, _, map__init, _).
 
-filter_2(P, F0, F, SeenVars0, SeenVars, SeenNodes0, SeenNodes) :-
+:- type robdd_cache(T) == map(robdd(T), robdd(T)).
+:- type var_cache(T) == map(var(T), bool).
+
+:- pred filter_2(pred(var(T)), pred(var(T)), robdd(T), robdd(T),
+	var_cache(T), var_cache(T), robdd_cache(T), robdd_cache(T)).
+:- mode filter_2(pred(in) is semidet, pred(in) is semidet, in, out, in, out,
+	in, out) is det.
+
+filter_2(P, D, F0, F, SeenVars0, SeenVars, SeenNodes0, SeenNodes) :-
 	( is_terminal(F0) ->
+		F = F0,
+		SeenVars = SeenVars0,
+		SeenNodes = SeenNodes0
+	; \+ D(F0^value) ->
 		F = F0,
 		SeenVars = SeenVars0,
 		SeenNodes = SeenNodes0
@@ -625,9 +793,9 @@ filter_2(P, F0, F, SeenVars0, SeenVars, SeenNodes0, SeenNodes) :-
 		SeenVars = SeenVars0,
 		SeenNodes = SeenNodes0
 	;
-		filter_2(P, F0^tr, Ftrue, SeenVars0, SeenVars1, SeenNodes0,
+		filter_2(P, D, F0^tr, Ftrue, SeenVars0, SeenVars1, SeenNodes0,
 			SeenNodes1),
-		filter_2(P, F0^fa, Ffalse, SeenVars1, SeenVars2, SeenNodes1,
+		filter_2(P, D, F0^fa, Ffalse, SeenVars1, SeenVars2, SeenNodes1,
 			SeenNodes2),
 		V = F0^value,
 		( map__search(SeenVars0, V, SeenF) ->
@@ -648,6 +816,73 @@ filter_2(P, F0, F, SeenVars0, SeenVars, SeenNodes0, SeenNodes) :-
 		),
 		map__det_insert(SeenNodes2, F0, F, SeenNodes)
 	).
+
+squeeze_equiv(LeaderMap, R0) =
+	( Max = map__max_key(LeaderMap) ->
+		restrict_filter(
+			( pred(V::in) is semidet :-
+				map__search(LeaderMap, V, L) => L = V
+			),
+			( pred(V::in) is semidet :-
+				\+ compare(>, V, Max)
+			), R0)
+	;
+		R0
+	).
+
+make_equiv(LeaderMap) =
+	make_equiv_2(map__sorted_keys(LeaderMap), LeaderMap, init).
+
+:- func make_equiv_2(list(var(T)), map(var(T), var(T)), vars(T)) = robdd(T).
+
+make_equiv_2([], _, _) = one.
+make_equiv_2([V | Vs], LM, Trues) =
+	( L = V ->
+		make_node(V, make_equiv_2(Vs, LM, Trues `insert` V),
+			make_equiv_2(Vs, LM, Trues))
+	; Trues `contains` L ->
+		make_node(V, make_equiv_2(Vs, LM, Trues), zero)
+	;
+		make_node(V, zero, make_equiv_2(Vs, LM, Trues))
+	) :-
+	L = LM ^ det_elem(V).
+
+expand_equiv(LeaderMap, R) =
+	expand_equiv_2(map__sorted_keys(LeaderMap), LeaderMap, init, R).
+
+:- func expand_equiv_2(list(var(T)), map(var(T), var(T)), vars(T), robdd(T)) =
+		robdd(T).
+
+expand_equiv_2([], _, _, R) = R.
+expand_equiv_2([V | Vs], LM, Trues, R) =
+	( R = one ->
+		make_equiv_2([V | Vs], LM, Trues)
+	; R = zero ->
+		zero
+	; compare((<), R ^ value, V) ->
+		make_node(R ^ value,
+			expand_equiv_2([V | Vs], LM, Trues, R ^ tr),
+			expand_equiv_2([V | Vs], LM, Trues, R ^ fa))
+	; compare((<), V, R ^ value) ->
+		( L = V ->
+			make_node(V,
+				expand_equiv_2(Vs, LM, Trues `insert` V, R),
+				expand_equiv_2(Vs, LM, Trues, R))
+		; Trues `contains` L ->
+			make_node(V, expand_equiv_2(Vs, LM, Trues, R), zero)
+		;
+			make_node(V, zero, expand_equiv_2(Vs, LM, Trues, R))
+		)
+	; L = V ->
+		make_node(V,
+			expand_equiv_2(Vs, LM, Trues `insert` V, R ^ tr),
+			expand_equiv_2(Vs, LM, Trues, R ^ fa))
+	; Trues `contains` L ->
+		make_node(V, expand_equiv_2(Vs, LM, Trues, R ^ tr), zero)
+	;
+		make_node(V, zero, expand_equiv_2(Vs, LM, Trues, R ^ fa))
+	) :-
+	L = LM ^ det_elem(V).
 
 :- pragma c_code(is_terminal(F::in), [will_not_call_mercury, thread_safe],
 	"SUCCESS_INDICATOR = IS_TERMINAL(F);").
@@ -883,3 +1118,27 @@ clear_caches -->
 	{ impure clear_caches }.
 
 :- pragma c_code(clear_caches, [will_not_call_mercury], "init_caches();").
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+% XXX
+
+:- pred unsafe_perform_io(pred(io__state, io__state)).
+:- mode unsafe_perform_io(pred(di, uo) is det) is det.
+
+:- pragma c_code(
+unsafe_perform_io(P::(pred(di, uo) is det)),
+	[may_call_mercury],
+"{
+	ML_lazy_io_call_io_pred_det(P);
+}").
+
+:- pred call_io_pred(pred(io__state, io__state), io__state, io__state).
+:- mode call_io_pred(pred(di, uo) is det, di, uo) is det.
+
+:- pragma export(call_io_pred(pred(di, uo) is det, di, uo),
+		"ML_lazy_io_call_io_pred_det").
+
+call_io_pred(P) --> P.
+

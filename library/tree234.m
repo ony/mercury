@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-1997, 1999-2000 The University of Melbourne.
+% Copyright (C) 1994-1997, 1999-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -51,6 +51,10 @@
 
 :- pred tree234__upper_bound_lookup(tree234(K, V), K, K, V).
 :- mode tree234__upper_bound_lookup(in, in, out, out) is det.
+
+:- func tree234__max_key(tree234(K, V)) = K is semidet.
+
+:- func tree234__min_key(tree234(K, V)) = K is semidet.
 
 :- pred tree234__insert(tree234(K, V), K, V, tree234(K, V)).
 :- mode tree234__insert(in, in, in, out) is semidet.
@@ -685,6 +689,30 @@ tree234__upper_bound_lookup(T, SearchK, K, V) :-
 	;
 		report_lookup_error("tree234__upper_bound_lookup: key not found.",
 			SearchK, V)
+	).
+
+%------------------------------------------------------------------------------%
+
+tree234__max_key(T0) =
+		( Kt = tree234__max_key(T) ->
+			Kt
+		;
+			K0
+		) :-
+	( T0 = two(K0, _, _, T) 
+	; T0 = three(_, _, K0, _, _, _, T)
+	; T0 = four(_, _, _, _, K0, _, _, _, _, T)
+	).
+
+tree234__min_key(T0) =
+		( Kt = tree234__min_key(T) ->
+			Kt
+		;
+			K0
+		) :-
+	( T0 = two(K0, _, T, _) 
+	; T0 = three(K0, _, _, _, T, _, _)
+	; T0 = four(K0, _, _, _, _, _, T, _, _, _)
 	).
 
 %------------------------------------------------------------------------------%

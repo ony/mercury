@@ -6,7 +6,7 @@
 
 /*****************************************************************
   File     : bryant.c
-  RCS      : $Id: bryant.c,v 1.1.12.1 2001-02-14 04:42:48 dmo Exp $
+  RCS      : $Id: bryant.c,v 1.1.12.2 2001-04-26 02:13:50 dmo Exp $
   Author   : Peter Schachte, based on code by Tania Armstrong
   Purpose  : Manipulation of boolean functions
 
@@ -1720,9 +1720,10 @@ static node *ite_var_h(int f, node *g, node *h)
 
 node *ite_var(int f,node *g,node *h)
     {
-	int g_val = MAXVAR;
-	int h_val = MAXVAR;
+	int g_val = INT_MAX;
+	int h_val = INT_MAX;
 	node *result;
+	node *g_tr, *g_fa, *h_tr, *h_fa;
 	DECLARE_ITE_VAR_CACHE_ENTRY
 
 	COUNT_FN(ite_var);
@@ -1732,33 +1733,46 @@ node *ite_var(int f,node *g,node *h)
 	if (!IS_TERMINAL(g)) g_val = g->value;
 	if (!IS_TERMINAL(h)) h_val = h->value;
 
+	if (IS_TERMINAL(g)) {
+	    g_tr = g_fa = g;
+	} else {
+	    g_tr = g->tr;
+	    g_fa = g->fa;
+	}
+	if (IS_TERMINAL(h)) {
+	    h_tr = h_fa = h;
+	} else {
+	    h_tr = h->tr;
+	    h_fa = h->fa;
+	}
+
 	if (f < g_val) {
 	    if (f < h_val) /* case 2 (b,c,d):  f < g && f < h */ {
 		result = make_node(f, g, h);
 	    } else /* case 8 (k):  h < f < g */ {
 		result = make_node(h_val,
-				   ite_var_g(f, g, h->tr),
-				   ite_var_g(f, g, h->fa));
+				   ite_var_g(f, g, h_tr),
+				   ite_var_g(f, g, h_fa));
 	    }
 	/* g < f */
 	} else if (f < h_val) /* g < f < h */ {
 	    result = make_node(g_val,
-			       ite_var_h(f, g->tr, h),
-			       ite_var_h(f, g->fa, h));
+			       ite_var_h(f, g_tr, h),
+			       ite_var_h(f, g_fa, h));
 	/* g < f && h < f */
 	} else if (h_val < g_val) /* case 9 (l,m): h < g < f */ {
 	    result = make_node(h_val,
-			       ite_var(f, g, h->tr),
-			       ite_var(f, g, h->fa));
+			       ite_var(f, g, h_tr),
+			       ite_var(f, g, h_fa));
 	/* g < f && g <= h */
 	} else if (g_val == h_val) /* g == h < f */ {
 	    result = make_node(g_val,
-			       ite_var(f, g->tr, h->tr),
-			       ite_var(f, g->fa, h->fa));
+			       ite_var(f, g_tr, h_tr),
+			       ite_var(f, g_fa, h_fa));
 	} else /* case 6 (h,i):  g < h < f */ {
 	    result = make_node(g_val,
-			       ite_var(f, g->tr, h),
-			       ite_var(f, g->fa, h));
+			       ite_var(f, g_tr, h),
+			       ite_var(f, g_fa, h));
 	}
 
 	UPDATE_ITE_VAR_CACHE(f, g, h, result);

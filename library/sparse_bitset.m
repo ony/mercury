@@ -221,6 +221,9 @@
 	% Takes O(card(Set)) time.
 :- func foldl(func(T, U) = U, sparse_bitset(T), U) = U <= enum(T).
 
+:- pred foldl(pred(T, U, U), sparse_bitset(T), U, U) <= enum(T).
+:- mode foldl(pred(in, in, out) is det, in, in, out) is det.
+
 	% `foldr(Func, Set, Start)' calls Func with each element
 	% of `Set' (in reverse sorted order) and an accumulator
 	% (with the initial value of `Start'), and returns
@@ -340,6 +343,10 @@ to_sorted_list(Set) = foldr(func(Elem, Acc0) = [Elem | Acc0], Set, []).
 %-----------------------------------------------------------------------------%
 
 foldl(F, sparse_bitset(Set), Acc0) = foldl_2(F, Set, Acc0).
+
+foldl(P, S, Acc0, Acc) :-
+	F = (func(E, A0) = A :- P(E, A0, A)),
+	Acc = foldl(F, S, Acc0).
 
 :- func foldl_2(func(T, U) = U, bitset_impl, U) = U <= enum(T).
 :- pragma type_spec(foldl_2/3, T = int).
