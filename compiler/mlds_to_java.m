@@ -44,10 +44,10 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module mlds_to_java.
+:- module ml_backend__mlds_to_java.
 :- interface.
 
-:- import_module mlds.
+:- import_module ml_backend__mlds.
 :- import_module io.
 
 :- pred mlds_to_java__output_mlds(mlds, io__state, io__state).
@@ -58,23 +58,24 @@
 
 :- implementation.
 
-:- import_module ml_util.
-:- import_module java_util. 
-:- import_module c_util.	% XXX needed for c_util__output_quoted_string
+:- import_module ml_backend__ml_util.
+:- import_module ml_backend__java_util. 
+:- import_module backend_libs__c_util.	% XXX needed for c_util__output_quoted_string
 				% c_util_output_quoted_multi_string
-:- import_module llds_out.	% XXX needed for llds_out__name_mangle,
+:- import_module ll_backend__llds_out.	% XXX needed for llds_out__name_mangle,
 				% llds_out__sym_name_mangle,
 				% llds_out__make_base_typeclass_info_name,
-:- import_module rtti.		% for rtti__addr_to_string.
-:- import_module rtti_to_mlds.	% for mlds_rtti_type_name.
-:- import_module hlds_pred.	% for pred_proc_id.
-:- import_module modules.       % for mercury_std_library_name.
-:- import_module ml_code_util.	% for ml_gen_local_var_decl_flags.
-:- import_module ml_type_gen.	% for ml_gen_type_name
-:- import_module export.	% for export__type_to_type_string
-:- import_module globals, options, passes_aux.
-:- import_module builtin_ops.
-:- import_module prog_data, prog_out, type_util, error_util.
+:- import_module backend_libs__rtti.		% for rtti__addr_to_string.
+:- import_module ml_backend__rtti_to_mlds.	% for mlds_rtti_type_name.
+:- import_module hlds__hlds_pred.	% for pred_proc_id.
+:- import_module parse_tree__modules.       % for mercury_std_library_name.
+:- import_module ml_backend__ml_code_util.	% for ml_gen_local_var_decl_flags.
+:- import_module ml_backend__ml_type_gen.	% for ml_gen_type_name
+:- import_module backend_libs__export.	% for export__type_to_type_string
+:- import_module libs__globals, libs__options, hlds__passes_aux.
+:- import_module backend_libs__builtin_ops.
+:- import_module parse_tree__prog_data, parse_tree__prog_out.
+:- import_module check_hlds__type_util, hlds__error_util.
 
 :- import_module bool, int, string, library, list, set.
 :- import_module assoc_list, term, std_util, require.
@@ -1390,7 +1391,6 @@ output_func(Indent, Name, CtorData, Context, Signature, MaybeBody)
 		io__write_string("}\n")	% end the function
 	).
 
-
 :- pred output_func_decl(indent, qualified_entity_name, ctor_data,
 		mlds__context, func_params, io__state, io__state).
 :- mode output_func_decl(in, in, in, in, in, di, uo) is det.
@@ -1583,8 +1583,8 @@ output_mlds_var_name(var_name(Name, yes(Num))) -->
 % XXX Most of this code doesn't yet work/hasn't been implemented in the Java
 % backend.
 %
-output_data_name(rtti(RttiTypeId, RttiName)) -->
-	{ rtti__addr_to_string(RttiTypeId, RttiName, RttiAddrName) },
+output_data_name(rtti(RttiTypeCtor, RttiName)) -->
+	{ rtti__addr_to_string(RttiTypeCtor, RttiName, RttiAddrName) },
 	io__write_string(RttiAddrName).
 output_data_name(base_typeclass_info(ClassId, InstanceStr)) -->
         { llds_out__make_base_typeclass_info_name(ClassId, InstanceStr,
@@ -1701,8 +1701,8 @@ output_mercury_type(Type, TypeCategory) -->
 :- mode output_mercury_user_type(in, in, di, uo) is det.
 
 output_mercury_user_type(Type, TypeCategory) -->
-	( { type_to_type_id(Type, TypeId, _ArgsTypes) } ->
-		{ ml_gen_type_name(TypeId, ClassName, ClassArity) },
+	( { type_to_ctor_and_args(Type, TypeCtor, _ArgsTypes) } ->
+		{ ml_gen_type_name(TypeCtor, ClassName, ClassArity) },
 		( { TypeCategory = enum_type } ->
 			{ MLDS_Type = mlds__class_type(ClassName,
 				ClassArity, mlds__enum) }

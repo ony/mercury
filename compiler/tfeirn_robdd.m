@@ -15,14 +15,15 @@
 
 :- interface.
 
+:- import_module check_hlds, check_hlds__mode_constraint_robdd.
 :- import_module term, robdd.
 
 :- type tfeirn(T).
 :- type tfeirn == tfeirn(generic).
 
 :- inst tfeirn == ground. % XXX
-:- inst norm_tfeirn ---> xrobdd(ground, ground, ground, ground, ground,
-			bound(yes)).
+:- inst norm_tfeirn --->
+	xrobdd(ground, ground, ground, ground, ground, bound(yes)).
 
 :- mode di_tfeirn == in. % XXX
 :- mode uo_tfeirn == out. % XXX
@@ -36,8 +37,6 @@
 
 :- func zero = tfeirn(T).
 :- pragma type_spec(zero/0, T = mc_type).
-
-:- import_module mode_constraint_robdd.
 
 % Conjunction.
 :- func tfeirn(T) * tfeirn(T) = tfeirn(T).
@@ -189,9 +188,9 @@
 
 :- implementation.
 
-:- import_module robdd, sparse_bitset, bool, int, list, map.
 :- import_module xrobdd__equiv_vars.
 :- import_module xrobdd__implications.
+:- import_module robdd, sparse_bitset, bool, int, list, map.
 
 % T - true vars, F - False Vars, E - equivalent vars, N -
 % non-equivalent vars, I - implications, R - ROBDD.

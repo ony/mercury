@@ -719,14 +719,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module ml_code_gen.
+:- module ml_backend__ml_code_gen.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_module, hlds_goal.
-:- import_module code_model.
-:- import_module mlds, ml_code_util.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_goal.
+:- import_module backend_libs__code_model.
+:- import_module ml_backend__mlds, ml_backend__ml_code_util.
 :- import_module io, map.
 
 %-----------------------------------------------------------------------------%
@@ -780,15 +780,19 @@
 
 :- implementation.
 
-:- import_module ml_type_gen, ml_call_gen, ml_unify_gen, ml_switch_gen.
-:- import_module ml_code_util.
-:- import_module llds. % XXX needed for pragma foreign code
-:- import_module export, foreign. % XXX needed for pragma foreign code
-:- import_module hlds_pred, hlds_data.
-:- import_module goal_util, type_util, mode_util, builtin_ops, error_util.
-:- import_module c_util.
-:- import_module passes_aux, modules.
-:- import_module globals, options.
+:- import_module ml_backend__ml_type_gen, ml_backend__ml_call_gen.
+:- import_module ml_backend__ml_unify_gen, ml_backend__ml_switch_gen.
+:- import_module ml_backend__ml_code_util.
+:- import_module ll_backend__llds. % XXX needed for pragma backend_libs__foreign code
+:- import_module backend_libs__export.
+:- import_module backend_libs__foreign. % XXX needed for pragma foreign code
+:- import_module hlds__hlds_pred, hlds__hlds_data.
+:- import_module hlds__goal_util, check_hlds__type_util.
+:- import_module check_hlds__mode_util, backend_libs__builtin_ops.
+:- import_module hlds__error_util.
+:- import_module backend_libs__c_util.
+:- import_module hlds__passes_aux, parse_tree__modules.
+:- import_module libs__globals, libs__options.
 
 :- import_module assoc_list, bool, string, list.
 :- import_module int, set, term, require, std_util.
@@ -1462,16 +1466,21 @@ ml_gen_goal(CodeModel, Goal, MLDS_Decls, MLDS_Statements) -->
 	% but which are not local to a subgoal.
 	% (If they're local to a subgoal, they'll be declared
 	% when we generate code for that subgoal.)
+	%
+	% We need to make sure that we declare any type_info or
+	% type_classinfo variables *before* any other variables,
+	% since the GC tracing code for the other variables may
+	% refer to the type_info variables, so they need to be in scope.
 
 	{ Locals = goal_local_vars(Goal) },
 	{ SubGoalLocals = union_of_direct_subgoal_locals(Goal) },
 	{ set__difference(Locals, SubGoalLocals, VarsToDeclareHere) },
-	{ set__to_sorted_list(VarsToDeclareHere, VarsList) },
+	{ set__to_sorted_list(VarsToDeclareHere, VarsList0) },
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
 	{ ml_gen_info_get_var_types(MLDSGenInfo, VarTypes) },
-	ml_gen_local_var_decls(VarSet, VarTypes,
-		Context, VarsList, VarDecls),
+	{ VarsList = put_typeinfo_vars_first(VarsList0, VarTypes) },
+	ml_gen_local_var_decls(VarSet, VarTypes, Context, VarsList, VarDecls),
 
 	%
 	% Generate code for the goal in its own code model.

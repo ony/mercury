@@ -23,7 +23,7 @@
 :- import_module bytecode_backend.
 
 % misc utilities
-:- import_module libs, backend_libs.
+:- import_module libs, backend_libs, xrobdd.
 
 :- include_module mercury_compile.
 

@@ -6,13 +6,17 @@
 
 -include ../Mmake.params
 
-default_target: tests
+default_target: all
+
+INSTALL_PREFIX := $(INSTALL_PREFIX)/extras
 
 TESTS = philo philo2 philo3 midimon
 
-depend:		$(TESTS:%=%.depend)
+depend:		concurrency.depend $(TESTS:%=%.depend)
+all:		libconcurrency tests
+install:	libconcurrency.install
 tests:		$(TESTS)
 
 .PHONY: check
-check: tests
+check: all
 		true

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2001 University of Melbourne.
+% Copyright (C) 1998-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -11,11 +11,11 @@
 % the time taken by called predicates.
 %
 %-----------------------------------------------------------------------------%
-:- module pd_cost.
+:- module transform_hlds__pd_cost.
 
 :- interface.
 
-:- import_module hlds_goal.
+:- import_module hlds__hlds_goal.
 
 :- pred pd_cost__goal(hlds_goal::in, int::out) is det.
 
@@ -35,7 +35,7 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module hlds_data, prog_data.
+:- import_module hlds__hlds_data, parse_tree__prog_data.
 :- import_module int, list, set, std_util, require.
 
 %-----------------------------------------------------------------------------%

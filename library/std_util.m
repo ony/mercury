@@ -102,6 +102,33 @@
 	%
 :- func map_maybe(func(T) = U, maybe(T)) = maybe(U).
 
+	% fold_maybe(P, yes(Value), Acc0, Acc) :- P(Value, Acc0, Acc).
+	% fold_maybe(_, no, Acc, Acc).
+:- pred fold_maybe(pred(T, U, U), maybe(T), U, U).
+:- mode fold_maybe(pred(in, in, out) is det, in, in, out) is det.
+:- mode fold_maybe(pred(in, in, out) is semidet, in, in, out) is semidet.
+:- mode fold_maybe(pred(in, di, uo) is det, in, di, uo) is det.
+
+	% fold_maybe(F, yes(Value), Acc0) = F(Acc0).
+	% fold_maybe(_, no, Acc) = Acc.
+:- func fold_maybe(func(T, U) = U, maybe(T), U) = U.
+
+	% map_fold_maybe(P, yes(Value0), yes(Value), Acc0, Acc) :-
+	%       P(Value, Value, Acc0, Acc).
+	% map_fold_maybe(_, no, no, Acc, Acc).
+	%
+:- pred map_fold_maybe(pred(T, U, Acc, Acc), maybe(T), maybe(U), Acc, Acc).
+:- mode map_fold_maybe(pred(in, out, in, out) is det, in, out, in, out) is det.
+:- mode map_fold_maybe(pred(in, out, di, uo) is det, in, out, di, uo) is det.
+
+	% As above, but with two accumulators.
+:- pred map_fold2_maybe(pred(T, U, Acc1, Acc1, Acc2, Acc2),
+		maybe(T), maybe(U), Acc1, Acc1, Acc2, Acc2).
+:- mode map_fold2_maybe(pred(in, out, in, out, in, out) is det, in, out,
+		in, out, in, out) is det.
+:- mode map_fold2_maybe(pred(in, out, in, out, di, uo) is det,
+		in, out, in, out, di, uo) is det.
+
 %-----------------------------------------------------------------------------%
 
 % The "unit" type - stores no information at all.
@@ -221,9 +248,13 @@
 		in, out) is cc_multi.
 :- mode unsorted_aggregate(pred(out) is multi, pred(in, di, uo) is det,
 		di, uo) is cc_multi.
+:- mode unsorted_aggregate(pred(out) is multi, pred(in, di, uo) is cc_multi,
+		di, uo) is cc_multi.
 :- mode unsorted_aggregate(pred(muo) is multi, pred(mdi, di, uo) is det,
 		di, uo) is cc_multi.
 :- mode unsorted_aggregate(pred(out) is nondet, pred(in, di, uo) is det,
+		di, uo) is cc_multi.
+:- mode unsorted_aggregate(pred(out) is nondet, pred(in, di, uo) is cc_multi,
 		di, uo) is cc_multi.
 :- mode unsorted_aggregate(pred(out) is nondet, pred(in, in, out) is det,
 		in, out) is cc_multi.
@@ -254,11 +285,15 @@
 :- pred do_while(pred(T), pred(T, bool, T2, T2), T2, T2).
 :- mode do_while(pred(out) is multi, pred(in, out, in, out) is det, in, out)
 	is cc_multi.
-:- mode do_while(pred(out) is nondet, pred(in, out, in, out) is det, in, out)
-	is cc_multi.
 :- mode do_while(pred(out) is multi, pred(in, out, di, uo) is det, di, uo)
 	is cc_multi.
+:- mode do_while(pred(out) is multi, pred(in, out, di, uo) is cc_multi, di, uo)
+	is cc_multi.
+:- mode do_while(pred(out) is nondet, pred(in, out, in, out) is det, in, out)
+	is cc_multi.
 :- mode do_while(pred(out) is nondet, pred(in, out, di, uo) is det, di, uo)
+	is cc_multi.
+:- mode do_while(pred(out) is nondet, pred(in, out, di, uo) is cc_multi, di, uo)
 	is cc_multi.
 
 %-----------------------------------------------------------------------------%
@@ -713,6 +748,20 @@ map_maybe(P, yes(T0), yes(T)) :- P(T0, T).
 map_maybe(_, no) = no.
 map_maybe(F, yes(T)) = yes(F(T)).
 
+fold_maybe(P, yes(Value), Acc0, Acc) :- P(Value, Acc0, Acc).
+fold_maybe(_, no, Acc, Acc).
+
+fold_maybe(F, yes(Value), Acc0) = F(Value, Acc0).
+fold_maybe(_, no, Acc) = Acc.
+
+map_fold_maybe(_, no, no, Acc, Acc).
+map_fold_maybe(P, yes(T0), yes(T), Acc0, Acc) :-
+	P(T0, T, Acc0, Acc).
+
+map_fold2_maybe(_, no, no, A, A, B, B).
+map_fold2_maybe(P, yes(T0), yes(T), A0, A, B0, B) :-
+	P(T0, T, A0, A, B0, B).
+
 /****
 	Is this really useful?
 % for use in lambda expressions where the type of functor '-' is ambiguous
@@ -753,9 +802,13 @@ maybe_pred(Pred, X, Y) :-
 		in, out) is det. /* really cc_multi */
 :- mode builtin_aggregate(pred(out) is multi, pred(in, di, uo) is det,
 		di, uo) is det. /* really cc_multi */
+:- mode builtin_aggregate(pred(out) is multi, pred(in, di, uo) is cc_multi,
+		di, uo) is det. /* really cc_multi */
 :- mode builtin_aggregate(pred(muo) is multi, pred(mdi, di, uo) is det,
 		di, uo) is det. /* really cc_multi */
 :- mode builtin_aggregate(pred(out) is nondet, pred(in, di, uo) is det,
+		di, uo) is det. /* really cc_multi */
+:- mode builtin_aggregate(pred(out) is nondet, pred(in, di, uo) is cc_multi,
 		di, uo) is det. /* really cc_multi */
 :- mode builtin_aggregate(pred(out) is nondet, pred(in, in, out) is det,
 		in, out) is det. /* really cc_multi */
@@ -834,7 +887,7 @@ builtin_aggregate(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 		impure swap_heap_and_solutions_heap,
 		impure partial_deep_copy(HeapPtr, Answer0, Answer),
 		impure get_mutvar(Mutvar, Acc0),
-		CollectorPred(Answer, Acc0, Acc1),
+		impure non_cc_call(CollectorPred, Answer, Acc0, Acc1),
 		impure set_mutvar(Mutvar, Acc1),
 		impure swap_heap_and_solutions_heap,
 
@@ -878,7 +931,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 		impure swap_heap_and_solutions_heap,
 		impure partial_deep_copy(HeapPtr, Answer0, Answer),
 		impure get_mutvar(Mutvar, Acc0),
-		CollectorPred(Answer, More, Acc0, Acc1),
+		impure non_cc_call(CollectorPred, Answer, More, Acc0, Acc1),
 		impure set_mutvar(Mutvar, Acc1),
 		impure swap_heap_and_solutions_heap,
 
@@ -892,6 +945,44 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	impure partial_deep_copy(SolutionsHeapPtr, Accumulator1, Accumulator),
 	impure reset_solutions_heap(SolutionsHeapPtr),
 	impure discard_trail_ticket.
+
+	% This is the same as call/4, except that it is not cc_multi
+	% even when the called predicate is cc_multi.
+:- impure pred non_cc_call(pred(T, Acc, Acc), T, Acc, Acc).
+:- mode non_cc_call(pred(in, in, out) is det, in, in, out) is det.
+:- mode non_cc_call(pred(in, di, uo) is det, in, di, uo) is det.
+:- mode non_cc_call(pred(in, di, uo) is cc_multi, in, di, uo) is det.
+:- mode non_cc_call(pred(mdi, di, uo) is det, mdi, di, uo) is det.
+non_cc_call(P::pred(in, in, out) is det, X::in, Acc0::in, Acc::out) :-
+	P(X, Acc0, Acc).
+non_cc_call(P::pred(in, di, uo) is cc_multi, X::in, Acc0::di, Acc::uo) :-
+	impure builtin__get_one_solution_io(
+		(pred({}::out, di, uo) is cc_multi --> P(X)),
+		_, Acc0, Acc).
+non_cc_call(P::pred(in, di, uo) is det, X::in, Acc0::di, Acc::uo) :-
+	P(X, Acc0, Acc).
+non_cc_call(P::pred(mdi, di, uo) is det, X::mdi, Acc0::di, Acc::uo) :-
+	P(X, Acc0, Acc).
+
+	% This is the same as call/5, except that it is not cc_multi
+	% even when the called predicate is cc_multi.
+:- impure pred non_cc_call(pred(T1, T2, Acc, Acc), T1, T2, Acc, Acc).
+:- mode non_cc_call(pred(in, out, in, out) is det, in, out, in, out)
+	is det.
+:- mode non_cc_call(pred(in, out, di, uo) is det, in, out, di, uo) is det.
+:- mode non_cc_call(pred(in, out, di, uo) is cc_multi, in, out, di, uo)
+	is det.
+non_cc_call(P::pred(in, out, di, uo) is det, X::in, More::out,
+		Acc0::di, Acc::uo) :-
+	P(X, More, Acc0, Acc).
+non_cc_call(P::pred(in, out, in, out) is det, X::in, More::out,
+		Acc0::in, Acc::out) :-
+	P(X, More, Acc0, Acc).
+non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
+		Acc0::di, Acc::uo) :-
+	impure builtin__get_one_solution_io(
+		(pred(M::out, di, uo) is cc_multi --> P(X, M)),
+		More, Acc0, Acc).
 
 :- type heap_ptr ---> heap_ptr(c_pointer).
 :- type trail_ptr ---> trail_ptr(c_pointer).

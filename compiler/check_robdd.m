@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -15,8 +15,8 @@
 
 :- interface.
 
-:- import_module term, robdd.
 :- import_module xrobdd__tfeirn_robdd.
+:- import_module term, robdd.
 
 :- type check_robdd(T).
 :- type check_robdd == check_robdd(generic).
@@ -42,49 +42,50 @@
 
 %-----------------------------------------------------------------------------%
 
-:- func var(var(T)::in, check_robdd(T)::in(check_robdd)) = (check_robdd(T)::out(check_robdd))
-		is det.
+:- func var(var(T)::in, check_robdd(T)::in(check_robdd)) =
+	(check_robdd(T)::out(check_robdd)) is det.
 
-:- func not_var(var(T)::in, check_robdd(T)::in(check_robdd)) = (check_robdd(T)::out(check_robdd))
-		is det.
+:- func not_var(var(T)::in, check_robdd(T)::in(check_robdd)) =
+	(check_robdd(T)::out(check_robdd)) is det.
 
 :- func eq_vars(var(T)::in, var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func neq_vars(var(T)::in, var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func imp_vars(var(T)::in, var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
-:- func conj_vars(vars(T)::in, check_robdd(T)::di_check_robdd) = (check_robdd(T)::uo_check_robdd)
-		is det.
+:- func conj_vars(vars(T)::in, check_robdd(T)::di_check_robdd) =
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func conj_not_vars(vars(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
-:- func disj_vars(vars(T)::in, check_robdd(T)::di_check_robdd) = (check_robdd(T)::uo_check_robdd)
-		is det.
+:- func disj_vars(vars(T)::in, check_robdd(T)::di_check_robdd) =
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func at_most_one_of(vars(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func not_both(var(T)::in, var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func io_constraint(var(T)::in, var(T)::in, var(T)::in,
-check_robdd(T)::di_check_robdd)
-		= (check_robdd(T)::uo_check_robdd) is det.
 
-		% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
+check_robdd(T)::di_check_robdd)
+	= (check_robdd(T)::uo_check_robdd) is det.
+
+	% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
 :- func disj_vars_eq(vars(T)::in, var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func var_restrict_true(var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 :- func var_restrict_false(var(T)::in, check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+	(check_robdd(T)::uo_check_robdd) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -93,23 +94,23 @@ check_robdd(T)::di_check_robdd)
 
 	% Return the set of vars entailed by the xROBDD.
 :- func vars_entailed(check_robdd(T)::ni_check_robdd) =
-		(vars_entailed_result(T)::out) is det.
+	(vars_entailed_result(T)::out) is det.
 
-	% Return the set of vars disentailed by the xROBDD.
+% Return the set of vars disentailed by the xROBDD.
 :- func vars_disentailed(check_robdd(T)::ni_check_robdd) =
-		(vars_entailed_result(T)::out) is det.
+	(vars_entailed_result(T)::out) is det.
 
-	% Existentially quantify away the var in the xROBDD.
+% Existentially quantify away the var in the xROBDD.
 :- func restrict(var(T)::in, check_robdd(T)::ni_check_robdd) =
-		(check_robdd(T)::no_check_robdd) is det.
+	(check_robdd(T)::no_check_robdd) is det.
 
-	% Existentially quantify away all vars greater than the specified var.
+% Existentially quantify away all vars greater than the specified var.
 :- func restrict_threshold(var(T)::in, check_robdd(T)::ni_check_robdd) =
-		(check_robdd(T)::no_check_robdd) is det.
+	(check_robdd(T)::no_check_robdd) is det.
 
 :- func restrict_filter(pred(var(T))::(pred(in) is semidet),
-		check_robdd(T)::ni_check_robdd) =
-		(check_robdd(T)::no_check_robdd) is det.
+	check_robdd(T)::ni_check_robdd) =
+	(check_robdd(T)::no_check_robdd) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -123,7 +124,7 @@ check_robdd(T)::di_check_robdd)
 	%
 	% XXX should try using sparse_bitset here.
 :- pred labelling(vars(T)::in, check_robdd(T)::in, vars(T)::out, vars(T)::out)
-		is nondet.
+	is nondet.
 
 	% minimal_model(Vars, xROBDD, TrueVars, FalseVars)
 	%	Takes a set of Vars and an xROBDD and returns a value assignment
@@ -134,8 +135,8 @@ check_robdd(T)::di_check_robdd)
 	%	variables assigned the value 0).
 	%
 	% XXX should try using sparse_bitset here.
-:- pred minimal_model(vars(T)::in, check_robdd(T)::in, vars(T)::out, vars(T)::out)
-		is nondet.
+:- pred minimal_model(vars(T)::in, check_robdd(T)::in, vars(T)::out,
+	vars(T)::out) is nondet.
 
 %-----------------------------------------------------------------------------%
 
@@ -152,6 +153,11 @@ check_robdd(T)::di_check_robdd)
 
 :- implementation.
 
+:- import_module xrobdd__r_robdd.
+:- import_module xrobdd__tfer_robdd.
+:- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__tfeirn_robdd.
+
 :- import_module robdd, sparse_bitset.
 :- import_module unsafe, io, pprint.
 
@@ -162,11 +168,6 @@ check_robdd(T)::di_check_robdd)
 %	R	(straight ROBDD)
 %	TER	(Peter Schachte's extension)
 %	TFENR	(Everything)
-
-:- import_module xrobdd__r_robdd.
-:- import_module xrobdd__tfer_robdd.
-:- import_module xrobdd__tfeir_robdd.
-:- import_module xrobdd__tfeirn_robdd.
 
 :- type check_robdd(T)
 	--->	xrobdd(

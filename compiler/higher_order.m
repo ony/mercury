@@ -4,7 +4,7 @@
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 %
-:- module higher_order.
+:- module transform_hlds__higher_order.
 % Main author: stayl
 %
 % Specializes calls to higher order or polymorphic predicates where the value
@@ -25,7 +25,7 @@
 
 :- interface.
 
-:- import_module hlds_module.
+:- import_module hlds__hlds_module.
 :- import_module io.
 
 :- pred specialize_higher_order(module_info::in, module_info::out,
@@ -35,11 +35,15 @@
 
 :- implementation.
 
-:- import_module hlds_pred, hlds_goal, hlds_data, instmap, (inst).
-:- import_module code_util, globals, mode_util, goal_util.
-:- import_module type_util, options, prog_data, prog_out, quantification.
-:- import_module mercury_to_mercury, inlining, polymorphism, prog_util.
-:- import_module special_pred, unify_proc, passes_aux.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
+:- import_module hlds__instmap, (parse_tree__inst).
+:- import_module ll_backend__code_util, libs__globals, check_hlds__mode_util.
+:- import_module hlds__goal_util.
+:- import_module check_hlds__type_util, libs__options, parse_tree__prog_data.
+:- import_module parse_tree__prog_out, hlds__quantification.
+:- import_module parse_tree__mercury_to_mercury, transform_hlds__inlining.
+:- import_module check_hlds__polymorphism, parse_tree__prog_util.
+:- import_module hlds__special_pred, check_hlds__unify_proc, hlds__passes_aux.
 
 :- import_module assoc_list, bool, char, int, list, map, require, set.
 :- import_module std_util, string, varset, term.
@@ -1885,7 +1889,7 @@ specialize_special_pred(CalledPred, CalledProc, Args, MaybeContext,
 	Args = [TypeInfoVar | SpecialPredArgs],
 	map__search(PredVars, TypeInfoVar,
 		constant(_TypeInfoConsId, TypeInfoVarArgs)),
-	type_to_type_id(SpecialPredType, _ - TypeArity, _),
+	type_to_ctor_and_args(SpecialPredType, _ - TypeArity, _),
 	( TypeArity = 0 ->
 		TypeInfoArgs = []
 	;
@@ -2100,11 +2104,11 @@ find_special_proc(Type, SpecialId, SymName, PredId, ProcId, Info0, Info) :-
 	    ProcId = ProcId0,
 	    Info = Info0
 	;
-	    type_to_type_id(Type, TypeId, _),
-	    special_pred_is_generated_lazily(ModuleInfo, TypeId),
+	    type_to_ctor_and_args(Type, TypeCtor, _),
+	    special_pred_is_generated_lazily(ModuleInfo, TypeCtor),
 	    (
 		SpecialId = compare,
-		unify_proc__add_lazily_generated_compare_pred_decl(TypeId,
+		unify_proc__add_lazily_generated_compare_pred_decl(TypeCtor,
 			PredId, ModuleInfo0, ModuleInfo),
 		hlds_pred__initial_proc_id(ProcId)
 	    ;
@@ -2126,7 +2130,7 @@ find_special_proc(Type, SpecialId, SymName, PredId, ProcId, Info0, Info) :-
 		% added. This case shouldn't come up unless an optimization
 		% does reordering which requires rescheduling a conjunction.
 		%
-		unify_proc__add_lazily_generated_unify_pred(TypeId,
+		unify_proc__add_lazily_generated_unify_pred(TypeCtor,
 			PredId, ModuleInfo0, ModuleInfo),
 		hlds_pred__in_in_unification_proc_id(ProcId)
 	    ),

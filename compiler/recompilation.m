@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 University of Melbourne.
+% Copyright (C) 2001-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -24,7 +24,15 @@
 
 :- interface.
 
-:- import_module prog_data, timestamp.
+:- import_module parse_tree.
+:- import_module hlds.
+:- import_module libs.
+
+:- include_module recompilation__check.
+:- include_module recompilation__usage.
+:- include_module recompilation__version.
+
+:- import_module parse_tree__prog_data, libs__timestamp.
 :- import_module io, map, set, std_util, term.
 
 	% Identify a particular version of a program item.
@@ -123,9 +131,14 @@
 	% are used because equiv_type.m removes all references to the
 	% equivalence types, and at that point we don't know which imported
 	% items are going to be used by the compilation.
-:- pred recompilation__record_used_equivalence_types(item_id::in,
-	set(type_id)::in, recompilation_info::in,
-	recompilation_info::out) is det.
+	%
+	% For predicates declared using `with_type` annotations,
+	% the version number in the interface file and the
+	% version_numbers map will refer tothe arity before expansion
+	% of the `with_type` annotation, so that needs to be recorded
+	% here as well.
+:- pred recompilation__record_expanded_items(item_id::in, set(item_id)::in,
+	recompilation_info::in, recompilation_info::out) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -229,8 +242,9 @@
 
 :- implementation.
 
-:- import_module prog_util.
-:- import_module globals, options, passes_aux, modules.
+:- import_module parse_tree__prog_util.
+:- import_module libs__globals, libs__options, hlds__passes_aux.
+:- import_module parse_tree__modules.
 :- import_module int, time, bool, list, require, string.
 
 %-----------------------------------------------------------------------------%
@@ -374,8 +388,8 @@ recompilation__record_used_item(ItemType, Id, QualifiedId) -->
 		^ used_items := ItemSet
 	).
 
-recompilation__record_used_equivalence_types(Item, UsedTypes, Info0, Info) :-
-	( set__empty(UsedTypes) ->
+recompilation__record_expanded_items(Item, ExpandedItems, Info0, Info) :-
+	( set__empty(ExpandedItems) ->
 		Info = Info0
 	;
 		DepsMap0 = Info0 ^ dependencies,
@@ -384,9 +398,7 @@ recompilation__record_used_equivalence_types(Item, UsedTypes, Info0, Info) :-
 		;
 			set__init(Deps1)
 		),
-		UsedItems = list__map((func(TypeId) = item_id(type, TypeId)),
-				set__to_sorted_list(UsedTypes)),	
-		set__insert_list(Deps1, UsedItems, Deps),
+		set__union(Deps1, ExpandedItems, Deps),
 		map__set(DepsMap0, Item, Deps, DepsMap),
 		Info = Info0 ^ dependencies := DepsMap
 	).

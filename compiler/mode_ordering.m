@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -7,11 +7,13 @@
 % File: mode_constraint.m
 % Main author: dmo
 %
-:- module mode_ordering.
+
+:- module check_hlds__mode_ordering.
 
 :- interface.
 
-:- import_module mode_constraint_robdd, inst_graph, hlds_module, hlds_pred.
+:- import_module hlds__inst_graph, hlds__hlds_module, hlds__hlds_pred.
+:- import_module check_hlds__mode_constraint_robdd.
 :- import_module io, list, map.
 
 :- type pred_constraint_map ==
@@ -28,13 +30,15 @@
 
 :- implementation.
 
-:- import_module set, stack, std_util, require, relation, assoc_list.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal.
+:- import_module check_hlds__clause_to_proc, check_hlds__mode_constraint_robdd.
 :- import_module xrobdd.
-:- import_module hlds_goal, prog_data, clause_to_proc, mode_constraint_robdd.
-
 :- import_module xrobdd__tfeir_robdd.
 :- import_module xrobdd__tfeirn_robdd.
 :- import_module xrobdd__check_robdd.
+
+:- import_module set, stack, std_util, require, relation, assoc_list.
 
 mode_ordering(PredConstraintMap, SCCs, ModuleInfo0, ModuleInfo) -->
 	{ list__foldl(mode_ordering__scc(PredConstraintMap), SCCs, ModuleInfo0,

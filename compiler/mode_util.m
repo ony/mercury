@@ -10,12 +10,13 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module mode_util.
+:- module check_hlds__mode_util.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, prog_data.
-:- import_module (inst), instmap.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module hlds__hlds_data, parse_tree__prog_data.
+:- import_module (parse_tree__inst), hlds__instmap.
 :- import_module bool, list.
 
 	% mode_get_insts returns the initial instantiatedness and
@@ -28,6 +29,13 @@
 	% a version of mode_get_insts which fails if the mode is undefined
 :- pred mode_get_insts_semidet(module_info, mode, inst, inst).
 :- mode mode_get_insts_semidet(in, in, out, out) is semidet.
+
+	% inst_substitute_arg_list(Inst0, Params, Args, Inst) is true
+	% iff Inst is the inst that results from substituting all
+	% occurrences of Params in Inst0 with the corresponding
+	% value in Args.
+:- pred inst_substitute_arg_list(inst, list(inst_var), list(inst), inst).
+:- mode inst_substitute_arg_list(in, in, in, out) is det.
 
 	% a mode is considered input if the initial inst is bound
 :- pred mode_is_input(module_info, mode).
@@ -220,8 +228,10 @@
 
 :- implementation.
 :- import_module require, int, map, set, std_util, assoc_list, varset.
-:- import_module prog_util, prog_io, type_util.
-:- import_module inst_match, inst_util, mode_info.
+:- import_module parse_tree__prog_util, parse_tree__prog_io.
+:- import_module check_hlds__type_util.
+:- import_module check_hlds__inst_match, check_hlds__inst_util.
+:- import_module check_hlds__mode_info.
 :- import_module require, int, map, set, term, std_util, assoc_list, varset.
 
 %-----------------------------------------------------------------------------%
@@ -337,7 +347,7 @@ modes_to_arg_modes(ModuleInfo, Modes, Types, ArgModes) :-
 mode_to_arg_mode(ModuleInfo, Mode, Type, ArgMode) :-
 	mode_to_arg_mode_2(ModuleInfo, Mode, Type, [], ArgMode).
 
-:- pred mode_to_arg_mode_2(module_info, mode, type, list(type_id), arg_mode).
+:- pred mode_to_arg_mode_2(module_info, mode, type, list(type_ctor), arg_mode).
 :- mode mode_to_arg_mode_2(in, in, in, in, out) is det.
 
 mode_to_arg_mode_2(ModuleInfo, Mode, Type, ContainingTypes, ArgMode) :-
@@ -353,8 +363,8 @@ mode_to_arg_mode_2(ModuleInfo, Mode, Type, ContainingTypes, ArgMode) :-
 		% is this a no_tag type?
 		type_is_no_tag_type(ModuleInfo, Type, FunctorName, ArgType),
 		% avoid infinite recursion
-		type_to_type_id(Type, TypeId, _TypeArgs),
-		\+ list__member(TypeId, ContainingTypes)
+		type_to_ctor_and_args(Type, TypeCtor, _TypeArgs),
+		\+ list__member(TypeCtor, ContainingTypes)
 	->
 		% the arg_mode will be determined by the mode and
 		% type of the functor's argument,
@@ -368,7 +378,7 @@ mode_to_arg_mode_2(ModuleInfo, Mode, Type, ContainingTypes, ArgMode) :-
 			FinalArgInst),
 		ModeOfArg = (InitialArgInst -> FinalArgInst),
 		mode_to_arg_mode_2(ModuleInfo, ModeOfArg, ArgType,
-			[TypeId | ContainingTypes], ArgMode)
+			[TypeCtor | ContainingTypes], ArgMode)
 	;
 		base_mode_to_arg_mode(ModuleInfo, Mode, ArgMode)
 	).
@@ -414,6 +424,10 @@ get_single_arg_inst(abstract_inst(_, _), _, _, _) :-
 	error("get_single_arg_inst: abstract insts not supported").
 get_single_arg_inst(inst_var(_), _, _, _) :-
 	error("get_single_arg_inst: inst_var").
+get_single_arg_inst(constrained_inst_vars(_, Inst), ModuleInfo, ConsId,
+		ArgInst) :-
+	get_single_arg_inst(Inst, ModuleInfo, ConsId, ArgInst).
+	
 
 :- pred get_single_arg_inst_2(list(bound_inst), cons_id, inst).
 :- mode get_single_arg_inst_2(in, in, out) is semidet.
@@ -711,12 +725,12 @@ propagate_ctor_info(ground(Uniq, higher_order(PredInstInfo0)), Type, _Ctors,
 		% be reported if anything tries to match with the inst.
 		Modes = Modes0
 	).
-
-propagate_ctor_info(ground(Uniq, constrained_inst_var(Var)), _, _, _,
-		ground(Uniq, constrained_inst_var(Var))).
 propagate_ctor_info(not_reached, _Type, _Constructors, _ModuleInfo,
 		not_reached).
 propagate_ctor_info(inst_var(V), _, _, _, inst_var(V)).
+propagate_ctor_info(constrained_inst_vars(V, Inst0), Type, Constructors,
+		ModuleInfo, constrained_inst_vars(V, Inst)) :-
+	propagate_ctor_info(Inst0, Type, Constructors, ModuleInfo, Inst).
 propagate_ctor_info(abstract_inst(Name, Args), _, _, _,
 		abstract_inst(Name, Args)).	% XXX loses info
 propagate_ctor_info(defined_inst(InstName), Type, Ctors, ModuleInfo, Inst) :-
@@ -780,10 +794,11 @@ propagate_ctor_info_lazily(ground(Uniq, higher_order(PredInstInfo0)), Type0,
 		% be reported if anything tries to match with the inst.
 		Modes = Modes0
 	).
-propagate_ctor_info_lazily(ground(Uniq, constrained_inst_var(Var)), _, _, _,
-		ground(Uniq, constrained_inst_var(Var))).
 propagate_ctor_info_lazily(not_reached, _Type, _, _ModuleInfo, not_reached).
 propagate_ctor_info_lazily(inst_var(Var), _, _, _, inst_var(Var)).
+propagate_ctor_info_lazily(constrained_inst_vars(V, Inst0), Type, Constructors,
+		ModuleInfo, constrained_inst_vars(V, Inst)) :-
+	propagate_ctor_info_lazily(Inst0, Type, Constructors, ModuleInfo, Inst).
 propagate_ctor_info_lazily(abstract_inst(Name, Args), _, _, _,
 		abstract_inst(Name, Args)).	% XXX loses info
 propagate_ctor_info_lazily(defined_inst(InstName0), Type0, Subst, _,
@@ -875,10 +890,10 @@ propagate_ctor_info_2(BoundInsts0, Type, ModuleInfo, BoundInsts) :-
 			BoundInst = functor(Functor, ArgInsts)
 		    ), BoundInsts0, BoundInsts)
 	;
-		type_to_type_id(Type, TypeId, TypeArgs),
-		TypeId = qualified(TypeModule, _) - _,
+		type_to_ctor_and_args(Type, TypeCtor, TypeArgs),
+		TypeCtor = qualified(TypeModule, _) - _,
 		module_info_types(ModuleInfo, TypeTable),
-		map__search(TypeTable, TypeId, TypeDefn),
+		map__search(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_tparams(TypeDefn, TypeParams0),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
 		TypeBody = du_type(Constructors, _, _, _)
@@ -997,14 +1012,6 @@ mode_substitute_arg_list(Mode0, Params, Args, Mode) :-
 		mode_apply_substitution(Mode0, Subst, Mode)
 	).
 
-	% inst_substitute_arg_list(Inst0, Params, Args, Inst) is true
-	% iff Inst is the inst that results from substituting all
-	% occurrences of Params in Inst0 with the corresponding
-	% value in Args.
-
-:- pred inst_substitute_arg_list(inst, list(inst_var), list(inst), inst).
-:- mode inst_substitute_arg_list(in, in, in, out) is det.
-
 inst_substitute_arg_list(Inst0, Params, Args, Inst) :-
 	( Params = [] ->
 		Inst = Inst0	% optimize common case
@@ -1067,6 +1074,22 @@ inst_apply_substitution(inst_var(Var), Subst, Result) :-
 	;
 		Result = inst_var(Var)
 	).
+inst_apply_substitution(constrained_inst_vars(Vars, Inst0), Subst, Result) :-
+	( set__singleton_set(Vars, Var0) ->
+		Var = Var0
+	;
+		error("inst_apply_substitution: multiple inst_vars found")
+	),
+	(
+		map__search(Subst, Var, Replacement)
+	->
+		Result = Replacement
+		% XXX Should probably have a sanity check here that
+		% Replacement =< Inst0
+	;
+		inst_apply_substitution(Inst0, Subst, Result0),
+		Result = constrained_inst_vars(Vars, Result0)
+	).
 inst_apply_substitution(defined_inst(InstName0), Subst,
 		    defined_inst(InstName)) :-
 	( inst_name_apply_substitution(InstName0, Subst, InstName1) ->
@@ -1113,15 +1136,6 @@ ground_inst_info_apply_substitution(GII0, Subst, Uniq, ground(Uniq, GII)) :-
 	GII0 = higher_order(pred_inst_info(PredOrFunc, Modes0, Det)),
 	mode_list_apply_substitution(Modes0, Subst, Modes),
 	GII = higher_order(pred_inst_info(PredOrFunc, Modes, Det)).
-ground_inst_info_apply_substitution(constrained_inst_var(Var), Subst, Uniq,
-		Inst) :-
-	(
-		map__search(Subst, Var, Inst0)
-	->
-		Inst = Inst0
-	;
-		Inst = ground(Uniq, constrained_inst_var(Var))
-	).
 
 	% mode_list_apply_substitution(Modes0, Subst, Modes) is true
 	% iff Mode is the mode that results from applying Subst to Modes0.
@@ -1173,23 +1187,25 @@ rename_apart_inst_vars_in_inst(Sub, ground(U, GI0), ground(U, GI)) :-
 		list__map(rename_apart_inst_vars_in_mode(Sub), Modes0, Modes),
 		GI = higher_order(pred_inst_info(PoF, Modes, Det))
 	;
-		GI0 = constrained_inst_var(V0),
-		( map__search(Sub, V0, term__variable(V)) ->
-			GI = constrained_inst_var(V)
-		;
-			GI = GI0
-		)
-	;
 		GI0 = none,
 		GI = none
 	).
 rename_apart_inst_vars_in_inst(_, not_reached, not_reached).
-rename_apart_inst_vars_in_inst(Sub, inst_var(V0), inst_var(V)) :-
-	( map__search(Sub, V0, term__variable(V1)) ->
-		V = V1
+rename_apart_inst_vars_in_inst(Sub, inst_var(Var0), inst_var(Var)) :-
+	( map__search(Sub, Var0, term__variable(Var1)) ->
+		Var = Var1
 	;
-		V = V0
+		Var = Var0
 	).
+rename_apart_inst_vars_in_inst(Sub, constrained_inst_vars(Vars0, Inst0),
+		constrained_inst_vars(Vars, Inst)) :-
+	rename_apart_inst_vars_in_inst(Sub, Inst0, Inst),
+	Vars = set__map(func(Var0) =
+		( map__search(Sub, Var0, term__variable(Var)) ->
+			Var
+		;
+			Var0
+		), Vars0).
 rename_apart_inst_vars_in_inst(Sub, defined_inst(Name0), defined_inst(Name)) :-
 	( rename_apart_inst_vars_in_inst_name(Sub, Name0, Name1) ->
 		Name = Name1
@@ -1705,6 +1721,9 @@ strip_builtin_qualifiers_from_inst_list(Insts0, Insts) :-
 	list__map(strip_builtin_qualifiers_from_inst, Insts0, Insts).
 
 strip_builtin_qualifiers_from_inst(inst_var(V), inst_var(V)).
+strip_builtin_qualifiers_from_inst(constrained_inst_vars(Vars, Inst0),
+		constrained_inst_vars(Vars, Inst)) :-
+	strip_builtin_qualifiers_from_inst(Inst0, Inst).
 strip_builtin_qualifiers_from_inst(not_reached, not_reached).
 strip_builtin_qualifiers_from_inst(free, free).
 strip_builtin_qualifiers_from_inst(free(Type), free(Type)).
@@ -1764,8 +1783,6 @@ strip_builtin_qualifiers_from_ground_inst_info(higher_order(Pred0),
 	Pred0 = pred_inst_info(Uniq, Modes0, Det),
 	Pred = pred_inst_info(Uniq, Modes, Det),
 	strip_builtin_qualifiers_from_mode_list(Modes0, Modes).
-strip_builtin_qualifiers_from_ground_inst_info(constrained_inst_var(Var),
-		constrained_inst_var(Var)).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

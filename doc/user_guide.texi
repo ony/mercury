@@ -815,6 +815,29 @@ make use of the features and options supported by the underlying Make.
 In particular, GNU Make has support for running jobs in parallel, which
 is very useful if you have a machine with more than one CPU.
 
+As an alternative to Mmake, the Mercury compiler now contains a
+significant part of the functionality of Mmake, using the
+@samp{--make} option.  
+@findex --make
+To use the compiler's internal make with Mmake, set the
+@samp{MMAKE_USE_MMC_MAKE} environment variable to @samp{yes},
+or create a file @file{Mercury.options} in the directory
+containing the source files.  When this is done, Mmake will
+process source files written in other programming languages,
+but all Mercury compilation will be done by @samp{mmc --make}.
+
+The advantages of the @samp{mmc --make} over Mmake are that there
+is no @samp{mmake depend} step and the dependencies are more accurate.
+Library installation (@pxref{Libraries}) and parallel makes are
+not yet supported.
+
+The Mmake variables above can be used by @samp{mmc --make} if they
+are set in a file called @file{Mercury.options}. The @file{Mercury.options}
+file has the same syntax as an Mmakefile, but only variable assignments and
+@samp{include} directives are allowed.  All variables in the Mercury.options
+are treated as if they are assigned using @samp{:=}.  As with Mmake,
+variables may also be set in the environment.
+
 @c ----------------------------------------------------------------------------
 
 @node Libraries
@@ -3438,6 +3461,7 @@ use @samp{mmc --help} to get the most up-to-date list.
 * Optimization options::
 * Target code compilation options::
 * Link options::
+* Build system options::
 * Miscellaneous options::
 @end menu
 
@@ -3600,6 +3624,13 @@ does not match the module's file name.
 Disable warnings from the smart recompilation system.
 
 @sp 1
+@item --no-warn-undefined-options-variables
+@findex --no-warn-undefined-options-variables
+@findex --make
+Warn about references to undefined variables in
+options files with @samp{--make}.
+
+@sp 1
 @item --warn-non-tail-recursion
 @findex --warn-non-tail-recursion
 Warn about any directly recursive calls that are not tail recursive.
@@ -3630,6 +3661,27 @@ Output very verbose progress messages.
 @findex --verbose-error-messages
 Explain error messages.  Asks the compiler to give you a more
 detailed explanation of any errors it finds in your program.
+
+@sp 1
+@item --no-verbose-make
+@findex --no-verbose-make
+@findex --make
+Disable messages about the progress of builds using
+the @samp{--make} option.
+
+@sp 1
+@item --output-compile-error-lines @var{n}
+@findex --output-compile-error-lines
+@findex --make
+With @samp{--make}, output the first @var{n} lines of the @samp{.err}
+file after compiling a module (default: 15).
+
+@sp 1
+@item --verbose-commands
+@findex --verbose-commands
+Output each external command before it is run.
+Note that some commands will only be printed
+with @samp{--verbose}.
 
 @sp 1
 @item --verbose-recompilation
@@ -3707,6 +3759,12 @@ Output detailed debugging traces of Aditi-RL optimization
 Output detailed debugging traces of the liveness analysis
 of the predicate with the given predicate id.
 
+@sp 1
+@item --debug-make
+@findex --debug-make
+@findex --make
+Output detailed debugging traces of the `--make' option.
+
 @end table
 
 @node Output options
@@ -3732,6 +3790,15 @@ relevant @samp{.d} files.
 Output the strongly connected components of the module
 dependency graph in top-down order to @file{@var{module}.order}.
 Implies @samp{--generate-dependencies}.
+
+@item --generate-mmc-deps
+@itemx --generate-mmc-make-module-dependencies
+@findex --generate-mmc-deps
+@findex --generate-mmc-make-module-dependencies
+@findex --make
+Generate dependencies for use by @samp{mmc --make} even
+when using Mmake. This is recommended when building a
+library for installation.
 
 @sp 1
 @item -i
@@ -3972,19 +4039,23 @@ T - type and typeclass information,
 U - unify and compare predicates.
 
 @sp 1
-@item @var{stage}
-@itemx --dump-mlds @var{stage}
+@item --dump-mlds @var{stage}
 @findex --dump-mlds
 Dump the MLDS (a C-like intermediate representation) after
-the specified stage number or stage name.  The raw form of the
-MLDS is dumped to
-@file{@var{module}.mlds_dump.@var{num}-@var{name}}.
-The MLDS is also converted to a C source file/header file pair,
+the specified stage number or stage name.
+The MLDS is converted to a C source file/header file pair,
 which is dumped to @file{@var{module}.c_dump.@var{num}-@var{name}}
 and @file{@var{module}.h_dump.@var{num}-@var{name}}.
 Stage numbers range from 1 to 99; not all stage numbers are valid.
 The special stage name @samp{all} causes the dumping of all stages.
 Multiple dump options accumulate.
+
+@sp 1
+@item --verbose-dump-mlds @var{stage}
+@findex --verbose-dump-mlds
+Dump the internal compiler representation of the MLDS,
+after the specified stage number or stage name, to
+@file{@var{module}.mlds_dump.@var{num}-@var{name}}.
 
 @ifset aditi
 @sp 1
@@ -4406,6 +4477,17 @@ Targets other than C imply @samp{--high-level-code}.
 An abbreviation for @samp{--target il --target-code-only}.
 Generate IL assembler code in @file{@var{module}.il}, but do not invoke
 ilasm to produce IL object code.
+
+@sp 1
+@item --dotnet-library-version @var{version-number}
+@findex --dotnet-library-version
+The version number for the mscorlib assembly distributed with the
+Microsoft .NET SDK.
+
+@sp 1
+@item --no-support-ms-clr
+@findex --no-support-ms-clr
+Don't use Microsoft CLR specific workarounds in the generated code.
 
 @sp 1
 @item @code{--compile-to-c}
@@ -5385,6 +5467,11 @@ Disable stack frame optimizations.
 Disable branch delay slot optimizations.
 
 @sp 1
+@item --optimize-reassign
+@findex --optimize-reassign
+Optimize away assignments to locations that already hold the assigned value.
+
+@sp 1
 @item --optimize-repeat @var{n}
 @findex --optimize-repeat
 Iterate most optimizations at most @var{n} times (default: 3).
@@ -5459,9 +5546,58 @@ do not need to be materialised.
 @end ifset
 @c aditi
 
-@node Miscellaneous options
-@section Miscellaneous options
+@node Build system options
+@section Build system options
 @table @code
+@item -m
+@itemx --make
+@findex -m
+@findex --make
+Treat the non-option arguments to @samp{mmc} as files to
+make, rather than source files.
+
+@item -r
+@itemx --rebuild
+@findex -r
+@findex --rebuild
+Same as @samp{--make}, but always rebuild the target files
+even if they are up to date.
+
+@item -k
+@itemx --keep-going
+@findex -k
+@findex --keep-going
+With @samp{--make} keep going as far as
+possible even if an error is detected.
+
+@item --install-prefix @var{dir}
+@findex --install-prefix
+Specify the directory under which to install Mercury libraries.
+
+@item --install-command @var{command}
+@findex --install-command
+Specify the command to use to install the files in Mercury
+libraries. The given command will be invoked as
+@code{@var{command} @var{source} @var{target}}
+to install each file in a Mercury library.
+The default command is @samp{cp}.
+
+@item --libgrade @var{grade}
+@findex --libgrade
+Add @var{grade} to the list of compilation grades in
+which a library to be installed should be built.
+
+@item --options-file @var{file}
+@findex --options-file
+Add @var{file} to the list of options files to be processed.
+If no @samp{--options-file} options are given, the file
+@file{Mercury.options} in the current directory will be
+read if it exists.
+
+@item --options-search-directory @var{dir}
+Add @var{dir} to the list of directories to be searched for
+options files.
+
 @item -I @var{dir}
 @itemx --search-directory @var{dir}
 @findex -I
@@ -5493,6 +5629,12 @@ to be searched for @samp{.opt} files.
 @cindex @file{Mercury} subdirectory
 Create intermediate files in a @file{Mercury} subdirectory,
 rather than in the current directory.
+
+@end table
+
+@node Miscellaneous options
+@section Miscellaneous options
+@table @code
 
 @sp 1
 @item -?
@@ -5627,12 +5769,6 @@ Set the classpath for the Java compiler.
 @cindex File extensions
 Specify an extension for Java object (bytecode) files.  By default this
 is @samp{.class}. 
-
-@sp 1
-@item --dotnet-library-version @var{version-number}
-@findex --dotnet-library-version
-The version number for the mscorlib assembly distributed with the
-Microsoft .NET SDK.
 
 @end table
 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-1998 The University of Melbourne.
+% Copyright (C) 1997-1998,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -44,11 +44,11 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module delay_slot.
+:- module ll_backend__delay_slot.
 
 :- interface.
 
-:- import_module llds, list.
+:- import_module ll_backend__llds, list.
 
 	% Delay the construction of det stack frames as long as possible,
 	% in order to avoid the construction in as many cases as possible.

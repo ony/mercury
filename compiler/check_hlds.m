@@ -33,6 +33,8 @@
    :- include_module inst_util, mode_errors, mode_util, mode_debug.
    :- include_module unique_modes.
    :- include_module unify_proc.
+   :- include_module mode_constraints, mode_constraint_robdd.
+   :- include_module mode_ordering.
 %:- end_module mode_analysis.
 
 % Indexing and determinism analysis

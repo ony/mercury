@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2000 University of Melbourne.
+% Copyright (C) 1998-2000,2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,11 +13,12 @@
 % traverse the relation in sorted order to the upper bound.
 %
 %-----------------------------------------------------------------------------%
-:- module rl_key.
+:- module aditi_backend__rl_key.
 
 :- interface.
 
-:- import_module hlds_goal, hlds_module, prog_data, rl.
+:- import_module hlds__hlds_goal, hlds__hlds_module, parse_tree__prog_data.
+:- import_module aditi_backend__rl.
 :- import_module list, map.
 
 	% Work out the upper and lower bounds for the inputs to an
@@ -51,7 +52,8 @@
 
 :- implementation.
 
-:- import_module hlds_data, hlds_pred, prog_util, type_util.
+:- import_module hlds__hlds_data, hlds__hlds_pred, parse_tree__prog_util.
+:- import_module check_hlds__type_util.
 :- import_module assoc_list, bool, int, require, set, std_util.
 
 rl_key__extract_indexing(no_inputs, _, _, _, []). 
@@ -127,8 +129,8 @@ rl_key__remove_useless_info(ModuleInfo,
 		; TypeClass = enum_type
 		),
 		module_info_types(ModuleInfo, Types),
-		type_to_type_id(Type, TypeId, _),
-		map__search(Types, TypeId, TypeDefn),
+		type_to_ctor_and_args(Type, TypeCtor, _),
+		map__search(Types, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, Body),
 		Body = du_type(Ctors, _, _, _),
 		Ctors = [_]
@@ -1022,8 +1024,8 @@ rl_key__choose_cons_id(ModuleInfo, UpperLower, Type,
 		ConsId2 = cons(_, _)
 	->	
 		module_info_types(ModuleInfo, Types),
-		type_to_type_id(Type, TypeId, _),
-		map__search(Types, TypeId, TypeDefn),
+		type_to_ctor_and_args(Type, TypeCtor, _),
+		map__search(Types, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, Body),
 		% If there's a user defined equality pred we're in trouble.
 		Body = du_type(Ctors, _, _, no),

@@ -29,10 +29,10 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module ml_optimize.
+:- module ml_backend__ml_optimize.
 :- interface.
 
-:- import_module mlds, io.
+:- import_module ml_backend__mlds, io.
 
 :- pred optimize(mlds, mlds, io__state, io__state).
 :- mode optimize(in, out, di, uo) is det.
@@ -41,8 +41,10 @@
 
 :- implementation.
 
-:- import_module ml_util, ml_code_util.
-:- import_module builtin_ops, globals, options, error_util.
+:- import_module ml_backend__ml_util, ml_backend__ml_code_util.
+:- import_module parse_tree__prog_data, parse_tree__prog_util.
+:- import_module backend_libs__builtin_ops, libs__globals, libs__options.
+:- import_module hlds__error_util.
 
 :- import_module bool, int, list, require, std_util, string.
 
@@ -194,16 +196,20 @@ optimize_in_default(OptInfo, default_case(Statement0)) =
 
 %-----------------------------------------------------------------------------%
 
+:- inst g == ground.
+:- inst call ---> ml_backend__mlds__call(g, g, g, g, g, g).
+
 :- func optimize_in_call_stmt(opt_info, mlds__stmt) = mlds__stmt.
+:- mode optimize_in_call_stmt(in, in(call)) = out is det.
 
 optimize_in_call_stmt(OptInfo, Stmt0) = Stmt :-
+	Stmt0 = call(_Signature, FuncRval, _MaybeObject, CallArgs,
+		_Results, _IsTailCall),
 		% If we have a self-tailcall, assign to the arguments and
 		% then goto the top of the tailcall loop.
 	(
 		globals__lookup_bool_option(OptInfo ^ globals,
 			optimize_tailcalls, yes),
-		Stmt0 = call(_Signature, _FuncRval, _MaybeObject, CallArgs,
-			_Results, _IsTailCall),
 		can_optimize_tailcall(qual(OptInfo ^ module_name, 
 			OptInfo ^ entity_name), Stmt0)
 	->
@@ -225,6 +231,35 @@ optimize_in_call_stmt(OptInfo, Stmt0) = Stmt :-
 			GotoStatement
 			],
 		Stmt = block([], CallReplaceStatements)
+	;
+		% Convert calls to `mark_hp' and `restore_hp' to the
+		% corresponding MLDS instructions.  This ensures that
+		% they get generated as inline code.  (Without this
+		% they won't, since HLDS inlining doesn't get run again
+		% after the add_heap_ops pass that adds these calls.)
+		% This approach is better than running HLDS inlining
+		% again, both because it cheaper in compilation time
+		% and because inlining the C code doesn't help with
+		% the --target asm back-end, whereas generating the
+		% appropriate MLDS instructions does.
+		%
+		FuncRval = const(code_addr_const(proc(qual(ModName, 
+                        pred(predicate, _DefnModName, PredName, _Arity,
+				_CodeModel, _NonOutputFunc) - _ProcId),
+			_FuncSignature))), 
+		(
+			PredName = "mark_hp",
+			CallArgs = [mem_addr(Lval)],
+			AtomicStmt = mark_hp(Lval)
+		;
+			PredName = "restore_hp",
+			CallArgs = [Rval],
+			AtomicStmt = restore_hp(Rval)
+		),
+		mercury_private_builtin_module(PrivateBuiltin),
+		ModName = mercury_module_name_to_mlds(PrivateBuiltin)
+	->
+		Stmt = atomic(AtomicStmt)
 	;
 		Stmt = Stmt0
 	).

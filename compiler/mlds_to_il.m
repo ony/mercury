@@ -58,13 +58,13 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module mlds_to_il.
+:- module ml_backend__mlds_to_il.
 :- interface.
 
-:- import_module mlds, ilasm, ilds.
+:- import_module ml_backend__mlds, ml_backend__ilasm, ml_backend__ilds.
 :- import_module io, list, bool, std_util, set.
-:- import_module hlds_pred. % for `pred_proc_id'.
-:- import_module prog_data. % for `foreign_language'.
+:- import_module hlds__hlds_pred. % for `pred_proc_id'.
+:- import_module libs__globals. % for `foreign_language'.
 
 %-----------------------------------------------------------------------------%
 
@@ -135,16 +135,21 @@
 
 :- implementation.
 
-:- import_module globals, options, passes_aux.
-:- import_module builtin_ops, c_util, modules, tree.
-:- import_module prog_data, prog_out, prog_util, llds_out.
-:- import_module pseudo_type_info, rtti, type_util, code_model, foreign.
+:- import_module libs__globals, libs__options, hlds__passes_aux.
+:- import_module backend_libs__builtin_ops, backend_libs__c_util.
+:- import_module parse_tree__modules, libs__tree.
+:- import_module parse_tree__prog_data, parse_tree__prog_out.
+:- import_module parse_tree__prog_util, ll_backend__llds_out.
+:- import_module backend_libs__pseudo_type_info, backend_libs__rtti.
+:- import_module check_hlds__type_util, backend_libs__code_model.
+:- import_module backend_libs__foreign.
 
-:- import_module ilasm, il_peephole.
-:- import_module ml_util, ml_code_util, error_util.
-:- import_module ml_type_gen.
-:- import_module foreign.
-:- use_module llds. /* for user_foreign_code */
+:- import_module ml_backend__il_peephole.
+:- import_module ml_backend__ml_util, ml_backend__ml_code_util.
+:- import_module hlds__error_util.
+:- import_module ml_backend__ml_type_gen.
+:- import_module backend_libs__foreign.
+:- use_module ll_backend__llds. /* for user_foreign_code */
 
 :- import_module bool, int, map, string, set, list, assoc_list, term.
 :- import_module library, require, counter.
@@ -164,6 +169,7 @@
 	debug_il_asm	:: bool,		% --debug-il-asm
 	verifiable_code	:: bool,		% --verifiable-code
 	il_byref_tailcalls :: bool,		% --il-byref-tailcalls
+	support_ms_clr	:: bool,		% --support-ms-clr
 		% class-wide attributes (all accumulate)
 	alloc_instrs	:: instr_tree,		% .cctor allocation instructions
 	init_instrs	:: instr_tree,		% .cctor init instructions
@@ -250,10 +256,13 @@ generate_il(MLDS, Version, ILAsm, ForeignLangs, IO0, IO) :-
 	globals__io_lookup_bool_option(sign_assembly, SignAssembly,
 			IO4, IO5),
 	globals__io_lookup_bool_option(separate_assemblies, SeparateAssemblies,
-			IO5, IO),
+			IO5, IO6),
+	globals__io_lookup_bool_option(support_ms_clr, MsCLR,
+			IO6, IO),
 
 	IlInfo0 = il_info_init(ModuleName, AssemblyName, Imports,
-			ILDataRep, DebugIlAsm, VerifiableCode, ByRefTailCalls),
+			ILDataRep, DebugIlAsm, VerifiableCode, ByRefTailCalls,
+			MsCLR),
 
 		% Generate code for all the methods.
 	list__map_foldl(mlds_defn_to_ilasm_decl, Defns, ILDecls,
@@ -1239,8 +1248,8 @@ mangle_dataname(var(MLDSVarName))
 	= mangle_mlds_var_name(MLDSVarName).
 mangle_dataname(common(Int))
 	= string__format("common_%s", [i(Int)]).
-mangle_dataname(rtti(RttiTypeId, RttiName)) = MangledName :-
-	rtti__addr_to_string(RttiTypeId, RttiName, MangledName).
+mangle_dataname(rtti(RttiTypeCtor, RttiName)) = MangledName :-
+	rtti__addr_to_string(RttiTypeCtor, RttiName, MangledName).
 mangle_dataname(base_typeclass_info(ClassId, InstanceStr)) = MangledName :-
         llds_out__make_base_typeclass_info_name(ClassId, InstanceStr,
 		MangledName).
@@ -1558,6 +1567,7 @@ statement_to_il(statement(call(Sig, Function, _This, Args, Returns, IsTail),
 		Context), Instrs) -->
 	VerifiableCode =^ verifiable_code,
 	ByRefTailCalls =^ il_byref_tailcalls,
+	MsCLR =^ support_ms_clr,
 	DataRep =^ il_data_rep,
 	{ TypeParams = mlds_signature_to_ilds_type_params(DataRep, Sig) },
 	{ ReturnParam = mlds_signature_to_il_return_param(DataRep, Sig) },
@@ -1580,10 +1590,20 @@ statement_to_il(statement(call(Sig, Function, _This, Args, Returns, IsTail),
 			),
 			{ ByRefTailCalls = no }
 		),
-		% We must not output the "tail." prefix unless the
-		% callee return type is compatible with the caller
-		% return type
-		{ ReturnParam = CallerReturnParam }
+		% if --verifiable-code is enabled, then we must not output
+		% the "tail." prefix unless the callee return type is
+		% compatible with the caller return type
+		\+ (
+			{ VerifiableCode = yes },
+			{ ReturnParam \= CallerReturnParam }
+		),
+		% In the MS CLR implementation the callee and caller return
+		% type of a tail call must be compatible even when we are
+		% using unverifiable code.
+		\+ (
+			{ MsCLR = yes },
+			{ ReturnParam \= CallerReturnParam }
+		)
 	->
 		{ TailCallInstrs = [tailcall] },
 		% For calls marked with "tail.", we need a `ret'
@@ -2522,8 +2542,14 @@ unaryop_to_il(unbox(UnboxedType), Rval, Instrs) -->
 	}.
 
 :- pred already_boxed(ilds__type::in) is semidet.
+already_boxed(ilds__type(_, object)).
+already_boxed(ilds__type(_, string)).
+already_boxed(ilds__type(_, refany)).
 already_boxed(ilds__type(_, class(_))).
+already_boxed(ilds__type(_, interface(_))).
 already_boxed(ilds__type(_, '[]'(_, _))).
+already_boxed(ilds__type(_, '&'(_))).
+already_boxed(ilds__type(_, '*'(_))).
 
 :- pred binaryop_to_il(binary_op, instr_tree, il_info,
 	il_info) is det.
@@ -3024,13 +3050,13 @@ mlds_class_to_ilds_simple_type(Kind, ClassName) = SimpleType :-
 
 :- func mercury_type_to_highlevel_class_type(mercury_type) = ilds__type.
 mercury_type_to_highlevel_class_type(MercuryType) = ILType :-
-	( type_to_type_id(MercuryType, TypeId, _Args) ->
-		ml_gen_type_name(TypeId, ClassName, Arity),
+	( type_to_ctor_and_args(MercuryType, TypeCtor, _Args) ->
+		ml_gen_type_name(TypeCtor, ClassName, Arity),
 		ILType = ilds__type([], class(
 			mlds_class_name_to_ilds_class_name(ClassName, Arity)
 			))
 	;
-		unexpected(this_file, "type_to_type_id failed")
+		unexpected(this_file, "type_to_ctor_and_args failed")
 	).
 
 :- func mlds_class_name_to_ilds_class_name(mlds__class, arity) =
@@ -3260,14 +3286,16 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 		SymName = qualified(qualified(unqualified("mercury"),
 			LibModuleName0), wrapper_class_name),
 		(
-			DataName = rtti(RttiTypeId, RttiName),
-			RttiTypeId = rtti_type_id(_, Name, Arity),
+			DataName = rtti(RttiTypeCtor, RttiName),
+			RttiTypeCtor = rtti_type_ctor(_, Name, Arity),
 
 			% Only the type_ctor_infos for the following
 			% RTTI names are defined in MC++.
-			( RttiName = type_ctor_info
-			; RttiName = pseudo_type_info(PseudoTypeInfo),
-				PseudoTypeInfo = type_ctor_info(RttiTypeId)
+			(
+				RttiName = type_ctor_info
+			;
+				RttiName = pseudo_type_info(PseudoTypeInfo),
+				PseudoTypeInfo = type_ctor_info(RttiTypeCtor)
 			),
 			( LibModuleName0 = "builtin",
 				( 
@@ -3320,8 +3348,8 @@ mangle_dataname(var(MLDSVarName), Name) :-
 	Name = mangle_mlds_var_name(MLDSVarName).
 mangle_dataname(common(Int), MangledName) :-
 	string__format("common_%s", [i(Int)], MangledName).
-mangle_dataname(rtti(RttiTypeId, RttiName), MangledName) :-
-	rtti__addr_to_string(RttiTypeId, RttiName, MangledName).
+mangle_dataname(rtti(RttiTypeCtor, RttiName), MangledName) :-
+	rtti__addr_to_string(RttiTypeCtor, RttiName, MangledName).
 mangle_dataname(base_typeclass_info(ClassId, InstanceStr), MangledName) :-
         llds_out__make_base_typeclass_info_name(ClassId, InstanceStr,
 		MangledName).
@@ -4130,12 +4158,12 @@ runtime_init_method_name = id("init_runtime").
 %
 
 :- func il_info_init(mlds_module_name, ilds__id, mlds__imports,
-		il_data_rep, bool, bool, bool) = il_info.
+		il_data_rep, bool, bool, bool, bool) = il_info.
 
 il_info_init(ModuleName, AssemblyName, Imports, ILDataRep,
-		DebugIlAsm, VerifiableCode, ByRefTailCalls) =
+		DebugIlAsm, VerifiableCode, ByRefTailCalls, MsCLR) =
 	il_info(ModuleName, AssemblyName, Imports, set__init, ILDataRep,
-		DebugIlAsm, VerifiableCode, ByRefTailCalls,
+		DebugIlAsm, VerifiableCode, ByRefTailCalls, MsCLR,
 		empty, empty, [], no, set__init, set__init,
 		map__init, empty, counter__init(1), counter__init(1), no,
 		Args, MethodName, DefaultSignature) :-

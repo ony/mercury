@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-2001 University of Melbourne.
+% Copyright (C) 1997-2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,11 +9,11 @@
 
 % Main author: zs.
 
-:- module goal_path.
+:- module check_hlds__goal_path.
 
 :- interface.
 
-:- import_module hlds_pred, hlds_module, hlds_goal.
+:- import_module hlds__hlds_pred, hlds__hlds_module, hlds__hlds_goal.
 
 :- pred goal_path__fill_slots(proc_info::in, module_info::in, proc_info::out)
 	is det.
@@ -28,7 +28,9 @@
 
 :- implementation.
 
-:- import_module prog_data, hlds_data, type_util.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_data.
+:- import_module check_hlds__type_util.
 :- import_module char, int, list, map, std_util, require.
 
 :- type slot_info

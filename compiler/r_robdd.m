@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -37,45 +37,34 @@
 
 %-----------------------------------------------------------------------------%
 
-:- func var(var(T)::in, r(T)::in(r)) = (r(T)::out(r))
-		is det.
+:- func var(var(T)::in, r(T)::in(r)) = (r(T)::out(r)) is det.
 
-:- func not_var(var(T)::in, r(T)::in(r)) = (r(T)::out(r))
-		is det.
+:- func not_var(var(T)::in, r(T)::in(r)) = (r(T)::out(r)) is det.
 
-:- func eq_vars(var(T)::in, var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func eq_vars(var(T)::in, var(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func neq_vars(var(T)::in, var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func neq_vars(var(T)::in, var(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func imp_vars(var(T)::in, var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func imp_vars(var(T)::in, var(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func conj_vars(vars(T)::in, r(T)::di_r) = (r(T)::uo_r)
-		is det.
+:- func conj_vars(vars(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func disj_vars(vars(T)::in, r(T)::di_r) = (r(T)::uo_r)
-		is det.
+:- func disj_vars(vars(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func at_most_one_of(vars(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func at_most_one_of(vars(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func not_both(var(T)::in, var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func not_both(var(T)::in, var(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func io_constraint(var(T)::in, var(T)::in, var(T)::in, r(T)::di_r)
-		= (r(T)::uo_r) is det.
+:- func io_constraint(var(T)::in, var(T)::in, var(T)::in, r(T)::di_r) =
+	(r(T)::uo_r) is det.
 
-		% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
-:- func disj_vars_eq(vars(T)::in, var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+	% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
+:- func disj_vars_eq(vars(T)::in, var(T)::in, r(T)::di_r) = (r(T)::uo_r)
+	is det.
 
-:- func var_restrict_true(var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func var_restrict_true(var(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
-:- func var_restrict_false(var(T)::in, r(T)::di_r) =
-		(r(T)::uo_r) is det.
+:- func var_restrict_false(var(T)::in, r(T)::di_r) = (r(T)::uo_r) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -94,8 +83,8 @@
 	% Existentially quantify away all vars greater than the specified var.
 :- func restrict_threshold(var(T), r(T)) = r(T).
 
-:- func restrict_filter(pred(var(T))::(pred(in) is semidet),
-		r(T)::di_r) = (r(T)::uo_r) is det.
+:- func restrict_filter(pred(var(T))::(pred(in) is semidet), r(T)::di_r) =
+	(r(T)::uo_r) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -108,8 +97,7 @@
 	%	variables assigned the value 0).
 	%
 	% XXX should try using sparse_bitset here.
-:- pred labelling(vars(T)::in, r(T)::in, vars(T)::out, vars(T)::out)
-		is nondet.
+:- pred labelling(vars(T)::in, r(T)::in, vars(T)::out, vars(T)::out) is nondet.
 
 	% minimal_model(Vars, xROBDD, TrueVars, FalseVars)
 	%	Takes a set of Vars and an xROBDD and returns a value assignment
@@ -121,7 +109,7 @@
 	%
 	% XXX should try using sparse_bitset here.
 :- pred minimal_model(vars(T)::in, r(T)::in, vars(T)::out, vars(T)::out)
-		is nondet.
+	is nondet.
 
 %-----------------------------------------------------------------------------%
 

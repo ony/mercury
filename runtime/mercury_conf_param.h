@@ -117,75 +117,6 @@
 */
 
 /*
-** XXX Allow the non-prefixed versions of these macros to be used on
-** the command line until mgnuc and mercury_compile are fixed to
-** use the prefixed versions.
-*/
-#ifdef USE_GCC_GLOBAL_REGISTERS
-  #define MR_USE_GCC_GLOBAL_REGISTERS 1
-  #undef USE_GCC_GLOBAL_REGISTERS
-#endif
-#ifdef USE_GCC_NONLOCAL_GOTOS
-  #define MR_USE_GCC_NONLOCAL_GOTOS 1
-  #undef USE_GCC_NONLOCAL_GOTOS
-#endif
-#ifdef USE_ASM_LABELS
-  #define MR_USE_ASM_LABELS 1
-  #undef USE_ASM_LABELS
-#endif
-#ifdef CONSERVATIVE_GC
-  #define MR_CONSERVATIVE_GC 1
-  #undef CONSERVATIVE_GC
-#endif
-#ifdef NATIVE_GC
-  #define MR_NATIVE_GC 1
-  #undef NATIVE_GC
-#endif
-#ifdef NO_TYPE_LAYOUT
-  #define MR_NO_TYPE_LAYOUT 1
-  #undef NO_TYPE_LAYOUT
-#endif
-#ifdef BOXED_FLOAT
-  #define MR_BOXED_FLOAT 1
-  #undef BOXED_FLOAT
-#endif
-#ifdef USE_SINGLE_PREC_FLOAT
-  #define MR_USE_SINGLE_PREC_FLOAT 1
-  #undef USE_SINGLE_PREC_FLOAT
-#endif
-#ifdef SPLIT_C_FILES
-  #define MR_SPLIT_C_FILES 1
-  #undef SPLIT_C_FILES
-#endif
-#ifdef INLINE_ALLOC
-  #define MR_INLINE_ALLOC 1
-  #undef INLINE_ALLOC
-#endif
-#ifdef PIC_REG
-  #define MR_PIC_REG 1
-  #undef PIC_REG
-#endif
-#ifdef PIC
-  #if PIC == 0
-    #define MR_PIC 0
-  #else
-    #define MR_PIC 1
-  #endif
-  #undef PIC
-#endif
-#ifdef HIGHTAGS
-  #define MR_HIGHTAGS 1
-  #undef HIGHTAGS
-#endif
-#ifdef TAGBITS
-  #define MR_TAGBITS TAGBITS
-  /*
-  ** We can't #undef TAGBITS here because it is used in the
-  ** value of MR_TAGBITS.
-  */
-#endif
-
-/*
 ** Runtime checking options:
 **
 ** MR_CHECK_FOR_OVERFLOW
@@ -245,6 +176,10 @@
 **	Display debugging information when leaving or finding forwarding
 **	pointers during accurate garbage collection.
 **
+** MR_DEBUG_AGC_SAVED_HPS
+**	Display debugging information about saved heap pointers
+**	during accurate garbage collection.
+**
 ** MR_DEBUG_AGC_PRINT_VARS
 **	Display the values of live variables during accurate garbage
 **	collection.
@@ -286,6 +221,7 @@
   #define MR_DEBUG_AGC_SCHEDULING
   #define MR_DEBUG_AGC_COLLECTION
   #define MR_DEBUG_AGC_FORWARDING
+  #define MR_DEBUG_AGC_SAVED_HPS
   #define MR_DEBUG_AGC_PRINT_VARS
   #define MR_DEBUG_AGC_SMALL_HEAP
 #endif

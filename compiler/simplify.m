@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -24,12 +24,13 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module simplify.
+:- module check_hlds__simplify.
 
 :- interface.
 
-:- import_module hlds_goal, hlds_module, hlds_pred, det_report, det_util.
-:- import_module common, instmap, globals.
+:- import_module hlds__hlds_goal, hlds__hlds_module, hlds__hlds_pred.
+:- import_module check_hlds__det_report, check_hlds__det_util.
+:- import_module check_hlds__common, hlds__instmap, libs__globals.
 :- import_module io, bool, list, map.
 
 :- pred simplify__pred(list(simplification), pred_id, module_info, module_info,
@@ -73,13 +74,23 @@
 
 :- implementation.
 
-:- import_module code_aux, det_analysis, follow_code, goal_util, const_prop.
-:- import_module hlds_module, hlds_data, (inst), inst_match, varset.
-:- import_module options, passes_aux, prog_data, mode_util, type_util.
-:- import_module code_util, quantification, modes, purity, pd_cost.
-:- import_module prog_util, unify_proc, special_pred, polymorphism.
+:- import_module parse_tree__inst, parse_tree__prog_data.
+:- import_module parse_tree__prog_util.
+:- import_module hlds__hlds_module, hlds__hlds_data, hlds__passes_aux.
+:- import_module hlds__goal_util, hlds__goal_form, hlds__special_pred.
+:- import_module hlds__quantification.
+:- import_module check_hlds__type_util.
+:- import_module check_hlds__mode_util, check_hlds__inst_match.
+:- import_module check_hlds__det_analysis.
+:- import_module check_hlds__modes, check_hlds__purity.
+:- import_module check_hlds__unify_proc.
+:- import_module check_hlds__polymorphism.
+:- import_module transform_hlds__const_prop.
+:- import_module transform_hlds__pd_cost.
+:- import_module ll_backend__code_util, ll_backend__follow_code.
+:- import_module libs__options.
 
-:- import_module set, require, std_util, int, term.
+:- import_module int, set, require, std_util, varset, term.
 
 %-----------------------------------------------------------------------------%
 
@@ -322,7 +333,7 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		% ensure goal is pure or semipure
 		\+ goal_info_is_impure(GoalInfo0),
 		( det_info_get_fully_strict(DetInfo, no)
-		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
+		; goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
 		% warn about this, unless the goal was an explicit
@@ -370,7 +381,7 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		% ensure goal is pure or semipure
 		\+ goal_info_is_impure(GoalInfo0),
 		( det_info_get_fully_strict(DetInfo, no)
-		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
+		; goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
 /******************
@@ -1258,15 +1269,15 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 		{ Call = Call1 - GoalInfo },
 		{ ExtraGoals = [] }
 	;
-		{ type_to_type_id(Type, TypeIdPrime, TypeArgsPrime) ->
-			TypeId = TypeIdPrime,
+		{ type_to_ctor_and_args(Type, TypeCtorPrime, TypeArgsPrime) ->
+			TypeCtor = TypeCtorPrime,
 			TypeArgs = TypeArgsPrime
 		;
-			error("simplify: type_to_type_id failed")
+			error("simplify: type_to_ctor_and_args failed")
 		},
 		{ determinism_components(Det, CanFail, at_most_one) },
-		{ unify_proc__lookup_mode_num(ModuleInfo, TypeId, UniMode, Det,
-			ProcId) },
+		{ unify_proc__lookup_mode_num(ModuleInfo, TypeCtor, UniMode,
+			Det, ProcId) },
 		{ module_info_globals(ModuleInfo, Globals) },
 		{ globals__lookup_bool_option(Globals, special_preds,
 			SpecialPreds) },
@@ -1286,7 +1297,7 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 				% if possible.
 				%
 				special_pred_is_generated_lazily(ModuleInfo,
-					TypeId)
+					TypeCtor)
 			}
 		->
 			simplify__make_type_info_vars([Type], TypeInfoVars,
@@ -1307,7 +1318,7 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 
 			simplify__make_type_info_vars(TypeArgs,
 				TypeInfoVars, ExtraGoals),
-			{ simplify__call_specific_unify(TypeId, TypeInfoVars,
+			{ simplify__call_specific_unify(TypeCtor, TypeInfoVars,
 				XVar, YVar, ProcId, ModuleInfo, Context,
 				GoalInfo0, Call0, CallGoalInfo0) },
 			simplify__goal_2(Call0, CallGoalInfo0,
@@ -1348,17 +1359,17 @@ simplify__call_generic_unify(TypeInfoVar, XVar, YVar, ModuleInfo, Context,
 	Call = call(PredId, ProcId, ArgVars, BuiltinState, yes(CallContext),
 		SymName) - GoalInfo.
 
-:- pred simplify__call_specific_unify(type_id::in, list(prog_var)::in,
+:- pred simplify__call_specific_unify(type_ctor::in, list(prog_var)::in,
 	prog_var::in, prog_var::in, proc_id::in,
 	module_info::in, unify_context::in, hlds_goal_info::in,
 	hlds_goal_expr::out, hlds_goal_info::out) is det.
 
-simplify__call_specific_unify(TypeId, TypeInfoVars, XVar, YVar, ProcId,
+simplify__call_specific_unify(TypeCtor, TypeInfoVars, XVar, YVar, ProcId,
 		ModuleInfo, Context, GoalInfo0, CallExpr, CallGoalInfo) :-
 	% create the new call goal
 	list__append(TypeInfoVars, [XVar, YVar], ArgVars),
 	module_info_get_special_pred_map(ModuleInfo, SpecialPredMap),
-	map__lookup(SpecialPredMap, unify - TypeId, PredId),
+	map__lookup(SpecialPredMap, unify - TypeCtor, PredId),
 	SymName = unqualified("__Unify__"),
 	CallContext = call_unify_context(XVar, var(YVar), Context),
 	CallExpr = call(PredId, ProcId, ArgVars, not_builtin,
@@ -2100,7 +2111,7 @@ simplify_info_reinit(Simplifications, InstMap0) -->
 	% exported for common.m
 :- interface.
 
-:- import_module prog_data.
+:- import_module parse_tree__prog_data.
 :- import_module set.
 
 :- pred simplify_info_init(det_info::in, list(simplification)::in, instmap::in,

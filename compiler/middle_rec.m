@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -10,11 +10,11 @@
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
-:- module middle_rec.
+:- module ll_backend__middle_rec.
 
 :- interface.
 
-:- import_module hlds_goal, llds, code_info.
+:- import_module hlds__hlds_goal, ll_backend__llds, ll_backend__code_info.
 
 :- pred middle_rec__match_and_generate(hlds_goal, code_tree,
 	code_info, code_info).
@@ -25,12 +25,16 @@
 
 :- implementation.
 
-:- import_module builtin_ops, hlds_module, hlds_data, prog_data, prog_out.
-:- import_module code_gen, unify_gen, code_util, code_aux, opt_util.
-:- import_module code_model.
+:- import_module parse_tree__prog_data, parse_tree__prog_out.
+:- import_module hlds__hlds_module, hlds__hlds_data, hlds__goal_form.
+:- import_module ll_backend__code_gen, ll_backend__unify_gen.
+:- import_module ll_backend__code_util, ll_backend__opt_util.
+:- import_module ll_backend__code_aux.
+:- import_module backend_libs__builtin_ops, backend_libs__code_model.
+:- import_module libs__tree.
 
-:- import_module bool, set, int, std_util, tree, list, assoc_list, require.
-:- import_module string.
+:- import_module bool, int, string, list, assoc_list, set, std_util.
+:- import_module require.
 
 %---------------------------------------------------------------------------%
 
@@ -41,14 +45,14 @@ middle_rec__match_and_generate(Goal, Instrs, CodeInfo0, CodeInfo) :-
 		Case1 = case(ConsId1, Goal1),
 		Case2 = case(ConsId2, Goal2),
 		(
-			code_aux__contains_only_builtins(Goal1),
+			contains_only_builtins(Goal1),
 			code_aux__contains_simple_recursive_call(Goal2,
 				CodeInfo0, _)
 		->
 			middle_rec__generate_switch(Var, ConsId1, Goal1, Goal2,
 				SM, GoalInfo, Instrs, CodeInfo0, CodeInfo)
 		;
-			code_aux__contains_only_builtins(Goal2),
+			contains_only_builtins(Goal2),
 			code_aux__contains_simple_recursive_call(Goal1,
 				CodeInfo0, _)
 		->
@@ -60,8 +64,8 @@ middle_rec__match_and_generate(Goal, Instrs, CodeInfo0, CodeInfo) :-
 	;
 		GoalExpr = if_then_else(Vars, Cond, Then, Else, SM),
 		(
-			code_aux__contains_only_builtins(Cond),
-			code_aux__contains_only_builtins(Then),
+			contains_only_builtins(Cond),
+			contains_only_builtins(Then),
 			code_aux__contains_simple_recursive_call(Else,
 				CodeInfo0, no)
 		->
@@ -70,10 +74,10 @@ middle_rec__match_and_generate(Goal, Instrs, CodeInfo0, CodeInfo) :-
 				in_else, SM, GoalInfo, Instrs,
 				CodeInfo0, CodeInfo)
 		;
-			code_aux__contains_only_builtins(Cond),
+			contains_only_builtins(Cond),
 			code_aux__contains_simple_recursive_call(Then,
 				CodeInfo0, no),
-			code_aux__contains_only_builtins(Else)
+			contains_only_builtins(Else)
 		->
 			semidet_fail,
 			middle_rec__generate_ite(Vars, Cond, Then, Else,

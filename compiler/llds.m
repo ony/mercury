@@ -12,14 +12,16 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module llds.
+:- module ll_backend__llds.
 
 :- interface.
 
-:- import_module prog_data, (inst).
-:- import_module hlds_pred, hlds_goal, hlds_data.
-:- import_module foreign, code_model, rtti, layout, builtin_ops.
-:- import_module tree.
+:- import_module parse_tree__prog_data, (parse_tree__inst).
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
+:- import_module backend_libs__foreign, backend_libs__code_model.
+:- import_module backend_libs__rtti, ll_backend__layout.
+:- import_module backend_libs__builtin_ops.
+:- import_module libs__tree.
 
 :- import_module bool, assoc_list, list, map, set, std_util, counter, term.
 
@@ -41,7 +43,7 @@
 
 %-----------------------------------------------------------------------------%
 
-:- import_module continuation_info.
+:- import_module ll_backend__continuation_info.
 
 :- type global_data.
 
@@ -434,8 +436,8 @@
 			% branches we expect to join at the end of the
 			% parallel conjunction.
 			% (See the documentation in par_conj_gen.m and
-			% runtime/context.{c,h} for further information about
-			% synchronisation terms.)
+			% runtime/mercury_context.{c,h} for further
+			% information about synchronisation terms.)
 
 	;	fork(label, label, int)
 			% Create a new context.
@@ -444,15 +446,15 @@
 			% execution in the child, control branches to Parent.
 			% NumSlots is the number of stack slots that need to
 			% be copied to the child's stack (see comments in
-			% runtime/context.{h,c}).
+			% runtime/mercury_context.{h,c}).
 
 	;	join_and_terminate(lval)
 			% Signal that this thread of execution has finished in
 			% the current parallel conjunction, then terminate it.
 			% The synchronisation term is specified by the
 			% given lval. (See the documentation in par_conj_gen.m
-			% and runtime/context.{c,h} for further information
-			% about synchronisation terms.)
+			% and runtime/mercury_context.{c,h} for further
+			% information about synchronisation terms.)
 
 	;	join_and_continue(lval, label)
 			% Signal that this thread of execution has finished
@@ -888,7 +890,7 @@
 :- type data_addr
 	--->	data_addr(module_name, data_name)
 			% module name; which var
-	;	rtti_addr(rtti_type_id, rtti_name)
+	;	rtti_addr(rtti_type_ctor, rtti_name)
 			% type id; which var
 	;	layout_addr(layout_name).
 

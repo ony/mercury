@@ -12,14 +12,15 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module ml_code_util.
+:- module ml_backend__ml_code_util.
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_module, hlds_pred.
-:- import_module builtin_ops, rtti, code_model.
-:- import_module mlds.
-:- import_module globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred.
+:- import_module backend_libs__builtin_ops, backend_libs__rtti.
+:- import_module backend_libs__code_model.
+:- import_module ml_backend__mlds.
+:- import_module libs__globals.
 
 :- import_module bool, int, list, map, std_util.
 
@@ -137,6 +138,12 @@
 	% Return the MLDS type corresponding to a Mercury string type.
 	%
 :- func ml_string_type = mlds__type.
+
+	% Allocate some fresh type variables to use as the Mercury types
+	% of boxed objects (e.g. to get the argument types for tuple
+	% constructors or closure constructors).  Note that this should
+	% only be used in cases where the tvarset doesn't matter.
+:- func ml_make_boxed_types(arity) = list(prog_type).
 
 %-----------------------------------------------------------------------------%
 %
@@ -548,6 +555,13 @@
 	% option, depending on the code model.
 :- func get_copy_out_option(globals, code_model) = bool.
 
+	% Add the qualifier `builtin' to any unqualified name.
+	% Although the builtin types `int', `float', etc. are treated as part
+	% of the `builtin' module, for historical reasons they don't have
+	% any qualifiers in the HLDS, so we need to add the `builtin'
+	% qualifier before converting such names to MLDS.
+:- func fixup_builtin_module(module_name) = module_name.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 %
@@ -771,13 +785,15 @@
 
 :- implementation.
 
-:- import_module prog_data, prog_io.
-:- import_module hlds_goal, (inst), instmap, polymorphism.
-:- import_module foreign.
-:- import_module prog_util, type_util, mode_util, special_pred, error_util.
-:- import_module code_util. % XXX for `code_util__compiler_generated'.
-:- import_module ml_code_gen, ml_call_gen.
-:- import_module globals, options.
+:- import_module parse_tree__prog_data, parse_tree__prog_io.
+:- import_module hlds__hlds_goal, (parse_tree__inst), hlds__instmap.
+:- import_module check_hlds__polymorphism.
+:- import_module backend_libs__foreign.
+:- import_module parse_tree__prog_util, check_hlds__type_util.
+:- import_module check_hlds__mode_util, hlds__special_pred, hlds__error_util.
+:- import_module ll_backend__code_util. % XXX for `code_util__compiler_generated'.
+:- import_module ml_backend__ml_code_gen, ml_backend__ml_call_gen.
+:- import_module libs__globals, libs__options.
 
 :- import_module counter, stack, string, require, set, term, varset.
 
@@ -1052,6 +1068,11 @@ ml_gen_array_elem_type(elem_type_generic) = mlds__generic_type.
 
 ml_string_type = mercury_type(string_type, str_type,
 				non_foreign_type(string_type)).
+
+ml_make_boxed_types(Arity) = BoxedTypes :-
+	varset__init(TypeVarSet0),
+	varset__new_vars(TypeVarSet0, Arity, BoxedTypeVars, _TypeVarSet),
+	term__var_list_to_term_list(BoxedTypeVars, BoxedTypes).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1405,16 +1426,16 @@ ml_gen_pred_label_from_rtti(ModuleInfo, RttiProcLabel, MLDS_PredLabel,
 	->
 		(
 			special_pred_get_type(PredName, ArgTypes, Type),
-			type_to_type_id(Type, TypeId, _),
-			% All type_ids other than tuples here should be
+			type_to_ctor_and_args(Type, TypeCtor, _),
+			% All type_ctors other than tuples here should be
 			% module qualified, since builtin types are handled
 			% separately in polymorphism.m.
 			(
-				TypeId = unqualified(TypeName) - TypeArity,
-				type_id_is_tuple(TypeId),
+				TypeCtor = unqualified(TypeName) - TypeArity,
+				type_ctor_is_tuple(TypeCtor),
 				mercury_public_builtin_module(TypeModule)
 			;
-				TypeId = qualified(TypeModule, TypeName)
+				TypeCtor = qualified(TypeModule, TypeName)
 						- TypeArity
 			)
 		->
@@ -2748,6 +2769,14 @@ get_copy_out_option(Globals, CodeModel) = CopyOut :-
 	;	
 		globals__lookup_bool_option(Globals,
 			det_copy_out, CopyOut)
+	).
+
+	% Add the qualifier `builtin' to any unqualified name.
+fixup_builtin_module(ModuleName0) = ModuleName :-
+	( ModuleName0 = unqualified("") ->
+		mercury_public_builtin_module(ModuleName)
+	;
+		ModuleName = ModuleName0
 	).
 
 %-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -25,25 +25,29 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module code_info.
+:- module ll_backend__code_info.
 
 :- interface.
 
-:- import_module prog_data.
-:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, instmap.
-:- import_module code_model.
-:- import_module llds, continuation_info, trace.
-:- import_module globals.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module hlds__hlds_data, hlds__instmap.
+:- import_module backend_libs__code_model.
+:- import_module ll_backend__llds, ll_backend__continuation_info.
+:- import_module ll_backend__trace.
+:- import_module libs__globals.
 
 :- import_module bool, set, list, map, std_util, assoc_list, counter.
 
 :- implementation.
 
-:- import_module prog_out.
-:- import_module type_util, mode_util.
-:- import_module arg_info, code_util, code_exprn, exprn_aux, var_locn.
-:- import_module trace_params, llds_out.
-:- import_module options, tree.
+:- import_module parse_tree__prog_out.
+:- import_module check_hlds__type_util, check_hlds__mode_util.
+:- import_module ll_backend__arg_info, ll_backend__code_util.
+:- import_module ll_backend__code_exprn, ll_backend__exprn_aux.
+:- import_module ll_backend__var_locn.
+:- import_module libs__trace_params, ll_backend__llds_out.
+:- import_module libs__options, libs__tree.
 
 :- import_module term, varset.
 :- import_module set, stack.
@@ -790,13 +794,13 @@ code_info__variable_type(Var, Type) -->
 
 code_info__lookup_type_defn(Type, TypeDefn) -->
 	code_info__get_module_info(ModuleInfo),
-	{ type_to_type_id(Type, TypeIdPrime, _) ->
-		TypeId = TypeIdPrime
+	{ type_to_ctor_and_args(Type, TypeCtorPrime, _) ->
+		TypeCtor = TypeCtorPrime
 	;
 		error("unknown type in code_info__lookup_type_defn")
 	},
 	{ module_info_types(ModuleInfo, TypeTable) },
-	{ map__lookup(TypeTable, TypeId, TypeDefn) }.
+	{ map__lookup(TypeTable, TypeCtor, TypeDefn) }.
 
 code_info__cons_id_to_tag(Var, ConsId, ConsTag) -->
 	code_info__variable_type(Var, Type),

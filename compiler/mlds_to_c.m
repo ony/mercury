@@ -20,10 +20,10 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module mlds_to_c.
+:- module ml_backend__mlds_to_c.
 :- interface.
 
-:- import_module mlds.
+:- import_module ml_backend__mlds.
 :- import_module io.
 
 	% output_mlds(MLDS, Suffix):
@@ -48,21 +48,24 @@
 
 :- implementation.
 
-:- import_module ml_util.
-:- import_module llds_out.	% XXX needed for llds_out__name_mangle,
+:- import_module ml_backend__ml_util.
+:- import_module ll_backend__llds_out.	% XXX needed for llds_out__name_mangle,
 				% llds_out__sym_name_mangle,
 				% llds_out__make_base_typeclass_info_name,
 				% output_c_file_intro_and_grade.
-:- import_module rtti.		% for rtti__addr_to_string.
-:- import_module rtti_to_mlds.	% for mlds_rtti_type_name.
-:- import_module hlds_pred.	% for pred_proc_id.
-:- import_module ml_code_util.	% for ml_gen_public_field_decl_flags, which is
+:- import_module backend_libs__rtti.		% for rtti__addr_to_string.
+:- import_module ml_backend__rtti_to_mlds.	% for mlds_rtti_type_name.
+:- import_module hlds__hlds_pred.	% for pred_proc_id.
+:- import_module ml_backend__ml_code_util.	% for ml_gen_public_field_decl_flags, which is
 				% used by the code that handles derived classes
-:- import_module ml_type_gen.	% for ml_gen_type_name
-:- import_module foreign.
-:- import_module globals, options, passes_aux.
-:- import_module builtin_ops, c_util, modules.
-:- import_module prog_data, prog_out, type_util, error_util, code_model.
+:- import_module ml_backend__ml_type_gen.	% for ml_gen_type_name
+:- import_module backend_libs__foreign.
+:- import_module libs__globals, libs__options, hlds__passes_aux.
+:- import_module backend_libs__builtin_ops, backend_libs__c_util.
+:- import_module parse_tree__modules.
+:- import_module parse_tree__prog_data, parse_tree__prog_out.
+:- import_module check_hlds__type_util, hlds__error_util.
+:- import_module backend_libs__code_model.
 
 :- import_module bool, int, string, library, list, map.
 :- import_module assoc_list, term, std_util, require.
@@ -908,8 +911,8 @@ mlds_output_type_forward_decl(Indent, Type) -->
 			ClassType = Type
 		;
 			Type = mercury_type(MercuryType, user_type, _),
-			type_to_type_id(MercuryType, TypeId, _ArgsTypes),
-			ml_gen_type_name(TypeId, ClassName, ClassArity),
+			type_to_ctor_and_args(MercuryType, TypeCtor, _ArgsTypes),
+			ml_gen_type_name(TypeCtor, ClassName, ClassArity),
 			ClassType = mlds__class_type(ClassName, ClassArity,
 				mlds__class)
 		}
@@ -1576,8 +1579,8 @@ mlds_output_data_name(var(Name)) -->
 mlds_output_data_name(common(Num)) -->
 	io__write_string("common_"),
 	io__write_int(Num).
-mlds_output_data_name(rtti(RttiTypeId, RttiName)) -->
-	{ rtti__addr_to_string(RttiTypeId, RttiName, RttiAddrName) },
+mlds_output_data_name(rtti(RttiTypeCtor, RttiName)) -->
+	{ rtti__addr_to_string(RttiTypeCtor, RttiName, RttiAddrName) },
 	io__write_string(RttiAddrName).
 mlds_output_data_name(base_typeclass_info(ClassId, InstanceStr)) -->
         { llds_out__make_base_typeclass_info_name(ClassId, InstanceStr,
@@ -1749,8 +1752,8 @@ mlds_output_mercury_type_prefix(Type, TypeCategory) -->
 mlds_output_mercury_user_type_prefix(Type, TypeCategory) -->
 	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
 	( { HighLevelData = yes } ->
-		( { type_to_type_id(Type, TypeId, _ArgsTypes) } ->
-			mlds_output_mercury_user_type_name(TypeId,
+		( { type_to_ctor_and_args(Type, TypeCtor, _ArgsTypes) } ->
+			mlds_output_mercury_user_type_name(TypeCtor,
 				TypeCategory)
 		;
 			{ error("mlds_output_mercury_user_type_prefix") }
@@ -1761,12 +1764,12 @@ mlds_output_mercury_user_type_prefix(Type, TypeCategory) -->
 		io__write_string("MR_Word")
 	).
 
-:- pred mlds_output_mercury_user_type_name(type_id, builtin_type,
+:- pred mlds_output_mercury_user_type_name(type_ctor, builtin_type,
 		io__state, io__state).
 :- mode mlds_output_mercury_user_type_name(in, in, di, uo) is det.
 
-mlds_output_mercury_user_type_name(TypeId, TypeCategory) -->
-	{ ml_gen_type_name(TypeId, ClassName, ClassArity) },
+mlds_output_mercury_user_type_name(TypeCtor, TypeCategory) -->
+	{ ml_gen_type_name(TypeCtor, ClassName, ClassArity) },
 	{ TypeCategory = enum_type ->
 		MLDS_Type = mlds__class_type(ClassName,
 			ClassArity, mlds__enum)

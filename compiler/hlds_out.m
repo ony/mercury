@@ -28,21 +28,22 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module hlds_out.
+:- module hlds__hlds_out.
 
 :- interface.
 
 % Parse tree modules
-:- import_module prog_data, (inst).
+:- import_module parse_tree__prog_data, (parse_tree__inst).
 % HLDS modules
-:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, instmap.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_goal.
+:- import_module hlds__hlds_data, hlds__instmap.
 
 :- import_module io, bool, list, term.
 
 %-----------------------------------------------------------------------------%
 
-:- pred hlds_out__write_type_id(type_id, io__state, io__state).
-:- mode hlds_out__write_type_id(in, di, uo) is det.
+:- pred hlds_out__write_type_ctor(type_ctor, io__state, io__state).
+:- mode hlds_out__write_type_ctor(in, di, uo) is det.
 
 :- pred hlds_out__write_class_id(class_id, io__state, io__state).
 :- mode hlds_out__write_class_id(in, di, uo) is det.
@@ -256,27 +257,31 @@
 :- implementation.
 
 % Parse tree modules.
-:- import_module prog_out, prog_util, (inst).
+:- import_module parse_tree__prog_out, parse_tree__prog_util.
+:- import_module (parse_tree__inst).
 
 % HLDS modules.
-:- import_module mercury_to_mercury, purity, special_pred, instmap.
-:- import_module termination, term_errors, check_typeclass, rtti.
+:- import_module parse_tree__mercury_to_mercury, check_hlds__purity.
+:- import_module hlds__special_pred, hlds__instmap.
+:- import_module transform_hlds__termination, transform_hlds__term_errors.
+:- import_module check_hlds__check_typeclass, backend_libs__rtti.
 
 % RL back-end modules (XXX should avoid using those here).
-:- import_module rl.
+:- import_module aditi_backend__rl.
 
 % LLDS back-end modules (XXX should avoid using those here).
-:- import_module code_util, llds, llds_out, trace.
+:- import_module ll_backend__code_util, ll_backend__llds.
+:- import_module ll_backend__llds_out, ll_backend__trace.
 
 % Misc
-:- import_module globals, options, foreign.
+:- import_module libs__globals, libs__options, backend_libs__foreign.
 
 % Standard library modules
 :- import_module int, string, set, assoc_list, map, multi_map.
 :- import_module require, getopt, std_util, term_io, varset.
 
 
-hlds_out__write_type_id(Name - Arity) -->
+hlds_out__write_type_ctor(Name - Arity) -->
 	prog_out__write_sym_name_and_arity(Name / Arity).
 
 hlds_out__write_class_id(class_id(Name, Arity)) -->
@@ -2644,12 +2649,12 @@ hlds_out__write_types(Indent, TypeTable) -->
 	{ map__to_assoc_list(TypeTable, TypeAL) },
 	hlds_out__write_types_2(Indent, TypeAL).
 
-:- pred hlds_out__write_types_2(int, assoc_list(type_id, hlds_type_defn),
+:- pred hlds_out__write_types_2(int, assoc_list(type_ctor, hlds_type_defn),
 	io__state, io__state).
 :- mode hlds_out__write_types_2(in, in, di, uo) is det.
 
 hlds_out__write_types_2(_Indent, []) --> [].
-hlds_out__write_types_2(Indent, [TypeId - TypeDefn | Types]) -->
+hlds_out__write_types_2(Indent, [TypeCtor - TypeDefn | Types]) -->
 	{ hlds_data__get_type_defn_tvarset(TypeDefn, TVarSet) },
 	{ hlds_data__get_type_defn_tparams(TypeDefn, TypeParams) },
 	{ hlds_data__get_type_defn_body(TypeDefn, TypeBody) },
@@ -2681,13 +2686,13 @@ hlds_out__write_types_2(Indent, [TypeId - TypeDefn | Types]) -->
 
 	hlds_out__write_indent(Indent),
 	io__write_string(":- type "),
-	hlds_out__write_type_name(TypeId),
+	hlds_out__write_type_name(TypeCtor),
 	hlds_out__write_type_params(TVarSet, TypeParams),
 	{ Indent1 is Indent + 1 },
 	hlds_out__write_type_body(Indent1, TVarSet, TypeBody),
 	hlds_out__write_types_2(Indent, Types).
 
-:- pred hlds_out__write_type_name(type_id, io__state, io__state).
+:- pred hlds_out__write_type_name(type_ctor, io__state, io__state).
 :- mode hlds_out__write_type_name(in, di, uo) is det.
 
 hlds_out__write_type_name(Name - _Arity) -->
@@ -3462,6 +3467,7 @@ map_inst_to_term(Context, Inst) = inst_to_term(Inst, Context).
 inst_to_term(Inst) = inst_to_term(Inst, term__context_init).
 
 :- func inst_to_term(inst, prog_context) = prog_term.
+
 inst_to_term(any(Uniq), Context) =
 	make_atom(any_inst_uniqueness(Uniq), Context).
 inst_to_term(free, Context) =
@@ -3494,14 +3500,17 @@ inst_to_term(ground(Uniq, GroundInstInfo), Context) = Term :-
 		construct_qualified_term(unqualified("is"), [
 			ModesTerm, det_to_term(Det, Context)], Context, Term)
 	;
-		GroundInstInfo = constrained_inst_var(Var),
-		Term = term__coerce(term__variable(Var))
-	;
 		GroundInstInfo = none,
 		Term = make_atom(inst_uniqueness(Uniq, "ground"), Context)
 	).
 inst_to_term(inst_var(Var), _) =
 	term__coerce(term__variable(Var)).
+inst_to_term(constrained_inst_vars(Vars, Inst), Context) =
+	set__fold(func(Var, Term) =
+			term__functor(term__atom("=<"),
+				[term__coerce(term__variable(Var)), Term],
+				Context),
+		Vars, inst_to_term(Inst, Context)).
 inst_to_term(abstract_inst(Name, Args), Context) =
 	inst_name_to_term(user_inst(Name, Args), Context).
 inst_to_term(defined_inst(InstName), Context) =

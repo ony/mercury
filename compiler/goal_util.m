@@ -11,11 +11,12 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module goal_util.
+:- module hlds__goal_util.
 :- interface.
 
-:- import_module hlds_data, hlds_goal, hlds_module, hlds_pred.
-:- import_module (inst), instmap, prog_data.
+:- import_module parse_tree__inst, parse_tree__prog_data.
+:- import_module hlds__hlds_data, hlds__hlds_goal, hlds__hlds_module.
+:- import_module hlds__hlds_pred, hlds__instmap.
 :- import_module assoc_list, bool, list, set, map, term, std_util.
 
 % The predicates rename_var* take a structure and a mapping from var -> var
@@ -228,8 +229,11 @@
 
 :- implementation.
 
-:- import_module hlds_data, mode_util, code_aux, prog_data, purity.
-:- import_module code_aux, det_analysis, inst_match, type_util, (inst).
+:- import_module parse_tree__prog_data, parse_tree__inst.
+:- import_module hlds__hlds_data, hlds__goal_form.
+:- import_module check_hlds__purity, check_hlds__det_analysis.
+:- import_module check_hlds__inst_match, check_hlds__mode_util.
+:- import_module check_hlds__type_util.
 
 :- import_module int, string, require, varset.
 
@@ -1191,7 +1195,7 @@ goal_util__reordering_maintains_termination(ModuleInfo, FullyStrict,
 		% (can_loop, can_fail) into (can_fail, can_loop). 
 	( 
 		FullyStrict = yes, 
-		\+ code_aux__goal_cannot_loop(ModuleInfo, EarlierGoal)
+		\+ goal_cannot_loop(ModuleInfo, EarlierGoal)
 	->
 		LaterCanFail = cannot_fail
 	;
@@ -1201,7 +1205,7 @@ goal_util__reordering_maintains_termination(ModuleInfo, FullyStrict,
 		% (can_loop, can_fail), since this could worsen 
 		% the termination properties of the program.
 	( EarlierCanFail = can_fail ->
-		code_aux__goal_cannot_loop(ModuleInfo, LaterGoal)
+		goal_cannot_loop(ModuleInfo, LaterGoal)
 	;
 		true
 	).

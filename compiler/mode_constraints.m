@@ -7,28 +7,33 @@
 % File: mode_constraint.m
 % Main author: dmo
 %
-:- module mode_constraints.
+:- module check_hlds__mode_constraints.
 :- interface.
 
+:- import_module hlds__hlds_module.
 :- import_module io.
-:- import_module hlds_module.
 
 :- pred mode_constraints__process_module(module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
 
 :- implementation.
 
-:- import_module list, map, std_util, bool, set, multi_map, require, int.
-:- import_module xrobdd, robdd, term, string, assoc_list, sparse_bitset.
-:- import_module varset, term_io.
-:- import_module hhf, inst_graph, prog_data, hlds_goal, hlds_pred, passes_aux.
-:- import_module dependency_graph, mode_util, (inst), hlds_data, goal_path.
-:- import_module mode_constraint_robdd, mode_ordering, globals, options.
-:- import_module gc.
-
+:- import_module parse_tree__prog_data, parse_tree__inst.
+:- import_module hlds__hlds_goal, hlds__hlds_pred, hlds__hlds_data.
+:- import_module hlds__hhf, hlds__inst_graph, hlds__passes_aux.
+:- import_module check_hlds__mode_util, check_hlds__goal_path.
+:- import_module check_hlds__mode_constraint_robdd, check_hlds__mode_ordering.
+:- import_module transform_hlds__dependency_graph.
+:- import_module libs__globals, libs__options.
+:- import_module xrobdd.
 :- import_module xrobdd__tfeir_robdd.
 :- import_module xrobdd__tfeirn_robdd.
 :- import_module xrobdd__check_robdd.
+
+:- import_module list, map, std_util, bool, set, multi_map, require, int.
+:- import_module robdd, term, string, assoc_list, sparse_bitset.
+:- import_module varset, term_io.
+:- import_module gc.
 
 % XXX
 :- import_module unsafe.

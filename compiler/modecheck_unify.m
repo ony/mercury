@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,10 +17,10 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module modecheck_unify.
+:- module check_hlds__modecheck_unify.
 :- interface.
 
-:- import_module hlds_goal, prog_data, mode_info.
+:- import_module hlds__hlds_goal, parse_tree__prog_data, check_hlds__mode_info.
 
 	% Modecheck a unification
 :- pred modecheck_unification(prog_var, unify_rhs, unification, unify_context,
@@ -40,12 +40,19 @@
 
 :- implementation.
 
-:- import_module llds, prog_util, type_util, module_qual, instmap.
-:- import_module hlds_module, hlds_goal, hlds_pred, hlds_data, hlds_out.
-:- import_module mode_debug, mode_util, mode_info, modes, mode_errors.
-:- import_module inst_match, inst_util, unify_proc, code_util, unique_modes.
-:- import_module typecheck, modecheck_call, (inst), quantification, make_hlds.
-:- import_module polymorphism.
+:- import_module ll_backend__llds, parse_tree__prog_util.
+:- import_module check_hlds__type_util, parse_tree__module_qual, hlds__instmap.
+:- import_module hlds__hlds_module, hlds__hlds_goal, hlds__hlds_pred.
+:- import_module hlds__hlds_data, hlds__hlds_out.
+:- import_module check_hlds__mode_debug, check_hlds__mode_util.
+:- import_module check_hlds__mode_info, check_hlds__modes.
+:- import_module check_hlds__mode_errors.
+:- import_module check_hlds__inst_match, check_hlds__inst_util.
+:- import_module check_hlds__unify_proc, ll_backend__code_util.
+:- import_module check_hlds__unique_modes.
+:- import_module check_hlds__typecheck, check_hlds__modecheck_call.
+:- import_module (parse_tree__inst), hlds__quantification, hlds__make_hlds.
+:- import_module check_hlds__polymorphism.
 
 :- import_module bool, list, map, std_util, int, set, require.
 :- import_module string, assoc_list.
@@ -463,7 +470,8 @@ modecheck_unify_functor(X, TypeOfX, ConsId0, ArgVars0, Unification0,
 			error("get_mode_of_args failed")
 		),
 		(
-			inst_expand(ModuleInfo1, InstOfX, InstOfX1),
+			inst_expand_and_remove_constrained_inst_vars(
+				ModuleInfo1, InstOfX, InstOfX1),
 			list__length(ArgVars0, Arity),
 			get_arg_insts(InstOfX1, InstConsId, Arity, InstOfXArgs),
 			get_mode_of_args(Inst, InstOfXArgs, ModeOfXArgs0)
@@ -920,11 +928,11 @@ modecheck_complicated_unify(X, Y, Type, ModeOfX, ModeOfY, Det, UnifyContext,
 		% procedure that will be used to implement this complicated
 		% unification.
 		%
-		type_to_type_id(Type, TypeId, _)
+		type_to_ctor_and_args(Type, TypeCtor, _)
 	->
 		mode_info_get_context(ModeInfo3, Context),
 		mode_info_get_instvarset(ModeInfo3, InstVarSet),
-		unify_proc__request_unify(TypeId - UniMode, InstVarSet,
+		unify_proc__request_unify(TypeCtor - UniMode, InstVarSet,
 			Det, Context, ModuleInfo3, ModuleInfo),
 		mode_info_set_module_info(ModeInfo3, ModuleInfo,
 			ModeInfo)
@@ -1164,6 +1172,8 @@ bind_args(bound(_Uniq, List), Args) -->
 		{ List = [functor(_, InstList)] },
 		bind_args_2(Args, InstList)
 	).
+bind_args(constrained_inst_vars(_, Inst), Args) -->
+	bind_args(Inst, Args).
 
 :- pred bind_args_2(list(prog_var), list(inst), mode_info, mode_info).
 :- mode bind_args_2(in, in, mode_info_di, mode_info_uo) is semidet.
@@ -1206,6 +1216,8 @@ get_mode_of_args(bound(_Uniq, List), ArgInstsA, ArgModes) :-
 		List = [functor(_Name, ArgInstsB)],
 		get_mode_of_args_2(ArgInstsA, ArgInstsB, ArgModes)
 	).
+get_mode_of_args(constrained_inst_vars(_, Inst), ArgInsts, ArgModes) :-
+	get_mode_of_args(Inst, ArgInsts, ArgModes).
 
 :- pred get_mode_of_args_2(list(inst), list(inst), list(mode)).
 :- mode get_mode_of_args_2(in, in, out) is semidet.

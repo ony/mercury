@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2001 The University of Melbourne.
+% Copyright (C) 1995-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,11 +9,11 @@
 
 % Author: zs
 
-:- module passes_aux.
+:- module hlds__passes_aux.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, parse_tree__prog_data.
 :- import_module io, std_util, list, bool.
 
 %-----------------------------------------------------------------------------%
@@ -145,6 +145,8 @@ about unbound type variables.
 :- pred maybe_flush_output(bool::in, io__state::di, io__state::uo) is det.
 
 :- pred report_error(string::in, io__state::di, io__state::uo) is det.
+:- pred report_error(io__output_stream::in, string::in,
+		io__state::di, io__state::uo) is det.
 
 :- pred maybe_report_sizes(module_info::in, io__state::di, io__state::uo)
 	is det.
@@ -176,12 +178,29 @@ about unbound type variables.
 	--->	forward		% '
 	;	double.		% "
 
+:- type command_verbosity
+	--->	verbose			% Output the command line
+					% only with `--verbose'.
+
+	;	verbose_commands	% Output the command line
+					% with `--verbose-commands'.
+					% This should be used for
+					% commands that may be of
+					% interest to the user.
+	.
+
 	% Invoke a shell script.
-:- pred invoke_shell_command(string::in, bool::out,
+	% Both standard and error output will go to the
+	% specified output stream.
+:- pred invoke_shell_command(io__output_stream::in,
+	command_verbosity::in, string::in, bool::out,
 	io__state::di, io__state::uo) is det.
 
 	% Invoke an executable.
-:- pred invoke_system_command(string::in, bool::out,
+	% Both standard and error output will go to the
+	% specified output stream.
+:- pred invoke_system_command(io__output_stream::in,
+	command_verbosity::in, string::in, bool::out,
 	io__state::di, io__state::uo) is det.
 
 	% Make a command string, which needs to be invoked in a shell
@@ -192,8 +211,10 @@ about unbound type variables.
 
 :- implementation.
 
-:- import_module options, globals, hlds_out, prog_out, mode_util.
-:- import_module mercury_to_mercury.
+:- import_module libs__options, libs__globals, hlds__hlds_out.
+:- import_module parse_tree__prog_out, check_hlds__mode_util.
+:- import_module parse_tree__mercury_to_mercury, libs__process_util.
+
 :- import_module int, string, map, require, varset.
 
 process_all_nonimported_procs(Task, ModuleInfo0, ModuleInfo) -->
@@ -401,6 +422,11 @@ report_error(ErrorMessage) -->
 	io__write_string("\n"),
 	io__set_exit_status(1).
 
+report_error(Stream, ErrorMessage) -->
+	io__set_output_stream(Stream, OldStream),
+	report_error(ErrorMessage),
+	io__set_output_stream(OldStream, _).
+
 :- pred passes_aux__handle_errors(int, int, module_info, module_info,
 		io__state, io__state).
 :- mode passes_aux__handle_errors(in, in, in, out, di, uo) is det.
@@ -424,13 +450,20 @@ passes_aux__handle_errors(WarnCnt, ErrCnt, ModuleInfo1, ModuleInfo8,
 		State9 = State2
 	).
 
-invoke_shell_command(Command0, Succeeded) -->
+invoke_shell_command(ErrorStream, Verbosity, Command0, Succeeded) -->
 	{ make_command_string(Command0, forward, Command) },
-	invoke_system_command(Command, Succeeded).
+	invoke_system_command(ErrorStream, Verbosity, Command, Succeeded).
 
-invoke_system_command(Command, Succeeded) -->
+invoke_system_command(ErrorStream, Verbosity, Command, Succeeded) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
-	( { Verbose = yes } ->
+	(
+		{ Verbosity = verbose },
+		{ PrintCommand = Verbose }
+	;	
+		{ Verbosity = verbose_commands },
+		globals__io_lookup_bool_option(verbose_commands, PrintCommand)
+	),	
+	( { PrintCommand = yes } ->
 		io__write_string("% Invoking system command `"),
 		io__write_string(Command),
 		io__write_string("'...\n"),
@@ -438,17 +471,65 @@ invoke_system_command(Command, Succeeded) -->
 	;
 		[]
 	),
-	io__call_system(Command, Result),
-	( { Result = ok(0) } ->
-		maybe_write_string(Verbose, "% done.\n"),
-		{ Succeeded = yes }
-	; { Result = ok(_) } ->
-		report_error("system command returned non-zero exit status."),
+
+	%
+	% The output from the command is written to a temporary file,
+	% which is then written to the output stream. Without this,
+	% the output from the command would go to the current C output
+	% and error streams.
+	%
+	io__make_temp(TmpFile),
+	io__call_system_return_signal(
+		string__append_list([Command, " > ", TmpFile, " 2>&1"]),
+		Result),
+	(
+		{ Result = ok(exited(Status)) },
+		maybe_write_string(PrintCommand, "% done.\n"),
+		( { Status = 0 } ->
+			{ Succeeded = yes }
+		;
+			io__set_exit_status(1),
+			% The command should have produced output
+			% describing the error.
+			{ Succeeded = no }
+		)
+	;
+		{ Result = ok(signalled(Signal)) },
+		% Make sure the current process gets the signal. Some
+		% systems (e.g. Linux) ignore SIGINT during a call to
+		% system().
+		raise_signal(Signal),
+		report_error(ErrorStream, "system command received signal "
+					++ int_to_string(Signal) ++ "."),
 		{ Succeeded = no }
-	;	
-		report_error("unable to invoke system command."),
+	;
+		{ Result = error(Error) },
+		report_error(ErrorStream, io__error_message(Error)),
 		{ Succeeded = no }
-	).
+	),
+
+	%
+	% Write the output to the error stream.
+	%
+	io__open_input(TmpFile, TmpFileRes),
+	(
+		{ TmpFileRes = ok(TmpFileStream) },
+		io__input_stream_foldl_io(TmpFileStream,
+			io__write_char(ErrorStream), Res),
+		(
+			{ Res = ok }
+		;
+			{ Res = error(TmpFileReadError) },
+			report_error(ErrorStream,
+				"error reading command output: "
+					++ io__error_message(TmpFileReadError))
+		)
+	;
+		{ TmpFileRes = error(TmpFileError) },
+		report_error(ErrorStream, "error opening command output: "
+				++ io__error_message(TmpFileError))
+	),
+	io__remove_file(TmpFile, _).
 
 make_command_string(String0, QuoteType, String) :-
 	( use_win32 ->
@@ -457,7 +538,7 @@ make_command_string(String0, QuoteType, String) :-
 			Quote = " '"
 		;
 			QuoteType = double,
-			Quote = " \""
+			Quote = " """
 		),
 		string__append_list(["sh -c ", Quote, String0, Quote], String)
 	;
@@ -579,10 +660,12 @@ output_to_file(FileName, Action, Result) -->
 	maybe_write_string(Verbose, FileName),
 	maybe_write_string(Verbose, "'...\n"),
 	maybe_flush_output(Verbose),
-	io__tell(FileName, Res),
-	( { Res = ok } ->
+	io__open_output(FileName, Res),
+	( { Res = ok(FileStream) } ->
+		io__set_output_stream(FileStream, OutputStream),
 		Action(ActionResult),
-		io__told,
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream),
 		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats),
 		{ Result = yes(ActionResult) }

@@ -13,12 +13,14 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module llds_out.
+:- module ll_backend__llds_out.
 
 :- interface.
 
-:- import_module llds, builtin_ops, prog_data, hlds_data, rl_file.
-:- import_module globals.
+:- import_module ll_backend__llds, backend_libs__builtin_ops.
+:- import_module parse_tree__prog_data, hlds__hlds_data.
+:- import_module aditi_backend__rl_file.
+:- import_module libs__globals.
 :- import_module bool, std_util, list, map, io.
 
 	% Given a 'c_file' structure, output the LLDS code inside it
@@ -260,10 +262,14 @@
 
 :- implementation.
 
-:- import_module rtti, rtti_out, layout, layout_out, options, trace_params.
-:- import_module exprn_aux, prog_util, prog_out, hlds_pred.
-:- import_module export, mercury_to_mercury, modules, passes_aux.
-:- import_module c_util, foreign.
+:- import_module backend_libs__rtti, ll_backend__rtti_out, ll_backend__layout.
+:- import_module ll_backend__layout_out, libs__options, libs__trace_params.
+:- import_module ll_backend__exprn_aux, parse_tree__prog_util.
+:- import_module parse_tree__prog_out, hlds__hlds_pred.
+:- import_module backend_libs__export, parse_tree__mercury_to_mercury.
+:- import_module parse_tree__modules, hlds__passes_aux.
+:- import_module backend_libs__c_util, backend_libs__foreign.
+:- import_module backend_libs__compile_target_code.
 
 :- import_module int, char, string, std_util.
 :- import_module set, bintree_set, assoc_list, require.
@@ -292,6 +298,7 @@ output_llds(C_File, StackLayoutLabels, MaybeRLFile) -->
 			UserForeignCodes, Exports, Vars, Datas, Modules) },
 		module_name_to_file_name(ModuleName, ".dir", yes, ObjDirName),
 		make_directory(ObjDirName),
+
 		output_split_c_file_init(ModuleName, Modules, Datas,
 			StackLayoutLabels, MaybeRLFile),
 		output_split_user_foreign_codes(UserForeignCodes, ModuleName,
@@ -303,7 +310,16 @@ output_llds(C_File, StackLayoutLabels, MaybeRLFile) -->
 		output_split_comp_gen_c_datas(Datas, ModuleName,
 			C_HeaderInfo, StackLayoutLabels, Num3, Num4),
 		output_split_comp_gen_c_modules(Modules, ModuleName,
-			C_HeaderInfo, StackLayoutLabels, Num4, _Num)
+			C_HeaderInfo, StackLayoutLabels, Num4, Num),
+
+		compile_target_code__write_num_split_c_files(ModuleName,
+			Num, Succeeded),
+		( { Succeeded = no } ->
+			compile_target_code__remove_split_c_output_files(
+				ModuleName, Num)
+		;
+			[]
+		)
 	;
 		output_single_c_file(C_File, no,
 			StackLayoutLabels, MaybeRLFile)
@@ -387,11 +403,12 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 	module_name_to_file_name(ModuleName, ".m", no, SourceFileName),
 	module_name_to_split_c_file_name(ModuleName, 0, ".c", FileName),
 
-	io__tell(FileName, Result),
+	io__open_output(FileName, Result),
 	(
-		{ Result = ok }
+		{ Result = ok(FileStream) }
 	->
 		{ library__version(Version) },
+		io__set_output_stream(FileStream, OutputStream),
 		output_c_file_intro_and_grade(SourceFileName, Version),
 		output_init_comment(ModuleName),
 		output_c_file_mercury_headers,
@@ -400,7 +417,8 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 		output_c_module_init_list(ModuleName, Modules, Datas,
 			StackLayoutLabels, DeclSet0, _DeclSet),
 		output_rl_file(ModuleName, MaybeRLFile),
-		io__told
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream)
 	;
 		io__progname_base("llds.m", ProgName),
 		io__write_string("\n"),
@@ -480,11 +498,12 @@ output_single_c_file(CFile, SplitFiles, StackLayoutLabels, MaybeRLFile) -->
 	;
 		module_name_to_file_name(ModuleName, ".c", yes, FileName)
 	),
-	io__tell(FileName, Result),
+	io__open_output(FileName, Result),
 	(
-		{ Result = ok }
+		{ Result = ok(FileStream) }
 	->
 		{ library__version(Version) },
+		io__set_output_stream(FileStream, OutputStream),
 		module_name_to_file_name(ModuleName, ".m", no, SourceFileName),
 		output_c_file_intro_and_grade(SourceFileName, Version),
 		( { SplitFiles = yes(_) } ->
@@ -517,7 +536,8 @@ output_single_c_file(CFile, SplitFiles, StackLayoutLabels, MaybeRLFile) -->
 				StackLayoutLabels, DeclSet5, _DeclSet)
 		),
 		output_rl_file(ModuleName, MaybeRLFile),
-		io__told
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream)
 	;
 		io__progname_base("llds.m", ProgName),
 		io__write_string("\n"),
@@ -707,7 +727,7 @@ output_init_bunch_calls([_ | Bunches], ModuleName, InitStatus, Seq) -->
 	{ NextSeq is Seq + 1 },
 	output_init_bunch_calls(Bunches, ModuleName, InitStatus, NextSeq).
 
-	% Output MR_INIT_TYPE_CTOR_INFO(TypeCtorInfo, TypeId);
+	% Output MR_INIT_TYPE_CTOR_INFO(TypeCtorInfo, Typector);
 	% for each type_ctor_info defined in this module.
 
 :- pred output_c_data_init_list(list(comp_gen_c_data)::in,
@@ -3004,8 +3024,9 @@ output_data_addr_decls_2(DataAddr, FirstIndent, LaterIndent, N0, N) -->
 		output_data_addr_storage_type_name(ModuleName, DataVarName, no,
 			LaterIndent)
 	;
-		{ DataAddr = rtti_addr(RttiTypeId, RttiVarName) },
-		output_rtti_addr_storage_type_name(RttiTypeId, RttiVarName, no)
+		{ DataAddr = rtti_addr(RttiTypector, RttiVarName) },
+		output_rtti_addr_storage_type_name(RttiTypector, RttiVarName,
+			no)
 	;
 		{ DataAddr = layout_addr(LayoutName) },
 		output_layout_name_storage_type_name(LayoutName, no)
@@ -3407,8 +3428,8 @@ output_data_addrs([DataAddr | DataAddrs]) -->
 
 output_data_addr(data_addr(ModuleName, DataName)) -->
 	output_data_addr(ModuleName, DataName).
-output_data_addr(rtti_addr(RttiTypeId, RttiName)) -->
-	output_rtti_addr(RttiTypeId, RttiName).
+output_data_addr(rtti_addr(RttiTypeCtor, RttiName)) -->
+	output_rtti_addr(RttiTypeCtor, RttiName).
 output_data_addr(layout_addr(LayoutName)) -->
 	output_layout_name(LayoutName).
 

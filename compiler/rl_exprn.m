@@ -47,11 +47,13 @@
 % to specify which constructor to use.
 %
 %-----------------------------------------------------------------------------%
-:- module rl_exprn.
+:- module aditi_backend__rl_exprn.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, rl, rl_code, rl_file, prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, aditi_backend__rl.
+:- import_module aditi_backend__rl_code, aditi_backend__rl_file.
+:- import_module parse_tree__prog_data.
 :- import_module list.
 
 	% rl_exprn__generate_compare_exprn(ModuleInfo, SortSpec,
@@ -124,10 +126,13 @@
 
 :- implementation.
 
-:- import_module code_util, hlds_pred, hlds_data, inst_match.
-:- import_module instmap, mode_util, tree, type_util, prog_out.
-:- import_module rl_out, inlining, hlds_goal, prog_util, error_util.
-:- import_module builtin_ops.
+:- import_module ll_backend__code_util, hlds__hlds_pred, hlds__hlds_data.
+:- import_module check_hlds__inst_match.
+:- import_module hlds__instmap, check_hlds__mode_util, libs__tree.
+:- import_module check_hlds__type_util, parse_tree__prog_out.
+:- import_module aditi_backend__rl_out, transform_hlds__inlining.
+:- import_module hlds__hlds_goal, parse_tree__prog_util, hlds__error_util.
+:- import_module backend_libs__builtin_ops.
 
 :- import_module assoc_list, bool, char, int, map.
 :- import_module require, set, std_util, string, term, varset.
@@ -1272,7 +1277,7 @@ rl_exprn__functor_test(Var, ConsId, Fail, Code) -->
 
 rl_exprn__is_char_cons_id(ConsId, Type, Int) :-
 	ConsId = cons(unqualified(CharStr), 0),
-	type_to_type_id(Type, unqualified("character") - 0, _),
+	type_to_ctor_and_args(Type, unqualified("character") - 0, _),
 		% Convert characters to integers.
 	( string__to_char_list(CharStr, [Char]) ->
 		char__to_int(Char, Int)
@@ -1363,11 +1368,11 @@ rl_exprn__cons_id_to_rule_number(ConsId, Type, RuleNo) -->
 rl_exprn__cons_id_to_rule_number(ConsId, Type, ExprnTuple, RuleNo) -->
 	( 
 		{ ConsId = cons(ConsName, Arity) },
-		{ type_to_type_id(Type, TypeId, Args) }
+		{ type_to_ctor_and_args(Type, TypeCtor, Args) }
 	->
 		% These names should not be quoted, since they are not
 		% being parsed, just compared against other strings.
-		{ rl__mangle_type_name(TypeId, Args, MangledTypeName) },
+		{ rl__mangle_type_name(TypeCtor, Args, MangledTypeName) },
 		{ rl__mangle_ctor_name(ConsName, Arity, MangledConsName) },
 		{ Rule = rl_rule(MangledTypeName, MangledConsName, Arity) },
 		rl_exprn_info_lookup_rule(Rule - ExprnTuple, RuleNo)
@@ -2006,14 +2011,14 @@ rl_exprn__compare_bytecode(term(_), rl_EXP_term_cmp).
 :- pred rl_exprn__type_to_aditi_type((type)::in, aditi_type::out) is det.
 
 rl_exprn__type_to_aditi_type(Type, AditiType) :-
-	( type_to_type_id(Type, TypeId, _) ->
-		( TypeId = unqualified("int") - 0 ->
+	( type_to_ctor_and_args(Type, TypeCtor, _) ->
+		( TypeCtor = unqualified("int") - 0 ->
 			AditiType = int
-		; TypeId = unqualified("character") - 0 ->
+		; TypeCtor = unqualified("character") - 0 ->
 			AditiType = int
-		; TypeId = unqualified("string") - 0 ->
+		; TypeCtor = unqualified("string") - 0 ->
 			AditiType = string
-		; TypeId = unqualified("float") - 0 ->
+		; TypeCtor = unqualified("float") - 0 ->
 			AditiType = float
 		;
 			AditiType = term(Type)

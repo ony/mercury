@@ -3,14 +3,16 @@
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
-:- module hhf.
+
+:- module hlds__hhf.
 
 % Convert superhomogeneous form to hyperhomogeneous form and output an
 % inst graph for the predicate.
 % 
+
 :- interface.
 
-:- import_module hlds_pred, hlds_module, inst_graph.
+:- import_module hlds__hlds_pred, hlds__hlds_module, hlds__inst_graph.
 :- import_module io, bool.
 
 :- pred hhf__process_pred(bool::in, pred_id::in, module_info::in,
@@ -21,8 +23,10 @@
 
 :- implementation.
 
-:- import_module prog_data, hlds_data, hlds_goal, type_util, prog_util.
-:- import_module passes_aux, quantification.
+:- import_module parse_tree__prog_data, parse_tree__prog_util.
+:- import_module hlds__hlds_data, hlds__hlds_goal.
+:- import_module hlds__passes_aux, hlds__quantification.
+:- import_module check_hlds__type_util.
 :- import_module term, varset, map, list, set, std_util, require.
 
 hhf__process_pred(Simple, PredId, ModuleInfo0, ModuleInfo) -->
@@ -339,7 +343,7 @@ complete_inst_graph_node(ModuleInfo, BaseVars, Var, Info0, Info) :-
 	(
 		map__search(VarTypes0, Var, Type),
 		type_constructors(Type, ModuleInfo, Constructors),
-		type_to_type_id(Type, TypeId, _)
+		type_to_ctor_and_args(Type, TypeId, _)
 	->
 		list__foldl(
 			maybe_add_cons_id(Var, ModuleInfo, BaseVars, TypeId),
@@ -349,7 +353,7 @@ complete_inst_graph_node(ModuleInfo, BaseVars, Var, Info0, Info) :-
 	).
 
 :- pred maybe_add_cons_id(prog_var::in, module_info::in, list(prog_var)::in,
-	type_id::in, constructor::in, hhf_info::in, hhf_info::out) is det.
+	type_ctor::in, constructor::in, hhf_info::in, hhf_info::out) is det.
 
 maybe_add_cons_id(Var, ModuleInfo, BaseVars, TypeId, Ctor, Info0, Info) :-
 	Ctor = ctor(_, _, Name, Args),

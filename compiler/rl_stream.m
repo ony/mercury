@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2000 University of Melbourne.
+% Copyright (C) 1998-2000,2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -29,11 +29,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module rl_stream.
+:- module aditi_backend__rl_stream.
 
 :- interface.
 
-:- import_module rl_block.
+:- import_module aditi_backend__rl_block.
 
 :- pred rl_stream__detect_streams(rl_opt_info, rl_opt_info).
 :- mode rl_stream__detect_streams(in, out) is det.
@@ -41,7 +41,7 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module rl.
+:- import_module aditi_backend__rl.
 :- import_module assoc_list, bag, int, list, map, multi_map.
 :- import_module relation, require, set, std_util.
 

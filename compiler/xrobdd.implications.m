@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -11,8 +11,8 @@
 
 :- interface.
 
-:- import_module robdd, bool, term.
 :- import_module xrobdd__equiv_vars.
+:- import_module robdd, bool, term.
 
 :- func init_imp_vars = imp_vars(T).
 
@@ -54,10 +54,11 @@
 
 :- func add_equalities_to_imp_vars(equiv_vars(T), imp_vars(T)) = imp_vars(T).
 
+%---------------------------------------------------------------------------%
+
 :- implementation.
 
 :- import_module map, require, assoc_list, std_util, term, list, sparse_bitset.
-
 
 % XXX
 :- import_module unsafe, io.

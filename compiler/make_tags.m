@@ -48,19 +48,19 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module make_tags.
+:- module hlds__make_tags.
 :- interface.
 
-:- import_module prog_data, hlds_data, globals.
+:- import_module parse_tree__prog_data, hlds__hlds_data, libs__globals.
 :- import_module bool, list.
 
-% assign_constructor_tags(Constructors, TypeId, Globals, TagValues, IsEnum):
+% assign_constructor_tags(Constructors, TypeCtor, Globals, TagValues, IsEnum):
 %	Assign a constructor tag to each constructor for a discriminated
 %	union type, and determine whether the type is an enumeration
 %	type or not.  (`Globals' is passed because exact way in which
 %	this is done is dependent on a compilation option.)
 
-:- pred assign_constructor_tags(list(constructor), type_id, globals,
+:- pred assign_constructor_tags(list(constructor), type_ctor, globals,
 				cons_tag_values, bool).
 :- mode assign_constructor_tags(in, in, in, out, out) is det.
 
@@ -69,12 +69,13 @@
 
 :- implementation.
 
-:- import_module prog_util, type_util, error_util, globals, options.
+:- import_module parse_tree__prog_util, check_hlds__type_util.
+:- import_module hlds__error_util, libs__globals, libs__options.
 :- import_module int, map, std_util, require.
 
 %-----------------------------------------------------------------------------%
 
-assign_constructor_tags(Ctors, TypeId, Globals, CtorTags, IsEnum) :-
+assign_constructor_tags(Ctors, TypeCtor, Globals, CtorTags, IsEnum) :-
 
 		% work out how many tag bits and reserved addresses
 		% we've got to play with
@@ -142,7 +143,7 @@ assign_constructor_tags(Ctors, TypeId, Globals, CtorTags, IsEnum) :-
 			( HighLevelCode = yes ->
 				assign_reserved_symbolic_addresses(
 					LeftOverConstants0,
-					LeftOverConstants, TypeId,
+					LeftOverConstants, TypeCtor,
 					CtorTags1, CtorTags2,
 					0, NumReservedObjects)
 			;
@@ -212,12 +213,12 @@ assign_reserved_numeric_addresses([Ctor | Rest], LeftOverConstants,
 	% assign reserved_object(CtorName, CtorArity) representations
 	% to the specified constructors
 :- pred assign_reserved_symbolic_addresses(list(constructor),
-		list(constructor), type_id, cons_tag_values, cons_tag_values,
+		list(constructor), type_ctor, cons_tag_values, cons_tag_values,
 		int, int).
 :- mode assign_reserved_symbolic_addresses(in, out, in, in, out, in, in) is det.
 
 assign_reserved_symbolic_addresses([], [], _, CtorTags, CtorTags, _, _).
-assign_reserved_symbolic_addresses([Ctor | Ctors], LeftOverConstants, TypeId,
+assign_reserved_symbolic_addresses([Ctor | Ctors], LeftOverConstants, TypeCtor,
 		CtorTags0, CtorTags, Num, Max) :-
 	( Num >= Max ->
 		LeftOverConstants = [Ctor | Ctors],
@@ -225,11 +226,11 @@ assign_reserved_symbolic_addresses([Ctor | Ctors], LeftOverConstants, TypeId,
 	;
 		Ctor = ctor(_ExistQVars, _Constraints, Name, Args),
 		Arity = list__length(Args),
-		Tag = reserved_address(reserved_object(TypeId, Name, Arity)),
+		Tag = reserved_address(reserved_object(TypeCtor, Name, Arity)),
 		make_cons_id_from_qualified_sym_name(Name, Args, ConsId),
 		map__set(CtorTags0, ConsId, Tag, CtorTags1),
 		assign_reserved_symbolic_addresses(Ctors, LeftOverConstants,
-			TypeId, CtorTags1, CtorTags, Num + 1, Max)
+			TypeCtor, CtorTags1, CtorTags, Num + 1, Max)
 	).
 
 :- pred assign_constant_tags(list(constructor), cons_tag_values,

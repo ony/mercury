@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -38,12 +38,12 @@
 %  The predicates are then fixed up. Unused variables and unifications are
 %	removed.
 
-:- module unused_args.
+:- module transform_hlds__unused_args.
 
 %-------------------------------------------------------------------------------
 :- interface.
 
-:- import_module hlds_module.
+:- import_module hlds__hlds_module.
 :- import_module io.
 
 :- pred unused_args__process_module(module_info::in, module_info::out,
@@ -52,10 +52,15 @@
 %-------------------------------------------------------------------------------
 :- implementation.
 
-:- import_module hlds_pred, hlds_goal, hlds_data, hlds_out, type_util, instmap.
-:- import_module code_util, globals, make_hlds, mercury_to_mercury, mode_util.
-:- import_module options, prog_data, prog_out, quantification, special_pred.
-:- import_module passes_aux, inst_match, modules, polymorphism, goal_util.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
+:- import_module hlds__hlds_out, check_hlds__type_util, hlds__instmap.
+:- import_module ll_backend__code_util, libs__globals, hlds__make_hlds.
+:- import_module parse_tree__mercury_to_mercury, check_hlds__mode_util.
+:- import_module libs__options, parse_tree__prog_data, parse_tree__prog_out.
+:- import_module hlds__quantification, hlds__special_pred.
+:- import_module hlds__passes_aux, check_hlds__inst_match.
+:- import_module parse_tree__modules, check_hlds__polymorphism.
+:- import_module hlds__goal_util.
 
 :- import_module assoc_list, bool, char, int, list, map, require.
 :- import_module set, std_util, string.
@@ -932,13 +937,14 @@ make_new_pred_info(ModuleInfo, PredInfo0, UnusedArgs, NameSuffix, Status,
 		(
 				% fix up special pred names
 			special_pred_get_type(Name0, ArgTypes0, Type),
-			type_to_type_id(Type, TypeId, _)
+			type_to_ctor_and_args(Type, TypeCtor, _)
 		->
-			type_util__type_id_module(ModuleInfo,
-				TypeId, TypeModule),
-			type_util__type_id_name(ModuleInfo, TypeId, TypeName),
-			type_util__type_id_arity(ModuleInfo,
-				TypeId, TypeArity),
+			type_util__type_ctor_module(ModuleInfo,
+				TypeCtor, TypeModule),
+			type_util__type_ctor_name(ModuleInfo,
+				TypeCtor, TypeName),
+			type_util__type_ctor_arity(ModuleInfo,
+				TypeCtor, TypeArity),
 			string__int_to_string(TypeArity, TypeAr),
 			prog_out__sym_name_to_string(TypeModule,
 				TypeModuleString0),

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -11,6 +11,7 @@
 
 :- interface.
 
+:- import_module check_hlds__mode_constraint_robdd.
 :- import_module robdd, bool, term, map.
 
 :- type equiv_vars(T).
@@ -28,7 +29,6 @@
 		is semidet.
 
 :- func leader(var(T), equiv_vars(T)) = var(T) is semidet.
-:- import_module mode_constraint_robdd.
 :- pragma type_spec(leader/2, T = mc_type).
 
 :- func det_leader(var(T), equiv_vars(T)) = var(T).
@@ -64,6 +64,8 @@
 :- func remove_equiv(equiv_vars(T), robdd(T)) = robdd(T).
 
 :- func expand_equiv(equiv_vars(T), robdd(T)) = robdd(T).
+
+%---------------------------------------------------------------------------%
 
 :- implementation.
 

@@ -16,12 +16,13 @@
 % Whether this extra information is stored is controlled by the `debug/0'
 % predicate.
 
-:- module mode_constraint_robdd.
+:- module check_hlds__mode_constraint_robdd.
 :- interface.
 
-:- import_module prog_data, hlds_goal, hlds_pred.
-:- import_module xrobdd, robdd, term, set, stack, map, bool.
-:- import_module io.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__hlds_pred.
+:- import_module xrobdd.
+:- import_module stack, set, map, bool, robdd, term, io.
 /*
 :- import_module list.
 */
@@ -128,13 +129,13 @@
 
 
 :- implementation.
-:- import_module std_util, list, term, varset, map, require, term_io.
-:- import_module bimap, assoc_list, string, stack, sparse_bitset, robdd.
-:- import_module bool.
 
 :- import_module xrobdd__tfeir_robdd.
 :- import_module xrobdd__tfeirn_robdd.
 :- import_module xrobdd__check_robdd.
+
+:- import_module std_util, bool, list, term, varset, map, require, term_io.
+:- import_module bimap, assoc_list, string, stack, sparse_bitset, robdd.
 
 :- type mc_type ---> mc_type.
 

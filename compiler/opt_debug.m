@@ -10,12 +10,13 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module opt_debug.
+:- module ll_backend__opt_debug.
 
 :- interface.
 
-:- import_module llds, livemap.
-:- import_module code_model, rtti, layout, builtin_ops.
+:- import_module ll_backend__llds, ll_backend__livemap.
+:- import_module backend_libs__code_model, backend_libs__rtti.
+:- import_module ll_backend__layout, backend_libs__builtin_ops.
 
 :- import_module io, bool, list, assoc_list, std_util.
 
@@ -64,8 +65,8 @@
 :- pred opt_debug__dump_data_name(data_name, string).
 :- mode opt_debug__dump_data_name(in, out) is det.
 
-:- pred opt_debug__dump_rtti_type_id(rtti_type_id, string).
-:- mode opt_debug__dump_rtti_type_id(in, out) is det.
+:- pred opt_debug__dump_rtti_type_ctor(rtti_type_ctor, string).
+:- mode opt_debug__dump_rtti_type_ctor(in, out) is det.
 
 :- pred opt_debug__dump_rtti_name(rtti_name, string).
 :- mode opt_debug__dump_rtti_name(in, out) is det.
@@ -119,10 +120,11 @@
 
 :- implementation.
 
-:- import_module prog_out.
-:- import_module hlds_pred.
-:- import_module llds_out, code_util, opt_util.
-:- import_module globals, options.
+:- import_module parse_tree__prog_out.
+:- import_module hlds__hlds_pred.
+:- import_module ll_backend__llds_out, ll_backend__code_util.
+:- import_module ll_backend__opt_util.
+:- import_module libs__globals, libs__options.
 
 :- import_module int, set, map, string.
 
@@ -334,11 +336,12 @@ opt_debug__dump_data_addr(data_addr(ModuleName, DataName), Str) :-
 	opt_debug__dump_data_name(DataName, DataName_str),
 	string__append_list(
 		["data_addr(", ModuleName_str, ", ", DataName_str, ")"], Str).
-opt_debug__dump_data_addr(rtti_addr(RttiTypeId, DataName), Str) :-
-	opt_debug__dump_rtti_type_id(RttiTypeId, RttiTypeId_str),
+opt_debug__dump_data_addr(rtti_addr(RttiTypeCtor, DataName), Str) :-
+	opt_debug__dump_rtti_type_ctor(RttiTypeCtor, RttiTypeCtor_str),
 	opt_debug__dump_rtti_name(DataName, DataName_str),
 	string__append_list(
-		["rtti_addr(", RttiTypeId_str, ", ", DataName_str, ")"], Str).
+		["rtti_addr(", RttiTypeCtor_str, ", ", DataName_str, ")"],
+		Str).
 opt_debug__dump_data_addr(layout_addr(LayoutName), Str) :-
 	opt_debug__dump_layout_name(LayoutName, LayoutName_str),
 	string__append_list(["layout_addr(", LayoutName_str, ")"], Str).
@@ -356,11 +359,12 @@ opt_debug__dump_data_name(deep_profiling_procedure_data(ProcLabel), Str) :-
 	string__append_list(["deep_profiling_procedure_data(",
 				ProcLabelStr, ")"], Str).
 
-opt_debug__dump_rtti_type_id(rtti_type_id(ModuleName, TypeName, Arity), Str) :-
+opt_debug__dump_rtti_type_ctor(rtti_type_ctor(ModuleName, TypeName, Arity),
+		Str) :-
 	llds_out__sym_name_mangle(ModuleName, ModuleName_str),
 	llds_out__name_mangle(TypeName, TypeName_str),
 	string__int_to_string(Arity, Arity_str),
-	string__append_list(["rtti_type_id(", ModuleName_str, ", ",
+	string__append_list(["rtti_type_ctor(", ModuleName_str, ", ",
 		TypeName_str, Arity_str, ")"], Str).
 
 opt_debug__dump_rtti_name(exist_locns(Ordinal), Str) :-

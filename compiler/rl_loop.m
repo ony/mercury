@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998 University of Melbourne.
+% Copyright (C) 1998,2002 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,11 +13,11 @@
 %	Addison-Wesley, 1986.
 %-----------------------------------------------------------------------------%
 
-:- module rl_loop.
+:- module aditi_backend__rl_loop.
 
 :- interface.
 
-:- import_module rl_block.
+:- import_module aditi_backend__rl_block.
 
 	% Given the flow graph for a procedure, return a new flow 
 	% graph with loop invariant instructions moved out of loops.
@@ -26,7 +26,7 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module rl.
+:- import_module aditi_backend__rl.
 :- import_module assoc_list, bimap, bool, int, list, map, queue, relation.
 :- import_module require, set, std_util.
 

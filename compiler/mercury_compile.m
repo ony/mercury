@@ -13,11 +13,17 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module mercury_compile.
+:- module top_level__mercury_compile.
 :- interface.
-:- import_module io.
 
-:- pred main(io__state::di, io__state::uo) is det.
+:- import_module io, list.
+
+:- pred main(io__state, io__state).
+:- mode main(di, uo) is det.
+
+	% main(Args).
+:- pred main(list(string), io__state, io__state).
+:- mode main(in, di, uo) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -29,67 +35,110 @@
 	%
 
 	% semantic analysis
-:- import_module handle_options, prog_io, prog_out, modules, module_qual.
-:- import_module equiv_type, make_hlds, typecheck, purity, polymorphism, modes.
-:- import_module mode_constraints.
-:- import_module switch_detection, cse_detection, det_analysis, unique_modes.
-:- import_module stratify, simplify.
-:- import_module pprint.
+:- import_module libs__handle_options, parse_tree__prog_io.
+:- import_module parse_tree__prog_out, parse_tree__modules.
+:- import_module parse_tree__module_qual.
+:- import_module parse_tree__equiv_type, hlds__make_hlds.
+:- import_module check_hlds__typecheck, check_hlds__purity.
+:- import_module check_hlds__polymorphism, check_hlds__modes.
+:- import_module check_hlds__mode_constraints.
+:- import_module check_hlds__switch_detection, check_hlds__cse_detection.
+:- import_module check_hlds__det_analysis, check_hlds__unique_modes.
+:- import_module check_hlds__stratify, check_hlds__simplify.
 
 	% high-level HLDS transformations
-:- import_module check_typeclass, intermod, trans_opt, table_gen, (lambda).
-:- import_module type_ctor_info, termination, higher_order, accumulator.
-:- import_module inlining, deforest, dnf, magic, dead_proc_elim.
-:- import_module delay_construct, unused_args, unneeded_code, lco.
-:- import_module deep_profiling.
+:- import_module check_hlds__check_typeclass, transform_hlds__intermod.
+:- import_module transform_hlds__trans_opt, transform_hlds__table_gen.
+:- import_module (transform_hlds__lambda).
+:- import_module backend_libs__type_ctor_info, transform_hlds__termination.
+:- import_module transform_hlds__higher_order, transform_hlds__accumulator.
+:- import_module transform_hlds__inlining, transform_hlds__deforest.
+:- import_module aditi_backend__dnf, aditi_backend__magic.
+:- import_module transform_hlds__dead_proc_elim.
+:- import_module transform_hlds__delay_construct, transform_hlds__unused_args.
+:- import_module transform_hlds__unneeded_code, transform_hlds__lco.
+:- import_module ll_backend__deep_profiling.
 
 	% the LLDS back-end
-:- import_module saved_vars, liveness.
-:- import_module follow_code, live_vars, arg_info, store_alloc, goal_path.
-:- import_module code_gen, optimize, foreign, export.
-:- import_module base_typeclass_info.
-:- import_module llds_common, transform_llds, llds_out.
-:- import_module continuation_info, stack_layout.
+:- import_module ll_backend__saved_vars, ll_backend__liveness.
+:- import_module ll_backend__follow_code, ll_backend__live_vars.
+:- import_module ll_backend__arg_info, ll_backend__store_alloc.
+:- import_module check_hlds__goal_path.
+:- import_module ll_backend__code_gen, ll_backend__optimize.
+:- import_module backend_libs__foreign, backend_libs__export.
+:- import_module backend_libs__base_typeclass_info.
+:- import_module ll_backend__llds_common, ll_backend__transform_llds.
+:- import_module ll_backend__llds_out.
+:- import_module ll_backend__continuation_info, ll_backend__stack_layout.
 
 	% the Aditi-RL back-end
-:- import_module rl_gen, rl_opt, rl_out.
+:- import_module aditi_backend__rl_gen, aditi_backend__rl_opt.
+:- import_module aditi_backend__rl_out.
 
 	% the bytecode back-end
-:- import_module bytecode_gen, bytecode.
+:- import_module bytecode_backend__bytecode_gen, bytecode_backend__bytecode.
 
 	% the MLDS back-end
-:- import_module add_trail_ops, add_heap_ops.	% HLDS -> HLDS
-:- import_module mark_static_terms.		% HLDS -> HLDS
-:- import_module mlds.				% MLDS data structure
-:- import_module ml_code_gen, rtti_to_mlds.	% HLDS/RTTI -> MLDS
-:- import_module ml_elim_nested.		% MLDS -> MLDS
-:- import_module ml_tailcall.			% MLDS -> MLDS
-:- import_module ml_optimize.			% MLDS -> MLDS
-:- import_module mlds_to_c.			% MLDS -> C
-:- import_module mlds_to_java.			% MLDS -> Java
-:- import_module mlds_to_ilasm.			% MLDS -> IL assembler
-:- import_module maybe_mlds_to_gcc.		% MLDS -> GCC back-end
-:- import_module ml_util.			% MLDS utility predicates 
+:- import_module ml_backend__add_trail_ops.	% HLDS -> HLDS
+:- import_module ml_backend__add_heap_ops.	% HLDS -> HLDS
+:- import_module ml_backend__mark_static_terms.	% HLDS -> HLDS
+:- import_module ml_backend__mlds.		% MLDS data structure
+:- import_module ml_backend__ml_code_gen.
+:- import_module ml_backend__rtti_to_mlds.	% HLDS/RTTI -> MLDS
+:- import_module ml_backend__ml_elim_nested.	% MLDS -> MLDS
+:- import_module ml_backend__ml_tailcall.	% MLDS -> MLDS
+:- import_module ml_backend__ml_optimize.	% MLDS -> MLDS
+:- import_module ml_backend__mlds_to_c.		% MLDS -> C
+:- import_module ml_backend__mlds_to_java.	% MLDS -> Java
+:- import_module ml_backend__mlds_to_ilasm.	% MLDS -> IL assembler
+:- import_module ml_backend__maybe_mlds_to_gcc.	% MLDS -> GCC back-end
+:- import_module ml_backend__ml_util.		% MLDS utility predicates 
 
 	% miscellaneous compiler modules
-:- import_module prog_data, hlds_module, hlds_pred, hlds_out, llds, rl.
-:- import_module mercury_to_mercury, hlds_data.
-:- import_module layout, dependency_graph, prog_util, rl_dump, rl_file.
-:- import_module options, globals, trace_params, passes_aux.
-:- import_module recompilation, recompilation_usage, recompilation_check.
-:- import_module timestamp.
+:- import_module parse_tree__prog_data, hlds__hlds_module, hlds__hlds_pred.
+:- import_module hlds__hlds_out, ll_backend__llds, aditi_backend__rl.
+:- import_module parse_tree__mercury_to_mercury, hlds__hlds_data.
+:- import_module ll_backend__layout, transform_hlds__dependency_graph.
+:- import_module parse_tree__prog_util, aditi_backend__rl_dump.
+:- import_module aditi_backend__rl_file.
+:- import_module libs__options, libs__globals, libs__trace_params.
+:- import_module hlds__passes_aux.
+:- import_module recompilation, recompilation__usage.
+:- import_module recompilation__check.
+:- import_module libs__timestamp.
+:- import_module make, make__options_file, backend_libs__compile_target_code.
 
 	% library modules
-:- import_module int, list, map, set, std_util, dir, require, string, bool.
+:- import_module int, list, map, set, std_util, require, string, bool, dir.
 :- import_module library, getopt, set_bbbtree, term, varset, assoc_list.
 :- import_module gc, benchmarking.
+:- import_module pprint.
 
 %-----------------------------------------------------------------------------%
 
 main -->
 	gc_init,
-	handle_options(MaybeError, Args, Link),
-	main_2(MaybeError, Args, Link).
+
+	 	% All messages go to stderr
+	io__stderr_stream(StdErr),
+	io__set_output_stream(StdErr, _),
+	io__command_line_arguments(Args0),
+
+	% Lookup the the default options in the
+	% environment (set by the mmc script).
+	lookup_default_options(options_variables_init, MaybeMCFlags),
+	(
+	    { MaybeMCFlags = yes(MCFlags) },
+	    handle_options(MCFlags ++ Args0, MaybeError,
+	    	OptionArgs, NonOptionArgs, Link),
+	    main_2(MaybeError, OptionArgs, NonOptionArgs, Link)
+	;
+	    { MaybeMCFlags = no },
+	    io__set_exit_status(1)
+	).
+
+main(Args) -->
+	main_2(no, [], Args, no).
 
 %-----------------------------------------------------------------------------%
 
@@ -114,23 +163,31 @@ main -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred main_2(maybe(string), list(string), bool, io__state, io__state).
-:- mode main_2(in, in, in, di, uo) is det.
+:- pred main_2(maybe(string), list(string), list(string),
+		bool, io__state, io__state).
+:- mode main_2(in, in, in, in, di, uo) is det.
 
-main_2(yes(ErrorMessage), _, _) -->
+main_2(yes(ErrorMessage), _, _, _) -->
 	usage_error(ErrorMessage).
-main_2(no, Args, Link) -->
+main_2(no, OptionArgs, Args, Link) -->
 	globals__io_lookup_bool_option(help, Help),
 	globals__io_lookup_bool_option(output_grade_string, OutputGrade),
 	globals__io_lookup_bool_option(filenames_from_stdin,
 		FileNamesFromStdin),
+	globals__io_lookup_bool_option(make, Make),
 	( { Help = yes } ->
-		long_usage
+		io__stdout_stream(Stdout),
+		io__set_output_stream(Stdout, OldOutputStream),
+		long_usage,
+		io__set_output_stream(OldOutputStream, _)
 	; { OutputGrade = yes } ->
 		globals__io_get_globals(Globals),
 		{ compute_grade(Globals, Grade) },
-		io__write_string(Grade),
-		io__write_string("\n")
+		io__stdout_stream(Stdout),
+		io__write_string(Stdout, Grade),
+		io__write_string(Stdout, "\n")
+	; { Make = yes } ->
+		make__process_args(OptionArgs, Args)
 	; { Args = [], FileNamesFromStdin = no } ->
 		usage
 	;
@@ -138,8 +195,8 @@ main_2(no, Args, Link) -->
 		io__get_exit_status(ExitStatus),
 		( { ExitStatus = 0 } ->
 			( { Link = yes } ->
-				mercury_compile__link_module_list(
-					ModulesToLink)
+				compile_target_code__link_module_list(
+					ModulesToLink, _Succeeded)
 			;
 				[]
 			)
@@ -185,7 +242,7 @@ process_all_args(Args, ModulesToLink) -->
 			% starting the gcc backend to avoid overwriting
 			% the output assembler file even if recompilation 
 			% is found to be unnecessary.
-		    	process_args(Args, ModulesToLink)
+		    	mercury_compile__process_args(Args, ModulesToLink)
 		    ;
 			io__write_string(
 "Sorry, not implemented: `--target asm' with `--smart-recompilation'\n"),
@@ -197,7 +254,7 @@ process_all_args(Args, ModulesToLink) -->
 		;
 		    compile_using_gcc_backend(
 		    	string_to_file_or_module(FirstArg),
-			process_args(Args), ModulesToLink)
+			mercury_compile__process_args(Args), ModulesToLink)
 	        )
 	    ;
 		io__write_string(
@@ -209,7 +266,7 @@ process_all_args(Args, ModulesToLink) -->
 		% If we're NOT using the GCC back-end,
 		% then we can just call process_args directly,
 		% rather than via GCC.
-	    process_args(Args, ModulesToLink)
+	    mercury_compile__process_args(Args, ModulesToLink)
 	).
 
 :- pred compiling_to_asm(globals::in) is semidet.
@@ -298,12 +355,9 @@ compile_using_gcc_backend(FirstFileOrModule, CallBack, ModulesToLink) -->
 		globals__io_lookup_bool_option(target_code_only, 
 				TargetCodeOnly),
 		( { Result = ok, TargetCodeOnly = no } ->
-			globals__io_lookup_string_option(object_file_extension,
-				Obj),
-			module_name_to_file_name(ModuleName, Obj,
-				yes, O_File),
-			mercury_compile__asm_to_obj(
-				AsmFile, O_File, _AssembleOK)
+			io__output_stream(OutputStream),
+			compile_target_code__assemble(OutputStream,
+				ModuleName, _AssembleOK)
 		;
 			[]
 		)
@@ -444,10 +498,6 @@ process_arg_list_2([Arg | Args], [Modules | ModulesList]) -->
 :- mode process_arg(in, out, di, uo) is det.
 
 process_arg(Arg, ModulesToLink) -->
-	 	% All messages go to stderr
-	io__stderr_stream(StdErr),
-	io__set_output_stream(StdErr, _),
-
 	{ FileOrModule = string_to_file_or_module(Arg) },
 	globals__io_lookup_bool_option(generate_dependencies, GenerateDeps),
 	( { GenerateDeps = yes } ->
@@ -619,8 +669,8 @@ process_module(FileOrModule, ModulesToLink) -->
 				Items, SubModuleList),
 			list__foldl(
 				(pred(SubModule::in, di, uo) is det -->
-					ProcessModule(FileName, MaybeTimestamp,
-						SubModule)
+					ProcessModule(FileName, ModuleName,
+						MaybeTimestamp, SubModule)
 				),
 				SubModuleList)
 		),
@@ -663,7 +713,7 @@ process_module(FileOrModule, ModulesToLink) -->
 				Globals, FindTargetFiles) },
 			{ find_timestamp_files(ModuleName, Globals,
 				FindTimestampFiles) },
-			recompilation_check__should_recompile(ModuleName,
+			recompilation__check__should_recompile(ModuleName,
 				FindTargetFiles, FindTimestampFiles,
 				ModulesToRecompile0, ReadModules),
 			{
@@ -752,7 +802,7 @@ process_module_2(FileOrModule, MaybeModulesToRecompile, ReadModules0,
 			globals__io_set_trace_level_none,
 
 			compile_all_submodules(FileName,
-				ModuleName - NestedSubModules,
+				ModuleName, NestedSubModules,
 				MaybeTimestamp, ReadModules,
 				FindTimestampFiles, SubModuleListToCompile,
 				ModulesToLink),
@@ -761,7 +811,7 @@ process_module_2(FileOrModule, MaybeModulesToRecompile, ReadModules0,
 			globals__io_set_trace_level(TraceLevel)
 		;
 			compile_all_submodules(FileName,
-				ModuleName - NestedSubModules,
+				ModuleName, NestedSubModules,
 				MaybeTimestamp, ReadModules,
 				FindTimestampFiles, SubModuleListToCompile,
 				ModulesToLink)
@@ -779,42 +829,46 @@ process_module_2(FileOrModule, MaybeModulesToRecompile, ReadModules0,
 	%
 	% i.e. compile nested modules to a single C file.
 
-:- pred compile_all_submodules(string, pair(module_name, list(module_name)),
+:- pred compile_all_submodules(string, module_name, list(module_name),
 	maybe(timestamp), read_modules, find_timestamp_file_names,
 	list(pair(module_name, item_list)),
 	list(string), io__state, io__state).
-:- mode compile_all_submodules(in, in, in, in, in(find_timestamp_file_names),
-	in, out, di, uo) is det.
+:- mode compile_all_submodules(in, in, in, in, in,
+	in(find_timestamp_file_names), in, out, di, uo) is det.
 
-compile_all_submodules(FileName, NestedSubModules, MaybeTimestamp, ReadModules,
-		FindTimestampFiles, SubModuleList, ModulesToLink) -->
+compile_all_submodules(FileName, SourceFileModuleName, NestedSubModules,
+		MaybeTimestamp, ReadModules, FindTimestampFiles,
+		SubModuleList, ModulesToLink) -->
 	list__foldl(
-		compile(FileName, NestedSubModules, MaybeTimestamp,
-			ReadModules, FindTimestampFiles),
+		compile(FileName, SourceFileModuleName, NestedSubModules,
+			MaybeTimestamp, ReadModules, FindTimestampFiles),
 		SubModuleList),
 	list__map_foldl(module_to_link, SubModuleList, ModulesToLink).
 
-:- pred make_interface(file_name, maybe(timestamp),
+:- pred make_interface(file_name, module_name, maybe(timestamp),
 		pair(module_name, item_list), io__state, io__state).
-:- mode make_interface(in, in, in, di, uo) is det.
+:- mode make_interface(in, in, in, in, di, uo) is det.
 
-make_interface(SourceFileName, MaybeTimestamp, ModuleName - Items) -->
-	make_interface(SourceFileName, ModuleName, MaybeTimestamp, Items).
+make_interface(SourceFileName, SourceFileModuleName, MaybeTimestamp,
+		ModuleName - Items) -->
+	make_interface(SourceFileName, SourceFileModuleName,
+		ModuleName, MaybeTimestamp, Items).
 
-:- pred make_short_interface(file_name, maybe(timestamp),
+:- pred make_short_interface(file_name, module_name, maybe(timestamp),
 		pair(module_name, item_list), io__state, io__state).
-:- mode make_short_interface(in, in, in, di, uo) is det.
+:- mode make_short_interface(in, in, in, in, di, uo) is det.
 
-make_short_interface(SourceFileName, _, ModuleName - Items) -->
+make_short_interface(SourceFileName, _, _, ModuleName - Items) -->
 	make_short_interface(SourceFileName, ModuleName, Items).
 
-:- pred make_private_interface(file_name, maybe(timestamp),
+:- pred make_private_interface(file_name, module_name, maybe(timestamp),
 		pair(module_name, item_list), io__state, io__state).
-:- mode make_private_interface(in, in, in, di, uo) is det.
+:- mode make_private_interface(in, in, in, in, di, uo) is det.
 
-make_private_interface(SourceFileName, MaybeTimestamp, ModuleName - Items) -->
-	make_private_interface(SourceFileName, ModuleName,
-		MaybeTimestamp, Items).
+make_private_interface(SourceFileName, SourceFileModuleName,
+		MaybeTimestamp, ModuleName - Items) -->
+	make_private_interface(SourceFileName, SourceFileModuleName,
+		ModuleName, MaybeTimestamp, Items).
 
 :- pred halt_at_module_error(bool, module_error).
 :- mode halt_at_module_error(in, in) is semidet.
@@ -932,24 +986,25 @@ find_timestamp_files(TopLevelModuleName, Globals, FindTimestampFiles) :-
 	% The initial arrangement has the stage numbers increasing by three
 	% so that new stages can be slotted in without too much trouble.
 
-:- pred compile(file_name, pair(module_name, list(module_name)),
+:- pred compile(file_name, module_name, list(module_name),
 	maybe(timestamp), read_modules, find_timestamp_file_names,
 	pair(module_name, item_list), io__state, io__state).
-:- mode compile(in, in, in, in, in(find_timestamp_file_names),
+:- mode compile(in, in, in, in, in, in(find_timestamp_file_names),
 	in, di, uo) is det.
 
-compile(SourceFileName, RootModuleName - NestedSubModules0,
+compile(SourceFileName, SourceFileModuleName, NestedSubModules0,
 		MaybeTimestamp, ReadModules, FindTimestampFiles,
 		ModuleName - Items) -->
 	check_for_no_exports(Items, ModuleName),
-	grab_imported_modules(SourceFileName, ModuleName, ReadModules,
-		MaybeTimestamp, Items, Module, Error2),
+	{ ModuleName = SourceFileModuleName ->
+		NestedSubModules = NestedSubModules0
+	;
+		NestedSubModules = []
+	},
+	grab_imported_modules(SourceFileName, SourceFileModuleName, ModuleName,
+		NestedSubModules, ReadModules, MaybeTimestamp,
+		Items, Module, Error2),
 	( { Error2 \= fatal_module_errors } ->
-		{ ModuleName = RootModuleName ->
-			NestedSubModules = NestedSubModules0
-		;
-			NestedSubModules = []
-		},
 		mercury_compile(Module, NestedSubModules, FindTimestampFiles)
 	;
 		[]
@@ -1041,8 +1096,9 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 				{ HasMain = mercury_compile__mlds_has_main(
 					MLDS) },
 				mercury_compile__mlds_to_il_assembler(MLDS),
-				mercury_compile__il_assemble(ModuleName,
-					HasMain)
+				io__output_stream(OutputStream),
+				compile_target_code__il_assemble(OutputStream,
+					ModuleName, HasMain, _Succeeded)
 			)
 		    ; { Target = java } ->
 			{ HLDS = HLDS50 },
@@ -1051,7 +1107,9 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 			( { TargetCodeOnly = yes } ->
 				[]
 			;
-				mercury_compile__compile_java_file(ModuleName)
+				io__output_stream(OutputStream),
+				compile_target_code__compile_java_file(
+					OutputStream, ModuleName, _Succeeded)
 			)
 		    ; { Target = asm } ->
 		    	% compile directly to assembler using the gcc back-end
@@ -1076,12 +1134,16 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 						".c", no, CCode_C_File),
 					globals__io_lookup_string_option(
 						object_file_extension, Obj),
-					module_name_to_file_name(ModuleName,
-						"__c_code" ++ Obj,
+					{ ForeignModuleName =
+						foreign_language_module_name(
+							ModuleName, c) },
+					module_name_to_file_name(
+						ForeignModuleName, Obj,
 						yes, CCode_O_File),
-					mercury_compile__single_c_to_obj(
-						CCode_C_File, CCode_O_File,
-						_CompileOK),
+					io__output_stream(OutputStream),
+					compile_target_code__compile_c_file(
+						OutputStream, CCode_C_File,
+						CCode_O_File, _CompileOK),
 					% add this object file to the list
 					% of extra object files to link in
 					globals__io_lookup_accumulating_option(
@@ -1106,8 +1168,10 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 					object_file_extension, Obj),
 				module_name_to_file_name(ModuleName, Obj, yes,
 					O_File),
-				mercury_compile__single_c_to_obj(
-					C_File, O_File, _CompileOK)
+				io__output_stream(OutputStream),
+				compile_target_code__compile_c_file(
+					OutputStream, C_File, O_File,
+					_CompileOK)
 			)
 		    ;
 			mercury_compile__backend_pass(HLDS50, HLDS,
@@ -1115,7 +1179,7 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 			mercury_compile__output_pass(HLDS, GlobalData, LLDS,
 				MaybeRLFile, ModuleName, _CompileErrors)
 		    ),
-		    recompilation_usage__write_usage_file(HLDS,
+		    recompilation__usage__write_usage_file(HLDS,
 		    	NestedSubModules, MaybeTimestamps),
 		    FindTimestampFiles(ModuleName, TimestampFiles),
 		    list__foldl(touch_datestamp, TimestampFiles)
@@ -1136,15 +1200,15 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 	).
 
 	% return `yes' iff this module defines the main/2 entry point.
-:- func mercury_compile__mlds_has_main(mlds) = bool.
+:- func mercury_compile__mlds_has_main(mlds) = has_main.
 mercury_compile__mlds_has_main(MLDS) =
 	(
 		MLDS = mlds(_, _, _, Defns),
 		defns_contain_main(Defns)
 	->
-		yes
+		has_main
 	;
-		no
+		no_main
 	).
 
 %-----------------------------------------------------------------------------%
@@ -1156,11 +1220,14 @@ mercury_compile__mlds_has_main(MLDS) =
 :- mode mercury_compile__pre_hlds_pass(in, in, out, out, out, out, out, out,
 		di, uo) is det.
 
-mercury_compile__pre_hlds_pass(ModuleImports0, DontWriteDFile,
+mercury_compile__pre_hlds_pass(ModuleImports0, DontWriteDFile0,
 		HLDS1, QualInfo, MaybeTimestamps,
 		UndefTypes, UndefModes, FoundError) -->
 	globals__io_lookup_bool_option(statistics, Stats),
 	globals__io_lookup_bool_option(verbose, Verbose),
+	globals__io_lookup_bool_option(generate_mmake_module_dependencies,
+		WriteDFile),
+	{ DontWriteDFile = DontWriteDFile0 `or` not(WriteDFile) },
 
 	{ module_imports_get_module_name(ModuleImports0, Module) },
 
@@ -1205,7 +1272,15 @@ mercury_compile__pre_hlds_pass(ModuleImports0, DontWriteDFile,
 	;
 		{ module_info_get_all_deps(HLDS0, AllDeps) },
 		write_dependency_file(ModuleImports0, AllDeps,
-			MaybeTransOptDeps)
+			MaybeTransOptDeps),
+		globals__io_lookup_bool_option(
+			generate_mmc_make_module_dependencies,
+			OutputMMCMakeDeps),
+		( { OutputMMCMakeDeps = yes } ->
+			make__write_module_dep_file(ModuleImports0)
+		;
+			[]
+		)
 	),
 
 	% Only stop on syntax errors in .opt files.
@@ -1299,13 +1374,10 @@ mercury_compile__maybe_grab_optfiles(Imports0, Verbose, MaybeTransOptDeps,
 			% not creating the .opt or .trans opt file, then import
 			% the trans_opt files for all the modules that are
 			% imported (or used), and for all ancestor modules.
-			{ Imports0 = module_imports(_File, _Module, Ancestors,
-				InterfaceImports, ImplementationImports,
-				_IndirectImports, _PublicChildren, _FactDeps,
-				_ForeignCode, _ForeignImports, _Items,
-				_Error, _Timestamps) },
-			{ list__condense([Ancestors, InterfaceImports,
-				ImplementationImports], TransOptFiles) },
+			{ list__condense(
+				[Imports0 ^ parent_deps, Imports0 ^ int_deps,
+					Imports0 ^ impl_deps],
+				TransOptFiles) },
 			trans_opt__grab_optfiles(Imports1, TransOptFiles,
 				Imports, Error2)
 		;
@@ -1558,7 +1630,7 @@ mercury_compile__maybe_write_optfile(MakeOptInt, HLDS0, HLDS) -->
 			module_name_to_file_name(ModuleName,
 				".opt", no, OptName),
 			search_for_file(IntermodDirs, OptName, Found),
-			( { Found = yes } ->
+			( { Found = yes(_) } ->
 				{ UpdateStatus = yes },
 				io__seen
 			;
@@ -2388,11 +2460,13 @@ mercury_compile__maybe_write_dependency_graph(ModuleInfo0, Verbose, Stats,
 		{ module_info_name(ModuleInfo0, ModuleName) },
 		module_name_to_file_name(ModuleName, ".dependency_graph", yes,
 			FileName),
-		io__tell(FileName, Res),
-		( { Res = ok } ->
+		io__open_output(FileName, Res),
+		( { Res = ok(FileStream) } ->
+			io__set_output_stream(FileStream, OutputStream),
 			dependency_graph__write_dependency_graph(ModuleInfo0,
 							ModuleInfo),
-			io__told,
+			io__set_output_stream(OutputStream, _),
+			io__close_output(FileStream),
 			maybe_write_string(Verbose, " done.\n")
 		;
 			report_error("unable to write dependency graph."),
@@ -2423,13 +2497,15 @@ mercury_compile__maybe_output_prof_call_graph(ModuleInfo0, Verbose, Stats,
 		{ module_info_name(ModuleInfo0, ModuleName) },
 		module_name_to_file_name(ModuleName, ".prof", yes,
 						ProfFileName),
-		io__tell(ProfFileName, Res),
+		io__open_output(ProfFileName, Res),
 		(
-			{ Res = ok }
+			{ Res = ok(FileStream) }
 		->
+			io__set_output_stream(FileStream, OutputStream),
 			dependency_graph__write_prof_dependency_graph(
 						ModuleInfo0, ModuleInfo),
-			io__told
+			io__set_output_stream(OutputStream, _),
+			io__close_output(FileStream)
 		;
 			report_error("unable to write profiling static call graph."),
 			{ ModuleInfo = ModuleInfo0 }
@@ -3132,7 +3208,9 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 	%
 	globals__io_lookup_bool_option(target_code_only, TargetCodeOnly),
 	( { TargetCodeOnly = no } ->
-		mercury_compile__c_to_obj(ModuleName, NumChunks, CompileOK),
+		io__output_stream(OutputStream),
+		mercury_compile__c_to_obj(OutputStream,
+			ModuleName, NumChunks, CompileOK),
 		{ bool__not(CompileOK, CompileErrors) }
 	;
 		{ CompileErrors = no }
@@ -3194,13 +3272,16 @@ make_foreign_import_header_code(
 		{ Include = foreign_decl_code(c, IncludeString, Context) }
 	;
 		{ Lang = csharp },
-		{ error("sorry, not yet implemented: `:- pragma foreign_import_module' for C#") }
+		{ error("sorry.
+:- import_module not yet implemented: `:- pragma foreign_import_module' for C#") }
 	;
 		{ Lang = managed_cplusplus },
-		{ error("sorry, not yet implemented: `:- pragma foreign_import_module' for Managed C++") }
+		{ error("sorry.
+:- import_module not yet implemented: `:- pragma foreign_import_module' for Managed C++") }
 	;
 		{ Lang = il },
-		{ error("sorry, not yet implemented: `:- pragma foreign_import_module' for IL") }
+		{ error("sorry.
+:- import_module not yet implemented: `:- pragma foreign_import_module' for IL") }
 	).
 
 :- pred get_c_body_code(foreign_body_info, list(user_foreign_code)).
@@ -3249,6 +3330,23 @@ mercury_compile__output_llds(ModuleName, LLDS0, StackLayoutLabels, MaybeRLFile,
 	maybe_write_string(Verbose, " done.\n"),
 	maybe_flush_output(Verbose),
 	maybe_report_stats(Stats).
+
+:- pred mercury_compile__c_to_obj(io__output_stream, module_name,
+		int, bool, io__state, io__state).
+:- mode mercury_compile__c_to_obj(in, in, in, out, di, uo) is det.
+
+mercury_compile__c_to_obj(ErrorStream, ModuleName, NumChunks, Succeeded) -->
+	globals__io_lookup_bool_option(split_c_files, SplitFiles),
+	( { SplitFiles = yes } ->
+		compile_target_code__split_c_to_obj(ErrorStream, ModuleName,
+			NumChunks, Succeeded)
+	;
+		globals__io_lookup_string_option(object_file_extension, Obj),
+		module_name_to_file_name(ModuleName, ".c", no, C_File),
+		module_name_to_file_name(ModuleName, Obj, yes, O_File),
+		compile_target_code__compile_c_file(ErrorStream,
+			C_File, O_File, Succeeded)
+	).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -3480,599 +3578,6 @@ mercury_compile__mlds_to_il_assembler(MLDS) -->
 	maybe_write_string(Verbose, "% Finished converting MLDS to IL.\n"),
 	maybe_report_stats(Stats).
 
-:- pred mercury_compile__il_assemble(module_name, bool, io__state, io__state).
-:- mode mercury_compile__il_assemble(in, in, di, uo) is det.
-
-mercury_compile__il_assemble(ModuleName, HasMain) -->
-	module_name_to_file_name(ModuleName, ".il", no, IL_File),
-	module_name_to_file_name(ModuleName, ".dll", no, DLL_File),
-	module_name_to_file_name(ModuleName, ".exe", no, EXE_File),
-	globals__io_lookup_bool_option(verbose, Verbose),
-	globals__io_lookup_bool_option(sign_assembly, SignAssembly),
-	maybe_write_string(Verbose, "% Assembling `"),
-	maybe_write_string(Verbose, IL_File),
-	maybe_write_string(Verbose, "':\n"),
-	{ SignAssembly = yes ->
-		SignOpt = "/keyf=mercury.sn "
-	;
-		SignOpt = ""
-	},
-	{ Verbose = yes ->
-		VerboseOpt = ""
-	;
-		VerboseOpt = "/quiet "
-	},
-	globals__io_lookup_bool_option(target_debug, Debug),
-	{ Debug = yes ->
-		DebugOpt = "/debug "
-	;
-		DebugOpt = ""
-	},
-	{ HasMain = yes ->
-		TargetOpt = "",
-		TargetFile = EXE_File
-	;	
-		TargetOpt = "/dll ",
-		TargetFile = DLL_File
-	},
-	{ OutputOpt = "/out=" },
-	{ string__append_list(["ilasm ", SignOpt, VerboseOpt, DebugOpt,
-		TargetOpt, OutputOpt, TargetFile, " ", IL_File], Command) },
-	invoke_system_command(Command, Succeeded),
-	( { Succeeded = no } ->
-		report_error("problem assembling IL file.")
-	;
-		[]
-	).
-
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
-
-:- type compiler_type ---> gcc ; lcc ; unknown.
-
-:- pred mercury_compile__c_to_obj(module_name, int, bool, io__state, io__state).
-:- mode mercury_compile__c_to_obj(in, in, out, di, uo) is det.
-
-mercury_compile__c_to_obj(ModuleName, NumChunks, Succeeded) -->
-	globals__io_lookup_bool_option(split_c_files, SplitFiles),
-	( { SplitFiles = yes } ->
-		mercury_compile__c_to_obj_list(ModuleName, 0, NumChunks,
-			Succeeded)
-	;
-		globals__io_lookup_string_option(object_file_extension, Obj),
-		module_name_to_file_name(ModuleName, ".c", no, C_File),
-		module_name_to_file_name(ModuleName, Obj, yes, O_File),
-		mercury_compile__single_c_to_obj(C_File, O_File, Succeeded)
-	).
-
-:- pred mercury_compile__c_to_obj_list(module_name, int, int, bool,
-					io__state, io__state).
-:- mode mercury_compile__c_to_obj_list(in, in, in, out, di, uo) is det.
-
-	% compile each of the C files in `<module>.dir'
-
-mercury_compile__c_to_obj_list(ModuleName, Chunk, NumChunks, Succeeded) -->
-	( { Chunk > NumChunks } ->
-		{ Succeeded = yes }
-	;
-		globals__io_lookup_string_option(object_file_extension, Obj),
-		module_name_to_split_c_file_name(ModuleName, Chunk,
-			".c", C_File),
-		module_name_to_split_c_file_name(ModuleName, Chunk,
-			Obj, O_File),
-		mercury_compile__single_c_to_obj(C_File, O_File, Succeeded0),
-		( { Succeeded0 = no } ->
-			{ Succeeded = no }
-		;
-			{ Chunk1 is Chunk + 1 },
-			mercury_compile__c_to_obj_list(ModuleName,
-				Chunk1, NumChunks, Succeeded)
-		)
-	).
-
-:- pred mercury_compile__single_c_to_obj(string, string, bool,
-					io__state, io__state).
-:- mode mercury_compile__single_c_to_obj(in, in, out, di, uo) is det.
-
-% WARNING: The code here duplicates the functionality of scripts/mgnuc.in.
-% Any changes there may also require changes here, and vice versa.
-
-mercury_compile__single_c_to_obj(C_File, O_File, Succeeded) -->
-	globals__io_lookup_bool_option(verbose, Verbose),
-	globals__io_lookup_string_option(c_flag_to_name_object_file,
-			NameObjectFile),
-	maybe_write_string(Verbose, "% Compiling `"),
-	maybe_write_string(Verbose, C_File),
-	maybe_write_string(Verbose, "':\n"),
-	globals__io_lookup_string_option(cc, CC),
-	globals__io_lookup_accumulating_option(cflags, C_Flags_List),
-	{ join_string_list(C_Flags_List, "", "", " ", CFLAGS) },
-
-	globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
-	globals__io_lookup_bool_option(split_c_files, SplitCFiles),
-	{ (UseSubdirs = yes ; SplitCFiles = yes) ->
-		% the source file (foo.c) will be compiled in a subdirectory
-		% (either Mercury/cs, foo.dir, or Mercury/dirs/foo.dir,
-		% depending on which of these two options is set)
-		% so we need to add `-I.' so it can
-		% include header files in the source directory.
-		SubDirInclOpt = "-I. "
-	;
-		SubDirInclOpt = ""
-	},
-	globals__io_lookup_accumulating_option(c_include_directory,
-	 	C_Incl_Dirs),
-	{ InclOpt = string__append_list(list__condense(list__map(
-	 	(func(C_INCL) = ["-I", C_INCL, " "]), C_Incl_Dirs))) },
-	globals__io_lookup_bool_option(split_c_files, Split_C_Files),
-	{ Split_C_Files = yes ->
-		SplitOpt = "-DMR_SPLIT_C_FILES "
-	;
-		SplitOpt = ""
-	},
-	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	( { HighLevelCode = yes } ->
-		{ HighLevelCodeOpt = "-DMR_HIGHLEVEL_CODE " }
-	;
-		{ HighLevelCodeOpt = "" }
-	),
-	globals__io_lookup_bool_option(gcc_nested_functions,
-		GCC_NestedFunctions),
-	( { GCC_NestedFunctions = yes } ->
-		{ NestedFunctionsOpt = "-DMR_USE_GCC_NESTED_FUNCTIONS " }
-	;
-		{ NestedFunctionsOpt = "" }
-	),
-	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
-	( { HighLevelData = yes } ->
-		{ HighLevelDataOpt = "-DMR_HIGHLEVEL_DATA " }
-	;
-		{ HighLevelDataOpt = "" }
-	),
-	globals__io_lookup_bool_option(gcc_global_registers, GCC_Regs),
-	( { GCC_Regs = yes } ->
-		globals__io_lookup_string_option(cflags_for_regs,
-			CFLAGS_FOR_REGS),
-		{ RegOpt = "-DMR_USE_GCC_GLOBAL_REGISTERS " }
-	;
-		{ CFLAGS_FOR_REGS = "" },
-		{ RegOpt = "" }
-	),
-	globals__io_lookup_bool_option(gcc_non_local_gotos, GCC_Gotos),
-	( { GCC_Gotos = yes } ->
-		{ GotoOpt = "-DMR_USE_GCC_NONLOCAL_GOTOS " },
-		globals__io_lookup_string_option(cflags_for_gotos,
-			CFLAGS_FOR_GOTOS)
-	;
-		{ GotoOpt = "" },
-		{ CFLAGS_FOR_GOTOS = "" }
-	),
-	globals__io_lookup_bool_option(asm_labels, ASM_Labels),
-	{ ASM_Labels = yes ->
-		AsmOpt = "-DMR_USE_ASM_LABELS "
-	;
-		AsmOpt = ""
-	},
-	globals__io_lookup_bool_option(parallel, Parallel),
-	( { Parallel = yes } ->
-		globals__io_lookup_string_option(cflags_for_threads,
-			CFLAGS_FOR_THREADS)
-	;
-		{ CFLAGS_FOR_THREADS = "" }
-	),
-	globals__io_get_gc_method(GC_Method),
-	{ GC_Method = conservative ->
-		GC_Opt = "-DMR_CONSERVATIVE_GC "
-	; GC_Method = accurate ->
-		GC_Opt = "-DMR_NATIVE_GC "
-	;
-		GC_Opt = ""
-	},
-	globals__io_lookup_bool_option(profile_calls, ProfileCalls),
-	{ ProfileCalls = yes ->
-		ProfileCallsOpt = "-DMR_MPROF_PROFILE_CALLS "
-	;
-		ProfileCallsOpt = ""
-	},
-	globals__io_lookup_bool_option(profile_time, ProfileTime),
-	{ ProfileTime = yes ->
-		ProfileTimeOpt = "-DMR_MPROF_PROFILE_TIME "
-	;
-		ProfileTimeOpt = ""
-	},
-	globals__io_lookup_bool_option(profile_memory, ProfileMemory),
-	{ ProfileMemory = yes ->
-		ProfileMemoryOpt = "-DMR_MPROF_PROFILE_MEMORY "
-	;
-		ProfileMemoryOpt = ""
-	},
-	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
-	{ ProfileDeep = yes ->
-		ProfileDeepOpt = "-DMR_DEEP_PROFILING "
-	;
-		ProfileDeepOpt = ""
-	},
-	globals__io_lookup_bool_option(pic_reg, PIC_Reg),
-	{ PIC_Reg = yes ->
-		PIC_Reg_Opt = "-DMR_PIC_REG "
-	;
-		PIC_Reg_Opt = ""
-	},
-	globals__io_get_tags_method(Tags_Method),
-	{ Tags_Method = high ->
-		TagsOpt = "-DMR_HIGHTAGS "
-	;
-		TagsOpt = ""
-	},
-	globals__io_lookup_int_option(num_tag_bits, NumTagBits),
-	{ string__int_to_string(NumTagBits, NumTagBitsString) },
-	{ string__append_list(
-		["-DMR_TAGBITS=", NumTagBitsString, " "], NumTagBitsOpt) },
-	globals__io_lookup_bool_option(require_tracing, RequireTracing),
-	{ RequireTracing = yes ->
-		RequireTracingOpt = "-DMR_REQUIRE_TRACING "
-	;
-		RequireTracingOpt = ""
-	},
-	globals__io_lookup_bool_option(stack_trace, StackTrace),
-	{ StackTrace = yes ->
-		StackTraceOpt = "-DMR_STACK_TRACE "
-	;
-		StackTraceOpt = ""
-	},
-	globals__io_lookup_bool_option(target_debug, Target_Debug),
-	{ Target_Debug = yes ->
-		Target_DebugOpt = "-g "
-	;
-		Target_DebugOpt = ""
-	},
-	globals__io_lookup_bool_option(low_level_debug, LL_Debug),
-	{ LL_Debug = yes ->
-		LL_DebugOpt = "-DMR_LOW_LEVEL_DEBUG "
-	;
-		LL_DebugOpt = ""
-	},
-	{ string__sub_string_search(CC, "gcc", _) ->
-		CompilerType = gcc
-	; string__sub_string_search(CC, "lcc", _) ->
-		CompilerType = lcc
-	;
-		CompilerType = unknown
-	},
-	globals__io_lookup_bool_option(use_trail, UseTrail),
-	{ UseTrail = yes ->
-		UseTrailOpt = "-DMR_USE_TRAIL "
-	;
-		UseTrailOpt = ""
-	},
-	globals__io_lookup_bool_option(reserve_tag, ReserveTag),
-	{ ReserveTag = yes ->
-		ReserveTagOpt = "-DMR_RESERVE_TAG "
-	;
-		ReserveTagOpt = ""
-	},
-	globals__io_lookup_bool_option(use_minimal_model, MinimalModel),
-	{ MinimalModel = yes ->
-		MinimalModelOpt = "-DMR_USE_MINIMAL_MODEL "
-	;
-		MinimalModelOpt = ""
-	},
-	globals__io_lookup_bool_option(type_layout, TypeLayoutOption),
-	{ TypeLayoutOption = no ->
-		TypeLayoutOpt = "-DMR_NO_TYPE_LAYOUT "
-	;
-		TypeLayoutOpt = ""
-	},
-	globals__io_lookup_bool_option(c_optimize, C_optimize),
-	{ C_optimize = yes ->
-		( CompilerType = gcc ->
-			OptimizeOpt = "-O2 -fomit-frame-pointer "
-		; CompilerType = lcc ->
-			OptimizeOpt = ""
-		;
-			OptimizeOpt = "-O "
-		)
-	;
-		OptimizeOpt = ""
-	},
-	globals__io_lookup_bool_option(inline_alloc, InlineAlloc),
-	{ InlineAlloc = yes ->
-		InlineAllocOpt = "-DMR_INLINE_ALLOC -DSILENT "
-	;
-		InlineAllocOpt = ""
-	},
-	{ CompilerType = gcc ->
-		% We don't enable `-Wpointer-arith', because it causes
-		% too many complaints in system header files.
-		% This is fixed in gcc 3.0, though, so at some
-		% point we should re-enable this.
-		%
-		% If --inline-alloc is enabled, don't enable missing-prototype
-		% warnings, since gc_inline.h is missing lots of prototypes.
-		%
-		% For a full list of the other gcc warnings that we don't
-		% enable, and why, see scripts/mgnuc.in.
-		( InlineAlloc = yes ->
-			WarningOpt = "-Wall -Wwrite-strings -Wshadow -Wmissing-prototypes -Wno-unused -Wno-uninitialized "
-		;
-			WarningOpt = "-Wall -Wwrite-strings -Wshadow -Wmissing-prototypes -Wno-unused -Wno-uninitialized -Wstrict-prototypes "
-		)
-	; CompilerType = lcc ->
-		WarningOpt = "-w "
-	;
-		WarningOpt = ""
-	},
-	% Be careful with the order here!  Some options override others,
-	% e.g. CFLAGS_FOR_REGS must come after OptimizeOpt so that
-	% it can override -fomit-frame-pointer with -fno-omit-frame-pointer.
-	% Also be careful that each option is separated by spaces.
-	{ string__append_list([CC, " ", SubDirInclOpt, InclOpt,
-		SplitOpt, OptimizeOpt,
-		HighLevelCodeOpt, NestedFunctionsOpt, HighLevelDataOpt,
-		RegOpt, GotoOpt, AsmOpt,
-		CFLAGS_FOR_REGS, " ", CFLAGS_FOR_GOTOS, " ",
-		CFLAGS_FOR_THREADS, " ",
-		GC_Opt, ProfileCallsOpt, ProfileTimeOpt, ProfileMemoryOpt,
-		ProfileDeepOpt, PIC_Reg_Opt, TagsOpt, NumTagBitsOpt,
-		Target_DebugOpt, LL_DebugOpt,
-		StackTraceOpt, RequireTracingOpt,
-		UseTrailOpt, ReserveTagOpt, MinimalModelOpt, TypeLayoutOpt,
-		InlineAllocOpt, WarningOpt, CFLAGS,
-		" -c ", C_File, " ", NameObjectFile, O_File], Command) },
-	invoke_system_command(Command, Succeeded),
-	( { Succeeded = no } ->
-		report_error("problem compiling C file.")
-	;
-		[]
-	).
-
-:- pred mercury_compile__compile_java_file(module_name, io__state, io__state).
-:- mode mercury_compile__compile_java_file(in, di, uo) is det.
-
-mercury_compile__compile_java_file(ModuleName) -->
-	module_name_to_file_name(ModuleName, ".java", no, JavaFile),
-	globals__io_lookup_bool_option(verbose, Verbose),
-	maybe_write_string(Verbose, "% Compiling `"),
-	maybe_write_string(Verbose, JavaFile),
-	maybe_write_string(Verbose, "':\n"),
-	globals__io_lookup_string_option(java_compiler, JavaCompiler),
-	globals__io_lookup_accumulating_option(java_flags, JavaFlagsList),
-	{ join_string_list(JavaFlagsList, "", "", " ", JAVAFLAGS) },
-
-	globals__io_lookup_accumulating_option(java_classpath,
-	 	Java_Incl_Dirs),
-	( { Java_Incl_Dirs = [] } ->
-		{ InclOpt = "" }
-	;
-		% XXX PathSeparator should be ";" on Windows
-		{ PathSeparator = ":" },
-		{ join_string_list(Java_Incl_Dirs, "", "",
-			PathSeparator, ClassPath) },
-		{ InclOpt = string__append_list([
-			"-classpath ", ClassPath, " "]) }
-	),
-	globals__io_lookup_bool_option(target_debug, Target_Debug),
-	{ Target_Debug = yes ->
-		Target_DebugOpt = "-g "
-	;
-		Target_DebugOpt = ""
-	},
-	% Be careful with the order here!  Some options may override others.
-	% Also be careful that each option is separated by spaces.
-	{ string__append_list([JavaCompiler, " ", InclOpt,
-		Target_DebugOpt, JAVAFLAGS, JavaFile], Command) },
-	invoke_system_command(Command, Succeeded),
-	( { Succeeded = no } ->
-		report_error("problem compiling Java file.")
-	;
-		[]
-	).
-
-:- pred mercury_compile__asm_to_obj(string, string, bool,
-					io__state, io__state).
-:- mode mercury_compile__asm_to_obj(in, in, out, di, uo) is det.
-
-mercury_compile__asm_to_obj(AsmFile, ObjFile, Succeeded) -->
-	globals__io_lookup_bool_option(verbose, Verbose),
-	maybe_write_string(Verbose, "% Assembling `"),
-	maybe_write_string(Verbose, AsmFile),
-	maybe_write_string(Verbose, "':\n"),
-	% XXX should we use new asm_* options rather than
-	% reusing cc, cflags, c_flag_to_name_object_file?
-	globals__io_lookup_string_option(cc, CC),
-	globals__io_lookup_string_option(c_flag_to_name_object_file,
-			NameObjectFile),
-	globals__io_lookup_accumulating_option(cflags, C_Flags_List),
-	{ join_string_list(C_Flags_List, "", "", " ", CFLAGS) },
-	% Be careful with the order here.
-	% Also be careful that each option is separated by spaces.
-	{ string__append_list([CC, " ", CFLAGS,
-		" -c ", AsmFile, " ", NameObjectFile, ObjFile], Command) },
-	invoke_system_command(Command, Succeeded),
-	( { Succeeded = no } ->
-		report_error("problem assembling the assembler file.")
-	;
-		[]
-	).
-
-%-----------------------------------------------------------------------------%
-
-:- pred mercury_compile__link_module_list(list(string), io__state, io__state).
-:- mode mercury_compile__link_module_list(in, di, uo) is det.
-
-mercury_compile__link_module_list(Modules) -->
-	globals__io_lookup_bool_option(verbose, Verbose),
-	globals__io_lookup_bool_option(statistics, Stats),
-	globals__io_lookup_string_option(output_file_name, OutputFileName0),
-	( { OutputFileName0 = "" } ->
-	    ( { Modules = [Module | _] } ->
-		{ OutputFileName = Module }
-	    ;
-		{ error("link_module_list: no modules") }
-	    )
-	;
-	    { OutputFileName = OutputFileName0 }
-	),
-
-	{ file_name_to_module_name(OutputFileName, ModuleName) },
-	globals__io_lookup_string_option(object_file_extension, Obj),
-	{ string__append("_init", Obj, InitObj) },
-	module_name_to_file_name(ModuleName, "_init.c", yes, InitCFileName),
-	module_name_to_file_name(ModuleName, InitObj, yes, InitObjFileName),
-
-	globals__io_get_target(Target),
-	globals__io_lookup_bool_option(split_c_files, SplitFiles),
-	( { Target = asm } ->
-	    % for --target asm, we generate everything into a single object file
-	    ( { Modules = [FirstModule | _] } ->
-		join_module_list([FirstModule], Obj, [], ObjectsList),
-		{ string__append_list(ObjectsList, Objects) }
-	    ;
-		{ error("link_module_list: no modules") }
-	    ),
-	    { MakeLibCmdOK = yes }
-	; { SplitFiles = yes } ->
-	    module_name_to_file_name(ModuleName, ".a", yes, SplitLibFileName),
-	    { string__append(".dir/*", Obj, DirObj) },
-	    join_module_list(Modules, DirObj, [], ObjectList),
-	    { list__append(
-		["ar cr ", SplitLibFileName, " " | ObjectList],
-		[" && ranlib ", SplitLibFileName],
-		MakeLibCmdList) },
-	    { string__append_list(MakeLibCmdList, MakeLibCmd) },
-	    invoke_system_command(MakeLibCmd, MakeLibCmdOK),
-	    { Objects = SplitLibFileName }
-	;
-	    { MakeLibCmdOK = yes },
-	    join_module_list(Modules, Obj, [], ObjectsList),
-	    { string__append_list(ObjectsList, Objects) }
-	),
-	( { MakeLibCmdOK = no } ->
-	    report_error("creation of object file library failed.")
-	;
-	    % create the initialization C file
-	    maybe_write_string(Verbose, "% Creating initialization file...\n"),
-	    globals__io_get_trace_level(TraceLevel),
-            { trace_level_is_none(TraceLevel) = no ->
-		TraceOpt = "--trace "
-	    ;
-		TraceOpt = ""
-	    },
-	    globals__io_get_globals(Globals),
-	    { compute_grade(Globals, Grade) },
-
-	    globals__io_lookup_accumulating_option(init_file_directories,
-			InitFileDirsList),
-	    { join_string_list(InitFileDirsList, "-I ", "",
-			" ", InitFileDirs) },
-
-	    globals__io_lookup_accumulating_option(init_files,
-			InitFileNamesList),
-	    { join_string_list(InitFileNamesList, "", "",
-			" ", InitFileNames) },
-
-	    join_module_list(Modules, ".c", [], CFileNames),
-	    { MkInitCmd = string__append_list(
-	    	["c2init --grade ", Grade, " ", TraceOpt,
-		" --init-c-file ", InitCFileName, " ", InitFileDirs, " ",
-		InitFileNames, " " | CFileNames]) },
-	    invoke_shell_command(MkInitCmd, MkInitOK),
-	    maybe_report_stats(Stats),
-	    ( { MkInitOK = no } ->
-		report_error("creation of init file failed.")
-	    ;
-		% compile it
-		maybe_write_string(Verbose,
-			"% Compiling initialization file...\n"),
-		mercury_compile__single_c_to_obj(InitCFileName, InitObjFileName,
-			CompileOK),
-		maybe_report_stats(Stats),
-		( { CompileOK = no } ->
-		    report_error("compilation of init file failed.")
-		;
-		    maybe_write_string(Verbose, "% Linking...\n"),
-		    globals__io_lookup_bool_option(target_debug, Target_Debug),
-		    { Target_Debug = yes ->
-		    	Target_Debug_Opt = "--no-strip "
-		    ;
-		    	Target_Debug_Opt = ""
-		    },
-		    globals__io_lookup_accumulating_option(link_flags,
-				LinkFlagsList),
-		    { join_string_list(LinkFlagsList, "", "", " ", LinkFlags) },
-		    globals__io_lookup_accumulating_option(
-				link_library_directories,
-				LinkLibraryDirectoriesList),
-		    { join_string_list(LinkLibraryDirectoriesList, "-L", "",
-				" ", LinkLibraryDirectories) },
-		    globals__io_lookup_accumulating_option(link_libraries,
-				LinkLibrariesList),
-		    { join_string_list(LinkLibrariesList, "-l", "", " ",
-				LinkLibraries) },
-		    globals__io_lookup_accumulating_option(link_objects,
-				LinkObjectsList),
-		    { join_string_list(LinkObjectsList, "", "", " ",
-				LinkObjects) },
-		    { string__append_list(
-			["ml --grade ", Grade, " ",
-			Target_Debug_Opt, TraceOpt, LinkFlags,
-			" -o ", OutputFileName, " ",
-			InitObjFileName, " ", Objects, " ",
-			LinkObjects, " ",
-			LinkLibraryDirectories, " ", LinkLibraries],
-			LinkCmd) },
-		    invoke_shell_command(LinkCmd, LinkCmdOK),
-		    maybe_report_stats(Stats),
-		    ( { LinkCmdOK = no } ->
-			report_error("link failed.")
-		    ;
-			[]
-		    )
-		)
-	    )
-	).
-
-	% join_string_list(Strings, Prefix, Suffix, Serarator, Result)
-	%
-	% Appends the strings in the list `Strings' together into the
-	% string Result. Each string is prefixed by Prefix, suffixed by
-	% Suffix and separated by Separator.
-
-:- pred join_string_list(list(string), string, string, string, string).
-:- mode join_string_list(in, in, in, in, out) is det.
-
-join_string_list([], _Prefix, _Suffix, _Separator, "").
-join_string_list([String | Strings], Prefix, Suffix, Separator, Result) :-
-	( Strings = [] ->
-		string__append_list([Prefix, String, Suffix], Result)
-	;
-		join_string_list(Strings, Prefix, Suffix, Separator, Result0),
-		string__append_list([Prefix, String, Suffix, Separator,
-			Result0], Result)
-	).
-
-	% join_module_list(ModuleNames, Extension, Terminator, Result)
-	%
-	% The list of strings `Result' is computed from the list of strings
-	% `ModuleNames', by removing any directory paths, and
-	% converting the strings to file names and then back,
-	% adding the specified Extension.  (This conversion ensures
-	% that we follow the usual file naming conventions.)
-	% Each file name is separated by a space from the next one, 
-	% and the result is followed by the list of strings `Terminator'.
-
-:- pred join_module_list(list(string), string, list(string), list(string),
-			io__state, io__state).
-:- mode join_module_list(in, in, in, out, di, uo) is det.
-
-join_module_list([], _Extension, Terminator, Terminator) --> [].
-join_module_list([Module | Modules], Extension, Terminator,
-			[FileName, " " | Rest]) -->
-	{ dir__basename(Module, BaseName) },
-	{ file_name_to_module_name(BaseName, ModuleName) },
-	module_name_to_file_name(ModuleName, Extension, no, FileName),
-	join_module_list(Modules, Extension, Terminator, Rest).
-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -4083,16 +3588,7 @@ join_module_list([Module | Modules], Extension, Terminator,
 mercury_compile__maybe_dump_hlds(HLDS, StageNum, StageName) -->
 	globals__io_lookup_accumulating_option(dump_hlds, DumpStages),
 	(
-		{
-			list__member(StageNum, DumpStages)
-		;
-			list__member(StageName, DumpStages)
-		;
-			list__member("all", DumpStages)
-		;
-			string__append("0", StrippedStageNum, StageNum),
-			list__member(StrippedStageNum, DumpStages)
-		}
+		{ should_dump_stage(StageNum, StageName, DumpStages) }
 	->
 		{ module_info_name(HLDS, ModuleName) },
 		module_name_to_file_name(ModuleName, ".hlds_dump", yes,
@@ -4105,6 +3601,19 @@ mercury_compile__maybe_dump_hlds(HLDS, StageNum, StageName) -->
 		[]
 	).
 
+:- pred should_dump_stage(string::in, string::in, list(string)::in) is semidet.
+should_dump_stage(StageNum, StageName, DumpStages) :-
+	(
+		list__member(StageNum, DumpStages)
+	;
+		list__member(StageName, DumpStages)
+	;
+		list__member("all", DumpStages)
+	;
+		string__append("0", StrippedStageNum, StageNum),
+		list__member(StrippedStageNum, DumpStages)
+	).
+
 :- pred mercury_compile__dump_hlds(string, module_info, io__state, io__state).
 :- mode mercury_compile__dump_hlds(in, in, di, uo) is det.
 
@@ -4115,10 +3624,12 @@ mercury_compile__dump_hlds(DumpFile, HLDS) -->
 	maybe_write_string(Verbose, DumpFile),
 	maybe_write_string(Verbose, "'..."),
 	maybe_flush_output(Verbose),
-	io__tell(DumpFile, Res),
-	( { Res = ok } ->
+	io__open_output(DumpFile, Res),
+	( { Res = ok(FileStream) } ->
+		io__set_output_stream(FileStream, OutputStream),
 		hlds_out__write_hlds(0, HLDS),
-		io__told,
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream),
 		maybe_write_string(Verbose, " done.\n"),
 		maybe_report_stats(Stats)
 	;
@@ -4133,19 +3644,22 @@ mercury_compile__dump_hlds(DumpFile, HLDS) -->
 :- mode mercury_compile__maybe_dump_mlds(in, in, in, di, uo) is det.
 
 mercury_compile__maybe_dump_mlds(MLDS, StageNum, StageName) -->
+	globals__io_lookup_bool_option(verbose, Verbose),
 	globals__io_lookup_accumulating_option(dump_mlds, DumpStages),
-	(
-		{
-			list__member(StageNum, DumpStages)
-		;
-			list__member(StageName, DumpStages)
-		;
-			list__member("all", DumpStages)
-		;
-			string__append("0", StrippedStageNum, StageNum),
-			list__member(StrippedStageNum, DumpStages)
-		}
-	->
+	globals__io_lookup_accumulating_option(verbose_dump_mlds,
+		VerboseDumpStages),
+	( { should_dump_stage(StageNum, StageName, DumpStages) } ->
+		maybe_write_string(Verbose, "% Dumping out MLDS as C...\n"),
+		maybe_flush_output(Verbose),
+		{ string__append_list(["_dump.", StageNum, "-", StageName],
+			DumpSuffix) },
+		mlds_to_c__output_mlds(MLDS, DumpSuffix),
+		maybe_write_string(Verbose, "% done.\n")
+	;
+		[]
+	),
+	( { should_dump_stage(StageNum, StageName, VerboseDumpStages) } ->
+		maybe_write_string(Verbose, "% Dumping out raw MLDS...\n"),
 		{ ModuleName = mlds__get_module_name(MLDS) },
 		module_name_to_file_name(ModuleName, ".mlds_dump", yes,
 			BaseFileName),
@@ -4153,10 +3667,7 @@ mercury_compile__maybe_dump_mlds(MLDS, StageNum, StageName) -->
 			[BaseFileName, ".", StageNum, "-", StageName],
 			DumpFile) },
 		mercury_compile__dump_mlds(DumpFile, MLDS),
-
-		{ string__append_list(["_dump.", StageNum, "-", StageName],
-			DumpSuffix) },
-		mlds_to_c__output_mlds(MLDS, DumpSuffix)
+		maybe_write_string(Verbose, "% done.\n")
 	;
 		[]
 	).
@@ -4171,11 +3682,13 @@ mercury_compile__dump_mlds(DumpFile, MLDS) -->
 	maybe_write_string(Verbose, DumpFile),
 	maybe_write_string(Verbose, "'..."),
 	maybe_flush_output(Verbose),
-	io__tell(DumpFile, Res),
-	( { Res = ok } ->
+	io__open_output(DumpFile, Res),
+	( { Res = ok(FileStream) } ->
+		io__set_output_stream(FileStream, OutputStream),
 		pprint__write(80, pprint__to_doc(MLDS)),
 		io__nl,
-		io__told,
+		io__set_output_stream(OutputStream, _),
+		io__close_output(FileStream),
 		maybe_write_string(Verbose, " done.\n"),
 		maybe_report_stats(Stats)
 	;
@@ -4201,11 +3714,13 @@ mercury_compile__maybe_dump_rl(Procs, ModuleInfo, _StageNum, StageName) -->
 		maybe_write_string(Verbose, DumpFile),
 		maybe_write_string(Verbose, "'..."),
 		maybe_flush_output(Verbose),
-		io__tell(DumpFile, Res),
-		( { Res = ok } ->
+		io__open_output(DumpFile, Res),
+		( { Res = ok(FileStream) } ->
+			io__set_output_stream(FileStream, OutputStream),
 			list__foldl(rl_dump__write_procedure(ModuleInfo), 
 				Procs),
-			io__told,
+			io__set_output_stream(OutputStream, _),
+			io__close_output(FileStream),
 			maybe_write_string(Verbose, " done.\n")
 		;
 			maybe_write_string(Verbose, "\n"),

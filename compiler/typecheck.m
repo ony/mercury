@@ -98,11 +98,12 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module typecheck.
+:- module check_hlds__typecheck.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_data, prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, hlds__hlds_data.
+:- import_module parse_tree__prog_data.
 :- import_module bool, io, list, map.
 
 	% typecheck(Module0, Module, FoundError,
@@ -152,10 +153,15 @@
 
 :- implementation.
 
-:- import_module hlds_goal, prog_util, type_util, modules, code_util.
-:- import_module prog_io, prog_io_util, prog_out, hlds_out, error_util.
-:- import_module mercury_to_mercury, mode_util, options, getopt, globals.
-:- import_module passes_aux, clause_to_proc, special_pred, inst_match.
+:- import_module hlds__hlds_goal, parse_tree__prog_util.
+:- import_module check_hlds__type_util, parse_tree__modules.
+:- import_module ll_backend__code_util.
+:- import_module parse_tree__prog_io, parse_tree__prog_io_util.
+:- import_module parse_tree__prog_out, hlds__hlds_out, hlds__error_util.
+:- import_module parse_tree__mercury_to_mercury, check_hlds__mode_util.
+:- import_module libs__options, getopt, libs__globals.
+:- import_module hlds__passes_aux, check_hlds__clause_to_proc.
+:- import_module hlds__special_pred, check_hlds__inst_match.
 
 :- import_module int, set, string, require, multi_map.
 :- import_module assoc_list, std_util, term, varset, term_io.
@@ -165,14 +171,10 @@
 typecheck(Module0, Module, FoundError, ExceededIterationLimit) -->
 	globals__io_lookup_bool_option(statistics, Statistics),
 	globals__io_lookup_bool_option(verbose, Verbose),
-	io__stderr_stream(StdErr),
-	io__set_output_stream(StdErr, OldStream),
 
 	maybe_write_string(Verbose, "% Type-checking clauses...\n"),
 	check_pred_types(Module0, Module, FoundError, ExceededIterationLimit),
-	maybe_report_stats(Statistics),
-
-	io__set_output_stream(OldStream, _).
+	maybe_report_stats(Statistics).
 
 %-----------------------------------------------------------------------------%
 
@@ -775,9 +777,9 @@ special_pred_needs_typecheck(PredInfo, ModuleInfo) :-
 	%
 	pred_info_arg_types(PredInfo, ArgTypes),
 	special_pred_get_type(PredName, ArgTypes, Type),
-	type_to_type_id(Type, TypeId, _TypeArgs),
+	type_to_ctor_and_args(Type, TypeCtor, _TypeArgs),
 	module_info_types(ModuleInfo, TypeTable),
-	map__lookup(TypeTable, TypeId, TypeDefn),
+	map__lookup(TypeTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, Body),
 	special_pred_for_type_needs_typecheck(Body).
 
@@ -2900,8 +2902,8 @@ make_field_access_function_cons_type_info(TypeCheckInfo, FuncName, Arity,
 get_field_access_constructor(TypeCheckInfo, FuncName, Arity, _AccessType,
 		FieldDefn, FunctorConsTypeInfo) :-
 
-	FieldDefn = hlds_ctor_field_defn(_, _, TypeId, ConsId, _),
-	TypeId = qualified(TypeModule, _) - _,
+	FieldDefn = hlds_ctor_field_defn(_, _, TypeCtor, ConsId, _),
+	TypeCtor = qualified(TypeModule, _) - _,
 
 	%
 	% If the user has supplied a declaration, we use that instead
@@ -2924,7 +2926,7 @@ get_field_access_constructor(TypeCheckInfo, FuncName, Arity, _AccessType,
 	map__lookup(Ctors, ConsId, ConsDefns0),
 	list__filter(
 		(pred(CtorDefn::in) is semidet :-
-			CtorDefn = hlds_cons_defn(_, _, _, TypeId, _)
+			CtorDefn = hlds_cons_defn(_, _, _, TypeCtor, _)
 		), ConsDefns0, ConsDefns),
 	ConsDefns = [ConsDefn],
 	convert_cons_defn(TypeCheckInfo, ConsDefn, FunctorConsTypeInfo).
@@ -3683,8 +3685,8 @@ typecheck_info_set_pred_import_status(TypeCheckInfo, Status,
 	% Note: changes here may require changes to
 	% post_typecheck__resolve_unify_functor,
 	% intermod__module_qualify_unify_rhs,
-	% recompilation_usage__find_matching_constructors
-	% and recompilation_check__check_functor_ambiguities.
+	% recompilation__usage__find_matching_constructors
+	% and recompilation__check__check_functor_ambiguities.
 :- pred typecheck_info_get_ctor_list(typecheck_info, cons_id, int, 
 			list(cons_type_info), list(invalid_field_update)).
 :- mode typecheck_info_get_ctor_list(typecheck_info_ui,
@@ -4397,13 +4399,13 @@ convert_cons_defn_list(TypeCheckInfo, [X|Xs], [Y|Ys]) :-
 
 convert_cons_defn(TypeCheckInfo, HLDS_ConsDefn, ConsTypeInfo) :-
 	HLDS_ConsDefn = hlds_cons_defn(ExistQVars, ExistConstraints, Args,
-				TypeId, _),
+				TypeCtor, _),
 	assoc_list__values(Args, ArgTypes),
 	typecheck_info_get_types(TypeCheckInfo, Types),
-	map__lookup(Types, TypeId, TypeDefn),
+	map__lookup(Types, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_tvarset(TypeDefn, ConsTypeVarSet),
 	hlds_data__get_type_defn_tparams(TypeDefn, ConsTypeParams),
-	construct_type(TypeId, ConsTypeParams, ConsType),
+	construct_type(TypeCtor, ConsTypeParams, ConsType),
 	UnivConstraints = [],
 	Constraints = constraints(UnivConstraints, ExistConstraints),
 	ConsTypeInfo = cons_type_info(ConsTypeVarSet, ExistQVars,
@@ -6103,10 +6105,10 @@ identical_up_to_renaming(TypesList1, TypesList2) :-
 
 strip_builtin_qualifiers_from_type(Type0, Type) :-
 	(
-		type_to_type_id(Type0, TypeId0, Args0)
+		type_to_ctor_and_args(Type0, TypeCtor0, Args0)
 	->
 		strip_builtin_qualifiers_from_type_list(Args0, Args),
-		TypeId0 = SymName0 - Arity,
+		TypeCtor0 = SymName0 - Arity,
 		(
 			SymName0 = qualified(Module, Name),
 			mercury_public_builtin_module(Module)

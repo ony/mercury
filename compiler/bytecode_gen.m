@@ -11,11 +11,11 @@
 %
 %---------------------------------------------------------------------------%
 
-:- module bytecode_gen.
+:- module bytecode_backend__bytecode_gen.
 
 :- interface.
 
-:- import_module hlds_module, bytecode.
+:- import_module hlds__hlds_module, bytecode_backend__bytecode.
 :- import_module io, list.
 
 :- pred bytecode_gen__module(module_info::in, list(byte_code)::out,
@@ -36,15 +36,17 @@
 % in call_gen.m that we use here into arg_info.m, and to then rework
 % arg_info.m so that it didn't depend on the LLDS.
 
-:- import_module arg_info, call_gen. % XXX for arg passing convention
-:- import_module code_util.	% XXX for cons_id_to_tag
+:- import_module ll_backend__arg_info.
+:- import_module ll_backend__call_gen. % XXX for arg passing convention
+:- import_module ll_backend__code_util.	% XXX for cons_id_to_tag
 
-:- import_module prog_data.
-:- import_module hlds_pred, hlds_goal, hlds_data.
-:- import_module type_util, mode_util, goal_util.
-:- import_module builtin_ops, code_model, passes_aux, error_util.
-:- import_module globals, tree.
-:- import_module prog_out.
+:- import_module parse_tree__prog_data.
+:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_data.
+:- import_module check_hlds__type_util, check_hlds__mode_util, hlds__goal_util.
+:- import_module backend_libs__builtin_ops, backend_libs__code_model.
+:- import_module hlds__passes_aux, hlds__error_util.
+:- import_module libs__globals, libs__tree.
+:- import_module parse_tree__prog_out.
 
 :- import_module bool, int, string, list, assoc_list, set, map, varset.
 :- import_module std_util, require, term.
@@ -511,20 +513,25 @@ bytecode_gen__unify(simple_test(Var1, Var2), _, _, ByteInfo, Code) :-
 	bytecode_gen__get_var_type(ByteInfo, Var1, Var1Type),
 	bytecode_gen__get_var_type(ByteInfo, Var2, Var2Type),
 
-	(	type_to_type_id(Var1Type, TypeId1, _),
-		type_to_type_id(Var2Type, TypeId2, _)
-	->	(	TypeId2 = TypeId1
-		->	TypeId = TypeId1
-		;	unexpected(this_file, "simple_test between different types")
+	(
+		type_to_ctor_and_args(Var1Type, TypeCtor1, _),
+		type_to_ctor_and_args(Var2Type, TypeCtor2, _)
+	->
+		( TypeCtor2 = TypeCtor1 ->
+			TypeCtor = TypeCtor1
+		;	unexpected(this_file,
+				"simple_test between different types")
 		)
-	;	unexpected(this_file, "failed lookup of type id")
+	;
+		unexpected(this_file, "failed lookup of type id")
 	),
 
 	ByteInfo = byte_info(_, _, ModuleInfo, _, _),
 
-	classify_type_id(ModuleInfo, TypeId, BuiltinType),
+	classify_type_ctor(ModuleInfo, TypeCtor, BuiltinType),
 
-	(	BuiltinType = int_type,
+	(
+		BuiltinType = int_type,
 		TestId = int_test
 	
 	;	BuiltinType = char_type,

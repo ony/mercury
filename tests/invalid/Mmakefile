@@ -24,6 +24,7 @@ MULTIMODULE_SOURCES= \
 	ho_default_func_2.sub.m \
 	imported_mode.m \
 	partial_implied_mode.m \
+	sub_c.m \
 	test_nested.m \
 	transitive_import.m \
 	transitive_import_class.m \
@@ -37,6 +38,7 @@ SINGLEMODULE_SOURCES= \
 	builtin_int.m \
 	builtin_proc.m \
 	circ_type.m \
+	constrained_poly_insts.m \
 	constructor_warning.m \
 	det_errors.m \
 	duplicate_modes.m \
@@ -126,7 +128,8 @@ SINGLEMODULE_SOURCES= \
 	uniq_modes.m \
 	uniq_neg.m \
 	uu_type.m \
-	vars_in_wrong_places.m
+	vars_in_wrong_places.m \
+	with_type.m
 
 SOURCES= $(SINGLEMODULE_SOURCES) $(MULTIMODULE_SOURCES)
 
@@ -136,7 +139,6 @@ SOURCES= $(SINGLEMODULE_SOURCES) $(MULTIMODULE_SOURCES)
 #		when doing dynamic linking, or when the library
 #		was built with `--split-c-files')
 #	parent.undeclared_child.m (just not yet implemented)
-#	sub_b.m and sub_c.m (bug with dependencies & nested modules)
 #	freefree.m 	(need bromage's aliasing stuff)
 #	typeclass_test_8.m (minor formatting error in the output --
 #			the type class name should be in quotes)
@@ -172,7 +174,7 @@ MCFLAGS-multisoln_func	=	--infer-types
 MCFLAGS-mode_inf	=	--infer-all
 MCFLAGS-no_exports = 		--halt-at-warn
 MCFLAGS-overloading = 		--no-intermodule-optimization
-MCFLAGS-sub_c = 		--verbose-error-messages
+MCFLAGS-sub_c = 	--verbose-error-messages --no-intermodule-optimization
 MCFLAGS-record_syntax_errors =	--verbose-error-messages
 MCFLAGS-test_nested =		--no-intermodule-optimization
 MCFLAGS-transitive_import = --no-intermodule-optimization

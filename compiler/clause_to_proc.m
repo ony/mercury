@@ -1,14 +1,14 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2001 The University of Melbourne.
+% Copyright (C) 1995-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-:- module clause_to_proc.
+:- module check_hlds__clause_to_proc.
 
 :- interface.
 
-:- import_module hlds_pred, hlds_module.
+:- import_module hlds__hlds_pred, hlds__hlds_module.
 :- import_module list, std_util.
 
 	% In the hlds, we initially record the clauses for a predicate
@@ -48,8 +48,9 @@
 
 :- implementation.
 
-:- import_module hlds_goal, hlds_data, prog_data, mode_util, make_hlds, purity.
-:- import_module globals.
+:- import_module hlds__hlds_goal, hlds__hlds_data, parse_tree__prog_data.
+:- import_module check_hlds__mode_util, hlds__make_hlds, check_hlds__purity.
+:- import_module libs__globals.
 :- import_module bool, int, set, map, varset.
 
 maybe_add_default_func_modes([], Preds, Preds).

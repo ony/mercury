@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -15,6 +15,7 @@
 
 :- interface.
 
+:- import_module check_hlds, check_hlds__mode_constraint_robdd.
 :- import_module term, robdd.
 
 :- type tfeir(T).
@@ -32,8 +33,6 @@
 :- func zero = tfeir(T).
 :- pragma type_spec(zero/0, T = mc_type).
 
-:- import_module mode_constraint_robdd.
-
 % Conjunction.
 :- func tfeir(T) * tfeir(T) = tfeir(T).
 :- pragma type_spec(('*')/2, T = mc_type).
@@ -44,61 +43,60 @@
 
 %-----------------------------------------------------------------------------%
 
-:- func var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir))
-		is det.
+:- func var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir)) is det.
 :- pragma type_spec(var/2, T = mc_type).
 
 :- func not_var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir))
-		is det.
+	is det.
 :- pragma type_spec(not_var/2, T = mc_type).
 
 :- func eq_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(eq_vars/3, T = mc_type).
 
 :- func neq_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(neq_vars/3, T = mc_type).
 
 :- func imp_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(imp_vars/3, T = mc_type).
 
 :- func conj_vars(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
-		is det.
+	is det.
 :- pragma type_spec(conj_vars/2, T = mc_type).
 
 :- func conj_not_vars(vars(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(conj_not_vars/2, T = mc_type).
 
 :- func disj_vars(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
-		is det.
+	is det.
 :- pragma type_spec(disj_vars/2, T = mc_type).
 
-:- func at_most_one_of(vars(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+:- func at_most_one_of(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
+	is det.
 :- pragma type_spec(at_most_one_of/2, T = mc_type).
 
 :- func not_both(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(not_both/3, T = mc_type).
 
 :- func io_constraint(var(T)::in, var(T)::in, var(T)::in, tfeir(T)::di_tfeir)
-		= (tfeir(T)::uo_tfeir) is det.
+	= (tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(io_constraint/4, T = mc_type).
 
-		% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
+	% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
 :- func disj_vars_eq(vars(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(disj_vars_eq/3, T = mc_type).
 
 :- func var_restrict_true(var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(var_restrict_true/2, T = mc_type).
 
 :- func var_restrict_false(var(T)::in, tfeir(T)::di_tfeir) =
-		(tfeir(T)::uo_tfeir) is det.
+	(tfeir(T)::uo_tfeir) is det.
 :- pragma type_spec(var_restrict_false/2, T = mc_type).
 
 %-----------------------------------------------------------------------------%
@@ -107,19 +105,19 @@
 :- pred var_entailed(tfeir(T)::in, var(T)::in) is semidet.
 
 	% Return the set of vars entailed by the xROBDD.
-:- func vars_entailed(tfeir(T)) = vars_entailed_result(T).
+:- func vars_entailed(tfeir(T)) = vars_entailed_result(T) is det.
 
 	% Return the set of vars disentailed by the xROBDD.
-:- func vars_disentailed(tfeir(T)) = vars_entailed_result(T).
+:- func vars_disentailed(tfeir(T)) = vars_entailed_result(T) is det.
 
 	% Existentially quantify away the var in the xROBDD.
-:- func restrict(var(T), tfeir(T)) = tfeir(T).
+:- func restrict(var(T), tfeir(T)) = tfeir(T) is det.
 
 	% Existentially quantify away all vars greater than the specified var.
-:- func restrict_threshold(var(T), tfeir(T)) = tfeir(T).
+:- func restrict_threshold(var(T), tfeir(T)) = tfeir(T) is det.
 
 :- func restrict_filter(pred(var(T))::(pred(in) is semidet),
-		tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir) is det.
+	tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -133,7 +131,7 @@
 	%
 	% XXX should try using sparse_bitset here.
 :- pred labelling(vars(T)::in, tfeir(T)::in, vars(T)::out, vars(T)::out)
-		is nondet.
+	is nondet.
 
 	% minimal_model(Vars, xROBDD, TrueVars, FalseVars)
 	%	Takes a set of Vars and an xROBDD and returns a value assignment
@@ -145,7 +143,7 @@
 	%
 	% XXX should try using sparse_bitset here.
 :- pred minimal_model(vars(T)::in, tfeir(T)::in, vars(T)::out, vars(T)::out)
-		is nondet.
+	is nondet.
 
 %-----------------------------------------------------------------------------%
 
@@ -165,9 +163,9 @@
 
 :- implementation.
 
-:- import_module robdd, sparse_bitset, bool, int, list, map.
 :- import_module xrobdd__equiv_vars.
 :- import_module xrobdd__implications.
+:- import_module robdd, sparse_bitset, bool, int, list, map.
 
 % T - true vars, F - False Vars, E - equivalent vars, N -
 % non-equivalent vars, I - implications, R - ROBDD.

@@ -12,8 +12,15 @@
 # MCFLAGS = -O6
 # MCFLAGS = --intermodule-optimization -O6
 
+INSTALL_PREFIX := $(INSTALL_PREFIX)/extras
+
 .PHONY: default_target
 default_target:	moose
+
+.PHONY: install
+install:
+	[ -d $(INSTALL_BINDIR) ] || mkdir -p $(INSTALL_BINDIR)
+	cp moose $(INSTALL_BINDIR)
 
 .PHONY: depend
 depend:		moose.depend

@@ -22,8 +22,7 @@ M_ENV		= MERCURY_ALL_C_INCL_DIRS="\
 			-I$(BOEHM_GC_DIR) \
 			-I$(BOEHM_GC_DIR)/include \
 		  "
-CFLAGS		= -g $(DLL_CFLAGS) -DMR_NO_CONF_BACKWARDS_COMPAT \
-				-DMR_NO_BACKWARDS_COMPAT
+CFLAGS	= -g $(DLL_CFLAGS) -DMERCURY_BOOTSTRAP_H -DMERCURY_CONF_BOOTSTRAP_H
 MGNUC		= $(M_ENV) $(SCRIPTS_DIR)/mgnuc
 MGNUCFLAGS	= --no-ansi
 
@@ -41,6 +40,7 @@ HDRS		=	\
 			mercury_trace.h			\
 			mercury_trace_alias.h		\
 			mercury_trace_browse.h		\
+			mercury_trace_completion.h	\
 			mercury_trace_declarative.h	\
 			mercury_trace_external.h 	\
 			mercury_trace_help.h		\
@@ -57,6 +57,7 @@ CFILES		= 	\
 			mercury_trace.c			\
 			mercury_trace_alias.c		\
 			mercury_trace_browse.c		\
+			mercury_trace_completion.c	\
 			mercury_trace_declarative.c	\
 			mercury_trace_external.c 	\
 			mercury_trace_help.c		\
@@ -79,8 +80,8 @@ RUNTIME_HDRS	=	\
 OBJS		= $(CFILES:.c=.$O)
 PIC_OBJS	= $(CFILES:.c=.$(EXT_FOR_PIC_OBJECTS))
 
-HDR_CHECK_CS	= $(HDRS:.h=.check.c)
-HDR_CHECK_OBJS	= $(HDRS:.h=.check.$O)
+HDR_CHECK_CS	= $(HDRS:.h=.check_hdr.c)
+HDR_CHECK_OBJS	= $(HDRS:.h=.check_hdr.$O)
 HDR_CHECK_MACROS = $(HDRS:.h=.check.macros)
 OBJ_CHECKS	= $(OBJS:%=%.obj_check)
 

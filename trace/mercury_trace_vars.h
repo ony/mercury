@@ -17,6 +17,8 @@
 ** of what the current ancestor level is; the enquiry function
 ** MR_trace_current_level returns this information, while enquiry function
 ** MR_trace_current_level_details returns information about this level.
+** Ancestor level 0 means the environment of the procedure call that generated
+** the event.
 **
 ** The debugger partitions the variables at a program point into three sets
 ** based on their type: those which are always printed, those which are always
@@ -49,6 +51,7 @@
 #include "mercury_type_info.h"		/* for MR_TypeInfo         */
 #include "mercury_trace_base.h"		/* for MR_Trace_Port       */
 #include "mercury_trace_browse.h"	/* for MR_Browser          */
+#include "mercury_trace_completion.h"	/* for MR_Completer_List   */
 
 typedef	void	(*MR_Browser)(MR_Word type_info, MR_Word value,
 			MR_Browse_Caller_Type caller, MR_Browse_Format format);
@@ -68,6 +71,10 @@ typedef struct {
 	const char		*MR_var_spec_name;  /* valid if NAME   */
 } MR_Var_Spec;
 
+/*
+** These functions are documented near the top of this file.
+*/
+
 extern	void		MR_trace_init_point_vars(
 				const MR_Label_Layout *top_layout,
 				MR_Word *saved_regs, MR_Trace_Port port,
@@ -82,7 +89,8 @@ extern	int		MR_trace_current_level(void);
 extern	void		MR_trace_current_level_details(
 				const MR_Proc_Layout **entry_ptr,
 				const char **filename_ptr, int *linenumber_ptr,
-				MR_Word **base_sp_ptr, MR_Word **base_curfr_ptr);
+				MR_Word **base_sp_ptr,
+				MR_Word **base_curfr_ptr);
 
 /*
 ** Return the number of live variables at the current point. If the required
@@ -191,5 +199,9 @@ extern	const char	*MR_trace_browse_all_on_level(FILE *out,
 				const MR_Label_Layout *level_layout,
 				MR_Word *base_sp, MR_Word *base_curfr,
 				int ancestor_level, MR_bool print_optionals);
+
+/* A Readline completer for variable names. */
+extern	MR_Completer_List *MR_trace_var_completer(const char *word,
+				size_t word_len);
 
 #endif	/* MERCURY_TRACE_VARS_H */

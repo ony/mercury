@@ -1,13 +1,14 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
-:- module inst_graph.
+
+:- module hlds__inst_graph.
 :- interface.
 
+:- import_module parse_tree__prog_data, hlds__hlds_data.
 :- import_module list, map, io.
-:- import_module prog_data, hlds_data.
 
 :- type inst_graph == map(prog_var, inst_graph__node).
 
@@ -122,8 +123,8 @@
 
 :- implementation.
 
-:- import_module require, set, varset, term, std_util.
-:- import_module hlds_out, term_io.
+:- import_module hlds__hlds_out.
+:- import_module require, set, std_util, varset, term, term_io.
 
 inst_graph__init(Vars, Graph) :-
 	map__init(Graph0),

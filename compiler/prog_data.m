@@ -14,7 +14,7 @@
 % Simplifications are done only by make_hlds.m, which transforms
 % the parse tree which we built here into the HLDS.
 
-:- module prog_data.
+:- module parse_tree__prog_data.
 
 :- interface.
 
@@ -22,7 +22,7 @@
 % Any types which are needed in both the parse tree and in the HLDS
 % should be defined here, rather than in hlds*.m.
 
-:- import_module (inst), options.
+:- import_module (parse_tree__inst), libs__options, libs__globals.
 :- import_module recompilation.
 :- import_module bool, list, assoc_list, map, set, varset, term, std_util.
 
@@ -60,16 +60,27 @@
 	; 	module_defn(prog_varset, module_defn)
 
 	; 	pred_or_func(tvarset, inst_varset, existq_tvars, pred_or_func,
-			sym_name, list(type_and_mode), maybe(determinism),
+			sym_name, list(type_and_mode), maybe(type),
+			maybe(inst), maybe(determinism),
 			condition, purity, class_constraints)
 		%       TypeVarNames, InstVarNames,
 		%	ExistentiallyQuantifiedTypeVars, PredOrFunc, PredName,
-		%	ArgTypes, Determinism, Cond, Purity, TypeClassContext
+		%	ArgTypesAndModes, WithType, WithInst, Determinism,
+		%	Cond, Purity, TypeClassContext
+		%
+		%	The WithType and WithInst fields hold the `with_type`
+		% 	and `with_inst` annotations, which are syntactic
+		%	sugar that is expanded by equiv_type.m
+		%	equiv_type.m will set these fields to `no'.
 
-	; 	pred_or_func_mode(inst_varset, pred_or_func, sym_name,
-			list(mode), maybe(determinism), condition)
-		%       VarNames, PredOrFunc, PredName, ArgModes,
+	; 	pred_or_func_mode(inst_varset, maybe(pred_or_func), sym_name,
+			list(mode), maybe(inst), maybe(determinism), condition)
+		%       VarNames, PredOrFunc, PredName, ArgModes, WithInst,
 		%	Determinism, Cond
+		%
+		%	The WithInst field holds the `with_inst` annotation,
+		%	which is syntactic sugar that is expanded by
+		%	equiv_type.m. equiv_type.m will set the field to `no'.
 
 	;	pragma(pragma_type)
 
@@ -106,15 +117,6 @@
 :- type type_and_mode	
 	--->	type_only(type)
 	;	type_and_mode(type, mode).
-
-:- type foreign_language
-	--->	c
-% 	;	cplusplus
- 	;	csharp
- 	;	managed_cplusplus
-% 	;	java
- 	;	il
-	.
 
 :- type pred_or_func
 	--->	predicate
@@ -194,7 +196,7 @@
 			% foreign function name.
 	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
-			maybe(list(mode)), type_subst, tvarset, set(type_id))
+			maybe(list(mode)), type_subst, tvarset, set(item_id))
 			% PredName, SpecializedPredName, Arity,
 			% PredOrFunc, Modes if a specific procedure was
 			% specified, type substitution (using the variable
@@ -515,19 +517,24 @@
 
 :- type class_method
 	--->	pred_or_func(tvarset, inst_varset, existq_tvars, pred_or_func,
-			sym_name, list(type_and_mode), maybe(determinism),
+			sym_name, list(type_and_mode), maybe(type),
+			maybe(inst), maybe(determinism),
 			condition, purity, class_constraints, prog_context)
 		%       TypeVarNames, InstVarNames,
 		%	ExistentiallyQuantifiedTypeVars,
-		%	PredOrFunc, PredName, ArgTypes, Determinism, Cond
-		%	Purity, ClassContext, Context
+		%	PredOrFunc, PredName, ArgTypes, WithType, Determinism,
+		%	Cond, Purity, ClassContext, Context
 
-	; 	pred_or_func_mode(inst_varset, pred_or_func, sym_name,
-			list(mode), maybe(determinism), condition,
-			prog_context)
-		%       InstVarNames, PredOrFunc, PredName, ArgModes,
-		%	Determinism, Cond
+	; 	pred_or_func_mode(inst_varset, maybe(pred_or_func), sym_name,
+			list(mode), maybe(inst), maybe(determinism),
+			condition, prog_context)
+		%       InstVarNames, MaybePredOrFunc, PredName, ArgModes,
+		%	Determinism, WithInst, Cond
 		%	Context
+		%
+		% 	For mode declarations using `with_inst` we don't
+		%	know whether it's a predicate or function until
+		%	we've expanded the inst.
 	.
 
 :- type instance_method	
@@ -770,9 +777,9 @@
 :- type type_param	==	term(tvar_type).
 
 	% Module qualified types are represented as ':'/2 terms.
-	% Use type_util:type_to_type_id to convert a type to a qualified
-	% type_id and a list of arguments.
-	% type_util:construct_type to construct a type from a type_id 
+	% Use type_util:type_to_ctor_and_args to convert a type to a qualified
+	% type_ctor and a list of arguments.
+	% type_util:construct_type to construct a type from a type_ctor 
 	% and a list of arguments.
 	%
 	% The `term__context's of the type terms must be empty (as
@@ -794,7 +801,7 @@
 					% used for sets of type variables
 :- type tsubst		==	map(tvar, type). % used for type substitutions
 
-:- type type_id		==	pair(sym_name, arity).
+:- type type_ctor	==	pair(sym_name, arity).
 
 	% existq_tvars is used to record the set of type variables which are
 	% existentially quantified
@@ -1047,7 +1054,7 @@
 :- implementation.
 
 :- import_module string.
-:- import_module purity.
+:- import_module check_hlds__purity.
 
 :- type pragma_foreign_proc_attributes
 	--->	attributes(

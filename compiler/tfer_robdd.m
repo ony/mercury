@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -140,8 +140,8 @@
 
 :- implementation.
 
-:- import_module robdd, sparse_bitset, bool, int, list, map.
 :- import_module xrobdd__equiv_vars.
+:- import_module robdd, sparse_bitset, bool, int, list, map.
 
 % T - true vars, F - False Vars, E - equivalent vars, N -
 % non-equivalent vars, R - ROBDD.

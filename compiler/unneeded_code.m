@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -53,11 +53,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module unneeded_code.
+:- module transform_hlds__unneeded_code.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred.
+:- import_module hlds__hlds_module, hlds__hlds_pred.
 :- import_module io.
 
 :- pred unneeded_code__process_proc_msg(pred_id::in, proc_id::in,
@@ -69,11 +69,15 @@
 
 :- implementation.
 
-:- import_module prog_data, hlds_goal, prog_data.
-:- import_module inst_match, instmap, mode_util.
-:- import_module passes_aux, hlds_out, globals, options.
-:- import_module code_aux, goal_path, quantification.
-:- import_module std_util, bool, int, list, assoc_list, map, set, require.
+:- import_module parse_tree__prog_data, parse_tree__prog_data.
+:- import_module hlds__hlds_goal, hlds__instmap, hlds__quantification.
+:- import_module hlds__goal_form, hlds__passes_aux, hlds__hlds_out.
+:- import_module check_hlds__inst_match, check_hlds__mode_util.
+:- import_module check_hlds__goal_path.
+:- import_module ll_backend__code_aux.
+:- import_module libs__globals, libs__options.
+
+:- import_module bool, int, list, assoc_list, map, set, std_util, require.
 
 	% The branch_alts and branch_point types record the information the
 	% transform needs to know about a particular branched control
@@ -454,13 +458,13 @@ unneeded_code__adjust_where_needed(Goal, Options, WhereInfo0, WhereInfo) :-
 				% With --fully-strict, we cannot optimize away
 				% infinite loops or exceptions.
 			Options^fully_strict = yes,
-			code_aux__goal_can_loop_or_throw(Goal)
+			goal_can_loop_or_throw(Goal)
 		;
 				% With --no-reorder-conj, we cannot move
 				% infinite loops or exceptions, but we can
 				% delete them.
 			Options^reorder_conj = no,
-			code_aux__goal_can_loop_or_throw(Goal),
+			goal_can_loop_or_throw(Goal),
 			WhereInfo0 = branches(BranchMap),
 			\+ map__is_empty(BranchMap)
 		;

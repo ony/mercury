@@ -12,11 +12,11 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module error_util.
+:- module hlds__error_util.
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, prog_data.
+:- import_module hlds__hlds_module, hlds__hlds_pred, parse_tree__prog_data.
 :- import_module assoc_list, char, io, list, std_util.
 
 	% Given a context, a starting indentation level and a list of words,
@@ -99,6 +99,8 @@
 
 :- func error_util__describe_sym_name_and_arity(sym_name_and_arity) = string.
 
+:- func error_util__pred_or_func_to_string(pred_or_func) = string.
+
 	% Append a punctuation character to a message, avoiding unwanted
 	% line splitting between the message and the punctuation.
 :- func error_util__append_punctuation(list(format_component), char) =
@@ -132,7 +134,8 @@
 
 :- implementation.
 
-:- import_module prog_out, prog_util, globals, options.
+:- import_module parse_tree__prog_out, parse_tree__prog_util, libs__globals.
+:- import_module libs__options.
 :- import_module bool, io, list, term, char, string, int, require.
 
 error_util__list_to_pieces([], []).
@@ -406,15 +409,8 @@ error_util__describe_one_pred_name(Module, PredId, Piece) :-
 	pred_info_name(PredInfo, PredName),
 	pred_info_arity(PredInfo, Arity),
 	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
-	(
-		PredOrFunc = predicate,
-		PredOrFuncPart = "predicate",
-		OrigArity = Arity
-	;
-		PredOrFunc = function,
-		PredOrFuncPart = "function",
-		OrigArity is Arity - 1
-	),
+	PredOrFuncPart = pred_or_func_to_string(PredOrFunc),
+	adjust_func_arity(PredOrFunc, OrigArity, Arity),
 	(
 		pred_info_get_goal_type(PredInfo, promise(PromiseType))
 	->
@@ -472,6 +468,8 @@ error_util__describe_sym_name(SymName) =
 		string__append_list(["`", SymNameString, "'"]) :-
 	sym_name_to_string(SymName, SymNameString).
 
+error_util__pred_or_func_to_string(predicate) = "predicate".
+error_util__pred_or_func_to_string(function) = "function".
 
 error_util__append_punctuation([], _) = _ :-
 	error(

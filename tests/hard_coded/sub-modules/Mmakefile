@@ -18,6 +18,8 @@ include ../../Mmake.common
 #
 
 PROGS=	\
+	accessibility \
+	accessibility2 \
 	use_submodule \
 	parent \
 	parent2 \
