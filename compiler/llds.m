@@ -16,7 +16,7 @@
 
 :- interface.
 
-:- import_module hlds_pred, hlds_data, tree, prog_data, (inst).
+:- import_module hlds_pred, hlds_goal, hlds_data, tree, prog_data, (inst).
 :- import_module rtti, builtin_ops.
 
 :- import_module bool, assoc_list, list, map, set, std_util, counter.
@@ -247,15 +247,18 @@
 			% specified by lval.
 
 	;	call(code_addr, code_addr, list(liveinfo), term__context,
-				call_model)
+				goal_path, call_model)
 			% call(Target, Continuation, _, _, _) is the same as
 			% succip = Continuation; goto(Target).
 			% The third argument is the live value info for the
 			% values live on return. The fourth argument gives
-			% the context of the call. The last gives the model
-			% of the called procedure, and if it is nondet,
-			% says whether tail recursion elimination is
-			% potentially applicable to the call.
+			% the context of the call. The fifth gives the goal
+			% path of the call in the body of the procedure; it is
+			% meaningful only if execution tracing is enabled.
+			% The last gives the code model of the called
+			% procedure, and if it is model_non, says whether
+			% tail recursion elimination is potentially applicable
+			% to the call.
 
 	;	mkframe(nondet_frame_info, code_addr)
 			% mkframe(NondetFrameInfo, CodeAddr) creates a nondet
@@ -996,52 +999,56 @@
 	% to avoid unnecessary boxing/unboxing of floats.
 :- type llds_type
 	--->	bool		% A boolean value
-				% represented using the C type `Integer'.
+				% represented using the C type `MR_Integer'.
 	;	int_least8	% A signed value that fits that contains
 				% at least eight bits, represented using the
-				% C type int_least8_t. Intended for use in
+				% C type MR_int_least8_t. Intended for use in
 				% static data declarations, not for data
 				% that gets stored in registers, stack slots
 				% etc.
 	;	uint_least8	% An unsigned version of int_least8,
-				% represented using the C type uint_least8_t.
+				% represented using the C type
+				% MR_uint_least8_t.
 	;	int_least16	% A signed value that fits that contains
 				% at least sixteen bits, represented using the
-				% C type int_least16_t. Intended for use in
+				% C type MR_int_least16_t. Intended for use in
 				% static data declarations, not for data
 				% that gets stored in registers, stack slots
 				% etc.
 	;	uint_least16	% An unsigned version of int_least16,
-				% represented using the C type uint_least16_t.
+				% represented using the C type
+				% MR_uint_least16_t.
 	;	int_least32	% A signed value that fits that contains
 				% at least 32 bits, represented using the
-				% C type int_least32_t. Intended for use in
+				% C type MR_int_least32_t. Intended for use in
 				% static data declarations, not for data
 				% that gets stored in registers, stack slots
 				% etc.
 	;	uint_least32	% An unsigned version of intleast_32,
 				% represented using the C type uint_least32_t.
 	;	integer		% A Mercury `int', represented in C as a
-				% value of type `Integer' (which is
+				% value of type `MR_Integer' (which is
 				% a signed integral type of the same
 				% size as a pointer).
-	;	unsigned	% Something whose C type is `Unsigned'
-				% (the unsigned equivalent of `Integer').
+	;	unsigned	% Something whose C type is `MR_Unsigned'
+				% (the unsigned equivalent of `MR_Integer').
 	;	float		% A Mercury `float', represented in C as a
-				% value of type `Float' (which may be either
+				% value of type `MR_Float' (which may be either
 				% `float' or `double', but is usually
 				% `double').
 	;	string		% A Mercury string; represented in C as a
-				% value of type `String'.
+				% value of type `MR_String'.
 	;	data_ptr	% A pointer to data; represented in C
-				% as a value of C type `Word *'.
+				% as a value of C type `MR_Word *'.
 	;	code_ptr	% A pointer to code; represented in C
-				% as a value of C type `Code *'.
+				% as a value of C type `MR_Code *'.
 	;	word.		% Something that can be assigned to a value
-				% of C type `Word', i.e., something whose
+				% of C type `MR_Word', i.e., something whose
 				% size is a word but which may be either
 				% signed or unsigned
 				% (used for registers, stack slots, etc).
+
+:- func llds__stack_slot_num_to_lval(code_model, int) = lval.
 
 :- pred llds__wrap_rtti_data(rtti_data::in, comp_gen_c_data::out) is det.
 
@@ -1076,6 +1083,13 @@
 :- implementation.
 
 :- import_module require.
+
+llds__stack_slot_num_to_lval(CodeModel, SlotNum) =
+	(if CodeModel = model_non then
+		framevar(SlotNum)
+	else
+		stackvar(SlotNum)
+	).
 
 llds__wrap_rtti_data(RttiData, rtti_data(RttiData)).
 

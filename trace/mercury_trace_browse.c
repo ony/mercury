@@ -65,11 +65,11 @@ MR_trace_browse(MR_Word type_info, MR_Word value)
 			(MR_Word) &mdb_in, (MR_Word) &mdb_out,
 			MR_trace_browser_state, &MR_trace_browser_state);
 	);
+
 	MR_trace_browser_state = MR_make_permanent(MR_trace_browser_state,
-				MR_trace_browser_state_type);
+			MR_trace_browser_state_type);
 }
 
-	
 /*
 ** MR_trace_browse_external() is the same as MR_trace_browse() except it 
 ** uses debugger_socket_in and debugger_socket_out to read program-readable 

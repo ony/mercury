@@ -127,7 +127,7 @@
 :- import_module rtti, type_util.
 
 :- import_module ilasm, il_peephole.
-:- import_module ml_util, ml_code_util, error_util.
+:- import_module ml_util, ml_code_util.
 :- import_module mlds_to_c. /* to output C code for .cpp files */
 :- use_module llds. /* for user_c_code */
 
@@ -291,16 +291,14 @@ generate_method_defn(FunctionDefn) -->
 			{ InstrsTree0 = empty }
 		),
 
-			% If this is main, add the entrypoint, set a
-			% flag, and call the initialization instructions
-			% in the cctor of this module.
+			% If this is main, add the entrypoint and set a
+			% flag.
 		( { PredLabel = pred(predicate, no, "main", 2) },
 		  { MaybeSeqNum = no }
 		->
 			{ EntryPoint = [entrypoint] },
-			il_info_add_init_instructions(
-				runtime_initialization_instrs),
-			^ has_main := yes
+			=(Info10),
+			dcg_set(Info10 ^ has_main := yes)
 		;
 			{ EntryPoint = [] }
 		),
@@ -544,7 +542,7 @@ generate_defn_initializer(defn(Name, _Context, _DeclFlags, Entity),
 				]) }
 		)
 	;
-		{ unexpected(this_file, "defn not data(...) in block") }
+		{ unexpected("defn not data(...) in block") }
 	).
 
 	% initialize this value, leave it on the stack.
@@ -760,12 +758,6 @@ statement_to_il(statement(if_then_else(Condition, ThenCase, ElseCase),
 		instr_node(label(DoneLabel))
 		]) }.
 
-statement_to_il(statement(switch(_Type, _Val, _Cases, _Default),
-		_Context), _Instrs) -->
-	% The IL back-end only supports computed_gotos and if-then-else chains;
-	% the MLDS code generator should avoid generating MLDS switches.
-	{ error("mlds_to_il.m: `switch' not supported") }.
-
 statement_to_il(statement(while(Condition, Body, AtLeastOnce), 
 		_Context), Instrs) -->
 	generate_condition(Condition, ConditionInstrs, EndLabel),
@@ -803,7 +795,7 @@ statement_to_il(statement(return(Rvals), _Context), Instrs) -->
 			instr_node(ret)]) }
 	;
 		% MS IL doesn't support multiple return values
-		{ sorry(this_file, "multiple return values") }
+		{ sorry("multiple return values") }
 	).
 
 statement_to_il(statement(label(Label), _Context), Instrs) -->
@@ -861,7 +853,7 @@ statement_to_il(statement(try_commit(Ref, GoalToTry, CommitHandlerGoal),
 	{ RefType = ilds__type(_, class(ClassName0)) ->
 			ClassName = ClassName0
 		;
-			unexpected(this_file, "non-class for commit ref")
+			unexpected("non-class for commit ref")
 	},	
 	{ Instrs = tree__list([
 		comment_node("try_commit/3"),
@@ -884,11 +876,15 @@ statement_to_il(statement(try_commit(Ref, GoalToTry, CommitHandlerGoal),
 statement_to_il(statement(computed_goto(Rval, MLDSLabels), _Context), 
 		Instrs) -->
 	load(Rval, RvalLoadInstrs),
-	{ Targets = list__map(func(L) = label_target(L), MLDSLabels) },
+	list__map_foldl(
+		(pred(_A::in, X::out, in, out) is det 
+			--> il_info_make_next_label(X)), MLDSLabels, Labels),
+	{ Targets = list__map(func(L) = label_target(L), Labels) },
+	{ LabelInstrs = list__map(func(L) = label(L), Labels) },
 	{ Instrs = tree__list([
 		comment_node("computed goto"),
 		RvalLoadInstrs,
-		instr_node(switch(Targets))
+		node([switch(Targets) | LabelInstrs])
 		]) }.
 
 
@@ -906,18 +902,19 @@ atomic_statement_to_il(restore_hp(_), node(Instrs)) -->
 
 atomic_statement_to_il(target_code(_Lang, _Code), node(Instrs)) --> 
 	il_info_get_module_name(ModuleName),
-	( no =^ method_c_code  ->
-		^ method_c_code := yes,
+	=(Info),
+	( { Info ^ method_c_code = no } ->
+		dcg_set(Info ^ method_c_code := yes),
 		{ mangle_dataname_module(no, ModuleName, NewModuleName) },
 		{ ClassName = mlds_module_name_to_class_name(NewModuleName) },
-		signature(_, RetType, Params) =^ signature, 
+		{ Info ^ signature = signature(_, RetType, Params) }, 
 			% If there is a return value, put it in succeeded.
 		{ RetType = void ->
 			StoreReturnInstr = []
 		;
 			StoreReturnInstr = [stloc(name("succeeded"))]
 		},
-		MethodName =^ method_name,
+		{ Info ^ method_name = MethodName },
 		{ assoc_list__keys(Params, TypeParams) },
 		{ list__map_foldl((pred(_::in, Instr::out,
 			Num::in, Num + 1::out) is det :-
@@ -989,7 +986,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 		->
 			ClassName = ClassName0
 		;
-			unexpected(this_file, "non-class for new_object")
+			unexpected("non-class for new_object")
 		},	
 		list__map_foldl(load, Args, ArgsLoadInstrsTrees),
 		{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
@@ -1262,7 +1259,7 @@ store(mem_ref(_Rval, _Type), _Instrs, Info, Info) :-
 		% you always need load the reference first, then
 		% the value, then stind it.  There's no swap
 		% instruction.  Annoying, eh?
-	unexpected(this_file, "store into mem_ref").
+	unexpected("store into mem_ref").
 
 store(var(Var), Instrs, Info, Info) :- 
 	mangle_mlds_var(Var, MangledVarStr),
@@ -1296,7 +1293,8 @@ unaryop_to_il(std_unop(unmktag), _, comment_node("unmktag (a no-op)")) --> [].
 unaryop_to_il(std_unop(mkbody),	_, comment_node("mkbody (a no-op)")) --> [].
 unaryop_to_il(std_unop(unmkbody), _, comment_node("unmkbody (a no-op)")) --> [].
 
-unaryop_to_il(std_unop(cast_to_unsigned), _, instr_node(conv(uint32))) --> [].
+unaryop_to_il(std_unop(cast_to_unsigned), _,
+	throw_unimplemented("unimplemented cast_to_unsigned unop")) --> [].
 		% XXX implement this using string__hash
 unaryop_to_il(std_unop(hash_string), _,
 	throw_unimplemented("unimplemented hash_string unop")) --> [].
@@ -1411,7 +1409,7 @@ binaryop_to_il(ne, node(Instrs)) -->
 	] }.
 
 binaryop_to_il(body, _) -->
-	{ unexpected(this_file, "binop: body") }.
+	{ error("unexpected binop: body") }.
 
 
 	% XXX we need to know what kind of thing is being indexed
@@ -1549,19 +1547,19 @@ rval_to_function(Rval, MemberName) :-
 					id(ProcLabelStr))
 			)
 		;
-			unexpected(this_file,
+			unexpected(
 				"rval_to_function: const is not a code address")
 		)
 	; Rval = mkword(_, _),
-		unexpected(this_file, "mkword_function_name")
+		unexpected("mkword_function_name")
 	; Rval = lval(_),
-		unexpected(this_file, "lval_function_name")
+		unexpected("lval_function_name")
 	; Rval = unop(_, _),
-		unexpected(this_file, "unop_function_name")
+		unexpected("unop_function_name")
 	; Rval = binop(_, _, _),
-		unexpected(this_file, "binop_function_name")
+		unexpected("binop_function_name")
 	; Rval = mem_addr(_),
-		unexpected(this_file, "mem_addr_function_name")
+		unexpected("mem_addr_function_name")
 	).
 
 %-----------------------------------------------------------------------------
@@ -1687,7 +1685,7 @@ mlds_signature_to_il_return_param(func_signature(_, Returns), Param) :-
 		Param = simple_type(SimpleType)
 	;
 		% IL doesn't support multiple return values
-		sorry(this_file, "multiple return values")
+		sorry("multiple return values")
 	).
 
 params_to_il_signature(ModuleName, mlds__func_params(Inputs, Outputs),
@@ -1701,7 +1699,7 @@ params_to_il_signature(ModuleName, mlds__func_params(Inputs, Outputs),
 		Param = simple_type(SimpleType)
 	;
 		% IL doesn't support multiple return values
-		sorry(this_file, "multiple return values")
+		sorry("multiple return values")
 	),
 	ILSignature = signature(call_conv(no, default), Param, ILInputTypes).
 
@@ -2136,16 +2134,14 @@ get_fieldref(FieldNum, FieldType, ClassType, FieldRef) :-
 		->
 			ClassName = ClassTypeName0
 		;
-			ClassName = ["invalid_field_access_class"]
-			% unexpected(this_file, "not a class for field access")
+			unexpected("not a class for field access")
 		),
 		( 
 			FieldNum = offset(OffsetRval),
 			( OffsetRval = const(int_const(Num)) ->
 				string__format("f%d", [i(Num)], FieldId)
 			;
-				sorry(this_file, 
-					"offsets for non-int_const rvals")
+				sorry("offsets for non-int_const rvals")
 			)
 		; 
 			FieldNum = named_field(qual(_ModuleName, FieldId),
@@ -2168,7 +2164,7 @@ defn_to_local(ModuleName,
 		mangle_mlds_var(qual(ModuleName, MangledDataName), Id),
 		MLDSType0 = MLDSType
 	;
-		error("definition name was not data/1")
+		error("definintion name was not data/1")
 	).
 
 %-----------------------------------------------------------------------------%
@@ -2397,16 +2393,16 @@ call_field_constructor(ObjClassName, MLDSDefn, Instrs) :-
 		FieldRef = make_fieldref(ILType, ObjClassName,
 			MangledName),
 		( 
-			ILType = il_envptr_type
+			ILType = il_envptr_type, 
+			ClassName = il_envptr_class_name
 		->
-			ClassName = il_envptr_class_name,
 			Instrs = [ldarg(index(0)),
 				newobj_constructor(ClassName),
 				stfld(FieldRef)]
 		;
-			ILType = il_commit_type
+			ILType = il_commit_type,
+			ClassName = il_commit_class_name
 		->
-			ClassName = il_commit_class_name,
 			Instrs = [ldarg(index(0)),
 				newobj_constructor(ClassName),
 				stfld(FieldRef)]
@@ -2468,20 +2464,6 @@ make_constructor_classdecl(MethodDecls) = method(
 :- func make_fieldref(ilds__type, ilds__class_name, ilds__id) = fieldref.
 make_fieldref(ILType, ClassName, Id) = 
 	fieldref(ILType, class_member_name(ClassName, id(Id))).
-
-
-
-:- func runtime_initialization_instrs = list(instr).
-runtime_initialization_instrs = [
-	call(get_static_methodref(runtime_init_module_name, 
-			runtime_init_method_name, void, []))
-	].
-
-:- func runtime_init_module_name = ilds__class_name.
-runtime_init_module_name = ["mercury", "private_builtin__c_code"].
-
-:- func runtime_init_method_name = ilds__member_name.
-runtime_init_method_name = id("init_runtime").
 
 %-----------------------------------------------------------------------------%
 %
@@ -2657,9 +2639,6 @@ maybe_map_fold(P, yes(T), _, V, U0, U) :-
 	P(T, V, U0, U).
 
 %-----------------------------------------------------------------------------%
-
-:- func this_file = string.
-this_file = "mlds_to_il.m".
 
 :- end_module mlds_to_il.
 

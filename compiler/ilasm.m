@@ -618,7 +618,7 @@ output_debug_instruction(Instr) -->
 			% We have to quote loadstrings.
 		( { Instr = ldstr(LoadString) } ->
 			io__write_string("ldstr \\"""),
-			output_escaped_string(LoadString, '\"'),
+			output_escaped_string(LoadString, """"),
 			io__write_string("\\""")
 				% XXX there could be issues with
 				% comments containing embedded newlines
@@ -918,7 +918,7 @@ output_instr(clt(Signed)) -->
 	output_signed(Signed).
 
 output_instr(conv(SimpleType)) --> 
-	io__write_string("conv."),
+	io__write_string("conv"),
 	output_simple_type_opcode(SimpleType).
 
 output_instr(div(Signed)) --> 
@@ -998,13 +998,12 @@ output_instr(sub(OverFlow, Signed)) -->
 	output_overflow(OverFlow),
 	output_signed(Signed).
 	
-output_instr(switch(Targets)) --> 
-	io__write_string("switch ("),
-	io__write_list(Targets, ", ", output_target),
-	io__write_string(")").
+	% XXX we really should implement this since we will use it
+	% eventually.
+output_instr(switch(_)) --> { error("output not implemented") }.
 
-output_instr(unaligned(_)) --> 
-	io__write_string("unaligned.").
+	% XXX should be implemented
+output_instr(unaligned(_)) --> { error("output not implemented") }.
 
 output_instr(box(Type)) --> 
 	io__write_string("box\t"),
@@ -1165,7 +1164,7 @@ output_index(Index) -->
 	is det.
 output_string_constant(String) -->
 	io__write_string(""""),
-	output_escaped_string(String, '\"'),
+	output_escaped_string(String, """"),  
 	io__write_string("""").
 
 :- pred output_class_member_name(class_member_name::in,
@@ -1342,13 +1341,13 @@ output_comment_string(Comment) -->
 	% there is no list available).
 :- pred quote_id(ilds__id::in, string::out) is det.
 quote_id(Id, QuotedId) :-
-	escape_string(Id, '\'', EscapedId),
+	escape_string(Id, "'", EscapedId),
 	string__append_list(["'", EscapedId, "'"], QuotedId).
 
-:- pred output_escaped_string(string::in, char::in,
+:- pred output_escaped_string(string::in, string::in,
 		io__state::di, io__state::uo) is det.
-output_escaped_string(String, EscapeChar) -->
-	{ escape_string(String, EscapeChar, EscapedString) },
+output_escaped_string(String, Escape) -->
+	{ escape_string(String, Escape, EscapedString) },
 	io__write_string(EscapedString).
 
 	% Replace all Rep0 with backslash quoted Rep0 in Str0,
@@ -1356,15 +1355,15 @@ output_escaped_string(String, EscapeChar) -->
 	% We also escape embedded newlines and other characters.
 	% We already do some name mangling during code generation that
 	% means we avoid most weird characters here.
-:- pred escape_string(string::in, char::in, string::out) is det.
-escape_string(Str0, ReplaceChar, Str) :-
-	string__to_char_list(Str0, CharList0),
+:- pred escape_string(string::in, string::in, string::out) is det.
+escape_string(Str0, Replace, Str) :-
+	string__append("\\", Replace, ReplaceWith),
+	string__replace_all(Str0, Replace, ReplaceWith, Str1),
+	string__to_char_list(Str1, CharList0),
 	list__foldl(
 		(pred(Char::in, E0::in, E::out) is det :-
 			( escape_special_char(Char, QuoteChar) ->
 				E = [QuoteChar, '\\' | E0]
-			; Char = ReplaceChar ->
-				E = [ReplaceChar, '\\' | E0]
 			;
 				E = [Char | E0]
 			)

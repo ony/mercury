@@ -1784,8 +1784,8 @@ the strictness of the command.
 By default, this command is strict, and it uses the default print level.
 @sp 1
 @item finish [-NSans] [@var{num}]
-Continues execution until it reaches a final (EXIT, FAIL or EXCP) port of
-the @var{num}'th ancestor of the call to which the current event refers.
+Continues execution until it reaches a final (EXIT, FAIL or EXCP) port
+of the @var{num}'th ancestor of the call to which the current event refers.
 The default value of @var{num} is zero,
 which means skipping to the end of the current call.
 Reports an error if execution is already at the desired port.
@@ -1798,6 +1798,27 @@ and @samp{-N} or @samp{--nostrict} specify
 the strictness of the command.
 @sp 1
 By default, this command is strict, and it uses the default print level.
+@c The documentation of fail is commented out, because the implementation does
+@c not yet do this right thing when the procedure call we want to get to the
+@c FAIL port of is inside a commit.
+@c @sp 1
+@c @item fail [-NSans] [@var{num}]
+@c Continues execution until it reaches a FAIL or EXCP port
+@c of the @var{num}'th ancestor of the call to which the current event refers.
+@c The default value of @var{num} is zero,
+@c which means skipping to the end of the current call.
+@c Reports an error if execution is already at the desired port,
+@c or if the determinism of the selected call
+@c does not guarantee that it will eventually fail.
+@c @sp 1
+@c The options @samp{-n} or @samp{--none}, @samp{-s} or @samp{--some},
+@c @samp{-a} or @samp{--all} specify the print level to use
+@c for the duration of the command,
+@c while the options @samp{-S} or @samp{--strict}
+@c and @samp{-N} or @samp{--nostrict} specify
+@c the strictness of the command.
+@c @sp 1
+@c By default, this command is strict, and it uses the default print level.
 @sp 1
 @item exception [-NSans]
 Continues the program until execution reaches an exception event.
@@ -3561,6 +3582,14 @@ used to debug the Mercury compiler's low-level code generation.
 This option is not likely to be useful to anyone except the Mercury
 implementors.  It causes the generated code to become very big and very
 inefficient, and slows down compilation a lot.
+
+@sp 1
+@item @code{--target-debug}
+Enable debugging of the generated target code.
+If the target language is C, this has the same effect as
+@samp{--c-debug} (see below).
+If the target language is IL, this causes the compiler to
+pass @samp{/debug} to the IL assembler.
 
 @sp 1
 @item --no-trad-passes

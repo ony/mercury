@@ -61,7 +61,9 @@ specialize_higher_order(ModuleInfo0, ModuleInfo) -->
 	{ map__init(NewPredMap) },
 	{ map__init(PredVarMap) },
 	{ NewPreds0 = new_preds(NewPredMap, PredVarMap) },
+	{ NextHOid0 = 1 },
 	{ map__init(GoalSizes0) },
+	{ set__init(Requests0) },
 
 	{ module_info_predids(ModuleInfo0, PredIds0) },
 	{ module_info_type_spec_info(ModuleInfo0,
@@ -70,30 +72,50 @@ specialize_higher_order(ModuleInfo0, ModuleInfo) -->
 	%
 	% Make sure the user requested specializations are processed first,
 	% since we don't want to create more versions if one of these
-	% matches.
+	% matches. We need to process these even if specialization is
+	% not being performed in case any of the specialized versions
+	% are called from other modules.
 	%
-	{ set__list_to_set(PredIds0, PredIdSet0) },
-	{ set__difference(PredIdSet0, UserSpecPreds, PredIdSet) },
-	{ set__to_sorted_list(PredIdSet, PredIds) },
+	( { set__empty(UserSpecPreds) } ->
+		{ GoalSizes1 = GoalSizes0 },
+		{ ModuleInfo2 = ModuleInfo0 },
+		{ NewPreds1 = NewPreds0 },
+		{ NextHOid = NextHOid0 },
+		{ UserSpecPredList = [] },
+		{ PredIds = PredIds0 },
+		{ Requests1 = Requests0 }
+	;
+		{ set__list_to_set(PredIds0, PredIdSet0) },
+		{ set__difference(PredIdSet0, UserSpecPreds, PredIdSet) },
+		{ set__to_sorted_list(PredIdSet, PredIds) },
 
-	{ set__init(Requests0) },
-	{ set__to_sorted_list(UserSpecPreds, UserSpecPredList) },
-	{ get_specialization_requests(Params, UserSpecPredList, NewPreds0,
-		Requests0, UserRequests, GoalSizes0, GoalSizes1,
-		ModuleInfo0, ModuleInfo1) },
-	process_requests(Params, UserRequests, Requests1,
-		GoalSizes1, 1, NextHOid, NewPreds0, NewPreds1,
-		ModuleInfo1, ModuleInfo2),
+		{ set__to_sorted_list(UserSpecPreds, UserSpecPredList) },
+		{ UserTypeSpec0 = yes },
+		{ Params0 = ho_params(HigherOrder, TypeSpec,
+			UserTypeSpec0, SizeLimit, unit) },
+		{ get_specialization_requests(Params0, UserSpecPredList,
+			NewPreds0, Requests0, UserRequests,
+			GoalSizes0, GoalSizes1, ModuleInfo0, ModuleInfo1) },
+		process_requests(Params, UserRequests, Requests1,
+			GoalSizes1, NextHOid0, NextHOid, NewPreds0, NewPreds1,
+			ModuleInfo1, ModuleInfo2)
+	),
 
-	%
-	% Process all other specialization until no more requests
-	% are generated.
-	%
-	{ get_specialization_requests(Params, PredIds, NewPreds1,
-		Requests1, Requests, GoalSizes1, GoalSizes,
-		ModuleInfo2, ModuleInfo3) },
-	recursively_process_requests(Params, Requests, GoalSizes,
-		NextHOid, _, NewPreds1, _NewPreds, ModuleInfo3, ModuleInfo4),
+	( { bool__or_list([HigherOrder, TypeSpec, UserTypeSpec], yes) } ->
+
+		%
+		% Process all other specializations until no more requests
+		% are generated.
+		%
+		{ get_specialization_requests(Params, PredIds, NewPreds1,
+			Requests1, Requests, GoalSizes1, GoalSizes,
+			ModuleInfo2, ModuleInfo3) },
+		recursively_process_requests(Params, Requests, GoalSizes,
+			NextHOid, _, NewPreds1, _NewPreds,
+			ModuleInfo3, ModuleInfo4)
+	;
+		{ ModuleInfo4 = ModuleInfo2 }
+	),
 
 	% Remove the predicates which were used to force the production of
 	% user-requested type specializations, since they are not called
@@ -288,6 +310,7 @@ recursively_process_requests(Params, Requests0, GoalSizes, NextHOid0, NextHOid,
 	;	unchanged.	% Do nothing more for this predicate
 
 %-----------------------------------------------------------------------------%
+
 :- pred get_specialization_requests(ho_params::in, list(pred_id)::in,
 	new_preds::in, set(request)::in, set(request)::out, goal_sizes::in,
 	goal_sizes::out, module_info::in, module_info::out) is det.
@@ -395,9 +418,9 @@ fixup_proc_info(MustRecompute, Goal0, Info0, Info) :-
 		RecomputeAtomic = no,
 		proc_info_get_initial_instmap(ProcInfo2, ModuleInfo0, InstMap),
 		proc_info_vartypes(ProcInfo2, VarTypes),
-		recompute_instmap_delta(RecomputeAtomic,
-			Goal2, Goal3, VarTypes, InstMap,
-			ModuleInfo0, ModuleInfo),
+		proc_info_inst_varset(ProcInfo2, InstVarSet),
+		recompute_instmap_delta(RecomputeAtomic, Goal2, Goal3,
+			VarTypes, InstVarSet, InstMap, ModuleInfo0, ModuleInfo),
 		proc_info_set_goal(ProcInfo2, Goal3, ProcInfo),
 		Info = info(A, B, C, D, E, ProcInfo, ModuleInfo,
 			H, Changed)
@@ -959,7 +982,7 @@ get_typeclass_info_args_2(TypeClassInfoVar, PredId, ProcId, SymName,
 	set__list_to_set(CallArgs, NonLocals),
 	instmap_delta_init_reachable(InstMapDelta0),
 	instmap_delta_insert(InstMapDelta0, ResultVar,
-		ground(shared, no), InstMapDelta),
+		ground(shared, none), InstMapDelta),
 	goal_info_init(NonLocals, InstMapDelta, det, GoalInfo),
 	CallGoal = call(PredId, ProcId, CallArgs, not_builtin,
 		MaybeContext, SymName) - GoalInfo,
@@ -1788,7 +1811,8 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 				set__list_to_set([ComparisonResult,
 					Arg1, Arg2], NonLocals),
 				instmap_delta_from_assoc_list(
-					[ComparisonResult - ground(shared,no)],
+					[ComparisonResult - 
+						ground(shared,none)],
 					InstMapDelta),
 				Detism = det,
 				goal_info_init(NonLocals, InstMapDelta,
@@ -1853,7 +1877,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 			SpecialPredArgs = [ComparisonResult, _, _],
 			set__insert(NonLocals0, ComparisonResult, NonLocals),
 			instmap_delta_from_assoc_list(
-				[ComparisonResult - ground(shared, no)],
+				[ComparisonResult - ground(shared, none)],
 				InstMapDelta),
 			Detism = det,
 			% Build a new call with the unwrapped arguments.
@@ -2037,7 +2061,7 @@ generate_unsafe_type_cast(ModuleInfo, ToType, Arg, CastArg, Goal,
 	hlds_pred__initial_proc_id(ProcId),
 	proc_info_create_var_from_type(ProcInfo0, ToType, CastArg, ProcInfo),
 	set__list_to_set([Arg, CastArg], NonLocals),
-	instmap_delta_from_assoc_list([CastArg - ground(shared, no)],
+	instmap_delta_from_assoc_list([CastArg - ground(shared, none)],
 		InstMapDelta),
 	goal_info_init(NonLocals, InstMapDelta, det, GoalInfo),
 	Goal = call(PredId, ProcId, [Arg, CastArg], not_builtin,
@@ -2051,13 +2075,13 @@ unwrap_no_tag_arg(WrappedType, Constructor, Arg, UnwrappedArg,
 	proc_info_create_var_from_type(ProcInfo0, WrappedType, UnwrappedArg,
 		ProcInfo),
 	ConsId = cons(Constructor, 1),
-	UniModes = [(ground(shared, no) - free) ->
-			(ground(shared, no) - ground(shared, no))],
+	UniModes = [(ground(shared, none) - free) ->
+			(ground(shared, none) - ground(shared, none))],
 	in_mode(In),
 	out_mode(Out),
 	set__list_to_set([Arg, UnwrappedArg], NonLocals),
 	% This will be recomputed later.
-	instmap_delta_from_assoc_list([UnwrappedArg - ground(shared, no)],
+	instmap_delta_from_assoc_list([UnwrappedArg - ground(shared, none)],
 		InstMapDelta),
 	goal_info_init(NonLocals, InstMapDelta, det, GoalInfo),
 	Goal = unify(Arg, functor(ConsId, [UnwrappedArg]), In - Out,
