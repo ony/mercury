@@ -1,4 +1,8 @@
- # $Id: alpha_mach_dep.s,v 1.6 1997-11-21 11:07:33 fjh Exp $
+ # $Id: alpha_mach_dep.s,v 1.6.12.1 2000-09-25 17:00:15 petdr Exp $
+
+# This is BROKEN on a 21264 running gcc, and probably in other cases.
+# The compiler may spill pointers to fp registers, and this code doesn't
+# scan those.
 
 # define call_push(x)    						\
 	lda   $16, 0(x);    	/* copy x to first argument register */	\

@@ -55,7 +55,7 @@
 
 :- pragma c_header_code("
 #if defined(MR_HIGHLEVEL_CODE) && !defined(MR_THREAD_SAFE)
-  #error Semaphores only work in the hlc.par.* grades.
+  #error Semaphores only work in the hlc.par.* or non-hlc grades.
 #endif
 
 	#include <stdio.h>
@@ -75,11 +75,19 @@
 	} ME_Semaphore;
 ").
 
+:- pragma c_header_code("
+#ifdef CONSERVATIVE_GC
+  void ME_finalize_semaphore(GC_PTR obj, GC_PTR cd);
+#endif
+").
+
 :- pragma c_code(semaphore__new(Semaphore::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe], "{
+	MR_Word sem_mem;
 	ME_Semaphore	*sem;
 
-	incr_hp(sem, round_up(sizeof(ME_Semaphore), sizeof(MR_Word)));
+	incr_hp(sem_mem, round_up(sizeof(ME_Semaphore), sizeof(MR_Word)));
+	sem = (ME_Semaphore *) sem_mem;
 	sem->count = 0;
 #ifndef MR_HIGHLEVEL_CODE
 	sem->suspended = NULL;
@@ -89,9 +97,39 @@
 #ifdef MR_THREAD_SAFE
 	pthread_mutex_init(&(sem->lock), MR_MUTEX_ATTR);
 #endif
+
+	/*
+	** The condvar and the mutex will need to be destroyed
+	** when the semaphore is garbage collected.
+	*/
+#ifdef CONSERVATIVE_GC
+	GC_REGISTER_FINALIZER(sem, ME_finalize_semaphore, NULL, NULL, NULL);
+#endif
+
 	Semaphore = (MR_Word) sem;
 	IO = IO0;
 }").
+
+:- pragma c_code("
+#ifdef CONSERVATIVE_GC
+  void
+  ME_finalize_semaphore(GC_PTR obj, GC_PTR cd)
+  {
+	ME_Semaphore    *sem;
+
+	sem = (ME_Semaphore *) obj;
+
+  #ifdef MR_HIGHLEVEL_CODE
+	pthread_cond_destroy(&(sem->cond));
+  #endif
+  #ifdef MR_THREAD_SAFE
+	pthread_mutex_destroy(&(sem->lock));
+  #endif
+
+	return;
+  }
+#endif
+").
 
 		% because semaphore__signal has a local label, we may get
 		% C compilation errors if inlining leads to multiple copies

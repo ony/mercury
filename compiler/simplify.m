@@ -1033,7 +1033,8 @@ simplify__goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM),
 				% nevertheless contain nondet or multidet
 				% conditions. If this happens, the if-then-else
 				% must be put inside a `some' to appease the
-				% code generator.
+				% code generator.  (Both the MLDS and LLDS
+				% back-ends rely on this.)
 				%
 				simplify_do_once(Info),
 				CondSolns = at_most_many,
@@ -1209,9 +1210,23 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, _OldTypeInfoVars,
 		{ globals__lookup_bool_option(Globals, special_preds,
 			SpecialPreds) },
 		(
-			{ SpecialPreds = no },
-			{ proc_id_to_int(ProcId, ProcIdInt) },
-			{ ProcIdInt = 0 }
+			{ hlds_pred__in_in_unification_proc_id(ProcId) },
+			{
+				SpecialPreds = no
+			;
+				SpecialPreds = yes,
+
+				%
+				% For most imported types we only generate
+				% unification predicate declarations if they
+				% are needed for complicated unifications
+				% other than proc_id 0.
+				% higher_order.m will specialize these cases
+				% if possible.
+				%
+				special_pred_is_generated_lazily(ModuleInfo,
+					TypeId)
+			}
 		->
 			simplify__make_type_info_vars([Type], TypeInfoVars,
 				ExtraGoals),

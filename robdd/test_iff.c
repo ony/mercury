@@ -1,6 +1,6 @@
 /*****************************************************************
     File   : test.c
-    RCS    : $Id: test_iff.c,v 1.1 2000-03-10 05:17:22 dmo Exp $
+    RCS    : $Id: test_iff.c,v 1.1.1.1.4.1 2000-09-25 17:08:46 petdr Exp $
     Author : Peter Schachte
     Origin : Tue Jun 20 15:51:07 1995
     Purpose: Timing test for bryant graph iff_conj_array code

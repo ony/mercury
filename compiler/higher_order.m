@@ -39,7 +39,7 @@
 :- import_module code_util, globals, mode_util, goal_util.
 :- import_module type_util, options, prog_data, prog_out, quantification.
 :- import_module mercury_to_mercury, inlining, polymorphism, prog_util.
-:- import_module special_pred, passes_aux.
+:- import_module special_pred, unify_proc, passes_aux.
 
 :- import_module assoc_list, bool, char, int, list, map, require, set.
 :- import_module std_util, string, varset, term.
@@ -228,17 +228,21 @@ recursively_process_requests(Params, Requests0, GoalSizes, NextHOid0, NextHOid,
 	% used while traversing goals
 :- type higher_order_info
 	---> info(
-		pred_vars,	% higher_order variables
-		set(request),	% requested versions
-		new_preds,	% versions created in
+		pred_vars :: pred_vars,		% higher_order variables
+		requests :: set(request),	% requested versions
+		new_preds :: new_preds,
+				% versions created in
 				% previous iterations
 				% not changed by traverse_goal
-		pred_proc_id,	% pred_proc_id of goal being traversed
-		pred_info,	% pred_info of goal being traversed
-		proc_info,	% proc_info of goal being traversed
-		module_info,	% not changed by traverse_goal
-		ho_params,
-		changed
+		pred_proc_id :: pred_proc_id,
+				% pred_proc_id of goal being traversed
+		pred_info :: pred_info,
+				% pred_info of goal being traversed
+		proc_info :: proc_info,
+				% proc_info of goal being traversed
+		module_info :: module_info,
+		params :: ho_params,
+		changed :: changed
 	).
 
 :- type ho_params
@@ -1662,12 +1666,13 @@ interpret_typeclass_info_manipulator(Manipulator, Args,
 			Index = Index0
 		),
 		list__index1_det(OtherVars, Index, TypeInfoArg),
-		maybe_add_alias(TypeInfoVar, TypeInfoArg, Info0, Info),
+		maybe_add_alias(TypeInfoVar, TypeInfoArg, Info0, Info1),
 		Uni = assign(TypeInfoVar, TypeInfoArg),
 		in_mode(In),
 		out_mode(Out),
 		Goal = unify(TypeInfoVar, var(TypeInfoArg), Out - In,
-			Uni, unify_context(explicit, []))
+			Uni, unify_context(explicit, [])),
+		higher_order_info_update_changed_status(changed, Info1, Info)
 	;
 		Goal = Goal0,
 		Info = Info0
@@ -1683,7 +1688,9 @@ interpret_typeclass_info_manipulator(Manipulator, Args,
 
 specialize_special_pred(CalledPred, CalledProc, Args,
 		MaybeContext, HaveSpecialPreds, Goal, Info0, Info) :-
-	Info0 = info(PredVars, B, C, D, E, ProcInfo0, ModuleInfo, H, I),
+	ModuleInfo = Info0 ^ module_info,
+	ProcInfo0 = Info0 ^ proc_info,
+	PredVars = Info0 ^ pred_vars,
 	proc_info_vartypes(ProcInfo0, VarTypes),
 	module_info_pred_info(ModuleInfo, CalledPred, CalledPredInfo),
 	mercury_public_builtin_module(PublicBuiltin),
@@ -1694,6 +1701,15 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 	special_pred_get_type(PredName, Args, Var),
 	map__lookup(VarTypes, Var, SpecialPredType),
 	SpecialPredType \= term__variable(_),
+
+	% Don't specialize tuple types -- the code to unify
+	% them only exists in the generic unification routine
+	% in the runtime. `private_builtin__builtin_unify_tuple/2'
+	% and `private_builtin__builtin_compare_tuple/3' always abort.
+	% It might be worth inlining complicated unifications of
+	% small tuples (or any other small type).
+	\+ type_is_tuple(SpecialPredType, _),
+
 	Args = [TypeInfoVar | SpecialPredArgs],
 	map__search(PredVars, TypeInfoVar,
 		constant(_TypeInfoConsId, TypeInfoVarArgs)),
@@ -1773,8 +1789,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 					Detism, GoalInfo),
 				Goal = conj([CastGoal1, CastGoal2,
 						Call - GoalInfo]),
-				Info = info(PredVars, B, C, D, E, ProcInfo,
-					ModuleInfo, H, I)
+				Info = Info0 ^ proc_info := ProcInfo
 			)
 		)
 	;
@@ -1826,8 +1841,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 				GoalInfo),
 			Goal = conj([ExtractGoal1, ExtractGoal2,
 					SpecialGoal - GoalInfo]),
-			Info = info(PredVars, B, C, D, E, ProcInfo2,
-				ModuleInfo, H, I)
+			Info = Info0 ^ proc_info := ProcInfo2
 		;
 			SpecialId = compare,
 			SpecialPredArgs = [ComparisonResult, _, _],
@@ -1854,8 +1868,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 					GoalInfo),
 				Goal = conj([ExtractGoal1, ExtractGoal2,
 						SpecialGoal - GoalInfo]),
-				Info = info(PredVars, B, C, D, E, ProcInfo2,
-					ModuleInfo, H, I)
+				Info = Info0 ^ proc_info := ProcInfo2
 			;
 				NeedIntCast = yes,
 				generate_unsafe_type_cast(ModuleInfo,
@@ -1874,8 +1887,7 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 				Goal = conj([ExtractGoal1, CastGoal1,
 						ExtractGoal2, CastGoal2,
 						SpecialGoal - GoalInfo]),
-				Info = info(PredVars, B, C, D, E, ProcInfo4,
-					ModuleInfo, H, I)
+				Info = Info0 ^ proc_info := ProcInfo4
 			)
 		)
 	;
@@ -1883,8 +1895,8 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 			% to call the type-specific unify or compare predicate
 			% if we are generating such predicates.
 		HaveSpecialPreds = yes,
-		polymorphism__get_special_proc(SpecialPredType, SpecialId,
-			ModuleInfo, SymName, SpecialPredId, SpecialProcId),
+		find_special_proc(SpecialPredType, SpecialId,
+			SymName, SpecialPredId, SpecialProcId, Info0, Info),
 		( type_is_higher_order(SpecialPredType, _, _, _) ->
 			% builtin_*_pred are special cases which
 			% doesn't need the type-info arguments.
@@ -1893,8 +1905,59 @@ specialize_special_pred(CalledPred, CalledProc, Args,
 			list__append(TypeInfoArgs, SpecialPredArgs, CallArgs)
 		),
 		Goal = call(SpecialPredId, SpecialProcId, CallArgs,
-			not_builtin, MaybeContext, SymName),
-		Info = Info0
+			not_builtin, MaybeContext, SymName)
+	).
+
+:- pred find_special_proc((type)::in, special_pred_id::in, sym_name::out,
+		pred_id::out, proc_id::out, higher_order_info::in,
+		higher_order_info::out) is semidet.
+
+find_special_proc(Type, SpecialId, SymName, PredId, ProcId, Info0, Info) :-
+	ModuleInfo0 = Info0 ^ module_info,
+	(
+	    polymorphism__get_special_proc(Type, SpecialId,
+		ModuleInfo0, SymName0, PredId0, ProcId0)
+	->
+	    SymName = SymName0,
+	    PredId = PredId0,
+	    ProcId = ProcId0,
+	    Info = Info0
+	;
+	    type_to_type_id(Type, TypeId, _),
+	    special_pred_is_generated_lazily(ModuleInfo, TypeId),
+	    (
+		SpecialId = compare,
+		unify_proc__add_lazily_generated_compare_pred_decl(TypeId,
+			PredId, ModuleInfo0, ModuleInfo),
+		hlds_pred__initial_proc_id(ProcId)
+	    ;
+		SpecialId = index,
+		% This shouldn't happen. The index predicate should
+		% only be called from the compare predicate. If it
+		% is called, it shouldn't be generated lazily.
+	    	fail
+	    ;
+		SpecialId = unify,
+
+		%
+		% XXX We should only add the declaration, not the body,
+		% for the unify pred, but that complicates things
+		% if mode analysis is rerun after higher_order.m and
+		% requests more unification procedures. In particular,
+		% it's difficult to run polymorphism on the new clauses
+		% if the predicate's arguments have already had type-infos
+		% added. This case shouldn't come up unless an optimization
+		% does reordering which requires rescheduling a conjunction.
+		%
+		unify_proc__add_lazily_generated_unify_pred(TypeId,
+			PredId, ModuleInfo0, ModuleInfo),
+		hlds_pred__in_in_unification_proc_id(ProcId)
+	    ),
+	    module_info_pred_info(ModuleInfo, PredId, PredInfo),
+	    pred_info_module(PredInfo, ModuleName),
+	    pred_info_name(PredInfo, Name),
+	    SymName = qualified(ModuleName, Name),
+	    Info = Info0 ^ module_info := ModuleInfo
 	).
 
 :- pred find_builtin_type_with_equivalent_compare(module_info::in,
@@ -1922,6 +1985,9 @@ find_builtin_type_with_equivalent_compare(ModuleInfo, Type, EqvType,
 	;
 		TypeCategory = pred_type,
 		error("pred type in find_builtin_type_with_equivalent_compare")
+	;
+		TypeCategory = tuple_type,
+		error("tuple type in find_builtin_type_with_equivalent_compare")
 	;
 		TypeCategory = enum_type,
 		construct_type(unqualified("int") - 0, [], EqvType),
@@ -2182,6 +2248,7 @@ create_new_pred(Request, NewPred, NextHOid0, NextHOid, NewPreds0, NewPreds,
 	pred_info_get_aditi_owner(PredInfo0, Owner),
 	varset__init(EmptyVarSet),
 	map__init(EmptyVarTypes),
+	map__init(EmptyTVarNameMap),
 	map__init(EmptyProofs),
 	map__init(EmptyTIMap),
 	map__init(EmptyTCIMap),
@@ -2189,7 +2256,8 @@ create_new_pred(Request, NewPred, NextHOid0, NextHOid, NewPreds0, NewPreds,
 	% This isn't looked at after here, and just clutters up
 	% hlds dumps if it's filled in.
 	ClausesInfo = clauses_info(EmptyVarSet, EmptyVarTypes,
-		EmptyVarTypes, [], [], EmptyTIMap, EmptyTCIMap),
+		EmptyTVarNameMap, EmptyVarTypes, [], [],
+		EmptyTIMap, EmptyTCIMap),
 	pred_info_init(PredModule, SymName, Arity, ArgTVarSet, ExistQVars,
 		Types, true, Context, ClausesInfo, Status, MarkerList, GoalType,
 		PredOrFunc, ClassContext, EmptyProofs, Owner, NewPredInfo0),

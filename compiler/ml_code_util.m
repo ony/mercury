@@ -1019,10 +1019,17 @@ ml_gen_pred_label_from_rtti(RttiProcLabel, MLDS_PredLabel, MLDS_Module) :-
 		(
 			special_pred_get_type(PredName, ArgTypes, Type),
 			type_to_type_id(Type, TypeId, _),
-			% All type_ids here should be module qualified,
-			% since builtin types are handled separately in
-			% polymorphism.m.
-			TypeId = qualified(TypeModule, TypeName) - TypeArity
+			% All type_ids other than tuples here should be
+			% module qualified, since builtin types are handled
+			% separately in polymorphism.m.
+			(
+				TypeId = unqualified(TypeName) - TypeArity,
+				type_id_is_tuple(TypeId),
+				mercury_public_builtin_module(TypeModule)
+			;
+				TypeId = qualified(TypeModule, TypeName)
+						- TypeArity
+			)
 		->
 			(
 				ThisModule \= TypeModule,
@@ -1422,7 +1429,7 @@ ml_declare_env_ptr_arg(Name - mlds__generic_env_ptr_type) -->
 %
 % Only the `func_label', `commit_label', `cond_var', `conv_var',
 % `var_lvals', `success_cont_stack', and `extra_defns' fields are mutable;
-% the others are set when the % ml_gen_info' is created and then never
+% the others are set when the `ml_gen_info' is created and then never
 % modified.
 % 
 

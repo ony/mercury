@@ -1,6 +1,6 @@
 /*****************************************************************
   File     : test_abunify.c
-  RCS      : $Id: test_abunify.c,v 1.1 2000-03-10 05:17:22 dmo Exp $
+  RCS      : $Id: test_abunify.c,v 1.1.1.1.4.1 2000-09-25 17:08:45 petdr Exp $
   Author   : Peter Schachte
   Origin   : Fri Aug  4 14:39:44 1995
   Purpose  : Timing test for bryant graph abstract_unify code

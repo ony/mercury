@@ -1,6 +1,6 @@
 /*****************************************************************
   File     : timing.c
-  RCS      : $Id: timing.c,v 1.1 2000-03-10 05:17:23 dmo Exp $
+  RCS      : $Id: timing.c,v 1.1.1.1.4.1 2000-09-25 17:08:49 petdr Exp $
   Author   : 
   Origin   : Sat Aug 12 15:20:42 1995
   Purpose  : Provide timing information for benchmarking

@@ -1,6 +1,6 @@
 /*****************************************************************
   File     : bryant.h
-  RCS      : $Id: bryant.h,v 1.1 2000-03-10 05:17:21 dmo Exp $
+  RCS      : $Id: bryant.h,v 1.1.1.1.4.1 2000-09-25 17:08:44 petdr Exp $
   Author   : Peter Schachte
   Origin   : Sun Jul 30 15:08:53 1995
   Purpose  : header file for users of bryant.c ROBDD package

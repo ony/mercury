@@ -1,6 +1,6 @@
 /*****************************************************************
   File     : test_vars.c
-  RCS      : $Id: test_vars.c,v 1.1 2000-03-10 05:17:23 dmo Exp $
+  RCS      : $Id: test_vars.c,v 1.1.1.1.4.1 2000-09-25 17:08:49 petdr Exp $
   Author   : Peter Schachte
   Origin   : Tue Jul 18 20:13:51 1995
   Purpose  : Timing test for bryant graph vars_entailed function
