@@ -29,12 +29,8 @@
 :- import_module (parse_tree__inst), libs__options, libs__globals.
 :- import_module recompilation.
 :- import_module bool, list, assoc_list, map, set, varset, term, std_util.
-	% XXX Dependencies moeten weg!!
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
 
 %-----------------------------------------------------------------------------%
-
 	% This is how programs (and parse errors) are represented.
 
 :- type message_list	==	list(pair(string, term)).
@@ -308,7 +304,8 @@
 
 	; 	structure_reuse(pred_or_func, sym_name, list(mode), 
 				list(prog_var), 
-				list( (type) ), memo_reuse, maybe(sym_name))
+				list( (type) ), 
+				maybe_reuse_tuples, maybe(sym_name))
 
 	;	terminates(sym_name, arity)
 			% Predname, Arity
@@ -490,6 +487,7 @@
 				% headvariables of the concerned procedure. 
 		).
 
+:- type maybe_reuse_tuples == maybe(list(reuse_tuple)).
 
 %
 % Stuff for the `unused_args' pragma.

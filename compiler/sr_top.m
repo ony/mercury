@@ -70,6 +70,7 @@
 :- import_module libs__options.
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_data.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module possible_alias__pa_sr_util.	
 :- import_module structure_reuse__sr_choice_util.
 :- import_module structure_reuse__sr_data.
@@ -158,7 +159,8 @@ structure_reuse(AliasTable, !ModuleInfo, !IO) :-
 record_reuse_information_in_hlds(PredProcId, Memo, !ModuleInfo) :- 
 	module_info_pred_proc_info(!.ModuleInfo, PredProcId, 
 		PredInfo0, ProcInfo0),
-	proc_info_set_reuse_information(ProcInfo0, Memo, ProcInfo),
+	from_memo_reuse_to_maybe_reuse_typles(Memo, MaybeReuseTuples), 
+	proc_info_set_reuse_information(ProcInfo0, MaybeReuseTuples, ProcInfo),
 	module_info_set_pred_proc_info(!.ModuleInfo, PredProcId, 
 		PredInfo0, ProcInfo, !:ModuleInfo).
 %-----------------------------------------------------------------------------%
@@ -203,8 +205,7 @@ direct_reuse_process_proc(Strategy, AliasTable, PredId, ProcId, !RT,
 	map__lookup(Procs0, ProcId, Proc0), 
 
 	sr_direct__process_proc(Strategy, AliasTable, PredId, ProcId, 
-		Proc0, Proc1, MaybeReuseConditions, !.ModuleInfo, _, !IO), 
-	proc_info_set_reuse_information(Proc1, MaybeReuseConditions, Proc), 
+		Proc0, Proc, MaybeReuseConditions, !.ModuleInfo, _, !IO), 
 	reuse_condition_table_set(proc(PredId, ProcId), 
 		MaybeReuseConditions, !RT),
 
@@ -222,8 +223,8 @@ direct_reuse_process_proc(Strategy, AliasTable, PredId, ProcId, !RT,
 process_unproc_reuse_pragma(UnprocReusePragma, !ReuseTable, 
 		!ModuleInfo, !IO) :- 
 	UnprocReusePragma = unproc_reuse_pragma(PredOrFunc, SymName, 
-		Modes, HeadVars, Types, Reuse, _MaybeReuseName),
-
+		Modes, HeadVars, Types, MaybeReuseTuples, _MaybeReuseName),
+	from_maybe_reuse_tuples_to_memo_reuse(MaybeReuseTuples, Reuse), 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose, !IO),
 
 	module_info_get_predicate_table(!.ModuleInfo, Preds), 
@@ -376,9 +377,9 @@ write_pred_proc_sr_reuse_info( HLDS, PredId, ProcId) -->
 	},
 	{ module_info_pred_proc_info(HLDS, ReusePredId, ReuseProcId,
 			_ReusePredInfo, ReuseProcInfo) },
-	{ proc_info_reuse_information(ReuseProcInfo, TREUSE) },
-	sr_data__memo_reuse_print(TREUSE, ReuseName, ReuseProcInfo, PredInfo) ,
-
+	{ proc_info_reuse_information(ReuseProcInfo, MaybeReuseTuples) },
+	print_maybe_reuse_tuples(ProgVarset, TypeVarSet, 
+			MaybeReuseTuples, yes(ReuseName)),
 	io__write_string(").\n").
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -267,6 +267,10 @@
 :- import_module check_hlds__type_util.
 :- import_module transform_hlds__termination, transform_hlds__term_errors.
 
+% Reuse modules
+:- import_module structure_reuse. 
+:- import_module structure_reuse__sr_data.
+
 % RL back-end modules (XXX should avoid using those here).
 :- import_module aditi_backend__rl.
 
@@ -282,9 +286,6 @@
 % Standard library modules
 :- import_module int, string, set, assoc_list, map, multi_map.
 :- import_module require, getopt, std_util, term_io, varset.
-
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
 
 hlds_out__write_type_ctor(Name - Arity) -->
 	prog_out__write_sym_name_and_arity(Name / Arity).
@@ -3427,18 +3428,12 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	(
 		{ string__contains_char(Verbose, 'p') }
 	->
-		{ proc_info_reuse_information(Proc, Memo) },
-		(
-			{ Memo = yes(_MemoReuse) }
-		->
-			hlds_out__write_indent(Indent), 
-			io__write_string("% Reuse version = "), 
-			sr_data__memo_reuse_print_dump(Memo, Proc, 
-				PredInfo), 
-			io__write_string("\n")
-		;
-			[]
-		)
+		{ proc_info_reuse_information(Proc, MaybeReuseTuples) },
+		hlds_out__write_indent(Indent), 
+		io__write_string("% Reuse version = "), 
+		prog_io_pasr__print_maybe_reuse_tuples(
+			VarSet, TVarSet, MaybeReuseTuples, no),
+		io__write_string("\n")
 	;
 		[]
 	),	

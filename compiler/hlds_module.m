@@ -27,8 +27,6 @@
 :- import_module hlds__special_pred.
 :- import_module libs__globals, backend_libs__foreign.
 :- import_module relation, map, std_util, list, set, multi_map, counter.
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
 
 :- implementation.
 
@@ -139,7 +137,7 @@
 :- type unproc_reuse_pragma 
 	---> 	unproc_reuse_pragma(pred_or_func, sym_name, list(mode),
 			list(prog_var), list((type)), 
-			sr_data__memo_reuse, maybe(sym_name)).
+			maybe_reuse_tuples, maybe(sym_name)).
 
 %-----------------------------------------------------------------------------%
 

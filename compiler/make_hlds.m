@@ -117,13 +117,6 @@
 :- import_module recompilation.
 :- import_module libs__options, libs__globals.
 
-:- import_module possible_alias.
-:- import_module possible_alias__pa_run.
-:- import_module possible_alias__pa_alias_as.
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
-:- import_module structure_reuse__sr_split.
-
 :- import_module string, char, int, set, bintree, map, multi_map, require.
 :- import_module bag, term, varset, getopt, assoc_list, term_io.
 
@@ -558,10 +551,10 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		
 	;
 		{ Pragma = structure_reuse(PredOrFunc, SymName, ModeList,
-			HeadVars, Types, Memo, MaybeReuseSymName) },
+			HeadVars, Types, MaybeReuseTuples, MaybeReuseSymName) },
 		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
 					HeadVars, Types, 
-					Memo, MaybeReuseSymName,
+					MaybeReuseTuples, MaybeReuseSymName,
 					Module0, Module)
 	;
 		{ Pragma = terminates(Name, Arity) },
@@ -1594,7 +1587,7 @@ add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes,
 			list(mode)::in,
 			list(var(T))::in, 
 			list( (type) )::in, 
-			sr_data__memo_reuse::in, 
+			maybe_reuse_tuples::in, 
 			maybe(sym_name)::in,
 			module_info::in, module_info::out, 
 			io__state::di, io__state::uo) is det.

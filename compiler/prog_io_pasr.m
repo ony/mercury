@@ -16,6 +16,7 @@
 
 :- import_module io, term, std_util, list, varset, map.
 
+
 % XXX prog_io_pasr shows to be a bad name, if it also contains procedures to
 % transform the aliases types, like the renaming below. 
 %-----------------------------------------------------------------------------%
@@ -77,6 +78,17 @@
 		maybe(aliases_domain)::in, 
 		io__state::di, io__state::uo) is det.
 
+% 7. reuse_tuple.
+:- pred print_reuse_tuple(prog_varset::in, tvarset::in, reuse_tuple::in, 
+		io__state::di, io__state::uo) is det.
+
+	% The sym_name is the name of the reuse-predicate for which the
+	% reuse-conditions are valid. 
+:- pred print_maybe_reuse_tuples(prog_varset::in, tvarset::in, 
+		maybe_reuse_tuples::in, maybe(sym_name)::in, 
+		io__state::di, io__state::uo) is det.
+
+
 	% Print the aliases in a form suitable for the transitive-optimisation
 	% files. The msg's in top-aliases are discarded: a top alias set is
 	% simply printed as "top". 
@@ -103,6 +115,11 @@
 	% Parse the used declared aliases (pragma aliasing). 
 :- pred parse_user_declared_aliasing(term::in, varset::in, 
 		aliasing::out) is semidet.
+% 6. reuse_tuple
+:- pred parse_reuse_tuple(term(T)::in, reuse_tuple::out) is det.
+% 7. maybe_reuse_tuple
+:- pred parse_maybe_reuse_tuples(term(T)::in, maybe_reuse_tuples::out, 
+	maybe(sym_name)::out) is semidet.
 
 :- pred format_context(term__context::in, string::out) is det.
 %-----------------------------------------------------------------------------%
@@ -113,6 +130,8 @@
 :- import_module hlds__hlds_data.
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
+:- import_module parse_tree__prog_out.
+:- import_module parse_tree__prog_io_util.
 
 :- import_module string, require, bool, varset, std_util, int, set. 
 
@@ -276,6 +295,48 @@ print_aliases_domain(ProgVarSet, TVarSet, MaybeThreshold, Aliases, !IO) :-
 		print_aliases(ProgVarSet, TVarSet, MaybeThreshold, "[", ", ", 
 			"]", AliasList, !IO)
 	).
+
+print_reuse_tuple(_ProgVarSet, _TVarSet, unconditional, !IO) :- 
+	io__write_string("always", !IO).
+print_reuse_tuple(ProgVarSet, TVarSet, conditional(Nodes, LUiH, LAiH), !IO) :-
+	set__to_sorted_list(Nodes, NodesList),
+	set__to_sorted_list(LUiH, ListLUiH),
+	ListLUiHVars = list__map( 
+		(func(D) = V :- V = D ^ sc_var), ListLUiH), 
+
+	io__write_string("condition(", !IO),
+		% write out the list of headvar-nodes involved
+	io__write_string("[", !IO),
+	io__write_list(NodesList, ",", 
+			print_datastruct(ProgVarSet, TVarSet), !IO), 
+	io__write_string("], ", !IO),	
+
+		% write out LUiH, list of prog_vars
+	io__write_string("[", !IO),
+	mercury_output_vars(ListLUiHVars, ProgVarSet, bool__no, !IO), 
+	io__write_string("], ", !IO),
+
+		% write out LAiH, the aliases at the reuse-point
+	print_aliases_domain(ProgVarSet, TVarSet, no, LAiH, !IO),
+	io__write_string(")", !IO).
+
+print_maybe_reuse_tuples(_, _, no, _, !IO) :- 
+	io__write_string("no", !IO).
+print_maybe_reuse_tuples(ProgVarSet, TVarSet, yes(Tuples), MaybeName, !IO) :- 
+	io__write_string("yes([", !IO), 
+	io__write_list(Tuples, ",", 
+		print_reuse_tuple(ProgVarSet, TVarSet), !IO), 
+	io__write_string("]", !IO), 
+	(
+		MaybeName = yes(Name)
+	-> 
+		io__write_string(",", !IO), 
+		prog_out__write_quoted_sym_name(Name, !IO)
+	;
+		true
+	),
+	io__write_string(")", !IO). 
+
 	
 %-----------------------------------------------------------------------------%
 % Parsing routines. 
@@ -630,7 +691,180 @@ parse_user_declared_aliasing(term__functor(term__atom("alias"),
 	parse_user_declared_aliases(AliasTerm, AliasAs), 
 	Aliasing = aliasing(MaybeTypes, TypeVarSet, AliasAs). 
 
-	
+	% Note that in the interfaces, unconditional reuse tuples are simply
+	% not printed, therefore, there is no need to parse such tuples. 
+parse_reuse_tuple(Term, ReuseTuple) :- 
+	(
+		Term = term__functor(term__atom(Cons), Args, _)
+	->
+		(
+			Cons = "condition"	
+		->
+			(
+				Args = [NodesTerm, LUiHTerm, LAiHTerm]
+			->
+				nodes_parse(NodesTerm, NodesList),
+				set__list_to_set(NodesList, Nodes), 
+				vars_parse(LUiHTerm, LUiH),
+				LUiHData = set__map(
+					(func(V) = selected_cel(V,[])), 
+					LUiH), 
+				parse_aliases_domain(LAiHTerm, 	
+						LAiH),
+				ReuseTuple = conditional(Nodes, LUiHData, LAiH)
+			;
+				list__length(Args, L),
+				string__int_to_string(L, LS), 
+				string__append_list( 
+					[ "(prog_io_pasr) condition_parse: ",
+					"wrong number of arguments. ",
+					"condition/",LS, " should be ",
+					"condition/3"], Msg),
+				error(Msg)
+			)
+		;
+			term__det_term_to_type(Term, Type),
+			varset__init(V), 
+			StringTerm = mercury_type_to_string(V, Type),
+			string__append_list( 
+				["(prog_io_pasr) condition_parse: ",
+				"wrong constructur. `", 
+				StringTerm, 
+				"' should be `condition'"], Msg),
+			error(Msg)
+		)
+	;
+		error("(prog_io_pasr) condition_parse: term is not a functor")
+	).
+
+:- pred vars_parse(term(T)::in, set(prog_var)::out) is det.
+
+vars_parse(Term, Vars) :- 
+	vars_parse_list(Term, VarList) , 
+	set__list_to_set(VarList, Vars).
+
+:- pred vars_parse_list(term(T)::in, list(prog_var)::out) is det.
+
+vars_parse_list(Term, Vars) :- 
+	(
+		Term = term__functor(term__atom(Cons), Args, _)
+	->
+		(
+			Cons = "[|]",
+			Args = [First, Rest]
+		->
+			( 
+				First = term__variable(V)
+			->
+				V1 = V
+			;
+				error("(prog_io_pasr) vars_parse_list: list should contain variables.")
+			),	
+			term__coerce_var(V1, ProgVar),
+			vars_parse_list(Rest, V2),
+			Vars = [ProgVar | V2]
+		;
+			Cons = "[]"
+		->
+			Vars = []
+		;
+			string__append("(prog_io_pasr) vars_parse_list: could not parse nodes, top cons: ", Cons, Msg),
+			error(Msg)
+		)
+	;
+		error("(prog_io_pasr) vars_parse_list: term not a functor")
+	).
+
+:- pred nodes_parse(term(T)::in, list(datastruct)::out) is det.
+
+nodes_parse(Term, Datastructs) :- 
+	(
+		Term = term__functor(term__atom(Cons), Args, _)
+	->
+		(
+			Cons = "[|]",
+			Args = [First, Rest]
+		->
+			parse_datastruct(First, D1),
+			nodes_parse(Rest, D2),
+			Datastructs = [D1 | D2]
+		;
+			Cons = "[]"
+		->
+			Datastructs = []
+		;
+			string__append("(prog_io_pasr) nodes_parse: could not parse nodes, top cons: ", Cons, Msg),
+			error(Msg)
+		)
+	;
+		error("(prog_io_pasr) nodes_parse: term not a functor")
+	).
+
+:- pred parse_reuse_tuples(term(T)::in, list(reuse_tuple)::out) is det.
+parse_reuse_tuples(Term, Tuples) :- 
+	(
+		Term = term__functor(term__atom(Cons), Args, _)
+	->
+		(
+			Cons = "[|]",
+			Args = [First, Rest]
+		->
+			parse_reuse_tuple(First, Cond1),
+			parse_reuse_tuples(Rest, Cond2),
+			Tuples = [Cond1 | Cond2]
+		;
+			Cons = "[]"
+		->
+			Tuples = []
+		;
+			string__append_list([
+				"(prog_io_pasr) parse_reuse_tuples: ",
+				"could not parse conditions, top cons: ", 
+				Cons], Msg),
+			error(Msg)
+		)
+	;
+		error("(prog_io_pasr) parse_reuse_tuples: term not a functor")
+	).
+
+
+parse_maybe_reuse_tuples(Term, MaybeReuseTuples, MaybeReuseName) :- 
+	(
+		Term = term__functor(term__atom("no"), _, _),
+		MaybeReuseName = no,
+		MaybeReuseTuples = no
+	;
+		Term = term__functor(term__atom("yes"),
+					ReadTuplesAndName, _),
+		(
+			ReadTuplesAndName = [ReadTuples, NameTerm]
+		->
+			parse_reuse_tuples(ReadTuples, Tuples),
+			MaybeReuseTuples = yes(Tuples),
+			parse_qualified_term(NameTerm, 
+				NameTerm, "pragma reuse",
+				Result),
+			(
+				Result = ok(ReuseName, []) 
+			->
+				MaybeReuseName = yes(ReuseName)
+			;
+				string__append_list([
+					"(prog_io_pasr) ", 
+					"parse_maybe_reuse_tuples"], Msg), 
+				error(Msg)
+			)
+		; 
+			list__length(ReadTuplesAndName, L), 
+			string__int_to_string(L, LS), 
+			string__append_list([
+				"(sr_data) conditions_list_parse: ",
+				"wrong number of arguments. yes/", LS,
+				" should be yes/2"], Msg),
+			error(Msg)
+		)
+	).
+
 :- func typeselector_init(list(type)) = selector. 
 typeselector_init(Types) = Selector :- 
 	list__map(
@@ -638,3 +872,4 @@ typeselector_init(Types) = Selector :-
 			US = ts(T),
 		Types,
 		Selector). 	
+

@@ -26,6 +26,8 @@
 
 %-----------------------------------------------------------------------------%
 
+:- type memo_reuse == maybe(list(reuse_condition)).
+
 :- type reuse_condition_table == 
 		map(pred_proc_id, maybe(list(reuse_condition))). 
 :- func reuse_condition_table_init = reuse_condition_table.
@@ -35,6 +37,16 @@
 		maybe(list(reuse_condition))::in, 
 		reuse_condition_table::in, reuse_condition_table::out) is det.
 
+%-----------------------------------------------------------------------------%
+	% Conversion between public/private reuse condition types. 
+:- pred from_reuse_condition_to_reuse_tuple(reuse_condition::in, 
+		reuse_tuple::out) is det.
+:- pred from_reuse_tuple_to_reuse_condition(reuse_tuple::in, 
+		reuse_condition::out) is det.
+:- pred from_memo_reuse_to_maybe_reuse_typles(memo_reuse::in, 
+		maybe_reuse_tuples::out) is det.
+:- pred from_maybe_reuse_tuples_to_memo_reuse(maybe_reuse_tuples::in, 
+		memo_reuse::out) is det.
 %-----------------------------------------------------------------------------%
 	% The information placed in the goal info which is used by
 	% structure reuse.
@@ -105,12 +117,11 @@
 :- type reuse_condition
 	--->	always
 	;	condition(
-		   nodes 		:: set(prog_data__datastruct),
+		   nodes 		:: set(datastruct),
 		   local_use_headvars 	:: set(prog_var),
 		   local_alias_headvars :: alias_as 
 		).
 
-:- type memo_reuse == maybe(list(reuse_condition)).
 
 
 %-----------------------------------------------------------------------------%
@@ -208,7 +219,38 @@ reuse_condition_table_init = map__init.
 reuse_condition_table_search(PredProcId, Table) = Table ^ elem(PredProcId). 
 reuse_condition_table_set(PredProcId, Conds, Table0, Table) :- 
 	map__set(Table0, PredProcId, Conds, Table). 
+%-----------------------------------------------------------------------------%
 
+from_reuse_condition_to_reuse_tuple(Condition, Tuple) :- 
+	(
+		Condition = always,
+		Tuple = unconditional
+	;
+		Condition = condition(Nodes, LocalUse, AliasAs), 
+		from_alias_as_to_aliases_domain(AliasAs, AliasesDomain), 
+		LocalUseData = set__map(pa_datastruct__init, LocalUse),
+		Tuple = conditional(Nodes, LocalUseData, AliasesDomain)
+	).
+from_reuse_tuple_to_reuse_condition(Tuple, Condition) :- 
+	(
+		Tuple = unconditional,
+		Condition = always
+	;
+		Tuple = conditional(Nodes, LocalUseData, AliasesDomain),
+		from_aliases_domain_to_alias_as(AliasesDomain, AliasAs),
+		LocalUse = set__map(
+			(func(D) = V :- 
+				V = D ^ sc_var), LocalUseData),
+		Condition = condition(Nodes, LocalUse, AliasAs)
+	).
+from_memo_reuse_to_maybe_reuse_typles(no, no). 
+from_memo_reuse_to_maybe_reuse_typles(yes(Conditions), yes(Tuples)):-
+	list__map(from_reuse_condition_to_reuse_tuple, 
+		Conditions, Tuples).
+from_maybe_reuse_tuples_to_memo_reuse(no, no). 
+from_maybe_reuse_tuples_to_memo_reuse(yes(Tuples), yes(Conditions)):-
+	list__map(from_reuse_tuple_to_reuse_condition,
+		Tuples, Conditions). 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 /**
@@ -340,30 +382,11 @@ reuse_condition_rename(Dict, MaybeSubst, Cin, Cout) :-
 		Cout = Cin
 	).
 
-reuse_condition_print(_, _, always) -->
-	io__write_string("always").
-reuse_condition_print(ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
-	{ proc_info_varset(ProcInfo, ProgVarSet) }, 
-	{ pred_info_typevarset(PredInfo, TypeVarSet) },
-	{ set__to_sorted_list(Nodes, NodesList) }, 
-	io__write_string("condition("),
-		% write out the list of headvar-nodes involved
-	io__write_string("["),
-	io__write_list(NodesList, ",", 
-			print_datastruct(ProgVarSet, TypeVarSet)), 
-	io__write_string("], "),	
-
-		% write out LUiH, list of prog_vars
-	io__write_string("["),
-	{ set__to_sorted_list(LUiH, ListLUiH) },
-	mercury_output_vars(ListLUiH, ProgVarSet, bool__no), 
-	io__write_string("], "),
-
-		% write out LAiH, the aliases at the reuse-point
-	{ from_alias_as_to_aliases_domain(LAiH, PublicLAiH) },
-	print_aliases_domain(ProgVarSet, TypeVarSet, no, PublicLAiH),
-
-	io__write_string(")").
+reuse_condition_print(ProcInfo, PredInfo, Condition, !IO) :- 
+	proc_info_varset(ProcInfo, ProgVarSet), 
+	pred_info_typevarset(PredInfo, TypeVarSet),
+	from_reuse_condition_to_reuse_tuple(Condition, Tuple), 
+	print_reuse_tuple(ProgVarSet, TypeVarSet, Tuple, !IO). 
 
 reuse_condition_verify(_ProcInfo, _HLDS, _Live0, _Alias0, _Static, always).
 reuse_condition_verify(ProcInfo, HLDS,  Live0, Alias0, Static,
@@ -518,200 +541,20 @@ memo_reuse_print(MemoReuse, Name, ProcInfo, PredInfo) -->
 :- pred memo_reuse_print2(memo_reuse::in, maybe(sym_name)::in, 
 		proc_info::in, pred_info::in, 
 		io__state::di, io__state::uo) is det.
-memo_reuse_print2(MemoReuse, MaybeName, ProcInfo, PredInfo) --> 
-	( 	
-		{ MemoReuse = yes(Cond) }
-	->
-		io__write_string("yes(["),
-		io__write_list(Cond, ",", 
-			reuse_condition_print(ProcInfo, PredInfo)),
-		io__write_string("]"),
-		(
-			{ MaybeName = yes(Name) }
-		->
-			io__write_string(","),
-			prog_out__write_quoted_sym_name(Name)
-		;
-			[]
-		),
-		io__write_string(")")
-	;
-		io__write_string("no")
-	).
+memo_reuse_print2(MemoReuse, MaybeName, ProcInfo, PredInfo, !IO) :-
+	proc_info_varset(ProcInfo, ProgVarSet), 
+	pred_info_typevarset(PredInfo, TypeVarSet),
+	from_memo_reuse_to_maybe_reuse_typles(MemoReuse, MaybeReuseTuples), 
+	print_maybe_reuse_tuples(ProgVarSet, TypeVarSet, MaybeReuseTuples, 
+		MaybeName, !IO). 
 
 memo_reuse_print_dump(MemoReuse, ProcInfo, PredInfo) --> 
 	memo_reuse_print2(MemoReuse, no, ProcInfo, PredInfo). 
 
 memo_reuse_parse(ReuseInformation, ParsedReuse, MaybeReuseName) :- 
-	(
-		ReuseInformation = term__functor(term__atom("no"), _, _),
-		MaybeReuseName = no,
-		memo_reuse_init(ParsedReuse)
-	;
-		ReuseInformation = term__functor(term__atom("yes"),
-					ReadConditions, _),
-		conditions_list_parse(ReadConditions, Conditions, ReuseName),
-		MaybeReuseName = yes(ReuseName),
-		ParsedReuse = yes(Conditions)
-	).
-
-:- pred conditions_list_parse(list(term(T))::in,
-		list(reuse_condition)::out, sym_name::out) is det.
-
-conditions_list_parse(ListTerm, Conds, ReuseName) :- 
-	(
-		ListTerm = [OneItem, NameTerm]
-	->
-		condition_rest_parse(OneItem, Conds),
-		parse_qualified_term(NameTerm, NameTerm, "pragma reuse",
-				Result),
-		(Result = ok(ReuseName0, []) ->
-			ReuseName = ReuseName0
-		;
-			error("(sr_data) conditions_list_parse: conditions_list_parse")
-		)
-	;
-		list__length(ListTerm, L), 
-		string__int_to_string(L, LS), 
-		string__append_list(["(sr_data) conditions_list_parse: ",
-				"wrong number of arguments. yes/", LS,
-				" should be yes/2"], Msg),
-		error(Msg)
-	).
-
-:- pred condition_parse(term(T)::in, reuse_condition::out) is det.
-
-condition_parse(Term, Cond) :- 
-	(
-		Term = term__functor(term__atom(Cons), Args, _)
-	->
-		(
-			Cons = "condition"	
-		->
-			(
-				Args = [NodesTerm, LUiHTerm, LAiHTerm]
-			->
-				nodes_parse(NodesTerm, NodesList),
-				set__list_to_set(NodesList, Nodes), 
-				vars_parse(LUiHTerm, LUiH),
-				parse_aliases_domain(LAiHTerm, 	
-						LAiH_Domain),
-				from_aliases_domain_to_alias_as(LAiH_Domain,
-						LAiH),
-				Cond = condition(Nodes, LUiH, LAiH)
-			;
-				list__length(Args, L),
-				string__int_to_string(L, LS), 
-				string__append_list( 
-					[ "(sr_data) condition_parse: ",
-					"wrong number of arguments. ",
-					"condition/",LS, " should be ",
-					"condition/3"], Msg),
-				error(Msg)
-			)
-		;
-			term__det_term_to_type(Term, Type),
-			varset__init(V), 
-			StringTerm = mercury_type_to_string(V, Type),
-			string__append_list( 
-				["(sr_data) condition_parse: ",
-				"wrong constructur. `", 
-				StringTerm, 
-				"' should be `condition'"], Msg),
-			error(Msg)
-		)
-	;
-		error("(sr_data) condition_parse: term is not a functor")
-	).
-
-:- pred nodes_parse(term(T)::in, list(prog_data__datastruct)::out) is det.
-
-nodes_parse(Term, Datastructs) :- 
-	(
-		Term = term__functor(term__atom(Cons), Args, _)
-	->
-		(
-			Cons = "[|]",
-			Args = [First, Rest]
-		->
-			parse_datastruct(First, D1),
-			nodes_parse(Rest, D2),
-			Datastructs = [D1 | D2]
-		;
-			Cons = "[]"
-		->
-			Datastructs = []
-		;
-			string__append("(sr_data) nodes_parse: could not parse nodes, top cons: ", Cons, Msg),
-			error(Msg)
-		)
-	;
-		error("(sr_data) nodes_parse: term not a functor")
-	).
-
-:- pred vars_parse(term(T)::in, set(prog_var)::out) is det.
-
-vars_parse(Term, Vars) :- 
-	vars_parse_list(Term, VarList) , 
-	set__list_to_set(VarList, Vars).
-
-:- pred vars_parse_list(term(T)::in, list(prog_var)::out) is det.
-
-vars_parse_list(Term, Vars) :- 
-	(
-		Term = term__functor(term__atom(Cons), Args, _)
-	->
-		(
-			Cons = "[|]",
-			Args = [First, Rest]
-		->
-			( 
-				First = term__variable(V)
-			->
-				V1 = V
-			;
-				error("(sr_data) vars_parse_list: list should contain variables.")
-			),	
-			term__coerce_var(V1, ProgVar),
-			vars_parse_list(Rest, V2),
-			Vars = [ProgVar | V2]
-		;
-			Cons = "[]"
-		->
-			Vars = []
-		;
-			string__append("(sr_data) vars_parse_list: could not parse nodes, top cons: ", Cons, Msg),
-			error(Msg)
-		)
-	;
-		error("(sr_data) vars_parse_list: term not a functor")
-	).
-
-
-:- pred condition_rest_parse(term(T)::in, list(reuse_condition)::out) is det.
-
-condition_rest_parse(Term, Conds) :- 
-	(
-		Term = term__functor(term__atom(Cons), Args, _)
-	->
-		(
-			Cons = "[|]",
-			Args = [First, Rest]
-		->
-			condition_parse(First, Cond1),
-			condition_rest_parse(Rest, Cond2),
-			Conds = [Cond1 | Cond2]
-		;
-			Cons = "[]"
-		->
-			Conds = []
-		;
-			string__append("(sr_data) condition_rest_parse: could not parse conditions, top cons: ", Cons, Msg),
-			error(Msg)
-		)
-	;
-		error("(sr_data) condition_rest_parse: term not a functor")
-	).
+	parse_maybe_reuse_tuples(ReuseInformation, MaybeReuseTuples, 
+		MaybeReuseName), 
+	from_maybe_reuse_tuples_to_memo_reuse(MaybeReuseTuples, ParsedReuse).
 
 memo_reuse_verify_reuse(ProcInfo, HLDS, Memo, Live0, Alias0, Static) :-
 	Memo = yes(Conditions), 

@@ -27,10 +27,6 @@
 :- import_module parse_tree__prog_util.
 :- import_module transform_hlds__term_util, transform_hlds__term_errors.
 :- import_module int, map, string, std_util, bool, require, set.
-:- import_module possible_alias.
-:- import_module possible_alias__pa_alias_as.
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
 
 parse_pragma(ModuleName, VarSet, PragmaTerms, Result) :-
 	(
@@ -1116,7 +1112,7 @@ parse_pragma_type(ModuleName, "structure_reuse", PragmaTerms, ErrorTerm,
 	HVsTypes = term__functor(term__atom("types"), ListHVTypesTerm, _),
 	list__map(term__coerce, ListHVTypesTerm, HVTypes ), 
 
-	sr_data__memo_reuse_parse(ReuseInformation, ParsedReuse,
+	parse_maybe_reuse_tuples(ReuseInformation, ParsedReuse,
 			MaybeReuseName),
 
 	Result0 = ok(pragma(structure_reuse(PredOrFunc, PredName, ModeList,

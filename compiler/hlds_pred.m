@@ -21,8 +21,6 @@
 :- import_module libs__globals.
 
 :- import_module bool, list, set, map, std_util, term, varset.
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
 
 :- implementation.
 
@@ -1800,12 +1798,11 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_global_use(proc_info, set(prog_var), proc_info).
 :- mode proc_info_set_global_use(in, in, out) is det.
 
-:- pred proc_info_reuse_information(proc_info, 
-		maybe(list(sr_data__reuse_condition))).
+:- pred proc_info_reuse_information(proc_info, maybe_reuse_tuples).
 :- mode proc_info_reuse_information(in, out) is det.
 
-:- pred proc_info_set_reuse_information(proc_info, 
-		maybe(list(sr_data__reuse_condition)), proc_info).
+:- pred proc_info_set_reuse_information(proc_info, maybe_reuse_tuples,
+		proc_info). 
 :- mode proc_info_set_reuse_information(in, in, out) is det.
 
 :- pred proc_info_static_terms(proc_info, maybe(set(datastruct))).
@@ -2109,7 +2106,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% (set during structure_reuse phase)
 
 					% Possible set of reuse conditions. 
-			structure_reuse:: maybe(list(sr_data__reuse_condition)),
+			structure_reuse:: maybe_reuse_tuples,
 	
 					% Possible set of datastructures that
 					% might be static after calling
@@ -2282,8 +2279,10 @@ proc_info_get_maybe_termination_info(ProcInfo, ProcInfo^maybe_termination).
 proc_info_maybe_declared_argmodes(ProcInfo, ProcInfo^maybe_declared_head_modes).
 proc_info_is_address_taken(ProcInfo, ProcInfo^is_address_taken).
 proc_info_get_rl_exprn_id(ProcInfo, ProcInfo^maybe_aditi_rl_id).
+
 :- pred proc_info_alias_reuse_info(proc_info::in, pa_sr_info::out) is det.
 proc_info_alias_reuse_info(ProcInfo, ProcInfo^alias_reuse_info).
+
 proc_info_possible_aliases(ProcInfo, AliasReuseInfo^maybe_alias):-
 	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
 proc_info_global_use(ProcInfo, AliasReuseInfo^maybe_global_use):-
