@@ -301,7 +301,7 @@
 
 	;	possible_alias(pred_or_func, sym_name, list(mode),
 				list(prog_var), list( (type) ), 
-				maybe(alias_as))
+				maybe(aliases_domain))
 			% the list(mode) is the declared argmodes of the
 			% procedure. 
 			% This pragma is used to define information about
@@ -467,6 +467,7 @@
 	% datasutructures. 
 :- type alias == pair(datastruct).
 :- type aliases == list(alias).
+:- type aliases_domain ---> bottom; real(aliases); top(list(string)).
 
 	% A reuse-tuple is used to describe the condition for which reuse
 	% within a particular procedure is allowed. 

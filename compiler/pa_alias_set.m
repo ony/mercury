@@ -113,11 +113,11 @@
 	% Prints each alias as a parsable pair of datastructs, each
 	% alias preceded with the StartingString, and ended with the
 	% EndString.
-:- pred print(pred_info::in, proc_info::in, alias_set::in, 
+:- pred print(pred_info::in, proc_info::in, aliases::in, 
 		string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
-:- pred print_brief(int::in, pred_info::in, proc_info::in, alias_set::in, 
+:- pred print_brief(int::in, pred_info::in, proc_info::in, aliases::in, 
 		string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
@@ -126,12 +126,12 @@
 	% Prints each alias as a parsable pair of datastructs. Each alias
 	% is preceded with a StartingString, and Ended with an EndString. 
 	% Between aliases, the MiddleString is printed. 
-:- pred print(pred_info::in, proc_info::in, alias_set::in, 
+:- pred print(pred_info::in, proc_info::in, aliases::in, 
 		string::in, string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
 :- pred print_brief(maybe(int)::in, pred_info::in, proc_info::in,
-		alias_set::in, string::in, 
+		aliases::in, string::in, 
 		string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
@@ -670,22 +670,22 @@ apply_widening(ModuleInfo, ProcInfo, Threshold, AliasSet0, AliasSet,
 		Widening = no
 	).
 
-print(PredInfo, ProcInfo, AliasSet, StartingString, EndString) -->
-	print(PredInfo, ProcInfo, AliasSet, StartingString, ", ", EndString).
+print(PredInfo, ProcInfo, AliasList, StartingString, EndString) -->
+	print(PredInfo, ProcInfo, AliasList, StartingString, ", ", EndString).
 
-print_brief(Threshold, PredInfo, ProcInfo, AliasSet, 
+print_brief(Threshold, PredInfo, ProcInfo, AliasList, 
 		StartingString, EndString) --> 
-	print_brief(yes(Threshold), PredInfo, ProcInfo, AliasSet, 
+	print_brief(yes(Threshold), PredInfo, ProcInfo, AliasList, 
 		StartingString, ", ", EndString).
 
-print(PredInfo, ProcInfo, AliasSet, StartingString, MiddleString, 
+print(PredInfo, ProcInfo, AliasList, StartingString, MiddleString, 
 		EndString) --> 
-	print_brief(no, PredInfo, ProcInfo, AliasSet, 
+	print_brief(no, PredInfo, ProcInfo, AliasList, 
 		StartingString, MiddleString, EndString).
 
-print_brief(MaybeThreshold, PredInfo, ProcInfo, AliasSet, 
+print_brief(MaybeThreshold, PredInfo, ProcInfo, AliasList, 
 		StartingString, MiddleString, EndString) --> 
-	{ to_pair_alias_list(AliasSet, AliasList) },
+	% { to_pair_alias_list(AliasSet, AliasList) },
 	(
 		{ MaybeThreshold = yes(Limit) }
  	-> 

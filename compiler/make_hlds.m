@@ -1571,7 +1571,7 @@ add_pragma_termination_info(PredOrFunc, SymName, ModeList,
 			list(mode)::in,
 			list(var(T))::in, 
 			list( (type) )::in, 
-			maybe(alias_as)::in,
+			maybe(aliases_domain)::in,
 			module_info::in, module_info::out, 
 			io__state::di, io__state::uo) is det.
 

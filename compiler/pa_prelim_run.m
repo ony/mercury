@@ -93,7 +93,7 @@ process_imported_predicates(ModuleInfo0, ModuleInfo, AliasTable) -->
 	list__foldl2(
 		process_unproc_alias_pragma(ModuleInfo), 
 		UnprocAliasPragmas, alias_as_table_init , AliasTable).
-	
+
 
 :- pred process_unproc_alias_pragma(module_info::in, unproc_alias_pragma::in, 
 		alias_as_table::in, alias_as_table::out,
@@ -102,7 +102,8 @@ process_imported_predicates(ModuleInfo0, ModuleInfo, AliasTable) -->
 process_unproc_alias_pragma(ModuleInfo, UnprocAliasPragma, AliasTable0, 
 		AliasTable) --> 
 	{ UnprocAliasPragma = unproc_alias_pragma(PredOrFunc, SymName,
-		Modes, HeadVars, Types, Alias0) },
+		Modes, HeadVars, Types, PublicAliases) },
+	{ from_aliases_domain_to_alias_as(PublicAliases, Alias0) },
 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 

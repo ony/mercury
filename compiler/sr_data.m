@@ -365,7 +365,8 @@ reuse_condition_print(ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
 	io__write_string("], "),
 
 		% write out LAiH, the aliases at the reuse-point
-	pa_alias_as__print_aliases(LAiH, ProcInfo, PredInfo),	
+	{ from_alias_as_to_aliases_domain(LAiH, PublicLAiH) },
+	pa_alias_as__print_aliases(PublicLAiH, ProcInfo, PredInfo),	
 
 	io__write_string(")").
 
@@ -627,7 +628,10 @@ condition_parse(Term, Cond) :-
 				nodes_parse(NodesTerm, NodesList),
 				set__list_to_set(NodesList, Nodes), 
 				vars_parse(LUiHTerm, LUiH),
-				pa_alias_as__parse_read_aliases_from_single_term(LAiHTerm, LAiH),
+				parse_read_aliases_from_single_term(LAiHTerm, 	
+						LAiH_Domain),
+				from_aliases_domain_to_alias_as(LAiH_Domain,
+						LAiH),
 				Cond = condition(Nodes, LUiH, LAiH)
 			;
 				list__length(Args, L),

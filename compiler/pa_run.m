@@ -150,7 +150,8 @@ pa_run__aliases_pass(ModuleInfo0, ModuleInfo, AliasTable) -->
 record_alias_in_hlds(PredProcId, AliasAs, ModuleInfo0, ModuleInfo) :- 
 	module_info_pred_proc_info(ModuleInfo0, PredProcId, 
 		PredInfo0, ProcInfo0),
-	proc_info_set_possible_aliases(ProcInfo0, AliasAs, ProcInfo),
+	from_alias_as_to_aliases_domain(AliasAs, PublicAliases),	
+	proc_info_set_possible_aliases(ProcInfo0, PublicAliases, ProcInfo),
 	module_info_set_pred_proc_info(ModuleInfo0, PredProcId, 
 		PredInfo0, ProcInfo, ModuleInfo).
 

@@ -27,8 +27,6 @@
 :- import_module hlds__special_pred.
 :- import_module libs__globals, backend_libs__foreign.
 :- import_module relation, map, std_util, list, set, multi_map, counter.
-:- import_module possible_alias.
-:- import_module possible_alias__pa_alias_as.
 :- import_module structure_reuse.
 :- import_module structure_reuse__sr_data.
 
@@ -129,7 +127,7 @@
 :- type unproc_alias_pragma 
 	--->	unproc_alias_pragma(pred_or_func, sym_name, list(mode),
 			list(prog_var), list((type)), 
-			alias_as).
+			aliases_domain).
 
 	% The unprocessed pragma reuse information.  This information is not
 	% processed until just prior to the alias pass in the compiler so that

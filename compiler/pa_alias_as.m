@@ -223,28 +223,29 @@
 %-----------------------------------------------------------------------------%
 	% Dump the alias information (used in hlds_dumps). 
 	% Each alias will be preceded by the string "% ". 
-:- pred print_maybe_possible_aliases(maybe(alias_as)::in, proc_info::in, 
+:- pred print_maybe_possible_aliases(maybe(aliases_domain)::in, proc_info::in, 
 		pred_info::in, io__state::di, io__state::uo) is det.
 
 	% Dump the alias information printing a given string between each alias
 	% expressed by the abstract description. 
-:- pred print_maybe_possible_aliases(string::in, maybe(alias_as)::in, 
+:- pred print_maybe_possible_aliases(string::in, maybe(aliases_domain)::in, 
 		proc_info::in, pred_info::in, 
 		io__state::di, io__state::uo) is det.
 
 	% Print alias information suitable for using in the trans_opt interface
 	% files, and therefore mmc-readable. 
-:- pred print_maybe_interface_aliases(maybe(alias_as)::in, 
+:- pred print_maybe_interface_aliases(maybe(aliases_domain)::in, 
 		proc_info::in, pred_info::in, 
 		io__state::di, io__state::uo) is det.
 
 	% Print mmc-readable aliases. Mainly used for printing intermediate
 	% aliasing descriptions during the analysis process, with Verbosity
 	% switched on. 
-:- pred print_aliases(alias_as, proc_info, pred_info, io__state, io__state).
+:- pred print_aliases(aliases_domain, proc_info, pred_info, 
+		io__state, io__state).
 :- mode print_aliases(in, in, in, di, uo) is det.
 
-:- pred print_brief_aliases(int::in, alias_as::in, proc_info::in,
+:- pred print_brief_aliases(int::in, aliases_domain::in, proc_info::in,
 		pred_info::in, io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
@@ -254,13 +255,14 @@
 	% Parse the aliases as stored in the trans_opt interface files.
 	% This is the reverse routine for print_maybe_interface_aliases.
 	% Precondition: the list should contain only one element. 
-:- pred parse_read_aliases(list(term(T))::in, alias_as::out) is det.
+:- pred parse_read_aliases(list(term(T))::in, aliases_domain::out) is det.
 
 	% Parse the aliases as stored in the trans_opt interface files. Unlike
 	% in the previous routine, the alias is here dscribed by one single
 	% term (instead of a list of one single term). 
 	% XXX Duh? 
-:- pred parse_read_aliases_from_single_term(term(T)::in, alias_as::out) is det.
+:- pred parse_read_aliases_from_single_term(term(T)::in, 
+		aliases_domain::out) is det.
 
 	% Parse the used declared aliases (pragma aliasing). 
 	% XXX This routine is definitely on the wrong place and should be moved
@@ -312,6 +314,11 @@
 :- pred predict_bottom_alias(module_info::in, list(prog_var)::in, 
 		list(mode)::in, list(type)::in) is semidet.
 
+%-----------------------------------------------------------------------------%
+:- pred from_aliases_domain_to_alias_as(aliases_domain::in, 
+		alias_as::out) is det.
+:- pred from_alias_as_to_aliases_domain(alias_as::in, 
+		aliases_domain::out) is det.
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 :- implementation.
@@ -626,52 +633,43 @@ add(AS1, AS2, AS) :-
 	
 
 %-----------------------------------------------------------------------------%
-extend_unification(HLDS, ProcInfo, Unif, GoalInfo, ASin, ASout):-
+extend_unification(HLDS, ProcInfo, Unif, GoalInfo, !AS) :- 
 	pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif),
 	from_pair_alias_list(AUnif, AliasSetUnif), 
 	wrap(AliasSetUnif, ASUnif0),
 		% pa_alias__from_unification does not ensure that the created
 		% aliases are normalized, hence this must be explicitly done: 
 	normalize_wti(HLDS, ProcInfo, ASUnif0, ASUnif),
-	extend(HLDS, ProcInfo, ASUnif, ASin, ASout0), 
+	extend(HLDS, ProcInfo, ASUnif, !AS), 
 	(
 		Unif = construct(_, _, _, _, _, _, _)
 	-> 
-		optimization_remove_deaths(ProcInfo, ASout0, GoalInfo, ASout)
+		optimization_remove_deaths(ProcInfo, GoalInfo, !AS)
 	;
-		ASout = ASout0
+		true
 	).
 
-extend_unification(HLDS, ProcInfo, PredInfo, Unif, GoalInfo, ASin, ASout) --> 
-	{ pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif) },
-	{ from_pair_alias_list(AUnif, AliasSetUnif) } ,
-	{ wrap(AliasSetUnif, ASUnif0) },
+extend_unification(HLDS, ProcInfo, _PredInfo, Unif, GoalInfo, !AS, !IO) :-
+	pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif),
+	from_pair_alias_list(AUnif, AliasSetUnif),
+	wrap(AliasSetUnif, ASUnif0),
 		% pa_alias__from_unification does not ensure that the created
 		% aliases are normalized, hence this must be explicitly done: 
-	{ normalize_wti(HLDS, ProcInfo, ASUnif0, ASUnif) },
-	io__write_string("\n--> New aliases: "),
-	io__write_strings(["(size = ", 
-			int_to_string(pa_alias_as__size(ASUnif)), 
-			"/",
-			int_to_string(list__length(AUnif)),
-			") "]),
-	print_aliases(ASUnif, ProcInfo, PredInfo),
-	{
-	extend(HLDS, ProcInfo, ASUnif, ASin, ASout0), 
+	normalize_wti(HLDS, ProcInfo, ASUnif0, ASUnif),
+	extend(HLDS, ProcInfo, ASUnif, !AS),
 	(
 		Unif = construct(_, _, _, _, _, _, _)
 	-> 
-		optimization_remove_deaths(ProcInfo, ASout0, GoalInfo, ASout)
+		optimization_remove_deaths(ProcInfo, GoalInfo, !AS) 
 	;
-		ASout = ASout0
-	)}.
+		true
+	).
 
 
-:- pred optimization_remove_deaths(proc_info, alias_as, 
-					hlds_goal_info, alias_as).
-:- mode optimization_remove_deaths(in, in, in, out) is det.
+:- pred optimization_remove_deaths(proc_info::in, hlds_goal_info::in, 
+			alias_as::in, alias_as::out) is det.
 
-optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
+optimization_remove_deaths(ProcInfo, GI, ASin, ASout) :-
 	proc_info_headvars(ProcInfo, HeadVars), 
 	set__list_to_set(HeadVars, HeadVarsSet), 
 	hlds_llds__goal_info_get_post_deaths(GI, Deaths0),
@@ -955,11 +953,11 @@ print_maybe_possible_aliases(RepeatingStart, MaybeAS, ProcInfo, PredInfo) -->
 
 	% print_possible_aliases(Abstract Substitution, Proc Info).
 	% print alias abstract substitution
-:- pred print_possible_aliases(string::in, alias_as::in, proc_info::in, 
+:- pred print_possible_aliases(string::in, aliases_domain::in, proc_info::in, 
 		pred_info::in, io__state::di, io__state::uo) is det.
 print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo) -->
 	(
-		{ AS = real_as(Aliases) }
+		{ AS = real(Aliases) }
 	->
 		io__nl, 
 		print(PredInfo, ProcInfo, Aliases, 
@@ -980,6 +978,8 @@ print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo) -->
 		io__write_string(Msg)
 	).
 
+
+
 	% MaybeAs = yes(Alias_as) -> print `yes(printed Alias_as)'
 	%         = no		  -> print `not_available'
 print_maybe_interface_aliases(MaybeAS, ProcInfo, PredInfo) -->
@@ -995,7 +995,7 @@ print_maybe_interface_aliases(MaybeAS, ProcInfo, PredInfo) -->
 
 print_aliases(AS, ProcInfo, PredInfo) --> 
 	(
-		{ AS = real_as(Aliases) }
+		{ AS = real(Aliases) }
 	->
 		io__write_string("["),
 		print(PredInfo, ProcInfo, Aliases, 
@@ -1011,7 +1011,7 @@ print_aliases(AS, ProcInfo, PredInfo) -->
 
 print_brief_aliases(Threshold, AS, ProcInfo, PredInfo) --> 
 	(
-		{ AS = real_as(Aliases) }
+		{ AS = real(Aliases) }
 	->
 		io__write_string("["),
 		print_brief(Threshold, PredInfo, ProcInfo, Aliases, 
@@ -1052,9 +1052,10 @@ parse_read_aliases_from_single_term(OneITEM, AS) :-
 			CONS = "[|]"
 		->
 			parse_list_alias_term(OneITEM, Aliases),
-			from_pair_alias_list(Aliases, 
-					AliasSet), 
-			wrap(AliasSet, AS)
+			% from_pair_alias_list(Aliases, 
+			%		AliasSet), 
+			% wrap(AliasSet, AS)
+			AS = real(Aliases)
 			% AS = bottom
 		;
 			CONS = "bottom"
@@ -1068,7 +1069,7 @@ parse_read_aliases_from_single_term(OneITEM, AS) :-
 			string__append_list(["imported top (", 
 				ContextString, ")"], 
 					Msg),
-			top(Msg, AS)
+			AS = top([Msg])
 		;
 			string__append(
 		"(pa_alias_as) parse_read_aliases_from_single_term: could not parse aliases, top cons: ", CONS, Msg),
@@ -1421,4 +1422,16 @@ live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, ALIASES, LIVE) :-
 % live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS) = LIVE :- 
 	% live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE).
 
+
+%-----------------------------------------------------------------------------%
+from_aliases_domain_to_alias_as(bottom, bottom).
+from_aliases_domain_to_alias_as(real(Aliases), AliasAS):- 
+	from_pair_alias_list(Aliases, AliasSet), 
+	wrap(AliasSet, AliasAS).
+from_aliases_domain_to_alias_as(top(Msg), top(Msg)).
+
+from_alias_as_to_aliases_domain(bottom, bottom).
+from_alias_as_to_aliases_domain(real_as(AliasSet), real(Aliases)):-
+	to_pair_alias_list(AliasSet, Aliases).
+from_alias_as_to_aliases_domain(top(Msg), top(Msg)).
 

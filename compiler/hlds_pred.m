@@ -21,8 +21,6 @@
 :- import_module libs__globals.
 
 :- import_module bool, list, set, map, std_util, term, varset.
-:- import_module possible_alias.
-:- import_module possible_alias__pa_alias_as.
 :- import_module structure_reuse.
 :- import_module structure_reuse__sr_data.
 
@@ -1790,10 +1788,10 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_rl_exprn_id(proc_info, rl_exprn_id, proc_info).
 :- mode proc_info_set_rl_exprn_id(in, in, out) is det.
 
-:- pred proc_info_possible_aliases(proc_info, maybe(pa_alias_as__alias_as)).
+:- pred proc_info_possible_aliases(proc_info, maybe(aliases_domain)).
 :- mode proc_info_possible_aliases(in, out) is det.
 
-:- pred proc_info_set_possible_aliases(proc_info, alias_as, proc_info).
+:- pred proc_info_set_possible_aliases(proc_info, aliases_domain, proc_info).
 :- mode proc_info_set_possible_aliases(in, in, out) is det.
 
 :- pred proc_info_global_use(proc_info, maybe(set(prog_var))).
@@ -2095,7 +2093,7 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 
 :- type pa_sr_info
 	--->	pa_sr_information(
-			maybe_alias_as :: maybe(alias_as),
+			maybe_alias :: maybe(aliases_domain),
 		                        % `Possible' aliases annotations per
 		                        % procedure. This field is set by the
 		                        % possible alias analysis.
@@ -2286,7 +2284,7 @@ proc_info_is_address_taken(ProcInfo, ProcInfo^is_address_taken).
 proc_info_get_rl_exprn_id(ProcInfo, ProcInfo^maybe_aditi_rl_id).
 :- pred proc_info_alias_reuse_info(proc_info::in, pa_sr_info::out) is det.
 proc_info_alias_reuse_info(ProcInfo, ProcInfo^alias_reuse_info).
-proc_info_possible_aliases(ProcInfo, AliasReuseInfo^maybe_alias_as):-
+proc_info_possible_aliases(ProcInfo, AliasReuseInfo^maybe_alias):-
 	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
 proc_info_global_use(ProcInfo, AliasReuseInfo^maybe_global_use):-
 	proc_info_alias_reuse_info(ProcInfo, AliasReuseInfo).
@@ -2333,7 +2331,7 @@ proc_info_set_alias_reuse_info(ProcInfo, AliasReuseInfo,
 proc_info_set_possible_aliases(ProcInfo0, Aliases, ProcInfo):- 
 	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 
 	proc_info_set_alias_reuse_info(ProcInfo0,
-			AliasReuseInfo^maybe_alias_as := yes(Aliases),
+			AliasReuseInfo^maybe_alias := yes(Aliases),
 			ProcInfo). 
 proc_info_set_global_use(ProcInfo0, GlobalUse, ProcInfo):- 
 	proc_info_alias_reuse_info(ProcInfo0, AliasReuseInfo), 

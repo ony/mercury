@@ -27,6 +27,7 @@
 :- import_module libs__globals.
 :- import_module libs__options.
 :- import_module parse_tree__prog_out. 
+:- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_alias_as.
 :- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_profile.
@@ -111,23 +112,20 @@ collect_profiling_information_3(HLDS, ImportStatus, ProcInfo)  -->
 			PosAliases = yes(As)
 		->
 			(
-				is_bottom(As)
-			->
+				As = bottom,
 				AliasSize = 0, 
 				BottomAlias = yes, 
 				TopAlias = no
 			;
-				(
-					is_top(As)
-				->
-					AliasSize = 0,
-					BottomAlias = no, 
-					TopAlias = yes
-				;
-					AliasSize = size(As),
-					BottomAlias = no, 
-					TopAlias = no
-				)
+				As = top(_),
+				AliasSize = 0,
+				BottomAlias = no, 
+				TopAlias = yes
+			;
+				As = real(AliasList), 
+				AliasSize = length(AliasList),
+				BottomAlias = no, 
+				TopAlias = no
 			)
 		;
 			AliasSize = 0, 
