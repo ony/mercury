@@ -1613,7 +1613,7 @@ arg_modes_map(HeadVars, InstGraph, Constraint0, Info0, ArgModes) :-
 	MVarKeys = assoc_list__keys(MVars),
 	Constraint = restrict_filter(
 		(pred(V::in) is semidet :- list__member(V, MVarKeys)),
-		Constraint0),
+		ensure_normalised(Constraint0)),
 	ArgModes0 = map__init - map__init,
 	list__foldl2(arg_modes_map_2, MVars, Constraint, _, 
 		ArgModes0, ArgModes).

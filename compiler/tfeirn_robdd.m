@@ -125,10 +125,11 @@
 		(tfeirn(T)::no_tfeirn) is det.
 
 	% Existentially quantify away all vars greater than the specified var.
-:- func restrict_threshold(var(T), tfeirn(T)) = tfeirn(T).
+:- func restrict_threshold(var(T)::in, tfeirn(T)::ni_tfeirn) =
+		(tfeirn(T)::no_tfeirn) is det.
 
 :- func restrict_filter(pred(var(T))::(pred(in) is semidet),
-		tfeirn(T)::di_tfeirn) = (tfeirn(T)::uo_tfeirn) is det.
+		tfeirn(T)::ni_tfeirn) = (tfeirn(T)::no_tfeirn) is det.
 
 %-----------------------------------------------------------------------------%
 

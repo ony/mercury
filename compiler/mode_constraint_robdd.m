@@ -221,9 +221,9 @@ save_threshold(threshold(varset__max_var(VarSet))) -->
 	VarSet =^ varset.
 
 restrict_threshold(threshold(Threshold), Constraint) =
-	restrict_threshold(Threshold, Constraint).
+	restrict_threshold(Threshold, ensure_normalised(Constraint)).
 
-restrict_filter(P0, Info, M) = restrict_filter(P, M) :-
+restrict_filter(P0, Info, M) = restrict_filter(P, ensure_normalised(M)) :-
 	P = (pred(MCV::in) is semidet :-
 		bimap__reverse_lookup(Info^varmap, key(RV, PredId, _), MCV),
 		( PredId \= Info^pred_id ; P0(RV) )

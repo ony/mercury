@@ -104,11 +104,12 @@ check_robdd(T)::di_check_robdd)
 		(check_robdd(T)::no_check_robdd) is det.
 
 	% Existentially quantify away all vars greater than the specified var.
-:- func restrict_threshold(var(T), check_robdd(T)) = check_robdd(T).
+:- func restrict_threshold(var(T)::in, check_robdd(T)::ni_check_robdd) =
+		(check_robdd(T)::no_check_robdd) is det.
 
 :- func restrict_filter(pred(var(T))::(pred(in) is semidet),
-		check_robdd(T)::di_check_robdd) =
-		(check_robdd(T)::uo_check_robdd) is det.
+		check_robdd(T)::ni_check_robdd) =
+		(check_robdd(T)::no_check_robdd) is det.
 
 %-----------------------------------------------------------------------------%
 
