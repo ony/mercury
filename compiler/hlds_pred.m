@@ -16,6 +16,7 @@
 :- import_module prog_data.
 :- import_module hlds_data, hlds_goal, hlds_module, instmap, term_util.
 :- import_module mode_errors.
+:- import_module inst_graph, mode_constraint_robdd.
 :- import_module globals.
 
 :- import_module bool, list, set, map, std_util, term, varset.
@@ -620,6 +621,12 @@
 :- pred pred_info_set_procedures(pred_info, proc_table, pred_info).
 :- mode pred_info_set_procedures(in, in, out) is det.
 
+:- pred pred_info_proc_info(pred_info, proc_id, proc_info).
+:- mode pred_info_proc_info(in, in, out) is det.
+
+:- pred pred_info_set_proc_info(pred_info, proc_id, proc_info, pred_info).
+:- mode pred_info_set_proc_info(in, in, in, out) is det.
+
 :- pred pred_info_context(pred_info, prog_context).
 :- mode pred_info_context(in, out) is det.
 
@@ -732,6 +739,9 @@
 :- pred pred_info_get_promised_pure(pred_info, bool).
 :- mode pred_info_get_promised_pure(in, out) is det.
 
+:- pred pred_info_infer_modes(pred_info).
+:- mode pred_info_infer_modes(in) is semidet.
+
 :- pred purity_to_markers(purity, pred_markers).
 :- mode purity_to_markers(in, out) is det.
 
@@ -743,6 +753,18 @@
 
 :- pred pred_info_get_call_id(pred_info, simple_call_id).
 :- mode pred_info_get_call_id(in, out) is det.
+
+:- func inst_graph_info(pred_info) = inst_graph_info.
+:- func 'inst_graph_info :='(pred_info, inst_graph_info) = pred_info.
+
+	% Mode information for the arguments of a procedure.
+	% The first map gives the instantiation state on entry of the
+	% node corresponding to the prog_var.  The second map gives
+	% the instantation state on exit.
+:- type arg_modes_map == pair(map(prog_var, bool)).
+
+:- func modes(pred_info) = list(arg_modes_map).
+:- func 'modes :='(pred_info, list(arg_modes_map)) = pred_info.
 
 	% create an empty set of markers
 :- pred init_markers(pred_markers).
@@ -911,7 +933,7 @@ status_defined_in_this_module(local,			yes).
 					% List of assertions which
 					% mention this predicate.
 			maybe_instance_method_constraints
-					:: maybe(instance_method_constraints) 
+					:: maybe(instance_method_constraints),
 					% If this predicate is a class method
 					% implementation, record extra
 					% information about the class context
@@ -919,6 +941,11 @@ status_defined_in_this_module(local,			yes).
 					% correctly set up the extra
 					% type_info and typeclass_info
 					% arguments.
+			inst_graph_info	:: inst_graph_info,
+					% Predicate inst_graphs
+			modes		:: list(arg_modes_map)
+					% Mode information extracted from
+					% mode_constraints analsis.
 		).
 
 pred_info_init(ModuleName, SymName, Arity, TypeVarSet, ExistQVars, Types,
@@ -937,7 +964,8 @@ pred_info_init(ModuleName, SymName, Arity, TypeVarSet, ExistQVars, Types,
 		Context, PredModuleName, PredName, Arity, Status, TypeVarSet,
 		GoalType, Markers, PredOrFunc, ClassContext, ClassProofs,
 		ExistQVars, HeadTypeParams, UnprovenBodyConstraints, User,
-		Indexes, Assertions, MaybeInstanceConstraints).
+		Indexes, Assertions, MaybeInstanceConstraints,
+		inst_graph_info_init, []).
 
 pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types, Cond,
 		Context, Status, Markers, PredOrFunc, ClassContext, User,
@@ -968,7 +996,8 @@ pred_info_create(ModuleName, SymName, TypeVarSet, ExistQVars, Types, Cond,
 		Context, ModuleName, PredName, Arity, Status, TypeVarSet,
 		clauses, Markers, PredOrFunc, ClassContext, ClassProofs,
 		ExistQVars, HeadTypeParams, UnprovenBodyConstraints, User,
-		Indexes, Assertions, MaybeInstanceConstraints).
+		Indexes, Assertions, MaybeInstanceConstraints,
+		inst_graph_info_init, []).
 
 pred_info_all_procids(PredInfo, ProcIds) :-
 	ProcTable = PredInfo ^ procedures,
@@ -1046,6 +1075,13 @@ pred_info_set_arg_types(PredInfo0, TypeVarSet, ExistQVars, ArgTypes,
 pred_info_procedures(PredInfo, PredInfo^procedures).
 
 pred_info_set_procedures(PredInfo, X, PredInfo^procedures := X).
+
+pred_info_proc_info(PredInfo, ProcId, ProcInfo) :-
+	ProcInfo = map__lookup(PredInfo^procedures, ProcId).
+
+pred_info_set_proc_info(PredInfo0, ProcId, ProcInfo, PredInfo) :-
+	PredInfo = PredInfo0 ^ procedures := 
+		map__set(PredInfo0 ^ procedures, ProcId, ProcInfo).
 
 pred_info_context(PredInfo, PredInfo^context).
 
@@ -1134,6 +1170,10 @@ pred_info_get_promised_pure(PredInfo0, Promised) :-
 	;
 		Promised = no
 	).
+
+pred_info_infer_modes(PredInfo) :-
+	pred_info_get_markers(PredInfo, Markers),
+	check_marker(Markers, infer_modes).
 
 purity_to_markers(pure, []).
 purity_to_markers(semipure, [semipure]).
@@ -1410,6 +1450,13 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_argmodes(proc_info, list(mode), proc_info).
 :- mode proc_info_set_argmodes(in, in, out) is det.
 
+:- pred proc_info_head_modes_constraint(proc_info, mode_constraint).
+:- mode proc_info_head_modes_constraint(in, out) is det.
+
+:- pred proc_info_set_head_modes_constraint(proc_info, mode_constraint,
+		proc_info).
+:- mode proc_info_set_head_modes_constraint(in, in, out) is det.
+
 :- pred proc_info_inst_varset(proc_info, inst_varset).
 :- mode proc_info_inst_varset(in, out) is det.
 
@@ -1641,6 +1688,9 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 			var_types	:: vartypes,
 			head_vars	:: list(prog_var),
 			actual_head_modes :: list(mode),
+			maybe_declared_head_modes :: maybe(list(mode)),
+					% declared modes of arguments.
+			maybe_head_modes_constraint :: maybe(mode_constraint),
 			mode_errors	:: list(mode_error_info),
 			inst_varset :: inst_varset,
 			head_var_caller_liveness :: maybe(list(is_live)),
@@ -1691,8 +1741,6 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% The termination properties of the
 					% procedure. Set by termination
 					% analysis.
-			maybe_declared_head_modes :: maybe(list(mode)),
-					% declared modes of arguments.
 			is_address_taken :: is_address_taken,
 					% Is the address of this procedure
 					% taken? If yes, we will need to use
@@ -1780,11 +1828,11 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	map__init(TCVarsMap),
 	RLExprn = no,
 	NewProc = procedure(
-		BodyVarSet, BodyTypes, HeadVars, Modes, ModeErrors, InstVarSet,
-		MaybeArgLives, ClauseBody, MContext, StackSlots, MaybeDet,
-		InferredDet, CanProcess, ArgInfo, InitialLiveness, TVarsMap,
-		TCVarsMap, eval_normal, no, no, DeclaredModes, IsAddressTaken,
-		RLExprn, no, no
+		BodyVarSet, BodyTypes, HeadVars, Modes, DeclaredModes, no,
+		ModeErrors, InstVarSet, MaybeArgLives, ClauseBody, MContext,
+		StackSlots, MaybeDet, InferredDet, CanProcess, ArgInfo,
+		InitialLiveness, TVarsMap, TCVarsMap, eval_normal, no, no,
+		IsAddressTaken, RLExprn, no, no
 	).
 
 proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
@@ -1795,11 +1843,11 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 	RLExprn = no,
 	ModeErrors = [],
 	ProcInfo = procedure(
-		BodyVarSet, BodyTypes, HeadVars, HeadModes, ModeErrors,
+		BodyVarSet, BodyTypes, HeadVars, HeadModes, no, no, ModeErrors,
 		InstVarSet, HeadLives, Goal, Context,
 		StackSlots, DeclaredDetism, InferredDetism, CanProcess, ArgInfo,
 		Liveness, TVarMap, TCVarsMap, eval_normal, ArgSizes,
-		Termination, no, IsAddressTaken, RLExprn, no, no).
+		Termination, IsAddressTaken, RLExprn, no, no).
 
 proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 		Goal, Context, TVarMap, TCVarsMap, IsAddressTaken, ProcInfo) :-
@@ -1808,10 +1856,11 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 	MaybeHeadLives = no,
 	RLExprn = no,
 	ModeErrors = [],
-	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, ModeErrors,
-		InstVarSet, MaybeHeadLives, Goal, Context, StackSlots,
-		yes(Detism), Detism, yes, [], Liveness, TVarMap, TCVarsMap,
-		eval_normal, no, no, no, IsAddressTaken, RLExprn, no, no).
+	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadModes, no, no,
+		ModeErrors, InstVarSet, MaybeHeadLives, Goal, Context,
+		StackSlots, yes(Detism), Detism, yes, [], Liveness, TVarMap,
+		TCVarsMap, eval_normal, no, no, IsAddressTaken, RLExprn, no,
+		no).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-
@@ -1880,6 +1929,13 @@ proc_info_varset(ProcInfo, ProcInfo^prog_varset).
 proc_info_vartypes(ProcInfo, ProcInfo^var_types).
 proc_info_headvars(ProcInfo, ProcInfo^head_vars).
 proc_info_argmodes(ProcInfo, ProcInfo^actual_head_modes).
+
+proc_info_head_modes_constraint(ProcInfo, HeadModesConstraint) :-
+	( ProcInfo^maybe_head_modes_constraint = yes(HeadModesConstraint)
+	; ProcInfo^maybe_head_modes_constraint = no,
+	  error("proc_info_head_modes_constraint: no constraint")
+	).
+
 proc_info_inst_varset(ProcInfo, ProcInfo^inst_varset).
 proc_info_maybe_arglives(ProcInfo, ProcInfo^head_var_caller_liveness).
 proc_info_goal(ProcInfo, ProcInfo^body).
@@ -1904,6 +1960,8 @@ proc_info_set_varset(ProcInfo, VS, ProcInfo^prog_varset := VS).
 proc_info_set_vartypes(ProcInfo, VT, ProcInfo^var_types := VT).
 proc_info_set_headvars(ProcInfo, HV, ProcInfo^head_vars := HV).
 proc_info_set_argmodes(ProcInfo, AM, ProcInfo^actual_head_modes := AM).
+proc_info_set_head_modes_constraint(ProcInfo, HMC,
+	ProcInfo^maybe_head_modes_constraint := yes(HMC)).
 proc_info_set_inst_varset(ProcInfo, IV, ProcInfo^inst_varset := IV).
 proc_info_set_maybe_arglives(ProcInfo, CL,
 	ProcInfo^head_var_caller_liveness := CL).
