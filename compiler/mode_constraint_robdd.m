@@ -117,6 +117,7 @@
 :- import_module bimap, assoc_list, string, stack, sparse_bitset, robdd.
 
 :- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__tfeirn_robdd.
 :- import_module xrobdd__check_robdd.
 
 :- type mc_type ---> mc_type.

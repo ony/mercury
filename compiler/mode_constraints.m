@@ -27,6 +27,7 @@
 :- import_module gc.
 
 :- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__tfeirn_robdd.
 :- import_module xrobdd__check_robdd.
 
 % XXX

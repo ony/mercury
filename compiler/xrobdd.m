@@ -14,14 +14,15 @@
 :- include_module xrobdd__tfr_robdd.
 :- include_module xrobdd__tfer_robdd.
 :- include_module xrobdd__tfeir_robdd.
+:- include_module xrobdd__tfeirn_robdd.
 
 :- include_module xrobdd__check_robdd.
 
 %:- import_module xrobdd__check_robdd.
 % :- type xrobdd(T) == check_robdd(T).
 
-:- import_module xrobdd__tfeir_robdd.
-:- type xrobdd(T) == tfeir(T).
+:- import_module xrobdd__tfeirn_robdd.
+:- type xrobdd(T) == tfeirn(T).
 
 :- implementation.
 
