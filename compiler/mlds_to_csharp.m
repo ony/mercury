@@ -117,7 +117,7 @@ generate_c_code(MLDS) -->
 	)),
 
 	io__write_strings([
-		"\nclass mercury_code",
+		"\npublic class mercury_code",
 		"{\n"]),
 
 		% Output the contents of pragma foreign_code declarations.
@@ -464,11 +464,7 @@ write_il_simple_type_as_csharp_type(char) -->
 write_il_simple_type_as_csharp_type(refany) --> 
 	io__write_string("mercury.MR_RefAny").
 write_il_simple_type_as_csharp_type(class(ClassName)) --> 
-	( { ClassName = il_generic_class_name } ->
-		io__write_string("mercury.MR_Box")
-	;
-		write_csharp_class_name(ClassName)
-	).
+	write_csharp_class_name(ClassName).
 		% XXX this is not the right syntax
 write_il_simple_type_as_csharp_type(value_class(ClassName)) --> 
 	write_csharp_class_name(ClassName).
