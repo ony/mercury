@@ -605,7 +605,7 @@ tabled_reuse_print( TREUSE, Name, ProcInfo ) -->
 		io__write_string("yes(["),
 		io__write_list(CONDS, ",", reuse_condition_print(ProcInfo)),
 		io__write_string("], "),
-		prog_out__write_sym_name(Name),
+		prog_out__write_quoted_sym_name(Name),
 		io__write_string(")")
 	;
 		io__write_string("no")
