@@ -30,16 +30,17 @@
 
 :- func cons_profile([int]) = own_prof_info.
 
-:- func u(array(T)) = array(T).
+:- func u(T) = T.
 :- mode (u(in) = array_uo) is det.
 
 :- implementation.
 
+:- import_module hash.
 :- import_module char, std_util.
 
 :- type ptr_info --->
 		ptr_info(
-			ptrs :: (ptr_kind -> { (int -> int), int })
+			ptrs :: (ptr_kind -> { hashtable(int), int })
 		).
 
 :- type ptr_kind
@@ -71,10 +72,10 @@ read_call_graph(FileName, Res) -->
 			array([])
 		) },
 		{ PI0 = ptr_info(map__from_assoc_list([
-				ps - { init, 1 },
-				pd - { init, 1 },
-				css - { init, 1 },
-				csd - { init, 1 }
+				ps - { init(10007), 1 },
+				pd - { init(10007), 1 },
+				css - { init(10007), 1 },
+				csd - { init(10007), 1 }
 			])) },
 		read_call_graph2(Deep0, Res1, PI0, PI),
 		io__seen_binary,
@@ -631,14 +632,15 @@ map_pointer(Kind, Ptr0, Ptr, PI0, PI) :-
 		PI = PI0
 	;
 		lookup(PI0^ptrs, Kind, Ptrs0),
-		Ptrs0 = { PMap0, Next0 },
-		( search(PMap0, Ptr0, Ptr1) ->
+		Ptrs0 = { PMap0a, Next0 },
+		PMap0 = u(PMap0a),
+		( search(PMap0, Ptr0) = Ptr1 ->
 			Ptr = Ptr1,
 			PI = PI0
 		;
 			Ptr = Next0,
 			Next = Next0 + 1,
-			set(PMap0, Ptr0, Ptr, PMap),
+			PMap = insert(PMap0, Ptr0, Ptr),
 			Ptrs = { PMap, Next },
 			PI = PI0^ptrs := set(PI0^ptrs, Kind, Ptrs)
 		)
