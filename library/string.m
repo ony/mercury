@@ -788,9 +788,7 @@ string__from_char_list(CharList, Str) :-
         MR_list_nil(prev);
 
         for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp,
-			mercury::runtime::Convert::ToObject(Str->get_Chars(i)),
-			prev);
+		MR_list_cons(tmp, __box(Str->get_Chars(i)), prev);
 		prev = tmp;
         }
         CharList = tmp;
@@ -804,7 +802,7 @@ string__from_char_list(CharList, Str) :-
         tmp = new System::Text::StringBuilder();
         while (1) {
             if (MR_list_is_cons(CharList)) {
-		c = mercury::runtime::Convert::ToChar(MR_list_head(CharList));
+		c = System::Convert::ToChar(MR_list_head(CharList));
                 tmp->Append(c);
                 CharList = MR_list_tail(CharList);
             } else {
@@ -948,7 +946,7 @@ string__append_list(Lists, string__append_list(Lists)).
 	MR_Word	tmp;
 	size_t	len;
 
-		/* Determine the total len of all strings */
+		/* Determine the total length of all strings */
 	len = 0;
 	while (!MR_list_is_empty(list)) {
 		len += strlen((MR_String) MR_list_head(list));
@@ -983,17 +981,19 @@ string__append_list(Lists, string__append_list(Lists)).
 
 	sep_len = strlen(Sep);
 
-		/* Determine the total len of all strings */
-	len = -sep_len; /* compensate for no separator before first string */
+		/* Determine the total length of all strings */
+	len = 0;
+	add_sep = FALSE;
 	while (!MR_list_is_empty(list)) {
-		len += sep_len + strlen((MR_String) MR_list_head(list));
+		if (add_sep) {
+			len += sep_len;
+		}
+		
+		len += strlen((MR_String) MR_list_head(list));
 		list = MR_list_tail(list);
+		add_sep = TRUE;
 	}
 
-		/* Allocate enough word aligned memory for the string */
-	if (len <= 0) {
-		len = 0;
-	}
 	MR_allocate_aligned_string_msg(Str, len, MR_PROC_LABEL);
 
 		/* Copy the strings into the new memory */
@@ -1072,10 +1072,10 @@ string__combine_hash(H0, X, H) :-
 }").
 
 :- pragma foreign_proc("MC++", 
-	string__sub_string_search(_WholeString::in, _SubString::in,
-			_Index::out) , [will_not_call_mercury, thread_safe],
+	string__sub_string_search(WholeString::in, SubString::in,
+			Index::out) , [will_not_call_mercury, thread_safe],
 "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	Index = WholeString->IndexOf(SubString);
 }").
 
 %-----------------------------------------------------------------------------%
@@ -1662,9 +1662,7 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
         MR_list_nil(prev);
 
         for (i = length - 1; i >= 0; i--) {
-		MR_list_cons(tmp,
-			mercury::runtime::Convert::ToObject(Str->get_Chars(i)),
-			prev);
+		MR_list_cons(tmp, __box((MR_Integer) Str->get_Chars(i)), prev);
 		prev = tmp;
         }
         IntList = tmp;
@@ -1677,8 +1675,8 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
        
         tmp = new System::Text::StringBuilder();
         while (1) {
-            if (mercury::runtime::Convert::ToInt32(IntList->GetValue(0))) {
-                tmp->Append(mercury::runtime::Convert::ToChar(
+            if (System::Convert::ToInt32(IntList->GetValue(0))) {
+                tmp->Append(System::Convert::ToChar(
 			IntList->GetValue(1)));
                 IntList = dynamic_cast<MR_Word>(IntList->GetValue(2));
             } else {
@@ -1939,9 +1937,14 @@ string__append(S1::out, S2::out, S3::in) :-
 }").
 
 :- pragma foreign_proc("MC++",
-	string__append_ioi(_S1::in, _S2::out, _S3::in),
+	string__append_ioi(S1::in, S2::out, S3::in),
 		[will_not_call_mercury, thread_safe], "{
-	mercury::runtime::Errors::SORRY(""c code for this function"");
+	if (S3->StartsWith(S1)) {
+		S2 = S3->Remove(0, S1->Length);
+		SUCCESS_INDICATOR = TRUE;
+	} else {
+		SUCCESS_INDICATOR = FALSE;
+	}
 }").
 
 :- pred string__append_iio(string::in, string::in, string::out) is det.
@@ -2207,8 +2210,7 @@ string__append_ooi_2(NextS1Len, S3Len, S1, S2, S3) :-
 		[will_not_call_mercury, thread_safe], "{
 	MR_Integer len = Str->get_Length();
 	if (len > 0) {
-		SUCCESS_INDICATOR = (First == Str->get_Chars(0) &&
-			System::String::Compare(Str, 1, Rest, 0, len) == 0);
+		SUCCESS_INDICATOR = (First == Str->get_Chars(0));
 		Rest = (Str)->Substring(1);
 	} else {
 		SUCCESS_INDICATOR = FALSE;

@@ -538,6 +538,17 @@
 						% enum, float, etc.
 		)
 
+	 	% The Mercury array type is treated specially, some backends
+		% will treat it like any other mercury_type, whereas other may
+		% use a special representation for it.
+		% Arrays are type constructors in some backends, and so it is
+		% easier to represent it here as a special type constructor.
+		% (if we used the mercury_type representation above, we would
+		% only classify the topmost level of the type, whereas we
+		% really want to classify the element type for arrays, so
+		% we can generate int[] for array(int)).
+	;	mlds__mercury_array_type(mlds__type)
+
 		% The type for the continuation functions used
 		% to handle nondeterminism
 	;	mlds__cont_type(mlds__return_types)
@@ -1324,8 +1335,18 @@ XXX Full exception handling support is not yet implemented.
 		% per_instance flag set).
 
 :- type mlds__unary_op
-	--->	box(mlds__type)
+			% box(MLDSType)
+			% convert from MLDSType to mlds__generic_type,
+			% by boxing if necessary, or just casting if not
+	--->	box(mlds__type)	
+
+			% unbox(MLDSType)
+			% convert from mlds__generic_type to MLDSType,
+			% applying the inverse transformation to box/1,
+			% i.e. unboxing if boxing was necessary,
+			% and just casting otherwise.
 	;	unbox(mlds__type)
+		
 			% cast(MLDSType):
 			% Coerce the type of the rval to be MLDSType.
 			% XXX it might be worthwhile adding the 
@@ -1498,8 +1519,17 @@ mlds__get_prog_context(mlds__context(Context)) = Context.
 % XXX It might be a better idea to get rid of the mercury_type/2
 % MLDS type and instead fully convert all Mercury types to MLDS types.
 
-mercury_type_to_mlds_type(ModuleInfo, Type) = mercury_type(Type, Category) :-
-	classify_type(Type, ModuleInfo, Category).
+mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
+	( 
+		type_to_type_id(Type, TypeId, [ElemType]),
+		TypeId = qualified(unqualified("array"), "array") - 1
+	->
+		MLDSElemType = mercury_type_to_mlds_type(ModuleInfo, ElemType),
+		MLDSType = mlds__mercury_array_type(MLDSElemType)
+	;
+		classify_type(Type, ModuleInfo, Category),
+		MLDSType = mercury_type(Type, Category)
+	).
 
 %-----------------------------------------------------------------------------%
 

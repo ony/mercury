@@ -767,6 +767,8 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".ints"
 			; Ext = ".int3s"
 			; Ext = ".rlos"
+			; Ext = ".ss"
+			; Ext = ".pic_ss"
 			; Ext = ".ils"
 			; Ext = ".opts"
 			; Ext = ".trans_opts"
@@ -774,6 +776,11 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			% requires .h.tmp files to be in the same directory as
 			% the .h files
 			; Ext = ".h.tmp"
+			% The following files are only used by the Aditi
+			% query shell which doesn't know about --use-subdirs.
+			; Ext = ".base_schema"
+			; Ext = ".derived_schema"
+			; Ext = ".rlo"
 			)
 		;
 			% output files intended for use by the user
@@ -1894,10 +1901,10 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__write_strings(DepStream, ["\n\n",
 			OptDateFileName, " ",
 			TransOptDateFileName, " ",
+			ErrFileName, " ",
 			CDateFileName, " ",
 			AsmDateFileName, " ",
 			PicAsmDateFileName, " ",
-			ErrFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
 			ILDateFileName, " : ",
@@ -1925,17 +1932,21 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			Intermod),
 		globals__io_lookup_accumulating_option(intermod_directories,
 			IntermodDirs),
-		( { Intermod = yes; UseOptFiles = yes } ->
+		( { Intermod = yes ; UseOptFiles = yes } ->
 			io__write_strings(DepStream, [
 				"\n\n", 
-				CDateFileName, " ",
 				TransOptDateFileName, " ",
-				ErrFileName, " ", 
-				SplitObjPattern, " :"
+				ErrFileName, " ",
+				CDateFileName, " ",
+				AsmDateFileName, " ",
+				PicAsmDateFileName, " ",
+				SplitObjPattern, " ",
+				RLOFileName, " ",
+				ILDateFileName, " : "
 			]),
 
-			% The .c file only depends on the .opt files from 
-			% the current directory, so that inter-module
+			% The target (e.g. C) file only depends on the .opt files
+			% from  the current directory, so that inter-module
 			% optimization works when the .opt files for the 
 			% library are unavailable. This is only necessary 
 			% because make doesn't allow conditional dependencies.
@@ -1957,9 +1968,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					".opt", DepStream),
 				io__write_strings(DepStream, [
 					"\n\n", 
+					ErrFileName, " ",
 					CDateFileName, " ",
-					ErrFileName, " ", 
-					SplitObjPattern, " :"
+					AsmDateFileName, " ",
+					PicAsmDateFileName, " ",
+					SplitObjPattern, " ",
+					RLOFileName, " ",
+					ILDateFileName, " : "
 				]),
 				write_dependencies_list(TransOptDeps,
 					".trans_opt", DepStream)
@@ -2071,6 +2086,16 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 							Date3FileName),
 
 		/*
+		** We add some extra dependencies to the generated `.d' files, so
+		** that local `.int', `.opt', etc. files shadow the installed
+		** versions properly (e.g. for when you're trying to build a new
+		** version of an installed library).  This saves the user from
+		** having to add these explicitly if they have multiple libraries
+		** installed in the same installation hierarchy which aren't
+		** independent (e.g. one uses another).
+		** These extra dependencies are necessary due to the way the
+		** combination of search paths and pattern rules works in Make.
+		**
 		** Be very careful about changing the following rules.
 		** The `@:' is a silent do-nothing command.
 		** It is used to force GNU Make to recheck the timestamp
@@ -2257,8 +2282,17 @@ write_foreign_dependency_for_il(DepStream, ModuleName, AllDeps, ForeignLang)
 			io__write_strings(DepStream, 
 				["CSHARP_ASSEMBLY_REFS-", 
 					ForeignModuleNameString, "="]),
-			write_dll_dependencies_list(ModuleName,
-				AllDeps, "/r:", DepStream),
+			{
+				ModuleName = unqualified(Str),
+				mercury_std_library_module(Str)
+			->
+				Prefix = "/addmodule:"
+			;
+				Prefix = "/r:"
+			},
+			write_dll_dependencies_list(
+				referenced_dlls(ModuleName, AllDeps),
+				Prefix, DepStream),
 			io__nl(DepStream)
 		;
 			[]
@@ -3030,7 +3064,7 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".all_pic_ss = "),
-	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".pic_s",
+	write_compact_dependencies_list(Modules, "$(pic_ss_subdir)", ".pic_s",
 		Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -3597,10 +3631,21 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_file_name(ModuleName, ".opts", no, OptsTargetName),
 	module_name_to_file_name(ModuleName, ".trans_opts", no,
 						TransOptsTargetName),
+	module_name_to_file_name(ModuleName, ".ss", no,
+						SsTargetName),
+	module_name_to_file_name(ModuleName, ".pic_ss", no,
+						PicSsTargetName),
 	module_name_to_file_name(ModuleName, ".rlos", no,
 						RLOsTargetName),
 	module_name_to_file_name(ModuleName, ".ils", no,
 						ILsTargetName),
+
+	% We need to explicitly mention
+	% $(foo.pic_ss) somewhere in the Mmakefile, otherwise it
+	% won't build properly with --target asm: GNU Make's pattern rule
+	% algorithm will try to use the .m -> .c_date -> .c -> .pic_o rule chain
+	% rather than the .m -> .pic_s_date -> .pic_s -> .pic_o chain.
+	% So don't remove the pic_ss target here.
 
 	io__write_strings(DepStream, [
 		".PHONY : ", CheckTargetName, "\n",
@@ -3614,6 +3659,10 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		".PHONY : ", TransOptsTargetName, "\n",
 		TransOptsTargetName, " : $(", MakeVarName,
 						".trans_opt_dates)\n\n",
+		".PHONY : ", SsTargetName, "\n",
+		SsTargetName, " : $(", MakeVarName, ".ss)\n\n",
+		".PHONY : ", PicSsTargetName, "\n",
+		PicSsTargetName, " : $(", MakeVarName, ".pic_ss)\n\n",
 		".PHONY : ", RLOsTargetName, "\n",
 		RLOsTargetName, " : $(", MakeVarName, ".rlos)\n\n",
 		".PHONY : ", ILsTargetName, "\n",
@@ -3934,16 +3983,24 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
 
-:- pred write_dll_dependencies_list(module_name, list(module_name),
-		string, io__output_stream, io__state, io__state).
-:- mode write_dll_dependencies_list(in, in, in, in, di, uo) is det.
+	% Generate the list of .NET DLLs which could be refered to by this
+	% module.  
+	% If we are compiling a module within the standard library we should
+	% reference the runtime DLLs and all other library DLLs.  If we are
+	% outside the library we should just reference mercury.dll (which will
+	% contain all the DLLs).
+	
+:- func referenced_dlls(module_name, list(module_name)) = list(module_name).
 
-write_dll_dependencies_list(Module, Modules0, Prefix, DepStream) -->
+referenced_dlls(Module, Modules0) = Modules :-
 		% If we are not compiling a module in the mercury
 		% std library then replace all the std library dlls with
 		% one reference to mercury.dll.
-	{ Module = unqualified(Str), mercury_std_library_module(Str) ->
-		Modules = Modules0
+	( Module = unqualified(Str), mercury_std_library_module(Str) ->
+			% In the standard library we need to add the
+			% runtime dlls.
+		Modules = [unqualified("mercury_mcpp"),
+				unqualified("mercury_il") | Modules0]
 	;
 		F = (func(M) =
 			( if 
@@ -3956,7 +4013,13 @@ write_dll_dependencies_list(Module, Modules0, Prefix, DepStream) -->
 			)
 		),
 		Modules = list__remove_dups(list__map(F, Modules0))
-	},
+	).
+
+:- pred write_dll_dependencies_list(list(module_name),
+		string, io__output_stream, io__state, io__state).
+:- mode write_dll_dependencies_list(in, in, in, di, uo) is det.
+
+write_dll_dependencies_list(Modules, Prefix, DepStream) -->
 	list__foldl(write_dll_dependency(DepStream, Prefix), Modules).
 
 :- pred write_dll_dependency(io__output_stream, string, module_name,
