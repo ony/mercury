@@ -83,7 +83,7 @@
 	--->	ft(  
 		     keys	:: list(K),	% list of allowed keys
 		     run	:: int,		% number of runs
-		     stable	:: bool,	% is stable (default = yes)
+		     recursive	:: bool,	% is recursive or not
 		     mapping 	:: map(K, fp_entry(E))
 		).
 
@@ -101,9 +101,9 @@ fp_entry_init(Bool, Elem) = entry(Bool, Elem).
 fp_entry_stability(entry(S, _)) = S. 
 fp_entry_elem(entry(_, Elem)) = Elem. 
 
-fp_init(Init, Ks, ft(Ks, Run, Stable, Map)) :- 
+fp_init(Init, Ks, ft(Ks, Run, IsRecursive, Map)) :- 
 	Run = 0,
-	Stable = yes,
+	IsRecursive = no,
 	map__init(Map0),
 	list__foldl(
 		(pred(K::in, M0::in, M::out) is det :- 
@@ -119,18 +119,24 @@ fp_new_run(T0, T0 ^ run := T0 ^ run + 1).
 fp_which_run(T0) = T0 ^ run.
 
 fp_stable(T) :- 
-	map__foldl(
-		pred(_K::in, Entry::in, S0::in, S::out) is det :- 
-		(
-			( S0 = no -> 
-				S = no
-			;
-				S = fp_entry_stability(Entry)
-			)
-		),
-		T ^ mapping,
-		yes, 
-		yes). 
+	(
+		T ^ recursive = yes
+	->
+		map__foldl(
+			pred(_K::in, Entry::in, S0::in, S::out) is det :- 
+			(
+				( S0 = no -> 
+					S = no
+				;
+					S = fp_entry_stability(Entry)
+				)
+			),
+			T ^ mapping,
+			yes, 
+			yes)
+	;
+		true
+	). 
 	
 fp_add(Equal, Index, Elem, Tin, Tout) :- 
 	Map = Tin ^ mapping, 
@@ -178,7 +184,7 @@ fp_get(Index, Elem, Tin, Tout) :-
 	;
 		require__error("(fixpoint_table): key not in map")
 	),
-	Tout = (Tin ^ mapping := Mapout).
+	Tout = (Tin ^ mapping := Mapout) ^ recursive := yes.
 
 fp_get_final(Index, Elem, T) :- 
 	(
