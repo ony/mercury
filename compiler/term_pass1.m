@@ -34,10 +34,14 @@
 
 :- import_module io, hlds_module.
 
-% get dependency ordering, and call proc_ineq_2 with them
-:- pred proc_inequalities(module_info, module_info, io__state, 
-	io__state).
+% This is the top level predicate of term_pass1.  It processes all of the
+% procedures in the module, and sets the termination constant of each of
+% them.  The procedures are processed in the order given by
+% hlds_dependency_info_get_dependency_ordering.
+:- pred proc_inequalities(module_info, module_info, io__state, io__state).
 :- mode proc_inequalities(in, out, di, uo) is det.
+
+%------------------------------------------------------------------------------
 
 :- implementation.
 
@@ -45,15 +49,21 @@
 :- import_module term_errors, list, require, bool, std_util, char, map, string.
 :- import_module mode_util, type_util.
 
-% this section contains proc_inequalities and its supporting functions.
-% proc_inequalities goes through the dependency ordering, applying 
-% goal_inequality to each SCC in turn, and solving the resulting constraints
+%------------------------------------------------------------------------------
 
-% term_pass1__equation stores a single constraint
-% the constraint is of the form:
+% This section contains proc_inequalities and its supporting functions.
+% proc_inequalities goes through the dependency ordering, applying 
+% goal_inequality to each SCC in turn.  goal_inequality returns a set of 
+% constraints which are then solved using lp_solve.
+
+% term_pass1__equation stores a single constraint.
+% The constraint is of the form:
 % pred_proc_id - list(pred_proc_id) >= term_util__constant
+% Where pred_proc_id represents a variable which relates the total size of
+% the input variables to the total size of the output variables.
 :- type term_pass1__equation
 	---> 	eqn(term_util__constant, pred_proc_id, list(pred_proc_id)).
+
 :- type used_args == map(pred_proc_id, list(bool)).
 
 proc_inequalities(Module0, Module) -->
@@ -84,16 +94,21 @@ proc_inequalities_2(Module0, [ SCC | SCCs ], Module) -->
 :- mode proc_inequalities_3(in, in, in, in, in, out, di, uo) is det.
 proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs, 
 		Offs0, Module) --> 
-	% First check used args.  If fixed point, then continue.  else,
-	% recurse on new used args.
+	% First check used_args.  If a fixed point has been reached, then 
+	% continue with the analysis and solve the resulting constraints.  
+	% If a fixed point has not been reached, then recurse on the new
+	% used args.
 	( { OldUsedArgs = NewUsedArgs } ->
-		% have reached fixed point, set used args, then process results
+		% A fixed pointhas been reached.  Set used_args, then
+		% process the constraints that have been created.
 		{ module_info_preds(Module0, PredTable0) },
 		{ set_used_args(PredTable0, SCC, NewUsedArgs, PredTable) },
 		{ module_info_set_preds(Module0, PredTable, Module1) },
-		% step one: solve eqns
+
+		% Solve the equations that have been created.
 		{ proc_inequalities_3_remove_useless_offsets(Offs0, Offs, 
 			Succ) },
+
 		% XXX what is the correct context to use when referring to
 		% a whole SCC?
 		( { SCC = [proc(PredId, _)] } ->
@@ -106,45 +121,55 @@ proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs,
 			% There is a directly recursive call where the
 			% variables grow between the head and recursive
 			% call.  Therefore the output is infinitly larger
-			% than the input.  e.g. foo(A) :- foo([1|A]).
+			% than the input.  
+			% e.g. foo(A) :- foo([1|A]).
 			{ set_pred_proc_ids_const(SCC, inf(no), Module1, 
 				Module) }
 		; { Offs = [] } ->
-			% io__write_string("no equations in this SCC\n"),
-			% this probably means that it is analysing a
-			% builtin pred which has no body.
+			% There are no equations in this SCC
+			% This has 2 possible causes.  If the predicate has
+			% no output arguments, then the relative size of
+			% input and output arguments is undefined.  If
+			% there are no output arguments, then there will be
+			% no equations created.  The other possibility is
+			% that the procedure is a builtin predicate,  which
+			% has an empty body.
 	
-			% XXX what is the correct context to use when
-			% referring to a whole SCC?
 			{ NewConst = inf(yes(Context - no_eqns)) },
 			{ set_pred_proc_ids_const(SCC, NewConst,
 				Module1, Module) } 
 		;
 			solve_eqns(Offs, SCC, Soln),
-			% step two: put results back into module
+
+			% The equations have been solved, now put the
+			% results into the module_info.
 			( { Soln = solved(SolutionList) } ->
-				%Yeah, it worked
-				% PredTable0 and PredTable1 used at start
-				% of this predicate
+				% The solver successfully solved the
+				% constraints.
+				% PredTable0 and PredTable are used at the
+				% start of this predicate.
 				{ module_info_preds(Module1, PredTable1) },
 				{ proc_inequalities_set_module(SolutionList, 
 					PredTable1, PredTable2) },
 				{ module_info_set_preds(Module1, PredTable2, 
 					Module) }
 			; { Soln = optimal } ->
-				% damn error - print it out, and youre done
-				% all 'optimal' results should have been
-				% changed into a list of solutions
-				{ error("Unexpected Value in term_pass1.m\n")},
+				% All 'optimal' results should have been
+				% changed into a list of solutions in
+				% solve_eqns.  
+				{ error("term_pass1__proc_inequalities_3: Unexpected Value\n")},
 				{ Module1 = Module }
 			;
+				% The constraint solver failed to solve the
+				% set of constraints - set the termination
+				% constant to infinity.
 				{ Error = Context - lpsolve_failed(Soln) },
 				{ set_pred_proc_ids_const(SCC, 
 					inf(yes(Error)), Module1, Module) }
 			)
 		)
 	;
-		% not yet at fixed point, try again.
+		% The analysis has not reached a fixed point, so recurse.
 		proc_inequalities_3(Module0, SCC, SCC - NewUsedArgs, 
 			NewUsedArgs, [], Module)
 	).
@@ -160,8 +185,8 @@ proc_inequalities_3(Module0, [PPId | PPIds], SCC - OldUsedArgsMap,
 		{ goal_inequality(Module0, PredId, ProcId, Offs1, Res, 
 			OldUsedArgsMap, NewUsedArgs) },
 		( { Res = error(Error) } ->
-			% damn, the bloody thing failed.
-			% set all term_util__constants to inf
+			% goal_inequality failed, so set all the
+			% termination constants to infinity.
 			{ set_pred_proc_ids_const(SCC, inf(yes(Error)), 
 				Module0, Module2) },
 			( 
@@ -184,31 +209,18 @@ proc_inequalities_3(Module0, [PPId | PPIds], SCC - OldUsedArgsMap,
 				UsedArgsMap, Offs, Module) 
 		)
 	;
-		% the termination constant has already been set - hopefully
-		% this is true of all the procs in this SCC
+		% The termination constant has already been set - hopefully
+		% this is true of all the procedures in this SCC.  Perhaps
+		% it would be wise to add a check that this is the case.
 		{ Module = Module0 }
-		/****
-		( { SCC = [ PPId ] } ->
-			% This proc is in its own SCC.
-			% its term const could have been set from 
-			% an intermodule optimization, or because it is
-			% imported.  either way, it should just be left
-			{ Module = Module0 }
-		;
-			% Hmm, this shouldnt happen...
-			{ Module = Module0 },
-			%io__write_string("SCC is: "),
-			%{ c_put_ppids(SCC) },
-			%io__write_string("PPId is: "),
-			%{ c_put_ppid(PPId) },
-			%io__nl,
-			{ error("term_pass1__proc_inequalities_3: Unexpected value of termination constant\n")}
-		)
-		*******/
-			
 	).
 	
-% this removes offsets where there are no variables
+% This procedure removes offsets where there are no variables in the offset.
+% It would be nice if lp_solve would accept constraints of the form 
+% (0 >= -1), but it doesnt so they need to be removed manually, which is
+% what this procedure does. If this procedure returns `no' then the
+% constraints are unsatisfiable (0 >= 1).  If the return value is `yes' the
+% the constraints that were removed were all satisfiable.
 :- pred proc_inequalities_3_remove_useless_offsets(
 	list(term_pass1__equation), list(term_pass1__equation), bool).
 :- mode proc_inequalities_3_remove_useless_offsets(in, out, out) is det.
@@ -237,6 +249,9 @@ proc_inequalities_3_remove_useless_offsets([ Off0 | Offs0 ], Offs, Succ) :-
 		Offs = [ Off0 | Offs1]
 	).
 
+% This predicate takes the results from solve_eqns (if it successfully
+% solved the constraints), and inserts these results into the
+% predicate_table.
 :- pred proc_inequalities_set_module(list(pair(pred_proc_id, int)),
 	pred_table, pred_table).
 :- mode proc_inequalities_set_module(in, in, out) is det.
@@ -255,18 +270,19 @@ proc_inequalities_set_module([ Soln | Solns ], PredTable0, PredTable) :-
 		proc_info_set_termination(ProcInfo, term(Const, B, C, D), 
 			ProcInfo1)
 	;
-		% this can happen if an imported pred was in the same
+		% This can only happen if an imported pred was in the same
 		% SCC as some local preds, or if somehow some equations
-		% were made for an imported pred.  
-		error("proc_inequalities_set_module: SoftwareError"),
+		% were made for an imported pred.  Both of these occurances
+		% represent an error in the code.
+		error("term_pass1__proc_inequalities_set_module: Error"),
 		ProcInfo1 = ProcInfo
 	),
-
 	map__set(ProcTable, ProcId, ProcInfo1, ProcTable1),
 	pred_info_set_procedures(PredInfo, ProcTable1, PredInfo1),
 	map__set(PredTable0, PredId, PredInfo1, PredTable1),
 	proc_inequalities_set_module(Solns, PredTable1, PredTable).
 
+% used to initialise the used_args map.
 :- pred init_used_args(module_info, list(pred_proc_id), used_args).
 :- mode init_used_args(in, in, out) is det.
 init_used_args(_Module, [], InitMap) :-
@@ -279,6 +295,7 @@ init_used_args(Module, [PPId | PPIds], Out) :-
 	term_util__make_bool_list(HeadVars, [], BoolList),
 	map__det_insert(Out0, PPId, BoolList, Out).
 
+% used to insert the information in the used_args map into the pred_table.
 :- pred set_used_args(pred_table, list(pred_proc_id), used_args, pred_table).
 :- mode set_used_args(in, in, in, out) is det.
 set_used_args(PredTable, [], _, PredTable).
@@ -299,11 +316,12 @@ set_used_args(PredTable0, [PPId | PPIds], UsedArgsMap, PredTable) :-
 	
 
 %-----------------------------------------------------------------------------%
-% This section contains goal_inequality and its supporting functions.  
-% goal_inequality processes a goal, and finds an inequality relating the 
-% sizeof(input arguments) to the sizeof(output arguments).  If it finds a 
-% valid inequality, then it returns the offset of the inequality (with Res 
-% set to ok).  If no inequality can be found, then it returns Res = error().
+% This section contains goal_inequality and its supporting functions.
+% goal_inequality processes a goal, and finds an inequality relating the
+% sizeof(input arguments) to the sizeof(output arguments).  If it finds a
+% valid inequality, then it returns the offset of the inequality (with Res
+% set to ok).  If no inequality can be found, then goal_inequality returns
+% Res = error().
 
 :- type goal_inequality_equ == list(pair(term_pass1__equation, bag(var))).
 :- type goal_inequality_info == pair(functor_algorithm, used_args).
@@ -327,6 +345,7 @@ goal_inequality(Module, PredId, ProcId, Offs, Res, OldUsedArgsMap,
 
 	PPId = proc(PredId, ProcId),
 	InitEqn = eqn(set(0), PPId, []),
+	% XXX the functor algorithm should be set at the command line.
 	UnifyInfo = total,
 	CallInfo = OldUsedArgsMap,
 	Info = UnifyInfo - CallInfo,
@@ -357,24 +376,25 @@ goal_inequality(Module, PredId, ProcId, Offs, Res, OldUsedArgsMap,
 :- mode goal_inequality_used_args(in, in, in, out) is det.
 goal_inequality_used_args([], _InVarsBag, [], []).
 goal_inequality_used_args([_ | _], _InVarsBag, [], []) :-
-	error("Unmatched variables  in term_pass1.m").
+	error("term_pass1__goal_inequality_used_args: Unmatched variables").
 goal_inequality_used_args([], _InVarsBag, [_ | _], []) :-
-	error("Unmatched variables in term_pass1.m").
+	error("term_pass1:goal_inequality_used_args: Unmatched variables").
 goal_inequality_used_args([ Arg | Args ], InVarsBag, 
 		[ OldUsedArg | OldUsedArgs ], [ UsedArg | UsedArgs ]):-
 	( bag__contains(InVarsBag, Arg) ->
 		UsedArg = yes
 	;
-		UsedArg = OldUsedArg	% this guarantees monotonicity
+		UsedArg = OldUsedArg	% This guarantees monotonicity
 	),
 	goal_inequality_used_args(Args, InVarsBag, OldUsedArgs, UsedArgs).
  
 
-% goal_inequality_2 fails if it cannot form an inequality.  i.e. there are
-% horder calls, horder args, or pragma-c-code.
-% The last two arguments are variables that hold the currently ground variables
-% As the predicate moves through the goal, these variable-lists are modified
-% as the ground variables change
+% goal_inequality_2 fails if it cannot form an inequality.  i.e. if there are
+% higher order calls, higher order arguments, or pragma-c-code with
+% relevent output variables. The reason for checking for higher order
+% arguments is that this traps calls to solutions, which would not
+% otherwise be checked.
+
 :- pred goal_inequality_2(hlds_goal_expr, hlds_goal_info, module_info, 
 	goal_inequality_info, pred_proc_id, 
 	term_util__result(term_errors__error),
@@ -388,10 +408,10 @@ goal_inequality_2(conj([ Goal | Goals ]), _GoalInfo, Module, Info,
 	goal_inequality_2_conj(Goal, Goals, Module, Info, PPId, 
 		Res, Offs0, Offs).
 
-% this fails (returns Res=error) if:
-%	there are higher order arguments
-%	The terminates of the called predicate is 'dont_know'
-%	the termination constant of the called predicate is infinite
+% This clause fails (returns Res=error()) if:
+%	The called predicate contains higher order arguments
+%	The terminates value of the called predicate is 'dont_know'
+%	The termination constant of the called predicate is infinite
 goal_inequality_2(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _SymName),
 		GoalInfo, Module, Info, PPId, Res, Offs0, Offs) :-
 	module_info_pred_proc_info(Module, CallPredId, 
@@ -439,10 +459,9 @@ goal_inequality_2(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _SymName),
 			Res = error(Context - horder_args(CallPPId)),
 			Offs = Offs0
 		;
-			% if control reaches here, then there are no horder 
+			% If control reaches here, then there are no horder 
 			% args, and the predcates termination property is
-			% not dont_know.  Therefore, modify the termination
-			% property.
+			% not dont_know.  Therefore modify the offsets.
 			( 
 				CallTermConst = not_set,
 				Res = ok,
@@ -479,12 +498,15 @@ goal_inequality_2(unify(_Var, _RHS, _UnifyMode, Unification, _UnifyContext),
 	Info = FunctorAlg - _CallInfo,
 	(
 		Unification = construct(OutVar, ConsId, Args, UniModes),
-		% need to check if OutVar is of horder type.  If so, return
-		% Offs unfodified.
+		% Need to check if OutVar is a hgher order type.  If so,
+		% return Offs unfodified.
 		% XXX i am not sure that this is always valid.  If the
 		% horder type is used elsewhere (eg in an argument to a
 		% call), then it will be picked up there, and will return
-		% Res = error(horder...).
+		% Res = error(horder...). If this check is not made then
+		% split_unification_vars can quit with an error, as
+		% length(Args) is not necessarily equal to length(UniModes)
+		% for higher order unifications.
 		PPId = proc(PredId, ProcId),
 		module_info_pred_proc_info(Module, PredId, ProcId,_, ProcInfo),
 		proc_info_vartypes(ProcInfo, VarTypes),
@@ -525,7 +547,7 @@ goal_inequality_2(unify(_Var, _RHS, _UnifyMode, Unification, _UnifyContext),
 		error("Unexpected complicated_unify in termination.m")
 	).
 
-% no variables are bound in an empty disjunction (fail), so it does not
+% No variables are bound in an empty disjunction (fail), so it does not
 % make sense to define an equation relating input variables to output
 % variables.
 goal_inequality_2(disj([], _), _, _Module, _, _PPId, ok, Offs, Offs).
@@ -534,7 +556,7 @@ goal_inequality_2(disj([ Goal | Goals ], _StoreMap),
 	goal_inequality_2_disj(Goal, Goals, GoalInfo, Module, Info, 
 		PPId, Res, Offs0, Offs).
 
-% as we are trying to form a relationship between variables sizes, and no
+% As we are trying to form a relationship between variables sizes, and no
 % variables can be bound in a not, we dont need to evaluate inside the not
 goal_inequality_2(not(_), _GoalInfo, _Module, _, _PPId, ok, Offs, Offs).
 
@@ -758,12 +780,18 @@ split_offs_vars([ X | Xs ], [ Off | Offs ], VarBag) :-
 %-----------------------------------------------------------------------------%
 % Solve the list of constraints 
 
-% output is of the form required by lp_solve (not yet)
-% which is : input = [eqn(Const, PPid, [PPidList])]
+% output is of the form required by lp_solve.
+% which is given the input = [eqn(Const, PPid, [PPidList])]
 % max: .......
 % c1: PPid - (PPidList) > Const;
 % c2: PPid - (PPidList) > Const;
-% where PPid (proc(PredId, ProcId)) is printed as ' aPredId_ProcId '
+% where PPid (proc(PredId, ProcId)) is printed as ' aPredId_ProcId - b '
+% The choice of the letter `a' is arbitrary, and is chosen as lp_solve does
+% not allow variables to start with digits.
+% The variable `b' is used as lp_solve will only solve for positive values
+% of variables.  replacing each variable occurance with ` a#_# - b ', this
+% avoids the problem of only allowing positive variables as  a#_# - b can
+% be negative even when a#_# and b are both positive.
 %
 
 :- pred solve_eqns(list(term_pass1__equation), list(pred_proc_id), eqn_soln,
@@ -771,7 +799,7 @@ split_offs_vars([ X | Xs ], [ Off | Offs ], VarBag) :-
 :- mode solve_eqns(in, in, out, di, uo) is det.
 
 solve_eqns(Equations, PPIds, Soln) -->
-	io__progname_base("termination.m", ProgName),
+	io__progname_base("term_pass1.m", ProgName),
 	io__tmpnam(ConstraintFile),
 	io__tmpnam(OutputFile),
 	
@@ -800,10 +828,16 @@ solve_eqns(Equations, PPIds, Soln) -->
 			{ lpsolve_ret_val(RetVal, Result) },
 			( { Result = optimal } ->
 				% Wohoo, lp_solve worked out an answer!!
-				solve_eqns_output_file(OutputFile, Soln0),
+				solve_eqns_output_file(OutputFile, Soln0)
+				/*******
+				% Tests to see if lp_solve managed to solve
+				% the constraints.  If lp_solve fails, it
+				% is sometimes useful in debugging to see
+				% the file that forced lp_solve to fail.
 				( { Soln0 = solved(_) } ->
 					[]
 				;
+
 					io__write_string("solve_eqns_parse_output_file failed on the following file:\n"),
 					{ string__append_list([
 						"cat ",
@@ -813,16 +847,21 @@ solve_eqns(Equations, PPIds, Soln) -->
         				io__call_system(Command1, _RetVal),
 					io__write_string("----------- end of file --------\n")
 				)
+				******/
 			;
-				% Damn, it failed, interpret result, 
-				% and were done
+				% lp_solve failed to solve the constraints.
+				% This could be for a number of reasons,
+				% and the value of Result will represent
+				% the reason.
 
+				/****
 				io__write_string("lp_solve failed on the following input file:\n"),
 				{ string__append_list([
 					"cat ",
 					ConstraintFile], Command1) },
         			io__call_system(Command1, _RetVal),
 				io__write_string("----------- end of file --------\n"),
+				*****/
 				{ Soln0 = Result }
 			)
 		;
@@ -839,7 +878,7 @@ solve_eqns(Equations, PPIds, Soln) -->
 			{ Soln0 = fatal_error }
 		),
 
-		% dont forget to close, and delete files!!
+		% Remove and close all temporary files.
 		io__remove_file(ConstraintFile, Res1),
 		( { Res1 = error(Error1) } ->
 			{ io__error_message(Error1, Msg1) },
@@ -855,7 +894,6 @@ solve_eqns(Equations, PPIds, Soln) -->
 		;
 			{ Soln1 = Soln0 } 
 		),
-
 		io__remove_file(OutputFile, Res2),
 		( { Res2 = error(Error2) } ->
 			{ io__error_message(Error2, Msg2) },
@@ -871,11 +909,13 @@ solve_eqns(Equations, PPIds, Soln) -->
 			{ Soln = Soln1 }
 		)
 	;
-		% failed to make constraint file
+		% Failed to create the constraint file.
 		{ Soln = fatal_error }
 	).
 
-% this really shouldnt be called with Equations=[].
+% This creates the constraint file, in a format suitable for lp_solve.
+% This really shouldn't be called with Equations=[] as lp_solve exits with
+% an error if it is called without any constraints.
 :- pred solve_eqns_constraint_file(list(term_pass1__equation),
 	list(pred_proc_id), string, bool, io__state, io__state).
 :- mode solve_eqns_constraint_file(in, in, in, out, di, uo) is det.
@@ -910,6 +950,7 @@ solve_eqns_constraint_file(Equations, PPIds, ConstraintFile, Success) -->
 		)
 	).
 
+% Prepare to parse the output from lp_solve.
 :- pred solve_eqns_output_file(string, eqn_soln, io__state, io__state).
 :- mode solve_eqns_output_file(in, out, di, uo) is det.
 solve_eqns_output_file(OutputFile, Soln) -->
@@ -936,6 +977,7 @@ solve_eqns_output_file(OutputFile, Soln) -->
 		io__close_input(Stream)
 	).
 
+% Parse the output from lp_solve.
 :- pred solve_eqns_parse_output_file(eqn_soln, io__state, io__state).
 :- mode solve_eqns_parse_output_file(out, di, uo) is det.
 solve_eqns_parse_output_file(Soln) -->
@@ -1052,15 +1094,14 @@ lpsolve_ret_val(Int0, Result) :-
 	Int = Int0 >> 8,
 	( Int = -1	->	Result = fatal_error
 	; Int = 0	->	Result = optimal
-	; Int = 1	->	Result = failure
 	; Int = 2	->	Result = infeasible
 	; Int = 3	->	Result = unbounded
-	; Int = 4	->	Result = failure
-	; Int = 5	->	Result = failure
 	; 			Result = failure
 	).
 
 %-----------------------------------------------------------------------------%
+% These predicates are used to output a list of equations in a form
+% suitable for lp_solve.  
 :- pred output_eqns(list(term_pass1__equation), list(pred_proc_id),
 	bool, io__state , io__state).
 :- mode output_eqns(in, in, out, di, uo) is det.
@@ -1182,38 +1223,4 @@ output_eqn_ppid(proc(PredId, ProcId)) -->
 	io__write_int(PredInt),
 	io__write_char('_'),
 	io__write_int(ProcInt).
-
-%-----------------------------------------------------------------------------%
-
-:- pred c_puts(string).
-:- mode c_puts(in) is det.
-
-:- pred c_put_ppid(pred_proc_id).
-:- mode c_put_ppid(in) is det.
-
-:- pred c_put_ppids(list(pred_proc_id)).
-:- mode c_put_ppids(in) is det.
-
-c_put_ppids([]) :-
-	c_puts("\n").
-c_put_ppids([X | Xs]) :-
-	c_put_ppid(X),
-	c_puts(","),
-	c_put_ppids(Xs).
-
-c_put_ppid(proc(PredId, ProcId)) :-
-	pred_id_to_int(PredId, PredInt),
-	proc_id_to_int(ProcId, ProcInt),
-	string__int_to_string(PredInt, PredIdS),
-	string__int_to_string(ProcInt, ProcIdS),
-	c_puts("PredId:"),
-	c_puts(PredIdS),
-	c_puts("ProcId:"),
-	c_puts(ProcIdS).
-	
-:- pragma c_header_code("#include <stdio.h>").
-:- pragma c_code(c_puts(S::in), will_not_call_mercury,
-        "printf("" %s "", S);").
-
-
 
