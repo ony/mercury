@@ -201,8 +201,24 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			choice(construct(set__list_to_set(Canditates))),
 			GoalInfo) }.
 
-apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
+apply_constraint_unification(_Constraint, Unif, GoalInfo0, GoalInfo) -->
 	{ Unif = deconstruct(Var, ConsId, _Vars, _Modes, _CanFail, _CanCGC) },
+
+	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
+	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
+		(
+			MaybeDies = yes(_Condition),
+			goal_info_set_reuse(GoalInfo0, reuse(cell_died),
+					GoalInfo)
+		;
+			MaybeDies = no,
+			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+					GoalInfo)
+		)
+	;
+		error("sr_choice__apply_constraint_unification")
+	},
+
 	Map0 =^ map,
 	{ multi_map__set(Map0, Var, ConsId, Map) },
 	^ map := Map.

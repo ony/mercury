@@ -1121,7 +1121,7 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 
 		{ goal_info_get_reuse(GoalInfo, REUSE) } ,
 	        (
-			{ REUSE = reuse(no_reuse) }
+			{ REUSE = reuse(no_reuse) ; REUSE = empty }
 		->
 			[]
 		; 

@@ -451,7 +451,7 @@ dead_cell_pool_try_to_reuse( Cons, Pool, Set) :-
 
 cons_can_reuse( Arity, _Var - Extra ) :- 
 	Extra = extra( DeadArity, _, _), 
-	Arity < DeadArity.
+	Arity =< DeadArity.
 
 :- pred to_pair_var_condition( pair( prog_var, dead_extra_info), 
 		pair( prog_var, reuse_condition) ).
