@@ -21,7 +21,7 @@
 
 :- import_module prog_data, hlds_goal, hlds_pred.
 :- import_module xrobdd, term, set, stack, map.
-% :- import_module io, hlds_module, inst_graph.
+:- import_module io.
 /*
 :- import_module list.
 */
@@ -100,10 +100,10 @@
 :- pred dump_constraints(module_info::in, prog_varset::in, mode_constraint::in,
 		io__state::di, io__state::uo) is det.
 
+*/
 :- pred robdd_to_dot(mode_constraint::in, prog_varset::in,
 		mode_constraint_info::in, string::in,
 		io__state::di, io__state::uo) is det.
-*/
 
 :- type prodvars_map == map(lambda_path, set(prog_var)).
 
@@ -170,10 +170,11 @@ mode_constraint_var(Info, RepVar) = bimap__lookup(Info^varmap, Key) :-
 remove_goal_path_branches(RepVar) =
 	(
 		RepVar = ProgVar `at` Path0,
-		list__takewhile((pred(Step::in) is semidet :-
-			( Step = disj(_) ; Step = ite_then ; Step = ite_else 
-			; Step = neg ; Step = exist(_)
-			)),
+		list__takewhile((pred(_Step::in) is semidet :-
+			semidet_fail), % XXX
+			%( Step = disj(_) ; Step = ite_then ; Step = ite_else 
+			%; Step = neg ; Step = exist(_)
+			%)),
 		    Path0, _, Path)
 	->
 		% Variables in each branch of a branched goal are always
@@ -269,6 +270,7 @@ dump_constraints(_ModuleInfo, _VarSet, ROBDD) -->
 	{ robdd__size(ROBDD, Nodes, Depth) },
 	io__format("Nodes: %d \tDepth: %d\n", [i(Nodes), i(Depth)]),
 	flush_output.
+*/
 
 :- pred dump_mode_constraint_var(prog_varset::in, rep_var::in,
 		io__state::di, io__state::uo) is det.
@@ -315,8 +317,9 @@ dump_goal_path_step(first) -->
 dump_goal_path_step(later) -->
 	io__write_char('l').
 
+
 robdd_to_dot(Constraint, ProgVarSet, Info, FileName) -->
-	robdd_to_dot(Constraint, P, FileName),
+	robdd_to_dot(Constraint ^ robdd, P, FileName),
 	{ VarMap = Info^varmap },
 	{ P = (pred(RobddVar::in, di, uo) is det -->
 		{ bimap__reverse_lookup(VarMap, key(RepVar, PredId, LambdaPath),
@@ -326,9 +329,11 @@ robdd_to_dot(Constraint, ProgVarSet, Info, FileName) -->
 		{ pred_id_to_int(PredId, PredIdNum) },
 		io__write_int(PredIdNum),
 		io__write_string(" "),
-		io__write_int(stack__depth(LambdaPath))
+		io__write_int(stack__depth(LambdaPath)),
+		io__write_string(" ("),
+		io__write_int(term__var_to_int(RobddVar)),
+		io__write_string(")")
 	)}.
-*/
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

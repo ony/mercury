@@ -128,13 +128,20 @@
 
 %-----------------------------------------------------------------------------%
 
+% XXX
+:- func robdd(xrobdd(T)) = robdd(T).
+
+%-----------------------------------------------------------------------------%
+
 
 :- implementation.
 
 :- include_module xrobdd__equiv_vars.
+:- include_module xrobdd__implications.
 
 :- import_module robdd, sparse_bitset, bool, int, list.
 :- import_module xrobdd__equiv_vars.
+:- import_module xrobdd__implications.
 
 % T - true vars, F - False Vars, E - equivalent vars, N -
 % non-equivalent vars, I - implications, R - ROBDD.
@@ -156,29 +163,31 @@
 		).
 
 
-one = xrobdd(init, init, init_equiv_vars, one).
+one = xrobdd(init, init, init_equiv_vars, init_imp_vars, one).
 
-zero = xrobdd(init, init, init_equiv_vars, zero).
+zero = xrobdd(init, init, init_equiv_vars, init_imp_vars, zero).
 
-xrobdd(TA, FA, EA, RA) * xrobdd(TB, FB, EB, RB) = 
+xrobdd(TA, FA, EA, IA, RA) * xrobdd(TB, FB, EB, IB, RB) = 
 		normalise(xrobdd(TA1 `union` TB1, FA1 `union` FB1,
-			EA1 * EB1, RA1 * RB1)) :-
+			EA1 * EB1, IA1 * IB1, RA1 * RB1)) :-
 	TU = TA `union` TB,
 	FU = FA `union` FB,
 	EU = EA * EB,
-	xrobdd(TA1, FA1, EA1, RA1) = normalise(xrobdd(TU, FU, EU, RA)),
-	xrobdd(TB1, FB1, EB1, RB1) = normalise(xrobdd(TU, FU, EU, RB)).
+	IU = IA * IB,
+	xrobdd(TA1, FA1, EA1, IA1, RA1) = normalise(xrobdd(TU, FU, EU, IU, RA)),
+	xrobdd(TB1, FB1, EB1, IB1, RB1) = normalise(xrobdd(TU, FU, EU, IU, RB)).
 
-xrobdd(TA0, FA0, EA0, RA0) + xrobdd(TB0, FB0, EB0, RB0) = X :-
+xrobdd(TA0, FA0, EA0, IA0, RA0) + xrobdd(TB0, FB0, EB0, IB0, RB0) = X :-
 	( RA0 = zero ->
-	    X = xrobdd(TB0, FB0, EB0, RB0)
+	    X = xrobdd(TB0, FB0, EB0, IB0, RB0)
 	; RB0 = zero ->
-	    X = xrobdd(TA0, FA0, EA0, RA0)
+	    X = xrobdd(TA0, FA0, EA0, IA0, RA0)
 	;
-	    X = xrobdd(T, F, E, R),
+	    X = xrobdd(T, F, E, I, R),
 	    T = TA0 `intersect` TB0,
 	    F = FA0 `intersect` FB0,
 	    E = EA + EB,
+	    I = IA + IB,
 	    R = RA + RB,
 
 	    TAB = TA0 `difference` TB0,
@@ -189,18 +198,27 @@ xrobdd(TA0, FA0, EA0, RA0) + xrobdd(TB0, FB0, EB0, RB0) = X :-
 	    FBA = FB0 `difference` FA0,
 	    EB = EB0 ^ add_equalities(TBA) ^ add_equalities(FBA),
 
+	    EAB = EA `difference` EB,
+	    IA = IA0 ^ add_equalities_to_imp_vars(EAB),
+
+	    EBA = EB `difference` EA,
+	    IB = IB0 ^ add_equalities_to_imp_vars(EBA),
+
 	    RA1 = foldl(func(V, R0) = R0 * var(E ^ det_leader(V)), TAB, RA0),
 	    RA2 = foldl(func(V, R0) = R0 * 
 			    not_var(E ^ det_leader(V)), FAB, RA1),
 	    EA1 = (EA `difference` EB) + EA0,
-	    RA = expand_equiv(EA1, RA2),
+	    RA3 = expand_equiv(EA1, RA2),
+	    IA1 = (IA `difference` IB) + IA0,
+	    RA = expand_implications(IA1, RA3),
 
 	    RB1 = foldl(func(V, R0) = R0 * var(E ^ det_leader(V)), TBA, RB0),
 	    RB2 = foldl(func(V, R0) = R0 *
 			    not_var(E ^ det_leader(V)), FBA, RB1),
 	    EB1 = (EB `difference` EA) + EB0,
-	    RB = expand_equiv(EB1, RB2)
-
+	    RB3 = expand_equiv(EB1, RB2),
+	    IB1 = (IB `difference` IA) + IB0,
+	    RB = expand_implications(IB1, RB3)
 	).
 
 var_entailed(X, V) :-
@@ -220,13 +238,24 @@ vars_disentailed(X) =
 		some_vars(X ^ false_vars)
 	).
 
-restrict(V, xrobdd(T, F, E, R)) =
-	xrobdd(T `delete` V, F `delete` V, E `delete` V, restrict(V, R)).
+restrict(V, xrobdd(T, F, E, I, R)) =
+	( T `contains` V ->
+	    xrobdd(T `delete` V, F, E, I, R)
+	; F `contains` V ->
+	    xrobdd(T, F `delete` V, E, I, R)
+	; L = E ^ leader(V) ->
+	    ( L \= V ->
+		xrobdd(T, F, E `delete` V, I, R)
+	    ;
+		xrobdd(T, F, E `delete` V, I `delete` V, restrict(V, R))
+	    )
+	;
+	    xrobdd(T, F, E, I `delete` V, restrict(V, R))
+	).
 
-restrict_threshold(V, xrobdd(T, F, E, R)) =
-		xrobdd(filter(P, T), filter(P, F), restrict_threshold(V, E),
-			restrict_threshold(V, R)) :-
-	P = (pred(U::in) is semidet :- \+ compare((>), U, V)).
+restrict_threshold(V, xrobdd(T, F, E, I, R)) =
+	xrobdd(remove_gt(T, V), remove_gt(F, V), restrict_threshold(V, E),
+		restrict_threshold(V, I), restrict_threshold(V, R)).
 
 var(V, X) =
 	( T `contains` V ->
@@ -234,9 +263,9 @@ var(V, X) =
 	; F `contains` V ->
 		zero
 	;
-		normalise(xrobdd(T `insert` V, F, E, R))
+		normalise(xrobdd(T `insert` V, F, E, I, R))
 	) :-
-	X = xrobdd(T, F, E, R).
+	X = xrobdd(T, F, E, I, R).
 
 not_var(V, X) =
 	( F `contains` V ->
@@ -244,9 +273,9 @@ not_var(V, X) =
 	; T `contains` V ->
 		zero
 	;
-		normalise(xrobdd(T, F `insert` V, E, R))
+		normalise(xrobdd(T, F `insert` V, E, I, R))
 	) :-
-	X = xrobdd(T, F, E, R).
+	X = xrobdd(T, F, E, I, R).
 
 eq_vars(VarA, VarB, X) = 
 	( 
@@ -262,9 +291,9 @@ eq_vars(VarA, VarB, X) =
 	->
 		zero
 	;
-		normalise(xrobdd(T, F, add_equality(VarA, VarB, E), R))
+		normalise(xrobdd(T, F, add_equality(VarA, VarB, E), I, R))
 	) :-
-	X = xrobdd(T, F, E, R).
+	X = xrobdd(T, F, E, I, R).
 
 neq_vars(VarA, VarB, X) = 
 	( 
@@ -280,9 +309,9 @@ neq_vars(VarA, VarB, X) =
 	->
 		X
 	;
-		X `x` neq_vars(VarA, VarB)
+		normalise(xrobdd(T, F, E, I ^ neq_vars(VarA, VarB), R))
 	) :-
-	X = xrobdd(T, F, _E, _R).
+	X = xrobdd(T, F, E, I, R).
 
 imp_vars(VarA, VarB, X) =
 	( T `contains` VarA, F `contains` VarB ->
@@ -292,9 +321,9 @@ imp_vars(VarA, VarB, X) =
 	; F `contains` VarA ->
 		X
 	;
-		X `x` imp_vars(VarA, VarB)
+		normalise(xrobdd(T, F, E, I ^ imp_vars(VarA, VarB), R))
 	) :-
-	X = xrobdd(T, F, _E, _R).
+	X = xrobdd(T, F, E, I, R).
 
 conj_vars(Vars, X) =
 	( Vars `subset` T ->
@@ -302,9 +331,9 @@ conj_vars(Vars, X) =
 	; \+ empty(Vars `intersect` F) ->
 		zero
 	;
-		normalise(xrobdd(T `union` Vars, F, E, R))
+		normalise(xrobdd(T `union` Vars, F, E, I, R))
 	) :-
-	X = xrobdd(T, F, E, R).
+	X = xrobdd(T, F, E, I, R).
 
 conj_not_vars(Vars, X) =
 	( Vars `subset` F ->
@@ -312,9 +341,9 @@ conj_not_vars(Vars, X) =
 	; \+ empty(Vars `intersect` T) ->
 		zero
 	;
-		normalise(xrobdd(T, F `union` Vars, E, R))
+		normalise(xrobdd(T, F `union` Vars, E, I, R))
 	) :-
-	X = xrobdd(T, F, E, R).
+	X = xrobdd(T, F, E, I, R).
 
 disj_vars(Vars, X) =
 	( \+ empty(Vars `intersect` T) ->
@@ -324,7 +353,7 @@ disj_vars(Vars, X) =
 	;
 		X `x` disj_vars(Vars)
 	) :-
-	X = xrobdd(T, F, _E, _R).
+	X = xrobdd(T, F, _E, _I, _R).
 
 at_most_one_of(Vars, X) =
 	( count(Vars `difference` F) =< 1 ->
@@ -332,9 +361,9 @@ at_most_one_of(Vars, X) =
 	; count(Vars `intersect` T) > 1 ->
 		zero
 	;
-		X `x` at_most_one_of(Vars)
+		normalise(xrobdd(T, F, E, I ^ at_most_one_of(Vars), R))
 	) :-
-	X = xrobdd(T, F, _E, _R).
+	X = xrobdd(T, F, E, I, R).
 
 not_both(VarA, VarB, X) =
 	( F `contains` VarA ->
@@ -346,9 +375,9 @@ not_both(VarA, VarB, X) =
 	; T `contains` VarB ->
 		not_var(VarA, X)
 	;
-		X `x` (not_var(VarA) + not_var(VarB))
+		normalise(xrobdd(T, F, E, I ^ not_both(VarA, VarB), R))
 	) :-
-	X = xrobdd(T, F, _E, _R).
+	X = xrobdd(T, F, E, I, R).
 
 io_constraint(V_in, V_out, V_, X) = 
 	X ^ not_both(V_in, V_) ^ disj_vars_eq(Vars, V_out) :-
@@ -370,44 +399,104 @@ disj_vars_eq(Vars, Var, X) =
 	;
 		X `x` (disj_vars(Vars) =:= var(Var))
 	) :-
-	X = xrobdd(T, F, _E, _R).
+	X = xrobdd(T, F, _E, _I, _R).
 
-var_restrict_true(V, xrobdd(T, F, E, R)) = X :-
+var_restrict_true(V, xrobdd(T, F, E, I, R)) = X :-
 	( F `contains` V ->
-		X = zero
+	    X = zero
 	; T `contains` V ->
-		X = xrobdd(T `delete` V, F, E, R)
-	; L = E ^ leader(V) ->
-		normalise_known_equivalent_vars(_, T `insert` L, T1, E, E1),
-		X = xrobdd(T1 `delete` V, F, E1, R)
+	    X = xrobdd(T `delete` V, F, E, I, R)
 	;
-		X = normalise(xrobdd(T, F, E, var_restrict_true(V, R)))
+	    X0 = normalise(xrobdd(T `insert` V, F, E, I, R)),
+	    X = X0 ^ true_vars := X0 ^ true_vars `delete` V
 	).
 
-var_restrict_false(V, xrobdd(T, F, E, R)) = X :-
+var_restrict_false(V, xrobdd(T, F, E, I, R)) = X :-
 	( T `contains` V ->
-		X = zero
+	    X = zero
 	; F `contains` V ->
-		X = xrobdd(T, F `delete` V, E, R)
-	; L = E ^ leader(V) ->
-		normalise_known_equivalent_vars(_, F `insert` L, F1, E, E1),
-		X = xrobdd(T, F1 `delete` V, E1, R)
+	    X = xrobdd(T, F `delete` V, E, I, R)
 	;
-		X = normalise(xrobdd(T, F, E, var_restrict_false(V, R)))
+	    X0 = normalise(xrobdd(T, F `insert` V, E, I, R)),
+	    X = X0 ^ false_vars := X0 ^ false_vars `delete` V
 	).
 
-restrict_filter(P, xrobdd(T, F, E, R)) =
-	xrobdd(filter(P, T), filter(P, F), filter(P, E), restrict_filter(P, R)).
+restrict_filter(P, xrobdd(T, F, E, I, R)) =
+	xrobdd(filter(P, T), filter(P, F), filter(P, E), filter(P, I),
+		restrict_filter(P, R)).
 
-labelling(Vars, xrobdd(T, F, E, R), (T `union` TrueVars) `intersect` Vars ,
-		(F `union` FalseVars) `intersect` Vars) :-
-	labelling(Vars, R, TrueVars0, FalseVars0),
-	label(E, TrueVars0, TrueVars, FalseVars0, FalseVars).
+labelling(Vars0, xrobdd(T, F, E, I, R), TrueVars, FalseVars) :-
+	TrueVars0 = T `intersect` Vars0,
+	FalseVars0 = F `intersect` Vars0,
+	Vars = Vars0 `difference` TrueVars0 `difference` FalseVars0,
 
-minimal_model(Vars, xrobdd(T, F, E, R), (TrueVars `union` T) `intersect` Vars,
-		(FalseVars `union` F) `intersect` Vars) :-
-	minimal_model(Vars, R, TrueVars0, FalseVars0),
-	label(E, TrueVars0, TrueVars, FalseVars0, FalseVars).
+	( empty(Vars) ->
+	    TrueVars = TrueVars0,
+	    FalseVars = FalseVars0
+	;
+	    labelling_2(Vars, xrobdd(init, init, E, I, R), TrueVars1,
+	    	FalseVars1),
+	    TrueVars = TrueVars0 `union` TrueVars1,
+	    FalseVars = FalseVars0 `union` FalseVars1
+	).
+
+:- pred labelling_2(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+		is nondet.
+
+labelling_2(Vars0, X0, TrueVars, FalseVars) :-
+	( remove_least(Vars0, V, Vars) ->
+	    (
+		X = var_restrict_false(V, X0),
+		X ^ robdd \= zero,
+		labelling_2(Vars, X, TrueVars, FalseVars0),
+		FalseVars = FalseVars0 `insert` V
+	    ;
+		X = var_restrict_true(V, X0),
+		X ^ robdd \= zero,
+		labelling_2(Vars, X, TrueVars0, FalseVars),
+		TrueVars = TrueVars0 `insert` V
+	    )
+	;
+	    TrueVars = init,
+	    FalseVars = init
+	).
+
+
+minimal_model(Vars, X0, TrueVars, FalseVars) :-
+	( empty(Vars) ->
+	    TrueVars = init,
+	    FalseVars = init
+	;
+	    minimal_model_2(Vars, X0, TrueVars0, FalseVars0),
+	    (
+		TrueVars = TrueVars0,
+		FalseVars = FalseVars0
+	    ;
+		X = X0 `x` (~conj_vars(TrueVars0)),
+		minimal_model(Vars, X, TrueVars, FalseVars)
+	    )
+	).
+
+:- pred minimal_model_2(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+	is semidet.
+
+minimal_model_2(Vars0, X0, TrueVars, FalseVars) :-
+	( remove_least(Vars0, V, Vars) ->
+	    X1 = var_restrict_false(V, X0),
+	    ( X1 ^ robdd \= zero ->
+		minimal_model_2(Vars, X1, TrueVars, FalseVars0),
+		FalseVars = FalseVars0 `insert` V
+	    ;
+		X2 = var_restrict_true(V, X0),
+		X2 ^ robdd \= zero,
+		minimal_model_2(Vars, X2, TrueVars0, FalseVars),
+		TrueVars = TrueVars0 `insert` V
+	    )
+	;
+	    TrueVars = init,
+	    FalseVars = init
+	).
+
 
 %-----------------------------------------------------------------------------%
 
@@ -416,68 +505,71 @@ minimal_model(Vars, xrobdd(T, F, E, R), (TrueVars `union` T) `intersect` Vars,
 normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, ImpVars0, Robdd0)) = X :-
 	% T <-> F
 	( \+ empty(TrueVars0 `intersect` FalseVars0) ->
-		X = zero
+	    X = zero
 	;
-		% TF <-> E
-		normalise_true_false_equivalent_vars(Changed0, TrueVars0,
-			TrueVars1, FalseVars0, FalseVars1, EQVars0, EQVars1),
+	    % TF <-> E
+	    normalise_true_false_equivalent_vars(Changed0, TrueVars0,
+		TrueVars1, FalseVars0, FalseVars1, EQVars0, EQVars1),
 
-		% TF <-> I
-		normalise_true_false_implication_vars(Changed1, TrueVars1,
-			TrueVars2, FalseVars1, FalseVars2, ImpVars0, ImpVars1),
-		Changed2 = Changed0 `bool__or` Changed1,
+	    % TF <-> I
+	    normalise_true_false_implication_vars(Changed1, TrueVars1,
+		TrueVars2, FalseVars1, FalseVars2, ImpVars0, ImpVars1),
+	    Changed2 = Changed0 `bool__or` Changed1,
 
-		% TF -> R
-		Robdd1 = restrict_true_false_vars(TrueVars2, FalseVars2,
-				Robdd0),
-		Changed3 = Changed2 `bool__or` ( Robdd1 \= Robdd0 -> yes ; no),
+	    % TF -> R
+	    Robdd1 = restrict_true_false_vars(TrueVars2, FalseVars2,
+			Robdd0),
+	    Changed3 = Changed2 `bool__or` ( Robdd1 \= Robdd0 -> yes ; no),
 
-		(
-			% TF <- R
-			definite_vars(Robdd1,
+	    (
+		% TF <- R
+		definite_vars(Robdd1,
 				some_vars(NewTrueVars), some_vars(NewFalseVars))
+	    ->
+		(
+		    empty(NewTrueVars),
+		    empty(NewFalseVars)
 		->
-			(
-				empty(NewTrueVars),
-				empty(NewFalseVars)
-			->
-				Changed4 = Changed4,
-				TrueVars = TrueVars2,
-				FalseVars = FalseVars2
-			;
-				Changed4 = yes,
-				TrueVars = TrueVars2 `union` NewTrueVars,
-				FalseVars = FalseVars2 `union` NewFalseVars
-			),
-
-			% E <-> I
-			propagate_equivalences_into_implications(EQVars1,
-				Changed5, ImpVars1, ImpVars2),
-			propagate_implications_into_equivalences(ImpVars2,
-				Changed6, EQVars1, EQVars2),
-			Changed7 = Changed4 `bool__or` Changed5
-					`bool__or` Changed6,
-
-			% E <-> R
-			extract_equivalent_vars_from_robdd(Changed8, Robdd1, 
-					Robdd2, EQVars2, EQVars),
-			Changed9 = Changed7 `bool__or` Changed8,
-
-			% I <-> R
-			extract_implication_vars_from_robdd(Changed10, Robdd2,
-				Robdd, ImpVars2, ImpVars),
-			Changed = Changed9 `bool__or` Changed10,
-
-			X0 = xrobdd(TrueVars, FalseVars, EQVars,
-					ImpVars, Robdd),
-			X = ( Changed = yes ->
-				normalise(X0)
-			;
-				X0
-			)
+		    Changed4 = Changed3,
+		    TrueVars = TrueVars2,
+		    FalseVars = FalseVars2
 		;
-			X = zero
+		    Changed4 = yes,
+		    TrueVars = TrueVars2 `union` NewTrueVars,
+		    FalseVars = FalseVars2 `union` NewFalseVars
+		),
+
+		% E <-> I
+		(
+		    propagate_equivalences_into_implications(EQVars1,
+			Changed5, ImpVars1, ImpVars2)
+		->
+		    propagate_implications_into_equivalences(Changed6,
+			EQVars1, EQVars2, ImpVars2, ImpVars3),
+		    Changed7 = Changed4 `bool__or` Changed5 `bool__or` Changed6,
+
+		    % E <-> R
+		    extract_equivalent_vars_from_robdd(Changed8, Robdd1, Robdd2,
+			EQVars2, EQVars),
+		    Changed9 = Changed7 `bool__or` Changed8,
+
+		    % I <-> R
+		    extract_implication_vars_from_robdd(Changed10, Robdd2,
+			Robdd, ImpVars3, ImpVars),
+		    Changed = Changed9 `bool__or` Changed10,
+
+		    X0 = xrobdd(TrueVars, FalseVars, EQVars, ImpVars, Robdd),
+		    X = ( Changed = yes ->
+			normalise(X0)
+		    ;
+			X0
+		    )
+		;
+		    X = zero
 		)
+	    ;
+		X = zero
+	    )
 	).
 
 :- pred normalise_true_false_equivalent_vars(bool::out, vars(T)::in,
@@ -521,6 +613,6 @@ extract_equivalent_vars_from_robdd(Changed, Robdd0, Robdd, EQVars0, EQVars) :-
 
 :- func x(xrobdd(T)::di_xrobdd, robdd(T)::in) = (xrobdd(T)::uo_xrobdd) is det.
 
-x(X, R) = X * xrobdd(init, init, init_equiv_vars, R).
+x(X, R) = X * xrobdd(init, init, init_equiv_vars, init_imp_vars, R).
 
 %---------------------------------------------------------------------------%

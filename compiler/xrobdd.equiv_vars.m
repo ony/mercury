@@ -11,7 +11,7 @@
 
 :- interface.
 
-:- import_module robdd, bool, term.
+:- import_module robdd, bool, term, map.
 
 :- type equiv_vars(T).
 
@@ -21,9 +21,17 @@
 
 :- func add_equalities(vars(T), equiv_vars(T)) = equiv_vars(T).
 
+:- pred vars_are_equivalent(equiv_vars(T)::in, var(T)::in, var(T)::in)
+		is semidet.
+
+:- pred vars_are_not_equivalent(equiv_vars(T)::in, var(T)::in, var(T)::in)
+		is semidet.
+
 :- func leader(var(T), equiv_vars(T)) = var(T) is semidet.
 
 :- func det_leader(var(T), equiv_vars(T)) = var(T).
+
+:- func leader_map(equiv_vars(T)) = map(var(T), var(T)).
 
 :- pred empty(equiv_vars(T)::in) is semidet.
 
@@ -136,6 +144,13 @@ add_equalities(Vars0, EQVars) =
 	;
 		EQVars
 	).
+
+vars_are_equivalent(_, V, V).
+vars_are_equivalent(EQVars, VA, VB) :-
+	EQVars ^ leader(VA) = EQVars ^ leader(VB).
+
+vars_are_not_equivalent(EQVars, VA, VB) :-
+	\+ vars_are_equivalent(EQVars, VA, VB).
 
 leader(Var, EQVars) = EQVars ^ leader_map ^ elem(Var).
 

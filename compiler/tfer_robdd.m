@@ -128,6 +128,12 @@
 
 %-----------------------------------------------------------------------------%
 
+% XXX
+:- func robdd(xrobdd(T)) = robdd(T).
+
+
+%-----------------------------------------------------------------------------%
+
 
 :- implementation.
 
@@ -374,11 +380,9 @@ var_restrict_true(V, xrobdd(T, F, E, R)) = X :-
 		X = zero
 	; T `contains` V ->
 		X = xrobdd(T `delete` V, F, E, R)
-	; L = E ^ leader(V) ->
-		normalise_known_equivalent_vars(_, T `insert` L, T1, E, E1),
-		X = xrobdd(T1 `delete` V, F, E1, R)
 	;
-		X = normalise(xrobdd(T, F, E, var_restrict_true(V, R)))
+		X0 = normalise(xrobdd(T `insert` V, F, E, R)),
+		X = X0 ^ true_vars := X0 ^ true_vars `delete` V
 	).
 
 var_restrict_false(V, xrobdd(T, F, E, R)) = X :-
@@ -386,25 +390,85 @@ var_restrict_false(V, xrobdd(T, F, E, R)) = X :-
 		X = zero
 	; F `contains` V ->
 		X = xrobdd(T, F `delete` V, E, R)
-	; L = E ^ leader(V) ->
-		normalise_known_equivalent_vars(_, F `insert` L, F1, E, E1),
-		X = xrobdd(T, F1 `delete` V, E1, R)
 	;
-		X = normalise(xrobdd(T, F, E, var_restrict_false(V, R)))
+		X0 = normalise(xrobdd(T, F `insert` V, E, R)),
+		X = X0 ^ false_vars := X0 ^ false_vars `delete` V
 	).
 
 restrict_filter(P, xrobdd(T, F, E, R)) =
 	xrobdd(filter(P, T), filter(P, F), filter(P, E), restrict_filter(P, R)).
 
-labelling(Vars, xrobdd(T, F, E, R), (T `union` TrueVars) `intersect` Vars ,
-		(F `union` FalseVars) `intersect` Vars) :-
-	labelling(Vars, R, TrueVars0, FalseVars0),
-	label(E, TrueVars0, TrueVars, FalseVars0, FalseVars).
+labelling(Vars0, xrobdd(T, F, E, R), TrueVars, FalseVars) :-
+	TrueVars0 = T `intersect` Vars0,
+	FalseVars0 = F `intersect` Vars0,
+	Vars = Vars0 `difference` TrueVars0 `difference` FalseVars0,
 
-minimal_model(Vars, xrobdd(T, F, E, R), (TrueVars `union` T) `intersect` Vars,
-		(FalseVars `union` F) `intersect` Vars) :-
-	minimal_model(Vars, R, TrueVars0, FalseVars0),
-	label(E, TrueVars0, TrueVars, FalseVars0, FalseVars).
+	( empty(Vars) ->
+	    TrueVars = TrueVars0,
+	    FalseVars = FalseVars0
+	;
+	    labelling_2(Vars, xrobdd(init, init, E, R), TrueVars1, FalseVars1),
+	    TrueVars = TrueVars0 `union` TrueVars1,
+	    FalseVars = FalseVars0 `union` FalseVars1
+	).
+
+:- pred labelling_2(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+		is nondet.
+
+labelling_2(Vars0, X0, TrueVars, FalseVars) :-
+	( remove_least(Vars0, V, Vars) ->
+	    (
+		X = var_restrict_false(V, X0),
+		X ^ robdd \= zero,
+		labelling_2(Vars, X, TrueVars, FalseVars0),
+		FalseVars = FalseVars0 `insert` V
+	    ;
+		X = var_restrict_true(V, X0),
+		X ^ robdd \= zero,
+		labelling_2(Vars, X, TrueVars0, FalseVars),
+		TrueVars = TrueVars0 `insert` V
+	    )
+	;
+	    TrueVars = init,
+	    FalseVars = init
+	).
+
+
+minimal_model(Vars, X0, TrueVars, FalseVars) :-
+	( empty(Vars) ->
+	    TrueVars = init,
+	    FalseVars = init
+	;
+	    minimal_model_2(Vars, X0, TrueVars0, FalseVars0),
+	    (
+		TrueVars = TrueVars0,
+		FalseVars = FalseVars0
+	    ;
+		X = X0 `x` (~conj_vars(TrueVars0)),
+		minimal_model(Vars, X, TrueVars, FalseVars)
+	    )
+	).
+
+:- pred minimal_model_2(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+	is semidet.
+
+minimal_model_2(Vars0, X0, TrueVars, FalseVars) :-
+	( remove_least(Vars0, V, Vars) ->
+	    X1 = var_restrict_false(V, X0),
+	    ( X1 ^ robdd \= zero ->
+		minimal_model_2(Vars, X1, TrueVars, FalseVars0),
+		FalseVars = FalseVars0 `insert` V
+	    ;
+		X2 = var_restrict_true(V, X0),
+		X2 ^ robdd \= zero,
+		minimal_model_2(Vars, X2, TrueVars0, FalseVars),
+		TrueVars = TrueVars0 `insert` V
+	    )
+	;
+	    TrueVars = init,
+	    FalseVars = init
+	).
+
 
 %-----------------------------------------------------------------------------%
 

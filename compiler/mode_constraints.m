@@ -939,6 +939,7 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	%{ goal_info_set_mode_constraint(GoalInfo0, Constraint, GoalInfo) }.
 	{ GoalInfo = GoalInfo0 }.
 
+:- pragma promise_pure(goal_constraints_2/9).
 
 :- pred goal_constraints_2(goal_path::in, set(prog_var)::in,
 		set(prog_var)::in, hlds_goal_expr::in, hlds_goal_expr::out,
@@ -950,10 +951,10 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	{ multi_map__init(Empty) },
 	conj_constraints(NonLocals, Constraint0, Constraint1, Goals0, Goals,
 		Empty, Usage),
-	/*
+	%/*
 	Info =^ mc_info, VarSet =^ prog_varset, % XXX
-	{ unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
-	*/
+	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
+	%*/
 	map__foldl2((pred(V::in, Ps::in, Cn0::in, Cn::out, in, out) is det -->
 		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
 			get_var(V `at` P, CV)
@@ -1093,8 +1094,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, not(Goal0), not(Goal),
 		), set__to_sorted_list(Vars), Constraint1, Constraint2),
 
 	% Make sure the negation doesn't bind any nonlocal variables.
-	negation_constraints(GoalPath, set__to_sorted_list(NonLocals),
-		Constraint2, Constraint).
+	negation_constraints(GoalPath, NonLocals, Constraint2, Constraint).
 
 goal_constraints_2(GoalPath, NonLocals, Vars, some(A, B, Goal0),
 		some(A, B, Goal), Constraint0, Constraint) -->
@@ -1107,7 +1107,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, some(A, B, Goal0),
 			{ C = C0 ^ eq_vars(Vgp, Vexist) }
 		), set__to_sorted_list(Vars), Constraint1, Constraint).
 
-goal_constraints_2(GoalPath, NonLocals, _Vars,
+goal_constraints_2(GoalPath, NonLocals, Vars,
 		if_then_else(IteNonLocals, Cond0, Then0, Else0, SM),
 		if_then_else(IteNonLocals, Cond, Then, Else, SM),
 		Constraint0, Constraint) -->
@@ -1117,7 +1117,7 @@ goal_constraints_2(GoalPath, NonLocals, _Vars,
 
 	% Make sure that the condition doesn't bind any variables that are
 	% non-local to the if-then-else.
-	negation_constraints(goal_path(Cond), IteNonLocals,
+	negation_constraints(goal_path(Cond), NonLocals,
 		Constraint3, Constraint4),
 
 	% Make sure variables have the same bindings in both the then and else
@@ -1127,8 +1127,8 @@ goal_constraints_2(GoalPath, NonLocals, _Vars,
 			get_var(V `at` goal_path(Then), Vthen),
 			get_var(V `at` goal_path(Else), Velse),
 			{ C = C0 ^ eq_vars(Vgp, Vthen) ^ eq_vars(Vgp, Velse) }
-		), set__to_sorted_list(vars(Then) `set__union` vars(Else)),
-		Constraint4, Constraint5),
+		), set__to_sorted_list(NonLocals), Constraint4, Constraint5),
+	% XXX Should be all nodes reachable from NonLocals.
 
 	% Make sure variables are bound in at most one of the cond and then
 	% goals.
@@ -1137,7 +1137,21 @@ goal_constraints_2(GoalPath, NonLocals, _Vars,
 			get_var(V `at` goal_path(Then), Vthen),
 			{ C = C0 ^ not_both(Vcond, Vthen) }
 		), set__to_sorted_list(vars(Cond) `set__union` vars(Then)),
-		Constraint5, Constraint).
+		Constraint5, Constraint6),
+
+	% Local variables bound in cond, then or else should be treated as
+	% though they are bound in the ite as well.  (Although all such
+	% variables will be local to the ite, the _out constraints still need to
+	% be satisfied.)
+	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
+			get_var(V `at` goal_path(Cond), Vcond),
+			get_var(V `at` goal_path(Then), Vthen),
+			get_var(V `at` goal_path(Else), Velse),
+			get_var(V `at` GoalPath, Vgp),
+			{ Vs = list_to_set([Vcond, Vthen, Velse]) },
+			{ C = C0 ^ disj_vars_eq(Vs, Vgp) }
+		), set__to_sorted_list(Vars `difference` NonLocals),
+		Constraint6, Constraint).
 
 goal_constraints_2(_,_,_,foreign_proc(_,_,_,_,_,_,_),_,_,_) -->
 	{ error("NYI") }.
@@ -1336,14 +1350,14 @@ higher_order_call_constraints(Constraint0, Constraint) -->
 		    ), HoCalls, Constraint0, Constraint1)),
 	    Constraint).
 
-:- pred negation_constraints(goal_path::in, list(prog_var)::in,
+:- pred negation_constraints(goal_path::in, set(prog_var)::in,
 		mode_constraint::in, mode_constraint::out,
 		goal_constraints_info::in, goal_constraints_info::out) is det.
 
 negation_constraints(GoalPath, NonLocals, Constraint0, Constraint) -->
 	InstGraph =^ inst_graph,
 	aggregate2((pred(V::out) is nondet :-
-			list__member(NonLocal, NonLocals),
+			member(NonLocal, NonLocals),
 			inst_graph__reachable(InstGraph, NonLocal, V)
 		), (pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
@@ -1643,14 +1657,13 @@ vars(_ - GoalInfo) = OccurringVars :-
 %------------------------------------------------------------------------%
 %------------------------------------------------------------------------%
 
-:- pred unsafe_perform_io(pred(io__state, io__state)).
+:- impure pred unsafe_perform_io(pred(io__state, io__state)).
 :- mode unsafe_perform_io(pred(di, uo) is det) is det.
 
-:- pragma c_code(
-unsafe_perform_io(P::(pred(di, uo) is det)),
+:- pragma c_code(unsafe_perform_io(P::(pred(di, uo) is det)),
 	[may_call_mercury],
 "{
-	/* ME_lazy_io_call_io_pred_det(P); */
+	ME_lazy_io_call_io_pred_det(P);
 }").
 
 :- pred call_io_pred(pred(io__state, io__state), io__state, io__state).

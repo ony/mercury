@@ -104,8 +104,7 @@ hhf__process_pred(PredId, ModuleInfo0, ModuleInfo) -->
 hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
 	clauses_info_varset(ClausesInfo0, VarSet0),
 	clauses_info_vartypes(ClausesInfo0, VarTypes0),
-	map__keys(VarTypes0, Vars0),
-	inst_graph__init(Vars0, InstGraph0),
+	inst_graph__init(VarTypes0 ^ keys, InstGraph0),
 	Info0 = hhf_info(InstGraph0, VarSet0, VarTypes0),
 
 	clauses_info_headvars(ClausesInfo0, HeadVars),
@@ -140,19 +139,22 @@ hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
 		hhf_info, hhf_info).
 :- mode hhf__process_clause(in, in, out, in, out) is det.
 
-hhf__process_clause(HeadVars, clause(ProcIds, Goal0, Context),
+hhf__process_clause(_HeadVars, clause(ProcIds, Goal0, Context),
 		clause(ProcIds, Goal, Context)) -->
 	{ Goal0 = _ - GoalInfo0 },
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
 
-	hhf__goal(NonLocals, Goal0, Goal1),
+	hhf__goal(NonLocals, Goal0, Goal).
 
+/* XXX We probably need to requantify, but it stuffs up the inst_graph to do
+ * that.
 	VarSet1 =^ varset,
 	VarTypes1 =^ vartypes,
 	{ implicitly_quantify_clause_body(HeadVars, Goal1, VarSet1, VarTypes1,
 		Goal, VarSet, VarTypes, _Warnings) },
 	^varset := VarSet,
 	^vartypes := VarTypes.
+*/
 
 :- pred hhf__goal(set(prog_var), hlds_goal, hlds_goal, hhf_info, hhf_info).
 :- mode hhf__goal(in, in, out, in, out) is det.
@@ -214,8 +216,10 @@ hhf__unify(lambda_goal(A,B,C,D,E,F,G,LambdaGoal0), NonLocals, _, X, Mode,
 	hhf__goal(NonLocals, LambdaGoal0, LambdaGoal),
 	{ GoalExpr = unify(X, lambda_goal(A,B,C,D,E,F,G,LambdaGoal), Mode,
 			Unif, Context) }.
-hhf__unify(functor(ConsId, ArgsA), NonLocals, GoalInfo, X, Mode, Unif, Context,
+hhf__unify(functor(ConsId0, ArgsA), NonLocals, GoalInfo, X, Mode, Unif, Context,
 		GoalExpr) -->
+	TypeOfX =^ vartypes ^ det_elem(X),
+	{ qualify_cons_id(TypeOfX, ArgsA, ConsId0, _, ConsId) },
 	InstGraph0 =^ inst_graph,
 	{ map__lookup(InstGraph0, X, node(Functors0, MaybeParent)) },
 	( { map__search(Functors0, ConsId, ArgsB) } ->
@@ -308,8 +312,8 @@ complete_inst_graph(ModuleInfo) -->
 
 complete_inst_graph_node(ModuleInfo, Var, Info0, Info) :-
 	Info0 = hhf_info(_InstGraph0, _VarSet0, VarTypes0),
-	map__lookup(VarTypes0, Var, Type),
 	(
+		map__search(VarTypes0, Var, Type),
 		type_constructors(Type, ModuleInfo, Constructors),
 		type_to_type_id(Type, TypeId, _)
 	->
@@ -359,8 +363,10 @@ maybe_add_cons_id(Var, ModuleInfo, TypeId, Ctor, Info0, Info) :-
 		vartypes::in, prog_var::out) is semidet.
 
 find_var_with_type(Var0, Type, InstGraph, VarTypes, Var) :-
-	map__lookup(VarTypes, Var0, Type0),
-	( same_type(Type0, Type) ->
+	(
+		map__search(VarTypes, Var0, Type0),
+		same_type(Type0, Type)
+	->
 		Var = Var0
 	;
 		map__lookup(InstGraph, Var0, node(_, parent(Var1))),

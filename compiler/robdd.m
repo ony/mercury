@@ -160,8 +160,7 @@
 
 :- type equivalent_result(T) == entailment_result(map(var(T), var(T))).
 
-:- pred extract_implications(%implication_result(T)::out,
-		robdd(T)::in, robdd(T)::out) is det.
+:- func extract_implications(robdd(T)) = imp_vars(T).
 
 	% Existentially quantify away the var in the ROBDD.
 :- func restrict(var(T), robdd(T)) = robdd(T).
@@ -193,6 +192,20 @@
 :- func make_equiv(map(var(T), var(T))) = robdd(T).
 
 :- func expand_equiv(map(var(T), var(T)), robdd(T)) = robdd(T).
+
+:- func expand_implications(imp_vars(T), robdd(T)) = robdd(T).
+
+:- type imp_vars(T)
+	--->	imp_vars(
+			imps :: imp_map(T),		%  K =>  V  (~K \/  V)
+			rev_imps ::imp_map(T),		% ~K => ~V  ( K \/ ~V)
+			dis_imps :: imp_map(T),		%  K => ~V  (~K \/ ~V)
+			rev_dis_imps :: imp_map(T)	% ~K =>  V  ( K \/  V)
+		).
+
+:- type imp_map(T) == map(var(T), vars(T)).
+
+:- func remove_implications(imp_vars(T), robdd(T)) = robdd(T).
 
 %-----------------------------------------------------------------------------%
 
@@ -308,12 +321,15 @@ empty_vars_set = sparse_bitset__init.
 :- pragma c_code(ite_var(V::in, G::in, H::in) = (ITE::out), 
 		[will_not_call_mercury],
 		"ITE = (Word) ite_var(V, (node *) G, (node *) H);").
+
+:- pragma promise_pure('*'/2).
 X * Y = R :-
 	R = glb(X, Y),
 
 	% XXX debugging code.
-	( R = zero ->
-		report_zero_constraint
+	%( R = zero ->
+	( (X = zero ; Y = zero) ->
+		impure report_zero_constraint
 	;
 		true
 	).
@@ -324,7 +340,7 @@ X * Y = R :-
 		"F = (Word) glb((node *) X, (node *) Y);").
 
 % XXX
-:- pred report_zero_constraint is det.
+:- impure pred report_zero_constraint is det.
 :- pragma c_code(report_zero_constraint, [will_not_call_mercury],
 		"fprintf(stderr, ""Zero constraint!!!\\n"");").
 
@@ -472,16 +488,24 @@ rev_map(some_vars(equivalent_vars_map(EQ0))) = some_vars(EQ) :-
 		    )
 		), EQ0, sparse_bitset__init, _, map__init, EQ).
 
-extract_implications(R0, R) :-
-	implications_2(R0, Imps, RevImps, DisImps, RevDisImps),
-	R = squeeze_implications(Imps, RevImps, DisImps, RevDisImps, R0).
+extract_implications(R) = implication_result_to_imp_vars(implications_2(R)).
+
+:- type implication_result(T)
+	--->	implication_result(
+			imp_res(T), %  K ->  V
+			imp_res(T), % ~K -> ~V
+			imp_res(T), %  K -> ~V
+			imp_res(T)  % ~K ->  V
+		).
+
+:- type imp_res(T) == entailment_result(imp_res_2(T)).
+:- type imp_res_2(T) ---> imps(map(var(T), vars_entailed_result(T))).
 
 
-:- pred implications_2(robdd(T)::in, imp_res(T)::out, imp_res(T)::out,
-	imp_res(T)::out, imp_res(T)::out) is det.
-:- pragma memo(implications_2/5).
+:- func implications_2(robdd(T)) = implication_result(T).
+:- pragma memo(implications_2/1).
 
-implications_2(R, Imps, RevImps, DisImps, RevDisImps) :-
+implications_2(R) = implication_result(Imps, RevImps, DisImps, RevDisImps) :-
 	( R = one ->
 	    Imps = some_vars(imps(map__init)),
 	    RevImps = Imps,
@@ -498,8 +522,10 @@ implications_2(R, Imps, RevImps, DisImps, RevDisImps) :-
 	    DIVars = vars_disentailed(R ^ tr),
 	    RDIVars = vars_entailed(R ^ fa),
 
-	    implications_2(R ^ tr, Imps0, RevImps0, DisImps0, RevDisImps0),
-	    implications_2(R ^ fa, Imps1, RevImps1, DisImps1, RevDisImps1),
+	    implications_2(R ^ tr) =
+		implication_result(Imps0, RevImps0, DisImps0, RevDisImps0),
+	    implications_2(R ^ fa) =
+		implication_result(Imps1, RevImps1, DisImps1, RevDisImps1),
 
 	    Imps2 = Imps0 `intersection` Imps1,
 	    RevImps2 = RevImps0 `intersection` RevImps1,
@@ -512,46 +538,64 @@ implications_2(R, Imps, RevImps, DisImps, RevDisImps) :-
 	    RevDisImps = RevDisImps2 ^ elem(R ^ value) := RDIVars
 	).
 
-:- func squeeze_implications(imp_res(T), imp_res(T),
-	    imp_res(T), imp_res(T), robdd(T)) = robdd(T).
+:- func implication_result_to_imp_vars(implication_result(T)) = imp_vars(T).
 
-squeeze_implications(Imps, RevImps, DisImps, RevDisImps, R0) = R :-
-	squeeze_implications_2(Imps, RevImps, DisImps, RevDisImps,
-		init, map__init, _, R0, R).
+implication_result_to_imp_vars(ImpRes) = ImpVars :-
+	ImpRes = implication_result(I0, RI0, DI0, RDI0),
+	I = imp_res_to_imp_map(I0),
+	RI = imp_res_to_imp_map(RI0),
+	DI = imp_res_to_imp_map(DI0),
+	RDI = imp_res_to_imp_map(RDI0),
+	ImpVars = imp_vars(I, RI, DI, RDI).
 
-:- pred squeeze_implications_2(imp_res(T)::in, imp_res(T)::in,
-		imp_res(T)::in, imp_res(T)::in, vars(T)::in, robdd_cache(T)::in,
-		robdd_cache(T)::out, robdd(T)::in, robdd(T)::out) is det.
+:- func imp_res_to_imp_map(imp_res(T)) = imp_map(T).
 
-squeeze_implications_2(Imps, RevImps, DisImps, RevDisImps,
-		NukeVars, Seen0, Seen, R0, R) :-
-	( is_terminal(R0) ->
-		R = R0,
-		Seen = Seen0
-	; NukeVars `contains` R0 ^ value ->
-		( R0 ^ fa = zero ->
-			R1 = R0 ^ tr
+imp_res_to_imp_map(all_vars) = map__init.
+imp_res_to_imp_map(some_vars(imps(IRMap))) =
+	map__foldl(func(V, MaybeVs, M) =
+		(
+		    MaybeVs = some_vars(Vs),
+		    \+ empty(Vs)
+		->
+		    M ^ elem(V) := Vs
 		;
-			R1 = R0 ^ fa
+		    M
 		),
-		squeeze_implications_2(Imps, RevImps, DisImps,
-			RevDisImps, NukeVars, Seen0, Seen, R1, R)
+	    IRMap, init).
+
+remove_implications(ImpRes, R0) = R :-
+	remove_implications_2(ImpRes, sparse_bitset__init, sparse_bitset__init,
+		R0, R, map__init, _).
+
+:- pred remove_implications_2(imp_vars(T)::in, vars(T)::in,
+	vars(T)::in, robdd(T)::in, robdd(T)::out,
+	robdd_cache(T)::in, robdd_cache(T)::out) is det.
+
+remove_implications_2(ImpRes, True, False, R0, R) -->
+	( { is_terminal(R0) } -> 
+		{ R = R0 }
+	; R1 =^ elem(R0) ->
+		{ R = R1 }
+	; { True `contains` R0 ^ value } ->
+		remove_implications_2(ImpRes, True, False, R0 ^ tr, R)
+	; { False `contains` R0 ^ value } ->
+		remove_implications_2(ImpRes, True, False, R0 ^ tr, R)
 	;
-		NukeVarsT = NukeVars `union` Imps ^ get(R0 ^ value) `union`
-				DisImps ^ get(R0 ^ value),
-		squeeze_implications_2(Imps, RevImps, DisImps,
-			RevDisImps, NukeVarsT, Seen0, Seen1, R0 ^ tr, RT),
+		{ TrueT = True `union` ImpRes ^ imps ^ get(R0 ^ value) },
+		{ FalseT = False `union` ImpRes ^ dis_imps ^ get(R0 ^ value) },
+		remove_implications_2(ImpRes, TrueT, FalseT, R0 ^ tr, RT),
 
-		NukeVarsF = NukeVars `union` RevImps ^ get(R0 ^ value) `union`
-				RevDisImps ^ get(R0 ^ value),
-		squeeze_implications_2(Imps, RevImps, DisImps,
-			RevDisImps, NukeVarsF, Seen1, Seen2, R0 ^ fa, RF),
+		{ TrueF = True `union` ImpRes ^ rev_dis_imps ^ get(R0 ^ value)},
+		{ FalseF = False `union` ImpRes ^ rev_imps ^ get(R0 ^ value) },
+		remove_implications_2(ImpRes, TrueF, FalseF, R0 ^ fa, RF),
 
-		R = make_node(R0 ^ value, RT, RF),
-		Seen = Seen2 ^ elem(R0) := R
+		{ R = make_node(R0 ^ value, RT, RF) },
+		^ elem(R0) := R
 	).
-		
-		
+
+:- func get(var(T), imp_map(T)) = vars(T).
+
+get(V, IM) = ( Vs = IM ^ elem(V) -> Vs ; init ).
 
 :- typeclass intersectable(T) where [
 	func T `intersection` T = T
@@ -583,9 +627,6 @@ squeeze_implications_2(Imps, RevImps, DisImps, RevDisImps,
 	)
 ].
 
-:- type imp_res(T) == entailment_result(imp_res_2(T)).
-:- type imp_res_2(T) ---> imps(map(var(T), vars_entailed_result(T))).
-
 :- instance intersectable(imp_res_2(T)) where [
 	imps(MapA) `intersection` imps(MapB) =
 		imps(map__intersect(intersection, MapA, MapB))
@@ -595,11 +636,6 @@ squeeze_implications_2(Imps, RevImps, DisImps, RevDisImps,
 
 'elem :='(_, all_vars, _) = all_vars.
 'elem :='(V, some_vars(imps(M0)), Vs) = some_vars(imps(M0 ^ elem(V) := Vs)).
-
-:- func get(var(T), imp_res(T)) = vars(T).
-
-get(_, all_vars) = init.
-get(V, some_vars(imps(M))) = ( some_vars(Vs) = M ^ elem(V) -> Vs ; init ).
 
 :- func vars_entailed_result(T) `insert` var(T) = vars_entailed_result(T).
 
@@ -1006,6 +1042,28 @@ expand_equiv_2([V | Vs], LM, Trues, R0, R) -->
 		^ elem(R0) := R
 	).
 
+%------------------------------------------------------------------------%
+
+% XXX this could be made much more efficient by doing something similar to what
+% we do in expand_equiv.
+expand_implications(ImpVars, R) = R ^
+		expand_implications_2(not_var, var, Imps) ^
+		expand_implications_2(var, not_var, RevImps) ^
+		expand_implications_2(not_var, not_var, DisImps) ^
+		expand_implications_2(var, var, RevDisImps) :-
+	ImpVars = imp_vars(Imps, RevImps, DisImps, RevDisImps).
+	
+:- func expand_implications_2(func(var(T)) = robdd(T), func(var(T)) = robdd(T),
+		imp_map(T), robdd(T)) = robdd(T).
+
+expand_implications_2(FA, FB, IM, R0) =
+	map__foldl(func(VA, Vs, R1) =
+		foldl(func(VB, R2) =
+			R2 * (FA(VA) + FB(VB)),
+		    Vs, R1),
+	    IM, R0).
+
+%------------------------------------------------------------------------%
 :- pragma c_code(is_terminal(F::in), [will_not_call_mercury, thread_safe],
 	"SUCCESS_INDICATOR = IS_TERMINAL(F);").
 
@@ -1177,9 +1235,9 @@ write_edge(R0, R1, Arc) -->
 	( { is_terminal(R1) } ->
 		[]
 	;
-		io__format("""%s"":%s -> ""%s"":f1 ;\n",
+		io__format("""%s"":%s -> ""%s"":f1 [label=""%s""];\n",
 			[s(node_name(R0)), s(Arc = yes -> "f0" ; "f2"),
-			s(node_name(R1))])
+			s(node_name(R1)), s(Arc = yes -> "t" ; "f")])
 	).
 
 labelling(Vars, R, TrueVars, FalseVars) :-

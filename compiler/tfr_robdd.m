@@ -125,6 +125,11 @@
 	% XXX should try using sparse_bitset here.
 :- pred minimal_model(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
 		is nondet.
+%-----------------------------------------------------------------------------%
+
+% XXX
+:- func robdd(xrobdd(T)) = robdd(T).
+
 
 %-----------------------------------------------------------------------------%
 
@@ -366,13 +371,14 @@ var_restrict_false(V, xrobdd(T, F, R)) =
 restrict_filter(P, xrobdd(T, F, R)) =
 	xrobdd(filter(P, T), filter(P, F), restrict_filter(P, R)).
 
-labelling(Vars, xrobdd(T, F, R), TrueVars `intersect` Vars `union` T,
-		FalseVars `intersect` Vars `union` F) :-
-	labelling(Vars, R, TrueVars, FalseVars).
+labelling(Vars, xrobdd(T, F, R), T `intersect` Vars `union` TrueVars,
+		F `intersect` Vars `union` FalseVars) :-
+	labelling(Vars `difference` T `difference` F, R, TrueVars, FalseVars).
 
-minimal_model(Vars, xrobdd(T, F, R), TrueVars `intersect` Vars `union` T,
-		FalseVars `intersect` Vars `union` F) :-
-	minimal_model(Vars, R, TrueVars, FalseVars).
+minimal_model(Vars, xrobdd(T, F, R), T `intersect` Vars `union` TrueVars,
+		F `intersect` Vars `union` FalseVars) :-
+	minimal_model(Vars `difference` T `difference` F, R,
+		TrueVars, FalseVars).
 
 %-----------------------------------------------------------------------------%
 

@@ -124,6 +124,11 @@
 		is nondet.
 
 %-----------------------------------------------------------------------------%
+
+% XXX
+:- func robdd(xrobdd(T)) = robdd(T).
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
@@ -166,7 +171,6 @@ restrict(V, F) =
 restrict_threshold(V, F) =
 	xrobdd(restrict_threshold(V, F ^ robdd)).
 
-% XXX should be able to implement var and not_var more efficiently.
 var(V, X) = X ^ robdd :=
 	X ^ robdd * var(V).
 
