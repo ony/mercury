@@ -98,6 +98,12 @@
 			hlds_goal__hlds_goal_info, alias_as, alias_as).
 :- mode extend_unification( in, in, in, in, in, out) is det.
 
+	% Add two abstract substitutions to each other. These
+	% abstract substitutions come from different contexts, and have
+	% not to be 'extended' wrt each other. 
+:- pred add(alias_as, alias_as, alias_as).
+:- mode add(in, in, out) is det.
+
 	% normalization of the representation based on the types of
 	% the variables (retreived from proc_info) and the instmaps.
 :- pred normalize( hlds_pred__proc_info, module_info, instmap, alias_as, alias_as).
@@ -360,6 +366,32 @@ extend(ProcInfo, HLDS,  A1, A2, RESULT ):-
 		% A1 = bottom
 		RESULT = A2	
 	).
+
+add( AS1, AS2, AS ) :- 
+	(
+		AS1 = real_as( List1)
+	->
+		(
+			AS2 = real_as( List2 )
+		->
+			list__append(List1, List2, List),
+			AS = real_as( List )
+		;
+			AS2 = bottom
+		->
+			AS = AS1
+		;
+			AS = AS2
+		)
+	;
+		AS1 = bottom
+	->
+		AS = AS2
+	;
+		% AS1 = top 
+		AS = AS1
+	).
+	
 
 extend_unification( ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout ):-
 	pa_alias__from_unification( ProcInfo, HLDS, Unif, GoalInfo, AUnif),
