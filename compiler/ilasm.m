@@ -47,7 +47,7 @@
 			extends,		% what is the parent class
 			implements, 		% what interfaces are 
 						% implemented
-			list(class_member)		% methods and fields
+			list(class_member)	% methods and fields
 		)
 		% .namespace declaration
 	;	namespace(
@@ -122,6 +122,13 @@
 			ilds__id,		% field name
 			maybe(int32),		% offset for explicit layout
 			field_initializer	% initializer
+		)
+		% .property (a class property)
+	;	property(
+			ilds__type,		% property type
+			ilds__id,		% property name
+			maybe(methodhead),	% get property
+			maybe(methodhead)	% set property
 		)
 		% .class (a nested class)
 	;	nested_class(
@@ -459,6 +466,31 @@ ilasm__output_class_member(
 	io__write_string(" "),
 	output_id(IlId),
 	output_field_initializer(Initializer).
+
+ilasm__output_class_member(
+		property(Type, Name, MaybeGet, MaybeSet), Info0, Info) -->
+	io__write_string(".property instance "),
+	output_type(Type, Info0, Info1),
+	io__write_string(" "),
+	output_id(Name),
+	io__write_string("() {"),
+	( { MaybeGet = yes(methodhead(_, GetMethodName, GetSignature, _)) },
+		io__nl,
+		io__write_string("\t.get instance "),
+		output_name_signature_and_call_conv(GetSignature,
+				yes(GetMethodName), Info1, Info2)
+	; { MaybeGet = no },
+		{ Info2 = Info1 }
+	),
+	( { MaybeSet = yes(methodhead(_, SetMethodName, SetSignature, _)) },
+		io__nl,
+		io__write_string("\t.set instance "),
+		output_name_signature_and_call_conv(SetSignature,
+				yes(SetMethodName), Info2, Info)
+	; { MaybeSet = no },
+		{ Info = Info2 }
+	),
+	io__write_string("\n}\n").
 
 ilasm__output_class_member(nested_class(Attrs, Id, Extends, Implements,
 		Contents), Info0, Info) --> 

@@ -549,8 +549,8 @@ generate_other_decls(MLDSDefn, Decls) -->
 				ConstructorILDefn) },
 			{ Decls = [comment_term(MLDSDefnTerm),
 				class([public], TypeName,
-				Extends, implements([]),
-				[ConstructorILDefn | ILDefns])] }
+				Extends, implements([]), [ConstructorILDefn |
+				list__condense(ILDefns)])] }
 		;
 			{ Decls = [comment_term(MLDSDefnTerm),
 				comment("This type unimplemented.")] }
@@ -565,7 +565,8 @@ generate_other_decls(MLDSDefn, Decls) -->
 					Defns, ILDefnsA),
 			list__map_foldl(defn_to_class_decl(yes),
 					Ctors, ILDefnsB),
-			{ ILDefns = ILDefnsA ++ ILDefnsB },
+			{ ILDefns = merge_properties(list__condense(ILDefnsA) ++
+					list__condense(ILDefnsB)) },
 			{
 				Inherits = [mlds__foreign_type(ForeignType,
 						Assembly)]
@@ -595,6 +596,63 @@ generate_other_decls(MLDSDefn, Decls) -->
 	; { EntityName = data(_) },
 		{ Decls = [] }
 	).
+
+:- func merge_properties(list(class_member)) = list(class_member).
+
+merge_properties(ClassMembers)
+	= merge_duplicates(Equals, merge_properties, ClassMembers) :-
+	Equals = (pred(property(Type, Name, _, _)::in,
+			property(Type, Name, _, _)::in) is semidet).
+
+:- func merge_properties(class_member, class_member) = class_member.
+
+merge_properties(PropertyA, PropertyB)
+	= property(Type, Name, MaybeGet, MaybeSet) :-
+	(
+		PropertyA = property(Type0, Name0, MaybeGetA, MaybeSetA),
+		PropertyB = property(Type0, Name0, MaybeGetB, MaybeSetB)
+	->
+		( MaybeGetA = yes(GetA),
+			( MaybeGetB = yes(_GetB),
+				error("merge_properties: two gets")
+			; MaybeGetB = no,
+				MaybeGet = yes(GetA)
+			)
+		; MaybeGetA = no,
+			( MaybeGetB = yes(GetB),
+				MaybeGet = yes(GetB)
+			; MaybeGetB = no,
+				MaybeGet = no
+			)
+		),
+		( MaybeSetA = yes(SetA),
+			( MaybeSetB = yes(_SetB),
+				error("merge_properties: two sets")
+			; MaybeSetB = no,
+				MaybeSet = yes(SetA)
+			)
+		; MaybeSetA = no,
+			( MaybeSetB = yes(SetB),
+				MaybeSet = yes(SetB)
+			; MaybeSetB = no,
+				MaybeSet = no
+			)
+		),
+		Type = Type0,
+		Name = Name0
+	;
+		error("merge_properties: not properties")
+	).
+
+:- func merge_duplicates(pred(T, T), func(T, T) = T, list(T)) = list(T).
+:- mode merge_duplicates(pred(in, in) is semidet,
+		func(in, in) = out is det, in) = out is det.
+
+merge_duplicates(_Equals, _Merge, []) = [].
+merge_duplicates(Equals, Merge, [H | T])
+	= [list__foldl(Merge, Dups, H) |
+			merge_duplicates(Equals, Merge, Rest)] :-
+	list__filter((pred(X::in) is semidet :- Equals(H, X)), T, Dups, Rest).
 
 
 %-----------------------------------------------------------------------------
@@ -721,8 +779,8 @@ maybe_box_initializer(init_obj(Rval), init_obj(NewRval)) -->
 %
 % Code to turn MLDS definitions into IL class declarations.
 %
-
-:- pred defn_to_class_decl(bool, mlds__defn, class_member, il_info, il_info).
+:- pred defn_to_class_decl(bool, mlds__defn, list(class_member),
+		il_info, il_info).
 :- mode defn_to_class_decl(in, in, out, in, out) is det.
 
 	% XXX shouldn't we re-use the code for creating fieldrefs here?
@@ -735,7 +793,7 @@ defn_to_class_decl(_, mlds__defn(Name, _Context, _DeclFlags,
 			mlds_type_to_ilds_type(DataRep, Type)) },
 	{ Name = data(DataName) ->
 		mangle_dataname(DataName, MangledName),
-		ILClassMember = field([], ILType, MangledName, no, none) 
+		ILClassMember = [field([], ILType, MangledName, no, none)]
 	;
 		error("definintion name was not data/1")
 	}.
@@ -814,7 +872,28 @@ defn_to_class_decl(IsCtor, mlds__defn(Name, Context, _DeclFlags,
 	{ MethodDefn = make_method_defn(InstrsTree) },
 
 	{ MethodHead = methodhead(MethodAttrs, Id, ILSignature, ImplAttrs) },
-	{ ILClassMember = method(MethodHead, MethodDefn) }.
+	{ Method = method(MethodHead, MethodDefn) },
+
+	{ (Id = id(IdName), string__append("get_", PropertyName, IdName)) ->
+		ILSignature = signature(_, ReturnType, _),
+		( ReturnType = simple_type(SimpleType) ->
+			ILDSType = ilds__type([], SimpleType)
+		;
+			error("mlds__to_il: no return type for get method")
+		),
+		Property = property(ILDSType, id(PropertyName),
+				yes(MethodHead), no),
+		ILClassMember = [Method, Property]
+	; (Id = id(IdName), string__append("set_", PropertyName, IdName)) ->
+		ILSignature = signature(_, _, ILParams),
+		ILDSType - _Name = list__det_head(list__reverse(ILParams)),
+		Property = property(ILDSType, id(PropertyName),
+				no, yes(MethodHead)),
+		ILClassMember = [Method, Property]
+	;
+		ILClassMember = [Method]
+	}.
+
 
 defn_to_class_decl(_, mlds__defn(EntityName, _Context, _DeclFlags,
 		mlds__class(ClassDefn)), ILClassMember) -->
@@ -829,8 +908,9 @@ defn_to_class_decl(_, mlds__defn(EntityName, _Context, _DeclFlags,
 		{ make_constructor(DataRep, FullClassName, ClassDefn,
 			ConstructorILDefn) },
 		{ Extends = mlds_inherits_to_ilds_inherits(DataRep, Inherits) },
-		{ ILClassMember = nested_class([public], TypeName, Extends,
-			implements([]), [ConstructorILDefn | ILDefns]) }
+		{ ILClassMember = [nested_class([public], TypeName, Extends,
+			implements([]), [ConstructorILDefn |
+			list__condense(ILDefns)])] }
 	;
 		{ error("expected type entity name for a nested class") }
 	).
