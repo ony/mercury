@@ -1307,6 +1307,11 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 	% lambda.m will (I hope) turn the lambda expression
 	% back into a higher-order pred constant again.
 	%
+	% Note that this transformation is also done by modecheck_unify.m,
+	% in case we are rerunning mode analysis after lambda.m has already
+	% been run; any changes to the code here will also need to be
+	% duplicated there.
+	%
 
 		% check if variable has a higher-order type
 		type_is_higher_order(TypeOfX, PredOrFunc, PredArgTypes),
