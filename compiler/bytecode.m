@@ -106,7 +106,7 @@
 
 :- type byte_module_id	==	string.
 :- type byte_pred_id	==	string.
-:- type byte_proc_id	==	int.
+:- type byte_proc_id	==	pair(string,int).
 :- type byte_label_id	==	int.
 :- type byte_var	==	int.
 :- type byte_temp	==	int.
@@ -199,7 +199,8 @@ output_args(enter_pred(PredId, PredArity, IsFunc, ProcCount)) -->
 	output_byte(IsFunc),
 	output_length(ProcCount).
 output_args(endof_pred) --> [].
-output_args(enter_proc(ProcId, Detism, LabelCount, TempCount, Vars)) -->
+output_args(enter_proc(ProcId, Detism, LabelCount, 
+		TempCount, Vars)) -->
 	output_proc_id(ProcId),
 	output_determinism(Detism),
 	output_length(LabelCount),
@@ -317,15 +318,15 @@ output_args(not_supported) --> [].
 debug_args(enter_pred(PredId, PredArity, IsFunc, ProcsCount)) -->
 	debug_pred_id(PredId),
 	debug_length(PredArity),
-	(
-		{ IsFunc = 0 } ->
+	( { IsFunc = 0 } ->
 			debug_string("pred")
-		;
+	;
 			debug_string("func")
 	),
 	debug_length(ProcsCount).
 debug_args(endof_pred) --> [].
-debug_args(enter_proc(ProcId, Detism, LabelCount, TempCount, Vars)) -->
+debug_args(enter_proc(ProcId, Detism, LabelCount, 
+		TempCount, Vars)) -->
 	debug_proc_id(ProcId),
 	debug_determinism(Detism),
 	debug_length(LabelCount),
@@ -660,16 +661,18 @@ debug_pred_id(PredId) -->
 :- pred output_proc_id(byte_proc_id, io__state, io__state).
 :- mode output_proc_id(in, di, uo) is det.
 
-output_proc_id(ProcId) -->
-	{ ModeId is ProcId mod 10000 },
-	output_byte(ModeId).
+output_proc_id(EntryPointLabel-ModeId) -->
+	{ ModeIdByte is ModeId mod 10000 },
+	output_string(EntryPointLabel),
+	output_byte(ModeIdByte).
 
 :- pred debug_proc_id(byte_proc_id, io__state, io__state).
 :- mode debug_proc_id(in, di, uo) is det.
 
-debug_proc_id(ProcId) -->
-	{ ModeId is ProcId mod 10000 },
-	debug_int(ModeId).
+debug_proc_id(EntryPointLabel-ModeId) -->
+	{ ModeIdByte is ModeId mod 10000 },
+	debug_string(EntryPointLabel),
+	debug_int(ModeIdByte).
 
 %---------------------------------------------------------------------------%
 
@@ -711,7 +714,8 @@ output_cons_id(pred_const(ModuleId, PredId, Arity, ProcId)) -->
 	output_pred_id(PredId),
 	output_length(Arity),
 	output_proc_id(ProcId).
-output_cons_id(code_addr_const(ModuleId, PredId, Arity, ProcId)) -->
+output_cons_id(code_addr_const(ModuleId, PredId, Arity, 
+		ProcId)) -->
 	output_byte(5),
 	output_module_id(ModuleId),
 	output_pred_id(PredId),
@@ -751,7 +755,8 @@ debug_cons_id(pred_const(ModuleId, PredId, Arity, ProcId)) -->
 	debug_pred_id(PredId),
 	debug_length(Arity),
 	debug_proc_id(ProcId).
-debug_cons_id(code_addr_const(ModuleId, PredId, Arity, ProcId)) -->
+debug_cons_id(code_addr_const(ModuleId, PredId, Arity, 
+		ProcId)) -->
 	debug_string("code_addr_const"),
 	debug_module_id(ModuleId),
 	debug_pred_id(PredId),
@@ -892,7 +897,7 @@ byte_code(not_supported,			39).
 
 byte_debug(enter_pred(_, _, _, _),		"enter_pred").
 byte_debug(endof_pred,				"endof_pred").
-byte_debug(enter_proc(_, _, _, _, _),		"enter_proc").
+byte_debug(enter_proc(_, _, _, _, _),	"enter_proc").
 byte_debug(endof_proc,				"endof_proc").
 byte_debug(label(_),				"label").
 byte_debug(enter_disjunction(_),		"enter_disjunction").

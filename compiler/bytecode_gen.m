@@ -26,7 +26,7 @@
 
 :- import_module hlds_pred, hlds_goal, hlds_data, prog_data, llds, arg_info.
 :- import_module passes_aux, call_gen, mode_util, code_util, goal_util.
-:- import_module globals, tree.
+:- import_module globals, tree, llds_out.
 
 :- import_module bool, int, string, list, assoc_list, set, map, varset.
 :- import_module std_util, require, term.
@@ -54,13 +54,11 @@ bytecode_gen__preds([PredId | PredIds], ModuleInfo, Code) -->
 		{ list__length(ProcIds, ProcsCount) },
 		{ pred_info_arity(PredInfo, Arity) },
 		{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
-		{ 
-			(PredOrFunc = predicate ->
+		{ (PredOrFunc = predicate ->
 				IsFunc = 0
-			;
+		;
 				IsFunc = 1
-			)
-		},
+		) },
 		{ EnterCode = node([enter_pred(PredName, Arity, IsFunc,
 			ProcsCount)]) },
 		{ EndofCode = node([endof_pred]) },
@@ -76,14 +74,14 @@ bytecode_gen__pred(_PredId, [], _PredInfo, _ModuleInfo, empty) --> [].
 bytecode_gen__pred(PredId, [ProcId | ProcIds], PredInfo, ModuleInfo, Code) -->
 	write_proc_progress_message("% Generating bytecode for ",
 		PredId, ProcId, ModuleInfo),
-	{ bytecode_gen__proc(ProcId, PredInfo, ModuleInfo, ProcCode) },
+	{ bytecode_gen__proc(ProcId, PredId, PredInfo, ModuleInfo, ProcCode) },
 	bytecode_gen__pred(PredId, ProcIds, PredInfo, ModuleInfo, ProcsCode),
 	{ Code = tree(ProcCode, ProcsCode) }.
 
-:- pred bytecode_gen__proc(proc_id::in, pred_info::in,
+:- pred bytecode_gen__proc(proc_id::in, pred_id::in, pred_info::in,
 	module_info::in, byte_tree::out) is det.
 
-bytecode_gen__proc(ProcId, PredInfo, ModuleInfo, Code) :-
+bytecode_gen__proc(ProcId, PredId, PredInfo, ModuleInfo, Code) :-
 	pred_info_procedures(PredInfo, ProcTable),
 	map__lookup(ProcTable, ProcId, ProcInfo),
 
@@ -130,8 +128,10 @@ bytecode_gen__proc(ProcId, PredInfo, ModuleInfo, Code) :-
 		BodyCode = node(BodyCode0)
 	),
 	proc_id_to_int(ProcId, ProcInt),
-	EnterCode = node([enter_proc(ProcInt, Detism, LabelCount, TempCount,
-		VarInfos)]),
+	code_util__make_proc_label(ModuleInfo, PredId, ProcId, ProcLabel),
+	llds_out__get_proc_label(ProcLabel, EntryPointLabel),
+	EnterCode = node([enter_proc(EntryPointLabel-ProcInt, Detism, 
+		LabelCount, TempCount, VarInfos)]),
 	( CodeModel = model_semi ->
 		EndofCode = node([semidet_succeed, endof_proc])
 	;
@@ -317,7 +317,10 @@ bytecode_gen__call(PredId, ProcId, ArgVars, Detism, ByteInfo, Code) :-
 
 	predicate_id(ModuleInfo, PredId, ModuleName, PredName, Arity),
 	proc_id_to_int(ProcId, ProcInt),
-	Call = node([call(ModuleName, PredName, Arity, ProcInt)]),
+	code_util__make_proc_label(ModuleInfo, PredId, ProcId, ProcLabel),
+	llds_out__get_proc_label(ProcLabel, EntryPointLabel),
+	Call = node([call(ModuleName, PredName, Arity, 
+		EntryPointLabel-ProcInt)]),
 	determinism_to_code_model(Detism, CodeModel),
 	( CodeModel = model_semi ->
 		Check = node([semidet_success_check])
@@ -607,13 +610,20 @@ bytecode_gen__map_cons_id(ByteInfo, Var, ConsId, ByteConsId) :-
 		ConsId = pred_const(PredId, ProcId),
 		predicate_id(ModuleInfo, PredId, ModuleName, PredName, Arity),
 		proc_id_to_int(ProcId, ProcInt),
-		ByteConsId = pred_const(ModuleName, PredName, Arity, ProcInt)
+		code_util__make_proc_label(ModuleInfo, PredId, ProcId, 
+			ProcLabel),
+		llds_out__get_proc_label(ProcLabel, EntryPointLabel),
+		ByteConsId = pred_const(ModuleName, PredName, Arity,
+			EntryPointLabel-ProcInt)
 	;
 		ConsId = code_addr_const(PredId, ProcId),
 		predicate_id(ModuleInfo, PredId, ModuleName, PredName, Arity),
 		proc_id_to_int(ProcId, ProcInt),
+		code_util__make_proc_label(ModuleInfo, PredId, ProcId, 
+			ProcLabel),
+		llds_out__get_proc_label(ProcLabel, EntryPointLabel),
 		ByteConsId = code_addr_const(ModuleName, PredName, Arity,
-			ProcInt)
+			EntryPointLabel-ProcInt)
 	;
 		ConsId = base_type_info_const(ModuleName, TypeName, TypeArity),
 		ByteConsId = base_type_info_const(ModuleName, TypeName,
