@@ -1667,6 +1667,11 @@ polymorphism__process_call(PredId, ArgVars0, GoalInfo0,
 		apply_rec_subst_to_constraint_list(TypeSubst,
 			UniversalConstraints1, UniversalConstraints2),
 
+		term__apply_rec_substitution_to_list(PredExistQVarTerms1,
+			TypeSubst, PredExistQVarTerms),
+		term__term_list_to_var_list(PredExistQVarTerms,
+			PredExistQVars),
+
 		polymorphism__make_typeclass_info_vars(	
 			UniversalConstraints2,
 			PredExistQVars, Context,
@@ -1697,10 +1702,6 @@ polymorphism__process_call(PredId, ArgVars0, GoalInfo0,
 		term__var_list_to_term_list(PredTypeVars, PredTypes0),
 		term__apply_rec_substitution_to_list(PredTypes0, TypeSubst,
 			PredTypes),
-		term__apply_rec_substitution_to_list(PredExistQVarTerms1,
-			TypeSubst, PredExistQVarTerms),
-		term__term_list_to_var_list(PredExistQVarTerms,
-			PredExistQVars),
 
 		polymorphism__make_type_info_vars(PredTypes, PredExistQVars,
 			Context, ExtraTypeInfoVars, ExtraTypeInfoGoals,
@@ -2321,40 +2322,11 @@ polymorphism__make_type_info_vars([Type | Types], ExistQVars, Context,
 
 polymorphism__make_type_info_var(Type, ExistQVars, Context, Var, ExtraGoals,
 		Info0, Info) :-
+	%
+	% First handle statically known types
+	% (i.e. types which are not type variables)
+	%
 	(
-		%
-		% Check for type variables which are existentially quantified
-		% in the callee's type declaration.
-		% For these type variables, we assume that the callee will
-		% return the type_info.  So all we need to do is to make
-		% a variable to hold the returned type_info, and insert
-		% that in the TypeInfoMap.
-		%
-		% [XXX This would need to change if we allow
-		% `in' modes for arguments with existential types,
-		% because in that case the mode for the type_info
-		% must also be `in', so we would need to construct it.
-		% The condition of the if-then-else below would
-		% need to be changed to fail for those cases]
-		%
-		Type = term__variable(TVar),
-		list__member(TVar, ExistQVars)
-	->
-		poly_info_get_type_info_map(Info0, TypeInfoMap0),
-		% existentially quantified tvars in the head will already
-		% have a type_info var allocated for them
-		( map__search(TypeInfoMap0, TVar, type_info(HeadVar)) ->
-			Var = HeadVar,
-			Info = Info0
-		;
-			polymorphism__new_type_info_var(Type, "type_info",
-				Var, Info0, Info1),
-			map__det_insert(TypeInfoMap0, TVar, type_info(Var),
-				TypeInfoMap),
-			poly_info_set_type_info_map(TypeInfoMap, Info1, Info)
-		),
-		ExtraGoals = []
-	;
 		type_is_higher_order(Type, PredOrFunc, TypeArgs)
 	->
 		% This occurs for code where a predicate calls a polymorphic
@@ -2383,61 +2355,34 @@ polymorphism__make_type_info_var(Type, ExistQVars, Context, Var, ExtraGoals,
 		polymorphism__construct_type_info(Type, TypeId, TypeArgs,
 			no, ExistQVars, Context, Var, ExtraGoals, Info0, Info)
 	;
-		Type = term__variable(TypeVar),
-		poly_info_get_type_info_map(Info0, TypeInfoMap0),
-		map__search(TypeInfoMap0, TypeVar, TypeInfoLocn)
-	->
-		% This occurs for code where a predicate calls a polymorphic
-		% predicate with a bound but unknown value of the type variable.
-		% For example, in
-		%
-		%	:- pred p(T1).
-		%	:- pred q(T2).
-		%
-		%	p(X) :- q(X).
-		%
-		% we know that `T2' is bound to `T1', and we translate it into
-		%
-		%	:- pred p(TypeInfo(T1), T1).
-		%	:- pred q(TypeInfo(T2), T2).
-		%
-		%	p(TypeInfo, X) :- q(TypeInfo, X).
-
-		get_type_info(TypeInfoLocn, TypeVar, ExtraGoals, Var,
-			Info0, Info)
-	;
+	%
+	% Now handle the cases of types which are not known statically
+	% (i.e. type variables)
+	%
 		Type = term__variable(TypeVar)
 	->
+		poly_info_get_type_info_map(Info0, TypeInfoMap0),
 		%
-		% This occurs for code where a predicate calls a polymorphic
-		% predicate with an unbound type variable.
-		% Cases where there is no producer at all for the type
-		% variable should get caught by post_typecheck.m.
-		% XXX Cases where there is a producer but it occurs
-		% somewhere further on in the goal should be avoided by
-		% mode reordering, but currently mode analysis doesn't
-		% do that.
+		% If we have already allocated a location for this type_info,
+		% then all we need to do is to extract the type_info variable
+		% from its location.
 		%
-		poly_info_get_typevarset(Info0, TypeVarSet),
-		varset__lookup_name(TypeVarSet, TypeVar, TypeVarName),
-		term__context_file(Context, FileName),
-		term__context_line(Context, LineNumber),
-		( FileName = "" ->
-			ContextMessage = ""
+		( map__search(TypeInfoMap0, TypeVar, TypeInfoLocn) ->
+			get_type_info(TypeInfoLocn, TypeVar, ExtraGoals, Var,
+				Info0, Info)
 		;
-			string__format("%s:%03d: ",
-				[s(FileName), i(LineNumber)], ContextMessage)
-		),
-		poly_info_get_pred_info(Info0, PredInfo),
-		% XXX should print the module name and arity too
-		pred_info_name(PredInfo, PredName),
-		string__append_list([
-			"polymorphism__make_var:\n",
-			ContextMessage, "In predicate `", PredName, "':\n",
-			ContextMessage, "  unbound type variable `",
-				TypeVarName, "'."
-			], Message),
-		error(Message)
+			%
+			% Otherwise, we need to create a new type_info
+			% variable, and set the location for this type
+			% variable to be that type_info variable.
+			%
+			polymorphism__new_type_info_var(Type, "type_info",
+				Var, Info0, Info1),
+			map__det_insert(TypeInfoMap0, TypeVar, type_info(Var),
+				TypeInfoMap),
+			poly_info_set_type_info_map(TypeInfoMap, Info1, Info),
+			ExtraGoals = []
+		)
 	;
 		error("polymorphism__make_var: unknown type")
 	).
