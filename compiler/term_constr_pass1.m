@@ -16,14 +16,19 @@
 
 :- interface.
 
-:- import_module lp_rational, list, hlds_module, hlds_pred, size_varset, term_util.
+:- import_module bimap, list, hlds_module, hlds_pred, map, prog_data, 
+				set, size_varset, term, term_util.
 
 % Need enough info to make traversal params.
 :- pred find_arg_sizes_in_scc(list(pred_proc_id), module_info, size_varset, 
-		pass_info, widening_info, module_info, size_varset, equations, 
+		pass_info, widening_info, module_info, size_varset, 
 							io__state, io__state).  
-:- mode find_arg_sizes_in_scc(in, in, in, in, in, out, out, out, di, uo) is det.
+:- mode find_arg_sizes_in_scc(in, in, in, in, in, out, out, di, uo) is det.
 
+%XX Put this in term_util.
+:- pred find_zero_size_vars(module_info, bimap(var,size_var), map(var, type), 
+							set(size_var)).
+:- mode find_zero_size_vars(in, in, in, out) is det.
 
 :- type widening_info
 	--->	
@@ -34,87 +39,76 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-:- import_module bimap, bool, hlds_module, hlds_pred, int, io, list, 
-	lp_rational, map, rat, require, set, std_util, term, term_traversal2, 
-						term_util, size_varset.
+:- import_module bimap, bool, hlds_goal, hlds_module, hlds_pred, int, io, list, 
+	lp_rational, map, prog_data, quantification, rat, require, set, 
+		std_util, term, term_constr_traversal, term_util, size_varset.
 
 	
 %-----------------------------------------------------------------------------%
 
 find_arg_sizes_in_scc(SCC, Module_info0, SizeVars0, Pass_info, Widen_info, 
-					Module_info, SizeVars, Constraints) -->
+					Module_info, SizeVars) -->
 	find_arg_sizes_in_scc2(SCC, Module_info0, SizeVars0, Pass_info, 
-			Widen_info, 0, Module_info, SizeVars, Constraints).
+			Widen_info, 0, Module_info, SizeVars).
  
 :- pred find_arg_sizes_in_scc2(list(pred_proc_id), module_info, size_varset, 
-	pass_info, widening_info, int, module_info, size_varset, equations, 
+	pass_info, widening_info, int, module_info, size_varset, 
 							io__state, io__state).
-:- mode find_arg_sizes_in_scc2(in, in, in, in, in, in, out, out, out, di, uo) 
-									is det.
+:- mode find_arg_sizes_in_scc2(in, in, in, in, in, in, out, out, di, uo) is det.
 
 find_arg_sizes_in_scc2(SCC, Module_info0, SizeVars0, Pass_info, Widen_info, 
-			It_num, Module_info, SizeVars, Constraints, IO0, IO) :-
+			It_num, Module_info, SizeVars, IO0, IO) :-
 	Pass_info = pass_info(Func_info, _, _), 
 			%### Should use info about max errors to collect?
 	do_one_iteration(SCC, Module_info0, SizeVars0, Func_info, Widen_info, 
-		It_num, Module_info1, SizeVars1, NewConstraints, Change_flag, 
-								IO0, IO1),	
-	
-	io__write("term_constr_pass1: Equations after ", IO1, IO2),
-	io__write(It_num, IO2, IO3),
-	io__write("th iteration:", IO3, IO4),
-	io__nl(IO4, IO5),
-	write_equations(NewConstraints, IO5, IO6),
+		It_num, Module_info1, SizeVars1, Change_flag, IO0, IO1),	
 
 	( Change_flag = yes ->
 		Next_it_num = It_num + 1,
 		find_arg_sizes_in_scc2(SCC, Module_info1, SizeVars1, Pass_info,
-			Widen_info, Next_it_num, Module_info, SizeVars, 
-							Constraints, IO6, IO)
+			Widen_info, Next_it_num, Module_info, SizeVars, IO1, IO)
 	;
-		Constraints = NewConstraints,
 		Module_info = Module_info1,
-		IO = IO6,
+		IO = IO1,
 		SizeVars = SizeVars1
 	).
 
 
 % Calculates the next approximation to the argument-size constraints
 :- pred do_one_iteration(list(pred_proc_id), module_info, size_varset, 
-	functor_info, widening_info, int, module_info, size_varset, equations, 
-		bool, io__state, io__state).
-:- mode do_one_iteration(in, in, in, in, in, in, out, out, out, out, di, uo) 
+	functor_info, widening_info, int, module_info, size_varset, bool, 
+							io__state, io__state).
+:- mode do_one_iteration(in, in, in, in, in, in, out, out, out, di, uo) 
 									is det.
 
-do_one_iteration([], Mod_info, SizeVars, _, _, _, Mod_info, SizeVars, [], no, 
+do_one_iteration([], Mod_info, SizeVars, _, _, _, Mod_info, SizeVars, no, 
 									IO, IO).
 do_one_iteration([PPID|SCC], Mod_info0, SizeVars0, Func_info, Wid_info, It_num, 
-		Mod_info, SizeVars, Constraints, Change_flag, IO0, IO) :-
+		Mod_info, SizeVars, Change_flag, IO0, IO) :-
 	find_constraints_pred(PPID, Mod_info0, SizeVars0, Func_info, Wid_info, 
-		It_num, Mod_info1, SizeVars1, PPID_Constraints, 
-						PPID_Change_flag, IO0, IO1),
+		It_num, Mod_info1, SizeVars1, PPID_Change_flag, IO0, IO1),
 
 	do_one_iteration(SCC, Mod_info1, SizeVars1, Func_info, Wid_info, It_num,
-		Mod_info, SizeVars, SCC_Constraints, SCC_Change_flag, IO1, IO),
+		Mod_info, SizeVars, SCC_Change_flag, IO1, IO),
 	( (PPID_Change_flag = yes ; SCC_Change_flag = yes) ->
 		Change_flag = yes
 	;
 		Change_flag = no
-	),
-	list__append(PPID_Constraints, SCC_Constraints, Constraints).
+	).
+	%list__append(PPID_Constraints, SCC_Constraints, Constraints).
 	
 
 % Find the constraints for a single predicate, which may be part of a
 % larger SCC.
 % Should have a 'pass_info' structure with max_errors, functor info?
 :- pred find_constraints_pred(pred_proc_id, module_info, size_varset, 
-	functor_info, widening_info, int, module_info, size_varset, equations, 
+	functor_info, widening_info, int, module_info, size_varset, 
 						bool, io__state, io__state).
-:- mode find_constraints_pred(in, in, in, in, in, in, out, out, out, out, 
+:- mode find_constraints_pred(in, in, in, in, in, in, out, out, out, 
 								di, uo) is det.
 	
 find_constraints_pred(PPID, Module_info0, SizeVars0, Func_info, Widening_info, 
-	It_num, Module_info, SizeVars, Constraints, Change_flag, IO0,IO):- 
+	It_num, Module_info, SizeVars, Change_flag, IO0,IO):- 
 
 	PPID = proc(PredId, ProcId),
 	module_info_pred_proc_info(Module_info0, PredId, ProcId, PredInfo, 
@@ -122,35 +116,37 @@ find_constraints_pred(PPID, Module_info0, SizeVars0, Func_info, Widening_info,
 	pred_info_context(PredInfo, Context),
 	proc_info_vartypes(ProcInfo, VarTypes),
 	proc_info_goal(ProcInfo, Goal),
-	term_traversal2__init_traversal_params(Module_info0, Func_info, PPID, 
-					Context, VarTypes, Traversal_params),
+	%term_constr_traversal__init_traversal_params(Module_info0, Func_info, 
+	%		PPID, Context, VarTypes, Traversal_params),
 
 	lookup_proc_arg_size_info(Module_info0, PPID, Maybe_arg_size_info),
 
 	(	Maybe_arg_size_info = no, 
-		%%##### Note that this has to be changed, because now
-		% may have arg_size_info at the first pass, because of
-		% builtins & compiler-gen's. No, it won't - it will just
-		% drop through to the last case if there is already 
-		% information, even if this is the first iteration.
 		( It_num = 0 ->
-			bimap__init(VarToSizeVarMap0),
-			set__init(Zeros0),
+			fill_var_to_sizevar_map(Goal, SizeVars0, SizeVars1, 
+							VarToSizeVarMap),
 
-			do_traversal(Goal, Traversal_params, 
-				constr_info(VarToSizeVarMap0, SizeVars0,
-							Zeros0, []),
-				constr_info(VarToSizeVarMap, SizeVars, Zeros,
-					Unwidened_Constraints), IO0, IO),
-				
-			canonical_form(Unwidened_Constraints, 
-							Unsorted_Constraints), 
-			list__sort(compare_eqns, Unsorted_Constraints, 
-							Constraints1),
-			remove_redundant_eqns(Constraints1, Constraints),
+			find_zero_size_vars(Module_info0, VarToSizeVarMap,
+						VarTypes, Zeros),
 
-			Change_flag = yes
-			%XXCheck for eqns.
+			term_constr_traversal__init_traversal_params(
+				Module_info0, Func_info, PPID, Context, 
+				VarTypes, Zeros, VarToSizeVarMap, 
+							Traversal_params),
+
+			do_traversal(Goal, Traversal_params, SizeVars1,
+				constr_info(SizeVars, Constraint_info), 
+								IO0, IO),
+
+			Change_flag = yes,
+			%XXCheck for eqns. 
+
+			( Constraint_info = eqns(Constraints) ->
+				update_arg_size_info(PPID, Constraints, Zeros, 
+				VarToSizeVarMap, Module_info0, Module_info)
+			;
+				Module_info = Module_info0
+			)
 		;
 			error("term_constr_pass1: not the first iteration but 
 						no arg size info")
@@ -162,48 +158,47 @@ find_constraints_pred(PPID, Module_info0, SizeVars0, Func_info, Widening_info,
 		Maybe_arg_size_info = yes(infinite(_)),
 		error("term_constr_pass1: wrong type of argument size info\n")
 	;
-		Maybe_arg_size_info = yes(constraints(Old_constraints, Zeros0, 
-							VarToSizeVarMap0)),
+		Maybe_arg_size_info = yes(constraints(Old_constraints, 
+						Zeros, VarToSizeVarMap)),
+
 		% Need to pass the old variable map to do_traversal 
 		% because then the variables in the two sets of constraints 
 		% will have the same correspondence to the variables in the
 		% procedure.
-		% Also need to pass "x >= 0" equations for variables already
-		% discovered.
-		%XXPass set of zero size vars.
-		derive_nonneg_eqns(VarToSizeVarMap0, NonNegEqns),
-		do_traversal(Goal, Traversal_params, 
-			constr_info(VarToSizeVarMap0, SizeVars0, Zeros0, 
-								NonNegEqns), 
-			constr_info(VarToSizeVarMap, SizeVars, Zeros, 
-					Unwidened_Constraints), IO0, IO),
-		%### Check that this is OK even on the first iteration.
-		% is it always the case that there will be new equations
-		% from the first iteration, compared to the builtins
-		% and compiler-gens? (or if not, is it OK to stop on the
-		% first iteration when there are no changes?) Yes.
+		term_constr_traversal__init_traversal_params(Module_info0, 
+			Func_info, PPID, Context, VarTypes, Zeros, 
+					VarToSizeVarMap, Traversal_params),
+
+		do_traversal(Goal, Traversal_params, SizeVars0, 
+			constr_info(SizeVars,Unwidened_Constraint_info),IO0,IO),
 		
-		test_fixpoint_and_perhaps_widen(Widening_info, SizeVars, 
-			It_num, Unwidened_Constraints, Old_constraints, 
-						Constraints, Change_flag)
-	),
+		( 	Unwidened_Constraint_info = false_equation,
 
-	%%#### This is also using old module info : Should get it from 
-	%%#### traversal params after do_traversal. Doesn't matter: see
-	%% comment above. 
-	update_arg_size_info(PPID, Constraints, Zeros, VarToSizeVarMap, 
-					Module_info0, Module_info).
-	%#### Should return this module info??  Yes.
+			%XX Should terminate more gracefully than this?
+			error("term_constr_pass1: No equations after second
+			iteration")
+		;
+			Unwidened_Constraint_info = eqns(Unwidened_Constraints),
+			test_fixpoint_and_perhaps_widen(Widening_info, SizeVars,
+				It_num, Unwidened_Constraints, 
+					Old_constraints, Constraints, 
+								Change_flag),
+			update_arg_size_info(PPID, Constraints, Zeros, 
+				VarToSizeVarMap, Module_info0, Module_info)
+		)
+	).
 
 
-:- pred update_arg_size_info(pred_proc_id, equations, set(var), 
+
+:- pred update_arg_size_info(pred_proc_id, equations, set(size_var), 
 				bimap(var, size_var), module_info, module_info).
 :- mode update_arg_size_info(in, in, in, in, in, out) is det.
 
 update_arg_size_info(PPID, Constraints, Zeros, VarMap, Mod_info0, Mod_info) :-
 	
 	set_pred_proc_ids_arg_size_info([PPID], 
-		constraints(Constraints, Zeros, VarMap), Mod_info0, Mod_info). 
+		constraints(Constraints, Zeros, VarMap), Mod_info0, 
+								Mod_info). 
 
 
 % This assumes that constraints already entered in module info (i.e. the
@@ -221,9 +216,8 @@ test_fixpoint_and_perhaps_widen(remove_parallel_constraints, _, _,
 	remove_weakening_constraints(Unwidened_eqns, Old_eqns, Widened_eqns,
 								Changed_flag).
 
-test_fixpoint_and_perhaps_widen(widen_after_fixed_iterations(Num), Vars, 
-		It_num, New_eqns, Old_eqns, Widened_eqns, Changed_flag) :-
-
+test_fixpoint_and_perhaps_widen(widen_after_fixed_iterations(Num), Vars, It_num,
+		New_eqns, Old_eqns, Widened_eqns, Changed_flag) :-
 
 	% This test should be unecessary if the algorithm is implemented
 	% correctly.  Worth leaving in for now, though.
@@ -296,8 +290,8 @@ remove_weakening_constraints2([Neqn|New_eqns], [Oeqn|Old_eqns], Acc,
 					remove_weakening_constraints2(New_eqns, 
 						Old_eqns, Acc, Widened_eqns, _)	
 				;
-					error("term_constr_pass1: constraints got 
-						tighter between iterations\n")
+					error("term_constr_pass1: constraints \
+					got tighter between iterations\n")
 				)
 			)
 		;
@@ -315,24 +309,7 @@ remove_weakening_constraints2([Neqn|New_eqns], [Oeqn|Old_eqns], Acc,
 		error("term_constr_pass1: Non_canonical equation in 
 					remove_weakening_constraints\n")
 	).
-	/*
-	;
-		Oeqn = eqn(_, (=), _),
-		error("term_constr_pass1: Non_canonical equation in 
-					remove_weakening_constraints\n")	
-	;
-		Neqn = eqn(_, (>=), _),
-		error("term_constr_pass1: Non_canonical equation in 
-					remove_weakening_constraints\n")
-	;
-		Neqn = eqn(_, (>=), _),
-		error("term_constr_pass1: Non_canonical equation in 
-			remove_weakening_constraints\n")
-	).*/
 		
-			 
-		
-	
 
 % Takes a list of equations sorted according to the compare_eqns function,
 % and removes all equations for which a stronger parallel equation exists
@@ -359,8 +336,8 @@ remove_redundant_eqns2([Eqn1,Eqn2|Eqns], Acc_eqns, Output_eqns) :-
 	( (Op1 = (=<), Op2 = (=<)) ->
 		( Coeffs1 = Coeffs2 ->
 			( rat:'<'(Const1, Const2) ->
-				error("term_constr_pass1: Incorrectly sorted list in 
-							remove_redundant_eqns\n")
+				error("term_constr_pass1: Incorrectly sorted \
+				list in remove_redundant_eqns\n")
 			;
 				remove_redundant_eqns2([Eqn2|Eqns], Acc_eqns, 
 								Output_eqns)
@@ -373,4 +350,36 @@ remove_redundant_eqns2([Eqn1,Eqn2|Eqns], Acc_eqns, Output_eqns) :-
 		error("term_constr_pass1: Non-canonical equations in 
 						remove_redundant_eqns\n")
 	).
+
+
+find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros) :-
+	Is_zero = lambda([VarA::in] is semidet, (
+		lookup(VarTypes, VarA, Type),
+		zero_size_type(Type, Module)
+	)),
+	bimap__ordinates(VarToSizeVarMap, Vars),
+	list__filter(Is_zero, Vars, ZeroVars),
+	VarToSize = lambda([VarB::in, SizeVar::out] is det, (
+		lookup(VarToSizeVarMap, VarB, SizeVar)
+	)),
+	list__map(VarToSize, ZeroVars, ZerosList),
+	list_to_set(ZerosList, Zeros).
+
+
+:- pred fill_var_to_sizevar_map(hlds_goal, size_varset, size_varset, 
+							bimap(var, size_var)).
+:- mode fill_var_to_sizevar_map(in, in, out, out) is det.
+fill_var_to_sizevar_map(Goal, Varset0, Varset, VarToSizeVarMap) :-
+	bimap__init(VarToSizeVarMap0),
+	quantification__goal_vars(Goal, VarsSet),
+	Insert_var = lambda([Var::in, Map0::in, Map::out, VSet0::in,
+							VSet::out] is det, (
+		size_varset__new_var(VSet0, SizeVar, VSet),
+		bimap__set(Map0, Var, SizeVar, Map)
+	)),
+	set__to_sorted_list(VarsSet, Vars),
+	list__foldl2(Insert_var, Vars, VarToSizeVarMap0, VarToSizeVarMap, 
+						Varset0, Varset).
+
+
 

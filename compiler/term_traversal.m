@@ -233,7 +233,7 @@ traverse_goal_2(call(CallPredId, CallProcId, Args, _, _, _),
 		error_if_intersect(OutVars, Context,
 			inf_termination_const(PPId, CallPPId), Info0, Info1)
 	;
-		CallArgSizeInfo = yes(constraints(_,_)),
+		CallArgSizeInfo = yes(constraints(_,_,_)),
 		error("term_traversal: wrong kind of argument size info\n")
 	;
 		CallArgSizeInfo = no,

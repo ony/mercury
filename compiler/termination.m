@@ -78,7 +78,9 @@
 :- implementation.
 
 :- import_module term_pass1, term_pass2, term_errors.
-:- import_module term_constr_pass1.
+:- import_module term_constr_pass1, term_constr_traversal. %XXX Only need
+			% the latter for derive_nonneg.. which will go in
+			% term_util.
 :- import_module inst_match, passes_aux, options, globals.
 :- import_module hlds_data, hlds_goal, dependency_graph.
 :- import_module mode_util, hlds_out, code_util, prog_out, prog_util.
@@ -185,8 +187,8 @@ termination__process_scc_vanessa(SCC, Module0, SizeVars0, PassInfo, Module,
 		{ WideningInfo = remove_parallel_constraints }
 	),
 
-	find_arg_sizes_in_scc(SCC, Module0, SizeVars0, PassInfo, WideningInfo, 
-					Module, SizeVars, _).
+	term_constr_pass1__find_arg_sizes_in_scc(SCC, Module0, SizeVars0, 
+			PassInfo, WideningInfo, Module, SizeVars).
 	%#####?
 
 :- pred termination__process_scc_chris(list(pred_proc_id), module_info,
@@ -593,59 +595,42 @@ special_pred_id_to_termination(index, HeadVars, ArgSize, Termination) :-
 	Termination = cannot_loop.
 
 :- pred special_pred_id_to_termination_v(special_pred_id::in, 
-	list(var)::in, module_info::in, map(var,type)::in, arg_size_info::out, 
-					termination_info::out) is det.
+	list(var)::in, module_info::in, map(var,type)::in, 
+			arg_size_info::out, termination_info::out) is det.
 
 
-special_pred_id_to_termination_v(compare, HeadVars, Module, VarTypes, ArgSize, 
-							Termination) :-
-	bimap__init(VarToSizeVarMap0),
-	size_varset__init(SizeVarset0),
-	set__init(Zeros0),
-
+%XX Check that these do the right thing.
+special_pred_id_to_termination_v(compare, HeadVars, Module, VarTypes, 
+				ArgSize, Termination) :-
 	list__length(HeadVars, Length),
 	NumToDrop is Length - 3,
-	( list__drop(NumToDrop, HeadVars, ZeroSizeHeadVars) ->
-		rename_vars(ZeroSizeHeadVars, ZeroSizeSizeVars, Module,VarTypes,
-				constr_info(VarToSizeVarMap0, SizeVarset0, 
-								Zeros0, []), 
-				constr_info(VarToSizeVarMap, _SizeVarset,
-								Zeros, _)),
-				% Last arg will just be non-negativity equations
-				% for the vars we are about to set to zero.
-				%#####Do we ever need the SizeVarset output?
-				% The ZeroSizeSizeVars will only be those with
-				% not-always-zero type.  Are there ever any?
-		list__map(make_zero_eqn, ZeroSizeSizeVars, ZeroEqns),
-		canonical_form(ZeroEqns, CanonicalZeroEqns),
-		list__sort(compare_eqns, CanonicalZeroEqns, SortedEqns),
-		ArgSize = constraints(SortedEqns, Zeros, VarToSizeVarMap),
-		Termination = cannot_loop
+	( list__drop(NumToDrop, HeadVars, _CountedHeadVars) ->
+		make_info(HeadVars, Module, VarTypes, ArgSize, Termination)
 	;
 		error("Less than three arguments to compare")
 	).
 
-special_pred_id_to_termination_v(unify, HeadVars, Module, VarTypes, ArgSize, 
-								Termination) :-
-	bimap__init(VarToSizeVarMap0),
-	size_varset__init(SizeVarset0),
-	set__init(Zeros0), 
-
+special_pred_id_to_termination_v(unify, HeadVars, Module, VarTypes,
+						ArgSize, Termination) :-
 	list__length(HeadVars, Length),
 	NumToDrop is Length - 2,
 	( list__drop(NumToDrop, HeadVars, TwoEqualHeadVars) ->
-		rename_vars(TwoEqualHeadVars, TwoEqualSizeVars, Module,VarTypes,
-				constr_info(VarToSizeVarMap0, SizeVarset0, 
-								Zeros0, []), 
-				constr_info(VarToSizeVarMap, _SizeVarset, 
-							Zeros, NonNegEqns)),
-		( TwoEqualSizeVars = [] ->
+		fill_var_to_sizevar_map(HeadVars, _SizeVarset, VarToSizeVarMap),
+		rename_vars(TwoEqualHeadVars, TwoEqualSizeVars,
+							VarToSizeVarMap),
+		find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros),
+		set__count(Zeros, NumZeros),
+		( NumZeros = 2 ->
 			SortedEqns = []
-		;
+		; ( NumZeros = 0 ; NumZeros = 1) ->
 			make_equal_eqn(TwoEqualSizeVars, EqualEqn),
+			derive_nonneg_eqns(VarToSizeVarMap, Zeros, NonNegEqns),
 			Eqns = [EqualEqn | NonNegEqns],
 			canonical_form(Eqns, CanonicalEqns),
 			list__sort(compare_eqns, CanonicalEqns, SortedEqns)
+		; 
+			error("termination.m: Error in calcluating equation \
+				for unification.")
 		),
 		ArgSize = constraints(SortedEqns, Zeros, VarToSizeVarMap),
 		Termination = cannot_loop
@@ -654,34 +639,47 @@ special_pred_id_to_termination_v(unify, HeadVars, Module, VarTypes, ArgSize,
 	).
 
 special_pred_id_to_termination_v(index, HeadVars, Module, VarTypes, ArgSize, 
-								Termination) :-
-	bimap__init(VarToSizeVarMap0),
-	size_varset__init(SizeVarset0),
-	set__init(Zeros0),
-
+							Termination) :-
 	list__length(HeadVars, Length),
 	NumToDrop is Length - 2,
-	( list__drop(NumToDrop, HeadVars, ZeroSizeHeadVars) ->
-		rename_vars(ZeroSizeHeadVars, ZeroSizeSizeVars, Module,VarTypes,
-				constr_info(VarToSizeVarMap0, SizeVarset0, 
-								Zeros0, []), 
-				constr_info(VarToSizeVarMap, _SizeVarset,
-								Zeros, _)),
-				% Last arg will just be non-negativity equations
-				% for the vars we are about to set to zero.
-		list__map(make_zero_eqn, ZeroSizeSizeVars, ZeroEqns),
-
-		%### These two are probably unnecessary, since there isn't
-		% going to be a second iteration on this.
-		canonical_form(ZeroEqns, CanonicalZeroEqns),
-		list__sort(compare_eqns, CanonicalZeroEqns, SortedEqns),
-
-		ArgSize = constraints(SortedEqns, Zeros, VarToSizeVarMap),
-		Termination = cannot_loop
+	( list__drop(NumToDrop, HeadVars, _ZeroSizeHeadVars) ->
+		make_info(HeadVars, Module, VarTypes, ArgSize, Termination)
 	;
 		error("Less than two arguments to index")
 	).
-	
+
+
+% Sets up the arg_size an termination info for those special preds (compare
+% and index) where we don't know any arg-size constraints.
+:- pred make_info(list(var), module_info, map(var,type), arg_size_info, 
+					termination_info). 
+:- mode make_info(in, in, in, out, out) is det.
+make_info(HeadVars, Module, VarTypes, ArgSize, Termination) :-
+
+	fill_var_to_sizevar_map(HeadVars, _SizeVarset, VarToSizeVarMap),
+	find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros),
+	derive_nonneg_eqns(VarToSizeVarMap, Zeros, NonNegEqns),
+	canonical_form(NonNegEqns, CanonicalNonNegEqns),
+	list__sort(compare_eqns, CanonicalNonNegEqns, SortedEqns),
+	ArgSize = constraints(SortedEqns, Zeros, VarToSizeVarMap),
+	Termination = cannot_loop.
+
+
+:- pred fill_var_to_sizevar_map(list(var), size_varset, bimap(var, size_var)).
+:- mode fill_var_to_sizevar_map(in, out, out) is det.
+fill_var_to_sizevar_map(HeadVars, SizeVarset, VarToSizeVarMap) :-
+	size_varset__init(SizeVarset0),
+	bimap__init(VarToSizeVarMap0),
+	%XXX This is exactly like the code in pass1. Put something in
+	%term_util. 
+	Insert_var = lambda([Var::in, Map0::in, Map::out, VSet0::in,
+							 VSet::out] is det, (
+		size_varset__new_var(VSet0, SizeVar, VSet),
+		bimap__set(Map0, Var, SizeVar, Map)
+	)),
+	list__foldl2(Insert_var, HeadVars, VarToSizeVarMap0, VarToSizeVarMap, 
+						SizeVarset0, SizeVarset).
+																	 
 :- pred make_zero_eqn(size_var, equation).
 :- mode make_zero_eqn(in, out) is det.
 
@@ -713,39 +711,34 @@ set_builtin_terminates([ProcId | ProcIds], PredId, PredInfo, Module,
 		proc_info_headvars(ProcInfo0, HeadVars),
 		proc_info_vartypes(ProcInfo0, VarTypes),
 
-
-		bimap__init(VarToSizeVarMap0),
-		size_varset__init(SizeVarset0),
-		set__init(Zeros0),
-		Constraint_info0 = constr_info(VarToSizeVarMap0, SizeVarset0,
-							Zeros0, []),
-
 		%### This is a work around while some preds have vars with
 		% no corresponding type in the VarTypes map.
 		pred_info_module(PredInfo, PredModule),
 		pred_info_name(PredInfo, PredName),
 		pred_info_arity(PredInfo, PredArity),
+
+		fill_var_to_sizevar_map(HeadVars, _SizeVarset, VarToSizeVarMap),
+		find_zero_size_vars(Module, VarToSizeVarMap, VarTypes, Zeros),
 		( polymorphism__no_type_info_builtin(PredModule, PredName, 
 								PredArity) ->
 			process_special_builtin(PredName, HeadVars,
-				Constraint_info0, constr_info(VarToSizeVarMap,
-				_SizeVarset, Zeros, EqualEqns)),
-			canonical_form(EqualEqns, CanonicalEqns)
-		;
-			
-			rename_vars(HeadVars, ZeroSizeSizeVars, Module, 
-				VarTypes, Constraint_info0, 
-				constr_info(VarToSizeVarMap, _SizeVarset, 
-								Zeros, _)),
+					VarToSizeVarMap, EqualEqn),
+			canonical_form([EqualEqn], CanonicalEqns),
+			list__sort(compare_eqns, CanonicalEqns, SortedEqns)
+		; all_args_input_or_zero_size(Module, PredInfo, ProcInfo0) ->
+			SortedEqns = []
+			%rename_vars(HeadVars, ZeroSizeSizeVars, Module, 
+			%	VarTypes, Constraint_info0, 
+			%	constr_info(VarToSizeVarMap, _SizeVarset, 
+			%					Zeros, _)),
 				% Last arg will just be non-negativity equations
 				% for the vars we are about to set to zero.
-			list__map(make_zero_eqn, ZeroSizeSizeVars, ZeroEqns),
-
-			%### These are probably unnecessary, since there isn't
-			% going to be a second iteration on this.
-			canonical_form(ZeroEqns, CanonicalEqns)
+			%list__map(make_zero_eqn, ZeroSizeSizeVars, ZeroEqns)
+		;
+			error("termination: builtin with non-zero-size args")
 		),
-		list__sort(compare_eqns, CanonicalEqns, SortedEqns),
+		%### These are probably unnecessary, since there isn't
+		% going to be a second iteration on this.
 		ArgSizeInfo = yes(constraints(SortedEqns,Zeros,VarToSizeVarMap))
 	;
 		( all_args_input_or_zero_size(Module, PredInfo, ProcInfo0) ->
@@ -769,21 +762,18 @@ set_builtin_terminates([ProcId | ProcIds], PredId, PredInfo, Module,
 		ProcTable1, Vanessa_termination, ProcTable).
 
 
-:- pred process_special_builtin(string, list(var), constraint_info,
-							constraint_info).
+:- pred process_special_builtin(string, list(var), bimap(var, size_var),
+							equation).
 :- mode process_special_builtin(in, in, in, out) is det.
-process_special_builtin(PredName, HeadVars,
-				Constraint_info0, constr_info(VarToSizeVarMap,
-				SizeVarset, Zeros, AllEqns)) :-
+process_special_builtin(PredName, HeadVars, VarToSizeVarMap, Eqn) :-
+
 	%### Check the layout of this if_then_else.
 	( (HeadVars = [HVar1, HVar2], (PredName = "unsafe_type_cast" ; 
-					PredName = "unsafe_promise_unique")) ->
-		rename_var(HVar1, SizeVar1, Constraint_info0, Constraint_info1),
-		rename_var(HVar2, SizeVar2, Constraint_info1, Constraint_info2),
-		Constraint_info2 = constr_info(VarToSizeVarMap, SizeVarset, 
-								Zeros, Eqns),
-		EqualEqn = eqn([SizeVar1-one, SizeVar2-rat(-1,1)], (=), zero),
-		AllEqns = [EqualEqn | Eqns ]
+					PredName = "unsafe_promise_unique")) 
+	->
+		rename_var(HVar1, SizeVar1, VarToSizeVarMap), 
+		rename_var(HVar2, SizeVar2, VarToSizeVarMap),
+		Eqn = eqn([SizeVar1-one, SizeVar2-rat(-1,1)], (=), zero)
 	;
 		error("Unrecognised predicate passed to 
 						process_special_builtin")

@@ -5,7 +5,7 @@
 %-----------------------------------------------------------------------------%
 %
 % term_util.m
-% Main author: crs.
+% Main authors: crs, vjteag.
 %
 % This module:
 %
@@ -49,7 +49,7 @@
 				% why the analysis failed to find a finite
 				% constant.
 
-	;	constraints(equations, set(var), bimap(var, size_var)).
+	;	constraints(equations, set(size_var), bimap(var, size_var)).
 
 :- type termination_info
 	---> 	cannot_loop	% This procedure terminates for all
@@ -113,42 +113,53 @@
 %-----------------------------------------------------------------------------%
 
 :- type constraint_info 
+				%XXX Comment the invariants in this.
 	---> 	constr_info(  
 
-		bimap(var, size_var),		
-				% The bimap
-				% stores the corespondence between
-				% vars (i.e. variables
-				% appearing in a particular procedure)
-				% and SizeVars from the single varset 
-				% used to get variables for passing to 
-				% lp.
+			%bimap(var, size_var),		
+					% The bimap
+					% stores the corespondence between
+					% vars (i.e. variables
+					% appearing in a particular procedure)
+					% and SizeVars from the single varset 
+					% used to get variables for passing to 
+					% lp.
 
-		size_varset,	% A varset is used to create a set of
-				% non-clashing variables to pass to
-				% project and convex_hull.  
+			size_varset,	% A varset is used to create a set of
+					% non-clashing variables to pass to
+					% project and convex_hull.  
 
-		set(var),	% A set of all the variables discovered
-				% to have zero-size-type.
+			%set(var),	% A set of all the variables discovered
+					% to have zero-size-type.
 
-		equations	% All the constraints so far found.	
+			 
+			eqn_info	% All the constraints found so far
+					% (possibly "false").
 		).			
  
+ :- type eqn_info 
+ 	--->	eqns(equations)	 	% All the constraints found so far.	
+
+	;	false_equation. 	% Indicates that we found a 
+					% call to a procedure that has 
+					% not yet been approximated.
+				
+
 %-----------------------------------------------------------------------------%
 
 % These predicates are for dealing with equations.
 
-:- pred rename_vars(list(var), list(size_var), module_info, map(var, type), 
-					constraint_info, constraint_info).
-:- mode rename_vars(in, out, in, in, in, out) is det.
+:- pred rename_vars(list(var), list(size_var), bimap(var, size_var)).
+:- mode rename_vars(in, out, in) is det.
 
-:- pred rename_var(var, size_var, constraint_info, constraint_info).
-:- mode rename_var(in, out, in, out) is det.  
+:- pred rename_var(var, size_var, bimap(var, size_var)).
+:- mode rename_var(in, out, in) is det.  
 
 % Inserts a new variable into the set of zero-size-variables (does
 % nothing if that variable is already there).
-:- pred new_zero_var(var, constraint_info, constraint_info).
-:- mode new_zero_var(in, in, out) is det.
+%XXX Obsolete: delete this.
+%:- pred new_zero_var(var, constraint_info, constraint_info).
+%:- mode new_zero_var(in, in, out) is det.
 
 % Compares two equations, assumed to be in canonical form.  Two equations
 % are equal if they have the same coefficients, operation and constant.
@@ -171,6 +182,11 @@
 % and has first coefficient equal to plus or minus 1.
 :- pred canonical_form(equations, equations).
 :- mode canonical_form(in, out) is det.
+
+% Removes from equations coefficients corresponding to vars we know to be
+% of zero-size type.  Removes any equations that then have no coefficients.
+:- pred remove_zero_vars(set(size_var), equations, equations).
+:- mode remove_zero_vars(in, in, out) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -253,67 +269,109 @@
 
 % Equation-handling predicates:
 
-rename_vars([], Renamed_Vars, _, _, _, Constraint_info, Constraint_info). 
+rename_vars(Vars, RenamedVars, VarToSizeVarMap) :-
+	Rename_Var = lambda([Var::in, SizeVar::out] is det, (
+		rename_var(Var, SizeVar, VarToSizeVarMap)
+	)),
+	list__map(Rename_Var, Vars, RenamedVars).
 
-rename_vars(Vars, Renamed_Vars0, Module, VarTypes, Constr_info0, 
-								Constr_info) :-
-	rename_vars_acc(Vars, [], Renamed_Vars0, Module, VarTypes, Constr_info0,
-								Constr_info).
+%:- pred rename_vars_acc(list(var), list(size_var), list(size_var), 
+%							map(var, size_var)).
+%:- mode rename_vars_acc(in, in, out, in) is det.
 
-:- pred rename_vars_acc(list(var), list(size_var), list(size_var),
-		module_info, map(var, type), constraint_info, constraint_info).
-:- mode rename_vars_acc(in, in, out, in, in, in, out) is det.
-
-rename_vars_acc([], Renamed_Vars0, Renamed_Vars, Module, VarTypes, Constr_info,
-								Constr_info):-
-	list__reverse(Renamed_Vars0, Renamed_Vars).
+%rename_vars_acc([], Renamed_Vars0, Renamed_Vars, _):-
+%	list__reverse(Renamed_Vars0, Renamed_Vars).
 
 
-rename_vars_acc([V|Vars], Renamed_Vars0, Renamed_Vars, Module, VarTypes, 
-						Constr_info0, Constr_info) :-
+%rename_vars_acc([V|Vars], Renamed_Vars0, Renamed_Vars, VarToSizeVarMap) :-
 	
-	map__lookup(VarTypes, V, Type),
-	( zero_size_type(Type, Module) ->
-		new_zero_var(V, Constr_inf0, Constr_info1),
-		Renamed_Vars1 = Renamed_Vars0
+	
+	%map__lookup(VarTypes, V, Type),
+	%( zero_size_type(Type, Module) ->
+	%	new_zero_var(V, Constr_info0, Constr_info1),
+	%	Renamed_Vars1 = Renamed_Vars0
+%
+%	;
+%		rename_var(V, RV, Constr_info0, Constr_info1),
+%		Renamed_Vars1 = [RV|Renamed_Vars0]
+%	),
+%	rename_vars_acc(Vars, Renamed_Vars1, Renamed_Vars, Module, VarTypes, 
+%						Constr_info1, Constr_info).
 
+
+rename_var(Var, SizeVar, VarToSizeVarMap) :-
+	(bimap__search(VarToSizeVarMap, Var, SizeVar0) ->
+		SizeVar = SizeVar0
 	;
-		rename_var(V, RV, Constr_inf0, Constr_info1),
-		Renamed_Vars1 = [RV|Renamed_Vars0]
-	),
-	rename_vars_acc(Vars, Renamed_Vars1, Renamed_Vars, Module, VarTypes, 
-						Constr_info1, Constr_info).
+		error("term_util: tried to rename a variable not in map")
+	).
 
 
-% This should only be called when the var is not one of zero-size-type.
-%##Should check here?
-rename_var(Var0, Var1, Constr_info0, Constr_info) :-
+
+%rename_var(Var, SizeVar, VarToSizeVarMap) :-
 % see code in lp_rat.  
-	Constr_info0 = constr_info(BMap0, Vars0, ZeroVars0, Eqns0),
+	%Constr_info0 = constr_info(BMap0, Vars0, ZeroVars0, Eqn_info0),
 
-	(bimap__search(BMap0, Var0, OutVar) ->
-		Var1 = OutVar,
-		Vars = Vars0,
-		BMap = BMap0,
-		Eqns = Eqns0
-	;
-		size_varset__new_var(Vars0, NewVar, Vars),
-		(bimap__insert(BMap0, Var0, NewVar, BMap1) ->
-			Var1 = NewVar,
-			BMap = BMap1,
-			Eqns = [eqn([NewVar-one], (>=), zero) | Eqns0]
-		;
-			error("term_traversal2: bimap__insert failed\n")
-		)
-	),
-	Constr_info = constr_info(BMap, Vars, ZeroVars0, Eqns).
+%	(bimap__search(BMap0, Var, SizeVar0) ->
+%		SizeVar = SizeVar,
+%		Vars = Vars0,
+%		BMap = BMap0,
+%		Eqn_info = Eqn_info0
+%	;
+%		size_varset__new_var(Vars0, NewVar, Vars),
+%		(bimap__insert(BMap0, Var0, NewVar, BMap1) ->
+%			Var1 = NewVar,
+%			BMap = BMap1,
+%			( Eqn_info0 = eqns(Eqns0) ->
+%				Eqn_info = eqns([eqn([NewVar-one], (>=), zero) 
+%						| Eqns0])
+%			;
+%				Eqn_info = false_equation
+%			)
+%		;
+%			error("term_util: bimap__insert failed\n")
+%		)
+%	),
+%	Constr_info = constr_info(BMap, Vars, ZeroVars0, Eqn_info).
 
 
-new_zero_var(Var, constr_info(Vars, Map, Zeros0, Eqns), 
-			constr_info(Vars, Map, Zeros, Eqns) ) :-
-	set__insert(Zeros0, Var, Zeros).
+%XXX This is almost certainly obsolete.
+%new_zero_var(Var, constr_info(Vars, Map, Zeros0, Eqns), 
+%			constr_info(Vars, Map, Zeros, Eqns) ) :-
+%	set__insert(Zeros0, Var, Zeros).
 	
 
+remove_zero_vars(Zeros, Equations0, Equations) :-
+	Simplify_eqns = lambda([Eqn::in, Eqns0::in, Eqns::out] is det, (
+		Eqn = eqn(Coeffs0, Op, Const),
+		simplify_coeffs(Zeros, Coeffs0, Coeffs),
+		( 	Coeffs = [],
+			Const \= zero
+		->
+			error("term_util: Illegal equation.")
+		;
+			Coeffs = []
+		->
+			Eqns = Eqns0
+		;
+			Eqns = [eqn(Coeffs, Op, Const)|Eqns0]
+		)
+	)),
+	list__foldl(Simplify_eqns, Equations0, [], Equations).
+			
+
+
+:- pred simplify_coeffs(set(size_var), list(coeff), list(coeff)).
+:- mode simplify_coeffs(in, in, out) is det.
+simplify_coeffs(_, [], []). 
+simplify_coeffs(Zeros, [Var0-Rat0|Coeffs0], Coeffs) :-
+	( set__member(Var0, Zeros) ->
+		simplify_coeffs(Zeros, Coeffs0, Coeffs)
+	;
+		simplify_coeffs(Zeros, Coeffs0, Coeffs1),
+		Coeffs = [Var0-Rat0 | Coeffs1]
+	).
+	
 
 
 compare_eqns(Eqn1, Eqn2, Result) :-
@@ -336,7 +394,7 @@ compare_eqns(Eqn1, Eqn2, Result) :-
 			Result = Coeffs_result
 		)
 	;
-		error("term_constr_pass1: Non-canonical equation passed to 
+		error("term_util: Non-canonical equation passed to 
 								compare_eqns\n")
 	).
 
@@ -360,7 +418,7 @@ canonical_form(Eqns0, Canonical_eqns) :-
 		( map__remove_smallest(Map0, LeastVar, _, _) ->
 			normalize_vector(Vec1, LeastVar, Norm_vec)
 		;
-			error("term_constr_pass1:Can't normalise null vector\n")
+			error("term_util:Can't normalise null vector\n")
 
 		)
 	)),
