@@ -849,8 +849,8 @@ hlds_pred__define_new_pred(Goal0, Goal, ArgVars0, InstMap0, PredName, TVarSet,
 	globals__lookup_bool_option(Globals, typeinfo_liveness,
 		TypeInfoLiveness),
 	( TypeInfoLiveness = yes ->
-		goal_util__extra_nonlocal_typeinfos(TVarMap, VarTypes0,
-			ExistQVars, Goal0, ExtraTypeInfos0),
+		goal_util__extra_nonlocal_typeinfos(TVarMap, TCVarMap,
+			VarTypes0, ExistQVars, Goal0, ExtraTypeInfos0),
 		set__delete_list(ExtraTypeInfos0, ArgVars0, ExtraTypeInfos),
 		set__to_sorted_list(ExtraTypeInfos, ExtraArgs),
 		list__append(ExtraArgs, ArgVars0, ArgVars)

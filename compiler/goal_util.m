@@ -68,6 +68,11 @@
 :- mode goal_util__goals_goal_vars(in, in, out) is det.
 
 	%
+	% goal_util__extra_nonlocal_typeinfos(TypeInfoMap, TypeClassInfoMap,
+	%		VarTypes, ExistQVars, Goal, NonLocalTypeInfos):
+	% compute which type-info and type-class-info variables
+	% may need to be non-local to a goal.
+	%
 	% A type-info variable may be non-local to a goal if any of 
 	% the ordinary non-local variables for that goal are
 	% polymorphically or existentially typed with a type
@@ -79,8 +84,9 @@
 	% by the typeclass constraints for that typeclass-info variable.
 	%
 :- pred goal_util__extra_nonlocal_typeinfos(map(tvar, type_info_locn),
-		map(var, type), existq_tvars, hlds_goal, set(var)).
-:- mode goal_util__extra_nonlocal_typeinfos(in, in, in, in, out) is det.
+		map(class_constraint, var), map(var, type), existq_tvars,
+		hlds_goal, set(var)).
+:- mode goal_util__extra_nonlocal_typeinfos(in, in, in, in, in, out) is det.
 
 	% See whether the goal is a branched structure.
 :- pred goal_util__goal_is_branched(hlds_goal_expr).
@@ -528,8 +534,8 @@ goal_util__rhs_goal_vars(
 
 %-----------------------------------------------------------------------------%
 
-goal_util__extra_nonlocal_typeinfos(TypeVarMap, VarTypes, ExistQVars,
-		Goal0, NonLocalTypeInfos) :-
+goal_util__extra_nonlocal_typeinfos(TypeVarMap, TypeClassVarMap, VarTypes,
+		ExistQVars, Goal0, NonLocalTypeInfos) :-
 	Goal0 = _ - GoalInfo0,
 	goal_info_get_nonlocals(GoalInfo0, NonLocals),
 	set__to_sorted_list(NonLocals, NonLocalsList),
@@ -541,8 +547,14 @@ goal_util__extra_nonlocal_typeinfos(TypeVarMap, VarTypes, ExistQVars,
 			( list__member(TypeVar, NonLocalTypeVars)
 			; list__member(TypeVar, ExistQVars)
 			),
-			map__search(TypeVarMap, TypeVar, Location),
-			type_info_locn_var(Location, Var)
+			( map__search(TypeVarMap, TypeVar, Location),
+			  type_info_locn_var(Location, Var)
+			;
+			  % this is probably not very efficient...
+			  map__member(TypeClassVarMap, Constraint, Var),
+			  Constraint = constraint(_Name, ArgTypes),
+			  term__contains_var_list(ArgTypes, TypeVar)
+			)
 		)), NonLocalTypeInfos).
 
 %-----------------------------------------------------------------------------%

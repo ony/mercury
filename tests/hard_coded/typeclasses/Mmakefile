@@ -9,6 +9,7 @@ include ../../Mmake.common
 PROGS=	\
 	constrained_lambda \
 	extract_typeinfo \
+	existential_type_classes \
 	ho_map \
 	implied_instance \
 	implied_instance_poly \
@@ -36,6 +37,7 @@ PROGS=	\
 
 MCFLAGS-inference_test = --infer-all
 MCFLAGS-inference_test_2 = --infer-all
+MCFLAGS-existential_type_classes = --infer-all
 
 #-----------------------------------------------------------------------------#
 
