@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -25,6 +25,10 @@
 
 :- pred module_info_ensure_dependency_info(module_info, module_info).
 :- mode module_info_ensure_dependency_info(in, out) is det.
+
+:- pred dependency_graph__build_pred_dependency_graph(module_info,
+		dependency_info(pred_id)).
+:- mode dependency_graph__build_pred_dependency_graph(in, out) is det.
 
 :- pred dependency_graph__write_dependency_graph(module_info, module_info,
 						io__state, io__state).
@@ -85,33 +89,36 @@ module_info_ensure_dependency_info(ModuleInfo0, ModuleInfo) :-
 	( MaybeDepInfo = yes(_) ->
 	    ModuleInfo = ModuleInfo0
 	;
-	    dependency_graph__build_dependency_graph(ModuleInfo0, ModuleInfo)
+	    dependency_graph__build_dependency_graph(ModuleInfo0, DepInfo),
+	    module_info_set_dependency_info(ModuleInfo0, DepInfo, ModuleInfo)
 	).
 
 	% Traverse the module structure, calling `dependency_graph__add_arcs'
 	% for each procedure body.
 
-:- pred dependency_graph__build_dependency_graph(module_info, module_info).
+dependency_graph__build_pred_dependency_graph(ModuleInfo, DepInfo) :-
+	dependency_graph__build_dependency_graph(ModuleInfo, DepInfo).
+
+:- pred dependency_graph__build_dependency_graph(module_info,
+		dependency_info(T)) <= dependency_node(T).
 :- mode dependency_graph__build_dependency_graph(in, out) is det.
 
-dependency_graph__build_dependency_graph(ModuleInfo0, ModuleInfo) :-
-	module_info_predids(ModuleInfo0, PredIds),
+dependency_graph__build_dependency_graph(ModuleInfo, DepInfo) :-
+	module_info_predids(ModuleInfo, PredIds),
 	relation__init(DepGraph0),
-	dependency_graph__add_pred_nodes(PredIds, ModuleInfo0,
+	dependency_graph__add_nodes(PredIds, ModuleInfo,
 				DepGraph0, DepGraph1),
-	dependency_graph__add_pred_arcs(PredIds, ModuleInfo0,
+	dependency_graph__add_arcs(PredIds, ModuleInfo,
 				DepGraph1, DepGraph),
 	hlds_dependency_info_init(DepInfo0),
 	hlds_dependency_info_set_dependency_graph(DepInfo0, DepGraph,
 				DepInfo1),
 	relation__atsort(DepGraph, DepOrd0),
 	dependency_graph__sets_to_lists(DepOrd0, [], DepOrd),
-	hlds_dependency_info_set_dependency_ordering(DepInfo1, DepOrd,
-				DepInfo),
-	module_info_set_dependency_info(ModuleInfo0, DepInfo, ModuleInfo).
+	hlds_dependency_info_set_dependency_ordering(DepInfo1, DepOrd, DepInfo).
 
-:- pred dependency_graph__sets_to_lists( list(set(pred_proc_id)),
-			list(list(pred_proc_id)), list(list(pred_proc_id))).
+:- pred dependency_graph__sets_to_lists(list(set(T)), list(list(T)),
+		list(list(T))).
 :- mode dependency_graph__sets_to_lists(in, in, out) is det.
 
 dependency_graph__sets_to_lists([], Xs, Xs).
@@ -122,12 +129,43 @@ dependency_graph__sets_to_lists([X | Xs], Ys, Zs) :-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- pred dependency_graph__add_pred_nodes(list(pred_id), module_info,
-                        dependency_graph, dependency_graph).
-:- mode dependency_graph__add_pred_nodes(in, in, in, out) is det.
+:- typeclass dependency_node(T) where [
+	pred dependency_graph__add_nodes(list(pred_id), module_info,
+		dependency_graph(T), dependency_graph(T)),
+	mode dependency_graph__add_nodes(in, in, in, out) is det,
 
-dependency_graph__add_pred_nodes([], _ModuleInfo, DepGraph, DepGraph).
-dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo,
+	pred dependency_graph__add_arcs(list(pred_id), module_info,
+		dependency_graph(T), dependency_graph(T)),
+	mode dependency_graph__add_arcs(in, in, in, out) is det,
+
+	func dependency_node(pred_proc_id) = T
+].
+
+:- instance dependency_node(pred_proc_id) where [
+	pred(dependency_graph__add_nodes/4) is 
+		dependency_graph__add_pred_proc_nodes,
+	pred(dependency_graph__add_arcs/4) is
+		dependency_graph__add_pred_proc_arcs,
+	func(dependency_node/1) is id
+].
+
+:- instance dependency_node(pred_id) where [
+	pred(dependency_graph__add_nodes/4) is 
+		dependency_graph__add_pred_nodes,
+	pred(dependency_graph__add_arcs/4) is
+		dependency_graph__add_pred_arcs,
+	func(dependency_node/1) is pred_proc_id_get_pred_id
+].
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- pred dependency_graph__add_pred_proc_nodes(list(pred_id), module_info,
+                        dependency_graph, dependency_graph).
+:- mode dependency_graph__add_pred_proc_nodes(in, in, in, out) is det.
+
+dependency_graph__add_pred_proc_nodes([], _ModuleInfo, DepGraph, DepGraph).
+dependency_graph__add_pred_proc_nodes([PredId | PredIds], ModuleInfo,
                                         DepGraph0, DepGraph) :-
         module_info_preds(ModuleInfo, PredTable),
         map__lookup(PredTable, PredId, PredInfo),
@@ -137,7 +175,7 @@ dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo,
 	pred_info_non_imported_procids(PredInfo, ProcIds),
 	dependency_graph__add_proc_nodes(ProcIds, PredId, ModuleInfo,
 		DepGraph0, DepGraph1),
-        dependency_graph__add_pred_nodes(PredIds, ModuleInfo,
+        dependency_graph__add_pred_proc_nodes(PredIds, ModuleInfo,
 		DepGraph1, DepGraph).
 
 :- pred dependency_graph__add_proc_nodes(list(proc_id), pred_id, module_info,
@@ -152,21 +190,43 @@ dependency_graph__add_proc_nodes([ProcId | ProcIds], PredId, ModuleInfo,
                                                 DepGraph1, DepGraph).
 
 %-----------------------------------------------------------------------------%
+
+:- pred dependency_graph__add_pred_nodes(list(pred_id), module_info,
+		dependency_graph(pred_id), dependency_graph(pred_id)).
+:- mode dependency_graph__add_pred_nodes(in, in, in, out) is det.
+
+dependency_graph__add_pred_nodes([], _ModuleInfo, DepGraph, DepGraph).
+dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo,
+                                        DepGraph0, DepGraph) :-
+        module_info_preds(ModuleInfo, PredTable),
+        map__lookup(PredTable, PredId, PredInfo),
+	% Don't bother adding nodes (or arcs) for predicates
+	% which which are imported (ie we don't have any `clauses'
+	% for).
+	( pred_info_is_imported(PredInfo) ->
+		DepGraph1 = DepGraph0
+	;
+		relation__add_element(DepGraph0, PredId, _, DepGraph1)
+	),
+        dependency_graph__add_pred_nodes(PredIds, ModuleInfo,
+		DepGraph1, DepGraph).
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- pred dependency_graph__add_pred_arcs(list(pred_id), module_info,
+:- pred dependency_graph__add_pred_proc_arcs(list(pred_id), module_info,
 			dependency_graph, dependency_graph).
-:- mode dependency_graph__add_pred_arcs(in, in, in, out) is det.
+:- mode dependency_graph__add_pred_proc_arcs(in, in, in, out) is det.
 
-dependency_graph__add_pred_arcs([], _ModuleInfo, DepGraph, DepGraph).
-dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo,
+dependency_graph__add_pred_proc_arcs([], _ModuleInfo, DepGraph, DepGraph).
+dependency_graph__add_pred_proc_arcs([PredId | PredIds], ModuleInfo,
 					DepGraph0, DepGraph) :-
 	module_info_preds(ModuleInfo, PredTable),
 	map__lookup(PredTable, PredId, PredInfo),
 	pred_info_non_imported_procids(PredInfo, ProcIds),
 	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo,
 			DepGraph0, DepGraph1),
-	dependency_graph__add_pred_arcs(PredIds, ModuleInfo,
+	dependency_graph__add_pred_proc_arcs(PredIds, ModuleInfo,
 			DepGraph1, DepGraph).
 
 :- pred dependency_graph__add_proc_arcs(list(proc_id), pred_id, module_info,
@@ -190,10 +250,41 @@ dependency_graph__add_proc_arcs([ProcId | ProcIds], PredId, ModuleInfo,
 						DepGraph1, DepGraph).
 
 %-----------------------------------------------------------------------------%
+
+:- pred dependency_graph__add_pred_arcs(list(pred_id), module_info,
+			dependency_graph(pred_id), dependency_graph(pred_id)).
+:- mode dependency_graph__add_pred_arcs(in, in, in, out) is det.
+
+dependency_graph__add_pred_arcs([], _ModuleInfo, DepGraph, DepGraph).
+dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo,
+					DepGraph0, DepGraph) :-
+	module_info_preds(ModuleInfo, PredTable),
+	map__lookup(PredTable, PredId, PredInfo),
+	( pred_info_is_imported(PredInfo) ->
+		DepGraph1 = DepGraph0
+	;
+		pred_info_clauses_info(PredInfo, ClausesInfo),
+		clauses_info_clauses(ClausesInfo, Clauses),
+		Goals = list__map(func(clause(_, Goal, _)) = Goal, Clauses),
+		relation__lookup_element(DepGraph0, PredId, Caller),
+		dependency_graph__add_arcs_in_list(Goals, Caller, DepGraph0,
+			DepGraph1)
+	),
+	dependency_graph__add_pred_arcs(PredIds, ModuleInfo,
+			DepGraph1, DepGraph).
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- func pred_proc_id_get_pred_id(pred_proc_id) = pred_id.
+
+pred_proc_id_get_pred_id(proc(PredId, _)) = PredId.
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- pred dependency_graph__add_arcs_in_goal(hlds_goal, relation_key,
-					dependency_graph, dependency_graph).
+		dependency_graph(T), dependency_graph(T)) <= dependency_node(T).
 :- mode dependency_graph__add_arcs_in_goal(in, in, in, out) is det.
 
 dependency_graph__add_arcs_in_goal(Goal - _GoalInfo, PPId, 
@@ -203,7 +294,7 @@ dependency_graph__add_arcs_in_goal(Goal - _GoalInfo, PPId,
 %-----------------------------------------------------------------------------%
 
 :- pred dependency_graph__add_arcs_in_goal_2(hlds_goal_expr, relation_key,
-					dependency_graph, dependency_graph).
+		dependency_graph(T), dependency_graph(T)) <= dependency_node(T).
 :- mode dependency_graph__add_arcs_in_goal_2(in, in, in, out) is det.
 
 dependency_graph__add_arcs_in_goal_2(conj(Goals), Caller, 
@@ -250,7 +341,7 @@ dependency_graph__add_arcs_in_goal_2(call(PredId, ProcId, _, Builtin, _, _),
 			% we didn't insert it because is was imported,
 			% and we don't consider it.
 			relation__search_element(DepGraph0,
-				proc(PredId, ProcId), Callee)
+				dependency_node(proc(PredId, ProcId)), Callee)
 		->
 			relation__add(DepGraph0, Caller, Callee, DepGraph)
 		;
@@ -286,7 +377,7 @@ dependency_graph__add_arcs_in_goal_2(bi_implication(LHS, RHS), Caller,
 %-----------------------------------------------------------------------------%
 
 :- pred dependency_graph__add_arcs_in_list(list(hlds_goal), relation_key,
-			dependency_graph, dependency_graph).
+		dependency_graph(T), dependency_graph(T)) <= dependency_node(T).
 :- mode dependency_graph__add_arcs_in_list(in, in, in, out) is det.
 
 dependency_graph__add_arcs_in_list([], _Caller, DepGraph, DepGraph).
@@ -297,7 +388,7 @@ dependency_graph__add_arcs_in_list([Goal|Goals], Caller, DepGraph0, DepGraph) :-
 %-----------------------------------------------------------------------------%
 
 :- pred dependency_graph__add_arcs_in_cases(list(case), relation_key,
-			dependency_graph, dependency_graph).
+		dependency_graph(T), dependency_graph(T)) <= dependency_node(T).
 :- mode dependency_graph__add_arcs_in_cases(in, in, in, out) is det.
 
 dependency_graph__add_arcs_in_cases([], _Caller, DepGraph, DepGraph).
@@ -310,7 +401,7 @@ dependency_graph__add_arcs_in_cases([case(Cons, Goal) | Goals], Caller,
 %-----------------------------------------------------------------------------%
 
 :- pred dependency_graph__add_arcs_in_cons(cons_id, relation_key,
-			dependency_graph, dependency_graph).
+		dependency_graph(T), dependency_graph(T)) <= dependency_node(T).
 :- mode dependency_graph__add_arcs_in_cons(in, in, in, out) is det.
 dependency_graph__add_arcs_in_cons(cons(_, _), _Caller,
 				DepGraph, DepGraph).
@@ -326,7 +417,8 @@ dependency_graph__add_arcs_in_cons(pred_const(Pred, Proc, _), Caller,
 			% If the node isn't in the relation, then
 			% we didn't insert it because is was imported,
 			% and we don't consider it.
-		relation__search_element(DepGraph0, proc(Pred, Proc), Callee)
+		relation__search_element(DepGraph0,
+			dependency_node(proc(Pred, Proc)), Callee)
 	->
 		relation__add(DepGraph0, Caller, Callee, DepGraph)
 	;
@@ -338,7 +430,8 @@ dependency_graph__add_arcs_in_cons(code_addr_const(Pred, Proc), Caller,
 			% If the node isn't in the relation, then
 			% we didn't insert it because is was imported,
 			% and we don't consider it.
-		relation__search_element(DepGraph0, proc(Pred, Proc), Callee)
+		relation__search_element(DepGraph0,
+			dependency_node(proc(Pred, Proc)), Callee)
 	->
 		relation__add(DepGraph0, Caller, Callee, DepGraph)
 	;
