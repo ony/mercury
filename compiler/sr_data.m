@@ -15,7 +15,7 @@
 :- module sr_data.
 :- interface.
 
-:- import_module map, set, std_util, list, io, term.
+:- import_module bool, map, set, std_util, list, io, term.
 :- import_module pa_alias_as, pa_datastruct.
 :- import_module sr_live.
 :- import_module hlds_pred, hlds_module, prog_data.
@@ -33,8 +33,16 @@
 :- type short_reuse_info --->
 				no_reuse 
 			; 	cell_died
-			; 	cell_reused(prog_var)
-			; 	reuse_call
+
+					% The variable we have selected
+					% for reuse and whether the
+					% reuse is conditional
+			; 	cell_reused(prog_var, bool)
+
+					% Call the reuse version of the
+					% call and wheter calling the
+					% reuse version is conditional.
+			; 	reuse_call(bool)
 			; 	missed_reuse_call(list(string)). 
 
 :- type reuse_var == pair(prog_var, reuse_condition).

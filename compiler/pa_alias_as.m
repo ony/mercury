@@ -195,8 +195,8 @@
 :- func alias_limit = int. 
 :- func top_limit = int. 
 
-alias_limit = 500. % 100
-top_limit = 200.
+alias_limit = 500000. % 100
+top_limit = 200000.
 
 %-----------------------------------------------------------------------------%
 

@@ -1178,15 +1178,29 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 			->
 				io__write_string("cell just died (deconstruction).\n") 
 			;
-				{ REUSE = reuse(cell_reused(ProgVar)) }
+				{ REUSE = reuse(cell_reused(ProgVar,
+						IntroducesCondition)) }
 			->
-				io__write_string("cell ("),
+				io__write_string("cell "),
 				mercury_output_var(ProgVar, VarSet, 
 					AppendVarnums),
-				io__write_string(") just reused (construction).\n")
+				io__write_string(
+					" just reused in a construction "),
+				( { IntroducesCondition = yes } ->
+					io__write_string("conditionally.")
+				;
+					io__write_string("*unconditionally*.")
+				),
+				io__nl
 			;
-				{ REUSE = reuse(reuse_call) }
+				{ REUSE = reuse(
+					reuse_call(IntroducesCondition)) }
 			->
+				( { IntroducesCondition = yes } ->
+					io__write_string("Conditional ")
+				;
+					io__write_string("*Unconditional* ")
+				),
 				io__write_string("call to procedure with reuse.\n")
 			;
 				{ REUSE = reuse(missed_reuse_call(Causes)) } 

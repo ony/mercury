@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -37,7 +37,7 @@
 
 :- implementation.
 
-:- import_module std_util, require, list, set, map.
+:- import_module bool, std_util, require, list, set, map.
 :- import_module hlds_pred. 
 :- import_module hlds_goal, prog_data, hlds_data, prog_util. 
 :- import_module sr_data. 
@@ -84,10 +84,19 @@ reprocess_all_goals_3( HLDS, ProcId, ProcTable0, ProcTable) :-
 	map__lookup( ProcTable0, ProcId, ProcInfo0), 
 	proc_info_reuse_information( ProcInfo0 , Memo ), 
 	(
-		Memo = yes(_)
+		Memo = yes(Conditions)
 	->
 		proc_info_goal( ProcInfo0, Goal0), 
-		process_goal( Goal0, Goal, HLDS, _ ), 
+			% If the conditions on the reuse are empty, then
+			% we have unconditional reuse, so make sure when
+			% processing the goal we don't do any actions
+			% which would introduce a condition.
+		( Conditions = [] ->
+			LocalReuseOnly = yes
+		;
+			LocalReuseOnly = no
+		),
+		process_goal(LocalReuseOnly, Goal0, Goal, HLDS, _ ), 
 		proc_info_set_goal( ProcInfo0, Goal, ProcInfo), 
 		map__det_update( ProcTable0, ProcId, ProcInfo, ProcTable)
 	;
@@ -167,12 +176,16 @@ create_versions_3( VirginHLDS, PredProcId, WorkingHLDS, HLDS):-
 			module_info_set_predicate_table(WorkingHLDS1, 
 					PredTable, WorkingHLDS2),
 
-			% reprocess the goal
-			% this has moved to an extra little pass. 
+				% Change the conditions on this version
+				% to be unconditional.  This ensures
+				% that when process_goal is run on this
+				% procedure only the reuse which is
+				% unconditional is kept.
+			proc_info_set_reuse_information(ProcInfo0,
+					yes([]), ProcInfo),
 
-			% and put a clean procedure back in place 
 			module_info_set_pred_proc_info( WorkingHLDS2,
-				PredProcId, PredInfo0, CleanProcInfo, HLDS)
+				PredProcId, PredInfo0, ProcInfo, HLDS)
 		;
 			% memo_reuse is unconditional -- perfect -- 
 			% nothing to be done! (processing the goal is
@@ -264,83 +277,106 @@ create_reuse_pred(TabledReuse, PredProcId, MaybeReuseGoal, PredInfo, ProcInfo,
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
-:- pred process_goal(hlds_goal::in, hlds_goal::out,
+:- pred process_goal(bool::in, hlds_goal::in, hlds_goal::out,
 		module_info::in, module_info::out) is det.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal0 = call(PredId0, ProcId0, Args, Builtin, MaybeContext, Name0) },
 	=(ModuleInfo),
 	{ module_info_structure_reuse_info(ModuleInfo, ReuseInfo) },
 	{ ReuseInfo = structure_reuse_info(ReuseMap) },
 	{
-		goal_info_get_reuse(GoalInfo, reuse(reuse_call)),
+		goal_info_get_reuse(GoalInfo0, Reuse),
+		Reuse = reuse(reuse_call(ConditionalReuse)),
 		map__search(ReuseMap, proc(PredId0, ProcId0), Result)
 	->
-		Result = proc(PredId, ProcId) - Name
+		( ConditionalReuse = yes, LocalReuseOnly = yes ->
+			PredId = PredId0,
+			ProcId = ProcId0,
+			Name = Name0,
+			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+					GoalInfo)
+		;
+			Result = proc(PredId, ProcId) - Name,
+			GoalInfo = GoalInfo0
+		)
 	;
 		PredId = PredId0,
 		ProcId = ProcId0,
-		Name = Name0
+		Name = Name0,
+		GoalInfo = GoalInfo0
 	},
 	{ Goal = call(PredId, ProcId, Args, Builtin, MaybeContext, Name) }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal0 = unify(_Var, _Rhs, _Mode, _Unification0, _Ctxt) },
+	{
+		goal_info_get_reuse(GoalInfo0, Reuse),
+		Reuse = reuse(cell_reused(_ReuseVar, ConditionalReuse)),
+		ConditionalReuse = yes,
+		LocalReuseOnly = yes
+	->
+		goal_info_set_reuse(GoalInfo0, reuse(no_reuse), GoalInfo)
+	;
+		GoalInfo = GoalInfo0
+	},
 	{ Goal = Goal0 }.
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(_, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(_, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
-process_goal(Goal0 - _GoalInfo, _) -->
+process_goal(_, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },
 	{ error("structure_reuse: bi_implication.\n") }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
-	process_goal(If0, If),
-	process_goal(Then0, Then),
-	process_goal(Else0, Else),
+	process_goal(LocalReuseOnly, If0, If),
+	process_goal(LocalReuseOnly, Then0, Then),
+	process_goal(LocalReuseOnly, Else0, Else),
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
-	process_goal_cases(Cases0, Cases),
+	process_goal_cases(LocalReuseOnly, Cases0, Cases),
 	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
 
-process_goal(Goal0 - GoalInfo, Goal - GoalInfo) -->
+process_goal(LocalReuseOnly, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
-	process_goal(SomeGoal0, SomeGoal),
+	process_goal(LocalReuseOnly, SomeGoal0, SomeGoal),
 	{ Goal = some(Vars, CanRemove, SomeGoal) }.
 
-process_goal(not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	process_goal(Goal0, Goal).
-process_goal(conj(Goal0s) - GoalInfo, conj(Goals) - GoalInfo) -->
-	process_goal_list(Goal0s, Goals).
-process_goal(disj(Goal0s, SM) - GoalInfo, disj(Goals, SM) - GoalInfo) -->
-	process_goal_list(Goal0s, Goals).
-process_goal(par_conj(Goal0s, SM) - GoalInfo,
+process_goal(LocalReuseOnly, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+	process_goal(LocalReuseOnly, Goal0, Goal).
+process_goal(LocalReuseOnly, conj(Goal0s) - GoalInfo,
+		conj(Goals) - GoalInfo) -->
+	process_goal_list(LocalReuseOnly, Goal0s, Goals).
+process_goal(LocalReuseOnly, disj(Goal0s, SM) - GoalInfo,
+		disj(Goals, SM) - GoalInfo) -->
+	process_goal_list(LocalReuseOnly, Goal0s, Goals).
+process_goal(LocalReuseOnly, par_conj(Goal0s, SM) - GoalInfo,
 		par_conj(Goals, SM) - GoalInfo) -->
-	process_goal_list(Goal0s, Goals).
+	process_goal_list(LocalReuseOnly, Goal0s, Goals).
 
-:- pred process_goal_cases(list(case)::in, list(case)::out,
+:- pred process_goal_cases(bool::in, list(case)::in, list(case)::out,
 		module_info::in, module_info::out) is det.
 
-process_goal_cases([], []) --> [].
-process_goal_cases([Case0 | Case0s], [Case | Cases]) -->
+process_goal_cases(_, [], []) --> [].
+process_goal_cases(LocalReuseOnly, [Case0 | Case0s], [Case | Cases]) -->
 	{ Case0 = case(ConsId, Goal0) },
-	process_goal(Goal0, Goal),
+	process_goal(LocalReuseOnly, Goal0, Goal),
 	{ Case = case(ConsId, Goal) },
-	process_goal_cases(Case0s, Cases).
+	process_goal_cases(LocalReuseOnly, Case0s, Cases).
 
-:- pred process_goal_list(hlds_goals::in, hlds_goals::out,
+:- pred process_goal_list(bool::in, hlds_goals::in, hlds_goals::out,
 		module_info::in, module_info::out) is det.
 
-process_goal_list([], []) --> [].
-process_goal_list([Goal0 | Goal0s], [Goal | Goals]) -->
-	process_goal(Goal0, Goal),
-	process_goal_list(Goal0s, Goals).
+process_goal_list(_, [], []) --> [].
+process_goal_list(LocalReuseOnly, [Goal0 | Goal0s], [Goal | Goals]) -->
+	process_goal(LocalReuseOnly, Goal0, Goal),
+	process_goal_list(LocalReuseOnly, Goal0s, Goals).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

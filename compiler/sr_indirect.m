@@ -1,4 +1,4 @@
-				%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
@@ -772,8 +772,10 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 		->
 			indirect_reuse_pool_add( HLDS, ProcInfo,
 				Memo, LFUi, LBUi, 
-				Alias0, Pool0, Pool),
-			goal_info_set_reuse(Info0, reuse(reuse_call), Info),
+				Alias0, ConditionalReuse, Pool0, Pool),
+			goal_info_set_reuse(Info0,
+					reuse(reuse_call(ConditionalReuse)),
+					Info),
 			YesNo = yes
 		;
 			Pool = Pool0,
@@ -928,7 +930,7 @@ lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):-
 		indirect_reuse_pool::out ) is det.
 :- pred indirect_reuse_pool_add( module_info::in, proc_info::in, 
 		memo_reuse::in, 
-		set(prog_var)::in, set(prog_var)::in, alias_as::in, 
+		set(prog_var)::in, set(prog_var)::in, alias_as::in, bool::out,
 		indirect_reuse_pool::in, indirect_reuse_pool::out) is det. 
 :- pred indirect_reuse_pool_add_unconditional(indirect_reuse_pool::in, 
 		indirect_reuse_pool::out) is det.
@@ -959,7 +961,7 @@ indirect_reuse_pool_least_upper_bound( Pool1, Pool2, Pool ):-
 	Pool = pool(HVS, Memo). 
 
 indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse, 	
-		LFUi, LBUi, Alias0, Pool0, Pool) :- 
+		LFUi, LBUi, Alias0, ConditionalReuse, Pool0, Pool) :- 
 
 	(
 		MemoReuse = yes(OldConditions)
@@ -977,11 +979,18 @@ indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse,
 			OldConditions,
 			NewConditions0),
 		reuse_conditions_simplify(NewConditions0, NewConditions), 
+			% Does this reuse introduce any new conditions
+			% on the head variables.
+		( NewConditions = [] ->
+			ConditionalReuse = no
+		;
+			ConditionalReuse = yes
+		),
 		memo_reuse_merge(ExistingMemo, yes(NewConditions), 
 				NewMemo), 
 		Pool = pool( HVS, NewMemo )
 	;
-		Pool = Pool0
+		error("indirect_reuse_pool_add: never enter.")
 	).
 
 indirect_reuse_pool_add_unconditional( Pool0, Pool ) :- 

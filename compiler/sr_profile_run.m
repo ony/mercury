@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -169,7 +169,7 @@ collect_profiling_information_4( HLDS, Expr - Info, Prof0, Prof ) :-
 	goal_info_get_reuse( Info, Reuse ),
 	(
 		Reuse = reuse(ShortReuse),
-		ShortReuse = reuse_call
+		ShortReuse = reuse_call(_)
 	->
 		inc_reuse_calls( Prof1, Prof )
 	;

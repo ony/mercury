@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -50,7 +50,7 @@
 :- implementation.
 
 :- import_module hlds_data, prog_data.
-:- import_module assoc_list, int, multi_map, require, set.
+:- import_module assoc_list, bool, int, multi_map, require, set.
 
 process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
@@ -506,8 +506,15 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 	),
 	( { Candidates = [ReuseVar - ReuseCond | _] } ->
 		{ set__insert(LocalReused0, ReuseVar, LocalReused) },
+		{
+			ReuseCond = always,
+			ConditionalReuse = no
+		;
+			ReuseCond = condition(_, _, _),
+			ConditionalReuse = yes
+		},
 		{ goal_info_set_reuse(GoalInfo0,
-				reuse(cell_reused(ReuseVar)),
+				reuse(cell_reused(ReuseVar, ConditionalReuse)),
 				GoalInfo) },
 		ReuseConditions =^ reuse_conds,
 		^ reuse_conds := [ReuseCond | ReuseConditions]
