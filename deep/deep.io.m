@@ -376,7 +376,27 @@ refined_proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 			"/", string__int_to_string(Arity),
 			( PredOrFunc = function -> "+1" ; "" ),
 			"-", string__int_to_string(Mode),
-			"[", SpecInfo, "]"])
+			" [", SpecInfo, "]"])
+	;
+		string__append("IntroducedFrom__", ProcName1, ProcName),
+		( string__append("pred__", ProcName2A, ProcName1) ->
+			ProcName2 = ProcName2A
+		; string__append("func__", ProcName2B, ProcName1) ->
+			ProcName2 = ProcName2B
+		;
+			error("lambda: neither pred nor func")
+		),
+		string__to_char_list(ProcName2, ProcName2Chars),
+		split_lambda_name(ProcName2Chars, Segments),
+		glue_lambda_name(Segments, ContainingNameChars,
+			LineNumberChars)
+	->
+		string__from_char_list(ContainingNameChars, ContainingName),
+		string__from_char_list(LineNumberChars, LineNumber),
+		Name = string__append_list([DeclModule, ":", ContainingName,
+			" lambda line ", LineNumber,
+			"/", string__int_to_string(Arity),
+			( PredOrFunc = function -> "+1" ; "" )])
 	;
 		Name = string__append_list([DeclModule, ":", ProcName,
 			"/", string__int_to_string(Arity),
@@ -403,6 +423,42 @@ fix_type_spec_suffix(Chars0, Chars, SpecInfoStr) :-
 
 non_right_bracket(C) :-
 	C \= ']'.
+
+:- pred split_lambda_name(list(char)::in, list(list(char))::out) is det.
+
+split_lambda_name([], []).
+split_lambda_name([Char0 | Chars0], StringList) :-
+	( Chars0 = ['_', '_' | Chars1 ] ->
+		split_lambda_name(Chars1, StringList0),
+		StringList = [[Char0] | StringList0]
+	;
+		split_lambda_name(Chars0, StringList0),
+		(
+			StringList0 = [],
+			StringList = [[Char0]]
+		;
+			StringList0 = [String0 | StringList1],
+			StringList = [[Char0 | String0] | StringList1]
+		)
+	).
+
+:- pred glue_lambda_name(list(list(char))::in, list(char)::out,
+	list(char)::out) is semidet.
+
+glue_lambda_name(Segments, PredName, LineNumber) :-
+	( Segments = [LineNumberPrime, _] ->
+		PredName = [],
+		LineNumber = LineNumberPrime
+	; Segments = [Segment | TailSegments] ->
+		glue_lambda_name(TailSegments, PredName1, LineNumber),
+		( PredName1 = [] ->
+			PredName = Segment
+		;
+			list__append(Segment, ['_', '_' | PredName1], PredName)
+		)
+	;
+		fail
+	).
 
 :- pred read_proc_dynamic(deep_result2(proc_dynamic, int)::out,
 	io__state::di, io__state::uo) is det.
@@ -705,15 +761,7 @@ read_n_things(N, ThingReader, Things0, Res) -->
 :- mode read_things(pred(out, di, uo) is det, out, di, uo) is det.
 
 read_things(ThingReader, Res) -->
-	read_things(ThingReader, [], Res0),
-	(
-		{ Res0 = ok(Things0) },
-		{ reverse(Things0, Things) },
-		{ Res = ok(Things) }
-	;
-		{ Res0 = error(Err) },
-		{ Res = error(Err) }
-	).
+	read_things(ThingReader, [], Res).
 
 :- pred read_things(pred(deep_result(T), io__state, io__state),
 		list(T), deep_result(list(T)), io__state, io__state).

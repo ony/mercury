@@ -21,9 +21,8 @@
 	;	no_call_site_line_number.
 
 server(InputFileName, OutputFileName, Wait, Machine, Deep) -->
-	{ string__append_list(["http://", Machine,
-		"/cgi-bin/deep"], URLprefix) },
-		% ".cs.mu.oz.au/cgi-bin/deep"], URLprefix) },
+	{ string__append_list(["http://", Machine, "/cgi-bin/deep"],
+		URLprefix) },
 	server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep).
 
 :- pred server_loop(string::in, string::in, int::in, string::in, deep::in,
@@ -561,8 +560,8 @@ proc_static_to_html_ref(URLprefix, Deep, Fields, PSPtr) = HTML :-
 		deep_lookup_proc_statics(Deep, PSPtr, PS),
 		PSPtr = proc_static_ptr(PSI),
 		HTML =
-			format("<A HREF=""%s?proc+%d+%s"">%s</A>\n",
-				[s(URLprefix), i(PSI), s(Fields),
+			format("<A HREF=""%s?proc+%s+%d"">%s</A>\n",
+				[s(URLprefix), s(Fields), i(PSI),
 				s(PS ^ ps_refined_id)])
 	;
 		HTML =
