@@ -317,8 +317,8 @@ case $use_activation_counts in
 esac
 
 case $ignore_instrumentation in
-	true)		ACTIVATION_COUNT_OPT="-DMR_DEEP_PROFILING_IGNORE_INSTRUMENTATION" ;;
-	false)		ACTIVATION_COUNT_OPT="";;
+	true)		IGNORE_INSTRUMENTATION_OPT="-DMR_DEEP_PROFILING_IGNORE_INSTRUMENTATION" ;;
+	false)		IGNORE_INSTRUMENTATION_OPT="";;
 esac
 
 case $profile_deep in
