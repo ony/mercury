@@ -11,21 +11,21 @@
 :- interface.
 
 :- import_module hlds_pred, hlds_module, inst_graph.
-:- import_module io.
+:- import_module io, bool.
 
-:- pred hhf__process_pred(pred_id::in, module_info::in, module_info::out,
-		io__state::di, io__state::uo) is det.
+:- pred hhf__process_pred(bool::in, pred_id::in, module_info::in,
+		module_info::out, io__state::di, io__state::uo) is det.
 
-:- pred hhf__process_clauses_info(module_info::in, clauses_info::in,
+:- pred hhf__process_clauses_info(bool::in, module_info::in, clauses_info::in,
 		clauses_info::out, inst_graph::out) is det.
 
 :- implementation.
 
 :- import_module prog_data, hlds_data, hlds_goal, type_util, prog_util.
 :- import_module passes_aux, quantification.
-:- import_module term, varset, map, list, set, std_util, require, bool.
+:- import_module term, varset, map, list, set, std_util, require.
 
-hhf__process_pred(PredId, ModuleInfo0, ModuleInfo) -->
+hhf__process_pred(Simple, PredId, ModuleInfo0, ModuleInfo) -->
 	{ module_info_pred_info(ModuleInfo0, PredId, PredInfo0) },
 
 	( { pred_info_is_imported(PredInfo0) } ->
@@ -47,7 +47,7 @@ hhf__process_pred(PredId, ModuleInfo0, ModuleInfo) -->
 			PredId, ModuleInfo0),
 
 		{ pred_info_clauses_info(PredInfo0, ClausesInfo0) },
-		{ hhf__process_clauses_info(ModuleInfo0, ClausesInfo0,
+		{ hhf__process_clauses_info(Simple, ModuleInfo0, ClausesInfo0,
 			ClausesInfo, ImplementationInstGraph) },
 		{ pred_info_set_clauses_info(PredInfo0, ClausesInfo,
 			PredInfo1) },
@@ -101,7 +101,8 @@ hhf__process_pred(PredId, ModuleInfo0, ModuleInfo) -->
 	{ module_info_set_pred_info(ModuleInfo0, PredId, PredInfo,
 		ModuleInfo) }.
 
-hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
+hhf__process_clauses_info(Simple, ModuleInfo, ClausesInfo0, ClausesInfo,
+		InstGraph) :-
 	clauses_info_varset(ClausesInfo0, VarSet0),
 	clauses_info_vartypes(ClausesInfo0, VarTypes0),
 	inst_graph__init(VarTypes0 ^ keys, InstGraph0),
@@ -110,8 +111,17 @@ hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
 	clauses_info_headvars(ClausesInfo0, HeadVars),
 	clauses_info_clauses(ClausesInfo0, Clauses0),
 
-	list__map_foldl(hhf__process_clause(HeadVars),
-		Clauses0, Clauses, Info0, Info1),
+	(
+	%	% For simple mode checking we do not give the inst_graph any
+	%	% structure.
+	%	Simple = yes,
+	%	Clauses = Clauses0,
+	%	Info1 = Info0
+	%;
+	%	Simple = no,
+		list__map_foldl(hhf__process_clause(HeadVars),
+			Clauses0, Clauses, Info0, Info1)
+	),
 
 	clauses_info_set_clauses(ClausesInfo0, Clauses, ClausesInfo1),
 
@@ -119,7 +129,10 @@ hhf__process_clauses_info(ModuleInfo, ClausesInfo0, ClausesInfo, InstGraph) :-
 	% XXX Comment out the above line for incomplete, quick checking.
 	% Info = Info1,
 
-	Info = hhf_info(InstGraph, VarSet, VarTypes),
+	Info = hhf_info(InstGraph1, VarSet, VarTypes),
+	( Simple = yes, inst_graph__init(VarTypes ^ keys, InstGraph)
+	; Simple = no,  InstGraph = InstGraph1
+	),
 
 	% 	XXX do we need this (it slows things down a lot (i.e.  uses 50%
 	% 	of the runtime).

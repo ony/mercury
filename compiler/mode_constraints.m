@@ -50,12 +50,14 @@
 
 mode_constraints__process_module(ModuleInfo0, ModuleInfo) -->
 	{ module_info_predids(ModuleInfo0, PredIds) },
-	list__foldl2(hhf__process_pred, PredIds, ModuleInfo0, ModuleInfo1),
+	globals__io_lookup_bool_option(simple_mode_constraints, Simple),
+	list__foldl2(hhf__process_pred(Simple), PredIds,
+		ModuleInfo0, ModuleInfo1),
 
 	{ get_predicate_sccs(ModuleInfo1, SCCs) },
 
 	% Stage 1: Process SCCs bottom-up to determine variable producers.
-	list__foldl2(mode_constraints__process_scc, SCCs,
+	list__foldl2(mode_constraints__process_scc(Simple), SCCs,
 		{ModuleInfo1, map__init}, {ModuleInfo2, PredConstraintMap}),
 		
 	% Stage 2: Process SCCs top-down to determine execution order of
@@ -66,15 +68,15 @@ mode_constraints__process_module(ModuleInfo0, ModuleInfo) -->
 		
 	clear_caches.
 
-:- pred mode_constraints__process_scc(list(pred_id)::in,
+:- pred mode_constraints__process_scc(bool::in, list(pred_id)::in,
 		{module_info, pred_constraint_map}::in,
 		{module_info, pred_constraint_map}::out,
 		io__state::di, io__state::uo) is det.
 
-mode_constraints__process_scc(SCC, {ModuleInfo0, PredConstraintMap0},
+mode_constraints__process_scc(Simple, SCC, {ModuleInfo0, PredConstraintMap0},
 		{ModuleInfo, PredConstraintMap}) -->
 	{ ModeConstraint0 = one },
-	{ ModeConstraintInfo0 = init_mode_constraint_info },
+	{ ModeConstraintInfo0 = init_mode_constraint_info(Simple) },
 	{ list__foldl2(number_robdd_variables_in_pred, SCC, ModuleInfo0,
 		ModuleInfo1, ModeConstraintInfo0, ModeConstraintInfo1) },
 
@@ -124,6 +126,7 @@ update_mc_info(P, R) -->
 :- pred update_mc_info(pred(mode_constraint_info, mode_constraint_info),
 	C, C) <= has_mc_info(C).
 :- mode update_mc_info(pred(in, out) is det, in, out) is det.
+:- mode update_mc_info(pred(in, out) is semidet, in, out) is semidet.
 
 update_mc_info(P) -->
 	MCInfo0 =^ mc_info,
@@ -425,6 +428,8 @@ mode_constraints__process_pred(PredId, SCC, ModuleInfo0, ModuleInfo,
 		pred_info_set_procedures(PredInfo0, ProcTable, PredInfo1)
 	},
 	{ ModeConstraint1 = ModeConstraint0 * DeclConstraint },
+	{ set_input_nodes(ModeConstraint1, ModeConstraint2, ModeConstraintInfo1,
+		ModeConstraintInfo2) },
 	/*
 	{ clauses_info_varset(ClausesInfo0, ProgVarSet) }, % XXX
 	{ pred_id_to_int(PredId, PredIdInt) }, % XXX
@@ -436,13 +441,13 @@ mode_constraints__process_pred(PredId, SCC, ModuleInfo0, ModuleInfo,
 	*/
 	( { pred_info_is_imported(PredInfo1) } ->
 		{ PredInfo = PredInfo1 },
-		{ ModeConstraint = ModeConstraint1 },
-		{ ModeConstraintInfo = ModeConstraintInfo1 }
+		{ ModeConstraint = ModeConstraint2 },
+		{ ModeConstraintInfo = ModeConstraintInfo2 }
 	;
 
 		mode_constraints__process_clauses_info(ModuleInfo0, SCC,
 			ClausesInfo0, ClausesInfo, InstGraph, HOModes,
-			ModeConstraint1, ModeConstraint, ModeConstraintInfo1,
+			ModeConstraint2, ModeConstraint, ModeConstraintInfo2,
 			ModeConstraintInfo),
 		{ pred_info_set_clauses_info(PredInfo1, ClausesInfo,
 			PredInfo) }
@@ -1264,22 +1269,34 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 	^ho_modes := HoModes.
 
 unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
-	{ RHS = functor(ConsId, _Args) },
+	{ RHS = functor(_ConsId, Args) },
 	get_var(out(A), Aout),
 	{ Constraint1 = Constraint0 ^ var(Aout) },
-
-	InstGraph =^ inst_graph,
-	{ map__lookup(InstGraph, A, node(Functors, _)) },
-	{ map__lookup(Functors, ConsId, Args) },
-	inst_graph__foldl_reachable_from_list2(
-		( pred(V::in, C0::in, C::out, in, out) is det -->
-		    ( { V \= A } ->
-			get_var(V `at` GoalPath, Vgp),
-			{ C = C0 ^ not_var(Vgp) }
-		    ;
-			{ C = C0 }
-		    )
-		), InstGraph, Args, Constraint1, Constraint).
+	( update_mc_info(using_simple_mode_constraints) ->
+		% In the simple system a var-functor unification must be either
+		% a construction or a deconstruction.
+		list__map_foldl(
+		    ( pred(ProgVar::in, RepVar::out, in, out) is det -->
+			get_var(ProgVar `at` GoalPath, RepVar)
+		    ), Args, ArgsGp0),
+		{ ArgsGp = list_to_set(ArgsGp0) },
+		get_var(A `at` GoalPath, Agp),
+		{ Constraint = Constraint1 * 
+			( one ^ var(Agp) ^ conj_not_vars(ArgsGp)
+			+ one ^ not_var(Agp) ^ conj_vars(ArgsGp)
+			) }
+	;
+	    InstGraph =^ inst_graph,
+	    inst_graph__foldl_reachable_from_list2(
+		    ( pred(V::in, C0::in, C::out, in, out) is det -->
+			( { V \= A } ->
+			    get_var(V `at` GoalPath, Vgp),
+			    { C = C0 ^ not_var(Vgp) }
+			;
+			    { C = C0 }
+			)
+		    ), InstGraph, Args, Constraint1, Constraint)
+	).
 
 unify_constraints(Var, GoalPath, RHS0, RHS, Constraint0, Constraint) -->
 	{ RHS0 = lambda_goal(A,B,C, NonLocals, LambdaVars, Modes, G, Goal0) },

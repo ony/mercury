@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -20,7 +20,7 @@
 :- interface.
 
 :- import_module prog_data, hlds_goal, hlds_pred.
-:- import_module xrobdd, term, set, stack, map.
+:- import_module xrobdd, term, set, stack, map, bool.
 :- import_module io.
 /*
 :- import_module list.
@@ -33,7 +33,7 @@
 
 :- type mc_type.
 
-:- func init_mode_constraint_info = mode_constraint_info.
+:- func init_mode_constraint_info(bool) = mode_constraint_info.
 :- func 'pred_id :='(mode_constraint_info, pred_id) = mode_constraint_info.
 
 :- type rep_var
@@ -92,6 +92,20 @@
 		set(mode_constraint_var)::out, mode_constraint_info::in,
 		mode_constraint_info::out) is det.
 
+	% Set the input_nodes field of the mode_constraint_info and make sure
+	% the zero_var is constrained to be zero in the mode_constraint.
+:- pred set_input_nodes(mode_constraint::in, mode_constraint::out,
+		mode_constraint_info::in, mode_constraint_info::out) is det.
+
+:- pred set_simple_mode_constraints(mode_constraint_info::in,
+		mode_constraint_info::out) is det.
+
+:- pred unset_simple_mode_constraints(mode_constraint_info::in,
+		mode_constraint_info::out) is det.
+
+:- pred using_simple_mode_constraints(mode_constraint_info::in,
+		mode_constraint_info::out) is semidet.
+
 /*
 :- pred dump_mode_constraints(module_info::in, pred_info::in, inst_graph::in,
 		mode_constraint::in, mode_constraint_info::in,
@@ -115,6 +129,7 @@
 :- implementation.
 :- import_module std_util, list, term, varset, map, require, term_io.
 :- import_module bimap, assoc_list, string, stack, sparse_bitset, robdd.
+:- import_module bool.
 
 :- import_module xrobdd__tfeir_robdd.
 :- import_module xrobdd__tfeirn_robdd.
@@ -129,14 +144,22 @@
 			pred_id :: pred_id,
 			lambda_path :: lambda_path,
 			min_vars :: map(pred_id, mode_constraint_var),
-			max_vars :: map(pred_id, mode_constraint_var)
+			max_vars :: map(pred_id, mode_constraint_var),
+			input_nodes :: sparse_bitset(prog_var),
+			zero_var :: robdd_var,
+				% A var that is always zero.
+			simple_constraints :: bool
+				% Are we using the simplified constraint model.
 		).
 
 :- type threshold ---> threshold(mode_constraint_var).
 
-init_mode_constraint_info =
-		mode_constraint_info(varset__init, bimap__init, PredId,
-			stack__init, map__init, map__init) :-
+init_mode_constraint_info(Simple) =
+		mode_constraint_info(VarSet, bimap__init, PredId,
+			stack__init, map__init, map__init,
+			sparse_bitset__init, ZeroVar, Simple) :-
+	VarSet0 = varset__init,
+	varset__new_var(VarSet0, ZeroVar, VarSet),
 	hlds_pred__initial_pred_id(PredId).
 
 :- type robdd_var == var(mc_type).
@@ -153,16 +176,26 @@ mode_constraint_var(RepVar0, RobddVar, Info0, Info) :-
 	mode_constraint_var(Info0^pred_id, RepVar0, RobddVar, Info0, Info).
 
 mode_constraint_var(PredId, RepVar0, RobddVar, Info0, Info) :-
-	RepVar = remove_goal_path_branches(RepVar0),
-	LambdaPath = Info0^lambda_path,
-	Key = key(RepVar, PredId, LambdaPath),
-	( bimap__search(Info0^varmap, Key, RobddVar0) ->
-		RobddVar = RobddVar0,
+	(
+		RepVar0 = ProgVar `at` _,
+		Info0 ^ input_nodes `contains` ProgVar
+	->
+		% This RepVar must be false since the corresponding input var
+		% is true.  We can just return the zero var.
+		RobddVar = Info0 ^ zero_var,
 		Info = Info0
 	;
-		varset__new_var(Info0^varset, RobddVar, NewVarSet),
-		bimap__set(Info0^varmap, Key, RobddVar, NewVarMap),
-		Info = (Info0 ^varset := NewVarSet) ^varmap := NewVarMap
+		RepVar = remove_goal_path_branches(RepVar0),
+		LambdaPath = Info0^lambda_path,
+		Key = key(RepVar, PredId, LambdaPath),
+		( bimap__search(Info0^varmap, Key, RobddVar0) ->
+			RobddVar = RobddVar0,
+			Info = Info0
+		;
+			varset__new_var(Info0^varset, RobddVar, NewVarSet),
+			bimap__set(Info0^varmap, Key, RobddVar, NewVarMap),
+			Info = (Info0 ^varset := NewVarSet) ^varmap := NewVarMap
+		)
 	).
 
 mode_constraint_var(Info, RepVar) = bimap__lookup(Info^varmap, Key) :-
@@ -251,6 +284,30 @@ get_interesting_vars_for_pred(PredId, Vars) -->
 		\+ compare(<, map__lookup(MaxVars, PredId), V))) `compose`
 	    varset__vars
 	)(VarSet) }.
+
+set_input_nodes(Constraint0, Constraint, Info0, Info) :-
+	VarMap = Info0 ^ varmap,
+	LambdaPath = Info0 ^ lambda_path,
+	PredId = Info0 ^ pred_id,
+	bimap__ordinates(VarMap, Keys),
+	Constraint1 = ensure_normalised(Constraint0),
+	solutions((pred(ProgVar::out) is nondet :-
+			member(Key, Keys),
+			Key = key(in(ProgVar), PredId, LambdaPath),
+			bimap__lookup(VarMap, Key, RobddVar),
+			var_entailed(Constraint1, RobddVar)
+		), InputNodes),
+	Info = Info0 ^ input_nodes := sorted_list_to_set(InputNodes),
+	Constraint = Constraint0 ^ not_var(Info ^ zero_var).
+
+set_simple_mode_constraints -->
+	^ simple_constraints := yes.
+
+unset_simple_mode_constraints -->
+	^ simple_constraints := no.
+
+using_simple_mode_constraints -->
+	yes =^ simple_constraints.
 
 /*
 dump_mode_constraints(_ModuleInfo, _PredInfo, _InstGraph, ROBDD, Info) -->

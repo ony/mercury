@@ -2510,7 +2510,7 @@ mercury_compile__maybe_polymorphism(HLDS0, Verbose, Stats, HLDS) -->
 :- mode mercury_compile__maybe_mode_constraints(in, in, in, out, di, uo) is det.
 
 mercury_compile__maybe_mode_constraints(HLDS0, Verbose, Stats, HLDS) -->
-	globals__io_lookup_bool_option(dump_mode_constraints, ModeConstraints),
+	globals__io_lookup_bool_option(mode_constraints, ModeConstraints),
 	( { ModeConstraints = yes } ->
 		maybe_write_string(Verbose,
 			"% Dumping mode constraints..."),
@@ -2533,7 +2533,7 @@ maybe_benchmark_modes(Pred, Stage, A0, A, IO0, IO) :-
 	( BenchmarkModes = yes ->
 		globals__io_lookup_int_option(benchmark_modes_repeat, Repeats,
 			IO1, IO2),
-		io__format("%% Benchmarking %s Repeats %d Time ",
+		io__format("%s %d ",
 			[s(Stage), i(Repeats)], IO2, IO3),
 		benchmark_det2(Pred, A0, A, IO3, IO4, Repeats, Time),
 		io__format("%d ms\n", [i(Time)], IO4, IO)
