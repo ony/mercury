@@ -1120,6 +1120,7 @@
 :- import_module map, dir, term, term_io, varset, require, benchmarking, array.
 :- import_module bool, int, parser, exception.
 :- use_module table_builtin.
+:- use_module rtti_implementation.
 
 :- type io__state ---> io__state(c_pointer).
 	% Values of type `io__state' are never really used:
@@ -1553,10 +1554,13 @@ io__read_file_as_string_2(Stream, Buffer0, Pos0, Size0, Buffer, Pos, Size) -->
 	}
 }").
 
-:- pragma foreign_proc("MC++", io__clear_err(_Stream::in, _IO0::di, _IO::uo),
+:- pragma foreign_proc("MC++", io__clear_err(_Stream::in, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe],
 "{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	// XXX no error flag to reset as in MC++ an error throws directly an
+	// exception (we should create an error indicator in MF_Mercury_file
+	// for compatibility)
+	update_io(IO0, IO);
 }").
 
 
@@ -1591,11 +1595,13 @@ io__check_err(Stream, Res) -->
 		MR_PROC_LABEL, RetStr);
 }").
 
-:- pragma foreign_proc("MC++", ferror(_Stream::in, _RetVal::out, _RetStr::out,
-		_IO0::di, _IO::uo),
+:- pragma foreign_proc("MC++", ferror(_Stream::in, RetVal::out, _RetStr::out,
+		IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe],
 "{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	// XXX see clearerr
+	RetVal = 0;
+	update_io(IO0, IO);
 }").
 
 
@@ -1663,11 +1669,18 @@ io__check_err(Stream, Res) -->
 #endif
 }").
 
-:- pragma foreign_proc("MC++", io__stream_file_size(_Stream::in, _Size::out,
-		_IO0::di, _IO::uo),
+:- pragma foreign_proc("MC++", io__stream_file_size(Stream::in, Size::out,
+		IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe],
 "{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	MR_MercuryFile mf = ML_DownCast(MR_MercuryFile, 
+		MR_word_to_c_pointer(Stream));
+	if (mf->stream->get_CanSeek()) {
+		Size = mf->stream->get_Length();
+	} else {
+	       Size = -1;
+	}
+	update_io(IO0, IO);
 }").
 
 io__file_modification_time(File, Result) -->
@@ -2176,7 +2189,7 @@ io__write_ordinary_term(Univ, Priority) -->
 	{ deconstruct(Term, Functor, _Arity, Args) },
 	io__get_op_table(OpTable),
 	(
-		{ Functor = "." },
+		{ Functor = "[|]" },
 		{ Args = [ListHead, ListTail] }
 	->
 		io__write_char('['),
@@ -2306,7 +2319,7 @@ adjust_priority(Priority, x, Priority - 1).
 io__write_list_tail(Univ) -->
 	{ Term = univ_value(Univ) },
 	( 
-		{ deconstruct(Term, ".", _Arity, [ListHead, ListTail]) }
+		{ deconstruct(Term, "[|]", _Arity, [ListHead, ListTail]) }
 	->
 		io__write_string(", "),
 		io__write_arg(ListHead),
@@ -2398,22 +2411,8 @@ io__write_array(Array) -->
 :- pred io__write_private_builtin_type_info(private_builtin__type_info(T)::in,
 		io__state::di, io__state::uo) is det.
 io__write_private_builtin_type_info(PrivateBuiltinTypeInfo) -->
-	{ TypeInfo = unsafe_cast(PrivateBuiltinTypeInfo) },
+	{ TypeInfo = rtti_implementation__unsafe_cast(PrivateBuiltinTypeInfo) },
 	io__write_type_desc(TypeInfo).
-
-:- func unsafe_cast(T1::in) = (T2::out) is det.
-:- pragma foreign_proc("C",
-	unsafe_cast(VarIn::in) = (VarOut::out),
-		[will_not_call_mercury, thread_safe],
-"
-	VarOut = VarIn;
-").
-:- pragma foreign_proc("C#",
-	unsafe_cast(VarIn::in) = (VarOut::out),
-		[will_not_call_mercury, thread_safe],
-"
-	VarOut = VarIn;
-").
 
 %-----------------------------------------------------------------------------%
 
@@ -3197,19 +3196,28 @@ static mercury_open(MR_String filename, MR_String type)
 {
         MR_MercuryFile mf = new MR_MercuryFileStruct();
         System::IO::FileMode fa;
-        System::IO::Stream *stream;
+        System::IO::Stream *stream = 0;
 
                 // XXX get this right...
-        if (type == ""r"") {
+        if (System::String::op_Equality(type, ""r"")) {
                 fa = System::IO::FileMode::Open;
-        } else if (type == ""w"") {
+        } else if (System::String::op_Equality(type, ""a"")) {
                 fa = System::IO::FileMode::Append;
-        } else {
-		mercury::runtime::Errors::SORRY(
-			""foreign code for this function"");
-                // fa = System::IO::FileMode::OpenOrCreate;
+        } else if (System::String::op_Equality(type, ""w"")) {
+		fa = System::IO::FileMode::Truncate;
+	} else {
+		MR_String msg;
+		msg = System::String::Concat(
+			""foreign code for this function, open type:"",
+			type);
+		mercury::runtime::Errors::SORRY(msg);
+
+                // fa = XXX;
         }
-        stream = System::IO::File::Open(filename, fa);
+
+	try {
+		stream = System::IO::File::Open(filename, fa);
+	} catch (System::IO::IOException* e) {}
 
         if (!stream) {
                 return 0;
@@ -3587,16 +3595,25 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 ").
 
 :- pragma foreign_proc("MC++", 
-	io__putback_char(_File::in, _Character::in, IO0::di, IO::uo),
+	io__putback_char(File::in, Character::in, IO0::di, IO::uo),
 		may_call_mercury, "{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+
+	MR_MercuryFile mf = ML_DownCast(MR_MercuryFile,
+		MR_word_to_c_pointer(File));
+	if (Character == '\\n') {
+		mf->line_number--;
+	}
+	mf->stream->Seek(-1, System::IO::SeekOrigin::Current);
 	update_io(IO0, IO);
 }").
 
 :- pragma foreign_proc("MC++",
-	io__putback_byte(_File::in, _Character::in, IO0::di, IO::uo),
+	io__putback_byte(File::in, _Character::in, IO0::di, IO::uo),
 		may_call_mercury, "{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+
+	MR_MercuryFile mf = ML_DownCast(MR_MercuryFile, 
+		MR_word_to_c_pointer(File));
+	mf->stream->Seek(-1, System::IO::SeekOrigin::Current);
 	update_io(IO0, IO);
 }").
 

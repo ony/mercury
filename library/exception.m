@@ -31,9 +31,6 @@
 :- func throw(T) = _.
 :- mode throw(in) = out is erroneous.
 
-:- pred throw_string(string).
-:- mode throw_string(in) is erroneous.
-
 % The following types are used by try/3 and try/5.
 
 :- type exception_result(T)
@@ -595,11 +592,6 @@ wrap_exception(Exception, exception(Exception)).
 
 %-----------------------------------------------------------------------------%
 
-:- pragma export(throw_string(in), "ML_throw_string").
-
-throw_string(Msg) :-
-	throw(Msg).
-
 :- pred throw_impl(univ).
 :- mode throw_impl(in) is erroneous.
 
@@ -612,9 +604,7 @@ throw_string(Msg) :-
 % unsorted_solutions/2), and Mercury does not (yet?) support
 % impure higher-order pred terms.
 %
-% XXX no promise_pure for now, as the multiple modes are disabled
-% due to a bug in intermodule optimization.
-%:- pragma promise_pure(catch_impl/3).
+:- pragma promise_pure(catch_impl/3).
 :- /* impure */
    pred catch_impl(pred(T), handler(T), T).
 :- mode catch_impl(pred(out) is det,       in(handler), out) is det.
@@ -630,23 +620,19 @@ throw_string(Msg) :-
 throw_impl(Univ::in) :-
 	builtin_throw(Univ).
 
-catch_impl(Pred, Handler, T) :-
-	builtin_catch(Pred, Handler, T).
 
-% XXX the multiple modes are disabled due to a bug in intermodule optimization.
-%
-%catch_impl(Pred::(pred(out) is det), Handler::in(handler), T::out) :-
-%	builtin_catch(Pred, Handler, T).
-%catch_impl(Pred::(pred(out) is semidet), Handler::in(handler), T::out) :-
-%	builtin_catch(Pred, Handler, T).
-%catch_impl(Pred::(pred(out) is cc_multi), Handler::in(handler), T::out) :-
-%	builtin_catch(Pred, Handler, T).
-%catch_impl(Pred::(pred(out) is cc_nondet), Handler::in(handler), T::out) :-
-%	builtin_catch(Pred, Handler, T).
-%catch_impl(Pred::(pred(out) is multi), Handler::in(handler), T::out) :-
-%	builtin_catch(Pred, Handler, T).
-%catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
-%	builtin_catch(Pred, Handler, T).
+catch_impl(Pred::(pred(out) is det), Handler::in(handler), T::out) :-
+	builtin_catch(Pred, Handler, T).
+catch_impl(Pred::(pred(out) is semidet), Handler::in(handler), T::out) :-
+	builtin_catch(Pred, Handler, T).
+catch_impl(Pred::(pred(out) is cc_multi), Handler::in(handler), T::out) :-
+	builtin_catch(Pred, Handler, T).
+catch_impl(Pred::(pred(out) is cc_nondet), Handler::in(handler), T::out) :-
+	builtin_catch(Pred, Handler, T).
+catch_impl(Pred::(pred(out) is multi), Handler::in(handler), T::out) :-
+	builtin_catch(Pred, Handler, T).
+catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
+	builtin_catch(Pred, Handler, T).
 
 % builtin_throw and builtin_catch are implemented below using
 % hand-coded low-level C code.
@@ -1115,12 +1101,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 
 	% For the .NET backend we override throw_impl as it is easier to 
 	% implement these things using foreign_proc.
-	%
-	% XXX disabled for now due to a bug in intermodule optimization
-	% that stops the mode specific clauses for throw_impl from being
-	% used.
 
-/*
 :- pragma foreign_proc("C#", throw_impl(T::in), [will_not_call_mercury], "
 	throw new mercury.runtime.Exception(T);
 ").
@@ -1150,6 +1131,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 			TypeInfo_for_T, Handler, ex.mercury_exception, ref T);
 	}
 ").
+/*
 
 	% We can't implement these until we implement semidet procedures 
 	% for the C# interface.

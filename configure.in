@@ -72,6 +72,18 @@ case "$host" in
 		;;
 esac
 #-----------------------------------------------------------------------------#
+
+# When statically linked on Compaq Tru64 UNIX V5.1, the conftest executable
+# fails with message "sh: Cannot allocate space for bss."
+case "$host" in
+	alpha*-osf5*)
+		link_flags=
+		;;
+	*)	
+		link_flags='--link-flags "--static"'
+		;;
+esac
+	
 MERCURY_MSG("looking for an already installed Mercury compiler to bootstrap with...")
 AC_PATH_PROG(BOOTSTRAP_MC,mmc)
 if test "$BOOTSTRAP_MC" != ""; then
@@ -88,20 +100,12 @@ if test "$BOOTSTRAP_MC" != ""; then
 		:- pred main(io__state::di, io__state::uo) is det.
 
 		:- implementation.
-	
+		:- import_module list, std_util.
         
-		% Different bodies for different modes.
-		:- pragma promise_pure(foo/1).
-		:- pred foo(int).
-		:- mode foo(out) is det.
-		:- mode foo(in) is semidet.
-		foo(X::in) :-
-			X = 42.
-		foo(X::out) :-
-			X = 42.
-
+		% Check that the functor for lists is "[[|]]/2"
+		% rather than "./2".
 		main --> 
-			( { foo(42) } ->
+			( { functor([[1, 2]], "[[|]]", 2) } ->
 				print("Hello, world\n")
 			;
 				print("Nope.\n")
@@ -112,7 +116,7 @@ EOF
 		# to be compatible with scripts/Mmake.rules.
 	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
 	 	$BOOTSTRAP_MC \
-			--halt-at-warn --link-flags "--static" conftest \
+			--halt-at-warn $link_flags conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
 		test -f ./conftest.c_date &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
