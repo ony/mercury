@@ -1552,6 +1552,14 @@ mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
 		MLDSElemType = mercury_type_to_mlds_type(ModuleInfo, ElemType),
 		MLDSType = mlds__mercury_array_type(MLDSElemType)
 	;
+		type_to_type_id(Type, TypeId, _),
+		module_info_types(ModuleInfo, Types),
+		map__search(Types, TypeId, TypeDefn),
+		hlds_data__get_type_defn_body(TypeDefn, Body),
+		Body = foreign_type(ForeignType, ForeignLocation)
+	->
+		MLDSType = mlds__foreign_type(ForeignType, ForeignLocation)
+	;
 		classify_type(Type, ModuleInfo, Category),
 		export__type_to_type_string(ModuleInfo, Type, TypeString),
 		MLDSType = mercury_type(Type, Category, TypeString)
