@@ -1,15 +1,15 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-1997 The University of Melbourne. 
+# Copyright (C) 1995-1998 The University of Melbourne. 
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
 
-PROGS=test00 test03 test04 test05 test06 test07 test10 test15 test20\
-	test25 test30
+PROGS=test00 test02 test03 test04 test05 test06 test07 test10 test15 test20\
+	test22 test25 test30 test35 test40 test45
 DEPENDS=$(PROGS:%=%.depend)
 MBCFILES=$(PROGS:%=%.mbc)
 MDISFILES=$(PROGS:%=%.mdis)
-MDIS=../mdis
+MDIS=LD_LIBRARY_PATH=$$LD_LIBRARY_PATH:.. ../mdis
 
 # XXX: This is a hack to get dependencies to work. What we really want is:
 # 	%.mdis: %.mbc
@@ -45,6 +45,7 @@ all : $(PROGS) $(MDISFILES)
 # XXX: This is only a very simplistic test. Add more to test
 # the behaviour of bytecode interpretation.
 test : all
+	status=ok ; \
 	for file in $(MDISFILES) ; \
 	do \
 		if diff -w $$file `basename $$file .mdis`.bytedebug \
@@ -53,8 +54,13 @@ test : all
 			true ; \
 		else \
 			echo "*** Error: test failed on $$file" ; \
+			status=failed ; \
 		fi ; \
-	done
+	done ; \
+	if test $$status = ok ; \
+	then \
+		echo "All tests succeeded" ; \
+	fi
 
 .PHONY: depend
 depend: $(DEPENDS)
@@ -64,4 +70,4 @@ strip: $(PROGS)
 	strip $(PROGS)
 
 wayclean: realclean
-	-rm *bytedebug *mbc *mdis
+	-rm *bytedebug *mbc *mdis *_stub.c *.o
