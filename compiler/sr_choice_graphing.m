@@ -152,59 +152,80 @@ set_background_info(Constraint, ModuleInfo, VarTypes, BG):-
 
 %-----------------------------------------------------------------------------%
 
-	% Type meant to keep a table of the dead cells and their
-	% possible reuses. 
-:- type values  == map(contextvar, value). 
-	
-	% Given a construction for which reuse of a dead cell would
-	% be possible, record the cons-ids the dead cell which it is 
-	% reusing might have, as well as the fields which don't need 
-	% explicit update. 
-	% XXX the cons-ids will always be at most one cons-id. There can 
-	% only be more in the case a cell dies in each of the branches
-	% of a disjunction. This is not yet supported. 
-:- type context_reuse_var
-	---> 	context_reuse_var(
-			var		:: contextvar,
-			cons_ids	:: maybe(list(cons_id)),
-			reuse_fields	:: maybe(list(bool)),
-			reuse_type	:: reuse_type
-		).
-
-	% Track extra documentation of the reuse. 
-:- type reuse_type 
-	---> 	no_reuse
-	; 	reuse_type(
-			same_cons	:: bool, 
-			arity_old	:: int, 	% arity of dead cell
-			arity_new	:: int		% arity of new cell
-				% arity_diff = arity_old - arity_new
-		). 
-
-:- type value 
-	---> 	entry( 
-			conds		:: reuse_condition, 
-			weight		:: maybe(float),   % computed value.
-			vars		:: list(context_reuse_var),
-						% variables involved 
-						% with reusing
-						% the dead var)
-			degree 		:: int
-						% keep track of how much
-						% constructions could be
-						% interested in reusing
-						% the dead var. 
-		).
-
-	% Each construction/deconstruction has to be identified 
-	% uniquely. This is done using the goal_path of the unification. 
-	% (the goal_path is filled by sr_direct__process_proc/7).
+	% In the process of choosing the most interesting
+	% deconstruction-construction combinations, we identify each
+	% deconstruction and each construction by a so called "contextvar". 
+	% This unique identification is done using the goal_path of the
+	% unification.  (the goal_path is filled by sr_direct__process_proc/7).
 :- type contextvar 
 	---> 	context(
 			pvar		:: prog_var, 
 			context		:: term__context,
 			path		:: goal_path
 		).
+
+	% To identify the reuse of a deconstructed cell by a specific
+	% construction unification, we keep track of a so called "context" of
+	% the reuse. This context consists of the identification of the
+	% construction, the cons-id of the deconstructed cell it could be set
+	% to reuse, and the type of reuse this would be. 
+	% Each construction can only reuse the cells of one specific
+	% deconstruction, hence only one cons-id (instead of a list as was kept
+	% before). 
+:- type context_reuse_var
+	---> 	context_reuse_var(
+			var		:: contextvar,
+			cons_id		:: cons_id,
+			reuse_type	:: reuse_type
+		).
+
+	% The reuse-type is a basic identification of whether the cons-ids
+	% involved in the reuse are the same, what the arities of the old and
+	% new cells are, and which arguments don't have to be updated. 
+:- type reuse_type 
+	---> 	reuse_type(
+			same_cons	:: bool, 	
+			arity_old	:: int, 	% arity of dead cell
+			arity_new	:: int, 	% arity of new cell
+			reuse_fields 	:: list(bool) 	
+				% Each 'no' means that the corresponding
+				% argument within the constructed cell does not
+				% need to be updated. Note that
+				% list__length(reuse_fields) = arity_old. 
+		). 
+	
+	% For each deconstruction of a dead cell, we store a kind of "value"
+	% for reusing that dead cell. This value contains the reuse-condition
+	% of reusing the dead cell, the calculated best weight found for
+	% reusing that cell, the constructions that can reuse the dead cell at
+	% the given weight. Note that there can be more than one construction
+	% reusing the available cell from a deconstruction. 
+	% E.g.: 
+	% 	X => f(...), 
+	% 	( Y <= f(...) ; Y <= f(...) ). 
+	% In this case the dead cell of X can be reused for both constructions
+	% of variable Y. 
+	% Finally, a value also contains a notion of "degree", which records
+	% the number of constructions that can potentially reuse the dead cell. 
+:- type value 
+	---> 	entry( 
+			conds		:: reuse_condition, 
+			weight		:: maybe(float),   % computed value.
+			vars		:: list(context_reuse_var),
+					% variables involved with reusing the
+					% dead var
+			degree 		:: int
+					% keep track of how much constructions
+					% could be interested in reusing the
+					% dead var. 
+		).
+
+	% Finally, during the process, we build a map of deconstructions with
+	% their values. 
+:- type values  == map(contextvar, value). 
+	
+
+
 			
 
 %-----------------------------------------------------------------------------%
@@ -289,17 +310,13 @@ dump_value(Value) -->
 		io__state::di, io__state::uo) is det.
 dump_context_reuse_var(ContextReuseVar) -->
 	{ ReuseType = ContextReuseVar ^ reuse_type },
-	(
-		{ReuseType = reuse_type(SameCons, Aold, Anew)}
-	->
-		{ ( SameCons = yes  -> S1 = "y" ; S1 = "n") },  
-		{ string__int_to_string(arity_diff(ReuseType), S2) }, 
-		{ string__int_to_string(Aold, S3) }, 
-		{ string__int_to_string(Anew, S4) }, 
-		{ string__append_list([S1,"-",S2,"-",S3,"-",S4], String) }
-	;
- 		{ String = "no" }
-	),
+	{ ReuseType = reuse_type(SameCons, Aold, Anew, 
+				_ReuseFields)}, 
+	{ ( SameCons = yes  -> S1 = "y" ; S1 = "n") },  
+	{ string__int_to_string(arity_diff(ReuseType), S2) }, 
+	{ string__int_to_string(Aold, S3) }, 
+	{ string__int_to_string(Anew, S4) }, 
+	{ string__append_list([S1,"-",S2,"-",S3,"-",S4], String) },
 	io__write_string(String).
 	
 
@@ -375,7 +392,10 @@ compute_values(Background, Expr - Info, Cont, Values0, Values):-
 	goal_info_get_reuse(Info, ReuseInfo), 
 	(
 		ReuseInfo = choice(deconstruct(yes(Condition))), 
-		Unification = deconstruct(Var, _, _, _, _, _)
+		Unification = deconstruct(Var, _, _, _, _, _),
+			% XXX this test should move to sr_dead! 
+		\+ no_tag_type(Background ^ module_info, 
+			Background ^ vartypes, Var)
 	->
 		value_init(Condition, Val0), 
 		conjunction_value_of_dead_cel(Background, Unification, 
@@ -513,51 +533,66 @@ value_of_dead_cel_in_goal(Background,
 value_of_dead_cel_in_goal(Background, 
 		Deconstruct, Goal - Info, Val0, Value):- 
 	Goal = unify(_, _, _, Unification, _Context),
-	ModuleInfo = Background ^ module_info, 
-	Vartypes = Background ^ vartypes, 
 	(
 		Unification = construct(Var, Cons, Args, _, _, _, _),
 		Deconstruct = deconstruct(DeadVar, DeadCons, 
 					DeadArgs, _, _, _),
-		goal_info_get_reuse(Info, choice(construct(ReuseVars))), 
-		PureReuseVars = set__map(
+			% Can fail if the construction can not reuse the
+			% deconstructed cell. 
+		compute_new_value(Background, Var, DeadVar, Cons,
+				DeadCons, Args, DeadArgs, Weight, ReuseType),
+		% The construction is still looking for reuse-possibilities... 
+		goal_info_get_reuse(Info, choice(_)), 
+		
+		% XXX scope: this should be automatically satisfied, given
+		% the way continuations are used to compute the reuse value in
+		% the first place
+		(
+			goal_info_get_reuse(Info,
+				choice(construct(ReuseVars)))
+		-> 
+			PureReuseVars = set__map(
 					func(RV) = V :-
 					    ( V = RV ^ var ),
 					ReuseVars),
-		set__contains(PureReuseVars, DeadVar),
-		% XXX this should be moved to the place where the
-		% ReuseVars are computed. 
-		\+ no_tag_type(ModuleInfo, Vartypes, DeadVar)
+			( 
+				set__contains(PureReuseVars, DeadVar)
+			-> 
+				true
+			; 
+				ReuseVarsStrings = 
+					list__map(int_to_string, 
+					    list__map(var_to_int, 
+						to_sorted_list(PureReuseVars))),
+				string__append_list([
+					"(sr_choice_graphing) ", 
+					"value_of_dead_cel: ", 
+					"scoping error.\n",
+					"Dead Variable ", 
+					int_to_string(
+						var_to_int(DeadVar)),
+					" is not in the list ", 
+					" of available vars: [", 
+					join_list(", ", ReuseVarsStrings), 
+					"]. \n"], Msg), 
+				error(Msg)
+			)
+		; 
+			string__append_list([
+				"(sr_choice_graphing) ", 
+				"value_of_dead_cel: ", 
+				"reuse for construction that didn't ", 
+				"have any candidates for reuse."], Msg), 
+			error(Msg)
+		)
 	-> 
-		% if all the conditions above are met, reuse is possible
-		% here. What is the gain/value of the reuse? 
-		has_secondary_tag(ModuleInfo, Vartypes, Var, Cons, SecTag), 
-		has_secondary_tag(ModuleInfo, Vartypes, DeadVar, DeadCons, 
-				DeadSecTag), 
-		ReuseFields = already_correct_fields(SecTag, Args, 
-				DeadSecTag - DeadArgs),
 		make_contextvar(Var, Info, ContextVar), 
-		compute_new_value(Background ^ constraint, 
-			Cons, DeadCons, 
-			list__length(Args), 
-			list__length(DeadArgs), 
-			list__length(list__delete_all(ReuseFields, no)),
-			MaybeResult, ReuseType), 
-
 		ContextReuseVar = context_reuse_var(
 					ContextVar, 
-					yes([DeadCons]),
-					yes(ReuseFields), 
+					DeadCons,
 					ReuseType), 
-	
-		(
-			MaybeResult = yes(Int)
-		-> 
-			Value = entry(Val0 ^ conds, yes(float(Int)),
+		Value = entry(Val0 ^ conds, yes(float(Weight)),
 					[ContextReuseVar], 1)
-		; 
-			Value = Val0
-		)
 	; 
 		Value = Val0
 	). 
@@ -611,58 +646,65 @@ value_of_dead_cel_in_goal(_Background,
 
 	% compute_new_value(Constraint, ArityNewCell, ArityDeadCell, 
 	%	UptoDateFields, MaybeFloat).
-:- pred compute_new_value(sr_choice_util__constraint::in, 
-		cons_id::in, cons_id::in, int::in, 
-		int::in, int::in, maybe(int)::out, 
-		reuse_type::out) is det.
 
-compute_new_value(Constraint, NewCons, DeadCons, ArityNewCell, ArityDeadCell, 
-		UpToDateFields, MaybeResult, ReuseType):- 
-	DiffArity = ArityDeadCell - ArityNewCell, 
-	(
-		NewCons = DeadCons
-	-> 
-		SameCons = yes		
-	; 
-		SameCons = no	
-	), 
-	(
-		( (
+:- func alfa_value = int is det.
+:- func gamma_value = int is det.
+:- func beta_value = int is det.
+alfa_value = 5. 
+gamma_value = 1.
+beta_value = 1. 
+
+:- pred compute_new_value(background_info::in, 
+		prog_var::in, prog_var::in, 
+		cons_id::in, cons_id::in, 
+		list(prog_var)::in, list(prog_var)::in, 
+		int::out, reuse_type::out) is semidet.
+
+compute_new_value(Background, NewVar, DeadVar, NewCons, DeadCons, 
+		NewCellArgs, DeadCellArgs, Weight, ReuseType) :- 
+	Constraint = Background ^ constraint, 
+	ModuleInfo = Background ^ module_info, 
+	Vartypes   = Background ^ vartypes, 
+	NewArity = list__length(NewCellArgs), 
+	DeadArity = list__length(DeadCellArgs), 
+	% 1. if the new cell has arity zero, it shouldn't be allowed to reuse
+	% anything. 
+	NewArity \= 0, 
+
+	% 2. the new cell may not be bigger than the dead cell
+	NewArity =< DeadArity,
+
+	% 3. verify the reuse constraint, either same cons, or within a certain
+	% arity difference: 
+	DiffArity = DeadArity - NewArity, 
+	( NewCons = DeadCons -> SameCons = yes ; SameCons = no), 
+	( 
 			Constraint = within_n_cells_difference(N),
 			DiffArity =< N
-		)
-		; 
-		(
+	; 
 			Constraint = same_cons_id, 
 			SameCons = yes
-		) )
-	->
-		Alfa = 5, Gamma = 1, Beta = 1, 
-		( SameCons = yes -> SameConsV = 0; SameConsV = 1),
-	 	Int = ( (Alfa + Gamma) * ArityNewCell + Beta
-	 		- Gamma * (ArityNewCell - UpToDateFields)
-			- Beta * SameConsV
-			- Alfa * DiffArity ),
-	% 	Int1 = 2 * Alfa * ArityNewCell + Gamma * UpToDateFields, 
-	%	Int = Int1 - Alfa * ArityDeadCell, 
-		(
-			Int > 0
-		->
-			MaybeResult = yes(Int), 
-			ReuseType = reuse_type(SameCons, 
-				ArityDeadCell, ArityNewCell)
-			
-		; 
-			MaybeResult = no,
-			ReuseType = no_reuse
-		)	
-	;
-		MaybeResult = no,
-		ReuseType = no_reuse
-	). 
-			
-	
+	),
 
+	% 4. if all the checks are satisfied, determine the number of fields
+	% that would not need an update if the construction would use the
+	% deconstructed cell: 
+	has_secondary_tag(ModuleInfo, Vartypes, NewVar, NewCons, SecTag), 
+	has_secondary_tag(ModuleInfo, Vartypes, DeadVar, DeadCons, DeadSecTag), 
+	ReuseFields = already_correct_fields(SecTag, NewCellArgs, 
+			DeadSecTag - DeadCellArgs),
+	UpToDateFields = list__length(list__delete_all(ReuseFields, no)),
+	%
+	% Finally, compute the weight of this reuse-configuration.
+	( SameCons = yes -> SameConsV = 0; SameConsV = 1),
+	Weight = ( (alfa_value + gamma_value) * NewArity + beta_value
+	 		- gamma_value * (NewArity - UpToDateFields)
+			- beta_value * SameConsV
+			- alfa_value * DiffArity ),
+
+	Weight > 0, 
+	ReuseType = reuse_type(SameCons, DeadArity, NewArity, 
+			ReuseFields).
 
 %-----------------------------------------------------------------------------%
 
@@ -733,10 +775,9 @@ annotate_reuses(DeadContextVar, Value, E0 - I0, E - I):-
 		; 
 			NoDups = list__remove_dups(ReuseVars), 
 			NoDups = [ReuseVar], 
-			ReuseVar = context_reuse_var(_, MConsIds, 
-				MReuseFields, _),
-			MConsIds = yes(ConsIds), 
-			MReuseFields = yes(ReuseFields)
+			ReuseVar = context_reuse_var(_, ConsId, 
+				ReuseType),
+			ReuseFields = ReuseType ^ reuse_fields
 		->
 			Cond = Value ^ conds,
 			(
@@ -746,9 +787,9 @@ annotate_reuses(DeadContextVar, Value, E0 - I0, E - I):-
 				Cond = condition(_,_,_),
 				Conditional = yes
 			),
-			CellReused = cell_reused( DeadContextVar ^ pvar, 
+			CellReused = cell_reused(DeadContextVar ^ pvar, 
 					Conditional,
-					ConsIds, ReuseFields),
+					[ConsId], ReuseFields),
 			(
 				Conditional = yes, 
 				KindReuse = potential_reuse(CellReused)
@@ -931,13 +972,8 @@ value_init(Cond, entry(Cond, no, [], 0)).
 
 :- func arity_diff(reuse_type) = int. 
 arity_diff(T) = R :- 
-	( 
-		T = reuse_type(_, O, N)
-	-> 
-		R = O - N
-	;  
-		require__error("(sr_choice_graphing) arity_diff: no reuse, so no old or new arities.")
-	). 
+	T = reuse_type(_, O, N, _),
+	R = O - N.
 	
 %-----------------------------------------------------------------------------%
 	% After the selection pass, a final pass is needed to clean up
