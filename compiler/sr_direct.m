@@ -35,29 +35,30 @@
 :- import_module hlds_goal, hlds_data, prog_data.
 
 process_proc(PredId, _ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
-	% Determine the LFU (local forward use)
+		% Determine the LFU (local forward use)
 	{ sr_lfu__process_proc(ProcInfo0, ProcInfo1) },
 
-	% Determine the LBU (local backward use)
+		% Determine the LBU (local backward use)
 	{ sr_lbu__process_proc(ModuleInfo0, ProcInfo1, ProcInfo2) },
 
-	% Determine which cells die and can be reused and what the
-	% conditions on that reuse are
+		% Determine which cells die and can be reused and what
+		% the conditions on that reuse are
+	{ proc_info_goal(ProcInfo2, Goal0) },
+	{ pa_alias_as__init(Alias0) },
 
-	{ proc_info_goal( ProcInfo2, Goal0 ) },
-	{ pa_alias_as__init( Alias0 ) },
-	% one needs the exact headvars for initializing the pool
+		% one needs the exact headvars for initializing the pool
 	{ compute_real_headvars(ModuleInfo0, PredId, ProcInfo0, 
 			RealHeadVars) },
-	{ dead_cell_pool_init( RealHeadVars, Pool0 ) }, 
-	{ annotate_goal( ProcInfo2, ModuleInfo, Goal0, Goal, 
-			Pool0, _Pool, Alias0, _Alias ) },
-	{ proc_info_set_goal( ProcInfo2, Goal, ProcInfo3 ) },
+	{ dead_cell_pool_init(RealHeadVars, Pool0) }, 
+	{ annotate_goal(ProcInfo2, ModuleInfo, Goal0, Goal1, 
+			Pool0, _Pool, Alias0, _Alias) },
 
-	% Select which cells will be reused and which can be compile
-	% time garbage collected.
+		% Select which cells will be reused and which can be
+		% compile time garbage collected.
+	{ sr_choice__process_goal(strategy(same_cons_id, random),
+			Goal1, Goal, _MaybeReuseConditions) },
 
-	{ ProcInfo = ProcInfo3 },
+	{ proc_info_set_goal( ProcInfo2, Goal, ProcInfo ) },
 	{ ModuleInfo = ModuleInfo0 }.
 
 :- pred compute_real_headvars(module_info, pred_id, proc_info, 

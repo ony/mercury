@@ -40,7 +40,7 @@
 	;	random
 	.
 
-:- pred sr_choice__apply_constraint_goal(strategy::in, hlds_goal::in, hlds_goal::out,
+:- pred sr_choice__process_goal(strategy::in, hlds_goal::in, hlds_goal::out,
 		maybe(list(reuse_condition))::out) is det.
 
 %-----------------------------------------------------------------------------%
@@ -51,7 +51,7 @@
 :- import_module hlds_data, prog_data.
 :- import_module multi_map, require, set.
 
-apply_constraint_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
+process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
 	apply_constraint(Constraint, Goal0, Goal1),
 	select_reuses(SelectionRule, Goal1, Goal, ReuseConditions),
