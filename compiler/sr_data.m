@@ -33,16 +33,25 @@
 :- type short_reuse_info --->
 				no_reuse 
 			; 	cell_died
-
-					% The variable we have selected
-					% for reuse and whether the
-					% reuse is conditional and the
-					% possible cons_ids that
-					% variable may have.
-			; 	cell_reused(prog_var, bool, list(cons_id))
+			; 	cell_reused(
+						% The variable selected
+						% for reuse.
+					prog_var,
+						% Is the reuse conditional?
+					bool,
+						% What are the possible
+						% cons_ids that the cell
+						% to be reused can have.
+					list(cons_id),
+						% Which of the fields of
+						% the cell to be reused
+						% already contain the
+						% correct value.
+					list(bool)
+				)
 
 					% Call the reuse version of the
-					% call and wheter calling the
+					% call and whether calling the
 					% reuse version is conditional.
 			; 	reuse_call(bool)
 			; 	missed_reuse_call(list(string)). 
@@ -51,7 +60,8 @@
 	--->	reuse_var(
 			var		:: prog_var,
 			condition	:: reuse_condition,
-			cons_ids	:: maybe(list(cons_id))
+			cons_ids	:: maybe(list(cons_id)),
+			reuse_fields	:: maybe(list(bool))
 		).
 
 :- type choice_info

@@ -458,5 +458,5 @@ cons_can_reuse(Size, _Var - Extra) :-
 :- pred to_pair_var_condition(pair(prog_var, dead_extra_info), reuse_var).
 :- mode to_pair_var_condition(in, out) is det.
 
-to_pair_var_condition(Var - Extra, reuse_var(Var, Condition, no)) :- 
+to_pair_var_condition(Var - Extra, reuse_var(Var, Condition, no, no)) :- 
 	Extra = extra(_, Condition, _).

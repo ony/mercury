@@ -17,7 +17,7 @@
 :- module sr_choice.
 :- interface.
 
-:- import_module hlds_goal, hlds_module, sr_data.
+:- import_module hlds_goal, hlds_pred, hlds_module, sr_data.
 :- import_module io, list, std_util.
 
 :- type strategy
@@ -41,7 +41,8 @@
 	;	random
 	.
 
-:- pred sr_choice__process_goal(strategy::in, hlds_goal::in, hlds_goal::out,
+:- pred sr_choice__process_goal(strategy::in, vartypes::in, module_info::in,
+		hlds_goal::in, hlds_goal::out,
 		maybe(list(reuse_condition))::out) is det.
 :- pred get_strategy(strategy::out, module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
@@ -52,13 +53,14 @@
 
 :- implementation.
 
-:- import_module hlds_data, prog_data.
+:- import_module hlds_data, prog_data, type_util.
 :- import_module assoc_list, bool, globals, int. 
-:- import_module multi_map, options, require, set.
+:- import_module map, multi_map, options, require, set.
 
-process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
+process_goal(Strategy, VarTypes, ModuleInfo,
+		Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
-	apply_constraint(Constraint, Goal0, Goal1),
+	apply_constraint(Constraint, VarTypes, ModuleInfo, Goal0, Goal1),
 	select_reuses(SelectionRule, Goal1, Goal, ReuseConditions),
 	( ReuseConditions = [] ->
 		MaybeReuseConditions = no
@@ -70,76 +72,89 @@ process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 
 :- type constraint_info
 	--->	constraint_info(
-			map	:: multi_map(prog_var,
-					pair(cons_id, prog_vars))
+			map		:: multi_map(prog_var,
+							reuse_cell_data),
+			module_info	:: module_info,
+			vartypes	:: vartypes
 		).
 
-:- pred constraint_info_init(constraint_info::out) is det.
+:- type reuse_cell_data
+	--->	data(
+			cons_id		:: cons_id,
+			vars		:: prog_vars,
+			secondary_tag	:: bool
+		).
 
-constraint_info_init(constraint_info(Map)) :-
+:- pred constraint_info_init(vartypes::in, module_info::in,
+		constraint_info::out) is det.
+
+constraint_info_init(VarTypes, ModuleInfo,
+		constraint_info(Map, ModuleInfo, VarTypes)) :-
 	multi_map__init(Map).
 
-:- pred apply_constraint(constraint::in, hlds_goal::in, hlds_goal::out) is det.
+:- pred apply_constraint(constraint::in, vartypes::in, module_info::in,
+		hlds_goal::in, hlds_goal::out) is det.
 
-apply_constraint(Constraint, Goal0, Goal) :-
-	constraint_info_init(ConstraintInfo),
-	apply_constraint(Constraint, Goal0, Goal, ConstraintInfo, _).
+apply_constraint(Constraint, VarTypes, ModuleInfo, Goal0, Goal) :-
+	constraint_info_init(VarTypes, ModuleInfo, ConstraintInfo),
+	apply_constraint_2(Constraint, Goal0, Goal, ConstraintInfo, _).
 
-:- pred apply_constraint(constraint::in, hlds_goal::in, hlds_goal::out,
+:- pred apply_constraint_2(constraint::in, hlds_goal::in, hlds_goal::out,
 		constraint_info::in, constraint_info::out) is det.
 
-apply_constraint(_Constraint, Goal - GoalInfo, Goal - GoalInfo) -->
+apply_constraint_2(_Constraint, Goal - GoalInfo, Goal - GoalInfo) -->
 	{ Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name) }.
 
-apply_constraint(Constraint, Goal - GoalInfo0, Goal - GoalInfo) -->
+apply_constraint_2(Constraint, Goal - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal = unify(_Var, _Rhs, _Mode, Unification, _Ctxt) },
-	apply_constraint_unification(Constraint, Unification, GoalInfo0, GoalInfo).
+	apply_constraint_unification(Constraint, Unification,
+			GoalInfo0, GoalInfo).
 
-apply_constraint(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
+apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
-apply_constraint(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
+apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
-apply_constraint(_Constraint, Goal0 - _GoalInfo, _) -->
+apply_constraint_2(_Constraint, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },
 	{ error("structure_reuse: bi_implication.\n") }.
 
-apply_constraint(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
+apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
 	=(BeforeIfInfo),
-	apply_constraint(Constraint, If0, If),
+	apply_constraint_2(Constraint, If0, If),
 	=(IfInfo),
-	{ apply_constraint(Constraint, Then0, Then, IfInfo, ThenInfo) },
-	{ apply_constraint(Constraint, Else0, Else, BeforeIfInfo, ElseInfo) },
+	{ apply_constraint_2(Constraint, Then0, Then, IfInfo, ThenInfo) },
+	{ apply_constraint_2(Constraint, Else0, Else, BeforeIfInfo, ElseInfo) },
 	merge(ThenInfo),
 	merge(ElseInfo),
 	{ Goal = if_then_else(Vars, If, Then, Else, SM) }.
 
-apply_constraint(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
+apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
 	=(InitSwitchInfo),
 	apply_constraint_cases(Constraint, InitSwitchInfo, Cases0, Cases),
 	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
 
-apply_constraint(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
+apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
-	apply_constraint(Constraint, SomeGoal0, SomeGoal),
+	apply_constraint_2(Constraint, SomeGoal0, SomeGoal),
 	{ Goal = some(Vars, CanRemove, SomeGoal) }.
 
-apply_constraint(Constraint, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	apply_constraint(Constraint, Goal0, Goal).
+apply_constraint_2(Constraint, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
+	apply_constraint_2(Constraint, Goal0, Goal).
 
-apply_constraint(Constraint, conj(Goal0s) - GoalInfo,
+apply_constraint_2(Constraint, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
 	apply_constraint_list(Constraint, Goal0s, Goals).
 
-apply_constraint(Constraint, disj(Goal0s, SM) - GoalInfo,
+apply_constraint_2(Constraint, disj(Goal0s, SM) - GoalInfo,
 		disj(Goals, SM) - GoalInfo) -->
 	=(InitDisjInfo),
 	apply_constraint_disj(Constraint, InitDisjInfo, Goal0s, Goals).
 
-apply_constraint(Constraint, par_conj(Goal0s, SM) - GoalInfo,
+apply_constraint_2(Constraint, par_conj(Goal0s, SM) - GoalInfo,
 		par_conj(Goals, SM) - GoalInfo) -->
 	apply_constraint_list(Constraint, Goal0s, Goals).
 
@@ -150,7 +165,7 @@ apply_constraint(Constraint, par_conj(Goal0s, SM) - GoalInfo,
 apply_constraint_cases(_Constraint, _Info0, [], []) --> [].
 apply_constraint_cases(Constraint, Info0, [Case0 | Case0s], [Case | Cases]) -->
 	{ Case0 = case(ConsId, Goal0) },
-	{ apply_constraint(Constraint, Goal0, Goal, Info0, Info) },
+	{ apply_constraint_2(Constraint, Goal0, Goal, Info0, Info) },
 	merge(Info),
 	{ Case = case(ConsId, Goal) },
 	apply_constraint_cases(Constraint, Info0, Case0s, Cases).
@@ -160,7 +175,7 @@ apply_constraint_cases(Constraint, Info0, [Case0 | Case0s], [Case | Cases]) -->
 
 apply_constraint_list(_Constraint, [], []) --> [].
 apply_constraint_list(Constraint, [Goal0 | Goal0s], [Goal | Goals]) -->
-	apply_constraint(Constraint, Goal0, Goal),
+	apply_constraint_2(Constraint, Goal0, Goal),
 	apply_constraint_list(Constraint, Goal0s, Goals).
 
 :- pred apply_constraint_disj(constraint::in,
@@ -169,7 +184,7 @@ apply_constraint_list(Constraint, [Goal0 | Goal0s], [Goal | Goals]) -->
 
 apply_constraint_disj(_Constraint, _Info0, [], []) --> [].
 apply_constraint_disj(Constraint, Info0, [Goal0 | Goal0s], [Goal | Goals]) -->
-	{ apply_constraint(Constraint, Goal0, Goal, Info0, Info) },
+	{ apply_constraint_2(Constraint, Goal0, Goal, Info0, Info) },
 	merge(Info),
 	apply_constraint_disj(Constraint, Info0, Goal0s, Goals).
 
@@ -185,13 +200,14 @@ merge(InfoA, Info0, Info) :-
 		constraint_info::in, constraint_info::out) is det.
 
 apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
-	{ Unif = construct(_Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi) },
+	{ Unif = construct(Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi) },
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
 	{ ReuseInfo = choice(construct(Pairs)) ->
 		PossibleCandidates = set__to_sorted_list(Pairs)
 	;
 		error("sr_choice__apply_constraint_unification")
 	},
+	has_secondary_tag(Var, ConsId, HasSecondaryTag),
 	Map =^ map,
 	(
 		{ Constraint = same_cons_id },
@@ -201,9 +217,14 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
 			multi_map__search(Map, CandidateVar, CandidateData),
-			list__map(fst, CandidateData, ConsIds),
+			ConsIds = list__map((func(D) = D ^ cons_id),
+					CandidateData),
 			list__remove_dups(ConsIds, [ConsId]),
-			Candidate = Candidate0 ^ cons_ids := yes([ConsId])
+			ReuseFields = reuse_fields(HasSecondaryTag, Vars,
+					CandidateData),
+			Candidate = (Candidate0
+					^ cons_ids := yes([ConsId]))
+					^ reuse_fields := yes(ReuseFields)
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
@@ -214,9 +235,10 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			CandidateVar = Candidate0 ^ var,
 			multi_map__search(Map, CandidateVar, CandidateData),
 			ConsIds = list__remove_dups(
-					list__map(fst, CandidateData)),
+					list__map((func(D) = D ^ cons_id),
+						CandidateData)),
 			ReuseSizes = list__map(
-					(func(Data) = list__length(snd(Data))),
+					(func(Data) = list__length(Data^vars)),
 					CandidateData),
 			Size = list__length(Vars),
 			all [ReuseSize] (
@@ -226,7 +248,12 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 					ReuseSize - Size =< Difference
 				)
 			),
-			Candidate = Candidate0 ^ cons_ids := yes(ConsIds)
+			ReuseFields = reuse_fields(HasSecondaryTag, Vars,
+					CandidateData),
+			Candidate = (Candidate0
+					^ cons_ids := yes(ConsIds))
+					^ reuse_fields := yes(ReuseFields)
+
 		)}
 	),
 	{ solutions(P, Candidates) },
@@ -253,7 +280,8 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo0, GoalInfo) -->
 	},
 
 	Map0 =^ map,
-	{ multi_map__set(Map0, Var, ConsId - Vars, Map) },
+	has_secondary_tag(Var, ConsId, SecondaryTag),
+	{ multi_map__set(Map0, Var, data(ConsId, Vars, SecondaryTag), Map) },
 	^ map := Map.
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = assign(_, _) }.
@@ -262,6 +290,133 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = complicated_unify(_, _, _) }.
 
+
+	%
+	% has_secondary_tag(Var, ConsId, HasSecTag) is true iff the
+	% variable, Var, with cons_id, ConsId, requires a remote
+	% secondary tag to distinguish between its various functors.
+	%
+:- pred has_secondary_tag(prog_var::in, cons_id::in, bool::out,
+		constraint_info::in, constraint_info::out) is det.
+
+has_secondary_tag(Var, ConsId, SecondaryTag) -->
+	ModuleInfo =^ module_info,
+	VarTypes =^ vartypes,
+	{
+		map__lookup(VarTypes, Var, Type),
+		type_to_type_id(Type, TypeId, _Args)
+	->
+		module_info_types(ModuleInfo, Types),
+		( map__search(Types, TypeId, TypeDefn) ->
+			hlds_data__get_type_defn_body(TypeDefn, TypeBody),
+			( TypeBody = du_type(_, ConsTagValues, _, _) ->
+				(
+						% The search can fail
+						% for such types as
+						% private_builtin:type_info,
+						% if the search fails we
+						% will not have a
+						% secondary tag.
+					map__search(ConsTagValues, ConsId,
+							ConsTag),
+					ConsTag = shared_remote_tag(_, _)
+				->
+					SecondaryTag = yes
+				;
+					SecondaryTag = no
+				)
+			;
+				error("has_secondary_tag: not du type.")
+			)
+		;
+				% Must be a basic type.
+			SecondaryTag = no
+		)
+	;
+		error("has_secondary_tag: type_to_type_id failed.")
+		
+	}.
+
+	%
+	% Determine which of the fields already contain references to
+	% the correct variable, and hence don't need to be updated.  To
+	% do this requires knowledge of whether or not the current field
+	% has a secondary tag or not.
+	%
+:- func reuse_fields(bool, prog_vars, list(reuse_cell_data)) = list(bool).
+
+reuse_fields(HasSecTag, Vars, CandidateData)
+	= list__foldl(and_list, Tail, Head) :-
+		Pairs = list__map((func(Data) = 
+					Data ^ secondary_tag - Data ^ vars),
+				CandidateData),
+		BoolsList = list__map(
+				already_correct_fields(HasSecTag, Vars), Pairs),
+		( BoolsList = [H | T] ->
+			Head = H,
+			Tail = T
+		;
+			error("reuse_fields: empty list")
+		).
+
+	%
+	% already_correct_fields(HasSecTagC, VarsC, HasSecTagR, VarsR)
+	% takes a list of variables, VarsC, which are the arguments for
+	% the cell to be constructed and the list of variables, VarsR,
+	% which are the arguments for the cell to be reused and returns
+	% a list of bool where each yes indicates that argument already
+	% has the correct value stored in it.  To do this correctly we
+	% need to know whether each cell has a secondary tag field.
+	%
+:- func already_correct_fields(bool, prog_vars,
+		pair(bool, prog_vars)) = list(bool).
+
+already_correct_fields(SecTagC, CurrentCellVars, SecTagR - ReuseCellVars)
+	= Bools ++ list__duplicate(LengthC - LengthB, no) :-
+		Bools = already_correct_fields_2(SecTagC, CurrentCellVars,
+				SecTagR, ReuseCellVars),
+		LengthC = list__length(CurrentCellVars),
+		LengthB = list__length(Bools).
+
+:- func already_correct_fields_2(bool, prog_vars, bool, prog_vars) = list(bool).
+
+already_correct_fields_2(yes, CurrentCellVars, yes, ReuseCellVars)
+	= equals(CurrentCellVars, ReuseCellVars).
+already_correct_fields_2(yes, CurrentCellVars, no, ReuseCellVars)
+	= [no | equals(CurrentCellVars, drop_one(ReuseCellVars))].
+already_correct_fields_2(no, CurrentCellVars, yes, ReuseCellVars) 
+	= [no | equals(drop_one(CurrentCellVars), ReuseCellVars)].
+already_correct_fields_2(no, CurrentCellVars, no, ReuseCellVars) 
+	= equals(CurrentCellVars, ReuseCellVars).
+
+	%
+	% equals(ListA, ListB) produces a list of bools which indicates
+	% whether the corresponding elements from ListA and ListB were
+	% equal.  If ListA and ListB are of different lengths, the
+	% resulting list is the length of the shorter of the two.
+	%
+:- func equals(list(T), list(T)) = list(bool).
+
+equals([], []) = [].
+equals([], [_|_]) = [].
+equals([_|_], []) = [].
+equals([X | Xs], [Y | Ys]) = [Bool | equals(Xs, Ys)] :-
+	( X = Y ->
+		Bool = yes
+	;
+		Bool = no
+	).
+
+:- func drop_one(list(T)) = list(T).
+
+drop_one([]) = [].
+drop_one([_ | Xs]) = Xs.
+
+:- func and_list(list(bool), list(bool)) = list(bool).
+
+and_list(ListA, ListB)
+	= list__map((func(A - B) = A `and` B),
+			from_corresponding_lists(ListA, ListB)).
 
 %-----------------------------------------------------------------------------%
 
@@ -516,10 +671,14 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 		{ solutions(P, Candidates) }
 	),
 	( { Candidates = [Candidate | _] } ->
-		{ ReuseVar = Candidate ^ var },
-		{ ReuseCond = Candidate ^ condition },
-		{ Candidate ^ cons_ids = yes(ConsIds0) ->
-			ConsIds = ConsIds0
+		{ Candidate = reuse_var(ReuseVar, ReuseCond,
+				MaybeConsIds, MaybeReuseFields) },
+		{ 
+			MaybeConsIds = yes(ConsIds0),
+			MaybeReuseFields = yes(ReuseFields0)
+		->
+			ConsIds = ConsIds0,
+			ReuseFields = ReuseFields0
 		;
 			error("select_reuses_unification: no cons_ids.")
 		},
@@ -533,7 +692,7 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 		},
 		{ goal_info_set_reuse(GoalInfo0,
 				reuse(cell_reused(ReuseVar, ConditionalReuse,
-						ConsIds)),
+						ConsIds, ReuseFields)),
 				GoalInfo) },
 		ReuseConditions =^ reuse_conds,
 		^ reuse_conds := [ReuseCond | ReuseConditions]

@@ -1180,7 +1180,7 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 			;
 				{ REUSE = reuse(cell_reused(ProgVar,
 						IntroducesCondition,
-						ConsIds)) }
+						ConsIds, _ReuseFields)) }
 			->
 				io__write_string("cell "),
 				mercury_output_var(ProgVar, VarSet, 

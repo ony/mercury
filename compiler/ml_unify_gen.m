@@ -1041,7 +1041,8 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 		{ MLDS_Statements = [AssignStatement] }
 	;
 		{ HowToConstruct = reuse_cell(CellToReuse) },
-		{ CellToReuse = cell_to_reuse(ReuseVar, ReuseConsIds, _) },
+		{ CellToReuse = cell_to_reuse(ReuseVar,
+					ReuseConsIds, ReuseFields) },
 
 		{ MaybeConsId = yes(ConsId0) ->
 			ConsId = ConsId0
@@ -1089,11 +1090,9 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 		%
 		% For each field in the construction unification we need
 		% to generate an rval.
-		% XXX we do more work then we need to here, as some of
-		% the cells may already contain the correct values.
 		%
-		ml_gen_unify_args(ConsId, ArgVars, ArgModes, ArgTypes,
-				Fields, Type, VarLval, OffSet,
+		ml_gen_unify_args(ConsId, ArgVars, ArgModes, ArgTypes, Fields,
+				yes(ReuseFields), Type, VarLval, OffSet,
 				ArgNum, PrimaryTag, Context, MLDS_Statements0),
 
 		{ MLDS_Decls = [] },
@@ -1337,8 +1336,8 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		ml_variable_types(Args, ArgTypes),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
 		{ ml_tag_offset_and_argnum(Tag, _, OffSet, ArgNum) },
-		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, Type,
-				VarLval, OffSet, ArgNum,
+		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, no,
+				Type, VarLval, OffSet, ArgNum,
 				UnsharedTag, Context, MLDS_Statements)
 	;
 		{ Tag = shared_remote_tag(PrimaryTag, _SecondaryTag) },
@@ -1346,8 +1345,8 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		ml_variable_types(Args, ArgTypes),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
 		{ ml_tag_offset_and_argnum(Tag, _, OffSet, ArgNum) },
-		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, Type,
-				VarLval, OffSet, ArgNum,
+		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, no,
+				Type, VarLval, OffSet, ArgNum,
 				PrimaryTag, Context, MLDS_Statements)
 	;
 		{ Tag = shared_local_tag(_Bits1, _Num1) },
@@ -1453,44 +1452,57 @@ ml_field_names_and_types(Type, ConsId, ArgTypes, Fields) -->
 	).
 
 :- pred ml_gen_unify_args(cons_id, prog_vars, list(uni_mode), list(prog_type),
-		list(constructor_arg), prog_type, mlds__lval, int, int,
-		mlds__tag, prog_context, mlds__statements,
-		ml_gen_info, ml_gen_info).
-:- mode ml_gen_unify_args(in, in, in, in, in, in, in, in, in, in, in, out,
+		list(constructor_arg), maybe(list(bool)), prog_type,
+		mlds__lval, int, int, mlds__tag, prog_context,
+		mlds__statements, ml_gen_info, ml_gen_info).
+:- mode ml_gen_unify_args(in, in, in, in, in, in, in, in, in, in, in, in, out,
 		in, out) is det.
 
-ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, VarType, VarLval,
-		Offset, ArgNum, PrimaryTag, Context, MLDS_Statements) -->
+ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields,
+		MaybeAlreadyInitialised, VarType, VarLval, Offset,
+		ArgNum, PrimaryTag, Context, MLDS_Statements) -->
+	{ MaybeAlreadyInitialised = yes(IsInitialised0) ->
+		IsInitialised = IsInitialised0
+	;
+		IsInitialised = list__duplicate(list__length(Args), no)
+	},
 	(
-		ml_gen_unify_args_2(ConsId, Args, Modes, ArgTypes, Fields,
-			VarType, VarLval, Offset, ArgNum, PrimaryTag, Context,
-			[], MLDS_Statements0)
+		ml_gen_unify_args_2(ConsId, Args, Modes, ArgTypes,
+				Fields, IsInitialised, VarType, VarLval,
+				Offset, ArgNum, PrimaryTag,
+				Context, [], MLDS_Statements0)
 	->
 		{ MLDS_Statements = MLDS_Statements0 }
 	;
 		{ error("ml_gen_unify_args: length mismatch") }
 	).
 
-:- pred ml_gen_unify_args_2(cons_id, prog_vars, list(uni_mode), list(prog_type),
-		list(constructor_arg), prog_type, mlds__lval, int, int,
-		mlds__tag, prog_context, mlds__statements, mlds__statements,
-		ml_gen_info, ml_gen_info).
-:- mode ml_gen_unify_args_2(in, in, in, in, in, in, in, in, in, in, in, in, out,
-		in, out) is semidet.
+:- pred ml_gen_unify_args_2(cons_id::in, prog_vars::in,
+		list(uni_mode)::in, list(prog_type)::in,
+		list(constructor_arg)::in, list(bool)::in,
+		prog_type::in, mlds__lval::in, int::in, int::in,
+		mlds__tag::in, prog_context::in,
+		mlds__statements::in, mlds__statements::out,
+		ml_gen_info::in, ml_gen_info::out) is semidet.
 
-ml_gen_unify_args_2(_, [], [], [], _, _, _, _, _, _, _, Statements, Statements)
-		--> [].
+ml_gen_unify_args_2(_, [], [], [], [],
+		_, _, _, _, _, _, _, Statements, Statements) --> [].
 ml_gen_unify_args_2(ConsId, [Arg|Args], [Mode|Modes], [ArgType|ArgTypes],
-		[Field|Fields], VarType, VarLval, Offset, ArgNum, PrimaryTag,
-		Context, MLDS_Statements0, MLDS_Statements) -->
+		[Field|Fields], [IsInitialised|IsInitialiseds], VarType,
+		VarLval, Offset, ArgNum, PrimaryTag, Context,
+		MLDS_Statements0, MLDS_Statements) -->
 	{ Offset1 = Offset + 1 },
 	{ ArgNum1 = ArgNum + 1 },
-	ml_gen_unify_args_2(ConsId, Args, Modes, ArgTypes, Fields, VarType,
-		VarLval, Offset1, ArgNum1, PrimaryTag, Context,
-		MLDS_Statements0, MLDS_Statements1),
-	ml_gen_unify_arg(ConsId, Arg, Mode, ArgType, Field, VarType, VarLval,
-		Offset, ArgNum, PrimaryTag, Context,
-		MLDS_Statements1, MLDS_Statements).
+	ml_gen_unify_args_2(ConsId, Args, Modes, ArgTypes, Fields,
+		IsInitialiseds, VarType, VarLval, Offset1, ArgNum1,
+		PrimaryTag, Context, MLDS_Statements0, MLDS_Statements1),
+	( { IsInitialised = no } ->
+		ml_gen_unify_arg(ConsId, Arg, Mode, ArgType, Field,
+				VarType, VarLval, Offset, ArgNum, PrimaryTag,
+				Context, MLDS_Statements1, MLDS_Statements)
+	;
+		{ MLDS_Statements = MLDS_Statements1 }
+	).
 
 :- pred ml_gen_unify_arg(cons_id, prog_var, uni_mode, prog_type,
 		constructor_arg, prog_type, mlds__lval, int, int, mlds__tag,

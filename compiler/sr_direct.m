@@ -64,7 +64,8 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 		% compile time garbage collected.
 	maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
 	sr_choice__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
-	{ sr_choice__process_goal(Strategy,
+	{ proc_info_vartypes(ProcInfo0, VarTypes) },
+	{ sr_choice__process_goal(Strategy, VarTypes, ModuleInfo,
 			Goal1, Goal, MaybeReuseConditions) },
 	(
 		{ VeryVerbose = yes } 
