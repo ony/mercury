@@ -25,6 +25,8 @@
 :- import_module prog_io, prog_io_goal, prog_util.
 :- import_module term_util, term_errors.
 :- import_module int, map, string, std_util, bool, require.
+:- import_module pa_alias_as.
+:- import_module sr_reuse.
 
 parse_pragma(ModuleName, VarSet, PragmaTerms, Result) :-
 	(
@@ -106,7 +108,7 @@ parse_pragma_type(ModuleName, "c_code", PragmaTerms,
 	    LangC = term__functor(term__string("C"), [], Context),
 	    parse_pragma_foreign_code_pragma(ModuleName, "c_code",
 		[LangC | PragmaTerms], ErrorTerm, VarSet, Result)
-	;
+		;
 	    Result = error("wrong number of arguments or unexpected variable in `:- pragma c_code' declaration", 
 		    ErrorTerm)
 	).
@@ -742,6 +744,79 @@ parse_pragma_type(ModuleName, "termination_info", PragmaTerms, ErrorTerm,
 		"syntax error in `:- pragma termination_info' declaration",
 		ErrorTerm)
     ).
+	
+parse_pragma_type(ModuleName, "pa_alias_info", PragmaTerms, ErrorTerm, 
+		_VarSet, Result) :- 
+    (
+	PragmaTerms = [ 
+		PredAndModesTerm0,
+		HVsTerm,
+		AliasInformation
+	],
+	parse_pred_or_func_and_arg_modes(yes(ModuleName), PredAndModesTerm0,
+		ErrorTerm, "`:- pragma pa_alias_info' declaration",
+		NameAndModesResult),
+	NameAndModesResult = ok(PredName - PredOrFunc, ModeList),
+	
+	% variables
+	HVsTerm = term__functor(term__atom("vars"), ListHVTerm, _),
+	term__vars_list(ListHVTerm, HeadVarsGeneric),
+	list__map(term__coerce_var, HeadVarsGeneric, HeadVars),
+
+	% aliases
+
+	(
+	   	AliasInformation = term__functor(
+					term__atom("not_available"),_,_),
+		MaybeAliasInfo = no
+	;
+		AliasInformation = term__functor(
+					term__atom("yes"), ReadAliases, _),
+		pa_alias_as__parse_read_aliases(ReadAliases, Alias_as),
+		MaybeAliasInfo = yes(Alias_as)
+	),
+
+	Result0 = ok(pragma(pa_alias_info(PredOrFunc, PredName, ModeList,
+					HeadVars, MaybeAliasInfo)))
+   ->
+   	Result = Result0
+   ;
+        Result = error( 
+		"syntax error in `:- pragma pa_alias_info' declaration", 
+		ErrorTerm)	
+   ).
+
+parse_pragma_type(ModuleName, "sr_reuse_info", PragmaTerms, ErrorTerm, 
+		_VarSet, Result) :- 
+    (
+	PragmaTerms = [ 
+		PredAndModesTerm0,
+		HVsTerm,
+		ReuseInformation
+	],
+	parse_pred_or_func_and_arg_modes(yes(ModuleName), PredAndModesTerm0,
+		ErrorTerm, "`:- pragma sr_reuse_info' declaration",
+		NameAndModesResult),
+	NameAndModesResult = ok(PredName - PredOrFunc, ModeList),
+	
+	% variables
+	HVsTerm = term__functor(term__atom("vars"), ListHVTerm, _),
+	term__vars_list(ListHVTerm, HeadVarsGeneric),
+	list__map(term__coerce_var, HeadVarsGeneric, HeadVars),
+
+	sr_reuse__tabled_reuse_parse(ReuseInformation, ParsedReuse),
+
+	Result0 = ok(pragma(sr_reuse_info(PredOrFunc, PredName, ModeList,
+					HeadVars, ParsedReuse)))
+   ->
+   	Result = Result0
+   ;
+        Result = error( 
+		"syntax error in `:- pragma sr_reuse_info' declaration", 
+		ErrorTerm)	
+   ).
+
+
 			
 parse_pragma_type(ModuleName, "terminates", PragmaTerms,
 				ErrorTerm, _VarSet, Result) :-

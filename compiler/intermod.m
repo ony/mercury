@@ -77,6 +77,10 @@
 		message_list, bool, bool, io__state, io__state).
 :- mode intermod__update_error_status(in, in, in, in, in, out, di, uo) is det.
 
+:- import_module assoc_list, hlds_data.
+:- pred intermod__write_types(assoc_list(type_id, hlds_type_defn)::in,
+		io__state::di, io__state::uo) is det.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -1129,8 +1133,8 @@ intermod__write_c_header([Header - _ | Headers]) -->
         intermod__write_c_header(Headers),
         mercury_output_pragma_c_header(Header).
 
-:- pred intermod__write_types(assoc_list(type_id, hlds_type_defn)::in,
-		io__state::di, io__state::uo) is det.
+% :- pred intermod__write_types(assoc_list(type_id, hlds_type_defn)::in,
+% 		io__state::di, io__state::uo) is det.
 
 intermod__write_types(Types) -->
 	list__foldl(intermod__write_type, Types).

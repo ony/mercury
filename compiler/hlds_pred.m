@@ -16,6 +16,8 @@
 :- import_module hlds_data, hlds_goal, hlds_module, llds, prog_data, instmap.
 :- import_module globals, term_util.
 :- import_module bool, list, set, map, std_util, term, varset.
+:- import_module pa_alias_as.
+:- import_module sr_reuse.
 
 :- implementation.
 
@@ -282,6 +284,8 @@
 	% status_is_imported.
 :- pred status_defined_in_this_module(import_status::in, bool::out) is det.
 
+:- pred import_status_to_minimal_string(import_status::in, string::out) 
+		is det.
 	% Predicates can be marked with various boolean flags, called
 	% "markers".
 
@@ -738,6 +742,18 @@ status_defined_in_this_module(abstract_exported,	yes).
 status_defined_in_this_module(pseudo_exported,		yes).
 status_defined_in_this_module(exported_to_submodules,	yes).
 status_defined_in_this_module(local,			yes).
+
+import_status_to_minimal_string(imported(_), "imported").
+import_status_to_minimal_string(opt_imported, "opt_imported").
+import_status_to_minimal_string(abstract_imported, "abstract_imported").
+import_status_to_minimal_string(pseudo_imported, "pseudo_imported").
+import_status_to_minimal_string(exported, "exported").
+import_status_to_minimal_string(abstract_exported, "abstract_exported").
+import_status_to_minimal_string(pseudo_exported, "pseudo_exported").
+import_status_to_minimal_string(exported_to_submodules,
+                                        "exported_to_submodules").
+import_status_to_minimal_string(local, "local").
+
 
 	% The information specific to a predicate, as opposed to a procedure.
 	% (Functions count as predicates.)
@@ -1384,6 +1400,24 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_set_rl_exprn_id(proc_info, rl_exprn_id, proc_info).
 :- mode proc_info_set_rl_exprn_id(in, in, out) is det.
 
+:- pred proc_info_possible_aliases(proc_info, maybe(pa_alias_as__alias_as)).
+:- mode proc_info_possible_aliases(in, out) is det.
+
+:- pred proc_info_set_possible_aliases(proc_info, alias_as, proc_info).
+:- mode proc_info_set_possible_aliases(in, in, out) is det.
+
+:- pred proc_info_global_use(proc_info, maybe(set(prog_var))).
+:- mode proc_info_global_use(in, out) is det.
+
+:- pred proc_info_set_global_use(proc_info, set(prog_var), proc_info).
+:- mode proc_info_set_global_use(in, in, out) is det.
+
+:- pred proc_info_reuse_information(proc_info, tabled_reuse).
+:- mode proc_info_reuse_information(in, out) is det.
+
+:- pred proc_info_set_reuse_information(proc_info, tabled_reuse, proc_info).
+:- mode proc_info_set_reuse_information(in, in, out) is det.
+
 	% For a set of variables V, find all the type variables in the types 
 	% of the variables in V, and return set of typeinfo variables for 
 	% those type variables. (find all typeinfos for variables in V).
@@ -1533,13 +1567,28 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 					% must be considered as having its
 					% address taken, since it is possible
 					% that some other module may do so.
-			maybe_aditi_rl_id :: maybe(rl_exprn_id)
+			maybe_aditi_rl_id :: maybe(rl_exprn_id),
 					% For predicates with an
 					% `aditi_top_down' marker, which are
 					% executed top-down on the Aditi side
 					% of the connection, we generate an RL
 					% expression, for which this is an
 					% identifier. See rl_update.m.
+			maybe_alias_as :: maybe(alias_as),
+		                        % `Possible' aliases annotations per
+		                        % procedure. This field is set by the
+		                        % possible alias analysis.
+			maybe_global_use :: maybe(set(prog_var)),
+					% Set of headvars which are not
+					% fully consumed (in the sense of
+					% deathness as in liveness.m) in 
+					% the procedure. This corresponds
+					% to the vars which are output 
+					% w.r.t. the modes of the procedure.
+					% (corresponds to the final set
+					% of Local Forward Use in the goal)
+					% (set during structure_reuse phase)
+			structure_reuse:: tabled_reuse
 		).
 
 	% Some parts of the procedure aren't known yet. We initialize
@@ -1565,11 +1614,15 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	map__init(TVarsMap),
 	map__init(TCVarsMap),
 	RLExprn = no,
+	ALIAS = no,
+	GLOBAL_USE = no, 
+	sr_reuse__tabled_reuse_init(TREUSE),
 	NewProc = procedure(
 		MaybeDet, BodyVarSet, BodyTypes, HeadVars, Modes, MaybeArgLives,
 		ClauseBody, MContext, StackSlots, InferredDet, CanProcess,
 		ArgInfo, InitialLiveness, TVarsMap, TCVarsMap, eval_normal,
-		no, no, DeclaredModes, IsAddressTaken, RLExprn
+		no, no, DeclaredModes, IsAddressTaken, RLExprn, ALIAS,
+		GLOBAL_USE, TREUSE
 	).
 
 proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
@@ -1577,11 +1630,15 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		CanProcess, ArgInfo, Liveness, TVarMap, TCVarsMap, ArgSizes,
 		Termination, IsAddressTaken, ProcInfo) :-
 	RLExprn = no,
+	ALIAS = no,
+	GLOBAL_USE = no, 
+	sr_reuse__tabled_reuse_init(TREUSE),
 	ProcInfo = procedure(
 		DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		HeadLives, Goal, Context, StackSlots, InferredDetism,
 		CanProcess, ArgInfo, Liveness, TVarMap, TCVarsMap, eval_normal, 
-		ArgSizes, Termination, no, IsAddressTaken, RLExprn).
+		ArgSizes, Termination, no, IsAddressTaken, RLExprn, 
+		ALIAS, GLOBAL_USE, TREUSE).
 
 proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, Detism, Goal,
 		Context, TVarMap, TCVarsMap, IsAddressTaken, ProcInfo) :-
@@ -1589,10 +1646,13 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, Detism, Goal,
 	set__init(Liveness),
 	MaybeHeadLives = no,
 	RLExprn = no,
+	ALIAS = no,
+	GLOBAL_USE = no, 
+	sr_reuse__tabled_reuse_init(TREUSE),
 	ProcInfo = procedure(yes(Detism), VarSet, VarTypes, HeadVars, HeadModes,
 		MaybeHeadLives, Goal, Context, StackSlots, Detism, yes, [],
 		Liveness, TVarMap, TCVarsMap, eval_normal, no, no, no, 
-		IsAddressTaken, RLExprn).
+		IsAddressTaken, RLExprn, ALIAS, GLOBAL_USE, TREUSE).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-
@@ -1678,6 +1738,9 @@ proc_info_get_maybe_termination_info(ProcInfo, ProcInfo^maybe_termination).
 proc_info_maybe_declared_argmodes(ProcInfo, ProcInfo^maybe_declared_head_modes).
 proc_info_is_address_taken(ProcInfo, ProcInfo^is_address_taken).
 proc_info_get_rl_exprn_id(ProcInfo, ProcInfo^maybe_aditi_rl_id).
+proc_info_possible_aliases(ProcInfo, ProcInfo^maybe_alias_as).
+proc_info_global_use(ProcInfo, ProcInfo^maybe_global_use).
+proc_info_reuse_information(ProcInfo, ProcInfo^structure_reuse).
 
 proc_info_set_varset(ProcInfo, VS, ProcInfo^prog_varset := VS).
 proc_info_set_vartypes(ProcInfo, VT, ProcInfo^var_types := VT).
@@ -1703,6 +1766,12 @@ proc_info_set_maybe_termination_info(ProcInfo, MT,
 	ProcInfo^maybe_termination := MT).
 proc_info_set_address_taken(ProcInfo, AT, ProcInfo^is_address_taken := AT).
 proc_info_set_rl_exprn_id(ProcInfo, ID, ProcInfo^maybe_aditi_rl_id := yes(ID)).
+proc_info_set_possible_aliases(ProcInfo, Aliases, 
+		ProcInfo^maybe_alias_as := yes(Aliases)).
+proc_info_set_global_use(ProcInfo, GLOBAL_USE, 
+		ProcInfo^maybe_global_use := yes(GLOBAL_USE)).
+proc_info_set_reuse_information(ProcInfo, TREUSE,
+		ProcInfo^structure_reuse := TREUSE).
 
 proc_info_get_typeinfo_vars(Vars, VarTypes, TVarMap, TypeInfoVars) :-
 	set__to_sorted_list(Vars, VarList),

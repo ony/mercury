@@ -124,6 +124,8 @@
 		;	strict_sequential
 		;	infer_types
 		;	infer_modes
+	        ;       infer_possible_aliases
+		; 	infer_structure_reuse
 		;	infer_det
 		;	infer_all
 		;	type_inference_iteration_limit
@@ -512,6 +514,8 @@ option_defaults_2(language_semantics_option, [
 	fully_strict		-	bool(yes),
 	infer_types		-	bool(no),
 	infer_modes		-	bool(no),
+	infer_possible_aliases  - 	bool(no),
+	infer_structure_reuse   - 	bool(no),
 	infer_det		-	bool(yes),
 	infer_all		-	bool_special,
 	type_inference_iteration_limit	-	int(60),
@@ -901,6 +905,8 @@ long_option("strict-sequential",	strict_sequential).
 long_option("infer-all",		infer_all).
 long_option("infer-types",		infer_types).
 long_option("infer-modes",		infer_modes).
+long_option("infer-possible-aliases",	infer_possible_aliases).
+long_option("infer-structure-reuse",	infer_structure_reuse).
 long_option("infer-determinism",	infer_det).
 long_option("infer-det",		infer_det).
 long_option("type-inference-iteration-limit",
@@ -1756,6 +1762,15 @@ options_help_semantics -->
 		"--infer-modes",
 		"\tIf there is no mode declaration for a predicate,",
 		"\ttry to infer the modes, rather than just reporting an error.",
+
+		"--infer-possible-aliases",
+		"\tAnnotate each exported procedure with the possible",
+		"\taliases it will create when called.",
+		"\t(generates pragma's in a trans_opt file)",
+	
+		"--infer-structure-reuse",
+		"\tAnnotate the program point with information about which",
+		"\tdatastructures can be reused and where they can be reused.",
 
 		"--no-infer-det, --no-infer-determinism",
 		"\tIf there is no determinism declaration for a procedure,",

@@ -244,7 +244,7 @@
 
 :- import_module int, string, set, assoc_list, map, multi_map.
 :- import_module require, getopt, std_util, term_io, varset.
-
+:- import_module pa_alias_as.
 
 hlds_out__write_type_id(Name - Arity) -->
 	prog_out__write_sym_name_and_arity(Name / Arity).
@@ -1111,6 +1111,49 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 		[]
 	),
 	( { string__contains_char(Verbose, 'p') } ->
+		{ goal_info_get_lfu(GoalInfo, LFU) },
+		{ set__to_sorted_list(LFU, LFU_list) },
+			hlds_out__write_indent(Indent),
+			io__write_string("% lfu: "),
+			mercury_output_vars(LFU_list, VarSet,
+				AppendVarnums),
+			io__write_string("\n"),
+
+		{ goal_info_get_reuse(GoalInfo, REUSE) } ,
+	        (
+			{ REUSE = no_reuse }
+		->
+			[]
+		; 
+			hlds_out__write_indent(Indent),
+			io__write_string("% reuse: "),
+			(
+				{ REUSE = cell_died }
+			->
+				io__write_string("cell just died (deconstruction).\n")
+			;
+				{ REUSE = cell_reused(ProgVar) }
+			->
+				io__write_string("cell ("),
+				mercury_output_var(ProgVar, VarSet, 
+					AppendVarnums),
+				io__write_string(") just reused (construction).\n")
+			;
+				{ REUSE = reuse_call }
+			->
+				io__write_string("call to procedure with reuse.\n")
+			;
+				{ require__error("No legal alternative for short_reuse_info anymore left.") }
+			)
+		),
+
+		{ goal_info_get_lbu(GoalInfo, Lbu) },
+		{ set__to_sorted_list(Lbu, LbuList) },
+		hlds_out__write_indent(Indent),
+		io__write_string("% lbu: "),
+		mercury_output_vars(LbuList, VarSet, AppendVarnums),
+		io__write_string("\n"),
+
 		{ goal_info_get_post_deaths(GoalInfo, PostDeaths) },
 		{ set__to_sorted_list(PostDeaths, PostDeathList) },
 		( { PostDeathList \= [] } ->
@@ -2831,6 +2874,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_typeinfo_varmap(Proc, TypeInfoMap) },
 	{ proc_info_typeclass_info_varmap(Proc, TypeClassInfoMap) },
 	{ proc_info_is_address_taken(Proc, IsAddressTaken) },
+	{ proc_info_possible_aliases(Proc, MaybeAliases) }, 
 	{ Indent1 is Indent + 1 },
 
 	hlds_out__write_indent(Indent1),
@@ -2862,6 +2906,18 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	;
 		[]
 	),
+
+	( 	
+		{ string__contains_char(Verbose, 'A') } 
+	->
+		hlds_out__write_indent(Indent),
+		io__write_string("% Possible aliases: "),
+		pa_alias_as__print_maybe_possible_aliases(MaybeAliases,
+					Proc),
+		io__nl
+	;
+		[]
+	),	
 
 	hlds_out__write_indent(Indent),
 	hlds_out__write_var_types(Indent, VarSet, AppendVarnums,

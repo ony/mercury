@@ -947,6 +947,14 @@ qualify_pragma(termination_info(PredOrFunc, SymName, ModeList0, Args, Term),
 		termination_info(PredOrFunc, SymName, ModeList, Args, Term), 
 		Info0, Info) --> 
 	qualify_mode_list(ModeList0, ModeList, Info0, Info).
+qualify_pragma(pa_alias_info(PredOrFunc, SymName, ModeList0, Vars, MaybeAS),
+		pa_alias_info(PredOrFunc, SymName, ModeList, Vars, MaybeAS),
+		Info0, Info) -->
+	qualify_mode_list(ModeList0, ModeList, Info0, Info).
+qualify_pragma(sr_reuse_info(PredOrFunc, SymName, ModeList0, Vars, TREUSE), 
+		sr_reuse_info(PredOrFunc, SymName, ModeList, Vars, TREUSE), 
+		Info0, Info) -->
+	qualify_mode_list(ModeList0, ModeList, Info0, Info).
 qualify_pragma(terminates(A, B), terminates(A, B), Info, Info) --> [].
 qualify_pragma(does_not_terminate(A, B), does_not_terminate(A, B), 
 		Info, Info) --> [].

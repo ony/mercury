@@ -331,6 +331,10 @@
 	pred_info, proc_info).
 :- mode module_info_pred_proc_info(in, in, out, out) is det.
 
+:- pred pred_not_defined_in_this_module(module_info,
+		pred_id).
+:- mode pred_not_defined_in_this_module(in,in) is semidet.
+
 	% Return a list of the pred_ids of all the "valid" predicates.
 	% (Predicates whose definition contains a type error, etc.
 	% get removed from this list, so that later passes can rely
@@ -673,6 +677,11 @@ module_info_pred_proc_info(MI, PredId, ProcId, PredInfo, ProcInfo) :-
 
 module_info_pred_proc_info(MI, proc(PredId, ProcId), PredInfo, ProcInfo) :-
 	module_info_pred_proc_info(MI, PredId, ProcId, PredInfo, ProcInfo).
+
+pred_not_defined_in_this_module(MI, PredId) :- 
+	module_info_pred_info(MI, PredId, PredInfo), 
+	pred_info_import_status(PredInfo, Status), 
+	status_defined_in_this_module(Status, no). 
 
 module_info_predids(MI, PredIds) :-
 	module_info_get_predicate_table(MI, PredTable),

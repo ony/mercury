@@ -74,6 +74,9 @@
 :- import_module dependency_graph, prog_util, rl_dump, rl_file.
 :- import_module options, globals, passes_aux.
 
+:- import_module pa_run. % possible aliases
+:- import_module sr_run. % structure reuse
+
 %-----------------------------------------------------------------------------%
 
 main -->
@@ -929,7 +932,7 @@ mercury_compile__frontend_pass_2_by_phases(HLDS4, HLDS20, FoundError) -->
 
 	( { UnsafeToContinue = yes } ->
 		{ FoundError = yes },
-		{ HLDS12 = HLDS6 }
+		{ HLDS14 = HLDS6 }
 	;
 		mercury_compile__detect_switches(HLDS6, Verbose, Stats, HLDS7),
 		mercury_compile__maybe_dump_hlds(HLDS7, "07", "switch_detect"),
@@ -941,18 +944,30 @@ mercury_compile__frontend_pass_2_by_phases(HLDS4, HLDS20, FoundError) -->
 			FoundDetError),
 		mercury_compile__maybe_dump_hlds(HLDS9, "09", "determinism"),
 
-		mercury_compile__check_unique_modes(HLDS9, Verbose, Stats,
-			HLDS10, FoundUniqError),
-		mercury_compile__maybe_dump_hlds(HLDS10, "10", "unique_modes"),
+		% possible aliases
+		mercury_compile__possible_aliases(HLDS9, Verbose, 
+			Stats, HLDS10),
+		mercury_compile__maybe_dump_hlds(HLDS10,"10",
+			"possible_aliases"),
 
-		mercury_compile__check_stratification(HLDS10, Verbose, Stats, 
-			HLDS11, FoundStratError),
-		mercury_compile__maybe_dump_hlds(HLDS11, "11",
+		% structure reuse analysis
+		mercury_compile__structure_reuse(HLDS10, Verbose, 
+			Stats, HLDS11),
+		mercury_compile__maybe_dump_hlds(HLDS11,"11",
+			"structure_reuse") ,	
+
+		mercury_compile__check_unique_modes(HLDS11, Verbose, Stats,
+			HLDS12, FoundUniqError),
+		mercury_compile__maybe_dump_hlds(HLDS12, "12", "unique_modes"),
+
+		mercury_compile__check_stratification(HLDS12, Verbose, Stats, 
+			HLDS13, FoundStratError),
+		mercury_compile__maybe_dump_hlds(HLDS13, "13",
 			"stratification"),
 
-		mercury_compile__simplify(HLDS11, yes, no, Verbose, Stats,
-			process_all_nonimported_procs, HLDS12),
-		mercury_compile__maybe_dump_hlds(HLDS12, "12", "simplify"),
+		mercury_compile__simplify(HLDS13, yes, no, Verbose, Stats,
+			process_all_nonimported_procs, HLDS14),
+		mercury_compile__maybe_dump_hlds(HLDS14, "14", "simplify"),
 
 		%
 		% work out whether we encountered any errors
@@ -974,7 +989,7 @@ mercury_compile__frontend_pass_2_by_phases(HLDS4, HLDS20, FoundError) -->
 		)
 	),
 
-	{ HLDS20 = HLDS12 },
+	{ HLDS20 = HLDS14 },
 	mercury_compile__maybe_dump_hlds(HLDS20, "20", "front_end").
 
 :- pred mercury_compile__frontend_pass_2_by_preds(module_info, module_info,
@@ -1593,6 +1608,48 @@ mercury_compile__maybe_mark_static_terms(HLDS0, Verbose, Stats, HLDS) -->
 		process_all_nonimported_procs(update_proc(mark_static_terms),
 			HLDS0, HLDS),
 		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS = HLDS0 }
+	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred mercury_compile__possible_aliases( module_info, bool, bool, 
+						module_info, io__state,
+						io__state).
+:- mode mercury_compile__possible_aliases( in, in, in, out, di, uo) is det.
+
+mercury_compile__possible_aliases(HLDS0, Verbose, Stats, HLDS ) -->
+	globals__io_lookup_bool_option( infer_possible_aliases, InferAliases),
+	( 	
+		{ InferAliases = yes }
+	->
+		pa_run__aliases_pass( HLDS0, HLDS ),
+		maybe_write_string(Verbose, "% Alias analysis done.\n"),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS = HLDS0 }
+	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred mercury_compile__structure_reuse( module_info, bool, bool, 
+						module_info, io__state,
+						io__state).
+:- mode mercury_compile__structure_reuse( in, in, in, out, di, uo) is det.
+
+mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS ) -->
+	globals__io_lookup_bool_option( infer_structure_reuse, StrucReuse),
+	( 	
+		{ StrucReuse = yes }
+	->
+		maybe_write_string(Verbose, 
+				"% Structure-reuse analysis...\n"),
+		maybe_flush_output(Verbose),
+		sr_run__structure_reuse_pass( HLDS0, HLDS), 
+		maybe_write_string(Verbose, 
+				"% Structure-reuse analysis done.\n"),
 		maybe_report_stats(Stats)
 	;
 		{ HLDS = HLDS0 }

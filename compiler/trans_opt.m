@@ -70,11 +70,14 @@
 
 :- implementation.
 
-:- import_module intermod, hlds_pred, mercury_to_mercury.
+:- import_module intermod, hlds_data, hlds_pred, mercury_to_mercury.
 :- import_module prog_io, globals, code_util.
 :- import_module passes_aux, prog_out, options, termination.
 
 :- import_module set, string, list, map, varset, term, std_util.
+
+:- import_module pa_run.
+:- import_module sr_run.
 
 %-----------------------------------------------------------------------------%
 
@@ -110,11 +113,70 @@ trans_opt__write_optfile(Module) -->
 
 		% All predicates to write global items into the .trans_opt 
 		% file should go here.
-
 		{ module_info_predids(Module, PredIds) },
-		list__foldl(termination__write_pred_termination_info(Module),
-			PredIds),
 
+		globals__io_lookup_bool_option( termination, Termination),
+		globals__io_lookup_bool_option( infer_possible_aliases, 
+							PossibleAliases),
+		globals__io_lookup_bool_option( infer_structure_reuse,
+							StructureReuse),
+
+		{ module_info_get_special_pred_map(Module, SpecialPredMap) },
+		{ map__values(SpecialPredMap, SpecialPredIds) },
+		(
+			{ Termination = yes }
+		->
+		% output termination information
+		list__foldl(termination__write_pred_termination_info(Module),
+			PredIds)
+		;
+			[]
+		),
+		(
+			{ PossibleAliases = yes }
+		->
+		% output type-information.
+		io__write_string(
+			"\n%----------- type-definitions ------------- \n\n"),
+		{ module_info_types( Module, TypesMap ) }, 
+		{ map__to_assoc_list( TypesMap, AllTypes) }, 
+		{ list__filter( 
+			pred( P::in ) is semidet :- 
+			    ( P = _TId - TDefn, 
+			      hlds_data__get_type_defn_status( TDefn, Stat), 
+			      ( hlds_pred__status_defined_in_this_module( Stat,
+								yes )
+			%	;
+			%	Stat = opt_imported
+			      )
+			    ),
+			AllTypes, 
+			Types ) },
+		% { Types = AllTypes },
+		intermod__write_types( Types ), 
+
+		% output possible-alias information.
+		io__write_string(
+			"\n%----------- pa_alias_info/3 ------------- \n\n"),
+		list__foldl( pa_run__write_pred_pa_info(Module,
+							SpecialPredIds),
+				PredIds)
+		;
+			[]
+		),
+		(
+			{ StructureReuse = yes }
+		->
+		% output structure-reuse information
+		io__write_string(
+			"\n%----------- sr_reuse_info/3 ------------- \n\n"),
+		list__foldl( sr_run__write_pred_sr_reuse_info(Module, 
+							SpecialPredIds),
+				PredIds)
+		;
+			[]
+		),
+		
 		io__set_output_stream(OldStream, _),
 		io__close_output(Stream),
 
@@ -131,7 +193,6 @@ trans_opt__grab_optfiles(Module0, TransOptDeps, Module, FoundError) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	maybe_write_string(Verbose, "% Reading .trans_opt files..\n"),
 	maybe_flush_output(Verbose),
-
 	read_trans_opt_files(TransOptDeps, [], OptItems, no, FoundError),
 
 	{ append_pseudo_decl(Module0, opt_imported, Module1) },

@@ -292,6 +292,12 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(check_termination, termination, bool(yes)),
 	option_implies(check_termination, warn_missing_trans_opt_files,
 		bool(yes)),
+	option_implies(infer_structure_reuse, infer_possible_aliases,
+		bool(yes)),
+	option_implies(infer_possible_aliases, warn_missing_trans_opt_files,
+        	bool(yes)),
+	option_implies(infer_possible_aliases, transitive_optimization,
+		bool(yes)),
 	option_implies(make_transitive_opt_interface, transitive_optimization,
 		bool(yes)),
 	option_implies(transitive_optimization, intermodule_optimization,
@@ -303,6 +309,16 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(intermodule_optimization, use_opt_files, bool(no)),
 	option_implies(transitive_optimization, use_trans_opt_files, bool(no)),
 
+	% when doing possible alias analysis, for the moment we
+        % don't want everything to be rebuild each time -- so let's
+        % put those use_*opt_files back to yes.
+        % possible aliases does not use opt_files, but it does use 
+        % trans_opt files ! This is also to avoid some bizar problems
+        % where when Mmake-ing modules, the modules are in fact compiled
+        % twice, std-err is sent to std-out etc... 
+        % option_implies(infer_possible_aliases, use_opt_files, bool(yes)),
+        % option_implies(infer_possible_aliases, use_trans_opt_files, bool(yes)),
+	
 	option_implies(very_verbose, verbose, bool(yes)),
 
 	% --split-c-files implies --procs-per-c-function 1
@@ -923,9 +939,11 @@ char_is_not(A, B) :-
 :- pred convert_dump_alias(string, string).
 :- mode convert_dump_alias(in, out) is semidet.
 
-convert_dump_alias("ALL", "abcdfgilmnprstuvCIMPTU").
-convert_dump_alias("all", "abcdfgilmnprstuvCMPT").
+convert_dump_alias("ALL", "aAbcdfgilmnprstuvCIMPTU").
+convert_dump_alias("all", "aAbcdfgilmnprstuvCMPT").
 convert_dump_alias("codegen", "dfnprsu").
 convert_dump_alias("vanessa", "ltuCIU").
 convert_dump_alias("paths", "cP").
 convert_dump_alias("petdr", "din").
+convert_dump_alias("palias", "A").
+

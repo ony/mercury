@@ -24,6 +24,8 @@
 
 :- import_module (inst).
 :- import_module bool, list, assoc_list, map, varset, term, std_util.
+:- import_module pa_alias_as.
+:- import_module sr_reuse.
 
 %-----------------------------------------------------------------------------%
 
@@ -259,6 +261,16 @@
 			% termination_info pragmas are used in opt and
 			% trans_opt files.
 
+	;	pa_alias_info(pred_or_func, sym_name, list(mode),
+				list(prog_var), maybe(alias_as))
+			% the list(mode) is the declared argmodes of the
+			% procedure. 
+			% This pragma is used to define information about
+			% a predicates possible aliases set. 
+			% These pragma's are used in opt.pa files
+
+	; 	sr_reuse_info(pred_or_func, sym_name, list(mode), 
+				list(prog_var), tabled_reuse)
 
 	;	terminates(sym_name, arity)
 			% Predname, Arity
@@ -948,3 +960,4 @@ set_thread_safe(Attrs0, ThreadSafe, Attrs) :-
 	Attrs  = attributes(MayCallMercury, ThreadSafe).
 
 %-----------------------------------------------------------------------------%
+

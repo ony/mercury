@@ -75,6 +75,8 @@
 :- import_module mercury_to_mercury, passes_aux, clause_to_proc, inst_match.
 :- import_module fact_table, purity, goal_util, term_util, export, llds.
 :- import_module error_util.
+:- import_module pa_run, pa_alias_as.
+:- import_module sr_reuse.
 
 :- import_module string, char, int, set, bintree, map, multi_map, require.
 :- import_module bag, term, varset, getopt, assoc_list, term_io.
@@ -500,6 +502,21 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		add_pragma_termination_info(PredOrFunc, SymName, ModeList,
 			MaybeArgSizeInfo, MaybeTerminationInfo, Context,
 			Module0, Module)
+	;
+		{ Pragma = pa_alias_info(PredOrFunc, SymName, ModeList,
+			HeadVars, MaybeAlias) },
+		% these pragma's should only occur in trans_opt files. 
+		% But as this predicate is also used to read in those
+		% files, we must consider them here. 
+		% { Module = Module0 }
+		add_pragma_possible_aliases_info(PredOrFunc,SymName,ModeList,
+                                        HeadVars,MaybeAlias, Module0, Module)
+		
+	;
+		{ Pragma = sr_reuse_info(PredOrFunc, SymName, ModeList,
+			HeadVars, TREUSE) },
+		add_pragma_reuse_info( PredOrFunc, SymName, ModeList, 
+					HeadVars, TREUSE, Module0, Module)
 	;
 		{ Pragma = terminates(Name, Arity) },
 		add_pred_marker(Module0, "terminates", Name, Arity,
@@ -1358,6 +1375,162 @@ add_pragma_termination_info(PredOrFunc, SymName, ModeList,
 	    ****   { module_info_incr_errors(Module0, Module) }
 	    ***/
 	).
+
+%-----------------------------------------------------------------------------%
+
+:- pred add_pragma_possible_aliases_info( pred_or_func, sym_name, list(mode),
+		list(var(T)), maybe(alias_as),
+		module_info, module_info, 
+		io__state, io__state).
+:- mode add_pragma_possible_aliases_info( in, in, in, in, in, in, out, di, uo) 
+		is det.
+
+add_pragma_possible_aliases_info(_, _, _, _, no, Module, Module) --> [].
+add_pragma_possible_aliases_info(PredOrFunc,SymName, Modes, 
+				HeadVars, yes(AliasAS),
+				Module0, Module) --> 
+	{ module_info_get_predicate_table(Module0, Preds) },
+	{ list__length(Modes, Arity) },
+	(
+		{ predicate_table_search_pf_sym_arity( Preds,
+			PredOrFunc, SymName, Arity, PredIds) },
+		{ PredIds \= [] }
+	->
+	   (
+		{ PredIds = [PredId] }
+	   ->
+		{ module_info_preds(Module0, PredTable0) },
+		{ map__lookup(PredTable0, PredId, PredInfo0) },
+		{ pred_info_procedures(PredInfo0, ProcTable0) },
+		{ map__to_assoc_list(ProcTable0, ProcList) },
+		(
+			{ get_procedure_matching_declmodes( ProcList,
+				Modes, Module0, ProcId) }
+		->
+			{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+			{ proc_info_headvars(ProcInfo0, ProcHeadVars) },
+			{ list__map( term__coerce_var, HeadVars, CHeadVars )},
+			{ map__from_corresponding_lists(CHeadVars,
+				ProcHeadVars, MapHeadVars) },
+			{ pa_alias_as__rename( MapHeadVars, AliasAS, 
+						RenAliasAS) },
+			{ proc_info_set_possible_aliases( ProcInfo0, 
+				RenAliasAS, ProcInfo ) },
+			{ map__det_update(ProcTable0, ProcId, ProcInfo,
+					ProcTable) },
+			{ pred_info_set_procedures(PredInfo0, ProcTable,
+					PredInfo) },
+			{ map__det_update(PredTable0, PredId, PredInfo,
+					PredTable) },
+			{ module_info_set_preds( Module0, PredTable, Module) }
+		;
+
+			% 	{ module_info_incr_errors(Module0, Module) },
+			io__write_string(
+				"Error: `:- pragma pa_alias_info' "),
+			io__write_string(
+				"declaration for undeclared mode of "),
+			hlds_out__write_simple_call_id(PredOrFunc,
+				SymName/Arity),
+			io__write_string(".\n"),
+			{ Module = Module0 },
+			io__set_exit_status(1)
+		)
+	   ;
+		io__write_string("Error: ambiguous predicate name "),
+		hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
+		io__write_string(" in `pragma pa_alias_info'.\n"),
+		{ Module = Module0 },
+		io__set_exit_status(1)
+		% { module_info_incr_errors(Module0, Module) }
+	   )
+	;
+	   io__write_string("Error: no corresponding predicate found "),
+	   hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
+	   io__write_string(" in `pragma pa_alias_info'.\n"),
+	   { Module = Module0 },
+	   io__set_exit_status(1)
+	   % { module_info_incr_errors(Module0, Module) }
+	).
+
+
+
+%-----------------------------------------------------------------------------%
+
+:- pred add_pragma_reuse_info( pred_or_func, sym_name, list(mode),
+		list(var(T)), sr_reuse__tabled_reuse,
+		module_info, module_info, 
+		io__state, io__state).
+:- mode add_pragma_reuse_info( in, in, in, in, in, in, out, di, uo) 
+		is det.
+
+add_pragma_reuse_info(PredOrFunc,SymName, Modes, 
+				HeadVars, TREUSE, Module0, Module) --> 
+	{ module_info_get_predicate_table(Module0, Preds) },
+	{ list__length(Modes, Arity) },
+	(
+		{ predicate_table_search_pf_sym_arity( Preds,
+			PredOrFunc, SymName, Arity, PredIds) },
+		{ PredIds \= [] }
+	->
+	   (
+		{ PredIds = [PredId] }
+	   ->
+		{ module_info_preds(Module0, PredTable0) },
+		{ map__lookup(PredTable0, PredId, PredInfo0) },
+		{ pred_info_procedures(PredInfo0, ProcTable0) },
+		{ map__to_assoc_list(ProcTable0, ProcList) },
+		(
+			{ get_procedure_matching_declmodes( ProcList,
+				Modes, Module0, ProcId) }
+		->
+			{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+			{ proc_info_headvars(ProcInfo0, ProcHeadVars) },
+			{ list__map( term__coerce_var, HeadVars, CHeadVars )},
+			{ map__from_corresponding_lists(CHeadVars,
+				ProcHeadVars, MapHeadVars) },
+			{ sr_reuse__tabled_reuse_rename( MapHeadVars, TREUSE, 
+						RenTREUSE) },
+			{ proc_info_set_reuse_information( ProcInfo0, 
+				RenTREUSE, ProcInfo ) },
+			{ map__det_update(ProcTable0, ProcId, ProcInfo,
+					ProcTable) },
+			{ pred_info_set_procedures(PredInfo0, ProcTable,
+					PredInfo) },
+			{ map__det_update(PredTable0, PredId, PredInfo,
+					PredTable) },
+			{ module_info_set_preds( Module0, PredTable, Module) }
+		;
+
+			% 	{ module_info_incr_errors(Module0, Module) },
+			io__write_string(
+				"Error: `:- pragma sr_reuse_info' "),
+			io__write_string(
+				"declaration for undeclared mode of "),
+			hlds_out__write_simple_call_id(PredOrFunc,
+				SymName/Arity),
+			io__write_string(".\n"),
+			{ Module = Module0 },
+			io__set_exit_status(1)
+		)
+	   ;
+		io__write_string("Error: ambiguous predicate name "),
+		hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
+		io__write_string(" in `pragma sr_reuse_info'.\n"),
+		{ Module = Module0 },
+		io__set_exit_status(1)
+		% { module_info_incr_errors(Module0, Module) }
+	   )
+	;
+	   io__write_string("Error: no corresponding predicate found "),
+	   hlds_out__write_simple_call_id(PredOrFunc, SymName/Arity),
+	   io__write_string(" in `pragma pa_alias_info'.\n"),
+	   { Module = Module0 },
+	   io__set_exit_status(1)
+	   % { module_info_incr_errors(Module0, Module) }
+	).
+
+
 
 %-----------------------------------------------------------------------------%
 

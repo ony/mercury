@@ -31,6 +31,9 @@
 				io__state, io__state).
 :- mode convert_to_mercury(in, in, in, di, uo) is det.
 
+:- pred mercury_output_sym_name(sym_name, io__state, io__state).
+:- mode mercury_output_sym_name(in, di, uo) is det.
+
 %	mercury_output_item(Item, Context)
 %		output the specified item, followed by ".\n"
 :- pred mercury_output_item(item, prog_context, io__state, io__state).
@@ -432,6 +435,12 @@ mercury_output_item(pragma(Pragma), Context) -->
 		termination__write_pragma_termination_info(PredOrFunc,
 			PredName, ModeList, Context,
 			MaybeArgSizeInfo, MaybeTerminationInfo)
+	;
+		{ Pragma = pa_alias_info(_,_,_,_,_) },
+		[]
+	;
+		{ Pragma = sr_reuse_info(_,_,_,_,_) },
+		[]
 	;
 		{ Pragma = terminates(Pred, Arity) },
 		mercury_output_pragma_decl(Pred, Arity, predicate, "terminates")
@@ -2754,9 +2763,6 @@ mercury_output_bracketed_atom(Name, NextToGraphicToken) -->
 	% Use mercury_output_bracketed_sym_name when the sym_name has
 	% no arguments, otherwise use mercury_output_sym_name.
 	%
-
-:- pred mercury_output_sym_name(sym_name, io__state, io__state).
-:- mode mercury_output_sym_name(in, di, uo) is det.
 
 mercury_output_sym_name(SymName) -->
 	mercury_output_sym_name(SymName, not_next_to_graphic_token).
