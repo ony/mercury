@@ -486,9 +486,12 @@
 :- type mlds__type
 	--->	% Mercury data types
 		mercury_type(
-			prog_data__type,	% the exact Mercury type
-			builtin_type		% what kind of type it is:
-						% enum, float, etc.
+			prog_data__type, % the exact Mercury type
+			builtin_type,	% what kind of type it is:
+					% enum, float, etc.
+			string		% the result of 
+					% export__type_to_type_string
+			
 		)
 
 		% The type for the continuation functions used
@@ -507,6 +510,10 @@
 	;	mlds__native_int_type
 	;	mlds__native_float_type
 	;	mlds__native_char_type
+
+		% This is a type of the MLDS target language.  Currently
+		% this is only used by the il backend.
+	;	mlds__foreign_type(sym_name)
 
 		% MLDS types defined using mlds__class_defn
 	;	mlds__class_type(
@@ -1354,8 +1361,8 @@ XXX Full exception handling support is not yet implemented.
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module modules.
-:- import_module int, term, string, require.
+:- import_module export, modules.
+:- import_module int, map, require, string, term.  
 
 %-----------------------------------------------------------------------------%
 
@@ -1380,8 +1387,24 @@ mlds__get_prog_context(mlds__context(Context)) = Context.
 % XXX It might be a better idea to get rid of the mercury_type/2
 % MLDS type and instead fully convert all Mercury types to MLDS types.
 
-mercury_type_to_mlds_type(ModuleInfo, Type) = mercury_type(Type, Category) :-
-	classify_type(Type, ModuleInfo, Category).
+mercury_type_to_mlds_type(ModuleInfo, Type) = MLDS_Type :-
+	module_info_types(ModuleInfo, Types),
+	classify_type(Type, ModuleInfo, Category),
+	export__type_to_type_string(ModuleInfo, Type, TypeString),
+	(
+		type_to_type_id(Type, TypeId, _),
+		map__search(Types, TypeId, TypeDefn)
+	->
+		hlds_data__get_type_defn_body(TypeDefn, Body),
+		( Body = foreign_type(ForeignType) ->
+			MLDS_Type = mlds__foreign_type(ForeignType)
+		;
+			MLDS_Type = mercury_type(Type, Category, TypeString)
+		)
+	;
+		MLDS_Type = mercury_type(Type, Category, TypeString)
+	).
+	
 
 %-----------------------------------------------------------------------------%
 

@@ -158,6 +158,9 @@
 			%	whether or not the code is thread-safe
 			% PredName, Predicate or Function, Vars/Mode, 
 			% VarNames, Foreign Code Implementation Info
+
+	;	foreign_type((type), sym_name, sym_name)
+			% MercuryType, MercuryTypeName, ForeignType
 	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
 			maybe(list(mode)), type_subst, tvarset)

@@ -1810,11 +1810,15 @@ mlds_type_to_ilds_type(mlds__native_int_type) = ilds__type([], int32).
 
 mlds_type_to_ilds_type(mlds__native_float_type) = ilds__type([], float64).
 
+mlds_type_to_ilds_type(mlds__foreign_type(ForeignType))
+	= ilds__type([], Class) :-
+	Class = class(sym_name_to_structured_name(ForeignType)).
+
 mlds_type_to_ilds_type(mlds__ptr_type(MLDSType)) =
 	ilds__type([], '&'(mlds_type_to_ilds_type(MLDSType))).
 
 	% XXX should use the classification now that it is available.
-mlds_type_to_ilds_type(mercury_type(Type, _Classification)) = ILType :-
+mlds_type_to_ilds_type(mercury_type(Type, _Classification, _)) = ILType :-
 	( 
 		Type = term__functor(term__atom(Atom), [], _),
 		( Atom = "string", 	SimpleType = il_string_simple_type
@@ -1843,6 +1847,13 @@ mlds_type_to_ilds_type(mercury_type(Type, _Classification)) = ILType :-
 
 mlds_type_to_ilds_type(mlds__unknown_type) = _ :-
 	unexpected(this_file, "mlds_type_to_ilds_type: unknown_type").
+
+:- func sym_name_to_structured_name(sym_name) = structured_name.
+
+sym_name_to_structured_name(unqualified(Name)) = [Name].
+sym_name_to_structured_name(qualified(Specifier, Name))
+	= sym_name_to_structured_name(Specifier) ++ [Name].
+
 %-----------------------------------------------------------------------------
 %
 % Name mangling.
@@ -2110,16 +2121,22 @@ rval_const_to_type(data_addr_const(_)) =
 	mlds__array_type(mlds__generic_type).
 rval_const_to_type(code_addr_const(_)) = mlds__func_type(
 		mlds__func_params([], [])).
-rval_const_to_type(int_const(_)) = mercury_type(
-	term__functor(term__atom("int"), [], context("", 0)), int_type).
-rval_const_to_type(float_const(_)) = mercury_type(
-	term__functor(term__atom("float"), [], context("", 0)), float_type).
+rval_const_to_type(int_const(_)) 
+	= mercury_type(term__functor(term__atom("int"), [], context("", 0)),
+			int_type, "MR_Integer").
+rval_const_to_type(float_const(_))
+	= mercury_type(term__functor(term__atom("float"), [], context("", 0)),
+		float_type, "MR_Float").
 rval_const_to_type(false) = mlds__native_bool_type.
 rval_const_to_type(true) = mlds__native_bool_type.
-rval_const_to_type(string_const(_)) = mercury_type(
-	term__functor(term__atom("string"), [], context("", 0)), str_type).
-rval_const_to_type(multi_string_const(_, _)) = mercury_type(
-	term__functor(term__atom("string"), [], context("", 0)), str_type).
+rval_const_to_type(string_const(_))
+	= mercury_type(
+		term__functor(term__atom("string"), [], context("", 0)),
+			str_type, "MR_String").
+rval_const_to_type(multi_string_const(_, _))
+	= mercury_type(term__functor(term__atom("string"), [], context("", 0)),
+			% XXX Should this be MR_Word instead?
+			str_type, "MR_String").
 rval_const_to_type(null(MldsType)) = MldsType.
 
 %-----------------------------------------------------------------------------%

@@ -210,7 +210,12 @@ collect_mq_info_2(pred(_,__,_,_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(func(_,_,__,_,_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pred_mode(_,_,_,_,_), Info, Info).
 collect_mq_info_2(func_mode(_,_,_,_,_,_), Info, Info).
-collect_mq_info_2(pragma(_), Info, Info).
+collect_mq_info_2(pragma(Pragma), Info0, Info) :-
+	( Pragma = foreign_type(_Type, SymName, _ForeignType) ->
+		add_type_defn(abstract_type(SymName, []), Info0, Info)
+	;
+		Info = Info0
+	).
 collect_mq_info_2(assertion(Goal, _ProgVarSet), Info0, Info) :-
 	process_assert(Goal, SymNames, Success),
 	(
@@ -901,6 +906,9 @@ qualify_type(Type0, Type, Info0, Info) -->
 qualify_pragma(source_file(File), source_file(File), Info, Info) --> [].
 qualify_pragma(foreign_decl(L, Code), foreign_decl(L, Code), Info, Info) --> [].
 qualify_pragma(foreign_code(L, C), foreign_code(L, C), Info, Info) --> [].
+qualify_pragma(foreign_type(Type0, SymName, F),
+		foreign_type(Type, SymName, F), Info0, Info) -->
+	qualify_type(Type0, Type, Info0, Info).
 qualify_pragma(
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars0, Varset, Code),
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars, Varset, Code), 

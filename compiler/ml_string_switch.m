@@ -291,4 +291,4 @@ ml_string_switch__gen_hash_slot(Slot, HashSlotMap, CodeModel, MLDS_Context,
 	).
 
 :- func ml_string_type = mlds__type.
-ml_string_type = mercury_type(string_type, str_type).
+ml_string_type = mercury_type(string_type, str_type, "MR_String").

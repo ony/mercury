@@ -744,6 +744,9 @@ unify_proc__generate_unify_clauses(TypeBody, H1, H2, Context, Clauses) -->
 	;
 		{ TypeBody = abstract_type },
 		{ error("trying to create unify proc for abstract type") }
+	;
+		{ TypeBody = foreign_type(_) },
+		{ error("trying to create unify proc for foreign type") }
 	).
 
 	% This predicate generates the bodies of index predicates for the
@@ -798,6 +801,9 @@ unify_proc__generate_index_clauses(TypeBody, X, Index, Context, Clauses) -->
 	;
 		{ TypeBody = abstract_type },
 		{ error("trying to create index proc for abstract type") }
+	;
+		{ TypeBody = foreign_type(_) },
+		{ error("trying to create index proc for foreign type") }
 	).
 
 :- pred unify_proc__generate_compare_clauses((type)::in, hlds_type_body::in,
@@ -865,6 +871,9 @@ unify_proc__generate_compare_clauses(Type, TypeBody, Res, H1, H2, Context,
 	;
 		{ TypeBody = abstract_type },
 		{ error("trying to create compare proc for abstract type") }
+	;
+		{ TypeBody = foreign_type(_) },
+		{ error("trying to create compare proc for foreign type") }
 	).
 
 :- pred unify_proc__quantify_clauses_body(list(prog_var)::in, hlds_goal::in,

@@ -135,7 +135,7 @@ gen_init_rtti_data_defn(field_names(_RttiTypeId, _Ordinal, MaybeNames), _, _,
 		Init, []) :-
 	Init = gen_init_array(gen_init_maybe(
 			mercury_type(functor(atom("string"), [],
-				context("", 0)), str_type),
+				context("", 0)), str_type, "MR_String"),
 			gen_init_string), MaybeNames).
 gen_init_rtti_data_defn(field_types(_RttiTypeId, _Ordinal, Types),
 		ModuleName, _, Init, []) :-
@@ -249,7 +249,7 @@ gen_init_rtti_data_defn(pseudo_type_info(Pseudo), ModuleName, _, Init, []) :-
 	Init = gen_init_pseudo_type_info_defn(Pseudo, ModuleName).
 
 :- func ml_string_type = mlds__type.
-ml_string_type = mercury_type(string_type, str_type).
+ml_string_type = mercury_type(string_type, str_type, "MR_String").
 
 :- func gen_init_functors_info(type_ctor_functors_info, module_name,
 		rtti_type_id) = mlds__initializer.

@@ -87,6 +87,8 @@ type_ctor_info__gen_type_ctor_gen_infos([TypeId | TypeIds], TypeTable,
 			map__lookup(TypeTable, TypeId, TypeDefn),
 			hlds_data__get_type_defn_body(TypeDefn, TypeBody),
 			TypeBody \= abstract_type,
+				% XXXX
+			TypeBody \= foreign_type(_),
 			\+ type_id_has_hand_defined_rtti(TypeId)
 		->
 			type_ctor_info__gen_type_ctor_gen_info(TypeId,
@@ -254,6 +256,15 @@ type_ctor_info__gen_layout_info(ModuleName, TypeName, TypeArity, HldsDefn,
 		error("type_ctor_layout: sorry, undiscriminated union unimplemented\n")
 	;
 		TypeBody = abstract_type,
+		TypeCtorRep = unknown,
+		NumFunctors = -1,
+		FunctorsInfo = no_functors,
+		LayoutInfo = no_layout,
+		TypeTables = [],
+		NumPtags = -1
+	;
+			% XXXX
+		TypeBody = foreign_type(_),
 		TypeCtorRep = unknown,
 		NumFunctors = -1,
 		FunctorsInfo = no_functors,

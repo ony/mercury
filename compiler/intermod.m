@@ -1256,6 +1256,9 @@ intermod__write_type(TypeId - TypeDefn) -->
 		{ Body = abstract_type },
 		mercury_output_type_defn(VarSet,
 			abstract_type(Name, Args), Context)
+	;
+		{ Body = foreign_type(_) },
+		{ error("foreign types not implemented") }
 	).
 
 :- pred intermod__write_modes(module_info::in,

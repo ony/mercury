@@ -289,7 +289,9 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 		)
 	;	uu_type(list(type))	% not yet implemented!
 	;	eqv_type(type)
-	;	abstract_type.
+	;	abstract_type
+	;	foreign_type(sym_name).	% Name of foreign type which represents
+					% the mercury type.
 
 	% The `cons_tag_values' type stores the information on how
 	% a discriminated union type is represented.

@@ -2111,8 +2111,12 @@ ml_gen_nondet_pragma_c_code(CodeModel, Attributes,
 	%
 	% Combine all the information about the each arg
 	%
+	=(MLDSGenInfo),
+	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
+	{ list__map(export__type_to_type_string(ModuleInfo),
+			OrigArgTypes, OrigArgTypeStrings) },
 	{ ml_make_c_arg_list(ArgVars, ArgDatas, OrigArgTypes,
-		ArgList) },
+			OrigArgTypeStrings, ArgList) },
 
 	%
 	% Generate <declaration of one local variable for each arg>
@@ -2189,8 +2193,6 @@ ml_gen_nondet_pragma_c_code(CodeModel, Attributes,
 			raw_target_code("\t\tif (MR_succeeded) {\n")],
 			AssignOutputsList
 	]) },
-	=(MLDSGenInfo),
-	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
 	{ module_info_globals(ModuleInfo, Globals) },
 	{ globals__lookup_string_option(Globals, target, Target) },
 	( { CodeModel = model_non } ->
@@ -2312,8 +2314,12 @@ ml_gen_ordinary_pragma_c_code(CodeModel, Attributes,
 	%
 	% Combine all the information about the each arg
 	%
+	=(MLDSGenInfo),
+	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
+	{ list__map(export__type_to_type_string(ModuleInfo),
+			OrigArgTypes, OrigArgTypeStrings) },
 	{ ml_make_c_arg_list(ArgVars, ArgDatas, OrigArgTypes,
-		ArgList) },
+			OrigArgTypeStrings, ArgList) },
 
 	%
 	% Generate <declaration of one local variable for each arg>
@@ -2462,23 +2468,26 @@ ml_gen_hash_define_mr_proc_label(HashDefine) -->
 	--->	ml_c_arg(
 			prog_var,
 			maybe(pair(string, mode)),	% name and mode
-			prog_type	% original type before
+			prog_type,	% original type before
 					% inlining/specialization
 					% (the actual type may be an instance
 					% of this type, if this type is
 					% polymorphic).
+			string		% For the original type the result
+					% of export:type_to_type_string
 		).
 
 :- pred ml_make_c_arg_list(list(prog_var)::in,
 		list(maybe(pair(string, mode)))::in, list(prog_type)::in,
-		list(ml_c_arg)::out) is det.
+		list(string)::in, list(ml_c_arg)::out) is det.
 
-ml_make_c_arg_list(Vars, ArgDatas, Types, ArgList) :-
-	( Vars = [], ArgDatas = [], Types = [] ->
+ml_make_c_arg_list(Vars, ArgDatas, Types, TypeStrings, ArgList) :-
+	( Vars = [], ArgDatas = [], Types = [], TypeStrings = [] ->
 		ArgList = []
-	; Vars = [V|Vs], ArgDatas = [N|Ns], Types = [T|Ts] ->
-		Arg = ml_c_arg(V, N, T),
-		ml_make_c_arg_list(Vs, Ns, Ts, Args),
+	; Vars = [V|Vs], ArgDatas = [N|Ns],
+			Types = [T|Ts], TypeStrings = [TS|TSs] ->
+		Arg = ml_c_arg(V, N, T, TS),
+		ml_make_c_arg_list(Vs, Ns, Ts, TSs, Args),
 		ArgList = [Arg | Args]
 	;
 		error("ml_code_gen:make_c_arg_list - length mismatch")
@@ -2502,12 +2511,12 @@ ml_gen_pragma_c_decls([Arg|Args], [Decl|Decls]) :-
 %
 :- pred ml_gen_pragma_c_decl(ml_c_arg::in, target_code_component::out) is det.
 
-ml_gen_pragma_c_decl(ml_c_arg(_Var, MaybeNameAndMode, Type), Decl) :-
+ml_gen_pragma_c_decl(ml_c_arg(_Var, MaybeNameAndMode, _Type, TypeString),
+		Decl) :-
 	(
 		MaybeNameAndMode = yes(ArgName - _Mode),
 		\+ var_is_singleton(ArgName)
 	->
-		export__type_to_type_string(Type, TypeString),
 		string__format("\t%s %s;\n", [s(TypeString), s(ArgName)],
 			DeclString)
 	;
@@ -2551,7 +2560,7 @@ ml_gen_pragma_c_input_arg_list(ArgList, AssignInputs) -->
 		list(target_code_component)::out,
 		ml_gen_info::in, ml_gen_info::out) is det.
 
-ml_gen_pragma_c_input_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType),
+ml_gen_pragma_c_input_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType, TypeString),
 		AssignInput) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
@@ -2583,7 +2592,6 @@ ml_gen_pragma_c_input_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType),
 			% --high-level-data, so we always use a cast here.
 			% (Strictly speaking the cast is not needed for
 			% a few cases like `int', but it doesn't do any harm.)
-			export__type_to_type_string(OrigType, TypeString),
 			string__format("(%s)", [s(TypeString)], Cast)
 		;
 			% For --no-high-level-data, we only need to use
@@ -2634,7 +2642,8 @@ ml_gen_pragma_c_output_arg_list([C_Arg | C_Args], Context, Components,
 		mlds__defns::out, mlds__statements::out,
 		ml_gen_info::in, ml_gen_info::out) is det.
 
-ml_gen_pragma_c_output_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType),
+ml_gen_pragma_c_output_arg(
+		ml_c_arg(Var, MaybeNameAndMode, OrigType, TypeString),
 		Context, AssignOutput, ConvDecls, ConvOutputStatements) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
@@ -2661,7 +2670,6 @@ ml_gen_pragma_c_output_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType),
 			% Note that we can't easily obtain the type string
 			% for the RHS of the assignment, so instead we
 			% cast the LHS.
-			export__type_to_type_string(OrigType, TypeString),
 			string__format("*(%s *)&", [s(TypeString)], LHS_Cast),
 			RHS_Cast = ""
 		;

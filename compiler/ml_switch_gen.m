@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -99,7 +99,7 @@
 :- import_module ml_tag_switch, ml_string_switch.
 :- import_module ml_code_gen, ml_unify_gen, ml_code_util, ml_simplify_switch.
 :- import_module switch_util, type_util.
-:- import_module options.
+:- import_module export, options.
 
 :- import_module bool, int, string, map, tree, std_util, require.
 
@@ -395,8 +395,9 @@ ml_switch_generate_mlds_switch(Cases, Var, CodeModel, CanFail,
 ml_switch_gen_range(MLDS_Type, Range) -->
 	=(MLGenInfo),
 	{
-		MLDS_Type = mercury_type(Type, TypeCategory),
 		ml_gen_info_get_module_info(MLGenInfo, ModuleInfo),
+		export__type_to_type_string(ModuleInfo, Type, TypeString),
+		MLDS_Type = mercury_type(Type, TypeCategory, TypeString),
 		switch_util__type_range(TypeCategory, Type, ModuleInfo,
 			MinRange, MaxRange)
 	->

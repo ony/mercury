@@ -413,6 +413,23 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Pragma = foreign_proc(_, _, _, _, _, _) },
 		{ Module = Module0 }
 	;	
+		% XXXX
+		{ Pragma = foreign_type(MercuryType, _, ForeignType) },
+		{ module_info_types(Module0, Types0) },
+
+		{ type_to_type_id(MercuryType, TypeId, _) ->
+			Body = foreign_type(ForeignType),
+
+			hlds_data__set_type_defn(varset__init, [], Body,
+					ImportStatus, Context, TypeDefn),
+
+			% XXX do we need to add special preds!
+			map__set(Types0, TypeId, TypeDefn, Types),
+			module_info_set_types(Module0, Types, Module)
+		;
+			error("add_item_decl_pass_2: type_to_type_id failed")
+		}
+	;
 		% Handle pragma tabled decls later on (when we process
 		% clauses).
 		{ Pragma = tabled(_, _, _, _, _) },

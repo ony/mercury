@@ -70,6 +70,44 @@ parse_pragma_type(_, "source_file", PragmaTerms, ErrorTerm, _VarSet, Result) :-
 			ErrorTerm)
 	).
 
+parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
+            ErrorTerm, _VarSet, Result) :-
+    ( PragmaTerms = [MercuryName, ForeignName] ->
+	parse_implicitly_qualified_term(ModuleName, MercuryName,
+		ErrorTerm, "`:- pragma unused_args' declaration",
+		MaybeMercuryType),
+	(
+	    MaybeMercuryType = ok(MercuryTypeSymName, MercuryArgs),
+	    ( MercuryArgs = [] ->
+		parse_qualified_term(ForeignName, ErrorTerm,
+		    "`:- pragma foreign_type' declaration",
+		    MaybeForeignType),
+		(
+		    MaybeForeignType = ok(ForeignType, ForeignArgs),
+		    ( ForeignArgs = [] ->
+        		term__coerce(MercuryName, MercuryType),
+			Result = ok(pragma(foreign_type(MercuryType,
+				MercuryTypeSymName, ForeignType)))
+		    ;
+			Result = error("foreign type arity not 0", ErrorTerm)
+		    )
+		;
+		    MaybeForeignType = error(String, Term),
+		    Result = error(String, Term)
+		)
+	    ;
+		Result = error("mercury type arity not 0", ErrorTerm)
+	    )
+	;
+	    MaybeMercuryType = error(String, Term),
+	    Result = error(String, Term)
+	)
+    ;
+        Result = error(
+    "wrong number of arguments in `:- pragma foreign_type' declaration",
+            ErrorTerm)
+    ).
+
 parse_pragma_type(ModuleName, "foreign_decl", PragmaTerms,
 			ErrorTerm, VarSet, Result) :-
 	parse_pragma_foreign_decl_pragma(ModuleName, "foreign_decl",

@@ -358,6 +358,15 @@ mercury_output_item(pragma(Pragma), Context) -->
 		mercury_output_pragma_foreign_code(Attributes, Pred,
 			PredOrFunc, Vars, VarSet, PragmaCode)
 	;
+		{ Pragma = foreign_type(_MercuryType,
+				MercuryTypeSymName, ForeignType) },
+		io__write_string(":- pragma foreign_type("),
+		% output_type(varset__init, no, MercuryType),
+		mercury_output_sym_name(MercuryTypeSymName),
+		io__write_string(", "),
+		mercury_output_sym_name(ForeignType),
+		io__write_string(").\n")
+	;
 		{ Pragma = import(Pred, PredOrFunc, ModeList, Attributes,
 			C_Function) },
 		mercury_output_pragma_import(Pred, PredOrFunc, ModeList,
