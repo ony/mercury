@@ -16,6 +16,7 @@
 :- interface.
 
 :- import_module term, robdd.
+:- import_module xrobdd__tfeirn_robdd.
 
 :- type check_robdd(T).
 :- type check_robdd == check_robdd(generic).
@@ -24,6 +25,10 @@
 
 :- mode di_check_robdd == in. % XXX
 :- mode uo_check_robdd == out. % XXX
+
+:- inst norm_check_robdd ---> xrobdd(ground, norm_tfeirn).
+:- mode ni_check_robdd == in(norm_check_robdd).
+:- mode no_check_robdd == out(norm_check_robdd).
 
 % Constants.
 :- func one = check_robdd(T).
@@ -55,6 +60,9 @@
 :- func conj_vars(vars(T)::in, check_robdd(T)::di_check_robdd) = (check_robdd(T)::uo_check_robdd)
 		is det.
 
+:- func conj_not_vars(vars(T)::in, check_robdd(T)::di_check_robdd) =
+		(check_robdd(T)::uo_check_robdd) is det.
+
 :- func disj_vars(vars(T)::in, check_robdd(T)::di_check_robdd) = (check_robdd(T)::uo_check_robdd)
 		is det.
 
@@ -81,16 +89,19 @@ check_robdd(T)::di_check_robdd)
 %-----------------------------------------------------------------------------%
 
 	% Succeed iff the var is entailed by the xROBDD.
-:- pred var_entailed(check_robdd(T)::in, var(T)::in) is semidet.
+:- pred var_entailed(check_robdd(T)::ni_check_robdd, var(T)::in) is semidet.
 
 	% Return the set of vars entailed by the xROBDD.
-:- func vars_entailed(check_robdd(T)) = vars_entailed_result(T).
+:- func vars_entailed(check_robdd(T)::ni_check_robdd) =
+		(vars_entailed_result(T)::out) is det.
 
 	% Return the set of vars disentailed by the xROBDD.
-:- func vars_disentailed(check_robdd(T)) = vars_entailed_result(T).
+:- func vars_disentailed(check_robdd(T)::ni_check_robdd) =
+		(vars_entailed_result(T)::out) is det.
 
 	% Existentially quantify away the var in the xROBDD.
-:- func restrict(var(T), check_robdd(T)) = check_robdd(T).
+:- func restrict(var(T)::in, check_robdd(T)::ni_check_robdd) =
+		(check_robdd(T)::no_check_robdd) is det.
 
 	% Existentially quantify away all vars greater than the specified var.
 :- func restrict_threshold(var(T), check_robdd(T)) = check_robdd(T).
@@ -127,6 +138,11 @@ check_robdd(T)::di_check_robdd)
 
 %-----------------------------------------------------------------------------%
 
+:- func ensure_normalised(check_robdd(T)::in) =
+		(check_robdd(T)::no_check_robdd) is det.
+
+%-----------------------------------------------------------------------------%
+
 % XXX
 :- func robdd(check_robdd(T)) = robdd(T).
 
@@ -149,14 +165,15 @@ check_robdd(T)::di_check_robdd)
 :- import_module xrobdd__r_robdd.
 :- import_module xrobdd__tfer_robdd.
 :- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__tfeirn_robdd.
 
 :- type check_robdd(T)
 	--->	xrobdd(
-			x1 :: r(T),
-			x2 :: tfeir(T)
+			x1 :: tfeir(T),
+			x2 :: tfeirn(T)
 		).
 
-:- func check_robdd(r(T), tfeir(T)) = check_robdd(T).
+:- func check_robdd(tfeir(T), tfeirn(T)) = check_robdd(T).
 :- pragma promise_pure(check_robdd/2).
 
 check_robdd(X1, X2) = xrobdd(X1, X2) :-
@@ -228,6 +245,9 @@ imp_vars(VarA, VarB, X) =
 conj_vars(Vars, X) =
 	check_robdd(conj_vars(Vars, X ^ x1), conj_vars(Vars, X ^ x2)).
 
+conj_not_vars(Vars, X) =
+	check_robdd(conj_not_vars(Vars, X ^ x1), conj_not_vars(Vars, X ^ x2)).
+
 disj_vars(Vars, X) =
 	check_robdd(disj_vars(Vars, X ^ x1), disj_vars(Vars, X ^ x2)).
 
@@ -266,3 +286,5 @@ minimal_model(Vars, X, TrueVars, FalseVars) :-
 robdd(X) = X ^ x1 ^ robdd.
 
 %-----------------------------------------------------------------------------%
+
+ensure_normalised(xrobdd(X1, X2)) = xrobdd(X1, ensure_normalised(X2)).

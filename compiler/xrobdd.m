@@ -18,11 +18,11 @@
 
 :- include_module xrobdd__check_robdd.
 
-%:- import_module xrobdd__check_robdd.
-% :- type xrobdd(T) == check_robdd(T).
+:- import_module xrobdd__check_robdd.
+:- type xrobdd(T) == check_robdd(T).
 
-:- import_module xrobdd__tfeirn_robdd.
-:- type xrobdd(T) == tfeirn(T).
+%:- import_module xrobdd__tfeirn_robdd.
+%:- type xrobdd(T) == tfeirn(T).
 
 :- implementation.
 
