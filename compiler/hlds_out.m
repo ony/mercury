@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -2911,6 +2911,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_eval_method(Proc, EvalMethod) },
 	{ proc_info_is_address_taken(Proc, IsAddressTaken) },
 	{ proc_info_get_call_table_tip(Proc, MaybeCallTableTip) },
+	{ proc_info_get_maybe_deep_profile_info(Proc, MaybeDeepProfileInfo) },
 	{ Indent1 is Indent + 1 },
 
 	hlds_out__write_indent(Indent1),
@@ -2968,6 +2969,27 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	( { MaybeCallTableTip = yes(CallTableTip) } ->
 		io__write_string("% call table tip: "),
 		mercury_output_var(CallTableTip, VarSet, AppendVarnums),
+		io__write_string("\n")
+	;
+		[]
+	),
+
+	( { MaybeDeepProfileInfo = yes(DeepProfileInfo) } ->
+		{ DeepProfileInfo = deep_profile_proc_info(Role, _SCC) },
+		io__write_string("% deep profile info: "),
+		(
+			{ Role = inner_proc(DeepPredProcId) },
+			io__write_string("inner, outer is ")
+		;
+			{ Role = outer_proc(DeepPredProcId) },
+			io__write_string("outer, inner is ")
+		),
+		{ DeepPredProcId = proc(DeepPredId, DeepProcId) },
+		{ pred_id_to_int(DeepPredId, DeepPredInt) },
+		{ proc_id_to_int(DeepProcId, DeepProcInt) },
+		io__write_int(DeepPredInt),
+		io__write_string("/"),
+		io__write_int(DeepProcInt),
 		io__write_string("\n")
 	;
 		[]

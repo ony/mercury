@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -13,7 +13,7 @@
 
 :- interface.
 
-:- import_module hlds_pred, prog_data, (inst), term.
+:- import_module hlds_goal, hlds_pred, prog_data, (inst), term.
 :- import_module bool, list, map, std_util.
 
 %-----------------------------------------------------------------------------%
@@ -54,10 +54,12 @@
 				% that points to the table that implements
 				% memoization, loop checking or the minimal
 				% model semantics for the given procedure.
-			;	deep_profiling_procedure_data(
-				    pred_proc_id,
-				    list(callsite)
-				)
+			;	deep_profiling_procedure_data(pred_proc_id,
+					list(callsite))
+				% XXX this is a hack; the call site list should
+				% not be part of the cons_id, only of the data
+				% structure in layout.m that the cons_id refers
+				% to.
 			.
 
 	% A cons_defn is the definition of a constructor (i.e. a constant
@@ -113,19 +115,9 @@
 %-----------------------------------------------------------------------------%
 
 :- type callsite
-	--->	normal(pred_proc_id, goalPath)
-	;	call(goalPath)
-	%;	classMethod(pred_proc_id, goalPath)
-	.
-
-:- type goalPath == list(goalPathElem).
-:- type goalPathElem
-	--->	conj(int)
-	;	disj(int)
-	;	switch(int)
-	;	if_then_else(int)
-	;	(not)
-	;	(some)
+	--->	normal(pred_proc_id, goal_path)
+	;	call(goal_path)
+	%;	classMethod(pred_proc_id, goal_path)
 	.
 
 %-----------------------------------------------------------------------------%

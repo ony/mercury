@@ -149,13 +149,18 @@
 		;	profile_memory
 		;	profile_deep
 		;	use_activation_counts
-				% used to determine which mechanism for
-				% cycle detection should be used for deep
-				% profiling. Actually, we only want to use
-				% the `yes' value, but we keep support for
-				% the `no' value for paper-writing purposes.
+				% use_activation_counts is used to determine
+				% which mechanism for cycle detection should be
+				% used for deep profiling. Actually, we only
+				% want to use the `yes' value, but we keep
+				% support for the `no' value for benchmarks
+				% for the paper.
 		;	use_zeroing_for_ho_cycles
 		;	use_lots_of_ho_specialization
+				% We should always handle tail recursion
+				% specially in deep profiling; the options is
+				% only for benchmarks for the paper.
+		;	deep_profile_tail_recursion
 		;	debug
 		;	stack_trace
 		;	require_tracing
@@ -570,7 +575,7 @@ option_defaults_2(compilation_model_option, [
 				-	bool(yes),
 	use_lots_of_ho_specialization
 				-	bool(no),
-	use_activation_counts	-	bool(yes),
+	deep_profile_tail_recursion	-	bool(yes),
 	debug			-	bool_special,
 	require_tracing		-	bool(no),
 	stack_trace		-	bool(no),
@@ -975,10 +980,12 @@ long_option("profile-time",		profile_time).
 long_option("profile-memory",		profile_memory).
 long_option("profile-deep",		profile_deep).
 long_option("use-activation-counts",	use_activation_counts).
-long_option("use-lots-of-ho-specialization",
-					use_lots_of_ho_specialization).
 long_option("use-zeroing-for-ho-cycles",
 					use_zeroing_for_ho_cycles).
+long_option("use-lots-of-ho-specialization",
+					use_lots_of_ho_specialization).
+long_option("deep-profile-tail-recursion",
+					deep_profile_tail_recursion).
 long_option("debug",			debug).
 % The following options are not allowed, because they're
 % not very useful and would probably only confuse people.

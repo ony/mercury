@@ -2074,7 +2074,8 @@ mercury_compile__maybe_magic(HLDS0, Verbose, Stats, HLDS) -->
 mercury_compile__maybe_dead_procs(HLDS0, Verbose, Stats, HLDS) -->
 	globals__io_lookup_bool_option(optimize_dead_procs, Dead),
 	( { Dead = yes } ->
-		maybe_write_string(Verbose, "% Eliminating dead procedures...\n"),
+		maybe_write_string(Verbose,
+			"% Applying deep profiling transformation...\n"),
 		maybe_flush_output(Verbose),
 		dead_proc_elim(HLDS0, HLDS),
 		maybe_write_string(Verbose, "% done.\n"),

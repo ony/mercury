@@ -18,7 +18,7 @@
 %
 % The code to generate values of these types is in stack_layout.m.
 %
-% This module is should be, but as yet isn't, independent of whether we are
+% This module should be, but as yet isn't, independent of whether we are
 % compiling to LLDS or MLDS.
 %
 % Author: zs.
