@@ -100,6 +100,7 @@
 
 :- pred apply_widening( module_info::in, proc_info::in, datastruct::in, 
 			datastruct::out) is det.
+:- func apply_widening(module_info, proc_info, datastruct) = datastruct.
 
 %-------------------------------------------------------------------%
 %-------------------------------------------------------------------%
@@ -231,6 +232,9 @@ apply_widening( ModuleInfo, ProcInfo, D0, D ):-
 	map__lookup( VarTypes, ProgVar, ProgVarType), 
 	pa_selector__apply_widening( ModuleInfo, ProgVarType, Sel0, Sel), 
 	D = cel( ProgVar, Sel ). 
+
+apply_widening(ModuleInfo, ProcInfo, D0) = D :- 
+	apply_widening(ModuleInfo, ProcInfo, D0, D).
 
 	
 

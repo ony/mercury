@@ -169,6 +169,9 @@
 :- func size(alias_as) = int.
 :- mode size(in) = out is det.
 
+:- pred apply_widening(module_info::in, proc_info::in, alias_as::in, 	
+		alias_as::out) is det. 
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 :- implementation.
@@ -654,7 +657,7 @@ print_possible_aliases(AS, ProcInfo, PredInfo) -->
 		{ AS = real_as(Aliases) }
 	->
 		pa_alias_set__print(PredInfo, ProcInfo, Aliases, 
-				"% ", "\n")
+				"\n% ", "")
 	;
 		{ AS = top(Msgs) }
 	->
@@ -820,10 +823,20 @@ wrap_and_control(_ModuleInfo, _ProcInfo, AliasSet, AS):-
 	).
 **/
 
-
-%-------------------------------------------------------------------%
+apply_widening(_, _, A0, A):- 
+	A0 = bottom, 
+	A = A0. 
+apply_widening(_, _, A0, A):- 
+	A0 = top(_), 
+	A = A0. 
+apply_widening(ModuleInfo, ProcInfo, A0, A):- 
+	A0 = real_as(AliasSet0), 
+	pa_alias_set__apply_widening(ModuleInfo, ProcInfo, 
+			AliasSet0, AliasSet), 
+	A = real_as(AliasSet).
+%-----------------------------------------------------------------------------%
 % computing LIVE_SET
-%-------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE) :-
 	(
 		set__empty(IN_USE)

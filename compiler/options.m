@@ -360,6 +360,7 @@
 		;	structure_reuse_constraint
 		;	structure_reuse_constraint_arg
 		;	structure_reuse_selection
+		; 	possible_alias_widening
 	%	- HLDS->LLDS
 		;	smart_indexing
 		;	  dense_switch_req_density
@@ -710,7 +711,9 @@ option_defaults_2(special_optimization_option, [
 
 	structure_reuse_constraint - 	string("within_n_cells_difference"),
 	structure_reuse_constraint_arg - int(0),
-	structure_reuse_selection -	string("lifo")
+	structure_reuse_selection -	string("lifo"),
+	
+	possible_alias_widening - 	int(0)
 ]).
 option_defaults_2(optimization_option, [
 		% Optimization options
@@ -1178,6 +1181,8 @@ long_option("sr-constraint-arg",	structure_reuse_constraint_arg).
 long_option("structure-reuse-constraint-arg",structure_reuse_constraint_arg).
 long_option("sr-selection",		structure_reuse_selection).
 long_option("structure-reuse-selection",structure_reuse_selection).
+long_option("pa-widening", 		possible_alias_widening).
+long_option("possible-alias-widening", 	possible_alias_widening).
 long_option("verbose-check-termination",verbose_check_termination).
 long_option("verb-check-term",		verbose_check_termination).
 long_option("verb-chk-term",		verbose_check_termination).
@@ -1909,6 +1914,11 @@ options_help_semantics -->
 		"--structure-reuse-selection",
 		"\tStrategy to decide which of the possible cells available",
 		"\tfor reuse is reused.  Currently lifo or random.",
+
+		"--pa-widening, --possible-alias-widening <n>", 
+		"\tEnable widening when deriving possible aliases.",
+		"\tThe default value = 0 (off). For each n > 0, widening",
+		"\twill be done when the number of aliases exceeds n.",
 
 		"--no-infer-det, --no-infer-determinism",
 		"\tIf there is no determinism declaration for a procedure,",

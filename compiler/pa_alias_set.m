@@ -112,6 +112,9 @@
 :- pred remove_vars( list(prog_var)::in, alias_set::in, 
 		alias_set::out ) is det. 
 
+:- pred apply_widening(module_info::in, proc_info::in, alias_set::in, 
+		alias_set::out) is det.
+
 	% printing predicates
 
 	% print( PredInfo, ProcInfo, AliasSet, StartingString, EndString )
@@ -609,6 +612,14 @@ remove_vars( Vars, AliasSet0, AliasSet ):-
 	recount( AliasSet1, AliasSet). 
 
 
+apply_widening(ModuleInfo, ProcInfo, AliasSet0, AliasSet):- 
+	alias_set_map_values_with_key(
+		alias_set2_apply_widening(ModuleInfo, ProcInfo),
+		AliasSet0, 
+		AliasSet1), 
+	recount(AliasSet1, AliasSet). 
+	
+
 print( PredInfo, ProcInfo, AliasSet, StartingString, EndString) --> 
 	{ pa_alias_set__to_pair_alias_list( AliasSet, AliasList ) },
 	io__write_list( AliasList, ",", 
@@ -623,20 +634,34 @@ print( PredInfo, ProcInfo, AliasSet, StartingString, EndString) -->
 alias_set_fold(_Pred, AliasSet, AliasSet). 
 	% XXXXXXXXXX
 
-:- pred alias_set_map_values( pred( alias_set2, alias_set2), 
+:- pred alias_set_map_values(pred(alias_set2, alias_set2), 
 			alias_set, alias_set).
-:- mode alias_set_map_values( pred( in, out) is det, in, out ) is det.
-alias_set_map_values( Pred, AliasSet0, AliasSet) :- 
-	AliasSet0 = alias_set( Size, Map0 ), 
+:- mode alias_set_map_values(pred(in, out) is det, in, out) is det.
+alias_set_map_values(Pred, AliasSet0, AliasSet) :- 
+	AliasSet0 = alias_set(Size, Map0), 
 	map__map_values( 
-		pred( _K::in, S0::in, S::out) is det:-
+		pred(_K::in, S0::in, S::out) is det:-
 		    (
 			Pred(S0, S)
 		    ), 
 		Map0, 
 		Map),
-	AliasSet = alias_set( Size, Map ).
+	AliasSet = alias_set(Size, Map).
 
+:- pred alias_set_map_values_with_key(pred(prog_var, alias_set2, alias_set2), 
+			alias_set, alias_set).
+:- mode alias_set_map_values_with_key(pred(in, in, out) is det, 
+			in, out) is det.
+alias_set_map_values_with_key(Pred, AliasSet0, AliasSet) :- 
+	AliasSet0 = alias_set(Size, Map0), 
+	map__map_values( 
+		pred(K::in, S0::in, S::out) is det:-
+		    (
+			Pred(K, S0, S)
+		    ), 
+		Map0, 
+		Map),
+	AliasSet = alias_set(Size, Map).
 			
 	
 
@@ -648,6 +673,7 @@ alias_set_map_values( Pred, AliasSet0, AliasSet) :-
 :- pred alias_set2_empty( alias_set2 ). 
 :- mode alias_set2_empty( out ) is det.
 :- mode alias_set2_empty( in ) is semidet. 
+:- func alias_set2_init = alias_set2. 
 :- pred alias_set2_new_entry( selector::in, datastruct::in, 
 			alias_set2::in, bool::out, alias_set2::out) is det.
 :- pred alias_set2_new_entry( selector::in, datastruct::in, 
@@ -674,8 +700,11 @@ alias_set_map_values( Pred, AliasSet0, AliasSet) :-
 			alias_set2::in, alias_set2::out) is det.
 :- pred alias_set2_remove_vars( list(prog_var)::in, alias_set2::in, 
 			alias_set2::out) is det.
+:- pred alias_set2_apply_widening(module_info::in, proc_info::in,
+			prog_var::in, alias_set2::in, alias_set2::out) is det.
 
 alias_set2_empty( alias_sel_set( 0, map__init ) ). 
+alias_set2_init = AliasSet :- alias_set2_empty(AliasSet). 
 
 alias_set2_new_entry( Selector, Datastruct, AliasSet0, Added, AliasSet ):- 
 	AliasSet0 = alias_sel_set( Size0, Map0 ), 
@@ -1004,6 +1033,50 @@ alias_set2_remove_vars( Vars, SelectorSet0, SelectorSet ):-
 		Map ), 
 	alias_set2_recount( alias_sel_set( 0, Map), SelectorSet).
 
+alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar, 
+		SelectorSet0, SelectorSet):- 
+	SelectorSet0 = alias_sel_set(_, Map0), 
+	map__keys(Map0, Selectors),
+	list__foldl(
+		pred(Sel0::in, M0::in, M::out) is det:- 
+		    (
+			% widening of the associated datastructures
+			map__lookup(Map0, Sel0, DataSet0), 
+			data_set_apply_widening(ModuleInfo, ProcInfo, 
+				DataSet0, DataSet1), 
+
+			% widening of the selector
+			pa_datastruct__create(ProgVar, Sel0, Data0), 
+			pa_datastruct__apply_widening(ModuleInfo, 
+				ProcInfo, Data0, Data), 
+			pa_datastruct__get_selector(Data, Sel), 
+
+			% regroup the widened dataset with the dataset
+			% that is associated with the widened Sel, as this
+			% Sel might already be in M0. 
+			(
+				map__search(M0, Sel, DataSetOld)
+			->
+				% XXX should also take subsumption into 
+				% account !
+				data_set_add(DataSet1, DataSetOld, DataSet)
+			;
+				DataSet = DataSet1
+			), 
+			map__set(M0, Sel, DataSet, M)
+		),
+		Selectors,
+		map__init, 
+		Map1), 
+	% the precaution of checking whether the widened selector might
+	% already be present in the built-up map might not be enough. 
+	% A last check is necessary to be sure that there are no
+	% selectors which are subsumed by other selectors in the list. 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	map__lookup(VarTypes, ProgVar, VarType), 
+	alias_set2_least_upper_bound(ModuleInfo, VarType, 
+		alias_sel_set(0, Map1), alias_set2_init, SelectorSet). 
+
 
 % data_set
 
@@ -1036,6 +1109,8 @@ alias_set2_remove_vars( Vars, SelectorSet0, SelectorSet ):-
 	% data_set_difference( A, B, C ):- C = A - B. 
 :- pred data_set_difference( data_set::in, data_set::in, 
 				data_set::out) is det.
+:- pred data_set_apply_widening(module_info::in, proc_info::in, 
+				data_set::in, data_set::out) is det.
 
 data_set_empty( datastructs(0, set__init ) ). 
 data_set_empty = D :- data_set_empty(D).
@@ -1165,6 +1240,13 @@ data_set_difference( DataSet1, DataSet2, DataSet ):-
 	DataSet2 = datastructs( _, Data2), 
 	Data = set__difference( Data1, Data2 ), 
 	DataSet = datastructs( set__count( Data ), Data ).
+
+data_set_apply_widening(ModuleInfo, ProcInfo, DataSet0, DataSet):- 
+	DataSet0 = datastructs(_, Data0), 
+	% XXX should also take subsumption into account ! 
+	Data = set__map(pa_datastruct__apply_widening(ModuleInfo, ProcInfo), 
+			Data0),
+	DataSet = datastructs(set__count(Data), Data). 
 	
 	
 :- pred set_cross_product( set(T1)::in, set(T2)::in, 
@@ -1194,3 +1276,4 @@ map_det_insert( Map0, K, V, Map, Msg ) :-
 		string__append_list([ Msg, ": map_det_insert-problem"], Msg2),
 		require__error( Msg2 )
 	). 
+

@@ -163,6 +163,7 @@ run_with_dependency_until_fixpoint( SCC, FPtable0, HLDSin, HLDSout ) -->
 
 analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	globals__io_lookup_bool_option(very_verbose,Verbose),
+	globals__io_lookup_int_option(possible_alias_widening, WideningLimit),
 
 	{ module_info_pred_proc_info( HLDS, PRED_PROC_ID,_PredInfo,
 			ProcInfo_tmp) },
@@ -195,14 +196,26 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	
 	analyse_goal( ProcInfo, HLDS, Goal, 
 			FPtable0, FPtable1, Alias0, Alias1 ),
-	% XXX
 	FullSize = pa_alias_as__size( Alias1 ), 
+
 	pa_alias_as__project( HeadVars, Alias1, Alias2),
-	% XXX
 	ProjectSize = pa_alias_as__size( Alias2 ),
-	pa_alias_as__normalize( ProcInfo, HLDS, InstMap, Alias2, Alias ),
-	% XXX
-	NormSize = pa_alias_as__size( Alias ),
+
+	pa_alias_as__normalize( ProcInfo, HLDS, InstMap, Alias2, Alias3 ),
+	NormSize = pa_alias_as__size( Alias3 ),
+
+	(
+		WideningLimit \= 0, NormSize > WideningLimit
+	->
+		pa_alias_as__apply_widening(HLDS, ProcInfo, Alias3, Alias),
+		Widening = bool__yes, 
+		WidenSize = pa_alias_as__size(Alias) 
+		
+	; 	
+		Alias = Alias3, 
+		Widening = bool__no, 
+		WidenSize = NormSize
+	),
 		
 	pa_fixpoint_table_new_as( HLDS, ProcInfo, 
 				PRED_PROC_ID, Alias, FPtable1, FPtable)
@@ -220,7 +233,16 @@ analyse_pred_proc( HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 			string__int_to_string( NormSize, NormS )
 		},
 		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
-					NormS, "\n"])
+					NormS]), 
+		(
+			{ Widening = bool__yes }
+		-> 
+			{ string__int_to_string(WidenSize, WidenS) }, 
+			{ string__int_to_string(WideningLimit, WidLimitS) },
+			io__write_strings(["/-->widening(", WidLimitS,"): ", WidenS, "\n"])
+		;
+			io__write_string("\n")
+		)
 	
 %		pa_alias_as__print_aliases(Alias, ProcInfo, PredInfo),
 %		io__write_string("\n")
