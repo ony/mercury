@@ -50,7 +50,7 @@
 :- implementation.
 
 :- import_module hlds_data, prog_data.
-:- import_module int, multi_map, require, set.
+:- import_module assoc_list, int, multi_map, require, set.
 
 process_goal(Strategy, Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
@@ -261,12 +261,21 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	--->	selection_info(
 			local_used	:: set(prog_var),
 			global_used	:: set(prog_var),
-			reuse_conds	:: list(reuse_condition)
+			reuse_conds	:: list(reuse_condition),
+		
+			lifo		:: lifo
+		).
+
+:- type lifo
+	--->	lifo(
+			all_locals	:: list(list(prog_var)),
+			local		:: list(prog_var),
+			global		:: list(prog_var)
 		).
 
 :- func selection_info_init = selection_info.
 
-selection_info_init = selection_info(set__init, set__init, []).
+selection_info_init = selection_info(set__init, set__init, [], lifo([],[],[])).
 
 :- pred select_reuses(selection::in, hlds_goal::in, hlds_goal::out,
 		list(reuse_condition)::out) is det.
@@ -298,6 +307,7 @@ select_reuses(_Selection, Goal0 - _GoalInfo, _) -->
 select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = if_then_else(Vars, If0, Then0, Else0, SM) },
 	select_reuses(Selection, If0, If),
+	selection_start_branch,
 	=(IfInfo),
 	{ select_reuses(Selection, Then0, Then, IfInfo, ThenInfo) },
 	{ select_reuses(Selection, Else0, Else, IfInfo, ElseInfo) },
@@ -308,6 +318,7 @@ select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 
 select_reuses(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = switch(Var, CanFail, Cases0, StoreMap) },
+	selection_start_branch,
 	=(InitSwitchInfo),
 	select_reuses_cases(Selection, InitSwitchInfo, Cases0, Cases),
 	{ Goal = switch(Var, CanFail, Cases, StoreMap) }.
@@ -326,6 +337,7 @@ select_reuses(Selection, conj(Goal0s) - GoalInfo,
 
 select_reuses(Selection, disj(Goal0s, SM) - GoalInfo,
 		disj(Goals, SM) - GoalInfo) -->
+	selection_start_branch,
 	=(InitDisjInfo),
 	select_reuses_disj(Selection, InitDisjInfo, Goal0s, Goals).
 
@@ -370,12 +382,39 @@ select_reuses_disj(Selection, Info0, [Goal0 | Goal0s], [Goal | Goals]) -->
 :- pred selection_merge(selection_info::in, selection_info::in,
 		selection_info::out) is det.
 
-selection_merge(selection_info(LocalA, GlobalA, CondsA),
-		selection_info(LocalB, GlobalB, CondsB),
-		selection_info(Local, Global, Conds)) :-
+selection_merge(selection_info(LocalA, GlobalA, CondsA, LifoA),
+		selection_info(LocalB, GlobalB, CondsB, LifoB),
+		selection_info(Local, Global, Conds, Lifo)) :-
 	Local = LocalA `set__union` LocalB,
 	Global = GlobalA `set__union` GlobalB,
-	Conds = CondsA ++ CondsB.
+	Conds = CondsA ++ CondsB,
+
+	LifoA = lifo(AllLocalsA, LocalsA, GlobalsA),
+	LifoB = lifo(AllLocalsB, LocalsB, GlobalsB),
+	Lifo  = lifo([LocalsA | AllLocalsB], [], GlobalsB),
+
+	require(unify(LocalsB, []),
+			"selection_merge: LocalsB not empty"),
+	require(unify(AllLocalsA, []),
+			"selection_merge: AllLocalsA not equal"),
+	require(unify(GlobalsA, GlobalsB),
+			"selection_merge: Globals not equal").
+	 
+
+	%
+	% At the start of processing all branches of a 
+	% disj/switch/if_then_else this predicate should be called.
+	%
+:- pred selection_start_branch(selection_info::in, selection_info::out) is det.
+
+selection_start_branch(selection_info(Local0, Global0, Conds0, Lifo0),
+		selection_info(Local, Global, Conds, Lifo)) :-
+	Local = set__init,
+	Global = Local0 `set__union` Global0,
+	Conds = Conds0,
+
+	Lifo0 = lifo(AllLocals0, Locals0, Globals0),
+	Lifo  = lifo(AllLocals0, [], Locals0 ++ Globals0).
 
 	%
 	% At the end of processing all branches of a
@@ -383,11 +422,40 @@ selection_merge(selection_info(LocalA, GlobalA, CondsA),
 	%
 :- pred selection_end_branch(selection_info::in, selection_info::out) is det.
 
-selection_end_branch(selection_info(Local0, Global0, Conds0),
-		selection_info(Local, Global, Conds)) :-
+selection_end_branch(selection_info(Local0, Global0, Conds0, Lifo0),
+		selection_info(Local, Global, Conds, Lifo)) :-
 	Local = set__init,
 	Global = Local0 `set__union` Global0,
-	Conds = Conds0.
+	Conds = Conds0,
+
+	Lifo0 = lifo(AllLocals0, Locals0, Globals0),
+	Lifo  = lifo([], [], list_merge([Locals0 | AllLocals0]) ++ Globals0).
+
+	% [ [1a,2a], [2b,1b], [2c,3c,1c] ] -> [1a, 2b, 2c, 2a, 1b, 3c, 1c]
+:- func list_merge(list(list(T))) = list(T).
+
+list_merge(List) = Result :-
+	list_merge(List, Tail, Head),
+	(  Tail = [] ->
+		Result = list__reverse(Head)
+	;
+		Result = Head ++ list_merge(Tail)
+	).
+
+
+:- pred list_merge(list(list(T))::in, list(list(T))::out, list(T)::out) is det.
+
+list_merge([], [], []).
+list_merge([H | T], Tail, Head) :-
+	(
+		H = [],
+		list_merge(T, Tail, Head)
+	;
+		H = [X | Xs],
+		list_merge(T, Tail0, Head0),
+		Tail = [Xs | Tail0],
+		Head = [X | Head0]
+	).
 
 :- pred select_reuses_unification(selection::in, unification::in,
 		hlds_goal_info::in, hlds_goal_info::out,
@@ -401,14 +469,23 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 	;
 		error("sr_choice__apply_selection_unification")
 	},
+
+	LocalReused0 =^ local_used,
+	GlobalReused =^ global_used,
+
 	(
 		{ Selection = lifo },
-		{ error("select_reuses_unification: lifo NYI.") }
+		Locals =^ lifo ^ local,
+		Globals =^ lifo ^ global,
+		{ F = (pred(Var::in, Var - Cond::out) is semidet :-
+				assoc_list__search(PossibleCandidates,
+						Var, Cond),
+				\+ set__member(Var, LocalReused0),
+				\+ set__member(Var, GlobalReused)
+			)},
+		{ list__filter_map(F, Locals ++ Globals, Candidates) }
 	;
 		{ Selection = random },
-		LocalReused0 =^ local_used,
-		GlobalReused =^ global_used,
-
 		{ P = (pred(Choice::out) is nondet :- 
 			list__member(Choice, PossibleCandidates),
 			ChoiceVar = fst(Choice),
@@ -416,24 +493,28 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 			\+ set__member(ChoiceVar, GlobalReused)
 		)},
 
-		{ solutions(P, Candidates) },
-		( { Candidates = [ReuseVar - ReuseCond | _] } ->
-			{ set__insert(LocalReused0, ReuseVar, LocalReused) },
-			{ goal_info_set_reuse(GoalInfo0,
-					reuse(cell_reused(ReuseVar)),
-					GoalInfo) },
-			ReuseConditions =^ reuse_conds,
-			^ reuse_conds := [ReuseCond | ReuseConditions]
-		;
-			{ LocalReused = LocalReused0 },
-			{ goal_info_set_reuse(GoalInfo0,
-					reuse(no_reuse),
-					GoalInfo) }
-		),
-		^ local_used := LocalReused
-	).
+		{ solutions(P, Candidates) }
+	),
+	( { Candidates = [ReuseVar - ReuseCond | _] } ->
+		{ set__insert(LocalReused0, ReuseVar, LocalReused) },
+		{ goal_info_set_reuse(GoalInfo0,
+				reuse(cell_reused(ReuseVar)),
+				GoalInfo) },
+		ReuseConditions =^ reuse_conds,
+		^ reuse_conds := [ReuseCond | ReuseConditions]
+	;
+		{ LocalReused = LocalReused0 },
+		{ goal_info_set_reuse(GoalInfo0,
+				reuse(no_reuse),
+				GoalInfo) }
+	),
+	^ local_used := LocalReused.
+
 select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = deconstruct(_Var, _ConsId, _Vars, _Modes, _CanFail, _CanCGC) }.
+	{ Unif = deconstruct(Var, _ConsId, _Vars, _Modes, _CanFail, _CanCGC) },
+	Locals0 =^ lifo ^ local,
+	^ lifo ^ local := [Var | Locals0].
+
 select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = assign(_, _) }.
 select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
