@@ -57,14 +57,15 @@
 :- pred trans_opt__write_optfile(module_info, io__state, io__state).
 :- mode trans_opt__write_optfile(in, di, uo) is det.
 
-	% trans_opt__grab_optfiles(Transitive, ModuleImports0, ModuleName,
-	% 		ModuleList, ModuleImports, Error, IO0, IO).
+	% trans_opt__grab_optfiles(Transitive, ModuleImports0,
+	% 		DontReadTheseModules, ModuleList, ModuleImports,
+	% 		Error, IO0, IO).
 	% Add the items from each of the modules in ModuleList.trans_opt to
 	% the items in ModuleImports, do this transitively if
-	% Transitive = yes.  The current module_name, ModuleName, is
-	% used to avoid importing the current modules trans_opt.
+	% Transitive = yes.  We don't read in the list of modules in
+	% DontReadTheseModules.
 	%
-:- pred trans_opt__grab_optfiles(bool, module_imports, module_name,
+:- pred trans_opt__grab_optfiles(bool, module_imports, list(module_name),
 		list(module_name), module_imports, bool, io__state, io__state).
 :- mode trans_opt__grab_optfiles(in, in, in, in, out, out, di, uo) is det.
 
@@ -197,12 +198,12 @@ trans_opt__write_optfile(Module) -->
 %-----------------------------------------------------------------------------%
 	% Read in and process the transitive optimization interfaces.
 
-trans_opt__grab_optfiles(Transitive, Module0, ModuleName,
+trans_opt__grab_optfiles(Transitive, Module0, DontReadTheseModules,
 		TransOptDeps, Module, FoundError) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	maybe_write_string(Verbose, "% Reading .trans_opt files..\n"),
 	maybe_flush_output(Verbose),
-	read_trans_opt_files(Transitive, TransOptDeps, [ModuleName],
+	read_trans_opt_files(Transitive, TransOptDeps, DontReadTheseModules,
 			[], OptItems, no, FoundError),
 
 	{ append_pseudo_decl(Module0, opt_imported, Module1) },
