@@ -12,19 +12,15 @@
 % We annotate each program point within a procedure definition with a set of
 % variables which are in so-called Local Backward Use (LBU). A variable is said
 % to be in LBU if it may be accessed upon backtracking. 
-% This information is computed based on the backtrack-vars,
-% and forward use information. 
-% The goals requiring special attention are: 
-% 	- procedure calls: if the call is nondet, then all the arguments
-% 	  of the call are in LBU, as well as all the variables which 
-% 	  are instantiated at that program point, and are still used in 
-%	  forward execution. (Intuition: if backtracking up to this
-% 	  procedure call is needed, then all the values of these forward
-%	  use variables must remain the same, as they will be needed after
-%	  backtracking. 
-% 	- disjunctions, not, switch.  Introduce new local backward
-%	  uses. 
-% All the other goals simply propagate LBU. 
+% This information is computed based on the backtrack-vars (i.e. the input
+% variables of the alternative goals of a disjunction), and forward use
+% information. 
+%
+% The full theory on how the LBU is propagated is detailed in Nancy Mazur's PhD
+% thesis. We've implemented Instantiation 2 as to where non deterministic
+% calls are concerned. 
+% There are some slight variations as to the treatment of disjunctions,
+% switches and if-then-elses. XXX This should be thoroughly checked!
 
 :- module structure_reuse__sr_lbu.
 
@@ -34,7 +30,7 @@
 :- import_module hlds__hlds_pred. 
 
 	% Precondition: the code must already be annotated with
-	% LFU-information. 
+	% LFU-information, and the resume-points must be filled. 
 :- pred sr_lbu__process_proc(module_info::in,
 		proc_info::in, proc_info::out) is det.
 
@@ -42,7 +38,6 @@
 %-------------------------------------------------------------------%
 
 :- implementation. 
-
 
 :- import_module hlds__hlds_goal.
 :- import_module hlds__hlds_llds.
@@ -59,129 +54,87 @@
 
 sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo) :-
 	proc_info_goal(ProcInfo0, Goal0),
-
 	% extra info to be caried around for each program point: 
 	% 	LBU at previous point
-	%	Aliases at previous point 
 	% output after each specific goal:
 	%	new LBU set, 
-	% 	new Alias set
-
 	set__init(Lbu0), 
-	annotate_lbu_in_goal(HLDS, ProcInfo0, 
-				Lbu0, _Lbu, Goal0, Goal), 
+	annotate_lbu_in_goal(HLDS, ProcInfo0, Goal0, Goal, Lbu0, _Lbu), 
 
 	proc_info_set_goal(ProcInfo0, Goal, ProcInfo).
 
-:- pred annotate_lbu_in_goal(module_info, proc_info, 
-			set(prog_var), set(prog_var), 
-			hlds_goal, hlds_goal).
-:- mode annotate_lbu_in_goal(in, in, in, out, in, out) is det.
+:- pred annotate_lbu_in_goal(module_info::in, proc_info::in, 
+		hlds_goal::in, hlds_goal::out,
+		set(prog_var)::in, set(prog_var)::out) is det.
 
-
-annotate_lbu_in_goal(HLDS, ProcInfo, 
-		Lbu0, Lbu, TopGoal0, TopGoal):-
+annotate_lbu_in_goal(HLDS, ProcInfo, !TopGoal, !Lbu) :- 
 
 	% incorporate the fresh resume_vars into the Lbu-set
-	TopGoal0 = Expr0 - Info0,
-	info_get_backtrack_vars(Info0, RESUME_VARS), 
-	set__union(Lbu0, RESUME_VARS, Lbu_01),
+	!.TopGoal = Expr0 - Info0,
+	info_get_backtrack_vars(Info0, ResumeVars), 
+	set__union(ResumeVars, !Lbu), 
 	(
 		%%%%%%%%%%%%%%%%%%%
 		% (1) conjunction %
 		%%%%%%%%%%%%%%%%%%%
-		Expr0 = conj(Goals0)
-	->
-		annotate_lbu_in_conj(HLDS, ProcInfo, Lbu_01,  
-				Lbu, 
-				Goals0, Goals), 
-		LbuGoal = Lbu, 
-		Expr = conj(Goals) ,
-		Info = Info0
+		Expr0 = conj(Goals0),
+		annotate_lbu_in_conj(HLDS, ProcInfo, 
+				Goals0, Goals, !Lbu),
+		Expr = conj(Goals)
 	;
 		%%%%%%%%%%%%
 		% (2) call %
 		%%%%%%%%%%%%
-		Expr0 = call(_,_, CallVars, _, _, _)
-	-> 
-		% and now for the LBU
+		Expr0 = call(_,_, _, _, _, _),
 		goal_info_get_determinism(Info0, Det),
 		(
 			determinism_is_nondet(Det)
 		->
-			goal_info_get_instmap_delta(Info0, InstMapDelta),
-			list__filter(
-				pred(V::in) is semidet :- 
-				  ( 
-				     ( instmap_delta_search_var(InstMapDelta,
-						V, _InstV)
-				     -> fail % var changes its instantiation 
-				             % over this call, thus is 
-					     % certainly not pure INPUT
-				     ; true ) ),
-				   CallVars, 
-				   InputCallVars),
-			set__list_to_set(CallVars, CallVars_set),
-			set__list_to_set(InputCallVars,InCallVars_set),	
-			goal_info_get_lfu(Info0, LFU), 
-
-			%% 
-			%% 
-		%	lbu_setting_1(Lbu_01, LFU, CallVars_set,
-		%		InCallVars_set, LbuGoal, Lbu)
-		% 	lbu_setting_2(Lbu_01, LFU, CallVars_set,
-		%		 InCallVars_set, LbuGoal, Lbu)
-		 	lbu_setting_4(Lbu_01, LFU, CallVars_set,
-				 InCallVars_set, LbuGoal, Lbu)
+			% Implementation of Instantiation 2 from Nancy's Phd.
+			% In this instantation, a non deterministic procedure
+			% call only adds the lfu-variables to the current set
+			% of lbu-variables. Cf. Phd Nancy Mazur. 
+			goal_info_get_lfu(Info0, Lfu), 
+			set__union(Lfu, !Lbu)
 		;
-			Lbu = Lbu_01,
-			LbuGoal = Lbu 
+			true
 		),
-		Expr = Expr0,
-		Info = Info0
+		Expr = Expr0
 	;
 		% (3) switch
-		Expr0 = switch(A, B, Cases0)
-	->
-		annotate_lbu_in_switch(HLDS, ProcInfo, 
-				Lbu_01, Lbu,  
-				Cases0, Cases), 
-		LbuGoal = Lbu, 
-		Expr = switch(A, B, Cases),
-		Info = Info0
+		Expr0 = switch(A, B, Cases0),
+		annotate_lbu_in_switch(HLDS, ProcInfo, Cases0, Cases, !Lbu),
+		Expr = switch(A, B, Cases)
 	;
 		%%%%%%%%%%%%%
 		% (4) unify %
 		%%%%%%%%%%%%%
-		Expr0 = unify(_, _, _, _, _)
-	->
-		% Lbu
-		Lbu = Lbu_01, 
-		LbuGoal = Lbu, 
-		Expr = Expr0,
-		Info = Info0
+		Expr0 = unify(_, _, _, _, _),
+		Expr = Expr0
 	;
 		%%%%%%%%%%%%
 		% (5) disj %
 		%%%%%%%%%%%%
-		Expr0 = disj(Goals0)
-	->
-		annotate_lbu_in_disj(HLDS, ProcInfo, Lbu_01,  
-				Lbu, Goals0, Goals),
-		LbuGoal = Lbu, 
-		Expr = disj(Goals),
-		Info = Info0
+		Expr0 = disj(Goals0),
+		annotate_lbu_in_disj(HLDS, ProcInfo, Goals0, Goals, !Lbu),
+		Expr = disj(Goals)
 	;
 		%%%%%%%%%%%%%%%%%%%%
 		% (6) if_then_else %
 		%%%%%%%%%%%%%%%%%%%%
-		Expr0 = if_then_else(Vars, Cond0, Then0, Else0)
-	->
+		% XXX The implementation of this if-then-else is not in
+		% accordance with the theory. Some more precision can be
+		% obtained when the Condition of the if-then-else is a
+		% deterministic goal (in which case, the Then-goal can be
+		% analysed with the LBU with which the initial if-then-else in
+		% analysed, instead of using the result of analysing the
+		% condition. 
+		Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
+		Lbu0 = !.Lbu, 
 			% annotating the condition
-			% starting from Lbu_01 (where resume_vars are
+			% starting from Lbu0 (where resume_vars are
 			% taken into account)
-		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
-				_LbuCond, Cond0, Cond),
+		annotate_lbu_in_goal(HLDS, ProcInfo, Cond0, Cond, Lbu0, _),
 			% when annotating the then-part, 
 			% the lbu used for it may not contain the
 			% resume-vars due to the else part. 	
@@ -191,174 +144,94 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		goal_info_set_resume_point(CondInfo0, no_resume_point, 
 				InfoTmp),
 		CondTmp = CondGoal0 - InfoTmp, 
-		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01,  
-				Lbu0Then, CondTmp, _),
-		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu0Then,  
-				LbuThen, Then0, Then),
-		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
-				LbuElse, Else0, Else),
-		set__union(LbuThen, LbuElse, Lbu),
-		LbuGoal = Lbu, 
-		Expr = if_then_else(Vars, Cond, Then, Else),
-		Info = Info0
+		annotate_lbu_in_goal(HLDS, ProcInfo, CondTmp, _, Lbu0, Lbu0T),
+		annotate_lbu_in_goal(HLDS, ProcInfo, Then0, Then, 
+				Lbu0T, LbuT), 
+		annotate_lbu_in_goal(HLDS, ProcInfo, Else0, Else, 
+				Lbu0, LbuE), 
+		set__union(LbuT, LbuE, !:Lbu),
+		Expr = if_then_else(Vars, Cond, Then, Else)
 	;
 		%%%%%%%%%%%
 		% (7) not %
 		%%%%%%%%%%%
-		Expr0 = not(Goal0)
+		Expr0 = not(Goal0),
 		% handled as if(Goal0) then fail else true
-	->
-		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
-				_Lbu, Goal0, Goal),
+		Lbu0 = !.Lbu, 
+		annotate_lbu_in_goal(HLDS, ProcInfo, Goal0, Goal, !.Lbu, _),
 		% A not does not introduce any choice-points! Hence the
 		% not itself is deterministic, and no new variables in LBU
 		% are introduced. 
-		Lbu = Lbu_01,
-		LbuGoal = Lbu,
-		Expr = not(Goal),
-		Info = Info0
+		!:Lbu = Lbu0,
+		Expr = not(Goal)
 	;
 		%%%%%%%%%%%%
 		% (8) some %
 		%%%%%%%%%%%%
-		Expr0 = some(Vars, CR, Goal0)
-	->
-		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01,  
-				Lbu, Goal0, Goal),
-		LbuGoal = Lbu,
-		Expr = some(Vars, CR, Goal),
-		Info = Info0
+		Expr0 = some(Vars, CR, Goal0),
+		annotate_lbu_in_goal(HLDS, ProcInfo, Goal0, Goal, !Lbu),
+		Expr = some(Vars, CR, Goal)
 	;
-		%%%%%%%%%%%%%%%%%%%%%%%
-		% (9)  generic_call   %
-		% (10) pragma_c_code  %
-		% (11) par_conj       %
-		% (12) bi_implication %
-		%%%%%%%%%%%%%%%%%%%%%%%
-		Lbu = Lbu0, 
-		LbuGoal = Lbu, 
-		Expr = Expr0,
-		Info = Info0
+		Expr0 = generic_call(_, _, _, _), 
+		Expr = Expr0
+	;
+		Expr0 = foreign_proc(_, _, _, _, _, _, _), 
+		Expr = Expr0
+	; 
+		Expr0 = par_conj(_), 
+		Expr = Expr0
+	; 
+		Expr0 = shorthand(_), 
+		Expr = Expr0
 	),
-	goal_info_set_lbu(LbuGoal, Info, Info_new), 
-	TopGoal = Expr - Info_new. 	
+	goal_info_set_lbu(!.Lbu, Info0, Info), 
+	!:TopGoal = Expr - Info. 	
 
-% LBU setting 1: 
-	% if the call is nondeterministic, all actual
-	% vars are taken to be in Local Backward Use.
-	% LBU_i = LBU_{i-1} + LFU + vars(call)
-	% LBU_goal = LBU_i
-:- pred lbu_setting_1(set(prog_var), set(prog_var), set(prog_var),
-		set(prog_var), set(prog_var), set(prog_var)).
-:- mode lbu_setting_1(in, in, in, in, out, out) is det.
+:- pred annotate_lbu_in_conj(module_info::in, proc_info::in, 
+		list(hlds_goal)::in, list(hlds_goal)::out,
+		set(prog_var)::in,  set(prog_var)::out) is det.
 
-lbu_setting_1(Lbu_01, LFU, CallVars, _InputCallVars, LbuGoal, Lbu):- 
-	Lbu = set__union_list([Lbu_01, LFU, CallVars]),
-	LbuGoal = Lbu.
+annotate_lbu_in_conj(HLDS, ProcInfo, !Goals, !Lbu) :- 
+	list__map_foldl( annotate_lbu_in_goal(HLDS, ProcInfo), !Goals, !Lbu). 
 
-% LBU setting 2: 
-	% for nondet calls, only add the LFU vars to 
-	% the lbu-set. 
-	% LBU_i = LBU_{i-1} + LFU
-	% LBU_goal = LBU_i
-:- pred lbu_setting_2(set(prog_var), set(prog_var), set(prog_var),
-		set(prog_var), set(prog_var), set(prog_var)).
-:- mode lbu_setting_2(in, in, in, in, out, out) is det.
+:- pred annotate_lbu_in_switch(module_info::in, proc_info::in, 
+		list(case)::in, list(case)::out, 
+		set(prog_var)::in, set(prog_var)::out) is det.
 
-lbu_setting_2(Lbu_01, LFU, _CallVars, _InputCallVars, LbuGoal, Lbu):- 
-	Lbu = set__union_list([Lbu_01, LFU]),
-	LbuGoal = Lbu.
-
-% LBU setting 3: 
-	% LBU_goal = LBU_{i-1} + (LFU_i - vars(call)) % does'nt matter... 
-	% LBU_i = LBU_goal + IN
-:- pred lbu_setting_3(set(prog_var), set(prog_var), set(prog_var),
-		set(prog_var), set(prog_var), set(prog_var)).
-:- mode lbu_setting_3(in, in, in, in, out, out) is det.
-
-lbu_setting_3(Lbu_01, LFU, CallVars, InputCallVars, LbuGoal, Lbu):- 
-	PartLFU = set__difference(LFU, CallVars),
-	LbuGoal = set__union_list([Lbu_01,PartLFU]),
-	Lbu = set__union_list([LbuGoal, InputCallVars]).
-
-% LBU setting 4: 
-	% LBU_goal = LBU_{i-1} + (LFU_i - vars(call)) % does'nt matter... 
-	% LBU_i = LBU_goal + LFU + IN
-:- pred lbu_setting_4(set(prog_var), set(prog_var), set(prog_var),
-		set(prog_var), set(prog_var), set(prog_var)).
-:- mode lbu_setting_4(in, in, in, in, out, out) is det.
-
-lbu_setting_4(Lbu_01, LFU, CallVars, InputCallVars, LbuGoal, Lbu):- 
-	PartLFU = set__difference(LFU, CallVars),
-	LbuGoal = set__union_list([Lbu_01,PartLFU]),
-	Lbu = set__union_list([LbuGoal, LFU, InputCallVars]).
-
-:- pred annotate_lbu_in_conj(module_info, proc_info, set(prog_var),  
-			set(prog_var), 
-			list(hlds_goal), list(hlds_goal)). 
-:- mode annotate_lbu_in_conj(in, in, in, out, in, out) is det.
-
-annotate_lbu_in_conj(HLDS, ProcInfo, Lbu0,  
-				Lbu, Goals0, Goals) :- 
-	list__map_foldl(
-		pred(Goal0::in, Goal::out, 
-		      L0::in, L::out) is det :-
-			(annotate_lbu_in_goal(HLDS, ProcInfo, L0,  
-					L, Goal0, Goal)),
-		Goals0, Goals, 
-		Lbu0, Lbu).
-
-:- pred annotate_lbu_in_switch(module_info, proc_info, 
-			set(prog_var), 
-			set(prog_var), 
-			list(case), list(case)).
-:- mode annotate_lbu_in_switch(in, in, in, out, in, out) is det.
-
-annotate_lbu_in_switch(HLDS, ProcInfo, Lbu0, Lbu, 
-			Cases0, Cases) :- 
+annotate_lbu_in_switch(HLDS, ProcInfo, !Cases, !Lbu) :- 
+	Lbu0 = !.Lbu, 
 	list__map_foldl(
 		pred(Case0::in, Case::out, 
 		      L0::in, L::out) is det :-
 			(
-			Case0 = case(CONS,Goal0), 
-			annotate_lbu_in_goal(HLDS, ProcInfo, Lbu0, 
-					Lnew, Goal0, Goal),
-			Case  = case(CONS,Goal),
-			set__union(L0, Lnew, L)
+			Case0 = case(Cons, G0), 
+			annotate_lbu_in_goal(HLDS, ProcInfo, G0, G, Lbu0, LN),
+			Case  = case(Cons, G),
+			set__union(L0, LN, L)
 			),
-		Cases0, Cases, 
-		Lbu0, Lbu).
+		!Cases, !Lbu).
 
-:- pred annotate_lbu_in_disj(module_info, proc_info, 
-			set(prog_var), 
-			set(prog_var), 
-			list(hlds_goal), list(hlds_goal)).
-:- mode annotate_lbu_in_disj(in, in, in, out, in, out) is det.
+:- pred annotate_lbu_in_disj(module_info::in, proc_info::in, 
+		list(hlds_goal)::in, list(hlds_goal)::out,
+		set(prog_var)::in, set(prog_var)::out) is det.
 
-annotate_lbu_in_disj(HLDS, ProcInfo, Lbu0, Lbu, 
-			Goals0, Goals) :- 
+annotate_lbu_in_disj(HLDS, ProcInfo, !Goals, !Lbu) :- 
+	Lbu0 = !.Lbu, 
 	list__map_foldl(
-		pred(Goal0::in, Goal::out, 
-		      L0::in, L::out) is det :-
+		pred(G0::in, G::out, L0::in, L::out) is det :-
 			(
-			annotate_lbu_in_goal(HLDS, ProcInfo, Lbu0, 
-					Lnew, Goal0, Goal),
-			set__union(L0, Lnew, L)
+			annotate_lbu_in_goal(HLDS, ProcInfo, G0, G, Lbu0, LN), 
+			set__union(L0, LN, L)
 			),
-		Goals0, Goals, 
-		Lbu0, Lbu).
+		!Goals, !Lbu). 
 
-:- pred determinism_is_nondet(prog_data__determinism).
-:- mode determinism_is_nondet(in) is semidet.
-
+:- pred determinism_is_nondet(prog_data__determinism::in) is semidet.
 determinism_is_nondet(nondet).
 determinism_is_nondet(multidet).
 determinism_is_nondet(cc_nondet).
 determinism_is_nondet(cc_multidet).
 
-:- pred info_get_backtrack_vars(hlds_goal_info, set(prog_var)).
-:- mode info_get_backtrack_vars(in, out) is det.
-
+:- pred info_get_backtrack_vars(hlds_goal_info::in, set(prog_var)::out) is det.
 info_get_backtrack_vars(Info, Vars):- 
 	goal_info_get_resume_point(Info, ResPoint), 
 	(
