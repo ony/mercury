@@ -4,101 +4,101 @@
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
 
-% File: xrobdd.m.
+% File: tfeir_robdd.m.
 % Main author: dmo
 % Stability: low
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module xrobdd.
+:- module xrobdd__tfeir_robdd.
 
 :- interface.
 
 :- import_module term, robdd.
 
-:- type xrobdd(T).
-:- type xrobdd == xrobdd(generic).
+:- type tfeir(T).
+:- type tfeir == tfeir(generic).
 
-:- inst xrobdd == ground. % XXX
+:- inst tfeir == ground. % XXX
 
-:- mode di_xrobdd == in. % XXX
-:- mode uo_xrobdd == out. % XXX
+:- mode di_tfeir == in. % XXX
+:- mode uo_tfeir == out. % XXX
 
 % Constants.
-:- func one = xrobdd(T).
-:- func zero = xrobdd(T).
+:- func one = tfeir(T).
+:- func zero = tfeir(T).
 
 % Conjunction.
-:- func xrobdd(T) * xrobdd(T) = xrobdd(T).
+:- func tfeir(T) * tfeir(T) = tfeir(T).
 
 % Disjunction.
-:- func xrobdd(T) + xrobdd(T) = xrobdd(T).
+:- func tfeir(T) + tfeir(T) = tfeir(T).
 
 %-----------------------------------------------------------------------------%
 
-:- func var(var(T)::in, xrobdd(T)::in(xrobdd)) = (xrobdd(T)::out(xrobdd))
+:- func var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir))
 		is det.
 
-:- func not_var(var(T)::in, xrobdd(T)::in(xrobdd)) = (xrobdd(T)::out(xrobdd))
+:- func not_var(var(T)::in, tfeir(T)::in(tfeir)) = (tfeir(T)::out(tfeir))
 		is det.
 
-:- func eq_vars(var(T)::in, var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func eq_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func neq_vars(var(T)::in, var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func neq_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func imp_vars(var(T)::in, var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func imp_vars(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func conj_vars(vars(T)::in, xrobdd(T)::di_xrobdd) = (xrobdd(T)::uo_xrobdd)
+:- func conj_vars(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
 		is det.
 
-:- func conj_not_vars(vars(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func conj_not_vars(vars(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func disj_vars(vars(T)::in, xrobdd(T)::di_xrobdd) = (xrobdd(T)::uo_xrobdd)
+:- func disj_vars(vars(T)::in, tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir)
 		is det.
 
-:- func at_most_one_of(vars(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func at_most_one_of(vars(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func not_both(var(T)::in, var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func not_both(var(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func io_constraint(var(T)::in, var(T)::in, var(T)::in, xrobdd(T)::di_xrobdd)
-		= (xrobdd(T)::uo_xrobdd) is det.
+:- func io_constraint(var(T)::in, var(T)::in, var(T)::in, tfeir(T)::di_tfeir)
+		= (tfeir(T)::uo_tfeir) is det.
 
 		% disj_vars_eq(Vars, Var) <=> (disj_vars(Vars) =:= Var).
-:- func disj_vars_eq(vars(T)::in, var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func disj_vars_eq(vars(T)::in, var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func var_restrict_true(var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func var_restrict_true(var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
-:- func var_restrict_false(var(T)::in, xrobdd(T)::di_xrobdd) =
-		(xrobdd(T)::uo_xrobdd) is det.
+:- func var_restrict_false(var(T)::in, tfeir(T)::di_tfeir) =
+		(tfeir(T)::uo_tfeir) is det.
 
 %-----------------------------------------------------------------------------%
 
 	% Succeed iff the var is entailed by the xROBDD.
-:- pred var_entailed(xrobdd(T)::in, var(T)::in) is semidet.
+:- pred var_entailed(tfeir(T)::in, var(T)::in) is semidet.
 
 	% Return the set of vars entailed by the xROBDD.
-:- func vars_entailed(xrobdd(T)) = vars_entailed_result(T).
+:- func vars_entailed(tfeir(T)) = vars_entailed_result(T).
 
 	% Return the set of vars disentailed by the xROBDD.
-:- func vars_disentailed(xrobdd(T)) = vars_entailed_result(T).
+:- func vars_disentailed(tfeir(T)) = vars_entailed_result(T).
 
 	% Existentially quantify away the var in the xROBDD.
-:- func restrict(var(T), xrobdd(T)) = xrobdd(T).
+:- func restrict(var(T), tfeir(T)) = tfeir(T).
 
 	% Existentially quantify away all vars greater than the specified var.
-:- func restrict_threshold(var(T), xrobdd(T)) = xrobdd(T).
+:- func restrict_threshold(var(T), tfeir(T)) = tfeir(T).
 
 :- func restrict_filter(pred(var(T))::(pred(in) is semidet),
-		xrobdd(T)::di_xrobdd) = (xrobdd(T)::uo_xrobdd) is det.
+		tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -111,7 +111,7 @@
 	%	variables assigned the value 0).
 	%
 	% XXX should try using sparse_bitset here.
-:- pred labelling(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+:- pred labelling(vars(T)::in, tfeir(T)::in, vars(T)::out, vars(T)::out)
 		is nondet.
 
 	% minimal_model(Vars, xROBDD, TrueVars, FalseVars)
@@ -123,23 +123,28 @@
 	%	variables assigned the value 0).
 	%
 	% XXX should try using sparse_bitset here.
-:- pred minimal_model(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+:- pred minimal_model(vars(T)::in, tfeir(T)::in, vars(T)::out, vars(T)::out)
 		is nondet.
 
 %-----------------------------------------------------------------------------%
 
 % XXX
-:- func robdd(xrobdd(T)) = robdd(T).
+% Extract the ROBDD component of the TFEIR.
+:- func robdd(tfeir(T)) = robdd(T).
+
+% Convert the TFEIR to an ROBDD.
+:- func to_robdd(tfeir(T)) = robdd(T).
+
+%-----------------------------------------------------------------------------%
+
+:- func robdd_to_xrobdd(robdd(T)) = tfeir(T).
 
 %-----------------------------------------------------------------------------%
 
 
 :- implementation.
 
-:- include_module xrobdd__equiv_vars.
-:- include_module xrobdd__implications.
-
-:- import_module robdd, sparse_bitset, bool, int, list.
+:- import_module robdd, sparse_bitset, bool, int, list, map.
 :- import_module xrobdd__equiv_vars.
 :- import_module xrobdd__implications.
 
@@ -153,7 +158,7 @@
 %	TFEIR
 %	TFENIR
 
-:- type xrobdd(T)
+:- type tfeir(T)
 	--->	xrobdd(
 			true_vars :: vars(T),
 			false_vars :: vars(T),
@@ -183,7 +188,7 @@ xrobdd(TA0, FA0, EA0, IA0, RA0) + xrobdd(TB0, FB0, EB0, IB0, RB0) = X :-
 	; RB0 = zero ->
 	    X = xrobdd(TA0, FA0, EA0, IA0, RA0)
 	;
-	    X = xrobdd(T, F, E, I, R),
+	    X = normalise(xrobdd(T, F, E, I, R)),
 	    T = TA0 `intersect` TB0,
 	    F = FA0 `intersect` FB0,
 	    E = EA + EB,
@@ -440,7 +445,7 @@ labelling(Vars0, xrobdd(T, F, E, I, R), TrueVars, FalseVars) :-
 	    FalseVars = FalseVars0 `union` FalseVars1
 	).
 
-:- pred labelling_2(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+:- pred labelling_2(vars(T)::in, tfeir(T)::in, vars(T)::out, vars(T)::out)
 		is nondet.
 
 labelling_2(Vars0, X0, TrueVars, FalseVars) :-
@@ -477,7 +482,7 @@ minimal_model(Vars, X0, TrueVars, FalseVars) :-
 	    )
 	).
 
-:- pred minimal_model_2(vars(T)::in, xrobdd(T)::in, vars(T)::out, vars(T)::out)
+:- pred minimal_model_2(vars(T)::in, tfeir(T)::in, vars(T)::out, vars(T)::out)
 	is semidet.
 
 minimal_model_2(Vars0, X0, TrueVars, FalseVars) :-
@@ -500,7 +505,7 @@ minimal_model_2(Vars0, X0, TrueVars, FalseVars) :-
 
 %-----------------------------------------------------------------------------%
 
-:- func normalise(xrobdd(T)::di_xrobdd) = (xrobdd(T)::uo_xrobdd) is det.
+:- func normalise(tfeir(T)::di_tfeir) = (tfeir(T)::uo_tfeir) is det.
 
 normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, ImpVars0, Robdd0)) = X :-
 	% T <-> F
@@ -611,8 +616,30 @@ extract_equivalent_vars_from_robdd(Changed, Robdd0, Robdd, EQVars0, EQVars) :-
 	Robdd = remove_equiv(EQVars0, Robdd1),
 	Changed = Changed0 `bool__or` ( Robdd \= Robdd1 -> yes ; no ).
 
-:- func x(xrobdd(T)::di_xrobdd, robdd(T)::in) = (xrobdd(T)::uo_xrobdd) is det.
+:- func x(tfeir(T)::di_tfeir, robdd(T)::in) = (tfeir(T)::uo_tfeir) is det.
 
 x(X, R) = X * xrobdd(init, init, init_equiv_vars, init_imp_vars, R).
+
+%---------------------------------------------------------------------------%
+
+robdd_to_xrobdd(R) =
+	normalise(xrobdd(init, init, init_equiv_vars, init_imp_vars, R)).
+
+%---------------------------------------------------------------------------%
+
+%/*
+to_robdd(X) = 
+	(X ^ robdd * conj_vars(X ^ true_vars) * conj_not_vars(X ^ false_vars))
+	^ map__foldl(func(A, B, R) = R * eq_vars(A, B),
+			X ^ equiv_vars ^ leader_map)
+	^ expand_implications(X ^ imp_vars).
+%*/
+
+/*
+to_robdd(X) = 
+	(X ^ robdd * conj_vars(X ^ true_vars) * conj_not_vars(X ^ false_vars))
+	^ expand_equiv(X ^ equiv_vars ^ leader_map)
+	^ expand_implications(X ^ imp_vars).
+*/
 
 %---------------------------------------------------------------------------%

@@ -327,12 +327,8 @@ complete_inst_graph_node(ModuleInfo, Var, Info0, Info) :-
 		constructor::in, hhf_info::in, hhf_info::out) is det.
 
 maybe_add_cons_id(Var, ModuleInfo, TypeId, Ctor, Info0, Info) :-
-	Ctor = ctor(_, _, QualifiedName, Args),
-	unqualify_name(QualifiedName, Name),
-	TypeId = QualifiedTypeIdName - Arity,
-	unqualify_name(QualifiedTypeIdName, TypeIdName),
-	make_cons_id(unqualified(Name), Args, unqualified(TypeIdName) - Arity,
-		ConsId),
+	Ctor = ctor(_, _, Name, Args),
+	make_cons_id(Name, Args, TypeId, ConsId),
 	map__lookup(Info0^inst_graph, Var, node(Functors0, MaybeParent)),
 	( map__contains(Functors0, ConsId) ->
 	    Info = Info0

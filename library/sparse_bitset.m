@@ -531,7 +531,7 @@ remove_gt(sparse_bitset(Set), Elem) =
 
 remove_gt_2([], _) = [].
 remove_gt_2([Data | Rest], Index) =
-	( Offset + bits_per_int =< Index ->
+	( Offset + bits_per_int - 1 =< Index ->
 		[Data | remove_gt_2(Rest, Index)]
 	; Offset =< Index ->
 		(

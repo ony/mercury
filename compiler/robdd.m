@@ -209,7 +209,19 @@
 
 %-----------------------------------------------------------------------------%
 
-	% Print out the ROBDD in disjunctive form.
+:- type literal(T)
+	--->	pos(var(T))
+	;	neg(var(T)).
+
+	% Convert the ROBDD to disjunctive normal form.
+:- func dnf(robdd(T)) = list(list(literal(T))).
+
+/*
+	% Convert the ROBDD to conjunctive normal form.
+:- func cnf(robdd(T)) = list(list(literal(T))).
+*/
+
+	% Print out the ROBDD in disjunctive normal form.
 :- pred print_robdd(robdd(T)::in, io__state::di, io__state::uo) is det.
 
 	% robdd_to_dot(ROBDD, WriteVar, FileName, IO0, IO).
@@ -292,6 +304,9 @@
 :- import_module set_unordlist, list, string, map, bool, set_bbbtree, int.
 :- import_module multi_map, require.
 :- import_module hash_table.
+
+% XXX
+:- import_module unsafe.
 
 :- type robdd(T) ---> robdd(int).
 % :- type robdd(T) ---> robdd(c_pointer).
@@ -517,26 +532,57 @@ implications_2(R) = implication_result(Imps, RevImps, DisImps, RevDisImps) :-
 	    DisImps = Imps,
 	    RevDisImps = Imps
 	;
-	    IVars = vars_entailed(R ^ tr),
-	    RIVars = vars_disentailed(R ^ fa),
-	    DIVars = vars_disentailed(R ^ tr),
-	    RDIVars = vars_entailed(R ^ fa),
+	    TTVars = vars_entailed(R ^ tr),
+	    FFVars = vars_disentailed(R ^ fa),
+	    TFVars = vars_disentailed(R ^ tr),
+	    FTVars = vars_entailed(R ^ fa),
 
 	    implications_2(R ^ tr) =
 		implication_result(Imps0, RevImps0, DisImps0, RevDisImps0),
 	    implications_2(R ^ fa) =
 		implication_result(Imps1, RevImps1, DisImps1, RevDisImps1),
 
+	    Imps2 = merge_imp_res(TTVars, FTVars, Imps0, Imps1),
+	    RevImps2 = merge_imp_res(TFVars, FFVars, RevImps0, RevImps1),
+	    DisImps2 = merge_imp_res(TFVars, FFVars, DisImps0, DisImps1),
+	    RevDisImps2 = merge_imp_res(TTVars, FTVars, RevDisImps0,
+		RevDisImps1),
+
+	    /*
 	    Imps2 = Imps0 `intersection` Imps1,
 	    RevImps2 = RevImps0 `intersection` RevImps1,
 	    DisImps2 = DisImps0 `intersection` DisImps1,
 	    RevDisImps2 = RevDisImps0 `intersection` RevDisImps1,
+	    */
 
-	    Imps = Imps2 ^ elem(R ^ value) := IVars,
-	    RevImps = RevImps2 ^ elem(R ^ value) := RIVars,
-	    DisImps = DisImps2 ^ elem(R ^ value) := DIVars,
-	    RevDisImps = RevDisImps2 ^ elem(R ^ value) := RDIVars
+	    Imps = Imps2 ^ elem(R ^ value) := TTVars,
+	    RevImps = RevImps2 ^ elem(R ^ value) := FFVars,
+	    DisImps = DisImps2 ^ elem(R ^ value) := TFVars,
+	    RevDisImps = RevDisImps2 ^ elem(R ^ value) := FTVars
 	).
+
+:- func merge_imp_res(vars_entailed_result(T), vars_entailed_result(T),
+		imp_res(T), imp_res(T)) = imp_res(T).
+
+merge_imp_res(_, _, all_vars, all_vars) = all_vars.
+merge_imp_res(_, _, some_vars(Imps), all_vars) = some_vars(Imps).
+merge_imp_res(_, _, all_vars, some_vars(Imps)) = some_vars(Imps).
+merge_imp_res(TVars, FVars, some_vars(ImpsA), some_vars(ImpsB)) =
+	some_vars(merge_imp_res_2(TVars, FVars, ImpsA, ImpsB)).
+
+:- func merge_imp_res_2(vars_entailed_result(T), vars_entailed_result(T),
+		imp_res_2(T), imp_res_2(T)) = imp_res_2(T).
+
+merge_imp_res_2(EntailedVarsA, EntailedVarsB, imps(ImpsA), imps(ImpsB)) =
+		imps(Imps) :-
+	KeysA = map__sorted_keys(ImpsA),
+	KeysB = map__sorted_keys(ImpsB),
+	Keys = list__merge_and_remove_dups(KeysA, KeysB),
+	Imps = list__foldl((func(V, M) =
+			M ^ elem(V) := VsA `intersection` VsB :-
+		VsA = ( VsA0 = ImpsA ^ elem(V) -> VsA0 ; EntailedVarsA ),
+		VsB = ( VsB0 = ImpsB ^ elem(V) -> VsB0 ; EntailedVarsB )
+	    ), Keys, map__init).
 
 :- func implication_result_to_imp_vars(implication_result(T)) = imp_vars(T).
 
@@ -574,12 +620,12 @@ remove_implications(ImpRes, R0) = R :-
 remove_implications_2(ImpRes, True, False, R0, R) -->
 	( { is_terminal(R0) } -> 
 		{ R = R0 }
-	; R1 =^ elem(R0) ->
-		{ R = R1 }
 	; { True `contains` R0 ^ value } ->
 		remove_implications_2(ImpRes, True, False, R0 ^ tr, R)
 	; { False `contains` R0 ^ value } ->
-		remove_implications_2(ImpRes, True, False, R0 ^ tr, R)
+		remove_implications_2(ImpRes, True, False, R0 ^ fa, R)
+	; R1 =^ elem(R0) ->
+		{ R = R1 }
 	;
 		{ TrueT = True `union` ImpRes ^ imps ^ get(R0 ^ value) },
 		{ FalseT = False `union` ImpRes ^ dis_imps ^ get(R0 ^ value) },
@@ -655,6 +701,53 @@ some_vars(Vs) `insert` V = some_vars(Vs `insert` V).
 		"Tr = (Word) ((node *) F)->tr;").
 :- pragma c_code(fa(F::in) = (Fa::out), [will_not_call_mercury],
 		"Fa = (Word) ((node *) F)->fa;").
+
+:- pragma inline(value/1).
+:- pragma inline(tr/1).
+:- pragma inline(fa/1).
+
+%------------------------------------------------------------------------%
+
+:- pragma memo(dnf/1).
+
+dnf(R) =
+	( R = zero ->
+		[]
+	; R = one ->
+		[[]]
+	;
+		list__map(func(L) = [pos(R ^ value) | L], dnf(R ^ tr)) ++
+		list__map(func(L) = [neg(R ^ value) | L], dnf(R ^ fa))
+	).
+
+/*
+cnf(R) =
+	( R = zero ->
+		[[]]
+	; R = one ->
+		[]
+	;
+		[pos(R ^ value) | cnf(R ^ tr)] `merge_cnf`
+		[neg(R ^ value) | cnf(R ^ fa)]
+	).
+
+:- func merge_cnf(list(list(literal(T))), list(list(literal(T)))) =
+		list(list(literal(T))).
+
+merge_cnf(As, Bs) =
+	( As = [] ->
+		Bs
+	; Bs = [] ->
+		As
+	; As = [[]] ->
+		As
+	; Bs = [[]] % XXX check
+	;
+		foldl(func(A, Cs0) =
+			foldl(func(B, Cs1) = [A ++ B | Cs1], Bs, Cs0),
+		    As, [])
+	).
+*/
 
 /*
 :- pragma c_code(print_robdd(F::in, IO0::di, IO::uo), [will_not_call_mercury],
@@ -1157,6 +1250,7 @@ robdd_to_dot(Robdd, WV) -->
 	size=""7,11"";
 	ordering=out;
 	node [shape=record,height=.1];
+	concentrate=true;
 "),
 	{ multi_map__init(Ranks0) },
 	robdd_to_dot_2(Robdd, WV, set_bbbtree__init, _, Ranks0, Ranks),
@@ -1303,22 +1397,4 @@ clear_caches -->
 %-----------------------------------------------------------------------------%
 
 % XXX
-
-:- pred unsafe_perform_io(pred(io__state, io__state)).
-:- mode unsafe_perform_io(pred(di, uo) is det) is det.
-
-:- pragma c_code(
-unsafe_perform_io(P::(pred(di, uo) is det)),
-	[may_call_mercury],
-"{
-	ML_lazy_io_call_io_pred_det(P);
-}").
-
-:- pred call_io_pred(pred(io__state, io__state), io__state, io__state).
-:- mode call_io_pred(pred(di, uo) is det, di, uo) is det.
-
-:- pragma export(call_io_pred(pred(di, uo) is det, di, uo),
-		"ML_lazy_io_call_io_pred_det").
-
-call_io_pred(P) --> P.
 

@@ -64,7 +64,7 @@
 
 :- implementation.
 
-:- import_module map, list, set, assoc_list, std_util, require.
+:- import_module map, list, set, assoc_list, std_util, require, sparse_bitset.
 
 :- type equiv_vars(T)
 	--->	equiv_vars(
@@ -302,15 +302,17 @@ filter(P, equiv_vars(LM0)) = equiv_vars(LM) :-
 	LM = list__foldl(func(V, M) = delete(M, V), Vars, LM0).
 
 normalise_known_equivalent_vars(Changed, Vars0, Vars, EQVars0, EQVars) :-
-	( empty(Vars0) ->
+	( ( empty(Vars0) ; empty(EQVars0) ) ->
 		Vars = Vars0,
 		EQVars = EQVars0,
 		Changed = no
 	;
+		Vars1 = foldl(func(V, Vs) =
+			( L = EQVars0 ^ leader(V) -> Vs `insert` L ; Vs ),
+		    Vars0, Vars0),
 		EQVars0 = equiv_vars(LeaderMap0),
 		foldl(normalise_known_equivalent_vars_2, LeaderMap0,
-			{no, Vars0, LeaderMap0},
-			{Changed, Vars, LeaderMap}),
+		    {no, Vars1, LeaderMap0}, {Changed, Vars, LeaderMap}),
 		EQVars = equiv_vars(LeaderMap)
 	).
 

@@ -11,7 +11,7 @@
 
 :- interface.
 
-:- import_module robdd, bool.
+:- import_module robdd, bool, term.
 :- import_module xrobdd__equiv_vars.
 
 :- func init_imp_vars = imp_vars(T).
@@ -54,16 +54,19 @@
 
 :- implementation.
 
-:- import_module map, require, assoc_list, std_util.
+:- import_module map, require, assoc_list, std_util, term, list, sparse_bitset.
 
-% imp_map invariant:
-% for all imp_maps, IM:
-% all [VA, VB] ( member(IM, VA, Vs), member(VB, Vs) ) => compare(<, VA, VB)
+
+% XXX
+:- import_module unsafe, io.
 
 init_imp_vars = imp_vars(init, init, init, init).
 
-ImpVarsA * ImpVarsB =
-	apply_to_coresp_imp_maps(union, ImpVarsA, ImpVarsB).
+ImpVars * imp_vars(Imps, RevImps, DisImps, RevDisImps) =
+	ImpVars ^ add_imp_map_clauses(mkneg, mkpos, Imps)
+		^ add_imp_map_clauses(mkpos, mkneg, RevImps)
+		^ add_imp_map_clauses(mkneg, mkneg, DisImps)
+		^ add_imp_map_clauses(mkpos, mkpos, RevDisImps).
 
 ImpVarsA + ImpVarsB =
 	apply_to_coresp_imp_maps(intersect, ImpVarsA, ImpVarsB).
@@ -73,6 +76,7 @@ ImpVarsA `difference` ImpVarsB =
 
 ImpVars `delete` Var =
 	apply_to_imp_maps(delete_var_from_imp_map(Var), ImpVars).
+	% XXX could make this more efficient by using backwards relations.
 
 restrict_threshold(Threshold, ImpVars) =
 	apply_to_imp_maps(func(IM) =
@@ -105,43 +109,21 @@ filter_imp_map(P, IM) =
 		),
 	    IM, IM).
 
-neq_vars(VarA0, VarB0, ImpVars) =
-	(ImpVars ^ dis_imps ^ new_relation(VarA) := VarB )
-		 ^ rev_dis_imps ^ new_relation(VarA) := VarB :-
-	( compare((<), VarA0, VarB0) ->
-	    VarA = VarA0,
-	    VarB = VarB0
-	;
-	    VarA = VarB0,
-	    VarB = VarA0
-	).
+neq_vars(A, B, ImpVars) =
+	ImpVars ^ add_clause({neg(A), neg(B)}) ^ add_clause({pos(A), pos(B)}).
 
-imp_vars(VarA, VarB, ImpVars) =
-	( compare((=), VarA, VarB) ->
-		ImpVars
-	; compare((<), VarA, VarB) ->
-		ImpVars ^ imps ^ new_relation(VarA) := VarB
-	;
-		ImpVars ^ rev_imps ^ new_relation(VarB) := VarA
-	).
+imp_vars(A, B, ImpVars) =
+	ImpVars ^ add_clause({neg(A), pos(B)}).
 
 at_most_one_of(Vars0, ImpVars) =
 	( remove_least(Vars0, Var, Vars) ->
-	    at_most_one_of(Vars,
-			ImpVars ^ dis_imps ^ new_relations(Var) := Vars)
+	    ImpVars ^ foldl(not_both(Var), Vars) ^ at_most_one_of(Vars)
 	;
 	    ImpVars
 	).
 
-not_both(VarA0, VarB0, ImpVars) =
-	ImpVars ^ dis_imps ^ new_relation(VarA) := VarB :-
-	( compare((<), VarA0, VarB0) ->
-	    VarA = VarA0,
-	    VarB = VarB0
-	;
-	    VarA = VarB0,
-	    VarB = VarA0
-	).
+not_both(A, B, ImpVars) =
+	ImpVars ^ add_clause({neg(A), neg(B)}).
 
 normalise_true_false_implication_vars(Changed, TrueVars0, TrueVars,
 		FalseVars0, FalseVars, ImpVars0, ImpVars) :-
@@ -252,8 +234,8 @@ normalise_pairs(Extract, Imps, DisImps, Changed, FalseVars0, FalseVars) :-
 	    Changed = yes,
 	    (
 		Extract = keys,
-		Keys = sorted_list_to_set(Intersect ^ sorted_keys),
-		FalseVars = FalseVars0 `union` Keys
+		FalseVars = FalseVars0 `union`
+			Intersect ^ sorted_keys ^ sorted_list_to_set
 	    ;
 		Extract = values,
 		Values = list__foldl(union, Intersect ^ values, init),
@@ -282,12 +264,8 @@ propagate_equivalences_into_implications(EQVars, Changed, ImpVars0, ImpVars) :-
 	bool::out, imp_map(T)::in, imp_map(T)::out) is det.
 
 propagate_equivalences_into_implications_2(EQVars, Changed, ImpMap0, ImpMap) :-
-	{ImpMap, Changed} = foldl((func(V, Vs0, {IM, C}) =
-		( empty(Vs) ->
-			{IM, yes}
-		;
-			{IM ^ elem(V) := Vs, ( Vs = Vs0 -> C ; yes )}
-		) :-
+	{ImpMap, Changed} = map__foldl((func(V, Vs0, {IM, C}) =
+		{ IM ^ entry(V) := Vs, ( Vs = Vs0 -> C ; yes ) } :-
 		Vs = filter(vars_are_not_equivalent(EQVars, V), Vs0)
 	    ), ImpMap0, {init, no}).
 
@@ -336,11 +314,26 @@ propagate_implications_into_equivalences(Changed, EQVars0, EQVars,
 
 %------------------------------------------------------------------------%
 
+% XXX
+%:- pragma promise_pure(extract_implication_vars_from_robdd/5).
+
 extract_implication_vars_from_robdd(Changed, Robdd0, Robdd,
 		ImpVars0, ImpVars) :-
+	% ImpVars1 = add_backwards_relations(extract_implications(Robdd0)),
 	ImpVars1 = extract_implications(Robdd0),
 	ImpVars = ImpVars0 * ImpVars1,
+
+	% XXX
+	/*
+	P = (pred(V::in, di, uo) is det --> io__write_int(var_to_int(V))), % XXX
+	impure unsafe_perform_io(robdd_to_dot(Robdd0, P, "extract_impl_before.dot")), % XXX
+	*/
+
 	Robdd = remove_implications(ImpVars, Robdd0),
+
+	/*
+	impure unsafe_perform_io(robdd_to_dot(Robdd, P, "extract_impl_after.dot")), % XXX
+	*/
 
 	Changed = ( Robdd = Robdd0, empty(ImpVars1) -> no ; yes ).
 
@@ -352,6 +345,15 @@ add_equalities_to_imp_vars(EQVars, ImpVars) =
 	    EQVars ^ leader_map, ImpVars).
 
 %------------------------------------------------------------------------%
+
+:- func entry(var(T), imp_map(T)) = vars(T).
+
+entry(V, M) =
+	( Vs = M ^ elem(V) ->
+		Vs
+	;
+		init
+	).
 
 :- func 'entry :='(var(T), imp_map(T), vars(T)) = imp_map(T).
 
@@ -371,6 +373,17 @@ add_equalities_to_imp_vars(EQVars, ImpVars) =
 	    M ^ elem(VA) := make_singleton_set(VB)
 	).
 
+:- func 'maybe_new_relation :='(var(T), imp_map(T), var(T)) = imp_map(T) 
+		is semidet.
+
+'maybe_new_relation :='(VA, M0, VB) = M :-
+	( Vs = M0 ^ elem(VA) ->
+	    \+ ( Vs `contains` VB ),
+	    M = M0 ^ elem(VA) := Vs `insert` VB
+	;
+	    M = M0 ^ elem(VA) := make_singleton_set(VB)
+	).
+
 :- func 'new_relations :='(var(T), imp_map(T), vars(T)) = imp_map(T).
 
 'new_relations :='(V, M, NewVs) =
@@ -378,15 +391,6 @@ add_equalities_to_imp_vars(EQVars, ImpVars) =
 	    M ^ elem(V) := Vs `union` NewVs
 	;
 	    M ^ elem(V) := NewVs
-	).
-
-:- pred imp_map_contains(var(T)::in, var(T)::in, imp_map(T)::in) is semidet.
-
-imp_map_contains(VA, VB, IM) :-
-	( compare((<), VA, VB) ->
-		IM ^ elem(VA) `contains` VB
-	;
-		error("imp_map_contains: variable ordering error")
 	).
 
 :- pred empty(imp_vars(T)::in) is semidet.
@@ -425,13 +429,17 @@ IMA `intersect` IMB = remove_empty_sets(intersect(intersect, IMA, IMB)).
 :- func imp_map(T) `imp_map_difference` imp_map(T) = imp_map(T).
 
 IMA `imp_map_difference` IMB =
-	map__foldl(func(V, VsB, M) =
-		( VsA = M ^ elem(V) ->
-		    M ^ entry(V) := VsA `difference` VsB
-		;
-		    M
-		),
-	    IMA, IMB).
+	( is_empty(IMA) ->
+	    IMA
+	;
+	    map__foldl(func(V, VsB, M) =
+		    ( VsA = M ^ elem(V) ->
+			M ^ entry(V) := VsA `difference` VsB
+		    ;
+			M
+		    ),
+		IMB, IMA)
+	).
 
 :- func remove_empty_sets(imp_map(T)) = imp_map(T).
 
@@ -455,3 +463,109 @@ delete_var_from_imp_map(Var, IM0) =
 		),
 	    IM1, IM1) :-
 	IM1 = IM0 `delete` Var.
+
+%------------------------------------------------------------------------%
+
+:- func add_backwards_relations(imp_vars(T)) = imp_vars(T).
+
+add_backwards_relations(imp_vars(Is0, RIs0, DIs0, RDIs0)) =
+	imp_vars(
+		add_backwards_to_imp_map(Is0, RIs0),
+		add_backwards_to_imp_map(RIs0, Is0),
+		add_backwards_to_imp_map(DIs0, DIs0),
+		add_backwards_to_imp_map(RDIs0, RDIs0)
+	).
+
+:- func add_backwards_to_imp_map(imp_map(T), imp_map(T)) = imp_map(T).
+
+add_backwards_to_imp_map(IM, RIM) =
+	map__foldl(func(VA, Vs, M0) =
+		foldl(func(VB, M1) =
+			M1 ^ new_relation(VB) := VA,
+		    Vs, M0),
+	    RIM, IM).
+
+%------------------------------------------------------------------------%
+
+:- type mklit(T) == (func(var(T)) = literal(T)).
+
+:- func mkpos(var(T)) = literal(T).
+
+mkpos(V) = pos(V).
+
+:- func mkneg(var(T)) = literal(T).
+
+mkneg(V) = neg(V).
+
+:- type bin_clause(T) == { literal(T), literal(T) }.
+
+:- func add_clause(bin_clause(T), imp_vars(T)) = imp_vars(T).
+
+add_clause(Clause, ImpVars) =
+	add_clauses([Clause], ImpVars).
+
+:- func add_clauses(list(bin_clause(T)), imp_vars(T)) = imp_vars(T).
+
+add_clauses([], ImpVars) = ImpVars.
+add_clauses([Clause | Clauses], ImpVars0) = ImpVars :-
+	( ImpVars1 = add_clause_2(Clause, ImpVars0) ->
+		Resolvents = get_resolvents(Clause, ImpVars1),
+		ImpVars = add_clauses(Resolvents ++ Clauses, ImpVars1)
+	;
+		ImpVars = add_clauses(Clauses, ImpVars0)
+	).
+
+	% Add a new clause to the imp_vars.  Fail if the clause is already
+	% present.
+:- func add_clause_2(bin_clause(T), imp_vars(T)) = imp_vars(T) is semidet.
+
+add_clause_2({neg(VA), pos(VB)}, ImpVars) =
+	(ImpVars ^ imps     ^ maybe_new_relation(VA) := VB)
+		 ^ rev_imps ^ maybe_new_relation(VB) := VA.
+add_clause_2({pos(VA), neg(VB)}, ImpVars) =
+	(ImpVars ^ rev_imps ^ maybe_new_relation(VA) := VB)
+		 ^ imps     ^ maybe_new_relation(VB) := VA.
+add_clause_2({neg(VA), neg(VB)}, ImpVars) =
+	(ImpVars ^ dis_imps ^ maybe_new_relation(VA) := VB)
+		 ^ dis_imps ^ maybe_new_relation(VB) := VA.
+add_clause_2({pos(VA), pos(VB)}, ImpVars) =
+	(ImpVars ^ rev_dis_imps ^ maybe_new_relation(VA) := VB)
+		 ^ rev_dis_imps ^ maybe_new_relation(VB) := VA.
+
+:- func get_resolvents(bin_clause(T), imp_vars(T)) = list(bin_clause(T)).
+
+get_resolvents({LitA, LitB}, ImpVars) =
+	get_resolvents_2(LitA, LitB, ImpVars) ++
+	get_resolvents_2(LitB, LitA, ImpVars).
+
+:- func get_resolvents_2(literal(T), literal(T), imp_vars(T)) =
+		list(bin_clause(T)).
+
+get_resolvents_2(LitA, LitB, ImpVars) = Clauses :-
+	Literals = get_literals(LitA, ImpVars),
+	Clauses = list__map(func(NewLit) = {NewLit, LitB}, Literals).
+
+:- func get_literals(literal(T), imp_vars(T)) = list(literal(T)).
+
+get_literals(LitA, ImpVars) =
+		map(mkpos, to_sorted_list(Pos)) ++
+		map(mkneg, to_sorted_list(Neg)) :-
+	(
+	    LitA = pos(VarA),
+	    Pos = ImpVars ^ imps ^ entry(VarA),
+	    Neg = ImpVars ^ dis_imps ^ entry(VarA)
+	;
+	    LitA = neg(VarA),
+	    Pos = ImpVars ^ rev_dis_imps ^ entry(VarA),
+	    Neg = ImpVars ^ rev_imps ^ entry(VarA)
+	).
+
+:- func add_imp_map_clauses(mklit(T), mklit(T), imp_map(T), imp_vars(T)) =
+		imp_vars(T).
+
+add_imp_map_clauses(MkLitA, MkLitB, IM, ImpVars) =
+	map__foldl(func(VarA, Vars, IVs0) =
+		foldl(func(VarB, IVs1) =
+			add_clause({MkLitA(VarA), MkLitB(VarB)}, IVs1),
+		    Vars, IVs0),
+	    IM, ImpVars).

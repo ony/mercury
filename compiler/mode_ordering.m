@@ -32,6 +32,9 @@
 :- import_module xrobdd.
 :- import_module hlds_goal, prog_data, clause_to_proc, mode_constraint_robdd.
 
+:- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__check_robdd.
+
 mode_ordering(PredConstraintMap, SCCs, ModuleInfo0, ModuleInfo) -->
 	{ list__foldl(mode_ordering__scc(PredConstraintMap), SCCs, ModuleInfo0,
 		ModuleInfo) },

@@ -26,6 +26,12 @@
 :- import_module mode_constraint_robdd, mode_ordering.
 :- import_module gc.
 
+:- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__check_robdd.
+
+% XXX
+:- import_module unsafe.
+
 :- typeclass has_mc_info(T) where [
 	func mc_info(T) = mode_constraint_info,
 	func 'mc_info :='(T, mode_constraint_info) = T
@@ -416,8 +422,11 @@ mode_constraints__process_pred(PredId, SCC, ModuleInfo0, ModuleInfo,
 	{ ModeConstraint1 = ModeConstraint0 * DeclConstraint },
 	/*
 	{ clauses_info_varset(ClausesInfo0, ProgVarSet) }, % XXX
-	robdd_to_dot(ModeConstraint0, ProgVarSet,
-		ModeConstraintInfo1, "mode_decl.dot"), % XXX
+	{ pred_id_to_int(PredId, PredIdInt) }, % XXX
+	robdd_to_dot(DeclConstraint, ProgVarSet, ModeConstraintInfo1,
+		format("mode_decl_%d.dot", [i(PredIdInt)])), % XXX
+	robdd_to_dot(ModeConstraint1, ProgVarSet, ModeConstraintInfo1,
+		format("mode_constraint1_%d.dot", [i(PredIdInt)])), % XXX
 	io__flush_output, % XXX
 	*/
 	( { pred_info_is_imported(PredInfo1) } ->
@@ -905,8 +914,15 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	save_thresh(Threshold),
 
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
-	goal_constraints_2(GoalPath, NonLocals, Vars, GoalExpr0, GoalExpr,
+
+	InstGraph =^ inst_graph,
+	{ NonLocalReachable = solutions_set(inst_graph__reachable_from_list(
+		InstGraph, to_sorted_list(NonLocals))) },
+	constrain_local_vars(Vars `difference` NonLocalReachable, GoalPath,
 		Constraint0, Constraint1),
+
+	goal_constraints_2(GoalPath, NonLocals, Vars, GoalExpr0, GoalExpr,
+		Constraint1, Constraint2),
 	/*
 	ModuleInfo =^ module_info, % XXX
 	ProgVarset =^ prog_varset, % XXX
@@ -924,7 +940,7 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 		[i(NumNodes1), i(Depth1)])) }, % XXX
 	*/
 	%{ unsafe_perform_io(io__flush_output) },
-	{ Constraint2 = restrict_threshold(Threshold, Constraint1) },
+	{ Constraint3 = restrict_threshold(Threshold, Constraint2) },
 	/*
 	{ size(Constraint2, NumNodes2, Depth2) }, % XXX
 	{ unsafe_perform_io(io__format(
@@ -934,12 +950,12 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	*/
 
 	constrain_non_occuring_vars(ParentNonLocals, Vars, GoalPath,
-		Constraint2, Constraint),
+		Constraint3, Constraint),
 	%{ unsafe_perform_io(dump_constraints(ModuleInfo, ProgVarset, Constraint)) },
 	%{ goal_info_set_mode_constraint(GoalInfo0, Constraint, GoalInfo) }.
 	{ GoalInfo = GoalInfo0 }.
 
-:- pragma promise_pure(goal_constraints_2/9).
+% :- pragma promise_pure(goal_constraints_2/9).
 
 :- pred goal_constraints_2(goal_path::in, set(prog_var)::in,
 		set(prog_var)::in, hlds_goal_expr::in, hlds_goal_expr::out,
@@ -951,10 +967,10 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	{ multi_map__init(Empty) },
 	conj_constraints(NonLocals, Constraint0, Constraint1, Goals0, Goals,
 		Empty, Usage),
-	%/*
+	/*
 	Info =^ mc_info, VarSet =^ prog_varset, % XXX
 	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
-	%*/
+	*/
 	map__foldl2((pred(V::in, Ps::in, Cn0::in, Cn::out, in, out) is det -->
 		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
 			get_var(V `at` P, CV)
@@ -1111,38 +1127,44 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 		if_then_else(IteNonLocals, Cond0, Then0, Else0, SM),
 		if_then_else(IteNonLocals, Cond, Then, Else, SM),
 		Constraint0, Constraint) -->
-	goal_constraints(NonLocals, Cond0, Cond, Constraint0, Constraint1),
-	goal_constraints(NonLocals, Then0, Then, Constraint1, Constraint2),
-	goal_constraints(NonLocals, Else0, Else, Constraint2, Constraint3),
 
 	% Make sure that the condition doesn't bind any variables that are
 	% non-local to the if-then-else.
-	negation_constraints(goal_path(Cond), NonLocals,
-		Constraint3, Constraint4),
+	negation_constraints(goal_path(Cond0), NonLocals,
+		Constraint0, Constraint1),
+
+	InstGraph =^ inst_graph,
+	{ NonLocalReachable = solutions(inst_graph__reachable_from_list(
+		InstGraph, to_sorted_list(NonLocals))) },
 
 	% Make sure variables have the same bindings in both the then and else
 	% branches.
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
-			get_var(V `at` goal_path(Then), Vthen),
-			get_var(V `at` goal_path(Else), Velse),
+			get_var(V `at` goal_path(Then0), Vthen),
+			get_var(V `at` goal_path(Else0), Velse),
 			{ C = C0 ^ eq_vars(Vgp, Vthen) ^ eq_vars(Vgp, Velse) }
-		), set__to_sorted_list(NonLocals), Constraint4, Constraint5),
-	% XXX Should be all nodes reachable from NonLocals.
+		), NonLocalReachable, Constraint1, Constraint2),
 
 	% Make sure variables are bound in at most one of the cond and then
 	% goals.
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
-			get_var(V `at` goal_path(Cond), Vcond),
-			get_var(V `at` goal_path(Then), Vthen),
+			get_var(V `at` goal_path(Cond0), Vcond),
+			get_var(V `at` goal_path(Then0), Vthen),
 			{ C = C0 ^ not_both(Vcond, Vthen) }
-		), set__to_sorted_list(vars(Cond) `set__union` vars(Then)),
-		Constraint5, Constraint6),
+		), set__to_sorted_list(vars(Cond0) `set__union` vars(Then0)),
+		Constraint2, Constraint3),
+
+	goal_constraints(NonLocals, Cond0, Cond, Constraint3, Constraint4),
+	goal_constraints(NonLocals, Then0, Then, Constraint4, Constraint5),
+	goal_constraints(NonLocals, Else0, Else, Constraint5, Constraint6),
 
 	% Local variables bound in cond, then or else should be treated as
 	% though they are bound in the ite as well.  (Although all such
 	% variables will be local to the ite, the _out constraints still need to
 	% be satisfied.)
+	{ Locals = to_sorted_list(
+		Vars `difference` sorted_list_to_set(NonLocalReachable)) },
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` goal_path(Cond), Vcond),
 			get_var(V `at` goal_path(Then), Vthen),
@@ -1150,8 +1172,8 @@ goal_constraints_2(GoalPath, NonLocals, Vars,
 			get_var(V `at` GoalPath, Vgp),
 			{ Vs = list_to_set([Vcond, Vthen, Velse]) },
 			{ C = C0 ^ disj_vars_eq(Vs, Vgp) }
-		), set__to_sorted_list(Vars `difference` NonLocals),
-		Constraint6, Constraint).
+		), Locals, Constraint6, Constraint).
+
 
 goal_constraints_2(_,_,_,foreign_proc(_,_,_,_,_,_,_),_,_,_) -->
 	{ error("NYI") }.
@@ -1501,6 +1523,21 @@ equivalent_sym_names(unqualified(S), qualified(_, S)).
 equivalent_sym_names(qualified(QualA, S), qualified(QualB, S)) :-
 	equivalent_sym_names(QualA, QualB).
 
+%------------------------------------------------------------------------%
+
+% For local variables, V_ must be equivalent to Vgp.
+
+:- pred constrain_local_vars(set(prog_var)::in, goal_path::in,
+	mode_constraint::in, mode_constraint::out,
+	goal_constraints_info::in, goal_constraints_info::out) is det.
+
+constrain_local_vars(Locals, GoalPath, Constraint0, Constraint) -->
+	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
+		get_var(V `at` GoalPath, Vgp),
+		get_var(out(V), Vout),
+		{ C = C0 ^ eq_vars(Vgp, Vout) }
+	    ), to_sorted_list(Locals), Constraint0, Constraint).
+
 :- pred constrain_non_occuring_vars(set(prog_var)::in, set(prog_var)::in,
 	goal_path::in, mode_constraint::in, mode_constraint::out,
 	goal_constraints_info::in, goal_constraints_info::out) is det.
@@ -1656,23 +1693,6 @@ vars(_ - GoalInfo) = OccurringVars :-
 
 %------------------------------------------------------------------------%
 %------------------------------------------------------------------------%
-
-:- impure pred unsafe_perform_io(pred(io__state, io__state)).
-:- mode unsafe_perform_io(pred(di, uo) is det) is det.
-
-:- pragma c_code(unsafe_perform_io(P::(pred(di, uo) is det)),
-	[may_call_mercury],
-"{
-	ME_lazy_io_call_io_pred_det(P);
-}").
-
-:- pred call_io_pred(pred(io__state, io__state), io__state, io__state).
-:- mode call_io_pred(pred(di, uo) is det, di, uo) is det.
-
-:- pragma export(call_io_pred(pred(di, uo) is det, di, uo),
-		"ME_lazy_io_call_io_pred_det").
-
-call_io_pred(P) --> P.
 
 /*
 :- pred conj_to_dot(mode_constraint::in, prog_varset::in,

@@ -29,7 +29,7 @@ GETOPT_FLAGS=-D__GNU_LIBRARY__
 GETOPT_SRC=$(RUNTIME_DIR)/GETOPT/getopt.c $(RUNTIME_DIR)/GETOPT/getopt1.c
 
 # mkinit.c needs `struct stat'
-MGNUCFLAGS-mkinit = --no-ansi
+# MGNUCFLAGS-mkinit = --no-ansi
 
 #-----------------------------------------------------------------------------#
 

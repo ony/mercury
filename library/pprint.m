@@ -291,7 +291,8 @@
 
 :- implementation.
 
-:- import_module std_util, char, array, map.
+:- import_module std_util, char, array, map, sparse_bitset, enum, term.
+:- import_module robdd. % XXX
 
 :- type doc
     --->    'NIL'
@@ -504,7 +505,15 @@ to_doc(X) = to_doc(int__max_int, X).
 
 to_doc(Depth, X) = Doc :-
     deconstruct(X, Name, Arity, UnivArgs),
-    (      if dynamic_cast_to_list(X, List) then
+    ( if dynamic_cast_to_var(X, Var) then
+        Doc = var_to_doc(Depth, Var)
+      else if dynamic_cast_to_robdd(X, Robdd) then
+        Doc = robdd_to_doc(Depth, Robdd)
+      else if dynamic_cast_to_sparse_bitset_of_int(X, SparseBitset) then
+        Doc = sparse_bitset_to_doc(Depth, SparseBitset)
+      else if dynamic_cast_to_sparse_bitset_of_var(X, SparseBitset) then
+        Doc = sparse_bitset_to_doc(Depth, SparseBitset)
+      else if dynamic_cast_to_list(X, List) then
         Doc = list_to_doc(Depth, List)
       else if dynamic_cast_to_array(X, Array) then
         Doc = array_to_doc(Depth, Array)
@@ -549,8 +558,86 @@ dynamic_cast_to_array(X, A) :-
         % Constrain the type of A to be array(ArgType) and do the
         % cast.
         %
+
     dynamic_cast(X, A `with_type` array(ArgType)).
 
+%-----------------------------------------------------------------------------%
+
+:- some [T2] pred dynamic_cast_to_var(T1, var(T2)).
+:-           mode dynamic_cast_to_var(in, out) is semidet.
+
+dynamic_cast_to_var(X, V) :-
+
+        % If X is a var then it has a type with one type argument.
+        %
+    [ArgTypeDesc] = type_args(type_of(X)),
+
+        % Convert ArgTypeDesc to a type variable ArgType.
+        %
+    (_ `with_type` ArgType) `has_type` ArgTypeDesc,
+
+        % Constrain the type of V to be var(ArgType) and do the
+        % cast.
+        %
+    dynamic_cast(X, V `with_type` var(ArgType)).
+
+%-----------------------------------------------------------------------------%
+
+:- some [T2] pred dynamic_cast_to_robdd(T1, robdd(T2)).
+:-           mode dynamic_cast_to_robdd(in, out) is semidet.
+
+dynamic_cast_to_robdd(X, R) :-
+
+        % If X is a robdd then it has a type with one type argument.
+        %
+    [ArgTypeDesc] = type_args(type_of(X)),
+
+        % Convert ArgTypeDesc to a type variable ArgType.
+        %
+    (_ `with_type` ArgType) `has_type` ArgTypeDesc,
+
+        % Constrain the type of R to be robdd(ArgType) and do the
+        % cast.
+        %
+    dynamic_cast(X, R `with_type` robdd(ArgType)).
+
+%-----------------------------------------------------------------------------%
+
+:- some [T2] pred dynamic_cast_to_sparse_bitset_of_int(T1, sparse_bitset(int)).
+:- mode           dynamic_cast_to_sparse_bitset_of_int(in, out) is semidet.
+
+dynamic_cast_to_sparse_bitset_of_int(X, A) :-
+        ( if dynamic_cast(X, A0 `with_type` sparse_bitset(int)) then
+            A = A0
+        %else if dynamic_cast(X, A0 `with_type` sparse_bitset(var)) then
+            %A = A0
+        else
+            fail
+        ).
+
+:- some [T2] pred dynamic_cast_to_sparse_bitset_of_var(T1,
+                        sparse_bitset(var(T2))).
+:-           mode dynamic_cast_to_sparse_bitset_of_var(in, out) is semidet.
+
+dynamic_cast_to_sparse_bitset_of_var(X, L) :-
+
+        % If X is a sparse_bitset then it has a type with one type argument.
+        %
+    [ArgTypeDesc] = type_args(type_of(X)),
+
+        % If ArgTypeDesc is the type var that it has one argument.
+    [ArgArgTypeDesc] = type_args(ArgTypeDesc),
+
+        % Convert ArgArgTypeDesc to a type variable ArgType.
+        %
+    (_ `with_type` ArgType) `has_type` ArgArgTypeDesc,
+
+        % Constrain the type of L to be list(ArgType) and do the
+        % cast.
+        %
+    dynamic_cast(X, L `with_type` sparse_bitset(var(ArgType))).
+
+%-----------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
 
 :- some [T2] pred dynamic_cast_to_list(T1, list(T2)).
@@ -612,6 +699,32 @@ dynamic_cast_to_tuple(X, X) :-
 
 array_to_doc(Depth, A) =
     text("array") `<>` parentheses(list_to_doc(Depth, array__to_list(A))).
+
+%------------------------------------------------------------------------------%
+
+:- func var_to_doc(int, var(T)) = doc.
+
+var_to_doc(Depth, V) =
+    to_doc(Depth, to_int(V)).
+
+%------------------------------------------------------------------------------%
+
+:- func robdd_to_doc(int, robdd(T)) = doc.
+
+robdd_to_doc(Depth, R) =
+    text("robdd_dnf") `<>` parentheses(list_to_doc(Depth, dnf(R))).
+
+%------------------------------------------------------------------------------%
+%------------------------------------------------------------------------------%
+
+    % XXX Ideally we'd just walk the sparse bitset.  But that's an optimization
+    % for another day.
+    %
+:- func sparse_bitset_to_doc(int, sparse_bitset(T)) = doc <= enum(T).
+
+sparse_bitset_to_doc(Depth, A) =
+    text("sparse_bitset") `<>` parentheses(list_to_doc(Depth,
+                sparse_bitset__to_sorted_list(A))).
 
 %------------------------------------------------------------------------------%
 

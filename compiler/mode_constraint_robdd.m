@@ -116,6 +116,9 @@
 :- import_module std_util, list, term, varset, map, require, term_io.
 :- import_module bimap, assoc_list, string, stack, sparse_bitset, robdd.
 
+:- import_module xrobdd__tfeir_robdd.
+:- import_module xrobdd__check_robdd.
+
 :- type mc_type ---> mc_type.
 
 :- type mode_constraint_info
@@ -128,7 +131,7 @@
 			max_vars :: map(pred_id, mode_constraint_var)
 		).
 
-:- type threshold == mode_constraint_var.
+:- type threshold ---> threshold(mode_constraint_var).
 
 init_mode_constraint_info =
 		mode_constraint_info(varset__init, bimap__init, PredId,
@@ -170,11 +173,8 @@ mode_constraint_var(Info, RepVar) = bimap__lookup(Info^varmap, Key) :-
 remove_goal_path_branches(RepVar) =
 	(
 		RepVar = ProgVar `at` Path0,
-		list__takewhile((pred(_Step::in) is semidet :-
-			semidet_fail), % XXX
-			%( Step = disj(_) ; Step = ite_then ; Step = ite_else 
-			%; Step = neg ; Step = exist(_)
-			%)),
+		list__takewhile((pred(Step::in) is semidet :-
+			( Step = disj(_) ; Step = neg ; Step = exist(_) )),
 		    Path0, _, Path)
 	->
 		% Variables in each branch of a branched goal are always
@@ -215,11 +215,11 @@ set_level_from_var(prog_var_and_level(_Var, PredId, LambdaPath)) -->
 	^pred_id := PredId,
 	^lambda_path := LambdaPath.
 	
-save_threshold(varset__max_var(VarSet)) -->
+save_threshold(threshold(varset__max_var(VarSet))) -->
 	VarSet =^ varset.
 
-restrict_threshold(Threshold, Constraint) =
-	xrobdd__restrict_threshold(Threshold, Constraint).
+restrict_threshold(threshold(Threshold), Constraint) =
+	restrict_threshold(Threshold, Constraint).
 
 restrict_filter(P0, Info, M) = restrict_filter(P, M) :-
 	P = (pred(MCV::in) is semidet :-
@@ -228,13 +228,13 @@ restrict_filter(P0, Info, M) = restrict_filter(P, M) :-
 	).
 
 save_min_var_for_pred(PredId) -->
-	save_threshold(Threshold),
+	save_threshold(threshold(Threshold)),
 	MinVars0 =^ min_vars,
 	{ map__set(MinVars0, PredId, Threshold, MinVars) },
 	^min_vars := MinVars.
 
 save_max_var_for_pred(PredId) -->
-	save_threshold(Threshold),
+	save_threshold(threshold(Threshold)),
 	MaxVars0 =^ max_vars,
 	{ map__set(MaxVars0, PredId, Threshold, MaxVars) },
 	^max_vars := MaxVars.
