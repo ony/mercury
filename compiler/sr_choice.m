@@ -124,7 +124,11 @@ apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal = some(Vars, CanRemove, SomeGoal) }.
 
 apply_constraint_2(Constraint, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	apply_constraint_2(Constraint, Goal0, Goal).
+	=(InitNotInfo),
+	% A negated goal cannot introduce new dead cells to the map of
+	% available dead cells, as those dead cells are not allowed to 
+	% be reused outside of the negated goal. 
+	{ apply_constraint_2(Constraint, Goal0, Goal, InitNotInfo, _) }.
 
 apply_constraint_2(Constraint, conj(Goal0s) - GoalInfo,
 		conj(Goals) - GoalInfo) -->
