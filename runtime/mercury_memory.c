@@ -416,6 +416,7 @@ MR_Word MR_check_cell_cache(size_t size)
 	} else {
 		int ind = MR_cell_cache_index[size];
 		cell = MR_cell_cache[size][ind];
+		MR_cell_cache[size][ind] = NULL;
 
 		if (ind == 0) {
 			MR_cell_cache_index[size] = MR_CACHE_ENTRIES - 1;
