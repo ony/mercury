@@ -60,6 +60,7 @@
 :- import_module sr_reuse.
 :- import_module sr_reuse_util.
 :- import_module sr_live.
+:- import_module sr_data.
 
 %-------------------------------------------------------------------%
 %-- predicates
@@ -321,7 +322,7 @@ analyse_goal( ProcInfo, HLDS, Goal0, Goal,
 		(
 			Unification0 = construct(Var, ConsId, Vars,
 					Modes, _, IsUnique, Aditi),
-			GoalInfoReuse = cell_reused(ReuseVar)
+			GoalInfoReuse = reuse(cell_reused(ReuseVar))
 		->
 			CorrectVals = list__duplicate(list__length(Vars), no),
 			Cell = cell_to_reuse(ReuseVar, ConsId, CorrectVals),
@@ -492,7 +493,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 			sr_reuse__add_indirect_reuse( ProcInfo, HLDS, 
 				PredId, ProcId, TREUSE, LFUi, LBUi, 
 				Alias0, Reuses0, Reuses),
-			goal_info_set_reuse(Info0, reuse_call, Info)
+			goal_info_set_reuse(Info0, reuse(reuse_call), Info)
 		;
 			Reuses = Reuses0,
 			Info = Info0
@@ -520,7 +521,7 @@ unification_verify_reuse( Unification, Alias0, Reuses0, Reuses,
 			Info = Info0,
 			Reuses = Reuses0
 		;
-			goal_info_set_reuse(Info0, cell_died, Info), 
+			goal_info_set_reuse(Info0, reuse(cell_died), Info), 
 			sr_reuse__add_direct_reuse( Var, CONS_ID, 
 					LFU, LBU,
 					Alias0, Reuses0, Reuses)
@@ -533,7 +534,8 @@ unification_verify_reuse( Unification, Alias0, Reuses0, Reuses,
 					ReusesTMP )
 		->
 			Reuses = ReusesTMP, 
-			goal_info_set_reuse(Info0, cell_reused(ReuseVar), Info)
+			goal_info_set_reuse(Info0,
+					reuse(cell_reused(ReuseVar)), Info)
 		;
 			Reuses = Reuses0,
 			Info = Info0
@@ -755,7 +757,7 @@ process_goal(_CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ module_info_structure_reuse_info(ModuleInfo, ReuseInfo) },
 	{ ReuseInfo = structure_reuse_info(ReuseMap) },
 	{
-		goal_info_get_reuse(GoalInfo, reuse_call),
+		goal_info_get_reuse(GoalInfo, reuse(reuse_call)),
 		map__search(ReuseMap, proc(PredId0, ProcId0), Result)
 	->
 		Result = proc(PredId, ProcId) - Name

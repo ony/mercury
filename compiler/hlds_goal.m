@@ -12,7 +12,8 @@
 
 :- interface.
 
-:- import_module hlds_data, hlds_pred, llds, prog_data, (inst), instmap.
+:- import_module hlds_data, hlds_pred, (inst), instmap.
+:- import_module llds, prog_data, sr_data.
 :- import_module bool, char, list, set, map, std_util.
 
 	% Here is how goals are represented
@@ -736,14 +737,10 @@
 		lbu :: set(prog_var), 		% the local backward use set
 		outscope :: set(prog_var), 	% outscope-vars,
 				% XXX, documentation to be followed
-		reuse :: short_reuse_info,  
-				% only of interest for the following goals:
-				% * deconstruction: a datacel has become
-				%   available for reuse
-				% * construction: a datacel can be reused
-				%   by this construction
-				% * call: a call to a procedure allowing
-				%   reuse is possible here. 
+
+		reuse :: reuse_goal_info,
+				% Any structure reuse information
+				% related to this call.
 
 		determinism :: determinism, 
 				% the overall determinism of the goal
@@ -934,10 +931,10 @@ hlds_goal__generic_call_id(aditi_builtin(Builtin, Name),
 :- pred goal_info_set_outscope(hlds_goal_info, set(prog_var), hlds_goal_info).
 :- mode goal_info_set_outscope(in,in,out) is det.
 
-:- pred goal_info_get_reuse(hlds_goal_info, short_reuse_info).
+:- pred goal_info_get_reuse(hlds_goal_info, reuse_goal_info).
 :- mode goal_info_get_reuse(in,out) is det.
 
-:- pred goal_info_set_reuse(hlds_goal_info, short_reuse_info, hlds_goal_info).
+:- pred goal_info_set_reuse(hlds_goal_info, reuse_goal_info, hlds_goal_info).
 :- mode goal_info_set_reuse(in,in, out) is det.
 
 :- pred goal_info_get_code_model(hlds_goal_info, code_model).
@@ -1219,13 +1216,14 @@ goal_info_init(GoalInfo) :-
 	set__init(LFU),
 	set__init(LBU), 
 	set__init(OUTSCOPE),
-	REUSE = no_reuse, 
+	Reuse = empty,
 	instmap_delta_init_unreachable(InstMapDelta),
 	set__init(NonLocals),
 	term__context_init(Context),
 	set__init(Features),
 	GoalInfo = goal_info(PreBirths, PostBirths, PreDeaths, PostDeaths, 
-		LFU, LBU, OUTSCOPE, REUSE, Detism, InstMapDelta, Context, NonLocals, 
+		LFU, LBU, OUTSCOPE, Reuse,
+		Detism, InstMapDelta, Context, NonLocals, 
 		no, Features,
 		no_resume_point, []).
 

@@ -244,7 +244,7 @@
 
 :- import_module int, string, set, assoc_list, map, multi_map.
 :- import_module require, getopt, std_util, term_io, varset.
-:- import_module pa_alias_as.
+:- import_module pa_alias_as, sr_data.
 
 hlds_out__write_type_id(Name - Arity) -->
 	prog_out__write_sym_name_and_arity(Name / Arity).
@@ -1121,25 +1121,25 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 
 		{ goal_info_get_reuse(GoalInfo, REUSE) } ,
 	        (
-			{ REUSE = no_reuse }
+			{ REUSE = reuse(no_reuse) }
 		->
 			[]
 		; 
 			hlds_out__write_indent(Indent),
 			io__write_string("% reuse: "),
 			(
-				{ REUSE = cell_died }
+				{ REUSE = reuse(cell_died) }
 			->
 				io__write_string("cell just died (deconstruction).\n")
 			;
-				{ REUSE = cell_reused(ProgVar) }
+				{ REUSE = reuse(cell_reused(ProgVar)) }
 			->
 				io__write_string("cell ("),
 				mercury_output_var(ProgVar, VarSet, 
 					AppendVarnums),
 				io__write_string(") just reused (construction).\n")
 			;
-				{ REUSE = reuse_call }
+				{ REUSE = reuse(reuse_call) }
 			->
 				io__write_string("call to procedure with reuse.\n")
 			;
