@@ -342,6 +342,7 @@
 		;	constant_propagation
 		;	excess_assign
 		;	optimize_saved_vars
+		;	delay_construct
 		;	follow_code
 		;	prev_code
 		;	optimize_dead_procs
@@ -381,6 +382,7 @@
 		;	optimize_jumps
 		;	optimize_fulljumps
 		;	checked_nondet_tailcalls
+		;	use_local_vars
 		;	optimize_labels
 		;	optimize_dups
 %%% unused:	;	optimize_copyprop
@@ -729,6 +731,7 @@ option_defaults_2(optimization_option, [
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
 	optimize_saved_vars	-	bool(no),
+	delay_construct		-	bool(no),
 	prev_code		-	bool(no),
 	follow_code		-	bool(no),
 	optimize_unused_args	-	bool(no),
@@ -773,7 +776,8 @@ option_defaults_2(optimization_option, [
 	optimize_peep		-	bool(no),
 	optimize_jumps		-	bool(no),
 	optimize_fulljumps	-	bool(no),
-	checked_nondet_tailcalls	-	bool(no),
+	checked_nondet_tailcalls -	bool(no),
+	use_local_vars		-	bool(no),
 	optimize_labels		-	bool(no),
 	optimize_dups		-	bool(no),
 %%%	optimize_copyprop	-	bool(no),
@@ -1125,6 +1129,8 @@ long_option("optimise-constant-propagation", constant_propagation).
 long_option("optimize-constant-propagation", constant_propagation).
 long_option("optimize-saved-vars",	optimize_saved_vars).
 long_option("optimise-saved-vars",	optimize_saved_vars).
+long_option("delay-construct",		delay_construct).
+long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
 long_option("follow-code",		follow_code).
 long_option("constraint-propagation",	constraint_propagation).
@@ -1212,6 +1218,7 @@ long_option("optimise-jumps",		optimize_jumps).
 long_option("optimize-fulljumps",	optimize_fulljumps).
 long_option("optimise-fulljumps",	optimize_fulljumps).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
+long_option("use-local-vars",		use_local_vars).
 long_option("optimize-labels",		optimize_labels).
 long_option("optimise-labels",		optimize_labels).
 long_option("optimize-dups",		optimize_dups).
@@ -1531,6 +1538,7 @@ opt_level(3, _, [
 % and increases the inlining thresholds
 
 opt_level(4, _, [
+	delay_construct		-	bool(yes),
 	lazy_code		-	bool(yes),
 	optimize_value_number	-	bool(yes),
 	inline_simple_threshold	-	int(8),
@@ -2436,6 +2444,9 @@ options_help_hlds_hlds_optimization -->
 		"--optimize-duplicate-calls",
 		"\tOptimize away multiple calls to a predicate",
 		"\twith the same input arguments.",
+		"--delay-constructs",
+		"\tReorder goals to move construction unifications after",
+		"\tprimitive goals that can fail.",
 		"--optimize-saved-vars",
 		"\tReorder goals to minimize the number of variables",
 		"\tthat have to be saved across calls.",
@@ -2564,6 +2575,9 @@ options_help_llds_llds_optimization -->
 		"\tConvert nondet calls into tail calls whenever possible, even",
 		"\twhen this requires a runtime check. This option tries to",
 		"\tminimize stack consumption, possibly at the expense of speed.",
+		"--use-local-vars",
+		"\tDisable the transformation to use local variables in C code",
+		"\tblocks whereever possible.",
 		"--no-optimize-labels",
 		"\tDisable elimination of dead labels and code.",
 		"--optimize-dups",
