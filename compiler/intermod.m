@@ -1982,24 +1982,19 @@ set_list_of_preds_exported_2([PredId | PredIds], Preds0, Preds) :-
 
 intermod__grab_optfiles(Module0, Module, FoundError) -->
 
+	globals__io_lookup_bool_option(infer_possible_aliases,
+			InferPossibleAlias),
+
 		%
 		% Read in the .opt files for imported and ancestor modules.
 		%
 	{ Module0 = module_imports(_, ModuleName, Ancestors0, InterfaceDeps0,
 					ImplementationDeps0, _, _, _, _, _) },
 	{ list__condense([Ancestors0, InterfaceDeps0, ImplementationDeps0],
-		OptFiles) },
-	read_optimization_interfaces(OptFiles, [], OptItems, no, OptError),
-
-		%
-		% Append the items to the current item list, using
-		% a `opt_imported' psuedo-declaration to let
-		% make_hlds know the opt_imported stuff is coming.
-		%
-	{ module_imports_get_items(Module0, Items0) },
-	{ make_pseudo_decl(opt_imported, OptImportedDecl) },
-	{ list__append(Items0, [OptImportedDecl | OptItems], Items1) },
-	{ module_imports_set_items(Module0, Items1, Module1) },
+		OptFilesToRead) },
+	read_all_optimization_interfaces(InferPossibleAlias,
+			[ModuleName], OptFilesToRead,
+			Module0, Module1),
 
 		%
 		% Get the :- pragma unused_args(...) declarations created
@@ -2020,11 +2015,40 @@ intermod__grab_optfiles(Module0, Module, FoundError) -->
 
 		{ module_imports_get_items(Module1, Items2) },
 		{ list__append(Items2, PragmaItems, Items) },
-		{ module_imports_set_items(Module1, Items, Module2) }
+		{ module_imports_set_items(Module1, Items, Module) }
 	;
-		{ Module2 = Module1 },
+		{ Module = Module1 },
 		{ UAError = no }
 	),
+
+		%
+		% Figure out whether anything went wrong
+		%
+	{ module_imports_get_error(Module, FoundError0) },
+	{ ( FoundError0 \= no ; UAError = yes) ->
+		FoundError = yes
+	;
+		FoundError = no
+	}.
+
+	% Transitively read in all the optimization interfaces for a
+	% module, if Transitive = yes.
+:- pred read_all_optimization_interfaces(bool::in,
+		list(module_name)::in, list(module_name)::in,
+		module_imports::in, module_imports::out,
+		io__state::di, io__state::uo) is det.
+
+read_all_optimization_interfaces(Transitive,
+		AlreadyReadOptFiles, OptFilesToRead,
+		Module0, Module) -->
+
+	{ module_imports_get_items(Module0, Items0) },
+
+	read_optimization_interfaces(OptFilesToRead,
+		[], OptItems, no, OptError),
+
+	{ make_pseudo_decl(opt_imported, OptImportedDecl) },
+	{ list__append(Items0, [OptImportedDecl | OptItems], Items1) },
 
 		%
 		% Figure out which .int files are needed by the .opt files
@@ -2036,27 +2060,33 @@ intermod__grab_optfiles(Module0, Module, FoundError) -->
 	{ NewDeps0 = list__condense([NewImportDeps0, NewUseDeps0,
 		NewImplicitImportDeps0, NewImplicitUseDeps0]) },
 	{ set__list_to_set(NewDeps0, NewDepsSet0) },
-	{ set__delete_list(NewDepsSet0, [ModuleName | OptFiles], NewDepsSet) },
+	{ set__delete_list(NewDepsSet0,
+		OptFilesToRead ++ AlreadyReadOptFiles, NewDepsSet) },
 	{ set__to_sorted_list(NewDepsSet, NewDeps) },
 
-		%
-		% Read in the .int, and .int2 files needed by the .opt files.
-		% (XXX do we also need to read in .int0 files here?)
-		%
-	process_module_long_interfaces(NewDeps, ".int", [], NewIndirectDeps,
-				Module2, Module3),
-	process_module_indirect_imports(NewIndirectDeps, ".int2",
-				Module3, Module),
+	{ module_imports_set_items(Module0, Items1, Module1) },
 
-		%
-		% Figure out whether anything went wrong
-		%
-	{ module_imports_get_error(Module, FoundError0) },
-	{ ( FoundError0 \= no ; OptError = yes ; UAError = yes) ->
-		FoundError = yes
+	process_module_long_interfaces(NewDeps, ".int", [], NewIndirectDeps,
+				Module1, Module3),
+	process_module_indirect_imports(NewIndirectDeps, ".int2",
+				Module3, Module4),
+
+	( { NewDeps = [] ; Transitive = no } ->
+		{ Module5 = Module4 }
 	;
-		FoundError = no
+		read_all_optimization_interfaces(Transitive,
+			OptFilesToRead ++ AlreadyReadOptFiles, NewDeps,
+			Module4, Module5)
+	),
+	
+
+	{ module_imports_get_error(Module5, FoundError0) },
+	{ ( FoundError0 \= no ; OptError = yes ) ->
+		module_imports_set_error(Module5, yes, Module)
+	;
+		Module = Module5
 	}.
+	
 
 :- pred read_optimization_interfaces(list(module_name)::in, item_list::in,
 			item_list::out, bool::in, bool::out,
