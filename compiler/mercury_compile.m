@@ -600,8 +600,8 @@ mercury_compile__pre_hlds_pass(ModuleImports0, DontWriteDFile,
 	),
 
 	% Errors in .opt and .trans_opt files result in software errors.
-	mercury_compile__maybe_grab_optfiles(ModuleImports0, Verbose,
-		MaybeTransOptDeps, ModuleImports1, IntermodError),
+	mercury_compile__maybe_grab_optfiles(ModuleImports0, Module,
+		Verbose, MaybeTransOptDeps, ModuleImports1, IntermodError),
 
 	{ module_imports_get_items(ModuleImports1, Items1) },
 	mercury_compile__module_qualify_items(Items1, Items2, Module, Verbose,
@@ -650,13 +650,13 @@ mercury_compile__module_qualify_items(Items0, Items, ModuleName, Verbose,
 	maybe_write_string(Verbose, "% done.\n"),
 	maybe_report_stats(Stats).
 
-:- pred mercury_compile__maybe_grab_optfiles(module_imports, bool,
+:- pred mercury_compile__maybe_grab_optfiles(module_imports, module_name, bool,
 	 maybe(list(module_name)), module_imports, bool, io__state, io__state).
-:- mode mercury_compile__maybe_grab_optfiles(in, in, in, out, out, 
+:- mode mercury_compile__maybe_grab_optfiles(in, in, in, in, out, out, 
 	di, uo) is det.
 
-mercury_compile__maybe_grab_optfiles(Imports0, Verbose, MaybeTransOptDeps, 
-		Imports, Error) -->
+mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
+		Verbose, MaybeTransOptDeps, Imports, Error) -->
 	globals__io_lookup_bool_option(intermodule_optimization, IntermodOpt),
 	globals__io_lookup_bool_option(use_opt_files, UseOptInt),
 	globals__io_lookup_bool_option(make_optimization_interface,
@@ -677,8 +677,8 @@ mercury_compile__maybe_grab_optfiles(Imports0, Verbose, MaybeTransOptDeps,
 		( { MaybeTransOptDeps = yes(TransOptDeps) } ->
 			% When creating the trans_opt file, only import the
 			% trans_opt files which are lower in the ordering.
-			trans_opt__grab_optfiles(Imports1, TransOptDeps, 
-				Imports, Error2)
+			trans_opt__grab_optfiles(no, Imports1, OrigModuleName,
+					TransOptDeps, Imports, Error2)
 		;
 			{ Imports = Imports1 },
 			{ Error2 = no },
@@ -725,8 +725,8 @@ mercury_compile__maybe_grab_optfiles(Imports0, Verbose, MaybeTransOptDeps,
 				_ForeignCode, _Items, _Error) },
 			{ list__condense([Ancestors, InterfaceImports,
 				ImplementationImports], TransOptFiles) },
-			trans_opt__grab_optfiles(Imports1, TransOptFiles,
-				Imports, Error2)
+			trans_opt__grab_optfiles(yes, Imports1, OrigModuleName,
+					TransOptFiles, Imports, Error2)
 		;
 			{ Imports = Imports1 },
 			{ Error2 = no }

@@ -57,13 +57,16 @@
 :- pred trans_opt__write_optfile(module_info, io__state, io__state).
 :- mode trans_opt__write_optfile(in, di, uo) is det.
 
-	% trans_opt__grab_optfiles(ModuleImports0, ModuleList, ModuleImports, 
-	% 	Error, IO0, IO).
+	% trans_opt__grab_optfiles(Transitive, ModuleImports0, ModuleName,
+	% 		ModuleList, ModuleImports, Error, IO0, IO).
 	% Add the items from each of the modules in ModuleList.trans_opt to
-	% the items in ModuleImports.
-:- pred trans_opt__grab_optfiles(module_imports, list(module_name), 
-	module_imports, bool, io__state, io__state).
-:- mode trans_opt__grab_optfiles(in, in, out, out, di, uo) is det.
+	% the items in ModuleImports, do this transitively if
+	% Transitive = yes.  The current module_name, ModuleName, is
+	% used to avoid importing the current modules trans_opt.
+	%
+:- pred trans_opt__grab_optfiles(bool, module_imports, module_name,
+		list(module_name), module_imports, bool, io__state, io__state).
+:- mode trans_opt__grab_optfiles(in, in, in, in, out, out, di, uo) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -194,11 +197,13 @@ trans_opt__write_optfile(Module) -->
 %-----------------------------------------------------------------------------%
 	% Read in and process the transitive optimization interfaces.
 
-trans_opt__grab_optfiles(Module0, TransOptDeps, Module, FoundError) -->
+trans_opt__grab_optfiles(Transitive, Module0, ModuleName,
+		TransOptDeps, Module, FoundError) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	maybe_write_string(Verbose, "% Reading .trans_opt files..\n"),
 	maybe_flush_output(Verbose),
-	read_trans_opt_files(TransOptDeps, [], [], OptItems, no, FoundError),
+	read_trans_opt_files(Transitive, TransOptDeps, [ModuleName],
+			[], OptItems, no, FoundError),
 
 	{ append_pseudo_decl(Module0, opt_imported, Module1) },
 	{ module_imports_get_items(Module1, Items0) },
@@ -208,12 +213,13 @@ trans_opt__grab_optfiles(Module0, TransOptDeps, Module, FoundError) -->
 
 	maybe_write_string(Verbose, "% Done.\n").
 
-:- pred read_trans_opt_files(list(module_name), list(module_name), item_list,
+:- pred read_trans_opt_files(bool,
+	list(module_name), list(module_name), item_list,
 	item_list, bool, bool, io__state, io__state).
-:- mode read_trans_opt_files(in, in, in, out, in, out, di, uo) is det.
+:- mode read_trans_opt_files(in, in, in, in, out, in, out, di, uo) is det.
 
-read_trans_opt_files([], _, Items, Items, Error, Error) --> [].
-read_trans_opt_files(OptFilesToRead, AlreadyReadOptFiles,
+read_trans_opt_files(_, [], _, Items, Items, Error, Error) --> [].
+read_trans_opt_files(Transitive, OptFilesToRead, AlreadyReadOptFiles,
 		Items0, Items, Error0, Error) -->
 	{ OptFilesToRead = [Import | Imports] },
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
@@ -229,17 +235,21 @@ read_trans_opt_files(OptFilesToRead, AlreadyReadOptFiles,
 	prog_io__read_opt_file(FileName, Import, yes,
 			ModuleError, Messages, OptItems),
 
-		% Get the rest of the trans_opt files to be read.
-	{ get_dependencies(OptItems, NewImportDeps0, NewUseDeps0) },
-	globals__io_get_globals(Globals),
-	{ get_implicit_dependencies(OptItems, Globals,
-		NewImplicitImportDeps0, NewImplicitUseDeps0) },
-	{ NewDeps0 = list__condense([NewImportDeps0, NewUseDeps0,
-		NewImplicitImportDeps0, NewImplicitUseDeps0]) },
-	{ set__list_to_set(NewDeps0, NewDepsSet0) },
-	{ set__delete_list(NewDepsSet0,
-		OptFilesToRead ++ AlreadyReadOptFiles, NewDepsSet) },
-	{ set__to_sorted_list(NewDepsSet, NewDeps) },
+	( { Transitive = yes } ->
+			% Get the rest of the trans_opt files to be read.
+		{ get_dependencies(OptItems, NewImportDeps0, NewUseDeps0) },
+		globals__io_get_globals(Globals),
+		{ get_implicit_dependencies(OptItems, Globals,
+			NewImplicitImportDeps0, NewImplicitUseDeps0) },
+		{ NewDeps0 = list__condense([NewImportDeps0, NewUseDeps0,
+			NewImplicitImportDeps0, NewImplicitUseDeps0]) },
+		{ set__list_to_set(NewDeps0, NewDepsSet0) },
+		{ set__delete_list(NewDepsSet0,
+			OptFilesToRead ++ AlreadyReadOptFiles, NewDepsSet) },
+		{ set__to_sorted_list(NewDepsSet, NewDeps) }
+	;
+		{ NewDeps = [] }
+	),
 
 	maybe_write_string(VeryVerbose, " done.\n"),
 
@@ -247,7 +257,7 @@ read_trans_opt_files(OptFilesToRead, AlreadyReadOptFiles,
 		Messages, Error0, Error1),
 
 	{ list__append(Items0, OptItems, Items2) },
-	read_trans_opt_files(NewDeps ++ Imports,
+	read_trans_opt_files(Transitive, NewDeps ++ Imports,
 			[Import | AlreadyReadOptFiles],
 			Items2, Items, Error1, Error).
 
