@@ -21,7 +21,23 @@
 :- import_module list, std_util.
 
 :- type strategy
-	--->	same_cons_id.
+	--->	strategy(
+			constraint,
+			selection
+		).
+
+	% The constraint on the cells that we consider available for
+	% reuse.
+:- type constraint
+	--->	same_cons_id
+	.
+
+	% After the constraint has been applied to the set of cells
+	% which are available for reuse, determine which of that set we
+	% select.
+:- type selection
+	--->	lifo
+	.
 
 :- pred sr_choice__process_goal(strategy::in, hlds_goal::in, hlds_goal::out,
 		maybe(list(reuse_condition))::out) is det.
