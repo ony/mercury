@@ -35,15 +35,19 @@ case $asm_labels in
 	false)		;;
 esac
 
-case $highlevel_code,$highlevel_data,$GRADE in
-	true,true,none)		
+case $target,$highlevel_code,$highlevel_data,$GRADE in
+	il,true,true,none)		
+		GRADE="il" ;;
+	il,true,false,none)	
+		GRADE="ilc" ;;
+	*,true,true,none)		
 		GRADE="hl" ;;
-	true,false,none)	
+	*,true,false,none)	
 		GRADE="hlc" ;;
-	false,false,*)
+	*,false,false,*)
 		# GRADE was set above
 		;;
-	false,true,*)
+	*,false,true,*)
 		progname=`basename $0`
 		echo "$progname: error: \`--high-level-data' requires \`--high-level-code'" 1>&2
 		exit 1
