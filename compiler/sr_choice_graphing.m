@@ -457,14 +457,20 @@ conjunction_value_of_dead_cel(Background, Deconstruction,
 		value::in, value::out) is det.
 disjunction_value_of_dead_cel(Background, Deconstruction, 
 		Branches, Val0, Val):- 
-	list__map(
-		pred(G::in, V::out) is det:- 
-		    ( value_of_dead_cel_in_goal(Background, 
-			Deconstruction, G, Val0, V)), 
-		Branches, BranchVals), 
-	count_candidates(BranchVals, Degree), 
-	average_value(BranchVals, Val1),
-	Val = Val1 ^ degree := Degree.
+	(
+		Branches = []
+	-> 	
+		Val = Val0
+	; 
+		list__map(
+			pred(G::in, V::out) is det:- 
+			    ( value_of_dead_cel_in_goal(Background, 
+				Deconstruction, G, Val0, V)), 
+			Branches, BranchVals), 
+		count_candidates(BranchVals, Degree), 
+		average_value(BranchVals, Val1),
+		Val = Val1 ^ degree := Degree
+	).
 
 :- pred count_candidates(list(value)::in, int::out) is det.
 count_candidates(Values, Degree):- 
