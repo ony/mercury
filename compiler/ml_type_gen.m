@@ -78,15 +78,21 @@
 :- import_module parse_tree__prog_util, check_hlds__type_util.
 :- import_module check_hlds__polymorphism.
 :- import_module ml_backend__ml_code_util, hlds__error_util.
+:- import_module ml_backend__ml_util.
 :- import_module libs__globals, libs__options.
 
 :- import_module bool, int, string, list, map, std_util, term, require.
 
 ml_gen_types(ModuleInfo, MLDS_TypeDefns) -->
 	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+	globals__io_get_target(Target),
 	( { HighLevelData = yes } ->
 		{ module_info_types(ModuleInfo, TypeTable) },
-		{ map__keys(TypeTable, TypeCtors) },
+		{ map__keys(TypeTable, TypeCtors0) },
+		{ list__filter((pred(TypeCtor::in) is semidet :-
+				\+ type_ctor_needs_lowlevel_rep(Target,
+					TypeCtor)
+			), TypeCtors0, TypeCtors) },
 		{ list__foldl(ml_gen_type_defn(ModuleInfo, TypeTable),
 			TypeCtors, [], MLDS_TypeDefns) }
 	;
@@ -116,7 +122,7 @@ ml_gen_type_2(abstract_type, _, _, _) --> [].
 ml_gen_type_2(eqv_type(_EqvType), _, _, _) --> []. % XXX Fixme!
 	% For a description of the problems with equivalence types,
 	% see our BABEL'01 paper "Compiling Mercury to the .NET CLR".
-ml_gen_type_2(du_type(Ctors, TagValues, IsEnum, MaybeEqualityPred),
+ml_gen_type_2(du_type(Ctors, TagValues, IsEnum, MaybeEqualityPred, _),
 		ModuleInfo, TypeCtor, TypeDefn) -->
 	{ ml_gen_equality_members(MaybeEqualityPred, MaybeEqualityMembers) },
 	( { IsEnum = yes } ->
@@ -127,7 +133,7 @@ ml_gen_type_2(du_type(Ctors, TagValues, IsEnum, MaybeEqualityPred),
 			Ctors, TagValues, MaybeEqualityMembers)
 	).
 	% XXX Fixme!  Same issues here as for eqv_type/1.
-ml_gen_type_2(foreign_type(_, _), _, _, _) --> [].
+ml_gen_type_2(foreign_type(_), _, _, _) --> [].
 
 %-----------------------------------------------------------------------------%
 %

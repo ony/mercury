@@ -7,7 +7,7 @@
 % File: xrobdd.implications.m.
 % Main author: dmo
 
-:- module implications.
+:- module xrobdd__implications.
 
 :- interface.
 

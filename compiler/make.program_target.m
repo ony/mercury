@@ -18,6 +18,8 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
+:- import_module hlds__passes_aux.
+
 make_linked_target(MainModuleName - FileType, Succeeded, Info0, Info) -->
     find_reachable_local_modules(MainModuleName, DepsSuccess,
 		AllModules, Info0, Info1),
@@ -26,35 +28,6 @@ make_linked_target(MainModuleName - FileType, Succeeded, Info0, Info) -->
 	{ Succeeded = no },
 	{ Info = Info1 }
     ;
-	globals__io_get_target(CompilationTarget),
-	( { CompilationTarget = asm } ->
-	    % An assembler file is only produced for the top-level
-	    % module in each source file.
-	    list__foldl3(
-		(pred(ModuleName::in, ObjModules0::in, ObjModules1::out,
-				MInfo0::in, MInfo::out, di, uo) is det -->
-			get_module_dependencies(ModuleName, MaybeImports,
-				MInfo0, MInfo),
-			{
-				MaybeImports = yes(Imports),
-				ModuleName = Imports ^ source_file_module_name
-			->
-				ObjModules1 = [ModuleName | ObjModules0]
-			;	
-				ObjModules1 = ObjModules0
-			}
-		),
-		set__to_sorted_list(AllModules), [],
-		ObjModules, Info1, Info4)
-	;
-		{ Info4 = Info1 },
-		{ ObjModules = set__to_sorted_list(AllModules) }
-	),
-
-	linked_target_file_name(MainModuleName, FileType, OutputFileName),
-	get_file_timestamp([dir__this_directory], OutputFileName,
-		MaybeTimestamp, Info4, Info5),
-	
 	globals__io_lookup_string_option(pic_object_file_extension, PicObjExt),
 	globals__io_lookup_string_option(object_file_extension, ObjExt),
 	{ FileType = shared_library, PicObjExt \= ObjExt ->
@@ -69,6 +42,7 @@ make_linked_target(MainModuleName - FileType, Succeeded, Info0, Info) -->
 	% Build the `.c' files first so that errors are
 	% reported as soon as possible.
 	%
+	globals__io_get_target(CompilationTarget),
 	{
 		CompilationTarget = c,
 		IntermediateTargetType = c_code,
@@ -88,13 +62,19 @@ make_linked_target(MainModuleName - FileType, Succeeded, Info0, Info) -->
 		ObjectTargetType = object_code(non_pic)
 	},
 
+	get_target_modules(IntermediateTargetType,
+		set__to_sorted_list(AllModules), ObjModules, Info1, Info4),
 	{ IntermediateTargets = make_dependency_list(ObjModules,
 					IntermediateTargetType) },
 	{ ObjTargets = make_dependency_list(ObjModules, ObjectTargetType) },
 
 	foldl2_maybe_stop_at_error(KeepGoing,
 		foldl2_maybe_stop_at_error(KeepGoing, make_module_target),
-		[IntermediateTargets, ObjTargets], _, Info5, Info6),
+		[IntermediateTargets, ObjTargets], _, Info4, Info5),
+
+	linked_target_file_name(MainModuleName, FileType, OutputFileName),
+	get_file_timestamp([dir__this_directory], OutputFileName,
+		MaybeTimestamp, Info5, Info6),
 	check_dependencies(OutputFileName, MaybeTimestamp,
 		ObjTargets, BuildDepsResult, Info6, Info7),
 
@@ -118,6 +98,44 @@ make_linked_target(MainModuleName - FileType, Succeeded, Info0, Info) -->
 	)
     ).
 
+:- pred get_target_modules(module_target_type::in, list(module_name)::in,
+	list(module_name)::out, make_info::in, make_info::out,
+	io__state::di, io__state::uo) is det.
+
+get_target_modules(TargetType, AllModules, TargetModules, Info0, Info) -->
+    globals__io_get_target(CompilationTarget),
+    ( 
+	{
+		TargetType = errors
+	;
+		CompilationTarget = asm,
+		( TargetType = asm_code(_)
+		; TargetType = object_code(_)
+		)
+	}
+    ->
+	% `.err' and `.s' files are only produced for the
+	% top-level module in each source file.
+	list__foldl3(
+	    (pred(ModuleName::in, TargetModules0::in, TargetModules1::out,
+			MInfo0::in, MInfo::out, di, uo) is det -->
+		get_module_dependencies(ModuleName, MaybeImports,
+			MInfo0, MInfo),
+		{
+			MaybeImports = yes(Imports),
+			ModuleName = Imports ^ source_file_module_name
+		->
+			TargetModules1 = [ModuleName | TargetModules0]
+		;	
+			TargetModules1 = TargetModules0
+		}
+	    ),
+	    AllModules, [], TargetModules, Info0, Info)
+    ;
+	{ Info = Info0 },
+	{ TargetModules = AllModules }
+    ).
+
 :- pred build_linked_target(module_name::in, linked_target_type::in,
 	file_name::in, maybe_error(timestamp)::in, set(module_name)::in,
 	list(module_name)::in, compilation_target::in, string::in, bool::in,
@@ -129,8 +147,39 @@ build_linked_target(MainModuleName, FileType, OutputFileName, MaybeTimestamp,
 		AllModules, ObjModules, CompilationTarget, ObjExtToUse,
 		DepsSuccess, BuildDepsResult, _, ErrorStream, Succeeded,
 		Info0, Info) -->
+	globals__io_lookup_maybe_string_option(pre_link_command,
+		MaybePreLinkCommand),
+	( { MaybePreLinkCommand = yes(PreLinkCommand0) } ->
+		{ PreLinkCommand = substitute_user_command(PreLinkCommand0,
+			MainModuleName, set__to_sorted_list(AllModules)) },
+		invoke_shell_command(ErrorStream, verbose, PreLinkCommand,
+			PreLinkSucceeded)
+	;
+		{ PreLinkSucceeded = yes }
+	),	
 
-	globals__io_lookup_accumulating_option(link_objects, ExtraObjects0),
+	( { PreLinkSucceeded = yes } ->
+		build_linked_target_2(MainModuleName, FileType, OutputFileName,
+			MaybeTimestamp, AllModules, ObjModules,
+			CompilationTarget, ObjExtToUse, DepsSuccess,
+			BuildDepsResult, ErrorStream, Succeeded,
+			Info0, Info)
+	;
+		{ Succeeded = no },
+		{ Info = Info0 }
+	).
+
+:- pred build_linked_target_2(module_name::in, linked_target_type::in,
+	file_name::in, maybe_error(timestamp)::in, set(module_name)::in,
+	list(module_name)::in, compilation_target::in, string::in, bool::in,
+	dependencies_result::in, io__output_stream::in, bool::out,
+	make_info::in, make_info::out, io__state::di, io__state::uo) is det.
+
+build_linked_target_2(MainModuleName, FileType, OutputFileName, MaybeTimestamp,
+		AllModules, ObjModules, CompilationTarget, ObjExtToUse,
+		DepsSuccess, BuildDepsResult, ErrorStream, Succeeded,
+		Info0, Info) -->
+	globals__io_lookup_accumulating_option(link_objects, LinkObjects),
 
 	% Clear the option -- we'll pass the list of files directly.
 	globals__io_set_option(link_objects, accumulating([])),
@@ -155,24 +204,25 @@ build_linked_target(MainModuleName, FileType, OutputFileName, MaybeTimestamp,
 			{ Info1 = Info0 ^ file_timestamps :=
 				map__delete(Info0 ^ file_timestamps,
 				InitObject) },
-			{ ExtraObjects = [InitObject | ExtraObjects0] },
+			{ InitObjects = [InitObject] },
 			{ DepsResult2 = BuildDepsResult }
 		;
 			{ InitObjectResult = no },
 			{ Info1 = Info0 },
 			{ DepsResult2 = error },
-			{ ExtraObjects = ExtraObjects0 }
+			{ InitObjects = [] }
 		)
 	;
 		{ DepsResult2 = BuildDepsResult },
 		{ Info1 = Info0 },
-		{ ExtraObjects = ExtraObjects0 }
+		{ InitObjects = [] }
 	),
 
+	{ ObjectsToCheck = InitObjects ++ LinkObjects },
 	list__map_foldl2(get_file_timestamp([dir__this_directory]),
-		ExtraObjects, ExtraObjectTimestamps, Info1, Info2),
+		ObjectsToCheck, ExtraObjectTimestamps, Info1, Info2),
 	check_dependency_timestamps(OutputFileName, MaybeTimestamp,
-		ExtraObjects, io__write, ExtraObjectTimestamps,
+		ObjectsToCheck, io__write, ExtraObjectTimestamps,
 		ExtraObjectDepsResult),
 
 	{ DepsResult3 = ( DepsSuccess = yes -> DepsResult2 ; error ) },
@@ -218,14 +268,17 @@ build_linked_target(MainModuleName, FileType, OutputFileName, MaybeTimestamp,
 		{ ForeignObjects = list__map(
 			(func(foreign_code_file(_, _, ObjFile)) = ObjFile),
 			list__condense(ExtraForeignFiles)) },
-		{ AllExtraObjects = ExtraObjects ++ ForeignObjects },
 
 		list__map_foldl(
 		    (pred(ObjModule::in, ObjToLink::out, di, uo) is det -->
 			module_name_to_file_name(ObjModule,
 				ObjExtToUse, no, ObjToLink)
 		    ), ObjModules, ObjList),
-		{ AllObjects = AllExtraObjects ++ ObjList },
+
+		% LinkObjects may contain `.a' files which must come
+		% after all the object files on the linker command line.
+		{ AllObjects = InitObjects ++ ObjList ++
+				ForeignObjects ++ LinkObjects },
 
 		(
 			{ CompilationTarget = c },
@@ -264,7 +317,8 @@ build_linked_target(MainModuleName, FileType, OutputFileName, MaybeTimestamp,
 			file_error(OutputFileName),
 			{ Info = Info3 }
 		)
-	).
+	),
+	globals__io_set_option(link_objects, accumulating(LinkObjects)).
 
 :- pred linked_target_cleanup(module_name::in, linked_target_type::in,
 	file_name::in, compilation_target::in, make_info::in, make_info::out,
@@ -320,17 +374,64 @@ make_misc_target(MainModuleName - TargetType, Succeeded, Info0, Info) -->
 			[ExeExt, LibExt, SharedLibExt, "_init.c", "_init.o"],
 			Info4, Info)
 	;
-		{ TargetType = check },
+		{ TargetType = build_all(ModuleTargetType) },
+		get_target_modules(ModuleTargetType, AllModules,
+			TargetModules, Info3, Info4),
 		globals__io_lookup_bool_option(keep_going, KeepGoing),
 		( { Succeeded0 = no, KeepGoing = no } ->
-			{ Info = Info3 },
+			{ Info = Info4 },
 			{ Succeeded = no }
 		;
 			foldl2_maybe_stop_at_error(KeepGoing,
 				make_module_target,
-				make_dependency_list(AllModules, errors),
-				Succeeded1, Info3, Info),
+				make_dependency_list(TargetModules,
+					ModuleTargetType),
+				Succeeded1, Info4, Info),
 			{ Succeeded = Succeeded0 `and` Succeeded1 }
+		)
+	;
+		{ TargetType = build_library },
+		{ ShortInts = make_dependency_list(AllModules,
+				unqualified_short_interface) },
+		{ LongInts = make_dependency_list(AllModules,
+				long_interface) },
+		globals__io_lookup_bool_option(intermodule_optimization,
+			Intermod),
+		{ Intermod = yes ->
+			OptFiles = make_dependency_list(AllModules,
+					long_interface)
+		;
+			OptFiles = []
+		},
+		globals__io_lookup_bool_option(keep_going, KeepGoing),
+		foldl2_maybe_stop_at_error(KeepGoing,
+			foldl2_maybe_stop_at_error(KeepGoing,
+				make_module_target),
+			[ShortInts, LongInts, OptFiles],
+			IntSucceeded, Info3, Info4),
+		( { IntSucceeded = yes } ->
+		    % Errors while making the `.init' file should be very rare.
+		    io__output_stream(ErrorStream),
+		    compile_target_code__make_init_file(ErrorStream,
+				MainModuleName, AllModules, InitSucceeded),
+		    ( { InitSucceeded = yes } ->
+			make_linked_target(MainModuleName - static_library,
+				StaticSucceeded, Info4, Info5),
+			( { StaticSucceeded = yes } ->
+				make_linked_target(
+					MainModuleName - shared_library,
+					Succeeded, Info5, Info)
+			;
+				{ Succeeded = no },
+				{ Info = Info5 }
+			)
+		    ;
+			{ Succeeded = no },
+		    	{ Info = Info4 }
+		    )
+		;
+			{ Succeeded = no },
+			{ Info = Info4 }
 		)
 	;
 		{ TargetType = install_library },
@@ -343,7 +444,7 @@ make_misc_target(MainModuleName - TargetType, Succeeded, Info0, Info) -->
 
 make_clean(ModuleName, Info0, Info) -->
 	list__foldl2(remove_target_file(ModuleName),
-		[errors, c_code, c_header,
+		[errors, c_code, c_header(mih),
 		object_code(pic), object_code(non_pic),
 		asm_code(pic), asm_code(non_pic),
 		il_code, java_code
@@ -381,7 +482,7 @@ make_realclean(ModuleName, Info0, Info) -->
 	list__foldl2(remove_target_file(ModuleName),
 		[private_interface, long_interface, short_interface,
 		unqualified_short_interface, intermodule_interface,
-		aditi_code, c_header
+		aditi_code, c_header(mh)
 		],
 		Info1, Info2),
 	remove_file(ModuleName, module_dep_file_extension, Info2, Info3),

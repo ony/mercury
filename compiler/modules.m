@@ -45,6 +45,10 @@
 
 %-----------------------------------------------------------------------------%
 
+	% Succeeds iff the module refered to by the module name is one
+	% of the modules in the standard library.
+:- pred mercury_std_library_module_name(module_name::in) is semidet.
+
 	% Succeeds iff the string is the (unqualified) name of one of the
 	% modules in the Mercury standard library.
 	%
@@ -686,6 +690,11 @@
 
 %-----------------------------------------------------------------------------%
 
+mercury_std_library_module_name(unqualified(Name)) :-
+	mercury_std_library_module(Name).
+mercury_std_library_module_name(qualified(unqualified("mercury"), Name)) :-
+	mercury_std_library_module(Name).
+
 mercury_std_library_module("array").
 mercury_std_library_module("assoc_list").
 mercury_std_library_module("bag").
@@ -786,10 +795,10 @@ extra_link_obj_file_name(ModuleName, ExtraLinkObjName, Ext, FileName) -->
 			io__state, io__state).
 :- mode choose_file_name(in, in, in, in, out, di, uo) is det.
 
-choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
+choose_file_name(_ModuleName, BaseName, Ext, MkDir, FileName) -->
 	globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
 	( { UseSubdirs = no } ->
-		{ FileName0 = BaseName }
+		{ FileName = BaseName }
 	;
 		%
 		% the source files, the final executables,
@@ -811,11 +820,33 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".split.so"
 			; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
 			; Ext = ".init"
+					% mercury_update_interface
+					% requires the `.init.tmp' files to
+					% be in the same directory as the 
+					% `.init' files.
+			; Ext = ".init.tmp"
+
 			% output files intended for use by the user
-			% (the .h_dump* and .c_dump* MLDS dumps also
-			% fit into this category, but for efficiency,
-			% to keep this as a switch, we deal with them below)
-			; Ext = ".h"
+			% (the .h_dump* and .c_dump* MLDS dumps
+			% also fit into this category, but for
+			% efficiency, to keep this as a switch,
+			% we deal with them below)
+			; Ext = ".mh"
+					% mercury_update_interface
+					% requires the `.mh.tmp' files to
+					% be in the same directory as the 
+					% `.mh' files.
+			; Ext = ".mh.tmp"
+			; Ext = ".h"	% `.h' files are being replaced with
+					% `.mh' files (for the
+					% `:- pragma export'  declarations),
+					% and `.mih' files (for the high-level
+					% C backend's function declarations).
+					% We still generate the `.h' files
+					% for bootstrapping (the trace
+					% directory refers to std_util.h
+					% and io.h).
+			; Ext = ".h.tmp"
 			; Ext = ".err"
 			; Ext = ".ugly"
 			; Ext = ".hlds_dump"
@@ -830,6 +861,7 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".depend"
 			; Ext = ".install_ints"
 			; Ext = ".install_hdrs"
+			; Ext = ".install_grade_hdrs"
 			; Ext = ".check"
 			; Ext = ".ints"
 			; Ext = ".int3s"
@@ -841,10 +873,6 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			; Ext = ".classes"
 			; Ext = ".opts"
 			; Ext = ".trans_opts"
-			% The current interface to `mercury_update_interface'
-			% requires .h.tmp files to be in the same directory as
-			% the .h files
-			; Ext = ".h.tmp"
 			% The following files are only used by the Aditi
 			% query shell which doesn't know about --use-subdirs.
 			; Ext = ".base_schema"
@@ -858,7 +886,7 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 			)
 		}
 	->
-		{ FileName0 = BaseName }
+		{ FileName = BaseName }
 	;
 		%
 		% we need to handle a few cases specially
@@ -924,24 +952,8 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 		;
 			[]
 		),
-		{ string__append_list([DirName, Slash, BaseName], FileName0) }
-	),
-	%
-	% For --high-level-code, the header files for the standard
-	% library are named specially (they get a `mercury.' prefix).
-	%
-	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	{
-		HighLevelCode = yes,
-		( Ext = ".h" ; Ext = ".h.tmp" ),
-		ModuleName = unqualified(UnqualModuleName),
-		mercury_std_library_module(UnqualModuleName),
-		\+ string__prefix(FileName0, "mercury.")
-	->
-		string__append("mercury.", FileName0, FileName)
-	;
-		FileName = FileName0
-	}.
+		{ string__append_list([DirName, Slash, BaseName], FileName) }
+	).
 
 module_name_to_split_c_file_name(ModuleName, Num, Ext, FileName) -->
 	module_name_to_file_name(ModuleName, ".dir", no, DirName),
@@ -1212,7 +1224,7 @@ pragma_allowed_in_interface(foreign_decl(_, _), no).
 pragma_allowed_in_interface(foreign_import_module(_, _), no).
 pragma_allowed_in_interface(foreign_code(_, _), no).
 pragma_allowed_in_interface(foreign_proc(_, _, _, _, _, _), no).
-pragma_allowed_in_interface(foreign_type(_, _, _), yes).
+pragma_allowed_in_interface(foreign_type(_, _, _, _), yes).
 pragma_allowed_in_interface(inline(_, _), no).
 pragma_allowed_in_interface(no_inline(_, _), no).
 pragma_allowed_in_interface(obsolete(_, _), yes).
@@ -1452,7 +1464,8 @@ grab_imported_modules(SourceFileName, SourceFileModuleName, ModuleName,
 			ImpUsedModules0, ImpUsedModules),
 
 	{ get_fact_table_dependencies(Items0, FactDeps) },
-	{ get_interface(Items0, InterfaceItems) },
+	{ get_interface_and_implementation(Items0,
+		InterfaceItems, ImplItems) },
 	{ get_children(InterfaceItems, PublicChildren) },
 	{ MaybeTimestamp = yes(Timestamp) ->
 		MaybeTimestamps = yes(map__det_insert(map__init, ModuleName,
@@ -1466,19 +1479,23 @@ grab_imported_modules(SourceFileName, SourceFileModuleName, ModuleName,
 		MaybeTimestamps, Module0) },
 
 		% If this module has any seperately-compiled sub-modules,
-		% then we need to make everything in this module
-		% exported_to_submodules.  We do that by splitting
-		% out the declarations and putting them in a special
-		% `:- private_interface' section.
+		% then we need to make everything in the implementation
+		% of this module exported_to_submodules.  We do that by
+		% splitting out the implementation declarations and putting
+		% them in a special `:- private_interface' section.
 	{ get_children(Items0, Children) },
 	{ Children = [] ->
+		Items1 = Items0,
 		Module1 = Module0
 	;
-		split_clauses_and_decls(Items0, Clauses, Decls),
+		split_clauses_and_decls(ImplItems, Clauses, ImplDecls),
+		make_pseudo_decl(interface, InterfaceDecl),
 		make_pseudo_decl(private_interface, PrivateInterfaceDecl),
 		make_pseudo_decl(implementation, ImplementationDecl),
-		list__append([PrivateInterfaceDecl | Decls],
-			[ImplementationDecl | Clauses], Items1),
+		list__condense(
+			[[InterfaceDecl | InterfaceItems],
+			[PrivateInterfaceDecl | ImplDecls],
+			[ImplementationDecl | Clauses]], Items1),
 		module_imports_set_items(Module0, Items1, Module1)
 	},
 
@@ -1490,7 +1507,7 @@ grab_imported_modules(SourceFileName, SourceFileModuleName, ModuleName,
 		% Add `builtin' and `private_builtin' to the
 		% list of imported modules
 	globals__io_get_globals(Globals),
-	{ add_implicit_imports(Items0, Globals,
+	{ add_implicit_imports(Items1, Globals,
 			IntImportedModules1, IntUsedModules1,
 			IntImportedModules2, IntUsedModules2) },
 
@@ -1872,7 +1889,7 @@ warn_if_duplicate_use_import_decls(ModuleName,
 %-----------------------------------------------------------------------------%
 
 write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
-	{ Module = module_imports(SourceFileName, _SourceFileModuleName,
+	{ Module = module_imports(SourceFileName, SourceFileModuleName,
 			ModuleName, ParentDeps, IntDeps, ImplDeps,
 			IndirectDeps, _Children, InclDeps, _NestDeps,
 			FactDeps0, ContainsForeignCode, ForeignImports0,
@@ -2085,7 +2102,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					[ModuleName | LongDeps], IntermodDirs,
 					OptDeps, TransOptDeps),
 				{ OptInt0Deps = sort_and_remove_dups(
-					condense(map(get_ancestors,
+					condense(list__map(get_ancestors,
 					OptDeps))) },
 				write_dependencies_list(OptDeps,
 					".opt", DepStream),
@@ -2111,7 +2128,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					[ModuleName | LongDeps],
 					IntermodDirs, ".opt", OptDeps),
 				{ OptInt0Deps = sort_and_remove_dups(
-					condense(map(get_ancestors,
+					condense(list__map(get_ancestors,
 					OptDeps))) },
 				write_dependencies_list(OptDeps,
 					".opt", DepStream),
@@ -2138,7 +2155,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				ObjFileName, " ",
 				SplitObjPattern, " :"
 			]),
-			write_dependencies_list(AllDeps, ".h", DepStream)
+			write_dependencies_list(AllDeps, ".mih", DepStream)
 		;
 			[]
 		),
@@ -2158,13 +2175,17 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		%
 		module_name_to_file_name(ModuleName, ".c", no, CFileName),
 		module_name_to_file_name(ModuleName, ".s", no, AsmFileName),
-		module_name_to_file_name(ModuleName, ".h", no, HeaderFileName),
+		module_name_to_file_name(ModuleName, ".mh", no, HeaderFileName),
+		module_name_to_file_name(ModuleName, ".mih", no,
+				HeaderFileName2),
 		io__write_strings(DepStream, [
 				"\n\n",
 				"ifeq ($(TARGET_ASM),yes)\n",
-				HeaderFileName, " : ", AsmFileName, "\n",
+				HeaderFileName, " ", HeaderFileName2,
+					" : ", AsmFileName, "\n",
 				"else\n",
-				HeaderFileName, " : ", CFileName, "\n",
+				HeaderFileName, " ",  HeaderFileName2,
+					" : ", CFileName, "\n",
 				"endif"
 		]),
 
@@ -2229,16 +2250,46 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		write_dependencies_list(LongDeps, ".int3", DepStream),
 		write_dependencies_list(ShortDeps, ".int3", DepStream),
 
+		%
+		% If we can pass the module name rather than the
+		% file name then do so. `--smart-recompilation'
+		% doesn't work if the file name is passed and the
+		% module name doesn't match the file name.
+		%
+		have_source_file_map(HaveMap),
+		{ HaveMap = yes,
+			prog_out__sym_name_to_string(
+				SourceFileModuleName, ".", ModuleArg)
+		; HaveMap = no,
+			ModuleArg = SourceFileName
+		},
+
+		%
+		% XXX The rule below will cause an undefined make
+		% variable warning for $(MCFLAGS-module) when run,
+		% but there's no easy way to avoid that without using
+		% features only available in recent versions of make.
+		% The special case handling of $(MCFLAGS-module) in
+		% this rule is necessary because it's difficult to extract
+		% the module name from $@ (e.g. module.dir/module_000.o) in
+		% the code for TARGET_MCFLAGS in Mmake.vars.in using make's
+		% text handling functions ($(patsubst ...) only works for a
+		% single occurrence of the pattern).
+		%
+		% With recent versions of make (3.78 or later) it would be
+		% possible to avoid the warning using 
+		%    $(if $(findstring undefined,$(origin MCFLAGS-module)),,\
+		%	$(MCFLAGS-module))
+		%
 		module_name_to_file_name(ModuleName, ".dir", no, DirFileName),
-		module_name_to_split_c_file_name(ModuleName, 0, ".$O",
-			SplitCObj0FileName),
 		io__write_strings(DepStream, [
 			"\n\n",
-			SplitCObj0FileName, " : ",
+			SplitObjPattern, " : ",
 				SourceFileName, "\n",
 			"\trm -rf ", DirFileName, "\n",
 			"\t$(MCS) $(ALL_GRADEFLAGS) $(ALL_MCSFLAGS) ",
-				SourceFileName, "\n\n"
+				"$(MCFLAGS-", MakeVarName, ") ",
+				ModuleArg, "\n\n"
 		]),
 
 		globals__io_get_target(Target),
@@ -2287,7 +2338,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			io__write_string(DepStream, "\n\n"),
 			io__write_string(DepStream, ObjFileName),
 			io__write_string(DepStream, " : "),
-			write_dependencies_list(ForeignImportedModules, ".h",
+			write_dependencies_list(ForeignImportedModules, ".mh",
 				DepStream),
 			io__write_string(DepStream, "\n\n")
 		),
@@ -2371,6 +2422,18 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			"\t@:\n"
 		]),
 
+		globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
+		( { UseSubdirs = yes } ->
+			io__nl(DepStream),
+			list__foldl(
+				write_subdirs_shorthand_rule(DepStream,
+					ModuleName),
+				[".c", ".$O", ".pic_o", ".s", ".pic_s",
+				".java", ".class", ".il", ".dll"])
+		;
+			[]
+		),
+
 		( { SourceFileName \= default_source_file(ModuleName) } ->
 			%
 			% The pattern rules in Mmake.rules won't work,
@@ -2391,47 +2454,51 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			% changes to scripts/Mmake.rules.  See that
 			% file for documentation on these rules.
 			%
+
 			io__write_strings(DepStream, [
 				"\n",
 				Date0FileName, " : ", SourceFileName, "\n",
-				"\t$(MCPI) $(ALL_MCPIFLAGS) $<\n",
+				"\t$(MCPI) $(ALL_MCPIFLAGS) ", ModuleArg, "\n",
 				DateFileName, " : ", SourceFileName, "\n",
-				"\t$(MCI) $(ALL_MCIFLAGS) $<\n",
+				"\t$(MCI) $(ALL_MCIFLAGS) ", ModuleArg, "\n",
 				Date3FileName, " : ", SourceFileName, "\n",
-				"\t$(MCSI) $(ALL_MCSIFLAGS) $<\n",
+				"\t$(MCSI) $(ALL_MCSIFLAGS) ", ModuleArg, "\n",
 				OptDateFileName, " : ", SourceFileName, "\n",
-				"\t$(MCOI) $(ALL_MCOIFLAGS) $<\n",
+				"\t$(MCOI) $(ALL_GRADEFLAGS) ",
+					"$(ALL_MCOIFLAGS) ", ModuleArg, "\n",
 				TransOptDateFileName, " : ", SourceFileName,
 					"\n",
-				"\t$(MCTOI) $(ALL_MCTOIFLAGS) $<\n",
+				"\t$(MCTOI) $(ALL_GRADEFLAGS) ",
+					"$(ALL_MCTOIFLAGS) ", ModuleArg, "\n",
 				CDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
-					"$< > ", ErrFileName, " 2>&1\n",
+					ModuleArg, " > ", ErrFileName,
+					" 2>&1\n",
 				"ifeq ($(TARGET_ASM),yes)\n",
 				AsmDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
-					"--target-code-only $< > ", ErrFileName,
-					" 2>&1\n",
+					"--target-code-only ", ModuleArg,
+					" > ", ErrFileName, " 2>&1\n",
 				PicAsmDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--target-code-only --pic ",
 					"\\\n",
 				"\t\t--cflags ""$(GCCFLAGS_FOR_PIC)"" ",
-					"$< > ", ErrFileName,
+					ModuleArg, " > ", ErrFileName,
 					" 2>&1\n",
 				"endif # TARGET_ASM\n",
 				ILDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
-					"--il-only $< > ", ErrFileName,
-					" 2>&1\n",
+					"--il-only ", ModuleArg, " > ",
+					ErrFileName, " 2>&1\n",
 				JavaDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
-					"--java-only $< > ", ErrFileName,
-					" 2>&1\n",
+					"--java-only ", ModuleArg, " > ",
+					ErrFileName, " 2>&1\n",
 				RLOFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
-					"--aditi-only $< > ", ErrFileName,
-					" 2>&1\n"
+					"--aditi-only ", ModuleArg, " > ",
+					ErrFileName, " 2>&1\n"
 			])
 		;
 			[]
@@ -2556,6 +2623,22 @@ write_foreign_dependency_for_il(DepStream, ModuleName, AllDeps, ForeignLang)
 		[]
 	).
 
+	% With `--use-subdirs', allow users to type `mmake module.c'
+	% rather than `mmake Mercury/cs/module.c'.
+:- pred write_subdirs_shorthand_rule(io__output_stream::in,
+	module_name::in, string::in, io__state::di, io__state::uo) is det.
+
+write_subdirs_shorthand_rule(DepStream, ModuleName, Ext) -->
+	{ prog_out__sym_name_to_string(ModuleName, ".", ModuleStr) },
+	module_name_to_file_name(ModuleName, Ext, no, Target),
+	{ ShorthandTarget = ModuleStr ++ Ext },
+	io__write_string(DepStream, ".PHONY: "),
+	io__write_string(DepStream, ShorthandTarget),
+	io__nl(DepStream),
+	io__write_string(DepStream, ShorthandTarget),
+	io__write_string(DepStream, ": "),
+	io__write_string(DepStream, Target),
+	io__nl(DepStream).
 
 maybe_read_dependency_file(ModuleName, MaybeTransOptDeps) -->
 	globals__io_lookup_bool_option(transitive_optimization, TransOpt),
@@ -2983,12 +3066,25 @@ generate_dependencies_write_d_files([Dep | Deps],
 	% and save them in the module_imports structure.
 	%
 	{ module_imports_get_module_name(Module0, ModuleName) },
-	{ get_dependencies_from_relation(IntDepsRel, ModuleName, IntDeps) },
-	{ get_dependencies_from_relation(ImplDepsRel, ModuleName, ImplDeps) },
-	{ get_dependencies_from_relation(IndirectDepsRel, ModuleName,
-			IndirectDeps) },
 	{ get_dependencies_from_relation(IndirectOptDepsRel, ModuleName,
 			IndirectOptDeps) },
+	globals__io_lookup_bool_option(intermodule_optimization, Intermod),
+	{ Intermod = yes ->
+		% Be conservative with inter-module optimization -- assume
+		% a module depends on the `.int', `.int2' and `.opt' files
+		% for all transitively imported modules.
+		IntDeps = IndirectOptDeps,
+		ImplDeps = IndirectOptDeps,
+		IndirectDeps = IndirectOptDeps
+	;
+		get_dependencies_from_relation(IntDepsRel,
+			ModuleName, IntDeps),
+		get_dependencies_from_relation(ImplDepsRel,
+			ModuleName, ImplDeps),
+		get_dependencies_from_relation(IndirectDepsRel,
+			ModuleName, IndirectDeps)
+	},
+	
 	{ module_imports_set_int_deps(Module0, IntDeps, Module1) },
 	{ module_imports_set_impl_deps(Module1, ImplDeps, Module2) },
 	{ module_imports_set_indirect_deps(Module2, IndirectDeps, Module) },
@@ -3549,7 +3645,7 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".num_splits = "),
 	write_compact_dependencies_list(Modules, "$(num_splits_subdir)",
-					".num_splits", Basis, DepStream),
+					".num_split", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -3619,51 +3715,71 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".hs = "),
+	io__write_string(DepStream, ".mihs = "),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
 	( { HighLevelCode = yes } ->
 		( { Target = asm } ->
 			% For the `--target asm' back-end, we only
-			% generate `.h' files for modules that
+			% generate `.mih' files for modules that
 			% contain C code
 			write_dependencies_list(
 				modules_that_need_headers(Modules, DepsMap),
-				".h", DepStream)
+				".mih", DepStream)
 		; { Target = c } ->
 			% For the `--target c' MLDS back-end, we
-			% generate `.h' files for every module
-			write_compact_dependencies_list(Modules, "", ".h",
+			% generate `.mih' files for every module
+			write_compact_dependencies_list(Modules,
+					"$(mihs_subdir)", ".mih",
 					Basis, DepStream)
 		;
 			% For the IL and Java targets, currently we don't
-			% generate `.h' files at all; although perhaps
+			% generate `.mih' files at all; although perhaps
 			% we should...
 			[]
 		)
 	;
-		% For the LLDS back-end, we only generate `.h' files
-		% for modules containing `:- pragma export' declarations.
-		{ LLDSHeaderModules =
-		    list__filter(
-			(pred(Module::in) is semidet :-
-			    map__lookup(DepsMap, Module,
-					deps(_, ModuleImports)),
-			    contains_foreign_export =
-			    	ModuleImports ^ contains_foreign_export 
-		     ), Modules) },
-		write_dependencies_list(LLDSHeaderModules, ".h", DepStream)
+		% For the LLDS back-end, we don't use `.mih' files at all
+		[]
 	),
 	io__write_string(DepStream, "\n"),
 
-	% The `<module>.all_hs' variable is like `<module>.hs' except
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".mhs = "),
+	( { Target = c ; Target = asm } ->
+		% We only generate `.mh' files for modules containing
+		% `:- pragma export' declarations.
+		{ HeaderModules =
+		    list__filter(
+			(pred(Module::in) is semidet :-
+			    map__lookup(DepsMap, Module,
+			    		deps(_, ModuleImports)),
+			    contains_foreign_export =
+					ModuleImports ^ contains_foreign_export 
+			), Modules) },
+		write_dependencies_list(HeaderModules, ".mh", DepStream)
+	;
+		[]
+	),
+	io__write_string(DepStream, "\n"),
+
+	% The `<module>.all_mihs' variable is like `<module>.mihs' except
 	% that it contains header files for all the modules, regardless
 	% of the grade or --target option.  It is used by the rule for
 	% `mmake realclean', which should remove anything that could have
 	% been automatically generated, even if the grade or --target option
 	% has changed.
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".all_hs = "),
-	write_compact_dependencies_list(Modules, "", ".h", Basis, DepStream),
+	io__write_string(DepStream, ".all_mihs = "),
+	write_compact_dependencies_list(Modules, "$(mihs_subdir)", ".mih",
+					Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	% The `<module>.all_mhs' variable is like `<module>.mhs' except
+	% that it contains header files for all the modules, as for
+	% `<module>.all_mihs' above.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_mhs = "),
+	write_compact_dependencies_list(Modules, "", ".mh", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -3875,17 +3991,21 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_lib_file_name("lib", ModuleName,
 		".$(EXT_FOR_SHARED_LIB)", no, MaybeSharedLibFileName),
 
-	{ ILLibRule = [
-		LibTargetName, " : ", "$(", MakeVarName, ".dlls) ",
-			"$(", MakeVarName, ".foreign_dlls)\n"
-	] },
-	{ LibRule = [
-		LibTargetName, " : ", LibFileName, " ",
-		MaybeSharedLibFileName, " \\\n",
-		"\t\t$(", MakeVarName, ".ints) ",
+	{ AllInts = [
+		"$(", MakeVarName, ".ints) ",
 		"$(", MakeVarName, ".int3s) ",
 		MaybeOptsVar, MaybeTransOptsVar,
 		InitFileName, "\n\n"
+	] },
+	{ ILLibRule = [
+		LibTargetName, " : ", "$(", MakeVarName, ".dlls) ",
+			"$(", MakeVarName, ".foreign_dlls) \\\n\t\t"
+		| AllInts
+	] },
+	{ LibRule = [
+		LibTargetName, " : ", LibFileName, " ",
+		MaybeSharedLibFileName, " \\\n\t\t"
+		| AllInts
 	] },
 	{ Gmake = yes,
 		LibRules = If ++ ILLibRule ++ Else ++ LibRule ++ EndIf
@@ -3985,38 +4105,69 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		InstallIntsRuleBody
 	]),
 
-	module_name_to_lib_file_name("lib", ModuleName, ".install_hdrs", no,
-				LibInstallHdrsTargetName),
-	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	( { HighLevelCode = yes, ( Target = c ; Target = asm ) } ->
-		%
-		% XXX  Note that we install the header files in two places:
-		% in the `inc' directory, so that the C compiler will find
-		% them, and also in the `ints' directory, so that Mmake
-		% will find them.  That's not ideal, but it works.
-		% (A better fix would be to change the VPATH setting
-		% in scripts/Mmake.vars.in so that Mmake also searches
-		% the `inc' directory, but doing that properly is non-trivial.)
-		%
-		io__write_strings(DepStream, [
-			".PHONY : ", LibInstallHdrsTargetName, "\n",
-			LibInstallHdrsTargetName, " : ",
-				"$(", MakeVarName, ".hs) ",
-				"install_lib_dirs\n",
-			"\tfor hdr in $(", MakeVarName, ".hs); do \\\n",
-			"\t	$(INSTALL) $$hdr $(INSTALL_INC_DIR); \\\n",
-			"\t	$(INSTALL) $$hdr $(INSTALL_INT_DIR); \\\n",
-			"\tdone\n\n"
-		])
-	;
-		% for non-MLDS grades, we don't need to install the header
-		% files, so this rule does nothing
-		io__write_strings(DepStream, [
-			".PHONY : ", LibInstallHdrsTargetName, "\n",
-			LibInstallHdrsTargetName, " :\n",
-			"\t\n\n"
-		])
-	),
+	%
+	% XXX  Note that we install the header files in two places:
+	% in the `lib/inc' or `lib/$(GRADE)/$(FULLARCH)/inc' directory,
+	% so that the C compiler will find them, and also in the `ints'
+	% directory, so that Mmake will find them.  That's not ideal,
+	% but it works.
+	%
+	% (A better fix would be to change the VPATH setting
+	% in scripts/Mmake.vars.in so that Mmake also searches
+	% the `lib/$(GRADE)/$(FULLARCH)/inc' directory, but doing
+	% that properly is non-trivial.)
+	%
+	module_name_to_lib_file_name("lib", ModuleName,
+		".install_hdrs", no, LibInstallHdrsTargetName),
+	io__write_strings(DepStream, [
+		".PHONY : ", LibInstallHdrsTargetName, "\n",
+		LibInstallHdrsTargetName, " : ",
+			"$(", MakeVarName, ".mhs) ",
+			"install_lib_dirs\n", 
+"ifeq ($(", MakeVarName, ".mhs),)
+		@:
+else
+		for hdr in $(", MakeVarName, ".mhs); do \\
+			$(INSTALL) $$hdr $(INSTALL_INT_DIR); \\
+			$(INSTALL) $$hdr $(INSTALL_INC_DIR); \\
+		done
+endif\n\n"]),
+
+	module_name_to_lib_file_name("lib", ModuleName,
+		".install_grade_hdrs", no, LibInstallGradeHdrsTargetName),
+	io__write_strings(DepStream, [
+		".PHONY : ", LibInstallGradeHdrsTargetName, "\n",
+		LibInstallGradeHdrsTargetName, " : ",
+			"$(", MakeVarName, ".mihs) ",
+			"install_grade_dirs\n", 
+"ifeq ($(", MakeVarName, ".mihs),)
+		@:
+else
+		for hdr in $(", MakeVarName, ".mihs); do \\
+			$(INSTALL) $$hdr $(INSTALL_INT_DIR); \\
+			$(INSTALL) $$hdr $(INSTALL_GRADE_INC_DIR); \\
+		done
+		# The following is needed to support the `--use-subdirs' option
+		# We try using `ln -s', but if that fails, then we just use
+		# `$(INSTALL)'.
+		rm -f $(INSTALL_GRADE_INC_SUBDIR)
+		ln -s .. $(INSTALL_GRADE_INC_SUBDIR) || { \\
+			{ [ -d $(INSTALL_GRADE_INC_SUBDIR) ] || \\
+				$(INSTALL_MKDIR) $(INSTALL_GRADE_INC_SUBDIR); \\
+			} && \\
+			$(INSTALL) $(INSTALL_GRADE_INC_DIR)/*.mih \\
+				$(INSTALL_GRADE_INC_SUBDIR); \\
+		} || exit 1
+		rm -f $(INSTALL_INT_DIR)/Mercury/mihs
+		ln -s .. $(INSTALL_INT_DIR)/Mercury/mihs || { \\
+			{ [ -d $(INSTALL_INT_DIR)/Mercury/mihs ] || \\
+				$(INSTALL_MKDIR) \\
+					$(INSTALL_INT_DIR)/Mercury/mihs; \\
+			} && \\
+			$(INSTALL) $(INSTALL_GRADE_INC_DIR)/*.mih \\
+				$(INSTALL_INT_DIR); \\
+		} || exit 1
+endif\n\n"]),
 
 	module_name_to_file_name(ModuleName, ".check", no, CheckTargetName),
 	module_name_to_file_name(ModuleName, ".ints", no, IntsTargetName),
@@ -4093,6 +4244,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-echo $(", MakeVarName, ".num_splits) | xargs rm -rf \n",
 		"\t-echo $(", MakeVarName, ".cs) ", InitCFileName,
 				" | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".mihs) | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".all_ss) ", InitAsmFileName,
 				" | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".all_pic_ss) ",
@@ -4137,7 +4289,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-echo $(", MakeVarName, ".trans_opts) | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".ds) | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".module_deps) | xargs rm -f\n",
-		"\t-echo $(", MakeVarName, ".all_hs) | xargs rm -f\n",
+		"\t-echo $(", MakeVarName, ".all_mhs) | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".dlls) | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".foreign_dlls) | xargs rm -f\n",
 		"\t-echo $(", MakeVarName, ".classes) | xargs rm -f\n",
@@ -4546,16 +4698,7 @@ write_file_dependencies_list([FileName | FileNames], Suffix, DepStream) -->
 
 write_compact_dependencies_list(Modules, Prefix, Suffix, Basis, DepStream) -->
 	(
-		{ Basis = yes(VarName - OldSuffix) },
-		% Don't use the compact dependency lists for names of header
-		% files for modules in the standard library, because it
-		% doesn't take into account the "mercury." prefix
-		% that gets added to those header file names in MLDS grades.
-		\+ {
-			(Suffix = ".h" ; Suffix = ".h.tmp"),
-			list__member(unqualified(StdLibModule), Modules),
-			mercury_std_library_module(StdLibModule)
-		}
+		{ Basis = yes(VarName - OldSuffix) }
 	->
 		io__write_string(DepStream, "$("),
 		io__write_string(DepStream, VarName),
@@ -5672,17 +5815,35 @@ report_error_duplicate_module_decl(ModuleName - Context) -->
 :- mode get_interface(in, out) is det.
 
 get_interface(Items0, Items) :-
-	get_interface_2(Items0, no, [], RevItems),
+	AddToImpl = (func(_, ImplItems) = ImplItems),
+	get_interface_and_implementation_2(Items0, no, [], RevItems,
+		AddToImpl, unit, _),
 	list__reverse(RevItems, Items).
 
-:- pred get_interface_2(item_list, bool, item_list, item_list).
-:- mode get_interface_2(in, in, in, out) is det.
+:- pred get_interface_and_implementation(item_list, item_list, item_list).
+:- mode get_interface_and_implementation(in, out, out) is det.
 
-get_interface_2([], _, Items, Items).
-get_interface_2([Item - Context | Rest], InInterface0,
-				Items0, Items) :-
+get_interface_and_implementation(Items0, InterfaceItems,
+		ImplementationItems) :-
+	AddToImpl = (func(ImplItem, ImplItems) = [ImplItem | ImplItems]),
+	get_interface_and_implementation_2(Items0, no, [], RevIntItems,
+		AddToImpl, [], RevImplItems),
+	list__reverse(RevIntItems, InterfaceItems),
+	list__reverse(RevImplItems, ImplementationItems).
+
+:- pred get_interface_and_implementation_2(item_list, bool,
+	item_list, item_list, func(item_and_context, T) = T, T, T).
+:- mode get_interface_and_implementation_2(in, in, in, out,
+	in, in, out) is det.
+
+get_interface_and_implementation_2([], _, IntItems, IntItems, _,
+		ImplItems, ImplItems).
+get_interface_and_implementation_2([ItemAndContext | Rest], InInterface0,
+		IntItems0, IntItems, AddImplItem, ImplItems0, ImplItems) :-
+	ItemAndContext = Item - Context,
 	( Item = module_defn(_, interface) ->
-		Items1 = Items0,
+		IntItems1 = IntItems0,
+		ImplItems1 = ImplItems0,
 		InInterface1 = yes,
 		Continue = yes
 	; 
@@ -5692,33 +5853,42 @@ get_interface_2([Item - Context | Rest], InInterface0,
 		)
 	->
 		% Items after here are not part of this module.
-		Items1 = Items0,
+		IntItems1 = IntItems0,
+		ImplItems1 = ImplItems0,
 		InInterface1 = no,
 		Continue = no
 	;
 		Item = module_defn(_, implementation) 
 	->
-		Items1 = Items0,
+		IntItems1 = IntItems0,
+		ImplItems1 = ImplItems0,
 		InInterface1 = no,
 		Continue = yes
 	;
 		( InInterface0 = yes ->
 			( make_abstract_instance(Item, Item1) ->
-				ItemToWrite = Item1
+				ItemToWrite = Item1,
+				ImplItems1 = AddImplItem(ItemAndContext,
+						ImplItems0)
 			;
-				ItemToWrite = Item
+				ItemToWrite = Item,
+				ImplItems1 = ImplItems0
 			),
-			Items1 = [ItemToWrite - Context | Items0]
+			IntItems1 = [ItemToWrite - Context | IntItems0]
 		;
-			Items1 = Items0
+			IntItems1 = IntItems0,
+			ImplItems1 = AddImplItem(ItemAndContext, ImplItems0)
 		),
 		InInterface1 = InInterface0,
 		Continue = yes
 	),
 	( Continue = yes ->
-		get_interface_2(Rest, InInterface1, Items1, Items)
+		get_interface_and_implementation_2(Rest, InInterface1,
+			IntItems1, IntItems, AddImplItem,
+			ImplItems1, ImplItems)
 	;
-		Items = Items1
+		ImplItems = ImplItems1,
+		IntItems = IntItems1
 	).
 
 	% Given a module interface (well, a list of items), extract the

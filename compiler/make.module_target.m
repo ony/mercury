@@ -106,34 +106,14 @@ make_module_target(target(TargetFile) @ Dep, Succeeded, Info0, Info) -->
 			io__nl
 		    )),
 
-		%
-		% For comparison, find the oldest of the touched
-		% timestamp files.
-		%
-		list__map_foldl2(
-			get_timestamp_file_timestamp, TouchedTargetFiles,
-			TouchedTargetFileTimestamps, Info5, Info6),
-		list__map_foldl2(get_file_timestamp([dir__this_directory]),
-			TouchedFiles, TouchedFileTimestamps, Info6, Info8),
-		{ MaybeOldestTimestamp0 = list__foldl(find_oldest_timestamp, 
-			TouchedTargetFileTimestamps, ok(newest_timestamp)) },
-		{ MaybeOldestTimestamp = list__foldl(find_oldest_timestamp, 
-			TouchedFileTimestamps, MaybeOldestTimestamp0) },
-		module_name_to_file_name(ModuleName,
-			target_extension(Globals, FileType),
-			no, TargetFileName),
-
 		globals__io_lookup_bool_option(keep_going, KeepGoing),
 		( { DepsSuccess = no, KeepGoing = no } ->
-			{ Info10 = Info8 },
+			{ Info6 = Info5 },
 			{ DepsResult = error }
 		;
-			foldl2_maybe_stop_at_error(KeepGoing,
-				make_module_target, DepFilesToMake,
-				_, Info8, Info9),
-			check_dependencies(TargetFileName,
-				MaybeOldestTimestamp, DepFilesToMake,
-				DepsResult0, Info9, Info10),
+			make_dependency_files(TargetFile, DepFilesToMake,
+				TouchedTargetFiles, TouchedFiles, DepsResult0,
+				Info5, Info6),
 			{ DepsResult =
 				( DepsSuccess = yes -> DepsResult0 ; error ) }
 		),
@@ -141,19 +121,19 @@ make_module_target(target(TargetFile) @ Dep, Succeeded, Info0, Info) -->
 			{ DepsResult = error },
 			{ Succeeded = no },
 			{ list__foldl(update_target_status(error),
-	    			TouchedTargetFiles, Info10, Info) }
+	    			TouchedTargetFiles, Info6, Info) }
 		;
 			{ DepsResult = out_of_date },
 			build_target(CompilationTask, TargetFile, Imports,
 				TouchedTargetFiles, TouchedFiles, Succeeded,
-				Info10, Info)
+				Info6, Info)
 		;
 			{ DepsResult = up_to_date },
 			debug_file_msg(TargetFile, "up to date"),
 			{ Succeeded = yes },
 			{ list__foldl(update_target_status(up_to_date),
 	    			[TargetFile | TouchedTargetFiles],
-				Info10, Info) }
+				Info6, Info) }
 		)
 	    )
     	)
@@ -173,13 +153,48 @@ make_module_target(target(TargetFile) @ Dep, Succeeded, Info0, Info) -->
 	{ Info = Info1 }
     ).
 
-:- func find_oldest_timestamp(maybe_error(timestamp),
-		maybe_error(timestamp)) = maybe_error(timestamp).
+:- pred make_dependency_files(target_file::in, list(dependency_file)::in,
+	list(target_file)::in, list(file_name)::in, dependencies_result::out,
+	make_info::in, make_info::out, io__state::di, io__state::uo) is det.
 
-find_oldest_timestamp(error(_) @ Timestamp, _) = Timestamp.
-find_oldest_timestamp(ok(_), error(_) @ Timestamp) = Timestamp.
-find_oldest_timestamp(ok(Timestamp1), ok(Timestamp2)) =
-    ok( ( compare((<), Timestamp1, Timestamp2) -> Timestamp1 ; Timestamp2 ) ).
+make_dependency_files(TargetFile, DepFilesToMake, TouchedTargetFiles,
+		TouchedFiles, DepsResult, Info0, Info) -->
+	%
+	% Build the dependencies.
+	%
+	globals__io_lookup_bool_option(keep_going, KeepGoing),
+	foldl2_maybe_stop_at_error(KeepGoing, make_module_target,
+		DepFilesToMake, _, Info0, Info1),
+
+	%
+	% Check that the target files exist.
+	%
+	list__map_foldl2(get_target_timestamp, TouchedTargetFiles,
+			TargetTimestamps, Info1, Info2),
+	( { list__member(error(_), TargetTimestamps) } ->
+		debug_file_msg(TargetFile, "target file does not exist"),
+		{ DepsResult = out_of_date },
+		{ Info = Info2 }
+	;
+		%
+		% Compare the oldest of the timestamps of the touched
+		% files with the timestamps of the dependencies.
+		%
+		list__map_foldl2(get_timestamp_file_timestamp,
+			TouchedTargetFiles, TouchedTargetFileTimestamps,
+			Info2, Info3),
+		list__map_foldl2(get_file_timestamp([dir__this_directory]),
+			TouchedFiles, TouchedFileTimestamps, Info3, Info4),
+		{ MaybeOldestTimestamp0 = list__foldl(find_oldest_timestamp, 
+			TouchedTargetFileTimestamps, ok(newest_timestamp)) },
+		{ MaybeOldestTimestamp = list__foldl(find_oldest_timestamp, 
+			TouchedFileTimestamps, MaybeOldestTimestamp0) },
+
+		get_file_name(TargetFile, TargetFileName, Info4, Info5),
+		check_dependencies(TargetFileName,
+			MaybeOldestTimestamp, DepFilesToMake,
+			DepsResult, Info5, Info)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -401,7 +416,7 @@ update_target_status(TargetStatus, TargetFile, Info,
 
 compilation_task(_, source) = _ :- error("compilation_task").
 compilation_task(_, errors) =
-		process_module(errorcheck) - ["--errorcheck_only"].
+		process_module(errorcheck) - ["--errorcheck-only"].
 compilation_task(_, unqualified_short_interface) =
 		process_module(make_short_interface) -
 				["--make-short-interface"].
@@ -417,7 +432,7 @@ compilation_task(_, intermodule_interface) =
 			["--make-optimization-interface"].
 compilation_task(_, aditi_code) =
 		process_module(compile_to_target_code) - ["--aditi-only"].
-compilation_task(Globals, c_header) = compilation_task(Globals, c_code).
+compilation_task(Globals, c_header(_)) = compilation_task(Globals, c_code).
 compilation_task(_, c_code) = process_module(compile_to_target_code) -
 					["--compile-to-c"].
 compilation_task(_, il_code) = process_module(compile_to_target_code) -
@@ -505,23 +520,12 @@ touched_files(TargetFile, process_module(Task), TouchedTargetFiles,
 		    % When compiling to high-level C, we always generate
 		    % a header file.
 		    %
-		    { HeaderModuleNames = SourceFileModuleNames }
+		    { HeaderModuleNames = SourceFileModuleNames },
+		    { HeaderTargets0 = make_target_list(HeaderModuleNames,
+		    			c_header(mih)) }
 		;
-		    %
-		    % When compiling to low-level C, we only generate a
-		    % header file if the module contains `:- pragma export'
-		    % declarations.
-		    %
-		    { HeaderModuleNames =
-			list__filter_map(
-			    (func(MImports) =
-			    		MImports ^ module_name is semidet :-
-				contains_foreign_export =
-				    MImports ^ contains_foreign_export
-			    ), ModuleImportsList) }
-		),
-		{ HeaderTargets = make_target_list(HeaderModuleNames,
-					c_header) }
+		    { HeaderTargets0 = [] }	
+		)
 	    ;
 	        { CompilationTarget = asm },
 		%
@@ -533,15 +537,34 @@ touched_files(TargetFile, process_module(Task), TouchedTargetFiles,
 			(func(MImports) = MImports ^ module_name is semidet :-
 			    contains_foreign_code(_) = MImports ^ foreign_code
 			), ModuleImportsList) },
-		{ HeaderTargets = make_target_list(HeaderModuleNames,
-					c_header) }
+		{ HeaderTargets0 = make_target_list(HeaderModuleNames,
+					c_header(mih)) }
 	    ;
 	    	{ CompilationTarget = il },
-		{ HeaderTargets = [] }
+		{ HeaderTargets0 = [] }
 	    ;
 	    	{ CompilationTarget = java },
-		{ HeaderTargets = [] }
+		{ HeaderTargets0 = [] }
 	    ),
+
+	    { ( CompilationTarget = c ; CompilationTarget = asm ) ->
+		    %
+		    % We only generate a `.mh' file if the module contains
+		    % `:- pragma export' declarations.
+		    %
+	    	PragmaExportModuleNames =
+			list__filter_map(
+			    (func(MImports) =
+			    		MImports ^ module_name is semidet :-
+				contains_foreign_export =
+				    MImports ^ contains_foreign_export
+			    ), ModuleImportsList),
+	    	HeaderTargets =
+			make_target_list(PragmaExportModuleNames, c_header(mh))
+			++ HeaderTargets0
+	    ;
+		HeaderTargets = HeaderTargets0
+	    },
 
 	    { TouchedTargetFiles0 =
 			make_target_list(TargetModuleNames, FileType) },
@@ -561,11 +584,14 @@ touched_files(TargetFile, process_module(Task), TouchedTargetFiles,
 			make_target_list(TargetModuleNames, FileType) }
 	),
 
-
+	globals__io_get_globals(Globals),
 	list__foldl2(
 	    (pred((TargetModuleName - TargetFileType)::in, TimestampFiles0::in,
 			TimestampFiles1::out, di, uo) is det -->
-		( { TimestampExt = timestamp_extension(TargetFileType) } ->
+		(
+			{ TimestampExt =
+				timestamp_extension(Globals, TargetFileType) }
+		->
 			module_name_to_file_name(TargetModuleName,
 				TimestampExt, no, TimestampFile),
 			{ TimestampFiles1 =
@@ -644,6 +670,7 @@ external_foreign_code_files(Imports, ForeignFiles) -->
 	% `:- pragma foreign_proc' declarations.
 	%
 	globals__io_get_target(CompilationTarget),
+	globals__io_lookup_string_option(object_file_extension, ObjExt),
 	{ ModuleName = Imports ^ module_name },
 	(
 		{ CompilationTarget = asm },
@@ -654,7 +681,7 @@ external_foreign_code_files(Imports, ForeignFiles) -->
 			foreign_language_module_name(ModuleName, c), ".c",
 			no, CCodeFileName),
 		module_name_to_file_name(
-			foreign_language_module_name(ModuleName, c), ".o",
+			foreign_language_module_name(ModuleName, c), ObjExt,
 			no, ObjFileName),
 		{ ForeignFiles0 =
 			[foreign_code_file(c, CCodeFileName, ObjFileName) ] }
@@ -678,8 +705,6 @@ external_foreign_code_files(Imports, ForeignFiles) -->
 					di, uo) is det -->
 				fact_table_file_name(ModuleName, FactTableFile,
 					".c", FactTableCFile),
-				globals__io_lookup_string_option(
-					object_file_extension, ObjExt),
 				fact_table_file_name(ModuleName, FactTableFile,
 					ObjExt, FactTableObjFile),
 				{ FactTableForeignFile = foreign_code_file(c, 

@@ -285,6 +285,16 @@
 ** If you want to gather statistics about the number and size of stack frames,
 ** then set this macro to a string giving the name of the file to which which
 ** the statistics should be appended when the program exits.
+** 
+** MR_COMPARE_BY_RTTI
+** Enable this if you want to perform unifications and comparisons on types
+** with standard equality by interpreting the RTTI data structures instead of
+** invoking the type-specific unify and compare procedures. The last time we
+** measured it, this lead to about a 6% slowdown. Since the code interpreting
+** the data structures calls C functions, defining this macro also leads to
+** problems if user-defined unify procedures abort: the exception could be
+** transmitted to the parent Mercury code only by catching and retransmitting
+** it, which, for efficiency reasons, the code doesn't do.
 */
 
 #if defined(MR_THREAD_SAFE) && defined(MR_TRACE_HISTOGRAM)
@@ -501,10 +511,6 @@
 /*
 ** MR_USE_DECLARATIVE_DEBUGGER -- include support for declarative
 **				  debugging in the internal debugger.
-**
-** MR_USE_DECL_STACK_SLOT      -- reserve a stack slot for use by the
-**				  declarative debugger.  Requires programs
-**				  to be compiled with the flag `--trace-decl'.
 */
 
 #if defined(MR_CONSERVATIVE_GC) && !defined(MR_DISABLE_DECLARATIVE_DEBUGGER)

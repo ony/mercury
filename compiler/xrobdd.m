@@ -10,13 +10,16 @@
 :- module xrobdd.
 :- interface.
 
-:- include_module xrobdd__r_robdd.
-:- include_module xrobdd__tfr_robdd.
-:- include_module xrobdd__tfer_robdd.
-:- include_module xrobdd__tfeir_robdd.
-:- include_module xrobdd__tfeirn_robdd.
+:- include_module r_robdd.
+:- include_module tfr_robdd.
+:- include_module tfer_robdd.
+:- include_module tfeir_robdd.
+:- include_module tfeirn_robdd.
 
-:- include_module xrobdd__check_robdd.
+:- include_module check_robdd.
+
+:- include_module equiv_vars.
+:- include_module implications.
 
 %:- import_module xrobdd__check_robdd.
 %:- type xrobdd(T) == check_robdd(T).
@@ -25,6 +28,3 @@
 :- type xrobdd(T) == tfeirn(T).
 
 :- implementation.
-
-:- include_module xrobdd__equiv_vars.
-:- include_module xrobdd__implications.

@@ -5,6 +5,7 @@ HIGHLIGHTS
 ==========
 
 Changes to the Mercury language:
+* Addition of state variable syntax.
 * Improved support for higher-order functions.
 * Predicate and function equivalence type and mode declarations.
 * Support for defining predicates or functions
@@ -29,6 +30,10 @@ DETAILED LISTING
 ================
 
 Changes to the Mercury language:
+
+* A more general alternative to DCG syntax has been added to the language
+  to simplify the manipulation of threaded state.  See the section on State
+  Variables in the Syntax chapter in the reference manual.
 
 * If a higher-order function term has inst 'ground' it is now assumed to have
   the standard higher-order function inst 'func(in, .., in) = out is det'.
@@ -108,6 +113,16 @@ Changes to the Mercury language:
 
 Changes to the Mercury standard library:
 
+* The builtin predicates !/0 and !/2 from Mercury's Prolog heritage have been
+  removed (`!' is now a prefix operator used in the state variable syntax).
+
+* io__close_input, io__close_output, io__close_binary_input and
+  io__close_binary_output now throw an exception rather than
+  silently ignoring attempts to close the stdin, stdout or stderr
+  streams.
+
+* We have added the type class `pprint__doc/1' and a new concatenation
+  operator, `++/2', which should make it easier to construct doc values.
 * Performance bugs in `pprint__to_doc' have now been fixed.  Even
   very large terms can now be converted to docs and pretty printed without
   causing a machine to thrash or run out of memory.
@@ -179,6 +194,9 @@ Changes to the Mercury standard library:
   to update a constant string will cause a crash. Fixing this properly
   will be a lot of work, so for now we have just removed the modes.
 
+* We've added string__suffix, string__words/1, string__foldr,
+  string__foldl_substring and string__foldr_substring.
+
 * The exception module has a new predicate `try_store', which is
   like `try_io', but which works with stores rather than io__states.
 
@@ -237,6 +255,12 @@ Changes to the Mercury standard library:
   `float__builtin_float_*' predicates, which were synonyms
   for the arithmetic functions dating from when Mercury didn't
   have functions. 
+
+* We've added int:'/'/2 as a synonym for int:'//'/2 and false/0 as a
+  built-in synonym for fail/0 (both left-overs from Mercury's Prolog
+  heritage.)
+
+* dir:'/'/2 is now a synonym for `dir__make_path_name'.
   
 * We've removed the long obsolete predicates `io__read_anything',
   `io__write_anything', and `io__print_anything', which were long ago
@@ -267,6 +291,10 @@ Changes to the Mercury compiler:
   causes the compiler to issue a warning about any directly recursive
   call that is not a tail call.
 
+* The automatically generated header files for modules containing
+  `pragma export' declarations are now named `<module>.mh', not
+  `<module>.h'. This avoids conflicts with system header files.
+
 * We've fixed a long-standing bug in the handling of module imports.
   Previously, if `module1' imported `module2' which imported `module3' in
   its interface section, then any types, insts, modes and typeclasses defined
@@ -286,6 +314,13 @@ Changes to the Mercury compiler:
   It is enabled with the `--constraint-propagation' option
   (or `--local-constraint-propagation' for a more restricted
   version of the transformation).
+
+* The Mercury compiler can now perform inter-module optimization using
+  information from transitively imported modules. This is especially
+  useful for back-ends which do not support abstract equivalence types
+  properly (for example the .NET backend). To disable this behaviour and
+  only optimize using information from directly imported modules, use the
+  option `--no-read-opt-files-transitively'.
 
 * The `--convert-to-goedel' option has been removed.
   It never really worked anyway.

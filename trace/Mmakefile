@@ -14,6 +14,9 @@ LINK_STDLIB_ONLY=yes
 include $(MERCURY_DIR)/Mmake.common
 -include Mmake.trace.params
 
+# Avoid trying to make this file with `mmc --make' if it doesn't exist.
+Mmake.trace.params: ;
+
 #-----------------------------------------------------------------------------#
 
 CFLAGS		+= -I$(BROWSER_DIR) -g $(DLL_CFLAGS) \
@@ -128,10 +131,13 @@ lib$(TRACE_LIB_NAME)$(DLL_DEF_LIB).$A: $(OBJS)
 		$(AR_LIBFILE_OPT)lib$(TRACE_LIB_NAME)$(DLL_DEF_LIB).$A $(OBJS)
 	$(RANLIB) lib$(TRACE_LIB_NAME)$(DLL_DEF_LIB).$A
 
+RPATH_1=$(SHLIB_RPATH_OPT)$(FINAL_INSTALL_MERC_LIB_DIR)
+RPATH_2=$(SHLIB_RPATH_SEP)$(FINAL_INSTALL_MERC_GC_LIB_DIR)
+
 lib$(TRACE_LIB_NAME).so: $(PIC_OBJS)
 	$(LINK_SHARED_OBJ) $(ERROR_UNDEFINED)				\
 		-o lib$(TRACE_LIB_NAME).so $(PIC_OBJS)			\
-		$(SHLIB_RPATH_OPT)$(FINAL_INSTALL_MERC_GC_LIB_DIR)	\
+		$(RPATH_1)$(RPATH_2)					\
 		$(LDFLAGS) $(LDLIBS) $(THREADLIBS)			\
 		$(SHARED_LIBS)
 

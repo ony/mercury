@@ -117,6 +117,7 @@ static	MR_Unsigned	MR_edt_max_depth;
 static	MR_Unsigned	MR_edt_last_event;
 static	MR_bool		MR_edt_inside;
 static	MR_Unsigned	MR_edt_start_seqno;
+static	MR_Unsigned	MR_edt_start_io_counter;
 
 /*
 ** The declarative debugger ignores modules that were not compiled with
@@ -163,128 +164,76 @@ static	MR_Trace_Node	MR_trace_current_node;
 
 static	FILE		*MR_trace_store_file;
 
-static	MR_Trace_Node
-MR_trace_decl_call(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_exit(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_redo(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_fail(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_excp(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_switch(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_disj(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_cond(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_then(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_else(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_neg_enter(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_neg_success(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_neg_failure(MR_Event_Info *event_info, MR_Trace_Node prev);
-
-static	MR_Trace_Node
-MR_trace_decl_get_slot(const MR_Proc_Layout *entry, MR_Word *saved_regs);
-
-static	void
-MR_trace_decl_set_slot(const MR_Proc_Layout *entry, MR_Word *saved_regs,
-		MR_Trace_Node node);
-
-static	MR_Trace_Node
-MR_trace_matching_call(MR_Trace_Node node);
-
-static	MR_bool
-MR_trace_first_disjunct(MR_Event_Info *event_info);
-
-static	MR_bool
-MR_trace_matching_cond(const char *path, MR_Trace_Node node);
-
-static	MR_bool
-MR_trace_matching_neg(const char *path, MR_Trace_Node node);
-
-static	MR_bool
-MR_trace_matching_disj(const char *path, MR_Trace_Node node);
-
-static	MR_bool
-MR_trace_same_construct(const char *p1, const char *p2);
-
-static	MR_bool
-MR_trace_single_component(const char *path);
-
-static	MR_Word
-MR_decl_make_atom(const MR_Label_Layout *layout, MR_Word *saved_regs,
-		MR_Trace_Port port);
-
-static	MR_bool
-MR_hlds_var_is_head_var(const MR_Proc_Layout *entry, int hlds_num);
-
-static	MR_ConstString
-MR_decl_atom_name(const MR_Proc_Layout *entry);
-
-static	MR_Word
-MR_decl_atom_args(const MR_Label_Layout *layout, MR_Word *saved_regs);
-
-static	const char *
-MR_trace_start_collecting(MR_Unsigned event, MR_Unsigned seqno,
-		MR_Unsigned maxdepth,
-		MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info,
-		MR_Event_Details *event_details, MR_Code **jumpaddr);
-
-static	MR_Code *
-MR_trace_restart_decl_debug(MR_Unsigned event, MR_Unsigned seqno,
-		MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info,
-		MR_Event_Details *event_details);
-
-static	MR_Code *
-MR_decl_diagnosis(MR_Trace_Node root, MR_Trace_Cmd_Info *cmd,
-		MR_Event_Info *event_info, MR_Event_Details *event_details);
-
-static	MR_Code *
-MR_decl_handle_bug_found(MR_Unsigned event, MR_Trace_Cmd_Info *cmd,
-		MR_Event_Info *event_info, MR_Event_Details *event_details);
-
-static	MR_String
-MR_trace_node_path(MR_Trace_Node node);
-
-static	MR_Trace_Port
-MR_trace_node_port(MR_Trace_Node node);
-
-static	MR_Unsigned
-MR_trace_node_seqno(MR_Trace_Node node);
-
-static	MR_Trace_Node
-MR_trace_node_first_disj(MR_Trace_Node node);
-
-static	MR_Trace_Node
-MR_trace_step_left_in_contour(MR_Trace_Node node);
-
-static	MR_Trace_Node
-MR_trace_find_prev_contour(MR_Trace_Node node);
-
-static	void
-MR_decl_checkpoint_event_imp(const char *str, MR_Event_Info *event_info);
-
-static	void
-MR_decl_checkpoint_loc(const char *str, MR_Trace_Node node);
+static	MR_Trace_Node	MR_trace_decl_call(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_exit(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_redo(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_fail(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_excp(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_switch(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_disj(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_cond(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_then(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_else(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_neg_enter(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_neg_success(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_decl_neg_failure(MR_Event_Info *event_info,
+				MR_Trace_Node prev);
+static	MR_Trace_Node	MR_trace_matching_call(MR_Trace_Node node);
+static	MR_bool		MR_trace_first_disjunct(MR_Event_Info *event_info);
+static	MR_bool		MR_trace_matching_cond(const char *path,
+				MR_Trace_Node node);
+static	MR_bool		MR_trace_matching_neg(const char *path,
+				MR_Trace_Node node);
+static	MR_bool		MR_trace_matching_disj(const char *path,
+				MR_Trace_Node node);
+static	MR_bool		MR_trace_same_construct(const char *p1,
+				const char *p2);
+static	MR_bool		MR_trace_single_component(const char *path);
+static	MR_Word		MR_decl_make_atom(const MR_Label_Layout *layout,
+				MR_Word *saved_regs, MR_Trace_Port port);
+static	MR_ConstString	MR_decl_atom_name(const MR_Proc_Layout *entry);
+static	MR_Word		MR_decl_atom_args(const MR_Label_Layout *layout,
+				MR_Word *saved_regs);
+static	const char	*MR_trace_start_collecting(MR_Unsigned event,
+				MR_Unsigned seqno, MR_Unsigned maxdepth,
+				MR_Trace_Cmd_Info *cmd,
+				MR_Event_Info *event_info,
+				MR_Event_Details *event_details,
+				MR_Code **jumpaddr);
+static	MR_Code		*MR_trace_restart_decl_debug(MR_Unsigned event,
+				MR_Unsigned seqno, MR_Trace_Cmd_Info *cmd,
+				MR_Event_Info *event_info,
+				MR_Event_Details *event_details);
+static	MR_Code		*MR_decl_diagnosis(MR_Trace_Node root,
+				MR_Trace_Cmd_Info *cmd,
+				MR_Event_Info *event_info,
+				MR_Event_Details *event_details);
+static	MR_Code		*MR_decl_handle_bug_found(MR_Unsigned event,
+				MR_Trace_Cmd_Info *cmd,
+				MR_Event_Info *event_info,
+				MR_Event_Details *event_details);
+static	MR_String	MR_trace_node_path(MR_Trace_Node node);
+static	MR_Trace_Port	MR_trace_node_port(MR_Trace_Node node);
+static	MR_Unsigned	MR_trace_node_seqno(MR_Trace_Node node);
+static	MR_Trace_Node	MR_trace_node_first_disj(MR_Trace_Node node);
+static	MR_Trace_Node	MR_trace_step_left_in_contour(MR_Trace_Node node);
+static	MR_Trace_Node	MR_trace_find_prev_contour(MR_Trace_Node node);
+static	void		MR_decl_checkpoint_event_imp(const char *str,
+				MR_Event_Info *event_info);
+static	void		MR_decl_checkpoint_loc(const char *str,
+				MR_Trace_Node node);
 
 MR_Code *
 MR_trace_decl_debug(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
@@ -366,19 +315,6 @@ MR_trace_decl_debug(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 		MR_edt_compiler_flag_warning = MR_TRUE;
 		return NULL;
 	}
-
-#ifdef MR_USE_DECL_STACK_SLOT
-	if (entry->MR_sle_maybe_decl_debug < 1) {
-		/*
-		** If using reserved stack slots, we ignore any event
-		** for a procedure that does not have a slot reserved.
-		** Such procedures are effectively assumed correct, so
-		** we give the user a warning.
-		*/
-		MR_edt_compiler_flag_warning = MR_TRUE;
-		return NULL;
-	}
-#endif /* MR_USE_DECL_STACK_SLOT */
 
 	event_details.MR_call_seqno = MR_trace_call_seqno;
 	event_details.MR_call_depth = MR_trace_call_depth;
@@ -509,20 +445,16 @@ MR_trace_decl_call(MR_Event_Info *event_info, MR_Trace_Node prev)
 					(MR_Word) event_info->MR_call_seqno,
 					(MR_Word) event_info->MR_event_number,
 					(MR_Word) at_depth_limit, proc_rep,
-					goal_path);
+					goal_path, MR_io_tabling_counter);
 		} else {
 			node = (MR_Trace_Node)
 				MR_DD_construct_call_node((MR_Word) prev, atom,
 					(MR_Word) event_info->MR_call_seqno,
 					(MR_Word) event_info->MR_event_number,
-					(MR_Word) at_depth_limit, goal_path);
+					(MR_Word) at_depth_limit, goal_path,
+					MR_io_tabling_counter);
 		}
 	);
-
-#ifdef MR_USE_DECL_STACK_SLOT
-	MR_trace_decl_set_slot(layout->MR_sll_entry,
-					event_info->MR_saved_regs, node);
-#endif
 
 	return node;
 }
@@ -539,20 +471,15 @@ MR_trace_decl_exit(MR_Event_Info *event_info, MR_Trace_Node prev)
 				event_info->MR_saved_regs,
 				MR_PORT_EXIT);
 
-#ifdef MR_USE_DECL_STACK_SLOT
-	call = MR_trace_decl_get_slot(event_info->MR_event_sll->MR_sll_entry,
-				event_info->MR_saved_regs);
-#else
 	call = MR_trace_matching_call(prev);
 	MR_decl_checkpoint_match(call);
-#endif
-	
 	MR_TRACE_CALL_MERCURY(
 		last_interface = MR_DD_call_node_get_last_interface(
 				(MR_Word) call);
 		node = (MR_Trace_Node) MR_DD_construct_exit_node(
 				(MR_Word) prev, (MR_Word) call, last_interface,
-				atom, (MR_Word) event_info->MR_event_number);
+				atom, (MR_Word) event_info->MR_event_number,
+				MR_io_tabling_counter);
 		MR_DD_call_node_set_last_interface((MR_Word) call,
 				(MR_Word) node);
 	);
@@ -568,10 +495,6 @@ MR_trace_decl_redo(MR_Event_Info *event_info, MR_Trace_Node prev)
 	MR_Trace_Node		next;
 	MR_Word			last_interface;
 
-#ifdef MR_USE_DECL_STACK_SLOT
-	call = MR_trace_decl_get_slot(event_info->MR_event_sll->MR_sll_entry,
-				event_info->MR_saved_regs);
-#else
 	/*
 	** Search through previous contour for a matching EXIT event.
 	*/
@@ -591,7 +514,6 @@ MR_trace_decl_redo(MR_Event_Info *event_info, MR_Trace_Node prev)
 			MR_fatal_error("MR_trace_decl_redo: no matching EXIT");
 		}
 	);
-#endif /* !MR_USE_DECL_STACK_SLOT */
 
 	MR_TRACE_CALL_MERCURY(
 		last_interface = MR_DD_call_node_get_last_interface(
@@ -614,25 +536,17 @@ MR_trace_decl_fail(MR_Event_Info *event_info, MR_Trace_Node prev)
 	MR_Trace_Node		call;
 	MR_Word			redo;
 
-#ifdef MR_USE_DECL_STACK_SLOT
-	call = MR_trace_decl_get_slot(event_info->MR_event_sll->MR_sll_entry,
-				event_info->MR_saved_regs);
-#else
-	if (MR_trace_node_port(prev) == MR_PORT_CALL)
-	{
+	if (MR_trace_node_port(prev) == MR_PORT_CALL) {
 		/*
 		** We are already at the corresponding call, so there
 		** is no need to search for it.
 		*/
 		call = prev;
-	}
-	else
-	{
+	} else {
 		next = MR_trace_find_prev_contour(prev);
 		call = MR_trace_matching_call(next);
 	}
 	MR_decl_checkpoint_match(call);
-#endif
 
 	MR_TRACE_CALL_MERCURY(
 		redo = MR_DD_call_node_get_last_interface((MR_Word) call);
@@ -653,13 +567,8 @@ MR_trace_decl_excp(MR_Event_Info *event_info, MR_Trace_Node prev)
 	MR_Trace_Node		call;
 	MR_Word			last_interface;
 
-#ifdef MR_USE_DECL_STACK_SLOT
-	call = MR_trace_decl_get_slot(event_info->MR_event_sll->MR_sll_entry,
-				event_info->MR_saved_regs);
-#else
 	call = MR_trace_matching_call(prev);
 	MR_decl_checkpoint_match(call);
-#endif
 
 	MR_TRACE_CALL_MERCURY(
 		last_interface = MR_DD_call_node_get_last_interface(
@@ -893,51 +802,6 @@ MR_trace_decl_disj(MR_Event_Info *event_info, MR_Trace_Node prev)
 	return node;
 }
 
-#ifdef MR_USE_DECL_STACK_SLOT
-
-static	MR_Trace_Node
-MR_trace_decl_get_slot(const MR_Proc_Layout *entry, MR_Word *saved_regs)
-{
-	int			decl_slot;
-	MR_Word			*saved_sp;
-	MR_Word			*saved_curfr;
-	MR_Trace_Node		node;
-	
-	decl_slot = entry->MR_sle_maybe_decl_debug;
-	
-	if (MR_DETISM_DET_STACK(entry->MR_sle_detism)) {
-		saved_sp = (MR_Word *) MR_saved_sp(saved_regs);
-		node = (MR_Trace_Node) MR_based_stackvar(saved_sp, decl_slot);
-	} else {
-		saved_curfr = (MR_Word *) MR_saved_curfr(saved_regs);
-		node = (MR_Trace_Node) MR_based_framevar(saved_curfr,
-							decl_slot);
-	}
-	
-	return node;
-}
-
-static	void
-MR_trace_decl_set_slot(const MR_Proc_Layout *entry,
-		MR_Word *saved_regs, MR_Trace_Node node)
-{
-	int			decl_slot;
-	MR_Word			*saved_sp;
-	MR_Word			*saved_curfr;
-	
-	decl_slot = entry->MR_sle_maybe_decl_debug;
-	
-	if (MR_DETISM_DET_STACK(entry->MR_sle_detism)) {
-		saved_sp = (MR_Word *) MR_saved_sp(saved_regs);
-		MR_based_stackvar(saved_sp, decl_slot) = (MR_Word) node;
-	} else {
-		saved_curfr = (MR_Word *) MR_saved_curfr(saved_regs);
-		MR_based_framevar(saved_curfr, decl_slot) = (MR_Word) node;
-	}
-}
-
-#endif /* MR_USE_DECL_STACK_SLOT */
-
 static	MR_Trace_Node
 MR_trace_matching_call(MR_Trace_Node node)
 {
@@ -1079,6 +943,7 @@ MR_decl_make_atom(const MR_Label_Layout *layout, MR_Word *saved_regs,
 	MR_Word				arity;
 	MR_Word				atom;
 	int				hv;   /* any head variable */
+	int				num_added_args;
 	MR_TypeInfoParams		type_params;
 	const MR_Proc_Layout		*entry = layout->MR_sll_entry;
 
@@ -1099,6 +964,9 @@ MR_decl_make_atom(const MR_Label_Layout *layout, MR_Word *saved_regs,
 				(MR_Word) entry->MR_sle_num_head_vars);
 	);
 
+	/* Find out how many type-info/typeclass-info variables were added. */
+	num_added_args = entry->MR_sle_num_head_vars - arity;
+
 	for (hv = 0; hv < entry->MR_sle_num_head_vars; hv++) {
 		int		hlds_num;
 		MR_Word		arg;
@@ -1109,8 +977,8 @@ MR_decl_make_atom(const MR_Label_Layout *layout, MR_Word *saved_regs,
 
 		hlds_num = entry->MR_sle_head_var_nums[hv];
 
-		is_prog_visible_headvar = 
-			MR_hlds_var_is_head_var(entry, hlds_num);
+		is_prog_visible_headvar =
+				hv >= num_added_args ? MR_TRUE : MR_FALSE;
 
 		problem = MR_trace_return_hlds_var_info(hlds_num, &arg_type,
 				&arg_value);
@@ -1136,35 +1004,6 @@ MR_decl_make_atom(const MR_Label_Layout *layout, MR_Word *saved_regs,
 	}
 
 	return atom;
-}
-
-static MR_bool
-MR_hlds_var_is_head_var(const MR_Proc_Layout *entry, int hlds_num)
-{
-	MR_ConstString	var_name;
-	MR_ConstString	prefix;
-	const char	*s;
-
-	var_name = MR_hlds_var_name(entry, hlds_num);
-	if (var_name == NULL) {
-		return MR_FALSE;
-	}
-
-	prefix = "HeadVar__";
-	if (! MR_strneq(var_name, prefix, strlen(prefix))) {
-		return MR_FALSE;
-	}
-
-	s = var_name + strlen(prefix);
-	while (*s != '\0') {
-		if (! MR_isdigit(*s)) {
-			return MR_FALSE;
-		}
-
-		s++;
-	}
-
-	return MR_TRUE;
 }
 
 static	MR_ConstString
@@ -1258,17 +1097,6 @@ MR_trace_start_decl_debug(MR_Trace_Mode trace_mode, const char *outfile,
 		return MR_FALSE;
 	}
 
-#ifdef MR_USE_DECL_STACK_SLOT
-	if (entry->MR_sle_maybe_decl_debug < 1) {
-		/* No slots are reserved for declarative debugging */
-		fflush(MR_mdb_out);
-		fprintf(MR_mdb_err, "mdb: cannot start declarative debugging, "
-				"because this procedure was not\n"
-				"compiled with stack slots reserved.\n");
-		return MR_FALSE;
-	}
-#endif /* MR_USE_DECL_STACK_SLOT */
-
 	if (trace_mode == MR_TRACE_DECL_DEBUG_DUMP) {
 		out = fopen(outfile, "w");
 		if (out == NULL) {
@@ -1338,8 +1166,8 @@ MR_trace_start_collecting(MR_Unsigned event, MR_Unsigned seqno,
 	/*
 	** Go back to an event before the topmost call.
 	*/
-	retry_result = MR_trace_retry(event_info, event_details, 0, &problem,
-			NULL, NULL, jumpaddr);
+	retry_result = MR_trace_retry(event_info, event_details, 0, MR_TRUE,
+		&problem, NULL, NULL, jumpaddr);
 	if (retry_result != MR_RETRY_OK_DIRECT) {
 		if (retry_result == MR_RETRY_ERROR) {
 			return problem;
@@ -1360,6 +1188,7 @@ MR_trace_start_collecting(MR_Unsigned event, MR_Unsigned seqno,
 	MR_edt_last_event = event;
 	MR_edt_inside = MR_FALSE;
 	MR_edt_start_seqno = seqno;
+	MR_edt_start_io_counter = MR_io_tabling_counter;
 	MR_edt_max_depth = maxdepth;
 	MR_trace_current_node = (MR_Trace_Node) NULL;
 
@@ -1383,6 +1212,10 @@ MR_trace_start_collecting(MR_Unsigned event, MR_Unsigned seqno,
 	return NULL;
 }
 
+static MR_bool		MR_io_action_map_cache_is_valid = MR_FALSE;
+static MR_Unsigned	MR_io_action_map_cache_start;
+static MR_Unsigned	MR_io_action_map_cache_end;
+
 static	MR_Code *
 MR_decl_diagnosis(MR_Trace_Node root, MR_Trace_Cmd_Info *cmd,
 		MR_Event_Info *event_info, MR_Event_Details *event_details)
@@ -1394,6 +1227,9 @@ MR_decl_diagnosis(MR_Trace_Node root, MR_Trace_Cmd_Info *cmd,
 	MR_Unsigned		final_event;
 	MR_Unsigned		topmost_seqno;
 	MercuryFile		stream;
+	MR_Integer		use_old_io_map;
+	MR_Unsigned		io_start;
+	MR_Unsigned		io_end;
 
 	event_details->MR_call_seqno = MR_trace_call_seqno;
 	event_details->MR_call_depth = MR_trace_call_depth;
@@ -1432,9 +1268,27 @@ MR_decl_diagnosis(MR_Trace_Node root, MR_Trace_Cmd_Info *cmd,
 		MR_trace_enabled = MR_TRUE;
 	}
 
+	io_start = MR_edt_start_io_counter;
+	io_end = MR_io_tabling_counter;
+
+	if (MR_io_action_map_cache_is_valid
+		&& MR_io_action_map_cache_start <= io_start
+		&& io_end <= MR_io_action_map_cache_end)
+	{
+		use_old_io_map = MR_TRUE;
+	} else {
+		use_old_io_map = MR_FALSE;
+
+		MR_io_action_map_cache_is_valid = MR_TRUE;
+		MR_io_action_map_cache_start = io_start;
+		MR_io_action_map_cache_end = io_end;
+	}
+
 	MR_TRACE_CALL_MERCURY(
-		MR_DD_decl_diagnosis(MR_trace_node_store, root, &response,
-				MR_trace_front_end_state,
+		MR_DD_decl_diagnosis(MR_trace_node_store, root, use_old_io_map,
+				MR_io_action_map_cache_start,
+				MR_io_action_map_cache_end,
+				&response, MR_trace_front_end_state,
 				&MR_trace_front_end_state
 			);
 		bug_found = MR_DD_diagnoser_bug_found(response,
@@ -1489,8 +1343,8 @@ MR_decl_handle_bug_found(MR_Unsigned bug_event, MR_Trace_Cmd_Info *cmd,
 	MR_print_stack_regs(stdout, event_info->MR_saved_regs);
 	MR_print_succip_reg(stdout, event_info->MR_saved_regs);
 #endif
-	retry_result = MR_trace_retry(event_info, event_details, 0, &problem,
-			NULL, NULL, &jumpaddr);
+	retry_result = MR_trace_retry(event_info, event_details, 0, MR_TRUE,
+		&problem, NULL, NULL, &jumpaddr);
 #ifdef	MR_DEBUG_RETRY
 	MR_print_stack_regs(stdout, event_info->MR_saved_regs);
 	MR_print_succip_reg(stdout, event_info->MR_saved_regs);

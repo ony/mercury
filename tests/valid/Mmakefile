@@ -74,6 +74,7 @@ OTHER_SOURCES= \
 	explicit_quant.m \
 	fail_ite.m \
 	followcode_det_problem.m \
+	foreign_underscore_var.m \
 	func_int_bug_main.m \
 	func_default_modes.m \
 	headvar_not_found.m \
@@ -94,6 +95,7 @@ OTHER_SOURCES= \
 	intermod_impure.m \
 	intermod_lambda.m \
 	intermod_nested_module.m \
+	intermod_nested_module_bug.m \
 	intermod_nested_uniq.m \
 	intermod_pragma_import.m \
 	intermod_quote.m \
@@ -135,8 +137,6 @@ OTHER_SOURCES= \
 	nested_mod_type_bug.m \
 	nondet_live.m \
 	parsing_bug_main.m \
-	pragma_c_code_and_clauses1.m \
-	pragma_c_code_and_clauses2.m \
 	pred_with_no_modes.m \
 	qualified_cons_id.m \
 	quantifier_warning.m \
@@ -150,6 +150,7 @@ OTHER_SOURCES= \
 	semidet_disj.m \
 	shape_type.m \
 	simplify_bug.m \
+	simplify_bug2.m \
 	soln_context.m \
 	some_switch.m \
 	spurious_purity_warning.m \
@@ -177,7 +178,7 @@ OTHER_SOURCES= \
 	zero_arity.m
 
 # XXX The mode system can't handle the following test cases yet:
-#	assoc_list.m
+#	assoc_list_bug.m
 #	determinism.m
 #	mode_merge_insts.m
 #	inst_perf_bug_2.m
@@ -242,14 +243,25 @@ all:	objs
 # some regression tests only failed with particular options enabled
 # (please keep these lists sorted)
 
+# When compiling using the installed libraries, setting GRADEFLAGS may
+# may cause mgnuc to look for the `.mih' files for a non-installed grade.
+# test_mercury runs the tests using the installed libraries, so GRADEFLAGS
+# won't be set, but test_mercury runs the tests in at least one `.tr' grade
+# on all machines, so it isn't a problem.
+ifneq ($(origin WORKSPACE),undefined)
+GRADEFLAGS-complex_failure	= --use-trail
+GRADEFLAGS-semi_fail_in_non_ite	= --use-trail
+endif
+
+# The `agc*' tests currently aren't run in grades for which `.mih'
+# files are created, and no header files are generated in `il' grades,
+# so it's OK to set GRADEFLAGS for these tests.
 GRADEFLAGS-agc_graph		= --gc accurate
 GRADEFLAGS-agc_ho_pred		= --gc accurate
 GRADEFLAGS-agc_ite		= --gc accurate
 GRADEFLAGS-agc_unbound_typevars	= --gc accurate
 GRADEFLAGS-agc_unbound_typevars2 = --gc accurate
 GRADEFLAGS-agc_unused_in	= --gc accurate
-GRADEFLAGS-complex_failure	= --use-trail
-GRADEFLAGS-semi_fail_in_non_ite	= --use-trail
 GRADEFLAGS-foreign_type_spec	= --grade il
 GRADEFLAGS-foreign_type_spec.foreign	= --grade il
 
@@ -267,6 +279,7 @@ MCFLAGS-deforest_loop		= -O3 --intermodule-optimization
 MCFLAGS-deforest_rerun_det	= -O3 --check-termination
 MCFLAGS-double_vn		= -O4
 MCFLAGS-explicit_quant		= --halt-at-warn
+MCFLAGS-foreign_underscore_var	= --halt-at-warn
 MCFLAGS-higher_order_implied_mode = -O-1
 MCFLAGS-inhibit_warn_test       = --inhibit-warnings --halt-at-warn
 MCFLAGS-intermod_dcg_bug	= --intermodule-optimization
@@ -277,6 +290,8 @@ MCFLAGS-intermod_lambda		= --intermodule-optimization
 MCFLAGS-intermod_lambda2	= --intermodule-optimization
 MCFLAGS-intermod_nested_module	= --intermodule-optimization
 MCFLAGS-intermod_nested_module2	= --intermodule-optimization
+MCFLAGS-intermod_nested_module_bug = --intermodule-optimization
+MCFLAGS-intermod_nested_module_bug2 = --intermodule-optimization
 MCFLAGS-intermod_nested_uniq	= --intermodule-optimization
 MCFLAGS-intermod_nested_uniq2	= --intermodule-optimization
 MCFLAGS-intermod_pragma_import	= --intermodule-optimization
@@ -302,6 +317,7 @@ MCFLAGS-mostly_uniq_mode_inf	= --infer-all
 MCFLAGS-pred_with_no_modes	= --infer-all
 MCFLAGS-quantifier_warning	= --halt-at-warn
 MCFLAGS-simplify_bug		= -O-1
+MCFLAGS-simplify_bug2		= -O3
 MCFLAGS-spurious_purity_warning	= --halt-at-warn
 MCFLAGS-two_way_unif		= -O-1
 MCFLAGS-type_inf_ambig_test	= --infer-all

@@ -44,6 +44,7 @@ NONRETRY_PROGS = \
 	nondet_stack			\
 	output_term_dep			\
 	polymorphic_output		\
+	print_goal			\
 	queens_rep			\
 	resume_typeinfos		\
 	shallow				\
@@ -75,7 +76,9 @@ MLFLAGS-interactive = --shared
 # this means it won't work properly if the static libraries are linked
 # (as is done by tools/bootcheck and tools/lmc).
 # So we only enable it if LINK_STATIC is not set.
-LINK_STATIC ?= no
+ifeq ($(origin LINK_STATIC),undefined)
+LINK_STATIC = no
+endif
 ifeq ($(LINK_STATIC),no)
 	RETRY_PROGS := $(RETRY_PROGS) interactive
 endif
@@ -257,6 +260,9 @@ output_term_dep.out: output_term_dep output_term_dep.inp
 	$(MDB) ./output_term_dep < output_term_dep.inp 2>&1 | \
 		sed 's/io.m:[0-9]*/io.m:NNNN/g' > output_term_dep.out 2>&1
 
+print_goal.out: print_goal print_goal.inp
+	$(MDB) ./print_goal < print_goal.inp > print_goal.out 2>&1
+
 queens.out: queens queens.inp
 	$(MDB) ./queens < queens.inp > queens.out 2>&1
 
@@ -298,18 +304,25 @@ type_desc_test.out: type_desc_test type_desc_test.inp
 # Note that interactive.out.orig depends on $(interactive.ints) because
 # interactive.inp contains interactive queries that require interactive.ints
 # to have been built.
-interactive.out.orig: Mercury.options.interactive interactive \
-			interactive.inp $(interactive.ints)
+# When WORKSPACE is set, use $(WORKSPACE)/tools/lmc to compile the query.
+ifneq ($(origin WORKSPACE), undefined)
+export WORKSPACE
+endif
+
+interactive.out.orig: interactive $(interactive.ints)
+ifneq ($(origin WORKSPACE),undefined)
+	rm -rf lmc
+	mkdir ./lmc
+	cp $(WORKSPACE)/tools/lmc lmc/mmc
+endif
 	echo "echo on" > interactive.inp.tmp
-	echo mmc_options --options-file Mercury.options.interactive \
+	echo mmc_options $(ALL_GRADEFLAGS) $(ALL_MCFLAGS) \
 			--trace minimum >> interactive.inp.tmp
 	cat interactive.inp >> interactive.inp.tmp
-	$(MDB) ./interactive < interactive.inp.tmp > interactive.out.orig 2>&1
+	PATH="`pwd`/lmc:$$PATH" $(MDB) ./interactive \
+		< interactive.inp.tmp > interactive.out.orig 2>&1
 	rm -f interactive.inp.tmp
-
-.PHONY: Mercury.options.interactive
-Mercury.options.interactive:
-	$(ECHO_MERCURY_OPTIONS) > Mercury.options.interactive
+	rm -rf lmc
 
 # We pipe the output through sed to avoid differences for `--use-subdirs',
 # and to remove some spurious warnings that `gcc' and `ld' issue.
@@ -326,8 +339,8 @@ interactive.out: interactive.out.orig
 		    -e 's/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_wrapper.h:[0-9]*,.//' \
 		    -e '/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_imp.h:[0-9]*,$$/N' \
 		    -e 's/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_imp.h:[0-9]*,.//' \
-		    -e '/                 from query.c:[0-9]*:$$/N' \
-		    -e 's/                 from query.c:[0-9]*:.//' \
+		    -e '/                 from mdb_query.c:[0-9]*:$$/N' \
+		    -e 's/                 from mdb_query.c:[0-9]*:.//' \
 		    -e '/\/usr\/local\/apps\/gcc-2.95.3\/lib\/gcc-lib\/alpha-dec-osf5.1\/2.95.3\/include\/unistd.h:[0-9]*: warning: .cuserid. redefined$$/N' \
 		    -e 's/\/usr\/local\/apps\/gcc-2.95.3\/lib\/gcc-lib\/alpha-dec-osf5.1\/2.95.3\/include\/unistd.h:[0-9]*: warning: .cuserid. redefined.//' \
 		    -e '/\/usr\/local\/apps\/gcc-2.95.3\/lib\/gcc-lib\/alpha-dec-osf5.1\/2.95.3\/include\/stdio.h:[0-9]*: warning: this is the location of the previous definition$$/N' \
@@ -338,8 +351,8 @@ interactive.out: interactive.out.orig
 		    -e 's/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_library_types.h:[0-9]*,.//' \
 		    -e '/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_imp.h:[0-9]*,$$/N' \
 		    -e 's/                 from \/home\/mercury\/public\/.a\/lib\/mercury\/inc\/mercury_imp.h:[0-9]*,.//' \
-		    -e '/                 from query.c:[0-9]*:$$/N' \
-		    -e 's/                 from query.c:[0-9]*:.//' \
+		    -e '/                 from mdb_query.c:[0-9]*:$$/N' \
+		    -e 's/                 from mdb_query.c:[0-9]*:.//' \
 		    -e '/\/usr\/local\/apps\/gcc-2.95.3\/lib\/gcc-lib\/alpha-dec-osf5.1\/2.95.3\/include\/va-alpha.h:[0-9]*: warning: redefinition of .va_list.$$/N' \
 		    -e 's/\/usr\/local\/apps\/gcc-2.95.3\/lib\/gcc-lib\/alpha-dec-osf5.1\/2.95.3\/include\/va-alpha.h:[0-9]*: warning: redefinition of .va_list..//' \
 		    -e '/\/usr\/local\/apps\/gcc-2.95.3\/lib\/gcc-lib\/alpha-dec-osf5.1\/2.95.3\/include\/va_list.h:[0-9]*: warning: .va_list. previously declared here$$/N' \

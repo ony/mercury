@@ -71,7 +71,7 @@
 :- import_module hlds__hlds_pred, check_hlds__type_util.
 :- import_module backend_libs__code_model.
 :- import_module ll_backend__code_gen, ll_backend__code_util.
-:- import_module ll_backend__llds_out.
+:- import_module ll_backend__llds_out, ll_backend__arg_info.
 :- import_module libs__globals, libs__options.
 
 :- import_module term, varset.
@@ -223,8 +223,8 @@ export__to_c(Preds, [E|ExportedProcs], Module, ExportedProcsCode) :-
 
 		% work out which arguments are input, and which are output,
 		% and copy to/from the mercury registers.
-	get_input_args(ArgInfoTypes, 0, InputArgs),
-	copy_output_args(ArgInfoTypes, 0, OutputArgs),
+	get_input_args(ArgInfoTypes, 0, Module, InputArgs),
+	copy_output_args(ArgInfoTypes, 0, Module, OutputArgs),
 	
 	code_util__make_proc_label(Module, PredId, ProcId, ProcLabel),
 	llds_out__get_proc_label(ProcLabel, yes, ProcLabelString),
@@ -319,8 +319,15 @@ get_export_info(Preds, PredId, ProcId, Globals, Module,
 	pred_info_get_is_pred_or_func(PredInfo, PredOrFunc),
 	pred_info_procedures(PredInfo, ProcTable),
 	map__lookup(ProcTable, ProcId, ProcInfo),
-	proc_info_arg_info(ProcInfo, ArgInfos),
+	proc_info_maybe_arg_info(ProcInfo, MaybeArgInfos),
 	pred_info_arg_types(PredInfo, ArgTypes),
+	( MaybeArgInfos = yes(ArgInfos0) ->
+		ArgInfos = ArgInfos0
+	;
+		generate_proc_arg_info(ProcInfo, ArgTypes,
+			Module, NewProcInfo),
+		proc_info_arg_info(NewProcInfo, ArgInfos)
+	),
 	proc_info_interface_code_model(ProcInfo, CodeModel),
 	assoc_list__from_corresponding_lists(ArgInfos, ArgTypes,
 		ArgInfoTypes0),
@@ -335,15 +342,27 @@ get_export_info(Preds, PredId, ProcId, Globals, Module,
 			RetArgMode = top_out,
 			\+ type_util__is_dummy_argument_type(RetType)
 		->
-			C_RetType = llds_exported_type_string(Module, RetType),
+			Export_RetType = foreign__to_exported_type(Module,
+				RetType),
+			C_RetType = foreign__to_type_string(c, Export_RetType),
 			argloc_to_string(RetArgLoc, RetArgString0),
 			convert_type_from_mercury(RetArgString0, RetType,
 				RetArgString),
 			string__append_list(["\t", C_RetType,
 					" return_value;\n"],
 						MaybeDeclareRetval),
-			string__append_list(["\treturn_value = ", RetArgString,
-						";\n"], MaybeFail),
+			% We need to unbox non-word-sized foreign types
+			% before returning them to C code
+			( foreign__is_foreign_type(Export_RetType) = yes ->
+				string__append_list(
+					["\tMR_MAYBE_UNBOX_FOREIGN_TYPE(",
+					C_RetType, ", ", RetArgString,
+					", return_value);\n"], SetReturnValue)
+			;
+				string__append_list(["\treturn_value = ",
+					RetArgString, ";\n"], SetReturnValue)
+			),
+			MaybeFail = SetReturnValue,
 			string__append_list(["\treturn return_value;\n"],
 				MaybeSucceed),
 			ArgInfoTypes2 = ArgInfoTypes1
@@ -435,7 +454,7 @@ get_argument_declaration(ArgInfo, Type, Num, NameThem, Module,
 	;
 		ArgName = ""
 	),
-	TypeString0 = llds_exported_type_string(Module, Type),
+	TypeString0 = foreign__to_type_string(c, Module, Type),
 	(
 		Mode = top_out
 	->
@@ -445,11 +464,11 @@ get_argument_declaration(ArgInfo, Type, Num, NameThem, Module,
 		TypeString = TypeString0
 	).
 
-:- pred get_input_args(assoc_list(arg_info, type), int, string).
-:- mode get_input_args(in, in, out) is det.
+:- pred get_input_args(assoc_list(arg_info, type), int, module_info, string).
+:- mode get_input_args(in, in, in, out) is det.
 
-get_input_args([], _, "").
-get_input_args([AT|ATs], Num0, Result) :-
+get_input_args([], _, _, "").
+get_input_args([AT|ATs], Num0, ModuleInfo, Result) :-
 	AT = ArgInfo - Type,
 	ArgInfo = arg_info(ArgLoc, Mode),
 	Num is Num0 + 1,
@@ -460,9 +479,20 @@ get_input_args([AT|ATs], Num0, Result) :-
 		string__append("Mercury__argument", NumString, ArgName0),
 		convert_type_to_mercury(ArgName0, Type, ArgName),
 		argloc_to_string(ArgLoc, ArgLocString),
-		string__append_list(
-			["\t", ArgLocString, " = ", ArgName, ";\n" ],
-			InputArg)
+		Export_Type = foreign__to_exported_type(ModuleInfo, Type),
+		% We need to box non-word-sized foreign types
+		% before passing them to Mercury code
+		( foreign__is_foreign_type(Export_Type) = yes ->
+			C_Type = foreign__to_type_string(c, Export_Type),
+			string__append_list(
+				["\tMR_MAYBE_BOX_FOREIGN_TYPE(",
+				C_Type, ", ", ArgName, ", ",
+				ArgLocString, ");\n"], InputArg)
+		;
+			string__append_list(
+				["\t", ArgLocString, " = ", ArgName, ";\n" ],
+				InputArg)
+		)
 	;
 		Mode = top_out,
 		InputArg = ""
@@ -470,14 +500,14 @@ get_input_args([AT|ATs], Num0, Result) :-
 		Mode = top_unused,
 		InputArg = ""
 	),
-	get_input_args(ATs, Num, TheRest),
+	get_input_args(ATs, Num, ModuleInfo, TheRest),
 	string__append(InputArg, TheRest, Result).
 
-:- pred copy_output_args(assoc_list(arg_info, type), int, string).
-:- mode copy_output_args(in, in, out) is det.
+:- pred copy_output_args(assoc_list(arg_info, type), int, module_info, string).
+:- mode copy_output_args(in, in, in, out) is det.
 
-copy_output_args([], _, "").
-copy_output_args([AT|ATs], Num0, Result) :-
+copy_output_args([], _, _, "").
+copy_output_args([AT|ATs], Num0, ModuleInfo, Result) :-
 	AT = ArgInfo - Type,
 	ArgInfo = arg_info(ArgLoc, Mode),
 	Num is Num0 + 1,
@@ -486,19 +516,29 @@ copy_output_args([AT|ATs], Num0, Result) :-
 		OutputArg = ""
 	;
 		Mode = top_out,
-
 		string__int_to_string(Num, NumString),
 		string__append("Mercury__argument", NumString, ArgName),
 		argloc_to_string(ArgLoc, ArgLocString0),
 		convert_type_from_mercury(ArgLocString0, Type, ArgLocString),
-		string__append_list(
-			["\t*", ArgName, " = ", ArgLocString, ";\n" ],
-			OutputArg)
+		Export_Type = foreign__to_exported_type(ModuleInfo, Type),
+		% We need to unbox non-word-sized foreign types
+		% before returning them to C code
+		( foreign__is_foreign_type(Export_Type) = yes ->
+			C_Type = foreign__to_type_string(c, Export_Type),
+			string__append_list(
+				["\tMR_MAYBE_UNBOX_FOREIGN_TYPE(",
+				C_Type, ", ", ArgLocString, ", ",
+				ArgName, ");\n"], OutputArg)
+		;
+			string__append_list(
+				["\t*", ArgName, " = ", ArgLocString, ";\n" ],
+				OutputArg)
+		)
 	;
 		Mode = top_unused,
 		OutputArg = ""
 	),
-	copy_output_args(ATs, Num, TheRest),
+	copy_output_args(ATs, Num, ModuleInfo, TheRest),
 	string__append(OutputArg, TheRest, Result).
 	
 	% convert an argument location (currently just a register number)
@@ -560,7 +600,29 @@ convert_type_from_mercury(Rval, Type, ConvertedRval) :-
 export__produce_header_file([], _) --> [].
 export__produce_header_file(C_ExportDecls, ModuleName) -->
 	{ C_ExportDecls = [_|_] },
-	module_name_to_file_name(ModuleName, ".h", yes, FileName),
+	export__produce_header_file(C_ExportDecls, ModuleName, ".mh"),
+
+	% XXX  We still need to produce the `.h' file for bootstrapping.
+	% The C files in the trace directory refer to std_util.h and io.h.
+	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
+	{
+		HighLevelCode = yes,
+		ModuleName = unqualified(StdLibModule),
+		mercury_std_library_module(StdLibModule)
+	->
+		HeaderModuleName = qualified(unqualified("mercury"),
+			       StdLibModule)
+	;
+		HeaderModuleName = ModuleName
+	},
+	export__produce_header_file(C_ExportDecls, HeaderModuleName, ".h").
+
+:- pred export__produce_header_file(foreign_export_decls, module_name, string,
+					io__state, io__state).
+:- mode export__produce_header_file(in, in, in, di, uo) is det.
+
+export__produce_header_file(C_ExportDecls, ModuleName, HeaderExt) -->
+	module_name_to_file_name(ModuleName, HeaderExt, yes, FileName),
 	io__open_output(FileName, Result),
 	(
 		{ Result = ok(FileStream) }
@@ -583,8 +645,12 @@ export__produce_header_file(C_ExportDecls, ModuleName) -->
 			"extern ""C"" {\n",
 			"#endif\n",
 			"\n",
-			"#ifndef MERCURY_HDR_EXCLUDE_IMP_H\n",
-			"#include ""mercury_imp.h""\n",
+			"#ifdef MR_HIGHLEVEL_CODE\n",
+			"#include ""mercury.h""\n",
+			"#else\n",
+			"  #ifndef MERCURY_HDR_EXCLUDE_IMP_H\n",
+			"  #include ""mercury_imp.h""\n",
+			"  #endif\n",
 			"#endif\n",
 			"#ifdef MR_DEEP_PROFILING\n",
 			"#include ""mercury_deep_profiling.h""\n",
@@ -599,7 +665,7 @@ export__produce_header_file(C_ExportDecls, ModuleName) -->
 			"\n",
 			"#endif /* ", GuardMacroName, " */\n"]),
 		io__set_output_stream(OutputStream, _),
-		io__close_output(OutputStream)
+		io__close_output(FileStream)
 	;
 		io__progname_base("export.m", ProgName),
 		io__write_string("\n"),

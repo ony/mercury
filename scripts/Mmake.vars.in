@@ -22,7 +22,9 @@ MERCURY_EXTRA_INT_DIRS	= $(EXTRA_INT_DIRS)
 EXTRA_C_LIB_DIRS	= \
 	$(patsubst %,%/lib/$(GRADESTRING)/@FULLARCH@,$(EXTRA_LIB_DIRS)) \
 	$(patsubst %,%/lib/@FULLARCH@,$(EXTRA_LIB_DIRS))
-EXTRA_C_INCL_DIRS	= $(patsubst %,%/inc,$(EXTRA_LIB_DIRS))
+EXTRA_C_INCL_DIRS	= \
+	$(patsubst %,%/lib/$(GRADESTRING)/@FULLARCH@/inc,$(EXTRA_LIB_DIRS)) \
+	$(patsubst %,%/inc,$(EXTRA_LIB_DIRS))
 EXTRA_INIT_DIRS		= $(patsubst %,%/modules,$(EXTRA_LIB_DIRS))
 MERCURY_EXTRA_INIT_DIRS = $(EXTRA_INIT_DIRS)
 else
@@ -121,6 +123,8 @@ ECHO_MERCURY_OPTIONS = { \
 	echo MLFLAGS += '$(ALL_MLFLAGS)'; \
 	echo MLLIBS += '$(ALL_MLLIBS)'; \
 	echo MLOBJS += '$(ALL_MLOBJS)'; \
+	echo LDFLAGS += '$(ALL_LDFLAGS)'; \
+	echo LD_LIBFLAGS += '$(ALL_LD_LIBFLAGS)'; \
 	echo EXTRA_LIBRARIES += '$(EXTRA_LIBRARIES)'; \
 	echo EXTRA_LIB_DIRS += '$(EXTRA_LIB_DIRS)'; \
 	}
@@ -317,42 +321,6 @@ LIB_MLLIBS	= $(patsubst %,-l%,$(ALL_EXTRA_LIBRARIES))
 
 #-----------------------------------------------------------------------------#
 #
-# Stuff related to the Prolog back-ends
-# (XXX This is all obsolete and should probably be deleted)
-#
-
-MNC		= mnc
-ALL_MNCFLAGS	= $(MNCFLAGS) $(EXTRA_MNCFLAGS) $(TARGET_MNCFLAGS)
-MNCFLAGS	=
-EXTRA_MNCFLAGS	=
-
-MNL		= mnl
-ALL_MNLFLAGS	= $(MNLFLAGS) $(EXTRA_MNLFLAGS) $(TARGET_MNLFLAGS)
-MNLFLAGS	=
-EXTRA_MNLFLAGS	=
-
-MNP		= mnp
-ALL_MNPFLAGS	= $(MNPFLAGS) $(EXTRA_MNPFLAGS) $(TARGET_MNPFLAGS)
-MNPFLAGS	=
-EXTRA_MNPFLAGS	=
-
-MSC		= msc
-ALL_MSCFLAGS	= $(MSCFLAGS) $(EXTRA_MSCFLAGS) $(TARGET_MSCFLAGS)
-MSCFLAGS	=
-EXTRA_MSCFLAGS	=
-
-MSL		= msl
-ALL_MSLFLAGS	= $(MSLFLAGS) $(EXTRA_MSLFLAGS) $(TARGET_MSLFLAGS)
-MSLFLAGS	=
-EXTRA_MSLFLAGS	=
-
-MSP		= msp
-ALL_MSPFLAGS	= $(MSPFLAGS) $(EXTRA_MSPFLAGS) $(TARGET_MSPFLAGS)
-MSPFLAGS	=
-EXTRA_MSPFLAGS	=
-
-#-----------------------------------------------------------------------------#
-#
 # Stuff related to creating libraries
 #
 
@@ -432,9 +400,10 @@ maybe-target-GRADEFLAGS- = $(GRADEFLAGS-$(patsubst $(cs_subdir)%_init.c,%,$@))
 maybe-target-GRADEFLAGS-undefined =
 
 TARGET_MCFLAGS = \
-  $(maybe-base-MCFLAGS-$(findstring undefined,$(origin MCFLAGS-$*)))
-maybe-base-MCFLAGS- = $(MCFLAGS-$*)
-maybe-base-MCFLAGS-undefined =
+  $(maybe-target-MCFLAGS-$(findstring undefined,\
+  		$(origin MCFLAGS-$(notdir $(basename $@)))))
+maybe-target-MCFLAGS- = $(MCFLAGS-$(notdir $(basename $@)))
+maybe-target-MCFLAGS-undefined =
 
 TARGET_C2INITFLAGS = \
   $(maybe-target-C2INITFLAGS-$(findstring undefined,\
@@ -550,15 +519,6 @@ TARGET_JAVACFLAGS = \
 maybe-base-JAVACFLAGS- = $(JAVACFLAGS-$*)
 maybe-base-JAVACFLAGS-undefined =
 
-# Support for compiling Mercury programs with Prolog will probably be
-# dropped one of these days, so it's probably not worth bothering with these.
-TARGET_MNCFLAGS	=
-TARGET_MNLFLAGS	=
-TARGET_MNPFLAGS	=
-TARGET_MSCFLAGS	=
-TARGET_MSLFLAGS	=
-TARGET_MSPFLAGS	=
-
 #-----------------------------------------------------------------------------#
 #
 # The following variables specify the names of the subdirectories used,
@@ -573,8 +533,6 @@ ifeq ($(MMAKE_USE_SUBDIRS),yes)
 
 SUBDIR=Mercury/
 
-nos_subdir=$(SUBDIR)nos/
-qls_subdir=$(SUBDIR)qls/
 deps_subdir=$(SUBDIR)deps/
 ds_subdir=$(SUBDIR)ds/
 module_deps_subdir=$(SUBDIR)module_deps/
@@ -590,6 +548,7 @@ date3s_subdir=$(SUBDIR)date3s/
 optdates_subdir=$(SUBDIR)optdates/
 trans_opt_dates_subdir=$(SUBDIR)trans_opt_dates/
 useds_subdir=$(SUBDIR)useds/
+mihs_subdir=$(SUBDIR)mihs/
 cs_subdir=$(SUBDIR)cs/
 dlls_subdir=$(SUBDIR)dlls/
 ss_subdir=$(SUBDIR)ss/
@@ -614,8 +573,6 @@ else
 
 SUBDIR=
 
-nos_subdir=
-qls_subdir=
 deps_subdir=
 ds_subdir=
 module_deps_subdir=
@@ -631,6 +588,7 @@ date3s_subdir=
 optdates_subdir=
 trans_opt_dates_subdir=
 useds_subdir=
+mihs_subdir=
 cs_subdir=
 dlls_subdir=
 ss_subdir=
@@ -726,6 +684,8 @@ INSTALL_MERC_BIN_DIR	= $(INSTALL_LIBDIR)/bin/$(FULLARCH)
 INSTALL_MERC_GRADELESS_LIB_DIR = $(INSTALL_LIBDIR)/lib/$(FULLARCH)
 FINAL_INSTALL_MERC_GRADELESS_LIB_DIR = $(FINAL_INSTALL_LIBDIR)/lib/$(FULLARCH)
 INSTALL_MERC_LIB_DIR	= $(INSTALL_LIBDIR)/lib/$(GRADESTRING)/$(FULLARCH)
+INSTALL_GRADE_INC_DIR	= $(INSTALL_LIBDIR)/lib/$(GRADESTRING)/$(FULLARCH)/inc
+INSTALL_GRADE_INC_SUBDIR = $(INSTALL_GRADE_INC_DIR)/Mercury/mihs
 FINAL_INSTALL_MERC_LIB_DIR = \
 		$(FINAL_INSTALL_LIBDIR)/lib/$(GRADESTRING)/$(FULLARCH)
 

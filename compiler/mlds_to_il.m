@@ -241,7 +241,7 @@ maybe_get_dotnet_library_version(MaybeVersion) -->
 
 generate_il(MLDS, Version, ILAsm, ForeignLangs, IO0, IO) :-
 
-	mlds(MercuryModuleName, _ForeignCode, Imports, Defns) =
+	mlds(MercuryModuleName, ForeignCode, Imports, Defns) =
 		transform_mlds(MLDS),
 
 	ModuleName = mercury_module_name_to_mlds(MercuryModuleName),
@@ -268,7 +268,11 @@ generate_il(MLDS, Version, ILAsm, ForeignLangs, IO0, IO) :-
 	list__map_foldl(mlds_defn_to_ilasm_decl, Defns, ILDecls,
 			IlInfo0, IlInfo),
 
-	ForeignLangs = IlInfo ^ file_foreign_langs,
+	list__filter(has_foreign_code_defined(ForeignCode),
+			[managed_cplusplus, csharp], ForeignCodeLangs),
+
+	ForeignLangs = IlInfo ^ file_foreign_langs `union`
+			set__list_to_set(ForeignCodeLangs),
 
 	ClassName = mlds_module_name_to_class_name(ModuleName),
 	ClassName = structured_name(_, NamespaceName, _),
@@ -305,7 +309,8 @@ generate_il(MLDS, Version, ILAsm, ForeignLangs, IO0, IO) :-
 			% reference
 		list__map((pred(F::in, I::out) is det :-
 				mangle_foreign_code_module(ModuleName, F, N),
-				I = mercury_import(N)
+				I = mercury_import(compiler_visible_interface,
+					N)
 			),
 			set__to_sorted_list(ForeignLangs),
 			ForeignCodeAssemblerRefs),
@@ -321,6 +326,20 @@ get_il_data_rep(ILDataRep, IO0, IO) :-
 	globals__lookup_bool_option(Globals, highlevel_data, HighLevelData),
 	ILEnvPtrType = choose_il_envptr_type(Globals),
 	ILDataRep = il_data_rep(HighLevelData, ILEnvPtrType).
+
+
+:- pred has_foreign_code_defined(
+		map(foreign_language, mlds__foreign_code)::in,
+		foreign_language::in) is semidet.
+
+has_foreign_code_defined(ForeignCodeMap, Lang) :-
+	ForeignCode = map__search(ForeignCodeMap, Lang),
+	ForeignCode = mlds__foreign_code(Decls, Imports, Codes, Exports),
+	( Decls \= []
+	; Imports \= []
+	; Codes \= []
+	; Exports \= []
+	).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -470,7 +489,8 @@ rename_atomic(mark_hp(L)) = mark_hp(rename_lval(L)).
 rename_atomic(restore_hp(R)) = restore_hp(rename_rval(R)).
 rename_atomic(trail_op(T)) = trail_op(T).
 rename_atomic(inline_target_code(L, Cs)) = inline_target_code(L, Cs).
-rename_atomic(outline_foreign_proc(F, Ls, S)) = outline_foreign_proc(F, Ls, S).
+rename_atomic(outline_foreign_proc(F, Vs, Ls, S))
+	= outline_foreign_proc(F, Vs, Ls, S).
 
 :- func rename_rval(mlds__rval) = mlds__rval.
 
@@ -993,28 +1013,23 @@ generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassMember) -->
 		statement_to_il(Statement, InstrsTree1)
 	; 
 		{ MaybeStatement = external },
-			% If there is no function body, generate
-			% forwarding code instead.  This can happen with
-			% :- external
-		atomic_statement_to_il(inline_target_code(lang_C, []),
-				InstrsTree0),
 
-			% The code might reference locals...
-		il_info_add_locals(["succeeded" - mlds__native_bool_type]),
-		( { Returns = [_] } ->
-			% XXX Bug!
-			% We assume that if there is a return value,
-			% then it must be a semidet procedure, so
-			% we return `succeeded'.
-			% This is wrong for functions!
-			{ InstrsTree1 = tree__list([
-				InstrsTree0,
-				instr_node(ldloc(name("succeeded"))),
-				instr_node(ret)
+		{ mangle_dataname_module(no, ModuleName, NewModuleName) },
+		{ ClassName = mlds_module_name_to_class_name(NewModuleName) },
+
+		{ ILSignature = signature(_, ILRetType, ILParams) },
+
+		{ assoc_list__keys(ILParams, TypeParams) },
+		{ list__map_foldl(
+			(pred(_::in, Instr::out, Num::in, Num+1::out) is det :-
+				Instr = ldarg(index(Num))
+			), TypeParams, LoadInstrs, 0, _) },
+		{ InstrsTree1 = tree__list([
+			comment_node("external -- call handwritten version"),
+			node(LoadInstrs),
+			instr_node(call(get_static_methodref(ClassName,
+				MemberName, ILRetType, TypeParams)))
 			]) }
-		;
-			{ InstrsTree1 = InstrsTree0 }
-		)
 	),
 
 		% Need to insert a ret for functions returning
@@ -1093,7 +1108,7 @@ generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassMember) -->
 
 		{ MercuryExceptionClassName = 
 			mercury_runtime_name(["Exception"]) },
-		
+
 		{ ExceptionClassName = structured_name(il_system_assembly_name,
 				["System", "Exception"], []) },
 
@@ -1838,7 +1853,7 @@ atomic_statement_to_il(restore_hp(_), node(Instrs)) -->
 	{ Instrs = [comment(
 		"restore hp -- not relevant for this backend")] }.
 
-atomic_statement_to_il(outline_foreign_proc(Lang, ReturnLvals, _Code),
+atomic_statement_to_il(outline_foreign_proc(Lang, _, ReturnLvals, _Code),
 		Instrs) --> 
 	il_info_get_module_name(ModuleName),
 	( no =^ method_foreign_lang  ->
@@ -1891,47 +1906,10 @@ atomic_statement_to_il(outline_foreign_proc(Lang, ReturnLvals, _Code),
 			"outline foreign proc -- already called") }
 	).
 
-	% XXX we assume lang_C is MC++
-atomic_statement_to_il(inline_target_code(lang_C, _Code), Instrs) --> 
-	il_info_get_module_name(ModuleName),
-	( no =^ method_foreign_lang  ->
-			% XXX we hardcode managed C++ here
-		=(Info),
-		^ method_foreign_lang := yes(managed_cplusplus),
-		^ file_foreign_langs := 
-			set__insert(Info ^ file_foreign_langs,
-			managed_cplusplus),
-		{ mangle_dataname_module(no, ModuleName, NewModuleName) },
-		{ ClassName = mlds_module_name_to_class_name(NewModuleName) },
-		signature(_, RetType, Params) =^ signature, 
-			% If there is a return value, put it in succeeded.
-			% XXX this is incorrect for functions, which might
-			% return a useful value.
-		{ RetType = void ->
-			StoreReturnInstr = empty
-		; RetType = simple_type(bool) ->
-			StoreReturnInstr = instr_node(stloc(name("succeeded")))
-		;
-			sorry(this_file, "functions in MC++")
-		},
-		MethodName =^ method_name,
-		{ assoc_list__keys(Params, TypeParams) },
-		{ list__map_foldl((pred(_::in, Instr::out,
-			Num::in, Num + 1::out) is det :-
-				Instr = ldarg(index(Num))),
-			TypeParams, LoadInstrs, 0, _) },
-		{ Instrs = tree__list([
-			comment_node("inline target code -- call handwritten version"),
-			node(LoadInstrs),
-			instr_node(call(get_static_methodref(ClassName,
-				MethodName, RetType, TypeParams))),
-			StoreReturnInstr
-			]) }
-	;
-		{ Instrs = comment_node("inline target code -- already called") }
-	).
 atomic_statement_to_il(inline_target_code(lang_il, Code), Instrs) --> 
 	{ Instrs = inline_code_to_il_asm(Code) }.
+atomic_statement_to_il(inline_target_code(lang_C, _Code), _Instrs) --> 
+	{ unexpected(this_file, "lang_C") }.
 atomic_statement_to_il(inline_target_code(lang_java_bytecode, _), _) --> 
 	{ unexpected(this_file, "lang_java_bytecode") }.
 atomic_statement_to_il(inline_target_code(lang_java_asm, _), _) --> 
@@ -1985,7 +1963,8 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, HasSecTag, Type, Size,
 			Type = mlds__class_type(_, _, mlds__class) 
 		;
 			DataRep ^ highlevel_data = yes,
-			Type = mlds__mercury_type(_, user_type, _)
+			Type = mlds__mercury_type(MercuryType, user_type, _),
+			\+ type_needs_lowlevel_rep(il, MercuryType)
 		}
 	->
 			% If this is a class, we should call the
@@ -2835,7 +2814,8 @@ make_class_constructor_class_member(DoneFieldRef, Imports, AllocInstrs,
 	set_rtti_initialization_field(DoneFieldRef, SetInstrs),
 	{ CCtorCalls = list__filter_map(
 		(func(I::in) = (C::out) is semidet :-
-			I = mercury_import(ImportName),
+			I = mercury_import(compiler_visible_interface,
+				ImportName),
 			C = call_class_constructor(
 				class_name(ImportName, wrapper_class_name))
 		), Imports) },
@@ -3037,7 +3017,10 @@ mlds_type_to_ilds_type(_, mercury_type(_, enum_type, _)) = il_object_array_type.
 mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type, _)) =
 	il_generic_type.
 mlds_type_to_ilds_type(DataRep, mercury_type(MercuryType, user_type, _)) = 
-	( DataRep ^ highlevel_data = yes ->
+	( 
+		DataRep ^ highlevel_data = yes,
+		\+ type_needs_lowlevel_rep(il, MercuryType)
+	->
 		mercury_type_to_highlevel_class_type(MercuryType)
 	;
 		il_object_array_type
@@ -3632,8 +3615,7 @@ get_fieldref(DataRep, FieldNum, FieldType, ClassType0,
 	;
 		ClassType = ClassType0
 	),
-	FieldILType0 = mlds_type_to_ilds_type(DataRep,
-		FieldType),
+	FieldILType0 = mlds_type_to_ilds_type(DataRep, FieldType),
 	( FieldILType0 = ilds__type(_, '&'(FieldILType1)) ->
 		FieldILType = FieldILType1
 	;
@@ -4002,7 +3984,8 @@ il_system_namespace_name = "System".
 mlds_to_il__generate_extern_assembly(CurrentAssembly, Version, SignAssembly,
 		SeparateAssemblies, Imports, AllDecls) :-
 	Gen = (pred(Import::in, Decl::out) is semidet :-
-		( Import = mercury_import(ImportName),
+		( Import = mercury_import(compiler_visible_interface,
+				ImportName),
 			( SignAssembly = yes,
 				AsmDecls = mercury_strong_name_assembly_decls
 			; SignAssembly = no,

@@ -53,6 +53,13 @@ if test "$prefix" = "NONE"; then
 else
 	PREFIX="$prefix"
 fi
+case "$PREFIX" in
+    *\ *)
+	AC_MSG_ERROR(cannot install into a directory with a name containing spaces: \`$PREFIX.')
+	exit 1
+	;;
+esac
+
 LIBDIR="$PREFIX/lib/mercury"
 WINDOWS_LIBDIR="`cygpath -w $LIBDIR 2>/dev/null`"
 NONSHARED_LIB_DIR=${MERCURY_NONSHARED_LIB_DIR=$PREFIX/lib/nonshared}
@@ -72,6 +79,11 @@ case "$host" in
 		;;
 esac
 #-----------------------------------------------------------------------------#
+
+case "$host" in 
+	i386-pc-solaris2.8)	link_static_opt= ;;
+	*)			link_static_opt="--link-flags --static" ;;
+esac
 
 MERCURY_MSG("looking for an already installed Mercury compiler to bootstrap with...")
 AC_PATH_PROG(BOOTSTRAP_MC,mmc)
@@ -108,16 +120,13 @@ if test "$BOOTSTRAP_MC" != ""; then
 		").
 EOF
 	if
-		# Test for the `--generate-mmc-deps' and
-		# `--no-mercury-stdlib-dir' options.
+		# Test for the `--bug-intermod-2002-06-13' option.
 		echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
 		$BOOTSTRAP_MC \
-			--generate-mmc-deps \
-			--halt-at-warn --link-flags --static conftest \
+			--bug-intermod-2002-06-13 \
+			--halt-at-warn $link_static_opt conftest \
 			</dev/null >&AC_FD_CC 2>&1 &&
-		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world" &&
-		$BOOTSTRAP_MC --output-grade-string --no-mercury-stdlib-dir \
-			</dev/null >&AC_FD_CC 2>&1
+		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
 	then
 		AC_MSG_RESULT(yes)
 	else
@@ -2021,10 +2030,14 @@ AC_ARG_ENABLE(par-grades,
 [  --disable-par-grades    do not install thread-safe versions of the library],
 enable_par_grades="$enableval",enable_par_grades=yes)
 
+AC_ARG_ENABLE(mm-grades,
+[  --enable-mm-grades      install minimal model versions of the library],
+enable_mm_grades="$enableval",enable_mm_grades=no)
+
 AC_ARG_ENABLE(hlc-prof-grades,
 [  --enable-hlc-prof-grades
                           install profiling versions of the high level C grade],
-enable_hlc_prof_grades=yes,enable_hlc_prof_grades=no)
+enable_hlc_prof_grades="$enableval",enable_hlc_prof_grades=no)
 
 AC_ARG_ENABLE(dotnet-grades,
 [  --disable-dotnet-grades do not install the .NET grades],
@@ -2039,6 +2052,7 @@ if test "$enable_most_grades" = no; then
 	enable_nogc_grades=no
 	enable_prof_grades=no
 	enable_trail_grades=no
+	enable_mm_grades=no
 	enable_hlc_prof_grades=no
 	enable_par_grades=no
 fi
@@ -2104,6 +2118,11 @@ if test "$enable_trail_grades" = yes; then
 			LIBGRADES="$LIBGRADES $DEFAULT_GRADE.prof.tr"
 		fi
 	fi
+fi
+
+# add `.mm' (--minimal-model) grades
+if test "$enable_mm_grades" = yes; then
+	LIBGRADES="$LIBGRADES $BEST_GRADE.gc.mm $BEST_GRADE.gc.mm.debug"
 fi
 
 # add `.debug' (--debug) grades
@@ -2193,7 +2212,14 @@ AC_SUBST(DEFAULT_GRADE)
 LIBGRADES=` echo " $LIBGRADES " | sed "s/ $GRADE / /" `
 MERCURY_MSG("using \`LIBGRADES=$LIBGRADES' as the set of library grades to install")
 
+LIBGRADE_OPTS=
+for libgrade in $LIBGRADES
+do
+	LIBGRADE_OPTS="$LIBGRADE_OPTS --libgrade $libgrade"
+done
+
 AC_SUBST(LIBGRADES)
+AC_SUBST(LIBGRADE_OPTS)
 
 #-----------------------------------------------------------------------------#
 #
@@ -2334,7 +2360,14 @@ MR_Spy_Point	spied_procs[2];
 
 int main() {
 	spied_procs[1] = spied_procs[0];
+#if __GNUC__ >= 3
+	/* gcc 3.1 seems to have problems with structure assignment
+	   and global registers, but which this simple test case
+	   doesn't trigger.  So just force the test to fail for gcc 3.x. */
+	exit(1);
+#else
 	exit(0);
+#endif
 changequote([,]) 
 }],
 [mercury_cv_cannot_use_structure_assignment=no],
@@ -2969,7 +3002,7 @@ AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mercury.bat
 scripts/mprof scripts/mercury_update_interface scripts/mgnuc
 scripts/parse_ml_options.sh-subr scripts/ml scripts/c2init
 scripts/mmake scripts/mdb scripts/mdbrc scripts/mdprof
-scripts/sicstus_conv scripts/mkfifo_using_mknod bindist/bindist.build_vars
+scripts/mkfifo_using_mknod bindist/bindist.build_vars
 ,
 for header in $CONFIG_HEADERS ; do
 	if test "$header" = "runtime/mercury_conf.h"; then

@@ -7,10 +7,11 @@
 % File: xrobdd.equiv_vars.m.
 % Main author: dmo
 
-:- module equiv_vars.
+:- module xrobdd__equiv_vars.
 
 :- interface.
 
+:- import_module check_hlds.
 :- import_module check_hlds__mode_constraint_robdd.
 :- import_module robdd, bool, term, map.
 

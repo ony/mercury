@@ -169,8 +169,12 @@ builtin_compare_string(R, S1, S2) :-
 "
 	Res = System::String::Compare(S1, S2);
 ").
-	
 
+builtin_strcmp(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("builtin_strcmp").
+	
 builtin_unify_float(F, F).
 
 builtin_compare_float(R, F1, F2) :-
@@ -877,6 +881,26 @@ static void init_runtime(void)
 		MR_typeclass_info_arg_typeclass_info(TypeClassInfo0, Index);
 ").
 
+type_info_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("type_info_from_typeclass_info").
+
+unconstrained_type_info_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("unconstrained_type_info_from_typeclass_info").
+
+superclass_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("superclass_from_typeclass_info").
+
+instance_constraint_from_typeclass_info(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	sorry("instance_constraint_from_typeclass_info").
+
 
 %-----------------------------------------------------------------------------%
 
@@ -1183,7 +1207,7 @@ gc_trace(_::in) :-
 "
 #ifdef MR_NATIVE_GC
 	*(MR_Word *)Pointer =
-		MR_agc_deep_copy((MR_Word *) Pointer,
+		MR_agc_deep_copy(* (MR_Word *) Pointer,
 			(MR_TypeInfo) TypeInfo_for_T,
 			MR_ENGINE(MR_eng_heap_zone2->min),
                         MR_ENGINE(MR_eng_heap_zone2->hardmax));

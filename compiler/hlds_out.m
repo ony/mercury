@@ -645,6 +645,10 @@ hlds_out__write_unify_main_context(First, call(CallId, ArgNum), Context, no) -->
 	hlds_out__write_call_arg_id(CallId, ArgNum, Markers),
 	io__write_string(":\n").
 
+hlds_out__write_unify_main_context(First, implicit(Source), Context, First) -->
+	hlds_out__start_in_message(First, Context),
+	io__format("implicit %s unification:\n", [s(Source)]).
+
 :- pred hlds_out__write_unify_sub_contexts(bool, unify_sub_contexts,
 	prog_context, bool, io__state, io__state).
 :- mode hlds_out__write_unify_sub_contexts(in, in, in, out, di, uo) is det.
@@ -864,6 +868,10 @@ hlds_out__write_pred(Indent, ModuleInfo, PredId, PredInfo) -->
 		hlds_out__write_pred_or_func(PredOrFunc),
 		io__write_string(", status: "),
 		hlds_out__write_import_status(ImportStatus),
+		io__write_string("\n"),
+		io__write_string("goal_type: "),
+		{ pred_info_get_goal_type(PredInfo, GoalType) },
+		io__write(GoalType),
 		io__write_string("\n"),
 		{ markers_to_marker_list(Markers, MarkerList) },
 		( { MarkerList = [] } ->
@@ -2900,7 +2908,7 @@ hlds_out__write_type_params_2(Tvarset, [P | Ps]) -->
 :- mode hlds_out__write_type_body(in, in, in, di, uo) is det.
 
 hlds_out__write_type_body(Indent, Tvarset, du_type(Ctors, Tags, Enum,
-		MaybeEqualityPred)) -->
+		MaybeEqualityPred, Foreign)) -->
 	io__write_string(" --->\n"),
 	( { Enum = yes } ->
 		hlds_out__write_indent(Indent),
@@ -2917,6 +2925,12 @@ hlds_out__write_type_body(Indent, Tvarset, du_type(Ctors, Tags, Enum,
 	;
 		[]
 	),
+	( { Foreign = yes(_) } ->
+		hlds_out__write_indent(Indent),
+		io__write_string("/* has foreign_type */\n")
+	;
+		[]
+	),
 	io__write_string(".\n").
 
 	
@@ -2928,8 +2942,9 @@ hlds_out__write_type_body(_Indent, Tvarset, eqv_type(Type)) -->
 hlds_out__write_type_body(_Indent, _Tvarset, abstract_type) -->
 	io__write_string(".\n").
 
-hlds_out__write_type_body(_Indent, _Tvarset, foreign_type(_, _)) -->
-	{ error("hlds_out__write_type_body: foreign type body found") }.
+hlds_out__write_type_body(_Indent, _Tvarset, foreign_type(_)) -->
+	% XXX
+	io__write_string(" == $foreign_type.\n").
 
 :- pred hlds_out__write_constructors(int, tvarset, list(constructor),
 		cons_tag_values, io__state, io__state).
@@ -3279,7 +3294,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_headvars(Proc, HeadVars) },
 	{ proc_info_argmodes(Proc, HeadModes) },
 	{ proc_info_maybe_arglives(Proc, MaybeArgLives) },
-	{ proc_info_arg_info(Proc, ArgInfos) },
+	{ proc_info_maybe_arg_info(Proc, MaybeArgInfos) },
 	{ proc_info_goal(Proc, Goal) },
 	{ proc_info_context(Proc, ModeContext) },
 	{ proc_info_get_maybe_arg_size_info(Proc, MaybeArgSize) },
@@ -3402,7 +3417,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 
 	(
 		{ string__contains_char(Verbose, 'A') },
-		{ ArgInfos \= [] }
+		{ MaybeArgInfos = yes(ArgInfos) }
 	->
 		hlds_out__write_indent(Indent),
 		io__write_string("% arg_infos: "),

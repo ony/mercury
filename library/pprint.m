@@ -1,4 +1,4 @@
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 % pprint.m
 % Copyright (C) 2000-2002 Ralph Becket <rbeck@microsoft.com>
 % Wed Mar 22 17:44:32  2000
@@ -89,32 +89,35 @@
 % EXAMPLES
 % --------
 %
+% The doc/1 type class has types string, char, int, float and doc as
+% instances.  Hence these types can all be converted to docs by
+% applying doc/1.  This happens automatically to the arguments of ++/2.
+% Users may find it convenient to add other types as instances of the
+% doc/1 type class.
+%
 % Below are some docs followed by the ways they might be
 % displayed by the pretty printer given various line widths.
 %
-% 1. text("Hello ") `<>` line `<>` text("world")
+% 1. "Hello " ++ line ++ "world"
 % 
 %   Hello
 %   world
 %
-% 2. group(text("Hello ") `<>` line `<>` text("world"))
+% 2. group("Hello " ++ line ++ "world")
 %
 %   Hello world
 %
 %   Hello
 %   world
 %
-% 3. group(text("Hello ") `<>` nest(3, line `<>` text("world")))
+% 3. group("Hello " ++ nest(3, line ++ "world"))
 %
 %   Hello world
 %
 %   Hello
 %      world
 %
-% 4. group(
-%   text("Goodbye ") `<>`
-%   nest(3, line `<>` text("cruel ") `<>` line `<>` text("world")
-% )
+% 4. group("Goodbye " ++ nest(3, line ++ "cruel " ++ line ++ "world")
 %
 %   Goodbye cruel world
 %
@@ -122,12 +125,7 @@
 %      cruel
 %      world
 %
-% 5. group(
-%   text("Goodbye ") `<>`
-%   nest(3, line `<>`
-%     group(text("cruel ") `<>` line `<>` text("world"))
-%   )
-% )
+% 5. group("Goodbye " ++ nest(3, line ++ group("cruel " ++ line ++ "world")))
 %
 %   Goodbye cruel world
 %
@@ -138,15 +136,9 @@
 %      cruel
 %      world
 %
-% 6. label("Look! ",
-%   line `<>`
-%   group(
-%     text("Goodbye ") `<>`
-%     nest(3, line `<>`
-%       group(text("cruel ") `<>` line `<>` text("world"))
-%     )
-%   )
-% )
+% 6. label("Look! ", line ++
+%                    group("Goodbye " ++
+%                          nest(3, line ++ group("cruel " ++ line ++ "world"))))
 %
 %   Look! Goodbye cruel world
 %
@@ -157,18 +149,52 @@
 %   Look!    cruel
 %   Look!    world
 %
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- module pprint.
 
 :- interface.
 
-:- import_module std_util, int, string, list, io.
+:- import_module std_util, int, string, char, float, list, io.
 
     % Clients must translate data structures into docs for
     % the pretty printer to display.
     %
 :- type doc.
+
+    % This typeclass can be used to simplify the construction of docs.
+    %
+:- typeclass doc(T) where [
+
+        % Convert a T do a doc, placing a limit on how much of the
+        % term will be fully converted as follows:
+        %
+        % doc(_, f         ) = f
+        % doc(N, f(A, B, C)) = f/3 if N =< 0
+        % doc(N, f(A, B, C)) = some representation of the term whereby
+        %   A is converted as doc(N - 1, A),
+        %   B is converted as doc(N - 2, B), and
+        %   C is converted as doc(N - 3, C)
+        %   - if there are more than N arguments, the N+1th and subsequent
+        %     arguments should be replaced with a single ellipsis.
+        %
+    func doc(int, T) = doc
+].
+
+:- instance doc(doc).
+:- instance doc(string).
+:- instance doc(int).
+:- instance doc(float).
+:- instance doc(char).
+
+    % Fully convert an instance of doc/1.
+    %
+:- func doc(T) = doc <= (doc(T)).
+
+    % An alternative to the <>/2 concatenation operator that works
+    % on members of the doc/1 typeclass.
+    %
+:- func T1 ++ T2 = doc <= (doc(T1), doc(T2)).
 
     % The empty document corresponding to the null string.
     %
@@ -176,9 +202,16 @@
 
     % The document consisting of a single string.
     %
+    % NOTE: since string is now an instance of the doc/1
+    % type class, it is simpler to just apply the doc/1
+    % method.
+    %
 :- func text(string)        = doc.
 
     % The composition of two docs with no intervening space.
+    %
+    % NOTE: with the addition of the doc/1 type class, it is
+    % simpler to construct compound docs using ++/2.
     %
 :- func doc `<>` doc        = doc.
 
@@ -193,13 +226,13 @@
     % by the pretty printer are followed by the given number
     % of spaces (nested `nest's add up).
     %
-:- func nest(int, doc)      = doc.
+:- func nest(int, T)        = doc <= (doc(T)).
 
     % Identical to a nest doc except that indentation is
     % extended with a string label rather than some number
     % of spaces.
     %
-:- func label(string, doc)  = doc.
+:- func label(string, T)    = doc <= (doc(T)).
 
     % A group doc gives the pretty printer a choice: if
     % the doc can be printed without line wrapping then
@@ -208,28 +241,32 @@
     % the pretty printer treats the group body literally,
     % although nested group docs remain as choice points.
     %
-:- func group(doc)          = doc.
+:- func group(T)            = doc <= (doc(T)).
 
     % This function can be used to convert strings, chars,
     % ints and floats to their text doc equivalents.
     %
+    % NOTE: since these types are now instances of the doc/1
+    % type class, it is simpler to just apply the doc/1
+    % method to these types.
+    %
 :- func poly(string__poly_type) = doc.
 
-    % Shorthand for doc `<>` line `<>` doc.
+    % Shorthand for doc ++ line ++ doc.
     %
 :- func doc `</>` doc       = doc.
 
     % Various bracketing functions.
     %
-    %   bracketed(L, R, Doc) = text(L) `<>` Doc `<>` text(R)
+    %   bracketed(L, R, Doc) = L ++ Doc ++ R
     %       parentheses(Doc) = bracketed("(", ")", Doc)
     %          brackets(Doc) = bracketed("[", "]", Doc)
     %            braces(Doc) = bracketed("{", "}", Doc)
     %
-:- func bracketed(string, string, doc)  = doc.
-:- func parentheses(doc)                = doc.
-:- func brackets(doc)                   = doc.
-:- func braces(doc)                     = doc.
+:- func bracketed(T1, T2, T3)  = doc <= (doc(T1), doc(T2), doc(T3)).
+:- func parentheses(T)         = doc <= (doc(T)).
+:- func brackets(T)            = doc <= (doc(T)).
+:- func braces(T)              = doc <= (doc(T)).
 
     % packed(Sep, [X1, X2, .., Xn]) = G1 `<>` G2 `<>` .. `<>` Gn where
     % Gi = group(line `<>` Xi `<>` Sep), except for Gn where
@@ -240,13 +277,13 @@
     % The resulting doc tries to pack as many items on a line as
     % possible.
     %
-:- func packed(doc, list(doc)) = doc.
+:- func packed(T1, list(T2)) = doc <= (doc(T1), doc(T2)).
 
     % A variant of the above whereby only the first N elements of
     % the list are formatted and the rest are replaced by a single
     % ellipsis.
     %
-:- func packed(int, doc, list(doc)) = doc.
+:- func packed(int, T1, list(T2)) = doc <= (doc(T1), doc(T2)).
 
     % packed_cs(Xs) = packed(comma_space, Xs).
     %
@@ -255,13 +292,13 @@
     %
     %   brackets(nest(2, packed_cs(Xs)))
     % 
-:- func packed_cs(list(doc)) = doc.
+:- func packed_cs(list(T)) = doc <= (doc(T)).
 
     % A variant of the above whereby only the first N elements of
     % the list are formatted and the rest are replaced by a single
     % ellipsis.
     %
-:- func packed_cs(int, list(doc)) = doc.
+:- func packed_cs(int, list(T)) = doc <= (doc(T)).
 
     % This is like a depth-limited version of packed_cs/1 that first
     % calls to_doc/2 on each member of the argument list.
@@ -276,7 +313,7 @@
     % separated(PP, Sep, [X1,...,Xn]) =
     %   PP(X1) `<>` Sep `<>` ... Sep `<>` PP(Xn)
     %
-:- func separated(func(T) = doc, doc, list(T)) = doc.
+:- func separated(func(T1) = doc, T2, list(T1)) = doc <= (doc(T2)).
 
     % Handy punctuation docs and versions with following
     % spaces and/or line breaks.
@@ -305,10 +342,9 @@
     % Convert arbitrary terms to docs.  This requires
     % std_util__functor/3 to work on all components of the
     % object being converted.  The second version places a
-    % maximum depth on terms which are otherwise truncated;
-    % when the depth limit is reached, all arguments of a
-    % functor are replaced by `/<arity>' where <arity> is
-    % the number of arguments.
+    % maximum depth on terms which are otherwise truncated
+    % in the manner described in the documentation for the
+    % doc/2 method of the doc/1 type class.
     %
     % This may throw an exception or cause a runtime abort
     % if the term in question has user-defined equality.
@@ -324,20 +360,19 @@
     % Write docs out in pretty printed format.  The int
     % argument specifies a page width in characters.
     %
-:- pred write(int, doc, io__state, io__state).
+:- pred write(int, T, io__state, io__state) <= doc(T).
 :- mode write(in, in, di, uo) is det.
 
-:- pred write(io__output_stream, int, doc, io__state, io__state).
+:- pred write(io__output_stream, int, T, io__state, io__state) <= doc(T).
 :- mode write(in, in, in, di, uo) is det.
 
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- implementation.
 
-:- import_module std_util, char, array, map, sparse_bitset, enum, term.
-:- import_module exception.
-:- import_module robdd. % XXX
+:- import_module array, map, sparse_bitset, enum, term, exception.
+:- import_module robdd.
 
 :- type doc
     --->    'NIL'
@@ -360,32 +395,48 @@
 :- type map_pair(K, V)
     --->    map_pair(K, V).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+doc(X) = doc(int__max_int, X).
+
+%-----------------------------------------------------------------------------%
+
+:- instance doc(doc)       where [ doc(_, Doc)    = Doc            ].
+:- instance doc(string)    where [ doc(_, String) = text(String)   ].
+:- instance doc(int)       where [ doc(_, Int)    = poly(i(Int))   ].
+:- instance doc(float)     where [ doc(_, Float)  = poly(f(Float)) ].
+:- instance doc(char)      where [ doc(_, Char)   = poly(c(Char))  ].
+
+%-----------------------------------------------------------------------------%
+
+Doc1 ++ Doc2 = doc(Doc1) `<>` doc(Doc2).
+
+%-----------------------------------------------------------------------------%
 
 nil                     = 'NIL'.
 X `<>` Y                = 'SEQ'(X, Y).
-nest(I, X)              = 'NEST'(I, X).
-label(L, X)             = 'LABEL'(L, X).
+nest(I, X)              = 'NEST'(I, doc(X)).
+label(L, X)             = 'LABEL'(L, doc(X)).
 text(S)                 = 'TEXT'(S).
 line                    = 'LINE'.
-group(X)                = 'GROUP'(X).
+group(X)                = 'GROUP'(doc(X)).
 
 poly(s(S))              = text(string__format("%s", [s(S)])).
 poly(c(C))              = text(string__format("%c", [c(C)])).
 poly(i(I))              = text(string__format("%d", [i(I)])).
 poly(f(F))              = text(string__format("%f", [f(F)])).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 to_string(W, X) = S :-
     layout_best(pred(H::in, T::in, [H | T]::out) is det, W, X, [], Ss),
     S = string__append_list(list__reverse(Ss)).
 
-write(W, X)             --> layout_best(io__write_string, W, X).
+write(W, X)             --> layout_best(io__write_string, W, doc(X)).
 
-write(Stream, W, X)     --> layout_best(io__write_string(Stream), W, X).
+write(Stream, W, X)     --> layout_best(io__write_string(Stream), W, doc(X)).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
     % This is a contraction of Wadler's pretty, layout and be
     % functions, adapted to work with a strict evaluation order.
@@ -450,7 +501,7 @@ lb(P, _, K0, K, _, 'TEXT'(T),     S0, S) :-
     K = K0 + string__length(T),
     P(T, S0, S).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
     % Decide if a flattened doc will fit on the remainder of the line.
     %
@@ -474,7 +525,7 @@ ff('TEXT'(S),     R) = R - L :-
     L = string__length(S),
     R > L.
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
     % Lay out a doc in its flattened form.
     %
@@ -506,69 +557,75 @@ layout_flat(P, K0, K, 'TEXT'(T),     S0, S) :-
     K = K0 + string__length(T),
     P(T, S0, S).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- func extend(string, int) = string.
 
 extend(I, J) = I ++ string__duplicate_char(' ', J).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-X `</>` Y               = X `<>` line `<>` Y.
+X `</>` Y               = X ++ line ++ Y.
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-bracketed(L, R, D)      = text(L) `<>` D `<>` text(R).
+bracketed(L, R, D)      = L ++ D ++ R.
 parentheses(D)          = bracketed("(", ")", D).
 brackets(D)             = bracketed("[", "]", D).
 braces(D)               = bracketed("{", "}", D).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 separated(_,  _,   []) = nil.
 
 separated(PP, Sep, [X | Xs]) =
     ( if Xs = [] then PP(X)
-                 else PP(X) `<>` (Sep `<>` separated(PP, Sep, Xs))
+                 else PP(X) ++ (Sep ++ separated(PP, Sep, Xs))
     ).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 packed(_N, _Sep, []           ) =
     nil.
 
 packed(N,  _Sep, [X]          ) =
-    group(line `<>` (if 0 < N then X else ellipsis)).
+    group(line ++ (if 0 < N then doc(X) else ellipsis)).
 
 packed(N,  Sep,  [X1, X2 | Xs]) =
     ( if   0 < N
-      then group(line `<>` X1 `<>` Sep) `<>` packed(N - 1, Sep, [X2 | Xs])
-      else group(line `<>` ellipsis)
+      then group(line ++ X1 ++ Sep) ++ packed(N - 1, Sep, [X2 | Xs])
+      else group(line ++ ellipsis)
     ).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 packed(Sep, Xs) = packed(int__max_int, Sep, Xs).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-packed_cs(N, Xs) = packed(N, comma_space, Xs).
+packed_cs(N, Xs) = packed(N, ", ", Xs).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-packed_cs(Xs) = packed(comma_space, Xs).
+packed_cs(Xs) = packed(", ", Xs).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 packed_cs_to_depth(Depth, Xs) =
     packed_cs(Depth, list__map(to_doc(Depth), Xs)).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 packed_cs_univ_args(Depth, UnivArgs) =
     packed_cs(Depth, list__map(func(UA) = 'DOC'(Depth, UA), UnivArgs)).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+word_wrapped(String) =
+    packed(space, list__map(func(Word) = text(Word),
+                            string__words(char__is_whitespace, String))).
+
+%-----------------------------------------------------------------------------%
 
 comma                   = text(",").
 semic                   = text(";").
@@ -577,82 +634,80 @@ space                   = text(" ").
 comma_space             = text(", ").
 semic_space             = text("; ").
 colon_space             = text(": ").
-comma_line              = comma `<>` line.
-semic_line              = semic `<>` line.
-colon_line              = colon `<>` line.
-space_line              = space `<>` line.
-comma_space_line        = text(", ") `<>` line.
-semic_space_line        = text("; ") `<>` line.
-colon_space_line        = text(": ") `<>` line.
+comma_line              = "," ++ line.
+semic_line              = ";" ++ line.
+colon_line              = ":" ++ line.
+space_line              = " " ++ line.
+comma_space_line        = ", " ++ line.
+semic_space_line        = "; " ++ line.
+colon_space_line        = ": " ++ line.
 ellipsis                = text("...").
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 to_doc(X) = to_doc(int__max_int, X).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
     % This may throw an exception or cause a runtime abort if the term
     % in question has user-defined equality.
     %
-to_doc(Depth, X) = Doc :-
-    deconstruct(X, Name, Arity, UnivArgs),
-    ( if dynamic_cast_to_var(X, Var) then
-        Doc = var_to_doc(Depth, Var)
-      else if dynamic_cast_to_robdd(X, Robdd) then
-        Doc = robdd_to_doc(Depth, Robdd)
-      else if dynamic_cast_to_sparse_bitset_of_int(X, SparseBitset) then
-        Doc = sparse_bitset_to_doc(Depth, SparseBitset)
-      else if dynamic_cast_to_sparse_bitset_of_var(X, SparseBitset) then
-        Doc = sparse_bitset_to_doc(Depth, SparseBitset)
-      else if dynamic_cast_to_list(X, List) then
-        Doc = list_to_doc(Depth, List)
-      else if dynamic_cast_to_array(X, Array) then
-        Doc = array_to_doc(Depth, Array)
-      else if dynamic_cast_to_tuple(X, Tuple) then
-        Doc = tuple_to_doc(Depth, Tuple)
-      else if dynamic_cast_to_map(X, Map) then
-        Doc = map_to_doc(Depth, Map)
-      else if Arity = 0 then
-        Doc = text(Name)
-      else if Depth =< 0 then
-        Doc = text(Name) `<>` text("/") `<>` poly(i(Arity))
-      else
-        Args = list__map(
-            ( func(UnivArg) = to_doc(Depth - 1, univ_value(UnivArg)) ),
-            UnivArgs
-        ),
-        Doc = text(Name) `<>`
-            parentheses(
-                group(
-                    nest(2,
-                        line `<>` separated(id, comma_space_line, Args)
-                    )
-                )
-        )
+to_doc(Depth, X) =
+    ( if      dynamic_cast_to_var(X, Var)
+      then    var_to_doc(Depth, Var)
+
+      else if dynamic_cast_to_sparse_bitset_of_int(X, SparseBitsetInt)
+      then    sparse_bitset_to_doc(Depth, SparseBitsetInt)
+
+      else if dynamic_cast_to_sparse_bitset_of_var(X, SparseBitsetVar)
+      then    sparse_bitset_to_doc(Depth, SparseBitsetVar)
+
+      else if dynamic_cast_to_list(X, List)
+      then    list_to_doc(Depth, List)
+
+      else if dynamic_cast_to_array(X, Array)
+      then    array_to_doc(Depth, Array)
+
+      else if dynamic_cast_to_tuple(X, Tuple)
+      then    tuple_to_doc(Depth, Tuple)
+
+      else if dynamic_cast_to_map(X, Map)
+      then    map_to_doc(Depth, Map)
+
+      else if dynamic_cast_to_map_pair(X, MapPair)
+      then    map_pair_to_doc(Depth, MapPair)
+
+      else if dynamic_cast_to_robdd(X, Robdd)
+      then    robdd_to_doc(Depth, Robdd)
+
+      else    generic_term_to_doc(Depth, X)
     ).
 
+%-----------------------------------------------------------------------------%
 
-%------------------------------------------------------------------------------%
+:- func generic_term_to_doc(int, T) = doc.
 
-:- some [T2] pred dynamic_cast_to_array(T1, array(T2)).
-:-           mode dynamic_cast_to_array(in, out) is semidet.
-
-dynamic_cast_to_array(X, A) :-
-
-        % If X is an array then it has a type with one type argument.
-        %
-    [ArgTypeDesc] = type_args(type_of(X)),
-
-        % Convert ArgTypeDesc to a type variable ArgType.
-        %
-    (_ `with_type` ArgType) `has_type` ArgTypeDesc,
-
-        % Constrain the type of A to be array(ArgType) and do the
-        % cast.
-        %
-
-    dynamic_cast(X, A `with_type` array(ArgType)).
+generic_term_to_doc(Depth, X) = Doc :-
+    ( if Depth =< 0
+      then
+        functor(X, Name, Arity),
+        Doc =
+            ( if Arity = 0
+              then text(Name)
+              else Name ++ "/" ++ Arity
+            )
+      else
+        deconstruct(X, Name, Arity, UnivArgs),
+        Doc =
+            ( if Arity = 0
+              then  text(Name)
+              else  group(
+                        Name ++ parentheses(
+                            nest(2, packed_cs_univ_args(Depth - 1, UnivArgs))
+                        )
+                    )
+            )
+    ).
 
 %-----------------------------------------------------------------------------%
 
@@ -676,12 +731,27 @@ dynamic_cast_to_var(X, V) :-
 
 %-----------------------------------------------------------------------------%
 
-:- some [T2] pred dynamic_cast_to_robdd(T1, robdd(T2)).
-:-           mode dynamic_cast_to_robdd(in, out) is semidet.
+:- pred dynamic_cast_to_sparse_bitset_of_int(T1, sparse_bitset(int)).
+:- mode dynamic_cast_to_sparse_bitset_of_int(in, out) is semidet.
 
-dynamic_cast_to_robdd(X, R) :-
+dynamic_cast_to_sparse_bitset_of_int(X, A) :-
+        dynamic_cast(X, A `with_type` sparse_bitset(int)).
 
-        % If X is a robdd then it has a type with one type argument.
+:- some [T2]
+   pred dynamic_cast_to_sparse_bitset_of_var(T1, sparse_bitset(var(T2))).
+:- mode dynamic_cast_to_sparse_bitset_of_var(in, out) is semidet.
+
+dynamic_cast_to_sparse_bitset_of_var(X, A) :-
+        dynamic_cast(X, A `with_type` sparse_bitset(var)).
+
+%-----------------------------------------------------------------------------%
+
+:- some [T2] pred dynamic_cast_to_array(T1, array(T2)).
+:-           mode dynamic_cast_to_array(in, out) is semidet.
+
+dynamic_cast_to_array(X, A) :-
+
+        % If X is an array then it has a type with one type argument.
         %
     [ArgTypeDesc] = type_args(type_of(X)),
 
@@ -689,49 +759,12 @@ dynamic_cast_to_robdd(X, R) :-
         %
     (_ `with_type` ArgType) `has_type` ArgTypeDesc,
 
-        % Constrain the type of R to be robdd(ArgType) and do the
+        % Constrain the type of A to be array(ArgType) and do the
         % cast.
         %
-    dynamic_cast(X, R `with_type` robdd(ArgType)).
+    dynamic_cast(X, A `with_type` array(ArgType)).
 
 %-----------------------------------------------------------------------------%
-
-:- some [T2] pred dynamic_cast_to_sparse_bitset_of_int(T1, sparse_bitset(int)).
-:- mode           dynamic_cast_to_sparse_bitset_of_int(in, out) is semidet.
-
-dynamic_cast_to_sparse_bitset_of_int(X, A) :-
-        ( if dynamic_cast(X, A0 `with_type` sparse_bitset(int)) then
-            A = A0
-        %else if dynamic_cast(X, A0 `with_type` sparse_bitset(var)) then
-            %A = A0
-        else
-            fail
-        ).
-
-:- some [T2] pred dynamic_cast_to_sparse_bitset_of_var(T1,
-                        sparse_bitset(var(T2))).
-:-           mode dynamic_cast_to_sparse_bitset_of_var(in, out) is semidet.
-
-dynamic_cast_to_sparse_bitset_of_var(X, L) :-
-
-        % If X is a sparse_bitset then it has a type with one type argument.
-        %
-    [ArgTypeDesc] = type_args(type_of(X)),
-
-        % If ArgTypeDesc is the type var that it has one argument.
-    [ArgArgTypeDesc] = type_args(ArgTypeDesc),
-
-        % Convert ArgArgTypeDesc to a type variable ArgType.
-        %
-    (_ `with_type` ArgType) `has_type` ArgArgTypeDesc,
-
-        % Constrain the type of L to be list(ArgType) and do the
-        % cast.
-        %
-    dynamic_cast(X, L `with_type` sparse_bitset(var(ArgType))).
-
-%-----------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
 
 :- some [T2] pred dynamic_cast_to_list(T1, list(T2)).
 :-           mode dynamic_cast_to_list(in, out) is semidet.
@@ -751,7 +784,7 @@ dynamic_cast_to_list(X, L) :-
         %
     dynamic_cast(X, L `with_type` list(ArgType)).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- some [T2, T3] pred dynamic_cast_to_map(T1, map(T2, T3)).
 :-               mode dynamic_cast_to_map(in, out) is semidet.
@@ -772,7 +805,7 @@ dynamic_cast_to_map(X, M) :-
         %
     dynamic_cast(X, M `with_type` map(KeyType, ValueType)).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- some [T2, T3] pred dynamic_cast_to_map_pair(T1, map_pair(T2, T3)).
 :-               mode dynamic_cast_to_map_pair(in, out) is semidet.
@@ -793,7 +826,7 @@ dynamic_cast_to_map_pair(X, MP) :-
         %
     dynamic_cast(X, MP `with_type` map_pair(KeyType, ValueType)).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- pred dynamic_cast_to_tuple(T, T).
 :- mode dynamic_cast_to_tuple(in, out) is semidet.
@@ -804,65 +837,34 @@ dynamic_cast_to_tuple(X, X) :-
         %
     functor(X, "{}", _Arity).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-:- func out_of_depth_term_to_doc(T) = doc.
+:- some [T2] pred dynamic_cast_to_robdd(T1, robdd(T2)).
+:-           mode dynamic_cast_to_robdd(in, out) is semidet.
 
-out_of_depth_term_to_doc(X) = Doc :-
+dynamic_cast_to_robdd(X, R) :-
 
-    functor(X, Name, Arity),
+        % If X is a robdd then it has a type with one type argument.
+        %
+    [ArgTypeDesc] = type_args(type_of(X)),
 
-    Doc = ( if Arity = 0 then text(Name)
-                         else text(Name) `<>` text("/") `<>` poly(i(Arity))
-    ).
+        % Convert ArgTypeDesc to a type variable ArgType.
+        %
+    (_ `with_type` ArgType) `has_type` ArgTypeDesc,
 
-%------------------------------------------------------------------------------%
+        % Constrain the type of R to be robdd(ArgType) and do the
+        % cast.
+        %
+    dynamic_cast(X, R `with_type` robdd(ArgType)).
 
-:- func generic_term_to_doc(int, T) = doc.
-
-generic_term_to_doc(Depth, X) = Doc :-
-
-    deconstruct(X, Name, Arity, UnivArgs),
-
-    Doc =
-        ( if    Arity = 0
-          then  text(Name)
-          else  group(
-                    text(Name) `<>` parentheses(
-                        nest(2, packed_cs_univ_args(Depth - 1, UnivArgs))
-                    )
-                )
-        ).
-
-%------------------------------------------------------------------------------%
-
-    % XXX Ideally we'd just walk the array.  But that's an optimization
-    % for another day.
-    %
-:- func array_to_doc(int, array(T)) = doc.
-
-array_to_doc(Depth, A) =
-    group(
-        text("array") `<>`
-            parentheses(list_to_doc(Depth - 1, array__to_list(A)))
-    ).
-
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- func var_to_doc(int, var(T)) = doc.
 
 var_to_doc(Depth, V) =
     to_doc(Depth, to_int(V)).
 
-%------------------------------------------------------------------------------%
-
-:- func robdd_to_doc(int, robdd(T)) = doc.
-
-robdd_to_doc(Depth, R) =
-    text("robdd_dnf") `<>` parentheses(list_to_doc(Depth, dnf(R))).
-
-%------------------------------------------------------------------------------%
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
     % XXX Ideally we'd just walk the sparse bitset.  But that's an optimization
     % for another day.
@@ -870,42 +872,27 @@ robdd_to_doc(Depth, R) =
 :- func sparse_bitset_to_doc(int, sparse_bitset(T)) = doc <= enum(T).
 
 sparse_bitset_to_doc(Depth, A) =
-    text("sparse_bitset") `<>` parentheses(list_to_doc(Depth,
-                sparse_bitset__to_sorted_list(A))).
+    group("sparse_bitset" ++
+        parentheses(list_to_doc(Depth - 1, sparse_bitset__to_sorted_list(A)))).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
 :- func list_to_doc(int, list(T)) = doc.
 
 list_to_doc(Depth, Xs) =
     brackets(nest(1, packed_cs_to_depth(Depth - 1, Xs))).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-:- func map_to_doc(int, map(T1, T2)) = doc.
+    % XXX Ideally we'd just walk the array.  But that's an optimization
+    % for another day.
+    %
+:- func array_to_doc(int, array(T)) = doc.
 
-map_to_doc(Depth, X) = Doc :-
-    KVs = list__map(mk_map_pair, map__to_assoc_list(X)),
-    Doc =
-        group(
-            text("map") `<>` parentheses(list_to_doc(Depth - 1, KVs))
-        ).
+array_to_doc(Depth, A) =
+    group("array" ++ parentheses(list_to_doc(Depth - 1, array__to_list(A)))).
 
-
-:- func mk_map_pair(pair(K, V)) = map_pair(K, V).
-
-mk_map_pair(K - V) = map_pair(K, V).
-
-
-%------------------------------------------------------------------------------%
-
-:- func map_pair_to_doc(int, map_pair(T1, T2)) = doc.
-
-map_pair_to_doc(Depth, map_pair(Key, Value)) =
-    to_doc(Depth - 1, Key) `<>` text(" -> ") `<>`
-        group(nest(2, line `<>` to_doc(Depth - 1, Value))).
-
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
     % This should only really be used if the item in question really
     % is a tuple.
@@ -916,15 +903,31 @@ tuple_to_doc(Depth, Tuple) = Doc :-
     deconstruct(Tuple, _Name, _Arity, UnivArgs),
     Doc = group(braces(nest(1, packed_cs_univ_args(Depth - 1, UnivArgs)))).
 
-%------------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
 
-word_wrapped(String) =
-    packed(
-        space,
-        list__map(
-            func(Word) = text(Word),
-            string__words(char__is_whitespace, String)
-        )
-    ).
+:- func map_to_doc(int, map(T1, T2)) = doc.
 
-%------------------------------------------------------------------------------%
+map_to_doc(Depth, X) = Doc :-
+    KVs = list__map(mk_map_pair, map__to_assoc_list(X)),
+    Doc = group("map" ++ parentheses(list_to_doc(Depth - 1, KVs))).
+
+:- func mk_map_pair(pair(K, V)) = map_pair(K, V).
+
+mk_map_pair(K - V) = map_pair(K, V).
+
+%-----------------------------------------------------------------------------%
+
+:- func map_pair_to_doc(int, map_pair(T1, T2)) = doc.
+
+map_pair_to_doc(Depth, map_pair(Key, Value)) =
+    to_doc(Depth - 1, Key) ++ text(" -> ") ++
+        group(nest(2, line ++ to_doc(Depth - 1, Value))).
+
+%-----------------------------------------------------------------------------%
+
+:- func robdd_to_doc(int, robdd(T)) = doc.
+
+robdd_to_doc(Depth, R) =
+    "robdd_dnf" ++ parentheses(list_to_doc(Depth, dnf(R))).
+
+%-----------------------------------------------------------------------------%

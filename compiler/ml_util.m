@@ -15,6 +15,7 @@
 :- interface.
 
 :- import_module ml_backend__mlds.
+:- import_module parse_tree__prog_data.
 :- import_module list, std_util.
 :- import_module libs__globals.  % for foreign_language
 
@@ -145,12 +146,24 @@
 :- mode lval_contains_var(in, in) is semidet.
 
 %-----------------------------------------------------------------------------%
+
+	% Does the type require the lowlevel representation on the indicated
+	% backend?
+:- pred type_needs_lowlevel_rep(compilation_target::in,
+		prog_data__type::in) is semidet.
+
+:- pred type_ctor_needs_lowlevel_rep(compilation_target::in,
+		type_ctor::in) is semidet.
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
 :- import_module backend_libs__rtti.
-:- import_module bool, list, std_util, parse_tree__prog_data.
+:- import_module parse_tree__prog_io, parse_tree__prog_util.
+:- import_module check_hlds__type_util.
+:- import_module bool, list, std_util.
 
 %-----------------------------------------------------------------------------%
 
@@ -445,7 +458,7 @@ has_foreign_languages(Statement, Langs) :-
 	GetTargetCode = (pred(Lang::out) is nondet :-
 		statement_contains_statement(Statement, SubStatement),
 		SubStatement = statement(atomic(
-		  	outline_foreign_proc(Lang, _, _)), _) 
+		  	outline_foreign_proc(Lang, _, _, _)), _) 
 		),
 	solutions(GetTargetCode, Langs).
 
@@ -463,7 +476,7 @@ defn_contains_foreign_code(NativeTargetLang, Defn) :-
 		Stmt = atomic(inline_target_code(TargetLang, _)),
 		TargetLang \= NativeTargetLang
 	; 
-		Stmt = atomic(outline_foreign_proc(_, _, _))
+		Stmt = atomic(outline_foreign_proc(_, _, _, _))
 	).
 
 defn_contains_outline_foreign_proc(ForeignLang, Defn) :-
@@ -471,7 +484,7 @@ defn_contains_outline_foreign_proc(ForeignLang, Defn) :-
 	Body = function(_, _, defined_here(FunctionBody), _),
 	statement_contains_statement(FunctionBody, Statement),
 	Statement = mlds__statement(Stmt, _),
-	Stmt = atomic(outline_foreign_proc(ForeignLang, _, _)).
+	Stmt = atomic(outline_foreign_proc(ForeignLang, _, _, _)).
 
 defn_is_type(Defn) :-
 	Defn = mlds__defn(Name, _Context, _Flags, _Body),
@@ -598,5 +611,41 @@ lval_contains_var(var(qual(ModuleName, Name), _Type),
 		qual(ModuleName, var(Name))) :-
 	/* this is another place where we can succeed */
 	true.
+
+%-----------------------------------------------------------------------------%
+
+type_needs_lowlevel_rep(Target, Type) :-
+	type_to_ctor_and_args(Type, TypeCtor, _Args),
+	type_ctor_needs_lowlevel_rep(Target, TypeCtor).
+
+	% XXX Do we need to do the same for the Java back-end?
+type_ctor_needs_lowlevel_rep(il, TypeName - _Arity) :-
+	mercury_public_builtin_module(Builtin),
+	mercury_private_builtin_module(PrivateBuiltin),
+	RttiImplementation = unqualified("rtti_implementation"),
+	StdUtil = unqualified("std_util"),
+	( TypeName = qualified(PrivateBuiltin, "base_typeclass_info")
+	; TypeName = qualified(PrivateBuiltin, "type_ctor_info")
+	; TypeName = qualified(PrivateBuiltin, "typeclass_info")
+	; TypeName = qualified(PrivateBuiltin, "type_info")
+
+	; TypeName = qualified(RttiImplementation, "arg_types")
+	; TypeName = qualified(RttiImplementation, "du_functor_descriptor")
+	; TypeName = qualified(RttiImplementation, "exist_info")
+	; TypeName = qualified(RttiImplementation, "ptag_entry")
+	; TypeName = qualified(RttiImplementation, "sectag_locn")
+	; TypeName = qualified(RttiImplementation, "typeinfo_locn")
+	; TypeName = qualified(RttiImplementation, "type_ctor_info")
+	; TypeName = qualified(RttiImplementation, "type_ctor_rep")
+	; TypeName = qualified(RttiImplementation, "type_info")
+	; TypeName = qualified(RttiImplementation, "type_layout")
+
+		% XXX These two types are referenced in IL and C# code,
+		% so it is easier to just keep their low level representation
+		% for the moment.
+	; TypeName = qualified(Builtin, "comparison_result")
+	; TypeName = qualified(StdUtil, "univ")
+	).
+	
 
 %-----------------------------------------------------------------------------%

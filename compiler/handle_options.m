@@ -328,6 +328,11 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	%         XXX Previously static ground terms used to not work with
 	%             --high-level-data.  But this has been (mostly?) fixed now.
 	%             So we should investigate re-enabling static ground terms.
+	%   - intermodule optimization
+	%	  This is only required for high-level data and is needed
+	%	  so that abstract equivalence types can be expanded.  They
+	%	  need to be expanded because .NET requires that the structural
+	%	  representation of a type is known at all times.
 	( { Target = il } ->
 		globals__io_set_gc_method(none),
 		globals__io_set_option(reclaim_heap_on_nondet_failure,
@@ -340,7 +345,15 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 		globals__io_set_option(num_tag_bits, int(0)),
 		globals__io_set_option(unboxed_enums, bool(no)),
 		globals__io_set_option(unboxed_no_tag_types, bool(no)),
-		globals__io_set_option(static_ground_terms, bool(no))
+		globals__io_set_option(static_ground_terms, bool(no)),
+
+		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
+		( { HighLevelData = yes } ->
+			globals__io_set_option(intermodule_optimization,
+					bool(yes))
+		;
+			[]
+		)
 	;
 		[]
 	),
@@ -879,8 +892,8 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 	),
 
 	%
-	% Handle library search directories. These couldn't be handled
-	% by options.m because they are grade dependent.
+	% Handle C header and library search directories. These couldn't
+	% be handled by options.m because they are grade dependent.
 	%
 	globals__io_lookup_accumulating_option(mercury_library_directories,
 		MercuryLibDirs),
@@ -899,7 +912,20 @@ postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 		globals__io_lookup_accumulating_option(
 			link_library_directories, LinkLibDirs),
 		globals__io_set_option(link_library_directories,
-			accumulating(LinkLibDirs ++ ExtraLinkLibDirs))
+			accumulating(LinkLibDirs ++ ExtraLinkLibDirs)),
+
+		{ ExtraCIncludeDirs = list__map(
+				(func(MercuryLibDir) =
+					dir__make_path_name(MercuryLibDir,
+					dir__make_path_name("lib",
+					dir__make_path_name(GradeString,
+					dir__make_path_name(FullArch,
+					"inc"))))
+				), MercuryLibDirs) },
+		globals__io_lookup_accumulating_option(c_include_directory,
+			CIncludeDirs),
+		globals__io_set_option(c_include_directory,
+			accumulating(ExtraCIncludeDirs ++ CIncludeDirs))
 	;
 		{ MercuryLibDirs = [] }
 	),

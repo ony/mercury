@@ -223,7 +223,8 @@ main_2(no, OptionArgs, Args, Link) -->
 		( { ExitStatus = 0 } ->
 			( { Link = yes } ->
 				compile_target_code__link_module_list(
-					ModulesToLink, _Succeeded)
+					ModulesToLink, Succeeded),
+				maybe_set_exit_status(Succeeded)
 			;
 				[]
 			)
@@ -307,7 +308,7 @@ compiling_to_asm(Globals) :-
 		make_optimization_interface,
 		make_transitive_opt_interface,
 		typecheck_only, errorcheck_only],
-	BoolList = map((func(Opt) = Bool :-
+	BoolList = list__map((func(Opt) = Bool :-
 		globals__lookup_bool_option(Globals, Opt, Bool)),
 		OptionList),
 	bool__or_list(BoolList) = no.
@@ -384,7 +385,8 @@ compile_using_gcc_backend(FirstFileOrModule, CallBack, ModulesToLink) -->
 		( { Result = ok, TargetCodeOnly = no } ->
 			io__output_stream(OutputStream),
 			compile_target_code__assemble(OutputStream,
-				non_pic, ModuleName, _AssembleOK)
+				non_pic, ModuleName, AssembleOK),
+			maybe_set_exit_status(AssembleOK)
 		;
 			[]
 		)
@@ -649,7 +651,9 @@ read_module(file(FileName), ReturnTimestamp, ModuleName, SourceFileName,
 				prog_out__write_sym_name(ModuleName),	
 				io__write_string(".\n"),
 				io__write_string(
-		"  Smart recompilation will not work with this module.\n"),
+		"  Smart recompilation will not work unless a module name\n"),
+				io__write_string(
+		"  to file name mapping is created using `mmc -f *.m'.\n"),
 				( { Halt = yes } ->
 					io__set_exit_status(1)
 				;
@@ -1120,6 +1124,18 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 		( { NumErrors = 0 } ->
 		    mercury_compile__maybe_generate_rl_bytecode(HLDS50,
 				Verbose, MaybeRLFile),
+		    ( { Target = c ; Target = asm } ->
+			%
+			% Produce the grade independent header file
+			% <module>.mh containing function prototypes
+			% for the `:- pragma export'ed procedures.
+			%
+		    	{ export__get_foreign_export_decls(HLDS50,
+				ExportDecls) },
+			export__produce_header_file(ExportDecls, ModuleName)
+		    ;
+		    	[]
+		    ),
 		    ( { AditiOnly = yes } ->
 		    	{ HLDS = HLDS50 }
 		    ; { Target = il } ->
@@ -1133,7 +1149,8 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 				mercury_compile__mlds_to_il_assembler(MLDS),
 				io__output_stream(OutputStream),
 				compile_target_code__il_assemble(OutputStream,
-					ModuleName, HasMain, _Succeeded)
+					ModuleName, HasMain, Succeeded),
+				maybe_set_exit_status(Succeeded)
 			)
 		    ; { Target = java } ->
 			{ HLDS = HLDS50 },
@@ -1144,7 +1161,8 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 			;
 				io__output_stream(OutputStream),
 				compile_target_code__compile_java_file(
-					OutputStream, ModuleName, _Succeeded)
+					OutputStream, ModuleName, Succeeded),
+				maybe_set_exit_status(Succeeded)
 			)
 		    ; { Target = asm } ->
 		    	% compile directly to assembler using the gcc back-end
@@ -1179,7 +1197,8 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 					compile_target_code__compile_c_file(
 						OutputStream, non_pic,
 						CCode_C_File, CCode_O_File,
-						_CompileOK),
+						CompileOK),
+					maybe_set_exit_status(CompileOK),
 					% add this object file to the list
 					% of extra object files to link in
 					globals__io_lookup_accumulating_option(
@@ -1207,7 +1226,8 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 				io__output_stream(OutputStream),
 				compile_target_code__compile_c_file(
 					OutputStream, non_pic, C_File, O_File,
-					_CompileOK)
+					CompileOK),
+				maybe_set_exit_status(CompileOK)
 			)
 		    ;
 			mercury_compile__backend_pass(HLDS50, HLDS,
@@ -1866,8 +1886,8 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50,
 	mercury_compile__maybe_unneeded_code(HLDS39, Verbose, Stats, HLDS40),
 	mercury_compile__maybe_dump_hlds(HLDS40, "40", "unneeded_code"),
 
-	mercury_compile__maybe_lco(HLDS40, Verbose, Stats, HLDS42), !,
-	mercury_compile__maybe_dump_hlds(HLDS42, "42", "lco"), !,
+	mercury_compile__maybe_lco(HLDS40, Verbose, Stats, HLDS42),
+	mercury_compile__maybe_dump_hlds(HLDS42, "42", "lco"),
 
 	% DNF transformations should be after inlining.
 	mercury_compile__maybe_transform_dnf(HLDS40, Verbose, Stats, HLDS44),
@@ -3278,7 +3298,8 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 	mercury_compile__output_llds(ModuleName, CFile, LayoutLabels,
 		MaybeRLFile, Verbose, Stats),
 
-	{ C_InterfaceInfo = foreign_interface_info(_, _, _, _, C_ExportDecls, _) },
+	{ C_InterfaceInfo = foreign_interface_info(_, _, _, _,
+					C_ExportDecls, _) },
 	export__produce_header_file(C_ExportDecls, ModuleName),
 
 	%
@@ -3289,6 +3310,7 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 		io__output_stream(OutputStream),
 		mercury_compile__c_to_obj(OutputStream,
 			ModuleName, NumChunks, CompileOK),
+		maybe_set_exit_status(CompileOK),
 		{ bool__not(CompileOK, CompileErrors) }
 	;
 		{ CompileErrors = no }
@@ -3343,7 +3365,8 @@ make_foreign_import_header_code(
 		Include) -->
 	(
 		{ Lang = c },
-		module_name_to_file_name(ModuleName, ".h", no, HeaderFileName),
+		module_name_to_file_name(ModuleName, ".mh",
+			no, HeaderFileName),
 		{ string__append_list(
 			["#include """, HeaderFileName, """\n"],
 			IncludeString) },

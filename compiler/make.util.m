@@ -106,6 +106,11 @@
 	maybe_error(timestamp)::out, make_info::in, make_info::out,
 	io__state::di, io__state::uo) is det.
 
+	% Return the oldest of the timestamps if both are of the form
+	% `ok(Timestamp)', returning `error(Error)' otherwise.
+:- func find_oldest_timestamp(maybe_error(timestamp),
+		maybe_error(timestamp)) = maybe_error(timestamp).
+
 %-----------------------------------------------------------------------------%
 	% Remove file a file, deleting the cached timestamp.
 
@@ -141,7 +146,7 @@
 
 	% Find the extension for the timestamp file for the
 	% given target type, if one exists.
-:- func timestamp_extension(module_target_type) = string is semidet.
+:- func timestamp_extension(globals, module_target_type) = string is semidet.
 
 %-----------------------------------------------------------------------------%
 	% Debugging, verbose and error messages.
@@ -390,7 +395,7 @@ write_error_char(FullOutputStream, PartialOutputStream, LineLimit,
 get_timestamp_file_timestamp(ModuleName - FileType,
 		MaybeTimestamp, Info0, Info) -->
 	globals__io_get_globals(Globals),
-	{ TimestampExt = timestamp_extension(FileType) ->
+	{ TimestampExt = timestamp_extension(Globals, FileType) ->
 		Ext = TimestampExt	
 	;
 		Ext = target_extension(Globals, FileType)
@@ -415,7 +420,17 @@ get_dependency_timestamp(file(FileName, MaybeOption), MaybeTimestamp,
 	),
 	get_file_timestamp(SearchDirs, FileName, MaybeTimestamp, Info0, Info).
 get_dependency_timestamp(target(Target), MaybeTimestamp, Info0, Info) -->
-	get_target_timestamp(Target, MaybeTimestamp, Info0, Info).
+	get_target_timestamp(Target, MaybeTimestamp0, Info0, Info),
+	{ Target = _ - c_header(mih), MaybeTimestamp0 = ok(_) ->
+		% Don't rebuild the `.o' file if an irrelevant part of a
+		% `.mih' file has changed. If a relevant part of a `.mih'
+		% file changed, the interface files of the imported module
+		% must have changed in a way that would force the `.c' and
+		% `.o' files of the current module to be rebuilt.
+		MaybeTimestamp = ok(oldest_timestamp)	
+	;
+		MaybeTimestamp = MaybeTimestamp0
+	}.
 
 get_target_timestamp(ModuleName - FileType, MaybeTimestamp, Info0, Info) -->
 	get_file_name(ModuleName - FileType, FileName, Info0, Info1),
@@ -511,10 +526,23 @@ get_file_timestamp(SearchDirs, FileName, MaybeTimestamp, Info0, Info) -->
 get_search_directories(FileType, SearchDirs) -->
 	( { yes(SearchDirOpt) = search_for_file_type(FileType) } ->
 		globals__io_lookup_accumulating_option(SearchDirOpt,
-			SearchDirs)
+			SearchDirs0),
+		% Make sure the current directory is searched
+		% for C headers and libraries.
+		{ SearchDirs =
+			( list__member(dir__this_directory, SearchDirs0) -> 
+				SearchDirs0
+			;
+				[dir__this_directory | SearchDirs0]
+			) }
 	;
 		{ SearchDirs = [dir__this_directory] }
 	).
+
+find_oldest_timestamp(error(_) @ Timestamp, _) = Timestamp.
+find_oldest_timestamp(ok(_), error(_) @ Timestamp) = Timestamp.
+find_oldest_timestamp(ok(Timestamp1), ok(Timestamp2)) =
+    ok( ( compare((<), Timestamp1, Timestamp2) -> Timestamp1 ; Timestamp2 ) ).
 
 %-----------------------------------------------------------------------------%
 
@@ -525,7 +553,7 @@ remove_target_file(ModuleName, FileType, Info0, Info) -->
 	globals__io_get_globals(Globals),
 	remove_file(ModuleName, target_extension(Globals, FileType),
 		Info0, Info1),
-	( { TimestampExt = timestamp_extension(FileType) } ->
+	( { TimestampExt = timestamp_extension(Globals, FileType) } ->
 		remove_file(ModuleName, TimestampExt, Info1, Info)
 	;
 		{ Info = Info1 }
@@ -555,7 +583,8 @@ target_extension(_, short_interface) = ".int2".
 target_extension(_, unqualified_short_interface) = ".int3".
 target_extension(_, intermodule_interface) = ".opt".
 target_extension(_, aditi_code) = ".rlo".
-target_extension(_, c_header) = ".h".
+target_extension(_, c_header(mih)) = ".mih".
+target_extension(_, c_header(mh)) = ".mh".
 target_extension(_, c_code) = ".c".
 target_extension(_, il_code) = ".il".
 target_extension(_, il_asm) = ".dll". % XXX ".exe" if the module contains main.
@@ -580,17 +609,21 @@ linked_target_file_name(ModuleName, shared_library, FileName) -->
 	% Note that we need a timestamp file for `.err' files because
 	% errors are written to the `.err' file even when writing interfaces.
 	% The timestamp is only updated when compiling to target code.
-timestamp_extension(errors) = ".err_date".
-timestamp_extension(private_interface) = ".date0".
-timestamp_extension(long_interface) = ".date".
-timestamp_extension(short_interface) = ".date".
-timestamp_extension(unqualified_short_interface) = ".date3".
-timestamp_extension(intermodule_interface) = ".optdate".
-timestamp_extension(c_code) = ".c_date".
-timestamp_extension(il_code) = ".il_date".
-timestamp_extension(java_code) = ".java_date".
-timestamp_extension(asm_code(non_pic)) = ".s_date".
-timestamp_extension(asm_code(pic)) = ".pic_s_date".
+timestamp_extension(_, errors) = ".err_date".
+timestamp_extension(_, private_interface) = ".date0".
+timestamp_extension(_, long_interface) = ".date".
+timestamp_extension(_, short_interface) = ".date".
+timestamp_extension(_, unqualified_short_interface) = ".date3".
+timestamp_extension(_, intermodule_interface) = ".optdate".
+timestamp_extension(_, c_code) = ".c_date".
+timestamp_extension(Globals, c_header(_)) = Ext :-
+	globals__get_target(Globals, Target),
+	Ext = timestamp_extension(Globals,
+			(Target = asm -> asm_code(non_pic) ; c_code)).
+timestamp_extension(_, il_code) = ".il_date".
+timestamp_extension(_, java_code) = ".java_date".
+timestamp_extension(_, asm_code(non_pic)) = ".s_date".
+timestamp_extension(_, asm_code(pic)) = ".pic_s_date".
 
 :- func search_for_file_type(module_target_type) = maybe(option).
 
@@ -603,7 +636,7 @@ search_for_file_type(short_interface) = yes(search_directories).
 search_for_file_type(unqualified_short_interface) = yes(search_directories).
 search_for_file_type(intermodule_interface) = yes(intermod_directories).
 search_for_file_type(aditi_code) = no.
-search_for_file_type(c_header) = yes(c_include_directory).
+search_for_file_type(c_header(_)) = yes(c_include_directory).
 search_for_file_type(c_code) = no.
 search_for_file_type(il_code) = no.
 search_for_file_type(il_asm) = no.

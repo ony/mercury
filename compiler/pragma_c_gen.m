@@ -1145,7 +1145,7 @@ make_pragma_decls([Arg | Args], Module, Decls) :-
 	(
 		var_is_not_singleton(ArgName, Name)
 	->
-		OrigTypeString = to_type_string(c, Module, OrigType),
+		OrigTypeString = foreign__to_type_string(c, Module, OrigType),
 		Decl = pragma_c_arg_decl(OrigType, OrigTypeString, Name),
 		make_pragma_decls(Args, Module, Decls1),
 		Decls = [Decl | Decls1]
@@ -1207,7 +1207,7 @@ get_maybe_foreign_type_name(Type, MaybeForeignType) -->
 		type_to_ctor_and_args(Type, TypeId, _SubTypes),
 		map__search(Types, TypeId, Defn),
 		hlds_data__get_type_defn_body(Defn, Body),
-		Body = foreign_type(_MaybeIL, MaybeC)
+		Body = foreign_type(foreign_type_body(_MaybeIL, MaybeC))
 	->
 		( MaybeC = yes(c(Name)),
 			MaybeForeignType = yes(Name)

@@ -8,6 +8,11 @@
 
 # N.B. All the builtin rules must use $@ as the target, so that they work
 # when $(VPATH) is set.
+#
+# When passing a module to mmc, strip off the directory part of the
+# name. This way the compiler will report an error if the source file
+# is in another directory, rather than generating interface files in
+# the wrong directory.
 
 main_target: $(MAIN_TARGET)
 
@@ -18,9 +23,8 @@ main_target: $(MAIN_TARGET)
 		.int0 .int .int2 .int3 .opt .trans_opt \
 		.dep .depend .dv .doit .ugly \
 		.date0 .date .date3 .optdate .trans_opt_date \
-		.c .nu .$O .pic_o \
+		.c .$O .pic_o \
 		.i .s .pic_s \
-		.ql .pl \
 		.rlo \
 		.java .class \
 		.il .dll .exe .cpp .cs \
@@ -35,8 +39,6 @@ main_target: $(MAIN_TARGET)
 ifeq ($(MMAKE_USE_SUBDIRS),yes)
 
 MCFLAGS += --use-subdirs
-MSCFLAGS += --use-subdirs
-MNCFLAGS += --use-subdirs
 ALL_MGNUCFLAGS += -I.
 
 endif
@@ -71,29 +73,6 @@ endif
 
 #-----------------------------------------------------------------------------#
 #
-# Rules for NU-Prolog and SICStus Prolog.
-#
-
-.m.pl:
-	sicstus_conv $<
-
-.nl.pl:
-	sicstus_conv $<
-
-$(nos_subdir)%.no : %.m
-	$(MNC) $(ALL_MNCFLAGS) -o $@ $<
-
-$(nos_subdir)%.no : %.nl
-	$(MNC) $(ALL_MNCFLAGS) -o $@ $<
-
-$(qls_subdir)%.ql : %.m
-	$(MSC) $(ALL_MSCFLAGS) -o $@ $<
-
-$(qls_subdir)%.ql : %.nl
-	$(MSC) $(ALL_MSCFLAGS) -o $@ $<
-
-#-----------------------------------------------------------------------------#
-#
 # Rules for building dependency files
 #
 
@@ -103,6 +82,8 @@ $(qls_subdir)%.ql : %.nl
 # but there is a bug in GNU Make with regard to directory caching.
 # I have sent off a bug report to the GNU Make maintainers (19 March 1998).
 #	-fjh.
+
+ifeq ($(MMAKE_USE_MMC_MAKE),no)
 
 # beware the code for `%.depend' and `%.dep'/`%.dv' is duplicated
 $(deps_subdir)%.dep $(deps_subdir)%.dv:
@@ -137,15 +118,7 @@ ifeq ($(MMAKE_USE_SUBDIRS),yes)
 	-[ -d Mercury/pic_s_dates ] || mkdir Mercury/pic_s_dates
 endif
 
-# The `.doit' files are helpful when using Prolog.
-
-%.doit : $(deps_subdir)%.dep $(deps_subdir)%.dv
-	sed -e ':a' -e '/\\/N' -e 's/\\\n	//' -e 't a' $< |  \
-	grep '\.ms *=' | \
-	sed	-e 's/.*=/:-[ '\''nu_library.doit'\'', /' \
-		-e 's/\.m/,/g' \
-		-e 's/$$/ portray ]./' \
-		> $@
+endif	# MMAKE_USE_MMC_MAKE == no
 
 #-----------------------------------------------------------------------------#
 #
@@ -157,19 +130,19 @@ endif
 ifeq ($(MMAKE_USE_MMC_MAKE), no)
 
 $(date0s_subdir)%.date0 : %.m
-	$(MCPI) $(ALL_MCPIFLAGS) $<
+	$(MCPI) $(ALL_MCPIFLAGS) $(*F)
 
 $(dates_subdir)%.date : %.m
-	$(MCI) $(ALL_MCIFLAGS) $<
+	$(MCI) $(ALL_MCIFLAGS) $(*F)
 
 $(date3s_subdir)%.date3 : %.m
-	$(MCSI) $(ALL_MCSIFLAGS) $<
+	$(MCSI) $(ALL_MCSIFLAGS) $(*F)
 
 $(optdates_subdir)%.optdate : %.m
-	$(MCOI) $(ALL_MCOIFLAGS) $<
+	$(MCOI) $(ALL_GRADEFLAGS) $(ALL_MCOIFLAGS) $(*F)
 
 $(trans_opt_dates_subdir)%.trans_opt_date : %.m
-	$(MCTOI) $(ALL_MCTOIFLAGS) $<
+	$(MCTOI) $(ALL_GRADEFLAGS) $(ALL_MCTOIFLAGS) $(*F)
 
 # Be very careful about changing the following rules.
 # The `@:' is a silent do-nothing command.
@@ -220,11 +193,11 @@ $(pic_ss_subdir)%.pic_s : $(pic_s_dates_subdir)%.pic_s_date
 
 $(s_dates_subdir)%.s_date : %.m
 	$(MCG) $(ALL_GRADEFLAGS) --target-code-only $(ALL_MCGFLAGS) \
-		$< > $*.err 2>&1
+		$(*F) > $(*F).err 2>&1
 
 $(pic_s_dates_subdir)%.pic_s_date : %.m
 	$(MCG) $(ALL_GRADEFLAGS) --target-code-only $(ALL_MCGFLAGS) \
-		--pic --cflags "$(GCCFLAGS_FOR_PIC)" $< > $*.err 2>&1
+		--pic --cflags "$(GCCFLAGS_FOR_PIC)" $(*F) > $(*F).err 2>&1
 
 $(os_subdir)%.$O : $(ss_subdir)%.s
 	$(AS) $< $(OBJFILE_OPT)$@
@@ -254,11 +227,12 @@ $(cs_subdir)%.c : $(c_dates_subdir)%.c_date
 	@:
 
 $(c_dates_subdir)%.c_date : %.m
-	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) $< > $*.err 2>&1
+	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) $(*F) > $(*F).err 2>&1
 
 # Aditi-RL back-end
 $(rlos_subdir)%.rlo : %.m
-	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) --aditi-only $< > $*.err 2>&1
+	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) \
+		--aditi-only $(*F) > $(*F).err 2>&1
 
 # Java back-end
 
@@ -275,7 +249,8 @@ $(javas_subdir)%.java: $(java_dates_subdir)%.java_date
 	@:
 
 $(java_dates_subdir)%.java_date : %.m
-	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) --java-only $< > $*.err 2>&1
+	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) \
+		--java-only $(*F) > $(*F).err 2>&1
 
 # .NET back-end
 
@@ -285,7 +260,8 @@ $(ils_subdir)%.il : $(il_dates_subdir)%.il_date
 	@:
 
 $(il_dates_subdir)%.il_date : %.m
-	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) --il-only $< > $*.err 2>&1
+	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) \
+		--il-only $(*F) > $(*F).err 2>&1
 
 # These rules are only available in *il* backends, because we'd like to avoid
 # processing user code that is in a .cpp file, and we'd like to avoid going via
@@ -309,15 +285,6 @@ mercury.sn:
 	cp $(MERC_DLL_DIR)/mercury.sn .
 endif
 
-# For --split-c-files, we generate the .$O files directly from the .m files.
-# (One reason for this is that there's no easy of telling Make how many
-# `.$O' files it should make, since the number of them depends on what's
-# in the source files.)
-
-$(dirs_subdir)%.dir/*.$O: %.m
-	rm -f $@
-	$(MCS) $(ALL_GRADEFLAGS) $(ALL_MCSFLAGS) $<
-
 # The `touch' is necessary, since otherwise if
 # the old .err file was of size zero and
 # the new .err file is also of size zero,
@@ -325,13 +292,13 @@ $(dirs_subdir)%.dir/*.$O: %.m
 # (Is that a bug in unix? In bash?)
 
 .m.err:
-	$(MCE) $(ALL_MCFLAGS) $< > $@ 2>&1
+	$(MCE) $(ALL_MCFLAGS) $(*F) > $@ 2>&1
 	@touch $@
 
-.m.ugly:
-	$(MC) --convert-to-mercury $(ALL_MCFLAGS) $<
-
 endif	# MMAKE_USE_MMC_MAKE == no
+
+.m.ugly:
+	$(MC) --convert-to-mercury $(ALL_MCFLAGS) $(*F)
 
 #-----------------------------------------------------------------------------#
 #
@@ -455,7 +422,7 @@ endif # $(MMAKE_USE_MMC_MAKE) == yes
 # automatically generated `.d' files.
 #
 
-.PHONY: clean realclean clean_nu clean_sicstus clean_prof_files
+.PHONY: clean realclean clean_prof_files
 
 clean_prof_files:
 	-rm -f Prof.CallPair Prof.Counts Prof.Decl Prof.MemWords Prof.MemCells
@@ -484,7 +451,7 @@ clean_local: clean_prof_files
 
 # Note: the `lib%.install_ints' rule is generated in each module's `.dep'
 # file so it can be more easily customised based on the desired level of
-# intermodule optimisation.  Likewise the `lib%.install_hdrs' is also
+# intermodule optimisation.  Likewise the `lib%.install_grade_hdrs' is also
 # generated in the `.dep' file, since it depends on the setting of
 # the `--high-level-code' option.
 
@@ -504,7 +471,8 @@ lib%.install_init: %.init install_lib_dirs
 	$(INSTALL) `vpath_find $*.init` $(INSTALL_MODULE_DIR)
 
 .PHONY: lib%.install_library
-lib%.install_library: lib%.a lib%.$(EXT_FOR_SHARED_LIB) install_grade_dirs
+lib%.install_library: lib%.a lib%.$(EXT_FOR_SHARED_LIB) \
+			install_grade_dirs lib%.install_grade_hdrs
 	$(INSTALL) `vpath_find lib$*.a lib$*.$(EXT_FOR_SHARED_LIB)` \
 			$(INSTALL_MERC_LIB_DIR)
 
@@ -514,17 +482,15 @@ lib%.install_split_library: %.split.a install_grade_dirs
 lib%.install_grades:
 	rm -rf tmp_dir && \
 	mkdir tmp_dir && \
-	{ mv -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.c_dates) $($*.os) \
-		$($*.pic_os) *.a *.so tmp_dir || true; } && \
+	{ mv -f $(deps_subdir)$*.dep $($*.mihs) $($*.cs) $($*.c_dates) \
+		$($*.os) $($*.pic_os) *.a *.so tmp_dir || true; } && \
 	for grade in x $(ALL_LIBGRADES); do \
 		if [ "$$grade" != "x" ]; then \
 			$(MMAKE) GRADE=$$grade $*.depend || \
 				exit 1; \
-			$(MMAKE) GRADE=$$grade lib$*.install_hdrs || \
-				exit 1; \
 			$(MMAKE) GRADE=$$grade lib$*.install_library || \
 				exit 1; \
-			rm -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) \
+			rm -f $(deps_subdir)$*.dep $($*.mihs) $($*.cs) \
 				$($*.c_dates) $($*.os) $($*.pic_os) *.a *.so; \
 		fi; \
 	done && \
@@ -538,7 +504,7 @@ lib%.install_grades:
 lib%.install_split_grades:
 	rm -rf tmp_dir && \
 	mkdir tmp_dir && \
-	{ mv -f $(deps_subdir)$*.dep $($*.hs) $($*.dirs) *.a *.so \
+	{ mv -f $(deps_subdir)$*.dep $($*.mihs) $($*.dirs) *.a *.so \
 		tmp_dir || true; } && \
 	for grade in x $(ALL_LIBGRADES); do \
 		if [ "$$grade" != "x" ]; then \
@@ -546,7 +512,7 @@ lib%.install_split_grades:
 				exit 1; \
 			$(MMAKE) GRADE=$$grade lib$*.install_split_library || \
 				exit 1; \
-			rm -rf $(deps_subdir)$*.dep $($*.hs) $($*.dirs) \
+			rm -rf $(deps_subdir)$*.dep $($*.mihs) $($*.dirs) \
 				*.a *.so; \
 		fi; \
 	done && \
@@ -568,5 +534,10 @@ install_lib_dirs:
 install_grade_dirs: #install_lib_dirs
 	-[ -d $(INSTALL_MERC_LIB_DIR) ] || \
 		$(INSTALL_MKDIR) $(INSTALL_MERC_LIB_DIR)
+	-[ -d $(INSTALL_GRADE_INC_DIR) ] || \
+		$(INSTALL_MKDIR) $(INSTALL_GRADE_INC_DIR)
+	# The following is needed to support the `--use-subdirs' option
+	-[ -d $(INSTALL_GRADE_INC_DIR)/Mercury ] || \
+		$(INSTALL_MKDIR) $(INSTALL_GRADE_INC_DIR)/Mercury
 
 #-----------------------------------------------------------------------------#

@@ -34,12 +34,15 @@
 :- func trace_level_needs_input_vars(trace_level) = bool.
 :- func trace_level_needs_fixed_slots(trace_level) = bool.
 :- func trace_level_needs_from_full_slot(trace_level) = bool.
-:- func trace_level_needs_decl_debug_slots(trace_level) = bool.
 :- func trace_level_allows_delay_death(trace_level) = bool.
 :- func trace_needs_return_info(trace_level, trace_suppress_items) = bool.
 :- func trace_needs_all_var_names(trace_level, trace_suppress_items) = bool.
 :- func trace_needs_proc_body_reps(trace_level, trace_suppress_items) = bool.
 :- func trace_needs_port(trace_level, trace_suppress_items, trace_port) = bool.
+
+	% Should optimization passes maintain meaningful
+	% variable names where possible.
+:- func trace_level_needs_meaningful_var_names(trace_level) = bool.
 
 :- func trace_level_none = trace_level.
 
@@ -100,17 +103,17 @@ trace_level_needs_from_full_slot(deep) = no.
 trace_level_needs_from_full_slot(decl) = no.
 trace_level_needs_from_full_slot(decl_rep) = no.
 
-trace_level_needs_decl_debug_slots(none) = no.
-trace_level_needs_decl_debug_slots(shallow) = no.
-trace_level_needs_decl_debug_slots(deep) = no.
-trace_level_needs_decl_debug_slots(decl) = yes.
-trace_level_needs_decl_debug_slots(decl_rep) = yes.
-
 trace_level_allows_delay_death(none) = no.
 trace_level_allows_delay_death(shallow) = no.
 trace_level_allows_delay_death(deep) = yes.
 trace_level_allows_delay_death(decl) = yes.
 trace_level_allows_delay_death(decl_rep) = yes.
+
+trace_level_needs_meaningful_var_names(none) = no.
+trace_level_needs_meaningful_var_names(shallow) = no.
+trace_level_needs_meaningful_var_names(deep) = yes.
+trace_level_needs_meaningful_var_names(decl) = yes.
+trace_level_needs_meaningful_var_names(decl_rep) = yes.
 
 trace_needs_return_info(TraceLevel, TraceSuppressItems) = Need :-
 	(

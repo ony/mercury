@@ -207,6 +207,9 @@ about unbound type variables.
 	% environment.
 :- pred make_command_string(string::in, quote_char::in, string::out) is det.
 
+	% If the bool is `no' set the exit status to 1.
+:- pred maybe_set_exit_status(bool::in, io__state::di, io__state::uo) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
@@ -450,6 +453,9 @@ passes_aux__handle_errors(WarnCnt, ErrCnt, ModuleInfo1, ModuleInfo8,
 		State9 = State2
 	).
 
+maybe_set_exit_status(yes) --> [].
+maybe_set_exit_status(no) --> io__set_exit_status(1).
+
 invoke_shell_command(ErrorStream, Verbosity, Command0, Succeeded) -->
 	{ make_command_string(Command0, forward, Command) },
 	invoke_system_command(ErrorStream, Verbosity, Command, Succeeded).
@@ -488,7 +494,6 @@ invoke_system_command(ErrorStream, Verbosity, Command, Succeeded) -->
 		( { Status = 0 } ->
 			{ Succeeded = yes }
 		;
-			io__set_exit_status(1),
 			% The command should have produced output
 			% describing the error.
 			{ Succeeded = no }
@@ -523,7 +528,8 @@ invoke_system_command(ErrorStream, Verbosity, Command, Succeeded) -->
 			report_error(ErrorStream,
 				"error reading command output: "
 					++ io__error_message(TmpFileReadError))
-		)
+		),
+		io__close_input(TmpFileStream)
 	;
 		{ TmpFileRes = error(TmpFileError) },
 		report_error(ErrorStream, "error opening command output: "

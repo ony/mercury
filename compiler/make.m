@@ -102,7 +102,11 @@
 
 			% Modules for which we have redirected output
 			% to a `.err' file during this invocation of mmc.
-		error_file_modules :: set(module_name)
+		error_file_modules :: set(module_name),
+
+			% Used for reporting which module imported
+			% a nonexistent module.
+		importing_module :: maybe(module_name)
 	).
 
 :- type make_error
@@ -140,7 +144,7 @@
 	;	unqualified_short_interface
 	;	intermodule_interface
 	;	aditi_code
-	;	c_header
+	;	c_header(c_header_type)
 	;	c_code
 	;	il_code
 	;	il_asm
@@ -149,12 +153,18 @@
 	;	object_code(pic)
 	.
 
+:- type c_header_type
+	--->	mh	% For `:- pragma export' declarations.
+	;	mih	% Declarations for hlc grades, for compiler use only.
+	.
+
 % :- type linked_target_type in mercury_compile.m.
 
 :- type misc_target_type
 	--->	clean
 	;	realclean
-	;	check
+	;	build_all(module_target_type)
+	;	build_library
 	;	install_library
 	.
 
@@ -238,7 +248,7 @@ make__process_args(OptionArgs, Targets0) -->
 		OptionArgs, Variables, map__init,
 		init_cached_direct_imports,
 		init_cached_transitive_dependencies,
-		ShouldRebuildDeps, KeepGoing, set__init) },
+		ShouldRebuildDeps, KeepGoing, set__init, no) },
 
 	globals__io_get_globals(Globals),
 	foldl2_maybe_stop_at_error(KeepGoing,
@@ -336,10 +346,22 @@ target_file(Globals, FileName, ModuleName, TargetType) :-
 			ModuleNameStr = ModuleNameStr0,
 			TargetType0 = linked_target(executable)
 		;
+			string__append(Suffix1, "s", Suffix),
+			Suffix1 = target_extension(Globals, ModuleTargetType),
+
+			% Not yet implemented. `build_all' targets
+			% are only used by tools/bootcheck, so it
+			% doesn't really matter.
+			ModuleTargetType \= c_header(_)
+		->
+			ModuleNameStr = ModuleNameStr0,
+			TargetType0 = misc_target(
+					build_all(ModuleTargetType))
+		;
 			Suffix = ".check"
 		->
 			ModuleNameStr = ModuleNameStr0,
-			TargetType0 = misc_target(check)
+			TargetType0 = misc_target(build_all(errors))
 		;
 			Suffix = ".clean"
 		->
@@ -365,9 +387,17 @@ target_file(Globals, FileName, ModuleName, TargetType) :-
     ->
 	TargetFile = ModuleName - TargetType
     ;
-	globals__lookup_string_option(Globals, executable_file_extension, ""),
+	string__append("lib", ModuleNameStr, FileName)
+    ->
+	TargetType = misc_target(build_library),
+	file_name_to_module_name(ModuleNameStr, ModuleName)
+    ;
+	globals__lookup_string_option(Globals, executable_file_extension, "")
+    ->
 	TargetType = linked_target(executable),
 	file_name_to_module_name(FileName, ModuleName)
+    ;
+    	fail
     ).
 
 :- pred search_backwards_for_dot(string::in, int::in, int::out) is semidet.

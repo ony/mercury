@@ -4,7 +4,7 @@
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-% File: types.m.
+% File: type_desc.m.
 % Main author: fjh, zs.
 % Stability: low.
 
@@ -207,7 +207,7 @@ MR_define_extern_entry(mercury____Compare___type_desc__type_ctor_desc_0_0);
 MR_define_extern_entry(mercury____Unify___type_desc__type_desc_0_0);
 MR_define_extern_entry(mercury____Compare___type_desc__type_desc_0_0);
 
-MR_BEGIN_MODULE(type_desc_module)
+MR_BEGIN_MODULE(type_desc_unify_compare_module)
 	MR_init_entry(mercury____Unify___type_desc__type_ctor_desc_0_0);
 	MR_init_entry(mercury____Compare___type_desc__type_ctor_desc_0_0);
 	MR_init_entry(mercury____Unify___type_desc__type_desc_0_0);
@@ -310,7 +310,7 @@ MR_BEGIN_CODE
 
 MR_END_MODULE
 
-MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc type_desc_module;
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc type_desc_unify_compare_module;
 
 #endif /* ! MR_HIGHLEVEL_CODE */
 
@@ -318,7 +318,7 @@ void
 sys_init_type_desc_module_init(void)
 {
 #ifndef	MR_HIGHLEVEL_CODE
-	type_desc_module();
+	type_desc_unify_compare_module();
 
 	MR_INIT_TYPE_CTOR_INFO(
 		mercury_data_type_desc__type_ctor_info_type_ctor_desc_0,
@@ -504,6 +504,11 @@ do_compare__type_desc_0_0(
 	TypeInfo = TypeInfo_for_T;
 ").
 
+type_of(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("type_of").
+
 :- pragma foreign_proc("C", 
 	has_type(_Arg::unused, TypeInfo::in),
 	[will_not_call_mercury, thread_safe, promise_pure],
@@ -517,6 +522,11 @@ do_compare__type_desc_0_0(
 "
 	TypeInfo_for_T = TypeInfo;
 ").
+
+has_type(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("has_type").
 
 % Export this function in order to use it in runtime/mercury_trace_external.c
 :- pragma export(type_name(in) = out, "ML_type_name").
@@ -627,13 +637,10 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 	TypeCtor = (MR_Word) MR_make_type_ctor_desc(type_info, type_ctor_info);
 }").
 
-:- pragma foreign_proc("C#",
-	type_ctor(_TypeInfo::in) = (_TypeCtor::out),
-	[will_not_call_mercury, thread_safe, promise_pure],
-"{
-	mercury.runtime.Errors.SORRY(""foreign code for type_ctor"");
-	_TypeCtor = null;
-}").
+type_ctor(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("type_ctor").
 
 :- pragma foreign_proc("C",
 	type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out),
@@ -706,6 +713,8 @@ type_ctor_and_args(TypeDesc::in, TypeCtorDesc::out, ArgTypes::out) :-
 }").
 
 make_type(_TypeCtorDesc::in, _ArgTypes::in) = (_TypeDesc::out) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
 	private_builtin__sorry("make_type/2 forward mode.").
 
 	/*
@@ -731,6 +740,8 @@ make_type(_TypeCtorDesc::in, _ArgTypes::in) = (_TypeDesc::out) :-
 }").
 
 make_type(_TypeCtorDesc::out, _ArgTypes::out) = (_TypeDesc::in) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
 	private_builtin__sorry("make_type/2 reverse mode").
 
 :- pragma foreign_proc("C",
@@ -769,6 +780,8 @@ make_type(_TypeCtorDesc::out, _ArgTypes::out) = (_TypeDesc::in) :-
 
 type_ctor_name_and_arity(_TypeCtorDesc::in, _ModuleName::out,
 		_TypeCtorName::out, _TypeCtorArity::out) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
 	private_builtin__sorry("type_ctor_name_and_arity/4").
 
 %-----------------------------------------------------------------------------%

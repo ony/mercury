@@ -52,7 +52,9 @@ SINGLEMODULE_SOURCES= \
 	ext_type_bug.m \
 	exported_mode.m \
 	field_syntax_error.m \
-	foreign_type.m \
+	foreign_singleton.m \
+	foreign_type_2.m \
+	foreign_type_visibility.m \
 	func_errors.m \
 	funcs_as_preds.m \
 	ho_default_func_1.m \
@@ -80,6 +82,7 @@ SINGLEMODULE_SOURCES= \
 	multisoln_func.m \
 	nested_impl_in_int.m \
 	no_exports.m \
+	nonexistent_import.m \
 	not_a_switch.m \
 	nullary_ho_func_error.m \
 	occurs.m \
@@ -94,6 +97,11 @@ SINGLEMODULE_SOURCES= \
 	record_syntax_errors.m \
 	some.m \
 	spurious_mode_error.m \
+	state_vars_test1.m \
+	state_vars_test2.m \
+	state_vars_test3.m \
+	state_vars_test4.m \
+	state_vars_test5.m \
 	tc_err1.m \
 	tc_err2.m \
 	tricky_assert1.m \
@@ -147,6 +155,8 @@ SOURCES= $(SINGLEMODULE_SOURCES) $(MULTIMODULE_SOURCES)
 #	ho_default_func_4.m (due to a bug in the mode-checker ---
 #			see XXX comment in inst_match:inst_matches_final_3)
 #	inst_matches_final_bug.m (due to same bug as ho_default_func_4.m)
+#	foreign_type (the error is only detected when trying to compile 
+#		the generated C code).
 
 # Inter-module optimization changes the diagnostics for some
 # tests (in most cases reporting diagnostics when writing the `.opt'
@@ -165,14 +175,21 @@ MCFLAGS-any_mode	=	--infer-types
 # is reported correctly when building the `.opt' file.
 MCFLAGS-assert_in_interface =	--no-intermodule-optimization
 
+MCFLAGS-children =		--no-intermodule-optimization
 MCFLAGS-duplicate_modes	=	--verbose-error-messages
 MCFLAGS-exported_mode =		--infer-all --no-intermodule-optimization
+MCFLAGS-foreign_type =		--compile-only
+MCFLAGS-foreign_singleton =	--halt-at-warn
+MCFLAGS-foreign_type_2 =	--no-intermodule-optimization
+MCFLAGS-foreign_type_visibility  = --no-intermodule-optimization
 MCFLAGS-imported_mode =		--infer-all --no-intermodule-optimization
 MCFLAGS-missing_det_decls =	--no-infer-det
 MCFLAGS-missing_interface_import = --make-interface
+MCFLAGS-missing_parent_import = --no-intermodule-optimization
 MCFLAGS-multisoln_func	=	--infer-types
 MCFLAGS-mode_inf	=	--infer-all
 MCFLAGS-no_exports = 		--halt-at-warn
+MCFLAGS-nonexistent_import =	--no-verbose-make --make nonexistent_import
 MCFLAGS-overloading = 		--no-intermodule-optimization
 MCFLAGS-sub_c = 	--verbose-error-messages --no-intermodule-optimization
 MCFLAGS-record_syntax_errors =	--verbose-error-messages

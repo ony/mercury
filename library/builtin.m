@@ -129,6 +129,12 @@
 :- func unsafe_promise_unique(T) = T.
 :- mode unsafe_promise_unique(in) = uo is det.
 
+% A synonym for fail/0; the name is more in keeping with Mercury's
+% declarative style rather than its Prolog heritage.
+
+:- pred false.
+:- mode false is failure.
+
 %-----------------------------------------------------------------------------%
 
 % A call to the function `promise_only_solution(Pred)' constitutes a
@@ -166,19 +172,6 @@
 :- pred promise_only_solution_io(pred(T, IO, IO), T, IO, IO).
 :- mode promise_only_solution_io(pred(out, di, uo) is cc_multi,
 		out, di, uo) is det.
-
-%-----------------------------------------------------------------------------%
-
-
-% We define !/0 (and !/2 for dcgs) to be equivalent to `true'.  This is for
-% backwards compatibility with Prolog systems.  But of course it only works
-% if all your cuts are green cuts.
-
-:- pred ! is det.
-
-:- pred !(T, T).
-:- mode !(di, uo) is det.
-:- mode !(in, out) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -246,6 +239,10 @@
 
 %-----------------------------------------------------------------------------%
 
+false :- fail.
+
+%-----------------------------------------------------------------------------%
+
 :- pragma promise_pure(promise_only_solution/1).
 promise_only_solution(CCPred) = OutVal :-
 	impure OutVal = get_one_solution(CCPred).
@@ -274,6 +271,11 @@ get_one_solution(CCPred) = OutVal :-
                         (Y :: out(pred(out) is semidet)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
+cc_cast(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("builtin__cc_cast").
 
 :- pragma promise_pure(promise_only_solution_io/4).
 promise_only_solution_io(Pred, X) -->
@@ -297,11 +299,11 @@ get_one_solution_io(Pred, X) -->
 		(Y :: out(pred(out, di, uo) is det)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
-
-%-----------------------------------------------------------------------------%
-
-!.
-!(X, X).
+cc_cast_io(_) = _ :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("builtin__cc_cast_io").
 
 %-----------------------------------------------------------------------------%
 
@@ -866,12 +868,12 @@ Using `pragma c_code' doesn't work, due to the lack of support for
 aliasing, and in particular the lack of support for `ui' modes.
 :- pragma c_code(copy(Value::ui, Copy::uo), "
 	MR_save_transient_registers();
-	Copy = MR_deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
+	Copy = MR_deep_copy(Value, TypeInfo_for_T, NULL, NULL);
 	MR_restore_transient_registers();
 ").
 :- pragma c_code(copy(Value::in, Copy::uo), "
 	MR_save_transient_registers();
-	Copy = MR_deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
+	Copy = MR_deep_copy(Value, TypeInfo_for_T, NULL, NULL);
 	MR_restore_transient_registers();
 ").
 *************/
@@ -899,7 +901,7 @@ mercury__builtin__copy_2_p_0(MR_Mercury_Type_Info type_info,
 	MR_Box value, MR_Box *copy)
 {
 	MR_Word val = (MR_Word) value;
-	*copy = (MR_Box) MR_deep_copy(&val, (MR_TypeInfo) type_info,
+	*copy = (MR_Box) MR_deep_copy(val, (MR_TypeInfo) type_info,
 		NULL, NULL);
 }
 
@@ -956,7 +958,7 @@ MR_BEGIN_CODE
 		value = MR_stackvar(2);					\
 									\
 		MR_save_transient_registers();				\
-		copy = MR_deep_copy(&value, type_info, NULL, NULL);	\
+		copy = MR_deep_copy(value, type_info, NULL, NULL);	\
 		MR_restore_transient_registers();			\
 									\
 		MR_stackvar(1) = copy;					\
@@ -979,7 +981,7 @@ MR_BEGIN_CODE
 		value = MR_r2;						\
 									\
 		MR_save_transient_registers();				\
-		copy = MR_deep_copy(&value, type_info, NULL, NULL);	\
+		copy = MR_deep_copy(value, type_info, NULL, NULL);	\
 		MR_restore_transient_registers();			\
 									\
 		MR_r1 = copy;						\

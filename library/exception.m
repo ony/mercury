@@ -555,8 +555,8 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 
 :- pragma c_header_code("
 /* protect against multiple inclusion */
-#ifndef MR_HLC_EXCEPTION_GUARD
-#define MR_HLC_EXCEPTION_GUARD
+#ifndef ML_HLC_EXCEPTION_GUARD
+#define ML_HLC_EXCEPTION_GUARD
 
 #ifdef MR_HIGHLEVEL_CODE
 
@@ -645,7 +645,7 @@ catch_impl(Pred::(pred(out) is nondet), Handler::in(handler), T::out) :-
 
 #endif /* MR_HIGHLEVEL_CODE */
 
-#endif /* MR_HLC_EXCEPTION_GUARD */
+#endif /* ML_HLC_EXCEPTION_GUARD */
 ").
 
 :- pragma c_code("
@@ -777,6 +777,10 @@ typedef struct ML_ExceptionHandler_struct {
 	MR_Univ		exception;
 } ML_ExceptionHandler;
 
+/*
+** XXX This is currently not thread-safe!
+** The ML_exception_handler variable should be thread-local.
+*/
 ML_ExceptionHandler *ML_exception_handler;
 
 void MR_CALL
@@ -795,14 +799,92 @@ mercury__exception__builtin_throw_1_p_0(MR_Univ exception)
 	}
 }
 
+#ifdef MR_NATIVE_GC
+
+/*
+** The following code is needed to trace the local variables
+** in the builtin_catch_* functions for accurate GC.
+*/
+
+struct mercury__exception__builtin_catch_locals {
+	/* fixed fields, from struct MR_StackChain */
+	struct MR_StackChain *prev;
+	void (*trace)(void *this_frame);
+	/* locals for this function */
+	MR_Mercury_Type_Info type_info;
+	MR_Pred handler_pred;
+};
+
+static void
+mercury__exception__builtin_catch_gc_trace(void *frame)
+{
+	struct mercury__exception__builtin_catch_locals *agc_locals = frame;
+	/*
+	** Construct a type_info for the type `pred(univ, T)',
+	** which is the type of the handler_pred.
+	*/
+	MR_VAR_ARITY_TYPEINFO_STRUCT(s, 2) type_info_for_handler_pred;
+	type_info_for_handler_pred.MR_ti_type_ctor_info = 
+		&mercury__builtin__builtin__type_ctor_info_pred_0;
+	type_info_for_handler_pred.MR_ti_var_arity_arity = 2;
+	type_info_for_handler_pred.MR_ti_var_arity_arg_typeinfos[0] =
+		(MR_TypeInfo)
+		&mercury__std_util__std_util__type_ctor_info_univ_0;
+	type_info_for_handler_pred.MR_ti_var_arity_arg_typeinfos[1] =
+		(MR_TypeInfo) agc_locals->type_info;
+	/*
+	** Call gc_trace/1 to trace the two local variables in this frame.
+	*/
+	mercury__private_builtin__gc_trace_1_p_0(
+		(MR_Word)
+		&mercury__type_desc__type_desc__type_ctor_info_type_desc_0,
+		(MR_Word) &agc_locals->type_info);
+	mercury__private_builtin__gc_trace_1_p_0(
+		(MR_Word) &type_info_for_handler_pred,
+		(MR_Word) &agc_locals->handler_pred);
+}
+
+ #define ML_DECLARE_AGC_HANDLER \
+	struct mercury__exception__builtin_catch_locals agc_locals;
+
+ #define ML_INSTALL_AGC_HANDLER(TYPE_INFO, HANDLER_PRED) \
+ 	do { \
+	    agc_locals.prev = mercury__private_builtin__stack_chain; \
+	    agc_locals.trace = mercury__exception__builtin_catch_gc_trace; \
+	    agc_locals.type_info = (TYPE_INFO); \
+	    agc_locals.handler_pred = (HANDLER_PRED); \
+	    mercury__private_builtin__stack_chain = &agc_locals; \
+	} while(0)
+
+ #define ML_UNINSTALL_AGC_HANDLER() \
+ 	do { \
+	    mercury__private_builtin__stack_chain = ((struct MR_StackChain *) \
+		mercury__private_builtin__stack_chain)->prev; \
+	} while (0)
+
+  #define ML_AGC_LOCAL(NAME) (agc_locals.NAME)
+
+#else /* !MR_NATIVE_GC */
+
+  /* If accurate GC is not enabled, we define all of these as NOPs. */
+  #define ML_DECLARE_AGC_HANDLER
+  #define ML_INSTALL_AGC_HANDLER(type_info, handler_pred)
+  #define ML_UNINSTALL_AGC_HANDLER()
+  #define ML_AGC_LOCAL(name) (name)
+
+#endif /* !MR_NATIVE_GC */
+
 void MR_CALL
 mercury__exception__builtin_catch_model_det(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output)
 {
 	ML_ExceptionHandler this_handler;
-
+	ML_DECLARE_AGC_HANDLER
+	
 	this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &this_handler;
+
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
 
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""detcatch setjmp %p\\n"", this_handler.handler);
@@ -811,6 +893,7 @@ mercury__exception__builtin_catch_model_det(MR_Mercury_Type_Info type_info,
 	if (setjmp(this_handler.handler) == 0) {
 		ML_call_goal_det_handcoded(type_info, pred, output);
 		ML_exception_handler = this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 	} else {
 #ifdef	MR_DEBUG_JMPBUFS
 		fprintf(stderr, ""detcatch caught jmp %p\\n"",
@@ -818,7 +901,9 @@ mercury__exception__builtin_catch_model_det(MR_Mercury_Type_Info type_info,
 #endif
 
 		ML_exception_handler = this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			this_handler.exception, output);
 	}
 }
@@ -828,9 +913,12 @@ mercury__exception__builtin_catch_model_semi(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output)
 {
 	ML_ExceptionHandler this_handler;
+	ML_DECLARE_AGC_HANDLER
 
 	this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &this_handler;
+
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
 
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""semicatch setjmp %p\\n"", this_handler.handler);
@@ -840,6 +928,7 @@ mercury__exception__builtin_catch_model_semi(MR_Mercury_Type_Info type_info,
 		MR_bool result = ML_call_goal_semi_handcoded(type_info, pred,
 			output);
 		ML_exception_handler = this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 		return result;
 	} else {
 #ifdef	MR_DEBUG_JMPBUFS
@@ -848,7 +937,9 @@ mercury__exception__builtin_catch_model_semi(MR_Mercury_Type_Info type_info,
 #endif
 
 		ML_exception_handler = this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			this_handler.exception, output);
 		return MR_TRUE;
 	}
@@ -862,6 +953,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	MR_NestedCont cont)
 {
 	ML_ExceptionHandler this_handler;
+	ML_DECLARE_AGC_HANDLER
 
 	auto void MR_CALL success_cont(void);
 	void MR_CALL success_cont(void) {
@@ -886,6 +978,8 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &this_handler;
 
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
+
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""noncatch setjmp %p\\n"", this_handler.handler);
 #endif
@@ -894,6 +988,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 		ML_call_goal_non_handcoded(type_info, pred, output,
 			success_cont);
 		ML_exception_handler = this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 	} else {
 #ifdef	MR_DEBUG_JMPBUFS
 		fprintf(stderr, ""noncatch caught jmp %p\\n"",
@@ -901,7 +996,9 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 #endif
 
 		ML_exception_handler = this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			this_handler.exception, output);
 		(*cont)();
 	}
@@ -942,12 +1039,15 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 	MR_Pred pred, MR_Pred handler_pred, MR_Box *output,
 	MR_Cont cont, void *cont_env)
 {
+	ML_DECLARE_AGC_HANDLER
 	struct ML_catch_env locals;
 	locals.cont = cont;
 	locals.cont_env = cont_env;
 
 	locals.this_handler.prev = ML_exception_handler;
 	ML_exception_handler = &locals.this_handler;
+
+	ML_INSTALL_AGC_HANDLER(type_info, handler_pred);
 
 #ifdef	MR_DEBUG_JMPBUFS
 	fprintf(stderr, ""noncatch setjmp %p\\n"", locals.this_handler.handler);
@@ -963,6 +1063,7 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 		** handler 
 		*/
 		ML_exception_handler = locals.this_handler.prev;
+		ML_UNINSTALL_AGC_HANDLER();
 		return;
 	} else {
 		/*
@@ -979,7 +1080,9 @@ mercury__exception__builtin_catch_model_non(MR_Mercury_Type_Info type_info,
 
 
 		ML_exception_handler = locals.this_handler.prev;
-		ML_call_handler_det_handcoded(type_info, handler_pred,
+		ML_UNINSTALL_AGC_HANDLER();
+		ML_call_handler_det_handcoded(
+			ML_AGC_LOCAL(type_info), ML_AGC_LOCAL(handler_pred),
 			locals.this_handler.exception, output);
 		cont(cont_env);
 	}
@@ -1165,7 +1268,7 @@ void mercury_sys_init_exceptions_write_out_proc_statics(FILE *fp);
 */
 
 static MR_Code *
-MR_trace_throw(MR_Code *success_pointer, MR_Word *base_sp, MR_Word *base_curfr)
+ML_trace_throw(MR_Code *success_pointer, MR_Word *base_sp, MR_Word *base_curfr)
 {
 	const MR_Internal	*label;
 	const MR_Label_Layout	*return_label_layout;
@@ -1623,7 +1726,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		MR_Code *MR_jumpaddr;
 		MR_trace_set_exception_value(exception);
 		MR_save_transient_registers();
-		MR_jumpaddr = MR_trace_throw(MR_succip, MR_sp, MR_curfr);
+		MR_jumpaddr = ML_trace_throw(MR_succip, MR_sp, MR_curfr);
 		MR_restore_transient_registers();
 		if (MR_jumpaddr != NULL) MR_GOTO(MR_jumpaddr);
 	}
@@ -1682,10 +1785,10 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 			if (MR_trace_enabled) {
 				/*
 				** The stack has already been unwound
-				** by MR_trace_throw(), so we can't dump it.
+				** by ML_trace_throw(), so we can't dump it.
 				** (In fact, if we tried to dump the now-empty
 				** stack, we'd get incorrect results, since
-				** MR_trace_throw() does not restore MR_succip
+				** ML_trace_throw() does not restore MR_succip
 				** to the appropriate value.)
 				*/
 			} else {
@@ -1757,7 +1860,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	assert(MR_EXCEPTION_STRUCT->MR_excp_heap_ptr <=
 		MR_EXCEPTION_STRUCT->MR_excp_heap_zone->top);
 	MR_save_transient_registers();
-	exception = MR_deep_copy(&exception,
+	exception = MR_deep_copy(exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
 		MR_EXCEPTION_STRUCT->MR_excp_heap_ptr,
 		MR_EXCEPTION_STRUCT->MR_excp_heap_zone->top);
@@ -1774,7 +1877,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	assert(MR_EXCEPTION_STRUCT->MR_excp_solns_heap_ptr <=
 		MR_ENGINE(MR_eng_solutions_heap_zone)->top);
 	MR_save_transient_registers();
-	exception = MR_deep_copy(&exception,
+	exception = MR_deep_copy(exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
 		saved_solns_heap_ptr,
 		MR_ENGINE(MR_eng_solutions_heap_zone)->top);

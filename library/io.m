@@ -1603,14 +1603,10 @@ io__read_line_as_string(Stream, Result, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_proc("MC++", 
-	io__read_line_as_string_2(_File::in, _Res :: out, _RetString::out,
-		IO0::di, IO::uo),
-		[will_not_call_mercury, promise_pure,thread_safe],
-"
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	update_io(IO0, IO);
-").
+io__read_line_as_string_2(_, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__read_line_as_string_2") }.
 
 io__read_file(Result) -->
 	io__input_stream(Stream),
@@ -1763,7 +1759,7 @@ io__input_stream_foldl2_io(Stream, Pred, T0, Res) -->
 :- mode io__clear_err(in, di, uo) is det.
 % same as ANSI C's clearerr().
 
-:- pragma foreign_proc("C", io__clear_err(Stream::in, _IO0::di, _IO::uo),
+:- pragma foreign_proc("C", io__clear_err(Stream::in, IO0::di, IO::uo),
 		[will_not_call_mercury, promise_pure,
 			tabled_for_io, thread_safe],
 "{
@@ -1774,6 +1770,7 @@ io__input_stream_foldl2_io(Stream, Pred, T0, Res) -->
 	} else {
 		/* Not a file stream so do nothing */
 	}
+	update_io(IO0, IO);
 }").
 
 :- pragma foreign_proc("MC++", io__clear_err(_Stream::in, IO0::di, IO::uo),
@@ -1784,6 +1781,11 @@ io__input_stream_foldl2_io(Stream, Pred, T0, Res) -->
 	// for compatibility)
 	update_io(IO0, IO);
 }").
+
+io__clear_err(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__clear_err") }.
 
 
 :- pred io__check_err(stream, io__res, io__state, io__state).
@@ -1802,7 +1804,7 @@ io__check_err(Stream, Res) -->
 % similar to ANSI C's ferror().
 
 :- pragma foreign_proc("C", ferror(Stream::in, RetVal::out, RetStr::out,
-		_IO0::di, _IO::uo),
+		IO0::di, IO::uo),
 		[will_not_call_mercury, promise_pure,
 			tabled_for_io, thread_safe],
 "{
@@ -1816,6 +1818,7 @@ io__check_err(Stream, Res) -->
 
 	ML_maybe_make_err_msg(RetVal != 0, ""read failed: "",
 		MR_PROC_LABEL, RetStr);
+	update_io(IO0, IO);
 }").
 
 :- pragma foreign_proc("MC++", ferror(_Stream::in, RetVal::out, _RetStr::out,
@@ -1827,6 +1830,10 @@ io__check_err(Stream, Res) -->
 	update_io(IO0, IO);
 }").
 
+ferror(_, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("ferror") }.
 
 % io__make_err_msg(MessagePrefix, Message):
 %	`Message' is an error message obtained by looking up the
@@ -1836,10 +1843,11 @@ io__check_err(Stream, Res) -->
 :- mode io__make_err_msg(in, out, di, uo) is det.
 
 :- pragma foreign_proc("C",
-	make_err_msg(Msg0::in, Msg::out, _IO0::di, _IO::uo),
+	make_err_msg(Msg0::in, Msg::out, IO0::di, IO::uo),
 		[will_not_call_mercury, promise_pure, tabled_for_io],
 "{
 	ML_maybe_make_err_msg(MR_TRUE, Msg0, MR_PROC_LABEL, Msg);
+	update_io(IO0, IO);
 }").
 
 :- pragma foreign_proc("MC++", 
@@ -1848,6 +1856,11 @@ io__check_err(Stream, Res) -->
 "{
 	Msg = System::String::Concat(Msg0, MR_io_exception->Message);
 }").
+
+make_err_msg(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__make_err_msg") }.
 
 
 %-----------------------------------------------------------------------------%
@@ -1868,7 +1881,7 @@ io__check_err(Stream, Res) -->
 ").
 
 :- pragma foreign_proc("C", io__stream_file_size(Stream::in, Size::out,
-		_IO0::di, _IO::uo),
+		IO0::di, IO::uo),
 		[will_not_call_mercury, promise_pure, tabled_for_io,
 			thread_safe],
 "{
@@ -1891,6 +1904,7 @@ io__check_err(Stream, Res) -->
 #else
 	Size = -1;
 #endif
+	update_io(IO0, IO);
 }").
 
 :- pragma foreign_proc("MC++", io__stream_file_size(Stream::in, Size::out,
@@ -1906,6 +1920,12 @@ io__check_err(Stream, Res) -->
 	}
 	update_io(IO0, IO);
 }").
+
+io__stream_file_size(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__stream_file_size") }.
+	
 
 io__file_modification_time(File, Result) -->
 	io__file_modification_time_2(File, Status, Msg, Time),
@@ -1944,12 +1964,10 @@ io__file_modification_time(File, Result) -->
 
 }").
 
-:- pragma foreign_proc("MC++", io__file_modification_time_2(_FileName::in,
-		_Status::out, _Msg::out, _Time::out, _IO0::di, _IO::uo),
-		[will_not_call_mercury, promise_pure, thread_safe],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-}").
+io__file_modification_time_2(_, _, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__file_modification_time_2") }.
 
 %-----------------------------------------------------------------------------%
 
@@ -1969,6 +1987,11 @@ io__file_modification_time(File, Result) -->
 			/ sizeof(MR_Word),
 		MR_PROC_LABEL, ""io:buffer/0"");
 }").
+
+io__alloc_buffer(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("io__alloc_buffer").
 
 :- pred io__resize_buffer(buffer::di, int::in, int::in, buffer::uo) is det.
 :- pragma foreign_proc("C",
@@ -2009,6 +2032,11 @@ io__file_modification_time(File, Result) -->
 	Buffer = (MR_Word) buffer;
 }").
 
+io__resize_buffer(_, _, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("io__resize_buffer").
+
 :- pred io__buffer_to_string(buffer::di, int::in, string::uo) is det.
 :- pragma foreign_proc("C", 
 	io__buffer_to_string(Buffer::di, Len::in, Str::uo),
@@ -2018,6 +2046,10 @@ io__file_modification_time(File, Result) -->
 	Str[Len] = '\\0';
 }").
 
+io__buffer_to_string(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("io__buffer_to_string/3").
 
 :- pred io__buffer_to_string(buffer::di, string::uo) is det.
 :- pragma foreign_proc("C",
@@ -2027,13 +2059,17 @@ io__file_modification_time(File, Result) -->
 	Str = (MR_String) Buffer;
 }").
 
+io__buffer_to_string(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("io__buffer_to_string/2").
 
 :- pred io__read_into_buffer(stream::in, buffer::di, int::in, int::in,
 		    buffer::uo, int::out, io__state::di, io__state::uo) is det.
 
 :- pragma foreign_proc("C",
 	io__read_into_buffer(Stream::in, Buffer0::di, Pos0::in, Size::in,
-		    Buffer::uo, Pos::out, _IO0::di, _IO::uo),
+		    Buffer::uo, Pos::out, IO0::di, IO::uo),
 		[will_not_call_mercury, promise_pure, tabled_for_io,
 			thread_safe],
 "{
@@ -2045,49 +2081,14 @@ io__file_modification_time(File, Result) -->
 
 	Buffer = (MR_Word) buffer;
 	Pos = Pos0 + items_read;
+	update_io(IO0, IO);
 }").
 
-:- pragma foreign_proc("MC++",
-	io__alloc_buffer(_Size::in, _Buffer::uo),
-		[will_not_call_mercury, promise_pure, thread_safe,
-			tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-}").
 
-:- pragma foreign_proc("MC++",
-	io__resize_buffer(_Buffer0::di, _OldSize::in,
-		_NewSize::in, _Buffer::uo),
-	[will_not_call_mercury, promise_pure, thread_safe, tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-}").
-
-:- pragma foreign_proc("MC++", 
-	io__buffer_to_string(_Buffer::di, _Len::in, _Str::uo),
-		[will_not_call_mercury, promise_pure, thread_safe,
-			tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-}").
-
-:- pragma foreign_proc("MC++",
-	io__buffer_to_string(_Buffer::di, _Str::uo),
-		[will_not_call_mercury, promise_pure, thread_safe,
-			tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-}").
-
-:- pragma foreign_proc("MC++",
-	io__read_into_buffer(_Stream::in, _Buffer0::di, _Pos0::in, _Size::in,
-		    _Buffer::uo, _Pos::out, _IO0::di, _IO::uo),
-		[will_not_call_mercury, promise_pure, thread_safe,
-			tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-}").
-
+io__read_into_buffer(_, _, _, _, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__read_into_buffer") }.
 
 %-----------------------------------------------------------------------------%
 
@@ -2995,6 +2996,16 @@ io__stream_name(Stream, Name) -->
 	update_io(IO0, IO);
 ").
 
+io__get_stream_names(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_stream_names") }.
+
+io__set_stream_names(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_stream_names") }.
+
 :- pred io__delete_stream_name(io__stream, io__state, io__state).
 :- mode io__delete_stream_name(in, di, uo) is det.
 
@@ -3052,6 +3063,16 @@ io__insert_stream_name(Stream, Name) -->
 	update_io(IOState0, IOState);
 ").
 
+io__set_globals(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_globals") }.
+
+io__get_globals(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_globals") }.
+
 io__progname_base(DefaultName, PrognameBase) -->
 	io__progname(DefaultName, Progname),
 	{ dir__basename(Progname, PrognameBase) }.
@@ -3093,7 +3114,10 @@ io__get_stream_id(Stream) = Id :- io__get_stream_id(Stream, Id).
 	Id = mf->id;
 ").
 
-
+io__get_stream_id(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("io__get_stream_id").
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -3212,21 +3236,7 @@ io__finalize_state -->
 	ascii_encoder =	new System::Text::ASCIIEncoding();
 ").
 
-:- pred io__stream_init(io__state, io__state).
-:- mode io__stream_init(di, uo) is det.
-
-:- pragma foreign_proc("MC++", 
-		io__stream_init(IO0::di, IO::uo), [will_not_call_mercury,
-			promise_pure], "
-	ascii_encoder =	new System::Text::ASCIIEncoding();
-	update_io(IO0, IO);
-").
-
-:- pragma foreign_proc("C", 
-		io__stream_init(IO0::di, IO::uo), [will_not_call_mercury,
-			promise_pure], "
-	update_io(IO0, IO);
-").
+io__gc_init(_, _) --> [].
 
 :- pred io__insert_std_stream_names(io__state, io__state).
 :- mode io__insert_std_stream_names(di, uo) is det.
@@ -3348,7 +3358,7 @@ extern MercuryFile *mercury_current_binary_output;
 #define final_io_state(r)		((void)0)
 
 void 		mercury_init_io(void);
-MercuryFile*	mercury_open(const char *filename, const char *type);
+MercuryFile*	mercury_open(const char *filename, const char *openmode);
 void		mercury_io_error(MercuryFile* mf, const char *format, ...);
 void		mercury_output_error(MercuryFile* mf);
 void		mercury_print_string(MercuryFile* mf, const char *s);
@@ -3385,7 +3395,7 @@ typedef __gc struct MR_MercuryFileStruct *MR_MercuryFile;
 #define ML_UpCast(Cast, Expr) ((Cast) (Expr))
 
 #define initial_io_state()	0	/* some random number */
-#define update_io(r_src, r_dest)	((r_dest) = (r_src))
+#define update_io(r_src, r_dest)	(0)
 #define final_io_state(r)
 
 
@@ -3505,12 +3515,12 @@ static System::IO::IOException *MR_io_exception;
 :- pragma foreign_code("C", "
 
 MercuryFile*
-mercury_open(const char *filename, const char *type)
+mercury_open(const char *filename, const char *openmode)
 {
 	MercuryFile *mf;
 	FILE *f;
 
-	f = fopen(filename, type);
+	f = fopen(filename, openmode);
 	if (!f) return NULL;
 	mf = MR_GC_NEW(MercuryFile);
 	MR_mercuryfile_init(f, 1, mf);
@@ -3522,7 +3532,7 @@ mercury_open(const char *filename, const char *type)
 :- pragma foreign_code("MC++", "
 
 MR_MercuryFile
-static mercury_open(MR_String filename, MR_String type)
+static mercury_open(MR_String filename, MR_String openmode)
 {
         MR_MercuryFile mf = new MR_MercuryFileStruct();
         System::IO::FileMode fa;
@@ -3530,17 +3540,17 @@ static mercury_open(MR_String filename, MR_String type)
 
 	try {
 			// XXX get this right...
-		if (System::String::op_Equality(type, ""r"")) {
+		if (System::String::op_Equality(openmode, ""r"")) {
 			fa = System::IO::FileMode::Open;
-		} else if (System::String::op_Equality(type, ""a"")) {
+		} else if (System::String::op_Equality(openmode, ""a"")) {
 			fa = System::IO::FileMode::Append;
-		} else if (System::String::op_Equality(type, ""w"")) {
+		} else if (System::String::op_Equality(openmode, ""w"")) {
 			fa = System::IO::FileMode::Truncate;
 		} else {
 			MR_String msg;
 			msg = System::String::Concat(
-				""foreign code for this function, open type:"",
-				type);
+				""foreign code for this function, open mode:"",
+				openmode);
 			mercury::runtime::Errors::SORRY(msg);
 
 			// fa = XXX;
@@ -3793,10 +3803,15 @@ static const MercuryFile MR_closed_stream = {
 void
 mercury_close(MercuryFile* mf)
 {
-	if (mf != &mercury_stdin &&
-	    mf != &mercury_stdout &&
-	    mf != &mercury_stderr)
+	if (mf == &mercury_stdin ||
+	    mf == &mercury_stdout ||
+	    mf == &mercury_stderr ||
+	    mf == &mercury_stdin_binary ||
+	    mf == &mercury_stdout_binary)
 	{
+		mercury_io_error(mf,
+			""attempt to close stdin, stdout or stderr"");	
+	} else {
 		if (MR_CLOSE(*mf) < 0) {
 			mercury_io_error(mf, ""error closing file: %s"",
 				strerror(errno));
@@ -3847,6 +3862,18 @@ mercury_close(MercuryFile* mf)
 
 #endif /* ! MR_NEW_MERCURYFILE_STRUCT */
 
+#ifndef MR_CONSERVATIVE_GC
+  		/*
+		** For the accurate GC or no GC cases,
+		** we need to explicitly deallocate the memory here,
+		** to avoid a memory leak.
+		** Note that the accurate collector won't reclaim
+		** io_streams, since the io__stream type is defined
+		** as a foreign_type.
+		*/
+  		MR_GC_free(mf);
+#endif /* !MR_CONSERVATIVE_GC */
+
 	}
 }
 
@@ -3857,10 +3884,15 @@ mercury_close(MercuryFile* mf)
 static void
 mercury_close(MR_MercuryFile mf)
 {
-        if (mf != mercury_stdin &&
-            mf != mercury_stdout &&
-            mf != mercury_stderr)
+        if (mf == mercury_stdin ||
+            mf == mercury_stdout ||
+            mf == mercury_stderr ||
+            mf == mercury_stdin_binary ||
+            mf == mercury_stdout_binary)
         {
+                // XXX We should throw an exception here.
+                ;	
+        } else {
                 mf->stream->Close();
                 mf->stream = NULL;
         }
@@ -3955,6 +3987,20 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 }").
 
+io__read_char_code(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__read_char_code") }.
+
+io__putback_char(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__putback_char") }.
+
+io__putback_byte(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__putback_byte") }.
 
 /* output predicates - with output to mercury_current_text_output */
 
@@ -4114,6 +4160,45 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
+io__write_string(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_string") }.
+
+io__write_char(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_char") }.
+
+io__write_int(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_int") }.
+
+io__write_float(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_float") }.
+
+io__write_byte(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_byte") }.
+
+io__write_bytes(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_bytes") }.
+
+io__flush_output -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__flush_output") }.
+
+io__flush_binary_output -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__flush_binary_output") }.
 
 /* moving about binary streams */
 
@@ -4146,8 +4231,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 		mercury_io_error(stream,
 				""io__seek_binary_2: unseekable stream"");
 	}
-
-	IO = IO0;
+	update_io(IO0, IO);
 }").
 
 :- pragma foreign_proc("C",
@@ -4165,29 +4249,18 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 		mercury_io_error(stream,
 			""io__binary_stream_offset: untellable stream"");
 	}
-	IO = IO0;
+	update_io(IO0, IO);
 }").
 
-:- pragma foreign_proc("MC++",
-	io__seek_binary_2(_Stream::in, _Flag::in, _Off::in,
-		IO0::di, IO::uo),
-		[will_not_call_mercury, promise_pure, thread_safe,
-			tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	IO = IO0;
-}").
+io__seek_binary_2(_, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__seek_binary_2") }.
 
-:- pragma foreign_proc("MC++",
-	io__binary_stream_offset(_Stream::in, _Offset::out,
-		IO0::di, IO::uo),
-		[will_not_call_mercury, promise_pure, thread_safe,
-			tabled_for_io],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	IO = IO0;
-}").
-
+io__binary_stream_offset(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__binary_stream_offset") }.
 
 /* output predicates - with output to the specified stream */
 
@@ -4373,6 +4446,45 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
+io__write_string(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_string") }.
+
+io__write_char(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_char") }.
+
+io__write_int(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_int") }.
+
+io__write_float(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_float") }.
+
+io__write_byte(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_byte") }.
+
+io__write_bytes(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__write_bytes") }.
+
+io__flush_output(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__flush_output") }.
+
+io__flush_binary_output(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__flush_binary_output") }.
 
 /* stream predicates */
 
@@ -4787,6 +4899,130 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
+io__stdin_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__stdin_stream") }.
+
+io__stdout_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__stdout_stream") }.
+
+io__stderr_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__stderr_stream") }.
+
+io__stdin_binary_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__stdin_binary_stream") }.
+
+io__stdout_binary_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__stdout_binary_stream") }.
+
+io__input_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__input_stream") }.
+
+io__output_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__output_stream") }.
+
+io__binary_input_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__binary_input_stream") }.
+
+io__binary_output_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__binary_output_stream") }.
+
+io__get_line_number(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_line_number") }.
+
+io__get_line_number(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_line_number") }.
+
+io__set_line_number(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_line_number") }.
+
+io__set_line_number(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_line_number") }.
+
+io__get_output_line_number(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_output_line_number") }.
+	
+io__get_output_line_number(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_output_line_number") }.
+	
+io__set_output_line_number(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_output_line_number") }.
+	
+io__set_output_line_number(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_output_line_number") }.
+	
+io__current_input_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__current_input_stream") }.
+
+io__current_output_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__current_output_stream") }.
+
+io__current_binary_input_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__current_binary_input_stream") }.
+
+io__current_binary_output_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__current_binary_output_stream") }.
+
+io__set_input_stream(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_input_stream") }.
+
+io__set_output_stream(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_output_stream") }.
+
+io__set_binary_input_stream(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_binary_input_stream") }.
+
+io__set_binary_output_stream(_, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_binary_output_stream") }.
 
 /* stream open/close predicates */
 
@@ -4815,6 +5051,11 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	ResultCode = (mf ? 0 : -1);
 	update_io(IO0, IO);
 ").
+
+io__do_open(_, _, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__do_open") }.
 
 io__close_input(Stream) -->
 	io__delete_stream_name(Stream),
@@ -4848,12 +5089,12 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-/* miscellaneous predicates */
+io__close_stream(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__close_stream") }.
 
-io__progname(DefaultProgName::in, ProgName::out, IO::di, IO::uo) :-
-	% This is a fall-back for back-ends which don't support the
-	% C interface.
-	ProgName = DefaultProgName.
+/* miscellaneous predicates */
 
 :- pragma foreign_proc("C",
 	io__progname(DefaultProgname::in, PrognameOut::out, IO0::di, IO::uo),
@@ -4919,7 +5160,7 @@ io__progname(DefaultProgName::in, ProgName::out, IO::di, IO::uo) :-
 	if ( Status == -1 ) {
 		/* 
 		** Return values of 127 or -1 from system() indicate that
-		** the system call failed.  Dont return -1, as -1 indicates
+		** the system call failed. Don't return -1, as -1 indicates
 		** that the system call was killed by signal number 1. 
 		*/
 		Status = 127;
@@ -4932,6 +5173,11 @@ io__progname(DefaultProgName::in, ProgName::out, IO::di, IO::uo) :-
 	update_io(IO0, IO);
 ").
 
+
+io__progname(DefaultProgName::in, ProgName::out, IO::di, IO::uo) :-
+	% This is a fall-back for back-ends which don't support the
+	% C interface.
+	ProgName = DefaultProgName.
 
 io__handle_system_command_exit_status(Code0) = Status :-
 	Code = io__handle_system_command_exit_code(Code0),
@@ -5014,6 +5260,7 @@ io__handle_system_command_exit_code(Status0::in) = (Status::out) :-
 	update_io(IO0, IO);
 ").
 
+/* XXX Implementation needs to be finished.
 :- pragma foreign_proc("MC++",
 	io__call_system_code(Command::in, Status::out, _Msg::out,
 			IO0::di, IO::uo),
@@ -5029,25 +5276,35 @@ io__handle_system_command_exit_code(Status0::in) = (Status::out) :-
 	Status = NULL;
 	update_io(IO0, IO);
 ").
+*/
 
-io__current_input_stream(_::out, _::di, _::uo) :- 
-	private_builtin__sorry("io__current_input_stream/3").
+io__command_line_arguments(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__command_line_arguments") }.
 
-io__current_output_stream(_::out, _::di, _::uo) :- 
-	private_builtin__sorry("io__current_output_stream/3").
+io__get_exit_status(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__get_exit_status") }.
 
-io__current_binary_input_stream(_::out, _::di, _::uo) :- 
-	private_builtin__sorry("io__current_binary_input_stream/3").
+io__set_exit_status(_) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__set_exit_status") }.
 
-io__current_binary_output_stream(_::out, _::di, _::uo) :- 
-	private_builtin__sorry("io__current_binary_output_stream/3").
+io__call_system_code(_, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__call_system_code") }.
 
 /*---------------------------------------------------------------------------*/
 
 /* io__getenv and io__putenv, from io.m */
 
+:- pragma promise_semipure(io__getenv/2).
 :- pragma foreign_proc("C", io__getenv(Var::in, Value::out),
-		[will_not_call_mercury, promise_semipure, tabled_for_io],
+		[will_not_call_mercury, tabled_for_io],
 "{
 	Value = getenv(Var);
 	SUCCESS_INDICATOR = (Value != 0);
@@ -5060,7 +5317,7 @@ io__current_binary_output_stream(_::out, _::di, _::uo) :-
 ").
 
 :- pragma foreign_proc("MC++", io__getenv(Var::in, Value::out),
-		[will_not_call_mercury, promise_semipure, tabled_for_io],
+		[will_not_call_mercury, tabled_for_io],
 "{
 	Value = System::Environment::GetEnvironmentVariable(Var);
 	SUCCESS_INDICATOR = (Value != 0);
@@ -5074,6 +5331,17 @@ io__current_binary_output_stream(_::out, _::di, _::uo) :-
 	SUCCESS_INDICATOR = 0;
 ").
 
+io__getenv(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("io__getenv").
+
+io__putenv(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("io__putenv").
 
 /*---------------------------------------------------------------------------*/
 
@@ -5191,15 +5459,10 @@ io__make_temp(Dir, Prefix, Name) -->
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_proc("MC++",
-	io__do_make_temp(_Dir::in, _Prefix::in, _FileName::out,
-		_Error::out, _ErrorMessage::out, IO0::di, IO::uo),
-		[will_not_call_mercury, promise_pure, thread_safe],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	update_io(IO0, IO);
-}").
-
+io__do_make_temp(_, _, _, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__do_make_temp") }.
 
 /*---------------------------------------------------------------------------*/
 
@@ -5270,6 +5533,7 @@ io__remove_file(FileName, Result, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
+/* XXX Implementation needs to be finished.
 :- pragma foreign_proc("MC++",
 	io__remove_file_2(FileName::in, RetVal::out, RetStr::out,
 		IO0::di, IO::uo),
@@ -5282,7 +5546,12 @@ io__remove_file(FileName, Result, IO0, IO) :-
 	RetStr = """";
 	update_io(IO0, IO);
 }").
+*/
 
+io__remove_file_2(_, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__remove_file_2") }.
 
 io__rename_file(OldFileName, NewFileName, Result, IO0, IO) :-
 	io__rename_file_2(OldFileName, NewFileName, Res, ResString, IO0, IO),
@@ -5307,16 +5576,10 @@ io__rename_file(OldFileName, NewFileName, Result, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_proc("MC++",
-		io__rename_file_2(_OldFileName::in, _NewFileName::in,
-			_RetVal::out, _RetStr::out, IO0::di, IO::uo),
-		[will_not_call_mercury, promise_pure, tabled_for_io,
-			thread_safe],
-"{
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	update_io(IO0, IO);
-}").
-
+io__rename_file_2(_, _, _, _) -->
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	{ private_builtin__sorry("io__rename_file_2") }.
 
 /*---------------------------------------------------------------------------*/
 

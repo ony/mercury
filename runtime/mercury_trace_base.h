@@ -187,6 +187,21 @@ extern	void	MR_trace_report_raw(int fd);
 extern	void	MR_tracing_not_enabled(void);
 
 /*
+** Return the details of I/O action <action_number> in three pieces:
+** the name of the I/O action procedure in *proc_name_ptr, a boolean that is
+** true iff procedure is a function in *is_func_ptr, and a Mercury
+** representation of the argument list (minus the IO state arguments)
+** in *arg_list_ptr.
+** This function uses the heap pointer, so calls to it must be wrapped
+** with MR_save_transient_hp() and MR_restore_transient_hp().
+*/
+
+extern	const char
+		*MR_trace_get_action(int action_number,
+			MR_ConstString *proc_name_ptr, MR_Word *is_func_ptr,
+			MR_Word *arg_list_ptr);
+
+/*
 ** These functions allow library/exceptions.m to tell the debuggers
 ** which exception has been thrown.
 */

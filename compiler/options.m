@@ -108,6 +108,7 @@
 		;	errorcheck_only
 		;	target_code_only
 		;	compile_only
+		;	compile_to_shared_lib
 		;	aditi_only
 		;	output_grade_string
 	% Auxiliary output options
@@ -365,6 +366,7 @@
 		;	opt_level
 		;	opt_space	% default is to optimize time
 		;	intermodule_optimization
+		;	read_opt_files_transitively
 		;	use_opt_files
 		;	use_trans_opt_files
 		;	transitive_optimization
@@ -517,6 +519,8 @@
 	% Link options
 		;	output_file_name
 		;	link_flags
+		;	ld_flags
+		;	ld_libflags
 		;	link_library_directories
 		;	link_libraries
 		;	link_objects
@@ -543,6 +547,8 @@
 		;	keep_going
 		;	rebuild
 		;	invoked_by_mmc_make
+		;	make_init_file_command
+		;	pre_link_command
 		;	install_prefix
 		;	install_command
 		;	libgrades
@@ -561,6 +567,10 @@
 		;	aditi_user
 		;	help
 		;	fullarch
+		;	compiler_sufficiently_recent
+				% This option is used to test that the compiler
+				% is sufficiently recent when no other test
+				% can easily be constructed in configure.in.
 		.
 
 :- implementation.
@@ -663,6 +673,7 @@ option_defaults_2(output_option, [
 	errorcheck_only		-	bool(no),
 	target_code_only	-	bool(no),
 	compile_only		-	bool(no),
+	compile_to_shared_lib	-	bool(no),
 	aditi_only		-	bool(no),
 	output_grade_string	-	bool(no)
 ]).
@@ -861,6 +872,7 @@ option_defaults_2(special_optimization_option, [
 	opt_level		-	int_special,
 	opt_space		-	special,
 	intermodule_optimization -	bool(no),
+	read_opt_files_transitively -	bool(yes),
 	use_opt_files		-	bool(no),
 	use_trans_opt_files	-	bool(no),
 	transitive_optimization -	bool(no),
@@ -1043,6 +1055,8 @@ option_defaults_2(link_option, [
 					% string, we use the name of the first
 					% module on the command line
 	link_flags		-	accumulating([]),
+	ld_flags		-	accumulating([]),
+	ld_libflags		-	accumulating([]),
 	link_library_directories -	accumulating([]),
 	link_libraries		-	accumulating([]),
 	link_objects		-	accumulating([]),
@@ -1077,6 +1091,8 @@ option_defaults_2(build_system_option, [
 	keep_going		-	bool(no),
 	rebuild			-	bool(no),
 	invoked_by_mmc_make	-	bool(no),
+	pre_link_command	-	maybe_string(no),
+	make_init_file_command	-	maybe_string(no),
 	install_prefix		-	string("/usr/local/"),
 	install_command		-	string("cp"),
 	libgrades		-	accumulating([]),
@@ -1094,7 +1110,9 @@ option_defaults_2(miscellaneous_option, [
 	aditi			-	bool(no),
 	aditi_user		-	string(""),
 	help 			-	bool(no),
-	fullarch		-	string("")
+	fullarch		-	string(""),
+	compiler_sufficiently_recent
+				-	bool(no)
 ]).
 
 	% please keep this in alphabetic order
@@ -1211,6 +1229,7 @@ long_option("typecheck-only",		typecheck_only).
 long_option("errorcheck-only",		errorcheck_only).
 long_option("target-code-only",		target_code_only).
 long_option("compile-only",		compile_only).
+long_option("compile-to-shared-lib",	compile_to_shared_lib).
 long_option("aditi-only",		aditi_only).
 long_option("output-grade-string",	output_grade_string).
 
@@ -1403,6 +1422,7 @@ long_option("optimize-space",		opt_space).
 long_option("optimise-space",		opt_space).
 long_option("intermodule-optimization", intermodule_optimization).
 long_option("intermodule-optimisation", intermodule_optimization).
+long_option("read-opt-files-transitively", read_opt_files_transitively).
 long_option("use-opt-files",		use_opt_files).
 long_option("use-trans-opt-files",	use_trans_opt_files).
 long_option("transitive-intermodule-optimization", 
@@ -1624,6 +1644,9 @@ long_option("csharp-flags",		csharp_flags).
 % link options
 long_option("output-file",		output_file_name).
 long_option("link-flags",		link_flags).
+long_option("ml-flags",			link_flags).
+long_option("ld-flags",			ld_flags).
+long_option("ld-libflags",		ld_libflags).
 long_option("library-directory",	link_library_directories).
 long_option("library",			link_libraries).
 long_option("link-object",		link_objects).
@@ -1651,6 +1674,8 @@ long_option("make",			make).
 long_option("keep-going",		keep_going).
 long_option("rebuild",			rebuild).
 long_option("invoked-by-mmc-make",	invoked_by_mmc_make).
+long_option("pre-link-command",		pre_link_command).
+long_option("make-init-file-command",	make_init_file_command).
 long_option("install-prefix",		install_prefix).
 long_option("install-command",		install_command).
 long_option("library-grade",		libgrades).
@@ -1669,6 +1694,7 @@ long_option("filenames-from-stdin",	filenames_from_stdin).
 long_option("aditi",			aditi).
 long_option("aditi-user",		aditi_user).
 long_option("fullarch",			fullarch).
+long_option("bug-intermod-2002-06-13",	compiler_sufficiently_recent).
 
 %-----------------------------------------------------------------------------%
 
@@ -2134,7 +2160,7 @@ options_help_verbosity -->
 	write_tabbed_lines([
 		"-v, --verbose",
 		"\tOutput progress messages at each stage in the compilation.",
-		"-V, --very_verbose",
+		"-V, --very-verbose",
 		"\tOutput very verbose progress messages.",
 		"-E, --verbose-error-messages",
 		"\tExplain error messages.  Asks the compiler to give you a more",
@@ -2241,6 +2267,9 @@ options_help_output -->
 		"-c, --compile-only",
 		"\tGenerate C code in `<module>.c' and object code in `<module>.o'",
 		"\tbut do not attempt to link the named modules.",
+		% --compile-to-shared-lib is intended only for use
+		% by the debugger's interactive query facility,
+		% so it isn't documented.
 		"--aditi-only",
 		"\tWrite Aditi-RL bytecode to `<module>.rlo' and",
 		"\tdo not compile to C.",
@@ -2921,6 +2950,10 @@ options_help_optimization -->
 		"--transitive-intermodule-optimization",
 		"\tImport the transitive intermodule optimization data.",
 		"\tThis data is imported from `<module>.trans_opt' files.",
+		"--no-read-opt-files-transitively",
+		"\tOnly read the inter-module optimization information",
+		"\tfor directly imported modules, not the transitive",
+		"\tclosure of the imports.",
 		"--use-opt-files",
 		"\tPerform inter-module optimization using any",
 		"\t`.opt' files which are already built,",
@@ -3325,8 +3358,19 @@ options_help_link -->
 		"\tSpecify the name of the final executable.",
 		"\t(The default executable name is the same as the name",
 		"\tof the first module on the command line.)",
-		"--link-flags <options>",
-		"\tSpecify options to be passed to the linker.",
+		"\tThis option is ignored by `mmc --make'.",
+		"--link-flags <options>, --ml-flags <options>",
+		"\tSpecify options to be passed to ml, the Mercury linker.",
+		"--ld-flags <options>",
+		"\tSpecify options to be passed to the linker command",
+		"\tinvoked by ml to link an executable.",
+		"\tUse `ml --print-link-command' to find out which",
+		"\tcommand is used.",
+		"--ld-libflags <options>",
+		"\tSpecify options to be passed to the linker command",
+		"\tinvoked by ml to link a shared library.",
+		"\tUse `ml --print-shared-lib-link-command' to find out",
+		"\twhich command is used.",
 		"-L <directory>, --library-directory <directory>",
 		"\tAppend <directory> to the list of directories in which",
 		"\tto search for libraries.",
@@ -3385,6 +3429,21 @@ options_help_build_system -->
 		"-k, --keep-going",
 		"\tWith `--make', keep going as far as",
 		"\tpossible even if an error is detected.",
+		"--pre-link-command <command>",
+		"\tSpecify a command to run before linking with `mmc --make'.",
+		"\tThis can be used to compile C source files which rely on",
+		"\theader files generated by the Mercury compiler.",
+		"\tOccurrences of `@' in the command will be replaced with",
+		"\tthe name of the main module with `.' as the module",
+		"\tqualifier. Occurrences of `%' in the command will be",
+		"\treplaced with the list of modules making up the library.",
+		"\tOccurrences of `@@' and `%%' will be replaced with `@'",
+		"\tand `%' respectively.",
+		"--make-init-file-command <command>",
+		"\tSpecify an alternative command to produce the `.init' file",
+		"\tfor a library. Occurrences of `@' and `%' in the command",
+		"\tare substituted as for the `--pre-link-command' option.",
+		"\tBy default, `mmc --make' creates the `.init' file itself.",
 		"--install-prefix <dir>",
 		"\tThe directory under which to install Mercury libraries.",
 		"--install-command <command>",

@@ -654,7 +654,7 @@ type_has_user_defined_equality_pred(ModuleInfo, Type, SymName) :-
 	type_to_ctor_and_args(Type, TypeCtor, _TypeArgs),
 	map__search(TypeTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-	TypeBody = du_type(_, _, _, yes(SymName)).
+	TypeBody ^ du_type_usereq = yes(SymName).
 
 	% Certain types, e.g. io__state and store__store(S),
 	% are just dummy types used to ensure logical semantics;
@@ -709,8 +709,7 @@ type_ctor_is_enumeration(TypeCtor, ModuleInfo) :-
 	module_info_types(ModuleInfo, TypeDefnTable),
 	map__search(TypeDefnTable, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-	TypeBody = du_type(_, _, IsEnum, _),
-	IsEnum = yes.
+	TypeBody ^ du_type_is_enum = yes.
 
 type_to_ctor_and_args(Type, SymName - Arity, Args) :-
 	Type \= term__variable(_),
@@ -860,9 +859,8 @@ type_constructors(Type, ModuleInfo, Constructors) :-
 		map__search(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_tparams(TypeDefn, TypeParams),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-		TypeBody = du_type(Constructors0, _, _, _),
-		substitute_type_args(TypeParams, TypeArgs, Constructors0,
-			Constructors)
+		substitute_type_args(TypeParams, TypeArgs,
+			TypeBody ^ du_type_ctors, Constructors)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -882,8 +880,7 @@ type_util__switch_type_num_functors(ModuleInfo, Type, NumFunctors) :-
 		module_info_types(ModuleInfo, TypeTable),
 		map__search(TypeTable, TypeCtor, TypeDefn),
 		hlds_data__get_type_defn_body(TypeDefn, TypeBody),
-		TypeBody = du_type(_, ConsTable, _, _),
-		map__count(ConsTable, NumFunctors)
+		map__count(TypeBody ^ du_type_cons_tag_values, NumFunctors)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -957,8 +954,7 @@ type_util__cons_id_arg_types(ModuleInfo, VarType, ConsId, ArgTypes) :-
 	module_info_types(ModuleInfo, Types),
 	map__search(Types, TypeCtor, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, TypeDefnBody),
-	TypeDefnBody = du_type(_, ConsTags, _, _),
-	map__member(ConsTags, ConsId, _),
+	map__member(TypeDefnBody ^ du_type_cons_tag_values, ConsId, _),
 	
 	module_info_ctors(ModuleInfo, Ctors),
 	map__lookup(Ctors, ConsId, ConsDefns),

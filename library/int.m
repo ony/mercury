@@ -119,6 +119,12 @@
 :- func int // int = int.
 :- mode in  // in  = uo  is det.
 
+	% (/)/2 is a synonym for (//)/2 to bring Mercury into line with
+	% the common convention for naming integer division.
+	%
+:- func int / int = int.
+:- mode in  / in  = uo  is det.
+
 	% unchecked_quotient(X, Y) is the same as X // Y, but the
 	% behaviour is undefined if the right operand is zero.
 :- func unchecked_quotient(int, int) = int.
@@ -309,6 +315,9 @@ X // Y = Div :-
 		Div = unchecked_quotient(X, Y)
 	).
 
+:- pragma inline('/'/2).
+X / Y = X // Y.
+
 :- pragma inline(rem/2).
 X rem Y = Rem :-
 	( domain_checks, Y = 0 ->
@@ -342,6 +351,11 @@ X rem Y = Rem :-
 	SUCCESS_INDICATOR = MR_TRUE;
 #endif
 ").
+
+domain_checks :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("domain_checks").
 
 :- pragma inline(floor_to_multiple_of_bits_per_int/1).
 floor_to_multiple_of_bits_per_int(X) = Floor :-
@@ -504,6 +518,10 @@ is(X, X).
 "
 	FloatVal = (MR_Float) IntVal;
 ").
+int__to_float(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__to_float").
 
 %-----------------------------------------------------------------------------%
 
@@ -578,6 +596,21 @@ is(X, X).
 		[will_not_call_mercury, promise_pure, thread_safe], "
 	Bits = ML_BITS_PER_INT;
 ").
+
+int__max_int(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__max_int").
+
+int__min_int(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__min_int").
+
+int__bits_per_int(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("int__bits_per_int").
 
 int__quot_bits_per_int(Int::in) = (Result::out) :-
 	Result = Int // int__bits_per_int.

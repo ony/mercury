@@ -57,6 +57,17 @@
 :- mode ml_gen_closure_wrapper(in, in, in, in, in, out, out,
 		in, out) is det.
 
+	% ml_gen_local_for_output_arg(VarName, Type, ArgNum, Context,
+	%	LocalVarDefn):
+	% Generate a declaration for a local variable with the specified
+	% VarName and Type.  However, don't use the normal GC tracing code;
+	% instead, generate GC tracing code that gets the typeinfo from
+	% the ArgNum-th entry in `type_params'.
+
+:- pred ml_gen_local_for_output_arg(var_name, prog_type, int, prog_context,
+		mlds__defn, ml_gen_info, ml_gen_info).
+:- mode ml_gen_local_for_output_arg(in, in, in, in, out, in, out) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
@@ -579,7 +590,6 @@ ml_stack_layout_construct_type_param_locn_vector([TVar - Locns | TVarLocns],
 	%		/* declarations needed for converting output args */
 	%		Arg2Type conv_arg2;
 	%		/* GC tracing code same as below */
-	%		/* XXX FIXME generation of this is N.Y.I. */
 	%		...
 	%
 	%		/* declarations needed for by-value outputs */
@@ -588,10 +598,10 @@ ml_stack_layout_construct_type_param_locn_vector([TVar - Locns | TVarLocns],
 	%   #if 0 /* GC tracing code */
 	%     {
 	%	MR_TypeInfo type_info;
-	%	MR_MemoryList allocated_memory_cells;
+	%	MR_MemoryList allocated_memory_cells = NULL;
     	%	type_info = MR_make_type_info_maybe_existq(type_params,
 	%	    ((MR_Closure*)closure)->MR_closure_layout
-	%	    	->MR_closure_arg_pseudo_type_info[ <arg number> ],
+	%	    	->MR_closure_arg_pseudo_type_info[<arg number> - 1],
 	%           NULL, NULL, &allocated_memory_cells);
 	%	mercury__private_builtin__gc_trace_1_0(type_info, &conv_retval);
 	%       MR_deallocate(allocated_memory_cells);
@@ -734,18 +744,20 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 
 	% then insert the `closure_arg' parameter
 	{ ClosureArgType = mlds__generic_type },
+	{ ClosureArgDeclType = list__det_head(ml_make_boxed_types(1)) },
 	{ ClosureArgName = var_name("closure_arg", no) },
-	% The GC doesn't need to trace the `closure_arg' parameter,
-	% since it is not live at any point during which GC could occur
-	% (its value is immediately assigned to the `closure' local
-	% variable, and `closure_arg' is never used after that).
-	% However, the closure_arg does need to be stored in the GC
-	% stack frame struct, since it holds the types of other variables.
-	% So we give it an empty GCTraceCode field.
-	% This tells ml_elim_nested.m to put it in the struct.
-	{ MLDS_Context = mlds__make_context(Context) },
-	{ ClosureArgGCTraceCode = yes(mlds__statement(mlds__block([], []),
-		MLDS_Context)) },
+	% We can't use WrapperArgTypes here,
+	% because we don't have type_infos for the type variables in
+	% WrapperArgTypes; those type variables come from the callee.
+	% But when copying closures, we don't care what the types of the
+	% not-yet-applied arguments are.  So we can just use dummy values here.
+	{ HigherOrderArgTypes = list__duplicate(list__length(WrapperArgTypes),
+		c_pointer_type) },
+	{ LambdaEvalMethod = normal },
+	{ construct_higher_order_type(PredOrFunc, LambdaEvalMethod,
+		HigherOrderArgTypes, ClosureActualType) },
+	ml_gen_maybe_gc_trace_code(ClosureArgName, ClosureArgDeclType,
+		ClosureActualType, Context, ClosureArgGCTraceCode),
 	{ ClosureArg = mlds__argument(
 		data(var(ClosureArgName)),
 		ClosureArgType,
@@ -776,18 +788,11 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	{ ClosureArgName = mlds__var_name("closure_arg", no) },
 	{ ClosureType = mlds__generic_type },
 	{ ClosureDeclType = list__det_head(ml_make_boxed_types(1)) },
-	% We can't use WrapperArgTypes here,
-	% because we don't have type_infos for the type variables in
-	% WrapperArgTypes; those type variables come from the callee.
-	% But when copying closures, we don't care what the types of the
-	% not-yet-applied arguments are.  So we can just use dummy values here.
-	{ HigherOrderArgTypes = list__duplicate(list__length(WrapperArgTypes),
-		c_pointer_type) },
-	{ LambdaEvalMethod = normal },
-	{ construct_higher_order_type(PredOrFunc, LambdaEvalMethod,
-		HigherOrderArgTypes, ClosureActualType) },
+	% The GC tracing code for `closure' is essentially the same as
+	% for `closure_arg' (see above)
 	ml_gen_maybe_gc_trace_code(ClosureName, ClosureDeclType,
 		ClosureActualType, Context, ClosureGCTraceCode),
+	{ MLDS_Context = mlds__make_context(Context) },
 	{ ClosureDecl = ml_gen_mlds_var_decl(var(ClosureName),
 		ClosureType, ClosureGCTraceCode, MLDS_Context) },
 	ml_gen_var_lval(ClosureName, ClosureType, ClosureLval),
@@ -840,14 +845,11 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 		ClosureArgLvals),
 	{ CallLvals = list__append(ClosureArgLvals, WrapperHeadVarLvals) },
 	ml_gen_call(PredId, ProcId, ProcHeadVarNames, CallLvals,
-		ProcBoxedArgTypes, CodeModel, Context, Decls0, Statements0),
-	% XXX FIXME the accurate GC handling for Decls0 is wrong,
-	% because we don't have type_infos for the type variables in
-	% ProcBoxedArgTypes.
-	{ FixedDecls0 = list__map(cannot_gc, Decls0) },
+		ProcBoxedArgTypes, CodeModel, Context, yes,
+		Decls0, Statements0),
 
 	% insert the stuff to declare and initialize the closure
-	{ Decls1 = [ClosureDecl | FixedDecls0] },
+	{ Decls1 = [ClosureDecl | Decls0] },
 	{ Statements1 = [InitClosure | Statements0] },
 
 	%
@@ -908,29 +910,6 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 arg_delete_gc_trace_code(Argument0) = Argument :-
 	Argument0 = mlds__argument(Name, Type, _GCTraceCode),
 	Argument = mlds__argument(Name, Type, no).
-
-% XXX FIXME Accurate GC of variables declared in closure wrapper
-% functions is not yet implemented.  We use the following hack
-% to make sure that it crashes nicely at runtime if GC ever occurs
-% while one of these variables is live.
-:- func cannot_gc(mlds__defn) = mlds__defn.
-cannot_gc(Defn0) = Defn :-
-	(
-		Defn0 = mlds__defn(Name, Context, Flags, Body0),
-		Body0 = mlds__data(Type, Init, yes(_GCTraceCode))
-	->
-		Abort = mlds__statement(atomic(
-			inline_target_code(lang_C, [raw_target_code(
-			"MR_fatal_error(""don't know how to GC this\\n"");\n",
-			[])])),
-			Context),
-		MaybeGCTraceCode = yes(Abort),
-		% MaybeGCTraceCode = no,
-		Body = mlds__data(Type, Init, MaybeGCTraceCode),
-		Defn = mlds__defn(Name, Context, Flags, Body)
-	;
-		Defn = Defn0
-	).
 
 :- pred ml_gen_wrapper_func(ml_label_func, mlds__func_params, prog_context,
 		mlds__statement, mlds__defn, ml_gen_info, ml_gen_info).
@@ -1077,10 +1056,6 @@ ml_gen_closure_wrapper_gc_decls(ClosureArgName, ClosureArgType, Context,
 		raw_target_code(");\n", [])
 	])), Context) }.
 
-:- pred ml_gen_local_for_output_arg(var_name, prog_type, int, prog_context,
-		mlds__defn, ml_gen_info, ml_gen_info).
-:- mode ml_gen_local_for_output_arg(in, in, in, in, out, in, out) is det.
-
 ml_gen_local_for_output_arg(VarName, Type, ArgNum, Context, LocalVarDefn) -->
 	%
 	% Generate a declaration for a corresponding local variable.
@@ -1089,8 +1064,9 @@ ml_gen_local_for_output_arg(VarName, Type, ArgNum, Context, LocalVarDefn) -->
 	% the following code:
 	%
 	%	MR_TypeInfo type_info;
+	%	MR_MemoryList allocated_memory_cells = NULL;
     	%	type_info = MR_make_type_info_maybe_existq(type_params,
-	%	  closure_layout->MR_closure_arg_pseudo_type_info[<ArgNum>],
+	%	  closure_layout->MR_closure_arg_pseudo_type_info[<ArgNum> - 1],
 	%         NULL, NULL, &allocated_memory_cells);
 	%
 	%	private_builtin__gc_trace_1_0(type_info, &<VarName>);
@@ -1128,7 +1104,8 @@ ml_gen_local_for_output_arg(VarName, Type, ArgNum, Context, LocalVarDefn) -->
 	{ MaybeGCTraceCode0 = yes(CallTraceFuncCode) ->
 		MakeTypeInfoCode = atomic(inline_target_code(lang_C, [
 			raw_target_code("{\n", []),
-			raw_target_code("MR_MemoryList allocated_mem;\n", []),
+			raw_target_code(
+			    "MR_MemoryList allocated_mem = NULL;\n", []),
 			target_code_output(TypeInfoLval),
 			raw_target_code(
 			    " = (MR_C_Pointer) " ++
@@ -1138,7 +1115,7 @@ ml_gen_local_for_output_arg(VarName, Type, ArgNum, Context, LocalVarDefn) -->
 			target_code_input(lval(ClosureArgLval)),
 			raw_target_code(string__format(
 			    ")->MR_closure_layout->" ++
-			    "MR_closure_arg_pseudo_type_info[%d],\n\t" ++
+			    "MR_closure_arg_pseudo_type_info[%d - 1],\n\t" ++
 			    "NULL, NULL, &allocated_mem);\n",
 				[i(ArgNum)]), [])
 		])),

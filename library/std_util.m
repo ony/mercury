@@ -749,6 +749,7 @@
 
 :- import_module require, set, int, string, bool.
 :- import_module construct, deconstruct.
+:- use_module private_builtin. % for the `heap_pointer' type.
 
 % XXX This should not be necessary, but the current compiler is broken in that
 % it puts foreign_proc clauses into deconstruct.opt without also putting the
@@ -1005,7 +1006,7 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 		(pred(M::out, di, uo) is cc_multi --> P(X, M)),
 		More, Acc0, Acc).
 
-:- type heap_ptr ---> heap_ptr(c_pointer).
+:- type heap_ptr == private_builtin__heap_pointer.
 :- type trail_ptr ---> trail_ptr(c_pointer).
 
 %
@@ -1018,12 +1019,18 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 :- impure pred get_registers(heap_ptr::out, heap_ptr::out, trail_ptr::out)
 	is det.
 
+:- pragma foreign_decl("C", "
+#if !defined(MR_CONSERVATIVE_GC) && !defined(MR_NATIVE_GC)
+  #define MR_RECLAIM_HP_ON_FAILURE
+#endif
+").
+
 :- pragma foreign_proc("C", 
 	get_registers(HeapPtr::out, SolutionsHeapPtr::out, TrailPtr::out),
 	[will_not_call_mercury, thread_safe],
 "
 	/* save heap states */
-#ifndef MR_CONSERVATIVE_GC
+#ifdef MR_RECLAIM_HP_ON_FAILURE
  	HeapPtr = (MR_Word) MR_hp;
  	SolutionsHeapPtr = (MR_Word) MR_sol_hp;
 #else
@@ -1052,10 +1059,14 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 	/* XXX trailing not yet implemented for the MLDS back-end */
 	mercury::runtime::Errors::SORRY(""foreign code for get_registers"");
 #else
-	TrailPtr = 0
+	TrailPtr = 0;
 #endif
-
 ").
+
+get_registers(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("get_registers").
 
 :- impure pred check_for_floundering(trail_ptr::in) is det.
 
@@ -1077,6 +1088,11 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 	mercury::runtime::Errors::SORRY(""foreign code for check_for_floundering"");
 #endif
 ").
+
+check_for_floundering(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("check_for_floundering").
 
 %
 % Discard the topmost trail ticket.
@@ -1101,6 +1117,11 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 #endif
 ").
 
+discard_trail_ticket :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("discard_trail_ticket").
+
 %
 % Swap the heap with the solutions heap
 %
@@ -1110,7 +1131,7 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 	swap_heap_and_solutions_heap,
 	[will_not_call_mercury, thread_safe],
 "{
-#ifndef MR_CONSERVATIVE_GC
+#ifdef MR_RECLAIM_HP_ON_FAILURE
 	MR_MemoryZone *temp_zone;
 	MR_Word *temp_hp;
 
@@ -1134,6 +1155,11 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 	*/
 ").
 
+swap_heap_and_solutions_heap :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("swap_heap_and_solutions_heap").
+
 %
 % partial_deep_copy(SolutionsHeapPtr, OldVal, NewVal):
 %	Make a copy of all of the parts of OldVar that occur between
@@ -1148,7 +1174,7 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 
 #include ""mercury_deep_copy.h""
 
-#ifdef MR_CONSERVATIVE_GC
+#ifndef MR_RECLAIM_HP_ON_FAILURE
   /* for conservative GC, shallow copies suffice */
   #define MR_PARTIAL_DEEP_COPY(SolutionsHeapPtr,			\\
   		OldVar, NewVal, TypeInfo_for_T)				\\
@@ -1164,7 +1190,7 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
   		OldVar, NewVal, TypeInfo_for_T)				\\
   	do {								\\
 		MR_save_transient_hp();					\\
-		NewVal = MR_deep_copy(&OldVal, (MR_TypeInfo) TypeInfo_for_T,\\
+		NewVal = MR_deep_copy(OldVal, (MR_TypeInfo) TypeInfo_for_T,\\
 			(const MR_Word *) SolutionsHeapPtr,		\\
 			MR_ENGINE(MR_eng_solutions_heap_zone)->top);	\\
 		MR_restore_transient_hp();				\\
@@ -1216,6 +1242,11 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 	NewVal = OldVal;
 ").
 
+partial_deep_copy(_, _, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("partial_deep_copy").
+
 %
 % reset_solutions_heap(SolutionsHeapPtr):
 %	Reset the solutions heap pointer to the specified value,
@@ -1226,22 +1257,28 @@ non_cc_call(P::pred(in, out, di, uo) is cc_multi, X::in, More::out,
 
 :- pragma foreign_proc("C", 
 	reset_solutions_heap(SolutionsHeapPtr::in),
-	[will_not_call_mercury, thread_safe, promise_pure],
+	[will_not_call_mercury, thread_safe],
 "
-#ifndef MR_CONSERVATIVE_GC
+#ifdef MR_RECLAIM_HP_ON_FAILURE
 	MR_sol_hp = (MR_Word *) SolutionsHeapPtr;
 #endif
 ").
 
 :- pragma foreign_proc("MC++", 
 	reset_solutions_heap(_SolutionsHeapPtr::in),
-	[will_not_call_mercury, thread_safe, promise_pure],
+	[will_not_call_mercury, thread_safe],
 "
 	/*
 	** For the IL back-end, we don't have a separate `solutions heap'.
 	** Hence this operation is a NOP.
 	*/
 ").
+
+reset_solutions_heap(_) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	impure private_builtin__imp,
+	private_builtin__sorry("reset_solutions_heap").
 
 %-----------------------------------------------------------------------------%
 
@@ -1346,6 +1383,19 @@ XXX `ui' modes don't work yet
 	Ref[0] = X;
 ").
 
+new_mutvar(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("new_mutvar").
+get_mutvar(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("get_mutvar").
+set_mutvar(_, _) :-
+	% This version is only used for back-ends for which there is no
+	% matching foreign_proc version.
+	private_builtin__sorry("set_mutvar").
+
 %%% end_module mutvar.
 
 %-----------------------------------------------------------------------------%
@@ -1427,6 +1477,14 @@ unsorted_aggregate(Generator, Accumulator, Acc0, Acc) :-
 	cc_multi_equal(X::di, Y::uo),
 	[will_not_call_mercury, thread_safe, promise_pure],
 	"Y = X;").
+
+semidet_succeed :-
+	true.
+semidet_fail :-
+	fail.
+
+:- pragma promise_pure(cc_multi_equal/2).
+cc_multi_equal(X, X).
 
 %-----------------------------------------------------------------------------%
 

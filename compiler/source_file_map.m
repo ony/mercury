@@ -13,7 +13,7 @@
 :- interface.
 
 :- import_module parse_tree__prog_data, parse_tree__prog_io.
-:- import_module io, list.
+:- import_module bool, io, list.
 
 	% lookup_module_source_file(ModuleName, FileName, FileNameIsMapped).
 	%
@@ -21,6 +21,9 @@
 	% the Mercury.modules file.
 :- pred lookup_module_source_file(module_name::in, file_name::out, 
 		io__state::di, io__state::uo) is det.
+
+	% Return `yes' if there is a valid Mercury.modules file.
+:- pred have_source_file_map(bool::out, io__state::di, io__state::uo) is det.
 
 	% Return the default fully-qualified source file name.
 :- func default_source_file(module_name) = file_name.
@@ -36,7 +39,7 @@
 :- import_module parse_tree__prog_out, parse_tree__prog_util.
 :- import_module parse_tree__modules.
 :- import_module libs__globals, libs__options.
-:- import_module bool, char, dir, map, std_util, string.
+:- import_module char, dir, map, std_util, string.
 
 lookup_module_source_file(ModuleName, FileName) -->
 	get_source_file_map(SourceFileMap),
@@ -49,6 +52,16 @@ lookup_module_source_file(ModuleName, FileName) -->
 default_source_file(ModuleName) = BaseFileName ++ ".m" :-
 	prog_out__sym_name_to_string(ModuleName, ".", BaseFileName).
 
+have_source_file_map(HaveMap) -->
+	get_source_file_map(_),
+	globals__io_get_globals(Globals),
+	{ globals__get_source_file_map(Globals, MaybeSourceFileMap) },
+	{ MaybeSourceFileMap = yes(Map), \+ map__is_empty(Map) ->
+		HaveMap = yes
+	;
+		HaveMap = no
+	}.
+
 	% Read the Mercury.modules file (if it exists) to find
 	% the mapping from module name to file name.
 :- pred get_source_file_map(source_file_map::out,
@@ -56,12 +69,11 @@ default_source_file(ModuleName) = BaseFileName ++ ".m" :-
 
 get_source_file_map(SourceFileMap) -->
 	globals__io_get_globals(Globals0),
-	{ globals__get_source_file_map(Globals0, MaybeSourceFileMap) },
-	( { MaybeSourceFileMap = yes(SourceFileMap0) } ->
+	{ globals__get_source_file_map(Globals0, MaybeSourceFileMap0) },
+	( { MaybeSourceFileMap0 = yes(SourceFileMap0) } ->
 		{ SourceFileMap = SourceFileMap0 }
 	;
-		globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
-		io__open_input(modules_file_name(UseSubdirs), OpenRes),
+		io__open_input(modules_file_name, OpenRes),
 		(
 			{ OpenRes = ok(Stream) },
 			io__set_input_stream(Stream, OldStream),
@@ -75,7 +87,7 @@ get_source_file_map(SourceFileMap) -->
 		),
 		globals__io_get_globals(Globals1),
 		{ globals__set_source_file_map(Globals1,
-			MaybeSourceFileMap, Globals2) },
+			yes(SourceFileMap), Globals2) },
 		{ unsafe_promise_unique(Globals2, Globals) },
 		globals__io_set_globals(Globals)
 	).
@@ -101,14 +113,15 @@ read_source_file_map(ModuleChars, Map0, Map) -->
 			{ Map = Map0 },
 			io__set_exit_status(1),
 			io__write_string(
-	"mercury_compile: unexpected end of file in Mercury.modules file: ")
+	"mercury_compile: unexpected end of file in Mercury.modules file.\n")
 		;
 			{ FileNameCharsResult = error(Error) },
 			{ Map = Map0 },
 			io__set_exit_status(1),
 			io__write_string(
 	"mercury_compile: error in Mercury.modules file: "),
-			io__write_string(io__error_message(Error))
+			io__write_string(io__error_message(Error)),
+			io__nl
 		)
 	;
 		{ ModuleCharsResult = eof },
@@ -119,7 +132,8 @@ read_source_file_map(ModuleChars, Map0, Map) -->
 		io__set_exit_status(1),
 		io__write_string(
 			"mercury_compile: error in Mercury.modules file: "),
-		io__write_string(io__error_message(Error))
+		io__write_string(io__error_message(Error)),
+		io__nl
 	).
 
 :- pred read_until_char(char::in, list(char)::in, io__result(list(char))::out,
@@ -143,13 +157,7 @@ read_until_char(EndChar, Chars0, Result) -->
 	).
 
 write_source_file_map(FileNames) -->
-	globals__io_lookup_bool_option(use_subdirs, UseSubdirs),
-	( { UseSubdirs = yes } ->
-		make_directory("Mercury")
-	;
-		[]
-	),
-	{ ModulesFileName = modules_file_name(UseSubdirs) },
+	{ ModulesFileName = modules_file_name },
 	io__open_output(ModulesFileName, OpenRes),
 	(
 		{ OpenRes = ok(Stream) },
@@ -198,7 +206,6 @@ write_source_file_map_2(MapStream, FileName) -->
 		{ MaybeModuleName = no }
 	).
 
-:- func modules_file_name(bool) = string.
+:- func modules_file_name = string.
 
-modules_file_name(yes) = "Mercury/Mercury.modules".
-modules_file_name(no) = "Mercury.modules".
+modules_file_name = "Mercury.modules".
