@@ -62,10 +62,11 @@ unify_gen__generate_unification(CodeModel, Uni, Code) -->
 			{ Code = empty }
 		)
 	;
-		{ Uni = construct(Var, ConsId, Args, Modes, _, _, AditiInfo) },
+		{ Uni = construct(Var, ConsId, Args, Modes,
+				HowToConstruct, _, AditiInfo) },
 		( code_info__variable_is_forward_live(Var) ->
 			unify_gen__generate_construction(Var, ConsId,
-				Args, Modes, AditiInfo, Code)
+				Args, Modes, HowToConstruct, AditiInfo, Code)
 		;
 			{ Code = empty }
 		)
@@ -268,28 +269,32 @@ unify_gen__generate_tag_rval_2(shared_local_tag(Bits, Num), Rval,
 	% instantiate the arguments of that term.
 
 :- pred unify_gen__generate_construction(prog_var::in, cons_id::in,
-	list(prog_var)::in, list(uni_mode)::in, maybe(rl_exprn_id)::in,
-	code_tree::out, code_info::in, code_info::out) is det.
+	list(prog_var)::in, list(uni_mode)::in, how_to_construct::in,
+	maybe(rl_exprn_id)::in, code_tree::out,
+	code_info::in, code_info::out) is det.
 
-unify_gen__generate_construction(Var, Cons, Args, Modes, AditiInfo, Code) -->
+unify_gen__generate_construction(Var, Cons, Args, Modes,
+		HowToConstruct, AditiInfo, Code) -->
 	code_info__cons_id_to_tag(Var, Cons, Tag),
 	unify_gen__generate_construction_2(Tag, Var, Args,
-		Modes, AditiInfo, Code).
+		Modes, HowToConstruct, AditiInfo, Code).
 
 :- pred unify_gen__generate_construction_2(cons_tag::in, prog_var::in, 
-	list(prog_var)::in, list(uni_mode)::in, maybe(rl_exprn_id)::in,
+	list(prog_var)::in, list(uni_mode)::in,
+	how_to_construct::in, maybe(rl_exprn_id)::in,
 	code_tree::out, code_info::in, code_info::out) is det.
 
 unify_gen__generate_construction_2(string_constant(String),
-		Var, _Args, _Modes, _, empty) -->
+		Var, _Args, _Modes, _HowToConstruct, _, empty) -->
 	code_info__assign_const_to_var(Var, const(string_const(String))).
 unify_gen__generate_construction_2(int_constant(Int),
-		Var, _Args, _Modes, _, empty) -->
+		Var, _Args, _Modes, _HowToConstruct, _, empty) -->
 	code_info__assign_const_to_var(Var, const(int_const(Int))).
 unify_gen__generate_construction_2(float_constant(Float),
-		Var, _Args, _Modes, _, empty) -->
+		Var, _Args, _Modes, _HowToConstruct, _, empty) -->
 	code_info__assign_const_to_var(Var, const(float_const(Float))).
-unify_gen__generate_construction_2(no_tag, Var, Args, Modes, _, Code) -->
+unify_gen__generate_construction_2(no_tag, Var, Args, Modes, _HowToConstruct,
+		_, Code) -->
 	( { Args = [Arg], Modes = [Mode] } ->
 		code_info__variable_type(Arg, Type),
 		unify_gen__generate_sub_unify(ref(Var), ref(Arg),
@@ -298,17 +303,22 @@ unify_gen__generate_construction_2(no_tag, Var, Args, Modes, _, Code) -->
 		{ error(
 		"unify_gen__generate_construction_2: no_tag: arity != 1") }
 	).
+
+	% RRR need to modify this code!
 unify_gen__generate_construction_2(unshared_tag(Ptag),
-		Var, Args, Modes, _, Code) -->
+		Var, Args, Modes, HowToConstruct, _, Code) -->
 	code_info__get_module_info(ModuleInfo),
 	unify_gen__var_types(Args, ArgTypes),
 	{ unify_gen__generate_cons_args(Args, ArgTypes, Modes, ModuleInfo,
 		Rvals) },
 	code_info__variable_type(Var, VarType),
 	{ unify_gen__var_type_msg(VarType, VarTypeMsg) },
-	code_info__assign_cell_to_var(Var, Ptag, Rvals, VarTypeMsg, Code).
+	code_info__assign_cell_to_var(Var, Ptag, Rvals, VarTypeMsg,
+			HowToConstruct, Code).
+
+	% RRR need to modify this code!
 unify_gen__generate_construction_2(shared_remote_tag(Ptag, Sectag),
-		Var, Args, Modes, _, Code) -->
+		Var, Args, Modes, HowToConstruct, _, Code) -->
 	code_info__get_module_info(ModuleInfo),
 	unify_gen__var_types(Args, ArgTypes),
 	{ unify_gen__generate_cons_args(Args, ArgTypes, Modes, ModuleInfo,
@@ -317,13 +327,16 @@ unify_gen__generate_construction_2(shared_remote_tag(Ptag, Sectag),
 	{ Rvals = [yes(const(int_const(Sectag))) | Rvals0] },
 	code_info__variable_type(Var, VarType),
 	{ unify_gen__var_type_msg(VarType, VarTypeMsg) },
-	code_info__assign_cell_to_var(Var, Ptag, Rvals, VarTypeMsg, Code).
+	code_info__assign_cell_to_var(Var, Ptag, Rvals, VarTypeMsg,
+			HowToConstruct, Code).
+
 unify_gen__generate_construction_2(shared_local_tag(Bits1, Num1),
-		Var, _Args, _Modes, _, empty) -->
+		Var, _Args, _Modes, _HowToConstruct, _, empty) -->
 	code_info__assign_const_to_var(Var,
 		mkword(Bits1, unop(mkbody, const(int_const(Num1))))).
 unify_gen__generate_construction_2(type_ctor_info_constant(ModuleName,
-		TypeName, TypeArity), Var, Args, _Modes, _, empty) -->
+		TypeName, TypeArity), Var, Args, _Modes,
+		_HowToConstruct, _, empty) -->
 	( { Args = [] } ->
 		[]
 	;
@@ -333,7 +346,8 @@ unify_gen__generate_construction_2(type_ctor_info_constant(ModuleName,
 	{ DataAddr = rtti_addr(RttiTypeId, type_ctor_info) },
 	code_info__assign_const_to_var(Var, const(data_addr_const(DataAddr))).
 unify_gen__generate_construction_2(base_typeclass_info_constant(ModuleName,
-		ClassId, Instance), Var, Args, _Modes, _, empty) -->
+		ClassId, Instance), Var, Args, _HowToConstruct,
+		_Modes, _, empty) -->
 	( { Args = [] } ->
 		[]
 	;
@@ -342,7 +356,7 @@ unify_gen__generate_construction_2(base_typeclass_info_constant(ModuleName,
 	code_info__assign_const_to_var(Var, const(data_addr_const(data_addr(
 		ModuleName, base_typeclass_info(ClassId, Instance))))).
 unify_gen__generate_construction_2(tabling_pointer_constant(PredId, ProcId),
-		Var, Args, _Modes, _, empty) -->
+		Var, Args, _Modes, _HowToConstruct, _, empty) -->
 	( { Args = [] } ->
 		[]
 	;
@@ -354,7 +368,7 @@ unify_gen__generate_construction_2(tabling_pointer_constant(PredId, ProcId),
 	{ DataAddr = data_addr(ModuleName, tabling_pointer(ProcLabel)) },
 	code_info__assign_const_to_var(Var, const(data_addr_const(DataAddr))).
 unify_gen__generate_construction_2(code_addr_constant(PredId, ProcId),
-		Var, Args, _Modes, _, empty) -->
+		Var, Args, _Modes, _HowToConstruct, _, empty) -->
 	( { Args = [] } ->
 		[]
 	;
@@ -365,7 +379,7 @@ unify_gen__generate_construction_2(code_addr_constant(PredId, ProcId),
 	code_info__assign_const_to_var(Var, const(code_addr_const(CodeAddr))).
 unify_gen__generate_construction_2(
 		pred_closure_tag(PredId, ProcId, EvalMethod),
-		Var, Args, _Modes, _AditiInfo, Code) -->
+		Var, Args, _Modes, HowToConstruct, _AditiInfo, Code) -->
 	% This code constructs or extends a closure.
 	% The structure of closures is defined in runtime/mercury_ho_call.h.
 
@@ -551,7 +565,8 @@ unify_gen__generate_construction_2(
 			yes(const(int_const(NumArgs)))
 			| PredArgs
 		] },
-		code_info__assign_cell_to_var(Var, 0, Vector, "closure", Code)
+		code_info__assign_cell_to_var(Var, 0, Vector, "closure",
+				HowToConstruct, Code)
 	).
 
 :- pred unify_gen__generate_extra_closure_args(list(prog_var)::in, lval::in,

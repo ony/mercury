@@ -3036,7 +3036,8 @@ code_info__maybe_reset_discard_and_release_ticket(MaybeTicketSlot, Reason,
 	code_info::in, code_info::out) is det.
 
 :- pred code_info__assign_cell_to_var(prog_var::in, tag::in,
-	list(maybe(rval))::in, string::in, code_tree::out,
+	list(maybe(rval))::in, string::in,
+	how_to_construct::in, code_tree::out,
 	code_info::in, code_info::out) is det.
 
 :- pred code_info__place_var(prog_var::in, lval::in, code_tree::out,
@@ -3217,7 +3218,8 @@ code_info__assign_expr_to_var(Var, Rval, Code) -->
 	},
 	code_info__set_var_locns_info(VarInfo).
 
-code_info__assign_cell_to_var(Var, Ptag, Vector, TypeMsg, Code) -->
+code_info__assign_cell_to_var(Var, Ptag, Vector, TypeMsg,
+		HowToConstruct, Code) -->
 	code_info__get_var_locns_info(VarInfo0),
 	code_info__get_next_cell_number(CellNum),
 	{
@@ -3233,7 +3235,7 @@ code_info__assign_cell_to_var(Var, Ptag, Vector, TypeMsg, Code) -->
 	;
 		VarInfo0 = var_locn_info(VarLocInfo0),
 		var_locn__assign_cell_to_var(Var, Ptag, Vector, CellNum,
-			TypeMsg, Code, VarLocInfo0, VarLocInfo),
+			TypeMsg, HowToConstruct, Code, VarLocInfo0, VarLocInfo),
 		VarInfo = var_locn_info(VarLocInfo)
 	},
 	code_info__set_var_locns_info(VarInfo).

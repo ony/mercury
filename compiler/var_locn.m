@@ -149,7 +149,8 @@
 %		and updates the state of VarLocnInfo0 accordingly.
 
 :- pred var_locn__assign_cell_to_var(prog_var::in, tag::in,
-	list(maybe(rval))::in, int::in, string::in, code_tree::out,
+	list(maybe(rval))::in, int::in, string::in,
+	how_to_construct::in, code_tree::out,
 	var_locn_info::in, var_locn_info::out) is det.
 
 %	var_locn__place_var(Var, Lval, Code, VarLocnInfo0, VarLocnInfo)
@@ -773,7 +774,8 @@ var_locn__add_use_ref(ContainedVar, UsingVar, VarStateMap0, VarStateMap) :-
 
 %----------------------------------------------------------------------------%
 
-var_locn__assign_cell_to_var(Var, Ptag, Vector, CellNum, TypeMsg, Code) -->
+var_locn__assign_cell_to_var(Var, Ptag, Vector, CellNum, TypeMsg,
+		HowToConstruct, Code) -->
 	{ Reuse = no },
 	{ CellRval0 = create(Ptag, Vector, uniform(no), can_be_either,
 		CellNum, TypeMsg, Reuse) },
@@ -786,8 +788,19 @@ var_locn__assign_cell_to_var(Var, Ptag, Vector, CellNum, TypeMsg, Code) -->
 		var_locn__assign_const_to_var(Var, CellRval),
 		{ Code = empty }
 	;
-		var_locn__assign_dynamic_cell_to_var(Var, Ptag, Vector,
-			TypeMsg, Code)
+		(
+			{ HowToConstruct = construct_statically(_) },
+			{ error("var_locn__assign_cell_to_var") }
+		;
+			{ HowToConstruct = construct_dynamically },
+			var_locn__assign_dynamic_cell_to_var(Var, Ptag, Vector,
+					TypeMsg, Code)
+		;
+			{ HowToConstruct = reuse_cell(CellToReuse) },
+			{ CellToReuse = cell_to_reuse(ReuseVar,
+					_ReuseConsId, _) },
+			var_locn__reuse_cell(Var, ReuseVar, Ptag, Vector, Code)
+		)
 	).
 
 :- pred var_locn__assign_dynamic_cell_to_var(prog_var::in, tag::in,
@@ -807,6 +820,61 @@ var_locn__assign_dynamic_cell_to_var(Var, Ptag, Vector, TypeMsg, Code) -->
 	var_locn__set_magic_var_location(Var, Lval),
 	var_locn__assign_cell_args(Vector, yes(Ptag), lval(Lval), 0, ArgsCode),
 	{ Code = tree(CellCode, ArgsCode) }.
+
+:- pred var_locn__reuse_cell(prog_var::in, prog_var::in, tag::in,
+	list(maybe(rval))::in, code_tree::out,
+	var_locn_info::in, var_locn_info::out) is det.
+
+var_locn__reuse_cell(Var, ReuseVar, Ptag, Vector, Code) -->
+	var_locn__check_var_is_unknown(Var),
+
+	var_locn__produce_var(ReuseVar, ReuseRval, ReuseCode),
+
+	{ require(tree__is_empty(ReuseCode),
+			"var_locn__reuse_cell: ReuseCode non-empty!") },
+
+	{ ReuseRval = lval(ReuseLval0) ->
+		_ReuseLval = ReuseLval0
+	;
+		error("var_locn__reuse_cell: not an lval")
+	},
+
+	var_locn__select_preferred_reg_or_stack(Var, Lval),
+	var_locn__get_var_name(Var, VarName),
+
+		% XXX we need to worry about the tag!
+		% XXX also look at assign_var_to_var
+	{ CellCode = node([
+		assign(Lval, ReuseRval)
+			- string__append("Reusing cell on heap for ", VarName)
+	]) },
+	var_locn__set_magic_var_location(Var, Lval),
+
+	var_locn__assign_cell_args(Vector, yes(Ptag), lval(Lval), 0, ArgsCode),
+	{ Code = tree(CellCode, ArgsCode) }.
+
+/*
+:- pred var_locn__reuse_cell(prog_var::in, tag::in,
+	list(maybe(rval))::in, string::in, code_tree::out,
+	var_locn_info::in, var_locn_info::out) is det.
+
+var_locn__reuse_cell(Var, Ptag, Vector, TypeMsg, Code) -->
+	var_locn__check_var_is_unknown(Var),
+
+		% XXX Here we want to look up the address of the reuse
+		% var.
+
+	var_locn__select_preferred_reg_or_stack(Var, Lval),
+	var_locn__get_var_name(Var, VarName),
+	{ list__length(Vector, Size) },
+	{ CellCode = node([
+		incr_hp(Lval, yes(Ptag), const(int_const(Size)), TypeMsg)
+			- string__append("Allocating heap for ", VarName)
+	]) },
+	var_locn__set_magic_var_location(Var, Lval),
+	var_locn__assign_cell_args(Vector, yes(Ptag), lval(Lval), 0, ArgsCode),
+	{ Code = tree(CellCode, ArgsCode) }.
+*/
 
 :- pred var_locn__assign_cell_args(list(maybe(rval))::in,
 	maybe(tag)::in, rval::in, int::in, code_tree::out,
