@@ -63,10 +63,12 @@
 		;	warn_duplicate_calls
 		;	warn_missing_module_name
 		;	warn_wrong_module_name
+		;	warn_smart_recompilation	% not yet used.
 	% Verbosity options
 		;	verbose
 		;	very_verbose
 		;	verbose_errors
+		;	verbose_recompilation		% not yet used.
 		;	statistics
 		;	debug_types
 		;	debug_modes
@@ -86,7 +88,6 @@
 		;	generate_dependencies
 		;	generate_module_order
 		;	convert_to_mercury
-		;	convert_to_goedel
 		;	typecheck_only
 		;	errorcheck_only
 		;	target_code_only
@@ -94,6 +95,13 @@
 		;	aditi_only
 		;	output_grade_string
 	% Auxiliary output options
+		;	smart_recompilation		% not yet used.
+
+				% This option is used to control output
+				% of version numbers in interface files.
+				% It is implied by smart_recompilation,
+				% and cannot be set explicitly by the user.
+		;	generate_item_version_numbers
 		;	assume_gmake
 		;	trace
 		;	trace_optimized
@@ -103,11 +111,6 @@
 		;	suppress_trace
 		;	stack_trace_higher_order
 		;	generate_bytecode
-		;	generate_prolog		% Currently not used
-				% XXX generate_prolog should probably be
-				% in the "Output options" section rather than
-				% in the "Auxiliary output options" section
-		;	prolog_dialect		% Currently not used
 		;	line_numbers
 		;	auto_comments
 		;	show_dependency_graph
@@ -472,13 +475,15 @@ option_defaults_2(warning_option, [
 	warn_simple_code	-	bool(yes),
 	warn_duplicate_calls	-	bool(no),
 	warn_missing_module_name -	bool(yes),
-	warn_wrong_module_name -	bool(yes)
+	warn_wrong_module_name -	bool(yes),
+	warn_smart_recompilation -	bool(yes)
 ]).
 option_defaults_2(verbosity_option, [
 		% Verbosity Options
 	verbose			-	bool(no),
 	very_verbose		-	bool(no),
 	verbose_errors		-	bool(no),
+	verbose_recompilation	-	bool(no),
 	statistics		-	bool(no),
 	debug_types		- 	bool(no),
 	debug_modes		- 	bool(no),
@@ -500,7 +505,6 @@ option_defaults_2(output_option, [
 	make_optimization_interface -	bool(no),
 	make_transitive_opt_interface -	bool(no),
 	convert_to_mercury 	-	bool(no),
-	convert_to_goedel 	-	bool(no),
 	typecheck_only		-	bool(no),
 	errorcheck_only		-	bool(no),
 	target_code_only	-	bool(no),
@@ -510,6 +514,8 @@ option_defaults_2(output_option, [
 ]).
 option_defaults_2(aux_output_option, [
 		% Auxiliary Output Options
+	smart_recompilation	-	bool(no),
+	generate_item_version_numbers -	bool(no),
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
@@ -519,8 +525,6 @@ option_defaults_2(aux_output_option, [
 	delay_death		-	bool(yes),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
-	generate_prolog		-	bool(no),
-	prolog_dialect		-	string("default"),
 	line_numbers		-	bool(yes),
 	auto_comments		-	bool(no),
 	show_dependency_graph	-	bool(no),
@@ -824,7 +828,6 @@ short_option('d', 			dump_hlds).
 short_option('D', 			dump_hlds_alias).
 short_option('e', 			errorcheck_only).
 short_option('E', 			verbose_errors).
-short_option('G', 			convert_to_goedel).
 short_option('h', 			help).
 short_option('H', 			highlevel_code).
 short_option('i', 			make_interface).
@@ -866,11 +869,13 @@ long_option("warn-simple-code",		warn_simple_code).
 long_option("warn-duplicate-calls",	warn_duplicate_calls).
 long_option("warn-missing-module-name",	warn_missing_module_name).
 long_option("warn-wrong-module-name",	warn_wrong_module_name).
+long_option("warn-smart-recompilation",	warn_smart_recompilation).
 
 % verbosity options
 long_option("verbose",			verbose).
 long_option("very-verbose",		very_verbose).
 long_option("verbose-error-messages",	verbose_errors).
+long_option("verbose-recompilation",	verbose_recompilation).
 long_option("statistics",		statistics).
 long_option("debug-types",		debug_types).
 long_option("debug-modes",		debug_modes).
@@ -909,8 +914,6 @@ long_option("make-trans-opt", 		make_transitive_opt_interface).
 long_option("convert-to-mercury", 	convert_to_mercury).
 long_option("convert-to-Mercury", 	convert_to_mercury). 
 long_option("pretty-print", 		convert_to_mercury).
-long_option("convert-to-goedel", 	convert_to_goedel).
-long_option("convert-to-Goedel", 	convert_to_goedel).
 long_option("typecheck-only",		typecheck_only).
 long_option("errorcheck-only",		errorcheck_only).
 long_option("target-code-only",		target_code_only).
@@ -919,6 +922,7 @@ long_option("aditi-only",		aditi_only).
 long_option("output-grade-string",	output_grade_string).
 
 % aux output options
+long_option("smart-recompilation",	smart_recompilation).
 long_option("assume-gmake",		assume_gmake).
 long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
@@ -929,10 +933,6 @@ long_option("suppress-trace",		suppress_trace).
 long_option("delay-death",		delay_death).
 long_option("stack-trace-higher-order",	stack_trace_higher_order).
 long_option("generate-bytecode",	generate_bytecode).
-long_option("generate-prolog",		generate_prolog).
-long_option("generate-Prolog",		generate_prolog).
-long_option("prolog-dialect",		prolog_dialect).
-long_option("Prolog-dialect",		prolog_dialect).
 long_option("line-numbers",		line_numbers).
 long_option("auto-comments",		auto_comments).
 long_option("show-dependency-graph",	show_dependency_graph).
@@ -1351,7 +1351,8 @@ special_handler(inhibit_warnings, bool(Inhibit), OptionTable0, ok(OptionTable))
 			warn_missing_trans_opt_deps -	bool(Enable),
 			warn_simple_code	-	bool(Enable),
 			warn_missing_module_name -	bool(Enable),
-			warn_wrong_module_name	-	bool(Enable)
+			warn_wrong_module_name	-	bool(Enable),
+			warn_smart_recompilation -	bool(Enable)
 		], OptionTable0, OptionTable).
 special_handler(infer_all, bool(Infer), OptionTable0, ok(OptionTable)) :-
 	override_options([
@@ -1713,10 +1714,6 @@ options_help_output -->
 		"\tOutput transitive optimization information",
 		"\tinto the `<module>.trans_opt' file.",
 		"\tThis option should only be used by mmake.",
-		"-G, --convert-to-goedel",
-		"\tConvert to Goedel. Output to file `<module>.loc'.",
-		"\tNote that some Mercury language constructs cannot",
-		"\t(easily) be translated into Goedel.",
 		"-P, --convert-to-mercury",
 		"\tConvert to Mercury. Output to file `<module>.ugly'",
 		"\tThis option acts as a Mercury ugly-printer.",
@@ -1784,17 +1781,9 @@ options_help_aux_output -->
 		"--generate-bytecode",
 		"\tOutput a bytecode form of the module for use",
 		"\tby an experimental debugger.",
-% --generate-prolog is not documented because it is not yet implemented
-%		"--generate-prolog",
-%		"\tConvert the program to Prolog. Output to file `<module>.pl'",
-%		"\tor `<module>.nl' (depending on the dialect).",
-% --prolog-dialect is not documented because it is not yet used
-%		"--prolog-dialect {sicstus,nu}",
-%		"\tTarget the named dialect if generating Prolog code.",
 		"-n-, --no-line-numbers",
 		"\tDo not put source line numbers in the generated code.",
 		"\tThe generated code may be in C (the usual case),",
-		"\tin Goedel (with the option --convert-to-goedel)",
 		"\tor in Mercury (with the option --convert-to-mercury).",
 		"--auto-comments",
 		"\tOutput comments in the `<module>.c' file.",
