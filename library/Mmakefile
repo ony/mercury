@@ -20,17 +20,17 @@ VPATH=.
 # the new modes of int__xor.
 #
 
-MCFLAGS-int = --no-halt-at-warn
+MCFLAGS-int += --no-halt-at-warn
 
 # Modules which use user-guided type specialization need to be
 # compiled with these flags to make sure all calls
 # to the builtin comparison routines are inlined.
 TYPE_SPEC_FLAGS = --inline-vars-threshold 10000
-MCFLAGS-list = $(TYPE_SPEC_FLAGS)
-MCFLAGS-map = $(TYPE_SPEC_FLAGS)
-MCFLAGS-tree234 = $(TYPE_SPEC_FLAGS)
-MCFLAGS-set = $(TYPE_SPEC_FLAGS)
-MCFLAGS-set_ordlist = $(TYPE_SPEC_FLAGS)
+MCFLAGS-list += $(TYPE_SPEC_FLAGS)
+MCFLAGS-map += $(TYPE_SPEC_FLAGS)
+MCFLAGS-tree234 += $(TYPE_SPEC_FLAGS)
+MCFLAGS-set += $(TYPE_SPEC_FLAGS)
+MCFLAGS-set_ordlist += $(TYPE_SPEC_FLAGS)
 
 #-----------------------------------------------------------------------------#
 
@@ -68,6 +68,7 @@ M_ENV	=	MERCURY_INT_DIR=. \
 			-I$(RUNTIME_DIR) \
 			-I$(BOEHM_GC_DIR) \
 			-I$(BOEHM_GC_DIR)/include \
+			-I$(ROBDD_DIR) \
 		"
 MCD	=	$(M_ENV) $(MC) --generate-dependencies $(INTERMODULE_OPTS)
 MCI	=	$(M_ENV) $(MC) --make-interface $(INTERMODULE_OPTS) \
@@ -98,6 +99,9 @@ LDLIBS	=	-l$(RT_LIB_NAME) \
 		    *.gc*)		echo "-lgc" ;;			\
 		  esac							\
 		`
+ROBDD_OBJS  =	$(ROBDD_DIR)/bryant.$O
+ROBDD_PIC_OBJS = $(ROBDD_DIR)/bryant.$(EXT_FOR_PIC_OBJECTS)
+
 ALL_LDLIBS =	$(LDLIBS) $(EXTRA_LDLIBS)
 
 MTAGS	=	$(SCRIPTS_DIR)/mtags
@@ -133,7 +137,7 @@ endif
 # io.m uses library features that are supported by POSIX but which are not
 # part of ANSI C, such as `struct stat', fileno(), and putenv().
 # We need to pass --no-ansi to mgnuc to ensure that these are declared.
-MGNUCFLAGS-io =	--no-ansi
+#MGNUCFLAGS-io =	--no-ansi
 
 #-----------------------------------------------------------------------------#
 
@@ -263,18 +267,19 @@ lib_std: $(os_subdir)tree234.$O
 lib_std: lib$(STD_LIB_NAME).$A lib$(STD_LIB_NAME).$(EXT_FOR_SHARED_LIB)
 lib_std: $(STD_LIB_NAME).init
 
-lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A : $(library.os)
+lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A : $(library.os) $(ROBDD_OBJS)
 	rm -f lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A
 	$(AR) $(ALL_ARFLAGS) \
 		$(AR_LIBFILE_OPT)lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A \
-		$(library.os)
+		$(library.os) $(ROBDD_OBJS)
 	$(RANLIB) lib$(STD_LIB_NAME)$(DLL_DEF_LIB).$A
 
 RPATH_1=$(SHLIB_RPATH_OPT)$(FINAL_INSTALL_MERC_LIB_DIR)
 RPATH_2=$(SHLIB_RPATH_SEP)$(FINAL_INSTALL_MERC_GC_LIB_DIR)
 
-lib$(STD_LIB_NAME).so : $(library.pic_os)
+lib$(STD_LIB_NAME).so : $(library.pic_os) $(ROBDD_PIC_OBJS)
 	$(LINK_SHARED_OBJ) -o lib$(STD_LIB_NAME).so $(library.pic_os)	\
+		$(ROBDD_PIC_OBJS)					\
 		$(RPATH_1)$(RPATH_2)					\
 		$(ALL_LDFLAGS) $(ALL_LDLIBS)				\
 		$(SHARED_LIBS)
