@@ -17,7 +17,8 @@
 
 :- implementation.
 
-:- import_module array, int, set_bbbtree.
+:- import_module dense_bitset.
+:- import_module array, int.
 
 :- type graph	--->
 		graph(
@@ -25,7 +26,7 @@
 			array(set(int))
 		).
 
-:- type visit == set_bbbtree(int).
+:- type visit == dense_bitset.
 
 init(graph(1, Array)) :-
 	init(16, init, Array).
@@ -49,12 +50,12 @@ max(X, Y) = (X > Y -> X ; Y).
 atsort(Graph, ATSort) :-
 	dfsrev(Graph, DfsRev),
 	inverse(Graph, InvGraph),
-	set_bbbtree__init(Visit),
+	Visit = init,
 	atsort_2(DfsRev, InvGraph, Visit, [], ATSort0),
 	reverse(ATSort0, ATSort).
 
 :- pred atsort_2(list(int), graph, visit, list(set(int)), list(set(int))).
-:- mode atsort_2(in, in, in, in, out) is det.
+:- mode atsort_2(in, in, array_di, in, out) is det.
 
 atsort_2([], _InvGraph, _Visit, ATSort, ATSort).
 atsort_2([Node|Nodes], InvGraph, Visit0, ATSort0, ATSort) :-
@@ -72,7 +73,7 @@ atsort_2([Node|Nodes], InvGraph, Visit0, ATSort0, ATSort) :-
 dfsrev(Graph, DfsRev) :-
 	Graph = graph(N, _Array),
 	mklist(N, [], DomList),
-	set_bbbtree__init(Visit),
+	Visit = init,
 	dfs_2(DomList, Graph, Visit, [], DfsRev).
 
 :- pred mklist(int, list(int), list(int)).
@@ -87,7 +88,7 @@ mklist(N, Acc0, Acc) :-
 	).
 
 :- pred dfs_2(list(int), graph, visit, list(int), list(int)).
-:- mode dfs_2(in, in, in, in, out) is det.
+:- mode dfs_2(in, in, array_di, in, out) is det.
 
 dfs_2([], _Graph, _Visit, DfsRev, DfsRev).
 dfs_2([Node|Nodes], Graph, Visit0, DfsRev0, DfsRev) :-
@@ -95,14 +96,14 @@ dfs_2([Node|Nodes], Graph, Visit0, DfsRev0, DfsRev) :-
 	dfs_2(Nodes, Graph, Visit, DfsRev1, DfsRev).
 
 :- pred dfs_3(list(int), graph, visit, list(int), visit, list(int)).
-:- mode dfs_3(in, in, in, in, out, out) is det.
+:- mode dfs_3(in, in, array_di, in, array_uo, out) is det.
 
 dfs_3([], _Graph, Visit, Dfs, Visit, Dfs).
 dfs_3([Node|Nodes], Graph, Visit0, Dfs0, Visit, Dfs) :-
 	( member(Node, Visit0) ->
 		dfs_3(Nodes, Graph, Visit0, Dfs0, Visit, Dfs)
 	;
-		insert(Visit0, Node, Visit1),
+		Visit1 = insert(Visit0, Node),
 		successors(Graph, Node, Succ),
 		set__to_sorted_list(Succ, SuccList),
 		dfs_3(SuccList, Graph, Visit1, Dfs0, Visit2, Dfs1),
