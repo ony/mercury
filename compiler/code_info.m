@@ -331,12 +331,6 @@
 :- pred code_info__set_instmap(instmap, code_info, code_info).
 :- mode code_info__set_instmap(in, in, out) is det.
 
-:- pred code_info__get_liveness_info(liveness_info, code_info, code_info).
-:- mode code_info__get_liveness_info(out, in, out) is det.
-
-:- pred code_info__set_liveness_info(liveness_info, code_info, code_info).
-:- mode code_info__set_liveness_info(in, in, out) is det.
-
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 :- implementation.
@@ -531,7 +525,7 @@ code_info__make_entry_label(ModuleInfo, PredId, ProcId, PredAddress) -->
 	(
 		(	pred_info_is_imported(PredInfo)
 		;	ProcsPerFunc \= 0,
-			not (PredId = CurPredId, ProcId = CurProcId)
+			\+ (PredId = CurPredId, ProcId = CurProcId)
 		)
 	->
 		code_util__make_proc_label(ModuleInfo,

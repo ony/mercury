@@ -170,6 +170,7 @@ detect_live_vars_in_goal_2(switch(_Var, _Det, Cases0), ExtraLives0, Liveness0,
 detect_live_vars_in_goal_2(if_then_else(_Vars, Cond0, Then0, Else0),
 		ExtraLives0, Liveness0, LiveSets0, CodeModel,
 			ModuleInfo, ExtraLives, Liveness, LiveSets) :-
+		% XXX Is this interference needed?
 	set__insert(LiveSets0, Liveness0, LiveSets0A),
 	detect_live_vars_in_goal(Cond0, ExtraLives0, Liveness0, LiveSets0A,
 		CodeModel, ModuleInfo, ExtraLives1, Liveness1, LiveSets1),
@@ -245,21 +246,12 @@ detect_live_vars_in_conj([], ExtraLives, Liveness, LiveVars,
 		_CodeModel, _ModuleInfo, ExtraLives, Liveness, LiveVars).
 detect_live_vars_in_conj([Goal0|Goals0], ExtraLives0, Liveness0, LiveVars0,
 		CodeModel, ModuleInfo, ExtraLives, Liveness, LiveVars) :-
-	(
-		Goal0 = _ - GoalInfo,
-		goal_info_get_instmap_delta(GoalInfo, unreachable)
-	->
-		detect_live_vars_in_goal(Goal0, ExtraLives0, Liveness0,
-			LiveVars0, CodeModel, ModuleInfo,
-				ExtraLives, Liveness, LiveVars)
-	;
-		detect_live_vars_in_goal(Goal0, ExtraLives0, Liveness0,
-			LiveVars0, CodeModel, ModuleInfo,
-				ExtraLives1, Liveness1, LiveVars1),
-		detect_live_vars_in_conj(Goals0, ExtraLives1, Liveness1,
-			LiveVars1, CodeModel, ModuleInfo,
-				ExtraLives, Liveness, LiveVars)
-	).
+	detect_live_vars_in_goal(Goal0, ExtraLives0, Liveness0,
+		LiveVars0, CodeModel, ModuleInfo,
+			ExtraLives1, Liveness1, LiveVars1),
+	detect_live_vars_in_conj(Goals0, ExtraLives1, Liveness1,
+		LiveVars1, CodeModel, ModuleInfo,
+			ExtraLives, Liveness, LiveVars).
 
 %-----------------------------------------------------------------------------%
 

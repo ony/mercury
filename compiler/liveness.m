@@ -221,19 +221,10 @@ detect_liveness_in_goal_2(unify(A,B,C,D,E), L, _, L, unify(A,B,C,D,E)).
 detect_liveness_in_conj([], Liveness, _ModuleInfo, Liveness, []).
 detect_liveness_in_conj([Goal0|Goals0], Liveness0,
 					ModuleInfo, Liveness, [Goal|Goals]) :-
-%	(
-%		Goal0 = _ - GoalInfo,
-%		goal_info_get_instmap_delta(GoalInfo, unreachable)
-%	->
-%		Goal = Goal0,
-%		Goals = Goals0,
-%		Liveness = Liveness0
-%	;
-		detect_liveness_in_goal(Goal0, Liveness0,
-						ModuleInfo, Liveness1, Goal),
-		detect_liveness_in_conj(Goals0, Liveness1,
-						ModuleInfo, Liveness, Goals).
-%	).
+	detect_liveness_in_goal(Goal0, Liveness0,
+					ModuleInfo, Liveness1, Goal),
+	detect_liveness_in_conj(Goals0, Liveness1,
+					ModuleInfo, Liveness, Goals).
 
 %-----------------------------------------------------------------------------%
 
@@ -340,7 +331,7 @@ detect_deadness_in_goal_2(if_then_else(Vars, Cond0, Then0, Else0), Deadness0,
 						Deadness, Cond),
 	set__difference(DeadnessElse, DeadnessThen, ResidueThen),
 	stuff_deadness_residue_into_goal(Then1, ResidueThen, Then),
-	set__difference(DeadnessThen, DeadnessElse, ResidueElse),
+	set__difference(Deadness, DeadnessElse, ResidueElse),
 	stuff_deadness_residue_into_goal(Else1, ResidueElse, Else).
 
 detect_deadness_in_goal_2(switch(Var, Det, Cases0), Deadness0,
@@ -368,20 +359,22 @@ detect_deadness_in_conj([], Deadness, _ModuleInfo, [], Deadness).
 detect_deadness_in_conj([Goal0|Goals0], Deadness0, ModuleInfo,
 						[Goal|Goals], Deadness) :-
 	(
-		Goal0 = _ - GoalInfo,
-		goal_info_get_instmap_delta(GoalInfo, unreachable)
+	       Goal0 = _ - GoalInfo,
+	       goal_info_get_instmap_delta(GoalInfo, unreachable)
 	->
-		detect_deadness_in_conj(Goals0, Deadness0,
-						ModuleInfo, Goals, Deadness2),
-		detect_deadness_in_goal(Goal0, Deadness2,
-						ModuleInfo, Deadness, Goal)
+		% the first goal in a conj with a delta inst of
+		% unreachable is executed, but any later goals
+		% in the conj are not, so we'd better stop at this
+		% goal.
+	       detect_deadness_in_goal(Goal0, Deadness0,
+					       ModuleInfo, Deadness, Goal),
+		Goals = Goals0
 	;
-		detect_deadness_in_conj(Goals0, Deadness0,
-						ModuleInfo, Goals, Deadness1),
-		detect_deadness_in_goal(Goal0, Deadness1,
-						ModuleInfo, Deadness, Goal)
+	       detect_deadness_in_conj(Goals0, Deadness0,
+					       ModuleInfo, Goals, Deadness1),
+	       detect_deadness_in_goal(Goal0, Deadness1,
+					       ModuleInfo, Deadness, Goal)
 	).
-
 %-----------------------------------------------------------------------------%
 
 :- pred detect_deadness_in_disj(list(hlds__goal), set(var), module_info,

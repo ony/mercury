@@ -263,31 +263,41 @@ switch_gen__generate_all_cases(Cases, Var, CodeModel, CanFail, EndLabel, Code)
 		}
 	;
 		switch_gen__generate_cases(Cases, Var, CodeModel, CanFail,
-			EndLabel, CasesCode),
+			EndLabel, CasesCode, ML),
+		(
+			{ ML = yes(Liveness) }
+		->
+			code_info__set_liveness_info(Liveness)
+		;
+			{ error("No liveness!") }
+		),
 		{ Code = tree(VarCode, CasesCode) }
 	).
 
 :- pred switch_gen__generate_cases(list(extended_case), var,
-	code_model, can_fail, label, code_tree, code_info, code_info).
-:- mode switch_gen__generate_cases(in, in, in, in, in, out, in, out) is det.
+	code_model, can_fail, label, code_tree,
+	maybe(liveness_info), code_info, code_info).
+:- mode switch_gen__generate_cases(in, in, in, in, in, out, out,in, out) is det.
 
 	% At the end of a locally semidet switch, we fail because we
 	% came across a tag which was not covered by one of the cases.
 	% It is followed by the end of switch label to which the cases
 	% branch.
-switch_gen__generate_cases([], _Var, _CodeModel, CanFail, EndLabel, Code) -->
+switch_gen__generate_cases([], _Var, _CodeModel, CanFail, EndLabel,
+								Code, ML) -->
 	( { CanFail = can_fail } ->
 		code_info__generate_failure(FailCode)
 	;
 		{ FailCode = empty }
 	),
+	{ ML = no },
 	{ Code = tree(FailCode, node([ label(EndLabel) -
 		"End of switch" ])) }.
 
 	% A case consists of a tag-test followed by a 
 	% goal and a label for the start of the next case.
 switch_gen__generate_cases([case(_, _, Cons, Goal)|Cases], Var, CodeModel,
-				CanFail, EndLabel, CasesCode) -->
+				CanFail, EndLabel, CasesCode, ML) -->
 	(
 		{ Cases = [_|_] ; CanFail = can_fail }
 	->
@@ -306,15 +316,17 @@ switch_gen__generate_cases([case(_, _, Cons, Goal)|Cases], Var, CodeModel,
 			label(ElseLabel) - "next case"
 		]) },
 		{ ThisCaseCode = tree(tree(TestCode, ThisCode), ElseCode) },
-
+		code_info__get_liveness_info(L),
 			% We restore the expression cache
 			% unconditionally so that the generation
 			% of failure happens properly.
 		code_info__slap_code_info(CodeInfo)
 	;
+		code_info__get_liveness_info(L),
 		code_gen__generate_forced_goal(CodeModel, Goal, ThisCaseCode)
 	),
 		% generate the rest of the cases.
 	switch_gen__generate_cases(Cases, Var, CodeModel, CanFail, EndLabel,
-		CasesCode0),
+		CasesCode0, _),
+	{ ML = yes(L) },
 	{ CasesCode = tree(ThisCaseCode, CasesCode0) }.

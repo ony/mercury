@@ -470,7 +470,8 @@ code_gen__generate_det_goal_2(switch(Var, CanFail, CaseList), GoalInfo, Instr) -
 	->
 		code_info__push_store_map(StoreMap),
 		switch_gen__generate_switch(model_det,
-						Var, CanFail, CaseList, Instr)
+						Var, CanFail, CaseList, Instr),
+		code_info__pop_store_map
 	;
 		switch_gen__generate_switch(model_det,
 						Var, CanFail, CaseList, Instr)
@@ -864,8 +865,13 @@ code_gen__generate_semi_goal(Goal - GoalInfo, Instr) -->
 		;
 			{ CodeModel = model_non },
 			code_info__generate_pre_commit(PreCommit, FailLabel),
+			code_info__grab_code_info(CodeInfo0),
 			code_gen__generate_non_goal_2(Goal, GoalInfo, GoalCode),
+			code_info__grab_code_info(CodeInfo1),
+			code_info__slap_code_info(CodeInfo0),
+			code_info__remake_with_call_info,
 			code_info__generate_commit(FailLabel, Commit),
+			code_info__slap_code_info(CodeInfo1),
 			{ Instr0 = tree(PreCommit, tree(GoalCode, Commit)) }
 		),
 		code_info__set_instmap(InstMap),
@@ -933,7 +939,8 @@ code_gen__generate_semi_goal_2(switch(Var, CanFail, CaseList), GoalInfo, Instr) 
 	->
 		code_info__push_store_map(StoreMap),
 		switch_gen__generate_switch(model_semi,
-						Var, CanFail, CaseList, Instr)
+						Var, CanFail, CaseList, Instr),
+		code_info__pop_store_map
 	;
 		switch_gen__generate_switch(model_semi,
 						Var, CanFail, CaseList, Instr)
@@ -1163,7 +1170,8 @@ code_gen__generate_non_goal_2(switch(Var, CanFail, CaseList), GoalInfo, Instr) -
 	->
 		code_info__push_store_map(StoreMap),
 		switch_gen__generate_switch(model_non,
-						Var, CanFail, CaseList, Instr)
+						Var, CanFail, CaseList, Instr),
+		code_info__pop_store_map
 	;
 		switch_gen__generate_switch(model_non,
 						Var, CanFail, CaseList, Instr)
