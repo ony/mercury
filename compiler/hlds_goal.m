@@ -524,7 +524,7 @@
 :- type cell_to_reuse
 	---> cell_to_reuse(
 		prog_var,
-		cons_id,
+		list(cons_id),
 		list(bool)      % A `no' entry means that the corresponding
 				% argument already has the correct value
 				% and does not need to be filled in.

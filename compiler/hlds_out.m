@@ -1179,13 +1179,17 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 				io__write_string("cell just died (deconstruction).\n") 
 			;
 				{ REUSE = reuse(cell_reused(ProgVar,
-						IntroducesCondition)) }
+						IntroducesCondition,
+						ConsIds)) }
 			->
 				io__write_string("cell "),
 				mercury_output_var(ProgVar, VarSet, 
 					AppendVarnums),
+				io__write_string(" with possible cons_ids: ["),
+				io__write_list(ConsIds, ", ",
+						hlds_out__write_cons_id),
 				io__write_string(
-					" just reused in a construction "),
+					"] just reused in a construction "),
 				( { IntroducesCondition = yes } ->
 					io__write_string("conditionally.")
 				;

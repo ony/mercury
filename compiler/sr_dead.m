@@ -329,7 +329,7 @@ unification_verify_reuse( ModuleInfo, ProcInfo,
 :- mode dead_cell_pool_leave_scope( in, in, out) is det.
 
 :- pred dead_cell_pool_try_to_reuse( cons_id, dead_cell_pool, 
-		set(pair(prog_var, reuse_condition))).
+		set(reuse_var)).
 :- mode dead_cell_pool_try_to_reuse( in, in, out) is det.
 
 dead_cell_pool_init( HVS, Pool ):- 
@@ -465,10 +465,9 @@ cons_can_reuse( Arity, _Var - Extra ) :-
 	Extra = extra( DeadArity, _, _), 
 	Arity =< DeadArity.
 
-:- pred to_pair_var_condition( pair( prog_var, dead_extra_info), 
-		pair( prog_var, reuse_condition) ).
-:- mode to_pair_var_condition( in, out ) is det.
+:- pred to_pair_var_condition(pair(prog_var, dead_extra_info), reuse_var).
+:- mode to_pair_var_condition(in, out) is det.
 
-to_pair_var_condition( Var - Extra, Var - Condition ) :- 
-	Extra = extra( _, Condition, _).
+to_pair_var_condition(Var - Extra, reuse_var(Var, Condition, no)) :- 
+	Extra = extra(_, Condition, _).
 

@@ -192,10 +192,11 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 
 			% XXX recode this more efficiently at some stage.
 		{ P = (pred(Candidate::out) is nondet :- 
-			list__member(Candidate, PossibleCandidates),
-			CandidateVar = fst(Candidate),
+			list__member(Candidate0, PossibleCandidates),
+			CandidateVar = Candidate0 ^ var,
 			multi_map__search(Map, CandidateVar, ConsIds),
-			list__remove_dups(ConsIds, [ConsId])
+			list__remove_dups(ConsIds, [ConsId]),
+			Candidate = Candidate0 ^ cons_ids := yes(ConsIds)
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
@@ -206,8 +207,8 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			% require storage of the corresponding type
 			% infos.
 		{ P = (pred(Candidate::out) is nondet :- 
-			list__member(Candidate, PossibleCandidates),
-			CandidateVar = fst(Candidate),
+			list__member(Candidate0, PossibleCandidates),
+			CandidateVar = Candidate0 ^ var,
 			multi_map__search(Map, CandidateVar, ConsIds),
 			cons_id_arity(ConsId, Arity),
 			all [ReuseConsId] (
@@ -217,7 +218,8 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 					cons_id_arity(ReuseConsId, ReuseArity),
 					ReuseArity - Arity =< Difference
 				)
-			)
+			),
+			Candidate = Candidate0 ^ cons_ids := yes(ConsIds)
 		)}
 	),
 	{ solutions(P, Candidates) },
@@ -485,9 +487,11 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 		{ Selection = lifo },
 		Locals =^ lifo ^ local,
 		Globals =^ lifo ^ global,
-		{ F = (pred(Var::in, Var - Cond::out) is semidet :-
-				assoc_list__search(PossibleCandidates,
-						Var, Cond),
+		{ F = (pred(Var::in, LocalReuseVar::out) is semidet :-
+				list__filter((pred(RV::in) is semidet :-
+						Var = RV ^ var
+					), PossibleCandidates,
+					[LocalReuseVar]),
 				\+ set__member(Var, LocalReused0),
 				\+ set__member(Var, GlobalReused)
 			)},
@@ -497,14 +501,21 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 		{ Selection = random },
 		{ P = (pred(Choice::out) is nondet :- 
 			list__member(Choice, PossibleCandidates),
-			ChoiceVar = fst(Choice),
+			ChoiceVar = Choice ^ var,
 			\+ set__member(ChoiceVar, LocalReused0),
 			\+ set__member(ChoiceVar, GlobalReused)
 		)},
 
 		{ solutions(P, Candidates) }
 	),
-	( { Candidates = [ReuseVar - ReuseCond | _] } ->
+	( { Candidates = [Candidate | _] } ->
+		{ ReuseVar = Candidate ^ var },
+		{ ReuseCond = Candidate ^ condition },
+		{ Candidate ^ cons_ids = yes(ConsIds0) ->
+			ConsIds = ConsIds0
+		;
+			error("select_reuses_unification: no cons_ids.")
+		},
 		{ set__insert(LocalReused0, ReuseVar, LocalReused) },
 		{
 			ReuseCond = always,
@@ -514,7 +525,8 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 			ConditionalReuse = yes
 		},
 		{ goal_info_set_reuse(GoalInfo0,
-				reuse(cell_reused(ReuseVar, ConditionalReuse)),
+				reuse(cell_reused(ReuseVar, ConditionalReuse,
+						ConsIds)),
 				GoalInfo) },
 		ReuseConditions =^ reuse_conds,
 		^ reuse_conds := [ReuseCond | ReuseConditions]

@@ -312,7 +312,7 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal0 = unify(UVar, Rhs, Mode, Unification0, Ctxt) },
 	{
 		goal_info_get_reuse(GoalInfo0, Reuse),
-		Reuse = reuse(cell_reused(ReuseVar, ConditionalReuse))
+		Reuse = reuse(cell_reused(ReuseVar, ConditionalReuse, ConsIds))
 	->
 		( ConditionalReuse = yes, LocalReuseOnly = yes ->
 			Unification = Unification0,
@@ -328,7 +328,7 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 					% strategy that only cells with
 					% the same cons_id can be shared.
 				HTC = reuse_cell(cell_to_reuse(ReuseVar,
-						ConsId,
+						ConsIds,
 						list__duplicate(
 							list__length(Vars), no)
 						)),

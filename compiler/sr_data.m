@@ -18,7 +18,7 @@
 :- import_module bool, map, set, std_util, list, io, term.
 :- import_module pa_alias_as, pa_datastruct.
 :- import_module sr_live.
-:- import_module hlds_pred, hlds_module, prog_data.
+:- import_module hlds_data, hlds_pred, hlds_module, prog_data.
 
 	% The information placed in the goal info which is used by
 	% structure reuse.
@@ -36,8 +36,10 @@
 
 					% The variable we have selected
 					% for reuse and whether the
-					% reuse is conditional
-			; 	cell_reused(prog_var, bool)
+					% reuse is conditional and the
+					% possible cons_ids that
+					% variable may have.
+			; 	cell_reused(prog_var, bool, list(cons_id))
 
 					% Call the reuse version of the
 					% call and wheter calling the
@@ -45,7 +47,13 @@
 			; 	reuse_call(bool)
 			; 	missed_reuse_call(list(string)). 
 
-:- type reuse_var == pair(prog_var, reuse_condition).
+:- type reuse_var
+	--->	reuse_var(
+			var		:: prog_var,
+			condition	:: reuse_condition,
+			cons_ids	:: maybe(list(cons_id))
+		).
+
 :- type choice_info
 	--->	deconstruct(
 				% The condition under which this cell
