@@ -307,7 +307,7 @@ ML_math_domain_error(MR_String where)
 :- pragma foreign_proc("MC++", 
 	math__ceiling(Num::in) = (Ceil::out),
 		[will_not_call_mercury, thread_safe],"
-	Ceil = System::Math::Ceil(Num);
+	Ceil = System::Math::Ceiling(Num);
 ").
 
 %
@@ -347,24 +347,7 @@ ML_math_domain_error(MR_String where)
 % math__truncate(X) = Trunc is true if Trunc is the integer
 % closest to X such that |Trunc| =< |X|.
 %
-:- pragma foreign_proc("C",
-	math__truncate(X::in) = (Trunc::out),
-		[will_not_call_mercury, thread_safe],"
-	if (X < 0.0) {
-		Trunc = ceil(X);
-	} else {
-		Trunc = floor(X);
-	}
-").
-:- pragma foreign_proc("MC++",
-	math__truncate(X::in) = (Trunc::out),
-		[will_not_call_mercury, thread_safe],"
-	if (X < 0.0) {
-		Trunc = System::Math::Ceil(X);
-	} else {
-		Trunc = System::Math::Floor(X);
-	}
-").
+math__truncate(X) = (X < 0.0 -> math__ceiling(X) ; math__floor(X)).
 
 %
 % math__sqrt(X) = Sqrt is true if Sqrt is the positive square

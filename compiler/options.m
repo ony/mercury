@@ -1014,6 +1014,7 @@ long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
 long_option("type-layout",		type_layout).
 long_option("use-foreign-language",	use_foreign_language).
+long_option("backend-foreign-language",	backend_foreign_language).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -1534,13 +1535,13 @@ opt_level(3, _, [
 % Optimization level 4: apply optimizations which may have some
 % payoff even if they increase compilation time quite a bit
 
-% Currently this enables value_number
+% Currently this enables the use of local variables
 % and increases the inlining thresholds
 
 opt_level(4, _, [
-	delay_construct		-	bool(yes),
-	lazy_code		-	bool(yes),
-	optimize_value_number	-	bool(yes),
+	% lazy_code		-	bool(yes),
+	% optimize_value_number	-	bool(yes),
+	use_local_vars		-	bool(yes),
 	inline_simple_threshold	-	int(8),
 	inline_compound_threshold -	int(20),
 	higher_order_size_limit -	int(30)
@@ -1549,13 +1550,15 @@ opt_level(4, _, [
 % Optimization level 5: apply optimizations which may have some
 % payoff even if they increase compilation time a lot
 
-% Currently this enables pred_value_number
-% and runs a second pass of value numbering
+% Currently this enables the search for construction unifications that can be
+% delayed past failing computations, allows more passes of the low-level
+% optimizations, and increases the inlining thresholds still further.
 
 opt_level(5, _, [
-	pred_value_number	-	bool(yes),
+	% pred_value_number	-	bool(yes),
+	% optimize_vnrepeat	-	int(2),
 	optimize_repeat		-	int(5),
-	optimize_vnrepeat	-	int(2),
+	delay_construct		-	bool(yes),
 	inline_compound_threshold -	int(100),
 	higher_order_size_limit -	int(40)
 ]).

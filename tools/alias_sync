@@ -3,7 +3,7 @@
 # compiler.  It should be executed from within the mercury/compiler/
 # directory in a checked-out version of the alias branch.
 
-sync_tag_file=.alias_trunk_sync_tag
+sync_tag_file=.dotnet_foreign_trunk_sync_tag
 
 if [ ! -f $sync_tag_file ]
 then
@@ -13,7 +13,7 @@ fi
 
 old_tag=`cat $sync_tag_file`
 new_tag=trunk_snapshot_`date +%Y%m%d%H%M%S`
-source_dir=mercury/compiler
+source_dir=mercury
 
 echo old tag: $old_tag
 echo new tag: $new_tag

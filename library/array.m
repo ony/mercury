@@ -533,7 +533,7 @@ void sys_init_array_module_builtins(void) {
     static int
     do_unify__array_1_0(MR_Word type_info, MR_Box x, MR_Box y)
     {
-            return mercury::array__c_code::__Unify____array_1_0(
+            return mercury::array__c_code::mercury_code::__Unify____array_1_0(
                     type_info, 
                     dynamic_cast<MR_Array>(x),
                     dynamic_cast<MR_Array>(y));
@@ -543,7 +543,7 @@ void sys_init_array_module_builtins(void) {
     do_compare__array_1_0(
             MR_Word type_info, MR_Word_Ref result, MR_Box x, MR_Box y)
     {
-            mercury::array__c_code::__Compare____array_1_0(
+            mercury::array__c_code::mercury_code::__Compare____array_1_0(
                     type_info, result, 
                     dynamic_cast<MR_Array>(x),
                     dynamic_cast<MR_Array>(y));
@@ -802,13 +802,13 @@ array__slow_set(Array0, Index, Item, Array) :-
 		array__lookup(Array::array_ui, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
-	Item = Array->GetValue(Index);
+	Item = dynamic_cast<MR_Word>(Array->GetValue(Index));
 }").
 :- pragma foreign_proc("MC++",
 		array__lookup(Array::in, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
         mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
-	Item = Array->GetValue(Index);
+	Item = dynamic_cast<MR_Word>(Array->GetValue(Index));
 }").
 
 
