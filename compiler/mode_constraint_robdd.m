@@ -19,14 +19,14 @@
 :- module mode_constraint_robdd.
 :- interface.
 
-:- import_module prog_data, hlds_goal.
-:- import_module io, robdd, term, set, stack, map.
-:- import_module hlds_module, inst_graph, hlds_pred.
+:- import_module prog_data, hlds_goal, hlds_pred.
+:- import_module xrobdd, term, set, stack, map.
+% :- import_module io, hlds_module, inst_graph.
 /*
 :- import_module list.
 */
 
-:- type mode_constraint == robdd(mc_type).
+:- type mode_constraint == xrobdd(mc_type).
 :- type mode_constraint_var == var(mc_type).
 :- type mode_constraint_info.
 :- type threshold.
@@ -92,6 +92,7 @@
 		set(mode_constraint_var)::out, mode_constraint_info::in,
 		mode_constraint_info::out) is det.
 
+/*
 :- pred dump_mode_constraints(module_info::in, pred_info::in, inst_graph::in,
 		mode_constraint::in, mode_constraint_info::in,
 		io__state::di, io__state::uo) is det.
@@ -102,6 +103,7 @@
 :- pred robdd_to_dot(mode_constraint::in, prog_varset::in,
 		mode_constraint_info::in, string::in,
 		io__state::di, io__state::uo) is det.
+*/
 
 :- type prodvars_map == map(lambda_path, set(prog_var)).
 
@@ -111,8 +113,8 @@
 
 
 :- implementation.
-:- import_module robdd, std_util, list, term, varset, map, require, term_io.
-:- import_module bimap, assoc_list, string, stack.
+:- import_module std_util, list, term, varset, map, require, term_io.
+:- import_module bimap, assoc_list, string, stack, sparse_bitset, robdd.
 
 :- type mc_type ---> mc_type.
 
@@ -216,7 +218,7 @@ save_threshold(varset__max_var(VarSet)) -->
 	VarSet =^ varset.
 
 restrict_threshold(Threshold, Constraint) =
-	robdd__restrict_threshold(Threshold, Constraint).
+	xrobdd__restrict_threshold(Threshold, Constraint).
 
 restrict_filter(P0, Info, M) = restrict_filter(P, M) :-
 	P = (pred(MCV::in) is semidet :-
@@ -247,6 +249,7 @@ get_interesting_vars_for_pred(PredId, Vars) -->
 	    varset__vars
 	)(VarSet) }.
 
+/*
 dump_mode_constraints(_ModuleInfo, _PredInfo, _InstGraph, ROBDD, Info) -->
 	{ AL = (list__sort `compose`
 		assoc_list__reverse_members `compose`
@@ -262,7 +265,7 @@ dump_mode_constraints(_ModuleInfo, _PredInfo, _InstGraph, ROBDD, Info) -->
 	nl,
 	flush_output.
 
-dump_constraints(_ModuleInfo, _VarSet, ROBDD /*- _Constraints*/) -->
+dump_constraints(_ModuleInfo, _VarSet, ROBDD) -->
 	{ robdd__size(ROBDD, Nodes, Depth) },
 	io__format("Nodes: %d \tDepth: %d\n", [i(Nodes), i(Depth)]),
 	flush_output.
@@ -312,7 +315,7 @@ dump_goal_path_step(first) -->
 dump_goal_path_step(later) -->
 	io__write_char('l').
 
-robdd_to_dot(Constraint/* - _*/, ProgVarSet, Info, FileName) -->
+robdd_to_dot(Constraint, ProgVarSet, Info, FileName) -->
 	robdd_to_dot(Constraint, P, FileName),
 	{ VarMap = Info^varmap },
 	{ P = (pred(RobddVar::in, di, uo) is det -->
@@ -325,6 +328,7 @@ robdd_to_dot(Constraint/* - _*/, ProgVarSet, Info, FileName) -->
 		io__write_string(" "),
 		io__write_int(stack__depth(LambdaPath))
 	)}.
+*/
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -348,7 +352,7 @@ atomic_prodvars_map(Constraint, MCInfo) =
 			;
 			    PVM
 			)
-		    ), set__to_sorted_list(VarsEntailed), map__init)
+		    ), to_sorted_list(VarsEntailed), map__init)
 	;
 		abort("atomic_prodvars_map: zero constraint")
 	).

@@ -238,8 +238,8 @@ new(HashPred, N, MaxOccupancy) = HT :-
             NumBuckets   = 1 << N,
             MaxOccupants = ceiling_to_int(float(NumBuckets) * MaxOccupancy),
             Bitmap       = bitmap__new(NumBuckets, no),
-            Keys         = array__make_empty_array,
-            Values       = array__make_empty_array,
+            Keys         = array__init(NumBuckets, null),
+            Values       = array__init(NumBuckets, null),
             HT = ht(NumBuckets, 0, MaxOccupants, HashPred, Bitmap, Keys, Values)
     ).
 
@@ -408,8 +408,8 @@ expand(HT0) = HT :-
     NBs = NBs0 + NBs0,
     MOs = MOs0 + MOs0,
     BM  = bitmap__new(NBs, no),
-    Ks  = array__make_empty_array,
-    Vs  = array__make_empty_array,
+    Ks  = array__init(NBs, null),
+    Vs  = array__init(NBs, null),
 
     HT1 = ht(NBs, 0, MOs, HP, BM, Ks, Vs),
 
@@ -587,6 +587,15 @@ dynamic_cast_to_array(X, A) :-
         % cast.
         %
     dynamic_cast(X, A `with_type` array(ArgType)).
+
+% ---------------------------------------------------------------------------- %
+
+% Return a null value to use for initialising the hash table arrays.
+% WARNING: this may not give a valid value of the type.  Be very careful.
+:- func null = T.
+
+:- pragma foreign_code("C", null = (X::out),
+        [will_not_call_mercury, thread_safe], "X = (Word) 0;").
 
 % ---------------------------------------------------------------------------- %
 % ---------------------------------------------------------------------------- %

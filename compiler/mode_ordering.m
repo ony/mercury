@@ -29,7 +29,7 @@
 :- implementation.
 
 :- import_module set, stack, std_util, require, relation, assoc_list.
-:- import_module robdd.
+:- import_module xrobdd.
 :- import_module hlds_goal, prog_data, clause_to_proc, mode_constraint_robdd.
 
 mode_ordering(PredConstraintMap, SCCs, ModuleInfo0, ModuleInfo) -->

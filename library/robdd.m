@@ -48,10 +48,14 @@
 
 :- interface.
 
-:- import_module term, io, set, list.
+:- import_module term, io, sparse_bitset, list.
 
 :- type robdd(T).
 :- type robdd == robdd(generic).
+
+:- type vars(T) == sparse_bitset(var(T)). % XXX experiment with different reps.
+
+:- func empty_vars_set = vars(T).
 
 % Constants.
 :- func one = robdd(T).
@@ -106,14 +110,17 @@
 :- func imp_vars(var(T), var(T)) = robdd(T).
 
 	% conj_vars([V1, V2, ..., Vn]) = var(V1) * var(V2) * ... * var(Vn).
-:- func conj_vars(set(var(T))) = robdd(T).
+:- func conj_vars(vars(T)) = robdd(T).
+
+	% conj_not_vars([V1, V2, ..., Vn]) = not_var(V1) * ... * not_var(Vn).
+:- func conj_not_vars(vars(T)) = robdd(T).
 
 	% disj_vars([V1, V2, ..., Vn]) = var(V1) + var(V2) + ... + var(Vn).
-:- func disj_vars(set(var(T))) = robdd(T).
+:- func disj_vars(vars(T)) = robdd(T).
 
 	% at_most_one_of(Vs) = 
 	%	foreach pair Vi, Vj in Vs where Vi \= Vj. ~(var(Vi) * var(Vj)).
-:- func at_most_one_of(set(var(T))) = robdd(T).
+:- func at_most_one_of(vars(T)) = robdd(T).
 
 	% var_restrict_true(V, F) = restrict(V, F * var(V)).
 :- func var_restrict_true(var(T), robdd(T)) = robdd(T).
@@ -135,9 +142,17 @@
 	% Return the set of vars entailed by the ROBDD.
 :- func vars_entailed(robdd(T)) = vars_entailed_result(T).
 
+	% Return the set of vars disentailed by the ROBDD.
+:- func vars_disentailed(robdd(T)) = vars_entailed_result(T).
+
+	% definite_vars(R, T, F) <=> T = vars_entailed(R) /\
+	% 			     F = vars_disentailed(R)
+:- pred definite_vars(robdd(T)::in, vars_entailed_result(T)::out,
+		vars_entailed_result(T)::out) is det.
+
 :- type vars_entailed_result(T)
 	--->	all_vars
-	;	some_vars(set(var(T))).
+	;	some_vars(vars(T)).
 
 	% Existentially quantify away the var in the ROBDD.
 :- func restrict(var(T), robdd(T)) = robdd(T).
@@ -148,6 +163,10 @@
 	% Existentially quantify away all vars for which the predicate fails.
 :- func restrict_filter(pred(var(T)), robdd(T)) = robdd(T).
 :- mode restrict_filter(pred(in) is semidet, in) = out is det.
+
+:- func restrict_true_false_vars(vars(T), vars(T), robdd(T)) = robdd(T).
+
+%-----------------------------------------------------------------------------%
 
 	% Print out the ROBDD in disjunctive form.
 :- pred print_robdd(robdd(T)::in, io__state::di, io__state::uo) is det.
@@ -184,7 +203,7 @@
 :- pred var_is_constrained(robdd(T)::in, var(T)::in) is semidet.
 
 	% Succeed iff all the vars in the set are constrained by the ROBDD.
-:- pred vars_are_constrained(robdd(T)::in, set(var(T))::in) is semidet.
+:- pred vars_are_constrained(robdd(T)::in, vars(T)::in) is semidet.
 
 %-----------------------------------------------------------------------------%
 
@@ -197,8 +216,8 @@
 	%	variables assigned the value 0).
 	%
 	% XXX should try using sparse_bitset here.
-:- pred labelling(set(var(T))::in, robdd(T)::in, set(var(T))::out,
-		set(var(T))::out) is nondet.
+:- pred labelling(vars(T)::in, robdd(T)::in, vars(T)::out,
+		vars(T)::out) is nondet.
 
 	% minimal_model(Vars, ROBDD, TrueVars, FalseVars)
 	%	Takes a set of Vars and an ROBDD and returns a value assignment
@@ -209,8 +228,8 @@
 	%	variables assigned the value 0).
 	%
 	% XXX should try using sparse_bitset here.
-:- pred minimal_model(set(var(T))::in, robdd(T)::in, set(var(T))::out,
-		set(var(T))::out) is nondet.
+:- pred minimal_model(vars(T)::in, robdd(T)::in, vars(T)::out,
+		vars(T)::out) is nondet.
 
 %-----------------------------------------------------------------------------%
 
@@ -231,8 +250,11 @@
 
 :- import_module set_unordlist, list, string, map, bool, set_bbbtree, int.
 :- import_module multi_map, require.
+:- import_module hash_table.
 
 :- type robdd(T) ---> robdd(c_pointer).
+
+empty_vars_set = sparse_bitset__init.
 
 :- pragma c_header_code("
 #define USE_ITE_CONSTANT
@@ -273,7 +295,7 @@ X * Y = R :-
 % XXX
 :- pred report_zero_constraint is det.
 :- pragma c_code(report_zero_constraint, [will_not_call_mercury],
-		"fprintf(stderr, ""Zero constraint!!!"");").
+		"fprintf(stderr, ""Zero constraint!!!\\n"");").
 
 :- pragma c_code((X::in) + (Y::in) = (F::out), [will_not_call_mercury],
 		"F = (Word) lub((node *) X, (node *) Y);").
@@ -296,7 +318,7 @@ X * Y = R :-
 
 vars_entailed(R) =
 	( R = one ->
-		some_vars(set__init)
+		some_vars(empty_vars_set)
 	; R = zero ->
 		all_vars
 	;
@@ -307,6 +329,47 @@ vars_entailed(R) =
 				`insert` R^value
 		;
 			vars_entailed(R^tr) `intersect` vars_entailed(R^fa)
+		)
+	).
+
+vars_disentailed(R) =
+	( R = one ->
+		some_vars(empty_vars_set)
+	; R = zero ->
+		all_vars
+	;
+		(
+			R^tr = zero
+		->
+			(vars_disentailed(R^tr) `intersect`
+				vars_disentailed(R^fa)) `insert` R^value
+		;
+			vars_disentailed(R^tr) `intersect`
+				vars_disentailed(R^fa)
+		)
+	).
+
+definite_vars(R, T, F) :-
+	( R = one ->
+		T = some_vars(empty_vars_set),
+		F = some_vars(empty_vars_set)
+	; R = zero ->
+		T = all_vars,
+		F = all_vars
+	;
+		definite_vars(R^tr, T_tr, F_tr),
+		definite_vars(R^fa, T_fa, F_fa),
+		T0 = T_tr `intersect` T_fa,
+		F0 = F_tr `intersect` F_fa,
+		( R^fa = zero ->
+			T = T0 `insert` R^value,
+			F = F0
+		; R^tr = zero ->
+			T = T0,
+			F = F0 `insert` R^value
+		;
+			T = T0,
+			F = F0
 		)
 	).
 
@@ -347,10 +410,8 @@ print_robdd(F) -->
 	; { F = zero } ->
 		io__write_string("FALSE\n")
 	;
-		{ set_unordlist__init(Trues) },
-		{ set_unordlist__init(Falses) },
-			% XXX should see if sparse_bitset is more efficient
-			% here.
+		{ init(Trues) },
+		{ init(Falses) },
 		print_robdd_2(F, Trues, Falses)
 	).
 
@@ -447,22 +508,22 @@ imp_vars(VarA, VarB) = F :-
 		F = make_node(VarB, one, not_var(VarA))
 	).
 
-conj_vars(Vars) = list__foldr(func(V, R) = make_node(V, R, zero),
-		set__to_sorted_list(Vars), one).
+conj_vars(Vars) = foldr(func(V, R) = make_node(V, R, zero), Vars, one).
 
-disj_vars(Vars) = list__foldr(func(V, R) = make_node(V, one, R),
-		set__to_sorted_list(Vars), zero).
+conj_not_vars(Vars) = foldr(func(V, R) = make_node(V, zero, R), Vars, one).
+
+disj_vars(Vars) = foldr(func(V, R) = make_node(V, one, R), Vars, zero).
 
 at_most_one_of(Vars) = at_most_one_of_2(Vars, one, one).
 
-:- func at_most_one_of_2(set(var(T)), robdd(T), robdd(T)) = robdd(T).
+:- func at_most_one_of_2(vars(T), robdd(T), robdd(T)) = robdd(T).
 
 at_most_one_of_2(Vars, OneOf0, NoneOf0) = R :-
 	list__foldl2(
 		(pred(V::in, One0::in, One::out, None0::in, None::out) is det :-
 			None = make_node(V, zero, None0),
 			One = make_node(V, None0, One0)
-		), list__reverse(set__to_sorted_list(Vars)), 
+		), list__reverse(to_sorted_list(Vars)), 
 		OneOf0, R, NoneOf0, _).
 
 var_restrict_true(V, F0) = F :-
@@ -502,6 +563,50 @@ var_restrict_false(V, F0) = F :-
 			F = F0
 		)
 	).
+
+restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
+	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R,
+		hash_table__new(robdd_double_hash, 8, 0.9), _).
+
+:- pred restrict_true_false_vars_2(vars(T)::in, vars(T)::in,
+	robdd(T)::in, robdd(T)::out,
+	hash_table(robdd(T), robdd(T))::hash_table_di,
+	hash_table(robdd(T), robdd(T))::hash_table_uo) is det.
+
+restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R, Seen0, Seen) :-
+	( is_terminal(R0) ->
+		R = R0,
+		Seen = Seen0
+	; empty(TrueVars0), empty(FalseVars0) ->
+		R = R0,
+		Seen = Seen0
+	; search(Seen0, R0, R1) ->
+		R = R1,
+		Seen = Seen0
+	;	
+		Var = R0 ^ value,
+		TrueVars = TrueVars0 `remove_leq` Var,
+		FalseVars = FalseVars0 `remove_leq` Var,
+		( TrueVars0 `contains` Var ->
+			restrict_true_false_vars_2(TrueVars, FalseVars,
+				R0 ^ tr, R, Seen0, Seen2)
+		; FalseVars0 `contains` Var ->
+			restrict_true_false_vars_2(TrueVars, FalseVars,
+				R0 ^ fa, R, Seen0, Seen2)
+		;
+			restrict_true_false_vars_2(TrueVars, FalseVars,
+				R0 ^ tr, R_tr, Seen0, Seen1),
+			restrict_true_false_vars_2(TrueVars, FalseVars,
+				R0 ^ fa, R_fa, Seen1, Seen2),
+			R = make_node(R0 ^ value, R_tr, R_fa)
+		),
+		Seen = det_insert(Seen2, R0, R)
+	).
+
+:- pred robdd_double_hash(robdd(T)::in, int::out, int::out) is det.
+
+robdd_double_hash(R, H1, H2) :-
+	int_double_hash(node_num(R), H1, H2).
 
 restrict_filter(P, F0) = F :- filter_2(P, F0, F, map__init, _, map__init, _).
 
@@ -593,7 +698,7 @@ var_is_constrained(F, V) :-
 	).
 
 vars_are_constrained(F, Vs) :-
-	vars_are_constrained_2(F, set__to_sorted_list(Vs)).
+	vars_are_constrained_2(F, to_sorted_list(Vs)).
 
 :- pred vars_are_constrained_2(robdd(T)::in, list(var(T))::in) is semidet.
 
@@ -721,11 +826,11 @@ write_edge(R0, R1, Arc) -->
 	).
 
 labelling(Vars, R, TrueVars, FalseVars) :-
-	labelling_2(set__to_sorted_list(Vars), R, set__init, TrueVars,
-		set__init, FalseVars).
+	labelling_2(to_sorted_list(Vars), R, empty_vars_set, TrueVars,
+		empty_vars_set, FalseVars).
 
-:- pred labelling_2(list(var(T))::in, robdd(T)::in, set(var(T))::in,
-		set(var(T))::out, set(var(T))::in, set(var(T))::out) is nondet.
+:- pred labelling_2(list(var(T))::in, robdd(T)::in, vars(T)::in,
+		vars(T)::out, vars(T)::in, vars(T)::out) is nondet.
 
 labelling_2([], _, TrueVars, TrueVars, FalseVars, FalseVars).
 labelling_2([V | Vs], R0, TrueVars0, TrueVars, FalseVars0, FalseVars) :-
@@ -740,12 +845,12 @@ labelling_2([V | Vs], R0, TrueVars0, TrueVars, FalseVars0, FalseVars) :-
 		FalseVars).
 
 minimal_model(Vars, R, TrueVars, FalseVars) :-
-	( set__empty(Vars) ->
-		TrueVars = set__init,
-		FalseVars = set__init
+	( empty(Vars) ->
+		TrueVars = empty_vars_set,
+		FalseVars = empty_vars_set
 	;
-		minimal_model_2(set__to_sorted_list(Vars), R, set__init,
-			TrueVars0, set__init, FalseVars0),
+		minimal_model_2(to_sorted_list(Vars), R, empty_vars_set,
+			TrueVars0, empty_vars_set, FalseVars0),
 		(
 			TrueVars = TrueVars0,
 			FalseVars = FalseVars0
@@ -755,8 +860,8 @@ minimal_model(Vars, R, TrueVars, FalseVars) :-
 		)
 	).
 
-:- pred minimal_model_2(list(var(T))::in, robdd(T)::in, set(var(T))::in,
-		set(var(T))::out, set(var(T))::in, set(var(T))::out) is semidet.
+:- pred minimal_model_2(list(var(T))::in, robdd(T)::in, vars(T)::in,
+		vars(T)::out, vars(T)::in, vars(T)::out) is semidet.
 
 minimal_model_2([], _, TrueVars, TrueVars, FalseVars, FalseVars).
 minimal_model_2([V | Vs], R0, TrueVars0, TrueVars, FalseVars0, FalseVars) :-

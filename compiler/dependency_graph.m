@@ -106,13 +106,10 @@ dependency_graph__build_pred_dependency_graph(ModuleInfo, DepInfo) :-
 dependency_graph__build_dependency_graph(ModuleInfo, DepInfo) :-
 	module_info_predids(ModuleInfo, PredIds),
 	relation__init(DepGraph0),
-	dependency_graph__add_nodes(PredIds, ModuleInfo,
-				DepGraph0, DepGraph1),
-	dependency_graph__add_arcs(PredIds, ModuleInfo,
-				DepGraph1, DepGraph),
+	dependency_graph__add_nodes(PredIds, ModuleInfo, DepGraph0, DepGraph1),
+	dependency_graph__add_arcs(PredIds, ModuleInfo, DepGraph1, DepGraph),
 	hlds_dependency_info_init(DepInfo0),
-	hlds_dependency_info_set_dependency_graph(DepInfo0, DepGraph,
-				DepInfo1),
+	hlds_dependency_info_set_dependency_graph(DepInfo0, DepGraph, DepInfo1),
 	relation__atsort(DepGraph, DepOrd0),
 	dependency_graph__sets_to_lists(DepOrd0, [], DepOrd),
 	hlds_dependency_info_set_dependency_ordering(DepInfo1, DepOrd, DepInfo).

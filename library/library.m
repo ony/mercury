@@ -38,7 +38,7 @@
 :- import_module integer, rational.
 :- import_module exception, gc.
 :- import_module time.
-:- import_module robdd.
+:- import_module robdd, xrobdd.
 :- import_module pprint.
 :- import_module bitmap.
 :- import_module hash_table.

@@ -19,7 +19,7 @@
 :- implementation.
 
 :- import_module list, map, std_util, bool, set, multi_map, require, int.
-:- import_module robdd, term, string, assoc_list.
+:- import_module xrobdd, robdd, term, string, assoc_list, sparse_bitset.
 :- import_module varset, term_io.
 :- import_module hhf, inst_graph, prog_data, hlds_goal, hlds_pred, passes_aux.
 :- import_module dependency_graph, mode_util, (inst), hlds_data, goal_path.
@@ -42,8 +42,7 @@
 ].
 
 mode_constraints__process_module(ModuleInfo0, ModuleInfo) -->
-	{ module_info_preds(ModuleInfo0, Preds0) },
-	{ map__keys(Preds0, PredIds) },
+	{ module_info_predids(ModuleInfo0, PredIds) },
 	list__foldl2(hhf__process_pred, PredIds, ModuleInfo0, ModuleInfo1),
 
 	{ get_predicate_sccs(ModuleInfo1, SCCs) },
@@ -55,7 +54,9 @@ mode_constraints__process_module(ModuleInfo0, ModuleInfo) -->
 	% Stage 2: Process SCCs top-down to determine execution order of
 	% conjuctions and which modes are needed for each predicate.
 	mode_ordering(PredConstraintMap, list__reverse(SCCs),
-		ModuleInfo2, ModuleInfo).
+		ModuleInfo2, ModuleInfo),
+		
+	clear_caches.
 
 :- pred mode_constraints__process_scc(list(pred_id)::in,
 		{module_info, pred_constraint_map}::in,
@@ -81,9 +82,7 @@ mode_constraints__process_scc(SCC, {ModuleInfo0, PredConstraintMap0},
 	{ PredConstraintMap = list__foldl((func(PredId, PCM) =
 		    map__det_insert(PCM, PredId,
 			{ModeConstraint, ModeConstraintInfo^pred_id := PredId})
-		), SCC, PredConstraintMap0) },
-
-	clear_caches.
+		), SCC, PredConstraintMap0) }.
 
 :- type number_robdd_info
 	--->	number_robdd_info(
@@ -488,14 +487,18 @@ mode_constraints__process_pred_2(PredId, ModeConstraint, ModeConstraintInfo0,
 		io__nl
 	    )),
 	*/
+	/*
 	{ split_constraint_into_modes(PredId, HeadVars, InstGraph,
 		ModeConstraint, _ProcConstraints, ModeConstraintInfo0,
 		ModeConstraintInfo) },
+	*/
 
+	/*
 	{ clauses_info_varset(ClausesInfo, ProgVarSet) },
 	{ pred_info_name(PredInfo, Name) },
 	robdd_to_dot(ModeConstraint, ProgVarSet, ModeConstraintInfo,
 		Name `string__append` ".dot"),
+	*/
 
 	io__flush_output,
 	%*/
@@ -583,19 +586,21 @@ add_atomic_goal(GoalPath) -->
 	{mode_constraint, mode_decl_info}::out) is det.
 
 mode_constraints__mode_decl_to_constraint(ModuleInfo, InstGraph, HeadVars,
-		PredInfo, ProcId, ProcInfo0, ProcInfo, {Constraint0, Info0},
+		_PredInfo, _ProcId, ProcInfo0, ProcInfo, {Constraint0, Info0},
 		{Constraint, Info}) :-
 	mode_constraints__process_mode_decl_for_proc(ModuleInfo, InstGraph,
 		HeadVars, false_var(initial), true_var(initial), yes,
 		false_var(final), true_var(final), no, ProcInfo0, zero,
 		DeclConstraint, Info0, Info),
 
+	/*
 	proc_id_to_int(ProcId, ProcIdInt), % XXX
 	pred_info_name(PredInfo, Name), % XXX
 	pred_info_clauses_info(PredInfo, ClausesInfo), % XXX
 	clauses_info_varset(ClausesInfo, ProgVarSet), % XXX
 	unsafe_perform_io(robdd_to_dot(DeclConstraint, ProgVarSet, Info^mc_info,
 		Name ++ int_to_string(ProcIdInt) ++ ".dot")), % XXX
+	*/
 
 	Constraint = Constraint0 + DeclConstraint,
 	proc_info_set_head_modes_constraint(ProcInfo0, DeclConstraint,
@@ -667,7 +672,7 @@ goal_path(Path, Var) = Var `at` Path.
 
 true_var(F, V, C0, C) -->
 	mode_constraint_var(F(V), CV),
-	{ C = C0 * var(CV) }.
+	{ C = C0 ^ var(CV) }.
 
 :- pred false_var(func(prog_var) = rep_var, prog_var, mode_constraint,
 		mode_constraint, mode_constraint_info, mode_constraint_info).
@@ -675,7 +680,7 @@ true_var(F, V, C0, C) -->
 
 false_var(F, V, C0, C) -->
 	mode_constraint_var(F(V), CV),
-	{ C = C0 * not_var(CV) }.
+	{ C = C0 ^ not_var(CV) }.
 
 :- pred ignore(prog_var, mode_constraint, mode_constraint,
 		mode_constraint_info, mode_constraint_info).
@@ -690,7 +695,7 @@ ignore(_, C, C) --> [].
 call_in(Path, Var, C0, C) -->
 	mode_constraint_var(Var `at` Path, VarGP),
 	mode_constraint_var(out(Var), VarOut),
-	{ C = C0 * not_var(VarGP) * var(VarOut) }.
+	{ C = C0 ^ not_var(VarGP) ^ var(VarOut) }.
 
 :- pred call_out(goal_path, prog_var, mode_constraint, mode_constraint,
 		mode_constraint_info, mode_constraint_info).
@@ -698,7 +703,7 @@ call_in(Path, Var, C0, C) -->
 
 call_out(Path, Var, C0, C) -->
 	mode_constraint_var(Var `at` Path, VarGP),
-	{ C1 = C0 * var(VarGP) },
+	{ C1 = C0 ^ var(VarGP) },
 	{ C1 \= zero ->
 		C = C1
 	;
@@ -820,12 +825,16 @@ mode_constraints__process_clauses_info(ModuleInfo, SCC, ClausesInfo0,
 	{ Constraint3 = Constraint2 },
 	{ Info2 = Info1 },
 
+	/*
 	robdd_to_dot(Constraint3, Info2^prog_varset,
 		Info2^mc_info, "before_higher_order.dot"), % XXX
+	*/
 	io__flush_output, % XXX
 	{ higher_order_call_constraints(Constraint3, Constraint, Info2, Info) },
+	/*
 	robdd_to_dot(Constraint, Info^prog_varset,
 		Info^mc_info, "after_higher_order.dot"), % XXX
+	*/
 	io__flush_output, % XXX
 
 	{ clauses_info_set_varset(ClausesInfo0, Info^prog_varset,
@@ -851,16 +860,10 @@ input_output_constraints(HeadVars, InstGraph, V, Node,
 	{ TopLevel `member` HeadVars ->
 		% For each variable V in the instantiation graph, add
 		%	Vout = Vin + V,  ~(Vin * V)
-		% XXX var(V_out) is a current limitation that should
-		% be removed in future.
-		% C0 = ( var(V_out) =:= var(V_in) + var(V_) ) * var(V_out),
-		C0 = ( var(V_out) =:= var(V_in) + var(V_) ),
-		C1 = ( ~(var(V_in) * var(V_)) )
+		Constraint1 = Constraint0 ^ io_constraint(V_in, V_out, V_)
 	;
-		C0 = not_var(V_in),
-		C1 = eq_vars(V_out, V_)
+		Constraint1 = Constraint0 ^ not_var(V_in) ^ eq_vars(V_out, V_)
 	},
-	{ Constraint1 = C0 * C1 * Constraint0 },
 
 	% For each node V in the graph with child f with child W, add
 	%	Wout -> Vout,  Win -> Vin
@@ -873,9 +876,8 @@ input_output_constraints(HeadVars, InstGraph, V, Node,
 			;
 				mode_constraint_var(in(W), W_in),
 				mode_constraint_var(out(W), W_out),
-				{ C2 = (var(W_out) =< var(V_out)) },
-				{ C3 = (var(W_in) =< var(V_in)) },
-				{ Cs = C2 * C3 * Cs0 }
+				{ Cs = Cs0 ^ imp_vars(W_out, V_out)
+					   ^ imp_vars(W_in, V_in) }
 			)
 		), Children, Constraint1, Constraint).
 
@@ -904,11 +906,13 @@ goal_constraints(ParentNonLocals, GoalExpr0 - GoalInfo0,
 	{ goal_info_get_nonlocals(GoalInfo0, NonLocals) },
 	goal_constraints_2(GoalPath, NonLocals, Vars, GoalExpr0, GoalExpr,
 		Constraint0, Constraint1),
+	/*
 	ModuleInfo =^ module_info, % XXX
 	ProgVarset =^ prog_varset, % XXX
 	 { functor(GoalExpr, Functor, _) }, % XXX
 	 { unsafe_perform_io(io__format("\nFunctor: %s\n", [s(Functor)])) }, % XXX
 	 { unsafe_perform_io(dump_constraints(ModuleInfo, ProgVarset, Constraint1)) }, % XXX
+	 */
 
 	% constrict_to_vars(set__to_sorted_list(NonLocals), Vars,
 	%	GoalPath, Constraint1, Constraint2)
@@ -954,9 +958,9 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 			get_var(V `at` P, CV)
 		    ), Ps, ConstraintVars0),
 	        get_var(V `at` GoalPath, VConj),
-	        { ConstraintVars = set__list_to_set(ConstraintVars0) },
-		{ Cn = Cn0 * at_most_one_of(ConstraintVars)
-			* ( disj_vars(ConstraintVars) =:= var(VConj) ) }
+	        { ConstraintVars = list_to_set(ConstraintVars0) },
+		{ Cn = Cn0 ^ at_most_one_of(ConstraintVars)
+			^ disj_vars_eq(ConstraintVars, VConj) }
 
 	    ), Usage, Constraint1, Constraint).
 
@@ -968,7 +972,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, disj(Goals0, SM),
 		get_var(V `at` GoalPath, Vgp),
 		list__foldl2((pred(Path::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` Path, VPath),
-			{ C = eq_vars(Vgp, VPath) * C0 }
+			{ C = C0 ^ eq_vars(Vgp, VPath) }
 		    ), DisjunctPaths, Cons0, Cons)
 	    ), set__to_sorted_list(Vars), Constraint1, Constraint).
 
@@ -1034,11 +1038,11 @@ goal_constraints_2(GoalPath, _NonLocals, _, GoalExpr, GoalExpr,
 			    get_var(W `at` GoalPath, Wgp),
 			    get_var(out(W), Wout),
 			    { map__lookup(InArgs, V, yes) ->
-				C = C0 * var(Wout) * not_var(Wgp)
+				C = C0 ^ var(Wout) ^ not_var(Wgp)
 			    ; map__lookup(OutArgs, V, yes) ->
-				C = C0 * var(Wgp)
+				C = C0 ^ var(Wgp)
 			    ;
-				C = C0 * not_var(Wgp)
+				C = C0 ^ not_var(Wgp)
 			    }
 			), CorrespondingNodes, one, Cn1),
 			{ Cn = Cn0 + Cn1 }
@@ -1084,7 +1088,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, not(Goal0), not(Goal),
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
 			get_var(V `at` goal_path(Goal), Vneg),
-			{ C = C0 * eq_vars(Vgp, Vneg) }
+			{ C = C0 ^ eq_vars(Vgp, Vneg) }
 		), set__to_sorted_list(Vars), Constraint1, Constraint2),
 
 	% Make sure the negation doesn't bind any nonlocal variables.
@@ -1099,7 +1103,7 @@ goal_constraints_2(GoalPath, NonLocals, Vars, some(A, B, Goal0),
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
 			get_var(V `at` goal_path(Goal), Vexist),
-			{ C = C0 * eq_vars(Vgp, Vexist) }
+			{ C = C0 ^ eq_vars(Vgp, Vexist) }
 		), set__to_sorted_list(Vars), Constraint1, Constraint).
 
 goal_constraints_2(GoalPath, NonLocals, _Vars,
@@ -1121,7 +1125,7 @@ goal_constraints_2(GoalPath, NonLocals, _Vars,
 			get_var(V `at` GoalPath, Vgp),
 			get_var(V `at` goal_path(Then), Vthen),
 			get_var(V `at` goal_path(Else), Velse),
-			{ C = C0 * eq_vars(Vgp, Vthen) * eq_vars(Vgp, Velse) }
+			{ C = C0 ^ eq_vars(Vgp, Vthen) ^ eq_vars(Vgp, Velse) }
 		), set__to_sorted_list(vars(Then) `set__union` vars(Else)),
 		Constraint4, Constraint5),
 
@@ -1130,7 +1134,7 @@ goal_constraints_2(GoalPath, NonLocals, _Vars,
 	list__foldl2((pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` goal_path(Cond), Vcond),
 			get_var(V `at` goal_path(Then), Vthen),
-			{ C = C0 * ~(var(Vcond) * var(Vthen)) }
+			{ C = C0 ^ not_both(Vcond, Vthen) }
 		), set__to_sorted_list(vars(Cond) `set__union` vars(Then)),
 		Constraint5, Constraint).
 
@@ -1183,12 +1187,10 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 		get_var(out(W), Wout),
 		get_var(V `at` GoalPath, Vgp),
 		get_var(W `at` GoalPath, Wgp),
-		{ C1 = eq_vars(Vout, Wout) },
-		{ C2 = ~(var(Vgp) * var(Wgp)) }, 
-		{ C = C0 * C1 * C2 }
+		{ C = C0 ^ eq_vars(Vout, Wout) ^ not_both(Vgp, Wgp) }
 	    ), Constraint0, Constraint1),
 	get_var(out(A), Aout),
-	{ Constraint = Constraint1 * var(Aout) },
+	{ Constraint = Constraint1 ^ var(Aout) },
 
 	HoModes0 =^ ho_modes,
 	update_mc_info(share_ho_modes(A, B, HoModes0), HoModes),
@@ -1197,7 +1199,7 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 	{ RHS = functor(ConsId, _Args) },
 	get_var(out(A), Aout),
-	{ Constraint1 = Constraint0 * var(Aout) },
+	{ Constraint1 = Constraint0 ^ var(Aout) },
 
 	InstGraph =^ inst_graph,
 	{ map__lookup(InstGraph, A, node(Functors, _)) },
@@ -1206,7 +1208,7 @@ unify_constraints(A, GoalPath, RHS, RHS, Constraint0, Constraint) -->
 		( pred(V::in, C0::in, C::out, in, out) is det -->
 		    ( { V \= A } ->
 			get_var(V `at` GoalPath, Vgp),
-			{ C = C0 * not_var(Vgp) }
+			{ C = C0 ^ not_var(Vgp) }
 		    ;
 			{ C = C0 }
 		    )
@@ -1220,14 +1222,14 @@ unify_constraints(Var, GoalPath, RHS0, RHS, Constraint0, Constraint) -->
 	aggregate2(inst_graph__reachable(InstGraph, Var),
 		( pred(V::in, Cn0::in, Cn::out, in, out) is det -->
 		    get_var(V `at` GoalPath, Vgp),
-		    { Cn = Cn0 * var(Vgp) }
+		    { Cn = Cn0 ^ var(Vgp) }
 		), Constraint0, Constraint1),
 
 	% The lambda NonLocals are not bound by this goal.
 	aggregate2(inst_graph__reachable_from_list(InstGraph, NonLocals),
 		( pred(V::in, Cn0::in, Cn::out, in, out) is det -->
 		    get_var(V `at` GoalPath, Vgp),
-		    { Cn = Cn0 * not_var(Vgp) }
+		    { Cn = Cn0 ^ not_var(Vgp) }
 		), Constraint1, Constraint2),
 
 	% Record the higher-order mode of this lambda goal.
@@ -1295,7 +1297,7 @@ call_constraints(GoalPath, PredId, HeadVars, Args, Constraint0, Constraint) -->
 		get_var(W `at` GoalPath, Wgp),
 		get_var(PredId, in(V), Vin),
 		get_var(out(W), Wout),
-		{ C = C0 * eq_vars(V_, Wgp) * (var(Vin) =< var(Wout)) }
+		{ C = C0 ^ eq_vars(V_, Wgp) ^ imp_vars(Vin, Wout) }
 	    ), Constraint0, Constraint).
 
 :- pred higher_order_call_constraints(mode_constraint::in,
@@ -1343,7 +1345,7 @@ negation_constraints(GoalPath, NonLocals, Constraint0, Constraint) -->
 			inst_graph__reachable(InstGraph, NonLocal, V)
 		), (pred(V::in, C0::in, C::out, in, out) is det -->
 			get_var(V `at` GoalPath, Vgp),
-			{ C = C0 * not_var(Vgp) }
+			{ C = C0 ^ not_var(Vgp) }
 		), Constraint0, Constraint).
 
 :- pred generic_call_constrain_var(prog_var::in, goal_path::in,
@@ -1356,7 +1358,7 @@ generic_call_constrain_var(Var, GoalPath, Constraint0, Constraint) -->
 	    ( pred(V::in, C0::in, C::out, in, out) is det -->
 		get_var(out(V), Vout),
 		get_var(V `at` GoalPath, Vgp),
-		{ C = C0 * var(Vout) * not_var(Vgp) }
+		{ C = C0 ^ var(Vout) ^ not_var(Vgp) }
 	    ), Constraint0, Constraint).
 
 
@@ -1479,7 +1481,7 @@ constrain_non_occuring_vars(ParentNonLocals, OccurringVars, GoalPath,
 		\+ set__member(V, OccurringVars)
 	    ), (pred(V::in, C0::in, C::out, in, out) is det -->
 	    	get_var(V `at` GoalPath, VGP),
-	    	{ C = C0 * not_var(VGP) }
+	    	{ C = C0 ^ not_var(VGP) }
 	    ), Constraint0, Constraint).
 
 %------------------------------------------------------------------------%
@@ -1547,6 +1549,7 @@ arg_modes_map_2(MV - RV, Constraint0, Constraint, ArgModes0, ArgModes) :-
 		ArgModes = InModes0 - map__det_insert(OutModes0, PV, Bool)
 	).
 
+/*
 :- type labelling == map(mode_constraint_var, bool).
 
 :- pred labelling(set(mode_constraint_var)::in, mode_constraint::in,
@@ -1603,6 +1606,8 @@ split_constraint_into_modes(PredId, HeadVars, InstGraph, ModeConstraint0,
 		labelling(InterestingVars, ModeConstraint1, Labelling)
 	    ), Labellings) }.
 
+*/
+
 %------------------------------------------------------------------------%
 %------------------------------------------------------------------------%
 
@@ -1637,12 +1642,14 @@ unsafe_perform_io(P::(pred(di, uo) is det)),
 
 call_io_pred(P) --> P.
 
+/*
 :- pred conj_to_dot(mode_constraint::in, prog_varset::in,
 		mode_constraint_info::in,
 		io__state::di, io__state::uo) is det.
 
 conj_to_dot(MC, VS, CI) -->
 	robdd_to_dot(MC, VS, CI, string__format("conj%d.dot", [i(conjnum)])).
+*/
 
 :- func conjnum = int.
 :- pragma c_header_code("static Integer conjnum;\n").

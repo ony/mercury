@@ -168,6 +168,13 @@
 :- pred remove_list(sparse_bitset(T), list(T), sparse_bitset(T)) <= enum(T).
 :- mode remove_list(in, in, out) is semidet.
 
+	% `remove_leq(Set, X)' returns the list Set with all elements less than
+	% or equal to X removed.
+:- func remove_leq(sparse_bitset(T), T) = sparse_bitset(T) <= enum(T).
+
+:- pred remove_leq(sparse_bitset(T), T, sparse_bitset(T)) <= enum(T).
+:- mode remove_leq(in, in, out) is det.
+
 	% `remove_least(Set0, X, Set)' is true iff `X' is the
 	% least element in `Set0', and `Set' is the set which
 	% contains all the elements of `Set0' except `X'.
@@ -220,6 +227,10 @@
 	% the final value.
 	% Takes O(card(Set)) time.
 :- func foldr(func(T, U) = U, sparse_bitset(T), U) = U <= enum(T).
+
+	% `filter(Pred, Set)' removes element from Set for which Pred fails.
+:- func filter(pred(T), sparse_bitset(T)) = sparse_bitset(T) <= enum(T).
+:- mode filter(pred(in) is semidet, in) = out is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -412,6 +423,12 @@ fold_bits_2(Dir, F, Offset, Bits, Size, Acc0) = Acc :-
 
 %-----------------------------------------------------------------------------%
 
+% XXX could make this more efficient.
+
+filter(P, S) = S ^ to_sorted_list ^ list__filter(P) ^ sorted_list_to_set.
+
+%-----------------------------------------------------------------------------%
+
 count(Set) = foldl((func(_, Acc) = Acc + 1), Set, 0).
 
 %-----------------------------------------------------------------------------%
@@ -458,6 +475,32 @@ remove_list(Set0, Elems) = Set :-
 	list_to_set(Elems, ElemsSet),
 	subset(ElemsSet, Set0),
 	Set = difference(Set0, ElemsSet).
+
+%-----------------------------------------------------------------------------%
+
+remove_leq(sparse_bitset(Set), Elem) =
+	sparse_bitset(remove_leq_2(Set, enum__to_int(Elem))).
+
+:- func remove_leq_2(bitset_impl, int) = bitset_impl.
+
+remove_leq_2([], _) = [].
+remove_leq_2([Data | Rest], Index) =
+	( Offset + bits_per_int =< Index ->
+		remove_leq_2(Rest, Index)
+	; Offset =< Index ->
+		(
+			Bits = Data ^ bits /\
+				unchecked_left_shift(\ 0, Index - Offset + 1),
+			Bits \= 0
+		->
+			[make_bitset_elem(Offset, Bits) | Rest]
+		;
+			Rest
+		)
+	;
+		[Data | Rest]
+	) :-
+	Offset = Data ^ offset.
 
 %-----------------------------------------------------------------------------%
 
@@ -798,6 +841,8 @@ delete_list(A, B, delete_list(A, B)).
 remove(A, B, remove(A, B)).
 
 remove_list(A, B, remove_list(A, B)).
+
+remove_leq(A, B, remove_leq(A, B)).
 
 list_to_set(A, list_to_set(A)).
 
