@@ -75,19 +75,13 @@ gen_class_defn(ModuleInfo, ForeignClass)
 		foreign_class_defn) = mlds__type.
 
 foreign_type_to_inherit_from(ModuleInfo, ForeignClass) = ForeignType :-
-	module_info_classes(ModuleInfo, Classes),
-	map__lookup(Classes, class_id(ForeignClass ^ (instance), 1), ClassDefn),
-	ClassDefn = hlds_class_defn(_, SuperClasses, _, _, _, _, _),
-		% XXX Enforce the constraint for now that we can only
-		% have one super class, as currently we have no
-		% mechanism to determine between inheriting a class and
-		% an interface.
-	( SuperClasses = [SuperClass] ->
+	(
+		superclass(ModuleInfo, class_id(ForeignClass ^ (instance), 1),
+				SuperClassId)
+	->
 			% We need to find the type of the instance of
 			% the parent which is defined as a foreign type
 			% or foreign class.
-		SuperClass = constraint(Name, Args),
-		SuperClassId = class_id(Name, list__length(Args)),
 		module_info_instances(ModuleInfo, InstanceTable),
 		map__lookup(InstanceTable, SuperClassId, Instances),
 		list__filter_map((pred(ID::in, MLDS_Type::out) is semidet :-
@@ -106,6 +100,35 @@ foreign_type_to_inherit_from(ModuleInfo, ForeignClass) = ForeignType :-
 	;
 		error("more then one superclass for pragma foreign_class.")
 	).
+
+:- pred superclass(module_info::in,
+		hlds_data__class_id::in, hlds_data__class_id::out) is semidet.
+
+superclass(ModuleInfo, ClassId, SuperClassId) :-
+	module_info_classes(ModuleInfo, Classes),
+	map__lookup(Classes, ClassId, ClassDefn),
+	ClassDefn = hlds_class_defn(_, SuperClasses, _, _, _, _, _),
+	SuperClasses = [SuperClass],
+	SuperClass = constraint(Name, Args),
+	SuperClassId = class_id(Name, list__length(Args)).
+
+:- func get_instance_defn(module_info, hlds_data__class_id) =
+		hlds_instance_defn.
+
+get_instance_defn(ModuleInfo, ClassId) = InstanceDefn :-
+	module_info_instances(ModuleInfo, InstanceTable),
+	map__lookup(InstanceTable, ClassId, Instances),
+	list__filter((pred(ID::in) is semidet :-
+			ID = hlds_instance_defn(_, _, _, _, [Type], _, _, _, _),
+			type_is_foreign_type(ModuleInfo, Type)
+		), Instances, PossibleInstances),
+	( PossibleInstances = [InstanceDefn0] ->
+		InstanceDefn = InstanceDefn0
+	;
+		error("more then one instance is defined using a foreign_type.")
+	).
+
+	
 
 :- pred type_is_foreign_type(module_info::in, prog_data__type::in) is semidet.
 
@@ -212,9 +235,19 @@ construct_ctor_body(ModuleInfo, ForeignClass, PredId, ProcId) = Stmt :-
 :- func construct_methods(module_info, foreign_class_defn) = mlds__defns.
 
 construct_methods(ModuleInfo, ForeignClass) = Defns :-
+	ClassId = class_id(ForeignClass ^ (instance), 1),
+	ClassInterfaces = collect_hlds_class_procs(ModuleInfo,
+			ForeignClass, ClassId),
+	Defns = list__map(construct_method(ModuleInfo, ForeignClass),
+			ClassInterfaces).
+
+:- func collect_hlds_class_procs(module_info, foreign_class_defn,
+		hlds_data__class_id) = list(hlds_class_proc).
+
+collect_hlds_class_procs(ModuleInfo, ForeignClass, ClassId)
+	= ClassInterfacesA ++ ClassInterfacesB :-
 	module_info_instances(ModuleInfo, Instances),
-	map__lookup(Instances,
-			class_id(ForeignClass ^ (instance), 1), InstanceDefns),
+	map__lookup(Instances, ClassId, InstanceDefns),
 	list__filter((pred(ID::in) is semidet :-
 			ID = hlds_instance_defn(_, local, _, _,
 					[ForeignClass ^ (type)], _, _, _, _)
@@ -225,14 +258,18 @@ construct_methods(ModuleInfo, ForeignClass) = Defns :-
 		(
 			MaybeClassInterface = yes(ClassInterfaces0)
 		->
-			ClassInterfaces = ClassInterfaces0
+			ClassInterfacesA = ClassInterfaces0
 		;
 			error("ml_foreign_class: MaybeClassInterface")
-		),
-		Defns = list__map(construct_method(ModuleInfo, ForeignClass),
-				ClassInterfaces)
+		)
 	;
 		error("ml_foreign_class: more then one possible instance")
+	),
+	( superclass(ModuleInfo, ClassId, SuperClassId) ->
+		ClassInterfacesB = collect_hlds_class_procs(ModuleInfo,
+				ForeignClass, SuperClassId)
+	;
+		ClassInterfacesB = []
 	).
 
 :- func construct_method(module_info, foreign_class_defn,
@@ -291,6 +328,21 @@ rvals(ModuleInfo, PredId, ProcId) = Rvals :-
 				error("rvals")
 			)
 		), Args).
+
+:- func returns(module_info, mlds__context,
+		mlds__type) = pair(mlds__lval, mlds__defn).
+
+returns(ModuleInfo, Context, Type) = Lval - VarDefn :-
+	module_info_name(ModuleInfo, Name),
+	MLDS_Name = mercury_module_name_to_mlds(Name),
+		% XXX what if there is more then one return value!
+	VarName = var_name("return", no),
+	Var = qual(MLDS_Name, MLDS_Name, VarName),
+
+	VarDefn = ml_gen_mlds_var_decl(var(VarName), Type,
+			no_initializer, Context),
+	Lval = var(Var, Type).
+
 	
 :- func construct_method_body(module_info,
 		foreign_class_defn, hlds_class_proc) = mlds__statement.
@@ -316,17 +368,27 @@ construct_method_body(ModuleInfo, ForeignClass, ClassProc) = Stmt :-
 			[lval(Lval), mem_addr(Lval)],
 
 		% XXX Compute the return values.
-	% Params = mlds__func_params(_, RetVals),
-	RetVals = [],
-
+	Params = mlds__func_params(_, ReturnTypes),
+	Context = mlds__make_context(ForeignClass ^ context),
+	Returns = list__map(returns(ModuleInfo, Context), ReturnTypes), 
+	RetVals = list__map(fst, Returns),
 
 		% XXX shouldn't this be tail_call
 	IsTailCall = call,
 
 	Call = call(Signature, FunctionToCall, yes(ThisPtr),
 			Args, RetVals, IsTailCall),
-	Context = mlds__make_context(ForeignClass ^ context),
-	Stmt = mlds__statement(Call, Context).
+
+	CallStmt = mlds__statement(Call, Context),
+	( ReturnTypes = [] ->
+		Stmt = CallStmt
+	;
+		ReturnRvals = list__map((func(L) = lval(L)), RetVals),
+		ReturnStmt = mlds__statement(return(ReturnRvals), Context),
+		Defns = list__map(snd, Returns),
+		Stmt = mlds__statement(block(Defns, [CallStmt, ReturnStmt]),
+				Context)
+	).
 
 
 	% Compute the lval which refers to the internal state of
