@@ -85,6 +85,7 @@ extern	int	mercury_terminate(void);
 				   mercury_runtime_terminate(),
 				   etc. */
 #include "mercury_trace_base.h"	/* for MR_trace_port */
+#include "mercury_prof_deep.h"	/* for MR_prof_init_globals */
 
 #ifdef CONSERVATIVE_GC
   #include "gc.h"

@@ -350,6 +350,21 @@ typedef struct MR_Stack_Layout_User_Proc_Struct {
 	ConstString		MR_user_name;
 	MR_int_least16_t	MR_user_arity;
 	MR_int_least16_t	MR_user_mode;
+#ifdef MR_PROFILE_DEEP
+	const struct MR_SCC_ID	*MR_user_scc_id;
+		/*
+		** The MR_user_scc_id pointer has one of two meanings:
+		** if it has a tag of 0, it is a pointer to the MR_SCC_ID
+		** structure. If it has a tag of 1, then it is a pointer
+		** to an MR_Stack_Layout_Entry which will have in its
+		** MR_Stack_Layout_User_Proc_Struct a 0 tagged pointer
+		** to the MR_SCC_ID.
+		** This design is necessary because in some cases we create
+		** MR_Stack_Layout_Proc_Id structs for MR_Closure_Layouts
+		** in remote modules, where we don't know the SCCId of the
+		** procedure.
+		*/
+#endif
 } MR_Stack_Layout_User_Proc;
 
 typedef struct MR_Stack_Layout_Compiler_Proc_Struct {
@@ -359,6 +374,10 @@ typedef struct MR_Stack_Layout_Compiler_Proc_Struct {
 	ConstString		MR_comp_pred_name;
 	MR_int_least16_t	MR_comp_arity;
 	MR_int_least16_t	MR_comp_mode;
+#ifdef MR_PROFILE_DEEP
+	const struct MR_SCC_ID	*MR_comp_scc_id;
+		/* The comments about the MR_user_scc_id above apply here. */
+#endif
 } MR_Stack_Layout_Compiler_Proc;
 
 typedef union MR_Stack_Layout_Proc_Id_Union {
@@ -391,15 +410,25 @@ typedef	struct MR_Stack_Layout_Entry_Struct {
 #define	MR_sle_comp	MR_sle_proc_id.MR_proc_comp
 
 #define	MR_ENTRY_LAYOUT_HAS_PROC_ID(entry)			\
-		((Word) entry->MR_sle_user.MR_user_pred_or_func != -1)
+		((Word) (entry)->MR_sle_user.MR_user_pred_or_func != -1)
 
 #define	MR_ENTRY_LAYOUT_HAS_EXEC_TRACE(entry)			\
-		(MR_ENTRY_LAYOUT_HAS_PROC_ID(entry)		\
-		&& entry->MR_sle_call_label != NULL)
+		(MR_ENTRY_LAYOUT_HAS_PROC_ID((entry))		\
+		&& (entry)->MR_sle_call_label != NULL)
 
 #define	MR_ENTRY_LAYOUT_COMPILER_GENERATED(entry)		\
-		((Unsigned) entry->MR_sle_user.MR_user_pred_or_func \
+		((Unsigned) (entry)->MR_sle_user.MR_user_pred_or_func \
 		> MR_FUNCTION)
+
+#define MR_ENTRY_LAYOUT_ADDRESS(entry)				\
+		(Word *) &(((MR_Stack_Layout_Entry *) (entry))->MR_sle_proc_id)
+
+#ifdef MR_PROFILE_DEEP
+#define	MR_ENTRY_LAYOUT_SCC_ID(entry)				\
+		(MR_ENTRY_LAYOUT_COMPILER_GENERATED((entry)) ?	\
+		 	(entry)->MR_sle_user.MR_user_scc_id \
+		:	(entry)->MR_sle_comp.MR_comp_scc_id)
+#endif
 
 /*
 ** Define a layout structure for a procedure, containing information
@@ -440,9 +469,23 @@ typedef	struct MR_Stack_Layout_Entry_Struct {
 		} while (0)
 #endif
 
+#ifdef MR_PROFILE_DEEP
+  #define IF_MR_PROFILE_DEEP(x) x
+#else
+  #define IF_MR_PROFILE_DEEP(x)
+#endif
+
 #define MR_MAKE_PROC_LAYOUT(entry, detism, slots, succip_locn,		\
-		pf, module, name, arity, mode) 				\
-	MR_Stack_Layout_Entry mercury_data__layout__##entry = {		\
+		pf, module, name, arity, mode, sccd)			\
+	const struct mercury_data__layout__##entry##_struct { 		\
+		/* stack traversal group */				\
+		Code			*MR_sle_code_addr;		\
+		MR_Long_Lval		MR_sle_succip_locn;		\
+		MR_int_least16_t	MR_sle_stack_slots;		\
+		MR_Determinism		MR_sle_detism;			\
+		/* proc id group */					\
+		MR_Stack_Layout_Proc_Id MR_sle_proc_id;			\
+	} mercury_data__layout__##entry = {				\
 		MR_MAKE_PROC_LAYOUT_ADDR(entry),			\
 		succip_locn,						\
 		slots,							\
@@ -453,9 +496,11 @@ typedef	struct MR_Stack_Layout_Entry_Struct {
 			module,						\
 			name,						\
 			arity,						\
-			mode						\
-		}},							\
-		NULL							\
+			mode,						\
+IF_MR_PROFILE_DEEP(							\
+			&sccd						\
+)									\
+		}}							\
 	}
 
 /*

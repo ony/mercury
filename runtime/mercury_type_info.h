@@ -775,6 +775,10 @@ typedef union {
     ** The unify_pred field will soon migrate to the slot now occupied by
     ** the new_unify_pred field. In the near future, the two slots will
     ** contain the same data.
+    **
+    ** The two _info pointers are pointers to the proc_id layouts for
+    ** the unify and compare procedures for the type. These are used by
+    ** deep profiling.
     */
 
 struct MR_TypeCtorInfo_Struct {
@@ -788,6 +792,10 @@ struct MR_TypeCtorInfo_Struct {
     ConstString         type_ctor_module_name;
     ConstString         type_ctor_name;
     Integer             type_ctor_version;
+#ifdef MR_PROFILE_DEEP
+    const Word		*unify_info;
+    const Word		*compare_info;
+#endif
     MR_TypeFunctors     type_functors;
     MR_TypeLayout       type_layout;
     MR_int_least32_t    type_ctor_num_functors;
@@ -821,6 +829,10 @@ struct MR_TypeCtorInfo_Struct {
 #define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_A(u, c)			\
     Declare_entry(u);                                                   \
     Declare_entry(c);                                                   \
+MR_IF_PROFILE_DEEP(							\
+    MR_DECL_SLE(u);							\
+    MR_DECL_SLE(c);							\
+)									\
     MR_STATIC_CODE_CONST struct MR_TypeCtorInfo_Struct                  \
 
 #define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_B(m, n, a, cr, u, c)	\
@@ -834,6 +846,10 @@ struct MR_TypeCtorInfo_Struct {
         MR_string_const(MR_STRINGIFY(m), sizeof(MR_STRINGIFY(m))-1),    \
         MR_string_const(MR_STRINGIFY(n), sizeof(MR_STRINGIFY(n))-1),    \
         MR_RTTI_VERSION,                                                \
+MR_IF_PROFILE_DEEP(							\
+	(const Word *) MR_REF_SLEc(u)					\
+	(const Word *) MR_REF_SLEc(c)					\
+)									\
         { 0 },                                                          \
         { 0 },                                                          \
         -1,                                                             \

@@ -64,6 +64,7 @@ HDRS		=	\
 			mercury_misc.h		\
 			mercury_overflow.h	\
 			mercury_prof.h		\
+			mercury_prof_deep.h	\
 			mercury_prof_mem.h	\
 			mercury_reg_workarounds.h	\
 			mercury_regorder.h	\
@@ -134,6 +135,7 @@ CFILES		= 	\
 			mercury_memory_handlers.c	\
 			mercury_misc.c		\
 			mercury_prof.c		\
+			mercury_prof_deep.c	\
 			mercury_prof_mem.c	\
 			mercury_reg_workarounds.c	\
 			mercury_regs.c		\

@@ -19,7 +19,7 @@
 #include "mercury_dlist.h" 		/* for `List' */
 #include "mercury_stack_layout.h"	/* for `MR_Stack_Layout_*' */
 
-#if     defined(NATIVE_GC) || defined(MR_DEBUG_GOTOS)
+#if     defined(NATIVE_GC) || defined(MR_DEBUG_GOTOS) || defined(MR_PROFILE_DEEP)
   #define	MR_NEED_ENTRY_LABEL_ARRAY
 #endif
 

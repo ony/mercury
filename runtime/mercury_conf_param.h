@@ -189,6 +189,9 @@
 **
 ** PROFILE_MEMORY
 ** Enables profiling of memory usage.
+**
+** MR_PROFILE_DEEP
+** Enables deep call-graph profiling.
 */
 
 /*

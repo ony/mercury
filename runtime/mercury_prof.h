@@ -13,6 +13,7 @@
 #define MERCURY_PROF_H
 
 #include "mercury_types.h"	/* for `Code *' */
+#include "mercury_prof_deep.h"
 
 /*
 ** This variable holds the address of the "current" procedure so that
@@ -20,7 +21,9 @@
 ** so that it can credit the time to the appropriate procedure.
 */
 
-extern	Code *	volatile	MR_prof_current_proc;
+#ifndef	MR_PROFILE_DEEP
+  extern	Code *	volatile	MR_prof_current_proc;
+#endif
 
 /*
 ** The following two macros are used to ensure that the profiler can
@@ -28,7 +31,7 @@ extern	Code *	volatile	MR_prof_current_proc;
 ** being executed when a profiling interrupt occurs.
 */
 
-#ifdef PROFILE_TIME
+#if defined(PROFILE_TIME) && !defined(MR_PROFILE_DEEP)
   #define set_prof_current_proc(target)		\
 		(MR_prof_current_proc = (target))
   #define update_prof_current_proc(target)	\
@@ -60,6 +63,15 @@ extern	Code *	volatile	MR_prof_current_proc;
 
 extern void	MR_prof_output_addr_decl(const char *name, const Code *address);
 
+/*
+** Export checked_fopen and checked_fclose for use by mercury_profile_deep.c
+*/
+
+FILE *
+checked_fopen(const char *filename, const char *message, const char *mode);
+
+void
+checked_fclose(FILE *file, const char *filename);
 
 /*
 ** The following functions are used by mercury_wrapper.c to

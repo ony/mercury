@@ -70,6 +70,11 @@ extern	void		(*program_entry_point)(void); /* normally main_2_p_0 */
 extern	Code 		*program_entry_point; /* normally mercury__main_2_0; */
 #endif
 
+#ifdef MR_PROFILE_DEEP
+extern	MR_Stack_Layout_Entry *program_entry_layout;
+			/* normally mercury_data__layout__mercury__main_2_0; */
+#endif
+
 extern	void		(*MR_library_initializer)(void);
 extern	void		(*MR_library_finalizer)(void);
 

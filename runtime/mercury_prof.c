@@ -22,6 +22,7 @@
 
 #include	"mercury_prof.h"
 #include	"mercury_heap_profile.h" /* for MR_prof_output_mem_tables() */
+#include	"mercury_prof_deep.h"
 #include	"mercury_prof_mem.h"	 /* for prof_malloc() */
 
 #include	"mercury_signal.h"
@@ -91,7 +92,9 @@ typedef struct s_prof_time_node {
 ** Global Variables
 */
 
-Code *		volatile	MR_prof_current_proc;
+#ifndef	MR_PROFILE_DEEP
+  Code *		volatile	MR_prof_current_proc;
+#endif
 
 /* 
 ** Private global variables
@@ -113,6 +116,9 @@ static volatile	int		in_profiling_code = FALSE;
 /*
 ** Local function declarations
 */
+
+void
+checked_atexit(void (*func)(void));
 
 #ifdef PROFILE_TIME
   static void prof_init_time_profile_method(void);
@@ -167,7 +173,7 @@ strerror(int errnum)
 
 #if defined(PROFILE_TIME) || defined(PROFILE_CALLS) || defined(PROFILE_MEMORY)
 
-static FILE *
+FILE *
 checked_fopen(const char *filename, const char *message, const char *mode)
 {
 	FILE *file;
@@ -182,7 +188,7 @@ checked_fopen(const char *filename, const char *message, const char *mode)
 	return file;
 }
 
-static void
+void
 checked_fclose(FILE *file, const char *filename)
 {
 	errno = 0;
@@ -194,7 +200,7 @@ checked_fclose(FILE *file, const char *filename)
 	}
 }
 
-static void
+void
 checked_atexit(void (*func)(void))
 {
 	errno = 0;
@@ -354,6 +360,7 @@ MR_prof_call_profile(Code *Callee, Code *Caller)
 static void
 prof_time_profile(int signum)
 {
+#ifndef	MR_PROFILE_DEEP
 	prof_time_node	*node, **node_addr, *new_node;
 	int		hash_value;
 	Code 		*current_proc;
@@ -390,6 +397,10 @@ prof_time_profile(int signum)
 
 	in_profiling_code = FALSE;
 	return;
+#else
+	MR_prof_num_sigs++;
+	MR_prof_current_proc->quanta++;
+#endif
 } /* end prof_time_profile() */
 
 /* ======================================================================== */
@@ -600,7 +611,8 @@ MR_prof_init(void)
 	prof_init_time_profile_method();
 #endif
 
-#if defined(PROFILE_TIME) || defined(PROFILE_CALLS) || defined(PROFILE_MEMORY)
+#if defined(PROFILE_TIME) || defined(PROFILE_CALLS) || defined(PROFILE_MEMORY) \
+		|| defined(MR_PROFILE_DEEP)
 	checked_atexit(MR_prof_finish);
 #endif
 }
@@ -615,7 +627,14 @@ MR_prof_finish(void)
 
 #ifdef PROFILE_TIME
 	MR_prof_turn_off_time_profiling();
+#endif
+
+#if	defined(PROFILE_TIME) && !defined(MR_PROFILE_DEEP)
 	prof_output_addr_table();
+#endif
+
+#if	defined(PROFILE_TIME) && defined(MR_PROFILE_DEEP)
+	MR_prof_output_deep_tables();
 #endif
 
 #ifdef PROFILE_CALLS

@@ -419,12 +419,12 @@ struct sync_term_struct {
 
 #define MR_init_sync_term(sync_term, nbranches)				\
 	do {								\
-		SyncTerm *st = (SyncTerm *) sync_term;			\
+		SyncTerm *st_st = (SyncTerm *) (sync_term);		 \
 		MR_IF_THREAD_SAFE(					\
-			pthread_mutex_init(&(st->lock), MR_MUTEX_ATTR);	\
+			pthread_mutex_init(&(st_st->lock), MR_MUTEX_ATTR); \
 		)							\
-		st->count = (nbranches);				\
-		st->parent = NULL;					\
+		st_st->count = (nbranches);				\
+		st_st->parent = NULL;					\
 	} while (0)
 
 #define MR_join_and_terminate(sync_term)				\

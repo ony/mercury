@@ -66,7 +66,7 @@
 */
 
 typedef struct MR_Closure_Layout_Struct {
-	MR_Stack_Layout_Proc_Id	proc_id;
+	MR_Stack_Layout_Proc_Id	*proc_id;
 	MR_Type_Param_Locns	*type_params;
 	Integer			num_all_args;
 	MR_PseudoTypeInfo	arg_pseudo_type_info[MR_VARIABLE_SIZED];
@@ -99,5 +99,13 @@ typedef struct MR_Closure_Struct {
 } MR_Closure;
 
 #define	MR_closure_hidden_args(i)	MR_closure_hidden_args_0[(i) - 1]
+
+#ifdef MR_PROFILE_DEEP
+extern struct MR_CURRENT_CLOSURE	*MR_prof_closure_stack;
+	/*
+	** MR_prof_closure_stack points to the top of the stack
+	** of closures that execution is inside.
+	*/
+#endif
 
 #endif /* not MERCURY_HO_CALL_H */

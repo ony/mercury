@@ -74,7 +74,38 @@ Define_extern_entry(mercury__compare_3_0);
 Define_extern_entry(mercury__compare_3_1);
 Define_extern_entry(mercury__compare_3_2);
 Define_extern_entry(mercury__compare_3_3);
-Declare_label(mercury__compare_3_0_i1);
+
+#ifdef MR_PROFILE_DEEP
+MR_MAKE_HO_CALL_SITE(genu_to_specu, mercury__unify_2_0, "runtime", 334);
+MR_MAKE_SCC_ID(unify_scc_id, { }, { &genu_to_specu }, { });
+MR_MAKE_PROC_LAYOUT(mercury__unify_2_0, MR_DETISM_SEMI, 0, 0,
+			MR_PREDICATE, "builtin", "unify", 2, 0,
+			unify_scc_id);
+
+MR_MAKE_HO_CALL_SITE(genc_to_specc0, mercury__compare_3_0, "builtin", 738);
+MR_MAKE_SCC_ID(compare_scc_id0, { }, { &genc_to_specc0 }, { });
+MR_MAKE_PROC_LAYOUT(mercury__compare_3_0, MR_DETISM_DET, 0, 0,
+			MR_PREDICATE, "builtin", "compare", 3, 0,
+			compare_scc_id0);
+
+MR_MAKE_HO_CALL_SITE(genc_to_specc1, mercury__compare_3_1, "builtin", 738);
+MR_MAKE_SCC_ID(compare_scc_id1, { }, { &genc_to_specc1 }, { });
+MR_MAKE_PROC_LAYOUT(mercury__compare_3_1, MR_DETISM_DET, 0, 0,
+			MR_PREDICATE, "builtin", "compare", 3, 1,
+			compare_scc_id1);
+
+MR_MAKE_HO_CALL_SITE(genc_to_specc2, mercury__compare_3_2, "builtin", 738);
+MR_MAKE_SCC_ID(compare_scc_id2, { }, { &genc_to_specc2 }, { });
+MR_MAKE_PROC_LAYOUT(mercury__compare_3_2, MR_DETISM_DET, 0, 0,
+			MR_PREDICATE, "builtin", "compare", 3, 2,
+			compare_scc_id2);
+
+MR_MAKE_HO_CALL_SITE(genc_to_specc3, mercury__compare_3_3, "builtin", 738);
+MR_MAKE_SCC_ID(compare_scc_id3, { }, { &genc_to_specc3 }, { });
+MR_MAKE_PROC_LAYOUT(mercury__compare_3_3, MR_DETISM_DET, 0, 0,
+			MR_PREDICATE, "builtin", "compare", 3, 3,
+			compare_scc_id3);
+#endif
 
 BEGIN_MODULE(call_module)
 	init_entry_ai(mercury__do_call_closure);
@@ -199,8 +230,43 @@ Define_entry(mercury__unify_2_0);
 		proceed();						\
 	} while(0)
 
+#ifndef MR_PROFILE_DEEP
 #define	tailcall_user_pred()						\
 	tailcall(type_ctor_info->unify_pred, LABEL(mercury__unify_2_0))
+#else
+#define	tailcall_user_pred()						\
+{									\
+	do {								\
+		/*							\
+		** When doing deep profiling, we need to		\
+		** make a stack frame and treat the call		\
+		** the way user HO calls get treated,			\
+		** except that instead of using an MR_Closure		\
+		** we use the data from the type_info.			\
+		*/							\
+		MR_incr_sp_push_msg(3, "runtime:unify/2");		\
+		MR_stackvar(3) = (Word) MR_succip;			\
+		MR_stackvar(2) = (Word) MR_SCC_INST(&unify_scc_id);	\
+		MR_scc_from_here(&unify_scc_id);			\
+		MR_stackvar(1) = (Word) MR_prof_current_proc;		\
+		MR_prof_current_proc = MR_special_ho_call(0,		\
+				type_ctor_info->unify_pred,		\
+				type_ctor_info->unify_info);		\
+									\
+		noprof_call_localret(type_ctor_info->unify_pred,	\
+			mercury__unify_2_0_i0);				\
+	} while (0);							\
+	Define_label(mercury__unify_2_0_i0);				\
+	do {								\
+		MR_prof_current_proc =					\
+			(MR_ProcCallProfile *) MR_stackvar(1);		\
+		MR_SET_SCC_INST(&unify_scc_id, MR_stackvar(2));		\
+		MR_succip = (Code *) MR_stackvar(3);			\
+		MR_decr_sp_pop_msg(3);					\
+		proceed();						\
+	} while(0);							\
+}	
+#endif
 
 #define	start_label		unify_start
 #define	call_user_code_label	call_unify_in_proc
@@ -269,8 +335,44 @@ Define_entry(mercury__compare_3_3);
 		proceed();						\
 	} while(0)
 
+#ifndef MR_PROFILE_DEEP
 #define	tailcall_user_pred()						\
 	tailcall(type_ctor_info->compare_pred, LABEL(mercury__compare_3_3))
+#else
+#define	tailcall_user_pred()						\
+{									\
+	do {								\
+		/*							\
+		** When doing deep profiling, we need to		\
+		** make a stack frame and treat the call		\
+		** the way user HO calls get treated,			\
+		** except that instead of using an MR_Closure		\
+		** we use the data from the type_info.			\
+		*/							\
+		MR_incr_sp_push_msg(3, "runtime:compare/3");		\
+		MR_stackvar(3) = (Word) MR_succip;			\
+		MR_stackvar(2) = (Word) MR_SCC_INST(&compare_scc_id0);	\
+		MR_scc_from_here(&compare_scc_id0);			\
+		MR_stackvar(1) = (Word) MR_prof_current_proc;		\
+		MR_prof_current_proc = MR_special_ho_call(0,		\
+				type_ctor_info->compare_pred,		\
+				type_ctor_info->compare_info);		\
+									\
+		noprof_call_localret(type_ctor_info->compare_pred,	\
+			mercury__compare_3_0_i0);			\
+									\
+	} while(0);							\
+	Define_label(mercury__compare_3_0_i0);				\
+	do {								\
+		MR_prof_current_proc =					\
+			(MR_ProcCallProfile *) MR_stackvar(1);		\
+		MR_SET_SCC_INST(&compare_scc_id0, MR_stackvar(2));	\
+		MR_succip = (Code *) MR_stackvar(3);			\
+		MR_decr_sp_pop_msg(3);					\
+		proceed();						\
+	} while(0);							\
+}
+#endif
 
 #define	start_label		compare_start
 #define	call_user_code_label	call_compare_in_proc

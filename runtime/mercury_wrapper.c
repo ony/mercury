@@ -193,6 +193,11 @@ Code	*program_entry_point;
 		/* normally mercury__main_2_0 (main/2) */
 #endif
 
+#ifdef MR_PROFILE_DEEP
+MR_Stack_Layout_Entry *program_entry_layout;
+		/* normally mercury_data__layout__mercury__main_2_0 */
+#endif
+
 void	(*MR_library_initializer)(void);
 		/* normally ML_io_init_state (io__init_state/2)*/
 void	(*MR_library_finalizer)(void);
@@ -1216,6 +1221,11 @@ Declare_label(global_success);
 Declare_label(global_fail);
 Declare_label(all_done);
 
+MR_MAKE_SCC_ID(do_interpreter_scc_id, { }, { }, { });
+MR_MAKE_PROC_LAYOUT(do_interpreter, MR_DETISM_DET, 0, 0, MR_PREDICATE,
+			"mercury_wrapper", "do_interpreter", 0, 0,
+			do_interpreter_scc_id);
+
 BEGIN_MODULE(interpreter_module)
 	init_entry_ai(do_interpreter);
 	init_label_ai(global_success);
@@ -1224,11 +1234,18 @@ BEGIN_MODULE(interpreter_module)
 BEGIN_CODE
 
 Define_entry(do_interpreter);
+#ifndef MR_PROFILE_DEEP
 	MR_incr_sp(4);
+#else
+	MR_incr_sp(5);
+#endif
 	MR_stackvar(1) = (Word) MR_hp;
 	MR_stackvar(2) = (Word) MR_succip;
 	MR_stackvar(3) = (Word) MR_maxfr;
 	MR_stackvar(4) = (Word) MR_curfr;
+#ifdef MR_PROFILE_DEEP
+	MR_stackvar(5) = (Word) MR_prof_current_proc;
+#endif
 
 	MR_mkframe("interpreter", 1, LABEL(global_fail));
 
@@ -1239,8 +1256,13 @@ Define_entry(do_interpreter);
 		fatal_error("no program entry point supplied");
 	}
 
-#ifdef  PROFILE_TIME
+#if defined(PROFILE_TIME) || defined(MR_PROFILE_DEEP)
 	if (MR_profiling) MR_prof_turn_on_time_profiling();
+#endif
+
+#ifdef MR_PROFILE_DEEP
+	MR_prof_current_proc =
+		MR_nonlocal_inter_scc(0, program_entry_layout);
 #endif
 
 	noprof_call(program_entry_point, LABEL(global_success));
@@ -1281,7 +1303,12 @@ Define_label(all_done);
 	MR_succip = (Code *) MR_stackvar(2);
 	MR_maxfr  = (Word *) MR_stackvar(3);
 	MR_curfr  = (Word *) MR_stackvar(4);
+#ifdef MR_PROFILE_DEEP
+	MR_prof_current_proc = (MR_ProcCallProfile *) MR_stackvar(5);
+	MR_decr_sp(5);
+#else
 	MR_decr_sp(4);
+#endif
 
 #ifdef MR_LOWLEVEL_DEBUG
 	if (MR_finaldebug && MR_detaildebug) {
