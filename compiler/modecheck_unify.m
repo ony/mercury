@@ -407,14 +407,13 @@ modecheck_unify_functor(X, TypeOfX, ConsId0, ArgVars0, Unification0,
 	% fully module qualify all cons_ids
 	% (except for builtins such as ints and characters).
 	%
-	list__length(ArgVars0, Arity),
 	(
-		ConsId0 = cons(Name, _),
+		ConsId0 = cons(Name, OrigArity),
 		type_to_type_id(TypeOfX, TypeId, _),
 		TypeId = qualified(TypeModule, _) - _
 	->
 		unqualify_name(Name, UnqualName),
-		ConsId = cons(qualified(TypeModule, UnqualName), Arity)
+		ConsId = cons(qualified(TypeModule, UnqualName), OrigArity)
 	;
 		ConsId = ConsId0
 	),
@@ -478,6 +477,7 @@ modecheck_unify_functor(X, TypeOfX, ConsId0, ArgVars0, Unification0,
 		),
 		(
 			inst_expand(ModuleInfo1, InstOfX, InstOfX1),
+			list__length(ArgVars0, Arity),
 			get_arg_insts(InstOfX1, ConsId, Arity, InstOfXArgs),
 			get_mode_of_args(Inst, InstOfXArgs, ModeOfXArgs0)
 		->

@@ -311,9 +311,10 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 	    % Compiler-generated predicates are created already type-correct,
 	    % there's no need to typecheck them.  Same for builtins.
 	    % But, compiler-generated unify predicates are not guaranteed
-	    % to be type-correct if they call a user-defined equality pred.
+	    % to be type-correct if they call a user-defined equality pred
+	    % or if it is a special pred for an existentially typed data type.
 	    ( code_util__compiler_generated(PredInfo0),
-	      \+ pred_is_user_defined_equality_pred(PredInfo0, ModuleInfo)
+	      \+ special_pred_needs_typecheck(PredInfo0, ModuleInfo)
 	    ; code_util__predinfo_is_builtin(PredInfo0)
 	    )
 	->
@@ -682,20 +683,31 @@ same_structure_2([ConstraintA | ConstraintsA], [ConstraintB | ConstraintsB],
 	list__append(ArgTypesA, TypesA0, TypesA),
 	list__append(ArgTypesB, TypesB0, TypesB).
 
-:- pred pred_is_user_defined_equality_pred(pred_info::in, module_info::in)
+%
+% A compiler-generated predicate only needs type checking if
+%	(a) it is a user-defined equality pred
+% or	(b) it is the unification or comparison predicate for an
+%           existially quantified type.
+%
+% In case (b), we need to typecheck it to fill in the head_type_params
+% field in the pred_info.
+%
+
+:- pred special_pred_needs_typecheck(pred_info::in, module_info::in)
 	is semidet.
 
-pred_is_user_defined_equality_pred(PredInfo, ModuleInfo) :-
+special_pred_needs_typecheck(PredInfo, ModuleInfo) :-
 	%
-	% check if the predicate is a compiler-generated unification predicate
+	% check if the predicate is a compiler-generated special
+	% predicate
 	%
 	pred_info_name(PredInfo, PredName),
 	pred_info_arity(PredInfo, PredArity),
-	special_pred_name_arity(unify, _, PredName, PredArity),
+	special_pred_name_arity(_, _, PredName, PredArity),
 	%
-	% find out which type it is a unification predicate for,
+	% find out which type it is a special predicate for,
 	% and check whether that type is a type for which there is
-	% a user-defined equality predicate.
+	% a user-defined equality predicate, or which is existentially typed.
 	%
 	pred_info_arg_types(PredInfo, ArgTypes),
 	special_pred_get_type(PredName, ArgTypes, Type),
@@ -703,7 +715,12 @@ pred_is_user_defined_equality_pred(PredInfo, ModuleInfo) :-
 	module_info_types(ModuleInfo, TypeTable),
 	map__lookup(TypeTable, TypeId, TypeDefn),
 	hlds_data__get_type_defn_body(TypeDefn, Body),
-	Body = du_type(_, _, _, yes(_)).
+	Body = du_type(Ctors, _, _, MaybeEqualityPred),
+	(	MaybeEqualityPred = yes(_)
+	;	list__member(Ctor, Ctors),
+		Ctor = ctor(ExistQTVars, _, _, _),
+		ExistQTVars \= []
+	).
 
 %-----------------------------------------------------------------------------%
 

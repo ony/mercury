@@ -998,8 +998,11 @@ polymorphism__process_goal_expr(call(PredId0, ProcId0, ArgVars0,
 	% for which the type is known at compile-time.
 	% Replace such calls with calls to the particular version
 	% for that type.
+	% (Note: higher_order.m also performs the same optimization.
+	% Is there really much advantage in doing it here too?)
 	(
-		{ Name0 = unqualified(PredName0) },
+		{ Name0 = qualified(ModuleName, PredName0) },
+		{ mercury_public_builtin_module(ModuleName) },
 		{ list__length(ArgVars0, Arity) },
 		{ special_pred_name_arity(SpecialPredId, PredName0,
 						MangledPredName, Arity) },
@@ -1349,6 +1352,29 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 				PolyInfo1, PolyInfo)
 	;
 		%
+		% is this a construction or deconstruction of an
+		% existentially typed data type?
+		%
+		ConsId0 = cons(_, _),
+		type_util__get_existq_cons_defn(ModuleInfo0, TypeOfX, ConsId0,
+			ConsDefn)
+	->
+		%
+		% add extra arguments to the unification for the
+		% type_info and/or type_class_info variables
+		%
+		map__apply_to_list(ArgVars0, VarTypes0, ActualArgTypes),
+		goal_info_get_context(GoalInfo0, Context),
+		polymorphism__process_existq_unify_functor(ConsDefn,
+			ActualArgTypes, TypeOfX, Context,
+			ExtraVars, ExtraGoals, PolyInfo0, PolyInfo),
+		list__append(ExtraVars, ArgVars0, ArgVars),
+		Unify = unify(X0, functor(ConsId0, ArgVars), Mode0,
+				Unification0, UnifyContext) - GoalInfo0,
+		list__append(ExtraGoals, [Unify], GoalList),
+		conj_list_to_goal(GoalList, GoalInfo0, Goal)
+	;
+		%
 		% ordinary construction/deconstruction unifications
 		% we leave alone
 		%
@@ -1451,6 +1477,111 @@ make_fresh_vars([Type|Types], VarSet0, VarTypes0,
 	varset__new_var(VarSet0, Var, VarSet1),
 	map__det_insert(VarTypes0, Var, Type, VarTypes1),
 	make_fresh_vars(Types, VarSet1, VarTypes1, Vars, VarSet, VarTypes).
+
+%-----------------------------------------------------------------------------%
+
+%
+% compute the extra arguments that we need to add to a unification with
+% an existentially quantified data constructor.
+%
+:- pred polymorphism__process_existq_unify_functor(
+		ctor_defn, list(type), (type), prog_context,
+		list(prog_var), list(hlds_goal), poly_info, poly_info).
+:- mode polymorphism__process_existq_unify_functor(in, in, in, in,
+		out, out, in, out) is det.
+
+polymorphism__process_existq_unify_functor(
+		CtorDefn, ActualArgTypes, ActualRetType, Context,
+		ExtraVars, ExtraGoals, PolyInfo0, PolyInfo) :-
+
+	CtorDefn = ctor_defn(CtorTypeVarSet, ExistQVars0,
+		ExistentialConstraints0, CtorArgTypes0, CtorRetType0),
+
+	%
+	% rename apart the type variables in the constructor definition
+	%
+	poly_info_get_typevarset(PolyInfo0, TypeVarSet0),
+	varset__merge_subst(TypeVarSet0, CtorTypeVarSet, TypeVarSet, Subst),
+	term__var_list_to_term_list(ExistQVars0, ExistQVarTerms0),
+	term__apply_substitution_to_list(ExistQVarTerms0, Subst,
+			ExistQVarsTerms1),
+	apply_subst_to_constraint_list(Subst, ExistentialConstraints0,
+			ExistentialConstraints1),
+	term__apply_substitution_to_list(CtorArgTypes0, Subst, CtorArgTypes1),
+	term__apply_substitution(CtorRetType0, Subst, CtorRetType1),
+	poly_info_set_typevarset(TypeVarSet, PolyInfo0, PolyInfo1),
+
+	%
+	% Compute the type bindings resulting from the functor's actual
+	% argument and return types.
+	% These are the ones that might bind the ExistQVars.
+	%
+	( type_list_subsumes([CtorRetType1 | CtorArgTypes1],
+			[ActualRetType | ActualArgTypes], TypeSubst1) ->
+		TypeSubst = TypeSubst1
+	;
+		error(
+	"polymorphism__process_existq_unify_functor: type unification failed")
+	),
+
+	%
+	% Apply those type bindings to the existential type class constraints
+	%
+	apply_rec_subst_to_constraint_list(TypeSubst, ExistentialConstraints1,
+		ExistentialConstraints),
+
+	%
+	% create type_class_info variables for the
+	% type class constraints
+	%
+	
+	% assume it's a deconstruction
+	polymorphism__make_typeclass_info_head_vars(	
+			ExistentialConstraints, 
+			ExtraTypeClassVars,
+			PolyInfo1, PolyInfo2),
+	ExtraTypeClassGoals = [],
+/*******
+	% assume it's a construction
+	polymorphism__make_typeclass_info_vars(	
+			ExistentialConstraints, [], Context,
+			ExtraTypeClassVars, ExtraTypeClassGoals,
+			PolyInfo1, PolyInfo2),
+*******/
+
+	polymorphism__update_typeclass_infos(
+			ExistentialConstraints, ExtraTypeClassVars,
+			PolyInfo2, PolyInfo3),
+
+	%
+	% Compute the set of _unconstrained_ existentially quantified type
+	% variables, and then apply the type bindings to those type variables
+	% to figure out what types they are bound to.
+	%
+	constraint_list_get_tvars(ExistentialConstraints1,
+			ExistConstrainedTVars),
+	term__var_list_to_term_list(ExistConstrainedTVars,
+			ExistConstrainedTVarTerms),
+	list__delete_elems(ExistQVarsTerms1, ExistConstrainedTVarTerms,
+			UnconstrainedExistQVarTerms),
+	term__apply_rec_substitution_to_list(UnconstrainedExistQVarTerms,
+			TypeSubst, ExistentialTypes),
+
+	%
+	% create type_info variables for the _unconstrained_
+	% existentially quantified type variables
+	%
+	polymorphism__make_type_info_vars(ExistentialTypes, [],
+			Context, ExtraTypeInfoVars, ExtraTypeInfoGoals,
+			PolyInfo3, PolyInfo),
+
+	%
+	% the type_class_info variables go before the type_info variables
+	%
+	list__append(ExtraTypeClassGoals, ExtraTypeInfoGoals, ExtraGoals),
+	list__append(ExtraTypeClassVars, ExtraTypeInfoVars, ExtraVars).
+
+%-----------------------------------------------------------------------------%
 
 :- pred polymorphism__process_c_code(pred_info, int, list(type), list(type),
 	list(maybe(pair(string, mode))), list(maybe(pair(string, mode)))).
@@ -1747,12 +1878,11 @@ polymorphism__process_call(PredId, ArgVars0, GoalInfo0,
 		polymorphism__make_type_info_vars(PredTypes, PredExistQVars,
 			Context, ExtraTypeInfoVars, ExtraTypeInfoGoals,
 			Info4, Info),
-		list__append(ExtraTypeClassVars, ArgVars0, ArgVars1),
-		list__append(ExtraTypeInfoVars, ArgVars1, ArgVars),
 		list__append(ExtraTypeClassGoals, ExtraTypeInfoGoals,
 			ExtraGoals),
 		list__append(ExtraTypeClassVars, ExtraTypeInfoVars,
 			ExtraVars),
+		list__append(ExtraVars, ArgVars0, ArgVars),
 
 		%
 		% update the non-locals
