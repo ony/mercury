@@ -27,6 +27,7 @@ SUBDIRS = \
 		util \
 		boehm_gc \
 		runtime \
+		robdd \
 		library \
 		trace \
 		browser \
@@ -40,11 +41,6 @@ SUBDIR_MMAKE =	PATH=../scripts:../util:$$PATH \
 		MMAKE_VPATH=. \
 		MMAKE_DIR=../scripts \
 		../scripts/mmake $(MMAKEFLAGS)
-
-SUBSUBDIR_MMAKE = PATH=../../scripts:../../util:$$PATH \
-		MMAKE_VPATH=. \
-		MMAKE_DIR=../../scripts \
-		../../scripts/mmake $(MMAKEFLAGS)
 
 #-----------------------------------------------------------------------------#
 
@@ -125,8 +121,12 @@ boehm_gc: scripts
 runtime: scripts boehm_gc
 	cd runtime && $(SUBDIR_MMAKE)
 
+.PHONY: robdd
+robdd: scripts boehm_gc
+	cd robdd && $(SUBDIR_MMAKE)
+
 .PHONY: library
-library: dep_library scripts util boehm_gc runtime
+library: dep_library scripts util boehm_gc runtime robdd
 	cd library && $(SUBDIR_MMAKE)
 
 .PHONY: browser
@@ -140,10 +140,6 @@ trace: scripts boehm_gc runtime library browser
 .PHONY: compiler
 compiler: dep_compiler scripts util boehm_gc runtime library browser trace
 	cd compiler && $(SUBDIR_MMAKE)
-
-.PHONY: libmmc
-libmmc: dep_compiler scripts util boehm_gc runtime library browser trace
-	cd compiler && $(SUBDIR_MMAKE) libmmc
 
 .PHONY: doc
 doc: scripts util
@@ -222,10 +218,8 @@ tar: README INSTALL
 	cd bindist && $(SUBDIR_MMAKE) bindist.configure
 	# the following command might fail on Windows?
 	-cd bindist && $(SUBDIR_MMAKE) bindist.build_vars
-	cd extras/dynamic_linking && $(SUBSUBDIR_MMAKE) sources
 	# clean up
 	cd scripts && mmake realclean
-	cd scripts && mmake canonical_grade
 	cd util && mmake realclean
 	cd doc && mmake distclean
 	-rm -f errs errs2 update.log
