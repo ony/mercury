@@ -158,6 +158,14 @@ annotate_goal( ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, Alias0, AliasRed) :-
 			Unification0, Info, Alias0, Alias),
 		Expr = Expr0
 	;
+		Expr0 = some( A, B, SomeGoal0)
+	->
+		% XXX
+		annotate_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, Pool0, Pool, 
+				Alias0, Alias), 
+		Info = Info0, 
+		Expr = some(A, B, SomeGoal)
+	;
 		% * call --> do nothing 
 		% * generic_call
 		Expr = Expr0, 

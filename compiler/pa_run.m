@@ -338,8 +338,16 @@ analyse_goal_expr( disj(Goals, _SM), _Info, ProcInfo, HLDS, T0, T, A0, A ):-
 analyse_goal_expr( not(Goal), _Info, ProcInfo, HLDS , T0, T, A0, A ):-
 	analyse_goal( ProcInfo, HLDS, Goal, T0, T, A0, A).
 
-analyse_goal_expr( some(_Vars,_,_Goal), _Info, _, _ , T, T, _A, A):-
-	pa_alias_as__top("some not handled", A).
+analyse_goal_expr( some(Vars,_,Goal), _Info, ProcInfo, HLDS , T0, T, A0, A):-
+	(
+		Vars = []
+	->
+		% XXX
+		analyse_goal( ProcInfo, HLDS, Goal, T0, T, A0, A)
+	;
+		require__error("(pa_run) analyse_goal_expr: some should have empty vars.")
+	).
+	% pa_alias_as__top("some not handled", A).
 	% error( "(pa) some goal not handled") .
 
 analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info, 
