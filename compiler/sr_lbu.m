@@ -261,14 +261,11 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		% handled as if(Goal0) then fail else true
 	->
 		annotate_lbu_in_goal(HLDS, ProcInfo, Lbu_01, 
-				Lbu, Goal0, Goal),
-		% in the if_then_else context as above this would be:
-		% Lbu = union(LbuThen, LbuElse),
-		% LbuThen = Lbu0Then, 
-		% LbuElse = Lbu_01,
-		% Lbu0Then = Lbu_01 + Lbu due to non-determinism of Goal0 +
-		%	resume-vars of not. ?
-		% XXX to be double-checked!!!
+				_Lbu, Goal0, Goal),
+		% A not does not introduce any choice-points! Hence the
+		% not itself is deterministic, and no new variables in LBU
+		% are introduced. 
+		Lbu = Lbu_01,
 		Expr = not(Goal),
 		Info = Info0
 	;
