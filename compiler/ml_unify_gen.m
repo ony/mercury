@@ -1084,6 +1084,9 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 		{ DifferentTags = [] ->
 			Var2Rval = lval(Var2Lval)
 		; DifferentTags = [ReusePrimaryTag] ->
+				% The body operator is slightly more
+				% efficient than the strip_tag operator so
+				% we use it when the old tag is known.
 			Var2Rval = mkword(PrimaryTag,
 					binop(body, lval(Var2Lval),
 					ml_gen_mktag(ReusePrimaryTag)))

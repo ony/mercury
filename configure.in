@@ -87,12 +87,12 @@ if test "$BOOTSTRAP_MC" != ""; then
 
 		:- implementation.
 	
-		% Check that we can declare foreign_code for C and MC++.
+		% Check that we can declare foreign_proc for C and MC++.
 		:- pred foo(int::out) is det.
-		:- pragma foreign_code("C",    foo(X::out),
+		:- pragma foreign_proc("C",    foo(X::out),
 			[[will_not_call_mercury, thread_safe]],
 			" X = 42; ").
-		:- pragma foreign_code("MC++", foo(X::out),
+		:- pragma foreign_proc("MC++", foo(X::out),
 			[[will_not_call_mercury, thread_safe]],
 			" X = 42; ").
 
@@ -132,7 +132,7 @@ EOF
 				conftest </dev/null >&AC_FD_CC 2>&1 &&
 			grep "MR_ENTRY(MR_do_fail);" conftest.c >/dev/null 2>&1
 		then
-			AC_MSG_RESULT(yes)
+		AC_MSG_RESULT(yes)
 		else
 			BOOTSTRAP_MC=
 			AC_MSG_RESULT(no)
@@ -428,25 +428,7 @@ AC_SUBST(CYGPATH)
 #-----------------------------------------------------------------------------#
 # Microsoft.NET configuration
 # 
-AC_PATH_PROG(ILASM, ilasm)
-
-AC_MSG_CHECKING(for Microsoft.NET Framework SDK)
-AC_CACHE_VAL(mercury_cv_microsoft_dotnet, [
-if test "$ILASM" != ""; then
-	changequote(<<,>>) 
-	MS_DOTNET_SDK_DIR=`expr "$ILASM" : '\(.*\)[/\\]*[bB]in[/\\]*ilasm'`
-	changequote([,]) 
-	mercury_cv_microsoft_dotnet="yes"
-else
-	MS_DOTNET_SDK_DIR=""
-	mercury_cv_microsoft_dotnet="no"
-fi
-])
-AC_MSG_RESULT($mercury_cv_microsoft_dotnet)
-ILASM=`basename "$ILASM"`
-
-AC_SUBST(ILASM)
-AC_SUBST(MS_DOTNET_SDK_DIR)
+MERCURY_CHECK_DOTNET
 
 #-----------------------------------------------------------------------------#
 # Don't try to use mprotect() on gnu-win32, since it is broken
@@ -472,6 +454,11 @@ fi
 AC_CHECK_HEADER(sys/siginfo.h, HAVE_SYS_SIGINFO_H=1)
 if test "$HAVE_SYS_SIGINFO_H" = 1; then
 	AC_DEFINE(HAVE_SYS_SIGINFO)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_HEADER(sys/signal.h, HAVE_SYS_SIGNAL_H=1)
+if test "$HAVE_SYS_SIGNAL_H" = 1; then
+	AC_DEFINE(HAVE_SYS_SIGNAL)
 fi
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(ucontext.h, HAVE_UCONTEXT_H=1)
@@ -749,6 +736,9 @@ else
 	#ifdef HAVE_SYS_SIGINFO
 	#include <sys/siginfo.h>
 	#endif
+	#ifdef HAVE_SYS_SIGNAL
+	#include <sys/signal.h>
+	#endif
 	#ifdef HAVE_UCONTEXT
 	#include <ucontext.h>
 	#endif
@@ -775,20 +765,6 @@ else
 	}
 	void handler(int signum, siginfo_t *info, void *context) {
 		save_signum = signum;
-		switch (info->si_code) {
-		case SEGV_MAPERR:	save_cause = info->si_code;
-					break;
-		case SEGV_ACCERR:	save_cause = info->si_code;
-					break;
-		}
-		switch (info->si_code) {
-		case BUS_ADRALN:	save_cause = info->si_code;
-					break;
-		case BUS_ADRERR:	save_cause = info->si_code;
-					break;
-		case BUS_OBJERR:	save_cause = info->si_code;
-					break;
-		}
 		save_cause = info->si_code;
 	}], [mercury_cv_siginfo_t=yes], [true], [true]))
 	AC_MSG_RESULT($mercury_cv_siginfo_t)

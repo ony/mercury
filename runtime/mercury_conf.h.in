@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-2000 The University of Melbourne.
+** Copyright (C) 1995-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -99,6 +99,7 @@
 ** is available:
 **
 **	HAVE_SYS_SIGINFO	we have <sys/siginfo.h>
+**	HAVE_SYS_SIGNAL		we have <sys/signal.h>
 **	HAVE_UCONTEXT		we have <ucontext.h>
 **	HAVE_SYS_UCONTEXT	we have <sys/ucontext.h>
 **	HAVE_ASM_SIGCONTEXT	we have <asm/sigcontext.h> (e.g. i386 Linux)
@@ -112,6 +113,7 @@
 **	HAVE_DLFCN_H		we have <dlfcn.h>
 */
 #undef	HAVE_SYS_SIGINFO
+#undef	HAVE_SYS_SIGNAL
 #undef	HAVE_UCONTEXT
 #undef	HAVE_SYS_UCONTEXT
 #undef	HAVE_ASM_SIGCONTEXT
