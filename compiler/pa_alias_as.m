@@ -199,6 +199,13 @@
 :- pred apply_widening(module_info::in, proc_info::in, alias_as::in, 	
 		alias_as::out) is det. 
 
+	% is_bottom_alias(ModuleInfo, HeadVars, Modes, Types) will check
+	% whether the procedure with the given headvariables, modes and
+	% types has a bottom-alias just by looking at the modes and types. 
+	% It fails if the alias can not be shown to be bottom in this way. 
+:- pred is_bottom_alias(module_info::in, list(prog_var)::in, 
+		list(mode)::in, list(type)::in) is semidet.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 :- implementation.
@@ -570,36 +577,39 @@ from_foreign_code(_ProcInfo, HLDS, PredId, ProcId, GoalInfo, Attrs, Vars,
 					GoalInfo, UserDefinedAlias)
 		)
 	;
-		% else --> apply heuristics
-		to_trios(Vars, MaybeModes, Types, Trios), 
-		% remove all unique objects
-		remove_all_unique_vars(HLDS, Trios, NonUniqueVars), 
-		% keep only the output vars
-		collect_all_output_vars(HLDS, NonUniqueVars, OutputVars), 
 		(
-			OutputVars = [] 
+			maybe_modes_to_modes(MaybeModes, Modes),
+			is_bottom_alias(HLDS, Vars, Modes, Types)
 		->
 			Alias = bottom
-		;
-			list__map(
-				pred(Trio::in, Type::out) is det:-
-				(
-					Trio = trio(_, _, Type)
-				), 
-				OutputVars,
-				OutputTypes),
-			(
-				types_are_primitive(HLDS, OutputTypes) 
-			-> 
-				Alias = bottom
-			; 
-				goal_info_get_context(GoalInfo, Context), 
-				format_context(Context, ContextStr), 
-				string__append_list(["pragma_foreign_code:",
-						" (",ContextStr, ")"], Msg), 
-				pa_alias_as__top(Msg, Alias)
-			)
+		; 
+			goal_info_get_context(GoalInfo, Context), 
+			format_context(Context, ContextStr), 
+			string__append_list(["pragma_foreign_code:",
+					" (",ContextStr, ")"], Msg), 
+			pa_alias_as__top(Msg, Alias)
 		)
+	).
+
+
+is_bottom_alias(HLDS, Vars, Modes, Types):- 
+	% else --> apply heuristics
+	to_trios(Vars, Modes, Types, Trios), 
+	% remove all unique objects
+	remove_all_unique_vars(HLDS, Trios, NonUniqueVars), 
+	% keep only the output vars
+	collect_all_output_vars(HLDS, NonUniqueVars, OutputVars), 
+	(
+		OutputVars = [] 
+	;	
+		list__map(
+			pred(Trio::in, Type::out) is det:-
+			(
+				Trio = trio(_, _, Type)
+			), 
+			OutputVars,
+			OutputTypes),
+		types_are_primitive(HLDS, OutputTypes) 
 	).
 
 :- pred report_pragma_type_error(proc_info::in, hlds_goal_info::in, 
@@ -642,35 +652,37 @@ typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, [Alias | Rest]):-
 		
 :- import_module std_util, inst_match.
 
+:- pred maybe_modes_to_modes(list(maybe(pair(string, mode))), list(mode)).
+:- mode maybe_modes_to_modes(in, out) is semidet.
+
+maybe_modes_to_modes([], []).
+maybe_modes_to_modes([MaybeMode | MaybeRest], [Mode | Rest]):- 
+	MaybeMode = yes(_String - Mode), 
+	maybe_modes_to_modes(MaybeRest, Rest). 
+
 :- type trio ---> trio(prog_var, mode, type). 
 
-:- pred to_trios(list(prog_var), list(maybe(pair(string, mode))), 
+:- pred to_trios(list(prog_var), list(mode), 
 			list(type), list(trio)).
 :- mode to_trios(in, in, in, out) is det.
 
-to_trios(Vars, MaybeModes, Types, Trios):-
+to_trios(Vars, Modes, Types, Trios):-
 	(
 		Vars = [ V1 | VR ]
 	->
 		(
-			MaybeModes = [ M1 | MR ],
+			Modes = [ Mode | MR ],
 			Types = [ T1 | TR ]
 		->
-			(
-				M1 = yes(_String - Mode)
-			->
-				Trio1 = trio(V1, Mode, T1), 
-				to_trios(VR, MR, TR, TrioR), 
-				Trios = [ Trio1 | TrioR ]
-			;
-				to_trios(VR, MR, TR, Trios)
-			)
+			Trio1 = trio(V1, Mode, T1), 
+			to_trios(VR, MR, TR, TrioR), 
+			Trios = [ Trio1 | TrioR ]
 		;
 			require__error("(pa_run) to_trios: lists of different length.")
 		)
 	;
 		(
-			MaybeModes = [], Types = []
+			Modes = [], Types = []
 		->
 			Trios = []
 		;

@@ -202,10 +202,28 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	instmap__init_reachable(InitIM),
 	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
 
-	pa_alias_as__init(Alias0),
-	
-	analyse_goal(ProcInfo, HLDS, Goal, 
-			FPtable0, FPtable1, Alias0, Alias1),
+	pa_alias_as__init(Alias0)
+
+	},
+
+	(
+		{ predict_bottom_aliases(HLDS, ProcInfo) }
+	->
+		( 
+			{ Verbose = yes }
+		-> 
+			io__write_string("% bottom predicted")
+		; 
+			[]
+		),
+		{ Alias1 = Alias0 }, % = bottom 
+		{ FPtable1 = FPtable0 }
+	; 
+		{ analyse_goal(ProcInfo, HLDS, Goal, 
+			FPtable0, FPtable1, Alias0, Alias1) }
+	),
+
+	{ 
 	FullSize = pa_alias_as__size(Alias1), 
 
 	pa_alias_as__project(HeadVars, Alias1, Alias2),
@@ -275,6 +293,15 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	;
 		[]
 	).
+
+:- pred predict_bottom_aliases(module_info::in, proc_info::in) is semidet.
+
+predict_bottom_aliases(ModuleInfo, ProcInfo):- 
+	proc_info_headvars(ProcInfo, HeadVars), 
+	proc_info_argmodes(ProcInfo, Modes), 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	list__map( map__lookup(VarTypes), HeadVars, Types), 
+	pa_alias_as__is_bottom_alias(ModuleInfo, HeadVars, Modes, Types).
 
 :- pred dummy_test(pred_proc_id::in) is semidet. 
 dummy_test(proc(PredId, _)):- pred_id_to_int(PredId, 16). 
