@@ -169,8 +169,6 @@
 
 %-----------------------------------------------------------------------------%
 
-	% XXX need to pass FoundError to all steps
-
 typecheck(Module0, Module, FoundError) -->
 	globals__io_lookup_bool_option(statistics, Statistics),
 	globals__io_lookup_bool_option(verbose, Verbose),
@@ -316,10 +314,8 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 	;
 	    pred_info_arg_types(PredInfo0, _ArgTypeVarSet, ExistQVars0,
 		    ArgTypes0),
-	    pred_info_typevarset(PredInfo0, TypeVarSet0),
+	    pred_info_get_class_context(PredInfo0, PredConstraints),
 	    pred_info_clauses_info(PredInfo0, ClausesInfo0),
-	    pred_info_import_status(PredInfo0, Status),
-	    pred_info_get_markers(PredInfo0, Markers),
 	    ClausesInfo0 = clauses_info(VarSet, ExplicitVarTypes,
 				_OldInferredVarTypes, HeadVars, Clauses0),
 	    ( 
@@ -328,12 +324,12 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			% There are no clauses for class methods.
 			% The clauses are generated later on,
 			% in polymorphism__expand_class_method_bodies
+	        pred_info_get_markers(PredInfo0, Markers),
 		( check_marker(Markers, class_method) ->
 			IOState = IOState0,
 				% For the moment, we just insert the types
 				% of the head vars into the clauses_info
-			pred_info_arg_types(PredInfo0, ArgTypes),
-			map__from_corresponding_lists(HeadVars, ArgTypes,
+			map__from_corresponding_lists(HeadVars, ArgTypes0,
 				VarTypes),
 			ClausesInfo = clauses_info(VarSet, VarTypes,
 				VarTypes, HeadVars, Clauses0),
@@ -348,6 +344,9 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			Changed = no
 		)
 	    ;
+	        pred_info_typevarset(PredInfo0, TypeVarSet0),
+	        pred_info_import_status(PredInfo0, Status),
+	        pred_info_get_markers(PredInfo0, Markers),
 		( check_marker(Markers, infer_type) ->
 			% For a predicate whose type is inferred,
 			% the predicate is allowed to bind the type
@@ -358,16 +357,14 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			Inferring = yes,
 			write_pred_progress_message("% Inferring type of ",
 				PredId, ModuleInfo, IOState0, IOState1),
-			HeadTypeParams1 = [],
-			PredConstraints = constraints([], [])
+			HeadTypeParams1 = []
 		;
 			Inferring = no,
 			write_pred_progress_message("% Type-checking ",
 				PredId, ModuleInfo, IOState0, IOState1),
 			term__vars_list(ArgTypes0, HeadTypeParams0),
 			list__delete_elems(HeadTypeParams0, ExistQVars0,
-				HeadTypeParams1),
-			pred_info_get_class_context(PredInfo0, PredConstraints)
+				HeadTypeParams1)
 		),
 
 		%
@@ -396,7 +393,7 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 		typecheck_info_get_final_info(TypeCheckInfo4, ExistQVars0,
 				TypeVarSet, HeadTypeParams2, InferredVarTypes0,
 				InferredTypeConstraints0, ConstraintProofs,
-				TVarRenaming),
+				TVarRenaming, ExistTypeRenaming),
 		map__optimize(InferredVarTypes0, InferredVarTypes),
 		ClausesInfo = clauses_info(VarSet, ExplicitVarTypes,
 				InferredVarTypes, HeadVars, Clauses),
@@ -469,21 +466,43 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			pred_info_set_head_type_params(PredInfo4,
 				HeadTypeParams2, PredInfo5),
 
-			% leave the original argtypes etc., but rename them,
+			%
+			% leave the original argtypes etc., but 
+			% apply any substititions that map existentially
+			% quantified type variables to other type vars,
+			% and then rename them all to match the new typevarset,
 			% so that the type variables names match up
 			% (e.g. with the type variables in the
 			% constraint_proofs)
-			% XXX this doesn't work right for existential type
-			% class constraints
+			%
 
-			apply_var_renaming_to_var_list(ExistQVars0,
+			% apply any type substititions that map existentially
+			% quantified type variables to other type vars
+			( ExistQVars0 = [] ->
+				% optimize common case
+				ExistQVars1 = [],
+				ArgTypes1 = ArgTypes0,
+				PredConstraints1 = PredConstraints
+			;
+				apply_var_renaming_to_var_list(ExistQVars0,
+					ExistTypeRenaming, ExistQVars1),
+				term__apply_variable_renaming_to_list(ArgTypes0,
+					ExistTypeRenaming, ArgTypes1),
+				rename_class_constraints(ExistTypeRenaming,
+					PredConstraints, PredConstraints1)
+			),
+
+			% rename them all to match the new typevarset
+			apply_var_renaming_to_var_list(ExistQVars1,
 				TVarRenaming, ExistQVars),
-			term__apply_variable_renaming_to_list(ArgTypes0,
+			term__apply_variable_renaming_to_list(ArgTypes1,
 				TVarRenaming, RenamedOldArgTypes),
+			rename_class_constraints(TVarRenaming, PredConstraints1,
+				RenamedOldConstraints),
+
+			% save the results in the pred_info
 			pred_info_set_arg_types(PredInfo5, TypeVarSet,
 				ExistQVars, RenamedOldArgTypes, PredInfo6),
-			rename_class_constraints(TVarRenaming, PredConstraints,
-				RenamedOldConstraints),
 			pred_info_set_class_context(PredInfo6,
 				RenamedOldConstraints, PredInfo),
 
@@ -2780,16 +2799,29 @@ typecheck_info_get_type_assign_set(TypeCheckInfo, TypeAssignSet) :-
 
 %-----------------------------------------------------------------------------%
 
+% typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars,
+%		NewTypeVarSet, New* ..., TypeRenaming, ExistTypeRenaming):
+%	extracts the final inferred types from TypeCheckInfo.
+%
+%	OldExistQVars should be the declared existentially quantified
+%	type variables (if any).
+%	New* is the newly inferred types, in NewTypeVarSet.
+%	TypeRenaming is a map to rename things from the old TypeVarSet
+%	to the NewTypeVarSet.
+%	ExistTypeRenaming is a map (which should be applied *before*
+%	applying TypeRenaming) to rename existential type variables
+%	in OldExistQVars.
+
 :- pred typecheck_info_get_final_info(typecheck_info, existq_tvars,
 		tvarset, existq_tvars, map(var, type),
 		class_constraints, map(class_constraint, constraint_proof),
-		map(tvar, tvar)).
-:- mode typecheck_info_get_final_info(in, in, out, out, out, out, out, out)
+		map(tvar, tvar), map(tvar, tvar)).
+:- mode typecheck_info_get_final_info(in, in, out, out, out, out, out, out, out)
 		is det.
 
 typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars, NewTypeVarSet,
 		NewHeadTypeParams, NewVarTypes, NewTypeConstraints,
-		NewConstraintProofs, TSubst) :-
+		NewConstraintProofs, TSubst, ExistTypeRenaming) :-
 	typecheck_info_get_type_assign_set(TypeCheckInfo, TypeAssignSet),
 	( TypeAssignSet = [TypeAssign | _] ->
 		type_assign_get_head_type_params(TypeAssign, HeadTypeParams),
@@ -2803,6 +2835,13 @@ typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars, NewTypeVarSet,
 
 		map__keys(VarTypes0, Vars),
 		expand_types(Vars, TypeBindings, VarTypes0, VarTypes),
+
+		%
+		% figure out how we should renaming the existential types
+		% in the type declaration (if any)
+		%
+		get_existq_tvar_renaming(OldExistQVars, TypeBindings,
+			ExistTypeRenaming),
 
 		%
 		% We used to just use the OldTypeVarSet that we got
@@ -2820,11 +2859,14 @@ typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars, NewTypeVarSet,
 		% First, find the set (sorted list) of type variables
 		% that we need.  This must include any type variables
 		% in the inferred types, plus any existentially typed
-		% variables in the declaration.
+		% variables that will remain in the declaration.
 		%
 		map__values(VarTypes, Types),
 		term__vars_list(Types, TypeVars0),
-		list__append(OldExistQVars, TypeVars0, TypeVars1),
+		map__keys(ExistTypeRenaming, ExistQVarsToBeRenamed),
+		list__delete_elems(OldExistQVars, ExistQVarsToBeRenamed,
+			ExistQVarsToRemain),
+		list__append(ExistQVarsToRemain, TypeVars0, TypeVars1),
 		list__sort_and_remove_dups(TypeVars1, TypeVars),
 		%
 		% Next, create a new typevarset with the same number of
@@ -2875,6 +2917,33 @@ typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars, NewTypeVarSet,
 	;
 		error("internal error in typecheck_info_get_vartypes")
 	).
+
+%
+% We rename any existentially quantified type variables which
+% get mapped to other type variables.
+%
+:- pred get_existq_tvar_renaming(existq_tvars, tsubst, map(tvar, tvar)).
+:- mode get_existq_tvar_renaming(in, in, out) is det.
+
+get_existq_tvar_renaming(ExistQVars, TypeBindings, ExistTypeRenaming) :-
+	MaybeAddToMap = lambda([TVar::in, Renaming0::in, Renaming::out] is det,
+		(
+			term__apply_rec_substitution(term__variable(TVar),
+				TypeBindings, Result),
+			(
+				Result = term__variable(NewTVar),
+				NewTVar \= TVar
+			->
+				map__det_insert(Renaming0, TVar, NewTVar,
+					Renaming)
+			;
+				Renaming = Renaming0
+			)
+		)),
+	map__init(ExistTypeRenaming0),
+	list__foldl(MaybeAddToMap, ExistQVars, ExistTypeRenaming0,
+		ExistTypeRenaming).
+
 
 	% fully expand the types of the variables by applying the type
 	% bindings
