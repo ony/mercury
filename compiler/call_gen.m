@@ -1,4 +1,4 @@
-%-----------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
 % Copyright (C) 1995 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
@@ -8,7 +8,8 @@
 %
 % main author: conway.
 %
-% This module provides predicates for generating procedure calls.
+% This module provides predicates for generating procedure calls,
+% including calls to higher-order pred variables.
 %
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
@@ -148,14 +149,14 @@ call_gen__generate_semidet_call_2(PredId, ModeId, Arguments, Code) -->
 		label(ReturnLabel) - "Continuation label"
 	]) },
 	code_info__get_next_label(ContLab, no),
+	call_gen__rebuild_registers(Args),
 	code_info__generate_failure(FailCode),
 	{ CodeD = tree(node([
 		if_val(lval(reg(r(1))), label(ContLab)) -
 			"Test for success"
 		]), tree(FailCode, node([ label(ContLab) - "" ]))) },
 
-	{ Code = tree(CodeA, tree(CodeB, tree(tree(CodeC0, CodeC1), CodeD))) },
-	call_gen__rebuild_registers(Args).
+	{ Code = tree(CodeA, tree(CodeB, tree(tree(CodeC0, CodeC1), CodeD))) }.
 
 %---------------------------------------------------------------------------%
 
@@ -462,17 +463,18 @@ call_gen__generate_complicated_unify(Var1, Var2, UniMode, CanFail, Code) -->
 		{ CanFail = can_fail }
 	->
 		code_info__get_next_label(ContLab, no),
+		call_gen__rebuild_registers(Args),
 		code_info__generate_failure(FailCode),
 		{ CodeD = tree(node([
 			if_val(lval(reg(r(1))), label(ContLab)) -
 				"Test for success"
 			]), tree(FailCode, node([ label(ContLab) - "" ]))) }
 	;
+		call_gen__rebuild_registers(Args),
 		{ CodeD = empty }
 	),
 
-	{ Code = tree(CodeA, tree(CodeB, tree(tree(CodeC0, CodeC1), CodeD))) },
-	call_gen__rebuild_registers(Args).
+	{ Code = tree(CodeA, tree(CodeB, tree(tree(CodeC0, CodeC1), CodeD))) }.
 
 %---------------------------------------------------------------------------%
 
@@ -624,6 +626,15 @@ call_gen__generate_higher_call(CodeModel, Var, InVars, OutVars, Code) -->
 				"Assign number of output arguments"
 		])
 	) },
+	(
+		{ CodeModel = model_semi }
+	->
+		{ FirstArg = 2 }
+	;
+		{ FirstArg = 1 }
+	),
+	{ call_gen__outvars_to_outargs(OutVars, FirstArg, OutArguments) },
+	call_gen__rebuild_registers(OutArguments),
 	code_info__get_next_label(ReturnLabel, yes),
 	(
 		{ CodeModel = model_det },
@@ -659,16 +670,7 @@ call_gen__generate_higher_call(CodeModel, Var, InVars, OutVars, Code) -->
 		]) }
 	),
 	{ Code = tree(tree(SaveCode, tree(ImmediateCode, VarCode)),
-		tree(SetupCode, CallCode)) },
-	(
-		{ CodeModel = model_semi }
-	->
-		{ FirstArg = 2 }
-	;
-		{ FirstArg = 1 }
-	),
-	{ call_gen__outvars_to_outargs(OutVars, FirstArg, OutArguments) },
-	call_gen__rebuild_registers(OutArguments).
+		tree(SetupCode, CallCode)) }.
 
 %---------------------------------------------------------------------------%
 

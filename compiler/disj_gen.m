@@ -46,6 +46,8 @@ disj_gen__generate_semi_disj(Goals, Code) -->
 	},
 	code_info__maybe_save_hp(RestoreHeap, HPSaveCode),
 	code_info__get_next_label(EndLabel, no),
+	{ map__init(FailMap) },
+	code_info__push_fail_map(FailMap),
 	disj_gen__generate_semi_cases(Goals, EndLabel, GoalsCode),
 	code_info__remake_with_store_map,
 	code_info__maybe_restore_hp(RestoreHeap, HPRestoreCode),
@@ -60,11 +62,13 @@ disj_gen__generate_semi_cases([], _EndLabel, Code) -->
 		% This only gets executed if the disjunction
 		% was empty, corresponding to an explicit `fail' in the
 		% source code.
+	code_info__pop_fail_map,
 	code_info__generate_failure(Code).
 disj_gen__generate_semi_cases([Goal|Goals], EndLabel, GoalsCode) -->
 	(
 		{ Goals = [] }
 	->
+		code_info__pop_fail_map,
 			% generate the case as a semi-deterministic goal
 		code_gen__generate_forced_semi_goal(Goal, ThisCode),
 		{ GoalsCode = tree(ThisCode, node([
@@ -120,7 +124,11 @@ disj_gen__generate_non_disj(Goals0, Code) -->
 			reclaim_heap_on_nondet_failure, ReclaimHeap) },
 	code_info__maybe_save_hp(ReclaimHeap, SaveHeapCode),
 	code_info__get_next_label(EndLab, yes),
+	{ map__init(FailMap) },
+	code_info__push_fail_map(FailMap),
 	disj_gen__generate_non_disj_2(Goals1, EndLab, RedoSaved, GoalsCode),
+	code_info__pop_fail_map,
+	code_info__remake_with_store_map,
 	{ Code = tree(tree(SaveVarsCode, RedoIpCode),
 			tree(SaveHeapCode, GoalsCode)) },
 		% since we don't know which disjunct we have come from

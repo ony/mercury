@@ -161,6 +161,9 @@
 :- pred code_info__remake_with_store_map(code_info, code_info).
 :- mode code_info__remake_with_store_map(in, out) is det.
 
+:- pred code_info__remake_with_fail_map(code_info, code_info).
+:- mode code_info__remake_with_fail_map(in, out) is det.
+
 :- pred code_info__remake_with_call_info(code_info, code_info).
 :- mode code_info__remake_with_call_info(in, out) is det.
 
@@ -293,6 +296,15 @@
 :- pred code_info__current_store_map(map(var, lval), code_info, code_info).
 :- mode code_info__current_store_map(out, in, out) is det.
 
+:- pred code_info__push_fail_map(map(var, lval), code_info, code_info).
+:- mode code_info__push_fail_map(in, in, out) is det.
+
+:- pred code_info__pop_fail_map(code_info, code_info).
+:- mode code_info__pop_fail_map(in, out) is det.
+
+:- pred code_info__current_fail_map(map(var, lval), code_info, code_info).
+:- mode code_info__current_fail_map(out, in, out) is det.
+
 :- pred code_info__variable_type(var, type, code_info, code_info).
 :- mode code_info__variable_type(in, out, in, out) is det.
 
@@ -318,6 +330,12 @@
 
 :- pred code_info__set_instmap(instmap, code_info, code_info).
 :- mode code_info__set_instmap(in, in, out) is det.
+
+:- pred code_info__get_liveness_info(liveness_info, code_info, code_info).
+:- mode code_info__get_liveness_info(out, in, out) is det.
+
+:- pred code_info__set_liveness_info(liveness_info, code_info, code_info).
+:- mode code_info__set_liveness_info(in, in, out) is det.
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
@@ -349,8 +367,10 @@
 					% current switch.
 			pred_id,	% The label of the current predicate.
 			proc_id,	% The label of the current procedure.
-			junk,		% JUNK
-					% what is stored in each register.
+			stack(map(var, lval)),
+					% Fail map - where vars should be
+					% put on the failure of a negated
+					% context.
 			exprn_info,	% A map storing the information about
 					% the status of each variable.
 			proc_info,	% The proc_info for the this procedure.
@@ -386,6 +406,9 @@ code_info__init(Varset, Liveness, CallInfo, SaveSuccip, Globals,
 	globals__get_options(Globals, Options),
 	code_exprn__init_state(ArgList, Varset, Options, ExprnInfo),
 	stack__init(Continue),
+	map__init(FailMap),
+	stack__init(FailMapStack0),
+	stack__push(FailMapStack0, FailMap, FailMapStack),
 	stack__init(StoreMapStack0),
 	stack__init(PushedVals0),
 	map__init(StoreMap),
@@ -405,7 +428,7 @@ code_info__init(Varset, Liveness, CallInfo, SaveSuccip, Globals,
 		CallInfo, 
 		PredId,
 		ProcId,
-		junk,
+		FailMapStack,
 		ExprnInfo,
 		ProcInfo,
 		SaveSuccip,
@@ -876,6 +899,22 @@ code_info__remake_with_store_map -->
 	code_info__set_exprn_info(Exprn).
 
 %---------------------------------------------------------------------------%
+
+code_info__remake_with_fail_map -->
+	code_info__get_varset(Varset),
+	code_info__get_live_variables(VarList),
+	{ set__list_to_set(VarList, Vars) },
+	code_info__get_call_info(CallInfo),
+	code_info__current_fail_map(StoreMap),
+	{ map__overlay(CallInfo, StoreMap, LvalMap0) },
+	{ map__select(LvalMap0, Vars, LvalMap) },
+	{ map__to_assoc_list(LvalMap, VarLvals) },
+	code_info__get_globals(Globals),
+	{ globals__get_options(Globals, Options) },
+	{ code_exprn__init_state(VarLvals, Varset, Options, Exprn) },
+	code_info__set_exprn_info(Exprn).
+
+%---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
 % code_info__remake_with_call_info rebuilds the register info and the
@@ -1120,16 +1159,48 @@ code_info__get_stack_top(StackVar) -->
 %---------------------------------------------------------------------------%
 
 code_info__generate_failure(Code) -->
+	code_info__current_fail_map(FailMap),
+	{ map__to_assoc_list(FailMap, FailList) },
+	code_info__grab_code_info(CodeInfo),
+	code_info__place_fail_vars(FailList, FailCode),
+	code_info__slap_code_info(CodeInfo),
 	code_info__failure_cont(Cont),
 	{ code_info__failure_cont_address(Cont, FailureAddress) },
-	{ Code = node([ goto(FailureAddress, FailureAddress) - "Fail" ]) }.
+	{ Code = tree(
+		FailCode,
+		node([ goto(FailureAddress, FailureAddress) - "Fail" ])
+	) }.
+
+%---------------------------------------------------------------------------%
+
+:- pred code_info__place_fail_vars(assoc_list(var, lval), code_tree,
+						code_info, code_info).
+:- mode code_info__place_fail_vars(in, out, in, out) is det.
+
+code_info__place_fail_vars([], empty) --> [].
+code_info__place_fail_vars([V - L | Rest], Code) -->
+	code_info__place_var(V, L, ThisCode),
+	code_info__place_fail_vars(Rest, RestCode),
+	{ Code = tree(ThisCode, RestCode) }.
+
+%---------------------------------------------------------------------------%
 
 code_info__generate_test_and_fail(Rval, Code) -->
+	code_info__current_fail_map(FailMap),
+	{ map__to_assoc_list(FailMap, FailList) },
+	code_info__grab_code_info(CodeInfo),
+	code_info__place_fail_vars(FailList, FailSavesCode),
+	code_info__slap_code_info(CodeInfo),
 	code_info__failure_cont(Cont),
 	{ code_info__failure_cont_address(Cont, FailureAddress) },
-	{ code_util__neg_rval(Rval, NegRval) },
-	{ Code = node([ if_val(NegRval, FailureAddress) -
-				"Test for failure" ]) }.
+	{ FailCode = tree( FailSavesCode,
+		node([goto(FailureAddress, FailureAddress) - "Branch to failure"])
+	) },
+	code_info__get_next_label(Success, no),
+	{ SuccessCode = node([label(Success) - ""]) },
+	{ Code = tree(node([ if_val(Rval, label(Success)) -
+				"Test for failure" ]),
+			tree(FailCode, SuccessCode)) }.
 
 code_info__failure_cont_address(known(Label), label(Label)).
 code_info__failure_cont_address(do_fail, do_fail).
@@ -1242,6 +1313,28 @@ code_info__pop_store_map -->
 
 code_info__current_store_map(Map) -->
 	code_info__get_store_map(Maps0),
+	(
+		{ stack__top(Maps0, Map0) }
+	->
+		{ Map = Map0 }
+	;
+		{ error("No store map on stack") }
+	).
+
+%---------------------------------------------------------------------------%
+
+code_info__push_fail_map(Map) -->
+	code_info__get_fail_map(Maps0),
+	{ stack__push(Maps0, Map, Maps) },
+	code_info__set_fail_map(Maps).
+
+code_info__pop_fail_map -->
+	code_info__get_fail_map(Maps0),
+	{ stack__pop_det(Maps0, _, Maps) },
+	code_info__set_fail_map(Maps).
+
+code_info__current_fail_map(Map) -->
+	code_info__get_fail_map(Maps0),
 	(
 		{ stack__top(Maps0, Map0) }
 	->
@@ -1422,6 +1515,12 @@ code_info__variable_type(Var, Type) -->
 :- pred code_info__set_max_push_count(int, code_info, code_info).
 :- mode code_info__set_max_push_count(in, in, out) is det.
 
+:- pred code_info__get_fail_map(stack(map(var, lval)), code_info, code_info).
+:- mode code_info__get_fail_map(out, in, out) is det.
+
+:- pred code_info__set_fail_map(stack(map(var, lval)), code_info, code_info).
+:- mode code_info__set_fail_map(in, in, out) is det.
+
 :- pred code_info__get_store_map(stack(map(var, lval)), code_info, code_info).
 :- mode code_info__get_store_map(out, in, out) is det.
 
@@ -1476,12 +1575,12 @@ code_info__set_proc_id(F, CI0, CI) :-
 	CI0 = code_info(A, B, C, D, E, _, G, H, I, J, K, L, M, N, O, P, Q, R, S),
 	CI = code_info(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S).
 
-% code_info__get_registers(G, CI, CI) :-
-% 	CI = code_info(_, _, _, _, _, _, G, _, _, _, _, _, _, _, _, _, _, _, _).
+code_info__get_fail_map(G, CI, CI) :-
+	CI = code_info(_, _, _, _, _, _, G, _, _, _, _, _, _, _, _, _, _, _, _).
 
-% code_info__set_registers(G, CI0, CI) :-
-% 	CI0 = code_info(A, B, C, D, E, F, _, H, I, J, K, L, M, N, O, P, Q, R, S),
-% 	CI = code_info(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S).
+code_info__set_fail_map(G, CI0, CI) :-
+	CI0 = code_info(A, B, C, D, E, F, _, H, I, J, K, L, M, N, O, P, Q, R, S),
+	CI = code_info(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S).
 
 code_info__get_exprn_info(H, CI, CI) :-
 	CI = code_info(_, _, _, _, _, _, _, H, _, _, _, _, _, _, _, _, _, _, _).

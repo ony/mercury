@@ -201,7 +201,8 @@ switch_gen__priority(address_constant(_, _), 6).
 	code_model, can_fail, label, code_tree, code_info, code_info).
 :- mode switch_gen__generate_all_cases(in, in, in, in, in, out, in, out) is det.
 
-switch_gen__generate_all_cases(Cases, Var, CodeModel, CanFail, EndLabel, Code) -->
+switch_gen__generate_all_cases(Cases, Var, CodeModel, CanFail, EndLabel, Code)
+		-->
 	code_info__produce_variable(Var, VarCode, _Rval),
 	(
 		{ CodeModel = model_det },
@@ -210,9 +211,12 @@ switch_gen__generate_all_cases(Cases, Var, CodeModel, CanFail, EndLabel, Code) -
 	->
 		{ Case1 = case(_, _, Cons1, Goal1) },
 		code_info__get_next_label(ElseLab, no),
+		{ map__init(FailMap) },
+		code_info__push_fail_map(FailMap),
 		code_info__push_failure_cont(known(ElseLab)),
 		unify_gen__generate_tag_test(Var, Cons1, TestCode),
 		code_info__pop_failure_cont,
+		code_info__pop_fail_map,
 		code_info__grab_code_info(CodeInfo),
 		code_gen__generate_forced_goal(CodeModel, Goal1, Case1Code),
 
@@ -222,6 +226,7 @@ switch_gen__generate_all_cases(Cases, Var, CodeModel, CanFail, EndLabel, Code) -
 
 		{ tree__flatten(TestCode, TestListList) },
 		{ list__condense(TestListList, TestList) },
+/*** THIS CODE DOES NOT WORK BECAUSE OF FAIL-MAPS
 		{ code_util__negate_the_test(TestList, RealTestList) },
 		{ Code  = tree(
 			tree(
@@ -236,6 +241,23 @@ switch_gen__generate_all_cases(Cases, Var, CodeModel, CanFail, EndLabel, Code) -
 					label(ElseLab) - "next case" ]),
 				tree(
 					Case1Code,
+					node([ label(EndLabel) -
+						"End of switch" ]))))
+		}
+***/
+		{ Code  = tree(
+			tree(
+				VarCode,
+				tree(
+					node(TestList),
+					Case1Code)),
+			tree(
+				node([
+					goto(label(EndLabel), label(EndLabel)) -
+						"skip to the end of the switch",
+					label(ElseLab) - "next case" ]),
+				tree(
+					Case2Code,
 					node([ label(EndLabel) -
 						"End of switch" ]))))
 		}
@@ -271,9 +293,12 @@ switch_gen__generate_cases([case(_, _, Cons, Goal)|Cases], Var, CodeModel,
 	->
 		code_info__grab_code_info(CodeInfo),
 		code_info__get_next_label(ElseLabel, no),
+		{ map__init(FailMap) },
+		code_info__push_fail_map(FailMap),
 		code_info__push_failure_cont(known(ElseLabel)),
 		unify_gen__generate_tag_test(Var, Cons, TestCode),
 		code_info__pop_failure_cont,
+		code_info__pop_fail_map,
 		code_gen__generate_forced_goal(CodeModel, Goal, ThisCode),
 		{ ElseCode = node([
 			goto(label(EndLabel), label(EndLabel)) -
@@ -281,13 +306,11 @@ switch_gen__generate_cases([case(_, _, Cons, Goal)|Cases], Var, CodeModel,
 			label(ElseLabel) - "next case"
 		]) },
 		{ ThisCaseCode = tree(tree(TestCode, ThisCode), ElseCode) },
-		% If there are more cases, then we need to restore
-		% the expression cache, etc.
-		( { Cases = [_|_] } ->
-			code_info__slap_code_info(CodeInfo)
-		;
-			[]
-		)
+
+			% We restore the expression cache
+			% unconditionally so that the generation
+			% of failure happens properly.
+		code_info__slap_code_info(CodeInfo)
 	;
 		code_gen__generate_forced_goal(CodeModel, Goal, ThisCaseCode)
 	),
