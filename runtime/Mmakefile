@@ -43,6 +43,7 @@ HDRS		=	\
 			mercury_context.h	\
 			mercury_debug.h		\
 			mercury_deep_copy.h	\
+			mercury_deep_profiling.h \
 			mercury_dummy.h		\
 			mercury_dlist.h		\
 		  	mercury_engine.h	\
@@ -123,6 +124,7 @@ CFILES		= 	\
 			mercury_context.c	\
 			mercury_debug.c		\
 			mercury_deep_copy.c	\
+			mercury_deep_profiling.c \
 			mercury_dlist.c		\
 			mercury_dummy.c		\
 			mercury_engine.c	\

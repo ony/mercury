@@ -22,6 +22,12 @@ ENDINIT
 #include "mercury_imp.h"
 #include "mercury_ho_call.h"
 
+#if defined(MR_DEEP_PROFILING) && !defined(MR_DEEP_PROFILING_DELAYED_CSD_UPDATE)
+#define MR_IF_DEEP_PROFILING(x) x
+#else
+#define MR_IF_DEEP_PROFILING(x)
+#endif
+
 #ifndef MR_HIGHLEVEL_CODE
 static	MR_Word	MR_generic_compare(MR_TypeInfo type_info, MR_Word x, MR_Word y);
 static	MR_Word	MR_generic_unify(MR_TypeInfo type_info, MR_Word x, MR_Word y);
@@ -222,6 +228,10 @@ MR_define_entry(mercury__unify_2_0);
 	do {								\
 		MR_r1 = (answer);					\
 		MR_succip = saved_succip;				\
+		MR_IF_DEEP_PROFILING(					\
+			MR_current_call_site_dynamic =			\
+				MR_parent_call_site_dynamic;		\
+		)							\
 		MR_proceed();						\
 	} while(0)
 
@@ -292,6 +302,10 @@ MR_define_entry(mercury__compare_3_3);
 	do {								\
 		MR_r1 = (answer);					\
 		MR_succip = saved_succip;				\
+		MR_IF_DEEP_PROFILING(					\
+			MR_current_call_site_dynamic =			\
+				MR_parent_call_site_dynamic;		\
+		)							\
 		MR_proceed();						\
 	} while(0)
 

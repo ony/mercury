@@ -143,11 +143,19 @@
 		;	profiling		% profile_time + profile_calls
 		;	time_profiling		% profile_time + profile_calls
 		;	memory_profiling	% profime_mem + profile_calls
-		;	deep_profiling	% profile_time + profile_deep
+		;	deep_profiling		% profile_time + profile_deep
 		;	profile_calls
 		;	profile_time
 		;	profile_memory
 		;	profile_deep
+		;	use_activation_counts
+				% used to determine which mechanism for
+				% cycle detection should be used for deep
+				% profiling. Actually, we only want to use
+				% the `yes' value, but we keep support for
+				% the `no' value for paper-writing purposes.
+		;	use_zeroing_for_ho_cycles
+		;	use_lots_of_ho_specialization
 		;	debug
 		;	stack_trace
 		;	require_tracing
@@ -557,6 +565,12 @@ option_defaults_2(compilation_model_option, [
 	profile_time		-	bool(no),
 	profile_memory		-	bool(no),
 	profile_deep		-	bool(no),
+	use_activation_counts	-	bool(yes),
+	use_zeroing_for_ho_cycles
+				-	bool(yes),
+	use_lots_of_ho_specialization
+				-	bool(no),
+	use_activation_counts	-	bool(yes),
 	debug			-	bool_special,
 	require_tracing		-	bool(no),
 	stack_trace		-	bool(no),
@@ -960,6 +974,11 @@ long_option("profile-calls",		profile_calls).
 long_option("profile-time",		profile_time).
 long_option("profile-memory",		profile_memory).
 long_option("profile-deep",		profile_deep).
+long_option("use-activation-counts",	use_activation_counts).
+long_option("use-lots-of-ho-specialization",
+					use_lots_of_ho_specialization).
+long_option("use-zeroing-for-ho-cycles",
+					use_zeroing_for_ho_cycles).
 long_option("debug",			debug).
 % The following options are not allowed, because they're
 % not very useful and would probably only confuse people.

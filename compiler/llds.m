@@ -913,10 +913,12 @@
 	;	base_typeclass_info(class_id, string)
 			% class name & class arity, names and arities of the
 			% types
-	;	tabling_pointer(proc_label).
+	;	tabling_pointer(proc_label)
 			% A variable that contains a pointer that points to
 			% the table used to implement memoization, loopcheck
 			% or minimal model semantics for the given procedure.
+	;	deep_profiling_procedure_data(proc_label)
+	.
 
 :- type reg_type	
 	--->	r		% general-purpose (integer) regs
@@ -1254,8 +1256,11 @@ get_defining_module_name(special_proc(ModuleName, _, _, _, _, _)) = ModuleName.
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
+:- interface.
+
 :- type proc_var_map	==	map(pred_proc_id, comp_gen_c_var).
 :- type proc_layout_map	==	map(pred_proc_id, proc_layout_info).
+
 
 :- type global_data
 	--->	global_data(
@@ -1283,6 +1288,8 @@ get_defining_module_name(special_proc(ModuleName, _, _, _, _, _)) = ModuleName.
 						% because their construction
 						% ensures no overlaps.
 		).
+
+:- implementation.
 
 global_data_init(global_data(EmptyDataMap, EmptyLayoutMap, [], [])) :-
 	map__init(EmptyDataMap),

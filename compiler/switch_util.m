@@ -287,6 +287,7 @@ switch_util__switch_priority(code_addr_constant(_, _), 6).
 switch_util__switch_priority(type_ctor_info_constant(_, _, _), 6).
 switch_util__switch_priority(base_typeclass_info_constant(_, _, _), 6).
 switch_util__switch_priority(tabling_pointer_constant(_, _), 6).
+switch_util__switch_priority(deep_profiling_procedure_data(_, _), 6).
 
 	% Determine the range of an atomic type.
 	% Fail if the type isn't the sort of type that has a range

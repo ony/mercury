@@ -2368,7 +2368,8 @@ output_const_term_decl(ArgVals, CreateArgTypes, DeclId, Exported,
 		->
 			[]
 		;
-			io__write_string("const ")
+			%XXXio__write_string("const ")
+			[]
 		)
 	;
 		[]
@@ -2426,6 +2427,7 @@ data_addr_would_include_code_address(layout_addr(LayoutName)) =
 data_name_would_include_code_address(common(_)) =                 no.
 data_name_would_include_code_address(base_typeclass_info(_, _)) = yes.
 data_name_would_include_code_address(tabling_pointer(_)) =        no.
+data_name_would_include_code_address(deep_profiling_procedure_data(_)) =  no.
 
 :- pred output_decl_id(decl_id, io__state, io__state).
 :- mode output_decl_id(in, di, uo) is det.
@@ -3002,9 +3004,10 @@ output_data_addr_storage_type_name(ModuleName, DataVarName, BeingDefined,
 
 :- pred data_name_linkage(data_name::in, linkage::out) is det.
 
-data_name_linkage(common(_),                 static).
-data_name_linkage(base_typeclass_info(_, _), extern).
-data_name_linkage(tabling_pointer(_),        static).
+data_name_linkage(common(_),                 	    static).
+data_name_linkage(base_typeclass_info(_, _), 	    extern).
+data_name_linkage(tabling_pointer(_),        	    static).
+data_name_linkage(deep_profiling_procedure_data(_), static).
 
 %-----------------------------------------------------------------------------%
 
@@ -3347,6 +3350,11 @@ output_data_addr(ModuleName, VarName) -->
 	;
 		{ VarName = tabling_pointer(ProcLabel) },
 		io__write_string("mercury_var__tabling__"),
+		output_proc_label(ProcLabel)
+	;
+		{ VarName = deep_profiling_procedure_data(ProcLabel) },
+		io__write_string(mercury_data_prefix),
+		io__write_string("_deep_profiling_data__"),
 		output_proc_label(ProcLabel)
 	).
 

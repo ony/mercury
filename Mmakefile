@@ -32,7 +32,8 @@ SUBDIRS = \
 		browser \
 		compiler \
 		doc \
-		profiler
+		profiler \
+		deep
 
 MMAKEFLAGS =
 
@@ -52,7 +53,7 @@ SUBSUBDIR_MMAKE = PATH=../../scripts:../../util:$$PATH \
 # `mmake depend' forces them to be remade to ensure that they are up-to-date.
 
 .PHONY: dep
-dep: dep_library dep_browser dep_compiler dep_profiler
+dep: dep_library dep_browser dep_compiler dep_profiler dep_deep
 
 .PHONY: dep_library
 dep_library: library/$(deps_subdir)library.dep
@@ -77,6 +78,12 @@ dep_profiler: profiler/$(deps_subdir)mercury_profile.dep
 
 profiler/$(deps_subdir)mercury_profile.dep: library/$(deps_subdir)library.dep
 	cd profiler && $(SUBDIR_MMAKE) depend
+
+.PHONY: dep_deep
+dep_deep: deep/$(deps_subdir)deep.dep
+
+deep/$(deps_subdir)deep.dep: library/$(deps_subdir)library.dep
+	cd deep && $(SUBDIR_MMAKE) depend
 
 # depend_library MUST be done before depend_compiler and depend_profiler
 
@@ -152,6 +159,10 @@ doc: scripts util
 .PHONY: profiler
 profiler: dep_profiler scripts util boehm_gc runtime library browser trace
 	cd profiler && $(SUBDIR_MMAKE)
+
+.PHONY: deep
+deep: dep_deep scripts util boehm_gc runtime library browser trace
+	cd deep && $(SUBDIR_MMAKE)
 
 #-----------------------------------------------------------------------------#
 
@@ -454,6 +465,9 @@ touch_files:
 	touch profiler/*.date*
 	chmod +w profiler/*.dep
 	touch profiler/*.dep
+	touch deep/*.date*
+	chmod +w deep/*.dep
+	touch deep/*.dep
 	touch doc/*.texi configure
 	sleep 1
 	touch boehm_gc/*.c
@@ -463,6 +477,7 @@ touch_files:
 	touch trace/*.c
 	touch compiler/*.c
 	touch profiler/*.c
+	touch deep/*.c
 	touch doc/*.info doc/*.dvi doc/*.html config.status
 
 #-----------------------------------------------------------------------------#

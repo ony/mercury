@@ -1408,6 +1408,7 @@ add_implicit_imports(Items, Globals, ImportDeps0, UseDeps0,
 	mercury_public_builtin_module(MercuryPublicBuiltin),
 	mercury_private_builtin_module(MercuryPrivateBuiltin),
 	mercury_table_builtin_module(MercuryTableBuiltin),
+	mercury_profiling_builtin_module(MercuryProfilingBuiltin),
 	ImportDeps = [MercuryPublicBuiltin | ImportDeps0],
 	UseDeps1 = [MercuryPrivateBuiltin | UseDeps0],
 	(
@@ -1420,10 +1421,16 @@ add_implicit_imports(Items, Globals, ImportDeps0, UseDeps0,
 		; globals__lookup_bool_option(Globals, trace_table_io, yes)
 		)
 	->
-		UseDeps = [MercuryTableBuiltin | UseDeps1]
+		UseDeps2 = [MercuryTableBuiltin | UseDeps1]
 	;
-		UseDeps = UseDeps1
+		UseDeps2 = UseDeps1
+	),
+	( globals__lookup_bool_option(Globals, profile_deep, yes) ->
+		UseDeps = [MercuryProfilingBuiltin|UseDeps2]
+	;
+		UseDeps = UseDeps2
 	).
+	
 
 :- pred contains_tabling_pragma(item_list::in) is semidet.
 

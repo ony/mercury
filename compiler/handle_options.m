@@ -466,7 +466,25 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	),
 
 	% Deep profiling requires `procid' stack layouts
-	option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	% For the moment, we disable this, because we use a fake Id
+	% instead....
+	%option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
+	( { ProfileDeep = yes } ->
+		globals__io_lookup_bool_option(
+			use_lots_of_ho_specialization, X),
+		( { X = yes } ->
+			{ True = bool(yes) },
+			globals__io_set_option(optimize_higher_order, True),
+			globals__io_set_option(higher_order_size_limit,
+								int(999999))
+		;
+			[]
+		)
+	;
+		[]
+	),
+
 
 	% --no-reorder-conj implies --no-deforestation.
 	option_neg_implies(reorder_conj, deforestation, bool(no)),

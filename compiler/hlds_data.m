@@ -54,6 +54,10 @@
 				% that points to the table that implements
 				% memoization, loop checking or the minimal
 				% model semantics for the given procedure.
+			;	deep_profiling_procedure_data(
+				    pred_proc_id,
+				    list(callsite)
+				)
 			.
 
 	% A cons_defn is the definition of a constructor (i.e. a constant
@@ -104,6 +108,24 @@
 :- type field_access_type
 	--->	get
 	;	set
+	.
+
+%-----------------------------------------------------------------------------%
+
+:- type callsite
+	--->	normal(pred_proc_id, goalPath)
+	;	call(goalPath)
+	%;	classMethod(pred_proc_id, goalPath)
+	.
+
+:- type goalPath == list(goalPathElem).
+:- type goalPathElem
+	--->	conj(int)
+	;	disj(int)
+	;	switch(int)
+	;	if_then_else(int)
+	;	(not)
+	;	(some)
 	.
 
 %-----------------------------------------------------------------------------%
@@ -181,6 +203,8 @@ cons_id_arity(base_typeclass_info_const(_, _, _, _), _) :-
 	error("cons_id_arity: can't get arity of base_typeclass_info_const").
 cons_id_arity(tabling_pointer_const(_, _), _) :-
 	error("cons_id_arity: can't get arity of tabling_pointer_const").
+cons_id_arity(deep_profiling_procedure_data(_, _), _) :-
+	error("cons_id_arity: can't get arity of deep_profiling_procedure_data").
 
 make_functor_cons_id(term__atom(Name), Arity,
 		cons(unqualified(Name), Arity)).
@@ -335,6 +359,9 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 			% represented as global data. The word just contains
 			% the address of the tabling pointer of the
 			% specified procedure.
+	;	deep_profiling_procedure_data(pred_proc_id, list(callsite))
+			% This is for constants representing procedure
+			% descriptions for deep profiling.
 	;	unshared_tag(tag_bits)
 			% This is for constants or functors which can be
 			% distinguished with just a primary tag.

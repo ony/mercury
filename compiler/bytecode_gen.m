@@ -695,6 +695,9 @@ bytecode_gen__map_cons_id(ByteInfo, Var, ConsId, ByteConsId) :-
 	;
 		ConsId = tabling_pointer_const(_, _),
 		error("bytecode cannot implement tabling")
+	;
+		ConsId = deep_profiling_procedure_data(_, _),
+		error("bytecode cannot implement deep profiling")
 	).
 
 :- pred bytecode_gen__map_cons_tag(cons_tag::in, byte_cons_tag::out) is det.
@@ -720,6 +723,8 @@ bytecode_gen__map_cons_tag(base_typeclass_info_constant(_, _, _), _) :-
 	error("base_typeclass_info_constant cons tag for non-base_typeclass_info_constant cons id").
 bytecode_gen__map_cons_tag(tabling_pointer_constant(_, _), _) :-
 	error("tabling_pointer_constant cons tag for non-tabling_pointer_constant cons id").
+bytecode_gen__map_cons_tag(deep_profiling_procedure_data(_, _), _) :-
+	error("deep_profiling_procedure_data cons tag for non-tabling_pointer_constant cons id").
 
 %---------------------------------------------------------------------------%
 

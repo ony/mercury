@@ -23,6 +23,9 @@
 #include	"mercury_prof.h"
 #include	"mercury_heap_profile.h" /* for MR_prof_output_mem_tables() */
 #include	"mercury_prof_mem.h"	 /* for prof_malloc() */
+#ifdef MR_DEEP_PROFILING
+#include	"mercury_deep_profiling.h"
+#endif
 
 #include	"mercury_signal.h"
 #include        "mercury_std.h"
@@ -359,6 +362,7 @@ MR_prof_call_profile(MR_Code *Callee, MR_Code *Caller)
 static void
 prof_time_profile(int signum)
 {
+#ifndef MR_DEEP_PROFILING
 	prof_time_node	*node, **node_addr, *new_node;
 	int		hash_value;
 	MR_Code 		*current_proc;
@@ -395,6 +399,11 @@ prof_time_profile(int signum)
 
 	in_profiling_code = FALSE;
 	return;
+#else
+#ifdef MR_DEEP_PROFILING_TIMING
+	MR_current_call_site_dynamic->profiling_metrics.quanta++;
+#endif
+#endif
 } /* end prof_time_profile() */
 
 /* ======================================================================== */

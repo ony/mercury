@@ -136,6 +136,11 @@ export__get_foreign_export_defns(Module, ExportedProcsCode) :-
 	% #if MR_THREAD_SAFE
 	% 	MR_Bool must_finalize_engine;
 	% #endif 
+	% #if MR_DEEP_PROFILING
+	%	MR_CallSiteDynamic *saved_call_site_addr
+	%				= MR_current_callback_site;
+	%	MR_CallSiteDynamic *saved_csd;
+	% #endif
 	%
 	%		/* save the registers that our C caller may be using */
 	%	MR_save_regs_to_mem(c_regs);
@@ -150,6 +155,10 @@ export__get_foreign_export_defns(Module, ExportedProcsCode) :-
 	% 	must_finalize_engine = MR_init_thread(MR_use_now);
 	% #endif 
 	%
+	% #if MR_DEEP_PROFILING
+	%	saved_csd = MR_current_call_site_dynamic;
+	%	MR_prepare_for_callback(MR_ENTRY(<label of called proc>));
+	% #endif
 	%		/* 
 	%		** restore Mercury's registers that were saved as
 	%		** we entered C from Mercury.  For single threaded
@@ -179,6 +188,10 @@ export__get_foreign_export_defns(Module, ExportedProcsCode) :-
 	%	<copy return value register into retval>
 	% #endif
 	%	<copy output args from registers into *Mercury__Arguments>
+	% #if MR_DEEP_PROFILING
+	% 	MR_current_call_site_dynamic = saved_csd;
+	%	MR_current_callback_site = saved_call_site_addr;
+	% #endif
 	% #if MR_THREAD_SAFE
 	% 	if (must_finalize_engine) {
 	% 		MR_finalize_thread_engine();
@@ -222,11 +235,21 @@ export__to_c(Preds, [E|ExportedProcs], Module, ExportedProcsCode) :-
 				"#if MR_THREAD_SAFE\n",
 				"\tMR_Bool must_finalize_engine;\n", 
 				"#endif\n",
+				"#if MR_DEEP_PROFILING\n",
+				"\tMR_CallSiteDynamic **saved_csd_addr;\n",
+				"\tMR_CallSiteDynamic *saved_csd;\n",
+				"#endif\n",
 				MaybeDeclareRetval,
 				"\n",
 				"\tMR_save_regs_to_mem(c_regs);\n", 
 				"#if MR_THREAD_SAFE\n",
 				"\tmust_finalize_engine = MR_init_thread(MR_use_now);\n", 
+				"#endif\n",
+				"#if MR_DEEP_PROFILING\n",
+				"\tsaved_csd_addr = MR_current_callback_site;\n",
+				"\tsaved_csd = MR_current_call_site_dynamic;\n",
+				"\tMR_prepare_for_callback(MR_ENTRY(",
+					ProcLabelString, "));\n",
 				"#endif\n",
 				"\tMR_restore_registers();\n", 
 				InputArgs,
@@ -236,6 +259,10 @@ export__to_c(Preds, [E|ExportedProcs], Module, ExportedProcsCode) :-
 				"\tMR_restore_transient_registers();\n",
 				MaybeFail,
 				OutputArgs,
+				"#if MR_DEEP_PROFILING\n",
+				"\tMR_current_call_site_dynamic = saved_csd;\n",
+				"\tMR_current_callback_site = saved_csd_addr;\n",
+				"#endif\n",
 				"#if MR_THREAD_SAFE\n",
 				"\tif (must_finalize_engine) {\n", 
 				"\t\t MR_finalize_thread_engine();\n", 
@@ -543,6 +570,9 @@ export__produce_header_file(C_ExportDecls, ModuleName) -->
 			"\n",
 			"#ifndef MERCURY_HDR_EXCLUDE_IMP_H\n",
 			"#include ""mercury_imp.h""\n",
+			"#endif\n",
+			"#ifdef MR_DEEP_PROFILING\n",
+			"#include ""mercury_deep_profiling.h""\n",
 			"#endif\n",
 			"\n"]),
 		export__produce_header_file_2(C_ExportDecls),

@@ -347,6 +347,12 @@ typed_compare(R, X, Y) :-
 
 	% The definitions for type_ctor_info/1 and type_info/1.
 
+:- pragma c_header_code("
+#ifdef MR_DEEP_PROFILING
+#include ""mercury_deep_profiling.h""
+#endif
+").
+
 :- pragma foreign_code("C", "
 
 #ifdef MR_HIGHLEVEL_CODE
@@ -394,6 +400,9 @@ MR_define_entry(mercury____Unify___private_builtin__type_info_1_0);
 	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
 	MR_restore_transient_registers();
 	MR_r1 = (comp == MR_COMPARE_EQUAL);
+#ifdef MR_DEEP_PROFILING
+	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
+#endif
 	MR_proceed();
 }
 
@@ -411,6 +420,9 @@ MR_define_entry(mercury____Compare___private_builtin__type_info_1_0);
 	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
 	MR_restore_transient_registers();
 	MR_r1 = comp;
+#ifdef MR_DEEP_PROFILING
+	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
+#endif
 	MR_proceed();
 }
 

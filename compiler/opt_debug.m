@@ -752,6 +752,10 @@ opt_debug__dump_data_name(base_typeclass_info(ClassId, InstanceNum), Str) :-
 opt_debug__dump_data_name(tabling_pointer(ProcLabel), Str) :-
 	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
 	string__append_list(["tabling_pointer(", ProcLabelStr, ")"], Str).
+opt_debug__dump_data_name(deep_profiling_procedure_data(ProcLabel), Str) :-
+	opt_debug__dump_proclabel(ProcLabel, ProcLabelStr),
+	string__append_list(["deep_profiling_procedure_data(",
+				ProcLabelStr, ")"], Str).
 
 opt_debug__dump_rtti_type_id(rtti_type_id(ModuleName, TypeName, Arity), Str) :-
 	llds_out__sym_name_mangle(ModuleName, ModuleName_str),

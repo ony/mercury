@@ -29,6 +29,10 @@ ENDINIT
 
 #include	"mercury_imp.h"
 
+#ifdef MR_DEEP_PROFILING
+#include	"mercury_deep_profiling.h"
+#endif
+
 #include	<stdio.h>
 #include	<string.h>
 
@@ -1045,6 +1049,13 @@ mercury_runtime_main(void)
 		printf("max nondstack used: %6ld words\n",
 			(long) (MR_CONTEXT(nondetstack_zone)->max
 				- MR_CONTEXT(nondetstack_zone)->min));
+	}
+#endif
+
+#ifdef MR_DEEP_PROFILING
+	{
+	    FILE *fp = fopen("Deep.data", "w");
+	    MR_write_out_profiling_tree(fp);
 	}
 #endif
 

@@ -1167,7 +1167,6 @@ unsorted_aggregate(Generator, Accumulator, Acc0, Acc) :-
                [will_not_call_mercury, thread_safe],
 		"Y = X;").
 
-
 %-----------------------------------------------------------------------------%
 
 	% The type `std_util:type_desc/0' happens to use much the same
@@ -1258,6 +1257,9 @@ MR_define_entry(mercury____Unify___std_util__type_desc_0_0);
 	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
 	MR_restore_transient_registers();
 	MR_r1 = (comp == MR_COMPARE_EQUAL);
+#ifdef MR_DEEP_PROFILING
+	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
+#endif
 	MR_proceed();
 }
 
@@ -1272,6 +1274,9 @@ MR_define_entry(mercury____Compare___std_util__type_desc_0_0);
 	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
 	MR_restore_transient_registers();
 	MR_r1 = comp;
+#ifdef MR_DEEP_PROFILING
+	MR_current_call_site_dynamic = MR_parent_call_site_dynamic;
+#endif
 	MR_proceed();
 }
 
@@ -2727,6 +2732,10 @@ ML_get_num_functors(MR_TypeInfo type_info)
 :- pragma foreign_decl("C", "
 
     #include <stdio.h>
+
+#ifdef MR_DEEP_PROFILING
+    #include ""mercury_deep_profiling.h""
+#endif
 
     /*
     ** Code for functor, arg and deconstruct

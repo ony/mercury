@@ -6,13 +6,15 @@
 
 /*
 ** mercury_prof.h -- definitions for profiling.
-** (See also mercury_heap_profiling.h.)
+** (See also mercury_heap_profiling.h and mercury_deep_profiling.h.)
 */
 
 #ifndef MERCURY_PROF_H
 #define MERCURY_PROF_H
 
 #include "mercury_types.h"	/* for `MR_Code *' */
+
+#include "mercury_deep_profiling.h"
 
 #include <stdio.h>
 
