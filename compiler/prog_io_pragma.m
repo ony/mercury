@@ -321,10 +321,6 @@ parse_pragma_type(ModuleName, "fact_table", PragmaTerms,
 		ErrorTerm)
 	).
 
-
-
-	% pragma termination_info should never appear in user programs,
-	% only in .opt files.
 parse_pragma_type(ModuleName, "termination_info", PragmaTerms, ErrorTerm,
 	_VarSet, Result) :-
 	

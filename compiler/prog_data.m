@@ -137,8 +137,13 @@
 	;	termination_info(pred_or_func, sym_name, arity, proc_id,
 			termination)
 			% PredName, Arity, Mode, Termination
-			% Used for inter-module termination analysis
-			% should only appear in .opt files.
+			% This pragma is used to define information about a
+			% predicates termination properties.  It is most
+			% useful where the compiler has insufficient
+			% information to be able to analyse the predicate.
+			% This includes c_code, and imported predicates.
+			% termination_info pragmas are used in opt and
+			% trans_opt files.
 
 	;	terminates(sym_name, arity)
 			% Predname, Arity

@@ -384,55 +384,43 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 	;
 		{ Pragma = termination_info(PredOrFunc, SymName, Arity, ProcId, 
 			Termination) },
-		% for the Status to be opt_imported, the pragma must be in
-		% a .trans_opt or .opt file.  Currently 
-		% :- pragma termination_info are only valid in .opt or
-		% .trans_opt files.
-		{ Status = item_status(ImportStatus, _) },
-		( { ImportStatus \= opt_imported } ->
+		{ module_info_get_predicate_table(Module0, Preds) },
+		(
+		    { predicate_table_search_pf_sym_arity(Preds,
+			PredOrFunc, SymName, Arity, PredIds) }
+		->
+		    ( { PredIds = [] } ->
+		    	prog_out__write_context(Context),
+			undefined_pred_or_func_error(SymName, Arity, Context,
+				":- pragma termination_info declaration"),
+			{ module_info_incr_errors(Module0, Module) }
+		    ; { PredIds = [PredId] } ->
+		    	{ module_info_pred_proc_info(Module0, PredId, 
+				ProcId, PredInfo0, ProcInfo0) },
+			{ pred_info_procedures(PredInfo0, ProcTable0)},
+			{ proc_info_set_termination(ProcInfo0, 
+				Termination, ProcInfo) },
+			{ map__det_update(ProcTable0, ProcId, ProcInfo,
+				ProcTable) },
+			{ pred_info_set_procedures(PredInfo0, 
+				ProcTable, PredInfo) },
+			{ module_info_set_pred_info(Module0, PredId,
+				PredInfo, Module) }
+		    ;
+			prog_out__write_context(Context),
+			io__write_string("Error: Ambiguous predicate name\n"),
 			prog_out__write_context(Context),
 			io__write_string(
-				"Error: unknown pragma termination_info.\n"),
+				"  in pragma termination_info\n"),
 			{ module_info_incr_errors(Module0, Module) }
+		    )
 		;
-			{ module_info_get_predicate_table(Module0, Preds) },
-			(
-			    { predicate_table_search_pf_sym_arity(Preds,
-				PredOrFunc, SymName, Arity, PredIds) }
-			->
-			    ( { PredIds = [] } ->
-			    	prog_out__write_context(Context),
-				io__write_string("Internal Error: Predicate name not found in pragma termination_info\n"),
-				{ module_info_incr_errors(Module0, Module) }
-			    ; { PredIds = [PredId] } ->
-			    	{ module_info_pred_proc_info(Module0, PredId, 
-					ProcId, PredInfo0, ProcInfo0) },
-				{ pred_info_procedures(PredInfo0, ProcTable0)},
-				{ proc_info_set_termination(ProcInfo0, 
-					Termination, ProcInfo) },
-				{ map__det_update(ProcTable0, ProcId, ProcInfo,
-					ProcTable) },
-				{ pred_info_set_procedures(PredInfo0, 
-					ProcTable, PredInfo) },
-				{ module_info_set_pred_info(Module0, PredId,
-					PredInfo, Module) }
-			    ;
-				prog_out__write_context(Context),
-				io__write_string("Internal Error: Ambiguous predicate name\n"),
-				prog_out__write_context(Context),
-				io__write_string(
-					"  in pragma termination_info\n"),
-				{ module_info_incr_errors(Module0, Module) }
-			    )
-			;
-			    prog_out__write_context(Context),
-			    io__write_string("Internal Error: Predicate name not found\n"),
-			    prog_out__write_context(Context),
-			    io__write_string("  in pragma termination_info\n"),
-			    { module_info_incr_errors(Module0, Module) }
-			)
+		    prog_out__write_context(Context),
+		    io__write_string("Error: Predicate name not found\n"),
+		    prog_out__write_context(Context),
+		    io__write_string("  in pragma termination_info\n"),
+		    { module_info_incr_errors(Module0, Module) }
 		)
-
 	;
 		{ Pragma = terminates(Name, Arity) },
 		add_pred_marker(Module0, "terminates", Name, Arity,
