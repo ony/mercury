@@ -1861,16 +1861,16 @@ proc_info_init(Arity, Types, Modes, DeclaredModes, MaybeArgLives,
 	map__init(TVarsMap),
 	map__init(TCVarsMap),
 	RLExprn = no,
-	ALIAS = no,
-	GLOBAL_USE = no, 
-	REUSE = no, 
+	Alias = no,
+	GlobalUse = no, 
+	Reuse = no, 
 	NewProc = procedure(
 		BodyVarSet, BodyTypes, HeadVars, HeadVars,
 		Modes, ModeErrors, InstVarSet,
 		MaybeArgLives, ClauseBody, MContext, StackSlots, MaybeDet,
 		InferredDet, CanProcess, ArgInfo, InitialLiveness, TVarsMap,
 		TCVarsMap, eval_normal, no, no, DeclaredModes, IsAddressTaken,
-		RLExprn, ALIAS, GLOBAL_USE, REUSE, no, no
+		RLExprn, Alias, GlobalUse, Reuse, no, no
 	).
 
 proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
@@ -1879,9 +1879,9 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		TCVarsMap, ArgSizes, Termination, IsAddressTaken,
 		ProcInfo) :-
 	RLExprn = no,
-	ALIAS = no,
-	GLOBAL_USE = no, 
-	REUSE = no, 
+	Alias = no,
+	GlobalUse = no, 
+	Reuse = no, 
 	ModeErrors = [],
 	ProcInfo = procedure(
 		BodyVarSet, BodyTypes, HeadVars, HeadVars, HeadModes,
@@ -1889,7 +1889,7 @@ proc_info_set(DeclaredDetism, BodyVarSet, BodyTypes, HeadVars, HeadModes,
 		StackSlots, DeclaredDetism, InferredDetism, CanProcess, ArgInfo,
 		Liveness, TVarMap, TCVarsMap, eval_normal, ArgSizes,
 		Termination, no, IsAddressTaken, RLExprn,
-		ALIAS, GLOBAL_USE, REUSE, no, no).
+		Alias, GlobalUse, Reuse, no, no).
 
 proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 		Goal, Context, TVarMap, TCVarsMap, IsAddressTaken, ProcInfo) :-
@@ -1897,16 +1897,16 @@ proc_info_create(VarSet, VarTypes, HeadVars, HeadModes, InstVarSet, Detism,
 	set__init(Liveness),
 	MaybeHeadLives = no,
 	RLExprn = no,
-	ALIAS = no,
-	GLOBAL_USE = no, 
-	REUSE = no,
+	Alias = no,
+	GlobalUse = no, 
+	Reuse = no,
 	ModeErrors = [],
 	ProcInfo = procedure(VarSet, VarTypes, HeadVars, HeadVars, HeadModes,
 		ModeErrors, InstVarSet,
 		MaybeHeadLives, Goal, Context, StackSlots,
 		yes(Detism), Detism, yes, [], Liveness, TVarMap, TCVarsMap,
 		eval_normal, no, no, no, IsAddressTaken, RLExprn,
-		ALIAS, GLOBAL_USE, REUSE, no, no).
+		Alias, GlobalUse, Reuse, no, no).
 
 proc_info_set_body(ProcInfo0, VarSet, VarTypes, HeadVars, Goal,
 		TI_VarMap, TCI_VarMap, ProcInfo) :-
@@ -2026,8 +2026,8 @@ proc_info_set_address_taken(ProcInfo, AT, ProcInfo^is_address_taken := AT).
 proc_info_set_rl_exprn_id(ProcInfo, ID, ProcInfo^maybe_aditi_rl_id := yes(ID)).
 proc_info_set_possible_aliases(ProcInfo, Aliases, 
 		ProcInfo^maybe_alias_as := yes(Aliases)).
-proc_info_set_global_use(ProcInfo, GLOBAL_USE, 
-		ProcInfo^maybe_global_use := yes(GLOBAL_USE)).
+proc_info_set_global_use(ProcInfo, GlobalUse, 
+		ProcInfo^maybe_global_use := yes(GlobalUse)).
 proc_info_set_reuse_information(ProcInfo, Reuse0,
 		ProcInfo^structure_reuse:= Reuse):- 
 	memo_reuse_simplify(Reuse0, Reuse).

@@ -604,28 +604,28 @@
 :- mode goal_info_set_post_deaths(in, in, out) is det.
 
 :- pred goal_info_get_lfu(hlds_goal_info, set(prog_var)).
-:- mode goal_info_get_lfu(in,out) is det.
+:- mode goal_info_get_lfu(in, out) is det.
 
 :- pred goal_info_set_lfu(hlds_goal_info, set(prog_var), hlds_goal_info).
-:- mode goal_info_set_lfu(in,in,out) is det.
+:- mode goal_info_set_lfu(in, in, out) is det.
 
 :- pred goal_info_get_lbu(hlds_goal_info, set(prog_var)).
-:- mode goal_info_get_lbu(in,out) is det.
+:- mode goal_info_get_lbu(in, out) is det.
 
 :- pred goal_info_set_lbu(hlds_goal_info, set(prog_var), hlds_goal_info).
-:- mode goal_info_set_lbu(in,in,out) is det.
+:- mode goal_info_set_lbu(in, in, out) is det.
 
 :- pred goal_info_get_outscope(hlds_goal_info, set(prog_var)).
-:- mode goal_info_get_outscope(in,out) is det.
+:- mode goal_info_get_outscope(in, out) is det.
 
 :- pred goal_info_set_outscope(hlds_goal_info, set(prog_var), hlds_goal_info).
-:- mode goal_info_set_outscope(in,in,out) is det.
+:- mode goal_info_set_outscope(in, in, out) is det.
 
 :- pred goal_info_get_reuse(hlds_goal_info, reuse_goal_info).
-:- mode goal_info_get_reuse(in,out) is det.
+:- mode goal_info_get_reuse(in, out) is det.
 
 :- pred goal_info_set_reuse(hlds_goal_info, reuse_goal_info, hlds_goal_info).
-:- mode goal_info_set_reuse(in,in, out) is det.
+:- mode goal_info_set_reuse(in, in, out) is det.
 
 	% see also goal_info_get_code_model in code_model.m
 :- pred goal_info_get_determinism(hlds_goal_info, determinism).
@@ -755,7 +755,6 @@
 			;	exist(maybe_cut)
 			;	first
 			;	later.
-
 
 :- type maybe_cut	--->	cut ; no_cut.
 
@@ -1174,15 +1173,17 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 				% This set contains the variables which
 				% are syntactically needed during forward
 				% execution. 
-				% computed as the set of instantiated
+				% It is computed as the set of instantiated
 				% vars (input vars + sum(pre_births),
 				% minus the set of dead vars
 				% (sum(post_deaths and pre_deaths).
-				% Information needed by liveness analysis
-				% (in the context of memory reuse).
+				% This information is needed by the liveness
+				% analysis in the context of memory
+				% reuse.
 		lbu :: set(prog_var), 		% the local backward use set
-		outscope :: set(prog_var), 	% outscope-vars,
-				% XXX, documentation to be followed
+				% XXX, documentation needed
+		outscope :: set(prog_var), 	% outscope-vars
+				% XXX, documentation needed
 
 		reuse :: reuse_goal_info,
 				% Any structure reuse information
@@ -1281,14 +1282,14 @@ goal_info_init(GoalInfo) :-
 	set__init(PostDeaths),
 	set__init(LFU),
 	set__init(LBU), 
-	set__init(OUTSCOPE),
+	set__init(Outscope),
 	Reuse = empty,
 	instmap_delta_init_unreachable(InstMapDelta),
 	set__init(NonLocals),
 	term__context_init(Context),
 	set__init(Features),
 	GoalInfo = goal_info(PreBirths, PostBirths, PreDeaths, PostDeaths, 
-		LFU, LBU, OUTSCOPE, Reuse,
+		LFU, LBU, Outscope, Reuse,
 		Detism, InstMapDelta, Context, NonLocals, 
 		no, Features,
 		no_resume_point, []).
@@ -1358,10 +1359,10 @@ goal_info_set_lfu(GoalInfo0, LFU,
 goal_info_set_lbu(GoalInfo0, LBU,
 		GoalInfo0 ^ lbu := LBU).
 
-goal_info_set_outscope(GoalInfo0, LBU,
-		GoalInfo0 ^ outscope := LBU).
+goal_info_set_outscope(GoalInfo0, OutScope,
+		GoalInfo0 ^ outscope := OutScope).
 
-goal_info_set_reuse(GoalInfo, REUSE, GoalInfo ^ reuse := REUSE).
+goal_info_set_reuse(GoalInfo, Reuse, GoalInfo ^ reuse := Reuse).
 
 goal_info_set_determinism(GoalInfo0, Determinism,
 		GoalInfo0 ^ determinism := Determinism).

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -126,8 +126,8 @@
 	% Get the arity of a cons_id. Return a `no' on those cons_ids
 	% where cons_id_arity/2 would normally abort. 
 
-:- pred cons_id_maybe_arity( cons_id, maybe(arity)).
-:- mode cons_id_maybe_arity( in, out) is det.
+:- pred cons_id_maybe_arity(cons_id, maybe(arity)).
+:- mode cons_id_maybe_arity(in, out) is det.
 
 	% The reverse conversion - make a cons_id for a functor.
 	% Given a const and an arity for the functor, create a cons_id.
