@@ -1047,6 +1047,7 @@ pragma_allowed_in_interface(termination_info(_, _, _, _, _), yes).
 pragma_allowed_in_interface(terminates(_, _), yes).
 pragma_allowed_in_interface(does_not_terminate(_, _), yes).
 pragma_allowed_in_interface(check_termination(_, _), yes).
+pragma_allowed_in_interface(attribute(_, _, _), no).
 	% `aditi', `base_relation', `index' and `owner' pragmas must be in the
 	% interface for exported preds. This is checked in make_hlds.m.
 pragma_allowed_in_interface(aditi(_, _), yes).

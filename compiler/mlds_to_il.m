@@ -162,7 +162,7 @@
 		% class-wide attributes (all accumulate)
 	alloc_instrs	:: instr_tree,		% .cctor allocation instructions
 	init_instrs	:: instr_tree,		% .cctor init instructions
-	classdecls	:: list(classdecl),	% class methods and fields 
+	class_members	:: list(class_member),	% class methods and fields 
 	has_main	:: bool,		% class contains main
 	class_foreign_langs :: set(foreign_language),% class foreign code
 		% method-wide attributes (accumulating)
@@ -202,7 +202,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 	;
 		Info2 = Info1
 	),
-	ClassDecls = Info2 ^ classdecls,
+	ClassMembers = Info2 ^ class_members,
 	InitInstrs = list__condense(tree__flatten(Info2 ^ init_instrs)),
 	AllocInstrs = list__condense(tree__flatten(Info2 ^ alloc_instrs)),
 
@@ -251,11 +251,11 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 		AllocDoneFieldRef, AllocDoneField),
 
 		% Generate a class constructor.
-	make_class_constructor_classdecl(AllocDoneFieldRef,
+	make_class_constructor_class_member(AllocDoneFieldRef,
 		Imports, AllocInstrs, InitInstrs, CCtor, Info3, _Info),
 
 		% The declarations in this class.
-	MethodDecls = [AllocDoneField, CCtor | ClassDecls],
+	MethodDecls = [AllocDoneField, CCtor | ClassMembers],
 
 	SimpleClassName = get_class_suffix(ClassName),
 	NamespaceName = get_class_namespace(ClassName),
@@ -288,7 +288,8 @@ generate_method_defn(defn(export(_), _, _, _)) --> [].
 generate_method_defn(FunctionDefn) -->
 	{ FunctionDefn = defn(function(PredLabel, ProcId, MaybeSeqNum, PredId), 
 		Context, DeclsFlags, Entity) },
-	( { Entity = mlds__function(_PredProcId, Params, MaybeStatement) } ->
+	( { Entity = mlds__function(_PredProcId, Params, MaybeStatement,
+		Attributes) } ->
 
 		il_info_get_module_name(ModuleName),
 			% Generate a term (we use it to emit the complete
@@ -345,6 +346,10 @@ generate_method_defn(FunctionDefn) -->
 			{ EntryPoint = [] }
 		),
 
+			% Generate the custom attributes
+		{ CustomAttrs = attributes_to_custom_attributes(DataRep,
+			Attributes) },
+
 			% Need to insert a ret for functions returning
 			% void (MLDS doesn't).
 		{ Returns = [] ->
@@ -367,19 +372,32 @@ generate_method_defn(FunctionDefn) -->
 
 			% Generate the entire method contents.
 		{ MethodBody = make_method_defn(InstrsTree) },
-		{ list__append(EntryPoint, MethodBody, MethodContents) },
+		{ list__condense([EntryPoint, CustomAttrs, MethodBody],
+			MethodContents) },
 
 			% Add this method and a comment to the class
 			% declarations.
-		{ ClassDecls = [
+		{ ClassMembers = [
 			comment_term(MLDSDefnTerm),
 			ilasm__method(methodhead([static], id(Id), 
 				ILSignature, []), MethodContents)
 		] },
-		il_info_add_classdecls(ClassDecls)
+		il_info_add_class_members(ClassMembers)
 	;
 		{ error("entity not a function") }
 	).
+
+:- func attributes_to_custom_attributes(il_data_rep, list(mlds__attribute))
+		= list(method_body_decl).
+attributes_to_custom_attributes(DataRep, Attrs) = 
+	list__map(attribute_to_custom_attribute(DataRep), Attrs).
+
+:- func attribute_to_custom_attribute(il_data_rep, mlds__attribute)
+		= method_body_decl.
+attribute_to_custom_attribute(DataRep, custom(MLDSType)) = custom(CustomDecl) :-
+	ClassName = mlds_type_to_ilds_class_name(DataRep, MLDSType),
+	MethodRef = get_constructor_methoddef(ClassName),
+	CustomDecl = custom_decl(methodref(MethodRef), no, no_initalizer).
 
 
 generate_method_defn(DataDefn) --> 
@@ -481,11 +499,11 @@ generate_method_defn(DataDefn) -->
 			% and a comment term to the class decls.
 		{ Field = field([public, static], il_array_type,
 			FieldName, no, none) },
-		{ ClassDecls = [comment_term(MLDSDefnTerm), Field] }
+		{ ClassMembers = [comment_term(MLDSDefnTerm), Field] }
 	;
 		{ error("entity not data") }
 	),
-	il_info_add_classdecls(ClassDecls).
+	il_info_add_class_members(ClassMembers).
 	
 	% Generate top level declarations for "other" things (e.g.
 	% anything that is not a method in the main class).
@@ -657,32 +675,32 @@ maybe_box_initializer(init_obj(Rval), init_obj(NewRval)) -->
 % Code to turn MLDS definitions into IL class declarations.
 %
 
-:- pred defn_to_class_decl(mlds__defn, ilasm__classdecl, il_info, il_info).
+:- pred defn_to_class_decl(mlds__defn, class_member, il_info, il_info).
 :- mode defn_to_class_decl(in, out, in, out) is det.
 
 	% XXX shouldn't we re-use the code for creating fieldrefs here?
 	% IL doesn't allow byrefs in classes, so we don't use them.
 	% XXX really this should be a transformation done in advance
 defn_to_class_decl(mlds__defn(Name, _Context, _DeclFlags, 
-		mlds__data(Type, _Initializer)), ILClassDecl) -->
+		mlds__data(Type, _Initializer)), ILClassMember) -->
 	DataRep =^ il_data_rep,
 	{ ILType = remove_byrefs_from_type(
 			mlds_type_to_ilds_type(DataRep, Type)) },
 	{ Name = data(DataName) ->
 		mangle_dataname(DataName, MangledName),
-		ILClassDecl = field([], ILType, MangledName, no, none) 
+		ILClassMember = field([], ILType, MangledName, no, none) 
 	;
 		error("definintion name was not data/1")
 	}.
 
 	% XXX this needs to be implemented
 defn_to_class_decl(mlds__defn(_Name, _Context, _DeclFlags,
-	mlds__function(_PredProcId, _Params, _MaybeStatements)),
-		ILClassDecl) -->
-	{ ILClassDecl = comment("unimplemented: functions in classes") }.
+	mlds__function(_PredProcId, _Params, _MaybeStatements, _Attributes)),
+		ILClassMember) -->
+	{ ILClassMember = comment("unimplemented: functions in classes") }.
 
 defn_to_class_decl(mlds__defn(EntityName, _Context, _DeclFlags,
-		mlds__class(ClassDefn)), ILClassDecl) -->
+		mlds__class(ClassDefn)), ILClassMember) -->
 	DataRep =^ il_data_rep,
 	( { EntityName = type(TypeName0, Arity) } ->
 		{ TypeName = string__format("%s_%d",
@@ -694,7 +712,7 @@ defn_to_class_decl(mlds__defn(EntityName, _Context, _DeclFlags,
 		{ make_constructor(DataRep, FullClassName, ClassDefn,
 			ConstructorILDefn) },
 		{ Extends = mlds_inherits_to_ilds_inherits(DataRep, Inherits) },
-		{ ILClassDecl = nested_class([public], TypeName, Extends,
+		{ ILClassMember = nested_class([public], TypeName, Extends,
 			implements([]), [ConstructorILDefn | ILDefns]) }
 	;
 		{ error("expected type entity name for a nested class") }
@@ -1751,10 +1769,11 @@ rval_to_function(Rval, MemberName) :-
 	% 	<initialization instructions generated by field initializers>
 	%
 
-:- pred make_class_constructor_classdecl(fieldref, mlds__imports,
-	list(instr), list(instr), classdecl, il_info, il_info).
-:- mode make_class_constructor_classdecl(in, in, in, in, out, in, out) is det.
-make_class_constructor_classdecl(DoneFieldRef, Imports, AllocInstrs, 
+:- pred make_class_constructor_class_member(fieldref, mlds__imports,
+	list(instr), list(instr), class_member, il_info, il_info).
+:- mode make_class_constructor_class_member(in, in, in, in,
+	out, in, out) is det.
+make_class_constructor_class_member(DoneFieldRef, Imports, AllocInstrs, 
 		InitInstrs, Method) -->
 	{ Method = method(methodhead([static], cctor, 
 		signature(call_conv(no, default), void, []), []),
@@ -1787,7 +1806,7 @@ set_rtti_initialization_field(FieldRef, Instrs) -->
 
 
 :- pred generate_rtti_initialization_field(ilds__class_name, 
-		fieldref, classdecl).
+		fieldref, class_member).
 :- mode generate_rtti_initialization_field(in, out, out) is det.
 generate_rtti_initialization_field(ClassName, AllocDoneFieldRef,
 		AllocDoneField) :-
@@ -2738,7 +2757,7 @@ make_method_defn(InstrTree) = MethodDecls :-
 	% to intialize any class.
 
 :- pred make_constructor(il_data_rep, ilds__class_name, mlds__class_defn,
-	ilasm__classdecl).
+	ilasm__class_member).
 :- mode make_constructor(in, in, in, out) is det.
 make_constructor(DataRep, ClassName, 
 		mlds__class_defn(_,  _Imports, Inherits, _Implements, Defns),
@@ -2758,7 +2777,7 @@ make_constructor(DataRep, ClassName,
 		 node(FieldConstrInstrs),
 		 instr_node(ret)
 		 ])),
-	ILDecl = make_constructor_classdecl(MethodDecls).
+	ILDecl = make_constructor_class_member(MethodDecls).
 
 
 	% XXX This should really be generated at a higher level	
@@ -2845,8 +2864,8 @@ get_static_methodref(ClassName, MethodName, RetType, TypeParams) =
 	methoddef(call_conv(no, default), RetType,
 		class_member_name(ClassName, MethodName), TypeParams).
 
-:- func make_constructor_classdecl(method_defn) = classdecl.
-make_constructor_classdecl(MethodDecls) = method(
+:- func make_constructor_class_member(method_defn) = class_member.
+make_constructor_class_member(MethodDecls) = method(
 	methodhead([], ctor, signature(call_conv(no, default), 
 		void, []), []), MethodDecls).
 
@@ -2964,11 +2983,11 @@ il_info_remove_locals(RemoveLocals, Info0, Info) :-
 	map__delete_list(Info0 ^ locals, Keys, NewLocals),
 	Info = Info0 ^ locals := NewLocals.
 
-:- pred il_info_add_classdecls(list(classdecl), il_info, il_info).
-:- mode il_info_add_classdecls(in, in, out) is det.
-il_info_add_classdecls(ClassDecls, Info0, Info) :- 
-	Info = Info0 ^ classdecls := 
-		list__append(ClassDecls, Info0 ^ classdecls).
+:- pred il_info_add_class_members(list(class_member), il_info, il_info).
+:- mode il_info_add_class_members(in, in, out) is det.
+il_info_add_class_members(ClassMembers, Info0, Info) :- 
+	Info = Info0 ^ class_members := 
+		list__append(ClassMembers, Info0 ^ class_members).
 
 :- pred il_info_add_instructions(list(instr), il_info, il_info).
 :- mode il_info_add_instructions(in, in, out) is det.

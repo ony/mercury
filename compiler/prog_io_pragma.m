@@ -74,7 +74,7 @@ parse_pragma_type(ModuleName, "foreign_type", PragmaTerms,
             ErrorTerm, _VarSet, Result) :-
     ( PragmaTerms = [MercuryName, ForeignName, ForeignLocation] ->
 	parse_implicitly_qualified_term(ModuleName, MercuryName,
-		ErrorTerm, "`:- pragma unused_args' declaration",
+		ErrorTerm, "`:- pragma foreign_type' declaration",
 		MaybeMercuryType),
 	(
 	    MaybeMercuryType = ok(MercuryTypeSymName, MercuryArgs),
@@ -1086,6 +1086,40 @@ parse_pragma_type(ModuleName, "check_termination", PragmaTerms,
 		lambda([Name::in, Arity::in, Pragma::out] is det,
 			Pragma = check_termination(Name, Arity)),
 		PragmaTerms, ErrorTerm, Result).
+
+parse_pragma_type(ModuleName, "attribute", PragmaTerms,
+				ErrorTerm, _VarSet, Result) :-
+	PragmaType = "attribute",
+	( PragmaTerms = [PredAndArityTerm, TypeTerm] ->
+	    parse_pred_name_and_arity(ModuleName, PragmaType,
+		PredAndArityTerm, ErrorTerm, NameArityResult),
+	    (
+	    	NameArityResult = ok(PredName, Arity),
+		parse_implicitly_qualified_term(ModuleName, TypeTerm,
+		    ErrorTerm, "`:- pragma attribute' declaration",
+		    MaybeMercuryType),
+		(
+		    MaybeMercuryType = ok(_MercuryTypeSymName, MercuryArgs),
+		    ( MercuryArgs = [] ->
+			term__coerce(TypeTerm, MercuryType),
+			Pragma = attribute(PredName, Arity, MercuryType),
+			Result = ok(pragma(Pragma))
+		    ;
+			Result = error("attribute type arity not 0", ErrorTerm)
+		    )
+		;
+		    MaybeMercuryType = error(String, Term),
+		    Result = error(String, Term)
+		)
+	    ;
+		NameArityResult = error(ErrorMsg, _),
+	        Result = error(ErrorMsg, PredAndArityTerm)
+	    )
+	;
+	    string__append_list(["wrong number of arguments in `:- pragma ",
+		 PragmaType, "' declaration"], ErrorMsg),
+	    Result = error(ErrorMsg, ErrorTerm)
+	).
 
 :- pred parse_simple_pragma(module_name, string,
 			pred(sym_name, int, pragma_type),

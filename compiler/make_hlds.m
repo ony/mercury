@@ -563,6 +563,10 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 			ImportStatus, Context, check_termination, 
 			[terminates, does_not_terminate], 
 			Module)
+	;
+		{ Pragma = attribute(Pred, Arity, AttributeType) },
+		module_add_pragma_attribute(Pred, Arity, AttributeType, 
+			ImportStatus, Context, Module0, Module)
 	).
 
 add_item_decl_pass_2(func(_TypeVarSet, _InstVarSet, _ExistQVars, FuncName,
@@ -8158,3 +8162,47 @@ fact_table_pragma_vars(Vars0, Modes0, VarSet, PragmaVars0) :-
 	).
 
 %-----------------------------------------------------------------------------%
+% Add a `pragma attribute' declaration to the HLDS. 
+
+:- pred module_add_pragma_attribute(sym_name, arity, type, 
+		import_status, prog_context, module_info, module_info,
+		io__state, io__state).
+:- mode module_add_pragma_attribute(in, in, in, in, in, in, out, 
+		di, uo) is det.
+
+module_add_pragma_attribute(Pred, Arity, AttributeType, _Status, Context,
+		Module0, Module) -->
+	{ module_info_get_predicate_table(Module0, PredicateTable) },
+	(
+		{ predicate_table_search_sym_arity(PredicateTable, Pred, 
+			Arity, PredIDs) },
+		{ PredIDs = [_ | _] }
+	->
+		( 
+			{ PredIDs = [PredID] }
+		->
+			{ module_info_pred_info(Module0, PredID, PredInfo0) },
+			{ pred_info_get_attributes(PredInfo0, Attributes) },
+			{ add_attribute(Attributes, custom(AttributeType),
+				NewAttributes) },
+			{ pred_info_set_attributes(PredInfo0, NewAttributes,
+				PredInfo) },
+			{ module_info_set_pred_info(Module0, PredID, PredInfo,
+				Module) }
+		;
+			io__set_exit_status(1),
+			prog_out__write_context(Context),
+			io__write_string("In pragma attribute for `"),
+			prog_out__write_sym_name_and_arity(Pred/Arity),
+			io__write_string("':\n"),
+			prog_out__write_context(Context),
+			io__write_string(
+			    "  error: ambiguous predicate/function name.\n"),
+			{ Module = Module0 }
+		)
+	;
+		undefined_pred_or_func_error(Pred, Arity, Context, 
+			"`:- pragma fact_table' declaration"),
+		{ Module = Module0 }
+	).
+

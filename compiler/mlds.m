@@ -416,12 +416,13 @@
 			maybe(pred_proc_id),	% identifies the original
 						% Mercury procedure, if any
 			mlds__func_params,	% the arguments & return types
-			maybe(mlds__statement)	% the function body, or `no'
+			maybe(mlds__statement),	% the function body, or `no'
 						% if the function is abstract
 						% or if the function is defined
 						% externally (i.e. the original
 						% Mercury procedure was declared
 						% `:- external').
+			list(mlds__attribute)	% attributes
 		)
 		% packages, classes, interfaces, structs, enums
 	;	mlds__class(
@@ -687,6 +688,15 @@
 		mlds__context
 	).
 
+%-----------------------------------------------------------------------------%
+%
+% Attributes
+%
+
+:- type mlds__attribute
+	---> custom(
+		mlds__type
+	).
 
 %-----------------------------------------------------------------------------%
 %

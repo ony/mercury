@@ -275,8 +275,11 @@
 	;	does_not_terminate(sym_name, arity)
 			% Predname, Arity
 
-	;	check_termination(sym_name, arity).
+	;	check_termination(sym_name, arity)
 			% Predname, Arity
+	
+	;	attribute(sym_name, arity, type).
+			% Predname, Arity, TypeName
 
 %
 % Stuff for tabling pragmas

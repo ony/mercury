@@ -468,6 +468,9 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = check_termination(Pred, Arity) },
 		mercury_output_pragma_decl(Pred, Arity, predicate,
 			"check_termination")
+	;
+		{ Pragma = attribute(Pred, Arity, AttributeTerm) },
+		mercury_output_pragma_attribute(Pred, Arity, AttributeTerm)
 	).
 
 mercury_output_item(assertion(Goal, VarSet), _) -->
@@ -2566,6 +2569,22 @@ mercury_output_index_spec(IndexSpec) -->
 	io__write_string(", ["),
 	mercury_output_int_list(Attrs),
 	io__write_string("]").
+
+%-----------------------------------------------------------------------------%
+
+	% Output the given pragma attribute declaration
+:- pred mercury_output_pragma_attribute(sym_name, arity, type, 
+		io__state, io__state).
+:- mode mercury_output_pragma_attribute(in, in, in, di, uo) is det.
+
+mercury_output_pragma_attribute(Pred, Arity, AttributeType) -->
+	io__write_string(":- pragma attribute("),
+	mercury_output_sym_name(Pred),
+	io__write_string("/"),
+	io__write_int(Arity),
+	io__write_string(", "),
+	output_type(varset__init, no, AttributeType),
+	io__write_string(").\n").
 
 %-----------------------------------------------------------------------------%
 

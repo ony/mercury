@@ -195,7 +195,9 @@ generate_method_csharp_code(_ModuleName,
 	_Context, _DeclFlags, Entity)) -->
 
 	( 
-		{ Entity = mlds__function(_, Params, yes(Statement)) },
+			% XXX we ignore the attributes
+		{ Entity = mlds__function(_, Params, yes(Statement),
+			_Attributes) },
 		{ has_foreign_languages(Statement, Langs) },
 		{ list__member(csharp, Langs) }
 	->

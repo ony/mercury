@@ -788,7 +788,7 @@ gen_defn_body(Name, Context, Flags, DefnBody, GlobalInfo0, GlobalInfo) -->
 		{ GlobalInfo = GlobalInfo0 ^ global_vars := GlobalVars }
 	;
 		{ DefnBody = mlds__function(_MaybePredProcId, Signature,
-			MaybeBody) },
+			MaybeBody, _Attributes) },
 		gen_func(Name, Context, Flags, Signature, MaybeBody,
 			GlobalInfo0, GlobalInfo)
 	;
@@ -808,7 +808,7 @@ build_local_defn_body(Name, DefnInfo, _Context, Flags, DefnBody, GCC_Defn) -->
 		build_local_data_defn(Name, Flags, Type,
 			Initializer, DefnInfo, GCC_Defn)
 	;
-		{ DefnBody = mlds__function(_, _, _) },
+		{ DefnBody = mlds__function(_, _, _, _) },
 		% nested functions should get eliminated by ml_elim_nested,
 		% unless --gcc-nested-functions is enabled.
 		% XXX --gcc-nested-functions is not yet implemented
@@ -835,7 +835,7 @@ build_field_defn_body(Name, _Context, Flags, DefnBody, GlobalInfo, GCC_Defn) -->
 			GCC_Defn),
 		add_field_decl_flags(Flags, GCC_Defn)
 	;
-		{ DefnBody = mlds__function(_, _, _) },
+		{ DefnBody = mlds__function(_, _, _, _) },
 		{ unexpected(this_file, "function nested in type") }
 	;
 		{ DefnBody = mlds__class(_) },
@@ -1661,7 +1661,7 @@ build_type(Type, GlobalInfo, GCC_Type) -->
 		gcc__type, io__state, io__state).
 :- mode build_type(in, in, in, out, di, uo) is det.
 
-build_type(mercury_type(Type, TypeCategory), _, _, GCC_Type) -->
+build_type(mercury_type(Type, TypeCategory, _ExportType), _, _, GCC_Type) -->
 	build_mercury_type(Type, TypeCategory, GCC_Type).
 build_type(mlds__native_int_type, _, _, gcc__integer_type_node) --> [].
 build_type(mlds__native_float_type, _, _, gcc__double_type_node) --> [].
@@ -2796,7 +2796,7 @@ build_lval(field(MaybeTag, Rval, offset(OffsetRval),
 	% sanity check (copied from mlds_to_c.m)
 	(
 		{ FieldType = mlds__generic_type
-		; FieldType = mlds__mercury_type(term__variable(_), _)
+		; FieldType = mlds__mercury_type(term__variable(_), _, _)
 		}
 	->
 		[]
@@ -2995,7 +2995,7 @@ build_unop(std_unop(Unop), Exprn, DefnInfo, GCC_Expr) -->
 :- pred type_is_float(mlds__type::in) is semidet.
 type_is_float(Type) :-
 	( Type = mlds__mercury_type(term__functor(term__atom("float"),
-			[], _), _)
+			[], _), _, _)
 	; Type = mlds__native_float_type
 	).
 

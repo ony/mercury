@@ -64,10 +64,10 @@ optimize(Decls0, Decls) :-
 	% optimizations.
 :- pred optimize_decl(decl::in, decl::out, bool::in, bool::out) is det.
 optimize_decl(Decl0, Decl, Mod0, Mod) :-
-	( Decl0 = class(A, B, C, D, ClassDecls0) ->
-		list__map_foldl(optimize_class_decl, ClassDecls0, ClassDecls, 
-			Mod0, Mod),
-		Decl = class(A, B, C, D, ClassDecls)
+	( Decl0 = class(A, B, C, D, ClassMembers0) ->
+		list__map_foldl(optimize_class_decl, ClassMembers0,
+			ClassMembers, Mod0, Mod),
+		Decl = class(A, B, C, D, ClassMembers)
 	; Decl0 = method(A, MethodDecls0) ->
 		list__map_foldl(optimize_method_decl, MethodDecls0,
 			MethodDecls, Mod0, Mod),
@@ -81,7 +81,7 @@ optimize_decl(Decl0, Decl, Mod0, Mod) :-
 	 	Decl0 = Decl 
 	).
 
-:- pred optimize_class_decl(classdecl::in, classdecl::out, 
+:- pred optimize_class_decl(class_member::in, class_member::out, 
 	bool::in, bool::out) is det.
 optimize_class_decl(Decl0, Decl, Mod0, Mod) :-
 	( Decl0 = method(A, MethodDecls0) ->

@@ -776,7 +776,7 @@ mlds_output_decl(Indent, ModuleName, Defn) -->
 		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
 		(
 			{ HighLevelData = yes },
-			{ DefnBody = mlds__function(_, Signature, _) }
+			{ DefnBody = mlds__function(_, Signature, _, _) }
 		->
 			{ Signature = mlds__func_params(Parameters,
 				_RetTypes) },
@@ -883,7 +883,7 @@ mlds_output_decl_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_data_decl(Name, Type, initializer_array_size(Initializer))
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
-			_MaybeBody) },
+			_MaybeBody, _Attrs) },
 		mlds_output_maybe(MaybePredProcId, mlds_output_pred_proc_id),
 		mlds_output_func_decl(Indent, Name, Context, Signature)
 	;
@@ -902,7 +902,7 @@ mlds_output_defn_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_data_defn(Name, Type, Initializer)
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
-			MaybeBody) },
+			MaybeBody, _Attributes) },
 		mlds_output_maybe(MaybePredProcId, mlds_output_pred_proc_id),
 		mlds_output_func(Indent, Name, Context, Signature, MaybeBody)
 	;
@@ -1799,7 +1799,7 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 		{ Name \= type(_, _) },
 		% Don't output "static" for functions that don't have a body.
 		% This can happen for Mercury procedures declared `:- external'
-		{ DefnBody \= mlds__function(_, _, no) }
+		{ DefnBody \= mlds__function(_, _, no, _) }
 	->
 		io__write_string("static ")
 	;

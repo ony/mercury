@@ -1015,6 +1015,8 @@ qualify_pragma(does_not_terminate(A, B), does_not_terminate(A, B),
 		Info, Info) --> [].
 qualify_pragma(check_termination(A, B), check_termination(A, B), Info, 
 		Info) --> [].
+qualify_pragma(attribute(A, B, Type0), attribute(A, B, Type), Info0, Info) -->
+	qualify_type(Type0, Type, Info0, Info).
 
 :- pred qualify_pragma_vars(list(pragma_var)::in, list(pragma_var)::out,
 		mq_info::in, mq_info::out, io__state::di, io__state::uo) is det.
