@@ -558,21 +558,26 @@ call_sites(Deep, PDPtr, CSDPtrs) :-
 	( PDPtr = proc_dynamic_ptr(PDI), PDI > 0 ->
 		lookup(Deep ^ proc_dynamics, PDI, PD),
 		PD = proc_dynamic(_PSPtr, Refs),
-		solutions((pred(CSDPtr::out) is nondet :-
-		    array__to_list(Refs, RefList),
-		    member(Ref, RefList),
+		array__to_list(Refs, RefList),
+		foldl((pred(Ref::in, CSDPtrs0::in, CSDPtrs1::out) is det :-
 		    (
 		    	Ref = normal(CSDPtr),
 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
-			CSDI > 0
+			( CSDI > 0 ->
+				CSDPtrs1 = [CSDPtr|CSDPtrs0]
+			;
+				CSDPtrs1 = CSDPtrs0
+			)
 		    ;
 		    	Ref = multi(PtrArray),
-		    	array__to_list(PtrArray, PtrList),
-		    	member(CSDPtr, PtrList),
-		    	CSDPtr = call_site_dynamic_ptr(CSDI),
-			CSDI > 0
+		    	array__to_list(PtrArray, PtrList0),
+		    	filter((pred(CSDPtr::in) is semidet :-
+				CSDPtr = call_site_dynamic_ptr(CSDI),
+				CSDI > 0
+			), PtrList0, PtrList1),
+			append(PtrList1, CSDPtrs0, CSDPtrs1)
 		    )
-		), CSDPtrs)
+		), RefList, [], CSDPtrs)
 	;
 		CSDPtrs = []
 	).
