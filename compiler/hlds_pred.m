@@ -1116,6 +1116,8 @@ procedure_is_exported(PredInfo, ProcId) :-
 	(
 		pred_info_is_exported(PredInfo)
 	;
+		pred_info_is_opt_exported(PredInfo)
+	;
 		pred_info_is_exported_to_submodules(PredInfo)
 	;
 		pred_info_is_pseudo_exported(PredInfo),
