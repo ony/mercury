@@ -120,7 +120,8 @@ static	void	MR_write_out_callsite_dynamic(FILE *fp,
 static	void	MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ptr);
 static	void	MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *ptr);
 static	void	MR_write_out_ho_call_site_ptrs(FILE *fp,
-			MR_CallSiteDynList *dynlist);
+			const MR_ProcDynamic *ptr,
+			const MR_CallSiteDynList *dynlist);
 static	void	MR_write_out_ho_call_site_nodes(FILE *fp,
 			MR_CallSiteDynList *dynlist);
 
@@ -287,6 +288,10 @@ MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ptr)
 	bool	already_written;
 	int	i;
 
+	if (ptr == NULL) {
+		MR_fatal_error("MR_write_out_proc_static: null ps");
+	}
+
 	(void) MR_hash_table_insert(MR_proc_static_table, ptr,
 		&ps_id, &already_written, TRUE);
 
@@ -318,6 +323,10 @@ MR_write_out_callsite_static(FILE *fp, const MR_CallSiteStatic *ptr)
 	int	css_id;
 	bool	already_written;
 
+	if (ptr == NULL) {
+		MR_fatal_error("MR_write_out_callsite_static: null css");
+	}
+
 	MR_write_byte(fp, callsite_static);
 	(void) MR_hash_table_insert(MR_call_site_static_table, ptr,
 		&css_id, &already_written, TRUE);
@@ -340,8 +349,9 @@ MR_write_out_callsite_dynamic(FILE *fp, const MR_CallSiteDynamic *ptr)
 	int	csd_id;
 	int	pd_id;
 
-	if (ptr == NULL)
+	if (ptr == NULL) {
 		return;
+	}
 
 #ifdef MR_DEEP_PROFILING_STATISTICS
 	MR_amount_of_memory += sizeof(MR_CallSiteDynamic);
@@ -359,8 +369,13 @@ MR_write_out_callsite_dynamic(FILE *fp, const MR_CallSiteDynamic *ptr)
 	}
 
 	MR_write_ptr(fp, kind_csd, csd_id);
-	(void) MR_hash_table_insert(MR_proc_dynamic_table,
-		ptr->call_site_callee_ptr, &pd_id, NULL, FALSE);
+	if (ptr->call_site_callee_ptr == NULL) {
+		pd_id = 0;
+	} else {
+		(void) MR_hash_table_insert(MR_proc_dynamic_table,
+			ptr->call_site_callee_ptr, &pd_id, NULL, FALSE);
+	}
+
 	MR_write_ptr(fp, kind_pd, pd_id);
 
 #ifdef MR_DEEP_PROFILING_CALL_COUNTS
@@ -421,8 +436,9 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *ptr)
 	** handling of nondet pragma_foreign_code yet.
 	*/
 
-	if (ptr == NULL)
+	if (ptr == NULL) {
 		return;
+	}
 
 	if (! MR_hash_table_insert(MR_proc_dynamic_table, ptr,
 		&pd_id, &already_written, TRUE))
@@ -434,6 +450,7 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *ptr)
 		return;
 	}
 
+	MR_hash_table_flag_written(MR_proc_dynamic_table, ptr);
 	(void) MR_hash_table_insert(MR_proc_static_table, ptr->proc_static,
 		&ps_id, NULL, FALSE);
 
@@ -467,7 +484,7 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *ptr)
 			case higher_order:
 			case typeclass_method:
 			case callback:
-				MR_write_out_ho_call_site_ptrs(fp,
+				MR_write_out_ho_call_site_ptrs(fp, ptr,
 					(MR_CallSiteDynList *)
 					ptr->call_site_ptr_ptrs[i]);
 				break;
@@ -493,7 +510,8 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *ptr)
 }
 
 static void
-MR_write_out_ho_call_site_ptrs(FILE *fp, MR_CallSiteDynList *dynlist)
+MR_write_out_ho_call_site_ptrs(FILE *fp, const MR_ProcDynamic *ptr,
+	const MR_CallSiteDynList *dynlist)
 {
 	while (dynlist != NULL) {
 #ifdef MR_DEEP_PROFILING_STATISTICS
@@ -522,8 +540,13 @@ MR_write_csd_ptr(FILE *fp, const MR_CallSiteDynamic *ptr)
 {
 	int	csd_id;
 
-	(void) MR_hash_table_insert(MR_call_site_dynamic_table, ptr,
-		&csd_id, NULL, FALSE);
+	if (ptr == NULL) {
+		csd_id = 0;
+	} else {
+		(void) MR_hash_table_insert(MR_call_site_dynamic_table, ptr,
+			&csd_id, NULL, FALSE);
+	}
+
 	MR_write_ptr(fp, kind_csd, csd_id);
 }
 
