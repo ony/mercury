@@ -58,12 +58,6 @@
 :- mode termination__output_pragma_opt_terminates(in, in, in, in, in, 
 	di, uo) is det.
 
-% This is used to output an error in a short form, suitable for 
-% printing the HLDS.
-:- pred termination__maybe_output_error(module_info, termination, 
-	io__state, io__state).
-:- mode termination__maybe_output_error(in, in, di, uo) is det.
-
 %----------------------------------------------------------------------------%
 
 :- implementation.
@@ -189,20 +183,6 @@ termination__output_pragma_opt_terminates(PredOrFunc, SymName,
 	termination__out_used_args(Termination),
 	io__write_string(").\n").
 	
-termination__maybe_output_error(Module, term(Const, _, _, MaybeError)) -->
-	( { MaybeError = yes(Error) } ->
-		io__write_string("% unable to prove termination because:"),
-		term_errors__output(no, Module, Error)
-	;
-		[]
-	),
-	( { Const = inf(yes(ConstError)) } ->
-		io__write_string("% unable to set termination const because:"),
-		term_errors__output(no, Module, ConstError)
-	;
-		[]
-	).
-
 %-----------------------------------------------------------------------------%
 
 :- pred check_preds(list(pred_id), module_info, module_info, 
@@ -265,6 +245,7 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 		% check_termination will not be checked when the relevant
 		% source file is compiled, so it cannot be depended upon. 
 		pred_info_get_marker_list(PredInfo0, Markers),
+		pred_info_context(PredInfo0, Context),
 		globals__io_lookup_bool_option(make_optimization_interface,
 			MakeOptInt, State0, State1),
 		(
@@ -286,15 +267,15 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 			% go through, changing each 'not_set' to 'dont_know'
 			MaybeFind = yes(not_set),
 			ReplaceTerminate = dont_know,
-			MaybeError = no,
+			MaybeError = yes(Context - imported_pred),
 			change_procs_terminate(ProcIds, MaybeFind,
 				ReplaceTerminate, MaybeError, ProcTable0,
 				ProcTable1)
 				
 		),
 		MaybeFindConst = yes(not_set),
-		MaybeConstError = no,
-		ReplaceConst = inf(MaybeConstError),
+		ConstError = imported_pred,
+		ReplaceConst = inf(Context - ConstError),
 		change_procs_const(ProcIds, MaybeFindConst, ReplaceConst,
 			ProcTable1, ProcTable2)
 	;
@@ -345,7 +326,8 @@ set_builtin_terminates([ProcId | ProcIds], PredInfo, Module, ProcTable0,
 		term_util__make_bool_list(HeadVars, [], Bools),
 		UsedArgs = yes(Bools)
 	;
-		Const = inf(no),
+		pred_info_context(PredInfo, Context),
+		Const = inf(Context - is_builtin),
 		UsedArgs = no
 	),
 	Term = term(Const, yes, UsedArgs, no),
@@ -413,7 +395,9 @@ set_compiler_gen_terminates([ ProcId | ProcIds ], PredInfo, Module,
 			( PredName = "__Term_To_Type__"
 			; PredName = "__Type_To_Term__"
 			),
-			Termination = term(inf(no), yes, no, no)
+			pred_info_context(PredInfo, Context),
+			Termination = term(inf(Context - is_builtin), 
+				yes, no, no)
 		)
 	;
 		ModuleName = "mercury_builtin",
@@ -555,7 +539,7 @@ termination__make_opt_int(PredIds, Module) -->
 		io__set_output_stream(OldStream, _),
 		io__close_output(OptFile)
 	;
-		% damn thing
+		% failed to open the .opt file for processing
 		io__write_strings(["Cannot open `",
 			OptFileName, "' for output\n"]),
 		io__set_exit_status(1)

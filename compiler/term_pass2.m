@@ -130,8 +130,11 @@ termination_2_check_terminates([ PPId | PPIds ], SCC,Module0, Module, Succ) -->
 	;
 		{ Terminates = dont_know},
 		{ Succ = no },
-		do_ppid_check_terminates(SCC, MaybeError, Module0,
-			Module)
+		( { MaybeError = yes(Error) } ->
+			do_ppid_check_terminates(SCC, Error, Module0, Module)
+		;
+			{ error("term_pass2.m: unexpected value in termination_2_check_terminates/6") }
+		)
 	).
 
 % This predicate runs termination_3 until a fixed point is reached.
@@ -143,7 +146,7 @@ call_termination_3(SCC, Module, Result, UsedArgs0, Relation0, Relation) :-
 	termination_3(SCC, Module, Res1, UsedArgs0, UsedArgs1, 
 		Relation0, Relation1),
 	( 
-		( Res1 = error(_ - not_subset(_, _))
+		( Res1 = error(_ - not_subset(_, _, _))
 		; Res1 = error(_ - positive_value(_, _))
 		),
 		UsedArgs1 \= UsedArgs0  % If these are equal, then we are at 
@@ -208,11 +211,16 @@ termination_3([ PPId | PPIds ], Module, Result, UsedArgs0, UsedArgs,
 		Relation0, Relation) :-
 	% get goal info
 	PPId = proc(PredId, ProcId),
-	module_info_pred_proc_info(Module, PredId, ProcId, PredInfo, ProcInfo),
+	module_info_pred_proc_info(Module, PredId, ProcId, _PredInfo, ProcInfo),
 	proc_info_termination(ProcInfo, Termination),
-	( Termination = term(_Const, dont_know, _, _Error) ->
-		pred_info_context(PredInfo, Context),
-		Result = error(Context - dont_know_proc(PPId)),
+	( Termination = term(_Const, dont_know, _, MaybeError) ->
+		% If the termination property is set to dont_know then
+		% MaybeError should contain an error.  
+		( MaybeError = yes(Error) ->
+			Result = error(Error)
+		;
+			error("term_pass2.m: Unexpected value in term_pass2:termination_3")
+		),
 		UsedArgs = UsedArgs0,
 		Relation = Relation0
 	;
@@ -289,8 +297,9 @@ termination_3_single_args([PPId | Rest], Error, UsedArgs, Module0, Module) -->
 	(
 		{ SingleArgs = yes },
 		{ Rest = [] },
-		{ Error \= _ - dont_know_proc(_) }
-		% and Error=???
+		{ Error \= _ - imported_pred }
+		% What other errors would prevent single argument analysis
+		% from succeeding?
 	->
 		% can do single args
 		{  module_info_pred_proc_info(Module0, PredId, ProcId, 
@@ -300,10 +309,12 @@ termination_3_single_args([PPId | Rest], Error, UsedArgs, Module0, Module) -->
 		{ termination_3_goal(GoalExpr, GoalInfo, Module0,
 			total, call_info(PPId, UsedArgs, yes), Res0,[],Out) },
 		( { Res0 = error(Error2) } ->
-			% just need a dummy context
+			% The context of single_arg_failed needs to be the
+			% same as the context of the Normal analysis error
+			% message.
 			{ Error = Context - _ },
 			{ Error3 = Context - single_arg_failed(Error, Error2) },
-			do_ppid_check_terminates(SCC, yes(Error3), 
+			do_ppid_check_terminates(SCC, Error3, 
 				Module0, Module)
 			
 		; { termination_3_single_2(Out, InitSet, InitSet) } ->
@@ -311,15 +322,16 @@ termination_3_single_args([PPId | Rest], Error, UsedArgs, Module0, Module) -->
 			{ set_pred_proc_ids_terminates(SCC, yes, yes(Error),
 				Module0, Module) }
 		;
-			% single arg failed - bummer
+			% single argument analysis failed to prove
+			% termination.  
 			{ Error = Context - _ },
 			{ Error2 = Context - single_arg_failed(Error) },
-			do_ppid_check_terminates(SCC, yes(Error2),
+			do_ppid_check_terminates(SCC, Error2,
 				Module0, Module)
 		)
 	;
 		% cant do single args
-		do_ppid_check_terminates(SCC, yes(Error), 
+		do_ppid_check_terminates(SCC, Error, 
 			Module0, Module)
 	).
 		
@@ -392,7 +404,7 @@ termination_3_add_arcs_to_relation(PPId, [X | Xs], Vars, Result, Relation0,
 				Result, Relation0, Relation)
 		)
 	;
-		Result = error(Context - not_subset(Bag, Vars)),
+		Result = error(Context - not_subset(PPId, Bag, Vars)),
 		Relation = Relation0
 	).
 
@@ -477,17 +489,18 @@ termination_3_goal(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _),
 			% there is no intersection, so just continue
 			Res0 = ok
 		;
-			Res0 = error(Context - inf_termination_const(CallPPId))
+			Res0 = error(Context - 
+				inf_termination_const(PPId, CallPPId))
 		),
 		Out1 = Out0
 	),
 
 	% step 2 - do we add another arc?
 	( CallTerminates = dont_know ->
-		Res = error(Context - dont_know_proc_called(CallPPId)),
+		Res = error(Context - dont_know_proc_called(PPId, CallPPId)),
 		Out = Out0
 	; \+ check_horder_args(Args, VarType) ->
-		Res = error(Context - horder_args(CallPPId)),
+		Res = error(Context - horder_args(PPId, CallPPId)),
 		Out = Out0
 	;
 		( map__search(UsedArgsMap, CallPPId, RecursiveUsedArgs) ->
@@ -542,10 +555,10 @@ termination_3_goal(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _),
 
 	% step 2 - do we add another arc?
 	( CallTerminates = dont_know ->
-		Res = error(Context - dont_know_proc_called(CallPPId)),
+		Res = error(Context - dont_know_proc_called(PPId, CallPPId)),
 		Out = Out0
 	; \+ check_horder_args(Args, VarType) ->
-		Res = error(Context - horder_args(CallPPId)),
+		Res = error(Context - horder_args(PPId, CallPPId)),
 		Out = Out0
 	;
 		( CallPPId = PPId ->

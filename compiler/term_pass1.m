@@ -106,8 +106,8 @@ proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs,
 		{ module_info_set_preds(Module0, PredTable, Module1) },
 
 		% Solve the equations that have been created.
-		{ proc_inequalities_3_remove_useless_offsets(Offs0, Offs, 
-			Succ) },
+		{ proc_inequalities_3_remove_useless_offsets(Offs0, Module1, 
+			Offs, Res) },
 
 		% XXX what is the correct context to use when referring to
 		% a whole SCC?
@@ -117,13 +117,13 @@ proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs,
 		;
 			{ term__context_init(Context) }
 		),
-		( { Succ = no } ->
+		( { Res = error(Error) } ->
 			% There is a directly recursive call where the
 			% variables grow between the head and recursive
 			% call.  Therefore the output is infinitly larger
 			% than the input.  
 			% e.g. foo(A) :- foo([1|A]).
-			{ set_pred_proc_ids_const(SCC, inf(no), Module1, 
+			{ set_pred_proc_ids_const(SCC, inf(Error), Module1, 
 				Module) }
 		; { Offs = [] } ->
 			% There are no equations in this SCC
@@ -135,7 +135,7 @@ proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs,
 			% that the procedure is a builtin predicate,  which
 			% has an empty body.
 	
-			{ NewConst = inf(yes(Context - no_eqns)) },
+			{ NewConst = inf(Context - no_eqns) },
 			{ set_pred_proc_ids_const(SCC, NewConst,
 				Module1, Module) } 
 		;
@@ -165,7 +165,7 @@ proc_inequalities_3(Module0, [], SCC - OldUsedArgs, NewUsedArgs,
 				% constant to infinity.
 				{ Error = Context - lpsolve_failed(Soln) },
 				{ set_pred_proc_ids_const(SCC, 
-					inf(yes(Error)), Module1, Module) }
+					inf(Error), Module1, Module) }
 			)
 		)
 	;
@@ -187,14 +187,14 @@ proc_inequalities_3(Module0, [PPId | PPIds], SCC - OldUsedArgsMap,
 		( { Res = error(Error) } ->
 			% goal_inequality failed, so set all the
 			% termination constants to infinity.
-			{ set_pred_proc_ids_const(SCC, inf(yes(Error)), 
+			{ set_pred_proc_ids_const(SCC, inf(Error), 
 				Module0, Module2) },
 			( 
 				{ ( Error = _Context - horder_call
-				;   Error = _Context - horder_args(_)
+				;   Error = _Context - horder_args(_, _)
 				) }
 			->
-				do_ppid_check_terminates(SCC, yes(Error), 
+				do_ppid_check_terminates(SCC, Error, 
 					Module2, Module)
 			;
 				{ Module = Module2 }
@@ -217,14 +217,16 @@ proc_inequalities_3(Module0, [PPId | PPIds], SCC - OldUsedArgsMap,
 % This procedure removes offsets where there are no variables in the offset.
 % It would be nice if lp_solve would accept constraints of the form 
 % (0 >= -1), but it doesnt so they need to be removed manually, which is
-% what this procedure does. If this procedure returns `no' then the
-% constraints are unsatisfiable (0 >= 1).  If the return value is `yes' the
+% what this procedure does. If this procedure returns an error then the
+% constraints are unsatisfiable (0 >= 1).  If the return value is `ok' the
 % the constraints that were removed were all satisfiable.
 :- pred proc_inequalities_3_remove_useless_offsets(
-	list(term_pass1__equation), list(term_pass1__equation), bool).
-:- mode proc_inequalities_3_remove_useless_offsets(in, out, out) is det.
-proc_inequalities_3_remove_useless_offsets([], [], yes).
-proc_inequalities_3_remove_useless_offsets([ Off0 | Offs0 ], Offs, Succ) :-
+	list(term_pass1__equation), module_info, list(term_pass1__equation), 
+	term_util__result(term_errors__error)).
+:- mode proc_inequalities_3_remove_useless_offsets(in, in, out, out) is det.
+proc_inequalities_3_remove_useless_offsets([], _Module, [], ok).
+proc_inequalities_3_remove_useless_offsets([ Off0 | Offs0 ], Module, 
+		Offs, Res) :-
 	( Off0 = eqn(Const, PPId, [ PPId ]) ->
 		% in this case there is direct recursion
 		( 
@@ -235,16 +237,20 @@ proc_inequalities_3_remove_useless_offsets([ Off0 | Offs0 ], Offs, Succ) :-
 				Const = inf(_)
 			)
 		->
-			% in this case the recursive call is with larger
+			% In this case the recursive call is with larger
 			% variables.  Hence the output could be unbounded
-			Succ = no,
+			PPId = proc(PredId, _ProcId),
+			module_info_pred_info(Module, PredId, PredInfo),
+			pred_info_context(PredInfo, Context),
+			Res = error(Context - positive_value(PPId, PPId)),
 			Offs = Offs0
 		;
 			proc_inequalities_3_remove_useless_offsets(Offs0, 
-				Offs, Succ)
+				Module, Offs, Res)
 		)
 	;
-		proc_inequalities_3_remove_useless_offsets(Offs0, Offs1, Succ),
+		proc_inequalities_3_remove_useless_offsets(Offs0, Module, 
+			Offs1, Res),
 		Offs = [ Off0 | Offs1]
 	).
 
@@ -364,7 +370,7 @@ goal_inequality(Module, PredId, ProcId, Offs, Res, OldUsedArgsMap,
 			% matter
 			NewUsedArgs = [],
 			Res = error(Context - 
-				not_subset(InVars2Bag, InVarsBag))
+				not_subset(PPId, InVars2Bag, InVarsBag))
 		)
 	;
 		NewUsedArgs = [],
@@ -433,7 +439,7 @@ goal_inequality_2(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _SymName),
 			ProcInfo),
 		goal_info_get_context(GoalInfo, Context),
 		proc_info_termination(CallProcInfo, CallTermination),
-		CallTermination = term(CallTermConst, CallTerminates, 
+		CallTermination = term(CallTermConst, _CallTerminates, 
 			CallUsedArgs, _),
 		proc_info_vartypes(ProcInfo, VarType),
 		bag__from_list(InVars, InVarsBag0),
@@ -451,16 +457,12 @@ goal_inequality_2(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _SymName),
 		;
 			InVarsBag1 = InVarsBag0
 		),
-		( CallTerminates = dont_know ->
-			Res = error(Context - dont_know_proc_called(CallPPId)),
-			Offs = Offs0
-		; \+ check_horder_args(Args, VarType) ->
-			Res = error(Context - horder_args(CallPPId)),
+		( \+ check_horder_args(Args, VarType) ->
+			Res = error(Context - horder_args(PPId, CallPPId)),
 			Offs = Offs0
 		;
 			% If control reaches here, then there are no horder 
-			% args, and the predcates termination property is
-			% not dont_know.  Therefore modify the offsets.
+			% args, therefore modify the offsets.
 			( 
 				CallTermConst = not_set,
 				Res = ok,
@@ -477,7 +479,7 @@ goal_inequality_2(call(CallPredId, CallProcId, Args, _IsBuiltin, _, _SymName),
 				CallTermConst = inf(_),
 				Offs = Offs0,
 				Res = error(Context - 
-					inf_termination_const(CallPPId))
+					inf_termination_const(PPId, CallPPId))
 			)
 		)
 	).
@@ -724,8 +726,10 @@ eqn_add(eqn(Const1, PPId1, PPList1), eqn(Const2, PPId2, PPList2), Out) :-
 	( PPId1 = PPId2 ->
 		( ( Const1 = not_set ; Const2 = not_set ) ->
 			OutConst = not_set
-		; ( Const1 = inf(_) ; Const2 = inf(_) ) ->
-			OutConst = inf(no)
+		; ( Const1 = inf(Error) ) ->
+			OutConst = inf(Error)
+		; ( Const2 = inf(Error) ) ->
+			OutConst = inf(Error)
 		; ( Const1 = set(Num1), Const2 = set(Num2)) ->
 			OutNum = Num1 + Num2,
 			OutConst = set(OutNum)

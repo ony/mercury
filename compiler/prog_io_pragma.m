@@ -22,7 +22,7 @@
 
 :- implementation.
 
-:- import_module prog_io_goal, hlds_pred, term_util, termination.
+:- import_module prog_io_goal, hlds_pred, term_util, term_errors.
 :- import_module string, std_util, bool, require.
 
 parse_pragma(ModuleName, VarSet, PragmaTerms, Result) :-
@@ -357,8 +357,8 @@ parse_pragma_type(ModuleName, "opt_terminates", PragmaTerms, ErrorTerm,
 			Const = not_set
 		;
 			ConstTerm = term__functor(
-				term__atom("infinite"), [], _),
-			Const = inf(no)
+				term__atom("infinite"), [], ConstContext),
+			Const = inf(ConstContext - imported_pred)
 		;
 			ConstTerm = term__functor(
 				term__atom("set"), [IntTerm], _),
@@ -368,15 +368,18 @@ parse_pragma_type(ModuleName, "opt_terminates", PragmaTerms, ErrorTerm,
 		(
 			TerminatesTerm = term__functor(
 				term__atom("not_set"), [], _),
-			Terminates = not_set
+			Terminates = not_set,
+			MaybeError = no
 		;
 			TerminatesTerm = term__functor(
-				term__atom("dont_know"), [], _),
-			Terminates = dont_know
+				term__atom("dont_know"), [], TermContext),
+			Terminates = dont_know,
+			MaybeError = yes(TermContext - imported_pred)
 		;
 			TerminatesTerm = term__functor(
 				term__atom("yes"), [], _),
-			Terminates = yes
+			Terminates = yes,
+			MaybeError = no
 		),
 		(
 			MaybeUsedArgsTerm = term__functor(
@@ -388,7 +391,8 @@ parse_pragma_type(ModuleName, "opt_terminates", PragmaTerms, ErrorTerm,
 				term__atom("no"), [], _),
 			MaybeUsedArgs = no
 		),
-		Termination = term(Const, Terminates, MaybeUsedArgs, no)
+		Termination = term(Const, Terminates, MaybeUsedArgs, 
+			MaybeError)
 		
 	->
 		Result = ok(pragma(opt_terminates(PredOrFunc, PredName, Arity,

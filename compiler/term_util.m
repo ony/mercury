@@ -40,7 +40,7 @@
 % | input arguments | + constant >= | output arguments |
 % where | | represents a semilinear norm.
 :- type term_util__constant
-	--->	inf(maybe(term_errors__error))
+	--->	inf(term_errors__error)
 				% could not find a limiting value
 				% The error indicates why the analysis was
 				% unable to set the termination constant.
@@ -95,7 +95,7 @@
 % dont_know, and checks whether a 
 % check_termination pragma has been defined for this predicate, and if so,
 % this outputs a useful error message.
-:- pred do_ppid_check_terminates(list(pred_proc_id), maybe(term_errors__error), 
+:- pred do_ppid_check_terminates(list(pred_proc_id), term_errors__error, 
 	module_info, module_info, io__state, io__state).
 :- mode do_ppid_check_terminates(in, in, in, out, di, uo) is det.
 
@@ -309,8 +309,8 @@ functor_norm(total, ConsId, _Module, Int) :-
 		Int = 1
 	).
 
-do_ppid_check_terminates([] , _MaybeError, Module, Module) --> [].
-do_ppid_check_terminates([ PPId | PPIds ], MaybeError, Module0, Module) --> 
+do_ppid_check_terminates([] , _Error, Module, Module) --> [].
+do_ppid_check_terminates([ PPId | PPIds ], Error, Module0, Module) --> 
 	% look up markers
 	{ PPId = proc(PredId, ProcId) },
 
@@ -321,9 +321,9 @@ do_ppid_check_terminates([ PPId | PPIds ], MaybeError, Module0, Module) -->
 	{ proc_info_termination(ProcInfo0, Termination0) },
 	{ Termination0 = term(Const, Terminates, UsedArgs, _) },
 	( { Terminates = dont_know } ->
-		{ Module2 = Module0 }
+		{ Module1 = Module0 }
 	;
-		{ Termination = term(Const, dont_know, UsedArgs, MaybeError) },
+		{ Termination = term(Const, dont_know, UsedArgs, yes(Error)) },
 		{ proc_info_set_termination(ProcInfo0, Termination, ProcInfo)},
 		{ map__det_update(ProcTable0, ProcId, ProcInfo, ProcTable) },
 		{ pred_info_set_procedures(PredInfo0, ProcTable, PredInfo) },
@@ -338,25 +338,15 @@ do_ppid_check_terminates([ PPId | PPIds ], MaybeError, Module0, Module) -->
 		% check_terminates is defined on all of the predicates,
 		% then the error is printed out for each of them.
 		( { list__member(request(check_termination), MarkerList) } ->
-			( { MaybeError = yes(Error) } ->
-				term_errors__output(yes(PredId), Module1, 
-					Error)
-			;
-				% This really shouldnt happen.  The only
-				% time that MaybeError is no should be if
-				% the pred is imported, and imported preds
-				% with check_termination defined on them
-				% should have termnates set to yes.  
-				{ pred_info_context(PredInfo, Context) },
-				prog_out__write_context(Context),
-				io__write_string(
-					"Unable to check termination\n")
-			),
-			{ module_info_incr_errors(Module1, Module2) },
-			io__set_exit_status(1)
+			term_errors__output(PredId, ProcId, Module1,
+				Success),
+			% Success is only no if there was no error
+			% defined for this predicate.  As we just set the
+			% error, term_errors__output should succeed.
+			{ require(unify(Success, yes), "term_util.m: Unexpected value in do_ppid_check_terminates") }
 		;
-			{ Module2 = Module0 }
+			[]
 		)
 	),
-	do_ppid_check_terminates(PPIds, MaybeError, Module2, Module).
+	do_ppid_check_terminates(PPIds, Error, Module1, Module).
 

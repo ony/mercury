@@ -47,6 +47,13 @@
 :- pred hlds_out__cons_id_to_string(cons_id, string).
 :- mode hlds_out__cons_id_to_string(in, out) is det.
 
+	% hlds_out__write_pred_id/4 writes out a message such as
+	% 	predicate `foo:bar/3'
+	% or	function `foo:myfoo/5'
+	% unless the predicate name begins with a double underscore "__",
+	% in which case mercury_output_term is used to print out the
+	% predicate's (or function's) name. 
+
 :- pred hlds_out__write_pred_id(module_info, pred_id, io__state, io__state).
 :- mode hlds_out__write_pred_id(in, in, di, uo) is det.
 
@@ -170,7 +177,7 @@
 
 :- import_module bool, int, string, list, set, map, std_util, assoc_list.
 :- import_module term, term_io, varset, require, getopt.
-:- import_module termination.
+:- import_module termination, term_errors.
 
 
 hlds_out__write_type_id(Name - Arity) -->
@@ -1812,6 +1819,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 		ImportStatus, Proc) -->
 	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 	{ pred_info_typevarset(PredInfo, TVarSet) },
+	{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
 	{ proc_info_vartypes(Proc, VarTypes) },
 	{ proc_info_declared_determinism(Proc, DeclaredDeterminism) },
 	{ proc_info_inferred_determinism(Proc, InferredDeterminism) },
@@ -1835,13 +1843,19 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	io__write_string("):\n"),
 	hlds_out__write_indent(Indent),
 
-	io__write_string("% Inferred termination: "),
-	termination__out(Termination),
-	io__nl,
-	io__write_string("% Termination - used args: "),
-	termination__out_used_args(Termination),
-	io__nl,
-	termination__maybe_output_error(ModuleInfo, Termination),
+	
+	globals__io_lookup_string_option(verbose_dump_hlds, Verbose),
+	( { string__contains_char(Verbose, 't') } ->
+		io__write_string("% Inferred termination: "),
+		termination__out(Termination),
+		io__nl,
+		io__write_string("% Termination - used args: "),
+		termination__out_used_args(Termination),
+		io__nl,
+		term_errors__output_hlds(PredId, ProcId, ModuleInfo)
+	;
+		[]
+	),
 
 	hlds_out__write_var_types(Indent, VarSet, AppendVarnums,
 		VarTypes, TVarSet),
@@ -1865,7 +1879,6 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 		hlds_out__write_stack_slots(Indent, StackSlots, VarSet,
 			AppendVarnums),
 		hlds_out__write_indent(Indent),
-		{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
 		hlds_out__write_clause_head(ModuleInfo, PredId, VarSet,
 			AppendVarnums, HeadVars, PredOrFunc),
 		io__write_string(" :-\n"),
