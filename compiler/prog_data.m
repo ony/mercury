@@ -249,6 +249,9 @@
 	;	promise_pure(sym_name, arity)
 			% Predname, Arity
 
+	;	promise_semipure(sym_name, arity)
+			% Predname, Arity
+
 	;	termination_info(pred_or_func, sym_name, list(mode),
 				maybe(pragma_arg_size_info),
 				maybe(pragma_termination_info))

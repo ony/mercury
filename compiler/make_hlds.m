@@ -520,6 +520,10 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		add_pred_marker(Module0, "promise_pure", Name, Arity,
 			ImportStatus, Context, promised_pure, [], Module)
 	;
+		{ Pragma = promise_semipure(Name, Arity) },
+		add_pred_marker(Module0, "promise_semipure", Name, Arity,
+			ImportStatus, Context, promised_semipure, [], Module)
+	;
 		{ Pragma = termination_info(PredOrFunc, SymName, ModeList, 
 			MaybeArgSizeInfo, MaybeTerminationInfo) },
 		add_pragma_termination_info(PredOrFunc, SymName, ModeList,
@@ -1988,6 +1992,7 @@ module_add_type_defn(Module0, TVarSet, TypeDefn, _Cond, Context,
 		)
 	;
 		{ map__set(Types0, TypeId, T, Types) },
+		{ construct_qualified_term(Name, Args, Type) },
 		(
 			{ Body = du_type(ConsList, _, _, _) }
 		->
@@ -2002,13 +2007,9 @@ module_add_type_defn(Module0, TVarSet, TypeDefn, _Cond, Context,
 			{ module_info_set_ctors(Module0, Ctors, Module1) },
 			{ module_info_set_ctor_field_table(Module1,
 				CtorFields, Module1a) },
-			globals__io_lookup_bool_option(unboxed_no_tag_types,
-				AllowNoTagTypes),
-
 			{
-				AllowNoTagTypes = yes,
-				type_constructors_are_no_tag_type(ConsList,
-					Name, CtorArgType, _)
+				type_constructors_should_be_no_tag(ConsList, 
+					Globals, Name, CtorArgType, _)
 			->
 				NoTagType = no_tag_type(Args,
 					Name, CtorArgType),
@@ -2024,7 +2025,6 @@ module_add_type_defn(Module0, TVarSet, TypeDefn, _Cond, Context,
 		;
 			{ Module2 = Module0 }
 		),
-		{ construct_qualified_term(Name, Args, Type) },
 		{ add_special_preds(Module2, TVarSet, Type, TypeId,
 			Body, Context, Status, Module3) },
 		{ module_info_set_types(Module3, Types, Module) },
