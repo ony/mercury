@@ -1000,8 +1000,10 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 	    ; { MakeOptInt = yes } ->
 		% only run up to typechecking when making the .opt file
 		[]
-%	    ; { MakeTransOptInt = yes } ->
-%	    	mercury_compile__output_trans_opt_file(HLDS21)
+	    ; { MakeTransOptInt = yes } ->
+		mercury_compile__middle_pass(ModuleName, HLDS21, HLDS_T,
+			_DeepProfilingStructures),
+	    	mercury_compile__output_trans_opt_file(HLDS_T)
 	    ;
 		mercury_compile__maybe_output_prof_call_graph(HLDS21,
 			Verbose, Stats, HLDS25),
@@ -1031,9 +1033,6 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 				Verbose, MaybeRLFile),
 		    ( { AditiOnly = yes } ->
 			{ HLDS = HLDS50 }
-		    ; { MakeTransOptInt = yes } -> 
-			{ HLDS = HLDS50 },
-			mercury_compile__output_trans_opt_file(HLDS50)
 		    ; { Target = il } ->
 			{ HLDS = HLDS50 },
 			mercury_compile__mlds_backend(HLDS, MLDS),
