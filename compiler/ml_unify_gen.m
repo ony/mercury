@@ -1452,7 +1452,7 @@ ml_primary_tag(type_ctor_info_constant(_, _, _)) = no.
 ml_primary_tag(base_typeclass_info_constant(_, _, _)) = no.
 ml_primary_tag(tabling_pointer_constant(_, _)) = no.
 ml_primary_tag(no_tag) = no.
-ml_primary_tag(shared_local_tag(_, _)) = no.
+ml_primary_tag(shared_local_tag(PrimaryTag, _)) = yes(PrimaryTag).
 
 
 	% Given a type and a cons_id, and also the types of the actual

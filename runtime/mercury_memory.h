@@ -190,8 +190,11 @@ extern	size_t          MR_page_size;
 /*---------------------------------------------------------------------------*/
 
 void MR_compile_time_gc(MR_Word cell, size_t size);
-void MR_update_cell_cache_statistics(size_t size);
-void MR_output_cell_cache_stats(void);
+MR_Word MR_check_cell_cache(size_t size);
+
+#ifdef PROFILE_MEMORY
+  void MR_output_cell_cache_stats(void);
+#endif
 
 /*---------------------------------------------------------------------------*/
 

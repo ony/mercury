@@ -367,33 +367,70 @@ MR_GC_realloc(void *old_ptr, size_t num_bytes)
 
 /*
 ** Compile time garbage collection code.
-** Currently this just records statistics.
 */
-#define MR_MAX_CACHED_CELL_SIZE		10
+#define MR_MAX_CACHE_SIZE		10
+#define MR_CACHE_ENTRIES		10
 
-typedef struct s_cell_cache_stats
-{
+static MR_Word 		MR_cell_cache[MR_MAX_CACHE_SIZE + 1][MR_CACHE_ENTRIES];
+static int 		MR_cell_cache_index[MR_MAX_CACHE_SIZE + 1];
+
+#ifdef PROFILE_MEMORY
+  typedef struct s_cell_cache_stats
+  {
 	int	length;
 	int 	hits;
 	int	misses;
 	int	sum_length;
 	int	max_length;
-} cell_cache_stats;
+  } cell_cache_stats;
 
-static cell_cache_stats stats[MR_MAX_CACHED_CELL_SIZE + 1];
+  static cell_cache_stats stats[MR_MAX_CACHE_SIZE + 1];
 
-void record_stats(size_t size);
+  void MR_update_cell_cache_statistics(size_t size);
+  void record_stats(size_t size);
+#endif
 
 void MR_compile_time_gc(MR_Word cell, size_t size)
 {
-	if (size <= MR_MAX_CACHED_CELL_SIZE) {
+	if (size <= MR_MAX_CACHE_SIZE) {
+		int ind = (MR_cell_cache_index[size] + 1) % MR_CACHE_ENTRIES;
+
+#ifdef PROFILE_MEMORY
 		record_stats(size);
+#endif
+		MR_cell_cache[size][ind] = cell;
+		MR_cell_cache_index[size] = ind;
 	}
 }
 
-void MR_update_cell_cache_statistics(size_t size)
+MR_Word MR_check_cell_cache(size_t size)
 {
-	if (size <= MR_MAX_CACHED_CELL_SIZE) {
+	MR_Word cell;
+
+#ifdef PROFILE_MEMORY
+	MR_update_cell_cache_statistics(size);
+#endif
+
+	if (size > MR_MAX_CACHE_SIZE) {
+		return (MR_Word) NULL;
+	} else {
+		int ind = MR_cell_cache_index[size];
+		cell = MR_cell_cache[size][ind];
+
+		if (ind == 0) {
+			MR_cell_cache_index[size] = MR_CACHE_ENTRIES - 1;
+		} else {
+			MR_cell_cache_index[size] = ind - 1;
+		}
+
+		return cell;
+	}
+}
+
+#ifdef PROFILE_MEMORY
+  void MR_update_cell_cache_statistics(size_t size)
+  {
+	if (size <= MR_MAX_CACHE_SIZE) {
 		stats[size].sum_length += stats[size].length;
 
 		if (stats[size].length == 0) {
@@ -403,26 +440,26 @@ void MR_update_cell_cache_statistics(size_t size)
 			stats[size].hits++;
 		}
 	}
-}
+  }
 
-void record_stats(size_t size)
-{
+  void record_stats(size_t size)
+  {
 	stats[size].length++;
 
 	if (stats[size].length > stats[size].max_length) {
 		stats[size].max_length = stats[size].length;
 	}
-}
+  }
 
-void MR_output_cell_cache_stats(void)
-{
+  void MR_output_cell_cache_stats(void)
+  {
 	int i = 0;
 	int hits, misses, total, sum_length, max_length;
 	float hit_proportion, average_cache_length;
 
 	printf("\n\n%6s %6s %6s %7s %7s %6s\n", "size", "avg",
 			"max", "hits", "total", "%");
-	for (i = 1; i <= MR_MAX_CACHED_CELL_SIZE; i++)
+	for (i = 1; i <= MR_MAX_CACHE_SIZE; i++)
 	{
 		hits = stats[i].hits;
 		misses = stats[i].misses;
@@ -441,6 +478,7 @@ void MR_output_cell_cache_stats(void)
 				average_cache_length, max_length,
 				hits, total, 100 * hit_proportion);
 	}
-}
+  }
+#endif /* PROFILE_MEMORY */
 
 /*---------------------------------------------------------------------------*/

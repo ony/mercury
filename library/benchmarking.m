@@ -257,12 +257,12 @@ ML_report_stats(void)
 		ML_overall_counter.words_at_period_end
 	);
 
-#endif /* PROFILE_MEMORY */
-
 	/*
 	** Cell cache statistics.
 	*/
 	MR_output_cell_cache_stats();
+
+#endif /* PROFILE_MEMORY */
 
 	fprintf(stderr, ""]\\n"");
 }

@@ -2391,12 +2391,17 @@ mlds_output_atomic_stmt(Indent, _FuncInfo, assign(Lval, Rval), _) -->
 	% heap management
 	%
 mlds_output_atomic_stmt(Indent, _FuncInfo, delete_object(Rval, Size), _) -->
-	mlds_indent(Indent),
-	io__write_string("MR_compile_time_gc("),
-	mlds_output_rval(Rval),
-	io__write_string(", "),
-	io__write_int(Size),
-	io__write_string(");\n").
+	globals__io_lookup_bool_option(cell_cache, CellCache),
+	( { CellCache = yes } ->
+		mlds_indent(Indent),
+		io__write_string("MR_compile_time_gc("),
+		mlds_output_rval(Rval),
+		io__write_string(", "),
+		io__write_int(Size),
+		io__write_string(");\n")
+	;
+		[]
+	).
 
 mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	{ NewObject = new_object(Target, MaybeTag, Type, MaybeSize,
@@ -2404,53 +2409,52 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	mlds_indent(Indent),
 	io__write_string("{\n"),
 
-	mlds_indent(Context, Indent + 1),
-	io__write_string("MR_update_cell_cache_statistics("),
-	( { MaybeSize = yes(LSize) } ->
-		mlds_output_rval(LSize)
+	{ MaybeSize = yes(Size0) ->
+		Size = Size0
 	;
 		% XXX what should we do here?
-		io__write_int(-1)
-	),
-	io__write_string(");\n"),
+		Size = const(int_const(-1))
+	},
 
 	{ FuncInfo = func_info(FuncName, _) },
 	mlds_maybe_output_heap_profile_instr(Context, Indent + 1, Args,
 			FuncName, MaybeCtorName),
 
-	mlds_indent(Context, Indent + 1),
+	globals__io_lookup_bool_option(cell_cache, CellCache),
+
+	( { CellCache = yes } ->
+		mlds_indent(Context, Indent + 1),
+		mlds_output_lval(Target),
+		io__write_string(" = MR_check_cell_cache("),
+		mlds_output_rval(Size),
+		io__write_string(");\n"),
+
+		mlds_indent(Context, Indent + 1),
+		io__write_string("if ("),
+		mlds_output_lval(Target),
+		io__write_string(" == (MR_Word) NULL) {\n"),
+
+		{ NewIndent = Indent + 2 }
+	;
+		{ NewIndent = Indent + 1 }
+	),
+
+	mlds_indent(Context, NewIndent),
 	mlds_output_lval(Target),
 	io__write_string(" = "),
-	( { MaybeTag = yes(Tag0) } ->
-		{ Tag = Tag0 },
-		mlds_output_cast(Type),
-		io__write_string("MR_mkword("),
-		mlds_output_tag(Tag),
-		io__write_string(", "),
-		{ EndMkword = ")" }
-	;
-		{ Tag = 0 },
+
 		%
 		% XXX we shouldn't need the cast here,
 		% but currently the type that we include
 		% in the call to MR_new_object() is not
 		% always correct.
 		%
-		mlds_output_cast(Type),
-		{ EndMkword = "" }
-	),
+	mlds_output_cast(Type),
 	io__write_string("MR_new_object("),
 	mlds_output_type(Type),
-	io__write_string(", "),
-	( { MaybeSize = yes(Size) } ->
-		io__write_string("("),
-		mlds_output_rval(Size),
-		io__write_string(" * sizeof(MR_Word))")
-	;
-		% XXX what should we do here?
-		io__write_int(-1)
-	),
-	io__write_string(", "),
+	io__write_string(", ("),
+	mlds_output_rval(Size),
+	io__write_string("* sizeof(MR_Word)), "),
 	( { MaybeCtorName = yes(QualifiedCtorId) } ->
 		io__write_char('"'),
 		{ QualifiedCtorId = qual(_ModuleName, CtorDefn) },
@@ -2460,9 +2464,29 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	;
 		io__write_string("NULL")
 	),
-	io__write_string(")"),
-	io__write_string(EndMkword),
-	io__write_string(";\n"),
+	io__write_string(");\n"),
+
+	( { CellCache = yes } ->
+		mlds_indent(Context, Indent + 1),
+		io__write_string("}\n")
+	;
+		[]
+	),
+
+	( { MaybeTag = yes(Tag0) } ->
+		{ Tag = Tag0 },
+		mlds_indent(Context, Indent + 1),
+		mlds_output_lval(Target),
+		io__write_string(" = "),
+		mlds_output_cast(Type),
+		io__write_string("MR_mkword("),
+		mlds_output_tag(Tag),
+		io__write_string(", "),
+		mlds_output_lval(Target),
+		io__write_string(");\n")
+	;
+		{ Tag = 0 }
+	),
 	mlds_output_init_args(Args, ArgTypes, Context, 0, Target, Tag,
 		Indent + 1),
 	mlds_indent(Context, Indent),

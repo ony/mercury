@@ -360,6 +360,7 @@
 		;	structure_reuse_constraint
 		;	structure_reuse_constraint_arg
 		;	structure_reuse_selection
+		;	cell_cache
 		; 	possible_alias_widening
 	%	- HLDS->LLDS
 		;	smart_indexing
@@ -550,6 +551,7 @@ option_defaults_2(language_semantics_option, [
 	infer_modes		-	bool(no),
 	infer_possible_aliases  - 	bool(no),
 	infer_structure_reuse   - 	bool(no),
+	cell_cache		-	bool(no),
 	infer_det		-	bool(yes),
 	infer_all		-	bool_special,
 	type_inference_iteration_limit	-	int(60),
@@ -974,6 +976,7 @@ long_option("infer-types",		infer_types).
 long_option("infer-modes",		infer_modes).
 long_option("infer-possible-aliases",	infer_possible_aliases).
 long_option("infer-structure-reuse",	infer_structure_reuse).
+long_option("cell-cache",		cell_cache).
 long_option("infer-determinism",	infer_det).
 long_option("infer-det",		infer_det).
 long_option("type-inference-iteration-limit",
@@ -1914,6 +1917,10 @@ options_help_semantics -->
 		"--structure-reuse-selection",
 		"\tStrategy to decide which of the possible cells available",
 		"\tfor reuse is reused.  Currently lifo or random.",
+
+		"--cell-cache",
+		"\tTurn on a cache of compile time garbage collected cells.",
+		"\tThis cache will be checked before allocating new memory.",
 
 		"--pa-widening, --possible-alias-widening <n>", 
 		"\tEnable widening when deriving possible aliases.",
