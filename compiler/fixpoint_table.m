@@ -40,6 +40,10 @@
 :- pred fp_stable(fixpoint_table(K, E)).
 :- mode fp_stable(in) is semidet.
 
+	% Check whether the entries are recursive.
+:- pred fp_is_recursive(fixpoint_table(K,E)).
+:- mode fp_is_recursive(in) is semidet.
+
 	% Add a new element (E) associated with key (K) to the table.
 	%   - if an element is already recorded with that key, 
 	%      * and if both elements are equal, then a fixpoint is obtained
@@ -117,6 +121,8 @@ fp_init(Init, Ks, ft(Ks, Run, IsRecursive, Map)) :-
 
 fp_new_run(T0, T0 ^ run := T0 ^ run + 1).
 fp_which_run(T0) = T0 ^ run.
+
+fp_is_recursive(T) :- T ^ recursive = yes.
 
 fp_stable(T) :- 
 	(

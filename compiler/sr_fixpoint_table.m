@@ -42,6 +42,9 @@
 	% a fixpoint
 :- pred sr_fixpoint_table_all_stable(table:: in) is semidet.
 
+	% check whether we are dealing with recursive procedures.
+:- pred sr_fixpoint_table_is_recursive(table::in) is semidet.
+
 	% at the end of the analysis of one single pred_proc_id, 
 	% the new exit reuse information is stored. This might
 	% change the stability of the table. 
@@ -122,6 +125,9 @@ sr_fixpoint_table_which_run(Tin, Run) :-
 
 sr_fixpoint_table_all_stable(TABLE) :-
 	fp_stable(TABLE).
+
+sr_fixpoint_table_is_recursive(TABLE) :- 
+	fp_is_recursive(TABLE).
 
 sr_fixpoint_table_new_reuse(PRED_PROC_ID, TREUSE, GOAL, Tin, Tout) :-
 	ENTRY = sr_fp(TREUSE, GOAL), 

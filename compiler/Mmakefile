@@ -43,6 +43,7 @@ endif
 MCFLAGS +=	-I $(BROWSER_DIR)
 MLOBJS :=	../main.$O $(MLOBJS)
 ALL_MLLIBS =	$(MLLIBS) $(EXTRA_MLLIBS) $(GCC_BACKEND_LIBS)
+MLLIBS +=	$(DL_LIBRARY)
 MLFLAGS +=	--no-main --shared
 
 #

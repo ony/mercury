@@ -147,6 +147,8 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 		passes_aux__write_proc_progress_message(Msg, 
 			PredId, ProcId, HLDS), 
 		{ sr_fixpoint_table_get_final_reuse(PredProcId, M, _, FPin) }, 
+		{ (sr_fixpoint_table_is_recursive(FPin) -> 
+			Rec = "yes"; Rec = "no")},
 
 		(
 			{ M = yes(Conditions) }
@@ -156,10 +158,13 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 			{ string__append_list(
 					["%\tNumber of conditions (before):\t",
 					LengthS, "\n"], Msg2) } ,
-			maybe_write_string(VeryVerbose, Msg2)
+			write_string(Msg2)
 		; 
-			maybe_write_string(VeryVerbose, "%\tNo reuse.\n")
-		)
+			write_string("%\tNo reuse.\n")
+		),
+		write_string("%\t\trec = "),
+		write_string(Rec),
+		write_string("\n")
 	),
 	{ 
 		% initialize all the necessary information to get the
@@ -179,7 +184,8 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 		% simply consulting it now for initialization.
 		sr_fixpoint_table_get_final_reuse(PredProcId, 
 				MemoStarting, _, FPin),
-		indirect_reuse_pool_init(HVs, MemoStarting, Pool0), 
+		indirect_reuse_pool_init(HVs, MemoStarting, Pool0)
+	},
 		% 5. analyse_goal
 		analyse_goal(ProcInfo, HLDS, 
 					Goal0, Goal,
@@ -196,6 +202,7 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 		*/
 		% 	OK
 		% 6. update all kind of information
+	{
 		indirect_reuse_pool_get_memo_reuse(Pool, Memo), 
 		sr_fixpoint_table_new_reuse(PredProcId,
 				Memo, Goal, FP1, FPout)
@@ -206,6 +213,8 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 		[]
 	;
 		{ sr_fixpoint_table_get_final_reuse(PredProcId,M1,_,FPout) }, 
+		{ (sr_fixpoint_table_is_recursive(FPout) -> 
+			Rec2 = "yes"; Rec2 = "no")},
 
 		(
 			{ M1 = yes(Conditions1) }
@@ -215,10 +224,13 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 			{ string__append_list(
 					["%\tNumber of conditions (after):\t",
 					LengthS1, "\n"], Msg21) } ,
-			maybe_write_string(VeryVerbose, Msg21)
+			write_string(Msg21)
 		; 
-			maybe_write_string(VeryVerbose, "%\tNo reuse.\n")
-		)
+			write_string("%\tNo reuse.\n")
+		),
+		write_string("%\t\trec = "),
+		write_string(Rec2),
+		write_string("\n")
 	).
 
 %-----------------------------------------------------------------------------%
@@ -232,19 +244,41 @@ analyse_pred_proc(HLDS, PredProcId, FPin, FPout) -->
 			table	:: sr_fixpoint_table__table
 		).
 
+:- pred debug_write_rec_table(string::in, sr_fixpoint_table__table::in, 
+	io__state::di, io__state::uo) is det.
+debug_write_rec_table(Msg, Table) --> 
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	( 
+		{ VeryVerbose = no }
+	-> 
+		[]
+	;
+		{ (sr_fixpoint_table_is_recursive(Table) -> 
+			R = "yes"
+		;	R = "no" ) }, 
+		{ string__append_list(
+			["%\t\t", Msg, ": R = ", R, ".\n"], Msg2) },
+		io__write_string(Msg2)
+	).
+
 :- pred analyse_goal(proc_info::in, module_info::in, 
 			hlds_goal::in, hlds_goal::out,
-			analysis_info::in, analysis_info::out) is det.
+			analysis_info::in, analysis_info::out,
+			io__state::di, io__state::uo) is det.
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = conj(Goals0), 
-	list__map_foldl(analyse_goal(ProcInfo, HLDS), Goals0, Goals, AI0, AI),
+	list__map_foldl2(analyse_goal(ProcInfo, HLDS), Goals0, Goals, 
+			AI0, AI, IO0, IO),
 	Expr = conj(Goals),
 	Info = Info0,
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
+	passes_aux__write_proc_progress_message(
+			"%\t\tcall to ",
+			PredId, ProcId, HLDS, IO0, IO2),
 	proc_info_vartypes(ProcInfo, VarTypes),
 	list__map(
 		map__lookup(VarTypes), 
@@ -252,20 +286,22 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 		ActualTypes), 
 	call_verify_reuse(ProcInfo, HLDS,
 			PredId, ProcId, ActualVars, 
-			ActualTypes, Info0, Info, AI0, AI1, _),
+			ActualTypes, Info0, Info, AI0, AI1, _, IO2, IO3),
 	pa_run__extend_with_call_alias(HLDS, ProcInfo, 
 		PredId, ProcId, ActualVars, ActualTypes, AI0 ^ alias, Alias),
 	AI = AI1 ^ alias := Alias,
 	Expr = Expr0, 
-	Goal = Expr - Info.
+	Goal = Expr - Info, 
+	IO = IO3.
 
-analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = generic_call(_, _, _, _), 
 	pa_alias_as__top("unhandled goal", Alias), 
 	AI = AI0 ^ alias := Alias,
-	Goal = Expr0 - Info0. 
+	Goal = Expr0 - Info0, 
+	IO = IO0. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context), 
 
 		% Record the statically constructed variables.
@@ -280,23 +316,26 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	AI = AI1 ^ alias := Alias,
 	Info = Info0,
 	Expr = Expr0, 
-	Goal = Expr - Info. 
+	Goal = Expr - Info, 
+	IO = IO0. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = switch(Var, CanFail, Cases0),
-	list__map_foldl(
+	list__map_foldl2(
 		(pred(case(ConsId, Gin)::in, Tuple::out,
-				FPin::in, FPout::out) is det :-
+				FPin::in, FPout::out, 
+				IOin::di, IOout::uo) is det :-
 			analyse_goal(ProcInfo, HLDS, Gin, Gout, 
 				analysis_info(AI0 ^ alias, AI0 ^ pool,
 						AI0 ^ static, FPin),
 				analysis_info(NewAlias,
-						NewPool, NewStatic, FPout)),
+						NewPool, NewStatic, FPout),
+				IOin, IOout),
 			Tuple = { case(ConsId, Gout), NewAlias, NewPool,
 					NewStatic }
 		),
 		Cases0, Tuples,
-		AI0 ^ table, FP),
+		AI0 ^ table, FP, IO0, IO),
 
 	Cases = list__map((func({C, _A, _P, _S}) = C), Tuples),
 	ListPools = list__map((func({_G, _A, P, _S}) = P), Tuples),
@@ -320,27 +359,30 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr = switch(Var, CanFail, Cases),
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = disj(Goals0),
 	(
 		Goals0 = []
 	->
 		Goals = Goals0,
-		AI0 = AI
+		AI0 = AI,
+		IO = IO0
 	;
 		% XXX up to here
-		list__map_foldl(
+		list__map_foldl2(
 			(pred(Gin::in, Tuple::out,
-					FPin::in, FPout::out) is det :-
+					FPin::in, FPout::out,
+					IOin::di, IOout::uo) is det :-
 				analyse_goal(ProcInfo, HLDS, Gin, Gout, 
 					analysis_info(AI0 ^ alias, AI0 ^ pool,
 							AI0 ^ static, FPin),
 					analysis_info(NewAlias, NewPool,
-							NewStatic, FPout)),
+							NewStatic, FPout),
+					IOin,IOout),
 				Tuple = { Gout, NewAlias, NewPool, NewStatic }
 			),
 			Goals0, Tuples,
-			AI0 ^ table, FP),
+			AI0 ^ table, FP, IO0, IO),
 
 		Goals = list__map((func({G, _A, _P, _S}) = G), Tuples),
 		ListPools = list__map((func({_G, _A, P, _S}) = P), Tuples),
@@ -366,27 +408,28 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr = disj(Goals),
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = not(NegatedGoal0),
-	analyse_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal, AI0, AI),
+	analyse_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal, 
+				AI0, AI, IO0, IO),
 	Info = Info0, 
 	Expr = not(NegatedGoal),
 	Goal = Expr - Info. 
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = some(A, B, SomeGoal0), 
-	analyse_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, AI0, AI),
+	analyse_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, AI0, AI, IO0, IO),
 	Info = Info0, 
 	Expr = some(A, B, SomeGoal), 
 	Goal = Expr - Info.
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
-	analyse_goal(ProcInfo, HLDS, Cond0, Cond, AI0, AI_Cond),
-	analyse_goal(ProcInfo, HLDS, Then0, Then, AI_Cond, AI_Then),
+	analyse_goal(ProcInfo, HLDS, Cond0, Cond, AI0, AI_Cond, IO0, IO1),
+	analyse_goal(ProcInfo, HLDS, Then0, Then, AI_Cond, AI_Then, IO1, IO2),
 
 	AI1 = AI0 ^ table := AI_Then ^ table,
-	analyse_goal(ProcInfo, HLDS, Else0, Else, AI1, AI_Else),
+	analyse_goal(ProcInfo, HLDS, Else0, Else, AI1, AI_Else, IO2, IO),
 
 	indirect_reuse_pool_least_upper_bound_disjunction(
 				[AI_Then ^ pool, AI_Else ^ pool],
@@ -401,44 +444,48 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	goal_info_get_outscope(Info, Outscope),
 	pa_alias_as__project_set(Outscope, Alias1, Alias),
 
-	AI = analysis_info(Alias, Pool, Static, AI1 ^ table),
+	AI = analysis_info(Alias, Pool, Static, AI_Else ^ table),
 
 	Info = Info0,
 	Expr = if_then_else(Vars, Cond, Then, Else),
 	Goal = Expr - Info.
 
-analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = foreign_proc(Attrs, PredId, ProcId, 
 					Vars, MaybeModes, Types, _), 
 	pa_alias_as__extend_foreign_code(HLDS, ProcInfo, Attrs, 
 			PredId, ProcId, Vars, 
 			MaybeModes, Types, Info0, AI0 ^ alias, Alias),
 	AI = AI0 ^ alias := Alias,
-	Goal = Expr0 - Info0. 
+	Goal = Expr0 - Info0, 
+	IO = IO0. 
 
-analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = par_conj(_), 
 	pa_alias_as__top("unhandled goal (par_conj)", Alias), 
 	AI = AI0 ^ alias := Alias,
-	Goal = Expr0 - Info0. 
+	Goal = Expr0 - Info0, 
+	IO = IO0. 
 
-analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	Expr0 = shorthand(_), 
 	pa_alias_as__top("unhandled goal (shorthand)", Alias), 
 	AI = AI0 ^ alias := Alias,
-	Goal = Expr0 - Info0. 
+	Goal = Expr0 - Info0, 
+	IO = IO0. 
 
 
 :- pred call_verify_reuse(proc_info::in, module_info::in,
 		pred_id::in, proc_id::in, list(prog_var)::in,
 		list((type))::in, 
 		hlds_goal_info::in, hlds_goal_info::out, 
-		analysis_info::in, analysis_info::out, bool::out) is det.
+		analysis_info::in, analysis_info::out, bool::out, 
+		io__state::di, io__state::uo) is det.
 
 call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
 		ActualTypes, 
 		GoalInfo0, GoalInfo, analysis_info(Alias0, Pool0, Static, FP0),
-		analysis_info(Alias0, Pool, Static, FP), YesNo) :-
+		analysis_info(Alias0, Pool, Static, FP), YesNo) -->
 	call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
 			ActualTypes, 
 			Alias0, Static, Pool0, Pool, GoalInfo0, GoalInfo,
@@ -450,20 +497,25 @@ call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
 		set(prog_var)::in, indirect_reuse_pool::in,
 		indirect_reuse_pool::out, hlds_goal_info::in ,
 		hlds_goal_info::out, sr_fixpoint_table__table::in,
-		sr_fixpoint_table__table::out, bool::out) is det.
+		sr_fixpoint_table__table::out, bool::out, 
+		io__state::di, io__state::uo) is det.
 
 call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0, 
 			ActualVars, ActualTypes, Alias0, 
 			StaticTerms, Pool0, Pool, 
-			Info0, Info, FP0, FP, YesNo) :- 
+			Info0, Info, FP0, FP, YesNo, IO0, IO) :- 
 
 	module_info_structure_reuse_info(HLDS, ReuseInfo),
 	ReuseInfo = structure_reuse_info(ReuseMap),
 	(map__search(ReuseMap, proc(PredId0, ProcId0), Result) ->
-		Result = proc(PredId, ProcId) - _Name
+		Result = proc(PredId, ProcId) - _Name,
+		passes_aux__write_proc_progress_message(
+				"%\t\tSuccess lookup in reuse map: ",
+				PredId, ProcId, HLDS, IO0, IO2)
 	;
 		PredId = PredId0,
-		ProcId = ProcId0
+		ProcId = ProcId0,
+		IO2 = IO0
 	),
 
 	% 0. fetch the procinfo of the called procedure:
@@ -471,7 +523,7 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 					ProcInfo0),
 	% 1. find the tabled reuse for the called predicate
 	lookup_memo_reuse(PredId, ProcId, HLDS, FP0, FP,
-					FormalMemo),	
+					FormalMemo, IO2, IO),	
 	% 2. once found, we can immediately handle the case where
 	% the tabled reuse would say that reuse is not possible anyway:
 	(
@@ -645,24 +697,32 @@ examine_cause_of_missed_condition(ModuleInfo, ProcInfo,
 %-----------------------------------------------------------------------------%
 :- pred lookup_memo_reuse(pred_id, proc_id, module_info, 
 		sr_fixpoint_table__table, sr_fixpoint_table__table, 
-		memo_reuse).
-:- mode lookup_memo_reuse(in, in, in, in, out, out) is det.
+		memo_reuse, io__state, io__state).
+:- mode lookup_memo_reuse(in, in, in, in, out, out, di, uo) is det.
 
 	% similar to the lookup_call_alias from pa_run:
 	% 1. check in fixpoint table
 	% 2. check in module_info (already fully analysed or imported pred)
 	%    no special treatment necessary for primitive predicates and
 	%    alike, as the default of predicates is no reuse anyway.
-lookup_memo_reuse(PredId, ProcId, HLDS, FP0, FP, Memo):- 
+lookup_memo_reuse(PredId, ProcId, HLDS, FP0, FP, Memo, IO0, IO):- 
 	PredProcId = proc(PredId, ProcId),
 	(
 		% 1 - check in table
 		sr_fixpoint_table_get_reuse(PredProcId, 
 					Memo1, FP0, FP1)
 	->
+		( sr_fixpoint_table_is_recursive(FP1) -> R = "yes"; R = "no"),
+		string__append_list(
+			["%\t\tsucceeded fpt (R = ", R, ") for "], Msg),
+		passes_aux__write_proc_progress_message(Msg,
+			PredId, ProcId, HLDS, IO0, IO),
 		Memo = Memo1,
 		FP = FP1
 	;
+		passes_aux__write_proc_progress_message(
+			"%\t\tfailed fpt lookup for ", 
+			PredId, ProcId, HLDS, IO0, IO),
 		FP = FP0,
 		% 2 - lookup in module_info
 		module_info_pred_proc_info(HLDS, PredProcId, _PredInfo,

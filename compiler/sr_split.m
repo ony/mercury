@@ -382,14 +382,19 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	{ ReuseInfo = structure_reuse_info(ReuseMap) },
 	{
 		goal_info_get_reuse(GoalInfo0, Reuse),
-		Reuse = reuse(reuse_call(ConditionalReuse)),
+		Reuse = reuse(SR),
+		SR = reuse_call(ConditionalReuse),
 		map__search(ReuseMap, proc(PredId0, ProcId0), Result)
 	->
 		( ConditionalReuse = yes, LocalReuseOnly = yes ->
 			PredId = PredId0,
 			ProcId = ProcId0,
 			Name = Name0,
-			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+			%goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+					%GoalInfo)
+			goal_info_set_reuse(GoalInfo0,
+				potential_reuse(SR),
+			% reuse(missed_reuse_call(["Conditional call."])),
 					GoalInfo)
 		;
 			Result = proc(PredId, ProcId) - Name,
@@ -407,12 +412,13 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal0 = unify(UVar, Rhs, Mode, Unification0, Ctxt) },
 	{
 		goal_info_get_reuse(GoalInfo0, Reuse),
-		Reuse = reuse(cell_reused(ReuseVar,
-				ConditionalReuse, ConsIds, ReuseFields))
+		Reuse = reuse(SR),
+		SR = cell_reused(ReuseVar,
+				ConditionalReuse, ConsIds, ReuseFields)
 	->
 		( ConditionalReuse = yes, LocalReuseOnly = yes ->
 			Unification = Unification0,
-			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+			goal_info_set_reuse(GoalInfo0, potential_reuse(SR),
 					GoalInfo)
 		;
 			(

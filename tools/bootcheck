@@ -619,7 +619,9 @@ then
 			echo "building of stage 2 library not successful"
 			exit 1
 		fi
-
+	
+		MERCURY_INT_DIR=../library
+		export MERCURY_INT_DIR
 		if (cd stage2/browser && $MMAKE $mmake_opts $jfactor library)
 		then
 			echo "building of stage 2 browser successful"

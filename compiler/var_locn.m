@@ -796,8 +796,11 @@ var_locn__assign_cell_to_var(Var, Ptag, Vector, CellNum, TypeMsg,
 		{ Code = empty }
 	;
 		(
+			% NANCY: TEMPORARY FIX? 
 			{ HowToConstruct = construct_statically(_) },
-			{ error("var_locn__assign_cell_to_var") }
+			var_locn__assign_dynamic_cell_to_var(Var, Ptag, Vector,
+					TypeMsg, Code)
+			% { error("var_locn__assign_cell_to_var") }
 		;
 			{ HowToConstruct = construct_dynamically },
 			var_locn__assign_dynamic_cell_to_var(Var, Ptag, Vector,
