@@ -437,8 +437,10 @@ get_var_insts_and_lives([Var | Vars], ModeInfo,
 		[Inst | Insts], [IsLive | IsLives]) :-
 	mode_info_get_module_info(ModeInfo, ModuleInfo),
 	mode_info_get_instmap(ModeInfo, InstMap),
+	mode_info_get_var_types(ModeInfo, VarTypes),
 	instmap__lookup_var(InstMap, Var, Inst0),
-	normalise_inst(Inst0, ModuleInfo, Inst),
+	map__lookup(VarTypes, Var, Type),
+	normalise_inst(Inst0, Type, ModuleInfo, Inst),
 
 	mode_info_var_is_live(ModeInfo, Var, IsLive0),
 

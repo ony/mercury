@@ -310,7 +310,6 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		%
 		% if --no-fully-strict,
 		% replace goals with determinism failure with `fail'.
-		% XXX we should warn about this (if the goal wasn't `fail')
 		%
 		Detism = failure,
 		% ensure goal is pure or semipure
@@ -319,16 +318,27 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
+		% warn about this (if the goal wasn't `fail')
+		goal_info_get_context(GoalInfo0, Context),
+		(
+			simplify_do_warn(Info0),
+			Goal0 \= disj([], _) - _
+		->
+			simplify_info_add_msg(Info0,
+				goal_cannot_succeed(Context), Info1)
+		;
+			Info1 = Info0
+		),
+		
 		% If the goal had any non-locals we should requantify. 
 		goal_info_get_nonlocals(GoalInfo0, NonLocals0),
 		( set__empty(NonLocals0) ->
-			Info1 = Info0
+			Info2 = Info1
 		;
-			simplify_info_set_requantify(Info0, Info1)
+			simplify_info_set_requantify(Info1, Info2)
 		),
 		pd_cost__goal(Goal0, CostDelta),
-		simplify_info_incr_cost_delta(Info1, CostDelta, Info2),
-		goal_info_get_context(GoalInfo0, Context),
+		simplify_info_incr_cost_delta(Info2, CostDelta, Info3),
 		fail_goal(Context, Goal1)
 	;
 		%
@@ -339,7 +349,6 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		% since these may occur in conjunctions where there
 		% are no producers for some variables, and the
 		% code generator would fail for these.
-		% XXX we should warn about this (if the goal wasn't `true')
 		%
 		determinism_components(Detism, cannot_fail, MaxSoln),
 		MaxSoln \= at_most_zero,
@@ -354,27 +363,47 @@ simplify__goal(Goal0, Goal - GoalInfo, Info0, Info) :-
 		; code_aux__goal_cannot_loop(ModuleInfo, Goal0)
 		)
 	->
+		% warn about this, if the goal wasn't `true'
+		% and wasn't a deconstruction unification.
+		% (We don't warn about deconstruction unifications
+		% with no outputs that always succeed, because that
+		% would result in bogus warnings, since switch detection
+		% converts deconstruction unifications that can fail
+		% into ones that always succeed by moving the test into
+		% the switch.)
+		goal_info_get_context(GoalInfo0, Context),
+		(
+			simplify_do_warn(Info0),
+			Goal0 \= conj([]) - _,
+			\+ (Goal0 = unify(_, _, _, Unification, _) - _,
+			    Unification = deconstruct(_, _, _, _, _))
+		->
+			simplify_info_add_msg(Info0,
+				det_goal_has_no_outputs(Context), Info1)
+		;
+			Info1 = Info0
+		),
+		
 		% If the goal had any non-locals we should requantify. 
 		goal_info_get_nonlocals(GoalInfo0, NonLocals0),
 		( set__empty(NonLocals0) ->
-			Info1 = Info0
+			Info2 = Info1
 		;
-			simplify_info_set_requantify(Info0, Info1)
+			simplify_info_set_requantify(Info1, Info2)
 		),
 		pd_cost__goal(Goal0, CostDelta),
-		simplify_info_incr_cost_delta(Info1, CostDelta, Info2),
-		goal_info_get_context(GoalInfo0, Context),
+		simplify_info_incr_cost_delta(Info2, CostDelta, Info3),
 		true_goal(Context, Goal1)
 	;
 		Goal1 = Goal0,
-		Info2 = Info0
+		Info3 = Info0
 	),
-	simplify_info_maybe_clear_structs(before, Goal1, Info2, Info3),
+	simplify_info_maybe_clear_structs(before, Goal1, Info3, Info4),
 	Goal1 = GoalExpr1 - GoalInfo1,
-	simplify__goal_2(GoalExpr1, GoalInfo1, Goal, GoalInfo2, Info3, Info4),
+	simplify__goal_2(GoalExpr1, GoalInfo1, Goal, GoalInfo2, Info4, Info5),
 	simplify_info_maybe_clear_structs(after, Goal - GoalInfo2,
-		Info4, Info5),
-	simplify__enforce_invariant(GoalInfo2, GoalInfo, Info5, Info).
+		Info5, Info6),
+	simplify__enforce_invariant(GoalInfo2, GoalInfo, Info6, Info).
 
 :- pred simplify__enforce_invariant(hlds_goal_info, hlds_goal_info,
 		simplify_info, simplify_info).
@@ -1013,10 +1042,6 @@ simplify__goal_2(Goal0, GoalInfo, Goal, GoalInfo, Info0, Info) :-
 
 simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, OldTypeInfoVars,
 		Context, GoalInfo0, Goal) -->
-	%
-	% XXX FIXME change mode analysis to check modes of typeinfos for
-	%	    complicated unifications
-	%
 	=(Info0),
 	{ simplify_info_get_module_info(Info0, ModuleInfo) },
 	{ simplify_info_get_var_types(Info0, VarTypes) },
@@ -1096,15 +1121,13 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, OldTypeInfoVars,
 		% calls to specific unification predicates,
 		% inserting extra typeinfo arguments if necessary.
 		%
+
+		% generate code to construct the new type_info arguments
 		simplify__make_type_info_vars(TypeArgs, TypeInfoVars,
 			ExtraGoals),
-		{ list__append(TypeInfoVars, [XVar, YVar], ArgVars) },
-		
-		% sanity check: the TypeInfoVars we computed here should
-		% match with what was stored in the complicated_unify struct
-		{ require(unify(OldTypeInfoVars, TypeInfoVars),
-		  "simplify__process_compl_unify: mismatched type_info vars") },
 
+		% create the new call goal
+		{ list__append(TypeInfoVars, [XVar, YVar], ArgVars) },
 		{ module_info_get_special_pred_map(ModuleInfo,
 			SpecialPredMap) },
 		{ map__lookup(SpecialPredMap, unify - TypeId, PredId) },
@@ -1115,8 +1138,16 @@ simplify__process_compl_unify(XVar, YVar, UniMode, CanFail, OldTypeInfoVars,
 		{ CallContext = call_unify_context(XVar, var(YVar), Context) },
 		{ Call0 = call(PredId, ProcId, ArgVars, not_builtin,
 			yes(CallContext), SymName) },
-		simplify__goal_2(Call0, GoalInfo0, Call1, GoalInfo),
-		{ Call = Call1 - GoalInfo }
+
+		% add the extra type_info vars to the nonlocals for the call
+		{ goal_info_get_nonlocals(GoalInfo0, NonLocals0) },
+		{ set__insert_list(NonLocals0, TypeInfoVars, NonLocals) },
+		{ goal_info_set_nonlocals(GoalInfo0, NonLocals,
+			CallGoalInfo0) },
+
+		% recursively simplify the call goal
+		simplify__goal_2(Call0, CallGoalInfo0, Call1, CallGoalInfo1),
+		{ Call = Call1 - CallGoalInfo1 }
 	;
 		{ error("simplify: type_to_type_id failed") }
 	),

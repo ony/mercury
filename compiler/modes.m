@@ -814,10 +814,13 @@ modecheck_final_insts_2(HeadVars, FinalInsts0, ModeInfo0, InferModes,
 			FinalInsts, ModeInfo) :-
 	mode_info_get_module_info(ModeInfo0, ModuleInfo),
 	mode_info_get_instmap(ModeInfo0, InstMap),
+	mode_info_get_var_types(ModeInfo0, VarTypes),
 	instmap__lookup_vars(HeadVars, InstMap, VarFinalInsts1),
+	map__apply_to_list(HeadVars, VarTypes, ArgTypes),
 
 	( InferModes = yes ->
-		normalise_insts(VarFinalInsts1, ModuleInfo, VarFinalInsts2),
+		normalise_insts(VarFinalInsts1, ArgTypes, ModuleInfo,
+			VarFinalInsts2),
 		%
 		% make sure we set the final insts of any variables which
 		% we assumed were dead to `clobbered'.
@@ -1009,10 +1012,19 @@ modecheck_goal_expr(if_then_else(Vs, A0, B0, C0, SM), GoalInfo0, Goal) -->
 	mode_info_lock_vars(if_then_else, NonLocals),
 	mode_info_add_live_vars(B_Vars),
 	modecheck_goal(A0, A),
+	mode_info_dcg_get_instmap(InstMapA),
 	mode_info_remove_live_vars(B_Vars),
 	mode_info_unlock_vars(if_then_else, NonLocals),
-	modecheck_goal(B0, B),
-	mode_info_dcg_get_instmap(InstMapB),
+	( { instmap__is_reachable(InstMapA) } ->
+		modecheck_goal(B0, B),
+		mode_info_dcg_get_instmap(InstMapB)
+	;
+		% We should not mode-analyse the goal, since it is unreachable.
+		% Instead we optimize the goal away, so that later passes
+		% won't complain about it not having mode information.
+		{ true_goal(B) },
+		{ InstMapB = InstMapA }
+	),
 	mode_info_set_instmap(InstMap0),
 	modecheck_goal(C0, C),
 	mode_info_dcg_get_instmap(InstMapC),
@@ -1038,7 +1050,10 @@ modecheck_goal_expr(some(Vs, G0), _, some(Vs, G)) -->
 
 modecheck_goal_expr(call(PredId, ProcId0, Args0, _, Context, PredName),
 		GoalInfo0, Goal) -->
-	mode_checkpoint(enter, "call"),
+	/*** CallString = "call" ***/
+	{ prog_out__sym_name_to_string(PredName, PredNameString) },
+	{ string__append("call ", PredNameString, CallString) },
+	mode_checkpoint(enter, CallString),
 	mode_info_set_call_context(call(PredId)),
 	=(ModeInfo0),
 	{ mode_info_get_instmap(ModeInfo0, InstMap0) },
@@ -1055,7 +1070,7 @@ modecheck_goal_expr(call(PredId, ProcId0, Args0, _, Context, PredName),
 				InstMap0, Goal),
 
 	mode_info_unset_call_context,
-	mode_checkpoint(exit, "call").
+	mode_checkpoint(exit, CallString).
 
 modecheck_goal_expr(higher_order_call(PredVar, Args0, _, _, _, PredOrFunc),
 		GoalInfo0, Goal) -->
@@ -1247,7 +1262,17 @@ modecheck_conj_list_no_delay([Goal0 | Goals0], [Goal | Goals]) -->
 	{ goal_get_nonlocals(Goal0, NonLocals) },
 	mode_info_remove_live_vars(NonLocals),
 	modecheck_goal(Goal0, Goal),
-	modecheck_conj_list_no_delay(Goals0, Goals).
+	mode_info_dcg_get_instmap(InstMap),
+	( { instmap__is_unreachable(InstMap) } ->
+		% We should not mode-analyse the remaining goals, since they
+		% are unreachable.  Instead we optimize them away, so that
+		% later passes won't complain about them not having mode
+		% information.
+		mode_info_remove_goals_live_vars(Goals0),
+		{ Goals  = [] }
+	;
+		modecheck_conj_list_no_delay(Goals0, Goals)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1405,6 +1430,10 @@ modecheck_conj_list_2([Goal0 | Goals0], ImpurityErrors0,
 	mode_info_set_delay_info(DelayInfo),
 	mode_info_dcg_get_instmap(InstMap),
 	( { instmap__is_unreachable(InstMap) } ->
+		% We should not mode-analyse the remaining goals, since they
+		% are unreachable.  Instead we optimize them away, so that
+		% later passes won't complain about them not having mode
+		% information.
 		mode_info_remove_goals_live_vars(Goals1),
 		{ Goals2  = [] },
 		{ ImpurityErrors = ImpurityErrors2 }
@@ -1535,10 +1564,22 @@ modecheck_case_list([Case0 | Cases0], Var,
 	modecheck_set_var_inst(Var,
 		bound(unique, [functor(ConsId, ArgInsts)])),
 
-	modecheck_goal(Goal0, Goal1),
-	mode_info_dcg_get_instmap(InstMap),
+		% modecheck this case (if it is reachable)
+	mode_info_dcg_get_instmap(InstMap1),
+	( { instmap__is_reachable(InstMap1) } ->
+		modecheck_goal(Goal0, Goal1),
+		mode_info_dcg_get_instmap(InstMap)
+	;
+		% We should not mode-analyse the goal, since it is unreachable.
+		% Instead we optimize the goal away, so that later passes
+		% won't complain about it not having mode information.
+		{ true_goal(Goal1) },
+		{ InstMap = InstMap1 }
+	),
+
 	% Don't lose the information added by the functor test above.
 	{ fixup_switch_var(Var, InstMap0, InstMap, Goal1, Goal) },
+
 	mode_info_set_instmap(InstMap0),
 	modecheck_case_list(Cases0, Var, Cases, InstMaps).
 

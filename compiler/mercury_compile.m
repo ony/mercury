@@ -1700,7 +1700,7 @@ mercury_compile__maybe_deforestation(HLDS0, Verbose, Stats, HLDS) -->
 		maybe_write_string(Verbose, "% Deforestation...\n"),
 		maybe_flush_output(Verbose),
 		deforestation(HLDS0, HLDS),
-		maybe_write_string(Verbose, " done.\n"),
+		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
 	;
 		{ HLDS0 = HLDS }

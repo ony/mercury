@@ -37,18 +37,23 @@
 
 :- module post_typecheck.
 :- interface.
-:- import_module hlds_module, hlds_pred, io.
-:- import_module list, prog_data.
+:- import_module hlds_module, hlds_pred, prog_data.
+:- import_module list, io, bool.
 
+	% check_type_bindings(PredId, PredInfo, ModuleInfo, ReportErrors):
+	%
+	% Check that all Aditi predicates have an `aditi__state' argument.
 	% Check that the all of the types which have been inferred
 	% for the variables in the clause do not contain any unbound type
 	% variables other than those that occur in the types of head
 	% variables, and that there are no unsatisfied type class
-	% constraints.
+	% constraints, and if ReportErrors = yes, print appropriate
+	% warning/error messages.
+	% Also bind any unbound type variables to the type `void'.
 	%
-:- pred post_typecheck__check_type_bindings(pred_id, pred_info, pred_info,
-		module_info, int, io__state, io__state).
-:- mode post_typecheck__check_type_bindings(in, in, out, in, out, di, uo)
+:- pred post_typecheck__check_type_bindings(pred_id, pred_info, module_info,
+		bool, pred_info, int, io__state, io__state).
+:- mode post_typecheck__check_type_bindings(in, in, in, in, out, out, di, uo)
 		is det.
 
 	% Handle any unresolved overloading for a predicate call.
@@ -93,11 +98,14 @@
 %  variables other than those that occur in the types of head
 %  variables, and that there are no unsatisfied type class constraints.
 
-post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
-		NumErrors, IOState0, IOState) :-
-	pred_info_get_unproven_body_constraints(PredInfo0,
-		UnprovenConstraints0),
-	( UnprovenConstraints0 \= [] ->
+post_typecheck__check_type_bindings(PredId, PredInfo0, ModuleInfo, ReportErrs,
+		PredInfo, NumErrors, IOState0, IOState) :-
+	(
+		ReportErrs = yes,
+		pred_info_get_unproven_body_constraints(PredInfo0,
+			UnprovenConstraints0),
+		UnprovenConstraints0 \= []
+	->
 		list__sort_and_remove_dups(UnprovenConstraints0,
 			UnprovenConstraints),
 		report_unsatisfied_constraints(UnprovenConstraints,
@@ -120,11 +128,15 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
 		PredInfo = PredInfo0,
 		IOState2 = IOState1
 	;
-		%
-		% report the warning
-		%
-		report_unresolved_type_warning(Errs, PredId, PredInfo0,
-				ModuleInfo, VarSet, IOState1, IOState2),
+		( ReportErrs = yes ->
+			%
+			% report the warning
+			%
+			report_unresolved_type_warning(Errs, PredId, PredInfo0,
+				ModuleInfo, VarSet, IOState1, IOState2)
+		;
+			IOState2 = IOState1
+		),
 
 		%
 		% bind all the type variables in `Set' to `void' ...
@@ -145,7 +157,7 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
 	pred_info_arg_types(PredInfo, ArgTypes),
 	( check_marker(Markers, aditi) ->
 		list__filter(type_is_aditi_state, ArgTypes, AditiStateTypes),
-		( AditiStateTypes = [] ->
+		( AditiStateTypes = [], ReportErrs = yes ->
 			report_no_aditi_state(PredInfo, IOState2, IOState)
 		; AditiStateTypes = [_, _ | _] ->
 			report_multiple_aditi_states(PredInfo,

@@ -696,6 +696,21 @@ categorize_unify_var_var(ModeOfX, ModeOfY, LiveX, LiveY, X, Y, Det,
 		),
 		ModeInfo = ModeInfo0
 	;
+		%
+		% Check for unreachable unifications
+		%
+		( mode_get_insts(ModuleInfo0, ModeOfX, not_reached, _)
+		; mode_get_insts(ModuleInfo0, ModeOfY, not_reached, _)
+		)
+	->
+		%
+		% For these, we can generate any old junk here --
+		% we just need to avoid calling modecheck_complicated_unify,
+		% since that might abort.
+		%
+		Unification = simple_test(X, Y),
+		ModeInfo = ModeInfo0
+	;
 		map__lookup(VarTypes, X, Type),
 		(
 			type_is_atomic(Type, ModuleInfo0)
@@ -770,7 +785,7 @@ modecheck_complicated_unify(X, Y, Type, ModeOfX, ModeOfY, Det, UnifyContext,
 	( Unification0 = complicated_unify(_, _, UnifyTypeInfoVars0) ->
 		UnifyTypeInfoVars = UnifyTypeInfoVars0
 	;
-		error("categorize_unify_var_var")
+		error("modecheck_complicated_unify")
 	),
 	Unification = complicated_unify(UniMode, CanFail, UnifyTypeInfoVars),
 

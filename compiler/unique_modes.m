@@ -62,7 +62,7 @@
 :- import_module modes, prog_data, mode_errors, llds, unify_proc.
 :- import_module (inst), instmap, inst_match, inst_util.
 :- import_module term, varset.
-:- import_module int, list, map, set, std_util, require, assoc_list.
+:- import_module int, list, map, set, std_util, require, assoc_list, string.
 
 %-----------------------------------------------------------------------------%
 
@@ -347,9 +347,17 @@ unique_modes__check_goal_2(if_then_else(Vs, A0, B0, C0, SM), GoalInfo0, Goal)
 	unique_modes__check_goal(A0, A),
 	mode_info_remove_live_vars(B_Vars),
 	mode_info_unlock_vars(if_then_else, NonLocals),
-	% mode_info_dcg_get_instmap(InstMapA),
-	unique_modes__check_goal(B0, B),
-	mode_info_dcg_get_instmap(InstMapB),
+	mode_info_dcg_get_instmap(InstMapA),
+	( { instmap__is_reachable(InstMapA) } ->
+		unique_modes__check_goal(B0, B),
+		mode_info_dcg_get_instmap(InstMapB)
+	;
+		% We should not mode-analyse the goal, since it is unreachable.
+		% Instead we optimize the goal away, so that later passes
+		% won't complain about it not having unique mode information.
+		{ true_goal(B) },
+		{ InstMapB = InstMapA }
+	),
 	mode_info_set_instmap(InstMap0),
 	unique_modes__check_goal(C0, C),
 	mode_info_dcg_get_instmap(InstMapC),
@@ -415,7 +423,10 @@ unique_modes__check_goal_2(class_method_call(TCVar, Num, Args, Types, Modes,
 
 unique_modes__check_goal_2(call(PredId, ProcId0, Args, Builtin, CallContext,
 		PredName), _GoalInfo0, Goal) -->
-	mode_checkpoint(enter, "call"),
+	/*** CallString = "call" ***/
+	{ prog_out__sym_name_to_string(PredName, PredNameString) },
+	{ string__append("call ", PredNameString, CallString) },
+	mode_checkpoint(enter, CallString),
 	mode_info_set_call_context(call(PredId)),
 	unique_modes__check_call(PredId, ProcId0, Args, ProcId),
 	{ Goal = call(PredId, ProcId, Args, Builtin, CallContext, PredName) },
@@ -592,7 +603,17 @@ unique_modes__check_conj([Goal0 | Goals0], [Goal | Goals]) -->
 	{ unique_modes__goal_get_nonlocals(Goal0, NonLocals) },
 	mode_info_remove_live_vars(NonLocals),
 	unique_modes__check_goal(Goal0, Goal),
-	unique_modes__check_conj(Goals0, Goals).
+	mode_info_dcg_get_instmap(InstMap),
+	( { instmap__is_unreachable(InstMap) } ->
+		% We should not mode-analyse the remaining goals, since they
+		% are unreachable.  Instead we optimize them away, so that
+		% later passes won't complain about them not having
+		% unique mode information.
+		mode_info_remove_goals_live_vars(Goals0),
+		{ Goals  = [] }
+	;
+		unique_modes__check_conj(Goals0, Goals)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -657,9 +678,19 @@ unique_modes__check_case_list([Case0 | Cases0], Var,
 	modecheck_set_var_inst(Var,
 		bound(unique, [functor(ConsId, ArgInsts)])),
 
-	unique_modes__check_goal(Goal0, Goal1),
+	mode_info_dcg_get_instmap(InstMap1),
+	( { instmap__is_reachable(InstMap1) } ->
+		unique_modes__check_goal(Goal0, Goal1)
+	;
+		% We should not mode-analyse the goal, since it is unreachable.
+		% Instead we optimize the goal away, so that later passes
+		% won't complain about it not having unique mode information.
+		{ true_goal(Goal1) }
+	),
+
 	mode_info_dcg_get_instmap(InstMap),
 	{ fixup_switch_var(Var, InstMap0, InstMap, Goal1, Goal) },
+
 	mode_info_set_instmap(InstMap0),
 	unique_modes__check_case_list(Cases0, Var, Cases, InstMaps).
 

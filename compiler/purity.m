@@ -270,18 +270,14 @@ check_preds_purity_2([PredId | PredIds], FoundTypeError, ModuleInfo0,
 		write_pred_progress_message("% Purity-checking ", PredId,
 					    ModuleInfo0),
 		%
-		% Only check the type bindings if we didn't get any
-		% type errors already; this avoids a lot of spurious
-		% diagnostics.
+		% Only report error messages for unbound type variables
+		% if we didn't get any type errors already; this avoids
+		% a lot of spurious diagnostics.
 		%
-		( { FoundTypeError = no } ->
-			post_typecheck__check_type_bindings(PredId, PredInfo0,
-					PredInfo1, ModuleInfo0,
-					UnboundTypeErrsInThisPred)
-		;
-			{ PredInfo1 = PredInfo0 },
-			{ UnboundTypeErrsInThisPred = 0 }
-		),
+		{ bool__not(FoundTypeError, ReportErrs) },
+		post_typecheck__check_type_bindings(PredId, PredInfo0,
+				ModuleInfo0, ReportErrs,
+				PredInfo1, UnboundTypeErrsInThisPred),
 		puritycheck_pred(PredId, PredInfo1, PredInfo2, ModuleInfo0,
 				PurityErrsInThisPred),
 		post_typecheck__finish_pred(ModuleInfo0, PredId, PredInfo2,

@@ -610,7 +610,7 @@ polymorphism__process_clause_info(ClausesInfo0, PredInfo0, ModuleInfo0,
 
 	clauses_info_clauses(ClausesInfo0, Clauses0),
 	list__map_foldl(polymorphism__process_clause(PredInfo0,
-				HeadVars, UnconstrainedTVars,
+				HeadVars0, HeadVars, UnconstrainedTVars,
 				ExtraTypeInfoHeadVars,
 				ExistTypeClassInfoHeadVars),
 			Clauses0, Clauses, PolyInfo1, PolyInfo),
@@ -627,17 +627,17 @@ polymorphism__process_clause_info(ClausesInfo0, PredInfo0, ModuleInfo0,
 				HeadVars, Clauses,
 				TypeInfoMap, TypeClassInfoMap).
 
-:- pred polymorphism__process_clause(pred_info, list(prog_var), list(tvar),
-		list(prog_var), list(prog_var),
+:- pred polymorphism__process_clause(pred_info, list(prog_var), list(prog_var),
+		list(tvar), list(prog_var), list(prog_var),
 		clause, clause,	poly_info, poly_info).
-:- mode polymorphism__process_clause(in, in, in, in, in,
+:- mode polymorphism__process_clause(in, in, in, in, in, in,
 		in, out, in, out) is det.
 
-polymorphism__process_clause(PredInfo, HeadVars, UnconstrainedTVars,
+polymorphism__process_clause(PredInfo0, HeadVars0, HeadVars, UnconstrainedTVars,
 			ExtraTypeInfoHeadVars, ExistTypeClassInfoHeadVars,
 			Clause0, Clause) -->
 	(
-		{ pred_info_is_imported(PredInfo) }
+		{ pred_info_is_imported(PredInfo0) }
 	->
 		{ Clause = Clause0 }
 	;
@@ -652,12 +652,12 @@ polymorphism__process_clause(PredInfo, HeadVars, UnconstrainedTVars,
 		% and type-infos for existentially quantified type vars
 		%
 		polymorphism__produce_existq_tvars(
-			PredInfo, HeadVars,
+			PredInfo0, HeadVars0,
 			UnconstrainedTVars, ExtraTypeInfoHeadVars,
 			ExistTypeClassInfoHeadVars,
 			Goal1, Goal2),
 
-		{ pred_info_get_exist_quant_tvars(PredInfo, ExistQVars) },
+		{ pred_info_get_exist_quant_tvars(PredInfo0, ExistQVars) },
 		polymorphism__fixup_quantification(HeadVars, ExistQVars,
 			Goal2, Goal),
 		{ Clause = clause(ProcIds, Goal, Context) }
@@ -692,9 +692,13 @@ polymorphism__process_proc(ProcId, ProcInfo0, PredInfo, ClausesInfo,
 		  hlds_pred__in_in_unification_proc_id(ProcId)
 		)
 	->
-		% XXX is this right?
-		ProcInfo1 = ProcInfo0
-		/* proc_info_set_headvars(ProcInfo0, HeadVars, ProcInfo1) */
+		% 
+		% We need to set the headvars in the proc_info here, because
+		% some parts of the compiler (e.g. unused_args.m) depend on the
+		% headvars field being valid even for imported procedures.
+		%
+		clauses_info_headvars(ClausesInfo, HeadVars),
+		proc_info_set_headvars(ProcInfo0, HeadVars, ProcInfo1)
 	;
 		copy_clauses_to_proc(ProcId, ClausesInfo, ProcInfo0, ProcInfo1)
 	),
