@@ -1919,15 +1919,17 @@ options_help_semantics -->
 		"--structure-reuse-constraint",
 		"\tConstraint on the set of cells that we consider available",
 		"\tfor reuse.  Currently within_n_cells_difference(N) or",
-		"\tsame_cons_id.",
+		"\tsame_cons_id (default = within_n_cells_difference(0)).",
 
 		"--structure-reuse-selection",
 		"\tStrategy to decide which of the possible cells available",
-		"\tfor reuse is reused.  Currently lifo or random.",
+		"\tfor reuse is reused.  Currently lifo or random",
+		"\t(default = lifo).",
 
 		"--cell-cache",
 		"\tTurn on a cache of compile time garbage collected cells.",
 		"\tThis cache will be checked before allocating new memory.",
+		"\t(default = no).",
 
 		"--pa-widening, --possible-alias-widening <n>", 
 		"\tEnable widening when deriving possible aliases.",
