@@ -309,18 +309,41 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	{ Goal = call(PredId, ProcId, Args, Builtin, MaybeContext, Name) }.
 
 process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
-	{ Goal0 = unify(_Var, _Rhs, _Mode, _Unification0, _Ctxt) },
+	{ Goal0 = unify(UVar, Rhs, Mode, Unification0, Ctxt) },
 	{
 		goal_info_get_reuse(GoalInfo0, Reuse),
-		Reuse = reuse(cell_reused(_ReuseVar, ConditionalReuse)),
-		ConditionalReuse = yes,
-		LocalReuseOnly = yes
+		Reuse = reuse(cell_reused(ReuseVar, ConditionalReuse))
 	->
-		goal_info_set_reuse(GoalInfo0, reuse(no_reuse), GoalInfo)
+		( ConditionalReuse = yes, LocalReuseOnly = yes ->
+			Unification = Unification0,
+			goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
+					GoalInfo)
+		;
+			(
+				Unification0 = construct(Var, ConsId, Vars,
+						Modes, _HTC, IsUnique, MaybeRL)
+			->
+					% XXX Wrong cons_id but safe for the
+					% moment because we use the
+					% strategy that only cells with
+					% the same cons_id can be shared.
+				HTC = reuse_cell(cell_to_reuse(ReuseVar,
+						ConsId,
+						list__duplicate(
+							list__length(Vars), no)
+						)),
+				Unification = construct(Var, ConsId, Vars,
+						Modes, HTC, IsUnique, MaybeRL)
+			;
+				error("sr_split__process_goal: not a construction unification")
+			),
+			GoalInfo = GoalInfo0
+		)
 	;
+		Unification = Unification0,
 		GoalInfo = GoalInfo0
 	},
-	{ Goal = Goal0 }.
+	{ Goal = unify(UVar, Rhs, Mode, Unification, Ctxt) }.
 process_goal(_, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
