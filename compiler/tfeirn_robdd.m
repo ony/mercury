@@ -376,15 +376,23 @@ conj_not_vars(Vars, X) =
 	) :-
 	X = xrobdd(T, F, E, I, R, _).
 
-disj_vars(Vars, X) =
+disj_vars(Vars, X0) = X :-
+	X0 = xrobdd(T, F, _E, _I, _R, _N),
 	( \+ empty(Vars `intersect` T) ->
-		X
+		X = X0
 	; Vars `subset` F ->
-		zero
+		X = zero
 	;
-		X `x` disj_vars(Vars `difference` F)
-	) :-
-	X = xrobdd(T, F, _E, _I, _R, _N).
+		VarsNF = Vars `difference` F,
+		(
+			remove_least(VarsNF, Var, VarsNF1),
+			empty(VarsNF1)
+		->
+			X = X0 ^ var(Var)
+		;
+			X = X0 `x` disj_vars(VarsNF)
+		)
+	).
 
 at_most_one_of(Vars, X) =
 	( count(Vars `difference` F) =< 1 ->
