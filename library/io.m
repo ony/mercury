@@ -1665,7 +1665,7 @@ io__open_binary_output(FileName, Result) -->
 		io__insert_stream_name(NewStream, FileName)
 	;
 		% XXX improve error message
-		{ Result = error("can't open binary output file") }
+		{ Result = error("can't open output file") }
 	).
 
 io__open_binary_append(FileName, Result) -->
@@ -1731,6 +1731,7 @@ io__tell(File, Result) -->
 		io__set_output_stream(Stream, _),
 		{ Result = ok }
 	;
+		% XXX improve error message
 		{ Result = error("can't open output file") }
 	).
 
@@ -1746,7 +1747,7 @@ io__tell_binary(File, Result) -->
 		{ Result = ok }
 	;
 		% XXX improve error message
-		{ Result = error("can't open binary output file") }
+		{ Result = error("can't open output file") }
 	).
 
 %-----------------------------------------------------------------------------%
@@ -2201,73 +2202,47 @@ void sys_init_io_run_module(void) {
 
 /* output predicates - with output to mercury_current_text_output */
 
-io__write_string(S) --> 
-	{ io__write_string_2(S) }.
-
-:- pred io__write_string_2(string).
-:- mode io__write_string_2(in) is det.
-
-:- pragma(c_code, io__write_string_2(Message::in), "
+:- pragma(c_code, io__write_string(Message::in, IO0::di, IO::uo), "
 	mercury_print_string(mercury_current_text_output, Message);
+	update_io(IO0, IO);
 ").
 
-io__write_char(C) -->
-	{ io__write_char_2(C) }.
-
-:- pred io__write_char_2(char).
-:- mode io__write_char_2(in) is det.
-
-:- pragma(c_code, io__write_char_2(Character::in), "
+:- pragma(c_code, io__write_char(Character::in, IO0::di, IO::uo), "
 	if (putc(Character, mercury_current_text_output->file) < 0) {
 		mercury_output_error(mercury_current_text_output);
 	}
 	if (Character == '\\n') {
 		mercury_current_text_output->line_number++;
 	}
+	update_io(IO0, IO);
 ").
 
-io__write_int(Val) -->
-	{ io__write_int_2(Val) }.
-
-:- pred io__write_int_2(int).
-:- mode io__write_int_2(in) is det.
-:- pragma(c_code, io__write_int_2(Val::in), "
+:- pragma(c_code, io__write_int(Val::in, IO0::di, IO::uo), "
 	if (fprintf(mercury_current_text_output->file, ""%ld"", (long) Val) < 0) {
 		mercury_output_error(mercury_current_text_output);
 	}
+	update_io(IO0, IO);
 ").
 
-io__write_float(Val) -->
-	{ io__write_float_2(Val) }.
-
-:- pred io__write_float_2(float).
-:- mode io__write_float_2(in) is det.
-:- pragma(c_code, io__write_float_2(Val::in), "
+:- pragma(c_code, io__write_float(Val::in, IO0::di, IO::uo), "
 	if (fprintf(mercury_current_text_output->file, ""%#.15g"", Val) < 0) {
 		mercury_output_error(mercury_current_text_output);
 	}
+	update_io(IO0, IO);
 ").
 
-io__write_byte(Byte) -->
-	{ io__write_byte_2(Byte) }.
-
-:- pred io__write_byte_2(int).
-:- mode io__write_byte_2(in) is det.
-:- pragma(c_code, io__write_byte_2(Byte::in), "
+:- pragma(c_code, io__write_byte(Byte::in, IO0::di, IO::uo), "
 	/* call putc with a strictly non-negative byte-sized integer */
 	if (putc((int) ((unsigned char) Byte),
 			mercury_current_binary_output->file) < 0) {
 		mercury_output_error(mercury_current_text_output);
 	}
+	update_io(IO0, IO);
 ").
 
-io__write_bytes(Message) -->
-	{ io__write_bytes_2(Message) }.
-
-:- pred io__write_bytes_2(string).
-:- mode io__write_bytes_2(in) is det.
-:- pragma(c_code, io__write_bytes_2(Message::in), "{
+:- pragma(c_code, io__write_bytes(Message::in, IO0::di, IO::uo), "{
 	mercury_print_binary_string(mercury_current_binary_output, Message);
+	update_io(IO0, IO);
 }").
 
 :- pragma(c_code, io__flush_output(IO0::di, IO::uo), "
@@ -2316,27 +2291,17 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	IO = IO0;
 }").
 
+
 /* output predicates - with output to the specified stream */
 
-io__write_string(Stream, Message) -->
-	{ io__write_string_2(Stream, Message) }.
-
-:- pred io__write_string_2(io__stream, string).
-:- mode io__write_string_2(in, in) is det.
-
-:- pragma(c_code, io__write_string_2(Stream::in, Message::in),
+:- pragma(c_code, io__write_string(Stream::in, Message::in, IO0::di, IO::uo),
 "{
 	MercuryFile *stream = (MercuryFile *) Stream;
 	mercury_print_string(stream, Message);
+	update_io(IO0, IO);
 }").
 
-io__write_char(Stream, Character) -->
-	{ io__write_char_2(Stream, Character) }.
-
-:- pred io__write_char_2(io__stream, char).
-:- mode io__write_char_2(in, in) is det.
-
-:- pragma(c_code, io__write_char_2(Stream::in, Character::in),
+:- pragma(c_code, io__write_char(Stream::in, Character::in, IO0::di, IO::uo),
 "{
 	MercuryFile *stream = (MercuryFile *) Stream;
 	if (putc(Character, stream->file) < 0) {
@@ -2345,6 +2310,7 @@ io__write_char(Stream, Character) -->
 	if (Character == '\\n') {
 		stream->line_number++;
 	}
+	update_io(IO0, IO);
 }").
 
 :- pragma(c_code, io__write_int(Stream::in, Val::in, IO0::di, IO::uo), "{
@@ -2732,8 +2698,8 @@ io__tmpnam(Name) -->
 
 /*---------------------------------------------------------------------------*/
 
-io__remove_file(FileName, Result, IO, IO) :-
-	io__remove_file_2(FileName, Res, ResString),
+io__remove_file(FileName, Result, IO0, IO) :-
+	io__remove_file_2(FileName, Res, ResString, IO0, IO),
 	( Res < 0 ->
 		Result = error(ResString)
 	;
@@ -2741,13 +2707,14 @@ io__remove_file(FileName, Result, IO, IO) :-
 	).
 
 
-:- pred io__remove_file_2(string, int, string).
-:- mode io__remove_file_2(in, out, out) is det.
+:- pred io__remove_file_2(string, int, string, io__state, io__state).
+:- mode io__remove_file_2(in, out, out, di, uo) is det.
 
 %#include <string.h>
 %#include <errno.h>
 %#include "prof.h" % for strerror
-:- pragma(c_code, io__remove_file_2(FileName::in, RetVal::out, RetStr::out), "{
+:- pragma(c_code, io__remove_file_2(FileName::in, RetVal::out, RetStr::out,
+		IO0::di, IO::uo), "{
 	Word tmp;
 	char *buf;
 
