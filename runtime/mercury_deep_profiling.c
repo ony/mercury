@@ -606,6 +606,7 @@ MR_create_hash_table(int size)
 	MR_ProfilingHashTable *ptr;
 	ptr = MR_NEW(MR_ProfilingHashTable);
 	ptr->length = size;
+	ptr->last_id = 0;
 	ptr->nodes = MR_NEW_ARRAY(MR_ProfilingHashNode *, size);
 
 	return ptr;
