@@ -57,7 +57,8 @@
 
 :- import_module hlds_module, hlds_data, code_util, builtin_ops, rl.
 :- import_module arg_info, type_util, mode_util, unify_proc, instmap.
-:- import_module polymorphism, trace, globals, options.
+:- import_module polymorphism, profiling, trace, globals, options.
+:- import_module continuation_info.
 :- import_module std_util, bool, int, tree, map.
 :- import_module varset, require, string.
 
@@ -83,6 +84,20 @@ call_gen__generate_call(CodeModel, PredId, ModeId, Arguments, GoalInfo, Code)
 		% Move the input arguments to their registers.
 	code_info__setup_call(ArgsInfos, caller, SetupCode),
 
+		% If deep profiling is enabled, then we need to
+		% emit code to update the pointer to the current procedure
+		% before and after (see down below) the call.
+	code_info__get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, profile_deep, DeepProfiling) },
+	{ goal_info_get_context(GoalInfo, Context) },
+	{ PPId = proc(PredId, ModeId) },
+	(
+		{ DeepProfiling = yes },
+		profiling__pre_call_update(PPId, Context, ProfilingEntryCode)
+	;
+		{ DeepProfiling = no },
+		{ ProfilingEntryCode = empty }
+	),
 	trace__prepare_for_call(TraceCode),
 
 		% Figure out what locations are live at the call point,
@@ -112,7 +127,6 @@ call_gen__generate_call(CodeModel, PredId, ModeId, Arguments, GoalInfo, Code)
 	code_info__make_entry_label(ModuleInfo, PredId, ModeId, yes, Address),
 	code_info__get_next_label(ReturnLabel),
 	{ call_gen__call_comment(CodeModel, CallComment) },
-	{ goal_info_get_context(GoalInfo, Context) },
 	{ CallCode = node([
 		call(Address, label(ReturnLabel), ReturnLiveLvalues, Context,
 			CallModel)
@@ -121,6 +135,15 @@ call_gen__generate_call(CodeModel, PredId, ModeId, Arguments, GoalInfo, Code)
 			- "continuation label"
 	]) },
 
+	(
+		{ DeepProfiling = yes },
+		profiling__post_call_update(ProfilingExitCode)
+	;
+		{ DeepProfiling = no },
+		{ ProfilingExitCode = empty }
+	),
+
+	call_gen__rebuild_registers(ArgsInfos),
 	call_gen__handle_failure(CodeModel, FailHandlingCode),
 
 	{ Code =
@@ -128,12 +151,296 @@ call_gen__generate_call(CodeModel, PredId, ModeId, Arguments, GoalInfo, Code)
 		tree(FlushCode,
 		tree(SetupCode,
 		tree(TraceCode,
+		tree(ProfilingEntryCode,
 		tree(LiveCode,
 		tree(CallCode,
-		     FailHandlingCode))))))
+			% We must update the profiling pointers before
+			% we handle the failure of the call.
+		tree(ProfilingExitCode,
+		     FailHandlingCode))))))))
 	}.
 
 %---------------------------------------------------------------------------%
+
+	%
+	% When deep profiling is enabled, we need to put wrapper code
+	% round higher order calls to prevent unwanted higher order
+	% cycles.
+	%
+	% The form of the code is:
+	%
+	%	set the cycle_check->inst field of the SCCId for this
+	%	  procedure to 0,
+	%	(
+	%		call the closure,
+	%		(
+	%			restore the cycle_check field
+	%		;
+	%			reset the cycle_check field to 0,
+	%			fail
+	%		)
+	%	;
+	%		restore the cycle_check field,
+	%		fail
+	%	)
+	%
+	% Of course, we prune the template appropriately for det and
+	% semidet calls.
+
+call_gen__generate_generic_call(OuterCodeModel, GenericCall, Args,
+		Modes, Det, GoalInfo, Code) -->
+	code_info__get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, profile_deep, ProfD) },
+	( { ProfD = yes } ->
+
+		{ determinism_to_code_model(Det, CodeModel) },
+		code_info__get_deep_profiling_info(PI),
+		{ PI = deep_profiling_info(_ProcSlot, MCycleStuff) }, 
+		(
+			{ MCycleStuff = yes(CycleStuff) }
+		;
+			{ MCycleStuff = no },
+			{ error("call_gen__generate_generic_call: no cycle stuff") }
+		),
+		{ MySCCId = CycleStuff^mySCCId },
+
+			% Save the current cycle_check field on the
+			% stack, and set it to 0.
+		code_info__acquire_temp_slot(profiling_data, SaveSlot),
+		{ OrigInst = c_func(data_ptr, "MR_SCC_INST",
+			[data_ptr - MySCCId], static) },
+		{ SaveCode = node([
+			assign(SaveSlot, OrigInst) - ""
+		]) },
+		{ SetCode = node([
+			c_code("MR_SET_SCC_INST($1, 0);", [MySCCId]) - ""
+		]) },
+		(
+			{ CodeModel = model_det },
+				% If the higher order call is deterministic
+				% then we can just generate the call,
+				% followed by code to restore the value
+				% we saved before the call.
+			call_gen__generate_generic_call_2(OuterCodeModel,
+				GenericCall, Args, Modes, Det, GoalInfo,
+				CallCode),
+			{ RestoreCode = node([
+				c_code("MR_SET_SCC_INST($1, $2);",
+					[MySCCId, lval(SaveSlot)]) - ""
+			]) },
+			{ Code = tree(SaveCode,
+				 tree(SetCode,
+				 tree(CallCode,
+				      RestoreCode))) }
+		;
+			{ CodeModel = model_semi },
+
+				% Inherit the resume vars from our environment
+			code_info__current_resume_point_vars(ResVars),
+				% Since we are about to make a call, when
+				% forward execution resumes, we are only
+				% going to be interested in the stack.
+			{ ResLocs = stack_only },
+			code_info__produce_vars(ResVars, ResMap, VarsCode),
+
+			code_info__remember_position(BranchStart),
+			code_info__prepare_for_ite_hijack(CodeModel,
+				HijackInfo, PrepareHijackCode),
+
+			code_info__make_resume_point(ResVars, ResLocs, ResMap,
+				ResPt),
+			code_info__effect_resume_point(ResPt, CodeModel,
+				EffectResumeCode),
+			
+				% Generate code for the call itself
+
+			call_gen__generate_generic_call_2(OuterCodeModel,
+				GenericCall, Args, Modes, Det, GoalInfo,
+				CallCode),
+
+			code_info__variable_locations(VarLocations),
+			{ make_fake_storemap(VarLocations, FakeStoreMap) },
+
+			code_info__ite_enter_then(HijackInfo, ThenNeckCode,
+				ElseNeckCode),
+			
+			call_gen__restore_scc_inst(MySCCId, SaveSlot,
+				RestoreCode),
+
+			code_info__generate_branch_end(FakeStoreMap, no,
+				MaybeEnd, EndThenCode),
+
+			code_info__reset_to_position(BranchStart),
+			code_info__generate_resume_point(ResPt, ResumeCode),
+
+			code_info__generate_failure(FailCode),
+			
+			code_info__get_next_label(EndLabel),
+			{ GotoCode = node([
+				goto(label(EndLabel)) - ""
+			]) },
+			{ EndCode = node([
+				label(EndLabel) - ""
+			]) },
+
+			code_info__after_all_branches(FakeStoreMap, 
+				MaybeEnd),
+			{ Code = tree(SaveCode,
+				 tree(SetCode,
+				 tree(VarsCode,
+				 tree(PrepareHijackCode,
+				 tree(EffectResumeCode,
+				 tree(CallCode,
+				 tree(ThenNeckCode,
+				 tree(RestoreCode,
+				 tree(EndThenCode,
+				 tree(GotoCode,
+				 tree(ResumeCode,
+				 tree(ElseNeckCode,
+				 tree(FailCode,
+				      EndCode))))))))))))) }
+
+		;
+			{ CodeModel = model_non },
+
+				% Inherit the resume vars from our environment
+			code_info__current_resume_point_vars(ResVars),
+				% Since we are about to make a call, when
+				% forward execution resumes, we are only
+				% going to be interested in the stack.
+			{ ResLocs = stack_only },
+			code_info__produce_vars(ResVars, ResMap, VarsCode),
+
+				% Start of outer disjunction
+			code_info__prepare_for_disj_hijack(CodeModel, Hijack,
+				HijackCode),
+			code_info__remember_position(BranchStart),
+			code_info__make_resume_point(ResVars, ResLocs, ResMap,
+				ResPt),
+			code_info__effect_resume_point(ResPt, CodeModel,
+				EffectResumeCode),
+
+				% Generate code for the call itself
+			call_gen__generate_generic_call_2(OuterCodeModel,
+				GenericCall, Args, Modes, Det, GoalInfo,
+				CallCode),
+
+			code_info__variable_locations(VarLocations),
+			{ make_fake_storemap(VarLocations, FakeStoreMap) },
+
+			code_info__get_next_label(EndLabel),
+			{ GotoCode = node([
+				goto(label(EndLabel)) - ""
+			]) },
+			{ EndCode = node([
+				label(EndLabel) - ""
+			]) },
+
+			code_info__get_next_label(InnerEndLabel),
+			{ InnerGotoCode = node([
+				goto(label(InnerEndLabel)) - ""
+			]) },
+			{ InnerEndCode = node([
+				label(InnerEndLabel) - ""
+			]) },
+
+				% If the higher order call is
+				% model_non, then we need to follow
+				% the call with a disjunction to
+				% allow us to reset the cycle_check
+				% field before backtracking
+				% reenters the call.
+
+				% Start of inner disjunction
+			code_info__prepare_for_disj_hijack(CodeModel,
+				InnerHijack, InnerHijackCode),
+			code_info__remember_position(InnerBranchStart),
+			code_info__make_resume_point(ResVars, ResLocs, ResMap,
+				InnerResPt),
+			code_info__effect_resume_point(InnerResPt, CodeModel,
+				InnerEffectResumeCode),
+
+				% First disjunct
+			call_gen__restore_scc_inst(MySCCId, SaveSlot,
+				RestoreCode),
+
+			code_info__generate_branch_end(FakeStoreMap, no,
+				InnerBranchEnd, InnerPostCallCode),
+
+				% Second disjunct
+			code_info__reset_to_position(InnerBranchStart),
+			code_info__generate_resume_point(InnerResPt,
+				InnerResumeCode),
+			code_info__undo_disj_hijack(InnerHijack,
+				InnerBeginSecondBranch),
+			code_info__generate_failure(InnerFailCode),
+			code_info__after_all_branches(FakeStoreMap,
+				InnerBranchEnd),
+			{ AfterCallCode = tree(InnerHijackCode,
+					  tree(InnerEffectResumeCode,
+					  tree(RestoreCode,
+					  tree(InnerPostCallCode,
+					  tree(InnerGotoCode,
+					  tree(InnerResumeCode,
+					  tree(InnerBeginSecondBranch,
+					  tree(SetCode,
+					       InnerFailCode)))))))) },
+
+			code_info__generate_branch_end(FakeStoreMap, no,
+				BranchEnd, PostCallCode),
+
+				% Start of second branch of disjunction
+			code_info__reset_to_position(BranchStart),
+			code_info__generate_resume_point(ResPt, ResumeCode),
+			code_info__undo_disj_hijack(Hijack, BeginSecondBranch),
+			code_info__generate_failure(FailCode),
+			code_info__after_all_branches(FakeStoreMap, BranchEnd),
+			{ Code = tree(SaveCode,
+				 tree(SetCode,
+				 tree(VarsCode,
+				 tree(HijackCode,
+				 tree(EffectResumeCode,
+				 tree(CallCode,
+				 tree(PostCallCode,
+				 tree(AfterCallCode,
+				 tree(InnerEndCode,
+				 tree(GotoCode,
+				 tree(ResumeCode,
+				 tree(BeginSecondBranch,
+				 tree(FailCode,
+				      EndCode))))))))))))) }
+		)
+	;
+		call_gen__generate_generic_call_2(OuterCodeModel, GenericCall,
+			Args, Modes, Det, GoalInfo, Code)
+	).
+
+:- pred make_fake_storemap(map(prog_var, set(rval)), map(prog_var, lval)).
+:- mode make_fake_storemap(in, out) is det.
+
+make_fake_storemap(Locations, StoreMap) :-
+	map__init(StoreMap0),
+	foldl((pred(Var::in, RVals::in, SM0::in, SM::out) is det :-
+		set__to_sorted_list(RVals, RValList),
+		filter_map((pred(RVal::in, LVal0::out) is semidet :-
+			RVal = lval(LVal0)
+		), RValList, LValList),
+		( LValList = [LVal|_] ->
+			det_insert(SM0, Var, LVal, SM)
+		;
+			SM = SM0
+		)
+	), Locations, StoreMap0, StoreMap).
+
+:- pred call_gen__restore_scc_inst(rval, lval, code_tree,
+		code_info, code_info).
+:- mode call_gen__restore_scc_inst(in, in, out, in, out) is det.
+
+call_gen__restore_scc_inst(MySCCId, SaveSlot, Code) -->
+	{ Code = node([
+		c_code("MR_SET_SCC_INST($1, $2);\n",
+			[MySCCId, lval(SaveSlot)]) - ""
+	]) }.
 
 	%
 	% For a generic_call,
@@ -143,8 +450,13 @@ call_gen__generate_call(CodeModel, PredId, ModeId, Arguments, GoalInfo, Code)
 	% and pick up the outputs from the locations that we know
 	% the runtime system leaves them in.
 	%
+:- pred call_gen__generate_generic_call_2(code_model, generic_call,
+			list(prog_var), list(mode), determinism,
+			hlds_goal_info, code_tree, code_info, code_info).
+:- mode call_gen__generate_generic_call_2(in, in, in, in, in, in,
+			out, in, out) is det.
 
-call_gen__generate_generic_call(_OuterCodeModel, GenericCall, Args0,
+call_gen__generate_generic_call_2(_OuterCodeModel, GenericCall, Args0,
 		Modes0, Det, GoalInfo, Code) -->
 	list__map_foldl(code_info__variable_type, Args0, Types0),
 
@@ -205,6 +517,23 @@ call_gen__generate_generic_call(_OuterCodeModel, GenericCall, Args0,
 		% the immediate arguments twice.
 	call_gen__generic_call_setup(GenericCall, InVars, OutVars, SetupCode),
 
+	code_info__get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, profile_deep, DeepProfiling) },
+	{ goal_info_get_context(GoalInfo, Context) },
+	(
+		{ DeepProfiling = yes },
+		{ ClosureRval = lval(reg(r, 1)) },
+
+		% If deep profiling is enabled, then we need to
+		% emit code to update the pointer to the current procedure
+		% before and after (see down below) the call.
+		profiling__pre_ho_call_update(ClosureRval, Context,
+			ProfilingEntryCode)
+	;
+		{ DeepProfiling = no },
+		{ ProfilingEntryCode = empty }
+	),
+
 	trace__prepare_for_call(TraceCode),
 
 		% We must update the code generator state to reflect
@@ -216,7 +545,6 @@ call_gen__generate_generic_call(_OuterCodeModel, GenericCall, Args0,
 		ReturnLiveLvalues),
 
 	code_info__get_next_label(ReturnLabel),
-	{ goal_info_get_context(GoalInfo, Context) },
 	{ CallCode = node([
 		livevals(LiveVals)
 			- "",
@@ -227,6 +555,14 @@ call_gen__generate_generic_call(_OuterCodeModel, GenericCall, Args0,
 			- "Continuation label"
 	]) },
 
+	(
+		{ DeepProfiling = yes },
+		profiling__post_ho_call_update(ProfilingExitCode)
+	;
+		{ DeepProfiling = no },
+		{ ProfilingExitCode = empty }
+	),
+
 	call_gen__handle_failure(CodeModel, FailHandlingCode),
 
 	{ Code =
@@ -235,8 +571,10 @@ call_gen__generate_generic_call(_OuterCodeModel, GenericCall, Args0,
 		tree(ImmediateCode,
 		tree(SetupCode,
 		tree(TraceCode,
+		tree(ProfilingEntryCode,
 		tree(CallCode,
-		     FailHandlingCode))))))
+		tree(ProfilingExitCode,
+		     FailHandlingCode))))))))
 	}.
 
 :- pred call_gen__remove_tuple_state_arg(list(type), list(T), list(T)).

@@ -46,7 +46,7 @@
 :- import_module unused_args, unneeded_code, lco.
 
 	% the LLDS back-end
-:- import_module saved_vars, liveness.
+:- import_module profiling, saved_vars, liveness.
 :- import_module follow_code, live_vars, arg_info, store_alloc, goal_path.
 :- import_module code_gen, optimize, export.
 :- import_module base_typeclass_info.
@@ -1036,14 +1036,14 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50) -->
 	mercury_compile__maybe_do_inlining(HLDS33, Verbose, Stats, HLDS34),
 	mercury_compile__maybe_dump_hlds(HLDS34, "34", "inlining"),
 
-	mercury_compile__maybe_deforestation(HLDS34, 
-			Verbose, Stats, HLDS36),
-	mercury_compile__maybe_dump_hlds(HLDS36, "36", "deforestation"),
+	mercury_compile__maybe_compute_sccs(HLDS34, Verbose, Stats, HLDS35), !,
+	mercury_compile__maybe_dump_hlds(HLDS35, "35", "compute_sccs"), !,
 
-	mercury_compile__maybe_unused_args(HLDS36, Verbose, Stats, HLDS39),
-	mercury_compile__maybe_dump_hlds(HLDS39, "39", "unused_args"),
+	mercury_compile__maybe_deforestation(HLDS35, 
+			Verbose, Stats, HLDS36), !,
+	mercury_compile__maybe_dump_hlds(HLDS36, "36", "deforestation"), !,
 
-	mercury_compile__maybe_unneeded_code(HLDS39, Verbose, Stats, HLDS40),
+	mercury_compile__maybe_unneeded_code(HLDS36, Verbose, Stats, HLDS40),
 	mercury_compile__maybe_dump_hlds(HLDS40, "40", "unneeded_code"),
 
 	mercury_compile__maybe_lco(HLDS40, Verbose, Stats, HLDS42), !,
@@ -1061,8 +1061,14 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50) -->
 	mercury_compile__maybe_dead_procs(HLDS46, Verbose, Stats, HLDS48),
 	mercury_compile__maybe_dump_hlds(HLDS48, "48", "dead_procs"),
 
-	{ HLDS50 = HLDS48 },
-	mercury_compile__maybe_dump_hlds(HLDS50, "50", "middle_pass").
+	% map_args_to_regs affects the interface to a predicate,
+	% so it must be done in one phase immediately before code generation
+
+	mercury_compile__map_args_to_regs(HLDS48, Verbose, Stats, HLDS49),
+	mercury_compile__maybe_dump_hlds(HLDS49, "49", "args_to_regs"),
+
+	{ HLDS50 = HLDS49 },
+	mercury_compile__maybe_dump_hlds(HLDS49, "50", "middle_pass").
 
 %-----------------------------------------------------------------------------%
 
@@ -1333,9 +1339,11 @@ mercury_compile__backend_pass_by_preds_4(PredInfo, ProcInfo0, ProcId, PredId,
 		"% Generating low-level (LLDS) code for ",
 				PredId, ProcId, ModuleInfo3),
 	{ module_info_get_cell_count(ModuleInfo3, CellCount0) },
+	{ module_info_get_scc_info(ModuleInfo3, SCCInfo0) },
 	{ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo3,
 		Globals, GlobalData0, GlobalData1, CellCount0, CellCount,
-		Proc0) },
+		SCCInfo0, SCCInfo, Proc0) },
+	{ module_info_set_scc_info(ModuleInfo3, SCCInfo, ModuleInfo4) },
 	{ globals__lookup_bool_option(Globals, optimize, Optimize) },
 	( { Optimize = yes } ->
 		optimize__proc(Proc0, GlobalData1, Proc)
@@ -1348,7 +1356,7 @@ mercury_compile__backend_pass_by_preds_4(PredInfo, ProcInfo0, ProcId, PredId,
 			PredId, ProcId, ModuleInfo3),
 	{ continuation_info__maybe_process_proc_llds(Instructions, PredProcId,
 		ModuleInfo3, GlobalData1, GlobalData) },
-	{ module_info_set_cell_count(ModuleInfo3, CellCount, ModuleInfo) }.
+	{ module_info_set_cell_count(ModuleInfo4, CellCount, ModuleInfo) }.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -1791,6 +1799,26 @@ mercury_compile__maybe_do_inlining(HLDS0, Verbose, Stats, HLDS) -->
 		{ HLDS = HLDS0 }
 	).
 
+:- pred mercury_compile__maybe_compute_sccs(module_info, bool, bool,
+		module_info, io__state, io__state).
+:- mode mercury_compile__maybe_compute_sccs(in, in, in, out, di, uo) is det.
+
+mercury_compile__maybe_compute_sccs(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(errorcheck_only, ErrorCheckOnly),
+	globals__io_lookup_bool_option(profile_deep, DeepProfiling),
+	(
+		{ ErrorCheckOnly = no },
+		{ DeepProfiling = yes }
+	->
+		maybe_write_string(Verbose, "% Computing SCC information...\n"),
+		maybe_flush_output(Verbose),
+		{ profiling__compute_scc_info(HLDS0, HLDS) },
+		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS = HLDS0 }
+	).
+
 :- pred mercury_compile__maybe_deforestation(module_info, bool, bool,
 	module_info, io__state, io__state).
 :- mode mercury_compile__maybe_deforestation(in, in, in, out, di, uo) is det.
@@ -2157,18 +2185,14 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 	{ list__map(llds__wrap_rtti_data, TypeCtorRttiData, TypeCtorTables) },
 	{ list__map(llds__wrap_rtti_data, TypeClassInfoRttiData,
 		TypeClassInfos) },
-	{ stack_layout__generate_llds(HLDS0, HLDS, GlobalData,
+	{ stack_layout__generate_llds(HLDS0, HLDS1, GlobalData,
 		PossiblyDynamicLayouts, StaticLayouts, LayoutLabels) },
-	%
-	% Here we perform some optimizations on the LLDS data.
-	% XXX this should perhaps be part of backend_pass
-	% rather than output_pass.
-	%
+	{ profiling__generate_scc_ids(HLDS1, HLDS, SCCData, _SCCVars) },
 	{ get_c_interface_info(HLDS, C_InterfaceInfo) },
 	{ global_data_get_all_proc_vars(GlobalData, GlobalVars) },
 	{ global_data_get_all_non_common_static_data(GlobalData,
 		NonCommonStaticData) },
-	{ CommonableData0 = StaticLayouts },
+	{ append(SCCData, StaticLayouts, CommonableData0) },
 	( { CommonData = yes } ->
 		{ llds_common(Procs0, CommonableData0, ModuleName, Procs1,
 			CommonableData) }

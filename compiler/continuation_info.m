@@ -61,8 +61,12 @@
 	%
 :- type proc_layout_info
 	--->	proc_layout_info(
+			import_status,	% So we know whether or not to
+					% export the proc layout or not.
 			label,		% The entry label.
 			determinism,	% Determines which stack is used.
+			maybe(rval),	% SCC id for this procedure
+					% ('no' if not profiling)
 			int,		% Number of stack slots.
 			maybe(int),	% Location of succip on stack.
 			maybe(label),	% If the trace level is not none,
@@ -234,6 +238,7 @@
 	--->	ticket			% a ticket (trail pointer)
 	;	ticket_counter		% a copy of the ticket counter
 	;	trace_data
+	;	profiling_data		% data for detailed profiling
 	;	sync_term		% a syncronization term used
 					% at the end of par_conjs.
 					% see par_conj_gen.m for details.
@@ -338,7 +343,8 @@ continuation_info__process_proc_llds(PredProcId, Instructions,
 
 		% Get all the continuation info from the call instructions.
 	global_data_get_proc_layout(GlobalData0, PredProcId, ProcLayoutInfo0),
-	ProcLayoutInfo0 = proc_layout_info(A, B, C, D, E, F, G, H, Internals0),
+	ProcLayoutInfo0 = proc_layout_info(A, B, C, D, E, F, G, H, I, J,
+				Internals0),
 	GetCallInfo = lambda([Instr::in, Call::out] is semidet, (
 		Instr = call(Target, label(ReturnLabel), LiveInfo, Context, _)
 			- _Comment,
@@ -350,7 +356,8 @@ continuation_info__process_proc_llds(PredProcId, Instructions,
 	list__foldl(continuation_info__process_continuation(WantReturnInfo),
 		Calls, Internals0, Internals),
 
-	ProcLayoutInfo = proc_layout_info(A, B, C, D, E, F, G, H, Internals),
+	ProcLayoutInfo = proc_layout_info(A, B, C, D, E, F, G, H, I, J,
+		Internals),
 	global_data_update_proc_layout(GlobalData0, PredProcId, ProcLayoutInfo,
 		GlobalData).
 
@@ -732,12 +739,17 @@ continuation_info__live_value_type(lval(temp(_, _)), unwanted).
 continuation_info__live_value_type(lval(reg(_, _)), unwanted).
 continuation_info__live_value_type(lval(stackvar(_)), unwanted).
 continuation_info__live_value_type(lval(framevar(_)), unwanted).
+continuation_info__live_value_type(lval(global(_, _)), unwanted).
+					% XXX This may need to be changed for
+					% accurate GC since the global may
+					% be a root.
 continuation_info__live_value_type(lval(mem_ref(_)), unwanted).	% XXX
 continuation_info__live_value_type(ticket, unwanted). % XXX we may need to
 					% modify this, if the GC is going
 					% to garbage-collect the trail.
 continuation_info__live_value_type(ticket_counter, unwanted).
 continuation_info__live_value_type(sync_term, unwanted).
+continuation_info__live_value_type(profiling_data, unwanted).
 continuation_info__live_value_type(trace_data, unwanted).
 
 %-----------------------------------------------------------------------------%

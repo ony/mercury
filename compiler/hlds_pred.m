@@ -71,6 +71,20 @@
 :- pred invalid_proc_id(proc_id).
 :- mode invalid_proc_id(out) is det.
 
+	% pred_has_local_code(PPId, Module) succeeds iff `PPId' refers to
+	% a procedure for which we will be generating code in the present
+	% module (ie is a procedure in this module, or a complicated
+	% unification predicate for a type from another module, or a
+	% specialization of a predicate from another module).
+:- pred pred_has_local_code(pred_proc_id, module_info).
+:- mode pred_has_local_code(in, in) is semidet.
+
+	% pred_module(PPId, ModuleInfo, ModuleName) is true iff `PPId'
+	% is defined in `ModuleInfo' to originate in the module
+	% `ModuleName'.
+:- pred pred_module(pred_proc_id, module_info, module_name).
+:- mode pred_module(in, in, out) is det.
+
 :- type pred_info.
 :- type proc_info.
 
@@ -714,6 +728,15 @@ hlds_pred__in_in_unification_proc_id(0).
 invalid_pred_id(-1).
 
 invalid_proc_id(-1).
+
+pred_has_local_code(proc(PredId, ProcId), ModuleInfo) :-
+	module_info_pred_info(ModuleInfo, PredId, PredInfo),
+	pred_info_non_imported_procids(PredInfo, ProcIds),
+	list__member(ProcId, ProcIds).
+
+pred_module(proc(PredId, _ProcId), ModuleInfo, Name) :-
+	module_info_pred_info(ModuleInfo, PredId, PredInfo),
+	pred_info_module(PredInfo, Name).
 
 status_is_exported(imported(_),			no).
 status_is_exported(abstract_imported,		no).

@@ -50,10 +50,16 @@
 %	word 4		<MR_TypeCtorRepresentation for type constructor>
 %	word 5		<type_ctor_functors for type>
 %	word 6		<type_ctor_layout for type>
+%	word 8		<string name of module>
 %	word 7		<string name of type constructor>
 %			e.g. "int" for `int', "list" for `list(T)',
 %			"map" for `map(K,V)'
-%	word 8		<string name of module>
+%	word 9		version number
+% If deep profiling is enabled (see profiling.m) then the following extra
+% fields are present:
+%	word 10		<proc entry layout for =/2>
+%	word 11		<proc entry layout for index/2>
+%	word 12		<proc entry layout for compare/3>
 %
 % The other cell is the type_info structure, laid out like this:
 %

@@ -308,6 +308,27 @@ output_rtti_data_defn(type_ctor_info(RttiTypeId, Unify, Compare,
 	io__write_string(""",\n\t"),
 	io__write_int(Version),
 	io__write_string(",\n\t"),
+	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
+	(
+		{ ProfileDeep = yes },
+		{ UnifyCA = yes(label(UnifyLabel)) },
+		{ CompareCA = yes(label(CompareLabel)) }
+	->
+		io__write_string("(Word *) &"),
+		{ UnifyAddr = data_addr(Module, proc_layout(UnifyLabel)) },
+		output_data_addr(UnifyAddr),
+		io__write_string(",\n\t"),
+		io__write_string("(Word *) &"),
+		{ CmpAddr = data_addr(Module, proc_layout(CompareLabel)) },
+		output_data_addr(CmpAddr),
+		io__write_string(",\n\t")
+	;
+		{ ProfileDeep = yes }
+	->
+		{ error("output_rtti_data_defn: deep profiling error") }
+	;
+		[]
+	),
 	(
 		{ FunctorsInfo = enum_functors(EnumFunctorsInfo) },
 		io__write_string("{ (void *) "),

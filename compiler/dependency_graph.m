@@ -601,7 +601,7 @@ module_info_ensure_aditi_dependency_info(ModuleInfo0, ModuleInfo) :-
 
 dependency_graph__build_aditi_scc_info([]) --> [].
 dependency_graph__build_aditi_scc_info([SCC | SCCs]) -->
-	aditi_scc_info_get_module_info(ModuleInfo),
+	dependency_graph__aditi_scc_info_get_module_info(ModuleInfo),
 	(
 		{ list__member(PredProcId, SCC) },
 		{ PredProcId = proc(PredId, _) },
@@ -617,16 +617,16 @@ dependency_graph__build_aditi_scc_info([SCC | SCCs]) -->
 	),
 	dependency_graph__build_aditi_scc_info(SCCs).	
 
-:- pred dependency_graph__process_aditi_pred_proc_id(scc_id::in, 
+:- pred dependency_graph__process_aditi_pred_proc_id(aditi_scc_id::in, 
 	pred_proc_id::in, aditi_scc_info::in, aditi_scc_info::out) is det.
 
 dependency_graph__process_aditi_pred_proc_id(SCCid, PredProcId) -->
-	aditi_scc_info_get_module_info(ModuleInfo),
+	dependency_graph__aditi_scc_info_get_module_info(ModuleInfo),
 	{ module_info_pred_proc_info(ModuleInfo, PredProcId, 
 		PredInfo, ProcInfo) },
 	dependency_graph__process_aditi_proc_info(SCCid, PredInfo, ProcInfo).
 
-:- pred dependency_graph__process_aditi_proc_info(scc_id::in, pred_info::in, 
+:- pred dependency_graph__process_aditi_proc_info(aditi_scc_id::in, pred_info::in, 
 	proc_info::in, aditi_scc_info::in, aditi_scc_info::out) is det.
 
 dependency_graph__process_aditi_proc_info(CurrSCC, PredInfo, ProcInfo) -->
@@ -733,9 +733,9 @@ dependency_graph__merge_aditi_sccs(Info, Ordering) :-
 		error("dependency_graph__merge_aditi_sccs: SCC dependency relation is cyclic")
 	).
 
-:- pred dependency_graph__merge_aditi_sccs_2(list(scc_id)::in,
-	module_info::in, eqvclass(scc_id)::in, set(scc_id)::in,
-	set(scc_id)::in, relation(scc_id)::in, scc_pred_map::in, 
+:- pred dependency_graph__merge_aditi_sccs_2(list(aditi_scc_id)::in,
+	module_info::in, eqvclass(aditi_scc_id)::in, set(aditi_scc_id)::in,
+	set(aditi_scc_id)::in, relation(aditi_scc_id)::in, scc_pred_map::in, 
 	aditi_dependency_ordering::in, aditi_dependency_ordering::out) is det.
 
 dependency_graph__merge_aditi_sccs_2([], _, _, _, _, _, _, Ordering, Ordering).
@@ -779,8 +779,8 @@ dependency_graph__merge_aditi_sccs_2([SCCid | SCCs0], ModuleInfo, EqvSCCs0,
 		Ordering1, Ordering).
 
 	% Find the SCCs called from a given SCC.
-:- pred dependency_graph__get_called_scc_ids(scc_id::in, relation(scc_id)::in,
-		set(scc_id)::out) is det.
+:- pred dependency_graph__get_called_scc_ids(aditi_scc_id::in,
+		relation(aditi_scc_id)::in, set(aditi_scc_id)::out) is det.
 
 dependency_graph__get_called_scc_ids(SCCid, SCCRel, CalledSCCSet) :-
 	relation__lookup_element(SCCRel, SCCid, SCCidKey),
@@ -791,11 +791,13 @@ dependency_graph__get_called_scc_ids(SCCid, SCCRel, CalledSCCSet) :-
 
 	% Go over the list of SCCs finding all those which 
 	% can be merged into a given SCC.
-:- pred dependency_graph__do_merge_aditi_sccs(scc_id::in, set(scc_id)::in, 
-		set(scc_id)::in, list(scc_id)::in, list(scc_id)::out, 
-		scc_pred_map::in, relation(scc_id)::in, 
-		eqvclass(scc_id)::in, eqvclass(scc_id)::out, 
-		aditi_scc::in, aditi_scc::out) is det.
+:- pred dependency_graph__do_merge_aditi_sccs(aditi_scc_id::in,
+set(aditi_scc_id)::in, 
+		set(aditi_scc_id)::in, list(aditi_scc_id)::in,
+		list(aditi_scc_id)::out, scc_pred_map::in,
+		relation(aditi_scc_id)::in, eqvclass(aditi_scc_id)::in,
+		eqvclass(aditi_scc_id)::out, aditi_scc::in,
+		aditi_scc::out) is det.
 
 dependency_graph__do_merge_aditi_sccs(_, _, _, [], [], 
 		_, _, Eqv, Eqv, SubModule, SubModule).
@@ -864,20 +866,20 @@ dependency_graph__do_merge_aditi_sccs(CurrSCCid, CalledSCCs, NoMergeSCCs,
 :- type aditi_scc_info
 	---> aditi_scc_info(
 		module_info,
-		map(pred_proc_id, scc_id),
+		map(pred_proc_id, aditi_scc_id),
 		scc_pred_map,
 		set(pred_proc_id),		% all local Aditi preds
-		relation(scc_id),
-		set(scc_id),			% SCCs which can't be merged
+		relation(aditi_scc_id),
+		set(aditi_scc_id),		% SCCs which can't be merged
 						% into their parents.
-		scc_id				% current SCC.
+		aditi_scc_id			% current SCC.
 	).
 
 		% For each SCC, a list of all preds in SCC, and a list
 		% of entry-points of the SCC.
-:- type scc_pred_map ==	map(scc_id, pair(list(pred_proc_id))).
+:- type scc_pred_map ==	map(aditi_scc_id, pair(list(pred_proc_id))).
 
-:- type scc_id == int.
+:- type aditi_scc_id == int.
 
 :- type scc == list(pred_proc_id).
 
@@ -892,13 +894,13 @@ aditi_scc_info_init(ModuleInfo, AditiInfo) :-
 	AditiInfo = aditi_scc_info(ModuleInfo, PredSCC, SCCPred, 
 			AditiPreds, SCCDep, NoMergeSCCs, 0).
 
-:- pred aditi_scc_info_get_module_info(module_info::out,
+:- pred dependency_graph__aditi_scc_info_get_module_info(module_info::out,
 		aditi_scc_info::in, aditi_scc_info::out) is det.
 
-aditi_scc_info_get_module_info(Module, Info, Info) :-
+dependency_graph__aditi_scc_info_get_module_info(Module, Info, Info) :-
 	Info = aditi_scc_info(Module, _, _, _, _, _, _).
 
-:- pred aditi_scc_info_add_no_merge_scc(scc_id::in,
+:- pred aditi_scc_info_add_no_merge_scc(aditi_scc_id::in,
 		aditi_scc_info::in, aditi_scc_info::out) is det.
 
 aditi_scc_info_add_no_merge_scc(SCCid, Info0, Info) :-
@@ -907,7 +909,7 @@ aditi_scc_info_add_no_merge_scc(SCCid, Info0, Info) :-
 	Info = aditi_scc_info(A, B, C, D, E, NoMerge, G).
 
 :- pred aditi_scc_info_add_scc(list(pred_proc_id)::in, 
-		dependency_ordering::in, scc_id::out,
+		dependency_ordering::in, aditi_scc_id::out,
 		aditi_scc_info::in, aditi_scc_info::out) is det.
 
 aditi_scc_info_add_scc(SCC, HigherSCCs, SCCid, Info0, Info) :-
@@ -968,10 +970,11 @@ aditi_scc_info_handle_call(IsNeg, PredId, ProcId, Args,
 
 	% An SCC cannot be merged into its parents if one of its
 	% procedures is called as an aggregate query.
-:- pred handle_higher_order_args(list(prog_var)::in, bool::in, scc_id::in,
-	multi_map(prog_var, pred_proc_id)::in, map(pred_proc_id, scc_id)::in,
-	relation(scc_id)::in, relation(scc_id)::out,
-	set(scc_id)::in, set(scc_id)::out) is det.
+:- pred handle_higher_order_args(list(prog_var)::in, bool::in, aditi_scc_id::in,
+	multi_map(prog_var, pred_proc_id)::in, map(pred_proc_id,
+	aditi_scc_id)::in, relation(aditi_scc_id)::in,
+	relation(aditi_scc_id)::out, set(aditi_scc_id)::in,
+	set(aditi_scc_id)::out) is det.
 	
 handle_higher_order_args([], _, _, _, _, SCCRel, SCCRel, NoMerge, NoMerge).
 handle_higher_order_args([Arg | Args], IsAgg, SCCid, Map, PredSCC, 
@@ -986,10 +989,10 @@ handle_higher_order_args([Arg | Args], IsAgg, SCCid, Map, PredSCC,
 	handle_higher_order_args(Args, IsAgg, SCCid, Map, PredSCC, 
 		SCCRel1, SCCRel, NoMerge1, NoMerge).
 
-:- pred handle_higher_order_arg(map(pred_proc_id, scc_id)::in, bool::in,
-		scc_id::in, pred_proc_id::in,
-		relation(scc_id)::in, relation(scc_id)::out,
-		set(scc_id)::in, set(scc_id)::out) is det.
+:- pred handle_higher_order_arg(map(pred_proc_id, aditi_scc_id)::in, bool::in,
+		aditi_scc_id::in, pred_proc_id::in,
+		relation(aditi_scc_id)::in, relation(aditi_scc_id)::out,
+		set(aditi_scc_id)::in, set(aditi_scc_id)::out) is det.
 
 handle_higher_order_arg(PredSCC, IsAgg, SCCid, PredProcId,
 		SCCRel0, SCCRel, NoMerge0, NoMerge) :-

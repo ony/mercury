@@ -313,6 +313,12 @@ exprn_aux__vars_in_rval(binop(_, Rval0, Rval1), Vars) :-
 	list__append(Vars0, Vars1, Vars).
 exprn_aux__vars_in_rval(mem_addr(MemRef), Vars) :-
 	exprn_aux__vars_in_mem_ref(MemRef, Vars).
+exprn_aux__vars_in_rval(c_func(_, _, Args, _), Vars) :-
+	list__map(lambda([Pair::in, Vars0::out] is det, (
+		Pair = (_ - Rval),
+		exprn_aux__vars_in_rval(Rval, Vars0)
+	)), Args, VarsList),
+	list__condense(VarsList, Vars).
 
 exprn_aux__vars_in_lval(reg(_, _), []).
 exprn_aux__vars_in_lval(temp(_, _), []).
@@ -323,6 +329,7 @@ exprn_aux__vars_in_lval(hp, []).
 exprn_aux__vars_in_lval(sp, []).
 exprn_aux__vars_in_lval(stackvar(_), []).
 exprn_aux__vars_in_lval(framevar(_), []).
+exprn_aux__vars_in_lval(global(_, _), []).
 exprn_aux__vars_in_lval(succip(Rval), Vars) :-
 	exprn_aux__vars_in_rval(Rval, Vars).
 exprn_aux__vars_in_lval(redoip(Rval), Vars) :-
@@ -408,6 +415,15 @@ exprn_aux__substitute_lval_in_rval(OldLval, NewLval, Rval0, Rval) :-
 		exprn_aux__substitute_lval_in_mem_ref(OldLval, NewLval,
 			MemRef0, MemRef),
 		Rval = mem_addr(MemRef)
+	;
+		Rval0 = c_func(RetType, Func, Args0, Static),
+		list__map(lambda([Arg0::in, Arg::out] is det, (
+			Arg0 = Type - ArgRval0,
+			Arg = Type - ArgRval,
+			exprn_aux__substitute_lval_in_rval(OldLval, NewLval,
+				ArgRval0, ArgRval)
+		)), Args0, Args),
+		Rval = c_func(RetType, Func, Args, Static)
 	).
 
 :- pred exprn_aux__substitute_lval_in_mem_ref(lval, lval, mem_ref, mem_ref).
@@ -471,6 +487,9 @@ exprn_aux__substitute_lval_in_lval_2(OldLval, NewLval, Lval0, Lval) :-
 	;
 		Lval0 = framevar(N),
 		Lval = framevar(N)
+	;
+		Lval0 = global(Typ, Glob),
+		Lval = global(Typ, Glob)
 	;
 		Lval0 = succip(Rval0),
 		exprn_aux__substitute_lval_in_rval(OldLval, NewLval,
@@ -585,6 +604,15 @@ exprn_aux__substitute_rval_in_rval(OldRval, NewRval, Rval0, Rval) :-
 			exprn_aux__substitute_rval_in_mem_ref(OldRval, NewRval,
 				MemRef1, MemRef2),
 			Rval = mem_addr(MemRef2)
+		;
+			Rval0 = c_func(RetType, Func, Args0, Static),
+			list__map(lambda([Arg0::in, Arg::out] is det, (
+				Arg0 = Type - ArgRval0,
+				Arg = Type - ArgRval,
+				exprn_aux__substitute_rval_in_rval(OldRval,
+					NewRval, ArgRval0, ArgRval)
+			)), Args0, Args),
+			Rval = c_func(RetType, Func, Args, Static)
 		)
 	).
 
@@ -636,6 +664,9 @@ exprn_aux__substitute_rval_in_lval(OldRval, NewRval, Lval0, Lval) :-
 	;
 		Lval0 = framevar(N),
 		Lval = framevar(N)
+	;
+		Lval0 = global(Typ, Glob),
+		Lval = global(Typ, Glob)
 	;
 		Lval0 = succip(Rval0),
 		exprn_aux__substitute_rval_in_rval(OldRval, NewRval,
@@ -857,6 +888,8 @@ exprn_aux__rval_addrs(binop(_, Rval1, Rval2), CodeAddrs, DataAddrs) :-
 	list__append(DataAddrs1, DataAddrs2, DataAddrs).
 exprn_aux__rval_addrs(mem_addr(Rval), CodeAddrs, DataAddrs) :-
 	exprn_aux__mem_ref_addrs(Rval, CodeAddrs, DataAddrs).
+exprn_aux__rval_addrs(c_func(_, _, Args, _), CodeAddrs, DataAddrs) :-
+	exprn_aux__arg_ref_addrs(Args, CodeAddrs, DataAddrs).
 
 	% give an lval, return a list of the code and data addresses
 	% that are referenced by that lval
@@ -885,6 +918,7 @@ exprn_aux__lval_addrs(field(_Tag, Rval1, Rval2), CodeAddrs, DataAddrs) :-
 	list__append(CodeAddrs1, CodeAddrs2, CodeAddrs),
 	list__append(DataAddrs1, DataAddrs2, DataAddrs).
 exprn_aux__lval_addrs(lvar(_Var), [], []).
+exprn_aux__lval_addrs(global(_, _), [], []).
 exprn_aux__lval_addrs(temp(_, _), [], []).
 exprn_aux__lval_addrs(mem_ref(Rval), CodeAddrs, DataAddrs) :-
 	exprn_aux__rval_addrs(Rval, CodeAddrs, DataAddrs).
@@ -916,6 +950,17 @@ exprn_aux__mem_ref_addrs(stackvar_ref(_), [], []).
 exprn_aux__mem_ref_addrs(framevar_ref(_), [], []).
 exprn_aux__mem_ref_addrs(heap_ref(Rval, _, _), CodeAddrs, DataAddrs) :-
 	exprn_aux__rval_addrs(Rval, CodeAddrs, DataAddrs).
+
+:- pred exprn_aux__arg_ref_addrs(list(pair(llds_type, rval)),
+		list(code_addr), list(data_addr)).
+:- mode exprn_aux__arg_ref_addrs(in, out, out) is det.
+
+exprn_aux__arg_ref_addrs([], [], []).
+exprn_aux__arg_ref_addrs([_Type - Rval|Args], CodeAddrs, DataAddrs) :-
+	exprn_aux__rval_addrs(Rval, CodeAddrs0, DataAddrs0),
+	exprn_aux__arg_ref_addrs(Args, CodeAddrs1, DataAddrs1),
+	list__append(CodeAddrs0, CodeAddrs1, CodeAddrs),
+	list__append(DataAddrs0, DataAddrs1, DataAddrs).
 
 	% give a list of maybe(rval), return a list of the code and data
 	% addresses that are reference by that list

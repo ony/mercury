@@ -678,6 +678,7 @@ opt_util__lval_refers_stackvars(field(_, Rval, FieldNum), Refers) :-
 opt_util__lval_refers_stackvars(lvar(_), _) :-
 	error("found lvar in lval_refers_stackvars").
 opt_util__lval_refers_stackvars(temp(_, _), no).
+opt_util__lval_refers_stackvars(global(_, _), no).
 opt_util__lval_refers_stackvars(mem_ref(Rval), Refers) :-
 	opt_util__rval_refers_stackvars(Rval, Refers).
 
@@ -706,6 +707,12 @@ opt_util__rval_refers_stackvars(binop(_, Rval1, Rval2), Refers) :-
 	bool__or(Refers1, Refers2, Refers).
 opt_util__rval_refers_stackvars(mem_addr(MemRef), Refers) :-
 	opt_util__mem_ref_refers_stackvars(MemRef, Refers).
+opt_util__rval_refers_stackvars(c_func(_, _, Args, _), Refers) :-
+	list__foldl(lambda([Arg::in, Ref0::in, Ref1::out] is det, (
+		Arg = _Type - Rval,
+		opt_util__rval_refers_stackvars(Rval, ArgRef),
+		bool__or(Ref0, ArgRef, Ref1)
+	)), Args, no, Refers).
 
 opt_util__rvals_refer_stackvars([], no).
 opt_util__rvals_refer_stackvars([MaybeRval | Tail], Refers) :-
@@ -813,8 +820,15 @@ opt_util__block_refers_stackvars([Uinstr0 - _ | Instrs0], Need) :-
 			Need = no
 		)
 	;
-		Uinstr0 = c_code(_),
-		Need = no
+		Uinstr0 = c_code(_, RVals),
+		(
+			member(Rval, RVals),
+			opt_util__rval_refers_stackvars(Rval, yes)
+		->
+			Need = yes
+		;
+			Need = no
+		)
 	;
 		Uinstr0 = if_val(Rval, _),
 		opt_util__rval_refers_stackvars(Rval, Use),
@@ -1013,7 +1027,7 @@ opt_util__can_instr_branch_away(mkframe(_, _), no).
 opt_util__can_instr_branch_away(label(_), no).
 opt_util__can_instr_branch_away(goto(_), yes).
 opt_util__can_instr_branch_away(computed_goto(_, _), yes).
-opt_util__can_instr_branch_away(c_code(_), no).
+opt_util__can_instr_branch_away(c_code(_, _), no).
 opt_util__can_instr_branch_away(if_val(_, _), yes).
 opt_util__can_instr_branch_away(incr_hp(_, _, _, _), no).
 opt_util__can_instr_branch_away(mark_hp(_), no).
@@ -1080,7 +1094,7 @@ opt_util__can_instr_fall_through(mkframe(_, _), yes).
 opt_util__can_instr_fall_through(label(_), yes).
 opt_util__can_instr_fall_through(goto(_), no).
 opt_util__can_instr_fall_through(computed_goto(_, _), no).
-opt_util__can_instr_fall_through(c_code(_), yes).
+opt_util__can_instr_fall_through(c_code(_, _), yes).
 opt_util__can_instr_fall_through(if_val(_, _), yes).
 opt_util__can_instr_fall_through(incr_hp(_, _, _, _), yes).
 opt_util__can_instr_fall_through(mark_hp(_), yes).
@@ -1126,7 +1140,7 @@ opt_util__can_use_livevals(mkframe(_, _), no).
 opt_util__can_use_livevals(label(_), no).
 opt_util__can_use_livevals(goto(_), yes).
 opt_util__can_use_livevals(computed_goto(_, _), no).
-opt_util__can_use_livevals(c_code(_), no).
+opt_util__can_use_livevals(c_code(_, _), no).
 opt_util__can_use_livevals(if_val(_, _), yes).
 opt_util__can_use_livevals(incr_hp(_, _, _, _), no).
 opt_util__can_use_livevals(mark_hp(_), no).
@@ -1189,7 +1203,7 @@ opt_util__instr_labels_2(mkframe(_, Addr), [], [Addr]).
 opt_util__instr_labels_2(label(_), [], []).
 opt_util__instr_labels_2(goto(Addr), [], [Addr]).
 opt_util__instr_labels_2(computed_goto(_, Labels), Labels, []).
-opt_util__instr_labels_2(c_code(_), [], []).
+opt_util__instr_labels_2(c_code(_, _), [], []).
 opt_util__instr_labels_2(if_val(_, Addr), [], [Addr]).
 opt_util__instr_labels_2(incr_hp(_, _, _, _), [], []).
 opt_util__instr_labels_2(mark_hp(_), [], []).
@@ -1232,7 +1246,7 @@ opt_util__possible_targets(goto(CodeAddr), Targets) :-
 		Targets = []
 	).
 opt_util__possible_targets(computed_goto(_, Targets), Targets).
-opt_util__possible_targets(c_code(_), []).
+opt_util__possible_targets(c_code(_, _), []).
 opt_util__possible_targets(if_val(_, CodeAddr), Targets) :-
 	( CodeAddr = label(Label) ->
 		Targets = [Label]
@@ -1297,7 +1311,7 @@ opt_util__instr_rvals_and_lvals(mkframe(_, _), [], []).
 opt_util__instr_rvals_and_lvals(label(_), [], []).
 opt_util__instr_rvals_and_lvals(goto(_), [], []).
 opt_util__instr_rvals_and_lvals(computed_goto(Rval, _), [Rval], []).
-opt_util__instr_rvals_and_lvals(c_code(_), [], []).
+opt_util__instr_rvals_and_lvals(c_code(_, RVals), RVals, []).
 opt_util__instr_rvals_and_lvals(if_val(Rval, _), [Rval], []).
 opt_util__instr_rvals_and_lvals(incr_hp(Lval, _, Rval, _), [Rval], [Lval]).
 opt_util__instr_rvals_and_lvals(mark_hp(Lval), [], [Lval]).
@@ -1435,7 +1449,8 @@ opt_util__count_temps_instr(computed_goto(Rval, _), R0, R, F0, F) :-
 	opt_util__count_temps_rval(Rval, R0, R, F0, F).
 opt_util__count_temps_instr(if_val(Rval, _), R0, R, F0, F) :-
 	opt_util__count_temps_rval(Rval, R0, R, F0, F).
-opt_util__count_temps_instr(c_code(_), R, R, F, F).
+opt_util__count_temps_instr(c_code(_, RVals), R0, R, F0, F) :-
+	foldl2(opt_util__count_temps_rval, RVals, R0, R, F0, F).
 opt_util__count_temps_instr(incr_hp(Lval, _, Rval, _), R0, R, F0, F) :-
 	opt_util__count_temps_lval(Lval, R0, R1, F0, F1),
 	opt_util__count_temps_rval(Rval, R1, R, F1, F).
@@ -1507,8 +1522,7 @@ opt_util__format_label(exported(ProcLabel), Str) :-
 :- pred opt_util__format_proclabel(proc_label, string).
 :- mode opt_util__format_proclabel(in, out) is det.
 
-opt_util__format_proclabel(proc(_Module, _PredOrFunc, _, Name, Arity, ProcId),
-		Str) :-
+opt_util__format_proclabel(proc(_Module, _POrF, _, Name, Arity, ProcId), Str) :-
 	string__int_to_string(Arity, ArityStr),
 	proc_id_to_int(ProcId, Mode),
 	string__int_to_string(Mode, ModeStr),
@@ -1599,6 +1613,7 @@ opt_util__touches_nondet_ctrl_lval(field(_, Rval1, Rval2), Touch) :-
 	bool__or(Touch1, Touch2, Touch).
 opt_util__touches_nondet_ctrl_lval(lvar(_), no).
 opt_util__touches_nondet_ctrl_lval(temp(_, _), no).
+opt_util__touches_nondet_ctrl_lval(global(_, _), no).
 opt_util__touches_nondet_ctrl_lval(mem_ref(Rval), Touch) :-
 	opt_util__touches_nondet_ctrl_rval(Rval, Touch).
 
@@ -1620,6 +1635,12 @@ opt_util__touches_nondet_ctrl_rval(binop(_, Rval1, Rval2), Touch) :-
 	bool__or(Touch1, Touch2, Touch).
 opt_util__touches_nondet_ctrl_rval(mem_addr(MemRef), Touch) :-
 	opt_util__touches_nondet_ctrl_mem_ref(MemRef, Touch).
+opt_util__touches_nondet_ctrl_rval(c_func(_, _, Args, _), Touch) :-
+	list__foldl(lambda([Arg::in, Ref0::in, Ref1::out] is det, (
+		Arg = _Type - Rval,
+		opt_util__touches_nondet_ctrl_rval(Rval, ArgRef),
+		bool__or(Ref0, ArgRef, Ref1)
+	)), Args, no, Touch).
 
 :- pred opt_util__touches_nondet_ctrl_mem_ref(mem_ref, bool).
 :- mode opt_util__touches_nondet_ctrl_mem_ref(in, out) is det.
@@ -1673,6 +1694,7 @@ opt_util__lval_access_rvals(hp, []).
 opt_util__lval_access_rvals(sp, []).
 opt_util__lval_access_rvals(field(_, Rval1, Rval2), [Rval1, Rval2]).
 opt_util__lval_access_rvals(temp(_, _), []).
+opt_util__lval_access_rvals(global(_, _), []).
 opt_util__lval_access_rvals(lvar(_), _) :-
 	error("lvar detected in opt_util__lval_access_rvals").
 opt_util__lval_access_rvals(mem_ref(Rval), [Rval]).
@@ -1815,7 +1837,17 @@ opt_util__replace_labels_instr(computed_goto(Rval0, Labels0), ReplMap,
 		Rval = Rval0
 	),
 	opt_util__replace_labels_label_list(Labels0, ReplMap, Labels).
-opt_util__replace_labels_instr(c_code(Code), _, _, c_code(Code)).
+opt_util__replace_labels_instr(c_code(Code, RVals0), ReplMap, ReplData,
+		c_code(Code, RVals)) :-
+	(
+		ReplData = yes,
+		map((pred(RVal0::in, RVal::out) is det :-
+			opt_util__replace_labels_rval(RVal0, ReplMap, RVal)
+		), RVals0, RVals)
+	;
+		ReplData = no,
+		RVals = RVals0
+	).
 opt_util__replace_labels_instr(if_val(Rval0, Target0), ReplMap, ReplData,
 		if_val(Rval, Target)) :-
 	(
@@ -2002,6 +2034,7 @@ opt_util__replace_labels_lval(field(Tag, Base0, Offset0), ReplMap,
 	opt_util__replace_labels_rval(Offset0, ReplMap, Offset).
 opt_util__replace_labels_lval(lvar(Var), _, lvar(Var)).
 opt_util__replace_labels_lval(temp(Type, Num), _, temp(Type, Num)).
+opt_util__replace_labels_lval(global(Type, Glob), _, global(Type, Glob)).
 opt_util__replace_labels_lval(mem_ref(Rval0), ReplMap, mem_ref(Rval)) :-
 	opt_util__replace_labels_rval(Rval0, ReplMap, Rval).
 
@@ -2024,6 +2057,13 @@ opt_util__replace_labels_rval(binop(Op, LRval0, RRval0), ReplMap,
 		binop(Op, LRval, RRval)) :-
 	opt_util__replace_labels_rval(LRval0, ReplMap, LRval),
 	opt_util__replace_labels_rval(RRval0, ReplMap, RRval).
+opt_util__replace_labels_rval(c_func(RT, Name, Args0, Static), ReplMap,
+		c_func(RT, Name, Args, Static)) :-
+	map((pred(Pair0::in, Pair::out) is det :-
+		Pair0 = Type - RVal0,
+		Pair = Type - RVal,
+		opt_util__replace_labels_rval(RVal0, ReplMap, RVal)
+	), Args0, Args).
 opt_util__replace_labels_rval(mem_addr(MemRef0), ReplMap, mem_addr(MemRef)) :-
 	opt_util__replace_labels_mem_ref(MemRef0, ReplMap, MemRef).
 

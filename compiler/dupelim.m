@@ -319,7 +319,7 @@ standardize_instr(Instr1, Instr) :-
 		Instr1 = computed_goto(_, _),
 		Instr = Instr1
 	;
-		Instr1 = c_code(_),
+		Instr1 = c_code(_, _),
 		Instr = Instr1
 	;
 		Instr1 = if_val(Rval1, CodeAddr),
@@ -417,6 +417,9 @@ standardize_lval(Lval1, Lval) :-
 		Lval1 = temp(_, _),
 		Lval = Lval1
 	;
+		Lval1 = global(_, _),
+		Lval = Lval1
+	;
 		Lval1 = stackvar(_),
 		Lval = Lval1
 	;
@@ -481,6 +484,14 @@ standardize_rval(Rval1, Rval) :-
 	;
 		Rval1 = mem_addr(_),
 		Rval = Rval1
+	;
+		Rval1 = c_func(RetType, FuncName, Args0, Static),
+		list__map(lambda([Arg0::in, Arg::out] is det, (
+			Arg0 = Type - ArgRval0,
+			Arg = Type - ArgRval,
+			standardize_rval(ArgRval0, ArgRval)
+		)), Args0, Args),
+		Rval = c_func(RetType, FuncName, Args, Static)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -598,7 +609,7 @@ most_specific_instr(Instr1, Instr2, Instr) :-
 		Instr2 = Instr1,
 		Instr = Instr1
 	;
-		Instr1 = c_code(_),
+		Instr1 = c_code(_, _),
 		Instr2 = Instr1,
 		Instr = Instr1
 	;
@@ -704,6 +715,10 @@ most_specific_lval(Lval1, Lval2, Lval) :-
 		Lval2 = Lval1,
 		Lval = Lval1
 	;
+		Lval1 = global(_, _),
+		Lval2 = Lval1,
+		Lval = Lval1
+	;
 		Lval1 = stackvar(_),
 		Lval2 = Lval1,
 		Lval = Lval1
@@ -763,6 +778,10 @@ most_specific_rval(Rval1, Rval2, Rval) :-
 	;
 		Rval1 = var(_),
 		error("var in most_specific_rval")
+	;
+		Rval1 = c_func(_, _, _, _),
+		Rval2 = Rval1,
+		Rval = Rval1
 	;
 		Rval1 = create(_, _, _, _, _, _, _),
 		Rval2 = Rval1,

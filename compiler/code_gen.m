@@ -48,6 +48,7 @@
 :- pred generate_proc_code(pred_info::in, proc_info::in,
 	proc_id::in, pred_id::in, module_info::in, globals::in,
 	global_data::in, global_data::out, int::in, int::out,
+	scc_info::in, scc_info::out,
 	c_procedure::out) is det.
 
 		% Translate a HLDS goal to LLDS.
@@ -62,7 +63,7 @@
 
 :- import_module call_gen, unify_gen, ite_gen, switch_gen, disj_gen.
 :- import_module par_conj_gen, pragma_c_gen, commit_gen.
-:- import_module continuation_info, trace, options, hlds_out.
+:- import_module profiling, continuation_info, trace, options, hlds_out.
 :- import_module code_aux, middle_rec, passes_aux, llds_out.
 :- import_module code_util, type_util, mode_util, goal_util.
 :- import_module prog_data, prog_out, instmap.
@@ -134,32 +135,36 @@ generate_pred_code(ModuleInfo0, ModuleInfo, GlobalData0, GlobalData,
 		[]
 	),
 	{ module_info_get_cell_count(ModuleInfo0, CellCount0) },
+	{ module_info_get_scc_info(ModuleInfo0, SCCInfo0) },
 	globals__io_get_globals(Globals),
 	{ generate_proc_list_code(ProcIds, PredId, PredInfo, ModuleInfo0,
 		Globals, GlobalData0, GlobalData, CellCount0, CellCount,
-		[], Code) },
-	{ module_info_set_cell_count(ModuleInfo0, CellCount, ModuleInfo) }.
+		SCCInfo0, SCCInfo, [], Code) },
+	{ module_info_set_cell_count(ModuleInfo0, CellCount, ModuleInfo1) },
+	{ module_info_set_scc_info(ModuleInfo1, SCCInfo, ModuleInfo) }.
 
 	% Translate all the procedures of a HLDS predicate to LLDS.
 
 :- pred generate_proc_list_code(list(proc_id)::in, pred_id::in, pred_info::in,
 	module_info::in, globals::in, global_data::in, global_data::out,
-	int::in, int::out, list(c_procedure)::in, list(c_procedure)::out)
-	is det.
+	int::in, int::out, scc_info::in, scc_info::out,
+	list(c_procedure)::in, list(c_procedure)::out) is det.
 
 generate_proc_list_code([], _PredId, _PredInfo, _ModuleInfo, _Globals,
-		GlobalData, GlobalData, CellCount, CellCount, Procs, Procs).
+		GlobalData, GlobalData, CellCount, CellCount,
+		SCCInfo, SCCInfo, Procs, Procs).
 generate_proc_list_code([ProcId | ProcIds], PredId, PredInfo, ModuleInfo0,
 		Globals, GlobalData0, GlobalData, CellCount0, CellCount,
-		Procs0, Procs) :-
+		SCCInfo0, SCCInfo, Procs0, Procs) :-
 	pred_info_procedures(PredInfo, ProcInfos),
 	map__lookup(ProcInfos, ProcId, ProcInfo),
 	generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo0,
 		Globals, GlobalData0, GlobalData1, CellCount0, CellCount1,
+		SCCInfo0, SCCInfo1,
 		Proc),
 	generate_proc_list_code(ProcIds, PredId, PredInfo, ModuleInfo0,
 		Globals, GlobalData1, GlobalData, CellCount1, CellCount,
-		[Proc | Procs0], Procs).
+		SCCInfo1, SCCInfo, [Proc | Procs0], Procs).
 
 %---------------------------------------------------------------------------%
 
@@ -181,7 +186,8 @@ generate_proc_list_code([ProcId | ProcIds], PredId, PredInfo, ModuleInfo0,
 %---------------------------------------------------------------------------%
 
 generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo, Globals,
-		GlobalData0, GlobalData, CellCount0, CellCount, Proc) :-
+		GlobalData0, GlobalData, CellCount0, CellCount,
+		SCCInfo0, SCCInfo, Proc) :-
 	proc_info_interface_determinism(ProcInfo, Detism),
 	proc_info_interface_code_model(ProcInfo, CodeModel),
 	proc_info_goal(ProcInfo, Goal),
@@ -209,15 +215,25 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo, Globals,
 		% needed for model_non procedures only if we are doing
 		% execution tracing.
 	code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo,
-		FollowVars, ModuleInfo, CellCount0, OutsideResumePoint,
-		TraceSlotInfo, CodeInfo0),
+		FollowVars, ModuleInfo, CellCount0, SCCInfo0,
+		OutsideResumePoint, TraceSlotInfo, CodeInfo0),
+
+		% If we're doing deep profiling, we need to reserve
+		% stack slots for saving the current proc and current scc.
+	globals__lookup_bool_option(Globals, profile_deep, ProfDetail),
+	( ProfDetail = yes ->
+		profiling__setup(CodeInfo0, CodeInfo1)
+	;
+		CodeInfo1 = CodeInfo0
+	),
 
 		% Generate code for the procedure.
 	generate_category_code(CodeModel, Goal, OutsideResumePoint,
 		TraceSlotInfo, CodeTree, MaybeTraceCallLabel, FrameInfo,
-		CodeInfo0, CodeInfo),
+		CodeInfo1, CodeInfo),
 	code_info__get_max_reg_in_use_at_trace(MaxTraceReg, CodeInfo, _),
 	code_info__get_cell_count(CellCount, CodeInfo, _),
+	code_info__get_scc_info(SCCInfo, CodeInfo, _),
 
 		% Turn the code tree into a list.
 	tree__flatten(CodeTree, FragmentList),
@@ -243,9 +259,29 @@ generate_proc_code(PredInfo, ProcInfo, ProcId, PredId, ModuleInfo, Globals,
 		code_info__get_layout_info(InternalMap, CodeInfo, _),
 		code_util__make_local_entry_label(ModuleInfo, PredId, ProcId,
 			no, EntryLabel),
-		ProcLayout = proc_layout_info(EntryLabel, Detism, TotalSlots,
-			MaybeSuccipSlot, MaybeTraceCallLabel, MaxTraceReg,
-			TraceSlotInfo, ForceProcId, InternalMap),
+		( ProfDetail = yes ->
+			SCCInfo = scc_info(SCCIdMap, _SCCDataMap),
+			( map__search(SCCIdMap, proc(PredId, ProcId), SCCId) ->
+				SCCId = scc_id(SCCModuleName, SCCIdNum),
+				SCCIdRval = const(data_addr_const(
+					data_addr(SCCModuleName,
+							scc_id(SCCIdNum))))
+			;
+					% If the pred_proc_id wasn't in
+					% the map, then make the scc_id be
+					% a null pointer since this must be
+					% a leaf procedure.
+				SCCIdRval = const(int_const(0))
+			),
+			MSCCId = yes(SCCIdRval)
+		;
+			MSCCId = no
+		),
+		pred_info_import_status(PredInfo, ImportStatus),
+		ProcLayout = proc_layout_info(ImportStatus, EntryLabel, Detism,
+			MSCCId, TotalSlots, MaybeSuccipSlot,
+			MaybeTraceCallLabel, MaxTraceReg, TraceSlotInfo,
+			ForceProcId, InternalMap),
 		global_data_add_new_proc_layout(GlobalData0,
 			proc(PredId, ProcId), ProcLayout, GlobalData1)
 	;
@@ -388,6 +424,8 @@ generate_category_code(model_semi, Goal, ResumePoint, TraceSlotInfo, Code,
 	{ Goal = _ - GoalInfo },
 	{ goal_info_get_context(GoalInfo, BodyContext) },
 	code_info__get_maybe_trace_info(MaybeTraceInfo),
+	code_info__get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, profile_deep, ProfD) },
 	( { MaybeTraceInfo = yes(TraceInfo) } ->
 		trace__generate_external_event_code(call, TraceInfo,
 			BodyContext, TraceCallLabel, _TypeInfos,
@@ -417,6 +455,24 @@ generate_category_code(model_semi, Goal, ResumePoint, TraceSlotInfo, Code,
 			tree(RestoreDeallocCode,
 			     FailCode)))))))
 		}
+	; { ProfD = yes } ->
+		{ MaybeTraceCallLabel = no },
+		code_gen__generate_goal(model_semi, Goal, BodyCode),
+		code_gen__generate_entry(model_semi, Goal, ResumePoint,
+			FrameInfo, EntryCode),
+		code_gen__generate_exit(model_semi, FrameInfo, TraceSlotInfo,
+			BodyContext, RestoreDeallocCode, ExitCode),
+		code_info__generate_resume_point(ResumePoint, ResumeCode),
+		profiling__failure_epilogue(ProfilingFailureCode),
+		{ Code =
+			tree(EntryCode,
+			tree(BodyCode,
+			tree(ExitCode,
+			tree(ResumeCode,
+			tree(ProfilingFailureCode,
+			tree(RestoreDeallocCode,
+			     FailCode))))))
+		}
 	;
 		{ MaybeTraceCallLabel = no },
 		code_gen__generate_goal(model_semi, Goal, BodyCode),
@@ -438,6 +494,8 @@ generate_category_code(model_semi, Goal, ResumePoint, TraceSlotInfo, Code,
 generate_category_code(model_non, Goal, ResumePoint, TraceSlotInfo, Code,
 		MaybeTraceCallLabel, FrameInfo) -->
 	code_info__get_maybe_trace_info(MaybeTraceInfo),
+	code_info__get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, profile_deep, ProfD) },
 	{ Goal = _ - GoalInfo },
 	{ goal_info_get_context(GoalInfo, BodyContext) },
 	( { MaybeTraceInfo = yes(TraceInfo) } ->
@@ -478,6 +536,26 @@ generate_category_code(model_non, Goal, ResumePoint, TraceSlotInfo, Code,
 			tree(TraceFailCode,
 			tree(DiscardTraceTicketCode,
 			     FailCode)))))))
+		}
+	; { ProfD = yes } ->
+		{ MaybeTraceCallLabel = no },
+		code_gen__generate_goal(model_non, Goal, BodyCode),
+		code_gen__generate_entry(model_non, Goal, ResumePoint,
+			FrameInfo, EntryCode),
+		code_gen__generate_exit(model_non, FrameInfo, TraceSlotInfo,
+			BodyContext, _, ExitCode),
+		code_info__generate_resume_point(ResumePoint, ResumeCode),
+		profiling__failure_epilogue(ProfilingFailureCode),
+		{ FailCode = node([
+			goto(do_fail) - "fail after handling deep profiling"
+		]) },
+		{ Code =
+			tree(EntryCode,
+			tree(BodyCode,
+			tree(ExitCode,
+			tree(ResumeCode,
+			tree(ProfilingFailureCode,
+			     FailCode)))))
 		}
 	;
 		{ MaybeTraceCallLabel = no },
@@ -561,6 +639,12 @@ code_gen__generate_entry(CodeModel, Goal, OutsideResumePoint, FrameInfo,
 	;
 		{ TraceFillCode = empty }
 	),
+	code_info__get_globals(Globals),
+	( { globals__lookup_bool_option(Globals, profile_deep, yes) } ->
+		profiling__prologue(Profiling)
+	;
+		{ Profiling = empty }
+	),
 
 	{ predicate_module(ModuleInfo, PredId, ModuleName) },
 	{ predicate_name(ModuleInfo, PredId, PredName) },
@@ -627,7 +711,8 @@ code_gen__generate_entry(CodeModel, Goal, OutsideResumePoint, FrameInfo,
 		tree(AllocCode,
 		tree(SaveSuccipCode,
 		tree(TraceFillCode,
-		     EndComment)))))
+		tree(Profiling,
+		     EndComment))))))
 	}.
 
 %---------------------------------------------------------------------------%
@@ -759,6 +844,13 @@ code_gen__generate_exit(CodeModel, FrameInfo, TraceSlotInfo, BodyContext,
 			{ TraceExitCode = empty },
 			{ TypeInfoLvals = [] }
 		),
+		code_info__get_globals(Globals),
+		{ globals__lookup_bool_option(Globals, profile_deep, ProfD) },
+		( { ProfD = yes } ->
+			profiling__success_epilogue(ProfSucc)
+		;
+			{ ProfSucc = empty }
+		),
 
 			% Find out which locations should be mentioned
 			% in the success path livevals(...) annotation,
@@ -776,8 +868,9 @@ code_gen__generate_exit(CodeModel, FrameInfo, TraceSlotInfo, BodyContext,
 			]) },
 			{ AllSuccessCode =
 				tree(TraceExitCode,
+				tree(ProfSucc,
 				tree(RestoreDeallocCode,
-				     SuccessCode))
+				     SuccessCode)))
 			}
 		;
 			{ CodeModel = model_semi },
@@ -789,8 +882,9 @@ code_gen__generate_exit(CodeModel, FrameInfo, TraceSlotInfo, BodyContext,
 			]) },
 			{ AllSuccessCode =
 				tree(TraceExitCode,
+				tree(ProfSucc,
 				tree(RestoreDeallocCode,
-				     SuccessCode))
+				     SuccessCode)))
 			}
 		;
 			{ CodeModel = model_non },
@@ -808,7 +902,8 @@ code_gen__generate_exit(CodeModel, FrameInfo, TraceSlotInfo, BodyContext,
 			{ AllSuccessCode =
 				tree(SetupRedoCode,
 				tree(TraceExitCode,
-				     SuccessCode))
+				tree(ProfSucc,
+				     SuccessCode)))
 			}
 		),
 		{ ExitCode =

@@ -267,7 +267,7 @@
 :- import_module export, mercury_to_mercury, modules.
 :- import_module c_util.
 
-:- import_module int, char, string, std_util.
+:- import_module array, int, char, string, std_util.
 :- import_module map, set, bintree_set, assoc_list, require.
 :- import_module varset, term.
 :- import_module library.	% for the version number.
@@ -755,16 +755,17 @@ output_c_data_type_def_list([M | Ms], DeclSet0, DeclSet) -->
 output_c_data_type_def(comp_gen_c_data(ModuleName, VarName, ExportedFromModule,
 		ArgVals, ArgTypes, _Refs), DeclSet0, DeclSet) -->
 	io__write_string("\n"),
-	{ data_name_linkage(VarName, Linkage) },
-	{
-		( Linkage = extern, ExportedFromModule = yes
-		; Linkage = static, ExportedFromModule = no
-		)
-	->
-		true
-	;
-		error("linkage mismatch")
-	},
+	%globals__io_lookup_bool_option(profile_deep, DeepProfiling),
+	%{ data_name_linkage(VarName, DeepProfiling, Linkage) },
+	%{
+	%	( Linkage = extern, ExportedFromModule = yes
+	%	; Linkage = static, ExportedFromModule = no
+	%	)
+	%->
+	%	true
+	%;
+	%	error("linkage mismatch")
+	%},
 
 		% The code for data local to a Mercury module
 		% should normally be visible only within the C file
@@ -780,7 +781,7 @@ output_c_data_type_def(comp_gen_c_data(ModuleName, VarName, ExportedFromModule,
 
 	{ DeclId = data_addr(data_addr(ModuleName, VarName)) },
 	output_const_term_decl(ArgVals, ArgTypes, DeclId, ExportedFromFile,
-		yes, yes, no, "", "", 0, _),
+		yes, yes, yes, no, "", "", 0, _),
 	{ decl_set_insert(DeclSet0, DeclId, DeclSet) }.
 output_c_data_type_def(rtti_data(RttiData), DeclSet0, DeclSet) -->
 	output_rtti_data_decl(RttiData, DeclSet0, DeclSet).
@@ -836,6 +837,15 @@ output_comp_gen_c_var(tabling_pointer_var(ModuleName, ProcLabel),
 	{ DataAddr = data_addr(ModuleName, tabling_pointer(ProcLabel)) },
 	{ decl_set_insert(DeclSet0, data_addr(DataAddr), DeclSet) }.
 
+output_comp_gen_c_var(scc_id_counter(ModuleName, SCCNum),
+		DeclSet, DeclSet) -->
+	{ llds_out__sym_name_mangle(ModuleName, MangledModuleName) },
+	io__write_string("\nInteger mercury_var__"),
+	io__write_string(MangledModuleName),
+	io__write_string("__scc_id__"),
+	io__write_int(SCCNum),
+	io__write_string(" = 0;\n").
+
 :- pred output_comp_gen_c_data_list(list(comp_gen_c_data)::in,
 	decl_set::in, decl_set::out, io__state::di, io__state::uo) is det.
 
@@ -858,16 +868,17 @@ output_comp_gen_c_data(comp_gen_c_data(ModuleName, VarName, ExportedFromModule,
 	% computed by linkage/2 from the dataname, which we use for any
 	% prior declarations.
 	%
-	{ data_name_linkage(VarName, Linkage) },
-	{
-		( Linkage = extern, ExportedFromModule = yes
-		; Linkage = static, ExportedFromModule = no
-		)
-	->
-		true
-	;
-		error("linkage mismatch")
-	},
+	%globals__io_lookup_bool_option(deep_profiling, DeepProfiling),
+	%{ data_name_linkage(VarName, DeepProfiling, Linkage) },
+	%{
+	%	( Linkage = extern, ExportedFromModule = yes
+	%	; Linkage = static, ExportedFromModule = no
+	%	)
+	%->
+	%	true
+	%;
+	%	error("linkage mismatch")
+	%},
 
 		% The code for data local to a Mercury module
 		% should normally be visible only within the C file
@@ -882,7 +893,7 @@ output_comp_gen_c_data(comp_gen_c_data(ModuleName, VarName, ExportedFromModule,
 	),
 	{ DeclId = data_addr(data_addr(ModuleName, VarName)) },
 	output_const_term_decl(ArgVals, ArgTypes, DeclId, ExportedFromFile,
-		no, yes, yes, "", "", 0, _),
+		yes, no, yes, yes, "", "", 0, _),
 	{ decl_set_insert(DeclSet1, DeclId, DeclSet) }.
 output_comp_gen_c_data(rtti_data(RttiData), DeclSet0, DeclSet) -->
 	output_rtti_data_defn(RttiData, DeclSet0, DeclSet).
@@ -1322,7 +1333,7 @@ output_instruction_decls(assign(Lval, Rval), DeclSet0, DeclSet) -->
 output_instruction_decls(call(Target, ContLabel, _,_,_), DeclSet0, DeclSet) -->
 	output_code_addr_decls(Target, "", "", 0, _, DeclSet0, DeclSet1),
 	output_code_addr_decls(ContLabel, "", "", 0, _, DeclSet1, DeclSet).
-output_instruction_decls(c_code(_), DeclSet, DeclSet) --> [].
+output_instruction_decls(c_code(_, _), DeclSet, DeclSet) --> [].
 output_instruction_decls(mkframe(FrameInfo, FailureContinuation),
 		DeclSet0, DeclSet) -->
 	(
@@ -1586,9 +1597,9 @@ output_instruction(call(Target, ContLabel, LiveVals, _, _), ProfInfo) -->
 	output_call(Target, ContLabel, CallerLabel),
 	output_gc_livevals(LiveVals).
 
-output_instruction(c_code(C_Code_String), _) -->
+output_instruction(c_code(C_Code_String, RVals), _) -->
 	io__write_string("\t"),
-	io__write_string(C_Code_String).
+	output_c_code_instruction(C_Code_String, RVals).
 
 output_instruction(mkframe(FrameInfo, FailCont), _) -->
 	(
@@ -2061,6 +2072,62 @@ output_temp_decls_2(Next, Max, Type) -->
 		[]
 	).
 
+
+:- pred output_c_code_instruction(string, list(rval), io__state, io__state).
+:- mode output_c_code_instruction(in, in, di, uo) is det.
+
+	% Include this case as an optimization
+output_c_code_instruction(CCodeStr, []) -->
+	write_string(CCodeStr).
+output_c_code_instruction(CCodeStr, RVals) -->
+	{ RVals = [_|_] },
+	{ string__to_char_list(CCodeStr, Chars) },
+	{ RValsArray = array(RVals) },
+	output_c_code_instruction_2(Chars, RValsArray).
+
+:- pred output_c_code_instruction_2(list(char), array(rval),
+		io__state, io__state).
+:- mode output_c_code_instruction_2(in, in, di, uo) is det.
+
+output_c_code_instruction_2([], _RVals) --> [].
+output_c_code_instruction_2([C|Cs], RVals) -->
+	( { C = '$' } ->
+		output_c_code_instruction_3(Cs, RVals)
+	;
+		write_char(C),
+		output_c_code_instruction_2(Cs, RVals)
+	).
+
+:- pred output_c_code_instruction_3(list(char), array(rval),
+		io__state, io__state).
+:- mode output_c_code_instruction_3(in, in, di, uo) is det.
+
+output_c_code_instruction_3([], _RVals) -->
+	{ error("output_c_code_instruction_3: hanging $") }.
+output_c_code_instruction_3([C|Cs0], RVals) -->
+	( { C = '$' } ->
+		write_char(C),
+		output_c_code_instruction_2(Cs0, RVals)
+	;
+		{ takewhile(char__is_digit, [C|Cs0], Ds, Cs) },
+		{ string__from_char_list(Ds, DStr) },
+		(
+			{ string__to_int(DStr, Ind0) },
+			{ Ind = Ind0 - 1 },
+			{ Ind >= 0 },
+			{ array__size(RVals, Size) },
+			{ Ind < Size }
+		->
+			{ lookup(RVals, Ind, RVal) },
+			output_rval(RVal),
+			output_c_code_instruction_2(Cs, RVals)
+		;
+			{ format("output_c_code_instruction_3: bad index `%s'.",
+				[s(DStr)], Err) },
+			{ error(Err) }
+		)
+	).
+
 output_rval_decls(lval(Lval), FirstIndent, LaterIndent, N0, N,
 		DeclSet0, DeclSet) -->
 	output_lval_decls(Lval, FirstIndent, LaterIndent, N0, N,
@@ -2175,7 +2242,7 @@ output_rval_decls(binop(Op, Rval1, Rval2), FirstIndent, LaterIndent, N0, N,
 	    { DeclSet = DeclSet2 }
 	).
 output_rval_decls(
-		create(_Tag, ArgVals, CreateArgTypes, _StatDyn, Label, _, _),
+		create(_Tag, ArgVals, CreateArgTypes, StatDyn, Label, _, _),
 		FirstIndent, LaterIndent, N0, N, DeclSet0, DeclSet) -->
 	{ CreateLabel = create_label(Label) },
 	( { decl_set_is_member(CreateLabel, DeclSet0) } ->
@@ -2185,12 +2252,26 @@ output_rval_decls(
 		{ decl_set_insert(DeclSet0, CreateLabel, DeclSet1) },
 		output_cons_arg_decls(ArgVals, FirstIndent, LaterIndent,
 			N0, N1, DeclSet1, DeclSet),
+		(
+			{ StatDyn = must_be_static },
+			{ IsConst = yes }
+		;
+			{ StatDyn = can_be_either },
+			{ IsConst = yes }
+		;
+			{ StatDyn = must_be_dynamic },
+			{ IsConst = no }
+		),
 		output_const_term_decl(ArgVals, CreateArgTypes, CreateLabel,
-			no, yes, yes, yes, FirstIndent, LaterIndent, N1, N)
+			no, IsConst, yes, yes, yes, FirstIndent, LaterIndent, N1, N)
 	).
 output_rval_decls(mem_addr(MemRef), FirstIndent, LaterIndent,
 		N0, N, DeclSet0, DeclSet) -->
 	output_mem_ref_decls(MemRef, FirstIndent, LaterIndent,
+		N0, N, DeclSet0, DeclSet).
+output_rval_decls(c_func(_RT, _, Args, _St), FirstIndent, LaterIndent,
+		N0, N, DeclSet0, DeclSet) -->
+	output_arg_decls(Args, FirstIndent, LaterIndent,
 		N0, N, DeclSet0, DeclSet).
 
 :- pred output_mem_ref_decls(mem_ref, string, string, int, int,
@@ -2203,6 +2284,16 @@ output_mem_ref_decls(heap_ref(Rval, _, _), FirstIndent, LaterIndent, N0, N,
 		DeclSet0, DeclSet) -->
 	output_rval_decls(Rval, FirstIndent, LaterIndent, N0, N,
 		DeclSet0, DeclSet).
+
+:- pred output_arg_decls(list(pair(llds_type, rval)), string, string, int, int,
+	decl_set, decl_set, io__state, io__state).
+:- mode output_arg_decls(in, in, in, in, out, in, out, di, uo) is det.
+
+output_arg_decls([], _, _, N, N, DeclSet, DeclSet) --> [].
+output_arg_decls([_Type - Rval|Args], First, Later,
+		N0, N, DeclSet0, DeclSet) -->
+	output_rval_decls(Rval, First, Later, N0, N1, DeclSet0, DeclSet1),
+	output_arg_decls(Args, First, Later, N1, N, DeclSet1, DeclSet).
 
 %-----------------------------------------------------------------------------%
 
@@ -2295,12 +2386,12 @@ llds_out__float_op_name(float_divide, "divide").
 	% error for Init to be yes and Decl to be no.
 
 :- pred output_const_term_decl(list(maybe(rval)), create_arg_types, decl_id,
-	bool, bool, bool, bool, string, string, int, int, io__state, io__state).
-:- mode output_const_term_decl(in, in, in, in, in, in,
+	bool, bool, bool, bool, bool, string, string, int, int, io__state, io__state).
+:- mode output_const_term_decl(in, in, in, in, in, in, in,
 	in, in, in, in, out, di, uo) is det.
 
 output_const_term_decl(ArgVals, CreateArgTypes, DeclId, Exported,
-		Def, Decl, Init, FirstIndent, LaterIndent, N1, N) -->
+		IsConst, Def, Decl, Init, FirstIndent, LaterIndent, N1, N) -->
 	(
 		{ Init = yes }, { Decl = no }
 	->
@@ -2322,15 +2413,17 @@ output_const_term_decl(ArgVals, CreateArgTypes, DeclId, Exported,
 		),
 		globals__io_get_globals(Globals),
 		{ globals__have_static_code_addresses(Globals, StaticCode) },
-		(
-				% Don't make the structure `const'
+		( (
+				% Don't make the structure `const' 
 				% if the structure will eventually include
 				% code addresses but we don't have static code
 				% addresses.
 			{ StaticCode = no },
-			{ DeclId = data_addr(DataAddr) },
-			{ data_addr_would_include_code_address(DataAddr, yes) }
-		->
+			{ DeclId = data_addr(data_addr(_, DataName)) },
+			{ data_name_would_include_code_address(DataName, yes) }
+		;
+			{ IsConst = no }
+		) ->
 			[]
 		;
 			io__write_string("const ")
@@ -2392,6 +2485,7 @@ data_name_would_include_code_address(common(_),                 no).
 data_name_would_include_code_address(base_typeclass_info(_, _), yes).
 data_name_would_include_code_address(module_layout,             no).
 data_name_would_include_code_address(proc_layout(_),            yes).
+data_name_would_include_code_address(scc_id(_),			yes).
 data_name_would_include_code_address(internal_layout(_),        no).
 data_name_would_include_code_address(tabling_pointer(_),        no).
 
@@ -2690,6 +2784,7 @@ output_lval_decls(hp, _, _, N, N, DeclSet, DeclSet) --> [].
 output_lval_decls(sp, _, _, N, N, DeclSet, DeclSet) --> [].
 output_lval_decls(lvar(_), _, _, N, N, DeclSet, DeclSet) --> [].
 output_lval_decls(temp(_, _), _, _, N, N, DeclSet, DeclSet) --> [].
+output_lval_decls(global(_, _), _, _, N, N, DeclSet, DeclSet) --> [].
 output_lval_decls(mem_ref(Rval), FirstIndent, LaterIndent, N0, N,
 		DeclSet0, DeclSet) -->
 	output_rval_decls(Rval, FirstIndent, LaterIndent, N0, N,
@@ -2916,6 +3011,8 @@ c_data_const_string(Globals, InclCodeAddr, ConstStr) :-
 	% The third argument should be true if the variable is being
 	% defined, and false if it is only being declared (since the
 	% storage class "extern" is needed only on declarations).
+	% If deep profiling is enabled, then the proc_layout for a procedure
+	% may be referenced by the scc data for another module.
 
 :- pred output_data_addr_storage_type_name(module_name::in, data_name::in,
 	bool::in, string::in, io__state::di, io__state::uo) is det.
@@ -2926,7 +3023,8 @@ output_data_addr_storage_type_name(ModuleName, DataVarName, BeingDefined,
 		output_base_typeclass_info_storage_type_name(
 			ClassId, Instance, no)
 	;
-		{ data_name_linkage(DataVarName, Linkage) },
+		globals__io_lookup_bool_option(profile_deep, DeepProfiling),
+		{ data_name_linkage(DataVarName, DeepProfiling, Linkage) },
 		globals__io_get_globals(Globals),
 		{ c_data_linkage_string(Globals, Linkage, BeingDefined,
 			LinkageStr) },
@@ -2945,14 +3043,16 @@ output_data_addr_storage_type_name(ModuleName, DataVarName, BeingDefined,
 		output_data_addr(ModuleName, DataVarName)
 	).
 
-:- pred data_name_linkage(data_name::in, linkage::out) is det.
+:- pred data_name_linkage(data_name::in, bool::in, linkage::out) is det.
 
-data_name_linkage(common(_),                 static).
-data_name_linkage(base_typeclass_info(_, _), extern).
-data_name_linkage(module_layout,             static).
-data_name_linkage(proc_layout(_),            static).
-data_name_linkage(internal_layout(_),        static).
-data_name_linkage(tabling_pointer(_),        static).
+data_name_linkage(common(_),                 _,   static).
+data_name_linkage(base_typeclass_info(_, _), _,   extern).
+data_name_linkage(module_layout,             _,   static).
+data_name_linkage(proc_layout(_),            no,  static).
+data_name_linkage(proc_layout(_),            yes, extern).
+data_name_linkage(internal_layout(_),        _,   static).
+data_name_linkage(tabling_pointer(_),        _,   static).
+data_name_linkage(scc_id(_),        	     _,	  extern).
 
 %-----------------------------------------------------------------------------%
 
@@ -3251,6 +3351,13 @@ output_data_addr(ModuleName, VarName) -->
 		io__write_string(mercury_data_prefix),
 		io__write_string(MangledModuleName),
 		io__write_string("__common_"),
+		{ string__int_to_string(N, NStr) },
+		io__write_string(NStr)
+	;
+		{ VarName = scc_id(N) },
+		{ llds_out__sym_name_mangle(ModuleName, MangledModuleName) },
+		io__write_string(MangledModuleName),
+		io__write_string("__scc_id_"),
 		{ string__int_to_string(N, NStr) },
 		io__write_string(NStr)
 	;
@@ -3796,6 +3903,23 @@ output_rval(mem_addr(MemRef)) -->
 		io__write_int(FieldNum),
 		io__write_string(")")
 	).
+output_rval(c_func(_RT, FuncName, Arguments, _Static)) -->
+	io__write_string(FuncName),
+	io__write_string("("),
+	output_c_func_args(Arguments),
+	io__write_string(")").
+
+:- pred output_c_func_args(list(pair(llds_type, rval)), io__state, io__state).
+:- mode output_c_func_args(in, di, uo) is det.
+
+output_c_func_args([]) --> [].
+output_c_func_args([Type - Rval]) -->
+	output_rval_as_type(Rval, Type).
+output_c_func_args([Type - Rval|Args]) -->
+	{ Args = [_|_] },
+	output_rval_as_type(Rval, Type),
+	io__write_string(", "),
+	output_c_func_args(Args).
 
 :- pred output_unary_op(unary_op, io__state, io__state).
 :- mode output_unary_op(in, di, uo) is det.
@@ -3885,6 +4009,29 @@ output_static_rval(var(_)) -->
 	{ error("Cannot output a var(_) in a static initializer") }.
 output_static_rval(mem_addr(_)) -->
 	{ error("Cannot output a mem_ref(_) in a static initializer") }.
+output_static_rval(c_func(_RT, Name, Args, Static)) -->
+	(
+		{ Static = static },
+		write_string(Name),
+		write_string("("),
+		output_static_rvals(Args),
+		write_string(")")
+	;
+		{ Static = dynamic },
+		{ error("Cannot output a c_func/4 in a static initializer") }
+	).
+
+:- pred output_static_rvals(list(pair(llds_type, rval)), io__state, io__state).
+:- mode output_static_rvals(in, di, uo) is det.
+
+output_static_rvals([]) --> [].
+output_static_rvals([_Type - Rval]) -->
+	output_static_rval(Rval).
+output_static_rvals([_Type - Rval|Rvals]) -->
+	{ Rvals = [_|_] },
+	output_static_rval(Rval),
+	write_string(", "),
+	output_static_rvals(Rvals).
 
 :- pred output_rval_static_const(rval_const, io__state, io__state).
 :- mode output_rval_static_const(in, di, uo) is det.
@@ -3988,6 +4135,12 @@ output_lval(redoip(Rval)) -->
 output_lval(succip(Rval)) -->
 	io__write_string("MR_succip_slot("),
 	output_rval(Rval),
+	io__write_string(")").
+output_lval(global(Type, GlobalName)) -->
+	io__write_string("LVALUE_CAST("),
+	output_llds_type(Type),
+	io__write_string(", "),
+	io__write_string(GlobalName),
 	io__write_string(")").
 output_lval(field(MaybeTag, Rval, FieldNum)) -->
 	( { MaybeTag = yes(Tag) } ->

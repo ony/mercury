@@ -130,7 +130,10 @@ lambda__process_preds([PredId | PredIds], ModuleInfo0, ModuleInfo) :-
 lambda__process_pred(PredId, ModuleInfo0, ModuleInfo) :-
 	module_info_pred_info(ModuleInfo0, PredId, PredInfo),
 	pred_info_procids(PredInfo, ProcIds),
-	lambda__process_procs(PredId, ProcIds, ModuleInfo0, ModuleInfo).
+	lambda__process_procs(PredId, ProcIds, ModuleInfo0, ModuleInfo1),
+		% Processing lambdas changes the call graph, so we'd
+		% better invalidate the dependency_info.
+	module_info_clobber_dependency_info(ModuleInfo1, ModuleInfo).
 
 :- pred lambda__process_procs(pred_id, list(proc_id), module_info, module_info).
 :- mode lambda__process_procs(in, in, in, out) is det.

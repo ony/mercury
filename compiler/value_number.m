@@ -1111,7 +1111,7 @@ value_number__boundary_instr(mkframe(_, _), yes).
 value_number__boundary_instr(label(_), yes).
 value_number__boundary_instr(goto(_), yes).
 value_number__boundary_instr(computed_goto(_, _), yes).
-value_number__boundary_instr(c_code(_), yes).
+value_number__boundary_instr(c_code(_, _), yes).
 value_number__boundary_instr(if_val(_, _), yes).
 value_number__boundary_instr(incr_hp(_, _, _, _), no).
 value_number__boundary_instr(mark_hp(_), no).

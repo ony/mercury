@@ -124,7 +124,7 @@ vn_cost__instr_cost(Uinstr, Params, Cost) :-
 		vn_cost__rval_cost(Rval, Params, RvalCost),
 		Cost = RvalCost
 	;
-		Uinstr = c_code(_),
+		Uinstr = c_code(_, _),
 		error("c_code found in vn_block_cost")
 	;
 		Uinstr = if_val(Rval, _),
@@ -241,6 +241,9 @@ vn_cost__lval_cost(Lval, Params, Cost) :-
 			)
 		)
 	;
+		Lval = global(_, _),
+		Cost = 0
+	;
 		Lval = stackvar(_),
 		vn_type__costof_stackref(Params, StackrefCost),
 		Cost = StackrefCost
@@ -341,6 +344,13 @@ vn_cost__rval_cost(Rval, Params, Cost) :-
 	;
 		Rval = mem_addr(MemRef),
 		vn_cost__mem_ref_cost(MemRef, Params, Cost)
+	;
+		Rval = c_func(_, _, Args, _),
+		list__foldl(lambda([Arg::in, Cost0::in, Cost1::out] is det, (
+			Arg = _Type - ArgRval,
+			vn_cost__rval_cost(ArgRval, Params, Cost2),
+			Cost1 is Cost0 + Cost2
+		)), Args, 0, Cost)
 	).
 
 :- pred vn_cost__mem_ref_cost(mem_ref, vn_params, int).

@@ -20,6 +20,7 @@
 
 :- type vnlval		--->	vn_reg(reg_type, int)
 			;	vn_temp(reg_type, int)
+			;	vn_global(llds_type, string)
 			;	vn_stackvar(int)
 			;	vn_framevar(int)
 			;	vn_succip
@@ -48,7 +49,9 @@
 			;	vn_binop(binary_op, vn, vn)
 			;	vn_stackvar_addr(int)
 			;	vn_framevar_addr(int)
-			;	vn_heap_addr(vn, int, int).
+			;	vn_heap_addr(vn, int, int)
+			;	vn_c_func(llds_type, string, list(pair(llds_type, rval)), staticly_evaluable)
+			.
 
 			% these rvals do not have vnrval parallels
 			%	var(var)
@@ -191,6 +194,7 @@ vn_type__vnrval_type(vn_binop(BinOp, _, _), Type) :-
 vn_type__vnrval_type(vn_stackvar_addr(_), data_ptr).
 vn_type__vnrval_type(vn_framevar_addr(_), data_ptr).
 vn_type__vnrval_type(vn_heap_addr(_, _, _), data_ptr).
+vn_type__vnrval_type(vn_c_func(_, _, _, _), word).
 
 vn_type__vnlval_type(vn_reg(RegType, _), Type) :-
 	llds__register_type(RegType, Type).
@@ -210,3 +214,4 @@ vn_type__vnlval_type(vn_succfr(_), data_ptr).
 vn_type__vnlval_type(vn_prevfr(_), data_ptr).
 vn_type__vnlval_type(vn_field(_, _, _), word).
 vn_type__vnlval_type(vn_mem_ref(_), word).
+vn_type__vnlval_type(vn_global(Type, _), Type).

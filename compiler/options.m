@@ -135,11 +135,18 @@
 		;	profiling		% profile_time + profile_calls
 		;	time_profiling		% profile_time + profile_calls
 		;	memory_profiling	% profime_mem + profile_calls
-		;	deep_profiling	% profile_time + profile_deep
+		;	deep_profiling		% profile_time + profile_deep
 		;	profile_calls
 		;	profile_time
 		;	profile_memory
 		;	profile_deep
+		;	profile_deep_parents	% do we need parent pointers
+						% in the deep profiling call
+						% graph?
+		;	profile_deep_levels	% The number of levels of
+						% context we should consider
+						% when doing higher-order
+						% cycle avoidance.
 		;	debug
 		;	stack_trace
 		;	require_tracing
@@ -522,6 +529,8 @@ option_defaults_2(compilation_model_option, [
 	profile_time		-	bool(no),
 	profile_memory		-	bool(no),
 	profile_deep		-	bool(no),
+	profile_deep_parents	-	bool(no),
+	profile_deep_levels	-	int(1),
 	debug			-	bool_special,
 	require_tracing		-	bool(no),
 	stack_trace		-	bool(no),

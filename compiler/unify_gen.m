@@ -41,6 +41,7 @@
 :- import_module hlds_module, hlds_pred, prog_data, prog_out, code_util.
 :- import_module mode_util, type_util, code_aux, hlds_out, tree, arg_info.
 :- import_module globals, options, continuation_info, stack_layout.
+:- import_module profiling.
 :- import_module rl.
 
 :- import_module term, bool, string, int, list, map, require, std_util.
@@ -547,8 +548,13 @@ unify_gen__generate_construction_2(
 		{ continuation_info__generate_closure_layout(
 			ModuleInfo, PredId, ProcId, ClosureInfo) },
 		code_info__get_cell_count(CNum0),
-		{ stack_layout__construct_closure_layout(ProcLabel,
-			ClosureInfo, ClosureLayoutMaybeRvals,
+		profiling__scc_id(proc(PredId, ProcId), SCCId),
+		code_info__get_globals(Globals),
+		{ globals__lookup_bool_option(Globals, procid_stack_layout,
+			StackLayouts) },
+		{ stack_layout__construct_closure_layout(StackLayouts,
+			ProcLabel, SCCId, ClosureInfo,
+			ClosureLayoutMaybeRvals,
 			ClosureLayoutArgTypes, CNum0, CNum) },
 		code_info__set_cell_count(CNum),
 		code_info__get_next_cell_number(ClosureLayoutCellNo),

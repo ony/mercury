@@ -673,6 +673,11 @@ vn_order__find_links(Vn, Sink, VnTables0, VnTables,
 			Vnrval = vn_heap_addr(SubVn, _, _),
 			vn_order__find_links(SubVn, Sink, VnTables0, VnTables,
 				Succmap0, Succmap, Predmap0, Predmap)
+		;
+			Vnrval = vn_c_func(_, _, _, _),
+			Succmap = Succmap0,
+			Predmap = Predmap0,
+			VnTables = VnTables0
 		)
 	).
 

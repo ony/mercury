@@ -210,7 +210,7 @@ livemap__build_livemap_instr(Instr0, Instrs0, Instrs,
 		Instrs = Instrs0,
 		DontValueNumber = DontValueNumber0
 	;
-		Uinstr0 = c_code(_),
+		Uinstr0 = c_code(_, _),
 		Livemap = Livemap0,
 		Livevals = Livevals0,
 		Instrs = Instrs0,
@@ -461,6 +461,11 @@ livemap__make_live_in_rval(var(_), _, _) :-
 	error("var rval should not propagate to the optimizer").
 livemap__make_live_in_rval(mem_addr(MemRef), Live0, Live) :-
 	livemap__make_live_in_mem_ref(MemRef, Live0, Live).
+livemap__make_live_in_rval(c_func(_, _, Args, _), Live0, Live) :-
+	list__foldl(lambda([Arg::in, Live1::in, Live2::out] is det, (
+		Arg = _Type - Rval,
+		livemap__make_live_in_rval(Rval, Live1, Live2)
+	)), Args, Live0, Live).
 
 :- pred livemap__make_live_in_mem_ref(mem_ref, lvalset, lvalset).
 :- mode livemap__make_live_in_mem_ref(in, in, out) is det.

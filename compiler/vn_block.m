@@ -270,7 +270,7 @@ vn_block__handle_instr(computed_goto(Rval, Labels),
 	vn_block__new_ctrl_node(vn_computed_goto(Vn, Labels), Livemap,
 		Params, VnTables1, VnTables,
 		Liveset0, Liveset, Tuple0, Tuple).
-vn_block__handle_instr(c_code(_),
+vn_block__handle_instr(c_code(_, _),
 		_Livemap, _Params, VnTables, VnTables, Liveset, Liveset,
 		SeenIncr, SeenIncr, Tuple, Tuple) :-
 	error("c_code should not be found in handle_instr").
@@ -929,7 +929,7 @@ vn_block__is_ctrl_instr(mkframe(_, _), yes).
 vn_block__is_ctrl_instr(label(_), yes).
 vn_block__is_ctrl_instr(goto(_), yes).
 vn_block__is_ctrl_instr(computed_goto(_, _), yes).
-vn_block__is_ctrl_instr(c_code(_), no).
+vn_block__is_ctrl_instr(c_code(_, _), no).
 vn_block__is_ctrl_instr(if_val(_, _), yes).
 vn_block__is_ctrl_instr(incr_hp(_, _, _, _), no).
 vn_block__is_ctrl_instr(mark_hp(_), yes).

@@ -628,6 +628,11 @@ code_exprn__add_rval_reg_dependencies(binop(_Op, Rval0, Rval1)) -->
 	code_exprn__add_rval_reg_dependencies(Rval1).
 code_exprn__add_rval_reg_dependencies(mem_addr(MemRef)) -->
 	code_exprn__add_mem_ref_reg_dependencies(MemRef).
+code_exprn__add_rval_reg_dependencies(c_func(_, _, Args, _)) -->
+	list__foldl(lambda([Arg::in, Exprn0::in, Exprn::out] is det, (
+		Arg = _Type - Rval,
+		code_exprn__add_rval_reg_dependencies(Rval, Exprn0, Exprn)
+	)), Args).
 
 :- pred code_exprn__add_mem_ref_reg_dependencies(mem_ref,
 	exprn_info, exprn_info).
@@ -701,6 +706,11 @@ code_exprn__rem_rval_reg_dependencies(binop(_Op, Rval0, Rval1)) -->
 	code_exprn__rem_rval_reg_dependencies(Rval1).
 code_exprn__rem_rval_reg_dependencies(mem_addr(MemRef)) -->
 	code_exprn__rem_mem_ref_reg_dependencies(MemRef).
+code_exprn__rem_rval_reg_dependencies(c_func(_, _, Args, _)) -->
+	list__foldl(lambda([Arg::in, Exprn0::in, Exprn::out] is det, (
+		Arg = _Type - Rval,
+		code_exprn__rem_rval_reg_dependencies(Rval, Exprn0, Exprn)
+	)), Args).
 
 :- pred code_exprn__rem_mem_ref_reg_dependencies(mem_ref,
 	exprn_info, exprn_info).

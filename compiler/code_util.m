@@ -62,6 +62,9 @@
 :- pred code_util__make_proc_label(module_info, pred_id, proc_id, proc_label).
 :- mode code_util__make_proc_label(in, in, in, out) is det.
 
+:- pred code_util__make_proc_layout_ref(pred_proc_id, module_info, rval).
+:- mode code_util__make_proc_layout_ref(in, in, out) is det.
+
 	% code_util__make_user_proc_label(ModuleName, PredIsImported,
 	%	PredOrFunc, ModuleName, PredName, Arity, ProcId, Label):
 	% Make a proc_label for a user-defined procedure.
@@ -785,6 +788,13 @@ code_util__lvals_in_rval(binop(_, Rval1, Rval2), Lvals) :-
 	list__append(Lvals1, Lvals2, Lvals).
 code_util__lvals_in_rval(mem_addr(MemRef), Lvals) :-
 	code_util__lvals_in_mem_ref(MemRef, Lvals).
+code_util__lvals_in_rval(c_func(_, _, Args, _), Lvals) :-
+	list__map(lambda([Arg::in, ArgLvals::out] is det, (
+		Arg = _Type - Rval,
+		code_util__lvals_in_rval(Rval, ArgLvals)
+	)), Args, LvalsList),
+	list__condense(LvalsList, Lvals).
+
 
 code_util__lvals_in_lval(reg(_, _), []).
 code_util__lvals_in_lval(stackvar(_), []).
@@ -810,6 +820,7 @@ code_util__lvals_in_lval(field(_, Rval1, Rval2), Lvals) :-
 	list__append(Lvals1, Lvals2, Lvals).
 code_util__lvals_in_lval(lvar(_), []).
 code_util__lvals_in_lval(temp(_, _), []).
+code_util__lvals_in_lval(global(_, _), []).
 code_util__lvals_in_lval(mem_ref(Rval), Lvals) :-
 	code_util__lvals_in_rval(Rval, Lvals).
 
@@ -822,3 +833,14 @@ code_util__lvals_in_mem_ref(heap_ref(Rval, _, _), Lvals) :-
 	code_util__lvals_in_rval(Rval, Lvals).
 
 %-----------------------------------------------------------------------------%
+
+code_util__make_proc_layout_ref(PPId, ModuleInfo, Rval) :-
+	PPId = proc(PredId, ProcId),
+	code_util__make_proc_label(ModuleInfo, PredId, ProcId,
+			ProcLabel),
+	pred_module(PPId, ModuleInfo, ModuleName),
+	Rval = const(data_addr_const(data_addr(ModuleName,
+			proc_layout(local(ProcLabel))))).
+
+%-----------------------------------------------------------------------------%
+

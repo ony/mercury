@@ -122,6 +122,9 @@ export__get_c_export_defns(Module, ExportedProcsCode) :-
 	% #if FUNCTION
 	%	Word retval;
 	% #endif
+	% #if MR_PROFILE_DEEP
+	%	MR_ProcCallProfile	*saved_current_proc;
+	% #endif
 	%
 	%		/* save the registers that our C caller may be using */
 	%	save_regs_to_mem(c_regs);
@@ -132,6 +135,13 @@ export__get_c_export_defns(Module, ExportedProcsCode) :-
 	%		/* init_engine() etc.)				  */
 	%	restore_registers();
 	%	<copy input arguments from Mercury__Arguments into registers>
+	% #ifdef MR_PROFILE_DEEP
+	%		/* If we're doing profiling, hook the callback 	  */
+	%		/* into the profiling call-tree.		  */  
+	%	saved_current_proc = MR_prof_current_proc;
+	%	MR_prof_current_proc = MR_prof_c_calls_mercury(
+	%		&mercury_data__stack_layout__<label of called proc>);
+	% #endif
 	%		/* save the registers which may be clobbered      */
 	%		/* by the C function call MR_call_engine().       */
 	%	save_transient_registers();
@@ -142,6 +152,13 @@ export__get_c_export_defns(Module, ExportedProcsCode) :-
 	%		/* clobbered by the return from the C function    */
 	%		/* MR_call_engine()				  */
 	%	restore_transient_registers();
+	%
+	% #ifdef MR_PROFILE_DEEP
+	%		/* restore the current_proc and current_scc	  */
+	%		/* variables.					  */
+	%	MR_prof_current_proc = saved_current_proc;
+	% #endif
+	%
 	% #if SEMIDET
 	%	if (!r1) {
 	%		restore_regs_from_mem(c_regs);
@@ -177,6 +194,7 @@ export__to_c(Preds, [E|ExportedProcs], Module, ExportedProcsCode) :-
 	
 	code_util__make_proc_label(Module, PredId, ProcId, ProcLabel),
 	llds_out__get_proc_label(ProcLabel, yes, ProcLabelString),
+	llds_out__make_stack_layout_name(local(ProcLabel), LayoutName),
 
 	( Exported = yes ->
 		DeclareString = "Declare_entry"
@@ -184,29 +202,42 @@ export__to_c(Preds, [E|ExportedProcs], Module, ExportedProcsCode) :-
 		DeclareString = "Declare_static"
 	),
 
-	string__append_list([	"\n",
-				DeclareString, "(", ProcLabelString, ");\n",
-				"\n",
-				C_RetType, "\n", 
-				C_Function, "(", ArgDecls, ")\n{\n",
-				"#if NUM_REAL_REGS > 0\n",
-				"\tWord c_regs[NUM_REAL_REGS];\n",
-				"#endif\n",
-				MaybeDeclareRetval,
-				"\n",
-				"\tsave_regs_to_mem(c_regs);\n", 
-				"\trestore_registers();\n", 
-				InputArgs,
-				"\tsave_transient_registers();\n",
-				"\t(void) MR_call_engine(ENTRY(",
-					ProcLabelString, "), FALSE);\n",
-				"\trestore_transient_registers();\n",
-				MaybeFail,
-				OutputArgs,
-				"\trestore_regs_from_mem(c_regs);\n", 
-				MaybeSucceed,
-				"}\n\n"],
-				Code),
+	string__append_list([
+		"\n",
+		DeclareString, "(", ProcLabelString, ");\n",
+		"\n",
+		C_RetType, "\n", 
+		C_Function, "(", ArgDecls, ")\n{\n",
+		"#if NUM_REAL_REGS > 0\n",
+		"\tWord c_regs[NUM_REAL_REGS];\n",
+		"#endif\n",
+		MaybeDeclareRetval,
+		"\n",
+		"#if MR_PROFILE_DEEP\n",
+		"\tMR_ProcCallProfile	*saved_current_proc;\n",
+		"#endif\n",
+		"\tsave_regs_to_mem(c_regs);\n", 
+		"\trestore_registers();\n", 
+		InputArgs,
+		"#ifdef MR_PROFILE_DEEP\n",
+		"\tsaved_current_proc = MR_prof_current_proc;\n",
+		"\tMR_prof_current_proc = MR_prof_c_calls_mercury(\n",
+		"\t\t&", LayoutName, ");\n",
+		"#endif\n",
+		"\tsave_transient_registers();\n",
+		"\t(void) MR_call_engine(ENTRY(",
+			ProcLabelString, "), FALSE);\n",
+		"\trestore_transient_registers();\n",
+		"#ifdef MR_PROFILE_DEEP\n",
+		"\tMR_prof_current_proc = ",
+			"saved_current_proc;\n",
+		"#endif\n",
+		MaybeFail,
+		OutputArgs,
+		"\trestore_regs_from_mem(c_regs);\n", 
+		MaybeSucceed,
+		"}\n\n"
+	], Code),
 
 	export__to_c(Preds, ExportedProcs, Module, TheRest),
 	ExportedProcsCode = [Code|TheRest].

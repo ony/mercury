@@ -73,6 +73,68 @@
 	% map from proc to a list of unused argument numbers.
 :- type unused_arg_info == map(pred_proc_id, list(int)).
 
+	% The scc_info stores information about the call graph,
+	% specifically how it is divided into strongly connected
+	% components (SCCs), that we need for deep profiling.
+	% See profiling.m for more information.
+:- type scc_info
+	--->	scc_info(
+			map(pred_proc_id, scc_id),
+				% To which scc does each proc belong?
+				% Leaf procedures are not assigned an
+				% scc_id.
+			map(scc_id, scc_data)
+				% for each scc, keep track of call site
+				% numbers for first order calls,
+				% higher order calls, and class method
+				% calls, and store the info about each
+				% call site for the static SCCId structures.
+		).
+
+:- type scc_data
+	--->	scc_data(
+			int,		
+				% The number of first_order_calls in the SCC
+			list(first_order_call),
+				% Info on the first_order_calls in the SCC
+			int,
+				% The number of higher_order_calls in the SCC
+			list(higher_order_call),
+				% Info on the higher_order_calls in the SCC
+			int,
+				% The number of class_method_calls in the SCC
+			list(class_method_call),
+				% Info on the class_method_calls in the SCC
+			may_call_mercury
+				% May there be callbacks from C into
+				% Mercury in this SCC?
+		).
+
+:- type first_order_call
+	--->	first_order_call(
+			pred_proc_id,	% the caller
+			pred_proc_id,	% the callee
+			prog_context	% the location of the callsite
+		).
+
+:- type higher_order_call
+	--->	higher_order_call(
+			pred_proc_id,	% the caller
+			prog_context	% the location of the callsite
+		).
+
+:- type class_method_call
+	--->	class_method_call(
+			pred_proc_id,	% the caller
+			pred_proc_id,	% the callee
+			prog_context	% the location of the callsite
+		).
+
+	% scc_ids refer to the number of the SCC within the module.
+	% The numbering is an arbitary assignment.
+:- type scc_id
+	--->	scc_id(module_name, int).
+
 	% List of procedures for which there are user-requested type
 	% specializations, and a list of predicates which should be
 	% processed by higher_order.m to ensure the production of those
@@ -208,6 +270,12 @@
 
 :- pred module_info_set_cell_count(module_info, int, module_info).
 :- mode module_info_set_cell_count(in, in, out) is det.
+
+:- pred module_info_get_scc_info(module_info, scc_info).
+:- mode module_info_get_scc_info(in, out) is det.
+
+:- pred module_info_set_scc_info(module_info, scc_info, module_info).
+:- mode module_info_set_scc_info(in, in, out) is det.
 
 :- pred module_add_imported_module_specifiers(list(module_specifier),
 		module_info, module_info).
@@ -452,6 +520,7 @@
 		instance_table ::		instance_table,
 		superclass_table ::		superclass_table,
 		assertion_table ::		assertion_table,
+		deep_profiling_scc_info ::	scc_info,
 		ctor_field_table ::		ctor_field_table,
 		cell_count ::			int
 					% cell count, passed into code_info
@@ -521,6 +590,9 @@ module_info_init(Name, Globals, QualifierInfo, ModuleInfo) :-
 
 	map__init(ClassTable),
 	map__init(InstanceTable),
+	map__init(PredProcSCCs),
+	map__init(SCCCallSites),
+	SCCInfo = scc_info(PredProcSCCs, SCCCallSites),
 	map__init(SuperClassTable),
 
 	% the builtin modules are automatically imported
@@ -538,12 +610,47 @@ module_info_init(Name, Globals, QualifierInfo, ModuleInfo) :-
 	ModuleInfo = module(ModuleSubInfo, PredicateTable, Requests,
 		UnifyPredMap, QualifierInfo, Types, Insts, Modes, Ctors,
 		ClassTable, SuperClassTable, InstanceTable, AssertionTable,
-		FieldNameTable, 0).
+		SCCInfo, FieldNameTable, 0).
+
+%-----------------------------------------------------------------------------%
+
+% :- type module_sub_info
+%	--->	module_sub(
+% A			module_name,	% module name
+% B			globals, 	% global options
+% C			c_header_info,
+% D			c_body_info,
+% E			maybe(dependency_info),
+% F			int,		% number of errors
+% G			int,		% lambda predicate counter
+% H			list(pragma_exported_proc),
+%					% list of the procs for which
+%					% there is a pragma export(...)
+%					% declaration
+% I			list(base_gen_info),
+% J			list(base_gen_layout)
+%					% info about the types defined here
+% K			set(pred_id),
+%					% preds which must be stratified
+% L			unused_arg_info,
+%					% unused argument info about
+%					% predicates in the current
+%					% module which has been exported
+%					% in .opt files.
+% M			int,		% number of the structure types defined
+%					% so far for model_non pragma C codes
+% N			set(module_name),
+%					% All the imported module names
+%					% (used during type checking).
+% O			do_aditi_compilation
+%					% are there any local Aditi predicates
+%					% for which Aditi-RL must be produced.
+% P			type_spec_info
+%		).
 
 %-----------------------------------------------------------------------------%
 
 	% Various predicates which access the module_info data structure.
-
 module_info_get_predicate_table(MI, MI^predicate_table).
 module_info_get_proc_requests(MI, MI^proc_requests).
 module_info_get_special_pred_map(MI, MI^special_pred_map).
@@ -556,6 +663,7 @@ module_info_classes(MI, MI^class_table).
 module_info_instances(MI, MI^instance_table).
 module_info_superclasses(MI, MI^superclass_table).
 module_info_assertion_table(MI, MI^assertion_table).
+module_info_get_scc_info(MI, MI^deep_profiling_scc_info).
 module_info_ctor_field_table(MI, MI^ctor_field_table).
 module_info_get_cell_count(MI, MI^cell_count).
 
@@ -576,6 +684,7 @@ module_info_set_classes(MI, C, MI^class_table := C).
 module_info_set_instances(MI, I, MI^instance_table := I).
 module_info_set_superclasses(MI, S, MI^superclass_table := S).
 module_info_set_assertion_table(MI, A, MI^assertion_table := A).
+module_info_set_scc_info(MI, PI, MI^deep_profiling_scc_info := PI).
 module_info_set_ctor_field_table(MI, CF, MI^ctor_field_table := CF).
 module_info_set_cell_count(MI, CC, MI^cell_count := CC).
 

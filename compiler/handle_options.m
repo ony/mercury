@@ -366,8 +366,23 @@ postprocess_options_2(OptionTable, GC_Method, TagsMethod, PrologDialect,
 		[]
 	),
 
-	% Deep profiling requires `procid' stack layouts
+	% Deep profiling requires `procid' stack layouts because they are
+	% used for book-keeping the context of a call. We disable
+	% middle_rec because it interferes with the collection of the
+	% deep_profiling information because it changes the pattern of
+	% calls and returns.
+
 	option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	option_implies(profile_deep, middle_rec, bool(no)),
+	option_implies(profile_deep, inline_simple, bool(no)),
+	option_implies(profile_deep, inline_single_use, bool(no)),
+	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
+	globals__io_lookup_int_option(profile_deep_levels, ProfileDeepLevels),
+	( { ProfileDeep = yes, ProfileDeepLevels > 1 } ->
+		globals__io_set_option(profile_deep_parents, bool(yes))
+	;
+		[]
+	),
 
 	% --no-reorder-conj implies --no-deforestation.
 	option_neg_implies(reorder_conj, deforestation, bool(no)),

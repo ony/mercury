@@ -141,7 +141,7 @@ vn_filter__user_instr(label(_), no).
 vn_filter__user_instr(goto(_), no).
 vn_filter__user_instr(computed_goto(Rval, _), yes(Rval)).
 vn_filter__user_instr(if_val(Rval, _), yes(Rval)).
-vn_filter__user_instr(c_code(_), _):-
+vn_filter__user_instr(c_code(_, _), _):-
 	error("inappropriate instruction in vn__filter").
 vn_filter__user_instr(incr_hp(_, _, Rval, _), yes(Rval)).
 vn_filter__user_instr(mark_hp(_), no).
@@ -197,7 +197,7 @@ vn_filter__replace_in_user_instr(computed_goto(Rval0, Labels), Temp, Defn,
 vn_filter__replace_in_user_instr(if_val(Rval0, Label), Temp, Defn,
 		if_val(Rval, Label)) :-
 	vn_filter__replace_in_rval(Rval0, Temp, Defn, Rval).
-vn_filter__replace_in_user_instr(c_code(_), _, _, _):-
+vn_filter__replace_in_user_instr(c_code(_, _), _, _, _):-
 	error("inappropriate instruction in vn__filter").
 vn_filter__replace_in_user_instr(incr_hp(Lval, Tag, Rval0, Msg), Temp, Defn,
 		incr_hp(Lval, Tag, Rval, Msg)) :-
@@ -255,7 +255,7 @@ vn_filter__defining_instr(label(_), no).
 vn_filter__defining_instr(goto(_), no).
 vn_filter__defining_instr(computed_goto(_, _), no).
 vn_filter__defining_instr(if_val(_, _), no).
-vn_filter__defining_instr(c_code(_), _):-
+vn_filter__defining_instr(c_code(_, _), _):-
 	error("inappropriate instruction in vn__filter").
 vn_filter__defining_instr(incr_hp(Lval, _, _, _), yes(Lval)).
 vn_filter__defining_instr(mark_hp(Lval), yes(Lval)).
@@ -309,7 +309,7 @@ vn_filter__replace_in_defining_instr(computed_goto(_, _), _, _, _) :-
 	error("non-def instruction in vn_filter__replace_in_defining_instr").
 vn_filter__replace_in_defining_instr(if_val(_, _), _, _, _) :-
 	error("non-def instruction in vn_filter__replace_in_defining_instr").
-vn_filter__replace_in_defining_instr(c_code(_), _, _, _):-
+vn_filter__replace_in_defining_instr(c_code(_, _), _, _, _):-
 	error("inappropriate instruction in vn__filter").
 vn_filter__replace_in_defining_instr(incr_hp(Lval0, Tag, Rval, Msg), Temp, Defn,
 		incr_hp(Lval, Tag, Rval, Msg)) :-
@@ -382,6 +382,7 @@ vn_filter__replace_in_lval(field(Tag, Rval1, Rval2), Temp, Defn,
 vn_filter__replace_in_lval(lvar(_), _, _, _) :-
 	error("found lvar in vn_filter__replace_in_lval").
 vn_filter__replace_in_lval(temp(T, N), _, _, temp(T, N)).
+vn_filter__replace_in_lval(global(Typ, Glob), _, _, global(Typ, Glob)).
 vn_filter__replace_in_lval(mem_ref(Rval0), Temp, Defn, mem_ref(Rval)) :-
 	vn_filter__replace_in_rval(Rval0, Temp, Defn, Rval).
 
@@ -414,6 +415,13 @@ vn_filter__replace_in_rval(binop(Binop, Rval1, Rval2), Temp, Defn,
 	vn_filter__replace_in_rval(Rval2, Temp, Defn, Rval4).
 vn_filter__replace_in_rval(mem_addr(MemRef0), Temp, Defn, mem_addr(MemRef)) :-
 	vn_filter__replace_in_mem_ref(MemRef0, Temp, Defn, MemRef).
+vn_filter__replace_in_rval(c_func(RT, Nm, Args0, St), Temp, Defn,
+		c_func(RT, Nm, Args, St)) :-
+	list__map(lambda([Arg0::in, Arg::out] is det, (
+		Arg0 = Type - ArgRval0,
+		Arg = Type - ArgRval,
+		vn_filter__replace_in_rval(ArgRval0, Temp, Defn, ArgRval)
+	)), Args0, Args).
 
 	% vn_filter__replace_in_mem_ref(Ref0, Old, New, Ref):
 	% Replace all occurrences of lval(Old) with New in Ref0,

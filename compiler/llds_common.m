@@ -193,7 +193,7 @@ llds_common__process_instr(Instr0, Instr, Info0, Info) :-
 		llds_common__process_rval(Rval0, Rval, Info0, Info),
 		Instr = computed_goto(Rval, Labels)
 	;
-		Instr0 = c_code(_),
+		Instr0 = c_code(_, _),
 		Instr = Instr0,
 		Info = Info0
 	;
@@ -316,6 +316,16 @@ llds_common__process_rval(Rval0, Rval, Info0, Info) :-
 		Rval0 = mem_addr(MemRef0),
 		llds_common__process_mem_ref(MemRef0, MemRef, Info0, Info),
 		Rval = mem_addr(MemRef)
+	;
+		Rval0 = c_func(RetType, FuncName, Args0, Staticness),
+		list__map_foldl(lambda([Arg0::in, Arg::out,
+				Info1::in, Info2::out] is det, (
+			Arg0 = Type - ArgRval0,
+			llds_common__process_rval(ArgRval0, ArgRval, Info1,
+				Info2),
+			Arg = Type - ArgRval
+		)), Args0, Args, Info0, Info),
+		Rval = c_func(RetType, FuncName, Args, Staticness)
 	).
 
 :- pred llds_common__process_mem_ref(mem_ref::in, mem_ref::out,

@@ -46,6 +46,7 @@
 %	predicate name		(String)
 %	predicate arity		(int_least16_t)
 %	procedure number	(int_least16_t)
+%	owner scc id		(Word) actually MR_SCCId *
 %
 % Automatically generated unification, index and comparison predicates
 % use the second form:
@@ -56,6 +57,7 @@
 %	predicate name		(String)
 %	predicate arity		(int_least16_t)
 %	procedure number	(int_least16_t)
+%	owner scc id		(Word) actually MR_SCCId *
 %
 % The runtime system can figure out which form is present by testing
 % the value of the first slot. A value of 0 or 1 indicates the first form;
@@ -239,15 +241,15 @@
 :- interface.
 
 :- import_module continuation_info, hlds_module, llds.
-:- import_module std_util, list, set_bbbtree.
+:- import_module bool, std_util, list, set_bbbtree.
 
 :- pred stack_layout__generate_llds(module_info::in, module_info::out,
 	global_data::in,
 	list(comp_gen_c_data)::out, list(comp_gen_c_data)::out,
 	set_bbbtree(label)::out) is det.
 
-:- pred stack_layout__construct_closure_layout(proc_label::in,
-	closure_layout_info::in, list(maybe(rval))::out,
+:- pred stack_layout__construct_closure_layout(bool::in, proc_label::in,
+	maybe(rval)::in, closure_layout_info::in, list(maybe(rval))::out,
 	create_arg_types::out, int::in, int::out) is det.
 
 :- implementation.
@@ -270,6 +272,7 @@ stack_layout__generate_llds(ModuleInfo0, ModuleInfo, GlobalData,
 	module_info_name(ModuleInfo0, ModuleName),
 	module_info_get_cell_count(ModuleInfo0, CellCount),
 	module_info_globals(ModuleInfo0, Globals),
+	% module_info_get_scc_info(ModuleInfo0, scc_info(ProcSCCs, _)),
 	globals__lookup_bool_option(Globals, agc_stack_layout, AgcLayout),
 	globals__lookup_bool_option(Globals, trace_stack_layout, TraceLayout),
 	globals__lookup_bool_option(Globals, procid_stack_layout,
@@ -299,7 +302,7 @@ stack_layout__generate_llds(ModuleInfo0, ModuleInfo, GlobalData,
 		ConcatStrings),
 
 	( TraceLayout = yes ->
-		Exported = no,	% ignored; see linkage/2 in llds_out.m
+		Exported = yes,	% ignored; see linkage/2 in llds_out.m
 		list__length(ProcLayoutList, NumProcLayouts),
 		llds_out__sym_name_mangle(ModuleName, ModuleNameStr),
 		stack_layout__get_next_cell_number(ProcVectorCellNum,
@@ -516,14 +519,15 @@ stack_layout__add_line_no(LineNo, LineInfo, RevList0, RevList) :-
 	% with the labels defined in this procedure.
 
 :- pred stack_layout__construct_layouts(proc_layout_info::in,
-	stack_layout_info::in, stack_layout_info::out) is det.
+		stack_layout_info::in, stack_layout_info::out) is det.
 
 stack_layout__construct_layouts(ProcLayoutInfo) -->
-	{ ProcLayoutInfo = proc_layout_info(EntryLabel, Detism,
-		StackSlots, SuccipLoc, MaybeCallLabel, MaxTraceReg,
+	{ ProcLayoutInfo = proc_layout_info(ImportStatus, EntryLabel, Detism,
+		SCCId, StackSlots, SuccipLoc, MaybeCallLabel, MaxTraceReg,
 		TraceSlotInfo, ForceProcIdLayout, InternalMap) },
-	stack_layout__construct_proc_layout(EntryLabel, Detism,
-		StackSlots, SuccipLoc, MaybeCallLabel, MaxTraceReg,
+	{ status_is_exported(ImportStatus, Exported) },
+	stack_layout__construct_proc_layout(Exported, EntryLabel, Detism,
+		SCCId, StackSlots, SuccipLoc, MaybeCallLabel, MaxTraceReg,
 		TraceSlotInfo, ForceProcIdLayout),
 	{ map__to_assoc_list(InternalMap, Internals) },
 	list__foldl(stack_layout__construct_internal_layout(EntryLabel),
@@ -620,14 +624,14 @@ stack_layout__context_is_valid(Context) :-
 
 	% Construct a procedure-specific layout.
 
-:- pred stack_layout__construct_proc_layout(label::in, determinism::in,
-	int::in, maybe(int)::in, maybe(label)::in, int::in,
-	trace_slot_info::in, bool::in,
+:- pred stack_layout__construct_proc_layout(bool::in, label::in,
+	determinism::in, maybe(rval)::in, int::in, maybe(int)::in,
+	maybe(label)::in, int::in, trace_slot_info::in, bool::in,
 	stack_layout_info::in, stack_layout_info::out) is det.
 
-stack_layout__construct_proc_layout(EntryLabel, Detism, StackSlots,
-		MaybeSuccipLoc, MaybeCallLabel, MaxTraceReg, TraceSlotInfo,
-		ForceProcIdLayout) -->
+stack_layout__construct_proc_layout(Exported, EntryLabel, Detism, SCCId,
+		StackSlots, MaybeSuccipLoc, MaybeCallLabel, MaxTraceReg,
+		TraceSlotInfo, ForceProcIdLayout) -->
 	{
 		MaybeSuccipLoc = yes(Location0)
 	->
@@ -689,8 +693,8 @@ stack_layout__construct_proc_layout(EntryLabel, Detism, StackSlots,
 	->
 		{ code_util__extract_proc_label_from_label(EntryLabel,
 			ProcLabel) },
-		{ stack_layout__construct_procid_rvals(ProcLabel, IdRvals,
-			IdArgTypes) },
+		{ stack_layout__construct_procid_rvals(ProcLabel, SCCId,
+			IdRvals, IdArgTypes) },
 		stack_layout__construct_trace_layout(MaybeCallLabel,
 			MaxTraceReg, TraceSlotInfo, TraceRvals, TraceArgTypes),
 		{ list__append(IdRvals, TraceRvals, IdTraceRvals) },
@@ -701,11 +705,6 @@ stack_layout__construct_proc_layout(EntryLabel, Detism, StackSlots,
 		{ IdTraceArgTypes = initial([1 - yes(integer)], none) }
 	),
 
-	{ Exported = no },	% XXX With the new profiler, we will need to
-				% set this to `yes' if the profiling option
-				% is given and if the procedure is exported.
-				% Beware however that linkage/2 in llds_out.m
-				% assumes that this is `no'.
 	{ list__append(TraversalRvals, IdTraceRvals, Rvals) },
 	{ ArgTypes = initial(TraversalArgTypes, IdTraceArgTypes) },
 	stack_layout__get_module_name(ModuleName),
@@ -767,10 +766,19 @@ stack_layout__construct_trace_layout(MaybeCallLabel, MaxTraceReg,
 
 %---------------------------------------------------------------------------%
 
-:- pred stack_layout__construct_procid_rvals(proc_label::in,
+:- pred stack_layout__construct_procid_rvals(proc_label::in, maybe(rval)::in,
 	list(maybe(rval))::out, initial_arg_types::out) is det.
 
-stack_layout__construct_procid_rvals(ProcLabel, Rvals, ArgTypes) :-
+stack_layout__construct_procid_rvals(ProcLabel, SCCId0, Rvals, ArgTypes) :-
+	(
+		SCCId0 = yes(_),
+		SCCIdElem = [SCCId0],
+		SCCIdElemType = [1 - no]
+	;
+		SCCId0 = no,
+		SCCIdElem = [],
+		SCCIdElemType = []
+	),
 	(
 		ProcLabel = proc(DefModule, PredFunc, DeclModule,
 			PredName, Arity, ProcId),
@@ -784,9 +792,10 @@ stack_layout__construct_procid_rvals(ProcLabel, Rvals, ArgTypes) :-
 				yes(const(string_const(DefModuleString))),
 				yes(const(string_const(PredName))),
 				yes(const(int_const(Arity))),
-				yes(const(int_const(Mode)))
+				yes(const(int_const(Mode)))|
+				SCCIdElem
 			],
-		ArgTypes = [4 - no, 2 - yes(int_least16)]
+		ArgTypes = [4 - no, 2 - yes(int_least16)|SCCIdElemType]
 	;
 		ProcLabel = special_proc(DefModule, PredName, TypeModule,
 			TypeName, Arity, ProcId),
@@ -799,9 +808,10 @@ stack_layout__construct_procid_rvals(ProcLabel, Rvals, ArgTypes) :-
 				yes(const(string_const(DefModuleString))),
 				yes(const(string_const(PredName))),
 				yes(const(int_const(Arity))),
-				yes(const(int_const(Mode)))
+				yes(const(int_const(Mode)))|
+				SCCIdElem
 			],
-		ArgTypes = [4 - no, 2 - yes(int_least16)]
+		ArgTypes = [4 - no, 2 - yes(int_least16)|SCCIdElemType]
 	).
 
 :- pred stack_layout__represent_pred_or_func(pred_or_func::in, int::out) is det.
@@ -1246,21 +1256,39 @@ stack_layout__construct_liveval_name_rvals(var_info(_, LiveValueType),
 	% with runtime/mercury_ho_call.h, which contains macros to access
 	% the data structures we build here.
 
-stack_layout__construct_closure_layout(ProcLabel, ClosureLayoutInfo,
-		Rvals, ArgTypes, CNum0, CNum) :-
-	stack_layout__construct_procid_rvals(ProcLabel, ProcIdRvals,
-		ProcIdTypes),
+stack_layout__construct_closure_layout(UsingStackLayouts, ProcLabel, SCCId,
+		ClosureLayoutInfo, Rvals, ArgTypes, CNum0, CNum) :-
+	(
+		ProcLabel = proc(_, _, ModuleName, _, _, _)
+	;
+		ProcLabel = special_proc(_, _, ModuleName, _, _, _)
+	),
+	( UsingStackLayouts = yes ->
+		ProcIdRval = c_func(data_ptr, "MR_ENTRY_LAYOUT_ADDRESS",
+			[data_ptr - const(data_addr_const(
+				data_addr(ModuleName,
+				proc_layout(exported(ProcLabel)))
+			))], static),
+		CNum1 = CNum0
+	;
+		stack_layout__construct_procid_rvals(ProcLabel, SCCId,
+			ProcIdRvals, ProcIdTypes),
+		ProcIdRval = create(0, ProcIdRvals,
+			initial(ProcIdTypes, none), must_be_static,
+			CNum0, "proc_layout_vector", no),
+		CNum1 = CNum0 + 1
+	),
 	ClosureLayoutInfo = closure_layout_info(ClosureArgs,
 		TVarLocnMap),
 	stack_layout__construct_closure_arg_rvals(ClosureArgs,
-		ClosureArgRvals, ClosureArgTypes, CNum0, CNum1),
+		ClosureArgRvals, ClosureArgTypes, CNum1, CNum2),
 	stack_layout__construct_tvar_vector(TVarLocnMap, TVarVectorRval,
-		CNum1, CNum),
+		CNum2, CNum),
 	TVarVectorRvals = [yes(TVarVectorRval)],
 	TVarVectorTypes = [1 - yes(data_ptr)],
 	list__append(TVarVectorRvals, ClosureArgRvals, LayoutRvals),
-	list__append(ProcIdRvals, LayoutRvals, Rvals),
-	ArgTypes = initial(ProcIdTypes, initial(TVarVectorTypes,
+	Rvals = [yes(ProcIdRval)|LayoutRvals],
+	ArgTypes = initial([1 - yes(data_ptr)], initial(TVarVectorTypes,
 		initial(ClosureArgTypes, none))).
 
 :- pred stack_layout__construct_closure_arg_rvals(list(closure_arg_info)::in,
@@ -1427,6 +1455,9 @@ stack_layout__represent_lval(sp, Word) :-
 
 stack_layout__represent_lval(temp(_, _), _) :-
 	error("stack_layout: continuation live value stored in temp register").
+
+stack_layout__represent_lval(global(_, _), _) :-
+	error("stack_layout: continuation live value stored in global").
 
 stack_layout__represent_lval(succip(_), _) :-
 	error("stack_layout: continuation live value stored in fixed slot").

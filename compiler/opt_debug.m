@@ -542,6 +542,8 @@ opt_debug__dump_vnlval(vn_field(MT, N, F), Str) :-
 opt_debug__dump_vnlval(vn_mem_ref(N), Str) :-
 	string__int_to_string(N, N_str),
 	string__append_list(["vn_mem_ref(", N_str, ")"], Str).
+opt_debug__dump_vnlval(vn_global(_Type, Name), Str) :-
+	string__append_list(["vn_global(", Name, ")"], Str).
 
 opt_debug__dump_vnrval(vn_origlval(Vnlval), Str) :-
 	opt_debug__dump_vnlval(Vnlval, Lval_str),
@@ -581,6 +583,14 @@ opt_debug__dump_vnrval(vn_heap_addr(B, T, N), Str) :-
 	string__int_to_string(N, N_str),
 	string__append_list(["vn_heap_addr(", B_str, ", ", T_str, ", ",
 		N_str, ")"], Str).
+opt_debug__dump_vnrval(vn_c_func(_RetType, Name, Args, _Static), Str) :-
+	list__map(lambda([Arg::in, ArgStr::out] is det, (
+		Arg = _Type - ArgRval,
+		opt_debug__dump_rval(ArgRval, ArgRvalStr0),
+		string__append(ArgRvalStr0, ", ", ArgStr)
+	)), Args, ArgStrs),
+	list__append(ArgStrs, [")"], RestArgs),
+	string__append_list([Name, "("|RestArgs], Str).
 
 opt_debug__dump_lval(reg(Type, Num), Str) :-
 	opt_debug__dump_reg(Type, Num, R_str),
@@ -631,6 +641,8 @@ opt_debug__dump_lval(lvar(_), Str) :-
 opt_debug__dump_lval(temp(Type, Num), Str) :-
 	opt_debug__dump_reg(Type, Num, R_str),
 	string__append_list(["temp(", R_str, ")"], Str).
+opt_debug__dump_lval(global(_Type, Name), Str) :-
+	string__append_list(["global(", Name, ")"], Str).
 opt_debug__dump_lval(mem_ref(R), Str) :-
 	opt_debug__dump_rval(R, R_str),
 	string__append_list(["mem_ref(", R_str, ")"], Str).
@@ -676,6 +688,14 @@ opt_debug__dump_rval(binop(O, N1, N2), Str) :-
 opt_debug__dump_rval(mem_addr(M), Str) :-
 	opt_debug__dump_mem_ref(M, M_str),
 	string__append_list(["mem_addr(", M_str, ")"], Str).
+opt_debug__dump_rval(c_func(_RetType, Name, Args, _Static), Str) :-
+	list__map(lambda([Arg::in, ArgStr::out] is det, (
+		Arg = _Type - Rval,
+		opt_debug__dump_rval(Rval, ArgStr0),
+		string__append(ArgStr0, ", ", ArgStr)
+	)), Args, ArgStrs),
+	list__append(ArgStrs, [")"], EndStrs),
+	string__append_list([Name, "("|EndStrs], Str).
 
 opt_debug__dump_rvals([], "").
 opt_debug__dump_rvals([Rval | Rvals], Str) :-
@@ -732,6 +752,9 @@ opt_debug__dump_data_addr(rtti_addr(RttiTypeId, DataName), Str) :-
 opt_debug__dump_data_name(common(N), Str) :-
 	string__int_to_string(N, N_str),
 	string__append("common", N_str, Str).
+opt_debug__dump_data_name(scc_id(N), Str) :-
+	string__int_to_string(N, N_str),
+	string__append("scc_id", N_str, Str).
 opt_debug__dump_data_name(base_typeclass_info(ClassId, InstanceNum), Str) :-
 	llds_out__make_base_typeclass_info_name(ClassId, InstanceNum, Str).
 opt_debug__dump_data_name(module_layout, "module_layout").
@@ -965,7 +988,7 @@ opt_debug__dump_instr(computed_goto(Rval, Labels), Str) :-
 	opt_debug__dump_rval(Rval, R_str),
 	opt_debug__dump_labels(Labels, L_str),
 	string__append_list(["computed_goto(", R_str, ", ", L_str, ")"], Str).
-opt_debug__dump_instr(c_code(Code), Str) :-
+opt_debug__dump_instr(c_code(Code, _), Str) :-
 	string__append_list(["c_code(", Code, ")"], Str).
 opt_debug__dump_instr(if_val(Rval, CodeAddr), Str) :-
 	opt_debug__dump_rval(Rval, R_str),

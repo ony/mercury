@@ -403,7 +403,8 @@ middle_rec__find_used_registers_instr(label(_), Used, Used).
 middle_rec__find_used_registers_instr(goto(_), Used, Used).
 middle_rec__find_used_registers_instr(computed_goto(Rval, _), Used0, Used) :-
 	middle_rec__find_used_registers_rval(Rval, Used0, Used).
-middle_rec__find_used_registers_instr(c_code(_), Used, Used).
+middle_rec__find_used_registers_instr(c_code(_, RVals), Used0, Used) :-
+	foldl(middle_rec__find_used_registers_rval, RVals, Used0, Used).
 middle_rec__find_used_registers_instr(if_val(Rval, _), Used0, Used) :-
 	middle_rec__find_used_registers_rval(Rval, Used0, Used).
 middle_rec__find_used_registers_instr(incr_hp(Lval, _, Rval, _), Used0, Used) :-
@@ -514,6 +515,13 @@ middle_rec__find_used_registers_rval(Rval, Used0, Used) :-
 	;
 		Rval = mem_addr(MemRef),
 		middle_rec__find_used_registers_mem_ref(MemRef, Used0, Used)
+	;
+		Rval = c_func(_, _, Args, _),
+		list__foldl(lambda([Arg::in, Used1::di, Used2::uo] is det, (
+			Arg = _Type - ArgRval,
+			middle_rec__find_used_registers_rval(ArgRval,
+				Used1, Used2)
+		)), Args, Used0, Used)
 	).
 
 :- pred middle_rec__find_used_registers_mem_ref(mem_ref, set(int), set(int)).

@@ -744,6 +744,12 @@ vn_flush__vn_value(Vn, Srcs, Forbidden, Rval, VnTables0, VnTables,
 			VnTables0, VnTables, Templocs0, Templocs, Params,
 			Instrs),
 		Rval = mem_addr(heap_ref(Rval1, Tag, Field))
+	;
+		Vnrval = vn_c_func(RT, Name, Args, St),
+		Rval = c_func(RT, Name, Args, St),
+		VnTables = VnTables0,
+		Templocs = Templocs0,
+		Instrs = []
 	).
 
 %-----------------------------------------------------------------------------%
@@ -957,6 +963,9 @@ vn_flush__hp_incr(Vn, Srcs, Forbidden, MaybeRval, VnTables0, VnTables,
 		;
 			Vnrval = vn_heap_addr(_, _, _),
 			error("heap_addr in calculation of new hp")
+		;
+			Vnrval = vn_c_func(_, _, _, _),
+			error("vn_c_func in calculation of new hp")
 		),
 		( Srcs = [SrcPrime | _] ->
 			Src = SrcPrime
@@ -1104,6 +1113,12 @@ vn_flush__access_path(Vnlval, Srcs, Forbidden, Lval, VnTables0, VnTables,
 			VnTables0, VnTables,
 			Templocs0, Templocs, Params, AccessInstrs),
 		Lval = mem_ref(Rval)
+	;
+		Vnlval = vn_global(Type, Glob),
+		Lval = global(Type, Glob),
+		VnTables = VnTables0,
+		Templocs = Templocs0,
+		AccessInstrs = []
 	).
 
 %-----------------------------------------------------------------------------%

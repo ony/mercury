@@ -741,6 +741,13 @@ jumpopt__short_labels_rval(lval(Lval0), Instrmap, lval(Lval)) :-
 	jumpopt__short_labels_lval(Lval0, Instrmap, Lval).
 jumpopt__short_labels_rval(var(_), _, _) :-
 	error("var rval in jumpopt__short_labels_rval").
+jumpopt__short_labels_rval(c_func(RetType, Name, TypeRvals0, Static),
+		Instrmap, c_func(RetType, Name, TypeRvals, Static)) :-
+	list__map(lambda([Pair0::in, Pair::out] is det, (
+		Pair0 = Type - RVal0,
+		jumpopt__short_labels_rval(RVal0, Instrmap, RVal),
+		Pair = Type - RVal
+	)), TypeRvals0, TypeRvals).
 jumpopt__short_labels_rval(
 		create(Tag, Rvals0, ArgTypes, StatDyn, Cell, Type, Reuse0),
 		Instrmap,
@@ -816,6 +823,7 @@ jumpopt__short_labels_lval(curfr, _, curfr).
 jumpopt__short_labels_lval(hp, _, hp).
 jumpopt__short_labels_lval(sp, _, sp).
 jumpopt__short_labels_lval(temp(T, N), _, temp(T, N)).
+jumpopt__short_labels_lval(global(N, T), _, global(N, T)).
 jumpopt__short_labels_lval(stackvar(N), _, stackvar(N)).
 jumpopt__short_labels_lval(framevar(N), _, framevar(N)).
 jumpopt__short_labels_lval(succip(Rval0), Instrmap, succip(Rval)) :-

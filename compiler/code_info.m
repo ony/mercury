@@ -38,6 +38,7 @@
 
 :- import_module code_util, code_exprn, llds_out, prog_out.
 :- import_module arg_info, type_util, mode_util, options.
+:- import_module profiling.
 
 :- import_module term, varset.
 :- import_module set, stack.
@@ -66,9 +67,10 @@
 		% outermost resumption point, and info about the non-fixed
 		% stack slots used for tracing purposes.
 :- pred code_info__init(bool, globals, pred_id, proc_id, proc_info,
-	follow_vars, module_info, int, resume_point_info,
+	follow_vars, module_info, int, scc_info, resume_point_info,
 	trace_slot_info, code_info).
-:- mode code_info__init(in, in, in, in, in, in, in, in, out, out, out) is det.
+:- mode code_info__init(in, in, in, in, in, in, in, in, in,
+	out, out, out) is det.
 
 		% Get the globals table.
 :- pred code_info__get_globals(globals, code_info, code_info).
@@ -134,6 +136,12 @@
 :- pred code_info__get_layout_info(map(label, internal_layout_info), 
 	code_info, code_info).
 :- mode code_info__get_layout_info(out, in, out) is det.
+
+:- pred code_info__get_scc_info(scc_info, code_info, code_info).
+:- mode code_info__get_scc_info(out, in, out) is det.
+
+:- pred code_info__set_scc_info(scc_info, code_info, code_info).
+:- mode code_info__set_scc_info(in, in, out) is det.
 
 		% Get the global static data structures that have
 		% been created during code generation and which do
@@ -207,9 +215,17 @@
 	code_info, code_info).
 :- mode code_info__get_temp_content_map(out, in, out) is det.
 
+:- pred code_info__get_maybe_deep_profiling_info(maybe(deep_profiling_info),
+		code_info, code_info).
+:- mode code_info__get_maybe_deep_profiling_info(out, in, out) is det.
+
 :- pred code_info__set_temp_content_map(map(lval, slot_contents),
 	code_info, code_info).
 :- mode code_info__set_temp_content_map(in, in, out) is det.
+
+:- pred code_info__set_maybe_deep_profiling_info(maybe(deep_profiling_info),
+		code_info, code_info).
+:- mode code_info__set_maybe_deep_profiling_info(in, in, out) is det.
 
 :- pred code_info__set_non_common_static_data(list(comp_gen_c_data),
 	code_info, code_info).
@@ -310,6 +326,14 @@
 				% which would make it impossible to describe
 				% to gc what the slot contains after the end
 				% of the branched control structure.
+		deep_profiling_info :: maybe(deep_profiling_info),
+				% Information about where in the stack frame
+				% for the current procedure, the data for
+				% updating the deep profiling structures
+				% is stored.
+		scc_info :: scc_info,
+				% Information about SCCs, etc used for
+				% deep profiling.
 		comp_gen_c_data :: list(comp_gen_c_data),
 				% Static data structures created for this
 				% procedure which do not need to be scanned
@@ -329,7 +353,8 @@
 %---------------------------------------------------------------------------%
 
 code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
-		ModuleInfo, CellCount, ResumePoint, TraceSlotInfo, CodeInfo) :-
+		ModuleInfo, CellCount, SCCInfo,
+		ResumePoint, TraceSlotInfo, CodeInfo) :-
 	proc_info_get_initial_instmap(ProcInfo, ModuleInfo, InstMap),
 	proc_info_liveness_info(ProcInfo, Liveness),
 	proc_info_headvars(ProcInfo, HeadVars),
@@ -383,6 +408,8 @@ code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
 		LayoutMap,
 		0,
 		TempContentMap,
+		no,
+		SCCInfo,
 		[],
 		-1
 	),
@@ -450,6 +477,10 @@ code_info__get_max_temp_slot_count(CI^stackslot_max, CI, CI).
 
 code_info__get_temp_content_map(CI^temp_contents, CI, CI).
 
+code_info__get_maybe_deep_profiling_info(CI^deep_profiling_info, CI, CI).
+
+code_info__get_scc_info(CI^scc_info, CI, CI).
+
 code_info__get_non_common_static_data(CI^comp_gen_c_data, CI, CI).
 
 code_info__get_max_reg_in_use_at_trace(CI^max_reg_used, CI, CI).
@@ -481,6 +512,10 @@ code_info__set_layout_info(LI, CI, CI^label_info := LI).
 code_info__set_max_temp_slot_count(TM, CI, CI^stackslot_max := TM).
 
 code_info__set_temp_content_map(CM, CI, CI^temp_contents := CM).
+
+code_info__set_maybe_deep_profiling_info(PI, CI, CI^deep_profiling_info := PI).
+
+code_info__set_scc_info(SI, CI, CI^scc_info := SI).
 
 code_info__set_non_common_static_data(CG, CI, CI^comp_gen_c_data := CG).
 
@@ -594,6 +629,34 @@ code_info__set_max_reg_in_use_at_trace(MR, CI, CI^max_reg_used := MR).
 	% optimized away.
 :- pred code_info__succip_is_used(code_info, code_info).
 :- mode code_info__succip_is_used(in, out) is det.
+
+:- type deep_profiling_info
+	--->	deep_profiling_info(
+			lval,	% the location where the pointer to the
+				% profiling structure for the current SCC
+				% is stored.
+			maybe(cycle_stuff)
+				% the saved SCC cycle_check value
+				% for the current procedure if it exists
+		).
+
+:- type cycle_stuff
+	--->	cycle_stuff(
+			mySCCId ::	rval,
+				% mySCCId denotes a pointer to the
+				% deep profiling structure describing
+				% the current procedure.
+			saveSlot ::	lval
+				% saveSlot denotes the place where the
+				% previous value of the 'current procedure'
+				% pointer is stored.
+		).
+
+:- pred code_info__get_deep_profiling_info(deep_profiling_info, code_info, code_info).
+:- mode code_info__get_deep_profiling_info(out, in, out) is det.
+
+:- pred code_info__set_deep_profiling_info(deep_profiling_info, code_info, code_info).
+:- mode code_info__set_deep_profiling_info(in, in, out) is det.
 
 :- pred code_info__add_trace_layout_for_label(label, term__context,
 	trace_port, goal_path, layout_label_info, code_info, code_info).
@@ -794,6 +857,15 @@ code_info__add_trace_layout_for_label(Label, Context, Port, Path, Layout) -->
 	},
 	code_info__set_layout_info(Internals).
 
+code_info__get_deep_profiling_info(PI) -->
+	code_info__get_maybe_deep_profiling_info(MPI),
+	(
+		{ MPI = yes(PI) }
+	;
+		{ MPI = no },
+		{ error("code_info__get_deep_profiling_info: no deep_profiling_info") }
+	).
+
 code_info__add_resume_layout_for_label(Label, LayoutInfo) -->
 	code_info__get_layout_info(Internals0),
 	{ Resume = yes(LayoutInfo) },
@@ -821,6 +893,9 @@ code_info__get_active_temps_data(Temps) -->
 	code_info__get_temp_content_map(TempContentMap),
 	{ map__select(TempContentMap, TempsInUse, TempsInUseContentMap) },
 	{ map__to_assoc_list(TempsInUseContentMap, Temps) }.
+
+code_info__set_deep_profiling_info(PI) -->
+	code_info__set_maybe_deep_profiling_info(yes(PI)).
 
 code_info__add_non_common_static_data(NonCommonData) -->
 	code_info__get_non_common_static_data(NonCommonDatas0),
@@ -878,11 +953,11 @@ code_info__remember_position(position_info(C), C, C).
 code_info__reset_to_position(position_info(PosCI), CurCI, NextCI) :-
 		% The static fields in PosCI and CurCI should be identical.
 	PosCI  = code_info(_,  _,  _,  _,  _,  _,  _,  _, 
-		LA, LB, LC, LD, LE, LF, _,  _,  _,  _,  _,  _,  _,  _ ),
+		LA, LB, LC, LD, LE, LF, _,  _,  _,  _,  _,  _, _, _, _, _),
 	CurCI  = code_info(SA, SB, SC, SD, SE, SF, SG, SH,
-		_,  _,  _,  _,  _,  _,  PA, PB, PC, PD, PE, PF, PG, PH),
+		_,  _,  _,  _,  _,  _,  PA, PB, PC, PD, PE, PF, PG, PH, PI, PJ),
 	NextCI = code_info(SA, SB, SC, SD, SE, SF, SG, SH,
-		LA, LB, LC, LD, LE, LF, PA, PB, PC, PD, PE, PF, PG, PH).
+		LA, LB, LC, LD, LE, LF, PA, PB, PC, PD, PE, PF, PG, PH, PI, PJ).
 
 code_info__reset_resume_known(BranchStart) -->
 	{ BranchStart = position_info(BranchStartCI) },
@@ -2219,7 +2294,12 @@ code_info__init_fail_info(CodeModel, MaybeFailVars, ResumePoint) -->
 		{ CurfrMaxfr = may_be_different }
 	;
 		{ CodeModel = model_non },
+		code_info__get_globals(Globals),
+		{ globals__lookup_bool_option(Globals, profile_deep, ProfD) },
 		( { MaybeFailVars = yes(_) } ->
+			code_info__get_next_label(ResumeLabel),
+			{ ResumeAddress = label(ResumeLabel) }
+		; { ProfD = yes } ->
 			code_info__get_next_label(ResumeLabel),
 			{ ResumeAddress = label(ResumeLabel) }
 		;
@@ -2328,12 +2408,16 @@ code_info__make_singleton_sets([V - L | Rest0], [V - Rs | Rest]) :-
 	% point), or that it would be more efficient to put the two labels
 	% in the other order (e.g. because the code after the resumption point
 	% needs most of the variables in their stack slots).
+	%
+	% If deep profiling is enabled, we need to reset both the current
+	% proc (in case we get a SIG_PROF) and the current scc, so that
+	% subsequent calls get hung off the right point.
 
 code_info__generate_resume_point(ResumePoint, Code) -->
 	(
 		{ ResumePoint = orig_only(Map1, Addr1) },
 		{ extract_label_from_code_addr(Addr1, Label1) },
-		{ Code = node([
+		{ AdjustCode = node([
 			label(Label1) -
 				"orig only failure continuation"
 		]) },
@@ -2341,7 +2425,7 @@ code_info__generate_resume_point(ResumePoint, Code) -->
 	;
 		{ ResumePoint = stack_only(Map1, Addr1) },
 		{ extract_label_from_code_addr(Addr1, Label1) },
-		{ Code = node([
+		{ AdjustCode = node([
 			label(Label1) -
 				"stack only failure continuation"
 		]) },
@@ -2364,7 +2448,7 @@ code_info__generate_resume_point(ResumePoint, Code) -->
 				"orig failure continuation after stack"
 		]) },
 		code_info__set_var_locations(Map2),
-		{ Code = tree(Label1Code, tree(PlaceCode, Label2Code)) }
+		{ AdjustCode = tree(Label1Code, tree(PlaceCode, Label2Code)) }
 	;
 		{ ResumePoint = orig_and_stack(Map1, Addr1, Map2, Addr2) },
 		{ extract_label_from_code_addr(Addr1, Label1) },
@@ -2382,8 +2466,18 @@ code_info__generate_resume_point(ResumePoint, Code) -->
 		]) },
 		code_info__set_var_locations(Map2),
 		code_info__generate_resume_layout(Label2, Map2),
-		{ Code = tree(Label1Code, tree(PlaceCode, Label2Code)) }
-	).
+		{ AdjustCode = tree(Label1Code, tree(PlaceCode, Label2Code)) }
+	),
+	code_info__get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, profile_deep, ProfDeep) },
+	(
+		{ ProfDeep = no },
+		{ ResetCode = empty }
+	;
+		{ ProfDeep = yes },
+		profiling__resume_code(ResetCode)
+	),
+	{ Code = tree(AdjustCode, ResetCode) }.
 
 :- pred extract_label_from_code_addr(code_addr::in, label::out) is det.
 

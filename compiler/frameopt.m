@@ -536,7 +536,7 @@ block_needs_frame(Instrs, NeedsFrame) :-
 			;
 				Uinstr = mkframe(_, _)
 			;
-				Uinstr = c_code(_)
+				Uinstr = c_code(_, _)
 			;
 				Uinstr = pragma_c(_, _, MayCallMercury,
 					_, MaybeLayout, _, NeedStack),

@@ -450,8 +450,8 @@ trace__prepare_for_call(TraceCode) -->
 			ResetFromFullStmt = "MR_trace_from_full = TRUE;\n"
 		),
 		TraceCode = node([
-			c_code(ResetFromFullStmt) - "",
-			c_code(ResetDepthStmt) - ""
+			c_code(ResetFromFullStmt, []) - "",
+			c_code(ResetDepthStmt, []) - ""
 		])
 	;
 		TraceCode = empty
