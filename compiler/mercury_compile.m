@@ -43,7 +43,7 @@
 :- import_module check_typeclass, intermod, trans_opt, table_gen, (lambda).
 :- import_module type_ctor_info, termination, higher_order, accumulator.
 :- import_module inlining, deforest, dnf, magic, dead_proc_elim.
-:- import_module unused_args, unneeded_code, lco.
+:- import_module unused_args, unneeded_code, lco, structure_reuse.
 
 	% the LLDS back-end
 :- import_module saved_vars, liveness.
@@ -1662,6 +1662,10 @@ mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS ) -->
 		maybe_write_string(Verbose, "% Structure-reuse analysis...\n"),
 		maybe_flush_output(Verbose),
 		sr_run__structure_reuse_pass( HLDS0, HLDS), 
+
+			% XXX plug in the new structure reuse framework
+		structure_reuse(HLDS0, _),
+
 		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
 	;
