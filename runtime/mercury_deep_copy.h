@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2000 The University of Melbourne.
+** Copyright (C) 1997-2000, 2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -11,6 +11,7 @@
 
 #include "mercury_types.h"	/* for `MR_Word' */
 #include "mercury_type_info.h"	/* for `MR_TypeInfo' */
+#include "mercury_conf.h"	/* for `MR_CONSERVATIVE_GC' */
 
 /*
 ** MR_deep_copy:
@@ -64,7 +65,7 @@
 **	MR_deep_copy to do both.
 */
 
-MR_Word MR_deep_copy(const MR_Word *data_ptr, MR_TypeInfo type_info, 
+MR_Word MR_deep_copy(MR_Word data, MR_TypeInfo type_info, 
 	const MR_Word *lower_limit, const MR_Word *upper_limit);
 
 /*
@@ -92,8 +93,15 @@ MR_Word MR_deep_copy(const MR_Word *data_ptr, MR_TypeInfo type_info,
 **	(which is possible with normal MR_deep_copy).
 */
 
-MR_Word MR_agc_deep_copy(MR_Word *data_ptr, MR_TypeInfo type_info, 
+MR_Word MR_agc_deep_copy(MR_Word data, MR_TypeInfo type_info, 
 	const MR_Word *lower_limit, const MR_Word *upper_limit);
+
+/*
+** This holds a bitmap used by MR_agc_deep_copy() to record which
+** objects have already been copied and hence contain forwarding
+** pointers.  It gets initialized by MR_garbage_collect().
+*/
+extern MR_Word *MR_has_forwarding_pointer;
 
 /*
 ** MR_make_permanent:
@@ -128,7 +136,7 @@ MR_Word MR_agc_deep_copy(MR_Word *data_ptr, MR_TypeInfo type_info,
 **	"heap," but don't see how to.
 */
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   #define MR_make_long_lived(term, type_info, lower_limit) (term)
 #else
   extern	MR_Word MR_make_long_lived(MR_Word term, MR_TypeInfo type_info,

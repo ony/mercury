@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2000 The University of Melbourne.
+** Copyright (C) 2000-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -62,13 +62,14 @@ exist_func(const MR_TypeInfoParams type_info_params,
 		return MR_pseudo_type_info_is_ground(pseudo_type_info);
 	}
 
-	if (MR_type_ctor_rep_is_variable_arity(type_ctor_info->type_ctor_rep))
+	if (MR_type_ctor_rep_is_variable_arity(
+		MR_type_ctor_rep(type_ctor_info)))
 	{
-		arity = MR_PSEUDO_TYPEINFO_GET_HIGHER_ORDER_ARITY(
+		arity = MR_PSEUDO_TYPEINFO_GET_VAR_ARITY_ARITY(
 			pseudo_type_info);
 		start_region_size = 2;
 	} else {
-		arity = type_ctor_info->arity;
+		arity = type_ctor_info->MR_type_ctor_arity;
 		start_region_size = 1;
 	}
 

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2000, 2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -24,31 +24,31 @@
 
 #include "mercury_imp.h"
 
-#ifdef HAVE_UNISTD_H
+#ifdef MR_HAVE_UNISTD_H
   #include <unistd.h>
 #endif
 
 #include <stdio.h>
 #include <string.h>
 
-#ifdef HAVE_SYS_SIGINFO
+#ifdef MR_HAVE_SYS_SIGINFO_H
   #include <sys/siginfo.h>
 #endif 
 
-#ifdef HAVE_SYS_SIGNAL
+#ifdef MR_HAVE_SYS_SIGNAL_H
   /* on FREEBSD we need to include <sys/signal.h> before <ucontext.h> */
   #include <sys/signal.h>
 #endif
 
-#ifdef	HAVE_MPROTECT
+#ifdef	MR_HAVE_MPROTECT
   #include <sys/mman.h>
 #endif
 
-#ifdef	HAVE_UCONTEXT
+#ifdef	MR_HAVE_UCONTEXT_H
   #include <ucontext.h>
 #endif
 
-#ifdef	HAVE_SYS_UCONTEXT
+#ifdef	MR_HAVE_SYS_UCONTEXT_H
   #include <sys/ucontext.h>
 #endif
 
@@ -64,9 +64,9 @@
 
 /*
 ** MR_PROTECTPAGE is now defined if we have some sort of mprotect like
-** functionality, all checks for HAVE_MPROTECT should now use MR_PROTECTPAGE.
+** functionality, all checks for MR_HAVE_MPROTECT should now use MR_PROTECTPAGE.
 */
-#if defined(HAVE_MPROTECT)
+#if defined(MR_HAVE_MPROTECT)
 int
 MR_protect_pages(void *addr, size_t size, int prot_flags)
 {
@@ -129,15 +129,16 @@ memalign(size_t unit, size_t size)
 				(unsigned long) GetLastError());
 	}
 
-  #ifdef CONSERVATIVE_GC
-	if (ptr != NULL)
+  #ifdef MR_CONSERVATIVE_GC
+	if (ptr != NULL) {
 		GC_add_roots((char *)ptr, (char *)ptr + size);
+	}
   #endif
 	return ptr;
 }
-#elif defined(CONSERVATIVE_GC)
+#elif defined(MR_CONSERVATIVE_GC)
   #define	memalign(a,s)   GC_MALLOC_UNCOLLECTABLE(s)
-#elif defined(HAVE_MEMALIGN)
+#elif defined(MR_HAVE_MEMALIGN)
   extern void	*memalign(size_t, size_t);
 #else
   #define	memalign(a,s)	malloc(s)
@@ -158,7 +159,7 @@ memalign(size_t unit, size_t size)
 */
 #ifdef MR_PROTECTPAGE
 
-  #ifdef CONSERVATIVE_GC
+  #ifdef MR_CONSERVATIVE_GC
     /*
     ** The conservative garbage collectors scans through
     ** all these areas, so we need to allow reads.
@@ -189,7 +190,7 @@ unsigned long	MR_num_uses[MR_MAX_RN];
 static MR_MemoryZone *used_memory_zones = NULL;
 static MR_MemoryZone *free_memory_zones = NULL;
 #ifdef	MR_THREAD_SAFE
-  static MercuryLock *free_memory_zones_lock;
+  static MercuryLock free_memory_zones_lock;
 #endif
 
 static void		MR_init_offsets(void);
@@ -215,8 +216,7 @@ MR_init_zones()
 {
 
 #ifdef  MR_THREAD_SAFE
-	free_memory_zones_lock = MR_GC_NEW(MercuryLock);
-	pthread_mutex_init(free_memory_zones_lock, MR_MUTEX_ATTR);
+	pthread_mutex_init(&free_memory_zones_lock, MR_MUTEX_ATTR);
 #endif
 
 	MR_init_offsets();
@@ -251,7 +251,7 @@ MR_get_zone(void)
 	** unlink the first zone on the free-list,
 	** link it onto the used-list and return it.
 	*/
-	MR_LOCK(free_memory_zones_lock, "get_zone");
+	MR_LOCK(&free_memory_zones_lock, "get_zone");
 	if (free_memory_zones == NULL) {
 		zone = MR_GC_NEW(MR_MemoryZone);
 	} else {
@@ -261,7 +261,7 @@ MR_get_zone(void)
 
 	zone->next = used_memory_zones;
 	used_memory_zones = zone;
-	MR_UNLOCK(free_memory_zones_lock, "get_zone");
+	MR_UNLOCK(&free_memory_zones_lock, "get_zone");
 
 	return zone;
 }
@@ -279,7 +279,7 @@ MR_unget_zone(MR_MemoryZone *zone)
 	** Find the zone on the used list, and unlink it from
 	** the list, then link it onto the start of the free-list.
 	*/
-	MR_LOCK(free_memory_zones_lock, "unget_zone");
+	MR_LOCK(&free_memory_zones_lock, "unget_zone");
 	for(prev = NULL, tmp = used_memory_zones;
 		tmp && tmp != zone; prev = tmp, tmp = tmp->next) 
 	{
@@ -296,7 +296,7 @@ MR_unget_zone(MR_MemoryZone *zone)
 
 	zone->next = free_memory_zones;
 	free_memory_zones = zone;
-	MR_UNLOCK(free_memory_zones_lock, "unget_zone");
+	MR_UNLOCK(&free_memory_zones_lock, "unget_zone");
 }
 
 #endif
@@ -326,7 +326,7 @@ MR_next_offset(void)
 MR_MemoryZone *
 MR_create_zone(const char *name, int id, size_t size,
 	size_t offset, size_t redsize,
-	bool ((*handler)(MR_Word *addr, MR_MemoryZone *zone, void *context)))
+	MR_bool ((*handler)(MR_Word *addr, MR_MemoryZone *zone, void *context)))
 {
 	MR_Word		*base;
 	size_t		total_size;
@@ -424,6 +424,9 @@ MR_construct_zone(const char *name, int id, MR_Word *base,
 	}
 #endif	/* MR_PROTECTPAGE */
 
+#if defined(MR_NATIVE_GC) && defined(MR_HIGHLEVEL_CODE)
+	zone->gc_threshold = (char *) zone->MR_zone_end - MR_heap_margin_size;
+#endif
 
 	return zone;
 } /* end MR_construct_zone() */

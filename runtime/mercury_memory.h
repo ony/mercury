@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1994-2001 The University of Melbourne.
+** Copyright (C) 1994-2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -23,10 +23,16 @@
 #include <stddef.h>		/* for size_t */
 
 #include "mercury_types.h"	/* for MR_Word */
-#include "mercury_std.h"	/* for bool */
-#include "mercury_conf.h"	/* for CONSERVATIVE_GC, etc. */
-#ifdef CONSERVATIVE_GC
-  #include "gc.h"		/* for GC_FREE */
+#include "mercury_std.h"	/* for MR_bool */
+#include "mercury_conf.h"	/* for MR_CONSERVATIVE_GC, etc. */
+
+#if defined(MR_CONSERVATIVE_GC)
+  #if defined(MR_MPS_GC)
+    #include "mercury_mps.h"	/* for GC_FREE */
+  #endif
+  #if defined(MR_BOEHM_GC)
+    #include "gc.h"		/* for GC_FREE */
+  #endif
 #endif
 
 /*
@@ -44,7 +50,7 @@
 extern	void	MR_init_memory(void);
 extern	void	MR_init_heap(void);
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   extern void	MR_init_conservative_GC(void);
 #endif
 
@@ -80,6 +86,7 @@ extern	void	*MR_malloc(size_t n);
 extern	void	*MR_realloc(void *old, size_t n);
 
 #define MR_free(ptr) free(ptr)
+#define MR_free_func free
 
 #define MR_NEW(type) \
 	((type *) MR_malloc(sizeof(type)))
@@ -148,7 +155,7 @@ extern	void	*MR_GC_realloc(void *ptr, size_t num_bytes);
 #define MR_GC_RESIZE_ARRAY(ptr, type, num) \
 	((type *) MR_GC_realloc((ptr), (num) * sizeof(type)))
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   #define MR_GC_free(ptr) GC_FREE(ptr)
 #else
   #define MR_GC_free(ptr) free(ptr)
@@ -180,7 +187,7 @@ extern	size_t          MR_page_size;
 ** contains pointers to the Mercury heap.  This information is only
 ** used for agc grades.
 */
-#ifdef NATIVE_GC
+#ifdef MR_NATIVE_GC
   #define MR_add_root(root_ptr, type_info) \
 	MR_agc_add_root((root_ptr), (type_info))
 #else

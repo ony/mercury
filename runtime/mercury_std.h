@@ -1,12 +1,12 @@
 /*
-** Copyright (C) 1993-1995, 1997-2001 The University of Melbourne.
+** Copyright (C) 1993-1995, 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
 
 /*
 ** std.h - "standard" [sic] definitions for C:
-**	bool, TRUE, FALSE, min(), max(), streq(), etc.
+**	MR_bool, MR_TRUE, MR_FALSE, MR_min(), MR_max(), MR_streq(), etc.
 */
 
 #ifndef MERCURY_STD_H
@@ -27,33 +27,10 @@
   #include "safe-ctype.h"
 #endif
 
-#if 0
-#ifndef	reg
-#define	reg		register
-#endif
-#endif
+typedef	char		MR_bool;
 
-#ifdef IN_GCC
-  /*
-  ** We need to make sure that we pick up GCC's definition of bool, 
-  ** to ensure that we don't define `bool' below.  Otherwise we get
-  ** conflicts because some declarations use the <stdbool.h> definition
-  ** of bool (an enum), and some use our definition (a #define for char)
-  */
-  #include "config.h"
-  #include "system.h"
-#endif
-
-#ifndef	bool
-#define	bool		char
-#endif
-
-#ifndef max
-#define	max(a, b)	((a) > (b) ? (a) : (b))
-#endif
-#ifndef min
-#define	min(a, b)	((a) < (b) ? (a) : (b))
-#endif
+#define	MR_max(a, b)	((a) > (b) ? (a) : (b))
+#define	MR_min(a, b)	((a) < (b) ? (a) : (b))
 
 /*
 ** The ANSI C isalnum(), etc. macros require that the argument be cast to
@@ -70,21 +47,17 @@
 #define	MR_isspace(c)		isspace((unsigned char) (c))
 #define	MR_isalnumunder(c)	(isalnum((unsigned char) (c)) || c == '_')
 
-#define streq(s1, s2)		(strcmp(s1, s2) == 0)
-#define strdiff(s1, s2)		(strcmp(s1, s2) != 0)
-#define strtest(s1, s2)		(strcmp(s1, s2))
-#define strneq(s1, s2, n)	(strncmp(s1, s2, n) == 0)
-#define strndiff(s1, s2, n)	(strncmp(s1, s2, n) != 0)
-#define strntest(s1, s2, n)	(strncmp(s1, s2, n))
+#define MR_streq(s1, s2)	(strcmp(s1, s2) == 0)
+#define MR_strdiff(s1, s2)	(strcmp(s1, s2) != 0)
+#define MR_strtest(s1, s2)	(strcmp(s1, s2))
+#define MR_strneq(s1, s2, n)	(strncmp(s1, s2, n) == 0)
+#define MR_strndiff(s1, s2, n)	(strncmp(s1, s2, n) != 0)
+#define MR_strntest(s1, s2, n)	(strncmp(s1, s2, n))
 
-#define	ungetchar(c)		ungetc(c, stdin)
+#define	MR_ungetchar(c)		ungetc(c, stdin)
 
-#ifndef	TRUE
-#define	TRUE		1
-#endif
-#ifndef	FALSE
-#define	FALSE		0
-#endif
+#define	MR_TRUE		1
+#define	MR_FALSE	0
 
 /*
 ** For speed, turn assertions off,
@@ -126,20 +99,77 @@
 
 /*---------------------------------------------------------------------------*/
 
-/* Macros for inlining */
+/*
+** Macros for inlining.
+**
+** Inlining is treated differently by C++, C99, and GNU C.
+** We also need to make it work for C89, which doesn't have
+** any explicit support for inlining.
+**
+** To make a function inline, you should declare it as either
+** `MR_INLINE', `MR_EXTERN_INLINE', or `MR_STATIC_INLINE'.
+** You should not use `extern' or `static' in combination with these macros.
+**
+** `MR_STATIC_INLINE' should be used for functions that are defined and
+** used only in a single translation unit (i.e. a single C source file).
+**
+** If the inline function is to be used from more than one translation unit,
+** then the function definition (not just declaration) should go in
+** a header file, and you should use either MR_INLINE or MR_EXTERN_INLINE;
+** the difference between these two is explained below.
+**
+** MR_INLINE creates an inline definition of the function, and
+** if needed it also creates an out-of-line definition of the function
+** for the current translation unit, in case the function can't be inlined
+** (e.g. because the function's address was taken, or because the
+** file is compiled with the C compiler's optimizations turned off.)
+** For C++, these definitions will be shared between different
+** compilation units, but for C, each compilation unit that needs
+** an out-of-line definition will gets its own definition.
+** Generally that is not much of a problem, but if the C compiler
+** doesn't optimize away such out-of-line definitions when they're
+** not needed, this can get quite bad.
+**
+** MR_EXTERN_INLINE creates an inline definition of the function,
+** but it does NOT guarantee to create an out-of-line definition,
+** even if one might be needed.  You need to explicitly provide
+** an out-of-line definition for the function in one of the C files.
+** This should be done using the MR_OUTLINE_DEFN(decl,body) macro,
+** e.g. `MR_OUTLINE_DEFN(int foo(int x), { return x; })'.
+**
+** The advantage of MR_EXTERN_INLINE is that it is more code-space-efficient,
+** especially in the case where you are compiling with C compiler optimizations
+** turned off.
+**
+** It is OK to take the address of an inline function,
+** but you should not assume that the address of a function declared
+** MR_INLINE or MR_EXTERN_INLINE will be the same in all translation units.
+*/
 
-#if defined(__GNUC__) 
+#if defined(__cplusplus)
+  /* C++ */
+  #define MR_STATIC_INLINE		static inline
+  #define MR_INLINE			inline
+  #define MR_EXTERN_INLINE		inline
+  #define MR_OUTLINE_DEFN(DECL,BODY)
+#elif defined(__GNUC__) 
   /* GNU C */
-  #define MR_INLINE __inline__
-  #define MR_EXTERN_INLINE extern __inline__
-#elif defined(__cplusplus) || __STDC_VERSION__ >= 199901
-  /* C++ or C99 */
-  #define MR_INLINE inline
-  #define MR_EXTERN_INLINE extern inline
+  #define MR_STATIC_INLINE		static __inline__
+  #define MR_INLINE			static __inline__
+  #define MR_EXTERN_INLINE		extern __inline__
+  #define MR_OUTLINE_DEFN(DECL,BODY)	DECL BODY
+#elif __STDC_VERSION__ >= 199901
+  /* C99 */
+  #define MR_STATIC_INLINE		static inline
+  #define MR_INLINE			static inline
+  #define MR_EXTERN_INLINE		inline
+  #define MR_OUTLINE_DEFN(DECL,BODY)	extern DECL;
 #else
   /* C89 */
-  #define MR_INLINE static
-  #define MR_EXTERN_INLINE static
+  #define MR_STATIC_INLINE		static
+  #define MR_INLINE			static
+  #define MR_EXTERN_INLINE		static
+  #define MR_OUTLINE_DEFN(DECL,BODY)
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -147,9 +177,9 @@
 /* A macro for declaring functions that never return */
 
 #if __GNUC__
-  #define NO_RETURN __attribute__((noreturn))
+  #define MR_NO_RETURN __attribute__((noreturn))
 #else
-  #define NO_RETURN
+  #define MR_NO_RETURN
 #endif
 
 /*---------------------------------------------------------------------------*/
@@ -229,6 +259,10 @@
 */
 #define MR_CHECK_EXPR_TYPE(expr, type) \
 	((void) sizeof(*(type *)NULL = (expr)))
+
+/*---------------------------------------------------------------------------*/
+
+#define MR_SORRY(msg) MR_fatal_error("Sorry, not yet implemented: " msg);
 
 /*---------------------------------------------------------------------------*/
 

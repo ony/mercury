@@ -3,7 +3,7 @@ INIT mercury_sys_init_scheduler_wrapper
 ENDINIT
 */
 /*
-** Copyright (C) 1995-2001 The University of Melbourne.
+** Copyright (C) 1995-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -29,13 +29,13 @@ ENDINIT
 MR_Context	*MR_runqueue_head;
 MR_Context	*MR_runqueue_tail;
 #ifdef	MR_THREAD_SAFE
-  MercuryLock	*MR_runqueue_lock;
-  MercuryCond	*MR_runqueue_cond;
+  MercuryLock	MR_runqueue_lock;
+  MercuryCond	MR_runqueue_cond;
 #endif
 
 MR_PendingContext	*MR_pending_contexts;
 #ifdef	MR_THREAD_SAFE
-  MercuryLock		*MR_pending_contexts_lock;
+  MercuryLock		MR_pending_contexts_lock;
 #endif
 
 /*
@@ -47,7 +47,7 @@ MR_PendingContext	*MR_pending_contexts;
 */
 static MR_Context *free_context_list = NULL;
 #ifdef	MR_THREAD_SAFE
-  static MercuryLock *free_context_list_lock;
+  static MercuryLock free_context_list_lock;
 #endif
 
 void
@@ -55,19 +55,15 @@ MR_init_thread_stuff(void)
 {
 #ifdef	MR_THREAD_SAFE
 
-	MR_runqueue_lock = MR_GC_NEW(MercuryLock);
-	pthread_mutex_init(MR_runqueue_lock, MR_MUTEX_ATTR);
+	pthread_mutex_init(&MR_runqueue_lock, MR_MUTEX_ATTR);
 
-	MR_runqueue_cond = MR_GC_NEW(MercuryCond);
-	pthread_cond_init(MR_runqueue_cond, MR_COND_ATTR);
+	pthread_cond_init(&MR_runqueue_cond, MR_COND_ATTR);
 
-	free_context_list_lock = MR_GC_NEW(MercuryLock);
-	pthread_mutex_init(free_context_list_lock, MR_MUTEX_ATTR);
+	pthread_mutex_init(&free_context_list_lock, MR_MUTEX_ATTR);
 
 	pthread_mutex_init(&MR_global_lock, MR_MUTEX_ATTR);
 
-	MR_pending_contexts_lock = MR_GC_NEW(MercuryLock);
-	pthread_mutex_init(MR_pending_contexts_lock, MR_MUTEX_ATTR);
+	pthread_mutex_init(&MR_pending_contexts_lock, MR_MUTEX_ATTR);
 
 	MR_KEY_CREATE(&MR_engine_base_key, NULL);
 
@@ -78,9 +74,9 @@ void
 MR_finalize_runqueue(void)
 {
 #ifdef	MR_THREAD_SAFE
-	pthread_mutex_destroy(MR_runqueue_lock);
-	pthread_cond_destroy(MR_runqueue_cond);
-	pthread_mutex_destroy(free_context_list_lock);
+	pthread_mutex_destroy(&MR_runqueue_lock);
+	pthread_cond_destroy(&MR_runqueue_cond);
+	pthread_mutex_destroy(&free_context_list_lock);
 #endif
 }
 
@@ -92,6 +88,8 @@ MR_init_context(MR_Context *c)
 #ifdef	MR_THREAD_SAFE
 	c->MR_ctxt_owner_thread = (MercuryThread) NULL;
 #endif
+
+#ifndef MR_HIGHLEVEL_CODE
 	c->MR_ctxt_succip = MR_ENTRY(MR_do_not_reached);
 
 	if (c->MR_ctxt_detstack_zone != NULL) {
@@ -116,7 +114,8 @@ MR_init_context(MR_Context *c)
 	** minus one word, to the base address to get the maxfr/curfr pointer
 	** for the first frame on the nondet stack.
 	*/
-	c->MR_ctxt_maxfr = c->MR_ctxt_nondetstack_zone->min + MR_NONDET_FIXED_SIZE - 1;
+	c->MR_ctxt_maxfr = c->MR_ctxt_nondetstack_zone->min +
+		MR_NONDET_FIXED_SIZE - 1;
 	c->MR_ctxt_curfr = c->MR_ctxt_maxfr;
 	MR_redoip_slot(c->MR_ctxt_curfr) = MR_ENTRY(MR_do_not_reached);
 	MR_redofr_slot(c->MR_ctxt_curfr) = NULL;
@@ -124,11 +123,12 @@ MR_init_context(MR_Context *c)
 	MR_succip_slot(c->MR_ctxt_curfr) = MR_ENTRY(MR_do_not_reached);
 	MR_succfr_slot(c->MR_ctxt_curfr) = NULL;
 
-#ifdef	MR_USE_MINIMAL_MODEL
+  #ifdef MR_USE_MINIMAL_MODEL
 	if (c->MR_ctxt_generatorstack_zone != NULL) {
 		MR_reset_redzone(c->MR_ctxt_generatorstack_zone);
 	} else {
-		c->MR_ctxt_generatorstack_zone = MR_create_zone("generatorstack", 0,
+		c->MR_ctxt_generatorstack_zone = MR_create_zone(
+			"generatorstack", 0,
 			MR_generatorstack_size, MR_next_offset(),
 			MR_generatorstack_zone_size, MR_default_handler);
 	}
@@ -142,7 +142,8 @@ MR_init_context(MR_Context *c)
 			MR_cutstack_zone_size, MR_default_handler);
 	}
 	c->MR_ctxt_cut_next = 0;
-#endif
+  #endif /* MR_USE_MINIMAL_MODEL */
+#endif /* !MR_HIGHLEVEL_CODE */
 
 #ifdef MR_USE_TRAIL
 	if (c->MR_ctxt_trail_zone != NULL) {
@@ -165,19 +166,21 @@ MR_create_context(void)
 {
 	MR_Context *c;
 
-	MR_LOCK(free_context_list_lock, "create_context");
+	MR_LOCK(&free_context_list_lock, "create_context");
 	if (free_context_list == NULL) {
-		MR_UNLOCK(free_context_list_lock, "create_context i");
+		MR_UNLOCK(&free_context_list_lock, "create_context i");
 		c = MR_GC_NEW(MR_Context);
+#ifndef MR_HIGHLEVEL_CODE
 		c->MR_ctxt_detstack_zone = NULL;
 		c->MR_ctxt_nondetstack_zone = NULL;
+#endif
 #ifdef MR_USE_TRAIL
 		c->MR_ctxt_trail_zone = NULL;
 #endif
 	} else {
 		c = free_context_list;
 		free_context_list = c->MR_ctxt_next;
-		MR_UNLOCK(free_context_list_lock, "create_context ii");
+		MR_UNLOCK(&free_context_list_lock, "create_context ii");
 	}
 
 	MR_init_context(c);
@@ -188,10 +191,10 @@ MR_create_context(void)
 void 
 MR_destroy_context(MR_Context *c)
 {
-	MR_LOCK(free_context_list_lock, "destroy_context");
+	MR_LOCK(&free_context_list_lock, "destroy_context");
 	c->MR_ctxt_next = free_context_list;
 	free_context_list = c;
-	MR_UNLOCK(free_context_list_lock, "destroy_context");
+	MR_UNLOCK(&free_context_list_lock, "destroy_context");
 }
 
 void 
@@ -207,7 +210,7 @@ MR_flounder(void)
 ** block or not.
 */
 static int
-MR_check_pending_contexts(bool block)
+MR_check_pending_contexts(MR_bool block)
 {
 #ifdef	MR_CAN_DO_PENDING_IO
 
@@ -288,7 +291,7 @@ void
 MR_schedule(MR_Context *ctxt)
 {
 	ctxt->MR_ctxt_next = NULL;
-	MR_LOCK(MR_runqueue_lock, "schedule");
+	MR_LOCK(&MR_runqueue_lock, "schedule");
 	if (MR_runqueue_tail) {
 		MR_runqueue_tail->MR_ctxt_next = ctxt;
 		MR_runqueue_tail = ctxt;
@@ -296,14 +299,16 @@ MR_schedule(MR_Context *ctxt)
 		MR_runqueue_head = ctxt;
 		MR_runqueue_tail = ctxt;
 	}
-	MR_SIGNAL(MR_runqueue_cond);
-	MR_UNLOCK(MR_runqueue_lock, "schedule");
+	MR_SIGNAL(&MR_runqueue_cond);
+	MR_UNLOCK(&MR_runqueue_lock, "schedule");
 }
+
+#ifndef MR_HIGHLEVEL_CODE
 
 MR_define_extern_entry(MR_do_runnext);
 
 MR_BEGIN_MODULE(scheduler_module)
-	MR_init_entry_ai(MR_do_runnext);
+	MR_init_entry_an(MR_do_runnext);
 MR_BEGIN_CODE
 
 MR_define_entry(MR_do_runnext);
@@ -316,11 +321,11 @@ MR_define_entry(MR_do_runnext);
 	depth = MR_ENGINE(MR_eng_c_depth);
 	thd = MR_ENGINE(MR_eng_owner_thread);
 
-	MR_LOCK(MR_runqueue_lock, "MR_do_runnext (i)");
+	MR_LOCK(&MR_runqueue_lock, "MR_do_runnext (i)");
 
 	while (1) {
-		if (MR_exit_now == TRUE) {
-			MR_UNLOCK(MR_runqueue_lock, "MR_do_runnext (ii)");
+		if (MR_exit_now == MR_TRUE) {
+			MR_UNLOCK(&MR_runqueue_lock, "MR_do_runnext (ii)");
 			MR_destroy_thread(MR_cur_engine());
 		}
 		tmp = MR_runqueue_head;
@@ -339,7 +344,7 @@ MR_define_entry(MR_do_runnext);
 		if (tmp != NULL) {
 			break;
 		}
-		MR_WAIT(MR_runqueue_cond, MR_runqueue_lock);
+		MR_WAIT(&MR_runqueue_cond, &MR_runqueue_lock);
 	}
 	MR_ENGINE(MR_eng_this_context) = tmp;
 	if (prev != NULL) {
@@ -350,7 +355,7 @@ MR_define_entry(MR_do_runnext);
 	if (MR_runqueue_tail == tmp) {
 		MR_runqueue_tail = prev;
 	}
-	MR_UNLOCK(MR_runqueue_lock, "MR_do_runnext (iii)");
+	MR_UNLOCK(&MR_runqueue_lock, "MR_do_runnext (iii)");
 	MR_load_context(MR_ENGINE(MR_eng_this_context));
 	MR_GOTO(MR_ENGINE(MR_eng_this_context)->MR_ctxt_resume);
 }
@@ -361,7 +366,7 @@ MR_define_entry(MR_do_runnext);
 	}
 
 	while (MR_runqueue_head == NULL) {
-		MR_check_pending_contexts(TRUE); /* block */
+		MR_check_pending_contexts(MR_TRUE); /* block */
 	}
 
 	MR_ENGINE(MR_eng_this_context) = MR_runqueue_head;
@@ -377,6 +382,8 @@ MR_define_entry(MR_do_runnext);
 
 MR_END_MODULE
 
+#endif /* !MR_HIGHLEVEL_CODE */
+
 /* forward decls to suppress gcc warnings */
 void mercury_sys_init_scheduler_wrapper_init(void);
 void mercury_sys_init_scheduler_wrapper_init_type_tables(void);
@@ -386,7 +393,9 @@ void mercury_sys_init_scheduler_wrapper_write_out_proc_statics(FILE *fp);
 
 void mercury_sys_init_scheduler_wrapper_init(void)
 {
+#ifndef MR_HIGHLEVEL_CODE
 	scheduler_module();
+#endif
 }
 
 void mercury_sys_init_scheduler_wrapper_init_type_tables(void)

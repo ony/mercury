@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -32,6 +32,7 @@
 #include "mercury_types.h"
 #include "mercury_std.h"			/* for MR_VARIABLE_SIZED */
 #include "mercury_tags.h"
+#include "mercury_type_info.h"			/* for MR_PseudoTypeInfo */
 
 /* forward declarations */
 typedef	struct MR_Proc_Layout_Struct	MR_Proc_Layout;
@@ -244,7 +245,9 @@ typedef enum {
 ** The MR_sll_goal_path field contains an offset into the module-wide string
 ** table, leading to a string that gives the goal path associated with the
 ** label. If there is no meaningful goal path associated with the label,
-** the offset will be zero, leading to the empty string.
+** the offset will be zero, leading to the empty string. You can use the macro
+** MR_label_goal_path to convert the value in the MR_sll_goal_path field to a
+** string.
 **
 ** The remaining fields give information about the values live at the given
 ** label, if this information is available. If it is available, the
@@ -373,7 +376,8 @@ typedef	struct MR_Label_Layout_No_Var_Info_Struct {
 		(&MR_long_desc_var_locn((sll), MR_long_desc_var_count(sll)))
 #define	MR_short_desc_var_locn(sll, i)					    \
 		(((MR_uint_least8_t *)					    \
-			MR_end_of_long_desc_var_locns(sll))[(i)])
+			MR_end_of_long_desc_var_locns(sll))		    \
+		 		[((i) - MR_long_desc_var_count(sll))])
 
 /*
 ** Define a stack layout for an internal label.
@@ -411,6 +415,30 @@ typedef	struct MR_Label_Layout_No_Var_Info_Struct {
 /*
 ** Definitions for MR_Proc_Layout
 */
+
+/*
+** The MR_Table_Io_Decl structure.
+**
+** To enable declarative debugging of I/O actions, the compiler generates one
+** of these structures for each I/O primitive. The compiler transforms the
+** bodies of those primitives to create a block of memory and fill it in with
+** (1) a pointer to the primitive's MR_Table_Io_Decl structure and (2) the
+** values of the primitive's arguments (both input and output, but excluding
+** the I/O states). The array of pseudo-typeinfos pointed to by the ptis field
+** gives the types of these arguments, while the filtered_arity field gives
+** the number of saved arguments, which will be all the arguments except the
+** I/O states. The number in this field is the size of the ptis array, and
+** the size of the block exclusive of the pointer. The proc field allows us
+** to identify the primitive procedure. This is all the information we need
+** to describe the I/O action to the user.
+*/
+
+typedef struct MR_Table_Io_Decl_Struct {
+	const MR_Proc_Layout		*MR_table_io_decl_proc;
+	MR_Integer			MR_table_io_decl_filtered_arity;
+	const MR_PseudoTypeInfo		*MR_table_io_decl_ptis;
+	const MR_Type_Param_Locns	*MR_table_io_decl_type_params;
+} MR_Table_Io_Decl;
 
 /*
 ** The MR_Stack_Traversal structure contains the following fields:
@@ -499,7 +527,7 @@ typedef union MR_Proc_Id_Union {
 ** stored there, as well the table associating source-file contexts with labels.
 **
 ** The proc_rep field contains a representation of the body of the procedure
-** as a Mercury term of type goal_rep, defined in program_representation.m.
+** as a Mercury term of type proc_rep, defined in program_representation.m.
 ** Note that the type of this field is `MR_Word *', not `MR_Word',
 ** for the same reasons that MR_mkword() has type `MR_Word *' rather
 ** than `MR_Word' (see the comment in runtime/mercury_tags.h).
@@ -517,8 +545,10 @@ typedef union MR_Proc_Id_Union {
 ** Therefore using the stored offset to index into the string table
 ** is always safe.
 **
-** The max_var_num field gives the number of elements in the used_var_names
-** table.
+** The max_named_var_num field gives the number of elements in the
+** used_var_names table, which is also the number of the highest numbered
+** named variable. Note that unnamed variables may have numbers higher than
+** this.
 **
 ** The max_r_num field tells the debugger which Mercury abstract machine
 ** registers need saving in MR_trace: besides the special registers, it is
@@ -562,12 +592,6 @@ typedef union MR_Proc_Id_Union {
 ** We cannot put enums into structures as bit fields. To avoid wasting space,
 ** we put MR_EvalMethodInts into structures instead of MR_EvalMethods
 ** themselves.
-**
-** If --trace-decl is not set, the maybe_decl field will contain a negative
-** number. If it is set, it will contain the number of the first of two stack
-** slots used by the declarative debugger; the other slot is the next higher
-** numbered one. (The determinism of the procedure decides whether the stack
-** slot refers to a stackvar or a framevar.)
 */
 
 typedef	enum {
@@ -575,7 +599,10 @@ typedef	enum {
 	MR_EVAL_METHOD_LOOP_CHECK,
 	MR_EVAL_METHOD_MEMO,
 	MR_EVAL_METHOD_MINIMAL,
-	MR_EVAL_METHOD_TABLE_IO
+	MR_EVAL_METHOD_TABLE_IO,
+	MR_EVAL_METHOD_TABLE_IO_DECL,
+	MR_EVAL_METHOD_TABLE_IO_UNITIZE,
+	MR_EVAL_METHOD_TABLE_IO_UNITIZE_DECL
 } MR_EvalMethod;
 
 typedef	MR_int_least8_t		MR_EvalMethodInt;
@@ -584,8 +611,11 @@ typedef	struct MR_Exec_Trace_Struct {
 	const MR_Label_Layout	*MR_exec_call_label;
 	const MR_Module_Layout	*MR_exec_module_layout;
 	MR_Word			*MR_exec_proc_rep;
+	const MR_Table_Io_Decl	*MR_exec_table_io_decl;
+	const MR_int_least16_t	*MR_exec_head_var_nums;
 	const MR_int_least16_t	*MR_exec_used_var_names;
-	MR_int_least16_t	MR_exec_max_var_num;
+	MR_int_least16_t	MR_exec_num_head_vars;
+	MR_int_least16_t	MR_exec_max_named_var_num;
 	MR_int_least16_t	MR_exec_max_r_num;
 	MR_int_least8_t		MR_exec_maybe_from_full;
 	MR_int_least8_t		MR_exec_maybe_io_seq;
@@ -593,7 +623,6 @@ typedef	struct MR_Exec_Trace_Struct {
 	MR_int_least8_t		MR_exec_maybe_maxfr;
 	MR_EvalMethodInt	MR_exec_eval_method_CAST_ME;
 	MR_int_least8_t		MR_exec_maybe_call_table;
-	MR_int_least8_t		MR_exec_maybe_decl_debug;
 } MR_Exec_Trace;
 
 /*-------------------------------------------------------------------------*/
@@ -698,8 +727,10 @@ typedef	struct MR_Proc_Layout_Compiler_Exec_Struct {
 #define	MR_sle_call_label	MR_sle_exec_trace.MR_exec_call_label
 #define	MR_sle_module_layout	MR_sle_exec_trace.MR_exec_module_layout
 #define	MR_sle_proc_rep	MR_sle_exec_trace.MR_exec_proc_rep
+#define	MR_sle_head_var_nums	MR_sle_exec_trace.MR_exec_head_var_nums
+#define	MR_sle_num_head_vars	MR_sle_exec_trace.MR_exec_num_head_vars
 #define	MR_sle_used_var_names	MR_sle_exec_trace.MR_exec_used_var_names
-#define	MR_sle_max_var_num	MR_sle_exec_trace.MR_exec_max_var_num
+#define	MR_sle_max_named_var_num MR_sle_exec_trace.MR_exec_max_named_var_num
 #define	MR_sle_max_r_num	MR_sle_exec_trace.MR_exec_max_r_num
 #define	MR_sle_maybe_from_full	MR_sle_exec_trace.MR_exec_maybe_from_full
 #define	MR_sle_maybe_io_seq	MR_sle_exec_trace.MR_exec_maybe_io_seq
@@ -711,6 +742,11 @@ typedef	struct MR_Proc_Layout_Compiler_Exec_Struct {
 #define	MR_sle_eval_method(proc_layout_ptr)				\
 			((MR_EvalMethod) (proc_layout_ptr)->		\
 				MR_sle_exec_trace.MR_exec_eval_method_CAST_ME)
+
+	/* Adjust the arity of functions for printing. */
+#define MR_sle_user_adjusted_arity(entry)				\
+    ((entry)->MR_sle_user.MR_user_arity -				\
+        (((entry)->MR_sle_user.MR_user_pred_or_func == MR_FUNCTION) ? 1 : 0))
 
 /*
 ** Define a layout structure for a procedure, containing information
@@ -891,27 +927,27 @@ struct MR_Module_Layout_Struct {
 */
 
 typedef struct MR_Closure_Id_Struct {
-	MR_Proc_Id		proc_id;
-	MR_ConstString		module_name;
-	MR_ConstString		file_name;
-	MR_Integer		line_number;
-	MR_ConstString		goal_path;
+	MR_Proc_Id		MR_closure_proc_id;
+	MR_ConstString		MR_closure_module_name;
+	MR_ConstString		MR_closure_file_name;
+	MR_Integer		MR_closure_line_number;
+	MR_ConstString		MR_closure_goal_path;
 } MR_Closure_Id;
 
 typedef struct MR_User_Closure_Id_Struct {
-	MR_User_Proc_Id		proc_id;
-	MR_ConstString		module_name;
-	MR_ConstString		file_name;
-	MR_Integer		line_number;
-	MR_ConstString		goal_path;
+	MR_User_Proc_Id		MR_user_closure_proc_id;
+	MR_ConstString		MR_user_closure_module_name;
+	MR_ConstString		MR_user_closure_file_name;
+	MR_Integer		MR_user_closure_line_number;
+	MR_ConstString		MR_user_closure_goal_path;
 } MR_User_Closure_Id;
 
 typedef struct MR_Compiler_Closure_Id_Struct {
-	MR_Compiler_Proc_Id	proc_id;
-	MR_ConstString		module_name;
-	MR_ConstString		file_name;
-	MR_Integer		line_number;
-	MR_ConstString		goal_path;
+	MR_Compiler_Proc_Id	MR_comp_closure_proc_id;
+	MR_ConstString		MR_comp_closure_module_name;
+	MR_ConstString		MR_comp_closure_file_name;
+	MR_Integer		MR_comp_closure_line_number;
+	MR_ConstString		MR_comp_closure_goal_path;
 } MR_Compiler_Closure_Id;
 
 #endif /* not MERCURY_STACK_LAYOUT_H */

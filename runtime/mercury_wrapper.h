@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1994-2001 The University of Melbourne.
+** Copyright (C) 1994-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -14,10 +14,11 @@
 
 #include "mercury_regs.h"		/* needs to come first */
 #include <stddef.h>			/* for `size_t' */
-#include "mercury_std.h"		/* for `bool' */
+#include "mercury_std.h"		/* for `MR_bool' */
 #include "mercury_stack_layout.h"	/* for `MR_Label_Layout' etc */
 #include "mercury_trace_base.h"		/* for `MR_trace_port' */
 #include "mercury_stacks.h"		/* for `MR_{Cut,Generator}StackFrame' */
+#include "mercury_type_info.h"		/* for `MR_TypeCtorInfo' */
 #include <stdio.h>			/* for `FILE' */
 
 /*
@@ -49,13 +50,12 @@ extern	int	mercury_runtime_terminate(void);
 extern	int	MR_load_aditi_rl_code(void);
 
 /*
-** MR_init_conservative_GC() initializes the Boehm (et al)
-** conservative collector.  For the LLDS back-end, it is normally
-** called from mercury_runtime_init(), but for the MLDS
-** (--high-level-code) back-end, it may be called directly
-** from main().
+** MR_init_conservative_GC() initializes the conservative collector.
+** The conservative collector can be either the Boehm et al collector,
+** or the MPS (Memory Pool System) kit collector.  This function is normally
+** called from mercury_runtime_init().
 */
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   extern void	MR_init_conservative_GC(void);
 #endif
 
@@ -74,6 +74,8 @@ extern	MR_Code 	*MR_program_entry_point;
 			/* normally mercury__main_2_0; */
 #endif
 
+extern const char *	MR_runtime_flags;
+
 extern	void		(*MR_library_initializer)(void);
 extern	void		(*MR_library_finalizer)(void);
 
@@ -91,11 +93,15 @@ extern	void		(*MR_address_of_init_modules_debugger)(void);
 extern	void		(*MR_address_of_write_out_proc_statics)(FILE *fp);
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 extern	void		(*MR_address_of_init_gc)(void);
 #endif
 
 extern	int		(*MR_address_of_do_load_aditi_rl_code)(void);
+
+extern	MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_func;
+extern	MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_pred;
+extern	MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_tuple;
 
 /*
 ** MR_trace_getline(const char *, FILE *, FILE *) and
@@ -109,6 +115,17 @@ extern	char *		(*MR_address_of_trace_getline)(const char *,
 				FILE *, FILE *);
 extern	char *		(*MR_address_of_trace_get_command)(const char *,
 				FILE *, FILE *);
+
+/*
+** MR_trace_browse_all_on_level() is defined in trace/mercury_trace_vars.c
+** but may be called from runtime/mercury_stack_trace.c. As we can not do
+** direct calls from runtime/ to trace/, we do an indirect call via the
+** function pointer MR_address_of_trace_browse_all_on_level.
+*/
+
+extern	const char *	(*MR_address_of_trace_browse_all_on_level)(FILE *,
+				const MR_Label_Layout *, MR_Word *, MR_Word *,
+				int, MR_bool);
 
 /*
 ** MR_trace_init_external() and MR_trace_final_external() are defined 
@@ -191,19 +208,44 @@ extern	size_t		MR_debug_heap_zone_size;
 extern	size_t		MR_generatorstack_zone_size;
 extern	size_t		MR_cutstack_zone_size;
 
+/* heap margin for MLDS->C accurate GC (documented in mercury_wrapper.c) */
+extern	size_t		MR_heap_margin_size;
+
 /* file names for the mdb debugging streams */
 extern	const char	*MR_mdb_in_filename;
 extern	const char	*MR_mdb_out_filename;
 extern	const char	*MR_mdb_err_filename;
 
+/* should mdb be started in a window */
+extern	MR_bool		MR_mdb_in_window;
+
+/* use readline() in the debugger even if the input stream is not a tty */
+extern	MR_bool		MR_force_readline;
+
 /* size of the primary cache */
 extern	size_t		MR_pcache_size;
 
 /* low level debugging */
-extern	bool		MR_check_space;
+extern	MR_bool		MR_check_space;
 extern	MR_Word		*MR_watch_addr;
-extern	MR_Word		*MR_watch_csd_addr;
-extern	int		MR_watch_csd_ignore;
+extern	MR_CallSiteDynamic
+			*MR_watch_csd_addr;
+extern	MR_bool		MR_watch_csd_started;
+extern	char		*MR_watch_csd_start_name;
+
+extern	unsigned long	MR_lld_cur_call;
+extern	MR_bool		MR_lld_print_enabled;
+extern	MR_bool		MR_lld_print_name_enabled;
+extern	MR_bool		MR_lld_print_csd_enabled;
+extern	MR_bool		MR_lld_print_region_enabled;
+
+extern	char		*MR_lld_start_name;
+extern	unsigned	MR_lld_start_block;
+extern	unsigned long	MR_lld_start_until;
+extern	unsigned long	MR_lld_csd_until;
+extern	unsigned long	MR_lld_print_min;
+extern	unsigned long	MR_lld_print_max;
+extern	char		*MR_lld_print_more_min_max;
 
 /* timing */
 extern	int		MR_time_at_start;
@@ -218,8 +260,8 @@ enum MR_TimeProfileMethod {
 extern	enum MR_TimeProfileMethod
 			MR_time_profile_method;
 
-extern	bool		MR_profiling;
-extern	bool		MR_print_deep_profiling_statistics;
+extern	MR_bool		MR_profiling;
+extern	MR_bool		MR_print_deep_profiling_statistics;
 
 #ifdef  MR_TYPE_CTOR_STATS
 
@@ -236,6 +278,9 @@ extern	void		MR_register_type_ctor_stat(MR_TypeStat *type_stat,
 #endif
 
 /* This is used by compiler/mlds_to_gcc.m. */
-const char *MR_make_argv(const char *, char **, char ***, int *);
+const char	*MR_make_argv(const char *, char **, char ***, int *);
+
+void		MR_setup_call_intervals(char **more_str_ptr,
+			unsigned long *min_ptr, unsigned long *max_ptr);
 
 #endif /* not MERCURY_WRAPPER_H */

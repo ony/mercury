@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-1998, 2000-2001 The University of Melbourne.
+** Copyright (C) 1995-1998, 2000-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -12,7 +12,7 @@
 
 #include        "mercury_imp.h"
 
-#ifdef HAVE_UNISTD_H
+#ifdef MR_HAVE_UNISTD_H
   #include	<unistd.h>
 #endif
 
@@ -28,6 +28,7 @@
 #include	"mercury_signal.h"
 #include        "mercury_std.h"
 #include	"mercury_timing.h"
+#include	"mercury_runtime_util.h"
 
 #include	<signal.h>		/* for SIGINT */
 
@@ -83,7 +84,7 @@ MR_Code *		volatile	MR_prof_current_proc;
 ** Private global variables
 */
 
-static volatile	int		in_profiling_code = FALSE;
+static volatile	int		in_profiling_code = MR_FALSE;
 
 #ifdef MR_MPROF_PROFILE_CALLS
   static FILE 		*MR_prof_decl_fptr = NULL;
@@ -122,54 +123,6 @@ static volatile	int		in_profiling_code = FALSE;
 
 /* ======================================================================== */
 
-/* utility routines for opening and closing files */
-
-#if defined(MR_MPROF_PROFILE_TIME) || defined(MR_MPROF_PROFILE_CALLS) \
-	|| defined(MR_MPROF_PROFILE_MEMORY)
-
-static FILE *
-MR_checked_fopen(const char *filename, const char *message, const char *mode)
-{
-	FILE *file;
-
-	errno = 0;
-	file = fopen(filename, mode);
-	if (!file) {
-		fprintf(stderr, "Mercury runtime: couldn't %s file `%s': %s\n",
-				message, filename, strerror(errno));
-		exit(1);
-	}
-	return file;
-}
-
-static void
-MR_checked_fclose(FILE *file, const char *filename)
-{
-	errno = 0;
-	if (fclose(file) != 0) {
-		fprintf(stderr,
-			"Mercury runtime: error closing file `%s': %s\n",
-			filename, strerror(errno));
-		exit(1);
-	}
-}
-
-static void
-MR_checked_atexit(void (*func)(void))
-{
-	errno = 0;
-	if (atexit(func) != 0) {
-		fprintf(stderr,
-			"Mercury runtime: error in call to atexit: %s\n",
-			strerror(errno));
-		exit(1);
-	}
-}
-
-#endif /* MR_MPROF_PROFILE_TIME or MR_MPROF_PROFILE_CALLS or MR_MPROF_PROFILE_MEMORY */
-
-/* ======================================================================== */
-
 #ifdef MR_MPROF_PROFILE_CALLS
 
 /*
@@ -184,7 +137,7 @@ MR_prof_call_profile(MR_Code *Callee, MR_Code *Caller)
 	prof_call_node	*node, **node_addr, *new_node;
 	int		 hash_value;
 
-	in_profiling_code = TRUE;
+	in_profiling_code = MR_TRUE;
 
 	hash_value = hash_addr_pair(Callee, Caller);
 
@@ -200,7 +153,7 @@ MR_prof_call_profile(MR_Code *Callee, MR_Code *Caller)
 			node_addr = &node->right;
 		} else {
 			node->count++;
-			in_profiling_code = FALSE;
+			in_profiling_code = MR_FALSE;
 			return;
 		}
 	}
@@ -213,7 +166,7 @@ MR_prof_call_profile(MR_Code *Callee, MR_Code *Caller)
 	new_node->right  = NULL;
 	*node_addr = new_node;
 
-	in_profiling_code = FALSE;
+	in_profiling_code = MR_FALSE;
 	return;
 }
 
@@ -242,7 +195,7 @@ prof_handle_tick(int signum)
 		return;
 	}
 
-	in_profiling_code = TRUE;
+	in_profiling_code = MR_TRUE;
 
 	current_proc = MR_prof_current_proc;
 	hash_value = hash_prof_addr(current_proc);
@@ -255,7 +208,7 @@ prof_handle_tick(int signum)
 			node_addr = &node->right;
 		} else {
 			node->count++;
-			in_profiling_code = FALSE;
+			in_profiling_code = MR_FALSE;
 			return;
 		}
 	}
@@ -267,7 +220,7 @@ prof_handle_tick(int signum)
 	new_node->right = NULL;
 	*node_addr = new_node;
 
-	in_profiling_code = FALSE;
+	in_profiling_code = MR_FALSE;
 	return;
 } /* end prof_handle_tick() */
 
@@ -421,7 +374,8 @@ static void
 print_memory_node(FILE *words_fptr, FILE *cells_fptr, MR_memprof_record *node)
 {
 	if (node != NULL) {
-		MR_dword cells, words;
+		MR_Dword cells, words;
+		double	 cells_double, words_double;
 
 		cells = node->counter.cells_at_period_start;
 		words = node->counter.words_at_period_start;
@@ -431,15 +385,13 @@ print_memory_node(FILE *words_fptr, FILE *cells_fptr, MR_memprof_record *node)
 		MR_add_two_dwords(words,
 			node->counter.words_since_period_start);
 
-		if (cells.high_word || words.high_word) {
-			fprintf(stderr, "Mercury runtime: memory profile "
-				"counter for `%s' overflowed\n",
-				node->name);
-		}
-		fprintf(words_fptr, "%ld %lu\n",
-			(long) node->addr, words.low_word);
-		fprintf(cells_fptr, "%ld %lu\n",
-			(long) node->addr, cells.low_word);
+		MR_convert_dword_to_double(words, words_double);
+		MR_convert_dword_to_double(cells, cells_double);
+
+		fprintf(words_fptr, "%ld %.0f\n",
+			(long) node->addr, words_double);
+		fprintf(cells_fptr, "%ld %.0f\n",
+			(long) node->addr, cells_double);
 
 		print_memory_node(words_fptr, cells_fptr, node->left);
 		print_memory_node(words_fptr, cells_fptr, node->right);
@@ -461,8 +413,8 @@ MR_prof_init(void)
 		|| defined(MR_MPROF_PROFILE_MEMORY)
 	MR_checked_atexit(MR_prof_finish);
   #ifdef SIGINT
-	MR_setup_signal(SIGINT, prof_handle_sigint, FALSE,
-		"Mercury runtime: cannot install signal handler");
+	MR_setup_signal(SIGINT, prof_handle_sigint, MR_FALSE,
+		"cannot install signal handler");
   #endif
 #endif
 }
@@ -476,7 +428,7 @@ prof_handle_sigint(void)
 	** exit() will call MR_prof_finish(), which we registered
 	** with atexit().
 	*/
-  exit(1);
+	exit(EXIT_FAILURE);
 }
 #endif
 
@@ -484,9 +436,9 @@ void
 MR_prof_finish(void)
 {
 	/* ensure this routine only gets run once, even if called twice */
-	static bool done = FALSE;
+	static MR_bool done = MR_FALSE;
 	if (done) return;
-	done = TRUE;
+	done = MR_TRUE;
 
 #ifdef MR_MPROF_PROFILE_CALLS
 	prof_output_addr_pair_table();

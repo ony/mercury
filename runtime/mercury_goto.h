@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-2001 The University of Melbourne.
+** Copyright (C) 1995-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -49,21 +49,30 @@
 ** or if we need the label address for profiling or
 ** accurate garbage collection.
 **
-** The versions of the macros below with the _ai or _sl suffix always insert
-** the label into the label table, the difference between them being that
-** the _ai variant does not include a layout structure. If the label *has*
-** a layout structure, use the _sl variant.
+** The versions of the macros below with the _ai, _an or _sl suffix always
+** insert the label into the label table, the difference between them being that
+** the _ai and _an variants do not include a layout structure. If the label
+** *has* a layout structure, use the _sl variant. The difference between the
+** _ai and the _an variants is that the latter always inserts the name of the
+** label as well. This is intended for a small number of labels that are
+** frequently needed in debugging, e.g. do_fail.
 */
 
 #define MR_make_label_ai(n, a, l)		MR_insert_internal(n, a, NULL)
+#define MR_make_label_an(n, a, l)		MR_insert_internal_label(n, \
+							a, NULL)
 #define MR_make_label_sl(n, a, l)		MR_insert_internal(n, a, \
 							MR_LABEL_LAYOUT(l))
 
 #define MR_make_local_ai(n, a, l)		MR_insert_entry(n, a, NULL)
+#define MR_make_local_an(n, a, l)		MR_insert_entry_label(n, \
+							a, NULL)
 #define MR_make_local_sl(n, a, l)		MR_insert_entry(n, a, \
 							MR_PROC_LAYOUT(l))
 
 #define MR_make_entry_ai(n, a, l)		MR_insert_entry(n, a, NULL)
+#define MR_make_entry_an(n, a, l)		MR_insert_entry_label(n, \
+							a, NULL)
 #define MR_make_entry_sl(n, a, l)		MR_insert_entry(n, a, \
 							MR_PROC_LAYOUT(l))
 
@@ -93,7 +102,7 @@
   #define MR_make_entry(n, a, l)		/* nothing */
 #endif
 
-#ifdef SPLIT_C_FILES
+#ifdef MR_SPLIT_C_FILES
   #define MR_MODULE_STATIC_OR_EXTERN extern
 #else
   #define MR_MODULE_STATIC_OR_EXTERN static
@@ -184,11 +193,11 @@
   ** set up the correct value of the GOT register (ebx).
   */
 
-  #if (defined(__pic__) || defined(__PIC__)) && !defined(PIC)
-    #define PIC 1
+  #if (defined(__pic__) || defined(__PIC__)) && !defined(MR_PIC)
+    #define MR_PIC 1
   #endif
 
-  #if PIC
+  #if MR_PIC
 
     /*
     ** At each entry point, where we may have been jump to from
@@ -253,7 +262,7 @@
   	goto MR_skip(label);
     #endif
 
-  #endif /* PIC */
+  #endif /* MR_PIC */
 
   /* For Linux-ELF shared libraries, we need to declare that the type of labels
   ** is @function (i.e. code, not data), otherwise the dynamic linker seems
@@ -272,11 +281,11 @@
   ** set up the correct value of the GOT register (l7).
   */
 
-  #if (defined(__pic__) || defined(__PIC__)) && !defined(PIC)
-    #define PIC 1
+  #if (defined(__pic__) || defined(__PIC__)) && !defined(MR_PIC)
+    #define MR_PIC 1
   #endif
 
-  #if PIC
+  #if MR_PIC
 
     /*
     ** At each entry point, where we may have been jump to from
@@ -315,7 +324,7 @@
   	goto MR_skip(label);
     #endif
 
-  #endif /* PIC */
+  #endif /* MR_PIC */
 
   /*
   ** For Solaris 5.5.1, we need to declare that the type of labels is
@@ -450,10 +459,10 @@
 
 /*---------------------------------------------------------------------------*/
 
-#if defined(USE_GCC_NONLOCAL_GOTOS)
+#if defined(MR_USE_GCC_NONLOCAL_GOTOS)
 
   #ifndef __GNUC__
-  #error "You must use gcc if you define USE_GCC_NONLOCAL_GOTOS"
+  #error "You must use gcc if you define MR_USE_GCC_NONLOCAL_GOTOS"
   #endif
 
   /* Define the type of a module initialization function */
@@ -532,7 +541,7 @@
   #define MR_END_MODULE } }
 
 
-  #if defined(USE_ASM_LABELS)
+  #if defined(MR_USE_ASM_LABELS)
     #define MR_declare_entry(label)		\
 	extern void label(void) __asm__("_entry_" MR_STRINGIFY(label))
     #define MR_declare_static(label)		\
@@ -561,6 +570,9 @@
     #define MR_init_entry_ai(label)	\
 	MR_PRETEND_ADDRESS_IS_USED(&&label); \
 	MR_make_entry_ai(MR_STRINGIFY(label), label, label)
+    #define MR_init_entry_an(label)	\
+	MR_PRETEND_ADDRESS_IS_USED(&&label); \
+	MR_make_entry_an(MR_STRINGIFY(label), label, label)
     #define MR_init_entry_sl(label)	\
 	MR_PRETEND_ADDRESS_IS_USED(&&label); \
 	MR_make_entry_sl(MR_STRINGIFY(label), label, label)
@@ -573,7 +585,7 @@
     #endif
 
   #else
-    /* !defined(USE_ASM_LABELS) */
+    /* !defined(MR_USE_ASM_LABELS) */
 
     #define MR_declare_entry(label)	extern MR_Code * MR_entry(label)
     #define MR_declare_static(label)	static MR_Code * MR_entry(label)
@@ -594,6 +606,9 @@
     #define MR_init_entry_ai(label)	\
 	MR_make_entry_ai(MR_STRINGIFY(label), &&label, label);	\
 	MR_entry(label) = &&label
+    #define MR_init_entry_an(label)	\
+	MR_make_entry_an(MR_STRINGIFY(label), &&label, label);	\
+	MR_entry(label) = &&label
     #define MR_init_entry_sl(label)	\
 	MR_make_entry_sl(MR_STRINGIFY(label), &&label, label);	\
 	MR_entry(label) = &&label
@@ -604,7 +619,7 @@
     #define MR_JUMP(label)		goto *(label)
     #endif
 
-  #endif /* !defined(USE_ASM_LABELS) */
+  #endif /* !defined(MR_USE_ASM_LABELS) */
 
   #define MR_declare_local(label)	/* no declaration required */
   #define MR_define_local(label)	\
@@ -616,6 +631,8 @@
   	MR_make_local(MR_STRINGIFY(label), &&MR_entry(label), label)
   #define MR_init_local_ai(label)	\
   	MR_make_local_ai(MR_STRINGIFY(label), &&MR_entry(label), label)
+  #define MR_init_local_an(label)	\
+  	MR_make_local_an(MR_STRINGIFY(label), &&MR_entry(label), label)
   #define MR_init_local_sl(label)	\
   	MR_make_local_sl(MR_STRINGIFY(label), &&MR_entry(label), label)
   #define MR_define_label(label)	MR_define_local(label)
@@ -624,6 +641,8 @@
 	MR_make_label(MR_STRINGIFY(label), &&MR_entry(label), label)
   #define MR_init_label_ai(label)	\
 	MR_make_label_ai(MR_STRINGIFY(label), &&MR_entry(label), label)
+  #define MR_init_label_an(label)	\
+	MR_make_label_an(MR_STRINGIFY(label), &&MR_entry(label), label)
   #define MR_init_label_sl(label)	\
 	MR_make_label_sl(MR_STRINGIFY(label), &&MR_entry(label), label)
 
@@ -647,7 +666,7 @@
   */
 
 #else
-  /* !defined(USE_GCC_NONLOCAL_GOTOS) */
+  /* !defined(MR_USE_GCC_NONLOCAL_GOTOS) */
 
   /* Define the type of a module initialization function */
   typedef MR_Code * MR_ModuleFunc(void);
@@ -673,6 +692,8 @@
 		  				label, label)
   #define MR_init_entry_ai(label)	MR_make_entry_ai(MR_STRINGIFY(label), \
 		  				label, label)
+  #define MR_init_entry_an(label)	MR_make_entry_an(MR_STRINGIFY(label), \
+		  				label, label)
   #define MR_init_entry_sl(label)	MR_make_entry_sl(MR_STRINGIFY(label), \
 		  				label, label)
 
@@ -685,6 +706,8 @@
 		  				label, label)
   #define MR_init_local_ai(label)	MR_make_local_ai(MR_STRINGIFY(label), \
 		  				label, label)
+  #define MR_init_local_an(label)	MR_make_local_an(MR_STRINGIFY(label), \
+		  				label, label)
   #define MR_init_local_sl(label)	MR_make_local_sl(MR_STRINGIFY(label), \
 		  				label, label)
 
@@ -696,6 +719,8 @@
   #define MR_init_label(label)		MR_make_label(MR_STRINGIFY(label),    \
 		  				label, label)
   #define MR_init_label_ai(label)	MR_make_label_ai(MR_STRINGIFY(label), \
+		  				label, label)
+  #define MR_init_label_an(label)	MR_make_label_an(MR_STRINGIFY(label), \
 		  				label, label)
   #define MR_init_label_sl(label)	MR_make_label_sl(MR_STRINGIFY(label), \
 		  				label, label)
@@ -714,7 +739,7 @@
   #define MR_GOTO_LOCAL(label) 	MR_GOTO(MR_LOCAL(label))
   #define MR_GOTO_LABEL(label) 	MR_GOTO(MR_LABEL(label))
 
-#endif /* !defined(USE_GCC_NONLOCAL_GOTOS) */
+#endif /* !defined(MR_USE_GCC_NONLOCAL_GOTOS) */
 
 /* definitions for computed gotos */
 

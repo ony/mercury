@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2001 The University of Melbourne.
+** Copyright (C) 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -15,6 +15,7 @@
 #include "mercury_stack_layout.h"
 #include "mercury_timing.h"
 #include "mercury_prof_time.h"
+#include "mercury_runtime_util.h"	/* for strerror() on some systems */
 #include "mercury_deep_profiling.h"
 
 #ifdef MR_DEEP_PROFILING
@@ -33,7 +34,7 @@ MR_User_ProcStatic	MR_main_parent_proc_static =
 	  "Mercury runtime", 0, 0 },
 	"Mercury runtime",
 	0,
-	TRUE,
+	MR_TRUE,
 	1,
 	&MR_main_parent_call_site_statics[0],
 #ifdef	MR_USE_ACTIVATION_COUNTS
@@ -81,7 +82,7 @@ MR_CallSiteDynamic	*MR_next_call_site_dynamic = NULL;
 MR_CallSiteDynList	**MR_current_callback_site =
 				(MR_CallSiteDynList **)
 				&MR_main_parent_call_site_dynamics[0];
-volatile bool	 	MR_inside_deep_profiling_code = FALSE;
+volatile MR_bool 	MR_inside_deep_profiling_code = MR_FALSE;
 volatile unsigned	MR_quanta_inside_deep_profiling_code = 0;
 volatile unsigned	MR_quanta_outside_deep_profiling_code = 0;
 
@@ -118,12 +119,27 @@ int	MR_deep_prof_call_builtin_old = 0;
 #endif	/* MR_DEEP_PROFILING_STATISTICS */
 
 void
-MR_deep_assert_failed(const char *cond, const char *filename, int linenumber)
+MR_deep_assert_failed(const MR_CallSiteDynamic *csd, const MR_ProcStatic *ps,
+	const char *cond, const char *filename, int linenumber)
 {
 	char	buf[1024];
+	char	bufcsd[1024];
+	char	bufps[1024];
 
-	sprintf(buf, "Deep profiling assertion failed, %s:%d\n%s\n",
-		filename, linenumber, cond);
+	if (csd != NULL) {
+		sprintf(bufcsd, ", csd %p\n", csd);
+	} else {
+		strcpy(bufcsd, "");
+	}
+
+	if (ps != NULL) {
+		sprintf(bufps, ", ps %p\n", ps);
+	} else {
+		strcpy(bufps, "");
+	}
+
+	sprintf(buf, "Deep profiling assertion failed, %s:%d\n%s%s%s\n",
+		filename, linenumber, cond, bufcsd, bufps);
 	MR_fatal_error(buf);
 }
 
@@ -242,7 +258,7 @@ static	void	MR_write_string(FILE *fp, const char *ptr);
 typedef struct MR_Profiling_Hash_Node_Struct {
 	const void				*item;
 	int					id;
-	bool					written;
+	MR_bool					written;
 	struct MR_Profiling_Hash_Node_Struct	*next;
 } MR_ProfilingHashNode;
 
@@ -253,11 +269,11 @@ typedef struct {
 } MR_ProfilingHashTable;
 
 static	MR_ProfilingHashTable	*MR_create_hash_table(int size);
-static	bool			MR_hash_table_insert(
+static	MR_bool			MR_hash_table_insert(
 					MR_ProfilingHashTable *table,
 					const void *ptr,
-					int *id, bool *already_written,
-					bool init_written);
+					int *id, MR_bool *already_written,
+					MR_bool init_written);
 static	void			MR_hash_table_flag_written(
 					MR_ProfilingHashTable *table,
 					const void *ptr);
@@ -328,7 +344,7 @@ MR_write_out_profiling_tree(void)
 	MR_write_num(fp, MR_quanta_inside_deep_profiling_code);
 	MR_write_num(fp, MR_quanta_outside_deep_profiling_code);
 	MR_write_byte(fp, sizeof(MR_Word));
-	MR_write_byte(fp, 0); /* the canonical flag is FALSE = 0 */
+	MR_write_byte(fp, 0); /* the canonical flag is MR_FALSE = 0 */
 
 	MR_call_site_dynamic_table = MR_create_hash_table(MR_hash_table_size);
 	MR_call_site_static_table  = MR_create_hash_table(MR_hash_table_size);
@@ -336,7 +352,7 @@ MR_write_out_profiling_tree(void)
 	MR_proc_static_table  = MR_create_hash_table(MR_hash_table_size);
 
 	if (MR_hash_table_insert(MR_proc_dynamic_table,
-		&MR_main_parent_proc_dynamic, &root_pd_id, NULL, FALSE))
+		&MR_main_parent_proc_dynamic, &root_pd_id, NULL, MR_FALSE))
 	{
 		MR_fatal_error(
 			"MR_write_out_profiling_tree: root seen before");
@@ -353,7 +369,8 @@ MR_write_out_profiling_tree(void)
 
 	MR_write_out_proc_static(fp,
 		(MR_ProcStatic *) &MR_main_parent_proc_static);
-	MR_deep_assert(MR_address_of_write_out_proc_statics != NULL);
+	MR_deep_assert(NULL, NULL,
+		MR_address_of_write_out_proc_statics != NULL);
 	(*MR_address_of_write_out_proc_statics)(fp);
 
 	if (fseek(fp, 0L, SEEK_SET) != 0) {
@@ -567,7 +584,7 @@ MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ps)
 {
 	int	ps_id;
 	int	css_id;
-	bool	already_written;
+	MR_bool	already_written;
 	int	i;
 
 	if (ps == NULL) {
@@ -575,7 +592,7 @@ MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ps)
 	}
 
 	(void) MR_hash_table_insert(MR_proc_static_table, ps,
-		&ps_id, &already_written, TRUE);
+		&ps_id, &already_written, MR_TRUE);
 
 #ifdef MR_DEEP_PROFILING_DEBUG
 	fprintf(debug_fp, "proc_static %p/%d\n", ps, ps_id);
@@ -656,7 +673,7 @@ MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ps)
 
 	for (i = 0; i < ps->MR_ps_num_call_sites; i++) {
 		(void) MR_hash_table_insert(MR_call_site_static_table,
-			&ps->MR_ps_call_sites[i], &css_id, NULL, FALSE);
+			&ps->MR_ps_call_sites[i], &css_id, NULL, MR_FALSE);
 
 #ifdef MR_DEEP_PROFILING_DEBUG
 		fprintf(debug_fp,
@@ -682,14 +699,14 @@ MR_write_out_call_site_static(FILE *fp, const MR_CallSiteStatic *css)
 {
 	int	css_id;
 	int	ps_id;
-	bool	already_written;
+	MR_bool	already_written;
 
 	if (css == NULL) {
 		MR_fatal_error("MR_write_out_call_site_static: null css");
 	}
 
 	(void) MR_hash_table_insert(MR_call_site_static_table, css,
-		&css_id, &already_written, TRUE);
+		&css_id, &already_written, MR_TRUE);
 
 	if (already_written) {
 		MR_fatal_error("MR_write_out_call_site_static: seen css");
@@ -710,7 +727,8 @@ MR_write_out_call_site_static(FILE *fp, const MR_CallSiteStatic *css)
 	MR_write_kind(fp, css->MR_css_kind);
 	if (css->MR_css_kind == MR_normal_call) {
 		(void) MR_hash_table_insert(MR_proc_static_table,
-			css->MR_css_callee_ptr_if_known, &ps_id, NULL, FALSE);
+			css->MR_css_callee_ptr_if_known,
+			&ps_id, NULL, MR_FALSE);
 #ifdef MR_DEEP_PROFILING_DEBUG
 		fprintf(debug_fp, "  callee %p/%d\n",
 			css->MR_css_callee_ptr_if_known, ps_id);
@@ -743,7 +761,7 @@ MR_write_out_call_site_dynamic(FILE *fp, const MR_CallSiteDynamic *csd)
 	MR_deep_num_csd_nodes++;
 #endif
 
-	MR_deep_assert(csd->MR_csd_callee_ptr != NULL);
+	MR_deep_assert(csd, NULL, csd->MR_csd_callee_ptr != NULL);
 
 #ifdef MR_DEEP_PROFILING_DEBUG
 	fprintf(debug_fp, "call_site_dynamic %p: callee proc_dynamic %p\n",
@@ -752,7 +770,7 @@ MR_write_out_call_site_dynamic(FILE *fp, const MR_CallSiteDynamic *csd)
 
 	MR_write_byte(fp, MR_deep_token_call_site_dynamic);
 	if (! MR_hash_table_insert(MR_call_site_dynamic_table, csd,
-		&csd_id, NULL, TRUE))
+		&csd_id, NULL, MR_TRUE))
 	{
 		MR_fatal_error(
 			"MR_write_out_call_site_dynamic: insert succeeded");
@@ -763,7 +781,7 @@ MR_write_out_call_site_dynamic(FILE *fp, const MR_CallSiteDynamic *csd)
 		pd_id = 0;
 	} else {
 		(void) MR_hash_table_insert(MR_proc_dynamic_table,
-			csd->MR_csd_callee_ptr, &pd_id, NULL, FALSE);
+			csd->MR_csd_callee_ptr, &pd_id, NULL, MR_FALSE);
 	}
 
 	MR_write_ptr(fp, kind_pd, pd_id);
@@ -827,7 +845,7 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *pd)
 	int	i;
 	int	pd_id;
 	int	ps_id;
-	bool	already_written;
+	MR_bool	already_written;
 
 	if (pd == NULL) {
 		/*
@@ -839,7 +857,7 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *pd)
 	}
 
 	if (! MR_hash_table_insert(MR_proc_dynamic_table, pd,
-		&pd_id, &already_written, TRUE))
+		&pd_id, &already_written, MR_TRUE))
 	{
 		MR_fatal_error("MR_write_out_proc_dynamic: unseen pd");
 	}
@@ -850,7 +868,7 @@ MR_write_out_proc_dynamic(FILE *fp, const MR_ProcDynamic *pd)
 
 	MR_hash_table_flag_written(MR_proc_dynamic_table, pd);
 	(void) MR_hash_table_insert(MR_proc_static_table,
-		pd->MR_pd_proc_static, &ps_id, NULL, FALSE);
+		pd->MR_pd_proc_static, &ps_id, NULL, MR_FALSE);
 
 #ifdef MR_DEEP_PROFILING_STATISTICS
 	MR_deep_num_pd_nodes++;
@@ -951,7 +969,7 @@ MR_write_csd_ptr(FILE *fp, const MR_CallSiteDynamic *csd)
 		csd_id = 0;
 	} else {
 		(void) MR_hash_table_insert(MR_call_site_dynamic_table, csd,
-			&csd_id, NULL, FALSE);
+			&csd_id, NULL, MR_FALSE);
 	}
 
 	MR_write_ptr(fp, kind_csd, csd_id);
@@ -1015,7 +1033,7 @@ MR_write_num(FILE *fp, unsigned long num)
 	fprintf(debug_fp, "num: %ld\n", num);
 #endif
 
-	MR_deep_assert((int) num >= 0);
+	MR_deep_assert(NULL, NULL, (int) num >= 0);
 
 	i = 0;
 	do {
@@ -1041,7 +1059,7 @@ MR_write_fixed_size_int(FILE *fp, unsigned long num)
 	fprintf(debug_fp, "fixed_size_int: %ld\n", num);
 #endif
 
-	MR_deep_assert((int) num >= 0);
+	MR_deep_assert(NULL, NULL, (int) num >= 0);
 
 	for (i = 0; i < MR_FIXED_SIZE_INT_BYTES; i++) {
 		putc(num & ((1 << 8) - 1), fp);
@@ -1093,9 +1111,9 @@ MR_create_hash_table(int size)
 
 #define	MR_hash_ptr(ptr, table)	(((unsigned int) (ptr) >> 2) % (table)->length)
 
-static bool
+static MR_bool
 MR_hash_table_insert(MR_ProfilingHashTable *table, const void *ptr,
-	int *id, bool *already_written, bool init_written)
+	int *id, MR_bool *already_written, MR_bool init_written)
 {
 	int			hash;
 	MR_ProfilingHashNode	*node;
@@ -1112,7 +1130,7 @@ MR_hash_table_insert(MR_ProfilingHashTable *table, const void *ptr,
 			if (already_written != NULL) {
 				*already_written = node->written;
 			}
-			return TRUE;
+			return MR_TRUE;
 		}
 		node = node->next;
 	}
@@ -1126,10 +1144,10 @@ MR_hash_table_insert(MR_ProfilingHashTable *table, const void *ptr,
 
 	*id = node->id;
 	if (already_written != NULL) {
-		*already_written = FALSE;
+		*already_written = MR_FALSE;
 	}
 
-	return FALSE;
+	return MR_FALSE;
 }
 
 static void
@@ -1146,7 +1164,7 @@ MR_hash_table_flag_written(MR_ProfilingHashTable *table, const void *ptr)
 	node = table->nodes[hash];
 	while (node != NULL) {
 		if (node->item == ptr) {
-			node->written = TRUE;
+			node->written = MR_TRUE;
 			return;
 		}
 		node = node->next;

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2001 The University of Melbourne.
+** Copyright (C) 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -20,24 +20,24 @@ const char		*MR_time_method;
 #include	<signal.h>
 #include	<errno.h>
 
-#ifdef	HAVE_UNISTD_H
+#ifdef	MR_HAVE_UNISTD_H
   #include	<unistd.h>
 #endif
 
-#ifdef	HAVE_SYS_TIME
+#ifdef	MR_HAVE_SYS_TIME_H
   #include	<sys/time.h>
 #endif
 
 #if	defined(MR_MPROF_PROFILE_TIME) || defined(MR_DEEP_PROFILING)
 
-#if	!defined(MR_CLOCK_TICKS_PER_SECOND) || !defined(HAVE_SETITIMER)
+#if	!defined(MR_CLOCK_TICKS_PER_SECOND) || !defined(MR_HAVE_SETITIMER)
   #error "Time profiling not supported on this system"
 #endif
 
 static	int		MR_itimer_sig;
 static	int		MR_itimer_type;
 
-static	bool		MR_time_profiling_on = FALSE;
+static	MR_bool		MR_time_profiling_on = MR_FALSE;
 
 static	void		MR_checked_setitimer(int which,
 				struct itimerval *value);
@@ -98,15 +98,15 @@ MR_turn_on_time_profiling(MR_time_signal_handler handler)
 					(MR_USEC_PER_SEC /
 					 	MR_CLOCK_TICKS_PER_SECOND);
 
-	MR_time_profiling_on = TRUE;
+	MR_time_profiling_on = MR_TRUE;
 
 	itime.it_value.tv_sec = 0;
 	itime.it_value.tv_usec = prof_sig_interval_in_usecs;
 	itime.it_interval.tv_sec = 0;
 	itime.it_interval.tv_usec = prof_sig_interval_in_usecs;
 
-	MR_setup_signal(MR_itimer_sig, handler, FALSE,
-		"Mercury runtime: cannot install signal handler");
+	MR_setup_signal(MR_itimer_sig, handler, MR_FALSE,
+		"cannot install signal handler");
 	MR_checked_setitimer(MR_itimer_type, &itime);
 }
 

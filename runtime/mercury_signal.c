@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998,2000 The University of Melbourne.
+** Copyright (C) 1998,2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -11,41 +11,9 @@
 /*---------------------------------------------------------------------------*/
 
 #include "mercury_imp.h"
+#include "mercury_signal.h"
 
-/*
-** XXX This code is duplicated in three files:
-** mercury_memory.c, mercury_memory_handlers.c, and mercury_signal.c.
-*/
-#ifdef HAVE_SIGCONTEXT_STRUCT
-  /*
-  ** Some versions of Linux call it struct sigcontext_struct, some call it
-  ** struct sigcontext.  The following #define eliminates the differences.
-  */
-  #define sigcontext_struct sigcontext /* must be before #include <signal.h> */
-  struct sigcontext; /* this forward decl avoids a gcc warning in signal.h */
-
-  /*
-  ** On some systems (e.g. most versions of Linux) we need to #define
-  ** __KERNEL__ to get sigcontext_struct from <signal.h>.
-  ** This stuff must come before anything else that might include <signal.h>,
-  ** otherwise the #define __KERNEL__ may not work.
-  */
-  #define __KERNEL__
-  #include <signal.h>	/* must come third */
-  #undef __KERNEL__
-
-  /*
-  ** Some versions of Linux define it in <signal.h>, others define it in
-  ** <asm/sigcontext.h>.  We try both.
-  */
-  #ifdef HAVE_ASM_SIGCONTEXT
-    #include <asm/sigcontext.h>
-  #endif 
-#else
-  #include <signal.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
+#ifdef MR_HAVE_UNISTD_H
   #include <unistd.h>
 #endif
 
@@ -53,24 +21,23 @@
 #include <string.h>
 #include <errno.h>
 
-#ifdef HAVE_SYS_SIGINFO
+#include "mercury_signal.h"
+
+#ifdef MR_HAVE_SYS_SIGINFO_H
   #include <sys/siginfo.h>
 #endif 
 
-#ifdef	HAVE_MPROTECT
+#ifdef	MR_HAVE_MPROTECT
   #include <sys/mman.h>
 #endif
 
-#ifdef	HAVE_UCONTEXT
+#ifdef	MR_HAVE_UCONTEXT_H
   #include <ucontext.h>
 #endif
 
-#ifdef	HAVE_SYS_UCONTEXT
+#ifdef	MR_HAVE_SYS_UCONTEXT_H
   #include <sys/ucontext.h>
 #endif
-
-#include "mercury_imp.h"
-#include "mercury_signal.h"
 
 /*---------------------------------------------------------------------------*/
 
@@ -87,13 +54,32 @@
   #define	SA_SIGINFO 0
 #endif
 
+static void MR_do_setup_signal(int sig, MR_Code *handler, MR_bool need_info,
+		MR_bool restart, const char *error_message);
+
 void
-MR_setup_signal(int sig, MR_Code *handler, bool need_info, 
+MR_setup_signal(int sig, MR_Code *handler, MR_bool need_info, 
 		const char *error_message)
 {
-#if	defined(HAVE_SIGACTION)
+	MR_do_setup_signal(sig, handler, need_info, MR_TRUE, error_message);
+}
 
-	struct sigaction	act;
+void
+MR_setup_signal_no_restart(int sig, MR_Code *handler, MR_bool need_info,
+		const char *error_message)
+{
+	MR_do_setup_signal(sig, handler, need_info, MR_FALSE, error_message);
+}
+
+void
+MR_do_setup_signal(int sig, MR_Code *handler, MR_bool need_info,
+		MR_bool restart, const char *error_message)
+{
+	MR_signal_action	act;
+
+#if	defined(MR_HAVE_SIGACTION)
+
+	act.sa_flags = (restart ? SA_RESTART : 0);
 
 	if (need_info) {
 	/*
@@ -102,32 +88,85 @@ MR_setup_signal(int sig, MR_Code *handler, bool need_info,
 	** request signals, we should not ask for SA_SIGINFO, since our
 	** handler will not be of the right type.
 	*/
-#if	defined(HAVE_SIGCONTEXT_STRUCT)
-		act.sa_flags = SA_RESTART;
-#else	/* not HAVE_SIGCONTEXT_STRUCT */
-		act.sa_flags = SA_SIGINFO | SA_RESTART;
+#if	!defined(MR_HAVE_SIGCONTEXT_STRUCT)
+		act.sa_flags |= SA_SIGINFO;
 #endif
-	} else {
-		act.sa_flags = SA_RESTART;
 	}
 	if (sigemptyset(&act.sa_mask) != 0) {
-		perror("Mercury runtime: cannot set clear signal mask");
+		MR_perror("cannot set clear signal mask");
 		exit(1);
 	}
 	errno = 0;
 
-	act.SIGACTION_FIELD = handler;
-	if (sigaction(sig, &act, NULL) != 0) {
-		perror(error_message);
-		exit(1);
-	}
+	act.MR_SIGACTION_FIELD = handler;
+#else /* not MR_HAVE_SIGACTION */
 
-#else /* not HAVE_SIGACTION */
+	act = handler;
 
-	if (signal(sig, handler) == SIG_ERR) {
-		perror(error_message);
-		exit(1);
-	}
-#endif /* not HAVE_SIGACTION */
+#endif /* not MR_HAVE_SIGACTION */
+
+	MR_set_signal_action(sig, &act, error_message);
 }
 
+void
+MR_get_signal_action(int sig, MR_signal_action *act,
+			const char *error_message)
+{
+#ifdef MR_HAVE_SIGACTION
+	if (sigaction(sig, NULL, act) != 0) {
+		MR_perror(error_message);
+		exit(1);
+	}
+
+#else /* not MR_HAVE_SIGACTION */
+	*act = signal(sig, NULL);
+	if (*act == SIG_ERR) {
+		MR_perror(error_message);
+		exit(1);
+	}
+#endif /* not MR_HAVE_SIGACTION */
+}
+
+void
+MR_set_signal_action(int sig, MR_signal_action *act,
+			const char *error_message)
+{
+#ifdef MR_HAVE_SIGACTION
+	if (sigaction(sig, act, NULL) != 0) {
+		MR_perror(error_message);
+		exit(1);
+	}
+
+#else /* not MR_HAVE_SIGACTION */
+	if (signal(sig, *act) == SIG_ERR) {
+		MR_perror(error_message);
+		exit(1);
+	}
+#endif /* not MR_HAVE_SIGACTION */
+}
+
+void
+MR_signal_should_restart(int sig, MR_bool restart)
+{
+#if defined(MR_HAVE_SIGACTION)
+	struct sigaction	act;
+	if (sigaction(sig, NULL, &act) != 0) {
+		MR_perror("error setting signal system call behaviour");
+		exit(1);
+	}
+	if (restart) {
+		act.sa_flags |= SA_RESTART;
+	} else {
+		act.sa_flags &= ~SA_RESTART;
+	}
+	if (sigaction(sig, &act, NULL) != 0) {
+		MR_perror("error setting signal system call behaviour");
+		exit(1);
+	}
+#elif defined(MR_HAVE_SIGINTERRUPT)
+	if (siginterrupt(sig, !restart) != 0) {
+		MR_perror("error setting signal system call behaviour");
+		exit(1);
+	}
+#endif 
+}

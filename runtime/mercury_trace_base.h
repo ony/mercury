@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2001 The University of Melbourne.
+** Copyright (C) 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -19,6 +19,9 @@
 #include "mercury_stack_layout.h"
 #include "mercury_std.h"
 #include "mercury_tabling.h"	/* for MR_TableNode */
+#ifdef MR_HAVE_UNISTD_H
+  #include <unistd.h>           /* for the write system call and pid_t */
+#endif
 
 /*
 ** This enum should EXACTLY match the definition of the `trace_port_type'
@@ -90,9 +93,18 @@ extern	MR_Code	*MR_trace_fake(const MR_Label_Layout *);
 */
 
 extern	void	MR_trace_init(void);
-extern	void	MR_trace_start(bool enabled);
+extern	void	MR_trace_start(MR_bool enabled);
 extern	void	MR_trace_end(void);
 extern	void	MR_trace_final(void);
+
+/*
+** MR_have_mdb_window and MR_mdb_window_pid are set by
+** mercury_trace_internal.c after the xterm window for
+** mdb has been spawned. The window process is killed by 
+** MR_trace_final().
+*/
+extern	MR_bool	MR_have_mdb_window;
+extern	pid_t	MR_mdb_window_pid;
 
 /*
 ** The globals that define the interface between the tracing subsystem
@@ -111,10 +123,10 @@ typedef enum {
 } MR_Trace_Type;
 
 extern	MR_Trace_Type	MR_trace_handler;
-extern	bool		MR_trace_enabled;
+extern	MR_bool		MR_trace_enabled;
 
 extern	MR_Unsigned	MR_trace_event_number;
-extern	bool		MR_trace_from_full;
+extern	MR_bool		MR_trace_from_full;
 
 /*
 ** The details of I/O tabling are documented in library/table_builtin.m.
@@ -141,7 +153,7 @@ typedef	MR_Unsigned	MR_IoActionNum;
 extern	MR_IoTablingPhase	MR_io_tabling_phase;
 
 /* True iff I/O tabling is enabled. */
-extern	bool		MR_io_tabling_enabled;
+extern	MR_bool		MR_io_tabling_enabled;
 
 /* The root of the trie that we use for tabling I/O. */
 extern	MR_TableNode	MR_io_tabling_pointer;
@@ -158,6 +170,9 @@ extern	MR_IoActionNum	MR_io_tabling_start;
 /* The highest I/O action number which is to be tabled. */
 extern	MR_IoActionNum	MR_io_tabling_end;
 
+/* The flag that controls whether we should generate diagnostics. */
+extern	MR_bool		MR_io_tabling_debug;
+
 /*
 ** These functions will report the number of the last event,
 ** if there have been some events, and will do nothing otherwise.
@@ -173,6 +188,21 @@ extern	void	MR_trace_report_raw(int fd);
 */
 
 extern	void	MR_tracing_not_enabled(void);
+
+/*
+** Return the details of I/O action <action_number> in three pieces:
+** the name of the I/O action procedure in *proc_name_ptr, a boolean that is
+** true iff procedure is a function in *is_func_ptr, and a Mercury
+** representation of the argument list (minus the IO state arguments)
+** in *arg_list_ptr.
+** This function uses the heap pointer, so calls to it must be wrapped
+** with MR_save_transient_hp() and MR_restore_transient_hp().
+*/
+
+extern	const char
+		*MR_trace_get_action(int action_number,
+			MR_ConstString *proc_name_ptr, MR_Word *is_func_ptr,
+			MR_Word *arg_list_ptr);
 
 /*
 ** These functions allow library/exceptions.m to tell the debuggers

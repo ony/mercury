@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997, 1999-2000 The University of Melbourne.
+** Copyright (C) 1997, 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "mercury_prof_mem.h"
+#include "mercury_dword.h"
 #include "mercury_heap_profile.h"
 
 /* all fields of these variables are initialized to 0 */
@@ -61,7 +62,7 @@ static void
 MR_increment_table_entry(MR_memprof_table *table, const char *name,
 	MR_Code *addr, int size)
 {
-	bool			found;
+	MR_bool			found;
 	int			diff;
 	MR_memprof_record	**node_addr;
 	MR_memprof_record	*node;
@@ -69,7 +70,7 @@ MR_increment_table_entry(MR_memprof_table *table, const char *name,
 	/*
 	** Search the tree to find the node with this name.
 	*/
-	found = FALSE;
+	found = MR_FALSE;
 	node_addr = &table->root;
 	while ((node = *node_addr) != NULL) {
 		diff = strcmp(name, node->name);
@@ -78,7 +79,7 @@ MR_increment_table_entry(MR_memprof_table *table, const char *name,
 		} else if (diff > 0) {
 			node_addr = &node->right;
 		} else {
-			found = TRUE;
+			found = MR_TRUE;
 			break;
 		}
 	}

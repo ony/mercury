@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -30,40 +30,42 @@ extern	void	MR_copy_saved_regs_to_regs(int max_mr_num, MR_Word *saved_regs);
 ** of some typeinfo structures may contain an indication "this data is
 ** not available at compile time, but at runtime it will be in this location".
 **
-** MR_materialize_typeinfos takes as input a MR_Label_Layout structure.
+** MR_materialize_type_params takes as input a MR_Label_Layout structure.
 ** It returns a vector of typeinfos which has one entry for each
-** pseudo-typeinfo in the MR_Label_Layout structure, with this typeinfo
-** being the pseudo-typeinfo with the runtime-only information substituted in.
+** type variable in the MR_Label_Layout structure, with this typeinfo
+** being the value of the corresponding type variable.
 ** Since type variable numbers start at one, the element of this array at
 ** index zero will not have a type_info in it.  We store a dummy type_ctor_info
 ** there, so that the array will itself look like a typeinfo.
 ** 
-** The vector returned by MR_materialize_typeinfos is from MR_malloc;
+** The vector returned by MR_materialize_type_params is from MR_malloc;
 ** it should be MR_freed after last use.
 **
-** MR_materialize_typeinfos looks up locations in the current
+** MR_materialize_type_params looks up locations in the current
 ** environment, as indicated by the set of saved registers (including MR_sp
 ** and MR_curfr). MR_materialize_typeinfos_base does the same job but
 ** assumes the environment is given by the given values of MR_sp and MR_curfr,
 ** and does not assume that the registers have valid contents unless saved_regs
 ** is non-null.
 **
-** MR_materialize_closure_typeinfos does much the same except that
+** MR_materialize_closure_type_params does much the same except that
 ** it takes an MR_Closure rather than an MR_Label_Layout,
 ** and it gets the type_infos from a closure using the closure_layout,
 ** rather than getting them from the registers/stacks using a label_layout.
 */ 
 
-extern	MR_TypeInfoParams	MR_materialize_typeinfos(
+extern	MR_TypeInfoParams	MR_materialize_type_params(
 					const MR_Label_Layout *label_layout,
 					MR_Word *saved_regs);
-extern	MR_TypeInfoParams	MR_materialize_typeinfos_base(
+extern	MR_TypeInfoParams	MR_materialize_type_params_base(
 					const MR_Label_Layout *label_layout,
 					MR_Word *saved_regs,
 					MR_Word *base_sp, MR_Word *base_curfr);
-extern	MR_TypeInfoParams	MR_materialize_closure_typeinfos(
-					const MR_Type_Param_Locns *tvar_locns,
+extern	MR_TypeInfoParams	MR_materialize_closure_type_params(
 					MR_Closure *closure);
+extern	MR_TypeInfoParams	MR_materialize_answer_block_type_params(
+					const MR_Type_Param_Locns *tvar_locns,
+					MR_Word *answer_block, int block_size);
 
 
 /*
@@ -88,17 +90,17 @@ extern	int	MR_get_register_number_short(MR_Short_Lval locn);
 */ 
 
 extern	MR_Word	MR_lookup_long_lval(MR_Long_Lval locn,
-			MR_Word *saved_regs, bool *succeeded);
+			MR_Word *saved_regs, MR_bool *succeeded);
 extern	MR_Word	MR_lookup_long_lval_base(MR_Long_Lval locn,
 			MR_Word *saved_regs, MR_Word *base_sp,
 			MR_Word *base_curfr,
-			bool *succeeded);
+			MR_bool *succeeded);
 extern	MR_Word	MR_lookup_short_lval(MR_Short_Lval locn,
-			MR_Word *saved_regs, bool *succeeded);
+			MR_Word *saved_regs, MR_bool *succeeded);
 extern	MR_Word	MR_lookup_short_lval_base(MR_Short_Lval locn,
 			MR_Word *saved_regs, MR_Word *base_sp,
 			MR_Word *base_curfr,
-			bool *succeeded);
+			MR_bool *succeeded);
 
 /*
 ** Given information about the location of a variable (var) and a vector giving
@@ -108,7 +110,7 @@ extern	MR_Word	MR_lookup_short_lval_base(MR_Short_Lval locn,
 ** *succeeded will say whether the attempt was successful.
 **
 ** The type_params array should have the same format as the array returned
-** by MR_materialize_typeinfos.
+** by MR_materialize_type_params.
 **
 ** MR_get_type_and_value looks up locations in the current environment,
 ** as indicated by the set of saved registers (including MR_sp and MR_curfr).
@@ -125,18 +127,18 @@ extern	MR_Word	MR_lookup_short_lval_base(MR_Short_Lval locn,
 ** be allocated on the Mercury heap.
 */
 
-extern	bool	MR_get_type_and_value(const MR_Label_Layout *label_layout,
+extern	MR_bool	MR_get_type_and_value(const MR_Label_Layout *label_layout,
 			int var, MR_Word *saved_regs, MR_TypeInfo *type_params,
 			MR_TypeInfo *type_info, MR_Word *value);
-extern	bool	MR_get_type_and_value_base(const MR_Label_Layout *label_layout,
+extern	MR_bool	MR_get_type_and_value_base(const MR_Label_Layout *label_layout,
 			int var, MR_Word *saved_regs,
 			MR_Word *base_sp, MR_Word *base_curfr,
 			MR_TypeInfo *type_params, MR_TypeInfo *type_info,
 			MR_Word *value);
-extern	bool	MR_get_type(const MR_Label_Layout *label_layout, int var,
+extern	MR_bool	MR_get_type(const MR_Label_Layout *label_layout, int var,
 			MR_Word *saved_regs, MR_TypeInfo *type_params,
 			MR_TypeInfo *type_info);
-extern	bool	MR_get_type_base(const MR_Label_Layout *label_layout, int var,
+extern	MR_bool	MR_get_type_base(const MR_Label_Layout *label_layout, int var,
 			MR_Word *saved_regs, MR_Word *base_sp,
 			MR_Word *base_curfr, MR_TypeInfo *type_params,
 			MR_TypeInfo *type_info);
@@ -149,5 +151,16 @@ extern	bool	MR_get_type_base(const MR_Label_Layout *label_layout, int var,
 */
 
 extern	void	MR_write_variable(MR_TypeInfo type_info, MR_Word value);
+
+/*
+** Return the name of a procedure specified by the given proc layout in three
+** pieces: the name of the procedure in *proc_name_ptr, its arity in
+** *arity_ptr, and a boolean that is true iff procedure is a function
+** in *is_func_ptr,
+*/
+
+extern	void	MR_generate_proc_name_from_layout(const MR_Proc_Layout
+			*proc_layout, MR_ConstString *proc_name_ptr,
+			int *arity_ptr, MR_Word *is_func_ptr);
 
 #endif	/* MERCURY_LAYOUT_UTIL_H */

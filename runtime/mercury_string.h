@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-2001 The University of Melbourne.
+** Copyright (C) 1995-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -43,7 +43,7 @@
 		MR_string_const((string), sizeof(string) - 1)
 
 /*
-** bool MR_string_equal(MR_ConstString s1, MR_ConstString s2):
+** MR_bool MR_string_equal(MR_ConstString s1, MR_ConstString s2):
 **	Return true iff the two Mercury strings s1 and s2 are equal.
 */
 #define MR_string_equal(s1,s2) (strcmp((char*)(s1),(char*)(s2))==0)
@@ -99,7 +99,7 @@
 
 
 /* void MR_allocate_aligned_string_msg(MR_ConstString &ptr, size_t len,
-**		Code *proclabel, const char *type);
+**		MR_Code *proclabel, const char *type);
 ** Allocate enough word aligned memory to hold len characters.  Also
 ** record for memory profiling purposes the location, proclabel, of the
 ** allocation if profiling is enabled.

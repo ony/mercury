@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1993-1997, 2000 The University of Melbourne.
+** Copyright (C) 1993-1997, 2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -23,7 +23,7 @@
 ** This won't work at all unless we are using gcc's non-local gotos.
 */
 
-#ifndef USE_GCC_NONLOCAL_GOTOS
+#ifndef MR_USE_GCC_NONLOCAL_GOTOS
   #error "On SPARCs, you must use non-local gotos if you want global registers"
 #else
 

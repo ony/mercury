@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2001 The University of Melbourne.
+** Copyright (C) 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -42,16 +42,23 @@
 ** MR_HIGHLEVEL_CODE
 ** MR_HIGHLEVEL_DATA
 ** MR_USE_GCC_NESTED_FUNCTIONS
-** USE_GCC_GLOBAL_REGISTERS
-** USE_GCC_NONLOCAL_GOTOS
-** USE_ASM_LABELS
-** CONSERVATIVE_GC
-** NATIVE_GC		[not yet working]
-** NO_TYPE_LAYOUT
-** BOXED_FLOAT
+** MR_USE_GCC_GLOBAL_REGISTERS
+** MR_USE_GCC_NONLOCAL_GOTOS
+** MR_USE_ASM_LABELS
+** MR_CONSERVATIVE_GC (= boehm_gc *or* MPS)
+** MR_BOEHM_GC
+** MR_MPS_GC
+** MR_NATIVE_GC		[not yet working]
+** MR_NO_TYPE_LAYOUT
+** MR_BOXED_FLOAT
 ** MR_USE_TRAIL
 ** MR_RESERVE_TAG
 ** MR_USE_MINIMAL_MODEL
+** MR_SPLIT_C_FILES
+** MR_INLINE_ALLOC
+** MR_PIC_REG
+** MR_HIGHTAGS
+** MR_TAGBITS
 **	See the documentation for
 **		--high-level-code
 **		--high-level-data
@@ -66,9 +73,18 @@
 **		--use-trail
 **		--reserve-tag
 **		--use-minimal-model
+**		--split-c-files
+**		--inline-alloc
+**		--pic-reg
+**		--tags
+**		--num-tag-bits
 **	(respectively) in the mmc help message or the Mercury User's Guide.
 **
-** USE_SINGLE_PREC_FLOAT:
+** MR_PIC
+**	The generated object code must be position independent.
+**	See runtime/mercury_goto.h.
+**
+** MR_USE_SINGLE_PREC_FLOAT:
 **	Use C's `float' rather than C's `double' for the
 **	Mercury floating point type (`MR_Float').
 **
@@ -84,13 +100,17 @@
 **	For the MLDS back-end (i.e. MR_HIGHLEVEL_CODE),
 **	use inline functions rather than macros for a few builtins.
 **
-** PARALLEL
+** MR_THREAD_SAFE
 **	Enable support for parallelism [not yet working].
 **
 ** MR_NO_BACKWARDS_COMPAT
 **	Disable backwards compatibility with C code using obsolete low-level
 **	constructs, e.g. referring to variables and macros without their MR_
 **	prefixes.
+**
+** MR_NO_CONF_BACKWARDS_COMPAT
+**	Disable backwards compatibility with C code using obsolete
+**	configuration macros without MR_ prefixes.
 **
 ** MR_EXTRA_BACKWARDS_COMPAT
 **	Add extra backwards compatibility with C code using obsolete low-level
@@ -148,39 +168,84 @@
 **
 ** MR_DEBUG_AGC_SCHEDULING
 **	Display debugging information while scheduling accurate garbage
-**	collection.
-**
-** MR_DEBUG_AGC_COLLECTION
-**	Display debugging information while collecting garbage using the
-**	accurate garbage collector.
+**	collection (for the low-level back-end).
 **
 ** MR_DEBUG_AGC_FORWARDING
 **	Display debugging information when leaving or finding forwarding
 **	pointers during accurate garbage collection.
+**
+** MR_DEBUG_AGC_SAVED_HPS
+**	Display debugging information about saved heap pointers
+**	during accurate garbage collection.
 **
 ** MR_DEBUG_AGC_PRINT_VARS
 **	Display the values of live variables during accurate garbage
 **	collection.
 **
 ** MR_DEBUG_AGC_SMALL_HEAP
-**	Use a small heap to trigger garbage collection more often.
+**	Use a small heap (52k) to trigger garbage collection more often.
+**	This is the same as setting MERCURY_OPTIONS="--heap-size 52".
 **
 ** MR_DEBUG_AGC_ALL
 ** 	Turn on all debugging information for accurate garbage
 ** 	collection.  (Equivalent to all MR_DEBUG_AGC_* macros above).
 **
+**      Note that general debugging information about accurate
+**	garbage collection is printed if -dG is included in MERCURY_OPTIONS.
+**      This works even if none of the MR_DEBUG_AGC_* macros are enabled.
+**
 ** MR_TABLE_DEBUG
 ** 	Enables low-level debugging messages from the tabling system.
+**
+** MR_DEBUG_RETRY
+** 	Enables low-level debugging messages from retry operations in the
+** 	debugger.
+**
+** MR_DEBUG_LABEL_NAMES
+** 	Registers labels and their names, enabling label addresses to be
+** 	converted back to a form in which they are usable by a developer.
+** 	Implied by MR_TABLE_DEBUG and MR_DEBUG_RETRY.
+**
+** MR_LOWLEVEL_ADDR_DEBUG
+** 	Enables the printing of raw addresses in debugging output even for
+** 	things (such as stack slots and labels) that can be identified by more
+** 	human-friendly handles (such as stack offsets and label names).
 **
 ** MR_DEBUG_JMPBUFS
 ** 	Enables low-level debugging messages from MR_call_engine and the
 ** 	code handling exceptions.
+**
+** MR_DEBUG_LVAL_REP
+** 	Enables low-level debugging messages from routines concerned with
+** 	the representation of lvals in the RTTI system.
 */
+
+#ifdef	MR_HIGHLEVEL_CODE
+  #ifdef MR_LOWLEVEL_DEBUG
+    #error "MR_HIGHLEVEL_CODE and MR_LOWLEVEL_DEBUG are not supported together"
+  #endif
+  #ifdef MR_DEBUG_DD_BACK_END
+    #error "MR_HIGHLEVEL_CODE and MR_DEBUG_DD_BACK_END are not supported together"
+  #endif
+  #ifdef MR_DEBUG_GOTOS
+    #error "MR_HIGHLEVEL_CODE and MR_DEBUG_GOTOS are not supported together"
+  #endif
+  #ifdef MR_DEBUG_LABEL_NAMES
+    #error "MR_HIGHLEVEL_CODE and MR_DEBUG_LABEL_NAMES are not supported together"
+  #endif
+  #ifdef MR_LOWLEVEL_ADDR_DEBUG
+    #error "MR_HIGHLEVEL_CODE and MR_LOWLEVEL_ADDR_DEBUG are not supported together"
+  #endif
+  #ifdef MR_DEBUG_LVAL_REP
+    #error "MR_HIGHLEVEL_CODE and MR_DEBUG_LVAL_REP are not supported together"
+  #endif
+#endif
 
 #if MR_DEBUG_AGC_ALL
   #define MR_DEBUG_AGC_SCHEDULING
   #define MR_DEBUG_AGC_COLLECTION
   #define MR_DEBUG_AGC_FORWARDING
+  #define MR_DEBUG_AGC_SAVED_HPS
   #define MR_DEBUG_AGC_PRINT_VARS
   #define MR_DEBUG_AGC_SMALL_HEAP
 #endif
@@ -233,11 +298,44 @@
 ** index and compare functions are invoked with various kinds of type
 ** constructors, then set this macro to a string giving the name of the file
 ** to which the statistics should be appended when the program exits.
+** Note that calls to the generic compare_representation are counted as
+** calls to compare.
 **
 ** MR_TABLE_STATISTICS
 ** Enable this if you want to gather statistics about the operation of the
 ** tabling system. The results are reported via io__report_tabling_stats.
+** 
+** MR_STACK_FRAME_STATS
+** If you want to gather statistics about the number and size of stack frames,
+** then set this macro to a string giving the name of the file to which which
+** the statistics should be appended when the program exits.
+** 
+** MR_COMPARE_BY_RTTI
+** Enable this if you want to perform unifications and comparisons on types
+** with standard equality by interpreting the RTTI data structures instead of
+** invoking the type-specific unify and compare procedures. The last time we
+** measured it, this lead to about a 6% slowdown. Since the code interpreting
+** the data structures calls C functions, defining this macro also leads to
+** problems if user-defined unify procedures abort: the exception could be
+** transmitted to the parent Mercury code only by catching and retransmitting
+** it, which, for efficiency reasons, the code doesn't do.
 */
+
+#if defined(MR_THREAD_SAFE) && defined(MR_TRACE_HISTOGRAM)
+  #error "MR_THREAD_SAFE and MR_TRACE_HISTOGRAM are not supported together"
+#endif
+
+#if defined(MR_THREAD_SAFE) && defined(MR_TYPE_CTOR_STATS)
+  #error "MR_THREAD_SAFE and MR_TYPE_CTOR_STATS are not supported together"
+#endif
+
+#if defined(MR_THREAD_SAFE) && defined(MR_TABLE_STATISTICS)
+  #error "MR_THREAD_SAFE and MR_TABLE_STATISTICS are not supported together"
+#endif
+
+#if defined(MR_THREAD_SAFE) && defined(MR_STACK_FRAME_STATS)
+  #error "MR_THREAD_SAFE and MR_STACK_FRAME_STATS are not supported together"
+#endif
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -246,12 +344,12 @@
 */
 
 /*
-** MR_HIGHLEVEL_CODE implies BOXED_FLOAT,
+** MR_HIGHLEVEL_CODE implies MR_BOXED_FLOAT,
 ** since unboxed float is currently not yet implemented for the MLDS back-end.
 ** XXX we really ought to fix that...
 */
 #ifdef MR_HIGHLEVEL_CODE
-  #define BOXED_FLOAT 1
+  #define MR_BOXED_FLOAT 1
 #endif
 
 /* MR_LOWLEVEL_DEBUG implies MR_DEBUG_GOTOS and MR_CHECK_FOR_OVERFLOW */
@@ -295,6 +393,24 @@
 */
 
 /*
+** Both the Boehm collector and the MPS collector are conservative.
+** (Well, actually MPS supports a wide spectrum of methods, including
+** fully conservative, partly conservative (mostly copying),
+** and fully type-accurate collection; but currently we're using
+** the conservative collector part of MPS.)
+**
+** If MR_CONSERVATIVE_GC is defined without specifying which
+** collector to use, then default to using the Boehm collector.
+*/
+#if defined(MR_BOEHM_GC) || defined(MR_MPS_GC)
+  #ifndef MR_CONSERVATIVE_GC
+  #define MR_CONSERVATIVE_GC
+  #endif
+#elif defined(MR_CONSERVATIVE_GC)
+  #define MR_BOEHM_GC
+#endif
+
+/*
 ** Static code addresses are available unless using gcc non-local gotos,
 ** without assembler labels.
 */
@@ -302,11 +418,21 @@
 #ifdef MR_STATIC_CODE_ADDRESSES
   #error "MR_STATIC_CODE_ADDRESSES should not be defined on the command line"
 #endif
-#if !defined(USE_GCC_NONLOCAL_GOTOS) || defined(USE_ASM_LABELS)
+#if !defined(MR_USE_GCC_NONLOCAL_GOTOS) || defined(MR_USE_ASM_LABELS)
   #define MR_STATIC_CODE_ADDRESSES
 #endif
 
 /* XXX document MR_BYTECODE_CALLABLE */
+
+/*
+** MR_DEBUG_LABEL_NAMES -- we need to be able to convert code addresses into
+**			   the names of the labels they correspond to.
+*/
+
+/* MR_TABLE_DEBUG and MR_DEBUG_RETRY imply MR_DEBUG_LABEL_NAMES */
+#if defined(MR_TABLE_DEBUG) || defined(MR_DEBUG_RETRY)
+  #define MR_DEBUG_LABEL_NAMES
+#endif
 
 /*
 ** MR_INSERT_LABELS     -- labels need to be inserted into the label table. 
@@ -325,8 +451,9 @@
 #ifdef MR_INSERT_LABELS
   #error "MR_INSERT_LABELS should not be defined on the command line"
 #endif
-#if defined(MR_STACK_TRACE) || defined(NATIVE_GC) || defined(MR_DEBUG_GOTOS) \
-	|| defined(MR_BYTECODE_CALLABLE)
+#if defined(MR_STACK_TRACE) || defined(MR_NATIVE_GC) \
+	|| defined(MR_DEBUG_GOTOS) || defined(MR_BYTECODE_CALLABLE) \
+	|| defined(MR_DEBUG_LABEL_NAMES)
   #define MR_INSERT_LABELS
 #endif
 
@@ -342,7 +469,7 @@
   #error "MR_INSERT_ENTRY_LABEL_NAMES should not be defined on the command line"
 #endif
 #if defined(MR_MPROF_PROFILE_CALLS) || defined(MR_DEBUG_GOTOS) \
-		|| defined(MR_DEBUG_AGC_SCHEDULING)
+	|| defined(MR_DEBUG_AGC_SCHEDULING) || defined(MR_DEBUG_LABEL_NAMES)
   #define MR_INSERT_ENTRY_LABEL_NAMES
 #endif
 
@@ -357,8 +484,35 @@
 #ifdef MR_INSERT_INTERNAL_LABEL_NAMES
   #error "MR_INSERT_INTERNAL_LABEL_NAMES should not be defined on the command line"
 #endif
-#if defined(MR_DEBUG_GOTOS) || defined(MR_DEBUG_AGC_SCHEDULING)
+#if defined(MR_DEBUG_GOTOS) || defined(MR_DEBUG_AGC_SCHEDULING) \
+	|| defined(MR_DEBUG_LABEL_NAMES)
   #define MR_INSERT_INTERNAL_LABEL_NAMES
+#endif
+
+/*
+** MR_NEED_ENTRY_LABEL_ARRAY -- we need an array of the procedure entry code
+**                              addresses and possibly their label names,
+**                              sorted by the code address before use.
+**
+** This is required by garbage collection and for some kinds of low level
+** debugging.
+**
+** MR_NEED_ENTRY_LABEL_INFO --  we need to register procedure entry code
+**                              addresses.
+**
+** This is required in order to construct the sorted array of procedure entry
+** code addresses, to let the mprof profiling system turn program counter
+** samples back into procedure names, and to let accurate gc find out the
+** layout of stack frames.
+*/
+
+#if defined(MR_NATIVE_GC) || defined(MR_DEBUG_GOTOS) \
+	|| defined(MR_INSERT_ENTRY_LABEL_NAMES)
+  #define MR_NEED_ENTRY_LABEL_ARRAY
+#endif
+
+#if defined(MR_NEED_ENTRY_LABEL_ARRAY) || defined(MR_MPROF_PROFILE_CALLS)
+  #define MR_NEED_ENTRY_LABEL_INFO
 #endif
 
 /*
@@ -375,7 +529,7 @@
   #error "MR_NEED_INITIALIZATION_AT_START should not be defined on the command line"
 #endif
 #if !defined(MR_STATIC_CODE_ADDRESSES) || defined(MR_MPROF_PROFILE_CALLS) \
-	|| defined(MR_MPROF_PROFILE_TIME) || defined(DEBUG_LABELS)
+	|| defined(MR_MPROF_PROFILE_TIME) || defined(MR_DEBUG_LABEL_NAMES)
   #define MR_NEED_INITIALIZATION_AT_START
 #endif
 
@@ -398,13 +552,9 @@
 /*
 ** MR_USE_DECLARATIVE_DEBUGGER -- include support for declarative
 **				  debugging in the internal debugger.
-**
-** MR_USE_DECL_STACK_SLOT      -- reserve a stack slot for use by the
-**				  declarative debugger.  Requires programs
-**				  to be compiled with the flag `--trace-decl'.
 */
 
-#if defined(CONSERVATIVE_GC) && !defined(MR_DISABLE_DECLARATIVE_DEBUGGER)
+#if defined(MR_CONSERVATIVE_GC) && !defined(MR_DISABLE_DECLARATIVE_DEBUGGER)
   #define MR_USE_DECLARATIVE_DEBUGGER
 #endif
 
@@ -414,7 +564,7 @@
 ** Memory protection and signal handling.
 */
 
-#if defined(HAVE_SIGINFO) && defined(PC_ACCESS)
+#if defined(MR_HAVE_SIGINFO) && defined(MR_PC_ACCESS)
   #define MR_CAN_GET_PC_AT_SIGNAL
 #endif
 
@@ -423,7 +573,7 @@
 **					memory zones using mprotect() like
 **					functionality.
 */
-#if (defined(HAVE_MPROTECT) && defined(HAVE_SIGINFO)) || defined(_WIN32)
+#if (defined(MR_HAVE_MPROTECT) && defined(MR_HAVE_SIGINFO)) || defined(_WIN32)
   #define MR_CHECK_OVERFLOW_VIA_MPROTECT
 #endif
 
@@ -431,7 +581,7 @@
 ** MR_PROTECTPAGE   -- 	MR_protect_pages() can be defined to provide the same
 **			functionality as the system call mprotect().
 */
-#if defined(HAVE_MPROTECT) || defined(_WIN32)
+#if defined(MR_HAVE_MPROTECT) || defined(_WIN32)
   #define MR_PROTECTPAGE
 #endif
 

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1993-2001 The University of Melbourne.
+** Copyright (C) 1993-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -20,8 +20,8 @@
 ** The following must come before any definitions of global variables.
 ** This is necessary to support DLLs on Windows.
 */
-#include "mercury_conf.h" /* for USE_DLLS */
-#if USE_DLLS
+#include "mercury_conf.h" /* for MR_USE_DLLS */
+#if MR_USE_DLLS
   #include "libmer_rt_dll.h"
 #endif
 
@@ -41,8 +41,8 @@ extern	int	mercury_main(int argc, char **argv);
 ** mercury_init() is defined in the <module>_init.c file.
 **
 ** The `argc' and `argv' parameters are as for main() in C.
-** The `stack_bottom' parameter should be the address of a variable
-** on the C stack.  The conservative garbage collector treats that
+** The `stack_bottom' parameter should be the address of a (word-aligned)
+** variable on the C stack.  The conservative garbage collector treats that
 ** address as the start of the stack, so anything older than that
 ** address won't get scanned; don't store pointers to GC'ed memory
 ** in local variables that are older than that.
@@ -51,7 +51,7 @@ extern	int	mercury_main(int argc, char **argv);
 ** collector, sets some global variables, and then calls
 ** mercury_runtime_init().
 */
-extern	void	mercury_init(int argc, char **argv, char *stack_bottom);
+extern	void	mercury_init(int argc, char **argv, void *stack_bottom);
 
 /*
 ** mercury_call_main() is defined in the <module>_init.c file.
@@ -85,9 +85,15 @@ extern	int	mercury_terminate(void);
 				   mercury_runtime_terminate(),
 				   etc. */
 #include "mercury_trace_base.h"	/* for MR_trace_port */
+#include "mercury_type_info.h"	/* for MR_TypeCtorInfo_Struct */
 
-#ifdef CONSERVATIVE_GC
-  #include "gc.h"
+#ifdef MR_CONSERVATIVE_GC
+  #ifdef MR_MPS_GC
+    #include "mercury_mps.h"	/* for GC_INIT(), GC_stack_bottom */
+  #endif
+  #ifdef MR_BOEHM_GC
+    #include "gc.h"		/* for GC_INIT(), GC_stack_bottom */
+  #endif
 #endif
 
 #ifdef MR_HIGHLEVEL_CODE
@@ -123,6 +129,11 @@ extern	void	ML_io_print_to_cur_stream(MR_Word, MR_Word);
 extern	char	*MR_trace_getline(const char *, FILE *mdb_in, FILE *mdb_out);
 extern	char	*MR_trace_get_command(const char *, FILE *, FILE *);
 
+/* in trace/mercury_trace_vars.h */
+extern	const char *MR_trace_browse_all_on_level(FILE *,
+			const MR_Label_Layout *, MR_Word *, MR_Word *,
+			int, MR_bool);
+
 /* in trace/mercury_trace_external.h */
 extern	void	MR_trace_init_external(void);
 extern	void	MR_trace_final_external(void);
@@ -138,7 +149,7 @@ extern	void	ML_DI_output_current_slots(MR_Integer, MR_Integer, MR_Integer,
 			MR_Word, MR_String, MR_String, MR_Integer, MR_Integer,
 			MR_Integer, MR_String, MR_Word);
 		/* output_current_slots/13 */
-extern	bool	ML_DI_found_match(MR_Integer, MR_Integer, MR_Integer, MR_Word,
+extern	MR_bool	ML_DI_found_match(MR_Integer, MR_Integer, MR_Integer, MR_Word,
 			MR_String, MR_String, MR_Integer, MR_Integer,
 			MR_Integer, MR_Word, MR_String, MR_Word);
 		/* found_match/12 */

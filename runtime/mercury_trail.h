@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2000 The University of Melbourne.
+** Copyright (C) 1997-2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -195,7 +195,7 @@ typedef enum {
 ** MR_USE_TAGGED_TRAIL is true iff we have enough tag bits to store
 ** an MR_trail_entry_kind as a pointer tag.
 */
-#define MR_USE_TAGGED_TRAIL ((1<<TAGBITS) > MR_LAST_TRAIL_ENTRY_KIND)
+#define MR_USE_TAGGED_TRAIL ((1<<MR_TAGBITS) > MR_LAST_TRAIL_ENTRY_KIND)
 
 typedef void MR_untrail_func_type(void *datum, MR_untrail_reason);
 
@@ -441,7 +441,7 @@ typedef MR_Unsigned MR_ChoicepointId;
 #define MR_null_choicepoint_id() ((const MR_ChoicepointId)0)
 
 /*
-** bool MR_choicepoint_newer(MR_ChoicepointId x, MR_ChoicepointId y);
+** MR_bool MR_choicepoint_newer(MR_ChoicepointId x, MR_ChoicepointId y);
 **
 ** Returns true iff the choicepoint indicated by `x'
 ** is newer than (i.e. was created more recently than)

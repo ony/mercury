@@ -3,7 +3,7 @@ INIT mercury_sys_init_wrapper
 ENDINIT
 */
 /*
-** Copyright (C) 1994-2001 The University of Melbourne.
+** Copyright (C) 1994-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -82,6 +82,18 @@ size_t		MR_debug_heap_zone_size =	  16;
 size_t		MR_generatorstack_zone_size =	  16;
 size_t		MR_cutstack_zone_size =		  16;
 
+/*
+** MR_heap_margin_size is used for accurate GC with the MLDS->C back-end.
+** It is used to decide when to actually do a garbage collection.
+** At each call to MR_GC_check(), which is normally done on entry
+** to each C function, we check whether there is less than this
+** amount of heap space still available, and if not, we call
+** MR_garbage_collect().
+** Like the sizes above, it is measured in kilobytes
+** (but we later multiply by 1024 to convert to bytes).
+*/
+size_t		MR_heap_margin_size =		  16;
+
 /* primary cache size to optimize for, in bytes */
 size_t		MR_pcache_size =	        8192;
 
@@ -89,17 +101,83 @@ size_t		MR_pcache_size =	        8192;
 const char	*MR_mdb_in_filename = NULL;
 const char	*MR_mdb_out_filename = NULL;
 const char	*MR_mdb_err_filename = NULL;
+MR_bool		MR_mdb_in_window = MR_FALSE;
+
+/* use readline() in the debugger even if the input stream is not a tty */
+MR_bool		MR_force_readline = MR_FALSE;
+
+/*
+** Low level debugging options.
+**
+** If MR_watch_addr is not NULL, then the some of the low level debugging
+** messages will print the value it points to.
+**
+** If MR_watch_csd_addr is not NULL, then the some of the low level debugging
+** messages will print the MR_CallSiteDynamic structure it points to. Since
+** this structure is typically in memory that not part of the address space of
+** the program at startup, this printing will be inhibited until
+** MR_watch_csd_started is set to true, which will happen when you call a
+** procedure whose entry label matches the string in MR_watch_csd_start_name.
+**
+** If the low level debugging of calls is enabled, MR_lld_cur_call is the
+** sequence number of the last call executed by the program.
+**
+** Getting low level debugging messages from *every* call, *every* heap
+** allocation etc usually results in an avalanche of data that buries the
+** information you are looking for, and often runs filesystems out of space.
+** Therefore we inhibit these messages unless any one of three conditions
+** apply. We implement this by making MR_lld_print_enabled, which controls
+** the printing of these messages, the logical OR of MR_lld_print_name_enabled,
+** MR_lld_print_csd_enabled and MR_lld_print_region_enabled, which are flags
+** implementing the three conditions. (We rely on these flags being 0 or 1
+** (i.e. MR_FALSE or MR_TRUE) so we can implement logical OR as bitwise OR,
+** which is faster.)
+**
+** One condition is MR_lld_start_block calls starting with a call to a
+** predicate whose entry label matches MR_lld_start_name. Another is
+** MR_lld_start_block calls starting with a call at which the value of the
+** MR_next_call_site_dynamic global variable matches the value in
+** MR_watch_csd_addr. The third is calls whose sequence number is in a range
+** specified by MR_lld_print_more_min_max, which should point to a string
+** containing a comma-separated list of integer intervals (the last interval
+** may be open ended).
+**
+** MR_lld_start_until and MR_lld_csd_until give the end call numbers of the 
+** blocks printed for the first two conditions. MR_lld_print_{min,max} give the
+** boundaries of the (current or next) block for the third condition.
+*/
+
+MR_Word		*MR_watch_addr = NULL;
+MR_CallSiteDynamic
+		*MR_watch_csd_addr = NULL;
+MR_bool		MR_watch_csd_started = MR_FALSE;
+char		*MR_watch_csd_start_name = NULL;
+
+unsigned long	MR_lld_cur_call = 0;
+MR_bool		MR_lld_print_enabled = MR_FALSE;
+MR_bool		MR_lld_print_name_enabled = MR_FALSE;
+MR_bool		MR_lld_print_csd_enabled = MR_FALSE;
+MR_bool		MR_lld_print_region_enabled = MR_FALSE;
+
+char		*MR_lld_start_name = NULL;
+unsigned	MR_lld_start_block = 100;	/* by default, print stuff */
+						/* for a block of 100 calls */
+unsigned long	MR_lld_start_until = (unsigned long) -1;
+
+unsigned long	MR_lld_csd_until = (unsigned long) -1;
+
+unsigned long	MR_lld_print_min = (unsigned long) -1;
+unsigned long	MR_lld_print_max = 0;
+char		*MR_lld_print_more_min_max = NULL;
 
 /* other options */
 
-bool		MR_check_space = FALSE;
-MR_Word		*MR_watch_addr = NULL;
-MR_Word		*MR_watch_csd_addr = NULL;
-int		MR_watch_csd_ignore = 0;
-
-static	bool	benchmark_all_solns = FALSE;
-static	bool	use_own_timer = FALSE;
+MR_bool		MR_check_space = MR_FALSE;
+static	MR_bool	benchmark_all_solns = MR_FALSE;
+static	MR_bool	use_own_timer = MR_FALSE;
 static	int	repeats = 1;
+
+static	int	MR_num_output_args = 0;
 
 unsigned	MR_num_threads = 1;
 
@@ -117,9 +195,9 @@ int		mercury_argc;	/* not counting progname */
 char **		mercury_argv;
 int		mercury_exit_status = 0;
 
-bool		MR_profiling = TRUE;
-bool		MR_print_deep_profiling_statistics = FALSE;
-bool		MR_deep_profiling_save_results = TRUE;
+MR_bool		MR_profiling = MR_TRUE;
+MR_bool		MR_print_deep_profiling_statistics = MR_FALSE;
+MR_bool		MR_deep_profiling_save_results = MR_TRUE;
 
 #ifdef	MR_TYPE_CTOR_STATS
 
@@ -186,15 +264,22 @@ void	(*MR_address_of_write_out_proc_statics)(FILE *fp);
 
 int	(*MR_address_of_do_load_aditi_rl_code)(void);
 
+MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_func;
+MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_pred;
+MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_tuple;
+
 char	*(*MR_address_of_trace_getline)(const char *, FILE *, FILE *);
 char	*(*MR_address_of_trace_get_command)(const char *, FILE *, FILE *);
+const char *
+	(*MR_address_of_trace_browse_all_on_level)(FILE *,
+		const MR_Label_Layout *, MR_Word *, MR_Word *, int, MR_bool);
 
 #ifdef	MR_USE_EXTERNAL_DEBUGGER
 void	(*MR_address_of_trace_init_external)(void);
 void	(*MR_address_of_trace_final_external)(void);
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 void	(*MR_address_of_init_gc)(void);
 #endif
 
@@ -205,6 +290,8 @@ void MR_CALL (*MR_program_entry_point)(void);
 MR_Code	*MR_program_entry_point;
 		/* normally mercury__main_2_0 (main/2) */
 #endif
+
+const char *MR_runtime_flags = "";
 
 void	(*MR_library_initializer)(void);
 		/* normally ML_io_init_state (io__init_state/2)*/
@@ -221,7 +308,7 @@ void	(*MR_DI_output_current_ptr)(MR_Integer, MR_Integer, MR_Integer,
 		MR_Word, MR_String, MR_String, MR_Integer, MR_Integer,
 		MR_Integer, MR_Word, MR_String, MR_Word, MR_Word);
 		/* normally ML_DI_output_current (output_current/13) */
-bool	(*MR_DI_found_match)(MR_Integer, MR_Integer, MR_Integer, MR_Word,
+MR_bool	(*MR_DI_found_match)(MR_Integer, MR_Integer, MR_Integer, MR_Word,
 		MR_String, MR_String, MR_Integer, MR_Integer, MR_Integer,
 		MR_Word, MR_String, MR_Word);
 		/* normally ML_DI_found_match (output_current/12) */
@@ -242,7 +329,7 @@ void	(*MR_address_of_trace_interrupt_handler)(void);
 
 void	(*MR_register_module_layout)(const MR_Module_Layout *);
 
-#ifdef USE_GCC_NONLOCAL_GOTOS
+#ifdef MR_USE_GCC_NONLOCAL_GOTOS
 
 #define	SAFETY_BUFFER_SIZE	1024	/* size of stack safety buffer */
 #define	MAGIC_MARKER_2		142	/* a random character */
@@ -274,7 +361,7 @@ static	void	MR_print_one_type_ctor_stat(FILE *fp, const char *op,
 void
 mercury_runtime_init(int argc, char **argv)
 {
-	bool	saved_trace_enabled;
+	MR_bool	saved_trace_enabled;
 
 #if MR_NUM_REAL_REGS > 0
 	MR_Word c_regs[MR_NUM_REAL_REGS];
@@ -313,7 +400,19 @@ mercury_runtime_init(int argc, char **argv)
 	}
 #endif
 
-#ifdef CONSERVATIVE_GC
+	/*
+	** This must be done before MR_init_conservative_GC(),
+	** to ensure that the GC's signal handler gets installed
+	** after our signal handler.  This is needed because
+	** our signal handler assumes that signals which it can't
+	** handle are fatal.
+	*/
+#if 1 /* XXX still some problems with this for MPS? -fjh */
+/* #ifndef MR_MPS_GC */
+	MR_setup_signals();
+#endif
+
+#ifdef MR_CONSERVATIVE_GC
 	MR_init_conservative_GC();
 #endif
 
@@ -325,6 +424,10 @@ mercury_runtime_init(int argc, char **argv)
 	process_args(argc, argv);
 	process_environment_options();
 
+#ifdef	MR_STACK_FRAME_STATS
+	MR_init_stack_frame_stats();
+#endif	/* MR_STACK_FRAME_STATS */
+
 	/*
 	** Some of the rest of this function may call Mercury code
 	** that may have been compiled with tracing (e.g. the initialization
@@ -334,7 +437,7 @@ mercury_runtime_init(int argc, char **argv)
 	*/
 
 	saved_trace_enabled = MR_trace_enabled;
-	MR_trace_enabled = FALSE;
+	MR_trace_enabled = MR_FALSE;
 
 #ifdef MR_NEED_INITIALIZATION_AT_START
 	MR_do_init_modules();
@@ -342,7 +445,7 @@ mercury_runtime_init(int argc, char **argv)
 
 	(*MR_address_of_mercury_init_io)();
 
-#ifdef MR_HIGHLEVEL_CODE
+#if defined(MR_HIGHLEVEL_CODE) && defined(MR_CONSERVATIVE_GC)
 	MR_init_memory();
   #ifdef MR_USE_TRAIL
 	/* initialize the trail */
@@ -362,7 +465,7 @@ mercury_runtime_init(int argc, char **argv)
 		int i;
 		MR_init_thread_stuff();
 		MR_init_thread(MR_use_now);
-		MR_exit_now = FALSE;
+		MR_exit_now = MR_FALSE;
 		for (i = 1 ; i < MR_num_threads ; i++)
 			MR_create_thread(NULL);
 	}
@@ -428,10 +531,21 @@ mercury_runtime_init(int argc, char **argv)
 
 } /* end runtime_mercury_init() */
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
+
+  #ifdef MR_MPS_GC
+    MR_bool GC_quiet = MR_TRUE;
+  #endif
+
 void
 MR_init_conservative_GC(void)
 {
+  #ifdef MR_MPS_GC
+
+	mercury_mps_init(MR_heap_size * 1024, !GC_quiet);
+
+  #else /* MR_BOEHM_GC */
+
 	/*
 	** sometimes mercury apps fail the GC_is_visible() test.
 	** dyn_load.c traverses the entire address space and registers
@@ -442,7 +556,7 @@ MR_init_conservative_GC(void)
 	*/
 	MR_runqueue_head = NULL;
 
-	GC_quiet = TRUE;
+	GC_quiet = MR_TRUE;
 
 	/*
 	** Call GC_INIT() to tell the garbage collector about this DLL.
@@ -469,33 +583,35 @@ MR_init_conservative_GC(void)
 	{
 		int i;
 
-		for (i = 1; i < (1 << TAGBITS); i++) {
+		for (i = 1; i < (1 << MR_TAGBITS); i++) {
 			GC_REGISTER_DISPLACEMENT(i);
 		}
 	}
+
+  #endif /* MR_BOEHM_GC */
 }
-#endif /* CONSERVATIVE_GC */
+#endif /* MR_CONSERVATIVE_GC */
 
 void 
 MR_do_init_modules(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		(*MR_address_of_init_modules)();
 		MR_close_prof_decl_file();
-		done = TRUE;
+		done = MR_TRUE;
 	}
 }
 
 void 
 MR_do_init_modules_type_tables(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		(*MR_address_of_init_modules_type_tables)();
-		done = TRUE;
+		done = MR_TRUE;
 
 		/*
 		** Some system-defined types have the code to register
@@ -510,11 +626,11 @@ MR_do_init_modules_type_tables(void)
 void 
 MR_do_init_modules_debugger(void)
 {
-	static	bool	done = FALSE;
+	static	MR_bool	done = MR_FALSE;
 
 	if (! done) {
 		(*MR_address_of_init_modules_debugger)();
-		done = TRUE;
+		done = MR_TRUE;
 	}
 }
 
@@ -658,15 +774,21 @@ process_args(int argc, char **argv)
 static void
 process_environment_options(void)
 {
-	char*	options;
+	char*	env_options;
 
-	options = getenv("MERCURY_OPTIONS");
-	if (options != NULL) {
+	env_options = getenv("MERCURY_OPTIONS");
+	if (env_options == NULL) {
+		env_options = (char *) "";
+	}
+
+	if (env_options[0] != '\0' || MR_runtime_flags[0] != '\0') {
 		const char	*cmd;
 		char		*arg_str, **argv;
 		char		*dummy_command_line;
 		const char	*error_msg;
 		int		argc;
+		int		cmd_len;
+		int		runtime_flags_len;
 
 		/*
 		** getopt() expects the options to start in argv[1],
@@ -676,10 +798,16 @@ process_environment_options(void)
 		** to getopt().
 		*/
 		cmd = "mercury_runtime ";
+		cmd_len = strlen(cmd);
+		runtime_flags_len = strlen(MR_runtime_flags);
 		dummy_command_line = MR_GC_NEW_ARRAY(char,
-					strlen(options) + strlen(cmd) + 1);
+					cmd_len + runtime_flags_len + 1 +
+					strlen(env_options) + 1);
 		strcpy(dummy_command_line, cmd);
-		strcat(dummy_command_line, options);
+		strcpy(dummy_command_line + cmd_len, MR_runtime_flags);
+		dummy_command_line[cmd_len + runtime_flags_len] = ' ';
+		strcpy(dummy_command_line + cmd_len + runtime_flags_len + 1,
+				env_options);
 		
 		error_msg = MR_make_argv(dummy_command_line,
 			&arg_str, &argv, &argc);
@@ -707,10 +835,14 @@ enum MR_long_option {
 	MR_NONDETSTACK_REDZONE_SIZE,
 	MR_SOLUTIONS_HEAP_REDZONE_SIZE,
 	MR_TRAIL_REDZONE_SIZE,
+	MR_HEAP_MARGIN_SIZE,
 	MR_MDB_TTY,
 	MR_MDB_IN,
 	MR_MDB_OUT,
-	MR_MDB_ERR
+	MR_MDB_ERR,
+	MR_MDB_IN_WINDOW,
+	MR_FORCE_READLINE,
+	MR_NUM_OUTPUT_ARGS
 };
 
 struct MR_option MR_long_opts[] = {
@@ -724,10 +856,14 @@ struct MR_option MR_long_opts[] = {
 	{ "nondetstack-redzone-size", 	1, 0, MR_NONDETSTACK_REDZONE_SIZE },
 	{ "solutions-heap-redzone-size",1, 0, MR_SOLUTIONS_HEAP_REDZONE_SIZE },
 	{ "trail-redzone-size", 	1, 0, MR_TRAIL_REDZONE_SIZE },
+	{ "heap-margin-size", 		1, 0, MR_HEAP_MARGIN_SIZE },
 	{ "mdb-tty", 			1, 0, MR_MDB_TTY },
 	{ "mdb-in", 			1, 0, MR_MDB_IN },
 	{ "mdb-out", 			1, 0, MR_MDB_OUT },
-	{ "mdb-err", 			1, 0, MR_MDB_ERR }
+	{ "mdb-err", 			1, 0, MR_MDB_ERR },
+	{ "mdb-in-window",		0, 0, MR_MDB_IN_WINDOW },
+	{ "force-readline",		0, 0, MR_FORCE_READLINE },
+	{ "num-output-args", 		1, 0, MR_NUM_OUTPUT_ARGS }
 };
 
 static void
@@ -737,7 +873,7 @@ process_options(int argc, char **argv)
 	int		c;
 	int		long_index;
 
-	while ((c = MR_getopt_long(argc, argv, "acC:d:D:e:i:m:o:pP:r:sStT:x",
+	while ((c = MR_getopt_long(argc, argv, "acC:d:D:e:i:m:n:o:pP:r:sStT:x",
 		MR_long_opts, &long_index)) != EOF)
 	{
 		switch (c)
@@ -813,6 +949,13 @@ process_options(int argc, char **argv)
 			MR_trail_zone_size = size;
 			break;
 
+		case MR_HEAP_MARGIN_SIZE:
+			if (sscanf(MR_optarg, "%lu", &size) != 1)
+				usage();
+
+			MR_heap_margin_size = size;
+			break;
+
 		case 'i':
 		case MR_MDB_IN:
 			MR_mdb_in_filename = MR_copy_string(MR_optarg);
@@ -835,12 +978,37 @@ process_options(int argc, char **argv)
 			MR_mdb_err_filename = MR_copy_string(MR_optarg);
 			break;
 
+		case 'n':
+		case MR_NUM_OUTPUT_ARGS:
+			if (sscanf(MR_optarg, "%lu", &size) != 1)
+				usage();
+
+			MR_num_output_args = size;
+			break;
+
+		case 'w':
+		case MR_MDB_IN_WINDOW:
+			MR_mdb_in_window = MR_TRUE;
+			break;
+
+		case MR_FORCE_READLINE:
+			MR_force_readline = MR_TRUE;
+#ifdef MR_NO_USE_READLINE
+			printf(
+"Mercury runtime: `--force-readline' is specified in MERCURY_OPTIONS\n");
+			printf(
+"but readline() is not available.\n");	
+			fflush(stdout);
+			exit(1);
+#endif
+			break;
+
 		case 'a':
-			benchmark_all_solns = TRUE;
+			benchmark_all_solns = MR_TRUE;
 			break;
 
 		case 'c':
-			MR_check_space = TRUE;
+			MR_check_space = MR_TRUE;
 			break;
 
 		case 'C':
@@ -852,62 +1020,83 @@ process_options(int argc, char **argv)
 			break;
 
 		case 'd':	
-			if (streq(MR_optarg, "a")) {
-				MR_calldebug      = TRUE;
-				MR_nondstackdebug = TRUE;
-				MR_detstackdebug  = TRUE;
-				MR_heapdebug      = TRUE;
-				MR_gotodebug      = TRUE;
-				MR_sregdebug      = TRUE;
-				MR_finaldebug     = TRUE;
-				MR_tracedebug     = TRUE;
-#ifdef CONSERVATIVE_GC
-				GC_quiet = FALSE;
+			if (MR_streq(MR_optarg, "a")) {
+				MR_calldebug      = MR_TRUE;
+				MR_nondstackdebug = MR_TRUE;
+				MR_detstackdebug  = MR_TRUE;
+				MR_heapdebug      = MR_TRUE;
+				MR_gotodebug      = MR_TRUE;
+				MR_sregdebug      = MR_TRUE;
+				MR_finaldebug     = MR_TRUE;
+				MR_tracedebug     = MR_TRUE;
+#ifdef MR_CONSERVATIVE_GC
+				GC_quiet = MR_FALSE;
 #endif
-			} else if (streq(MR_optarg, "b")) {
-				MR_nondstackdebug = TRUE;
-			} else if (streq(MR_optarg, "c")) {
-				MR_calldebug    = TRUE;
-			} else if (streq(MR_optarg, "d")) {
-				MR_detaildebug  = TRUE;
-			} else if (streq(MR_optarg, "f")) {
-				MR_finaldebug   = TRUE;
-			} else if (streq(MR_optarg, "g")) {
-				MR_gotodebug    = TRUE;
-			} else if (streq(MR_optarg, "G")) {
-#ifdef CONSERVATIVE_GC
-				GC_quiet = FALSE;
+#ifdef MR_NATIVE_GC
+				MR_agc_debug      = MR_TRUE;
+#endif
+			} else if (MR_streq(MR_optarg, "b")) {
+				MR_nondstackdebug = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "B")) {
+				if (sscanf(MR_optarg+1, "%u",
+					&MR_lld_start_block) != 1)
+				{
+					usage();
+				}
+			} else if (MR_streq(MR_optarg, "c")) {
+				MR_calldebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "d")) {
+				MR_detaildebug  = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "f")) {
+				MR_finaldebug   = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "g")) {
+				MR_gotodebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "G")) {
+#ifdef MR_CONSERVATIVE_GC
+				GC_quiet = MR_FALSE;
+#elif defined(MR_NATIVE_GC)
+				MR_agc_debug = MR_TRUE;
 #else
 				; /* ignore inapplicable option */
 #endif
-			} else if (streq(MR_optarg, "h")) {
-				MR_heapdebug    = TRUE;
-			} else if (streq(MR_optarg, "H")) {
-				MR_hashdebug    = TRUE;
+			} else if (MR_streq(MR_optarg, "h")) {
+				MR_heapdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "H")) {
+				MR_hashdebug    = MR_TRUE;
+			} else if (MR_optarg[0] == 'i') {
+				MR_lld_print_more_min_max =
+					strdup(MR_optarg + 1);
+				MR_setup_call_intervals(
+					&MR_lld_print_more_min_max,
+					&MR_lld_print_min, &MR_lld_print_max);
 			} else if (MR_optarg[0] == 'I') {
-				int	ignore;
-
-				if (sscanf(MR_optarg+1, "%u", &ignore) != 1) {
-					usage();
-				}
-
-				MR_watch_csd_ignore = ignore;
-			} else if (streq(MR_optarg, "m")) {
-				MR_memdebug     = TRUE;
-			} else if (streq(MR_optarg, "p")) {
-				MR_progdebug    = TRUE;
-			} else if (streq(MR_optarg, "r")) {
-				MR_sregdebug    = TRUE;
-			} else if (streq(MR_optarg, "s")) {
-				MR_detstackdebug  = TRUE;
-			} else if (streq(MR_optarg, "S")) {
-				MR_tablestackdebug = TRUE;
-			} else if (streq(MR_optarg, "t")) {
-				MR_tracedebug   = TRUE;
-			} else if (streq(MR_optarg, "T")) {
-				MR_tabledebug   = TRUE;
-			} else if (streq(MR_optarg, "u")) {
-				MR_unbufdebug   = TRUE;
+				MR_watch_csd_start_name = strdup(MR_optarg+1);
+			} else if (MR_optarg[0] == 'j') {
+				MR_lld_start_name = strdup(MR_optarg+1);
+			} else if (MR_streq(MR_optarg, "m")) {
+				MR_memdebug       = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "o")) {
+				MR_ordregdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "p")) {
+				MR_progdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "P")) {
+				MR_calldebug      = MR_TRUE;
+				MR_gotodebug      = MR_TRUE;
+				MR_finaldebug     = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "r")) {
+				MR_sregdebug      = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "R")) {
+				MR_anyregdebug    = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "s")) {
+				MR_detstackdebug  = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "S")) {
+				MR_tablestackdebug = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "t")) {
+				MR_tracedebug   = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "T")) {
+				MR_tabledebug   = MR_TRUE;
+			} else if (MR_streq(MR_optarg, "u")) {
+				MR_unbufdebug   = MR_TRUE;
 			} else if (MR_optarg[0] == 'w' || MR_optarg[0] == 'W')
 			{
 				long	addr;
@@ -927,25 +1116,33 @@ process_options(int argc, char **argv)
 					}
 				}
 
+				MR_anyregdebug = MR_TRUE;
 				if (MR_optarg[0] == 'w') {
 					MR_watch_addr = (MR_Word *) addr;
 				} else {
-					MR_watch_csd_addr = (MR_Word *) addr;
+					MR_watch_csd_addr =
+						(MR_CallSiteDynamic *) addr;
 				}
+
+				/*
+				** The watch code is called only from the
+				** debug messages controlled by MR_calldebug.
+				*/
+				MR_calldebug = MR_TRUE;
 			} else {
 				usage();
 			}
 
-			use_own_timer = FALSE;
+			use_own_timer = MR_FALSE;
 			break;
 
 		case 'D':
-			MR_trace_enabled = TRUE;
+			MR_trace_enabled = MR_TRUE;
 
-			if (streq(MR_optarg, "i"))
+			if (MR_streq(MR_optarg, "i"))
 				MR_trace_handler = MR_TRACE_INTERNAL;
 #ifdef	MR_USE_EXTERNAL_DEBUGGER
-			else if (streq(MR_optarg, "e"))
+			else if (MR_streq(MR_optarg, "e"))
 				MR_trace_handler = MR_TRACE_EXTERNAL;
 #endif
 
@@ -955,7 +1152,7 @@ process_options(int argc, char **argv)
 			break;
 
 		case 'p':
-			MR_profiling = FALSE;
+			MR_profiling = MR_FALSE;
 			break;
 
 		case 'P':
@@ -976,31 +1173,31 @@ process_options(int argc, char **argv)
 			break;
 
 		case 's':	
-			MR_deep_profiling_save_results = FALSE;
+			MR_deep_profiling_save_results = MR_FALSE;
 			break;
 
 		case 'S':	
-			MR_print_deep_profiling_statistics = TRUE;
+			MR_print_deep_profiling_statistics = MR_TRUE;
 			break;
 
 		case 't':	
-			use_own_timer = TRUE;
+			use_own_timer = MR_TRUE;
 
-			MR_calldebug      = FALSE;
-			MR_nondstackdebug = FALSE;
-			MR_detstackdebug  = FALSE;
-			MR_heapdebug      = FALSE;
-			MR_gotodebug      = FALSE;
-			MR_sregdebug      = FALSE;
-			MR_finaldebug     = FALSE;
+			MR_calldebug      = MR_FALSE;
+			MR_nondstackdebug = MR_FALSE;
+			MR_detstackdebug  = MR_FALSE;
+			MR_heapdebug      = MR_FALSE;
+			MR_gotodebug      = MR_FALSE;
+			MR_sregdebug      = MR_FALSE;
+			MR_finaldebug     = MR_FALSE;
 			break;
 
 		case 'T':
-			if (streq(MR_optarg, "r")) {
+			if (MR_streq(MR_optarg, "r")) {
 				MR_time_profile_method = MR_profile_real_time;
-			} else if (streq(MR_optarg, "v")) {
+			} else if (MR_streq(MR_optarg, "v")) {
 				MR_time_profile_method = MR_profile_user_time;
-			} else if (streq(MR_optarg, "p")) {
+			} else if (MR_streq(MR_optarg, "p")) {
 				MR_time_profile_method =
 					MR_profile_user_plus_system_time;
 			} else {
@@ -1009,8 +1206,8 @@ process_options(int argc, char **argv)
 			break;
 
 		case 'x':
-#ifdef CONSERVATIVE_GC
-			GC_dont_gc = TRUE;
+#ifdef MR_BOEHM_GC
+			GC_dont_gc = MR_TRUE;
 #endif
 
 			break;
@@ -1021,12 +1218,16 @@ process_options(int argc, char **argv)
 		} /* end switch */
 	} /* end while */
 
+	if (MR_lld_print_min > 0 || MR_lld_start_name != NULL) {
+		MR_lld_print_enabled = 0;
+	}
+
 	if (MR_optind != argc) {
 		printf("The MERCURY_OPTIONS environment variable contains "
 			"the word `%s'\n"
 			"which is not an option. Please refer to the "
 			"Environment Variables section\n"
-			"of the Mercury user's guide for details.\n",
+			"of the Mercury User's Guide for details.\n",
 			argv[MR_optind]);
 		fflush(stdout);
 		exit(1);
@@ -1039,10 +1240,48 @@ usage(void)
 	printf("The MERCURY_OPTIONS environment variable "
 		"contains an invalid option.\n"
 		"Please refer to the Environment Variables section of "
-		"the Mercury\nuser's guide for details.\n");
+		"the Mercury\nUser's Guide for details.\n");
 	fflush(stdout);
 	exit(1);
 } /* end usage() */
+
+/*
+** Get the next interval from *more_str_ptr, which should point to a string
+** containing a comma-separated list of integer intervals. The last interval
+** may be open ended.
+*/
+
+void
+MR_setup_call_intervals(char **more_str_ptr,
+	unsigned long *min_ptr, unsigned long *max_ptr)
+{
+	char		*more_str;
+	unsigned long	min, max;
+	int		n;
+
+	more_str = *more_str_ptr;
+
+	/* Relying on the return value from sscanf() with %n is
+	   non-portable, so we need to call sscanf() twice here. */
+	if (sscanf(more_str, "%lu-%lu", &min, &max) == 2) {
+		sscanf(more_str, "%lu-%lu%n", &min, &max, &n);
+		more_str += n;
+		if (more_str[0] == ',') {
+			more_str++;
+		}
+	} else if (sscanf(more_str, "%lu-", &min) == 1) {
+		more_str = NULL;
+		max = (unsigned long) -1;
+	} else {
+		more_str = NULL;
+		min = 0;
+		max = (unsigned long) -1;
+	}
+
+	*more_str_ptr = more_str;
+	*min_ptr = min;
+	*max_ptr = max;
+}
 
 /*---------------------------------------------------------------------------*/
 
@@ -1053,7 +1292,7 @@ mercury_runtime_main(void)
 	MR_Word c_regs[MR_NUM_REAL_REGS];
 #endif
 
-#if defined(MR_LOWLEVEL_DEBUG) && defined(USE_GCC_NONLOCAL_GOTOS)
+#if defined(MR_LOWLEVEL_DEBUG) && defined(MR_USE_GCC_NONLOCAL_GOTOS)
 	unsigned char	safety_buffer[SAFETY_BUFFER_SIZE];
 #endif
 
@@ -1095,7 +1334,7 @@ mercury_runtime_main(void)
 	MR_save_regs_to_mem(c_regs);
 	MR_restore_registers();
 
-#if defined(MR_LOWLEVEL_DEBUG) && defined(USE_GCC_NONLOCAL_GOTOS)
+#if defined(MR_LOWLEVEL_DEBUG) && defined(MR_USE_GCC_NONLOCAL_GOTOS)
 	/*
 	** double-check to make sure that we're not corrupting
 	** the C stack with these non-local gotos, by filling
@@ -1108,7 +1347,7 @@ mercury_runtime_main(void)
 #endif
 
 #ifdef MR_LOWLEVEL_DEBUG
-  #ifndef CONSERVATIVE_GC
+  #ifndef MR_CONSERVATIVE_GC
 	MR_ENGINE(MR_eng_heap_zone)->max =
 		MR_ENGINE(MR_eng_heap_zone)->min;
   #endif
@@ -1132,7 +1371,7 @@ mercury_runtime_main(void)
 		MR_do_interpreter();
 #else
 		MR_debugmsg0("About to call engine\n");
-		(void) MR_call_engine(MR_ENTRY(MR_do_interpreter), FALSE);
+		(void) MR_call_engine(MR_ENTRY(MR_do_interpreter), MR_FALSE);
 		MR_debugmsg0("Returning from MR_call_engine()\n");
 #endif
 
@@ -1146,7 +1385,7 @@ mercury_runtime_main(void)
 		MR_time_at_finish = MR_get_user_cpu_miliseconds();
 	}
 
-#if defined(USE_GCC_NONLOCAL_GOTOS) && defined(MR_LOWLEVEL_DEBUG)
+#if defined(MR_USE_GCC_NONLOCAL_GOTOS) && defined(MR_LOWLEVEL_DEBUG)
 	{
 		int i;
 
@@ -1162,7 +1401,7 @@ mercury_runtime_main(void)
 #ifdef MR_LOWLEVEL_DEBUG
 	if (MR_memdebug) {
 		printf("\n");
-  #ifndef CONSERVATIVE_GC
+  #ifndef MR_CONSERVATIVE_GC
 		printf("max heap used:      %6ld words\n",
 			(long) (MR_ENGINE(MR_eng_heap_zone)->max
 				- MR_ENGINE(MR_eng_heap_zone)->min));
@@ -1190,6 +1429,10 @@ mercury_runtime_main(void)
 #ifdef	MR_TYPE_CTOR_STATS
 	MR_print_type_ctor_stats();
 #endif
+
+#ifdef	MR_STACK_FRAME_STATS
+	MR_print_stack_frame_stats();
+#endif	/* MR_STACK_FRAME_STATS */
 
 	/*
 	** Save the Mercury registers and
@@ -1223,7 +1466,7 @@ MR_register_type_ctor_stat(MR_TypeStat *type_stat,
 {
 	int	i;
 
-	type_stat->type_ctor_reps[type_ctor_info->type_ctor_rep]++;
+	type_stat->type_ctor_reps[MR_type_ctor_rep(type_ctor_info)]++;
 
 	for (i = 0; i < type_stat->type_ctor_name_next; i++) {
 		/*
@@ -1253,7 +1496,7 @@ MR_register_type_ctor_stat(MR_TypeStat *type_stat,
 	type_stat->type_ctor_names[i].type_stat_name =
 		type_ctor_info->type_ctor_name;
 	type_stat->type_ctor_names[i].type_stat_ctor_rep =
-		type_ctor_info->type_ctor_rep;
+		MR_type_ctor_rep(type_ctor_info);
 	type_stat->type_ctor_names[i].type_stat_count = 1;
 	type_stat->type_ctor_name_next++;
 }
@@ -1378,19 +1621,65 @@ print_register_usage_counts(void)
 static void
 MR_do_interpreter(void)
 {
+  #if !defined(MR_CONSERVATIVE_GC) && !defined(MR_NATIVE_GC)
+	/*
+	** Save the heap pointer here and restore it at the end
+	** of this function, so that you can run benchmarks in
+	** a loop in grade `hlc' without running out of memory.
+	*/
+	MR_Word *saved_hp = MR_hp;
+  #endif
+	
   #ifdef  MR_MPROF_PROFILE_TIME
 	if (MR_profiling) {
 		MR_prof_turn_on_time_profiling();
 	}
   #endif
 
-	/* call the Mercury predicate main/2 */
-	(*MR_program_entry_point)();
+	/* call the entry point (normally the Mercury predicate main/2) */
+	{ 
+		MR_Word outputs[4];
+		typedef void MR_CALL (*EntryPoint1)(MR_Word *);
+		typedef void MR_CALL (*EntryPoint2)(MR_Word *, MR_Word *);
+		typedef void MR_CALL (*EntryPoint3)(MR_Word *, MR_Word *,
+					MR_Word *);
+		typedef void MR_CALL (*EntryPoint4)(MR_Word *, MR_Word *,
+					MR_Word *, MR_Word *);
+		switch (MR_num_output_args) {
+			case 0:
+				(*MR_program_entry_point)();
+				break;
+			case 1:
+				(*(EntryPoint1)MR_program_entry_point)(
+					&outputs[0]);
+				break;
+			case 2:
+				(*(EntryPoint2)MR_program_entry_point)(
+					&outputs[0], &outputs[1]);
+				break;
+			case 3:
+				(*(EntryPoint3)MR_program_entry_point)(
+					&outputs[0], &outputs[1], &outputs[2]);
+				break;
+			case 4:
+				(*(EntryPoint4)MR_program_entry_point)(
+					&outputs[0], &outputs[1], &outputs[2],
+					&outputs[3]);
+				break;
+			default:
+				MR_fatal_error("sorry, not implemented: "
+					"--num-output-args > 4");
+		}
+	}
 
   #ifdef  MR_MPROF_PROFILE_TIME
 	if (MR_profiling)  {
 		MR_prof_turn_off_time_profiling();
 	}
+  #endif
+
+  #if !defined(MR_CONSERVATIVE_GC) && !defined(MR_NATIVE_GC)
+	MR_hp = saved_hp;
   #endif
 }
 
@@ -1400,12 +1689,14 @@ MR_define_extern_entry(MR_do_interpreter);
 MR_declare_label(global_success);
 MR_declare_label(global_fail);
 MR_declare_label(all_done);
+MR_declare_label(wrapper_not_reached);
 
 MR_BEGIN_MODULE(interpreter_module)
-	MR_init_entry_ai(MR_do_interpreter);
-	MR_init_label_ai(global_success);
-	MR_init_label_ai(global_fail);
-	MR_init_label_ai(all_done);
+	MR_init_entry_an(MR_do_interpreter);
+	MR_init_label_an(global_success);
+	MR_init_label_an(global_fail);
+	MR_init_label_an(all_done);
+	MR_init_label_an(wrapper_not_reached);
 MR_BEGIN_CODE
 
 MR_define_entry(MR_do_interpreter);
@@ -1415,6 +1706,7 @@ MR_define_entry(MR_do_interpreter);
 	MR_stackvar(3) = (MR_Word) MR_maxfr;
 	MR_stackvar(4) = (MR_Word) MR_curfr;
 
+	MR_succip = MR_LABEL(wrapper_not_reached);
 	MR_mkframe("interpreter", 1, MR_LABEL(global_fail));
 
 	MR_nondet_stack_trace_bottom = MR_maxfr;
@@ -1483,9 +1775,12 @@ MR_define_label(all_done);
 #endif
 
 	MR_proceed();
-#ifndef	USE_GCC_NONLOCAL_GOTOS
+#ifndef	MR_USE_GCC_NONLOCAL_GOTOS
 	return 0;
 #endif
+
+MR_define_label(wrapper_not_reached);
+	MR_fatal_error("reached wrapper_not_reached");
 MR_END_MODULE
 
 #endif
@@ -1534,8 +1829,8 @@ mercury_runtime_terminate(void)
 
 #ifndef MR_HIGHLEVEL_CODE
   #ifdef MR_THREAD_SAFE
-	MR_exit_now = TRUE;
-	pthread_cond_broadcast(MR_runqueue_cond);
+	MR_exit_now = MR_TRUE;
+	pthread_cond_broadcast(&MR_runqueue_cond);
   #endif
 #endif
 

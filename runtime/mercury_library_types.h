@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2000, 2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -27,12 +27,15 @@
   typedef struct mercury_file {
 	FILE *file1;
 	int line_number1;
+  #ifdef MR_NATIVE_GC
+	int id;
+  #endif
   } MercuryFile;
 
   #define MR_file(mf)		(mf).file1
   #define MR_line_number(mf)	(mf).line_number1
 
-  #define MR_IS_FILE_STREAM(mf)	( TRUE )
+  #define MR_IS_FILE_STREAM(mf)	( MR_TRUE )
 
   #define MR_MERCURYFILE_INIT(file, line_number)		\
   		{ (file), (line_number) }
@@ -101,6 +104,9 @@
 	MR_StreamType	stream_type;
 	MR_StreamInfo	stream_info;
 	int		line_number;
+  #ifdef MR_NATIVE_GC
+	int id;
+  #endif
 
 		/* UNBUFFERED FUNCTIONS */
 	MR_Stream_close	*close;    
@@ -142,15 +148,15 @@
 #endif	/* MR_NEW_MERCURYFILE_STRUCT */
 
 /*
-** definitions for accessing the representation of the
-** Mercury `array' type
+** Definitions for accessing the representation of the
+** Mercury `array' type.
+** Note that arrays should be allocated on the Mercury heap,
+** using MR_incr_hp_msg().
 */
 
 typedef struct {
 	MR_Integer size;
 	MR_Word elements[MR_VARIABLE_SIZED];
 } MR_ArrayType;
-
-#define MR_make_array(sz) ((MR_ArrayType *) MR_GC_NEW_ARRAY(MR_Word, (sz) + 1))
 
 #endif /* not MERCURY_LIBRARY_TYPES_H */

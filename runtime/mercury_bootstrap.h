@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2001 The University of Melbourne.
+** Copyright (C) 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -15,13 +15,131 @@
 #ifndef	MERCURY_BOOTSTRAP_H
 #define	MERCURY_BOOTSTRAP_H
 
-#define do_redo				MR_do_redo
-#define do_fail				MR_do_fail
-#define do_reset_hp_fail		MR_do_reset_hp_fail
-#define do_reset_framevar0_fail		MR_do_reset_framevar0_fail
-#define do_succeed			MR_do_succeed
-#define do_not_reached			MR_do_not_reached
-#define exception_handler_do_fail	MR_exception_handler_do_fail
+#define	MR_FA_PseudoTypeInfo_Struct0_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct1_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct2_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct3_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct4_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct5_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct6_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct7_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct8_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct9_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct10_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct11_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct12_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct13_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct14_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct15_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct16_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct17_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct18_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct19_GUARD
+#define	MR_FA_PseudoTypeInfo_Struct20_GUARD
+
+#define	MR_VA_PseudoTypeInfo_Struct0_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct1_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct2_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct3_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct4_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct5_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct6_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct7_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct8_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct9_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct10_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct11_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct12_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct13_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct14_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct15_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct16_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct17_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct18_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct19_GUARD
+#define	MR_VA_PseudoTypeInfo_Struct20_GUARD
+
+#define	MR_FA_TypeInfo_Struct0_GUARD
+#define	MR_FA_TypeInfo_Struct1_GUARD
+#define	MR_FA_TypeInfo_Struct2_GUARD
+#define	MR_FA_TypeInfo_Struct3_GUARD
+#define	MR_FA_TypeInfo_Struct4_GUARD
+#define	MR_FA_TypeInfo_Struct5_GUARD
+#define	MR_FA_TypeInfo_Struct6_GUARD
+#define	MR_FA_TypeInfo_Struct7_GUARD
+#define	MR_FA_TypeInfo_Struct8_GUARD
+#define	MR_FA_TypeInfo_Struct9_GUARD
+#define	MR_FA_TypeInfo_Struct10_GUARD
+#define	MR_FA_TypeInfo_Struct11_GUARD
+#define	MR_FA_TypeInfo_Struct12_GUARD
+#define	MR_FA_TypeInfo_Struct13_GUARD
+#define	MR_FA_TypeInfo_Struct14_GUARD
+#define	MR_FA_TypeInfo_Struct15_GUARD
+#define	MR_FA_TypeInfo_Struct16_GUARD
+#define	MR_FA_TypeInfo_Struct17_GUARD
+#define	MR_FA_TypeInfo_Struct18_GUARD
+#define	MR_FA_TypeInfo_Struct19_GUARD
+#define	MR_FA_TypeInfo_Struct20_GUARD
+
+#define	MR_VA_TypeInfo_Struct0_GUARD
+#define	MR_VA_TypeInfo_Struct1_GUARD
+#define	MR_VA_TypeInfo_Struct2_GUARD
+#define	MR_VA_TypeInfo_Struct3_GUARD
+#define	MR_VA_TypeInfo_Struct4_GUARD
+#define	MR_VA_TypeInfo_Struct5_GUARD
+#define	MR_VA_TypeInfo_Struct6_GUARD
+#define	MR_VA_TypeInfo_Struct7_GUARD
+#define	MR_VA_TypeInfo_Struct8_GUARD
+#define	MR_VA_TypeInfo_Struct9_GUARD
+#define	MR_VA_TypeInfo_Struct10_GUARD
+#define	MR_VA_TypeInfo_Struct11_GUARD
+#define	MR_VA_TypeInfo_Struct12_GUARD
+#define	MR_VA_TypeInfo_Struct13_GUARD
+#define	MR_VA_TypeInfo_Struct14_GUARD
+#define	MR_VA_TypeInfo_Struct15_GUARD
+#define	MR_VA_TypeInfo_Struct16_GUARD
+#define	MR_VA_TypeInfo_Struct17_GUARD
+#define	MR_VA_TypeInfo_Struct18_GUARD
+#define	MR_VA_TypeInfo_Struct19_GUARD
+#define	MR_VA_TypeInfo_Struct20_GUARD
+
+/*
+** These will be needed until we regularize the module-qualification
+** of builtin types.
+*/
+
+#define	mercury_data___type_ctor_info_int_0 \
+	mercury_data_builtin__type_ctor_info_int_0
+#define	mercury_data___type_ctor_info_string_0 \
+	mercury_data_builtin__type_ctor_info_string_0
+#define	mercury_data___type_ctor_info_float_0 \
+	mercury_data_builtin__type_ctor_info_float_0
+#define	mercury_data___type_ctor_info_character_0 \
+	mercury_data_builtin__type_ctor_info_character_0
+#define	mercury_data___type_ctor_info_void_0 \
+	mercury_data_builtin__type_ctor_info_void_0
+#define	mercury_data___type_ctor_info_c_pointer_0 \
+	mercury_data_builtin__type_ctor_info_c_pointer_0
+#define	mercury_data___type_ctor_info_func_0 \
+	mercury_data_builtin__type_ctor_info_func_0
+#define	mercury_data___type_ctor_info_pred_0 \
+	mercury_data_builtin__type_ctor_info_pred_0
+#define	mercury_data___type_ctor_info_tuple_0 \
+	mercury_data_builtin__type_ctor_info_tuple_0
+#define	mercury_data___type_ctor_info_hp_0 \
+	mercury_data_builtin__type_ctor_info_hp_0
+#define	mercury_data___type_ctor_info_curfr_0 \
+	mercury_data_builtin__type_ctor_info_curfr_0
+#define	mercury_data___type_ctor_info_maxfr_0 \
+	mercury_data_builtin__type_ctor_info_maxfr_0
+#define	mercury_data___type_ctor_info_redofr_0 \
+	mercury_data_builtin__type_ctor_info_redofr_0
+#define	mercury_data___type_ctor_info_redoip_0 \
+	mercury_data_builtin__type_ctor_info_redoip_0
+#define	mercury_data___type_ctor_info_trailptr_0 \
+	mercury_data_builtin__type_ctor_info_trailptr_0
+#define	mercury_data___type_ctor_info_ticket_0 \
+	mercury_data_builtin__type_ctor_info_ticket_0
 
 /*
 ** This stuff is enabled by default,
@@ -29,6 +147,123 @@
 */
 
 #ifndef MR_NO_BACKWARDS_COMPAT
+
+/*
+** bool, TRUE and FALSE appear in the generated code.
+** Once the installed compilers no longer generate these, they should
+** be moved into the `#ifndef MR_NO_BACKWARDS_COMPAT' section.
+*/
+#ifdef IN_GCC
+  /*
+  ** We need to make sure that we pick up GCC's definition of bool, 
+  ** to ensure that we don't define `bool' below.  Otherwise we get
+  ** conflicts because some declarations use the <stdbool.h> definition
+  ** of bool (an enum), and some use our definition (a #define for char)
+  */
+  #include "config.h"
+  #include "system.h"
+#endif
+
+#ifndef bool
+#define bool			char
+#endif
+
+#ifndef TRUE
+#define TRUE			MR_TRUE
+#endif
+#ifndef FALSE
+#define FALSE			MR_FALSE
+#endif
+
+/* 
+** For a long time the Mercury C types were defined as Char, Float,
+** Integer, Word, etc.  There will doubtless be lots of C code in
+** libraries that relies upon these names.  
+**
+** People may have written code that relies upon these names, so  
+** if you remove these names you need to give warning (unlike some of
+** the other changes in this file).
+*/
+
+#include "mercury_types.h"
+#include "mercury_float.h"
+
+typedef MR_Word 		Word;
+typedef MR_Code 		Code;
+typedef MR_Char 		Char;
+typedef MR_Float 		Float;
+typedef MR_Float64 		Float64;
+typedef MR_Integer 		Integer;
+typedef MR_Unsigned 		Unsigned;
+typedef MR_UnsignedChar 	UnsignedChar;
+typedef MR_String 		String;
+typedef MR_ConstString 		ConstString;
+/*
+** MR_Bool is the C representation for the Mercury type bool__bool.
+** For ordinary booleans, use MR_bool in mercury_std.h.
+*/
+typedef MR_intptr_t		MR_Bool;
+typedef MR_Bool			Bool;
+
+/*
+** The list manipulation macros are available for use by ordinary Mercury
+** programmers. People may have written code using these macros before their
+** documented names were changed, so removing backward compatibility for them
+** requires more warning than for the other things in this file.
+*/
+
+#define	list_is_empty(l)	MR_list_is_empty(l)
+#define	list_head(l)		MR_list_head(l)
+#define	list_tail(l)		MR_list_tail(l)
+#define	list_empty()		MR_list_empty()
+#define	list_cons(h, t)		MR_list_cons((h), (t))
+
+/* Stuff from mercury_std.h */
+#define streq(s1, s2)		MR_streq(s1, s2)
+#define strdiff(s1, s2)		MR_strdiff(s1, s2)
+#define strtest(s1, s2)		MR_strtest(s1, s2)
+#define strneq(s1, s2, n)	MR_strneq(s1, s2, n)
+#define strndiff(s1, s2, n)	MR_strndiff(s1, s2, n)
+#define strntest(s1, s2, n)	MR_strntest(s1, s2, n)
+
+#ifndef max
+#define max(a, b)		MR_max(a, b)
+#endif
+#ifndef min
+#define min(a, b)		MR_min(a, b)
+#endif
+
+#ifndef NO_RETURN
+#define NO_RETURN		MR_NO_RETURN
+#endif
+
+#endif	/* !MR_NO_BACKWARDS_COMPAT */
+
+/*---------------------------------------------------------------------------*/
+/*
+** This stuff is not enabled by default.
+** To enable it, you must explicitly define MR_EXTRA_BACKWARDS_COMPAT.
+*/
+#ifdef	MR_EXTRA_BACKWARDS_COMPAT
+
+#define	COMPARE_EQUAL		MR_COMPARE_EQUAL
+#define	COMPARE_LESS		MR_COMPARE_LESS
+#define	COMPARE_GREATER		MR_COMPARE_GREATER
+
+#define make_aligned_string_copy(a,b)	MR_make_aligned_string_copy((a),(b))
+#define make_aligned_string(a,b)	MR_make_aligned_string((a),(b))
+#define string_equal(a,b)		MR_string_equal((a),(b))
+#define string_const(a,b)		MR_string_const((a),(b))
+#define hash_string(s)			MR_hash_string((s))
+#define fatal_error(s)			MR_fatal_error((s))
+
+#define do_redo				MR_do_redo
+#define do_fail				MR_do_fail
+#define do_reset_hp_fail		MR_do_reset_hp_fail
+#define do_reset_framevar0_fail		MR_do_reset_framevar0_fail
+#define do_succeed			MR_do_succeed
+#define do_not_reached			MR_do_not_reached
+#define exception_handler_do_fail	MR_exception_handler_do_fail
 
 #define	r1				MR_r1
 #define	r2				MR_r2
@@ -252,64 +487,6 @@
 
 #define	save_transient_hp()		MR_save_transient_hp()
 #define	restore_transient_hp()		MR_restore_transient_hp()
-
-
-/* 
-** For a long time the Mercury C types were defined as Char, Float,
-** Integer, Word, etc.  There will doubtless be lots of C code in
-** libraries that relies upon these names.  
-**
-** People may have written code that relies upon these names, so  
-** if you remove these names you need to give warning (unlike some of
-** the other changes in this file).
-*/
-
-#include "mercury_types.h"
-#include "mercury_float.h"
-typedef MR_Word 		Word;
-typedef MR_Code 		Code;
-typedef MR_Char 		Char;
-typedef MR_Float 		Float;
-typedef MR_Float64 		Float64;
-typedef MR_Integer 		Integer;
-typedef MR_Unsigned 		Unsigned;
-typedef MR_UnsignedChar 	UnsignedChar;
-typedef MR_String 		String;
-typedef MR_ConstString 		ConstString;
-typedef MR_Bool 		Bool;
-
-#define	COMPARE_EQUAL		MR_COMPARE_EQUAL
-#define	COMPARE_LESS		MR_COMPARE_LESS
-#define	COMPARE_GREATER		MR_COMPARE_GREATER
-
-#define make_aligned_string_copy(a,b)	MR_make_aligned_string_copy((a),(b))
-#define make_aligned_string(a,b)	MR_make_aligned_string((a),(b))
-#define string_equal(a,b)		MR_string_equal((a),(b))
-#define string_const(a,b)		MR_string_const((a),(b))
-#define hash_string(s)			MR_hash_string((s))
-#define fatal_error(s)			MR_fatal_error((s))
-
-/*
-** The list manipulation macros are available for use by ordinary Mercury
-** programmers. People may have written code using these macros before their
-** documented names were changed, so removing backward compatibility for them
-** requires more warning than for the other things in this file.
-*/
-
-#define	list_is_empty(l)	MR_list_is_empty(l)
-#define	list_head(l)		MR_list_head(l)
-#define	list_tail(l)		MR_list_tail(l)
-#define	list_empty()		MR_list_empty()
-#define	list_cons(h, t)		MR_list_cons((h), (t))
-
-#endif	/* MR_NO_BACKWARDS_COMPAT */
-
-/*---------------------------------------------------------------------------*/
-/*
-** This stuff is not enabled by default.
-** To enable it, you must explicitly define MR_EXTRA_BACKWARDS_COMPAT.
-*/
-#ifdef	MR_EXTRA_BACKWARDS_COMPAT
 
 #define succip			MR_succip
 #define hp			MR_hp

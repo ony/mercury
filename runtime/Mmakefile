@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1998-2001 The University of Melbourne.
+# Copyright (C) 1998-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -9,20 +9,17 @@
 MAIN_TARGET=runtime
 
 MERCURY_DIR=..
+LINK_BOEHM_GC_ONLY=yes
 include $(MERCURY_DIR)/Mmake.common
 -include Mmake.runtime.params
 
+# Avoid trying to make this file with `mmc --make' if it doesn't exist.
+Mmake.runtime.params: ;
+
 #-----------------------------------------------------------------------------#
 
-CFLAGS		= -g $(DLL_CFLAGS)
-MGNUC		= MERCURY_ALL_C_INCL_DIRS=" \
-			-I$(RUNTIME_DIR) \
-			-I$(BOEHM_GC_DIR) \
-			-I$(BOEHM_GC_DIR)/include \
-			" \
-		  $(SCRIPTS_DIR)/mgnuc 
-MGNUCFLAGS	= --no-ansi
-MOD2C		= $(SCRIPTS_DIR)/mod2c
+CFLAGS	+= -g $(DLL_CFLAGS) -DMERCURY_BOOTSTRAP_H -DMERCURY_CONF_BOOTSTRAP_H
+MGNUCFLAGS	+= --no-ansi
 
 #-----------------------------------------------------------------------------#
 
@@ -36,17 +33,23 @@ HDRS		=	\
 			mercury_accurate_gc.h	\
 			mercury_agc_debug.h	\
 			mercury_array_macros.h	\
+			mercury_builtin_types.h	\
 			mercury_bootstrap.h	\
 			mercury_calls.h		\
 			mercury_conf.h		\
+			mercury_conf_bootstrap.h \
 			mercury_conf_param.h	\
+			mercury_construct.h	\
 			mercury_context.h	\
 			mercury_debug.h		\
+			mercury_deconstruct.h	\
+			mercury_deconstruct_macros.h \
 			mercury_deep_copy.h	\
 			mercury_deep_profiling.h \
 			mercury_deep_profiling_hand.h \
 			mercury_dummy.h		\
 			mercury_dlist.h		\
+			mercury_dword.h		\
 		  	mercury_engine.h	\
 			mercury_file.h		\
 			mercury_float.h		\
@@ -56,6 +59,7 @@ HDRS		=	\
 			mercury_hash_table.h	\
 			mercury_heap.h		\
 			mercury_heap_profile.h	\
+			mercury_hlc_types.h	\
 			mercury_ho_call.h	\
 			mercury_imp.h		\
 			mercury_init.h		\
@@ -70,15 +74,16 @@ HDRS		=	\
 			mercury_prof.h		\
 			mercury_prof_mem.h	\
 			mercury_prof_time.h	\
+			mercury_profiling_builtin.h	\
 			mercury_reg_workarounds.h	\
 			mercury_regorder.h	\
 			mercury_regs.h		\
+			mercury_runtime_util.h	\
 			mercury_signal.h	\
 			mercury_std.h		\
 			mercury_stack_layout.h	\
 			mercury_stack_trace.h	\
 			mercury_stacks.h	\
-			mercury_strerror.h	\
 			mercury_string.h	\
 			mercury_tabling.h	\
 			mercury_tabling_macros.h	\
@@ -88,27 +93,31 @@ HDRS		=	\
 			mercury_trace_base.h	\
 			mercury_trail.h		\
 			mercury_types.h		\
+			mercury_type_desc.h	\
 			mercury_type_info.h	\
 			mercury_type_tables.h	\
 			mercury_wrapper.h	\
 			$(LIB_DLL_H)
 
 # The headers in $(BODY_HDRS) contain code schemes included multiple times
-# in one source file each. Their dependencies must be explicitly listed.
+# in one or more source files. Their dependencies must be explicitly listed.
 # They do not have to be syntactically well-formed.
 
 BODY_HDRS	=	\
 			mercury_deep_call_port_body.h	\
-			mercury_deep_copy_body.h \
+			mercury_deep_copy_body.h	\
 			mercury_deep_leave_port_body.h	\
 			mercury_deep_rec_depth_actions.h \
-			mercury_deep_rec_depth_body.h \
+			mercury_deep_rec_depth_body.h	\
 			mercury_deep_redo_port_body.h	\
 			mercury_exception_catch_body.h	\
 			mercury_hand_compare_body.h	\
 			mercury_hand_unify_body.h	\
 			mercury_make_type_info_body.h	\
-			mercury_ml_expand_body.h \
+			mercury_ml_arg_body.h		\
+			mercury_ml_deconstruct_body.h	\
+			mercury_ml_expand_body.h	\
+			mercury_ml_functor_body.h	\
 			mercury_unify_compare_body.h
 
 # Note that $(LIB_GLOBALS_H) cannot be part of $(HDRS), since it depends on
@@ -133,8 +142,11 @@ CFILES		= 	\
 			mercury_accurate_gc.c	\
 			mercury_agc_debug.c	\
 			mercury_bootstrap.c	\
+			mercury_builtin_types.c	\
+			mercury_construct.c	\
 			mercury_context.c	\
 			mercury_debug.c		\
+			mercury_deconstruct.c	\
 			mercury_deep_copy.c	\
 			mercury_deep_profiling.c \
 			mercury_dlist.c		\
@@ -151,24 +163,26 @@ CFILES		= 	\
 			mercury_label.c		\
 			mercury_layout_util.c	\
 			mercury_memory.c	\
-			mercury_memory_zones.c	\
 			mercury_memory_handlers.c	\
+			mercury_memory_zones.c	\
 			mercury_misc.c		\
 			mercury_prof.c		\
 			mercury_prof_mem.c	\
 			mercury_prof_time.c	\
+			mercury_profiling_builtin.c	\
 			mercury_reg_workarounds.c	\
 			mercury_regs.c		\
+			mercury_runtime_util.c	\
 			mercury_signal.c	\
 			mercury_stack_trace.c	\
 			mercury_stacks.c	\
-			mercury_strerror.c	\
 			mercury_string.c	\
 			mercury_tabling.c	\
 			mercury_thread.c	\
 			mercury_timing.c	\
 			mercury_trace_base.c	\
 			mercury_trail.c 	\
+			mercury_type_desc.c	\
 			mercury_type_info.c	\
 			mercury_type_tables.c	\
 			mercury_wrapper.c
@@ -177,24 +191,20 @@ OBJS		= $(CFILES:.c=.$O)
 PIC_OBJS	= $(CFILES:.c=.$(EXT_FOR_PIC_OBJECTS))
 
 LDFLAGS		= -L$(BOEHM_GC_DIR)
-LDLIBS		= \
-		` case "$(GRADE)" in 					\
-		    *.par*.gc*.prof*)	echo "-lpar_gc_prof" ;;		\
-		    *.par*.gc*)		echo "-lpar_gc" ;;		\
-		    *.gc*.prof*)	echo "-lgc_prof" ;;		\
-		    *.gc*)		echo "-lgc" ;;			\
-		  esac							\
-		`
+LDLIBS		= $(SHARED_GC_LIBS)
+
 THREADLIBS	= \
 		` case "$(GRADE)" in					\
-		    *.par*) echo "-lpthread" ;;				\
+		    *.par*|*.mps*) echo "-lpthread" ;;			\
 		  esac							\
 		`
 
-HDR_CHECK_CS = $(HDRS:.h=.check.c)
-HDR_CHECK_OBJS = $(HDRS:.h=.check.$O)
+HDR_CHECK_CS = $(HDRS:.h=.check_hdr.c)
+HDR_CHECK_OBJS = $(HDRS:.h=.check_hdr.$O)
 HDR_CHECK_MACROS = $(HDRS:.h=.check.macros)
 OBJ_CHECKS = $(OBJS:%=%.obj_check)
+
+$(HDR_CHECK_OBJS):	mercury_conf.h
 
 #-----------------------------------------------------------------------------#
 
@@ -223,9 +233,30 @@ endif
 
 $(OBJS) $(PIC_OBJS): $(HDRS) $(MACHHDRS)
 
-mercury_deep_copy.o:	mercury_deep_copy_body.h
-mercury_type_info.o:	mercury_make_type_info_body.h
-mercury_ho_call.o:	mercury_unify_compare_body.h
+mercury_builtin_types.$(O):	mercury_hand_unify_compare_body.h
+mercury_builtin_types.(O):	mercury_hand_unify_body.h mercury_hand_compare_body.h
+mercury_deconstruct.$(O):	mercury_ml_expand_body.h
+mercury_deep_copy.$(O):		mercury_deep_copy_body.h
+mercury_type_info.$(O):		mercury_make_type_info_body.h
+mercury_ho_call.$(O):		mercury_unify_compare_body.h
+mercury_type_info.$(O):		mercury_make_type_info_body.h
+
+mercury_builtin_types.$(EXT_FOR_PIC_OBJECTS):	mercury_hand_unify_compare_body.h
+mercury_builtin_types.(EXT_FOR_PIC_OBJECTS):	mercury_hand_unify_body.h mercury_hand_compare_body.h
+mercury_deconstruct.$(EXT_FOR_PIC_OBJECTS):	mercury_ml_expand_body.h
+mercury_deep_copy.$(EXT_FOR_PIC_OBJECTS):	mercury_deep_copy_body.h
+mercury_type_info.$(EXT_FOR_PIC_OBJECTS):	mercury_make_type_info_body.h
+mercury_ho_call.$(EXT_FOR_PIC_OBJECTS):		mercury_unify_compare_body.h
+mercury_type_info.$(EXT_FOR_PIC_OBJECTS):	mercury_make_type_info_body.h
+
+# ../tools/make_port_code makes both the .c and the .h file of the
+# mercury_profiling_builtin module.
+mercury_profiling_builtin.c:	mercury_profiling_builtin.h
+mercury_profiling_builtin.h:	mercury_deep_call_port_body.h \
+				mercury_deep_redo_port_body.h \
+				mercury_deep_leave_port_body.h \
+				../tools/make_port_code
+	../tools/make_port_code
 
 #-----------------------------------------------------------------------------#
 
@@ -290,8 +321,19 @@ tags: $(CFILES) $(HDRS) $(BODY_HDRS)
 # and object files to make sure that they conform with our coding standards.
 #
 
+# Macro names must normally start with one of the prefixes associated
+# with the different components of our system:
+# 	`MR_' or `MERCURY_' for stuff in the Mercury runtime implementation
+# 		(the `runtime' and `trace' directories)
+# 	`GC_' for stuff in the Boehm et al conservative garbage collector
+# 		(the `boehm_gc' directory)
+# 	`MPS_' or `mps_' for stuff in the Memory Pool System toolkit
+# 		(the `mps_gc' directory, if present -- note that this
+# 		is in a separate CVS module and is not included in the
+# 		normal Mercury source distributions)
+# Exceptions to this policy must be listed in the RESERVED_MACRO_NAMES file.
 HEADER_CLEAN_FILTER = \
-	grep -v -e '^MR_' -e '^GC_' -e '^MERCURY_' | \
+	grep -v -e '^MR_' -e '^MERCURY_' -e '^GC_' -e '^MPS_' -e '^mps_' | \
 	fgrep -v -x -f RESERVED_MACRO_NAMES
 
 .PHONY: check_headers_self_contained
@@ -380,5 +422,6 @@ clean_check:
 realclean_local:
 	rm -f lib$(RT_LIB_NAME).$A lib$(RT_LIB_NAME).so $(RT_LIB_NAME).init
 	rm -f mercury_conf.h mercury_conf.h.date
+	rm -f mercury_profiling_builtin.c mercury_profiling_builtin.h
 
 #-----------------------------------------------------------------------------#

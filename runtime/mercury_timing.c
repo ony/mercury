@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1993-1994,1997,2000 The University of Melbourne.
+** Copyright (C) 1993-1994,1997,2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -13,7 +13,7 @@
 
 #include "mercury_imp.h"
 
-#ifdef HAVE_SYS_TIMES_H
+#ifdef MR_HAVE_SYS_TIMES_H
   #include <sys/times.h>		/* for times() and `struct tms' */
 #endif
 
@@ -26,7 +26,7 @@
 int
 MR_get_user_cpu_miliseconds(void)
 {
-#ifdef MR_WIN32_GETPROCESSTIMES
+#if defined(MR_WIN32_GETPROCESSTIMES)
 	#define FILETIME_TO_MILLISEC(time, msec)			\
 	do								\
 	{								\
@@ -48,7 +48,7 @@ MR_get_user_cpu_miliseconds(void)
 	FILETIME_TO_MILLISEC(user_time, user_msec);
 	FILETIME_TO_MILLISEC(kernel_time, kernel_msec);
 	return user_msec + kernel_msec;
-#elif HAVE_SYS_TIMES_H
+#elif defined(MR_HAVE_SYS_TIMES_H)
   #ifdef MR_CLOCK_TICKS_PER_SECOND
 	const double ticks_per_milisecond = MR_CLOCK_TICKS_PER_SECOND / 1000.0;
 	struct tms t;

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2001 The University of Melbourne.
+** Copyright (C) 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -20,6 +20,9 @@
 
 #include "mercury_stack_layout.h"	/* for MR_Closure_Id etc */
 #include "mercury_type_info.h"		/* for MR_PseudoTypeInfo */
+#ifndef	MR_HIGHLEVEL_CODE
+  #include "mercury_goto.h"		/* for MR_declare_entry */
+#endif
 
 /*
 ** A closure layout structure identifies a procedure, and contains
@@ -38,7 +41,7 @@
 ** contain values for all the arguments of the procedure, but the closure
 ** layout structure has information about all arguments. This is to make
 ** the creation of a closure from another closure by adding some more
-** hidden arguments as fast as possible. There is no problem is finding
+** hidden arguments as fast as possible. There is no problem in finding
 ** out which pseudotypeinfo describes which hidden argument, because if
 ** the closure contains n hidden arguments, these must be the first n arguments
 ** of the procedure.
@@ -73,16 +76,17 @@
 */
 
 typedef struct MR_Closure_Layout_Struct {
-	MR_Closure_Id		*closure_id;
-	MR_Type_Param_Locns	*type_params;
-	MR_Integer		num_all_args;
-	MR_PseudoTypeInfo	arg_pseudo_type_info[MR_VARIABLE_SIZED];
+	MR_Closure_Id		*MR_closure_id;
+	MR_Type_Param_Locns	*MR_closure_type_params;
+	MR_Integer		MR_closure_num_all_args;
+	MR_PseudoTypeInfo	MR_closure_arg_pseudo_type_info
+					[MR_VARIABLE_SIZED];
 } MR_Closure_Layout;
 
 typedef struct MR_Closure_Dyn_Link_Layout_Struct {
-	MR_Closure_Id		*closure_id;
-	MR_Type_Param_Locns	*type_params;
-	MR_Integer		num_all_args;
+	MR_Closure_Id		*MR_closure_dl_id;
+	MR_Type_Param_Locns	*MR_closure_dl_type_params;
+	MR_Integer		MR_closure_dl_num_all_args;
 } MR_Closure_Dyn_Link_Layout;
 
 /*
@@ -104,13 +108,45 @@ typedef struct MR_Closure_Dyn_Link_Layout_Struct {
 ** the arguments from one.
 */
 
-typedef struct MR_Closure_Struct {
+struct MR_Closure_Struct {
 	MR_Closure_Layout	*MR_closure_layout;
 	MR_Code			*MR_closure_code;
 	MR_Unsigned		MR_closure_num_hidden_args;
 	MR_Word			MR_closure_hidden_args_0[MR_VARIABLE_SIZED];
-} MR_Closure;
+};
+
+/* in mercury_types.h: typedef struct MR_Closure_Struct MR_Closure; */
 
 #define	MR_closure_hidden_args(i)	MR_closure_hidden_args_0[(i) - 1]
 
-#endif /* not MERCURY_HO_CALL_H */
+#ifdef	MR_HIGHLEVEL_CODE
+
+/*
+** Function declarations
+*/
+
+MR_bool MR_CALL mercury__builtin__unify_2_p_0(MR_Mercury_Type_Info,
+	MR_Box, MR_Box);
+void MR_CALL mercury__builtin__compare_3_p_0(MR_Mercury_Type_Info,
+	MR_Comparison_Result *, MR_Box, MR_Box);
+void MR_CALL mercury__builtin__compare_3_p_1(MR_Mercury_Type_Info,
+	MR_Comparison_Result *, MR_Box, MR_Box);
+void MR_CALL mercury__builtin__compare_3_p_2(MR_Mercury_Type_Info,
+	MR_Comparison_Result *, MR_Box, MR_Box);
+void MR_CALL mercury__builtin__compare_3_p_3(MR_Mercury_Type_Info,
+	MR_Comparison_Result *, MR_Box, MR_Box);
+void MR_CALL mercury__std_util__compare_representation_3_p_0(
+	MR_Mercury_Type_Info, MR_Comparison_Result *, MR_Box, MR_Box);
+
+#else	/* ! MR_HIGHLEVEL_CODE */
+
+MR_declare_entry(mercury__unify_2_0);
+MR_declare_entry(mercury__compare_3_0);
+MR_declare_entry(mercury__compare_3_1);
+MR_declare_entry(mercury__compare_3_2);
+MR_declare_entry(mercury__compare_3_3);
+MR_declare_entry(mercury__std_util__compare_representation_3_0);
+
+#endif	/* MR_HIGHLEVEL_CODE */
+
+#endif	/* not MERCURY_HO_CALL_H */

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2000-2001 The University of Melbourne.
+// Copyright (C) 2000-2002 The University of Melbourne.
 // This file may only be copied under the terms of the GNU Library General
 // Public License - see the file COPYING.LIB in the Mercury distribution.
 //
@@ -43,6 +43,23 @@
 // not supported at all.  I hope it will make a comeback.
 
 .class public TempHack {
+
+.method public static default int32 
+get_ftn_ptr_heap_pointer_compare() {
+	ldftn void ['mercury'] 'mercury'.'private_builtin__cpp_code'.'mercury_code'::
+	do_compare__heap_pointer_0_0(
+		class [mscorlib]System.Object[]&,
+		class [mscorlib]System.Object, class [mscorlib]System.Object)
+	ret
+}
+
+.method public static default int32 
+get_ftn_ptr_heap_pointer_unify() {
+	ldftn int32 ['mercury'] 'mercury'.'private_builtin__cpp_code'.'mercury_code'::
+	do_unify__heap_pointer_0_0(
+		class [mscorlib]System.Object, class [mscorlib]System.Object)
+	ret
+}
 
 .method public static default int32 
 get_ftn_ptr_typeclass_info_compare() {
@@ -115,6 +132,25 @@ get_ftn_ptr_type_ctor_info_unify() {
 		class [mscorlib]System.Object)
 	ret
 }
+
+.method public static default int32
+get_ftn_ptr_type_ctor_desc_compare() {
+	ldftn void ['mercury'] 'mercury'.'type_desc__cpp_code'.'mercury_code'::
+	do_compare__type_ctor_desc_0_0(
+		class [mscorlib]System.Object[]&,
+		// class [mercury]mercury.builtin.comparison_result_0*,
+		class [mscorlib]System.Object, class [mscorlib]System.Object)
+	ret
+}
+
+.method public static default int32
+get_ftn_ptr_type_ctor_desc_unify() {
+	ldftn int32 ['mercury'] 'mercury'.'type_desc__cpp_code'.'mercury_code'::
+	do_unify__type_ctor_desc_0_0(
+		class [mscorlib]System.Object, class [mscorlib]System.Object)
+	ret
+}
+
 
 .method public static default int32 
 get_ftn_ptr_tuple_compare() {
@@ -288,16 +324,17 @@ get_ftn_ptr_array_unify() {
 
 .method public static default int32 
 get_ftn_ptr_type_desc_compare() {
-	ldftn void ['mercury'] 'mercury'.'std_util__cpp_code'.'mercury_code'::
+	ldftn void ['mercury'] 'mercury'.'type_desc__cpp_code'.'mercury_code'::
 	do_compare__type_desc_0_0(
 		class [mscorlib]System.Object[]&,
+		// class [mercury]mercury.builtin.comparison_result_0*,
 		class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
 
 .method public static default int32 
 get_ftn_ptr_type_desc_unify() {
-	ldftn int32 ['mercury'] 'mercury'.'std_util__cpp_code'.'mercury_code'::
+	ldftn int32 ['mercury'] 'mercury'.'type_desc__cpp_code'.'mercury_code'::
 	do_unify__type_desc_0_0(
 		class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
@@ -338,6 +375,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	tail.
 	calli	int32 (class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -353,6 +391,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	tail.
 	calli	int32 (class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -368,6 +407,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	tail.
 	calli	int32 (class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -385,6 +425,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	tail.
 	calli	int32 (class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -403,6 +444,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	tail.
 	calli	int32 (class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -424,6 +466,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	tail.
 	calli	int32 (class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -442,6 +485,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	// using tail. here is not verifiable due to the byref argument
 	calli	void (class [mscorlib]System.Object[]&, class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
 }
@@ -458,6 +502,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	// using tail. here is not verifiable due to the byref argument
 	calli	void (class [mscorlib]System.Object, class [mscorlib]System.Object[]&,
 		class [mscorlib]System.Object, class [mscorlib]System.Object)
 	ret
@@ -477,6 +522,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	// using tail. here is not verifiable due to the byref argument
 	calli	void (class [mscorlib]System.Object,
 		class [mscorlib]System.Object, class [mscorlib]System.Object[]&,
 		class [mscorlib]System.Object, class [mscorlib]System.Object)
@@ -498,6 +544,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	// using tail. here is not verifiable due to the byref argument
 	calli	void (class [mscorlib]System.Object, class [mscorlib]System.Object,
 		class [mscorlib]System.Object, class [mscorlib]System.Object[]&,
 		class [mscorlib]System.Object, class [mscorlib]System.Object)
@@ -520,6 +567,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	// using tail. here is not verifiable due to the byref argument
 	calli	void (class [mscorlib]System.Object, class [mscorlib]System.Object,
 		class [mscorlib]System.Object,
 		class [mscorlib]System.Object, class [mscorlib]System.Object[]&,
@@ -545,6 +593,7 @@ get_ftn_ptr_univ_unify() {
 	ldarg 'procedure'
 	unbox int32
 	ldobj int32
+	// using tail. here is not verifiable due to the byref argument
 	calli	void (class [mscorlib]System.Object, class [mscorlib]System.Object,
 		class [mscorlib]System.Object, class [mscorlib]System.Object,
 		class [mscorlib]System.Object, class [mscorlib]System.Object[]&,
@@ -561,6 +610,7 @@ get_ftn_ptr_univ_unify() {
 
 .class public 'Init' {
     .method public static default void init_runtime() {
+        tail.
         call void ['mercury']mercury.io.mercury_code::init_state_2()
 	ret
     }

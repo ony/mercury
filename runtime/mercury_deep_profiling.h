@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2001 The University of Melbourne.
+** Copyright (C) 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -22,16 +22,6 @@ typedef enum {
 	MR_method_call,
 	MR_callback
 } MR_CallSite_Kind;
-
-typedef struct MR_CallSiteStatic_Struct		MR_CallSiteStatic;
-typedef struct MR_CallSiteDynamic_Struct	MR_CallSiteDynamic;
-typedef struct MR_User_ProcStatic_Struct	MR_User_ProcStatic;
-typedef struct MR_Compiler_ProcStatic_Struct	MR_Compiler_ProcStatic;
-typedef struct MR_ProcStatic_Struct		MR_ProcStatic;
-typedef struct MR_ProcDynamic_Struct		MR_ProcDynamic;
-typedef struct MR_ProfilingMetrics_Struct	MR_ProfilingMetrics;
-
-typedef struct MR_CallSiteDynList_Struct	MR_CallSiteDynList;
 
 struct MR_ProfilingMetrics_Struct {
 #ifdef MR_DEEP_PROFILING_PORT_COUNTS
@@ -140,9 +130,9 @@ typedef enum {
 } MR_Profile_Encoding_Token;
 
 #define	MR_enter_instrumentation()					\
-	do { MR_inside_deep_profiling_code = TRUE; } while (0)
+	do { MR_inside_deep_profiling_code = MR_TRUE; } while (0)
 #define	MR_leave_instrumentation()					\
-	do { MR_inside_deep_profiling_code = FALSE; } while (0)
+	do { MR_inside_deep_profiling_code = MR_FALSE; } while (0)
 
 #ifdef MR_DEEP_PROFILING_EXPLICIT_CALL_COUNTS
   #define MR_init_own_call_port(csd)					\
@@ -311,15 +301,15 @@ typedef enum {
 	} while (0)
 
 #ifdef	MR_DEEP_CHECKS
-  #define MR_deep_assert(cond)						\
+  #define MR_deep_assert(csd, ps, cond)					\
  	do {								\
 		if (!(cond)) {						\
-			MR_deep_assert_failed(MR_STRINGIFY(cond),	\
+			MR_deep_assert_failed(csd, ps, MR_STRINGIFY(cond),\
 				__FILE__, __LINE__);			\
 		}							\
 	} while (0)
 #else
-  #define MR_deep_assert(cond)						\
+  #define MR_deep_assert(csd, ps, cond)					\
   	((void) 0)
 #endif
 
@@ -328,7 +318,7 @@ extern	MR_CallSiteDynamic		*MR_next_call_site_dynamic;
 extern	MR_CallSiteDynList		**MR_current_callback_site;
 extern	MR_CallSiteDynamic		*MR_root_call_sites[];
 
-extern	volatile bool			MR_inside_deep_profiling_code;
+extern	volatile MR_bool		MR_inside_deep_profiling_code;
 extern	volatile unsigned		MR_quanta_inside_deep_profiling_code;
 extern	volatile unsigned		MR_quanta_outside_deep_profiling_code;
 
@@ -357,7 +347,8 @@ extern	int	MR_deep_prof_call_builtin_old;
 
 #endif	/* MR_DEEP_PROFILING_STATISTICS */
 
-extern	void	MR_deep_assert_failed(const char *cond,
+extern	void	MR_deep_assert_failed(const MR_CallSiteDynamic *csd,
+			const MR_ProcStatic *ps, const char *cond,
 			const char *filename, int linenumber);
 extern	void	MR_setup_callback(void *entry);
 extern	void	MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ptr);

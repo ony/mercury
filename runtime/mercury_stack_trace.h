@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -42,7 +42,7 @@
 
 extern	void	MR_dump_stack(MR_Code *success_pointer,
 			MR_Word *det_stack_pointer,
-			MR_Word *current_frame, bool include_trace_data);
+			MR_Word *current_frame, MR_bool include_trace_data);
 
 /*
 ** MR_dump_stack_from_layout:
@@ -62,25 +62,34 @@ typedef	void		(*MR_Print_Stack_Record)(FILE *fp,
 				int count, int level,
 				MR_Word *base_sp, MR_Word * base_curfr,
 				const char *filename, int linenumber,
-				const char *goal_path, bool context_mismatch);
+				const char *goal_path,
+				MR_bool context_mismatch);
 
 extern	const char	*MR_dump_stack_from_layout(FILE *fp,
 				const MR_Label_Layout *label_layout,
 				MR_Word *det_stack_pointer,
 				MR_Word *current_frame,
-				bool include_trace_data,
-				bool include_contexts,
+				MR_bool include_trace_data,
+				MR_bool include_contexts,
 				MR_Print_Stack_Record print_stack_record);
 
 /*
-** MR_dump_nondet_stack_from_layout:
-**	This function dumps the control control slots of the nondet stack.
+** MR_dump_nondet_stack:
+**	This function dumps the control slots of the nondet stack.
 **	The output format is not meant to be intelligible to non-implementors.
-**	The value of maxfr should be in *base_maxfr.
 */
 
-extern	void	MR_dump_nondet_stack_from_layout(FILE *fp,
-			MR_Word *base_maxfr);
+extern	void	MR_dump_nondet_stack(FILE *fp, MR_Word *maxfr);
+
+/*
+** MR_dump_nondet_stack_from_layout:
+**	This function dumps the nondet stack.
+**	The output format is not meant to be intelligible to non-implementors.
+*/
+
+extern	void	MR_dump_nondet_stack_from_layout(FILE *fp, MR_Word *maxfr,
+			const MR_Label_Layout *label_layout,
+			MR_Word *base_sp, MR_Word *base_curfr);
 
 /*
 ** MR_find_nth_ancestor:
@@ -113,17 +122,22 @@ extern	const MR_Label_Layout *MR_find_nth_ancestor(
 **	continuation label, or NULL if the bottom of the stack has
 **	been reached.
 **
-**	The meaning of the return value for MR_stack_walk_step is
-**	described in its type definition above.  If an error is
-**	encountered, problem_ptr will be set to a string representation
-**	of the error.
+**	The meanings of the possible return values from MR_stack_walk_step
+**	are as follows:
+**
+**	MR_STEP_OK:		everything is fine.
+**	MR_STEP_ERROR_BEFORE:	entry_layout has no valid stack trace info.
+**	MR_STEP_ERROR_AFTER:	entry_layout has valid stack trace info,
+**				but its caller does not.
+**
+**	If a MR_stack_walk_step encounters a problem, it will set problem_ptr
+**	to point to a string representation of the error.
 */
 
 typedef enum {
-	STEP_ERROR_BEFORE,      /* the current entry_layout has no valid info */
-	STEP_ERROR_AFTER,       /* the current entry_layout has valid info,
-				   but the next one does not */
-	STEP_OK                 /* both have valid info */
+	MR_STEP_ERROR_BEFORE,
+	MR_STEP_ERROR_AFTER,
+	MR_STEP_OK
 } MR_Stack_Walk_Step_Result;
 
 extern  MR_Stack_Walk_Step_Result
@@ -160,11 +174,11 @@ extern	const char *MR_detism_names[];
 /*
 ** MR_find_context attempts to look up the file name and line number
 ** corresponding to a label identified by its layout structure. If successful,
-** it fills in *fileptr and *lineptr accordingly, and returns TRUE; otherwise,
-** it returns FALSE.
+** it fills in *fileptr and *lineptr accordingly, and returns MR_TRUE;
+** otherwise, it returns MR_FALSE.
 */
 
-extern	bool	MR_find_context(const MR_Label_Layout *label,
+extern	MR_bool	MR_find_context(const MR_Label_Layout *label,
 			const char **fileptr, int *lineptr);
 
 /*
@@ -175,7 +189,7 @@ extern	bool	MR_find_context(const MR_Label_Layout *label,
 ** to be non-NULL, since these numbers are stored in stack slots.
 **
 ** MR_maybe_print_call_trace_info calls MR_print_call_trace_info if
-** include_trace_data is TRUE and the other conditions required by
+** include_trace_data is MR_TRUE and the other conditions required by
 ** MR_print_call_trace_info are satisfied.
 */
 
@@ -184,7 +198,7 @@ extern	void	MR_print_call_trace_info(FILE *fp,
 			MR_Word *base_sp, MR_Word *base_curfr);
 
 extern	void	MR_maybe_print_call_trace_info(FILE *fp,
-			bool include_trace_data,
+			MR_bool include_trace_data,
 			const MR_Proc_Layout *entry,
 			MR_Word *base_sp, MR_Word *base_curfr);
 
@@ -220,10 +234,10 @@ typedef	enum {
 } MR_Context_Position;
 
 extern	void	MR_print_proc_id_trace_and_context(FILE *fp,
-			bool include_trace_data, MR_Context_Position pos,
+			MR_bool include_trace_data, MR_Context_Position pos,
 			const MR_Proc_Layout *entry,
 			MR_Word *base_sp, MR_Word *base_curfr, const char *path,
-			const char *filename, int lineno, bool print_parent,
+			const char *filename, int lineno, MR_bool print_parent,
 			const char *parent_filename, int parent_lineno,
 			int indent);
 
@@ -235,6 +249,6 @@ extern	void	MR_dump_stack_record_print(FILE *fp,
 			const MR_Proc_Layout *entry_layout, int count,
 			int start_level, MR_Word *base_sp, MR_Word *base_curfr,
 			const char *filename, int linenumber,
-			const char *goal_path, bool context_mismatch);
+			const char *goal_path, MR_bool context_mismatch);
 
 #endif /* MERCURY_STACK_TRACE_H */

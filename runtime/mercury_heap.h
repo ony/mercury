@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1995-2001 The University of Melbourne.
+** Copyright (C) 1995-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -9,6 +9,7 @@
 #ifndef MERCURY_HEAP_H
 #define MERCURY_HEAP_H
 
+#include "mercury_conf.h"		/* for MR_CONSERVATIVE_GC */
 #include "mercury_types.h"		/* for `MR_Word' */
 #include "mercury_context.h"		/* for min_heap_reclamation_point() */
 #include "mercury_heap_profile.h"	/* for MR_record_allocation() */
@@ -18,9 +19,14 @@
   #include "mercury.h"			/* for MR_new_object() */
 #endif
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 
-  #include "gc.h"
+  #ifdef MR_MPS_GC
+    #include "mercury_mps.h"
+  #endif
+  #ifdef MR_BOEHM_GC
+    #include "gc.h"
+  #endif
 
   #define MR_tag_incr_hp_n(dest, tag, count) 				\
 	((dest) = (MR_Word) MR_mkword((tag),				\
@@ -29,7 +35,7 @@
 	((dest) = (MR_Word) MR_mkword((tag),				\
 			(MR_Word) GC_MALLOC_ATOMIC((count) * sizeof(MR_Word))))
 
-  #ifdef INLINE_ALLOC
+  #ifdef MR_INLINE_ALLOC
 
     /*
     ** The following stuff uses the macros in the `gc_inl.h' header file in the
@@ -54,9 +60,9 @@
     #ifndef __GNUC__
       /*
       ** Without the gcc extensions __builtin_constant_p() and ({...}),
-      ** INLINE_ALLOC would probably be a performance _loss_.
+      ** MR_INLINE_ALLOC would probably be a performance _loss_.
       */
-      #error "INLINE_ALLOC requires the use of GCC"
+      #error "MR_INLINE_ALLOC requires the use of GCC"
     #endif
 
     #include "gc_inl.h"
@@ -72,12 +78,12 @@
 	: MR_tag_incr_hp_n((dest), (tag), (count))			\
 	)
 
-  #else /* not INLINE_ALLOC */
+  #else /* not MR_INLINE_ALLOC */
 
     #define MR_tag_incr_hp(dest, tag, count) \
 	MR_tag_incr_hp_n((dest), (tag), (count))
 
-  #endif /* not INLINE_ALLOC */
+  #endif /* not MR_INLINE_ALLOC */
 
   #define MR_mark_hp(dest)		((void)0)
   #define MR_restore_hp(src)		((void)0)
@@ -96,7 +102,7 @@
 
   #define MR_free_heap(ptr)	GC_FREE((ptr))
 
-#else /* not CONSERVATIVE_GC */
+#else /* not MR_CONSERVATIVE_GC */
 
   #define MR_tag_incr_hp(dest, tag, count) 				\
 		(							\
@@ -140,7 +146,7 @@
 
   #define MR_free_heap(ptr)		((void) 0)
   
-#endif /* not CONSERVATIVE_GC */
+#endif /* not MR_CONSERVATIVE_GC */
   
 #if	defined (MR_DEEP_PROFILING) && defined(MR_DEEP_PROFILING_MEMORY)
   #define MR_maybe_record_allocation(count, proclabel, type)		\
@@ -342,4 +348,64 @@ MR_create3(MR_Word w1, MR_Word w2, MR_Word w3)
 		MR_save_transient_hp();				\
 	} while (0)
 
+/*
+** Code to box/unbox types declared with `pragma foreign_type'.
+*/
+
+/*
+** void MR_MAYBE_BOX_FOREIGN_TYPE(type T, const T &value, MR_Box &box);
+**	Copy a value of type T from `value' to `box',
+**	boxing it if necessary (i.e. if type T won't fit in type MR_Box).
+*/
+#define MR_MAYBE_BOX_FOREIGN_TYPE(T, value, box)			\
+   	do {								\
+		MR_CHECK_EXPR_TYPE((value), T);				\
+		MR_CHECK_EXPR_TYPE((box), MR_Box);			\
+		if (sizeof(T) > sizeof(MR_Box)) {			\
+			size_t size_in_words =				\
+				(sizeof(T) + sizeof(MR_Word) - 1)	\
+				 / sizeof(MR_Word);			\
+			/* XXX this assumes that nothing requires */	\
+			/* stricter alignment than MR_Float */		\
+			MR_make_hp_float_aligned();			\
+			MR_incr_hp(MR_LVALUE_CAST(MR_Word, (box)),	\
+					size_in_words);			\
+			*(T *)(box) = (value);				\
+			MR_maybe_record_allocation(size_in_words,	\
+				"", "foreign type: " MR_STRINGIFY(T));	\
+		} else {						\
+			/* We can't take the address of `box' here, */	\
+			/* since it might be a global register. */	\
+			/* Hence we need to use a temporary copy. */	\
+			MR_Box box_copy;				\
+			if (sizeof(T) < sizeof(MR_Box)) {		\
+				/* make sure we don't leave any */	\
+				/* part of it uninitialized */		\
+				box_copy = 0;				\
+			}						\
+			memcpy(&box_copy, &(value), sizeof(T));		\
+			(box) = box_copy;				\
+		}							\
+	} while (0)
+   
+/*
+** void MR_MAYBE_UNBOX_FOREIGN_TYPE(type T, MR_Box box, T &value);
+**	Copy a value of type T from `box' to `value',
+**	unboxing it if necessary.
+*/
+#define MR_MAYBE_UNBOX_FOREIGN_TYPE(T, box, value)			\
+   	do {								\
+		MR_CHECK_EXPR_TYPE((value), T);				\
+		MR_CHECK_EXPR_TYPE((box), MR_Box);			\
+		if (sizeof(T) > sizeof(MR_Word)) {			\
+			(value) = *(T *)(box);				\
+		} else {						\
+			/* We can't take the address of `box' here, */	\
+			/* since it might be a global register. */	\
+			/* Hence we need to use a temporary copy. */	\
+			MR_Box box_copy = (box);			\
+			memcpy(&(value), &box_copy, sizeof(T));		\
+		}							\
+	} while (0)
+   
 #endif /* not MERCURY_HEAP_H */

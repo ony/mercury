@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2001 The University of Melbourne.
+** Copyright (C) 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -22,14 +22,14 @@
 ** 	scripts/mgnuc.in
 ** 	scripts/ml.in
 **	compiler/handle_options.m
-**	compiler/mercury_compile.m
+**	compiler/compile_target_code.m
 */
 
 #ifndef MERCURY_GRADES_H
 #define MERCURY_GRADES_H
 
 #include "mercury_std.h"	/* for MR_STRINGIFY and MR_PASTE2 */
-#include "mercury_tags.h"	/* for TAGBITS */
+#include "mercury_tags.h"	/* for MR_TAGBITS */
 
 /*
 ** Here we build up the MR_GRADE macro part at a time,
@@ -52,7 +52,7 @@
 ** RTTI version number.
 */
 
-#define MR_GRADE_PART_0	v3_
+#define MR_GRADE_PART_0	v6_
 
 #ifdef MR_HIGHLEVEL_CODE
 
@@ -70,20 +70,20 @@
 
 #else /* ! MR_HIGHLEVEL_CODE */
 
-  #ifdef USE_ASM_LABELS
+  #ifdef MR_USE_ASM_LABELS
     #define MR_GRADE_PART_1	MR_PASTE2(MR_GRADE_PART_0, asm_)
   #else
     #define MR_GRADE_PART_1	MR_GRADE_PART_0
   #endif
 
-  #ifdef USE_GCC_NONLOCAL_GOTOS
-    #ifdef USE_GCC_GLOBAL_REGISTERS
+  #ifdef MR_USE_GCC_NONLOCAL_GOTOS
+    #ifdef MR_USE_GCC_GLOBAL_REGISTERS
       #define MR_GRADE_PART_2	MR_PASTE2(MR_GRADE_PART_1, fast)
     #else
       #define MR_GRADE_PART_2	MR_PASTE2(MR_GRADE_PART_1, jump)
     #endif
   #else
-    #ifdef USE_GCC_GLOBAL_REGISTERS
+    #ifdef MR_USE_GCC_GLOBAL_REGISTERS
       #define MR_GRADE_PART_2	MR_PASTE2(MR_GRADE_PART_1, reg)
     #else
       #define MR_GRADE_PART_2	MR_PASTE2(MR_GRADE_PART_1, none)
@@ -98,9 +98,11 @@
   #define MR_GRADE_PART_3	MR_GRADE_PART_2
 #endif
 
-#ifdef CONSERVATIVE_GC
+#if defined(MR_MPS_GC)
+  #define MR_GRADE_PART_4	MR_PASTE2(MR_GRADE_PART_3, _mps)
+#elif defined(MR_BOEHM_GC) || defined(MR_CONSERVATIVE_GC)
   #define MR_GRADE_PART_4	MR_PASTE2(MR_GRADE_PART_3, _gc)
-#elif defined(NATIVE_GC)
+#elif defined(MR_NATIVE_GC)
   #define MR_GRADE_PART_4	MR_PASTE2(MR_GRADE_PART_3, _agc)
 #else
   #define MR_GRADE_PART_4	MR_GRADE_PART_3
@@ -164,27 +166,69 @@
   #define MR_GRADE_PART_6	MR_GRADE_PART_5
 #endif
 
-#ifdef MR_USE_MINIMAL_MODEL
-  #define MR_GRADE_PART_7	MR_PASTE2(MR_GRADE_PART_6, _mm)
+#ifdef MR_RESERVE_TAG
+  #define MR_GRADE_PART_6b	MR_PASTE2(MR_GRADE_PART_6, _rt)
 #else
-  #define MR_GRADE_PART_7	MR_GRADE_PART_6
+  #define MR_GRADE_PART_6b	MR_GRADE_PART_6
 #endif
+
+#ifdef MR_USE_MINIMAL_MODEL
+  #define MR_GRADE_PART_7	MR_PASTE2(MR_GRADE_PART_6b, _mm)
+#else
+  #define MR_GRADE_PART_7	MR_GRADE_PART_6b
+#endif
+
+/*
+** Minimal model tabling works by saving and restoring segments of the nondet
+** stack. Since in high level code grades we don't have a nondet stack that
+** we can save and restore, minimal model tabling is fundamentally incompatible
+** with high level code.
+*/
+
+#if  defined(MR_USE_MINIMAL_MODEL) && defined(MR_HIGHLEVEL_CODE)
+  #error "high level code and minimal model tabling are not compatible"
+#endif
+
+/*
+** Saving and restoring the trail state would not be sufficient
+** to handle the combination of trailing and minimal model tabling.
+** Consider the following sequence of events:
+**
+**	execution enters a goal being committed across
+**	a new entry is pushed on the trail
+**	a tabled goal suspends,
+**		causing the saving of a trail segment
+**		and then a failure
+**	the goal being committed across fails,
+**		which invokes a failed commit on the trail entry
+**	...
+**	the tabled goal is resumed,
+**		causing the restoring of the saved trail segment
+**		and then a success
+**	the goal being committed across now succeeds,
+**		which invokes a successful commit on the trail entry
+**
+** The trail handler will be thoroughly confused by such a sequence.
+**
+** Until we can figure out (and implement) a fix for this problem,
+** minimal model tabling and trailing cannot be used together.
+*/
 
 #if defined(MR_USE_TRAIL) && defined(MR_USE_MINIMAL_MODEL)
   #error "trailing and minimal model tabling are not compatible"
 #endif
 
-#if TAGBITS == 0
+#if MR_TAGBITS == 0
   #define MR_GRADE_PART_8	MR_PASTE2(MR_GRADE_PART_7, _notags)
-#elif defined(HIGHTAGS)
+#elif defined(MR_HIGHTAGS)
   #define MR_GRADE_PART_8	MR_PASTE2(MR_GRADE_PART_7, \
-  					MR_PASTE2(_hightags, TAGBITS))
+  					MR_PASTE2(_hightags, MR_TAGBITS))
 #else
   #define MR_GRADE_PART_8	MR_PASTE2(MR_GRADE_PART_7, \
-  					MR_PASTE2(_tags, TAGBITS))
+  					MR_PASTE2(_tags, MR_TAGBITS))
 #endif
 
-#ifdef BOXED_FLOAT
+#ifdef MR_BOXED_FLOAT
   #define MR_GRADE_PART_9	MR_GRADE_PART_8
 #else				/* "ubf" stands for "unboxed float" */
   #define MR_GRADE_PART_9	MR_PASTE2(MR_GRADE_PART_8, _ubf)
@@ -198,7 +242,8 @@
 
 #if defined(MR_USE_REGPARM) && defined(MR_HIGHLEVEL_CODE) && defined(__i386__)
   #define MR_GRADE_PART_11	MR_PASTE2(MR_GRADE_PART_10, _regparm)
-#elif defined(PIC_REG) && defined(USE_GCC_GLOBAL_REGISTERS) && defined(__i386__)
+#elif defined(MR_PIC_REG) && defined(MR_USE_GCC_GLOBAL_REGISTERS) && \
+					defined(__i386__)
   #define MR_GRADE_PART_11	MR_PASTE2(MR_GRADE_PART_10, _picreg)
 #else
   #define MR_GRADE_PART_11	MR_GRADE_PART_10
@@ -252,20 +297,20 @@ extern const char MR_GRADE_VAR;
 
 #else /* ! MR_HIGHLEVEL_CODE */
 
-  #ifdef USE_ASM_LABELS
+  #ifdef MR_USE_ASM_LABELS
     #define MR_GRADE_OPT_PART_1		"asm_"
   #else
     #define MR_GRADE_OPT_PART_1		""
   #endif
 
-  #ifdef USE_GCC_NONLOCAL_GOTOS
-    #ifdef USE_GCC_GLOBAL_REGISTERS
+  #ifdef MR_USE_GCC_NONLOCAL_GOTOS
+    #ifdef MR_USE_GCC_GLOBAL_REGISTERS
       #define MR_GRADE_OPT_PART_2	MR_GRADE_OPT_PART_1 "fast"
     #else
       #define MR_GRADE_OPT_PART_2	MR_GRADE_OPT_PART_1 "jump"
     #endif
   #else
-    #ifdef USE_GCC_GLOBAL_REGISTERS
+    #ifdef MR_USE_GCC_GLOBAL_REGISTERS
       #define MR_GRADE_OPT_PART_2	MR_GRADE_OPT_PART_1 "reg"
     #else
       #define MR_GRADE_OPT_PART_2	MR_GRADE_OPT_PART_1 "none"
@@ -279,9 +324,12 @@ extern const char MR_GRADE_VAR;
 #else
   #define MR_GRADE_OPT_PART_3	MR_GRADE_OPT_PART_2
 #endif
-#ifdef CONSERVATIVE_GC
+
+#if defined(MR_MPS_GC)
+  #define MR_GRADE_OPT_PART_4	MR_GRADE_OPT_PART_3 ".mps"
+#elif defined(MR_BOEHM_GC) || defined(MR_CONSERVATIVE_GC)
   #define MR_GRADE_OPT_PART_4	MR_GRADE_OPT_PART_3 ".gc"
-#elif defined(NATIVE_GC)
+#elif defined(MR_NATIVE_GC)
   #define MR_GRADE_OPT_PART_4	MR_GRADE_OPT_PART_3 ".agc"
 #else
   #define MR_GRADE_OPT_PART_4	MR_GRADE_OPT_PART_3
@@ -333,10 +381,16 @@ extern const char MR_GRADE_VAR;
   #define MR_GRADE_OPT_PART_6	MR_GRADE_OPT_PART_5
 #endif
 
-#ifdef MR_USE_MINIMAL_MODEL
-  #define MR_GRADE_OPT_PART_7	MR_GRADE_OPT_PART_6 ".mm"
+#ifdef MR_RESERVE_TAG
+  #define MR_GRADE_OPT_PART_6b	MR_GRADE_OPT_PART_6 ".rt"
 #else
-  #define MR_GRADE_OPT_PART_7	MR_GRADE_OPT_PART_6
+  #define MR_GRADE_OPT_PART_6b	MR_GRADE_OPT_PART_6
+#endif
+
+#ifdef MR_USE_MINIMAL_MODEL
+  #define MR_GRADE_OPT_PART_7	MR_GRADE_OPT_PART_6b ".mm"
+#else
+  #define MR_GRADE_OPT_PART_7	MR_GRADE_OPT_PART_6b
 #endif
 
 /*
@@ -352,7 +406,8 @@ extern const char MR_GRADE_VAR;
 
 #if defined(MR_USE_REGPARM) && defined(MR_HIGHLEVEL_CODE) && defined(__i386__)
   #define MR_GRADE_OPT_PART_11	MR_GRADE_OPT_PART_7 ".regparm"
-#elif defined(PIC_REG) && defined(USE_GCC_GLOBAL_REGISTERS) && defined(__i386__)
+#elif defined(MR_PIC_REG) && defined(MR_USE_GCC_GLOBAL_REGISTERS) && \
+					defined(__i386__)
   #define MR_GRADE_OPT_PART_11	MR_GRADE_OPT_PART_7 ".picreg"
 #else
   #define MR_GRADE_OPT_PART_11	MR_GRADE_OPT_PART_7

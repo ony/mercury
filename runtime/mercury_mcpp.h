@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2000-2001 The University of Melbourne.
+// Copyright (C) 2000-2002 The University of Melbourne.
 // This file may only be copied under the terms of the GNU Library General
 // Public License - see the file COPYING.LIB in the Mercury distribution.
 //
@@ -19,6 +19,7 @@ namespace mercury {
 typedef int		MR_Integer;
 typedef System::Int32	MR_BoxedInt;
 typedef System::Boolean	MR_Bool;
+typedef System::Boolean	MR_bool;
 
 typedef System::Char	MR_Char; // `Char' is MS's name for unicode characters
 
@@ -35,6 +36,8 @@ typedef void (*MR_Cont) (void *);
 // Should these be MR_ qualified?
 #define TRUE 1
 #define FALSE 0
+#define MR_TRUE 1
+#define MR_FALSE 0
 
 
 
@@ -46,7 +49,20 @@ typedef __gc public class System::Array  * MR_Array;
 typedef MR_Ref(MR_Box) MR_Box_Ref;
 typedef MR_Ref(MR_Word) MR_Word_Ref;
 
-typedef __gc public class System::Object * MR_TypeInfo[];
+/*
+#ifdef MR_HIGHLEVEL_DATA
+  typedef __gc public class mercury::private_builtin::type_info_1* MR_TypeInfo;
+  typedef __gc public class mercury::rtti_implementation::type_info_0* MR_TypeInfo_0;
+  typedef __gc public class mercury::builtin::comparison_result_0 *MR_ComparisonResult;
+  typedef __gc public class mercury::std_util::univ_0 *MR_Univ;
+#else
+*/
+  typedef __gc public class System::Object * MR_TypeInfo[];
+  typedef __gc public class System::Object * MR_TypeInfo_0[];
+  typedef __gc public class System::Object * MR_ComparisonResult[];
+  typedef __gc public class System::Object * MR_Univ[];
+// #endif
+
 typedef __gc public class System::Object * MR_TypeCtorInfo[];
 typedef __gc public class System::Object * MR_TypeInfoParams[];
 typedef __gc public class System::Object * MR_TypeClassInfo[];
@@ -116,7 +132,7 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPECTOR_REP(a) MR_BOX_INT(mercury::runtime::Constants::a)
 
 // XXX This is hardcoded
-#define MR_RTTI_VERSION MR_BOX_INT(4)
+#define MR_RTTI_VERSION MR_BOX_INT(7)
 
 // XXX It is intended that we eventually define the constants in
 // private_builtin.m and mercury_mcpp.cpp in terms of these #defines
@@ -128,16 +144,16 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPECTOR_REP_NOTAG_val			4
 #define MR_TYPECTOR_REP_NOTAG_USEREQ_val		5
 #define MR_TYPECTOR_REP_EQUIV_val			6
-#define MR_TYPECTOR_REP_EQUIV_VAR_val			7
-#define MR_TYPECTOR_REP_INT_val		    		8
-#define MR_TYPECTOR_REP_CHAR_val		    	9
+#define MR_TYPECTOR_REP_FUNC_val			7
+#define MR_TYPECTOR_REP_INT_val				8
+#define MR_TYPECTOR_REP_CHAR_val			9
 #define MR_TYPECTOR_REP_FLOAT_val			10
 #define MR_TYPECTOR_REP_STRING_val			11
-#define MR_TYPECTOR_REP_PRED_val		    	12
+#define MR_TYPECTOR_REP_PRED_val			12
 	// MR_TYPECTOR_REP_UNIV_val is unused - it is retained
 	// only for backwards compatability.
-#define MR_TYPECTOR_REP_UNIV_val		    	13
-#define MR_TYPECTOR_REP_VOID_val		    	14
+#define MR_TYPECTOR_REP_UNIV_val			13
+#define MR_TYPECTOR_REP_VOID_val			14
 #define MR_TYPECTOR_REP_C_POINTER_val			15
 #define MR_TYPECTOR_REP_TYPEINFO_val			16
 #define MR_TYPECTOR_REP_TYPECLASSINFO_val		17
@@ -154,6 +170,14 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ_val		28
 #define MR_TYPECTOR_REP_EQUIV_GROUND_val		29
 #define MR_TYPECTOR_REP_TUPLE_val			30
+#define MR_TYPECTOR_REP_RESERVED_ADDR_val		31
+#define MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ_val	32
+#define MR_TYPECTOR_REP_TYPECTORINFO_val		33
+#define MR_TYPECTOR_REP_BASETYPECLASSINFO_val		34
+#define MR_TYPECTOR_REP_TYPEDESC_val			35
+#define MR_TYPECTOR_REP_TYPECTORDESC_val		36
+#define MR_TYPECTOR_REP_FOREIGN_val			37
+#define MR_TYPECTOR_REP_UNKNOWN_val			38
 
 // XXX we should integrate this macro in with the version in 
 // mercury_typeinfo.h
@@ -164,17 +188,14 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
     MR_STRUCT_INIT(MR_PASTE5(mercury_data_, __type_ctor_info_, n, _, a) = {)   \
     MR_CLASS_INIT(MR_PASTE4(type_ctor_init_, n, _, a))   		\
 	MR_BOX_INT(a),							\
-	MR_MAYBE_STATIC_CODE(n##_unify),				\
+	MR_RTTI_VERSION,						\
+	MR_BOX_INT(-1),							\
+	MR_TYPECTOR_REP(cr),						\
 	MR_MAYBE_STATIC_CODE(n##_unify),				\
 	MR_MAYBE_STATIC_CODE(n##_compare),				\
-	MR_TYPECTOR_REP(cr),						\
-	NULL,								\
-	NULL,								\
 	MR_string_const(MR_STRINGIFY(m), sizeof(MR_STRINGIFY(m))-1),	\
 	MR_string_const(MR_STRINGIFY(n), sizeof(MR_STRINGIFY(n))-1),	\
-	MR_RTTI_VERSION,						\
-	NULL,								\
-	NULL,								\
+	MR_BOX_INT(-1),							\
 	MR_BOX_INT(-1),							\
 	MR_BOX_INT(-1)							\
     MR_STRUCT_INIT_END(})						\
@@ -264,8 +285,8 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPEINFO_TYPE_CTOR_INFO_SLOT		0
 
 #define MR_TYPE_CTOR_INFO_ARITY_SLOT		0
-#define MR_TYPE_CTOR_INFO_UNIFY_PRED_SLOT	1
-#define MR_TYPE_CTOR_INFO_COMPARE_PRED_SLOT	3
+#define MR_TYPE_CTOR_INFO_UNIFY_PRED_SLOT	5
+#define MR_TYPE_CTOR_INFO_COMPARE_PRED_SLOT	6
 
 } /* end namespace mercury */
 

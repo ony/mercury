@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2000-2001 The University of Melbourne.
+// Copyright (C) 2000-2002 The University of Melbourne.
 // This file may only be copied under the terms of the GNU Library General
 // Public License - see the file COPYING.LIB in the Mercury distribution.
 //
@@ -24,19 +24,6 @@ extern "C" int _fltused=0;
 namespace mercury {
 
 namespace runtime {
-
-	// A user exception -- really just a wrapper for the exception
-	// data.
-
-__gc public class Exception : public System::Exception
-{
-public:
-   Exception(MR_Word data) 
-   {
-   	mercury_exception = data;	
-   }
-   MR_Word mercury_exception;
-};
 
 __gc public class SystemException : public System::Exception
 {
@@ -125,12 +112,12 @@ __gc public class Constants {
 
     static int MR_TYPECTOR_REP_ENUM 			= MR_TYPECTOR_REP_ENUM_val;
     static int MR_TYPECTOR_REP_ENUM_USEREQ 		= MR_TYPECTOR_REP_ENUM_USEREQ_val;
-    static int MR_TYPECTOR_REP_DU				= MR_TYPECTOR_REP_DU_val;
+    static int MR_TYPECTOR_REP_DU			= MR_TYPECTOR_REP_DU_val;
     static int MR_TYPECTOR_REP_DU_USEREQ		= 3;
     static int MR_TYPECTOR_REP_NOTAG			= 4;
     static int MR_TYPECTOR_REP_NOTAG_USEREQ		= 5;
     static int MR_TYPECTOR_REP_EQUIV			= 6;
-    static int MR_TYPECTOR_REP_EQUIV_VAR		= 7;
+    static int MR_TYPECTOR_REP_FUNC			= 7;
     static int MR_TYPECTOR_REP_INT		    	= 8;
     static int MR_TYPECTOR_REP_CHAR		    	= 9;
     static int MR_TYPECTOR_REP_FLOAT			=10;
@@ -142,10 +129,10 @@ __gc public class Constants {
     static int MR_TYPECTOR_REP_VOID		    	=14;
     static int MR_TYPECTOR_REP_C_POINTER		=15;
     static int MR_TYPECTOR_REP_TYPEINFO			=16;
-    static int MR_TYPECTOR_REP_TYPECLASSINFO	=17;
+    static int MR_TYPECTOR_REP_TYPECLASSINFO		=17;
     static int MR_TYPECTOR_REP_ARRAY			=18;
     static int MR_TYPECTOR_REP_SUCCIP			=19;
-    static int MR_TYPECTOR_REP_HP				=20;
+    static int MR_TYPECTOR_REP_HP			=20;
     static int MR_TYPECTOR_REP_CURFR			=21;
     static int MR_TYPECTOR_REP_MAXFR			=22;
     static int MR_TYPECTOR_REP_REDOFR			=23;
@@ -156,6 +143,14 @@ __gc public class Constants {
     static int MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ	=28;
     static int MR_TYPECTOR_REP_EQUIV_GROUND		=29;
     static int MR_TYPECTOR_REP_TUPLE			=30;
+    static int MR_TYPECTOR_REP_RESERVED_ADDR		=31;
+    static int MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ	=32;
+    static int MR_TYPECTOR_REP_TYPECTORINFO	        =33;
+    static int MR_TYPECTOR_REP_BASETYPECLASSINFO        =34;
+    static int MR_TYPECTOR_REP_TYPEDESC	        	=35;
+    static int MR_TYPECTOR_REP_TYPECTORDESC	        =36;
+    static int MR_TYPECTOR_REP_FOREIGN			=37;
+    static int MR_TYPECTOR_REP_UNKNOWN		        =38;
 
     static int MR_SECTAG_NONE				= 0;
     static int MR_SECTAG_LOCAL				= 1;

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2000,2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -86,10 +86,11 @@
 	do {								    \
 		if ((slot) >= base##_max) {				    \
 			if (base##_max == 0) {				    \
-				base##_max = max((init), (slot) + 1);	    \
-				base##s = MR_NEW_ARRAY(type, base##_max); \
+				base##_max = MR_max((init), (slot) + 1);    \
+				base##s = MR_NEW_ARRAY(type, base##_max);   \
 			} else {					    \
-				base##_max = max(base##_max * 2, (slot) + 1); \
+				base##_max = MR_max(base##_max * 2,         \
+						(slot) + 1);                \
 				base##s = MR_RESIZE_ARRAY(base##s, type,    \
 						base##_max);		    \
 			}						    \
@@ -107,11 +108,12 @@
 	do {								      \
 		if ((slot) >= base##_max) {				      \
 			if (base##_max == 0) {				      \
-				base##_max = max((init), (slot) + 1);	      \
+				base##_max = MR_max((init), (slot) + 1);      \
 				base##s1 = MR_NEW_ARRAY(type,	base##_max);  \
 				base##s2 = MR_NEW_ARRAY(type,	base##_max);  \
 			} else {					      \
-				base##_max = max(base##_max * 2, (slot) + 1); \
+				base##_max = MR_max(base##_max * 2,           \
+						(slot) + 1);                  \
 				base##s1 = MR_RESIZE_ARRAY(base##s1, type,    \
 						base##_max);		      \
 				base##s2 = MR_RESIZE_ARRAY(base##s2, type,    \
@@ -121,15 +123,16 @@
 	} while(0)
 
 /*
-** MR_bsearch(int next, int& element, bool& found, COMPARE)
+** MR_bsearch(int num_elements, int& element, MR_bool& found, COMPARE)
 **
 ** Given a sorted array, this macro performs a binary search.
 ** If the search is successful, MR_bsearch sets the `found' parameter
-** to TRUE and the `element' parameter to the index of the desired item.
-** If the search is unsuccessful, MR_bsearch sets `found' to FALSE;
+** to MR_TRUE and the `element' parameter to the index of the desired item.
+** If the search is unsuccessful, MR_bsearch sets `found' to MR_FALSE;
 ** `element' will be clobbered.
 **
-** The number of the elements in the array is given by the `next' parameter.
+** The number of the elements in the array is given by the `num_elements'
+** parameter.
 ** The `COMPARE' parameter should be an expression of type int which compares
 ** the value at the index specified by the current value of `element'
 ** with the desired value, and returns <0, 0, or >0 according to whether 
@@ -140,7 +143,7 @@
 ** parameter.
 */
 
-#define MR_bsearch(next, element, found, COMPARE)			\
+#define MR_bsearch(num_elements, element, found, COMPARE)		\
 	do {								\
 		int	lo;						\
 		int	hi;						\
@@ -153,13 +156,13 @@
 		*/							\
 		(element) = 0;						\
 		lo = 0;							\
-		hi = (next) - 1;					\
-		(found) = FALSE;					\
+		hi = (num_elements) - 1;				\
+		(found) = MR_FALSE;					\
 		while (lo <= hi) {					\
 			(element) = (lo + hi) / 2;			\
 			diff = (COMPARE);				\
 			if (diff == 0) {				\
-				(found) = TRUE;				\
+				(found) = MR_TRUE;			\
 				break;					\
 			} else if (diff < 0) {				\
 				lo = (element) + 1;			\
@@ -168,6 +171,28 @@
 			}						\
 		}							\
 	} while(0)
+
+/*
+** MR_find_first_match(int num_elements, int& element, MR_bool& found, COMPARE)
+**
+** Given a sorted array, this macro finds the first element in the array
+** for which `COMPARE' is zero (MR_bsearch finds an arbitrary element).
+** Otherwise, the parameters and behaviour are the same as for MR_bsearch.
+*/
+
+#define MR_find_first_match(num_elements, element, found, COMPARE)	\
+	do {								\
+		MR_bsearch((num_elements), (element), (found), (COMPARE)); \
+		if (found) {						\
+			while ((element) > 0) {				\
+				(element)--;				\
+				if ((COMPARE) != 0) {			\
+					(element)++;			\
+					break;				\
+				}					\
+			}						\
+		}							\
+	} while (0)
 
 /*
 ** MR_prepare_insert_into_sorted(array[], int& next, int& element, COMPARE)

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1994-2001 The University of Melbourne.
+** Copyright (C) 1994-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -22,11 +22,12 @@
 
 #include <setjmp.h>
 
-#include "mercury_std.h"		/* for `bool' */
+#include "mercury_std.h"		/* for `MR_bool' */
 #include "mercury_types.h"		/* for `MR_Code *' */
 #include "mercury_goto.h"		/* for `MR_define_entry()' */
 #include "mercury_thread.h"		/* for pthread types */
 #include "mercury_context.h"		/* for MR_Context, MR_IF_USE_TRAIL */
+#include "mercury_conf.h"		/* for MR_CONSERVATIVE_GC */
 
 /*---------------------------------------------------------------------------*/
 
@@ -34,7 +35,12 @@
 ** Global flags that control the behaviour of the Mercury engine(s)
 */
 
-extern	bool	MR_debugflag[];
+extern	MR_bool	MR_debugflag[];
+
+/*
+** These #defines, except MR_MAXFLAG, should not be used anywhere
+** except in the immediately following block of #defines.
+*/
 
 #define	MR_PROGFLAG		0
 #define	MR_GOTOFLAG		1
@@ -50,9 +56,62 @@ extern	bool	MR_debugflag[];
 #define	MR_TABLEHASHFLAG	11
 #define	MR_TABLESTACKFLAG	12
 #define	MR_UNBUFFLAG		13
-#define	MR_DETAILFLAG		14
-#define	MR_MAXFLAG		15
+#define	MR_AGC_FLAG 		14
+#define	MR_ORDINARY_REG_FLAG	15
+#define	MR_ANY_REG_FLAG 	16
+#define	MR_DETAILFLAG		17
+#define	MR_MAXFLAG		18
 /* MR_DETAILFLAG should be the last real flag */
+
+/*
+** The macros control different kinds of low level debugging messages.
+** Usually, their values are all false.
+**
+** MR_progdebug controls whether we want to get several mostly explicitly
+** programmed diagnostics.
+**
+** MR_sregdebug controls whether we want to print the values of the special
+** registers (e.g. those that point to the stack) at some diagnostic points.
+**
+** MR_ordregdebug controls whether we want to print the values of the ordinary
+** registers (e.g. r1, r2 etc) at some diagnostic points.
+**
+** MR_anyregdebug controls whether we want to print the values of the any
+** registers, either special or ordinary, at some diagnostic points.
+**
+** MR_gotodebug controls whether we should generate diagnostics at gotos.
+**
+** MR_calldebug controls whether we should generate diagnostics when control
+** crosses procedure boundaries, i.e. calls, exits, redos and fails.
+**
+** MR_detstackdebug and MR_nondstackdebug control whether we should generate
+** diagnostics when incrementing and decrementing the pointers to the
+** respective stacks.
+**
+** MR_heapdebug controls whether we should generate diagnostics when we
+** allocate memory on the heap.
+**
+** MR_tabledebug controls whether we should generate diagnostics for tabling
+** operations. MR_tablestackdebug control whether these should include the
+** contents of stack segments manipulated by minimal model tabling.
+** MR_hashdebug controls whether these should include details of hash table
+** accesses.
+**
+** MR_agcdebug controls whether we should generate diagnostics for accurate
+** gc operations.
+**
+** MR_detaildebug controls whether we want more or less detail in some
+** diagnostics.
+**
+** MR_unbufdebug controls whether the runtime will make stdout and stderr
+** unbuffered.
+**
+** MR_memdebug controls whether we want to get diagnostics on the setup of
+** memory zones.
+**
+** MR_finaldebug controls whether we want to get diagnostics showing how
+** execution reaches the end of the program.
+*/
 
 #define	MR_progdebug		MR_debugflag[MR_PROGFLAG]
 #define	MR_gotodebug		MR_debugflag[MR_GOTOFLAG]
@@ -68,6 +127,9 @@ extern	bool	MR_debugflag[];
 #define	MR_hashdebug		MR_debugflag[MR_TABLEHASHFLAG]
 #define	MR_tablestackdebug	MR_debugflag[MR_TABLESTACKFLAG]
 #define	MR_unbufdebug		MR_debugflag[MR_UNBUFFLAG]
+#define	MR_agc_debug		MR_debugflag[MR_AGC_FLAG]
+#define	MR_ordregdebug		MR_debugflag[MR_ORDINARY_REG_FLAG]
+#define	MR_anyregdebug		MR_debugflag[MR_ANY_REG_FLAG]
 #define	MR_detaildebug		MR_debugflag[MR_DETAILFLAG]
 
 	/* 
@@ -180,7 +242,7 @@ typedef struct MR_mercury_thread_list_struct {
 typedef struct MR_mercury_engine_struct {
 	MR_Word		MR_eng_fake_reg[MR_MAX_FAKE_REG];
 		/* The fake reg vector for this engine. */
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
 	MR_Word		*MR_eng_hp;
 		/* The heap pointer for this engine */
 	MR_Word		*MR_eng_sol_hp;
@@ -223,12 +285,12 @@ typedef struct MR_mercury_engine_struct {
 #endif
 	jmp_buf		*MR_eng_jmp_buf;
 	MR_Word		*MR_eng_exception;
-#ifndef	CONSERVATIVE_GC
+#ifndef	MR_CONSERVATIVE_GC
 	MR_MemoryZone	*MR_eng_heap_zone;
 	MR_MemoryZone	*MR_eng_solutions_heap_zone;
 	MR_MemoryZone	*MR_eng_global_heap_zone;
 #endif
-#ifdef	NATIVE_GC
+#ifdef	MR_NATIVE_GC
 	MR_MemoryZone	*MR_eng_heap_zone2;
   #ifdef MR_DEBUG_AGC_PRINT_VARS
 	MR_MemoryZone	*MR_eng_debug_heap_zone;
@@ -277,7 +339,7 @@ typedef struct MR_mercury_engine_struct {
 
 #define	MR_CONTEXT(x)		(MR_ENGINE(MR_eng_context).x)
 
-#ifndef CONSERVATIVE_GC
+#ifndef MR_CONSERVATIVE_GC
   #define MR_IF_NOT_CONSERVATIVE_GC(x)	x
 #else
   #define MR_IF_NOT_CONSERVATIVE_GC(x)
@@ -320,7 +382,7 @@ extern	void		MR_finalize_engine(MercuryEngine *engine);
 ** See the comments in mercury_engine.c for documentation on MR_call_engine().
 */
 extern	MR_Word		*MR_call_engine(MR_Code *entry_point,
-				bool catch_exceptions);
+				MR_bool catch_exceptions);
 extern	void		MR_terminate_engine(void);
 extern	void		MR_dump_prev_locations(void);
 
