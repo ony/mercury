@@ -2392,15 +2392,16 @@ mlds_output_atomic_stmt(Indent, _FuncInfo, assign(Lval, Rval), _) -->
 	%
 mlds_output_atomic_stmt(Indent, _FuncInfo, delete_object(Rval, Size), _) -->
 	globals__io_lookup_bool_option(cell_cache, CellCache),
+	mlds_indent(Indent),
 	( { CellCache = yes } ->
-		mlds_indent(Indent),
 		io__write_string("MR_compile_time_gc("),
 		mlds_output_rval(Rval),
 		io__write_string(", "),
 		io__write_int(Size),
 		io__write_string(");\n")
 	;
-		[]
+		% Output something as it may be required for the body of an if
+		io__write_string("(void) 0;\n")
 	).
 
 mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
