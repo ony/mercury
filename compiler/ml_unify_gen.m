@@ -1058,7 +1058,8 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 				{ ml_tag_offset_and_argnum(ReuseConsIdTag,
 						ReusePrimTag,
 						_ReuseOffSet, _ReuseArgNum) }
-			), ReuseConsIds, ReusePrimaryTags),
+			), ReuseConsIds, ReusePrimaryTags0),
+		{ list__remove_dups(ReusePrimaryTags0, ReusePrimaryTags) },
 
 		ml_cons_id_to_tag(ConsId, Type, ConsIdTag),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
