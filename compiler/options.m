@@ -118,6 +118,7 @@
 		;	generate_schemas
 		;	dump_rl
 		;	dump_rl_bytecode
+		;	dump_mode_constraints
 	% Language semantics options
 		;	reorder_conj
 		;	reorder_disj
@@ -532,7 +533,8 @@ option_defaults_2(aux_output_option, [
 	dump_mlds		-	accumulating([]),
 	dump_rl			-	bool(no),
 	dump_rl_bytecode	-	bool(no),
-	generate_schemas	-	bool(no)
+	generate_schemas	-	bool(no),
+	dump_mode_constraints	-	bool(no)
 ]).
 option_defaults_2(language_semantics_option, [
 	strict_sequential	-	special,
@@ -944,6 +946,7 @@ long_option("dump-mlds",		dump_mlds).
 long_option("dump-rl",			dump_rl).
 long_option("dump-rl-bytecode",		dump_rl_bytecode).
 long_option("generate-schemas",		generate_schemas).
+long_option("dump-mode-constraints",	dump_mode_constraints).
 
 % language semantics options
 long_option("reorder-conj",		reorder_conj).
