@@ -35,7 +35,7 @@
 :- import_module pa_alias_as, pa_run.
 :- import_module sr_util.
 
-process_goal( _PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
+process_goal(_PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
 	pa_alias_as__init(Alias0), 
 	hlds_pred__proc_info_real_headvars(ProcInfo, RealHeadVars), 
 	dead_cell_pool_init(RealHeadVars, Pool0), 
@@ -45,15 +45,15 @@ process_goal( _PredId, ProcInfo, ModuleInfo, Goal0, Goal) :-
 	
 %-----------------------------------------------------------------------------%
 
-:- pred annotate_goal( proc_info, module_info, hlds_goal, hlds_goal, 
-			dead_cell_pool, dead_cell_pool, 
-			alias_as, alias_as).
-:- mode annotate_goal( in, in, in, out, in, out, in, out) is det.
+:- pred annotate_goal(proc_info::in, module_info::in,
+		hlds_goal::in, hlds_goal::out, 
+		dead_cell_pool::in, dead_cell_pool::out, 
+		alias_as::in, alias_as::out) is det.
 
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
-			Pool0, Pool, Alias0, Alias) :- 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal,
+		Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = conj(Goals0),
-	sr_util__list_map_foldl2( 
+	sr_util__list_map_foldl2(
 		annotate_goal(ProcInfo, HLDS),
 		Goals0, Goals,
 		Pool0, Pool,
@@ -62,45 +62,39 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = conj(Goals),
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _),
-	proc_info_vartypes( ProcInfo, VarTypes ), 
-	list__map( 
-		map__lookup( VarTypes ), 
-		ActualVars, 
-		ActualTypes ), 
-	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	list__map(map__lookup(VarTypes), ActualVars, ActualTypes), 
+	pa_run__extend_with_call_alias(HLDS, ProcInfo, 
 		PredId, ProcId, ActualVars, ActualTypes, Alias0, Alias),
 	Expr = Expr0, 
 	Info = Info0, 
 	Pool = Pool0, 
 	Goal = Expr - Info. 
 	
-annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
 	Expr0 = generic_call(_, _, _, _), 
 	Pool = Pool0,
 	pa_alias_as__top("unhandled goal", Alias),
 	Goal = Expr0 - Info0. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = switch(A, B, Cases0, SM),
-	goal_info_get_outscope( Info0, Outscope), 
-	sr_util__list_map3( 
-		annotate_case(ProcInfo, HLDS, Pool0, Alias0),
-		Cases0, Cases,
-		ListPools, ListAliases),
-	dead_cell_pool_least_upper_bound_disj( Outscope, 
-		ListPools, Pool ), 
-	pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, Info0, 
-		ListAliases, Alias),
+	goal_info_get_outscope(Info0, Outscope), 
+	sr_util__list_map3(annotate_case(ProcInfo, HLDS, Pool0, Alias0),
+			Cases0, Cases, ListPools, ListAliases),
+	dead_cell_pool_least_upper_bound_disj(Outscope, ListPools, Pool), 
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
+			ListAliases, Alias),
 	Info = Info0, 
-	Expr = switch( A, B, Cases, SM ), 
+	Expr = switch(A, B, Cases, SM), 
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = unify(_Var, _Rhs, _Mode, Unification0, _Context),
 	unification_verify_reuse(HLDS, ProcInfo, Unification0, Alias0, 
@@ -110,15 +104,15 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 		% creating the aliases altogether, thus reducing the
 		% number of aliases you cary along, and eventually
 		% having an impact on the analysis-time.
-	pa_alias_as__extend_unification(ProcInfo, HLDS, 
-		Unification0, Info, Alias0, Alias),
+	pa_alias_as__extend_unification(ProcInfo, HLDS, Unification0,
+			Info, Alias0, Alias),
 	Expr = Expr0, 
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = disj( Goals0, SM ),
-	goal_info_get_outscope( Info0, Outscope), 
+	Expr0 = disj(Goals0, SM),
+	goal_info_get_outscope(Info0, Outscope), 
 	(
 		Goals0 = []
 	->
@@ -126,26 +120,26 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 		Pool = Pool0, 
 		Alias = Alias0
 	;
-		list_map3( 
-			pred( Gin::in, Gout::out, P::out, A::out)
+		list_map3(
+			pred(Gin::in, Gout::out, P::out, A::out)
 				is det :- 
 			(
-			   annotate_goal( ProcInfo, HLDS, 
+			   annotate_goal(ProcInfo, HLDS, 
 				Gin, Gout, Pool0, P, 
 				Alias0, A)
 			),
 			Goals0, Goals, 
-			ListPools, ListAliases ),
-		dead_cell_pool_least_upper_bound_disj( Outscope,
+			ListPools, ListAliases),
+		dead_cell_pool_least_upper_bound_disj(Outscope,
 			ListPools, Pool),
-		pa_alias_as__least_upper_bound_list( ProcInfo, 
+		pa_alias_as__least_upper_bound_list(ProcInfo, 
 			HLDS, Info0, ListAliases, Alias)
 	),
 	Info = Info0,
-	Expr = disj(Goals, SM ),
+	Expr = disj(Goals, SM),
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = not(NegatedGoal0),
 	annotate_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal,
@@ -154,9 +148,9 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = not(NegatedGoal),
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
-	Expr0 = some( A, B, SomeGoal0),
+	Expr0 = some(A, B, SomeGoal0),
 	% XXX
 	annotate_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, Pool0, Pool, 
 			Alias0, Alias), 
@@ -164,40 +158,40 @@ annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal,
 	Expr = some(A, B, SomeGoal),
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = if_then_else(Vars, Cond0, Then0, Else0, SM),
-	goal_info_get_outscope( Info0, Outscope), 
-	annotate_goal( ProcInfo, HLDS, Cond0, Cond, Pool0, 
+	goal_info_get_outscope(Info0, Outscope), 
+	annotate_goal(ProcInfo, HLDS, Cond0, Cond, Pool0, 
 			PoolCond, Alias0, AliasCond),
-	annotate_goal( ProcInfo, HLDS, Then0, Then, PoolCond, 
+	annotate_goal(ProcInfo, HLDS, Then0, Then, PoolCond, 
 			PoolThen, AliasCond, AliasThen),
-	annotate_goal( ProcInfo, HLDS, Else0, Else, Pool0, 
+	annotate_goal(ProcInfo, HLDS, Else0, Else, Pool0, 
 			PoolElse, Alias0, AliasElse), 
-	dead_cell_pool_least_upper_bound_disj( Outscope, 
+	dead_cell_pool_least_upper_bound_disj(Outscope, 
 			[ PoolThen, PoolElse ], Pool), 
-	pa_alias_as__least_upper_bound_list( ProcInfo, HLDS, Info0, 
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
 			[ AliasThen, AliasElse ], Alias),
 	Info = Info0, 
-	Expr = if_then_else( Vars, Cond, Then, Else, SM),
+	Expr = if_then_else(Vars, Cond, Then, Else, SM),
 	Goal = Expr - Info. 
 	
-annotate_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, 
+annotate_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = pragma_foreign_code(_, _, _, Vars, MaybeModes, Types, _), 
-	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Info0, Vars, 
+	pa_alias_as__extend_foreign_code(ProcInfo, HLDS, Info0, Vars, 
 			MaybeModes, Types, Alias0, Alias), 
 	Pool = Pool0, 
 	Goal = Expr0 - Info0. 
 	
-annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
 	Expr0 = par_conj(_, _),
 	Pool = Pool0,
 	pa_alias_as__top("unhandled goal", Alias),
 	Goal = Expr0 - Info0. 
 		
-annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, 
+annotate_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, 
 			Pool0, Pool, _Alias0, Alias) :- 
 	Expr0 = bi_implication(_, _),
 	Pool = Pool0,
@@ -205,38 +199,34 @@ annotate_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal,
 	Goal = Expr0 - Info0. 
 
 
-:- pred annotate_case( proc_info, module_info, dead_cell_pool, alias_as, 
-		case, case, dead_cell_pool, alias_as).
-:- mode annotate_case( in, in, in, in, in, out, out, out) is det.
+:- pred annotate_case(proc_info::in, module_info::in,
+		dead_cell_pool::in, alias_as::in, case::in,
+		case::out, dead_cell_pool::out, alias_as::out) is det.
 
-annotate_case( ProcInfo, HLDS, Pool0, Alias0, Case0, 
-		Case, Pool, Alias) :- 
-	Case0 = case(CONS, Goal0),
-	annotate_goal( ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, 
-			Alias0, Alias), 
-	Case = case(CONS, Goal).
+annotate_case(ProcInfo, HLDS, Pool0, Alias0, Case0, Case, Pool, Alias) :- 
+	Case0 = case(ConsId, Goal0),
+	annotate_goal(ProcInfo, HLDS, Goal0, Goal, Pool0, Pool, Alias0, Alias), 
+	Case = case(ConsId, Goal).
 
-:- pred unification_verify_reuse( module_info, proc_info, 
-		hlds_goal__unification, 
-		alias_as, dead_cell_pool, dead_cell_pool, 
-		hlds_goal_info, hlds_goal_info).
-:- mode unification_verify_reuse( in, in, in, in, in, out, in, out) is det.
+:- pred unification_verify_reuse(module_info::in, proc_info::in, 
+		hlds_goal__unification::in, 
+		alias_as::in, dead_cell_pool::in, dead_cell_pool::out,
+		hlds_goal_info::in, hlds_goal_info::out) is det.
 
-unification_verify_reuse( ModuleInfo, ProcInfo, 
-				Unification, Alias0, Pool0, Pool,
-				Info0, Info) :- 
+unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
+		Pool0, Pool, Info0, Info) :- 
 	(
-		Unification = deconstruct( Var, CONS_ID, _, _, _, _)
+		Unification = deconstruct(Var, ConsId, _, _, _, _)
 	->
-		goal_info_get_lfu( Info0, LFU ), 
-		goal_info_get_lbu( Info0, LBU ),
-		set__union( LFU, LBU, LU), 
-		sr_live__init(LIVE0),
-		pa_alias_as__live(ModuleInfo, ProcInfo, LU, LIVE0, 
-				Alias0, LIVE), 
+		goal_info_get_lfu(Info0, LFU), 
+		goal_info_get_lbu(Info0, LBU),
+		set__union(LFU, LBU, LU), 
+		sr_live__init(Live0),
+		pa_alias_as__live(ModuleInfo, ProcInfo, LU, Live0, 
+				Alias0, Live), 
 		(
-			( 
-				sr_live__is_live(Var,LIVE) 
+			(
+				sr_live__is_live(Var, Live) 
 			;
 				pa_alias_as__is_top(Alias0)
 			)
@@ -246,8 +236,8 @@ unification_verify_reuse( ModuleInfo, ProcInfo,
 				choice(deconstruct(no)), Info),
 			Pool = Pool0
 		;
-			add_dead_cell( ModuleInfo, ProcInfo, 
-					Var, CONS_ID, 
+			add_dead_cell(ModuleInfo, ProcInfo, 
+					Var, ConsId, 
 					LFU, LBU,
 					Alias0, Pool0, Pool, 
 					ReuseCondition),
@@ -256,9 +246,9 @@ unification_verify_reuse( ModuleInfo, ProcInfo,
 					yes(ReuseCondition))), Info) 
 		)
 	;
-		Unification = construct(_, CONS_ID, _, _, _, _, _)
+		Unification = construct(_, ConsId, _, _, _, _, _)
 	->
-		dead_cell_pool_try_to_reuse( CONS_ID, Pool0, ReuseVarsConds),
+		dead_cell_pool_try_to_reuse(ConsId, Pool0, ReuseVarsConds),
 		goal_info_set_reuse(Info0, choice(construct(ReuseVarsConds)),
 				Info),
 		Pool = Pool0
@@ -307,35 +297,35 @@ unification_verify_reuse( ModuleInfo, ProcInfo,
 :- mode add_dead_cell(in, in, in, in, in, in, in, in, out, out) is det.
 
 	% given its reuse_condition, add the dead cell to dr_info.
-:- pred add_dead_cell( prog_var, cons_id, reuse_condition, 
+:- pred add_dead_cell(prog_var, cons_id, reuse_condition, 
 			dead_cell_pool, dead_cell_pool) is det.
-:- mode add_dead_cell( in, in, in, in, out) is det.
+:- mode add_dead_cell(in, in, in, in, out) is det.
 
-:- pred dead_cell_pool_least_upper_bound_disj( set(prog_var),
+:- pred dead_cell_pool_least_upper_bound_disj(set(prog_var),
 				list(dead_cell_pool), dead_cell_pool).
-:- mode dead_cell_pool_least_upper_bound_disj( in, in, out ) is det.
+:- mode dead_cell_pool_least_upper_bound_disj(in, in, out) is det.
 
-:- pred dead_cell_pool_least_upper_bound( dead_cell_pool, 
+:- pred dead_cell_pool_least_upper_bound(dead_cell_pool, 
 				dead_cell_pool,
 				dead_cell_pool).
-:- mode dead_cell_pool_least_upper_bound( in, in, out) is det.
+:- mode dead_cell_pool_least_upper_bound(in, in, out) is det.
 
 	% given the set of currently non-local vars (all vars that
 	% are in fact nonlocal, including the ones that were not 
 	% used within the goal that we are leaving), update the 
 	% dr_info::current_scope field. 
-:- pred dead_cell_pool_leave_scope( set(prog_var), dead_cell_pool, 
+:- pred dead_cell_pool_leave_scope(set(prog_var), dead_cell_pool, 
 					dead_cell_pool).
-:- mode dead_cell_pool_leave_scope( in, in, out) is det.
+:- mode dead_cell_pool_leave_scope(in, in, out) is det.
 
-:- pred dead_cell_pool_try_to_reuse( cons_id, dead_cell_pool, 
+:- pred dead_cell_pool_try_to_reuse(cons_id, dead_cell_pool, 
 		set(reuse_var)).
-:- mode dead_cell_pool_try_to_reuse( in, in, out) is det.
+:- mode dead_cell_pool_try_to_reuse(in, in, out) is det.
 
-dead_cell_pool_init( HVS, Pool ):- 
+dead_cell_pool_init(HVS, Pool):- 
 	map__init(Map),
-	Pool = pool( HVS, Map).
-dead_cell_pool_is_empty( pool(_, Pool) ):- 
+	Pool = pool(HVS, Map).
+dead_cell_pool_is_empty(pool(_, Pool)):- 
 	map__is_empty(Pool).
 
 add_dead_cell(ModuleInfo, ProcInfo, Var, Cons, LFU, LBU, 
@@ -343,20 +333,20 @@ add_dead_cell(ModuleInfo, ProcInfo, Var, Cons, LFU, LBU,
 	Pool0 = pool(HVS, _Map0), 
 	reuse_condition_init(ModuleInfo, ProcInfo, Var, LFU, LBU, 
 			Alias0, HVS, Condition),
-	add_dead_cell( Var, Cons, Condition, Pool0, Pool).
+	add_dead_cell(Var, Cons, Condition, Pool0, Pool).
 
 
-add_dead_cell( Var, Cons, ReuseCond, pool(HVS, Pool0), 
-				     pool(HVS, Pool) ) :- 
+add_dead_cell(Var, Cons, ReuseCond, pool(HVS, Pool0), 
+				     pool(HVS, Pool)) :- 
 		% XXX Candidates are always zero. For the
 		% moment we will not try to track this ! 
-	cons_id_maybe_arity( Cons, MaybeArity ), 
+	cons_id_maybe_arity(Cons, MaybeArity), 
 	(
 		MaybeArity = yes(Arity)
 	->
-		Extra = extra( Arity, ReuseCond, [] ),
-		( 
-			map__insert( Pool0, Var, Extra, Pool1)
+		Extra = extra(Arity, ReuseCond, []),
+		(
+			map__insert(Pool0, Var, Extra, Pool1)
 		->
 			Pool = Pool1
 		;
@@ -367,16 +357,16 @@ add_dead_cell( Var, Cons, ReuseCond, pool(HVS, Pool0),
 	).
 
 
-dead_cell_pool_least_upper_bound_disj( Vars, Pools, Pool ):- 
+dead_cell_pool_least_upper_bound_disj(Vars, Pools, Pool):- 
 	list__map(
-		dead_cell_pool_leave_scope( Vars ),
+		dead_cell_pool_leave_scope(Vars),
 		Pools, 
 		CleanedPools),
-	( 
+	(
 		CleanedPools = [ C1 | _CR ]
 	->
 		Pool0 = C1,
-		list__foldl( 
+		list__foldl(
 			dead_cell_pool_least_upper_bound,
 			CleanedPools, 
 			Pool0, 
@@ -385,9 +375,9 @@ dead_cell_pool_least_upper_bound_disj( Vars, Pools, Pool ):-
 		require__error("(sr_direct) dead_cell_pool_least_upper_bound_disj: trying to compute a lub_list of an empty list")
 	).
 
-dead_cell_pool_least_upper_bound( Pool1, Pool2, Pool ) :- 
+dead_cell_pool_least_upper_bound(Pool1, Pool2, Pool) :- 
 	Pool1 = pool(HVS, Map1), 
-	map__init( Map0 ), 
+	map__init(Map0), 
 	Pool0 = pool(HVS, Map0),
 	map__foldl(
 		dead_cell_pool_merge_var(Pool2),
@@ -400,20 +390,20 @@ dead_cell_pool_least_upper_bound( Pool1, Pool2, Pool ) :-
 			dead_cell_pool, dead_cell_pool).
 :- mode dead_cell_pool_merge_var(in, in, in, in, out) is det.
 
-dead_cell_pool_merge_var( P2, Key1, Extra1, P0, P) :- 
+dead_cell_pool_merge_var(P2, Key1, Extra1, P0, P) :- 
 	P2 = pool(_, Pool2),
 	P0 = pool(HVS, Pool0),
 	(
-		map__search( Pool2, Key1, Extra2)
+		map__search(Pool2, Key1, Extra2)
 	->
-		Extra1 = extra( A1, R1, _Cands1 ), 
-		Extra2 = extra( A2, R2, _Cands2 ),
-		int__min( A1, A2, A), 
-		reuse_condition_merge( R1, R2, R),
+		Extra1 = extra(A1, R1, _Cands1), 
+		Extra2 = extra(A2, R2, _Cands2),
+		int__min(A1, A2, A), 
+		reuse_condition_merge(R1, R2, R),
 			% XXX candidates not tracked
 		Extra = extra(A, R, []),
 		(
-			map__insert( Pool0, Key1, Extra, Pool01)
+			map__insert(Pool0, Key1, Extra, Pool01)
 		->
 			P = pool(HVS, Pool01)
 		;
@@ -423,30 +413,30 @@ dead_cell_pool_merge_var( P2, Key1, Extra1, P0, P) :-
 		P = P0
 	).
 
-dead_cell_pool_leave_scope( ScopeVarsSet, P0, P ) :- 
-	P0 = pool( HVS, Pool0),
-	set__to_sorted_list( ScopeVarsSet, ScopeVars),
-	map__to_assoc_list( Pool0, AssocList0 ),
+dead_cell_pool_leave_scope(ScopeVarsSet, P0, P) :- 
+	P0 = pool(HVS, Pool0),
+	set__to_sorted_list(ScopeVarsSet, ScopeVars),
+	map__to_assoc_list(Pool0, AssocList0),
 	list__filter(
-		pred( Key::in ) is semidet :- 
-			( 
+		pred(Key::in) is semidet :- 
+			(
 				Key = ProgVar - _Extra,
-				list__member( ProgVar, ScopeVars )
+				list__member(ProgVar, ScopeVars)
 			),
 		AssocList0,
 		AssocList),
-	map__from_assoc_list( AssocList, Pool ),
-	P = pool( HVS, Pool).
+	map__from_assoc_list(AssocList, Pool),
+	P = pool(HVS, Pool).
 	
-dead_cell_pool_try_to_reuse( Cons, Pool, Set) :-
-	Pool = pool( _HVS, Map ), 
-	cons_id_maybe_arity( Cons, MaybeArity ), 
+dead_cell_pool_try_to_reuse(Cons, Pool, Set) :-
+	Pool = pool(_HVS, Map), 
+	cons_id_maybe_arity(Cons, MaybeArity), 
 	(
 		MaybeArity = yes(Arity)
 	->
-		map__to_assoc_list( Map, AssocList),
+		map__to_assoc_list(Map, AssocList),
 		list__filter(
-			cons_can_reuse( Arity ), 
+			cons_can_reuse(Arity), 
 			AssocList, 
 			CellsThatCanBeReused),
 		list__map(
@@ -458,11 +448,11 @@ dead_cell_pool_try_to_reuse( Cons, Pool, Set) :-
 		set__init(Set)
 	).
 
-:- pred cons_can_reuse( arity, pair( prog_var, dead_extra_info )).
-:- mode cons_can_reuse( in, in ) is semidet.
+:- pred cons_can_reuse(arity, pair(prog_var, dead_extra_info)).
+:- mode cons_can_reuse(in, in) is semidet.
 
-cons_can_reuse( Arity, _Var - Extra ) :- 
-	Extra = extra( DeadArity, _, _), 
+cons_can_reuse(Arity, _Var - Extra) :- 
+	Extra = extra(DeadArity, _, _), 
 	Arity =< DeadArity.
 
 :- pred to_pair_var_condition(pair(prog_var, dead_extra_info), reuse_var).
@@ -470,4 +460,3 @@ cons_can_reuse( Arity, _Var - Extra ) :-
 
 to_pair_var_condition(Var - Extra, reuse_var(Var, Condition, no)) :- 
 	Extra = extra(_, Condition, _).
-
