@@ -203,8 +203,7 @@ project(VARS, Lin, Lout) :-
 		list__filter(
 			pred(D::in) is semidet :- 
 			    (
-				pa_datastruct__get_var(D, Var),
-				list__member(Var, VARS)
+				list__member(D^var, VARS)
 			    ),
 			Datastructs, 
 			FilteredDatastructs),

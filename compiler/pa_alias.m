@@ -76,9 +76,9 @@ print(ProcInfo, PredInfo, FrontString, EndString, Alias0) -->
 	{ Alias0 = D1 - D2 },
 	io__write_string(FrontString),
 	io__write_string("pair("),
-	pa_datastruct__print(D1, ProcInfo, PredInfo),
+	pa_datastruct__print(PredInfo, ProcInfo, D1),
 	io__write_string(" , "),
-	pa_datastruct__print(D2, ProcInfo, PredInfo),
+	pa_datastruct__print(PredInfo, ProcInfo, D2),
 	io__write_string(") "),
 	io__write_string(EndString).
 
@@ -133,8 +133,8 @@ pa_alias__parse_term(Term,  A) :-
 
 contains_one_of_vars(Set, Alias, DATA) :- 
 	Alias = Data1 - Data2,
-	pa_datastruct__get_var(Data1, Var1),
-	pa_datastruct__get_var(Data2, Var2),
+	Var1 = Data1^var,
+	Var2 = Data2^var,
 	(
 		set__member(Var1, Set)
 	->
@@ -451,12 +451,7 @@ one_of_vars_is_live(ModuleInfo, ProcInfo, Datastructs0,
 		list(pa_datastruct__datastruct)::out) is det.
 one_of_vars_is_live_ordered(ModuleInfo, ProcInfo, List, ALIAS, List_Xsx1) :- 
 	ALIAS = Xsx - Ysy,
-	pa_datastruct__get_var(Ysy, Y),
-	list__filter(
-		pred(D::in) is semidet :-
-			(pa_datastruct__get_var(D,Y)),
-		List,
-		Y_List),
+	list__filter(same_vars(Ysy), List, Y_List),
 	(
 		% first try to find one of the found datastructs which is 
 		% fully alive: so that Ysy is less or equal to at least one

@@ -26,12 +26,46 @@
 
 :- import_module io.
 
+	% Before the alias analysis starts for a module starts, all the
+	% alias-pragma's for the exported procedures imported by that module
+	% are stored in the HLDS. They are stored as a list of
+	% "unproc_alias_pragmas" (cf. hlds_module). It is up to the predicate
+	% defined here, process_imported_predicates, to process each of these
+	% stored pragma's, and store them in the procedure info for each of
+	% these procedures. 
+	% XXX the type unproc_alias_pragma should not be in terms of alias_as
+	% but in terms of the to be defined public form of alias information. 
 :- pred process_imported_predicates(module_info::in, module_info::out, 
 		io__state::di, io__state::uo) is det.
 
+	% The pre-births and post-deaths as derived by the liveness pass
+	% (where liveness should be seen as the liveness in the context of
+	% llds) are interesting for the alias-derivation, as these sets make it
+	% possible to downsize the number of aliases to propagate: for
+	% deconstructions, only aliases between the pre-births need to be
+	% generated, and for unifications in general, it is worthwhile to
+	% remove all the aliases regarding variables that are in the post-death
+	% set, i.e. that do not appear in the user code after these
+	% unifications.
+	% XXX Question for later: same optimization possible also for procedure
+	% calls? 
 :- pred annotate_all_liveness_in_module(module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
 
+	% This pass annotates every goal with the set of variables that are in
+	% the scope of the current goal _AND_ are not local to the current
+	% goal. Such vars are called outscope-vars here. 
+	% Apparently this information is only used in the structure reuse pass
+	% where it is used to determine the possible candidates for reusing a
+	% dead data structure. 
+	% XXX So why is this annotation performed at the beginning of the
+	% alias-pass? 
+	% XXX And can this information not be used by the alias pass to reduce
+	% the size of the set of aliases passed around? Like for example
+	% projecting the alias sets to the outscope variables, as aliases
+	% regarding local variables of a goal, may not be of any influence on
+	% the aliases of goals for which these variables are not in scope? 
+	% XXX To find out!!! 
 :- pred annotate_all_outscope_vars_in_module(module_info::in,
 		module_info::out) is det.
 

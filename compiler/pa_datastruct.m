@@ -42,62 +42,60 @@
 %-------------------------------------------------------------------%
 	% init(Var, D)
 	% Create an initial top-datastruct for variable Var.
-:- pred init(prog_var, datastruct).
-:- mode init(in, out) is det.
+:- pred init(prog_var::in, datastruct::out) is det.
+:- func init(prog_var) = datastruct. 
 
-:- pred get_var(datastruct, prog_var).
-:- mode get_var(in, out) is det.
-
-:- pred get_selector(datastruct, selector).
-:- mode get_selector(in, out) is det.
+	% Initialise a datastructure by its variable and selector. 
+:- pred init(prog_var::in, selector::in, datastruct::out) is det.
 
 	% init(Var, Cons, Index, D)
-	% Create an initial datastruct with an initial path Cons-Index
-:- pred init(prog_var, cons_id, int, datastruct).
-:- mode init(in, in, in, out) is det.
+	% Create an initial datastruct Var^(Cons,Index), thus a data structure
+	% with a selector consisting of only one unit selector, namely the one
+	% identified by the constructor and index within that constructor. 
+:- pred init(prog_var::in, cons_id::in, int::in, datastruct::out) is det.
 
-:- pred create(prog_var::in, selector::in, datastruct::out) is det.
+:- pred get_var(datastruct::in, prog_var::out) is det.
+:- func var(datastruct) = prog_var. 
+
+:- pred get_selector(datastruct::in, selector::out) is det.
+:- func selector(datastruct) = selector. 
 
 	% Extend the given datastructure with an additional path.
-:- pred termshift(datastruct, selector, datastruct). 
-:- mode termshift(in, in, out) is det.
+:- pred termshift(datastruct::in, selector::in, datastruct::out) is det. 
 
 	% less_or_equal(LongerData,ShorterData,Selector)
 	% Check whether by extending the ShorterData with some selector
 	% Selector one can obtain LongerData. 
 	% If the datastructs concern different variables, fail right away.
-:- pred less_or_equal(module_info, proc_info, datastruct, datastruct, selector).
-:- mode less_or_equal(in, in, in, in, out) is semidet.
+:- pred less_or_equal(module_info::in, proc_info::in, datastruct::in,
+		datastruct::in, selector::out) is semidet.
 
 	% Check whether the two given datastructs are related to the
 	% same variable or not. 
-:- pred same_vars(datastruct, datastruct).
-:- mode same_vars(in,in) is semidet.
+:- pred same_vars(datastruct::in, datastruct::in) is semidet.
 
 	% Check whether the given datastructs are identical or not.
-:- pred equal(datastruct, datastruct).
-:- mode equal(in, in) is semidet.
+:- pred equal(datastruct::in, datastruct::in) is semidet.
 
 	% Rename the variable of the given datastruct.
-:- pred rename(map(prog_var,prog_var), datastruct, datastruct).
-:- mode rename(in, in, out) is det.
+:- pred rename(map(prog_var,prog_var)::in, datastruct::in, 
+		datastruct::out) is det.
 
 :- pred rename_types(term__substitution(tvar_type)::in, 
-			datastruct::in, datastruct::out) is det. 
+		datastruct::in, datastruct::out) is det. 
 
 	% Printing routines
-:- pred print(datastruct, proc_info, pred_info, io__state, io__state).
-:- mode print(in, in, in, di, uo) is det.
+:- pred print(pred_info::in, proc_info::in, datastruct::in, 
+		io__state::di, io__state::uo) is det.
 
-:- pred to_user_declared(datastruct, prog_varset, tvarset, string). 
-:- mode to_user_declared(in, in, in, out) is det.
+:- pred to_user_declared(datastruct::in, prog_varset::in, 
+		tvarset::in, string::out) is det. 
 
 	% Parsing routines
-:- pred parse_term(term(T), datastruct).
-:- mode parse_term(in, out) is det.
+:- pred parse_term(term(T)::in, datastruct::out) is det.
 
-:- pred normalize_wti(proc_info, module_info, datastruct, datastruct).
-:- mode normalize_wti(in, in, in, out) is det.
+:- pred normalize_wti(module_info::in, proc_info::in, 
+		datastruct::in, datastruct::out) is det.
 
 :- pred apply_widening(module_info::in, proc_info::in, datastruct::in, 
 			datastruct::out) is det.
@@ -117,8 +115,10 @@
 
 :- type datastruct ---> cel(prog_var, pa_selector__selector).
 
-get_var(cel(VAR, _Sel), VAR).
-get_selector(cel(_Var, SEL), SEL).
+get_var(cel(Var, _Sel), Var).
+var(cel(Var, _Sel)) = Var. 
+get_selector(cel(_Var, Sel), Sel).
+selector(cel(_Var, Sel)) = Sel.
 
 
 rename(MAP, DATAin, DATAout) :-
@@ -164,10 +164,12 @@ init(V, CONS, INDEX, Dout) :-
 init(V, Dout) :-
 	SEL = [],
 	Dout = cel(V, SEL).
-create(V, Sel, Dout) :- 
+init(V) = D :- init(V, D).
+
+init(V, Sel, Dout) :- 
 	Dout = cel(V, Sel). 
 
-print(D, ProcInfo, PredInfo) -->
+print(PredInfo, ProcInfo, D) --> 
 	{ D = cel(ProgVar, SEL) },
 	{ proc_info_varset(ProcInfo, ProgVarset) },
 	{ varset__lookup_name(ProgVarset, ProgVar, ProgName) },
@@ -222,19 +224,19 @@ parse_term(TERM, Data) :-
    ).
 
 
-normalize_wti(ProcInfo, HLDS, Din, Dout):-
+normalize_wti(HLDS, ProcInfo, Din, Dout):-
 	proc_info_vartypes(ProcInfo, VarTypes), 
-	normalize_wti_2(VarTypes, HLDS, Din, Dout). 
+	normalize_wti_2(HLDS, VarTypes, Din, Dout). 
 
 	% normalize with type information
-:- pred normalize_wti_2(vartypes, module_info, 
+:- pred normalize_wti_2(module_info, vartypes, 
 		datastruct, datastruct).
 :- mode normalize_wti_2(in, in, in, out) is det.
 
-normalize_wti_2(VarTypes, HLDS, D0, D):-
+normalize_wti_2(HLDS, VarTypes, D0, D):-
 	D0 = cel(ProgVar, SEL0), 
 	map__lookup(VarTypes, ProgVar, VarType),
-	pa_selector__normalize_wti(VarType, HLDS, SEL0, SEL),
+	pa_selector__normalize_wti(HLDS, VarType, SEL0, SEL),
 	D = cel(ProgVar, SEL).
 
 apply_widening(ModuleInfo, ProcInfo, D0, D):- 

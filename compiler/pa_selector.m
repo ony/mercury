@@ -4,16 +4,11 @@
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-% module pa_selector: defines the selectors as they are used within 
+% module pa_selector: Defines the selectors as they are used within 
 %	   	      the possible alias analysis.
 % main author: nancy
-
-% notes: 
-% 1. this code is quite similar to (and in fact based on) the code Wim
-%    wrote for his BTA where he also uses the concept of a selector. At
-%    some point this code could be really shared by both analysis. 
-% 2. _partially instantiated datastructures_ : the day they'll be 
-%    introduced, a couple of things will have to be changed.
+% 
+% XXX will be moved to prog_data. 
 
 :- module possible_alias__pa_selector.
 
@@ -43,27 +38,24 @@
 
 	% create an initial selector with given constructor and index.
 :- pred init(cons_id::in, int::in, selector::out) is det.
-
-:- pred from_types(list(type)::in, selector::out) is det.
+	
+	% create an initial (type)selector using the list of types. 
+:- pred init(list(type)::in, selector::out) is det.
 
 	% check whether the selector is a top-selector.
 :- pred top(selector::in) is semidet.
 
-	% select_first_part(InputSelector, Head_unit_selector, Tail).
-	% Select the first unit selector from the given selector, 
-	% and return also the remainders. 
-	% The predicate produces a software error when the input
-	% selector is a top-selector.
-:- pred select_first_part(selector, unit_sel, selector).
-:- mode select_first_part(in, out, out) is det.
+	% head(S,H,T) returns H, the head of selector S, and T, the tail of S
+	% when removing that head. The predicate aborts when the input is a
+	% top-level selector. 
+:- pred head(selector::in, unit_sel::out, selector::out) is det.
 
 	% termshift(InputSelector, NewExtension, ResultingSelector).
 	% Extend the given selector with a new extension (unit selector). 
-:- pred unit_termshift(selector, unit_sel, selector).
-:- mode unit_termshift(in, in, out) is det.
+:- pred unit_termshift(selector::in, unit_sel::in, selector::out) is det.
 
-:- pred termshift(selector, selector, selector).
-:- mode termshift(in, in, out) is det.
+	% Extend the selector with a new selector. 
+:- pred termshift(selector::in, selector::in, selector::out) is det.
 
 	% less_or_equal(HLDS, S1, S2, T, EXT):
 	% Find out whether selector S1 of a variable of type T is
@@ -80,12 +72,11 @@
 		io__state::di, io__state::uo) is det. 
 :- pred to_user_declared(selector::in, tvarset::in, string::out) is det. 
 
-:- pred parse_term(term(T), selector).
-:- mode parse_term(in, out) is det.
+:- pred parse_term(term(T)::in, selector::out) is det.
 
 	% normalize with type information
-:- pred normalize_wti((type), module_info, selector, selector).
-:- mode normalize_wti(in, in, in, out) is det.
+:- pred normalize_wti(module_info::in, (type)::in, selector::in,
+		selector::out) is det.
 
 	% widening
 :- pred apply_widening(module_info::in, (type)::in,
@@ -111,10 +102,10 @@
 :- import_module assoc_list, map.
 
 init([]).
-init(CONS, INDEX, SEL):-
-	US = us(CONS, INDEX),
-	SEL = [US].
-from_types(Types, Selector):- 
+init(Cons, Index, Sel):-
+	US = us(Cons, Index),
+	Sel = [US].
+init(Types, Selector):- 
 	list__map(
 		pred(T::in, US::out) is det :- 
 			US = ts(T),
@@ -124,11 +115,11 @@ from_types(Types, Selector):-
 
 top([]).
 
-select_first_part(SEL0, US, SEL):-
+head(Sel0, US, Sel):-
 	(
-		SEL0 = [ F | R ]
+		Sel0 = [ F | R ]
 	->
-		US = F, SEL = R
+		US = F, Sel = R
 	;
 		error("(pa_selector): trying to split empty selector!")
 	).
@@ -142,8 +133,7 @@ termshift(S1,S2,S):- list__append(S1,S2,S).
 	% subsumed by"), i.e. S1 can be selected by extending S2 with
 	% the extension EXT (output).
 	% PRECONDITION: the selectors do not contain any type-selectors. 
-:- pred less_or_equal(selector, selector, selector).
-:- mode less_or_equal(in, in, out) is semidet.
+:- pred less_or_equal(selector::in, selector::in, selector::out) is semidet.
 
 less_or_equal(S1, S2, EXT) :- 
 	list__append(S2, EXT , S1). 
@@ -170,8 +160,8 @@ print(Selector, ProgVarSet) -->
 	io__write_list(Selector, ",", print_unit_selector(ProgVarSet)),
 	io__write_string("]").
 
-:- pred print_unit_selector(tvarset, unit_sel, io__state, io__state).
-:- mode print_unit_selector(in, in, di, uo) is det.
+:- pred print_unit_selector(tvarset::in, unit_sel::in, 
+		io__state::di, io__state::uo) is det.
 
 print_unit_selector(_ProgVarSet, us(Cons, Index)) -->
 	{ hlds_data__cons_id_arity(Cons, Arity) },
@@ -218,55 +208,54 @@ us_to_user_declared(us(_,_), _, _):-
 us_to_user_declared(ts(Type), TVarSet, 
 		mercury_type_to_string(TVarSet, Type)). 
 
-parse_term(TERM, SEL):- 
+parse_term(Term, Sel):- 
 	(
-		TERM = term__functor(term__atom(CONS), Args, _)
+		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			CONS = "[|]",
+			Cons = "[|]",
 			Args = [ First , Rest ]
 		->
 			parse_unit_selector(First, US),
-			parse_term(Rest, SELrest),
-			SEL = [ US | SELrest ]
+			parse_term(Rest, SelRest),
+			Sel = [ US | SelRest ]
 		;
-			SEL = []
+			Sel = []
 		)
 	;
 		error("(pa_selector) parse_term: term not a functor")
 	).
 
-:- pred parse_unit_selector(term(T), unit_sel).
-:- mode parse_unit_selector(in, out) is det.
+:- pred parse_unit_selector(term(T)::in, unit_sel::out) is det.
 
-parse_unit_selector(TERM, US):- 
+parse_unit_selector(Term, US):- 
    (
-      TERM = term__functor(term__atom(CONS), Args, _)
+      Term = term__functor(term__atom(Cons), Args, _)
    ->
       (
-         CONS = "sel",
-         Args = [ CONS_TERM, ARITY_TERM, POS_TERM ]
+         Cons = "sel",
+         Args = [ ConsTerm, ArityTerm, PosTerm ]
       ->
          (
-            prog_io__sym_name_and_args(CONS_TERM, ConsID_SN, ConsID_ARGS),
-            ConsID_ARGS = [],
-	    ARITY_TERM = term__functor(term__integer(Arity), _, _),
-            POS_TERM = term__functor(term__integer(Pos), _, _)
+            prog_io__sym_name_and_args(ConsTerm, ConsID_SN, ConsID_Args),
+            ConsID_Args = [],
+	    ArityTerm = term__functor(term__integer(Arity), _, _),
+            PosTerm = term__functor(term__integer(Pos), _, _)
          ->
 	    ConsID = cons(ConsID_SN, Arity),
 	    US = us(ConsID, Pos)
 	 ;
-	    CONS_TERM = term__functor(term__integer(X), _, _)
+	    ConsTerm = term__functor(term__integer(X), _, _)
 	 ->
 	    ConsID = int_const(X), 
 	    US = us(ConsID, 0)
 	 ;
-	    CONS_TERM = term__functor(term__float(X), _, _)
+	    ConsTerm = term__functor(term__float(X), _, _)
 	 ->
 	    ConsID = float_const(X),
 	    US = us(ConsID, 0)
 	 ;
-	    CONS_TERM = term__functor(term__string(S), _, _)
+	    ConsTerm = term__functor(term__string(S), _, _)
 	 ->
 	    ConsID = string_const(S),
 	    US = us(ConsID, 0)
@@ -275,7 +264,7 @@ parse_unit_selector(TERM, US):-
 	 )
       ; 
 	 
-         CONS = "typesel",
+         Cons = "typesel",
 	 Args = [ TypeSelectorTerm ]
       ->
  	 term__coerce(TypeSelectorTerm, TypeSelector), 
@@ -288,23 +277,23 @@ parse_unit_selector(TERM, US):-
    ).
 
 
-normalize_wti(VarType, HLDS, SEL0, SEL):-
+normalize_wti(HLDS, VarType, Sel0, Sel):-
 	(
 		type_util__is_introduced_type_info_type(VarType)
 	->
-		SEL = SEL0
+		Sel = Sel0
 	; 
 		branch_map_init(B0), 
-		init(TOP),
-		branch_map_insert(VarType, TOP, B0, B1),
-		normalize_wti_2(VarType, HLDS, B1, TOP, SEL0, SEL)
+		init(Top),
+		branch_map_insert(VarType, Top, B0, B1),
+		normalize_wti_2(HLDS, VarType, B1, Top, Sel0, Sel)
 	).
 
-:- pred normalize_wti_2(type, module_info, branch_map, 
+:- pred normalize_wti_2(module_info, type, branch_map, 
 				selector, selector, selector).
 :- mode normalize_wti_2(in, in, in, in, in, out) is det.
 
-normalize_wti_2(VarType, HLDS, B0, Acc0, SEL0, SEL):-
+normalize_wti_2(HLDS, VarType, B0, Acc0, SEL0, SEL):-
 	(
 		SEL0 = [ US | SELR ]
 	->
@@ -335,14 +324,14 @@ normalize_wti_2(VarType, HLDS, B0, Acc0, SEL0, SEL):-
 					branch_map_search(B0, CType,
 						BSel)
 				->
-					normalize_wti_2(CType, HLDS,
+					normalize_wti_2(HLDS, CType, 
 						B0, BSel, SELR, SEL)
 				;
 					unit_termshift(Acc0, US, 
 						Acc1),
 					branch_map_insert(CType, 
 						Acc1, B0, B1),
-					normalize_wti_2(CType, HLDS, 
+					normalize_wti_2(HLDS, CType, 
 						B1, Acc1, SELR, SEL)
 				)
 			;
@@ -490,8 +479,8 @@ split_upto_type_selector_acc([ US | SEL ], ACC, S1, TS, S2):-
 
 
 less_or_equal(HLDS, S1, S2, MainType, EXT):- 
-	normalize_wti(MainType, HLDS, S1, NormS1), 
-	normalize_wti(MainType, HLDS, S2, NormS2), 
+	normalize_wti(HLDS, MainType, S1, NormS1), 
+	normalize_wti(HLDS, MainType, S2, NormS2), 
 	less_or_equal_2(HLDS, NormS1, NormS2, MainType, EXT). 
 
 :- pred less_or_equal_2(module_info::in, selector::in, selector::in, 

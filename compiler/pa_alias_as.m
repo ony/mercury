@@ -1118,8 +1118,8 @@ parse_user_datastruct(Term, Data):-
 				parse_list_term(TypesTerm, ListTypesTerms)
 			-> 
 				list__map(term__coerce, ListTypesTerms, Types),
-				pa_selector__from_types(Types, Selector), 
-				pa_datastruct__create(ProgVar, Selector, Data)
+				pa_selector__init(Types, Selector), 
+				pa_datastruct__init(ProgVar, Selector, Data)
 			;
 				format_context(Context, ContextString), 
 				string__append_list([

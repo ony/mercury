@@ -279,8 +279,7 @@ reuse_condition_init(ModuleInfo, ProcInfo,
 			ALIASi, AliasedData),
 		list__filter(
 			pred(Data::in) is semidet :-
-			  (pa_datastruct__get_var(Data,V), 
-			   list__member(V, HVs)),
+			  (list__member(Data^var, HVs)),
 			AliasedData,
 			Nodes)
 	),
@@ -351,10 +350,7 @@ reuse_condition_print(ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
 		% write out the list of headvar-nodes involved
 	io__write_string("["),
 	io__write_list(NodesList, ",", 
-			pred( D::in, IO1::di, IO2::uo) is det :- 
-			    (pa_datastruct__print(D, ProcInfo, 
-						PredInfo, IO1, IO2))
-			),
+			pa_datastruct__print(PredInfo, ProcInfo)), 
 	io__write_string("], "),	
 
 		% write out LUiH, list of prog_vars
@@ -407,8 +403,7 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 	list__condense([ OLD_NODES | LISTS_ALL_NEW_NODES], ALL_NEW_NODES),
 	list__filter(
 		pred(DATA::in) is semidet :-
-		  (pa_datastruct__get_var(DATA,V), 
-		    list__member(V, HVs)),
+		  (list__member(DATA^var, HVs)),
 		ALL_NEW_NODES,
 		NEW_NODES),
 	(
@@ -418,7 +413,7 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 	;
 		% normalize all the datastructs
 		list__map(
-			pa_datastruct__normalize_wti(ProcInfo, HLDS),
+			pa_datastruct__normalize_wti(HLDS, ProcInfo),
 			NEW_NODES,
 			NORM_NODES
 			),

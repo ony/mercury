@@ -4,8 +4,12 @@
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-% module pa_util: extra datastructures and predicates needed by the
-%		  KUL aliasing pass
+% module pa_util: 
+% 	* Defines the fixpoint table used in the analysis of possible
+% 	aliases.
+% 	* Defines some type-related predicates (should be moved to somewhere
+% 	else though). XXX
+%		  
 % main author: nancy
 
 :- module possible_alias__pa_util.
@@ -19,46 +23,50 @@
 
 :- type pa_fixpoint_table.
 
+	% Initialise the fixpoint table for the given set of pred_proc_id's. 
 :- pred pa_fixpoint_table_init(list(pred_proc_id)::in,
-			pa_fixpoint_table::out) is det.
+		pa_fixpoint_table::out) is det.
 
-	% the datastructure keeps track of the number of fixpoint runs
-	% performed, this predicates adds one. 
-:- pred pa_fixpoint_table_new_run(pa_fixpoint_table::in, pa_fixpoint_table::out) is det.
+	% Add the results of a new analysis pass to the already existing
+	% fixpoint table. 
+:- pred pa_fixpoint_table_new_run(pa_fixpoint_table::in, 
+		pa_fixpoint_table::out) is det.
 
+	% The fixpoint table keeps track of the number of analysis passes. This
+	% predicate returns this number.
 :- pred pa_fixpoint_table_which_run(pa_fixpoint_table::in, int::out) is det.
 
-	% check whether all entries are stable. If so, one has reached
-	% a fixpoint
-:- pred pa_fixpoint_table_all_stable(pa_fixpoint_table:: in) is semidet.
+	% A fixpoint is reached if all entries in the table are stable,
+	% i.e. haven't been modified by the last analysis pass. 
+:- pred pa_fixpoint_table_all_stable(pa_fixpoint_table::in) is semidet.
 
-	% at the end of the analysis of one single pred_proc_id, 
-	% the new exit alias information is stored. This might
-	% change the stability of the table. 
-	% if the pred_proc_id is not in the table --> error
-:- pred pa_fixpoint_table_new_as(module_info, proc_info, 
-			pred_proc_id, alias_as, 
-			pa_fixpoint_table, pa_fixpoint_table).
-:- mode pa_fixpoint_table_new_as(in, in, in, in, in, out) is det.
+	% Enter the newly computed alias description for a given procedure.
+	% If the description is different from the one that was already stored
+	% for that procedure, the stability of the fixpoint table is set to
+	% "unstable". 
+	% Aborts if the procedure is not already in the fixpoint table. 
+:- pred pa_fixpoint_table_new_as(module_info::in, proc_info::in, 
+		pred_proc_id::in, alias_as::in, 
+		pa_fixpoint_table::in, pa_fixpoint_table::out) is det.
 
-	% retreive the alias abstract substitution of a given
-	% pred_proc_id. If this information is not available,
-	% the general character of the fixpoint-table will be
-	% set to `recursive'
-	% if the pred_proc_id is not in the table --> fail
-:- pred pa_fixpoint_table_get_as(pred_proc_id, alias_as, 
-			pa_fixpoint_table, pa_fixpoint_table).
-:- mode pa_fixpoint_table_get_as(in, out, in, out) is semidet.
+	% Retreive the alias description of a given
+	% pred_proc_id. If this information is not available, this means that
+	% the set of pred_proc_id's to which the fixpoint table relates are
+	% mutually recursive, hence the table is characterised as recursive. 
+	% Fails if the procedure is not in the table. 
+:- pred pa_fixpoint_table_get_as(pred_proc_id::in, alias_as::out, 
+		pa_fixpoint_table::in, pa_fixpoint_table::out) is semidet.
 
-	% retreive alias_as information, without changing the
+	% Retreive alias_as information, without changing the
 	% table. To be used after fixpoint has been reached. 
-:- pred pa_fixpoint_table_get_final_as(pred_proc_id, alias_as, 
-						pa_fixpoint_table).
-:- mode pa_fixpoint_table_get_final_as(in, out, in) is det.
+	% Aborts if the procedure is not in the table.
+:- pred pa_fixpoint_table_get_final_as(pred_proc_id::in, alias_as::out, 
+		pa_fixpoint_table::in) is det.
 
-:- pred pa_fixpoint_table_get_final_as_semidet(pred_proc_id, alias_as, 
-						pa_fixpoint_table).
-:- mode pa_fixpoint_table_get_final_as_semidet(in, out, in) is semidet.
+	% Same as pa_fixpoint_table_get_final_as, yet fails instead of aborting
+	% if the procedure is not in the table.
+:- pred pa_fixpoint_table_get_final_as_semidet(pred_proc_id::in, alias_as::out, 
+		pa_fixpoint_table::in) is semidet.
 
 
 %-----------------------------------------------------------------------------%

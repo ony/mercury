@@ -5,9 +5,11 @@
 %-----------------------------------------------------------------------------%
 
 % module pa_run: implements the process of annotating each procedure
-%		 with possible alias information, i.e. with information
-% 	 	 which states which additional parts of the 
-%		 head-variables might become aliased after the procedure exits
+%		 with possible alias information. The analysis is
+%		 goal-independent, and thus returns only those aliases that
+%		 are created by the analysed procedure, without taking into
+%		 account the possible aliases that might exist when calling
+%		 that procedure. (cf. Phd Nancy, chapter 6). 
 % main author: nancy
 
 :- module possible_alias__pa_run.
@@ -22,16 +24,21 @@
 :- import_module io, list.
 
 	% the main pass
-:- pred pa_run__aliases_pass(module_info, module_info, io__state, io__state).
-:- mode pa_run__aliases_pass(in, out, di, uo) is det.
+:- pred pa_run__aliases_pass(module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
 
-	% write the pa_info pragma for the given pred_id (if that
+	% Write the pa_info pragma for the given pred_id (if that
 	% pred_id does not belong to the list(pred_id). 
-:- pred pa_run__write_pred_pa_info(module_info, list(pred_id), pred_id, 
-					io__state, io__state).
-:- mode pa_run__write_pred_pa_info(in, in, in, di, uo) is det.
+	% 
+	% XXX The result of the analysis should be possible alias information
+	% written as a publicly available type within the HLDS. The predicate
+	% for actually writing out the pragma should be moved to somewhere (?)
+	% else. Note that this predicate is used in "trans_opt", while the
+	% "public" types will probably be defined in prog_data.
+:- pred pa_run__write_pred_pa_info(module_info::in, list(pred_id)::in, 
+		pred_id::in, io__state::di, io__state::uo) is det.
 
-	% lookup the alias-information for some pred_id proc_id in the
+	% Lookup the alias-information for some pred_id proc_id in the
 	% module_info. Rename the alias-information to the given
 	% actual parameters, and extend the given alias_as with the
 	% looked up alias_as. 
@@ -50,11 +57,14 @@
 	% 			proc is called
 	%		AliasIN = alias at moment of call
 	%		AliasOUT = alias at end of call
-:- pred pa_run__extend_with_call_alias(module_info, proc_info, 
-			pred_id, proc_id, 
-			list(prog_var), 
-			list((type)), alias_as, alias_as). 
-:- mode pa_run__extend_with_call_alias(in, in, in, in, in, in, in, out) is det.
+	% 
+	% XXX While the result of the possible alias pass should be expressed
+	% in a "public" type for outputting the HLDS and alike, yet it is
+	% preferrable to keep the optimised representation as well for its
+	% use during the structure reuse pass.  This is a bit of a dilemma.
+:- pred pa_run__extend_with_call_alias(module_info::in, proc_info::in, 
+		pred_id::in, proc_id::in, list(prog_var)::in, 
+		list((type))::in, alias_as::in, alias_as::out) is det. 
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -292,12 +292,10 @@ to_pair_alias_list(AliasSet, Aliases):-
 				pred(SelData::in, Alias::out) is semidet:- 
 				    (
 					SelData = Selector - Datastruct, 
-					pa_datastruct__get_var(Datastruct, 
-						DataVar), 
-					term__var_to_int(DataVar,
+					term__var_to_int(Datastruct^var,
 						DataVarInt),
 					DataVarInt =< VarInt, 
-					pa_datastruct__create(Var, 
+					pa_datastruct__init(Var, 
 						Selector, NewDatastruct), 
 					Alias = NewDatastruct - Datastruct
 				   ), 
@@ -1027,7 +1025,7 @@ alias_set2_normalize(ModuleInfo, ProcInfo, Type, SelectorSet0,
 	map__foldl(
 		pred(Sel0::in, DataSet0::in, M0::in, M::out) is det:- 
 		(
-			pa_selector__normalize_wti(Type, ModuleInfo, 
+			pa_selector__normalize_wti(ModuleInfo, Type, 
 					Sel0, Sel0Norm), 
 			data_set_normalize(ModuleInfo, ProcInfo,  
 					DataSet0, DataSet1), 
@@ -1076,10 +1074,10 @@ alias_set2_apply_widening(ModuleInfo, ProcInfo, ProgVar,
 				DataSet0, DataSet1), 
 
 			% widening of the selector
-			pa_datastruct__create(ProgVar, Sel0, Data0), 
+			pa_datastruct__init(ProgVar, Sel0, Data0), 
 			pa_datastruct__apply_widening(ModuleInfo, 
 				ProcInfo, Data0, Data), 
-			pa_datastruct__get_selector(Data, Sel), 
+			Sel = Data^selector,
 
 			% regroup the widened dataset with the dataset
 			% that is associated with the widened Sel, as this
@@ -1244,7 +1242,7 @@ data_set_filter(Pred, DataSet0, DataSet):-
 
 data_set_normalize(ModuleInfo, ProcInfo, DataSet0, DataSet):- 
 	data_set_map(
-		pa_datastruct__normalize_wti(ProcInfo, ModuleInfo), 
+		pa_datastruct__normalize_wti(ModuleInfo, ProcInfo), 
 		DataSet0, 
 		DataSet). 
 
