@@ -325,8 +325,8 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 			{ pred_info_procedures(PredInfo, Procs) },
 			{ map__to_assoc_list(Procs, ExistingProcs) },
 			(
-				{ get_matching_procedure(ExistingProcs, Modes, 
-					Module0, ProcId) }
+				{ get_procedure_matching_declmodes(
+					ExistingProcs, Modes, Module0, ProcId)}
 			->
 				{ module_info_get_pragma_exported_procs(Module0,
 					PragmaExportedProcs0) },
@@ -382,9 +382,10 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ Pragma = fact_table(_, _, _) },
 		{ Module = Module0 }
 	;
-		{ Pragma = termination_info(PredOrFunc, SymName, Arity, ProcId, 
+		{ Pragma = termination_info(PredOrFunc, SymName, ModeList, 
 			Termination) },
 		{ module_info_get_predicate_table(Module0, Preds) },
+		{ list__length(ModeList, Arity) },
 		(
 		    { predicate_table_search_pf_sym_arity(Preds,
 			PredOrFunc, SymName, Arity, PredIds) }
@@ -395,30 +396,49 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 				":- pragma termination_info declaration"),
 			{ module_info_incr_errors(Module0, Module) }
 		    ; { PredIds = [PredId] } ->
-		    	{ module_info_pred_proc_info(Module0, PredId, 
-				ProcId, PredInfo0, ProcInfo0) },
+			{ module_info_preds(Module0, PredTable0) },
+			{ map__lookup(PredTable0, PredId, PredInfo0) },
 			{ pred_info_procedures(PredInfo0, ProcTable0)},
-			{ proc_info_set_termination(ProcInfo0, 
-				Termination, ProcInfo) },
-			{ map__det_update(ProcTable0, ProcId, ProcInfo,
-				ProcTable) },
-			{ pred_info_set_procedures(PredInfo0, 
-				ProcTable, PredInfo) },
-			{ module_info_set_pred_info(Module0, PredId,
-				PredInfo, Module) }
+			{ map__to_assoc_list(ProcTable0, ProcList) },
+			( 
+				{ get_procedure_matching_declmodes(ProcList, 
+					ModeList, Module0, ProcId) }
+			->
+				{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+				{ proc_info_set_termination(ProcInfo0, 
+					Termination, ProcInfo) },
+				{ map__det_update(ProcTable0, ProcId, ProcInfo,
+					ProcTable) },
+				{ pred_info_set_procedures(PredInfo0, 
+					ProcTable, PredInfo) },
+				{ map__det_update(PredTable0, PredId, PredInfo,
+					PredTable) },
+				{ module_info_set_preds(Module0, PredTable,
+					Module) }
+		    	;
+				{ module_info_incr_errors(Module0, Module) }, 
+				prog_out__write_context(Context),
+				io__write_string(
+					"Error: `:- pragma termination_info' "),
+				io__write_string(
+					"declaration for undeclared mode of "),
+				hlds_out__write_call_id(PredOrFunc, 
+					SymName/Arity),
+				io__write_string(".\n")
+			)
 		    ;
 			prog_out__write_context(Context),
-			io__write_string("Error: Ambiguous predicate name\n"),
+			io__write_string("Error: Ambiguous predicate name"),
+			hlds_out__write_call_id(PredOrFunc, SymName/Arity),
+			io__nl,
 			prog_out__write_context(Context),
-			io__write_string(
-				"  in pragma termination_info\n"),
+			io__write_string("  in pragma termination_info\n"),
 			{ module_info_incr_errors(Module0, Module) }
 		    )
 		;
 		    prog_out__write_context(Context),
-		    io__write_string("Error: Predicate name not found\n"),
-		    prog_out__write_context(Context),
-		    io__write_string("  in pragma termination_info\n"),
+		    undefined_pred_or_func_error(SymName, Arity, Context,
+			":- pragma termination_info declaration"),
 		    { module_info_incr_errors(Module0, Module) }
 		)
 	;
@@ -1758,7 +1778,7 @@ module_add_pragma_c_code(MayCallMercury, PredName, PredOrFunc, PVars, VarSet,
 		{ map__to_assoc_list(Procs, ExistingProcs) },
 		{ pragma_get_modes(PVars, Modes) },
 		(
-			{ get_matching_procedure(ExistingProcs, Modes,
+			{ get_procedure_matching_argmodes(ExistingProcs, Modes,
 						ModuleInfo0, ProcId) }
 		->
 			{ pred_info_clauses_info(PredInfo1, Clauses0) },
@@ -1881,23 +1901,39 @@ pragma_add_markers_2([Marker | Markers], MarkerList0, MarkerList) :-
 
 %---------------------------------------------------------------------------%
 
-	% Find the procedure with modes which match the ones we want.
+	% Find the procedure with argmodes which match the ones we want.
 
-:- pred get_matching_procedure(assoc_list(proc_id, proc_info), list(mode), 
-		module_info, proc_id).
-:- mode get_matching_procedure(in, in, in, out) is semidet.
-
-get_matching_procedure([P|Procs], Modes, ModuleInfo, OurProcId) :-
+:- pred get_procedure_matching_argmodes(assoc_list(proc_id, proc_info),
+		list(mode), module_info, proc_id).
+:- mode get_procedure_matching_argmodes(in, in, in, out) is semidet.
+get_procedure_matching_argmodes([P|Procs], Modes, ModuleInfo, OurProcId) :-
 	P = ProcId - ProcInfo,
 	proc_info_argmodes(ProcInfo, ArgModes),
 	( mode_list_matches(Modes, ArgModes, ModuleInfo) ->
 		OurProcId = ProcId
 	;
-		get_matching_procedure(Procs, Modes, ModuleInfo, OurProcId)
+		get_procedure_matching_argmodes(Procs, Modes, ModuleInfo, 
+			OurProcId)
 	).
 
-:- pred mode_list_matches(list(mode)::in, list(mode)::in,
-				module_info::in) is semidet.
+	% Find the procedure with declared argmodes which match the ones 
+	% we want.  If there was no mode declaration, then use the inferred
+	% argmodes.
+:- pred get_procedure_matching_declmodes(assoc_list(proc_id, proc_info),
+		list(mode), module_info, proc_id).
+:- mode get_procedure_matching_declmodes(in, in, in, out) is semidet.
+get_procedure_matching_declmodes([P|Procs], Modes, ModuleInfo, OurProcId) :-
+	P = ProcId - ProcInfo,
+	proc_info_declared_argmodes(ProcInfo, ArgModes),
+	( mode_list_matches(Modes, ArgModes, ModuleInfo) ->
+		OurProcId = ProcId
+	;
+		get_procedure_matching_declmodes(Procs, Modes, ModuleInfo, 
+			OurProcId)
+	).
+
+:- pred mode_list_matches(list(mode), list(mode), module_info).
+:- mode mode_list_matches(in, in, in) is semidet.
 
 mode_list_matches([], [], _).
 mode_list_matches([Mode1 | Modes1], [Mode2 | Modes2], ModuleInfo) :-

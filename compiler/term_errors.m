@@ -132,6 +132,7 @@ term_errors__output_const_error(PredId, ProcId, Module, Success) -->
 		prog_out__write_context(Context),
 		io__write_string("Termination constant of "),
 		hlds_out__write_pred_id(Module, PredId),
+		io__nl,
 		prog_out__write_context(Context),
 		io__write_string("  set to infinity because "),
 		{ ConstErrorOutput = yes },
@@ -258,7 +259,7 @@ term_errors__output_2(PredId, _ProcId, Module, _ConstErrorOutput, ForHLDSDump,
 
 term_errors__output_2(_PredId, _ProcId, _Module, _ConstErrOutput, _ForHLDSDump,
 		_Context - imported_pred) -->
-	io__write_string("it was imported.").
+	io__write_string("it was imported.\n").
 
 term_errors__output_2(PredId, _ProcId, Module, _ConstErrorOutput, ForHLDSDump,
 		Context - horder_args(CallerPPId, CalleePPId)) -->
@@ -268,7 +269,7 @@ term_errors__output_2(PredId, _ProcId, Module, _ConstErrorOutput, ForHLDSDump,
 	{ CalleePPId = proc(CalleePredId, _CalleeProcId) },
 
 	( { PredId = CallerPredId } ->
-		io__write_string("it calls the")
+		io__write_string("it calls the ")
 	;
 		term_errors__output_same_SCC(CallerPredId, Module, Context,
 			ForHLDSDump),

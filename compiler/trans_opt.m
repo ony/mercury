@@ -151,14 +151,15 @@ trans_opt__write_procs([ProcId | ProcIds], PredId, PredInfo) -->
 	{ pred_info_name(PredInfo, PredName) },
 	{ pred_info_module(PredInfo, ModuleName) },
 	{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
-	{ pred_info_arity(PredInfo, Arity) },
+	{ pred_info_context(PredInfo, Context) },
 	{ SymName = qualified(ModuleName, PredName) },
 	{ proc_info_termination(ProcInfo, Termination) },
+	{ proc_info_declared_argmodes(ProcInfo, ModeList) },
 
 	% all predicates to write procedure items into the .trans_opt file
 	% should go here.
 	termination__output_pragma_termination_info(PredOrFunc, SymName,
-		Arity, ProcId, Termination),
+		ModeList, Termination, Context),
 	
 	trans_opt__write_procs(ProcIds, PredId, PredInfo).
 

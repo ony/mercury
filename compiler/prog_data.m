@@ -134,9 +134,11 @@
 	;	fact_table(sym_name, arity, string)
 			% Predname, Arity, Fact file name.
 
-	;	termination_info(pred_or_func, sym_name, arity, proc_id,
+	;	termination_info(pred_or_func, sym_name, list(mode),
 			termination)
-			% PredName, Arity, Mode, Termination
+			% the list(mode) is the declared argmodes of the
+			% procedure, unless there are no declared argmodes,
+			% in which case the inferred argmodes are used.
 			% This pragma is used to define information about a
 			% predicates termination properties.  It is most
 			% useful where the compiler has insufficient

@@ -54,7 +54,7 @@
 % This predicate outputs pragma termination_info which are used in .trans_opt
 % and .opt files.
 :- pred termination__output_pragma_termination_info(pred_or_func, sym_name,
-	int, proc_id, termination, io__state, io__state).
+	list(mode), termination, term__context, io__state, io__state).
 :- mode termination__output_pragma_termination_info(in, in, in, in, in, 
 	di, uo) is det.
 
@@ -70,6 +70,7 @@
 :- import_module hlds_data, hlds_pred, hlds_goal, dependency_graph.
 :- import_module code_util, prog_out, bag, set.
 :- import_module term_pass1, term_pass2, term_errors.
+:- import_module varset.
 
 %-----------------------------------------------------------------------------%
 
@@ -166,16 +167,19 @@ termination__out_const_2(set(Int)) -->
 	io__write_string(")").
 
 termination__output_pragma_termination_info(PredOrFunc, SymName,
-		Arity, ProcId, Termination) -->
+		ModeList, Termination, Context) -->
 	io__write_string(":- pragma termination_info("),
-	hlds_out__write_pred_or_func(PredOrFunc),
-	io__write_string(", "),
-	mercury_output_bracketed_sym_name(SymName),
-	io__write_string(", "),
-	io__write_int(Arity),
-	io__write_string(", "),
-	{ proc_id_to_int(ProcId, ProcInt) },
-	io__write_int(ProcInt),
+	{ varset__init(InitVarSet) },
+	( 
+		{ PredOrFunc = predicate },
+		mercury_output_pred_mode_subdecl(InitVarSet, SymName, 
+			ModeList, no, Context)
+	;
+		{ PredOrFunc = function },
+		{ pred_args_to_func_args(ModeList, FuncModeList, RetMode) },
+		mercury_output_func_mode_subdecl(InitVarSet, SymName, 
+			FuncModeList, RetMode, no, Context)
+	),
 	io__write_string(", "),
 	termination__out_const(Termination),
 	io__write_string(", "),
@@ -559,27 +563,29 @@ termination__make_opt_int_2([ PredId | PredIds ], Module) -->
 	{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
 	{ pred_info_name(PredInfo, PredName) },
 	{ pred_info_module(PredInfo, ModuleName) },
-	{ SymName = qualified(ModuleName, PredName) },
+	{ pred_info_context(PredInfo, Context) },
 	{ pred_info_arity(PredInfo, Arity) },
+	{ SymName = qualified(ModuleName, PredName) },
 
 	( { ImportStatus = exported } ->
 		termination__make_opt_int_3(PredId, ProcIds, ProcTable, 
-			PredOrFunc, SymName, Arity)
+			PredOrFunc, SymName, Arity, Context)
 	;
 		[]
 	),
 	termination__make_opt_int_2(PredIds, Module).
 	
 :- pred termination__make_opt_int_3(pred_id, list(proc_id), proc_table,
-	pred_or_func, sym_name, arity, io__state, io__state).
-:- mode termination__make_opt_int_3(in, in, in, in, in, in, di, uo) is det.
-termination__make_opt_int_3(_PredId, [], _, _, _, _) --> [].
+	pred_or_func, sym_name, arity, term__context, io__state, io__state).
+:- mode termination__make_opt_int_3(in, in, in, in, in, in, in, di, uo) is det.
+termination__make_opt_int_3(_PredId, [], _, _, _, _, _) --> [].
 termination__make_opt_int_3(PredId, [ ProcId | ProcIds ], ProcTable, 
-		PredOrFunc, SymName, Arity) -->
+		PredOrFunc, SymName, Arity, Context) -->
 	{ map__lookup(ProcTable, ProcId, ProcInfo) },
 	{ proc_info_termination(ProcInfo, Termination) },
+	{ proc_info_declared_argmodes(ProcInfo, ModeList) },
 	termination__output_pragma_termination_info(PredOrFunc, SymName,
-		Arity, ProcId, Termination),
+		ModeList, Termination, Context),
 	termination__make_opt_int_3(PredId, ProcIds, ProcTable, PredOrFunc, 
-		SymName, Arity).
+		SymName, Arity, Context).
 
