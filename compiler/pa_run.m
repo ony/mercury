@@ -366,12 +366,13 @@ analyse_goal_expr( pragma_foreign_code( _,_,_,_, Vars, MaybeModes,Types,_  ),
 	remove_all_unique_vars( HLDS, Trios, NonUniqueVars), 
 	% keep only the output vars
 	collect_all_output_vars( HLDS, NonUniqueVars, OutputVars), 
+	collect_all_input_vars( HLDS, NonUniqueVars, InputVars), 
 	(
 		(
 			OutputVars = [] 
 		; 
 			% XXXXXXXXXXXXXXXXX !!
-			OutputVars = [_]
+			OutputVars = [_], InputVars = []
 		)
 	->
 		A = Ain
