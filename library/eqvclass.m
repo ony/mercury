@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1995-1997, 1999 The University of Melbourne.
+% Copyright (C) 1995-1997, 1999, 2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -105,6 +105,22 @@
 :- mode eqvclass__partition_list_to_eqvclass(in, out) is det.
 
 :- func eqvclass__partition_list_to_eqvclass(list(set(T))) = eqvclass(T).
+
+:- pred eqvclass__get_equivalent_elements(eqvclass(T), T, set(T)).
+:- mode eqvclass__get_equivalent_elements(in, in, out) is det.
+
+:- func eqvclass__get_equivalent_elements(eqvclass(T), T) = set(T).
+
+:- pred eqvclass__get_minimum_element(eqvclass(T), T, T).
+:- mode eqvclass__get_minimum_element(in, in, out) is det.
+
+:- func eqvclass__get_minimum_element(eqvclass(T), T) = T.
+
+:- pred eqvclass__remove_equivalent_elements(eqvclass(T), T, eqvclass(T)).
+:- mode eqvclass__remove_equivalent_elements(in, in, out) is det.
+
+:- func eqvclass__remove_equivalent_elements(eqvclass(T), T) = eqvclass(T).
+
 
 %---------------------------------------------------------------------------%
 
@@ -315,6 +331,23 @@ eqvclass__make_partition([Element | Elements], Id, ElementMap0, ElementMap) :-
 	eqvclass__make_partition(Elements, Id, ElementMap1, ElementMap).
 
 %---------------------------------------------------------------------------%
+
+eqvclass__get_equivalent_elements(EC, X,
+		eqvclass__get_equivalent_elements(EC, X)).
+
+eqvclass__get_minimum_element(EC, X, eqvclass__get_minimum_element(EC, X)).
+
+eqvclass__remove_equivalent_elements(eqvclass(Id, P0, E0), X,
+		eqvclass(Id, P, E)) :-
+	( map__search(E0, X, Partition) ->
+		map__det_remove(P0, Partition, Eq, P),
+		map__delete_list(E0, set__to_sorted_list(Eq), E)
+	;
+		P = P0,
+		E = E0
+	).
+
+%---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 % Ralph Becket <rwab1@cl.cam.ac.uk> 29/04/99
 % 	Function forms added.
@@ -345,3 +378,17 @@ eqvclass__partition_set_to_eqvclass(S) = EC :-
 
 eqvclass__partition_list_to_eqvclass(Xs) = EC :-
 	eqvclass__partition_list_to_eqvclass(Xs, EC).
+
+eqvclass__get_equivalent_elements(eqvclass(_, PartitionMap, ElementMap), X) =
+	( Eqv = map__search(PartitionMap, map__search(ElementMap, X)) ->
+		Eqv
+	;
+		set__make_singleton_set(X)
+	).
+
+eqvclass__get_minimum_element(EC, X) =
+	list__det_head(set__to_sorted_list(
+			eqvclass__get_equivalent_elements(EC, X))).
+
+eqvclass__remove_equivalent_elements(EC0, X) = EC :-
+	eqvclass__remove_equivalent_elements(EC0, X, EC).
