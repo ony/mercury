@@ -1707,7 +1707,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 			Type = mlds__class_type(_, _, mlds__class) 
 		;
 			DataRep ^ highlevel_data = yes,
-			Type = mlds__mercury_type(_, user_type, _)
+			Type = mlds__mercury_type(_, user_type, _, _)
 		}
 	->
 			% If this is a class, we should call the
@@ -2108,7 +2108,7 @@ unaryop_to_il(cast(Type), Rval, Instrs) -->
 		)
 	;
 		( already_boxed(RvalILType) ->
-			( RvalType = mercury_type(_, user_type, _) ->
+			( RvalType = mercury_type(_, user_type, _, _) ->
 				% XXX we should look into a nicer way to
 				% generate MLDS so we don't need to do this
 				Instrs = tree__list([
@@ -2619,24 +2619,40 @@ mlds_type_to_ilds_type(_, mlds__foreign_type(ForeignType, Assembly))
 mlds_type_to_ilds_type(ILDataRep, mlds__ptr_type(MLDSType)) =
 	ilds__type([], '&'(mlds_type_to_ilds_type(ILDataRep, MLDSType))).
 
-mlds_type_to_ilds_type(_, mercury_type(_, int_type, _)) = ilds__type([], int32).
-mlds_type_to_ilds_type(_, mercury_type(_, char_type, _)) = ilds__type([], char).
-mlds_type_to_ilds_type(_, mercury_type(_, float_type, _)) =
+mlds_type_to_ilds_type(_, mercury_type(_, int_type, _, _)) =
+	ilds__type([], int32).
+mlds_type_to_ilds_type(_, mercury_type(_, char_type, _, _)) =
+	ilds__type([], char).
+mlds_type_to_ilds_type(_, mercury_type(_, float_type, _, _)) =
 	ilds__type([], float64).
-mlds_type_to_ilds_type(_, mercury_type(_, str_type, _)) = il_string_type.
-mlds_type_to_ilds_type(_, mercury_type(_, pred_type, _)) = il_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, tuple_type, _)) = il_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, enum_type, _)) = il_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type, _))
+mlds_type_to_ilds_type(_, mercury_type(_, str_type, _, _)) = il_string_type.
+mlds_type_to_ilds_type(_, mercury_type(_, pred_type, _, _)) = il_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, tuple_type, _, _)) = il_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, enum_type, _, _)) = il_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type, _, _))
 	= il_generic_type.
-mlds_type_to_ilds_type(DataRep, mercury_type(MercuryType, user_type, _)) = 
-	( DataRep ^ highlevel_data = yes ->
-		mercury_type_to_highlevel_class_type(MercuryType)
-	;
-		il_array_type
+mlds_type_to_ilds_type(DataRep,
+		mercury_type(MercuryType, user_type, _, MaybeArray))
+		= ILDS_Type :-
+	( MaybeArray = yes(Array),
+		ILDS_Type = array_type_to_ilds_type(DataRep, Array)
+	; MaybeArray = no,
+		( DataRep ^ highlevel_data = yes ->
+			ILDS_Type = mercury_type_to_highlevel_class_type(
+					MercuryType)
+		;
+			ILDS_Type = il_array_type
+		)
 	).
 mlds_type_to_ilds_type(_, mlds__unknown_type) = _ :-
 	unexpected(this_file, "mlds_type_to_ilds_type: unknown_type").
+
+:- func array_type_to_ilds_type(il_data_rep, array) = ilds__type.
+
+array_type_to_ilds_type(DataRep, type(MLDS_Type)) =
+	mlds_type_to_ilds_type(DataRep, MLDS_Type).
+array_type_to_ilds_type(DataRep, array(ArrayType))
+	= ilds__type([], '[]'(array_type_to_ilds_type(DataRep, ArrayType), [])).
 
 :- func mlds_class_to_ilds_simple_type(mlds__class_kind, ilds__class_name) =
 	ilds__simple_type.
@@ -3117,20 +3133,20 @@ rval_const_to_type(code_addr_const(_)) = mlds__func_type(
 		mlds__func_params([], [])).
 rval_const_to_type(int_const(_)) 
 	= mercury_type(term__functor(term__atom("int"), [], context("", 0)),
-			int_type, "MR_Integer").
+			int_type, "MR_Integer", no).
 rval_const_to_type(float_const(_))
 	= mercury_type(term__functor(term__atom("float"), [], context("", 0)),
-		float_type, "MR_Float").
+		float_type, "MR_Float", no).
 rval_const_to_type(false) = mlds__native_bool_type.
 rval_const_to_type(true) = mlds__native_bool_type.
 rval_const_to_type(string_const(_))
 	= mercury_type(
 		term__functor(term__atom("string"), [], context("", 0)),
-			str_type, "MR_String").
+			str_type, "MR_String", no).
 rval_const_to_type(multi_string_const(_, _))
 	= mercury_type(term__functor(term__atom("string"), [], context("", 0)),
 			% XXX Should this be MR_Word instead?
-			str_type, "MR_String").
+			str_type, "MR_String", no).
 rval_const_to_type(null(MldsType)) = MldsType.
 
 %-----------------------------------------------------------------------------%

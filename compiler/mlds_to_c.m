@@ -602,7 +602,7 @@ mlds_output_pragma_export_func_name(ModuleName, Indent,
 :- mode mlds_output_pragma_export_type(in, in, di, uo) is det.
 
 mlds_output_pragma_export_type(suffix, _Type) --> [].
-mlds_output_pragma_export_type(prefix, mercury_type(_, _, TypeString)) -->
+mlds_output_pragma_export_type(prefix, mercury_type(_, _, TypeString, _)) -->
 	io__write_string(TypeString).
 mlds_output_pragma_export_type(prefix, mlds__cont_type(_)) -->
 	io__write_string("MR_Word").
@@ -860,7 +860,7 @@ mlds_output_type_forward_decl(Indent, Type) -->
 			Kind \= mlds__enum,
 			ClassType = Type
 		;
-			Type = mercury_type(MercuryType, user_type, _),
+			Type = mercury_type(MercuryType, user_type, _, _),
 			type_to_type_id(MercuryType, TypeId, _ArgsTypes),
 			ml_gen_type_name(TypeId, ClassName, ClassArity),
 			ClassType = mlds__class_type(ClassName, ClassArity,
@@ -1522,7 +1522,7 @@ mlds_output_type(Type) -->
 :- pred mlds_output_type_prefix(mlds__type, io__state, io__state).
 :- mode mlds_output_type_prefix(in, di, uo) is det.
 
-mlds_output_type_prefix(mercury_type(Type, TypeCategory, _)) -->
+mlds_output_type_prefix(mercury_type(Type, TypeCategory, _, _)) -->
 	mlds_output_mercury_type_prefix(Type, TypeCategory).
 mlds_output_type_prefix(mlds__native_int_type)   --> io__write_string("int").
 mlds_output_type_prefix(mlds__native_float_type) --> io__write_string("float").
@@ -1682,7 +1682,7 @@ initializer_array_size(init_array(Elems)) = array_size(list__length(Elems)).
 		io__state, io__state).
 :- mode mlds_output_type_suffix(in, in, di, uo) is det.
 
-mlds_output_type_suffix(mercury_type(_, _, _), _) --> [].
+mlds_output_type_suffix(mercury_type(_, _, _, _), _) --> [].
 mlds_output_type_suffix(mlds__native_int_type, _) --> [].
 mlds_output_type_suffix(mlds__native_float_type, _) --> [].
 mlds_output_type_suffix(mlds__native_bool_type, _) --> [].
@@ -2574,7 +2574,7 @@ mlds_output_lval(field(MaybeTag, Rval, offset(OffsetRval),
 		FieldType, _ClassType)) -->
 	(
 		{ FieldType = mlds__generic_type
-		; FieldType = mlds__mercury_type(term__variable(_), _, _)
+		; FieldType = mlds__mercury_type(term__variable(_), _, _, _)
 		}
 	->
 		io__write_string("(")
@@ -2772,7 +2772,7 @@ mlds_output_boxed_rval(Type, Exprn) -->
 		mlds_output_boxed_rval(Type, InnerExprn)
 	;
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
-				[], _), _, _)
+				[], _), _, _, _)
 		; Type = mlds__native_float_type
 		}
 	->
@@ -2780,8 +2780,8 @@ mlds_output_boxed_rval(Type, Exprn) -->
 		mlds_output_rval(Exprn),
 		io__write_string(")")
 	;
-		{ Type = mlds__mercury_type(term__functor(term__atom("character"),
-				[], _), _, _)
+		{ Type = mlds__mercury_type(term__functor(
+				term__atom("character"), [], _), _, _, _)
 		; Type = mlds__native_char_type
 		; Type = mlds__native_bool_type
 		; Type = mlds__native_int_type
@@ -2805,7 +2805,7 @@ mlds_output_boxed_rval(Type, Exprn) -->
 mlds_output_unboxed_rval(Type, Exprn) -->
 	(
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
-				[], _), _, _)
+				[], _), _, _, _)
 		; Type = mlds__native_float_type
 		}
 	->
@@ -2813,8 +2813,8 @@ mlds_output_unboxed_rval(Type, Exprn) -->
 		mlds_output_rval(Exprn),
 		io__write_string(")")
 	;
-		{ Type = mlds__mercury_type(term__functor(term__atom("character"),
-				[], _), _, _)
+		{ Type = mlds__mercury_type(term__functor(
+			term__atom("character"), [], _), _, _, _)
 		; Type = mlds__native_char_type
 		; Type = mlds__native_bool_type
 		; Type = mlds__native_int_type

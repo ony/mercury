@@ -129,7 +129,7 @@ defn_is_rtti_data(Defn) :-
 :- mode type_is_enum(in) is semidet.
 
 type_is_enum(Type) :-
-	Type = mercury_type(_, Builtin, _),
+	Type = mercury_type(_, Builtin, _, _),
 	Builtin = enum_type.
 
 	%  Succeeds iff this type is something that 
@@ -140,7 +140,7 @@ type_is_enum(Type) :-
 :- mode type_is_object(in) is semidet.
 
 type_is_object(Type) :-
-	Type = mercury_type(_, Builtin, _),
+	Type = mercury_type(_, Builtin, _, _),
 	( Builtin = enum_type 
 	; Builtin = polymorphic_type
 	; Builtin = user_type 
@@ -848,15 +848,15 @@ output_data_defn(Name, Type, Initializer) -->
 :- func get_java_type_initializer(mlds__type) = string.
 :- mode get_java_type_initializer(in) = out is det.
 
-get_java_type_initializer(mercury_type(_, int_type, _)) = "0".
-get_java_type_initializer(mercury_type(_, char_type, _)) = "0".
-get_java_type_initializer(mercury_type(_, float_type, _)) = "0".
-get_java_type_initializer(mercury_type(_, str_type, _)) = "null".
-get_java_type_initializer(mercury_type(_, pred_type, _)) = "null".
-get_java_type_initializer(mercury_type(_, tuple_type, _)) = "null".
-get_java_type_initializer(mercury_type(_, enum_type, _)) = "null".
-get_java_type_initializer(mercury_type(_, polymorphic_type, _)) = "null".
-get_java_type_initializer(mercury_type(_, user_type, _)) = "null".
+get_java_type_initializer(mercury_type(_, int_type, _, _)) = "0".
+get_java_type_initializer(mercury_type(_, char_type, _, _)) = "0".
+get_java_type_initializer(mercury_type(_, float_type, _, _)) = "0".
+get_java_type_initializer(mercury_type(_, str_type, _, _)) = "null".
+get_java_type_initializer(mercury_type(_, pred_type, _, _)) = "null".
+get_java_type_initializer(mercury_type(_, tuple_type, _, _)) = "null".
+get_java_type_initializer(mercury_type(_, enum_type, _, _)) = "null".
+get_java_type_initializer(mercury_type(_, polymorphic_type, _, _)) = "null".
+get_java_type_initializer(mercury_type(_, user_type, _, _)) = "null".
 get_java_type_initializer(mlds__cont_type(_)) = "null".
 get_java_type_initializer(mlds__commit_type) = "null".
 get_java_type_initializer(mlds__native_bool_type) = "false".
@@ -1208,7 +1208,7 @@ output_data_name(tabling_pointer(ProcLabel)) -->
 :- pred output_type(mlds__type, io__state, io__state).
 :- mode output_type(in, di, uo) is det.
 
-output_type(mercury_type(Type, TypeCategory, _)) -->
+output_type(mercury_type(Type, TypeCategory, _, _)) -->
 	output_mercury_type(Type, TypeCategory).
 output_type(mlds__native_int_type)   --> io__write_string("int").
 output_type(mlds__native_float_type) --> io__write_string("double").
@@ -1889,9 +1889,9 @@ output_init_args([Arg|Args], [ArgType|ArgTypes], CtorId, Context,
 				    { TargetType = ArgType }
 			  	; 
 			    	    { TargetType = mercury_type(
-				    		_, TargetBuiltinType, _),
+				    		_, TargetBuiltinType, _, _),
 			      	      ArgType = mercury_type(
-				      		_, ArgBuiltinType, _),
+				      		_, ArgBuiltinType, _, _),
 			      	      TargetBuiltinType = ArgBuiltinType }
 			  	) 
 			
@@ -2104,17 +2104,17 @@ java_builtin_type(Type, "int", "java.lang.Integer", "intValue") :-
 	Type = mlds__native_int_type.
 java_builtin_type(Type, "int", "java.lang.Integer", "intValue") :-
 	Type = mlds__mercury_type(term__functor(term__atom("int"),
-		[], _), _, _).
+		[], _), _, _, _).
 java_builtin_type(Type, "double", "java.lang.Double", "doubleValue") :-
 	Type = mlds__native_float_type.
 java_builtin_type(Type, "double", "java.lang.Double", "doubleValue") :-
 	Type = mlds__mercury_type(term__functor(term__atom("float"),
-		[], _), _, _).
+		[], _), _, _, _).
 java_builtin_type(Type, "char", "java.lang.Character", "charValue") :-
 	Type = mlds__native_char_type.
 java_builtin_type(Type, "char", "java.lang.Character", "charValue") :-
 	Type = mlds__mercury_type(term__functor(term__atom("character"),
-		[], _), _, _).
+		[], _), _, _, _).
 java_builtin_type(Type, "boolean", "java.lang.Boolean", "booleanValue") :-
 	Type = mlds__native_bool_type.
 

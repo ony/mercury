@@ -135,7 +135,7 @@ gen_init_rtti_data_defn(field_names(_RttiTypeId, _Ordinal, MaybeNames), _, _,
 		Init, []) :-
 	Init = gen_init_array(gen_init_maybe(
 			mercury_type(functor(atom("string"), [],
-				context("", 0)), str_type, "MR_String"),
+				context("", 0)), str_type, "MR_String", no),
 			gen_init_string), MaybeNames).
 gen_init_rtti_data_defn(field_types(_RttiTypeId, _Ordinal, Types),
 		ModuleName, _, Init, []) :-

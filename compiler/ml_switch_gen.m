@@ -397,7 +397,7 @@ ml_switch_gen_range(MLDS_Type, Range) -->
 	{
 		ml_gen_info_get_module_info(MLGenInfo, ModuleInfo),
 		export__type_to_type_string(ModuleInfo, Type, TypeString),
-		MLDS_Type = mercury_type(Type, TypeCategory, TypeString),
+		MLDS_Type = mercury_type(Type, TypeCategory, TypeString, _),
 		switch_util__type_range(TypeCategory, Type, ModuleInfo,
 			MinRange, MaxRange)
 	->
