@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1994-2000 The University of Melbourne.
+** Copyright (C) 1994-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -186,6 +186,12 @@ extern	size_t          MR_page_size;
 #else
   #define MR_add_root(root_ptr, type_info) /* nothing */
 #endif
+
+/*---------------------------------------------------------------------------*/
+
+void MR_compile_time_gc(MR_Word cell, size_t size);
+void MR_update_cell_cache_statistics(size_t size);
+void MR_output_cell_cache_stats(void);
 
 /*---------------------------------------------------------------------------*/
 

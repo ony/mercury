@@ -259,6 +259,11 @@ ML_report_stats(void)
 
 #endif /* PROFILE_MEMORY */
 
+	/*
+	** Cell cache statistics.
+	*/
+	MR_output_cell_cache_stats();
+
 	fprintf(stderr, ""]\\n"");
 }
 

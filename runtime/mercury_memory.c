@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1994-2000 The University of Melbourne.
+** Copyright (C) 1994-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -361,6 +361,86 @@ MR_GC_realloc(void *old_ptr, size_t num_bytes)
 	}
 
 	return ptr;
+}
+
+/*---------------------------------------------------------------------------*/
+
+/*
+** Compile time garbage collection code.
+** Currently this just records statistics.
+*/
+#define MR_MAX_CACHED_CELL_SIZE		10
+
+typedef struct s_cell_cache_stats
+{
+	int	length;
+	int 	hits;
+	int	misses;
+	int	sum_length;
+	int	max_length;
+} cell_cache_stats;
+
+static cell_cache_stats stats[MR_MAX_CACHED_CELL_SIZE + 1];
+
+void record_stats(size_t size);
+
+void MR_compile_time_gc(MR_Word cell, size_t size)
+{
+	if (size <= MR_MAX_CACHED_CELL_SIZE) {
+		record_stats(size);
+	}
+}
+
+void MR_update_cell_cache_statistics(size_t size)
+{
+	if (size <= MR_MAX_CACHED_CELL_SIZE) {
+		stats[size].sum_length += stats[size].length;
+
+		if (stats[size].length == 0) {
+			stats[size].misses++;
+		} else {
+			stats[size].length--;
+			stats[size].hits++;
+		}
+	}
+}
+
+void record_stats(size_t size)
+{
+	stats[size].length++;
+
+	if (stats[size].length > stats[size].max_length) {
+		stats[size].max_length = stats[size].length;
+	}
+}
+
+void MR_output_cell_cache_stats(void)
+{
+	int i = 0;
+	int hits, misses, total, sum_length, max_length;
+	float hit_proportion, average_cache_length;
+
+	printf("\n\n%6s %6s %6s %7s %7s %6s\n", "size", "avg",
+			"max", "hits", "total", "%");
+	for (i = 1; i <= MR_MAX_CACHED_CELL_SIZE; i++)
+	{
+		hits = stats[i].hits;
+		misses = stats[i].misses;
+		sum_length = stats[i].sum_length;
+		max_length = stats[i].max_length;
+		total = hits + misses;
+		if (total > 0) {
+			hit_proportion = hits / (float) total;
+			average_cache_length = sum_length / total;
+			
+		} else {
+			hit_proportion = 0.0;
+			average_cache_length = 0.0;
+		}
+		printf("%6d %6.2f %6d %7d/%7d %6.2f\n", i,
+				average_cache_length, max_length,
+				hits, total, 100 * hit_proportion);
+	}
 }
 
 /*---------------------------------------------------------------------------*/
