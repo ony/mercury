@@ -452,9 +452,18 @@ then
 		$LN_S $root/trace/*.c .
 		cp $root/trace/Mmake* .
 		cd $root/stage2
+		rm -f robdd
+		mkdir robdd
+		cd robdd
+		$LN_S $root/robdd/*.h .
+		$LN_S $root/robdd/*.c .
+		cp $root/robdd/Mmake* .
+		cp $root/robdd/Make* .
+		cd $root/stage2
 	else
 		$LN_S $root/runtime .
 		$LN_S $root/trace .
+		$LN_S $root/robdd .
 	fi
 	if $copy_boehm_gc
 	then
@@ -662,6 +671,7 @@ then
 	$LN_S $root/doc .
 	$LN_S $root/runtime .
 	$LN_S $root/trace .
+	$LN_S $root/robdd .
 	$LN_S $root/scripts .
 	$LN_S $root/util .
 	$LN_S $root/profiler .
