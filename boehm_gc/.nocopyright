@@ -1,14 +1,19 @@
+BCC_MAKEFILE
+EMX_MAKEFILE
 MacOS.c
 add_gc_prefix.c
 allchblk.c
 alloc.c
+backgraph.c
 blacklst.c
 checksums.c
 dbg_mlc.c
 dyn_load.c
 finalize.c
+gc_dlopen.c
 gcc_support.c
 gcj_mlc.c
+gcname.c
 headers.c
 hpux_irix_threads.c
 if_mach.c
@@ -34,6 +39,7 @@ reclaim.c
 setjmp_t.c
 solaris_pthreads.c
 solaris_threads.c
+specific.c
 stubborn.c
 test.c
 threadlibs.c
@@ -79,3 +85,8 @@ README.solaris2
 README.uts
 README.win32
 Makefile
+Makefile.DLLs
+Makefile.am
+Makefile.direct
+Makefile.dj
+Makefile.in
