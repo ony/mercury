@@ -1,2 +1,0 @@
-depend:	mcurses.depend
-default_target:	libmcurses
