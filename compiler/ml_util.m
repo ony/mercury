@@ -16,9 +16,16 @@
 
 :- import_module mlds.
 :- import_module list, std_util.
+:- import_module prog_data.  % for foreign_language
 
 %-----------------------------------------------------------------------------%
+	% succeeds iff the definitions contain the entry point to
+	% the a main predicate.
+	%
+:- pred defns_contain_main(mlds__defns).
+:- mode defns_contain_main(in) is semidet.
 
+%-----------------------------------------------------------------------------%
 	% return `true' if the statement is a tail call which
 	% can be optimized into a jump back to the start of the
 	% function
@@ -40,17 +47,30 @@
 :- pred stmt_contains_statement(mlds__stmt, mlds__statement).
 :- mode stmt_contains_statement(in, out) is nondet.
 
+:- pred has_foreign_languages(mlds__statement, list(foreign_language)).
+:- mode has_foreign_languages(in, out) is det.
+
 %-----------------------------------------------------------------------------%
 %
 % routines that deal with definitions
 %
 
 	% defn_contains_foreign_code(NativeTargetLang, Defn):
-	%	Succeeds iff this definition contains target_code
-	%	statements in a target language other than the
-	%	specified native target language.
+	%	Succeeds iff this definition contains outline_foreign_proc
+	%	statements, or inline_target_code statements in a target
+	%	language other than the specified native target language.
+	%	XXX perhaps we should eliminate the need to check for
+	%	inline_target_code, because it shouldn't be generated
+	%	with target language different to the native target
+	%	language in the long run.
 :- pred defn_contains_foreign_code(target_lang, mlds__defn).
 :- mode defn_contains_foreign_code(in, in) is semidet.
+
+	% defn_contains_foreign_code(ForeignLang, Defn):
+	%	Succeeds iff this definition contains outline_foreign_proc
+	%	statements for the given foreign language.
+:- pred defn_contains_outline_foreign_proc(foreign_language, mlds__defn).
+:- mode defn_contains_outline_foreign_proc(in, in) is semidet.
 
 	% Succeeds iff this definition is a type definition.
 :- pred defn_is_type(mlds__defn).
@@ -115,9 +135,15 @@
 :- implementation.
 
 :- import_module rtti.
-:- import_module bool, list, std_util.
+:- import_module bool, list, std_util, prog_data.
 
 %-----------------------------------------------------------------------------%
+
+defns_contain_main(Defns) :-
+	list__member(Defn, Defns),
+	Defn = mlds__defn(Name, _, _, _),
+	Name = function(FuncName, _, _, _), 
+	FuncName = pred(predicate, _, "main", 2, _, _).
 
 can_optimize_tailcall(Name, Call) :-
 	Call = call(_Signature, FuncRval, MaybeObject, _CallArgs,
@@ -238,6 +264,14 @@ default_contains_statement(default_is_unreachable, _) :- fail.
 default_contains_statement(default_case(Statement), SubStatement) :-
 	statement_contains_statement(Statement, SubStatement).
 
+has_foreign_languages(Statement, Langs) :-
+	GetTargetCode = (pred(Lang::out) is nondet :-
+		statement_contains_statement(Statement, SubStatement),
+		SubStatement = statement(atomic(
+		  	outline_foreign_proc(Lang, _, _)), _) 
+		),
+	solutions(GetTargetCode, Langs).
+
 %-----------------------------------------------------------------------------%
 %
 % routines that deal with definitions
@@ -248,8 +282,19 @@ defn_contains_foreign_code(NativeTargetLang, Defn) :-
 	Body = function(_, _, yes(FunctionBody)),
 	statement_contains_statement(FunctionBody, Statement),
 	Statement = mlds__statement(Stmt, _),
-	Stmt = atomic(target_code(TargetLang, _)),
-	TargetLang \= NativeTargetLang.
+	( 
+		Stmt = atomic(inline_target_code(TargetLang, _)),
+		TargetLang \= NativeTargetLang
+	; 
+		Stmt = atomic(outline_foreign_proc(_, _, _))
+	).
+
+defn_contains_outline_foreign_proc(ForeignLang, Defn) :-
+	Defn = mlds__defn(_Name, _Context, _Flags, Body),
+	Body = function(_, _, yes(FunctionBody)),
+	statement_contains_statement(FunctionBody, Statement),
+	Statement = mlds__statement(Stmt, _),
+	Stmt = atomic(outline_foreign_proc(ForeignLang, _, _)).
 
 defn_is_type(Defn) :-
 	Defn = mlds__defn(Name, _Context, _Flags, _Body),
@@ -330,6 +375,6 @@ lval_contains_var(field(_MaybeTag, Rval, _FieldId, _, _), Name) :-
 	rval_contains_var(Rval, Name).
 lval_contains_var(mem_ref(Rval, _Type), Name) :-
 	rval_contains_var(Rval, Name).
-lval_contains_var(var(Name), Name).  /* this is where we can succeed! */
+lval_contains_var(var(Name, _Type), Name).  /* this is where we can succeed! */
 
 %-----------------------------------------------------------------------------%

@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------*/
 
 /*
-** Copyright (C) 1995-2000 The University of Melbourne.
+** Copyright (C) 1995-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU General
 ** Public License - see the file COPYING in the Mercury distribution.
 */
@@ -23,14 +23,18 @@
 #include	<string.h>
 #include	<ctype.h>
 #include	<errno.h>
-#include	<sys/stat.h>
+
+#include	"mercury_conf.h"
+
+#ifdef HAVE_SYS_STAT_H
+  #include	<sys/stat.h>
+#endif
 
 #ifdef HAVE_UNISTD_H
   #include	<unistd.h>
 #endif
 
 #include	"getopt.h"
-#include	"mercury_conf.h"
 #include	"mercury_std.h"
 
 /* --- adjustable limits --- */
@@ -50,6 +54,7 @@ typedef struct String_List_struct {
 static const char *MR_progname = NULL;
 
 /* options and arguments, set by parse_options() */
+static const char *output_file_name = NULL;
 static const char *entry_point = "mercury__main_2_0";
 static const char *hl_entry_point = "main_2_p_0";
 static int maxcalls = MAXCALLS;
@@ -256,8 +261,9 @@ static const char if_need_to_init[] =
 /* --- function prototypes --- */
 static	void	parse_options(int argc, char *argv[]);
 static	void	usage(void);
+static	void	set_output_file(void);
 static	void	do_path_search(void);
-static	char	*find_init_file(const char *basename);
+static	char	*find_init_file(const char *base_name);
 static	bool	file_exists(const char *filename);
 static	void	output_headers(void);
 static	int	output_sub_init_functions(const char *suffix,
@@ -279,7 +285,7 @@ static	void	output_init_function(const char *func_name,
 			int *num_bunches_ptr, int *num_calls_in_cur_bunch_ptr,
 			const char *suffix, bool only_full_module);
 static	void	add_rl_data(char *data);
-static	int	getline(FILE *file, char *line, int line_max);
+static	int	get_line(FILE *file, char *line, int line_max);
 static	void	*checked_malloc(size_t size);
 
 /*---------------------------------------------------------------------------*/
@@ -320,6 +326,8 @@ main(int argc, char **argv)
 
 	parse_options(argc, argv);
 
+	set_output_file();
+
 	do_path_search();
 	output_headers();
 
@@ -344,6 +352,10 @@ main(int argc, char **argv)
 		fputs("/* Force syntax error, since there were */\n", stdout);
 		fputs("/* errors in the generation of this file */\n", stdout);
 		fputs("#error \"You need to remake this file\"\n", stdout);
+		if (output_file_name != NULL) {
+			(void) fclose(stdout);
+			(void) remove(output_file_name);
+		}
 		return EXIT_FAILURE;
 	}
 
@@ -359,7 +371,7 @@ parse_options(int argc, char *argv[])
 	int		i;
 	String_List	*tmp_slist;
 
-	while ((c = getopt(argc, argv, "ac:iI:ltw:x")) != EOF) {
+	while ((c = getopt(argc, argv, "ac:iI:lo:tw:x")) != EOF) {
 		switch (c) {
 		case 'a':
 			aditi = TRUE;
@@ -393,6 +405,14 @@ parse_options(int argc, char *argv[])
 			output_main_func = FALSE;
 			break;
 
+		case 'o':
+			if (strcmp(optarg, "-") == 0) {
+				output_file_name = NULL; /* output to stdout */
+			} else {
+				output_file_name = optarg;
+			}
+			break;
+
 		case 't':
 			need_tracing = TRUE;
 			need_initialization_code = TRUE;
@@ -423,8 +443,31 @@ static void
 usage(void)
 {
 	fprintf(stderr,
-"Usage: mkinit [-a] [-c maxcalls] [-w entry] [-i] [-l] [-t] [-x] files...\n");
-	exit(1);
+"Usage: mkinit [options] files...\n"
+"Options: [-a] [-c maxcalls] [-o filename] [-w entry] [-i] [-l] [-t] [-x]\n");
+	exit(EXIT_FAILURE);
+}
+
+/*---------------------------------------------------------------------------*/
+
+/*
+** If the `-o' option was used to specify the output file,
+** and the file name specified is not `-' (which we take to mean stdout),
+** then reassign stdout to the specified file.
+*/
+static void
+set_output_file(void)
+{
+	if (output_file_name != NULL) {
+		FILE *result = freopen(output_file_name, "w", stdout);
+		if (result == NULL) {
+			fprintf(stderr,
+				"%s: error opening output file `%s': %s\n",
+				MR_progname, output_file_name,
+				strerror(errno));
+			exit(EXIT_FAILURE);
+		}
+	}
 }
 
 /*---------------------------------------------------------------------------*/
@@ -456,7 +499,7 @@ do_path_search(void)
 	** holding the full path name when it is no longer needed.
 	*/
 static char *
-find_init_file(const char *basename)
+find_init_file(const char *base_name)
 {
 	char *filename;
 	char *dirname;
@@ -465,12 +508,12 @@ find_init_file(const char *basename)
 	int baselen;
 	int len;
 
-	if (file_exists(basename)) {
+	if (file_exists(base_name)) {
 		/* File is in current directory, so no search required */
 		return NULL;
 	}
 
-	baselen = strlen(basename);
+	baselen = strlen(base_name);
 
 	for (dir_ptr = init_file_dirs; dir_ptr != NULL;
 			dir_ptr = dir_ptr->next)
@@ -482,7 +525,7 @@ find_init_file(const char *basename)
 		filename = (char *) checked_malloc(len + 1);
 		strcpy(filename, dirname);
 		filename[dirlen] = '/';
-		strcpy(filename + dirlen + 1, basename);
+		strcpy(filename + dirlen + 1, base_name);
 
 		if (file_exists(filename))
 			return filename;
@@ -496,15 +539,23 @@ find_init_file(const char *basename)
 
 	/*
 	** Check whether a file exists.
-	** At some point in the future it may be worth making this
-	** implementation more portable.
 	*/
 static bool
 file_exists(const char *filename)
 {
+#ifdef HAVE_SYS_STAT_H
 	struct stat buf;
 
 	return (stat(filename, &buf) == 0);
+#else
+	FILE *f = fopen(filename, "rb");
+	if (f != NULL) {
+		fclose(f);
+		return TRUE;
+	} else {
+		return FALSE;
+	}
+#endif
 }
 
 /*---------------------------------------------------------------------------*/
@@ -669,7 +720,7 @@ process_c_file(const char *filename, int *num_bunches_ptr,
 				"special characters are not supported.\n");
 			fprintf(stderr, "File name `%s' contains special "
 				"character `%c'.\n", filename, filename[i]);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -732,7 +783,7 @@ process_init_file(const char *filename, int *num_bunches_ptr,
 		return;
 	}
 
-	while (getline(cfile, line, MAXLINE) > 0) {
+	while (get_line(cfile, line, MAXLINE) > 0) {
 	    if (strncmp(line, init_str, init_strlen) == 0) {
 		int	j;
 
@@ -909,7 +960,7 @@ add_rl_data(char *data)
 /*---------------------------------------------------------------------------*/
 
 static int 
-getline(FILE *file, char *line, int line_max)
+get_line(FILE *file, char *line, int line_max)
 {
 	int	c, num_chars, limit;
 
@@ -937,7 +988,7 @@ checked_malloc(size_t size)
 	void *mem;
 	if ((mem = malloc(size)) == NULL) {
 		fprintf(stderr, "Out of memory\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	return mem;
 }

@@ -326,13 +326,16 @@ ml_maybe_copy_args([Arg|Args], FuncBody, ModuleName, ClassType, EnvPtrTypeName,
 		%
 		QualVarName = qual(ModuleName, VarName),
 		EnvModuleName = ml_env_module_name(ClassType),
-		FieldName = named_field(qual(EnvModuleName, VarName),
+		FieldNameString = ml_var_name_to_string(VarName),
+		FieldName = named_field(qual(EnvModuleName, FieldNameString),
 			EnvPtrTypeName),
 		Tag = yes(0),
-		EnvPtr = lval(var(qual(ModuleName, "env_ptr"))),
+		EnvPtr = lval(var(qual(ModuleName,
+				mlds__var_name("env_ptr", no)),
+			EnvPtrTypeName)),
 		EnvArgLval = field(Tag, EnvPtr, FieldName, FieldType, 
 			EnvPtrTypeName),
-		ArgRval = lval(var(QualVarName)),
+		ArgRval = lval(var(QualVarName, FieldType)),
 		AssignToEnv = assign(EnvArgLval, ArgRval),
 		CodeToCopyArg = mlds__statement(atomic(AssignToEnv), Context),
 
@@ -373,9 +376,10 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	EnvTypeName = class_type(qual(ModuleName, EnvClassName), 0,
 		EnvTypeKind),
 	EnvTypeEntityName = type(EnvClassName, 0),
-	EnvTypeFlags = env_decl_flags,
+	EnvTypeFlags = env_type_decl_flags,
+	Fields = list__map(convert_local_to_field, LocalVars),
 	EnvTypeDefnBody = mlds__class(mlds__class_defn(EnvTypeKind, [], 
-		[mlds__generic_env_ptr_type], [], LocalVars)),
+		[mlds__generic_env_ptr_type], [], Fields)),
 	EnvTypeDefn = mlds__defn(EnvTypeEntityName, Context, EnvTypeFlags,
 		EnvTypeDefnBody),
 
@@ -384,8 +388,8 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	%
 	%	struct <EnvClassName> env;
 	%
-	EnvVarName = data(var("env")),
-	EnvVarFlags = env_decl_flags,
+	EnvVarName = data(var(var_name("env", no))),
+	EnvVarFlags = ml_gen_local_var_decl_flags,
 	EnvVarDefnBody = mlds__data(EnvTypeName, no_initializer),
 	EnvVarDecl = mlds__defn(EnvVarName, Context, EnvVarFlags,
 		EnvVarDefnBody),
@@ -394,30 +398,47 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	% declare the `env_ptr' var, and
 	% initialize the `env_ptr' with the address of `env'
 	%
-	EnvVar = qual(ModuleName, "env"),
+	EnvVar = qual(ModuleName, mlds__var_name("env", no)),
 	globals__get_target(Globals, Target),
 		% IL uses classes instead of structs, so the code
 		% generated needs to be a little different.
 		% XXX Perhaps if we used value classes this could go
 		% away.
 	( Target = il ->
-		EnvVarAddr = lval(var(EnvVar)),
+		EnvVarAddr = lval(var(EnvVar, EnvTypeName)),
 		ml_init_env(EnvTypeName, EnvVarAddr, Context, ModuleName,
 			 Globals, EnvPtrVarDecl, InitEnv0),
+		
 		NewObj = mlds__statement(
-				atomic(new_object(var(EnvVar), 
-					no, EnvTypeName, no, yes(""), [], [])),
+				atomic(new_object(
+					var(EnvVar, EnvTypeName), 
+					no, EnvTypeName, no, no, [], [])),
 				Context),
 		InitEnv = mlds__statement(block([], 
 			[NewObj, InitEnv0]), Context),
 		EnvDecls = [EnvVarDecl, EnvPtrVarDecl]
 	;
-		EnvVarAddr = mem_addr(var(EnvVar)),
+		EnvVarAddr = mem_addr(var(EnvVar, EnvTypeName)),
 		ml_init_env(EnvTypeName, EnvVarAddr, Context, ModuleName,
 			Globals, EnvPtrVarDecl, InitEnv),
 		EnvDecls = [EnvVarDecl, EnvPtrVarDecl]
 	).
 
+	% When converting local variables into fields of the
+	% environment struct, we need to change `local' access
+	% into something else, since `local' is only supposed to be
+	% used for entities that are local to a function or block,
+	% not for fields.  Currently we change it to `public'.
+	% (Perhaps changing it to `default' might be better?)
+	% 
+:- func convert_local_to_field(mlds__defn) = mlds__defn.
+convert_local_to_field(mlds__defn(Name, Context, Flags0, Body)) =
+		mlds__defn(Name, Context, Flags, Body) :-
+	( access(Flags0) = local ->
+		Flags = set_access(Flags0, public)
+	;
+		Flags = Flags0
+	).
 
 	% ml_insert_init_env:
 	%	If the definition is a nested function definition, and it's
@@ -445,9 +466,12 @@ ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 	Defn0 = mlds__defn(Name, Context, Flags, DefnBody0),
 	(
 		DefnBody0 = mlds__function(PredProcId, Params, yes(FuncBody0)),
-		statement_contains_var(FuncBody0, qual(ModuleName, "env_ptr"))
+		statement_contains_var(FuncBody0, qual(ModuleName,
+			mlds__var_name("env_ptr", no)))
 	->
-		EnvPtrVal = lval(var(qual(ModuleName, "env_ptr_arg"))),
+		EnvPtrVal = lval(var(qual(ModuleName,
+				mlds__var_name("env_ptr_arg", no)),
+				mlds__generic_env_ptr_type)),
 		ml_init_env(TypeName, EnvPtrVal, Context, ModuleName, Globals,
 			EnvPtrDecl, InitEnvPtr),
 		FuncBody = mlds__statement(block([EnvPtrDecl],
@@ -477,8 +501,8 @@ ml_init_env(EnvTypeName, EnvPtrVal, Context, ModuleName, Globals,
 	%
 	%	<EnvTypeName> *env_ptr;
 	%
-	EnvPtrVarName = data(var("env_ptr")),
-	EnvPtrVarFlags = env_decl_flags,
+	EnvPtrVarName = data(var(mlds__var_name("env_ptr", no))),
+	EnvPtrVarFlags = ml_gen_local_var_decl_flags,
 	globals__get_target(Globals, Target),
 		% IL uses classes instead of structs, so the type
 		% is a little different.
@@ -498,9 +522,11 @@ ml_init_env(EnvTypeName, EnvPtrVal, Context, ModuleName, Globals,
 	%
 	%	env_ptr = (EnvPtrVarType) <EnvPtrVal>;
 	%
-	EnvPtrVar = qual(ModuleName, "env_ptr"),
-	AssignEnvPtr = assign(var(EnvPtrVar), unop(cast(EnvPtrVarType), 
-		EnvPtrVal)),
+	% XXX Do we need the cast? If so, why?
+	%
+	EnvPtrVar = qual(ModuleName, mlds__var_name("env_ptr", no)),
+	AssignEnvPtr = assign(var(EnvPtrVar, EnvPtrVarType),
+		unop(cast(EnvPtrVarType), EnvPtrVal)),
 	InitEnvPtr = mlds__statement(atomic(AssignEnvPtr), Context).
 
 	% Given the declaration for a function parameter, produce a
@@ -513,15 +539,16 @@ ml_init_env(EnvTypeName, EnvPtrVal, Context, ModuleName, Globals,
 :- mode ml_conv_arg_to_var(in, in, out) is det.
 
 ml_conv_arg_to_var(Context, Name - Type, LocalVar) :-
-	Flags = env_decl_flags,
+	Flags = ml_gen_local_var_decl_flags,
 	DefnBody = mlds__data(Type, no_initializer),
 	LocalVar = mlds__defn(Name, Context, Flags, DefnBody).
 
-	% Return the declaration flags appropriate for a local variable.
-:- func env_decl_flags = mlds__decl_flags.
-env_decl_flags = MLDS_DeclFlags :-
-	Access = public,
-	PerInstance = per_instance,
+	% Return the declaration flags appropriate for an environment struct
+	% type declaration.
+:- func env_type_decl_flags = mlds__decl_flags.
+env_type_decl_flags = MLDS_DeclFlags :-
+	Access = private,
+	PerInstance = one_copy,
 	Virtuality = non_virtual,
 	Finality = overridable,
 	Constness = modifiable,
@@ -579,8 +606,8 @@ ml_env_name(export(_)) = _ :-
 
 :- func ml_pred_label_name(mlds__pred_label) = string.
 
-ml_pred_label_name(pred(PredOrFunc, MaybeDefiningModule, Name, Arity))
-		= LabelName :-
+ml_pred_label_name(pred(PredOrFunc, MaybeDefiningModule, Name, Arity,
+		_CodeModel, _NonOutputFunc)) = LabelName :-
 	( PredOrFunc = predicate, Suffix = "p"
 	; PredOrFunc = function, Suffix = "f"
 	),
@@ -753,13 +780,22 @@ flatten_nested_defns([Defn0 | Defns0], FollowingStatements, Defns) -->
 :- mode flatten_nested_defn(in, in, in, out, in, out) is det.
 
 flatten_nested_defn(Defn0, FollowingDefns, FollowingStatements, Defns) -->
-	{ Defn0 = mlds__defn(Name, Context, Flags, DefnBody0) },
+	{ Defn0 = mlds__defn(Name, Context, Flags0, DefnBody0) },
 	(
 		{ DefnBody0 = mlds__function(PredProcId, Params, FuncBody0) },
 		%
 		% recursively flatten the nested function
 		%
 		flatten_maybe_statement(FuncBody0, FuncBody),
+
+		%
+		% mark the function as private / one_copy,
+		% rather than as local / per_instance,
+		% since we're about to hoist it out to the top level
+		%
+		{ Flags1 = set_access(Flags0, private) },
+		{ Flags = set_per_instance(Flags1, one_copy) },
+
 		{ DefnBody = mlds__function(PredProcId, Params, FuncBody) },
 		{ Defn = mlds__defn(Name, Context, Flags, DefnBody) },
 
@@ -893,10 +929,12 @@ fixup_atomic_stmt(restore_hp(Rval0), restore_hp(Rval)) -->
 	fixup_rval(Rval0, Rval).
 fixup_atomic_stmt(trail_op(TrailOp0), trail_op(TrailOp)) -->
 	fixup_trail_op(TrailOp0, TrailOp).
-fixup_atomic_stmt(target_code(Lang, Components0),
-		target_code(Lang, Components)) -->
+fixup_atomic_stmt(inline_target_code(Lang, Components0),
+		inline_target_code(Lang, Components)) -->
 	list__map_foldl(fixup_target_code_component,
 		Components0, Components).
+fixup_atomic_stmt(outline_foreign_proc(Lang, Lvals, Code),
+		outline_foreign_proc(Lang, Lvals, Code)) --> [].
 
 :- pred fixup_case_cond(mlds__case_match_cond, mlds__case_match_cond,
 		elim_info, elim_info).
@@ -986,8 +1024,8 @@ fixup_lval(field(MaybeTag, Rval0, FieldId, FieldType, PtrType),
 	fixup_rval(Rval0, Rval).
 fixup_lval(mem_ref(Rval0, Type), mem_ref(Rval, Type)) --> 
 	fixup_rval(Rval0, Rval).
-fixup_lval(var(Var0), VarLval) --> 
-	fixup_var(Var0, VarLval).
+fixup_lval(var(Var0, VarType), VarLval) --> 
+	fixup_var(Var0, VarType, VarLval).
 
 %-----------------------------------------------------------------------------%
 
@@ -997,10 +1035,10 @@ fixup_lval(var(Var0), VarLval) -->
 %	containing function to go via the environment pointer
 %
 
-:- pred fixup_var(mlds__var, mlds__lval, elim_info, elim_info).
-:- mode fixup_var(in, out, in, out) is det.
+:- pred fixup_var(mlds__var, mlds__type, mlds__lval, elim_info, elim_info).
+:- mode fixup_var(in, in, out, in, out) is det.
 
-fixup_var(ThisVar, Lval, ElimInfo, ElimInfo) :-
+fixup_var(ThisVar, ThisVarType, Lval, ElimInfo, ElimInfo) :-
 	ThisVar = qual(ThisVarModuleName, ThisVarName),
 	ModuleName = elim_info_get_module_name(ElimInfo),
 	Locals = elim_info_get_local_data(ElimInfo),
@@ -1021,9 +1059,12 @@ fixup_var(ThisVar, Lval, ElimInfo, ElimInfo) :-
 			),
 		solutions(IsLocalVar, [FieldType])
 	->
-		EnvPtr = lval(var(qual(ModuleName, "env_ptr"))),
+		EnvPtr = lval(var(qual(ModuleName,
+			mlds__var_name("env_ptr", no)),
+			EnvPtrVarType)),
 		EnvModuleName = ml_env_module_name(ClassType),
-		FieldName = named_field(qual(EnvModuleName, ThisVarName),
+		ThisVarFieldName = ml_var_name_to_string(ThisVarName),
+		FieldName = named_field(qual(EnvModuleName, ThisVarFieldName),
 			EnvPtrVarType),
 		Tag = yes(0),
 		Lval = field(Tag, EnvPtr, FieldName, FieldType, ClassType)
@@ -1031,7 +1072,7 @@ fixup_var(ThisVar, Lval, ElimInfo, ElimInfo) :-
 		%
 		% leave everything else unchanged
 		%
-		Lval = var(ThisVar)
+		Lval = var(ThisVar, ThisVarType)
 	).
 /*****************************
 The following code is what we would have to use if we couldn't
@@ -1069,7 +1110,7 @@ just hoist all local variables out to the outermost function.
 		%
 		% leave everything else unchanged
 		%
-		Lval = var(ThisVar)
+		Lval = var(ThisVar, ThisVarType)
 	).
 
 	% check if the specified variable is contained in the
@@ -1394,7 +1435,7 @@ atomic_stmt_contains_var(restore_hp(Rval), Name) :-
 	rval_contains_var(Rval, Name).
 atomic_stmt_contains_var(trail_op(TrailOp), Name) :-
 	trail_op_contains_var(TrailOp, Name).
-atomic_stmt_contains_var(target_code(_Lang, Components), Name) :-
+atomic_stmt_contains_var(inline_target_code(_Lang, Components), Name) :-
 	list__member(Component, Components),
 	target_code_component_contains_var(Component, Name).
 

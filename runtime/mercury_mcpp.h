@@ -19,6 +19,7 @@ namespace mercury {
 
 typedef int		MR_Integer;
 typedef System::Int32	MR_BoxedInt;
+typedef System::Boolean	MR_Bool;
 
 typedef System::Char	MR_Char; // `Char' is MS's name for unicode characters 
 
@@ -40,7 +41,7 @@ typedef void (*MR_Cont) (void *);
 
 typedef __gc public class System::Object * MR_Word[];
 typedef __gc public class System::Object * MR_Box;
-typedef __gc public class System::Object * MR_Array;
+typedef __gc public class System::Object * MR_Array[];
 
 #define MR_Ref(type) type __gc *
 typedef MR_Ref(MR_Box) MR_Box_Ref;
@@ -226,28 +227,24 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 
 #define MR_newobj(Obj, Tag, Size)					\
     do {								\
-	(Obj) = System::Array::CreateInstance(				\
-		System::Type::GetType("System.Object"), (Size) + 1);  	\
-	(Obj)->SetValue(mercury::runtime::Convert::ToObject(Tag), 0);	\
+	(Obj) = new System::Object __gc * __gc[(Size + 1)];		\
+	(Obj)[0] = MR_BOX_INT(Tag);					\
     } while (0)
 
 #define MR_untagged_newobj(Obj, Size)					\
     do {								\
-        (Obj) = System::Array::CreateInstance(				\
-		System::Type::GetType("System.Object"),   		\
-		(Size));						\
+	(Obj) = new System::Object __gc * __gc[(Size)];			\
     } while (0)
 
 #define MR_newobj_preboxed_tag(Obj, Tag, Size)				\
     do {								\
-	(Obj) = System::Array::CreateInstance(				\
-		System::Type::GetType("System.Object"), (Size) + 1);	\
-	(Obj)->SetValue((Tag), 0);					\
+	(Obj) = new System::Object __gc * __gc[(Size + 1)];		\
+	(Obj)[0] = (Tag);						\
     } while (0)
 
 #define MR_objset(Obj, Offset, Element)					\
     do {								\
-	(Obj)->SetValue((Element), (Offset));				\
+	(Obj)[(Offset)] = Element;					\
     } while (0)
 
 #define MR_c_pointer_to_word(Obj, CPointer)				\

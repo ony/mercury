@@ -77,6 +77,7 @@
 		;	debug_rl_gen
 		;	debug_rl_opt
 		;	debug_il_asm	% il_asm = IL generation via asm
+		;	debug_liveness
 	% Output options
 		;	make_short_interface
 		;	make_interface
@@ -155,6 +156,7 @@
 		;	stack_trace
 		;	require_tracing
 		;	use_trail
+		;	reserve_tag
 		;	use_minimal_model
 		;	pic_reg
 		;	tags
@@ -283,6 +285,7 @@
 		;	cflags_for_regs
 		;	cflags_for_gotos
 		;	cflags_for_threads
+		;	pic
 		;	target_debug	
 		;	c_include_directory
 		;	c_flag_to_name_object_file
@@ -340,6 +343,7 @@
 		;	constant_propagation
 		;	excess_assign
 		;	optimize_saved_vars
+		;	delay_construct
 		;	follow_code
 		;	prev_code
 		;	optimize_dead_procs
@@ -379,6 +383,7 @@
 		;	optimize_jumps
 		;	optimize_fulljumps
 		;	checked_nondet_tailcalls
+		;	use_local_vars
 		;	optimize_labels
 		;	optimize_dups
 %%% unused:	;	optimize_copyprop
@@ -489,7 +494,8 @@ option_defaults_2(verbosity_option, [
 	debug_pd		-	bool(no),
 	debug_rl_gen		-	bool(no),
 	debug_rl_opt		-	bool(no),
-	debug_il_asm		-	bool(no)
+	debug_il_asm		-	bool(no),
+	debug_liveness		-	int(-1)
 ]).
 option_defaults_2(output_option, [
 		% Output Options (mutually exclusive)
@@ -517,10 +523,7 @@ option_defaults_2(aux_output_option, [
 	trace_table_io		-	bool(no),
 	trace_table_io_states	-	bool(no),
 	suppress_trace		-	string(""),
-		% XXX delay_death should be enabled by default,
-		% but currently it is disabled because it is broken --
-		% it fails on tests/hard_coded/erroneous_liveness.m.
-	delay_death		-	bool(no),
+	delay_death		-	bool(yes),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
 	generate_prolog		-	bool(no),
@@ -579,6 +582,7 @@ option_defaults_2(compilation_model_option, [
 	require_tracing		-	bool(no),
 	stack_trace		-	bool(no),
 	use_trail		-	bool(no),
+	reserve_tag		-	bool(no),
 	use_minimal_model	-	bool(no),
 	pic_reg			-	bool(no),
 	tags			-	string("low"),
@@ -657,6 +661,7 @@ option_defaults_2(code_gen_option, [
 					% the `mmc' script will override the
 					% above three defaults with values
 					% determined at configuration time
+	pic			-	bool(no),
 	target_debug		-	bool(no),
 	c_include_directory	-	accumulating([]),
 					% the `mmc' script will override the
@@ -728,6 +733,7 @@ option_defaults_2(optimization_option, [
 	constant_propagation	-	bool(no),
 	excess_assign		-	bool(no),
 	optimize_saved_vars	-	bool(no),
+	delay_construct		-	bool(no),
 	prev_code		-	bool(no),
 	follow_code		-	bool(no),
 	optimize_unused_args	-	bool(no),
@@ -772,7 +778,8 @@ option_defaults_2(optimization_option, [
 	optimize_peep		-	bool(no),
 	optimize_jumps		-	bool(no),
 	optimize_fulljumps	-	bool(no),
-	checked_nondet_tailcalls	-	bool(no),
+	checked_nondet_tailcalls -	bool(no),
+	use_local_vars		-	bool(no),
 	optimize_labels		-	bool(no),
 	optimize_dups		-	bool(no),
 %%%	optimize_copyprop	-	bool(no),
@@ -892,6 +899,7 @@ long_option("debug-rl-opt",		debug_rl_opt).
 	% is executed.  It is a temporary measure until the IL debugging
 	% system built into .NET improves.
 long_option("debug-il-asm",		debug_il_asm).
+long_option("debug-liveness",		debug_liveness).
 
 % output options (mutually exclusive)
 long_option("generate-dependencies",	generate_dependencies).
@@ -998,7 +1006,9 @@ long_option("debug",			debug).
 % long_option("stack-trace",           stack_trace).
 % long_option("require-tracing",       require_tracing).
 long_option("use-trail",		use_trail).
+long_option("reserve-tag",		reserve_tag).
 long_option("use-minimal-model",	use_minimal_model).
+long_option("pic",			pic).
 long_option("pic-reg",			pic_reg).
 long_option("tags",			tags).
 long_option("num-tag-bits",		num_tag_bits).
@@ -1007,6 +1017,7 @@ long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
 long_option("type-layout",		type_layout).
 long_option("use-foreign-language",	use_foreign_language).
+long_option("backend-foreign-language",	backend_foreign_language).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -1122,6 +1133,8 @@ long_option("optimise-constant-propagation", constant_propagation).
 long_option("optimize-constant-propagation", constant_propagation).
 long_option("optimize-saved-vars",	optimize_saved_vars).
 long_option("optimise-saved-vars",	optimize_saved_vars).
+long_option("delay-construct",		delay_construct).
+long_option("delay-constructs",		delay_construct).
 long_option("prev-code",		prev_code).
 long_option("follow-code",		follow_code).
 long_option("constraint-propagation",	constraint_propagation).
@@ -1209,6 +1222,7 @@ long_option("optimise-jumps",		optimize_jumps).
 long_option("optimize-fulljumps",	optimize_fulljumps).
 long_option("optimise-fulljumps",	optimize_fulljumps).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
+long_option("use-local-vars",		use_local_vars).
 long_option("optimize-labels",		optimize_labels).
 long_option("optimise-labels",		optimize_labels).
 long_option("optimize-dups",		optimize_dups).
@@ -1524,12 +1538,13 @@ opt_level(3, _, [
 % Optimization level 4: apply optimizations which may have some
 % payoff even if they increase compilation time quite a bit
 
-% Currently this enables value_number
+% Currently this enables the use of local variables
 % and increases the inlining thresholds
 
 opt_level(4, _, [
-	lazy_code		-	bool(yes),
-	optimize_value_number	-	bool(yes),
+	% lazy_code		-	bool(yes),
+	% optimize_value_number	-	bool(yes),
+	use_local_vars		-	bool(yes),
 	inline_simple_threshold	-	int(8),
 	inline_compound_threshold -	int(20),
 	higher_order_size_limit -	int(30)
@@ -1538,13 +1553,15 @@ opt_level(4, _, [
 % Optimization level 5: apply optimizations which may have some
 % payoff even if they increase compilation time a lot
 
-% Currently this enables pred_value_number
-% and runs a second pass of value numbering
+% Currently this enables the search for construction unifications that can be
+% delayed past failing computations, allows more passes of the low-level
+% optimizations, and increases the inlining thresholds still further.
 
 opt_level(5, _, [
-	pred_value_number	-	bool(yes),
+	% pred_value_number	-	bool(yes),
+	% optimize_vnrepeat	-	int(2),
 	optimize_repeat		-	int(5),
-	optimize_vnrepeat	-	int(2),
+	delay_construct		-	bool(yes),
 	inline_compound_threshold -	int(100),
 	higher_order_size_limit -	int(40)
 ]).
@@ -1685,7 +1702,10 @@ options_help_verbosity -->
 		"--debug-rl-gen",
 		"\tOutput detailed debugging traces of Aditi-RL code generation.",
 		"--debug-rl-opt",
-		"\tOutput detailed debugging traces of Aditi-RL optimization."
+		"\tOutput detailed debugging traces of Aditi-RL optimization.",
+		"--debug-liveness <pred_id>",
+		"\tOutput detailed debugging traces of the liveness analysis",
+		"\tof the predicate with the given predicate id."
 	]).
 
 :- pred options_help_output(io__state::di, io__state::uo) is det.
@@ -1738,8 +1758,9 @@ options_help_output -->
 		"\tCheck the module for errors, but do not generate any code.",
 		"-C, --target-code-only",
 		"\tGenerate target code (i.e. C code in `<module>.c',",
-		"\t\tIL code in `<module>.il', or Java code in",
-		"\t\t`<module>.java'), but not object code.",
+		"\tassembler code in `<module>.s' or `<module>.pic_s',",
+		"\tIL code in `<module>.il', or Java code in",
+		"\t`<module>.java'), but not object code.",
 		"-c, --compile-only",
 		"\tGenerate C code in `<module>.c' and object code in `<module>.o'",
 		"\tbut do not attempt to link the named modules.",
@@ -1931,10 +1952,33 @@ options_help_compilation_model -->
 		"library which has been compiled with the same setting.",
 		"-s <grade>, --grade <grade>",
 		"\tSelect the compilation model. The <grade> should be one of",
-		"\t`none', `reg', `jump', `asm_jump', `fast', `asm_fast', `hlc'",
-		"--target {c, il, java}",
-		"\tSpecify the target language: C, IL or Java (default: C).",
-		"\tThe IL and Java targets imply `--high-level-code' (see below).",
+		"\tthe base grades `none', `reg', `jump', `asm_jump', `fast', ",
+		"\t`asm_fast', `hlc', `ilc', or `java',",
+% These grades (hl, hl_nest, and hlc_nest) are not yet documented, because
+% the --high-level-data option is not yet supported for C,
+% and the --gcc-nested-functions option is not yet documented.
+%		"\t`hl', `hl_nest', `hlc_nest'",
+		"\tor one of those with one or more of the grade modifiers",
+		"\t`.gc', `.prof', `.memprof', `.tr', `.rt', `.debug', `.par'",
+		"\tand/or `.pic_reg' appended.",
+		"\tDepending on your particular installation, only a subset",
+		"\tof these possible grades will have been installed.",
+		"\tAttempting to use a grade which has not been installed",
+		"\twill result in an error at link time.",
+		"--target c\t\t\t(grades: none, reg, jump, fast,",
+		"\t\t\t\t\tasm_jump, asm_fast, hlc)",
+		"--target asm\t\t\t(grades: hlc)",
+		"--target il\t\t\t(grades: ilc)",
+		"--target java\t\t\t(grades: java)",
+		"\tSpecify the target language: C, assembler, IL or Java.",
+		"\tThe default is C.",
+		"\t""IL"" is the Microsoft.NET Intermediate Language.",
+		"\tTargets other than C imply `--high-level-code' (see below).",
+		"\tAs an exception to the usual rule for options in this section,",
+		"\twhere different option settings normally correspond to different",
+		"\tABIs, code generated using `--target asm' is binary compatible",
+		"\twith code generated using `--target c --high-level code', so",
+		"\tthese both use grade `hlc'.",
 		"--il",
 		"\tAn abbreviation for `--target il'.",
 		"--il-only",
@@ -1951,49 +1995,42 @@ options_help_compilation_model -->
 		
 		"--compile-to-c",
 		"\tAn abbreviation for `--target c --target-code-only'.",
-		"\tGenerate C code in `<module>.c', but do not generate object code.",
+		"\tGenerate C code in `<module>.c', but do not generate object",
+		"\tcode.",
 
 
-% These grades (hl, hl_nest, and hlc_nest) are not yet documented, because
-% the --high-level-data option is not yet implemented,
-% and the --gcc-nested-functions option is not yet documented.
-%		"\t`hl', `hl_nest', `hlc_nest'",
-		"\tor one of those with `.gc', `.prof', `.proftime',",
-		"\t`.profcalls', `.tr', `.sa', `.debug', and/or `.pic_reg'",
-		"\tappended (in that order).",
-		"\tDepending on your particular installation, only a subset",
-		"\tof these possible grades will have been installed.",
-		"\tAttempting to use a grade which has not been installed",
-		"\twill result in an error at link time.",
 		"--gcc-global-registers\t\t(grades: reg, fast, asm_fast)",
 		"--no-gcc-global-registers\t(grades: none, jump, asm_jump)",
 		"\tSpecify whether or not to use GNU C's",
 		"\tglobal register variables extension.",
-		"\tThis option is ignored if the `--high-level-code' option is enabled.",
+		"\tThis option is ignored if the `--high-level-code' option is",
+		"\tenabled.",
 		"--gcc-non-local-gotos\t\t(grades: jump, fast, asm_jump, asm_fast)",
 		"--no-gcc-non-local-gotos\t(grades: none, reg)",
 		"\tSpecify whether or not to use GNU C's",
 		"\t""labels as values"" extension.",
-		"\tThis option is ignored if the `--high-level-code' option is enabled.",
+		"\tThis option is ignored if the `--high-level-code' option is",
+		"\tenabled.",
 		"--asm-labels\t\t\t(grades: asm_jump, asm_fast)",
 		"--no-asm-labels\t\t\t(grades: none, reg, jump, fast)",
 		"\tSpecify whether or not to use GNU C's",
 		"\tasm extensions for inline assembler labels.",
-		"\tThis option is ignored if the `--high-level-code' option is enabled.",
+		"\tThis option is ignored if the `--high-level-code' option is",
+		"\tenabled.",
 % These grades (hl, hl_nest, and hlc_nest) are not yet documented, because
 % the --high-level-data option is not yet implemented,
 % and the --gcc-nested-functions option is not yet documented.
 %		"-H, --high-level-code\t\t\t(grades: hl, hlc, hl_nest, hlc_nest)",
-		"-H, --high-level-code\t\t\t(grades: hlc, ilc)",
+		"-H, --high-level-code\t\t\t(grades: hlc, ilc, java)",
 		"\tUse an alternative back-end that generates high-level code",
 		"\trather than the very low-level code that is generated by our",
 		"\toriginal back-end.",
 % The --high-level-data option is not yet documented,
-% because it is not yet implemented
+% because it is not yet supported
 %		"--high-level-data\t\t\t(grades: hl, hl_nest)",
 %		"\tUse an alternative higher-level data representation.",
 % The --high-level option is not yet documented,
-% because --high-level-data is not yet implemented
+% because --high-level-data is not yet supported
 %		"--high-level\t\t\t(grades: hl, hl_nest)",
 %		"\tAn abbreviation for `--high-level-code --high-level-data'.",
 % The --gcc-nested-functions option is not yet documented,
@@ -2003,13 +2040,14 @@ options_help_compilation_model -->
 %		"\tSpecify whether or not to use GNU C's nested functions extension.",
 %		"\tThis option is ignored if the `--high-level-code' option is not enabled.",
 % The --det-copy-out option is not yet documented,
-% because it is not yet tested and probably not very useful.
+% because it is not yet tested much and probably not very useful,
+% except for Java, where it is the default.
 %		"--det-copy-out",
 %		"\tSpecify whether to handle output arguments for det/semidet",
 %		"\tprocedures using return-by-value rather than pass-by-reference.",
 %		"\tThis option is ignored if the `--high-level-code' option is not enabled.",
 % The --nondet-copy-out option is not yet documented,
-% because it is probably not very useful except for IL,
+% because it is probably not very useful except for IL and Java,
 % where it is the default.
 %		"--nondet-copy-out\t\t(grades: il, ilc)",
 %		"\tSpecify whether to handle output arguments for nondet",
@@ -2031,19 +2069,31 @@ options_help_compilation_model -->
 		"\t\t\t\tother grades use `--gc none'.)",
 		"\tSpecify which method of garbage collection to use",
 		"\t(default: conservative).  `accurate' GC is not yet implemented.",
+		"\tThis option is ignored for the IL and Java back-ends,",
+		"\twhich always use the garbage collector of the underlying",
+		"\tIL or Java implementation.",
 		"\t`--high-level-code' requires `conservative' GC.",
 		"--use-trail\t\t\t(grade modifier: `.tr')",
 		"\tEnable use of a trail.",
 		"\tThis is necessary for interfacing with constraint solvers,",
 		"\tor for backtrackable destructive update.",
+		"\tThis option is not yet supported for the IL or Java back-ends.",
+		"--reserve-tag\t\t\t(grade modifier: `.rt')",
+		"\tReserve a tag in the data representation of the generated ",
+		"\tcode. This tag is intended to be used to give an explicit",
+		"\trepresentation to free variables.",
+		"\tThis is necessary for a seamless Herbrand constraint solver -",
+		"\tfor use with HAL.",
 		"-p, --profiling, --time-profiling",
 		"\t\t\t\t(grade modifier: `.prof')",
 		"\tEnable time and call profiling.  Insert profiling hooks in the",
 		"\tgenerated code, and also output some profiling",
 		"\tinformation (the static call graph) to the file",
 		"\t`<module>.prof'.",
+		"\tThis option is not supported for the IL or Java back-ends.",
 		"--memory-profiling\t\t(grade modifier: `.memprof')",
 		"\tEnable memory and call profiling.",
+		"\tThis option is not supported for the IL or Java back-ends.",
 /*****************
 XXX The following options are not documented,
 because they are currently not useful.
@@ -2070,6 +2120,8 @@ your program compiled with different options.
 		"\tEnable Mercury-level debugging.",
 		"\tSee the Debugging chapter of the Mercury User's Guide",
 		"\tfor details.",
+		"\tThis option is not yet supported for the `--high-level-code'",
+		"\tback-ends.",
 		"--pic-reg\t\t\t(grade modifier: `.pic_reg')",
 		"[For Unix with intel x86 architecture only]",
 		"\tSelect a register usage convention that is compatible,",
@@ -2177,6 +2229,12 @@ options_help_code_generation -->
 		"\tCauses the generated code to become VERY big and VERY",
 		"\tinefficient.  Slows down compilation a LOT.",
 
+		"--pic",
+		"\tGenerate position-independent code.",
+		"\tThis option is only used by the `--target asm' back-end.",
+		"\tThe generated assembler code will be written to",
+		"\t`<module>.pic_s' rather than to `<module>.s'.",
+
 		"--target-debug",
 		"\tEnable debugging of the generated target code.",
 		"\tIf the target language is C, this has the same effect as",
@@ -2249,7 +2307,7 @@ options_help_code_generation -->
 		"\tThe maximum number of entries a jump table can have.",
 		"\tThe special value 0 indicates the table size is unlimited.",
 		"\tThis option can be useful to avoid exceeding fixed limits",
-		"\timposed by some C compilers.\n",
+		"\timposed by some C compilers.",
 
 		"--fact-table-max-array-size <n>",
 		"\tSpecify the maximum number of elements in a single",
@@ -2392,6 +2450,9 @@ options_help_hlds_hlds_optimization -->
 		"--optimize-duplicate-calls",
 		"\tOptimize away multiple calls to a predicate",
 		"\twith the same input arguments.",
+		"--delay-constructs",
+		"\tReorder goals to move construction unifications after",
+		"\tprimitive goals that can fail.",
 		"--optimize-saved-vars",
 		"\tReorder goals to minimize the number of variables",
 		"\tthat have to be saved across calls.",
@@ -2413,8 +2474,8 @@ options_help_hlds_hlds_optimization -->
 		"--unneeded-code-copy-limit",
 		"\tGives the maximum number of places to which a goal may be copied",
 		"\twhen removing it from computation paths on which its outputs are",
-		"\tnot needed. A value of zero forbids goal movement and allows only",
-		"\tgoal deletion; a value of one prevents any increase in the",
+		"\tnot needed. A value of zero forbids goal movement and allows",
+		"\tonly goal deletion; a value of one prevents any increase in the",
 		"\tsize of the code.",
 		"--type-specialization",
 		"\tEnable specialization of polymorphic predicates where the",
@@ -2496,7 +2557,7 @@ options_help_hlds_llds_optimization -->
 %		"--no-allow-hijacks",
 %		"\tDo not generate code in which a procedure hijacks",
 %		"\ta nondet stack frame that possibly belongs to",
-%		"\tanother procedure invocation\n".
+%		"\tanother procedure invocation".
 	]).
 
 :- pred options_help_llds_llds_optimization(io__state::di, io__state::uo) is det.
@@ -2520,6 +2581,9 @@ options_help_llds_llds_optimization -->
 		"\tConvert nondet calls into tail calls whenever possible, even",
 		"\twhen this requires a runtime check. This option tries to",
 		"\tminimize stack consumption, possibly at the expense of speed.",
+		"--use-local-vars",
+		"\tDisable the transformation to use local variables in C code",
+		"\tblocks whereever possible.",
 		"--no-optimize-labels",
 		"\tDisable elimination of dead labels and code.",
 		"--optimize-dups",
@@ -2551,9 +2615,9 @@ options_help_mlds_mlds_optimization -->
 		"\tTreat tailcalls as ordinary calls, rather than optimizing",
 		"\tby turning self-tailcalls into loops.",
 		"--no-optimize-initializations",
-		"\tLeave initializations of local variables as assignment",
-		"\tstatements, rather than converting such assignments statements",
-		"\tinto initializers."
+		"\tLeave initializations of local variables as",
+		"\tassignment statements, rather than converting such",
+		"\tassignment statements into initializers."
 	]).
 
 

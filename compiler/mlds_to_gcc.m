@@ -41,14 +41,10 @@
 %	  (there is some documentation in gcc/mercury/README,
 %	  but probably there should also be something in the INSTALL
 %	  file in the Mercury distribution)
-%	- set up nightly tests
 %	- test more
 %
 %	Fix unimplemented standard Mercury features:
-%	- support nested modules
-%	  (They can be compiled using `gcc', but compiling them
-%	  with `mmc' doesn't work, see the XXX comment below.
-%	  Also Mmake support is broken.)
+%	- Mmake support for nested modules
 %	- support modules containing foreign_decls but no
 %	  foreign_procs or foreign code
 %
@@ -95,12 +91,39 @@
 :- module mlds_to_gcc.
 :- interface.
 
-:- import_module mlds, bool.
+:- import_module mlds, maybe_mlds_to_gcc, bool.
 :- use_module io.
 
-	% The bool returned is `yes' iff the module contained C code.
-	% In that case, we will have output a separate C file which needs
-	% to be compiled with the C compiler.
+	% run_gcc_backend(ModuleName, CallBack, CallBackOutput):
+	% 
+	% Set things up to generate an assembler file whose name
+	% is based on the specified module name, and then call the
+	% CallBack procedure.  When the CallBack procedure exits
+	% (returning CallBackOutput), finish generating the assembler
+	% file, and then return the CallBackOutput back to the caller.
+	% 
+	% Due to limitations in the GCC back-end, this procedure
+	% must not be called more than once per process.
+
+:- pred mlds_to_gcc__run_gcc_backend(mercury_module_name,
+		frontend_callback(T), T, io__state, io__state).
+:- mode mlds_to_gcc__run_gcc_backend(in, in(frontend_callback), out,
+		di, uo) is det.
+
+	% compile_to_gcc(MLDS, ContainsCCode):
+	%
+	% Generate GCC trees and/or RTL for the given MLDS,
+	% and invoke the GCC back-end to output assembler for
+	% them to the assembler file.
+	%
+	% This procedure must only be called from within a callback
+	% function passed to run_gcc_backend.  Otherwise it may
+	% try to use the GCC back-end before it has been properly
+	% initialized.
+	%
+	% The ContainsCCode bool returned is `yes' iff the module contained
+	% C code. In that case, we will have output a separate C file which
+	% needs to be compiled with the C compiler.
 	%
 	% XXX Currently the only foreign language we handle is C.
 	%     To make it work properly we'd need to change the
@@ -128,80 +151,21 @@
 				% llds_out__sym_name_mangle,
 				% llds_out__make_base_typeclass_info_name,
 :- import_module rtti.		% for rtti__addr_to_string.
-:- import_module ml_code_util.	% for ml_gen_mlds_var_decl, which is used by
-				% the code that handles derived classes
+:- import_module ml_code_util.	% for ml_gen_public_field_decl_flags, which is
+				% used by the code that handles derived classes
 :- import_module hlds_pred.	% for proc_id_to_int and invalid_pred_id
 :- import_module globals, options, passes_aux.
 :- import_module builtin_ops, modules.
 :- import_module prog_data, prog_out, prog_util, type_util, error_util.
-:- import_module pseudo_type_info.
+:- import_module pseudo_type_info, code_model.
 
 :- import_module bool, int, string, library, list, map.
 :- import_module assoc_list, term, std_util, require.
 
 %-----------------------------------------------------------------------------%
 
-mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
-	%
-	% There's two possible cases, depending on who defined main().
-	%
-	%	1. GCC main():
-	%		gcc/toplev.c gets control first.
-	%
-	%		In this case, by the time we get to here
-	%		(mlds_to_gcc.m), the GCC back-end has already
-	%		been initialized.  We can go ahead and generate
-	%		the GCC tree and RTL.  When we return back to
-	%		main/2 in mercury_compile, and that returns,
-	% 		the gcc back-end will continue on and will
-	%		generate the asm file. 
-	%
-	%		Note that mercury_compile.m can't invoke the
-	% 		assembler to produce an object file, since
-	% 		the assembler won't get produced until
-	%		after main/2 has exited!  Instead, the gcc
-	%		driver program (`gcc') will invoke the assembler.
-	%		
-	%	2. Mercury main():
-	%		mercury_compile.m gets control first.
-	%
-	%		When we get here (mlds_to_gcc.m), the gcc back-end
-	%		has not been initialized.
-	%		We need to save the MLDS in a global variable,
-	%		and then invoke the GCC toplev_main() here.
-	%		This will start the GCC back-end, which will
-	%		eventually call MC_continue_frontend().
-	%		Eventually MC_continue_frontend() will
-	%		return and the gcc back-end will continue.
-	%
-	%		It's OK for mercury_compile.m to invoke the assembler.
-	%
-	%		XXX For programs with nested modules,
-	%		we'll end up calling the gcc back-end
-	%		more than once; this will probably crash.
-	%		
-	in_gcc(InGCC),
-	( { InGCC = yes } ->
-		mlds_to_gcc__compile_to_gcc(MLDS, ContainsCCode)
-	;
-		set_global_mlds(MLDS),
-		{ MLDS = mlds(ModuleName, _, _, _) },
-		do_call_gcc_backend(ModuleName, Result),
-		( { Result \= 0 } ->
-			io__set_exit_status(1)
-		;
-			[]
-		),
-		get_global_contains_c_code(ContainsCCode)
-	).
-
-:- pred do_call_gcc_backend(mlds__mercury_module_name::in, int::out,
-		io__state::di, io__state::uo) is det.
-
-do_call_gcc_backend(ModuleName, Result) -->
-	% XXX should use new --pic option rather than
-	% reusing --pic-reg
-	globals__io_lookup_bool_option(pic_reg, Pic),
+mlds_to_gcc__run_gcc_backend(ModuleName, CallBack, CallBackOutput) -->
+	globals__io_lookup_bool_option(pic, Pic),
 	{ Pic = yes ->
 		PicExt = ".pic_s",
 		PicOpt = "-fpic "
@@ -243,158 +207,15 @@ do_call_gcc_backend(ModuleName, Result) -->
 	maybe_write_string(Verbose, "% Invoking GCC back-end as `"),
 	maybe_write_string(Verbose, CommandLine),
 	maybe_write_string(Verbose, "':\n"),
-	call_gcc_backend(CommandLine, Result),
+	maybe_flush_output(Verbose),
+	gcc__run_backend(CommandLine, Result, CallBack, CallBackOutput),
 	( { Result \= 0 } ->
 		report_error("GCC back-end failed!\n")
 	;
 		maybe_write_string(Verbose, "% GCC back-end done.\n")
 	).
 
-	% Returns `yes' iff we've already entered the gcc back-end.
-:- pred in_gcc(bool::out, io__state::di, io__state::uo) is det.
-:- pragma import(in_gcc(out, di, uo), "MC_in_gcc").
-
-:- pred call_gcc_backend(string::in, int::out,
-		io__state::di, io__state::uo) is det.
-:- pragma import(call_gcc_backend(in, out, di, uo), "MC_call_gcc_backend").
-
-:- pragma c_header_code("
-/* We use an `MC_' prefix for C code in the mercury/compiler directory. */
-
-extern MR_Word MC_mlds;
-extern MR_Word MC_contains_c_code;
-
-void MC_in_gcc(MR_Word *result);
-void MC_call_gcc_backend(MR_String all_args, MR_Integer *result);
-void MC_continue_frontend(void);
-
-#include ""mercury_wrapper.h""		/* for MR_make_argv() */
-#include <stdio.h>			/* for fprintf() */
-#include <stdlib.h>			/* for exit() */
-").
-
-:- pragma c_code("
-
-#ifndef MC_GUARD_GCC_HEADERS
-#define MC_GUARD_GCC_HEADERS
-
-#include ""gcc/config.h""
-#include ""gcc/system.h""
-#include ""gcc/gansidecl.h""
-#include ""gcc/toplev.h""
-#include ""gcc/tree.h""
-/* XXX we should eliminate the dependency on the C front-end */
-#include ""gcc/c-tree.h""
-
-#include ""gcc/mercury/mercury-gcc.h""
-
-#endif /* MC_GUARD_GCC_HEADERS */
-
-/* We use an `MC_' prefix for C code in the mercury/compiler directory. */
-MR_Word MC_mlds;
-MR_Word MC_contains_c_code;
-
-extern int toplev_main(int argc, char **argv);
-
-void
-MC_in_gcc(MR_Word *result)
-{
-	/* If we've already entered gcc, then gcc will have set progname. */
-	*result = (progname != NULL);
-}
-
-void
-MC_call_gcc_backend(MR_String all_args, MR_Integer *result)
-{
-	char *args;
-	char **argv;
-	int argc;
-	const char *error_msg;
-	static int num_calls = 0;
-
-	/*
-	** The gcc back-end cannot be called more than once.
-	** If you try, it uses up all available memory.
-	** So we need to abort nicely in that case.
-	**
-	** That case will happen if (a) there were nested
-	** sub-modules or (b) the user specified more than
-	** one module on the command line.
-	*/
-	num_calls++;
-	if (num_calls > 1) {
-		fprintf(stderr, ""Sorry, not implemented:\\n""
-			""compiling more than one module at a time ""
-			""with `--target asm'.\\n""
-			""Please use separate sub-modules ""
-			""rather than nested sub-modules,\\n""
-			""i.e. put each sub-module in its own file, ""
-			""and don't specify more\\n""
-			""than one module on the command line ""
-			""(use Mmake instead).\\n""
-			""Or alternatively, just use `--target c'.\\n"");
-		exit(EXIT_FAILURE);
-	}
-
-	error_msg = MR_make_argv(all_args, &args, &argv, &argc);
-	if (error_msg) {
-		fprintf(stderr,
-			""Error parsing GCC back-end arguments:\n%s\n"",
-			error_msg);
-		exit(EXIT_FAILURE);
-	}
-
-	merc_continue_frontend = &MC_continue_frontend;
-	*result = toplev_main(argc, argv);
-
-	/*
-	** Reset GCC's progname after we return from toplev_main(),
-	** so that MC_in_gcc() knows that we're no longer in GCC. 
-	*/
-	progname = NULL;
-
-	MR_GC_free(args);
-	MR_GC_free(argv);
-}
-
-void
-MC_continue_frontend(void)
-{
-	MC_compile_to_gcc(MC_mlds, &MC_contains_c_code);
-}
-").
-
-:- pred get_global_mlds(mlds__mlds::out, io__state::di, io__state::uo) is det.
-:- pred set_global_mlds(mlds__mlds::in, io__state::di, io__state::uo) is det.
-:- pred get_global_contains_c_code(bool::out,
-		io__state::di, io__state::uo) is det.
-:- pred set_global_contains_c_code(bool::in,
-		io__state::di, io__state::uo) is det.
-
-:- pragma c_code(get_global_mlds(MLDS::out, _IO0::di, _IO::uo),
-	[will_not_call_mercury],
-	"MLDS = MC_mlds;").
-:- pragma c_code(set_global_mlds(MLDS::in, _IO0::di, _IO::uo),
-	[will_not_call_mercury],
-	"MC_mlds = MLDS;").
-:- pragma c_code(get_global_contains_c_code(ContainsCCode::out,
-	_IO0::di, _IO::uo), [will_not_call_mercury],
-	"ContainsCCode = MC_contains_c_code;").
-:- pragma c_code(set_global_contains_c_code(ContainsCCode::in,
-	_IO0::di, _IO::uo), [will_not_call_mercury],
-	"MC_contains_c_code = ContainsCCode;").
-
-	%
-	% This is called from yyparse() in mercury/mercury-gcc
-	% in the gcc back-end.
-	%
-:- pragma export(mlds_to_gcc__compile_to_gcc(in, out, di, uo),
-	"MC_compile_to_gcc").
-
-:- pred mlds_to_gcc__compile_to_gcc(mlds__mlds, bool, io__state, io__state).
-:- mode mlds_to_gcc__compile_to_gcc(in, out, di, uo) is det.
-
-mlds_to_gcc__compile_to_gcc(MLDS, ContainsCCode) -->
+mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns0) },
 
 	%
@@ -866,25 +687,24 @@ gen_defns(ModuleName, [Defn | Defns], GlobalInfo0, GlobalInfo) -->
 	% Handle MLDS definitions that are nested inside a
 	% function definition (or inside a block within a function),
 	% and which are hence local to that function.
-:- pred build_local_defns(mlds__defns, defn_info, mlds_module_name, 
-		symbol_table, symbol_table, io__state, io__state).
-:- mode build_local_defns(in, in, in, in, out, di, uo) is det.
+:- pred build_local_defns(mlds__defns, mlds_module_name, defn_info, defn_info,
+		io__state, io__state).
+:- mode build_local_defns(in, in, in, out, di, uo) is det.
 
-build_local_defns([], _, _, SymbolTable, SymbolTable) --> [].
-build_local_defns([Defn|Defns], DefnInfo, ModuleName,
-		SymbolTable0, SymbolTable) -->
-	build_local_defn(Defn, DefnInfo, ModuleName, GCC_Defn),
+build_local_defns([], _, DefnInfo, DefnInfo) --> [].
+build_local_defns([Defn|Defns], ModuleName, DefnInfo0, DefnInfo) -->
+	build_local_defn(Defn, DefnInfo0, ModuleName, GCC_Defn),
 	% Insert the variable definition into our symbol table.
 	% The MLDS code that the MLDS code generator generates should
 	% not have any shadowing of parameters or local variables by
 	% nested local variables, so we use map__det_insert rather
 	% than map__set here.  (Actually nothing in this module depends
-	% on it, so this sanity here is perhaps a bit paranoid.)
+	% on it, so this sanity check here is perhaps a bit paranoid.)
 	{ Defn = mlds__defn(Name, _, _, _) },
-	{ SymbolTable1 = map__det_insert(SymbolTable0,
-		qual(ModuleName, Name), GCC_Defn) },
-	build_local_defns(Defns, DefnInfo, ModuleName,
-		SymbolTable1, SymbolTable).
+	{ DefnInfo1 = DefnInfo0 ^ local_vars :=
+		map__det_insert(DefnInfo0 ^ local_vars,
+			qual(ModuleName, Name), GCC_Defn) },
+	build_local_defns(Defns, ModuleName, DefnInfo1, DefnInfo).
 
 	% Handle MLDS definitions that are nested inside a type, 
 	% i.e. fields of that type.
@@ -901,8 +721,10 @@ build_field_defns([Defn|Defns], ModuleName, GlobalInfo, FieldList,
 	% Insert the field definition into our field symbol table.
 	{ Defn = mlds__defn(Name, _, _, _) },
 	( { Name = data(var(FieldName)) } ->
+		{ GCC_FieldName = ml_var_name_to_string(FieldName) },
 		{ FieldTable1 = map__det_insert(FieldTable0,
-			qual(ModuleName, FieldName), GCC_FieldDefn) }
+			qual(ModuleName, GCC_FieldName),
+			GCC_FieldDefn) }
 	;
 		{ unexpected(this_file, "non-var field") }
 	),
@@ -1048,12 +870,17 @@ add_var_decl_flags(Flags, GCC_Defn) -->
 add_var_access_flag(public, GCC_Defn) -->
 	gcc__set_var_decl_public(GCC_Defn).
 add_var_access_flag(private, _GCC_Defn) -->
-	% this is the default
+	% this should only be used for global variables,
+	% where it is the default
 	[].
 add_var_access_flag(protected, _GCC_Defn) -->
 	{ sorry(this_file, "`protected' access") }.
 add_var_access_flag(default, _GCC_Defn) -->
 	{ sorry(this_file, "`default' access") }.
+add_var_access_flag(local, _GCC_Defn) -->
+	% this should only be used for local variables,
+	% where it is the default
+	[].
 
 :- pred add_var_virtuality_flag(mlds__virtuality, gcc__var_decl,
 	io__state, io__state).
@@ -1125,9 +952,11 @@ add_field_access_flag(public, _GCC_Defn) -->
 add_field_access_flag(private, _GCC_Defn) -->
 	{ sorry(this_file, "`private' field") }.
 add_field_access_flag(protected, _GCC_Defn) -->
-	{ sorry(this_file, "`protected' access") }.
+	{ sorry(this_file, "`protected' field") }.
 add_field_access_flag(default, _GCC_Defn) -->
-	{ sorry(this_file, "`default' access") }.
+	{ sorry(this_file, "`default' field") }.
+add_field_access_flag(local, _GCC_Defn) -->
+	{ sorry(this_file, "`local' field") }.
 
 :- pred add_field_per_instance_flag(mlds__per_instance, gcc__field_decl,
 	io__state, io__state).
@@ -1209,16 +1038,20 @@ add_func_access_flag(protected, _GCC_Defn) -->
 	{ sorry(this_file, "`protected' access") }.
 add_func_access_flag(default, _GCC_Defn) -->
 	{ sorry(this_file, "`default' access") }.
+add_func_access_flag(local, _GCC_Defn) -->
+	% nested functions are not supported
+	{ sorry(this_file, "`local' access") }.
 
 :- pred add_func_per_instance_flag(mlds__per_instance, gcc__func_decl,
 	io__state, io__state).
 :- mode add_func_per_instance_flag(in, in, di, uo) is det.
 
-add_func_per_instance_flag(per_instance, _GCC_Defn) -->
-	% this is the default
-	[].
-add_func_per_instance_flag(one_copy, _GCC_Defn) -->
-	{ sorry(this_file, "`one_copy' function") }.
+	% For functions, we ignore the `per_instance' flag here.
+	% For global functions, this flag is meaningless;
+	% and currently we don't support nested functions
+	% or class member functions.
+add_func_per_instance_flag(per_instance, _GCC_Defn) --> [].
+add_func_per_instance_flag(one_copy, _GCC_Defn) --> [].
 
 :- pred add_func_virtuality_flag(mlds__virtuality, gcc__func_decl,
 	io__state, io__state).
@@ -1289,7 +1122,8 @@ build_local_data_defn(Name, Flags, Type, Initializer, DefnInfo, GCC_Defn) -->
 	(
 		{ PerInstance = per_instance },
 		% an ordinary local variable
-		gcc__build_local_var_decl(VarName, GCC_Type, GCC_Defn),
+		{ GCC_VarName = ml_var_name_to_string(VarName) },
+		gcc__build_local_var_decl(GCC_VarName, GCC_Type, GCC_Defn),
 		add_var_decl_flags(Flags, GCC_Defn),
 		( { Initializer = no_initializer } ->
 			[]
@@ -1304,9 +1138,10 @@ build_local_data_defn(Name, Flags, Type, Initializer, DefnInfo, GCC_Defn) -->
 		% these must always have initializers
 		build_initializer(Initializer, GCC_Type, DefnInfo,
 			GCC_InitExpr),
-		gcc__build_static_var_decl(VarName, GCC_Type, GCC_InitExpr,
+		{ GCC_VarName = ml_var_name_to_string(VarName) },
+		gcc__build_static_var_decl(GCC_VarName, GCC_Type, GCC_InitExpr,
 			GCC_Defn),
-		{ llds_out__name_mangle(VarName, MangledVarName) },
+		{ llds_out__name_mangle(GCC_VarName, MangledVarName) },
 		gcc__set_var_decl_asm_name(GCC_Defn, MangledVarName),
 		add_var_decl_flags(Flags, GCC_Defn),
 		gcc__finish_static_var_decl(GCC_Defn)
@@ -1324,7 +1159,8 @@ build_field_data_defn(Name, Type, Initializer, GlobalInfo, GCC_Defn) -->
 		GlobalInfo, GCC_Type),
 	{ Name = qual(_ModuleName, UnqualName) },
 	( { UnqualName = data(var(VarName)) } ->
-		gcc__build_field_decl(VarName, GCC_Type, GCC_Defn)
+		{ GCC_VarName = ml_var_name_to_string(VarName) },
+		gcc__build_field_decl(GCC_VarName, GCC_Type, GCC_Defn)
 	;
 		{ sorry(this_file, "build_field_data_defn: non-var") }
 	),
@@ -1510,7 +1346,8 @@ is_static_member(Defn) :-
 mlds_make_base_class(Context, ClassId, MLDS_Defn, BaseNum0, BaseNum) :-
 	BaseName = string__format("base_%d", [i(BaseNum0)]),
 	Type = ClassId,
-	MLDS_Defn = ml_gen_mlds_var_decl(var(BaseName), Type, Context),
+	MLDS_Defn = mlds__defn(data(var(var_name(BaseName, no))), Context,
+		ml_gen_public_field_decl_flags, data(Type, no_initializer)),
 	BaseNum = BaseNum0 + 1.
 
 /***********
@@ -1725,7 +1562,8 @@ get_func_name(FunctionName, FuncName, AsmFuncName) :-
 		% necessarily need to be unique.
 		%
 		(
-			PredLabel = pred(_PorF, _ModuleName, PredName, _Arity),
+			PredLabel = pred(_PorF, _ModuleName, PredName, _Arity,
+				_CodeModel, _NonOutputFunc),
 		  	FuncName = PredName
 		;
 			PredLabel = special_pred(SpecialPredName, _ModuleName,
@@ -1741,8 +1579,8 @@ get_func_name(FunctionName, FuncName, AsmFuncName) :-
 :- pred get_pred_label_name(mlds__pred_label, string).
 :- mode get_pred_label_name(in, out) is det.
 
-get_pred_label_name(pred(PredOrFunc, MaybeDefiningModule, Name, Arity),
-		LabelName) :-
+get_pred_label_name(pred(PredOrFunc, MaybeDefiningModule, Name, Arity,
+			_CodeMode, _NonOutputFunc), LabelName) :-
 	( PredOrFunc = predicate, Suffix = "p"
 	; PredOrFunc = function, Suffix = "f"
 	),
@@ -1798,7 +1636,8 @@ build_param_types_and_decls([Arg|Args], ModuleName, GlobalInfo,
 	{ Arg = ArgName - Type },
 	build_type(Type, GlobalInfo, GCC_Type),
 	( { ArgName = data(var(ArgVarName)) } ->
-		gcc__build_param_decl(ArgVarName, GCC_Type, ParamDecl),
+		{ GCC_ArgVarName = ml_var_name_to_string(ArgVarName) },
+		gcc__build_param_decl(GCC_ArgVarName, GCC_Type, ParamDecl),
 		{ SymbolTable = map__det_insert(SymbolTable0,
 			qual(ModuleName, ArgName), ParamDecl) }
 	;
@@ -1935,6 +1774,8 @@ build_type(mlds__commit_type, _, _, gcc__jmpbuf_type_node) --> [].
 build_type(mlds__rtti_type(RttiName), InitializerSize, _GlobalInfo,
 		GCC_Type) -->
 	build_rtti_type(RttiName, InitializerSize, GCC_Type).
+build_type(mlds__unknown_type, _, _, _) -->
+	{ unexpected(this_file, "build_type: unknown type") }.
 
 :- pred build_mercury_type(mercury_type, builtin_type, gcc__type,
 		io__state, io__state).
@@ -2328,7 +2169,8 @@ maybe_add_module_qualifier(QualifiedName, AsmName0, AsmName) :-
 			% don't module-qualify main/2
 			%
 			Name = function(PredLabel, _, _, _),
-			PredLabel = pred(predicate, no, "main", 2)
+			PredLabel = pred(predicate, no, "main", 2,
+				model_det, no)
 		;
 			%
 			% don't module-qualify base_typeclass_infos
@@ -2369,7 +2211,7 @@ build_name(export(Name)) = Name.
 :- func build_data_name(mlds__data_name) = string.
 
 build_data_name(var(Name)) = MangledName :-
-	llds_out__name_mangle(Name, MangledName).
+	llds_out__name_mangle(ml_var_name_to_string(Name), MangledName).
 build_data_name(common(Num)) =
 	string__format("common_%d", [i(Num)]).
 build_data_name(rtti(RttiTypeId0, RttiName0)) = RttiAddrName :-
@@ -2505,10 +2347,7 @@ gen_stmt(DefnInfo0, block(Defns, Statements), _Context) -->
 	gcc__start_block,
 	{ FuncName = DefnInfo0 ^ func_name },
 	{ FuncName = qual(ModuleName, _) },
-	{ SymbolTable0 = DefnInfo0 ^ local_vars },
-	build_local_defns(Defns, DefnInfo0, ModuleName,
-		SymbolTable0, SymbolTable),
-	{ DefnInfo = DefnInfo0 ^ local_vars := SymbolTable },
+	build_local_defns(Defns, ModuleName, DefnInfo0, DefnInfo),
 	gen_statements(DefnInfo, Statements),
 	gcc__end_block.
 
@@ -2907,10 +2746,13 @@ gen_atomic_stmt(_DefnInfo, trail_op(_TrailOp), _) -->
 	%
 	% foreign language interfacing
 	%
-gen_atomic_stmt(_DefnInfo, target_code(_TargetLang, _Components),
+gen_atomic_stmt(_DefnInfo, inline_target_code(_TargetLang, _Components),
 		_Context) -->
 	% XXX we should support inserting inline asm code fragments
 	{ sorry(this_file, "target_code (for `--target asm')") }.
+gen_atomic_stmt(_DefnInfo, outline_foreign_proc(_, _, _), _Context) -->
+	% XXX I'm not sure if we need to handle this case
+	{ sorry(this_file, "outline_foreign_proc (for `--target asm')") }.
 
 	%
 	% gen_init_args generates code to initialize the fields
@@ -3035,7 +2877,7 @@ build_lval(mem_ref(PointerRval, _Type), DefnInfo, Expr) -->
 	build_rval(PointerRval, DefnInfo, PointerExpr),
 	gcc__build_pointer_deref(PointerExpr, Expr).
 
-build_lval(var(qual(ModuleName, VarName)), DefnInfo, Expr) -->
+build_lval(var(qual(ModuleName, VarName), _VarType), DefnInfo, Expr) -->
 	%
 	% Look up the variable in the symbol table.
 	% We try the symbol table for local vars first,
@@ -3058,14 +2900,15 @@ build_lval(var(qual(ModuleName, VarName)), DefnInfo, Expr) -->
 		% and is an RTTI enumeration constant
 		{ mercury_private_builtin_module(PrivateBuiltin) },
 		{ mercury_module_name_to_mlds(PrivateBuiltin) = ModuleName },
-		{ rtti_enum_const(VarName, IntVal) }
+		{ VarName = var_name(VarNameBase, _MaybeNum) },
+		{ rtti_enum_const(VarNameBase, IntVal) }
 	->
 		gcc__build_int(IntVal, Expr)
 	;
 		% check if it's private_builtin:dummy_var
 		{ mercury_private_builtin_module(PrivateBuiltin) },
 		{ mercury_module_name_to_mlds(PrivateBuiltin) = ModuleName },
-		{ VarName = "dummy_var" }
+		{ VarName = var_name("dummy_var", _) }
 	->
 		% if so, generate an extern declaration for it, and use that.
 		{ GCC_VarName = build_data_var_name(ModuleName, var(VarName)) },
@@ -3198,6 +3041,13 @@ build_unop_expr(unmkbody, Arg, Expr) -->
 	gcc__build_int(TagBits, TagBitsExpr),
 	gcc__build_binop(gcc__rshift_expr, 'MR_intptr_t',
 		Arg, TagBitsExpr, Expr).
+build_unop_expr(strip_tag, Arg, Expr) -->
+	globals__io_lookup_int_option(num_tag_bits, TagBits),
+	gcc__build_int((1 << TagBits) - 1, Mask),
+	gcc__build_unop(gcc__bit_not_expr, 'MR_intptr_t',
+		Mask, InvertedMask),
+	gcc__build_binop(gcc__bit_and_expr, 'MR_intptr_t',
+		Arg, InvertedMask, Expr).
 build_unop_expr(hash_string, Arg, Expr) -->
 	gcc__build_func_addr_expr(gcc__hash_string_func_decl,
 		HashStringFuncExpr),

@@ -163,7 +163,7 @@
 :- import_module mercury_to_mercury, mode_util, options, getopt, globals.
 :- import_module passes_aux, clause_to_proc, special_pred, inst_match.
 
-:- import_module int, set, string, require, tree234, multi_map.
+:- import_module int, set, string, require, multi_map.
 :- import_module assoc_list, std_util, term, varset, term_io.
 
 %-----------------------------------------------------------------------------%
@@ -1074,8 +1074,8 @@ typecheck_goal_2(unify(A, B0, Mode, Info, UnifyContext),
 	typecheck_unification(A, B0, B).
 typecheck_goal_2(switch(_, _, _, _), _) -->
 	{ error("unexpected switch") }.
-typecheck_goal_2(pragma_foreign_code(A, PredId, C, Args, E, F, G), 
-		pragma_foreign_code(A, PredId, C, Args, E, F, G)) -->
+typecheck_goal_2(foreign_proc(A, PredId, C, Args, E, F, G), 
+		foreign_proc(A, PredId, C, Args, E, F, G)) -->
 	% pragma_foreign_codes are automatically generated, so they
 	% will always be type-correct, but we need to do
 	% the type analysis in order to correctly compute the
@@ -1087,7 +1087,17 @@ typecheck_goal_2(pragma_foreign_code(A, PredId, C, Args, E, F, G),
 		OrigTypeAssignSet) },
 	typecheck_call_pred_id(PredId, Args),
 	perform_context_reduction(OrigTypeAssignSet).
-typecheck_goal_2(bi_implication(LHS0, RHS0), bi_implication(LHS, RHS)) -->
+typecheck_goal_2(shorthand(ShorthandGoal0), shorthand(ShorthandGoal)) -->
+	typecheck_goal_2_shorthand(ShorthandGoal0, ShorthandGoal).
+
+
+:- pred typecheck_goal_2_shorthand(shorthand_goal_expr, shorthand_goal_expr,
+				typecheck_info, typecheck_info).
+:- mode typecheck_goal_2_shorthand(in, out, typecheck_info_di, 
+				typecheck_info_uo) is det.
+
+typecheck_goal_2_shorthand(bi_implication(LHS0, RHS0), 
+		bi_implication(LHS, RHS)) -->
 	checkpoint("<=>"),
 	typecheck_goal(LHS0, LHS),
 	typecheck_goal(RHS0, RHS).
@@ -5928,11 +5938,14 @@ report_ambiguity_error(TypeCheckInfo, TypeAssign1, TypeAssign2) -->
 		prog_out__write_context(Context),
 		io__write_string("  Try adding explicit module qualifiers.\n")
 	; { VerboseErrors = yes } ->
-		io__write_string("\tYou will need to add an explicit type qualification to resolve the\n"),
-		io__write_string("\ttype ambiguity.\n"),
-		io__write_string("\tThe way to add an explicit type qualification\n"),
-		io__write_string("\tis to insert a call to a dummy predicate whose `:- pred'\n"),
-		io__write_string("\tdeclaration specifies the appropriate argument types.\n")
+		io__write_strings([
+"\tYou will need to add an explicit type qualification to resolve the\n",
+"\ttype ambiguity.\n",
+"\tThe way to add an explicit type qualification is to use ""with_type"".\n",
+"\tFor details see the ""Explicit type qualification"" sub-section\n",
+"\tof the ""Data-terms"" section of the ""Syntax"" chapter\n",
+"\tof the Mercury langauge reference manual.\n"
+		])
 	;
 		[]
 	).

@@ -307,8 +307,11 @@ ml_gen_static_const_arg(Var, static_cons(ConsId, ArgVars, StaticArgs), Rval) -->
 		% If this argument is something that would normally be allocated
 		% on the heap, just generate a reference to the static constant
 		% that we must have already generated for it.
+		% XXX Using mdls__array_type(mlds__generic_type) is probably 
+		% wrong when `--high-level-data' is enabled.
 		%
-		ml_gen_static_const_addr(Var, ConstAddrRval),
+		{ ConstType = mlds__array_type(mlds__generic_type) },	
+		ml_gen_static_const_addr(Var, ConstType, ConstAddrRval),
 		{ TagVal = 0 ->
 			TaggedRval = ConstAddrRval
 		;
@@ -468,7 +471,8 @@ ml_gen_closure(PredId, ProcId, EvalMethod, Var, ArgVars, ArgModes,
 	% the pointer will not be tagged (i.e. the tag will be zero)
 	%
 	{ Tag = 0 },
-	{ CtorName = "<closure>" },
+	{ CtorDefn = ctor_id("<closure>", 0) },
+	{ QualifiedCtorId = qual(MLDS_PrivateBuiltinModule, CtorDefn) },
 
 	%
 	% put all the extra arguments of the closure together
@@ -480,9 +484,9 @@ ml_gen_closure(PredId, ProcId, EvalMethod, Var, ArgVars, ArgModes,
 	% generate a `new_object' statement (or static constant)
 	% for the closure
 	%
-	ml_gen_new_object(no, Tag, CtorName, Var, ExtraArgRvals, ExtraArgTypes,
-			ArgVars, ArgModes, HowToConstruct, Context,
-			MLDS_Decls, MLDS_Statements).
+	ml_gen_new_object(no, Tag, QualifiedCtorId, Var, ExtraArgRvals, 
+		ExtraArgTypes, ArgVars, ArgModes, HowToConstruct, Context,
+		MLDS_Decls, MLDS_Statements).
 
 	%
 	% ml_gen_closure_wrapper:
@@ -614,7 +618,9 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 		WrapperBoxedArgTypes, WrapperArgModes, PredOrFunc, CodeModel) },
 
 	% then insert the `closure_arg' parameter
-	{ ClosureArg = data(var("closure_arg")) - mlds__generic_type },
+	{ ClosureArgType = mlds__generic_type },
+	{ ClosureArg = data(var(
+		var_name("closure_arg", no))) - ClosureArgType },
 	{ WrapperParams0 = mlds__func_params(WrapperArgs0, WrapperRetType) },
 	{ WrapperParams = mlds__func_params([ClosureArg | WrapperArgs0],
 		WrapperRetType) },
@@ -638,13 +644,14 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	% #endif
 	%	closure = closure_arg;
 	%
-	{ ClosureName = "closure" },
-	{ ClosureArgName = "closure_arg" },
+	{ ClosureName = mlds__var_name("closure", no) },
+	{ ClosureArgName = mlds__var_name("closure_arg", no) },
 	{ MLDS_Context = mlds__make_context(Context) },
+	{ ClosureType = mlds__generic_type },
 	{ ClosureDecl = ml_gen_mlds_var_decl(var(ClosureName),
-		mlds__generic_type, MLDS_Context) },
-	ml_qualify_var(ClosureName, ClosureLval),
-	ml_qualify_var(ClosureArgName, ClosureArgLval),
+		ClosureType, MLDS_Context) },
+	ml_gen_var_lval(ClosureName, ClosureType, ClosureLval),
+	ml_gen_var_lval(ClosureArgName, ClosureArgType, ClosureArgLval),
 	{ InitClosure = ml_gen_assign(ClosureLval, lval(ClosureArgLval),
 		Context) },
 
@@ -741,14 +748,14 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	{ WrapperFuncType = mlds__func_type(WrapperParams) },
 	ml_gen_info_add_extra_defn(WrapperFunc).
 
-:- func ml_gen_wrapper_head_var_names(int, int) = list(string).
+:- func ml_gen_wrapper_head_var_names(int, int) = list(mlds__var_name).
 ml_gen_wrapper_head_var_names(Num, Max) = Names :-
 	( Num > Max ->
 		Names = []
 	;
 		Name = string__format("wrapper_arg_%d", [i(Num)]),
 		Names1 = ml_gen_wrapper_head_var_names(Num + 1, Max),
-		Names = [Name | Names1]
+		Names = [mlds__var_name(Name, no) | Names1]
 	).
 
 	% ml_gen_wrapper_arg_lvals(HeadVarNames, Types, ArgModes,
@@ -782,7 +789,8 @@ ml_gen_wrapper_arg_lvals(Names, Types, Modes, PredOrFunc, CodeModel, Context,
 		ml_gen_wrapper_arg_lvals(Names1, Types1, Modes1,
 			PredOrFunc, CodeModel, Context,
 			Defns1, Lvals1, CopyOutLvals1),
-		ml_qualify_var(Name, VarLval),
+		ml_gen_type(Type, MLDS_Type),
+		ml_gen_var_lval(Name, MLDS_Type, VarLval),
 		=(Info),
 		{ ml_gen_info_get_module_info(Info, ModuleInfo) },
 		{ mode_to_arg_mode(ModuleInfo, Mode, Type, ArgMode) },
@@ -832,7 +840,6 @@ ml_gen_wrapper_arg_lvals(Names, Types, Modes, PredOrFunc, CodeModel, Context,
 				% output arguments are passed by reference,
 				% so we need to dereference them
 				%
-				ml_gen_type(Type, MLDS_Type),
 				{ Lval = mem_ref(lval(VarLval), MLDS_Type) },
 				{ CopyOutLvals = CopyOutLvals1 },
 				{ Defns = Defns1 }
@@ -1009,6 +1016,8 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 
 		%
 		% Generate a local static constant for this term.
+		% XXX Using mdls__array_type(mlds__generic_type) is probably 
+		% wrong when `--high-level-data' is enabled.
 		%
 		ml_gen_static_const_name(Var, ConstName),
 		{ ConstType = mlds__array_type(mlds__generic_type) },
@@ -1021,7 +1030,7 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 		% Assign the address of the local static constant to
 		% the variable.
 		%
-		ml_gen_static_const_addr(Var, ConstAddrRval),
+		ml_gen_static_const_addr(Var, ConstType, ConstAddrRval),
 		{ MaybeTag = no ->
 			TaggedRval = ConstAddrRval
 		;
@@ -1033,7 +1042,7 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 		{ MLDS_Statements = [AssignStatement] }
 	;
 		{ HowToConstruct = reuse_cell(CellToReuse) },
-		{ CellToReuse = cell_to_reuse(ReuseVar, ReuseConsId, _) },
+		{ CellToReuse = cell_to_reuse(ReuseVar, ReuseConsIds, _) },
 
 		{ MaybeConsId = yes(ConsId0) ->
 			ConsId = ConsId0
@@ -1041,10 +1050,17 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 			error("ml_gen_new_object: unknown cons id")
 		},
 
-		ml_variable_type(ReuseVar, ReuseType),
-		ml_cons_id_to_tag(ReuseConsId, ReuseType, ReuseConsIdTag),
-		{ ml_tag_offset_and_argnum(ReuseConsIdTag,
-				ReusePrimaryTag, _ReuseOffSet, _ReuseArgNum) },
+		list__map_foldl(
+			(pred(ReuseConsId::in, ReusePrimTag::out,
+					in, out) is det -->
+				ml_variable_type(ReuseVar, ReuseType),
+				ml_cons_id_to_tag(ReuseConsId, ReuseType,
+						ReuseConsIdTag),
+				{ ml_tag_offset_and_argnum(ReuseConsIdTag,
+						ReusePrimTag,
+						_ReuseOffSet, _ReuseArgNum) }
+			), ReuseConsIds, ReusePrimaryTags0),
+		{ list__remove_dups(ReusePrimaryTags0, ReusePrimaryTags) },
 
 		ml_cons_id_to_tag(ConsId, Type, ConsIdTag),
 		ml_field_names_and_types(Type, ConsId, ArgTypes, Fields),
@@ -1053,12 +1069,23 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 
 		ml_gen_var(Var, Var1Lval),
 		ml_gen_var(ReuseVar, Var2Lval),
-		{ ReusePrimaryTag = PrimaryTag ->
+
+		{ list__filter((pred(ReuseTag::in) is semidet :-
+				ReuseTag \= PrimaryTag
+			), ReusePrimaryTags, DifferentTags) },
+		{ DifferentTags = [] ->
 			Var2Rval = lval(Var2Lval)
-		;
+		; DifferentTags = [ReusePrimaryTag] ->
+				% The body operator is slightly more
+				% efficient than the strip_tag operator so
+				% we use it when the old tag is known.
 			Var2Rval = mkword(PrimaryTag,
 					binop(body, lval(Var2Lval),
 					ml_gen_mktag(ReusePrimaryTag)))
+		;
+			Var2Rval = mkword(PrimaryTag,
+					unop(std_unop(strip_tag),
+					lval(Var2Lval)))
 		},
 
 		{ MLDS_Statement = ml_gen_assign(Var1Lval, Var2Rval, Context) },
@@ -1131,9 +1158,8 @@ ml_gen_box_const_rval(Type, Rval, Context, ConstDefns, BoxedRval) -->
 		{ ml_gen_info_get_proc_id(MLDSGenInfo, ProcId) },
 		{ pred_id_to_int(PredId, PredIdNum) },
 		{ proc_id_to_int(ProcId, ProcIdNum) },
-		{ string__format("float_%d_%d_%d",
-			[i(PredIdNum), i(ProcIdNum), i(SequenceNum)],
-			ConstName) },
+		{ ConstName = mlds__var_name(string__format("float_%d_%d_%d",
+			[i(PredIdNum), i(ProcIdNum), i(SequenceNum)]), no) },
 		{ Initializer = init_obj(Rval) },
 		{ ConstDefn = ml_gen_static_const_defn(ConstName, Type,
 			Initializer, Context) },
@@ -1142,7 +1168,7 @@ ml_gen_box_const_rval(Type, Rval, Context, ConstDefns, BoxedRval) -->
 		% Return as the boxed rval the address of that constant,
 		% cast to mlds__generic_type
 		%
-		ml_qualify_var(ConstName, ConstLval),
+		ml_gen_var_lval(ConstName, Type, ConstLval),
 		{ ConstAddrRval = mem_addr(ConstLval) },
 		{ BoxedRval = unop(cast(mlds__generic_type), ConstAddrRval) }
 	;
@@ -1176,7 +1202,8 @@ ml_gen_static_const_name(Var, ConstName) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
 	{ VarName = ml_gen_var_name(VarSet, Var) },
-	ml_format_static_const_name(VarName, SequenceNum, ConstName).
+	ml_format_static_const_name(ml_var_name_to_string(VarName),
+		SequenceNum, ConstName).
 
 :- pred ml_lookup_static_const_name(prog_var, mlds__var_name,
 		ml_gen_info, ml_gen_info).
@@ -1186,24 +1213,36 @@ ml_lookup_static_const_name(Var, ConstName) -->
 	=(MLDSGenInfo),
 	{ ml_gen_info_get_varset(MLDSGenInfo, VarSet) },
 	{ VarName = ml_gen_var_name(VarSet, Var) },
-	ml_format_static_const_name(VarName, SequenceNum, ConstName).
+	ml_format_static_const_name(ml_var_name_to_string(VarName),
+		SequenceNum, ConstName).
 
 	% Generate an rval containing the address of the local static constant
 	% for a given variable.
 	%
-:- pred ml_gen_static_const_addr(prog_var, mlds__rval,
+:- pred ml_gen_static_const_addr(prog_var, mlds__type, mlds__rval,
 		ml_gen_info, ml_gen_info).
-:- mode ml_gen_static_const_addr(in, out, in, out) is det.
-ml_gen_static_const_addr(Var, ConstAddrRval) -->
+:- mode ml_gen_static_const_addr(in, in, out, in, out) is det.
+ml_gen_static_const_addr(Var, Type, ConstAddrRval) -->
 	ml_lookup_static_const_name(Var, ConstName),
-	ml_qualify_var(ConstName, ConstLval),
+	ml_gen_var_lval(ConstName, Type, ConstLval),
 	{ ConstAddrRval = mem_addr(ConstLval) }.
 
 :- pred ml_cons_name(cons_id, ctor_name, ml_gen_info, ml_gen_info).
 :- mode ml_cons_name(in, out, in, out) is det.
 
-ml_cons_name(ConsId, ConsName) -->
-	{ hlds_out__cons_id_to_string(ConsId, ConsName) }.
+ml_cons_name(HLDS_ConsId, QualifiedConsId) -->
+	( 
+		{ HLDS_ConsId = cons(SymName, Arity),
+	    	SymName = qualified(SymModuleName, ConsName) } 
+	->
+		{ ConsId = ctor_id(ConsName, Arity) },
+		{ ModuleName = mercury_module_name_to_mlds(SymModuleName) }
+	;
+		{ hlds_out__cons_id_to_string(HLDS_ConsId, ConsName) },
+		{ ConsId = ctor_id(ConsName, 0) },
+		{ ModuleName = mercury_module_name_to_mlds(unqualified("")) }
+	),
+	{ QualifiedConsId = qual(ModuleName, ConsId) }.
 
 :- pred ml_gen_cons_args(list(mlds__lval), list(prog_type),
 		list(uni_mode), module_info, list(mlds__rval)).

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -123,6 +123,12 @@
 :- pred cons_id_arity(cons_id, arity).
 :- mode cons_id_arity(in, out) is det.
 
+	% Get the arity of a cons_id. Return a `no' on those cons_ids
+	% where cons_id_arity/2 would normally abort. 
+
+:- pred cons_id_maybe_arity(cons_id, maybe(arity)).
+:- mode cons_id_maybe_arity(in, out) is det.
+
 	% The reverse conversion - make a cons_id for a functor.
 	% Given a const and an arity for the functor, create a cons_id.
 
@@ -182,6 +188,16 @@ cons_id_arity(base_typeclass_info_const(_, _, _, _), _) :-
 cons_id_arity(tabling_pointer_const(_, _), _) :-
 	error("cons_id_arity: can't get arity of tabling_pointer_const").
 
+cons_id_maybe_arity(cons(_, Arity), yes(Arity)).
+cons_id_maybe_arity(int_const(_), yes(0)).
+cons_id_maybe_arity(string_const(_), yes(0)).
+cons_id_maybe_arity(float_const(_), yes(0)).
+cons_id_maybe_arity(pred_const(_, _, _), no) .
+cons_id_maybe_arity(code_addr_const(_, _), no).
+cons_id_maybe_arity(type_ctor_info_const(_, _, _), no) .
+cons_id_maybe_arity(base_typeclass_info_const(_, _, _, _), no).
+cons_id_maybe_arity(tabling_pointer_const(_, _), no).
+
 make_functor_cons_id(term__atom(Name), Arity,
 		cons(unqualified(Name), Arity)).
 make_functor_cons_id(term__integer(Int), _, int_const(Int)).
@@ -217,9 +233,6 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 :- interface.
 
 	% The symbol table for types.
-
-:- type type_id		== 	pair(sym_name, arity).
-				% name, arity
 
 :- type type_table	==	map(type_id, hlds_type_defn).
 

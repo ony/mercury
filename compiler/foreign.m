@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -51,9 +51,9 @@
 	% this interface may change.
 :- pred foreign__extrude_pragma_implementation(foreign_language,
 		list(pragma_var), sym_name, pred_or_func, prog_context,
-		module_info, pragma_foreign_code_attributes,
+		module_info, pragma_foreign_proc_attributes,
 		pragma_foreign_code_impl, 
-		module_info, pragma_foreign_code_attributes,
+		module_info, pragma_foreign_proc_attributes,
 		pragma_foreign_code_impl).
 :- mode foreign__extrude_pragma_implementation(in, in, in, in, in,
 		in, in, in, out, out, out) is det.
@@ -121,6 +121,10 @@ foreign__extrude_pragma_implementation(TargetLang, _PragmaVars,
 			Impl = import(NewName, ReturnCode, VarString, no)
 			*/
 			error("unimplemented: calling MC++ foreign code from C backend")
+
+				
+		; ForeignLanguage = csharp,
+			error("unimplemented: calling C# foreign code from C backend")
 		; ForeignLanguage = c,
 			Impl = Impl0,
 			ModuleInfo = ModuleInfo0
@@ -131,9 +135,20 @@ foreign__extrude_pragma_implementation(TargetLang, _PragmaVars,
 		( ForeignLanguage = managed_cplusplus,
 			Impl = Impl0,
 			ModuleInfo = ModuleInfo0
+		; ForeignLanguage = csharp,
+			error("unimplemented: calling C# foreign code from MC++ backend")
 		; ForeignLanguage = c,
 			Impl = Impl0,
 			ModuleInfo = ModuleInfo0
+		)
+	; TargetLang = csharp ->
+		( ForeignLanguage = managed_cplusplus,
+			error("unimplemented: calling MC++ foreign code from MC++ backend")
+		; ForeignLanguage = csharp,
+			Impl = Impl0,
+			ModuleInfo = ModuleInfo0
+		; ForeignLanguage = c,
+			error("unimplemented: calling C foreign code from MC++ backend")
 		)
 	;
 		error("extrude_pragma_implementation: unsupported foreign language")
@@ -146,12 +161,15 @@ make_pred_name(c, SymName) =
 	"mercury_c__" ++ make_pred_name_rest(c, SymName).
 make_pred_name(managed_cplusplus, SymName) = 
 	"mercury_cpp__" ++ make_pred_name_rest(managed_cplusplus, SymName).
+make_pred_name(csharp, SymName) = 
+	"mercury_csharp__" ++ make_pred_name_rest(managed_cplusplus, SymName).
 
 :- func make_pred_name_rest(foreign_language, sym_name) = string.
 make_pred_name_rest(c, _SymName) = "some_c_name".
 make_pred_name_rest(managed_cplusplus, qualified(ModuleSpec, Name)) = 
 	make_pred_name_rest(managed_cplusplus, ModuleSpec) ++ "__" ++ Name.
 make_pred_name_rest(managed_cplusplus, unqualified(Name)) = Name.
+make_pred_name_rest(csharp, _SymName) = "some_csharp_name".
 
 
 make_pragma_import(PredInfo, ProcInfo, C_Function, Context,

@@ -527,7 +527,8 @@ gen_init_proc_id(ModuleInfo, RttiProcId) = Init :-
 	% construct an rval for the address of this procedure
 	% (this is similar to ml_gen_proc_addr_rval)
 	%
-        ml_gen_pred_label_from_rtti(RttiProcId, PredLabel, PredModule),
+        ml_gen_pred_label_from_rtti(ModuleInfo, RttiProcId, PredLabel,
+		PredModule),
 	ProcId = RttiProcId^proc_id,
         QualifiedProcLabel = qual(PredModule, PredLabel - ProcId),
 	Params = ml_gen_proc_params_from_rtti(ModuleInfo, RttiProcId),
@@ -564,7 +565,11 @@ gen_init_type_ctor_rep(Rep) = gen_init_builtin_const(Name) :-
 gen_init_builtin_const(Name) = init_obj(Rval) :-
         mercury_private_builtin_module(PrivateBuiltin),
 	MLDS_Module = mercury_module_name_to_mlds(PrivateBuiltin),
-	Rval = lval(var(qual(MLDS_Module, Name))).
+	% XXX These are actually enumeration constants.
+	% Perhaps we should be using an enumeration type here,
+	% rather than `mlds__native_int_type'.
+	Type = mlds__native_int_type,
+	Rval = lval(var(qual(MLDS_Module, var_name(Name, no)), Type)).
 
 %-----------------------------------------------------------------------------%
 %

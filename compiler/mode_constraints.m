@@ -237,8 +237,8 @@ number_robdd_variables_in_goal_2(InstGraph, _, _, NonLocals, Occurring,
 		par_conj(Goals0, SM), par_conj(Goals, SM)) -->
 	number_robdd_variables_in_goals(InstGraph, NonLocals, Occurring,
 		Goals0, Goals).
-number_robdd_variables_in_goal_2(_, _, _, _, _, bi_implication(_, _), _) -->
-	{ error("number_robdd_variables_in_goal_2: bi_implication") }.
+number_robdd_variables_in_goal_2(_, _, _, _, _, shorthand(_), _) -->
+	{ error("number_robdd_variables_in_goal_2: shorthand") }.
 
 number_robdd_variables_in_goal_2(InstGraph, GoalPath, ParentNonLocals, _,
 		Occurring, GoalExpr, GoalExpr) -->
@@ -259,7 +259,7 @@ number_robdd_variables_in_goal_2(InstGraph, GoalPath, ParentNonLocals, _,
 		ParentNonLocals, [VarL | Vars], Occurring).
 number_robdd_variables_in_goal_2(InstGraph, GoalPath, ParentNonLocals, _,
 		Occurring, GoalExpr, GoalExpr) -->
-	{ GoalExpr = pragma_foreign_code(_, _, _, Args, _, _, _) },
+	{ GoalExpr = foreign_proc(_, _, _, Args, _, _, _) },
 	number_robdd_variables_at_goal_path(InstGraph, GoalPath,
 		ParentNonLocals, Args, Occurring).
 
@@ -1139,10 +1139,11 @@ goal_constraints_2(GoalPath, NonLocals, _Vars,
 		), set__to_sorted_list(vars(Cond) `set__union` vars(Then)),
 		Constraint5, Constraint).
 
-goal_constraints_2(_,_,_,pragma_foreign_code(_,_,_,_,_,_,_),_,_,_) -->
+goal_constraints_2(_,_,_,foreign_proc(_,_,_,_,_,_,_),_,_,_) -->
 	{ error("NYI") }.
 goal_constraints_2(_,_,_,par_conj(_,_),_,_,_) --> { error("NYI") }.
-goal_constraints_2(_,_,_,bi_implication(_,_),_,_,_) --> { error("NYI") }.
+goal_constraints_2(_,_,_,shorthand(_),_,_,_) -->
+	{ error("mode_constraints:goal_constraints_2: shorthand") }.
 
 :- pred conj_constraints(set(prog_var)::in, mode_constraint::in,
 	mode_constraint::out, hlds_goals::in, hlds_goals::out,
@@ -1401,7 +1402,7 @@ keep_var(NonLocals, GoalVars, GoalPath, _AtomicGoals, InstGraph, RepVar) :-
 
 get_predicate_sccs(ModuleInfo, SCCs) :-
 	% Obtain the SCCs for the module.
-	dependency_graph__build_pred_dependency_graph(ModuleInfo, DepInfo),
+	dependency_graph__build_pred_dependency_graph(ModuleInfo, no, DepInfo),
 	hlds_dependency_info_get_dependency_ordering(DepInfo, SCCs0),
 
 	% Remove predicates that have mode declarations and place them in

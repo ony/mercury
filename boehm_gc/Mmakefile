@@ -59,13 +59,15 @@ clean_local:
 .PHONY: install
 install: install_headers install_lib install_dll
 
-# As well as installing gc.h, we also install gc_inl.h (and hence
-# private/gc_priv.h, private/gc_hdrs.h, and private/gcconfig.h),
-# for use with `-DINLINE_ALLOC'.
+# As well as installing gc.h (and hence gc_pthread_redirects.h and
+# gc_local_alloc.h), we also install gc_inl.h (and hence gc_priv.h,
+# gc_hdrs.h, gc_locks.h, and gcconfig.h), for use with `-DINLINE_ALLOC'.
 # If we're using DLLs, we also want libgc_dll.h and libgc_globals.h.
 
-HEADERS=gc.h include/gc_inl.h $(LIBGC_DLL_H) $(LIBGC_GLOBALS_H)
-PRIVATE_HEADERS=gc_priv.h gc_hdrs.h gcconfig.h
+HEADERS=include/gc.h include/gc_pthread_redirects.h include/gc_local_alloc.h \
+	include/gc_inl.h $(LIBGC_DLL_H) $(LIBGC_GLOBALS_H)
+PRIVATE_HEADERS=include/private/gc_priv.h include/private/gc_hdrs.h \
+	include/private/gc_locks.h include/private/gcconfig.h
 
 ifeq ($(USE_DLLS),yes)
 
@@ -88,10 +90,26 @@ install_dirs:
 	-[ -d $(INSTALL_MERC_GC_LIB_DIR) ] || \
 		mkdir -p $(INSTALL_MERC_GC_LIB_DIR)
 
+ifeq ($(findstring il,$(GRADE)),il)        
+
+# no need to build a garbage collector for the .NET backend.
+
+.PHONY: install_headers
+install_headers:
+
+.PHONY: install_lib
+install_lib:
+
+.PHONY: install_dll
+install_dll:
+
+else
+
 .PHONY: install_headers
 install_headers: install_dirs
 	cp $(HEADERS) $(INSTALL_INC_DIR)
 	cp $(PRIVATE_HEADERS) $(INSTALL_INC_DIR)/private
+
 
 .PHONY: install_lib
 install_lib: lib$(GC_GRADE).$A lib$(GC_GRADE).$(EXT_FOR_SHARED_LIB) install_dirs
@@ -101,5 +119,8 @@ install_lib: lib$(GC_GRADE).$A lib$(GC_GRADE).$(EXT_FOR_SHARED_LIB) install_dirs
 .PHONY: install_dll
 install_dll:
 	-[ -f libpar_gc.dll ] && cp `vpath_find libpar_gc.dll` $(INSTALL_BINDIR)
+
+endif
+
 
 #-----------------------------------------------------------------------------#

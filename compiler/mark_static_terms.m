@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -103,12 +103,12 @@ goal_expr_mark_static_terms(unify(A,B,C, Unification0, E),
 	unification_mark_static_terms(Unification0, Unification,
 		SI0, SI).
 
-goal_expr_mark_static_terms(pragma_foreign_code(A,B,C,D,E,F,G),
-		pragma_foreign_code(A,B,C,D,E,F,G), SI, SI).
+goal_expr_mark_static_terms(foreign_proc(A,B,C,D,E,F,G),
+		foreign_proc(A,B,C,D,E,F,G), SI, SI).
 
-goal_expr_mark_static_terms(bi_implication(_, _), _, _, _) :-
+goal_expr_mark_static_terms(shorthand(_), _, _, _) :-
 	% these should have been expanded out by now
-	error("fill_expr_slots: unexpected bi_implication").
+	error("fill_expr_slots: unexpected shorthand").
 
 :- pred conj_mark_static_terms(hlds_goals::in, hlds_goals::out,
 		static_info::in, static_info::out) is det.

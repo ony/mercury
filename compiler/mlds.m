@@ -87,9 +87,19 @@
 % 4. Variables
 %
 % MLDS variable names are determined by the HLDS variable name and
-% (to avoid ambiguity) variable number.
+% (in some cases, to avoid ambiguity) variable number.  The MLDS
+% variable name is a structured term that keeps the original variable
+% name separate from the distinguishing variable number. 
+% It is up to each individual backend to mangle the variable name
+% and number to avoid ambiguity where necessary.
 % All references to MLDS variables must however be fully qualified
 % with the name of the enclosing entity that defines them.
+%
+% [Rationale: the reason for keeping structured names rather than
+% mangled names at the MLDS level is that in some cases the mangling is
+% undesirable, as the original HLDS variable names are what is required
+% (for instance, when interfacing with foreign code which includes
+% references to the original HLDS variables names).]
 
 % 5. Global data
 %
@@ -268,7 +278,7 @@
 :- interface.
 
 :- import_module hlds_module, hlds_pred, hlds_data.
-:- import_module prog_data, builtin_ops, rtti.
+:- import_module prog_data, builtin_ops, rtti, code_model.
 :- import_module type_util.
 
 % To avoid duplication, we use a few things from the LLDS
@@ -387,7 +397,7 @@
 	%	constant or variable
 	%	function
 	%	class, including
-	%		package (class with only static members)
+	%		package (class with only static (one_copy) members)
 	%		interface (abstract class, no data members)
 	%		struct (value class)
 	%		enum
@@ -414,6 +424,8 @@
 			mlds__class_defn
 		).
 
+	% Note that `one_copy' variables *must* have an initializer
+	% (the GCC back-end relies on this).
 :- type mlds__initializer
 	--->	init_obj(mlds__rval)
 	;	init_struct(list(mlds__initializer))
@@ -547,7 +559,14 @@
 
 	;	mlds__pseudo_type_info_type
 	
-	;	mlds__rtti_type(rtti_name).
+	;	mlds__rtti_type(rtti_name)
+
+		% A type used by the ML code generator for references 
+		% to variables that have yet to be declared.  This occurs 
+		% once in ml_code_util.m where references to env_ptr's are 
+		% generated but the declaration of these env_ptr's does not 
+		% occur until the ml_elim_nested pass.
+	;	mlds__unknown_type.
 
 :- type mercury_type == prog_data__type.
 
@@ -565,16 +584,32 @@
 :- type mlds__decl_flags.
 
 :- type access
-	--->	public
-	;	protected
-	;	private
-	;	default.	% Java "default" access: accessible to anything
+	%
+	% used for class members (this includes globals,
+	% which are actually members of the top-level package)
+	%
+	--->	public		% accessible to anyone
+	;	protected	% only accessible to the class and to
+				% derived classes
+	;	private		% only accessible to the class
+	;	default		% Java "default" access: accessible to anything
 				% defined in the same package.
+	%
+	% used for entities defined in a block/2 statement,
+	% i.e. local variables and nested functions
+	%
+	;	local		% only accessible within the block
+				% in which the entity (variable or
+				% nested function) is defined
+	.
 
 :- type per_instance
 	--->	one_copy	% i.e. "static" storage duration
 				% (but not necessarily static linkage)
 				% or static member function
+				% Note that `one_copy' variables
+				% *must* have an initializer
+				% (the GCC back-end relies on this.)
 	;	per_instance.	% i.e. "auto" local variable in function,
 				% or non-static member of class.
 
@@ -986,7 +1021,7 @@ XXX Full exception handling support is not yet implemented.
 	;	mark_hp(mlds__lval)
 			% Tell the heap sub-system to store a marker
 			% (for later use in restore_hp/1 instructions)
-			% in the specified lval
+			% in the specified lval.
 			%
 			% It's OK for the target to treat this as a no-op,
 			% and probably that is what most targets will do.
@@ -1009,12 +1044,37 @@ XXX Full exception handling support is not yet implemented.
 	% foreign language interfacing
 	%
 
-	;	target_code(target_lang, list(target_code_component))
+	;	inline_target_code(target_lang, list(target_code_component))
 			% Do whatever is specified by the
 			% target_code_components, which can be any piece
 			% of code in the specified target language (C,
 			% assembler, or whatever) that does not have any
 			% non-local flow of control.
+			% This is implemented by embedding the target
+			% code in the output stream of instructions or
+			% statements.
+	;	outline_foreign_proc(
+				foreign_language,
+					% the foreign language this code is
+					% written in.
+				list(mlds__lval),
+					% where to store return value(s)
+				string
+					% the user's foreign language code
+					% fragment
+		)
+			% Do whatever is specified by the string, which
+			% can be any piece of code in the specified
+			% foreign language (C#, managed C++, or
+			% whatever).
+			% This is implemented by calling an externally
+			% defined function, which the backend must
+			% generate the definition for (in some other
+			% file perhaps) and calling it.
+			% The lvals are use to generate the appropriate
+			% forwarding code.
+			% XXX we should also store the list of mlds__rvals
+			% where the input values come from, and use
 	.
 
 	%
@@ -1048,8 +1108,13 @@ XXX Full exception handling support is not yet implemented.
 	;	name(mlds__qualified_entity_name)
 	.
 
-	% XXX I'm not sure what representation we should use here
-:- type ctor_name == string.
+	%
+	% constructor id
+	%
+:- type ctor_name == mlds__qualified_ctor_id.
+:- type mlds__ctor_id ---> ctor_id(mlds__class_name, arity).
+:- type mlds__qualified_ctor_id ==
+	mlds__fully_qualified_name(mlds__ctor_id).
 
 	%
 	% trail management
@@ -1095,7 +1160,10 @@ XXX Full exception handling support is not yet implemented.
 	% An mlds__var represents a variable or constant.
 	%
 :- type mlds__var == mlds__fully_qualified_name(mlds__var_name).
-:- type mlds__var_name == string.
+:- type mlds__var_name ---> 
+		mlds__var_name(string, maybe(int)). 
+		% var name and perhaps a unique number to be added as a
+		% suffix where necessary.
 
 	%
 	% An lval represents a data location or variable that can be used
@@ -1148,8 +1216,7 @@ XXX Full exception handling support is not yet implemented.
 	% variables
 	% these may be local or they may come from some enclosing scope
 	% the variable name should be fully qualified
-	%
-	;	var(mlds__var)
+	;	var(mlds__var, mlds__type) 
 	
 	.
 
@@ -1308,7 +1375,10 @@ XXX Full exception handling support is not yet implemented.
 				% if different to the defining module
 			maybe(mercury_module_name),
 			string,			% name
-			arity			% arity
+			arity,			% arity
+			code_model,		% code model
+			bool			% function without return value
+						% (i.e. non-default mode)
 		)
 			
 	;	special_pred(
@@ -1421,7 +1491,8 @@ access_bits(public)  	= 0x00.
 access_bits(private) 	= 0x01.
 access_bits(protected)	= 0x02.
 access_bits(default)	= 0x03.
-% 0x4 - 0x7 reserved
+access_bits(local) 	= 0x04.
+% 0x5 - 0x7 reserved
 
 :- func access_mask = int.
 access_mask = 0x07.

@@ -287,8 +287,8 @@ mode_ordering__goal_2(if_then_else(Locals, Cond0, Then0, Else0, SM),
 
 	{ combine_mode_vars_sets(Else ^ snd, GoalInfo3, GoalInfo) }.
 
-mode_ordering__goal_2(pragma_foreign_code(A, B, C, ArgVars, Modes, F, G),
-		pragma_foreign_code(A, B, C, ArgVars, Modes, F, G),
+mode_ordering__goal_2(foreign_proc(A, B, C, ArgVars, Modes, F, G),
+		foreign_proc(A, B, C, ArgVars, Modes, F, G),
 		_GoalInfo0, _GoalInfo) -->
 	% set_atomic_prod_vars(ProdVars, GoalInfo0, GoalInfo1),
 	{ error("mode_ordering__goal_2: pragma_foreign_code NYI") }.
@@ -298,8 +298,8 @@ mode_ordering__goal_2(par_conj(Goals0, SM), par_conj(Goals, SM), GoalInfo0,
 	list__map_foldl(mode_ordering__goal, Goals0, Goals),
 	{ union_mode_vars_sets(Goals, GoalInfo0, GoalInfo) }.
 
-mode_ordering__goal_2(bi_implication(_, _), _, _, _) -->
-	{ error("mode_ordering__goal_2: bi_implication") }.
+mode_ordering__goal_2(shorthand(_), _, _, _) -->
+	{ error("mode_ordering__goal_2: shorthand") }.
 
 :- pred mode_ordering__disj(hlds_goals::in, hlds_goal_info::in,
 		hlds_goal_info::out) is det.

@@ -284,6 +284,10 @@
 				% for unification predicates (see comments in
 				% unify_proc.m)
 	;	exported	% defined in the interface of this module
+	;	opt_exported	% a local item for which the import-status
+				% has been changed due to its presence in
+				% the .opt files 
+				% (intermod__adjust_pred_import_status)
 	;	abstract_exported % describes a type with only an abstract
 				% declaration exported
 	;	pseudo_exported % the converse of pseudo_imported
@@ -418,6 +422,10 @@
 	;	promised_pure	% Requests that calls to this predicate be
 				% transformed as usual, despite any impure
 				% or semipure markers present.
+	;	promised_semipure
+				% Requests that calls to this predicate be
+				% treated as semipure, despite any impure
+				% calls in the body.
 
 				% The terminates and does_not_terminate
 				% pragmas are kept as markers to ensure
@@ -640,6 +648,8 @@
 	% exported_to_submodules or pseudo_exported
 :- pred pred_info_is_exported(pred_info::in) is semidet.
 
+:- pred pred_info_is_opt_exported(pred_info::in) is semidet.
+
 :- pred pred_info_is_exported_to_submodules(pred_info::in) is semidet.
 
 :- pred pred_info_is_pseudo_exported(pred_info::in) is semidet.
@@ -736,8 +746,8 @@
 :- pred pred_info_get_purity(pred_info, purity).
 :- mode pred_info_get_purity(in, out) is det.
 
-:- pred pred_info_get_promised_pure(pred_info, bool).
-:- mode pred_info_get_promised_pure(in, out) is det.
+:- pred pred_info_get_promised_purity(pred_info, purity).
+:- mode pred_info_get_promised_purity(in, out) is det.
 
 :- pred pred_info_infer_modes(pred_info).
 :- mode pred_info_infer_modes(in) is semidet.
@@ -822,6 +832,7 @@ status_is_exported(abstract_imported,		no).
 status_is_exported(pseudo_imported,		no).
 status_is_exported(opt_imported,		no).
 status_is_exported(exported,			yes).
+status_is_exported(opt_exported,		yes).
 status_is_exported(abstract_exported,		yes).
 status_is_exported(pseudo_exported,		yes).
 status_is_exported(exported_to_submodules,	yes).
@@ -837,6 +848,7 @@ status_defined_in_this_module(abstract_imported,	no).
 status_defined_in_this_module(pseudo_imported,		no).
 status_defined_in_this_module(opt_imported,		no).
 status_defined_in_this_module(exported,			yes).
+status_defined_in_this_module(opt_exported,		yes).
 status_defined_in_this_module(abstract_exported,	yes).
 status_defined_in_this_module(pseudo_exported,		yes).
 status_defined_in_this_module(exported_to_submodules,	yes).
@@ -1043,6 +1055,7 @@ pred_info_exported_procids(PredInfo, ProcIds) :-
 	pred_info_import_status(PredInfo, ImportStatus),
 	(
 		( ImportStatus = exported
+		; ImportStatus = opt_exported
 		; ImportStatus = exported_to_submodules
 		)
 	->
@@ -1054,6 +1067,7 @@ pred_info_exported_procids(PredInfo, ProcIds) :-
 	;
 		ProcIds = []
 	).
+
 
 pred_info_clauses_info(PredInfo, PredInfo^clauses_info).
 
@@ -1107,6 +1121,10 @@ pred_info_is_exported(PredInfo) :-
 	pred_info_import_status(PredInfo, ImportStatus),
 	ImportStatus = exported.
 
+pred_info_is_opt_exported(PredInfo) :-
+	pred_info_import_status(PredInfo, ImportStatus),
+	ImportStatus = opt_exported.
+
 pred_info_is_exported_to_submodules(PredInfo) :-
 	pred_info_import_status(PredInfo, ImportStatus),
 	ImportStatus = exported_to_submodules.
@@ -1118,6 +1136,8 @@ pred_info_is_pseudo_exported(PredInfo) :-
 procedure_is_exported(PredInfo, ProcId) :-
 	(
 		pred_info_is_exported(PredInfo)
+	;
+		pred_info_is_opt_exported(PredInfo)
 	;
 		pred_info_is_exported_to_submodules(PredInfo)
 	;
@@ -1155,20 +1175,22 @@ pred_info_requested_no_inlining(PredInfo0) :-
 
 pred_info_get_purity(PredInfo0, Purity) :-
 	pred_info_get_markers(PredInfo0, Markers),
-	(   check_marker(Markers, (impure)) ->
+	( check_marker(Markers, (impure)) ->
 		Purity = (impure)
-	;   check_marker(Markers, (semipure)) ->
+	; check_marker(Markers, (semipure)) ->
 		Purity = (semipure)
 	;
 		Purity = pure
 	).
 
-pred_info_get_promised_pure(PredInfo0, Promised) :-
+pred_info_get_promised_purity(PredInfo0, PromisedPurity) :-
 	pred_info_get_markers(PredInfo0, Markers),
-	(   check_marker(Markers, promised_pure) ->
-		Promised = yes
+	( check_marker(Markers, promised_pure) ->
+		PromisedPurity = pure
+	; check_marker(Markers, promised_semipure) ->
+		PromisedPurity = (semipure)
 	;
-		Promised = no
+		PromisedPurity = (impure)
 	).
 
 pred_info_infer_modes(PredInfo) :-

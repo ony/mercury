@@ -6,7 +6,7 @@
 
 /*****************************************************************
   File     : bryant.c
-  RCS      : $Id: bryant.c,v 1.1.12.2 2001-04-26 02:13:50 dmo Exp $
+  RCS      : $Id: bryant.c,v 1.1.12.3 2001-05-15 01:50:04 dmo Exp $
   Author   : Peter Schachte, based on code by Tania Armstrong
   Purpose  : Manipulation of boolean functions
 
@@ -96,6 +96,7 @@
 
 *****************************************************************/
 
+#include "mercury_imp.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -105,7 +106,6 @@
 
 
 #ifdef BRYANT_CONSERVATIVE_GC
-  #include "mercury_imp.h"
 
   /* Don't use pools of nodes with the conservative GC. */
   #undef POOL

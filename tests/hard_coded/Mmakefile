@@ -12,7 +12,6 @@ ORDINARY_PROGS=	\
 	agg \
 	bidirectional \
 	bigtest \
-	bitset \
 	boyer \
 	c_write_string \
 	cc_and_non_cc_test \
@@ -31,6 +30,7 @@ ORDINARY_PROGS=	\
 	cycles2 \
 	deep_copy \
 	deep_copy_bug \
+	deep_copy_exist \
 	det_in_semidet_cntxt \
 	division_test \
 	dupcall_types_bug \
@@ -69,6 +69,7 @@ ORDINARY_PROGS=	\
 	impossible_unify \
 	impure_prune \
 	integer_test \
+	intermod_c_code \
 	merge_and_remove_dups \
 	minint_bug \
 	mode_choice \
@@ -107,6 +108,7 @@ ORDINARY_PROGS=	\
 	string_loop \
 	term_io_test \
 	term_to_univ_test \
+	test_bitset \
 	test_imported_no_tag \
 	tim_qual1 \
 	tuple_test \
@@ -121,6 +123,8 @@ ORDINARY_PROGS=	\
 	write_reg1 \
 	write_reg2
 
+# XXX csharp_test doesn't work yet (not even in il* grades)
+#
 # XXX copy_pred does not work in the hl* grades (e.g. hlc.gc),
 # because the MLDS back-end doesn't generate the closure layout
 # information needed to copy closures.
@@ -175,6 +179,8 @@ MCFLAGS-func_test	=	--infer-all
 MCFLAGS-ho_order	=	--optimize-higher-order
 MCFLAGS-ho_order2	=	--optimize-higher-order
 MCFLAGS-no_fully_strict	=	--no-fully-strict
+MCFLAGS-intermod_c_code =	--intermodule-optimization
+MCFLAGS-intermod_c_code2 =	--intermodule-optimization
 MCFLAGS-nondet_ctrl_vn	=	--optimize-value-number
 MCFLAGS-redoip_clobber	=	--no-inlining
 MCFLAGS-rnd		=	-O6

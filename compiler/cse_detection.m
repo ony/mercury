@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -213,8 +213,8 @@ detect_cse_in_goal_1(Goal0 - GoalInfo, InstMap0, CseInfo0, CseInfo, Redo,
 	instmap::in, cse_info::in, cse_info::out, bool::out,
 	hlds_goal_expr::out) is det.
 
-detect_cse_in_goal_2(pragma_foreign_code(A,B,C,D,E,F,G), _, _, CseInfo,
-	CseInfo, no, pragma_foreign_code(A,B,C,D,E,F,G)).
+detect_cse_in_goal_2(foreign_proc(A,B,C,D,E,F,G), _, _, CseInfo,
+	CseInfo, no, foreign_proc(A,B,C,D,E,F,G)).
 
 detect_cse_in_goal_2(generic_call(A,B,C,D), _, _, CseInfo, CseInfo,
 	no, generic_call(A,B,C,D)).
@@ -285,9 +285,9 @@ detect_cse_in_goal_2(if_then_else(Vars, Cond0, Then0, Else0, SM), GoalInfo,
 	detect_cse_in_ite(NonLocalsList, Vars, Cond0, Then0, Else0, GoalInfo,
 		SM, InstMap, CseInfo0, CseInfo, Redo, Goal).
 
-detect_cse_in_goal_2(bi_implication(_, _), _, _, _, _, _, _) :-
+detect_cse_in_goal_2(shorthand(_), _, _, _, _, _, _) :-
 	% these should have been expanded out by now
-	error("detect_cse_in_goal_2: unexpected bi_implication").
+	error("detect_cse_in_goal_2: unexpected shorthand").
 
 %-----------------------------------------------------------------------------%
 

@@ -1068,7 +1068,7 @@ polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
 	{ conj_list_to_goal(GoalList, GoalInfo, Goal) }.
 
 polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
-	{ Goal0 = pragma_foreign_code(Attributes, PredId, ProcId,
+	{ Goal0 = foreign_proc(Attributes, PredId, ProcId,
 		ArgVars0, ArgInfo0, OrigArgTypes0, PragmaCode0) },
 	polymorphism__process_call(PredId, ArgVars0, GoalInfo,
 		ArgVars, ExtraVars, CallGoalInfo, ExtraGoals),
@@ -1120,7 +1120,7 @@ polymorphism__process_goal_expr(Goal0, GoalInfo, Goal) -->
 		%
 		% plug it all back together
 		%
-		{ Call = pragma_foreign_code(Attributes, PredId, 
+		{ Call = foreign_proc(Attributes, PredId, 
 			ProcId, ArgVars, ArgInfo, OrigArgTypes, PragmaCode) - 
 			CallGoalInfo },
 		{ list__append(ExtraGoals, [Call], GoalList) },
@@ -1156,9 +1156,9 @@ polymorphism__process_goal_expr(if_then_else(Vars, A0, B0, C0, SM), GoalInfo,
 	polymorphism__process_goal(A0, A),
 	polymorphism__process_goal(B0, B),
 	polymorphism__process_goal(C0, C).
-polymorphism__process_goal_expr(bi_implication(_, _), _, _) -->
+polymorphism__process_goal_expr(shorthand(_), _, _) -->
 	% these should have been expanded out by now
-	{ error("polymorphism__process_goal_expr: unexpected bi_implication") }.
+	{ error("polymorphism__process_goal_expr: unexpected shorthand") }.
 
 
 	% type_info_vars prepends a comma seperated list of variables
@@ -1599,10 +1599,12 @@ polymorphism__process_existq_unify_functor(CtorDefn, IsConstruction,
 			PolyInfo3, PolyInfo),
 
 	%
-	% the type_class_info variables go before the type_info variables
+	% the type_class_info variables go AFTER the type_info variables
+	% (for consistency with the order for argument passing,
+	% and because the RTTI support in the runtime system relies on it)
 	%
-	list__append(ExtraTypeClassGoals, ExtraTypeInfoGoals, ExtraGoals),
-	list__append(ExtraTypeClassVars, ExtraTypeInfoVars, ExtraVars).
+	list__append(ExtraTypeInfoGoals, ExtraTypeClassGoals, ExtraGoals),
+	list__append(ExtraTypeInfoVars, ExtraTypeClassVars, ExtraVars).
 
 %-----------------------------------------------------------------------------%
 
@@ -3318,9 +3320,17 @@ expand_one_body(hlds_class_proc(PredId, ProcId), ProcNum0, ProcNum,
 	(
 		Detism0 = yes(Detism1)
 	->
-		Detism = Detism1
+		Detism = Detism1,
+		ModuleInfo1 = ModuleInfo0
 	;
-		error("missing determinism decl. How did we get this far?")
+		% Omitting the determinism for a method is not allowed.
+		% But make_hlds.m will have already detected and reported
+		% the error.  So here we can just pick some value at random;
+		% hopefully something that won't cause flow-on errors.
+		% We also mark the predicate as invalid, also to avoid
+		% flow-on errors.
+		Detism = nondet,
+		module_info_remove_predid(ModuleInfo0, PredId, ModuleInfo1)
 	),
 
 		% Work out which argument corresponds to the constraint which
@@ -3365,7 +3375,7 @@ expand_one_body(hlds_class_proc(PredId, ProcId), ProcNum0, ProcNum,
 	),
 
 	map__det_update(PredTable0, PredId, PredInfo, PredTable),
-	module_info_set_preds(ModuleInfo0, PredTable, ModuleInfo),
+	module_info_set_preds(ModuleInfo1, PredTable, ModuleInfo),
 
 	ProcNum is ProcNum0 + 1.
 	

@@ -33,11 +33,14 @@ case "$CC" in
     *gcc*)
 	ANSI_OPTS="-ansi"
 	CHECK_OPTS="
-	      -Wall -Wwrite-strings -Wpointer-arith
+	      -Wall -Wwrite-strings
 	      -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wno-unused"
 
 # Note: we do not enable the following gcc warnings:
 # -Wredundant-decls	causes too many complaints in system header files
+# -Wpointer-arith	causes too many complaints in system header files
+#			(fixed in gcc 3.0, though, so at some point
+#			we should re-enable this)
 # -Wtraditional		we don't care about compatibility with pre-ANSI C
 # -Wconversion		really only intended to help people using \`unprotoize'
 # -Waggregate-return	not useful, IMHO
@@ -303,6 +306,11 @@ case $use_trail in
 	false)		TRAIL_OPTS="" ;;
 esac
 
+case $reserve_tag in
+	true)           RESERVE_TAG_OPTS="-DMR_RESERVE_TAG" ;;
+	false)          RESERVE_TAG_OPTS="" ;;
+esac
+
 case $use_minimal_model in
 	true)		MINIMAL_MODEL_OPTS="-DMR_USE_MINIMAL_MODEL" ;;
 	false)		MINIMAL_MODEL_OPTS="" ;;
@@ -367,7 +375,7 @@ LIBRARY_PATH="$NONSHARED_LIB_DIR:/usr/lib/nonshared:$LIBRARY_PATH"
 			;;
 		esac
 		;;
-	i?86-*)
+	i*86-*)
 		# the use of stack_pointer in the ASM_JUMP macro
 		# defined in runtime/goto.h causes lots of warnings
 		# about using possibly uninitialized variables;
@@ -423,7 +431,7 @@ case $COMPILER in gcc)
 					ARCH_OPTS="$ARCH_OPTS -O1" ;;
 				esac
 			esac ;;
-		i?86*)
+		i*86*)
 			case "$*" in
 			*" call_gen.c "*|*" modules.dir/call_gen"*".c "*)
 				ARCH_OPTS="$ARCH_OPTS -O0" ;;
@@ -476,7 +484,8 @@ ALL_CC_OPTS="$MERC_ALL_C_INCL_DIRS $ANSI_OPTS $CHECK_OPTS $OPT_OPTS \
 		$HLC_OPTS $HLD_OPTS $GCC_OPTS $GC_OPTS $DEFINE_OPTS \
 		$TRACE_OPTS $STACK_TRACE_OPTS $LLDEBUG_OPTS $C_DEBUG_OPTS \
 		$PROF_TIME_OPTS $PROF_CALLS_OPTS $PROF_MEMORY_OPTS \
-		$INLINE_ALLOC_OPTS $TRAIL_OPTS $MINIMAL_MODEL_OPTS \
+		$INLINE_ALLOC_OPTS $TRAIL_OPTS $RESERVE_TAG_OPTS \
+		$MINIMAL_MODEL_OPTS \
 		$SPLIT_OPTS $THREAD_OPTS $PICREG_OPTS $ARCH_OPTS $ARG_OPTS"
 
 case $verbose in true)

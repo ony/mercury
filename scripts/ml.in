@@ -91,6 +91,10 @@ case $FULLARCH in
 		# `gcc -s' is broken in gnu-win32
 		strip=false
 		;;
+	*-darwin*)
+		# `gcc -s' doesn't seem to do the right thing on Mac OS X
+		strip=false
+		;;
 	*)
 		strip=true
 		;;
@@ -361,7 +365,7 @@ esac
 # it will also have set mercury_libs.
 case $mercury_libs in default)
 	mercury_libs=shared
-	case $FULLARCH in i?86-*-linux*|i?86-*-freebsd*|i?86-*-cygwin*)
+	case $FULLARCH in i*86-*-linux*|i*86-*-freebsd*|i*86-*-cygwin*)
 		# shared libraries are not the default on Linux
 		# -- see README.Linux
 		# Likewise for FreeBSD
@@ -378,7 +382,7 @@ esac
 # (shared on most systems).
 case $all_libs in default)
 	all_libs=shared
-	case $FULLARCH in i?86-*-linux*|i?86-*-freebsd*|i?86-*-cygwin*)
+	case $FULLARCH in i*86-*-linux*|i*86-*-freebsd*|i*86-*-cygwin*)
 		# shared libraries are not the default on Linux
 		# -- see README.Linux
 		# Likewise for FreeBSD

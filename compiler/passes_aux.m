@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -146,17 +146,8 @@ about unbound type variables.
 
 :- pred report_error(string::in, io__state::di, io__state::uo) is det.
 
-	% Invoke a shell script.
-:- pred invoke_shell_command(string::in, bool::out,
-	io__state::di, io__state::uo) is det.
-
-	% Invoke an executable.
-:- pred invoke_system_command(string::in, bool::out,
-	io__state::di, io__state::uo) is det.
-
 :- pred maybe_report_sizes(module_info::in, io__state::di, io__state::uo)
 	is det.
-
 
 :- pred report_pred_proc_id(module_info, pred_id, proc_id, 
 		maybe(prog_context), prog_context, io__state, io__state).
@@ -165,15 +156,45 @@ about unbound type variables.
 :- pred report_pred_name_mode(pred_or_func, string, list((mode)),
 				io__state, io__state).
 :- mode report_pred_name_mode(in, in, in, di, uo) is det.
-	
+
+	% Write to a given filename, giving appropriate status
+	% messages and error messages if the file cannot be opened.
+:- pred output_to_file(string, pred(io__state, io__state),
+		io__state, io__state).
+:- mode output_to_file(in, pred(di, uo) is det, di, uo) is det.
+
+	% Same as output_to_file/4 above, but allow the writing predicate
+	% to generate some output.
+:- pred output_to_file(string, pred(T, io__state, io__state),
+				maybe(T), io__state, io__state).
+:- mode output_to_file(in, pred(out, di, uo) is det, out, di, uo) is det.
+
+
+%-----------------------------------------------------------------------------%
+
+:- type quote_char
+	--->	forward		% '
+	;	double.		% "
+
+	% Invoke a shell script.
+:- pred invoke_shell_command(string::in, bool::out,
+	io__state::di, io__state::uo) is det.
+
+	% Invoke an executable.
+:- pred invoke_system_command(string::in, bool::out,
+	io__state::di, io__state::uo) is det.
+
+	% Make a command string, which needs to be invoked in a shell
+	% environment.
+:- pred make_command_string(string::in, quote_char::in, string::out) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
 :- import_module options, globals, hlds_out, prog_out, mode_util.
 :- import_module mercury_to_mercury.
-:- import_module varset.
-:- import_module int, map, tree234, require, string.
+:- import_module int, string, map, require, varset.
 
 process_all_nonimported_procs(Task, ModuleInfo0, ModuleInfo) -->
 	{ True = lambda([_PredInfo::in] is semidet, true) },
@@ -404,13 +425,7 @@ passes_aux__handle_errors(WarnCnt, ErrCnt, ModuleInfo1, ModuleInfo8,
 	).
 
 invoke_shell_command(Command0, Succeeded) -->
-	{
-		use_win32
-	->
-		string__append_list(["sh -c '", Command0, " '"], Command)
-	;
-		Command = Command0
-	},
+	{ make_command_string(Command0, forward, Command) },
 	invoke_system_command(Command, Succeeded).
 
 invoke_system_command(Command, Succeeded) -->
@@ -433,6 +448,20 @@ invoke_system_command(Command, Succeeded) -->
 	;	
 		report_error("unable to invoke system command."),
 		{ Succeeded = no }
+	).
+
+make_command_string(String0, QuoteType, String) :-
+	( use_win32 ->
+		(
+			QuoteType = forward,
+			Quote = " '"
+		;
+			QuoteType = double,
+			Quote = " \""
+		),
+		string__append_list(["sh -c ", Quote, String0, Quote], String)
+	;
+		String = String0
 	).
 
 	% Are we compiling in a win32 environment?
@@ -536,5 +565,33 @@ report_pred_name_mode(function, FuncName, ArgModes) -->
 	),
 	io__write_string(" = "),
 	mercury_output_mode(FuncRetMode, InstVarSet).
+
+%-----------------------------------------------------------------------------%
+
+output_to_file(FileName, Action) -->
+	{ NewAction = (pred(0::out, di, uo) is det --> Action ) },
+	output_to_file(FileName, NewAction, _Result).
+
+output_to_file(FileName, Action, Result) -->
+	globals__io_lookup_bool_option(verbose, Verbose),
+	globals__io_lookup_bool_option(statistics, Stats),
+	maybe_write_string(Verbose, "% Writing to file `"),
+	maybe_write_string(Verbose, FileName),
+	maybe_write_string(Verbose, "'...\n"),
+	maybe_flush_output(Verbose),
+	io__tell(FileName, Res),
+	( { Res = ok } ->
+		Action(ActionResult),
+		io__told,
+		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats),
+		{ Result = yes(ActionResult) }
+	;
+		maybe_write_string(Verbose, "\n"),
+		{ string__append_list(["can't open file `",
+			FileName, "' for output."], ErrorMessage) },
+		report_error(ErrorMessage),
+		{ Result = no }
+	).
 
 %-----------------------------------------------------------------------------%

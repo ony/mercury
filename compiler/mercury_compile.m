@@ -39,7 +39,7 @@
 :- import_module check_typeclass, intermod, trans_opt, table_gen, (lambda).
 :- import_module type_ctor_info, termination, higher_order, accumulator.
 :- import_module inlining, deforest, dnf, magic, dead_proc_elim.
-:- import_module unused_args, unneeded_code, lco.
+:- import_module delay_construct, unused_args, unneeded_code, lco.
 
 	% the LLDS back-end
 :- import_module saved_vars, liveness.
@@ -66,7 +66,7 @@
 :- import_module mlds_to_java.			% MLDS -> Java
 :- import_module mlds_to_ilasm.			% MLDS -> IL assembler
 :- import_module maybe_mlds_to_gcc.		% MLDS -> GCC back-end
-
+:- import_module ml_util.			% MLDS utility predicates 
 
 	% miscellaneous compiler modules
 :- import_module prog_data, hlds_module, hlds_pred, hlds_out, llds, rl.
@@ -129,11 +129,7 @@ main_2(no, Args, Link) -->
 	; { Args = [], FileNamesFromStdin = no } ->
 		usage
 	;
-		( { FileNamesFromStdin = yes } ->
-			process_stdin_arg_list([], ModulesToLink)
-		;
-			process_arg_list(Args, ModulesToLink)
-		),
+		process_all_args(Args, ModulesToLink),
 		io__get_exit_status(ExitStatus),
 		( { ExitStatus = 0 } ->
 			( { Link = yes } ->
@@ -163,12 +159,193 @@ main_2(no, Args, Link) -->
 		)
 	).
 
-:- pred process_arg_list(list(string), list(string), io__state, io__state).
-:- mode process_arg_list(in, out, di, uo) is det.
+:- pred process_all_args(list(string), list(string), io__state, io__state).
+:- mode process_all_args(in, out, di, uo) is det.
 
-process_arg_list(Args, Modules) -->
-	process_arg_list_2(Args, ModulesList),
-	{ list__condense(ModulesList, Modules) }.
+process_all_args(Args, ModulesToLink) -->
+	% Because of limitations in the GCC back-end,
+	% we can only call the GCC back-end once (per process),
+	% to generate a single assembler file, rather than
+	% calling it multiple times to generate individual
+	% assembler files for each module.
+	% So if we're generating code using the GCC back-end,
+	% we need to call run_gcc_backend here at the top level.
+	globals__io_get_globals(Globals),
+	(
+		{ compiling_to_asm(Globals) },
+		{ Args = [FirstArg | _] }
+	->
+		% The name of the assembler file that we generate
+		% is based on name of the first module named
+		% on the command line.  (Mmake requires this.)
+		%
+		% There's two cases:
+		% (1) If the argument ends in ".m", we assume
+		% that the argument is a file name.
+		% To find the corresponding module name,
+		% we would need to read in the file
+		% (at least up to the first item);
+		% this is needed to handle the case where
+		% the module name does not match the file
+		% name, e.g. file "browse.m" containing
+		% ":- module mdb__browse." as its first item.
+		% Rather than reading in the source file here,
+		% we just pick a name
+		% for the asm file based on the file name argument,
+		% (e.g. "browse.s") and if necessary rename it later
+		% (e.g. to "mdb.browse.s").
+		%
+		% (2) If the argument doesn't end in `.m',
+		% then we assume it is a module name.
+		% (Is it worth checking that the name doesn't
+		% contain directory seperators, and issuing
+		% a warning or error in that case?)
+		%
+		{ string__remove_suffix(FirstArg, ".m", ArgBase) ->
+			file_name_to_module_name(ArgBase,
+				FirstModuleName)
+		;
+			file_name_to_module_name(FirstArg,
+				FirstModuleName)
+		},
+
+		% Invoke run_gcc_backend.  It will call us back,
+		% and then we'll continue with the normal work of
+		% the compilation, which will be done by the callback
+		% function (`process_args').
+		maybe_mlds_to_gcc__run_gcc_backend(FirstModuleName,
+			process_args(Args), ModulesToLink),
+
+		% Now we know what the real module name was, so we
+		% can rename the assembler file if needed (see above).
+		( { ModulesToLink = [Module | _] } ->
+			{ file_name_to_module_name(Module, ModuleName) }
+		;
+			{ error("main_2: no modules") }
+		),
+		globals__io_lookup_bool_option(pic, Pic),
+		{ AsmExt = (Pic = yes -> ".pic_s" ; ".s") },
+		module_name_to_file_name(ModuleName, AsmExt, no, AsmFile),
+		(
+			{ ModuleName \= FirstModuleName }
+		->
+			module_name_to_file_name(FirstModuleName, AsmExt,
+				no, FirstAsmFile),
+			do_rename_file(FirstAsmFile, AsmFile, Result)
+		;
+			{ Result = ok }
+		),
+
+		% Invoke the assembler to produce an object file,
+		% if needed.
+		globals__io_lookup_bool_option(target_code_only, 
+				TargetCodeOnly),
+		( { Result = ok, TargetCodeOnly = no } ->
+			object_extension(Obj),
+			module_name_to_file_name(ModuleName, Obj,
+				yes, O_File),
+			mercury_compile__asm_to_obj(
+				AsmFile, O_File, _AssembleOK)
+		;
+			[]
+		)
+	;
+		% If we're NOT using the GCC back-end,
+		% then we can just call process_args directly,
+		% rather than via GCC.
+		process_args(Args, ModulesToLink)
+	).
+
+:- pred compiling_to_asm(globals::in) is semidet.
+compiling_to_asm(Globals) :-
+	globals__get_target(Globals, asm),
+	% even if --target asm is specified,
+	% it can be overridden by other options:
+	OptionList = [convert_to_mercury, convert_to_goedel,
+		generate_dependencies, make_interface,
+		make_short_interface, make_private_interface,
+		make_optimization_interface,
+		make_transitive_opt_interface,
+		typecheck_only, errorcheck_only],
+	BoolList = map((func(Opt) = Bool :-
+		globals__lookup_bool_option(Globals, Opt, Bool)),
+		OptionList),
+	bool__or_list(BoolList) = no.
+
+:- pred do_rename_file(string::in, string::in, io__res::out,
+		io__state::di, io__state::uo) is det.
+
+do_rename_file(OldFileName, NewFileName, Result) -->
+	globals__io_lookup_bool_option(verbose, Verbose),
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	maybe_write_string(Verbose, "% Renaming `"),
+	maybe_write_string(Verbose, OldFileName),
+	maybe_write_string(Verbose, "' as `"),
+	maybe_write_string(Verbose, NewFileName),
+	maybe_write_string(Verbose, "'..."),
+	maybe_flush_output(Verbose),
+	io__rename_file(OldFileName, NewFileName, Result0),
+	( { Result0 = error(Error0) } ->
+		maybe_write_string(VeryVerbose, " failed.\n"),
+		maybe_flush_output(VeryVerbose),
+		{ io__error_message(Error0, ErrorMsg0) },
+		% On some systems, we need to remove the existing file
+		% first, if any.  So try again that way.
+		maybe_write_string(VeryVerbose, "% Removing `"),
+		maybe_write_string(VeryVerbose, OldFileName),
+		maybe_write_string(VeryVerbose, "'..."),
+		maybe_flush_output(VeryVerbose),
+		io__remove_file(NewFileName, Result1),
+		( { Result1 = error(Error1) } ->
+			maybe_write_string(Verbose, " failed.\n"),
+			maybe_flush_output(Verbose),
+			{ io__error_message(Error1, ErrorMsg1) },
+			{ string__append_list(["can't rename file `",
+				OldFileName, "' as `", NewFileName, "': ",
+				ErrorMsg0, "; and can't remove file `",
+				NewFileName, "': ", ErrorMsg1], Message) },
+			report_error(Message),
+			{ Result = Result1 }
+		;
+			maybe_write_string(VeryVerbose, " done.\n"),
+			maybe_write_string(VeryVerbose, "% Renaming `"),
+			maybe_write_string(VeryVerbose, OldFileName),
+			maybe_write_string(VeryVerbose, "' as `"),
+			maybe_write_string(VeryVerbose, NewFileName),
+			maybe_write_string(VeryVerbose, "' again..."),
+			maybe_flush_output(VeryVerbose),
+			io__rename_file(OldFileName, NewFileName, Result2),
+			( { Result2 = error(Error2) } ->
+				maybe_write_string(Verbose,
+					" failed.\n"),
+				maybe_flush_output(Verbose),
+				{ io__error_message(Error2, ErrorMsg) },
+				{ string__append_list(
+					["can't rename file `", OldFileName,
+					"' as `", NewFileName, "': ",
+					ErrorMsg], Message) },
+				report_error(Message)
+			;
+				maybe_write_string(Verbose, " done.\n")
+			),
+			{ Result = Result2 }
+		)
+	;
+		maybe_write_string(Verbose, " done.\n"),
+		{ Result = Result0 }
+	).
+
+:- pred process_args(list(string), list(string), io__state, io__state).
+:- mode process_args(in, out, di, uo) is det.
+
+process_args(Args, ModulesToLink) -->
+	globals__io_lookup_bool_option(filenames_from_stdin,
+		FileNamesFromStdin),
+	( { FileNamesFromStdin = yes } ->
+		process_stdin_arg_list([], ModulesToLink)
+	;
+		process_arg_list(Args, ModulesToLink)
+	).
 
 :- pred process_stdin_arg_list(list(string), list(string), 
 		io__state, io__state).
@@ -198,6 +375,13 @@ process_stdin_arg_list(Modules0, Modules) -->
 		{ Modules = Modules0 },
 		io__set_exit_status(1)
 	).
+
+:- pred process_arg_list(list(string), list(string), io__state, io__state).
+:- mode process_arg_list(in, out, di, uo) is det.
+
+process_arg_list(Args, Modules) -->
+	process_arg_list_2(Args, ModulesList),
+	{ list__condense(ModulesList, Modules) }.
 
 :- pred process_arg_list_2(list(string), list(list(string)),
 			io__state, io__state).
@@ -335,26 +519,35 @@ process_module(ModuleName, FileName, Items, Error, ModulesToLink) -->
 			globals__io_set_option(trace_stack_layout, bool(no)),
 			globals__io_set_trace_level_none,
 
-			% XXX it would be better to do something like
-			%
-			%	list__map_foldl(compile_to_llds, SubModuleList,
-			%		LLDS_FragmentList),
-			%	merge_llds_fragments(LLDS_FragmentList, LLDS),
-			%	output_pass(LLDS_FragmentList)
-			%
-			% i.e. compile nested modules to a single C file.
-			list__foldl(compile(FileName), SubModuleList),
-			list__map_foldl(module_to_link, SubModuleList,
+			compile_all_submodules(FileName, SubModuleList,
 				ModulesToLink),
 
 			globals__io_set_option(trace_stack_layout, bool(TSL)),
 			globals__io_set_trace_level(TraceLevel)
 		;
-			list__foldl(compile(FileName), SubModuleList),
-			list__map_foldl(module_to_link, SubModuleList,
+			compile_all_submodules(FileName, SubModuleList,
 				ModulesToLink)
 		)
 	).
+
+	% For the MLDS->C and LLDS->C back-ends, we currently
+	% compile each sub-module to its own C file.
+	% XXX it would be better to do something like
+	%
+	%	list__map2_foldl(compile_to_llds, SubModuleList,
+	%		LLDS_FragmentList),
+	%	merge_llds_fragments(LLDS_FragmentList, LLDS),
+	%	output_pass(LLDS_FragmentList)
+	%
+	% i.e. compile nested modules to a single C file.
+
+:- pred compile_all_submodules(string, list(pair(module_name, item_list)),
+		list(string), io__state, io__state).
+:- mode compile_all_submodules(in, in, out, di, uo) is det.
+
+compile_all_submodules(FileName, SubModuleList, ModulesToLink) -->
+	list__foldl(compile(FileName), SubModuleList),
+	list__map_foldl(module_to_link, SubModuleList, ModulesToLink).
 
 :- pred make_interface(file_name, pair(module_name, item_list),
 			io__state, io__state).
@@ -399,8 +592,7 @@ module_to_link(ModuleName - _Items, ModuleToLink) -->
 	% The initial arrangement has the stage numbers increasing by three
 	% so that new stages can be slotted in without too much trouble.
 
-:- pred compile(file_name, pair(module_name, item_list),
-		io__state, io__state).
+:- pred compile(file_name, pair(module_name, item_list), io__state, io__state).
 :- mode compile(in, in, di, uo) is det.
 
 compile(SourceFileName, ModuleName - Items) -->
@@ -456,7 +648,7 @@ mercury_compile(Module) -->
 		mercury_compile__maybe_magic(HLDS23, Verbose, Stats, _)
 	    ; { MakeOptInt = yes } ->
 		% only run up to typechecking when making the .opt file
-	    	[]
+		[]
 	    ; { MakeTransOptInt = yes } ->
 	    	mercury_compile__output_trans_opt_file(HLDS21)
 	    ;
@@ -475,7 +667,7 @@ mercury_compile(Module) -->
 		    mercury_compile__maybe_generate_rl_bytecode(HLDS50,
 				Verbose, MaybeRLFile),
 		    ( { AditiOnly = yes } ->
-		    	[]
+			[]
 		    ; { Target = il } ->
 			mercury_compile__mlds_backend(HLDS50, MLDS),
 			( { TargetCodeOnly = yes } ->
@@ -503,17 +695,11 @@ mercury_compile(Module) -->
 			( { TargetCodeOnly = yes } ->
 				[]
 			;
-				% Invoke the assembler to produce an
-				% object file
-				module_name_to_file_name(ModuleName, ".s", no,
-					AsmFile),
-				object_extension(Obj),
-				module_name_to_file_name(ModuleName, Obj, yes,
-					O_File),
-				mercury_compile__asm_to_obj(
-					AsmFile, O_File, _AssembleOK),
+				% We don't invoke the assembler to produce an
+				% object file yet -- that is done at
+				% the top level.
 				%
-				% If the module contained `pragma c_code',
+				% But if the module contained `pragma c_code',
 				% then we will have compiled that to a
 				% separate C file.  We need to invoke the
 				% C compiler on that.
@@ -521,12 +707,20 @@ mercury_compile(Module) -->
 				( { ContainsCCode = yes } ->
 					module_name_to_file_name(ModuleName,
 						".c", no, CCode_C_File),
+					object_extension(Obj),
 					module_name_to_file_name(ModuleName,
 						"__c_code" ++ Obj,
 						yes, CCode_O_File),
 					mercury_compile__single_c_to_obj(
 						CCode_C_File, CCode_O_File,
-						_CompileOK)
+						_CompileOK),
+					% add this object file to the list
+					% of extra object files to link in
+					globals__io_lookup_accumulating_option(
+						link_objects, LinkObjects),
+					globals__io_set_option(link_objects,
+						accumulating([CCode_O_File |
+						LinkObjects]))
 				;
 					[]
 				)
@@ -552,7 +746,15 @@ mercury_compile(Module) -->
 				MaybeRLFile, ModuleName, _CompileErrors)
 		    )
 		;
-		    []
+		    	% If the number of errors is > 0, make sure that
+			% the compiler exits with a non-zero exit
+			% status.
+		    io__get_exit_status(ExitStatus),
+		    ( { ExitStatus = 0 } ->
+		    	io__set_exit_status(1)
+		    ;
+		    	[]
+		    )
 		)
 	    )
 	;
@@ -564,10 +766,7 @@ mercury_compile(Module) -->
 mercury_compile__mlds_has_main(MLDS) =
 	(
 		MLDS = mlds(_, _, _, Defns),
-		list__member(Defn, Defns),
-		Defn = mlds__defn(Name, _, _, _),
-		Name = function(FuncName, _, _, _), 
-		FuncName = pred(predicate, _, "main", 2)
+		defns_contain_main(Defns)
 	->
 		yes
 	;
@@ -1151,11 +1350,13 @@ mercury_compile__middle_pass(ModuleName, HLDS24, HLDS50) -->
 	mercury_compile__maybe_do_inlining(HLDS33, Verbose, Stats, HLDS34),
 	mercury_compile__maybe_dump_hlds(HLDS34, "34", "inlining"),
 
-	mercury_compile__maybe_deforestation(HLDS34, 
-			Verbose, Stats, HLDS36),
+	mercury_compile__maybe_deforestation(HLDS34, Verbose, Stats, HLDS36),
 	mercury_compile__maybe_dump_hlds(HLDS36, "36", "deforestation"),
 
-	mercury_compile__maybe_unused_args(HLDS36, Verbose, Stats, HLDS39),
+	mercury_compile__maybe_delay_construct(HLDS36, Verbose, Stats, HLDS37),
+	mercury_compile__maybe_dump_hlds(HLDS37, "37", "delay_construct"),
+
+	mercury_compile__maybe_unused_args(HLDS37, Verbose, Stats, HLDS39),
 	mercury_compile__maybe_dump_hlds(HLDS39, "39", "unused_args"),
 
 	mercury_compile__maybe_unneeded_code(HLDS39, Verbose, Stats, HLDS40),
@@ -1457,7 +1658,8 @@ mercury_compile__backend_pass_by_preds_4(PredInfo, ProcInfo0, ProcId, PredId,
 	),
 	write_proc_progress_message("% Computing liveness in ", PredId, ProcId,
 		ModuleInfo3),
-	{ detect_liveness_proc(ProcInfo3, PredId, ModuleInfo3, ProcInfo4) },
+	detect_liveness_proc(PredId, ProcId, ModuleInfo3,
+		ProcInfo3, ProcInfo4),
 	write_proc_progress_message("% Allocating stack slots in ", PredId,
 		                ProcId, ModuleInfo3),
 	{ allocate_stack_slots_in_proc(ProcInfo4, PredId, ModuleInfo3,
@@ -2034,6 +2236,25 @@ add_aditi_procs(HLDS0, PredId, AditiPreds0, AditiPreds) :-
 		AditiPreds = AditiPreds0
 	).
 
+:- pred mercury_compile__maybe_delay_construct(module_info::in,
+	bool::in, bool::in, module_info::out, io__state::di, io__state::uo)
+	is det.
+
+mercury_compile__maybe_delay_construct(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(delay_construct, DelayConstruct),
+	( { DelayConstruct = yes } ->
+		maybe_write_string(Verbose,
+			"% Delaying construction unifications ...\n"),
+		maybe_flush_output(Verbose),
+		process_all_nonimported_procs(
+			update_proc_io(delay_construct_proc),
+			HLDS0, HLDS),
+		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats)
+	;
+		{ HLDS0 = HLDS }
+	).
+
 :- pred mercury_compile__maybe_unused_args(module_info, bool, bool, module_info,
 	io__state, io__state).
 :- mode mercury_compile__maybe_unused_args(in, in, in, out, di, uo) is det.
@@ -2202,7 +2423,7 @@ mercury_compile__compute_liveness(HLDS0, Verbose, Stats, HLDS) -->
 	maybe_write_string(Verbose, "% Computing liveness...\n"),
 	maybe_flush_output(Verbose),
 	process_all_nonimported_nonaditi_procs(
-		update_proc_predid(detect_liveness_proc),
+		update_proc_io(detect_liveness_proc),
 		HLDS0, HLDS),
 	maybe_write_string(Verbose, "% done.\n"),
 	maybe_report_stats(Stats).
@@ -3070,8 +3291,18 @@ mercury_compile__link_module_list(Modules) -->
 	module_name_to_file_name(ModuleName, "_init.c", yes, InitCFileName),
 	module_name_to_file_name(ModuleName, InitObj, yes, InitObjFileName),
 
+	globals__io_get_target(Target),
 	globals__io_lookup_bool_option(split_c_files, SplitFiles),
-	( { SplitFiles = yes } ->
+	( { Target = asm } ->
+	    % for --target asm, we generate everything into a single object file
+	    ( { Modules = [FirstModule | _] } ->
+		join_module_list([FirstModule], Obj, [], ObjectsList),
+		{ string__append_list(ObjectsList, Objects) }
+	    ;
+		{ error("link_module_list: no modules") }
+	    ),
+	    { MakeLibCmdOK = yes }
+	; { SplitFiles = yes } ->
 	    module_name_to_file_name(ModuleName, ".a", yes, SplitLibFileName),
 	    { string__append(".dir/*", Obj, DirObj) },
 	    join_module_list(Modules, DirObj, [], ObjectList),
@@ -3098,7 +3329,7 @@ mercury_compile__link_module_list(Modules) -->
 	    ;
 		TraceOpt = ""
 	    },
-	    join_module_list(Modules, ".c", ["> ", InitCFileName], MkInitCmd0),
+	    join_module_list(Modules, ".c", ["-o ", InitCFileName], MkInitCmd0),
 	    { string__append_list(["c2init ", TraceOpt | MkInitCmd0],
 	    	MkInitCmd) },
 	    invoke_shell_command(MkInitCmd, MkInitOK),

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1998-2000 The University of Melbourne.
+% Copyright (C) 1998-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -30,6 +30,7 @@
 %		"display"
 %		"write"
 %		"set" [varvalue]
+%		"mark" [path]
 %		"quit"
 %
 %	varvalue:
@@ -45,8 +46,9 @@
 %
 %	fmt:
 %		"flat"
-%		"pretty"
+%		"raw_pretty"
 %		"verbose"
+%		"pretty"
 %
 %	path:
 %		["/"] [dirs]
@@ -71,6 +73,8 @@
 	;	ls
 	;	cd(path)
 	;	cd
+	;	mark(path)
+	;	mark
 	;	pwd
 	;	help
 	;	set(setting)
@@ -166,7 +170,7 @@ lexer([C | Cs], Toks) :-
 	; char__is_digit(C) ->
 		dig_to_int(C, N),
 		lexer_num(N, Cs, Toks)
-	; char__is_alpha(C) ->
+	; char__is_alpha_or_underscore(C) ->
 		lexer_name(C, Cs, Toks)
 	; char__is_whitespace(C) ->
 		lexer(Cs, Toks)
@@ -217,7 +221,7 @@ digits_to_int_acc(Acc, [C | Cs], Num) :-
 :- pred lexer_name(char, list(char), list(token)).
 :- mode lexer_name(in, in, out) is det.
 lexer_name(C, Cs, Toks) :-
-	list__takewhile(char__is_alpha, Cs, Letters, Rest),
+	list__takewhile(char__is_alpha_or_underscore, Cs, Letters, Rest),
 	string__from_char_list([C | Letters], Name),
 	lexer(Rest, Toks2),
 	Toks = [name(Name) | Toks2].
@@ -250,6 +254,13 @@ start([Tok | Toks], Comm) :-
 		;
 			parse_path(Toks, Path),
 			Comm = ls(Path)
+		)
+	; Tok = name("mark") ->
+		( Toks = [] ->
+			Comm = mark
+		;
+			parse_path(Toks, Path),
+			Comm = mark(Path)
 		)
 	; Tok = name("set") ->
 		( Toks = [] ->
@@ -331,11 +342,13 @@ parse_setting([Tok | Toks], Setting) :-
 		Toks = [Fmt],
 		( Fmt = name("flat") ->
 			Setting = format(flat)
-		; Fmt = name("pretty") ->
-			Setting = format(pretty)
-		;
-			Fmt = name("verbose"),
+		; Fmt = name("raw_pretty") ->
+			Setting = format(raw_pretty)
+		; Fmt = name("verbose") ->
 			Setting = format(verbose)
+		; 
+			Fmt = name("pretty"),
+			Setting = format(pretty)
 		)
 	;
 		fail
@@ -358,6 +371,12 @@ show_command(cd(Path)) -->
 	io__nl.
 show_command(cd) -->
 	io__write_string("cd\n").
+show_command(mark(Path)) -->
+	io__write_string("mark "),
+	show_path(Path),
+	io__nl.
+show_command(mark) -->
+	io__write_string("mark\n").
 show_command(pwd) -->
 	io__write_string("pwd\n").
 show_command(help) -->
@@ -426,9 +445,11 @@ show_setting(format(Fmt)) -->
 :- mode show_format(in, di, uo) is det.
 show_format(flat) -->
 	io__write_string("flat").
-show_format(pretty) -->
-	io__write_string("pretty").
+show_format(raw_pretty) -->
+	io__write_string("raw_pretty").
 show_format(verbose) -->
 	io__write_string("verbose").
+show_format(pretty) -->
+	io__write_string("pretty").
 
 %---------------------------------------------------------------------------%

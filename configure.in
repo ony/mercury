@@ -87,12 +87,12 @@ if test "$BOOTSTRAP_MC" != ""; then
 
 		:- implementation.
 	
-		% Check that we can declare foreign_code for C and MC++.
+		% Check that we can declare foreign_proc for C and MC++.
 		:- pred foo(int::out) is det.
-		:- pragma foreign_code("C",    foo(X::out),
+		:- pragma foreign_proc("C",    foo(X::out),
 			[[will_not_call_mercury, thread_safe]],
 			" X = 42; ").
-		:- pragma foreign_code("MC++", foo(X::out),
+		:- pragma foreign_proc("MC++", foo(X::out),
 			[[will_not_call_mercury, thread_safe]],
 			" X = 42; ").
 
@@ -106,13 +106,37 @@ if test "$BOOTSTRAP_MC" != ""; then
 			).
 EOF
 	if
-	 	 echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
-	 	 $BOOTSTRAP_MC --fixed-user-guided-type-specialization \
-			 --halt-at-warn --link-flags "--static" conftest \
+	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
+	 	$BOOTSTRAP_MC --fixed-user-guided-type-specialization \
+			--halt-at-warn --link-flags "--static" conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
-		 test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
+		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
 	then
+		rm -f conftest*
+		cat > conftest.m << EOF
+			% This module generates an assignment of the address of
+			% the MR_do_fail label to a redoip slot.
+			:- module conftest.
+
+			:- interface.
+
+			:- pred p(int::out) is multi.
+
+			:- implementation.
+
+			p(1).
+			p(2).
+EOF
+		if 
+			$BOOTSTRAP_MC --compile-to-c --grade asm_fast.gc -O0 \
+				conftest </dev/null >&AC_FD_CC 2>&1 &&
+			grep "MR_ENTRY(MR_do_fail);" conftest.c >/dev/null 2>&1
+		then
 		AC_MSG_RESULT(yes)
+		else
+			BOOTSTRAP_MC=
+			AC_MSG_RESULT(no)
+		fi
 	else
 		BOOTSTRAP_MC=
 		AC_MSG_RESULT(no)
@@ -404,25 +428,7 @@ AC_SUBST(CYGPATH)
 #-----------------------------------------------------------------------------#
 # Microsoft.NET configuration
 # 
-AC_PATH_PROG(ILASM, ilasm)
-
-AC_MSG_CHECKING(for Microsoft.NET Framework SDK)
-AC_CACHE_VAL(mercury_cv_microsoft_dotnet, [
-if test "$ILASM" != ""; then
-	changequote(<<,>>) 
-	MS_DOTNET_SDK_DIR=`expr "$ILASM" : '\(.*\)[/\\]*[bB]in[/\\]*ilasm'`
-	changequote([,]) 
-	mercury_cv_microsoft_dotnet="yes"
-else
-	MS_DOTNET_SDK_DIR=""
-	mercury_cv_microsoft_dotnet="no"
-fi
-])
-AC_MSG_RESULT($mercury_cv_microsoft_dotnet)
-ILASM=`basename "$ILASM"`
-
-AC_SUBST(ILASM)
-AC_SUBST(MS_DOTNET_SDK_DIR)
+MERCURY_CHECK_DOTNET
 
 #-----------------------------------------------------------------------------#
 # Don't try to use mprotect() on gnu-win32, since it is broken
@@ -432,7 +438,7 @@ case "$host" in
 		ac_cv_func_mprotect=no ;;
 esac
 AC_HAVE_FUNCS(sysconf getpagesize memalign mprotect sigaction setitimer)
-AC_HAVE_FUNCS(strerror memmove fileno fdopen fstat)
+AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat)
 AC_HAVE_FUNCS(vsnprintf _vsnprintf)
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(unistd.h, HAVE_UNISTD_H=1)
@@ -448,6 +454,11 @@ fi
 AC_CHECK_HEADER(sys/siginfo.h, HAVE_SYS_SIGINFO_H=1)
 if test "$HAVE_SYS_SIGINFO_H" = 1; then
 	AC_DEFINE(HAVE_SYS_SIGINFO)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_HEADER(sys/signal.h, HAVE_SYS_SIGNAL_H=1)
+if test "$HAVE_SYS_SIGNAL_H" = 1; then
+	AC_DEFINE(HAVE_SYS_SIGNAL)
 fi
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(ucontext.h, HAVE_UCONTEXT_H=1)
@@ -725,6 +736,9 @@ else
 	#ifdef HAVE_SYS_SIGINFO
 	#include <sys/siginfo.h>
 	#endif
+	#ifdef HAVE_SYS_SIGNAL
+	#include <sys/signal.h>
+	#endif
 	#ifdef HAVE_UCONTEXT
 	#include <ucontext.h>
 	#endif
@@ -751,20 +765,6 @@ else
 	}
 	void handler(int signum, siginfo_t *info, void *context) {
 		save_signum = signum;
-		switch (info->si_code) {
-		case SEGV_MAPERR:	save_cause = info->si_code;
-					break;
-		case SEGV_ACCERR:	save_cause = info->si_code;
-					break;
-		}
-		switch (info->si_code) {
-		case BUS_ADRALN:	save_cause = info->si_code;
-					break;
-		case BUS_ADRERR:	save_cause = info->si_code;
-					break;
-		case BUS_OBJERR:	save_cause = info->si_code;
-					break;
-		}
 		save_cause = info->si_code;
 	}], [mercury_cv_siginfo_t=yes], [true], [true]))
 	AC_MSG_RESULT($mercury_cv_siginfo_t)
@@ -1494,7 +1494,7 @@ case $ac_cv_prog_gcc in yes)
 	mips-*)
 		CFLAGS_FOR_GOTOS="$CFLAGS_FOR_GOTOS -fomit-frame-pointer"
 		;;
-	i?86-*)
+	i*86-*)
 		CFLAGS_FOR_REGS="-fno-builtin -fno-omit-frame-pointer"
 		;;
 	# We need a special-case hack here, because the auto-config 
@@ -2093,7 +2093,7 @@ fi
 # Find out whether branch instructions have a delay slot.
 
 case "$host" in
-	i?86-*)
+	i*86-*)
 		# NUM_REAL_REGS=3
 		# but succip and sp are real regs, so subtract 2
 		NUM_REAL_R_REGS=1
@@ -2249,7 +2249,7 @@ ALLOW_UNDEFINED=""
 ERROR_UNDEFINED=""
 
 case "$host" in
-	i?86-*-linux|i?86-*-linux-gnu)
+	i*86-*-linux|i*86-*-linux-gnu)
 		case $ac_cv_prog_gcc in
 		yes)
 			AC_MSG_RESULT(yes)
@@ -2291,7 +2291,7 @@ case "$host" in
 		AC_MSG_RESULT(yes)
 		EXT_FOR_SHARED_LIB=so
 		;;
-	i?86-*-freebsd*)
+	i*86-*-freebsd*)
 		# From Cornelis van der Laan <nils@ims.uni-stuttgart.de>
 		AC_MSG_RESULT(yes)
 		LINK_SHARED_OBJ="ld -Bshareable"

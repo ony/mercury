@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2000 The University of Melbourne.
+** Copyright (C) 1997-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -50,6 +50,7 @@
 ** NO_TYPE_LAYOUT
 ** BOXED_FLOAT
 ** MR_USE_TRAIL
+** MR_RESERVE_TAG
 ** MR_USE_MINIMAL_MODEL
 **	See the documentation for
 **		--high-level-code
@@ -63,6 +64,7 @@
 **		--no-type-layout
 **		--unboxed-float
 **		--use-trail
+**		--reserve-tag
 **		--use-minimal-model
 **	(respectively) in the mmc help message or the Mercury User's Guide.
 **
@@ -268,6 +270,9 @@
   #define MR_STATIC_CODE_ADDRESSES
 #endif
 
+/* XXX documetn MR_BYTECODE_CALLABLE */
+
+
 /*
 ** MR_INSERT_LABELS     -- labels need to be inserted into the label table. 
 **			   (this also means the initialization code needs
@@ -285,7 +290,8 @@
 #ifdef MR_INSERT_LABELS
   #error "MR_INSERT_LABELS should not be defined on the command line"
 #endif
-#if defined(MR_STACK_TRACE) || defined(NATIVE_GC) || defined(MR_DEBUG_GOTOS)
+#if defined(MR_STACK_TRACE) || defined(NATIVE_GC) || defined(MR_DEBUG_GOTOS) \
+	|| defined(MR_BYTECODE_CALLABLE)
   #define MR_INSERT_LABELS
 #endif
 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2000 University of Melbourne.
+% Copyright (C) 1999-2001 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -110,9 +110,17 @@ deforest__proc(proc(PredId, ProcId), CostDelta, SizeDelta) -->
 		PredInfo0, ProcInfo0) },
 	pd_info_init_unfold_info(proc(PredId, ProcId), PredInfo0, ProcInfo0),
 	{ proc_info_goal(ProcInfo0, Goal0) },
-	deforest__goal(Goal0, Goal1),
+
+	% Inlining may have created some opportunities for simplification.
+	pd_info_get_io_state(IOState0),
+	{ globals__io_get_globals(Globals, IOState0, IOState) },
+	pd_info_set_io_state(IOState),
+	{ simplify__find_simplifications(no, Globals, Simplifications) },
+	pd_util__simplify_goal(Simplifications, Goal0, Goal1),
+
+	deforest__goal(Goal1, Goal2),
 	pd_info_get_proc_info(ProcInfo1),
-	{ proc_info_set_goal(ProcInfo1, Goal1, ProcInfo2) },
+	{ proc_info_set_goal(ProcInfo1, Goal2, ProcInfo2) },
 	pd_info_get_changed(Changed),
 
 	( { Changed = yes } ->
@@ -139,9 +147,6 @@ deforest__proc(proc(PredId, ProcId), CostDelta, SizeDelta) -->
 			% then we re-run determinism analysis. As with
 			% inlining.m, this avoids problems with inlining
 			% erroneous procedures.
-			pd_info_get_io_state(IO10),
-			{ globals__io_get_globals(Globals, IO10, IO11) },
-			pd_info_set_io_state(IO11),
 			{ det_infer_proc(PredId, ProcId, ModuleInfo4,
 				ModuleInfo5, Globals, _, _, _) }
 		;
@@ -201,7 +206,7 @@ deforest__goal(switch(Var, CanFail, Cases0, SM) - Info,
 	deforest__cases(Var, Cases0, Cases).
 
 deforest__goal(Goal, Goal) -->
-	{ Goal = pragma_foreign_code(_, _, _, _, _, _, _) - _ }.
+	{ Goal = foreign_proc(_, _, _, _, _, _, _) - _ }.
 
 deforest__goal(Goal, Goal) -->
 	{ Goal = generic_call(_, _, _, _) - _ }.
@@ -214,15 +219,15 @@ deforest__goal(some(Vs, CanRemove, Goal0) - Info,
 	deforest__goal(Goal0, Goal).
 
 deforest__goal(Goal0, Goal) -->
-	{ Goal0 = call(PredId, ProcId, Args, _, _, Name) - _ },
-	deforest__call(PredId, ProcId, Args, Name, Goal0, Goal).
+	{ Goal0 = call(PredId, ProcId, Args, BuiltinState, _, Name) - _ },
+	deforest__call(PredId, ProcId, Args, Name, BuiltinState, Goal0, Goal).
 	
 deforest__goal(Goal, Goal) -->
 	{ Goal = unify(_, _, _, _, _) - _ }.
 
-deforest__goal(bi_implication(_, _) - _, _) -->
+deforest__goal(shorthand(_) - _, _) -->
 	% these should have been expanded out by now
-	{ error("deforest__goal: unexpected bi_implication") }.
+	{ error("deforest__goal: unexpected shorthand") }.
 
 %-----------------------------------------------------------------------------%
 
@@ -594,6 +599,7 @@ deforest__should_try_deforestation(DeforestInfo, ShouldTry) -->
 
 	pd_info_get_module_info(ModuleInfo),
 	pd_info_lookup_option(fully_strict, FullyStrictOp),
+	pd_info_get_pred_info(PredInfo),
 	( 
 		{ DepthLimitOpt = int(MaxDepth) },
 		{ MaxDepth \= -1 }, 	% no depth limit set
@@ -608,14 +614,21 @@ deforest__should_try_deforestation(DeforestInfo, ShouldTry) -->
 	;
 		% Check whether either of the goals to be
 		% deforested can't be inlined.
-		( 
-			{ EarlierGoal = call(PredId, _, _, _, _, _) - _ }
-		;
-			{ LaterGoal = call(PredId, _, _, _, _, _) - _ }
-		),
-		{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
-		{ pred_info_get_markers(PredInfo, Markers) },
-		{ check_marker(Markers, no_inline) }
+		{ EarlierGoal = call(PredId, ProcId, _, BuiltinState, _, _) - _
+		; LaterGoal = call(PredId, ProcId, _, BuiltinState, _, _) - _
+		},
+
+		% We don't attempt to deforest predicates which are
+		% promised pure because the extra impurity propagated
+		% through the goal when such predicates are inlined
+		% will defeat any attempt at deforestation.
+		% XXX We should probably allow deforestation of
+		% semipure goals.
+		{ InlinePromisedPure = no },
+		{ pred_info_get_markers(PredInfo, CallerMarkers) },
+		{ \+ inlining__can_inline_proc(PredId, ProcId, BuiltinState,
+			InlinePromisedPure, CallerMarkers, ModuleInfo) }
+			
 	->
 		pd_debug__message("non-inlineable calls\n", []),		
 		{ ShouldTry = no }
@@ -649,6 +662,8 @@ deforest__should_try_deforestation(DeforestInfo, ShouldTry) -->
 	;
 		%
 		% Give up if there are any impure goals involved.
+		% XXX We should probably allow deforestation of
+		% semipure goals.
 		%
 		( { list__member(ImpureGoal, BetweenGoals) }
 		; { ImpureGoal = EarlierGoal }
@@ -1514,10 +1529,10 @@ deforest__append_goal(Goal0, BetweenGoals, GoalToAppend0,
 %-----------------------------------------------------------------------------%
 
 :- pred deforest__call(pred_id::in, proc_id::in, list(prog_var)::in,
-		sym_name::in, hlds_goal::in, hlds_goal::out, 
+		sym_name::in, builtin_state::in, hlds_goal::in, hlds_goal::out, 
 		pd_info::pd_info_di, pd_info::pd_info_uo) is det.
 
-deforest__call(PredId, ProcId, Args, SymName, Goal0, Goal) -->
+deforest__call(PredId, ProcId, Args, SymName, BuiltinState, Goal0, Goal) -->
 	pd_info_get_proc_arg_info(ProcArgInfos),
 	pd_info_get_module_info(ModuleInfo),
 	pd_info_get_instmap(InstMap),
@@ -1527,10 +1542,19 @@ deforest__call(PredId, ProcId, Args, SymName, Goal0, Goal) -->
 	{ goal_info_get_context(GoalInfo0, Context) },
 
 	pd_info_get_local_term_info(LocalTermInfo0),
-	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
-	{ pred_info_get_markers(PredInfo, Markers) },
+
+	pd_info_get_pred_info(PredInfo),
+	{ pred_info_get_markers(PredInfo, CallerMarkers) },
 	( 
-		{ \+ check_marker(Markers, no_inline) },
+		% We don't attempt to deforest predicates which are
+		% promised pure because the extra impurity propagated
+		% through the goal when such predicates are inlined
+		% will defeat any attempt at deforestation.
+		% XXX We should probably allow deforestation of
+		% semipure goals.
+		{ InlinePromisedPure = no },
+		{ inlining__can_inline_proc(PredId, ProcId, BuiltinState,
+			InlinePromisedPure, CallerMarkers, ModuleInfo) },
 		{ map__search(ProcArgInfos, proc(PredId, ProcId), 
 			ProcArgInfo) },
 		{ ProcArgInfo = pd_branch_info(_, LeftArgs, _) },

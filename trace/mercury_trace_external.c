@@ -203,14 +203,6 @@ static void	MR_get_object_file_name(MR_Word debugger_request,
 static void	MR_get_variable_name(MR_Word debugger_request,
 			MR_String *var_name_ptr);
 static void	MR_trace_browse_one_external(MR_Var_Spec which_var);
-static void	MR_COLLECT_filter(void (*filter_ptr)(MR_Integer, MR_Integer,
-			MR_Integer, MR_Word, MR_Word, MR_String, MR_String,
-			MR_String, MR_Integer, MR_Integer, MR_Word, MR_Integer,
-			MR_String, MR_Word, MR_Word *, MR_Char *),
-			MR_Unsigned seqno, MR_Unsigned depth,
-			MR_Trace_Port port, 
-			const MR_Label_Layout *layout, const char *path, 
-			bool *stop_collecting);
 static void	MR_send_collect_result(void);
 
 #if 0
@@ -477,17 +469,11 @@ MR_trace_final_external(void)
 MR_Code *
 MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 {
-	static	MR_Word		search_data;
-	static	void		(*initialize_ptr)(MR_Word *);
-	static	void    	(*filter_ptr)(MR_Integer, MR_Integer,
-					MR_Integer, MR_Word, MR_Word,
-					MR_String, MR_String, MR_String,
-					MR_Integer, MR_Integer, MR_Word,
-					MR_Integer, MR_String, MR_Word,
-					MR_Word *, MR_Char *);
-	static	void		(*get_collect_var_type_ptr)(MR_Word *);
-	static	bool    	collect_linked = FALSE;
-	bool    		stop_collecting = FALSE;
+	static MR_Word	search_data;
+	static void	(*initialize_ptr)(MR_Word *);
+	static void	(*get_collect_var_type_ptr)(MR_Word *);
+	static bool    	collect_linked = FALSE;
+	bool    	stop_collecting = FALSE;
 	MR_Integer		debugger_request_type;
 	MR_Word			debugger_request;
 	MR_Word			var_list;
@@ -544,17 +530,10 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 			break;
 
 		case MR_collecting:
-		 
-			MR_COLLECT_filter(*filter_ptr, seqno, depth, port,
-				layout, path, &stop_collecting);
+		        MR_send_collect_result(); 
+			MR_send_message_to_socket("execution_continuing");
+			break;
 
-			if (stop_collecting) {
-				MR_send_collect_result();
-				MR_send_message_to_socket("execution_continuing");
-				break;
-			} else {
-				goto done;
-			}
 		case MR_reading_request:
 			break;
 
@@ -784,7 +763,7 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 				MR_TRACE_CALL_MERCURY(
 					ML_CL_link_collect(
 			       		    MR_object_file_name,
-					    (MR_Word *) &filter_ptr,
+					    (MR_Word *) &cmd->MR_filter_ptr,
 					    (MR_Word *) &initialize_ptr,
 					    (MR_Word *) &send_collect_result_ptr,
 					    (MR_Word *) &get_collect_var_type_ptr,
@@ -827,8 +806,9 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 					** the current event, we need to call 
 					** filter once here.
 					*/
-					MR_COLLECT_filter(*filter_ptr, seqno, depth,
-						port, layout, path, &stop_collecting);
+					MR_COLLECT_filter(cmd->MR_filter_ptr,
+						seqno, depth, port, layout, path, 
+						&stop_collecting);
 					
 					if (stop_collecting) {
 						MR_send_collect_result();
@@ -836,6 +816,16 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 							"execution_continuing");
 						break;
 					} else {
+					/*
+					** For efficiency, the remaining calls
+					** to MR_COLLECT_filter() are done in 
+					** MR_trace_real().
+					*/
+					        cmd->MR_trace_cmd = MR_CMD_COLLECT;
+						cmd->MR_trace_must_check = FALSE;
+						cmd->MR_trace_strict = TRUE;
+						cmd->MR_trace_print_level = 
+						 	MR_PRINT_LEVEL_NONE;
 						goto done;
 					}
 				} else {
@@ -1114,12 +1104,8 @@ MR_trace_make_var_list(void)
 		}
 
 		MR_TRACE_USE_HP(
-			MR_incr_hp(univ, 2);
+			MR_new_univ_on_hp(univ, type_info, value);
 		);
-
-		MR_field(MR_mktag(0), univ, MR_UNIV_OFFSET_FOR_TYPEINFO)
-			= (MR_Word) type_info;
-		MR_field(MR_mktag(0), univ, MR_UNIV_OFFSET_FOR_DATA) = value;
 
 		MR_TRACE_USE_HP(
 			var_list = MR_list_cons(univ, var_list);
@@ -1227,16 +1213,13 @@ MR_trace_make_nth_var(MR_Word debugger_request)
 	var_number = MR_get_var_number(debugger_request);
 		/* debugger_request should be of the form: 
 		   current_nth_var(var_number) */
-	MR_TRACE_USE_HP(
-		MR_incr_hp(univ, 2);
-	);
 
 	problem = MR_trace_return_var_info(var_number, NULL,
 			&type_info, &value);
 	if (problem == NULL) {
-		MR_field(MR_mktag(0), univ, MR_UNIV_OFFSET_FOR_TYPEINFO)
-			= (MR_Word) type_info;
-		MR_field(MR_mktag(0), univ, MR_UNIV_OFFSET_FOR_DATA) = value;
+		MR_TRACE_USE_HP(
+			MR_new_univ_on_hp(univ, type_info, value);
+		);
 	} else {
 		/*
 		** Should never occur since we check in the external debugger
@@ -1477,13 +1460,10 @@ MR_trace_browse_one_external(MR_Var_Spec var_spec)
 ** This function calls the collect filtering predicate defined by the user
 ** and dynamically link with the execution.
 */
-static void
-MR_COLLECT_filter(void (*filter_ptr)(MR_Integer, MR_Integer, MR_Integer,
-	MR_Word, MR_Word, MR_String, MR_String, MR_String, MR_Integer,
-	MR_Integer, MR_Word, MR_Integer, MR_String, MR_Word, MR_Word *,
-	MR_Char *), MR_Unsigned seqno, MR_Unsigned depth, MR_Trace_Port port, 
-	const MR_Label_Layout *layout, const char *path, 
-	bool *stop_collecting)
+void
+MR_COLLECT_filter(MR_FilterFuncPtr filter_ptr, MR_Unsigned seqno, 
+	MR_Unsigned depth, MR_Trace_Port port, const MR_Label_Layout *layout, 
+	const char *path, bool *stop_collecting)
 {
 	MR_Char	result;		
 	MR_Word	arguments;

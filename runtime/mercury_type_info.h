@@ -41,6 +41,10 @@
 **      runtime/mercury_tabling.c
 **      runtime/mercury_type_info.c
 **      library/std_util.m
+**	java/ *.java
+**	    (for updating the Java backend RTTI
+**	    structures)
+**     
 */
 
 #ifndef MERCURY_TYPE_INFO_H
@@ -343,9 +347,24 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** Definitions for handwritten code, mostly for mercury_compare_typeinfo.
 */
 
-#define MR_COMPARE_EQUAL    0
-#define MR_COMPARE_LESS     1
-#define MR_COMPARE_GREATER  2
+#ifdef MR_RESERVE_TAG
+	/*
+        ** In reserve-tag grades, enumerations are disabled, so the
+	** representation of the 'comparison_result' type is quite different.
+	** The enumeration constants (for (<), (=) and (>)) wind up sharing 
+	** the same primary tag (1), and are all allocated secondary tags
+	** starting from 0.
+	*/
+    #define MR_COMPARE_TAG      MR_mktag(MR_FIRST_UNRESERVED_RAW_TAG)
+ 
+    #define MR_COMPARE_EQUAL    MR_mkword(MR_COMPARE_TAG, MR_mkbody(0))
+    #define MR_COMPARE_LESS     MR_mkword(MR_COMPARE_TAG, MR_mkbody(1))
+    #define MR_COMPARE_GREATER  MR_mkword(MR_COMPARE_TAG, MR_mkbody(2))         
+#else
+    #define MR_COMPARE_EQUAL    0
+    #define MR_COMPARE_LESS     1
+    #define MR_COMPARE_GREATER  2
+#endif
 
 /*---------------------------------------------------------------------------*/
 
@@ -402,18 +421,26 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 
 #define	MR_unravel_univ(univ, typeinfo, value)                      \
     do {                                                            \
-        typeinfo = (MR_TypeInfo) MR_field(MR_mktag(0), (univ),      \
+        typeinfo = (MR_TypeInfo) MR_field(MR_UNIV_TAG, (univ),      \
                         MR_UNIV_OFFSET_FOR_TYPEINFO);               \
-        value = MR_field(MR_mktag(0), (univ),                       \
+        value = MR_field(MR_UNIV_TAG, (univ),                       \
                         MR_UNIV_OFFSET_FOR_DATA);                   \
     } while (0)
 
 #define MR_define_univ_fields(univ, typeinfo, value)                \
     do {                                                            \
-        MR_field(MR_mktag(0), (univ), MR_UNIV_OFFSET_FOR_TYPEINFO)  \
+        MR_field(MR_UNIV_TAG, (univ), MR_UNIV_OFFSET_FOR_TYPEINFO)  \
             = (MR_Word) (typeinfo);                                 \
-        MR_field(MR_mktag(0), (univ), MR_UNIV_OFFSET_FOR_DATA)      \
+        MR_field(MR_UNIV_TAG, (univ), MR_UNIV_OFFSET_FOR_DATA)      \
             = (MR_Word) (value);                                    \
+    } while (0)
+
+/* Allocate a univ on the heap */
+/* XXX we should use MR_tag_incr_hp_msg() here */
+#define MR_new_univ_on_hp(univ, typeinfo, value)                    \
+    do {                                                            \
+        MR_tag_incr_hp((univ), MR_UNIV_TAG, 2);                     \
+        MR_define_univ_fields((univ), (typeinfo), (value));         \
     } while (0)
 
 /*---------------------------------------------------------------------------*/
@@ -587,7 +614,7 @@ typedef enum {
 /*---------------------------------------------------------------------------*/
 
 /*
-** The argument number gives the offset in the cell (in a form in which
+** The argument number field gives the offset in the cell (in a form in which
 ** it can be given to the MR_field macro directly) of either of the typeinfo
 ** itself or of the typeclassinfo containing the typeinfo. If the former,
 ** the offset field will be negative; otherwise, it will be an integer
@@ -605,23 +632,24 @@ typedef struct {
 ** existentially quantified type variables occurring in the types of some
 ** of the arguments of a functor in a du type.
 ** 
-** The num_typeinfos_plain gives the number of typeinfos directly inserted
-** at the start of the memory cell of the functor, while the num_tcis field
-** gives the number of typeclassinfos inserted after them. The arguments
-** visible to the programmer start after these two blocks, which means that
-** when accessing them, one must add the sum of num_typeinfos_plain and
-** num_tcis to the visible argument number in order to arrive at an offset
-** in the cell.
-**
+** The MR_exist_typeinfos_plain field gives the number of typeinfos
+** directly inserted at the start of the memory cell of the functor, while
+** the MR_exist_tcis field gives the number of typeclassinfos
+** inserted AFTER them.  The arguments visible to the programmer start AFTER
+** these two blocks, which means that when accessing them, one must add
+** the sum of MR_exist_typeinfos_plain and MR_exist_tcis to
+** the visible argument number in order to arrive at an offset in the cell.
+** 
 ** It is possible for a typeclassinfo to contain more than one type variable.
-** The num_typeinfos_in_tci field contains the total number of typeinfos stored
-** inside the typeclassinfos of the cell.
-**
-** The typeinfo_locns field points to an array of MR_ExistTypeInfoLocns.
-** This array has num_typeinfos_plain + num_typeinfos_in_tci elements,
-** each one of which describes the location (directly in the cell or indirectly
-** inside a typeclassinfo) of the typeinfo for an existentially quantified
-** type variable. The typeinfo for type variable N will be at the offset
+** The MR_exist_typeinfos_in_tci field contains the total number of typeinfos
+** stored inside the typeclassinfos of the cell.
+** 
+** The MR_exist_typeinfo_locns field points to an array of
+** MR_ExistTypeInfoLocns.  This array has MR_exist_typeinfos_plain +
+** MR_exist_typeinfos_in_tci elements, each one of which describes
+** the location (directly in the cell or indirectly inside a typeclassinfo)
+** of the typeinfo for an existentially quantified type variable. 
+** The typeinfo for type variable N will be at the offset
 ** N - MR_PSEUDOTYPEINFO_EXIST_VAR_BASE - 1. (The one is subtracted to convert
 ** from type var numbering, which starts at 1, to array offset numbering).
 */
@@ -684,7 +712,8 @@ typedef struct {
 typedef enum {
     MR_DEFINE_ENUM_CONST(MR_SECTAG_NONE),
     MR_DEFINE_ENUM_CONST(MR_SECTAG_LOCAL),
-    MR_DEFINE_ENUM_CONST(MR_SECTAG_REMOTE)
+    MR_DEFINE_ENUM_CONST(MR_SECTAG_REMOTE),
+    MR_DEFINE_ENUM_CONST(MR_SECTAG_VARIABLE)
 } MR_Sectag_Locn;
 
 typedef struct {
@@ -1127,7 +1156,7 @@ extern  MR_TypeInfo MR_collapse_equivalences(MR_TypeInfo type_info);
 ** which (directly or indirectly) contains the typeinfos of the existentially
 ** quantified type variables, and the descriptor of the function symbol,
 ** which describes how those typeinfos can be found in the cell. The cell
-** address is supposed to point past the remote secondary tag, if any;
+** address is supposed to point PAST the remote secondary tag, if any;
 ** it should point to the first argument, whether it is a user visible argument
 ** or a typeinfo/typeclass_info inserted into the cell by the compiler.
 **

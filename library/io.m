@@ -1135,6 +1135,7 @@
 	static MR_Word		ML_io_stream_names;
 	static MR_Word		ML_io_user_globals;
 	static int next_id;
+	static System::Text::ASCIIEncoding *ascii_encoder;
 ").
 
 
@@ -1372,7 +1373,7 @@ io__read_line_as_string(Stream, Result, IO0, IO) :-
 		io__state, io__state).
 :- mode io__read_line_as_string_2(in, out, out, di, uo) is det.
 
-:- pragma foreign_code("C", io__read_line_as_string_2(File::in, Res :: out,
+:- pragma foreign_proc("C", io__read_line_as_string_2(File::in, Res :: out,
 			RetString::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -1430,7 +1431,7 @@ io__read_line_as_string(Stream, Result, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__read_line_as_string_2(_File::in, _Res :: out, _RetString::out,
 		IO0::di, IO::uo), [will_not_call_mercury, thread_safe],
 "
@@ -1527,7 +1528,7 @@ io__read_file_as_string_2(Stream, Buffer0, Pos0, Size0, Buffer, Pos, Size) -->
 :- mode io__clear_err(in, di, uo) is det.
 % same as ANSI C's clearerr().
 
-:- pragma foreign_code("C", io__clear_err(Stream::in, _IO0::di, _IO::uo),
+:- pragma foreign_proc("C", io__clear_err(Stream::in, _IO0::di, _IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
 	MercuryFile *f = (MercuryFile *) Stream;
@@ -1539,7 +1540,7 @@ io__read_file_as_string_2(Stream, Buffer0, Pos0, Size0, Buffer, Pos, Size) -->
 	}
 }").
 
-:- pragma foreign_code("MC++", io__clear_err(_Stream::in, _IO0::di, _IO::uo),
+:- pragma foreign_proc("MC++", io__clear_err(_Stream::in, _IO0::di, _IO::uo),
 		[will_not_call_mercury, thread_safe],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
@@ -1561,7 +1562,7 @@ io__check_err(Stream, Res) -->
 :- mode io__ferror(in, out, out, di, uo) is det.
 % similar to ANSI C's ferror().
 
-:- pragma foreign_code("C", ferror(Stream::in, RetVal::out, RetStr::out,
+:- pragma foreign_proc("C", ferror(Stream::in, RetVal::out, RetStr::out,
 		_IO0::di, _IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -1577,7 +1578,7 @@ io__check_err(Stream, Res) -->
 		MR_PROC_LABEL, RetStr);
 }").
 
-:- pragma foreign_code("MC++", ferror(_Stream::in, _RetVal::out, _RetStr::out,
+:- pragma foreign_proc("MC++", ferror(_Stream::in, _RetVal::out, _RetStr::out,
 		_IO0::di, _IO::uo),
 		[will_not_call_mercury, thread_safe],
 "{
@@ -1592,14 +1593,14 @@ io__check_err(Stream, Res) -->
 :- pred io__make_err_msg(string, string, io__state, io__state).
 :- mode io__make_err_msg(in, out, di, uo) is det.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	make_err_msg(Msg0::in, Msg::out, _IO0::di, _IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "{
 	ML_maybe_make_err_msg(TRUE, Msg0, MR_PROC_LABEL, Msg);
 }").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	make_err_msg(_Msg0::in, _Msg::out, _IO0::di, _IO::uo),
 		will_not_call_mercury,
 "{
@@ -1624,7 +1625,7 @@ io__check_err(Stream, Res) -->
 #endif
 ").
 
-:- pragma foreign_code("C", io__stream_file_size(Stream::in, Size::out,
+:- pragma foreign_proc("C", io__stream_file_size(Stream::in, Size::out,
 		_IO0::di, _IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -1649,7 +1650,7 @@ io__check_err(Stream, Res) -->
 #endif
 }").
 
-:- pragma foreign_code("MC++", io__stream_file_size(_Stream::in, _Size::out,
+:- pragma foreign_proc("MC++", io__stream_file_size(_Stream::in, _Size::out,
 		_IO0::di, _IO::uo),
 		[will_not_call_mercury, thread_safe],
 "{
@@ -1665,7 +1666,7 @@ io__check_err(Stream, Res) -->
 :- type buffer ---> buffer(c_pointer).
 
 :- pred io__alloc_buffer(int::in, buffer::uo) is det.
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__alloc_buffer(Size::in, Buffer::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -1676,7 +1677,7 @@ io__check_err(Stream, Res) -->
 }").
 
 :- pred io__resize_buffer(buffer::di, int::in, int::in, buffer::uo) is det.
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__resize_buffer(Buffer0::di, OldSize::in,
 		NewSize::in, Buffer::uo),
 	[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -1715,7 +1716,7 @@ io__check_err(Stream, Res) -->
 }").
 
 :- pred io__buffer_to_string(buffer::di, int::in, string::uo) is det.
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__buffer_to_string(Buffer::di, Len::in, Str::uo),
 	[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -1725,7 +1726,7 @@ io__check_err(Stream, Res) -->
 
 
 :- pred io__buffer_to_string(buffer::di, string::uo) is det.
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__buffer_to_string(Buffer::di, Str::uo),
 	[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -1736,7 +1737,7 @@ io__check_err(Stream, Res) -->
 :- pred io__read_into_buffer(stream::in, buffer::di, int::in, int::in,
 		    buffer::uo, int::out, io__state::di, io__state::uo) is det.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__read_into_buffer(Stream::in, Buffer0::di, Pos0::in, Size::in,
 		    Buffer::uo, Pos::out, _IO0::di, _IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -1751,14 +1752,14 @@ io__check_err(Stream, Res) -->
 	Pos = Pos0 + items_read;
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__alloc_buffer(_Size::in, _Buffer::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__resize_buffer(_Buffer0::di, _OldSize::in,
 		_NewSize::in, _Buffer::uo),
 	[will_not_call_mercury, thread_safe, tabled_for_io],
@@ -1766,21 +1767,21 @@ io__check_err(Stream, Res) -->
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__buffer_to_string(_Buffer::di, _Len::in, _Str::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__buffer_to_string(_Buffer::di, _Str::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__read_into_buffer(_Stream::in, _Buffer0::di, _Pos0::in, _Size::in,
 		    _Buffer::uo, _Pos::out, _IO0::di, _IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
@@ -2345,13 +2346,13 @@ io__write_private_builtin_type_info(PrivateBuiltinTypeInfo) -->
 	io__write_type_desc(TypeInfo).
 
 :- func unsafe_cast(T1::in) = (T2::out) is det.
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	unsafe_cast(VarIn::in) = (VarOut::out),
 		[will_not_call_mercury, thread_safe],
 "
 	VarOut = VarIn;
 ").
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	unsafe_cast(VarIn::in) = (VarOut::out),
 		[will_not_call_mercury, thread_safe],
 "
@@ -2598,7 +2599,7 @@ io__stream_name(Stream, Name) -->
 :- pred io__set_stream_names(io__stream_names, io__state, io__state).
 :- mode io__set_stream_names(in, di, uo) is det.
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		io__get_stream_names(StreamNames::out, IO0::di, IO::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2606,7 +2607,7 @@ io__stream_name(Stream, Name) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		io__set_stream_names(StreamNames::in, IO0::di, IO::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2614,7 +2615,7 @@ io__stream_name(Stream, Name) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		io__get_stream_names(StreamNames::out, IO0::di, IO::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2622,7 +2623,7 @@ io__stream_name(Stream, Name) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		io__set_stream_names(StreamNames::in, IO0::di, IO::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2654,7 +2655,7 @@ io__insert_stream_name(Stream, Name) -->
 	% XXX design flaw with regard to unique modes
 	% and io__get_globals/3: the `Globals::uo' mode here is a lie.
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		io__get_globals(Globals::uo, IOState0::di, IOState::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2662,7 +2663,7 @@ io__insert_stream_name(Stream, Name) -->
 	update_io(IOState0, IOState);
 ").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		io__set_globals(Globals::di, IOState0::di, IOState::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2671,7 +2672,7 @@ io__insert_stream_name(Stream, Name) -->
 	update_io(IOState0, IOState);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		io__get_globals(Globals::uo, IOState0::di, IOState::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2679,7 +2680,7 @@ io__insert_stream_name(Stream, Name) -->
 	update_io(IOState0, IOState);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		io__set_globals(Globals::di, IOState0::di, IOState::uo), 
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -2691,7 +2692,7 @@ io__progname_base(DefaultName, PrognameBase) -->
 	io__progname(DefaultName, Progname),
 	{ dir__basename(Progname, PrognameBase) }.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__get_stream_id(Stream::in) = (Id::out), 
 		will_not_call_mercury, "
 	/* 
@@ -2710,7 +2711,7 @@ io__progname_base(DefaultName, PrognameBase) -->
 #endif
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__get_stream_id(Stream::in) = (Id::out), 
 		will_not_call_mercury, "
 	MR_MercuryFile mf = ML_DownCast(MR_MercuryFile,
@@ -2811,7 +2812,7 @@ io__finalize_state -->
 :- pred io__gc_init(type_desc, type_desc, io__state, io__state).
 :- mode io__gc_init(in, in, di, uo) is det.
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 		io__gc_init(StreamNamesType::in, UserGlobalsType::in,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
@@ -2825,9 +2826,24 @@ io__finalize_state -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 		io__gc_init(_StreamNamesType::in, _UserGlobalsType::in,
 		IO0::di, IO::uo), will_not_call_mercury, "
+	update_io(IO0, IO);
+	ascii_encoder =	new System::Text::ASCIIEncoding();
+").
+
+:- pred io__stream_init(io__state, io__state).
+:- mode io__stream_init(di, uo) is det.
+
+:- pragma foreign_proc("MC++", 
+		io__stream_init(IO0::di, IO::uo), will_not_call_mercury, "
+	ascii_encoder =	new System::Text::ASCIIEncoding();
+	update_io(IO0, IO);
+").
+
+:- pragma foreign_proc("C", 
+		io__stream_init(IO0::di, IO::uo), will_not_call_mercury, "
 	update_io(IO0, IO);
 ").
 
@@ -2956,14 +2972,19 @@ int		ML_fprintf(MercuryFile* mf, const char *format, ...);
 
 :- pragma foreign_decl("MC++", "
 
-	// XXX for efficiency we should re-use the same stream writer
-	// on a stream, perhaps we should store it with a stream.
+	// XXX currently we only handle text streams.
 
 __gc struct MR_MercuryFileStruct {
 public:
-	System::IO::Stream 	*stream;
+	// Note that stream reader and writer might be null, if they are
+	// currently unused.
+
+	System::IO::Stream 	*stream; // The stream itself
+	System::IO::TextReader 	*reader; // A stream reader for reading it
+	System::IO::TextWriter 	*writer; // A stream writer for writing it
 	int		line_number;
 	int		id;
+
 };
 
 typedef __gc struct MR_MercuryFileStruct *MR_MercuryFile;
@@ -3004,14 +3025,15 @@ mercury_init_io(void)
 	MR_mercuryfile_init(NULL, 1, &mercury_stdin_binary);
 	MR_mercuryfile_init(NULL, 1, &mercury_stdout_binary);
 
-#if defined(HAVE_FDOPEN) && (defined(HAVE_FILENO) || defined(fileno))
-	MR_file(mercury_stdin_binary) = fdopen(fileno(stdin), ""rb"");
+#if defined(HAVE_FDOPEN) && (defined(HAVE_FILENO) || defined(fileno)) && \
+    defined(HAVE_DUP)
+	MR_file(mercury_stdin_binary) = fdopen(dup(fileno(stdin)), ""rb"");
 	if (MR_file(mercury_stdin_binary) == NULL) {
 		MR_fatal_error(""error opening standard input stream in ""
 			""binary mode:\\n\\tfdopen() failed: %s"",
 			strerror(errno));
 	}
-	MR_file(mercury_stdout_binary) = fdopen(fileno(stdout), ""wb"");
+	MR_file(mercury_stdout_binary) = fdopen(dup(fileno(stdout)), ""wb"");
 	if (MR_file(mercury_stdout_binary) == NULL) {
 		MR_fatal_error(""error opening standard output stream in ""
 			""binary mode:\\n\\tfdopen() failed: %s"",
@@ -3035,6 +3057,20 @@ static MR_MercuryFile new_mercury_file(System::IO::Stream *stream,
 		int line_number) {
 	MR_MercuryFile mf = new MR_MercuryFileStruct();
 	mf->stream = stream;
+	mf->reader = NULL;
+	mf->writer = NULL;
+	mf->line_number = line_number;
+	mf->id = next_id++;
+	return mf;
+}
+
+static MR_MercuryFile new_open_mercury_file(System::IO::Stream *stream,
+		System::IO::TextReader *reader, System::IO::TextWriter *writer,
+		int line_number) {
+	MR_MercuryFile mf = new MR_MercuryFileStruct();
+	mf->stream = stream;
+	mf->reader = reader;
+	mf->writer = writer;
 	mf->line_number = line_number;
 	mf->id = next_id++;
 	return mf;
@@ -3044,11 +3080,14 @@ static MR_MercuryFile new_mercury_file(System::IO::Stream *stream,
 	// consoles.
 
 static MR_MercuryFile mercury_stdin =
-	new_mercury_file(System::Console::OpenStandardInput(), 1);
+	new_open_mercury_file(System::Console::OpenStandardInput(),
+		System::Console::In, NULL, 1);
 static MR_MercuryFile mercury_stdout =
-	new_mercury_file(System::Console::OpenStandardOutput(), 1);
+	new_open_mercury_file(System::Console::OpenStandardOutput(),
+		NULL, System::Console::Out, 1);
 static MR_MercuryFile mercury_stderr =
-	new_mercury_file(System::Console::OpenStandardError(), 1);
+	new_open_mercury_file(System::Console::OpenStandardError(),
+		NULL, System::Console::Error, 1);
 
 static MR_MercuryFile mercury_stdin_binary =
 	new_mercury_file(0, 1);
@@ -3059,9 +3098,11 @@ static MR_MercuryFile mercury_stdout_binary =
 	// use the mercury_files above.
 
 static MR_MercuryFile mercury_current_text_input =
-	new_mercury_file(System::Console::OpenStandardInput(), 1);
+	new_open_mercury_file(System::Console::OpenStandardInput(),
+		System::Console::In, NULL, 1);
 static MR_MercuryFile mercury_current_text_output =
-	new_mercury_file(System::Console::OpenStandardOutput(), 1);
+	new_open_mercury_file(System::Console::OpenStandardOutput(),
+		NULL, System::Console::Out, 1);
 static MR_MercuryFile mercury_current_binary_input =
         new_mercury_file(0, 1);
 static MR_MercuryFile mercury_current_binary_output =
@@ -3183,10 +3224,10 @@ mercury_print_string(MercuryFile* mf, const char *s)
 static void
 mercury_print_string(MR_MercuryFile mf, MR_String s)
 {
-	// XXX we should re-use the same stream writer...
-        System::IO::StreamWriter *w = new System::IO::StreamWriter(mf->stream);
-        w->Write(s);
-        w->Flush();
+	unsigned char ByteArray __gc[] = ascii_encoder->GetBytes(s);
+	mf->stream->Write(ByteArray, 0, ByteArray->get_Length());
+	mf->stream->Flush();
+
         for (int i = 0; i < s->Length; i++) {
                 if (s->Chars[i] == '\\n') {
                         mf->line_number++;
@@ -3439,7 +3480,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 
 /* input predicates */
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__read_char_code(File::in, CharCode::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -3447,7 +3488,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__putback_char(File::in, Character::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io],
 "{
@@ -3462,7 +3503,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__putback_byte(File::in, Character::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io],
 "{
@@ -3474,7 +3515,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__read_char_code(File::in, CharCode::out, IO0::di, IO::uo),
 		will_not_call_mercury, "
 	MR_MercuryFile mf = ML_DownCast(MR_MercuryFile, 
@@ -3483,14 +3524,14 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__putback_char(_File::in, _Character::in, IO0::di, IO::uo),
 		may_call_mercury, "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__putback_byte(_File::in, _Character::in, IO0::di, IO::uo),
 		may_call_mercury, "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
@@ -3500,7 +3541,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 
 /* output predicates - with output to mercury_current_text_output */
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__write_string(Message::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3508,7 +3549,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__write_char(Character::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3521,7 +3562,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_int(Val::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3531,7 +3572,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_float(Val::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3541,7 +3582,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_byte(Byte::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3554,7 +3595,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_bytes(Message::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3562,7 +3603,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C", 
+:- pragma foreign_proc("C", 
 	io__flush_output(IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3572,7 +3613,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__flush_binary_output(IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3582,7 +3623,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__write_string(Message::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3590,7 +3631,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__write_char(Character::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3604,7 +3645,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_int(Val::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3612,7 +3653,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_float(Val::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3620,7 +3661,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_byte(Byte::in, _IO0::di, _IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3632,7 +3673,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	w->Flush();
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_bytes(Message::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3640,7 +3681,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++", 
+:- pragma foreign_proc("MC++", 
 	io__flush_output(IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3648,7 +3689,7 @@ ML_fprintf(MercuryFile* mf, const char *format, ...)
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__flush_binary_output(IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "
@@ -3672,7 +3713,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 :- pred io__seek_binary_2(io__stream, int, int, io__state, io__state).
 :- mode io__seek_binary_2(in, in, in, di, uo) is det.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__seek_binary_2(Stream::in, Flag::in, Off::in,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -3691,7 +3732,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	IO = IO0;
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__binary_stream_offset(Stream::in, Offset::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -3708,7 +3749,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	IO = IO0;
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__seek_binary_2(_Stream::in, _Flag::in, _Off::in,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
@@ -3717,7 +3758,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	IO = IO0;
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__binary_stream_offset(_Stream::in, _Offset::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
@@ -3729,7 +3770,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 
 /* output predicates - with output to the specified stream */
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_string(Stream::in, Message::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe], 
 "{
@@ -3738,7 +3779,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_char(Stream::in, Character::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe], 
 "{
@@ -3752,7 +3793,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_int(Stream::in, Val::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3763,7 +3804,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_float(Stream::in, Val::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3774,7 +3815,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_byte(Stream::in, Byte::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3786,7 +3827,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__write_bytes(Stream::in, Message::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3795,7 +3836,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__flush_output(Stream::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3806,7 +3847,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__flush_binary_output(Stream::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe],
 "{
@@ -3817,7 +3858,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_string(Stream::in, Message::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io], 
 "{
@@ -3830,7 +3871,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_char(Stream::in, Character::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io], 
 "{
@@ -3843,7 +3884,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_int(Stream::in, Val::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3856,7 +3897,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_float(Stream::in, Val::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3869,7 +3910,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_byte(Stream::in, Byte::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3884,7 +3925,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__write_bytes(Stream::in, Message::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3894,7 +3935,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__flush_output(Stream::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3904,7 +3945,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__flush_binary_output(Stream::in, IO0::di, IO::uo),
 		[may_call_mercury, thread_safe, tabled_for_io],
 "{
@@ -3921,7 +3962,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 :- pragma export(io__stdout_stream(out, di, uo), "ML_io_stdout_stream").
 :- pragma export(io__stderr_stream(out, di, uo), "ML_io_stderr_stream").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__stdin_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3929,7 +3970,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__stdout_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3937,7 +3978,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__stderr_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3945,7 +3986,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__stdin_binary_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3953,7 +3994,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__stdout_binary_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -3961,7 +4002,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__input_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -3969,7 +4010,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__output_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -3977,7 +4018,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__binary_input_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -3985,7 +4026,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__binary_output_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -3993,7 +4034,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__get_line_number(LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4001,7 +4042,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__get_line_number(Stream::in, LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "{
@@ -4010,7 +4051,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 	
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_line_number(LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4018,7 +4059,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_line_number(Stream::in, LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "{
@@ -4027,7 +4068,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 	
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__get_output_line_number(LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4035,7 +4076,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__get_output_line_number(Stream::in, LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "{
@@ -4044,7 +4085,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_output_line_number(LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4052,7 +4093,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_output_line_number(Stream::in, LineNum::in,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
@@ -4065,7 +4106,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 % io__set_input_stream(NewStream, OldStream, IO0, IO1)
 %	Changes the current input stream to the stream specified.
 %	Returns the previous stream.
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_input_stream(NewStream::in, OutStream::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
@@ -4075,7 +4116,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_output_stream(NewStream::in, OutStream::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
@@ -4085,7 +4126,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_binary_input_stream(NewStream::in, OutStream::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
@@ -4095,7 +4136,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_binary_output_stream(NewStream::in, OutStream::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
@@ -4105,7 +4146,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__stdin_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "
@@ -4113,7 +4154,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__stdout_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "
@@ -4121,7 +4162,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__stderr_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "
@@ -4129,7 +4170,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__stdin_binary_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "
@@ -4137,7 +4178,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__stdout_binary_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe, tabled_for_io],
 "
@@ -4145,7 +4186,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__input_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4153,7 +4194,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__output_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4161,7 +4202,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__binary_input_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4169,7 +4210,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__binary_output_stream(Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4177,7 +4218,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__get_line_number(LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4185,7 +4226,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__get_line_number(Stream::in, LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "{
@@ -4195,7 +4236,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 	
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_line_number(LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4203,7 +4244,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_line_number(Stream::in, LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "{
@@ -4213,14 +4254,14 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 	
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__get_output_line_number(LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], "
 	LineNum = mercury_current_text_output->line_number;
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__get_output_line_number(Stream::in, LineNum::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], "{
 	MR_MercuryFile stream = ML_DownCast(MR_MercuryFile, 
@@ -4229,14 +4270,14 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_output_line_number(LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], "
 	mercury_current_text_output->line_number = LineNum;
 	update_io(IO0, IO);
 ").
 	
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_output_line_number(Stream::in, LineNum::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], "{
 	MR_MercuryFile stream = ML_DownCast(MR_MercuryFile, 
@@ -4248,7 +4289,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 % io__set_input_stream(NewStream, OldStream, IO0, IO1)
 %	Changes the current input stream to the stream specified.
 %	Returns the previous stream.
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_input_stream(NewStream::in, OutStream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], "
 	MR_c_pointer_to_word(OutStream, mercury_current_text_input);
@@ -4257,7 +4298,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_output_stream(NewStream::in, OutStream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], "
 	MR_c_pointer_to_word(OutStream, mercury_current_text_output);
@@ -4266,7 +4307,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_binary_input_stream(NewStream::in, OutStream::out,
 		IO0::di, IO::uo), 
 		[will_not_call_mercury, tabled_for_io], "
@@ -4276,7 +4317,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_binary_output_stream(NewStream::in, OutStream::out,
 		IO0::di, IO::uo), 
 		[will_not_call_mercury, tabled_for_io], "
@@ -4292,7 +4333,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 % io__do_open(File, Mode, ResultCode, Stream, IO0, IO1).
 %	Attempts to open a file in the specified mode.
 %	ResultCode is 0 for success, -1 for failure.
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__do_open(FileName::in, Mode::in, ResultCode::out,
 		Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -4302,7 +4343,7 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__do_open(FileName::in, Mode::in, ResultCode::out,
 		Stream::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -4331,13 +4372,13 @@ io__close_binary_output(Stream) -->
 
 :- pred io__close_stream(stream::in, io__state::di, io__state::uo) is det.
 
-:- pragma foreign_code("C", io__close_stream(Stream::in, IO0::di, IO::uo),
+:- pragma foreign_proc("C", io__close_stream(Stream::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe], "
 	mercury_close((MercuryFile *) Stream);
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++", io__close_stream(Stream::in, IO0::di, IO::uo),
+:- pragma foreign_proc("MC++", io__close_stream(Stream::in, IO0::di, IO::uo),
 		[may_call_mercury, tabled_for_io, thread_safe], "
 	MR_MercuryFile mf = ML_DownCast(MR_MercuryFile, 
 		MR_word_to_c_pointer(Stream));
@@ -4347,7 +4388,7 @@ io__close_binary_output(Stream) -->
 
 /* miscellaneous predicates */
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__progname(DefaultProgname::in, PrognameOut::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -4369,7 +4410,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__command_line_arguments(Args::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "
@@ -4384,7 +4425,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__get_exit_status(ExitStatus::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io], 
 "
@@ -4392,7 +4433,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__set_exit_status(ExitStatus::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4400,7 +4441,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__call_system_code(Command::in, Status::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4435,14 +4476,14 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__progname(_DefaultProgname::in, _PrognameOut::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__command_line_arguments(Args::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe], "
 	MR_String arg_vector __gc[] = System::Environment::GetCommandLineArgs();
@@ -4455,7 +4496,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__get_exit_status(ExitStatus::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4463,7 +4504,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__set_exit_status(ExitStatus::in, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4471,7 +4512,7 @@ io__close_binary_output(Stream) -->
 	update_io(IO0, IO);
 ").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__call_system_code(Command::in, Status::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io],
 "
@@ -4491,27 +4532,27 @@ io__close_binary_output(Stream) -->
 
 /* io__getenv and io__putenv, from io.m */
 
-:- pragma foreign_code("C", io__getenv(Var::in, Value::out),
+:- pragma foreign_proc("C", io__getenv(Var::in, Value::out),
 		[will_not_call_mercury, tabled_for_io],
 "{
 	Value = getenv(Var);
 	SUCCESS_INDICATOR = (Value != 0);
 }").
 
-:- pragma foreign_code("C", io__putenv(VarAndValue::in),
+:- pragma foreign_proc("C", io__putenv(VarAndValue::in),
 		[will_not_call_mercury, tabled_for_io],
 "
 	SUCCESS_INDICATOR = (putenv(VarAndValue) == 0);
 ").
 
-:- pragma foreign_code("MC++", io__getenv(Var::in, Value::out),
+:- pragma foreign_proc("MC++", io__getenv(Var::in, Value::out),
 		[will_not_call_mercury, tabled_for_io],
 "{
 	Value = System::Environment::GetEnvironmentVariable(Var);
 	SUCCESS_INDICATOR = (Value != 0);
 }").
 
-:- pragma foreign_code("MC++", io__putenv(_VarAndValue::in),
+:- pragma foreign_proc("MC++", io__putenv(_VarAndValue::in),
 		[will_not_call_mercury, tabled_for_io],
 "
 	mercury::runtime::Errors::SORRY(
@@ -4585,7 +4626,7 @@ io__make_temp(Dir, Prefix, Name) -->
 	long	ML_io_tempnam_counter = 0;
 ").
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__do_make_temp(Dir::in, Prefix::in, FileName::out,
 		Error::out, ErrorMessage::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -4636,7 +4677,7 @@ io__make_temp(Dir, Prefix, Name) -->
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__do_make_temp(_Dir::in, _Prefix::in, _FileName::out,
 		_Error::out, _ErrorMessage::out, IO0::di, IO::uo),
 		[will_not_call_mercury, thread_safe],
@@ -4703,7 +4744,7 @@ io__remove_file(FileName, Result, IO0, IO) :-
 :- pred io__remove_file_2(string, int, string, io__state, io__state).
 :- mode io__remove_file_2(in, out, out, di, uo) is det.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 	io__remove_file_2(FileName::in, RetVal::out, RetStr::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -4714,7 +4755,7 @@ io__remove_file(FileName, Result, IO0, IO) :-
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 	io__remove_file_2(FileName::in, RetVal::out, RetStr::out,
 		IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
@@ -4738,22 +4779,18 @@ io__rename_file(OldFileName, NewFileName, Result, IO0, IO) :-
 :- pred io__rename_file_2(string, string, int, string, io__state, io__state).
 :- mode io__rename_file_2(in, in, out, out, di, uo) is det.
 
-:- pragma foreign_code("C",
+:- pragma foreign_proc("C",
 		io__rename_file_2(OldFileName::in, NewFileName::in,
 			RetVal::out, RetStr::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],
 "{
-#ifdef _MSC_VER
-		/* VC++ runtime fix */
-	_unlink(NewFileName);
-#endif
 	RetVal = rename(OldFileName, NewFileName);
 	ML_maybe_make_err_msg(RetVal != 0, ""rename failed: "",
 		MR_PROC_LABEL, RetStr);
 	update_io(IO0, IO);
 }").
 
-:- pragma foreign_code("MC++",
+:- pragma foreign_proc("MC++",
 		io__rename_file_2(_OldFileName::in, _NewFileName::in,
 			_RetVal::out, _RetStr::out, IO0::di, IO::uo),
 		[will_not_call_mercury, tabled_for_io, thread_safe],

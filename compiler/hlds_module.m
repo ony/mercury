@@ -266,6 +266,8 @@
 		module_info, module_info).
 :- mode module_add_foreign_body_code(in, in, in, in, out) is det.
 
+	% Please see module_info_ensure_dependency_info for the
+	% constraints on this dependency_info.
 :- pred module_info_get_maybe_dependency_info(module_info,
 	maybe(dependency_info)).
 :- mode module_info_get_maybe_dependency_info(in, out) is det.
@@ -399,6 +401,8 @@
 :- pred module_info_consids(module_info, list(cons_id)).
 :- mode module_info_consids(in, out) is det.
 
+	% Please see module_info_ensure_dependency_info for the
+	% constraints on this dependency_info.
 :- pred module_info_dependency_info(module_info, dependency_info).
 :- mode module_info_dependency_info(in, out) is det.
 
@@ -406,6 +410,8 @@
 		aditi_dependency_ordering).
 :- mode module_info_aditi_dependency_ordering(in, out) is det.
 
+	% Please see module_info_ensure_dependency_info for the
+	% constraints on this dependency_info.
 :- pred module_info_set_dependency_info(module_info, dependency_info,
 	module_info).
 :- mode module_info_set_dependency_info(in, in, out) is det.
@@ -485,6 +491,11 @@
 		globals ::			globals,
 		foreign_decl_info ::		foreign_decl_info,
 		foreign_body_info ::		foreign_body_info,
+			
+			% This dependency info is constrained to be only
+			% for between procedures which have clauses
+			% defined for them in this compilation unit
+			% (that includes opt_imported procedures).
 		maybe_dependency_info ::	maybe(dependency_info),
 		num_errors ::			int,
 		last_lambda_number ::		int,
@@ -1180,8 +1191,7 @@ hlds_dependency_info_set_aditi_dependency_ordering(DepInfo0,
 :- mode get_pred_id_and_proc_id(in, in, in, in, in, out, out) is det.
 
 	% Get the pred_id matching a higher-order term with
-	% the given argument types, aborting with an error if none is
-	% found.
+	% the given argument types, failing if none is found.
 :- pred get_pred_id(sym_name, pred_or_func, tvarset, list(type),
 				module_info, pred_id).
 :- mode get_pred_id(in, in, in, in, in, out) is semidet.

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -881,6 +881,7 @@ hlds_out__marker_name(named_class_instance_method,
 hlds_out__marker_name((impure), "impure").
 hlds_out__marker_name((semipure), "semipure").
 hlds_out__marker_name(promised_pure, "promise_pure").
+hlds_out__marker_name(promised_semipure, "promise_semipure").
 hlds_out__marker_name(terminates, "terminates").
 hlds_out__marker_name(check_termination, "check_termination").
 hlds_out__marker_name(does_not_terminate, "does_not_terminate").
@@ -1568,11 +1569,11 @@ hlds_out__write_goal_2(unify(A, B, _, Unification, _), ModuleInfo, VarSet,
 		[]
 	).
 
-hlds_out__write_goal_2(pragma_foreign_code(Attributes, _, _, ArgVars,
+hlds_out__write_goal_2(foreign_proc(Attributes, _, _, ArgVars,
 		ArgNames, _, PragmaCode), _, _, _, Indent, Follow, _) -->
 	{ foreign_language(Attributes, ForeignLang) },
 	hlds_out__write_indent(Indent),
-	io__write_string("$pragma_foreign_code( /* "),
+	io__write_string("$pragma_foreign_proc( /* "),
 	io__write_string(foreign_language_string(ForeignLang)),
 	io__write_string(" */ ["),
 	hlds_out__write_varnum_list(ArgVars),
@@ -1620,8 +1621,19 @@ hlds_out__write_goal_2(pragma_foreign_code(Attributes, _, _, ArgVars,
 	io__write_string(")"),
 	io__write_string(Follow).
 
-hlds_out__write_goal_2(bi_implication(LHS, RHS), ModuleInfo, VarSet,
+hlds_out__write_goal_2(shorthand(ShortHandGoal), ModuleInfo, VarSet,
 		AppendVarnums, Indent, Follow, TypeQual) -->
+	hlds_out__write_goal_2_shorthand(ShortHandGoal, ModuleInfo,
+		VarSet, AppendVarnums, Indent, Follow, TypeQual).
+
+
+:- pred hlds_out__write_goal_2_shorthand(shorthand_goal_expr, module_info,
+	prog_varset, bool, int, string, maybe_vartypes, io__state, io__state).
+:- mode hlds_out__write_goal_2_shorthand(in, in, in, in, in, in, in, di, uo)
+	is det.
+
+hlds_out__write_goal_2_shorthand(bi_implication(LHS, RHS), ModuleInfo, 
+		VarSet,	AppendVarnums, Indent, Follow, TypeQual) -->
 	hlds_out__write_indent(Indent),
 	io__write_string("( % bi-implication\n"),
 	{ Indent1 is Indent + 1 },
@@ -1634,6 +1646,8 @@ hlds_out__write_goal_2(bi_implication(LHS, RHS), ModuleInfo, VarSet,
 	hlds_out__write_indent(Indent),
 	io__write_string(")"),
 	io__write_string(Follow).
+
+
 
 :- pred hlds_out__write_varnum_list(list(prog_var), io__state, io__state).
 :- mode hlds_out__write_varnum_list(in, di, uo) is det.
@@ -2273,6 +2287,8 @@ hlds_out__write_import_status(local) -->
 	io__write_string("local").
 hlds_out__write_import_status(exported) -->
 	io__write_string("exported").
+hlds_out__write_import_status(opt_exported) -->
+	io__write_string("opt_exported").
 hlds_out__write_import_status(abstract_exported) -->
 	io__write_string("abstract_exported").
 hlds_out__write_import_status(pseudo_exported) -->

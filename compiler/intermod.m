@@ -503,12 +503,12 @@ intermod__traverse_goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info,
 
 	% Inlineable exported pragma_foreign_code goals can't use any
 	% non-exported types, so we just write out the clauses. 
-intermod__traverse_goal(pragma_foreign_code(A,B,C,D,E,F,G) - Info,
-		pragma_foreign_code(A,B,C,D,E,F,G) - Info, yes) --> [].
+intermod__traverse_goal(foreign_proc(A,B,C,D,E,F,G) - Info,
+		foreign_proc(A,B,C,D,E,F,G) - Info, yes) --> [].
 
-intermod__traverse_goal(bi_implication(_, _) - _, _, _) -->
+intermod__traverse_goal(shorthand(_) - _, _, _) -->
 	% these should have been expanded out by now
-	{ error("intermod__traverse_goal: unexpected bi_implication") }.
+	{ error("intermod__traverse_goal: unexpected shorthand") }.
 
 
 :- pred intermod__traverse_list_of_goals(hlds_goals::in, hlds_goals::out,
@@ -873,18 +873,16 @@ intermod__gather_instances_3(ModuleInfo, ClassId, InstanceDefn) -->
 				list__remove_adjacent_dups(ClassPreds0,
 					ClassPreds),
 				assoc_list__from_corresponding_lists(
-					ClassPreds, Methods0, MethodAL0)
+					ClassPreds, Methods0, MethodAL)
 			;
 				error(
 	"intermod__gather_instances_3: method pred_proc_ids not filled in")
 			},
-			{ list__map(
+			{ list__map_foldl(
 				intermod__qualify_instance_method(ModuleInfo),
-				MethodAL0, MethodAL) },
-			{ assoc_list__keys(MethodAL, PredIds) },
-			{ assoc_list__values(MethodAL, Methods) },
-			list__map_foldl(intermod__add_proc,
-				PredIds, DoWriteMethodsList),
+				MethodAL, Methods, [], PredIds) },
+			list__map_foldl(intermod__add_proc, PredIds, 
+				DoWriteMethodsList),
 			{ bool__and_list(DoWriteMethodsList, DoWriteMethods) },
 			(
 				{ DoWriteMethods = yes },
@@ -936,11 +934,12 @@ intermod__gather_instances_3(ModuleInfo, ClassId, InstanceDefn) -->
 	% Resolve overloading of instance methods before writing them
 	% to the `.opt' file.
 :- pred intermod__qualify_instance_method(module_info::in,
-		pair(pred_id, instance_method)::in,
-		pair(pred_id, instance_method)::out) is det.
+		pair(pred_id, instance_method)::in, instance_method::out,
+		list(pred_id)::in, list(pred_id)::out) is det.
 
 intermod__qualify_instance_method(ModuleInfo,
-		MethodCallPredId - InstanceMethod0, PredId - InstanceMethod) :-
+		MethodCallPredId - InstanceMethod0,
+		InstanceMethod, PredIds0, PredIds) :-
 	module_info_pred_info(ModuleInfo, MethodCallPredId,
 		MethodCallPredInfo),
 	pred_info_arg_types(MethodCallPredInfo, MethodCallTVarSet, _,
@@ -950,32 +949,34 @@ intermod__qualify_instance_method(ModuleInfo,
 	(
 		InstanceMethodDefn0 = name(InstanceMethodName0),
 		PredOrFunc = function,
-		module_info_get_predicate_table(ModuleInfo, PredicateTable),
 		(
-			predicate_table_search_func_sym_arity(PredicateTable,
-				InstanceMethodName0, MethodArity, PredIds),
-			typecheck__find_matching_pred_id(PredIds, ModuleInfo,
+			find_func_matching_instance_method(ModuleInfo,
+				InstanceMethodName0, MethodArity,
 				MethodCallTVarSet, MethodCallArgTypes,
-				PredId0, InstanceMethodName1)
+				MaybePredId, InstanceMethodName)
 		->
-			PredId = PredId0,
-			InstanceMethodName = InstanceMethodName1
+			( MaybePredId = yes(PredId) ->
+				PredIds = [PredId | PredIds0]
+			;
+				PredIds = PredIds0
+			),
+			InstanceMethodDefn = name(InstanceMethodName)
 		;
-			hlds_out__simple_call_id_to_string(
-				function - InstanceMethodName0/MethodArity,
-				MethodStr),
-			string__append(
-			    "intermod__qualify_instance_method: undefined ",
-			    MethodStr, Msg),
-			error(Msg)
-		),
-		InstanceMethodDefn = name(InstanceMethodName)
+			% This will force intermod__add_proc to
+			% return DoWrite = no
+			invalid_pred_id(PredId),
+			PredIds = [PredId | PredIds0],
+
+			% We can just leave the method definition unchanged
+			InstanceMethodDefn = InstanceMethodDefn0
+		)
 	;
 		InstanceMethodDefn0 = name(InstanceMethodName0),
 		PredOrFunc = predicate,
 		typecheck__resolve_pred_overloading(ModuleInfo,
 			MethodCallArgTypes, MethodCallTVarSet,
 			InstanceMethodName0, InstanceMethodName, PredId),
+		PredIds = [PredId | PredIds0],
 		InstanceMethodDefn = name(InstanceMethodName)
 	;
 		InstanceMethodDefn0 = clauses(_ItemList),
@@ -988,11 +989,78 @@ intermod__qualify_instance_method(ModuleInfo,
 		%
 		% This will force intermod__add_proc to return DoWrite = no
 		invalid_pred_id(PredId),
+		PredIds = [PredId | PredIds0],
 		% We can just leave the method definition unchanged
 		InstanceMethodDefn = InstanceMethodDefn0
 	),
 	InstanceMethod = instance_method(PredOrFunc, MethodName,
 			InstanceMethodDefn, MethodArity, MethodContext).
+			
+	%
+	% A `func(x/n) is y' method implementation can match an ordinary
+	% function, a field access function or a constructor.
+	% For now, if there are multiple possible matches, we don't write
+	% the instance method.
+	%
+:- pred find_func_matching_instance_method(module_info::in, sym_name::in, 
+		arity::in, tvarset::in, list(type)::in,
+		maybe(pred_id)::out, sym_name::out) is semidet.
+
+find_func_matching_instance_method(ModuleInfo, InstanceMethodName0,
+		MethodArity, MethodCallTVarSet, MethodCallArgTypes,
+		MaybePredId, InstanceMethodName) :-
+
+	module_info_ctor_field_table(ModuleInfo, CtorFieldTable),
+	(
+		is_field_access_function_name(ModuleInfo, InstanceMethodName0,
+			MethodArity, _, FieldName),
+		map__search(CtorFieldTable, FieldName, FieldDefns)
+	->
+		TypeIds0 = list__map(
+			(func(FieldDefn) = TypeId :-
+				FieldDefn = hlds_ctor_field_defn(_, _,
+						TypeId, _, _)
+			), FieldDefns)
+	;
+		TypeIds0 = []
+	),
+	module_info_ctors(ModuleInfo, Ctors),
+	(
+		map__search(Ctors, cons(InstanceMethodName0, MethodArity),
+			MatchingConstructors)
+	->
+		TypeIds1 = list__map(
+			(func(ConsDefn) = TypeId :-
+				ConsDefn = hlds_cons_defn(_, _, _, TypeId, _)
+			), MatchingConstructors)
+	;
+		TypeIds1 = []
+	),
+	TypeIds = list__append(TypeIds0, TypeIds1),
+
+	module_info_get_predicate_table(ModuleInfo, PredicateTable),
+	(
+		predicate_table_search_func_sym_arity(PredicateTable,
+			InstanceMethodName0, MethodArity, PredIds),
+		typecheck__find_matching_pred_id(PredIds, ModuleInfo,
+			MethodCallTVarSet, MethodCallArgTypes,
+			PredId, InstanceMethodFuncName)
+	->
+		TypeIds = [],	
+		MaybePredId = yes(PredId),
+		InstanceMethodName = InstanceMethodFuncName
+	;
+		TypeIds = [TheTypeId],
+		MaybePredId = no,
+		( TheTypeId = qualified(TypeModule, _) - _ ->
+			unqualify_name(InstanceMethodName0, UnqualMethodName),
+			InstanceMethodName =
+				qualified(TypeModule, UnqualMethodName)
+		;	
+			error(
+	"unqualified type_id in hlds_cons_defn or hlds_ctor_field_defn")
+		)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1277,7 +1345,9 @@ intermod__write_class(ModuleName, ClassId, ClassDefn) -->
 	{ ClassId = class_id(QualifiedClassName, _) },
 	(
 		{ QualifiedClassName = qualified(ModuleName, _) },
-		{ ImportStatus = local }
+		{ ImportStatus = local
+		; ImportStatus = abstract_exported
+		}
 	->
 		{ Item = typeclass(Constraints, QualifiedClassName, TVars,
 				Interface, TVarSet) },
@@ -1318,7 +1388,25 @@ intermod__write_pred_decls(ModuleInfo, [PredId | PredIds]) -->
 	{ pred_info_get_purity(PredInfo, Purity) },
 	{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
 	{ pred_info_get_class_context(PredInfo, ClassContext) },
-	{ AppendVarNums = yes },
+	{ pred_info_get_goal_type(PredInfo, GoalType) },
+	{
+		GoalType = pragmas,
+		% For foreign code goals we can't append variable numbers
+		% to type variables in the predicate declaration
+		% because the foreign code may contain references to
+		% variables such as `TypeInfo_for_T' which will break
+		% if `T' is written as `T_1' in the pred declaration.
+		AppendVarNums = no
+	;
+		GoalType = clauses,
+		AppendVarNums = yes
+	;
+		GoalType = (assertion),
+		AppendVarNums = yes
+	;
+		GoalType = none,
+		AppendVarNums = yes
+	},
 	(
 		{ PredOrFunc = predicate },
 		mercury_output_pred_type(TVarSet, ExistQVars,
@@ -1611,6 +1699,7 @@ intermod__should_output_marker(psn, yes).
 intermod__should_output_marker(supp_magic, yes).
 intermod__should_output_marker(context, yes).
 intermod__should_output_marker(promised_pure, yes).
+intermod__should_output_marker(promised_semipure, yes).
 intermod__should_output_marker(terminates, yes).
 intermod__should_output_marker(does_not_terminate, yes).
 	% Termination should only be checked in the defining module.
@@ -1634,13 +1723,13 @@ intermod__write_foreign_code(SymName, PredOrFunc, HeadVars, Varset,
 			{ Goal = conj(Goals) - _ },
 			{ list__filter(
 				lambda([X::in] is semidet, (
-				    X = pragma_foreign_code(_,_,_,_,_,_,_) - _
+				    X = foreign_proc(_,_,_,_,_,_,_) - _
 				)),
 				Goals, [ForeignCodeGoal]) },
-			{ ForeignCodeGoal = pragma_foreign_code(Attributes,
+			{ ForeignCodeGoal = foreign_proc(Attributes,
 				_, _, Vars, Names, _, PragmaCode) - _ }
 		;
-			{ Goal = pragma_foreign_code(Attributes,
+			{ Goal = foreign_proc(Attributes,
 				_, _, Vars, Names, _, PragmaCode) - _ }
 		)
 	->	
@@ -1655,7 +1744,7 @@ intermod__write_foreign_code(SymName, PredOrFunc, HeadVars, Varset,
 
 :- pred intermod__write_foreign_clauses(proc_table::in, list(proc_id)::in, 
 		pred_or_func::in, pragma_foreign_code_impl::in,
-		pragma_foreign_code_attributes::in, list(prog_var)::in,
+		pragma_foreign_proc_attributes::in, list(prog_var)::in,
 		prog_varset::in, list(maybe(pair(string, mode)))::in,
 		sym_name::in, io__state::di, io__state::uo) is det.
 
@@ -1990,7 +2079,7 @@ set_list_of_preds_exported_2([PredId | PredIds], Preds0, Preds) :-
 		->
 			NewStatus = pseudo_exported
 		;
-			NewStatus = exported
+			NewStatus = opt_exported
 		),
 		pred_info_set_import_status(PredInfo0, NewStatus, PredInfo),
 		map__det_update(Preds0, PredId, PredInfo, Preds1)
@@ -2103,16 +2192,16 @@ read_optimization_interfaces([Import | Imports],
 		maybe_write_string(VeryVerbose, " `"),
 		{ prog_out__sym_name_to_string(Import, ImportString) },
 		maybe_write_string(VeryVerbose, ImportString),
-		maybe_write_string(VeryVerbose, "'... "),
+		maybe_write_string(VeryVerbose, "'...\n"),
 		maybe_flush_output(VeryVerbose),
-		maybe_write_string(VeryVerbose, "% done.\n"),
 
 		module_name_to_file_name(Import, ".opt", no, FileName),
 		prog_io__read_opt_file(FileName, Import, yes,
 				ModuleError, Messages, Items1),
 		update_error_status(opt, FileName, ModuleError, Messages,
 				Error0, Error1),
-		{ list__append(Items0, Items1, Items2) }
+		{ list__append(Items0, Items1, Items2) },
+		maybe_write_string(VeryVerbose, "% done.\n")
 	),
 	read_optimization_interfaces(Imports, Items2, Items, Error1, Error).
 

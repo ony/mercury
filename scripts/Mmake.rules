@@ -175,10 +175,9 @@ $(ss_subdir)%.s : %.m
 	$(MCG) $(ALL_GRADEFLAGS) --target-code-only $(ALL_MCGFLAGS) \
 		$< > $*.err 2>&1
 
-# XXX we should probably use a new `--pic' option rather than `--pic-reg'
 $(ss_subdir)%.pic_s : %.m
 	$(MCG) $(ALL_GRADEFLAGS) --target-code-only $(ALL_MCGFLAGS) \
-		--pic-reg --cflags "$(GCCFLAGS_FOR_PIC)" $< > $*.err 2>&1
+		--pic --cflags "$(GCCFLAGS_FOR_PIC)" $< > $*.err 2>&1
 
 $(os_subdir)%.$O : $(ss_subdir)%.s
 	$(AS) $< $(OBJFILE_OPT)$@
@@ -213,10 +212,10 @@ $(ils_subdir)%.il : %.m
 # These rules are only available in *il* backends, because we'd like to avoid
 # processing user code that is in a .cpp file, and we'd like to avoid going via
 # IL to generate a DLL if we are in a non-IL grade.
-ifneq (,$(findstring il,$(GRADE)))
+ifeq ($(findstring il,$(GRADE)),il)        
 $(os_subdir)%.dll : %.cpp
 	rm -f $(os_subdir)$*.dll
-	$(MS_CL) -com+$(MS_CL_NOASM) -I$(MERC_C_INCL_DIR) \
+	$(MS_CL) -CLR$(MS_CL_NOASM) -I$(MERC_C_INCL_DIR) \
 		-I$(MERC_DLL_DIR) $(ALL_MS_CLFLAGS) $< -link -noentry \
 		-dll $(MS_CL_LIBS) -out:$@
 
@@ -334,23 +333,20 @@ endif # $(cs_subdir) != ""
 # we only activate these rules when in an IL grade.
 #
 
-ifneq (,$(findstring il,$(GRADE)))
-ifneq ("$(ils_subdir)","")
+ifeq ($(findstring il,$(GRADE)),il)        
 
 .il.dll:
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /dll /quiet /OUT=$@ $<
 
 .il.exe:
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /quiet /OUT=$@ $< 
-	cp default.cfg $*.cfg
 
 .cpp.dll:
-	$(MS_CL) -com+($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -noentry -dll $(MS_CL_LIBS) -out:$@
+	$(MS_CL) -CLR($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -noentry -dll $(MS_CL_LIBS) -out:$@
 
 .cpp.exe:
-	$(MS_CL) -com+($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -entry:main $(MS_CL_LIBS) -out:$@
+	$(MS_CL) -CLR($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -entry:main $(MS_CL_LIBS) -out:$@
 
-endif # $(ils_subdir) != ""
 endif # $(findstring il,$(GRADE)) != ""
 
 #-----------------------------------------------------------------------------#

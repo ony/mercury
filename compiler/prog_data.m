@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -107,7 +107,7 @@
 :- type foreign_language
 	--->	c
 % 	;	cplusplus
-% 	;	csharp
+ 	;	csharp
  	;	managed_cplusplus
 % 	;	java
 % 	;	il
@@ -147,12 +147,12 @@
 			% header code.
 	--->	foreign_decl(foreign_language, string)
 
-	;	foreign(foreign_language, string)
+	;	foreign_code(foreign_language, string)
 
-	;	foreign(pragma_foreign_code_attributes,
+	;	foreign_proc(pragma_foreign_proc_attributes,
 			sym_name, pred_or_func, list(pragma_var),
 			prog_varset, pragma_foreign_code_impl)
-			% Set of foreign code attributes, eg.:
+			% Set of foreign proc attributes, eg.:
 			%	what language this code is in
 			%	whether or not the code may call Mercury,
 			%	whether or not the code is thread-safe
@@ -181,9 +181,9 @@
 			% C function name.
 
 	;	import(sym_name, pred_or_func, list(mode),
-			pragma_foreign_code_attributes, string)
+			pragma_foreign_proc_attributes, string)
 			% Predname, Predicate/function, Modes,
-			% Set of foreign code attributes, eg.:
+			% Set of foreign proc attributes, eg.:
 			%    whether or not the foreign code may call Mercury,
 			%    whether or not the foreign code is thread-safe
 			% foreign function name.
@@ -245,6 +245,9 @@
 			% Tabling type, Predname, Arity, PredOrFunc?, Mode?
 	
 	;	promise_pure(sym_name, arity)
+			% Predname, Arity
+
+	;	promise_semipure(sym_name, arity)
 			% Predname, Arity
 
 	;	termination_info(pred_or_func, sym_name, list(mode),
@@ -452,7 +455,9 @@
 
 :- type class_name == sym_name.
 
-:- type class_interface  == list(class_method).	
+:- type class_interface
+	--->	abstract
+	;	concrete(list(class_method)).
 
 :- type class_method
 	--->	pred(tvarset, inst_varset, existq_tvars, sym_name,
@@ -519,37 +524,37 @@
 
 		% an abstract type for representing a set of
 		% `pragma_c_code_attribute's.
-:- type pragma_foreign_code_attributes.
+:- type pragma_foreign_proc_attributes.
 
-:- pred default_attributes(foreign_language, pragma_foreign_code_attributes).
+:- pred default_attributes(foreign_language, pragma_foreign_proc_attributes).
 :- mode default_attributes(in, out) is det.
 
-:- pred may_call_mercury(pragma_foreign_code_attributes, may_call_mercury).
+:- pred may_call_mercury(pragma_foreign_proc_attributes, may_call_mercury).
 :- mode may_call_mercury(in, out) is det.
 
-:- pred set_may_call_mercury(pragma_foreign_code_attributes, may_call_mercury,
-		pragma_foreign_code_attributes).
+:- pred set_may_call_mercury(pragma_foreign_proc_attributes, may_call_mercury,
+		pragma_foreign_proc_attributes).
 :- mode set_may_call_mercury(in, in, out) is det.
 
-:- pred thread_safe(pragma_foreign_code_attributes, thread_safe).
+:- pred thread_safe(pragma_foreign_proc_attributes, thread_safe).
 :- mode thread_safe(in, out) is det.
 
-:- pred set_thread_safe(pragma_foreign_code_attributes, thread_safe,
-		pragma_foreign_code_attributes).
+:- pred set_thread_safe(pragma_foreign_proc_attributes, thread_safe,
+		pragma_foreign_proc_attributes).
 :- mode set_thread_safe(in, in, out) is det.
 
-:- pred foreign_language(pragma_foreign_code_attributes, foreign_language).
+:- pred foreign_language(pragma_foreign_proc_attributes, foreign_language).
 :- mode foreign_language(in, out) is det.
 
-:- pred set_foreign_language(pragma_foreign_code_attributes, foreign_language,
-		pragma_foreign_code_attributes).
+:- pred set_foreign_language(pragma_foreign_proc_attributes, foreign_language,
+		pragma_foreign_proc_attributes).
 :- mode set_foreign_language(in, in, out) is det.
 
-:- pred tabled_for_io(pragma_foreign_code_attributes, tabled_for_io).
+:- pred tabled_for_io(pragma_foreign_proc_attributes, tabled_for_io).
 :- mode tabled_for_io(in, out) is det.
 
-:- pred set_tabled_for_io(pragma_foreign_code_attributes, tabled_for_io,
-		pragma_foreign_code_attributes).
+:- pred set_tabled_for_io(pragma_foreign_proc_attributes, tabled_for_io,
+		pragma_foreign_proc_attributes).
 :- mode set_tabled_for_io(in, in, out) is det.
 
 	% For pragma c_code, there are two different calling conventions,
@@ -717,6 +722,8 @@
 					% used for sets of type variables
 :- type tsubst		==	map(tvar, type). % used for type substitutions
 
+:- type type_id		==	pair(sym_name, arity).
+
 	% existq_tvars is used to record the set of type variables which are
 	% existentially quantified
 :- type existq_tvars	==	list(tvar).
@@ -863,6 +870,17 @@
 		% This is used internally by the compiler,
 		% to identify items which originally
 		% came from a .opt file.
+	;	transitively_imported
+		% This is used internally by the compiler,
+		% to identify items which originally
+		% came from a `.opt' or `.int2' file.
+		% These should not be allowed to
+		% match items in the current module.
+		% Note that unlike `:- interface', `:- implementation'
+		% and the other pseudo-declarations `:- imported(interface)',
+		% etc., a `:- transitively_imported' declaration
+		% applies to all of the following items in the list,
+		% not just up to the next pseudo-declaration. 
 
 	;	external(sym_name_specifier)
 
@@ -943,7 +961,7 @@
 	% the pragma (not all attributes have one).
 	% In particular, the foreign language attribute needs to be
 	% handled separately as it belongs at the start of the pragma.
-:- pred attributes_to_strings(pragma_foreign_code_attributes::in,
+:- pred attributes_to_strings(pragma_foreign_proc_attributes::in,
 		list(string)::out) is det.
 
 %-----------------------------------------------------------------------------%
@@ -951,7 +969,7 @@
 
 :- implementation.
 
-:- type pragma_foreign_code_attributes
+:- type pragma_foreign_proc_attributes
 	--->	attributes(
 			foreign_language 	:: foreign_language,
 			may_call_mercury	:: may_call_mercury,

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2000 The University of Melbourne.
+% Copyright (C) 1999-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -143,7 +143,8 @@ ml_gen_generic_call(GenericCall, ArgVars, ArgModes, CodeModel, Context,
 	% insert the `closure_arg' parameter
 	%
 	{ ClosureArgType = mlds__generic_type },
-	{ ClosureArg = data(var("closure_arg")) - ClosureArgType },
+	{ ClosureArg = data(var(var_name("closure_arg", no))) - 
+		ClosureArgType },
 	{ Params0 = mlds__func_params(ArgParams0, RetParam) },
 	{ Params = mlds__func_params([ClosureArg | ArgParams0], RetParam) },
 	{ Signature = mlds__get_func_signature(Params) },
@@ -203,11 +204,11 @@ ml_gen_generic_call(GenericCall, ArgVars, ArgModes, CodeModel, Context,
 	% pointer types in casts.
 	% 
 	ml_gen_info_new_conv_var(ConvVarNum),
-	{ string__format("func_%d", [i(ConvVarNum)],
-		FuncVarName) },
-	{ FuncVarDecl = ml_gen_mlds_var_decl(var(FuncVarName), FuncType,
-		mlds__make_context(Context)) },
-	ml_qualify_var(FuncVarName, FuncVarLval),
+	{ FuncVarName = var_name(
+		string__format("func_%d", [i(ConvVarNum)]), no) },
+	{ FuncVarDecl = ml_gen_mlds_var_decl(var(FuncVarName),
+		FuncType, mlds__make_context(Context)) },
+	ml_gen_var_lval(FuncVarName, FuncType, FuncVarLval),
 	{ AssignFuncVar = ml_gen_assign(FuncVarLval, FuncRval, Context) },
 	{ FuncVarRval = lval(FuncVarLval) },
 
@@ -475,8 +476,8 @@ ml_gen_success_cont(OutputArgTypes, OutputArgLvals, Context,
 		ml_gen_new_func_label(yes(Params),
 			ContFuncLabel, ContFuncLabelRval),
 		/* push nesting level */
-		ml_gen_copy_args_to_locals(OutputArgLvals, Context,
-			CopyDecls, CopyStatements),
+		ml_gen_copy_args_to_locals(OutputArgLvals, OutputArgTypes,
+			Context, CopyDecls, CopyStatements),
 		ml_gen_call_current_success_cont(Context, CallCont),
 		{ CopyStatement = ml_gen_block(CopyDecls,
 			list__append(CopyStatements, [CallCont]), Context) },
@@ -513,29 +514,36 @@ ml_gen_cont_params_2([Type | Types], ArgNum, [Argument | Arguments]) -->
 	{ Argument = data(var(ArgName)) - Type },
 	ml_gen_cont_params_2(Types, ArgNum + 1, Arguments).
 
-:- pred ml_gen_copy_args_to_locals(list(mlds__lval), prog_context,
-		mlds__defns, mlds__statements, ml_gen_info, ml_gen_info).
-:- mode ml_gen_copy_args_to_locals(in, in, out, out, in, out) is det.
+:- pred ml_gen_copy_args_to_locals(list(mlds__lval), list(mlds__type),
+		prog_context, mlds__defns, mlds__statements,
+		ml_gen_info, ml_gen_info).
+:- mode ml_gen_copy_args_to_locals(in, in, in, out, out, in, out) is det.
 
-ml_gen_copy_args_to_locals(ArgLvals, Context, CopyDecls, CopyStatements) -->
+ml_gen_copy_args_to_locals(ArgLvals, ArgTypes, Context,
+		CopyDecls, CopyStatements) -->
 	{ CopyDecls = [] },
-	ml_gen_copy_args_to_locals_2(ArgLvals, 1, Context, CopyStatements).
+	ml_gen_copy_args_to_locals_2(ArgLvals, ArgTypes, 1, Context,
+		CopyStatements).
 
-:- pred ml_gen_copy_args_to_locals_2(list(mlds__lval), int, prog_context,
-		mlds__statements, ml_gen_info, ml_gen_info).
-:- mode ml_gen_copy_args_to_locals_2(in, in, in, out, in, out) is det.
+:- pred ml_gen_copy_args_to_locals_2(list(mlds__lval), list(mlds__type), int,
+		prog_context, mlds__statements, ml_gen_info, ml_gen_info).
+:- mode ml_gen_copy_args_to_locals_2(in, in, in, in, out, in, out) is det.
 
-ml_gen_copy_args_to_locals_2([], _, _, []) --> [].
-ml_gen_copy_args_to_locals_2([LocalLval | LocalLvals], ArgNum, Context,
-		[Statement | Statements]) -->
+ml_gen_copy_args_to_locals_2([], [], _, _, []) --> [].
+ml_gen_copy_args_to_locals_2([LocalLval | LocalLvals], [Type|Types], ArgNum,
+		Context, [Statement | Statements]) -->
 	{ ArgName = ml_gen_arg_name(ArgNum) },
-	ml_qualify_var(ArgName, ArgLval),
+	ml_gen_var_lval(ArgName, Type, ArgLval),
 	{ Statement = ml_gen_assign(LocalLval, lval(ArgLval), Context) },
-	ml_gen_copy_args_to_locals_2(LocalLvals, ArgNum + 1, Context,
+	ml_gen_copy_args_to_locals_2(LocalLvals, Types, ArgNum + 1, Context,
 		Statements).
+ml_gen_copy_args_to_locals_2([], [_|_], _, _, _) -->
+	{ error("ml_gen_copy_args_to_locals_2: list length mismatch") }.
+ml_gen_copy_args_to_locals_2([_|_], [], _, _, _) -->
+	{ error("ml_gen_copy_args_to_locals_2: list length mismatch") }.
 
-:- func ml_gen_arg_name(int) = string.
-ml_gen_arg_name(ArgNum) = ArgName :-
+:- func ml_gen_arg_name(int) = mlds__var_name.
+ml_gen_arg_name(ArgNum) = mlds__var_name(ArgName, no) :-
 	string__format("arg%d", [i(ArgNum)], ArgName).
 
 %
@@ -773,14 +781,16 @@ ml_gen_box_or_unbox_lval(CallerType, CalleeType, VarLval, VarName, Context,
 		%
 		% If that didn't work, then we need to declare a fresh variable
 		% to use as the arg, and to generate statements to box/unbox
-		% that fresh arg variable and assign it to/from the output argument
-		% whose address we were passed.
+		% that fresh arg variable and assign it to/from the output
+		% argument whose address we were passed.
 		%
 
 		% generate a declaration for the fresh variable
 		ml_gen_info_new_conv_var(ConvVarNum),
-		{ string__format("conv%d_%s", [i(ConvVarNum), s(VarName)],
-			ArgVarName) },
+		{ VarName = mlds__var_name(VarNameStr, MaybeNum) },
+		{ ArgVarName = mlds__var_name(string__format(
+			"conv%d_%s", [i(ConvVarNum), s(VarNameStr)]),
+			MaybeNum) },
 		=(Info),
 		{ ml_gen_info_get_module_info(Info, ModuleInfo) },
 		{ ArgVarDecl = ml_gen_var_decl(ArgVarName, CalleeType,
@@ -789,7 +799,8 @@ ml_gen_box_or_unbox_lval(CallerType, CalleeType, VarLval, VarName, Context,
 
 		% create the lval for the variable and use it for the
 		% argument lval
-		ml_qualify_var(ArgVarName, ArgLval),
+		ml_gen_type(CalleeType, MLDS_CalleeType),
+		ml_gen_var_lval(ArgVarName, MLDS_CalleeType, ArgLval),
 
 		( { type_util__is_dummy_argument_type(CallerType) } ->
 			% if it is a dummy argument type (e.g. io__state),

@@ -171,10 +171,10 @@ hhf__goal_expr(_, _, call(A, B, C, D, E, F), call(A, B, C, D, E, F)) --> [].
 hhf__goal_expr(_, _, generic_call(A, B, C, D), generic_call(A, B, C, D)) --> [].
 hhf__goal_expr(_, _, switch(_, _, _, _), _) -->
 	{ error("hhf_goal_expr: found switch") }.
-hhf__goal_expr(_, _, pragma_foreign_code(A,B,C,D,E,F,G),
-		pragma_foreign_code(A,B,C,D,E,F,G)) --> [].
-hhf__goal_expr(_, _, bi_implication(_, _), _) -->
-	{ error("hhf_goal_expr: found bi_implication") }.
+hhf__goal_expr(_, _, foreign_proc(A,B,C,D,E,F,G),
+		foreign_proc(A,B,C,D,E,F,G)) --> [].
+hhf__goal_expr(_, _, shorthand(_), _) -->
+	{ error("hhf_goal_expr: found shorthand") }.
 hhf__goal_expr(NonLocals, _, some(A, B, Goal0), some(A, B, Goal)) -->
 	hhf__goal(NonLocals, Goal0, Goal).
 hhf__goal_expr(_, _, disj(Goals0, SM), disj(Goals, SM)) -->

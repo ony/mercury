@@ -792,8 +792,9 @@ make_directory(DirName) -->
 	( { dir__this_directory(DirName) } ->
 		[]
 	;
-		{ string__format("[ -d %s ] || mkdir -p %s",
-			[s(DirName), s(DirName)], Command) },
+		{ make_command_string(string__format(
+			"[ -d %s ] || mkdir -p %s",
+			[s(DirName), s(DirName)]), forward, Command) },
 		io__call_system(Command, _Result)
 	).
 
@@ -895,7 +896,7 @@ make_interface(SourceFileName, ModuleName, Items0) -->
 			check_int_for_no_exports(InterfaceItems, ModuleName),
 			write_interface_file(ModuleName, ".int",
 							InterfaceItems),
-			{ get_short_interface(InterfaceItems,
+			{ get_short_interface(InterfaceItems, int2,
 						ShortInterfaceItems) },
 			write_interface_file(ModuleName, ".int2",
 						ShortInterfaceItems),
@@ -911,7 +912,7 @@ make_short_interface(ModuleName, Items0) -->
 		% only be written to .opt files,
 	{ strip_assertions(InterfaceItems0, InterfaceItems1) },
 	check_for_clauses_in_interface(InterfaceItems1, InterfaceItems),
-	{ get_short_interface(InterfaceItems, ShortInterfaceItems0) },
+	{ get_short_interface(InterfaceItems, int3, ShortInterfaceItems0) },
 	module_qual__module_qualify_items(ShortInterfaceItems0,
 			ShortInterfaceItems, ModuleName, no, _, _, _, _),
 	write_interface_file(ModuleName, ".int3", ShortInterfaceItems),
@@ -1026,8 +1027,8 @@ split_clauses_and_decls([ItemAndContext0 | Items0],
 % header file, which currently we don't.
 
 pragma_allowed_in_interface(foreign_decl(_, _), no).
-pragma_allowed_in_interface(foreign(_, _), no).
-pragma_allowed_in_interface(foreign(_, _, _, _, _, _), no).
+pragma_allowed_in_interface(foreign_code(_, _), no).
+pragma_allowed_in_interface(foreign_proc(_, _, _, _, _, _), no).
 pragma_allowed_in_interface(inline(_, _), no).
 pragma_allowed_in_interface(no_inline(_, _), no).
 pragma_allowed_in_interface(obsolete(_, _), yes).
@@ -1038,6 +1039,7 @@ pragma_allowed_in_interface(source_file(_), yes).
 pragma_allowed_in_interface(fact_table(_, _, _), no).
 pragma_allowed_in_interface(tabled(_, _, _, _, _), no).
 pragma_allowed_in_interface(promise_pure(_, _), no).
+pragma_allowed_in_interface(promise_semipure(_, _), no).
 pragma_allowed_in_interface(unused_args(_, _, _, _, _), no).
 pragma_allowed_in_interface(type_spec(_, _, _, _, _, _, _), yes).
 pragma_allowed_in_interface(termination_info(_, _, _, _, _), yes).
@@ -1280,12 +1282,13 @@ grab_imported_modules(SourceFileName, ModuleName, Items0, Module, Error) -->
 		% Process the short interfaces for indirectly imported modules.
 		% The short interfaces are treated as if
 		% they are imported using `use_module'.
-	{ append_pseudo_decl(Module10, used(interface), Module11) },
+	{ append_pseudo_decl(Module10, transitively_imported, Module11) },
+	{ append_pseudo_decl(Module11, used(interface), Module12) },
 	process_module_short_interfaces_transitively(IntIndirectImports,
-		".int2", Module11, Module12),
-	{ append_pseudo_decl(Module12, used(implementation), Module13) },
+		".int2", Module12, Module13),
+	{ append_pseudo_decl(Module13, used(implementation), Module14) },
 	process_module_short_interfaces_transitively(ImpIndirectImports,
-		".int2", Module13, Module),
+		".int2", Module14, Module),
 
 	{ module_imports_get_error(Module, Error) }.
 
@@ -1959,7 +1962,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				PicAsmFileName, " : ", SourceFileName, "\n",
 				"\trm -f ", PicAsmFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
-					"--target-code-only --pic-reg ",
+					"--target-code-only --pic ",
 					"\\\n",
 				"\t\t--cflags ""$(GCCFLAGS_FOR_PIC)"" ",
 					"$< > ", ErrFileName,
@@ -1983,15 +1986,40 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__close_output(DepStream),
 		io__rename_file(TmpDependencyFileName, DependencyFileName,
 			Result3),
-		( { Result3 = error(Error) } ->
-			maybe_write_string(Verbose, " failed.\n"),
-			maybe_flush_output(Verbose),
-			{ io__error_message(Error, ErrorMsg) },
-			{ string__append_list(["can't rename file `",
-				TmpDependencyFileName, "' as `",
-				DependencyFileName, "': ", ErrorMsg],
-				Message) },
-			report_error(Message)
+		( { Result3 = error(_) } ->
+			% On some systems, we need to remove the existing file
+			% first, if any.  So try again that way.
+			io__remove_file(DependencyFileName, Result4),
+			( { Result4 = error(Error4) } ->
+				maybe_write_string(Verbose, " failed.\n"),
+				maybe_flush_output(Verbose),
+				{ io__error_message(Error4, ErrorMsg) },
+				{ string__append_list(["can't remove file `",
+					DependencyFileName, "': ", ErrorMsg],
+					Message) },
+				report_error(Message)
+			;
+				io__rename_file(TmpDependencyFileName,
+					DependencyFileName, Result5),
+				( { Result5 = error(Error5) } ->
+					maybe_write_string(Verbose,
+						" failed.\n"),
+					maybe_flush_output(Verbose),
+					{ io__error_message(Error5,
+						ErrorMsg) },
+					{ string__append_list(
+						["can't rename file `",
+						TmpDependencyFileName,
+						"' as `",
+						DependencyFileName,
+						"': ",
+						ErrorMsg],
+						Message) },
+					report_error(Message)
+				;
+					maybe_write_string(Verbose, " done.\n")
+				)
+			)
 		;
 			maybe_write_string(Verbose, " done.\n")
 		)
@@ -2561,6 +2589,31 @@ add_dep(ModuleRelKey, Dep, Relation0, Relation) :-
 	relation__add_element(Relation0, Dep, DepRelKey, Relation1),
 	relation__add(Relation1, ModuleRelKey, DepRelKey, Relation).
 
+% check if a module is a top-level module, a nested sub-module,
+% or a separate sub-module.
+%
+:- type submodule_kind
+	--->	toplevel
+	;	nested_submodule
+	;	separate_submodule.
+
+:- func get_submodule_kind(module_name, deps_map) = submodule_kind.
+get_submodule_kind(ModuleName, DepsMap) = Kind :-
+	get_ancestors(ModuleName, Ancestors),
+	( list__last(Ancestors, Parent) ->
+		map__lookup(DepsMap, ModuleName, deps(_, ModuleImports)),
+		map__lookup(DepsMap, Parent, deps(_, ParentImports)),
+		ModuleFileName = ModuleImports ^ source_file_name,
+		ParentFileName = ParentImports ^ source_file_name,
+		( ModuleFileName = ParentFileName ->
+			Kind = nested_submodule
+		;
+			Kind = separate_submodule
+		)
+	;
+		Kind = toplevel
+	).
+
 %-----------------------------------------------------------------------------%
 
 	% Write out the `.dv' file, using the information collected in the
@@ -2683,8 +2736,21 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".os = "),
-	write_compact_dependencies_list(Modules, "$(os_subdir)", ".$O",
-					Basis, DepStream),
+	% for --target asm, we only generate separate object files
+	% for top-level modules and separate sub-modules, not for
+	% nested sub-modules.
+	{ IsNested = (pred(Mod::in) is semidet :-
+		get_submodule_kind(Mod, DepsMap) = nested_submodule) },
+	(
+		{ Target = asm },
+		{ list__filter(IsNested, Modules, NestedModules, MainModules) },
+		{ NestedModules \= [] }
+	->
+		write_dependencies_list(MainModules, ".$O", DepStream)
+	;
+		write_compact_dependencies_list(Modules, "$(os_subdir)",
+			".$O", Basis, DepStream)
+	),
 	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -2705,6 +2771,8 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	write_compact_dependencies_list(Modules, "$(os_subdir)",
 					".$(EXT_FOR_PIC_OBJECTS)",
 					Basis, DepStream),
+	write_extra_link_dependencies_list(ExtraLinkObjs,
+					".$(EXT_FOR_PIC_OBJECTS)", DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -2763,6 +2831,40 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".hs = "),
+	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
+	( { HighLevelCode = yes } ->
+		( { Target = asm } ->
+			% For the `--target asm' back-end, we only
+			% generate `.h' files for modules that
+			% contain C code
+			write_dependencies_list(
+				modules_that_need_headers(Modules, DepsMap),
+				".h", DepStream)
+		; { Target = c } ->
+			% For the `--target c' MLDS back-end, we
+			% generate `.h' files for every module
+			write_compact_dependencies_list(Modules, "", ".h",
+					Basis, DepStream)
+		;
+			% For the IL and Java targets, currently we don't
+			% generate `.h' files at all; although perhaps
+			% we should...
+			[]
+		)
+	;
+		% For the LLDS back-end, we don't use `.h' files at all
+		[]
+	),
+	io__write_string(DepStream, "\n"),
+
+	% The `<module>.all_hs' variable is like `<module>.hs' except
+	% that it contains header files for all the modules, regardless
+	% of the grade or --target option.  It is used by the rule for
+	% `mmake realclean', which should remove anything that could have
+	% been automatically generated, even if the grade or --target option
+	% has changed.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_hs = "),
 	write_compact_dependencies_list(Modules, "", ".h", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -3013,7 +3115,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		InitCFileName, " : ", DepFileName, " ", DvFileName, " ",
 			All_C2InitArgsDepString, "\n",
 		"\t$(C2INIT) $(ALL_GRADEFLAGS) $(ALL_C2INITFLAGS) $(",
-			MakeVarName, ".init_cs) $(ALL_C2INITARGS) > ",
+			MakeVarName, ".init_cs) $(ALL_C2INITARGS) -o ",
 			InitCFileName, "\n\n"
 	]),
 
@@ -3057,7 +3159,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_lib_file_name("lib", ModuleName, ".install_hdrs", no,
 				LibInstallHdrsTargetName),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	( { HighLevelCode = yes } ->
+	globals__io_get_target(Target),
+	( { HighLevelCode = yes, ( Target = c ; Target = asm ) } ->
 		%
 		% XXX  Note that we install the header files in two places:
 		% in the `inc' directory, so that the C compiler will find
@@ -3164,7 +3267,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-rm -f $(", MakeVarName, ".opts)\n",
 		"\t-rm -f $(", MakeVarName, ".trans_opts)\n",
 		"\t-rm -f $(", MakeVarName, ".ds)\n",
-		"\t-rm -f $(", MakeVarName, ".hs)\n",
+		"\t-rm -f $(", MakeVarName, ".all_hs)\n",
 		"\t-rm -f $(", MakeVarName, ".rlos)\n"
 	]),
 	io__write_strings(DepStream, [
@@ -3207,6 +3310,23 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 	]).
 
 %-----------------------------------------------------------------------------%
+
+	% Find out which modules we need to generate C header files for,
+	% assuming we're compiling with `--target asm'.
+:- func modules_that_need_headers(list(module_name), deps_map)  =
+		list(module_name).
+
+modules_that_need_headers(Modules, DepsMap) =
+	list__filter(module_needs_header(DepsMap), Modules).
+
+	% Succeed iff we need to generate a C header file for the specified
+	% module, assuming we're compiling with `--target asm'.
+:- pred module_needs_header(deps_map::in, module_name::in) is semidet.
+
+module_needs_header(DepsMap, Module) :-
+	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
+	ModuleImports ^ foreign_code = contains_foreign_code.
+
 	% get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
 	% Find any extra .$O files that should be linked into the executable.
 	% These include fact table object files and object files for foreign
@@ -3216,7 +3336,8 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 :- mode get_extra_link_objects(in, in, in, out) is det.
 
 get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) :-
-	get_extra_link_objects_2(Modules, DepsMap, Target, [], ExtraLinkObjs).
+	get_extra_link_objects_2(Modules, DepsMap, Target, [], ExtraLinkObjs0),
+	list__reverse(ExtraLinkObjs0, ExtraLinkObjs).
 
 :- pred get_extra_link_objects_2(list(module_name), deps_map,
 		compilation_target, assoc_list(file_name, module_name),
@@ -3272,8 +3393,8 @@ item_list_contains_foreign_code([Item|Items]) :-
 		% do if there is some foreign_code, not just foreign_decls.
 		% Counting foreign_decls here causes problems with
 		% intermodule optimization.
-		(	Pragma = foreign(_Lang, _)
-		;	Pragma = foreign(_, _, _, _, _, _)
+		(	Pragma = foreign_code(_Lang, _)
+		;	Pragma = foreign_proc(_, _, _, _, _, _)
 		;	% XXX `pragma export' should not be treated as
 			% foreign, but currently mlds_to_gcc.m doesn't
 			% handle that declaration, and instead just punts
@@ -3358,19 +3479,31 @@ write_file_dependencies_list([FileName | FileNames], Suffix, DepStream) -->
 	maybe(pair(string)), io__output_stream, io__state, io__state).
 :- mode write_compact_dependencies_list(in, in, in, in, in, di, uo) is det.
 
-write_compact_dependencies_list(Modules, _Prefix, Suffix, no, DepStream) -->
-	write_dependencies_list(Modules, Suffix, DepStream).
-write_compact_dependencies_list(_Modules, Prefix, Suffix,
-		yes(VarName - OldSuffix), DepStream) -->
-	io__write_string(DepStream, "$("),
-	io__write_string(DepStream, VarName),
-	io__write_string(DepStream, ":%"),
-	io__write_string(DepStream, OldSuffix),
-	io__write_string(DepStream, "="),
-	io__write_string(DepStream, Prefix),
-	io__write_string(DepStream, "%"),
-	io__write_string(DepStream, Suffix),
-	io__write_string(DepStream, ")").
+write_compact_dependencies_list(Modules, Prefix, Suffix, Basis, DepStream) -->
+	(
+		{ Basis = yes(VarName - OldSuffix) },
+		% Don't use the compact dependency lists for names of header
+		% files for modules in the standard library, because it
+		% doesn't take into account the "mercury." prefix
+		% that gets added to those header file names in MLDS grades.
+		\+ {
+			(Suffix = ".h" ; Suffix = ".h.tmp"),
+			list__member(unqualified(StdLibModule), Modules),
+			mercury_std_library_module(StdLibModule)
+		}
+	->
+		io__write_string(DepStream, "$("),
+		io__write_string(DepStream, VarName),
+		io__write_string(DepStream, ":%"),
+		io__write_string(DepStream, OldSuffix),
+		io__write_string(DepStream, "="),
+		io__write_string(DepStream, Prefix),
+		io__write_string(DepStream, "%"),
+		io__write_string(DepStream, Suffix),
+		io__write_string(DepStream, ")")
+	;
+		write_dependencies_list(Modules, Suffix, DepStream)
+	).
 
 :- pred write_compact_dependencies_separator(maybe(pair(string)),
 	io__output_stream, io__state, io__state).
@@ -4378,11 +4511,15 @@ get_interface_2([Item - Context | Rest], InInterface0,
 	% type declarations, then it doesn't need any import_module
 	% declarations.
 
-:- pred get_short_interface(item_list, item_list).
-:- mode get_short_interface(in, out) is det.
+:- type short_interface_kind
+	--->	int2	% the qualified short interface, for the .int2 file
+	;	int3.	% the unqualified short interface, for the .int3 file
 
-get_short_interface(Items0, Items) :-
-	get_short_interface_2(Items0, [], [], no,
+:- pred get_short_interface(item_list, short_interface_kind, item_list).
+:- mode get_short_interface(in, in, out) is det.
+
+get_short_interface(Items0, Kind, Items) :-
+	get_short_interface_2(Items0, [], [], no, Kind,
 			RevItems, RevImports, NeedsImports),
 	list__reverse(RevItems, Items1),
 	( NeedsImports = yes ->
@@ -4393,13 +4530,13 @@ get_short_interface(Items0, Items) :-
 	).
 
 :- pred get_short_interface_2(item_list, item_list, item_list, bool,
-				item_list, item_list, bool).
-:- mode get_short_interface_2(in, in, in, in, out, out, out) is det.
+		short_interface_kind, item_list, item_list, bool).
+:- mode get_short_interface_2(in, in, in, in, in, out, out, out) is det.
 
-get_short_interface_2([], Items, Imports, NeedsImports,
+get_short_interface_2([], Items, Imports, NeedsImports, _Kind,
 			Items, Imports, NeedsImports).
 get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
-			Items, Imports, NeedsImports) :-
+			Kind, Items, Imports, NeedsImports) :-
 	ItemAndContext = Item0 - Context,
 	( Item0 = module_defn(_, import(_)) ->
 		Items1 = Items0,
@@ -4409,7 +4546,7 @@ get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
 		Items1 = Items0,
 		Imports1 = [ItemAndContext | Imports0],
 		NeedsImports1 = NeedsImports0
-	; make_abstract_type_defn(Item0, Item1) ->
+	; make_abstract_defn(Item0, Kind, Item1) ->
 		Imports1 = Imports0,
 		Items1 = [Item1 - Context | Items0],
 		NeedsImports1 = NeedsImports0
@@ -4422,7 +4559,7 @@ get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
 		Imports1 = Imports0,
 		NeedsImports1 = NeedsImports0
 	),
-	get_short_interface_2(Rest, Items1, Imports1, NeedsImports1,
+	get_short_interface_2(Rest, Items1, Imports1, NeedsImports1, Kind,
 				Items, Imports, NeedsImports).
 
 :- pred include_in_short_interface(item).
@@ -4432,15 +4569,29 @@ include_in_short_interface(type_defn(_, _, _)).
 include_in_short_interface(inst_defn(_, _, _)).
 include_in_short_interface(mode_defn(_, _, _)).
 include_in_short_interface(module_defn(_, _)).
-include_in_short_interface(typeclass(_, _, _, _, _)).
 
-:- pred make_abstract_type_defn(item, item).
-:- mode make_abstract_type_defn(in, out) is semidet.
+:- pred make_abstract_defn(item, short_interface_kind, item).
+:- mode make_abstract_defn(in, in, out) is semidet.
 
-make_abstract_type_defn(type_defn(VarSet, du_type(Name, Args, _, _), Cond),
+make_abstract_defn(type_defn(VarSet, du_type(Name, Args, _, _), Cond), _,
 			type_defn(VarSet, abstract_type(Name, Args), Cond)).
-make_abstract_type_defn(type_defn(VarSet, abstract_type(Name, Args), Cond),
+make_abstract_defn(type_defn(VarSet, abstract_type(Name, Args), Cond), _,
 			type_defn(VarSet, abstract_type(Name, Args), Cond)).
+make_abstract_defn(type_defn(VarSet, eqv_type(Name, Args, _), Cond),
+			ShortInterfaceKind,
+			type_defn(VarSet, abstract_type(Name, Args), Cond)) :-
+	% For the `.int2' files, we need the full definitions of
+	% equivalence types.  They are needed to ensure that
+	% non-abstract equivalence types always get fully expanded
+	% before code generation, even in modules that only indirectly
+	% import the definition of the equivalence type.
+	% But the full definitions are not needed for the `.int3' files.
+	% So we convert equivalence types into abstract types only for
+	% the `.int3' files.
+	ShortInterfaceKind = int3.
+make_abstract_defn(typeclass(A, B, C, _, E), _,
+		typeclass(A, B, C, abstract, E)).
+
 
 	% All instance declarations must be written
 	% to `.int' files as abstract instance
