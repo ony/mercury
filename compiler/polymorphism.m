@@ -1235,11 +1235,19 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		HOCall = higher_order_call(FuncVar, ArgVars, ArgTypes,
 			Modes, Det, function),
 
+		/*******
 		%
-		% now process it
+		% Currently we don't support higher-order polymorphism;
+		% all closures are monomorphic (any type_infos needed are
+		% supplied when the closure is created, not when it is called).
+		% Therefore we don't need to bother recursively processing
+		% the higher-order function call.  If we were to ever add
+		% support for higher-order polymorphism, then we would need
+		% to uncomment this code.
 		%
-		%polymorphism__process_goal_expr(HOCall, GoalInfo0, Goal,
-		%	PolyInfo0, PolyInfo)
+		polymorphism__process_goal_expr(HOCall, GoalInfo0, Goal,
+			PolyInfo0, PolyInfo)
+		********/
 		Goal = HOCall - GoalInfo0,
 		PolyInfo = PolyInfo0
 	;
@@ -1318,8 +1326,8 @@ polymorphism__process_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 	% Secondly, this pass (polymorphism.m) is a lot easier
 	% if we don't have to handle higher-order pred consts.
 	% If it turns out that the predicate was non-polymorphic,
-	% lambda.m will (I hope) turn the lambda expression
-	% back into a higher-order pred constant again.
+	% lambda.m will turn the lambda expression back into a
+	% higher-order pred constant again.
 	%
 	% Note that this transformation is also done by modecheck_unify.m,
 	% in case we are rerunning mode analysis after lambda.m has already
@@ -1452,7 +1460,7 @@ convert_pred_to_lambda_goal(PredOrFunc, X0, ConsId0, PName,
 	( list__drop(NumArgModes - NumLambdaVars, ArgModes, LambdaModes0) ->
 		LambdaModes = LambdaModes0
 	;
-		error("modecheck_unification: list__drop failed")
+		error("convert_pred_to_lambda_goal: list__drop failed")
 	),
 	proc_info_declared_determinism(ProcInfo, MaybeDet),
 	( MaybeDet = yes(Det) ->
