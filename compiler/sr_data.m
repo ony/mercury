@@ -24,6 +24,18 @@
 
 :- import_module bool, map, set, std_util, list, io, term.
 
+%-----------------------------------------------------------------------------%
+
+:- type reuse_condition_table == 
+		map(pred_proc_id, maybe(list(reuse_condition))). 
+:- func reuse_condition_table_init = reuse_condition_table.
+:- func reuse_condition_table_search(pred_proc_id, reuse_condition_table) 
+		= maybe(list(reuse_condition)) is semidet.
+:- pred reuse_condition_table_set(pred_proc_id::in, 
+		maybe(list(reuse_condition))::in, 
+		reuse_condition_table::in, reuse_condition_table::out) is det.
+
+%-----------------------------------------------------------------------------%
 	% The information placed in the goal info which is used by
 	% structure reuse.
 	% This field should be initilaised to empty.
@@ -190,6 +202,14 @@
 :- import_module possible_alias__pa_sr_util.
 
 :- import_module list, string, require, varset, bool, assoc_list.
+%-----------------------------------------------------------------------------%
+
+reuse_condition_table_init = map__init. 
+reuse_condition_table_search(PredProcId, Table) = Table ^ elem(PredProcId). 
+reuse_condition_table_set(PredProcId, Conds, Table0, Table) :- 
+	map__set(Table0, PredProcId, Conds, Table). 
+
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 /**
 reuse_to_string(Reuse) = String :- 

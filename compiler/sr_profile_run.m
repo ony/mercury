@@ -12,11 +12,12 @@
 :- interface.
 
 :- import_module hlds__hlds_module. 
+:- import_module structure_reuse__sr_data.
 
 :- import_module io.
 
-:- pred structure_reuse_profiling(module_info::in, io__state::di, 
-			io__state::uo) is det.
+:- pred structure_reuse_profiling(module_info::in, reuse_condition_table::in, 
+		io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
 :- implementation. 
@@ -29,26 +30,27 @@
 :- import_module parse_tree__prog_out. 
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_alias_as.
-:- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_profile.
 
 :- import_module list, map, bool, std_util. 
 
-structure_reuse_profiling(HLDS) -->
+structure_reuse_profiling(HLDS, ReuseTable) -->
 	globals__io_lookup_bool_option(very_verbose, Verbose), 
 	maybe_write_string(Verbose, 
 			"% Collecting reuse-profiling information... "), 
 
-	{ collect_profiling_information(HLDS, Profiling) }, 
+	{ collect_profiling_information(HLDS, ReuseTable, Profiling) }, 
 	{ module_info_name(HLDS, ModuleName) }, 
 	{ prog_out__sym_name_to_string(ModuleName, ModuleNameString) }, 
-	sr_profile__write_profiling(ModuleNameString, Profiling, HLDS), 
+	sr_profile__write_profiling(ModuleNameString, Profiling, HLDS, 
+		ReuseTable), 
 	maybe_write_string(Verbose, "done.\n"). 
 
 :- pred collect_profiling_information(module_info::in, 
+		reuse_condition_table::in, 
 		profiling_info::out) is det.
 
-collect_profiling_information(HLDS, Prof) :- 
+collect_profiling_information(HLDS, ReuseTable, Prof) :- 
 	sr_profile__init(Prof0), 
 	module_info_predids(HLDS, PredIds0), 
 	module_info_get_special_pred_map(HLDS, Map), 
@@ -61,34 +63,45 @@ collect_profiling_information(HLDS, Prof) :-
 		PredIds0,
 		PredIds), 
 	list__foldl(
-		collect_profiling_information_2(HLDS), 
+		collect_profiling_information_2(HLDS, ReuseTable), 
 		PredIds, 
 		Prof0,
 		Prof).
 
-:- pred collect_profiling_information_2(module_info::in, pred_id::in, 
-			profiling_info::in, profiling_info::out) is det.
-collect_profiling_information_2(HLDS, PredId, Prof0, Prof):- 
+:- pred collect_profiling_information_2(module_info::in, 
+		reuse_condition_table::in, pred_id::in, 
+		profiling_info::in, profiling_info::out) is det.
+collect_profiling_information_2(HLDS, ReuseTable, PredId, Prof0, Prof):- 
 	module_info_pred_info(HLDS, PredId, PredInfo), 
 	pred_info_import_status(PredInfo, ImportStatus), 
 	pred_info_procedures(PredInfo, Procedures), 
-	map__values(Procedures, ProcInfos), 
+	map__to_assoc_list(Procedures, ProcIdInfos), 
 	list__foldl(
-		collect_profiling_information_3(HLDS, ImportStatus),
-		ProcInfos, 
+		collect_profiling_information_3(HLDS, ReuseTable, 
+			ImportStatus, PredId),
+		ProcIdInfos, 
 		Prof0, 
 		Prof).
 
 :- pred collect_profiling_information_3(module_info::in,
-			import_status::in, proc_info::in,
-			profiling_info::in, profiling_info::out) is det.
+		reuse_condition_table::in, import_status::in, 
+		pred_id::in, pair(proc_id, proc_info)::in,
+		profiling_info::in, profiling_info::out) is det.
 
-collect_profiling_information_3(HLDS, ImportStatus, ProcInfo)  --> 
+collect_profiling_information_3(HLDS, ReuseTable, ImportStatus, PredId, 
+		ProcId - ProcInfo)  --> 
 	% first record some info about the procedure in general... 
 	{ 
 		status_is_exported(ImportStatus, IsExported),
 
-		proc_info_reuse_information(ProcInfo, ReuseInfo),
+		(
+			ReuseInfo0 = reuse_condition_table_search(
+					proc(PredId, ProcId), ReuseTable)
+		-> 
+			ReuseInfo = ReuseInfo0
+		; 
+			ReuseInfo = no
+		), 
 		(
 			ReuseInfo = yes(List)
 		->

@@ -23,16 +23,14 @@
 
 :- type table.
 
-:- pred sr_fixpoint_table_init(module_info::in, list(pred_proc_id)::in,
-			table::out) is det.
+:- pred sr_fixpoint_table_init(module_info::in, reuse_condition_table::in, 
+		list(pred_proc_id)::in, table::out) is det.
 
 	% the datastructure keeps track of the number of fixpoint runs
 	% performed, this predicates adds one. 
-:- pred sr_fixpoint_table_new_run(table::in, 
-				table::out) is det.
+:- pred sr_fixpoint_table_new_run(table::in, table::out) is det.
 
-:- pred sr_fixpoint_table_which_run(table::in, 
-				int::out) is det.
+:- pred sr_fixpoint_table_which_run(table::in, int::out) is det.
 
 	% check whether all entries are stable. If so, one has reached
 	% a fixpoint
@@ -75,6 +73,8 @@
 
 :- import_module std_util, require. 
 
+	% XXX The goal here should be removed at some point as it's not used
+	% anymore. 
 :- type fixpoint_entry ---> 
 			sr_fp(
 				memo_reuse, 
@@ -89,12 +89,18 @@ fixpoint_entry_equal(A, B) :-
 	B = sr_fp(TRB, _), 
 	sr_data__memo_reuse_equal(TRA, TRB).
 
-:- pred pick_reuse_information(module_info, pred_proc_id, fixpoint_entry).
-:- mode pick_reuse_information(in, in, out) is det.
+:- pred pick_reuse_information(module_info::in, reuse_condition_table::in, 
+		pred_proc_id::in, fixpoint_entry::out) is det.
 
-pick_reuse_information(HLDS, PredProc, Entry) :- 
-	module_info_pred_proc_info(HLDS, PredProc, _PredInfo, ProcInfo),
-	proc_info_reuse_information(ProcInfo, Memo), 
+pick_reuse_information(HLDS, ReuseTable, PredProcId, Entry) :- 
+	module_info_pred_proc_info(HLDS, PredProcId, _PredInfo, ProcInfo),
+	(
+		Memo1 = reuse_condition_table_search(PredProcId, ReuseTable)
+	-> 
+		Memo = Memo1
+	; 
+		Memo = no
+	),
 	proc_info_goal(ProcInfo, Goal), 
 	Entry = sr_fp(Memo, Goal).
 
@@ -104,11 +110,11 @@ pick_reuse_information(HLDS, PredProc, Entry) :-
 :- type table == 
 		fixpoint_table(pred_proc_id, fixpoint_entry).
 
-sr_fixpoint_table_init(HLDS, PredProcs, Table) :- 
+sr_fixpoint_table_init(HLDS, ReuseTable, PredProcs, Table) :- 
 	fp_init(
 		pred(K::in, E::out) is det:- 
 			(
-				pick_reuse_information(HLDS, K, E)
+				pick_reuse_information(HLDS, ReuseTable, K, E)
 			),
 		PredProcs,
 		Table

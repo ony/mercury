@@ -71,6 +71,7 @@
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_sr_util.	
+:- import_module structure_reuse__sr_choice_util.
 :- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_direct.
 :- import_module structure_reuse__sr_indirect.
@@ -107,75 +108,165 @@ structure_reuse(HLDS0, MaybeAliasTable, Verbose, Stats, HLDS) -->
 		module_info::in, module_info::out,
 		io::di, io::uo) is det.
 
-structure_reuse(AliasTable, HLDS00, HLDS) -->
+structure_reuse(AliasTable, !ModuleInfo, !IO) :- 
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose, !IO),
+	% Before starting any of the analysis, check whether the strategy
+	% options for structure reuse were correctly given. Retreive the
+	% general strategy information. 
+	get_strategy(Strategy, !ModuleInfo, !IO), 
+	
 	% Before starting the actual reuse-analysis, process all the reuse
 	% information of the imported predicates.
-	{ module_info_unproc_reuse_pragmas(HLDS00, UnprocReusePragmas) },
-	list__foldl2(
-		process_unproc_reuse_pragma, UnprocReusePragmas, 
-		HLDS00, HLDS01), 
-	{ module_info_remove_unproc_reuse_pragmas(HLDS01, HLDS0) }, 
+	module_info_unproc_reuse_pragmas(!.ModuleInfo, UnprocReusePragmas),
+	list__foldl3(process_unproc_reuse_pragma, UnprocReusePragmas, 
+		reuse_condition_table_init, ReuseTable0, 
+		!ModuleInfo, !IO), 
+	module_info_remove_unproc_reuse_pragmas(!ModuleInfo), 
 
 	% We do not want to analyse predicates that are introduced by the
 	% compiler. We will therefore filter out these predicates.
-	{ module_info_get_special_pred_map(HLDS0, SpecialPredMap) },
-	{ map__values(SpecialPredMap, SpecialPredIds) },
-
-		% Do the direct reuse analysis phase.
-	process_matching_nonimported_procs(
-			update_module_io(sr_direct__process_proc(AliasTable)),
-			(pred(PredId::in, _PredInfo::in) is semidet :-
-				\+ list__member(PredId, SpecialPredIds)
-			),
-			HLDS0, HLDS1),
+	module_info_get_special_pred_map(!.ModuleInfo, SpecialPredMap),
+	map__values(SpecialPredMap, SpecialPredIds),
+	module_info_predids(!.ModuleInfo, AllPredIds), 
+	list__filter(pred(Id::in) is semidet :- 
+			\+ list__member(Id, SpecialPredIds), AllPredIds, 
+			ToBeAnalysedPredIds), 
+	
+	direct_reuse_pass(Strategy, AliasTable, ToBeAnalysedPredIds, 
+		ReuseTable0, ReuseTable1, !ModuleInfo, !IO),
 
 		% Do the fixpoint computation to determine all the indirect
 		% reuse, and the implied conditions.
-	sr_indirect__compute_fixpoint(AliasTable, HLDS1, HLDS2),
-	sr_split__create_multiple_versions(HLDS2, HLDS), 
-	sr_profile_run__structure_reuse_profiling(HLDS). 
+	maybe_write_string(VeryVerbose, 
+		"% START indirect reuse analysis.\n", !IO), 
+	sr_indirect__compute_fixpoint(AliasTable, ReuseTable1, ReuseTable2, 
+		!ModuleInfo, !IO), 
+	maybe_write_string(VeryVerbose, 
+		"% END indirect reuse analysis.\n", !IO), 
+	sr_split__create_multiple_versions(ReuseTable2, ReuseTable3, 
+		!ModuleInfo, !IO),
+	map__foldl(record_reuse_information_in_hlds, ReuseTable3, 
+		!ModuleInfo), 
+	sr_profile_run__structure_reuse_profiling(!.ModuleInfo, 
+		ReuseTable3, !IO).
 
 %-----------------------------------------------------------------------------%
-:- pred process_unproc_reuse_pragma(unproc_reuse_pragma, module_info, 
-		module_info, io__state, io__state).
-:- mode process_unproc_reuse_pragma(in, in, out, di, uo) is det.
+:- pred record_reuse_information_in_hlds(pred_proc_id::in, 
+		maybe(list(reuse_condition))::in, 
+		module_info::in, module_info::out) is det. 
 
-process_unproc_reuse_pragma(UnprocReusePragma, Module0, Module) --> 
-	{ UnprocReusePragma = unproc_reuse_pragma(PredOrFunc, SymName, 
-		Modes, HeadVars, Types, Reuse, _MaybeReuseName) },
+record_reuse_information_in_hlds(PredProcId, Memo, !ModuleInfo) :- 
+	module_info_pred_proc_info(!.ModuleInfo, PredProcId, 
+		PredInfo0, ProcInfo0),
+	proc_info_set_reuse_information(ProcInfo0, Memo, ProcInfo),
+	module_info_set_pred_proc_info(!.ModuleInfo, PredProcId, 
+		PredInfo0, ProcInfo, !:ModuleInfo).
+%-----------------------------------------------------------------------------%
 
-	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	% Perform the direct reuse pass on the listed predicates, using the
+	% alias_table for retreiving the relevant aliasing information. This
+	% pass annotates the procedures with reuse conditions related to the
+	% direct reuses that were detected. It also annotates the procedure
+	% goals with all these detected reuses. The result is immediately taken
+	% into account in a new HLDS. 
 
-	{ module_info_get_predicate_table(Module0, Preds) }, 
-	{ module_info_preds(Module0, PredTable0) },
-	{ list__length(Modes, Arity) },
+:- pred direct_reuse_pass(strategy::in, alias_as_table::in, list(pred_id)::in, 
+		reuse_condition_table::in, reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det. 
+direct_reuse_pass(Strategy, AliasTable, PredIds, !RT, !ModuleInfo, !IO) :- 
+	list__foldl3(direct_reuse_process_pred(Strategy, AliasTable), PredIds,
+			!RT, !ModuleInfo, !IO).
+
+:- pred direct_reuse_process_pred(strategy::in, alias_as_table::in, 
+		pred_id::in, 
+		reuse_condition_table::in, reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
+direct_reuse_process_pred(Strategy, AliasTable, PredId, !RT, 
+		!ModuleInfo, !IO) :- 
+	module_info_pred_info(!.ModuleInfo, PredId, PredInfo0), 
+	pred_info_non_imported_procids(PredInfo0, ProcIds),
+	list__foldl3(direct_reuse_process_proc(Strategy, AliasTable, 
+			PredId), ProcIds, !RT, !ModuleInfo, !IO).
+	
+:- pred direct_reuse_process_proc(strategy::in, alias_as_table::in, 
+		pred_id::in, proc_id::in, 
+		reuse_condition_table::in, reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
+direct_reuse_process_proc(Strategy, AliasTable, PredId, ProcId, !RT, 
+		!ModuleInfo, !IO) :- 
+	module_info_preds(!.ModuleInfo, Preds0), 
+	map__lookup(Preds0, PredId, Pred0), 
+	pred_info_procedures(Pred0, Procs0), 
+	map__lookup(Procs0, ProcId, Proc0), 
+
+	sr_direct__process_proc(Strategy, AliasTable, PredId, ProcId, 
+		Proc0, Proc1, MaybeReuseConditions, !.ModuleInfo, _, !IO), 
+	proc_info_set_reuse_information(Proc1, MaybeReuseConditions, Proc), 
+	reuse_condition_table_set(proc(PredId, ProcId), 
+		MaybeReuseConditions, !RT),
+
+	map__det_update(Procs0, ProcId, Proc, Procs),
+	pred_info_set_procedures(Pred0, Procs, Pred),
+	map__det_update(Preds0, PredId, Pred, Preds),
+	module_info_set_preds(!.ModuleInfo, Preds, !:ModuleInfo).
+
+%-----------------------------------------------------------------------------%
+:- pred process_unproc_reuse_pragma(unproc_reuse_pragma::in, 
+		reuse_condition_table::in, reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
+
+process_unproc_reuse_pragma(UnprocReusePragma, !ReuseTable, 
+		!ModuleInfo, !IO) :- 
+	UnprocReusePragma = unproc_reuse_pragma(PredOrFunc, SymName, 
+		Modes, HeadVars, Types, Reuse, _MaybeReuseName),
+
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose, !IO),
+
+	module_info_get_predicate_table(!.ModuleInfo, Preds), 
+	module_info_preds(!.ModuleInfo, PredTable0),
+	list__length(Modes, Arity),
 	( 
-		{ predicate_table_search_pf_sym_arity_declmodes(
-				Module0, Preds, PredOrFunc, SymName, 
-				Arity, Modes, PredId, ProcId) }
+		predicate_table_search_pf_sym_arity_declmodes(
+				!.ModuleInfo, Preds, PredOrFunc, SymName, 
+				Arity, Modes, PredId, ProcId)
 	->
-		{ map__lookup(PredTable0, PredId, PredInfo0) },
-		{ pred_info_procedures(PredInfo0, ProcTable0) },
-		{ map__lookup(ProcTable0, ProcId, ProcInfo0) },
+		map__lookup(PredTable0, PredId, PredInfo0),
+		pred_info_procedures(PredInfo0, ProcTable0),
+		map__lookup(ProcTable0, ProcId, ProcInfo0),
 
 		write_proc_progress_message("(Reuse) Looking into ", 
-			PredId, ProcId, Module0),
+			PredId, ProcId, !.ModuleInfo, !IO),
 
-			% rename the headvars: 
-		maybe_write_string(VeryVerbose, "Renaming HeadVars/Types..."),
-		{ proc_info_headvars(ProcInfo0, ProcHeadVars) }, 
-		{ list__map(term__coerce_var, HeadVars, CHVars) },
-		{ map__from_corresponding_lists(CHVars, ProcHeadVars,
-			MapHeadVars) }, 
-		{ pred_info_arg_types(PredInfo0, ArgTypes) },
-		{ sr_data__memo_reuse_rename(MapHeadVars, 
-			yes(to_type_renaming(Types, ArgTypes)), 
-			Reuse, Reuse2) },
-		maybe_write_string(VeryVerbose, "done.\n"),
+		(
+			Reuse = yes(_)
+		-> 
+				% rename the headvars: 
+			maybe_write_string(VeryVerbose, 
+				"Renaming HeadVars/Types...", !IO),
+			proc_info_headvars(ProcInfo0, ProcHeadVars), 
+			list__map(term__coerce_var, HeadVars, CHVars),
+			map__from_corresponding_lists(CHVars, ProcHeadVars,
+				MapHeadVars), 
+			pred_info_arg_types(PredInfo0, ArgTypes),
+			sr_data__memo_reuse_rename(MapHeadVars, 
+				yes(to_type_renaming(Types, ArgTypes)), 
+				Reuse, Reuse2),
+			maybe_write_string(VeryVerbose, "done.\n", !IO),
 
-		% create the reuse-version of the procedure
-		{ sr_split__create_reuse_pred(proc(PredId, ProcId),
-			Reuse2, no, Module0, Module) }
+			% create the reuse-version of the procedure
+			sr_split__create_reuse_pred(proc(PredId, ProcId),
+				Reuse2, no, proc(RPredId, RProcId), 
+				!ReuseTable, !ModuleInfo),
+			write_proc_progress_message("Created reuse-version ", 
+				RPredId, RProcId, !.ModuleInfo, !IO)
+		; 
+			reuse_condition_table_set(proc(PredId, ProcId), 
+				no, !ReuseTable)
+		)
 		
 	;
 		% XXX Currently a lot of pragma's with no corresponding
@@ -189,7 +280,7 @@ process_unproc_reuse_pragma(UnprocReusePragma, Module0, Module) -->
 		% { varset__init(EmptyVarset) },
 		% io__write_list(Modes, ", ", write_mode(EmptyVarset)),
 		% io__write_string(" (reuse_info).\n"),
-		{ Module = Module0 }
+		true
 	).
 
 % :- import_module mercury_to_mercury.
@@ -200,7 +291,6 @@ process_unproc_reuse_pragma(UnprocReusePragma, Module0, Module) -->
 	% io__write_string(mercury_mode_to_string(Mode, CVarset)).
 
 %-----------------------------------------------------------------------------%
-
 
 write_pragma_reuse_info( HLDS, SpecPredIds, PredId ) --> 
 	{ module_info_pred_info( HLDS, PredId, PredInfo ) },

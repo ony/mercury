@@ -20,11 +20,15 @@
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
 :- import_module possible_alias__pa_alias_as.
+:- import_module structure_reuse__sr_choice_util. 
+:- import_module structure_reuse__sr_data.
 
-:- import_module io. 
+:- import_module io, std_util, list. 
 
-:- pred sr_direct__process_proc(alias_as_table::in, pred_id::in, proc_id::in, 
+:- pred sr_direct__process_proc(strategy::in, alias_as_table::in, 
+		pred_id::in, proc_id::in, 
 		proc_info::in, proc_info::out, 
+		maybe(list(reuse_condition))::out, 
 		module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
 
@@ -43,8 +47,6 @@
 :- import_module parse_tree__prog_data.
 :- import_module structure_reuse__sr_choice. 
 :- import_module structure_reuse__sr_choice_graphing.
-:- import_module structure_reuse__sr_choice_util. 
-:- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_dead.
 :- import_module structure_reuse__sr_lbu.
 :- import_module structure_reuse__sr_lfu.
@@ -65,16 +67,17 @@
 	% During the choice analysis, program points are identified by the
 	% goal-paths leading to thes points. This should become the main way of
 	% identifying placed of reuse, instead of annotating the actual goals. 
-process_proc(AliasTable, PredId, ProcId, !ProcInfo, !ModuleInfo, !IO) :- 
+process_proc(Strategy, AliasTable, PredId, ProcId, 
+		!ProcInfo, MaybeReuseConditions1, ModuleInfo, ModuleInfo,
+		!IO) :- 
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose, !IO),
 
 	sr_lfu__process_proc(!ProcInfo), 
-	sr_lbu__process_proc(!.ModuleInfo, !ProcInfo), 
-	goal_path__fill_slots(!.ProcInfo, !.ModuleInfo, !:ProcInfo),
-
+	sr_lbu__process_proc(ModuleInfo, !ProcInfo), 
+	goal_path__fill_slots(!.ProcInfo, ModuleInfo, !:ProcInfo),
 
 	passes_aux__write_proc_progress_message("% Analysing ", 
-			PredId, ProcId, !.ModuleInfo, !IO), 
+			PredId, ProcId, ModuleInfo, !IO), 
 
 	proc_info_goal(!.ProcInfo, Goal0),
 
@@ -82,30 +85,26 @@ process_proc(AliasTable, PredId, ProcId, !ProcInfo, !ModuleInfo, !IO) :-
 	% structures potentially die. 
 	passes_aux__maybe_write_string(VeryVerbose, 
 		"%\tdeadness analysis...", !IO),
-	sr_dead__process_goal(PredId, !.ProcInfo, !.ModuleInfo, 
+	sr_dead__process_goal(PredId, !.ProcInfo, ModuleInfo, 
 			AliasTable, Goal0, Goal1) ,
 	passes_aux__maybe_write_string(VeryVerbose, "done.\n", !IO),
 
 	% 'Choice' analysis: determine how the detected dead data structures
 	% can be reused locally. 
 	passes_aux__maybe_write_string(VeryVerbose, 
-		"%\tchoice analysis...", !IO),
+		"%\tchoice analysis...\n", !IO),
 	proc_info_vartypes(!.ProcInfo, VarTypes), 
 
-	% XXX Getting the strategy also performs the check whether the
-	% arguments given to the mmc were correct. This is definitely not the
-	% right moment to check these arguments. Should be done way earlier. 
-	sr_choice_util__get_strategy(Strategy, !ModuleInfo, !IO), 
 	Strategy = strategy(_Constraint, Selection),
 	(
 		( Selection = graph ; Selection = lifo )
 	->
 		sr_choice_graphing__set_background_info(Strategy, 
-			!.ModuleInfo, VarTypes, Background), 
+			ModuleInfo, VarTypes, Background), 
 		sr_choice_graphing__process_goal(Background, Goal1, Goal,
 			MaybeReuseConditions, !IO)
 	;
-		sr_choice__process_goal(Strategy, VarTypes, !.ModuleInfo, 
+		sr_choice__process_goal(Strategy, VarTypes, ModuleInfo, 
 			!.ProcInfo, Goal1, Goal, MaybeReuseConditions)
 	),
 	(
@@ -130,8 +129,6 @@ process_proc(AliasTable, PredId, ProcId, !ProcInfo, !ModuleInfo, !IO) :-
 	), 
 	
 	memo_reuse_simplify(MaybeReuseConditions, MaybeReuseConditions1),
-	proc_info_set_reuse_information(!.ProcInfo, 
-			MaybeReuseConditions1, !:ProcInfo), 
 	proc_info_set_goal(!.ProcInfo, Goal, !:ProcInfo).
 
 

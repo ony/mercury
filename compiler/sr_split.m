@@ -26,11 +26,14 @@
 	% each procedure having conditional reuse (ReuseHLDS), a new
 	% separate reuse-procedure is added. The calls can then also 
 	% be corrected so that they point to the correct reuse-versions.
-:- pred sr_split__create_multiple_versions(module_info::in,
+:- pred sr_split__create_multiple_versions(reuse_condition_table::in,
+		reuse_condition_table::out, module_info::in,
 		module_info::out, io__state::di, io__state::uo) is det.
 
 :- pred create_reuse_pred(pred_proc_id::in, memo_reuse::in,
 		maybe(hlds_goal)::in,
+		pred_proc_id::out, 
+		reuse_condition_table::in, reuse_condition_table::out, 
 		module_info::in, module_info::out) is det.
 
 :- pred reuse_predicate_name(string).
@@ -42,6 +45,9 @@
 :- implementation.
 
 :- import_module hlds__hlds_data.
+:- import_module hlds__passes_aux.
+:- import_module libs__globals.
+:- import_module libs__options.
 :- import_module parse_tree__prog_data.
 :- import_module parse_tree__prog_util. 
 :- import_module structure_reuse__sr_data. 
@@ -51,31 +57,32 @@
 reuse_predicate_name(PredName) :- 
 	string__prefix(PredName, "reuse__").
 
-sr_split__create_multiple_versions(ReuseHLDS, HLDS) --> 
+sr_split__create_multiple_versions(!ReuseTable, !ModuleInfo, !IO) :- 
 		% compute the strongly connected components
-	{ create_versions(ReuseHLDS, HLDS1) },
-	{ reprocess_all_goals(HLDS1, HLDS) }.
+	create_versions(!ReuseTable, !ModuleInfo, !IO), 
+	reprocess_all_goals(!.ReuseTable, !ModuleInfo).
 
 	% reprocess each of the procedures to make sure that all calls
 	% to reuse preds are correct. 
-:- pred reprocess_all_goals(module_info::in, module_info::out) is det.
+:- pred reprocess_all_goals(reuse_condition_table::in, 
+		module_info::in, module_info::out) is det.
 
-reprocess_all_goals(HLDS0, HLDS) :- 
+reprocess_all_goals(ReuseTable, HLDS0, HLDS) :- 
 	module_info_predids(HLDS0, PredIds), 
 	list__foldl(
-		reprocess_all_goals_2,
+		reprocess_all_goals_2(ReuseTable),
 		PredIds,
 		HLDS0, 
 		HLDS).
 
-:- pred reprocess_all_goals_2(pred_id::in, module_info::in, 
-		module_info::out) is det. 
-reprocess_all_goals_2(PredId, HLDS0, HLDS) :- 
+:- pred reprocess_all_goals_2(reuse_condition_table::in, pred_id::in, 
+		module_info::in, module_info::out) is det. 
+reprocess_all_goals_2(ReuseTable, PredId, HLDS0, HLDS) :- 
 	module_info_pred_info(HLDS0, PredId, PredInfo0), 
 	pred_info_procids(PredInfo0, ProcIds), 
 	pred_info_procedures(PredInfo0, Procedures0), 
 	list__foldl(
-		reprocess_all_goals_3(HLDS0),
+		reprocess_all_goals_3(ReuseTable, HLDS0, PredId),
 		ProcIds,
 		Procedures0, 
 		Procedures
@@ -83,12 +90,15 @@ reprocess_all_goals_2(PredId, HLDS0, HLDS) :-
 	pred_info_set_procedures(PredInfo0, Procedures, PredInfo), 
 	module_info_set_pred_info(HLDS0, PredId, PredInfo, HLDS). 
 
-:- pred reprocess_all_goals_3(module_info::in, proc_id::in, 
+:- pred reprocess_all_goals_3(reuse_condition_table::in, 
+		module_info::in, pred_id::in, proc_id::in, 
 		proc_table::in, proc_table::out) is det.
-reprocess_all_goals_3(HLDS, ProcId, ProcTable0, ProcTable) :- 
+reprocess_all_goals_3(ReuseTable, HLDS, PredId, ProcId, 
+		ProcTable0, ProcTable) :- 
 	map__lookup(ProcTable0, ProcId, ProcInfo0), 
-	proc_info_reuse_information(ProcInfo0 , Memo), 
 	(
+		Memo = reuse_condition_table_search(proc(PredId, ProcId), 
+			ReuseTable), 
 		Memo = yes(Conditions)
 	->
 		proc_info_goal(ProcInfo0, Goal0), 
@@ -109,61 +119,57 @@ reprocess_all_goals_3(HLDS, ProcId, ProcTable0, ProcTable) :-
 	).
 
 
-:- pred create_versions(module_info, module_info).
-:- mode create_versions(in, out) is det.
+:- pred create_versions(reuse_condition_table::in, 
+		reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
 
-create_versions(ReuseHLDS, HLDS) :- 
-	module_info_predids(ReuseHLDS, PredIds), 
-	list__foldl(
-		create_versions_2,
-		PredIds,
-		ReuseHLDS, 
-		HLDS).
+create_versions(!ReuseTable, !ModuleInfo, !IO) :- 
+	module_info_predids(!.ModuleInfo, PredIds), 
+	list__foldl3(create_versions_2, PredIds, !ReuseTable, 
+		!ModuleInfo, !IO). 
 
 :- pred create_versions_2(pred_id::in, 
-			module_info::in, module_info::out) is det.
+		reuse_condition_table::in, 
+		reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
 
-create_versions_2(PredId , HLDS0, HLDS) :- 
-	module_info_pred_info(HLDS0, PredId, PredInfo0), 
+create_versions_2(PredId, !ReuseTable, !ModuleInfo, !IO) :- 
+	module_info_pred_info(!.ModuleInfo, PredId, PredInfo0), 
 	pred_info_procids(PredInfo0, ProcIds), 
-	list__foldl(
-		pred(Id::in, H0::in, H::out) is det :- 
+	list__foldl3(
+		pred(Id::in, RT0::in, RT::out, H0::in, H::out, 
+			IOin::di, IOout::uo) is det :- 
 		(
-			create_versions_3(proc(PredId, Id), 
-				H0, H)
+			create_versions_3(proc(PredId, Id), RT0, RT, 
+				H0, H, IOin, IOout)
 		),
-		ProcIds,
-		HLDS0,
-		HLDS
-	).
+		ProcIds, !ReuseTable, !ModuleInfo, !IO).
 
 :- pred create_versions_3(pred_proc_id::in, 
-		module_info::in, module_info::out) is det.
+		reuse_condition_table::in, 
+		reuse_condition_table::out, 
+		module_info::in, module_info::out, 
+		io__state::di, io__state::uo) is det.
 
-create_versions_3(PredProcId, WorkingHLDS, HLDS):- 
+create_versions_3(PredProcId, !ReuseTable, WorkingHLDS, HLDS, !IO):- 
 	module_info_pred_proc_info(WorkingHLDS, PredProcId, 
 				PredInfo0, ProcInfo0),
-	proc_info_reuse_information(ProcInfo0, Memo), 
-% 	module_info_pred_proc_info(VirginHLDS, PredProcId, _, 
-%        			CleanProcInfo), 
 	proc_info_goal(ProcInfo0, ReuseGoal), 
 
 	(
-		Memo = no
+		Memo = reuse_condition_table_search(PredProcId, !.ReuseTable), 
+		Memo = yes(_)
 	-> 
-		% restore the old status of the procedure
-		% module_info_set_pred_proc_info(WorkingHLDS, PredProcId,
-	       	% 		PredInfo0, CleanProcInfo, HLDS)
-		HLDS = WorkingHLDS
-	;
 		(
 			memo_reuse_is_conditional(Memo) 
 		->
 			% fetch the reuse goal
 
-			create_reuse_pred(Memo, PredProcId, yes(ReuseGoal), 
+			create_reuse_pred_info(PredProcId, yes(ReuseGoal), 
 					PredInfo0, ProcInfo0,
-					ReusePredInfo, _ReuseProcInfo0,
+					ReusePredInfo, 
 					ReuseProcId, ReuseName),
 			module_info_get_predicate_table(WorkingHLDS,
 					PredTable0),
@@ -172,25 +178,55 @@ create_versions_3(PredProcId, WorkingHLDS, HLDS):-
 			StrReuseInfo0 = structure_reuse_info(ReuseMap0),
 			predicate_table_insert(PredTable0, ReusePredInfo,
 					ReusePredId, PredTable),
-			map__det_insert(ReuseMap0, PredProcId,
-				proc(ReusePredId, ReuseProcId) - ReuseName,
-				ReuseMap),
-			StrReuseInfo = structure_reuse_info(ReuseMap),
-			module_info_set_structure_reuse_info(WorkingHLDS,
-					StrReuseInfo, WorkingHLDS1),
-			module_info_set_predicate_table(WorkingHLDS1, 
+
+			memo_reuse_simplify(Memo, SimplifiedMemo),
+			reuse_condition_table_set(
+				proc(ReusePredId, ReuseProcId), 
+					SimplifiedMemo, !ReuseTable), 
+
+			(
+				map__search(ReuseMap0, PredProcId, _)
+			->
+				PredProcId = proc(PredId, ProcId), 
+				Msg1 = "% Adding already existing procedure: ", 
+				write_proc_progress_message(Msg1, 
+					PredId, ProcId, WorkingHLDS, !IO),
+				HLDS = WorkingHLDS
+
+			%	pred_id_to_int(PredId, PredIdInt), 
+			%	proc_id_to_int(ProcId, ProcIdInt), 
+			%	string__append_list([
+			%		"(sr_split) ", 
+			%		"Reuse map already ", 
+			%		"contains id: proc(", 
+			%		string__int_to_string(PredIdInt),
+			%		", ", 
+			%		string__int_to_string(ProcIdInt), 
+			%		").\n"], Msg),
+				% error(Msg)
+			; 
+			 	map__det_insert(ReuseMap0, PredProcId,
+					proc(ReusePredId, 
+						ReuseProcId) - ReuseName,
+					ReuseMap),
+				StrReuseInfo = structure_reuse_info(ReuseMap),
+				module_info_set_structure_reuse_info(
+					WorkingHLDS, StrReuseInfo, 
+					WorkingHLDS1),
+				module_info_set_predicate_table(WorkingHLDS1, 
 					PredTable, WorkingHLDS2),
+				module_info_set_pred_proc_info(WorkingHLDS2,
+					PredProcId, PredInfo0, ProcInfo0, HLDS)
+			),
 
 				% Change the conditions on this version
 				% to be unconditional.  This ensures
 				% that when process_goal is run on this
 				% procedure only the reuse which is
 				% unconditional is kept.
-			proc_info_set_reuse_information(ProcInfo0,
-					yes([]), ProcInfo),
+			reuse_condition_table_set(PredProcId, 
+					yes([]), !ReuseTable)
 
-			module_info_set_pred_proc_info(WorkingHLDS2,
-				PredProcId, PredInfo0, ProcInfo, HLDS)
 		;
 			% memo_reuse is unconditional -- perfect -- 
 			% nothing to be done! (processing the goal is
@@ -206,62 +242,79 @@ create_versions_3(PredProcId, WorkingHLDS, HLDS):-
 				PredProcId, PredInfo0, ProcInfo2, HLDS)
 			
 		)
+	;
+		% restore the old status of the procedure
+		% module_info_set_pred_proc_info(WorkingHLDS, PredProcId,
+	       	% 		PredInfo0, CleanProcInfo, HLDS)
+		HLDS = WorkingHLDS
 	).
 
 	
-create_reuse_pred(PRED_PROC_ID, TREUSE, MaybeHLDS_GOAL, HLDSin, HLDSout) :-
-	module_info_pred_proc_info(HLDSin, PRED_PROC_ID, PredInfo0, 
+create_reuse_pred(PredProcId, TransOptReuse, MaybeHLDS_GOAL, 
+		proc(ReusePredId, ReuseProcId), 
+		!ReuseTable, !ModuleInfo) :- 
+	module_info_pred_proc_info(!.ModuleInfo, PredProcId, PredInfo0, 
 					ProcInfo0),
-	(memo_reuse_is_conditional(TREUSE) ->
-		create_reuse_pred(TREUSE, PRED_PROC_ID,
-				MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
-				ReusePredInfo, _ReuseProcInfo,
-				ReuseProcId, ReuseName),
+	(
+		memo_reuse_is_conditional(TransOptReuse) 
+	->
+		create_reuse_pred_info(PredProcId,
+			MaybeHLDS_GOAL, PredInfo0, ProcInfo0,
+			ReusePredInfo, 
+			ReuseProcId, ReuseName),
 
-		module_info_get_predicate_table(HLDSin, PredTable0),
+		module_info_get_predicate_table(!.ModuleInfo, PredTable0),
 		predicate_table_insert(PredTable0, ReusePredInfo,
-				ReusePredId, PredTable),
-		module_info_structure_reuse_info(HLDSin, StrReuseInfo0),
+			ReusePredId, PredTable),
+
+		memo_reuse_simplify(TransOptReuse, SimplifiedTabledReuse),
+		reuse_condition_table_set(proc(ReusePredId, ReuseProcId), 
+			SimplifiedTabledReuse, !ReuseTable),
+
+		module_info_structure_reuse_info(!.ModuleInfo, StrReuseInfo0),
 		StrReuseInfo0 = structure_reuse_info(ReuseMap0),
-		map__det_insert(ReuseMap0, PRED_PROC_ID,
-				proc(ReusePredId, ReuseProcId) - ReuseName,
-				ReuseMap),
+		map__det_insert(ReuseMap0, PredProcId,
+			proc(ReusePredId, ReuseProcId) - ReuseName,
+			ReuseMap),
 		StrReuseInfo = structure_reuse_info(ReuseMap),
-		module_info_set_structure_reuse_info(HLDSin,
-				StrReuseInfo, HLDSin1),
-		module_info_set_predicate_table(HLDSin1, PredTable, HLDSout)
+		module_info_set_structure_reuse_info(!.ModuleInfo,
+			StrReuseInfo, !:ModuleInfo),
+		module_info_set_predicate_table(!.ModuleInfo, 
+			PredTable, !:ModuleInfo)
 	% ; contains_unconditional_reuse(TREUSE) ->
 	;
-		memo_reuse_simplify(TREUSE, TREUSE1),
-		proc_info_set_reuse_information(ProcInfo0, TREUSE1, ProcInfo1),
+		PredProcId = proc(PredId, ProcId), 
+		ReuseProcId = ProcId, 
+		ReusePredId = PredId, 
+		% is unconditional, or has no reuse, so no simplify required: 
+		reuse_condition_table_set(PredProcId, TransOptReuse,
+			!ReuseTable), 
 		(
 			MaybeHLDS_GOAL = yes(HLDS_GOAL),
-			proc_info_set_goal(ProcInfo1, HLDS_GOAL, ProcInfo)
+			proc_info_set_goal(ProcInfo0, HLDS_GOAL, ProcInfo)
 		;
 			MaybeHLDS_GOAL = no,
-			ProcInfo = ProcInfo1
+			ProcInfo = ProcInfo0
 		),
-		module_info_set_pred_proc_info(HLDSin, PRED_PROC_ID, 
-				PredInfo0, ProcInfo, HLDSout)
+		module_info_set_pred_proc_info(!.ModuleInfo, PredProcId, 
+				PredInfo0, ProcInfo, !:ModuleInfo)
 	).
 
-:- pred create_reuse_pred(memo_reuse::in, pred_proc_id::in,
+:- pred create_reuse_pred_info(pred_proc_id::in,
 		maybe(hlds_goal)::in, pred_info::in, proc_info::in,
-		pred_info::out, proc_info::out,
+		pred_info::out,
 		proc_id::out, sym_name::out) is det.
 
-create_reuse_pred(TabledReuse, PredProcId, MaybeReuseGoal, PredInfo, ProcInfo,
-		ReusePredInfo, ReuseProcInfo, ReuseProcId, SymName) :-
-	memo_reuse_simplify(TabledReuse, TabledReuse1),
-	proc_info_set_reuse_information(ProcInfo, TabledReuse1, 
-		ReuseProcInfo0),
+create_reuse_pred_info(PredProcId, MaybeReuseGoal, PredInfo, ProcInfo0,
+		ReusePredInfo, 
+		ReuseProcId, SymName) :-
 	(
 		MaybeReuseGoal = yes(PotReuseGoal),
 		convert_potential_reuse_to_reuse(PotReuseGoal, ReuseGoal),
-		proc_info_set_goal(ReuseProcInfo0, ReuseGoal, ReuseProcInfo)
+		proc_info_set_goal(ProcInfo0, ReuseGoal, ReuseProcInfo)
 	;
 		MaybeReuseGoal = no,
-		ReuseProcInfo = ReuseProcInfo0
+		ReuseProcInfo = ProcInfo0
 	),
 	pred_info_module(PredInfo, ModuleName),
 	pred_info_name(PredInfo, Name),

@@ -12,6 +12,7 @@
 :- interface.
 
 :- import_module hlds__hlds_module.
+:- import_module structure_reuse__sr_data.
 
 :- import_module io, int, string. 
 
@@ -69,7 +70,8 @@ det.
 
 
 :- pred write_profiling(string::in, profiling_info::in, module_info::in,
-			io__state::di, io__state::uo) is det. 
+		reuse_condition_table::in, 
+		io__state::di, io__state::uo) is det. 
 
 %-----------------------------------------------------------------------------%
 
@@ -140,7 +142,7 @@ pred_calls(P0, P0 ^ pred_calls).
 reuse_calls(P0, P0 ^ reuse_calls).
 no_reuse_calls(P0, P0 ^ no_reuse_calls).
 
-write_profiling(String, Prof, HLDS) --> 
+write_profiling(String, Prof, HLDS, ReuseTable) --> 
 	{ string__append(String, ".profile", String2) }, 
 	io__open_output(String2, IOResult), 
 	(
@@ -229,7 +231,7 @@ write_profiling(String, Prof, HLDS) -->
 				DomList) },
 		
 		write_graph_nodes(DomList, DepGraph,
-				write_procedure_node(HLDS, Stream),
+				write_procedure_node(HLDS, ReuseTable, Stream),
 				write_procedure_link(HLDS, Stream)),
 
 		io__write_string(Stream, "\n}\n"),
@@ -241,19 +243,26 @@ write_profiling(String, Prof, HLDS) -->
 		{ require__error(IOErrorString) }
 	).
 
-:- pred write_procedure_node(module_info::in, io__output_stream::in,
+:- pred write_procedure_node(module_info::in, 
+		reuse_condition_table::in, io__output_stream::in,
 		pred_proc_id::in, io__state::di, io__state::uo) is det.
 
-write_procedure_node(HLDS, Stream, PredProcId) -->
-	{ module_info_structure_reuse_info(HLDS, HLDSReuseInfo) },
-	{ HLDSReuseInfo = structure_reuse_info(ReuseMap) }, 
-	io__set_output_stream(Stream, OldStream),
-	{ PredProcId = proc(PredId, ProcId) },
-	{ module_info_pred_proc_info(HLDS, PredProcId, PredInfo, ProcInfo) },
-	{ proc_info_reuse_information(ProcInfo, ReuseInfo) },
-	{ pred_info_import_status(PredInfo, ImportStatus) }, 
+write_procedure_node(HLDS, ReuseTable, Stream, PredProcId, !IO) :- 
+	module_info_structure_reuse_info(HLDS, HLDSReuseInfo),
+	HLDSReuseInfo = structure_reuse_info(ReuseMap), 
+	io__set_output_stream(Stream, OldStream, !IO),
+	PredProcId = proc(PredId, ProcId),
+	module_info_pred_proc_info(HLDS, PredProcId, PredInfo, _ProcInfo),
+	(
+		ReuseInfo1 = reuse_condition_table_search(PredProcId, 
+				ReuseTable)
+	-> 
+		ReuseInfo = ReuseInfo1
+	; 
+		ReuseInfo = no
+	), 
+	pred_info_import_status(PredInfo, ImportStatus), 
 
-	{ 
 	(
 		ImportStatus = exported
 	->
@@ -289,17 +298,15 @@ write_procedure_node(HLDS, Stream, PredProcId) -->
 		;
 			Color = "color=black"
 		)
-	) },
-	{ string__append_list(["[", Color,
+	),
+	string__append_list(["[", Color,
 				",shape=",Shape,
 				",peripheries=", Periferies, "];\n"], 
-				Options) }, 
+				Options), 
 
-	write_node_name(HLDS, PredId, ProcId), 
-
-	io__write_string(Options), 
-
-	io__set_output_stream(OldStream, _).
+	write_node_name(HLDS, PredId, ProcId, !IO), 
+	io__write_string(Options, !IO), 
+	io__set_output_stream(OldStream, _, !IO).
 
 :- pred write_procedure_link(module_info::in, io__output_stream::in,
 		pred_proc_id::in, pred_proc_id::in,
