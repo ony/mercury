@@ -2416,12 +2416,7 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 		Size = const(int_const(-1))
 	},
 
-	{ FuncInfo = func_info(FuncName, _) },
-	mlds_maybe_output_heap_profile_instr(Context, Indent + 1, Args,
-			FuncName, MaybeCtorName),
-
 	globals__io_lookup_bool_option(cell_cache, CellCache),
-
 	( { CellCache = yes } ->
 		mlds_indent(Context, Indent + 1),
 		mlds_output_lval(Target),
@@ -2438,6 +2433,10 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 	;
 		{ NewIndent = Indent + 1 }
 	),
+
+	{ FuncInfo = func_info(FuncName, _) },
+	mlds_maybe_output_heap_profile_instr(Context, NewIndent, Args,
+			FuncName, MaybeCtorName),
 
 	mlds_indent(Context, NewIndent),
 	mlds_output_lval(Target),
