@@ -77,8 +77,6 @@ handle_options(MaybeError, Args, Link) -->
 						MakeTransOptInt),
 		globals__io_lookup_bool_option(convert_to_mercury,
 			ConvertToMercury),
-		globals__io_lookup_bool_option(convert_to_goedel,
-			ConvertToGoedel),
 		globals__io_lookup_bool_option(typecheck_only, TypecheckOnly),
 		globals__io_lookup_bool_option(errorcheck_only, ErrorcheckOnly),
 		globals__io_lookup_bool_option(target_code_only,
@@ -91,7 +89,7 @@ handle_options(MaybeError, Args, Link) -->
 		{ bool__or_list([GenerateDependencies, MakeInterface,
 			MakePrivateInterface, MakeShortInterface,
 			MakeOptimizationInt, MakeTransOptInt,
-			ConvertToMercury, ConvertToGoedel, TypecheckOnly,
+			ConvertToMercury, TypecheckOnly,
 			ErrorcheckOnly, TargetCodeOnly,
 			GenerateIL, GenerateJava,
 			CompileOnly, AditiOnly],
@@ -133,14 +131,9 @@ postprocess_options(ok(OptionTable), Error) -->
         ->
             { map__lookup(OptionTable, tags, TagsMethod0) },
             (
-                { TagsMethod0 = string(TagsMethodStr) },
-                { convert_tags_method(TagsMethodStr, TagsMethod) }
+                    { TagsMethod0 = string(TagsMethodStr) },
+                    { convert_tags_method(TagsMethodStr, TagsMethod) }
             ->
-                { map__lookup(OptionTable, prolog_dialect, PrologDialect0) },
-                (
-                    { PrologDialect0 = string(PrologDialectStr) },
-                    { convert_prolog_dialect(PrologDialectStr, PrologDialect) }
-                ->
                     { map__lookup(OptionTable,
                         fact_table_hash_percent_full, PercentFull) },
                     (
@@ -178,7 +171,7 @@ postprocess_options(ok(OptionTable), Error) -->
                                     ->
                                         postprocess_options_2(OptionTable,
                                             Target, GC_Method, TagsMethod,
-                                            PrologDialect, TermNorm, TraceLevel,
+                                            TermNorm, TraceLevel,
                                             TraceSuppress, Error)
                                     ;
                                         { DumpAliasOption = string(DumpAlias) },
@@ -191,8 +184,8 @@ postprocess_options(ok(OptionTable), Error) -->
                                             NewOptionTable) },
                                         postprocess_options_2(NewOptionTable,
                                             Target, GC_Method, TagsMethod,
-                                            PrologDialect, TermNorm,
-                                            TraceLevel, TraceSuppress, Error)
+                                            TermNorm, TraceLevel,
+					    TraceSuppress, Error)
                                     ;
                                         { Error = yes("Invalid argument to option `--hlds-dump-alias'.") }
                                     )
@@ -208,11 +201,8 @@ postprocess_options(ok(OptionTable), Error) -->
                     ;
                         { Error = yes("Invalid argument to option `--fact-table-hash-percent-full'\n\t(must be an integer between 1 and 100)") }
                     )
-                ;
-                    { Error = yes("Invalid prolog-dialect option (must be `sicstus', `nu', or `default')") }
-                )
             ;
-                { Error = yes("Invalid tags option (must be `none', `low' or `high')") }
+                    { Error = yes("Invalid tags option (must be `none', `low' or `high')") }
             )
         ;
             { Error = yes("Invalid GC option (must be `none', `conservative' or `accurate')") }
@@ -223,15 +213,15 @@ postprocess_options(ok(OptionTable), Error) -->
     
 
 :- pred postprocess_options_2(option_table::in, compilation_target::in,
-    gc_method::in, tags_method::in, prolog_dialect::in, termination_norm::in,
+    gc_method::in, tags_method::in, termination_norm::in,
     trace_level::in, trace_suppress_items::in, maybe(string)::out,
     io__state::di, io__state::uo) is det.
 
 postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
-		PrologDialect, TermNorm, TraceLevel, TraceSuppress, Error) -->
+		TermNorm, TraceLevel, TraceSuppress, Error) -->
 	{ unsafe_promise_unique(OptionTable, OptionTable1) }, % XXX
 	globals__io_init(OptionTable1, Target, GC_Method, TagsMethod,
-		PrologDialect, TermNorm, TraceLevel, TraceSuppress),
+		TermNorm, TraceLevel, TraceSuppress),
 
 	% --gc conservative implies --no-reclaim-heap-*
 	( { GC_Method = conservative } ->
@@ -484,17 +474,6 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 			% The following option selects a special-case
 			% code generator that cannot (yet) implement tracing.
 		globals__io_set_option(middle_rec, bool(no)),
-			% Tracing inserts C code into the generated LLDS.
-			% Value numbering cannot optimize such LLDS code.
-			% (If it tried, it would get it wrong due to the
-			% absence of liveness annotations on the introduced
-			% labels.) We turn value numbering off now so that
-			% we don't have to discover this fact anew
-			% for each procedure.
-		globals__io_set_option(optimize_value_number, bool(no)),
-			% Without value numbering, the eager code generator
-			% generates better code than the lazy code generator.
-		globals__io_set_option(lazy_code, bool(no)),
 			% The following options cause the info required
 			% by tracing to be generated.
 		globals__io_set_option(trace_stack_layout, bool(yes)),
@@ -503,8 +482,33 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
-	% Deep profiling requires `procid' stack layouts
-	option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	% Deep profiling will eventually use `procid' stack layouts,
+	% but for now, we use a separate copy of each MR_Proc_Id structure.
+	% option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
+	globals__io_lookup_bool_option(highlevel_code, HighLevel),
+	( { ProfileDeep = yes } ->
+		(
+			{ HighLevel = no },
+			{ Target = c }
+		->
+			[]
+		;
+			usage_error("deep profiling is incompatible with high level code")
+		),
+		globals__io_lookup_bool_option(
+			use_lots_of_ho_specialization, LotsOfHOSpec),
+		( { LotsOfHOSpec = yes } ->
+			{ True = bool(yes) },
+			globals__io_set_option(optimize_higher_order, True),
+			globals__io_set_option(higher_order_size_limit,
+				int(999999))
+		;
+			[]
+		)
+	;
+		[]
+	),
 
 	% --no-reorder-conj implies --no-deforestation.
 	option_neg_implies(reorder_conj, deforestation, bool(no)),
@@ -540,11 +544,6 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% XXX deforestation does not perform folding on polymorphic
 	% predicates correctly with --body-typeinfo-liveness.
 	option_implies(body_typeinfo_liveness, deforestation, bool(no)),
-
-	% XXX value numbering implements the wrong semantics for LLDS
-	% operations involving tickets, which are generated only with
-	% --use-trail.
-	option_implies(use_trail, optimize_value_number, bool(no)),
 
 	% XXX if trailing is enabled, middle recursion optimization
 	% can generate code which does not allocate a stack frame 
@@ -689,7 +688,6 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 			[s(UseForeignLanguage)]))
 	),
 
-	globals__io_lookup_bool_option(highlevel_code, HighLevel),
 	( { HighLevel = no } ->
 		postprocess_options_lowlevel
 	;
@@ -1016,24 +1014,24 @@ grade_component_table("gc", gc, [gc - string("conservative")]).
 grade_component_table("agc", gc, [gc - string("accurate")]).
 
 	% Profiling components
-grade_component_table("prof", prof, [profile_time - bool(yes),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(no)]).
-grade_component_table("profdeep", prof, [profile_time - bool(yes),
-	profile_deep - bool(yes), profile_calls - bool(no),
-	profile_memory - bool(no)]).
-grade_component_table("proftime", prof, [profile_time - bool(yes),
-	profile_deep - bool(no), profile_calls - bool(no),
-	profile_memory - bool(no)]).
-grade_component_table("profcalls", prof, [profile_time - bool(no),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(no)]).
-grade_component_table("memprof", prof, [profile_time - bool(no),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(yes)]).
-grade_component_table("profall", prof, [profile_time - bool(yes),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(yes)]).
+grade_component_table("prof", prof,
+	[profile_time - bool(yes), profile_calls - bool(yes),
+	profile_memory - bool(no), profile_deep - bool(no)]).
+grade_component_table("proftime", prof,
+	[profile_time - bool(yes), profile_calls - bool(no),
+	profile_memory - bool(no), profile_deep - bool(no)]).
+grade_component_table("profcalls", prof,
+	[profile_time - bool(no), profile_calls - bool(yes),
+	profile_memory - bool(no), profile_deep - bool(no)]).
+grade_component_table("memprof", prof,
+	[profile_time - bool(no), profile_calls - bool(yes),
+	profile_memory - bool(yes), profile_deep - bool(no)]).
+grade_component_table("profall", prof,
+	[profile_time - bool(yes), profile_calls - bool(yes),
+	profile_memory - bool(yes), profile_deep - bool(no)]).
+grade_component_table("profdeep", prof,
+	[profile_time - bool(no), profile_calls - bool(no),
+	profile_memory - bool(no), profile_deep - bool(yes)]).
 
 	% Trailing components
 grade_component_table("tr", trail, [use_trail - bool(yes)]).

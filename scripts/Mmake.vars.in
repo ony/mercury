@@ -256,10 +256,11 @@ EXT_FOR_PIC_OBJECTS	= @EXT_FOR_PIC_OBJECTS@
 # shared libraries.
 EXT_FOR_SHARED_LIB	= @EXT_FOR_SHARED_LIB@
 
-# Set `RM_C' to `:' if you want to keep the intermediate `.c' files,
-# or to `rm' if you want Mmake to remove them.  Beware that RM_C=rm
-# causes some potential race conditions if you use parallel make.
-RM_C		= @DEFAULT_RM_C@
+# XXX RM_C is not used any more (it used to control whether
+# the intermediate C files were removed).
+# It may still be referred to by `.d' files generated before
+# support for RM_C was removed from the compiler.
+RM_C = :
 
 # lists of targets that depend on $(MLOBJS) and $(MLPICOBJS)
 MLOBJS_DEPS = 

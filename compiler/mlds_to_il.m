@@ -52,7 +52,6 @@
 %     we should (this can occur in nondet C code). 
 % [ ] ml_gen_call_current_success_cont_indirectly should be merged with
 % 	similar code for doing copy-in/copy-out.
-% [ ] generate maxstack correctly
 % [ ] Try to use the IL bool type for the true/false rvals.
 % [ ] Add an option to do overflow checking.
 % [ ] Should replace hard-coded of int32 with a more abstract name such
@@ -122,8 +121,10 @@
 	maybe(mlds__func_sequence_num), ilds__class_name, ilds__id).
 :- mode mangle_mlds_proc_label(in, in, out, out) is det.
 
-	% Turn an MLDS module name into a class_name name
-:- func mlds_module_name_to_class_name(mlds_module_name) = ilds__class_name.
+	% Turn an MLDS module name into a class_name name, adding a
+	% "mercury_code" suffix if the bool is "yes".
+:- func mlds_module_name_to_class_name(mlds_module_name, bool) =
+	ilds__class_name.
 
 
 	% Return the class_name for the generic class.
@@ -213,7 +214,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 		Info3),
 	list__condense(OtherDeclsList, OtherDecls),
 
-	ClassName = mlds_module_name_to_class_name(ModuleName),
+	ClassName = mlds_module_name_to_class_name(ModuleName, yes),
 
 		% Make this module an assembly unless it is in the standard
 		% library.  Standard library modules all go in the one
@@ -382,7 +383,7 @@ generate_method_defn(FunctionDefn) -->
 generate_method_defn(DataDefn) --> 
 	{ DataDefn = defn(data(DataName), Context, _DeclsFlags, Entity) },
 	il_info_get_module_name(ModuleName),
-	{ ClassName = mlds_module_name_to_class_name(ModuleName) },
+	{ ClassName = mlds_module_name_to_class_name(ModuleName, yes) },
 
 		% Generate a term (we use it to emit the complete
 		% method definition as a comment, which is nice
@@ -494,7 +495,7 @@ generate_method_defn(DataDefn) -->
 :- mode generate_other_decls(in, out, in, out) is det.
 generate_other_decls(MLDSDefn, Decls) -->
 	ModuleName =^ module_name,
-	{ ClassName = mlds_module_name_to_class_name(ModuleName) },
+	{ ClassName = mlds_module_name_to_class_name(ModuleName, yes) },
 	{ MLDSDefn = mlds__defn(EntityName, _Context, _DeclFlags, Entity) }, 
 	{ term__type_to_term(MLDSDefn, MLDSDefnTerm) },
 	( { EntityName = type(TypeName0, Arity) },
@@ -981,7 +982,7 @@ atomic_statement_to_il(outline_foreign_proc(Lang, ReturnLvals, _Code),
 		{ mangle_foreign_code_module(ModuleName, Lang,
 			OutlineLangModuleName) },
 		{ ClassName = mlds_module_name_to_class_name(
-			OutlineLangModuleName) },
+			OutlineLangModuleName, yes) },
 		signature(_, RetType, Params) =^ signature, 
 
 		( { ReturnLvals = [] } ->
@@ -1028,7 +1029,8 @@ atomic_statement_to_il(inline_target_code(_Lang, _Code), node(Instrs)) -->
 			% XXX we hardcode managed C++ here
 		^ method_foreign_lang := yes(managed_cplusplus),
 		{ mangle_dataname_module(no, ModuleName, NewModuleName) },
-		{ ClassName = mlds_module_name_to_class_name(NewModuleName) },
+		{ ClassName = mlds_module_name_to_class_name(NewModuleName,
+				no) },
 		signature(_, RetType, Params) =^ signature, 
 			% If there is a return value, put it in succeeded.
 			% XXX this is incorrect for functions, which might
@@ -1089,9 +1091,16 @@ atomic_statement_to_il(delete_object(Target), Instrs) -->
 
 atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 		Args, ArgTypes), Instrs) -->
+	DataRep =^ il_data_rep,
 	( 
-		{ Type = mlds__generic_env_ptr_type 
-		; Type = mlds__class_type(_, _, _) }
+		{ 
+			Type = mlds__generic_env_ptr_type 
+		; 
+			Type = mlds__class_type(_, _, _) 
+		; 
+			DataRep ^ highlevel_data = yes,
+			Type = mlds__mercury_type(_, user_type)
+		}
 	->
 			% If this is an env_ptr we should call the
 			% constructor.  
@@ -1104,7 +1113,6 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 			%	call ClassName::.ctor
 			%	... store to memory reference ...
 			%
-		DataRep =^ il_data_rep,
 		{ ClassName = mlds_type_to_ilds_class_name(DataRep, Type) },
 		list__map_foldl(load, Args, ArgsLoadInstrsTrees),
 		{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
@@ -1759,7 +1767,7 @@ make_class_constructor_classdecl(DoneFieldRef, Imports, AllocInstrs,
 	test_rtti_initialization_field(DoneFieldRef, TestInstrs),
 	set_rtti_initialization_field(DoneFieldRef, SetInstrs),
 	{ CCtorCalls = list__map((func(X) = call_class_constructor(
-		mlds_module_name_to_class_name(X))), Imports) },
+		mlds_module_name_to_class_name(X, yes))), Imports) },
 	{ AllInstrs = list__condense([TestInstrs, AllocInstrs, SetInstrs,
 		CCtorCalls, InitInstrs, [ret]]) },
 	{ MethodDecls = [instrs(AllInstrs)] }.
@@ -1936,7 +1944,6 @@ mlds_type_to_ilds_type(DataRep, mercury_type(MercuryType, user_type)) =
 :- func mercury_type_to_highlevel_class_type(mercury_type) = ilds__type.
 mercury_type_to_highlevel_class_type(MercuryType) = ILType :-
 	( type_to_type_id(MercuryType, TypeId, _Args) ->
-
 		(
 			type_id_is_array(TypeId)
 		->
@@ -1964,7 +1971,7 @@ mlds_class_name_to_ilds_class_name(
 		qual(MldsModuleName, MldsClassName0), Arity) = IldsClassName :-
 	MldsClassName = string__format("%s_%d", [s(MldsClassName0), i(Arity)]),
 	IldsClassName = append_class_name(
-		mlds_module_name_to_class_name(MldsModuleName),
+		mlds_module_name_to_class_name(MldsModuleName, yes),
 		[MldsClassName]).
 
 mlds_type_to_ilds_class_name(DataRep, MldsType) = 
@@ -2100,7 +2107,7 @@ predlabel_to_id(special_pred(PredName, MaybeModuleName, TypeName, Arity),
 	% If an mlds__var is not an argument or a local, what is it?
 	% We assume the given variable is a handwritten RTTI reference or a
 	% reference to some hand-written code in the
-	% modulename__c_code class.  This is OK so long as the
+	% modulename__cpp_code class.  This is OK so long as the
 	% code generator uses real 'field' lvals to reference
 	% fields in the modulename class.
 
@@ -2110,7 +2117,7 @@ make_fieldref_for_handdefined_var(DataRep, Var, VarType) = FieldRef :-
 	Var = qual(ModuleName, _),
 	mangle_mlds_var(Var, MangledVarStr),
 	mangle_dataname_module(no, ModuleName, NewModuleName),
-	ClassName = mlds_module_name_to_class_name(NewModuleName),
+	ClassName = mlds_module_name_to_class_name(NewModuleName, yes),
 	FieldRef = make_fieldref(
 		mlds_type_to_ilds_type(DataRep, VarType), ClassName,
 		MangledVarStr).
@@ -2178,7 +2185,7 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 			)
 		)		  
 	->
-		string__append(LibModuleName0, "__c_code",
+		string__append(LibModuleName0, "__cpp_code",
 			LibModuleName),
 		ModuleName = mercury_module_name_to_mlds(
 			qualified(unqualified("mercury"), LibModuleName))
@@ -2212,7 +2219,7 @@ mangle_dataname(tabling_pointer(_), _MangledName) :-
 	% We turn procedures into methods of classes.
 mangle_mlds_proc_label(qual(ModuleName, PredLabel - ProcId), MaybeSeqNum,
 		ClassName, PredStr) :-
-	ClassName = mlds_module_name_to_class_name(ModuleName),
+	ClassName = mlds_module_name_to_class_name(ModuleName, yes),
 	predlabel_to_id(PredLabel, ProcId, MaybeSeqNum, PredStr).
 
 :- pred mangle_entity_name(mlds__entity_name, string).
@@ -2259,10 +2266,10 @@ mlds_to_il__sym_name_to_string_2(qualified(ModuleSpec,Name), Separator) -->
 mlds_to_il__sym_name_to_string_2(unqualified(Name), _) -->
         [Name].
 
-mlds_module_name_to_class_name(MldsModuleName) = 
+mlds_module_name_to_class_name(MldsModuleName, AddMercuryCode) = 
 		structured_name(AssemblyName, ClassName) :-
 	SymName = mlds_module_name_to_sym_name(MldsModuleName),
-	sym_name_to_class_name(SymName, ClassName),
+	sym_name_to_class_name(SymName, AddMercuryCode, ClassName),
 	( 
 		ClassName = ["mercury" | _]
 	->
@@ -2271,11 +2278,18 @@ mlds_module_name_to_class_name(MldsModuleName) =
 		mlds_to_il__sym_name_to_string(SymName, AssemblyName)
 	).
 
-:- pred sym_name_to_class_name(sym_name, list(ilds__id)).
-:- mode sym_name_to_class_name(in, out) is det.
-sym_name_to_class_name(SymName, Ids) :-
+:- pred sym_name_to_class_name(sym_name, bool, list(ilds__id)).
+:- mode sym_name_to_class_name(in, in, out) is det.
+sym_name_to_class_name(SymName, AddMercuryCode, Ids) :-
 	sym_name_to_class_name_2(SymName, Ids0),
-	list__reverse(["mercury_code" | Ids0], Ids).
+	( 
+		AddMercuryCode = yes,
+		Ids1 = ["mercury_code" | Ids0]
+	;
+		AddMercuryCode = no,
+		Ids1 = Ids0
+	),
+	list__reverse(Ids1, Ids).
 
 :- pred sym_name_to_class_name_2(sym_name, list(ilds__id)).
 :- mode sym_name_to_class_name_2(in, out) is det.
@@ -2398,7 +2412,7 @@ code_addr_constant_to_methodref(DataRep,
 data_addr_constant_to_fieldref(data_addr(ModuleName, DataName), FieldRef) :-
 	mangle_dataname(DataName, FieldName),
 	mangle_dataname_module(yes(DataName), ModuleName, NewModuleName),
-	ClassName = mlds_module_name_to_class_name(NewModuleName),
+	ClassName = mlds_module_name_to_class_name(NewModuleName, yes),
 	FieldRef = make_fieldref(il_array_type, ClassName, FieldName).
 
 
@@ -2415,24 +2429,17 @@ data_addr_constant_to_fieldref(data_addr(ModuleName, DataName), FieldRef) :-
 	% the same thing when creating the fields.
 :- func get_fieldref(il_data_rep, field_id, mlds__type, mlds__type) = fieldref.
 get_fieldref(DataRep, FieldNum, FieldType, ClassType) = FieldRef :-
-		FieldILType0 = mlds_type_to_ilds_type(DataRep, FieldType),
-		ClassILType = mlds_type_to_ilds_type(DataRep, ClassType),
+		FieldILType0 = mlds_type_to_ilds_type(DataRep,
+			FieldType),
 		( FieldILType0 = ilds__type(_, '&'(FieldILType1)) ->
 			FieldILType = FieldILType1
 		;
 			FieldILType = FieldILType0
 		),
-		( ClassILType = ilds__type(_, class(ClassTypeName0)) ->
-			ClassName = ClassTypeName0
-		;
-			ClassILType = ilds__type(_, Unknown),
-			functor(Unknown, Functor, _Arity),
-			ClassName = structured_name("", 
-				["invalid_field_access_class", Functor])
-			% unexpected(this_file, "not a class for field access")
-		),
 		( 
 			FieldNum = offset(OffsetRval),
+			ClassName = mlds_type_to_ilds_class_name(DataRep,
+				ClassType),
 			( OffsetRval = const(int_const(Num)) ->
 				string__format("f%d", [i(Num)], FieldId)
 			;
@@ -2440,8 +2447,10 @@ get_fieldref(DataRep, FieldNum, FieldType, ClassType) = FieldRef :-
 					"offsets for non-int_const rvals")
 			)
 		; 
-			FieldNum = named_field(qual(_ModuleName, FieldId),
-				_Type)
+			FieldNum = named_field(qual(ModuleName, FieldId),
+				_Type),
+			ClassName = mlds_module_name_to_class_name(ModuleName,
+				no)
 		),
 		FieldRef = make_fieldref(FieldILType, ClassName, FieldId).
 
@@ -2654,7 +2663,7 @@ il_system_namespace_name = "System".
 
 mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
 	Gen = (pred(Import::in, Decl::out) is semidet :-
-		ClassName = mlds_module_name_to_class_name(Import),
+		ClassName = mlds_module_name_to_class_name(Import, yes),
 		ClassName = structured_name(Assembly, _),
 		not (Assembly = "mercury"),
 		Decl = extern_assembly(Assembly, [])
@@ -2690,10 +2699,7 @@ mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
 make_method_defn(InstrTree) = MethodDecls :-
 	Instrs = list__condense(tree__flatten(InstrTree)),
 	MethodDecls = [
-			% XXX should avoid hard-coding "100" for
-			% the maximum static size -- not sure if we even
-			% need this anymore.
-		maxstack(int32(100)),
+		maxstack(int32(calculate_max_stack(Instrs))),
 			% note that we only need .zeroinit to ensure
 			% verifiability; for nonverifiable code,
 			% we could omit that (it ensures that all
@@ -2834,7 +2840,7 @@ runtime_initialization_instrs = [
 :- func runtime_init_module_name = ilds__class_name.
 runtime_init_module_name = 
 	structured_name("mercury",
-		["mercury", "private_builtin__c_code", "mercury_code"]).
+		["mercury", "private_builtin__cpp_code", "mercury_code"]).
 
 :- func runtime_init_method_name = ilds__member_name.
 runtime_init_method_name = id("init_runtime").

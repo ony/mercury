@@ -54,10 +54,12 @@ else
 	PREFIX="$prefix"
 fi
 LIBDIR="$PREFIX/lib/mercury"
+WINDOWS_LIBDIR="`cygpath -w $LIBDIR 2>/dev/null`"
 NONSHARED_LIB_DIR=${MERCURY_NONSHARED_LIB_DIR=$PREFIX/lib/nonshared}
 AC_SUBST(PREFIX)
 AC_SUBST(NONSHARED_LIB_DIR)
 AC_SUBST(LIBDIR)
+AC_SUBST(WINDOWS_LIBDIR)
 DEFAULT_MERCURY_DEBUGGER_INIT_DIR=$LIBDIR/mdb
 AC_SUBST(DEFAULT_MERCURY_DEBUGGER_INIT_DIR)
 #-----------------------------------------------------------------------------#
@@ -289,6 +291,9 @@ fi
 if test "$MKFIFO" = ""; then
 	AC_MSG_WARN(cannot find a working \`mkfifo' or \`mknod')
 	MKFIFO=none
+	AC_DEFINE_UNQUOTED(MR_MKFIFO, "")
+else
+	AC_DEFINE_UNQUOTED(MR_MKFIFO, "$MKFIFO")
 fi
 AC_SUBST(MKFIFO)
 test "$MKNOD" = "" && MKNOD=mknod
@@ -316,7 +321,13 @@ AC_SUBST(MKTEMP)
 AC_PATH_PROG(INSTALL_INFO,install-info)
 AC_SUBST(INSTALL_INFO)
 #-----------------------------------------------------------------------------#
-AC_PATH_PROG(TEXI2DVI,texi2dvi)
+# texi2dvi is currently broken on cygwin
+case "$host" in
+	*-cygwin*)
+		TEXI2DVI="" ;;
+	*)
+		AC_PATH_PROG(TEXI2DVI,texi2dvi) ;;
+esac
 AC_SUBST(TEXI2DVI)
 #-----------------------------------------------------------------------------#
 AC_PATH_PROG(DVIPS,dvips)
@@ -330,6 +341,12 @@ AC_SUBST(INFO)
 #-----------------------------------------------------------------------------#
 AC_PATH_PROG(PERL,perl)
 AC_SUBST(PERL)
+#-----------------------------------------------------------------------------#
+AC_PATH_PROG(HOSTNAMECMD,hostname uname)
+case "$HOSTNAMECMD" in
+	*hostname)	HOSTNAMECMD="$HOSTNAMECMD -f" ;;
+esac
+AC_DEFINE_UNQUOTED(MR_HOSTNAMECMD, "$HOSTNAMECMD")
 #-----------------------------------------------------------------------------#
 AC_PROG_CC
 AC_SUBST(CC)
@@ -1960,11 +1977,11 @@ else
 	LIBGRADES="$GC_LIBGRADES"
 fi
 
-if test "$enable_nogc_grades" = yes; then
+if test "$enable_prof_grades" = yes; then
 	# add `.prof' (--profiling) grades, if time profiling is supported,
 	# and a `.memprof' (--memory-profiling) grade.
 	if test $mercury_cv_profiling = yes; then
-		if test "$enable_prof_grades" = yes; then
+		if test "$enable_nogc_grades" = yes; then
 			DEFAULT_GRADE_NOGC="`echo $DEFAULT_GRADE | sed 's/\.gc$//'`"
 			LIBGRADES="$LIBGRADES $DEFAULT_GRADE.prof $DEFAULT_GRADE_NOGC.prof"
 		else
@@ -1979,7 +1996,7 @@ if test "$enable_nogc_grades" = yes; then
 			fi
 		fi
 	fi
-	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof"
+	LIBGRADES="$LIBGRADES $DEFAULT_GRADE.memprof $DEFAULT_GRADE.profdeep"
 fi
 
 if test "$enable_trail_grades" = yes; then
@@ -2406,33 +2423,6 @@ case "$host" in
 		;;
 esac
 
-#
-# This sets the default value of RM_C, which should be either `rm' to
-# remove the intermediate C files, or `:' to keep them.
-#
-# If RM_C is set to `rm', then unfortunately Mmake needs to invoke
-# make recursively, and this causes several problems:
-#	(1) it causes performance problems, particularly on MS-Windows
-#	(2) it can break parallel makes, because there are race
-#           conditions involved when you invoke make recursively
-#	    in a parallel make
-#
-# Therefore by default we currently keep the intermediate C files.
-#
-DEFAULT_RM_C=:
-
-case $EXT_FOR_PIC_OBJECTS in
-	o)
-		LIBRARY_RM_C=$DEFAULT_RM_C
-		;;
-	*)
-		# If we're going to be building both `.pic_o' files
-		# and `.o' files, then we should not remove the generated `.c'
-		# files in the library directory after building the `.o' files.
-		LIBRARY_RM_C=:
-		;;
-esac
-
 #-----------------------------------------------------------------------------#
 
 case "$host" in
@@ -2461,8 +2451,6 @@ AC_SUBST(EXT_FOR_EXE)
 AC_SUBST(USE_DLLS)
 AC_SUBST(SHARED_LIBS)
 AC_SUBST(SHARED_LIBS_SH)
-AC_SUBST(DEFAULT_RM_C)
-AC_SUBST(LIBRARY_RM_C)
 if test $USE_DLLS = "yes"; then
 	AC_DEFINE(USE_DLLS)
 fi
@@ -2794,9 +2782,10 @@ to_keep=""
 to_delete=""
 if test "$BOOTSTRAP_MC" != "" ; then
     MERCURY_MSG("checking whether any C files need to be rebuilt...")
-    for c_file in library/*.c compiler/*.c browser/*.c profiler/*.c \
+    for c_file in library/*.c compiler/*.c browser/*.c profiler/*.c deep_profiler/*.c \
     		library/Mercury/cs/*.c compiler/Mercury/cs/*.c \
-		browser/Mercury/cs/*.c profiler/Mercury/cs/*.c 
+		browser/Mercury/cs/*.c profiler/Mercury/cs/*.c \
+		deep_profiler/Mercury/cs/*.c 
     do
         case $c_file in
         */'*.c')
@@ -2843,9 +2832,9 @@ if test "$BOOTSTRAP_MC" != "" ; then
     rm -f confscratch $to_delete
 fi
 #-----------------------------------------------------------------------------#
-AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mprof
-scripts/mercury_update_interface scripts/mgnuc scripts/ml
-scripts/mmake scripts/c2init scripts/mdb scripts/mdbrc 
+AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mercury.bat
+scripts/mprof scripts/mercury_update_interface scripts/mgnuc scripts/ml
+scripts/mmake scripts/c2init scripts/mdb scripts/mdbrc scripts/mdprof
 scripts/sicstus_conv scripts/mkfifo_using_mknod bindist/bindist.build_vars
 ,
 for header in $CONFIG_HEADERS ; do

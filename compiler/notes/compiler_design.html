@@ -24,7 +24,7 @@ library, runtime, etc.) fit together.
 <p>
 
 The main job of the compiler is to translate Mercury into C, although it
-can also translate (subsets of) Mercury to some other languages: Goedel,
+can also translate (subsets of) Mercury to some other languages:
 Mercury bytecode (for a planned bytecode interpreter), MSIL (for the
 Microsoft .NET platform) and RL (the Aditi Relational Language).
 
@@ -184,9 +184,9 @@ stored in the io__state, using the type globals defined in globals.m.
 	<li> all types, typeclasses, insts and modes occuring in pred, func,
 	  type, typeclass and mode declarations are module qualified by
 	  module_qual.m.
- 	<li> all types, insts and modes occuring in lambda expressions and
- 	  explicit type qualifications are module qualified in
- 	  make_hlds.m.
+ 	<li> all types, insts and modes occuring in lambda expressions,
+ 	  explicit type qualifications, and clause mode annotations
+	  are module qualified in make_hlds.m.
  	<li> constructors occuring in predicate and function mode declarations
  	  are module qualified during type checking.
  	<li> predicate and function calls and constructors within goals 
@@ -621,6 +621,11 @@ The module transform.m contains stuff that is supposed to be useful
 for high-level optimizations (but which is not yet used).
 
 <p>
+
+The last HLDS-to-HLDS transformation implements deep profiling
+(deep_profiling.m).
+
+<p>
 <hr>
 <!---------------------------------------------------------------------------->
 
@@ -790,79 +795,14 @@ They are:
 
 <li> introduction of local C variables (use_local_vars.m) <br>
 
-<li> value numbering <br>
-
-	This is done by value_number.m, which has the following sub-modules:
-
-	<dl>
-	<dt> vn_block.m
-		<dd>
-		Traverse an extended basic block, building up tables showing
-		the actions that must be taken, and the current and desired
-		contents of locations.
-	<dt> vn_cost.m
-		<dd>
-		Computes the cost of instruction sequences.
-		Value numbering should never replace an instruction
-		sequence with a more expensive sequence. Unfortunately,
-		computing costs accurately is very difficult.
-	<dt> vn_debug.m
-		<dd>
-		Predicates to dump data structures used in value
-		numbering.
-	<dt> vn_filter.m
-		<dd>
-		Module to eliminate useless temporaries introduced by
-		value numbering. Not generating them in the first place
-		would be better, but would be quite difficult.
-	<dt> vn_flush.m
-		<dd>
-		Given the tables built up by vn_block and a list of nodes
-		computed by vn_order, generate code to assign the required
-		values to each temporary and live location in what is
-		hopefully the fastest and most compact way.
-	<dt> vn_order.m
-		<dd>
-		Given tables built up by vn_block showing the actions that
-		must be taken, and the current and desired contents of
-		locations, find out which shared subexpressions should
-		have temporaries allocated to them and in what order these
-		temporaries and the live locations should be assigned to.
-		This module uses the module atsort.m to perform an approximate
-		topological sort on the nodes of the location dependency
-		graph it operations on (since the graph may have cycles,
-		a precise topological sort may not exist).
-	<dt> vn_table.m
-		<dd>
-		Abstract data type showing the current and desired
-		contents of locations.
-	<dt> vn_temploc.m
-		<dd>
-		Abstract data type to keep track of the availability
-		of registers and temporaries.
-	<dt> vn_type.m
-		<dd>
-		This module defines the types used by the other
-		modules of the value numbering optimization.
-	<dt> vn_util.m
-		<dd>
-		Utility predicates.
-	<dt> vn_verify.m
-		<dd>
-		Sanity checks to make sure that (a) the optimized code
-		computes the same values as the original code, and (b)
-		the optimized code does not dereference tagged pointers
-		until the tag is known. (Violations of (b) usually cause
-		unaligned accesses, which cause bus errors on many machines.)
-	</dl>
 </ul>
 
 <p>
 
-Several of these optimizations (frameopt, use_local_vars and value numbering)
+Several of these optimizations (frameopt and use_local_vars)
 use livemap.m, a module that finds the set of locations live at each label.
 
-Use_local_vars and value numbering also introduce
+Use_local_vars numbering also introduces
 references to temporary variables in extended basic blocks
 in the LLDS representation of the C code.
 The transformation to insert the block scopes
@@ -1170,19 +1110,7 @@ bytecode interpreter has not yet been written.
 
 <p>
 
-The following modules do not serve any function at the moment.
-Some of them are obsolete; other are work-in-progress.
-(For some of them its hard to say which!)
-
 	<dl>
-
-	<dt> excess.m:
-		<dd>
-		This eliminates assignments that merely introduce another
-		name for an already existing variable. The functionality of
-		this module has been included in simplify.m, however sometime
-		in the future it may be necessary to provide a version which
-		maintains superhomogeneous form.
 
 	<dt> lco.m:
 		<dd>
@@ -1191,19 +1119,12 @@ Some of them are obsolete; other are work-in-progress.
 		It does not apply the optimization and will not until the
 		mode system is capable of expressing definite aliasing.
 
-	<dt> mercury_to_goedel.m:
-		<dd>
-		This converts from item_list to Goedel source code.
-		It works for simple programs, but doesn't handle
-		various Mercury constructs such as lambda expressions,
-		higher-order predicates, and functor overloading.
-
 	</dl>
 
 <p>
 <hr>
 <!---------------------------------------------------------------------------->
 
-Last update was $Date: 2001-05-15 01:49:34 $ by $Author: dmo $@cs.mu.oz.au. <br>
+Last update was $Date: 2001-06-01 04:38:39 $ by $Author: dmo $@cs.mu.oz.au. <br>
 </body>
 </html>

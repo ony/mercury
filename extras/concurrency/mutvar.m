@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB
 %---------------------------------------------------------------------------%
@@ -14,6 +14,13 @@
 % Access to a mutvar is thread-safe and can be used to synchronize
 % between different threads.
 %
+% XXX This module is now obsolete in the sense that programmers are
+% encouraged to migrate to using mvar.m which is identical in all
+% respects other than its name and corresponding change of name of
+% the exported type.  This was done to avoid confusion with
+% store__mutvar and to better reflect the Haskell origins of the mvar
+% data type.
+%
 %---------------------------------------------------------------------------%
 
 :- module mutvar.
@@ -26,17 +33,20 @@
 
 	% Create an empty mutvar.
 :- pred mutvar__init(mutvar(T)::out, io__state::di, io__state::uo) is det.
+:- pragma obsolete(mutvar__init/3).
 
 	% Take the contents of the mutvar out leaving the mutvar empty.
 	% If the mutvar is empty, block until some thread fills the
 	% mutvar.
 :- pred mutvar__take(mutvar(T)::in, T::out,
 		io__state::di, io__state::uo) is det.
+:- pragma obsolete(mutvar__take/4).
 
 	% Place the value of type T into an empty mutvar.  If the
 	% mutvar is full block until it becomes empty.
 :- pred mutvar__put(mutvar(T)::in, T::in,
 		io__state::di, io__state::uo) is det.
+:- pragma obsolete(mutvar__put/4).
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%

@@ -63,16 +63,17 @@
 		;	warn_duplicate_calls
 		;	warn_missing_module_name
 		;	warn_wrong_module_name
+		;	warn_smart_recompilation	% not yet used.
 	% Verbosity options
 		;	verbose
 		;	very_verbose
 		;	verbose_errors
+		;	verbose_recompilation		% not yet used.
 		;	statistics
 		;	debug_types
 		;	debug_modes
 		;	debug_det
 		;	debug_opt
-		;	debug_vn	% vn = value numbering
 		;	debug_pd	% pd = partial deduction/deforestation
 		;	debug_rl_gen
 		;	debug_rl_opt
@@ -87,7 +88,6 @@
 		;	generate_dependencies
 		;	generate_module_order
 		;	convert_to_mercury
-		;	convert_to_goedel
 		;	typecheck_only
 		;	errorcheck_only
 		;	target_code_only
@@ -95,6 +95,13 @@
 		;	aditi_only
 		;	output_grade_string
 	% Auxiliary output options
+		;	smart_recompilation		% not yet used.
+
+				% This option is used to control output
+				% of version numbers in interface files.
+				% It is implied by smart_recompilation,
+				% and cannot be set explicitly by the user.
+		;	generate_item_version_numbers
 		;	assume_gmake
 		;	trace
 		;	trace_optimized
@@ -104,11 +111,6 @@
 		;	suppress_trace
 		;	stack_trace_higher_order
 		;	generate_bytecode
-		;	generate_prolog		% Currently not used
-				% XXX generate_prolog should probably be
-				% in the "Output options" section rather than
-				% in the "Auxiliary output options" section
-		;	prolog_dialect		% Currently not used
 		;	line_numbers
 		;	auto_comments
 		;	show_dependency_graph
@@ -147,11 +149,24 @@
 		;	profiling		% profile_time + profile_calls
 		;	time_profiling		% profile_time + profile_calls
 		;	memory_profiling	% profime_mem + profile_calls
-		;	deep_profiling	% profile_time + profile_deep
+		;	deep_profiling		% profile_deep
 		;	profile_calls
 		;	profile_time
 		;	profile_memory
 		;	profile_deep
+		;	use_activation_counts
+				% use_activation_counts is used to determine
+				% which mechanism for cycle detection should be
+				% used for deep profiling. Actually, we only
+				% want to use the `yes' value, but we keep
+				% support for the `no' value for benchmarks
+				% for the paper.
+		;	use_zeroing_for_ho_cycles
+		;	use_lots_of_ho_specialization
+				% We should always handle tail recursion
+				% specially in deep profiling; the options is
+				% only for benchmarks for the paper.
+		;	deep_profile_tail_recursion
 		;	debug
 		;	stack_trace
 		;	require_tracing
@@ -382,18 +397,15 @@
 		;	optimize_peep
 		;	optimize_jumps
 		;	optimize_fulljumps
+		;	pessimize_tailcalls
 		;	checked_nondet_tailcalls
 		;	use_local_vars
 		;	optimize_labels
 		;	optimize_dups
 %%% unused:	;	optimize_copyprop
-		;	optimize_value_number
 		;	optimize_frames
 		;	optimize_delay_slot
 		;	optimize_repeat
-		;	optimize_vnrepeat
-		;	pred_value_number
-		;	vn_fudge
 	%	- RL
 		;	optimize_rl
 		;	optimize_rl_cse
@@ -478,19 +490,20 @@ option_defaults_2(warning_option, [
 	warn_simple_code	-	bool(yes),
 	warn_duplicate_calls	-	bool(no),
 	warn_missing_module_name -	bool(yes),
-	warn_wrong_module_name -	bool(yes)
+	warn_wrong_module_name -	bool(yes),
+	warn_smart_recompilation -	bool(yes)
 ]).
 option_defaults_2(verbosity_option, [
 		% Verbosity Options
 	verbose			-	bool(no),
 	very_verbose		-	bool(no),
 	verbose_errors		-	bool(no),
+	verbose_recompilation	-	bool(no),
 	statistics		-	bool(no),
 	debug_types		- 	bool(no),
 	debug_modes		- 	bool(no),
 	debug_det		- 	bool(no),
 	debug_opt		- 	bool(no),
-	debug_vn		- 	int(0),
 	debug_pd		-	bool(no),
 	debug_rl_gen		-	bool(no),
 	debug_rl_opt		-	bool(no),
@@ -507,7 +520,6 @@ option_defaults_2(output_option, [
 	make_optimization_interface -	bool(no),
 	make_transitive_opt_interface -	bool(no),
 	convert_to_mercury 	-	bool(no),
-	convert_to_goedel 	-	bool(no),
 	typecheck_only		-	bool(no),
 	errorcheck_only		-	bool(no),
 	target_code_only	-	bool(no),
@@ -517,6 +529,8 @@ option_defaults_2(output_option, [
 ]).
 option_defaults_2(aux_output_option, [
 		% Auxiliary Output Options
+	smart_recompilation	-	bool(no),
+	generate_item_version_numbers -	bool(no),
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
@@ -526,8 +540,6 @@ option_defaults_2(aux_output_option, [
 	delay_death		-	bool(yes),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
-	generate_prolog		-	bool(no),
-	prolog_dialect		-	string("default"),
 	line_numbers		-	bool(yes),
 	auto_comments		-	bool(no),
 	show_dependency_graph	-	bool(no),
@@ -578,6 +590,12 @@ option_defaults_2(compilation_model_option, [
 	profile_time		-	bool(no),
 	profile_memory		-	bool(no),
 	profile_deep		-	bool(no),
+	use_activation_counts	-	bool(no),
+	use_zeroing_for_ho_cycles
+				-	bool(yes),
+	use_lots_of_ho_specialization
+				-	bool(no),
+	deep_profile_tail_recursion	-	bool(yes),
 	debug			-	bool_special,
 	require_tracing		-	bool(no),
 	stack_trace		-	bool(no),
@@ -778,19 +796,15 @@ option_defaults_2(optimization_option, [
 	optimize_peep		-	bool(no),
 	optimize_jumps		-	bool(no),
 	optimize_fulljumps	-	bool(no),
+	pessimize_tailcalls	-	bool(no),
 	checked_nondet_tailcalls -	bool(no),
 	use_local_vars		-	bool(no),
 	optimize_labels		-	bool(no),
 	optimize_dups		-	bool(no),
 %%%	optimize_copyprop	-	bool(no),
-	optimize_value_number	-	bool(no),
 	optimize_frames		-	bool(no),
 	optimize_delay_slot	-	bool(no),
 	optimize_repeat		-	int(0),
-	optimize_vnrepeat	-	int(1),		% ineffective unless
-							% value_number is set
-	pred_value_number	-	bool(no),
-	vn_fudge		-	int(1000),
 
 % LLDS -> C
 	use_macro_for_redo_fail	-	bool(no),
@@ -837,7 +851,6 @@ short_option('d', 			dump_hlds).
 short_option('D', 			dump_hlds_alias).
 short_option('e', 			errorcheck_only).
 short_option('E', 			verbose_errors).
-short_option('G', 			convert_to_goedel).
 short_option('h', 			help).
 short_option('H', 			highlevel_code).
 short_option('i', 			make_interface).
@@ -879,18 +892,19 @@ long_option("warn-simple-code",		warn_simple_code).
 long_option("warn-duplicate-calls",	warn_duplicate_calls).
 long_option("warn-missing-module-name",	warn_missing_module_name).
 long_option("warn-wrong-module-name",	warn_wrong_module_name).
+long_option("warn-smart-recompilation",	warn_smart_recompilation).
 
 % verbosity options
 long_option("verbose",			verbose).
 long_option("very-verbose",		very_verbose).
 long_option("verbose-error-messages",	verbose_errors).
+long_option("verbose-recompilation",	verbose_recompilation).
 long_option("statistics",		statistics).
 long_option("debug-types",		debug_types).
 long_option("debug-modes",		debug_modes).
 long_option("debug-determinism",	debug_det).
 long_option("debug-det",		debug_det).
 long_option("debug-opt",		debug_opt).
-long_option("debug-vn",			debug_vn).
 long_option("debug-pd",			debug_pd).
 long_option("debug-rl-gen",		debug_rl_gen).
 long_option("debug-rl-opt",		debug_rl_opt).
@@ -923,8 +937,6 @@ long_option("make-trans-opt", 		make_transitive_opt_interface).
 long_option("convert-to-mercury", 	convert_to_mercury).
 long_option("convert-to-Mercury", 	convert_to_mercury). 
 long_option("pretty-print", 		convert_to_mercury).
-long_option("convert-to-goedel", 	convert_to_goedel).
-long_option("convert-to-Goedel", 	convert_to_goedel).
 long_option("typecheck-only",		typecheck_only).
 long_option("errorcheck-only",		errorcheck_only).
 long_option("target-code-only",		target_code_only).
@@ -933,6 +945,7 @@ long_option("aditi-only",		aditi_only).
 long_option("output-grade-string",	output_grade_string).
 
 % aux output options
+long_option("smart-recompilation",	smart_recompilation).
 long_option("assume-gmake",		assume_gmake).
 long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
@@ -943,10 +956,6 @@ long_option("suppress-trace",		suppress_trace).
 long_option("delay-death",		delay_death).
 long_option("stack-trace-higher-order",	stack_trace_higher_order).
 long_option("generate-bytecode",	generate_bytecode).
-long_option("generate-prolog",		generate_prolog).
-long_option("generate-Prolog",		generate_prolog).
-long_option("prolog-dialect",		prolog_dialect).
-long_option("Prolog-dialect",		prolog_dialect).
 long_option("line-numbers",		line_numbers).
 long_option("auto-comments",		auto_comments).
 long_option("show-dependency-graph",	show_dependency_graph).
@@ -1000,6 +1009,13 @@ long_option("profile-calls",		profile_calls).
 long_option("profile-time",		profile_time).
 long_option("profile-memory",		profile_memory).
 long_option("profile-deep",		profile_deep).
+long_option("use-activation-counts",	use_activation_counts).
+long_option("use-zeroing-for-ho-cycles",
+					use_zeroing_for_ho_cycles).
+long_option("use-lots-of-ho-specialization",
+					use_lots_of_ho_specialization).
+long_option("deep-profile-tail-recursion",
+					deep_profile_tail_recursion).
 long_option("debug",			debug).
 % The following options are not allowed, because they're
 % not very useful and would probably only confuse people.
@@ -1221,6 +1237,7 @@ long_option("optimize-jumps",		optimize_jumps).
 long_option("optimise-jumps",		optimize_jumps).
 long_option("optimize-fulljumps",	optimize_fulljumps).
 long_option("optimise-fulljumps",	optimize_fulljumps).
+long_option("pessimize-tailcalls",	pessimize_tailcalls).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
 long_option("use-local-vars",		use_local_vars).
 long_option("optimize-labels",		optimize_labels).
@@ -1229,18 +1246,12 @@ long_option("optimize-dups",		optimize_dups).
 long_option("optimise-dups",		optimize_dups).
 %%% long_option("optimize-copyprop",	optimize_copyprop).
 %%% long_option("optimise-copyprop",	optimize_copyprop).
-long_option("optimize-value-number",	optimize_value_number).
-long_option("optimise-value-number",	optimize_value_number).
 long_option("optimize-frames",		optimize_frames).
 long_option("optimise-frames",		optimize_frames).
 long_option("optimize-delay-slot",	optimize_delay_slot).
 long_option("optimise-delay-slot",	optimize_delay_slot).
 long_option("optimize-repeat",		optimize_repeat).
 long_option("optimise-repeat",		optimize_repeat).
-long_option("optimize-vnrepeat",	optimize_vnrepeat).
-long_option("optimise-vnrepeat",	optimize_vnrepeat).
-long_option("pred-value-number",	pred_value_number).
-long_option("vn-fudge",			vn_fudge).
 
 % RL optimizations
 long_option("optimize-rl",		optimize_rl).
@@ -1322,7 +1333,7 @@ special_handler(memory_profiling, none, OptionTable0, ok(OptionTable)) :-
         map__set(OptionTable2, profile_memory, bool(yes), OptionTable3),
         map__set(OptionTable3, profile_deep, bool(no), OptionTable).
 special_handler(deep_profiling, none, OptionTable0, ok(OptionTable)) :-
-	map__set(OptionTable0, profile_time, bool(yes), OptionTable1),
+	map__set(OptionTable0, profile_time, bool(no), OptionTable1),
 	map__set(OptionTable1, profile_calls, bool(no), OptionTable2),
         map__set(OptionTable2, profile_memory, bool(no), OptionTable3),
         map__set(OptionTable3, profile_deep, bool(yes), OptionTable).
@@ -1372,7 +1383,8 @@ special_handler(inhibit_warnings, bool(Inhibit), OptionTable0, ok(OptionTable))
 			warn_missing_trans_opt_deps -	bool(Enable),
 			warn_simple_code	-	bool(Enable),
 			warn_missing_module_name -	bool(Enable),
-			warn_wrong_module_name	-	bool(Enable)
+			warn_wrong_module_name	-	bool(Enable),
+			warn_smart_recompilation -	bool(Enable)
 		], OptionTable0, OptionTable).
 special_handler(infer_all, bool(Infer), OptionTable0, ok(OptionTable)) :-
 	override_options([
@@ -1542,8 +1554,6 @@ opt_level(3, _, [
 % and increases the inlining thresholds
 
 opt_level(4, _, [
-	% lazy_code		-	bool(yes),
-	% optimize_value_number	-	bool(yes),
 	use_local_vars		-	bool(yes),
 	inline_simple_threshold	-	int(8),
 	inline_compound_threshold -	int(20),
@@ -1558,8 +1568,6 @@ opt_level(4, _, [
 % optimizations, and increases the inlining thresholds still further.
 
 opt_level(5, _, [
-	% pred_value_number	-	bool(yes),
-	% optimize_vnrepeat	-	int(2),
 	optimize_repeat		-	int(5),
 	delay_construct		-	bool(yes),
 	inline_compound_threshold -	int(100),
@@ -1691,11 +1699,6 @@ options_help_verbosity -->
 		"\tOutput detailed debugging traces of determinism analysis.",
 		"--debug-opt",
 		"\tOutput detailed debugging traces of the optimization process.",
-		"--debug-vn <n>",
-		"\tOutput detailed debugging traces of the value numbering",
-		"\toptimization pass. The different bits in the number",
-		"\targument of this option control the printing of",
-		"\tdifferent types of tracing messages.",
 		"--debug-pd",
 		"\tOutput detailed debugging traces of the partial",
 		"\tdeduction and deforestation process.",
@@ -1743,10 +1746,6 @@ options_help_output -->
 		"\tOutput transitive optimization information",
 		"\tinto the `<module>.trans_opt' file.",
 		"\tThis option should only be used by mmake.",
-		"-G, --convert-to-goedel",
-		"\tConvert to Goedel. Output to file `<module>.loc'.",
-		"\tNote that some Mercury language constructs cannot",
-		"\t(easily) be translated into Goedel.",
 		"-P, --convert-to-mercury",
 		"\tConvert to Mercury. Output to file `<module>.ugly'",
 		"\tThis option acts as a Mercury ugly-printer.",
@@ -1814,17 +1813,9 @@ options_help_aux_output -->
 		"--generate-bytecode",
 		"\tOutput a bytecode form of the module for use",
 		"\tby an experimental debugger.",
-% --generate-prolog is not documented because it is not yet implemented
-%		"--generate-prolog",
-%		"\tConvert the program to Prolog. Output to file `<module>.pl'",
-%		"\tor `<module>.nl' (depending on the dialect).",
-% --prolog-dialect is not documented because it is not yet used
-%		"--prolog-dialect {sicstus,nu}",
-%		"\tTarget the named dialect if generating Prolog code.",
 		"-n-, --no-line-numbers",
 		"\tDo not put source line numbers in the generated code.",
 		"\tThe generated code may be in C (the usual case),",
-		"\tin Goedel (with the option --convert-to-goedel)",
 		"\tor in Mercury (with the option --convert-to-mercury).",
 		"--auto-comments",
 		"\tOutput comments in the `<module>.c' file.",
@@ -2094,6 +2085,10 @@ options_help_compilation_model -->
 		"--memory-profiling\t\t(grade modifier: `.memprof')",
 		"\tEnable memory and call profiling.",
 		"\tThis option is not supported for the IL or Java back-ends.",
+		"--deep-profiling\t\t(grade modifier: `.profdeep')",
+		"\tEnable deep profiling.",
+		"\tThis option is not supported for the high-level C, IL",
+		"\tor Java back-ends.",
 /*****************
 XXX The following options are not documented,
 because they are currently not useful.
@@ -2577,6 +2572,8 @@ options_help_llds_llds_optimization -->
 		"\tDisable elimination of jumps to jumps.",
 		"--no-optimize-fulljumps",
 		"\tDisable elimination of jumps to ordinary code.",
+		"--pessimize-tailcalls",
+		"\tDisable the optimization of tailcalls.",
 		"--checked-nondet-tailcalls",
 		"\tConvert nondet calls into tail calls whenever possible, even",
 		"\twhen this requires a runtime check. This option tries to",
@@ -2590,18 +2587,12 @@ options_help_llds_llds_optimization -->
 		"\tEnable elimination of duplicate code.",
 %%%		"--optimize-copyprop",
 %%%		"\tEnable the copy propagation optimization.",
-		"--optimize-value-number",
-		"\tPerform value numbering on extended basic blocks.",
 		"--no-optimize-frames",
 		"\tDisable stack frame optimizations.",
 		"--no-optimize-delay-slot",
 		"\tDisable branch delay slot optimizations.",
 		"--optimize-repeat <n>",
-		"\tIterate most optimizations at most <n> times (default: 3).",
-		"--optimize-vnrepeat <n>",
-		"\tIterate value numbering at most <n> times (default: 1).",
-		"--pred-value-number",
-		"\tExtend value numbering to entire predicates."
+		"\tIterate most optimizations at most <n> times (default: 3)."
 	]).
 
 :- pred options_help_mlds_mlds_optimization(io__state::di, io__state::uo) is det.

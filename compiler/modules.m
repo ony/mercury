@@ -1413,6 +1413,7 @@ add_implicit_imports(Items, Globals, ImportDeps0, UseDeps0,
 	mercury_public_builtin_module(MercuryPublicBuiltin),
 	mercury_private_builtin_module(MercuryPrivateBuiltin),
 	mercury_table_builtin_module(MercuryTableBuiltin),
+	mercury_profiling_builtin_module(MercuryProfilingBuiltin),
 	ImportDeps = [MercuryPublicBuiltin | ImportDeps0],
 	UseDeps1 = [MercuryPrivateBuiltin | UseDeps0],
 	(
@@ -1425,10 +1426,16 @@ add_implicit_imports(Items, Globals, ImportDeps0, UseDeps0,
 		; globals__lookup_bool_option(Globals, trace_table_io, yes)
 		)
 	->
-		UseDeps = [MercuryTableBuiltin | UseDeps1]
+		UseDeps2 = [MercuryTableBuiltin | UseDeps1]
 	;
-		UseDeps = UseDeps1
+		UseDeps2 = UseDeps1
+	),
+	( globals__lookup_bool_option(Globals, profile_deep, yes) ->
+		UseDeps = [MercuryProfilingBuiltin|UseDeps2]
+	;
+		UseDeps = UseDeps2
 	).
+
 
 :- pred contains_tabling_pragma(item_list::in) is semidet.
 
@@ -1710,8 +1717,6 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			AsmFileName, " ",
 			PicAsmFileName, " ",
 			ErrFileName, " ",
-			PicObjFileName, " ",
-			ObjFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
 			ILFileName, " : ",
@@ -1745,8 +1750,6 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				CFileName, " ",
 				TransOptDateFileName, " ",
 				ErrFileName, " ", 
-				PicObjFileName, " ",
-				ObjFileName, " ",
 				SplitObjPattern, " :"
 			]),
 
@@ -1775,8 +1778,6 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					"\n\n", 
 					CFileName, " ",
 					ErrFileName, " ", 
-					PicObjFileName, " ", 
-					ObjFileName, " ",
 					SplitObjPattern, " :"
 				]),
 				write_dependencies_list(TransOptDeps,
@@ -1931,28 +1932,6 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				"\trm -f ", CFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"$< > ", ErrFileName, " 2>&1\n",
-				"ifneq ($(RM_C),:)\n",
-				ObjFileName, " : ", SourceFileName, "\n",
-				"\t$(MMAKE_MAKE_CMD) $(MFLAGS) ",
-					"MC=""$(MC)"" ",
-					"ALL_MCFLAGS=""$(ALL_MCFLAGS)"" ",
-					"ALL_GRADEFLAGS=""$(ALL_GRADEFLAGS)"" ",
-					CFileName, "\n",
-				"\t$(MGNUC) $(ALL_GRADEFLAGS) ",
-					"$(ALL_MGNUCFLAGS) -c ", CFileName,
-					" -o $@\n",
-				"\t$(RM_C) ", CFileName, "\n",
-				PicObjFileName, " : ", SourceFileName, "\n",
-				"\t$(MMAKE_MAKE_CMD) $(MFLAGS) ",
-					"MC=""$(MC)"" ",
-					"ALL_MCFLAGS=""$(ALL_MCFLAGS)"" ",
-					"ALL_GRADEFLAGS=""$(ALL_GRADEFLAGS)"" ",
-					CFileName, "\n",
-				"\t$(MGNUC) $(ALL_GRADEFLAGS) ",
-					"$(ALL_MGNUCFLAGS) $(CFLAGS_FOR_PIC) ",
-					"\\\n",
-				"\t\t-c ", CFileName, " -o $@\n",
-				"endif # RM_C != :\n",
 				"ifeq ($(TARGET_ASM),yes)\n",
 				AsmFileName, " : ", SourceFileName, "\n",
 				"\trm -f ", AsmFileName, "\n",
@@ -2754,6 +2733,24 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
 	io__write_string(DepStream, "\n"),
 
+	%
+	% $(foo.cs_or_ss) contains the names of the generated intermediate
+	% files between `.m' and `.o' files. This is used in foo.dep
+	% to make sure the intermediate files are generated before the
+	% object files, so that errors are reported as soon as possible.
+	% 
+	% If TARGET_ASM=yes, we define $(foo.cs_or_ss) to be $(foo.ss),
+	% otherwise it is defined to be $(foo.cs).
+	%
+	io__write_strings(DepStream, [
+		"ifeq ($(TARGET_ASM),yes)\n",
+		MakeVarName, ".cs_or_ss =$(", MakeVarName, ".ss)\n",
+		"else\n",
+		MakeVarName, ".cs_or_ss =$(", MakeVarName, ".cs)\n",
+		"endif\n\n"
+	]),
+
+
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".rlos = "),
 	write_compact_dependencies_list(Modules, "$(rlos_subdir)", ".rlo",
@@ -2992,35 +2989,14 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	% rather than first spending time compiling C files to .$O,
 	% which could be a waste of time if the program contains errors.
 	%
-	% But we can only do this if we don't remove the .c files,
-	% i.e. if RM_C=:
-	% So we define $(foo.maybe_cs) here and use it in the rules below.
-	% This needs to be defined here in the .dep file rather than
-	% in the .dv file since it depends on the setting of the $(RM_C) file
-	% which can be overridden by the user's Mmakefile.
-	%
 	% When compiling to assembler, we want to do the same kind of
 	% thing, for the same reason, but with the `.s' files rather
-	% than the `.c' files.  So if TARGET_ASM=yes, we define
-	% $(foo.maybe_cs) to be $(foo.ss).
-	% XXX The name `.maybe_cs' is a bit misleading in this case.
-	%     Perhaps we should change it.
+	% than the `.c' files.
 	%
+
 	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
 	io__write_strings(DepStream, [
-		"ifeq ($(TARGET_ASM),yes)\n",
-		MakeVarName, ".maybe_cs=$(", MakeVarName, ".ss)\n",
-		"else\n",
-		"  ifeq ($(RM_C),:)\n",
-		MakeVarName, ".maybe_cs=$(", MakeVarName, ".cs)\n",
-		"  else\n",
-		MakeVarName, ".maybe_cs=\n",
-		"  endif\n\n",
-		"endif\n\n"
-	]),
-
-	io__write_strings(DepStream, [
-		ExeFileName, " : $(", MakeVarName, ".maybe_cs) ",
+		ExeFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".os) ",
 			InitObjFileName, " $(MLOBJS) ", All_MLLibsDepString,
 			"\n",
@@ -3084,7 +3060,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	]),
 
 	io__write_strings(DepStream, [
-		SharedLibFileName, " : $(", MakeVarName, ".maybe_cs) ",
+		SharedLibFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".pic_os) ",
 			"$(MLPICOBJS) ", All_MLLibsDepString, "\n",
 		"\t$(ML) --make-shared-lib $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) ",
@@ -3094,7 +3070,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	]),
 
 	io__write_strings(DepStream, [
-		LibFileName, " : $(", MakeVarName, ".maybe_cs) ",
+		LibFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".os) $(MLOBJS)\n",
 		"\trm -f ", LibFileName, "\n",
 		"\t$(AR) $(ALL_ARFLAGS) $(AR_LIBFILE_OPT)", LibFileName, " ",
@@ -3302,7 +3278,8 @@ get_source_file(DepsMap, ModuleName, FileName) :-
 :- mode append_to_init_list(in, in, in, di, uo) is det.
 
 append_to_init_list(DepStream, InitFileName, Module) -->
-	{ llds_out__make_init_name(Module, InitFuncName) },
+	{ llds_out__make_init_name(Module, InitFuncName0) },
+	{ string__append(InitFuncName0, "init", InitFuncName) },
 	{ llds_out__make_rl_data_name(Module, RLName) },
 	io__write_strings(DepStream, [
 		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n",

@@ -16,6 +16,7 @@ MULTIMODULE_SOURCES= \
 	aditi_state_errors.m \
 	aditi_update_errors.m \
 	aditi_update_mode_errors.m \
+	duplicate_instance_2.m \
 	imported_mode.m \
 	partial_implied_mode.m \
 	test_nested.m \
@@ -59,6 +60,9 @@ SINGLEMODULE_SOURCES= \
 	modes_erroneous.m \
 	mostly_uniq1.m \
 	mostly_uniq2.m \
+	multimode_missing_impure.m \
+	multimode_dcg.m \
+	multimode_syntax.m \
 	multisoln_func.m \
 	nested_impl_in_int.m \
 	no_exports.m \
@@ -163,16 +167,37 @@ ERRS=		$(SOURCES:%.m=%.err)
 ERR_RESS=	$(SOURCES:%.m=%.err_res)
 
 %.err: %.m
-	if $(MC) $(ALL_MCFLAGS) --errorcheck-only $* > $*.err 2>&1; \
+	if $(MC) $(ALL_GRADEFLAGS) $(ALL_MCFLAGS) --errorcheck-only $* \
+		> $*.err 2>&1; \
 	then false; else true; fi
 
+# For duplicate_instance_{1,2}, the error is only caught at link time.
+# So we need to use a different rule for that.
+# The exact error message varies a lot from system to system,
+# so we don't check the error output, we just check the command
+# return status.
+duplicate_instance_2.err: duplicate_instance_1.m duplicate_instance_2.m \
+		duplicate_instance_1.int
+	if $(MC) $(ALL_GRADEFLAGS) $(ALL_MCFLAGS) \
+		--link-flags "$(ALL_MLFLAGS)" \
+		duplicate_instance_1.m duplicate_instance_2.m \
+		> $*.err 2>&1; \
+	then	false; \
+	else	echo "Error was successfully detected" > $*.err; \
+	fi
+
 # Some tests have more than one possible valid output, so
-# we allow the test to pass if it matches *either* the .err_exp
-# or the .err_exp2 file. 
+# we allow the test to pass if it matches any of the .err_exp* files.
+DIFF_OPTS=-c
 %.err_res: %.err %.err_exp
 	-rm -f $@
-	diff -c $*.err_exp $*.err > $@ || \
-		{ [ -f $*.err_exp2 ] && diff -c $*.err_exp2 $*.err > $@; }
+	diff $(DIFF_OPTS) $*.err_exp $*.err > $@ || \
+		{ [ -f $*.err_exp2 ] && \
+		  diff $(DIFF_OPTS) $*.err_exp2 $*.err > $@; } || \
+		{ [ -f $*.err_exp3 ] && \
+		  diff $(DIFF_OPTS) $*.err_exp3 $*.err > $@; } || \
+		{ [ -f $*.err_exp4 ] && \
+		  diff $(DIFF_OPTS) $*.err_exp4 $*.err > $@; }
 
 all:	check
 
