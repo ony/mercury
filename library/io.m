@@ -3499,27 +3499,6 @@ io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
 	update_io(IO0, IO);
 ").
 
-:- pragma c_code(io__close_input(Stream::in, IO0::di, IO::uo),
-		[may_call_mercury, tabled_for_io, thread_safe],
-"
-	mercury_close((MercuryFile *) Stream);
-	update_io(IO0, IO);
-").
-
-:- pragma c_code(io__close_output(Stream::in, IO0::di, IO::uo),
-		[may_call_mercury, tabled_for_io, thread_safe],
-"
-	mercury_close((MercuryFile *) Stream);
-	update_io(IO0, IO);
-").
-
-:- pragma c_code(io__close_binary_input(Stream::in, IO0::di, IO::uo),
-		[may_call_mercury, tabled_for_io, thread_safe],
-"
-	mercury_close((MercuryFile *) Stream);
-	update_io(IO0, IO);
-").
-
 io__close_input(Stream) -->
 	io__delete_stream_name(Stream),
 	io__close_stream(Stream).
