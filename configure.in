@@ -428,9 +428,8 @@ if test $mercury_cv_sigcontext_struct_2arg = no; then
 	AC_CACHE_VAL(mercury_cv_sigcontext_struct_3arg,
 	mercury_cv_sigcontext_struct_3arg=no
 
-	/* see runtime/mercury_memory.c for documentation of this code */
-
 	AC_TRY_RUN([
+	/* see runtime/mercury_memory.c for documentation of this code */
 
 	#define sigcontext_struct sigcontext
 
@@ -469,9 +468,12 @@ if test $mercury_cv_sigcontext_struct_2arg = no; then
 			exit(1);
 		}
 	}], [mercury_cv_sigcontext_struct_3arg=yes], [true], [true]))
+	AC_MSG_RESULT($mercury_cv_sigcontext_struct_3arg)
 else
 	mercury_cv_sigcontext_struct_3arg=no
 fi
+
+mercury_cv_sigcontext_struct=no
 
 if test $mercury_cv_sigcontext_struct_2arg = yes; then
 	mercury_cv_sigcontext_struct=yes
@@ -1753,7 +1755,7 @@ AC_SUBST_FILE(PARSE_GRADE_OPTIONS)
 
 #-----------------------------------------------------------------------------#
 AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mprof
-scripts/mercury_update_interface scripts/mgnuc scripts/mint scripts/ml
+scripts/mercury_update_interface scripts/mgnuc scripts/ml
 scripts/mmake scripts/mnc scripts/mnl scripts/mnp scripts/c2init
 scripts/msc scripts/msl scripts/msp scripts/sicstus_conv
 scripts/mkfifo_using_mknod bindist/bindist.build_vars
