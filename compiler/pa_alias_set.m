@@ -24,7 +24,7 @@
 :- import_module possible_alias__pa_alias.
 :- import_module possible_alias__pa_datastruct. 
 
-:- import_module list, set, map, io, term.
+:- import_module list, set, map, io, term, bool.
 
 %-----------------------------------------------------------------------------%
 %-- exported types
@@ -107,8 +107,8 @@
 :- pred remove_vars(list(prog_var)::in, alias_set::in, 
 		alias_set::out) is det. 
 
-:- pred apply_widening(module_info::in, proc_info::in, alias_set::in, 
-		alias_set::out) is det.
+:- pred apply_widening(module_info::in, proc_info::in, int::in, 
+		alias_set::in, alias_set::out, bool::out) is det.
 
 	% printing predicates
 
@@ -615,13 +615,30 @@ remove_vars(Vars, AliasSet0, AliasSet):-
 	recount(AliasSet1, AliasSet). 
 
 
-apply_widening(ModuleInfo, ProcInfo, AliasSet0, AliasSet):- 
-	alias_set_map_values_with_key(
-		alias_set2_apply_widening(ModuleInfo, ProcInfo),
-		AliasSet0, 
-		AliasSet1), 
-	recount(AliasSet1, AliasSet). 
-	
+apply_widening(ModuleInfo, ProcInfo, Threshold, AliasSet0, AliasSet, 	
+		Widening):- 
+	( 
+		Threshold \= 0
+	-> 
+		normalize(ModuleInfo, ProcInfo, AliasSet0, AliasSet01),
+		get_size(AliasSet01, Size),
+		(
+			Size > Threshold
+		-> 
+			alias_set_map_values_with_key(
+				alias_set2_apply_widening(ModuleInfo, ProcInfo),
+				AliasSet0, 
+				AliasSet1), 
+			recount(AliasSet1, AliasSet),
+			Widening = yes
+		;
+			AliasSet = AliasSet0, 
+			Widening = no
+		)
+	; 
+		AliasSet = AliasSet0, 
+		Widening = no
+	).
 
 print(PredInfo, ProcInfo, AliasSet, StartingString, EndString) -->
 	print(PredInfo, ProcInfo, AliasSet, StartingString, ", ", EndString).

@@ -37,7 +37,7 @@
 	% aliases. 
 	% XXX TO-DO: make certain that no aliases between primitive 
 	% types are created, even for constructions and deconstructions.
-:- pred from_unification(proc_info::in, module_info::in, 
+:- pred from_unification(module_info::in, proc_info::in, 
 		hlds_goal__unification::in, hlds_goal__hlds_goal_info::in, 
 		list(alias)::out) is det.
 
@@ -165,7 +165,7 @@ number_args(Args, NumberedArgs) :-
 		NumberedArgs,
 		1, _).
 	
-from_unification(ProcInfo, HLDS, 
+from_unification(HLDS, ProcInfo, 
 		construct(Var, Cons, Args0, _, _, _, _), _Info, AS) :-
 	get_rid_of_damn_typeinfos(Cons, Args0, Args),
 	number_args(Args, NumberedArgs), 
@@ -283,7 +283,7 @@ get_rid_of_damn_typeinfos(Cons, Args0, Args) :-
 	).
 	
 
-from_unification(ProcInfo, HLDS, 
+from_unification(HLDS, ProcInfo, 
 		deconstruct(Var, Cons, Args0, _, _, _), Info, AS) :-
 	get_rid_of_damn_typeinfos(Cons, Args0, Args), 
 	number_args(Args, NumberedArgs),
@@ -353,7 +353,7 @@ list_find(Var, Arg, Lin, Lout) :-
 	).
 			
 
-from_unification(ProcInfo, HLDS, assign(Var1,Var2), _, AS):-
+from_unification(HLDS, ProcInfo, assign(Var1,Var2), _, AS):-
 	(
 		is_of_a_primitive_type(ProcInfo, HLDS, Var1)
 	->
@@ -365,10 +365,10 @@ from_unification(ProcInfo, HLDS, assign(Var1,Var2), _, AS):-
 		AS = [Alias]
 	).
 
-from_unification(_ProcInfo, _HLDS, simple_test(_A,_B), _, AS):-
+from_unification(_HLDS, _ProcInfo, simple_test(_A,_B), _, AS):-
 	AS = [].
 
-from_unification(_ProcInfo, _HLDS, complicated_unify(_,_,_), _, AS):-
+from_unification(_HLDS, _ProcInfo, complicated_unify(_,_,_), _, AS):-
 	% XXX only if partially instantiated datastructures cannot
 	% exist.
 	AS = [].

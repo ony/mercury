@@ -212,10 +212,6 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 		% begin non-io
 	proc_info_goal(ProcInfo, Goal), 
 	proc_info_headvars(ProcInfo, HeadVars),
-	Goal = _ - GoalInfo,
-	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
-	instmap__init_reachable(InitIM),
-	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
 
 	pa_alias_as__init(Alias0)
 
@@ -244,21 +240,8 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	pa_alias_as__project(HeadVars, Alias1, Alias2),
 	ProjectSize = pa_alias_as__size(Alias2),
 
-	pa_alias_as__normalize(ProcInfo, HLDS, InstMap, Alias2, Alias3),
-	NormSize = pa_alias_as__size(Alias3),
-
-	(
-		WideningLimit \= 0, NormSize > WideningLimit
-	->
-		pa_alias_as__apply_widening(HLDS, ProcInfo, Alias3, Alias),
-		Widening = bool__yes, 
-		WidenSize = pa_alias_as__size(Alias) 
-		
-	; 	
-		Alias = Alias3, 
-		Widening = bool__no, 
-		WidenSize = NormSize
-	),
+	pa_alias_as__apply_widening(HLDS, ProcInfo, WideningLimit, 
+			Alias2, Alias, Widening),
 		
 	pa_fixpoint_table_new_as(HLDS, ProcInfo, 
 				PRED_PROC_ID, Alias, FPtable1, FPtable)
@@ -276,16 +259,16 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 			),
 			string__int_to_string(TabledSize, TabledS), 
 			string__int_to_string(FullSize, FullS), 
-			string__int_to_string(ProjectSize, ProjectS), 
-			string__int_to_string(NormSize, NormS)
+			string__int_to_string(ProjectSize, ProjectS)
 		},
 		io__write_strings(["\t\t: ", TabledS, "->", 
-					FullS, "/", ProjectS, "/", 
-					NormS, "(", Stable, ")"]), 
+					FullS, "/", ProjectS, 
+					"(", Stable, ")"]), 
 		(
 			{ Widening = bool__yes }
 		-> 
-			{ string__int_to_string(WidenSize, WidenS) }, 
+			{ string__int_to_string(
+				pa_alias_as__size(Alias), WidenS) }, 
 			{ string__int_to_string(WideningLimit, WidLimitS) },
 			io__write_strings(["/-->widening(", WidLimitS,"): ", WidenS, "\n"])
 		;
@@ -316,7 +299,7 @@ predict_bottom_aliases(ModuleInfo, ProcInfo):-
 	proc_info_argmodes(ProcInfo, Modes), 
 	proc_info_vartypes(ProcInfo, VarTypes), 
 	list__map( map__lookup(VarTypes), HeadVars, Types), 
-	pa_alias_as__is_bottom_alias(ModuleInfo, HeadVars, Modes, Types).
+	pa_alias_as__predict_bottom_alias(ModuleInfo, HeadVars, Modes, Types).
 
 :- pred dummy_test(pred_proc_id::in) is semidet. 
 dummy_test(proc(PredId, _)):- pred_id_to_int(PredId, 16). 
@@ -380,7 +363,7 @@ analyse_goal_expr(call(PredID, ProcID, ARGS, _,_, _PName), _Info,
 		ActualTypes),
 	rename_call_alias(PRED_PROC_ID, HLDS, ARGS, ActualTypes, 
 				CallAlias, RenamedCallAlias),
-	pa_alias_as__extend(ProcInfo, HLDS, RenamedCallAlias, A0, A).
+	pa_alias_as__extend(HLDS, ProcInfo, RenamedCallAlias, A0, A).
 
 analyse_goal_expr(generic_call(GenCall,_,_,_), Info, 
 				_ProcInfo, _HLDS , T, T, A0, A):- 
@@ -409,7 +392,7 @@ analyse_goal_expr(switch(_Var,_CF,Cases), Info,
 				ProcInfo, HLDS, T0, T, A0, A):-
 	list__map_foldl(analyse_case(ProcInfo, HLDS, A0), 
 				Cases, SwitchAliases, T0, T),
-	pa_alias_as__least_upper_bound_list(ProcInfo,HLDS,Info, 
+	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info, 
 				SwitchAliases, A).
 
 :- pred analyse_case(proc_info, module_info, 
@@ -424,7 +407,7 @@ analyse_case(ProcInfo, HLDS, Alias0, CASE, Alias, T0, T):-
 
 analyse_goal_expr(unify(_,_,_,Unification,_), Info, ProcInfo, HLDS, 
 			T, T, A0, A):-
-	pa_alias_as__extend_unification(ProcInfo, HLDS, Unification, 
+	pa_alias_as__extend_unification(HLDS, ProcInfo, Unification, 
 				Info, A0, A).
 
 analyse_goal_expr(disj(Goals), Info, ProcInfo, HLDS, T0, T, A0, A):-
@@ -435,7 +418,7 @@ analyse_goal_expr(disj(Goals), Info, ProcInfo, HLDS, T0, T, A0, A):-
 		Goals,
 		DisjAliases,
 		T0, T),
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info, 
+	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info, 
 				DisjAliases, A).
 
 analyse_goal_expr(not(Goal), _Info, ProcInfo, HLDS , T0, T, A0, A):-
@@ -459,7 +442,7 @@ analyse_goal_expr(if_then_else(_VARS, IF, THEN, ELSE), _Info,
 	analyse_goal(ProcInfo, HLDS, IF, T0, T1, A0, A1),
 	analyse_goal(ProcInfo, HLDS, THEN, T1, T2, A1, A2),
 	analyse_goal(ProcInfo, HLDS, ELSE, T2, T, A0, A3),
-	pa_alias_as__least_upper_bound(ProcInfo, HLDS, A2, A3, A).
+	pa_alias_as__least_upper_bound(HLDS, ProcInfo, A2, A3, A).
 
 analyse_goal_expr(foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
@@ -522,7 +505,7 @@ extend_with_call_alias(HLDS, ProcInfo,
 	lookup_call_alias_in_module_info(HLDS, PRED_PROC_ID, ALIAS_tmp), 
 	rename_call_alias(PRED_PROC_ID, HLDS, ARGS, ActualTypes, 
 				ALIAS_tmp, ALIAS_call),
-	pa_alias_as__extend(ProcInfo, HLDS, ALIAS_call, ALIASin, ALIASout). 
+	pa_alias_as__extend(HLDS, ProcInfo, ALIAS_call, ALIASin, ALIASout). 
 	
 :- pred lookup_call_alias_in_module_info(module_info, pred_proc_id, 
 		alias_as). 

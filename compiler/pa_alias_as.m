@@ -4,7 +4,10 @@
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
 
-% module pa_alias_as: defines the possible alias abstract substitution 
+% module pa_alias_as: This module defines the type "alias_as" and its
+% operations. This type is used to represent the possible aliases information
+% during the possible alias-analysis and structure reuse analysis. 
+
 % main author: nancy
 
 :- module possible_alias__pa_alias_as.
@@ -17,18 +20,15 @@
 :- import_module hlds__instmap.
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_datastruct.
+	% XXX sr_live dependency should be removed. 
 :- import_module structure_reuse__sr_live.
 
 :- import_module set, list, map, string, int, varset.
-:- import_module io, term, std_util.
+:- import_module io, term, std_util, bool.
 
 %-----------------------------------------------------------------------------%
-%-- exported types
 
 :- type alias_as.
-
-%-----------------------------------------------------------------------------%
-%-- exported predicates
 
 :- pred init(alias_as::out) is det.
 :- pred is_bottom(alias_as::in) is semidet.
@@ -37,168 +37,251 @@
 :- pred top(alias_as::in, string::in, alias_as::out) is det.
 :- pred is_top(alias_as::in) is semidet.
 
-	% project alias abstract substitution on a list of variables.
-	% (for each alias in alias_as, the variables involved will belong
-	% to the given list of prog_var). 
-:- pred project(list(prog_var), alias_as, alias_as).
-:- mode project(in, in, out) is det.
+	% Compute the size of the set of pairs of aliased data structures as
+	% described by the alias description. 
+:- func size(alias_as) = int.
 
+	% project(Vars, AliasIn, AliasOut). 
+	% Reduce the alias information to the alias information concerning
+	% a given list of variables only. This operation is generally known
+	% as projection. 
+	% We have: vars(AliasOut) \subseteq Vars
+	%          vars(AliasIn - AliasOut) \cap Vars = \emptyset
+:- pred project(list(prog_var)::in, alias_as::in, alias_as::out) is det.
+
+	% The same as project, yet here using a set of program variables
+	% instead of a list of program variables. 
+:- pred project_set(set(prog_var)::in, alias_as::in, alias_as::out) is det.
+
+	% Project a set of aliases to aliases relating to variables that are
+	% either in forward use (LFU), backward use (LBU) or that are head
+	% variables of the procedure. This projection is useful to downsize the
+	% set of aliases to the relevant set only. 
+	% Used in pa_run, and sr_indirect. 
+	% XXX Does the use of this procedure really guarantee correctness of
+	% the results? And how much analysis-time does it save?
 :- pred project_on_live_vars(proc_info::in, hlds_goal_info::in, 
 		alias_as::in, alias_as::out) is det.
 
-:- pred project_set(set(prog_var), alias_as, alias_as).
-:- mode project_set(in, in, out) is det.
+	% Extend the current data structure to the full set of data
+	% structures referring to the same memory space. 
+	% This partially corresponds to the "extend" operation used in Nancy's
+	% Phd. The difference is that the extend operation will also return the
+	% data structures that share with subterms of the original data
+	% structure, while this operation returns only those data structures
+	% that share with the complete term pointed at by the original data
+	% structure. 
+	% The operation produces a software error when called with a top alias
+	% description. 
+:- pred collect_aliases_of_datastruct(module_info::in, proc_info::in, 
+		pa_datastruct__datastruct::in, alias_as::in, 
+		list(pa_datastruct__datastruct)::out) is det.
 
-	% Collect all the datastructures to which the datastructure
-	% is aliased, taking into account possible termshifting.
-	% Gives an error when alias_as is top.
-:- pred collect_aliases_of_datastruct(module_info, proc_info, 
-		pa_datastruct__datastruct, 
-		alias_as, list(pa_datastruct__datastruct)).
-:- mode collect_aliases_of_datastruct(in, in, in, in, out) is det.
-
-	% Fully rename a given alias originating from a call
-	% to a procedure with given pred_proc_id. 
-	% rename_call_alias(PredProcId, ModuleInfo, ActualVars, 
+	% If AliasIn is the exit description stored for a particular
+	% procedure definition (identified by its pred_proc_id, Id), then
+	% rename_call_alias(Id, Module, ActualArgs, ActualTypes, AliasIn,
+	% AliasOut) is defined such that AliasOut is the renaming of
+	% AliasIn from the formal args and types (that can be known using the
+	% pred_proc_id from the procedure) to the actual args and types
+	% (given as arguments). 
+	% Typical call: 
+	%	rename_call_alias(PredProcId, ModuleInfo, ActualVars, 
 	% 	ActualTypes, FormalAlias, ActualAlias). 
-:- pred rename_call_alias(pred_proc_id, module_info, list(prog_var),
-				list((type)), 
-				alias_as, alias_as).
-:- mode rename_call_alias(in, in, in, in, in, out) is det.
+:- pred rename_call_alias(pred_proc_id::in, module_info::in, 
+		list(prog_var)::in, list((type))::in, 
+		alias_as::in, alias_as::out) is det.
 
-	% rename abstract substitution according to a mapping
-	% of prog_vars (map (FROM_VARS, TO_VARS)).
-:- pred rename(map(prog_var, prog_var), alias_as, alias_as).
-:- mode rename(in, in, out) is det.
+	% Rename the abstract description according to the renaming
+	% mapping of prog_vars (which maps FROM_VARS to the TO_VARS). 
+	% XXX We should ensure that a renaming of the variables is always
+	% accompanied by a renaming of the type-variables that can possible be
+	% used in the selectors. At some point, the procedures renaming either
+	% the args or the types should all be replaced by one single procedure.
+	% This is the only way to guarantee that a full correct renaming has
+	% taken place. 
+:- pred rename(map(prog_var, prog_var)::in, alias_as::in, alias_as::out) is det.
 
 	% rename_types(FromTypes, ToTypes, Alias0, Alias).
 	% Rename all the typevariables occurring in the aliases using the
 	% mapping from FromTypes to ToTypes. 
 :- pred rename_types(list((type))::in, list((type))::in, 
 		alias_as::in, alias_as::out) is det.
+
 	% rename_types(Substitution, Alias0, Alias). 
 	% Rename all the type-variables occurring in the aliases using the
 	% substitution mapping. 
 :- pred rename_types(term__substitution(tvar_type)::in, 
 		alias_as::in, alias_as::out) is det.
 
-	% returns true if both abstract substitutions are equal. 
-	% needed for fixpoint
-:- pred equal(alias_as, alias_as).
-:- mode equal(in, in) is semidet.
+	% The call equal(Alias1,Alias2) succeeds if both abstract
+	% descriptions are equal (i.e. Alias1 subsumes Alias2, and vice
+	% versa). 
+	% XXX Ideally, equal should be defined as A1 <= A2, and A2 <= A1 (where
+	% "<=" means "less or equal"). This is currently not the case. Replace,
+	% and check whether the same results are still obtained. 
+:- pred equal(alias_as::in, alias_as::in) is semidet.
 
 	% less_or_equal(ModuleInfo, ProcInfo, AliasAs1, AliasAs2). 
-	% first abstract subst. is less than or equal to second
-	% abstract subst. (for fixpoint). i.e. The first abstract
-	% substitution expresses less than the second one: for each
-	% alias Alias1 expressed by AliasAs1, there exists an alias
-	% Alias2 from AliasAs2 such that Alias1 is tighter than 
-	% Alias2. And there are no aliases from AliasAs2 which are not
-	% greater than any of the aliases from AliasAs1. 
-:- pred less_or_equal(module_info, proc_info, alias_as, alias_as).
-:- mode less_or_equal(in, in, in, in) is semidet.
+	% The first description AliasAs1 describes a smaller set of aliases
+	% than the second description, i.e. AliasAs2. This means that for each 
+	% alias Alias1 subsumed by AliasAs1, there exists an alias
+	% Alias2 from AliasAs2 such that Alias1 is also described by
+	% Alias2. In the same time, for each Alias2 described by AliasAs2,
+	% there should be an Alias1 in AliasAs1 such that Alias1 is subsumed by
+	% Alias2. 
+	% This operation is essential for the fixpoint-computation process. 
+	%
+	% XXX It seems that less_or_equal is defined in terms of the least
+	% upper bound and the equality property. Thus: 
+	% 	A1 <= A2 iff A1 \cup A2 = A2
+	% XXX Why is a module_info and proc_info needed? Apparently this is
+	% needed to compute the least-upper-bound. To be checked more
+	% thoroughly. 
+:- pred less_or_equal(module_info::in, proc_info::in, alias_as::in,
+		alias_as::in) is semidet.
 
-	% compute least upper bound. 
-:- pred least_upper_bound(proc_info, module_info, 
-				alias_as, alias_as, alias_as).
-:- mode least_upper_bound(in, in, in, in, out) is det.
+	% Compute the least upper bound of two given alias descriptions.
+:- pred least_upper_bound(module_info::in, proc_info::in,
+		alias_as::in, alias_as::in, alias_as::out) is det.
 
-	% compute least upper bound of a list of abstract substitutions.
-:- pred least_upper_bound_list(proc_info, module_info, hlds_goal_info, 
-					list(alias_as), alias_as).
-:- mode least_upper_bound_list(in, in, in, in, out) is det.
+	% Compute least upper bound of a list of abstract alias descriptions.
+:- pred least_upper_bound_list(module_info::in, proc_info::in, 
+		hlds_goal_info::in, list(alias_as)::in, alias_as::out) is det.
 
 	% extend(ProcInfo, ModuleInfo, NEW, OLD, RESULT).
-	% extend a given abstract substitution with new information.
-	% NB: the order is _very_ important! The first alias-set is
-	% the (new) one to be added to the second one (cumulating one). 
-:- pred extend(proc_info, module_info, alias_as, alias_as, alias_as).
-:- mode extend(in, in, in, in, out) is det.
+	% This is the "comb" operation used in the Nancy's Phd-textbook. It is
+	% used to combine a given new alias description to an existing old
+	% alias description. This operation is not commutative! Therefore, the
+	% order of the arguments is crucial. 
+:- pred extend(module_info::in, proc_info::in, alias_as::in, 
+		alias_as::in, alias_as::out) is det.
 
-	% specialized extend for unifications
-:- pred extend_unification(proc_info, module_info, 
-			hlds_goal__unification, 
-			hlds_goal__hlds_goal_info, alias_as, alias_as).
+	% Specialized extend for unifications. This corresponds to the "add"
+	% operation used in Nancy's Phd-textbook. 
+:- pred extend_unification(module_info::in, proc_info::in, 
+		hlds_goal__unification::in, hlds_goal__hlds_goal_info::in, 
+		alias_as::in, alias_as::out) is det.
 
-:- mode extend_unification(in, in, in, in, in, out) is det.
-
+	% Specialized extend for foreign code. If considering foreign code as a
+	% special case of "builtin" and thus primitive operations, this can be
+	% seen as another case of the "add" operation as used in Nancy's Phd. 
 :- pred extend_foreign_code(module_info::in, proc_info::in,
 		pragma_foreign_proc_attributes::in, pred_id::in, proc_id::in, 
 		list(prog_var)::in, list(maybe(pair(string, mode)))::in,
                 list(type)::in, hlds_goal_info::in, 
 		alias_as::in, alias_as::out) is det.
 
-	% Add two abstract substitutions to each other. These
-	% abstract substitutions come from different contexts, and have
-	% not to be 'extended' wrt each other. 
+	% Compute the union of two abstract descriptions, yet, without
+	% combining them (no alternating closure). This operation is
+	% commutative. 
+	% XXX What makes this operation different from the least_upper_bound
+	% operation? Where is it used? Only in sr_data for merging reuse
+	% conditions. This seems odd. 
 :- pred add(alias_as, alias_as, alias_as).
 :- mode add(in, in, out) is det.
 
-	% normalization of the representation based on the types of
-	% the variables (retreived from proc_info) and the instmaps.
-:- pred normalize(hlds_pred__proc_info, module_info, instmap, alias_as, alias_as).
-:- mode normalize(in, in, in, in, out) is det.
+	% Simplify the representation of the aliases by normalizing
+	% the selectors used in these aliases. During the analysis,
+	% we apparently do not normalize the aliases at each step,
+	% and only enforce it on demand. 
+	% The normalisation is based on the type information (retreivable from
+	% the proc_info and module_info) and on the instantation mapping of the
+	% variables (?). 
+	% XXX The instmap is clearly not used. What was the initial idea of
+	% passing the instmap? To be checked.
+:- pred normalize(module_info::in, proc_info::in, instmap::in, 
+		alias_as::in, alias_as::out) is det.
 
-
-
+%-----------------------------------------------------------------------------%
+% Printing routines. 
+% XXX Should eventually move to some other place? 
+%-----------------------------------------------------------------------------%
 	% Dump the alias information (used in hlds_dumps). 
 	% Each alias will be preceded by the string "% ". 
-:- pred print_maybe_possible_aliases(maybe(alias_as), proc_info, pred_info, 
-				io__state, io__state).
-:- mode print_maybe_possible_aliases(in, in, in, di, uo) is det.
+:- pred print_maybe_possible_aliases(maybe(alias_as)::in, proc_info::in, 
+		pred_info::in, io__state::di, io__state::uo) is det.
 
-	% print_maybe_possible_aliases(RepeatingString, MaybeAS, ProcInfo, 
-	% PredInfo). 
-	% Dump the aliases, each alias preceded with the given first
-	% string. 
-:- pred print_maybe_possible_aliases(string, maybe(alias_as), proc_info, 
-		pred_info, io__state, io__state).
-:- mode print_maybe_possible_aliases(in, in, in, in, di, uo) is det.
+	% Dump the alias information printing a given string between each alias
+	% expressed by the abstract description. 
+:- pred print_maybe_possible_aliases(string::in, maybe(alias_as)::in, 
+		proc_info::in, pred_info::in, 
+		io__state::di, io__state::uo) is det.
 
-	% print_maybe_interface_aliases: routine for printing
-	% alias information in interface files.
-:- pred print_maybe_interface_aliases(maybe(alias_as), 
-				proc_info, pred_info, io__state, io__state).
-:- mode print_maybe_interface_aliases(in, in, in, di, uo) is det.
+	% Print alias information suitable for using in the trans_opt interface
+	% files, and therefore mmc-readable. 
+:- pred print_maybe_interface_aliases(maybe(alias_as)::in, 
+		proc_info::in, pred_info::in, 
+		io__state::di, io__state::uo) is det.
 
+	% Print mmc-readable aliases. Mainly used for printing intermediate
+	% aliasing descriptions during the analysis process, with Verbosity
+	% switched on. 
 :- pred print_aliases(alias_as, proc_info, pred_info, io__state, io__state).
 :- mode print_aliases(in, in, in, di, uo) is det.
 
-	% reverse routine of print_maybe_interface_aliases.
-:- pred parse_read_aliases(list(term(T)), alias_as).
-:- mode parse_read_aliases(in,out) is det.
+%-----------------------------------------------------------------------------%
+% Parsing routines. 
+% XXX Should eventually move to some other place? 
+%-----------------------------------------------------------------------------%
+	% Parse the aliases as stored in the trans_opt interface files.
+	% This is the reverse routine for print_maybe_interface_aliases.
+	% Precondition: the list should contain only one element. 
+:- pred parse_read_aliases(list(term(T))::in, alias_as::out) is det.
 
-:- pred parse_read_aliases_from_single_term(term(T), alias_as).
-:- mode parse_read_aliases_from_single_term(in, out) is det.
+	% Parse the aliases as stored in the trans_opt interface files. Unlike
+	% in the previous routine, the alias is here dscribed by one single
+	% term (instead of a list of one single term). 
+	% XXX Duh? 
+:- pred parse_read_aliases_from_single_term(term(T)::in, alias_as::out) is det.
 
-:- pred parse_user_declared_aliases(term, varset, aliasing).
-:- mode parse_user_declared_aliases(in, in, out) is semidet.
+	% Parse the used declared aliases (pragma aliasing). 
+	% XXX This routine is definitely on the wrong place and should be moved
+	% to parse_tree somewhere, once the aliasing type is defined without
+	% the alias_as type. 
+:- pred parse_user_declared_aliases(term::in, varset::in, 
+		aliasing::out) is semidet.
 
-:- pred to_user_declared_aliases(aliasing, prog_varset, string). 
-:- mode to_user_declared_aliases(in, in, out) is det.
+	% Reconvert the (parsed) user declared aliasing information to a
+	% printable string. 
+:- pred to_user_declared_aliases(aliasing::in, prog_varset::in, 
+		string::out) is det. 
 
-	% Live = live(IN_USE,LIVE_0,ALIASES).
-	% compute the live-set based upon an initial IN_USE set, 
-	% and a list of aliases.
-:- pred live(module_info, proc_info, 
-		set(prog_var),live_set, alias_as, sr_live__live_set).
-:- mode live(in, in, in,in, in,out) is det.
+%-----------------------------------------------------------------------------%
+% Computing the live data structure set using alias information. 
+% XXX This procedure should go into sr_live by providing a routine to convert
+% alias_as types to lists of pairs of data structures. 
+%-----------------------------------------------------------------------------%
 
-:- func live(module_info, proc_info, 
-		set(prog_var),live_set, alias_as) = sr_live__live_set.
-:- mode live(in, in, in,in, in) = out is det.
+	% live(ModuleInfo, ProcInfo, InUse, Live0, Alias, Live). 
+	% Compute the (sr_live__)live-set Live based on an initial InUse set, 
+	% an initial Live0 set, and a list of aliases Alias.
+:- pred live(module_info::in, proc_info::in, 
+		set(prog_var)::in, live_set::in, alias_as::in,
+		sr_live__live_set::out) is det.
+	
+% :- func live(module_info, proc_info, 
+% 		set(prog_var),live_set, alias_as) = sr_live__live_set.
+% :- mode live(in, in, in,in, in) = out is det.
 
-:- func size(alias_as) = int.
-:- mode size(in) = out is det.
+%-----------------------------------------------------------------------------%
+% Widening of the alias description. 
+% Cf. Type-Widening as described in Nancy's Phd Textbook. 
+%-----------------------------------------------------------------------------%
 
-:- pred apply_widening(module_info::in, proc_info::in, alias_as::in, 	
-		alias_as::out) is det. 
+	% Apply widening on an alias description if the 'size' of the set of
+	% aliases it describes is larger than the threshold expressed by the
+	% integer-argument. The boolean is set to "yes" if widening was indeed
+	% applied. 
+:- pred apply_widening(module_info::in, proc_info::in, int::in, 
+		alias_as::in, alias_as::out, bool::out) is det. 
 
-	% is_bottom_alias(ModuleInfo, HeadVars, Modes, Types) will check
-	% whether the procedure with the given headvariables, modes and
-	% types has a bottom-alias just by looking at the modes and types. 
+%-----------------------------------------------------------------------------%
+	% predict_bottom_alias(ModuleInfo, HeadVars, Modes, Types) checks
+	% whether the aliases produced by a procedure with the given
+	% headvariables, modes and types can correctly be approximated by the 
+	% bottom-alias element, simply by looking at the modes and types. 
 	% It fails if the alias can not be shown to be bottom in this way. 
-:- pred is_bottom_alias(module_info::in, list(prog_var)::in, 
+:- pred predict_bottom_alias(module_info::in, list(prog_var)::in, 
 		list(mode)::in, list(type)::in) is semidet.
 
 %-----------------------------------------------------------------------------%
@@ -278,7 +361,7 @@ both top.")
 is_top(top(_)).
 
 size(bottom) = 0.
-size(top(_)) = 999999.
+size(top(_)) = 9999999.
 size(real_as(AliasSet)) = L :- 
 	pa_alias_set__get_size(AliasSet, L). 
 
@@ -388,6 +471,10 @@ equal(AS1, AS2):-
 	).
 
 less_or_equal(ModuleInfo, ProcInfo, AS1, AS2):-
+	% XXX This could should be equivalent to: 
+	% 	least_upper_bound(ModuleInfo, ProcInfo, AS1, AS2, AS), 
+	% 	equal(AS, AS2).
+	% To be checked. 
 	(
 		AS1 = real_as(AliasSet1),
 		AS2 = real_as(AliasSet2),
@@ -397,7 +484,7 @@ less_or_equal(ModuleInfo, ProcInfo, AS1, AS2):-
 		(AS1 = bottom ; AS2 = top(_))
 	).
 
-least_upper_bound(ProcInfo, HLDS, AS1, AS2, RESULT) :-
+least_upper_bound(HLDS, ProcInfo, AS1, AS2, RESULT) :-
 	(
 		AS1 = real_as(AliasSet1)
 	->
@@ -430,11 +517,11 @@ least_upper_bound(ProcInfo, HLDS, AS1, AS2, RESULT) :-
 		RESULT = AS2
 	).
 
-least_upper_bound_list(ProcInfo, HLDS, _GoalInfo, Alias_list0, AS) :-
-	list__foldl(least_upper_bound(ProcInfo, HLDS) , Alias_list0, 
+least_upper_bound_list(HLDS, ProcInfo, _GoalInfo, Alias_list0, AS) :-
+	list__foldl(least_upper_bound(HLDS, ProcInfo) , Alias_list0, 
 			bottom, AS).
 
-extend(ProcInfo, HLDS,  A1, A2, RESULT):-
+extend(HLDS, ProcInfo, A1, A2, RESULT):-
 	(
 		A1 = real_as(NEW)
 	->
@@ -495,11 +582,11 @@ add(AS1, AS2, AS) :-
 	
 
 %-----------------------------------------------------------------------------%
-extend_unification(ProcInfo, HLDS, Unif, GoalInfo, ASin, ASout):-
-	pa_alias__from_unification(ProcInfo, HLDS, Unif, GoalInfo, AUnif),
+extend_unification(HLDS, ProcInfo, Unif, GoalInfo, ASin, ASout):-
+	pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif),
 	pa_alias_set__from_pair_alias_list(AUnif, AliasSetUnif), 
 	wrap(AliasSetUnif, ASUnif),
-	extend(ProcInfo, HLDS, ASUnif, ASin, ASout0), 
+	extend(HLDS, ProcInfo, ASUnif, ASin, ASout0), 
 	(
 		Unif = construct(_, _, _, _, _, _, _)
 	-> 
@@ -538,13 +625,13 @@ optimization_remove_deaths(ProcInfo, ASin, GI, ASout) :-
 %-----------------------------------------------------------------------------%
 extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
 		Vars, MaybeModes, Types, Info, Ain, A) :- 
-	from_foreign_code(ProcInfo, HLDS, PredId, ProcId, Info, Attrs, Vars, 
+	from_foreign_code(HLDS, ProcInfo, PredId, ProcId, Info, Attrs, Vars, 
 		MaybeModes, Types, ForeignAlias),
 	(
 		(is_bottom(ForeignAlias); is_top(ForeignAlias)) 
 	-> 	
 		% easy extend
-		pa_alias_as__extend(ProcInfo, HLDS, ForeignAlias, Ain, A)
+		extend(HLDS, ProcInfo, ForeignAlias, Ain, A)
 	; 
 		% rename variables and types !
 		proc_info_vartypes(ProcInfo, VarTypes), 
@@ -552,11 +639,11 @@ extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId,
 		rename_call_alias(proc(PredId, ProcId), HLDS, Vars, 
 				ActualTypes, ForeignAlias, RenamedForeign), 
 %		RenamedForeign = ForeignAlias, 
-		pa_alias_as__extend(ProcInfo, HLDS, RenamedForeign, Ain, A)
+		extend(HLDS, ProcInfo, RenamedForeign, Ain, A)
 	). 
 
 				
-:- pred from_foreign_code(proc_info, module_info, 
+:- pred from_foreign_code(module_info, proc_info, 
 			pred_id, proc_id, 
 			hlds_goal_info,
 			pragma_foreign_proc_attributes,
@@ -564,7 +651,7 @@ extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId,
                         list(type), alias_as).
 :- mode from_foreign_code(in, in, in, in, in, in, in, in, in, out) is det.
 
-from_foreign_code(_ProcInfo, HLDS, PredId, ProcId, GoalInfo, Attrs, Vars, 
+from_foreign_code(HLDS, _ProcInfo, PredId, ProcId, GoalInfo, Attrs, Vars, 
 		MaybeModes, Types, Alias):-
 	module_info_pred_proc_info(HLDS, proc(PredId, ProcId), 
 			_PredInfo, PragmaProcInfo), 
@@ -587,7 +674,7 @@ from_foreign_code(_ProcInfo, HLDS, PredId, ProcId, GoalInfo, Attrs, Vars,
 	;
 		(
 			maybe_modes_to_modes(MaybeModes, Modes),
-			is_bottom_alias(HLDS, Vars, Modes, Types)
+			predict_bottom_alias(HLDS, Vars, Modes, Types)
 		->
 			Alias = bottom
 		; 
@@ -600,7 +687,7 @@ from_foreign_code(_ProcInfo, HLDS, PredId, ProcId, GoalInfo, Attrs, Vars,
 	).
 
 
-is_bottom_alias(HLDS, Vars, Modes, Types):- 
+predict_bottom_alias(HLDS, Vars, Modes, Types):- 
 	% else --> apply heuristics
 	to_trios(Vars, Modes, Types, Trios), 
 	% remove all unique objects
@@ -751,17 +838,17 @@ normalize_with_goal_info(ProcInfo, HLDS, GoalInfo, Alias0, Alias):-
 	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
 	instmap__init_reachable(InitIM),
 	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
-	normalize(ProcInfo, HLDS, InstMap, Alias0, Alias). 
+	normalize(HLDS, ProcInfo, InstMap, Alias0, Alias). 
 	
 
-normalize(ProcInfo, HLDS, _InstMap, Alias0, Alias):- 
+normalize(HLDS, ProcInfo, _InstMap, Alias0, Alias):- 
 	% normalize only using type-info's
-	normalize_wti(ProcInfo, HLDS, Alias0, Alias).
+	normalize_wti(HLDS, ProcInfo, Alias0, Alias).
 
-:- pred normalize_wti(proc_info, module_info, alias_as, alias_as).
-:- mode normalize_wti(in, in, in, out) is det.
+:- pred normalize_wti(module_info::in, proc_info::in,
+		alias_as::in, alias_as::out) is det.
 
-normalize_wti(ProcInfo, HLDS, ASin, ASout):-
+normalize_wti(HLDS, ProcInfo, ASin, ASout):-
 	(
 		ASin = real_as(Aliases0)
 	->
@@ -772,7 +859,6 @@ normalize_wti(ProcInfo, HLDS, ASin, ASout):-
 		ASout = ASin
 	).
 		
-
 %-----------------------------------------------------------------------------%
 % printing routines
 %-----------------------------------------------------------------------------%
@@ -1151,17 +1237,14 @@ wrap_and_control(_ModuleInfo, _ProcInfo, AliasSet, AS):-
 	).
 **/
 
-apply_widening(_, _, A0, A):- 
-	A0 = bottom, 
-	A = A0. 
-apply_widening(_, _, A0, A):- 
-	A0 = top(_), 
-	A = A0. 
-apply_widening(ModuleInfo, ProcInfo, A0, A):- 
-	A0 = real_as(AliasSet0), 
-	pa_alias_set__apply_widening(ModuleInfo, ProcInfo, 
-			AliasSet0, AliasSet), 
-	A = real_as(AliasSet).
+apply_widening(ModuleInfo, ProcInfo, Threshold, A0, A, Widening) :- 
+	(	A0 = bottom, A = bottom, Widening = no
+	; 	A0 = top(_), A = A0, Widening = no
+	; 	A0 = real_as(AliasSet0), 
+		pa_alias_set__apply_widening(ModuleInfo, ProcInfo, 
+			Threshold, AliasSet0, AliasSet, Widening), 
+		A = real_as(AliasSet)
+	).
 
 %-----------------------------------------------------------------------------%
 % computing LIVE_SET
@@ -1243,7 +1326,7 @@ live_2(ModuleInfo, ProcInfo, IN_USE, LIVE_0, ALIASES, LIVE) :-
 	sr_live__union([LIVE0,LIVE1,LIVE2,LIVE3],LIVE).
 
 
-live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS) = LIVE :- 
-	live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE).
+% live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS) = LIVE :- 
+	% live(ModuleInfo, ProcInfo, IN_USE, LIVE_0, AS, LIVE).
 
 

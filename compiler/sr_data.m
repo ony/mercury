@@ -381,7 +381,7 @@ reuse_condition_verify(ProcInfo, HLDS,  Live0, Alias0, Static,
 			set__member(Var, Static)
 		), set__to_sorted_list(Nodes), []),
 	
-	pa_alias_as__extend(ProcInfo, HLDS, Alias0, LAiH, Alias),
+	pa_alias_as__extend(HLDS, ProcInfo, Alias0, LAiH, Alias),
 	pa_alias_as__live(HLDS, ProcInfo, LUiH, Live0, Alias, Live), 
 	set__to_sorted_list(Nodes, NodesList), 
 	list__filter(
@@ -425,13 +425,13 @@ reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 			% bit strange naming perhaps, but here the
 			% OLD_LAiH has the role of `NEW' wrt the extension
 			% operation.  
-		pa_alias_as__extend(ProcInfo, HLDS, 
+		pa_alias_as__extend(HLDS, ProcInfo, 
 					OLD_LAiH, ALIASi, NewALIASi),
 		pa_alias_as__project(HVs, NewALIASi, NEW_LAiH0),
 			% XXX instmap here simply initialized, as currently
 			% it's not used in the normalization anyway.. 	
 		instmap__init_reachable(InstMap0), 
-		pa_alias_as__normalize(ProcInfo, HLDS, InstMap0, 
+		pa_alias_as__normalize(HLDS, ProcInfo, InstMap0, 
 				NEW_LAiH0, NEW_LAiH), 
 
 		set__union(LFUi, LBUi, LUi),

@@ -313,7 +313,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	;
 		AI1 = AI0
 	),
-	pa_alias_as__extend_unification(ProcInfo, HLDS, 
+	pa_alias_as__extend_unification(HLDS, ProcInfo, 
 			Unification, Info, AI0 ^ alias, Alias),	
 	AI = AI1 ^ alias := Alias,
 	Info = Info0,
@@ -347,7 +347,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 	indirect_reuse_pool_least_upper_bound_disjunction(
 				ListPools,
 				Pool),
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
+	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info0, 
 				ListAliases,
 				Alias1),
 	set__power_union(set__list_to_set(ListStatic), Static),
@@ -395,7 +395,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 		indirect_reuse_pool_least_upper_bound_disjunction(
 					ListPools,
 					Pool),
-		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
+		pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info0, 
 					ListAliases,
 					Alias1),
 
@@ -437,7 +437,7 @@ analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI, IO0, IO) :-
 				[AI_Then ^ pool, AI_Else ^ pool],
 				Pool),
 
-	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, Info0, 
+	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info0, 
 				[AI_Then ^ alias, AI_Else ^ alias],
 				Alias1),
 	Static = AI_Then ^ static `set__union` AI_Else ^ static,
@@ -795,7 +795,7 @@ indirect_reuse_pool_add(HLDS, ProcInfo, MemoReuse,
 			% XXX instmap here simply initialized, as currently
 			% it's not used in the normalization anyway.. 	
 		instmap__init_reachable(InstMap0), 
-		pa_alias_as__normalize(ProcInfo, HLDS, InstMap0, 
+		pa_alias_as__normalize(HLDS, ProcInfo, InstMap0, 
 				Alias0, Alias), 
 		
 		Pool0 = pool(HVS, ExistingMemo), 
