@@ -207,11 +207,11 @@ generate_il(MLDS, ILAsm, ContainsCCode, IO, IO) :-
 			% declare the __c_code module as an assembly we
 			% reference
 		( 
-			Info1 ^ file_c_code = yes,
+			Info ^ file_c_code = yes,
 			mangle_dataname_module(no, ModuleName, CCodeModuleName),
 			AssemblerRefs = [CCodeModuleName | Imports]
 		;
-			Info1 ^ file_c_code = no,
+			Info ^ file_c_code = no,
 			AssemblerRefs = Imports
 		)
 	),
