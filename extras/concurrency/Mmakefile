@@ -1,5 +1,0 @@
-
-depend : philo.depend
-
-default_target : philo
-
