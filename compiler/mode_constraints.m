@@ -1609,8 +1609,9 @@ arg_modes_map(HeadVars, InstGraph, Constraint0, Info0, ArgModes) :-
 	list__map_foldl((pred(PV::in, (MV - out(PV))::out, in, out) is det -->
 		mode_constraint_var(out(PV), MV)), Vars, OutVars, Info0, Info1),
 	MVars = list__sort_and_remove_dups(InVars `list__append` OutVars),
+	MVarKeys = assoc_list__keys(MVars),
 	Constraint = restrict_filter(
-		(pred(V::in) is semidet :- list__member(V - _, MVars)),
+		(pred(V::in) is semidet :- list__member(V, MVarKeys)),
 		Constraint0),
 	ArgModes0 = map__init - map__init,
 	list__foldl2(arg_modes_map_2, MVars, Constraint, _, 
