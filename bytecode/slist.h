@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: slist.h,v 1.2 1997-07-27 14:59:30 fjh Exp $
+** $Id: slist.h,v 1.2.4.1 1997-09-29 09:13:27 aet Exp $
 */
 
 /*
@@ -14,7 +14,7 @@
 **	a) there's already a List type in runtime/dlist.h 
 **	b) the lists are `S'ingly linked.
 **
-**	Note types and fields whose name is prefixed with "p_" are
+**	Note types and fields whose name is prefixed with "MB_p_" are
 **	private and client code should not refer to them.
 */
 
@@ -24,27 +24,27 @@
 
 #include	"util.h" /* for MB_Bool */
 
-typedef struct p_SList_Node {
+typedef struct MB_p_SList_Node {
 	void			*p_head;
-	struct p_SList_Node	*p_tail;
-} p_SList_Node;
+	struct MB_p_SList_Node	*p_tail;
+} MB_p_SList_Node;
 
-typedef struct p_SList_Node
-	*SList;
+typedef struct MB_p_SList_Node
+	*MB_SList;
 
-SList
-slist_nil(void);
+MB_SList
+MB_slist_nil(void);
 
 MB_Bool
-slist_null(SList list);
+MB_slist_null(MB_SList list);
 
-SList
-slist_cons(void *head, SList tail);
+MB_SList
+MB_slist_cons(void *head, MB_SList tail);
 
 void *
-slist_head(SList list);
+MB_slist_head(MB_SList list);
 
-SList
-slist_tail(SList list);
+MB_SList
+MB_slist_tail(MB_SList list);
 
 #endif	/* MB_LIST_H */

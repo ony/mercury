@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: dict.c,v 1.3 1997-07-27 14:59:19 fjh Exp $
+** $Id: dict.c,v 1.3.4.1 1997-09-29 09:12:56 aet Exp $
 */
 
 /* Imports */
@@ -22,22 +22,22 @@
 /* Local declarations */
 
 static char
-rcs_id[]	= "$Id: dict.c,v 1.3 1997-07-27 14:59:19 fjh Exp $";
+rcs_id[]	= "$Id: dict.c,v 1.3.4.1 1997-09-29 09:12:56 aet Exp $";
 
-static p_Dict_Item *
-insert(KeyComparison cmp, void *key, void *val, p_Dict_Item *items);
-
-static MB_Bool
-lookup(KeyComparison cmp, void *key, p_Dict_Item *items, void **val_p);
-
-static p_Dict_Item *
-delete(KeyComparison cmp, void *key, p_Dict_Item *items);
-
-static p_Dict_Item *
-new_item_p(void *key, void *val, p_Dict_Item *next);
+static MB_p_Dict_Item *
+insert(MB_KeyComparison cmp, const void *key, void *val, MB_p_Dict_Item *items);
 
 static MB_Bool
-next_key(KeyComparison cmp, p_Dict_Item *items, 
+lookup(MB_KeyComparison cmp, void *key, MB_p_Dict_Item *items, void **val_p);
+
+static MB_p_Dict_Item *
+delete(MB_KeyComparison cmp, void *key, MB_p_Dict_Item *items);
+
+static MB_p_Dict_Item *
+new_item_p(const void *key, void *val, MB_p_Dict_Item *next);
+
+static MB_Bool
+next_key(MB_KeyComparison cmp, MB_p_Dict_Item *items, 
 	void *this_key, void **next_key_p);
 
 /* Implementation */
@@ -47,12 +47,12 @@ next_key(KeyComparison cmp, p_Dict_Item *items,
 **	I'll replace it with a hash table when things are working.
 */
 
-Dict
-dict_new(KeyComparison key_cmp)
+MB_Dict
+MB_dict_new(MB_KeyComparison key_cmp)
 {
-	Dict	*new_dict_p;
+	MB_Dict	*new_dict_p;
 
-	new_dict_p = (Dict*) MB_malloc(sizeof(Dict));
+	new_dict_p = (MB_Dict*) MB_malloc(sizeof(MB_Dict));
 
 	new_dict_p->p_key_cmp = key_cmp;
 	new_dict_p->p_items = NULL;
@@ -60,14 +60,22 @@ dict_new(KeyComparison key_cmp)
 	return *new_dict_p;
 }
 
+void
+MB_dict_init(MB_KeyComparison key_cmp, MB_Dict *dict_p)
+{
+	dict_p->p_key_cmp = key_cmp;
+	dict_p->p_items = NULL;
+	return;
+}
+
 MB_Bool
-dict_is_empty(Dict dict)
+MB_dict_is_empty(MB_Dict dict)
 {
 	return (dict.p_items == NULL);
 }
 
 void
-dict_insert(void *key, void *val, Dict *dict_p)
+MB_dict_insert(const void *key, void *val, MB_Dict *dict_p)
 {
 	assert(dict_p != NULL);
 	assert(dict_p->p_key_cmp != NULL);
@@ -78,8 +86,8 @@ dict_insert(void *key, void *val, Dict *dict_p)
 /*
 ** Insert items in ascending order sorted on keys.
 */
-static p_Dict_Item *
-insert(KeyComparison cmp, void *key, void *val, p_Dict_Item *items)
+static MB_p_Dict_Item *
+insert(MB_KeyComparison cmp, const void *key, void *val, MB_p_Dict_Item *items)
 {
 	if (items == NULL) {
 		return new_item_p(key, val, NULL);
@@ -95,16 +103,16 @@ insert(KeyComparison cmp, void *key, void *val, p_Dict_Item *items)
 }
 
 MB_Bool
-dict_lookup(void *key, Dict dict, void **val_p)
+MB_dict_lookup(void *key, MB_Dict dict, void **val_p)
 {
 	assert (dict.p_key_cmp != NULL);
 	return lookup(dict.p_key_cmp, key, dict.p_items, val_p);
 }
 
 static MB_Bool
-lookup(KeyComparison cmp, void *key, p_Dict_Item *items, void **val_p)
+lookup(MB_KeyComparison cmp, void *key, MB_p_Dict_Item *items, void **val_p)
 {
-	p_Dict_Item	*cur;
+	MB_p_Dict_Item	*cur;
 
 	cur = items;
 
@@ -121,7 +129,7 @@ lookup(KeyComparison cmp, void *key, p_Dict_Item *items, void **val_p)
 }
 
 void
-dict_delete(void *key, Dict *dict_p)
+MB_dict_delete(void *key, MB_Dict *dict_p)
 {
 	assert(dict_p != NULL);
 	assert(dict_p->p_key_cmp != NULL);
@@ -130,8 +138,8 @@ dict_delete(void *key, Dict *dict_p)
 	return;
 }
 
-static p_Dict_Item *
-delete(KeyComparison cmp, void *key, p_Dict_Item *items)
+static MB_p_Dict_Item *
+delete(MB_KeyComparison cmp, void *key, MB_p_Dict_Item *items)
 {
 	if (items == NULL) {
 		return NULL;
@@ -147,18 +155,18 @@ delete(KeyComparison cmp, void *key, p_Dict_Item *items)
 }
 
 
-KeyComparison
-dict_key_compare(Dict dict)
+MB_KeyComparison
+MB_dict_key_compare(MB_Dict dict)
 {
 	return dict.p_key_cmp;
 }
 
-static p_Dict_Item *
-new_item_p(void *key, void *val, p_Dict_Item* next)
+static MB_p_Dict_Item *
+new_item_p(const void *key, void *val, MB_p_Dict_Item* next)
 {
-	p_Dict_Item	*item_p;
+	MB_p_Dict_Item	*item_p;
 
-	item_p = (p_Dict_Item*) MB_malloc(sizeof(p_Dict_Item));
+	item_p = (MB_p_Dict_Item*) MB_malloc(sizeof(MB_p_Dict_Item));
 
 	item_p->p_key = key;
 	item_p->p_val = val;
@@ -170,7 +178,7 @@ new_item_p(void *key, void *val, p_Dict_Item* next)
 
 
 MB_Bool
-dict_first_key(Dict dict, void **first_key_p)
+MB_dict_first_key(MB_Dict dict, void **first_key_p)
 {
 	if (dict.p_items == NULL)
 	{
@@ -186,7 +194,7 @@ dict_first_key(Dict dict, void **first_key_p)
 
 
 MB_Bool
-dict_next_key(Dict dict, void *this_key, void **next_key_p)
+MB_dict_next_key(MB_Dict dict, void *this_key, void **next_key_p)
 {
 	if (dict.p_items == NULL)
 	{
@@ -202,7 +210,7 @@ dict_next_key(Dict dict, void *this_key, void **next_key_p)
 }
 
 static MB_Bool
-next_key(KeyComparison cmp, p_Dict_Item *items, 
+next_key(MB_KeyComparison cmp, MB_p_Dict_Item *items, 
 	void *this_key, void **next_key_p
 )
 {
@@ -240,27 +248,27 @@ next_key(KeyComparison cmp, p_Dict_Item *items,
 
 #include	<string.h>
 
-void
+int
 main()
 {
-	const char *
+	char *
 	strings[] = {"Twas", "brillig", "and", "the", 
 		"slithy", "toves", "did", "gimble", NULL};
-	const char	**str_p;
-	Dict		dict;
+	char	**str_p;
+	MB_Dict		dict;
 	char		*val;
 	char		*key;
 
-	dict = dict_new((KeyComparison)strcmp);
+	dict = MB_dict_new((MB_KeyComparison)strcmp);
 
 	for (str_p = strings; *str_p != NULL; str_p++)
 	{
-		dict_insert(*str_p, *str_p, &dict);
+		MB_dict_insert(*str_p, *str_p, &dict);
 	}
 
 	for (str_p = strings; *str_p != NULL; str_p++)
 	{
-		if (dict_lookup((void*)*str_p, dict, (void**) &val))
+		if (MB_dict_lookup((void*)*str_p, dict, (void**) &val))
 		{
 			printf("Lookup succeeded: key=\"%s\" val=\"%s\"\n",
 				*str_p, val);
@@ -273,7 +281,7 @@ main()
 
 	printf("\nITERATE THROUGH ALL KEYS\n\n");
 
-	if ( ! dict_first_key(dict, (void**) &key))
+	if ( ! MB_dict_first_key(dict, (void**) &key))
 	{
 		fprintf(stderr, "No first key!\n");
 		exit(EXIT_FAILURE);
@@ -282,15 +290,18 @@ main()
 	{
 		while (TRUE)
 		{
-			dict_lookup((void*)key, dict, (void**) &val);
+			MB_dict_lookup((void*)key, dict, (void**) &val);
 			printf("Lookup succeeded: key=\"%s\" val=\"%s\"\n",
 				key, val);
-			if ( ! dict_next_key(dict, (void*) key, (void**) &key))
+			if ( ! MB_dict_next_key(dict, (void*) key,
+				(void**) &key))
+			{
 				break;
+			}
 		}
 	}
 
-	exit(EXIT_SUCCESS);
+	return EXIT_SUCCESS;
 }
 
 #endif /* TEST_DICT */

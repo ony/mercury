@@ -3,7 +3,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: mdis.c,v 1.7 1997-07-27 14:59:27 fjh Exp $
+** $Id: mdis.c,v 1.7.4.1 1997-09-29 09:13:16 aet Exp $
 */
 
 /* Imports */
@@ -18,7 +18,7 @@
 #include	<mdis.h>
 
 static char
-rcs_id[]	= "$Id: mdis.c,v 1.7 1997-07-27 14:59:27 fjh Exp $";
+rcs_id[]	= "$Id: mdis.c,v 1.7.4.1 1997-09-29 09:13:16 aet Exp $";
 
 /* Local declarations */
 static void
@@ -29,7 +29,7 @@ program_name	= NULL;
 
 /* Implementation */
 
-#if	! defined(UNIT_TESTING)
+#ifndef TEST_MDIS
 
 int
 main(int argc, char* argv[])
@@ -65,6 +65,9 @@ main(int argc, char* argv[])
 		char	*filename;
 		FILE	*fp;
 
+		/*
+		** XXX: should check file extension.
+		*/
 		for (i = optind; i < argc; i++) {
 			filename = argv[i];
 			if ((fp = fopen(filename, "r")) != NULL) {
@@ -76,10 +79,10 @@ main(int argc, char* argv[])
 		}
 	} /* end else */
 
-	exit(EXIT_SUCCESS);
+	return EXIT_SUCCESS;
 } /* end main() */
 
-#endif	/* UNIT_TESTING */
+#endif	/* not TEST_MDIS */
 
 static void
 usage(void)

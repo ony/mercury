@@ -3,18 +3,20 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: dict.h,v 1.3 1997-07-27 14:59:20 fjh Exp $
+** $Id: dict.h,v 1.3.4.1 1997-09-29 09:12:57 aet Exp $
 */
 
 
 #ifndef MB_DICT_H
 #define	MB_DICT_H
 
+#include	"util.h"	/* for MB_Bool */
+
 /*
 **	A simple abstract data type for a key-value dictionary.
 **
 **	Note that this type is ABSTRACT. Client code must not refer to
-**	any types or fields prefixed with "p_" since they are private 
+**	any types or fields prefixed with "MB_p_" since they are private 
 **	(part of the implementation, not of the interface) and may be
 **	changed or removed if the implementation changes. ADTs in C
 **	are never pretty.
@@ -25,19 +27,22 @@
 **	Note: The "_p" -suffix- denotes a pointer, not a private type or data.
 */
 
-typedef int (*KeyComparison)(const void *, const void *);
+typedef int (*MB_KeyComparison)(const void *, const void *);
+/*
+** typedef int (*MB_KeyComparison)(void *, void *);
+*/
 
-typedef struct p_Dict_Item {
+typedef struct MB_p_Dict_Item {
 	void			*p_key;
 	void			*p_val;
-	struct p_Dict_Item	*p_next;
-} p_Dict_Item;
+	struct MB_p_Dict_Item	*p_next;
+} MB_p_Dict_Item;
 	
 
 typedef struct Dict {
-	KeyComparison	p_key_cmp;
-	p_Dict_Item	*p_items;
-} Dict;
+	MB_KeyComparison	p_key_cmp;
+	MB_p_Dict_Item		*p_items;
+} MB_Dict;
 
 /*
 ** Create a new dictionary that uses a given comparison function.
@@ -45,39 +50,46 @@ typedef struct Dict {
 ** returns negative if x1 < x2, zero if x1==x2, positive if x1>x2.
 ** XXX: Should also pass in some sort of string to identify the dictionary?
 */
-Dict
-dict_new(KeyComparison key_cmp);
+MB_Dict
+MB_dict_new(MB_KeyComparison key_cmp);
+
+/*
+** Initialise a dictionary that has already been allocated in memory.
+** Give a key comparison function and start with no items.
+*/
+void
+MB_dict_init(MB_KeyComparison key_cmp, MB_Dict *dict_p);
 
 /*
 ** Return TRUE if a dictionary is empty, false otherwise.
 */
 MB_Bool
-dict_is_empty(Dict dict);
+MB_dict_is_empty(MB_Dict dict);
 
 /*
 ** Insert key-value pair into dictionary.
 */
 void
-dict_insert(void *key, void *val, Dict *dict_p);
+MB_dict_insert(const void *key, void *val, MB_Dict *dict_p);
 
 /*
 ** Lookup value corresponding to key. Returns TRUE if lookup succeeded,
 ** FALSE if it failed.
 */
 MB_Bool
-dict_lookup(void *key, Dict dict, void **val_p);
+MB_dict_lookup(void *key, MB_Dict dict, void **val_p);
 
 /*
 ** Delete key-value pair corresponding to key.
 */
 void
-dict_delete(void *key, Dict *dict_p);
+MB_dict_delete(void *key, MB_Dict *dict_p);
 
 /*
 ** Return the key comparison function used by a dictionary.
 */
-KeyComparison
-dict_key_compare(Dict dict);
+MB_KeyComparison
+MB_dict_key_compare(MB_Dict dict);
 
 /*
 ** Return the `first' key in the dictionary. In fact, this simply
@@ -87,7 +99,7 @@ dict_key_compare(Dict dict);
 ** The first key itself is returned through first_key_p.
 */
 MB_Bool
-dict_first_key(Dict dict, void **first_key_p);
+MB_dict_first_key(MB_Dict dict, void **first_key_p);
 
 /*
 ** In the given dictionary, returns the key following this_key.
@@ -95,7 +107,7 @@ dict_first_key(Dict dict, void **first_key_p);
 ** there is no next key or this_key doesn't exist, TRUE otherwise.
 */
 MB_Bool
-dict_next_key(Dict dict, void *this_key, void **next_key_p);
+MB_dict_next_key(MB_Dict dict, void *this_key, void **next_key_p);
 
 #endif	/* MB_DICT_H */
 

@@ -14,6 +14,14 @@
 
 :- implementation.
 
+/*
+**	XXX: We should pass mdb's command-line arguments through to
+**	BC_call_mbi(), otherwise we have to load all modules from
+**	the toplevel prompt.
+**	Hmm... We could put commands in a .mdbrc file, I suppose.
+**	Personally I think rc files are a fugly hack that act as
+**	a poor substitute for a general user preferences database.
+*/
 main -->
 	call_mbi.
 

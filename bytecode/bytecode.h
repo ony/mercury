@@ -3,7 +3,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: bytecode.h,v 1.12 1997-07-27 14:59:19 fjh Exp $
+** $Id: bytecode.h,v 1.12.4.1 1997-09-29 09:12:54 aet Exp $
 */
 
 /*
@@ -14,10 +14,14 @@
 #ifndef MB_BYTECODE_H
 #define	MB_BYTECODE_H
 
+#include	<stdio.h>	/* for FILE */
+
 #include	"conf.h"
 #include	"mercury_types.h"
 #include	"mercury_float.h"
 #include	"gc.h"
+
+#include	"util.h"	/* for MB_Bool */
 
 /*
  * XXX: We should make bytecode portable from platform to platform.
@@ -105,6 +109,11 @@ typedef struct MB_Var_dir_struct {
 	MB_Direction	dir;
 } MB_Var_dir;
 
+typedef struct MB_Proc_id_struct {
+	MB_CString	string;
+	MB_Byte		mode_id;
+} MB_Proc_id;
+
 /*
  *	Possible values for Direction ...
  */
@@ -129,13 +138,13 @@ typedef struct MB_Cons_id_struct {
 			MB_CString	module_id;
 			MB_CString	pred_id;
 			MB_Short	arity;
-			MB_Byte		proc_id;
+			MB_Proc_id	proc_id;
 		} pred_const;
 		struct {
 			MB_CString	module_id;
 			MB_CString	pred_id;
 			MB_Short	arity;
-			MB_Byte		proc_id;
+			MB_Proc_id	proc_id;
 		} code_addr_const;
 		struct {
 			MB_CString	module_id;
@@ -166,13 +175,15 @@ typedef struct MB_Bytecode_struct {
 	union {
 		struct {
 			MB_CString	pred_name;	/* XXX: malloc */
+			MB_Short	arity;
+			MB_Byte		is_func;
 			MB_Short	proc_count;
 		} enter_pred;
 
 		/* endof_pred */
 
 		struct {
-			MB_Byte		proc_id;
+			MB_Proc_id	proc_id;
 			MB_Determinism	det;
 			MB_Short	label_count;
 			MB_Short	temp_count;
@@ -211,7 +222,7 @@ typedef struct MB_Bytecode_struct {
 		} enter_switch_arm;
 
 		struct {
-			MB_Short	label;	/* XXX: what's this label for? */
+			MB_Short	label;	/* XXX: what's label for? */
 		} endof_switch_arm;
 
 		struct {
@@ -296,7 +307,7 @@ typedef struct MB_Bytecode_struct {
 			MB_CString	module_id;	/* XXX: malloc */
 			MB_CString	pred_id;	/* XXX: malloc */
 			MB_Short	arity;
-			MB_Byte		proc_id;
+			MB_Proc_id	proc_id;
 		} call;
 
 		struct  {

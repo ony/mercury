@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: slist.c,v 1.2 1997-07-27 14:59:29 fjh Exp $
+** $Id: slist.c,v 1.2.4.1 1997-09-29 09:13:26 aet Exp $
 */
 
 /* Imports */
@@ -18,28 +18,28 @@
 /* Local declarations */
 
 static char
-rcs_id[]	= "$Id: slist.c,v 1.2 1997-07-27 14:59:29 fjh Exp $";
+rcs_id[]	= "$Id: slist.c,v 1.2.4.1 1997-09-29 09:13:26 aet Exp $";
 
 /* Implementation */
 
-SList
-slist_nil()
+MB_SList
+MB_slist_nil()
 {
-	return (SList) NULL;
+	return (MB_SList) NULL;
 }
 
 MB_Bool
-slist_null(SList list)
+MB_slist_null(MB_SList list)
 {
 	return NULL == list;
 }
 
-SList
-slist_cons(void *head, SList tail)
+MB_SList
+MB_slist_cons(void *head, MB_SList tail)
 {
-	p_SList_Node	*tmp;
+	MB_p_SList_Node	*tmp;
 
-	tmp = (SList) MB_malloc(sizeof(p_SList_Node));
+	tmp = (MB_SList) MB_malloc(sizeof(MB_p_SList_Node));
 
 	tmp->p_head = head;
 	tmp->p_tail = tail;
@@ -49,15 +49,15 @@ slist_cons(void *head, SList tail)
 
 
 void *
-slist_head(SList list)
+MB_slist_head(MB_SList list)
 {
 	assert(list != NULL); /* XXX */
 	
 	return list->p_head;
 }
 
-SList
-slist_tail(SList list)
+MB_SList
+MB_slist_tail(MB_SList list)
 {
 	assert(list != NULL); /* XXX */
 

@@ -3,7 +3,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: disasm.c,v 1.14 1997-07-27 14:59:21 fjh Exp $
+** $Id: disasm.c,v 1.14.4.1 1997-09-29 09:12:59 aet Exp $
 */
 
 /* Imports */
@@ -21,10 +21,8 @@
 /* Local declarations */
 
 static char
-rcs_id[]	= "$Id: disasm.c,v 1.14 1997-07-27 14:59:21 fjh Exp $";
+rcs_id[]	= "$Id: disasm.c,v 1.14.4.1 1997-09-29 09:12:59 aet Exp $";
 
-static void
-print_bytecode(MB_Bytecode bytecode);
 
 static void
 print_cons_id(MB_Cons_id cons_id);
@@ -34,6 +32,9 @@ print_tag(MB_Tag tag);
 
 static void
 print_var_dir(MB_Var_dir var_dir);
+
+static void
+print_proc_id(MB_Proc_id proc_id);
 
 static void
 print_op_arg(MB_Op_arg op_arg);
@@ -78,24 +79,28 @@ MB_disassemble(FILE* fp)
 	}
 
 	while (MB_read_bytecode(fp, &bytecode)) {
-		print_bytecode(bytecode);
+		MB_print_bytecode(bytecode);
 		/* 
 		** XXX: should free any heap data in the bytecode here
 		** Wait till we know what's happening with GC.
 		*/
 		fflush(stdout);
 	} 
-} /* end disassemble() */
+} /* end MB_disassemble() */
 
 
-static void
-print_bytecode(MB_Bytecode bc)
+void
+MB_print_bytecode(MB_Bytecode bc)
 {
 	printf("%s", bytecode_to_name(bc.id));
 
 	switch (bc.id) {
 		case MB_BC_enter_pred:
-			printf(" %s %d", bc.opt.enter_pred.pred_name,
+			printf(" %s %d %s %d", 
+				bc.opt.enter_pred.pred_name,
+				bc.opt.enter_pred.arity,
+				(bc.opt.enter_pred.is_func == 0 ?
+					"pred" : "func"),
 				bc.opt.enter_pred.proc_count);
 			break;
 		case MB_BC_endof_pred:
@@ -105,8 +110,9 @@ print_bytecode(MB_Bytecode bc)
 			MB_Short	i;
 			MB_Short	len;
 
-			printf(" %d %s %d %d %d", 
-				bc.opt.enter_proc.proc_id,
+			printf(" ");
+			print_proc_id(bc.opt.enter_proc.proc_id);
+			printf(" %s %d %d %d", 
 				determinism_to_name(bc.opt.enter_proc.det),
 				bc.opt.enter_proc.label_count,
 				bc.opt.enter_proc.temp_count,
@@ -258,11 +264,11 @@ print_bytecode(MB_Bytecode bc)
 				bc.opt.pickup_arg.to_var);
 			break;
 		case MB_BC_call:
-			printf(" %s %s %d %d",
+			printf(" %s %s %d ",
 				bc.opt.call.module_id,
 				bc.opt.call.pred_id,
-				bc.opt.call.arity,
-				bc.opt.call.proc_id);
+				bc.opt.call.arity);
+			print_proc_id(bc.opt.call.proc_id);
 			break;
 		case MB_BC_higher_order_call:
 			printf(" %d %d %d %s",
@@ -323,7 +329,7 @@ print_bytecode(MB_Bytecode bc)
 
 	putchar('\n');
 
-} /* end print_bytecode() */
+} /* end MB_print_bytecode() */
 
 
 static void
@@ -365,14 +371,14 @@ print_cons_id(MB_Cons_id cons_id)
 			printf("%s ", cons_id.opt.pred_const.module_id);
 			printf("%s ", cons_id.opt.pred_const.pred_id);
 			printf("%d ", cons_id.opt.pred_const.arity);
-			printf("%d ", cons_id.opt.pred_const.proc_id);
+			print_proc_id(cons_id.opt.pred_const.proc_id);
 			break;
 		case MB_CONSID_CODE_ADDR_CONST:
 			printf("%s", "code_addr_const ");
 			printf("%s ", cons_id.opt.code_addr_const.module_id);
 			printf("%s ", cons_id.opt.code_addr_const.pred_id);
 			printf("%d ", cons_id.opt.code_addr_const.arity);
-			printf("%d ", cons_id.opt.code_addr_const.proc_id);
+			print_proc_id(cons_id.opt.code_addr_const.proc_id);
 			break;
 		case MB_CONSID_BASE_TYPE_INFO_CONST:
 			printf("%s", "base_type_info_const ");
@@ -437,6 +443,13 @@ print_var_dir(MB_Var_dir var_dir)
 	printf("<<var_dir>>"); /* XXX */
 	return;
 } /* end print_var_dir() */
+
+static void
+print_proc_id(MB_Proc_id proc_id)
+{
+	printf("%s %d", proc_id.string, proc_id.mode_id);
+	return;
+}
 
 static void
 print_op_arg(MB_Op_arg op_arg)

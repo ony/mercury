@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: util.h,v 1.11 1997-07-27 14:59:32 fjh Exp $
+** $Id: util.h,v 1.11.4.1 1997-09-29 09:13:36 aet Exp $
 */
 
 
@@ -44,11 +44,11 @@ typedef int
 #if	defined(DEBUGGING)
 #define	XXXdebug(msg, fmt, val) \
 	do { \
-		fprintf(stderr, "%s: %s = %" #fmt "\n", msg, #val, val); \
+		fprintf(stderr, "%s: %s = %" #fmt "\n", #msg, #val, val); \
 	} while(0)
 #define	XXXdebug1(msg) \
 	do { \
-		fprintf(stderr, "%s\n", msg); \
+		fprintf(stderr, "%s\n", #msg); \
 	} while(0)
 #else
 #define	XXXdebug(msg, fmt, val)	do {} while(0)
@@ -59,9 +59,37 @@ void
 MB_util_error(const char *fmt, ...);
 
 void
+MB_util_print(const char *fmt, ...);
+
+void
 MB_fatal(const char* message);
 
+/*
+** Returns copy of str. Allocs string which caller must free.
+*/
 char*
 MB_strdup(const char *str);
+
+/*
+**
+*/
+#define	MB_streq(str1,str2) (strcmp((str1),(str2))==0)
+
+/*
+** Returns filename with file extension removed. Allocs string which
+** caller must free.
+*/
+char *
+MB_drop_extension(const char *filename);
+
+/*
+** XXX: STUB
+*/
+char *
+MB_basename(char *filename);
+
+MB_Bool
+MB_has_extension(const char *filename, const char* extension);
+
 
 #endif	/* MB_UTIL_H */
