@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1998-2000 University of Melbourne.
+% Copyright (C) 1998-2001 University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -49,7 +49,7 @@
 
 :- import_module hlds_data, hlds_module, (inst), instmap.
 :- import_module goal_util.
-:- import_module assoc_list, bool, map, require, set, std_util, varset.
+:- import_module assoc_list, bool, map, require, set, std_util, term, varset.
 
 context__process_disjuncts(OldPredProcId, Inputs, Outputs,
 		Disjuncts0, Disjuncts) -->

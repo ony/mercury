@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,7 +14,7 @@
 
 :- interface.
 :- import_module hlds_goal, llds, builtin_ops, livemap, options.
-:- import_module getopt, map, set, list, std_util, counter.
+:- import_module getopt, map, set, list, std_util, counter, term.
 
 :- type vn == int.
 

@@ -478,7 +478,7 @@ mercury_output_item(assertion(Goal, VarSet), _) -->
 	io__write_string(".\n").
 
 mercury_output_item(nothing, _) --> [].
-mercury_output_item(typeclass(Constraints, ClassName, Vars, Methods, 
+mercury_output_item(typeclass(Constraints, ClassName, Vars, Interface, 
 		VarSet), _) --> 
 	io__write_string(":- typeclass "),
 
@@ -502,9 +502,16 @@ mercury_output_item(typeclass(Constraints, ClassName, Vars, Methods,
 
 	io__write_string(" where [\n"),
 
-	output_class_methods(Methods),
-	
-	io__write_string("\n].\n").
+	(
+		{ Interface = abstract },
+		io__write_string(".\n")
+	;
+		{ Interface = concrete(Methods) },
+		io__write_string(" where [\n"),
+		output_class_methods(Methods),
+		io__write_string("\n].\n")
+	).
+
 mercury_output_item(instance(Constraints, ClassName, Types, Body, 
 		VarSet, _InstanceModuleName), _) --> 
 	io__write_string(":- instance "),
