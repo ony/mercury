@@ -194,7 +194,8 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 		{ P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate, PossibleCandidates),
 			CandidateVar = fst(Candidate),
-			multi_map__search(Map, CandidateVar, [ConsId])
+			multi_map__search(Map, CandidateVar, ConsIds),
+			list__remove_dups(ConsIds, [ConsId])
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
