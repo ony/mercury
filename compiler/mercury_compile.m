@@ -692,14 +692,16 @@ mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
 			% trans_opt files to determine better
 			% information.
 			{ NoModifiedSrcFiles = yes ->
-				HigherDeps = []
+				HigherDeps = [],
+				Transitive = yes
 			;
+				Transitive = no,
 				HigherDeps = list__delete_elems(
 						Imports0 ^ int_deps ++
 							Imports0 ^ impl_deps,
 						TransOptDeps)
 			},
-			trans_opt__grab_optfiles(yes, Imports1, 
+			trans_opt__grab_optfiles(Transitive, Imports1, 
 					[OrigModuleName | HigherDeps],
 					TransOptDeps, Imports, Error2)
 		;
