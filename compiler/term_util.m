@@ -257,7 +257,7 @@ find_weights_for_cons_list([Constructor | Constructors], TypeId, Params,
 
 find_weights_for_cons(Ctor, TypeId, Params, Weights0, Weights) :-
 	% XXX should we do something about ExistQVars here?
- 	Ctor = ctor(_ExistQVars, SymName, Args),
+ 	Ctor = ctor(_ExistQVars, _Constraints, SymName, Args),
 	list__length(Args, Arity),
 	( Arity > 0 ->
 		find_and_count_nonrec_args(Args, TypeId, Params,

@@ -322,7 +322,8 @@
 	% conjunctions
 	--->	(goal , goal)	% (non-empty) conjunction
 	;	true		% empty conjunction
-	;	(goal & goal)	% parallel conjunction
+	;	{goal & goal}	% parallel conjunction
+				% (The curly braces just quote the '&'/2.)
 
 	% disjunctions
 	;	{goal ; goal}	% (non-empty) disjunction
@@ -369,7 +370,12 @@
 	;	abstract_type(sym_name, list(type_param)).
 
 :- type constructor	
-	--->	ctor(existq_tvars, sym_name, list(constructor_arg)).
+	--->	ctor(
+			existq_tvars,
+			list(class_constraint),	% existential constraints
+			sym_name,
+			list(constructor_arg)
+		).
 
 :- type constructor_arg	==	pair(string, type).
 

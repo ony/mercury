@@ -1329,7 +1329,8 @@ process_du_type_2(ModuleName, ok(Functor, Args), Body, MaybeEqualityPred,
 		% or occur in the head.
 		(
 			list__member(Ctor, Constrs),
-			Ctor = ctor(ExistQVars, _CtorName, CtorArgs),
+			Ctor = ctor(ExistQVars, _Constraints, _CtorName,
+					CtorArgs),
 			assoc_list__values(CtorArgs, CtorArgTypes),
 			term__contains_var_list(CtorArgTypes, Var),
 			\+ list__member(Var, ExistQVars),
@@ -1343,7 +1344,8 @@ process_du_type_2(ModuleName, ok(Functor, Args), Body, MaybeEqualityPred,
 		% do not occur in the head
 		;
 			list__member(Ctor, Constrs),
-			Ctor = ctor(ExistQVars, _CtorName, CtorArgs),
+			Ctor = ctor(ExistQVars, _Constraints, _CtorName,
+					CtorArgs),
 			list__member(Var, ExistQVars),
 			assoc_list__values(CtorArgs, CtorArgTypes),
 			\+ term__contains_var_list(CtorArgTypes, Var)
@@ -1354,13 +1356,27 @@ process_du_type_2(ModuleName, ok(Functor, Args), Body, MaybeEqualityPred,
 		% occur somewhere in the body
 		;
 			list__member(Ctor, Constrs),
-			Ctor = ctor(ExistQVars, _CtorName, CtorArgs),
+			Ctor = ctor(ExistQVars, _Constraints, _CtorName,
+					CtorArgs),
 			list__member(Var, ExistQVars),
 			assoc_list__values(CtorArgs, CtorArgTypes),
 			\+ term__contains_var_list(CtorArgTypes, Var)
 		->
 			Result = error(
 			"var occurs only in existential quantifier",
+					Body)
+		% check that all type variables in existential constraints
+		% occur in the existential quantifiers
+		;
+			list__member(Ctor, Constrs),
+			Ctor = ctor(ExistQVars, Constraints, _CtorName,
+					_CtorArgs),
+			list__member(Constraint, Constraints),
+			Constraint = constraint(_Name, Args),
+			term__contains_var_list(Args, Var),
+			\+ list__member(Var, ExistQVars)
+		->
+			Result = error("type variables in class constraints introduced with `&' must be explicitly existentially quantified using `some'",
 					Body)
 		;
 			(
@@ -1484,21 +1500,22 @@ convert_constructor(ModuleName, Term0, Result) :-
 		ExistQVars = [],
 		Term2 = Term0
 	),
+	get_existential_constraints(ModuleName, Term2, Term3, ok(Constraints)),
 	( 
 		% Note that as a special case, one level of
 		% curly braces around the constructor are ignored.
 		% This is to allow you to define ';'/2 and 'some'/2
 		% constructors.
-		Term2 = term__functor(term__atom("{}"), [Term3], _Context)
+		Term3 = term__functor(term__atom("{}"), [Term4], _Context)
 	->
-		Term4 = Term3
+		Term5 = Term4
 	;
-		Term4 = Term2
+		Term5 = Term3
 	),
 	parse_implicitly_qualified_term(ModuleName,
-		Term4, Term0, "constructor definition", ok(F, As)),
+		Term5, Term0, "constructor definition", ok(F, As)),
 	convert_constructor_arg_list(As, Args),
-	Result = ctor(ExistQVars, F, Args).
+	Result = ctor(ExistQVars, Constraints, F, Args).
 
 %-----------------------------------------------------------------------------%
 

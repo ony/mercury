@@ -370,10 +370,10 @@ type_util__get_cons_id_arg_types(ModuleInfo, VarType, ConsId, ArgTypes) :-
 		% will fail for builtin cons_ids.
 		map__search(Ctors, ConsId, ConsDefns),
 		CorrectCons = lambda([ConsDefn::in] is semidet, (
-				ConsDefn = hlds_cons_defn(_, _, TypeId, _)
+				ConsDefn = hlds_cons_defn(_, _, _, TypeId, _)
 			)),
 		list__filter(CorrectCons, ConsDefns,
-			[hlds_cons_defn(_, ArgTypes0, _, _)]),
+			[hlds_cons_defn(_, _, ArgTypes0, _, _)]),
 		ArgTypes0 \= []
 	->
 		module_info_types(ModuleInfo, Types),
@@ -401,7 +401,7 @@ type_util__get_cons_id_arg_types(ModuleInfo, VarType, ConsId, ArgTypes) :-
 
 type_is_no_tag_type(Ctors, Ctor, Type) :-
 	Ctors = [SingleCtor],
-	SingleCtor = ctor(ExistQVars, Ctor, [_FieldName - Type]),
+	SingleCtor = ctor(ExistQVars, _Constraints, Ctor, [_FieldName - Type]),
 	ExistQVars = [],
 	unqualify_name(Ctor, Name),
 	Name \= "type_info",
@@ -434,11 +434,14 @@ substitute_type_args(TypeParams0, TypeArgs, Constructors0, Constructors) :-
 
 substitute_type_args_2([], _, []).
 substitute_type_args_2([Ctor0| Ctors0], Subst, [Ctor | Ctors]) :-
-	% Note: prog_io.m ensures that the quantified variables,
-	% if any, are distinct from the parameters, so there'
-	% no need to worry about apply the substitution to ExistQVars
-	Ctor0 = ctor(ExistQVars, Name, Args0),
-	Ctor = ctor(ExistQVars, Name, Args),
+	% Note: prog_io.m ensures that the existentially quantified
+	% variables, if any, are distinct from the parameters,
+	% and that the (existential) constraints can only contain
+	% existentially quantified variables, so there's
+	% no need to worry about applying the substitution to
+	% ExistQVars or Constraints
+	Ctor0 = ctor(ExistQVars, Constraints, Name, Args0),
+	Ctor = ctor(ExistQVars, Constraints, Name, Args),
 	substitute_type_args_3(Args0, Subst, Args),
 	substitute_type_args_2(Ctors0, Subst, Ctors).
 

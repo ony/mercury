@@ -85,8 +85,8 @@
 			io__state, io__state).
 :- mode mercury_output_type_defn(in, in, in, di, uo) is det.
 
-:- pred mercury_output_ctor_arg(varset, constructor_arg, io__state, io__state).
-:- mode mercury_output_ctor_arg(in, in, di, uo) is det.
+:- pred mercury_output_ctor(constructor, varset, io__state, io__state).
+:- mode mercury_output_ctor(in, in, di, uo) is det.
 
 :- pred mercury_output_remaining_ctor_args(varset, list(constructor_arg),
 				io__state, io__state).
@@ -1154,19 +1154,33 @@ mercury_output_type_defn_2(du_type(Name, Args, Ctors, MaybeEqualityPred),
 
 mercury_output_ctors([], _) --> [].
 mercury_output_ctors([Ctor | Ctors], VarSet) -->
-	{ Ctor = ctor(ExistQVars, Name, Args) },
+	mercury_output_ctor(Ctor, VarSet),
+	( { Ctors \= [] } ->
+		io__write_string("\n\t;\t")
+	;	
+		[]
+	),
+	mercury_output_ctors(Ctors, VarSet).
 
-	% we need to quote ';'/2 and '{}'/2
+mercury_output_ctor(Ctor, VarSet) -->
+	{ Ctor = ctor(ExistQVars, Constraints, Name, Args) },
+
+	mercury_output_quantifier(VarSet, ExistQVars),
+
+	% we need to quote ';'/2, '{}'/2, '&'/2, and 'some'/2
 	{ list__length(Args, Arity) },
 	(
 		{ Arity = 2 },
-		{ Name = unqualified(";") ; Name = unqualified("{}") }
+		{ Name = unqualified(";")
+		; Name = unqualified("{}")
+		; Name = unqualified("some")
+		; Name = unqualified("&")
+		}
 	->
 		io__write_string("{ ")
 	;
 		[]
 	),
-	mercury_output_quantifier(VarSet, ExistQVars),
 	(
 		{ Args = [Arg | Rest] }
 	->
@@ -1180,18 +1194,21 @@ mercury_output_ctors([Ctor | Ctors], VarSet) -->
 	),
 	(
 		{ Arity = 2 },
-		{ Name = unqualified(";") ; Name = unqualified("{}") }
+		{ Name = unqualified(";")
+		; Name = unqualified("{}")
+		; Name = unqualified("some")
+		; Name = unqualified("&")
+		}
 	->
 		io__write_string(" }")
 	;
 		[]
 	),
-	( { Ctors \= [] } ->
-		io__write_string("\n\t;\t")
-	;	
-		[]
-	),
-	mercury_output_ctors(Ctors, VarSet).
+
+	mercury_output_class_constraint_list(Constraints, VarSet, "&").
+
+:- pred mercury_output_ctor_arg(varset, constructor_arg, io__state, io__state).
+:- mode mercury_output_ctor_arg(in, in, di, uo) is det.
 
 mercury_output_ctor_arg(Varset, N - T) -->
 	mercury_output_ctor_arg_name_prefix(N),

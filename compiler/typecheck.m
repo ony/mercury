@@ -2703,6 +2703,9 @@ typecheck_info_get_final_info(TypeCheckInfo, OldExistQVars, NewTypeVarSet,
 			TypeConstraints),
 		type_assign_get_constraint_proofs(TypeAssign,
 			ConstraintProofs),
+
+		% XXX take dual of constraints here?
+
 		map__keys(VarTypes0, Vars),
 		expand_types(Vars, TypeBindings, VarTypes0, VarTypes),
 
@@ -3500,13 +3503,15 @@ convert_cons_defn_list(TypeCheckInfo, [X|Xs], [Y|Ys]) :-
 :- mode convert_cons_defn(typecheck_info_ui, in, out) is det.
 
 convert_cons_defn(TypeCheckInfo, HLDS_ConsDefn, ConsTypeInfo) :-
-	HLDS_ConsDefn = hlds_cons_defn(ExistQVars, ArgTypes, TypeId, Context),
+	HLDS_ConsDefn = hlds_cons_defn(ExistQVars, ExistConstraints, ArgTypes,
+				TypeId, Context),
 	typecheck_info_get_types(TypeCheckInfo, Types),
 	map__lookup(Types, TypeId, TypeDefn),
 	hlds_data__get_type_defn_tvarset(TypeDefn, ConsTypeVarSet),
 	hlds_data__get_type_defn_tparams(TypeDefn, ConsTypeParams),
 	construct_type(TypeId, ConsTypeParams, Context, ConsType),
-	Constraints = constraints([], []), % XXX we should allow some here
+	UnivConstraints = [],
+	Constraints = constraints(UnivConstraints, ExistConstraints),
 	ConsTypeInfo = cons_type_info(ConsTypeVarSet, ExistQVars,
 				ConsType, ArgTypes, Constraints).
 

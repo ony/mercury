@@ -1141,10 +1141,11 @@ convert_type_defn(abstract_type(Name, Args), _, Name, Args, abstract_type).
 
 ctors_add([], _TypeId, _NeedQual, _Context, Ctors, Ctors) --> [].
 ctors_add([Ctor | Rest], TypeId, NeedQual, Context, Ctors0, Ctors) -->
-	{ Ctor = ctor(ExistQVars, Name, Args) },
+	{ Ctor = ctor(ExistQVars, Constraints, Name, Args) },
 	{ make_cons_id(Name, Args, TypeId, QualifiedConsId) },
 	{ assoc_list__values(Args, Types) },
-	{ ConsDefn = hlds_cons_defn(ExistQVars, Types, TypeId, Context) },
+	{ ConsDefn = hlds_cons_defn(ExistQVars, Constraints, Types, TypeId,
+				Context) },
 	(
 		{ map__search(Ctors0, QualifiedConsId, QualifiedConsDefns0) }
 	->
@@ -1154,7 +1155,7 @@ ctors_add([Ctor | Rest], TypeId, NeedQual, Context, Ctors0, Ctors) -->
 	),
 	(
 		{ list__member(OtherConsDefn, QualifiedConsDefns1) },
-		{ OtherConsDefn = hlds_cons_defn(_, _, TypeId, _) }
+		{ OtherConsDefn = hlds_cons_defn(_, _, _, TypeId, _) }
 	->
 		% XXX we should record each error using module_info_incr_errors
 		io__stderr_stream(StdErr),

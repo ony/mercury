@@ -297,10 +297,13 @@ equiv_type__replace_in_du([T0|Ts0], VarSet0, EqvMap, [T|Ts], VarSet) :-
 				constructor, tvarset).
 :- mode equiv_type__replace_in_ctor(in, in, in, out, out) is det.
 
-equiv_type__replace_in_ctor(ctor(ExistQVars, TName, Targs0), VarSet0, EqvMap,
-		ctor(ExistQVars, TName, Targs), VarSet) :-
+equiv_type__replace_in_ctor(ctor(ExistQVars, Constraints0, TName, Targs0),
+		VarSet0, EqvMap,
+		ctor(ExistQVars, Constraints, TName, Targs), VarSet) :-
 	equiv_type__replace_in_ctor_arg_list(Targs0, VarSet0, EqvMap,
-		Targs, VarSet, _).
+				Targs, VarSet1, _),
+	equiv_type__replace_in_class_constraint_list(Constraints0, VarSet1, 
+				EqvMap, Constraints, VarSet).
 
 %-----------------------------------------------------------------------------%
 

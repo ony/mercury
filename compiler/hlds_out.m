@@ -1957,12 +1957,12 @@ hlds_out__write_constructors(_Indent, _Tvarset, []) -->
 hlds_out__write_constructors(Indent, Tvarset, [C]) -->
 	hlds_out__write_indent(Indent),
 	io__write_char('\t'),
-	hlds_out__write_constructor(Tvarset, C).
+	mercury_output_ctor(C, Tvarset).
 hlds_out__write_constructors(Indent, Tvarset, [C | Cs]) -->
 	{ Cs = [_ | _] },
 	hlds_out__write_indent(Indent),
 	io__write_char('\t'),
-	hlds_out__write_constructor(Tvarset, C),
+	mercury_output_ctor(C, Tvarset),
 	io__write_string("\n"),
 	hlds_out__write_constructors_2(Indent, Tvarset, Cs).
 
@@ -1974,27 +1974,12 @@ hlds_out__write_constructors_2(_Indent, _Tvarset, []) --> [].
 hlds_out__write_constructors_2(Indent, Tvarset, [C | Cs]) -->
 	hlds_out__write_indent(Indent),
 	io__write_string(";\t"),
-	hlds_out__write_constructor(Tvarset, C),
+	mercury_output_ctor(C, Tvarset),
 	( { Cs = [] } ->
 		io__write_string(".\n")
 	;
 		io__write_string("\n"),
 		hlds_out__write_constructors_2(Indent, Tvarset, Cs)
-	).
-
-:- pred hlds_out__write_constructor(tvarset, constructor, io__state, io__state).
-:- mode hlds_out__write_constructor(in, in, di, uo) is det.
-
-hlds_out__write_constructor(Tvarset, ctor(ExistQVars, Name, Args)) -->
-	mercury_output_quantifier(Tvarset, ExistQVars),
-	prog_out__write_sym_name(Name),
-	( { Args = [Arg | Rest] } ->
-		io__write_char('('),
-		mercury_output_ctor_arg(Tvarset, Arg),
-		mercury_output_remaining_ctor_args(Tvarset, Rest),
-		io__write_char(')')
-	;
-		[]
 	).
 
 %-----------------------------------------------------------------------------%

@@ -333,7 +333,7 @@ goedel_output_type_defn_3(Name2, Name3, Args, Ctors, VarSet, Context) -->
 
 goedel_output_ctors([], _, _) --> [].
 goedel_output_ctors([Ctor | Ctors], Type, VarSet) -->
-	{ Ctor = ctor(_ExistQVars, Name, Args) },
+	{ Ctor = ctor(_ExistQVars, _Constraints, Name, Args) },
 	{ unqualify_name(Name, Name2) },
 	{ convert_functor_name(Name2, Name3) },
 	(
@@ -462,7 +462,7 @@ goedel_output_func(VarSet, PredName, TypesAndModes, RetTypeAndMode, Context) -->
 goedel_output_func_type(VarSet, FuncName, Types, RetType, _Context) -->
 	{ list__map(lambda([Type::in, Arg::out] is det, (Arg = "" - Type)),
 		Types, Args) },
-	goedel_output_ctors([ctor([], FuncName, Args)], RetType, VarSet).
+	goedel_output_ctors([ctor([], [], FuncName, Args)], RetType, VarSet).
 
 %-----------------------------------------------------------------------------%
 

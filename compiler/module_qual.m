@@ -418,10 +418,11 @@ qualify_type_defn(abstract_type(SymName, Params),
 				
 qualify_constructors([], [], Info, Info) --> [].
 qualify_constructors([Ctor0 | Ctors0], [Ctor | Ctors], Info0, Info) -->
-	{ Ctor0 = ctor(ExistQVars, SymName, Args0) },
-	{ Ctor = ctor(ExistQVars, SymName, Args) },
+	{ Ctor0 = ctor(ExistQVars, Constraints0, SymName, Args0) },
+	{ Ctor = ctor(ExistQVars, Constraints, SymName, Args) },
 	qualify_constructor_arg_list(Args0, Args, Info0, Info1),
-	qualify_constructors(Ctors0, Ctors, Info1, Info).
+	qualify_constructors(Ctors0, Ctors, Info1, Info2),
+	qualify_class_constraint_list(Constraints0, Constraints, Info2, Info).
 
 	% Qualify the inst parameters of an inst definition.
 :- pred qualify_inst_defn(inst_defn::in, inst_defn::out, mq_info::in,
