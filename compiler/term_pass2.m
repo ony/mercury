@@ -30,19 +30,18 @@
 :- import_module set, hlds_goal, term_util, term_errors, bool.
 :- import_module globals, options, map.
 
-% used in termination_3_goal to keep track of the relative sizes of variables
+% Used in termination_3_goal to keep track of the relative sizes of variables
 % between the head of a pred and any recursive calls.
-% the last argument is only used when doing single argument analysis.  It
-% stores which headvar was initially placed in this tuple.
 :- type termination_3
-	--->	tuple(pred_proc_id, 	% The called proc
-			int, 		% the relative size of the active
-					% vars, in comparison with the 
+	--->	tuple(pred_proc_id, 	% The called procedure
+			int, 		% The relative size of the active
+					% variables, in comparison with the 
+					% size of the variables in the
 					% recursive call
-			bag(var), 	% tha bag of active vars
-			maybe(var), 	% only for single arg. analysis
-					% stores which headvar is being
-					% traced by this tuple
+			bag(var), 	% The bag of active variables.
+			maybe(var), 	% Only for single argrgument analysis.
+					% This stores which head variable
+					% is being traced by this tuple.
 			term__context).	% Where the call occured
 
 termination(Module0, Module) -->
@@ -60,28 +59,26 @@ termination_2(Module, [], Module) --> [].
 termination_2(Module0, [SCC | SCCs], Module) -->
 	termination_2_check_terminates(SCC, SCC, Module0, Module1, Succ),
 	( { Succ = yes } ->
-		% need to run termination checking
-		% initialise the relation
+		% Need to run termination checking on this SCC.
+		% Initialise the relation
 		{ relation__init(Relation0) },
-		% add each proc to the relation
+		% Add each procedure to the relation.
 		{ add_pred_procs_to_relation(SCC, Relation0, Relation1) },
-		% go and analyse the SCC
+		% Analyse the current SCC.
 		{ init_used_args(SCC, Module1, InitUsedArgs) },
 		{ call_termination_3(SCC, Module1, Res, InitUsedArgs, 
 			Relation1, Relation2) },
 		( 	
 			{ Res = ok },
-			% check that the relation returned is a dag
-			% and set termination accordingly
+			% Check that the relation returned is acyclic 
+			% and set termination accordingly.
 			( { relation__tsort(Relation2, _) } ->
-				%{ c_puts("Tsort success") },
-				% yeah, all the procs in this SCC terminate
-				% set all procs to yes
+				% All the procedures in this SCC terminate,
+				% set all procedures to yes.
 				{ set_pred_proc_ids_terminates(SCC, 
 					yes, no, Module1, Module3) }
 			;
-				%{ c_puts("Tsort fail") },
-				% damn, need to set all the procs to dont_know
+				% Need to set all the procs to dont_know.
 				( { SCC = [ proc(PredId, _) | _ ] } ->
 					{ module_info_pred_info(Module1,
 						PredId, PredInfo) },
@@ -96,23 +93,22 @@ termination_2(Module0, [SCC | SCCs], Module) -->
 			)
 		;
 			{ Res = error(Error) },
-			% term_errors__output(yes(PredId), Module1, Error),
 			termination_3_single_args(SCC, Error, InitUsedArgs, 
 				Module1, Module3)
 		)
 	;
-		% all the termination properties are already set
+		% All the termination properties are already set.
 		{ Module3 = Module1 }
 	),
-	% recurse
+	% Recurse.
 	termination_2(Module3, SCCs, Module).
 
 
 
-% if this pred returns Succ = yes, then termination analysis needs to be
+% If this predicate returns Succ = yes, then termination analysis needs to be
 % run on this SCC.  If it returns Succ =  no, then the termination
 % properties of this SCC have already been set.
-% XXX this can be modified.  If ANY Terminates in the SCC is set to dont_know,
+% XXX this can be improved.  If ANY Terminates in the SCC is set to dont_know,
 % then the whole SCC can be set to dont_know
 :- pred termination_2_check_terminates(list(pred_proc_id), list(pred_proc_id),
 	module_info, module_info, bool, io__state, io__state).
@@ -138,6 +134,7 @@ termination_2_check_terminates([ PPId | PPIds ], SCC,Module0, Module, Succ) -->
 			Module)
 	).
 
+% This predicate runs termination_3 until a fixed point is reached.
 :- pred call_termination_3(list(pred_proc_id), module_info,
 	term_util__result(term_errors__error), map(pred_proc_id, set(var)),
 	relation(pred_proc_id), relation(pred_proc_id)).
@@ -163,6 +160,7 @@ call_termination_3(SCC, Module, Result, UsedArgs0, Relation0, Relation) :-
 		Result = Res1
 	).
 
+% This initialises the used arguments to be the set of input variables.
 :- pred init_used_args(list(pred_proc_id), module_info, 
 	map(pred_proc_id, set(var))).
 :- mode init_used_args(in, in, out) is det.
@@ -192,7 +190,7 @@ termination_3_calc_unused_args(Vars0, [X | Xs], Vars) :-
 termination_3_calc_unused_args_2([], _, []).
 termination_3_calc_unused_args_2([ X | Xs ], Vars, Ys) :-
 	( bag__contains(Vars, X) ->
-		% if the variable is in the bag, then it is used.
+		% If the variable is in the bag, then it is used.
 		% Therefore, it should not be in the list of unused vars
 		termination_3_calc_unused_args_2(Xs, Vars, Ys)
 	;
@@ -220,10 +218,10 @@ termination_3([ PPId | PPIds ], Module, Result, UsedArgs0, UsedArgs,
 	;
 		proc_info_goal(ProcInfo, Goal),
 		Goal = GoalExpr - GoalInfo,
-		% analyse goal info
+		% Analyse goal info. This returns a list of ppid - size
+		% pairs
 		termination_3_goal(GoalExpr, GoalInfo, Module, total,
 			call_info(PPId, UsedArgs0, no), Res0, [], Out),
-		% get back list of ppid - size pairs
 		
 		proc_info_argmodes(ProcInfo, ArgModes),
 		proc_info_headvars(ProcInfo, Args),
@@ -241,31 +239,31 @@ termination_3([ PPId | PPIds ], Module, Result, UsedArgs0, UsedArgs,
 					UsedArgs0, UsedArgs1, Relation1, 
 					Relation)
 			;
-				% we failed because of positive value, or
+				% We failed because of positive value, or
 				% because of not_subset.  Keep analysing,
-				% to discover the used vars, of the other
-				% procs.
+				% to discover the used variables, of the other
+				% procedures.
 				termination_3(PPIds, Module, Res2, 
 					UsedArgs0, UsedArgs1, Relation0, 
 					_Relation),
 				Relation = Relation0,
-				% we know that Res1 is not_subset or
+				% We know that Res1 is not_subset or
 				% positive_value.  If Res2 is ok, then we
 				% need to return Res1 (so that the calling
-				% pred knows that the analysis failed). If
-				% Res2 is an error, then it needs to be
-				% returned.  If Res2 is also not_subset or
-				% positive_value, then fine, the analysis
-				% will be re-run.  If it is some other
-				% error, then re-running the analysis will
-				% not gain anaything.
+				% predicate knows that the analysis
+				% failed). If Res2 is an error, then it
+				% needs to be returned.  If Res2 is also
+				% not_subset or positive_value, then fine,
+				% the analysis will be re-run.  If it is
+				% some other error, then re-running the
+				% analysis will not gain anything.
 				( Res2 = ok ->
 					Result = Res1
 				;
 					Result = Res2
 				)
 			),
-			% add the used vars from the current pass to the
+			% Add the used vars from the current pass to the
 			% UsedArgs map.
 			map__det_update(UsedArgs1, PPId, NewUsedArgs, UsedArgs)
 		;
@@ -275,7 +273,7 @@ termination_3([ PPId | PPIds ], Module, Result, UsedArgs0, UsedArgs,
 		)
 	).
 
-% this runs single argument analysis on the goal.  This is only run if
+% This runs single argument analysis on the goal.  This is only run if
 % normal termination analysis failed.  
 :- pred termination_3_single_args(list(pred_proc_id), term_errors__error,
 	map(pred_proc_id, set(var)), module_info, module_info, 
@@ -342,10 +340,10 @@ termination_3_single_2([Off | Offs], NegSet0, NonNegSet0) :-
 		MaybeVar = yes(HeadVar),
 		( 
 			Int < 0,
-			% check that the var that was recursed on did not 
-			% changeplace between the head and recursive call.  
-			% I am not sure if the first call is actually 
-			% required to succeed
+			% Check that the variable that was recursed on did
+			% not change positions between the head and
+			% recursive call.  I am not sure if the first call
+			% to bag__remove is actually required to succeed
 			bag__remove(VarBag0, HeadVar, VarBag1),
 			\+ bag__remove_smallest(VarBag1, _, _)
 		->
@@ -357,13 +355,13 @@ termination_3_single_2([Off | Offs], NegSet0, NonNegSet0) :-
 		)
 	).
 
-% this adds the information from termination_3_goal to the relation.
-% the relation is between the procs in the current SCC, with an arc showing
-% that one proc calls another with the size of the variables unchanged between
-% the head and the (possibly indirect) recursive call.  Any loops in the 
-% relation show possible non-termination
-% this also checks that the calculated input vars are subsets of the actual
-% input vars
+% This adds the information from termination_3_goal to the relation.
+% the relation is between the procedures in the current SCC, with an arc
+% showing that one procedure calls another with the size of the variables
+% unchanged between the head and the (possibly indirect) recursive call.
+% Any loops in the relation show possible non-termination. This predicate
+% also checks that the calculated input variables are subsets of the actual
+% input variables
 :- pred termination_3_add_arcs_to_relation(pred_proc_id, list(termination_3), 
 	bag(var), term_util__result(term_errors__error), 
 	relation(pred_proc_id), relation(pred_proc_id)).
@@ -381,7 +379,7 @@ termination_3_add_arcs_to_relation(PPId, [X | Xs], Vars, Result, Relation0,
 			Relation = Relation0
 		;
 			Res = (=),
-			% add to relation
+			% Add the arc to the relation.
 			relation__lookup_element(Relation0, PPId, Key),
 			relation__lookup_element(Relation0, CalledPPId, 
 				CalledKey),
@@ -662,7 +660,7 @@ termination_3_goal(pragma_c_code(_, _, CallPredId, CallProcId, Args, _, _),
 	bag__from_list(OutVars, OutVarBag),
 
 	( termination_3_check_intersect(Out, OutVarBag) ->
-		% c_code has no important output vars, so we need no error
+		% c_code has no important output variables, so we need no error
 		Res = ok
 	;
 		goal_info_get_context(GoalInfo, Context),
@@ -691,16 +689,16 @@ termination_3_goal_conj([ Goal | Goals ], Module, UnifyInfo, CallInfo,
 		Out = Out1
 	).
 
-% used by single argument analysis to make a seperate Out for each input
-% variable in a recursive call
+% Used by single argument analysis to make a seperate Out for each input
+% variable in a recursive call.
 :- pred termination_3_goal_call(list(var), list(var), pred_proc_id, 
 	term__context, list(termination_3), list(termination_3)).
 :- mode termination_3_goal_call(in, in, in, in, in, out) is det.
 termination_3_goal_call([], [], _, _, Out, Out).
 termination_3_goal_call([_|_], [], _, _, Out, Out) :-
-	error("Unmatched vars in termination_3_goal_call\n").
+	error("term_pass2__termination_3_goal_call: Unmatched variables\n").
 termination_3_goal_call([], [_|_], _, _, Out, Out) :-
-	error("Unmatched vars in termination_3_goal_call\n").
+	error("term_pass2:termination_3_goal_call: Unmatched variables\n").
 termination_3_goal_call([ Var | Vars ], [ HeadVar | HeadVars ], PPId, 
 		Context, Outs0, Outs) :-
 	bag__init(Bag0),
@@ -709,7 +707,7 @@ termination_3_goal_call([ Var | Vars ], [ HeadVar | HeadVars ], PPId,
 	termination_3_goal_call(Vars, HeadVars, PPId, Context, 
 		[Out | Outs0], Outs).
 
-% Used to set the bag of input variable for a recursive call, according to
+% Used to set the bag of input variables for a recursive call, according to
 % the set of used arguments.
 :- pred termination_3_goal_call_2(list(var), list(var), set(var), bag(var)).
 :- mode termination_3_goal_call_2(in, in, in, out) is det.
@@ -785,10 +783,13 @@ termination_3_goal_disj([ Goal | Goals ], Module, UnifyInfo,
 		Res = Res1,
 		Out = Out1
 	).
+
+
 :- pred termination_3_check_intersect(list(termination_3), bag(var)).
 :- mode termination_3_check_intersect(in, in) is semidet.
+
 % termination_3_check_intersect succeeds if there is no intersection
-% between any one of the Outs and the OutVarBag
+% between any one of the Outs and the OutVarBag.
 termination_3_check_intersect([ ], _).
 termination_3_check_intersect([ Out | Outs ], OutVarBag) :-
 	Out = tuple(_PPId, _Const, OutBag, _Var, _Context),
@@ -802,36 +803,13 @@ termination_3_modify_out(_, _, _, [], []).
 termination_3_modify_out(InVars, OutVars, Off, [Out0 | Out0s], [Out | Outs]):-
 	Out0 = tuple(PPId, Int0, Vars0, Var, Context),
 	( bag__intersect(OutVars, Vars0) ->
-		% there is an intersection
+		% There is an intersection.
 		bag__subtract(Vars0, OutVars, Vars1),
 		bag__union(InVars, Vars1, Vars),
 		Int = Int0 + Off,
 		Out = tuple(PPId, Int, Vars, Var, Context)
 	;
-		% there is not an intersection
+		% There is not an intersection.
 		Out = Out0
 	),
 	termination_3_modify_out(InVars, OutVars, Off, Out0s, Outs).
-%-----------------------------------------------------------------------------%
-
-:- pred c_puts(string).
-:- mode c_puts(in) is det.
-
-:- import_module string.
-
-:- pred c_put_ppid(pred_proc_id).
-:- mode c_put_ppid(in) is det.
-
-c_put_ppid(proc(PredId, ProcId)) :-
-	pred_id_to_int(PredId, PredInt),
-	proc_id_to_int(ProcId, ProcInt),
-	string__int_to_string(PredInt, PredIdS),
-	string__int_to_string(ProcInt, ProcIdS),
-	c_puts("PredId:"),
-	c_puts(PredIdS),
-	c_puts("ProcId:"),
-	c_puts(ProcIdS).
-	
-:- pragma c_header_code("#include <stdio.h>").
-:- pragma c_code(c_puts(S::in), will_not_call_mercury,
-        "printf("" %s "", S);").
