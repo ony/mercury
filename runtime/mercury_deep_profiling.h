@@ -91,6 +91,7 @@ struct MR_Compiler_ProcStatic_Struct {
 struct MR_CallSiteDynamic_Struct {
 	MR_ProcDynamic				*call_site_callee_ptr;
 	MR_ProfilingMetrics			profiling_metrics;
+	unsigned long				depth_count;
 };
 
 struct MR_ProcDynamic_Struct {
