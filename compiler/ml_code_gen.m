@@ -158,7 +158,9 @@
 % using the `try_commit' and `do_commit' instructions.
 % The comments below show the MLDS try_commit/do_commit version first,
 % but for clarity I've also included sample code using each of the three
-% different techniques.
+% different techniques.  This shows how the MLDS->target back-end can map
+% mlds__commit_type, do_commit and try_commit into target language
+% constructs.
 %
 % Note that if we're using GCC's __builtin_longjmp(),
 % then it is important that the call to __builtin_longjmp() be
@@ -197,7 +199,7 @@
 %		<succeeded = Goal>
 % 	===>
 %		void success() {
-%			throw COMMIT;
+%			throw COMMIT();
 %		}
 %		try {
 %			<Goal && success()>
@@ -206,14 +208,20 @@
 %			succeeded = TRUE;
 %		}
 
+%	The above is using C++ syntax. Here COMMIT is an exception type,
+%	which can be defined trivially (e.g. "class COMMIT {};").
+%	Note that when using catch/throw, we don't need the "ref" argument
+%	at all; the target language's exception handling implementation
+%	keeps track of all the information needed to unwind the stack.
+
 %	model_non in semi context: (using setjmp/longjmp)
 %		<succeeded = Goal>
 % 	===>
-%		jmp_buf buf;
+%		jmp_buf ref;
 %		void success() {
-%			longjmp(buf, 1);
+%			longjmp(ref, 1);
 %		}
-%		if (setjmp(buf)) {
+%		if (setjmp(ref)) {
 %			succeeded = TRUE;
 %		} else {
 %			<Goal && success()>
@@ -266,7 +274,7 @@
 %		<do Goal>
 %	===>
 %		void success() {
-%			throw COMMIT;
+%			throw COMMIT();
 %		}
 %		try {
 %			<Goal && success()>
@@ -275,11 +283,11 @@
 %	model_non in det context (using setjmp/longjmp):
 %		<do Goal>
 % 	===>
-%		jmp_buf buf;
+%		jmp_buf ref;
 %		void success() {
-%			longjmp(buf, 1);
+%			longjmp(ref, 1);
 %		}
-%		if (setjmp(buf) == 0) {
+%		if (setjmp(ref) == 0) {
 %			<Goal && success()>
 %		}
 
@@ -1600,18 +1608,38 @@ ml_gen_commit(Goal, CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 		/* push nesting level */
 		{ MLDS_Context = mlds__make_context(Context) },
 		ml_gen_info_new_commit_label(CommitLabelNum),
-		{ CommitRef = mlds__var_name(
-			string__format("commit_%d", [i(CommitLabelNum)]),
-			no) },
-		ml_gen_var_lval(CommitRef, mlds__commit_type, CommitRefLval),
+		{ CommitRef = mlds__var_name(string__format("commit_%d",
+			[i(CommitLabelNum)]), no) },
+		ml_gen_var_lval(CommitRef, mlds__commit_type,
+			CommitRefLval),
 		{ CommitRefDecl = ml_gen_commit_var_decl(MLDS_Context,
 			CommitRef) },
 		{ DoCommitStmt = do_commit(lval(CommitRefLval)) },
-		{ DoCommitStatement = mlds__statement(DoCommitStmt,
-			MLDS_Context) },
+		{ DoCommitStatement = 
+			mlds__statement(DoCommitStmt, MLDS_Context) },
+		=(MLDSGenInfo),
+		{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
+		{ module_info_globals(ModuleInfo, Globals) },
+		{ globals__get_target(Globals, Target) },
+		{ Target = il ->
+				% XXX would be a good performance thing
+				% to re-use the same pre-allocated commit
+				% object over and over again, instead of
+				% allocating them each time.
+			NewCommitObject = mlds__statement(
+				atomic(new_object(CommitRefLval, no,
+					mlds__commit_type, no, no, [], [])),
+					MLDS_Context),
+			DoCommitBody = ml_gen_block([CommitRefDecl], 
+				[NewCommitObject,
+				DoCommitStatement],
+				Context)
+		;
+			DoCommitBody = DoCommitStatement
+		},
 		/* pop nesting level */
 		ml_gen_nondet_label_func(SuccessFuncLabel, Context,
-			DoCommitStatement, SuccessFunc),
+			DoCommitBody, SuccessFunc),
 
 		ml_get_env_ptr(EnvPtrRval),
 		{ SuccessCont = success_cont(SuccessFuncLabelRval,
@@ -1634,8 +1662,13 @@ ml_gen_commit(Goal, CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 				[SetSuccessTrue]), Context)) },
 		{ TryCommitStatement = mlds__statement(TryCommitStmt,
 			MLDS_Context) },
-		{ CommitFuncLocalDecls = [CommitRefDecl, SuccessFunc |
-			GoalStaticDecls] },
+		{ Target = il ->
+			CommitFuncLocalDecls = [SuccessFunc |
+				GoalStaticDecls]
+		;
+			CommitFuncLocalDecls = [CommitRefDecl, SuccessFunc |
+				GoalStaticDecls]
+		},
 		maybe_put_commit_in_own_func(CommitFuncLocalDecls,
 			[TryCommitStatement], Context,
 			CommitFuncDecls, MLDS_Statements),
@@ -2202,7 +2235,7 @@ ml_gen_nondet_pragma_foreign_proc(CodeModel, Attributes,
 			AssignOutputsList
 	]) },
 	{ module_info_globals(ModuleInfo, Globals) },
-	{ globals__lookup_string_option(Globals, target, Target) },
+	{ globals__get_target(Globals, Target) },
 	( { CodeModel = model_non } ->
 
 		% For IL code, we can't call continutations because
@@ -2213,7 +2246,7 @@ ml_gen_nondet_pragma_foreign_proc(CodeModel, Attributes,
 		% continuation call.
 		
 		(
-			{ Target = "il" }
+			{ Target = il }
 		->
 			ml_gen_call_current_success_cont_indirectly(Context,
 				CallCont)

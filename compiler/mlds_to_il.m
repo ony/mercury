@@ -236,7 +236,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 %-----------------------------------------------------------------------------%
 
 	% Move all the top level methods and data definitions into the
-	% mercury_code class, and then fix all the references so that
+	% wrapper class, and then fix all the references so that
 	% they refer to their new names.
 :- func transform_mlds(mlds) = mlds.
 
@@ -246,15 +246,15 @@ transform_mlds(MLDS0) = MLDS :-
 			; D = mlds__defn(_, _, _, mlds__data(_, _))
 			)
 		), MLDS0 ^ defns, MercuryCodeMembers, Others),
-	MLDS = MLDS0 ^ defns := [mercury_code_class(
+	MLDS = MLDS0 ^ defns := [wrapper_class(
 			list__map(rename_defn, MercuryCodeMembers)) | Others].
 
 
-:- func mercury_code_class(mlds__defns) = mlds__defn.
+:- func wrapper_class(mlds__defns) = mlds__defn.
 
-mercury_code_class(Members)
+wrapper_class(Members)
 	= mlds__defn(
-		export("mercury_code"),
+		export(wrapper_class_name),
 		mlds__make_context(term__context_init),
 		ml_gen_type_decl_flags,
 		mlds__class(
@@ -390,7 +390,8 @@ rename_code_addr(proc(Label, Signature))
 rename_code_addr(internal(Label, Seq, Signature))
 	= internal(rename_proc_label(Label), Seq, Signature).
 
-rename_proc_label(qual(Module, Name)) = qual(append_mercury_code(Module), Name).
+rename_proc_label(qual(Module, Name))
+	= qual(append_wrapper_class(Module), Name).
 
 :- func rename_lval(mlds__lval) = mlds__lval.
 
@@ -414,23 +415,23 @@ rename_initializer(init_array(Inits))
 	= init_array(list__map(rename_initializer, Inits)).
 rename_initializer(no_initializer) = no_initializer.
 
-	% We need to append a mercury_code so that we access the RTTI
-	% fields correctly.
+	% We need to append a wrapper class qualifier so that we access
+	% the RTTI fields correctly.
 :- func rename_data_addr(data_addr) = data_addr.
 
 rename_data_addr(data_addr(ModuleName, Name))
-	= data_addr(append_mercury_code(ModuleName), Name).
+	= data_addr(append_wrapper_class(ModuleName), Name).
 
-	% We need to append a mercury_code so that we refer to the
-	% methods of the mercury_code class.
+	% We need to append a wrapper class qualifier so that we refer to the
+	% methods of the wrapper class.
 :- func rename_proc_label(mlds__qualified_proc_label) =
 		mlds__qualified_proc_label.
 
-	% Again append a mercury_code to the var name.
+	% Again append a wrapper class qualifier to the var name.
 :- func rename_var(mlds__var, mlds__type) = mlds__var.
 
 rename_var(qual(ModuleName, Name), _Type)
-	= qual(append_mercury_code(ModuleName), Name).
+	= qual(append_wrapper_class(ModuleName), Name).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -452,41 +453,18 @@ mlds_defn_to_ilasm_decl(defn(_Name, _Context, _Flags,
 mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags, class(ClassDefn)),
 		Decl, Info0, Info) :-
 	il_info_new_class(Info0, Info1),
-	EntityName = entity_name_to_ilds_id(Name),
-	ClassDefn = class_defn(_Kind, _Imports, Inherits, Implements,
-			Ctors, Members),
-	( Inherits = [],
-		Extends = extends_nothing,
-		Parent = il_generic_class_name
-	; Inherits = [Parent0 | Rest],
-		( Rest = [] ->
-			Parent = mlds_type_to_ilds_class_name(
-					Info1 ^ il_data_rep, Parent0),
-			Extends = extends(Parent)
-		;
-			error(this_file ++ 
-				": multiple inheritance not supported.")
-		)
-	),
 
-	Interfaces = implements(
-			list__map(interface_id_to_class_name, Implements)),
+	generate_class_body(Name, ClassDefn, ClassName, EntityName, Extends,
+			Interfaces, MethodsAndFieldsAndCtors, Info1, Info2),
 
-	ClassName = class_name(Info1 ^ module_name, EntityName),
-	list__map_foldl(generate_method(ClassName, no), Members,
-			MethodsAndFields, Info1, Info2),
-	list__map_foldl(generate_method(ClassName, yes(Parent)), Ctors,
-			IlCtors, Info2, Info3),
-	MethodsAndFieldsAndCtors = IlCtors ++ MethodsAndFields,
-
-		% Only the mercury_code class needs to have the
+		% Only the wrapper class needs to have the
 		% initialization instructions executed by the class
 		% constructor.
-	( EntityName = "mercury_code" ->
-		Imports = Info3 ^ imports,
-		InitInstrs = list__condense(tree__flatten(Info3 ^ init_instrs)),
+	( EntityName = wrapper_class_name ->
+		Imports = Info2 ^ imports,
+		InitInstrs = list__condense(tree__flatten(Info2 ^ init_instrs)),
 		AllocInstrs = list__condense(
-				tree__flatten(Info3 ^ alloc_instrs)),
+				tree__flatten(Info2 ^ alloc_instrs)),
 
 			% Generate a field that records whether we have
 			% finished RTTI initialization.
@@ -496,16 +474,56 @@ mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags, class(ClassDefn)),
 			% Generate a class constructor.
 		make_class_constructor_class_member(AllocDoneFieldRef,
 				Imports, AllocInstrs, InitInstrs, CCtor,
-				Info3, Info),
+				Info2, Info),
 
 			% The declarations in this class.
 		MethodDecls = [AllocDoneField, CCtor | MethodsAndFieldsAndCtors]
 	;
 		MethodDecls = MethodsAndFieldsAndCtors,
-		Info = Info3
+		Info = Info2
 	),
 	Decl = class(decl_flags_to_classattrs(Flags), EntityName, Extends,
 			Interfaces, MethodDecls).
+
+:- pred generate_class_body(mlds__entity_name::in, mlds__class_defn::in,
+		ilds__class_name::out, ilds__id::out, extends::out,
+		implements::out, list(class_member)::out,
+		il_info::in, il_info::out) is det.
+
+generate_class_body(Name, ClassDefn, ClassName, EntityName, Extends, Interfaces,
+		ClassDecls, Info0, Info) :-
+	EntityName = entity_name_to_ilds_id(Name),
+	ClassDefn = class_defn(_Kind, _Imports, Inherits, Implements,
+			Ctors, Members),
+	Parent - Extends = generate_parent_and_extends(Info0 ^ il_data_rep,
+			Inherits),
+	Interfaces = implements(
+			list__map(interface_id_to_class_name, Implements)),
+
+	ClassName = class_name(Info0 ^ module_name, EntityName),
+	list__map_foldl(generate_method(ClassName, no), Members,
+			MethodsAndFields, Info0, Info1),
+	list__map_foldl(generate_method(ClassName, yes(Parent)), Ctors,
+			IlCtors, Info1, Info),
+	ClassDecls = IlCtors ++ MethodsAndFields.
+
+
+:- func generate_parent_and_extends(il_data_rep, list(mlds__class_id))
+	= pair(ilds__class_name, extends).
+
+generate_parent_and_extends(DataRep, Inherits) = Parent - Extends :-
+	( Inherits = [],
+		Parent = il_generic_class_name,
+		Extends = extends_nothing
+	; Inherits = [Parent0 | Rest],
+		( Rest = [] ->
+			Parent = mlds_type_to_ilds_class_name(DataRep, Parent0),
+			Extends = extends(Parent)
+		;
+			error(this_file ++ 
+				": multiple inheritance not supported.")
+		)
+	).
 
 class_name(Module, Name) = structured_name(Assembly, ClassName ++ [Name]) :-
 	ClassName = sym_name_to_list(mlds_module_name_to_sym_name(Module)),
@@ -530,19 +548,45 @@ sym_name_to_list(qualified(Module, Name))
 :- func decl_flags_to_classattrs(mlds__decl_flags) = list(ilasm__classattr).
 
 decl_flags_to_classattrs(Flags)
-	= list__condense([Access, Finality, Abstractness]) :-
+	= list__condense([Access, decl_flags_to_classattrs_2(Flags)]) :-
 	AccessFlag = access(Flags),
 	( AccessFlag = public,
 		Access = [public]
 	; AccessFlag = protected,
-		Access = []
+		error("decl_flags_to_classattrs: protected access flag")
 	; AccessFlag = private,
-		Access = []
+		Access = [private]
 	; AccessFlag = default,
-		error("decl_flags_to_classattrs: default access flag")
+			% To make members of the private class
+			% accessible to other types in the assembly, set
+			% their access to be default or public.
+		Access = [private]
 	; AccessFlag = local,
 		error("decl_flags_to_classattrs: local access flag")
-	),
+	).
+
+:- func decl_flags_to_nestedclassattrs(mlds__decl_flags) =
+		list(ilasm__classattr).
+
+decl_flags_to_nestedclassattrs(Flags)
+	= list__condense([Access, decl_flags_to_classattrs_2(Flags)]) :-
+	AccessFlag = access(Flags),
+	( AccessFlag = public,
+		Access = [nestedpublic]
+	; AccessFlag = protected,
+		Access = [nestedfamily]
+	; AccessFlag = private,
+		Access = [nestedprivate]
+	; AccessFlag = default,
+		Access = [nestedassembly]
+	; AccessFlag = local,
+		error("decl_flags_to_classattrs: local access flag")
+	).
+
+:- func decl_flags_to_classattrs_2(mlds__decl_flags) = list(ilasm__classattr).
+
+decl_flags_to_classattrs_2(Flags)
+	= list__condense([Finality, Abstractness]) :-
 	FinalityFlag = finality(Flags),
 	( FinalityFlag = overridable,
 		Finality = []
@@ -867,9 +911,12 @@ generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassDecl) -->
 	{ ClassDecl = ilasm__method(methodhead(Attrs, MemberName,
 			ILSignature, []), MethodContents)}.
 
-generate_method(_, _, defn(_Name, _Context, _Flags, Entity), _ClassDecl) -->
-	{ Entity = class(_ClassDefn) },
-	{ sorry(this_file, "nested classes") }.
+generate_method(_, _, defn(Name, _Context, Flags, Entity), ClassDecl) -->
+	{ Entity = class(ClassDefn) },
+	generate_class_body(Name, ClassDefn, _ClassName, EntityName,
+			Extends, Interfaces, ClassDecls),
+	{ ClassDecl = nested_class(decl_flags_to_nestedclassattrs(Flags),
+			EntityName, Extends, Interfaces, ClassDecls) }.
 
 %-----------------------------------------------------------------------------%
 
@@ -1078,9 +1125,8 @@ maybe_box_initializer(init_array(X), init_array(X)) --> [].
 maybe_box_initializer(init_struct(X), init_struct(X)) --> [].
 	% single items need to be boxed
 maybe_box_initializer(init_obj(Rval), init_obj(NewRval)) -->
-	rval_to_type(Rval, BoxType),
+	{ rval_to_type(Rval, BoxType) },
 	{ NewRval = unop(box(BoxType), Rval) }.
-
 
 %-----------------------------------------------------------------------------%
 %
@@ -1304,7 +1350,7 @@ statement_to_il(statement(try_commit(Ref, GoalToTry, CommitHandlerGoal),
 	statement_to_il(CommitHandlerGoal, HandlerInstrsTree),
 	il_info_make_next_label(DoneLabel),
 
-	rval_to_type(lval(Ref), MLDSRefType),
+	{ rval_to_type(lval(Ref), MLDSRefType) },
 	DataRep =^ il_data_rep,
 	{ ClassName = mlds_type_to_ilds_class_name(DataRep, MLDSRefType) },
 	{ Instrs = tree__list([
@@ -2157,11 +2203,9 @@ make_class_constructor_class_member(DoneFieldRef, Imports, AllocInstrs,
 	set_rtti_initialization_field(DoneFieldRef, SetInstrs),
 	{ CCtorCalls = list__filter_map(
 		(func(X::in) = (C::out) is semidet :-
-				% XXX May need to add a mercury_code
-				% here
 			X ^ mercury = yes,
 			C = call_class_constructor(
-				mlds_module_name_to_class_name(X ^ name))
+				class_name(X ^ name, wrapper_class_name))
 		), Imports) },
 	{ AllInstrs = list__condense([TestInstrs, AllocInstrs, SetInstrs,
 		CCtorCalls, InitInstrs, [ret]]) },
@@ -2539,8 +2583,8 @@ mangle_foreign_code_module(ModuleName0, Lang, ModuleName) :-
 	),
 	SymName0 = mlds_module_name_to_sym_name(ModuleName0),
 		% Check to see whether or not the name has already been
-		% qualified with a mercury_code.  If not qualify it.
-	( SymName0 = qualified(SymName1, "mercury_code") ->
+		% qualified with the wrapper class.  If not qualify it.
+	( SymName0 = qualified(SymName1, wrapper_class_name) ->
 		( 
 			SymName1 = qualified(SQ, SM0),
 			SM = string__format("%s__%s_code",
@@ -2552,18 +2596,20 @@ mangle_foreign_code_module(ModuleName0, Lang, ModuleName) :-
 					[s(SM0), s(LangStr)]),
 			SymName2 = unqualified(SM)
 		),
-		SymName = qualified(SymName2, "mercury_code")
+		SymName = qualified(SymName2, wrapper_class_name)
 	;
 		( 
 			SymName0 = qualified(SQ, SM0),
 			SM = string__format("%s__%s_code",
 					[s(SM0), s(LangStr)]),
-			SymName = qualified(qualified(SQ, SM), "mercury_code")
+			SymName = qualified(qualified(SQ, SM),
+					wrapper_class_name)
 		; 
 			SymName0 = unqualified(SM0),
 			SM = string__format("%s__%s_code",
 					[s(SM0), s(LangStr)]),
-			SymName = qualified(unqualified(SM), "mercury_code")
+			SymName = qualified(unqualified(SM),
+					wrapper_class_name)
 		)
 	),
 	ModuleName = mercury_module_and_package_name_to_mlds(
@@ -2583,7 +2629,7 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 	( 
 		SymName = mlds_module_name_to_sym_name(ModuleName0),
 		SymName = qualified(qualified(unqualified("mercury"),
-			LibModuleName0), "mercury_code"),
+			LibModuleName0), wrapper_class_name),
 		DataName = rtti(rtti_type_id(_, Name, Arity),
 			_RttiName),
 		( LibModuleName0 = "builtin",
@@ -2618,7 +2664,7 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 			LibModuleName),
 		ModuleName = mercury_module_name_to_mlds(
 			qualified(qualified(unqualified("mercury"),
-			LibModuleName), "mercury_code"))
+			LibModuleName), wrapper_class_name))
 	;
 		ModuleName = ModuleName0
 	).
@@ -2754,45 +2800,40 @@ is_local(VarName, Info) :-
 	% This is so you can generate appropriate box rvals for
 	% rval_consts.
 
-:- pred rval_to_type(mlds__rval::in, mlds__type::out,
-		il_info::in, il_info::out) is det.
+:- pred rval_to_type(mlds__rval::in, mlds__type::out) is det.
 
-rval_to_type(lval(Lval), Type, Info0, Info) :- 
-	( Lval = var(Var, _VarType),
-		mangle_mlds_var(Var, MangledVarStr),
-		il_info_get_mlds_type(MangledVarStr, Type, Info0, Info)
-	; Lval = field(_, _, _, Type, _),
-		Info = Info0
-	; Lval = mem_ref(_Rval, Type),
-		Info = Info0
+rval_to_type(lval(var(_, Type)), Type).
+rval_to_type(lval(field(_, _, _, Type, _)), Type).
+rval_to_type(lval(mem_ref(_, Type)), Type).
+
+rval_to_type(mkword(_, _), _) :-
+	unexpected(this_file, "rval_to_type: mkword").
+
+rval_to_type(unop(Unop, _), Type) :- 
+	( 
+		Unop = box(_),
+		Type = mlds__generic_type
+	; 
+		Unop = unbox(UnboxType),
+		Type = UnboxType
+	; 
+		Unop = cast(CastType),
+		Type = CastType
+	; 
+		Unop = std_unop(StdUnop),
+		functor(StdUnop, StdUnopStr, _Arity),
+		sorry(this_file, "rval_to_type: unop: " ++ StdUnopStr)
 	).
 
-	% The following five conversions should never occur or be boxed
-	% anyway, but just in case they are we make them reference
-	% mercury.invalid which is a non-exisitant class.   If we try to
-	% run this code, we'll get a runtime error.
-	% XXX can we just call error?
-rval_to_type(mkword(_Tag, _Rval), Type, I, I) :- 
-	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
-	Type = mlds__class_type(qual(ModuleName, "invalid"),
-		0, mlds__class).
-rval_to_type(unop(_, _), Type, I, I) :- 
-	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
-	Type = mlds__class_type(qual(ModuleName, "invalid"),
-		0, mlds__class).
-rval_to_type(binop(_, _, _), Type, I, I) :- 
-	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
-	Type = mlds__class_type(qual(ModuleName, "invalid"),
-		0, mlds__class).
-rval_to_type(mem_addr(_), Type, I, I) :-
-	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
-	Type = mlds__class_type(qual(ModuleName, "invalid"),
-		0, mlds__class).
-rval_to_type(self(_), Type, I, I) :-
-	ModuleName = mercury_module_name_to_mlds(unqualified("mercury")),
-	Type = mlds__class_type(qual(ModuleName, "invalid"),
-		0, mlds__class).
-rval_to_type(const(Const), Type, I, I) :- 
+rval_to_type(binop(_, _, _), _) :- 
+	sorry(this_file, "rval_to_type: binop").
+
+rval_to_type(mem_addr(_), _) :-
+	sorry(this_file, "rval_to_type: mem_addr").
+
+rval_to_type(self(Type), Type).
+
+rval_to_type(const(Const), Type) :- 
 	Type = rval_const_to_type(Const).
 
 :- func rval_const_to_type(mlds__rval_const) = mlds__type.
@@ -3005,8 +3046,8 @@ il_string_type = ilds__type([], il_string_simple_type).
 
 :- func mercury_string_class_name = ilds__class_name.
 mercury_string_class_name = mercury_library_name(StringClass) :-
-	sym_name_to_class_name(qualified(unqualified("string"), "mercury_code"),
-			StringClass).
+	sym_name_to_class_name(qualified(unqualified("string"),
+			wrapper_class_name), StringClass).
 
 %-----------------------------------------------------------------------------%
 %
@@ -3244,7 +3285,7 @@ runtime_initialization_instrs = [
 :- func runtime_init_module_name = ilds__class_name.
 runtime_init_module_name = 
 	structured_name("mercury",
-		["mercury", "private_builtin__cpp_code", "mercury_code"]).
+		["mercury", "private_builtin__cpp_code", wrapper_class_name]).
 
 :- func runtime_init_method_name = ilds__member_name.
 runtime_init_method_name = id("init_runtime").

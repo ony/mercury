@@ -382,28 +382,21 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 		% away.
 	globals__get_target(Globals, Target),
 	( Target = il ->
-			% Generate a ctor for the class which
-			% initilaises the commit field.
-		ThisPtr = self(mlds__commit_type),
-		FieldType = mlds__commit_type,
-		CtorType = mlds__commit_type,
-		PtrType = EnvTypeName,	
-			
-			% Note we have to do the correct name mangling
-			% for the IL backend.
-		FieldName = qual(mlds__append_name(ModuleName,
-				EnvClassName ++ "_0"), "commit_1"),
-		Lval = field(no, ThisPtr, named_field(FieldName, CtorType),
-				FieldType, PtrType),
+			% Generate a ctor for the class.
 
-		Rval = new_object(Lval, no, FieldType, no, no, [], []),
+			% We generate an empty block for the body of the
+			% constructor.
+		Stmt = mlds__statement(block([], []), Context),
 
-		Stmt = mlds__statement(atomic(Rval), Context),
-		Ctor = mlds__function(no, func_params([], []), yes(Stmt), []),
+		Ctor = mlds__function(no, func_params([], []),
+				yes(Stmt), []),
 		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
 				overridable, modifiable, concrete),
-		CtorDefn = mlds__defn(export("unused"), Context, CtorFlags,
-				Ctor),
+
+			% Note that the name of constructor is
+			% determined by the backend convention.
+		CtorDefn = mlds__defn(export("<constructor>"), Context,
+				CtorFlags, Ctor),
 		Ctors = [CtorDefn]
 	;
 		Ctors = []
@@ -430,6 +423,10 @@ ml_create_env(EnvClassName, LocalVars, Context, ModuleName, Globals,
 	%
 	EnvVar = qual(ModuleName, mlds__var_name("env", no)),
 
+		% IL uses classes instead of structs, so the code
+		% generated needs to be a little different.
+		% XXX Perhaps if we used value classes this could go
+		% away.
 	( Target = il ->
 		EnvVarAddr = lval(var(EnvVar, EnvTypeName)),
 		ml_init_env(EnvTypeName, EnvVarAddr, Context, ModuleName,
@@ -581,10 +578,7 @@ ml_conv_arg_to_var(Context, Name - Type, LocalVar) :-
 	% type declaration.
 :- func env_type_decl_flags = mlds__decl_flags.
 env_type_decl_flags = MLDS_DeclFlags :-
-		% On the IL backend we use classes instead of structs so
-		% these fields must be accessible to the mercury_code
-		% class in the same assembly, hence the public access.
-	Access = public,
+	Access = private,
 	PerInstance = one_copy,
 	Virtuality = non_virtual,
 	Finality = overridable,

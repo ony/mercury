@@ -363,13 +363,19 @@
 :- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name, arity) =
 	mlds_module_name.
 
-% Append a mercury_code qualifier to the module name and leave the
+% Append a wrapper class qualifier to the module name and leave the
 % package name unchanged.
-:- func mlds__append_mercury_code(mlds_module_name) = mlds_module_name.
+:- func mlds__append_wrapper_class(mlds_module_name) = mlds_module_name.
 
 % Append an arbitarty qualifier to the module name and leave the package
 % name unchanged.
 :- func mlds__append_name(mlds_module_name, string) = mlds_module_name.
+
+% When targetting languages such as IL, C#, and Java, which don't
+% support global methods or global variables, we need to wrap all the
+% generated global functions and global data inside a wrapper class.
+% This function returns the name to use for the wrapper class.
+:- func wrapper_class_name = string.
 
 :- type mlds__defns == list(mlds__defn).
 :- type mlds__defn
@@ -542,8 +548,29 @@
 		% to handle nondeterminism
 	;	mlds__cont_type(mlds__return_types)
 
-		% The type used for storing information about a commit.
-		% This may be `jmp_buf' or `__label__'.
+		% mlds__commit_type is used for storing information about a commit.
+		% This is an abstract type; the exact definition will depend
+		% on the back-end.  The only operations on this ADT are
+		% `try_commit' and `do_commit'.  This type holds information
+		% about the `try_commit' stack frame that is needed to unwind
+		% the stack when a `do_commit' is executed.
+		%
+		% For the C back-end, if we're implementing do_commit/try_commit
+		% using setjmp/longmp, then mlds__commit_type will be jmp_buf.
+		% If we're implementing them using GNU C nested functions, then
+		% it will be `__label__'; in this case, the local variable
+		% of this "type" is actually a label, and doing a goto to that
+		% label will unwind the stack.
+		%
+		% If the back-end implements commits using the target language's,
+		% try/catch-style exception handling, as in Java/C++/etc.,
+		% then the target language implementation's exception handling
+		% support will keep track of the information need to unwind
+		% the stack, and so variables of this type don't need
+		% to be declared at all.
+		%
+		% See also the comments in ml_code_gen.m which show how commits
+		% can be implemented for different target languages.
 	;	mlds__commit_type
 
 		% MLDS native builtin types.
@@ -858,9 +885,12 @@
 		%	statement for Ref, and branch to the CommitHandlerGoal
 		%	that was specified in that try_commit instruction.
 		%
-		% For both try_commit and commit instructions,
+		% For both try_commit and do_commit instructions,
 		% Ref should be the name of a local variable of type
-		% mlds__commit_type.  There should be exactly
+		% mlds__commit_type.  (This variable can be used by
+		% the back-end's implementation of do_commit and
+		% try_commit to store information needed to unwind
+		% the stack.)  There should be exactly
 		% one try_commit instruction for each Ref.
 		% do_commit(Ref) instructions should only be used
 		% in goals called from the GoalToTry goal in the
@@ -1544,10 +1574,12 @@ mlds__append_class_qualifier(name(Package, Module), ClassName, ClassArity) =
 	string__format("%s_%d", [s(ClassName), i(ClassArity)],
 		ClassQualifier).
 
-mlds__append_mercury_code(Name) = mlds__append_name(Name, "mercury_code").
+mlds__append_wrapper_class(Name) = mlds__append_name(Name, wrapper_class_name).
 
 mlds__append_name(name(Package, Module), Name)
 	= name(Package, qualified(Module, Name)).
+
+wrapper_class_name = "mercury_code".
 
 %-----------------------------------------------------------------------------%
 
