@@ -177,6 +177,16 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	{ PRED_PROC_ID = proc(PredId, ProcId) },
 
 	{ pa_util__pa_fixpoint_table_which_run(FPtable0, Run) },
+	{
+	( 
+		pa_util__pa_fixpoint_table_get_final_as_semidet(PRED_PROC_ID, 
+				TabledAliasAs, FPtable0) 
+	->
+		TabledSize = size(TabledAliasAs)
+	;
+		TabledSize = 0
+	)
+	},
 	{ string__int_to_string(Run, SRun)},
 	{ string__append_list(["% Alias analysing (run ",SRun,") "],
 				Msg) },
@@ -228,12 +238,17 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 		%	io__write_string("\n")
 		% []
 		{
+			( pa_fixpoint_table_all_stable(FPtable) ->
+				Stable = "s" ; Stable = "u"
+			),
+			string__int_to_string(TabledSize, TabledS), 
 			string__int_to_string(FullSize, FullS), 
 			string__int_to_string(ProjectSize, ProjectS), 
 			string__int_to_string(NormSize, NormS)
 		},
-		io__write_strings(["\t\t: ", FullS, "/", ProjectS, "/", 
-					NormS]), 
+		io__write_strings(["\t\t: ", TabledS, "->", 
+					FullS, "/", ProjectS, "/", 
+					NormS, "(", Stable, ")"]), 
 		(
 			{ Widening = bool__yes }
 		-> 

@@ -66,6 +66,11 @@
 :- pred fp_get_final(K, E, fixpoint_table(K,E)).
 :- mode fp_get_final(in, out, in) is det.
 
+	% Same as fp_get_final, but the predicate fails instead
+	% of aborting when the element is not present. 
+:- pred fp_get_final_semidet(K, E, fixpoint_table(K,E)).
+:- mode fp_get_final_semidet(in, out, in) is semidet. 
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
@@ -79,8 +84,22 @@
 		     keys	:: list(K),	% list of allowed keys
 		     run	:: int,		% number of runs
 		     stable	:: bool,	% is stable (default = yes)
-		     mapping 	:: map(K, E)
+		     mapping 	:: map(K, fp_entry(E))
 		).
+
+:- type fp_entry(E) 
+	--->	entry(
+			bool, 	% stability: yes = stable, no = unstable
+			E). 
+		   
+:- func fp_entry_init(E) = fp_entry(E).
+:- func fp_entry_stability(fp_entry(E)) = bool. 
+:- func fp_entry_elem(fp_entry(E)) = E. 
+:- func fp_entry_init(bool, E) = fp_entry(E). 
+fp_entry_init(Elem) = entry(no, Elem).  
+fp_entry_init(Bool, Elem) = entry(Bool, Elem). 
+fp_entry_stability(entry(S, _)) = S. 
+fp_entry_elem(entry(_, Elem)) = Elem. 
 
 fp_init(Init, Ks, ft(Ks, Run, Stable, Map)) :- 
 	Run = 0,
@@ -89,7 +108,7 @@ fp_init(Init, Ks, ft(Ks, Run, Stable, Map)) :-
 	list__foldl(
 		(pred(K::in, M0::in, M::out) is det :- 
 			Init(K, E),
-			map__det_insert(M0, K, E, M)
+			map__det_insert(M0, K, fp_entry_init(E), M)
 		),
 		Ks, 
 		Map0, 
@@ -100,13 +119,24 @@ fp_new_run(T0, T0 ^ run := T0 ^ run + 1).
 fp_which_run(T0) = T0 ^ run.
 
 fp_stable(T) :- 
-	T ^ stable = yes.
+	map__foldl(
+		pred(_K::in, Entry::in, S0::in, S::out) is det :- 
+		(
+			( S0 = no -> 
+				S = no
+			;
+				S = fp_entry_stability(Entry)
+			)
+		),
+		T ^ mapping,
+		yes, 
+		yes). 
 	
 fp_add(Equal, Index, Elem, Tin, Tout) :- 
 	Map = Tin ^ mapping, 
-	Sin = Tin ^ stable,
 	( 
-		map__search(Map, Index, TabledElem)
+		map__search(Map, Index, Entry),
+		TabledElem = fp_entry_elem(Entry)
 	->
 		(
 			Equal(TabledElem, Elem)
@@ -127,38 +157,38 @@ fp_add(Equal, Index, Elem, Tin, Tout) :-
 			% table where not only the reuses are kept (the
 			% abstract substitution), but also the goal that
 			% might have changed. 
-		FinalTabledElem = Elem,
+		FinalTabledElem = fp_entry_init(S, Elem),
 		map__det_update(Map, Index, FinalTabledElem, MapOut)
 	;
-		S = Sin,
-		map__det_insert(Map, Index, Elem, MapOut)
+		% XXX should not occur!
+		map__det_insert(Map, Index, fp_entry_init(Elem), MapOut)
 	),
-	Tout = (Tin ^ mapping := MapOut) ^ stable := S.
+	Tout = (Tin ^ mapping := MapOut).
 
 fp_get(Index, Elem, Tin, Tout) :-
 	List = Tin ^ keys, 
 	list__member(Index, List), % can fail
 	Mapin = Tin ^ mapping,
-	% Sin = Tin ^ stable,
 	(	
-		map__search(Mapin, Index, TabledElem)
+		map__search(Mapin, Index, Entry), 
+		TabledElem = fp_entry_elem(Entry)
 	->
 		Elem = TabledElem,
-		Sout = no,
 		Mapout = Mapin
 	;
 		require__error("(fixpoint_table): key not in map")
-		% init(Elem),
-		% Sout = no,
-		% map__det_insert(Mapin, Index, Elem, Mapout)
 	),
-	Tout = (Tin ^ mapping := Mapout) ^ stable := Sout.
+	Tout = (Tin ^ mapping := Mapout).
 
 fp_get_final(Index, Elem, T) :- 
 	(
-		map__search(T ^ mapping, Index, TabledElem)
+		fp_get_final_semidet(Index, TabledElem, T)
 	->
 		Elem = TabledElem
 	; 
 		error("Internal error: fixpoint_table__fp_get_final/2")
 	).
+
+fp_get_final_semidet(Index, Elem, T):- 
+	map__search(T ^ mapping, Index, Entry),
+	Elem = fp_entry_elem(Entry). 

@@ -57,6 +57,10 @@
 						pa_fixpoint_table).
 :- mode pa_fixpoint_table_get_final_as(in, out, in) is det.
 
+:- pred pa_fixpoint_table_get_final_as_semidet(pred_proc_id, alias_as, 
+						pa_fixpoint_table).
+:- mode pa_fixpoint_table_get_final_as_semidet(in, out, in) is semidet.
+
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -101,6 +105,8 @@ pa_fixpoint_table_get_as(PRED_PROC_ID, ALIAS_AS, Tin, Tout) :-
 pa_fixpoint_table_get_final_as(PRED_PROC_ID, ALIAS_AS, T):-
 	fp_get_final(PRED_PROC_ID, ALIAS_AS, T).
 
+pa_fixpoint_table_get_final_as_semidet(PRED_PROC_ID, ALIAS_AS, T):-
+	fp_get_final_semidet(PRED_PROC_ID, ALIAS_AS, T). 
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
