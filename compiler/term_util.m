@@ -128,13 +128,14 @@
 :- mode remove_unused_args(in, in, in, out) is det.
 
 % given a list of pred_proc_ids, this predicate sets the termination
-% constant of them all.
+% constant of them all to the constant that is passed to it.
 :- pred set_pred_proc_ids_const(list(pred_proc_id), term_util__constant,
 	module_info, module_info).
 :- mode set_pred_proc_ids_const(in, in, in, out) is det.
 
 % given a list of pred_proc_ids, this predicate sets the error and
-% terminates value of them all.
+% terminates value of them all to the values that are passed to the
+% predicate.
 :- pred set_pred_proc_ids_terminates(list(pred_proc_id), terminates,
 	maybe(term_errors__error), module_info, module_info).
 :- mode set_pred_proc_ids_terminates(in, in, in, in, out) is det.
@@ -144,7 +145,7 @@
 :- mode check_horder_args(in, in) is semidet.	
 
 % given a list of variables from a unification, this predicate divides the
-% list into a bag of input variables, and a list of output variables.
+% list into a bag of input variables, and a bag of output variables.
 :- pred split_unification_vars(list(var), list(uni_mode), module_info,
 	bag(var), bag(var)).
 :- mode split_unification_vars(in, in, in, out, out) is det.
@@ -153,6 +154,8 @@
 
 :- import_module map, std_util, require, mode_util, prog_out, type_util.
 
+% given a list of variables from a unification, this predicate divides the
+% list into a bag of input variables, and a bag of output variables.
 split_unification_vars([], Modes, _ModuleInfo, Vars, Vars) :-
 	bag__init(Vars),
 	( Modes = [] ->
@@ -235,9 +238,9 @@ set_pred_proc_ids_terminates([PPId | PPIds], Terminates, MaybeError,
 
 remove_unused_args(Vars, [], [], Vars).
 remove_unused_args(Vars, [], [_X | _Xs], Vars) :-
-	error("Unmatched Vars in termination.m").
+	error("Unmatched Vars in term_util:remove_unused_args").
 remove_unused_args(Vars, [_X | _Xs], [], Vars) :-
-	error("Unmatched Vars in termination.m").
+	error("Unmatched Vars in term_util__remove_unused_args").
 remove_unused_args(Vars0, [ Arg | Args ], [ UsedVar | UsedVars ], Vars) :-
 	( UsedVar = yes ->
 		% the var is used, so leave it
@@ -252,9 +255,9 @@ remove_unused_args(Vars0, [ Arg | Args ], [ UsedVar | UsedVars ], Vars) :-
 	).
 
 partition_call_args(_, [], [_ | _], _, _) :-
-	error("partition_call_args").
+	error("Unmatched variables in term_util:partition_call_args").
 partition_call_args(_, [_ | _], [], _, _) :-
-	error("partition_call_args").
+	error("Unmatched variables in term_util__partition_call_args").
 partition_call_args(_, [], [], [], []).
 partition_call_args(ModuleInfo, [ArgMode | ArgModes], [Arg | Args],
 		InputArgs, OutputArgs) :-
@@ -288,6 +291,8 @@ term_util__make_bool_list_2([], Bools, Bools).
 term_util__make_bool_list_2([ _ | Vars ], Bools, [no | Out]) :-
 	term_util__make_bool_list_2(Vars, Bools, Out).
 		
+% Although the module info is not used in either of these norms, it could
+% be needed for other norms, so it should not be removed.
 functor_norm(simple, ConsId, _, Int) :-
 	( 
 		ConsId = cons(_, Arity),
@@ -325,8 +330,9 @@ do_ppid_check_terminates([ PPId | PPIds ], MaybeError, Module0, Module) -->
 		{ map__det_update(PredTable0, PredId, PredInfo, PredTable) },
 		{ module_info_set_preds(Module0, PredTable, Module1) },
 		{ pred_info_get_marker_list(PredInfo, MarkerList) },
-		% if check_terminates exists, print out error
-		% note that this allows the one error to be printed out
+		% If a check_terminates pragma exists, print out an error
+		% message.
+		% Note that this allows the one error to be printed out
 		% multiple times.  This is because one error can cause a
 		% number of predicates to be non terminating, and if
 		% check_terminates is defined on all of the predicates,
@@ -336,11 +342,11 @@ do_ppid_check_terminates([ PPId | PPIds ], MaybeError, Module0, Module) -->
 				term_errors__output(yes(PredId), Module1, 
 					Error)
 			;
-				% this really shouldnt happen.  The only
+				% This really shouldnt happen.  The only
 				% time that MaybeError is no should be if
 				% the pred is imported, and imported preds
 				% with check_termination defined on them
-				% should have termnates set to yes.
+				% should have termnates set to yes.  
 				{ pred_info_context(PredInfo, Context) },
 				prog_out__write_context(Context),
 				io__write_string(
