@@ -2929,6 +2929,21 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 		io__nl
 	;
 		[]
+	),
+	(
+		{ string__contains_char(Verbose, 'p') }
+	->
+		{ proc_info_reuse_information(Proc, Memo) },
+		(
+			{ Memo = yes(_) }
+		->
+			hlds_out__write_indent(Indent), 
+			io__write_string("% Reuse version. \n")
+		;
+			[]
+		)
+	;
+		[]
 	),	
 
 	hlds_out__write_indent(Indent),
