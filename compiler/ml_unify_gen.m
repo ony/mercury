@@ -148,49 +148,13 @@ ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, CanCGC),
 		{ CanFail = can_fail },
 		{ ExpectedCodeModel = model_semi },
 		ml_gen_semi_deconstruct(Var, ConsId, Args, ArgModes, Context,
-			HasSecondaryTag, MLDS_Decls, MLDS_Unif_Statements)
+			CanCGC, MLDS_Decls, MLDS_Unif_Statements)
 	;
 		{ CanFail = cannot_fail },
 		{ ExpectedCodeModel = model_det },
 		ml_gen_det_deconstruct(Var, ConsId, Args, ArgModes, Context,
-			HasSecondaryTag, MLDS_Decls, MLDS_Unif_Statements)
+			CanCGC, MLDS_Decls, MLDS_Unif_Statements)
 	),
-	(
-		%
-		% Note that we can deallocate a cell even if the
-		% unification fails, it is the responsibility of the
-		% structure reuse phase to ensure that this is safe.
-		%
-		{ CanCGC = yes },
-		ml_gen_var(Var, VarLval),
-		ml_variable_type(Var, Type),
-		ml_cons_id_to_tag(ConsId, Type, Tag),
-		{ MaybePrimaryTag = ml_primary_tag(Tag) },
-		{ 
-			HasSecondaryTag = yes,
-			SecondaryTagSize = 1
-		; 
-			HasSecondaryTag = no,
-			SecondaryTagSize = 0
-		},
-		{	
-			MaybePrimaryTag = yes(PrimaryTag),
-			Rval = binop(body, lval(VarLval),
-					ml_gen_mktag(PrimaryTag))
-		;
-			MaybePrimaryTag = no,
-			Rval = lval(VarLval)
-		},
-		{ MLDS_Stmt = atomic(delete_object(Rval,
-				list__length(Args) + SecondaryTagSize)) },
-		{ MLDS_CGC_Statements = [mlds__statement(MLDS_Stmt,
-				mlds__make_context(Context)) ] }
-	;
-		{ CanCGC = no },
-		{ MLDS_CGC_Statements = [] }
-	),
-	{ MLDS_Statements0 = MLDS_Unif_Statements `list__append`
-			MLDS_CGC_Statements },
 	%
 	% We used to require that CodeModel = ExpectedCodeModel.
 	% But the determinism field in the goal_info is allowed to
@@ -199,7 +163,7 @@ ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, CanCGC),
 	% ExpectedCodeModel.
 	%
 	ml_gen_wrap_goal(CodeModel, ExpectedCodeModel, Context,
-		MLDS_Statements0, MLDS_Statements).
+		MLDS_Unif_Statements, MLDS_Statements).
 
 ml_gen_unification(complicated_unify(_, _, _), _, _, [], []) -->
 	% simplify.m should convert these into procedure calls
@@ -1302,7 +1266,7 @@ ml_gen_cons_args_2([Lval|Lvals], [Type|Types], [UniMode|UniModes],
 		prog_context, bool, mlds__defns, mlds__statements,
 		ml_gen_info, ml_gen_info).
 :- mode ml_gen_det_deconstruct(in,
-		in, in, in, in, out, out, out, in, out) is det.
+		in, in, in, in, in, out, out, in, out) is det.
 
 %	det (cannot_fail) deconstruction:
 %		<do (X => f(A1, A2, ...))>
@@ -1312,7 +1276,7 @@ ml_gen_cons_args_2([Lval|Lvals], [Type|Types], [UniMode|UniModes],
 %		...
 
 ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
-		HasSecondaryTag, MLDS_Decls, MLDS_Statements) -->
+		CanCGC, MLDS_Decls, MLDS_Statements) -->
 	{ MLDS_Decls = [] },
 	ml_variable_type(Var, Type),
 	ml_cons_id_to_tag(ConsId, Type, Tag),
@@ -1321,35 +1285,35 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 	(
 		{ Tag = string_constant(_String) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = int_constant(_Int) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = float_constant(_Float) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = pred_closure_tag(_, _, _) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = code_addr_constant(_, _) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = type_ctor_info_constant(_, _, _) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = base_typeclass_info_constant(_, _, _) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = tabling_pointer_constant(_, _) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] }
+		{ MLDS_Stmts0 = [] }
 	;
 		{ Tag = no_tag },
 		{ HasSecondaryTag = no },
@@ -1358,7 +1322,7 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 			ml_gen_var(Arg, ArgLval),
 			ml_gen_var(Var, VarLval),
 			ml_gen_sub_unify(Mode, ArgLval, ArgType, VarLval, Type,
-				Context, [], MLDS_Statements)
+				Context, [], MLDS_Stmts0)
 		;
 			{ error("ml_code_gen: no_tag: arity != 1") }
 		)
@@ -1371,7 +1335,7 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		{ ml_tag_offset_and_argnum(Tag, _, OffSet, ArgNum) },
 		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, no,
 				Type, VarLval, OffSet, ArgNum,
-				UnsharedTag, Context, MLDS_Statements)
+				UnsharedTag, Context, MLDS_Stmts0)
 	;
 		{ Tag = shared_remote_tag(PrimaryTag, _SecondaryTag) },
 		{ HasSecondaryTag = yes },
@@ -1381,12 +1345,54 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		{ ml_tag_offset_and_argnum(Tag, _, OffSet, ArgNum) },
 		ml_gen_unify_args(ConsId, Args, Modes, ArgTypes, Fields, no,
 				Type, VarLval, OffSet, ArgNum,
-				PrimaryTag, Context, MLDS_Statements)
+				PrimaryTag, Context, MLDS_Stmts0)
 	;
 		{ Tag = shared_local_tag(_Bits1, _Num1) },
 		{ HasSecondaryTag = no },
-		{ MLDS_Statements = [] } % if this is det, then nothing happens
-	).
+		{ MLDS_Stmts0 = [] } % if this is det, then nothing happens
+	),
+	(
+			% Compile time garbage collection only occurs if
+			% the unification succeeded.
+		{ CanCGC = yes },
+		ml_compile_time_gc(Var, ConsId, Args, HasSecondaryTag,
+				Context, MLDS_CGC_Stmts)
+	;
+		{ CanCGC = no },
+		{ MLDS_CGC_Stmts = [] }
+	),
+	{ MLDS_Statements = MLDS_Stmts0 ++ MLDS_CGC_Stmts }.
+
+
+:- pred ml_compile_time_gc(prog_var::in, cons_id::in, prog_vars::in,
+		bool::in, prog_context::in, mlds__statements::out,
+		ml_gen_info::in, ml_gen_info::out) is det.
+
+ml_compile_time_gc(Var, ConsId, Args,
+		HasSecondaryTag, Context, MLDS_CGC_Statements) -->
+	ml_gen_var(Var, VarLval),
+	ml_variable_type(Var, Type),
+	ml_cons_id_to_tag(ConsId, Type, Tag),
+	{ MaybePrimaryTag = ml_primary_tag(Tag) },
+	{ 
+		HasSecondaryTag = yes,
+		SecondaryTagSize = 1
+	; 
+		HasSecondaryTag = no,
+		SecondaryTagSize = 0
+	},
+	{	
+		MaybePrimaryTag = yes(PrimaryTag),
+		Rval = binop(body, lval(VarLval),
+				ml_gen_mktag(PrimaryTag))
+	;
+		MaybePrimaryTag = no,
+		Rval = lval(VarLval)
+	},
+	{ MLDS_Stmt = atomic(delete_object(Rval,
+			list__length(Args) + SecondaryTagSize)) },
+	{ MLDS_CGC_Statements = [mlds__statement(MLDS_Stmt,
+			mlds__make_context(Context)) ] }.
 
 	% Calculate the integer offset used to reference the first field
 	% of a structure for lowlevel data or the first argument number
@@ -1715,7 +1721,7 @@ ml_gen_sub_unify(Mode, ArgLval, ArgType, FieldLval, FieldType, Context,
 		prog_context, bool, mlds__defns, mlds__statements,
 		ml_gen_info, ml_gen_info).
 :- mode ml_gen_semi_deconstruct(in,
-		in, in, in, in, out, out, out, in, out) is det.
+		in, in, in, in, in, out, out, in, out) is det.
 
 %	semidet (can_fail) deconstruction:
 %		<succeeded = (X => f(A1, A2, ...))>
@@ -1728,12 +1734,12 @@ ml_gen_sub_unify(Mode, ArgLval, ArgType, FieldLval, FieldType, Context,
 %		}
 
 ml_gen_semi_deconstruct(Var, ConsId, Args, ArgModes, Context,
-		HasSecondaryTag, MLDS_Decls, MLDS_Statements) -->
+		CanCGC, MLDS_Decls, MLDS_Statements) -->
 	ml_gen_tag_test(Var, ConsId, TagTestDecls, TagTestStatements,
 		TagTestExpression),
 	ml_gen_set_success(TagTestExpression, Context, SetTagTestResult),
 	ml_gen_det_deconstruct(Var, ConsId, Args, ArgModes, Context,
-		HasSecondaryTag, GetArgsDecls, GetArgsStatements),
+		CanCGC, GetArgsDecls, GetArgsStatements),
 	{ GetArgsDecls = [], GetArgsStatements = [] ->
 		MLDS_Decls = TagTestDecls,
 		MLDS_Statements = list__append(TagTestStatements,
