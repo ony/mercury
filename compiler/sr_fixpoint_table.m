@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -112,7 +112,7 @@ sr_fixpoint_table_new_run( Tin, Tout ) :-
 	fp_new_run(Tin,Tout).
 
 sr_fixpoint_table_which_run( Tin, Run ) :-
-	fp_which_run(Tin,Run).
+	Run = fp_which_run(Tin).
 
 sr_fixpoint_table_all_stable( TABLE ) :-
 	fp_stable(TABLE).

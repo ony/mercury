@@ -80,7 +80,7 @@ pa_fixpoint_table_new_run( Tin, Tout ) :-
 	fp_new_run(Tin,Tout).
 
 pa_fixpoint_table_which_run( Tin, Run ) :-
-	fp_which_run(Tin,Run).
+	Run = fp_which_run(Tin).
 
 pa_fixpoint_table_all_stable( TABLE ) :-
 	fp_stable(TABLE).
