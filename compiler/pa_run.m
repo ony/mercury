@@ -189,7 +189,7 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	globals__io_lookup_bool_option(very_verbose,Verbose),
 	globals__io_lookup_int_option(possible_alias_widening, WideningLimit),
 
-	{ module_info_pred_proc_info(HLDS, PRED_PROC_ID,_PredInfo,
+	{ module_info_pred_proc_info(HLDS, PRED_PROC_ID, PredInfo,
 			ProcInfo_tmp) },
 
 	% XXX annotate all lbu/lfu stuff
@@ -230,18 +230,12 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	(
 		{ predict_bottom_aliases(HLDS, ProcInfo) }
 	->
-		( 
-			{ Verbose = yes }
-		-> 
-			io__write_string("% bottom predicted")
-		; 
-			[]
-		),
+		maybe_write_string(Verbose, "% bottom predicted"),
 		{ Alias1 = Alias0 }, % = bottom 
 		{ FPtable1 = FPtable0 }
 	; 
-		{ analyse_goal(ProcInfo, HLDS, Goal, 
-			FPtable0, FPtable1, Alias0, Alias1) }
+		analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+			FPtable0, FPtable1, Alias0, Alias1) 
 	),
 
 	{ 
@@ -250,8 +244,15 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 	pa_alias_as__project(HeadVars, Alias1, Alias2),
 	ProjectSize = pa_alias_as__size(Alias2),
 
+	Goal = _ - GoalInfo,
+	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
+	instmap__init_reachable(InitIM),
+	instmap__apply_instmap_delta(InitIM, InstMapDelta, InstMap),
+	pa_alias_as__normalize(HLDS, ProcInfo, InstMap, Alias2, Alias3),
+	NormSize = pa_alias_as__size(Alias3),
+
 	pa_alias_as__apply_widening(HLDS, ProcInfo, WideningLimit, 
-			Alias2, Alias, Widening),
+			Alias3, Alias, Widening),
 		
 	pa_fixpoint_table_new_as(HLDS, ProcInfo, 
 				PRED_PROC_ID, Alias, FPtable1, FPtable)
@@ -269,10 +270,12 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 			),
 			string__int_to_string(TabledSize, TabledS), 
 			string__int_to_string(FullSize, FullS), 
-			string__int_to_string(ProjectSize, ProjectS)
+			string__int_to_string(ProjectSize, ProjectS),
+			string__int_to_string(NormSize, NormS)
 		},
 		io__write_strings(["\t\t: ", TabledS, "->", 
-					FullS, "/", ProjectS, 
+					FullS, "/", ProjectS, "/",
+					NormS,
 					"(", Stable, ")"]), 
 		(
 			{ Widening = bool__yes }
@@ -323,19 +326,17 @@ dummy_test_here(_).
 	% encountered).
 	% analyse_goal(ProcInfo, HLDS, Goal, TableIn, TableOut,
 	%		AliasIn, AliasOut).
-:- pred analyse_goal(proc_info, module_info, hlds_goal,
-				pa_fixpoint_table, pa_fixpoint_table,
-				alias_as, alias_as).
-:- mode analyse_goal(in, in, in, in, out, in, out) is det.
+:- pred analyse_goal(proc_info::in, pred_info::in, module_info::in, 
+		hlds_goal::in, pa_fixpoint_table::in, pa_fixpoint_table::out,
+		alias_as::in, alias_as::out, 
+		io__state::di, io__state::uo) is det.
 
-analyse_goal(ProcInfo, HLDS, 
-		Goal, FPtable0, FPtable, Alias0, Alias) :- 
-
-	Goal = GoalExpr - GoalInfo ,
-	analyse_goal_expr(GoalExpr, GoalInfo, 
-				ProcInfo, HLDS, 
-				FPtable0, FPtable, Alias0, Alias1),
-
+analyse_goal(ProcInfo, PredInfo, HLDS, Goal, FPtable0, FPtable, 
+		Alias0, Alias, !IO) :- 
+	Goal = GoalExpr - GoalInfo, 
+	analyse_goal_expr(GoalExpr, GoalInfo, ProcInfo, PredInfo, HLDS, 
+		FPtable0, FPtable, Alias0, Alias, !IO).
+/***
 	% extra: after the analysis of the current goal, 
 	% project the obtained alias-set (Alias1) to the set 
 	% LFUi + LBUi + HeadVars
@@ -349,34 +350,48 @@ analyse_goal(ProcInfo, HLDS,
 		pa_alias_as__project_on_live_vars(ProcInfo, GoalInfo, 
 				Alias1, Alias) 
 	).
+***/
 
 	
-:- pred analyse_goal_expr(hlds_goal_expr, 
-			   hlds_goal_info, 
-				proc_info, module_info, 
-				pa_fixpoint_table, pa_fixpoint_table,
-				alias_as, alias_as).
-:- mode analyse_goal_expr(in, in, in, in, in, out, in, out) is det.
+:- pred analyse_goal_expr(hlds_goal_expr::in, hlds_goal_info::in, 
+		proc_info::in, pred_info::in, module_info::in, 
+		pa_fixpoint_table::in, pa_fixpoint_table::out,
+		alias_as::in, alias_as::out, 
+		io__state::di, io__state::uo) is det.
 
-analyse_goal_expr(conj(Goals), _Info, ProcInfo, HLDS , T0, T, A0, A) :-
-	list__foldl2(analyse_goal(ProcInfo, HLDS),  Goals, 
-		T0, T, A0, A).
+analyse_goal_expr(conj(Goals), _Info, ProcInfo, PredInfo, 
+		HLDS , !Table, !Alias, !IO) :- 
+	list__foldl3(analyse_goal(ProcInfo, PredInfo, HLDS),  Goals, 
+		!Table, !Alias, !IO). 
 
-analyse_goal_expr(call(PredID, ProcID, ARGS, _,_, _PName), _Info, 
-			ProcInfo, HLDS, T0, T, A0, A):- 
-	PRED_PROC_ID = proc(PredID, ProcID),
-	lookup_call_alias(PRED_PROC_ID, HLDS, T0, T, CallAlias), 
+analyse_goal_expr(call(PredId, ProcId, ARGS, _,_, _PName), _Info, 
+		ProcInfo, _PredInfo, HLDS, !Table, !Alias, !IO) :- 
+% 	write_proc_progress_message("\n--> Call to ", 
+%			PredId, ProcId, HLDS, !IO),
+	PredProcId = proc(PredId, ProcId),
+	lookup_call_alias(PredProcId, HLDS, !Table, CallAlias),
+%	module_info_pred_info(HLDS, PredId, PredInfoLookedUp),
+%	io__write_string("--> Looked up aliases: ", !IO), 
+%	io__write_strings(["(size = ", int_to_string(size(CallAlias)), 
+%			") "], !IO),
+%	print_brief_aliases(5, CallAlias, ProcInfo, PredInfoLookedUp, !IO),
+%	io__write_string("\n--> Existing aliases: ", !IO),
+%	io__write_strings(["(size = ", int_to_string(size(!.Alias)), 
+%			") "], !IO),
+%	print_brief_aliases(5, !.Alias, ProcInfo, PredInfo, !IO),
+	
 	proc_info_vartypes(ProcInfo, VarTypes), 
-	list__map(
-		map__lookup(VarTypes), 
-		ARGS, 
-		ActualTypes),
-	rename_call_alias(PRED_PROC_ID, HLDS, ARGS, ActualTypes, 
+	list__map(map__lookup(VarTypes), ARGS, ActualTypes),
+	rename_call_alias(PredProcId, HLDS, ARGS, ActualTypes, 
 				CallAlias, RenamedCallAlias),
-	pa_alias_as__extend(HLDS, ProcInfo, RenamedCallAlias, A0, A).
+	pa_alias_as__extend(HLDS, ProcInfo, RenamedCallAlias, !Alias).
+%	io__write_string("\n--> Extended aliases: ", !IO),
+%	io__write_strings(["(size = ", int_to_string(size(!.Alias)), 
+%			") "],!IO),
+%	print_brief_aliases(5, !.Alias, ProcInfo, PredInfo, !IO).
 
 analyse_goal_expr(generic_call(GenCall,_,_,_), Info, 
-				_ProcInfo, _HLDS , T, T, A0, A):- 
+		_ProcInfo, _P, _HLDS , !Table, !Alias, !IO) :-
 	(
 		GenCall = higher_order(_, _, _),
 		Text = "higher_order"
@@ -391,89 +406,115 @@ analyse_goal_expr(generic_call(GenCall,_,_,_), Info,
 	term__context_line(Context, ContextLine), 
 	term__context_file(Context, ContextFile), 
 	string__int_to_string(ContextLine, ContextLineS), 
-
 	string__append_list(["generic_call:",Text," (",ContextFile, ":", 
 				ContextLineS, ")"], Msg), 
-	
-	pa_alias_as__top(A0, Msg, A). 
+	pa_alias_as__top(Msg, !Alias). 
 	% error("(pa) generic_call not handled") .
 
 analyse_goal_expr(switch(_Var,_CF,Cases), Info, 
-				ProcInfo, HLDS, T0, T, A0, A):-
-	list__map_foldl(analyse_case(ProcInfo, HLDS, A0), 
-				Cases, SwitchAliases, T0, T),
+		ProcInfo, PredInfo, HLDS, !Table, !Alias, !IO) :- 
+	list__map_foldl2(analyse_case(ProcInfo, PredInfo, HLDS, !.Alias), 
+				Cases, SwitchAliases, !Table, !IO),
 	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info, 
-				SwitchAliases, A).
+				SwitchAliases, !:Alias).
 
-:- pred analyse_case(proc_info, module_info, 
-			alias_as, case, alias_as, 
-		   	pa_fixpoint_table,
-			pa_fixpoint_table).
-:- mode analyse_case(in, in, in, in, out, in, out) is det.
+:- pred analyse_case(proc_info::in, pred_info::in, module_info::in, 
+		alias_as::in, case::in, alias_as::out, 
+		pa_fixpoint_table::in, pa_fixpoint_table::out, 
+		io__state::di, io__state::uo) is det.
 
-analyse_case(ProcInfo, HLDS, Alias0, CASE, Alias, T0, T):-
-	CASE = case(_, Goal),
-	analyse_goal(ProcInfo, HLDS, Goal, T0, T, Alias0, Alias).
+analyse_case(ProcInfo, PredInfo, HLDS, Alias0, Case, Alias, !Table, !IO) :-
+	Case = case(_, Goal),
+	analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+		!Table, Alias0, Alias, !IO).
 
-analyse_goal_expr(unify(_,_,_,Unification,_), Info, ProcInfo, HLDS, 
-			T, T, A0, A):-
-	pa_alias_as__extend_unification(HLDS, ProcInfo, Unification, 
-				Info, A0, A).
+analyse_goal_expr(unify(_,_,_,Unification,_), Info, ProcInfo, _PredInfo, 
+		HLDS, !Table, !Alias, !IO) :- 
+	% io__write_string("\n--> Unification.", !IO),
+	% io__write_string("\n--> Existing aliases: ", !IO),
+	% io__write_strings(["(size = ", int_to_string(size(A0)), 
+			% ") "], !IO),
+	% io__write_string("\n", !IO),
+	% print_aliases(A0, ProcInfo, PredInfo, !IO),
+	pa_alias_as__extend_unification(HLDS, ProcInfo, 
+		Unification, Info, !Alias). 
+	% io__write_string("\n--> Extended aliases: ", !IO),
+	% io__write_strings(["(size = ", int_to_string(size(A)), 
+			% ") "], !IO),
+	% print_aliases(A, ProcInfo, PredInfo, !IO).
 
-analyse_goal_expr(disj(Goals), Info, ProcInfo, HLDS, T0, T, A0, A):-
-	list__map_foldl(
-		pred(Goal::in, Alias::out, FPT0::in, FPT::out) is det :- 
-			(analyse_goal(ProcInfo, HLDS, Goal, 
-					FPT0, FPT, A0, Alias)),
+analyse_goal_expr(disj(Goals), Info, ProcInfo, PredInfo, HLDS, 
+		!Table, !Alias, !IO) :-
+%	io__write_string("\n--> Disjunction", !IO),
+	list__map_foldl2(
+		pred(Goal::in, Alias::out, FPT0::in, FPT::out, 
+			IO0::di, IO::uo) is det :- 
+			(analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+					FPT0, FPT, !.Alias, Alias, IO0, IO)),
 		Goals,
 		DisjAliases,
-		T0, T),
+		!Table, !IO), 
+%	io__write_string("\n-->Disjunction, lub."),
+%	list__foldl(
+%		pred(AA::in, IO0::di, IO::uo) is det :-
+%			( io__write_string("\n--> --> Branch.", IO0, IO1),
+%			io__write_strings(["(size = ", 
+%					int_to_string(size(AA)), 
+%				") "], IO1, IO2),
+%			io__write_string("\n", IO2, IO3),
+%			print_aliases(AA, ProcInfo, PredInfo, IO3, IO) ),
+%			DisjAliases),
 	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info, 
-				DisjAliases, A).
+		DisjAliases, !:Alias).
+%	io__write_string("\n--> LUB"),
+%	io__write_strings(["(size = ", int_to_string(size(A)), 
+%			") "]),
+%	io__write_string("\n"),
+%	print_aliases(A, ProcInfo, PredInfo).
 
-analyse_goal_expr(not(Goal), _Info, ProcInfo, HLDS , T0, T, A0, A):-
-	analyse_goal(ProcInfo, HLDS, Goal, T0, T, A0, A).
+analyse_goal_expr(not(Goal), _Info, ProcInfo, PredInfo, 
+		HLDS, !Table, !Alias, !IO) :- 
+	analyse_goal(ProcInfo, PredInfo, HLDS, Goal, !Table, !Alias, !IO). 
 
-analyse_goal_expr(some(Vars,_,Goal), _Info, ProcInfo, HLDS , T0, T, A0, A):-
+analyse_goal_expr(some(Vars,_,Goal), _Info, ProcInfo, PredInfo, 
+		HLDS, !Table, !Alias, !IO) :- 
 	(
 		Vars = []
 	->
 		% XXX
-		analyse_goal(ProcInfo, HLDS, Goal, T0, T, A0, A)
+		analyse_goal(ProcInfo, PredInfo, HLDS, Goal, 
+			!Table, !Alias, !IO) 
 	;
-		require__error("(pa_run) analyse_goal_expr: some should have empty vars.")
+		Msg = "(pa_run) analyse_goal_expr: empty vars expected.",
+		require__error(Msg)
 	).
 	% pa_alias_as__top("some not handled", A).
 	% error("(pa) some goal not handled") .
 
 analyse_goal_expr(if_then_else(_VARS, IF, THEN, ELSE), _Info, 
-			ProcInfo,
-			HLDS , T0, T, A0, A) :- 
-	analyse_goal(ProcInfo, HLDS, IF, T0, T1, A0, A1),
-	analyse_goal(ProcInfo, HLDS, THEN, T1, T2, A1, A2),
-	analyse_goal(ProcInfo, HLDS, ELSE, T2, T, A0, A3),
+		ProcInfo, PredInfo, HLDS, !Table, A0, A, !IO) :- 
+	analyse_goal(ProcInfo, PredInfo, HLDS, IF, !Table, A0, A1, !IO),
+	analyse_goal(ProcInfo, PredInfo, HLDS, THEN, !Table, A1, A2, !IO),
+	analyse_goal(ProcInfo, PredInfo, HLDS, ELSE, !Table, A0, A3, !IO),
 	pa_alias_as__least_upper_bound(HLDS, ProcInfo, A2, A3, A).
 
 analyse_goal_expr(foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
-			Info, ProcInfo, HLDS, 
-			T, T, Ain, A) :- 
+		Info, ProcInfo, _PredInfo, HLDS, !Table, !Alias, !IO) :- 
 	extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
-			Vars, MaybeModes, Types, Info, Ain, A). 
+			Vars, MaybeModes, Types, Info, !Alias).
 
-	% error("(pa) pragma_c_code not handled") .
-analyse_goal_expr(par_conj(_Goals), Info, _, _ , T, T, A0, A) :-  
+analyse_goal_expr(par_conj(_Goals), Info, _, _ , _, !Table, !Alias, !IO) :- 
 	goal_info_get_context(Info, Context), 
 	term__context_line(Context, ContextLine), 
 	term__context_file(Context, ContextFile), 
 	string__int_to_string(ContextLine, ContextLineS), 
-
 	string__append_list(["par_conj:",
 				" (",ContextFile, ":", 
 				ContextLineS, ")"], Msg), 
-	pa_alias_as__top(A0, Msg, A).
+	pa_alias_as__top(Msg, !Alias).
 
-analyse_goal_expr(shorthand(_), _, _,  _ , _, _, _, _) :- 
+analyse_goal_expr(shorthand(_), _, _,  _, _, !T, !A, !IO) :- 
 	error("pa_run__analyse_goal_expr: shorthand goal").
 
 %-----------------------------------------------------------------------------%

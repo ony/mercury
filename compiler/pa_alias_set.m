@@ -117,6 +117,10 @@
 		string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
+:- pred print_brief(int::in, pred_info::in, proc_info::in, alias_set::in, 
+		string::in, string::in, 
+		io__state::di, io__state::uo) is det.
+
 	% print(PredInfo, ProcInfo, AliasSet, StartingString,
 	% MiddleString, EndString)
 	% Prints each alias as a parsable pair of datastructs. Each alias
@@ -124,6 +128,11 @@
 	% Between aliases, the MiddleString is printed. 
 :- pred print(pred_info::in, proc_info::in, alias_set::in, 
 		string::in, string::in, string::in, 
+		io__state::di, io__state::uo) is det.
+
+:- pred print_brief(maybe(int)::in, pred_info::in, proc_info::in,
+		alias_set::in, string::in, 
+		string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
@@ -474,8 +483,10 @@ extend(ModuleInfo, ProcInfo, NewAliasSet, OldAliasSet, AliasSet):-
 	altclos_two(ModuleInfo, ProcInfo, OldNewAliasSet, NewAliasSet, 
 		_, FullNewOldNewAliasSet), 
 
+		% Compute the least upper bound of all the different
+		% alias-sets.
 	list__foldl(
-		add,
+		least_upper_bound(ModuleInfo, ProcInfo),
 		[ NewAliasSet, FullOldNewAliasSet, 
 		  FullNewOldNewAliasSet ], 
 		OldAliasSet, 
@@ -641,9 +652,8 @@ apply_widening(ModuleInfo, ProcInfo, Threshold, AliasSet0, AliasSet,
 	( 
 		Threshold \= 0
 	-> 
-		normalize(ModuleInfo, ProcInfo, AliasSet0, AliasSet01),
 		(
-			size(AliasSet01) > Threshold
+			size(AliasSet0) > Threshold
 		-> 
 			alias_set_map_values_with_key(
 				alias_set2_apply_widening(ModuleInfo, ProcInfo),
@@ -663,12 +673,36 @@ apply_widening(ModuleInfo, ProcInfo, Threshold, AliasSet0, AliasSet,
 print(PredInfo, ProcInfo, AliasSet, StartingString, EndString) -->
 	print(PredInfo, ProcInfo, AliasSet, StartingString, ", ", EndString).
 
+print_brief(Threshold, PredInfo, ProcInfo, AliasSet, 
+		StartingString, EndString) --> 
+	print_brief(yes(Threshold), PredInfo, ProcInfo, AliasSet, 
+		StartingString, ", ", EndString).
+
 print(PredInfo, ProcInfo, AliasSet, StartingString, MiddleString, 
 		EndString) --> 
+	print_brief(no, PredInfo, ProcInfo, AliasSet, 
+		StartingString, MiddleString, EndString).
+
+print_brief(MaybeThreshold, PredInfo, ProcInfo, AliasSet, 
+		StartingString, MiddleString, EndString) --> 
 	{ to_pair_alias_list(AliasSet, AliasList) },
-	io__write_list(AliasList, MiddleString, 
+	(
+		{ MaybeThreshold = yes(Limit) }
+ 	-> 
+		{ list__take_upto(Limit, AliasList, NewList) }
+	; 
+		{ NewList = AliasList }
+	),
+	io__write_list(NewList, MiddleString, 
 		pa_alias__print(ProcInfo, PredInfo, StartingString, 
-			EndString)).
+			EndString)),
+	(
+		{ MaybeThreshold = yes(_) }
+	-> 
+		io__write_string("...")
+	;
+		[]
+	).
 
 
 :- pred alias_set_fold(pred(alias_set2, alias_set2), 
@@ -929,9 +963,13 @@ alias_set2_least_upper_bound(ModuleInfo, Type,
 		Map0, 
 		Map1,
 		Map),
-	alias_set2_add(alias_sel_set(0,Map), SelectorSet0, SelectorSet).
+	alias_set2_recount(alias_sel_set(0,Map), SelectorSet).
+	% alias_set2_add(alias_sel_set(0,Map), SelectorSet0, SelectorSet).
 
-	% alias_set2_lub(ModuleInfo, Type, Pair, Map0, Map):-
+	% alias_set2_lub(ModuleInfo, Type, Selector, DataSet, Map0, Map):-
+	% Add the data set "Data Set" for the selector "Selector" into the 
+	% selectorset Map0 (type --> map(selector,dataset)).
+	
 	% Least upper bound between a real selectorset (Map0), and one
 	% single entry of another selectorset (Pair).
 	% precondition: the first selectorset is minimal (i.e., does
@@ -962,7 +1000,8 @@ alias_set2_lub(ModuleInfo, Type, Sel0, DataSet0, M0, M):-
 			data_set_add(DataSetA, DataSet, DataSetNew),
 			map__det_update(M1, Sel0, DataSetNew, M)
 		;	
-			map__det_insert(M1, Sel0, DataSet0, M)
+			% map__det_insert(M1, Sel0, DataSet0, M)
+			map__det_insert(M1, Sel0, DataSet, M)
 		)
 	).
 
@@ -1008,8 +1047,15 @@ alias_set2_lub2(ModuleInfo, Type, FirstSel0, OtherSel,
 			data_set_difference(OtherDataSet0, 
 						FirstDataSet0TS, 
 						OtherDataSet), 
-			map__det_update(OtherMap0, OtherSel, OtherDataSet, 
-						OtherMap),
+			(
+				data_set_empty(OtherDataSet)
+			-> 
+				map__delete(OtherMap0, OtherSel, OtherMap)
+			;
+				map__det_update(OtherMap0, OtherSel, 
+						OtherDataSet, 
+						OtherMap)
+			),
 			FirstDataSet = FirstDataSet0
 		;
 			FirstDataSet = FirstDataSet0, 

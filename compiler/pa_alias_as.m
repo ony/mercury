@@ -34,7 +34,11 @@
 :- pred is_bottom(alias_as::in) is semidet.
 
 :- pred top(string::in, alias_as::out) is det.
-:- pred top(alias_as::in, string::in, alias_as::out) is det.
+
+	% top(String, AliasIn, AliasOut). 
+	% Set the current alias to be Top. If the current alias is already
+	% top, add the string to the list of strings explaining that top. 
+:- pred top(string::in, alias_as::in, alias_as::out) is det.
 :- pred is_top(alias_as::in) is semidet.
 
 	% Compute the size of the set of pairs of aliased data structures as
@@ -158,6 +162,10 @@
 
 	% Specialized extend for unifications. This corresponds to the "add"
 	% operation used in Nancy's Phd-textbook. 
+:- pred extend_unification(module_info::in, proc_info::in, pred_info::in,
+		hlds_goal__unification::in, hlds_goal__hlds_goal_info::in, 
+		alias_as::in, alias_as::out, 
+		io__state::di, io__state::uo) is det.
 :- pred extend_unification(module_info::in, proc_info::in, 
 		hlds_goal__unification::in, hlds_goal__hlds_goal_info::in, 
 		alias_as::in, alias_as::out) is det.
@@ -222,6 +230,9 @@
 	% switched on. 
 :- pred print_aliases(alias_as, proc_info, pred_info, io__state, io__state).
 :- mode print_aliases(in, in, in, di, uo) is det.
+
+:- pred print_brief_aliases(int::in, alias_as::in, proc_info::in,
+		pred_info::in, io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
 % Parsing routines. 
@@ -339,11 +350,11 @@ top(Msg, top([NewMsg])):-
 	% string__append_list(["- ",Msg," -"],NewMsg).
 	NewMsg = Msg.
 
-top(Alias, Msg, top(Msgs)):-
+top(Msg, Alias, top(Msgs)):-
 	(
 		Alias = top(FirstMsgs)
 	->
-		Msgs = FirstMsgs
+		Msgs = [Msg|FirstMsgs]
 	;
 		Msgs = [Msg]
 	).
@@ -589,7 +600,10 @@ add(AS1, AS2, AS) :-
 extend_unification(HLDS, ProcInfo, Unif, GoalInfo, ASin, ASout):-
 	pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif),
 	from_pair_alias_list(AUnif, AliasSetUnif), 
-	wrap(AliasSetUnif, ASUnif),
+	wrap(AliasSetUnif, ASUnif0),
+		% pa_alias__from_unification does not ensure that the created
+		% aliases are normalized, hence this must be explicitly done: 
+	normalize_wti(HLDS, ProcInfo, ASUnif0, ASUnif),
 	extend(HLDS, ProcInfo, ASUnif, ASin, ASout0), 
 	(
 		Unif = construct(_, _, _, _, _, _, _)
@@ -598,6 +612,31 @@ extend_unification(HLDS, ProcInfo, Unif, GoalInfo, ASin, ASout):-
 	;
 		ASout = ASout0
 	).
+
+extend_unification(HLDS, ProcInfo, PredInfo, Unif, GoalInfo, ASin, ASout) --> 
+	{ pa_alias__from_unification(HLDS, ProcInfo, Unif, GoalInfo, AUnif) },
+	{ from_pair_alias_list(AUnif, AliasSetUnif) } ,
+	{ wrap(AliasSetUnif, ASUnif0) },
+		% pa_alias__from_unification does not ensure that the created
+		% aliases are normalized, hence this must be explicitly done: 
+	{ normalize_wti(HLDS, ProcInfo, ASUnif0, ASUnif) },
+	io__write_string("\n--> New aliases: "),
+	io__write_strings(["(size = ", 
+			int_to_string(pa_alias_as__size(ASUnif)), 
+			"/",
+			int_to_string(list__length(AUnif)),
+			") "]),
+	print_aliases(ASUnif, ProcInfo, PredInfo),
+	{
+	extend(HLDS, ProcInfo, ASUnif, ASin, ASout0), 
+	(
+		Unif = construct(_, _, _, _, _, _, _)
+	-> 
+		optimization_remove_deaths(ProcInfo, ASout0, GoalInfo, ASout)
+	;
+		ASout = ASout0
+	)}.
+
 
 :- pred optimization_remove_deaths(proc_info, alias_as, 
 					hlds_goal_info, alias_as).
@@ -927,6 +966,22 @@ print_aliases(AS, ProcInfo, PredInfo) -->
 	->
 		io__write_string("["),
 		print(PredInfo, ProcInfo, Aliases, 
+				" ", ""),
+		io__write_string("]")
+	;
+		{ AS = top(_Msgs) }
+	->
+		io__write_string("top")
+	;
+		io__write_string("bottom")
+	).
+
+print_brief_aliases(Threshold, AS, ProcInfo, PredInfo) --> 
+	(
+		{ AS = real_as(Aliases) }
+	->
+		io__write_string("["),
+		print_brief(Threshold, PredInfo, ProcInfo, Aliases, 
 				" ", ""),
 		io__write_string("]")
 	;
