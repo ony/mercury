@@ -133,8 +133,7 @@ void finalize_engine(MercuryEngine *eng)
 
 /*---------------------------------------------------------------------------*/
 
-MercuryEngine *
-create_engine(void)
+MercuryEngine *create_engine(void)
 {
 	MercuryEngine *eng;
 
