@@ -42,7 +42,7 @@
 :- import_module bitmap.
 :- import_module hash_table.
 
-:- import_module robdd.
+:- import_module robdd, unsafe.
 
 :- import_module builtin, private_builtin, table_builtin, profiling_builtin.
 
