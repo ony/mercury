@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2000-2001 The University of Melbourne.
+** Copyright (C) 2000-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -48,7 +48,7 @@ start_label:
     MR_register_type_ctor_stat(&type_stat_struct, type_ctor_info);
 #endif
 
-    switch (type_ctor_info->type_ctor_rep) {
+    switch (MR_type_ctor_rep(type_ctor_info)) {
 
 #ifdef  MR_COMPARE_BY_RTTI
 
@@ -56,12 +56,12 @@ start_label:
             MR_save_transient_hp();
             type_info = MR_create_type_info(
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
-                type_ctor_info->type_layout.layout_equiv);
+                MR_type_ctor_layout(type_ctor_info).layout_equiv);
             MR_restore_transient_hp();
             goto start_label;
 
         case MR_TYPECTOR_REP_EQUIV_GROUND:
-            type_info = (MR_TypeInfo) type_ctor_info->type_layout.layout_equiv;
+            type_info = (MR_TypeInfo) MR_type_ctor_layout(type_ctor_info).layout_equiv;
             goto start_label;
 
         case MR_TYPECTOR_REP_EQUIV_VAR:
@@ -71,15 +71,19 @@ start_label:
             MR_save_transient_hp();
             type_info = MR_create_type_info(
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
-                type_ctor_info->type_layout.layout_notag->
+                MR_type_ctor_layout(type_ctor_info).layout_notag->
                 MR_notag_functor_arg_type);
             MR_restore_transient_hp();
             goto start_label;
 
         case MR_TYPECTOR_REP_NOTAG_GROUND:
-            type_info = (MR_TypeInfo) type_ctor_info->type_layout.
+            type_info = (MR_TypeInfo) MR_type_ctor_layout(type_ctor_info).
                 layout_notag->MR_notag_functor_arg_type;
             goto start_label;
+
+        case MR_TYPECTOR_REP_RESERVED_ADDR:
+            MR_fatal_error("sorry, not implemented: "
+		    	"MR_COMPARE_BY_RTTI for RESERVED_ADDR");
 
         case MR_TYPECTOR_REP_DU:
             {
@@ -113,7 +117,7 @@ start_label:
                     int                     sectag;                           \
                                                                               \
                     ptag = MR_tag(data);                                      \
-                    ptaglayout = &type_ctor_info->type_layout.layout_du[ptag];\
+                    ptaglayout = &MR_type_ctor_layout(type_ctor_info).layout_du[ptag];\
                     data_value = (MR_Word *) MR_body(data, ptag);             \
                                                                               \
                     switch (ptaglayout->MR_sectag_locn) {                     \
@@ -160,7 +164,7 @@ start_label:
                     return_answer(FALSE);
                 }
 
-                ptaglayout = &type_ctor_info->type_layout.layout_du[x_ptag];
+                ptaglayout = &MR_type_ctor_layout(type_ctor_info).layout_du[x_ptag];
                 x_data_value = (MR_Word *) MR_body(x, x_ptag);
                 y_data_value = (MR_Word *) MR_body(y, y_ptag);
 
@@ -288,15 +292,16 @@ start_label:
 
         case MR_TYPECTOR_REP_EQUIV:
         case MR_TYPECTOR_REP_EQUIV_GROUND:
-        case MR_TYPECTOR_REP_EQUIV_VAR:
         case MR_TYPECTOR_REP_NOTAG:
         case MR_TYPECTOR_REP_NOTAG_GROUND:
+        case MR_TYPECTOR_REP_RESERVED_ADDR:
         case MR_TYPECTOR_REP_DU:
             /* fall through */
 
 #endif
 
         case MR_TYPECTOR_REP_ENUM_USEREQ:
+        case MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ:
         case MR_TYPECTOR_REP_DU_USEREQ:
         case MR_TYPECTOR_REP_NOTAG_USEREQ:
         case MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ:
@@ -316,12 +321,12 @@ start_label:
             ** may be worthwhile.
             */
 
-            if (type_ctor_info->arity == 0) {
+            if (type_ctor_info->MR_type_ctor_arity == 0) {
                 MR_r1 = x;
                 MR_r2 = y;
             }
 #ifdef  MR_UNIFY_COMPARE_BY_CTOR_REP_SPEC_1
-            else if (type_ctor_info->arity == 1) {
+            else if (type_ctor_info->MR_type_ctor_arity == 1) {
                 MR_Word    *args_base;
 
                 args_base = (MR_Word *)
@@ -332,7 +337,7 @@ start_label:
             }
 #endif
 #ifdef  MR_UNIFY_COMPARE_BY_CTOR_REP_SPEC_2
-            else if (type_ctor_info->arity == 2) {
+            else if (type_ctor_info->MR_type_ctor_arity == 2) {
                 MR_Word    *args_base;
 
                 args_base = (MR_Word *)
@@ -348,7 +353,7 @@ start_label:
                 int     type_arity;
                 MR_Word *args_base;
 
-                type_arity = type_ctor_info->arity;
+                type_arity = type_ctor_info->MR_type_ctor_arity;
                 args_base = (MR_Word *)
                     MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
                 MR_save_registers();
@@ -548,14 +553,46 @@ start_label:
 #endif
             }
 
+        case MR_TYPECTOR_REP_TYPECTORINFO:
+            {
+                int result;
+
+                MR_save_transient_registers();
+                result = MR_compare_type_ctor_info(
+                    (MR_TypeCtorInfo) x, (MR_TypeCtorInfo) y);
+                MR_restore_transient_registers();
+#ifdef	select_compare_code
+  #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
+                compare_call_exit_code(typectorinfo_compare);
+  #endif
+                return_answer(result);
+#else
+  #if defined(MR_DEEP_PROFILING) && defined(entry_point_is_mercury)
+                if (result == MR_COMPARE_EQUAL) {
+                    unify_call_exit_code(typectorinfo_unify);
+                    return_answer(TRUE);
+                } else {
+                    unify_call_fail_code(typectorinfo_unify);
+                    return_answer(FALSE);
+                }
+  #else
+                return_answer(result == MR_COMPARE_EQUAL);
+  #endif
+#endif
+            }
+
         case MR_TYPECTOR_REP_VOID:
             MR_fatal_error(attempt_msg "terms of type `void'");
 
+        case MR_TYPECTOR_REP_FUNC:
         case MR_TYPECTOR_REP_PRED:
             MR_fatal_error(attempt_msg "higher-order terms");
 
         case MR_TYPECTOR_REP_TYPECLASSINFO:
             MR_fatal_error(attempt_msg "typeclass_infos");
+
+        case MR_TYPECTOR_REP_BASETYPECLASSINFO:
+            MR_fatal_error(attempt_msg "base_typeclass_infos");
 
         case MR_TYPECTOR_REP_UNKNOWN:
             MR_fatal_error(attempt_msg "terms of unknown type");

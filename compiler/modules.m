@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -39,7 +39,7 @@
 
 :- interface.
 
-:- import_module prog_data, prog_io, globals, timestamp.
+:- import_module foreign, prog_data, prog_io, globals, timestamp.
 :- import_module std_util, bool, list, map, set, io.
 
 %-----------------------------------------------------------------------------%
@@ -277,6 +277,9 @@
 		foreign_code :: contains_foreign_code,
 				% Whether or not the module contains
 				% foreign code (and which languages if it does)
+		foreign_import_module_info :: foreign_import_module_info,
+				% The `:- pragma foreign_import_module'
+				% declarations.
 		items :: item_list,
 				% The contents of the module and its imports
 		error :: module_error,
@@ -387,8 +390,10 @@
 
 	% Given a module (well, a list of items), split it into
 	% its constituent sub-modules, in top-down order.
-	% Report an error if the `implementation' section of a sub-module
-	% is contained inside the `interface' section of its parent module.
+	% Also do some error checking:
+	% - report an error if the `implementation' section of a sub-module
+	%   is contained inside the `interface' section of its parent module
+	% - check for modules declared as both nested and separate sub-modules.
 
 :- type module_list == list(pair(module_name, item_list)).
 
@@ -635,7 +640,9 @@ mercury_std_library_module("bool").
 mercury_std_library_module("bt_array").
 mercury_std_library_module("builtin").
 mercury_std_library_module("char").
+mercury_std_library_module("construct").
 mercury_std_library_module("counter").
+mercury_std_library_module("deconstruct").
 mercury_std_library_module("dir").
 mercury_std_library_module("enum").
 mercury_std_library_module("eqvclass").
@@ -684,6 +691,7 @@ mercury_std_library_module("term").
 mercury_std_library_module("term_io").
 mercury_std_library_module("time").
 mercury_std_library_module("tree234").
+mercury_std_library_module("type_desc").
 mercury_std_library_module("varset").
 
 	% It is not really clear what the naming convention
@@ -1139,8 +1147,10 @@ split_clauses_and_decls([ItemAndContext0 | Items0],
 % header file, which currently we don't.
 
 pragma_allowed_in_interface(foreign_decl(_, _), no).
+pragma_allowed_in_interface(foreign_import_module(_, _), no).
 pragma_allowed_in_interface(foreign_code(_, _), no).
 pragma_allowed_in_interface(foreign_proc(_, _, _, _, _, _), no).
+pragma_allowed_in_interface(foreign_type(_, _, _), yes).
 pragma_allowed_in_interface(inline(_, _), no).
 pragma_allowed_in_interface(no_inline(_, _), no).
 pragma_allowed_in_interface(obsolete(_, _), yes).
@@ -1554,7 +1564,7 @@ find_read_module(ReadModules, ModuleName, Suffix, ReturnTimestamp,
 init_module_imports(SourceFileName, ModuleName, Items, PublicChildren,
 			FactDeps, MaybeTimestamps, Module) :-
 	Module = module_imports(SourceFileName, ModuleName, [], [], [], [],
-		PublicChildren, FactDeps, unknown, Items, no_module_errors,
+		PublicChildren, FactDeps, unknown, [], Items, no_module_errors,
 		MaybeTimestamps).
 
 module_imports_get_source_file_name(Module, Module ^ source_file_name).
@@ -1784,7 +1794,8 @@ warn_if_duplicate_use_import_decls(ModuleName,
 write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 	{ Module = module_imports(SourceFileName, ModuleName, ParentDeps,
 			IntDeps, ImplDeps, IndirectDeps, _InclDeps, FactDeps0,
-			ContainsForeignCode, Items, _Error, _Timestamps) },
+			ContainsForeignCode, ForeignImports0,
+			Items, _Error, _Timestamps) },
 	globals__io_lookup_bool_option(verbose, Verbose),
 	{ module_name_to_make_var_name(ModuleName, MakeVarName) },
 	module_name_to_file_name(ModuleName, ".d", yes, DependencyFileName),
@@ -1877,7 +1888,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			string__remove_suffix(SourceFileName, ".m",
 				SourceFileBase)
 		->
-			string__append(SourceFileBase, ".err", ErrFileName)
+			ErrFileName = SourceFileBase ++ ".err"
 		;
 			error("modules.m: source file doesn't end in `.m'")
 		},
@@ -2005,25 +2016,47 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				ObjFileName, " ",
 				SplitObjPattern, " :"
 			]),
-			write_dependencies_list(AllDeps, ".h", DepStream),
-
-			%
-			% We also need to tell make how to make the header
-			% files.  The header files are actually built by
-			% the same command that creates the .c files, so
-			% we just make them depend on the .c files.
-			%
-			module_name_to_file_name(ModuleName, ".c", no,
-							CFileName),
-			module_name_to_file_name(ModuleName, ".h", no,
-							HeaderFileName),
-			io__write_strings(DepStream, [
-					"\n\n", HeaderFileName, 
-					" : ", CFileName
-			])
+			write_dependencies_list(AllDeps, ".h", DepStream)
 		;
 			[]
 		),
+
+		%
+		% We need to tell make how to make the header
+		% files.  The header files are actually built by
+		% the same command that creates the .c or .s file,
+		% so we just make them depend on the .c or .s files.
+		% This is needed for the --high-level-code rule above,
+		% and for the rules introduced for
+		% `:- pragma foreign_import_module' declarations.
+		% In some grades the header file won't actually be built
+		% (e.g. LLDS grades for modules not containing
+		% `:- pragma export' declarations), but this
+		% rule won't do any harm.
+		%
+		module_name_to_file_name(ModuleName, ".c", no, CFileName),
+		module_name_to_file_name(ModuleName, ".s", no, AsmFileName),
+		module_name_to_file_name(ModuleName, ".h", no, HeaderFileName),
+		io__write_strings(DepStream, [
+				"\n\n",
+				"ifeq ($(TARGET_ASM),yes)\n",
+				HeaderFileName, " : ", AsmFileName, "\n",
+				"else\n",
+				HeaderFileName, " : ", CFileName, "\n",
+				"endif"
+		]),
+
+		% The .date and .date0 files depend on the .int0 files
+		% for the parent modules, and the .int3 files for the
+		% directly and indirectly imported modules.
+		%
+		% For nested sub-modules, the `.date' files for the
+		% parent modules also depend on the same things as the
+		% `.date' files for this module, since all the `.date'
+		% files will get produced by a single mmc command.
+		% XXX The same is true for the `.date0' files, but
+		% including those dependencies here might result in
+		% cyclic dependencies(?).
 
 		module_name_to_file_name(ModuleName, ".date", no,
 						DateFileName),
@@ -2031,13 +2064,17 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 						Date0FileName),
 		io__write_strings(DepStream, [
 				"\n\n", DateFileName, " ",
-				Date0FileName, " : ",
+				Date0FileName
+		]),
+		write_dependencies_list(ParentDeps, ".date", DepStream),
+		io__write_strings(DepStream, [
+				" : ",
 				SourceFileName
 		]),
 		write_dependencies_list(ParentDeps, ".int0", DepStream),
 		write_dependencies_list(LongDeps, ".int3", DepStream),
 		write_dependencies_list(ShortDeps, ".int3", DepStream),
-			
+
 		module_name_to_file_name(ModuleName, ".dir", no, DirFileName),
 		module_name_to_split_c_file_name(ModuleName, 0, ".$O",
 			SplitCObj0FileName),
@@ -2071,12 +2108,36 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			[]
 		),
 		
-		{ ContainsForeignCode = contains_foreign_code(LangSet)
+		{ ContainsForeignCode = contains_foreign_code(LangSet),
+			ForeignImports = ForeignImports0
 		; ContainsForeignCode = unknown,
-			get_item_list_foreign_code(Globals, Items, LangSet)
+			get_item_list_foreign_code(Globals, Items,
+				LangSet, ForeignImports)
 		; ContainsForeignCode = no_foreign_code,
-			set__init(LangSet)
+			set__init(LangSet),
+			ForeignImports = ForeignImports0
 		},
+
+		%
+		% Handle dependencies introduced by
+		% `:- pragma foreign_import_module' declarations.
+		%
+		{ ForeignImportedModules =
+		    list__map(
+			(func(foreign_import_module(_, ForeignImportModule, _))
+				= ForeignImportModule),
+			ForeignImports) },
+		( { ForeignImports = [] } ->
+			[]
+		;
+			io__write_string(DepStream, "\n\n"),
+			io__write_string(DepStream, ObjFileName),
+			io__write_string(DepStream, " : "),
+			write_dependencies_list(ForeignImportedModules, ".h",
+				DepStream),
+			io__write_string(DepStream, "\n\n")
+		),
+
 		(
 			{ Target = il },
 			{ not set__empty(LangSet) }
@@ -2786,11 +2847,17 @@ generate_deps_map([Module | Modules], DepsMap0, DepsMap) -->
 	( { Done = no } ->
 		{ map__set(DepsMap1, Module, deps(yes, ModuleImports),
 			DepsMap2) },
+		{ ForeignImportedModules =
+		    list__map(
+			(func(foreign_import_module(_, ImportedModule, _))
+				= ImportedModule),
+			ModuleImports ^ foreign_import_module_info) },
 		{ list__condense(
 			[ModuleImports ^ parent_deps,
 			ModuleImports ^ int_deps,
 			ModuleImports ^ impl_deps,
 			ModuleImports ^ public_children, % a.k.a. incl_deps
+			ForeignImportedModules,
 			Modules],
 			Modules1) }
 	;
@@ -3442,8 +3509,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 							InitPicObjFileName),
 
 	% Note we have to do some ``interesting'' hacks to get
-	% `$(ALL_MLLIBS_DEP)' and `$(ALL_C2INITARGS)' to work in the
-	% dependency list (and not complain about undefined variables).
+	% `$(ALL_MLLIBS_DEP)' to work in the dependency list
+	% (and not complain about undefined variables).
 	% These hacks rely on features of GNU Make, so should not be used
 	% if we cannot assume we are using GNU Make.
 	globals__io_lookup_bool_option(assume_gmake, Gmake),
@@ -3451,12 +3518,17 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		append_list(["\\\n\t\t$(foreach @,", MakeVarName,
 				",$(ALL_MLLIBS_DEP))"],
 				All_MLLibsDepString),
-		append_list(["\\\n\t\t$(foreach @,undefined,$(foreach *,",
-				MakeVarName, ",$(ALL_C2INITARGS)))"],
-				All_C2InitArgsDepString)
+		append_list(["\\\n\t\t$(foreach @,", MakeVarName,
+				",$(ALL_MLOBJS))"],
+				All_MLObjsString),
+		append_list([
+		"\\\n\t\t$(patsubst %.o,%.$(EXT_FOR_PIC_OBJECTS),$(foreach @,",
+				MakeVarName, ",$(ALL_MLOBJS)))"],
+				All_MLPicObjsString)
 	;
 		All_MLLibsDepString = "$(ALL_MLLIBS_DEP)",
-		All_C2InitArgsDepString = "$(ALL_C2INITARGS)"
+		All_MLObjsString = "$(ALL_MLOBJS)",
+		All_MLPicObjsString = "$(ALL_MLPICOBJS)"
 	},
 
 	%
@@ -3483,11 +3555,13 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	{ MainRule =
 		[ExeFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".os) ",
-			InitObjFileName, " $(MLOBJS) ", All_MLLibsDepString,
-			"\n",
+			InitObjFileName, " ", All_MLObjsString, " ",
+			All_MLLibsDepString, "\n",
 		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -o ",
 			ExeFileName, " ", InitObjFileName, " \\\n",
-		"\t	$(", MakeVarName, ".os) $(MLOBJS) $(ALL_MLLIBS)\n"] },
+		"\t	$(", MakeVarName, ".os) ", All_MLObjsString,
+			" $(ALL_MLLIBS)\n"]
+	},
 	{ EndIf = ["endif\n"] },
 
 	globals__io_get_target(Target),
@@ -3515,10 +3589,11 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	]),
 
 	io__write_strings(DepStream, [
-		SplitLibFileName, " : $(", MakeVarName, ".dir_os) $(MLOBJS)\n",
+		SplitLibFileName, " : $(", MakeVarName, ".dir_os) ",
+					All_MLObjsString, "\n",
 		"\trm -f ", SplitLibFileName, "\n",
-		"\t$(AR) $(ALL_ARFLAGS) $(AR_LIBFILE_OPT)",
-		SplitLibFileName, " $(MLOBJS)\n",
+		"\t$(AR) $(ALL_ARFLAGS) $(AR_LIBFILE_OPT) ",
+		SplitLibFileName, " ", All_MLObjsString, "\n",
 		"\tfind $(", MakeVarName, ".dirs) -name ""*.$O"" -print | \\\n",
 		"\t	xargs $(AR) q ", SplitLibFileName, "\n",
 		"\t$(RANLIB) $(ALL_RANLIBFLAGS) ", SplitLibFileName, "\n\n"
@@ -3575,19 +3650,19 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_strings(DepStream, [
 		SharedLibFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".pic_os) ",
-			"$(MLPICOBJS) ", All_MLLibsDepString, "\n",
+			All_MLPicObjsString, " ", All_MLLibsDepString, "\n",
 		"\t$(ML) --make-shared-lib $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) ",
 			"-o ", SharedLibFileName, " \\\n",
-		"\t\t$(", MakeVarName, ".pic_os) $(MLPICOBJS) ",
-			"$(ALL_MLLIBS)\n\n"
+		"\t\t$(", MakeVarName, ".pic_os) ", All_MLPicObjsString,
+			" $(ALL_MLLIBS)\n\n"
 	]),
 
 	io__write_strings(DepStream, [
 		LibFileName, " : $(", MakeVarName, ".cs_or_ss) ",
-			"$(", MakeVarName, ".os) $(MLOBJS)\n",
+			"$(", MakeVarName, ".os) ", All_MLObjsString, "\n",
 		"\trm -f ", LibFileName, "\n",
 		"\t$(AR) $(ALL_ARFLAGS) $(AR_LIBFILE_OPT)", LibFileName, " ",
-			"$(", MakeVarName, ".os) $(MLOBJS)\n",
+			"$(", MakeVarName, ".os) ", All_MLObjsString, "\n",
 		"\t$(RANLIB) $(ALL_RANLIBFLAGS) ", LibFileName, "\n\n"
 	]),
 
@@ -3600,12 +3675,19 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	list__foldl(append_to_init_list(DepStream, InitFileName), Modules),
 	io__write_string(DepStream, "\n"),
 
+	% The `force-module_init' dependency forces the commands for
+	% the `module_init.c' rule to be run every time the rule
+	% is considered.
+	{ prog_out__sym_name_to_string(ModuleName, ".", ModuleFileName) },
+	{ ForceC2InitTarget = "force-" ++ ModuleFileName ++ "_init" },
+	{ TmpInitCFileName = InitCFileName ++ ".tmp" },
 	io__write_strings(DepStream, [
-		InitCFileName, " : ", DepFileName, " ", DvFileName, " ",
-			All_C2InitArgsDepString, "\n",
-		"\t$(C2INIT) $(ALL_GRADEFLAGS) $(ALL_C2INITFLAGS) $(",
-			MakeVarName, ".init_cs) $(ALL_C2INITARGS) -o ",
-			InitCFileName, "\n\n"
+		ForceC2InitTarget, " :\n\n",
+		InitCFileName, " : ", ForceC2InitTarget, "\n",
+		"\t@$(C2INIT) $(ALL_GRADEFLAGS) $(ALL_C2INITFLAGS) ",
+			"--init-c-file ", TmpInitCFileName,
+			" $(", MakeVarName, ".init_cs) $(ALL_C2INITARGS)\n",
+		"\t@mercury_update_interface ", InitCFileName, "\n\n"
 	]),
 
 	module_name_to_lib_file_name("lib", ModuleName, ".install_ints", no,
@@ -3935,15 +4017,15 @@ get_extra_link_objects_2([Module | Modules], DepsMap, Target,
 		ExtraLinkObjs).
 
 :- pred get_item_list_foreign_code(globals::in, item_list::in,
-		set(foreign_language)::out) is det.
+	set(foreign_language)::out, foreign_import_module_info::out) is det.
 
-get_item_list_foreign_code(Globals, Items, LangSet) :-
+get_item_list_foreign_code(Globals, Items, LangSet, ForeignImports) :-
 	globals__get_backend_foreign_languages(Globals, BackendLangs),
 	globals__get_target(Globals, Target),
-	list__foldl2((pred(Item::in, Set0::in, Set::out, Seen0::in, Seen::out)
-			is det :-
+	list__foldl3((pred(Item::in, Set0::in, Set::out, Seen0::in, Seen::out,
+			Imports0::in, Imports::out) is det :-
 		(
-			Item = pragma(Pragma) - _Context
+			Item = pragma(Pragma) - Context
 		->
 			% The code here should match the way that mlds_to_gcc.m
 			% decides whether or not to call mlds_to_c.m.  XXX Note
@@ -3958,7 +4040,8 @@ get_item_list_foreign_code(Globals, Items, LangSet) :-
 				list__member(Lang, BackendLangs)
 			->
 				set__insert(Set0, Lang, Set),
-				Seen = Seen0
+				Seen = Seen0,
+				Imports = Imports0
 			;	
 				Pragma = foreign_proc(Attrs, Name, _, _, _, _)
 			->
@@ -3989,7 +4072,8 @@ get_item_list_foreign_code(Globals, Items, LangSet) :-
 						Seen = Seen0
 					)
 				),
-				Set = Set0
+				Set = Set0,
+				Imports = Imports0
 			;	
 				% XXX `pragma export' should not be treated as
 				% foreign, but currently mlds_to_gcc.m doesn't
@@ -4004,15 +4088,30 @@ get_item_list_foreign_code(Globals, Items, LangSet) :-
 				% XXX we assume lang = c for exports
 				Lang = c,
 				set__insert(Set0, Lang, Set),
-				Seen = Seen0
+				Seen = Seen0,
+				Imports = Imports0
+			;
+				% XXX handle lang \= c for
+				% `:- pragma foreign_import_module'.
+				Pragma = foreign_import_module(Lang, Import),
+				Lang = c,
+				list__member(c, BackendLangs)
+			->
+				Set = Set0,
+				Seen = Seen0,
+				Imports = [foreign_import_module(Lang,
+						Import, Context) | Imports0]
 			;
 				Set = Set0,
-				Seen = Seen0
+				Seen = Seen0,
+				Imports = Imports0
 			)
 		;
 			Set = Set0,
-			Seen = Seen0
-		)), Items, set__init, LangSet0, map__init, LangMap),
+			Seen = Seen0,
+			Imports = Imports0
+		)), Items, set__init, LangSet0, map__init, LangMap,
+				[], ForeignImports),
 		Values = map__values(LangMap),
 		LangSet = set__insert_list(LangSet0, Values).
 
@@ -4238,17 +4337,9 @@ lookup_dependencies(Module, DepsMap0, Search, Done, ModuleImports, DepsMap) -->
 	% the previous entry will be a dummy entry that we inserted
 	% after trying to read the source file and failing.
 	%
-	% XXX We could make some effort here to catch the case where a
-	% module is defined as both a separate sub-module and also
-	% as a nested sub-module.  However, that doesn't seem worthwhile,
-	% since not all such cases would arrive here anyway --
-	% it would be nice to catch that case but this is not the
-	% place to catch it.
-	% (Currently for that case we just ignore the file containing the
-	% separate sub-module.  Since we don't consider the
-	% file containing the separate sub-module to be part of the
-	% program's source, there's no duplicate definition, and thus
-	% no requirement to report any error message.)
+	% Note that the case where a module is defined as both a
+	% separate sub-module and also as a nested sub-module is
+	% caught in split_into_submodules.
 	%
 :- pred insert_into_deps_map(module_imports, deps_map, deps_map).
 :- mode insert_into_deps_map(in, in, out) is det.
@@ -4311,27 +4402,20 @@ init_dependencies(FileName, Error, Globals, ModuleName - Items,
 	get_fact_table_dependencies(Items, FactTableDeps),
 
 	% Figure out whether the items contain foreign code.
-	% As an optimization, we do this only if target = asm or target = il
-	% since those are the only times we'll need that field.
-	globals__get_target(Globals, Target),
+	get_item_list_foreign_code(Globals, Items, LangSet, ForeignImports),
 	ContainsForeignCode =
-		(if (Target = asm ; Target = il) then
-			(if 
-				get_item_list_foreign_code(Globals,
-					Items, LangSet),
-				not set__empty(LangSet)
-			then
-				contains_foreign_code(LangSet)
-			else
-				no_foreign_code
-			)
+		(if 
+			not set__empty(LangSet)
+		then
+			contains_foreign_code(LangSet)
 		else
-			unknown
+			no_foreign_code
 		),
 
 	ModuleImports = module_imports(FileName, ModuleName, ParentDeps,
 		InterfaceDeps, ImplementationDeps, IndirectDeps, IncludeDeps,
-		FactTableDeps, ContainsForeignCode, [], Error, no).
+		FactTableDeps, ContainsForeignCode, ForeignImports,
+		[], Error, no).
 
 %-----------------------------------------------------------------------------%
 
@@ -5066,7 +5150,19 @@ split_into_submodules(ModuleName, Items0, ModuleList) -->
 	{ InParentInterface = no },
 	split_into_submodules_2(ModuleName, Items0, InParentInterface,
 		Items, ModuleList),
-	{ require(unify(Items, []), "modules.m: items after end_module") }.
+	{ require(unify(Items, []), "modules.m: items after end_module") },
+	%
+	% check for modules declared as both nested and separate sub-modules
+	%
+	{ get_children(Items0, NestedSubmodules) },
+	{ assoc_list__keys(ModuleList, SeparateSubModules) },
+	{ Duplicates = set__intersect(set__list_to_set(NestedSubmodules),
+				set__list_to_set(SeparateSubModules)) },
+	( { set__empty(Duplicates) } ->
+		[]
+	;
+		report_duplicate_modules(Duplicates, Items0)
+	).
 
 :- pred split_into_submodules_2(module_name, item_list, bool, item_list,
 				module_list, io__state, io__state).
@@ -5188,6 +5284,10 @@ add_submodule(ModuleName - ModuleItemList, SubModules0, SubModules) :-
 	% Perhaps we should be a bit more strict about this, for
 	% example by only allowing one `:- implementation' section
 	% and one `:- interface' section for each module?
+	% (That is what the Mercury language reference manual mandates.
+	% On the other hand, it also says that top-level modules
+	% should only have one `:- interface' and one `:- implementation'
+	% section, and we don't enforce that either...)
 	%
 	( map__search(SubModules0, ModuleName, ItemList0) ->
 		list__append(ModuleItemList, ItemList0, ItemList),
@@ -5222,6 +5322,50 @@ report_error_implementation_in_interface(ModuleName, Context) -->
 	prog_out__write_context(Context),
 	io__write_string(
 		"  occurs in interface section of parent module.\n"),
+	io__set_exit_status(1).
+
+:- pred report_duplicate_modules(set(module_name), item_list,
+		io__state, io__state).
+:- mode report_duplicate_modules(in, in, di, uo) is det.
+
+report_duplicate_modules(Duplicates, Items) -->
+	{ IsDuplicateError = (pred(SubModuleName - Context::out) is nondet :-
+		list__member(Item, Items),
+		Item = module_defn(_VarSet, ModuleDefn) - Context,
+		( ModuleDefn = module(SubModuleName)
+		; ModuleDefn = include_module(SubModuleNames),
+		  list__member(SubModuleName, SubModuleNames)
+		),
+		set__member(SubModuleName, Duplicates)
+	  ) },
+	{ solutions(IsDuplicateError, DuplicateErrors) },
+	list__foldl(report_error_duplicate_module_decl, DuplicateErrors).
+
+:- pred report_error_duplicate_module_decl(pair(module_name, prog_context),
+		io__state, io__state).
+:- mode report_error_duplicate_module_decl(in, di, uo) is det.
+
+report_error_duplicate_module_decl(ModuleName - Context) -->
+	{ ModuleName = qualified(ParentModule0, ChildModule0) ->
+		ParentModule = ParentModule0,
+		ChildModule = ChildModule0
+	;
+		error("report_error_duplicate_module_decl")
+	},
+	% The error message should look this this:
+	% foo.m:123: In module `foo':
+	% foo.m:123:   error: sub-module `bar' declared as both
+	% foo.m:123:   a separate sub-module and a nested sub-module.
+	prog_out__write_context(Context),
+	io__write_string("In module `"),
+	prog_out__write_sym_name(ParentModule),
+	io__write_string("':\n"),
+	prog_out__write_context(Context),
+	io__write_string("  error: sub-module `"),
+	io__write_string(ChildModule),
+	io__write_string("' declared as both\n"),
+	prog_out__write_context(Context),
+	io__write_string("  a separate sub-module and a nested sub-module.\n"),
 	io__set_exit_status(1).
 
 	% Given a module (well, a list of items), extract the interface

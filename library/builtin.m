@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -126,6 +126,9 @@
 :- pred unsafe_promise_unique(T, T).
 :- mode unsafe_promise_unique(in, uo) is det.
 
+:- func unsafe_promise_unique(T) = T.
+:- mode unsafe_promise_unique(in) = uo is det.
+
 %-----------------------------------------------------------------------------%
 
 % A call to the function `promise_only_solution(Pred)' constitutes a
@@ -231,19 +234,19 @@ promise_only_solution(Pred) = OutVal :-
 
 :- pragma foreign_proc("C", cc_cast(X :: (pred(out) is cc_multi)) =
                         (Y :: out(pred(out) is det)),
-                [will_not_call_mercury, thread_safe],
+                [will_not_call_mercury, promise_pure, thread_safe],
                 "Y = X;").
 :- pragma foreign_proc("C", cc_cast(X :: (pred(out) is cc_nondet)) =
                         (Y :: out(pred(out) is semidet)),
-                [will_not_call_mercury, thread_safe],
+                [will_not_call_mercury, promise_pure, thread_safe],
                 "Y = X;").
 :- pragma foreign_proc("C#", cc_cast(X :: (pred(out) is cc_multi)) =
                         (Y :: out(pred(out) is det)),
-                [will_not_call_mercury, thread_safe],
+                [will_not_call_mercury, promise_pure, thread_safe],
                 "Y = X;").
 :- pragma foreign_proc("C#", cc_cast(X :: (pred(out) is cc_nondet)) =
                         (Y :: out(pred(out) is semidet)),
-                [will_not_call_mercury, thread_safe],
+                [will_not_call_mercury, promise_pure, thread_safe],
                 "Y = X;").
 
 promise_only_solution_io(Pred, X) -->
@@ -256,12 +259,12 @@ promise_only_solution_io(Pred, X) -->
 :- pragma foreign_proc("C",
 	cc_cast_io(X :: (pred(out, di, uo) is cc_multi)) = 
 		(Y :: out(pred(out, di, uo) is det)),
-                [will_not_call_mercury, thread_safe],
+                [will_not_call_mercury, promise_pure, thread_safe],
                 "Y = X;").
 :- pragma foreign_proc("C#", 
 		cc_cast_io(X :: (pred(out, di, uo) is cc_multi)) =
 		(Y :: out(pred(out, di, uo) is det)),
-                [will_not_call_mercury, thread_safe],
+                [will_not_call_mercury, promise_pure, thread_safe],
                 "Y = X;").
 
 %-----------------------------------------------------------------------------%
@@ -315,7 +318,7 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, float, 0,
 	*/
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, func, 0,
-	MR_TYPECTOR_REP_PRED,
+	MR_TYPECTOR_REP_FUNC,
 	mercury__builtin_unify_pred_2_0,
 	mercury__builtin_compare_pred_3_0);
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, pred, 0,
@@ -486,7 +489,7 @@ void copy_2_m1(MR_TypeInfo TypeInfo_for_T,
 
 :- pragma foreign_code("MC++", "
 
-static MR_Integer unify_2_p(MR_TypeInfo ti, MR_Box X, MR_Box Y) 
+static bool unify_2_p(MR_TypeInfo ti, MR_Box X, MR_Box Y) 
 {
 	return mercury::builtin::mercury_code::call_rtti_generic_unify_2_p(
 			ti, X, Y);
@@ -503,7 +506,7 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, c_pointer, 0,
 	MR_TYPECTOR_REP_C_POINTER) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, void, 0, MR_TYPECTOR_REP_VOID) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, float, 0, MR_TYPECTOR_REP_FLOAT) 
-MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, func, 0, MR_TYPECTOR_REP_PRED) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, func, 0, MR_TYPECTOR_REP_FUNC) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, pred, 0, MR_TYPECTOR_REP_PRED) 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, tuple, 0, MR_TYPECTOR_REP_TUPLE) 
 
@@ -817,7 +820,7 @@ do_compare__tuple_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
 
 %-----------------------------------------------------------------------------%
 
-% unsafe_promise_unique/2 is a compiler builtin.
+% unsafe_promise_unique is a compiler builtin.
 
 %-----------------------------------------------------------------------------%
 

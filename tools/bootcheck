@@ -53,7 +53,7 @@ Options:
 		Copy the profiler directory instead of linking it.
 		This is sometimes necessary for bootstrapping
 		changes.
-	-n, --no-bootcheck
+	-b-, --no-bootcheck
 		Do not run the bootstrap check; execute the test suite and/or
 		the extras only. This option requires a previous bootstrap
 		check to have left a working stage 2 directory.
@@ -153,6 +153,9 @@ BROWSER_LIB_NAME=mer_browser
 while [ $# -gt 0 ]; do
 	case "$1" in
 
+	-b-|--no-bootcheck)
+		do_bootcheck=false ;;
+
 	-d|--test-dir)
 		testdirs="$testdirs $2"; shift ;;
 	-d*)
@@ -209,13 +212,10 @@ while [ $# -gt 0 ]; do
 	-p|--copy-profiler)
 		copy_profiler=true ;;
 
-	-n|--no-bootcheck)
-		do_bootcheck=false ;;
-
 	--no-check-namespace)
 		check_namespace=false ;;
 
-	-t|--no-test-suite)
+	-t-|--no-test-suite)
 		runtests=false ;;
 
 	-2|--keep-stage-2)
@@ -940,22 +940,12 @@ then
 	cd $root/${stage2_insert}runtime
 	mmake $mmake_opts check_namespace || {
 		echo '** mmake check_namespace failed!'
-		# XXX Currently we just report the errors;
-		#     we don't yet actually return a non-zero status.
-		#     That's why the line below is commented out.
-		#     This is a transition measure until we're sure
-		#     that everything really is namespace-clean.
-		# check_namespace_status=1
+		check_namespace_status=1
 	}
 	cd $root/${stage2_insert}trace
 	mmake $mmake_opts check_namespace || {
 		echo '** mmake check_namespace failed!'
-		# XXX Currently we just report the errors;
-		#     we don't yet actually return a non-zero status.
-		#     That's why the line below is commented out.
-		#     This is a transition measure until we're sure
-		#     that everything really is namespace-clean.
-		# check_namespace_status=1
+		check_namespace_status=1
 	}
 	cd $root
 fi

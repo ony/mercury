@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -291,6 +291,14 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 		)
 	;	uu_type(list(type))	% not yet implemented!
 	;	eqv_type(type)
+	;	foreign_type(
+			bool,		% is the type already boxed
+			sym_name,	% structured name of foreign type
+					% which represents the mercury type.
+			string		% Location of the definition for this
+					% type (such as assembly or
+					% library name)
+		)
 	;	abstract_type.
 
 	% The `cons_tag_values' type stores the information on how
@@ -356,6 +364,12 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 	;	deep_profiling_proc_static_tag(rtti_proc_label)
 			% This is for constants representing procedure
 			% descriptions for deep profiling.
+	;	single_functor
+			% This is for types with a single functor
+			% (and possibly also some constants represented
+			% using reserved addresses -- see below).
+			% For these types, we don't need any tags.
+			% We just store a pointer to the argument vector.
 	;	unshared_tag(tag_bits)
 			% This is for constants or functors which can be
 			% distinguished with just a primary tag.
@@ -382,10 +396,35 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 			% and a secondary tag, but this time the secondary
 			% tag is stored in the rest of the main word rather
 			% than in the first word of the argument vector.
-	;	no_tag.
+	;	no_tag
 			% This is for types with a single functor of arity one.
 			% In this case, we don't need to store the functor,
 			% and instead we store the argument directly.
+	;	reserved_address(reserved_address)
+			% This is for constants represented as null pointers,
+			% or as other reserved values in the address space.
+	;       shared_with_reserved_addresses(list(reserved_address),
+				cons_tag).
+			% This is for constructors of discriminated union
+			% types where one or more of the *other* constructors
+			% for that type is represented as a reserved address.
+			% Any semidet deconstruction against a constructor
+			% represented as a shared_with_reserved_addresses
+			% cons_tag must check that the value isn't any of
+			% the reserved addresses before testing for the
+			% constructor's own cons_tag.
+
+:- type reserved_address
+	--->	null_pointer
+			% This is for constants which are represented as a
+			% null pointer.
+	;	small_pointer(int)
+			% This is for constants which are represented as a
+			% small integer, cast to a pointer.
+	;	reserved_object(type_id, sym_name, arity).
+			% This is for constants which are represented as the
+			% address of a specially reserved global variable.
+
 
 	% The type `tag_bits' holds a primary tag value.
 
@@ -406,7 +445,58 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 :- type no_tag_type_table == map(type_id, no_tag_type).
 
 
+	% Return the primary tag, if any, for a cons_tag.
+	% A return value of `no' means the primary tag is unknown.
+	% A return value of `yes(N)' means the primary tag is N.
+	% (`yes(0)' also corresponds to the case where there no primary tag.)
+:- func get_primary_tag(cons_tag) = maybe(int).
+
+	% Return the secondary tag, if any, for a cons_tag.
+	% A return value of `no' means there is no secondary tag.
+:- func get_secondary_tag(cons_tag) = maybe(int).
+
 :- implementation.
+
+% In some of the cases where we return `no' here,
+% it would probably be OK to return `yes(0)'.
+% But it's safe to be conservative...
+get_primary_tag(string_constant(_)) = no.
+get_primary_tag(float_constant(_)) = no.
+get_primary_tag(int_constant(_)) = no.
+get_primary_tag(pred_closure_tag(_, _, _)) = no.
+get_primary_tag(code_addr_constant(_, _)) = no.
+get_primary_tag(type_ctor_info_constant(_, _, _)) = no.
+get_primary_tag(base_typeclass_info_constant(_, _, _)) = no.
+get_primary_tag(tabling_pointer_constant(_, _)) = no.
+get_primary_tag(deep_profiling_proc_static_tag(_)) = no.
+get_primary_tag(single_functor) = yes(0).
+get_primary_tag(unshared_tag(PrimaryTag)) = yes(PrimaryTag).
+get_primary_tag(shared_remote_tag(PrimaryTag, _SecondaryTag)) =
+		yes(PrimaryTag).
+get_primary_tag(shared_local_tag(PrimaryTag, _)) = yes(PrimaryTag).
+get_primary_tag(no_tag) = no.
+get_primary_tag(reserved_address(_)) = no.
+get_primary_tag(shared_with_reserved_addresses(_ReservedAddresses, TagValue))
+		= get_primary_tag(TagValue).
+
+get_secondary_tag(string_constant(_)) = no.
+get_secondary_tag(float_constant(_)) = no.
+get_secondary_tag(int_constant(_)) = no.
+get_secondary_tag(pred_closure_tag(_, _, _)) = no.
+get_secondary_tag(code_addr_constant(_, _)) = no.
+get_secondary_tag(type_ctor_info_constant(_, _, _)) = no.
+get_secondary_tag(base_typeclass_info_constant(_, _, _)) = no.
+get_secondary_tag(tabling_pointer_constant(_, _)) = no.
+get_secondary_tag(deep_profiling_proc_static_tag(_)) = no.
+get_secondary_tag(single_functor) = no.
+get_secondary_tag(unshared_tag(_)) = no.
+get_secondary_tag(shared_remote_tag(_PrimaryTag, SecondaryTag)) =
+		yes(SecondaryTag).
+get_secondary_tag(shared_local_tag(_, _)) = no.
+get_secondary_tag(no_tag) = no.
+get_secondary_tag(reserved_address(_)) = no.
+get_secondary_tag(shared_with_reserved_addresses(_ReservedAddresses, TagValue))
+		= get_secondary_tag(TagValue).
 
 :- type hlds_type_defn
 	--->	hlds_type_defn(

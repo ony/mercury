@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 2000 The University of Melbourne.
+** Copyright (C) 2000-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -13,8 +13,15 @@
 
 #include "mercury_imp.h"
 #include "mercury_trace_util.h"
+#include "mercury_file.h"
 
 #include <ctype.h>
+
+void
+MR_c_file_to_mercury_file(FILE *c_file, MercuryFile *mercury_file)
+{
+	MR_mercuryfile_init(c_file, 1, mercury_file);
+}
 
 bool
 MR_trace_is_number(const char *word, int *value)
@@ -38,6 +45,7 @@ MR_trace_is_number(const char *word, int *value)
 void
 MR_print_stack_regs(FILE *fp, MR_Word *saved_regs)
 {
+#ifndef MR_HIGHLEVEL_CODE
 	fprintf(fp, "sp = ");
 	MR_print_detstackptr(fp, MR_saved_sp(saved_regs));
 	fprintf(fp, "\ncurfr = ");
@@ -45,11 +53,13 @@ MR_print_stack_regs(FILE *fp, MR_Word *saved_regs)
 	fprintf(fp, "\nmaxfr = ");
 	MR_print_nondstackptr(fp, MR_saved_maxfr(saved_regs));
 	fprintf(fp, "\n");
+#endif
 }
 
 void
 MR_print_heap_regs(FILE *fp, MR_Word *saved_regs)
 {
+#ifndef MR_CONSERVATIVE_GC
 	fprintf(fp, "hp = ");
 	MR_print_heapptr(fp, MR_saved_hp(saved_regs));
 	fprintf(fp, "\nsol_hp = ");
@@ -59,26 +69,32 @@ MR_print_heap_regs(FILE *fp, MR_Word *saved_regs)
 	fprintf(fp, "\nglobal_hp = ");
 	MR_print_heapptr(fp, MR_saved_global_hp(saved_regs));
 	fprintf(fp, "\n");
+#endif
 }
 
 void
 MR_print_tabling_regs(FILE *fp, MR_Word *saved_regs)
 {
+#ifdef MR_USE_MINIMAL_MODEL
 	fprintf(fp, "gen_next = %ld\n", (long) MR_saved_gen_next(saved_regs));
 	fprintf(fp, "cut_next = %ld\n", (long) MR_saved_cut_next(saved_regs));
+#endif
 }
 
 void
 MR_print_succip_reg(FILE *fp, MR_Word *saved_regs)
 {
+#ifndef MR_HIGHLEVEL_CODE
 	fprintf(fp, "succip = ");
 	MR_print_label(fp, MR_saved_succip(saved_regs));
 	fprintf(fp, "\n");
+#endif
 }
 
 void
 MR_print_r_regs(FILE *fp, MR_Word *saved_regs)
 {
+#ifndef MR_HIGHLEVEL_CODE
 	fprintf(fp, "r1 = %ld (%lx)\n",
 		(long) MR_saved_reg(saved_regs, 1),
 		(long) MR_saved_reg(saved_regs, 1));
@@ -94,4 +110,5 @@ MR_print_r_regs(FILE *fp, MR_Word *saved_regs)
 	fprintf(fp, "r5 = %ld (%lx)\n",
 		(long) MR_saved_reg(saved_regs, 5),
 		(long) MR_saved_reg(saved_regs, 5));
+#endif
 }

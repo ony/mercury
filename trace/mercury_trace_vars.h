@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2001 The University of Melbourne.
+** Copyright (C) 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
@@ -10,10 +10,11 @@
 ** MR_trace_init_point_vars to initialize this module's data structures
 ** to reflect the variables that are live at that event. During the processing
 ** of the various debugger commands while at that event, the debugger may
-** call MR_trace_set_level zero or more times to change this module's notion
-** of the "current" set of variables to refer instead to the variables that
-** are live at the return address in a given ancestor. This module maintains
-** its own record of what the current ancestor level is; the enquiry function
+** call MR_trace_set_level or its MR_trace_set_level_from_layout variant
+** zero or more times to change this module's notion of the "current" set
+** of variables to refer instead to the variables that are live at the
+** return address in a given ancestor. This module maintains its own record
+** of what the current ancestor level is; the enquiry function
 ** MR_trace_current_level returns this information, while enquiry function
 ** MR_trace_current_level_details returns information about this level.
 **
@@ -45,6 +46,11 @@
 typedef	void	(*MR_Browser)(MR_Word type_info, MR_Word value,
 			MR_Browse_Caller_Type caller, MR_Browse_Format format);
 
+typedef	void	(*MR_GoalBrowser)(MR_ConstString name, MR_Word arg_list,
+			MR_Word is_func, MR_Browse_Caller_Type caller,
+			MR_Browse_Format format);
+
+
 typedef	enum {
 	MR_VAR_SPEC_NUMBER,
 	MR_VAR_SPEC_NAME
@@ -60,6 +66,10 @@ extern	void		MR_trace_init_point_vars(
 				const MR_Label_Layout *top_layout,
 				MR_Word *saved_regs, MR_Trace_Port port);
 extern	const char	*MR_trace_set_level(int ancestor_level);
+extern	const char	*MR_trace_set_level_from_layout(
+				const MR_Label_Layout *level_layout,
+				MR_Word *base_sp, MR_Word *base_curfr,
+				int ancestor_level);
 extern	int		MR_trace_current_level(void);
 extern	void		MR_trace_current_level_details(
 				const MR_Proc_Layout **entry_ptr,
@@ -96,6 +106,18 @@ extern	const char	*MR_trace_return_var_info(int n, const char **name_ptr,
 */
 
 extern	const char	*MR_trace_headvar_num(int n, int *num);
+
+/*
+** Print the call of the current level as a goal.
+**
+** The names are printed to the given file if the file pointer is non-NULL.
+** The goal is printed by giving it to the specified browser.
+*/
+
+extern	const char	*MR_trace_browse_one_goal(FILE *out,
+				MR_GoalBrowser browser,
+				MR_Browse_Caller_Type caller,
+				MR_Browse_Format format);
 
 /*
 ** Print the (names and) values of (the specified parts of) the specified
@@ -136,5 +158,16 @@ extern	const char	*MR_trace_browse_one(FILE *out, MR_Var_Spec var_spec,
 
 extern	const char 	*MR_trace_browse_all(FILE *out, MR_Browser browser,
 				MR_Browse_Format format);
+
+/*
+** Sets the current set of variables to be ones live at the program point
+** referred to by level_layout, base_sp and base_curfr arguments, and then
+** prints them all.
+*/
+
+extern	const char	*MR_trace_browse_all_on_level(FILE *out,
+				const MR_Label_Layout *level_layout,
+				MR_Word *base_sp, MR_Word *base_curfr,
+				int ancestor_level);
 
 #endif	/* MERCURY_TRACE_VARS_H */

@@ -35,28 +35,37 @@ NONRETRY_PROGS = \
 	implied_instance		\
 	interpreter			\
 	loopcheck			\
+	lval_desc_array			\
 	multi_parameter			\
+	nondet_stack			\
 	output_term_dep			\
 	polymorphic_output		\
 	resume_typeinfos		\
 	shallow
 
-
-# The following tests are disabled, since currently they get some spurious
-# failures if readline support is enabled:
-#	interactive
-# Note that some of the make rules for interactive are disabled too.
-
 MCFLAGS-shallow = --trace shallow
 MCFLAGS-tabled_read = --trace-table-io
+# By default, we reclaim heap on failure in non-Boehm-gc grades.
+# The extra stack slots required for this reclamation cause spurious
+# differences from the expected output on the nondet_stack test case.
+# The optimization level also affects stack frame sizes.
+MCFLAGS-nondet_stack = -O2 --no-reclaim-heap-on-failure
+
 MCFLAGS = --trace deep
 MLFLAGS = --trace
-C2INITFLAGS = --trace
 
 # We need to use shared libraries for interactive queries to work.
 # The following is necessary for shared libraries to work on Linux.
 GRADEFLAGS-interactive = --pic-reg
 MLFLAGS-interactive = --shared
+
+# Since the `interactive' test case requires the use of shared libraries,
+# this means it won't work properly if MERCURY_LIBS is set to point
+# to static libraries (as is done by tools/bootcheck and tools/lmc).
+# So we only enable it if MERCURY_LIBS is not set.
+ifeq "$(origin MERCURY_LIBS)" "undefined"
+	RETRY_PROGS := $(RETRY_PROGS) interactive
+endif
 
 # Debugging doesn't yet don't work in MLDS grades (hl*), and the retry command
 # doesn't and will not work in deep profiling grades (profdeep).
@@ -174,13 +183,15 @@ loopcheck.out: loopcheck loopcheck.inp
 	if $(MDB) ./loopcheck < loopcheck.inp			\
 		> loopcheck.tmp 2>&1;				\
 	then							\
-		sed -e '/EXCP/s/).*/)/' < loopcheck.tmp		\
-			> loopcheck.out 2>&1;			\
+		sed -e '/EXCP/s/).*/)/'				\
+		    -e 's/require.m:[0-9]*/require.m:NNNN/g'	\
+			< loopcheck.tmp > loopcheck.out 2>&1;	\
 		rm loopcheck.tmp;				\
 		false;						\
 	else							\
-		sed -e '/EXCP/s/).*/)/' < loopcheck.tmp		\
-			> loopcheck.out 2>&1;			\
+		sed -e '/EXCP/s/).*/)/'				\
+		    -e 's/require.m:[0-9]*/require.m:NNNN/g'	\
+			< loopcheck.tmp	> loopcheck.out 2>&1;	\
 		rm loopcheck.tmp;				\
 		true;						\
 	fi
@@ -203,6 +214,10 @@ interpreter.out: interpreter interpreter.inp
 	$(MDB) ./interpreter interpreter.m < interpreter.inp \
 		> interpreter.out 2>&1
 
+lval_desc_array.out: lval_desc_array lval_desc_array.inp
+	$(MDB) ./lval_desc_array < lval_desc_array.inp \
+		> lval_desc_array.out 2>&1
+
 # We need to pipe the output through sed to avoid hard-coding dependencies on
 # particular line numbers in the standard library source code.
 multi_parameter.out: multi_parameter multi_parameter.inp
@@ -217,6 +232,16 @@ output_term_dep.out: output_term_dep output_term_dep.inp
 
 queens.out: queens queens.inp
 	$(MDB) ./queens < queens.inp > queens.out 2>&1
+
+# We insert the names of entry labels into the label table only in a few grades
+# (e.g. profiling grades). The debugger's redo label is an entry label. To
+# avoid spurious inconsistencies in the output, we filter out its name even
+# when known.
+nondet_stack.out: nondet_stack nondet_stack.inp
+	$(MDB) ./nondet_stack < nondet_stack.inp 2>&1 | \
+		sed 's/nondet_stack.m:[0-9]*/nondet_stack.m:NNNN/g' | \
+		sed 's/entry label MR_do_trace_redo_fail_deep/label UNKNOWN/g' \
+		> nondet_stack.out 2>&1
 
 resume_typeinfos.out: resume_typeinfos resume_typeinfos.inp
 	$(MDB) ./resume_typeinfos < resume_typeinfos.inp 2>&1 | \
@@ -236,11 +261,8 @@ tabled_read.out: tabled_read tabled_read.inp
 # interactive.inp contains interactive queries that require interactive.ints
 # to have been built.
 
-# This rule is commented out while the interactive test case is disabled,
-# because otherwise we get an undefined variable warning from make.
-
-# interactive.out.orig: interactive interactive.inp $(interactive.ints)
-# 	$(MDB) ./interactive < interactive.inp > interactive.out.orig 2>&1
+interactive.out.orig: interactive interactive.inp $(interactive.ints)
+	$(MDB) ./interactive < interactive.inp > interactive.out.orig 2>&1
 
 # We pipe the output through sed to remove some spurious warnings that
 # `ld' issues.

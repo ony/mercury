@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -250,7 +250,7 @@ mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 		% that were defined in other modules, but to call mlds_to_c
 		% for foreign_decls that were defined in the module that
 		% we're compiling.
-		{ ForeignCode = mlds__foreign_code(_Decls, [], []) },
+		{ ForeignCode = mlds__foreign_code(_Decls, _Imports, [], []) },
 		{ ForeignDefns = [] }
 	->
 		{ ContainsCCode = no },
@@ -769,7 +769,7 @@ build_field_defn(Defn, ModuleName, GlobalInfo, GCC_Defn) -->
 
 gen_defn_body(Name, Context, Flags, DefnBody, GlobalInfo0, GlobalInfo) -->
 	(
-		{ DefnBody = mlds__data(Type, Initializer) },
+		{ DefnBody = mlds__data(Type, Initializer, _GC_TraceCode) },
 		{ LocalVars = map__init },
 		{ LabelTable = map__init },
 		{ DefnInfo = defn_info(GlobalInfo0, Name, LocalVars,
@@ -807,7 +807,7 @@ gen_defn_body(Name, Context, Flags, DefnBody, GlobalInfo0, GlobalInfo) -->
 
 build_local_defn_body(Name, DefnInfo, _Context, Flags, DefnBody, GCC_Defn) -->
 	(
-		{ DefnBody = mlds__data(Type, Initializer) },
+		{ DefnBody = mlds__data(Type, Initializer, _GC_TraceCode) },
 		build_local_data_defn(Name, Flags, Type,
 			Initializer, DefnInfo, GCC_Defn)
 	;
@@ -833,7 +833,7 @@ build_local_defn_body(Name, DefnInfo, _Context, Flags, DefnBody, GCC_Defn) -->
 
 build_field_defn_body(Name, _Context, Flags, DefnBody, GlobalInfo, GCC_Defn) -->
 	(
-		{ DefnBody = mlds__data(Type, Initializer) },
+		{ DefnBody = mlds__data(Type, Initializer, _GC_TraceCode) },
 		build_field_data_defn(Name, Type, Initializer, GlobalInfo,
 			GCC_Defn),
 		add_field_decl_flags(Flags, GCC_Defn)
@@ -1354,8 +1354,12 @@ is_static_member(Defn) :-
 mlds_make_base_class(Context, ClassId, MLDS_Defn, BaseNum0, BaseNum) :-
 	BaseName = string__format("base_%d", [i(BaseNum0)]),
 	Type = ClassId,
+	% We only need GC tracing code for top-level variables,
+	% not for base classes.
+	GC_TraceCode = no,
 	MLDS_Defn = mlds__defn(data(var(var_name(BaseName, no))), Context,
-		ml_gen_public_field_decl_flags, data(Type, no_initializer)),
+		ml_gen_public_field_decl_flags,
+		data(Type, no_initializer, GC_TraceCode)),
 	BaseNum = BaseNum0 + 1.
 
 /***********
@@ -1641,7 +1645,7 @@ build_param_types_and_decls([Arg|Args], ModuleName, GlobalInfo,
 		ParamTypes, ParamDecls, SymbolTable) -->
 	build_param_types_and_decls(Args, ModuleName, GlobalInfo,
 		ParamTypes0, ParamDecls0, SymbolTable0),
-	{ Arg = ArgName - Type },
+	{ Arg = mlds__argument(ArgName, Type, _GC_TraceCode) },
 	build_type(Type, GlobalInfo, GCC_Type),
 	( { ArgName = data(var(ArgVarName)) } ->
 		{ GCC_ArgVarName = ml_var_name_to_string(ArgVarName) },
@@ -1677,8 +1681,10 @@ build_type(mercury_array_type(_ElemType), _, _, GCC_Type) -->
 	;
 		{ GCC_Type = 'MR_Word' }
 	).
-build_type(mercury_type(Type, TypeCategory), _, _, GCC_Type) -->
+build_type(mercury_type(Type, TypeCategory, _), _, _, GCC_Type) -->
 	build_mercury_type(Type, TypeCategory, GCC_Type).
+build_type(mlds__foreign_type(_, _, _), _, _, _) --> 
+	{ sorry(this_file, "foreign_type not implemented") }.
 build_type(mlds__native_int_type, _, _, gcc__integer_type_node) --> [].
 build_type(mlds__native_float_type, _, _, gcc__double_type_node) --> [].
 build_type(mlds__native_bool_type, _, _, gcc__boolean_type_node) --> [].
@@ -1899,6 +1905,11 @@ build_rtti_type(field_names(_), Size, GCC_Type) -->
 	build_sized_array_type('MR_ConstString', Size, GCC_Type).
 build_rtti_type(field_types(_), Size, GCC_Type) -->
 	build_sized_array_type('MR_PseudoTypeInfo', Size, GCC_Type).
+build_rtti_type(reserved_addrs, Size, GCC_Type) -->
+	build_sized_array_type(gcc__ptr_type_node, Size, GCC_Type).
+build_rtti_type(reserved_addr_functors, Size, GCC_Type) -->
+	{ MR_ReservedAddrFunctorDescPtr = gcc__ptr_type_node },
+	build_sized_array_type(MR_ReservedAddrFunctorDescPtr, Size, GCC_Type).
 build_rtti_type(enum_functor_desc(_), _, GCC_Type) -->
 	% typedef struct {
 	%     MR_ConstString      MR_enum_functor_name;
@@ -1948,6 +1959,17 @@ build_rtti_type(du_functor_desc(_), _, GCC_Type) -->
 		 MR_ConstStringPtr	- "MR_du_functor_arg_names",
 		 MR_DuExistInfoPtr	- "MR_du_functor_exist_info"],
 		GCC_Type).
+build_rtti_type(reserved_addr_functor_desc(_), _, GCC_Type) -->
+	% typedef struct {
+	%     MR_ConstString      MR_ra_functor_name;
+	%     MR_int_least32_t    MR_ra_functor_ordinal;
+	%     const void *        MR_ra_functor_reserved_addr;
+	% } MR_EnumFunctorDesc;
+	build_struct_type("MR_ReservedAddrFunctorDesc",
+		['MR_ConstString'	- "MR_ra_functor_name",
+		 'MR_int_least32_t'	- "MR_ra_functor_ordinal",
+		 gcc__ptr_type_node	- "MR_ra_functor_reserved_addr"],
+		GCC_Type).
 build_rtti_type(enum_name_ordered_table, Size, GCC_Type) -->
 	{ MR_EnumFunctorDescPtr = gcc__ptr_type_node },
 	build_sized_array_type(MR_EnumFunctorDescPtr, Size, GCC_Type).
@@ -1972,28 +1994,34 @@ build_rtti_type(du_ptag_ordered_table, Size, GCC_Type) -->
 		 gcc__ptr_type_node	- "MR_sectag_alternatives"],
 		MR_DuPtagLayout),
 	build_sized_array_type(MR_DuPtagLayout, Size, GCC_Type).
+build_rtti_type(reserved_addr_table, _, GCC_Type) -->
+	% typedef struct {
+	%     MR_int_least16_t    MR_ra_num_res_numeric_addrs;
+	%     MR_int_least16_t    MR_ra_num_res_symbolic_addrs;
+	%     const void * const *MR_ra_res_symbolic_addrs;
+	%     const MR_ReservedAddrFunctorDesc * const * MR_ra_constants;
+	%     MR_DuTypeLayout     MR_ra_other_functors;  
+	% } MR_ReservedAddrTypeDesc;
+	build_struct_type("MR_ReservedAddrTypeDesc",
+		['MR_int_least16_t'	- "MR_ra_num_res_numeric_addrs",
+		 'MR_int_least16_t'	- "MR_ra_num_res_symbolic_addrs",
+		 gcc__ptr_type_node	- "MR_ra_res_symbolic_addrs",
+		 gcc__ptr_type_node	- "MR_ra_constants",
+		 gcc__ptr_type_node	- "MR_ra_other_functors"
+		], GCC_Type).
 build_rtti_type(type_ctor_info, _, GCC_Type) -->
-	% struct MR_TypeCtorInfo_Struct {
-	%     MR_Integer          arity;
-	%     MR_ProcAddr         unify_pred;
-	%     MR_ProcAddr         new_unify_pred;
-	%     MR_ProcAddr         compare_pred;
-	%     MR_TypeCtorRep      type_ctor_rep;
-	%     MR_ProcAddr         solver_pred;
-	%     MR_ProcAddr         init_pred;
-	%     MR_ConstString      type_ctor_module_name;
-	%     MR_ConstString      type_ctor_name;
-	%     MR_Integer          type_ctor_version;
-	%     MR_TypeFunctors     type_functors;
-	%     MR_TypeLayout       type_layout;
-	%     MR_int_least32_t    type_ctor_num_functors;
-	%     MR_int_least8_t     type_ctor_num_ptags;    /* if DU */
-	% /*
-	% ** The following fields will be added later, once we can exploit them:
-	% **  union MR_TableNode_Union    **type_std_table;
-	% **  MR_ProcAddr         prettyprinter;
-	% */
-	% };
+	% MR_Integer          MR_type_ctor_arity;
+	% MR_int_least8_t     MR_type_ctor_version;
+	% MR_TypeCtorRepInt   MR_type_ctor_rep_CAST_ME;
+	% MR_int_least8_t     MR_type_ctor_num_ptags;         /* if DU */
+	% MR_ProcAddr         MR_type_ctor_unify_pred;
+	% MR_ProcAddr         MR_type_ctor_compare_pred;
+	% MR_ConstString      MR_type_ctor_module_name;
+	% MR_ConstString      MR_type_ctor_name;
+	% MR_TypeFunctors     MR_type_ctor_functors;
+	% MR_TypeLayout       MR_type_ctor_layout;
+	% MR_int_least32_t    MR_type_ctor_num_functors;
+
 	{ MR_ProcAddr = gcc__ptr_type_node },
 	build_struct_type("MR_TypeFunctors",
 		[gcc__ptr_type_node	- "functors_init"],
@@ -2002,20 +2030,18 @@ build_rtti_type(type_ctor_info, _, GCC_Type) -->
 		[gcc__ptr_type_node	- "layout_init"],
 		MR_TypeLayout),
 	build_struct_type("MR_TypeCtorInfo_Struct",
-		['MR_Integer'		- "arity",
-		 MR_ProcAddr		- "unify_pred",
-		 MR_ProcAddr		- "new_unify_pred",
-		 MR_ProcAddr		- "compare_pred",
-		 'MR_TypeCtorRep'	- "type_ctor_rep",
-		 MR_ProcAddr		- "solver_pred",
-		 MR_ProcAddr		- "init_pred",
-		 'MR_ConstString'	- "type_ctor_module_name",
-		 'MR_ConstString'	- "type_ctor_name",
-		 'MR_Integer'		- "type_ctor_version",
-		 MR_TypeFunctors	- "type_functors",
-		 MR_TypeLayout		- "type_layout",
-		 'MR_int_least32_t'	- "type_ctor_num_functors",
-		 'MR_int_least8_t'	- "type_ctor_num_ptags"],
+		['MR_Integer'		- "MR_type_ctor_arity",
+		 'MR_int_least8_t'	- "MR_type_ctor_version",
+		 % MR_TypeCtorRepInt is typedef'd to be MR_int_least8_t
+		 'MR_int_least8_t'	- "MR_type_ctor_rep_CAST_ME",
+		 'MR_int_least8_t'	- "MR_type_ctor_num_ptags",
+		 MR_ProcAddr		- "MR_type_ctor_unify_pred",
+		 MR_ProcAddr		- "MR_type_ctor_compare_pred",
+		 'MR_ConstString'	- "MR_type_ctor_module_name",
+		 'MR_ConstString'	- "MR_type_ctor_name",
+		 MR_TypeFunctors	- "MR_type_ctor_functors",
+		 MR_TypeLayout		- "MR_type_ctor_layout",
+		 'MR_int_least32_t'	- "MR_type_ctor_num_functors"],
 		GCC_Type).
 build_rtti_type(base_typeclass_info(_, _, _), Size, GCC_Type) -->
 	{ MR_BaseTypeclassInfo = gcc__ptr_type_node },
@@ -2139,7 +2165,11 @@ rtti_enum_const("MR_TYPECTOR_REP_NOTAG_GROUND", 27).
 rtti_enum_const("MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ", 28).
 rtti_enum_const("MR_TYPECTOR_REP_EQUIV_GROUND", 29).
 rtti_enum_const("MR_TYPECTOR_REP_TUPLE", 30).
-rtti_enum_const("MR_TYPECTOR_REP_UNKNOWN", 31).
+rtti_enum_const("MR_TYPECTOR_REP_RESERVED_ADDR", 31).
+rtti_enum_const("MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ", 32).
+rtti_enum_const("MR_TYPECTOR_REP_TYPECTORINFO", 33).
+rtti_enum_const("MR_TYPECTOR_REP_BASETYPECLASSINFO", 34).
+rtti_enum_const("MR_TYPECTOR_REP_UNKNOWN", 35).
 rtti_enum_const("MR_SECTAG_NONE", 0).
 rtti_enum_const("MR_SECTAG_LOCAL", 1).
 rtti_enum_const("MR_SECTAG_REMOTE", 2).
@@ -2688,7 +2718,7 @@ gen_atomic_stmt(_DefnInfo, delete_object(_Lval), _) -->
 	{ sorry(this_file, "delete_object") }.
 
 gen_atomic_stmt(DefnInfo, NewObject, Context) -->
-	{ NewObject = new_object(Target, MaybeTag, Type, MaybeSize,
+	{ NewObject = new_object(Target, MaybeTag, _HasSecTag, Type, MaybeSize,
 		_MaybeCtorName, Args, ArgTypes) },
 
 	%
@@ -2735,6 +2765,9 @@ gen_atomic_stmt(DefnInfo, NewObject, Context) -->
 	%
 	gen_init_args(Args, ArgTypes, Context, 0, Target, Type, Tag,
 		DefnInfo).
+
+gen_atomic_stmt(_DefnInfo, gc_check, _) -->
+	{ sorry(this_file, "gc_check") }.
 
 gen_atomic_stmt(_DefnInfo, mark_hp(_Lval), _) -->
 	{ sorry(this_file, "mark_hp") }.
@@ -2812,7 +2845,7 @@ build_lval(field(MaybeTag, Rval, offset(OffsetRval),
 	% sanity check (copied from mlds_to_c.m)
 	(
 		{ FieldType = mlds__generic_type
-		; FieldType = mlds__mercury_type(term__variable(_), _)
+		; FieldType = mlds__mercury_type(term__variable(_), _, _)
 		}
 	->
 		[]
@@ -3014,7 +3047,7 @@ build_unop(std_unop(Unop), Exprn, DefnInfo, GCC_Expr) -->
 :- pred type_is_float(mlds__type::in) is semidet.
 type_is_float(Type) :-
 	( Type = mlds__mercury_type(term__functor(term__atom("float"),
-			[], _), _)
+			[], _), _, _)
 	; Type = mlds__native_float_type
 	).
 

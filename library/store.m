@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-1997, 2000-2001 The University of Melbourne.
+% Copyright (C) 1994-1997, 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -250,7 +250,8 @@ store__init(S) :-
 :- pred store__do_init(store(some_store_type)).
 :- mode store__do_init(uo) is det.
 
-:- pragma foreign_proc("C", store__do_init(_S0::uo), will_not_call_mercury, "").
+:- pragma foreign_proc("C", store__do_init(_S0::uo),
+	[will_not_call_mercury, promise_pure], "").
 
 /* 
 Note -- the syntax for the operations on stores
@@ -270,7 +271,7 @@ I wonder whether it is worth it?  Hmm, probably not.
 */
 
 :- pragma foreign_proc("C", new_mutvar(Val::in, Mutvar::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	MR_incr_hp_msg(Mutvar, 1, MR_PROC_LABEL, ""store:mutvar/2"");
 	* (MR_Word *) Mutvar = Val;
@@ -278,14 +279,14 @@ I wonder whether it is worth it?  Hmm, probably not.
 ").
 
 :- pragma foreign_proc("C", get_mutvar(Mutvar::in, Val::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	Val = * (MR_Word *) Mutvar;
 	S = S0;
 ").
 
 :- pragma foreign_proc("C", set_mutvar(Mutvar::in, Val::in, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	* (MR_Word *) Mutvar = Val;
 	S = S0;
@@ -296,7 +297,7 @@ I wonder whether it is worth it?  Hmm, probably not.
 :- mode store__unsafe_new_uninitialized_mutvar(out, di, uo) is det.
 
 :- pragma foreign_proc("C", unsafe_new_uninitialized_mutvar(Mutvar::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	MR_incr_hp_msg(Mutvar, 1, MR_PROC_LABEL, ""store:mutvar/2"");
 	S = S0;
@@ -310,7 +311,7 @@ store__new_cyclic_mutvar(Func, MutVar) -->
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_proc("C", new_ref(Val::di, Ref::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	MR_incr_hp_msg(Ref, 1, MR_PROC_LABEL, ""store:ref/2"");
 	* (MR_Word *) Ref = Val;
@@ -328,7 +329,7 @@ copy_ref_value(Ref, Val) -->
 :- pred store__unsafe_ref_value(generic_ref(T, S), T, S, S) <= store(S).
 :- mode store__unsafe_ref_value(in, uo, di, uo) is det.
 :- pragma foreign_proc("C", unsafe_ref_value(Ref::in, Val::uo, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	Val = * (MR_Word *) Ref;
 	S = S0;
@@ -341,17 +342,14 @@ ref_functor(Ref, Functor, Arity) -->
 :- pragma c_header_code("
 	#include ""mercury_type_info.h""
 	#include ""mercury_heap.h""
-	#include ""mercury_misc.h""	/* for MR_fatal_error() */
-
-	/* ML_arg() is defined in std_util.m */
-	bool ML_arg(MR_TypeInfo term_type_info, MR_Word *term, int arg_index,
-			MR_TypeInfo *arg_type_info_ptr, MR_Word **arg_ptr);
+	#include ""mercury_misc.h""		/* for MR_fatal_error() */
+	#include ""mercury_deconstruct.h""	/* for MR_arg() */
 
 ").
 
 :- pragma foreign_proc("C", 
 	arg_ref(Ref::in, ArgNum::in, ArgRef::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "{
 	MR_TypeInfo	type_info;
 	MR_TypeInfo	arg_type_info;
@@ -363,8 +361,8 @@ ref_functor(Ref, Functor, Arity) -->
 
 	MR_save_transient_registers();
 
-	if (!ML_arg(type_info, (MR_Word *) Ref, ArgNum,
-			&arg_type_info, &arg_ref))
+	if (!MR_arg(type_info, (MR_Word *) Ref, ArgNum, &arg_type_info,
+		&arg_ref, MR_NONCANON_ABORT))
 	{
 		MR_fatal_error(
 			""store__arg_ref: argument number out of range"");
@@ -384,7 +382,7 @@ ref_functor(Ref, Functor, Arity) -->
 
 :- pragma foreign_proc("C", 
 	new_arg_ref(Val::di, ArgNum::in, ArgRef::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "{
 	MR_TypeInfo	type_info;
 	MR_TypeInfo	arg_type_info;
@@ -396,8 +394,8 @@ ref_functor(Ref, Functor, Arity) -->
 
 	MR_save_transient_registers();
 
-	if (!ML_arg(type_info, (MR_Word *) &Val, ArgNum,
-			&arg_type_info, &arg_ref))
+	if (!MR_arg(type_info, (MR_Word *) &Val, ArgNum, &arg_type_info,
+		&arg_ref, MR_NONCANON_ABORT))
 	{
 		MR_fatal_error(
 			""store__new_arg_ref: argument number out of range"");
@@ -430,7 +428,7 @@ ref_functor(Ref, Functor, Arity) -->
 
 :- pragma foreign_proc("C", 
 	set_ref(Ref::in, ValRef::in, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	* (MR_Word *) Ref = * (MR_Word *) ValRef;
 	S = S0;
@@ -438,7 +436,7 @@ ref_functor(Ref, Functor, Arity) -->
 
 :- pragma foreign_proc("C",	
 	set_ref_value(Ref::in, Val::di, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	* (MR_Word *) Ref = Val;
 	S = S0;
@@ -446,7 +444,7 @@ ref_functor(Ref, Functor, Arity) -->
 
 :- pragma foreign_proc("C",
 	extract_ref_value(_S::di, Ref::in, Val::out),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	Val = * (MR_Word *) Ref;
 ").
@@ -455,7 +453,7 @@ ref_functor(Ref, Functor, Arity) -->
 
 :- pragma foreign_proc("C",
 	unsafe_arg_ref(Ref::in, Arg::in, ArgRef::out, S0::di, S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "{
 	/* unsafe - does not check type & arity, won't handle no_tag types */
 	MR_Word *Ptr = (MR_Word *) MR_strip_tag((MR_Word) Ref);
@@ -464,7 +462,8 @@ ref_functor(Ref, Functor, Arity) -->
 }").
 
 :- pragma foreign_proc("C", unsafe_new_arg_ref(Val::di, Arg::in, ArgRef::out,
-				S0::di, S::uo), will_not_call_mercury,
+				S0::di, S::uo),
+		[will_not_call_mercury, promise_pure],
 "{
 	/* unsafe - does not check type & arity, won't handle no_tag types */
 	MR_Word *Ptr = (MR_Word *) MR_strip_tag((MR_Word) Val);
@@ -475,89 +474,90 @@ ref_functor(Ref, Functor, Arity) -->
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_proc("MC++", store__do_init(_S0::uo),
-	will_not_call_mercury, "").
+	[will_not_call_mercury, promise_pure], "").
 
 :- pragma foreign_proc("MC++", new_mutvar(_Val::in, _Mutvar::out,
-		_S0::di, _S::uo), will_not_call_mercury,
+		_S0::di, _S::uo), [will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++", get_mutvar(_Mutvar::in, _Val::out,
-		_S0::di, _S::uo), will_not_call_mercury,
+		_S0::di, _S::uo), [will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++", set_mutvar(_Mutvar::in, _Val::in,
-		_S0::di, _S::uo), will_not_call_mercury,
+		_S0::di, _S::uo), [will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++", unsafe_new_uninitialized_mutvar(
-		_Mutvar::out, _S0::di, _S::uo), will_not_call_mercury,
+		_Mutvar::out, _S0::di, _S::uo),
+	[will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++", new_ref(_Val::di, _Ref::out, _S0::di, _S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++", unsafe_ref_value(_Ref::in, _Val::uo,
-		_S0::di, _S::uo), will_not_call_mercury,
+		_S0::di, _S::uo), [will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++", 
 	arg_ref(_Ref::in, _ArgNum::in, _ArgRef::out, _S0::di, _S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
 :- pragma foreign_proc("MC++", 
 	new_arg_ref(_Val::di, _ArgNum::in, _ArgRef::out, _S0::di, _S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
 :- pragma foreign_proc("MC++", 
 	set_ref(_Ref::in, _ValRef::in, _S0::di, _S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++",	
 	set_ref_value(_Ref::in, _Val::di, _S0::di, _S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++",
 	extract_ref_value(_S::di, _Ref::in, _Val::out),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 :- pragma foreign_proc("MC++",
 	unsafe_arg_ref(_Ref::in, _Arg::in, _ArgRef::out, _S0::di, _S::uo),
-		will_not_call_mercury,
+		[will_not_call_mercury, promise_pure],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
 :- pragma foreign_proc("MC++",
 	unsafe_new_arg_ref(_Val::di, _Arg::in, _ArgRef::out,
-			_S0::di, _S::uo), will_not_call_mercury,
+			_S0::di, _S::uo), [will_not_call_mercury, promise_pure],
 "{
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -42,7 +42,7 @@
 :- import_module hlds_module, hlds_pred, prog_data, prog_out, code_util.
 :- import_module mode_util, type_util, code_aux, hlds_out, tree, arg_info.
 :- import_module globals, options, continuation_info, stack_layout.
-:- import_module rl, trace.
+:- import_module rl, trace, error_util.
 
 :- import_module term, bool, string, int, list, map, require, std_util.
 
@@ -256,6 +256,8 @@ unify_gen__generate_tag_test_rval_2(deep_profiling_proc_static_tag(_), _, _) :-
 	error("Attempted deep_profiling_proc_static_tag unification").
 unify_gen__generate_tag_test_rval_2(no_tag, _Rval, TestRval) :-
 	TestRval = const(true).
+unify_gen__generate_tag_test_rval_2(single_functor, _Rval, TestRval) :-
+	TestRval = const(true).
 unify_gen__generate_tag_test_rval_2(unshared_tag(UnsharedTag), Rval,
 		TestRval) :-
 	TestRval = binop(eq,	unop(tag, Rval),
@@ -272,6 +274,34 @@ unify_gen__generate_tag_test_rval_2(shared_local_tag(Bits, Num), Rval,
 		TestRval) :-
 	TestRval = binop(eq,	Rval,
 			mkword(Bits, unop(mkbody, const(int_const(Num))))).
+
+unify_gen__generate_tag_test_rval_2(reserved_address(RA), Rval, TestRval) :-
+	TestRval = binop(eq,	Rval,
+			unify_gen__generate_reserved_address(RA)).
+
+unify_gen__generate_tag_test_rval_2(
+		shared_with_reserved_addresses(ReservedAddrs, ThisTag),
+		Rval, FinalTestRval) :-
+	%
+	% We first check that the Rval doesn't match any of the
+	% ReservedAddrs, and then check that it matches ThisTag.
+	%
+	CheckReservedAddrs = (func(RA, TestRval0) = TestRval :-
+		unify_gen__generate_tag_test_rval_2(reserved_address(RA), Rval,
+			EqualRA),
+		TestRval = binop((and), unop(not, EqualRA), TestRval0)
+	),
+	unify_gen__generate_tag_test_rval_2(ThisTag, Rval, MatchesThisTag),
+	FinalTestRval = list__foldr(CheckReservedAddrs, ReservedAddrs,
+			MatchesThisTag).
+
+
+:- func unify_gen__generate_reserved_address(reserved_address) = rval.
+unify_gen__generate_reserved_address(null_pointer) = const(int_const(0)).
+unify_gen__generate_reserved_address(small_pointer(N)) = const(int_const(N)).
+unify_gen__generate_reserved_address(reserved_object(_, _, _)) = _ :-
+	% These should only be used for the MLDS back-end
+	unexpected(this_file, "reserved_object").
 
 %---------------------------------------------------------------------------%
 
@@ -318,6 +348,11 @@ unify_gen__generate_construction_2(no_tag, Var, Args, Modes, _, _, Code) -->
 		{ error(
 		"unify_gen__generate_construction_2: no_tag: arity != 1") }
 	).
+unify_gen__generate_construction_2(single_functor,
+		Var, Args, Modes, AditiInfo, GoalInfo, Code) -->
+	% treat single_functor the same as unshared_tag(0)
+	unify_gen__generate_construction_2(unshared_tag(0),
+			Var, Args, Modes, AditiInfo, GoalInfo, Code).
 unify_gen__generate_construction_2(unshared_tag(Ptag),
 		Var, Args, Modes, _, _, Code) -->
 	code_info__get_module_info(ModuleInfo),
@@ -393,6 +428,23 @@ unify_gen__generate_construction_2(code_addr_constant(PredId, ProcId),
 	code_info__get_module_info(ModuleInfo),
 	code_info__make_entry_label(ModuleInfo, PredId, ProcId, no, CodeAddr),
 	code_info__assign_const_to_var(Var, const(code_addr_const(CodeAddr))).
+unify_gen__generate_construction_2(reserved_address(RA),
+		Var, Args, _Modes, _, _, empty) -->
+	( { Args = [] } ->
+		[]
+	;
+		{ error("unify_gen: reserved_address constant has args") }
+	),
+	code_info__assign_const_to_var(Var,
+		unify_gen__generate_reserved_address(RA)).
+unify_gen__generate_construction_2(
+		shared_with_reserved_addresses(_RAs, ThisTag),
+		Var, Args, Modes, AditiInfo, GoalInfo, Code) -->
+	% For shared_with_reserved_address, the sharing is only
+	% important for tag tests, not for constructions,
+	% so here we just recurse on the real representation.
+	unify_gen__generate_construction_2(ThisTag,
+		Var, Args, Modes, AditiInfo, GoalInfo, Code).
 unify_gen__generate_construction_2(
 		pred_closure_tag(PredId, ProcId, EvalMethod),
 		Var, Args, _Modes, _AditiInfo, GoalInfo, Code) -->
@@ -711,6 +763,14 @@ unify_gen__make_fields_and_argvars([Var | Vars], Rval, Field0, TagNum,
 
 unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 	code_info__cons_id_to_tag(Var, Cons, Tag),
+	unify_gen__generate_det_deconstruction_2(Var, Cons, Args, Modes,
+		Tag, Code).
+
+:- pred unify_gen__generate_det_deconstruction_2(prog_var::in, cons_id::in,
+	list(prog_var)::in, list(uni_mode)::in, cons_tag::in,
+	code_tree::out, code_info::in, code_info::out) is det.
+
+unify_gen__generate_det_deconstruction_2(Var, Cons, Args, Modes, Tag, Code) -->
 	% For constants, if the deconstruction is det, then we already know
 	% the value of the constant, so Code = empty.
 	(
@@ -750,6 +810,11 @@ unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 			{ error("unify_gen__generate_det_deconstruction: no_tag: arity != 1") }
 		)
 	;
+		{ Tag = single_functor },
+		% treat single_functor the same as unshared_tag(0)
+		unify_gen__generate_det_deconstruction_2(Var, Cons, Args,
+			Modes, unshared_tag(0), Code)
+	;
 		{ Tag = unshared_tag(Ptag) },
 		{ Rval = var(Var) },
 		{ unify_gen__make_fields_and_argvars(Args, Rval, 0,
@@ -768,6 +833,16 @@ unify_gen__generate_det_deconstruction(Var, Cons, Args, Modes, Code) -->
 	;
 		{ Tag = shared_local_tag(_Ptag, _Sectag2) },
 		{ Code = empty } % if this is det, then nothing happens
+	;
+		{ Tag = reserved_address(_RA) },
+		{ Code = empty } % if this is det, then nothing happens
+	;
+		% For shared_with_reserved_address, the sharing is only
+		% important for tag tests, not for det deconstructions,
+		% so here we just recurse on the real representation.
+		{ Tag = shared_with_reserved_addresses(_RAs, ThisTag) },
+		unify_gen__generate_det_deconstruction_2(Var, Cons, Args, Modes,
+			ThisTag, Code)
 	).
 
 %---------------------------------------------------------------------------%
@@ -924,6 +999,11 @@ unify_gen__var_type_msg(Type, Msg) :-
 	;
 		error("type is still a type variable in var_type_msg")
 	).
+
+%---------------------------------------------------------------------------%
+
+:- func this_file = string.
+this_file = "unify_gen.m".
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%

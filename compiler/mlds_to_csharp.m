@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -29,11 +29,10 @@
 :- import_module builtin_ops, c_util, modules, tree.
 :- import_module hlds_pred. % for `pred_proc_id'.
 :- import_module prog_data, prog_out.
-:- import_module rtti, type_util, error_util.
+:- import_module foreign, rtti, type_util, error_util.
 
 :- import_module ilds, ilasm, il_peephole.
 :- import_module ml_util, ml_code_util.
-:- use_module llds. /* for user_c_code */
 
 :- import_module bool, int, map, string, list, assoc_list, term, std_util.
 :- import_module library, require, counter.
@@ -153,16 +152,17 @@ generate_csharp_code(MLDS) -->
 	io__nl.
 
 
-	% XXX we don't handle export decls.
+	% XXX we don't handle export decls or
+	% `:- pragma foreign_import_module'.
 :- pred generate_foreign_code(mlds_module_name, mlds__foreign_code,
 		io__state, io__state).
 :- mode generate_foreign_code(in, in, di, uo) is det.
 generate_foreign_code(_ModuleName, 
-		mlds__foreign_code(_RevHeaderCode, RevBodyCode,
+		mlds__foreign_code(_RevHeaderCode, _RevImports, RevBodyCode,
 			_ExportDefns)) -->
 	{ BodyCode = list__reverse(RevBodyCode) },
 	io__write_list(BodyCode, "\n", 
-		(pred(llds__user_foreign_code(Lang, Code, _Context)::in,
+		(pred(user_foreign_code(Lang, Code, _Context)::in,
 				di, uo) is det -->
 			( { Lang = csharp } ->
 				io__write_string(Code)
@@ -172,16 +172,17 @@ generate_foreign_code(_ModuleName,
 			)					
 	)).
 
-	% XXX we don't handle export decls.
+	% XXX we don't handle export decls or
+	% `:- pragma foreign_import_module'.
 :- pred generate_foreign_header_code(mlds_module_name, mlds__foreign_code,
 		io__state, io__state).
 :- mode generate_foreign_header_code(in, in, di, uo) is det.
 generate_foreign_header_code(_ModuleName, 
-		mlds__foreign_code(RevHeaderCode, _RevBodyCode,
+		mlds__foreign_code(RevHeaderCode, _RevImports, _RevBodyCode,
 			_ExportDefns)) -->
 	{ HeaderCode = list__reverse(RevHeaderCode) },
 	io__write_list(HeaderCode, "\n", 
-		(pred(llds__foreign_decl_code(Lang, Code, _Context)::in,
+		(pred(foreign_decl_code(Lang, Code, _Context)::in,
 			di, uo) is det -->
 			( { Lang = csharp } ->
 				io__write_string(Code)
@@ -269,6 +270,13 @@ write_csharp_statement(statement(Statement, _Context)) -->
 		;
 			{ sorry(this_file, "multiple return values") }
 		)
+	;
+		{ Statement = atomic(assign(LVal, RVal)) } 
+	->
+		write_csharp_lval(LVal),
+		io__write_string(" = "),
+		write_csharp_rval(RVal),
+		io__write_string(";\n")
 	;
 		{ functor(Statement, SFunctor, _Arity) },
 		{ sorry(this_file, "csharp output for " ++ SFunctor) }
@@ -411,7 +419,7 @@ write_csharp_lval(var(Var, _VarType)) -->
 write_csharp_defn_decl(Defn) -->
 	{ Defn = mlds__defn(Name, _Context, _Flags, DefnBody) },
 	(
-		{ DefnBody = data(Type, _Initializer) },
+		{ DefnBody = data(Type, _Initializer, _GC_TraceCode) },
 		{ Name = data(var(VarName)) }
 	->
 		write_csharp_parameter_type(Type),
@@ -474,11 +482,15 @@ write_il_simple_type_as_csharp_type(bool) -->
 	io__write_string("bool").
 write_il_simple_type_as_csharp_type(char) --> 
 	io__write_string("char").
+write_il_simple_type_as_csharp_type(string) --> 
+	io__write_string("string").
+write_il_simple_type_as_csharp_type(object) --> 
+	io__write_string("object").
 write_il_simple_type_as_csharp_type(refany) --> 
 	io__write_string("mercury.MR_RefAny").
 write_il_simple_type_as_csharp_type(class(ClassName)) --> 
 	write_csharp_class_name(ClassName).
-write_il_simple_type_as_csharp_type(value_class(_ClassName)) --> 
+write_il_simple_type_as_csharp_type(valuetype(_ClassName)) --> 
 	{ sorry(this_file, "value classes") }.
 write_il_simple_type_as_csharp_type(interface(_ClassName)) --> 
 	{ sorry(this_file, "interfaces") }.
@@ -519,10 +531,10 @@ write_il_type_modifier_as_csharp_type(readonly) -->
 write_il_type_modifier_as_csharp_type(volatile) --> 
 	io__write_string("volatile").
 
-:- pred write_input_arg_as_csharp_type(
-	pair(mlds__entity_name, mlds__type)::in,
+:- pred write_input_arg_as_csharp_type(mlds__argument::in,
 	io__state::di, io__state::uo) is det.
-write_input_arg_as_csharp_type(EntityName - Type) --> 
+write_input_arg_as_csharp_type(Arg) --> 
+	{ Arg = mlds__argument(EntityName, Type, _GC_TraceCode) },
 	get_il_data_rep(DataRep),
 	write_il_type_as_csharp_type(mlds_type_to_ilds_type(DataRep, Type)),
 	io__write_string(" "),

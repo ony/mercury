@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -268,7 +268,6 @@
 :- type custom_type
 	--->	type(ilds__type)
 	;	methodref(ilds__methodref).
-
 
 :- implementation.
 
@@ -686,10 +685,10 @@ output_simple_type(int8, I, I) --> io__write_string("int8").
 output_simple_type(int16, I, I) --> io__write_string("int16").
 output_simple_type(int32, I, I) --> io__write_string("int32").
 output_simple_type(int64, I, I) --> io__write_string("int64").
-output_simple_type(uint8, I, I) --> io__write_string("uint8").
-output_simple_type(uint16, I, I) --> io__write_string("uint16").
-output_simple_type(uint32, I, I) --> io__write_string("uint32").
-output_simple_type(uint64, I, I) --> io__write_string("uint64").
+output_simple_type(uint8, I, I) --> io__write_string("unsigned int8").
+output_simple_type(uint16, I, I) --> io__write_string("unsigned int16").
+output_simple_type(uint32, I, I) --> io__write_string("unsigned int32").
+output_simple_type(uint64, I, I) --> io__write_string("unsigned int64").
 output_simple_type(native_int, I, I) --> io__write_string("native int").
 output_simple_type(native_uint, I, I) --> io__write_string("native unsigned int").
 output_simple_type(float32, I, I) --> io__write_string("float32").
@@ -697,13 +696,35 @@ output_simple_type(float64, I, I) --> io__write_string("float64").
 output_simple_type(native_float, I, I) --> io__write_string("native float").
 output_simple_type(bool, I, I) --> io__write_string("bool").
 output_simple_type(char, I, I) --> io__write_string("char").
+output_simple_type(object, I, I) --> io__write_string("object").
+output_simple_type(string, I, I) --> io__write_string("string").
 output_simple_type(refany, I, I) --> io__write_string("refany").
 output_simple_type(class(Name), Info0, Info) --> 
-	io__write_string("class "),
-	output_structured_name(Name, Info0, Info).
-output_simple_type(value_class(Name), Info0, Info) --> 
-	io__write_string("valuetype "),
-	output_structured_name(Name, Info0, Info).
+	( { name_to_simple_type(Name, Type) } ->
+		( { Type = reference(SimpleType) } ->
+			output_simple_type(SimpleType, Info0, Info)
+		;
+				% If it is a value type then we are
+				% refering to the boxed version of the
+				% value type.
+			io__write_string("class "),
+			output_structured_name(Name, Info0, Info)
+		)
+	;
+		io__write_string("class "),
+		output_structured_name(Name, Info0, Info)
+	).
+output_simple_type(valuetype(Name), Info0, Info) --> 
+	( { name_to_simple_type(Name, Type) } ->
+		( { Type = value(SimpleType) } ->
+			output_simple_type(SimpleType, Info0, Info)
+		;
+			{ unexpected(this_file, "builtin reference type") }
+		)
+	;
+		io__write_string("valuetype "),
+		output_structured_name(Name, Info0, Info)
+	).
 output_simple_type(interface(Name), Info0, Info) --> 
 	io__write_string("interface "),
 	output_structured_name(Name, Info0, Info).
@@ -716,6 +737,60 @@ output_simple_type('*'(Type), Info0, Info) -->
 output_simple_type('&'(Type), Info0, Info) --> 
 	output_type(Type, Info0, Info),
 	io__write_string("&").
+
+:- type ref_or_value
+	--->	reference(simple_type)
+	;	value(simple_type).
+
+	% If possible converts a class name to a simple type and an
+	% indicator of whether or not that simple type is a reference or
+	% value class.
+:- pred name_to_simple_type(class_name::in, ref_or_value::out) is semidet.
+
+name_to_simple_type(Name, Type) :-
+		% Parition II section 'Built-in Types' (Section 7.2) states
+		% that all builtin types *must* be referenced by their
+		% special encoding in signatures. 
+		% See Parition I 'Built-In Types' % (Section 8.2.2) for the
+		% list of all builtin types.
+	Name = structured_name(AssemblyName, QualifiedName, _),
+	AssemblyName = assembly("mscorlib"),
+	QualifiedName = ["System", TypeName],
+	( TypeName = "Boolean",
+		Type = value(bool)
+	; TypeName = "Char",
+		Type = value(char)
+	; TypeName = "Object",
+		Type = reference(object)
+	; TypeName = "String",
+		Type = reference(string)
+	; TypeName = "Single",
+		Type = value(float32)
+	; TypeName = "Double",
+		Type = value(float64)
+	; TypeName = "SByte",
+		Type = value(int8)
+	; TypeName = "Int16",
+		Type = value(int16)
+	; TypeName = "Int32",
+		Type = value(int32)
+	; TypeName = "Int64",
+		Type = value(int64)
+	; TypeName = "IntPtr",
+		Type = value(native_int)
+	; TypeName = "UIntPtr",
+		Type = value(native_uint)
+	; TypeName = "TypedReference",
+		Type = value(refany)
+	; TypeName = "Byte",
+		Type = value(uint8)
+	; TypeName = "UInt16",
+		Type = value(uint16)
+	; TypeName = "UInt32",
+		Type = value(uint32)
+	; TypeName = "UInt64",
+		Type = value(uint64)
+	).
 
 	% The names are all different if it is an opcode.
 	% There's probably a very implementation dependent reason for
@@ -742,9 +817,11 @@ output_simple_type_opcode(char) --> io__write_string("i2").
 
 	% all reference types use "ref" as their opcode.
 	% XXX is "ref" here correct for value classes?
+output_simple_type_opcode(object) --> io__write_string("ref").
+output_simple_type_opcode(string) --> io__write_string("ref").
 output_simple_type_opcode(refany) --> io__write_string("ref").
 output_simple_type_opcode(class(_Name)) --> io__write_string("ref").
-output_simple_type_opcode(value_class(_Name)) --> io__write_string("ref").
+output_simple_type_opcode(valuetype(_Name)) --> io__write_string("ref").
 output_simple_type_opcode(interface(_Name)) --> io__write_string("ref").
 output_simple_type_opcode('[]'(_Type, _Bounds)) --> io__write_string("ref").
 output_simple_type_opcode('*'(_Type)) --> io__write_string("ref").
@@ -1044,7 +1121,7 @@ output_instr(ldarg(name(Id)), I, I) -->
 	% Lots of short forms for loading integer.
 	% XXX Should probably put the magic numbers in functions.
 output_instr(ldc(Type, Const), I, I) -->
-	( { Type = int32, Const = i(IntConst) }  ->
+	( { ( Type = int32 ; Type = bool ), Const = i(IntConst) }  ->
 		( { IntConst < 8, IntConst >= 0 } ->
 			io__write_string("ldc.i4."),
 			io__write_int(IntConst)
@@ -1232,6 +1309,19 @@ output_instr(box(Type), Info0, Info) -->
 	output_type(Type, Info0, Info).
 
 output_instr(castclass(Type), Info0, Info) -->
+	(
+		{ Type = type(_, '[]'(ElementType, _)) },
+		{ ElementType = type(_, class(Name)) },
+		{ Name = structured_name(assembly("mscorlib"),
+				["System", "Type"], _) }
+	->
+		% XXX There is bug where castclass to System.Type[]
+		% sometimes erroneously fails, so we comment out these
+		% castclass's.
+		io__write_string("// ")
+	;
+		[]
+	),
 	io__write_string("castclass\t"),
 	output_type(Type, Info0, Info).
 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -93,6 +93,18 @@ ml_simplify_switch(Stmt0, MLDS_Context, Statement) -->
 		{ Statement = ml_switch_to_if_else_chain(Cases, Default, Rval,
 			MLDS_Context) }
 	;
+	%
+	% Optimize away trivial switches
+	% (these can occur e.g. with --tags none, where the
+	% primary tag test always has only one reachable case)
+	%
+		{ Stmt0 = switch(_Type, _Rval, _Range, Cases, Default) },
+		{ Cases = [SingleCase] },
+		{ Default = default_is_unreachable }
+	->
+		{ SingleCase = _MatchCondition - CaseStatement },
+		{ Statement = CaseStatement }
+	;
 		{ Stmt = Stmt0 },
 		{ Statement = mlds__statement(Stmt, MLDS_Context) }
 	).
@@ -100,9 +112,9 @@ ml_simplify_switch(Stmt0, MLDS_Context, Statement) -->
 :- pred is_integral_type(mlds__type::in) is semidet.
 is_integral_type(mlds__native_int_type).
 is_integral_type(mlds__native_char_type).
-is_integral_type(mlds__mercury_type(_, int_type)).
-is_integral_type(mlds__mercury_type(_, char_type)).
-is_integral_type(mlds__mercury_type(_, enum_type)).
+is_integral_type(mlds__mercury_type(_, int_type, _)).
+is_integral_type(mlds__mercury_type(_, char_type, _)).
+is_integral_type(mlds__mercury_type(_, enum_type, _)).
 
 :- pred is_dense_switch(list(mlds__switch_case)::in, int::in) is semidet.
 is_dense_switch(Cases, ReqDensity) :-

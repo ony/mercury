@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -49,7 +49,6 @@
 :- implementation.
 
 :- import_module ml_util.
-:- import_module llds.		% XXX needed for C interface types
 :- import_module llds_out.	% XXX needed for llds_out__name_mangle,
 				% llds_out__sym_name_mangle,
 				% llds_out__make_base_typeclass_info_name,
@@ -60,7 +59,7 @@
 :- import_module ml_code_util.	% for ml_gen_public_field_decl_flags, which is
 				% used by the code that handles derived classes
 :- import_module ml_type_gen.	% for ml_gen_type_name
-:- import_module export.	% for export__type_to_type_string
+:- import_module foreign.
 :- import_module globals, options, passes_aux.
 :- import_module builtin_ops, c_util, modules.
 :- import_module prog_data, prog_out, type_util, error_util, code_model.
@@ -124,6 +123,8 @@ mlds_to_c__output_mlds(MLDS, Suffix) -->
 :- mode mlds_output_hdr_file(in, in, di, uo) is det.
 
 mlds_output_hdr_file(Indent, MLDS) -->
+	% XXX for bootstrapping
+	io__write_string("#define MR_BOOTSTRAP_TYPE_CTOR_COMPACT\n"),
 	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns) },
 	mlds_output_hdr_start(Indent, ModuleName), io__nl,
 	mlds_output_hdr_imports(Indent, Imports), io__nl,
@@ -179,7 +180,11 @@ mlds_output_src_imports(Indent, Imports) -->
 :- mode mlds_output_src_import(in, in, di, uo) is det.
 
 mlds_output_src_import(_Indent, Import) -->
-	{ SymName = mlds_module_name_to_sym_name(Import) },
+	{ Import = mercury_import(ImportName)
+	; Import = foreign_import(_),
+		unexpected(this_file, "foreign import in C backend")
+	},
+	{ SymName = mlds_module_name_to_sym_name(ImportName) },
 	module_name_to_file_name(SymName, ".h", no, HeaderFile),
 	io__write_strings(["#include """, HeaderFile, """\n"]).
 
@@ -297,7 +302,7 @@ mlds_output_src_start(Indent, ModuleName) -->
 	io__write_string("/* :- implementation. */\n"),
 	mlds_output_src_bootstrap_defines, io__nl,
 	mlds_output_src_import(Indent,
-		mercury_module_name_to_mlds(ModuleName)),
+		mercury_import(mercury_module_name_to_mlds(ModuleName))),
 	io__nl.
 
 	%
@@ -383,7 +388,7 @@ mlds_get_c_foreign_code(AllForeignCode) = ForeignCode :-
 	;
 		% this can occur when compiling to a non-C target
 		% using "--mlds-dump all"
-		ForeignCode = foreign_code([], [], [])
+		ForeignCode = foreign_code([], [], [], [])
 	).
 
 %-----------------------------------------------------------------------------%
@@ -519,8 +524,8 @@ mlds_output_calls_to_register_tci(ModuleName,
 :- mode mlds_output_c_hdr_decls(in, in, in, di, uo) is det.
 
 mlds_output_c_hdr_decls(ModuleName, Indent, ForeignCode) -->
-	{ ForeignCode = mlds__foreign_code(RevHeaderCode, _RevBodyCode,
-		ExportDefns) },
+	{ ForeignCode = mlds__foreign_code(RevHeaderCode, _RevImports,
+		_RevBodyCode, ExportDefns) },
 	{ HeaderCode = list__reverse(RevHeaderCode) },
 	io__write_list(HeaderCode, "\n", mlds_output_c_hdr_decl(Indent)),
 	io__write_string("\n"),
@@ -552,8 +557,20 @@ mlds_output_c_decls(_, _) --> [].
 :- mode mlds_output_c_defns(in, in, in, di, uo) is det.
 
 mlds_output_c_defns(ModuleName, Indent, ForeignCode) -->
-	{ ForeignCode = mlds__foreign_code(_RevHeaderCode, RevBodyCode,
-		ExportDefns) },
+	{ ForeignCode = mlds__foreign_code(_RevHeaderCode, RevImports,
+		RevBodyCode, ExportDefns) },
+	{ Imports = list__reverse(RevImports) },
+	list__foldl(
+	    (pred(ForeignImport::in, di, uo) is det -->
+	    	{ ForeignImport = foreign_import_module(Lang, Import, _) },
+		( { Lang = c } ->
+			mlds_output_src_import(Indent,
+				mercury_import(
+					mercury_module_name_to_mlds(Import)))
+	    	;
+			{ sorry(this_file, "foreign code other than C") }
+		)
+	    ), Imports),
 	{ BodyCode = list__reverse(RevBodyCode) },
 	io__write_list(BodyCode, "\n", mlds_output_c_defn(Indent)),
 	io__write_string("\n"),
@@ -614,6 +631,12 @@ mlds_output_pragma_export_func_name(ModuleName, Indent,
 			mlds_output_pragma_export_type(prefix),
 			mlds_output_pragma_export_type(suffix)).
 
+:- pred mlds_output_pragma_export_type(mlds__type::in,
+		io__state::di, io__state::uo) is det.
+mlds_output_pragma_export_type(Type) -->
+	mlds_output_pragma_export_type(prefix, Type),
+	mlds_output_pragma_export_type(suffix, Type).
+
 :- type locn ---> prefix ; suffix.
 :- pred mlds_output_pragma_export_type(locn, mlds__type, io__state, io__state).
 :- mode mlds_output_pragma_export_type(in, in, di, uo) is det.
@@ -622,9 +645,8 @@ mlds_output_pragma_export_type(suffix, _Type) --> [].
 		% Array types are exported as MR_Word
 mlds_output_pragma_export_type(prefix, mercury_array_type(_ElemType)) -->
 	io__write_string("MR_Word").
-mlds_output_pragma_export_type(prefix, mercury_type(Type, _)) -->
-	{ export__type_to_type_string(Type, String) },
-	io__write_string(String).
+mlds_output_pragma_export_type(prefix, mercury_type(_, _, ExportedType)) -->
+	io__write_string(to_type_string(c, ExportedType)).
 mlds_output_pragma_export_type(prefix, mlds__cont_type(_)) -->
 	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mlds__commit_type) -->
@@ -637,6 +659,8 @@ mlds_output_pragma_export_type(prefix, mlds__native_float_type) -->
 	io__write_string("MR_Float").
 mlds_output_pragma_export_type(prefix, mlds__native_char_type) -->
 	io__write_string("MR_Char").
+mlds_output_pragma_export_type(prefix, mlds__foreign_type(_, _, _)) -->
+	{ error("mlds_output_pragma_export_type: foreign_type") }.
 mlds_output_pragma_export_type(prefix, mlds__class_type(_, _, _)) -->
 	io__write_string("MR_Word").
 mlds_output_pragma_export_type(prefix, mlds__array_type(_)) -->
@@ -672,11 +696,13 @@ mlds_output_pragma_export_defn_body(ModuleName, FuncName, Signature) -->
 		io__write_string("\t")
 	; { RetTypes = [RetType] } ->
 		io__write_string("\treturn ("),
-		mlds_output_pragma_export_type(prefix, RetType),
-		mlds_output_pragma_export_type(suffix, RetType),
+		mlds_output_pragma_export_type(RetType),
 		io__write_string(") ")
 	;
-		{ error("mlds_output_pragma_export: multiple return types") }
+		io__write_string("\treturn ("),
+		mlds_output_return_list(RetTypes,
+				mlds_output_pragma_export_type),
+		io__write_string(") ")
 	),
 
 	mlds_output_fully_qualified_name(FuncName),
@@ -684,7 +710,6 @@ mlds_output_pragma_export_defn_body(ModuleName, FuncName, Signature) -->
 	io__write_list(Parameters, ", ",
 			mlds_output_name_with_cast(ModuleName)),
 	io__write_string(");\n").
-
 
 	%
 	% Write out the arguments to the MLDS function.  Note the last
@@ -707,11 +732,11 @@ write_func_args(ModuleName, [Arg | Args]) -->
 	%
 	% Output a fully qualified name preceded by a cast.
 	%
-:- pred mlds_output_name_with_cast(mlds_module_name::in,
-		pair(mlds__entity_name, mlds__type)::in,
+:- pred mlds_output_name_with_cast(mlds_module_name::in, mlds__argument::in,
 		io__state::di, io__state::uo) is det.
 
-mlds_output_name_with_cast(ModuleName, Name - Type) -->
+mlds_output_name_with_cast(ModuleName, Arg) -->
+	{ Arg = mlds__argument(Name, Type, _GC_TraceCode) },
 	mlds_output_cast(Type),
 	mlds_output_fully_qualified_name(qual(ModuleName, Name)).
 
@@ -730,7 +755,8 @@ det_func_signature(mlds__func_params(Args, _RetTypes)) = Params :-
 		error("det_func_signature: function missing return value?")
 	),
 	(
-		ReturnArg = _ReturnArgName - mlds__ptr_type(ReturnArgType0)
+		ReturnArg = mlds__argument(_ReturnArgName,
+			mlds__ptr_type(ReturnArgType0), _GC_TraceCode)
 	->
 		ReturnArgType = ReturnArgType0
 	;
@@ -812,11 +838,10 @@ mlds_output_decl(Indent, ModuleName, Defn) -->
 		globals__io_lookup_bool_option(highlevel_data, HighLevelData),
 		(
 			{ HighLevelData = yes },
-			{ DefnBody = mlds__function(_, Signature, _, _) }
+			{ DefnBody = mlds__function(_, Params, _, _) }
 		->
-			{ Signature = mlds__func_params(Parameters,
-				_RetTypes) },
-			{ assoc_list__values(Parameters, ParamTypes) },
+			{ Params = mlds__func_params(Arguments, _RetTypes) },
+			{ ParamTypes = mlds__get_arg_types(Arguments) },
 			mlds_output_type_forward_decls(Indent, ParamTypes)
 		;
 			[]
@@ -865,7 +890,7 @@ mlds_type_contains_type(mlds__array_type(Type), Type).
 mlds_type_contains_type(mlds__ptr_type(Type), Type).
 mlds_type_contains_type(mlds__func_type(Parameters), Type) :-
 	Parameters = mlds__func_params(Arguments, RetTypes),
-	( list__member(_Name - Type, Arguments)
+	( list__member(mlds__argument(_Name, Type, _GC_TraceCode), Arguments)
 	; list__member(Type, RetTypes)
 	).
 
@@ -880,7 +905,7 @@ mlds_output_type_forward_decl(Indent, Type) -->
 			Kind \= mlds__enum,
 			ClassType = Type
 		;
-			Type = mercury_type(MercuryType, user_type),
+			Type = mercury_type(MercuryType, user_type, _),
 			type_to_type_id(MercuryType, TypeId, _ArgsTypes),
 			ml_gen_type_name(TypeId, ClassName, ClassArity),
 			ClassType = mlds__class_type(ClassName, ClassArity,
@@ -900,7 +925,7 @@ mlds_output_type_forward_decl(Indent, Type) -->
 
 mlds_output_defn(Indent, ModuleName, Defn) -->
 	{ Defn = mlds__defn(Name, Context, Flags, DefnBody) },
-	( { DefnBody \= mlds__data(_, _) } ->
+	( { DefnBody \= mlds__data(_, _, _) } ->
 		io__nl
 	;
 		[]
@@ -916,8 +941,9 @@ mlds_output_defn(Indent, ModuleName, Defn) -->
 
 mlds_output_decl_body(Indent, Name, Context, DefnBody) -->
 	(
-		{ DefnBody = mlds__data(Type, Initializer) },
-		mlds_output_data_decl(Name, Type, initializer_array_size(Initializer))
+		{ DefnBody = mlds__data(Type, Initializer, _GC_TraceCode) },
+		mlds_output_data_decl(Name, Type,
+			initializer_array_size(Initializer))
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
 			_MaybeBody, _Attrs) },
@@ -935,8 +961,11 @@ mlds_output_decl_body(Indent, Name, Context, DefnBody) -->
 
 mlds_output_defn_body(Indent, Name, Context, DefnBody) -->
 	(
-		{ DefnBody = mlds__data(Type, Initializer) },
-		mlds_output_data_defn(Name, Type, Initializer)
+		{ DefnBody = mlds__data(Type, Initializer,
+			Maybe_GC_TraceCode) },
+		mlds_output_data_defn(Name, Type, Initializer),
+		mlds_output_maybe_gc_trace_code(Indent, Name,
+			Maybe_GC_TraceCode, "")
 	;
 		{ DefnBody = mlds__function(MaybePredProcId, Signature,
 			MaybeBody, _Attributes) },
@@ -947,6 +976,25 @@ mlds_output_defn_body(Indent, Name, Context, DefnBody) -->
 		mlds_output_class(Indent, Name, Context, ClassDefn)
 	).
 
+:- pred mlds_output_maybe_gc_trace_code(indent::in,
+		mlds__qualified_entity_name::in,
+		maybe(mlds__statement)::in, string::in,
+		io__state::di, io__state::uo) is det.
+mlds_output_maybe_gc_trace_code(Indent, Name, Maybe_GC_TraceCode,
+		MaybeNewLine) -->
+	(
+		{ Maybe_GC_TraceCode = no }
+	; 
+		{ Maybe_GC_TraceCode = yes(GC_TraceCode) },
+		io__write_string(MaybeNewLine),
+		io__write_string("#if 0 /* GC trace code */\n"),
+		% XXX this value for FuncInfo is bogus
+		% However, this output is only for debugging anyway,
+		% so it doesn't really matter.
+		{ FuncInfo = func_info(Name) },
+		mlds_output_statement(Indent, FuncInfo, GC_TraceCode),
+		io__write_string("#endif\n")
+	).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1057,8 +1105,12 @@ mlds_make_base_class(Context, ClassId, MLDS_Defn, BaseNum0, BaseNum) :-
 	BaseName = mlds__var_name(string__format("base_%d", [i(BaseNum0)]),
 		no),
 	Type = ClassId,
+	% We only need GC tracing code for top-level variables,
+	% not for base classes.
+	GC_TraceCode = no,
 	MLDS_Defn = mlds__defn(data(var(BaseName)), Context,
-		ml_gen_public_field_decl_flags, data(Type, no_initializer)),
+		ml_gen_public_field_decl_flags,
+		data(Type, no_initializer, GC_TraceCode)),
 	BaseNum = BaseNum0 + 1.
 
 	% Output the definitions of the enumeration constants
@@ -1097,7 +1149,7 @@ is_enum_const(Defn) :-
 mlds_output_enum_constant(Indent, EnumModuleName, Defn) -->
 	{ Defn = mlds__defn(Name, Context, _Flags, DefnBody) },
 	(
-		{ DefnBody = data(Type, Initializer) }
+		{ DefnBody = data(Type, Initializer, _GC_TraceCode) }
 	->
 		mlds_indent(Context, Indent),
 		mlds_output_fully_qualified_name(qual(EnumModuleName, Name)),
@@ -1236,9 +1288,9 @@ mlds_output_func(Indent, Name, Context, Signature, FunctionBody) -->
 		mlds_indent(Context, Indent),
 		io__write_string("{\n"),
 
-		{ FuncInfo = func_info(Name, Signature) },
 		mlds_maybe_output_time_profile_instr(Context, Indent + 1, Name),
 
+		{ FuncInfo = func_info(Name) },
 		mlds_output_statement(Indent + 1, FuncInfo, Body),
 
 		mlds_indent(Context, Indent),
@@ -1269,8 +1321,10 @@ mlds_output_func_decl_ho(Indent, QualifiedName, Context,
 	; { RetTypes = [RetType] } ->
 		OutputPrefix(RetType)
 	;
-		io__write_string("\n#error multiple return types\n")
-		% { error("mlds_output_func: multiple return types") }
+		mlds_output_return_list(RetTypes,
+				(pred(T::in, di, uo) is det -->
+					OutputPrefix(T),
+					OutputSuffix(T)))
 	),
 	io__write_char(' '),
 	io__write_string(CallingConvention),
@@ -1304,17 +1358,20 @@ mlds_output_params(OutputPrefix, OutputSuffix, Indent, ModuleName,
 	io__write_char(')').
 
 :- pred mlds_output_param(output_type, output_type,
-		indent, mlds_module_name, mlds__context,
-		pair(mlds__entity_name, mlds__type), io__state, io__state).
-:- mode mlds_output_param(in(output_type), in(output_type),
-		in, in, in, in, di, uo) is det.
+		indent, mlds_module_name, mlds__context, mlds__argument,
+		io__state, io__state).
+:- mode mlds_output_param(in(output_type), in(output_type), in, in, in, in,
+		di, uo) is det.
 
 
-mlds_output_param(OutputPrefix, OutputSuffix, Indent,
-		ModuleName, Context, Name - Type) -->
+mlds_output_param(OutputPrefix, OutputSuffix, Indent, ModuleName, Context,
+		Arg) -->
+	{ Arg = mlds__argument(Name, Type, Maybe_GC_TraceCode) },
+	{ QualName = qual(ModuleName, Name) },
 	mlds_indent(Context, Indent),
-	mlds_output_data_decl_ho(OutputPrefix, OutputSuffix,
-			qual(ModuleName, Name), Type).
+	mlds_output_data_decl_ho(OutputPrefix, OutputSuffix, QualName, Type),
+	mlds_output_maybe_gc_trace_code(Indent, QualName, Maybe_GC_TraceCode,
+		"\n").
 
 :- pred mlds_output_func_type_prefix(func_params, io__state, io__state).
 :- mode mlds_output_func_type_prefix(in, di, uo) is det.
@@ -1326,7 +1383,7 @@ mlds_output_func_type_prefix(Params) -->
 	; { RetTypes = [RetType] } ->
 		mlds_output_type(RetType)
 	;
-		{ error("mlds_output_func_type_prefix: multiple return types") }
+		mlds_output_return_list(RetTypes, mlds_output_type)
 	),
 	% Note that mlds__func_type actually corresponds to a
 	% function _pointer_ type in C.  This is necessary because
@@ -1353,11 +1410,10 @@ mlds_output_param_types(Parameters) -->
 	),
 	io__write_char(')').
 
-:- pred mlds_output_param_type(pair(mlds__entity_name, mlds__type),
-		io__state, io__state).
+:- pred mlds_output_param_type(mlds__argument, io__state, io__state).
 :- mode mlds_output_param_type(in, di, uo) is det.
 
-mlds_output_param_type(_Name - Type) -->
+mlds_output_param_type(mlds__argument(_Name, Type, _GC_TraceCode)) -->
 	mlds_output_type(Type).
 
 %-----------------------------------------------------------------------------%
@@ -1542,7 +1598,7 @@ mlds_output_type(Type) -->
 :- pred mlds_output_type_prefix(mlds__type, io__state, io__state).
 :- mode mlds_output_type_prefix(in, di, uo) is det.
 
-mlds_output_type_prefix(mercury_type(Type, TypeCategory)) -->
+mlds_output_type_prefix(mercury_type(Type, TypeCategory, _)) -->
 	mlds_output_mercury_type_prefix(Type, TypeCategory).
 mlds_output_type_prefix(mercury_array_type(_ElemType)) -->
 	globals__io_lookup_bool_option(highlevel_data, HighLevelData),
@@ -1559,6 +1615,8 @@ mlds_output_type_prefix(mlds__native_int_type)   --> io__write_string("int").
 mlds_output_type_prefix(mlds__native_float_type) --> io__write_string("float").
 mlds_output_type_prefix(mlds__native_bool_type)  --> io__write_string("bool").
 mlds_output_type_prefix(mlds__native_char_type)  --> io__write_string("char").
+mlds_output_type_prefix(mlds__foreign_type(_, _, _)) -->
+	{ error("mlds_output_type_prefix: foreign_type") }.
 mlds_output_type_prefix(mlds__class_type(Name, Arity, ClassKind)) -->
 	( { ClassKind = mlds__enum } ->
 		%
@@ -1719,12 +1777,13 @@ initializer_array_size(init_array(Elems)) = array_size(list__length(Elems)).
 		io__state, io__state).
 :- mode mlds_output_type_suffix(in, in, di, uo) is det.
 
-mlds_output_type_suffix(mercury_type(_, _), _) --> [].
+mlds_output_type_suffix(mercury_type(_, _, _), _) --> [].
 mlds_output_type_suffix(mercury_array_type(_), _) --> [].
 mlds_output_type_suffix(mlds__native_int_type, _) --> [].
 mlds_output_type_suffix(mlds__native_float_type, _) --> [].
 mlds_output_type_suffix(mlds__native_bool_type, _) --> [].
 mlds_output_type_suffix(mlds__native_char_type, _) --> [].
+mlds_output_type_suffix(mlds__foreign_type(_, _, _), _) --> [].
 mlds_output_type_suffix(mlds__class_type(_, _, _), _) --> [].
 mlds_output_type_suffix(mlds__ptr_type(_), _) --> [].
 mlds_output_type_suffix(mlds__array_type(_), ArraySize) -->
@@ -1865,6 +1924,14 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 	->
 		io__write_string("extern ")
 	;
+		% forward declarations for GNU C nested functions need
+		% to be prefixed with "auto"
+		{ DeclOrDefn = forward_decl },
+		{ Name = function(_, _, _, _) },
+		{ Access = local }
+	->
+		io__write_string("auto ")
+	;
 		[]
 	).
 
@@ -1898,7 +1965,7 @@ mlds_output_abstractness(concrete) --> [].
 %
 
 :- type func_info
-	--->	func_info(mlds__qualified_entity_name, mlds__func_params).
+	--->	func_info(mlds__qualified_entity_name).
 
 :- pred mlds_output_statements(indent, func_info, list(mlds__statement),
 		io__state, io__state).
@@ -1926,8 +1993,21 @@ mlds_output_stmt(Indent, FuncInfo, block(Defns, Statements), Context) -->
 	mlds_indent(Indent),
 	io__write_string("{\n"),
 	( { Defns \= [] } ->
-		{ FuncInfo = func_info(FuncName, _) },
+		{ FuncInfo = func_info(FuncName) },
 		{ FuncName = qual(ModuleName, _) },
+
+		% output forward declarations for any nested functions
+		% defined in this block, in case they are referenced before
+		% they are defined
+		{ list__filter(defn_is_function, Defns, NestedFuncDefns) },
+		( { NestedFuncDefns \= [] } ->
+			mlds_output_decls(Indent + 1, ModuleName,
+				NestedFuncDefns),
+			io__write_string("\n")
+		;
+			[]
+		),
+
 		mlds_output_defns(Indent + 1, ModuleName, Defns),
 		io__write_string("\n")
 	;
@@ -2078,7 +2158,7 @@ mlds_output_stmt(Indent, _FuncInfo, computed_goto(Expr, Labels), Context) -->
 mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 	{ Call = call(_Signature, FuncRval, MaybeObject, CallArgs,
 		Results, IsTailCall) },
-	{ CallerFuncInfo = func_info(Name, _Params) },
+	{ CallerFuncInfo = func_info(Name) },
 	%
 	% Optimize general tail calls.
 	% We can't really do much here except to insert `return'
@@ -2118,7 +2198,8 @@ mlds_output_stmt(Indent, CallerFuncInfo, Call, Context) -->
 		mlds_output_lval(Lval),
 		io__write_string(" = ")
 	;
-		{ error("mld_output_stmt: multiple return values") }
+		mlds_output_return_list(Results, mlds_output_lval),
+		io__write_string(" = ")
 	),
 	mlds_output_bracketed_rval(FuncRval),
 	io__write_string("("),
@@ -2144,7 +2225,7 @@ mlds_output_stmt(Indent, _FuncInfo, return(Results), _) -->
 		io__write_char(' '),
 		mlds_output_rval(Rval)
 	;
-		{ error("mlds_output_stmt: multiple return values") }
+		mlds_output_return_list(Results, mlds_output_rval)
 	),
 	io__write_string(";\n").
 	
@@ -2338,7 +2419,12 @@ mlds_maybe_output_heap_profile_instr(Context, Indent, Args, FuncName,
 			c_util__output_quoted_string(CtorName),
 			io__write_char('"')
 		;
-			io__write_string("NULL")
+			/*
+			** Just use an empty string.  Note that we can't use
+			** a null pointer here, because MR_record_allocation()
+			** requires its string arguments to not be NULL.
+			*/
+			io__write_string("\"\"")
 		),
 		io__write_string(");\n")
 	;
@@ -2443,12 +2529,12 @@ mlds_output_atomic_stmt(_Indent, _FuncInfo, delete_object(_Lval), _) -->
 	{ error("mlds_to_c.m: sorry, delete_object not implemented") }.
 
 mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
-	{ NewObject = new_object(Target, MaybeTag, Type, MaybeSize,
+	{ NewObject = new_object(Target, MaybeTag, _HasSecTag, Type, MaybeSize,
 		MaybeCtorName, Args, ArgTypes) },
 	mlds_indent(Indent),
 	io__write_string("{\n"),
 
-	{ FuncInfo = func_info(FuncName, _) },
+	{ FuncInfo = func_info(FuncName) },
 	mlds_maybe_output_heap_profile_instr(Context, Indent + 1, Args,
 			FuncName, MaybeCtorName),
 
@@ -2501,6 +2587,10 @@ mlds_output_atomic_stmt(Indent, FuncInfo, NewObject, Context) -->
 		Indent + 1),
 	mlds_indent(Context, Indent),
 	io__write_string("}\n").
+
+mlds_output_atomic_stmt(Indent, _FuncInfo, gc_check, _) -->
+	mlds_indent(Indent),
+	io__write_string("MR_GC_check();\n").
 
 mlds_output_atomic_stmt(Indent, _FuncInfo, mark_hp(Lval), _) -->
 	mlds_indent(Indent),
@@ -2583,8 +2673,15 @@ mlds_output_init_args([], [], _, _, _, _, _) --> [].
 mlds_output_init_args([Arg|Args], [ArgType|ArgTypes], Context,
 		ArgNum, Target, Tag, Indent) -->
 	%
-	% Currently all fields of new_object instructions are
-	% represented as MR_Box, so we need to box them if necessary.
+	% The MR_hl_field() macro expects its argument to
+	% have type MR_Box, so we need to box the arguments
+	% if they aren't already boxed.  Hence the use of
+	% mlds_output_boxed_rval below.
+	%
+	% XXX For --high-level-data, we ought to generate
+	% assignments to the fields (or perhaps a call to
+	% a constructor function) rather than using the
+	% MR_hl_field() macro.
 	%
 	mlds_indent(Context, Indent),
 	io__write_string("MR_hl_field("),
@@ -2611,7 +2708,7 @@ mlds_output_lval(field(MaybeTag, Rval, offset(OffsetRval),
 		FieldType, _ClassType)) -->
 	(
 		{ FieldType = mlds__generic_type
-		; FieldType = mlds__mercury_type(term__variable(_), _)
+		; FieldType = mlds__mercury_type(term__variable(_), _, _)
 		}
 	->
 		io__write_string("(")
@@ -2718,6 +2815,24 @@ mlds_output_bracketed_rval(Rval) -->
 		io__write_char(')')
 	).
 
+:- pred mlds_output_return_list(list(T), pred(T, io__state, io__state),
+		io__state, io__state).
+:- mode mlds_output_return_list(in, pred(in, di, uo) is det, di, uo) is det.
+	% mlds_output_return_list(List, OutputPred, IO0, IO) outputs a List
+	% of return types/values using OutputPred.
+
+mlds_output_return_list(List, OutputPred) -->
+	% Even though C doesn't support multiple return types,
+	% this case needs to be handled for e.g. MLDS dumps when
+	% compiling to Java.  We generate an "#error" directive
+	% to make the error message clearer, but then we go ahead
+	% and generate C-like psuedo-code for the purposes of MLDS
+	% dumps.
+	io__write_string("\n#error multiple return values\n"),
+	io__write_string("\t{"),
+	io__write_list(List, ", ", OutputPred),
+	io__write_string("}").
+
 :- pred mlds_output_rval(mlds__rval, io__state, io__state).
 :- mode mlds_output_rval(in, di, uo) is det.
 
@@ -2802,6 +2917,13 @@ mlds_output_cast(Type) -->
 	
 mlds_output_boxed_rval(Type, Exprn) -->
 	(
+		{ Type = mlds__generic_type
+		; Type = mlds__mercury_type(_, polymorphic_type, _)
+		}
+	->
+		% It already has type MR_Box, so no cast is needed
+		mlds_output_rval(Exprn)
+	;
 		{ Exprn = unop(cast(OtherType), InnerExprn) },
 		{ Type = OtherType }
 	->
@@ -2809,7 +2931,7 @@ mlds_output_boxed_rval(Type, Exprn) -->
 		mlds_output_boxed_rval(Type, InnerExprn)
 	;
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
-				[], _), _)
+				[], _), _, _)
 		; Type = mlds__native_float_type
 		}
 	->
@@ -2817,8 +2939,8 @@ mlds_output_boxed_rval(Type, Exprn) -->
 		mlds_output_rval(Exprn),
 		io__write_string(")")
 	;
-		{ Type = mlds__mercury_type(term__functor(term__atom("character"),
-				[], _), _)
+		{ Type = mlds__mercury_type(term__functor(
+				term__atom("character"), [], _), _, _)
 		; Type = mlds__native_char_type
 		; Type = mlds__native_bool_type
 		; Type = mlds__native_int_type
@@ -2842,7 +2964,7 @@ mlds_output_boxed_rval(Type, Exprn) -->
 mlds_output_unboxed_rval(Type, Exprn) -->
 	(
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
-				[], _), _)
+				[], _), _, _)
 		; Type = mlds__native_float_type
 		}
 	->
@@ -2850,8 +2972,8 @@ mlds_output_unboxed_rval(Type, Exprn) -->
 		mlds_output_rval(Exprn),
 		io__write_string(")")
 	;
-		{ Type = mlds__mercury_type(term__functor(term__atom("character"),
-				[], _), _)
+		{ Type = mlds__mercury_type(term__functor(
+			term__atom("character"), [], _), _, _)
 		; Type = mlds__native_char_type
 		; Type = mlds__native_bool_type
 		; Type = mlds__native_int_type

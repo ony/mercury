@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -259,7 +259,7 @@
 :- import_module rtti, rtti_out, layout, layout_out, options, trace_params.
 :- import_module exprn_aux, prog_util, prog_out, hlds_pred.
 :- import_module export, mercury_to_mercury, modules, passes_aux.
-:- import_module c_util.
+:- import_module c_util, foreign.
 
 :- import_module int, char, string, std_util.
 :- import_module set, bintree_set, assoc_list, require.
@@ -452,7 +452,9 @@ output_c_file_intro_and_grade(SourceFileName, Version) -->
 		"** UNBOXED_FLOAT=", UnboxedFloatStr, "\n",
 		"**\n",
 		"** END_OF_C_GRADE_INFO\n",
-		"*/\n"
+		"*/\n",
+		"\n",
+		"#define MR_BOOTSTRAP_TYPE_CTOR_COMPACT\n"
 	]).
 
 :- pred convert_bool_to_string(bool, string).
@@ -1915,11 +1917,10 @@ output_pragma_c_component(pragma_c_noop) --> [].
 output_pragma_decls([]) --> [].
 output_pragma_decls([D|Decls]) -->
 	(
-		{ D = pragma_c_arg_decl(Type, VarName) },
 		% Apart from special cases, the local variables are MR_Words
-		{ export__type_to_type_string(Type, VarType) },
+		{ D = pragma_c_arg_decl(_Type, TypeString, VarName) },
 		io__write_string("\t"),
-		io__write_string(VarType),
+		io__write_string(TypeString),
 		io__write_string("\t"),
 		io__write_string(VarName),
 		io__write_string(";\n")

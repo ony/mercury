@@ -16,9 +16,9 @@
 @finalout
 @setchapternewpage off
 @ifinfo
-This file documents the Mercury programming language.
+This file documents the Mercury programming language, version <VERSION>.
 
-Copyright (C) 1995-2001 The University of Melbourne.
+Copyright (C) 1995-2002 The University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -42,6 +42,7 @@ into another language, under the above conditions for modified versions.
 
 @titlepage
 @title The Mercury Language Reference Manual
+@subtitle Version <VERSION>
 @author Fergus Henderson
 @author Thomas Conway
 @author Zoltan Somogyi
@@ -72,7 +73,7 @@ into another language, under the above conditions for modified versions.
 
 @ifinfo
 @node Top,,, (mercury)
-@top
+@top The Mercury Language Reference Manual, version <VERSION>
 @end ifinfo
 @c XXX Move to after Determinism
 @c * Assertions::        Assertion declarations allow you to declare laws
@@ -368,8 +369,9 @@ Operators can also be formed by enclosing a variable or name between grave
 accents (backquotes).  Any variable or name may
 be used as an operator in this way.  If @var{fun} is a variable or name,
 then a term of the form @code{@var{X} `@var{fun}` @var{Y}} is equivalent to 
-@code{@var{fun}(@var{X}, @var{Y})}.  The operator is treated as having the
-highest precedence possible and is left associative.
+@code{@var{fun}(@var{X}, @var{Y})}. The operator is left associative
+and binds more tightly than every operator other than @samp{^}
+(@pxref{Builtin Operators}).
 
 A parenthesized term is just an open parenthesis
 followed by a term and a close parenthesis.
@@ -409,95 +411,97 @@ while ``xfy'' indicates a right-associative infix operator.
 
 @example
 
-Operator          Category  Specifier Priority
+Operator          Specifier Priority
 
-^                 after     xfy       99
-^                 before    fx        100
-**                after     xfy       200
--                 before    fx        200
-\                 before    fx        200
-*                 after     yfx       400
-//                after     yfx       400
-/                 after     yfx       400
-<<                after     yfx       400
->>                after     yfx       400
-div               after     yfx       400
-mod               after     xfx       400
-rem               after     xfx       400
-++                after     xfy       500
-+                 after     yfx       500
-+                 before    fx        500
---                after     yfx       500
--                 after     yfx       500
-/\                after     yfx       500
-\/                after     yfx       500
-aditi_bottom_up   before    fx        500
-aditi_top_down    before    fx        500
-.                 after     xfy       600
-:                 after     yfx       600
-:=                after     xfx       650
-=^                after     xfx       650
-<                 after     xfx       700
-=..               after     xfx       700
-=:=               after     xfx       700
-=<                after     xfx       700
-==                after     xfx       700
-=\=               after     xfx       700
-=                 after     xfx       700
->=                after     xfx       700
->                 after     xfx       700
-@@<                after     xfx       700
-@@=<               after     xfx       700
-@@>=               after     xfx       700
-@@>                after     xfx       700
-\==               after     xfx       700
-\=                after     xfx       700
-~=                after     xfx       700
-is                after     xfx       701
-and               after     xfy       720
-or                after     xfy       740
-func              before    fx        800
-impure            before    fy        800
-pred              before    fx        800
-semipure          before    fy        800
-\+                before    fy        900
-not               before    fy        900
-when              after     xfx       900
-~                 before    fy        900
-<=>               after     xfy       920
-<=                after     xfy       920
-=>                after     xfy       920
-all               before    fxy       950
-lambda            before    fxy       950
-some              before    fxy       950
-,                 after     xfy       1000
-&                 after     xfy       1025
-->                after     xfy       1050
-;                 after     xfy       1100
-then              after     xfx       1150
-if                before    fx        1160
-else              after     xfy       1170
-::                after     xfx       1175
-==>               after     xfx       1175
-where             after     xfx       1175
---->              after     xfy       1179
-type              before    fx        1180
-end_module        before    fx        1199
-import_module     before    fx        1199
-include_module    before    fx        1199
-instance          before    fx        1199
-inst              before    fx        1199
-mode              before    fx        1199
-module            before    fx        1199
-pragma            before    fx        1199
-promise           before    fx        1199
-rule              before    fx        1199
-typeclass         before    fx        1199
-use_module        before    fx        1199
--->               after     xfx       1200
-:-                after     xfx       1200
-:-                before    fx        1200
-?-                before    fx        1200
+@@                 xfx       50
+^                 xfy       99
+^                 fx        100
+`@var{op}`              yfx       120       @footnote{Operator term (@pxref{Terms}).}
+**                xfy       200
+-                 fx        200
+\                 fx        200
+*                 yfx       400
+//                yfx       400
+/                 yfx       400
+<<                yfx       400
+>>                yfx       400
+div               yfx       400
+mod               xfx       400
+rem               xfx       400
+++                xfy       500
++                 yfx       500
++                 fx        500
+--                yfx       500
+-                 yfx       500
+/\                yfx       500
+\/                yfx       500
+aditi_bottom_up   fx        500
+aditi_top_down    fx        500
+.                 xfy       600
+:                 yfx       600
+:=                xfx       650
+=^                xfx       650
+<                 xfx       700
+=..               xfx       700
+=:=               xfx       700
+=<                xfx       700
+==                xfx       700
+=\=               xfx       700
+=                 xfx       700
+>=                xfx       700
+>                 xfx       700
+@@<                xfx       700
+@@=<               xfx       700
+@@>=               xfx       700
+@@>                xfx       700
+\==               xfx       700
+\=                xfx       700
+~=                xfx       700
+is                xfx       701
+and               xfy       720
+or                xfy       740
+func              fx        800
+impure            fy        800
+pred              fx        800
+semipure          fy        800
+\+                fy        900
+not               fy        900
+when              xfx       900
+~                 fy        900
+<=>               xfy       920
+<=                xfy       920
+=>                xfy       920
+all               fxy       950
+lambda            fxy       950
+some              fxy       950
+,                 xfy       1000
+&                 xfy       1025
+->                xfy       1050
+;                 xfy       1100
+then              xfx       1150
+if                fx        1160
+else              xfy       1170
+::                xfx       1175
+==>               xfx       1175
+where             xfx       1175
+--->              xfy       1179
+type              fx        1180
+end_module        fx        1199
+import_module     fx        1199
+include_module    fx        1199
+instance          fx        1199
+inst              fx        1199
+mode              fx        1199
+module            fx        1199
+pragma            fx        1199
+promise           fx        1199
+rule              fx        1199
+typeclass         fx        1199
+use_module        fx        1199
+-->               xfx       1200
+:-                xfx       1200
+:-                fx        1200
+?-                fx        1200
 
 @end example
 
@@ -955,6 +959,7 @@ or an explicit type qualification.
 @menu
 * Data-functors::
 * Record syntax::
+* Unification expressions::
 * Conditional expressions::
 * Lambda expressions::
 * Higher-order function applications::
@@ -1057,6 +1062,48 @@ Result = 'field1 :='(Arg1, Term, NewField1)
 @end example
 
 @end table
+
+@node Unification expressions
+@subsection Unification expressions
+
+A unification expression is an expression of the form
+
+@example
+X @@ Y
+@end example
+
+@noindent
+where @var{X} and @var{Y} are data-terms.
+
+The meaning of a unification expression is that the arguments are unified,
+and the expression is equivalent to the unified value.
+
+The strict sequential operational semantics (@pxref{Semantics}) of an
+expression @w{@code{X @@ Y}} is that the expression is replaced by a
+fresh variable @var{Z}, and immediately after @var{Z} is evaluated,
+the conjunction @w{@code{Z = X, Z = Y}} is evaluated.
+
+For example
+
+@example
+p(X @@ f(_, _), X).
+@end example
+
+@noindent
+is equivalent to 
+
+@example
+p(H1, H2) :-
+        H1 = X,
+        H1 = f(_, _),
+        H2 = X.
+@end example
+
+Unification expressions are most useful when writing switches
+(@pxref{Determinism checking and inference}).  The arguments
+of a unification expression are examined when checking for
+switches.  The arguments of an equivalent user-defined function
+would not be.
 
 @node Conditional expressions
 @subsection Conditional expressions
@@ -1950,6 +1997,7 @@ For example, given the mode names defined by
         listskel >> listskel.
 @end example
 
+@noindent
 the (type and) mode declarations of the function length and predicate append
 are as follows:
 
@@ -2011,6 +2059,7 @@ Note that with the usual definition of append, the mode
 :- mode append(in_listskel, in_listskel, out_listskel).
 @end example
 
+@noindent
 would not be allowed, since it would create aliasing between the
 different arguments --- on success of the predicate, the list elements
 would be free variables but they would not be distinct.
@@ -3434,6 +3483,22 @@ unifications; indirect attempts (via polymorphic predicates, for
 example @samp{(list__append([], [P], [Q])} may result in an error at
 run-time rather than at compile-time.
 
+In order to call a higher-order term, the compiler must know its higher-order
+inst.  This can cause problems when higher-order terms are placed into a
+polymorphic collection type and then extracted, since the declared mode for the
+extraction will typically be @samp{out} and the higher-order inst information
+will be lost.
+To partially alleviate this problem, and to make higher-order functional
+programming easier, if the term to be called has a function
+type, but no higher-order inst information, we assume that it has the default
+higher-order function inst
+@samp{func(in, @dots{}, in) = out is @var{Determinism}}.
+
+As a consequence of this, it is a mode error to pass a higher-order function
+term that does not match this standard mode to somewhere where its higher-order
+inst information may be lost, such as to a polymorphic predicate where the
+argument mode is @samp{in}.
+
 @node Modules
 @chapter Modules
 
@@ -3632,6 +3697,9 @@ and if includes both, then it is both declaration and definition.
 
 It is an error to declare a sub-module twice, or to define it twice.
 It is an error to define a sub-module without declaring it.
+As mentioned earlier, it is an error to define a sub-module in the
+interface section of its parent module.
+
 If a sub-module is declared but not explicitly defined,
 then there is an implicit definition with an empty implementation section
 for that sub-module (this will result in an error, if the interface
@@ -3671,14 +3739,46 @@ not include all the module qualifiers, then the University of Melbourne
 Mercury implementation requires the module name in the @samp{:- module}
 declaration for that module to be fully qualified.)
 
-If an @samp{:- include_module} declaration occurs in the interface
-section of a module, then only the declarations (interfaces) of the sub-modules
-are included in the parent module's interface; the definitions
-(implementations) of the sub-modules are considered to be implicitly
-part of the parent module's implementation.
+The semantics of separate sub-modules are identical to those of nested
+sub-modules.  The procedure to transform a separate sub-module into a
+nested sub-module is as follows:
 
-Apart from that, the semantics of separate sub-modules are
-identical to those of nested sub-modules.
+@enumerate
+@item
+Replace the @samp{:- include_module @var{submodule}} declaration with
+the interface section of the sub-module enclosed within 
+@samp{:- module @var{submodule}} and @samp{:- end_module @var{submodule}}
+declarations.
+@item
+Place the implementation section of the sub-module enclosed within
+@samp{:- module @var{submodule}} and @samp{:- end_module @var{submodule}}
+declarations in the implementation section of the parent module.
+@end enumerate
+
+For example
+
+@example
+:- module x.
+:- interface.
+:- include_module y.
+:- end_module x.
+@end example
+
+@noindent
+is equivalent to
+
+@example
+:- module x.
+:- interface.
+    :- module y.
+    % interface section of module @samp{y}
+    :- end_module y.
+:- implementation.
+    :- module y.
+    % implementation section of module @samp{y}
+    :- end_module y.
+:- end_module x.
+@end example
 
 @node Visibility rules
 @subsection Visibility rules
@@ -3689,10 +3789,18 @@ sub-modules, including indirect sub-modules (i.e. sub-sub-modules, etc.).
 Similarly, declarations in the interfaces of any modules imported using an
 @samp{:- import_module} or a @samp{:- use_module} in the parent module
 are visible in the parent's sub-modules, including indirect sub-modules.
-However, declarations in a child module are not visible in the parent
-module or in "sibling" modules (other children of the same parent)
-unless the child is explicitly imported using an @samp{:- import_module}
-or @samp{:- use_module} declaration. 
+
+Declarations in a child module are not visible in the parent module,
+or in "sibling" modules (other children of the same parent), or in
+other unrelated modules unless the child is explicitly imported using
+an @samp{:- import_module} or @samp{:- use_module} declaration.  It
+is an error to import a module without importing all of its parent
+modules.
+
+Note that a sub-module for which the @samp{:- module} or
+@samp{:- include_module} declaration occurs only in the implementation
+section of the parent module may only be imported or used by its
+parent module or by sub-modules of its parent module.
 
 Note that as mentioned previously, all @samp{:- import_module} and
 @samp{:- use_module} declarations must use fully-qualified module
@@ -4053,6 +4161,7 @@ A type class constraint is of the form:
         <= @var{Typeclass}(@var{TypeVariable}, @dots{}), @dots{}
 @end example
 
+@noindent
 where @var{Typeclass} is the name of a type class and @var{TypeVariable} is 
 a type variable that appears in the predicate's or function's type signature.
 
@@ -4487,6 +4596,7 @@ make_list = List :-
 		'new cons'(String, nil))).
 @end example
 
+@noindent
 while the function @samp{process_list} below applies the @samp{show}
 method of the @samp{showable} class to the values in such a list.
 
@@ -4715,6 +4825,11 @@ fair search rule; and so forth.
 				       or function as a call to code
 				       written in a different
 				       programming language.
+* Using foreign types from Mercury::   How to use a type defined in         
+				       a different programming language
+				       in Mercury code.                     
+* Data passing conventions::	       How Mercury types are passed to
+				       different languages.
 * Adding foreign declarations::        How to add declarations of
   				       entities in other programming
 				       languages.
@@ -4780,6 +4895,12 @@ It is an error for a variable to occur more than once in the argument list.
 These variables will have foreign language types
 corresponding to their Mercury types, as determined by language and
 implementation specific rules.
+
+All @samp{foreign_proc} implementations are assumed to be impure.
+If they are actually pure or semipure, they must be explicitly
+promised as such by the user (either by using foreign language
+attributes specified below, or a promise_pure or promise_semipure pragma
+as specified in @ref{Impurity}.
 
 Additional restrictions on the foreign language interface code
 depend on the foreign language and compilation options.
@@ -4849,6 +4970,14 @@ If you specify @samp{will_not_call_mercury},
 but the foreign language code @emph{does} invoke Mercury code, then the
 behaviour is undefined.
 
+@item @samp{promise_pure}/@samp{promise_semipure}
+This attribute promises that the purity of the given predicate or
+function definition is pure or semipure.
+It is equivalent to a corresponding @samp{pragma promise_pure}
+or @samp{pragma promise_semipure} declaration (@pxref{Impurity}).
+If omitted, the clause specified by the @samp{foreign_proc} is
+assumed to be impure.
+
 @item @samp{thread_safe}/@samp{not_thread_safe}
 This attribute declares whether or not it is safe for multiple threads
 to execute this foreign language code concurrently.
@@ -4886,6 +5015,118 @@ items.
 
 @end table
 
+
+@c -----------------------------------------------------------------------
+
+@node Data passing conventions
+@section Data passing conventions
+
+For each language,
+we explain how to map a Mercury type to a type in that foreign language.
+We also map the Mercury parameter passing convention
+to the language parameter passing convention.
+
+@menu
+* C language	:: Data passing convention for the C language.
+* IL language	:: Data passing convention for the IL language.
+@end menu
+
+@node C language
+@subsection C language
+
+This section is currently documented in @pxref{Passing data to and from C}.
+
+@node IL language
+@subsection IL language
+
+The Mercury types @code{int}, @code{float}, @code{char},
+and @code{string} are mapped to the Common Language Runtime types 
+@code{System.Int32}, @code{System.Double}, @code{System.Char} and
+@code{System.String} respectively.
+
+Mercury variables whose type is a type variable will be passed as
+@code{System.Object}.
+Mercury array types are mapped to CLR array types.
+When compiling with --no-high-level-data, all other Mercury variables
+are passed as @code{System.Object[]}.
+When compiling with --high-level-data,
+Mercury variables whose type is a Mercury discriminated union type
+will be passed as a CLR type whose type name is determined from
+the Mercury type name (ignoring any type parameters) followed by
+an underscore and then the type arity,
+expressed as a decimal integer.
+Mercury module qualifiers are converted to CLR namespace qualifiers.
+For example the Mercury type `foo__bar__baz/1' will be passed as the CLR
+type `foo.bar.baz_1'.
+Note an extra namespace qualifier, `mercury', will be prepended to the
+beginning of names residing in the Mercury standard library.
+Mercury variables whose type is a Mercury equivalence type
+will be passed as the representation of the right hand side of the
+equivalence type.
+
+This mapping is subject to change and you should try to avoid writing
+code that relies heavily upon a particular representation of Mercury
+terms.
+
+Mercury arguments declared with input modes are passed by value to the
+IL function.
+For output arguments,
+the Mercury implementation will pass to the IL function a reference to
+the location in which to store the result. 
+If the Mercury procedure can fail,
+then its IL function should return a truth value of type
+@samp{System.Bool} indicating success or failure:
+@code{true} indicates success, and @code{false} indicates failure.
+If the Mercury procedure is a Mercury function that cannot fail,
+and the function result has an output mode,
+then the IL function should return the Mercury function result value.
+Otherwise the function result is appended as an extra argument.
+Arguments of type @samp{io__state} or @samp{store__store(_)} are not
+passed at all;
+that's because these types represent mutable state, and in IL
+modifications to mutable state are done via side effects,
+rather than argument passing.
+
+@c XXX foreign type should be documented here.
+
+@c -----------------------------------------------------------------------
+
+@node Using foreign types from Mercury
+@section Using foreign types from Mercury
+
+Types defined in a foreign language can be accessed in Mercury using 
+a declaration of the form
+
+@example
+:- pragma foreign_type(@var{Lang}, @var{MercuryTypeName}, @var{ForeignTypeDescriptor}).
+@end example
+
+This defines @var{MercuryTypeName} as a synonym for type
+@var{ForeignTypeDescriptor} defined in the foreign language @var{Lang}.
+You must declare @var{MercuryTypeName} using a @samp{:- type}
+declaration as usual, and the foreign_type pragma must have the same
+visibility as the type declaration (either both in the interface or both
+in the implementation).
+
+@var{ForeignTypeDescriptor} defines how the Mercury type is mapped for a
+particular foreign language.  Specific syntax is given in the language
+specific information below.  
+
+@var{MercuryTypeName} is treated as an abstract type at all times in
+Mercury code.
+However, if @var{MercuryTypeName} is one of the parameters of a
+foreign_proc for @var{Lang}, it will be passed to that foreign_proc as
+specified by @var{ForeignTypeDescriptor}.
+
+Multiple foreign language definitions may be given for the same type ---
+the appropriate definition will be used for the appropriate language (see the
+language specific information below for details).
+
+You can use Mercury foreign language interfacing declarations           
+which specify language @var{X} to interface to types that are actually
+written in a different language @var{Y} provided that @var{X} and @var{Y}
+have compatible interface conventions.  Support for this kind of
+compatibility is described in the language specific information below.
 @c -----------------------------------------------------------------------
 
 @node Adding foreign declarations
@@ -4906,10 +5147,40 @@ and linking that source file with the Mercury program
 (after having compiled it with a compiler for the specified programming
 language, if appropriate).
 
-Entities declared in @samp{pragma foreign_decl} declarations should be
+Entities declared in @samp{pragma foreign_decl} declarations are
 visible in @samp{pragma foreign_code} and @samp{pragma foreign_proc}
 declarations that specify the same foreign language and occur in in the
 same Mercury module.
+
+To make the declarations for Mercury predicates or functions
+exported to a foreign language using a @samp{pragma export}
+declaration visible to foreign code in a @samp{pragma foreign_code}
+or @samp{pragma foreign_proc} declaration, use a declaration of the form
+
+@example
+:- pragma foreign_import_module("@var{Lang}", @var{ImportedModule}).
+@end example
+
+@noindent
+where @var{ImportedModule} is the name of the module containing
+the @samp{pragma export} declarations.
+
+If @var{Lang} is @code{"C"} this is equivalent to
+
+@example
+:- pragma foreign_decl("C", "#include ""@var{ImportedModule.h}""").
+@end example
+
+@noindent
+where @file{@var{ImportedModule}.h} is the automatically generated
+header file containing the C declarations for the predicates
+and functions exported to C.
+
+@samp{pragma foreign_import_module} should be used instead of the
+explicit @code{#include} because @samp{pragma foreign_import_module}
+tells the implementation that @file{@var{ImportedModule}.h} must be built
+before the object file for the module containing the
+@samp{pragma foreign_import_module} declaration.
 
 @node Adding foreign definitions
 @section Adding foreign definitions
@@ -4922,13 +5193,13 @@ variables) may be included using a declaration of the form
 @end example
 
 This declaration will have effects equivalent to including the specified
-@var{DeclCode} in an automatically-generated source file of the specified
+@var{Code} in an automatically-generated source file of the specified
 programming language, in a place appropriate for definitions,
 and linking that source file with the Mercury program
 (after having compiled it with a compiler for the specified programming
 language, if appropriate).
 
-Entities declared in @samp{pragma foreign_code} declarations should be
+Entities declared in @samp{pragma foreign_code} declarations are
 visible in @samp{pragma foreign_proc} declarations that specify the same
 foreign language and occur in in the same Mercury module.
 
@@ -4980,6 +5251,7 @@ Use the string "MC++" to set the foreign language to Managed C++.
 * Using pragma foreign_proc for C 	:: Calling C code from Mercury
 * Using pragma foreign_decl for C 	:: Including C declarations in Mercury
 * Using pragma foreign_code for C 	:: Including C code in Mercury
+* Using pragma foreign_type for C 	:: Declaring C types in Mercury
 @end menu
 
 @node Using pragma foreign_proc for C
@@ -4987,8 +5259,7 @@ Use the string "MC++" to set the foreign language to Managed C++.
 
 The input and output variables will have C types corresponding
 to their Mercury types, as determined by the rules specified in
-``Passing data to and from C'' in the ``C Interface''
-chapter of the Mercury Language Reference Manual.
+@ref{C language}.
 
 The C code fragment may declare local variables, but it should not
 declare any labels or static variables unless there is also a Mercury
@@ -5072,6 +5343,17 @@ Mercury automatically includes certain headers such as @code{<stdlib.h>},
 but you should not rely on this, as the set of headers which Mercury
 automatically includes is subject to change.
 
+If a Mercury predicate or function exported using 
+a @samp{pragma export} declaration is to be used within a
+@samp{:- pragma foreign_code} or @samp{:- pragma foreign_proc}
+declaration the header file for the module containing the
+@samp{pragma export} declaration should be included using a
+@samp{pragma foreign_import_module} declaration, for example 
+
+@example
+:- pragma foreign_import_module("C", exporting_module).
+@end example
+
 @node Using pragma foreign_code for C
 @subsubsection Using pragma foreign_code for C
 
@@ -5093,6 +5375,16 @@ For example,
 
 Such code is copied verbatim into the generated C file.
 
+@node Using pragma foreign_type for C
+@subsubsection Using pragma foreign_type for C
+
+This pragma is currently not supported for C.
+
+See the section on using C pointers (@pxref{Using C pointers}) for
+information on how to use the c_pointer type with the C interface.
+@c XXX we should eventually just move that section to here,
+@c presenting it as an alternative to pragma foreign_type.
+
 @c ----------------------------------------------------------------------------
 
 @node Interfacing with C#
@@ -5102,10 +5394,20 @@ Such code is copied verbatim into the generated C file.
 Currently undocumented, sorry.
 
 @menu
+* Using pragma foreign_type for C#	:: Declaring C# types in Mercury
 * Using pragma foreign_proc for C# 	:: Calling C# code from Mercury
 * Using pragma foreign_decl for C# 	:: Including C# declarations in Mercury
 * Using pragma foreign_code for C# 	:: Including C# code in Mercury
 @end menu
+
+@node Using pragma foreign_type for C#
+@subsubsection Using pragma foreign_type for C#
+
+There is no direct support for using C# types from Mercury; however, the
+types for IL are compatible with C#, and so the foreign_type
+support for IL can be used instead.
+See the section on using pragma foreign_type for IL
+(@pxref{Using pragma foreign_type for IL}).
 
 @node Using pragma foreign_proc for C#
 @subsubsection Using pragma foreign_proc for C#
@@ -5132,10 +5434,73 @@ Not currently supported for C#.
 @subsection Interfacing with IL
 
 @menu
+* Using pragma foreign_type for IL	:: Declaring IL types in Mercury
 * Using pragma foreign_proc for IL 	:: Calling IL code from Mercury
 * Using pragma foreign_decl for IL 	:: Including IL declarations in Mercury
 * Using pragma foreign_code for IL 	:: Including IL code in Mercury
 @end menu
+
+@node Using pragma foreign_type for IL
+@subsubsection Using pragma foreign_type for IL
+
+The IL @samp{pragma foreign_type} declaration is of the form:
+
+@example
+:- pragma foreign_type(il, @var{MercuryTypeName}, @var{DotNetForeignType}).
+@end example
+
+If the @var{MercuryTypeName} is the type of a parameter of a procedure
+defined using @samp{pragma foreign_proc} for any of the .NET CLR
+languages, it will be passed to the foreign_proc's foreign language code
+as @var{DotNetForeignType}.
+
+Furthermore, any Mercury procedure exported with @samp{pragma export}
+will use @var{DotNetForeignType} as the .NET CLR parameter type for
+parameters whose Mercury type is @var{MercuryTypeName}.
+
+The CIL assembler syntax is used to specify type names for all the .NET CLR
+languages (IL, C# and Managed C++) supported by Mercury's
+@samp{foreign_proc} mechanism.  
+This syntax is documented in the ECMA specifications for .NET).
+The .NET CLR backend supports reference and value types 
+using @samp{pragma foreign_type}, where DotNetForeignType is
+specified using the syntax 
+@samp{"class [AssemblyName]ReferenceTypeName"} for reference types and
+@samp{"valuetype [AssemblyName]ValueTypeName"} for value types.
+Note that extra whitespace is not handled --- there should only be a single
+space between the class keyword and the assembly specifier.
+@c XXX we should handle whitespace better
+Value types which have a special name (such as @samp{int32}) can be
+named using their valuetype syntax; they will be marshalled using their
+special name (as is required by section 7.2 of Partition II of the ECMA
+CLI documentation).
+
+For example:
+
+@example
+:- type xmldoc.
+:- pragma foreign_type(il, xmldoc, "class [System.Xml]System.Xml.XmlDocument").
+:- type int32.
+:- pragma foreign_type(il, int32, "valuetype [mscorlib]System.Int32").
+@end example
+
+ensures that on the .NET CLR backend the Mercury type @samp{xmldoc} is
+marshalled by the backend as @samp{System.Xml.XmlDocument} from assembly
+@samp{System.Xml}, and that the Mercury type @samp{int32} will be
+marshalled by the backend as the CLR type @samp{int32}.
+
+The following example shows how one can use the marshalled data from C#. 
+
+@example
+:- pred loadxml(string::in, xmldoc::di, xmldoc::uo) is det.
+
+:- pragma foreign_proc("C#", load(String::in, XML0::di, XML::uo),
+        [will_not_call_mercury],
+"
+    XML0.LoadXml(String);
+    XML = XML0;
+").
+@end example
 
 @node Using pragma foreign_proc for IL
 @subsubsection Using pragma foreign_proc for IL
@@ -5184,17 +5549,13 @@ before returning.
 @c If the procedure fails, the IL code need only
 @c set @code{success} to false (zero).
 
-The Mercury types @code{int}, @code{float}, @code{char},
-and @code{string} are mapped to the Common Language Runtime types 
-@code{int32}, @code{float64}, @code{char} and @code{System.String}
-respectively.
-
-Mercury variables which are polymorphically typed (e.g. whose type is a 
-type variables) will be passed as @code{System.Object} while all other
-Mercury variables are passed as @code{System.Object[]}.
-This mapping is subject to change and you should try to avoid writing
-code that relies heavily upon a particular representation of Mercury
-terms.
+Each of the head variables will be represented by the Common Language
+Runtime types as specified in @pxref{IL language}.
+Note that in IL assembler the types
+@samp{System.Int32}, @samp{System.Double}, @samp{System.Char}
+and @samp{System.String}
+are represented by 
+@samp{int}, @samp{float64}, @samp{char} and @samp{string}.
 
 @node Using pragma foreign_decl for IL
 @subsubsection Using pragma foreign_decl for IL
@@ -5217,10 +5578,20 @@ Not currently supported for IL.
 Currently undocumented, sorry.
 
 @menu
+* Using pragma foreign_type for MC++::  Declaring MC++ types in Mercury
 * Using pragma foreign_proc for MC++::  Calling MC++ code from Mercury
 * Using pragma foreign_decl for MC++::  Including MC++ declarations in Mercury
 * Using pragma foreign_code for MC++::  Including MC++ code in Mercury
 @end menu
+
+@node Using pragma foreign_type for MC++
+@subsubsection Using pragma foreign_type for MC++
+
+There is no direct support for using MC++ types from Mercury; however, the
+types for IL are compatible with MC++, and so the foreign_type
+support for IL can be used instead.
+See the section on using pragma foreign_type for IL
+(@pxref{Using pragma foreign_type for IL}).
 
 @node Using pragma foreign_proc for MC++
 @subsubsection Using pragma foreign_proc for MC++
@@ -5332,22 +5703,8 @@ as the Mercury function @samp{cos/1}:
 @end example
 
 The interface to the C function for a given Mercury procedure is
-determined as follows.  Mercury types are converted to C types
-according to the rules in @ref{Passing data to and from C}.
-Mercury arguments declared with input modes are passed by value to the
-C function.  For output arguments, the Mercury implementation will pass
-to the C function an address in which to store the result. 
-If the Mercury procedure can fail, then its C function should return a
-truth value of type @samp{MR_Integer} indicating success or failure:
-non-zero indicates success, and zero indicates failure.
-If the Mercury procedure is a Mercury function that cannot fail, and
-the function result has an output mode, then the C function should
-return the Mercury function result value.
-Otherwise the function result is appended as an extra argument.
-Arguments of type @samp{io__state} or @samp{store__store(_)} are not
-passed at all; that's because these types represent mutable state, and
-in C modifications to mutable state are done via side effects, rather
-than argument passing.
+determined as follows.  Mercury types are converted to C types and
+passed according to the rules in @ref{Passing data to and from C}.
 
 If you use @samp{pragma import} for a polymorphically typed Mercury procedure,
 the compiler will prepend one @samp{type_info} argument to the parameters
@@ -5804,6 +6161,25 @@ of the other arguments passed.  These @samp{type_info} arguments can
 be obtained using the Mercury @samp{type_of} function in the Mercury
 standard library module @samp{std_util}.
 
+To use the C declarations produced for @samp{pragma export} declarations
+in C code within a Mercury module, use a @samp{pragma c_import_module}
+declaration, for example 
+
+@example
+:- pragma c_import_module(imported_module).
+@end example
+
+This is equivalent to
+
+@example
+:- pragma c_header_code("#include ""imported_module.h""").
+@end example
+
+@noindent
+but it tells the implementation that the object file for the
+module containing the @samp{pragma c_import_module} declaration
+should not be built before @file{imported_module.h} is built.
+
 @node Linking with C object files 
 @section Linking with C object files 
 
@@ -5863,6 +6239,27 @@ Mercury types in C code to use typedefs for each user-defined Mercury type,
 and to treat each such type as an abstract data type.  This is good style
 and it will also minimize any compatibility problems if and when we do change
 this.)
+
+Mercury arguments declared with input modes are passed by value to the
+C function.
+For output arguments,
+the Mercury implementation will pass to the C function an address in
+which to store the result. 
+If the Mercury procedure can fail,
+then its C function should return a truth value of type
+@samp{MR_Integer} indicating success or failure:
+non-zero indicates success, and zero indicates failure.
+If the Mercury procedure is a Mercury function that cannot fail,
+and the function result has an output mode,
+then the C function should return the Mercury function result value.
+Otherwise the function result is appended as an extra argument.
+Arguments of type @samp{io__state} or @samp{store__store(_)} are not
+passed at all;
+that's because these types represent mutable state,
+and in C modifications to mutable state are done via side effects,
+rather than argument passing.
+
+@c XXX foreign type should be documented here.
 
 @c For the Managed C++ interface, the types are mapped slightly differently:
 @c Mercury variables which are polymorphically typed
@@ -6816,6 +7213,35 @@ to reset the source file name and line number to point back to the
 generated file for the automatically generated text, as in the above
 example.
 
+@c * Interfacing::                 Pragmas can be used to ease interfacing
+@c                                 with other languages.
+
+@c @node Interfacing
+@c @section Interfacing
+@c 
+@c A declaration of the form
+@c 
+@c @example
+@c :- pragma foreign_type(xmldoc, 'System__Xml__XmlDocument', il("System.Xml")).
+@c @end example
+@c 
+@c ensures that on the IL backend the mercury type @samp{xmldoc} is
+@c represented by the backend as a @samp{System.Xml.XmlDocument}.  This
+@c avoids the need to marshall values when interfacing with libraries
+@c written in other languages.  The following example shows how to do this
+@c interfacing.
+@c 
+@c @example
+@c :- pred loadxml(string::in, xmldoc::di, xmldoc::uo) is det.
+@c 
+@c :- pragma foreign_proc("C#", load(String::in, XML0::di, XML::uo),
+@c         [will_not_call_mercury],
+@c "
+@c     XML0.LoadXml(String);
+@c     XML = XML0;
+@c ").
+@c @end example
+
 @node Implementation-dependent extensions
 @chapter Implementation-dependent extensions
 
@@ -7056,6 +7482,7 @@ compiler to prove termination of a given predicate or function.
 @example
 :- pragma terminates(@var{Name}/@var{Arity}).
 @end example
+
 This declaration may be used to inform the compiler that this predicate
 or function is guaranteed to terminate for any input.  This is useful
 when the compiler cannot prove termination of some predicates or 
@@ -7065,6 +7492,7 @@ termination of other predicates or functions.
 @example
 :- pragma does_not_terminate(@var{Name}/@var{Arity}).
 @end example
+
 This declaration may be used to inform the compiler that this predicate
 does not necessarily terminate.  This is useful for procedures defined
 using the C interface, which the compiler assumes to terminate by
@@ -7073,6 +7501,7 @@ default.
 @example
 :- pragma check_termination(@var{Name}/@var{Arity}).
 @end example
+
 This pragma forces the compiler to prove termination of this predicate.
 If it cannot prove the termination of the specified predicate or
 function then the compiler will quit with an error message.
@@ -7311,6 +7740,7 @@ will abort if this occurs.
 Predicate and function names in Aditi update goals may be module qualified.
 
 The examples make use of the following declarations:
+
 @example
 :- pred p(aditi__state::aditi_mui, int::out, int::out) is nondet.
 :- pragma base_relation(p/3).
@@ -7381,6 +7811,7 @@ is a syntax error.
 @sp 1
 
 Examples:
+
 @example
 insert_example_1(DB0, DB) :-
         aditi_insert(p(_, 1, 2), DB0, DB).
@@ -7462,14 +7893,15 @@ on the lambda expression.
 @samp{aditi__state}. They have mode @w{@samp{aditi_di, aditi_uo}}.
 @end itemize
 
-@c Don't delete the blank lines here -- they are needed for readability.
-@c @sp commands have no effect on the info file.
+@sp 1
+
+The form
+
 @example
-
-
 aditi_bulk_insert((@var{PredName}(@var{DB1}, @var{Arg2}, @dots{}) :- @var{Goal}), @var{DB0}, @var{DB}).
 @end example 
 
+@noindent
 is equivalent to 
 
 @example
@@ -7478,17 +7910,18 @@ Closure = (aditi_bottom_up
 aditi_bulk_insert(@var{PredOrFunc} @var{Name}/@var{Arity}, @var{Closure}, @var{DB0}, @var{DB}).
 @end example 
 
-bulk_insert_example_1, bulk_insert_example_2 and bulk_insert_example_3 below
-are all equivalent.
+@noindent
+and likewise for the function version.  For instance, the examples
+bulk_insert_example_1, bulk_insert_example_2 and bulk_insert_example_3
+below are all equivalent.
 
-@c Don't delete the blank lines here -- they are needed for readability.
-@c @sp commands have no effect on the info file.
+Similarly, the form
+
 @example
-
-
 aditi_bulk_delete((@var{PredName}(@var{Arg1}, @var{Arg2}, @dots{}) :- @var{Goal}), @var{DB0}, @var{DB}).
 @end example 
 
+@noindent
 is equivalent to
 
 @example
@@ -7500,11 +7933,14 @@ DeleteClosure = (aditi_bottom_up
 aditi_bulk_delete(@var{PredOrFunc} @var{Name}/@var{Arity}, @var{Closure}, @var{DB0}, @var{DB}).
 @end example 
 
+@noindent
+and likewise for the function version.  For instance
 bulk_delete_example_1 and bulk_delete_example_2 below are equivalent.
 
 @sp 2
 
 Examples:
+
 @example
 bulk_insert_example_1(DB0, DB) :-
         aditi_bulk_insert(p(DB1, X, Y) :- ancestor(DB1, X, Y), DB0, DB).
@@ -7649,7 +8085,8 @@ being modified.
 
 @sp 2
 
-The first syntax can be rewritten into the second:
+The forms using @samp{==>} can be considered as syntactic sugar for the
+form using @var{PredOrFunc} @var{PredName}/@var{Arity}:
 
 @example
 aditi_bulk_modify(
@@ -7660,6 +8097,7 @@ aditi_bulk_modify(
         @var{DB0}, @var{DB}).
 @end example
 
+@noindent
 is equivalent to
 
 @example
@@ -7672,15 +8110,17 @@ ModifyClosure =
 aditi_bulk_modify(pred @var{PredName}/@var{PredArity}, ModifyClosure, DB0, DB).
 @end example
 
-@c Don't delete the blank lines here -- they are needed for readability.
-@c @sp commands have no effect on the info file.
+@noindent
+and likewise for the function version.
+
+The bulk modify operation
+
 @example
-
-
 aditi_bulk_modify(pred p/3, Closure, DB0, DB).
 @end example
 
-is almost equivalent to
+@noindent
+is almost equivalent to a bulk delete followed by a bulk insert:
 
 @example
 DeleteClosure =
@@ -7695,13 +8135,16 @@ aditi_bulk_delete(pred p/3, DeleteClosure, DB0, DB1),
 aditi_bulk_insert(pred p/3, InsertClosure, DB1, DB).
 @end example
 
-They are not quite equivalent because @var{InsertClosure}
+@noindent
+However, they are not quite equivalent,
+because in the bulk modify operation @var{InsertClosure}
 is executed using the contents of @samp{p/3} before the deletion
 is applied.
 
 @sp 2
 
 Examples:
+
 @example
 bulk_modify_example_1(DB0, DB) :-
         aditi_bulk_modify(

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -748,6 +748,9 @@ bytecode_gen__map_cons_id(ByteInfo, Var, ConsId, ByteConsId) :-
 :- pred bytecode_gen__map_cons_tag(cons_tag::in, byte_cons_tag::out) is det.
 
 bytecode_gen__map_cons_tag(no_tag, no_tag).
+	% `single_functor' is just an optimized version of `unshared_tag(0)'
+	% this optimization is not important for the bytecode
+bytecode_gen__map_cons_tag(single_functor, unshared_tag(0)).
 bytecode_gen__map_cons_tag(unshared_tag(Primary), unshared_tag(Primary)).
 bytecode_gen__map_cons_tag(shared_remote_tag(Primary, Secondary),
 	shared_remote_tag(Primary, Secondary)).
@@ -770,6 +773,16 @@ bytecode_gen__map_cons_tag(tabling_pointer_constant(_, _), _) :-
 	unexpected(this_file, "tabling_pointer_constant cons tag for non-tabling_pointer_constant cons id").
 bytecode_gen__map_cons_tag(deep_profiling_proc_static_tag(_), _) :-
 	unexpected(this_file, "deep_profiling_proc_static_tag cons tag for non-deep_profiling_proc_static cons id").
+bytecode_gen__map_cons_tag(reserved_address(_), _) :-
+	% These should only be generated if the --num-reserved-addresses
+	% or --num-reserved-objects options are used.
+	sorry(this_file,
+	   "bytecode with --num-reserved-addresses or --num-reserved-objects").
+bytecode_gen__map_cons_tag(shared_with_reserved_addresses(_, _), _) :-
+	% These should only be generated if the --num-reserved-addresses
+	% or --num-reserved-objects options are used.
+	sorry(this_file,
+	   "bytecode with --num-reserved-addresses or --num-reserved-objects").
 
 %---------------------------------------------------------------------------%
 

@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2001 The University of Melbourne.
+# Copyright (C) 1995-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -364,7 +364,7 @@ ifeq ($(findstring il,$(GRADE)),il)
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /quiet /OUT=$@ $< 
 
 .cpp.dll:
-	$(MS_CL) -CLR($MS_CL_NOASM) $(ALL_MS_CLFLAGS) \
+	$(MS_CL) -CLR$(MS_CL_NOASM) $(ALL_MS_CLFLAGS) \
 		-I`cygpath -w $(MERC_C_INCL_DIR)` \
 		-AI`cygpath -w $(MERC_DLL_DIR)` $< \
 		-link -noentry mscoree.lib -dll $(MS_CL_LIBS) -out:$@
@@ -375,33 +375,13 @@ ifeq ($(findstring il,$(GRADE)),il)
 		$(CSHARP_ASSEMBLY_REFS-$*) $(EXTRA_CSCFLAGS) $<
 
 .cpp.exe:
-	$(MS_CL) -CLR($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -entry:main $(MS_CL_LIBS) -out:$@
+	$(MS_CL) -CLR$(MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -entry:main $(MS_CL_LIBS) -out:$@
 
 .cs.exe:
 	$(MS_CSC) /lib:`cygpath -w $(MERC_DLL_DIR)` /out:$@ \
 		$(CSHARP_ASSEMBLY_REFS-$*) $(EXTRA_CSCFLAGS) $<
 
 endif # $(findstring il,$(GRADE)) != ""
-
-#-----------------------------------------------------------------------------#
-#
-# Code to handle dependencies on $(MLOBJS) and $(MLPICOBJS).
-#
-
-# The generated `.dep' files include rules for targets which may depend
-# on $(MLOBJS) or $(MLPICOBJS).  However, the definition of $(MLOBJS)
-# or $(MLPICOBJS) is in the user's Mmakefile, and the `.dep' files get
-# included *before* the Mmakefile.  The `.dep' files cannot contain
-# those dependency directly, because $(MLOBJS) and $(MLPICOBJS) variables
-# have not yet been defined.
-#
-# Instead, the generated `.dep' files just add the appropriate targets to
-# the $(MLOBJS_DEPS) or $(MLPICOBJS_DEPS) variables, and then we record the
-# dependency of those files on $(MLOBJS) or $(MLPICOBJS) here in Mmake.rules,
-# which gets included after the user's Mmakefile.
-
-$(MLOBJS_DEPS) : $(MLOBJS)
-$(MLPICOBJS_DEPS) : $(MLPICOBJS)
 
 #-----------------------------------------------------------------------------#
 #

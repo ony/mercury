@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-2001 The University of Melbourne.
+% Copyright (C) 1993-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -386,10 +386,64 @@ add_item_decl_pass_2(pragma(Pragma), Context, Status, Module0, Status, Module)
 		{ module_add_foreign_decl(Lang, C_Header, Context,
 			Module0, Module) }
 	;
+		{ Pragma  = foreign_import_module(Lang, Import) },
+		{ module_add_foreign_import_module(Lang, Import, Context,
+			Module0, Module) }
+	;
 		% Handle pragma foreign procs later on (when we process
 		% clauses).
 		{ Pragma = foreign_proc(_, _, _, _, _, _) },
 		{ Module = Module0 }
+	;	
+		{ Pragma = foreign_type(ForeignType, _MercuryType, Name) },
+
+		{ ForeignType = il(RefOrVal,
+				ForeignTypeLocation, ForeignTypeName) },
+
+		{ RefOrVal = reference,
+			IsBoxed = yes
+		; RefOrVal = value,
+			IsBoxed = no
+		},
+
+		{ varset__init(VarSet) },
+		{ Args = [] },
+		{ Body = foreign_type(IsBoxed,
+				ForeignTypeName, ForeignTypeLocation) },
+		{ Cond = true },
+
+		{ TypeId = Name - 0 },
+		{ module_info_types(Module0, Types) },
+		{ TypeStr = error_util__describe_sym_name_and_arity(
+				Name / 0) },
+		( 
+			{ map__search(Types, TypeId, OldDefn) }
+		->
+			{ hlds_data__get_type_defn_status(OldDefn, OldStatus) },
+			{ combine_status(OldStatus, ImportStatus, NewStatus) },
+			( { NewStatus = abstract_exported } ->
+				{ ErrorPieces = [
+					words("Error: pragma foreign_type "),
+					fixed(TypeStr),
+					words("must have the same visibility as the type declaration.")
+				] },
+				error_util__write_error_pieces(Context, 0, ErrorPieces),
+				{ module_info_incr_errors(Module0, Module) }
+
+			;
+				module_add_type_defn_2(Module0, VarSet, Name,
+					Args, Body, Cond, Context, Status,
+					Module)
+			)
+		;
+			{ ErrorPieces = [
+				words("Error: type "),
+				fixed(TypeStr),
+				words("defined as foreign_type without being declared.")
+			] },
+			error_util__write_error_pieces(Context, 0, ErrorPieces),
+			{ module_info_incr_errors(Module0, Module) }
+		)
 	;	
 		% Handle pragma tabled decls later on (when we process
 		% clauses).
@@ -1784,11 +1838,25 @@ modes_add(Modes0, VarSet, Name, Args, eqv_mode(Body),
 :- mode module_add_type_defn(in, in, in, in, in,
 		in, in, in, out, di, uo) is det.
 
-module_add_type_defn(Module0, TVarSet, Name, Args, TypeDefn, _Cond, Context,
+module_add_type_defn(Module0, TVarSet, Name, Args, TypeDefn, Cond, Context,
+		item_status(Status0, NeedQual), Module) -->
+	globals__io_get_globals(Globals),
+	{ list__length(Args, Arity) },
+	{ TypeId = Name - Arity },
+	{ convert_type_defn(TypeDefn, TypeId, Globals, Body) },
+	module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, Cond,
+			Context, item_status(Status0, NeedQual), Module).
+
+:- pred module_add_type_defn_2(module_info, tvarset, sym_name, list(type_param),
+		hlds_type_body, condition, prog_context, item_status,
+		module_info, io__state, io__state).
+:- mode module_add_type_defn_2(in, in, in, in, in,
+		in, in, in, out, di, uo) is det.
+
+module_add_type_defn_2(Module0, TVarSet, Name, Args, Body, _Cond, Context,
 		item_status(Status0, NeedQual), Module) -->
 	{ module_info_types(Module0, Types0) },
 	globals__io_get_globals(Globals),
-	{ convert_type_defn(TypeDefn, Globals, Body) },
 	{ list__length(Args, Arity) },
 	{ TypeId = Name - Arity },
 	{ Body = abstract_type ->
@@ -1888,11 +1956,10 @@ module_add_type_defn(Module0, TVarSet, Name, Args, TypeDefn, _Cond, Context,
 			io__stderr_stream(StdErr),
 			io__set_output_stream(StdErr, OldStream),
 			prog_out__write_context(Context),
-			io__write_string(
-	"Sorry, not implemented: undiscriminated union type.\n"),
+			io__write_string("Error in type declaration: \n"),
 			prog_out__write_context(Context),
 			io__write_string(
-	"(The syntax for type equivalence is `:- type t1 == t2'.)\n"),
+	"  the syntax for type equivalence is `:- type t1 == t2'.\n"),
 			io__set_exit_status(1),
 			io__set_output_stream(OldStream, _)
 		;
@@ -2011,15 +2078,15 @@ combine_status_abstract_imported(Status2, Status) :-
 		Status = abstract_imported
 	).
 
-:- pred convert_type_defn(type_defn, globals, hlds_type_body).
-:- mode convert_type_defn(in, in, out) is det.
+:- pred convert_type_defn(type_defn, type_id, globals, hlds_type_body).
+:- mode convert_type_defn(in, in, in, out) is det.
 
-convert_type_defn(du_type(Body, EqualityPred), Globals,
+convert_type_defn(du_type(Body, EqualityPred), TypeId, Globals,
 		du_type(Body, CtorTags, IsEnum, EqualityPred)) :-
-	assign_constructor_tags(Body, Globals, CtorTags, IsEnum).
-convert_type_defn(uu_type(Body), _, uu_type(Body)).
-convert_type_defn(eqv_type(Body), _, eqv_type(Body)).
-convert_type_defn(abstract_type, _, abstract_type).
+	assign_constructor_tags(Body, TypeId, Globals, CtorTags, IsEnum).
+convert_type_defn(uu_type(Body), _, _, uu_type(Body)).
+convert_type_defn(eqv_type(Body), _, _, eqv_type(Body)).
+convert_type_defn(abstract_type, _, _, abstract_type).
 
 :- pred ctors_add(list(constructor), type_id, tvarset, need_qualifier,
 		partial_qualifier_info, prog_context, import_status,
@@ -2441,11 +2508,14 @@ module_add_class_defn(Module0, Constraints, Name, Vars, Interface, VarSet,
 :- mode superclass_constraints_are_identical(in, in,
 	in, in, in, in) is semidet.
 
-superclass_constraints_are_identical(OldVars, OldVarSet, OldConstraints0,
+superclass_constraints_are_identical(OldVars0, OldVarSet, OldConstraints0,
 		Vars, VarSet, Constraints) :-
 	varset__merge_subst(VarSet, OldVarSet, _, Subst),
 	apply_subst_to_constraint_list(Subst,
 		OldConstraints0, OldConstraints1),
+	OldVars = term__term_list_to_var_list(
+		map__apply_to_list(OldVars0, Subst)),
+
 	map__from_corresponding_lists(OldVars, Vars, VarRenaming),
 	apply_variable_renaming_to_constraint_list(VarRenaming,
 		OldConstraints1, OldConstraints),
@@ -4140,7 +4210,7 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 	( 
 		{ VeryVerbose = yes }
 	->
-		io__write_string("% Processing `:- pragma foreign_code' for "),
+		io__write_string("% Processing `:- pragma foreign_proc' for "),
 		hlds_out__write_simple_call_id(PredOrFunc, PredName/Arity),
 		io__write_string("...\n")
 	;
@@ -4162,7 +4232,7 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 	;
 		preds_add_implicit_report_error(ModuleName,
 			PredOrFunc, PredName, Arity, Status, no, Context,
-			"`:- pragma foreign_code' declaration",
+			"`:- pragma foreign_proc' declaration",
 			PredId, ModuleInfo0, ModuleInfo1)
 	),
 		% Lookup the pred_info for this pred,
@@ -4257,7 +4327,7 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 			io__stderr_stream(StdErr),
 			io__set_output_stream(StdErr, OldStream),
 			prog_out__write_context(Context),
-			io__write_string("Error: `:- pragma foreign_code' "),
+			io__write_string("Error: `:- pragma foreign_proc' "),
 			io__write_string("declaration for undeclared mode "),
 			io__write_string("of "),
 			hlds_out__write_simple_call_id(PredOrFunc,
@@ -5528,15 +5598,16 @@ transform(Subst, HeadVars, Args0, Body, VarSet0, Context, PredOrFunc,
 	->
 		{ VarSet2 = VarSet1 },
 		{ Goal2 = Goal1 },
-		{ Info = Info0 }
+		{ Info2 = Info0 }
 	;
 		{ ArgContext = head(PredOrFunc, Arity) },
 		insert_arg_unifications(HeadVars, Args, Context, ArgContext,
-			no, Goal1, VarSet1, Goal2, VarSet2, Info1, Info)
+			no, Goal1, VarSet1, Goal2, VarSet2, Info1, Info2)
 	),
-	{ map__init(EmptyVarTypes) },
-	{ implicitly_quantify_clause_body(HeadVars,
-		Goal2, VarSet2, EmptyVarTypes, Goal, VarSet, _, Warnings) }.
+	{ VarTypes2 = Info2 ^ qual_info ^ vartypes },
+	{ implicitly_quantify_clause_body(HeadVars, Goal2, VarSet2, VarTypes2,
+		Goal, VarSet, VarTypes, Warnings) },
+	{ Info = Info2 ^ qual_info ^ vartypes := VarTypes }.
 
 %-----------------------------------------------------------------------------%
 
@@ -7083,6 +7154,22 @@ unravel_unification(term__variable(X), RHS,
 		unravel_unification(term__variable(X), RVal,
 			Context, MainContext, SubContext, VarSet0,
 			Purity, Goal, VarSet, Info1, Info)
+	;
+		% Handle unification expressions.
+		{ F = term__atom("@") },
+		{ Args = [LVal, RVal] }
+	->
+		unravel_unification(term__variable(X), LVal,
+			Context, MainContext, SubContext,
+			VarSet0, Purity, Goal1, VarSet1, Info0, Info1),
+		unravel_unification(term__variable(X), RVal,
+			Context, MainContext, SubContext,
+			VarSet1, Purity, Goal2, VarSet, Info1, Info),
+		{ goal_info_init(GoalInfo) },
+		{ goal_to_conj_list(Goal1, ConjList1) },
+		{ goal_to_conj_list(Goal2, ConjList2) },
+		{ list__append(ConjList1, ConjList2, ConjList) },
+		{ conj_list_to_goal(ConjList, GoalInfo, Goal) }
 	;	
 	    {
 		% handle lambda expressions
@@ -7605,18 +7692,24 @@ get_new_tvars([TVar | TVars], VarSet, TVarSet0, TVarSet,
 		TVarSet2 = TVarSet0,
 		TVarNameMap1 = TVarNameMap0
 	;
-		varset__lookup_name(VarSet, TVar, TVarName),
-		( map__search(TVarNameMap0, TVarName, TVarSetVar) ->
-			map__det_insert(TVarRenaming0, TVar, TVarSetVar,
-						TVarRenaming1),
-			TVarSet2 = TVarSet0,
-			TVarNameMap1 = TVarNameMap0
+		( varset__search_name(VarSet, TVar, TVarName) ->
+			( map__search(TVarNameMap0, TVarName, TVarSetVar) ->
+				map__det_insert(TVarRenaming0, TVar,
+						TVarSetVar, TVarRenaming1),
+				TVarSet2 = TVarSet0,
+				TVarNameMap1 = TVarNameMap0
+			;
+				varset__new_var(TVarSet0, NewTVar, TVarSet1),
+				varset__name_var(TVarSet1, NewTVar,
+						TVarName, TVarSet2),
+				map__det_insert(TVarNameMap0, TVarName,
+						NewTVar, TVarNameMap1),
+				map__det_insert(TVarRenaming0, TVar, NewTVar,
+						TVarRenaming1)
+			)
 		;
-			varset__new_var(TVarSet0, NewTVar, TVarSet1),
-			varset__name_var(TVarSet1, NewTVar,
-					TVarName, TVarSet2),
-			map__det_insert(TVarNameMap0, TVarName, NewTVar,
-					TVarNameMap1),
+			TVarNameMap1 = TVarNameMap0,
+			varset__new_var(TVarSet0, NewTVar, TVarSet2),
 			map__det_insert(TVarRenaming0, TVar, NewTVar,
 					TVarRenaming1)
 		)
@@ -8273,7 +8366,9 @@ module_add_fact_table_proc(ProcID, PrimaryProcID, ProcTable, SymName,
 	% XXX this should be modified to use nondet pragma c_code.
 	{ default_attributes(c, Attrs0) },
 	{ set_may_call_mercury(Attrs0, will_not_call_mercury, Attrs1) },
-	{ set_thread_safe(Attrs1, thread_safe, Attrs) },
+	{ set_thread_safe(Attrs1, thread_safe, Attrs2) },
+		% fact tables procedures should be considered pure
+	{ set_purity(Attrs2, pure, Attrs) },
 	module_add_pragma_foreign_proc(Attrs, SymName, PredOrFunc, 
 		PragmaVars, VarSet, ordinary(C_ProcCode, no),
 		Status, Context, Module0, Module1, Info0, Info),

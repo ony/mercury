@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -51,7 +51,6 @@
 %     we should (this can occur in nondet C code). 
 % [ ] ml_gen_call_current_success_cont_indirectly should be merged with
 % 	similar code for doing copy-in/copy-out.
-% [ ] Try to use the IL bool type for the true/false rvals.
 % [ ] Add an option to do overflow checking.
 % [ ] Should replace hard-coded of int32 with a more abstract name such
 %     as `mercury_int_il_type'.
@@ -144,6 +143,7 @@
 :- import_module ilasm, il_peephole.
 :- import_module ml_util, ml_code_util, error_util.
 :- import_module ml_type_gen.
+:- import_module foreign.
 :- use_module llds. /* for user_foreign_code */
 
 :- import_module bool, int, map, string, set, list, assoc_list, term.
@@ -253,7 +253,10 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 			% If not in the library, but we have foreign code,
 			% declare the foreign module as an assembly we
 			% reference
-		list__map(mangle_foreign_code_module(ModuleName),
+		list__map((pred(F::in, I::out) is det :-
+				mangle_foreign_code_module(ModuleName, F, N),
+				I = mercury_import(N)
+			),
 			set__to_sorted_list(ForeignLangs),
 			ForeignCodeAssemblerRefs),
 		AssemblerRefs = list__append(ForeignCodeAssemblerRefs, Imports)
@@ -280,7 +283,7 @@ get_il_data_rep(ILDataRep, IO0, IO) :-
 transform_mlds(MLDS0) = MLDS :-
 	AllExports = list__condense(
 		list__map(
-			(func(mlds__foreign_code(_, _, Exports)) = Exports),
+			(func(mlds__foreign_code(_, _, _, Exports)) = Exports),
 			map__values(MLDS0 ^ foreign_code))
 		),
 
@@ -290,7 +293,7 @@ transform_mlds(MLDS0) = MLDS :-
 
 	list__filter((pred(D::in) is semidet :-
 			( D = mlds__defn(_, _, _, mlds__function(_, _, _, _))
-			; D = mlds__defn(_, _, _, mlds__data(_, _))
+			; D = mlds__defn(_, _, _, mlds__data(_, _, _))
 			)
 		), MLDS0 ^ defns ++ ExportDefns, MercuryCodeMembers, Others),
 	WrapperClass = wrapper_class(list__map(rename_defn, MercuryCodeMembers)),
@@ -315,8 +318,9 @@ wrapper_class(Members)
 
 rename_defn(defn(Name, Context, Flags, Entity0))
 	= defn(Name, Context, Flags, Entity) :-
-	( Entity0 = data(Type, Initializer),
-		Entity = data(Type, rename_initializer(Initializer))
+	( Entity0 = data(Type, Initializer, GC_TraceCode),
+		Entity = data(Type, rename_initializer(Initializer),
+			rename_maybe_statement(GC_TraceCode))
 	; Entity0 = function(MaybePredProcId, Params, FunctionBody0,
 			Attributes),
 		( FunctionBody0 = defined_here(Stmt),
@@ -334,6 +338,11 @@ rename_defn(defn(Name, Context, Flags, Entity0))
 				list__map(rename_defn, Members)))
 	).
 
+:- func rename_maybe_statement(maybe(mlds__statement)) = maybe(mlds__statement).
+
+rename_maybe_statement(no) = no.
+rename_maybe_statement(yes(Stmt)) = yes(rename_statement(Stmt)).
+
 :- func rename_statement(mlds__statement) = mlds__statement.
 
 rename_statement(statement(block(Defns, Stmts), Context))
@@ -343,14 +352,10 @@ rename_statement(statement(block(Defns, Stmts), Context))
 rename_statement(statement(while(Rval, Loop, IterateOnce), Context))
 	= statement(while(rename_rval(Rval),
 			rename_statement(Loop), IterateOnce), Context).
-rename_statement(statement(if_then_else(Rval, Then, MaybeElse0), Context))
+rename_statement(statement(if_then_else(Rval, Then, MaybeElse), Context))
 	= statement(if_then_else(rename_rval(Rval),
-			rename_statement(Then), MaybeElse), Context) :-
-	( MaybeElse0 = no,
-		MaybeElse = no
-	; MaybeElse0 = yes(Else),
-		MaybeElse = yes(rename_statement(Else))
-	).
+			rename_statement(Then),
+			rename_maybe_statement(MaybeElse)), Context).
 rename_statement(statement(switch(Type, Rval, Range, Cases, Default0), Context))
 	= statement(switch(Type, rename_rval(Rval), Range,
 			list__map(rename_switch_case, Cases), Default),
@@ -407,9 +412,10 @@ rename_cond(match_range(RvalA, RvalB))
 rename_atomic(comment(S)) = comment(S).
 rename_atomic(assign(L, R)) = assign(rename_lval(L), rename_rval(R)).
 rename_atomic(delete_object(O)) = delete_object(rename_lval(O)).
-rename_atomic(new_object(L, Tag, Type, MaybeSize, Ctxt, Args, Types))
-	= new_object(rename_lval(L), Tag, Type, MaybeSize,
+rename_atomic(new_object(L, Tag, HasSecTag, Type, MaybeSize, Ctxt, Args, Types))
+	= new_object(rename_lval(L), Tag, HasSecTag, Type, MaybeSize,
 			Ctxt, list__map(rename_rval, Args), Types).
+rename_atomic(gc_check) = gc_check.
 rename_atomic(mark_hp(L)) = mark_hp(rename_lval(L)).
 rename_atomic(restore_hp(R)) = restore_hp(rename_rval(R)).
 rename_atomic(trail_op(T)) = trail_op(T).
@@ -499,7 +505,7 @@ rename_var(qual(ModuleName, Name), _Type)
 	% data definitions, but they're not part of the CLS.
 	% Since they are not part of the CLS, we don't generate them,
 	% and so there's no need to handle them here.
-mlds_defn_to_ilasm_decl(defn(_Name, _Context, _Flags, data(_Type, _Init)),
+mlds_defn_to_ilasm_decl(defn(_Name, _Context, _Flags, data(_Type, _Init, _GC)),
 		_Decl, Info, Info) :-
 	sorry(this_file, "top level data definition!").
 mlds_defn_to_ilasm_decl(defn(_Name, _Context, _Flags,
@@ -595,7 +601,8 @@ maybe_add_empty_ctor(Ctors0, Kind, Context) = Ctors :-
 		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
 				overridable, modifiable, concrete),
 
-		CtorDefn = mlds__defn(export(".ctor"), Context, CtorFlags, Ctor),
+		CtorDefn = mlds__defn(export(".ctor"), Context, CtorFlags,
+				Ctor),
 		Ctors = [CtorDefn]
 	;
 		Ctors = Ctors0
@@ -796,7 +803,7 @@ interface_id_to_class_name(_) = Result :-
 
 generate_method(ClassName, _, defn(Name, Context, Flags, Entity),
 		ClassMember) -->
-	{ Entity = data(Type, DataInitializer) },
+	{ Entity = data(Type, DataInitializer, _GC_TraceCode) },
 
 	{ FieldName = entity_name_to_ilds_id(Name) },
 
@@ -1015,10 +1022,22 @@ generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassMember) -->
 			)
 		)},
 
-		{ UnivMercuryType = term__functor(term__atom("univ"), [], 
-			context("", 0)) },
-		{ UnivMLDSType = mercury_type(UnivMercuryType, user_type) },
-		{ UnivType = mlds_type_to_ilds_type(DataRep, UnivMLDSType) },
+		{ construct_qualified_term(
+			qualified(unqualified("std_util"), "univ"),
+			[], UnivMercuryType) },	
+		{ UnivMLDSType = mercury_type(UnivMercuryType,
+				user_type, non_foreign_type(UnivMercuryType)) },
+		%
+		% XXX Nasty hack alert!
+		%
+		% Currently the library doesn't build with --high-level-data.
+		% So here we explicitly set --high-level-data to `no'
+		% to reflect the fact that we're linking against the
+		% version of the library compiled with --low-level-data.
+		%
+		{ XXX_LibraryDataRep = DataRep ^ highlevel_data := no },
+		{ UnivType = mlds_type_to_ilds_type(XXX_LibraryDataRep,
+			UnivMLDSType) },
 
 		{ RenameNode = (func(N) = list__map(RenameRets, N)) },
 
@@ -1219,8 +1238,13 @@ mlds_export_to_mlds_defn(
 	list__map_foldl(
 		(pred(RT::in, RV - Lval::out, N0::in, N0 + 1::out) is det :-
 			VN = var_name("returnval" ++ int_to_string(N0), no),
+			% We don't need to worry about tracing variables for
+			% accurate GC in the IL back-end -- the .NET runtime
+			% system itself provides accurate GC.
+			GC_TraceCode = no,
 			RV = ml_gen_mlds_var_decl(
-				var(VN), RT, no_initializer, Context),
+				var(VN), RT, no_initializer, GC_TraceCode,
+				Context),
 			Lval = var(qual(ModuleName, VN), RT)
 		), RetTypes, ReturnVars, 0, _),
 
@@ -1231,9 +1255,10 @@ mlds_export_to_mlds_defn(
 			error("exported method has argument without var name")
 		)
 	),
-	ArgTypes = assoc_list__values(Inputs),
+	ArgTypes = mlds__get_arg_types(Inputs),
 	ArgRvals = list__map(
-		(func(EntName - Type) = lval(var(VarName, Type)) :-
+		(func(mlds__argument(EntName, Type, _GC_TraceCode)) =
+				lval(var(VarName, Type)) :-
 			VarName = EntNameToVarName(EntName)
 		), Inputs),
 	ReturnVarDecls = assoc_list__keys(ReturnVars),
@@ -1289,7 +1314,7 @@ generate_defn_initializer(defn(Name, Context, _DeclFlags, Entity),
 		Tree0, Tree) --> 
 	( 
 		{ Name = data(DataName) },
-		{ Entity = mlds__data(MLDSType, Initializer) }
+		{ Entity = mlds__data(MLDSType, Initializer, _GC_TraceCode) }
 	->
 		( { Initializer = no_initializer } ->
 			{ Tree = Tree0 }
@@ -1733,6 +1758,9 @@ statement_to_il(statement(computed_goto(Rval, MLDSLabels), Context),
 	il_info, il_info).
 :- mode atomic_statement_to_il(in, out, in, out) is det.
 
+atomic_statement_to_il(gc_check, node(Instrs)) --> 
+	{ Instrs = [comment(
+		"gc check -- not relevant for this backend")] }.
 atomic_statement_to_il(mark_hp(_), node(Instrs)) --> 
 	{ Instrs = [comment(
 		"mark hp -- not relevant for this backend")] }.
@@ -1756,7 +1784,8 @@ atomic_statement_to_il(outline_foreign_proc(Lang, ReturnLvals, _Code),
 
 		( { ReturnLvals = [] } ->
 			% If there is a return type, but no return value, it
-			% must be a semidet predicate so put it in succeeded.
+			% must be a semidet predicate so put it in 
+			% SUCCESS_INDICATOR.
 			% XXX it would be better to get the code generator
 			% to tell us this is the case directly
 			{ LoadInstrs = empty },
@@ -1764,7 +1793,7 @@ atomic_statement_to_il(outline_foreign_proc(Lang, ReturnLvals, _Code),
 				StoreInstrs = empty
 			;
 				StoreInstrs = instr_node(
-					stloc(name("succeeded")))
+					stloc(name("SUCCESS_INDICATOR")))
 			}
 		; { ReturnLvals = [ReturnLval] } ->
 			get_load_store_lval_instrs(ReturnLval,
@@ -1810,7 +1839,7 @@ atomic_statement_to_il(inline_target_code(lang_C, _Code), Instrs) -->
 			% return a useful value.
 		{ RetType = void ->
 			StoreReturnInstr = empty
-		; RetType = simple_type(int32) ->
+		; RetType = simple_type(bool) ->
 			StoreReturnInstr = instr_node(stloc(name("succeeded")))
 		;
 			sorry(this_file, "functions in MC++")
@@ -1876,8 +1905,8 @@ atomic_statement_to_il(delete_object(Target), Instrs) -->
 	get_load_store_lval_instrs(Target, LoadInstrs, StoreInstrs),
 	{ Instrs = tree__list([LoadInstrs, instr_node(ldnull), StoreInstrs]) }.
 
-atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
-		Args0, ArgTypes), Instrs) -->
+atomic_statement_to_il(new_object(Target, _MaybeTag, HasSecTag, Type, Size,
+		MaybeCtorName, Args0, ArgTypes0), Instrs) -->
 	DataRep =^ il_data_rep,
 	( 
 		{ 
@@ -1886,7 +1915,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 			Type = mlds__class_type(_, _, mlds__class) 
 		;
 			DataRep ^ highlevel_data = yes,
-			Type = mlds__mercury_type(_, user_type)
+			Type = mlds__mercury_type(_, user_type, _)
 		}
 	->
 			% If this is a class, we should call the
@@ -1911,25 +1940,24 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 		;
 		 	{ ClassName = ClassName0 }
 		),
-		{ Type = mlds__generic_env_ptr_type ->
-			ILArgTypes = [],
+			% Skip the secondary tag, if any
+		{ HasSecTag = yes ->
+			(
+				ArgTypes0 = [_SecondaryTag | ArgTypes1],
+				Args0 = [_SecondaryTagVal | Args1]
+			->
+				Args = Args1,
+				ArgTypes = ArgTypes1
+			;
+				unexpected(this_file,
+					"newobj without secondary tag")
+			)
+		;
+			ArgTypes = ArgTypes0,
 			Args = Args0
-		;
-			% It must be a user-defined type.
-			% Skip the secondary tag.
-			% We assume there is always a secondary tag,
-			% since ml_type_gen always generates one
-			% if we have --tags none, which the IL back-end
-			% requires.
-			ArgTypes = [_SecondaryTag | ArgTypes1],
-			Args0 = [_SecondaryTagVal | Args1]
-		->
-			Args = Args1,
-			ILArgTypes = list__map(mlds_type_to_ilds_type(DataRep),
-				ArgTypes1)
-		;
-			sorry(this_file, "newobj without secondary tag")
 		},
+		{ ILArgTypes = list__map(mlds_type_to_ilds_type(DataRep),
+					ArgTypes) },
 		list__map_foldl(load, Args, ArgsLoadInstrsTrees),
 		{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
 		get_load_store_lval_instrs(Target, LoadMemRefInstrs,
@@ -1942,7 +1970,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 			instr_node(CallCtor),
 			StoreLvalInstrs
 			]) }
-	    ;
+	;
 			% Otherwise this is a generic mercury object -- we 
 			% use an array of System::Object to represent
 			% it.
@@ -1956,24 +1984,18 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 			%
 			%	dup
 			%	ldc <array index>
-			%	... load and box rval ...
+			%	... load rval ...
 			%	stelem System::Object
 			%
 			% Finally, after all the array elements have
 			% been set:
 			%
 			%	... store to memory reference ...
-			
-			% We need to do the boxing ourselves because
-			% MLDS hasn't done it.  We add boxing unops to
-			% the rvals.
-		{ Box = (pred(A - T::in, B::out) is det :- 
-			B = unop(box(T), A)   
-		) },
-		{ assoc_list__from_corresponding_lists(Args0, ArgTypes,
-			ArgsAndTypes) },
-		{ list__map(Box, ArgsAndTypes, BoxedArgs) },
-	
+			%
+			% Note that the MLDS code generator is
+			% responsible for boxing/unboxing the
+			% arguments if needed.
+
 			% Load each rval 
 			% (XXX we do almost exactly the same code when
 			% initializing array data structures -- we
@@ -1989,7 +2011,7 @@ atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, MaybeCtorName,
 			Arg = (Index + 1) - S
 		) },
 		=(State0),
-		{ list__map_foldl(LoadInArray, BoxedArgs, ArgsLoadInstrsTrees,
+		{ list__map_foldl(LoadInArray, Args0, ArgsLoadInstrsTrees,
 			0 - State0, _ - State) },
 		{ ArgsLoadInstrs = tree__list(ArgsLoadInstrsTrees) },
 		dcg_set(State),
@@ -2169,12 +2191,11 @@ load(mkword(_Tag, _Rval), Instrs) -->
 	% characters, etc.
 load(const(Const), Instrs) -->
 	DataRep =^ il_data_rep,
-		% XXX is there a better way to handle true and false
-		% using IL's bool type?
+		% true and false are just the integers 1 and 0
 	{ Const = true,
-		Instrs = instr_node(ldc(int32, i(1)))
+		Instrs = instr_node(ldc(bool, i(1)))
 	; Const = false,
-		Instrs = instr_node(ldc(int32, i(0)))
+		Instrs = instr_node(ldc(bool, i(0)))
 	; Const = string_const(Str),
 		Instrs = instr_node(ldstr(Str))
 	; Const = int_const(Int),
@@ -2391,7 +2412,7 @@ unaryop_to_il(cast(DestType), SrcRval, Instrs) -->
 		)
 	;
 		( already_boxed(SrcILType) ->
-			( SrcType = mercury_type(_, user_type) ->
+			( SrcType = mercury_type(_, user_type, _) ->
 				% XXX we should look into a nicer way to
 				% generate MLDS so we don't need to do this
 				% XXX This looks wrong for --high-level-data. -fjh.
@@ -2736,8 +2757,12 @@ make_class_constructor_class_member(DoneFieldRef, Imports, AllocInstrs,
 		MethodDecls) },
 	test_rtti_initialization_field(DoneFieldRef, TestInstrs),
 	set_rtti_initialization_field(DoneFieldRef, SetInstrs),
-	{ CCtorCalls = list__map((func(X) = call_class_constructor(
-		class_name(X, wrapper_class_name))), Imports) },
+	{ CCtorCalls = list__filter_map(
+		(func(I::in) = (C::out) is semidet :-
+			I = mercury_import(ImportName),
+			C = call_class_constructor(
+				class_name(ImportName, wrapper_class_name))
+		), Imports) },
 	{ AllInstrs = list__condense([TestInstrs, AllocInstrs, SetInstrs,
 		CCtorCalls, InitInstrs, [ret]]) },
 	{ MethodDecls = [instrs(AllInstrs)] }.
@@ -2793,9 +2818,9 @@ mlds_signature_to_ilds_type_params(DataRep,
 		func_signature(Args, _Returns), Params) :-
 	Params = list__map(mlds_type_to_ilds_type(DataRep), Args).
 
-:- func mlds_arg_to_il_arg(pair(mlds__entity_name, mlds__type)) = 
-		pair(ilds__id, mlds__type).
-mlds_arg_to_il_arg(EntityName - Type) = Id - Type :-
+:- func mlds_arg_to_il_arg(mlds__argument) = pair(ilds__id, mlds__type).
+mlds_arg_to_il_arg(mlds__argument(EntityName, Type, _GC_TraceCode)) =
+		Id - Type :-
 	mangle_entity_name(EntityName, Id).
 
 
@@ -2833,10 +2858,10 @@ params_to_il_signature(DataRep, ModuleName, FuncParams) = ILSignature :-
 	),
 	ILSignature = signature(call_conv(no, default), Param, ILInputTypes).
 
-:- func input_param_to_ilds_type(il_data_rep, mlds_module_name, 
-		pair(entity_name, mlds__type)) = ilds__param.
-input_param_to_ilds_type(DataRep, _ModuleName, EntityName - MldsType) 
-		= ILType - yes(Id) :-
+:- func input_param_to_ilds_type(il_data_rep, mlds_module_name, mlds__argument)
+	= ilds__param.
+input_param_to_ilds_type(DataRep, _ModuleName, Arg) = ILType - yes(Id) :-
+	Arg = mlds__argument(EntityName, MldsType, _GC_TraceCode),
 	mangle_entity_name(EntityName, Id),
 	ILType = mlds_type_to_ilds_type(DataRep, MldsType).
 
@@ -2851,7 +2876,7 @@ mlds_type_to_ilds_simple_type(DataRep, MLDSType) = SimpleType :-
 mlds_type_to_ilds_type(_, mlds__rtti_type(_RttiName)) = il_object_array_type.
 
 mlds_type_to_ilds_type(DataRep, mlds__mercury_array_type(ElementType)) = 
-	( ElementType = mlds__mercury_type(_, polymorphic_type) ->
+	( ElementType = mlds__mercury_type(_, polymorphic_type, _) ->
 		il_generic_array_type
 	;
 		ilds__type([], '[]'(mlds_type_to_ilds_type(DataRep,
@@ -2886,8 +2911,7 @@ mlds_type_to_ilds_type(_, mlds__commit_type) = il_commit_type.
 mlds_type_to_ilds_type(ILDataRep, mlds__generic_env_ptr_type) =
 	ILDataRep^il_envptr_type.
 
-	% XXX we ought to use the IL bool type
-mlds_type_to_ilds_type(_, mlds__native_bool_type) = ilds__type([], int32).
+mlds_type_to_ilds_type(_, mlds__native_bool_type) = ilds__type([], bool).
 
 mlds_type_to_ilds_type(_, mlds__native_char_type) = ilds__type([], char).
 
@@ -2902,19 +2926,34 @@ mlds_type_to_ilds_type(_, mlds__native_int_type) = ilds__type([], int32).
 
 mlds_type_to_ilds_type(_, mlds__native_float_type) = ilds__type([], float64).
 
+mlds_type_to_ilds_type(_, mlds__foreign_type(IsBoxed, ForeignType, Assembly))
+	= ilds__type([], Class) :-
+	sym_name_to_class_name(ForeignType, ForeignClassName),
+	( IsBoxed = yes,
+		Class = class(structured_name(assembly(Assembly),
+				ForeignClassName, []))
+	; IsBoxed = no,
+		Class = valuetype(structured_name(assembly(Assembly),
+				ForeignClassName, []))
+	).
+
 mlds_type_to_ilds_type(ILDataRep, mlds__ptr_type(MLDSType)) =
 	ilds__type([], '&'(mlds_type_to_ilds_type(ILDataRep, MLDSType))).
 
-mlds_type_to_ilds_type(_, mercury_type(_, int_type)) = ilds__type([], int32).
-mlds_type_to_ilds_type(_, mercury_type(_, char_type)) = ilds__type([], char).
-mlds_type_to_ilds_type(_, mercury_type(_, float_type)) =
+mlds_type_to_ilds_type(_, mercury_type(_, int_type, _)) =
+	ilds__type([], int32).
+mlds_type_to_ilds_type(_, mercury_type(_, char_type, _)) =
+	ilds__type([], char).
+mlds_type_to_ilds_type(_, mercury_type(_, float_type, _)) =
 	ilds__type([], float64).
-mlds_type_to_ilds_type(_, mercury_type(_, str_type)) = il_string_type.
-mlds_type_to_ilds_type(_, mercury_type(_, pred_type)) = il_object_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, tuple_type)) = il_object_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, enum_type)) = il_object_array_type.
-mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type)) = il_generic_type.
-mlds_type_to_ilds_type(DataRep, mercury_type(MercuryType, user_type)) = 
+mlds_type_to_ilds_type(_, mercury_type(_, str_type, _)) = il_string_type.
+mlds_type_to_ilds_type(_, mercury_type(_, pred_type, _)) = il_object_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, tuple_type, _)) =
+	il_object_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, enum_type, _)) = il_object_array_type.
+mlds_type_to_ilds_type(_, mercury_type(_, polymorphic_type, _)) =
+	il_generic_type.
+mlds_type_to_ilds_type(DataRep, mercury_type(MercuryType, user_type, _)) = 
 	( DataRep ^ highlevel_data = yes ->
 		mercury_type_to_highlevel_class_type(MercuryType)
 	;
@@ -2929,8 +2968,8 @@ mlds_class_to_ilds_simple_type(Kind, ClassName) = SimpleType :-
 	( Kind = mlds__package,		SimpleType = class(ClassName)
 	; Kind = mlds__class,		SimpleType = class(ClassName)
 	; Kind = mlds__interface,	SimpleType = class(ClassName)
-	; Kind = mlds__struct,		SimpleType = value_class(ClassName)
-	; Kind = mlds__enum,		SimpleType = value_class(ClassName)
+	; Kind = mlds__struct,		SimpleType = valuetype(ClassName)
+	; Kind = mlds__enum,		SimpleType = valuetype(ClassName)
 	).
 
 :- func mercury_type_to_highlevel_class_type(mercury_type) = ilds__type.
@@ -2960,7 +2999,7 @@ mlds_type_to_ilds_class_name(DataRep, MldsType) =
 get_ilds_type_class_name(ILType) = ClassName :-
 	( 
 		( ILType = ilds__type(_, class(ClassName0))
-		; ILType = ilds__type(_, value_class(ClassName0))
+		; ILType = ilds__type(_, valuetype(ClassName0))
 		)
 	->
 		ClassName = ClassName0
@@ -3187,7 +3226,7 @@ mangle_dataname_module(yes(DataName), ModuleName0, ModuleName) :-
 				(
 				  Name = "array", Arity = 1
 				)
-			; LibModuleName0 = "std_util",
+			; LibModuleName0 = "type_desc",
 				( 
 				  Name = "type_desc", Arity = 0
 				)
@@ -3420,16 +3459,20 @@ rval_const_to_type(data_addr_const(_)) =
 	mlds__array_type(mlds__generic_type).
 rval_const_to_type(code_addr_const(_)) = mlds__func_type(
 		mlds__func_params([], [])).
-rval_const_to_type(int_const(_)) = mercury_type(
-	term__functor(term__atom("int"), [], context("", 0)), int_type).
-rval_const_to_type(float_const(_)) = mercury_type(
-	term__functor(term__atom("float"), [], context("", 0)), float_type).
+rval_const_to_type(int_const(_)) 
+	= mercury_type(IntType, int_type, non_foreign_type(IntType)) :-
+	IntType = term__functor(term__atom("int"), [], context("", 0)).
+rval_const_to_type(float_const(_)) 
+	= mercury_type(FloatType, float_type, non_foreign_type(FloatType)) :-
+	FloatType = term__functor(term__atom("float"), [], context("", 0)).
 rval_const_to_type(false) = mlds__native_bool_type.
 rval_const_to_type(true) = mlds__native_bool_type.
-rval_const_to_type(string_const(_)) = mercury_type(
-	term__functor(term__atom("string"), [], context("", 0)), str_type).
-rval_const_to_type(multi_string_const(_, _)) = mercury_type(
-	term__functor(term__atom("string"), [], context("", 0)), str_type).
+rval_const_to_type(string_const(_)) 
+	= mercury_type(StrType, str_type, non_foreign_type(StrType)) :-
+	StrType = term__functor(term__atom("string"), [], context("", 0)).
+rval_const_to_type(multi_string_const(_, _)) 
+	= mercury_type(StrType, str_type, non_foreign_type(StrType)) :-
+	StrType = term__functor(term__atom("string"), [], context("", 0)).
 rval_const_to_type(null(MldsType)) = MldsType.
 
 %-----------------------------------------------------------------------------%
@@ -3581,8 +3624,10 @@ common_prefix([X|Xs], [Y|Ys], Prefix, TailXs, TailYs) :-
 
 defn_to_local(ModuleName, 
 	mlds__defn(Name, _Context, _DeclFlags, Entity), Id - MLDSType) :-
-	( Name = data(DataName),
-	  Entity = mlds__data(MLDSType0, _Initializer) ->
+	(
+		Name = data(DataName),
+		Entity = mlds__data(MLDSType0, _Initializer, _GC_TraceCode)
+	->
 		mangle_dataname(DataName, MangledDataName),
 		mangle_mlds_var(qual(ModuleName,
 			var_name(MangledDataName, no)), Id),
@@ -3600,56 +3645,62 @@ defn_to_local(ModuleName,
 
 convert_to_object(Type) = instr_node(box(ValueType)) :-
 	Type = ilds__type(_, SimpleType),
-	ValueType = simple_type_to_value_class(SimpleType).
+	ValueType = simple_type_to_valuetype(SimpleType).
 
 :- func convert_from_object(ilds__type) = instr_tree.
 
 convert_from_object(Type) = node([unbox(Type), ldobj(Type)]).
 
-:- func simple_type_to_value_class(simple_type) = ilds__type.
-simple_type_to_value_class(int8) = 
-	ilds__type([], value_class(il_system_name(["SByte"]))).
-simple_type_to_value_class(int16) =
-	ilds__type([], value_class(il_system_name(["Int16"]))).
-simple_type_to_value_class(int32) =
-	ilds__type([], value_class(il_system_name(["Int32"]))).
-simple_type_to_value_class(int64) =
-	ilds__type([], value_class(il_system_name(["Int64"]))).
-simple_type_to_value_class(uint8) = 
-	ilds__type([], value_class(il_system_name(["Byte"]))).
-simple_type_to_value_class(uint16) =
-	ilds__type([], value_class(il_system_name(["UInt16"]))).
-simple_type_to_value_class(uint32) =
-	ilds__type([], value_class(il_system_name(["UInt32"]))).
-simple_type_to_value_class(uint64) = 
-	ilds__type([], value_class(il_system_name(["UInt64"]))).
-simple_type_to_value_class(float32) = 
-	ilds__type([], value_class(il_system_name(["Single"]))).
-simple_type_to_value_class(float64) = 
-	ilds__type([], value_class(il_system_name(["Double"]))).
-simple_type_to_value_class(bool) = 
-	ilds__type([], value_class(il_system_name(["Boolean"]))).
-simple_type_to_value_class(char) = 
-	ilds__type([], value_class(il_system_name(["Char"]))).
-simple_type_to_value_class(refany) = _ :-
+:- func simple_type_to_valuetype(simple_type) = ilds__type.
+simple_type_to_valuetype(int8) = 
+	ilds__type([], valuetype(il_system_name(["SByte"]))).
+simple_type_to_valuetype(int16) =
+	ilds__type([], valuetype(il_system_name(["Int16"]))).
+simple_type_to_valuetype(int32) =
+	ilds__type([], valuetype(il_system_name(["Int32"]))).
+simple_type_to_valuetype(int64) =
+	ilds__type([], valuetype(il_system_name(["Int64"]))).
+simple_type_to_valuetype(uint8) = 
+	ilds__type([], valuetype(il_system_name(["Byte"]))).
+simple_type_to_valuetype(uint16) =
+	ilds__type([], valuetype(il_system_name(["UInt16"]))).
+simple_type_to_valuetype(uint32) =
+	ilds__type([], valuetype(il_system_name(["UInt32"]))).
+simple_type_to_valuetype(uint64) = 
+	ilds__type([], valuetype(il_system_name(["UInt64"]))).
+simple_type_to_valuetype(float32) = 
+	ilds__type([], valuetype(il_system_name(["Single"]))).
+simple_type_to_valuetype(float64) = 
+	ilds__type([], valuetype(il_system_name(["Double"]))).
+simple_type_to_valuetype(bool) = 
+	ilds__type([], valuetype(il_system_name(["Boolean"]))).
+simple_type_to_valuetype(char) = 
+	ilds__type([], valuetype(il_system_name(["Char"]))).
+simple_type_to_valuetype(object) = _ :-
+	% ilds__type([], valuetype(il_system_name(["Object"]))).
+	error("no value class for System.Object").
+simple_type_to_valuetype(string) = _ :-
+	% ilds__type([], valuetype(il_system_name(["String"]))).
+	error("no value class for System.String").
+simple_type_to_valuetype(refany) = _ :-
 	error("no value class for refany").
-simple_type_to_value_class(class(_)) = _ :-
+simple_type_to_valuetype(class(_)) = _ :-
 	error("no value class for class").
-simple_type_to_value_class(value_class(_)) = _ :-
-	error("no value class for value_class").
-simple_type_to_value_class(interface(_)) = _ :-
+simple_type_to_valuetype(valuetype(Name)) =
+	ilds__type([], valuetype(Name)).
+simple_type_to_valuetype(interface(_)) = _ :-
 	error("no value class for interface").
-simple_type_to_value_class('[]'(_, _)) = _ :-
+simple_type_to_valuetype('[]'(_, _)) = _ :-
 	error("no value class for array").
-simple_type_to_value_class('&'( _)) = _ :-
+simple_type_to_valuetype('&'( _)) = _ :-
 	error("no value class for '&'").
-simple_type_to_value_class('*'(_)) = _ :-
+simple_type_to_valuetype('*'(_)) = _ :-
 	error("no value class for '*'").
-simple_type_to_value_class(native_float) = _ :-
+simple_type_to_valuetype(native_float) = _ :-
 	error("no value class for native float").
-simple_type_to_value_class(native_int) = _ :-
+simple_type_to_valuetype(native_int) = _ :-
 	error("no value class for native int").
-simple_type_to_value_class(native_uint) = _ :-
+simple_type_to_valuetype(native_uint) = _ :-
 	error("no value class for native uint").
 
 %-----------------------------------------------------------------------------%
@@ -3856,7 +3907,11 @@ mlds_to_il__generate_extern_assembly(CurrentAssembly, SignAssembly,
 		AsmDecls = []
 	),
 	Gen = (pred(Import::in, Decl::out) is semidet :-
-		AsmName = mlds_module_name_to_assembly_name(Import),
+		( Import = mercury_import(ImportName)
+		; Import = foreign_import(ForeignImportName),
+			ForeignImportName = il_assembly_name(ImportName)
+		),
+		AsmName = mlds_module_name_to_assembly_name(ImportName),
 		( AsmName = assembly(Assembly),
 			Assembly \= "mercury",
 			Decl = [extern_assembly(Assembly, AsmDecls)]
@@ -4027,7 +4082,7 @@ il_info_init(ModuleName, AssemblyName, Imports, ILDataRep,
 il_info_new_class(ClassDefn) -->
 	{ ClassDefn = class_defn(_, _, _, _, _, Members) },
 	{ list__filter_map((pred(M::in, S::out) is semidet :-
-			M = mlds__defn(Name, _, _, data(_, _)),
+			M = mlds__defn(Name, _, _, data(_, _, _)),
 			S = entity_name_to_ilds_id(Name)
 		), Members, FieldNames)
 	},

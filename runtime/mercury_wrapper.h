@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1994-2001 The University of Melbourne.
+** Copyright (C) 1994-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -18,6 +18,7 @@
 #include "mercury_stack_layout.h"	/* for `MR_Label_Layout' etc */
 #include "mercury_trace_base.h"		/* for `MR_trace_port' */
 #include "mercury_stacks.h"		/* for `MR_{Cut,Generator}StackFrame' */
+#include "mercury_type_info.h"		/* for `MR_TypeCtorInfo' */
 #include <stdio.h>			/* for `FILE' */
 
 /*
@@ -74,6 +75,8 @@ extern	MR_Code 	*MR_program_entry_point;
 			/* normally mercury__main_2_0; */
 #endif
 
+extern const char *	MR_runtime_flags;
+
 extern	void		(*MR_library_initializer)(void);
 extern	void		(*MR_library_finalizer)(void);
 
@@ -97,6 +100,10 @@ extern	void		(*MR_address_of_init_gc)(void);
 
 extern	int		(*MR_address_of_do_load_aditi_rl_code)(void);
 
+extern	MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_func;
+extern	MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_pred;
+extern	MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_tuple;
+
 /*
 ** MR_trace_getline(const char *, FILE *, FILE *) and
 ** MR_trace_get_command(const char *, FILE *, FILE *) are defined in
@@ -109,6 +116,17 @@ extern	char *		(*MR_address_of_trace_getline)(const char *,
 				FILE *, FILE *);
 extern	char *		(*MR_address_of_trace_get_command)(const char *,
 				FILE *, FILE *);
+
+/*
+** MR_trace_browse_all_on_level() is defined in trace/mercury_trace_vars.c
+** but may be called from runtime/mercury_stack_trace.c. As we can not do
+** direct calls from runtime/ to trace/, we do an indirect call via the
+** function pointer MR_address_of_trace_browse_all_on_level.
+*/
+
+extern	const char *	(*MR_address_of_trace_browse_all_on_level)(FILE *,
+				const MR_Label_Layout *, MR_Word *, MR_Word *,
+				int);
 
 /*
 ** MR_trace_init_external() and MR_trace_final_external() are defined 
@@ -195,6 +213,9 @@ extern	size_t		MR_cutstack_zone_size;
 extern	const char	*MR_mdb_in_filename;
 extern	const char	*MR_mdb_out_filename;
 extern	const char	*MR_mdb_err_filename;
+
+/* should mdb be started in a window */
+extern	bool		MR_mdb_in_window;
 
 /* size of the primary cache */
 extern	size_t		MR_pcache_size;

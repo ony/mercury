@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -156,6 +156,29 @@
 			%	whether or not the code is thread-safe
 			% PredName, Predicate or Function, Vars/Mode, 
 			% VarNames, Foreign Code Implementation Info
+
+	;	foreign_type(foreign_language_type, (type), sym_name)
+			% ForeignType, MercuryType, MercuryTypeName
+
+	;	foreign_import_module(foreign_language, module_name)
+			% Equivalent to
+			% `:- pragma foreign_decl(Lang, "#include <module>.h").'
+			% except that the name of the header file is not
+			% hard-coded, and mmake can use the dependency
+			% information.
+
+	;	export(sym_name, pred_or_func, list(mode),
+			string)
+			% Predname, Predicate/function, Modes,
+			% C function name.
+
+	;	import(sym_name, pred_or_func, list(mode),
+			pragma_foreign_proc_attributes, string)
+			% Predname, Predicate/function, Modes,
+			% Set of foreign proc attributes, eg.:
+			%    whether or not the foreign code may call Mercury,
+			%    whether or not the foreign code is thread-safe
+			% foreign function name.
 	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
 			maybe(list(mode)), type_subst, tvarset, set(type_id))
@@ -173,19 +196,6 @@
 
 	;	obsolete(sym_name, arity)
 			% Predname, Arity
-
-	;	export(sym_name, pred_or_func, list(mode),
-			string)
-			% Predname, Predicate/function, Modes,
-			% C function name.
-
-	;	import(sym_name, pred_or_func, list(mode),
-			pragma_foreign_proc_attributes, string)
-			% Predname, Predicate/function, Modes,
-			% Set of foreign proc attributes, eg.:
-			%    whether or not the foreign code may call Mercury,
-			%    whether or not the foreign code is thread-safe
-			% foreign function name.
 
 	;	source_file(string)
 			% Source file name.
@@ -272,6 +282,37 @@
 
 	;	check_termination(sym_name, arity).
 			% Predname, Arity
+
+%
+% Stuff for the foreign interfacing pragmas.
+%
+
+	% 
+	% A foreign_language_type represents a type that is defined in a
+	% foreign language and accessed in Mercury (most likely through 
+	% pragma foreign_type).
+	% Currently we only support foreign_language_types for IL.
+	%
+
+
+	%
+	% It is important to distinguish between IL value types and
+	% reference types, the compiler may need to generate different code
+	% for each of these cases.
+	%
+
+:- type ref_or_val
+	--->	reference
+	;	value.
+
+:- type foreign_language_type
+	--->	il(
+			ref_or_val,	% An indicator of whether the type is a
+					% reference of value type.
+			string,		% The location of the .NET name (the
+					% assembly)
+			sym_name	% The .NET type name
+		).
 
 %
 % Stuff for tabling pragmas
@@ -519,6 +560,12 @@
 :- pred thread_safe(pragma_foreign_proc_attributes, thread_safe).
 :- mode thread_safe(in, out) is det.
 
+:- pred purity(pragma_foreign_proc_attributes, purity).
+:- mode purity(in, out) is det.
+
+:- pred legacy_purity_behaviour(pragma_foreign_proc_attributes, bool).
+:- mode legacy_purity_behaviour(in, out) is det.
+
 :- pred set_thread_safe(pragma_foreign_proc_attributes, thread_safe,
 		pragma_foreign_proc_attributes).
 :- mode set_thread_safe(in, in, out) is det.
@@ -537,6 +584,13 @@
 		pragma_foreign_proc_attributes).
 :- mode set_tabled_for_io(in, in, out) is det.
 
+:- pred set_purity(pragma_foreign_proc_attributes, purity,
+		pragma_foreign_proc_attributes).
+:- mode set_purity(in, in, out) is det.
+
+:- pred set_legacy_purity_behaviour(pragma_foreign_proc_attributes, bool,
+		pragma_foreign_proc_attributes).
+:- mode set_legacy_purity_behaviour(in, in, out) is det.
 
 :- pred add_extra_attribute(pragma_foreign_proc_attributes, 
 		pragma_foreign_proc_extra_attribute,
@@ -979,6 +1033,7 @@
 :- implementation.
 
 :- import_module string.
+:- import_module purity.
 
 :- type pragma_foreign_proc_attributes
 	--->	attributes(
@@ -986,6 +1041,11 @@
 			may_call_mercury	:: may_call_mercury,
 			thread_safe		:: thread_safe,
 			tabled_for_io		:: tabled_for_io,
+			purity			:: purity,
+				% there is some special case behaviour for 
+				% pragma c_code and pragma import purity
+				% if legacy_purity_behaviour is `yes'
+			legacy_purity_behaviour	:: bool,
 			extra_attributes	:: 
 				list(pragma_foreign_proc_extra_attribute)
 		).
@@ -993,7 +1053,7 @@
 
 default_attributes(Language, 
 	attributes(Language, may_call_mercury, not_thread_safe, 
-		not_tabled_for_io, [])).
+		not_tabled_for_io, impure, no, [])).
 
 may_call_mercury(Attrs, Attrs ^ may_call_mercury).
 
@@ -1002,6 +1062,10 @@ thread_safe(Attrs, Attrs ^ thread_safe).
 foreign_language(Attrs, Attrs ^ foreign_language).
 
 tabled_for_io(Attrs, Attrs ^ tabled_for_io).
+
+purity(Attrs, Attrs ^ purity).
+
+legacy_purity_behaviour(Attrs, Attrs ^ legacy_purity_behaviour).
 
 set_may_call_mercury(Attrs0, MayCallMercury, Attrs) :-
 	Attrs = Attrs0 ^ may_call_mercury := MayCallMercury.
@@ -1015,12 +1079,19 @@ set_foreign_language(Attrs0, ForeignLanguage, Attrs) :-
 set_tabled_for_io(Attrs0, TabledForIo, Attrs) :-
 	Attrs = Attrs0 ^ tabled_for_io := TabledForIo.
 
+set_purity(Attrs0, Purity, Attrs) :-
+	Attrs = Attrs0 ^ purity := Purity.
+
+set_legacy_purity_behaviour(Attrs0, Legacy, Attrs) :-
+	Attrs = Attrs0 ^ legacy_purity_behaviour := Legacy.
+
+
 attributes_to_strings(Attrs, StringList) :-
 	% We ignore Lang because it isn't an attribute that you can put
 	% in the attribute list -- the foreign language specifier string
 	% is at the start of the pragma.
 	Attrs = attributes(_Lang, MayCallMercury, ThreadSafe, TabledForIO,
-			ExtraAttributes),
+			Purity,	_LegacyBehaviour, ExtraAttributes),
 	(
 		MayCallMercury = may_call_mercury,
 		MayCallMercuryStr = "may_call_mercury"
@@ -1042,7 +1113,18 @@ attributes_to_strings(Attrs, StringList) :-
 		TabledForIO = not_tabled_for_io,
 		TabledForIOStr = "not_tabled_for_io"
 	),
-	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr] ++
+	(
+		Purity = pure,
+		PurityStrList = ["promise_pure"]
+	;
+		Purity = (semipure),
+		PurityStrList = ["promise_semipure"]
+	;
+		Purity = (impure),
+		PurityStrList = []
+	),
+	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr |
+			PurityStrList] ++
 		list__map(extra_attribute_to_string, ExtraAttributes).
 
 add_extra_attribute(Attributes0, NewAttribute,

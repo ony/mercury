@@ -21,6 +21,7 @@ TRAIL_SOURCES= \
 	semi_fail_in_non_ite.m
 
 TYPECLASS_SOURCES= \
+	abstract_typeclass.m \
 	constraint_proof_bug.m \
 	func_method.m \
 	instance_superclass.m \
@@ -136,6 +137,7 @@ OTHER_SOURCES= \
 	record_syntax_bug_2.m \
 	record_syntax_bug_3.m \
 	record_syntax_bug_4.m \
+	record_syntax_bug_5.m \
 	recursive_no_tag_type.m \
 	same_length_2.m \
 	semidet_disj.m \
@@ -143,6 +145,7 @@ OTHER_SOURCES= \
 	simplify_bug.m \
 	soln_context.m \
 	some_switch.m \
+	spurious_purity_warning.m \
 	stack_alloc.m \
 	static.m \
 	subtype_switch.m \
@@ -175,10 +178,12 @@ OTHER_SOURCES= \
 # XXX We also don't pass this one (see the comments in it for details):
 #	mode_selection.m
 
-# There used to be problems with compiling typeclass
-# and AGC stuff in grades jump.* and fast.*, but they should
-# be long since fixed now.
-SOURCES0 = $(AGC_SOURCES) $(TYPECLASS_SOURCES) $(OTHER_SOURCES)
+# The agc.* tests don't yet work in --high-level-code grades.
+ifneq "$(findstring hl,$(GRADE))" ""
+	SOURCES0 = $(TYPECLASS_SOURCES) $(OTHER_SOURCES)
+else
+	SOURCES0 = $(AGC_SOURCES) $(TYPECLASS_SOURCES) $(OTHER_SOURCES)
+endif
 
 # Base grades `jump' and `fast'
 # cannot be used with `--no-special-preds'
@@ -286,6 +291,7 @@ MCFLAGS-mostly_uniq_mode_inf	= --infer-all
 MCFLAGS-pred_with_no_modes	= --infer-all
 MCFLAGS-quantifier_warning	= --halt-at-warn
 MCFLAGS-simplify_bug		= -O-1
+MCFLAGS-spurious_purity_warning	= --halt-at-warn
 MCFLAGS-two_way_unif		= -O-1
 MCFLAGS-type_inf_ambig_test	= --infer-all
 MCFLAGS-typeclass_det_warning	= --halt-at-warn

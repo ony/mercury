@@ -3,7 +3,7 @@ INIT mercury_sys_init_wrapper
 ENDINIT
 */
 /*
-** Copyright (C) 1994-2001 The University of Melbourne.
+** Copyright (C) 1994-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -89,6 +89,7 @@ size_t		MR_pcache_size =	        8192;
 const char	*MR_mdb_in_filename = NULL;
 const char	*MR_mdb_out_filename = NULL;
 const char	*MR_mdb_err_filename = NULL;
+bool		MR_mdb_in_window = FALSE;
 
 /* other options */
 
@@ -186,8 +187,15 @@ void	(*MR_address_of_write_out_proc_statics)(FILE *fp);
 
 int	(*MR_address_of_do_load_aditi_rl_code)(void);
 
+MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_func;
+MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_pred;
+MR_TypeCtorInfo	MR_address_of_type_ctor_info_for_tuple;
+
 char	*(*MR_address_of_trace_getline)(const char *, FILE *, FILE *);
 char	*(*MR_address_of_trace_get_command)(const char *, FILE *, FILE *);
+const char *
+	(*MR_address_of_trace_browse_all_on_level)(FILE *,
+		const MR_Label_Layout *, MR_Word *, MR_Word *, int);
 
 #ifdef	MR_USE_EXTERNAL_DEBUGGER
 void	(*MR_address_of_trace_init_external)(void);
@@ -205,6 +213,8 @@ void MR_CALL (*MR_program_entry_point)(void);
 MR_Code	*MR_program_entry_point;
 		/* normally mercury__main_2_0 (main/2) */
 #endif
+
+const char *MR_runtime_flags = "";
 
 void	(*MR_library_initializer)(void);
 		/* normally ML_io_init_state (io__init_state/2)*/
@@ -325,6 +335,10 @@ mercury_runtime_init(int argc, char **argv)
 	process_args(argc, argv);
 	process_environment_options();
 
+#ifdef	MR_STACK_FRAME_STATS
+	MR_init_stack_frame_stats();
+#endif	/* MR_STACK_FRAME_STATS */
+
 	/*
 	** Some of the rest of this function may call Mercury code
 	** that may have been compiled with tracing (e.g. the initialization
@@ -342,7 +356,7 @@ mercury_runtime_init(int argc, char **argv)
 
 	(*MR_address_of_mercury_init_io)();
 
-#ifdef MR_HIGHLEVEL_CODE
+#if defined(MR_HIGHLEVEL_CODE) && defined(CONSERVATIVE_GC)
 	MR_init_memory();
   #ifdef MR_USE_TRAIL
 	/* initialize the trail */
@@ -658,15 +672,21 @@ process_args(int argc, char **argv)
 static void
 process_environment_options(void)
 {
-	char*	options;
+	char*	env_options;
 
-	options = getenv("MERCURY_OPTIONS");
-	if (options != NULL) {
+	env_options = getenv("MERCURY_OPTIONS");
+	if (env_options == NULL) {
+		env_options = (char *) "";
+	}
+
+	if (env_options[0] != '\0' || MR_runtime_flags[0] != '\0') {
 		const char	*cmd;
 		char		*arg_str, **argv;
 		char		*dummy_command_line;
 		const char	*error_msg;
 		int		argc;
+		int		cmd_len;
+		int		runtime_flags_len;
 
 		/*
 		** getopt() expects the options to start in argv[1],
@@ -676,10 +696,16 @@ process_environment_options(void)
 		** to getopt().
 		*/
 		cmd = "mercury_runtime ";
+		cmd_len = strlen(cmd);
+		runtime_flags_len = strlen(MR_runtime_flags);
 		dummy_command_line = MR_GC_NEW_ARRAY(char,
-					strlen(options) + strlen(cmd) + 1);
+					cmd_len + runtime_flags_len + 1 +
+					strlen(env_options) + 1);
 		strcpy(dummy_command_line, cmd);
-		strcat(dummy_command_line, options);
+		strcpy(dummy_command_line + cmd_len, MR_runtime_flags);
+		dummy_command_line[cmd_len + runtime_flags_len] = ' ';
+		strcpy(dummy_command_line + cmd_len + runtime_flags_len + 1,
+				env_options);
 		
 		error_msg = MR_make_argv(dummy_command_line,
 			&arg_str, &argv, &argc);
@@ -710,7 +736,8 @@ enum MR_long_option {
 	MR_MDB_TTY,
 	MR_MDB_IN,
 	MR_MDB_OUT,
-	MR_MDB_ERR
+	MR_MDB_ERR,
+	MR_MDB_IN_WINDOW
 };
 
 struct MR_option MR_long_opts[] = {
@@ -727,7 +754,8 @@ struct MR_option MR_long_opts[] = {
 	{ "mdb-tty", 			1, 0, MR_MDB_TTY },
 	{ "mdb-in", 			1, 0, MR_MDB_IN },
 	{ "mdb-out", 			1, 0, MR_MDB_OUT },
-	{ "mdb-err", 			1, 0, MR_MDB_ERR }
+	{ "mdb-err", 			1, 0, MR_MDB_ERR },
+	{ "mdb-in-window",		0, 0, MR_MDB_IN_WINDOW }
 };
 
 static void
@@ -833,6 +861,11 @@ process_options(int argc, char **argv)
 			MR_mdb_in_filename = MR_copy_string(MR_optarg);
 			MR_mdb_out_filename = MR_copy_string(MR_optarg);
 			MR_mdb_err_filename = MR_copy_string(MR_optarg);
+			break;
+
+		case 'w':
+		case MR_MDB_IN_WINDOW:
+			MR_mdb_in_window = TRUE;
 			break;
 
 		case 'a':
@@ -1191,6 +1224,10 @@ mercury_runtime_main(void)
 	MR_print_type_ctor_stats();
 #endif
 
+#ifdef	MR_STACK_FRAME_STATS
+	MR_print_stack_frame_stats();
+#endif	/* MR_STACK_FRAME_STATS */
+
 	/*
 	** Save the Mercury registers and
 	** restore the C callee-save registers before returning,
@@ -1223,7 +1260,7 @@ MR_register_type_ctor_stat(MR_TypeStat *type_stat,
 {
 	int	i;
 
-	type_stat->type_ctor_reps[type_ctor_info->type_ctor_rep]++;
+	type_stat->type_ctor_reps[MR_type_ctor_rep(type_ctor_info)]++;
 
 	for (i = 0; i < type_stat->type_ctor_name_next; i++) {
 		/*
@@ -1253,7 +1290,7 @@ MR_register_type_ctor_stat(MR_TypeStat *type_stat,
 	type_stat->type_ctor_names[i].type_stat_name =
 		type_ctor_info->type_ctor_name;
 	type_stat->type_ctor_names[i].type_stat_ctor_rep =
-		type_ctor_info->type_ctor_rep;
+		MR_type_ctor_rep(type_ctor_info);
 	type_stat->type_ctor_names[i].type_stat_count = 1;
 	type_stat->type_ctor_name_next++;
 }
@@ -1400,12 +1437,14 @@ MR_define_extern_entry(MR_do_interpreter);
 MR_declare_label(global_success);
 MR_declare_label(global_fail);
 MR_declare_label(all_done);
+MR_declare_label(wrapper_not_reached);
 
 MR_BEGIN_MODULE(interpreter_module)
-	MR_init_entry_ai(MR_do_interpreter);
-	MR_init_label_ai(global_success);
-	MR_init_label_ai(global_fail);
-	MR_init_label_ai(all_done);
+	MR_init_entry_an(MR_do_interpreter);
+	MR_init_label_an(global_success);
+	MR_init_label_an(global_fail);
+	MR_init_label_an(all_done);
+	MR_init_label_an(wrapper_not_reached);
 MR_BEGIN_CODE
 
 MR_define_entry(MR_do_interpreter);
@@ -1415,6 +1454,7 @@ MR_define_entry(MR_do_interpreter);
 	MR_stackvar(3) = (MR_Word) MR_maxfr;
 	MR_stackvar(4) = (MR_Word) MR_curfr;
 
+	MR_succip = MR_LABEL(wrapper_not_reached);
 	MR_mkframe("interpreter", 1, MR_LABEL(global_fail));
 
 	MR_nondet_stack_trace_bottom = MR_maxfr;
@@ -1486,6 +1526,9 @@ MR_define_label(all_done);
 #ifndef	USE_GCC_NONLOCAL_GOTOS
 	return 0;
 #endif
+
+MR_define_label(wrapper_not_reached);
+	MR_fatal_error("reached wrapper_not_reached");
 MR_END_MODULE
 
 #endif

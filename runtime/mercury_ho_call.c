@@ -3,7 +3,7 @@ INIT mercury_sys_init_call
 ENDINIT
 */
 /*
-** Copyright (C) 1995-2001 The University of Melbourne.
+** Copyright (C) 1995-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -98,6 +98,10 @@ MR_proc_static_user_builtin_empty(typeinfo_unify, 2, 0,
 	"mercury_ho_call.c", 0, TRUE);
 MR_proc_static_user_builtin_empty(typeinfo_compare, 3, 0,
 	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(typectorinfo_unify, 2, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(typectorinfo_compare, 3, 0,
+	"mercury_ho_call.c", 0, TRUE);
 
 #endif
 
@@ -158,13 +162,13 @@ MR_define_extern_entry(mercury__compare_3_3);
 MR_declare_label(mercury__compare_3_0_i1);
 
 MR_BEGIN_MODULE(call_module)
-	MR_init_entry_ai(mercury__do_call_closure);
-	MR_init_entry_ai(mercury__do_call_class_method);
-	MR_init_entry_ai(mercury__unify_2_0);
-	MR_init_entry_ai(mercury__compare_3_0);
-	MR_init_entry_ai(mercury__compare_3_1);
-	MR_init_entry_ai(mercury__compare_3_2);
-	MR_init_entry_ai(mercury__compare_3_3);
+	MR_init_entry_an(mercury__do_call_closure);
+	MR_init_entry_an(mercury__do_call_class_method);
+	MR_init_entry_an(mercury__unify_2_0);
+	MR_init_entry_an(mercury__compare_3_0);
+	MR_init_entry_an(mercury__compare_3_1);
+	MR_init_entry_an(mercury__compare_3_2);
+	MR_init_entry_an(mercury__compare_3_3);
 MR_BEGIN_CODE
 
 /*
@@ -305,7 +309,8 @@ MR_define_entry(mercury__unify_2_0);
 	} while(0)
 
 #define	tailcall_user_pred()						\
-	MR_tailcall(type_ctor_info->unify_pred, MR_LABEL(mercury__unify_2_0))
+	MR_tailcall(type_ctor_info->MR_type_ctor_unify_pred, 		\
+		MR_LABEL(mercury__unify_2_0))
 
 #define	start_label		unify_start
 #define	call_user_code_label	call_unify_in_proc
@@ -377,7 +382,7 @@ MR_define_entry(mercury__compare_3_3);
 	} while(0)
 
 #define	tailcall_user_pred()						\
-	MR_tailcall(type_ctor_info->compare_pred,			\
+	MR_tailcall(type_ctor_info->MR_type_ctor_compare_pred,		\
 		MR_LABEL(mercury__compare_3_3))
 
 #define	start_label		compare_start
@@ -421,7 +426,8 @@ MR_generic_unify(MR_TypeInfo type_info, MR_Word x, MR_Word y)
 #define	tailcall_user_pred()						\
 	do {								\
 		MR_save_transient_registers();				\
-		(void) MR_call_engine(type_ctor_info->unify_pred, FALSE);\
+		(void) MR_call_engine(type_ctor_info->			\
+			MR_type_ctor_unify_pred, FALSE);		\
 		MR_restore_transient_registers();			\
 		return (MR_r1);						\
 	} while (0)
@@ -461,7 +467,8 @@ MR_generic_compare(MR_TypeInfo type_info, MR_Word x, MR_Word y)
 #define	tailcall_user_pred()						\
 	do {								\
 		MR_save_transient_registers();				\
-		(void) MR_call_engine(type_ctor_info->compare_pred, FALSE);\
+		(void) MR_call_engine(type_ctor_info->			\
+			MR_type_ctor_compare_pred, FALSE);		\
 		MR_restore_transient_registers();			\
 		return (MR_r1);						\
 	} while (0)
@@ -536,5 +543,9 @@ void mercury_sys_init_call_write_out_proc_statics(FILE *fp)
 		&MR_proc_static_user_builtin_name(typeinfo_unify, 2, 0));
 	MR_write_out_proc_static(fp, (MR_ProcStatic *)
 		&MR_proc_static_user_builtin_name(typeinfo_compare, 3, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(typectorinfo_unify, 2, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(typectorinfo_compare, 3, 0));
 }
 #endif

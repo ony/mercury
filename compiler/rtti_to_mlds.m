@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -30,7 +30,7 @@
 :- func mlds_rtti_type_name(rtti_name) = string.
 
 :- implementation.
-:- import_module prog_data.
+:- import_module foreign, prog_data, hlds_data.
 :- import_module pseudo_type_info, prog_util, prog_out, type_util.
 :- import_module ml_code_util, ml_unify_gen.
 :- import_module bool, list, std_util, string, term, require.
@@ -77,6 +77,11 @@ rtti_data_to_mlds(ModuleInfo, RttiData) = MLDS_Defns :-
 		Exported = rtti_name_is_exported(RttiName),
 		Flags = rtti_data_decl_flags(Exported),
 
+		% The GC never needs to trace these definitions,
+		% because they are static constants, and can point
+		% only to other static constants, not to the heap.
+		GC_TraceCode = no,
+
 		%
 		% Generate the declaration body,
 		% i.e. the type and the initializer
@@ -85,7 +90,7 @@ rtti_data_to_mlds(ModuleInfo, RttiData) = MLDS_Defns :-
 		module_info_name(ModuleInfo, ModuleName),
 		gen_init_rtti_data_defn(RttiData, ModuleName, ModuleInfo,
 			Initializer, ExtraDefns),
-		DefnBody = mlds__data(MLDS_Type, Initializer),
+		DefnBody = mlds__data(MLDS_Type, Initializer, GC_TraceCode),
 
 		%
 		% put it all together
@@ -133,15 +138,27 @@ gen_init_rtti_data_defn(exist_info(RttiTypeId, _Ordinal, Plain, InTci, Tci,
 	]).
 gen_init_rtti_data_defn(field_names(_RttiTypeId, _Ordinal, MaybeNames), _, _,
 		Init, []) :-
+	StrType = term__functor(term__atom("string"), [], context("", 0)),
 	Init = gen_init_array(gen_init_maybe(
-			mercury_type(functor(atom("string"), [],
-				context("", 0)), str_type),
+			mercury_type(StrType, str_type,
+				non_foreign_type(StrType)),
 			gen_init_string), MaybeNames).
+	
 gen_init_rtti_data_defn(field_types(_RttiTypeId, _Ordinal, Types),
 		ModuleName, _, Init, []) :-
 	Init = gen_init_array(
 		gen_init_cast_rtti_data(mlds__pseudo_type_info_type,
 		ModuleName), Types).
+gen_init_rtti_data_defn(reserved_addrs(_RttiTypeId, ReservedAddrs),
+		_ModuleName, ModuleInfo, Init, []) :-
+	Init = gen_init_array(gen_init_reserved_address(ModuleInfo),
+		ReservedAddrs).
+gen_init_rtti_data_defn(reserved_addr_functors(RttiTypeId,
+			ReservedAddrFunctorDescs),
+		ModuleName, _, Init, []) :-
+	Init = gen_init_array(
+		gen_init_rtti_name(ModuleName, RttiTypeId),
+		ReservedAddrFunctorDescs).
 gen_init_rtti_data_defn(enum_functor_desc(_RttiTypeId, FunctorName, Ordinal),
 		_, _, Init, []) :-
 	Init = init_struct([
@@ -177,6 +194,13 @@ gen_init_rtti_data_defn(du_functor_desc(RttiTypeId, FunctorName, Ptag, Stag,
 			gen_init_rtti_name(ModuleName, RttiTypeId),
 			MaybeExist)
 	]).
+gen_init_rtti_data_defn(reserved_addr_functor_desc(_RttiTypeId, FunctorName, Ordinal,
+		ReservedAddress), _, ModuleInfo, Init, []) :-
+	Init = init_struct([
+		gen_init_string(FunctorName),
+		gen_init_int(Ordinal),
+		gen_init_reserved_address(ModuleInfo, ReservedAddress)
+	]).
 gen_init_rtti_data_defn(enum_name_ordered_table(RttiTypeId, Functors),
 		ModuleName, _, Init, []) :-
 	Init = gen_init_rtti_names_array(ModuleName, RttiTypeId, Functors).
@@ -193,23 +217,30 @@ gen_init_rtti_data_defn(du_ptag_ordered_table(RttiTypeId, PtagLayouts),
 		ModuleName, _, Init, []) :-
 	Init = gen_init_array(gen_init_ptag_layout_defn(ModuleName, RttiTypeId),
 		PtagLayouts).
+gen_init_rtti_data_defn(reserved_addr_table(RttiTypeId,
+		NumNumeric, NumSymbolic, ReservedAddrs, FunctorDescs, DuLayout),
+		ModuleName, _, Init, []) :-
+	Init = init_struct([
+		gen_init_int(NumNumeric),
+		gen_init_int(NumSymbolic),
+		gen_init_rtti_name(ModuleName, RttiTypeId, ReservedAddrs),
+		gen_init_rtti_name(ModuleName, RttiTypeId, FunctorDescs),
+		gen_init_rtti_name(ModuleName, RttiTypeId, DuLayout)
+	]).
 gen_init_rtti_data_defn(type_ctor_info(RttiTypeId, UnifyProc, CompareProc,
-		CtorRep, SolverProc, InitProc, Version, NumPtags, NumFunctors,
-		FunctorsInfo, LayoutInfo, _MaybeHashCons,
-		_PrettyprinterProc), ModuleName, ModuleInfo, Init, []) :-
+		CtorRep, Version, NumPtags, NumFunctors, FunctorsInfo,
+		LayoutInfo), ModuleName, ModuleInfo, Init, []) :-
 	RttiTypeId = rtti_type_id(TypeModule, Type, TypeArity),
 	prog_out__sym_name_to_string(TypeModule, TypeModuleName),
 	Init = init_struct([
 		gen_init_int(TypeArity),
-		gen_init_maybe_proc_id(ModuleInfo, UnifyProc),
+		gen_init_int(Version),
+		gen_init_type_ctor_rep(CtorRep),
+		gen_init_int(NumPtags),
 		gen_init_maybe_proc_id(ModuleInfo, UnifyProc),
 		gen_init_maybe_proc_id(ModuleInfo, CompareProc),
-		gen_init_type_ctor_rep(CtorRep),
-		gen_init_maybe_proc_id(ModuleInfo, SolverProc),
-		gen_init_maybe_proc_id(ModuleInfo, InitProc),
 		gen_init_string(TypeModuleName),
 		gen_init_string(Type),
-		gen_init_int(Version),
 		% In the C back-end, these two "structs" are actually unions.
 		% We need to use `init_struct' here so that the initializers
 		% get enclosed in curly braces.
@@ -220,8 +251,7 @@ gen_init_rtti_data_defn(type_ctor_info(RttiTypeId, UnifyProc, CompareProc,
 		init_struct([
 			gen_init_layout_info(LayoutInfo, ModuleName, RttiTypeId)
 		]),
-		gen_init_int(NumFunctors),
-		gen_init_int(NumPtags)
+		gen_init_int(NumFunctors)
 			% These two are commented out while the corresponding
 			% fields of the MR_TypeCtorInfo_Struct type are
 			% commented out.
@@ -277,6 +307,9 @@ gen_init_layout_info(notag_layout(NotagLayoutInfo), ModuleName, RttiTypeId) =
 gen_init_layout_info(du_layout(DuLayoutInfo), ModuleName, RttiTypeId) =
 	gen_init_cast_rtti_name(mlds__generic_type, ModuleName, RttiTypeId,
 		DuLayoutInfo).
+gen_init_layout_info(reserved_addr_layout(RaLayoutInfo), ModuleName, RttiTypeId) =
+	gen_init_cast_rtti_name(mlds__generic_type, ModuleName, RttiTypeId,
+		RaLayoutInfo).
 gen_init_layout_info(equiv_layout(EquivTypeInfo), ModuleName, _RttiTypeId) =
 	gen_init_cast_rtti_data(mlds__generic_type, ModuleName,
 		EquivTypeInfo).
@@ -604,20 +637,34 @@ gen_init_int(Int) = init_obj(const(int_const(Int))).
 gen_init_boxed_int(Int) =
 	init_obj(unop(box(mlds__native_int_type), const(int_const(Int)))).
 
+:- func gen_init_reserved_address(module_info, reserved_address) =
+	mlds__initializer.
+	/* XXX using `mlds__generic_type' here is probably wrong */
+gen_init_reserved_address(ModuleInfo, ReservedAddress) =
+	init_obj(ml_gen_reserved_address(ModuleInfo, ReservedAddress,
+		mlds__generic_type)).
+
 %-----------------------------------------------------------------------------%
+
+% the type names mentioned here should be defined in runtime/mercury.h
+% (or in some header file that is included by that one)
 
 mlds_rtti_type_name(exist_locns(_)) =		"DuExistLocn".
 mlds_rtti_type_name(exist_info(_)) =		"DuExistInfo".
 mlds_rtti_type_name(field_names(_)) =		"ConstString".
 mlds_rtti_type_name(field_types(_)) =		"PseudoTypeInfo".
+mlds_rtti_type_name(reserved_addrs) =		"ReservedAddrs".
+mlds_rtti_type_name(reserved_addr_functors) =	"ReservedAddrFunctors".
 mlds_rtti_type_name(enum_functor_desc(_)) =	"EnumFunctorDesc".
 mlds_rtti_type_name(notag_functor_desc) =	"NotagFunctorDesc".
 mlds_rtti_type_name(du_functor_desc(_)) =	"DuFunctorDesc".
+mlds_rtti_type_name(reserved_addr_functor_desc(_)) = "ReservedAddrFunctorDesc".
 mlds_rtti_type_name(enum_name_ordered_table) =	"EnumFunctorDescPtr".
 mlds_rtti_type_name(enum_value_ordered_table) =	"EnumFunctorDescPtr".
 mlds_rtti_type_name(du_name_ordered_table) =	"DuFunctorDescPtr".
 mlds_rtti_type_name(du_stag_ordered_table(_)) =	"DuFunctorDescPtr".
 mlds_rtti_type_name(du_ptag_ordered_table) =	"DuPtagLayout".
+mlds_rtti_type_name(reserved_addr_table) =	"ReservedAddrTypeDesc".
 mlds_rtti_type_name(type_ctor_info) =		"TypeCtorInfo_Struct".
 mlds_rtti_type_name(base_typeclass_info(_, _, _)) = "BaseTypeclassInfo".
 mlds_rtti_type_name(pseudo_type_info(Pseudo)) =

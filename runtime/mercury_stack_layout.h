@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -373,7 +373,8 @@ typedef	struct MR_Label_Layout_No_Var_Info_Struct {
 		(&MR_long_desc_var_locn((sll), MR_long_desc_var_count(sll)))
 #define	MR_short_desc_var_locn(sll, i)					    \
 		(((MR_uint_least8_t *)					    \
-			MR_end_of_long_desc_var_locns(sll))[(i)])
+			MR_end_of_long_desc_var_locns(sll))		    \
+		 		[((i) - MR_long_desc_var_count(sll))])
 
 /*
 ** Define a stack layout for an internal label.

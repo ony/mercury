@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -32,9 +32,9 @@
 #include "mdb.debugger_interface.h"
 #include "mdb.collect_lib.h"
 #ifdef MR_HIGHLEVEL_CODE
-  #include "mercury.std_util.h"
+  #include "mercury.type_desc.h"
 #else
-  #include "std_util.h"
+  #include "type_desc.h"
 #endif
 
 #include "mercury_deep_copy.h"
@@ -669,10 +669,10 @@ MR_trace_event_external(MR_Trace_Cmd_Info *cmd, MR_Event_Info *event_info)
 				** printlabel(), so we would need to define new
 				** fprintf() and printlabel() and pass them
 				** down as parameters of
-				** MR_dump_nondet_stack_from_layout() (as we do
+				** MR_dump_nondet_stack() (as we do
 				** with MR_dump_stack_record_print()).
 				*/						
-				MR_dump_nondet_stack_from_layout(stdout,
+				MR_dump_nondet_stack(stdout,
 					MR_saved_maxfr(saved_regs));
 				MR_send_message_to_socket("ok");
 				break;

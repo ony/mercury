@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1993-2001 The University of Melbourne.
+% Copyright (C) 1993-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -401,6 +401,22 @@
 :- pred list__last(list(T), T).
 :- mode list__last(in, out) is semidet.
 
+	% A deterministic version of list__last, which aborts instead of
+	% failing if the input list is empty.
+:- pred list__last_det(list(T), T).
+:- mode list__last_det(in, out) is det.
+
+	% list__split_last(List, AllButLast, Last) is true
+	%	if Last is the last element of List and AllButLast is the list
+	%	of elements before it.
+:- pred list__split_last(list(T), list(T), T).
+:- mode list__split_last(in, out, out) is semidet.
+
+	% A deterministic version of list__split_last, which aborts instead of
+	% failing if the input list is empty.
+:- pred list__split_last_det(list(T), list(T), T).
+:- mode list__split_last_det(in, out, out) is det.
+
 %-----------------------------------------------------------------------------%
 %
 % The following group of predicates use higher-order terms to simplify
@@ -441,6 +457,45 @@
 	is nondet.
 :- mode list__map3(pred(in, in, in, in) is semidet, in, in, in, in) is semidet.
 
+	% list__map_corresponding(F, [A1, .. An], [B1, .. Bn]) =
+	% 	[F(A1, B1), .., F(An, Bn)].
+	%
+	% An exception is raised if the list arguments differ in length.
+	%
+:- func list__map_corresponding(func(A, B) = C, list(A), list(B)) = list(C).
+
+	% list__map_corresponding3(F, [A1, .. An], [B1, .. Bn], [C1, .. Cn]) =
+	% 	[F(A1, B1, C1), .., F(An, Bn, Cn)].
+	%
+	% An exception is raised if the list arguments differ in length.
+	%
+:- func list__map_corresponding3(func(A, B, C) = D, list(A), list(B), list(C)) =
+		list(D).
+
+	% list__filter_map_corresponding/3 is like list__map_corresponding/3
+	% except the function argument is semidet and the output list
+	% consists of only those applications of the function argument that
+	% succeeded.
+	%
+:- func list__filter_map_corresponding(func(A, B) = C,
+		list(A), list(B)
+	) = list(C).
+:- mode list__filter_map_corresponding(func(in, in) = out is semidet,
+		in, in
+	) = out is det.
+
+	% list__filter_map_corresponding3/4 is like list__map_corresponding3/4
+	% except the function argument is semidet and the output list
+	% consists of only those applications of the function argument that
+	% succeeded.
+	%
+:- func list__filter_map_corresponding3(func(A, B, C) = D,
+		list(A), list(B), list(C)
+	) = list(D).
+:- mode list__filter_map_corresponding3(func(in, in, in) = out is semidet,
+		in, in, in
+	) = out is det.
+
 	% list__foldl(Pred, List, Start, End) calls Pred with each
 	% element of List (working left-to-right) and an accumulator
 	% (with the initial value of Start), and returns the final
@@ -450,6 +505,8 @@
 :- mode list__foldl(pred(in, in, out) is det, in, in, out) is det.
 :- mode list__foldl(pred(in, in, out) is semidet, in, in, out) is semidet.
 :- mode list__foldl(pred(in, in, out) is nondet, in, in, out) is nondet.
+:- mode list__foldl(pred(in, di, uo) is cc_multi, in, di, uo) is cc_multi.
+:- mode list__foldl(pred(in, in, out) is cc_multi, in, in, out) is cc_multi.
 
 :- func list__foldl(func(X, Y) = Y, list(X), Y) = Y.
 
@@ -461,6 +518,8 @@
 :- mode list__foldr(pred(in, in, out) is det, in, in, out) is det.
 :- mode list__foldr(pred(in, in, out) is semidet, in, in, out) is semidet.
 :- mode list__foldr(pred(in, in, out) is nondet, in, in, out) is nondet.
+:- mode list__foldr(pred(in, di, uo) is cc_multi, in, di, uo) is cc_multi.
+:- mode list__foldr(pred(in, in, out) is cc_multi, in, in, out) is cc_multi.
 
 :- func list__foldr(func(X, Y) = Y, list(X), Y) = Y.
 
@@ -1145,6 +1204,32 @@ list__last([H|T], Last) :-
 		list__last(T, Last)
 	).
 
+list__last_det(List, Last) :-
+	( list__last(List, LastPrime) ->
+		Last = LastPrime
+	;
+		error("list__last_det: empty list")
+	).
+
+list__split_last([H | T], AllButLast, Last) :-
+	(
+		T = [],
+		AllButLast = [],
+		Last = H
+	;
+		T = [_ | _],
+		list__split_last(T, AllButLast1, Last),
+		AllButLast = [H | AllButLast1]
+	).
+
+list__split_last_det(List, AllButLast, Last) :-
+	( list__split_last(List, AllButLastPrime, LastPrime) ->
+		AllButLast = AllButLastPrime,
+		Last = LastPrime
+	;
+		error("list__split_last_det: empty list")
+	).
+
 %-----------------------------------------------------------------------------%
 
 list__map(_, [],  []).
@@ -1161,6 +1246,71 @@ list__map3(_, [],  [],  [],  []).
 list__map3(P, [H0 | T0], [H1 | T1], [H2 | T2], [H3 | T3]) :-
 	call(P, H0, H1, H2, H3),
 	list__map3(P, T0, T1, T2, T3).
+
+
+
+list__map_corresponding(_, [],       []      ) = [].
+
+list__map_corresponding(_, [],       [_|_]   ) = 
+	func_error("list__map_corresponding/3: mismatched list arguments").
+
+list__map_corresponding(_, [_|_],    []      ) =
+	func_error("list__map_corresponding/3: mismatched list arguments").
+
+list__map_corresponding(F, [A | As], [B | Bs]) = 
+	[F(A, B) | list__map_corresponding(F, As, Bs)].
+
+
+
+list__map_corresponding3(F, As, Bs, Cs) =
+
+	( if      As = [A | As0], Bs = [B | Bs0], Cs = [C | Cs0]
+	  then    [F(A, B, C) | list__map_corresponding3(F, As0, Bs0, Cs0)]
+
+	  else if As = [],        Bs = [],        Cs = []
+	  then    []
+
+	  else    func_error("list__map_corresponding3: \
+mismatched list arguments")
+	).
+
+
+
+list__filter_map_corresponding(_, [],       []      ) = [].
+
+list__filter_map_corresponding(_, [],       [_|_]   ) = 
+	func_error("list__filter_map_corresponding/3: \
+mismatched list arguments").
+
+list__filter_map_corresponding(_, [_|_],    []      ) =
+	func_error("list__filter_map_corresponding/3: \
+mismatched list arguments").
+
+list__filter_map_corresponding(F, [A | As], [B | Bs]) = 
+	( if   F(A, B) = C
+	  then [C | list__filter_map_corresponding(F, As, Bs)]
+	  else list__filter_map_corresponding(F, As, Bs)
+	).
+
+
+
+list__filter_map_corresponding3(F, As, Bs, Cs) =
+
+	( if      As = [A | As0], Bs = [B | Bs0], Cs = [C | Cs0]
+	  then
+	  	  ( if   F(A, B, C) = D
+	            then [D | list__filter_map_corresponding3(F, As0, Bs0, Cs0)]
+		    else list__filter_map_corresponding3(F, As0, Bs0, Cs0)
+		  )
+
+	  else if As = [],        Bs = [],        Cs = []
+	  then    []
+
+	  else    func_error("list__filter_map_corresponding3: \
+mismatched list arguments")
+	).
+
+
 
 list__foldl(_, [], Acc, Acc).
 list__foldl(P, [H|T], Acc0, Acc) :-

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998,2000 The University of Melbourne.
+** Copyright (C) 1998, 2000, 2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -23,37 +23,10 @@
 #include <string.h>
 
 /*
-** XXX This code is duplicated in three files:
-** mercury_memory.c, mercury_memory_handlers.c, and mercury_signal.c.
+** This include must come before anything else that might include <signal.h>.
+** See the commments in mercury_signal.h.
 */
-#ifdef HAVE_SIGCONTEXT_STRUCT
-  /*
-  ** Some versions of Linux call it struct sigcontext_struct, some call it
-  ** struct sigcontext.  The following #define eliminates the differences.
-  */
-  #define sigcontext_struct sigcontext /* must be before #include <signal.h> */
-  struct sigcontext; /* this forward decl avoids a gcc warning in signal.h */
-
-  /*
-  ** On some systems (e.g. most versions of Linux) we need to #define
-  ** __KERNEL__ to get sigcontext_struct from <signal.h>.
-  ** This stuff must come before anything else that might include <signal.h>,
-  ** otherwise the #define __KERNEL__ may not work.
-  */
-  #define __KERNEL__
-  #include <signal.h>	/* must come third */
-  #undef __KERNEL__
-
-  /*
-  ** Some versions of Linux define it in <signal.h>, others define it in
-  ** <asm/sigcontext.h>.  We try both.
-  */
-  #ifdef HAVE_ASM_SIGCONTEXT
-    #include <asm/sigcontext.h>
-  #endif 
-#else
-  #include <signal.h>
-#endif
+#include "mercury_signal.h"
 
 #ifdef HAVE_SYS_SIGINFO
   #include <sys/siginfo.h>
@@ -76,8 +49,6 @@
   #include <sys/ucontext.h>
 #endif
 
-#include "mercury_imp.h"
-#include "mercury_signal.h"
 #include "mercury_trace_base.h"
 #include "mercury_memory_zones.h"
 #include "mercury_memory_handlers.h"
@@ -249,7 +220,7 @@ MR_default_handler(MR_Word *fault_addr, MR_MemoryZone *zone, void *context)
 		zone->name, zone->id, (void *) zone->redzone,
 		(void *) zone->top);
 	}
-  #ifdef NATIVE_GC
+  #if defined(NATIVE_GC) && !defined(MR_HIGHLEVEL_CODE)
 	MR_schedule_agc(get_pc_from_context(context),
 		get_sp_from_context(context),
 		get_curfr_from_context(context));
@@ -282,10 +253,10 @@ MR_setup_signals(void)
 #ifndef MR_MSVC_STRUCTURED_EXCEPTIONS
   #ifdef SIGBUS
 	MR_setup_signal(SIGBUS, (MR_Code *) bus_handler, TRUE,
-		"Mercury runtime: cannot set SIGBUS handler");
+		"cannot set SIGBUS handler");
   #endif
 	MR_setup_signal(SIGSEGV, (MR_Code *) segv_handler, TRUE,
-		"Mercury runtime: cannot set SIGSEGV handler");
+		"cannot set SIGSEGV handler");
 #endif
 }
 
@@ -930,7 +901,7 @@ get_pc_from_context(void *the_context)
 ** 	the time of the signal, if available.  If it is unavailable,
 ** 	return NULL.
 **
-** XXX We only define this function in accurate gc grades for the moment,
+** XXX We only define this function in LLDS accurate gc grades for the moment,
 ** because it's unlikely to compile everywhere.  It relies on
 ** MR_real_reg_number_sp being defined, which is the name/number of the
 ** machine register that is used for MR_sp.
@@ -940,7 +911,7 @@ static MR_Word *
 get_sp_from_context(void *the_context)
 {
 	MR_Word *sp_at_signal = NULL;
-#ifdef NATIVE_GC
+#if defined(NATIVE_GC) && !defined(MR_HIGHLEVEL_CODE)
   #if defined(HAVE_SIGCONTEXT_STRUCT)
 
     #ifdef PC_ACCESS

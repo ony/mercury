@@ -46,14 +46,13 @@ case $HOST in
 	venus)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	earth)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	mars)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
+	ceres)		ARCH=i686	FULLARCH=i686-pc-linux-gnu ;;
 	*)		echo "$0: unknown HOST $HOST" 1>&2; exit 1 ;;
 esac
 
 #-----------------------------------------------------------------------------#
 
-PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/pgrad/fjh/.path`"
-PATH="/home/mercury/public/mercury-0.5/$FULLARCH/bin:$PATH"
-PATH="/home/mercury/public/mercury-0.6/$FULLARCH/bin:$PATH"
+PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/mercury/public/cron/.path`"
 PATH="/home/mercury/public/mercury-latest/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/nuprolog/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/gcc-2.7.2/$FULLARCH/bin:$PATH"
@@ -184,7 +183,7 @@ echo "test_mercury $test_status: $BRANCH $HOST $C_COMPILER" > $mail_subject
 
 # NB we can't just pipe into `mutt' because the $mail_subject file
 # needs to be written before `mutt' is started.
-mutt -s "`cat $mail_subject`" stayl < $tmpfile
+mutt -s "`cat $mail_subject`" stayl@cs.mu.oz.au < $tmpfile
 rm -f $tmpfile $tmpscript $mail_subject
 
 #-----------------------------------------------------------------------------#

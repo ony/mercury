@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -33,7 +33,7 @@
 :- pred mode_is_input(module_info, mode).
 :- mode mode_is_input(in, in) is semidet.
 
-	% a mode is considered fully input if the inital inst is ground
+	% a mode is considered fully input if the initial inst is ground
 :- pred mode_is_fully_input(module_info, mode).
 :- mode mode_is_fully_input(in, in) is semidet.
 
@@ -42,7 +42,7 @@
 :- pred mode_is_output(module_info, mode).
 :- mode mode_is_output(in, in) is semidet.
 
-	% a mode is considered fully output if the inital inst is free and
+	% a mode is considered fully output if the initial inst is free and
 	% the final inst is ground
 :- pred mode_is_fully_output(module_info, mode).
 :- mode mode_is_fully_output(in, in) is semidet.
@@ -1793,7 +1793,8 @@ normalise_inst(Inst0, Type, ModuleInfo, NormalisedInst) :-
 			% don't infer unique modes for introduced type_infos
 			% arguments, because that leads to an increase
 			% in the number of inferred modes without any benefit
-			\+ is_introduced_type_info_type(Type)
+			\+ is_introduced_type_info_type(Type),
+			\+ inst_contains_nonstandard_func_mode(Inst, ModuleInfo)
 		->
 			NormalisedInst = ground(unique, none)
 		;
@@ -1802,12 +1803,14 @@ normalise_inst(Inst0, Type, ModuleInfo, NormalisedInst) :-
 			% don't infer unique modes for introduced type_infos
 			% arguments, because that leads to an increase
 			% in the number of inferred modes without any benefit
-			\+ is_introduced_type_info_type(Type)
+			\+ is_introduced_type_info_type(Type),
+			\+ inst_contains_nonstandard_func_mode(Inst, ModuleInfo)
 		->
 			NormalisedInst = ground(mostly_unique, none)
 		;
 			inst_is_ground(ModuleInfo, Inst),
-			\+ inst_is_clobbered(ModuleInfo, Inst)
+			\+ inst_is_clobbered(ModuleInfo, Inst),
+			\+ inst_contains_nonstandard_func_mode(Inst, ModuleInfo)
 		->
 			NormalisedInst = ground(shared, none)
 		;

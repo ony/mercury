@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1997-2001 The University of Melbourne.
+** Copyright (C) 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -814,6 +814,11 @@ MR_trace_retry(MR_Event_Info *event_info, MR_Event_Details *event_details,
 
 	event_info->MR_max_mr_num = max(event_info->MR_max_mr_num, arg_max);
 	*jumpaddr = level_layout->MR_sle_code_addr;
+#ifdef	MR_DEBUG_RETRY
+	printf("jumpaddr is ");
+	MR_print_label(stdout, *jumpaddr);
+	printf("\n");
+#endif
 
 	/*
 	** Overriding MR_trace_call_seqno etc is not enough, because
@@ -878,8 +883,8 @@ MR_is_io_state(MR_PseudoTypeInfo pti)
 
 	type_ctor_info = MR_PSEUDO_TYPEINFO_GET_TYPE_CTOR_INFO(pti);
 
-	return (streq(type_ctor_info->type_ctor_module_name, "io")
-		&& streq(type_ctor_info->type_ctor_name, "state"));
+	return (streq(MR_type_ctor_module_name(type_ctor_info), "io")
+		&& streq(MR_type_ctor_name(type_ctor_info), "state"));
 }
 
 static bool
@@ -969,7 +974,7 @@ MR_unwind_stacks_for_retry(const MR_Label_Layout *top_layout,
 	for (i = 0; i < ancestor_level; i++) {
 		result = MR_stack_walk_step(level_layout, &return_label_layout,
 				base_sp_ptr, base_curfr_ptr, problem);
-		if (result != STEP_OK || return_label_layout == NULL) {
+		if (result != MR_STEP_OK || return_label_layout == NULL) {
 			if (*problem == NULL) {
 				*problem = "not that many ancestors";
 			} else if (streq(*problem, "reached unknown label")) {

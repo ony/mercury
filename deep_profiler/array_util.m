@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -106,7 +106,7 @@
 :- import_module int, string.
 
 :- pragma foreign_proc("C", u(A::in) = (B::array_uo),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, promise_pure],
 	"B = A;"
 ).
 

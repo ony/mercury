@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -43,6 +43,9 @@
 % optimization (turn self-tailcalls into loops) is done in ml_optimize.
 % Individual backends may wish to treat tailcalls separately if there is
 % any backend support for them.
+%
+% Note that ml_call_gen.m will also mark calls to procedures with determinism
+% `erroneous' or `failure' as tail calls when it generates them.
 
 %-----------------------------------------------------------------------------%
 
@@ -132,7 +135,7 @@ mark_tailcalls_in_defn(Defn0) = Defn :-
 			Attributes),
 		Defn = mlds__defn(Name, Context, Flags, DefnBody)
 	;
-		DefnBody0 = mlds__data(_, _),
+		DefnBody0 = mlds__data(_, _, _),
 		Defn = Defn0
 	;
 		DefnBody0 = mlds__class(ClassDefn0),
@@ -539,7 +542,7 @@ locals_member(Name, LocalsList) :-
 	;
 		Locals = params(Params),
 		list__member(Param, Params),
-		Param = Name - _Type
+		Param = mlds__argument(Name, _, _)
 	).
 
 %-----------------------------------------------------------------------------%

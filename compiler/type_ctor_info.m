@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -135,9 +135,8 @@ type_ctor_info__gen_type_ctor_gen_info(TypeId, TypeName, TypeArity, TypeDefn,
 		MaybeUnify = no,
 		MaybeCompare = no
 	),
-	TypeCtorGenInfo = type_ctor_gen_info(TypeId, ModuleName,
-		TypeName, TypeArity, Status, TypeDefn,
-		MaybeUnify, MaybeCompare, no, no, no).
+	TypeCtorGenInfo = type_ctor_gen_info(TypeId, ModuleName, TypeName,
+		TypeArity, Status, TypeDefn, MaybeUnify, MaybeCompare).
 
 %---------------------------------------------------------------------------%
 
@@ -174,14 +173,9 @@ type_ctor_info__construct_type_ctor_infos(
 type_ctor_info__construct_type_ctor_info(TypeCtorGenInfo,
 		ModuleInfo, TypeCtorData, TypeCtorTables) :-
 	TypeCtorGenInfo = type_ctor_gen_info(_TypeId, ModuleName, TypeName,
-		TypeArity, _Status, HldsDefn,
-		MaybeUnify, MaybeCompare,
-		MaybeSolver, MaybeInit, MaybePretty),
+		TypeArity, _Status, HldsDefn, MaybeUnify, MaybeCompare),
 	type_ctor_info__make_proc_label(MaybeUnify,   ModuleInfo, Unify),
 	type_ctor_info__make_proc_label(MaybeCompare, ModuleInfo, Compare),
-	type_ctor_info__make_proc_label(MaybeSolver,  ModuleInfo, Solver),
-	type_ctor_info__make_proc_label(MaybeInit,    ModuleInfo, Init),
-	type_ctor_info__make_proc_label(MaybePretty,  ModuleInfo, Pretty),
 
 	module_info_globals(ModuleInfo, Globals),
 	globals__lookup_bool_option(Globals, type_layout, TypeLayoutOption),
@@ -204,8 +198,8 @@ type_ctor_info__construct_type_ctor_info(TypeCtorGenInfo,
 	Version = type_ctor_info_rtti_version,
 	RttiTypeId = rtti_type_id(ModuleName, TypeName, TypeArity),
 	TypeCtorData = type_ctor_info(RttiTypeId, Unify, Compare,
-		TypeCtorRep, Solver, Init, Version, NumPtags, NumFunctors,
-		MaybeFunctors, MaybeLayout, no, Pretty).
+		TypeCtorRep, Version, NumPtags, NumFunctors,
+		MaybeFunctors, MaybeLayout).
 
 :- pred type_ctor_info__make_proc_label(maybe(pred_proc_id)::in,
 	module_info::in, maybe(rtti_proc_label)::out) is det.
@@ -231,7 +225,7 @@ type_ctor_info__make_proc_label(yes(PredProcId), ModuleInfo, yes(ProcLabel)) :-
 
 :- func type_ctor_info_rtti_version = int.
 
-type_ctor_info_rtti_version = 4.
+type_ctor_info_rtti_version = 6.
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
@@ -251,9 +245,17 @@ type_ctor_info__gen_layout_info(ModuleName, TypeName, TypeArity, HldsDefn,
 	hlds_data__get_type_defn_body(HldsDefn, TypeBody),
 	(
 		TypeBody = uu_type(_Alts),
-		error("type_ctor_layout: sorry, undiscriminated union unimplemented\n")
+		sorry(this_file, "undiscriminated union")
 	;
 		TypeBody = abstract_type,
+		TypeCtorRep = unknown,
+		NumFunctors = -1,
+		FunctorsInfo = no_functors,
+		LayoutInfo = no_layout,
+		TypeTables = [],
+		NumPtags = -1
+	;
+		TypeBody = foreign_type(_, _, _),
 		TypeCtorRep = unknown,
 		NumFunctors = -1,
 		FunctorsInfo = no_functors,
@@ -318,12 +320,11 @@ type_ctor_info__gen_layout_info(ModuleName, TypeName, TypeArity, HldsDefn,
 					num_tag_bits, NumTagBits),
 				int__pow(2, NumTagBits, NumTags),
 				MaxPtag = NumTags - 1,
-				TypeCtorRep = du(EqualityAxioms),
 				type_ctor_info__make_du_tables(Ctors,
 					ConsTagMap, MaxPtag, RttiTypeId,
-					ModuleInfo,
+					EqualityAxioms, ModuleInfo,
 					TypeTables, NumPtags,
-					FunctorsInfo, LayoutInfo)
+					FunctorsInfo, LayoutInfo, TypeCtorRep)
 			)
 		)
 	).
@@ -366,7 +367,7 @@ make_pseudo_type_info_tables(HO_TypeInfo, Tables0, Tables) :-
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
-% Make the functor and notag tables for a notag type.
+% Make the functor and layout tables for a notag type.
 
 :- pred type_ctor_info__make_notag_tables(sym_name::in, (type)::in,
 	maybe(string)::in, rtti_type_id::in, list(rtti_data)::out,
@@ -394,7 +395,7 @@ type_ctor_info__make_notag_tables(SymName, ArgType, MaybeArgName, RttiTypeId,
 
 :- type name_sort_info == assoc_list(pair(string, int), rtti_name).
 
-% Make the functor and notag tables for an enum type.
+% Make the functor and layout tables for an enum type.
 
 :- pred type_ctor_info__make_enum_tables(list(constructor)::in,
 	cons_tag_values::in, rtti_type_id::in, bool::in, list(rtti_data)::out,
@@ -476,15 +477,20 @@ type_ctor_info__make_enum_functor_tables([Functor | Functors], NextOrdinal0,
 :- type tag_map == map(int, pair(sectag_locn, map(int, rtti_name))).
 :- type tag_list == assoc_list(int, pair(sectag_locn, map(int, rtti_name))).
 
-% Make the functor and notag tables for a du type.
+:- type reserved_addr_map == map(reserved_address, rtti_data).
+
+% Make the functor and layout tables for a du type
+% (including reserved_addr types).
 
 :- pred type_ctor_info__make_du_tables(list(constructor)::in,
-	cons_tag_values::in, int::in, rtti_type_id::in, module_info::in,
-	list(rtti_data)::out, int::out,
-	type_ctor_functors_info::out, type_ctor_layout_info::out) is det.
+	cons_tag_values::in, int::in, rtti_type_id::in, equality_axioms::in,
+	module_info::in, list(rtti_data)::out, int::out,
+	type_ctor_functors_info::out, type_ctor_layout_info::out,
+	type_ctor_rep::out) is det.
 
 type_ctor_info__make_du_tables(Ctors, ConsTagMap, MaxPtag, RttiTypeId,
-		ModuleInfo, TypeTables, NumPtags, FunctorInfo, LayoutInfo) :-
+		EqualityAxioms, ModuleInfo, TypeTables, NumPtags, 
+		FunctorInfo, LayoutInfo, TypeCtorRep) :-
 	module_info_globals(ModuleInfo, Globals),
 	(
 		globals__lookup_bool_option(Globals, reserve_tag, yes)
@@ -494,9 +500,11 @@ type_ctor_info__make_du_tables(Ctors, ConsTagMap, MaxPtag, RttiTypeId,
 		InitTag = 0
 	),
 	map__init(TagMap0),
+	map__init(ReservedAddrMap0),
 	type_ctor_info__make_du_functor_tables(Ctors, InitTag, ConsTagMap,
 		RttiTypeId, ModuleInfo,
-		FunctorDescs, SortInfo0, TagMap0, TagMap),
+		FunctorDescs, SortInfo0, TagMap0, TagMap,
+		ReservedAddrMap0, ReservedAddrMap),
 	list__sort(SortInfo0, SortInfo),
 	assoc_list__values(SortInfo, NameOrderedRttiNames),
 
@@ -508,11 +516,71 @@ type_ctor_info__make_du_tables(Ctors, ConsTagMap, MaxPtag, RttiTypeId,
 	type_ctor_info__make_du_ptag_ordered_table(TagMap, InitTag, MaxPtag,
 		RttiTypeId, ValueOrderedTableRttiName, ValueOrderedTables,
 		NumPtags),
-	LayoutInfo = du_layout(ValueOrderedTableRttiName),
+	DuLayoutInfo = du_layout(ValueOrderedTableRttiName),
 	list__append([NameOrderedTable | FunctorDescs], ValueOrderedTables,
-		TypeTables).
+		TypeTables0),
+	( map__is_empty(ReservedAddrMap) ->
+		TypeTables = TypeTables0,
+		LayoutInfo = DuLayoutInfo,
+		TypeCtorRep = du(EqualityAxioms)
+	;
+		type_ctor_info__make_reserved_addr_layout(RttiTypeId,
+			ReservedAddrMap, ValueOrderedTableRttiName,
+			RALayoutRttiName, RALayoutTables),
+				% XXX does it matter what order they go in?
+		TypeTables = RALayoutTables ++ TypeTables0,
+		LayoutInfo = reserved_addr_layout(RALayoutRttiName),
+		TypeCtorRep = reserved_addr(EqualityAxioms)
+	).
 
-% Create an enum_functor_desc structure for each functor in a du type.
+:- pred type_ctor_info__make_reserved_addr_layout(rtti_type_id::in,
+		reserved_addr_map::in, rtti_name::in,
+		rtti_name::out, list(rtti_data)::out) is det.
+
+type_ctor_info__make_reserved_addr_layout(RttiTypeId, ReservedAddrMap,
+		DuTableRttiName, RALayoutRttiName, RALayoutTables) :-
+	%
+	% split the reserved addresses into numeric addresses (including null)
+	% and symbolic addresses.
+	%
+	ReservedAddrAssocList = map__to_sorted_assoc_list(ReservedAddrMap),
+	list__filter((pred(RA - _::in) is semidet :-
+			RA = reserved_object(_, _, _)),
+		ReservedAddrAssocList,
+		SymbolicAddrAssocList, NumericAddrAssocList),
+
+	%
+	% fill in the tables pointed to by the reserved_addr_table
+	%
+	SymbolicAddrList = assoc_list__keys(SymbolicAddrAssocList),
+	SymbolicAddrTable = reserved_addrs(RttiTypeId, SymbolicAddrList),
+	ReservedAddrFunctorDescTables =
+			assoc_list__values(ReservedAddrAssocList),
+	ReservedAddrFunctorDescs = list__map(
+		(func(RAFD) = Name :-
+			rtti_data_to_name(RAFD, _RttiTypeId, Name)),
+		ReservedAddrFunctorDescTables),
+	ReservedAddrFunctorTable = reserved_addr_functors(
+			RttiTypeId, ReservedAddrFunctorDescs),
+	%
+	% fill in the reserved_addr_table,
+	% which describes the representation of this type
+	%
+	NumNumericReservedAddrs = list__length(NumericAddrAssocList),
+	NumSymbolicReservedAddrs = list__length(SymbolicAddrAssocList),
+	RALayoutTable = reserved_addr_table(RttiTypeId,
+		NumNumericReservedAddrs,
+		NumSymbolicReservedAddrs,
+		reserved_addrs,
+		reserved_addr_functors,
+		DuTableRttiName),
+	RALayoutRttiName = reserved_addr_table,
+	
+	% put it all together
+	RALayoutTables = ReservedAddrFunctorDescTables ++
+		[ReservedAddrFunctorTable, SymbolicAddrTable, RALayoutTable].
+
+% Create a du_functor_desc structure for each functor in a du type.
 % Besides returning a list of the rtti names of their du_functor_desc
 % structures, we return two other items of information. The SortInfo
 % enables our caller to sort these rtti names on functor name and then arity,
@@ -520,44 +588,48 @@ type_ctor_info__make_du_tables(Ctors, ConsTagMap, MaxPtag, RttiTypeId,
 % groups the rttis into groups depending on their primary tags; this is
 % how the type layout structure is constructed.
 
+:- type cons_representation
+	--->	reserved_address(reserved_address)
+	;	tagged_data(
+			tag_bits,	% primary tag value
+			sectag_locn,	% secondary tag location
+			int		% secondary tag value
+		).
+
 :- pred type_ctor_info__make_du_functor_tables(list(constructor)::in,
 	int::in, cons_tag_values::in, rtti_type_id::in, module_info::in,
 	list(rtti_data)::out, name_sort_info::out,
-	tag_map::in, tag_map::out) is det.
+	tag_map::in, tag_map::out,
+	reserved_addr_map::in, reserved_addr_map::out) is det.
 
 type_ctor_info__make_du_functor_tables([], _, _, _, _,
-		[], [], TagMap, TagMap).
+		[], [], TagMap, TagMap, RAMap, RAMap).
 type_ctor_info__make_du_functor_tables([Functor | Functors], Ordinal,
 		ConsTagMap, RttiTypeId, ModuleInfo,
-		Tables, SortInfo, TagMap0, TagMap) :-
+		Tables, SortInfo, TagMap0, TagMap, RAMap0, RAMap) :-
 	Functor = ctor(ExistTvars, Constraints, SymName, FunctorArgs),
 	list__length(FunctorArgs, Arity),
 	unqualify_name(SymName, FunctorName),
 	RttiName = du_functor_desc(Ordinal),
 	make_cons_id_from_qualified_sym_name(SymName, FunctorArgs, ConsId),
 	map__lookup(ConsTagMap, ConsId, ConsTag),
-	( ConsTag = unshared_tag(ConsPtag) ->
-		Locn = sectag_none,
-		Ptag = ConsPtag,
-		Stag = 0,
-		type_ctor_info__update_tag_info(Ptag, Stag, Locn, RttiName,
-			TagMap0, TagMap1)
-	; ConsTag = shared_local_tag(ConsPtag, ConsStag) ->
-		Locn = sectag_local,
-		Ptag = ConsPtag,
-		Stag = ConsStag,
-		type_ctor_info__update_tag_info(Ptag, Stag, Locn, RttiName,
-			TagMap0, TagMap1)
-	; ConsTag = shared_remote_tag(ConsPtag, ConsStag) ->
-		Locn = sectag_remote,
-		Ptag = ConsPtag,
-		Stag = ConsStag,
-		type_ctor_info__update_tag_info(Ptag, Stag, Locn, RttiName,
-			TagMap0, TagMap1)
+	type_ctor_info__process_cons_tag(ConsTag, RttiName, ConsRep,
+		TagMap0, TagMap1),
+	(	
+		ConsRep = tagged_data(Ptag, Locn, Stag),
+		RAMap1 = RAMap0
 	;
-		error("unexpected cons_tag for du function symbol")
+		ConsRep = reserved_address(RA),
+		RAFunctorDesc = reserved_addr_functor_desc(RttiTypeId,
+			FunctorName, Ordinal, RA),
+		RAMap1 = map__det_insert(RAMap0, RA, RAFunctorDesc),
+		% These three fields are not really used for
+		% reserved_address const tags, but we need to fill
+		% them in with something...
+		Ptag = 0,
+		Stag = 0,
+		Locn = sectag_none
 	),
-
 	type_ctor_info__generate_arg_info_tables(ModuleInfo,
 		RttiTypeId, Ordinal, FunctorArgs, ExistTvars,
 		MaybeArgNames,
@@ -579,9 +651,51 @@ type_ctor_info__make_du_functor_tables([Functor | Functors], Ordinal,
 	FunctorSortInfo = (FunctorName - Arity) - RttiName,
 	type_ctor_info__make_du_functor_tables(Functors, Ordinal + 1,
 		ConsTagMap, RttiTypeId, ModuleInfo,
-		Tables1, SortInfo1, TagMap1, TagMap),
+		Tables1, SortInfo1, TagMap1, TagMap, RAMap1, RAMap),
 	list__append([FunctorDesc | SubTables], Tables1, Tables),
 	SortInfo = [FunctorSortInfo | SortInfo1].
+
+:- pred type_ctor_info__process_cons_tag(cons_tag::in, rtti_name::in,
+		cons_representation::out, tag_map::in, tag_map::out) is det.
+
+type_ctor_info__process_cons_tag(ConsTag, RttiName, ConsRep,
+		TagMap0, TagMap) :-
+	(
+		( ConsTag = single_functor, ConsPtag = 0
+		; ConsTag = unshared_tag(ConsPtag)
+		)
+	->
+		Locn = sectag_none,
+		Ptag = ConsPtag,
+		Stag = 0,
+		type_ctor_info__update_tag_info(Ptag, Stag, Locn, RttiName,
+			TagMap0, TagMap),
+		ConsRep = tagged_data(Ptag, Locn, Stag)
+	; ConsTag = shared_local_tag(ConsPtag, ConsStag) ->
+		Locn = sectag_local,
+		Ptag = ConsPtag,
+		Stag = ConsStag,
+		type_ctor_info__update_tag_info(Ptag, Stag, Locn, RttiName,
+			TagMap0, TagMap),
+		ConsRep = tagged_data(Ptag, Locn, Stag)
+	; ConsTag = shared_remote_tag(ConsPtag, ConsStag) ->
+		Locn = sectag_remote,
+		Ptag = ConsPtag,
+		Stag = ConsStag,
+		type_ctor_info__update_tag_info(Ptag, Stag, Locn, RttiName,
+			TagMap0, TagMap),
+		ConsRep = tagged_data(Ptag, Locn, Stag)
+	; ConsTag = reserved_address(RA) ->
+		ConsRep = reserved_address(RA),
+		TagMap = TagMap0
+	; ConsTag = shared_with_reserved_addresses(_RAs, ThisTag) ->
+		% here we can just ignore the fact that this cons_tag is
+		% shared with reserved addresses
+		type_ctor_info__process_cons_tag(ThisTag, RttiName,
+			ConsRep, TagMap0, TagMap)
+	;
+		unexpected(this_file, "cons_tag for du function symbol")
+	).
 
 % Generate the tables that describe the arguments of a functor. 
 
@@ -852,6 +966,11 @@ type_ctor_info__make_du_stag_table(CurStag, MaxStag, TagList0,
 type_ctor_info__get_next_cell_number(CellNumber0, Next, CellNumber) :-
 	CellNumber = CellNumber0 + 1,
 	Next = CellNumber.
+
+%---------------------------------------------------------------------------%
+
+:- func this_file = string.
+this_file = "type_ctor_info.m".
 
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%

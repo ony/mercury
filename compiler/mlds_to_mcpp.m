@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -44,7 +44,7 @@
 :- import_module builtin_ops, c_util, modules, tree.
 :- import_module hlds_pred. % for `pred_proc_id'.
 :- import_module prog_data, prog_out, llds_out.
-:- import_module rtti, type_util, error_util.
+:- import_module foreign, rtti, type_util, error_util.
 
 :- import_module ilds, ilasm, il_peephole.
 :- import_module ml_util, ml_code_util.
@@ -172,11 +172,11 @@ generate_mcplusplus_code(MLDS) -->
 		io__state, io__state).
 :- mode generate_foreign_code(in, in, di, uo) is det.
 generate_foreign_code(_ModuleName, 
-		mlds__foreign_code(_RevHeaderCode, RevBodyCode,
+		mlds__foreign_code(_RevHeaderCode, _RevImports, RevBodyCode,
 			_ExportDefns)) -->
 	{ BodyCode = list__reverse(RevBodyCode) },
 	io__write_list(BodyCode, "\n", 
-		(pred(llds__user_foreign_code(Lang, Code, Context)::in,
+		(pred(user_foreign_code(Lang, Code, Context)::in,
 				di, uo) is det -->
 			( { Lang = managed_cplusplus } ->
 				mlds_to_c__output_context(mlds__make_context(
@@ -193,11 +193,11 @@ generate_foreign_code(_ModuleName,
 		io__state, io__state).
 :- mode generate_foreign_header_code(in, in, di, uo) is det.
 generate_foreign_header_code(_ModuleName, 
-		mlds__foreign_code(RevHeaderCode, _RevBodyCode,
+		mlds__foreign_code(RevHeaderCode, _RevImports, _RevBodyCode,
 			_ExportDefns)) -->
 	{ HeaderCode = list__reverse(RevHeaderCode) },
 	io__write_list(HeaderCode, "\n", 
-		(pred(llds__foreign_decl_code(Lang, Code, _Context)::in,
+		(pred(foreign_decl_code(Lang, Code, _Context)::in,
 			di, uo) is det -->
 			( { Lang = managed_cplusplus } ->
 				io__write_string(Code)
@@ -346,8 +346,9 @@ write_managed_cpp_statement(Statement) -->
 
 			% XXX This is not fully implemented
 		{ Statement = statement(atomic(
-			new_object(Target, _MaybeTag, Type, _MaybeSize, 
-				_MaybeCtorName, _Args, _ArgTypes)), _) },
+			new_object(Target, _MaybeTag, _HasSecTag, Type,
+				_MaybeSize, _MaybeCtorName,
+				_Args, _ArgTypes)), _) },
 		{ ClassName = mlds_type_to_ilds_class_name(ILDataRep, Type) }
 	->
 		write_managed_cpp_lval(Target),
@@ -506,8 +507,9 @@ write_managed_cpp_lval(var(Var, _VarType)) -->
 :- mode write_managed_cpp_defn_decl(in, di, uo) is det.
 write_managed_cpp_defn_decl(Defn) -->
 	{ Defn = mlds__defn(Name, _Context, _Flags, DefnBody) },
-	( { DefnBody = data(Type, _Initializer) },
-  	  { Name = data(var(VarName)) }
+	(
+		{ DefnBody = data(Type, _Initializer, _GC_TraceCode) },
+		{ Name = data(var(VarName)) }
 	->
 		write_managed_cpp_type(Type),
 		io__write_string(" "),
@@ -579,9 +581,13 @@ write_il_simple_type_as_managed_cpp_type(float64) -->
 write_il_simple_type_as_managed_cpp_type(native_float) --> 
 	io__write_string("mercury::MR_Float").
 write_il_simple_type_as_managed_cpp_type(bool) --> 
-	io__write_string("mercury::MR_Integer").
+	io__write_string("mercury::MR_Bool").
 write_il_simple_type_as_managed_cpp_type(char) --> 
 	io__write_string("mercury::MR_Char").
+write_il_simple_type_as_managed_cpp_type(string) --> 
+	io__write_string("mercury::MR_String").
+write_il_simple_type_as_managed_cpp_type(object) --> 
+	io__write_string("mercury::MR_Box").
 write_il_simple_type_as_managed_cpp_type(refany) --> 
 	io__write_string("mercury::MR_RefAny").
 write_il_simple_type_as_managed_cpp_type(class(ClassName)) --> 
@@ -593,7 +599,7 @@ write_il_simple_type_as_managed_cpp_type(class(ClassName)) -->
 		io__write_string(" *")
 	).
 		% XXX this is not the right syntax
-write_il_simple_type_as_managed_cpp_type(value_class(ClassName)) --> 
+write_il_simple_type_as_managed_cpp_type(valuetype(ClassName)) --> 
 	io__write_string("value class "),
 	write_managed_cpp_class_name(ClassName),
 	io__write_string(" *").

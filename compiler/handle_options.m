@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -47,7 +47,7 @@
 
 :- import_module options, globals, prog_io_util, trace_params, unify_proc.
 :- import_module prog_data, foreign.
-:- import_module char, int, string, map, set, getopt, library.
+:- import_module char, dir, int, string, map, set, getopt, library.
 
 handle_options(MaybeError, Args, Link) -->
 	io__command_line_arguments(Args0),
@@ -226,9 +226,9 @@ postprocess_options(ok(OptionTable), Error) -->
     trace_level::in, trace_suppress_items::in, maybe(string)::out,
     io__state::di, io__state::uo) is det.
 
-postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
+postprocess_options_2(OptionTable0, Target, GC_Method, TagsMethod,
 		TermNorm, TraceLevel, TraceSuppress, Error) -->
-	{ unsafe_promise_unique(OptionTable, OptionTable1) }, % XXX
+	{ unsafe_promise_unique(OptionTable0, OptionTable1) }, % XXX
 	globals__io_init(OptionTable1, Target, GC_Method, TagsMethod,
 		TermNorm, TraceLevel, TraceSuppress),
 
@@ -303,23 +303,27 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	( { ILFuncPtrTypes = yes, ILRefAnyFields = yes } ->
 		[]
 	;
-		option_implies(verifiable_code, put_nondet_env_on_heap, bool(yes))
+		option_implies(verifiable_code, put_nondet_env_on_heap,
+			bool(yes))
 	),
 
 	% Generating Java implies high-level code, turning off nested functions,
 	% using copy-out for both det and nondet output arguments,
-	% using no tags, not optimizing tailcalls and no static ground terms.
+	% using no tags, not optimizing tailcalls, no static ground terms and
+	% store nondet environments on the heap.
 	% XXX no static ground terms should be eliminated in a later
 	%     version.
 	% XXX The Java backend should eventually support optimizing tailcalls.
 	( { Target = java } ->
 		globals__io_set_option(highlevel_code, bool(yes)),
+		globals__io_set_option(highlevel_data, bool(yes)),	
 		globals__io_set_option(gcc_nested_functions, bool(no)),
 		globals__io_set_option(nondet_copy_out, bool(yes)),
 		globals__io_set_option(det_copy_out, bool(yes)),
 		globals__io_set_option(num_tag_bits, int(0)),
 		globals__io_set_option(optimize_tailcalls, bool(no)),
-		globals__io_set_option(static_ground_terms, bool(no))
+		globals__io_set_option(static_ground_terms, bool(no)),
+		globals__io_set_option(put_nondet_env_on_heap, bool(yes))
 	;
 		[]
 	),
@@ -366,6 +370,13 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% we need to build all `.opt' or `.trans_opt' files.
 	option_implies(intermodule_optimization, use_opt_files, bool(no)),
 	option_implies(transitive_optimization, use_trans_opt_files, bool(no)),
+
+	% XXX `--use-opt-files' is broken.
+	% When inter-module optimization is enabled, error checking
+	% without the extra information from the `.opt' files
+	% is done when making the `.opt' file. With `--use-opt-files',
+	% that doesn't happen.
+	globals__io_set_option(use_opt_files, bool(no)),
 
 	option_implies(smart_recompilation, generate_item_version_numbers,
 			bool(yes)),
@@ -621,6 +632,36 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
+	% ml_gen_params_base and ml_declare_env_ptr_arg, in ml_code_util.m,
+	% both assume (for accurate GC) that continuation environments
+	% are always allocated on the stack, which means that things won't
+	% if --gc accurate and --put-nondet-env-on-heap are both enabled.
+	globals__io_lookup_bool_option(put_nondet_env_on_heap,
+		PutNondetEnvOnHeap),
+	(
+		{ HighLevel = yes },
+		{ GC_Method = accurate },
+		{ PutNondetEnvOnHeap = yes }
+	->
+		usage_error("--gc accurate is incompatible with " ++
+			"--put-nondet-env-on-heap")
+	;
+		[]
+	),
+	% ml_gen_cont_params in ml_call_gen.m will call sorry/1
+	% if --gc accurate and --nondet-copy-out are both enabled.
+	globals__io_lookup_bool_option(nondet_copy_out, NondetCopyOut),
+	(
+		{ HighLevel = yes },
+		{ GC_Method = accurate },
+		{ NondetCopyOut = yes }
+	->
+		usage_error("--gc accurate is incompatible with " ++
+			"--nondet-copy-out")
+	;
+		[]
+	),
+
 	% `procid' and `agc' stack layouts need `basic' stack layouts
 	option_implies(procid_stack_layout, basic_stack_layout, bool(yes)),
 	option_implies(agc_stack_layout, basic_stack_layout, bool(yes)),
@@ -714,6 +755,50 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
+	%
+	% Add the standard library directory.
+	%
+	globals__io_lookup_maybe_string_option(
+		mercury_standard_library_directory, MaybeStdLibDir),
+	( { MaybeStdLibDir = yes(StdLibDir) } ->
+		globals__io_get_globals(Globals2),
+		{ globals__get_options(Globals2, OptionTable2) },
+		{ globals__set_options(Globals2,
+			option_table_add_mercury_library_directory(
+				OptionTable2, StdLibDir),
+			Globals3) },
+		{ unsafe_promise_unique(Globals3, Globals4) },
+		globals__io_set_globals(Globals4)
+	;
+		[]
+	),
+
+	%
+	% Handle library search directories. These couldn't be handled
+	% by options.m because they are grade dependent.
+	%
+	globals__io_lookup_accumulating_option(mercury_library_directories,
+		MercuryLibDirs),
+	(
+		{ MercuryLibDirs = [_|_] },
+		globals__io_lookup_string_option(fullarch, FullArch),
+		globals__io_get_globals(Globals),
+		{ compute_grade(Globals, GradeString) },
+		{ ExtraLinkLibDirs = list__map(
+				(func(MercuryLibDir) =
+					dir__make_path_name(MercuryLibDir,
+					dir__make_path_name("lib",
+					dir__make_path_name(GradeString,
+					FullArch)))
+				), MercuryLibDirs) },
+		globals__io_lookup_accumulating_option(
+			link_library_directories, LinkLibDirs),
+		globals__io_set_option(link_library_directories,
+			accumulating(LinkLibDirs ++ ExtraLinkLibDirs))
+	;
+		{ MercuryLibDirs = [] }
+	),
+	
 	% If --use-search-directories-for-intermod is true, append the
 	% search directories to the list of directories to search for
 	% .opt files.

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -709,7 +709,7 @@ code_util__cons_id_to_tag(cons(Name, Arity), Type, ModuleInfo, Tag) :-
 		% couldn't be, it's just not worth the effort.
 		type_is_tuple(Type, _)
 	->
-		Tag = unshared_tag(0)
+		Tag = single_functor
 	;
 			% Use the type to determine the type_id
 		( type_to_type_id(Type, TypeId0, _) ->

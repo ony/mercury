@@ -3,7 +3,7 @@ INIT mercury_sys_init_trace
 ENDINIT
 */
 /*
-** Copyright (C) 1997-2001 The University of Melbourne.
+** Copyright (C) 1997-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -22,6 +22,7 @@ ENDINIT
 #include "mercury_engine.h"
 #include "mercury_wrapper.h"
 #include "mercury_misc.h"
+#include "mercury_runtime_util.h"	/* for strerror() on some systems */
 #include "mercury_signal.h"	/* for MR_setup_signal() */
 #include <signal.h>		/* for SIGINT */
 #include <stdio.h>
@@ -29,6 +30,10 @@ ENDINIT
 
 #ifdef HAVE_UNISTD_H
   #include <unistd.h>		/* for the write system call */
+#endif
+
+#ifdef HAVE_SYS_WAIT
+  #include <sys/wait.h>		/* for the wait system call */
 #endif
 
 /*
@@ -51,17 +56,20 @@ MR_Trace_Type	MR_trace_handler = MR_TRACE_INTERNAL;
 
 bool		MR_trace_enabled = FALSE;
 
+bool		MR_have_mdb_window = FALSE;
+pid_t		MR_mdb_window_pid = 0;
+
 /*
 ** MR_trace_call_seqno counts distinct calls. The prologue of every
 ** procedure assigns the current value of this counter as the sequence number
-** of that invocation and increments the counter. This is the only way that
-** MR_trace_call_seqno is modified.
+** of that invocation and increments the counter. This and retry are the only
+** ways that MR_trace_call_seqno is modified.
 **
 ** MR_trace_call_depth records the current depth of the call tree. The prologue
 ** of every procedure assigns the current value of this variable plus one
 ** as the depth of that invocation. Just before making a call, the caller
 ** will set MR_trace_call_depth to its own remembered depth value. 
-** These are the only ways in which MR_trace_call_depth is modified.
+** These and retry are the only ways in which MR_trace_call_depth is modified.
 **
 ** Although neither MR_trace_call_seqno nor MR_trace_call_depth are used
 ** directly in this module, the seqno and depth arguments of MR_trace
@@ -74,9 +82,9 @@ MR_Unsigned	MR_trace_call_depth = 0;
 
 /*
 ** MR_trace_event_number is a simple counter of events. This is used in
-** two places: here, for display to the user and for skipping a given number
-** of events, and when printing an abort message, so that the programmer
-** can zero in on the source of the problem more quickly.
+** two places: in the debugger for display to the user and for skipping
+** a given number of events, and when printing an abort message, so that
+** the programmer can zero in on the source of the problem more quickly.
 */
 
 MR_Unsigned	MR_trace_event_number = 0;
@@ -209,6 +217,24 @@ MR_trace_final(void)
 			MR_address_of_trace_final_external();
 		} else {
 			MR_tracing_not_enabled();
+		}
+	}
+#endif
+
+#if defined(HAVE_KILL) && defined(HAVE_WAIT) && defined(SIGTERM)
+	/*
+	** If mdb started a window, make sure it dies now.
+	*/
+	if (MR_have_mdb_window) {
+		int status;
+		status = kill(MR_mdb_window_pid, SIGTERM);
+		if (status != -1) {
+			do {
+				status = wait(NULL);
+				if (status == -1 && errno != EINTR) {
+					break;
+				}
+			} while (status != MR_mdb_window_pid);
 		}
 	}
 #endif
@@ -351,8 +377,8 @@ MR_define_extern_entry(MR_do_trace_redo_fail_shallow);
 MR_define_extern_entry(MR_do_trace_redo_fail_deep);
 
 MR_BEGIN_MODULE(MR_trace_labels_module)
-	MR_init_entry_ai(MR_do_trace_redo_fail_shallow);
-	MR_init_entry_ai(MR_do_trace_redo_fail_deep);
+	MR_init_entry_an(MR_do_trace_redo_fail_shallow);
+	MR_init_entry_an(MR_do_trace_redo_fail_deep);
 MR_BEGIN_CODE
 
 MR_define_entry(MR_do_trace_redo_fail_shallow);

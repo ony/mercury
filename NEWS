@@ -2,10 +2,32 @@ NEWS since Mercury release 0.10.1:
 ----------------------------------
 
 Changes to the Mercury language:
+
+* If a higher-order function term has inst 'ground' it is now assumed to have
+  the standard higher-order function inst 'func(in, .., in) = out is det'.
+  This makes higher-order functional programming much easier, particularly when
+  passing functions to polymorphic predicates.
+
+  This change is not backwards compatible since, for safety, we must now
+  disallow calls that would cause a variable that has a nonstandard function
+  inst to become 'ground'.
+
 * The constructor for lists is now called '[|]' rather than '.'.
   `./2' will eventually become the module qualification operator.
   This change only affects programs which use `./2' explicitly.
   Programs which only use the `[H | T]' syntax will be unaffected.
+
+* We've added a new kind of expression to the language.
+  A unification expression, written `X @ Y', unifies X and Y
+  and returns the result.
+
+  Unification expressions are most useful when writing switches:
+	p(X, X) :- X = f(_, _).
+  can now be written as
+	p(X @ f(_, _), X).
+
+  See the "Data-terms" section of the "Syntax" chapter of the
+  Mercury Language Reference Manual for more details.
 
 * We've extended the language to allow you to specify different clauses
   for different modes of a predicate or function.  This is done by
@@ -26,7 +48,38 @@ Changes to the Mercury language:
   information, see the "Impurity" chapter of the Mercury Language
   Reference Manual.
 
+* We've added `:- pragma c_import_module' declarations, which are
+  used to make the C declarations for predicates and functions with
+  `:- pragma export' declarations in the imported module visible
+  to any C code in the importing module. `mmake' uses
+  `:- pragma c_import_module' declarations to make sure that the
+  header file for the imported module is built before it is needed,
+  which it can't do if the header file is explicitly #included.
+
+* We've removed the undocumented operators `export_adt', `export_cons',
+  `export_module', `export_op', `export_pred', `export_sym', `export_type',
+  `import_adt', `import_cons', `import_op', `import_pred', `import_sym',
+  `import_type' `use_adt', `use_cons', `use_op', `use_pred', `use_sym'
+  and `use_type'. These operators were reserved for module system
+  extensions which are unlikely to be implemented.
+
 Changes to the Mercury standard library:
+
+* `io__read_file' and `io__read_file_as_string' now have better error
+  handling. The result types have changed, so code using these predicates
+  will need minor modifications.
+
+* We've added predicates `io__input_stream_foldl', `io__input_stream_foldl_io'
+  and `io__input_stream_foldl2_io', which apply a predicate to each character
+  of an input stream in turn.
+
+* We've added four functions to list.m for mapping functions over
+  corresponding members of lists: list__map_corresponding/3,
+  list__map_corresponding3/4, list__filter_map_corresponding/3
+  and list__filter_map_corresponding3/4.
+* We've added some other new functions to list.m, namely
+  list__last_det/2, list__split_last/3 and list__split_last_det/3.
+* We've added cc_multi modes to list__foldl/4 and list__foldr/4.
 * As mentioned above, the constructor for lists has changed from './2'
   to `[|]/2'. This change affects the behaviour of the term manipulation
   predicates in the standard library when dealing with values of
@@ -37,14 +90,34 @@ Changes to the Mercury standard library:
   return `[|]' rather than `.' for lists, and calls to std_util__construct
   which construct lists may need to be updated.
 
-* The predicates and functions in int.m, float, math.m and array.m now 
+* We've added a function version of error/1, called func_error/1, to require.m.
+
+* ops.m now defines a typeclass which can be used to define operator
+  precedence tables for use by parser.m and term_io.m. See
+  samples/calculator2.m for an example program.
+
+  The `ops__table' type has been renamed `ops__mercury_op_table'.
+  `ops__init_op_table' has been renamed `ops__init_mercury_op_table'.
+  `ops__max_priority' is now a function taking an operator table argument.
+
+* The predicates and functions in int.m, float, math.m and array.m now
   generate exceptions rather than program aborts on domain errors and
-  out-of-bounds array accesses.
+  out-of-bounds array accesses. There are new functions
+  `float__unchecked_quotient/2', `int__unchecked_quotient/2' and
+  `int__unchecked_rem/2' for which no checking is performed and the
+  behaviour if the right operand is zero is undefined.
 
 * We've removed the buggy reverse modes of the arithmetic functions in
   float.m and extras/complex_numbers (because of rounding errors the
   functions aren't actually reversible).
- 
+
+* We've removed the destructive update modes of string__set_char,
+  string__set_char_det and string__unsafe_set_char. The compiler
+  currently always stores constant strings in static data, even
+  if they are passed to procedures with mode `di', so any attempt
+  to update a constant string will cause a crash. Fixing this properly
+  will be a lot of work, so for now we have just removed the modes.
+
 * The exception module has a new predicate `try_store', which is
   like `try_io', but which works with stores rather than io__states.
 
@@ -63,7 +136,25 @@ Changes to the Mercury standard library:
   `std_util__map_maybe/2' to apply a predicate or a function to
   a value stored in a term of type `std_util__maybe'.
 
+* We've added added several new predicates for deconstructing terms to
+  std_util.m. `named_argument' and `det_named_argument' are analogous
+  to `argument' and `det_argument' respectively, but specify the desired
+  argument by its name, not its position. We have also added committed choice
+  version of all the predicates that deconstruct terms. These differ from the
+  existing versions in that they do not abort when called upon to deconstruct
+  non-canonical terms, such as values of types with user-defined equality.
+
 * We've added a predicate version of `set__fold'.
+
+* We've added function versions of `builtin__unsafe_promise_unique',
+  `ops__init_op_table' and `ops__max_priority'.
+
+* We've added a version of `getopt__process_options' which returns
+  the option arguments.
+
+* `getopt__process_options' has been modified to allow negation of
+  accumulating options. Negating an accumulating option empties
+  the accumulated list of strings.
 
 * We've added some functions to the term_io module to return printable
   representations of term components as strings.
@@ -76,12 +167,29 @@ Changes to the Mercury standard library:
   have functions.
 
 Changes to the Mercury implementation:
-  
+
+* The debugger can now print goals just as Prolog debuggers do. At an exit
+  port of e.g. append, the command "print goal" will print the current goal
+  in a form such as "append([1], [2], [1, 2])".
+
+* You can now navigate terms in the debugger by argument name as well as by
+  argument number.
+
 * The Mercury compiler can now perform smart recompilation, enabled by the
   `--smart-recompilation' option. With smart recompilation, when the
   interface of a module changes, only modules which use the changed
   declarations are recompiled. Smart recompilation does not yet work
   with `--intermodule-optimization'.
+
+* We've added a 'view' command to `mdb', which opens a `vim' window and
+  in it displays the current source location, updated at each event.  This
+  requires X11 and a version of `vim' with the `clientserver' feature
+  enabled.
+
+* The `--window' mdb option now creates a window for mdb, not
+  the program.  The main advantage of the new behaviour is that
+  redirection of the program's input and output works.  The old
+  behaviour is still available with `mdb --program-in-window'.
 
 * We've fixed a long-standing bug in the handling of module imports.
   Previously, if `module1' imported `module2' which imported `module3' in
@@ -91,6 +199,9 @@ Changes to the Mercury implementation:
 
   This change will break some existing programs, but that is easily fixed
   by adding any necessary `:- import_module' or `:- use_module' declarations.
+
+* Options for the Mercury runtime can now be set at compile time using
+  the new `--runtime-flags' option of ml and c2init.
 
 * We've added a new optimization pass -- constraint propagation.
 
@@ -209,7 +320,7 @@ Changes to the Mercury language:
   in `Foo(Args)', we now allow Foo to be any term, not just
   a variable.
 
-* The syntax for defining insts and modes has been changed to be 
+* The syntax for defining insts and modes has been changed to be
   more uniform.  For example, the old syntax
 
   	:- inst myfree = free.
@@ -339,7 +450,7 @@ Changes to the Mercury implementation:
   C code that does not require the use of GNU C extensions such as
   global register variables or non-local gotos.  It is also simpler
   and more portable than the old back-end.
-  
+
   The main drawback of the new back-end is that for tail calls it only
   optimizes direct tail recursion; loops written using tail calls
   between two or more mutually recursive procedures are not guaranteed
@@ -394,7 +505,7 @@ Changes to the Mercury implementation:
   implemented for this new port.
 
   This is still work in progress.
-  
+
   For more details, see the README.DotNet file, and
   <http://www.cs.mu.oz.au/research/mercury/dotnet.html>.
 

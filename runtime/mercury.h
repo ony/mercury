@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2001 The University of Melbourne.
+** Copyright (C) 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -40,6 +40,11 @@
   #ifdef INLINE_ALLOC
     #include "gc_inl.h"
   #endif
+#else
+  #include "mercury_regs.h"		/* for MR_hp */
+  #include "mercury_engine.h"		/* for MR_fake_reg (needed by MR_hp) */
+  #include "mercury_overflow.h"		/* for MR_heap_overflow_check() */
+  #include "mercury_accurate_gc.h"	/* for MR_garbage_collect() */
 #endif
 
 #if defined(MR_MPROF_PROFILE_CALLS) || defined(MR_MPROF_PROFILE_TIME)
@@ -128,7 +133,7 @@ typedef const MR_Closure *MR_ClosurePtr;
   typedef MR_ClosurePtr MR_Func;
   typedef struct mercury__array__array_1_s * MR_Array;
   typedef struct mercury__std_util__univ_0_s * MR_Univ;
-  typedef struct mercury__std_util__type_desc_0_s * MR_Type_Desc;
+  typedef struct mercury__type_desc__type_desc_0_s * MR_Type_Desc;
   typedef struct mercury__private_builtin__type_info_1_s *
   	MR_Mercury_Type_Info;
   typedef struct mercury__private_builtin__type_ctor_info_1_s *
@@ -169,12 +174,14 @@ typedef const MR_EnumFunctorDesc *	MR_EnumFunctorDescPtr;
 typedef const MR_DuFunctorDesc *	MR_DuFunctorDescPtr;
 typedef union MR_TableNode_Union * *	MR_TableNodePtrPtr;
 typedef MR_Box				MR_BaseTypeclassInfo;
+typedef const void * 			MR_ReservedAddrs;
+typedef const MR_ReservedAddrFunctorDesc *MR_ReservedAddrFunctors;
 
 
 /*
 ** XXX Currently we hard-code the declarations of the first
 ** ten of these type-info struct types; this imposes a fixed
-** limit of 10 on the arity of types.  (If this is exceeded,
+** limit of 20 on the arity of types.  (If this is exceeded,
 ** you'll get a parse error in the generated C code, due to
 ** an undeclared type.)
 ** Note that the code for compare and unify in runtime/mercury.c
@@ -194,6 +201,16 @@ MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct7, 7);
 MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct8, 8);
 MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct9, 9);
 MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct10, 10);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct11, 11);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct12, 12);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct13, 13);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct14, 14);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct15, 15);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct16, 16);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct17, 17);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct18, 18);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct19, 19);
+MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_HO_PseudoTypeInfo_Struct20, 20);
 
 MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct1, 1);
 MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct2, 2);
@@ -205,6 +222,16 @@ MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct7, 7);
 MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct8, 8);
 MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct9, 9);
 MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct10, 10);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct11, 11);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct12, 12);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct13, 13);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct14, 14);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct15, 15);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct16, 16);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct17, 17);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct18, 18);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct19, 19);
+MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(MR_FO_PseudoTypeInfo_Struct20, 20);
 
 typedef struct MR_HO_PseudoTypeInfo_Struct1 MR_HO_PseudoTypeInfo_Struct1;
 typedef struct MR_HO_PseudoTypeInfo_Struct2 MR_HO_PseudoTypeInfo_Struct2;
@@ -216,6 +243,16 @@ typedef struct MR_HO_PseudoTypeInfo_Struct7 MR_HO_PseudoTypeInfo_Struct7;
 typedef struct MR_HO_PseudoTypeInfo_Struct8 MR_HO_PseudoTypeInfo_Struct8;
 typedef struct MR_HO_PseudoTypeInfo_Struct9 MR_HO_PseudoTypeInfo_Struct9;
 typedef struct MR_HO_PseudoTypeInfo_Struct10 MR_HO_PseudoTypeInfo_Struct10;
+typedef struct MR_HO_PseudoTypeInfo_Struct11 MR_HO_PseudoTypeInfo_Struct11;
+typedef struct MR_HO_PseudoTypeInfo_Struct12 MR_HO_PseudoTypeInfo_Struct12;
+typedef struct MR_HO_PseudoTypeInfo_Struct13 MR_HO_PseudoTypeInfo_Struct13;
+typedef struct MR_HO_PseudoTypeInfo_Struct14 MR_HO_PseudoTypeInfo_Struct14;
+typedef struct MR_HO_PseudoTypeInfo_Struct15 MR_HO_PseudoTypeInfo_Struct15;
+typedef struct MR_HO_PseudoTypeInfo_Struct16 MR_HO_PseudoTypeInfo_Struct16;
+typedef struct MR_HO_PseudoTypeInfo_Struct17 MR_HO_PseudoTypeInfo_Struct17;
+typedef struct MR_HO_PseudoTypeInfo_Struct18 MR_HO_PseudoTypeInfo_Struct18;
+typedef struct MR_HO_PseudoTypeInfo_Struct19 MR_HO_PseudoTypeInfo_Struct19;
+typedef struct MR_HO_PseudoTypeInfo_Struct20 MR_HO_PseudoTypeInfo_Struct20;
 
 typedef struct MR_FO_PseudoTypeInfo_Struct1 MR_FO_PseudoTypeInfo_Struct1;
 typedef struct MR_FO_PseudoTypeInfo_Struct2 MR_FO_PseudoTypeInfo_Struct2;
@@ -227,11 +264,46 @@ typedef struct MR_FO_PseudoTypeInfo_Struct7 MR_FO_PseudoTypeInfo_Struct7;
 typedef struct MR_FO_PseudoTypeInfo_Struct8 MR_FO_PseudoTypeInfo_Struct8;
 typedef struct MR_FO_PseudoTypeInfo_Struct9 MR_FO_PseudoTypeInfo_Struct9;
 typedef struct MR_FO_PseudoTypeInfo_Struct10 MR_FO_PseudoTypeInfo_Struct10;
+typedef struct MR_FO_PseudoTypeInfo_Struct11 MR_FO_PseudoTypeInfo_Struct11;
+typedef struct MR_FO_PseudoTypeInfo_Struct12 MR_FO_PseudoTypeInfo_Struct12;
+typedef struct MR_FO_PseudoTypeInfo_Struct13 MR_FO_PseudoTypeInfo_Struct13;
+typedef struct MR_FO_PseudoTypeInfo_Struct14 MR_FO_PseudoTypeInfo_Struct14;
+typedef struct MR_FO_PseudoTypeInfo_Struct15 MR_FO_PseudoTypeInfo_Struct15;
+typedef struct MR_FO_PseudoTypeInfo_Struct16 MR_FO_PseudoTypeInfo_Struct16;
+typedef struct MR_FO_PseudoTypeInfo_Struct17 MR_FO_PseudoTypeInfo_Struct17;
+typedef struct MR_FO_PseudoTypeInfo_Struct18 MR_FO_PseudoTypeInfo_Struct18;
+typedef struct MR_FO_PseudoTypeInfo_Struct19 MR_FO_PseudoTypeInfo_Struct19;
+typedef struct MR_FO_PseudoTypeInfo_Struct20 MR_FO_PseudoTypeInfo_Struct20;
+
+/*
+** The chain of stack frames, used for accurate GC.
+**
+** Any changes to this struct may require changes to
+** compiler/ml_elim_nested.m, which generates structs
+** that whose initial members have to match the layout here,
+** and which assumes that the `prev' is at offset zero.
+*/
+struct MR_StackChain {
+	struct MR_StackChain *prev;
+	void (*trace)(void *this_frame);
+};
 
 /*---------------------------------------------------------------------------*/
 /*
 ** Declarations of contants and variables
 */
+
+#ifdef NATIVE_GC
+  /*
+  ** This points to the start of the MR_StackChain frame list.
+  ** XXX Using a global variable for this is not thread-safe.
+  **     We should probably use a GNU C global register variable.
+  */
+  #ifdef MR_THREAD_SAFE
+    #error "Sorry, not supported: --high-level-code --gc accurate --thread-safe"
+  #endif
+  extern void *mercury__private_builtin__stack_chain;
+#endif
 
 /* declare MR_TypeCtorInfo_Structs for the builtin types */
 extern const MR_TypeCtorInfo_Struct
@@ -246,7 +318,7 @@ extern const MR_TypeCtorInfo_Struct
 	mercury__builtin__builtin__type_ctor_info_tuple_0,
 	mercury__array__array__type_ctor_info_array_1,
 	mercury__std_util__std_util__type_ctor_info_univ_0,
-	mercury__std_util__std_util__type_ctor_info_type_desc_0,
+	mercury__type_desc__type_desc__type_ctor_info_type_desc_0,
 	mercury__private_builtin__private_builtin__type_ctor_info_type_ctor_info_1,
 	mercury__private_builtin__private_builtin__type_ctor_info_type_info_1,
 	mercury__private_builtin__private_builtin__type_ctor_info_typeclass_info_1,
@@ -268,8 +340,12 @@ extern const MR_TypeCtorInfo_Struct
 	mercury__builtin__builtin__type_ctor_info_character_0
 #define mercury__builtin____type_ctor_info_pred_0 \
 	mercury__builtin__builtin__type_ctor_info_pred_0
+#define mercury__builtin____type_ctor_info_func_0 \
+	mercury__builtin__builtin__type_ctor_info_func_0
 #define mercury__builtin____type_ctor_info_tuple_0 \
 	mercury__builtin__builtin__type_ctor_info_tuple_0
+#define mercury__builtin____type_ctor_info_void_0 \
+	mercury__builtin__builtin__type_ctor_info_void_0
 
 /*
 ** The compiler used to generate references to this constant.
@@ -317,16 +393,17 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
 **	Allocates memory on the garbage-collected heap.
 */
 
-#ifdef INLINE_ALLOC
-  #ifndef __GNUC__
-    #error "INLINE_ALLOC requires GNU C"
-  #endif
-  /*
-  ** This must be a macro, not an inline function, because
-  ** GNU C's `__builtin_constant_p' does not work inside
-  ** inline functions
-  */
-  #define MR_GC_MALLOC_INLINE(bytes)                                    \
+#ifdef CONSERVATIVE_GC
+  #ifdef INLINE_ALLOC
+    #ifndef __GNUC__
+      #error "INLINE_ALLOC requires GNU C"
+    #endif
+    /*
+    ** This must be a macro, not an inline function, because
+    ** GNU C's `__builtin_constant_p' does not work inside
+    ** inline functions
+    */
+    #define MR_GC_MALLOC_INLINE(bytes)                                    \
         ( __extension__ __builtin_constant_p(bytes) &&			\
 	  (bytes) <= 16 * sizeof(MR_Word)				\
         ? ({    void * temp;                                            \
@@ -342,11 +419,42 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
           })                                                            \
         : GC_MALLOC(bytes)                         			\
         )
-  #define MR_new_object(type, size, name) \
+    #define MR_new_object(type, size, name) \
   		((type *) MR_GC_MALLOC_INLINE(size))
-#else
-  #define MR_new_object(type, size, name) \
+  #else /* !INLINE_ALLOC */
+    #define MR_new_object(type, size, name) \
   		((type *) GC_MALLOC(size)) 
+  #endif /* !INLINE_ALLOC */
+
+#else /* !CONSERVATIVE_GC */
+
+  #ifndef __GNUC__
+    /*
+    ** We need GNU C's `({...})' expressions.
+    ** It's not worth worrying about compilers other than GNU C for
+    ** this obscure combination of options.
+    */
+    #error "For C compilers other than GNU C, `--high-level-code' requires `--gc conservative'"
+  #endif
+
+  /*
+  ** XXX Note that currently we don't need to worry about alignment here,
+  **     other than word alignment, because floating point fields will
+  **	 be boxed if they don't fit in a word.
+  **     This would need to change if we ever start using unboxed
+  **     fields whose alignment requirement is greater than one word.
+  */
+  #define MR_new_object(type, size, name)				\
+     ({ 								\
+        size_t MR_new_object_num_words;					\
+        MR_Word MR_new_object_ptr;					\
+									\
+	MR_new_object_num_words = 					\
+		((size) + sizeof(MR_Word) - 1) / sizeof(MR_Word);	\
+	MR_incr_hp(MR_new_object_ptr, MR_new_object_num_words);		\
+	/* return */ (type *) MR_new_object_ptr;			\
+      })
+
 #endif
 
 /*
@@ -358,7 +466,10 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
 
 #if defined(__GNUC__) && !defined(MR_AVOID_MACROS)
   #define MR_box_float(f) ({						\
-	MR_Float *MR_box_float_ptr = (MR_Float *)			\
+	MR_Float *MR_box_float_ptr;					\
+									\
+	MR_make_hp_float_aligned();					\
+	MR_box_float_ptr = 						\
 		MR_new_object(MR_Float, sizeof(MR_Float), "float");	\
 	*MR_box_float_ptr = (f);					\
 	/* return */ (MR_Box) MR_box_float_ptr;				\
@@ -368,8 +479,10 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
 
   MR_EXTERN_INLINE MR_Box
   MR_box_float(MR_Float f) {
-	MR_Float *ptr = (MR_Float *)
-		MR_new_object(MR_Float, sizeof(MR_Float), "float");
+	MR_Float *ptr;
+
+	MR_make_hp_float_aligned();
+	ptr = MR_new_object(MR_Float, sizeof(MR_Float), "float");
 	*ptr = f;
 	return (MR_Box) ptr;
   }
@@ -392,6 +505,21 @@ extern	MR_Word	mercury__private_builtin__dummy_var;
 ** GCC back-end interface.
 */
 MR_Box MR_asm_box_float(MR_Float f);
+
+/*
+** MR_GC_check():
+**	Check to see if we need to do a garbage collection, and if so, do it.
+*/
+#define MR_GC_check()							\
+	do {								\
+		if ((char *) MR_hp + MR_heap_zone_size >=		\
+		    (char *) MR_ENGINE(MR_eng_heap_zone)->MR_zone_end)	\
+		{							\
+			MR_save_registers();				\
+			MR_garbage_collect();				\
+			MR_restore_registers();				\
+		}							\
+	} while (0)
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -420,7 +548,7 @@ bool MR_CALL mercury__builtin____Unify____func_0_0(MR_Func x, MR_Func y);
 bool MR_CALL mercury__builtin____Unify____pred_0_0(MR_Pred x, MR_Pred y); 
 bool MR_CALL mercury__builtin____Unify____tuple_0_0(
 	MR_Mercury_Type_Info type_info, MR_Tuple x, MR_Tuple y); 
-bool MR_CALL mercury__std_util____Unify____type_desc_0_0(
+bool MR_CALL mercury__type_desc____Unify____type_desc_0_0(
 	MR_Type_Desc x, MR_Type_Desc y); 
 bool MR_CALL mercury__private_builtin____Unify____type_ctor_info_1_0(
 	MR_Mercury_Type_Info type_info,
@@ -454,7 +582,7 @@ void MR_CALL mercury__builtin____Compare____pred_0_0(
 void MR_CALL mercury__builtin____Compare____tuple_0_0(
 	MR_Mercury_Type_Info type_info, MR_Comparison_Result *result,
 	MR_Tuple x, MR_Tuple y); 
-void MR_CALL mercury__std_util____Compare____type_desc_0_0(
+void MR_CALL mercury__type_desc____Compare____type_desc_0_0(
 	MR_Comparison_Result *result, MR_Type_Desc x, MR_Type_Desc y);
 void MR_CALL mercury__private_builtin____Compare____type_ctor_info_1_0(
 	MR_Mercury_Type_Info type_info, MR_Comparison_Result *result,

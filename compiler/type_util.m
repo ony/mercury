@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -165,6 +165,8 @@
 :- func float_type = (type).
 :- func char_type = (type).
 :- func c_pointer_type = (type).
+:- func sample_type_info_type = (type).
+:- func sample_typeclass_info_type = (type).
 
 	% Given a constant and an arity, return a type_id.
 	% Fails if the constant is not an atom.
@@ -198,9 +200,13 @@
 :- pred type_util__switch_type_num_functors(module_info::in, (type)::in,
 	int::out) is semidet.
 
-	% Work out the types of the arguments of a functor.
+	% Work out the types of the arguments of a functor,
+	% given the cons_id and type of the functor.
 	% Aborts if the functor is existentially typed.
 	% The cons_id is expected to be un-module-qualified.
+	% Note that this will substitute appropriate values for
+	% any type variables in the functor's argument types,
+	% to match their bindings in the functor's type.
 :- pred type_util__get_cons_id_arg_types(module_info::in, (type)::in,
 		cons_id::in, list(type)::out) is det.
 
@@ -219,9 +225,18 @@
 
 	% Given a type and a cons_id, look up the definitions of that
 	% type and constructor. Aborts if the cons_id is not user-defined.
+	% Note that this will NOT bind type variables in the
+	% functor's argument types; they will be left unbound,
+	% so the caller can find out the original types from the constructor
+	% definition.  The caller must do that sustitution itself if required.
 :- pred type_util__get_type_and_cons_defn(module_info, (type), cons_id,
 		hlds_type_defn, hlds_cons_defn).
 :- mode type_util__get_type_and_cons_defn(in, in, in, out, out) is det.
+
+	% Like type_util__get_type_and_cons_defn (above), except that it
+	% only returns the definition of the constructor, not the type.
+:- pred type_util__get_cons_defn(module_info::in, type_id::in, cons_id::in,
+		hlds_cons_defn::out) is semidet.
 
 	% Module-qualify the cons_id using module information from the type.
 	% The second output value is the cons_id required for use in insts which
@@ -236,6 +251,10 @@
 	% Given a type and a cons_id, look up the definition of that
 	% constructor; if it is existentially typed, return its definition,
 	% otherwise fail.
+	% Note that this will NOT bind type variables in the
+	% functor's argument types; they will be left unbound,
+	% so the caller can find out the original types from the constructor
+	% definition.  The caller must do that sustitution itself if required.
 :- pred type_util__get_existq_cons_defn(module_info::in,
 		(type)::in, cons_id::in, ctor_defn::out) is semidet.
 
@@ -782,6 +801,16 @@ c_pointer_type = Type :-
 	mercury_public_builtin_module(BuiltinModule),
 	construct_type(qualified(BuiltinModule, "c_pointer") - 0, [], Type).
 
+sample_type_info_type = Type :-
+	mercury_private_builtin_module(BuiltinModule),
+	construct_type(qualified(BuiltinModule,
+		"sample_type_info") - 0, [], Type).
+
+sample_typeclass_info_type = Type :-
+	mercury_private_builtin_module(BuiltinModule),
+	construct_type(qualified(BuiltinModule,
+		"sample_typeclass_info") - 0, [], Type).
+
 %-----------------------------------------------------------------------------%
 
 	% Given a constant and an arity, return a type_id.
@@ -977,9 +1006,6 @@ type_util__do_get_type_and_cons_defn(ModuleInfo, TypeId, ConsId,
 	type_util__get_cons_defn(ModuleInfo, TypeId, ConsId, ConsDefn),
 	module_info_types(ModuleInfo, Types),
 	map__lookup(Types, TypeId, TypeDefn).
-
-:- pred type_util__get_cons_defn(module_info::in, type_id::in, cons_id::in,
-		hlds_cons_defn::out) is semidet.
 
 type_util__get_cons_defn(ModuleInfo, TypeId, ConsId, ConsDefn) :-
 	module_info_ctors(ModuleInfo, Ctors),

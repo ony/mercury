@@ -3,7 +3,7 @@ INIT mercury_sys_init_engine
 ENDINIT
 */
 /*
-** Copyright (C) 1993-2001 The University of Melbourne.
+** Copyright (C) 1993-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -58,7 +58,7 @@ MR_init_engine(MercuryEngine *eng)
 
 	MR_init_memory();
 
-#ifndef USE_GCC_NONLOCAL_GOTOS
+#if !defined(USE_GCC_NONLOCAL_GOTOS) && !defined(MR_HIGHLEVEL_CODE)
 	{
 		static bool made_engine_done_label = FALSE;
 		if (!made_engine_done_label) {
@@ -110,7 +110,7 @@ MR_init_engine(MercuryEngine *eng)
 #endif
 
 	/*
-	** Finally, allocate an initialize context (Mercury thread)
+	** Finally, allocate an initial context (Mercury thread)
 	** in the engine and initialize the per-context stuff.
 	*/
 	eng->MR_eng_this_context = MR_create_context();
@@ -662,12 +662,12 @@ MR_define_extern_entry(MR_do_not_reached);
 MR_define_extern_entry(MR_exception_handler_do_fail);
 
 MR_BEGIN_MODULE(special_labels_module)
-	MR_init_entry_ai(MR_do_redo);
-	MR_init_entry_ai(MR_do_fail);
-	MR_init_entry_ai(MR_do_succeed);
-	MR_init_entry_ai(MR_do_last_succeed);
-	MR_init_entry_ai(MR_do_not_reached);
-	MR_init_entry_ai(MR_exception_handler_do_fail);
+	MR_init_entry_an(MR_do_redo);
+	MR_init_entry_an(MR_do_fail);
+	MR_init_entry_an(MR_do_succeed);
+	MR_init_entry_an(MR_do_last_succeed);
+	MR_init_entry_an(MR_do_not_reached);
+	MR_init_entry_an(MR_exception_handler_do_fail);
 MR_BEGIN_CODE
 
 MR_define_entry(MR_do_redo);

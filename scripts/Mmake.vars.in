@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1996-2001 The University of Melbourne.
+# Copyright (C) 1996-2002 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -117,19 +117,6 @@ EXTRA_MCSFLAGS	= $(EXTRA_MCFLAGS)
 # The following variables hold the names of various programs and
 # the options which should be passed to them.
 #
-C2INIT		= c2init
-ALL_C2INITFLAGS	= $(C2INITFLAGS) $(EXTRA_C2INITFLAGS) $(TARGET_C2INITFLAGS) \
-		  $(LIB_C2INITFLAGS)
-C2INITFLAGS	=
-EXTRA_C2INITFLAGS =
-LIB_C2INITFLAGS	= $(patsubst %,--init-file-directory %,$(EXTRA_INIT_DIRS))
-
-ALL_C2INITARGS	= $(C2INITARGS) $(EXTRA_C2INITARGS) $(TARGET_C2INITARGS) \
-		  $(LIB_C2INITARGS)
-C2INITARGS	=
-EXTRA_C2INITARGS =
-LIB_C2INITARGS	= $(patsubst %,%.init,$(ALL_EXTRA_LIBRARIES))
-
 MGNUC		= mgnuc
 ALL_MGNUCFLAGS	= $(MGNUCFLAGS) $(EXTRA_MGNUCFLAGS) $(TARGET_MGNUCFLAGS) \
 		  $(LIB_MGNUCFLAGS) $(ALL_CFLAGS)
@@ -182,15 +169,34 @@ MS_CSCFLAGS	=
 EXTRA_MS_CSCFLAGS =
 LIB_MS_CSCFLAGS	= 
 
+C2INIT		= c2init
+# c2init and ml take the same arguments.
+ALL_C2INITFLAGS = $(ALL_MLFLAGS)
+C2INITFLAGS	=
+EXTRA_C2INITFLAGS =
+LIB_C2INITFLAGS	= $(patsubst %,--init-file-directory %,$(EXTRA_INIT_DIRS))
+
+ALL_C2INITARGS	= $(C2INITARGS) $(EXTRA_C2INITARGS) $(TARGET_C2INITARGS) \
+		  $(LIB_C2INITARGS)
+C2INITARGS	=
+EXTRA_C2INITARGS =
+LIB_C2INITARGS	= $(patsubst %,%.init,$(ALL_EXTRA_LIBRARIES))
+
 ML		= ml
-ALL_MLFLAGS	= $(MLFLAGS) $(EXTRA_MLFLAGS) $(TARGET_MLFLAGS) $(LIB_MLFLAGS)
+ALL_MLFLAGS	= $(MLFLAGS) $(C2INITFLAGS) \
+			$(EXTRA_MLFLAGS) $(EXTRA_C2INITFLAGS) \
+			$(TARGET_MLFLAGS) $(TARGET_C2INITFLAGS) \
+			$(LIB_MLFLAGS) $(LIB_C2INITFLAGS)
 MLFLAGS		= $(EXTRA_MLFLAGS)
 EXTRA_MLFLAGS	=
 LIB_MLFLAGS	= $(patsubst %,-R%,$(EXTRA_C_LIB_DIRS)) \
 		  $(patsubst %,-L%,$(EXTRA_C_LIB_DIRS))
 
+ALL_MLOBJS	= $(MLOBJS) $(EXTRA_MLOBJS) $(TARGET_MLOBJS)
 MLOBJS		=
-MLPICOBJS	= $(MLOBJS:.o=.$(EXT_FOR_PIC_OBJECTS))
+EXTRA_MLOBJS	=
+ALL_MLPICOBJS	= $(ALL_MLOBJS:.o=.$(EXT_FOR_PIC_OBJECTS))
+
 ALL_MLLIBS	= $(MLLIBS) $(EXTRA_MLLIBS) $(TARGET_MLLIBS) $(LIB_MLLIBS)
 # XXX ALL_MLLIBS_DEP should contain a list of the file names of the
 # libraries specified in ALL_MLLIBS, but I can't see how to know whether
@@ -273,7 +279,7 @@ EXT_FOR_SHARED_LIB	= @EXT_FOR_SHARED_LIB@
 # support for RM_C was removed from the compiler.
 RM_C = :
 
-# lists of targets that depend on $(MLOBJS) and $(MLPICOBJS)
+# lists of targets that depend on $(ALL_MLOBJS) and $(ALL_MLPICOBJS)
 MLOBJS_DEPS = 
 MLPICOBJS_DEPS = 
 
@@ -340,10 +346,19 @@ maybe-base-CFLAGS-undefined =
 maybe-target-CFLAGS- = $(CFLAGS-$@)
 maybe-target-CFLAGS-undefined =
 
+# Note we strip any trailing `_init.c' from `$@' so we get the appropriate
+# "base" name, regardless of whether this variable ends up being used as
+# an argument of a `c2init' rule or an `ml' rule.
 TARGET_MLFLAGS = \
-  $(maybe-target-MLFLAGS-$(findstring undefined,$(origin MLFLAGS-$@)))
-maybe-target-MLFLAGS- = $(MLFLAGS-$@)
+  $(maybe-target-MLFLAGS-$(findstring undefined,\
+		$(origin MLFLAGS-$(patsubst %_init.c,%,$@))))
+maybe-target-MLFLAGS- = $(MLFLAGS-$(patsubst %_init.c,%,$@))
 maybe-target-MLFLAGS-undefined =
+
+TARGET_MLOBJS = \
+  $(maybe-target-MLOBJS-$(findstring undefined,$(origin MLOBJS-$@)))
+maybe-target-MLOBJS- = $(MLOBJS-$@)
+maybe-target-MLOBJS-undefined =
 
 TARGET_MLLIBS = \
   $(maybe-target-MLLIBS-$(findstring undefined,$(origin MLLIBS-$@)))
@@ -438,6 +453,7 @@ dates_subdir=$(SUBDIR)dates/
 date3s_subdir=$(SUBDIR)date3s/
 optdates_subdir=$(SUBDIR)optdates/
 trans_opt_dates_subdir=$(SUBDIR)trans_opt_dates/
+useds_subdir=$(SUBDIR)useds/
 cs_subdir=$(SUBDIR)cs/
 dlls_subdir=$(SUBDIR)dlls/
 ss_subdir=$(SUBDIR)ss/
@@ -472,6 +488,7 @@ dates_subdir=
 date3s_subdir=
 optdates_subdir=
 trans_opt_dates_subdir=
+useds_subdir=
 cs_subdir=
 dlls_subdir=
 ss_subdir=

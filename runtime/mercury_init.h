@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1993-2001 The University of Melbourne.
+** Copyright (C) 1993-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -85,6 +85,7 @@ extern	int	mercury_terminate(void);
 				   mercury_runtime_terminate(),
 				   etc. */
 #include "mercury_trace_base.h"	/* for MR_trace_port */
+#include "mercury_type_info.h"	/* for MR_TypeCtorInfo_Struct */
 
 #ifdef CONSERVATIVE_GC
   #define GC_I_HIDE_POINTERS
@@ -123,6 +124,10 @@ extern	void	ML_io_print_to_cur_stream(MR_Word, MR_Word);
 /* in trace/mercury_trace_internal.h */
 extern	char	*MR_trace_getline(const char *, FILE *mdb_in, FILE *mdb_out);
 extern	char	*MR_trace_get_command(const char *, FILE *, FILE *);
+
+/* in trace/mercury_trace_vars.h */
+extern	const char *MR_trace_browse_all_on_level(FILE *,
+			const MR_Label_Layout *, MR_Word *, MR_Word *, int);
 
 /* in trace/mercury_trace_external.h */
 extern	void	MR_trace_init_external(void);

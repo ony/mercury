@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -70,8 +70,8 @@
 % proc_id.  (This is used by unique_modes.m.)
 
 :- pred unify_proc__request_proc(pred_id::in, list(mode)::in, inst_varset::in,
-maybe(list(is_live))::in, maybe(determinism)::in, prog_context::in,
-module_info::in, proc_id::out, module_info::out) is det.
+	maybe(list(is_live))::in, maybe(determinism)::in, prog_context::in,
+	module_info::in, proc_id::out, module_info::out) is det.
 
 % unify_proc__add_lazily_generated_unify_pred(TypeId,
 	%	UnifyPredId_for_Type, ModuleInfo0, ModuleInfo).
@@ -539,7 +539,7 @@ unify_proc__add_lazily_generated_unify_pred(TypeId,
 
 		CtorSymName = unqualified("{}"),
 		ConsId = cons(CtorSymName, TupleArity),
-		map__from_assoc_list([ConsId - unshared_tag(0)],
+		map__from_assoc_list([ConsId - single_functor],
 			ConsTagValues),
 		UnifyPred = no,
 		IsEnum = no,
@@ -668,12 +668,7 @@ unify_proc__collect_type_defn(ModuleInfo0, TypeId, Type,
 
 unify_proc__generate_clause_info(SpecialPredId, Type, TypeBody, Context,
 		ModuleInfo, ClauseInfo) :-
-	( TypeBody = eqv_type(EqvType) ->
-		HeadVarType = EqvType
-	;
-		HeadVarType = Type
-	),
-	special_pred_info(SpecialPredId, HeadVarType,
+	special_pred_info(SpecialPredId, Type,
 		_PredName, ArgTypes, _Modes, _Det),
 	unify_proc__info_init(ModuleInfo, VarTypeInfo0),
 	unify_proc__make_fresh_named_vars_from_types(ArgTypes, "HeadVar__", 1,
@@ -699,10 +694,9 @@ unify_proc__generate_clause_info(SpecialPredId, Type, TypeBody, Context,
 			Types, Args, Clauses, TI_VarMap, TCI_VarMap,
 			HasForeignClauses).
 
-:- pred unify_proc__generate_unify_clauses(hlds_type_body, prog_var, prog_var,
-		prog_context, list(clause), unify_proc_info, unify_proc_info).
-:- mode unify_proc__generate_unify_clauses(in, in, in, in, out, in, out)
-	is det.
+:- pred unify_proc__generate_unify_clauses(hlds_type_body::in,
+	prog_var::in, prog_var::in, prog_context::in, list(clause)::out,
+	unify_proc_info::in, unify_proc_info::out) is det.
 
 unify_proc__generate_unify_clauses(TypeBody, H1, H2, Context, Clauses) -->
 	(
@@ -740,17 +734,37 @@ unify_proc__generate_unify_clauses(TypeBody, H1, H2, Context, Clauses) -->
 				Context, Clauses)
 		)
 	;
-		{ TypeBody = eqv_type(_Type) },
-		% We should check whether _Type is a type variable,
+		{ TypeBody = eqv_type(EqvType) },
+		% We should check whether EqvType is a type variable,
 		% an abstract type or a concrete type.
 		% If it is type variable, then we should generate the same code
 		% we generate now. If it is an abstract type, we should call
 		% its unification procedure directly; if it is a concrete type,
 		% we should generate the body of its unification procedure
 		% inline here.
-		%
-		% XXX Somebody should document here what the later stages
-		% of the compiler do to prevent an infinite recursion here.
+		unify_proc__make_fresh_named_var_from_type(EqvType,
+			"Cast_HeadVar", 1, CastVar1),
+		unify_proc__make_fresh_named_var_from_type(EqvType,
+			"Cast_HeadVar", 2, CastVar2),
+		unify_proc__build_call("unsafe_type_cast", [H1, CastVar1],
+			Context, Cast1Goal),
+		unify_proc__build_call("unsafe_type_cast", [H2, CastVar2],
+			Context, Cast2Goal),
+		{ create_atomic_unification(CastVar1, var(CastVar2), Context,
+			explicit, [], UnifyGoal) },
+
+		{ goal_info_init(GoalInfo0) },
+		{ goal_info_set_context(GoalInfo0, Context, GoalInfo) },
+		{ conj_list_to_goal([Cast1Goal, Cast2Goal, UnifyGoal],
+			GoalInfo, Goal) },
+		unify_proc__quantify_clauses_body([H1, H2], Goal, Context,
+			Clauses)
+	;
+		{ TypeBody = foreign_type(_, _, _) },
+			% XXX Is this the correct thing to do?
+			% I assume at code gen time I could examine the types
+			% of the unification and output different code because
+			% they are foreign types.
 		{ create_atomic_unification(H1, var(H2), Context, explicit, [],
 			Goal) },
 		unify_proc__quantify_clauses_body([H1, H2], Goal, Context,
@@ -770,10 +784,9 @@ unify_proc__generate_unify_clauses(TypeBody, H1, H2, Context, Clauses) -->
 	% of special preds to define only for the kinds of types which do not
 	% lead this predicate to abort.
 
-:- pred unify_proc__generate_index_clauses(hlds_type_body, prog_var, prog_var,
-	prog_context, list(clause), unify_proc_info, unify_proc_info).
-:- mode unify_proc__generate_index_clauses(in, in, in, in, out, in, out)
-	is det.
+:- pred unify_proc__generate_index_clauses(hlds_type_body::in,
+	prog_var::in, prog_var::in, prog_context::in, list(clause)::out,
+	unify_proc_info::in, unify_proc_info::out) is det.
 
 unify_proc__generate_index_clauses(TypeBody, X, Index, Context, Clauses) -->
 	(
@@ -810,6 +823,9 @@ unify_proc__generate_index_clauses(TypeBody, X, Index, Context, Clauses) -->
 		% invoked.
 		{ error("trying to create index proc for eqv type") }
 	;
+		{ TypeBody = foreign_type(_, _, _) },
+		{ error("trying to create index proc for a foreign type") }
+	;
 		{ TypeBody = uu_type(_) },
 		{ error("trying to create index proc for uu type") }
 	;
@@ -837,41 +853,60 @@ unify_proc__generate_compare_clauses(Type, TypeBody, Res, H1, H2, Context,
 				Context, Clauses)
 		; { IsEnum = yes } ->
 			{ IntType = int_type },
-			unify_proc__info_new_var(IntType, TC1),
-			unify_proc__info_new_var(IntType, TC2),
-			{ TC1ArgVars = [H1, TC1] },
+			unify_proc__make_fresh_named_var_from_type(IntType,
+				"Cast_HeadVar", 1, CastVar1),
+			unify_proc__make_fresh_named_var_from_type(IntType,
+				"Cast_HeadVar", 2, CastVar2),
 			unify_proc__build_call("unsafe_type_cast",
-				TC1ArgVars, Context, TC1Goal),
-			{ TC2ArgVars = [H2, TC2] },
+				[H1, CastVar1], Context, Cast1Goal),
 			unify_proc__build_call("unsafe_type_cast",
-				TC2ArgVars, Context, TC2Goal),
-			{ CompareArgVars = [Res, TC1, TC2] },
+				[H2, CastVar2], Context, Cast2Goal),
 			unify_proc__build_call("builtin_compare_int",
-				CompareArgVars, Context, CompareGoal),
+				[Res, CastVar1, CastVar2], Context,
+				CompareGoal),
+
 			{ goal_info_init(GoalInfo0) },
 			{ goal_info_set_context(GoalInfo0, Context,
 				GoalInfo) },
-			{ conj_list_to_goal([TC1Goal, TC2Goal, CompareGoal],
-				GoalInfo, Goal) },
-			{ ArgVars = [Res, H1, H2] },
-			unify_proc__quantify_clauses_body(ArgVars, Goal,
+			{ conj_list_to_goal([Cast1Goal, Cast2Goal,
+				CompareGoal], GoalInfo, Goal) },
+			unify_proc__quantify_clauses_body([Res, H1, H2], Goal,
 				Context, Clauses)
 		;
 			unify_proc__generate_du_compare_clauses(Type, Ctors,
 				Res, H1, H2, Context, Clauses)
 		)
 	;
-		{ TypeBody = eqv_type(_) },
-		% We should check whether _Type is a type variable,
+		{ TypeBody = eqv_type(EqvType) },
+		% We should check whether EqvType is a type variable,
 		% an abstract type or a concrete type.
 		% If it is type variable, then we should generate the same code
 		% we generate now. If it is an abstract type, we should call
-		% its compare procedure directly; if it is a concrete type,
-		% we should generate the body of its compare procedure
+		% its comparison procedure directly; if it is a concrete type,
+		% we should generate the body of its comparison procedure
 		% inline here.
-		%
-		% XXX Somebody should document here what the later stages
-		% of the compiler do to prevent an infinite recursion here.
+		unify_proc__make_fresh_named_var_from_type(EqvType,
+			"Cast_HeadVar", 1, CastVar1),
+		unify_proc__make_fresh_named_var_from_type(EqvType,
+			"Cast_HeadVar", 2, CastVar2),
+		unify_proc__build_call("unsafe_type_cast", [H1, CastVar1],
+			Context, Cast1Goal),
+		unify_proc__build_call("unsafe_type_cast", [H2, CastVar2],
+			Context, Cast2Goal),
+		unify_proc__build_call("compare", [Res, CastVar1, CastVar2],
+			Context, CompareGoal),
+
+		{ goal_info_init(GoalInfo0) },
+		{ goal_info_set_context(GoalInfo0, Context, GoalInfo) },
+		{ conj_list_to_goal([Cast1Goal, Cast2Goal, CompareGoal],
+			GoalInfo, Goal) },
+		unify_proc__quantify_clauses_body([Res, H1, H2], Goal, Context,
+			Clauses)
+	;
+		{ TypeBody = foreign_type(_, _, _) },
+		% XXX
+		% I think we should delay handling this for foreign types until
+		% code gen time.
 		{ ArgVars = [Res, H1, H2] },
 		unify_proc__build_call("compare", ArgVars, Context, Goal),
 		unify_proc__quantify_clauses_body(ArgVars, Goal, Context,
@@ -1558,32 +1593,37 @@ unify_proc__build_specific_call(Type, SpecialPredId, ArgVars, InstmapDelta,
 
 %-----------------------------------------------------------------------------%
 
-:- pred unify_proc__make_fresh_named_vars_from_types(list(type), string, int,
-	list(prog_var), unify_proc_info, unify_proc_info).
-:- mode unify_proc__make_fresh_named_vars_from_types(in, in, in, out, in, out)
-	is det.
+:- pred unify_proc__make_fresh_named_var_from_type((type)::in,
+	string::in, int::in, prog_var::out,
+	unify_proc_info::in, unify_proc_info::out) is det.
+
+unify_proc__make_fresh_named_var_from_type(Type, BaseName, Num, Var) -->
+	{ string__int_to_string(Num, NumStr) },
+	{ string__append(BaseName, NumStr, Name) },
+	unify_proc__info_new_named_var(Type, Name, Var).
+
+:- pred unify_proc__make_fresh_named_vars_from_types(list(type)::in,
+	string::in, int::in, list(prog_var)::out,
+	unify_proc_info::in, unify_proc_info::out) is det.
 
 unify_proc__make_fresh_named_vars_from_types([], _, _, []) --> [].
 unify_proc__make_fresh_named_vars_from_types([Type | Types], BaseName, Num,
 		[Var | Vars]) -->
-	{ string__int_to_string(Num, NumStr) },
-	{ string__append(BaseName, NumStr, Name) },
-	unify_proc__info_new_named_var(Type, Name, Var),
+	unify_proc__make_fresh_named_var_from_type(Type, BaseName, Num, Var),
 	unify_proc__make_fresh_named_vars_from_types(Types, BaseName, Num + 1,
 		Vars).
 
-:- pred unify_proc__make_fresh_vars_from_types(list(type), list(prog_var),
-			unify_proc_info, unify_proc_info).
-:- mode unify_proc__make_fresh_vars_from_types(in, out, in, out) is det.
+:- pred unify_proc__make_fresh_vars_from_types(list(type)::in,
+	list(prog_var)::out, unify_proc_info::in, unify_proc_info::out) is det.
 
 unify_proc__make_fresh_vars_from_types([], []) --> [].
 unify_proc__make_fresh_vars_from_types([Type | Types], [Var | Vars]) -->
 	unify_proc__info_new_var(Type, Var),
 	unify_proc__make_fresh_vars_from_types(Types, Vars).
 
-:- pred unify_proc__make_fresh_vars(list(constructor_arg), existq_tvars,
-			list(prog_var), unify_proc_info, unify_proc_info).
-:- mode unify_proc__make_fresh_vars(in, in, out, in, out) is det.
+:- pred unify_proc__make_fresh_vars(list(constructor_arg)::in,
+	existq_tvars::in, list(prog_var)::out,
+	unify_proc_info::in, unify_proc_info::out) is det.
 
 unify_proc__make_fresh_vars(CtorArgs, ExistQTVars, Vars) -->
 	( { ExistQTVars = [] } ->

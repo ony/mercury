@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998, 2000 The University of Melbourne.
+** Copyright (C) 1998, 2000, 2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -8,6 +8,9 @@
 ** mercury_signal.h - functions for setting up signal handlers.
 **
 ** This defines a generic signal handler setup mechanism.
+**
+** NOTE: If `struct sigcontext' is needed, mercury_signal.h must be
+** included before anything which could include <signal.h>.
 */
 
 #ifndef	MERCURY_SIGNAL_H
@@ -15,6 +18,42 @@
 
 #include "mercury_types.h"
 #include "mercury_std.h"
+#include "mercury_conf.h"
+
+#ifdef HAVE_SIGCONTEXT_STRUCT
+  /*
+  ** Some versions of Linux call it struct sigcontext_struct, some call it
+  ** struct sigcontext.  The following #define eliminates the differences.
+  */
+  #define sigcontext_struct sigcontext /* must be before #include <signal.h> */
+  struct sigcontext; /* this forward decl avoids a gcc warning in signal.h */
+
+  /*
+  ** On some systems (e.g. most versions of Linux) we need to #define
+  ** __KERNEL__ to get sigcontext_struct from <signal.h>.
+  ** This stuff must come before anything else that might include <signal.h>,
+  ** otherwise the #define __KERNEL__ may not work.
+  */
+  #define __KERNEL__
+  #include <signal.h>	/* must come third */
+  #undef __KERNEL__
+
+  /*
+  ** Some versions of Linux define it in <signal.h>, others define it in
+  ** <asm/sigcontext.h>.  We try both.
+  */
+  #ifdef HAVE_ASM_SIGCONTEXT
+    #include <asm/sigcontext.h>
+  #endif 
+#else
+  #include <signal.h>
+#endif
+
+#ifdef HAVE_SIGACTION
+typedef struct sigaction	MR_signal_action;
+#else
+typedef MR_Code *		MR_signal_action;
+#endif
 
 	/*
 	** MR_setup_signal sets a signal handler (handler) to handle
@@ -30,5 +69,28 @@
 extern void MR_setup_signal(int sig, MR_Code *handler, bool need_info, 
 	const char * error_message);
 
+	/*
+	** As above, but don't arrange for system calls to be
+	** restarted if the signal is received.
+	*/
+extern void MR_setup_signal_no_restart(int sig, MR_Code *handler,
+	bool need_info, const char * error_message);
+
+	/*
+	** Get the current action for the given signal.
+	** If the action cannot be retrieved, it aborts with the given
+	** error message.
+	*/
+extern void MR_get_signal_action(int sig, MR_signal_action *old_action,
+	const char *error_message);
+
+	/*
+	** Restore the action for the given signal to the result
+	** of a previous call to MR_get_signal_action().
+	** If the action cannot be set, it aborts with the given
+	** error message.
+	*/
+extern void MR_set_signal_action(int sig, MR_signal_action *action,
+	const char *error_message);
 
 #endif /* not MERCURY_SIGNAL_H */

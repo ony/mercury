@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -218,7 +218,8 @@ distribute_pragma_items(ItemId - ItemAndContext,
 :- type instance_item_map == map(item_name, item_list).
 
 	% The constructors set should always be empty.
-:- type gathered_items == item_id_set(map(pair(string, arity), item_list)).
+:- type gathered_items == item_id_set(gathered_item_map).
+:- type gathered_item_map == map(pair(string, arity), item_list).
 
 :- pred recompilation_version__gather_items_2(item_and_context::in,
 		gathered_item_info::in, gathered_item_info::out) is det.
@@ -448,10 +449,12 @@ item_to_item_id_2(nothing(_), no).
 		maybe(maybe_pred_or_func_id)::out) is det.
 
 is_pred_pragma(foreign_decl(_, _), no).
+is_pred_pragma(foreign_import_module(_, _), no).
 is_pred_pragma(foreign_code(_, _), no).
 is_pred_pragma(foreign_proc(_, Name, PredOrFunc, Args, _, _),
 		yes(yes(PredOrFunc) - Name / Arity)) :-
 	adjust_func_arity(PredOrFunc, Arity, list__length(Args)).
+is_pred_pragma(foreign_type(_, _, _), no).
 is_pred_pragma(type_spec(Name, _, Arity, MaybePredOrFunc, _, _, _, _),
 		yes(MaybePredOrFunc - Name / Arity)).
 is_pred_pragma(inline(Name, Arity), yes(no - Name / Arity)).
@@ -552,22 +555,63 @@ item_is_unchanged(clause(_VarSet, PorF, SymName, Args, Goal), Item2) =
 item_is_unchanged(assertion(Goal, _VarSet), Item2) =
 		( Item2 = assertion(Goal, _) -> yes ; no ).
 
-	% We do need to compare the varset in `:- pragma type_spec'
+	% We do need to compare the variable names in `:- pragma type_spec'
 	% declarations because the names of the variables are used
 	% to find the corresponding variables in the predicate or
 	% function type declaration.
-item_is_unchanged(pragma(PragmaType), Item2) =
-		( Item2 = pragma(PragmaType) -> yes ; no ).
+item_is_unchanged(pragma(PragmaType1), Item2) = Result :-
+    ( Item2 = pragma(PragmaType2) ->
+	(
+	    PragmaType1 = type_spec(Name, SpecName, Arity, MaybePredOrFunc,
+	    			MaybeModes, TypeSubst1, TVarSet1, _),
+	    PragmaType2 = type_spec(Name, SpecName, Arity, MaybePredOrFunc,
+	    			MaybeModes, TypeSubst2, TVarSet2, _)
+	->
+	    assoc_list__keys_and_values(TypeSubst1, TVars1, Types1),
+	    var_list_to_term_list(TVars1, TVarTypes1),
+	    assoc_list__keys_and_values(TypeSubst2, TVars2, Types2),
+	    var_list_to_term_list(TVars2, TVarTypes2),
+	    (
+	    	type_list_is_unchanged(TVarSet1, TVarTypes1 ++ Types1,
+			TVarSet2, TVarTypes2 ++ Types2, _, _, _)
+	    ->
+	    	Result = yes
+	    ;
+	    	Result = no
+	    )
+	;
+	    Result = ( PragmaType1 = PragmaType2 -> yes ; no )
+	)
+    ;
+	Result = no
+    ).
 item_is_unchanged(nothing(A), Item2) =
 		( Item2 = nothing(A) -> yes ; no ).
 
 item_is_unchanged(Item1, Item2) = Result :-
 	Item1 = pred_or_func(TVarSet1, _, ExistQVars1, PredOrFunc,
-		Name, TypesAndModes1, Detism, Cond, Purity, Constraints1),
+		Name, TypesAndModes1, Det1, Cond, Purity, Constraints1),
 	(
 		Item2 = pred_or_func(TVarSet2, _, ExistQVars2,
-			PredOrFunc, Name, TypesAndModes2, Detism, Cond, Purity,
+			PredOrFunc, Name, TypesAndModes2, Det2, Cond, Purity,
 			Constraints2),
+
+		% For predicates, ignore the determinism -- the modes and
+		% determinism should have been split into a separate
+		% declaration. This case can only happen if this was
+		% not a combined predicate and mode declaration
+		% (XXX We should warn about this somewhere). 
+		% For functions a determinism declaration but no modes
+		% implies the default modes. The default modes are
+		% added later by make_hlds.m, so they won't have been
+		% split into a separate declaration here.
+		(
+			PredOrFunc = function,
+			Det1 = Det2
+		;
+			PredOrFunc = predicate
+		),
+
 		pred_or_func_type_is_unchanged(TVarSet1, ExistQVars1,
 			TypesAndModes1, Constraints1, TVarSet2,
 			ExistQVars2, TypesAndModes2, Constraints2)
@@ -625,8 +669,6 @@ pred_or_func_type_is_unchanged(TVarSet1, ExistQVars1, TypesAndModes1,
 		Constraints1, TVarSet2, ExistQVars2,
 		TypesAndModes2, Constraints2) :-
 
-	varset__merge_subst(TVarSet1, TVarSet2, TVarSet, Subst),
-
 	GetArgTypes =
 		(func(TypeAndMode0) = Type :-
 			(
@@ -641,7 +683,39 @@ pred_or_func_type_is_unchanged(TVarSet1, ExistQVars1, TypesAndModes1,
 		),
 	Types1 = list__map(GetArgTypes, TypesAndModes1),
 	Types2 = list__map(GetArgTypes, TypesAndModes2),
-	term__apply_substitution_to_list(Types2, Subst, SubstTypes2),
+
+	type_list_is_unchanged(TVarSet1, Types1, TVarSet2, Types2,
+		_TVarSet, RenameSubst, Types2ToTypes1Subst),
+
+	%
+	% Check that the existentially quantified variables are equivalent.
+	%
+	SubstExistQVars2 =
+		term_list_to_var_list(
+			term__apply_rec_substitution_to_list(
+				apply_substitution_to_list(
+					var_list_to_term_list(ExistQVars2),
+					RenameSubst),
+				Types2ToTypes1Subst)),
+	ExistQVars1 = SubstExistQVars2,
+
+	%
+	% Check that the class constraints are identical.
+	%
+	apply_subst_to_constraints(RenameSubst,
+		Constraints2, RenamedConstraints2),
+	apply_rec_subst_to_constraints(Types2ToTypes1Subst,
+		RenamedConstraints2, SubstConstraints2),
+	Constraints1 = SubstConstraints2.
+
+:- pred type_list_is_unchanged(tvarset::in, list(type)::in,
+		tvarset::in, list(type)::in, tvarset::out,
+		tsubst::out, tsubst::out) is semidet.
+
+type_list_is_unchanged(TVarSet1, Types1, TVarSet2, Types2,
+		TVarSet, RenameSubst, Types2ToTypes1Subst) :-
+	varset__merge_subst(TVarSet1, TVarSet2, TVarSet, RenameSubst),
+	term__apply_substitution_to_list(Types2, RenameSubst, SubstTypes2),
 
 	%
 	% Check that the types are equivalent
@@ -671,30 +745,27 @@ pred_or_func_type_is_unchanged(TVarSet1, ExistQVars1, TypesAndModes1,
 	    )
 	=>
 	    (
-		varset__lookup_name(TVarSet, VarInItem1, VarName),
-		varset__lookup_name(TVarSet, VarInItem2, VarName)
+		varset__lookup_name(TVarSet, VarInItem1, VarName1),
+		varset__lookup_name(TVarSet, VarInItem2, VarName2),
+		(
+			VarName1 = VarName2
+	    	;
+			%
+			% Variables written to interface files are always
+			% named, even if the variable in the source code
+			% was not, so we can't just use varset__search_name
+			% to check whether the variables are named.
+			%
+			VarIsNotNamed =
+				(pred(VarName::in) is semidet :-
+					string__append("V_", VarNum, VarName),
+					string__to_int(VarNum, _)
+				),
+			VarIsNotNamed(VarName1),
+			VarIsNotNamed(VarName2)
+		)
 	    )
-	),
-
-	%
-	% Check that the existentially quantified variables are equivalent.
-	%
-	SubstExistQVars2 =
-		term_list_to_var_list(
-			term__apply_rec_substitution_to_list(
-				apply_substitution_to_list(
-					var_list_to_term_list(ExistQVars2),
-					Subst),
-				Types2ToTypes1Subst)),
-	ExistQVars1 = SubstExistQVars2,
-
-	%
-	% Check that the class constraints are identical.
-	%
-	apply_subst_to_constraints(Subst, Constraints2, RenamedConstraints2),
-	apply_rec_subst_to_constraints(Types2ToTypes1Subst,
-		RenamedConstraints2, SubstConstraints2),
-	Constraints1 = SubstConstraints2.
+	).
 
 :- pred pred_or_func_mode_is_unchanged(inst_varset::in, list(mode)::in,
 		inst_varset::in, list(mode)::in) is semidet.

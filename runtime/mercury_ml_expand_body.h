@@ -1,5 +1,8 @@
 /*
-** Copyright (C) 2001 The University of Melbourne.
+** vim:ts=4 sw=4 expandtab
+*/
+/*
+** Copyright (C) 2001-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -7,10 +10,10 @@
 /*
 ** mercury_ml_expand_body.h
 **
-** This file is included several times in library/std_util.m. Each inclusion
-** defines the body of one of several variants of the old ML_expand function,
-** which, given a data word and its type_info, returned its functor, arity,
-** argument vector and a type_info vector describing its arguments.
+** This file is included several times in runtime/mercury_deconstruct.c. Each
+** inclusion defines the body of one of several variants of the old ML_expand
+** function, which, given a data word and its type_info, returned its functor,
+** arity, argument vector and a type_info vector describing its arguments.
 ** One variant still does all that. The others perform different subsets of
 ** this task. The reason for having those specialized variants is that
 ** executing the full task can be extremely time consuming, especially when
@@ -36,22 +39,33 @@
 ** EXPAND_ARGS_FIELD        If defined, gives the name of the field in the
 **                          expand_info structure that contains information
 **                          about all the functor's arguments. This field
-**                          should be of type ML_Expand_Args_Fields. The
+**                          should be of type MR_Expand_Args_Fields. The
 **                          function will fill in this field.
 **
 ** EXPAND_CHOSEN_ARG        If defined, the function will have an extra
-**                          argument, chosen, and it will fill in the fields
-**                          of the ML_Expand_Chosen_Arg_Only structure.
+**                          argument, chosen, which specifies the position of
+**                          the one desired argument (with the first argument
+**                          having position 0), and the function will fill in
+**                          the fields of the MR_Expand_Chosen_Arg_Only
+**                          structure.
+**
+** EXPAND_NAMED_ARG         If defined, the function will have an extra
+**                          argument, chosen_name, which specifies the name
+**                          of the one desired argument, and the function will
+**                          fill in the fields of the MR_Expand_Chosen_Arg_Only
+**                          structure.
 **
 ** EXPAND_APPLY_LIMIT       If defined, the function will have an extra
 **                          argument, max_arity. If the number of arguments
 **                          exceeds this limit, the function will store FALSE
 **                          in the limit_reached field of expand_info and will
 **                          not fill in the other fields about the arguments.
+**                          
 **
 ** Most combinations are allowed, but
 **
-** - only one of EXPAND_ARGS_FIELD and EXPAND_CHOSEN_ARG may be defined at once
+** - only one of EXPAND_ARGS_FIELD, EXPAND_CHOSEN_ARG and EXPAND_NAMED_ARG
+**   may be defined at once, and
 ** - EXPAND_APPLY_LIMIT should be defined only if EXPAND_ARGS_FIELD is also
 **   defined.
 **
@@ -60,12 +74,11 @@
 ** be different for different variants. The type in EXPAND_TYPE_NAME must be
 ** consistent with the set of defined optional macros.
 **
-** All variants contain the boolean field non_canonical_type, which will be
-** set to TRUE iff the type has user-defined equality, and the integer field
-** arity, which will be set to the number of arguments the functor has.
+** All variants contain the the integer field arity, which will be set to
+** the number of arguments the functor has.
 **
 ** The variants that return all the arguments do so in a field of type
-** ML_Expand_Args_Fields. Its arg_type_infos subfield will contain a pointer
+** MR_Expand_Args_Fields. Its arg_type_infos subfield will contain a pointer
 ** to an array of arity MR_TypeInfos, one for each user-visible field of the
 ** cell. The arg_values field will contain a pointer to a block of
 ** arity + num_extra_args MR_Words, one for each field of the cell,
@@ -82,7 +95,7 @@
 ** MR_malloc() or malloc(), since this vector may contain pointers into the
 ** Mercury heap, and memory allocated with MR_malloc() or malloc() will not be
 ** traced by the Boehm collector.) The elements of the array should not be
-** freed, since they point either previously allocated data, which is either
+** freed, since they point to previously allocated data, which is either
 ** on the heap or is in constant storage (e.g. type_ctor_infos).
 ** If the can_free_arg_type_infos field is false, then the array returned in
 ** the arg_type_infos field was not allocated by the function (it came from the
@@ -95,9 +108,11 @@
 **  afterwards, call MR_restore_transient_registers().
 **
 **  If you change this code, you may also have to reflect your changes
-**  in runtime/mercury_deep_copy_body.h and runtime/mercury_tabling.c
+**  in runtime/mercury_deep_copy_body.h and runtime/mercury_tabling.c.
 **
-**  We use 4 space tabs here (sw=4 ts=4) because of the level of indenting.
+**  In several places, we call MR_fatal_error to signal inappropriate
+**  deconstruction of noncanonical terms. These should all throw exceptions
+**  instead, but it is not yet safe to throw exceptions across the C interface.
 */
 
 #include    <stdio.h>
@@ -118,7 +133,18 @@
 #else
   #define   EXTRA_ARG2
 #endif
-#define EXTRA_ARGS  EXTRA_ARG1 EXTRA_ARG2
+#ifdef  EXPAND_NAMED_ARG
+  #define   EXTRA_ARG3  chosen_name,
+#else
+  #define   EXTRA_ARG3
+#endif
+#define EXTRA_ARGS  EXTRA_ARG1 EXTRA_ARG2 EXTRA_ARG3
+
+#if defined(EXPAND_CHOSEN_ARG) || defined(EXPAND_NAMED_ARG)
+  #define   EXPAND_ONE_ARG
+#else   /* defined(EXPAND_CHOSEN_ARG) || defined(EXPAND_NAMED_ARG) */
+  #undef    EXPAND_ONE_ARG
+#endif  /* defined(EXPAND_CHOSEN_ARG) || defined(EXPAND_NAMED_ARG) */
 
 /* set up macro for setting field names without #ifdefs */
 #ifdef  EXPAND_FUNCTOR_FIELD
@@ -127,8 +153,20 @@
                 MR_make_aligned_string(expand_info->EXPAND_FUNCTOR_FIELD,\
                     name);                                              \
             } while (0)
+  #define handle_noncanonical_name(tci)                                 \
+            do {                                                        \
+                MR_ConstString  name;                                   \
+                                                                        \
+                MR_restore_transient_hp();                              \
+                name = MR_expand_type_name(tci);                        \
+                MR_save_transient_hp();                                 \
+                MR_make_aligned_string(expand_info->EXPAND_FUNCTOR_FIELD,\
+                    name);                                              \
+            } while (0)
 #else   /* EXPAND_FUNCTOR_FIELD */
   #define handle_functor_name(name)                                     \
+            ((void) 0)
+  #define handle_noncanonical_name(tci)                                 \
             ((void) 0)
 #endif  /* EXPAND_FUNCTOR_FIELD */
 
@@ -146,39 +184,52 @@
             ((void) 0)
 #endif  /* EXPAND_ARGS_FIELD */
 
-#ifdef  EXPAND_CHOSEN_ARG
-  #define handle_zero_arity_chosen_arg()                                \
+#ifdef  EXPAND_ONE_ARG
+  #define handle_zero_arity_one_arg()                                   \
             do {                                                        \
                 expand_info->chosen_index_exists = FALSE;               \
             } while (0)
-#else   /* EXPAND_CHOSEN_ARG */
-  #define handle_zero_arity_chosen_arg()                                \
+#else   /* EXPAND_ONE_ARG */
+  #define handle_zero_arity_one_arg()                                   \
             ((void) 0)
-#endif  /* EXPAND_CHOSEN_ARG */
+#endif  /* EXPAND_ONE_ARG */
 
 #define handle_zero_arity_args()                                        \
             do {                                                        \
                 expand_info->arity = 0;                                 \
                 handle_zero_arity_all_args();                           \
-                handle_zero_arity_chosen_arg();                         \
+                handle_zero_arity_one_arg();                            \
             } while (0)
 
 /***********************************************************************/
 
 void
 EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
+    MR_noncanon_handling noncanon,
 #ifdef  EXPAND_APPLY_LIMIT
     int max_arity,
 #endif  /* EXPAND_APPLY_LIMIT */
 #ifdef  EXPAND_CHOSEN_ARG
     int chosen,
 #endif  /* EXPAND_CHOSEN_ARG */
+#ifdef  EXPAND_NAMED_ARG
+    MR_ConstString chosen_name,
+#endif  /* EXPAND_NAMED_ARG */
     EXPAND_TYPE_NAME *expand_info)
 {
     MR_TypeCtorInfo type_ctor_info;
+    MR_DuTypeLayout du_type_layout;
+#ifdef EXPAND_NAMED_ARG
+    /*
+    ** No arm of the switch on type_ctor_rep handles named arguments by
+    ** default. Only those type_ctor_reps that support named arguments
+    ** need have code for searching for argument names. For the rest,
+    ** initializing chosen to -1 ensures that no argument will be returned.
+    */
+    int chosen = -1;
+#endif /* EXPAND_NAMED_ARG */
 
     type_ctor_info = MR_TYPEINFO_GET_TYPE_CTOR_INFO(type_info);
-    expand_info->non_canonical_type = FALSE;
 #ifdef  EXPAND_ARGS_FIELD
     expand_info->EXPAND_ARGS_FIELD.can_free_arg_type_infos = FALSE;
 #endif  /* EXPAND_ARGS_FIELD */
@@ -186,24 +237,112 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
     expand_info->limit_reached = FALSE;
 #endif  /* EXPAND_APPLY_LIMIT */
 
-    switch(type_ctor_info->type_ctor_rep) {
+    switch(MR_type_ctor_rep(type_ctor_info)) {
 
         case MR_TYPECTOR_REP_ENUM_USEREQ:
-            expand_info->non_canonical_type = TRUE;
-            /* fall through */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            } else if (noncanon == MR_NONCANON_ALLOW) {
+                handle_noncanonical_name(type_ctor_info);
+                handle_zero_arity_args();
+                break;
+            }
+            /* else fall through */
 
         case MR_TYPECTOR_REP_ENUM:
-            handle_functor_name(type_ctor_info->type_layout.
+            handle_functor_name(MR_type_ctor_layout(type_ctor_info).
                     layout_enum[*data_word_ptr]->MR_enum_functor_name);
             handle_zero_arity_args();
             break;
 
+        case MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ:
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            } else if (noncanon == MR_NONCANON_ALLOW) {
+                handle_noncanonical_name(type_ctor_info);
+                handle_zero_arity_args();
+                break;
+            }
+            /* else fall through */
+
+        case MR_TYPECTOR_REP_RESERVED_ADDR:
+            {
+				int i;
+				MR_Word data;
+				MR_ReservedAddrTypeLayout ra_layout;
+
+				ra_layout = MR_type_ctor_layout(type_ctor_info).layout_reserved_addr;
+				data = *data_word_ptr;
+
+				/*
+				** First check if this value is one of
+				** the numeric reserved addresses.
+				*/
+				if ((MR_Unsigned) data <
+					(MR_Unsigned) ra_layout->MR_ra_num_res_numeric_addrs)
+				{
+					handle_functor_name(ra_layout->MR_ra_constants[data]->
+							MR_ra_functor_name);
+					handle_zero_arity_args();
+					break;
+				}
+
+				/*
+				** Next check if this value is one of the
+				** the symbolic reserved addresses.
+				*/
+				for (i = 0; i < ra_layout->MR_ra_num_res_symbolic_addrs; i++) {
+                    if (data == (MR_Word) ra_layout->
+                            MR_ra_res_symbolic_addrs[i])
+                    {
+                        int offset;
+                        offset = i + ra_layout->MR_ra_num_res_numeric_addrs;
+                        handle_functor_name(ra_layout->
+                            MR_ra_constants[offset]->MR_ra_functor_name);
+						handle_zero_arity_args();
+						/* "break" here would just exit the "for" loop */
+						return;
+					}
+				}
+
+				/*
+				** Otherwise, it is not one of the reserved addresses,
+				** so handle it like a normal DU type.
+				*/
+				du_type_layout = ra_layout->MR_ra_other_functors;
+				goto du_type;
+			}
+
         case MR_TYPECTOR_REP_DU_USEREQ:
-            expand_info->non_canonical_type = TRUE;
-            /* fall through */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            } else if (noncanon == MR_NONCANON_ALLOW) {
+                handle_noncanonical_name(type_ctor_info);
+                handle_zero_arity_args();
+                break;
+            }
+            /* else fall through */
 
         case MR_TYPECTOR_REP_DU:
-            {
+			du_type_layout = MR_type_ctor_layout(type_ctor_info).layout_du;
+			/* fall through */
+
+			/*
+			** This label handles both the DU case and the second half of the
+			** RESERVED_ADDR case.  `du_type_layout' must be set before
+			** this code is entered.
+			*/
+		du_type:
+			{
                 const MR_DuPtagLayout   *ptag_layout;
                 const MR_DuFunctorDesc  *functor_desc;
                 const MR_DuExistInfo    *exist_info;
@@ -215,7 +354,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 
                 data = *data_word_ptr;
                 ptag = MR_tag(data);
-                ptag_layout = &type_ctor_info->type_layout.layout_du[ptag];
+                ptag_layout = &du_type_layout[ptag];
 
                 switch (ptag_layout->MR_sectag_locn) {
                     case MR_SECTAG_NONE:
@@ -235,24 +374,22 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                         arg_vector = (MR_Word *) MR_body(data, ptag) + 1;
                         break;
                     case MR_SECTAG_VARIABLE:
-		        handle_functor_name("<<variable>>");
-		        handle_zero_arity_args();
-				/*
-				** XXX We should do something like the
-				** following, since deconstructing a value
-				** that might be a variable should be
-				** cc_multi rather than det. However, there
-				** is no such version of deconstruct yet,
-				** so we'll leave it out.
-				*/
-			/*expand_info->non_canonical_type = TRUE;*/
-		        return;
-                }
+                        if (noncanon != MR_NONCANON_CC) {
+                            /* XXX should throw an exception */
+                            MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                                ": attempt to deconstruct variable");
+                            break;
+                        } 
+
+                        handle_functor_name("<<variable>>");
+                        handle_zero_arity_args();
+						return;
+				}
 
                 handle_functor_name(functor_desc->MR_du_functor_name);
                 expand_info->arity = functor_desc->MR_du_functor_orig_arity;
 
-#if     defined(EXPAND_ARGS_FIELD) || defined(EXPAND_CHOSEN_ARG)
+#if     defined(EXPAND_ARGS_FIELD) || defined(EXPAND_ONE_ARG)
                 exist_info = functor_desc->MR_du_functor_exist_info;
                 if (exist_info != NULL) {
                     extra_args = exist_info->MR_exist_typeinfos_plain
@@ -260,7 +397,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 } else {
                     extra_args = 0;
                 }
-#endif  /* defined(EXPAND_ARGS_FIELD) || defined(EXPAND_CHOSEN_ARG) */
+#endif  /* defined(EXPAND_ARGS_FIELD) || defined(EXPAND_ONE_ARG) */
 
 #ifdef  EXPAND_ARGS_FIELD
   #ifdef    EXPAND_APPLY_LIMIT
@@ -270,6 +407,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
   #endif    /* EXPAND_APPLY_LIMIT */
                 {
                     int i;
+
                     expand_info->EXPAND_ARGS_FIELD.num_extra_args = extra_args;
                     expand_info->EXPAND_ARGS_FIELD.arg_values = arg_vector;
                     expand_info->EXPAND_ARGS_FIELD.can_free_arg_type_infos =
@@ -293,7 +431,24 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     }
                 }
 #endif  /* EXPAND_ARGS_FIELD */
-#ifdef  EXPAND_CHOSEN_ARG
+
+#ifdef  EXPAND_ONE_ARG
+  #ifdef  EXPAND_NAMED_ARG
+                {
+                    int i;
+
+                    for (i = 0; i < expand_info->arity; i++) {
+                        if (functor_desc->MR_du_functor_arg_names[i] != NULL
+                            && streq(functor_desc->MR_du_functor_arg_names[i],
+                                chosen_name))
+                        {
+                            chosen = i;
+                            break;
+                        }
+                    }
+                }
+  #endif  /* EXPAND_NAMED_ARG */
+
                 if (0 <= chosen && chosen < expand_info->arity) {
                     expand_info->chosen_index_exists = TRUE;
                     expand_info->chosen_value_ptr =
@@ -313,18 +468,27 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 } else {
                     expand_info->chosen_index_exists = FALSE;
                 }
-#endif  /* EXPAND_CHOSEN_ARG */
+#endif  /* EXPAND_ONE_ARG */
             }
             break;
 
         case MR_TYPECTOR_REP_NOTAG_USEREQ:
-            expand_info->non_canonical_type = TRUE;
-            /* fall through */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            } else if (noncanon == MR_NONCANON_ALLOW) {
+                handle_noncanonical_name(type_ctor_info);
+                handle_zero_arity_args();
+                break;
+            }
+            /* else fall through */
 
         case MR_TYPECTOR_REP_NOTAG:
             expand_info->arity = 1;
-            handle_functor_name(type_ctor_info->type_layout.layout_notag
-                    ->MR_notag_functor_name);
+            handle_functor_name(MR_type_ctor_layout(type_ctor_info).
+                layout_notag->MR_notag_functor_name);
 
 #ifdef  EXPAND_ARGS_FIELD
             expand_info->EXPAND_ARGS_FIELD.num_extra_args = 0;
@@ -335,32 +499,52 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
             expand_info->EXPAND_ARGS_FIELD.arg_type_infos[0] =
                 MR_create_type_info(
                     MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
-                    type_ctor_info->type_layout.layout_notag->
+                    MR_type_ctor_layout(type_ctor_info).layout_notag->
                         MR_notag_functor_arg_type);
 #endif  /* EXPAND_ARGS_FIELD */
-#ifdef  EXPAND_CHOSEN_ARG
+
+#ifdef  EXPAND_ONE_ARG
+  #ifdef    EXPAND_NAMED_ARG
+            if (MR_type_ctor_layout(type_ctor_info).layout_notag
+                    ->MR_notag_functor_arg_name != NULL
+               && streq(chosen_name, MR_type_ctor_layout(type_ctor_info).
+                    layout_notag->MR_notag_functor_arg_name))
+            {
+                chosen = 0;
+            }
+  #endif    /* EXPAND_NAMED_ARG */
+
             if (chosen == 0) {
                 expand_info->chosen_index_exists = TRUE;
                 expand_info->chosen_value_ptr = data_word_ptr;
                 expand_info->chosen_type_info =
                     MR_create_type_info(
                         MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
-                        type_ctor_info->type_layout.layout_notag->
+                        MR_type_ctor_layout(type_ctor_info).layout_notag->
                             MR_notag_functor_arg_type);
             } else {
                 expand_info->chosen_index_exists = FALSE;
             }
-#endif  /* EXPAND_CHOSEN_ARG */
+#endif  /* EXPAND_ONE_ARG */
             break;
 
         case MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ:
-            expand_info->non_canonical_type = TRUE;
-            /* fall through */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            } else if (noncanon == MR_NONCANON_ALLOW) {
+                handle_noncanonical_name(type_ctor_info);
+                handle_zero_arity_args();
+                break;
+            }
+            /* else fall through */
 
         case MR_TYPECTOR_REP_NOTAG_GROUND:
             expand_info->arity = 1;
-            handle_functor_name(type_ctor_info->type_layout.layout_notag
-                    ->MR_notag_functor_name);
+            handle_functor_name(MR_type_ctor_layout(type_ctor_info).
+                layout_notag->MR_notag_functor_name);
 
 #ifdef  EXPAND_ARGS_FIELD
             expand_info->EXPAND_ARGS_FIELD.num_extra_args = 0;
@@ -369,20 +553,33 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
             expand_info->EXPAND_ARGS_FIELD.arg_type_infos =
                 MR_GC_NEW_ARRAY(MR_TypeInfo, 1);
             expand_info->EXPAND_ARGS_FIELD.arg_type_infos[0] =
-                MR_pseudo_type_info_is_ground(type_ctor_info->
-                    type_layout.layout_notag->MR_notag_functor_arg_type);
+                MR_pseudo_type_info_is_ground(
+                    MR_type_ctor_layout(type_ctor_info).layout_notag->
+                        MR_notag_functor_arg_type);
 #endif  /* EXPAND_ARGS_FIELD */
-#ifdef  EXPAND_CHOSEN_ARG
+
+#ifdef  EXPAND_ONE_ARG
+  #ifdef    EXPAND_NAMED_ARG
+            if (MR_type_ctor_layout(type_ctor_info).layout_notag
+                    ->MR_notag_functor_arg_name != NULL
+               && streq(chosen_name, MR_type_ctor_layout(type_ctor_info).
+                    layout_notag->MR_notag_functor_arg_name))
+            {
+                chosen = 0;
+            }
+  #endif    /* EXPAND_NAMED_ARG */
+
             if (chosen == 0) {
                 expand_info->chosen_index_exists = TRUE;
                 expand_info->chosen_value_ptr = data_word_ptr;
                 expand_info->chosen_type_info =
-                MR_pseudo_type_info_is_ground(type_ctor_info->
-                    type_layout.layout_notag->MR_notag_functor_arg_type);
+                MR_pseudo_type_info_is_ground(
+                    MR_type_ctor_layout(type_ctor_info).layout_notag
+                        ->MR_notag_functor_arg_type);
             } else {
                 expand_info->chosen_index_exists = FALSE;
             }
-#endif  /* EXPAND_CHOSEN_ARG */
+#endif  /* EXPAND_ONE_ARG */
             break;
 
         case MR_TYPECTOR_REP_EQUIV:
@@ -391,24 +588,16 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 
                 eqv_type_info = MR_create_type_info(
                     MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
-                    type_ctor_info->type_layout.layout_equiv);
-                EXPAND_FUNCTION_NAME(eqv_type_info, data_word_ptr,
+                    MR_type_ctor_layout(type_ctor_info).layout_equiv);
+                EXPAND_FUNCTION_NAME(eqv_type_info, data_word_ptr, noncanon,
                     EXTRA_ARGS expand_info);
             }
             break;
 
         case MR_TYPECTOR_REP_EQUIV_GROUND:
             EXPAND_FUNCTION_NAME(MR_pseudo_type_info_is_ground(
-                type_ctor_info->type_layout.layout_equiv),
-                data_word_ptr, EXTRA_ARGS expand_info);
-            break;
-
-        case MR_TYPECTOR_REP_EQUIV_VAR:
-            /*
-            ** The current version of the RTTI gives all such equivalence types
-            ** the EQUIV type_ctor_rep, not EQUIV_VAR.
-            */
-            MR_fatal_error("unexpected EQUIV_VAR type_ctor_rep");
+                MR_type_ctor_layout(type_ctor_info).layout_equiv),
+                data_word_ptr, noncanon, EXTRA_ARGS expand_info);
             break;
 
         case MR_TYPECTOR_REP_INT:
@@ -488,8 +677,26 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
             handle_zero_arity_args();
             break;
 
+        case MR_TYPECTOR_REP_FUNC:
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
+            handle_functor_name("<<function>>");
+            handle_zero_arity_args();
+            break;
+
         case MR_TYPECTOR_REP_PRED:
-            /* XXX expand_info->non_canonical_type = TRUE; */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
             handle_functor_name("<<predicate>>");
             handle_zero_arity_args();
             break;
@@ -517,7 +724,8 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                         MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(type_info) + 1;
             }
 #endif  /* EXPAND_ARGS_FIELD */
-#ifdef  EXPAND_CHOSEN_ARG
+
+#ifdef  EXPAND_ONE_ARG
             if (0 <= chosen && chosen < expand_info->arity) {
                 MR_Word *arg_vector;
 
@@ -529,7 +737,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
             } else {
                 expand_info->chosen_index_exists = FALSE;
             }
-#endif  /* EXPAND_CHOSEN_ARG */
+#endif  /* EXPAND_ONE_ARG */
             break;
 
         case MR_TYPECTOR_REP_UNIV: {
@@ -543,7 +751,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                  */
             data_word = *data_word_ptr;
             MR_unravel_univ(data_word, univ_type_info, univ_data);
-            EXPAND_FUNCTION_NAME(univ_type_info, &univ_data,
+            EXPAND_FUNCTION_NAME(univ_type_info, &univ_data, noncanon,
                 EXTRA_ARGS expand_info);
             break;
         }
@@ -557,22 +765,62 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 ": cannot expand void types");
 
         case MR_TYPECTOR_REP_C_POINTER:
-            /* XXX expand_info->non_canonical_type = TRUE; */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
             handle_functor_name("<<c_pointer>>");
             handle_zero_arity_args();
             break;
 
         case MR_TYPECTOR_REP_TYPEINFO:
-            /* XXX expand_info->non_canonical_type = TRUE; */
-            /* XXX should we return the arguments here? */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
             handle_functor_name("<<typeinfo>>");
             handle_zero_arity_args();
             break;
 
+        case MR_TYPECTOR_REP_TYPECTORINFO:
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
+            handle_functor_name("<<typectorinfo>>");
+            handle_zero_arity_args();
+            break;
+
         case MR_TYPECTOR_REP_TYPECLASSINFO:
-            /* XXX expand_info->non_canonical_type = TRUE; */
-            /* XXX should we return the arguments here? */
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
             handle_functor_name("<<typeclassinfo>>");
+            handle_zero_arity_args();
+            break;
+
+        case MR_TYPECTOR_REP_BASETYPECLASSINFO:
+            if (noncanon == MR_NONCANON_ABORT) {
+                /* XXX should throw an exception */
+                MR_fatal_error(MR_STRINGIFY(EXPAND_FUNCTION_NAME)
+                    ": attempt to deconstruct noncanonical term");
+                break;
+            }
+
+            handle_functor_name("<<basetypeclassinfo>>");
             handle_zero_arity_args();
             break;
 
@@ -609,7 +857,8 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                     }
                 }
 #endif  /* EXPAND_ARGS_FIELD */
-#ifdef  EXPAND_CHOSEN_ARG
+
+#ifdef  EXPAND_ONE_ARG
                 if (0 <= chosen && chosen < array->size) {
                     MR_TypeInfoParams   params;
 
@@ -620,7 +869,7 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 } else {
                     expand_info->chosen_index_exists = FALSE;
                 }
-#endif  /* EXPAND_CHOSEN_ARG */
+#endif  /* EXPAND_ONE_ARG */
             }
             break;
 
@@ -674,8 +923,11 @@ EXPAND_FUNCTION_NAME(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 
 #undef  EXTRA_ARG1
 #undef  EXTRA_ARG2
+#undef  EXTRA_ARG3
 #undef  EXTRA_ARGS
+#undef  EXPAND_ONE_ARG
 #undef  handle_functor_name
+#undef  handle_noncanonical_name
 #undef  handle_zero_arity_args
 #undef  handle_zero_arity_all_args
-#undef  handle_zero_arity_chosen_arg
+#undef  handle_zero_arity_one_arg

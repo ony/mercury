@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -57,16 +57,21 @@ ml_string_switch__generate(Cases, Var, CodeModel, _CanFail, Context,
 	{ SlotVarName = mlds__var_name(
 		string__format("slot_%d", [i(SlotVarSeq)]), no) },
 	{ SlotVarType = mlds__native_int_type },
+	{ SlotVarGCTraceCode = no }, % never need to trace ints
 	{ SlotVarDefn = ml_gen_mlds_var_decl(var(SlotVarName), SlotVarType,
-		MLDS_Context) },
+		SlotVarGCTraceCode, MLDS_Context) },
 	ml_gen_var_lval(SlotVarName, SlotVarType, SlotVarLval),
 
 	ml_gen_info_new_cond_var(StringVarSeq),
 	{ StringVarName = mlds__var_name(
 		string__format("str_%d", [i(StringVarSeq)]), no) },
 	{ StringVarType = ml_string_type },
+	% This variable always points to an element of the string_table array,
+	% which are all static constants; it can never point into the heap.
+	% So the GC never needs to trace it
+	{ StringVarGCTraceCode = no },
 	{ StringVarDefn = ml_gen_mlds_var_decl(var(StringVarName),
-		StringVarType, MLDS_Context) },
+		StringVarType, StringVarGCTraceCode, MLDS_Context) },
 	ml_gen_var_lval(StringVarName, StringVarType, StringVarLval),
 
 	%
@@ -116,8 +121,7 @@ ml_string_switch__generate(Cases, Var, CodeModel, _CanFail, Context,
 		NextSlotsName),
 	{ NextSlotsType = mlds__array_type(SlotVarType) },
 	{ NextSlotsDefn = ml_gen_static_const_defn(NextSlotsName,
-		NextSlotsType,
-		init_array(NextSlots), Context) },
+		NextSlotsType, local, init_array(NextSlots), Context) },
 	ml_gen_var_lval(NextSlotsName, NextSlotsType, NextSlotsLval),
 
 	ml_gen_info_new_const(StringTableSeq),
@@ -125,7 +129,7 @@ ml_string_switch__generate(Cases, Var, CodeModel, _CanFail, Context,
 		StringTableName),
 	{ StringTableType = mlds__array_type(StringVarType) },
 	{ StringTableDefn = ml_gen_static_const_defn(StringTableName,
-		StringTableType, init_array(Strings), Context) },
+		StringTableType, local, init_array(Strings), Context) },
 	ml_gen_var_lval(StringTableName, StringTableType ,StringTableLval),
 	
 	%

@@ -731,9 +731,16 @@ The last HLDS-to-HLDS transformation implements deep profiling
 			which holds the information about
 			the contents of registers and
 			the values/locations of variables.
+			It implements lazy code generation.
 		<dt> exprn_aux.m
 			<dd>
 			Various preds which use exprn_info.
+		<dt> var_locn.m
+			<dd>
+			This defines the var_locn type, which is an alternative
+			to code_exprn; like code_exprn, it keeps track of
+			the values and locations of variables.
+			It implements eager code generation.
 		<dt> code_util.m
 			<dd>
 			Some miscellaneous preds used for code generation.
@@ -897,6 +904,8 @@ So we have a pass which transforms the HLDS to handle trailing:
      resumes after backtracking, and whenever we do a commit.
      The trail operations are represented as (and implemented as)
      calls to impure procedures defined in library/private_builtin.m. 
+<li> add_heap_ops.m is very similar to add_trail_ops.m;
+     it inserts code to do heap reclamation on backtracking.
 </ul>
 
 <h4> 4b. MLDS code generation </h4>
@@ -928,7 +937,9 @@ So we have a pass which transforms the HLDS to handle trailing:
 <ul>
 <li> ml_tailcall.m annotates the MLDS with information about tailcalls.
 <li> ml_optimize.m does MLDS-&gt;MLDS optimizations
-<li> ml_elim_nested.m transforms the MLDS to eliminate nested functions.
+<li> ml_elim_nested.m does two MLDS transformations that happen
+     to have a lot in common: (1) eliminating nested functions
+     and (2) adding code to handle accurate garbage collection.
 </ul>
 
 <h4> 6b. MLDS output </h4>
@@ -1157,6 +1168,6 @@ compiled code.
 <hr>
 <!---------------------------------------------------------------------------->
 
-Last update was $Date: 2001-09-17 04:44:14 $ by $Author: dmo $@cs.mu.oz.au. <br>
+Last update was $Date: 2002-02-05 04:54:01 $ by $Author: zs $@cs.mu.oz.au. <br>
 </body>
 </html>

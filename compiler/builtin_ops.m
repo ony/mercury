@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -191,7 +191,7 @@ builtin_translation("int", "*", 0, [X, Y, Z],
 	assign(Z, binary((*), leaf(X), leaf(Y)))).
 builtin_translation("int", "unchecked_quotient", 0, [X, Y, Z],
 	assign(Z, binary((/), leaf(X), leaf(Y)))).
-builtin_translation("int", "rem", 0, [X, Y, Z],
+builtin_translation("int", "unchecked_rem", 0, [X, Y, Z],
 	assign(Z, binary((mod), leaf(X), leaf(Y)))).
 builtin_translation("int", "unchecked_left_shift", 0, [X, Y, Z],
 	assign(Z, binary((<<), leaf(X), leaf(Y)))).

@@ -24,7 +24,7 @@ ORDINARY_PROGS=	\
 	comparison \
 	constraint \
 	constraint_order \
-	construct \
+	construct_test \
 	curry \
 	curry2 \
 	cut_test \
@@ -37,6 +37,7 @@ ORDINARY_PROGS=	\
 	det_in_semidet_cntxt \
 	division_test \
 	dupcall_types_bug \
+	dupcall_impurity \
 	elim_special_pred \
 	eqv_type_bug \
 	erroneous_liveness \
@@ -53,6 +54,7 @@ ORDINARY_PROGS=	\
 	float_map \
 	float_reg \
 	float_rounding_bug \
+	foreign_import_module \
 	frameopt_pragma_redirect \
 	free_free_mode \
 	func_and_pred \
@@ -64,16 +66,19 @@ ORDINARY_PROGS=	\
 	higher_order_syntax \
 	higher_order_syntax2 \
 	higher_order_type_manip \
+	ho_func_default_inst \
 	ho_func_reg \
 	ho_order \
 	ho_order2 \
 	ho_solns \
 	ho_univ_to_type \
 	impossible_unify \
+	impure_foreign \
 	impure_prune \
 	integer_test \
 	intermod_c_code \
 	intermod_multimode_main \
+	intermod_type_qual \
 	join_list \
 	merge_and_remove_dups \
 	minint_bug \
@@ -90,6 +95,7 @@ ORDINARY_PROGS=	\
 	pragma_export \
 	pragma_import \
 	pragma_inline \
+	pretty_printing \
 	qual_adv_test \
 	qual_basic_test \
 	qual_is_test \
@@ -113,6 +119,7 @@ ORDINARY_PROGS=	\
 	string_alignment \
 	string_alignment_bug \
 	string_loop \
+	target_mlobjs \
 	term_io_test \
 	term_to_univ_test \
 	test_bitset \
@@ -126,6 +133,7 @@ ORDINARY_PROGS=	\
 	type_spec_ho_term \
 	type_spec_modes \
 	type_to_term_bug \
+	unify_expression \
 	unused_float_box_test \
 	user_defined_equality2 \
 	write \
@@ -224,8 +232,11 @@ MCFLAGS-func_test	=	--infer-all
 MCFLAGS-ho_order	=	--optimize-higher-order
 MCFLAGS-ho_order2	=	--optimize-higher-order
 MCFLAGS-no_fully_strict	=	--no-fully-strict
+MCFLAGS-impure_foreign	=	--optimize-duplicate-calls
 MCFLAGS-intermod_c_code =	--intermodule-optimization
 MCFLAGS-intermod_c_code2 =	--intermodule-optimization
+MCFLAGS-intermod_type_qual =	--intermodule-optimization
+MCFLAGS-intermod_type_qual2 =	--intermodule-optimization
 MCFLAGS-intermod_multimode =	--intermodule-optimization
 MCFLAGS-intermod_multimode_main = --intermodule-optimization
 MCFLAGS-nondet_copy_out =	--no-inlining --nondet-copy-out
@@ -240,6 +251,8 @@ MCFLAGS-user_defined_equality	= --infer-all
 MCFLAGS-parse		=	--trace deep
 MCFLAGS-unused_float_box_test =	--infer-all
 
+MLOBJS-target_mlobjs	=	target_mlobjs_c.o
+
 # In grade `none' with options `-O1 --opt-space' on kryten
 # (a sparc-sun-solaris2.5 system), mode_choice needs to be linked
 # with `--no-strip', otherwise it gets a seg fault. 
@@ -251,19 +264,22 @@ MCFLAGS-unused_float_box_test =	--infer-all
 # tracking it down.
 MLFLAGS-mode_choice = --no-strip
 
-# these tests run out of memory unless we have GC
-GRADEFLAGS-integer_test		=	--gc conservative
-GRADEFLAGS-integer_test_init	=	--gc conservative
-GRADEFLAGS-rational_test 	=	--gc conservative
-GRADEFLAGS-rational_test_init	=	--gc conservative
-
-C2INITFLAGS-parse		= 	--trace
 MLFLAGS-parse			=	--trace --static
 
-C2INITFLAGS-split-c-files	= 	--trace
 MLFLAGS-split-c-files		=	--trace
 
-C2INITFLAGS-needs_init		= 	--include-initialization-code --extra-inits
+MLFLAGS-needs_init		= 	--include-initialization-code --extra-inits
+
+# These tests run out of memory in non-GC grades
+# unless we increase the heap size from the default 4M.
+# The sizes specified here (70 Mb and 20 Mb respectively)
+# are sufficient for running these tests on 64-bit systems.
+# The setting of `--mdb-out' tests the quoting of runtime
+# options containing special characters.
+
+MLFLAGS-integer_test = \
+		--runtime-flags "--heap-size 70000 --mdb-out \"mdb\\mdb out\""
+MLFLAGS-rational_test = --runtime-flags "--heap-size 20000"
 
 # no_fully_strict is expected to fail (it calls error/1).
 # We also need to pipe the output through sed to avoid hard-coding
@@ -290,6 +306,9 @@ dep_local:	$(DEPS)
 depend_local:	$(DEPENDS)
 check_local:	$(OUTS) $(RESS)
 all_local:	$(PROGS) $(SPLIT_PROGS:%=%.split)
+
+clean_local:
+	rm -f target_mlobjs_c.o		
 
 #-----------------------------------------------------------------------------#
 

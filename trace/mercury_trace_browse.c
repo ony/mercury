@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -33,9 +33,9 @@
 #include "mdb.browser_info.h"
 #include "mdb.interactive_query.h"
 #ifdef MR_HIGHLEVEL_CODE
-  #include "mercury.std_util.h"
+  #include "mercury.type_desc.h"
 #else
-  #include "std_util.h"
+  #include "type_desc.h"
 #endif
 
 #include <stdio.h>
@@ -47,12 +47,6 @@ static	void		MR_trace_browse_ensure_init(void);
 
 static	bool		MR_trace_is_portray_format(const char *str,
 				MR_Browse_Format *format);
-
-static void
-MR_c_file_to_mercury_file(FILE *c_file, MercuryFile *mercury_file)
-{
-	MR_mercuryfile_init(c_file, 1, mercury_file);
-}
 
 void
 MR_trace_browse(MR_Word type_info, MR_Word value, MR_Browse_Format format)
@@ -84,6 +78,41 @@ MR_trace_browse(MR_Word type_info, MR_Word value, MR_Browse_Format format)
 	MR_trace_browser_persistent_state =
 			MR_make_permanent(MR_trace_browser_persistent_state,
 				MR_trace_browser_persistent_state_type);
+}
+
+void
+MR_trace_browse_goal(MR_ConstString name, MR_Word arg_list, MR_Word is_func,
+	MR_Browse_Format format)
+{
+	MercuryFile	mdb_in, mdb_out;
+	MR_Word		maybe_mark;
+
+	MR_trace_browse_ensure_init();
+
+	MR_c_file_to_mercury_file(MR_mdb_in, &mdb_in);
+	MR_c_file_to_mercury_file(MR_mdb_out, &mdb_out);
+
+	if (format != MR_BROWSE_DEFAULT_FORMAT) {
+		MR_TRACE_CALL_MERCURY(
+			ML_BROWSE_browse_format_synthetic(
+				(MR_String) (MR_Word) name, arg_list, is_func,
+				(MR_Word) &mdb_in, (MR_Word) &mdb_out,
+				(MR_Word) format,
+				MR_trace_browser_persistent_state,
+				&MR_trace_browser_persistent_state);
+		);
+	} else {
+		MR_TRACE_CALL_MERCURY(
+			ML_BROWSE_browse_synthetic(
+				(MR_String) (MR_Word) name, arg_list, is_func,
+				(MR_Word) &mdb_in, (MR_Word) &mdb_out,
+				&maybe_mark, MR_trace_browser_persistent_state,
+				&MR_trace_browser_persistent_state);
+		);
+	}
+	MR_trace_browser_persistent_state =
+		MR_make_permanent(MR_trace_browser_persistent_state,
+			MR_trace_browser_persistent_state_type);
 }
 
 /*
@@ -135,6 +164,34 @@ MR_trace_print(MR_Word type_info, MR_Word value, MR_Browse_Caller_Type caller,
 	} else {
 		MR_TRACE_CALL_MERCURY(
 			ML_BROWSE_print(type_info, value,
+				(MR_Word) &mdb_out, (MR_Word) caller,
+				MR_trace_browser_persistent_state);
+		);
+	}
+}
+
+void
+MR_trace_print_goal(MR_ConstString name, MR_Word arg_list, MR_Word is_func,
+	MR_Browse_Caller_Type caller, MR_Browse_Format format)
+{
+	MercuryFile mdb_out;
+
+	MR_trace_browse_ensure_init();
+
+	MR_c_file_to_mercury_file(MR_mdb_out, &mdb_out);
+
+	if (format != MR_BROWSE_DEFAULT_FORMAT) {
+		MR_TRACE_CALL_MERCURY(
+			ML_BROWSE_print_format_synthetic(
+				(MR_String) (MR_Word) name, arg_list, is_func,
+				(MR_Word) &mdb_out, (MR_Word) caller,
+				(MR_Word) format,
+				MR_trace_browser_persistent_state);
+		);
+	} else {
+		MR_TRACE_CALL_MERCURY(
+			ML_BROWSE_print_synthetic(
+				(MR_String) (MR_Word) name, arg_list, is_func,
 				(MR_Word) &mdb_out, (MR_Word) caller,
 				MR_trace_browser_persistent_state);
 		);
@@ -237,7 +294,7 @@ MR_trace_browse_ensure_init(void)
 
 	if (! done) {
 		MR_TRACE_CALL_MERCURY(
-			ML_get_type_info_for_type_info(&typeinfo_type_word);
+			typeinfo_type_word = ML_get_type_info_for_type_info();
 			ML_BROWSE_browser_persistent_state_type(
 				&MR_trace_browser_persistent_state_type_word);
 			ML_BROWSE_init_persistent_state(

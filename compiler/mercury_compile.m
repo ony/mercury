@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2001 The University of Melbourne.
+% Copyright (C) 1994-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -34,6 +34,7 @@
 :- import_module mode_constraints.
 :- import_module switch_detection, cse_detection, det_analysis, unique_modes.
 :- import_module stratify, simplify.
+:- import_module pprint.
 
 	% high-level HLDS transformations
 :- import_module check_typeclass, intermod, trans_opt, table_gen, (lambda).
@@ -57,7 +58,7 @@
 :- import_module bytecode_gen, bytecode.
 
 	% the MLDS back-end
-:- import_module add_trail_ops.			% HLDS -> HLDS
+:- import_module add_trail_ops, add_heap_ops.	% HLDS -> HLDS
 :- import_module mark_static_terms.		% HLDS -> HLDS
 :- import_module mlds.				% MLDS data structure
 :- import_module ml_code_gen, rtti_to_mlds.	% HLDS/RTTI -> MLDS
@@ -296,7 +297,8 @@ compile_using_gcc_backend(FirstFileOrModule, CallBack, ModulesToLink) -->
 		globals__io_lookup_bool_option(target_code_only, 
 				TargetCodeOnly),
 		( { Result = ok, TargetCodeOnly = no } ->
-			object_extension(Obj),
+			globals__io_lookup_string_option(object_file_extension,
+				Obj),
 			module_name_to_file_name(ModuleName, Obj,
 				yes, O_File),
 			mercury_compile__asm_to_obj(
@@ -721,11 +723,11 @@ process_module_2(FileOrModule, MaybeModulesToRecompile, ReadModules0,
 					list__member(SubModule,
 						ModulesToRecompile)
 				),
-				SubModuleList0, SubModuleList)
+				SubModuleList0, SubModuleListToCompile)
 		;
-				SubModuleList = SubModuleList0	
+				SubModuleListToCompile = SubModuleList0	
 		},
-		{ assoc_list__keys(SubModuleList, NestedSubModules0) },
+		{ assoc_list__keys(SubModuleList0, NestedSubModules0) },
 		{ list__delete_all(NestedSubModules0,
 			ModuleName, NestedSubModules) },
 
@@ -751,7 +753,7 @@ process_module_2(FileOrModule, MaybeModulesToRecompile, ReadModules0,
 			compile_all_submodules(FileName,
 				ModuleName - NestedSubModules,
 				MaybeTimestamp, ReadModules,
-				FindTimestampFiles, SubModuleList,
+				FindTimestampFiles, SubModuleListToCompile,
 				ModulesToLink),
 
 			globals__io_set_option(trace_stack_layout, bool(TSL)),
@@ -760,7 +762,7 @@ process_module_2(FileOrModule, MaybeModulesToRecompile, ReadModules0,
 			compile_all_submodules(FileName,
 				ModuleName - NestedSubModules,
 				MaybeTimestamp, ReadModules,
-				FindTimestampFiles, SubModuleList,
+				FindTimestampFiles, SubModuleListToCompile,
 				ModulesToLink)
 		)
 	).
@@ -855,7 +857,8 @@ find_smart_recompilation_target_files(TopLevelModuleName,
 			% We don't know how many chunks there should
 			% be, so just check the first.
 			{ Chunk = 0 },
-			object_extension(Obj),
+			globals__io_lookup_string_option(object_file_extension,
+				Obj),
 			module_name_to_split_c_file_name(ModuleName, Chunk,
 				Obj, FileName)
 		)
@@ -1070,7 +1073,8 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 				( { ContainsCCode = yes } ->
 					module_name_to_file_name(ModuleName,
 						".c", no, CCode_C_File),
-					object_extension(Obj),
+					globals__io_lookup_string_option(
+						object_file_extension, Obj),
 					module_name_to_file_name(ModuleName,
 						"__c_code" ++ Obj,
 						yes, CCode_O_File),
@@ -1097,7 +1101,8 @@ mercury_compile(Module, NestedSubModules, FindTimestampFiles) -->
 			;
 				module_name_to_file_name(ModuleName, ".c", no,
 					C_File),
-				object_extension(Obj),
+				globals__io_lookup_string_option(
+					object_file_extension, Obj),
 				module_name_to_file_name(ModuleName, Obj, yes,
 					O_File),
 				mercury_compile__single_c_to_obj(
@@ -1296,7 +1301,8 @@ mercury_compile__maybe_grab_optfiles(Imports0, Verbose, MaybeTransOptDeps,
 			{ Imports0 = module_imports(_File, _Module, Ancestors,
 				InterfaceImports, ImplementationImports,
 				_IndirectImports, _PublicChildren, _FactDeps,
-				_ForeignCode, _Items, _Error, _Timestamps) },
+				_ForeignCode, _ForeignImports, _Items,
+				_Error, _Timestamps) },
 			{ list__condense([Ancestors, InterfaceImports,
 				ImplementationImports], TransOptFiles) },
 			trans_opt__grab_optfiles(Imports1, TransOptFiles,
@@ -2330,6 +2336,40 @@ mercury_compile__maybe_add_trail_ops(HLDS0, Verbose, Stats, HLDS) -->
 		{ HLDS = HLDS0 }
 	).
 
+:- pred mercury_compile__maybe_add_heap_ops(module_info, bool, bool,
+		module_info, io__state, io__state).
+:- mode mercury_compile__maybe_add_heap_ops(in, in, in, out, di, uo)
+		is det.
+
+mercury_compile__maybe_add_heap_ops(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_get_gc_method(GC),
+	globals__io_lookup_bool_option(reclaim_heap_on_semidet_failure,
+		SemidetReclaim),
+	globals__io_lookup_bool_option(reclaim_heap_on_nondet_failure,
+		NondetReclaim),
+	( { GC = conservative } ->
+		% we can't do heap reclamation with conservative GC
+		{ HLDS = HLDS0 }
+	; { SemidetReclaim = no, NondetReclaim = no } ->
+		{ HLDS = HLDS0 }
+	; { SemidetReclaim = yes, NondetReclaim = yes } ->
+		maybe_write_string(Verbose,
+			"% Adding heap reclamation operations...\n"),
+		maybe_flush_output(Verbose),
+		process_all_nonimported_procs(update_proc(add_heap_ops),
+			HLDS0, HLDS),
+		maybe_write_string(Verbose, "% done.\n"),
+		maybe_report_stats(Stats)
+	;
+		io__write_strings([
+			"Sorry, not implemented: `--high-level-code' and\n",
+			"`--(no-)reclaim-heap-on-{semidet/nondet}-failure'.\n",
+			"Use `--(no-)reclaim-heap-on-failure' instead.\n"
+		]),
+		io__set_exit_status(1),
+		{ HLDS = HLDS0 }
+	).
+
 %-----------------------------------------------------------------------------%
 
 :- pred mercury_compile__maybe_write_dependency_graph(module_info, bool, bool,
@@ -2973,16 +3013,34 @@ mercury_compile__maybe_generate_stack_layouts(ModuleInfo0, GlobalData0, LLDS0,
 get_c_interface_info(HLDS, UseForeignLanguage, Foreign_InterfaceInfo) :-
 	module_info_name(HLDS, ModuleName),
 	module_info_get_foreign_decl(HLDS, ForeignDecls),
+	module_info_get_foreign_import_module(HLDS, ForeignImports),
 	module_info_get_foreign_body_code(HLDS, ForeignBodyCode),
 	foreign__filter_decls(UseForeignLanguage, ForeignDecls, 
 		WantedForeignDecls, _OtherDecls),
+	foreign__filter_imports(UseForeignLanguage, ForeignImports, 
+		WantedForeignImports0, _OtherImports),
 	foreign__filter_bodys(UseForeignLanguage, ForeignBodyCode,
 		WantedForeignBodys, _OtherBodys),
 	export__get_foreign_export_decls(HLDS, Foreign_ExportDecls),
 	export__get_foreign_export_defns(HLDS, Foreign_ExportDefns),
+
+	% If this module contains `:- pragma export' declarations,
+	% add a "#include <module>.h" declaration.
+	% XXX pragma export is only supported for C.
+	( UseForeignLanguage = c, Foreign_ExportDecls \= [] ->
+		% We put the new include at the end since the list is
+		% stored in reverse, and we want this include to come
+		% first.
+		Import = foreign_import_module(c, ModuleName,
+				term__context_init),
+		WantedForeignImports = WantedForeignImports0 ++ [Import]
+	;
+		WantedForeignImports = WantedForeignImports0
+	),
+
 	Foreign_InterfaceInfo = foreign_interface_info(ModuleName,
-		WantedForeignDecls, WantedForeignBodys,
-		Foreign_ExportDecls, Foreign_ExportDefns).
+		WantedForeignDecls, WantedForeignImports,
+		WantedForeignBodys, Foreign_ExportDecls, Foreign_ExportDefns).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -3044,7 +3102,7 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 	mercury_compile__output_llds(ModuleName, CFile, LayoutLabels,
 		MaybeRLFile, Verbose, Stats),
 
-	{ C_InterfaceInfo = foreign_interface_info(_, _, _, C_ExportDecls, _) },
+	{ C_InterfaceInfo = foreign_interface_info(_, _, _, _, C_ExportDecls, _) },
 	export__produce_header_file(C_ExportDecls, ModuleName),
 
 	%
@@ -3069,7 +3127,8 @@ mercury_compile__output_pass(HLDS0, GlobalData, Procs0, MaybeRLFile,
 mercury_compile__construct_c_file(C_InterfaceInfo, Procedures, GlobalVars,
 		AllData, CFile, ComponentCount) -->
 	{ C_InterfaceInfo = foreign_interface_info(ModuleSymName,
-		C_HeaderCode0, C_BodyCode0, C_ExportDecls, C_ExportDefns) },
+		C_HeaderCode0, C_Includes, C_BodyCode0,
+		_C_ExportDecls, C_ExportDefns) },
 	{ llds_out__sym_name_mangle(ModuleSymName, MangledModuleName) },
 	{ string__append(MangledModuleName, "_module", ModuleName) },
 	globals__io_lookup_int_option(procs_per_c_function, ProcsPerFunc),
@@ -3084,8 +3143,9 @@ mercury_compile__construct_c_file(C_InterfaceInfo, Procedures, GlobalVars,
 		{ mercury_compile__combine_chunks(ChunkedProcs, ModuleName,
 			ChunkedModules) }
 	),
-	maybe_add_header_file_include(C_ExportDecls, ModuleSymName,
-		C_HeaderCode0, C_HeaderCode),
+	list__map_foldl(make_foreign_import_header_code, C_Includes,
+		C_HeaderCode1),
+	{ C_HeaderCode = C_HeaderCode0 ++ C_HeaderCode1 },
 	{ CFile = c_file(ModuleSymName, C_HeaderCode, C_BodyCode,
 		C_ExportDefns, GlobalVars, AllData, ChunkedModules) },
 	{ list__length(C_BodyCode, UserCCodeCount) },
@@ -3096,29 +3156,29 @@ mercury_compile__construct_c_file(C_InterfaceInfo, Procedures, GlobalVars,
 	{ ComponentCount is UserCCodeCount + ExportCount
 		+ CompGenVarCount + CompGenDataCount + CompGenCodeCount }.
 
-:- pred maybe_add_header_file_include(foreign_export_decls, module_name,
-	foreign_decl_info, foreign_decl_info, io__state, io__state).
-:- mode maybe_add_header_file_include(in, in, in, out, di, uo) is det.
+:- pred make_foreign_import_header_code(foreign_import_module,
+		foreign_decl_code, io__state, io__state).
+:- mode make_foreign_import_header_code(in, out, di, uo) is det.
 
-maybe_add_header_file_include(C_ExportDecls, ModuleName, 
-		C_HeaderCode0, C_HeaderCode) -->
+make_foreign_import_header_code(
+		foreign_import_module(Lang, ModuleName, Context),
+		Include) -->
 	(
-		{ C_ExportDecls = [] },
-		{ C_HeaderCode = C_HeaderCode0 }
-	;
-		{ C_ExportDecls = [_|_] },
+		{ Lang = c },
 		module_name_to_file_name(ModuleName, ".h", no, HeaderFileName),
 		{ string__append_list(
 			["#include """, HeaderFileName, """\n"],
 			IncludeString) },
-
-		{ term__context_init(Context) },
-		{ Include = foreign_decl_code(c, IncludeString, Context) },
-
-			% We put the new include at the end since the list is
-			% stored in reverse, and we want this include to come
-			% first.
-		{ list__append(C_HeaderCode0, [Include], C_HeaderCode) }
+		{ Include = foreign_decl_code(c, IncludeString, Context) }
+	;
+		{ Lang = csharp },
+		{ error("sorry, not yet implemented: `:- pragma foreign_import_module' for C#") }
+	;
+		{ Lang = managed_cplusplus },
+		{ error("sorry, not yet implemented: `:- pragma foreign_import_module' for Managed C++") }
+	;
+		{ Lang = il },
+		{ error("sorry, not yet implemented: `:- pragma foreign_import_module' for IL") }
 	).
 
 :- pred get_c_body_code(foreign_body_info, list(user_foreign_code)).
@@ -3188,7 +3248,11 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 		HLDS55),
 	mercury_compile__maybe_dump_hlds(HLDS55, "55", "add_trail_ops"),
 
-	mercury_compile__maybe_mark_static_terms(HLDS55, Verbose, Stats,
+	mercury_compile__maybe_add_heap_ops(HLDS55, Verbose, Stats,
+		HLDS57),
+	mercury_compile__maybe_dump_hlds(HLDS57, "57", "add_heap_ops"),
+
+	mercury_compile__maybe_mark_static_terms(HLDS57, Verbose, Stats,
 		HLDS60),
 	mercury_compile__maybe_dump_hlds(HLDS60, "60", "mark_static"),
 
@@ -3219,25 +3283,49 @@ mercury_compile__mlds_backend(HLDS51, MLDS) -->
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS20, "20", "tailcalls"),
 
-	globals__io_lookup_bool_option(gcc_nested_functions, NestedFuncs),
-	( { NestedFuncs = no } ->
+	%
+	% Note that we call ml_elim_nested twice --
+	% the first time to chain the stack frames together, for accurate GC,
+	% and the second time to flatten nested functions.
+	% These two passes are quite similar,
+	% but must be done separately.
+	% Currently chaining the stack frames together for accurate GC
+	% needs to be done first, because the code for doing that
+	% can't handle the env_ptr references that the other pass
+	% generates.
+	%
+
+	globals__io_get_gc_method(GC),
+	( { GC = accurate } ->
 		maybe_write_string(Verbose,
-			"% Flattening nested functions...\n"),
-		ml_elim_nested(MLDS20, MLDS30),
+			"% Threading GC stack frames...\n"),
+		ml_elim_nested(chain_gc_stack_frames, MLDS20, MLDS30),
 		maybe_write_string(Verbose, "% done.\n")
 	;
 		{ MLDS30 = MLDS20 }
 	),
 	maybe_report_stats(Stats),
-	mercury_compile__maybe_dump_mlds(MLDS30, "30", "nested_funcs"),
+	mercury_compile__maybe_dump_mlds(MLDS30, "30", "gc_frames"),
+
+	globals__io_lookup_bool_option(gcc_nested_functions, NestedFuncs),
+	( { NestedFuncs = no } ->
+		maybe_write_string(Verbose,
+			"% Flattening nested functions...\n"),
+		ml_elim_nested(hoist_nested_funcs, MLDS30, MLDS35),
+		maybe_write_string(Verbose, "% done.\n")
+	;
+		{ MLDS35 = MLDS30 }
+	),
+	maybe_report_stats(Stats),
+	mercury_compile__maybe_dump_mlds(MLDS35, "35", "nested_funcs"),
 
 	globals__io_lookup_bool_option(optimize, Optimize),
 	( { Optimize = yes } ->
 		maybe_write_string(Verbose, "% Optimizing MLDS...\n"),
-		ml_optimize__optimize(MLDS30, MLDS40),
+		ml_optimize__optimize(MLDS35, MLDS40),
 		maybe_write_string(Verbose, "% done.\n")
 	;
-		{ MLDS40 = MLDS30 }
+		{ MLDS40 = MLDS35 }
 	),
 	maybe_report_stats(Stats),
 	mercury_compile__maybe_dump_mlds(MLDS40, "40", "optimize"),
@@ -3362,7 +3450,7 @@ mercury_compile__c_to_obj(ModuleName, NumChunks, Succeeded) -->
 		mercury_compile__c_to_obj_list(ModuleName, 0, NumChunks,
 			Succeeded)
 	;
-		object_extension(Obj),
+		globals__io_lookup_string_option(object_file_extension, Obj),
 		module_name_to_file_name(ModuleName, ".c", no, C_File),
 		module_name_to_file_name(ModuleName, Obj, yes, O_File),
 		mercury_compile__single_c_to_obj(C_File, O_File, Succeeded)
@@ -3378,7 +3466,7 @@ mercury_compile__c_to_obj_list(ModuleName, Chunk, NumChunks, Succeeded) -->
 	( { Chunk > NumChunks } ->
 		{ Succeeded = yes }
 	;
-		object_extension(Obj),
+		globals__io_lookup_string_option(object_file_extension, Obj),
 		module_name_to_split_c_file_name(ModuleName, Chunk,
 			".c", C_File),
 		module_name_to_split_c_file_name(ModuleName, Chunk,
@@ -3732,7 +3820,7 @@ mercury_compile__link_module_list(Modules) -->
 	),
 
 	{ file_name_to_module_name(OutputFileName, ModuleName) },
-	object_extension(Obj),
+	globals__io_lookup_string_option(object_file_extension, Obj),
 	{ string__append("_init", Obj, InitObj) },
 	module_name_to_file_name(ModuleName, "_init.c", yes, InitCFileName),
 	module_name_to_file_name(ModuleName, InitObj, yes, InitObjFileName),
@@ -3775,9 +3863,24 @@ mercury_compile__link_module_list(Modules) -->
 	    ;
 		TraceOpt = ""
 	    },
-	    join_module_list(Modules, ".c", ["-o ", InitCFileName], MkInitCmd0),
-	    { string__append_list(["c2init ", TraceOpt | MkInitCmd0],
-	    	MkInitCmd) },
+	    globals__io_get_globals(Globals),
+	    { compute_grade(Globals, Grade) },
+
+	    globals__io_lookup_accumulating_option(init_file_directories,
+			InitFileDirsList),
+	    { join_string_list(InitFileDirsList, "-I ", "",
+			" ", InitFileDirs) },
+
+	    globals__io_lookup_accumulating_option(init_files,
+			InitFileNamesList),
+	    { join_string_list(InitFileNamesList, "", "",
+			" ", InitFileNames) },
+
+	    join_module_list(Modules, ".c", [], CFileNames),
+	    { MkInitCmd = string__append_list(
+	    	["c2init --grade ", Grade, " ", TraceOpt,
+		" --init-c-file ", InitCFileName, " ", InitFileDirs, " ",
+		InitFileNames, " " | CFileNames]) },
 	    invoke_shell_command(MkInitCmd, MkInitOK),
 	    maybe_report_stats(Stats),
 	    ( { MkInitOK = no } ->
@@ -3793,8 +3896,6 @@ mercury_compile__link_module_list(Modules) -->
 		    report_error("compilation of init file failed.")
 		;
 		    maybe_write_string(Verbose, "% Linking...\n"),
-		    globals__io_get_globals(Globals),
-		    { compute_grade(Globals, Grade) },
 		    globals__io_lookup_bool_option(target_debug, Target_Debug),
 		    { Target_Debug = yes ->
 		    	Target_Debug_Opt = "--no-strip "
@@ -3977,10 +4078,8 @@ mercury_compile__dump_mlds(DumpFile, MLDS) -->
 	maybe_flush_output(Verbose),
 	io__tell(DumpFile, Res),
 	( { Res = ok } ->
-		% XXX the following doesn't work, due to performance bugs
-		% in pprint:
-		%	pprint__write(80, pprint__to_doc(MLDS)),
-		io__print(MLDS), io__nl,
+		pprint__write(80, pprint__to_doc(MLDS)),
+		io__nl,
 		io__told,
 		maybe_write_string(Verbose, " done.\n"),
 		maybe_report_stats(Stats)
@@ -4023,14 +4122,5 @@ mercury_compile__maybe_dump_rl(Procs, ModuleInfo, _StageNum, StageName) -->
 		[]
 	).
 
-%-----------------------------------------------------------------------------%
-
-	% Extension for object files.
-:- pred object_extension(string::out, io__state::di, io__state::uo) is det.
-
-object_extension(Extension) -->
-	globals__io_lookup_string_option(object_file_extension, Extension0),
-	{ string__append(".", Extension0, Extension) }. 
-	
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2001 The University of Melbourne.
+** Copyright (C) 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -25,6 +25,10 @@
 /*
 ** Variable definitions
 */
+
+#ifdef NATIVE_GC
+  void *mercury__private_builtin__stack_chain;
+#endif
 
 MR_Word mercury__private_builtin__dummy_var;
 
@@ -82,7 +86,7 @@ static MR_UnifyFunc_0
 	mercury__builtin__do_unify__c_pointer_0_0,
 	mercury__builtin__do_unify__func_0_0,
 	mercury__builtin__do_unify__pred_0_0,
-	mercury__std_util__do_unify__type_desc_0_0;
+	mercury__type_desc__do_unify__type_desc_0_0;
 
 static MR_UnifyFunc_1
 	mercury__builtin__do_unify__tuple_0_0,
@@ -100,7 +104,7 @@ static MR_CompareFunc_0
 	mercury__builtin__do_compare__c_pointer_0_0,
 	mercury__builtin__do_compare__func_0_0,
 	mercury__builtin__do_compare__pred_0_0,
-	mercury__std_util__do_compare__type_desc_0_0;
+	mercury__type_desc__do_compare__type_desc_0_0;
 
 static MR_CompareFunc_1
 	mercury__builtin__do_compare__tuple_0_0,
@@ -125,17 +129,17 @@ MR_define_type_ctor_info(builtin, character, 0, MR_TYPECTOR_REP_CHAR);
 MR_define_type_ctor_info(builtin, void, 0, MR_TYPECTOR_REP_VOID);
 MR_define_type_ctor_info(builtin, c_pointer, 0, MR_TYPECTOR_REP_C_POINTER);
 MR_define_type_ctor_info(builtin, pred, 0, MR_TYPECTOR_REP_PRED);
-MR_define_type_ctor_info(builtin, func, 0, MR_TYPECTOR_REP_PRED);
+MR_define_type_ctor_info(builtin, func, 0, MR_TYPECTOR_REP_FUNC);
 MR_define_type_ctor_info(builtin, tuple, 0, MR_TYPECTOR_REP_TUPLE);
-MR_define_type_ctor_info(std_util, type_desc, 0, MR_TYPECTOR_REP_TYPEINFO);
+MR_define_type_ctor_info(type_desc, type_desc, 0, MR_TYPECTOR_REP_TYPEINFO);
 MR_define_type_ctor_info(private_builtin, type_ctor_info, 1,
-	MR_TYPECTOR_REP_TYPEINFO);
+	MR_TYPECTOR_REP_TYPECTORINFO);
 MR_define_type_ctor_info(private_builtin, type_info, 1,
 	MR_TYPECTOR_REP_TYPEINFO);
 MR_define_type_ctor_info(private_builtin, base_typeclass_info, 1,
 	MR_TYPECTOR_REP_TYPECLASSINFO);
 MR_define_type_ctor_info(private_builtin, typeclass_info, 1,
-	MR_TYPECTOR_REP_TYPECLASSINFO);
+	MR_TYPECTOR_REP_BASETYPECLASSINFO);
 
 /*---------------------------------------------------------------------------*/
 
@@ -168,16 +172,19 @@ mercury__builtin__unify_2_p_0(MR_Mercury_Type_Info ti, MR_Box x, MR_Box y)
 	** Tuple and higher-order types do not have a fixed arity,
 	** so they need to be special cased here.
 	*/
-	type_ctor_rep = type_ctor_info->type_ctor_rep;
+	type_ctor_rep = MR_type_ctor_rep(type_ctor_info);
 	if (type_ctor_rep == MR_TYPECTOR_REP_TUPLE) {
 		return mercury__builtin____Unify____tuple_0_0(ti,
 			(MR_Tuple) x, (MR_Tuple) y);
 	} else if (type_ctor_rep == MR_TYPECTOR_REP_PRED) {
 		return mercury__builtin____Unify____pred_0_0((MR_Pred) x,
 			(MR_Pred) y);
+	} else if (type_ctor_rep == MR_TYPECTOR_REP_FUNC) {
+		return mercury__builtin____Unify____pred_0_0((MR_Pred) x,
+			(MR_Pred) y);
 	}
 
-	arity = type_ctor_info->arity;
+	arity = type_ctor_info->MR_type_ctor_arity;
 	params = MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
 	args = (MR_Mercury_Type_Info *) params;
 
@@ -187,19 +194,25 @@ mercury__builtin__unify_2_p_0(MR_Mercury_Type_Info ti, MR_Box x, MR_Box y)
 		** and then call it, passing the right number of
 		** type_info arguments
 		*/
-		case 0: return ((MR_UnifyFunc_0 *) type_ctor_info->unify_pred)
+		case 0: return ((MR_UnifyFunc_0 *)
+				type_ctor_info->MR_type_ctor_unify_pred)
 				(x, y);
-		case 1: return ((MR_UnifyFunc_1 *) type_ctor_info->unify_pred)
+		case 1: return ((MR_UnifyFunc_1 *)
+				type_ctor_info->MR_type_ctor_unify_pred)
 				(args[1], x, y);
-		case 2: return ((MR_UnifyFunc_2 *) type_ctor_info->unify_pred)
+		case 2: return ((MR_UnifyFunc_2 *)
+				type_ctor_info->MR_type_ctor_unify_pred)
 				(args[1], args[2], x, y);
-		case 3: return ((MR_UnifyFunc_3 *) type_ctor_info->unify_pred)
+		case 3: return ((MR_UnifyFunc_3 *)
+				type_ctor_info->MR_type_ctor_unify_pred)
 				(args[1], args[2], args[3],
 				 x, y);
-		case 4: return ((MR_UnifyFunc_4 *) type_ctor_info->unify_pred)
+		case 4: return ((MR_UnifyFunc_4 *)
+				type_ctor_info->MR_type_ctor_unify_pred)
 				(args[1], args[2], args[3],
 				 args[4], x, y);
-		case 5: return ((MR_UnifyFunc_5 *) type_ctor_info->unify_pred)
+		case 5: return ((MR_UnifyFunc_5 *)
+				type_ctor_info->MR_type_ctor_unify_pred)
 				(args[1], args[2], args[3],
 				 args[4], args[5], x, y);
 		default:
@@ -226,7 +239,7 @@ mercury__builtin__compare_3_p_0(MR_Mercury_Type_Info ti,
 	** Tuple and higher-order types do not have a fixed arity,
 	** so they need to be special cased here.
 	*/
-	type_ctor_rep = type_ctor_info->type_ctor_rep;
+	type_ctor_rep = MR_type_ctor_rep(type_ctor_info);
 	if (type_ctor_rep == MR_TYPECTOR_REP_TUPLE) {
 		mercury__builtin____Compare____tuple_0_0(ti,
 			res, (MR_Tuple) x, (MR_Tuple) y);
@@ -234,10 +247,13 @@ mercury__builtin__compare_3_p_0(MR_Mercury_Type_Info ti,
 	} else if (type_ctor_rep == MR_TYPECTOR_REP_PRED) {
 		mercury__builtin____Compare____pred_0_0(res,
 			(MR_Pred) x, (MR_Pred) y);
+	} else if (type_ctor_rep == MR_TYPECTOR_REP_FUNC) {
+		mercury__builtin____Compare____pred_0_0(res,
+			(MR_Pred) x, (MR_Pred) y);
 	    	return;
 	}
 
-	arity = type_ctor_info->arity;
+	arity = type_ctor_info->MR_type_ctor_arity;
 	params = MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info);
 	args = (MR_Mercury_Type_Info *) params;
 
@@ -247,23 +263,29 @@ mercury__builtin__compare_3_p_0(MR_Mercury_Type_Info ti,
 		** and then call it, passing the right number of
 		** type_info arguments
 		*/
-		case 0: ((MR_CompareFunc_0 *) type_ctor_info->compare_pred)
+		case 0: ((MR_CompareFunc_0 *)
+			 type_ctor_info->MR_type_ctor_compare_pred)
 			 (res, x, y);
 			 break;
-		case 1: ((MR_CompareFunc_1 *) type_ctor_info->compare_pred)
+		case 1: ((MR_CompareFunc_1 *)
+			 type_ctor_info->MR_type_ctor_compare_pred)
 			 (args[1], res, x, y);
 			 break;
-		case 2: ((MR_CompareFunc_2 *) type_ctor_info->compare_pred)
+		case 2: ((MR_CompareFunc_2 *)
+			 type_ctor_info->MR_type_ctor_compare_pred)
 			 (args[1], args[2], res, x, y);
 			 break;
-		case 3: ((MR_CompareFunc_3 *) type_ctor_info->compare_pred)
+		case 3: ((MR_CompareFunc_3 *)
+			 type_ctor_info->MR_type_ctor_compare_pred)
 			 (args[1], args[2], args[3], res, x, y);
 			 break;
-		case 4: ((MR_CompareFunc_4 *) type_ctor_info->compare_pred)
+		case 4: ((MR_CompareFunc_4 *)
+			 type_ctor_info->MR_type_ctor_compare_pred)
 			 (args[1], args[2], args[3],
 			  args[4], res, x, y);
 			 break;
-		case 5: ((MR_CompareFunc_5 *) type_ctor_info->compare_pred)
+		case 5: ((MR_CompareFunc_5 *)
+			 type_ctor_info->MR_type_ctor_compare_pred)
 			 (args[1], args[2], args[3],
 			  args[4], args[5], res, x, y);
 			 break;
@@ -388,7 +410,7 @@ mercury__builtin____Unify____tuple_0_0(MR_Mercury_Type_Info ti,
 }
 
 bool MR_CALL
-mercury__std_util____Unify____type_desc_0_0(MR_Type_Desc x, MR_Type_Desc y)
+mercury__type_desc____Unify____type_desc_0_0(MR_Type_Desc x, MR_Type_Desc y)
 {
 	int             comp;
 
@@ -535,7 +557,7 @@ mercury__builtin____Compare____tuple_0_0(MR_Mercury_Type_Info ti,
 }
 
 void MR_CALL
-mercury__std_util____Compare____type_desc_0_0(
+mercury__type_desc____Compare____type_desc_0_0(
 	MR_Comparison_Result *result, MR_Type_Desc x, MR_Type_Desc y)
 {
 	int             comp;
@@ -647,9 +669,9 @@ mercury__builtin__do_unify__tuple_0_0(MR_Mercury_Type_Info type_info,
 }
 
 static bool MR_CALL
-mercury__std_util__do_unify__type_desc_0_0(MR_Box x, MR_Box y)
+mercury__type_desc__do_unify__type_desc_0_0(MR_Box x, MR_Box y)
 {
-	return mercury__std_util____Unify____type_desc_0_0(
+	return mercury__type_desc____Unify____type_desc_0_0(
 		(MR_Type_Desc) x, (MR_Type_Desc) y);
 }
 
@@ -764,10 +786,10 @@ mercury__builtin__do_compare__tuple_0_0(
 }
 
 static void MR_CALL
-mercury__std_util__do_compare__type_desc_0_0(
+mercury__type_desc__do_compare__type_desc_0_0(
 	MR_Comparison_Result *result, MR_Box x, MR_Box y)
 {
-	mercury__std_util____Compare____type_desc_0_0(
+	mercury__type_desc____Compare____type_desc_0_0(
 		result, (MR_Type_Desc) x, (MR_Type_Desc) y);
 }
 
@@ -813,63 +835,81 @@ mercury__private_builtin__do_compare__base_typeclass_info_1_0(
 
 /*---------------------------------------------------------------------------*/
 
-#ifdef __GNUC__
-
 /*
 ** Provide definitions for functions declared `extern inline'.
 ** Note that this code duplicates the code in mercury.h/mercury_heap.h.
 */
 
-MR_Word
-MR_create1(MR_Word w1) 
-{
-	MR_Word *p = (MR_Word *) MR_new_object(MR_Word,
-		1 * sizeof(MR_Word), "create1");
-	p[0] = w1;
-	return (MR_Word) p;
-}
+MR_OUTLINE_DEFN(
+	MR_Word
+	MR_create1(MR_Word w1) 
+,
+	{
+		MR_Word *p = (MR_Word *) MR_new_object(MR_Word,
+			1 * sizeof(MR_Word), "create1");
+		p[0] = w1;
+		return (MR_Word) p;
+	}
+)
 
-MR_Word
-MR_create2(MR_Word w1, MR_Word w2) 
-{
-	MR_Word *p = (MR_Word *) MR_new_object(MR_Word,
-		2 * sizeof(MR_Word), "create2");
-	p[0] = w1;
-	p[1] = w2;
-	return (MR_Word) p;
-}
+MR_OUTLINE_DEFN(
+	MR_Word
+	MR_create2(MR_Word w1, MR_Word w2) 
+,
+	{
+		MR_Word *p = (MR_Word *) MR_new_object(MR_Word,
+			2 * sizeof(MR_Word), "create2");
+		p[0] = w1;
+		p[1] = w2;
+		return (MR_Word) p;
+	}
+)
 
-MR_Word
-MR_create3(MR_Word w1, MR_Word w2, MR_Word w3) 
-{
-	MR_Word *p = (MR_Word *) MR_new_object(MR_Word,
-		3 * sizeof(MR_Word), "create3");
-	p[0] = w1;
-	p[1] = w2;
-	p[2] = w3;
-	return (MR_Word) p;
-}
+MR_OUTLINE_DEFN(
+	MR_Word
+	MR_create3(MR_Word w1, MR_Word w2, MR_Word w3) 
+,
+	{
+		MR_Word *p = (MR_Word *) MR_new_object(MR_Word,
+			3 * sizeof(MR_Word), "create3");
+		p[0] = w1;
+		p[1] = w2;
+		p[2] = w3;
+		return (MR_Word) p;
+	}
+)
 
-#ifdef MR_AVOID_MACROS
+#if defined(MR_AVOID_MACROS) || !defined(__GNUC__)
 
-MR_Box
-MR_box_float(MR_Float f)
-{
-	MR_Float *ptr = (MR_Float *)
-		MR_new_object(MR_Float, sizeof(MR_Float), "float");
-	*ptr = f;
-	return (MR_Box) ptr;
-}
+MR_OUTLINE_DEFN(
+	MR_Box
+	MR_box_float(MR_Float f)
+,
+	{
+		MR_Float *ptr;
 
-MR_Float
-MR_unbox_float(MR_Box b)
-{
-	return *(MR_Float *)b;
-}
+		MR_make_hp_float_aligned();
+		ptr = (MR_Float *) MR_new_object(MR_Float, sizeof(MR_Float),
+			"float");
+		*ptr = f;
+		return (MR_Box) ptr;
+	}
+)
+
+#endif /* MR_AVOID_MACROS || !__GNUC__ */
+
+#if defined(MR_AVOID_MACROS)
+
+MR_OUTLINE_DEFN(
+	MR_Float
+	MR_unbox_float(MR_Box b)
+,
+	{
+		return *(MR_Float *)b;
+	}
+)
 
 #endif /* MR_AVOID_MACROS */
-
-#endif /* __GNUC__ */
 
 /*
 ** This is exactly the same as MR_box_float(), except that
@@ -880,8 +920,10 @@ MR_unbox_float(MR_Box b)
 MR_Box
 MR_asm_box_float(MR_Float f)
 {
-	MR_Float *ptr = (MR_Float *)
-		MR_new_object(MR_Float, sizeof(MR_Float), "float");
+	MR_Float *ptr;
+
+	MR_make_hp_float_aligned();
+	ptr = (MR_Float *) MR_new_object(MR_Float, sizeof(MR_Float), "float");
 	*ptr = f;
 	return (MR_Box) ptr;
 }

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -248,7 +248,7 @@ dump_live_variables(const MR_Label_Layout *label_layout,
 	** frames, passing NULL is fine, since output arguments are
 	** not live yet for any call except the top one.
 	*/
-	restore_registers();
+	MR_restore_registers();
 	MR_copy_regs_to_saved_regs(MR_MAX_FAKE_REG, saved_regs);
 	if (top_frame) {
 		current_regs = saved_regs;
@@ -322,7 +322,7 @@ dump_live_variables(const MR_Label_Layout *label_layout,
 
 
 	MR_copy_saved_regs_to_regs(MR_MAX_FAKE_REG, saved_regs);
-	save_registers();
+	MR_save_registers();
 	free(type_params);
 }
 

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2001 The University of Melbourne.
+** Copyright (C) 1998-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -14,6 +14,7 @@
 #include "mercury_layout_util.h"
 #include "mercury_array_macros.h"
 #include "mercury_getopt.h"
+#include "mercury_signal.h"
 
 #include "mercury_trace.h"
 #include "mercury_trace_internal.h"
@@ -26,6 +27,7 @@
 #include "mercury_trace_util.h"
 #include "mercury_trace_vars.h"
 #include "mercury_trace_readline.h"
+#include "mercury_trace_source.h"
 
 #include "mdb.browse.h"
 #include "mdb.browser_info.h"
@@ -36,6 +38,35 @@
 #include <string.h>
 #include <ctype.h>
 #include <errno.h>
+#include <signal.h>
+
+#ifdef HAVE_UNISTD_H
+  #include <unistd.h>
+#endif
+
+#ifdef HAVE_SYS_TYPES_H
+  #include <sys/types.h>
+#endif
+
+#ifdef HAVE_SYS_WAIT
+  #include <sys/wait.h>
+#endif
+
+#ifdef HAVE_TERMIOS_H
+  #include <termios.h>
+#endif
+
+#ifdef HAVE_FCNTL_H
+  #include <fcntl.h>
+#endif
+
+#ifdef HAVE_SYS_IOCTL_H
+  #include <sys/ioctl.h>
+#endif
+
+#ifdef HAVE_SYS_STROPTS_H
+  #include <sys/stropts.h>
+#endif
 
 /* The initial size of arrays of words. */
 #define	MR_INIT_WORD_COUNT	20
@@ -90,14 +121,15 @@ static	int			MR_scroll_limit = 24;
 static	int			MR_scroll_next = 0;
 
 /*
-** We echo each command just as it is executed iff this variable is TRUE,
-** unless we're using GNU readline.  If we're using readline, then readline
-** echos things anyway, so in that case we ignore this variable.
+** We echo each command just as it is executed iff this variable is TRUE.
 */
 
-#ifdef MR_NO_USE_READLINE
 static	bool			MR_echo_commands = FALSE;
-#endif
+
+/*
+** The details of the source server, if any.
+*/
+static	MR_Trace_Source_Server	MR_trace_source_server = { NULL, NULL };
 
 /*
 ** We print confirmation of commands (e.g. new aliases) if this is TRUE.
@@ -165,6 +197,7 @@ typedef enum {
 } MR_MultiMatch;
 
 static	void	MR_trace_internal_ensure_init(void);
+static	bool	MR_trace_internal_create_mdb_window(void);
 static	void	MR_trace_internal_init_from_env(void);
 static	void	MR_trace_internal_init_from_local(void);
 static	void	MR_trace_internal_init_from_home_dir(void);
@@ -178,6 +211,12 @@ static	void	MR_maybe_print_spy_point(int slot, const char *problem);
 static	void	MR_print_unsigned_var(FILE *fp, const char *var,
 			MR_Unsigned value);
 static	bool	MR_parse_source_locn(char *word, const char **file, int *line);
+static	const char *MR_trace_new_source_window(const char *window_cmd,
+			const char *server_cmd, const char *server_name,
+			int timeout, bool force, bool verbose, bool split);
+static	void	MR_trace_maybe_sync_source_window(MR_Event_Info *event_info,
+			bool verbose);
+static	void	MR_trace_maybe_close_source_window(bool verbose);
 static	bool	MR_trace_options_strict_print(MR_Trace_Cmd_Info *cmd,
 			char ***words, int *word_count,
 			const char *cat, const char *item);
@@ -206,12 +245,20 @@ static	bool	MR_trace_options_param_set(MR_Word *print_set,
 			MR_Word *verbose_format, MR_Word *pretty_format, 
 			char ***words, int *word_count, const char *cat, 
 			const char *item);
+static	bool	MR_trace_options_view(const char **window_cmd,
+			const char **server_cmd, const char **server_name,
+			int *timeout, bool *force, bool *verbose, bool *split,
+			bool *close_window, char ***words, int *word_count,
+			const char *cat, const char*item);
 static	void	MR_trace_usage(const char *cat, const char *item);
 static	void	MR_trace_do_noop(void);
 
 static	void	MR_trace_set_level_and_report(int ancestor_level,
 			bool detailed);
 static	void	MR_trace_browse_internal(MR_Word type_info, MR_Word value,
+			MR_Browse_Caller_Type caller, MR_Browse_Format format);
+static	void	MR_trace_browse_goal_internal(MR_ConstString name,
+			MR_Word arg_list, MR_Word is_func,
 			MR_Browse_Caller_Type caller, MR_Browse_Format format);
 static	const char *MR_trace_browse_exception(MR_Event_Info *event_info,
 			MR_Browser browser, MR_Browse_Caller_Type caller,
@@ -273,6 +320,7 @@ MR_trace_event_internal(MR_Trace_Cmd_Info *cmd, bool interactive,
 	MR_trace_internal_ensure_init();
 
 	MR_trace_event_print_internal_report(event_info);
+	MR_trace_maybe_sync_source_window(event_info, FALSE);
 
 	/*
 	** These globals can be overwritten when we call Mercury code,
@@ -345,9 +393,28 @@ MR_trace_internal_ensure_init(void)
 		char	*env;
 		int	n;
 
-		MR_mdb_in = MR_try_fopen(MR_mdb_in_filename, "r", stdin);
-		MR_mdb_out = MR_try_fopen(MR_mdb_out_filename, "w", stdout);
-		MR_mdb_err = MR_try_fopen(MR_mdb_err_filename, "w", stderr);
+		if (MR_mdb_in_window) {
+			/*
+			** If opening the window fails, fall back on
+			** using MR_mdb_*_filename, or stdin, stdout
+			** and stderr.
+			*/
+			MR_mdb_in_window =
+				MR_trace_internal_create_mdb_window();
+			if (! MR_mdb_in_window) {
+				MR_mdb_warning(
+				"Try `mdb --program-in-window' instead.\n");
+			}
+		}
+
+		if (! MR_mdb_in_window) {
+			MR_mdb_in = MR_try_fopen(MR_mdb_in_filename,
+					"r", stdin);
+			MR_mdb_out = MR_try_fopen(MR_mdb_out_filename,
+					"w", stdout);
+			MR_mdb_err = MR_try_fopen(MR_mdb_err_filename,
+					"w", stderr);
+		}
 
 		/* Ensure that MR_mdb_err is not buffered */
 		setvbuf(MR_mdb_err, NULL, _IONBF, 0);
@@ -372,6 +439,244 @@ MR_trace_internal_ensure_init(void)
 
 		MR_trace_internal_initialized = TRUE;
 	}
+}
+
+static volatile sig_atomic_t MR_got_alarm = FALSE;
+
+static void
+MR_trace_internal_alarm_handler(void)
+{
+	MR_got_alarm = TRUE;
+}
+
+static bool
+MR_trace_internal_create_mdb_window(void)
+{
+	/*
+	** XXX The code to find and open a pseudo-terminal is nowhere
+	** near as portable as I would like, but given the huge variety
+	** of methods for allocating pseudo-terminals it will have to do.
+	** Most systems seem to be standardising on this method (from UNIX98).
+	** See the xterm or expect source for a more complete version
+	** (it's a bit too entwined in the rest of the code to just lift
+	** it out and use it here).
+	**
+	** XXX Add support for MS Windows.
+	*/
+#if defined(HAVE_OPEN) && defined(O_RDWR) && defined(HAVE_FDOPEN) && \
+	defined(HAVE_CLOSE) && defined(HAVE_DUP) && defined(HAVE_DUP2) && \
+	defined(HAVE_FORK) && defined(HAVE_EXECLP) && \
+	defined(HAVE_DEV_PTMX) && defined(HAVE_GRANTPT) && \
+	defined(HAVE_UNLOCKPT) && defined(HAVE_PTSNAME)
+
+	int master_fd = -1;
+	int slave_fd = -1;
+	char *slave_name;
+	pid_t child_pid;
+#if defined(HAVE_TERMIOS_H) && defined(HAVE_TCGETATTR) && \
+		defined(HAVE_TCSETATTR) && defined(ECHO) && defined(TCSADRAIN)
+	struct termios termio;
+#endif
+	master_fd = open("/dev/ptmx", O_RDWR);
+	if (master_fd == -1 || grantpt(master_fd) == -1
+			|| unlockpt(master_fd) == -1)
+	{
+		close(master_fd);
+		MR_mdb_perror(
+		    "error opening master pseudo-terminal for mdb window");
+		return FALSE;
+	}
+	if ((slave_name = ptsname(master_fd)) == NULL) {
+		MR_mdb_perror(
+		    "error getting name of pseudo-terminal for mdb window");
+		close(master_fd);
+		return FALSE;
+	}
+	slave_fd = open(slave_name, O_RDWR);	
+	if (slave_fd == -1) {
+		close(master_fd);
+		MR_mdb_perror(
+		   "opening slave pseudo-terminal for mdb window failed");
+		return FALSE;
+	}
+
+#if defined(HAVE_IOCTL) && defined(I_PUSH)
+	/* Magic STREAMS incantations to make this work on Solaris. */
+	ioctl(slave_fd, I_PUSH, "ptem");
+	ioctl(slave_fd, I_PUSH, "ldterm");
+	ioctl(slave_fd, I_PUSH, "ttcompat");
+#endif
+
+#if defined(HAVE_TCGETATTR) && defined(HAVE_TCSETATTR) && \
+		defined(ECHO) && defined(TCSADRAIN)
+	/*
+	** Turn off echoing before starting the xterm so that
+	** the user doesn't see the window ID printed by xterm
+	** on startup (this behaviour is not documented in the
+	** xterm manual).
+	*/
+	tcgetattr(slave_fd, &termio);
+	termio.c_lflag &= ~ECHO;
+	tcsetattr(slave_fd, TCSADRAIN, &termio);
+#endif
+
+	child_pid = fork();
+	if (child_pid == -1) {
+		MR_mdb_perror("fork() for mdb window failed"); 
+		close(master_fd);
+		close(slave_fd);
+		return FALSE;
+	} else if (child_pid == 0) {
+		/*
+		** Child - exec() the xterm.
+		*/
+		char xterm_arg[50];
+
+		close(slave_fd);
+
+#if defined(HAVE_SETPGID)
+		/*
+		** Put the xterm in a new process group so it won't be
+		** killed by SIGINT signals sent to the program.
+		*/
+		if (setpgid(0, 0) < 0) {
+			MR_mdb_perror("setpgid() failed");
+			close(master_fd);
+			exit(EXIT_FAILURE);
+		}
+#endif
+
+		/*
+		** The XX part is required by xterm, but it's not
+		** needed for the way we are using xterm (it's meant
+		** to be an identifier for the pseudo-terminal).
+		** Different versions of xterm use different
+		** formats, so it's best to just leave it blank.
+		**
+		** XXX Some versions of xterm (such as that distributed
+		** with XFree86 3.3.6) give a warning about this (but it
+		** still works). The latest version distributed with
+		** XFree86 4 does not given a warning.
+		*/
+		sprintf(xterm_arg, "-SXX%d", master_fd);
+
+		execlp("xterm", "xterm", "-T", "mdb", xterm_arg, NULL);
+		MR_mdb_perror("execution of xterm failed");
+		exit(EXIT_FAILURE);
+	} else {
+		/*
+		** Parent - set up the mdb I/O streams to point
+		** to the pseudo-terminal.
+		*/
+		MR_signal_action old_alarm_action;
+		int wait_status;
+		int err_fd = -1;
+		int out_fd = -1;
+
+		MR_mdb_in = MR_mdb_out = MR_mdb_err = NULL;
+
+		close(master_fd);
+
+		/*
+		** Read the first line of output -- this is a window ID
+		** written by xterm. The alarm() and associated signal handling
+		** is to gracefully handle the case where the xterm failed to
+		** start, for example because the DISPLAY variable was invalid.
+		** We don't want to restart the read() below if it times out.
+		*/
+		MR_get_signal_action(SIGALRM, &old_alarm_action,
+			"error retrieving alarm handler");
+		MR_setup_signal_no_restart(SIGALRM,
+			MR_trace_internal_alarm_handler, FALSE,
+			"error setting up alarm handler");
+		alarm(10);	/* 10 second timeout */
+		while (1) {
+			char c;
+			int status;
+			status = read(slave_fd, &c, 1);
+			if (status == -1) {
+				if (errno != EINTR || MR_got_alarm) {
+					MR_mdb_perror(
+					"error reading from mdb window");
+					goto parent_error;
+				}
+			} else if (status == 0 || c == '\n') {
+				break;
+			}
+		}
+
+		/* Reset the alarm handler. */
+		alarm(0);
+		MR_set_signal_action(SIGALRM, &old_alarm_action,
+			"error resetting alarm handler");
+
+#if defined(HAVE_TCGETATTR) && defined(HAVE_TCSETATTR) && \
+			defined(ECHO) && defined(TCSADRAIN)
+		/* Restore echoing. */
+		termio.c_lflag |= ECHO;
+		tcsetattr(slave_fd, TCSADRAIN, &termio);
+#endif
+
+		if ((out_fd = dup(slave_fd)) == -1) {
+			MR_mdb_perror(
+			    "opening slave pseudo-terminal for xterm failed");
+			goto parent_error;
+		}
+		if ((err_fd = dup(slave_fd)) == -1) {
+			MR_mdb_perror(
+			    "opening slave pseudo-terminal for xterm failed");
+			goto parent_error;
+		}
+
+		MR_mdb_in = fdopen(slave_fd, "r");
+		if (MR_mdb_in == NULL) {
+		    MR_mdb_perror(
+			"opening slave pseudo-terminal for xterm failed");
+		    goto parent_error;
+		}
+		MR_mdb_out = fdopen(out_fd, "w");
+		if (MR_mdb_out == NULL) {
+		    MR_mdb_perror(
+			"opening slave pseudo-terminal for xterm failed");
+		    goto parent_error;
+		}
+		MR_mdb_err = fdopen(err_fd, "w");
+		if (MR_mdb_err == NULL) {
+		    MR_mdb_perror(
+			"opening slave pseudo-terminal for xterm failed");
+		    goto parent_error;
+		}
+
+		MR_have_mdb_window = TRUE;
+		MR_mdb_window_pid = child_pid;
+		return TRUE;
+
+parent_error:
+#if defined(HAVE_KILL) && defined(SIGTERM) && defined(HAVE_WAIT)
+		if (kill(child_pid, SIGTERM) != -1) {
+			do {
+				wait_status = wait(NULL);
+				if (wait_status == -1 && errno != EINTR) {
+					break;	
+				}
+			} while (wait_status != child_pid);
+		}
+#endif
+		if (MR_mdb_in) fclose(MR_mdb_in);
+		if (MR_mdb_out) fclose(MR_mdb_out);
+		if (MR_mdb_err) fclose(MR_mdb_err);
+		close(slave_fd);
+		close(out_fd);
+		close(err_fd);
+		return FALSE;
+
+	}
+
+#else 	/* !HAVE_OPEN, etc. */
+	MR_mdb_warning(
+		"Sorry, `mdb --window' not supported on this platform.\n");
+	return FALSE;
+#endif /* !HAVE_OPEN, etc. */
 }
 
 static void
@@ -483,6 +788,31 @@ MR_trace_browse_internal(MR_Word type_info, MR_Word value,
 		default:
 			MR_fatal_error("MR_trace_browse_internal:"
 					" unknown caller type");
+	}
+}
+
+static void
+MR_trace_browse_goal_internal(MR_ConstString name, MR_Word arg_list,
+	MR_Word is_func, MR_Browse_Caller_Type caller, MR_Browse_Format format)
+{
+	switch (caller) {
+		
+		case MR_BROWSE_CALLER_BROWSE:
+			MR_trace_browse_goal(name, arg_list, is_func, format);
+			break;
+
+		case MR_BROWSE_CALLER_PRINT:
+			MR_trace_print_goal(name, arg_list, is_func,
+				caller, format);
+			break;
+
+		case MR_BROWSE_CALLER_PRINT_ALL:
+			MR_fatal_error("MR_trace_browse_goal_internal:"
+				" bad caller type");
+
+		default:
+			MR_fatal_error("MR_trace_browse_goal_internal:"
+				" unknown caller type");
 	}
 }
 
@@ -1028,12 +1358,27 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 					"browsing", "print"))
 		{
 			; /* the usage message has already been printed */
+		} else if (word_count == 1) {
+			const char	*problem;
+
+			problem = MR_trace_browse_one_goal(MR_mdb_out,
+				MR_trace_browse_goal_internal,
+				MR_BROWSE_CALLER_PRINT, format);
+
+			if (problem != NULL) {
+				fflush(MR_mdb_out);
+				fprintf(MR_mdb_err, "mdb: %s.\n", problem);
+			}
 		} else if (word_count == 2) {
 			const char	*problem;
 
 			if (streq(words[1], "*")) {
 				problem = MR_trace_browse_all(MR_mdb_out,
 					MR_trace_browse_internal, format);
+			} else if (streq(words[1], "goal")) {
+				problem = MR_trace_browse_one_goal(MR_mdb_out,
+					MR_trace_browse_goal_internal,
+					MR_BROWSE_CALLER_PRINT, format);
 			} else if (streq(words[1], "exception")) {
 				problem = MR_trace_browse_exception(event_info,
 					MR_trace_browse_internal,
@@ -1058,10 +1403,25 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 					"browsing", "browse"))
 		{
 			; /* the usage message has already been printed */
+		} else if (word_count == 1) {
+			const char	*problem;
+
+			problem = MR_trace_browse_one_goal(MR_mdb_out,
+				MR_trace_browse_goal_internal,
+				MR_BROWSE_CALLER_BROWSE, format);
+
+			if (problem != NULL) {
+				fflush(MR_mdb_out);
+				fprintf(MR_mdb_err, "mdb: %s.\n", problem);
+			}
 		} else if (word_count == 2) {
 			const char	*problem;
 
-			if (streq(words[1], "exception")) {
+			if (streq(words[1], "goal")) {
+				problem = MR_trace_browse_one_goal(MR_mdb_out,
+					MR_trace_browse_goal_internal,
+					MR_BROWSE_CALLER_BROWSE, format);
+			} else if (streq(words[1], "exception")) {
 				problem = MR_trace_browse_exception(event_info,
 					MR_trace_browse_internal,
 					MR_BROWSE_CALLER_BROWSE, format);
@@ -1134,6 +1494,38 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 					pretty_format, words[1], words[2]))
 		{
 			MR_trace_usage("browsing", "set");
+		}
+	} else if (streq(words[0], "view")) {
+		const char		*window_cmd = NULL;
+		const char		*server_cmd = NULL;
+		const char		*server_name = NULL;
+		int			timeout = 8;	/* seconds */
+		bool			force = FALSE;
+		bool			verbose = FALSE;
+		bool			split = FALSE;
+		bool			close_window = FALSE;
+		const char		*msg;
+
+		if (! MR_trace_options_view(&window_cmd, &server_cmd,
+				&server_name, &timeout, &force, &verbose,
+				&split, &close_window, &words, &word_count,
+				"browsing", "view"))
+		{
+			; /* the usage message has already been printed */
+		} else if (word_count != 1) {
+			MR_trace_usage("browsing", "view");
+		} else if (close_window) {
+			MR_trace_maybe_close_source_window(verbose);
+		} else {
+			msg = MR_trace_new_source_window(window_cmd,
+					server_cmd, server_name, timeout,
+					force, verbose, split);
+			if (msg != NULL) {
+				fflush(MR_mdb_out);
+				fprintf(MR_mdb_err, "mdb: %s.\n", msg);
+			}
+
+			MR_trace_maybe_sync_source_window(event_info, verbose);
 		}
 	} else if (streq(words[0], "break")) {
 		MR_Proc_Spec		spec;
@@ -1765,31 +2157,21 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 	} else if (streq(words[0], "echo")) {
 		if (word_count == 2) {
 			if (streq(words[1], "off")) {
-#ifdef MR_NO_USE_READLINE
 				MR_echo_commands = FALSE;
 				if (MR_trace_internal_interacting) {
 					fprintf(MR_mdb_out,
 						"Command echo disabled.\n");
 				}
-#else
-				/* with readline, echoing is always enabled */
-				fprintf(MR_mdb_err, "Sorry, cannot disable "
-					"echoing when using GNU readline.\n");
-				
-#endif
 			} else if (streq(words[1], "on")) {
-#ifdef MR_NO_USE_READLINE
 				if (!MR_echo_commands) {
 					/*
 					** echo the `echo on' command
-					** This is needed for testing, so that
-					** we get the same output both with
-					** and without readline.
+					** This is needed for historical reasons
+					** (compatibly with out existing test suite).
 					*/
 					fprintf(MR_mdb_out, "echo on\n");
 					MR_echo_commands = TRUE;
 				}
-#endif
 				if (MR_trace_internal_interacting) {
 					fprintf(MR_mdb_out,
 						"Command echo enabled.\n");
@@ -1799,17 +2181,11 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 			}
 		} else if (word_count == 1) {
 			fprintf(MR_mdb_out, "Command echo is ");
-#ifdef MR_NO_USE_READLINE
 			if (MR_echo_commands) {
 				fprintf(MR_mdb_out, "on.\n");
 			} else {
 				fprintf(MR_mdb_out, "off.\n");
 			}
-#else
-			/* with readline, echoing is always enabled */
-			fprintf(MR_mdb_out, "on.\n");
-#endif
-			
 		} else {
 			MR_trace_usage("parameter", "echo");
 		}
@@ -1978,10 +2354,29 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 		}
 #endif	/* MR_TRACE_HISTOGRAM */
 	} else if (streq(words[0], "nondet_stack")) {
-		if (word_count == 1) {
+		bool	detailed;
+
+		detailed = FALSE;
+		if (! MR_trace_options_detailed(&detailed,
+			&words, &word_count, "browsing", "nondet_stack"))
+		{
+			; /* the usage message has already been printed */
+		} else if (word_count == 1) {
 			MR_trace_init_modules();
-			MR_dump_nondet_stack_from_layout(MR_mdb_out,
-				MR_saved_maxfr(saved_regs));
+			if (detailed) {
+				int	saved_level;
+
+				saved_level = MR_trace_current_level();
+				MR_dump_nondet_stack_from_layout(MR_mdb_out,
+					MR_saved_maxfr(saved_regs),
+					layout,
+					MR_saved_sp(saved_regs),
+					MR_saved_curfr(saved_regs));
+				MR_trace_set_level(saved_level);
+			} else {
+				MR_dump_nondet_stack(MR_mdb_out,
+					MR_saved_maxfr(saved_regs));
+			}
 		} else {
 			MR_trace_usage("developer", "nondet_stack");
 		}
@@ -2235,6 +2630,7 @@ MR_trace_handle_cmd(char **words, int word_count, MR_Trace_Cmd_Info *cmd,
 			}
 
 			if (confirmed) {
+				MR_trace_maybe_close_source_window(FALSE);
 				exit(EXIT_SUCCESS);
 			}
 		} else {
@@ -2325,6 +2721,140 @@ MR_parse_source_locn(char *word, const char **file, int *line)
 	}
 
 	return FALSE;
+}
+
+/*
+** Implement the `view' command.  First, check if there is a server
+** attached.  If so, either stop it or abort the command, depending
+** on whether '-f' was given.  Then, if a server name was not supplied,
+** start a new server with a unique name (which has been MR_malloc'd),
+** otherwise attach to the server with the supplied name (and make a
+** MR_malloc'd copy of the name).
+*/
+static const char *
+MR_trace_new_source_window(const char *window_cmd, const char *server_cmd,
+		const char *server_name, int timeout, bool force, bool verbose,
+		bool split)
+{
+	const char	*msg;
+
+	if (MR_trace_source_server.server_name != NULL) {
+		/*
+		** We are already attached to a server.
+		*/
+		if (force) {
+			MR_trace_maybe_close_source_window(verbose);
+		} else {
+			return "error: server already open (use '-f' to force)";
+		}
+	}
+
+	MR_trace_source_server.split = split;
+	if (server_cmd != NULL) {
+		MR_trace_source_server.server_cmd = MR_copy_string(server_cmd);
+	} else {
+		MR_trace_source_server.server_cmd = NULL;
+	}
+
+	if (server_name == NULL)
+	{
+		msg = MR_trace_source_open_server(&MR_trace_source_server,
+				window_cmd, timeout, verbose);
+	}
+	else
+	{
+		MR_trace_source_server.server_name =
+				MR_copy_string(server_name);
+		msg = MR_trace_source_attach(&MR_trace_source_server, timeout,
+				verbose);
+		if (msg != NULL) {
+			/*
+			** Something went wrong, so we should free the
+			** strings we allocated just above.
+			*/
+			MR_free(MR_trace_source_server.server_name);
+			MR_trace_source_server.server_name = NULL;
+			MR_free(MR_trace_source_server.server_cmd);
+			MR_trace_source_server.server_cmd = NULL;
+		}
+	}
+
+	return msg;
+}
+
+/*
+** If we are attached to a source server, then find the appropriate
+** context and ask the server to point to it, otherwise do nothing.
+*/
+static	void
+MR_trace_maybe_sync_source_window(MR_Event_Info *event_info, bool verbose)
+{
+	const MR_Label_Layout	*parent;
+	const char		*filename;
+	int			lineno;
+	const char		*parent_filename;
+	int			parent_lineno;
+	const char		*problem; /* not used */
+	MR_Word			*base_sp, *base_curfr;
+	const char		*msg;
+
+	if (MR_trace_source_server.server_name != NULL) {
+		lineno = 0;
+		filename = "";
+		parent_lineno = 0;
+		parent_filename = "";
+
+		/*
+		** At interface ports we send both the parent context and
+		** the current context.  Otherwise, we just send the current
+		** context.
+		*/
+		if (MR_port_is_interface(event_info->MR_trace_port)) {
+			base_sp = MR_saved_sp(event_info->MR_saved_regs);
+			base_curfr = MR_saved_curfr(event_info->MR_saved_regs);
+			parent = MR_find_nth_ancestor(event_info->MR_event_sll,
+				1, &base_sp, &base_curfr, &problem);
+			if (parent != NULL) {
+				(void) MR_find_context(parent,
+					&parent_filename, &parent_lineno);
+			}
+		}
+
+		if (filename[0] == '\0') {
+			(void) MR_find_context(event_info->MR_event_sll,
+					&filename, &lineno);
+		}
+
+		msg = MR_trace_source_sync(&MR_trace_source_server, filename,
+				lineno, parent_filename, parent_lineno,
+				verbose);
+		if (msg != NULL) {
+			fflush(MR_mdb_out);
+			fprintf(MR_mdb_err, "mdb: %s.\n", msg);
+		}
+	}
+}
+
+/*
+** Close a source server, if there is one attached.
+*/
+static	void
+MR_trace_maybe_close_source_window(bool verbose)
+{
+	const char	*msg;
+
+	if (MR_trace_source_server.server_name != NULL) {
+		msg = MR_trace_source_close(&MR_trace_source_server, verbose);
+		if (msg != NULL) {
+			fflush(MR_mdb_out);
+			fprintf(MR_mdb_err, "mdb: %s.\n", msg);
+		}
+
+		MR_free(MR_trace_source_server.server_name);
+		MR_trace_source_server.server_name = NULL;
+		MR_free(MR_trace_source_server.server_cmd);
+		MR_trace_source_server.server_cmd = NULL;
+	}
 }
 
 static struct MR_option MR_trace_strict_print_opts[] =
@@ -2779,6 +3309,116 @@ MR_trace_options_param_set(MR_Word *print_set, MR_Word *browse_set,
 	return TRUE;
 }
 
+static struct MR_option MR_trace_view_opts[] =
+{
+	{ "close",		MR_no_argument,		NULL,	'c' },
+	{ "window-command",	MR_required_argument,	NULL,	'w' },
+	{ "server-command",	MR_required_argument,	NULL,	's' },
+	{ "server-name",	MR_required_argument,	NULL,	'n' },
+	{ "timeout",		MR_required_argument,	NULL,	't' },
+	{ "force",		MR_no_argument,		NULL,	'f' },
+	{ "verbose",		MR_no_argument,		NULL,	'v' },
+	{ "split-screen",	MR_no_argument,		NULL,	'2' },
+	{ NULL,			MR_no_argument,		NULL,	0 }
+};
+
+static bool
+MR_trace_options_view(const char **window_cmd, const char **server_cmd,
+		const char **server_name, int *timeout, bool *force,
+		bool *verbose, bool *split, bool *close_window, char ***words,
+		int *word_count, const char *cat, const char *item)
+{
+	int	c;
+	bool	no_close = FALSE;
+
+	MR_optind = 0;
+	while ((c = MR_getopt_long(*word_count, *words, "cw:s:n:t:fv2",
+			MR_trace_view_opts, NULL)) != EOF)
+	{
+		/*
+		** Option '-c' is mutually incompatible with '-f', '-t',
+		** '-s', '-n', '-w' and '-2'.
+		*/
+		switch (c) {
+
+			case 'c':
+				if (no_close) {
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				*close_window = TRUE;
+				break;
+
+			case 'w':
+				if (*close_window) {
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				*window_cmd = MR_optarg;
+				no_close = TRUE;
+				break;
+
+			case 's':
+				if (*close) {
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				*server_cmd = MR_optarg;
+				no_close = TRUE;
+				break;
+
+			case 'n':
+				if (*close) {
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				*server_name = MR_optarg;
+				no_close = TRUE;
+				break;
+
+			case 't':
+				if (*close_window ||
+					sscanf(MR_optarg, "%d", timeout) != 1)
+				{
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				no_close = TRUE;
+				break;
+
+			case 'f':
+				if (*close_window) {
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				*force = TRUE;
+				no_close = TRUE;
+				break;
+
+			case 'v':
+				*verbose = TRUE;
+				break;
+
+			case '2':
+				if (*close_window) {
+					MR_trace_usage(cat, item);
+					return FALSE;
+				}
+				*split = TRUE;
+				no_close = TRUE;
+				break;
+
+			default:
+				MR_trace_usage(cat, item);
+				return FALSE;
+		}
+	}
+
+	*words = *words + MR_optind - 1;
+	*word_count = *word_count - MR_optind + 1;
+	return TRUE;
+}
+
 static void
 MR_trace_usage(const char *cat, const char *item)
 /* cat is unused now, but could be used later */
@@ -3113,13 +3753,10 @@ MR_trace_getline(const char *prompt, FILE *mdb_in, FILE *mdb_out)
 
 	line = MR_trace_readline(prompt, mdb_in, mdb_out);
 
-	/* if we're using readline, then readline does the echoing */
-#ifdef MR_NO_USE_READLINE
 	if (MR_echo_commands && line != NULL) {
 		fputs(line, mdb_out);
 		putc('\n', mdb_out);
 	}
-#endif
 
 	return line;
 }
@@ -3326,6 +3963,7 @@ static	MR_trace_cmd_cat_item MR_trace_valid_command_list[] =
 	{ "browsing", "level" },
 	{ "browsing", "current" },
 	{ "browsing", "set" },
+	{ "browsing", "view" },
 	{ "breakpoint", "break" },
 	{ "breakpoint", "ignore" },
 	{ "breakpoint", "enable" },

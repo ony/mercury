@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2001 The University of Melbourne. 
+# Copyright (C) 1995-2002 The University of Melbourne. 
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -442,9 +442,11 @@ install_grades: scripts
 		( cd boehm_gc && rm -f *.$O *.pic_o *.$A *.so ) && \
 		( cd runtime && rm -f *.$O *.pic_o *.$A *.so ) && \
 		( cd library && rm -f *.dep *.h *.c *.c_date *.$O *.pic_o \
-				*.$A *.so Mercury/cs/*.c Mercury/os/*.$O ) && \
+				*.$A *.so Mercury/cs/*.c \
+				Mercury/c_dates/*.c_date Mercury/os/*.$O ) && \
 		( cd browser && rm -f *.dep *.h *.c *.c_date *.$O *.pic_o \
-				*.$A *.so Mercury/cs/*.c Mercury/os/*.$O ) && \
+				*.$A *.so Mercury/cs/*.c \
+				Mercury/c_dates/*.c_date Mercury/os/*.$O ) && \
 		( cd trace && rm -f *.$O *.pic_o *.$A *.so ) && \
 		true \
 		|| { scripts/mercury_cleanup_install; exit 1; }; \

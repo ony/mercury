@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -62,12 +62,9 @@ load(Name, Dirs, Res) -->
 		format(StdErr, "%s: %s\n", [s(Path), s(Msg)])
 	    ), Errors)
 	;
-	    { Res1 = error(Err) },
+	    { Res1 = error(_, Err) },
 	    { io__error_message(Err, Msg) },
 	    { Res = error(Msg) }
-	;
-	    { Res1 = eof },
-	    { Res = error("empty catalog file") }
 	)
     ;
         { Res0 = error(Msg) },

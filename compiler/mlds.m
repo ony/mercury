@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2001 The University of Melbourne.
+% Copyright (C) 1999-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -103,9 +103,18 @@
 
 % 5. Global data
 %
-% Is there any use in hanging on to the structure of the names for
-% compiler-generated global data?  Currently we do.  I'm not sure
-% if it would be better to flatten it (using mangled names) at this point.
+% MLDS names for global data are structured; they hold some
+% information about the kind of global data (see the mlds__data_name type).
+%
+% It's not clear whether this is actually useful.
+% And we're not completely consistent about applying this approach.
+% Many of the passes which create global data items do not actually
+% generate structured names, but instead just generate var/1 names
+% where the variable name already contains some mangling to ensure uniqueness.
+% Examples of this include "string_table" and "next_slots_table" (for
+% string switches), "float_*" (boxed floating point constants),
+% and "obj_*" (reserved objects, for representing constants in
+% discriminated union types).
 
 % 6. Types
 %
@@ -280,14 +289,9 @@
 
 :- import_module hlds_module, hlds_pred, hlds_data.
 :- import_module prog_data, builtin_ops, rtti, code_model.
-:- import_module type_util.
+:- import_module foreign, type_util.
 
-% To avoid duplication, we use a few things from the LLDS
-% (specifically stuff for the C interface).
-% It would be nice to avoid this dependency...
-:- import_module llds.
-
-:- import_module bool, list, assoc_list, std_util, map.
+:- import_module bool, list, std_util, map.
 
 %-----------------------------------------------------------------------------%
 
@@ -321,9 +325,16 @@
 % Currently an import just gives the name of the package to be imported.
 % This might perhaps need to be expanded to cater to different kinds of
 % imports, e.g. imports with wild-cards ("import java.lang.*").
-:- type mlds__import == mlds_module_name.
-					% Specifies the name of a package or
-					% class to import.
+:- type mlds__import
+	--->	mercury_import(
+			import_name		:: mlds_module_name
+		)
+	;	foreign_import(
+			foreign_import_name	:: foreign_import_name
+		).
+
+:- type foreign_import_name
+	--->	il_assembly_name(mlds_module_name).
 
 % An mlds_module_name specifies the name of an mlds package or class.
 :- type mlds_module_name.
@@ -355,8 +366,8 @@
 % Given an MLDS module name (e.g. `foo.bar'), append another class qualifier
 % (e.g. for a class `baz'), and return the result (e.g. `foo.bar.baz').
 % The `arity' argument specifies the arity of the class.
-:- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name, arity) =
-	mlds_module_name.
+:- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name,
+		arity) = mlds_module_name.
 
 % Append a wrapper class qualifier to the module name and leave the
 % package name unchanged.
@@ -438,7 +449,11 @@
 		% constants or variables
 	--->	mlds__data(
 			mlds__type,
-			mlds__initializer
+			mlds__initializer,
+				% If accurate GC is enabled, we associate
+				% with each variable the code needed to
+				% trace that variable when doing GC.
+			mlds__maybe_gc_trace_code
 		)
 		% functions
 	;	mlds__function(
@@ -452,6 +467,14 @@
 	;	mlds__class(
 			mlds__class_defn
 		).
+
+	% If accurate GC is enabled, we associate with each variable
+	% (including function parameters) the code needed to trace that
+	% variable when doing GC.
+	% `no' here indicates that no GC tracing code is needed,
+	% e.g. because accurate GC isn't enabled, or because the
+	% variable can never contain pointers to objects on the heap.
+:- type mlds__maybe_gc_trace_code == maybe(mlds__statement).
 
 	% It is possible for the function to be defined externally
 	% (i.e. the original Mercury procedure was declared `:- external').
@@ -475,10 +498,18 @@
 		mlds__arguments,	% names and types of arguments (inputs)
 		mlds__return_types	% types of return values (outputs)
 	).
-
-:- type mlds__arguments == assoc_list(mlds__entity_name, mlds__type).
+:- type mlds__arguments == list(mlds__argument).
+:- type mlds__argument
+	---> mlds__argument(
+		mlds__entity_name,		% argument name
+		mlds__type,			% argument type
+		mlds__maybe_gc_trace_code	% GC tracing code for this
+						% argument, if needed
+	).
 :- type mlds__arg_types == list(mlds__type).
 :- type mlds__return_types == list(mlds__type).
+
+:- func mlds__get_arg_types(mlds__arguments) = list(mlds__type).
 
 	% An mlds__func_signature is like an mlds__func_params
 	% except that it only includes the function's type, not
@@ -535,8 +566,13 @@
 	--->	% Mercury data types
 		mercury_type(
 			prog_data__type,	% the exact Mercury type
-			builtin_type		% what kind of type it is:
+			builtin_type,		% what kind of type it is:
 						% enum, float, etc.
+			exported_type		% a representation of the type
+						% which can be used to
+						% determine the foreign
+						% language representation of
+						% the type.
 		)
 
 	 	% The Mercury array type is treated specially, some backends
@@ -587,6 +623,14 @@
 	;	mlds__native_int_type
 	;	mlds__native_float_type
 	;	mlds__native_char_type
+
+		% This is a type of the MLDS target language.  Currently
+		% this is only used by the il backend.
+	;	mlds__foreign_type(
+			bool,		% is type already boxed?
+			sym_name,	% structured name representing the type
+			string		% location of the type (ie assembly)
+		)
 
 		% MLDS types defined using mlds__class_defn
 	;	mlds__class_type(
@@ -731,6 +775,7 @@
 :- type mlds__foreign_code
 	---> mlds__foreign_code(
 		foreign_decl_info,
+		foreign_import_module_info,
 		list(user_foreign_code),
 		list(mlds__pragma_export)
 	).
@@ -1072,9 +1117,13 @@ XXX Full exception handling support is not yet implemented.
 			mlds__lval,	% The target to assign the new object's
 					% address to.
 			maybe(mlds__tag),
-					% A tag to tag the address with
-					% before assigning the result to the
-					% target.
+					% A (primary) tag to tag the address
+					% with before assigning the result to
+					% the target.
+			bool,		% Indicates whether or not there is
+					% a secondary tag.  If so, it will
+					% be stored as the first argument
+					% in the argument list (see below).
 			mlds__type,	% The type of the object being
 					% allocated.
 			maybe(mlds__rval),
@@ -1090,16 +1139,28 @@ XXX Full exception handling support is not yet implemented.
 					% The types of the arguments to the
 					% constructor. 
 					%
-					% Note that currently we store all 
-					% fields as type mlds__generic_type.
-					% But the type here is the actual
-					% argument type, which does not
-					% have to be mlds__generic_type.
-					% It is the responsibility of the
-					% MLDS->target code output phase
-					% to box the arguments if necessary.
+					% Note that for --low-level-data, we box
+					% all fields of objects created with
+					% new_object, i.e. they are reprsented
+					% with type mlds__generic_type.
+					% We also do that for some fields
+					% even for --high-level-data
+					% (e.g. floating point fields for the
+					% MLDS->C and MLDS->asm back-ends).
+					% In such cases, the type here
+					% should be mlds__generic_type;
+					% it is the responsibility of the
+					% HLDS->MLDS code generator
+					% to insert code to box/unbox
+					% the arguments.
 					% 
 		)
+
+	;	gc_check
+			% Check to see if we need to do a garbage collection,
+			% and if so, do it.
+			% This is used for accurate garbage collection
+			% with the MLDS->C back-end.
 
 	;	mark_hp(mlds__lval)
 			% Tell the heap sub-system to store a marker
@@ -1197,6 +1258,13 @@ XXX Full exception handling support is not yet implemented.
 
 :- type target_code_attribute
 	--->	max_stack_size(int).
+		% max_stack_size(Size):
+		% This attribute declares the maximum stack usage of a
+		% particular piece of code.  The unit that `Size' is measured
+		% in depends upon foreign language being used.  Currently this
+		% attribute is only used (and is in fact required) by the
+		% `IL' foreign language interface, and is measured in units
+		% of stack items.
 
 	%
 	% constructor id
@@ -1267,24 +1335,31 @@ XXX Full exception handling support is not yet implemented.
 	%
 	--->	field(maybe(mlds__tag), mlds__rval, field_id, 
 			mlds__type, mlds__type)
-				% field(Tag, Address, FieldName, FieldType,
+				% field(Tag, Address, FieldId, FieldType,
 				%	PtrType)
 				% selects a field of a compound term.
 				% Address is a tagged pointer to a cell
-				% on the heap; the offset into the cell
-				% is FieldNum words. If Tag is yes, the
-				% arg gives the value of the tag; if it is
-				% no, the tag bits will have to be masked off.
-				% The value of the tag should be given if
+				% on the heap; the position in the cell, 
+				% FieldId, is represented either as a field 
+				% name or a number of words offset. If Tag is 
+				% yes, the arg gives the value of the tag; if 
+				% it is no, the tag bits will have to be masked
+				% off. The value of the tag should be given if
 				% it is known, since this will lead to
 				% faster code.
 				% The FieldType is the type of the field.
 				% The PtrType is the type of the pointer
 				% from which we are fetching the field.
 				%
-				% Note that currently we store all fields
-				% of objects created with new_object
-				% as type mlds__generic_type. For such objects,
+				% Note that for --low-level-data, we box
+				% all fields of objects created with
+				% new_object, i.e. they are reprsented
+				% with type mlds__generic_type.
+				% We also do that for some fields
+				% even for --high-level-data
+				% (e.g. floating point fields for the
+				% MLDS->C and MLDS->asm back-ends)
+				% In such cases,
 				% the type here should be mlds__generic_type,
 				% not the actual type of the field.
 				% If the actual type is different, then it
@@ -1311,8 +1386,9 @@ XXX Full exception handling support is not yet implemented.
 	.
 
 %-----------------------------------------------------------------------------%
-
-	% XXX this probably needs work
+%
+% Expressions
+%
 
 	% An rval is an expression that represents a value.
 :- type mlds__rval	
@@ -1502,7 +1578,7 @@ XXX Full exception handling support is not yet implemented.
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module modules.
+:- import_module foreign, modules.
 :- import_module int, term, string, require.
 
 %-----------------------------------------------------------------------------%
@@ -1536,15 +1612,29 @@ mercury_type_to_mlds_type(ModuleInfo, Type) = MLDSType :-
 		MLDSElemType = mercury_type_to_mlds_type(ModuleInfo, ElemType),
 		MLDSType = mlds__mercury_array_type(MLDSElemType)
 	;
+		type_to_type_id(Type, TypeId, _),
+		module_info_types(ModuleInfo, Types),
+		map__search(Types, TypeId, TypeDefn),
+		hlds_data__get_type_defn_body(TypeDefn, Body),
+		Body = foreign_type(IsBoxed, ForeignType, ForeignLocation)
+	->
+		MLDSType = mlds__foreign_type(IsBoxed,
+				ForeignType, ForeignLocation)
+	;
 		classify_type(Type, ModuleInfo, Category),
-		MLDSType = mercury_type(Type, Category)
+		ExportedType = to_exported_type(ModuleInfo, Type),
+		MLDSType = mercury_type(Type, Category, ExportedType)
 	).
 
 %-----------------------------------------------------------------------------%
 
 mlds__get_func_signature(func_params(Parameters, RetTypes)) =
 		func_signature(ParamTypes, RetTypes) :-
-	assoc_list__values(Parameters, ParamTypes).
+	ParamTypes = mlds__get_arg_types(Parameters).
+
+mlds__get_arg_types(Parameters) = ArgTypes :-
+	GetArgType = (func(mlds__argument(_, Type, _)) = Type),
+	ArgTypes = list__map(GetArgType, Parameters).
 
 %-----------------------------------------------------------------------------%
 

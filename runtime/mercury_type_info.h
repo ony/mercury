@@ -1,5 +1,8 @@
 /*
-** Copyright (C) 1995-2001 The University of Melbourne.
+** vim: ts=4 sw=4 expandtab
+*/
+/*
+** Copyright (C) 1995-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -41,9 +44,9 @@
 **      runtime/mercury_tabling.c
 **      runtime/mercury_type_info.c
 **      library/std_util.m
-**	java/ *.java
-**	    (for updating the Java backend RTTI
-**	    structures)
+**      java/ *.java
+**          (for updating the Java backend RTTI
+**          structures)
 **     
 */
 
@@ -52,7 +55,7 @@
 
 #include "mercury_std.h"    /* for `MR_STRINGIFY' and `MR_PASTEn' */
 #include "mercury_types.h"  /* for `MR_Word' */
-#include "mercury_tags.h"  /* for `MR_CONVERT_C_ENUM_CONSTANT' */
+#include "mercury_tags.h"   /* for `MR_CONVERT_C_ENUM_CONSTANT' */
 
 /*---------------------------------------------------------------------------*/
 
@@ -68,10 +71,12 @@
 ** compiler/type_ctor_info.m.
 */
 
-#define MR_RTTI_VERSION                 MR_RTTI_VERSION__CLEAN_LAYOUT
+#define MR_RTTI_VERSION                 MR_RTTI_VERSION__COMPACT
 #define MR_RTTI_VERSION__INITIAL        2
 #define MR_RTTI_VERSION__USEREQ         3
 #define MR_RTTI_VERSION__CLEAN_LAYOUT   4
+#define MR_RTTI_VERSION__VERSION_NO     5
+#define MR_RTTI_VERSION__COMPACT        6
 
 /*
 ** Check that the RTTI version is in a sensible range.
@@ -82,15 +87,15 @@
 */
 
 #define MR_TYPE_CTOR_INFO_CHECK_RTTI_VERSION_RANGE(typector)    \
-    assert(typector->type_ctor_version == MR_RTTI_VERSION__CLEAN_LAYOUT)
+    assert(typector->MR_type_ctor_version == MR_RTTI_VERSION__COMPACT)
 
 /*---------------------------------------------------------------------------*/
 
 /* Forward declarations */
 
-typedef const struct MR_TypeCtorInfo_Struct		*MR_TypeCtorInfo;
-typedef       struct MR_TypeInfo_Almost_Struct		*MR_TypeInfo;
-typedef const struct MR_PseudoTypeInfo_Almost_Struct	*MR_PseudoTypeInfo;
+typedef const struct MR_TypeCtorInfo_Struct             *MR_TypeCtorInfo;
+typedef       struct MR_TypeInfo_Almost_Struct          *MR_TypeInfo;
+typedef const struct MR_PseudoTypeInfo_Almost_Struct    *MR_PseudoTypeInfo;
 
 /*---------------------------------------------------------------------------*/
 
@@ -120,8 +125,7 @@ typedef const struct MR_PseudoTypeInfo_Almost_Struct	*MR_PseudoTypeInfo;
 ** We do not use zero to represent any type variable, for two reasons.
 ** First, variable numbering starts at one inside the compiler. Second,
 ** starting at one allows us to use universally quantified type variable
-** numbers to be used directly as the offset into a (non-higher-order)
-** typeinfo.
+** numbers directly as an offset into a (non-higher-order) typeinfo.
 **
 ** This scheme relies on the bit patterns of these integers corresponding
 ** to memory that is either inaccessible (due to the first page of virtual
@@ -134,32 +138,33 @@ typedef const struct MR_PseudoTypeInfo_Almost_Struct	*MR_PseudoTypeInfo;
 ** these are used in the code that the compiler generates
 ** for static constant typeinfos and pseudotypeinfos.
 */
-#define MR_FIRST_ORDER_TYPEINFO_STRUCT(NAME, ARITY)			\
-    struct NAME {							\
-	MR_TypeCtorInfo     MR_ti_type_ctor_info;			\
-	MR_TypeInfo         MR_ti_first_order_arg_typeinfos[ARITY];	\
+
+#define MR_FIRST_ORDER_TYPEINFO_STRUCT(NAME, ARITY)                     \
+    struct NAME {                                                       \
+        MR_TypeCtorInfo     MR_ti_type_ctor_info;                       \
+        MR_TypeInfo         MR_ti_first_order_arg_typeinfos[ARITY];     \
     }
 
 /* Tuple types also use the higher-order type-info structure. */
-#define MR_HIGHER_ORDER_TYPEINFO_STRUCT(NAME, ARITY)			\
-    struct NAME {							\
-	MR_TypeCtorInfo     MR_ti_type_ctor_info;			\
-	MR_Integer          MR_ti_higher_order_arity;			\
-	MR_TypeInfo         MR_ti_higher_order_arg_typeinfos[ARITY];	\
+#define MR_HIGHER_ORDER_TYPEINFO_STRUCT(NAME, ARITY)                    \
+    struct NAME {                                                       \
+        MR_TypeCtorInfo     MR_ti_type_ctor_info;                       \
+        MR_Integer          MR_ti_higher_order_arity;                   \
+        MR_TypeInfo         MR_ti_higher_order_arg_typeinfos[ARITY];    \
     }
 
-#define MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)		\
-    struct NAME {							\
-	MR_TypeCtorInfo     MR_pti_type_ctor_info;			\
-	MR_PseudoTypeInfo   MR_pti_first_order_arg_pseudo_typeinfos[ARITY]; \
+#define MR_FIRST_ORDER_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)               \
+    struct NAME {                                                       \
+        MR_TypeCtorInfo     MR_pti_type_ctor_info;                      \
+        MR_PseudoTypeInfo   MR_pti_first_order_arg_pseudo_typeinfos[ARITY]; \
     }
 
 /* Tuple types also use the higher-order pseude-type-info structure. */
-#define MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)		\
-    struct NAME {							\
-	MR_TypeCtorInfo     MR_pti_type_ctor_info;			\
-	MR_Integer          MR_pti_higher_order_arity;			\
-	MR_PseudoTypeInfo   MR_pti_higher_order_arg_pseudo_typeinfos[ARITY]; \
+#define MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(NAME, ARITY)              \
+    struct NAME {                                                       \
+        MR_TypeCtorInfo     MR_pti_type_ctor_info;                      \
+        MR_Integer          MR_pti_higher_order_arity;                  \
+        MR_PseudoTypeInfo   MR_pti_higher_order_arg_pseudo_typeinfos[ARITY]; \
     }
 
 /*
@@ -167,10 +172,11 @@ typedef const struct MR_PseudoTypeInfo_Almost_Struct	*MR_PseudoTypeInfo;
 ** which are used by the MR_TypeInfo and MR_PseudoTypeInfo
 ** typedefs above.
 */
+
 MR_HIGHER_ORDER_TYPEINFO_STRUCT(MR_TypeInfo_Almost_Struct,
-	MR_VARIABLE_SIZED);
+        MR_VARIABLE_SIZED);
 MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_PseudoTypeInfo_Almost_Struct,
-	MR_VARIABLE_SIZED);
+        MR_VARIABLE_SIZED);
 
 /*
 ** When converting a MR_PseudoTypeInfo to a MR_TypeInfo, we need the
@@ -178,6 +184,7 @@ MR_HIGHER_ORDER_PSEUDOTYPEINFO_STRUCT(MR_PseudoTypeInfo_Almost_Struct,
 ** A MR_TypeInfoParams array serves this purpose. Because type variables
 ** start at one, MR_TypeInfoParams arrays also start at one.
 */
+
 typedef MR_TypeInfo     *MR_TypeInfoParams;
 
 /*
@@ -188,6 +195,7 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** base_type_layout__pseudo_typeinfo_max_var in base_type_layout.m,
 ** and with the default value of MR_VARIABLE_SIZED in mercury_conf_params.h.
 */
+
 #define MR_PSEUDOTYPEINFO_EXIST_VAR_BASE    512
 #define MR_PSEUDOTYPEINFO_MAX_VAR           1024
 
@@ -199,14 +207,14 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 */
 
 #define MR_PSEUDO_TYPEINFO_IS_VARIABLE(T)                           \
-    ( MR_CHECK_EXPR_TYPE((T), MR_PseudoTypeInfo),		    \
+    ( MR_CHECK_EXPR_TYPE((T), MR_PseudoTypeInfo),                   \
       (MR_Unsigned) (T) <= MR_PSEUDOTYPEINFO_MAX_VAR )
 
 #define MR_TYPE_VARIABLE_IS_EXIST_QUANT(T)                          \
-    ( MR_CHECK_EXPR_TYPE((T), MR_PseudoTypeInfo),		    \
+    ( MR_CHECK_EXPR_TYPE((T), MR_PseudoTypeInfo),                   \
       (MR_Word) (T) > MR_PSEUDOTYPEINFO_EXIST_VAR_BASE )
 #define MR_TYPE_VARIABLE_IS_UNIV_QUANT(T)                           \
-    ( MR_CHECK_EXPR_TYPE((T), MR_PseudoTypeInfo),		    \
+    ( MR_CHECK_EXPR_TYPE((T), MR_PseudoTypeInfo),                   \
       (MR_Word) (T) <= MR_PSEUDOTYPEINFO_EXIST_VAR_BASE )
 
 /*
@@ -214,9 +222,10 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** It should only be called if the pseudo_type_info is ground,
 ** i.e. contains no type variables.
 */
+
 #define MR_pseudo_type_info_is_ground(pseudo_type_info)             \
     ( MR_CHECK_EXPR_TYPE((pseudo_type_info), MR_PseudoTypeInfo),    \
-      (MR_TypeInfo) (pseudo_type_info) )			    \
+      (MR_TypeInfo) (pseudo_type_info) )
 
 /*
 ** Macros for retrieving things from type_infos and pseudo_type_infos.
@@ -287,60 +296,32 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 #define MR_fill_in_tuple_type_info(arena, type_ctor_info, arity, vector) \
     MR_fill_in_higher_order_type_info(arena, type_ctor_info, arity, vector)
 
-/*
-** Used to define MR_TypeCtorInfos for the builtin types in the hlc grades.
-** This needs to be exported for use by the array type in the library.
-*/
-#ifdef MR_HIGHLEVEL_CODE
+#define MR_static_type_info_arity_0(name, ctor)				\
+	struct {							\
+		MR_TypeCtorInfo field1;					\
+	} name = {							\
+		(MR_TypeCtorInfo) (ctor)				\
+	};
 
-#define MR_type_ctor_info_name(MODULE, TYPE, ARITY)			      \
-	MR_PASTE2(mercury__,						      \
-	MR_PASTE2(MODULE,						      \
-	MR_PASTE2(__,							      \
-	MR_PASTE2(MODULE,						      \
-	MR_PASTE2(__type_ctor_info_,					      \
-	MR_PASTE2(TYPE,							      \
-	MR_PASTE2(_,							      \
-	          ARITY)))))))
+#define MR_static_type_info_arity_1(name, ctor, ti1)			\
+	struct {							\
+		MR_TypeCtorInfo field1;					\
+		MR_TypeInfo 	field2;					\
+	} name = {							\
+		(MR_TypeCtorInfo) (ctor),				\
+		(MR_TypeInfo)     (ti1)					\
+	};
 
-#define MR_type_ctor_info_func_name(MODULE, TYPE, ARITY, FUNC)		      \
-	MR_PASTE2(mercury__,						      \
-	MR_PASTE2(MODULE,						      \
-	MR_PASTE2(__,							      \
-	MR_PASTE2(FUNC,							      \
-	MR_PASTE2(__,							      \
-	MR_PASTE2(TYPE,							      \
-	MR_PASTE2(_,							      \
-	MR_PASTE2(ARITY,						      \
-	          _0))))))))
-
-#define MR_special_func_type(NAME, ARITY) \
-	MR_PASTE2(MR_, MR_PASTE2(NAME, MR_PASTE2(Func_, ARITY)))
-
-#define MR_define_type_ctor_info(module, type, arity, type_rep)		      \
-	const struct MR_TypeCtorInfo_Struct				      \
-		MR_type_ctor_info_name(module, type, arity) =		      \
-	{								      \
-		arity,							      \
-		(MR_Box) MR_type_ctor_info_func_name(module, type, arity,     \
-				do_unify),				      \
-		(MR_Box) MR_type_ctor_info_func_name(module, type, arity,     \
-				do_unify),				      \
-		(MR_Box) MR_type_ctor_info_func_name(module, type, arity,     \
-				do_compare),				      \
-		type_rep,						      \
-		NULL,							      \
-		NULL,							      \
-		MR_STRINGIFY(module),					      \
-		MR_STRINGIFY(type),					      \
-		MR_RTTI_VERSION,					      \
-		{ 0 },							      \
-		{ 0 },							      \
-		-1,							      \
-		-1							      \
-	}
-
-#endif /* MR_HIGHLEVEL_CODE */
+#define MR_static_type_info_arity_2(name, ctor, ti1, ti2)		\
+	struct {							\
+		MR_TypeCtorInfo field1;					\
+		MR_TypeInfo 	field2;					\
+		MR_TypeInfo 	field3;					\
+	} name = {							\
+		(MR_TypeCtorInfo) (ctor),				\
+		(MR_TypeInfo)     (ti1),				\
+		(MR_TypeInfo)     (ti2)					\
+	};
 
 /*---------------------------------------------------------------------------*/
 
@@ -349,65 +330,35 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 */
 
 #ifdef MR_RESERVE_TAG
-	/*
-        ** In reserve-tag grades, enumerations are disabled, so the
+    /*
+    ** In reserve-tag grades, enumerations are disabled, so the
 	** representation of the 'comparison_result' type is quite different.
 	** The enumeration constants (for (<), (=) and (>)) wind up sharing 
 	** the same primary tag (1), and are all allocated secondary tags
 	** starting from 0.
 	*/
-    #define MR_COMPARE_TAG      MR_mktag(MR_FIRST_UNRESERVED_RAW_TAG)
+  #define MR_ENUM_TAG         MR_mktag(MR_FIRST_UNRESERVED_RAW_TAG)
  
-    #define MR_COMPARE_EQUAL    MR_mkword(MR_COMPARE_TAG, MR_mkbody(0))
-    #define MR_COMPARE_LESS     MR_mkword(MR_COMPARE_TAG, MR_mkbody(1))
-    #define MR_COMPARE_GREATER  MR_mkword(MR_COMPARE_TAG, MR_mkbody(2))         
+  #define MR_COMPARE_EQUAL    MR_mkword(MR_ENUM_TAG, MR_mkbody(0))
+  #define MR_COMPARE_LESS     MR_mkword(MR_ENUM_TAG, MR_mkbody(1))
+  #define MR_COMPARE_GREATER  MR_mkword(MR_ENUM_TAG, MR_mkbody(2))         
+
+  #define MR_BOOL_NO          MR_mkword(MR_ENUM_TAG, MR_mkbody(0))
+  #define MR_BOOL_YES         MR_mkword(MR_ENUM_TAG, MR_mkbody(1))
+
+  #define MR_UNBOUND          MR_mkword(MR_ENUM_TAG, MR_mkbody(0))
 #else
-    #define MR_COMPARE_EQUAL    0
-    #define MR_COMPARE_LESS     1
-    #define MR_COMPARE_GREATER  2
+  #define MR_COMPARE_EQUAL    0
+  #define MR_COMPARE_LESS     1
+  #define MR_COMPARE_GREATER  2
+
+  #define MR_BOOL_NO          0
+  #define MR_BOOL_YES         1
+
+  #define MR_UNBOUND          0
 #endif
 
 /*---------------------------------------------------------------------------*/
-
-/*
-** Definitions and macros for type_ctor_layout definition.
-**
-** See compiler/base_type_layout.m for more information.
-**
-** If we don't have enough tags, we have to encode layouts
-** less densely. The make_typelayout macro does this, and
-** is intended for handwritten code. Compiler generated
-** code can (and does) just create two rvals instead of one.
-**
-** XXX This stuff is part of USEREQ type_ctor_infos and is obsolete;
-** it is needed now only for bootstrapping.
-*/
-
-/*
-** Conditionally define USE_TYPE_LAYOUT.
-**
-** All code using type_layout structures should check to see if
-** USE_TYPE_LAYOUT is defined, and give a fatal error otherwise.
-** USE_TYPE_LAYOUT can be explicitly turned off with NO_TYPE_LAYOUT.
-**
-*/
-#if !defined(NO_TYPE_LAYOUT)
-    #define USE_TYPE_LAYOUT
-#else
-    #undef USE_TYPE_LAYOUT
-#endif
-
-/*
-** Declaration for structs.
-*/
-
-#define MR_DECLARE_STRUCT(T)                                        \
-    extern const struct T##_struct T
-#define MR_DECLARE_TYPE_CTOR_INFO_STRUCT(T)                         \
-    extern const struct MR_TypeCtorInfo_Struct T
-
-/*---------------------------------------------------------------------------*/
-
 
 /*
 ** Offsets for dealing with `univ' types.
@@ -420,7 +371,7 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 #define MR_UNIV_OFFSET_FOR_TYPEINFO        0
 #define MR_UNIV_OFFSET_FOR_DATA            1
 
-#define	MR_unravel_univ(univ, typeinfo, value)                      \
+#define MR_unravel_univ(univ, typeinfo, value)                      \
     do {                                                            \
         typeinfo = (MR_TypeInfo) MR_field(MR_UNIV_TAG, (univ),      \
                         MR_UNIV_OFFSET_FOR_TYPEINFO);               \
@@ -451,7 +402,7 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** Mercury typeclass_info.
 */
 
-#define	MR_typeclass_info_num_extra_instance_args(tci)              \
+#define MR_typeclass_info_num_extra_instance_args(tci)              \
     ((MR_Integer)(*(MR_Word **)(tci))[0])
 #define MR_typeclass_info_num_instance_constraints(tci)             \
     ((MR_Integer)(*(MR_Word **)(tci))[1])
@@ -481,9 +432,9 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** number of superclass_infos for the class added to it.
 */
 
-#define	MR_typeclass_info_superclass_info(tci, n)                   \
+#define MR_typeclass_info_superclass_info(tci, n)                   \
     (((MR_Word *)(tci))[MR_typeclass_info_num_extra_instance_args(tci) + (n)])
-#define	MR_typeclass_info_type_info(tci, n)                         \
+#define MR_typeclass_info_type_info(tci, n)                         \
     (((MR_Word *)(tci))[MR_typeclass_info_num_extra_instance_args(tci) + (n)])
 
 /*---------------------------------------------------------------------------*/
@@ -494,7 +445,7 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 
 /*
 ** For each enumeration constant, we define it using two names;
-** firstly we define the unqualified name, and then we define
+** first we define the unqualified name, and then we define
 ** another enumeration constant whose name is the unqualified name
 ** prefixed with `mercury__private_builtin__' and whose value is
 ** the same as that of the unqualified name.
@@ -502,21 +453,25 @@ typedef MR_TypeInfo     *MR_TypeInfoParams;
 ** which generates references to them.
 */
 
-#define MR_DEFINE_BUILTIN_ENUM_CONST(x)	\
-	MR_PASTE2(x, _val),	\
-	x = MR_CONVERT_C_ENUM_CONSTANT(MR_PASTE2(x, _val)), \
-	MR_PASTE2(mercury__private_builtin__,x) = x, \
-	MR_PASTE2(x, _dummy) = MR_PASTE2(x, _val)
+#define MR_DEFINE_BUILTIN_ENUM_CONST(x) \
+        MR_PASTE2(x, _val),     \
+        x = MR_CONVERT_C_ENUM_CONSTANT(MR_PASTE2(x, _val)), \
+        MR_PASTE2(mercury__private_builtin__,x) = x, \
+        MR_PASTE2(x, _dummy) = MR_PASTE2(x, _val)
 
 /*
-** MR_DataRepresentation is the representation for a particular type
-** constructor.  For the cases of MR_TYPE_CTOR_REP_DU and
-** MR_TYPE_CTOR_REP_DU_USEREQ, the exact representation depends on the tag
-** value -- lookup the tag value in type_ctor_layout to find out this
-** information.
+** MR_TypeCtorRep specifies the representation scheme for a particular type
+** constructor.
 **
-** Any changes in this definition might also require changes in
-** library/rtti_implementation.m and runtime/mercury_mcpp.{h,cpp}
+** Any changes in this definition will also require changes in
+** MR_CTOR_REP_NAMES below, in runtime/mercury_mcpp.{h,cpp}, in
+** library/rtti_implementation.m (definitely the list of type_ctor_reps,
+** maybe the bodies of predicates), in library/private_builtin.m,
+** and in java/TypeCtorRep.java.
+**
+** Additions to the end of this enum can be handled naturally,
+** but changes in the meanings of already assigned values
+** require bootstrapping with RTTI-version-dependent code.
 */
 
 typedef enum {
@@ -527,7 +482,7 @@ typedef enum {
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_NOTAG),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_NOTAG_USEREQ),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_EQUIV),
-    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_EQUIV_VAR),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_FUNC),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_INT),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_CHAR), 
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_FLOAT),
@@ -551,12 +506,24 @@ typedef enum {
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_EQUIV_GROUND),
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_TUPLE),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_RESERVED_ADDR),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_TYPECTORINFO),
+    MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_BASETYPECLASSINFO),
     /*
     ** MR_TYPECTOR_REP_UNKNOWN should remain the last alternative;
     ** MR_TYPE_CTOR_STATS depends on this.
     */
     MR_DEFINE_BUILTIN_ENUM_CONST(MR_TYPECTOR_REP_UNKNOWN)
 } MR_TypeCtorRep;
+
+/*
+** We cannot put enums into structures as bit fields. To avoid wasting space,
+** we put MR_TypeCtorRepInts into structures instead of MR_TypeCtorReps
+** themselves.
+*/
+
+typedef MR_int_least8_t         MR_TypeCtorRepInt;
 
 /*
 ** This macro is intended to be used for the initialization of an array
@@ -572,7 +539,7 @@ typedef enum {
     "NOTAG",                                    \
     "NOTAG_USEREQ",                             \
     "EQUIV",                                    \
-    "EQUIV_VAR",                                \
+    "FUNC",                                     \
     "INT",                                      \
     "CHAR",                                     \
     "FLOAT",                                    \
@@ -596,6 +563,10 @@ typedef enum {
     "NOTAG_GROUND_USEREQ",                      \
     "EQUIV_GROUND",                             \
     "TUPLE",                                    \
+    "RESERVED_ADDR",                            \
+    "RESERVED_ADDR_USEREQ",                     \
+    "TYPECTORINFO",                     	\
+    "BASETYPECLASSINFO",                     	\
     "UNKNOWN"
 
 #define MR_type_ctor_rep_is_basically_du(rep)               \
@@ -606,7 +577,9 @@ typedef enum {
     || ((rep) == MR_TYPECTOR_REP_NOTAG)                     \
     || ((rep) == MR_TYPECTOR_REP_NOTAG_USEREQ)              \
     || ((rep) == MR_TYPECTOR_REP_NOTAG_GROUND)              \
-    || ((rep) == MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ))
+    || ((rep) == MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ)       \
+    || ((rep) == MR_TYPECTOR_REP_RESERVED_ADDR)             \
+    || ((rep) == MR_TYPECTOR_REP_RESERVED_ADDR_USEREQ))
 
 /*
 ** Returns TRUE if the type_ctor_info is used to represent
@@ -616,6 +589,7 @@ typedef enum {
 */
 #define MR_type_ctor_rep_is_variable_arity(rep)             \
     (  ((rep) == MR_TYPECTOR_REP_PRED)                      \
+    || ((rep) == MR_TYPECTOR_REP_FUNC)                      \
     || ((rep) == MR_TYPECTOR_REP_TUPLE))
 
 /*---------------------------------------------------------------------------*/
@@ -713,7 +687,7 @@ typedef struct {
 **
 ** If the functor has any arguments whose types include existentially
 ** quantified type variables, the exist_info field will point to information
-** about those type variable; otherwise, the exist_info field will be NULL.
+** about those type variables; otherwise, the exist_info field will be NULL.
 */
 
 typedef enum {
@@ -781,6 +755,14 @@ typedef struct {
 
 /*---------------------------------------------------------------------------*/
 
+typedef struct {
+    MR_ConstString      MR_ra_functor_name;
+    MR_int_least32_t    MR_ra_functor_ordinal;
+    const void          *MR_ra_functor_reserved_addr;
+} MR_ReservedAddrFunctorDesc;
+
+/*---------------------------------------------------------------------------*/
+
 /*
 ** This type describes the function symbols that share the same primary tag.
 ** The sharers field gives their number, and thus also the size
@@ -800,12 +782,12 @@ typedef struct {
 */
 
 typedef struct {
-    MR_int_least32_t        MR_sectag_sharers;
-    MR_Sectag_Locn          MR_sectag_locn;
-    const MR_DuFunctorDesc * const * MR_sectag_alternatives;
+    MR_int_least32_t                MR_sectag_sharers;
+    MR_Sectag_Locn                  MR_sectag_locn;
+    const MR_DuFunctorDesc * const *MR_sectag_alternatives;
 } MR_DuPtagLayout;
 
-typedef MR_DuPtagLayout     *MR_DuTypeLayout;
+typedef const MR_DuPtagLayout *MR_DuTypeLayout;
 
 /*---------------------------------------------------------------------------*/
 
@@ -840,6 +822,45 @@ typedef MR_NotagFunctorDesc *MR_NotagTypeLayout;
 /*---------------------------------------------------------------------------*/
 
 /*
+** This type is used to describe the representation of discriminated unions
+** where one or more constants in the discriminated union are represented
+** using reserved addresses.
+*/
+
+typedef struct {
+    /*
+    ** The number of different reserved numeric addresses.
+    ** The actual numeric addresses reserved will range from 0 (NULL)
+    ** to one less than the value of this field.
+    */
+    MR_int_least16_t    MR_ra_num_res_numeric_addrs;
+
+    /*
+    ** The number of different reserved symbolic addresses,
+    ** and their corresponding values.
+    */
+    MR_int_least16_t    MR_ra_num_res_symbolic_addrs;
+    const void * const *MR_ra_res_symbolic_addrs;
+
+    /*
+    ** The functor descriptors for any constants represented with reserved
+    ** addresses.  Those with numeric addresses precede those with
+    ** symbolic addresses.
+    */
+    const MR_ReservedAddrFunctorDesc * const * MR_ra_constants;
+
+    /*
+    ** The representation of the remaining functors in the type.
+    */
+    MR_DuTypeLayout     MR_ra_other_functors;  
+
+} MR_ReservedAddrTypeDesc;
+
+typedef MR_ReservedAddrTypeDesc *MR_ReservedAddrTypeLayout;
+
+/*---------------------------------------------------------------------------*/
+
+/*
 ** This type describes the identity of the type that an equivalence type
 ** is equivalent to, and hence its layout.
 **
@@ -864,17 +885,17 @@ typedef MR_PseudoTypeInfo   MR_EquivLayout;
   ** XXX This should be `MR_Box', but MR_Box is not visible here
   ** (due to a cyclic dependency problem), so we use `void *' instead.
   */
-  typedef	void        *MR_ProcAddr;
+  typedef       void        *MR_ProcAddr;
 #else
-  typedef	MR_Code     *MR_ProcAddr;
+  typedef       MR_Code     *MR_ProcAddr;
 #endif
 
 /*---------------------------------------------------------------------------*/
 
 /*
 ** This type describes the layout in any kind of discriminated union
-** type: du, enum and notag. In an equivalence type, it gives the identity
-** of the equivalent-to type.
+** type: du, enum, notag, or reserved_addr.
+** In an equivalence type, it gives the identity of the equivalent-to type.
 ** 
 ** The layout_init alternative is used only for static initializers,
 ** because ANSI C89 does not allow you to say which member of a union
@@ -883,11 +904,12 @@ typedef MR_PseudoTypeInfo   MR_EquivLayout;
 */
 
 typedef union {
-    void                *layout_init;
-    MR_DuTypeLayout     layout_du;
-    MR_EnumTypeLayout   layout_enum;
-    MR_NotagTypeLayout  layout_notag;
-    MR_EquivLayout      layout_equiv;
+    void                        *layout_init;
+    MR_DuTypeLayout             layout_du;
+    MR_EnumTypeLayout           layout_enum;
+    MR_NotagTypeLayout          layout_notag;
+    MR_ReservedAddrTypeLayout   layout_reserved_addr;
+    MR_EquivLayout              layout_equiv;
 } MR_TypeLayout;
 
 /*---------------------------------------------------------------------------*/
@@ -922,27 +944,20 @@ typedef union {
     ** A type_ctor_info describes the structure of a particular
     ** type constructor.  One of these is generated for every
     ** `:- type' declaration.
-    **
-    ** The unify_pred field will soon migrate to the slot now occupied by
-    ** the new_unify_pred field. In the near future, the two slots will
-    ** contain the same data.
     */
 
 struct MR_TypeCtorInfo_Struct {
-    MR_Integer          arity;
-    MR_ProcAddr         unify_pred;
-    MR_ProcAddr         new_unify_pred;
-    MR_ProcAddr         compare_pred;
-    MR_TypeCtorRep      type_ctor_rep;
-    MR_ProcAddr         unused1;	/* spare */
-    MR_ProcAddr         unused2;	/* spare */
-    MR_ConstString      type_ctor_module_name;
-    MR_ConstString      type_ctor_name;
-    MR_Integer          type_ctor_version;
-    MR_TypeFunctors     type_functors;
-    MR_TypeLayout       type_layout;
-    MR_int_least32_t    type_ctor_num_functors;
-    MR_int_least8_t     type_ctor_num_ptags;    /* if DU */
+    MR_Integer          MR_type_ctor_arity;
+    MR_int_least8_t     MR_type_ctor_version;
+    MR_TypeCtorRepInt   MR_type_ctor_rep_CAST_ME;
+    MR_int_least8_t     MR_type_ctor_num_ptags;         /* if DU */
+    MR_ProcAddr         MR_type_ctor_unify_pred;
+    MR_ProcAddr         MR_type_ctor_compare_pred;
+    MR_ConstString      MR_type_ctor_module_name;
+    MR_ConstString      MR_type_ctor_name;
+    MR_TypeFunctors     MR_type_ctor_functors;
+    MR_TypeLayout       MR_type_ctor_layout;
+    MR_int_least32_t    MR_type_ctor_num_functors;
 
 /*
 ** The following fields will be added later, once we can exploit them:
@@ -950,6 +965,24 @@ struct MR_TypeCtorInfo_Struct {
 **  MR_ProcAddr         prettyprinter;
 */
 };
+
+#define MR_type_ctor_rep(tci)                                               \
+    ((MR_TypeCtorRep) (tci)->MR_type_ctor_rep_CAST_ME)
+
+#define MR_type_ctor_module_name(tci)                                       \
+    ((tci)->MR_type_ctor_module_name)
+
+#define MR_type_ctor_name(tci)                                              \
+    ((tci)->MR_type_ctor_name)
+
+#define MR_type_ctor_functors(tci)                                          \
+    ((tci)->MR_type_ctor_functors)
+
+#define MR_type_ctor_layout(tci)                                            \
+    ((tci)->MR_type_ctor_layout)
+
+#define MR_type_ctor_num_functors(tci)                                      \
+    ((tci)->MR_type_ctor_num_functors)
 
 /*---------------------------------------------------------------------------*/
 
@@ -959,50 +992,120 @@ struct MR_TypeCtorInfo_Struct {
 */
 
 #define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL(m, cm, n, a, cr, u, c)    \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_A(u, c)                       \
-    MR_PASTE6(mercury_data_, cm, __type_ctor_info_, n, _, a) = {        \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_B(m, n, a, cr, u, c)
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_DECLARE_ADDRS(u, c)                \
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_TYPE                               \
+    MR_PASTE6(mercury_data_, cm, __type_ctor_info_, n, _, a) =          \
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_BODY(m, n, a, cr, u, c)
 
-    /* MSVC CPP doesn't like having an empty CM field. */
+        /* MSVC CPP doesn't like having an empty CM field. */
 #define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(m, n, a, cr, u, c)        \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_A(u, c)                       \
-    MR_PASTE5(mercury_data_, __type_ctor_info_, n, _, a) = {            \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_B(m, n, a, cr, u, c)
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_DECLARE_ADDRS(u, c)                \
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_TYPE                               \
+    MR_PASTE5(mercury_data_, __type_ctor_info_, n, _, a) =              \
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_BODY(m, n, a, cr, u, c)
 
-#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_A(u, c)                   \
+#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_DECLARE_ADDRS(u, c)            \
     MR_declare_entry(u);                                                \
-    MR_declare_entry(c);                                                \
-    MR_STATIC_CODE_CONST struct MR_TypeCtorInfo_Struct                  \
+    MR_declare_entry(c);
 
-#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL_B(m, n, a, cr, u, c)      \
+#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_TYPE                           \
+    MR_STATIC_CODE_CONST struct MR_TypeCtorInfo_Struct
+
+#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_BODY(m, n, a, cr, u, c)        \
+    {                                                                   \
         a,                                                              \
-        MR_MAYBE_STATIC_CODE(MR_ENTRY(u)),                              \
+        MR_RTTI_VERSION__COMPACT,                                       \
+        cr,                                                             \
+        -1,                                                             \
         MR_MAYBE_STATIC_CODE(MR_ENTRY(u)),                              \
         MR_MAYBE_STATIC_CODE(MR_ENTRY(c)),                              \
-        cr,                                                             \
-        NULL,                                                           \
-        NULL,                                                           \
         MR_string_const(MR_STRINGIFY(m), sizeof(MR_STRINGIFY(m))-1),    \
         MR_string_const(MR_STRINGIFY(n), sizeof(MR_STRINGIFY(n))-1),    \
-        MR_RTTI_VERSION,                                                \
         { 0 },                                                          \
         { 0 },                                                          \
-        -1,                                                             \
         -1                                                              \
     }
 
 #define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(m, n, a, cr, u, c)        \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL(m, m, n, a, cr, u, c)
+        MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL(m, m, n, a, cr, u, c)
 
-#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(m, n, a, cr)           \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL(m, m, n, a, cr,       \
-        MR_PASTE7(mercury____Unify___, m, __, n, _, a, _0),     \
-        MR_PASTE7(mercury____Compare___, m, __, n, _, a, _0))
+#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(m, n, a, cr)                   \
+        MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_FULL(m, m, n, a, cr,           \
+                MR_PASTE7(mercury____Unify___, m, __, n, _, a, _0),     \
+                MR_PASTE7(mercury____Compare___, m, __, n, _, a, _0))
 
-#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(n, a, cr)       \
-    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, n, a, cr,	\
-        mercury__unused_0_0,                                    \
-        mercury__unused_0_0)
+#define MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(n, a, cr)               \
+        MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, n, a, cr,        \
+                mercury__unused_0_0,                                    \
+                mercury__unused_0_0)
+
+/*
+** Used to define MR_TypeCtorInfos for the builtin types in the hlc grades.
+** This needs to be exported for use by the array type in the library.
+*/
+
+#ifdef MR_HIGHLEVEL_CODE
+
+  #define MR_builtin_type_ctor_info_name(TYPE, ARITY)                   \
+    MR_type_ctor_info_name(builtin, TYPE, ARITY)
+
+  #define MR_type_ctor_info_name(MODULE, TYPE, ARITY)                   \
+    MR_PASTE2(mercury__,                                                \
+    MR_PASTE2(MODULE,                                                   \
+    MR_PASTE2(__,                                                       \
+    MR_PASTE2(MODULE,                                                   \
+    MR_PASTE2(__type_ctor_info_,                                        \
+    MR_PASTE2(TYPE,                                                     \
+    MR_PASTE2(_, ARITY)))))))
+
+  #define MR_type_ctor_info_func_name(MODULE, TYPE, ARITY, FUNC)        \
+    MR_PASTE2(mercury__,                                                \
+    MR_PASTE2(MODULE,                                                   \
+    MR_PASTE2(__,                                                       \
+    MR_PASTE2(FUNC,                                                     \
+    MR_PASTE2(__,                                                       \
+    MR_PASTE2(TYPE,                                                     \
+    MR_PASTE2(_,                                                        \
+    MR_PASTE2(ARITY, _0))))))))
+
+  #define MR_special_func_type(NAME, ARITY)                             \
+	MR_PASTE2(MR_, MR_PASTE2(NAME, MR_PASTE2(Func_, ARITY)))
+
+  #define MR_define_type_ctor_info(module, type, arity, type_rep)       \
+    const struct MR_TypeCtorInfo_Struct                                 \
+        MR_type_ctor_info_name(module, type, arity) =                   \
+    {                                                                   \
+        arity,                                                          \
+        MR_RTTI_VERSION__COMPACT,                                       \
+        type_rep,                                                       \
+        -1,                                                             \
+        (MR_Box) MR_type_ctor_info_func_name(module, type, arity,       \
+                        do_unify),                                      \
+        (MR_Box) MR_type_ctor_info_func_name(module, type, arity,       \
+                        do_compare),                                    \
+        MR_STRINGIFY(module),                                           \
+        MR_STRINGIFY(type),                                             \
+        { 0 },                                                          \
+        { 0 },                                                          \
+        -1                                                              \
+    }
+
+#else /* MR_HIGHLEVEL_CODE */
+
+  #define MR_builtin_type_ctor_info_name(TYPE, ARITY)			        \
+	MR_PASTE2(mercury_data_,					                        \
+	MR_PASTE2(__type_ctor_info_,					                    \
+	MR_PASTE2(TYPE,							                            \
+	MR_PASTE2(_, ARITY))))
+
+  #define MR_type_ctor_info_name(MODULE, TYPE, ARITY)			        \
+	MR_PASTE2(mercury_data_,					                        \
+	MR_PASTE2(MODULE,						                            \
+	MR_PASTE2(__type_ctor_info_,					                    \
+	MR_PASTE2(TYPE,							                            \
+	MR_PASTE2(_, ARITY)))))
+
+#endif /* MR_HIGHLEVEL_CODE */
 
 /*---------------------------------------------------------------------------*/
 
@@ -1045,25 +1148,22 @@ struct MR_TypeCtorInfo_Struct {
 
   #define MR_STATIC_CODE_CONST
 
-  #define   MR_INIT_BUILTIN_TYPE_CTOR_INFO(B, T)            		\
-  do {                                                      		\
-    (B).unify_pred = MR_ENTRY(mercury__builtin_unify##T##2_0);      \
-    (B).new_unify_pred = MR_ENTRY(mercury__builtin_unify##T##2_0);  \
-    (B).compare_pred = MR_ENTRY(mercury__builtin_compare##T##3_0);  \
+  #define   MR_INIT_BUILTIN_TYPE_CTOR_INFO(B, T)                        \
+  do {                                                                  \
+    (B).new_unify_pred = MR_ENTRY(mercury__builtin_unify##T##2_0);      \
+    (B).compare_pred = MR_ENTRY(mercury__builtin_compare##T##3_0);      \
   } while (0)
 
-  #define   MR_INIT_TYPE_CTOR_INFO_WITH_PRED(B, P)                  \
-  do {                                                              \
-    (B).unify_pred = MR_ENTRY(P);                                   \
-    (B).new_unify_pred = MR_ENTRY(P);                               \
-    (B).compare_pred = MR_ENTRY(P);                                 \
+  #define   MR_INIT_TYPE_CTOR_INFO_WITH_PRED(B, P)                      \
+  do {                                                                  \
+    (B).new_unify_pred = MR_ENTRY(P);                                   \
+    (B).compare_pred = MR_ENTRY(P);                                     \
   } while (0)
 
-  #define   MR_INIT_TYPE_CTOR_INFO(B, T)                            \
-  do {                                                              \
-    (B).unify_pred = MR_ENTRY(mercury____##Unify##___##T);          \
-    (B).new_unify_pred = MR_ENTRY(mercury____##Unify##___##T);      \
-    (B).compare_pred = MR_ENTRY(mercury____##Compare##___##T);      \
+  #define   MR_INIT_TYPE_CTOR_INFO(B, T)                                \
+  do {                                                                  \
+    (B).new_unify_pred = MR_ENTRY(mercury____##Unify##___##T);          \
+    (B).compare_pred = MR_ENTRY(mercury____##Compare##___##T);          \
   } while (0)
 
 #else   /* MR_STATIC_CODE_ADDRESSES */
@@ -1085,47 +1185,50 @@ struct MR_TypeCtorInfo_Struct {
 
 /*---------------------------------------------------------------------------*/
 
-#ifdef MR_HIGHLEVEL_CODE
-  extern const struct MR_TypeCtorInfo_Struct 
-        mercury__builtin__builtin__type_ctor_info_pred_0,
-        mercury__builtin__builtin__type_ctor_info_func_0,
-        mercury__builtin__builtin__type_ctor_info_tuple_0;
-  #define MR_TYPE_CTOR_INFO_HO_PRED                                     \
-        (&mercury__builtin__builtin__type_ctor_info_pred_0)
-  #define MR_TYPE_CTOR_INFO_HO_FUNC                                     \
-        (&mercury__builtin__builtin__type_ctor_info_func_0)
-  #define MR_TYPE_CTOR_INFO_TUPLE                                       \
-        (&mercury__builtin__builtin__type_ctor_info_tuple_0)
-#else
-  MR_DECLARE_TYPE_CTOR_INFO_STRUCT(mercury_data___type_ctor_info_pred_0);
-  MR_DECLARE_TYPE_CTOR_INFO_STRUCT(mercury_data___type_ctor_info_func_0);
-  MR_DECLARE_TYPE_CTOR_INFO_STRUCT(mercury_data___type_ctor_info_tuple_0);
-  #define MR_TYPE_CTOR_INFO_HO_PRED                                     \
-        ((MR_TypeCtorInfo) &mercury_data___type_ctor_info_pred_0)
-  #define MR_TYPE_CTOR_INFO_HO_FUNC                                     \
-        ((MR_TypeCtorInfo) &mercury_data___type_ctor_info_func_0)
-  #define MR_TYPE_CTOR_INFO_TUPLE                                       \
-        ((MR_TypeCtorInfo) &mercury_data___type_ctor_info_tuple_0)
-#endif
+/*
+** Declaration for structs.
+*/
+
+#define MR_DECLARE_TYPE_CTOR_INFO_STRUCT(T)                         \
+    extern MR_STATIC_CODE_CONST struct MR_TypeCtorInfo_Struct T
+
+/*---------------------------------------------------------------------------*/
 
 #define MR_TYPE_CTOR_INFO_IS_HO_PRED(T)                                 \
-        (T == MR_TYPE_CTOR_INFO_HO_PRED)
+        (MR_type_ctor_rep(T) == MR_TYPECTOR_REP_PRED)
 #define MR_TYPE_CTOR_INFO_IS_HO_FUNC(T)                                 \
-        (T == MR_TYPE_CTOR_INFO_HO_FUNC)
+        (MR_type_ctor_rep(T) == MR_TYPECTOR_REP_FUNC)
 #define MR_TYPE_CTOR_INFO_IS_HO(T)                                      \
         (MR_TYPE_CTOR_INFO_IS_HO_FUNC(T) || MR_TYPE_CTOR_INFO_IS_HO_PRED(T))
 #define MR_TYPE_CTOR_INFO_IS_TUPLE(T)                                   \
-        (T == MR_TYPE_CTOR_INFO_TUPLE)
+        (MR_type_ctor_rep(T) == MR_TYPECTOR_REP_TUPLE)
 
 /*---------------------------------------------------------------------------*/
 
 /*
-** MR_compare_type_info returns MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or
-** MR_COMPARE_LESS, depending on whether t1 is greater than , equal to,
-** or less than t2.
+** Compare two type_info structures, using an arbitrary ordering based on
+** the addresses of the type_ctor_infos, or in the case of higher order types,
+** the arity). Return MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or MR_COMPARE_LESS,
+** depending on whether ti1 is greater than, equal to, or less than ti2.
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
 */
 
-extern  int     MR_compare_type_info(MR_TypeInfo t1, MR_TypeInfo t2);
+extern  int     MR_compare_type_info(MR_TypeInfo ti1, MR_TypeInfo ti2);
+
+/*
+** Compare two type_ctor_info structures, using an arbitrary ordering based on
+** the addresses of the type_ctor_infos, or in the case of higher order types,
+** the arity). Return MR_COMPARE_GREATER, MR_COMPARE_EQUAL, or MR_COMPARE_LESS,
+** depending on whether tci1 is greater than, equal to, or less than tci2.
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
+*/
+
+extern  int     MR_compare_type_ctor_info(MR_TypeCtorInfo tci1,
+			MR_TypeCtorInfo tci2);
 
 /*
 ** MR_collapse_equivalences expands out all the top-level equivalences in
@@ -1134,6 +1237,9 @@ extern  int     MR_compare_type_info(MR_TypeInfo t1, MR_TypeInfo t2);
 ** However, since it only works on the top level type constructor,
 ** this is not guaranteed for the typeinfos of the type constructor's
 ** arguments.
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
 */
 
 extern  MR_TypeInfo MR_collapse_equivalences(MR_TypeInfo type_info);
@@ -1203,6 +1309,47 @@ extern  MR_TypeInfo MR_make_type_info_maybe_existq(
                         const MR_DuFunctorDesc *functor_descriptor,
                         MR_MemoryList *allocated);
 extern  void        MR_deallocate(MR_MemoryList allocated_memory_cells);
+
+/*
+** MR_type_params_vector_to_list:
+**
+** Copy `arity' type_infos from the `arg_type_infos' vector, which starts
+** at index 1, onto the Mercury heap in a list.
+**
+** You need to save and restore transient registers around
+** calls to this function.
+*/
+
+extern	MR_Word     MR_type_params_vector_to_list(int arity,
+                        MR_TypeInfoParams type_params);
+
+/*
+** ML_arg_name_vector_to_list:
+**
+** Copy `arity' argument names from the `arg_names' vector, which starts
+** at index 0, onto the Mercury heap in a list.
+**
+** You need to save and restore transient registers around
+** calls to this function.
+*/
+
+extern	MR_Word		MR_arg_name_vector_to_list(int arity,
+                        const MR_ConstString *arg_names);
+
+/*
+** ML_pseudo_type_info_vector_to_type_info_list:
+**
+** Take `arity' pseudo_type_infos from the `arg_pseudo_type_infos' vector,
+** which starts at index 0, expand them, and copy them onto the heap
+** in a list.
+**
+** You need to save and restore transient registers around
+** calls to this function.
+*/
+
+extern	MR_Word		MR_pseudo_type_info_vector_to_type_info_list(int arity,
+                        MR_TypeInfoParams type_params,
+                        const MR_PseudoTypeInfo *arg_pseudo_type_infos);
 
 /*---------------------------------------------------------------------------*/
 

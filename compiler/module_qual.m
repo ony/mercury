@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2001 The University of Melbourne.
+% Copyright (C) 1996-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -246,7 +246,20 @@ collect_mq_info_2(module_defn(_, ModuleDefn), Info0, Info) :-
 	process_module_defn(ModuleDefn, Info0, Info).
 collect_mq_info_2(pred_or_func(_,_,__,_,_,_,_,_,_,_), Info, Info).
 collect_mq_info_2(pred_or_func_mode(_,_,_,_,_,_), Info, Info).
-collect_mq_info_2(pragma(_), Info, Info).
+collect_mq_info_2(pragma(Pragma), Info0, Info) :-
+	( Pragma = foreign_type(_, Type, SymName) ->
+		( type_to_type_id(Type, _ - Arity0, _) ->
+			Arity = Arity0
+		;
+			Arity = 0
+		),
+		mq_info_get_types(Info0, Types0),
+		mq_info_get_need_qual_flag(Info0, NeedQualifier),
+		id_set_insert(NeedQualifier, SymName - Arity, Types0, Types),
+		mq_info_set_types(Info0, Types, Info)
+	;
+		Info = Info0
+	).
 collect_mq_info_2(assertion(Goal, _ProgVarSet), Info0, Info) :-
 	process_assert(Goal, SymNames, Success),
 	(
@@ -880,6 +893,11 @@ qualify_type(Type0, Type, Info0, Info) -->
 qualify_pragma(source_file(File), source_file(File), Info, Info) --> [].
 qualify_pragma(foreign_decl(L, Code), foreign_decl(L, Code), Info, Info) --> [].
 qualify_pragma(foreign_code(L, C), foreign_code(L, C), Info, Info) --> [].
+qualify_pragma(foreign_type(ForeignType, Type0, SymName),
+		foreign_type(ForeignType, Type, SymName), Info0, Info) -->
+	qualify_type(Type0, Type, Info0, Info).
+qualify_pragma(foreign_import_module(L, M), foreign_import_module(L, M),
+		Info, Info) --> [].
 qualify_pragma(
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars0, Varset, Code),
 	    foreign_proc(Rec, SymName, PredOrFunc, PragmaVars, Varset, Code), 

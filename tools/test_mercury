@@ -15,11 +15,12 @@ case $# in
 	*)	echo "Usage: $0 host arch fullarch c_compiler" 1>&2; exit 1 ;;
 esac
 
-PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/pgrad/fjh/.path`"
+PATH="$HOME/bin/$ARCH`awk '/^[^#]/{printf ":%s",$0;}' /home/mercury/public/cron/.path`"
 PATH="/home/mercury/public/mercury-latest/$FULLARCH/bin:$PATH"
 PATH="/home/$HOST/public/mercury-latest/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/gcc-2.7.2/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/egcs-1.1b/$FULLARCH/bin:$PATH"
+PATH="/home/mercury/public/autoconf-2.13/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/autoconf-2.52/$FULLARCH/bin:$PATH"
 PATH="/home/mercury/public/$FULLARCH:$PATH"
 PATH="/home/mercury/public/$HOST:$PATH"
@@ -36,6 +37,12 @@ export TMPDIR
 
 # Make the files writable by group mercury.
 umask 002
+
+# Stop looping tests after 5 minutes of CPU time.
+ulimit -S -t 300
+
+# Host to use to build the release of the day.
+ROTD_HOST=earth
 
 #-----------------------------------------------------------------------------#
 
@@ -119,8 +126,7 @@ case $HOST in
 	earth)	
 			case $BRANCH in
 			    latest)
-				OPTIMIZE="-O5 --intermodule-optimization \
-						--constraint-propagation"
+				OPTIMIZE="-O5 --intermodule-optimization --constraint-propagation"
 				;;
 
 			    0.10)
@@ -132,13 +138,13 @@ case $HOST in
 				# and `--deforestation'.
 				# `--constraint-propagation' does not
 				# work on the release branch.
-				OPTIMIZE="-O5 --intermodule-optimization \
-						--no-deforestation"
+				OPTIMIZE="-O5 --intermodule-optimization --no-deforestation"
 				;;
 			esac
 			;;
 
 	mars)		OPTIMIZE=-O5 ;;
+	ceres)		OPTIMIZE=-O5 ;;	# hlc
 	kryten) 	OPTIMIZE=-O1 ;;	# currently not used
 	rimmer) 	OPTIMIZE=-O1 ;; # currently not used
 esac
@@ -190,7 +196,7 @@ HOSTDIR=$TESTDIR/test_dirs/$HOST
 DIR=$HOSTDIR/build.$BRANCH.$C_COMPILER
 
 case $HOST in
-	hg|ender|roy|venus|earth|mars) 	
+	hg|ender|roy|venus|earth|mars|ceres) 	
 		INSTALL_DIR=/home/$HOST/public/$INSTALL_DIR_NAME/$FULLARCH ;;
 	*)		
 		INSTALL_DIR=/home/mercury/public/$INSTALL_DIR_NAME/$FULLARCH ;;
@@ -243,14 +249,13 @@ case $HOST in
 	venus) 		PARALLEL= ;; 	# one CPU
 	earth) 		PARALLEL= ;; 	# one CPU
 	mars) 		PARALLEL= ;; 	# one CPU
+	ceres) 		PARALLEL= ;; 	# one CPU
 	*)		PARALLEL= ;;
 esac
 
 # version of the mercury compiler to use for bootstrapping
 case $HOST in
-	hg|ender|roy|venus|earth)
-		# XXX Add mars to the list above once a compiler
-		# is installed there.
+	hg|ender|roy|venus|earth|mars|ceres)
 		BOOTSTRAP_MERCURY_COMPILER=/home/$HOST/public/$INSTALL_DIR_NAME/$FULLARCH/lib/mercury/bin/$FULLARCH/mercury_compile
 		;;
 	*)
@@ -320,14 +325,14 @@ case $HOST in
 		# to work
 		CONFIG_OPTS="--enable-hlc-prof-grades \
 			--enable-new-mercuryfile-struct" ;;
-	roy)
+	roy|ceres)
 		CONFIG_OPTS=""
 		DEFAULT_GRADE="hlc.gc"
 		export DEFAULT_GRADE
 		INSTALL_GRADE="hlc.gc"
 		INSTALL_LIBGRADES="hl.gc \
-			hlc.gc.prof hlc.gc.memprof hlc.gc.tr hlc.par.gc \
-			hl.gc.prof  hl.gc.memprof  hl.gc.tr  hl.par.gc"
+			hl.gc.prof  hl.gc.memprof  hl.gc.tr  hl.par.gc \
+			hlc.gc.prof hlc.gc.memprof hlc.gc.tr hlc.par.gc"
 		# Test the asm_fast.gc.tr.rt grade, but not on the 0.10 branch,
 		# since the asm_fast.gc.tr.rt grade is not yet implemented
 		# in the 0.10 branch.
@@ -361,13 +366,24 @@ case $HOST in
 			;;
 		esac
 		;;
-	mars)
-		CONFIG_OPTS=""
+	mars|ceres)
+		# Portable .NET is installed on mars, and the
+		# test in configure.in doesn't test whether the
+		# ilasm it finds is suitable for use with Mercury.
+		CONFIG_OPTS="--disable-dotnet-grades"
 		MMAKE_USE_SUBDIRS=yes
 		export MMAKE_USE_SUBDIRS
 		;;
 	*)	
 		CONFIG_OPTS="" ;;
+esac
+
+
+	# The deep profiler needs to be included in the source distribution.
+case $HOST in $ROTD_HOST)
+	CONFIG_OPTS="$CONFIG_OPTS \
+	    --enable-deep-profiler=/home/mercury/public/installed_w3/cgi-bin"
+	;;
 esac
 
 #-----------------------------------------------------------------------------#
@@ -439,6 +455,7 @@ case $HOST in
 		date
 		# Link the Mercury gcc back-end interface sources
 		# into the appropriate place in the gcc sources
+		pwd
 		(cd gcc/gcc && rm -f mercury && \
 			ln -s ../../mercury-cvs/gcc/mercury mercury) \
 			|| { false; exit 1; }
@@ -456,7 +473,7 @@ case $HOST in
 		;;
 esac
 case $HOST in
-	murlibobo|kryten|taifun|quicksilver|hg|hydra|roy|venus|ender|earth|mars)
+	murlibobo|kryten|taifun|quicksilver|hg|hydra|roy|venus|ender|earth|mars|ceres)
 		[ -d mercury/extras/clpr/CVS ] ||
 		(cd mercury/extras && cvs checkout $CHECKOUT_OPTS clpr) ||
 			{ false; exit 1; }
@@ -521,8 +538,8 @@ mmake $target_opts realclean MMAKEFLAGS=$PARALLEL || { false; exit 1; }
 mmake $target_opts depend $PARALLEL || { false; exit 1; }
 version=`mmake $target_opts version` || { false; exit 1; }
 fullarch=`mmake $target_opts fullarch` || { false; exit 1; }
-tools/bootcheck $target_opts -k -r -p -t $PARALLEL ||
-	$install_anyway || { false; exit 1; }
+tools/bootcheck $target_opts --keep-objs --copy-runtime --copy-profiler \
+	--no-test-suite $PARALLEL || $install_anyway || { false; exit 1; }
 cd .. || { false; exit 1; }
 
 #-----------------------------------------------------------------------------#
@@ -600,6 +617,7 @@ esac
 #-----------------------------------------------------------------------------#
 
 : test and install the CLPR interface
+# CLPR requires trailing, so here we only test the trailing grades.
 case $HOST in
 	murlibobo)
 		# requires --enable-all-grades
@@ -611,8 +629,11 @@ case $HOST in
 			*)	GRADES="" ;;
 		esac
 		;;
-	roy)
-		GRADES="hlc.gc.tr hl.gc.tr"
+	roy|ceres)
+		GRADES="hlc.gc.tr"
+    # XXX No point testing the hl.* grades; they don't work, because
+    # the hl.* header files are incompatible with the hlc.* header files.
+		## GRADES="$GRADES hl.gc.tr"
 		;;
 	*)
 		GRADES=""
@@ -657,7 +678,12 @@ echo "test_mercury starting to create distribution at `date`" 1>&2
 
 MERCURY_COMPILER=$BOOTSTRAP_MERCURY_COMPILER
 export MERCURY_COMPILER
-case $HOST in murlibobo)
+case $HOST in $ROTD_HOST)
+	# The tests on earth are run with `--intermodule-optimization',
+	# so we need to do a `mmake realclean' before building the C files
+	# for the source distribution. The extra compilation time for
+	# `--intermodule-optimization' is probably not acceptable for the
+	# source distribution.
 	{ cd $DIR/mercury &&
 	mmake realclean MMAKEFLAGS=$PARALLEL &&
 	(cd $DIR/tests &&
@@ -669,7 +695,7 @@ case $HOST in murlibobo)
 	mercury_cv_bits_per_word=32 \
 	mercury_cv_unboxed_floats=no \
 	sh configure --prefix=$INSTALL_DIR &&
-	mmake MMAKEFLAGS='EXTRA_MCFLAGS="-O5 --opt-space" -j6' tar &&
+	mmake MMAKEFLAGS="EXTRA_MCFLAGS='-O5 --opt-space' $PARALLEL" tar &&
 	cd .. &&
 	rm -f $UNSTABLE/* &&
 	mv mercury-compiler-$version.tar.gz	\
@@ -768,9 +794,11 @@ case $HOST in
 				hlc.gc hlc.par.gc" ;;
 		esac
 		;;
-	roy)
-		GRADES="hlc.gc hlc.gc.prof hlc.gc.memprof hlc.gc.tr hlc.par.gc
-			hl.gc  hl.gc.prof  hl.gc.memprof  hl.gc.tr  hl.par.gc"
+	roy|ceres)
+		GRADES="hlc.gc hlc.gc.prof hlc.gc.memprof hlc.gc.tr hlc.par.gc"
+      # XXX No point testing the hl.* grades; they don't work, because
+      # the hl.* header files are incompatible with the hlc.* header files.
+		  ## GRADES="$GRADES hl.gc  hl.gc.prof  hl.gc.memprof  hl.gc.tr  hl.par.gc"
 		# Test the asm_fast.gc.tr.rt grade, but not on the 0.10 branch,
 		# since the asm_fast.gc.tr.rt grade is not yet implemented
 		# in the 0.10 branch.
@@ -861,7 +889,7 @@ cd ..
 
 : update the unstable release
 
-case $HOST in murlibobo)
+case $HOST in $ROTD_HOST)
 	rsh $BETA_FTPHOST \
 		"rm -f $BETA_FTPDIR/mercury-compiler-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
 	rsh $BETA_FTPHOST \
@@ -882,6 +910,8 @@ esac
 
 : build the binary distribution
 
+echo "test_mercury starting to create binary distribution at `date`" 1>&2
+
 # For the Linux systems, we need to distinguish them based
 # on the version of GNU libc.
 # Also we distinguish them based on what optimization level
@@ -898,6 +928,9 @@ case $HOST in
 		;;
 	mars)	
 		fullname=i686-pc-linux-libc2.1-gnu-O5
+		;;
+	ceres)	
+		fullname=i686-pc-linux-libc2.1-gnu-O5-hlc
 		;;
 	roy)	
 		fullname=i686-pc-linux-libc2.1-gnu-O4-hlc
@@ -936,6 +969,9 @@ esac
 # cvs does not allow `.' or space in tag names, so we use `_' instead
 fullname_tag=`echo $fullname | tr ' .' __`
 
+# On murlibobo building the binary distribution takes a lot of CPU time.
+ulimit -S -t unlimited
+
 {
 	cd $DIR/mercury &&
 	mmake bindist &&
@@ -969,6 +1005,7 @@ case $status in
     ;;
 esac
 
+echo "test_mercury finished binary distribution at `date`" 1>&2
 #-----------------------------------------------------------------------------#
 
 case $status in
@@ -976,7 +1013,7 @@ case $status in
 	: if we get this far, then it worked.
 	[ -d $TESTDIR/logs ] || mkdir -p $TESTDIR/logs
 	date >> $TESTDIR/logs/success."$TEST_ID"
-	case $HOST in murlibobo)
+	case $HOST in $ROTD_HOST)
 	    cd $DIR &&
 		# Delete older stable versions that this one replaces
 	    rm -f $STABLE/mercury-*-$RELEASE_VERSION_PATTERN[0-9].tar.gz &&
@@ -1016,7 +1053,7 @@ esac
 
 # Now rebuild the index files on the www site
 case $HOST in 
-    murlibobo)
+    $ROTD_HOST)
 	echo "test_mercury generating www index files, starting at `date`" 1>&2
 	(
 	cd $BETA_WEBDIR_TOP

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001 The University of Melbourne.
+% Copyright (C) 2001-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -208,8 +208,10 @@ path_step_from_string_2('f', "", first).
 path_step_from_string_2('l', "", later).
 
 convert_dirs_to_term_path([], []).
-convert_dirs_to_term_path([child(N) | Dirs], [N | TermPath]) :-
+convert_dirs_to_term_path([child_num(N) | Dirs], [N | TermPath]) :-
 	convert_dirs_to_term_path(Dirs, TermPath).
+convert_dirs_to_term_path([child_name(_) | _], _) :-
+	error("convert_dirs_to_term_path: not in canonical form").
 convert_dirs_to_term_path([parent | _], _) :-
 	error("convert_dirs_to_term_path: not in canonical form").
 

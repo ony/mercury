@@ -3,11 +3,13 @@
 # commands for the realclean target in the Mmakefile. 
 
 TESTS_SHOULD_SUCCEED="\
+	add_constructor_nr \
 	add_constructor_r \
 	add_instance_r \
 	add_instance_2_r \
 	add_type_nr \
 	change_class_r \
+	change_func_r \
 	change_instance_r \
 	change_mode_r \
 	change_type_nr \
@@ -21,15 +23,17 @@ TESTS_SHOULD_SUCCEED="\
 	pred_ctor_ambiguity_r \
 	pred_overloading_r \
 	typeclass_method_pragma_r \
-	type_spec_rename_var_r"
+	type_spec_rename_var_r \
+	type_spec_unname_var_r \
+	unchanged_pred_nr"
 
 # Parallel mmake with nested sub-modules is broken.
 # The commands to create `.c' files from the `.m' file containing the
 # nested sub-module are run twice, resulting in incorrect output in
 # the `.err' file.
 NO_PARALLEL_MAKE_TESTS="\
-	nested_module_r
-"
+	nested_module_r \
+	nested_module_2_r"
 
 TESTS_SHOULD_FAIL="\
 	add_type_re \

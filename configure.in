@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2001 The University of Melbourne. 
+# Copyright (C) 1995-2002 The University of Melbourne. 
 # This file may only be copied under the terms of the GNU General
 # Public Licence - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -97,37 +97,34 @@ if test "$BOOTSTRAP_MC" != ""; then
 		:- module conftest.
 		:- interface.
 		:- import_module io.
-		:- pred main(io__state::di, io__state::uo) is cc_multi.
+		:- pred main(io__state::di, io__state::uo) is det.
 
 		:- implementation.
-		:- import_module int, exception.
+
+		:- import_module int.
         
-		% Check that X/0 throws an exception. If it doesn't,
-		% the old compiler will report an error for the clauses
-		% for int:// and float:/, which according to the old
-		% compiler should be builtins.
-		% Also check for unchecked_int_quotient, which is a builtin
-		% present only in recent compilers.
 		main --> 
-			{ try(
-				(pred(Value::out) is det :-
-					Value = 42 // 0 +
-						unchecked_quotient(10, 2)
-				), Result) },
-			( { Result = exception(_) } ->
+			{ return_rtti_version(Version) },
+			( { Version >= 6 } ->
 				print("Hello, world\n")
 			;
 				print("Nope.\n")
 			).
+
+		:- pred return_rtti_version(int::out) is det.
+
+		:- pragma foreign_proc("C", return_rtti_version(Version::out),
+			[[will_not_call_mercury, promise_pure]], "
+			Version = MR_RTTI_VERSION;
+		").
 EOF
 	if
-		# The installed compiler must create `.c_date' files
-		# to be compatible with scripts/Mmake.rules.
+		# Test for the `--fullarch' option.
 	 	echo $BOOTSTRAP_MC conftest >&AC_FD_CC 2>&1 &&
 	 	$BOOTSTRAP_MC \
+			--fullarch "$FULLARCH" \
 			--halt-at-warn $link_flags conftest \
 		 	</dev/null >&AC_FD_CC 2>&1 &&
-		test -f ./conftest.c_date &&
 		test "`./conftest 2>&1 | tr -d '\015'`" = "Hello, world"
 	then
 		AC_MSG_RESULT(yes)
@@ -446,9 +443,13 @@ case "$host" in
 	*-cygwin*)
 		ac_cv_func_mprotect=no ;;
 esac
-AC_HAVE_FUNCS(sysconf getpagesize memalign mprotect sigaction setitimer)
-AC_HAVE_FUNCS(strerror memmove dup fileno fdopen fstat stat)
-AC_HAVE_FUNCS(snprintf vsnprintf _vsnprintf)
+AC_HAVE_FUNCS(sysconf getpagesize gethostname)
+AC_HAVE_FUNCS(mprotect memalign memmove)
+AC_HAVE_FUNCS(sigaction setitimer)
+AC_HAVE_FUNCS(snprintf vsnprintf _vsnprintf strerror)
+AC_HAVE_FUNCS(open close dup dup2 fdopen fileno fstat stat isatty)
+AC_HAVE_FUNCS(getpid setpgid fork execlp wait kill)
+AC_HAVE_FUNCS(grantpt unlockpt ptsname tcgetattr tcsetattr ioctl)
 #-----------------------------------------------------------------------------#
 AC_CHECK_HEADER(unistd.h, HAVE_UNISTD_H=1)
 if test "$HAVE_UNISTD_H" = 1; then
@@ -508,6 +509,31 @@ fi
 AC_CHECK_HEADER(sys/stat.h, HAVE_SYS_STAT_H=1)
 if test "$HAVE_SYS_STAT_H" = 1; then
 	AC_DEFINE(HAVE_SYS_STAT_H)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_HEADER(fcntl.h, HAVE_FCNTL_H=1)
+if test "$HAVE_FCNTL_H" = 1; then
+	AC_DEFINE(HAVE_FCNTL_H)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_HEADER(termios.h, HAVE_TERMIOS_H=1)
+if test "$HAVE_TERMIOS_H" = 1; then
+	AC_DEFINE(HAVE_TERMIOS_H)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_HEADER(sys/ioctl.h, HAVE_SYS_IOCTL_H=1)
+if test "$HAVE_SYS_IOCTL_H" = 1; then
+	AC_DEFINE(HAVE_SYS_IOCTL_H)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_HEADER(sys/stropts.h, HAVE_SYS_STROPTS_H=1)
+if test "$HAVE_SYS_STROPTS_H" = 1; then
+	AC_DEFINE(HAVE_SYS_STROPTS_H)
+fi
+#-----------------------------------------------------------------------------#
+AC_CHECK_FILE(/dev/ptmx, HAVE_DEV_PTMX=1)
+if test "$HAVE_DEV_PTMX" = 1; then
+	AC_DEFINE(HAVE_DEV_PTMX)
 fi
 #-----------------------------------------------------------------------------#
 #
@@ -1023,6 +1049,9 @@ if test "$mercury_cv_int_least64_type" = unknown; then
 	[mercury_cv_int_least64_type=unknown],
 	[mercury_cv_int_least64_type=unknown])
 fi
+# Uncomment the following line to test how the system behaves
+# in the absence of a 64-bit integer type.
+# mercury_cv_int_least64_type=unknown
 AC_MSG_RESULT($mercury_cv_int_least64_type)
 if test "$mercury_cv_int_least64_type" != unknown; then
 	AC_DEFINE_UNQUOTED(MR_INT_LEAST64_TYPE, $mercury_cv_int_least64_type)
@@ -1065,6 +1094,20 @@ AC_MSG_RESULT($mercury_cv_int_least32_type)
 AC_DEFINE_UNQUOTED(MR_INT_LEAST32_TYPE, $mercury_cv_int_least32_type)
 MR_INT_LEAST32_TYPE=$mercury_cv_int_least32_type
 AC_SUBST(MR_INT_LEAST32_TYPE)
+
+if test "$mercury_cv_int_least32_type" = int; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST32_MAX, INT_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST32_MAX, UINT_MAX)
+elif test "$mercury_cv_int_least32_type" = long; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST32_MAX, LONG_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST32_MAX, ULONG_MAX)
+else
+	AC_MSG_ERROR("Cannot find the name of the max values for MR_INT_LEAST32_TYPE.")
+fi
+AC_SUBST(MR_INT_LEAST32_MAX)
+AC_SUBST(MR_UINT_LEAST32_MAX)
+#-----------------------------------------------------------------------------#
+AC_TYPE_PID_T
 #-----------------------------------------------------------------------------#
 AC_MSG_CHECKING(for an integer type of at least 16 bits)
 AC_CACHE_VAL(mercury_cv_int_least16_type,
@@ -1101,6 +1144,19 @@ AC_MSG_RESULT($mercury_cv_int_least16_type)
 AC_DEFINE_UNQUOTED(MR_INT_LEAST16_TYPE, $mercury_cv_int_least16_type)
 MR_INT_LEAST16_TYPE=$mercury_cv_int_least16_type
 AC_SUBST(MR_INT_LEAST16_TYPE)
+
+if test "$mercury_cv_int_least16_type" = short; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST16_MAX, SHRT_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST16_MAX, USHRT_MAX)
+elif test "$mercury_cv_int_least16_type" = int; then
+	AC_DEFINE_UNQUOTED(MR_INT_LEAST16_MAX, INT_MAX)
+	AC_DEFINE_UNQUOTED(MR_UINT_LEAST16_MAX, UINT_MAX)
+else
+	AC_MSG_ERROR("Cannot find the name of the max value for MR_INT_LEAST16_TYPE.")
+fi
+AC_SUBST(MR_INT_LEAST16_MAX)
+AC_SUBST(MR_UINT_LEAST16_MAX)
+
 #-----------------------------------------------------------------------------#
 AC_MSG_CHECKING(the number of low tag bits available)
 AC_CACHE_VAL(mercury_cv_low_tag_bits,
@@ -2024,6 +2080,10 @@ AC_ARG_ENABLE(hlc-prof-grades,
                           install profiling versions of the high level C grade],
 enable_hlc_prof_grades=yes,enable_hlc_prof_grades=no)
 
+AC_ARG_ENABLE(dotnet-grades,
+[  --disable-dotnet-grades do not install the .NET grades],
+enable_dotnet_grades="$enableval",enable_dotnet_grades=yes)
+
 AC_ARG_ENABLE(libgrades,
 [  --enable-libgrades=...  install exactly the given versions of the library],
 enable_libgrades_given=yes;enable_libgrades="$enableval",enable_libgrades_given=no)
@@ -2104,9 +2164,14 @@ fi
 LIBGRADES="$LIBGRADES $DEFAULT_GRADE.tr.debug"
 
 # add `hlc' (--high-level-code, i.e. MLDS back-end) grades
-LIBGRADES="$LIBGRADES hlc.gc"
+if test "$enable_inefficient_grades" = yes -a "$CC" = gcc ; then
+    LIBGRADES="$LIBGRADES hlc.gc hlc_nest.gc"
+else
+    LIBGRADES="$LIBGRADES hlc.gc"
+fi
 
-if test $mercury_cv_microsoft_dotnet = "yes"; then
+if test $mercury_cv_microsoft_dotnet = yes -a "$enable_dotnet_grades" = yes
+then
     LIBGRADES="$LIBGRADES ilc"
 fi
 
@@ -2465,14 +2530,26 @@ case "$host" in
 		;;
 	alpha*-dec-osf*)
 		AC_MSG_RESULT(yes)
-		LINK_SHARED_OBJ="gcc -shared \
-		-Wl,-O3,-update_registry,\$(SO_LOCATIONS_DIR)so_locations"
-		LINK_SHARED_OBJ_SH="gcc -shared \
-		-Wl,-O3,-update_registry,\${SO_LOCATIONS_DIR}so_locations"
-		ERROR_UNDEFINED="-Wl,-error_unresolved"
-		EXE_RPATH_OPT="-Wl,-rpath,"
+		if test "$GCC" != ""; then
+		    # use gcc to link shared objects
+		    LINK_SHARED_OBJ="gcc -shared \
+		    -Wl,-O3,-update_registry,\$(SO_LOCATIONS_DIR)so_locations"
+		    LINK_SHARED_OBJ_SH="gcc -shared \
+		    -Wl,-O3,-update_registry,\${SO_LOCATIONS_DIR}so_locations"
+		    ERROR_UNDEFINED="-Wl,-error_unresolved"
+		    EXE_RPATH_OPT="-Wl,-rpath,"
+		    SHLIB_RPATH_OPT="-Wl,-rpath,"
+		else
+		    # use cc to link shared objects
+		    LINK_SHARED_OBJ="cc -shared \
+		    -update_registry \$(SO_LOCATIONS_DIR)so_locations"
+		    LINK_SHARED_OBJ_SH="cc -shared \
+		    -update_registry \${SO_LOCATIONS_DIR}so_locations"
+		    ERROR_UNDEFINED="-error_unresolved"
+		    EXE_RPATH_OPT="-rpath "
+		    SHLIB_RPATH_OPT="-rpath "
+		fi
 		EXE_RPATH_SEP=":"
-		SHLIB_RPATH_OPT="-Wl,-rpath,"
 		SHLIB_RPATH_SEP=":"
 		EXT_FOR_SHARED_LIB=so
 		# -fpic not needed on Alpha/OSF, since it is the default
@@ -2568,10 +2645,12 @@ top=`pwd`
 INIT_GRADE_OPTIONS=$top/scripts/init_grade_options.sh-subr
 PARSE_GRADE_OPTIONS=$top/scripts/parse_grade_options.sh-subr
 FINAL_GRADE_OPTIONS=$top/scripts/final_grade_options.sh-subr
+PARSE_ML_OPTIONS=$top/scripts/parse_ml_options.sh-subr
 CANONICAL_GRADE=$top/scripts/canonical_grade.sh-subr
 AC_SUBST_FILE(INIT_GRADE_OPTIONS)
 AC_SUBST_FILE(PARSE_GRADE_OPTIONS)
 AC_SUBST_FILE(FINAL_GRADE_OPTIONS)
+AC_SUBST_FILE(PARSE_ML_OPTIONS)
 AC_SUBST_FILE(CANONICAL_GRADE)
 
 #-----------------------------------------------------------------------------#
@@ -2911,7 +2990,7 @@ some_kept=false
 to_delete=""
 if test "$BOOTSTRAP_MC" != "" ; then
     MERCURY_MSG("checking whether any C files need to be rebuilt...")
-    for directory in library compiler profiler deep_profiler
+    for directory in library compiler profiler deep_profiler browser
     do
         check_c_files $directory $directory
         check_c_files $directory/Mercury/cs $directory/Mercury/c_dates
@@ -2944,8 +3023,9 @@ if test "$BOOTSTRAP_MC" != "" ; then
 fi
 #-----------------------------------------------------------------------------#
 AC_OUTPUT(Mmake.common scripts/Mmake.vars scripts/mmc scripts/mercury.bat
-scripts/mprof scripts/mercury_update_interface scripts/mgnuc scripts/ml
-scripts/mmake scripts/c2init scripts/mdb scripts/mdbrc scripts/mdprof
+scripts/mprof scripts/mercury_update_interface scripts/mgnuc
+scripts/parse_ml_options.sh-subr scripts/ml scripts/c2init
+scripts/mmake scripts/mdb scripts/mdbrc scripts/mdprof
 scripts/sicstus_conv scripts/mkfifo_using_mknod bindist/bindist.build_vars
 ,
 for header in $CONFIG_HEADERS ; do

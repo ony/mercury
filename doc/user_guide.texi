@@ -43,9 +43,9 @@
 @c ----------------------------------------------------------------------------
 
 @ifinfo
-This file documents the Mercury implementation.
+This file documents the Mercury implementation, version <VERSION>.
 
-Copyright (C) 1995-2001 The University of Melbourne.
+Copyright (C) 1995-2002 The University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -69,6 +69,7 @@ into another language, under the above conditions for modified versions.
 
 @titlepage
 @title The Mercury User's Guide
+@subtitle Version <VERSION>
 @author Fergus Henderson
 @author Thomas Conway
 @author Zoltan Somogyi
@@ -76,7 +77,7 @@ into another language, under the above conditions for modified versions.
 @author Tyson Dowd
 @page
 @vskip 0pt plus 1filll
-Copyright @copyright{} 1995-2001 The University of Melbourne.
+Copyright @copyright{} 1995-2002 The University of Melbourne.
 
 Permission is granted to make and distribute verbatim copies of
 this manual provided the copyright notice and this permission notice
@@ -100,7 +101,7 @@ into another language, under the above conditions for modified versions.
 
 @ifinfo
 @node Top,,, (mercury)
-@top The Mercury User's Guide
+@top The Mercury User's Guide, version <VERSION>
 
 This guide describes the compilation environment of Mercury ---
 how to build and debug Mercury programs.
@@ -528,7 +529,7 @@ necessary interface files. The variable @code{INSTALL} specifies
 the name of the command to use to install each file, by default
 @samp{cp}. The variable @code{INSTALL_MKDIR} specifies the command to use
 to create directories, by default @samp{mkdir -p}.
-For more information, see @ref{Supporting multiple grades and architectures}.
+For more information, see @ref{Installing libraries}.
 @vindex LIBGRADES
 @vindex INSTALL
 @vindex INSTALL_MKDIR
@@ -654,7 +655,7 @@ The executable that invokes the linker.
 @item MLFLAGS and EXTRA_MLFLAGS
 @vindex MLFLAGS
 @vindex EXTRA_MLFLAGS
-Options to pass to the linker.
+Options to pass to the linker and the c2init program.
 (Note that compilation model options should be
 specified in @code{GRADEFLAGS}, not in @code{MLFLAGS}.)
 
@@ -664,15 +665,19 @@ specified in @code{GRADEFLAGS}, not in @code{MLFLAGS}.)
 A list of @samp{-l} options specifying libraries used by the program
 (or library) that you are building.  @xref{Using libraries}.
 
-@item MLOBJS
+@item MLOBJS and EXTRA_MLOBJS
 @vindex MLOBJS
-A list of extra object files to link into any programs or libraries
+@vindex EXTRA_MLOBJS
+A list of extra object files to link into the program (or library)
 that you are building.
 
 @item C2INITFLAGS and EXTRA_C2INITFLAGS
 @vindex C2INITFLAGS
 @vindex EXTRA_C2INITFLAGS
-Options to pass to the c2init program.
+Options to pass to the linker and the c2init program.
+@code{C2INITFLAGS} and @code{EXTRA_C2INITFLAGS} are obsolete synonyms
+for @code{MLFLAGS} and @code{EXTRA_MLFLAGS} (@code{ml} and @code{c2init}
+take the same set of options).
 (Note that compilation model options and extra files to be processed by
 c2init should not be specified in @code{C2INITFLAGS} - they should be
 specified in @code{GRADEFLAGS} and @code{C2INITARGS}, respectively.)
@@ -681,8 +686,9 @@ specified in @code{GRADEFLAGS} and @code{C2INITARGS}, respectively.)
 @vindex C2INITARGS
 @vindex EXTRA_C2INITARGS
 Extra files to be processed by c2init.  These variables should not be
-used for specifying flags to c2init (that's what @code{C2INITFLAGS} is for)
-since they are also used to derive extra dependency information.
+used for specifying flags to c2init (those should be specified in
+@code{MLFLAGS}) since they are also used to derive extra dependency
+information.
 
 @item EXTRA_LIBRARIES
 @vindex EXTRA_LIBRARIES
@@ -692,11 +698,12 @@ Libraries should be specified using their base name; that is, without any
 @samp{lib} prefix or extension.
 For example the library including the files @file{libfoo.a} and
 @file{foo.init} would be referred to as just @samp{foo}.
+@xref{Using libraries}.
 
 @item EXTRA_LIB_DIRS
 @vindex EXTRA_LIB_DIRS
 A list of extra Mercury library directory hierarchies to search when
-looking for extra libraries.
+looking for extra libraries.  @xref{Using libraries}.
 
 @item INSTALL_PREFIX
 @vindex INSTALL_PREFIX
@@ -781,7 +788,6 @@ and, on many platforms, it supports shared object libraries.
 * Building libraries::
 * Installing libraries::
 * Using libraries::
-* Supporting multiple grades and architectures::
 @end menu
 
 @node Writing libraries
@@ -934,86 +940,7 @@ and @samp{$(MLPICOBJS)} will be the same as @samp{$(MLOBJS)}.
 @node Installing libraries
 @section Installing libraries
 
-If you want, once you have built a library, you could then install
-(i.e. copy) the shared object library, the static object library,
-the interface files (possibly including the optimization interface
-files and the transitive optimization interface files), and the
-initialization file into a different directory, or into several
-different directories, for that matter --- though it is probably
-easiest for the users of the library if you keep them in a single
-directory.
-Or alternatively, you could package them up into a @samp{tar}, @samp{shar}, or
-@samp{zip} archive and ship them to the people who will use the
-library.
-
-@node Using libraries
-@section Using libraries
-
-@vindex VPATH
-@vindex MCFLAGS
-@vindex MLFLAGS
-@vindex MLLIBS
-@vindex C2INITARGS
-@vindex MGNUCFLAGS
-@findex --intermodule-optimization
-To use a library, you need to set the Mmake variables @samp{VPATH},
-@samp{MCFLAGS}, @samp{MLFLAGS}, @samp{MLLIBS}, and @samp{C2INITARGS}
-to specify the name and location of the library or libraries that you
-wish to use. If you are using @samp{--intermodule-optimization}, you
-may also need to set @samp{MGNUCFLAGS} if the library uses the C interface.
-For example, if you want to link in the libraries @samp{mypackage} and
-@samp{myotherlib}, which were built in the directories
-@samp{/some/directory/mypackage} and @samp{/some/directory/myotherlib}
-respectively, you could use the following settings:
-
-@example
-# Specify the location of the `mypackage' and `myotherlib' directories
-MYPACKAGE_DIR = /some/directory/mypackage
-MYOTHERLIB_DIR = /some/directory/myotherlib
-
-# The following stuff tells Mmake to use the two libraries
-VPATH = $(MYPACKAGE_DIR):$(MYOTHERLIB_DIR):$(MMAKE_VPATH)
-MCFLAGS = -I$(MYPACKAGE_DIR) -I$(MYOTHERLIB_DIR) $(EXTRA_MCFLAGS)
-MLFLAGS = -R$(MYPACKAGE_DIR) -R$(MYOTHERLIB_DIR) $(EXTRA_MLFLAGS) \
-          -L$(MYPACKAGE_DIR) -L$(MYOTHERLIB_DIR)
-MLLIBS = -lmypackage -lmyotherlib $(EXTRA_MLLIBS)
-C2INITARGS = $(MYPACKAGE_DIR)/mypackage.init \
-             $(MYOTHERLIB_DIR)/myotherlib.init
-
-# This line may be needed if @samp{--intermodule-optimization}
-# is in @samp{MCFLAGS}. @samp{-I} options should be added for any other
-# directories containing header files that the libraries require.
-MGNUCFLAGS = -I$(MYPACKAGE_DIR) -I$(MYOTHERLIB_DIR) $(EXTRA_MGNUCFLAGS)
-@end example
-
-Here @samp{VPATH} is a colon-separated list of path names specifying
-directories that Mmake will search for interface files.
-The @samp{-I} options in @samp{MCFLAGS} tell @samp{mmc} where to find
-the interface files.  The @samp{-R} options in @samp{MLFLAGS} tell
-the loader where to find shared libraries, and the @samp{-L}
-options tell the linker where to find libraries.
-(Note that the @samp{-R} options must precede the @samp{-L} options.)
-The @samp{-l} options tell the linker which libraries to link with.
-The extra arguments to @samp{c2init} specified in the @samp{C2INITARGS}
-variable tell @samp{c2init} where to find the @samp{.init} files for
-the libraries (so that it can generate appropriate initialization code)
-as well as telling Mmake that any @samp{_init.c} files generated depend
-on these files.
-The @samp{-I} options in @samp{MGNUCFLAGS} tell the C preprocessor where
-to find the header files for the libraries.
-
-The example above assumes that the static object library,
-shared object library, interface files and initialization file
-for each Mercury library being used are all put in a single directory,
-which is probably the simplest way of organizing things, but the
-Mercury implementation does not require that.
-
-@node Supporting multiple grades and architectures
-@section Supporting multiple grades and architectures
-
-In order to better support using and installing libraries in multiple
-grades, @samp{mmake} now has support for alternative library directory
-hierarchies.
+@samp{mmake} has support for alternative library directory hierarchies.
 These have the same structure as the @file{@var{prefix}/lib/mercury} tree,
 including the different subdirectories for different grades and different
 machine architectures.
@@ -1058,7 +985,11 @@ If @samp{INSTALL_MKDIR} is not specified, @samp{mkdir -p} will be used.
 Note that currently it is not possible to set the installation prefix
 on a library-by-library basis.
 
-Once a library is installed in such a hierarchy, using it is easy.
+@node Using libraries
+@section Using libraries
+@cindex Libraries, linking with
+
+Once a library is installed, using it is easy.
 Suppose the user wishes to use the library @samp{mypackage} (installed
 in the tree rooted at @samp{/some/directory/mypackage}) and the library
 @samp{myotherlib} (installed in the tree rooted at
@@ -1073,14 +1004,27 @@ EXTRA_LIBRARIES = mypackage myotherlib
 @vindex EXTRA_LIBRARIES
 @vindex EXTRA_LIB_DIRS
 
-Mmake will then ensure that the appropriate directories are searched for
+@findex --intermodule-optimization
+When using @samp{--intermodule-optimization} with a library which
+uses the C interface, it may be necessary to add @samp{-I} options to
+@samp{MGNUCFLAGS} so that the C compiler can find any header files
+used by the library's C code.
+
+Mmake will ensure that the appropriate directories are searched for
 the relevant interface files, module initialisation files, compiled
 libraries, etc.
 
+@findex --mld
+@findex --mercury-library-directory
+@findex --ml
+@findex --mercury-library
+To use a library when invoking @samp{mmc} directly, use the @samp{--mld}
+and @samp{--ml} options (@pxref{Link options}).
+
 Beware that the directory name that you must use in @samp{EXTRA_LIB_DIRS}
-is not quite the same as the name that was specified in the
-@samp{INSTALL_PREFIX} when the library was installed --- the name in
-@samp{EXTRA_LIB_DIRS} needs to have @samp{/lib/mercury} appended.
+or as the argument of the @samp{--mld} option is not quite the same as
+the name that was specified in the @samp{INSTALL_PREFIX} when the library
+was installed --- the name needs to have @samp{/lib/mercury} appended.
 
 One can specify extra libraries to be used on a program-by-program
 basis.  For instance, if the program @samp{foo} also uses the library
@@ -1630,7 +1574,7 @@ some modules with @samp{--trace shallow} or @samp{--trace deep},
 then you must also pass the @samp{--trace} (or @samp{-t}) option
 to c2init and to the Mercury linker.
 If you're using Mmake, then you can do this by including @samp{--trace}
-in the @samp{C2INITFLAGS} and @samp{MLFLAGS} variables.
+in the @samp{MLFLAGS} variable.
 
 If you're using Mmake, then you can also set the compilation options
 for a single module named @var{Module} by setting the Mmake variable
@@ -1639,7 +1583,6 @@ for a single module named @var{Module} by setting the Mmake variable
 and everything else with no tracing, you could use the following:
 
 @example
-C2INITFLAGS = --trace
 MLFLAGS     = --trace
 MCFLAGS-foo = --trace deep
 MCFLAGS-bar = --trace shallow
@@ -2220,6 +2163,13 @@ Prints the values of all the known variables in the current environment.
 The options @samp{-f} or @samp{--flat}, @samp{-p} or @samp{--pretty},
 and @samp{-v} or @samp{--verbose} specify the format to use for printing.
 @sp 1
+@item print [-fpv]
+@item print [-fpv] goal
+Prints the goal of the current call in its present state of instantiation.
+@sp 1
+The options @samp{-f} or @samp{--flat}, @samp{-p} or @samp{--pretty},
+and @samp{-v} or @samp{--verbose} specify the format to use for printing.
+@sp 1
 @item print [-fpv] exception
 Prints the value of the exception at an EXCP port.
 Reports an error if the current event does not refer to such a port.
@@ -2247,6 +2197,14 @@ and @samp{-v} or @samp{--verbose} specify the format to use for browsing.
 For further documentation on the interactive term browser,
 invoke the @samp{browse} command from within @samp{mdb} and then
 type @samp{help} at the @samp{browser>} prompt.
+@sp 1
+@item browse [-fpv]
+@item browse [-fpv] goal
+Invokes the interactive term browser to browse
+the goal of the current call in its present state of instantiation.
+@sp 1
+The options @samp{-f} or @samp{--flat}, @samp{-p} or @samp{--pretty},
+and @samp{-v} or @samp{--verbose} specify the format to use for browsing.
 @sp 1
 @item browse [-fpv] exception
 Invokes the interactive term browser to browse
@@ -2383,6 +2341,66 @@ If none of these options is given,
 the default is to affect all formats.
 In the case that the format itself is being set,
 these options are ignored.
+@sp 1
+@item view [-vf2] [-w @var{window-cmd}] [-s @var{server-cmd}] [-n @var{server-name}] [-t @var{timeout}]
+@itemx view -c [-v] [-s @var{server-cmd}] [-n @var{server-name}]
+@kindex view (mdb command)
+Opens a new window displaying the source code,
+at the location of the current event.
+As mdb stops at new events,
+the window is updated to track through the source code.
+This requires X11 and a version of @samp{vim}
+compiled with the client/server option enabled.
+@sp 1
+The debugger only updates one window at a time.
+If you try to open a new source window when there is already one open,
+this command aborts with an error message.
+@sp 1
+The variant with @samp{-c} (or @samp{--close})
+does not open a new window but instead
+attempts to close a currently open source window.
+The attempt may fail if, for example,
+the user has modified the source file without saving.
+@sp 1
+The option @samp{-v} (or @samp{--verbose})
+prints the underlying system calls before running them,
+and prints any output the calls produced.
+This is useful to find out what is wrong if the server does not start.
+@sp 1
+The option @samp{-f} (or @samp{--force})
+stops the command from aborting if there is already a window open.
+Instead it attempts to close that window first.
+@sp 1
+The option @samp{-2} (or @samp{--split-screen})
+starts the vim server with two windows,
+which allows both the callee as well as the caller
+to be displayed at interface events.
+The lower window shows what would normally be seen
+if the split-screen option was not used,
+which at interface events is the caller.
+At these events,
+the upper window shows the callee definition.
+At internal events,
+the lower window shows the associated source,
+and the view in the upper window
+(which is not interesting at these events)
+remains unchanged.
+@sp 1
+The option @samp{-w} (or @samp{--window-command}) specifies
+the command to open a new window.
+The default is @samp{xterm -e}.
+@sp 1
+The option @samp{-s} (or @samp{--server-command}) specifies
+the command to start the server.
+The default is @samp{vim}.
+@sp 1
+The option @samp{-n} (or @samp{--server-name}) specifies
+the name of an existing server.
+Instead of starting up a new server,
+mdb will attempt to connect to the existing one.
+@sp 1
+The option @samp{-t} (or @samp{--timeout}) specifies
+the maximum number of seconds to wait for the server to start.
 @end table
 @sp 1
 @node Breakpoint commands
@@ -2771,9 +2789,12 @@ The following commands are intended for use by the developers
 of the Mercury implementation.
 @sp 1
 @table @code
-@item nondet_stack
+@item nondet_stack [-d]
 @kindex nondet_stack (mdb command)
-Prints the contents of the fixed slots of the frames on the nondet stack.
+Prints the contents of the frames on the nondet stack.
+By default, it prints only of the fixed slots in each nondet stack frame,
+but if the option @samp{-d} or @samp{--detailed} option is given,
+it will also print the names and values of the live variables in them.
 @sp 1
 @item stack_regs
 @kindex stack_regs (mdb command)
@@ -3349,6 +3370,7 @@ use @samp{mmc --help} to get the most up-to-date list.
 * Compilation model options::
 * Code generation options::
 * Optimization options::
+* Target code compilation options::
 * Link options::
 * Miscellaneous options::
 @end menu
@@ -4088,12 +4110,11 @@ The options below must be passed to @samp{mgnuc}, @samp{c2init}
 and @samp{ml} as well as to @samp{mmc}. 
 If you are using Mmake, then you should specify
 these options in the @samp{GRADEFLAGS} variable rather than specifying
-them in @samp{MCFLAGS}, @samp{MGNUCFLAGS}, @samp{C2INITFLAGS}
-and @samp{MLFLAGS}.
+them in @samp{MCFLAGS}, @samp{MGNUCFLAGS} and @samp{MLFLAGS}.
 @vindex GRADEFLAGS
 @vindex MCFLAGS
 @vindex MGNUCFLAGS
-@vindex C2INITFLAGS
+@vindex MLFLAGS
 
 @menu
 * Grades and grade components::                 Setting the compilation model
@@ -4494,6 +4515,7 @@ ordinary Mercury programmers.
 @item @code{--tags @{none, low, high@}}
 @findex --tags
 @cindex Tags
+@cindex Data representation
 (This option is not intended for general use.)@*
 Specify whether to use the low bits or the high bits of
 each word as tag bits (default: low).
@@ -4502,6 +4524,7 @@ each word as tag bits (default: low).
 @item @code{--num-tag-bits @var{n}}
 @findex --num-tag-bits
 @cindex Tags
+@cindex Data representation
 (This option is not intended for general use.)@*
 Use @var{n} tag bits.  This option is required if you specify
 @samp{--tags high}.
@@ -4509,9 +4532,37 @@ With @samp{--tags low}, the default number of tag bits to use
 is determined by the auto-configuration script.
 
 @sp 1
+@item @code{--num-reserved-addresses @var{n}}
+@findex --reserved-addresses
+@cindex Reserved addresses
+@cindex Addresses, reserved
+@cindex Data representation
+(This option is not intended for general use.)@*
+Treat the integer values from 0 up to @var{n} - 1 as reserved
+addresses that can be used to represent nullary constructors
+(constants) of discriminated union types.
+
+@sp 1
+@item @code{--num-reserved-objects @var{n}}
+@findex --reserved-addresses
+@cindex Reserved addresses
+@cindex Reserved objects
+@cindex Addresses, reserved
+@cindex Objects, reserved
+@cindex Data representation
+(This option is not intended for general use.)@*
+Allocate up to @var{n} - 1 global objects for representing nullary
+constructors (constants) of discriminated union types.
+
+Note that reserved objects will only be used if reserved addresses
+(see @code{--num-reserved-addresses}) are not available, since the
+latter are more efficient.
+
+@sp 1
 @item @code{--reserve-tag} (grades: any grade containing @samp{.rt})
 @findex --reserve-tag
 @cindex Tags
+@cindex Data representation
 Reserve a tag in the data representation of the generated 
 code. This tag is intended to be used to give an explicit
 representation to free variables.
@@ -4556,17 +4607,6 @@ The generated assembler will be written to @samp{@var{module}.pic_s}
 rather than to @samp{@var{module}.s}.
 
 @sp 1
-@item @code{--target-debug}
-@findex @code{--target-debug}
-@findex @code{--c-debug}
-@findex @code{/debug}
-Enable debugging of the generated target code.
-If the target language is C, this has the same effect as
-@samp{--c-debug} (see below).
-If the target language is IL, this causes the compiler to
-pass @samp{/debug} to the IL assembler.
-
-@sp 1
 @item --no-trad-passes
 @findex --no-trad-passes
 @findex --trad-passes
@@ -4599,68 +4639,6 @@ Don't reclaim heap on backtracking in semidet code.
 @findex --no-reclaim-heap-on-failure
 @findex --reclaim-heap-on-failure
 Combines the effect of the two options above.
-
-@sp 1
-@item --cc @var{compiler-name}
-@findex --cc
-@cindex C compiler
-Specify which C compiler to use.
-
-@sp 1
-@item --c-include-directory @var{dir}
-@findex --c-include-directory
-@cindex Include directories
-@cindex Directories
-Append @var{dir} to the list of directories to be searched for
-C header files.  Note that if you want to override this list, rather than
-append to it, then you can set the @samp{MERCURY_MC_ALL_C_INCL_DIRS}
-environment variable to a sequence of @samp{--c-include-directory} options.
-
-@sp 1
-@item --cflags @var{options}
-@findex --cflags
-@cindex C compiler options
-Specify options to be passed to the C compiler.
-
-@sp 1
-@item @code{--c-debug}
-@findex --c-debug
-@cindex C debugging
-@cindex Debugging the generated C code
-Pass the @samp{-g} flag to the C compiler, to enable debugging
-of the generated C code, and also pass @samp{--no-strip} to the Mercury
-linker, to tell it not to strip the C debugging information.
-Since the generated C code is very low-level, this option is not likely
-to be useful to anyone except the Mercury implementors, except perhaps
-for debugging code that uses Mercury's C interface extensively.
-
-@sp 1
-@item --javac @var{compiler-name}
-@item --java-compiler @var{compiler-name}
-@findex --javac
-@findex --java-compiler
-@cindex Java compiler
-Specify which Java compiler to use.  The default is @samp{javac}.
-
-@sp 1
-@item --java-flags @var{options}
-@findex --java-flags
-@cindex Java compiler options
-Specify options to be passed to the Java compiler.
-
-@sp 1
-@item --java-classpath @var{dir}
-@findex --java-classpath
-@cindex classpath
-@cindex Directories
-Set the classpath for the Java compiler.
-
-@sp 1
-@item --java-object-file-extension @var{extension}
-@findex --java-object-file-extension
-@cindex File extensions
-Specify an extension for Java object (bytecode) files.  By default this
-is @samp{.class}. 
 
 @sp 1
 @item --fact-table-max-array-size @var{size}
@@ -4747,7 +4725,6 @@ Assume that @var{n} float temporaries will fit into real machine registers.
 * Medium-level (HLDS -> LLDS) optimization options::
 * Low-level (LLDS -> LLDS) optimization options::
 * Output-level (LLDS -> C) optimization options::
-* Object-level (C -> object code) optimization options::
 @ifset aditi
 * Aditi-RL optimization options::
 @end ifset
@@ -5354,29 +5331,6 @@ but tends to severely stress the C compiler.
 
 @end table
 
-@node Object-level (C -> object code) optimization options
-@subsection Object-level (C -> object code) optimization options
-
-These optimizations are applied during the process of compiling
-the generated C code to machine code object files.
-
-If you are using Mmake, you need to pass these options
-to @samp{mgnuc} rather than to @samp{mmc}.
-
-@table @code
-@item --no-c-optimize
-@findex --no-c-optimize
-Don't enable the C compiler's optimizations.
-
-@sp 1
-@item --inline-alloc
-@findex --inline-alloc
-Inline calls to @samp{GC_malloc()}.
-This can improve performance a fair bit,
-but may significantly increase code size.
-This option has no effect if @samp{--gc conservative}
-is not set or if the C compiler is not GNU C.
-
 @ifset aditi
 @node Aditi-RL optimization options
 @subsection Aditi-RL optimization options
@@ -5413,8 +5367,6 @@ do not need to be materialised.
 @end table
 @end ifset
 @c aditi
-
-@end table
 
 @node Miscellaneous options
 @section Miscellaneous options
@@ -5490,6 +5442,103 @@ of the @samp{USER} environment variable. If @samp{USER} is not set,
 @c aditi
 @end table
 
+@node Target code compilation options
+@section Target code compilation options
+@cindex Target code compilation options
+
+If you are using Mmake, you need to pass these options
+to the target code compiler (e.g. @samp{mgnuc}) rather
+than to @samp{mmc}.
+
+@table @code
+@sp 1
+@item @code{--target-debug}
+@findex @code{--target-debug}
+@findex @code{--c-debug}
+@findex @code{/debug}
+Enable debugging of the generated target code.
+If the target language is C, this has the same effect as
+@samp{--c-debug} (see below).
+If the target language is IL, this causes the compiler to
+pass @samp{/debug} to the IL assembler.
+
+@sp 1
+@item --cc @var{compiler-name}
+@findex --cc
+@cindex C compiler
+Specify which C compiler to use.
+
+@sp 1
+@item --c-include-directory @var{dir}
+@findex --c-include-directory
+@cindex Include directories
+@cindex Directories
+Append @var{dir} to the list of directories to be searched for
+C header files.  Note that if you want to override this list, rather than
+append to it, then you can set the @samp{MERCURY_MC_ALL_C_INCL_DIRS}
+environment variable to a sequence of @samp{--c-include-directory} options.
+
+@sp 1
+@item @code{--c-debug}
+@findex --c-debug
+@cindex C debugging
+@cindex Debugging the generated C code
+Pass the @samp{-g} flag to the C compiler, to enable debugging
+of the generated C code, and also pass @samp{--no-strip} to the Mercury
+linker, to tell it not to strip the C debugging information.
+Since the generated C code is very low-level, this option is not likely
+to be useful to anyone except the Mercury implementors, except perhaps
+for debugging code that uses Mercury's C interface extensively.
+
+@item --no-c-optimize
+@findex --no-c-optimize
+Don't enable the C compiler's optimizations.
+
+@sp 1
+@item --inline-alloc
+@findex --inline-alloc
+Inline calls to @samp{GC_malloc()}.
+This can improve performance a fair bit,
+but may significantly increase code size.
+This option has no effect if @samp{--gc conservative}
+is not set or if the C compiler is not GNU C.
+
+@sp 1
+@item --cflags @var{options}
+@findex --cflags
+@cindex C compiler options
+Specify options to be passed to the C compiler.
+
+@sp 1
+@item --javac @var{compiler-name}
+@item --java-compiler @var{compiler-name}
+@findex --javac
+@findex --java-compiler
+@cindex Java compiler
+Specify which Java compiler to use.  The default is @samp{javac}.
+
+@sp 1
+@item --java-flags @var{options}
+@findex --java-flags
+@cindex Java compiler options
+Specify options to be passed to the Java compiler.
+
+@sp 1
+@item --java-classpath @var{dir}
+@findex --java-classpath
+@cindex classpath
+@cindex Directories
+Set the classpath for the Java compiler.
+
+@sp 1
+@item --java-object-file-extension @var{extension}
+@findex --java-object-file-extension
+@cindex File extensions
+Specify an extension for Java object (bytecode) files.  By default this
+is @samp{.class}. 
+
+@end table
+
 @node Link options
 @section Link options
 @cindex Link options
@@ -5518,7 +5567,8 @@ Specify options to be passed to @samp{ml}, the Mercury linker.
 @findex --library-directory
 @cindex Directories for libraries
 @cindex Search path for libraries
-Append @var{dir} to the list of directories in which to search for libraries.
+Append @var{directory} to the list of directories in which
+to search for libraries.
 
 @item -l @var{library}
 @itemx --library @var{library}
@@ -5531,6 +5581,43 @@ Link with the specified library.
 @findex --link-object
 @cindex Object files, linking with
 Link with the specified object file.
+
+@item --mld @var{directory}
+@itemx --mercury-library-directory @var{directory}
+@findex --mld
+@findex --mercury-library-directory
+@cindex Directories for libraries
+@cindex Search path for libraries
+Append @var{directory} to the list of directories to
+be searched for Mercury libraries.
+This will add @samp{--search-directory}, @samp{--library-directory},
+@samp{--init-file-directory} and @samp{--c-include-directory}
+options as needed.  @xref{Using libraries}.
+
+@item --ml @var{library}
+@itemx --mercury-library @var{library}
+@findex --ml
+@findex --mercury-library
+@cindex Libraries, linking with
+Link with the specified Mercury library.  @xref{Using libraries}.
+
+@item --mercury-standard-library-directory @var{directory}
+@findex --mercury-standard-library-directory
+Search @var{directory} for the Mercury standard library.
+
+@item --no-mercury-standard-library-directory
+@findex --no-mercury-standard-library-directory
+Don't use the Mercury standard library.
+
+@item --init-file-directory @var{directory}
+@findex --init-file-directory
+Append @var{directory} to the list of directories to
+be searched for @samp{.init} files by @samp{c2init}.
+
+@item --init-file @var{file}
+@findex --init-file
+Append @var{file} to the list of @samp{.init} files
+to be passed to @samp{c2init}.
 
 @end table
 
@@ -5647,8 +5734,10 @@ and possibly a set of default aliases.
 @item MERCURY_OPTIONS
 @vindex MERCURY_OPTIONS
 A list of options for the Mercury runtime that gets
-linked into every Mercury program.
-Their meanings are as follows.
+linked into every Mercury program.  Options may also
+be set at compile time by passing @samp{--runtime-flags}
+options to @samp{ml} and @samp{c2init}.
+The Mercury runtime accepts the following options.
 
 @sp 1
 @table @code
@@ -5815,6 +5904,9 @@ rather than to standard error.
 @findex --mdb-tty (runtime option)
 Redirect all three debugger I/O streams -- input, output, and error messages --
 to the file or device specified by @var{filename}.
+
+@c --mdb-in-window is for use only by the mdb script, so it's
+@c not documented here.
 
 @end table
 

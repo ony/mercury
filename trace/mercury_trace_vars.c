@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1999-2001 The University of Melbourne.
+** Copyright (C) 1999-2002 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -16,6 +16,7 @@
 #include "mercury_array_macros.h"
 #include "mercury_memory.h"
 #include "mercury_layout_util.h"
+#include "mercury_deconstruct.h"
 #include "mercury_stack_layout.h"
 #include "mercury_trace_util.h"
 #include "mercury_trace_vars.h"
@@ -134,32 +135,44 @@ static	MR_Point			MR_point;
 ** do not export them. The types are a lie, but a safe lie.
 */
 
-extern	struct MR_TypeCtorInfo_Struct
+#ifndef MR_HIGHLEVEL_CODE
+  extern struct MR_TypeCtorInfo_Struct
 	mercury_data_private_builtin__type_ctor_info_type_info_1;
-extern	struct MR_TypeCtorInfo_Struct
+  extern struct MR_TypeCtorInfo_Struct
 	mercury_data_private_builtin__type_ctor_info_type_ctor_info_1;
-extern	struct MR_TypeCtorInfo_Struct
+  extern struct MR_TypeCtorInfo_Struct
 	mercury_data_private_builtin__type_ctor_info_typeclass_info_1;
-extern	struct MR_TypeCtorInfo_Struct
+  extern struct MR_TypeCtorInfo_Struct
 	mercury_data_private_builtin__type_ctor_info_base_typeclass_info_1;
-extern	struct MR_TypeCtorInfo_Struct
+  extern struct MR_TypeCtorInfo_Struct
 	mercury_data_std_util__type_ctor_info_type_desc_0;
-extern	struct MR_TypeCtorInfo_Struct
+  extern struct MR_TypeCtorInfo_Struct
 	mercury_data_std_util__type_ctor_info_type_ctor_desc_0;
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_void_0;
+  extern struct MR_TypeCtorInfo_Struct
+	mercury_data_type_desc__type_ctor_info_type_desc_0;
+  extern struct MR_TypeCtorInfo_Struct
+	mercury_data_type_desc__type_ctor_info_type_ctor_desc_0;
+  extern struct MR_TypeCtorInfo_Struct
+  	mercury_data___type_ctor_info_func_0;
+  extern struct MR_TypeCtorInfo_Struct
+  	mercury_data___type_ctor_info_pred_0;
+  extern struct MR_TypeCtorInfo_Struct
+  	mercury_data___type_ctor_info_void_0;
 
-#ifdef MR_HIGHLEVEL_CODE
-  extern struct MR_TypeCtorInfo_Struct   mercury_data___type_ctor_info_func_0;
-  extern struct MR_TypeCtorInfo_Struct   mercury_data___type_ctor_info_pred_0;
-#endif
-
-#ifdef	NATIVE_GC
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_succip_0;
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_hp_0;
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_curfr_0;
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_maxfr_0;
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_redoip_0;
-extern	struct MR_TypeCtorInfo_Struct	mercury_data___type_ctor_info_redofr_0;
+  #ifdef NATIVE_GC
+    extern struct MR_TypeCtorInfo_Struct
+	mercury_data___type_ctor_info_succip_0;
+    extern struct MR_TypeCtorInfo_Struct
+	mercury_data___type_ctor_info_hp_0;
+    extern struct MR_TypeCtorInfo_Struct
+	mercury_data___type_ctor_info_curfr_0;
+    extern struct MR_TypeCtorInfo_Struct
+	mercury_data___type_ctor_info_maxfr_0;
+    extern struct MR_TypeCtorInfo_Struct
+	mercury_data___type_ctor_info_redoip_0;
+    extern struct MR_TypeCtorInfo_Struct
+	mercury_data___type_ctor_info_redofr_0;
+  #endif
 #endif
 
 static	MR_TypeCtorInfo
@@ -173,6 +186,8 @@ MR_trace_ignored_type_ctors[] =
 	&mercury_data_private_builtin__type_ctor_info_base_typeclass_info_1,
 	&mercury_data_std_util__type_ctor_info_type_desc_0,
 	&mercury_data_std_util__type_ctor_info_type_ctor_desc_0,
+	&mercury_data_type_desc__type_ctor_info_type_desc_0,
+	&mercury_data_type_desc__type_ctor_info_type_ctor_desc_0,
 
 	/* we ignore these until the debugger can print higher-order terms */
 	&mercury_data___type_ctor_info_func_0,
@@ -180,9 +195,8 @@ MR_trace_ignored_type_ctors[] =
 
 	/* we ignore these because they should never be needed */
 	&mercury_data___type_ctor_info_void_0,
-#endif
 
-#ifdef	NATIVE_GC
+  #ifdef NATIVE_GC
 	/* we ignore these because they are not interesting */
 	&mercury_data___type_ctor_info_succip_0,
 	&mercury_data___type_ctor_info_hp_0,
@@ -190,6 +204,7 @@ MR_trace_ignored_type_ctors[] =
 	&mercury_data___type_ctor_info_maxfr_0,
 	&mercury_data___type_ctor_info_redoip_0,
 	&mercury_data___type_ctor_info_redofr_0,
+  #endif
 #endif
 	/* dummy member */
 	NULL
@@ -239,6 +254,31 @@ MR_trace_set_level(int ancestor_level)
 	MR_Word				*base_curfr;
 	const MR_Label_Layout		*top_layout;
 	const MR_Label_Layout		*level_layout;
+
+	problem = NULL;
+	top_layout = MR_point.MR_point_top_layout;
+	base_sp = MR_saved_sp(MR_point.MR_point_top_saved_regs);
+	base_curfr = MR_saved_curfr(MR_point.MR_point_top_saved_regs);
+	level_layout = MR_find_nth_ancestor(top_layout, ancestor_level,
+			&base_sp, &base_curfr, &problem);
+
+	if (level_layout != NULL) {
+		return MR_trace_set_level_from_layout(level_layout,
+				base_sp, base_curfr, ancestor_level);
+	} else {
+		if (problem == NULL) {
+			MR_fatal_error("MR_find_nth_ancestor failed "
+					"without reporting a problem");
+		}
+
+		return problem;
+	}
+}
+
+const char *
+MR_trace_set_level_from_layout(const MR_Label_Layout *level_layout,
+	MR_Word *base_sp, MR_Word *base_curfr, int ancestor_level)
+{
 	const MR_Proc_Layout		*entry;
 	MR_Word				*valid_saved_regs;
 	int				var_count;
@@ -258,26 +298,10 @@ MR_trace_set_level(int ancestor_level)
 	const char			*filename;
 	int				linenumber;
 
-	problem = NULL;
-	top_layout = MR_point.MR_point_top_layout;
-	base_sp = MR_saved_sp(MR_point.MR_point_top_saved_regs);
-	base_curfr = MR_saved_curfr(MR_point.MR_point_top_saved_regs);
-	level_layout = MR_find_nth_ancestor(top_layout, ancestor_level,
-			&base_sp, &base_curfr, &problem);
-
-	if (level_layout != NULL) {
-		entry = level_layout->MR_sll_entry;
-		if (! MR_PROC_LAYOUT_HAS_EXEC_TRACE(entry)) {
-			return "this procedure does not have "
-				"debugging information";
-		}
-	} else {
-		if (problem == NULL) {
-			MR_fatal_error("MR_find_nth_ancestor failed "
-					"without reporting a problem");
-		}
-
-		return problem;
+	entry = level_layout->MR_sll_entry;
+	if (! MR_PROC_LAYOUT_HAS_EXEC_TRACE(entry)) {
+		return "this procedure does not have "
+			"debugging information";
 	}
 
 	if (! MR_has_valid_var_count(level_layout)) {
@@ -325,8 +349,9 @@ MR_trace_set_level(int ancestor_level)
 		return "there are no names for the live variables";
 	}
 
-	if (ancestor_level == 0 &&
-			MR_point.MR_point_top_port != MR_PORT_EXCEPTION)
+	if (MR_saved_curfr(MR_point.MR_point_top_saved_regs) == base_curfr
+		&& MR_saved_sp(MR_point.MR_point_top_saved_regs) == base_sp
+		&& MR_point.MR_point_top_port != MR_PORT_EXCEPTION)
 	{
 		valid_saved_regs = MR_point.MR_point_top_saved_regs;
 	} else {
@@ -645,6 +670,85 @@ MR_trace_headvar_num(int var_number, int *arg_pos)
 	return NULL;
 }
 
+/*
+** The following declaration allocates a cell to a typeinfo even if though
+** its arity is zero. This wastes a word of space but avoids depending on the
+** current typeinfo optimization scheme.
+*/
+
+#ifdef	MR_HIGHLEVEL_CODE
+  #define unbound_ctor_name	mdb__util__mdb__util__type_ctor_info_unbound_0
+#else
+  #define unbound_ctor_name	MR_type_ctor_info_name(mdb__util, unbound, 0)
+#endif
+
+MR_DECLARE_TYPE_CTOR_INFO_STRUCT(unbound_ctor_name);
+
+static
+MR_static_type_info_arity_0(MR_unbound_typeinfo_struct, &unbound_ctor_name);
+
+const char *
+MR_trace_browse_one_goal(FILE *out, MR_GoalBrowser browser,
+	MR_Browse_Caller_Type caller, MR_Browse_Format format)
+{
+	const MR_Proc_Layout	*proc_layout;
+	MR_ConstString		proc_name;
+	MR_Word			is_func;
+	MR_Word			arg_list;
+	MR_Word			arg;
+	MR_TypeInfo		arg_list_typeinfo;
+	MR_Var_Details		*vars;
+	int			arity;
+	int			hv;
+	int			slot;
+
+	proc_layout = MR_point.MR_point_level_entry;
+	if (MR_PROC_LAYOUT_COMPILER_GENERATED(proc_layout)) {
+		proc_name = proc_layout->MR_sle_proc_id.
+			MR_proc_comp.MR_comp_pred_name;
+		arity = proc_layout->MR_sle_proc_id.
+			MR_proc_comp.MR_comp_arity;
+		is_func = MR_BOOL_NO;
+	} else {
+		proc_name = proc_layout->MR_sle_proc_id.
+			MR_proc_user.MR_user_name;
+		arity = proc_layout->MR_sle_proc_id.
+			MR_proc_user.MR_user_arity;
+		if (proc_layout->MR_sle_proc_id.MR_proc_user.
+				MR_user_pred_or_func == MR_FUNCTION)
+		{
+			is_func = MR_BOOL_YES;
+		} else {
+			is_func = MR_BOOL_NO;
+		}
+	}
+
+	vars = MR_point.MR_point_vars;
+	for (slot = MR_point.MR_point_var_count - 1; slot >= 0; slot--) {
+		if (vars[slot].MR_var_is_headvar) {
+			break;
+		}
+	}
+
+	arg_list = MR_list_empty();
+	for (hv = arity; hv >= 1; hv--) {
+		if (slot >= 0 && vars[slot].MR_var_is_headvar
+			&& vars[slot].MR_var_num_suffix == hv)
+		{
+			MR_new_univ_on_hp(arg, vars[slot].MR_var_type,
+				vars[slot].MR_var_value);
+			slot--;
+		} else {
+			MR_new_univ_on_hp(arg, &MR_unbound_typeinfo_struct,
+				MR_UNBOUND);
+		}
+		arg_list = MR_list_cons(arg, arg_list);
+	}
+
+	(*browser)(proc_name, arg_list, is_func, caller, format);
+	return NULL;
+}
+
 const char *
 MR_trace_parse_browse_one(FILE *out, char *word_spec, MR_Browser browser,
 	MR_Browse_Caller_Type caller, MR_Browse_Format format,
@@ -691,11 +795,13 @@ MR_trace_parse_browse_one(FILE *out, char *word_spec, MR_Browser browser,
 	if (MR_trace_is_number(word_spec, &n)) {
 		var_spec.MR_var_spec_kind = MR_VAR_SPEC_NUMBER;
 		var_spec.MR_var_spec_number = n;
+		var_spec.MR_var_spec_name = NULL; /* unused */
 		return MR_trace_browse_one_path(out, var_spec, path,
 			browser, caller, format, must_be_unique);
 	} else {
 		var_spec.MR_var_spec_kind = MR_VAR_SPEC_NAME;
 		var_spec.MR_var_spec_name = word_spec;
+		var_spec.MR_var_spec_number = -1; /* unused */
 		return MR_trace_browse_one_path(out, var_spec, path,
 			browser, caller, format, must_be_unique);
 	}
@@ -836,13 +942,21 @@ MR_trace_browse_all(FILE *out, MR_Browser browser, MR_Browse_Format format)
 	return NULL;
 }
 
-/* ML_arg() is defined in std_util.m */
-extern	bool 	ML_arg(MR_TypeInfo term_type_info, MR_Word *term, int arg_index,
-			MR_TypeInfo *arg_type_info_ptr, MR_Word **arg_ptr);
-/* ML_named_arg_num() is defined in std_util.m */
-extern	bool 	ML_named_arg_num(MR_TypeInfo term_type_info, MR_Word *term,
-			const char *arg_name, int *arg_num_ptr);
+const char *
+MR_trace_browse_all_on_level(FILE *out, const MR_Label_Layout *level_layout,
+	MR_Word *base_sp, MR_Word *base_curfr, int ancestor_level)
+{
+	const char	*problem;
 
+	problem = MR_trace_set_level_from_layout(level_layout,
+			base_sp, base_curfr, ancestor_level);
+	if (problem != NULL) {
+		return problem;
+	}
+
+	return MR_trace_browse_all(out, MR_trace_print,
+		MR_BROWSE_DEFAULT_FORMAT);
+}
 
 static char *
 MR_trace_browse_var(FILE *out, MR_Var_Details *var, char *path,
@@ -873,7 +987,7 @@ MR_trace_browse_var(FILE *out, MR_Var_Details *var, char *path,
 					path++;
 				}
 
-				/* ML_arg numbers fields from 0, not 1 */
+				/* MR_arg numbers fields from 0, not 1 */
 				--arg_num;
 			} else {
 				/* we have a field name */
@@ -886,7 +1000,7 @@ MR_trace_browse_var(FILE *out, MR_Var_Details *var, char *path,
 				saved_char = *path;
 				*path = '\0';
 
-				if (! ML_named_arg_num(typeinfo, value,
+				if (! MR_named_arg_num(typeinfo, value,
 					old_path, &arg_num))
 				{
 					*path = saved_char;
@@ -901,8 +1015,8 @@ MR_trace_browse_var(FILE *out, MR_Var_Details *var, char *path,
 				path++; /* step over / or ^ */
 			}
 
-			if (ML_arg(typeinfo, value, arg_num,
-				&new_typeinfo, &new_value))
+			if (MR_arg(typeinfo, value, arg_num, &new_typeinfo,
+				&new_value, MR_NONCANON_CC))
 			{
 				typeinfo = new_typeinfo;
 				value = new_value;
