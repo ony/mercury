@@ -295,7 +295,7 @@ RPATH_2=$(SHLIB_RPATH_SEP)$(FINAL_INSTALL_MERC_GC_LIB_DIR)
 
 lib$(STD_LIB_NAME).so : $(library.pic_os) $(ROBDD_PIC_OBJS)
 	$(LINK_SHARED_OBJ) $(ERROR_UNDEFINED)				\
-		-o lib$(STD_LIB_NAME).so $(library.pic_os)
+		-o lib$(STD_LIB_NAME).so $(library.pic_os)		\
 		$(ROBDD_PIC_OBJS)					\
 		$(RPATH_1)$(RPATH_2)					\
 		$(ALL_LDFLAGS) $(ALL_LDLIBS)				\
