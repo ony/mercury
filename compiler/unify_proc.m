@@ -916,7 +916,7 @@ unify_proc__quantify_clause_body(HeadVars, Goal, Context, Clause) -->
 		Body, Varset, Types, _Warnings) },
 	unify_proc__info_set_varset(Varset),
 	unify_proc__info_set_types(Types),
-	{ Clause = clause([], Body, Context) }.
+	{ Clause = clause([], Body, mercury, Context) }.
 
 %-----------------------------------------------------------------------------%
 

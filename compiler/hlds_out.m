@@ -33,7 +33,7 @@
 :- interface.
 
 % Parse tree modules
-:- import_module prog_data.
+:- import_module prog_data, (inst).
 % HLDS modules
 :- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, instmap.
 
@@ -241,6 +241,10 @@
 	--->	yes(tvarset, vartypes)
 	;	no.
 
+	% Convert a mode or inst to a term representation.
+:- func mode_to_term(mode) = prog_term.
+:- func inst_to_term(inst) = prog_term.
+
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
@@ -260,7 +264,7 @@
 :- import_module code_util, llds, llds_out, trace.
 
 % Misc
-:- import_module globals, options.
+:- import_module globals, options, foreign.
 
 % Standard library modules
 :- import_module int, string, set, assoc_list, map, multi_map.
@@ -917,7 +921,7 @@ hlds_out__write_assertion(Indent, ModuleInfo, _PredId, VarSet, AppendVarnums,
 	io__write_list(HeadVars, ", ", PrintVar),
 	io__write_string("] (\n"),
 
-	{ Clause = clause(_Modes, Goal, _Context) },
+	{ Clause = clause(_Modes, Goal, _Lang, _Context) },
 	hlds_out__write_goal_a(Goal, ModuleInfo, VarSet, AppendVarnums,
 			Indent+1, ").\n", TypeQual).
 
@@ -944,6 +948,7 @@ hlds_out__write_clause(Indent, ModuleInfo, PredId, VarSet,
 		Clause = clause(
 			Modes,
 			Goal,
+			Lang,
 			Context
 		),
 		Indent1 is Indent + 1
@@ -959,6 +964,9 @@ hlds_out__write_clause(Indent, ModuleInfo, PredId, VarSet,
 	;
 		[]
 	),
+	io__write_string("% Language of implementation: "),
+	io__write(Lang),
+	io__nl,
 	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 	{ pred_info_procids(PredInfo, ProcIds) },
 	( { Modes = [] ; Modes = ProcIds } ->
@@ -3254,6 +3262,8 @@ add_mode_qualifier(Context, HeadTerm - Mode) = AnnotatedTerm :-
 		[HeadTerm, mode_to_term(Context, Mode)],
 		Context, AnnotatedTerm).
 
+mode_to_term(Mode) = mode_to_term(term__context_init, Mode).
+
 :- func mode_to_term(term__context, mode) = prog_term.
 mode_to_term(Context, (InstA -> InstB)) = Term :-
 	( 
@@ -3282,6 +3292,8 @@ make_atom(Name, Context) =
 
 :- func map_inst_to_term(prog_context, inst) = prog_term.
 map_inst_to_term(Context, Inst) = inst_to_term(Inst, Context).
+
+inst_to_term(Inst) = inst_to_term(Inst, term__context_init).
 
 :- func inst_to_term(inst, prog_context) = prog_term.
 inst_to_term(any(Uniq), Context) =

@@ -330,9 +330,12 @@ ifneq (,$(findstring il,$(GRADE)))
 
 .PHONY: install_library
 install_library: mercury.dll install_grade_dirs install_gac
-	cp `vpath_find $(library.foreign_dlls) mercury_all.dll \
+	cp `vpath_find $(library.foreign_dlls) $(library.dlls) \
 		mercury.dll` $(INSTALL_MERC_LIB_DIR)
 
+# The GAC is the global assembly cache, which is the system managed
+# place to put .NET assemblies.
+# gacutil installs (and uninstalls) DLLs from the GAC.
 .PHONY: install_gac
 install_gac: mercury.dll
 	gacutil -i mercury.dll
