@@ -87,8 +87,6 @@ type_ctor_info__gen_type_ctor_gen_infos([TypeId | TypeIds], TypeTable,
 			map__lookup(TypeTable, TypeId, TypeDefn),
 			hlds_data__get_type_defn_body(TypeDefn, TypeBody),
 			TypeBody \= abstract_type,
-				% XXXX
-			TypeBody \= foreign_type(_, _),
 			\+ type_id_has_hand_defined_rtti(TypeId)
 		->
 			type_ctor_info__gen_type_ctor_gen_info(TypeId,
@@ -116,11 +114,13 @@ type_ctor_info__gen_type_ctor_gen_info(TypeId, TypeName, TypeArity, TypeDefn,
 	module_info_get_special_pred_map(ModuleInfo, SpecMap),
 	globals__lookup_bool_option(Globals, special_preds, SpecialPreds),
 	(
+		hlds_data__get_type_defn_body(TypeDefn, Body),
 		(
-			SpecialPreds = yes
+			SpecialPreds = yes,
+				% XXXX
+			Body \= foreign_type(_, _)
 		;
 			SpecialPreds = no,
-			hlds_data__get_type_defn_body(TypeDefn, Body),
 			Body = du_type(_, _, _, yes(_UserDefinedEquality))
 		)
 	->
