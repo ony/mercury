@@ -9,13 +9,9 @@
 %	 	 (based on resume-points and forward use information)
 % main author: nancy
 %
-%
-% Although this annotation phase was initially not intended as
-% a separate pass, it is cleaner, and easier to work with. 
-%
-% We annotate each program point with a set of variables which are
-% in so-called Local Backward Use (LBU). A variable is said to be in LBU
-% if it will be accessed upon backtracking. 
+% We annotate each program point within a procedure definition with a set of
+% variables which are in so-called Local Backward Use (LBU). A variable is said
+% to be in LBU if it may be accessed upon backtracking. 
 % This information is computed based on the backtrack-vars,
 % and forward use information. 
 % The goals requiring special attention are: 
@@ -36,11 +32,6 @@
 
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred. 
-
-:- import_module io.
-
-:- pred sr_lbu__lbu_pass(module_info, module_info, io__state, io__state).
-:- mode sr_lbu__lbu_pass(in, out, di, uo) is det.
 
 	% Precondition: the code must already be annotated with
 	% LFU-information. 
@@ -65,72 +56,6 @@
 :- import_module list,map, bool, set, varset.
 :- import_module string.
 :- import_module std_util, require.
-
-sr_lbu__lbu_pass(HLDSin , HLDSout) --> 
-	% get all the predicate id's 
-	{ hlds_module__module_info_predids(HLDSin, ALL_PRED_IDS) },
-	% get all the id's of special predicates
-	{ hlds_module__module_info_get_special_pred_map(HLDSin, SPEC_MAP) },
-	{ map__values(SPEC_MAP, SPEC_PRED_IDS) }, 
-	% remove the special pred_ids from the set of pred_ids
-	{ list__delete_elems(ALL_PRED_IDS, SPEC_PRED_IDS, PRED_IDS0) },
-	% filter out the predids of predicates not defined in this 
-	% module 
-	{ list__filter(
-		pred_defined_in_this_module(HLDSin),
-		PRED_IDS0, PRED_IDS) },
-
-	list__foldl2(annotate_lbu_in_pred, PRED_IDS, HLDSin, HLDSout).
-
-:- pred pred_defined_in_this_module(module_info, pred_id).
-:- mode pred_defined_in_this_module(in,in) is semidet.
-
-pred_defined_in_this_module(HLDS,ID):-
-	not(hlds_module__pred_not_defined_in_this_module(HLDS,ID)).
-
-:- pred annotate_lbu_in_pred(pred_id, module_info, module_info, io__state,
-		io__state).
-:- mode annotate_lbu_in_pred(in,in,out,di,uo) is det.
-
-annotate_lbu_in_pred(PRED_ID, HLDSin, HLDSout) --> 
-	{ hlds_module__module_info_pred_info(HLDSin, PRED_ID, PredInfo) }, 
-	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
-	(
-		{ VeryVerbose = yes }
-	->
-		passes_aux__write_pred_progress_message(
-			"% LBU-annotating ", 
-			PRED_ID, 
-			HLDSin)
-	;
-		[]
-	),
-
-	% fetching the procids
-	{ pred_info_procids(PredInfo, PROC_IDS) },
-	
-	% handling all procids
-	{ list__foldl(annotate_lbu_in_proc(HLDSin, PRED_ID), 
-			PROC_IDS, PredInfo, NewPredInfo) } ,
-
-	% and updating the module_info with the new predinfo-state. 
-	{ module_info_set_pred_info(HLDSin, PRED_ID, NewPredInfo, 
-			HLDSout) }.
-
-
-:- pred annotate_lbu_in_proc(module_info, pred_id, proc_id, 
-		pred_info, pred_info).
-:- mode annotate_lbu_in_proc(in, in, in, in, out) is det.
-
-annotate_lbu_in_proc(HLDS, _PRED_ID, PROC_ID, PredInfo0, 
-		PredInfo) :- 
-	pred_info_procedures(PredInfo0, Procedures0)  , 
-	map__lookup(Procedures0, PROC_ID, ProcInfo0)  , 
-
-	sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo),
-
-	map__det_update(Procedures0, PROC_ID, ProcInfo, Procedures) ,
-	pred_info_set_procedures(PredInfo0, Procedures, PredInfo) .
 
 sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo) :-
 	proc_info_goal(ProcInfo0, Goal0),
