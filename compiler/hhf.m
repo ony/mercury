@@ -305,28 +305,29 @@ flatten_conj([Goal | Goals0], Goals) :-
 complete_inst_graph(ModuleInfo) -->
 	=(hhf_info(InstGraph0,_,_)),
 	{ map__keys(InstGraph0, Vars) },
-	list__foldl(complete_inst_graph_node(ModuleInfo), Vars).
+	list__foldl(complete_inst_graph_node(ModuleInfo, Vars), Vars).
 
-:- pred complete_inst_graph_node(module_info::in, prog_var::in, hhf_info::in,
-		hhf_info::out) is det.
+:- pred complete_inst_graph_node(module_info::in, list(prog_var)::in,
+	prog_var::in, hhf_info::in, hhf_info::out) is det.
 
-complete_inst_graph_node(ModuleInfo, Var, Info0, Info) :-
+complete_inst_graph_node(ModuleInfo, BaseVars, Var, Info0, Info) :-
 	Info0 = hhf_info(_InstGraph0, _VarSet0, VarTypes0),
 	(
 		map__search(VarTypes0, Var, Type),
 		type_constructors(Type, ModuleInfo, Constructors),
 		type_to_type_id(Type, TypeId, _)
 	->
-		list__foldl(maybe_add_cons_id(Var, ModuleInfo, TypeId),
+		list__foldl(
+			maybe_add_cons_id(Var, ModuleInfo, BaseVars, TypeId),
 			Constructors, Info0, Info)
 	;
 		Info = Info0
 	).
 
-:- pred maybe_add_cons_id(prog_var::in, module_info::in, type_id::in,
-		constructor::in, hhf_info::in, hhf_info::out) is det.
+:- pred maybe_add_cons_id(prog_var::in, module_info::in, list(prog_var)::in,
+	type_id::in, constructor::in, hhf_info::in, hhf_info::out) is det.
 
-maybe_add_cons_id(Var, ModuleInfo, TypeId, Ctor, Info0, Info) :-
+maybe_add_cons_id(Var, ModuleInfo, BaseVars, TypeId, Ctor, Info0, Info) :-
 	Ctor = ctor(_, _, Name, Args),
 	make_cons_id(Name, Args, TypeId, ConsId),
 	map__lookup(Info0^inst_graph, Var, node(Functors0, MaybeParent)),
@@ -337,7 +338,10 @@ maybe_add_cons_id(Var, ModuleInfo, TypeId, Ctor, Info0, Info) :-
 		(pred(Arg::in, NewVar::out, I0::in, I::out) is det :-
 		    Arg = _ - ArgType,
 		    I0 = hhf_info(IG0, VS0, VT0),
-		    ( find_var_with_type(Var, ArgType, IG0, VT0, NewVar0) ->
+		    (
+		    	find_var_with_type(Var, ArgType, IG0, VT0, BaseVars,
+				NewVar0)
+		    ->
 			NewVar = NewVar0,
 			I = I0
 		    ;
@@ -345,9 +349,10 @@ maybe_add_cons_id(Var, ModuleInfo, TypeId, Ctor, Info0, Info) :-
 			map__det_insert(VT0, NewVar, ArgType, VT),
 			map__init(Empty),
 			map__det_insert(IG0, NewVar, node(Empty, parent(Var)),
-				IG),
+			    IG),
 			I1 = hhf_info(IG, VS, VT),
-			complete_inst_graph_node(ModuleInfo, NewVar, I1, I)
+			complete_inst_graph_node(ModuleInfo, BaseVars, NewVar,
+			    I1, I)
 		    )
 		), Args, NewVars, Info0, Info1),
 	    map__det_insert(Functors0, ConsId, NewVars, Functors),
@@ -356,9 +361,9 @@ maybe_add_cons_id(Var, ModuleInfo, TypeId, Ctor, Info0, Info) :-
 	).
 
 :- pred find_var_with_type(prog_var::in, (type)::in, inst_graph::in,
-		vartypes::in, prog_var::out) is semidet.
+		vartypes::in, list(prog_var)::in, prog_var::out) is semidet.
 
-find_var_with_type(Var0, Type, InstGraph, VarTypes, Var) :-
+find_var_with_type(Var0, Type, InstGraph, VarTypes, BaseVars, Var) :-
 	(
 		map__search(VarTypes, Var0, Type0),
 		same_type(Type0, Type)
@@ -366,7 +371,9 @@ find_var_with_type(Var0, Type, InstGraph, VarTypes, Var) :-
 		Var = Var0
 	;
 		map__lookup(InstGraph, Var0, node(_, parent(Var1))),
-		find_var_with_type(Var1, Type, InstGraph, VarTypes, Var)
+		\+ Var1 `list__member` BaseVars,
+		find_var_with_type(Var1, Type, InstGraph, VarTypes, BaseVars,
+			Var)
 	).
 
 :- pred same_type((type)::in, (type)::in) is semidet.

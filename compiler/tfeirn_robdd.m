@@ -21,9 +21,14 @@
 :- type tfeirn == tfeirn(generic).
 
 :- inst tfeirn == ground. % XXX
+:- inst norm_tfeirn ---> xrobdd(ground, ground, ground, ground, ground,
+			bound(yes)).
 
 :- mode di_tfeirn == in. % XXX
 :- mode uo_tfeirn == out. % XXX
+
+:- mode ni_tfeirn == in(norm_tfeirn).
+:- mode no_tfeirn == out(norm_tfeirn).
 
 % Constants.
 :- func one = tfeirn(T).
@@ -95,26 +100,28 @@
 :- pragma type_spec(disj_vars_eq/3, T = mc_type).
 
 :- func var_restrict_true(var(T)::in, tfeirn(T)::di_tfeirn) =
-		(tfeirn(T)::uo_tfeirn) is det.
+		(tfeirn(T)::no_tfeirn) is det.
 :- pragma type_spec(var_restrict_true/2, T = mc_type).
 
 :- func var_restrict_false(var(T)::in, tfeirn(T)::di_tfeirn) =
-		(tfeirn(T)::uo_tfeirn) is det.
+		(tfeirn(T)::no_tfeirn) is det.
 :- pragma type_spec(var_restrict_false/2, T = mc_type).
 
 %-----------------------------------------------------------------------------%
 
 	% Succeed iff the var is entailed by the xROBDD.
-:- pred var_entailed(tfeirn(T)::in, var(T)::in) is semidet.
+:- pred var_entailed(tfeirn(T)::ni_tfeirn, var(T)::in) is semidet.
 
 	% Return the set of vars entailed by the xROBDD.
-:- func vars_entailed(tfeirn(T)) = vars_entailed_result(T).
+:- func vars_entailed(tfeirn(T)::ni_tfeirn) = 
+		(vars_entailed_result(T)::out) is det.
 
 	% Return the set of vars disentailed by the xROBDD.
-:- func vars_disentailed(tfeirn(T)) = vars_entailed_result(T).
+:- func vars_disentailed(tfeirn(T)::ni_tfeirn) =
+		(vars_entailed_result(T)::out) is det.
 
 	% Existentially quantify away the var in the xROBDD.
-:- func restrict(var(T), tfeirn(T)) = tfeirn(T).
+:- func restrict(var(T)::in, tfeirn(T)::ni_tfeirn) = (tfeirn(T)::out) is det.
 
 	% Existentially quantify away all vars greater than the specified var.
 :- func restrict_threshold(var(T), tfeirn(T)) = tfeirn(T).
@@ -147,6 +154,11 @@
 	% XXX should try using sparse_bitset here.
 :- pred minimal_model(vars(T)::in, tfeirn(T)::in, vars(T)::out, vars(T)::out)
 		is nondet.
+
+%-----------------------------------------------------------------------------%
+
+:- func ensure_normalised(tfeirn(T)::di_tfeirn) = (tfeirn(T)::no_tfeirn) is det.
+:- pragma type_spec(ensure_normalised/1, T = mc_type).
 
 %-----------------------------------------------------------------------------%
 
@@ -377,21 +389,26 @@ conj_not_vars(Vars, X) =
 	X = xrobdd(T, F, E, I, R, _).
 
 disj_vars(Vars, X0) = X :-
-	X0 = xrobdd(T, F, _E, _I, _R, _N),
+	X0 = xrobdd(T, F, E, I, R, _N),
 	( \+ empty(Vars `intersect` T) ->
-		X = X0
+	    X = X0
 	; Vars `subset` F ->
-		X = zero
+	    X = zero
 	;
-		VarsNF = Vars `difference` F,
-		(
-			remove_least(VarsNF, Var, VarsNF1),
-			empty(VarsNF1)
-		->
-			X = X0 ^ var(Var)
+	    VarsNF = Vars `difference` F,
+	    ( remove_least(VarsNF, Var1, VarsNF1) ->
+		( remove_least(VarsNF1, Var2, VarsNF2) ->
+		    ( empty(VarsNF2) ->
+			    X = xrobdd(T, F, E, I ^ either(Var1, Var2), R, no)
+		    ;
+			    X = X0 `x` disj_vars(VarsNF)
+		    )
 		;
-			X = X0 `x` disj_vars(VarsNF)
+		    X = X0 ^ var(Var1)
 		)
+	    ;
+		X = zero
+	    )
 	).
 
 at_most_one_of(Vars, X) =
@@ -539,7 +556,9 @@ minimal_model_2(Vars0, X0, TrueVars, FalseVars) :-
 
 %-----------------------------------------------------------------------------%
 
-:- func normalise(tfeirn(T)::di_tfeirn) = (tfeirn(T)::uo_tfeirn) is det.
+ensure_normalised(X) = normalise(X).
+
+:- func normalise(tfeirn(T)::di_tfeirn) = (tfeirn(T)::no_tfeirn) is det.
 :- pragma type_spec(normalise/1, T = mc_type).
 
 normalise(X) = X :-

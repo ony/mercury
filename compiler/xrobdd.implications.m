@@ -37,6 +37,8 @@
 
 :- func not_both(var(T), var(T), imp_vars(T)) = imp_vars(T).
 
+:- func either(var(T), var(T), imp_vars(T)) = imp_vars(T).
+
 :- pred normalise_true_false_implication_vars(bool::out, vars(T)::in,
 	vars(T)::out, vars(T)::in, vars(T)::out, imp_vars(T)::in,
 	imp_vars(T)::out) is det.
@@ -124,6 +126,9 @@ at_most_one_of(Vars0, ImpVars) =
 
 not_both(A, B, ImpVars) =
 	ImpVars ^ add_clause({neg(A), neg(B)}).
+
+either(A, B, ImpVars) =
+	ImpVars ^ add_clause({pos(A), pos(B)}).
 
 normalise_true_false_implication_vars(Changed, TrueVars0, TrueVars,
 		FalseVars0, FalseVars, ImpVars0, ImpVars) :-

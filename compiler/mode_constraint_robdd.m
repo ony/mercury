@@ -340,7 +340,10 @@ robdd_to_dot(Constraint, ProgVarSet, Info, FileName) -->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 atomic_prodvars_map(Constraint, MCInfo) =
-	( some_vars(VarsEntailed) = vars_entailed(Constraint) ->
+	(
+		some_vars(VarsEntailed) =
+			vars_entailed(ensure_normalised(Constraint))
+	->
 		list__foldl((func(MCVar, PVM) = 
 			(
 			    bimap__reverse_lookup(MCInfo ^ varmap, Key, MCVar),

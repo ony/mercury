@@ -83,14 +83,17 @@ mode_constraints__process_scc(SCC, {ModuleInfo0, PredConstraintMap0},
 		ModuleInfo2, ModeConstraint0, ModeConstraint1,
 		ModeConstraintInfo2, ModeConstraintInfo),
 
-	{ ModeConstraint = restrict_threshold(Threshold, ModeConstraint1) },
+	{ ModeConstraint2 = restrict_threshold(Threshold, ModeConstraint1) },
+	{ ModeConstraint = ensure_normalised(ModeConstraint2) },
 	mode_constraints__process_scc_pass_2(SCC, ModeConstraint,
 		ModeConstraintInfo, ModuleInfo2, ModuleInfo),
 
 	{ PredConstraintMap = list__foldl((func(PredId, PCM) =
 		    map__det_insert(PCM, PredId,
 			{ModeConstraint, ModeConstraintInfo^pred_id := PredId})
-		), SCC, PredConstraintMap0) }.
+		), SCC, PredConstraintMap0) },
+		
+	clear_caches.
 
 :- type number_robdd_info
 	--->	number_robdd_info(
@@ -974,6 +977,7 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	{ impure unsafe_perform_io(robdd_to_dot(Constraint1, VarSet, Info, "conj.dot")) }, % XXX
 	*/
 	{ Usage = map__to_assoc_list(Usage0) }, % XXX needed for deep profiler
+	{ Constraint2 = ensure_normalised(Constraint1) },
 	list__foldl2((pred((V - Ps)::in, Cn0::in, Cn::out, in, out) is det -->
 		list__map_foldl((pred(P::in, CV::out, in, out) is det -->
 			get_var(V `at` P, CV)
@@ -982,7 +986,7 @@ goal_constraints_2(GoalPath, NonLocals, _, conj(Goals0), conj(Goals),
 	        { ConstraintVars = list_to_set(ConstraintVars0) },
 		{ Cn = Cn0 ^ at_most_one_of(ConstraintVars)
 			^ disj_vars_eq(ConstraintVars, VConj) }
-	    ), Usage, Constraint1, Constraint).
+	    ), Usage, Constraint2, Constraint).
 
 goal_constraints_2(GoalPath, NonLocals, Vars, disj(Goals0, SM),
 		disj(Goals, SM), Constraint0, Constraint) -->

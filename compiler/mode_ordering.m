@@ -486,7 +486,8 @@ find_matching_proc_2([ProcId0 - ProcInfo | ProcList], ProdVars, Args,
 		CallerInstGraph, CalleeInstGraph, MCInfo, ProcId,
 		ConsumingVars) :-
 	proc_info_headvars(ProcInfo, HeadVars),
-	proc_info_head_modes_constraint(ProcInfo, Constraint),
+	proc_info_head_modes_constraint(ProcInfo, Constraint0),
+	Constraint = ensure_normalised(Constraint0),
 	(
 	    all [X, Y] inst_graph__corresponding_nodes_from_lists(
 		CallerInstGraph, CalleeInstGraph, Args, HeadVars, X, Y)
