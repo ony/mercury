@@ -270,7 +270,7 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	--->	lifo(
 			all_locals	:: list(list(prog_var)),
 			local		:: list(prog_var),
-			global		:: list(prog_var)
+			global		:: list(list(prog_var))
 		).
 
 :- func selection_info_init = selection_info.
@@ -413,8 +413,8 @@ selection_start_branch(selection_info(Local0, Global0, Conds0, Lifo0),
 	Global = Local0 `set__union` Global0,
 	Conds = Conds0,
 
-	Lifo0 = lifo(AllLocals0, Locals0, Globals0),
-	Lifo  = lifo(AllLocals0, [], Locals0 ++ Globals0).
+	Lifo0 = lifo(AllLocals, Locals, Globals),
+	Lifo  = lifo(AllLocals, [], [Locals | Globals]).
 
 	%
 	% At the end of processing all branches of a
@@ -429,7 +429,14 @@ selection_end_branch(selection_info(Local0, Global0, Conds0, Lifo0),
 	Conds = Conds0,
 
 	Lifo0 = lifo(AllLocals0, Locals0, Globals0),
-	Lifo  = lifo([], [], list_merge([Locals0 | AllLocals0]) ++ Globals0).
+	( Globals0 = [G | Gs] ->
+		Locals = list_merge([Locals0 | AllLocals0]) ++ G,
+		Globals = Gs
+	;
+		Locals = list_merge([Locals0 | AllLocals0]),
+		Globals = []
+	),
+	Lifo  = lifo([], Locals, Globals).
 
 	% [ [1a,2a], [2b,1b], [2c,3c,1c] ] -> [1a, 2b, 2c, 2a, 1b, 3c, 1c]
 :- func list_merge(list(list(T))) = list(T).
@@ -483,7 +490,8 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 				\+ set__member(Var, LocalReused0),
 				\+ set__member(Var, GlobalReused)
 			)},
-		{ list__filter_map(F, Locals ++ Globals, Candidates) }
+		{ list__filter_map(F,
+				Locals ++ list__condense(Globals), Candidates) }
 	;
 		{ Selection = random },
 		{ P = (pred(Choice::out) is nondet :- 
