@@ -23,6 +23,7 @@
 :- implementation.
 
 :- import_module libs__globals, parse_tree__prog_io, parse_tree__prog_io_goal.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module parse_tree__prog_util.
 :- import_module transform_hlds__term_util, transform_hlds__term_errors.
 :- import_module int, map, string, std_util, bool, require, set.
@@ -1078,7 +1079,7 @@ parse_pragma_type(ModuleName, "possible_alias", PragmaTerms, ErrorTerm,
 	;
 		AliasInformation = term__functor(
 					term__atom("yes"), ReadAliases, _),
-		pa_alias_as__parse_read_aliases(ReadAliases, Alias_as),
+		parse_aliases_domain_from_list(ReadAliases, Alias_as),
 		MaybeAliasInfo = yes(Alias_as)
 	),
 

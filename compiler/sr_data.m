@@ -630,7 +630,7 @@ condition_parse(Term, Cond) :-
 				nodes_parse(NodesTerm, NodesList),
 				set__list_to_set(NodesList, Nodes), 
 				vars_parse(LUiHTerm, LUiH),
-				parse_read_aliases_from_single_term(LAiHTerm, 	
+				parse_aliases_domain(LAiHTerm, 	
 						LAiH_Domain),
 				from_aliases_domain_to_alias_as(LAiH_Domain,
 						LAiH),

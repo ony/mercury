@@ -221,18 +221,6 @@
 % Parsing routines. 
 % XXX Should eventually move to some other place? 
 %-----------------------------------------------------------------------------%
-	% Parse the aliases as stored in the trans_opt interface files.
-	% This is the reverse routine for print_maybe_interface_aliases.
-	% Precondition: the list should contain only one element. 
-:- pred parse_read_aliases(list(term(T))::in, aliases_domain::out) is det.
-
-	% Parse the aliases as stored in the trans_opt interface files. Unlike
-	% in the previous routine, the alias is here dscribed by one single
-	% term (instead of a list of one single term). 
-	% XXX Duh? 
-:- pred parse_read_aliases_from_single_term(term(T)::in, 
-		aliases_domain::out) is det.
-
 	% Parse the used declared aliases (pragma aliasing). 
 	% XXX This routine is definitely on the wrong place and should be moved
 	% to parse_tree somewhere, once the aliasing type is defined without
@@ -904,87 +892,7 @@ normalize_wti(HLDS, ProcInfo, ASin, ASout):-
 	).
 		
 %-----------------------------------------------------------------------------%
-% parsing routines
-%-----------------------------------------------------------------------------%
-
-parse_read_aliases(LISTTERM ,AS):- 
-	(
-		% LISTTERM ought to have only one element
-		LISTTERM = [ OneITEM ]
-	->
-		parse_read_aliases_from_single_term(OneITEM, AS)
-	;
-		list__length(LISTTERM, L),
-		string__int_to_string(L, LS), 
-		string__append_list(["(pa_alias_as) parse_read_aliases: wrong number of arguments. yes/", LS,
-				" should be yes/1"], Msg),
-		error(Msg)
-	).
-
-parse_read_aliases_from_single_term(OneITEM, AS) :- 
-	(
-		OneITEM = term__functor(term__atom(CONS), _TERMS, Context)
-	->
-		(
-			CONS = "[|]"
-		->
-			parse_list_alias_term(OneITEM, Aliases),
-			% from_pair_alias_list(Aliases, 
-			%		AliasSet), 
-			% wrap(AliasSet, AS)
-			AS = real(Aliases)
-			% AS = bottom
-		;
-			CONS = "bottom"
-		->
-			AS = bottom
-
-		; 
-			CONS = "top"
-		->
-			format_context(Context, ContextString), 
-			string__append_list(["imported top (", 
-				ContextString, ")"], 
-					Msg),
-			AS = top([Msg])
-		;
-			string__append(
-		"(pa_alias_as) parse_read_aliases_from_single_term: could not parse aliases, top cons: ", CONS, Msg),
-			error(Msg)
-		)
-	;
-		error("(pa_alias_as) parse_read_aliases_from_single_term: term not a functor")
-	).
-
-
-:- pred parse_list_alias_term(term(T), list(prog_data__alias)).
-:- mode parse_list_alias_term(in, out) is det.
-
-parse_list_alias_term(TERM, Aliases) :-
-	(
-		TERM = term__functor(term__atom(CONS), Args, _)
-	->
-		(
-		        CONS = "[|]",
-                        Args = [ AliasTerm, Rest]
-                ->
-			prog_io_pasr__parse_alias(AliasTerm, Alias),
-			parse_list_alias_term(Rest, RestAliases), 
-                        Aliases = [ Alias | RestAliases ]
-                ;
-			CONS = "[]"
-		->
-			Aliases = []
-		;
-			string__append("(pa_alias_as) parse_list_alias_term: could not parse aliases, top cons: ", CONS, Msg),
-			error(Msg)
-		)
-        ;
-                error("(pa_alias_as) parse_list_alias_term: term is not a functor")
-	).
-
-%-----------------------------------------------------------------------------%
-% user declared aliases
+% parsing routines for user declared aliases
 %-----------------------------------------------------------------------------%
 
 parse_user_declared_aliases(term__functor(term__atom("no_aliasing"), [], _),
@@ -1017,13 +925,6 @@ parse_user_declared_aliases(term__functor(term__atom("alias"),
 	parse_user_declared_aliases_2(AliasTerm, AliasAs), 
 	Aliasing = aliasing(MaybeTypes, TypeVarSet, AliasAs). 
 
-:- pred format_context(term__context::in, string::out) is det.
-format_context(Context, String):- 
-	term__context_line(Context, ContextLine), 
-	term__context_file(Context, ContextFile), 
-	string__int_to_string(ContextLine, ContextLineS), 
-	string__append_list([ContextFile, ":", ContextLineS], 
-			String).
 
 :- pred parse_user_declared_aliases_2(term::in, alias_as::out) is det.
 parse_user_declared_aliases_2(ListTerm, AliasAS):- 

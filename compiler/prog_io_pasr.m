@@ -14,7 +14,7 @@
 
 :- import_module parse_tree__prog_data.
 
-:- import_module io, term, std_util.
+:- import_module io, term, std_util, list.
 
 %-----------------------------------------------------------------------------%
 % Printing routines. 
@@ -94,8 +94,14 @@
 :- pred parse_datastruct(term(T)::in, datastruct::out) is det.
 % 3. alias.
 :- pred parse_alias(term(T)::in , alias::out) is det.
+% 4. aliases
+:- pred parse_aliases(term(T)::in, aliases::out) is det.
+% 5. aliases_domain
+:- pred parse_aliases_domain(term(T)::in, aliases_domain::out) is det.
+:- pred parse_aliases_domain_from_list(list(term(T))::in,
+		aliases_domain::out) is det.
 
-
+:- pred format_context(term__context::in, string::out) is det.
 %-----------------------------------------------------------------------------%
 
 :- implementation. 
@@ -105,7 +111,7 @@
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
 
-:- import_module string, list, require, bool, varset, std_util, int. 
+:- import_module string, require, bool, varset, std_util, int. 
 
 %-----------------------------------------------------------------------------%
 print_selector(TVarSet, Selector, !IO) :-
@@ -409,3 +415,84 @@ parse_alias(Term,  A) :-
 		error("(prog_io_pasr) parse_alias: term is not a functor")
 	).
 
+%-----------------------------------------------------------------------------%
+% 4. aliases
+parse_aliases(Term, Aliases) :-
+	(
+		Term = term__functor(term__atom(Cons), Args, _)
+	->
+		(
+		        Cons = "[|]",
+                        Args = [ AliasTerm, Rest]
+                ->
+			parse_alias(AliasTerm, Alias),
+			parse_aliases(Rest, RestAliases), 
+                        Aliases = [ Alias | RestAliases ]
+                ;
+			Cons = "[]"
+		->
+			Aliases = []
+		;
+			string__append("(prog_io_pasr) parse_aliases: could not parse aliases, top cons: ", Cons, Msg),
+			error(Msg)
+		)
+        ;
+                error("(prog_io_pasr) parse_aliases: term is not a functor")
+	).
+
+%-----------------------------------------------------------------------------%
+% 4. aliases_domain
+parse_aliases_domain(Term, AS) :- 
+	(
+		Term = term__functor(term__atom(Cons), _Terms, Context)
+	->
+		(
+			Cons = "[|]"
+		->
+			parse_aliases(Term, Aliases),
+			AS = real(Aliases)
+		;
+			Cons = "bottom"
+		->
+			AS = bottom
+
+		; 
+			Cons = "top"
+		->
+			format_context(Context, ContextString), 
+			string__append_list(["imported top (", 
+				ContextString, ")"], 
+					Msg),
+			AS = top([Msg])
+		;
+			string__append(
+		"(prog_io_pasr) parse_aliases_domain: could not parse aliases, top cons: ", Cons, Msg),
+			error(Msg)
+		)
+	;
+		error("(prog_io_pasr) parse_aliases_domain: term not a functor")
+	).
+
+format_context(Context, String):- 
+	term__context_line(Context, ContextLine), 
+	term__context_file(Context, ContextFile), 
+	string__int_to_string(ContextLine, ContextLineS), 
+	string__append_list([ContextFile, ":", ContextLineS], 
+			String).
+
+parse_aliases_domain_from_list(ListTerm, AliasesDomain):- 
+	(
+		% ListTerm must have only one item
+		ListTerm = [ Term ]
+	->
+		parse_aliases_domain(Term, AliasesDomain)
+	;
+		list__length(ListTerm, L),
+		string__int_to_string(L, LS), 
+		string__append_list([
+			"(prog_io_pasr) ", 
+			"parse_aliases_domain_from_list: ", 
+			"wrong number of arguments. yes/", LS,
+			" should be yes/1"], Msg),
+		error(Msg)
+	).
