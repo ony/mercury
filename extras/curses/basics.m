@@ -1,5 +1,5 @@
 %----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury Distribution.
 %----------------------------------------------------------------------------%
@@ -302,7 +302,7 @@
 
 :- pragma c_code("
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 
 /*
 ** The addresses of the closures that we pass to curses

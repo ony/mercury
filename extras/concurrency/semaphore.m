@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2000-2001 The University of Melbourne.
+% Copyright (C) 2000-2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -74,7 +74,7 @@
 ").
 
 :- pragma c_header_code("
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   void ME_finalize_semaphore(GC_PTR obj, GC_PTR cd);
 #endif
 ").
@@ -103,7 +103,7 @@
 	** The condvar and the mutex will need to be destroyed
 	** when the semaphore is garbage collected.
 	*/
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 	GC_REGISTER_FINALIZER(sem, ME_finalize_semaphore, NULL, NULL, NULL);
 #endif
 
@@ -112,7 +112,7 @@
 }").
 
 :- pragma c_code("
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
   void
   ME_finalize_semaphore(GC_PTR obj, GC_PTR cd)
   {
@@ -151,12 +151,12 @@
 #ifndef MR_HIGHLEVEL_CODE
 	if (sem->count >= 0 && sem->suspended != NULL) {
 		ctxt = sem->suspended;
-		sem->suspended = ctxt->next;
+		sem->suspended = ctxt->MR_ctxt_next;
 		MR_UNLOCK(&(sem->lock), ""semaphore__signal"");
 		MR_schedule(ctxt);
 			/* yield() */
 		MR_save_context(MR_ENGINE(MR_eng_this_context));
-		MR_ENGINE(MR_eng_this_context)->resume =
+		MR_ENGINE(MR_eng_this_context)->MR_ctxt_resume =
 			&&signal_skip_to_the_end_1;
 		MR_schedule(MR_ENGINE(MR_eng_this_context));
 		MR_runnext();
@@ -166,7 +166,7 @@ signal_skip_to_the_end_1:
 		MR_UNLOCK(&(sem->lock), ""semaphore__signal"");
 			/* yield() */
 		MR_save_context(MR_ENGINE(MR_eng_this_context));
-		MR_ENGINE(MR_eng_this_context)->resume =
+		MR_ENGINE(MR_eng_this_context)->MR_ctxt_resume =
 			&&signal_skip_to_the_end_2;
 		MR_schedule(MR_ENGINE(MR_eng_this_context));
 		MR_runnext();
@@ -202,9 +202,9 @@ signal_skip_to_the_end_2:
 		MR_UNLOCK(&(sem->lock), ""semaphore__wait"");
 	} else {
 		MR_save_context(MR_ENGINE(MR_eng_this_context));
-		MR_ENGINE(MR_eng_this_context)->resume =
+		MR_ENGINE(MR_eng_this_context)->MR_ctxt_resume =
 			&&wait_skip_to_the_end;
-		MR_ENGINE(MR_eng_this_context)->next = sem->suspended;
+		MR_ENGINE(MR_eng_this_context)->MR_ctxt_next = sem->suspended;
 		sem->suspended = MR_ENGINE(MR_eng_this_context);
 		MR_UNLOCK(&(sem->lock), ""semaphore__wait"");
 		MR_runnext();

@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -3684,15 +3684,15 @@ getEntity(external(system(SystemId))) -->
     io(find(SystemId, Dirs), Res0),
     (
         { Res0 = ok(_Path) },
-	io((pred((Res10, Entity0)::out, di, uo) is det -->
-	    read_file_as_string(Res10, Entity0)
-	), (Res1, Entity)),
+	io((pred(Res10::out, di, uo) is det -->
+	    read_file_as_string(Res10)
+	), Res1),
 	(
-	    { Res1 = ok },
+	    { Res1 = ok(Entity) },
 	    io(seen),
 	    return(Entity)
 	;
-	    { Res1 = error(Err) },
+	    { Res1 = error(_, Err) },
 	    { io__error_message(Err, Msg) },
 	    error(Msg)
 	)

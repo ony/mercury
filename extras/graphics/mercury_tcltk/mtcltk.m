@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1997-1998,2000 The University of Melbourne.
+% Copyright (C) 1997-1998,2000,2002 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -305,7 +305,7 @@ tcl_status_ok(tcl_ok).
 
 :- pragma c_code("
 
-#ifdef CONSERVATIVE_GC
+#ifdef MR_CONSERVATIVE_GC
 
 /*
 ** The addresses of the closures that we pass to Tk
