@@ -30,6 +30,12 @@
 :- pred type_is_atomic(type, module_info).
 :- mode type_is_atomic(in, in) is semidet.
 
+	% Succeed iff type is guaranteed to be represented as atomic. 
+	% Basically it succeeds if the type_is_atomic succeed, and the
+	% type is not a float. 
+:- pred type_is_guaranteed_atomic(type, module_info).
+:- mode type_is_guaranteed_atomic(in, in) is semidet.
+
 :- pred type_id_is_atomic(type_id, module_info).
 :- mode type_id_is_atomic(in, in) is semidet.
 
@@ -462,6 +468,21 @@ type_util__type_id_arity(_ModuleInfo, _Name - Arity, Arity).
 type_is_atomic(Type, ModuleInfo) :-
 	type_to_type_id(Type, TypeId, _),
 	type_id_is_atomic(TypeId, ModuleInfo).
+
+type_is_guaranteed_atomic(Type, ModuleInfo) :- 
+	type_to_type_id(Type, TypeId, _), 
+	type_id_is_guaranteed_atomic(TypeId, ModuleInfo).
+
+:- pred type_id_is_guaranteed_atomic(type_id, module_info).
+:- mode type_id_is_guaranteed_atomic(in, in) is semidet.
+
+type_id_is_guaranteed_atomic(TypeId, ModuleInfo) :-
+	classify_type_id(ModuleInfo, TypeId, BuiltinType),
+	% BuiltinType \= float_type,
+	BuiltinType \= polymorphic_type,
+	BuiltinType \= tuple_type,
+	BuiltinType \= pred_type,
+	BuiltinType \= user_type.
 
 type_id_is_atomic(TypeId, ModuleInfo) :-
 	classify_type_id(ModuleInfo, TypeId, BuiltinType),

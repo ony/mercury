@@ -42,7 +42,7 @@
 	.
 
 :- pred sr_choice__process_goal(strategy::in, vartypes::in, module_info::in,
-		hlds_goal::in, hlds_goal::out,
+		proc_info::in, hlds_goal::in, hlds_goal::out,
 		maybe(list(reuse_condition))::out) is det.
 :- pred get_strategy(strategy::out, module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
@@ -57,10 +57,11 @@
 :- import_module assoc_list, bool, globals, int. 
 :- import_module map, multi_map, options, require, set.
 
-process_goal(Strategy, VarTypes, ModuleInfo,
+process_goal(Strategy, VarTypes, ModuleInfo, ProcInfo, 
 		Goal0, Goal, MaybeReuseConditions) :-
 	Strategy = strategy(Constraint, SelectionRule),
-	apply_constraint(Constraint, VarTypes, ModuleInfo, Goal0, Goal1),
+	apply_constraint(Constraint, VarTypes, ModuleInfo, ProcInfo, 
+			Goal0, Goal1),
 	select_reuses(SelectionRule, Goal1, Goal2, ReusedVars, ReuseConditions),
 	determine_cgc(ReusedVars, Goal2, Goal),
 	( ReuseConditions = [] ->
@@ -76,6 +77,7 @@ process_goal(Strategy, VarTypes, ModuleInfo,
 			map		:: multi_map(prog_var,
 							reuse_cell_data),
 			module_info	:: module_info,
+			proc_info	:: proc_info, 
 			vartypes	:: vartypes
 		).
 
@@ -87,17 +89,17 @@ process_goal(Strategy, VarTypes, ModuleInfo,
 		).
 
 :- pred constraint_info_init(vartypes::in, module_info::in,
-		constraint_info::out) is det.
+		proc_info::in, constraint_info::out) is det.
 
-constraint_info_init(VarTypes, ModuleInfo,
-		constraint_info(Map, ModuleInfo, VarTypes)) :-
+constraint_info_init(VarTypes, ModuleInfo, ProcInfo, 
+		constraint_info(Map, ModuleInfo, ProcInfo, VarTypes)) :-
 	multi_map__init(Map).
 
 :- pred apply_constraint(constraint::in, vartypes::in, module_info::in,
-		hlds_goal::in, hlds_goal::out) is det.
+		proc_info::in, hlds_goal::in, hlds_goal::out) is det.
 
-apply_constraint(Constraint, VarTypes, ModuleInfo, Goal0, Goal) :-
-	constraint_info_init(VarTypes, ModuleInfo, ConstraintInfo),
+apply_constraint(Constraint, VarTypes, ModuleInfo, ProcInfo, Goal0, Goal) :-
+	constraint_info_init(VarTypes, ModuleInfo, ProcInfo, ConstraintInfo),
 	apply_constraint_2(Constraint, Goal0, Goal, ConstraintInfo, _).
 
 :- pred apply_constraint_2(constraint::in, hlds_goal::in, hlds_goal::out,
@@ -229,11 +231,16 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 		)}
 	;
 		{ Constraint = within_n_cells_difference(Difference) },
+		ProcInfo =^ proc_info,
+		ModuleInfo =^ module_info, 
 
 			% XXX recode this more efficiently at some stage.
 		{ P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
+			
+			\+ no_tag_type(CandidateVar, ModuleInfo, ProcInfo),
+
 			multi_map__search(Map, CandidateVar, CandidateData),
 			ConsIds = list__remove_dups(
 					list__map((func(D) = D ^ cons_id),
@@ -261,6 +268,12 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 	{ goal_info_set_reuse(GoalInfo0,
 			choice(construct(set__list_to_set(Candidates))),
 			GoalInfo) }.
+
+:- pred no_tag_type(prog_var::in, module_info::in, proc_info::in) is semidet. 
+no_tag_type(Var, ModuleInfo, ProcInfo):- 
+	proc_info_vartypes(ProcInfo, VarTypes), 
+	map__lookup(VarTypes, Var, VarType), 
+	type_is_no_tag_type(ModuleInfo, VarType, _, _). 
 
 apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 	{ Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC) },

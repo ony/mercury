@@ -66,7 +66,7 @@ process_proc(PredId, ProcId, ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
 	sr_choice__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
 	{ proc_info_vartypes(ProcInfo0, VarTypes) },
 	{ sr_choice__process_goal(Strategy, VarTypes, ModuleInfo,
-			Goal1, Goal, MaybeReuseConditions) },
+			ProcInfo0, Goal1, Goal, MaybeReuseConditions) },
 	(
 		{ VeryVerbose = yes } 
 	->

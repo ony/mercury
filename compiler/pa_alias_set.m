@@ -125,6 +125,15 @@
 		string::in, string::in, 
 		io__state::di, io__state::uo) is det.
 
+	% print(PredInfo, ProcInfo, AliasSet, StartingString,
+	% MiddleString, EndString)
+	% Prints each alias as a parsable pair of datastructs. Each alias
+	% is preceded with a StartingString, and Ended with an EndString. 
+	% Between aliases, the MiddleString is printed. 
+:- pred print(pred_info::in, proc_info::in, alias_set::in, 
+		string::in, string::in, string::in, 
+		io__state::di, io__state::uo) is det.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
@@ -620,9 +629,13 @@ apply_widening(ModuleInfo, ProcInfo, AliasSet0, AliasSet):-
 	recount(AliasSet1, AliasSet). 
 	
 
-print(PredInfo, ProcInfo, AliasSet, StartingString, EndString) --> 
+print(PredInfo, ProcInfo, AliasSet, StartingString, EndString) -->
+	print(PredInfo, ProcInfo, AliasSet, StartingString, ", ", EndString).
+
+print(PredInfo, ProcInfo, AliasSet, StartingString, MiddleString, 
+		EndString) --> 
 	{ pa_alias_set__to_pair_alias_list(AliasSet, AliasList) },
-	io__write_list(AliasList, ",", 
+	io__write_list(AliasList, MiddleString, 
 		pa_alias__print(ProcInfo, PredInfo, StartingString, 
 			EndString)).
 
