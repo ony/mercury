@@ -15,7 +15,7 @@
 :- interface.
 
 :- import_module hlds_module, bytecode.
-:- import_module io.
+:- import_module io, list.
 
 :- pred bytecode_gen__module(module_info::in, list(byte_code)::out,
 	io__state::di, io__state::uo) is det.
@@ -29,7 +29,7 @@
 :- import_module globals, tree.
 
 :- import_module bool, int, string, list, assoc_list, set, map, varset.
-:- import_module std_util, require.
+:- import_module std_util, require, term.
 
 bytecode_gen__module(ModuleInfo, Code) -->
 	{ module_info_predids(ModuleInfo, PredIds) },
@@ -52,7 +52,17 @@ bytecode_gen__preds([PredId | PredIds], ModuleInfo, Code) -->
 			ProcsCode),
 		{ predicate_name(ModuleInfo, PredId, PredName) },
 		{ list__length(ProcIds, ProcsCount) },
-		{ EnterCode = node([enter_pred(PredName, ProcsCount)]) },
+		{ pred_info_arity(PredInfo, Arity) },
+		{ pred_info_get_is_pred_or_func(PredInfo, PredOrFunc) },
+		{ 
+			(PredOrFunc = predicate ->
+				IsFunc = 0
+			;
+				IsFunc = 1
+			)
+		},
+		{ EnterCode = node([enter_pred(PredName, Arity, IsFunc,
+			ProcsCount)]) },
 		{ EndofCode = node([endof_pred]) },
 		{ PredCode = tree(EnterCode, tree(ProcsCode, EndofCode)) }
 	),
@@ -226,7 +236,7 @@ bytecode_gen__goal_expr(GoalExpr, GoalInfo, ByteInfo0, ByteInfo, Code) :-
 			tree(ElseCode,
 			     EndofIfCode))))))
 	;
-		GoalExpr = pragma_c_code(_, _, _, _, _, _, _),
+		GoalExpr = pragma_c_code(_, _, _, _, _, _, _, _),
 		Code = node([not_supported]),
 		ByteInfo = ByteInfo0
 	).

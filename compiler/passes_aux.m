@@ -13,12 +13,12 @@
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred.
+:- import_module hlds_module, hlds_pred, prog_data.
 :- import_module io.
 
 %-----------------------------------------------------------------------------%
 
-:- type task(T)	--->	update_proc(pred(
+:- type task	--->	update_proc(pred(
 				proc_info, module_info, proc_info))
 		;	update_proc_io(pred(
 				pred_id, proc_id, module_info,
@@ -34,10 +34,43 @@
 				pred_id, proc_id, proc_info, proc_info,
 				module_info, module_info,
 				io__state, io__state))
+		% It would be better to use an existentiallly-quantified type
+		% rather than `univ' here, but Mercury 0.6 doesn't support
+		% existentially-quantified types.
+		;	update_module_cookie(pred(
+				pred_id, proc_id, proc_info, proc_info,
+				univ, univ, module_info, module_info),
+				univ)
+		.
+
+/****************
+
+Note that update_module_cookie causes some difficulties.
+Ideally, it should be implemented using existential types:
+
+	:- type task --->
+			...
+		;	some [T] update_module_cookie(pred(
+				pred_id, proc_id, proc_info, proc_info,
+				T, T, module_info, module_info),
+				T)
+
+That would avoid the need for messing about with type_to_univ and
+univ_to_type.
+
+Originally, it was implemented by changing `task' to `task(T)':
+
+	:- type task(T) --->
+			...
 		;	update_module_cookie(pred(
 				pred_id, proc_id, proc_info, proc_info,
 				T, T, module_info, module_info),
-				T).
+				T)
+
+but that is not a good solution, because it causes a lot of warnings
+about unbound type variables.
+
+****************/
 
 :- inst task =	bound(( update_proc(pred(in, in, out) is det)
 		;	update_proc_io(pred(in, in, in, in, out, di, uo) is det)
@@ -52,11 +85,11 @@
 
 :- mode task ::	task -> task.
 
-:- pred process_all_nonimported_procs(task(T), module_info, module_info,
+:- pred process_all_nonimported_procs(task, module_info, module_info,
 	io__state, io__state).
 :- mode process_all_nonimported_procs(task, in, out, di, uo) is det.
 
-:- pred process_all_nonimported_procs(task(T), task(T),
+:- pred process_all_nonimported_procs(task, task,
 	module_info, module_info, io__state, io__state).
 :- mode process_all_nonimported_procs(task, out(task), in, out, di, uo) is det.
 
@@ -108,7 +141,7 @@ process_all_nonimported_procs(Task0, Task, ModuleInfo0, ModuleInfo) -->
 	process_nonimported_procs_in_preds(PredIds, Task0, Task,
 		ModuleInfo0, ModuleInfo).
 
-:- pred process_nonimported_procs_in_preds(list(pred_id), task(T), task(T),
+:- pred process_nonimported_procs_in_preds(list(pred_id), task, task,
 	module_info, module_info, io__state, io__state).
 :- mode process_nonimported_procs_in_preds(in, task, out(task), in, out,
 	di, uo) is det.
@@ -125,7 +158,7 @@ process_nonimported_procs_in_preds([PredId | PredIds], Task0, Task,
 	process_nonimported_procs_in_preds(PredIds, Task1, Task,
 		ModuleInfo1, ModuleInfo).
 
-:- pred process_nonimported_procs(list(proc_id), pred_id, task(T), task(T),
+:- pred process_nonimported_procs(list(proc_id), pred_id, task, task,
 	module_info, module_info, io__state, io__state).
 :- mode process_nonimported_procs(in, in, task, out(task), in, out, di, uo)
 	is det.
@@ -167,7 +200,7 @@ process_nonimported_procs([ProcId | ProcIds], PredId, Task0, Task,
 		call(Closure, PredId, ProcId, ModuleInfo0, ModuleInfo1,
 			Proc0, Proc, WarnCnt, ErrCnt, State0, State1),
 		globals__io_lookup_bool_option(halt_at_warn, HaltAtWarn,
-			State1, State9),
+			State1, State2),
 		Task1 = Task0,
 		(
 			(
@@ -177,9 +210,11 @@ process_nonimported_procs([ProcId | ProcIds], PredId, Task0, Task,
 				HaltAtWarn = yes
 			)
 		->
+			io__set_exit_status(1, State2, State9),
 			module_info_incr_errors(ModuleInfo1, ModuleInfo8)
 		;
-			ModuleInfo8 = ModuleInfo1
+			ModuleInfo8 = ModuleInfo1,
+			State9 = State2
 		)
 	;
 		Task0 = update_module_cookie(Closure, Cookie0),
@@ -189,9 +224,17 @@ process_nonimported_procs([ProcId | ProcIds], PredId, Task0, Task,
 		State9 = State0
 	),
 
-	map__det_update(Procs0, ProcId, Proc, Procs),
-	pred_info_set_procedures(Pred0, Procs, Pred),
-	map__det_update(Preds0, PredId, Pred, Preds),
+	% If the pass changed the module_info, it may have changed
+	% the pred table or the proc table for this pred_id.  Don't
+	% take any chances.
+
+	module_info_preds(ModuleInfo8, Preds8),
+	map__lookup(Preds8, PredId, Pred8),
+	pred_info_procedures(Pred8, Procs8),
+
+	map__det_update(Procs8, ProcId, Proc, Procs),
+	pred_info_set_procedures(Pred8, Procs, Pred),
+	map__det_update(Preds8, PredId, Pred, Preds),
 	module_info_set_preds(ModuleInfo8, Preds, ModuleInfo9),
 
 	process_nonimported_procs(ProcIds, PredId, Task1, Task,

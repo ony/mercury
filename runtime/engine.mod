@@ -22,7 +22,6 @@
 
 #endif
 
-static	void	init_registers(void);
 static	void	call_engine_inner(Code *entry_point);
 
 #ifndef USE_GCC_NONLOCAL_GOTOS
@@ -59,28 +58,6 @@ init_engine(void)
 	return;
 }
 
-/*
-** Initialize the virtual machine registers
-*/
-
-static void 
-init_registers(void)
-{
-#ifndef CONSERVATIVE_GC
-	hp = heap_zone->min;					
-#endif
-	sp = detstack_zone->min;
-	maxfr = curfr = nondetstack_zone->min;		
-							
-	/* set up a buffer zone */			
-	succip = ENTRY(do_not_reached);			
-	mkframe("buffer_zone", 0, ENTRY(do_not_reached));		
-	nondetstack_zone->min = maxfr;				
-
-	save_transient_registers();
-
-	return;
-}
 
 /*
 ** start_mercury_engine(Code *entry_point)
@@ -185,8 +162,15 @@ call_engine_inner(Code *entry_point)
 {
 	/*
 	** Allocate some space for local variables in other
-	** procedures. This used to be done by just calling
-	** alloca(1024), but on the mips that just decrements the
+	** procedures. This is done because we may jump into the middle
+	** of a C function, which may assume that space on the stack
+	** has already beened allocated for its variables. Such space
+	** would generally be used for expression temporary variables.
+	** How did we arrive at the correct value of LOCALS_SIZE?
+	** Good question. I think it's more voodoo than science.
+	**
+	** This used to be done by just calling
+	** alloca(LOCALS_SIZE), but on the mips that just decrements the
 	** stack pointer, whereas local variables are referenced
 	** via the frame pointer, so it didn't work.
 	** This technique should work and should be vaguely portable,

@@ -1,4 +1,4 @@
-CC= cc
+CC= gcc
 
 #CFLAGS= -g -DCHECK -DREAL='long double'
 
@@ -6,10 +6,10 @@ CC= cc
 #CFLAGS= -O -DCHECK
 
 # HP/UX 9.0X 
-CFLAGS= +O3 +Oaggressive +Olibcalls -Aa -D_POSIX_SOURCE -DCHECK +FP VZOUiD
+#CFLAGS= +O3 +Oaggressive +Olibcalls -Aa -D_POSIX_SOURCE -DCHECK +FP VZOUiD
 
 # nice for gcc
-#CFLAGS= -O3 -Wall -pedantic -ansi
+CFLAGS= -O3 -Wall -pedantic -ansi
 
 # option -DCHECK checks for numerical problems during rounding of numbers
 # it will slow things down a bit.

@@ -25,7 +25,7 @@
 :- interface.
 
 :- import_module io.
-:- import_module hlds_module, term_errors, term_util.
+:- import_module hlds_module, term_util.
 
 % The top level predicate.  This controls all of the termination analysis
 :- pred termination__pass(module_info, module_info, io__state, io__state).
@@ -75,7 +75,7 @@
 :- import_module inst_match, mode_util, int, hlds_out, string, relation.
 :- import_module hlds_data, hlds_pred, hlds_goal, dependency_graph.
 :- import_module code_util, prog_out, bag, set.
-:- import_module term_pass1, term_pass2.
+:- import_module term_pass1, term_pass2, term_errors.
 
 %-----------------------------------------------------------------------------%
 
@@ -252,7 +252,6 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 		State0 = State1
 	; %else if
 		( ImportStatus = imported
-		; ImportStatus = opt_decl  % should this be here?
 		; ImportStatus = opt_imported
 		; ImportStatus = pseudo_imported  % should this be here?
 		)

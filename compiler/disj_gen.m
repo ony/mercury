@@ -76,7 +76,7 @@ disj_gen__generate_pruned_disj(Goals, StoreMap, Code) -->
 
 		% Generate all the disjuncts
 	code_info__get_next_label(EndLabel),
-	disj_gen__generate_pruned_disjuncts(Goals, StoreMap, EndLabel, no,
+	disj_gen__generate_pruned_disjuncts(Goals, StoreMap, EndLabel,
 		ReclaimHeap, MaybeHpSlot, MaybeTicketSlot, no, GoalsCode),
 
 		% Remake the code_info using the store map for the
@@ -88,9 +88,9 @@ disj_gen__generate_pruned_disj(Goals, StoreMap, Code) -->
 %---------------------------------------------------------------------------%
 
 :- pred disj_gen__generate_pruned_disjuncts(list(hlds_goal), store_map,
-	label, bool, bool, maybe(lval), maybe(lval), bool, code_tree,
+	label, bool, maybe(lval), maybe(lval), bool, code_tree,
 	code_info, code_info).
-:- mode disj_gen__generate_pruned_disjuncts(in, in, in, in, in, in, in, in,
+:- mode disj_gen__generate_pruned_disjuncts(in, in, in, in, in, in, in,
 	out, in, out) is det.
 
 	% To generate code for a det or semidet disjunction,
@@ -104,13 +104,13 @@ disj_gen__generate_pruned_disj(Goals, StoreMap, Code) -->
 	% For a det disj, this goal will be det,
 	% and may be followed by other goals.
 	%
-	% XXX We ought not to restore anything in the first disjunct.
+	% XXX For efficiency, we ought not to restore anything in the
+	% first disjunct.
 
-disj_gen__generate_pruned_disjuncts([], _, _, _, _, _, _, _, _) -->
+disj_gen__generate_pruned_disjuncts([], _, _, _, _, _, _, _) -->
 	{ error("Empty pruned disjunction!") }.
 disj_gen__generate_pruned_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
-		HaveTempFrame0, ReclaimHeap,
-		MaybeHpSlot0, MaybeTicketSlot, First, Code) -->
+		ReclaimHeap, MaybeHpSlot0, MaybeTicketSlot, First, Code) -->
 	{ Goal0 = GoalExpr0 - GoalInfo0 },
 	{ goal_info_get_code_model(GoalInfo0, CodeModel) },
 	{ goal_info_get_resume_point(GoalInfo0, Resume) },
@@ -122,7 +122,7 @@ disj_gen__generate_pruned_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
 
 		code_info__push_resume_point_vars(ResumeVars),
 		code_info__make_known_failure_cont(ResumeVars, ResumeLocs, no,
-			HaveTempFrame0, HaveTempFrame, ModContCode),
+			ModContCode),
 			% The next line is to enable Goal to pass the
 			% pre_goal_update sanity check
 		{ goal_info_set_resume_point(GoalInfo0, no_resume_point,
@@ -179,8 +179,8 @@ disj_gen__generate_pruned_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
 		code_info__restore_failure_cont(RestoreContCode),
 
 		disj_gen__generate_pruned_disjuncts(Goals, StoreMap, EndLabel,
-			HaveTempFrame, ReclaimHeap,
-			MaybeHpSlot, MaybeTicketSlot, no, RestCode),
+			ReclaimHeap, MaybeHpSlot, MaybeTicketSlot, no,
+			RestCode),
 
 		{ Code = tree(ModContCode, 
 			 tree(RestoreHPCode,
@@ -246,11 +246,11 @@ disj_gen__generate_non_disj(Goals, StoreMap, Code) -->
 	code_info__maybe_save_hp(ReclaimHeap, SaveHeapCode, MaybeHpSlot),
 
 	code_info__get_next_label(EndLabel),
-	disj_gen__generate_non_disjuncts(Goals, StoreMap, EndLabel, no,
+	disj_gen__generate_non_disjuncts(Goals, StoreMap, EndLabel,
 		MaybeHpSlot, MaybeTicketSlot, no, GoalsCode),
 
 		% since we don't know which disjunct we have come from
-		% we must set the current failure continuation to unkown.
+		% we must set the current failure continuation to unknown.
 
 	code_info__unset_failure_cont(FlushResumeVarsCode),
 	code_info__remake_with_store_map(StoreMap),
@@ -261,17 +261,18 @@ disj_gen__generate_non_disj(Goals, StoreMap, Code) -->
 
 %---------------------------------------------------------------------------%
 
-	% XXX We ought not to restore anything in the first disjunct.
+	% XXX For efficiency, we ought not to restore anything in the
+	% first disjunct.
 
 :- pred disj_gen__generate_non_disjuncts(list(hlds_goal), store_map, label,
-	bool, maybe(lval), maybe(lval), bool, code_tree, code_info, code_info).
-:- mode disj_gen__generate_non_disjuncts(in, in, in, in, in, in, in,
+	maybe(lval), maybe(lval), bool, code_tree, code_info, code_info).
+:- mode disj_gen__generate_non_disjuncts(in, in, in, in, in, in,
 	out, in, out) is det.
 
-disj_gen__generate_non_disjuncts([], _, _, _, _, _, _, _) -->
+disj_gen__generate_non_disjuncts([], _, _, _, _, _, _) -->
 	{ error("empty nondet disjunction!") }.
 disj_gen__generate_non_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
-		HaveTempFrame0, MaybeHpSlot, MaybeTicketSlot, First, Code) -->
+		MaybeHpSlot, MaybeTicketSlot, First, Code) -->
 
 	{ Goal0 = GoalExpr0 - GoalInfo0 },
 	{ goal_info_get_resume_point(GoalInfo0, Resume) },
@@ -283,7 +284,7 @@ disj_gen__generate_non_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
 
 		code_info__push_resume_point_vars(ResumeVars),
 		code_info__make_known_failure_cont(ResumeVars, ResumeLocs, yes,
-			HaveTempFrame0, HaveTempFrame, ModContCode),
+			ModContCode),
 			% The next line is to enable Goal to pass the
 			% pre_goal_update sanity check
 		{ goal_info_set_resume_point(GoalInfo0, no_resume_point,
@@ -328,8 +329,7 @@ disj_gen__generate_non_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
 		code_info__restore_failure_cont(RestoreContCode),
 
 		disj_gen__generate_non_disjuncts(Goals, StoreMap, EndLabel,
-			HaveTempFrame, MaybeHpSlot, MaybeTicketSlot, no,
-			RestCode),
+			MaybeHpSlot, MaybeTicketSlot, no, RestCode),
 
 		{ Code = tree(ModContCode, 
 			 tree(RestoreHPCode,
@@ -361,7 +361,7 @@ disj_gen__generate_non_disjuncts([Goal0 | Goals], StoreMap, EndLabel,
 		code_info__generate_branch_end(model_non, StoreMap, SaveCode),
 
 		{ EndCode = node([
-			label(EndLabel) - "End of pruned disj"
+			label(EndLabel) - "End of nondet disj"
 		]) },
 		{ Code = tree(RestoreHPCode,
 			 tree(RestorePopTicketCode,

@@ -524,7 +524,7 @@ det_diagnose_goal_2(some(_Vars, Goal), _, Desired, Actual,
 	det_diagnose_goal(Goal, InternalDesired, SwitchContext, DetInfo,
 		Diagnosed).
 
-det_diagnose_goal_2(pragma_c_code(_, _, _, _, _, _, _), GoalInfo, Desired, 
+det_diagnose_goal_2(pragma_c_code(_, _, _, _, _, _, _, _), GoalInfo, Desired, 
 		_, _, _, yes) -->
 	{ goal_info_get_context(GoalInfo, Context) },
 	prog_out__write_context(Context),
@@ -682,7 +682,7 @@ det_report_call_context(Context, CallUnifyContext, DetInfo, PredId, ModeId) -->
 			{ CallUnifyContext = no },
 			prog_out__write_context(Context),
 			io__write_string(
-	"  Some wierd unification (or explicit call to `__Unify__'?) ")
+	"  Some weird unification (or explicit call to `__Unify__'?) ")
 		)
 	;
 		(

@@ -164,7 +164,7 @@ a variable live if its value will be used later on in the computation.
 
 % The following predicates are used by unique_modes.m.
 
-:- import_module mode_info, mode_errors, clause_to_proc.
+:- import_module mode_info.
 
 	% Modecheck a unification.
 
@@ -260,7 +260,7 @@ a variable live if its value will be used later on in the computation.
 :- import_module mode_info, delay_info, mode_errors, inst_match, instmap.
 :- import_module type_util, mode_util, code_util, prog_data, unify_proc.
 :- import_module globals, options, mercury_to_mercury, hlds_out, int, set.
-:- import_module passes_aux, typecheck, module_qual.
+:- import_module passes_aux, typecheck, module_qual, clause_to_proc.
 :- import_module modecheck_unify, modecheck_call.
 :- import_module list, map, varset, term, prog_out, string, require, std_util.
 :- import_module assoc_list.
@@ -797,7 +797,7 @@ modecheck_goal_expr(switch(Var, CanFail, Cases0, SM), GoalInfo0,
 	% to modecheck a pragma_c_code, we just modecheck the proc for 
 	% which it is the goal.
 modecheck_goal_expr(pragma_c_code(IsRecursive, C_Code, PredId, _ProcId0, Args0,
-			ArgNameMap, ExtraPragmaInfo), GoalInfo, Goal) -->
+		ArgNameMap, OrigArgTypes, ExtraPragmaInfo), GoalInfo, Goal) -->
 	mode_checkpoint(enter, "pragma_c_code"),
 	mode_info_set_call_context(call(PredId)),
 
@@ -807,7 +807,7 @@ modecheck_goal_expr(pragma_c_code(IsRecursive, C_Code, PredId, _ProcId0, Args0,
 
 	=(ModeInfo),
 	{ Pragma = pragma_c_code(IsRecursive, C_Code, PredId, ProcId, Args0,
-			ArgNameMap, ExtraPragmaInfo) },
+			ArgNameMap, OrigArgTypes, ExtraPragmaInfo) },
 	{ handle_extra_goals(Pragma, ExtraGoals, GoalInfo, Args0, Args,
 				InstMap0, ModeInfo, Goal) },
 

@@ -17,7 +17,7 @@
 %-----------------------------------------------------------------------------%
 
 :- interface.
-:- import_module list, char, int, float, require, std_util.
+:- import_module list, char.
 
 :- pred string__length(string, int).
 :- mode string__length(in, out) is det.
@@ -49,7 +49,7 @@
 	% string__prefix(String, Prefix) is true iff Prefix is a
 	% prefix of String.  Same as string__append(Prefix, _, String).
 
-:- pred string__char_to_string(character, string).
+:- pred string__char_to_string(char, string).
 :- mode string__char_to_string(in, out) is det.
 :- mode string__char_to_string(out, in) is semidet.
 %	string__char_to_string(Char, String).
@@ -69,7 +69,7 @@
 :- mode string__float_to_string(in, out) is det.
 %	Convert an float to a string.
 
-:- pred string__first_char(string, character, string).
+:- pred string__first_char(string, char, string).
 :- mode string__first_char(in, in, in) is semidet.	% implied
 :- mode string__first_char(in, out, in) is semidet.	% implied
 :- mode string__first_char(in, in, out) is semidet.	% implied
@@ -108,14 +108,19 @@
 :- mode string__uncapitalize_first(in, out) is det.
 %	Convert the first character (if any) of a string to lowercase.
 
-:- pred string__to_char_list(string, list(character)).
+:- pred string__to_char_list(string, list(char)).
 :- mode string__to_char_list(in, out) is det.
 
-:- pred string__from_char_list(list(character), string).
+:- pred string__from_char_list(list(char), string).
 :- mode string__from_char_list(in, out) is det.
 :- mode string__from_char_list(out, in) is semidet.
 	% XXX second mode should be det too
 	% (but this turns out to be tricky to implement)
+
+:- pred string__from_rev_char_list(list(char), string).
+:- mode string__from_rev_char_list(in, out) is det.
+%	Same as string__from_char_list, except that it reverses the order
+%	of the characters.
 
 :- pred string__to_int(string, int).
 :- mode string__to_int(in, out) is semidet.
@@ -148,42 +153,57 @@
 :- mode string__is_alnum_or_underscore(in) is semidet.
 	% True if string contains only letters, digits, and underscores.
 
-:- pred string__pad_left(string, character, int, string).
+:- pred string__pad_left(string, char, int, string).
 :- mode string__pad_left(in, in, in, out) is det.
 %	string__pad_left(String0, PadChar, Width, String):
 %	insert `PadChar's at the left of `String0' until it is at least
 %	as long as `Width', giving `String'.
 
-:- pred string__pad_right(string, character, int, string).
+:- pred string__pad_right(string, char, int, string).
 :- mode string__pad_right(in, in, in, out) is det.
 %	string__pad_right(String0, PadChar, Width, String):
 %	insert `PadChar's at the right of `String0' until it is at least
 %	as long as `Width', giving `String'.
 
-:- pred string__duplicate_char(character, int, string).
+:- pred string__duplicate_char(char, int, string).
 :- mode string__duplicate_char(in, in, out) is det.
 %	string__duplicate_char(Char, Count, String):
 %	construct a string consisting of `Count' occurrences of `Char'
 %	in sequence.
 
-:- pred string__contains_char(string, character).
+:- pred string__contains_char(string, char).
 :- mode string__contains_char(in, in) is semidet.
 %	string__contains_char(String, Char):
 %	succeed if `Char' occurs in `String'.
 
-:- pred string__index(string, int, character).
+:- pred string__index(string, int, char).
 :- mode string__index(in, in, out) is semidet.
 %	string__index(String, Index, Char):
 %	`Char' is the (`Index' + 1)-th character of `String'.
 %	Fails if `Index' is out of range (negative, or greater than or
 %	equal to the length of `String').
 
-:- pred string__index_det(string, int, character).
+:- pred string__index_det(string, int, char).
 :- mode string__index_det(in, in, out) is det.
 %	string__index_det(String, Index, Char):
 %	`Char' is the (`Index' + 1)-th character of `String'.
 %	Calls error/1 if `Index' is out of range (negative, or greater than or
 %	equal to the length of `String').
+
+:- pred string__foldl(pred(char, T, T), string, T, T).
+:- mode string__foldl(pred(in, in, out) is det, in, in, out) is det.
+:- mode string__foldl(pred(in, di, uo) is det, in, di, uo) is det.
+:- mode string__foldl(pred(in, in, out) is semidet, in, in, out) is semidet.
+:- mode string__foldl(pred(in, in, out) is nondet, in, in, out) is nondet.
+:- mode string__foldl(pred(in, in, out) is multi, in, in, out) is multi.
+%	string__foldl(Closure, String, Acc0, Acc):
+%	`Closure' is an accumulator predicate which is to be called for each
+%	character of the string `String' in turn. The initial value of the
+%	accumulator is `Acc0' and the final value is `Acc'.
+%	(string__foldl is equivalent to
+%		string__to_char_list(String, Chars),
+%		list__foldl(Closure, Chars, Acc0, Acc)
+%	but is implemented more efficiently.)
 
 :- pred string__split(string, int, string, string).
 :- mode string__split(in, in, out, out) is det.
@@ -269,7 +289,8 @@
 %	p	int	integer
 %
 %	An option of zero will cause any padding to be zeros rather than spaces.
-%	A '-' will cause the output to be right-justified in its 'space'. 
+%	A '-' will cause the output to be left-justified in its 'space'. 
+%	(With a `-', the default is for fields to be right-justified.)
 %	A '+' forces a sign to be printed.  This is not sensible for string and
 %	character output.  A ' ' causes a space to be printed before a thing
 %	if there is no sign there.  The other option is the '#', which 
@@ -300,7 +321,7 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module bool.
+:- import_module bool, std_util, int, float, require.
 
 :- pred string__to_int_list(string, list(int)).
 :- mode string__to_int_list(out, in) is det.
@@ -326,8 +347,7 @@ string__replace_all(String, SubString0, SubString1, StringOut) :-
 	% find_all_sub_charlist replaces any occurences of the second list of
 	% characters (in order) in the first list of characters with the second
 	% list of characters.
-:- pred find_all_sub_charlist(list(character), list(character), list(character),
-	list(character)).
+:- pred find_all_sub_charlist(list(char), list(char), list(char), list(char)).
 :- mode find_all_sub_charlist(in, in, in, out) is det.
 
 find_all_sub_charlist(CharList, SubCharList0, SubCharList1, CharList0) :-
@@ -355,8 +375,7 @@ find_all_sub_charlist(CharList, SubCharList0, SubCharList1, CharList0) :-
 	% find_sub_charlist(List, SubList, Before, After) is true iff SubList
 	% is a sublist of List, and Before is the list of characters before
 	% SubList in List, and After is the list after it.
-:- pred find_sub_charlist(list(character), list(character), list(character),
-	list(character)).
+:- pred find_sub_charlist(list(char), list(char), list(char), list(char)).
 :- mode find_sub_charlist(in, in, out, out) is semidet.
 
 find_sub_charlist(CharList, [], [], CharList).
@@ -384,8 +403,7 @@ find_sub_charlist([C|CharList], [S|SubCharList], Before, After) :-
 	% find_rest_of_sub_charlist(List, SubList, After) is true iff List
 	% begins with all the characters in SubList in order, and end with
 	% After.
-:- pred find_rest_of_sub_charlist(list(character), list(character), 
-	list(character)).
+:- pred find_rest_of_sub_charlist(list(char), list(char), list(char)).
 :- mode find_rest_of_sub_charlist(in, in, out) is semidet.
 
 find_rest_of_sub_charlist(CharList, SubCharList, After) :-
@@ -412,12 +430,11 @@ string__base_string_to_int(Base, String, Int) :-
 :- mode string__base_string_to_int_2(in, in, in, out) is semidet.
 
 string__base_string_to_int_2(Base, String, Int0, Int) :-
-	( string__first_char(String, Char, String1) ->
-		char__to_upper(Char, UpperChar),
-		string__digit_to_char(Digit, UpperChar),
-		Digit < Base,
+	( string__first_char(String, DigitChar, String1) ->
+		char__digit_to_int(DigitChar, DigitValue),
+		DigitValue < Base,
 		Int1 is Base * Int0,
-		Int2 is Int1 + Digit,
+		Int2 is Int1 + DigitValue,
 		string__base_string_to_int_2(Base, String1, Int2, Int) 
 	;
 		Int = Int0
@@ -428,6 +445,32 @@ string__index_det(String, Int, Char) :-
 		Char = Char0
 	;
 		error("string__index_det: index out of range")
+	).
+
+string__foldl(Closure, String, Acc0, Acc) :-
+	string__length(String, Length),
+	string__foldl2(Closure, String, 0, Length, Acc0, Acc).
+
+:- pred string__foldl2(pred(char, T, T), string, int, int, T, T).
+:- mode string__foldl2(pred(in, in, out) is det, in, in, in, in, out) is det.
+:- mode string__foldl2(pred(in, di, uo) is det, in, in, in, di, uo) is det.
+:- mode string__foldl2(pred(in, in, out) is semidet, in, in, in, in, out)
+		is semidet.
+:- mode string__foldl2(pred(in, in, out) is nondet, in, in, in, in, out)
+		is nondet.
+:- mode string__foldl2(pred(in, in, out) is multi, in, in, in, in, out)
+		is multi.
+
+string__foldl2(Closure, String, N, Max, Acc0, Acc) :-
+	(
+		N >= Max
+	->
+		Acc = Acc0
+	;
+		string__unsafe_index(String, N, Char),
+		call(Closure, Char, Acc0, Acc1),
+		N1 is N + 1,
+		string__foldl2(Closure, String, N1, Max, Acc1, Acc)
 	).
 
 string__left(String, Count, LeftString) :-
@@ -490,69 +533,16 @@ string__int_to_base_string_2(N, Base, Str) :-
 	(
 		N < Base
 	->
-		string__digit_to_char_det(N, DigitChar),
+		char__det_int_to_digit(N, DigitChar),
 		string__char_to_string(DigitChar, Str)
 	;
 		N10 is N mod Base,
 		N1 is N // Base,
-		string__digit_to_char_det(N10, DigitChar),
+		char__det_int_to_digit(N10, DigitChar),
 		string__char_to_string(DigitChar, DigitString),
 		string__int_to_base_string_2(N1, Base, Str1),
 		string__append(Str1, DigitString, Str)
 	).
-
-:- pred string__digit_to_char_det(int, character).
-:- mode string__digit_to_char_det(in, out) is det.
-
-string__digit_to_char_det(Digit, Char) :-
-	( string__digit_to_char(Digit, Char0) ->
-		Char = Char0
-	;
-		error("string__digit_to_char failed")
-	).
-
-% Simple-minded, but extremely portable.
-
-:- pred string__digit_to_char(int, character).
-:- mode string__digit_to_char(in, out) is semidet.
-:- mode string__digit_to_char(out, in) is semidet.
-
-string__digit_to_char(0, '0').
-string__digit_to_char(1, '1').
-string__digit_to_char(2, '2').
-string__digit_to_char(3, '3').
-string__digit_to_char(4, '4').
-string__digit_to_char(5, '5').
-string__digit_to_char(6, '6').
-string__digit_to_char(7, '7').
-string__digit_to_char(8, '8').
-string__digit_to_char(9, '9').
-string__digit_to_char(10, 'A').
-string__digit_to_char(11, 'B').
-string__digit_to_char(12, 'C').
-string__digit_to_char(13, 'D').
-string__digit_to_char(14, 'E').
-string__digit_to_char(15, 'F').
-string__digit_to_char(16, 'G').
-string__digit_to_char(17, 'H').
-string__digit_to_char(18, 'I').
-string__digit_to_char(19, 'J').
-string__digit_to_char(20, 'K').
-string__digit_to_char(21, 'L').
-string__digit_to_char(22, 'M').
-string__digit_to_char(23, 'N').
-string__digit_to_char(24, 'O').
-string__digit_to_char(25, 'P').
-string__digit_to_char(26, 'Q').
-string__digit_to_char(27, 'R').
-string__digit_to_char(28, 'S').
-string__digit_to_char(29, 'T').
-string__digit_to_char(30, 'U').
-string__digit_to_char(31, 'V').
-string__digit_to_char(32, 'W').
-string__digit_to_char(33, 'X').
-string__digit_to_char(34, 'Y').
-string__digit_to_char(35, 'Z').
 
 % NB: it would be more efficient to do this directly (using pragma c_code)
 string__to_char_list(String, CharList) :-
@@ -564,7 +554,51 @@ string__from_char_list(CharList, String) :-
 	string__char_list_to_int_list(CharList, IntList),
 	string__to_int_list(String, IntList).
 
-:- pred string__int_list_to_char_list(list(int), list(character)).
+%
+% We could implement from_rev_char_list using list__reverse and from_char_list,
+% but the optimized implementation in C below is there for efficiency since
+% it improves the overall speed of parsing by about 7%.
+%
+:- pragma(c_code, string__from_rev_char_list(Chars::in, Str::out), "
+{
+	Word list_ptr;
+	Word size, len;
+	Word str_ptr;
+/*
+** loop to calculate list length + sizeof(Word) in `size' using list in
+** `list_ptr' and separately count the length of the string
+*/
+	size = sizeof(Word);
+	len = 1;
+	list_ptr = Chars;
+	while (!list_is_empty(list_ptr)) {
+		size++;
+		len++;
+		list_ptr = list_tail(list_ptr);
+	}
+/*
+** allocate (length + 1) bytes of heap space for string
+** i.e. (length + 1 + sizeof(Word) - 1) / sizeof(Word) words
+*/
+	incr_hp_atomic(str_ptr, size / sizeof(Word));
+	Str = (char *) str_ptr;
+/*
+** set size to be the offset of the end of the string
+** (ie the \\0) and null terminate the string.
+*/
+	Str[--len] = '\\0';
+/*
+** loop to copy the characters from the list_ptr to the string
+** in reverse order.
+*/
+	list_ptr = Chars;
+	while (!list_is_empty(list_ptr)) {
+		Str[--len] = (char) list_head(list_ptr);
+		list_ptr = list_tail(list_ptr);
+	}
+}").
+
+:- pred string__int_list_to_char_list(list(int), list(char)).
 :- mode string__int_list_to_char_list(in, out) is det.
 
 string__int_list_to_char_list([], []).
@@ -576,7 +610,7 @@ string__int_list_to_char_list([Code | Codes], [Char | Chars]) :-
 	),
 	string__int_list_to_char_list(Codes, Chars).
 
-:- pred string__char_list_to_int_list(list(character), list(int)).
+:- pred string__char_list_to_int_list(list(char), list(int)).
 :- mode string__char_list_to_int_list(in, out) is det.
 :- mode string__char_list_to_int_list(out, in) is semidet.
 
@@ -1576,7 +1610,7 @@ string__special_precision_and_width(-1).
 /*-----------------------------------------------------------------------*/
 
 /*
-:- pred string__contains_char(string, character).
+:- pred string__contains_char(string, char).
 :- mode string__contains_char(in, in) is semidet.
 */
 :- pragma(c_code, string__contains_char(Str::in, Ch::in), "
@@ -1586,7 +1620,7 @@ string__special_precision_and_width(-1).
 /*-----------------------------------------------------------------------*/
 
 /*
-:- pred string__index(string, int, character).
+:- pred string__index(string, int, char).
 :- mode string__index(in, in, out) is semidet.
 */
 :- pragma(c_code, string__index(Str::in, Index::in, Ch::out), "
@@ -1596,6 +1630,15 @@ string__special_precision_and_width(-1).
 		SUCCESS_INDICATOR = TRUE;
 		Ch = Str[Index];
 	}
+").
+
+/*-----------------------------------------------------------------------*/
+
+:- pred string__unsafe_index(string, int, char).
+:- mode string__unsafe_index(in, in, out) is det.
+
+:- pragma(c_code, string__unsafe_index(Str::in, Index::in, Ch::out), "
+	Ch = Str[Index];
 ").
 
 /*-----------------------------------------------------------------------*/
@@ -1778,7 +1821,7 @@ void sys_init_string_append_module(void) {
 /*-----------------------------------------------------------------------*/
 
 /*
-:- pred string__first_char(string, character, string).
+:- pred string__first_char(string, char, string).
 :- mode string__first_char(in, in, in) is semidet.	% implied
 :- mode string__first_char(in, out, in) is semidet.	% implied
 :- mode string__first_char(in, in, out) is semidet.	% implied

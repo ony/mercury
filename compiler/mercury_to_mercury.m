@@ -293,6 +293,9 @@ mercury_output_item(pragma(Pragma), Context) -->
 		{ Pragma = inline(Pred, Arity) },
 		mercury_output_pragma_decl(Pred, Arity, "inline")
 	;
+		{ Pragma = no_inline(Pred, Arity) },
+		mercury_output_pragma_decl(Pred, Arity, "no_inline")
+	;
 		{ Pragma = unused_args(PredOrFunc, PredName,
 			Arity, ProcId, UnusedArgs) },
 		mercury_output_pragma_unused_args(PredOrFunc,
@@ -357,6 +360,10 @@ mercury_output_module_defn(_VarSet, Module, _Context) -->
 	( { Module = import(module(ImportedModules)) } ->
 		io__write_string(":- import_module "),
 		mercury_write_module_spec_list(ImportedModules),
+		io__write_string(".\n")
+	; { Module = use(module(UsedModules)) } ->
+		io__write_string(":- use_module "),
+		mercury_write_module_spec_list(UsedModules),
 		io__write_string(".\n")
 	; { Module = interface } ->
 		io__write_string(":- interface.\n")
@@ -798,14 +805,32 @@ mercury_output_cons_id(float_const(X), _) -->
 	io__write_float(X).
 mercury_output_cons_id(string_const(X), _) -->
 	io__write_strings(["""", X, """"]).
-mercury_output_cons_id(pred_const(_, _), _) -->
-	{ error("mercury_output_cons_id: pred_const") }.
-mercury_output_cons_id(code_addr_const(_, _), _) -->
-	{ error("mercury_output_cons_id: code_addr_const") }.
-mercury_output_cons_id(base_type_info_const(_, _, _), _) -->
-	{ error("mercury_output_cons_id: base_type_info_const") }.
+mercury_output_cons_id(pred_const(PredId, ProcId), _) -->
+	% XXX Sufficient, but probably should print this out in
+	%     name/arity form.
 
-:- mercury_output_mode_defn(_, X, _, _, _) when X. 	% NU-Prolog indexing.
+	{ pred_id_to_int(PredId, PredInt) },
+	{ proc_id_to_int(ProcId, ProcInt) },
+	io__write_string("<pred_const("),
+	io__write_int(PredInt),
+	io__write_string(", "),
+	io__write_int(ProcInt),
+	io__write_string(")>").
+mercury_output_cons_id(code_addr_const(PredId, ProcId), _) -->
+	% XXX Sufficient, but probably should print this out in
+	%     name/arity form.
+
+	{ pred_id_to_int(PredId, PredInt) },
+	{ proc_id_to_int(ProcId, ProcInt) },
+	io__write_string("<code_addr_const("),
+	io__write_int(PredInt),
+	io__write_string(", "),
+	io__write_int(ProcInt),
+	io__write_string(")>").
+mercury_output_cons_id(base_type_info_const(Module, Type, Arity), _) -->
+	{ string__int_to_string(Arity, ArityString) },
+	io__write_strings(["<base_type_info for ", Module, ":", Type, "/",
+		ArityString, ">"]).
 
 mercury_output_mode_defn(VarSet, eqv_mode(Name, Args, Mode), Context) -->
 	io__write_string(":- mode ("),
@@ -1812,9 +1837,11 @@ mercury_infix_op("or").		/* NU-Prolog */
 mercury_infix_op("and").	/* NU-Prolog */
 mercury_infix_op("=").
 mercury_infix_op("=..").
-mercury_infix_op("=:=").
-mercury_infix_op("==").
-mercury_infix_op("=\\=").
+mercury_infix_op("=:=").	/* Prolog */
+mercury_infix_op("==").		/* Prolog (also for constraints, in svar.m) */
+mercury_infix_op("\\=").	/* Prolog */
+mercury_infix_op("\\==").	/* Prolog */
+mercury_infix_op("=\\=").	/* Prolog */
 mercury_infix_op(">").
 mercury_infix_op(">=").
 mercury_infix_op("<").
@@ -1850,6 +1877,7 @@ mercury_unary_prefix_op("-").
 mercury_unary_prefix_op(":-").
 mercury_unary_prefix_op("::").
 mercury_unary_prefix_op("?-").
+mercury_unary_prefix_op("\\").
 mercury_unary_prefix_op("\\+").
 mercury_unary_prefix_op("delete").
 mercury_unary_prefix_op("dynamic").
@@ -1870,6 +1898,7 @@ mercury_unary_prefix_op("once").
 mercury_unary_prefix_op("pragma").
 mercury_unary_prefix_op("pred").
 mercury_unary_prefix_op("pure").
+mercury_unary_prefix_op("rule").	/* NU-Prolog */
 mercury_unary_prefix_op("sorted").
 mercury_unary_prefix_op("spy").
 mercury_unary_prefix_op("type").

@@ -9,7 +9,7 @@
 % of the types defined by the current module.
 %
 % It requires that type_infos are generated using the
-% shared-one-of-two-cells option.  The layout structures will
+% shared-one-or-two-cells option.  The layout structures will
 % not be generated if this option is not specified.
 %
 % These global constants are used by the predicates functor/3, arg/3 and
@@ -230,6 +230,7 @@
 :- import_module prog_data, hlds_data, hlds_pred, hlds_out, type_util.
 :- import_module llds, code_util, globals, options, special_pred, prog_util.
 :- import_module assoc_list, bool, string, int, list, map, std_util, require.
+:- import_module term.
 
 :- type layout_info 	--->	
 	layout_info(

@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: slist.h,v 1.1 1997-06-02 13:54:16 aet Exp $
+** $Id: slist.h,v 1.1.2.1 1997-07-11 09:25:17 crs Exp $
 */
 
 /*

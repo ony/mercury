@@ -25,7 +25,7 @@ static void demangle(char *name);
 static bool check_for_suffix(char *start, char *position, const char *suffix,
 		int sizeof_suffix, int *mode_num2);
 static char *fix_mangled_ascii(char *str, char **end);
-static char *cut_at_double_underscore(char *str, char *end);
+static bool cut_at_double_underscore(char **str, char *end);
 static bool cut_trailing_integer(char *str, char **end, int *num);
 static bool cut_trailing_underscore_integer(char *str, char **end, int *num);
 static bool strip_prefix(char **str, const char *prefix);
@@ -97,10 +97,11 @@ demangle(char *name) {
 	static const char mercury_data[] = "mercury_data_";
 	static const char base_type_layout[] = "base_type_layout_";
 	static const char base_type_info[] = "base_type_info_";
+	static const char base_type_functors[] = "base_type_functors_";
 	static const char common[] = "common";
 
 	char *start = name;
-	char *module = NULL;	/* module name of type for special pred */
+	const char *type_module = ""; /* module name of type for special pred */
 	char *end = name + strlen(name);
 	char *position;		/* current position in string */
 	int mode_num;
@@ -111,7 +112,7 @@ demangle(char *name) {
 	bool higher_order = FALSE; /* has this proc been specialized */
 	int internal = -1;
 	enum { ORDINARY, UNIFY, COMPARE, INDEX } category;
-	enum { COMMON, INFO, LAYOUT } data_category;
+	enum { COMMON, INFO, LAYOUT, FUNCTORS } data_category;
 
 	/*
 	** skip any leading underscore inserted by the C compiler
@@ -263,8 +264,10 @@ demangle(char *name) {
 	** generated predicates.
 	*/
 	if (category != ORDINARY) {
-		module = start++;
-		start = cut_at_double_underscore(start, end);
+		type_module = start;
+		if (!cut_at_double_underscore(&start, end)) {
+			type_module = "";
+		}
 	}
 
 	/*
@@ -285,15 +288,15 @@ demangle(char *name) {
 	switch(category) {
 	case UNIFY:
 		printf("unification predicate for type '%s:%s'/%d mode %d",
-			module, start, arity, mode_num);
+			type_module, start, arity, mode_num);
 		break;
 	case COMPARE:
 		printf("compare/3 predicate for type '%s:%s'/%d",
-			module, start, arity);
+			type_module, start, arity);
 		break;
 	case INDEX:
-		printf("index/2 predicate for type '%s:%s'/%d", module,
-			start, arity);
+		printf("index/2 predicate for type '%s:%s'/%d",
+			type_module, start, arity);
 		break;
 	default:
 		printf("%s '%s'/%d mode %d",
@@ -322,8 +325,10 @@ not_plain_mercury:
 	if (!strip_prefix(&start, mercury_data)) {
 		goto wrong_format;
 	}
-	module = start;
-	start = cut_at_double_underscore(start, end);
+	type_module = start;
+	if (!cut_at_double_underscore(&start, end)) {
+		type_module = "";
+	}
 
 	if (strip_prefix(&start, base_type_info)) {
 		data_category = INFO;
@@ -332,6 +337,11 @@ not_plain_mercury:
 		}
 	} else if (strip_prefix(&start, base_type_layout)) {
 		data_category = LAYOUT;
+		if (!cut_trailing_underscore_integer(start, &end, &arity)) {
+			goto wrong_format;
+		}
+	} else if (strip_prefix(&start, base_type_functors)) {
+		data_category = FUNCTORS;
 		if (!cut_trailing_underscore_integer(start, &end, &arity)) {
 			goto wrong_format;
 		}
@@ -349,26 +359,35 @@ not_plain_mercury:
 	switch (data_category) {
 
 	case INFO:
-		if (*module == '\0') {
+		if (*type_module == '\0') {
 			printf("<base type_info for type '%s'/%d>",
 				start, arity);
 		} else {
 			printf("<base type_info for type '%s:%s'/%d>",
-				module, start, arity);
+				type_module, start, arity);
 		}
 		break;
 	case LAYOUT:
-		if (*module == '\0') {
+		if (*type_module == '\0') {
 			printf("<type layout for type '%s'/%d>",
 				start, arity);
 		} else {
 			printf("<type layout for type '%s:%s'/%d>",
-				module, start, arity);
+				type_module, start, arity);
+		}
+		break;
+	case FUNCTORS:
+		if (*type_module == '\0') {
+			printf("<type functors for type '%s'/%d>",
+				start, arity);
+		} else {
+			printf("<type functors for type '%s:%s'/%d>",
+				type_module, start, arity);
 		}
 		break;
 	case COMMON:
 		printf("<shared constant number %d for module %s>",
-			arity, module);
+			arity, type_module);
 		break;
 
 	default:
@@ -457,22 +476,24 @@ cut_trailing_underscore_integer(char *str, char **real_end,
 	/*
 	** Scan for `__' and cut the string at there (replace first
 	** `_' with `\0', return the part of the string after the `__').
-	** Returns NULL if there is no `__' in the string before the
-	** supplied end.
+	** Returns TRUE if `__' was found, FALSE otherwise.
 	*/
 
-static char *
-cut_at_double_underscore(char *str, char *end) 
+static bool
+cut_at_double_underscore(char **start, char *end) 
 {
+	char *str = *start;
+
 	while (*str != '_' || *(str + 1) != '_') {
 		if (str == end) {
-			return NULL;
+			return FALSE;
 		}
 		str++;
 	}
 
 	*str = '\0';
-	return str + 2;
+	*start = str + 2;
+	return TRUE;
 }
 
 	/*

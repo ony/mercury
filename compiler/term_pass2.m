@@ -28,7 +28,7 @@
 
 :- import_module bag, hlds_pred, std_util, int, list, relation, require.
 :- import_module set, hlds_goal, term_util, term_errors, bool.
-:- import_module globals, options, map.
+:- import_module globals, options, map, term.
 
 % Used in termination_3_goal to keep track of the relative sizes of variables
 % between the head of a pred and any recursive calls.
@@ -650,7 +650,7 @@ termination_3_goal(if_then_else(_Vars, CondGoal, ThenGoal, ElseGoal, _),
 			UnifyInfo, CallInfo, Res, Out1, Out)
 	).
 	
-termination_3_goal(pragma_c_code(_, _, CallPredId, CallProcId, Args, _, _),
+termination_3_goal(pragma_c_code(_, _, CallPredId, CallProcId, Args, _, _, _),
 	GoalInfo, Module, _UnifyInfo, _CallInfo, Res, Out, Out) :-
 
 	module_info_pred_proc_info(Module, CallPredId, CallProcId, _,

@@ -18,7 +18,7 @@
 :- interface.
 
 :- import_module llds.
-:- import_module io, list, term.
+:- import_module io.
 
 	% Given a 'c_file' structure, open the appropriate .mod file
 	% and output the code into that file.
@@ -80,10 +80,10 @@
 
 :- implementation.
 
-:- import_module shapes, export.
-:- import_module exprn_aux, prog_data, prog_out, hlds_pred.
-:- import_module bool, int, char, string, set, std_util.
-:- import_module require, globals, options.
+:- import_module export.
+:- import_module exprn_aux, prog_data, prog_out, hlds_pred, mercury_to_mercury.
+:- import_module bool, int, list, char, string, set, std_util, term, varset.
+:- import_module assoc_list, require, globals, options.
 :- import_module library.	% for the version number.
 
 %-----------------------------------------------------------------------------%
@@ -1204,28 +1204,42 @@ output_gc_livevals(LiveVals) -->
 :- mode output_gc_livevals_2(in, di, uo) is det.
 
 output_gc_livevals_2([]) --> [].
-output_gc_livevals_2([live_lvalue(Lval, Shape, TypeParams)|Lvals]) -->
+output_gc_livevals_2([live_lvalue(Lval, LiveValueType, TypeParams)|Lvals]) -->
 	io__write_string(" *\t"),
 	output_lval(Lval),
 	io__write_string("\t"),
-	shapes__write_shape_num(Shape),
-	(
-		{ TypeParams = yes(ParamLocs) },
-		io__write_string("\t"),
-		output_gc_livevals_params(ParamLocs)
-	;
-		{ TypeParams = no }
-	),
+	output_live_value_type(LiveValueType),
+	io__write_string("\t"),
+	output_gc_livevals_params(TypeParams),
 	io__write_string("\n"),
 	output_gc_livevals_2(Lvals).
 
-:- pred output_gc_livevals_params(list(lval), io__state, io__state).
+:- pred output_gc_livevals_params(assoc_list(var, lval), io__state, io__state).
 :- mode output_gc_livevals_params(in, di, uo) is det.
 output_gc_livevals_params([]) --> [].
-output_gc_livevals_params([L|Lvals]) -->
-	output_lval(L),
+output_gc_livevals_params([Var - Lval | Lvals]) -->
+	{ term__var_to_int(Var, VarInt) },
+	io__write_int(VarInt),
+	io__write_string(" - "),
+	output_lval(Lval),
 	io__write_string("  "),
 	output_gc_livevals_params(Lvals).
+
+:- pred output_live_value_type(live_value_type, io__state, io__state).
+:- mode output_live_value_type(in, di, uo) is det.
+output_live_value_type(succip) --> io__write_string("succip").
+output_live_value_type(curfr) --> io__write_string("curfr").
+output_live_value_type(maxfr) --> io__write_string("maxfr").
+output_live_value_type(redoip) --> io__write_string("redoip").
+output_live_value_type(hp) --> io__write_string("hp").
+output_live_value_type(unwanted) --> io__write_string("unwanted").
+output_live_value_type(var(Type, Inst)) --> 
+	io__write_string("var("),
+	{ varset__init(NewVarset) },
+	mercury_output_term(Type, NewVarset, no),
+	io__write_string(", "),
+	mercury_output_inst(Inst, NewVarset),
+	io__write_string(")").
 
 :- pred output_temp_decls(int, string, io__state, io__state).
 :- mode output_temp_decls(in, in, di, uo) is det.
@@ -2726,7 +2740,7 @@ output_c_quoted_string(S0) -->
 		[]
 	).
 
-:- pred quote_c_char(character, character).
+:- pred quote_c_char(char, char).
 :- mode quote_c_char(in, out) is semidet.
 
 quote_c_char('"', '"').
@@ -2783,62 +2797,6 @@ llds_out__binary_op_to_string(float_times, "float_times").
 llds_out__binary_op_to_string(float_divide, "float_divide").
 
 %-----------------------------------------------------------------------------%
-
-:- pred clause_num_to_string(int::in, string::out) is det.
-
-clause_num_to_string(N, Str) :-
-	( clause_num_to_string_2(N, Str0) ->
-		Str = Str0
-	;
-		error("clause_num_to_string failed")
-	).
-
-:- pred clause_num_to_string_2(int::in, string::out) is semidet.
-
-clause_num_to_string_2(N, Str) :-
-	(
-		N < 26
-	->
-		int_to_letter(N, Str)
-	;
-		N_Low is N mod 26,
-		N_High is N // 26,
-		int_to_letter(N_Low, L),
-		clause_num_to_string(N_High, S),
-		string__append(S, L, Str)
-	).
-
-:- pred int_to_letter(int, string).
-:- mode int_to_letter(in, out) is semidet.
-
-	% This code is boring, but portable - it works even for EBCDIC ;-)
-
-int_to_letter(0, "a").
-int_to_letter(1, "b").
-int_to_letter(2, "c").
-int_to_letter(3, "d").
-int_to_letter(4, "e").
-int_to_letter(5, "f").
-int_to_letter(6, "g").
-int_to_letter(7, "h").
-int_to_letter(8, "i").
-int_to_letter(9, "j").
-int_to_letter(10, "k").
-int_to_letter(11, "l").
-int_to_letter(12, "m").
-int_to_letter(13, "n").
-int_to_letter(14, "o").
-int_to_letter(15, "p").
-int_to_letter(16, "q").
-int_to_letter(17, "r").
-int_to_letter(18, "s").
-int_to_letter(19, "t").
-int_to_letter(20, "u").
-int_to_letter(21, "v").
-int_to_letter(22, "w").
-int_to_letter(23, "x").
-int_to_letter(24, "y").
-int_to_letter(25, "z").
 
 llds_out__lval_to_string(framevar(N), Description) :-
 	string__int_to_string(N, N_String),

@@ -17,7 +17,7 @@
 
 :- interface.
 :- import_module io, hlds_module.
-:- import_module bag, termination, std_util.
+:- import_module bag, std_util, term, list.
 
 % This pred currently has 2 purposes.  The first is for printing normal error
 % messages.  These are printed if a pragma check_termination has been

@@ -28,7 +28,7 @@
 :- interface.
 
 :- import_module common, hlds_pred, det_report, det_util.
-:- import_module list, io.
+:- import_module io.
 
 :- pred simplify__proc(simplify, pred_id, proc_id, module_info, module_info,
 	proc_info, proc_info, int, int, io__state, io__state).
@@ -65,7 +65,7 @@
 :- import_module hlds_module, hlds_goal, hlds_data, instmap, inst_match.
 :- import_module globals, options, passes_aux, prog_data, mode_util, type_util.
 :- import_module code_util, quantification, modes.
-:- import_module bool, set, map, require, std_util, term, varset.
+:- import_module bool, list, set, map, require, std_util, term, varset.
 
 %-----------------------------------------------------------------------------%
 
@@ -439,9 +439,23 @@ simplify__goal_2(Goal0, GoalInfo0, Goal, GoalInfo, Info0, Info) :-
 		RT0 = lambda_goal(PredOrFunc, Vars, Modes, LambdaDeclaredDet,
 			LambdaGoal0)
 	->
-		simplify_info_get_common_info(Info0, Common),
-		simplify__goal(LambdaGoal0, LambdaGoal, Info0, Info1),
-		simplify_info_set_common_info(Info1, Common, Info),
+		simplify_info_get_common_info(Info0, Common0),
+		simplify_info_get_module_info(Info0, ModuleInfo),
+		simplify_info_get_instmap(Info0, InstMap0),
+		instmap__pre_lambda_update(ModuleInfo, Vars, Modes,
+			InstMap0, InstMap1),
+		simplify_info_set_instmap(Info0, InstMap1, Info1),
+
+		% Don't attempt to pass structs into lambda_goals,
+		% since that could change the curried non-locals of the 
+		% lambda_goal, and that would be difficult to fix up.
+		common_info_init(Common1),
+		simplify_info_set_common_info(Info1, Common1, Info2),
+
+		% Don't attempt to pass structs out of lambda_goals.
+		simplify__goal(LambdaGoal0, LambdaGoal, Info2, Info3),
+		simplify_info_set_common_info(Info3, Common0, Info4),
+		simplify_info_set_instmap(Info4, InstMap0, Info),
 		RT = lambda_goal(PredOrFunc, Vars, Modes, LambdaDeclaredDet,
 			LambdaGoal),
 		Goal = unify(LT0, RT, M, U0, C),
@@ -599,7 +613,7 @@ simplify__goal_2(some(Vars1, Goal1), SomeInfo, Goal, SomeInfo, Info0, Info) :-
 	Goal = some(Vars, Goal3).
 
 simplify__goal_2(Goal0, GoalInfo, Goal, GoalInfo, Info0, Info) :-
-	Goal0 = pragma_c_code(_, _, PredId, ProcId, Args, _, _),
+	Goal0 = pragma_c_code(_, _, PredId, ProcId, Args, _, _, _),
 	( simplify_do_calls(Info0) ->
 		common__optimise_call(PredId, ProcId, Args, Goal0,
 			GoalInfo, Goal, Info0, Info)
@@ -1367,7 +1381,7 @@ simplify_info_maybe_clear_structs(BeforeAfter, Goal, Info0, Info) :-
 			Goal = GoalExpr - _,
 			GoalExpr \= call(_, _, _, _, _, _),
 			GoalExpr \= higher_order_call(_, _, _, _, _),
-			GoalExpr \= pragma_c_code(_, _, _, _, _, _, _)
+			GoalExpr \= pragma_c_code(_, _, _, _, _, _, _, _)
 		)
 	->
 		simplify_info_get_common_info(Info0, CommonInfo0),

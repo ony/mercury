@@ -21,6 +21,7 @@
 :- interface.
 
 :- import_module hlds_goal, mode_info, modes.
+:- import_module term.
 
 	% Modecheck a unification
 :- pred modecheck_unification( var, unify_rhs, unification, unify_context,
@@ -381,7 +382,7 @@ modecheck_unification(X, lambda_goal(PredOrFunc, Vars, Modes0, Det, Goal0),
 	( HowToCheckGoal = check_modes ->
 		% This only needs to be done once.
 		mode_info_get_types_of_vars(ModeInfo0, Vars, VarTypes),
-		propagate_type_info_mode_list(VarTypes, ModuleInfo0,
+		propagate_types_into_mode_list(VarTypes, ModuleInfo0,
 			Modes0, Modes)
  	;
 		Modes = Modes0
@@ -634,7 +635,8 @@ modecheck_higher_order_func_call(FuncVar, Args0, RetVar, GoalInfo0, Goal) -->
 
 	=(ModeInfo),
 	{ Call = higher_order_call(FuncVar, Args, Types, Modes, Det) },
-	{ handle_extra_goals(Call, ExtraGoals, GoalInfo0, Args1, Args,
+	{ handle_extra_goals(Call, ExtraGoals, GoalInfo0,
+				[FuncVar | Args1], [FuncVar | Args],
 				InstMap0, ModeInfo, Goal) },
 
 	mode_info_unset_call_context,

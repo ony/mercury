@@ -19,10 +19,15 @@
 :- import_module bool, list.
 
 	% mode_get_insts returns the initial instantiatedness and
-	% the final instantiatedness for a given mode.
+	% the final instantiatedness for a given mode, aborting
+	% if the mode is undefined.
 	%
 :- pred mode_get_insts(module_info, mode, inst, inst).
 :- mode mode_get_insts(in, in, out, out) is det.
+
+	% a version of mode_get_insts which fails if the mode is undefined
+:- pred mode_get_insts_semidet(module_info, mode, inst, inst).
+:- mode mode_get_insts_semidet(in, in, out, out) is semidet.
 
 	% a mode is considered input if the initial inst is bound
 :- pred mode_is_input(module_info, mode).
@@ -199,17 +204,17 @@
 	% list of modes which includes the information provided by the
 	% corresponding types.
 	%
-:- pred propagate_type_info_mode_list(list(type), module_info, list(mode),
+:- pred propagate_types_into_mode_list(list(type), module_info, list(mode),
 				list(mode)).
-:- mode propagate_type_info_mode_list(in, in, in, out) is det.
+:- mode propagate_types_into_mode_list(in, in, in, out) is det.
 
 	% Given corresponding lists of types and insts and a substitution
 	% for the type variables in the type, produce a new list of insts
 	% which includes the information provided by the corresponding types.
 	%
-:- pred propagate_type_info_inst_list(list(type), tsubst, module_info,
+:- pred propagate_types_into_inst_list(list(type), tsubst, module_info,
 		list(inst), list(inst)).
-:- mode propagate_type_info_inst_list(in, in, in, in, out) is det.
+:- mode propagate_types_into_inst_list(in, in, in, in, out) is det.
 
 	% Given the mode of a predicate,
 	% work out which arguments are live (might be used again
@@ -250,7 +255,7 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module require, map, set, term, std_util, assoc_list.
+:- import_module require, int, map, set, term, std_util, assoc_list.
 :- import_module prog_util, type_util.
 :- import_module inst_match.
 
@@ -1033,12 +1038,12 @@ inst_lookup_2(InstName, ModuleInfo, Inst) :-
 		)
 	; InstName = typed_ground(Uniq, Type),
 		map__init(Subst),
-		propagate_type_info_inst(Type, Subst, ModuleInfo,
+		propagate_type_into_inst(Type, Subst, ModuleInfo,
 			ground(Uniq, no), Inst)
 	; InstName = typed_inst(Type, TypedInstName),
 		inst_lookup_2(TypedInstName, ModuleInfo, Inst0),
 		map__init(Subst),
-		propagate_type_info_inst(Type, Subst, ModuleInfo, Inst0, Inst)
+		propagate_type_into_inst(Type, Subst, ModuleInfo, Inst0, Inst)
 	),
 	!.
 
@@ -1048,38 +1053,38 @@ inst_lookup_2(InstName, ModuleInfo, Inst) :-
 	% list of modes which includes the information provided by the
 	% corresponding types.
 
-propagate_type_info_mode_list([], _, [], []).
-propagate_type_info_mode_list([Type | Types], ModuleInfo, [Mode0 | Modes0],
+propagate_types_into_mode_list([], _, [], []).
+propagate_types_into_mode_list([Type | Types], ModuleInfo, [Mode0 | Modes0],
 		[Mode | Modes]) :-
-	propagate_type_info_mode(Type, ModuleInfo, Mode0, Mode),
-	propagate_type_info_mode_list(Types, ModuleInfo, Modes0, Modes).
-propagate_type_info_mode_list([], _, [_|_], []) :-
-	error("propagate_type_info_mode_list: length mismatch").
-propagate_type_info_mode_list([_|_], _, [], []) :-
-	error("propagate_type_info_mode_list: length mismatch").
+	propagate_type_into_mode(Type, ModuleInfo, Mode0, Mode),
+	propagate_types_into_mode_list(Types, ModuleInfo, Modes0, Modes).
+propagate_types_into_mode_list([], _, [_|_], []) :-
+	error("propagate_types_into_mode_list: length mismatch").
+propagate_types_into_mode_list([_|_], _, [], []) :-
+	error("propagate_types_into_mode_list: length mismatch").
 
-propagate_type_info_inst_list([], _, _, [], []).
-propagate_type_info_inst_list([Type | Types], Subst, ModuleInfo,
+propagate_types_into_inst_list([], _, _, [], []).
+propagate_types_into_inst_list([Type | Types], Subst, ModuleInfo,
 		[Inst0 | Insts0], [Inst | Insts]) :-
-	propagate_type_info_inst(Type, Subst, ModuleInfo, Inst0, Inst),
-	propagate_type_info_inst_list(Types, Subst, ModuleInfo, Insts0, Insts).
-propagate_type_info_inst_list([], _, _, [_|_], []) :-
-	error("propagate_type_info_inst_list: length mismatch").
-propagate_type_info_inst_list([_|_], _, _, [], []) :-
-	error("propagate_type_info_inst_list: length mismatch").
+	propagate_type_into_inst(Type, Subst, ModuleInfo, Inst0, Inst),
+	propagate_types_into_inst_list(Types, Subst, ModuleInfo, Insts0, Insts).
+propagate_types_into_inst_list([], _, _, [_|_], []) :-
+	error("propagate_types_into_inst_list: length mismatch").
+propagate_types_into_inst_list([_|_], _, _, [], []) :-
+	error("propagate_types_into_inst_list: length mismatch").
 
 	% Given a type and a mode, produce a new mode which includes
 	% the information provided by the type.
 
-:- pred propagate_type_info_mode(type, module_info, mode, mode).
-:- mode propagate_type_info_mode(in, in, in, out) is det.
+:- pred propagate_type_into_mode(type, module_info, mode, mode).
+:- mode propagate_type_into_mode(in, in, in, out) is det.
 
-propagate_type_info_mode(Type, ModuleInfo, Mode0, Mode) :-
+propagate_type_into_mode(Type, ModuleInfo, Mode0, Mode) :-
 	mode_get_insts(ModuleInfo, Mode0, InitialInst0, FinalInst0),
 	map__init(Subst),
-	ex_propagate_type_info_inst(Type, Subst, ModuleInfo, InitialInst0,
+	propagate_type_into_inst_lazily(Type, Subst, ModuleInfo, InitialInst0,
 		InitialInst),
-	ex_propagate_type_info_inst(Type, Subst, ModuleInfo, FinalInst0, 
+	propagate_type_into_inst_lazily(Type, Subst, ModuleInfo, FinalInst0, 
 		FinalInst),
 	Mode = (InitialInst -> FinalInst).
 
@@ -1087,20 +1092,53 @@ propagate_type_info_mode(Type, ModuleInfo, Mode0, Mode) :-
 	% the type, produce a new inst which includes the information provided
 	% by the type.
 	%
-:- pred propagate_type_info_inst(type, tsubst, module_info, inst, inst).
-:- mode propagate_type_info_inst(in, in, in, in, out) is det.
+	% There are three sorts of information added:
+	%	1.  Module qualifiers.
+	%	2.  The set of constructors in the type.
+	%	3.  For higher-order function types
+	%	    (but not higher-order predicate types),
+	%	    the higher-order inst, i.e. the argument modes
+	%	    and the determinism.
+	%
+	% Currently #2 is not yet implemented, due to unsolved
+	% efficiency problems.  (See the XXX's below.)
+	%
+	% There are two versions, an "eager" one and a "lazy" one.
+	% In general eager expansion is to be preferred, because
+	% the expansion is done just once, whereas with lazy expansion
+	% the work will be done N times.
+	% However, for recursive insts we must use lazy expansion
+	% (otherwise we would get infinite regress).
+	% Also, usually many of the imported procedures will not be called,
+	% so for the insts in imported mode declarations N is often zero.
 
-propagate_type_info_inst(Type, Subst, ModuleInfo, Inst0, Inst) :-
-	ex_propagate_ctor_info(Inst0, Type, Subst, ModuleInfo, Inst).
+:- pred propagate_type_into_inst(type, tsubst, module_info, inst, inst).
+:- mode propagate_type_into_inst(in, in, in, in, out) is det.
 
-	% Given a type and an inst, produce a new inst which includes
-	% the information provided by the type.
+:- pred propagate_type_into_inst_lazily(type, tsubst, module_info, inst, inst).
+:- mode propagate_type_into_inst_lazily(in, in, in, in, out) is det.
 
-:- pred ex_propagate_type_info_inst(type, tsubst, module_info, inst, inst).
-:- mode ex_propagate_type_info_inst(in, in, in, in, out) is det.
+/*********
+	% XXX We ought to expand things eagerly here, using the commented
+	% out code below.  However, that causes efficiency problems,
+	% so for the moment it is disabled.
+propagate_type_into_inst(Type, Subst, ModuleInfo, Inst0, Inst) :-
+	apply_type_subst(Type0, Subst, Type),
+	(
+	        type_constructors(Type, ModuleInfo, Constructors)
+	->
+	        propagate_ctor_info(Inst0, Type, Constructors, ModuleInfo,
+	               Inst) 
+	;
+	        Inst = Inst0
+	).
+*********/
 
-ex_propagate_type_info_inst(Type, Subst, ModuleInfo, Inst0, Inst) :-
-	ex_propagate_ctor_info(Inst0, Type, Subst, ModuleInfo, Inst).
+propagate_type_into_inst(Type, Subst, ModuleInfo, Inst0, Inst) :-
+	propagate_ctor_info_lazily(Inst0, Type, Subst, ModuleInfo, Inst).
+
+propagate_type_into_inst_lazily(Type, Subst, ModuleInfo, Inst0, Inst) :-
+	propagate_ctor_info_lazily(Inst0, Type, Subst, ModuleInfo, Inst).
 
 %-----------------------------------------------------------------------------%
 
@@ -1116,25 +1154,42 @@ propagate_ctor_info(free(_), _, _, _, _) :-
 	error("propagate_ctor_info: type info already present").
 propagate_ctor_info(bound(Uniq, BoundInsts0), Type, _Constructors, ModuleInfo,
 		Inst) :-
-	map__init(Subst),
-	propagate_ctor_info_2(BoundInsts0, Type, Subst, ModuleInfo,
-		BoundInsts),
+	propagate_ctor_info_2(BoundInsts0, Type, ModuleInfo, BoundInsts),
 	( BoundInsts = [] ->
 		Inst = not_reached
 	;
 		% XXX do we need to sort the BoundInsts?
 		Inst = bound(Uniq, BoundInsts)
 	).
-propagate_ctor_info(ground(Uniq, no), _Type,
-		Constructors, ModuleInfo, Inst) :-
-	constructors_to_bound_insts(Constructors, Uniq, ModuleInfo,
-		BoundInsts0),
-	list__sort_and_remove_dups(BoundInsts0, BoundInsts),
-	Inst = bound(Uniq, BoundInsts).
-propagate_ctor_info(ground(Uniq, yes(PredInstInfo)), _, _, _,
-	% for higher-order pred modes, the information we need is already
-	% in the inst, so we leave it unchanged
-			ground(Uniq, yes(PredInstInfo))).
+propagate_ctor_info(ground(Uniq, no), Type, Constructors, ModuleInfo, Inst) :-
+	( type_is_higher_order(Type, function, ArgTypes) ->
+		default_higher_order_func_inst(ArgTypes, ModuleInfo,
+			HigherOrderInstInfo),
+		Inst = ground(Uniq, yes(HigherOrderInstInfo))
+	;
+		constructors_to_bound_insts(Constructors, Uniq, ModuleInfo,
+			BoundInsts0),
+		list__sort_and_remove_dups(BoundInsts0, BoundInsts),
+		Inst = bound(Uniq, BoundInsts)
+	).
+propagate_ctor_info(ground(Uniq, yes(PredInstInfo0)), Type, _Ctors, ModuleInfo,
+			ground(Uniq, yes(PredInstInfo))) :-
+	PredInstInfo0 = pred_inst_info(PredOrFunc, Modes0, Det),
+	PredInstInfo = pred_inst_info(PredOrFunc, Modes, Det),
+	(
+		type_is_higher_order(Type, PredOrFunc, ArgTypes),
+		list__same_length(ArgTypes, Modes0)
+	->
+		propagate_types_into_mode_list(ArgTypes, ModuleInfo,
+			Modes0, Modes)
+	;
+		% The inst is not a valid inst for the type,
+		% so leave it alone. This can only happen if the user
+		% has made a mistake.  A mode error should hopefully
+		% be reported if anything tries to match with the inst.
+		Modes = Modes0
+	).
+
 propagate_ctor_info(not_reached, _Type, _Constructors, _ModuleInfo,
 		not_reached).
 propagate_ctor_info(inst_var(_), _, _, _, _) :-
@@ -1145,48 +1200,104 @@ propagate_ctor_info(defined_inst(InstName), Type, Ctors, ModuleInfo, Inst) :-
 	inst_lookup(ModuleInfo, InstName, Inst0),
 	propagate_ctor_info(Inst0, Type, Ctors, ModuleInfo, Inst).
 
-:- pred ex_propagate_ctor_info(inst, type, tsubst, module_info, inst).
-:- mode ex_propagate_ctor_info(in, in, in, in, out) is det.
+:- pred propagate_ctor_info_lazily(inst, type, tsubst, module_info, inst).
+:- mode propagate_ctor_info_lazily(in, in, in, in, out) is det.
 
-% ex_propagate_ctor_info(free, Type, _, _, free(Type)).	% temporarily disabled
-ex_propagate_ctor_info(free, _Type, _, _, free).	% XXX temporary hack
-
-ex_propagate_ctor_info(any(Uniq), _Type, _, _, any(Uniq)).
+propagate_ctor_info_lazily(any(Uniq), _Type, _, _, any(Uniq)).
 						% XXX loses type info!
-ex_propagate_ctor_info(free(_), _, _, _, _) :-
-	error("ex_propagate_ctor_info: type info already present").
-ex_propagate_ctor_info(bound(Uniq, BoundInsts0), Type, Subst, 
+
+% propagate_ctor_info_lazily(free, Type, _, _, free(Type)).
+							% temporarily disabled
+propagate_ctor_info_lazily(free, _Type, _, _, free).	% XXX temporary hack
+
+propagate_ctor_info_lazily(free(_), _, _, _, _) :-
+	error("propagate_ctor_info_lazily: type info already present").
+propagate_ctor_info_lazily(bound(Uniq, BoundInsts0), Type0, Subst, 
 		ModuleInfo, Inst) :-
-	propagate_ctor_info_2(BoundInsts0, Type, Subst,
-		ModuleInfo, BoundInsts),
+	apply_type_subst(Type0, Subst, Type),
+	propagate_ctor_info_2(BoundInsts0, Type, ModuleInfo, BoundInsts),
 	( BoundInsts = [] ->
 		Inst = not_reached
 	;
 		% XXX do we need to sort the BoundInsts?
 		Inst = bound(Uniq, BoundInsts)
 	).
-% The information added by this is not yet used, so it's disabled since
-% it unnecessarily complicates the insts.
-% ex_propagate_ctor_info(ground(Uniq, no), Type, _, _, Inst) :-
-%	Inst = defined_inst(typed_ground(Uniq, Type)). 
-ex_propagate_ctor_info(ground(Uniq, no), _Type, _, _, ground(Uniq, no)).
-ex_propagate_ctor_info(ground(Uniq, yes(PredInstInfo)), _, _, _,
-	% for higher-order pred modes, the information we need is already
-	% in the inst, so we leave it unchanged
-			ground(Uniq, yes(PredInstInfo))).
-ex_propagate_ctor_info(not_reached, _Type, _, _ModuleInfo, not_reached).
-ex_propagate_ctor_info(inst_var(_), _, _, _, _) :-
-	error("propagate_ctor_info: unbound inst var").
-ex_propagate_ctor_info(abstract_inst(Name, Args), _, _, _,
-		abstract_inst(Name, Args)).	% XXX loses info
-ex_propagate_ctor_info(defined_inst(InstName0), Type0, Subst, _,
-		defined_inst(InstName)) :-
-	( map__is_empty(Subst) ->
-		Type = Type0
+propagate_ctor_info_lazily(ground(Uniq, no), Type0, Subst, ModuleInfo, Inst) :-
+	apply_type_subst(Type0, Subst, Type),
+	( type_is_higher_order(Type, function, ArgTypes) ->
+		default_higher_order_func_inst(ArgTypes, ModuleInfo,
+			HigherOrderInstInfo),
+		Inst = ground(Uniq, yes(HigherOrderInstInfo))
 	;
-		term__apply_substitution(Type0, Subst, Type)
-	),
-	InstName = typed_inst(Type, InstName0).
+		% XXX The information added by this is not yet used,
+		% so it's disabled since it unnecessarily complicates
+		% the insts.
+		/*********
+		Inst = defined_inst(typed_ground(Uniq, Type)) 
+		*********/
+		Inst = ground(Uniq, no)
+	).
+
+propagate_ctor_info_lazily(ground(Uniq, yes(PredInstInfo0)), Type0, Subst,
+		ModuleInfo, ground(Uniq, yes(PredInstInfo))) :-
+	PredInstInfo0 = pred_inst_info(PredOrFunc, Modes0, Det),
+	PredInstInfo = pred_inst_info(PredOrFunc, Modes, Det),
+	apply_type_subst(Type0, Subst, Type),
+	(
+		type_is_higher_order(Type, PredOrFunc, ArgTypes),
+		list__same_length(ArgTypes, Modes0)
+	->
+		propagate_types_into_mode_list(ArgTypes, ModuleInfo,
+			Modes0, Modes)
+	;
+		% The inst is not a valid inst for the type,
+		% so leave it alone. This can only happen if the user
+		% has made a mistake.  A mode error should hopefully
+		% be reported if anything tries to match with the inst.
+		Modes = Modes0
+	).
+propagate_ctor_info_lazily(not_reached, _Type, _, _ModuleInfo, not_reached).
+propagate_ctor_info_lazily(inst_var(_), _, _, _, _) :-
+	error("propagate_ctor_info_lazily: unbound inst var").
+propagate_ctor_info_lazily(abstract_inst(Name, Args), _, _, _,
+		abstract_inst(Name, Args)).	% XXX loses info
+propagate_ctor_info_lazily(defined_inst(InstName0), Type0, Subst, _,
+		defined_inst(InstName)) :-
+	apply_type_subst(Type0, Subst, Type),
+	( InstName0 = typed_inst(_, _) ->
+		% If this happens, it means that we have already
+		% lazily propagated type info into this inst.
+		% We want to avoid creating insts of the form
+		% typed_inst(_, typed_inst(...)), because that would be
+		% unnecessary, and could cause efficiency problems
+		% or perhaps even infinite loops (?).
+		InstName = InstName0
+	;
+		InstName = typed_inst(Type, InstName0)
+	).
+
+	%
+	% If the user does not explicitly specify a higher-order inst
+	% for a higher-order function type, it defaults to
+	% `func(in, in, ..., in) = out is det',
+	% i.e. all args input, return value output, and det.
+	% This applies recursively to the arguments and return
+	% value too.
+	%
+:- pred default_higher_order_func_inst(list(type), module_info, pred_inst_info).
+:- mode default_higher_order_func_inst(in, in, out) is det.
+
+default_higher_order_func_inst(PredArgTypes, ModuleInfo, PredInstInfo) :-
+	In = (ground(shared, no) -> ground(shared, no)),
+	Out = (free -> ground(shared, no)),
+	list__length(PredArgTypes, NumPredArgs),
+	NumFuncArgs is NumPredArgs - 1,
+	list__duplicate(NumFuncArgs, In, FuncArgModes),
+	FuncRetMode = Out,
+	list__append(FuncArgModes, [FuncRetMode], PredArgModes0),
+	propagate_types_into_mode_list(PredArgTypes, ModuleInfo,
+		PredArgModes0, PredArgModes),
+	PredInstInfo = pred_inst_info(function, PredArgModes, det).
 
 :- pred constructors_to_bound_insts(list(constructor), uniqueness, module_info,
 				list(bound_inst)).
@@ -1213,16 +1324,11 @@ ctor_arg_list_to_inst_list([_Name - _Type | Args], Uniq, [Inst | Insts]) :-
 	Inst = ground(Uniq, no),
 	ctor_arg_list_to_inst_list(Args, Uniq, Insts).
 
-:- pred propagate_ctor_info_2(list(bound_inst), (type), tsubst,
-		module_info, list(bound_inst)).
-:- mode propagate_ctor_info_2(in, in, in, in, out) is det.
+:- pred propagate_ctor_info_2(list(bound_inst), (type), module_info,
+		list(bound_inst)).
+:- mode propagate_ctor_info_2(in, in, in, out) is det.
 
-propagate_ctor_info_2(BoundInsts0, Type0, Subst, ModuleInfo, BoundInsts) :-
-	( map__is_empty(Subst) ->
-		Type = Type0
-	;
-		term__apply_substitution(Type0, Subst, Type)
-	),
+propagate_ctor_info_2(BoundInsts0, Type, ModuleInfo, BoundInsts) :-
 	(
 		type_to_type_id(Type, TypeId, TypeArgs),
 		TypeId = qualified(TypeModule, _) - _,
@@ -1268,7 +1374,7 @@ propagate_ctor_info_3([BoundInst0 | BoundInsts0], TypeModule, Constructors,
 				CtorArg = _ArgName - ArgType
 			)),
 		list__map(GetArgTypes, Args, ArgTypes),
-		propagate_type_info_inst_list(ArgTypes, Subst,
+		propagate_types_into_inst_list(ArgTypes, Subst,
 			ModuleInfo, ArgInsts0, ArgInsts),
 		BoundInst = functor(ConsId, ArgInsts)
 	;
@@ -1280,6 +1386,17 @@ propagate_ctor_info_3([BoundInst0 | BoundInsts0], TypeModule, Constructors,
 	),
 	propagate_ctor_info_3(BoundInsts0, TypeModule,
 		Constructors, Subst, ModuleInfo, BoundInsts).
+
+:- pred apply_type_subst(type, tsubst, type).
+:- mode apply_type_subst(in, in, out) is det.
+
+apply_type_subst(Type0, Subst, Type) :-
+	% optimize common case
+	( map__is_empty(Subst) ->
+		Type = Type0
+	;
+		term__apply_substitution(Type0, Subst, Type)
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1296,17 +1413,28 @@ inst_lookup_subst_args(abstract_inst, _Params, Name, Args,
 	% mode_get_insts returns the initial instantiatedness and
 	% the final instantiatedness for a given mode.
 
-mode_get_insts(_ModuleInfo, (InitialInst -> FinalInst), InitialInst, FinalInst).
-mode_get_insts(ModuleInfo, user_defined_mode(Name, Args), Initial, Final) :-
+mode_get_insts_semidet(_ModuleInfo, (InitialInst -> FinalInst), 
+		InitialInst, FinalInst).
+mode_get_insts_semidet(ModuleInfo, user_defined_mode(Name, Args), 
+		Initial, Final) :-
 	list__length(Args, Arity),
 	module_info_modes(ModuleInfo, Modes),
 	mode_table_get_mode_defns(Modes, ModeDefns),
-	map__lookup(ModeDefns, Name - Arity, HLDS_Mode),
+	map__search(ModeDefns, Name - Arity, HLDS_Mode),
 	HLDS_Mode = hlds_mode_defn(_VarSet, Params, ModeDefn, _Cond,
 						_Context, _Status),
 	ModeDefn = eqv_mode(Mode0),
 	mode_substitute_arg_list(Mode0, Params, Args, Mode),
 	mode_get_insts(ModuleInfo, Mode, Initial, Final).
+
+mode_get_insts(ModuleInfo, Mode, Inst1, Inst2) :-
+	( mode_get_insts_semidet(ModuleInfo, Mode, Inst1a, Inst2a) ->
+		Inst1 = Inst1a,
+		Inst2 = Inst2a
+	;
+		error("mode_get_insts_semidet failed")
+	).
+
 
 	% mode_substitute_arg_list(Mode0, Params, Args, Mode) is true
 	% iff Mode is the mode that results from substituting all
@@ -1562,8 +1690,8 @@ recompute_instmap_delta_2(_, unify(A, B, UniMode0, Uni, E), GoalInfo,
 	recompute_instmap_delta_unify(Uni, UniMode0, UniMode,
 		GoalInfo, InstMap, InstMapDelta).
 
-recompute_instmap_delta_2(_, pragma_c_code(A, B, PredId, ProcId, Args, F, G), _,
-		pragma_c_code(A, B, PredId, ProcId, Args, F, G),
+recompute_instmap_delta_2(_, pragma_c_code(A, B, PredId, ProcId, Args, F, G,
+		H), _, pragma_c_code(A, B, PredId, ProcId, Args, F, G, H),
 		InstMap, InstMapDelta) -->
 	recompute_instmap_delta_call(PredId, ProcId,
 		Args, InstMap, InstMapDelta).
@@ -1616,28 +1744,17 @@ recompute_instmap_delta_disj(Atomic, [Goal0 | Goals0], [Goal | Goals],
 
 recompute_instmap_delta_cases(_, _, [], [], _, _, InstMapDelta) -->
 	{ instmap_delta_init_unreachable(InstMapDelta) }.
-recompute_instmap_delta_cases(Atomic, Var, [Case0], [Case],
-		InstMap0, _NonLocals, InstMapDelta) -->
-	{ Case0 = case(Functor, Goal0) },
-	instmap__bind_var_to_functor(Var, Functor, InstMap0, InstMap),
-	recompute_instmap_delta(Atomic, Goal0, Goal,
-		InstMap, InstMapDelta0),
-	instmap_delta_bind_var_to_functor(Var, Functor,
-		InstMap, InstMapDelta0, InstMapDelta),
-	{ Case = case(Functor, Goal) }.
 recompute_instmap_delta_cases(Atomic, Var, [Case0 | Cases0], [Case | Cases],
 		InstMap0, NonLocals, InstMapDelta) -->
-	{ Cases0 = [_|_] },
 	{ Case0 = case(Functor, Goal0) },
 	instmap__bind_var_to_functor(Var, Functor, InstMap0, InstMap),
-	recompute_instmap_delta(Atomic, Goal0, Goal,
-		InstMap, InstMapDelta0),
+	recompute_instmap_delta(Atomic, Goal0, Goal, InstMap, InstMapDelta0),
 	instmap_delta_bind_var_to_functor(Var, Functor,
-		InstMap, InstMapDelta0, InstMapDelta1),
+		InstMap0, InstMapDelta0, InstMapDelta1),
 	{ Case = case(Functor, Goal) },
 	recompute_instmap_delta_cases(Atomic, Var, Cases0, Cases,
-		InstMap, NonLocals, InstMapDelta2),
-	merge_instmap_delta(InstMap, NonLocals, InstMapDelta1,
+		InstMap0, NonLocals, InstMapDelta2),
+	merge_instmap_delta(InstMap0, NonLocals, InstMapDelta1,
 		InstMapDelta2, InstMapDelta).
 
 %-----------------------------------------------------------------------------%

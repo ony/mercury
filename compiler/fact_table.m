@@ -49,7 +49,7 @@
 
 :- interface.
 
-:- import_module io, string, list.
+:- import_module io, list.
 :- import_module prog_data, hlds_pred, hlds_module.
 
 	% compile the fact table into a separate .o file.
@@ -87,7 +87,7 @@
 :- implementation.
 
 :- import_module int, map, std_util, assoc_list, char, require, library, bool.
-:- import_module float, math, getopt.
+:- import_module float, math, getopt, term, string.
 :- import_module parser, prog_out, term_io, llds_out, hlds_out, hlds_data.
 :- import_module globals, options, passes_aux, arg_info, llds, mode_util.
 :- import_module code_util, export.
@@ -1272,7 +1272,7 @@ write_fact_data(FactNum, Args, StructName, OutputStream) -->
 :- mode write_new_data_array(in, in, in, di, uo) is det.
 
 write_new_data_array(OutputStream, StructName, FactNum) -->
-	io__format(OutputStream, "struct %s_struct %s%d[] = {\n", 
+	io__format(OutputStream, "const struct %s_struct %s%d[] = {\n", 
 		[s(StructName), s(StructName), i(FactNum)]).
 
 	% Write out the closing brace of an array.
@@ -3452,3 +3452,4 @@ void sys_init_%s_module(void) {
 			s(ExtraCodeLabel)
 		],
 		ExtraCode).
+

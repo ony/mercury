@@ -47,7 +47,7 @@
 
 :- import_module term_util, hlds_pred, hlds_goal, hlds_data, int, bag.
 :- import_module term_errors, list, require, bool, std_util, char, map, string.
-:- import_module mode_util, type_util.
+:- import_module mode_util, type_util, term.
 
 %------------------------------------------------------------------------------
 
@@ -581,7 +581,7 @@ goal_inequality_2(if_then_else(_Vars, IfGoal, ThenGoal, ElseGoal, _StoreMap),
 	goal_inequality_2_disj(NewThenGoal, [ElseGoal], GoalInfo, Module, 
 		Info, PPId, Res, Offs0, Offs). 
 
-goal_inequality_2(pragma_c_code(_, _, CallPredId, CallProcId, Args, _, _), 
+goal_inequality_2(pragma_c_code(_, _, CallPredId, CallProcId, Args, _, _, _), 
 		GoalInfo, Module, _Info, _PPId, Res, Offs, Offs) :-
 
 	module_info_pred_proc_info(Module, CallPredId, CallProcId, _,

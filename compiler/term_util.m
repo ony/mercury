@@ -17,7 +17,7 @@
 :- interface.
 
 :- import_module list, bool, bag, int, hlds_module, hlds_pred, hlds_data.
-:- import_module term_errors, io, hlds_goal.
+:- import_module term_errors, io, hlds_goal, term, prog_data.
 
 	% term(TermConstant, Terminates, UsedArgs, MaybeError)
 	%   TermConstant	See description below

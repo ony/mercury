@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: slist.c,v 1.1 1997-06-02 13:54:15 aet Exp $
+** $Id: slist.c,v 1.1.2.1 1997-07-11 09:25:16 crs Exp $
 */
 
 /* Imports */
@@ -18,7 +18,7 @@
 /* Local declarations */
 
 static char
-rcs_id[]	= "$Id: slist.c,v 1.1 1997-06-02 13:54:15 aet Exp $";
+rcs_id[]	= "$Id: slist.c,v 1.1.2.1 1997-07-11 09:25:16 crs Exp $";
 
 /* Implementation */
 

@@ -35,7 +35,7 @@
 :- import_module type_util, options, prog_data, quantification.
 :- import_module mercury_to_mercury.
 
-:- import_module assoc_list, bool, int, list, map, require, set.
+:- import_module assoc_list, bool, char, int, list, map, require, set.
 :- import_module std_util, string, varset, term.
 
 	% Iterate collecting requests and processing them until there
@@ -53,7 +53,7 @@ specialize_higher_order(ModuleInfo0, ModuleInfo) -->
 
 process_requests(Requests0, GoalSizes0, NextHOid0, NextHOid,
 			NewPreds0, NewPreds, ModuleInfo1, ModuleInfo) -->
-	{ filter_requests(Requests0, GoalSizes0, Requests) },
+	{ filter_requests(ModuleInfo1, Requests0, GoalSizes0, Requests) },
 	(
 		{ Requests = [] }
 	->
@@ -324,7 +324,7 @@ traverse_goal(some(Vars, Goal0) - Info, some(Vars, Goal) - Info,
 	traverse_goal(Goal0, Goal, PredProcId, Changed, GoalSize).
 
 traverse_goal(Goal, Goal, _, unchanged, 1) -->
-	{ Goal = pragma_c_code(_, _, _, _, _, _, _) - _ }.
+	{ Goal = pragma_c_code(_, _, _, _, _, _, _, _) - _ }.
 
 traverse_goal(Goal, Goal, _, unchanged, 1) -->
 	{ Goal = unify(_, _, _, Unify, _) - _ }, 
@@ -717,17 +717,32 @@ update_changed_status(unchanged, Changed, Changed).
 		% specialized, as with inlining?
 		% Nonlocal predicates are filtered out here, since they
 		% will not have an entry in the goal_sizes.
-:- pred filter_requests(set(request)::in, goal_sizes::in,
+		% Don't create specialized versions of specialized
+		% versions, since for some fairly contrived examples 
+		% involving recursively building up lambda expressions
+		% this can create ridiculous numbers of versions.
+:- pred filter_requests(module_info::in, set(request)::in, goal_sizes::in,
 						list(request)::out) is det.
 
-filter_requests(Requests0, GoalSizes, Requests) :-
+filter_requests(ModuleInfo, Requests0, GoalSizes, Requests) :-
 	set__to_sorted_list(Requests0, Requests1),
 	list__filter(lambda([X::in] is semidet, (
 			X = request(_, CalledPredProcId, _),
 			CalledPredProcId = proc(CalledPredId, _),
 			map__search(GoalSizes, CalledPredId, GoalSize),
 			max_specialized_goal_size(MaxSize),
-			GoalSize =< MaxSize)),
+			GoalSize =< MaxSize,
+			predicate_name(ModuleInfo, CalledPredId, PredName),
+			\+ (
+				% There are probably cleaner ways to check 
+				% if this is a specialised version.
+				string__sub_string_search(PredName, 
+					"__ho", Index),
+				NumIndex is Index + 4,
+				string__index(PredName, NumIndex, Digit),
+				char__is_digit(Digit)
+			)
+		)),
 		Requests1, Requests).
 
 :- pred create_new_preds(list(request)::in, new_preds::in, new_preds::out,
@@ -814,20 +829,18 @@ create_new_pred(request(_CallingPredProc, CalledPredProc, HOArgs),
 	pred_info_typevarset(PredInfo0, TypeVars),
 	remove_listof_higher_order_args(Types0, 1, HOArgs, Types),
 	pred_info_context(PredInfo0, Context),
-	pred_info_clauses_info(PredInfo0, ClausesInfo),
-	(
-		pred_info_is_inlined(PredInfo0)
-	->
-		Inline = yes
-	;
-		Inline = no
-	),
+	pred_info_get_marker_list(PredInfo0, MarkerList),
 	pred_info_get_goal_type(PredInfo0, GoalType),
-		% *** This will need to be fixed when the condition
-		%       field of the pred_info becomes used
 	Name = qualified(PredModule, PredName),
+	varset__init(EmptyVarSet),
+	map__init(EmptyVarTypes),
+	
+	% This isn't looked at after here, and just clutters up
+	% hlds dumps if it's filled in.
+	ClausesInfo = clauses_info(EmptyVarSet, EmptyVarTypes,
+		EmptyVarTypes, [], []),
 	pred_info_init(PredModule, Name, Arity, Tvars,
-		Types, true, Context, ClausesInfo, local, Inline, GoalType,
+		Types, true, Context, ClausesInfo, local, MarkerList, GoalType,
 		PredOrFunc, PredInfo1),
 	pred_info_set_typevarset(PredInfo1, TypeVars, PredInfo2),
 	pred_info_procedures(PredInfo2, Procs0),

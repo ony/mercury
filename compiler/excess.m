@@ -43,7 +43,7 @@
 :- implementation.
 
 :- import_module hlds_goal, goal_util.
-:- import_module varset, list, bool, map, set, std_util.
+:- import_module varset, list, bool, map, set, std_util, term.
 
 %-----------------------------------------------------------------------------%
 
@@ -128,7 +128,7 @@ excess_assignments_in_goal(GoalExpr0 - GoalInfo0, ElimVars0, Goal, ElimVars) :-
 		Goal = GoalExpr0 - GoalInfo0,
 		ElimVars = ElimVars0
 	;
-		GoalExpr0 = pragma_c_code(_, _, _, _, _, _, _),
+		GoalExpr0 = pragma_c_code(_, _, _, _, _, _, _, _),
 		Goal = GoalExpr0 - GoalInfo0,
 		ElimVars = ElimVars0
 	),

@@ -29,7 +29,7 @@
 
 :- module varset.
 :- interface.
-:- import_module string, term.
+:- import_module term.
 
 :- type varset.
 
@@ -49,11 +49,11 @@
 :- pred varset__new_vars(varset, int, list(var), varset).
 :- mode varset__new_vars(in, in, out, out) is det.
 
-	% delete an old variable
+	% delete the name and value for a variable
 :- pred varset__delete_var(varset, var, varset).
 :- mode varset__delete_var(in, in, out) is det.
 
-	% delete a list of old variables
+	% delete the names and values for a list of variables
 :- pred varset__delete_vars(varset, list(var), varset).
 :- mode varset__delete_vars(in, in, out) is det.
 
@@ -149,7 +149,7 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module int, list, map, std_util, assoc_list, set, require.
+:- import_module int, list, map, std_util, assoc_list, set, require, string.
 
 :- type varset		--->	varset(
 					var_supply,

@@ -182,8 +182,8 @@ lambda__process_goal_2(higher_order_call(A,B,C,D,E), GoalInfo,
 lambda__process_goal_2(call(A,B,C,D,E,F), GoalInfo,
 			call(A,B,C,D,E,F) - GoalInfo) -->
 	[].
-lambda__process_goal_2(pragma_c_code(A,B,C,D,E,F,G), GoalInfo,
-			pragma_c_code(A,B,C,D,E,F,G) - GoalInfo) -->
+lambda__process_goal_2(pragma_c_code(A,B,C,D,E,F,G,H), GoalInfo,
+			pragma_c_code(A,B,C,D,E,F,G,H) - GoalInfo) -->
 	[].
 
 :- pred lambda__process_goal_list(list(hlds_goal), list(hlds_goal),
@@ -230,7 +230,7 @@ lambda__transform_lambda(PredOrFunc, Vars, Modes, Detism, OrigNonLocals0,
 		Var = Var0,
 		UniModes = UniModes0
 	;
-		error("polymorphism__transform_lambda: wierd unification")
+		error("polymorphism__transform_lambda: weird unification")
 	),
 
 	% Optimize a special case: replace
@@ -241,7 +241,7 @@ lambda__transform_lambda(PredOrFunc, Vars, Modes, Detism, OrigNonLocals0,
 	% This optimization is only valid if the modes of the Xi are
 	% input, since only input arguments can be curried.
 	% It's also only valid if all the inputs in the Yi precede the
-	% outputs.
+	% outputs.  It's also not valid if any of the Xi are in the Yi.
 
 	LambdaGoal = _ - LambdaGoalInfo,
 	goal_info_get_nonlocals(LambdaGoalInfo, NonLocals0),
@@ -251,6 +251,13 @@ lambda__transform_lambda(PredOrFunc, Vars, Modes, Detism, OrigNonLocals0,
 		LambdaGoal = call(PredId0, ProcId0, CallVars,
 					_, _, PredName0) - _,
 		list__remove_suffix(CallVars, Vars, InitialVars),
+	
+		% check that none of the variables that we're trying to
+		% use as curried arguments are lambda-bound variables
+		\+ (
+			list__member(InitialVar, InitialVars),
+			list__member(InitialVar, Vars)
+		),
 
 		module_info_pred_proc_info(ModuleInfo0, PredId0, ProcId0, _,
 			Call_ProcInfo),

@@ -16,7 +16,7 @@
 
 :- module term_io.
 :- interface.
-:- import_module io, int, float, string, list, varset, term, char.
+:- import_module io, varset, term.
 
 % External interface: exported predicates
 
@@ -71,12 +71,12 @@
 	% Given an atom-name A, write A, enclosed in single-quotes if necessary,
 	% with characters escaped if necessary, to stdout.
 
-:- pred term_io__quote_char(character, io__state, io__state).
+:- pred term_io__quote_char(char, io__state, io__state).
 :- mode term_io__quote_char(in, di, uo) is det.
 	% Given a character C, write C in single-quotes,
 	% escaped if necessary, to stdout.
 
-:- pred term_io__write_escaped_char(character, io__state, io__state).
+:- pred term_io__write_escaped_char(char, io__state, io__state).
 :- mode term_io__write_escaped_char(in, di, uo) is det.
 	% Given a character C, write C, escaped if necessary, to stdout.
 	% The character is not enclosed in quotes.
@@ -90,7 +90,7 @@
 	% `term_io__quote_single_char' is the old (misleading) name for
 	% `term_io__write_escaped_char'.  Use the latter instead.
 :- pragma obsolete(term_io__quote_single_char/3).
-:- pred term_io__quote_single_char(character, io__state, io__state).
+:- pred term_io__quote_single_char(char, io__state, io__state).
 :- mode term_io__quote_single_char(in, di, uo) is det.
 
 %-----------------------------------------------------------------------------%
@@ -98,7 +98,7 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module std_util, require.
+:- import_module std_util, require, list, string, int, char.
 :- import_module lexer, parser, ops.
 
 term_io__read_term(Result) -->
@@ -407,13 +407,8 @@ term_io__quote_string(S) -->
 	term_io__write_escaped_string(S),
 	io__write_char('"').
 
-term_io__write_escaped_string(S0) -->
-	( { string__first_char(S0, Char, S1) } ->
-		term_io__write_escaped_char(Char),
-		term_io__write_escaped_string(S1)
-	;
-		[]
-	).
+term_io__write_escaped_string(String) -->
+	string__foldl(term_io__write_escaped_char, String).
 
 term_io__quote_single_char(Char) -->
 	term_io__write_escaped_char(Char).
@@ -429,7 +424,7 @@ term_io__write_escaped_char(Char) -->
 		io__write_string(String)
 	).
 
-:- pred mercury_escape_char(character, string).
+:- pred mercury_escape_char(char, string).
 :- mode mercury_escape_char(in, out) is det.
 
 	% Convert a character to the corresponding octal escape code.
@@ -447,7 +442,7 @@ mercury_escape_char(Char, EscapeCode) :-
 	string__pad_left(OctalString0, '0', 3, OctalString),
 	string__first_char(EscapeCode, '\\', OctalString).
 
-:- pred is_mercury_source_char(character).
+:- pred is_mercury_source_char(char).
 :- mode is_mercury_source_char(in) is semidet.
 
 	% Succeed if Char is a character which is allowed in
@@ -465,7 +460,7 @@ is_mercury_source_char(Char) :-
 	% Currently we only allow the following characters.
 	% XXX should we just use is_printable(Char) instead?
 
-:- pred is_mercury_punctuation_char(character).
+:- pred is_mercury_punctuation_char(char).
 :- mode is_mercury_punctuation_char(in) is semidet.
 
 is_mercury_punctuation_char(' ').
@@ -509,7 +504,7 @@ is_mercury_punctuation_char('|').
 	% backslash-escape character EscapeChar that can be used
 	% after a backslash in string literals or atoms to represent Char.
 
-:- pred mercury_escape_special_char(character, character).
+:- pred mercury_escape_special_char(char, char).
 :- mode mercury_escape_special_char(in, out) is semidet.
 
 mercury_escape_special_char('''', '''').

@@ -868,6 +868,27 @@ if test "$mercury_cv_is_littleender" = yes; then
 fi
 AC_SUBST(MR_LITTLE_ENDIAN)
 #-----------------------------------------------------------------------------#
+AC_MSG_CHECKING(for tempnam)
+AC_CACHE_VAL(mercury_cv_has_tempnam,
+	AC_TRY_RUN([
+	#include <stdio.h>
+	int main() {
+		char	*name;
+
+		name = tempnam("/tmp", "foobie");
+
+		exit(name == NULL);
+	}],
+	[mercury_cv_has_tempnam=yes],
+	[mercury_cv_has_tempnam=no],
+	[mercury_cv_has_tempnam=no])
+)
+AC_MSG_RESULT($mercury_cv_has_tempnam)
+if test "$mercury_cv_has_tempnam" = yes; then
+	AC_DEFINE(IO_HAVE_TEMPNAM)
+fi
+AC_SUBST(IO_HAVE_TEMPNAM)
+#-----------------------------------------------------------------------------#
 #
 # For Irix 5, gcc labels don't work with shared libraries,
 # so if we're using gcc labels, we need to use non-shared libraries,
@@ -1272,6 +1293,10 @@ AC_MSG_CHECKING(whether Mercury supports shared libraries on this system)
 # see Mmake.common.in for documentation on the meaning of these variables
 LINK_SHARED_OBJ="$CC -shared"
 SHARED_LIBS='`gcc -print-libgcc-file-name` -lm -lc'
+EXE_RPATH_OPT="-Wl,-rpath,"
+EXE_RPATH_SEP=" -Wl,-rpath,"
+SHLIB_RPATH_OPT="-Wl,-rpath,"
+SHLIB_RPATH_SEP=" -Wl,-rpath,"
 CFLAGS_FOR_PIC="-fpic -DPIC"
 EXT_FOR_PIC_OBJECTS=pic_o
 EXT_FOR_SHARED_LIB=a
@@ -1286,11 +1311,16 @@ case "$host" in
 		AC_MSG_RESULT(yes)
 		LINK_SHARED_OBJ="ld -Bshareable"
 		EXT_FOR_SHARED_LIB=so
+		# XXX what about *_RPATH_*?
 		;;
 	sparc-sun-solaris2.*)
 		AC_MSG_RESULT(yes)
 		SHARED_LIBS="-lm -lc"	# don't link in libgcc.a
 		LINK_SHARED_OBJ="$CC -G"
+		EXE_RPATH_OPT="-R"
+		EXE_RPATH_SEP=" -R"
+		SHLIB_RPATH_OPT="-R"
+		SHLIB_RPATH_SEP=" -R"
 		CFLAGS_FOR_PIC="-fpic -DPIC"	# used only for libgc.{a,so}
 		EXT_FOR_PIC_OBJECTS=o
 		#
@@ -1326,6 +1356,10 @@ case "$host" in
 		AC_MSG_RESULT(yes)
 		LINK_SHARED_OBJ="ld -O3 -shared \
 			-update_registry ../so_locations"
+		EXE_RPATH_OPT="-Wl,-rpath,"
+		EXE_RPATH_SEP=":"
+		SHLIB_RPATH_OPT="-rpath "
+		SHLIB_RPATH_SEP=":"
 		EXT_FOR_SHARED_LIB=so
 		# -fpic not needed on Alpha/OSF, since it is the default
 		CFLAGS_FOR_PIC=
@@ -1334,6 +1368,10 @@ case "$host" in
 	mips-sgi-irix5.*)
 		LINK_SHARED_OBJ="ld -shared -update_registry ../so_locations\
 			-quickstart_info -rdata_shared -no_unresolved"
+		EXE_RPATH_OPT="-Wl,-rpath,"
+		EXE_RPATH_SEP=":"
+		SHLIB_RPATH_OPT="-rpath "
+		SHLIB_RPATH_SEP=":"
 		# -fpic not needed on IRIX, since it is the default
 		CFLAGS_FOR_PIC=
 		EXT_FOR_PIC_OBJECTS=o
@@ -1355,11 +1393,29 @@ case "$host" in
 		AC_MSG_RESULT(no)
 		;;
 esac
+
+case $EXT_FOR_PIC_OBJECTS in
+	o)
+		LIBRARY_RM_C=rm
+		;;
+	*)
+		# If we're going to be building both `.pic_o' files
+		# and `.o' files, then we should not remove the generated `.c'
+		# files in the library directory after building the `.o' files.
+		LIBRARY_RM_C=:
+		;;
+esac
+
 AC_SUBST(LINK_SHARED_OBJ)
+AC_SUBST(EXE_RPATH_OPT)
+AC_SUBST(EXE_RPATH_SEP)
+AC_SUBST(SHLIB_RPATH_OPT)
+AC_SUBST(SHLIB_RPATH_SEP)
 AC_SUBST(CFLAGS_FOR_PIC)
 AC_SUBST(EXT_FOR_PIC_OBJECTS)
 AC_SUBST(EXT_FOR_SHARED_LIB)
 AC_SUBST(SHARED_LIBS)
+AC_SUBST(LIBRARY_RM_C)
 #-----------------------------------------------------------------------------#
 if test "$BOOTSTRAP_MC" = ""; then
 	BOOTSTRAP_MC=mc
@@ -1383,6 +1439,13 @@ touch conftest.junk
 chmod a-w $CONFIG_FILES $CONFIG_HEADERS conftest.junk
 chmod +x `echo $CONFIG_FILES | sed -e 's/[^ ]*Mmake.common//' ` conftest.junk
 rm -f conftest.junk
+
+# The --prefix is hard-coded in the scripts, which are regenerated every
+# time you run configure, and also (unfortunately) in the .so files.
+# The following rm command is here to ensure that things will work correctly
+# if you rerun configure with a new --prefix and then don't do a `make clean'
+# before running `make'.
+rm -f runtime/libmer.so library/libmercury.so bytecode/libmbi.so
 )
 
 #-----------------------------------------------------------------------------#

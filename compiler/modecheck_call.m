@@ -21,7 +21,8 @@
 :- module modecheck_call.
 :- interface.
 
-:- import_module hlds_goal, mode_info, modes.
+:- import_module hlds_goal, mode_info.
+:- import_module term.
 
 :- pred modecheck_call_pred(pred_id, list(var), proc_id, list(var),
 				pair(list(hlds_goal)), mode_info, mode_info).
@@ -59,8 +60,9 @@ modecheck_higher_order_pred_call(PredVar, Args0, GoalInfo0, Goal) -->
 
 	=(ModeInfo),
 	{ Call = higher_order_call(PredVar, Args, Types, Modes, Det) },
-	{ handle_extra_goals(Call, ExtraGoals, GoalInfo0, Args0, Args,
-				InstMap0, ModeInfo, Goal) },
+	{ handle_extra_goals(Call, ExtraGoals, GoalInfo0,
+			[PredVar | Args0], [PredVar | Args],
+			InstMap0, ModeInfo, Goal) },
 	mode_info_unset_call_context,
 	mode_checkpoint(exit, "higher-order predicate call").
 

@@ -18,8 +18,8 @@
 
 :- interface.
 
-:- import_module hlds_pred.
-:- import_module list, varset, term, std_util.
+:- import_module hlds_data, hlds_pred.
+:- import_module term_util, list, map, varset, term, std_util.
 
 %-----------------------------------------------------------------------------%
 
@@ -108,6 +108,9 @@
 			% Predname, Arity
 
 	;	inline(sym_name, arity)
+			% Predname, Arity
+
+	;	no_inline(sym_name, arity)
 			% Predname, Arity
 
 	;	obsolete(sym_name, arity)
@@ -330,6 +333,10 @@
 	% The "real" inst unifications correspond to real unifications,
 	% and are not allowed to unify with `clobbered' insts (unless
 	% the unification would be `det').
+	% Any inst unification which is associated with some code that
+	% will actually examine the contents of the variables in question
+	% must be "real".  Inst unifications that are not associated with
+	% some real code that examines the variables' values are "fake".
 	% "Fake" inst unifications are used for procedure calls in implied
 	% modes, where the final inst of the var must be computed by
 	% unifying its initial inst with the procedure's final inst,
@@ -361,14 +368,23 @@
 			;	interface
 			;	implementation
 			;	imported
-				% this is used internally by the compiler,
+				% This is used internally by the compiler,
 				% to identify declarations which originally
-				% came from some other module
+				% came from some other module imported with 
+				% a `:- import_module' declaration.
+			;	used
+				% This is used internally by the compiler,
+				% to identify declarations which originally
+				% came from some other module and for which
+				% all uses must be module qualified. This
+				% applies to items from modules imported using
+				% `:- use_module', and items from `.opt'
+				% and `.int2' files.
 			;	external(sym_name_specifier)
-				% this is used internally by the compiler,
-				% to identify items which originally
-				% came from a .opt file
 			;	opt_imported
+				% This is used internally by the compiler,
+				% to identify items which originally
+				% came from a .opt file.
 			;	end_module(module_name)
 			;	export(sym_list)
 			;	import(sym_list)
@@ -415,5 +431,11 @@
 :- type module_specifier ==	string.
 :- type module_name 	== 	string.
 :- type arity		==	int.
+
+	% Describes whether an item can be used without an 
+	% explicit module qualifier.
+:- type need_qualifier
+	--->	must_be_qualified
+	;	may_be_unqualified.
 
 %-----------------------------------------------------------------------------%

@@ -3,7 +3,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: mem.h,v 1.5 1997-04-26 05:57:04 fjh Exp $
+** $Id: mem.h,v 1.5.2.1 1997-07-11 09:25:15 crs Exp $
 */
 
 /*
@@ -13,6 +13,8 @@
 
 #ifndef MB_MEMALLOC_H
 #define	MB_MEMALLOC_H
+
+#include	<stdlib.h>	/* for size_t */
 
 /*
 ** Do not use MB_malloc() or MB_realloc() directly, unless you want

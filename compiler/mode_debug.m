@@ -16,7 +16,7 @@
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, mode_info.
+:- import_module mode_info.
 
 	% Print a debugging message which includes the port, message string,
 	% and the current instmap (but only if `--debug-modes' was enabled).
@@ -33,9 +33,10 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module globals, std_util, assoc_list, io, bool, map.
+:- import_module globals, std_util, list, assoc_list, io, bool, map.
+:- import_module term, varset.
 :- import_module modes, options, mercury_to_mercury, passes_aux.
-:- import_module hlds_goal, instmap.
+:- import_module hlds_goal, instmap, prog_data.
 
 %-----------------------------------------------------------------------------%
 

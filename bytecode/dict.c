@@ -4,7 +4,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: dict.c,v 1.2 1997-05-29 09:52:57 aet Exp $
+** $Id: dict.c,v 1.2.2.1 1997-07-11 09:25:07 crs Exp $
 */
 
 /* Imports */
@@ -22,7 +22,7 @@
 /* Local declarations */
 
 static char
-rcs_id[]	= "$Id: dict.c,v 1.2 1997-05-29 09:52:57 aet Exp $";
+rcs_id[]	= "$Id: dict.c,v 1.2.2.1 1997-07-11 09:25:07 crs Exp $";
 
 static p_Dict_Item *
 insert(KeyComparison cmp, void *key, void *val, p_Dict_Item *items);

@@ -10,11 +10,6 @@
 
 % This file is intended for all the useful standard utilities
 % that don't belong elsewhere, like <stdlib.h> in C.
-%
-% It contains the predicates solutions/2, semidet_succeed/0,
-% semidet_fail/0, functor/3, arg/3, det_arg/3, expand/4; the types univ,
-% unit, maybe(T), pair(T1, T2); and some predicates which operate on
-% those types.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -116,6 +111,49 @@
 :- pred unsorted_solutions(pred(T), list(T)).
 :- mode unsorted_solutions(pred(out) is multi, out) is cc_multi.
 :- mode unsorted_solutions(pred(out) is nondet, out) is cc_multi.
+
+%-----------------------------------------------------------------------------%
+
+	% aggregate/4 generates all the solutions to a predicate,
+	% sorts them and removes duplicates, then applies an accumulator
+	% predicate to each solution in turn:
+	%
+	% aggregate(Generator, Accumulator, Acc0, Acc) <=>
+	%	solutions(Generator, Solutions),
+	%	list__foldl(Accumulator, Solutions, Acc0, Acc).
+	%
+
+:- pred aggregate(pred(T), pred(T, U, U), U, U).
+:- mode aggregate(pred(out) is multi, pred(in, in, out) is det,
+		in, out) is det.
+:- mode aggregate(pred(out) is multi, pred(in, di, uo) is det,
+		di, uo) is det.
+:- mode aggregate(pred(out) is nondet, pred(in, di, uo) is det,
+		di, uo) is det.
+:- mode aggregate(pred(out) is nondet, pred(in, in, out) is det,
+		in, out) is det.
+
+	% unsorted_aggregate/4 generates all the solutions to a predicate
+	% and applies an accumulator predicate to each solution in turn:
+	%
+	% unsorted_aggregate(Generator, Accumulator, Acc0, Acc) <=>
+	%	unsorted_solutions(Generator, Solutions),
+	%	list__foldl(Accumulator, Solutions, Acc0, Acc).
+	%
+	% The current implementation is in terms of [unsorted_]solutions and
+	% list__foldl, which, for a predicate with N solutions requires O(N)
+	% memory, whereas it is possible to implement unsorted_aggregate
+	% to use O(1) memory.
+
+:- pred unsorted_aggregate(pred(T), pred(T, U, U), U, U).
+:- mode unsorted_aggregate(pred(out) is multi, pred(in, in, out) is det,
+		in, out) is cc_multi.
+:- mode unsorted_aggregate(pred(out) is multi, pred(in, di, uo) is det,
+		di, uo) is cc_multi.
+:- mode unsorted_aggregate(pred(out) is nondet, pred(in, di, uo) is det,
+		di, uo) is cc_multi.
+:- mode unsorted_aggregate(pred(out) is nondet, pred(in, in, out) is det,
+		in, out) is cc_multi.
 
 %-----------------------------------------------------------------------------%
 
@@ -295,11 +333,11 @@
 
 %-----------------------------------------------------------------------------%
 
-	% functor, argument and expand take any type (including univ),
+	% functor, argument and deconstruct take any type (including univ),
 	% and return representation information for that type.
 	%
 	% The string representation of the functor that `functor' and 
-	% `expand' return is:
+	% `deconstruct' return is:
 	% 	- for user defined types, the functor that is given
 	% 	  in the type defintion. For lists, this
 	% 	  means the functors ./2 and []/0 are used, even if
@@ -323,16 +361,16 @@
 	%
 :- pred functor(T::in, string::out, int::out) is det.
 
-	% argument(Data, ArgumentIndex, Argument)
+	% argument(Data, ArgumentIndex) = Argument
 	% 
 	% Given a data item (Data) and an argument index
 	% (ArgumentIndex), starting at 0 for the first argument, binds
 	% Argument to that argument of the functor of the data item. If
 	% the argument index is out of range -- that is, greater than or
 	% equal to the arity of the functor or lower than 0 -- argument/3
-	% fails.  The argument has the type univ. 
+	% fails.  The argument returned has the type univ. 
 	%
-:- pred argument(T::in, int::in, univ::out) is semidet.
+:- func argument(T::in, int::in) = (univ::out) is semidet.
 
 	% det_argument(ArgumentIndex, Data, Argument)
 	% 
@@ -343,41 +381,16 @@
 	% equal to the arity of the functor or lower than 0 --
 	% det_argument/3 aborts. 
 	%
-:- pred det_argument(T::in, int::in, univ::out) is det.
+:- func det_argument(T::in, int::in) = (univ::out) is det.
 
-	% arg(ArgumentIndex, Data, Argument) 
-	% 
-	% Given a data item (Data) and an argument index
-	% (ArgumentIndex), starting at 1 for the first argument, binds
-	% Argument to that argument of the functor of the data item. If
-	% the argument index is out of range -- that is, higher than the
-	% arity of the functor or lower than 1 -- arg/3 fails.  The
-	% argument has the type univ. 
-	%
-	% NOTE: `arg' is provided for Prolog compatability - the order
-	% of parameters, and first argument number in `arg' are
-	% different from `argument'.
-	%
-:- pred arg(int::in, T::in, univ::out) is semidet.
-
-	% det_arg(ArgumentIndex, Data, Argument) 
-	% 
-	% Given a data item (Data) and an argument index
-	% (ArgumentIndex), starting at 1 for the first argument, binds
-	% Argument to that argument of the functor of the data item. If
-	% the argument index is out of range -- that is, higher than the
-	% arity of the functor or lower than 1 -- det_arg/3 aborts. 
-	%
-:- pred det_arg(int::in, T::in, univ::out) is det.
-
-	% expand(Data, Functor, Arity, Arguments) 
+	% deconstruct(Data, Functor, Arity, Arguments) 
 	% 
 	% Given a data item (Data), binds Functor to a string
 	% representation of the functor, Arity to the arity of this data
 	% item, and Arguments to a list of arguments of the functor.
 	% The arguments in the list are each of type univ.
 	%
-:- pred expand(T::in, string::out, int::out, list(univ)::out) is det.
+:- pred deconstruct(T::in, string::out, int::out, list(univ)::out) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -429,7 +442,7 @@ maybe_pred(Pred, X, Y) :-
 #include ""deep_copy.h""
 
 MR_DECLARE_STRUCT(
-	mercury_data_mercury_builtin__base_type_info_list_1);
+	mercury_data_list__base_type_info_list_1);
 
 Declare_entry(do_call_nondet_closure);
 
@@ -581,7 +594,7 @@ Define_label(mercury__std_util__builtin_solutions_2_0_i2);
 	  Word solutions_copy;
 	 
 	  new_type_info[0] = (Word *) (Word)
-	  	&mercury_data_mercury_builtin__base_type_info_list_1;
+	  	&mercury_data_list__base_type_info_list_1;
 	  new_type_info[1] = (Word *) type_info_fv;
 
 	  /*
@@ -679,6 +692,16 @@ unsorted_solutions(Pred, List) :-
 
 %-----------------------------------------------------------------------------%
 
+aggregate(Generator, Accumulator, Acc0, Acc) :-
+	solutions(Generator, Solutions),
+	list__foldl(Accumulator, Solutions, Acc0, Acc).
+
+unsorted_aggregate(Generator, Accumulator, Acc0, Acc) :-
+	unsorted_solutions(Generator, Solutions),
+	list__foldl(Accumulator, Solutions, Acc0, Acc).
+
+%-----------------------------------------------------------------------------%
+
 % semidet_succeed and semidet_fail, implemented using the C interface
 % to make sure that the compiler doesn't issue any determinism warnings
 % for them.
@@ -717,143 +740,126 @@ univ(X) = Univ :- type_to_univ(X, Univ).
 
 #include ""type_info.h""
 
-int	mercury_compare_type_info(Word type_info_1, Word type_info_2);
+int	ML_compare_type_info(Word type_info_1, Word type_info_2);
 
 ").
 
 :- pragma c_code("
 
 /*
+** ML_compare_type_info(type_info_1, type_info_2):
+**
 ** Compare two type_info structures, using an arbitrary ordering
-** (based on the addresses of the unification predicates, or in
+** (based on the addresses of the base_type_infos, or in
 ** the case of higher order types, the arity).
+**
+** You need to save and restore transient registers around
+** calls to this function.
 */
 
 MR_DECLARE_STRUCT(mercury_data___base_type_info_pred_0);
 
 int
-mercury_compare_type_info(Word type_info_1, Word type_info_2)
+ML_compare_type_info(Word t1, Word t2)
 {
-	int	i, num_arg_types, comp;
-	Word	unify_pred_1, unify_pred_2;
-#ifdef	ONE_OR_TWO_CELL_TYPE_INFO
-	Word	base_type_info_1, base_type_info_2;
-#endif
+	Word	*type_info_1, *type_info_2;
+	Word	*base_type_info_1, *base_type_info_2;
+	int	num_arg_types;
+	int	i;
 
 	/* 
-	** If type_infos are equal, they must represent the
+	** Try to optimize a common case:
+	** If type_info addresses are equal, they must represent the
 	** same type.
 	*/
-	 if (type_info_1 == type_info_2)
+	if (t1 == t2) {
 		return COMPARE_EQUAL;
+	}
 
-	/* Next find the addresses of the unify preds in the type_infos */
+	/* 
+	** Otherwise, we need to expand equivalence types, if any.
+	*/
+	type_info_1 = (Word *) ML_collapse_equivalences(t1);
+	type_info_2 = (Word *) ML_collapse_equivalences(t2);
 
-#ifdef	ONE_OR_TWO_CELL_TYPE_INFO
-	base_type_info_1 = field(mktag(0), type_info_1, 0);
-	base_type_info_2 = field(mktag(0), type_info_2, 0);
+	/* 
+	** Perhaps they are equal now...
+	*/
+	if (type_info_1 == type_info_2) {
+		return COMPARE_EQUAL;
+	}
 
-	if (base_type_info_1 == 0)
-		unify_pred_1 = field(mktag(0), type_info_1,
-				OFFSET_FOR_UNIFY_PRED);
-	else
-		unify_pred_1 = field(mktag(0), base_type_info_1,
-				OFFSET_FOR_UNIFY_PRED);
-
-	if (base_type_info_2 == 0)
-		unify_pred_2 = field(mktag(0), type_info_2,
-				OFFSET_FOR_UNIFY_PRED);
-	else
-		unify_pred_2 = field(mktag(0), base_type_info_2,
-				OFFSET_FOR_UNIFY_PRED);
-
-#else
-	unify_pred_1 = field(mktag(0), type_info_1, OFFSET_FOR_UNIFY_PRED);
-	unify_pred_2 = field(mktag(0), type_info_2, OFFSET_FOR_UNIFY_PRED);
-#endif
-
-	/* Then compare the addresses of the unify preds in the type_infos */
-	if (unify_pred_1 < unify_pred_2) {
+	/*
+	** Otherwise find the addresses of the base_type_infos,
+	** and compare those.
+	**
+	** Note: this is an arbitrary ordering. It doesn't matter
+	** what the ordering is, just so long as it is consistent.
+	** ANSI C doesn't guarantee much about pointer comparisons,
+	** so it is possible that this might not do the right thing
+	** on some obscure systems.
+	** The casts to (Word) here are in the hope of increasing
+	** the chance that this will work on a segmented architecture.
+	*/
+	base_type_info_1 = MR_TYPEINFO_GET_BASE_TYPEINFO(type_info_1);
+	base_type_info_2 = MR_TYPEINFO_GET_BASE_TYPEINFO(type_info_2);
+	if ((Word) base_type_info_1 < (Word) base_type_info_2) {
 		return COMPARE_LESS;
 	}
-	if (unify_pred_1 > unify_pred_2) {
+	if ((Word) base_type_info_1 > (Word) base_type_info_2) {
 		return COMPARE_GREATER;
 	}
 
 	/*
-	** If the addresses of the unify preds are equal, we don't need to
+	** If the base_type_info addresses are equal, we don't need to
 	** compare the arity of the types - they must be the same -
 	** unless they are higher-order (which are all mapped to
-	** pred/0 when using ONE_OR_TWO_CELL_TYPE_INFO).
+	** pred/0). 
 	** But we need to recursively compare the argument types, if any.
 	*/
-
-#ifdef	ONE_OR_TWO_CELL_TYPE_INFO
-
-	/*
-	** Higher order preds can't be optimised into the
-	** type_info == base_type_info, so we don't need 
-	** to check for them in this case.
-	*/
-	if (base_type_info_1 == 0)
-		return COMPARE_EQUAL;
-	else
+		/* Check for higher order */
+	if (base_type_info_1 ==
+		(const Word *) &mercury_data___base_type_info_pred_0)
 	{
-				/* Check for higher order */
-		if (base_type_info_1 ==
-				(Word) &mercury_data___base_type_info_pred_0) {
-			int num_arg_types_2;
+		int num_arg_types_2;
 
-				/* Get number of arguments from type_info */
-			num_arg_types = field(mktag(0), type_info_1, 
-				TYPEINFO_OFFSET_FOR_PRED_ARITY);
+			/* Get number of arguments from type_info */
+		num_arg_types = field(mktag(0), type_info_1, 
+			TYPEINFO_OFFSET_FOR_PRED_ARITY);
 
-			num_arg_types_2 = field(mktag(0), type_info_2, 
-				TYPEINFO_OFFSET_FOR_PRED_ARITY);
+		num_arg_types_2 = field(mktag(0), type_info_2, 
+			TYPEINFO_OFFSET_FOR_PRED_ARITY);
 
-				/* Check arity */
-			if (num_arg_types < num_arg_types_2) {
-				return COMPARE_LESS;
-			} else if(num_arg_types > num_arg_types_2) {
-				return COMPARE_GREATER;
-			}
-
-				/*
-				** Increment, so arguments are at the
-				** expected offset.
-				*/
-			type_info_1 += sizeof(Word);
-			type_info_2 += sizeof(Word);
-		} else {
-			num_arg_types = field(mktag(0), base_type_info_1,
-					OFFSET_FOR_COUNT);
+			/* Check arity */
+		if (num_arg_types < num_arg_types_2) {
+			return COMPARE_LESS;
 		}
-		for (i = 1; i <= num_arg_types; i++) {
-			Word arg_type_info_1 = field(mktag(0),
-						type_info_1, i);
-			Word arg_type_info_2 = field(mktag(0),
-						type_info_2, i);
-			comp = mercury_compare_type_info(
-					arg_type_info_1, arg_type_info_2);
-			if (comp != COMPARE_EQUAL)
-				return comp;
+		if (num_arg_types > num_arg_types_2) {
+			return COMPARE_GREATER;
 		}
-		return COMPARE_EQUAL;
+
+			/*
+			** Increment, so arguments are at the
+			** expected offset.
+			*/
+		type_info_1++;
+		type_info_2++;
+	} else {
+		num_arg_types = field(mktag(0), base_type_info_1,
+				OFFSET_FOR_COUNT);
 	}
-#else
-	num_arg_types = field(mktag(0), type_info_1, OFFSET_FOR_COUNT);
+		/* compare the argument types */
 	for (i = 0; i < num_arg_types; i++) {
 		Word arg_type_info_1 = field(mktag(0), type_info_1,
-					OFFSET_FOR_ARG_TYPE_INFOS + i);
+			OFFSET_FOR_ARG_TYPE_INFOS + i);
 		Word arg_type_info_2 = field(mktag(0), type_info_2,
-					OFFSET_FOR_ARG_TYPE_INFOS + i);
-		comp = mercury_compare_type_info(
+			OFFSET_FOR_ARG_TYPE_INFOS + i);
+		int comp = ML_compare_type_info(
 				arg_type_info_1, arg_type_info_2);
 		if (comp != COMPARE_EQUAL)
 			return comp;
 	}
 	return COMPARE_EQUAL;
-#endif
 }
 
 ").
@@ -898,9 +904,11 @@ mercury_compare_type_info(Word type_info_1, Word type_info_2)
 	% is the compiler-introduced type-info variable.
 :- pragma c_code(type_to_univ(Type::out, Univ::in), will_not_call_mercury, "{
 	Word univ_type_info = field(mktag(0), Univ, UNIV_OFFSET_FOR_TYPEINFO);
-	if (mercury_compare_type_info(univ_type_info, TypeInfo_for_T)
-		== COMPARE_EQUAL)
-	{
+	int comp;
+	save_transient_registers();
+	comp = ML_compare_type_info(univ_type_info, TypeInfo_for_T);
+	restore_transient_registers();
+	if (comp == COMPARE_EQUAL) {
 		Type = field(mktag(0), Univ, UNIV_OFFSET_FOR_DATA);
 		SUCCESS_INDICATOR = TRUE;
 	} else {
@@ -954,28 +962,20 @@ Define_extern_entry(mercury____Unify___std_util__univ_0_0);
 Define_extern_entry(mercury____Index___std_util__univ_0_0);
 Define_extern_entry(mercury____Compare___std_util__univ_0_0);
 Declare_label(mercury____Compare___std_util__univ_0_0_i1);
-Define_extern_entry(mercury____Term_To_Type___std_util__univ_0_0);
-Define_extern_entry(mercury____Type_To_Term___std_util__univ_0_0);
 
 Define_extern_entry(mercury____Unify___std_util__type_info_0_0);
 Define_extern_entry(mercury____Index___std_util__type_info_0_0);
 Define_extern_entry(mercury____Compare___std_util__type_info_0_0);
-Define_extern_entry(mercury____Term_To_Type___std_util__type_info_0_0);
-Define_extern_entry(mercury____Type_To_Term___std_util__type_info_0_0);
 
 BEGIN_MODULE(unify_univ_module)
 	init_entry(mercury____Unify___std_util__univ_0_0);
 	init_entry(mercury____Index___std_util__univ_0_0);
 	init_entry(mercury____Compare___std_util__univ_0_0);
 	init_label(mercury____Compare___std_util__univ_0_0_i1);
-	init_entry(mercury____Term_To_Type___std_util__univ_0_0);
-	init_entry(mercury____Type_To_Term___std_util__univ_0_0);
 
 	init_entry(mercury____Unify___std_util__type_info_0_0);
 	init_entry(mercury____Index___std_util__type_info_0_0);
 	init_entry(mercury____Compare___std_util__type_info_0_0);
-	init_entry(mercury____Term_To_Type___std_util__type_info_0_0);
-	init_entry(mercury____Type_To_Term___std_util__type_info_0_0);
 BEGIN_CODE
 Define_entry(mercury____Unify___std_util__univ_0_0);
 {
@@ -988,6 +988,7 @@ Define_entry(mercury____Unify___std_util__univ_0_0);
 
 	Word univ1, univ2;
 	Word typeinfo1, typeinfo2;
+	int comp;
 
 	univ1 = unify_input1;
 	univ2 = unify_input2;
@@ -995,8 +996,10 @@ Define_entry(mercury____Unify___std_util__univ_0_0);
 	/* First check the type_infos compare equal */
 	typeinfo1 = field(mktag(0), univ1, UNIV_OFFSET_FOR_TYPEINFO);
 	typeinfo2 = field(mktag(0), univ2, UNIV_OFFSET_FOR_TYPEINFO);
-	if (mercury_compare_type_info(typeinfo1, typeinfo2) != COMPARE_EQUAL)
-	{
+	save_transient_registers();
+	comp = ML_compare_type_info(typeinfo1, typeinfo2);
+	restore_transient_registers();
+	if (comp != COMPARE_EQUAL) {
 		unify_output = FALSE;
 		proceed();
 	}
@@ -1030,6 +1033,7 @@ Define_entry(mercury____Compare___std_util__univ_0_0);
 
 	Word univ1, univ2;
 	Word typeinfo1, typeinfo2;
+	int comp;
 
 	univ1 = compare_input1;
 	univ2 = compare_input2;
@@ -1037,8 +1041,11 @@ Define_entry(mercury____Compare___std_util__univ_0_0);
 	/* First compare the type_infos */
 	typeinfo1 = field(mktag(0), univ1, UNIV_OFFSET_FOR_TYPEINFO);
 	typeinfo2 = field(mktag(0), univ2, UNIV_OFFSET_FOR_TYPEINFO);
-	compare_output = mercury_compare_type_info(typeinfo1, typeinfo2);
-	if (compare_output != COMPARE_EQUAL) {
+	save_transient_registers();
+	comp = ML_compare_type_info(typeinfo1, typeinfo2);
+	restore_transient_registers();
+	if (comp != COMPARE_EQUAL) {
+		compare_output = comp;
 		proceed();
 	}
 
@@ -1076,48 +1083,41 @@ Define_label(mercury____Compare___std_util__univ_0_0_i1);
 	proceed();
 #endif
 
-Define_entry(mercury____Term_To_Type___std_util__univ_0_0);
-	/* don't know what to put here. */
-	fatal_error(""cannot convert univ type to term"");
-
-Define_entry(mercury____Type_To_Term___std_util__univ_0_0);
-	/* don't know what to put here. */
-	fatal_error(""cannot convert type univ to term"");
-
-
 Define_entry(mercury____Unify___std_util__type_info_0_0);
+{
 	/*
 	** Unification for type_info.
 	**
 	** The two inputs are in the registers named by unify_input[12].
 	** The success/failure indication should go in unify_output.
 	*/
-	unify_output = (mercury_compare_type_info(unify_input1,
-				unify_input2) == COMPARE_EQUAL);
+	int comp;
+	save_transient_registers();
+	comp = ML_compare_type_info(unify_input1, unify_input2);
+	restore_transient_registers();
+	unify_output = (comp == COMPARE_EQUAL);
 	proceed();
+}
 
 Define_entry(mercury____Index___std_util__type_info_0_0);
 	index_output = -1;
 	proceed();
 
 Define_entry(mercury____Compare___std_util__type_info_0_0);
+{
 	/*
 	** Comparison for type_info:
 	**
 	** The two inputs are in the registers named by compare_input[12].
 	** The result should go in compare_output.
 	*/
-	compare_output = mercury_compare_type_info(
-				compare_input1, compare_input2);
+	int comp;
+	save_transient_registers();
+	comp = ML_compare_type_info(unify_input1, unify_input2);
+	restore_transient_registers();
+	compare_output = comp;
 	proceed();
-
-Define_entry(mercury____Term_To_Type___std_util__type_info_0_0);
-	/* don't know what to put here. */
-	fatal_error(""cannot convert term to type type_info"");
-
-Define_entry(mercury____Type_To_Term___std_util__type_info_0_0);
-	/* don't know what to put here. */
-	fatal_error(""cannot convert type type_info to term"");
+}
 
 END_MODULE
 
@@ -1483,9 +1483,9 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 		*/
 
 		incr_hp(Term, 2);
-	        field(mktag(0), Term, UNIV_OFFSET_FOR_TYPEINFO) = 
+		field(mktag(0), Term, UNIV_OFFSET_FOR_TYPEINFO) = 
 			(Word) TypeInfo;
-	        field(mktag(0), Term, UNIV_OFFSET_FOR_DATA) = (Word) new_data;
+		field(mktag(0), Term, UNIV_OFFSET_FOR_DATA) = (Word) new_data;
 	}
 
 	SUCCESS_INDICATOR = success;
@@ -1498,11 +1498,11 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 	** Prototypes
 	*/
 
-static int 	get_functor_info(Word type_info, int functor_number, 
+static int 	ML_get_functor_info(Word type_info, int functor_number, 
 				ML_Construct_Info *info);
 
 	/*
-	** get_functor_info:
+	** ML_get_functor_info:
 	**
 	** Extract the information for functor number `functor_number',
 	** for the type represented by type_info.
@@ -1513,7 +1513,7 @@ static int 	get_functor_info(Word type_info, int functor_number,
 	*/
 
 int 
-get_functor_info(Word type_info, int functor_number, ML_Construct_Info *info)
+ML_get_functor_info(Word type_info, int functor_number, ML_Construct_Info *info)
 {
 	Word *base_type_functors;
 
@@ -1567,8 +1567,8 @@ get_functor_info(Word type_info, int functor_number, ML_Construct_Info *info)
 		Word *equiv_type;
 		equiv_type = (Word *) MR_TYPEFUNCTORS_EQUIV_TYPE(
 				base_type_functors);
-		return get_functor_info((Word)
-				create_type_info((Word *) type_info, 
+		return ML_get_functor_info((Word)
+				ML_create_type_info((Word *) type_info, 
 						equiv_type),
 				functor_number, info);
 	}
@@ -1592,10 +1592,6 @@ get_functor_info(Word type_info, int functor_number, ML_Construct_Info *info)
 	** `arg_vector' may contain type variables, these
 	** will be filled in by the type arguments of `type_info'.
 	**
-	** If the type arguments of `type_info' are still type variables 
-	** they will be replaced by the void type (see the
-	** documentation of `create_type_info').
-	**
 	** Assumes the length of the list has already been checked.
 	**
 	** You need to save and restore transient registers around
@@ -1606,7 +1602,7 @@ bool
 ML_typecheck_arguments(Word type_info, int arity, Word arg_list,
 		Word* arg_vector) 
 {
-	int i;
+	int i, comp;
 	Word arg_type_info, list_arg_type_info;
 
 		/* Type check list of arguments */
@@ -1615,14 +1611,14 @@ ML_typecheck_arguments(Word type_info, int arity, Word arg_list,
 		if (list_is_empty(arg_list)) {
 			return FALSE;
 		}
-		list_arg_type_info = field(0, (list_head(arg_list)), 
+		list_arg_type_info = field(0, list_head(arg_list), 
 			UNIV_OFFSET_FOR_TYPEINFO);
 
-		arg_type_info = (Word) create_type_info(
+		arg_type_info = (Word) ML_create_type_info(
 			(Word *) type_info, (Word *) arg_vector[i]);
 
-		if (mercury_compare_type_info(list_arg_type_info, 
-				arg_type_info) != COMPARE_EQUAL) {
+		comp = ML_compare_type_info(list_arg_type_info, arg_type_info);
+		if (comp != COMPARE_EQUAL) {
 			return FALSE;
 		}
 		arg_list = list_tail(arg_list);
@@ -1709,7 +1705,7 @@ ML_make_type(int arity, Word *base_type_info, Word arg_types_list)
 	**
 	** Check that functor_number is in range, and get the functor
 	** info if it is. Return FALSE if it is out of range, or
-	** if get_functor_info returns FALSE, otherwise return TRUE.
+	** if ML_get_functor_info returns FALSE, otherwise return TRUE.
 	**
 	** You need to save and restore transient registers around
 	** calls to this function.
@@ -1725,7 +1721,7 @@ ML_get_functors_check_range(int functor_number, Word type_info,
 		*/
 	return  functor_number < ML_get_num_functors(type_info) &&
 		functor_number >= 0 &&
-		get_functor_info(type_info, functor_number, info);
+		ML_get_functor_info(type_info, functor_number, info);
 }
 
 
@@ -1755,7 +1751,7 @@ ML_copy_argument_typeinfos(int arity, Word type_info, Word *arg_vector)
 
 			/* Fill in any polymorphic type_infos */
 		save_transient_registers();
-		argument = (Word) create_type_info(
+		argument = (Word) ML_create_type_info(
 			(Word *) type_info, (Word *) argument);
 		restore_transient_registers();
 
@@ -1795,7 +1791,7 @@ ML_collapse_equivalences(Word maybe_equiv_type_info)
 		/* Look past equivalences */
 	while (MR_TYPEFUNCTORS_INDICATOR(functors) == MR_TYPEFUNCTORS_EQUIV) {
 		equiv_type_info = (Word) MR_TYPEFUNCTORS_EQUIV_TYPE(functors);
-		equiv_type_info = (Word) create_type_info(
+		equiv_type_info = (Word) ML_create_type_info(
 				(Word *) maybe_equiv_type_info, 
 				(Word *) equiv_type_info);
 		functors = MR_BASE_TYPEINFO_GET_TYPEFUNCTORS(
@@ -1844,7 +1840,7 @@ ML_get_num_functors(Word type_info)
 				MR_TYPEFUNCTORS_EQUIV_TYPE(
 					base_type_functors);
 			Functors = ML_get_num_functors((Word)
-					create_type_info((Word *) 
+					ML_create_type_info((Word *) 
 						type_info, equiv_type));
 			break;
 		}
@@ -1878,7 +1874,7 @@ ML_get_num_functors(Word type_info)
 	#include <stdio.h>
 
 	/* 
-	 * Code for functor, arg and expand
+	 * Code for functor, arg and deconstruct
 	 * 
 	 * This relies on some C primitives that take a type_info
 	 * and a data_word, and get a functor, arity, argument vector,
@@ -1889,15 +1885,15 @@ ML_get_num_functors(Word type_info)
 
 	/* 
 	 * The last two fields, need_functor, and need_args, must
-	 * be set by the caller, to indicate whether mercury_expand
+	 * be set by the caller, to indicate whether ML_expand
 	 * should copy the functor (if need_functor is non-zero) or
 	 * the argument vector and type_info_vector (if need_args is
 	 * non-zero). The arity will always be set.
 	 *
-	 * mercury_expand will fill in the other fields (functor, arity,
+	 * ML_expand will fill in the other fields (functor, arity,
 	 * argument_vector and type_info_vector) accordingly, but
 	 * the values of fields not asked for should be assumed to
-	 * contain random data when mercury_expand returns.
+	 * contain random data when ML_expand returns.
 	 * (that is, they should not be relied on to remain unchanged).
 	 */
 
@@ -1914,24 +1910,23 @@ typedef struct ML_Expand_Info_Struct {
 
 	/* Prototypes */
 
-void mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info);
+void ML_expand(Word* type_info, Word data_word, ML_Expand_Info *info);
 
-Word * create_type_info(Word *term_type_info, 
-	Word *arg_pseudo_type_info);
+Word * ML_create_type_info(Word *term_type_info, Word *arg_pseudo_type_info);
 
 ").
 
 :- pragma c_code("
 
-static void mercury_expand_const(Word data_value, Word entry_value,
+static void ML_expand_const(Word data_value, Word entry_value,
 	ML_Expand_Info *info);
-static void mercury_expand_enum(Word data_value, Word entry_value, 
+static void ML_expand_enum(Word data_value, Word entry_value, 
 	ML_Expand_Info *info);
-static void mercury_expand_simple(Word data_value, Word* arg_type_infos, 
+static void ML_expand_simple(Word data_value, Word* arg_type_infos, 
 	Word * type_info, ML_Expand_Info *info);
-static void mercury_expand_builtin(Word data_value, Word entry_value,
+static void ML_expand_builtin(Word data_value, Word entry_value,
 	ML_Expand_Info *info);
-static void mercury_expand_complicated(Word data_value, Word entry_value, 
+static void ML_expand_complicated(Word data_value, Word entry_value, 
 	Word * type_info, ML_Expand_Info *info);
 
 /*
@@ -1947,9 +1942,9 @@ static void mercury_expand_complicated(Word data_value, Word entry_value,
 ** 	- constants (eg base_type_infos)
 **
 ** Please note: 
-**	mercury_expand increments the heap pointer, however, on
+**	ML_expand increments the heap pointer, however, on
 **	some platforms the register windows mean that transient
-**	Mercury registers may be lost. Before calling mercury_expand,
+**	Mercury registers may be lost. Before calling ML_expand,
 **	call save_transient_registers(), and afterwards, call
 **	restore_transient_registers().
 **
@@ -1959,7 +1954,7 @@ static void mercury_expand_complicated(Word data_value, Word entry_value,
 */
 
 void 
-mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
+ML_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
 {
 	Word *base_type_info, *arg_type_info;
 	Word data_value, entry_value, base_type_layout_entry;
@@ -1992,28 +1987,28 @@ mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
 			** entry value represents the type of builtin.
 			*/
 			entry_value = unmkbody(entry_value);
-			mercury_expand_builtin(data_word, entry_value,
+			ML_expand_builtin(data_word, entry_value,
 				info);
 		} else {
 			/* It's a complicated constant or enum */
 			if (MR_TYPELAYOUT_ENUM_VECTOR_IS_ENUM(entry_value)) {
-				mercury_expand_enum(data_word, entry_value, 
+				ML_expand_enum(data_word, entry_value, 
 					info);
 			} else {
 				data_value = unmkbody(data_value);
-				mercury_expand_const(data_value, entry_value, 
+				ML_expand_const(data_value, entry_value, 
 					info);
 			}
 		}
 		break;
 
 	case TYPELAYOUT_SIMPLE_TAG:
-		mercury_expand_simple(data_value, (Word *) entry_value, 
+		ML_expand_simple(data_value, (Word *) entry_value, 
 			type_info, info);
 		break;
 
 	case TYPELAYOUT_COMPLICATED_TAG:
-		mercury_expand_complicated(data_value, entry_value, type_info,
+		ML_expand_complicated(data_value, entry_value, type_info,
 			info);
 		break;
 
@@ -2023,9 +2018,9 @@ mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
 			** Is it a type variable? 
 			*/
 		if (TYPEINFO_IS_VARIABLE(entry_value)) {
-			arg_type_info = create_type_info(type_info, 
+			arg_type_info = ML_create_type_info(type_info, 
 				(Word *) entry_value);
-			mercury_expand(arg_type_info, data_word, info);
+			ML_expand(arg_type_info, data_word, info);
 		}
 			/* 
 			** is it a no_tag type?
@@ -2034,17 +2029,17 @@ mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
 			Word new_arg_vector; 
 			incr_saved_hp(new_arg_vector, 1);
 			field(0, new_arg_vector, 0) = data_word;
-			mercury_expand_simple(new_arg_vector, 
+			ML_expand_simple(new_arg_vector, 
 				(Word *) entry_value, type_info, info);
 		}
 			/* 
 			** It must be an equivalent type.
 			*/
 		else {
-			arg_type_info = create_type_info(type_info, 
+			arg_type_info = ML_create_type_info(type_info, 
 				(Word *) MR_TYPELAYOUT_EQUIV_TYPE(
 					entry_value));
-			mercury_expand(arg_type_info, data_word, info);
+			ML_expand(arg_type_info, data_word, info);
 		}
 
 		break;
@@ -2052,7 +2047,7 @@ mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
 	default:
 		/* If this happens, the layout data is corrupt */
 
-		fatal_error(""Found unused tag value in expand"");
+		fatal_error(""ML_expand: found unused tag value"");
 	}
 }
 
@@ -2061,7 +2056,7 @@ mercury_expand(Word* type_info, Word data_word, ML_Expand_Info *info)
  */
 
 void
-mercury_expand_const(Word data_value, Word entry_value, ML_Expand_Info *info) 
+ML_expand_const(Word data_value, Word entry_value, ML_Expand_Info *info) 
 {
 
 	/* the functors are stored after the enum_indicator and
@@ -2080,7 +2075,7 @@ mercury_expand_const(Word data_value, Word entry_value, ML_Expand_Info *info)
  */
 
 void
-mercury_expand_enum(Word data_value, Word enum_vector, ML_Expand_Info *info) 
+ML_expand_enum(Word data_value, Word enum_vector, ML_Expand_Info *info) 
 {
 	info->functor = MR_TYPELAYOUT_ENUM_VECTOR_FUNCTOR_NAME(enum_vector,
 		data_value);
@@ -2101,7 +2096,7 @@ mercury_expand_enum(Word data_value, Word enum_vector, ML_Expand_Info *info)
  *
  */
 void 
-mercury_expand_simple(Word data_value, Word* simple_vector, Word * type_info,
+ML_expand_simple(Word data_value, Word* simple_vector, Word * type_info,
 	ML_Expand_Info *info)
 {
 	int i;
@@ -2127,7 +2122,7 @@ mercury_expand_simple(Word data_value, Word* simple_vector, Word * type_info,
 				MR_TYPELAYOUT_SIMPLE_VECTOR_ARGS(
 					simple_vector)[i];
 			info->type_info_vector[i] = (Word) 
-				create_type_info(type_info, 
+				ML_create_type_info(type_info, 
 					arg_pseudo_type_info);
 		}
 	}
@@ -2146,7 +2141,7 @@ mercury_expand_simple(Word data_value, Word* simple_vector, Word * type_info,
  */
 
 void
-mercury_expand_complicated(Word data_value, Word entry_value, Word * type_info,
+ML_expand_complicated(Word data_value, Word entry_value, Word * type_info,
 	ML_Expand_Info *info)
 {
 	Word new_data_value, simple_vector, simple_vector_tag, secondary_tag;
@@ -2159,21 +2154,21 @@ mercury_expand_complicated(Word data_value, Word entry_value, Word * type_info,
 	simple_vector_tag = tag(simple_vector);
 	simple_vector = body(simple_vector, simple_vector_tag);
 
-	mercury_expand_simple(new_data_value, (Word *) simple_vector, 
+	ML_expand_simple(new_data_value, (Word *) simple_vector, 
 		type_info, info);
 }
 
 void
-mercury_expand_builtin(Word data_value, Word entry_value, ML_Expand_Info *info)
+ML_expand_builtin(Word data_value, Word entry_value, ML_Expand_Info *info)
 {
 	switch ((int) entry_value) {
 	
 	case TYPELAYOUT_UNASSIGNED_VALUE:
-		fatal_error(""Attempt to use an UNASSIGNED tag in expand."");
+		fatal_error(""ML_expand: attempt to use an UNASSIGNED tag"");
 		break;
 
 	case TYPELAYOUT_UNUSED_VALUE:
-		fatal_error(""Attempt to use an UNUSED tag in expand."");
+		fatal_error(""ML_expand: attempt to use an UNUSED tag"");
 		break;
 
 	case TYPELAYOUT_STRING_VALUE:
@@ -2251,7 +2246,7 @@ mercury_expand_builtin(Word data_value, Word entry_value, ML_Expand_Info *info)
 		 * type_info and data.
 		 */
 
-		mercury_expand((Word *) 
+		ML_expand((Word *) 
 			((Word *) data_value)[UNIV_OFFSET_FOR_TYPEINFO], 
 			((Word *) data_value)[UNIV_OFFSET_FOR_DATA], info);
 		break;
@@ -2266,24 +2261,24 @@ mercury_expand_builtin(Word data_value, Word entry_value, ML_Expand_Info *info)
 		break;
 
 	case TYPELAYOUT_VOID_VALUE:
-		fatal_error(""mercury_expand: found void"");
+		fatal_error(""ML_expand: found void"");
 		break;
 
 	case TYPELAYOUT_UNIQ_ARRAY_VALUE:
-		fatal_error(""mercury_expand: found uniq_array"");
+		fatal_error(""ML_expand: found uniq_array"");
 		break;
 
 	case TYPELAYOUT_TYPEINFO_VALUE:
-		fatal_error(""mercury_expand: found type_info"");
+		fatal_error(""ML_expand: found type_info"");
 		break;
 
 	case TYPELAYOUT_C_POINTER_VALUE:
-		fatal_error(""mercury_expand: found c_pointer"");
+		fatal_error(""ML_expand: found c_pointer"");
 		break;
 		
 		
 	default:
-		fatal_error(""Invalid tag value in expand"");
+		fatal_error(""ML_expand: invalid tag value"");
 		break;
 	}
 }
@@ -2303,17 +2298,6 @@ mercury_expand_builtin(Word data_value, Word entry_value, ML_Expand_Info *info)
 	** This returns a fully instantiated type_info, a version of the
 	** arg_pseudo_type_info with all the type variables filled in.
 	**
-	** If the substituted type parameters from the term_type_info
-	** were type variables, they will be replaced with references
-	** to the void type ('void'/0).
-	** XXX: This is a temporary measure. It would be best if the
-	** code in polymorphism.m and typecheck.m was changed to output
-	** references to 'void' for unbound type variables, rather than
-	** outputting NULL pointers, which we convert to references to
-	** void here. Note that this would also involve changing any
-	** code that relied upon the NULL definition (for example,
-	** mercury_compare_type_info).
-	**
 	** We allocate memory for a new type_info on the Mercury heap,
 	** copy the necessary information, and return a pointer to the
 	** new type_info. 
@@ -2327,13 +2311,13 @@ mercury_expand_builtin(Word data_value, Word entry_value, ML_Expand_Info *info)
 	** type_info.
 	**
 	** NOTE: If you are changing this code, you might also need
-	** to change the code in create_type_info in runtime/deep_copy.c,
+	** to change the code in ML_create_type_info in runtime/deep_copy.c,
 	** which does much the same thing, only allocating using malloc
 	** instead of on the heap.
 	*/
 
 Word * 
-create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
+ML_create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 {
 	int i, arity;
 	Word base_type_info;
@@ -2350,7 +2334,7 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 	}
 
 	if (TYPEINFO_IS_VARIABLE(arg_pseudo_type_info)) {
-		fatal_error(""unbound type variable"");
+		fatal_error(""ML_create_type_info: unbound type variable"");
 	}
 
 	base_type_info = arg_pseudo_type_info[0];
@@ -2368,7 +2352,8 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 		if (TYPEINFO_IS_VARIABLE(arg_pseudo_type_info[i])) {
 			type_info[i] = term_type_info[arg_pseudo_type_info[i]];
 			if (TYPEINFO_IS_VARIABLE(type_info[i])) {
-				fatal_error(""unbound type variable"");
+				fatal_error(""ML_create_type_info: ""
+					""unbound type variable"");
 			}
 
 		} else {
@@ -2382,7 +2367,7 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 
 %-----------------------------------------------------------------------------%
 
-	% Code for functor, arg and expand.
+	% Code for functor, arg and deconstruct.
 
 :- pragma c_code(functor(Type::in, Functor::out, Arity::out),
 		will_not_call_mercury, " 
@@ -2394,7 +2379,7 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 
 	save_transient_registers();
 
-	mercury_expand((Word *) TypeInfo_for_T, Type, &info);
+	ML_expand((Word *) TypeInfo_for_T, Type, &info);
 
 	restore_transient_registers();
 
@@ -2405,7 +2390,7 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 
 }").
 
-:- pragma c_code(argument(Type::in, ArgumentIndex::in, Argument::out),
+:- pragma c_code(argument(Type::in, ArgumentIndex::in) = (Argument::out),
 		will_not_call_mercury, " 
 {
 	ML_Expand_Info info;
@@ -2417,7 +2402,7 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 
 	save_transient_registers();
 
-	mercury_expand((Word *) TypeInfo_for_T, Type, &info);
+	ML_expand((Word *) TypeInfo_for_T, Type, &info);
 
 	restore_transient_registers();
 
@@ -2450,25 +2435,17 @@ create_type_info(Word *term_type_info, Word *arg_pseudo_type_info)
 
 }").
 
-arg(ArgumentIndex, Type, Argument) :-
-	ArgumentIndex1 is ArgumentIndex - 1,
-	argument(Type, ArgumentIndex1, Argument).
-
-det_arg(ArgumentIndex, Type, Argument) :-
-	ArgumentIndex1 is ArgumentIndex - 1,
-	det_argument(Type, ArgumentIndex1, Argument).
-
-det_argument(Type, ArgumentIndex, Argument) :-
+det_argument(Type, ArgumentIndex) = Argument :-
 	(
-		argument(Type, ArgumentIndex, Argument0)
+		argument(Type, ArgumentIndex) = Argument0
 	->
 		Argument = Argument0
 	;
 		error("det_argument : argument out of range")
 	).
 
-:- pragma c_code(expand(Type::in, Functor::out, Arity::out, Arguments::out),
-		will_not_call_mercury, " 
+:- pragma c_code(deconstruct(Type::in, Functor::out, Arity::out, 
+		Arguments::out), will_not_call_mercury, " 
 {
 	ML_Expand_Info info;
 	Word arg_pseudo_type_info;
@@ -2480,7 +2457,7 @@ det_argument(Type, ArgumentIndex, Argument) :-
 
 	save_transient_registers();
 
-	mercury_expand((Word *) TypeInfo_for_T, Type, &info);
+	ML_expand((Word *) TypeInfo_for_T, Type, &info);
 	
 	restore_transient_registers();
 

@@ -1252,6 +1252,7 @@ c - contexts of goals and types,
 d - determinism of goals,
 f - follow_vars sets of goals,
 i - instmap deltas of goals,
+l - pred/mode ids and unify contexts of called predicates,
 n - nonlocal variables of goals,
 p - pre-birth, post-birth, pre-death and post-death sets of goals,
 r - resume points of goals,
@@ -1991,6 +1992,26 @@ NU-Prolog Mercury library.
 @item MERCURY_NU_LIB_OBJS
 List of the NU-Prolog object files (@file{*.no}) for the Mercury
 library.
+
+@sp 1
+@item MERCURY_NU_OVERRIDING_LIB_OBJS
+List of the NU-Prolog object files (@file{*.no}) for the Mercury
+library which override definitions given in @samp{MERCURY_NU_LIB_OBJS}.
+
+@sp 1
+@item MERCURY_SP_LIB_DIR
+Directory for the Sicstus-Prolog object files (@file{*.ql}) for the
+Sicstus-Prolog Mercury library.
+
+@sp 1
+@item MERCURY_SP_LIB_OBJS
+List of the Sicstus-Prolog object files (@file{*.ql}) for the Mercury
+library.
+
+@sp 1
+@item MERCURY_SP_OVERRIDING_LIB_OBJS
+List of the Sicstus-Prolog object files (@file{*.ql}) for the Mercury
+library which override definitions given in @samp{MERCURY_SP_LIB_OBJS}.
 
 @sp 1
 @item MERCURY_COMPILER

@@ -39,7 +39,7 @@
 :- import_module follow_vars, liveness, hlds_goal, llds.
 :- import_module options, globals, goal_util, mode_util, instmap.
 :- import_module list, map, set, std_util, assoc_list.
-:- import_module bool, int, require.
+:- import_module bool, int, require, term.
 
 %-----------------------------------------------------------------------------%
 
@@ -173,8 +173,8 @@ store_alloc_in_goal_2(call(A, B, C, D, E, F), Liveness, _, _,
 store_alloc_in_goal_2(unify(A,B,C,D,E), Liveness, _, _,
 		unify(A,B,C,D,E), Liveness).
 
-store_alloc_in_goal_2(pragma_c_code(A, B, C, D, E, F, G), Liveness, _, _,
-		pragma_c_code(A, B, C, D, E, F, G), Liveness).
+store_alloc_in_goal_2(pragma_c_code(A, B, C, D, E, F, G, H), Liveness, _, _,
+		pragma_c_code(A, B, C, D, E, F, G, H), Liveness).
 
 %-----------------------------------------------------------------------------%
 

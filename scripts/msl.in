@@ -17,11 +17,19 @@
 #	-v, --verbose
 #	-d, --debug
 #	-o, --output
-# Environment variables: MERCURY_SP_LIB_DIR, MERCURY_SP_LIB_OBJS
+# Environment variables: 
+#	MERCURY_SP_LIB_DIR 
+#		the name of the directory containing the object files
+#	MERCURY_SP_LIB_OBJS
+#		the names of the object files
+#	MERCURY_SP_OVERRIDING_LIB_OBJS 
+#		the names of the object files that contain definitions which
+#		should override others
 
 SPLIBDIR=${MERCURY_SP_LIB_DIR=@LIBDIR@/sicstus/@FULLARCH@}
 SP=${MERCURY_SICSTUS_PROLOG=$SPLIBDIR/library.sicstus.debug}
 LIBRARY_OBJS=${MERCURY_SP_LIB_OBJS=""}
+OVERRIDING_LIBRARY_OBJS=${MERCURY_SP_OVERRIDING_LIB_OBJS=""}
 
 verbose=false
 debug=false
@@ -68,8 +76,17 @@ for obj in $LIBRARY_OBJS 'kludge for broken shells'; do
 	fi
 done
 
+overriding_objlist=
+for obj in $OVERRIDING_LIBRARY_OBJS 'kludge for broken shells'; do
+	if [ "$obj" = 'kludge for broken shells' ]; then
+		true
+	else
+		overriding_objlist="$overriding_objlist $SPLIBDIR/$obj"
+	fi
+done
+
 if $verbose; then
-	echo Linking $objlist "$@" $sp_lib
+	echo Linking $objlist "$@" $overriding_objlist $sp_lib
 fi
 if $save_temp; then
 	tmp=msl.tmp
@@ -103,8 +120,8 @@ if $debug; then
 
 EOF
 	case $# in
-		0) $SP $objlist $sp_lib < $tmp 2>&1 ;;
-		*) $SP $objlist "$@" $sp_lib < $tmp 2>&1 ;;
+		0) $SP $objlist $overriding_objlist $sp_lib < $tmp 2>&1 ;;
+		*) $SP $objlist "$@" $overriding_objlist $sp_lib < $tmp 2>&1 ;;
 	esac
 else
 	cat > $tmp << EOF
@@ -131,8 +148,8 @@ else
 	e
 EOF
 	case $# in
-		0) $SP $objlist $sp_lib < $tmp 2>&1 ;;
-		*) $SP $objlist "$@" $sp_lib < $tmp 2>&1 ;;
+		0) $SP $objlist $overriding_objlist $sp_lib < $tmp 2>&1 ;;
+		*) $SP $objlist "$@" $overriding_objlist $sp_lib < $tmp 2>&1 ;;
 	esac
 fi # grep -v 'DOMAIN ERROR.*when_condition' 
 # We pipe the output through grep -v to suppress some spurious warnings

@@ -35,7 +35,7 @@
 
 :- import_module hlds_goal, hlds_data, options, globals, goal_util, hlds_out.
 :- import_module modes, mode_util, make_hlds, quantification, instmap.
-:- import_module switch_detection, det_util.
+:- import_module prog_data, switch_detection, det_util.
 
 :- import_module int, bool, list, map, set, std_util, require, term, varset.
 
@@ -200,8 +200,8 @@ detect_cse_in_goal_1(Goal0 - GoalInfo, InstMap0, CseInfo0, CseInfo, Redo,
 	cse_info, cse_info, bool, hlds_goal_expr).
 :- mode detect_cse_in_goal_2(in, in, in, in, out, out, out) is det.
 
-detect_cse_in_goal_2(pragma_c_code(A,B,C,D,E,F,G), _, _, CseInfo, CseInfo, no,
-	pragma_c_code(A,B,C,D,E,F,G)).
+detect_cse_in_goal_2(pragma_c_code(A,B,C,D,E,F,G,H), _, _, CseInfo, CseInfo,
+	no, pragma_c_code(A,B,C,D,E,F,G,H)).
 
 detect_cse_in_goal_2(higher_order_call(A,B,C,D,E), _, _, CseInfo, CseInfo, no,
 	higher_order_call(A,B,C,D,E)).
@@ -209,9 +209,12 @@ detect_cse_in_goal_2(higher_order_call(A,B,C,D,E), _, _, CseInfo, CseInfo, no,
 detect_cse_in_goal_2(call(A,B,C,D,E,F), _, _, CseInfo, CseInfo, no,
 	call(A,B,C,D,E,F)).
 
-detect_cse_in_goal_2(unify(A,B0,C,D,E), _, InstMap, CseInfo0, CseInfo, Redo,
+detect_cse_in_goal_2(unify(A,B0,C,D,E), _, InstMap0, CseInfo0, CseInfo, Redo,
 		unify(A,B,C,D,E)) :-
 	( B0 = lambda_goal(PredOrFunc, Vars, Modes, Det, Goal0) ->
+		CseInfo0 = cse_info(_, _, ModuleInfo),
+		instmap__pre_lambda_update(ModuleInfo, 
+			Vars, Modes, InstMap0, InstMap),
 		detect_cse_in_goal(Goal0, InstMap, CseInfo0, CseInfo, Redo,
 			Goal),
 		B = lambda_goal(PredOrFunc, Vars, Modes, Det, Goal)

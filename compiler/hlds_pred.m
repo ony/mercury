@@ -13,8 +13,8 @@
 
 :- interface.
 
-:- import_module hlds_data, hlds_goal, hlds_module, prog_data, instmap.
-:- import_module bool, list, map, std_util, varset.
+:- import_module hlds_data, hlds_goal, hlds_module, llds, prog_data, instmap.
+:- import_module bool, list, map, std_util, term, varset.
 :- import_module termination, term_util.
 
 :- implementation.
@@ -80,6 +80,13 @@
 :- type pred_proc_id	--->	proc(pred_id, proc_id).
 :- type pred_proc_list	==	list(pred_proc_id).
 
+	% The clauses_info structure contains the clauses for a predicate
+	% after conversion from the item_list by make_hlds.m.
+	% Typechecking is performed on the clauses info, then the clauses
+	% are copied to create the proc_info for each procedure.
+	% After mode analysis the clauses and the procedure goals are not
+	% guaranteed to be the same, and the clauses are only kept so that
+	% the optimized goal can be compared with the original in HLDS dumps.
 :- type clauses_info	--->	clauses_info(
 					varset,		% variable names
 					map(var, type), % variable types from
@@ -126,17 +133,12 @@
 	% The type `import_status' describes whether an entity (a predicate,
 	% type, inst, or mode) is local to the current module, exported from
 	% the current module, or imported from some other module.
-	% Only predicates can have status opt_decl, pseudo_exported
-	% or pseudo_imported.
+	% Only predicates can have status pseudo_exported or pseudo_imported.
 	% Only types can have status abstract_exported or abstract_imported.
 
 :- type import_status
 	--->	imported	% defined in the interface of some other module
 				% or `external' (in some other language)
-	;	opt_decl	% predicate declared in an optimization
-				% interface -  this is needed to identify 
-				% predicates that must be ignored when
-				% processing local predicates
 	;	opt_imported	% defined in the optimization 
 				% interface of another module
 	;	abstract_imported % describes a type with only an abstract
@@ -198,6 +200,10 @@
 				% Since the transformation affects *other*
 				% predicates, the `done' status is not
 				% meaningful
+	;	no_inline	% Requests that this be predicate not be 
+				% inlined.
+				% Used for pragma(no_inline).
+				% Conflicts with `inline' marker.
 	;	dnf		% Requests that this predicate be transformed
 				% into disjunctive normal form.
 				% Used for pragma(memo).
@@ -230,7 +236,7 @@
 
 :- pred pred_info_init(module_name, sym_name, arity, tvarset, list(type),
 	condition, term__context, clauses_info, import_status,
-	bool, goal_type, pred_or_func, pred_info).
+	list(marker_status), goal_type, pred_or_func, pred_info).
 :- mode pred_info_init(in, in, in, in, in, in, in, in, in, in, in, in, out)
 	is det.
 
@@ -328,8 +334,14 @@
 	% to inline a predicate even if there was no pragma(inline, ...)
 	% declaration for that predicate.
 
-:- pred pred_info_is_inlined(pred_info).
-:- mode pred_info_is_inlined(in) is semidet.
+:- pred pred_info_requested_inlining(pred_info).
+:- mode pred_info_requested_inlining(in) is semidet.
+
+	% Succeeds if there was a `:- pragma(no_inline, ...)' declaration
+	% for this predicate.
+
+:- pred pred_info_requested_no_inlining(pred_info).
+:- mode pred_info_requested_no_inlining(in) is semidet.
 
 :- pred pred_info_get_marker_list(pred_info, list(marker_status)).
 :- mode pred_info_get_marker_list(in, out) is det.
@@ -368,8 +380,11 @@ invalid_pred_id(-1).
 invalid_proc_id(-1).
 
 	% The information specific to a predicate, as opposed to a procedure.
+	%
 	% Any changes in this type definition will almost certainly require
 	% corresponding changes in define.m.
+	% XXX: This comment is either ancient, or prophesy. It seems
+	% define.m doesn't exist yet.
 
 :- type pred_info
 	--->	predicate(
@@ -406,15 +421,10 @@ invalid_proc_id(-1).
 		).
 
 pred_info_init(ModuleName, SymName, Arity, TypeVarSet, Types, Cond, Context,
-		ClausesInfo, Status, Inline, GoalType, PredOrFunc, PredInfo) :-
+		ClausesInfo, Status, Markers, GoalType, PredOrFunc, PredInfo) :-
 	map__init(Procs),
 	unqualify_name(SymName, PredName),
 	sym_name_get_module_name(SymName, ModuleName, PredModuleName),
-	( Inline = yes ->
-		Markers = [request(inline)]
-	;
-		Markers = []
-	),
 	PredInfo = predicate(TypeVarSet, Types, Cond, ClausesInfo, Procs,
 		Context, PredModuleName, PredName, Arity, Status, TypeVarSet, 
 		GoalType, Markers, PredOrFunc).
@@ -450,7 +460,7 @@ pred_info_procids(PredInfo, ProcIds) :-
 
 pred_info_non_imported_procids(PredInfo, ProcIds) :-
 	pred_info_import_status(PredInfo, ImportStatus),
-	( ( ImportStatus = imported ; ImportStatus = opt_decl ) ->
+	( ImportStatus = imported ->
 		ProcIds = []
 	; ImportStatus = pseudo_imported ->
 		pred_info_procids(PredInfo, ProcIds0),
@@ -510,14 +520,7 @@ pred_info_import_status(PredInfo, ImportStatus) :-
 				_).
 
 pred_info_is_imported(PredInfo) :-
-	pred_info_import_status(PredInfo, ImportStatus),
-	(
-		ImportStatus = imported
-	;
-		% opt_decl is equivalent to imported, except only 
-		% opt_imported preds can call an opt_decl pred.
-		ImportStatus = opt_decl
-	).
+	pred_info_import_status(PredInfo, imported).
 
 pred_info_is_pseudo_imported(PredInfo) :-
 	pred_info_import_status(PredInfo, ImportStatus),
@@ -554,9 +557,13 @@ pred_info_set_goal_type(PredInfo0, GoalType, PredInfo) :-
 	PredInfo0 = predicate(A, B, C, D, E, F, G, H, I, J, K, _, M, N),
 	PredInfo  = predicate(A, B, C, D, E, F, G, H, I, J, K, GoalType, M, N).
 
-pred_info_is_inlined(PredInfo0) :-
+pred_info_requested_inlining(PredInfo0) :-
 	pred_info_get_marker_list(PredInfo0, Markers),
 	list__member(request(inline), Markers).
+
+pred_info_requested_no_inlining(PredInfo0) :-
+	pred_info_get_marker_list(PredInfo0, Markers),
+	list__member(request(no_inline), Markers).
 
 pred_info_get_marker_list(PredInfo, Markers) :-
 	PredInfo = predicate(_, _, _, _, _, _, _, _, _, _, _, _, Markers, _).
@@ -716,8 +723,8 @@ pred_info_get_is_pred_or_func(PredInfo, IsPredOrFunc) :-
 	% for accurate garbage collection - live variables need to have 
 	% their typeinfos stay live too.
 
-:- pred proc_info_get_used_typeinfos_setwise(proc_info, set(var), set(var)).
-:- mode proc_info_get_used_typeinfos_setwise(in, in, out) is det.
+:- pred proc_info_get_typeinfo_vars_setwise(proc_info, set(var), set(var)).
+:- mode proc_info_get_typeinfo_vars_setwise(in, in, out) is det.
 
 :- pred proc_info_ensure_unique_names(proc_info, proc_info).
 :- mode proc_info_ensure_unique_names(in, out) is det.
@@ -1002,17 +1009,17 @@ proc_info_set_termination(ProcInfo0, Terminat, ProcInfo) :-
     ProcInfo = procedure(A, B, C, D, E, F, G, H, I, J, K, L, 
     		M, N, Terminat, P).
 
-proc_info_get_used_typeinfos_setwise(ProcInfo, Vars, TypeInfoVars) :-
+proc_info_get_typeinfo_vars_setwise(ProcInfo, Vars, TypeInfoVars) :-
 	set__to_sorted_list(Vars, VarList),
-	proc_info_get_used_typeinfos_2(ProcInfo, VarList, TypeInfoVarList),
+	proc_info_get_typeinfo_vars_2(ProcInfo, VarList, TypeInfoVarList),
 	set__list_to_set(TypeInfoVarList, TypeInfoVars).
 
 	% auxiliary predicate - traverses variables and builds a list of
 	% variables that store typeinfos for these variables. 
-:- pred proc_info_get_used_typeinfos_2(proc_info, list(var), list(var)).
-:- mode proc_info_get_used_typeinfos_2(in, in, out) is det.
-proc_info_get_used_typeinfos_2(_, [], []).
-proc_info_get_used_typeinfos_2(ProcInfo, [Var | Vars1], TypeInfoVars) :-
+:- pred proc_info_get_typeinfo_vars_2(proc_info, list(var), list(var)).
+:- mode proc_info_get_typeinfo_vars_2(in, in, out) is det.
+proc_info_get_typeinfo_vars_2(_, [], []).
+proc_info_get_typeinfo_vars_2(ProcInfo, [Var | Vars1], TypeInfoVars) :-
 	proc_info_vartypes(ProcInfo, VarTypeMap),
 	( 
 		map__search(VarTypeMap, Var, Type)
@@ -1022,20 +1029,20 @@ proc_info_get_used_typeinfos_2(ProcInfo, [Var | Vars1], TypeInfoVars) :-
 			% Optimize common case
 			TypeVars = []
 		->
-			proc_info_get_used_typeinfos_2(ProcInfo, Vars1, 
+			proc_info_get_typeinfo_vars_2(ProcInfo, Vars1, 
 				TypeInfoVars)
 		;
-			% It's possible there are some complications with
+			% XXX It's possible there are some complications with
 			% higher order pred types here -- if so, maybe
 			% treat them specially.
 			proc_info_typeinfo_varmap(ProcInfo, TVarMap),
 			map__apply_to_list(TypeVars, TVarMap, TypeInfoVars0),
-			proc_info_get_used_typeinfos_2(ProcInfo, Vars1,
+			proc_info_get_typeinfo_vars_2(ProcInfo, Vars1,
 				TypeInfoVars1),
 			list__append(TypeInfoVars0, TypeInfoVars1, TypeInfoVars)
 		)
 	;
-		error("proc_info_get_used_typeinfos_2: var not found in typemap")
+		error("proc_info_get_typeinfo_vars_2: var not found in typemap")
 	).
 
 proc_info_ensure_unique_names(ProcInfo0, ProcInfo) :-

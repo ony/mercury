@@ -21,7 +21,7 @@
 
 :- module io.
 :- interface.
-:- import_module char, int, float, string, std_util, list.
+:- import_module char, string, std_util, list.
 
 %-----------------------------------------------------------------------------%
 
@@ -48,9 +48,11 @@
 
 	% Opaque handles for binary I/O streams.
 
-:- type io__binary_input_stream.
+:- type io__binary_input_stream		==	io__binary_stream.
 
-:- type io__binary_output_stream.
+:- type io__binary_output_stream	==	io__binary_stream.
+
+:- type io__binary_stream.
 
 	% Various types used for the result from the access predicates
 
@@ -86,6 +88,17 @@
 %	;	f(float).
 %
 
+	% io__whence denotes the base for a seek operation.
+	% 	set	- seek relative to the start of the file
+	%	cur	- seek relative to the current position in the file
+	%	end	- seek relative to the end of the file.
+
+:- type io__whence
+	--->	set
+	;	cur
+	;	end
+	.
+
 %-----------------------------------------------------------------------------%
 
 % Text input predicates.
@@ -101,6 +114,11 @@
 :- pred io__read_line(io__result(list(char)), io__state, io__state).
 :- mode io__read_line(out, di, uo) is det.
 %		Reads a line from the current input stream.
+
+:- pred io__read_file(io__result(list(char)), io__state, io__state).
+:- mode io__read_file(out, di, uo) is det.
+%		Reads all the characters from the current input stream until
+%		eof or error.
 
 :- pred io__putback_char(char, io__state, io__state).
 :- mode io__putback_char(in, di, uo) is det.
@@ -122,6 +140,12 @@
 							io__state, io__state).
 :- mode io__read_line(in, out, di, uo) is det.
 %		Reads a line from specified stream.
+
+:- pred io__read_file(io__input_stream, io__result(list(char)),
+							io__state, io__state).
+:- mode io__read_file(in, out, di, uo) is det.
+%		Reads all the characters from the given input stream until
+%		eof or error.
 
 :- pred io__putback_char(io__input_stream, char, io__state, io__state).
 :- mode io__putback_char(in, in, di, uo) is det.
@@ -511,6 +535,17 @@
 %		Reads a single 8-bit byte from the specified binary input
 %		stream.
 
+:- pred io__read_binary_file(io__result(list(int)), io__state, io__state).
+:- mode io__read_binary_file(out, di, uo) is det.
+%		Reads all the bytes from the current binary input stream
+%		until eof or error.
+
+:- pred io__read_binary_file(io__input_stream, io__result(list(int)),
+							io__state, io__state).
+:- mode io__read_binary_file(in, out, di, uo) is det.
+%		Reads all the bytes from the given binary input stream until
+%		eof or error.
+
 :- pred io__putback_byte(int, io__state, io__state).
 :- mode io__putback_byte(in, di, uo) is det.
 %		Un-reads a byte from the current binary input stream.
@@ -570,6 +605,17 @@
 :- pred io__flush_binary_output(io__binary_output_stream, io__state, io__state).
 :- mode io__flush_binary_output(in, di, uo) is det.
 %	Flush the output buffer of the specified binary output stream.
+
+:- pred io__seek_binary(io__binary_stream, io__whence, int,
+		io__state, io__state).
+:- mode io__seek_binary(in, in, in, di, uo) is det.
+%	Seek to an offset relative to Whence (documented above)
+%	on a specified binary stream. Attempting to seek on a
+%	pipe or tty results in implementation dependent behaviour.
+
+:- pred io__binary_stream_offset(io__binary_stream, int, io__state, io__state).
+:- mode io__binary_stream_offset(in, out, di, uo) is det.
+%	Returns the offset (in bytes) into the specified binary stream.
 
 %-----------------------------------------------------------------------------%
 
@@ -768,13 +814,27 @@
 
 %-----------------------------------------------------------------------------%
 
-% returns a unique temporary filename.
 :- pred io__tmpnam(string, io__state, io__state).
 :- mode io__tmpnam(out, di, uo) is det.
+	% io__tmpnam(Name, IO0, IO) binds `Name' to a temporary
+	% file name which is different to the name of any existing file.
+	% It will reside in /tmp if the TMPDIR environment variable
+	% is not set, or in the directory specified by TMPDIR if it
+	% is set.
 
-% deletes a file
+:- pred io__tmpnam(string, string, string, io__state, io__state).
+:- mode io__tmpnam(in, in, out, di, uo) is det.
+	% io__tmpnam(Dir, Prefix, Name, IO0, IO) binds `Name' to a
+	% temporary file name which is different to the name of any
+	% existing file. It will reside in the directory specified by
+	% `Dir' and have a prefix using up to the first 5 characters
+	% of `Prefix'.
+
 :- pred io__remove_file(string, io__res, io__state, io__state).
 :- mode io__remove_file(in, out, di, uo) is det.
+	% io__remove_file(FileName, Result, IO0, IO) attempts to remove the
+	% file `FileName', binding Result to ok/0 if it succeeds, or
+	% error/1 if it fails.
 
 %-----------------------------------------------------------------------------%
 
@@ -869,6 +929,7 @@
 
 :- implementation.
 :- import_module map, dir, term, term_io, varset, require, time, uniq_array.
+:- import_module int, std_util.
 
 :- type io__state
 	---> 	io__state(
@@ -890,8 +951,7 @@
 :- type io__input_stream ==	io__stream.
 :- type io__output_stream ==	io__stream.
 
-:- type io__binary_input_stream ==	io__stream.
-:- type io__binary_output_stream ==	io__stream.
+:- type io__binary_stream ==	io__stream.
 
 :- type io__stream == c_pointer.
 
@@ -1063,6 +1123,56 @@ io__read_line(Stream, Result) -->
 				{ Result = ok([Char]) }
 			)
 		)
+	).
+
+io__read_file(Result) -->
+	io__input_stream(Stream),
+	io__read_file(Stream, Result).
+
+io__read_file(Stream, Result) -->
+	io__read_file_2(Stream, [], Result).
+
+:- pred io__read_file_2(io__input_stream, list(char), io__result(list(char)),
+		io__state, io__state).
+:- mode io__read_file_2(in, in, out, di, uo) is det.
+
+io__read_file_2(Stream, Chars0, Result) -->
+	io__read_char(Stream, Result0),
+	(
+		{ Result0 = eof },
+		{ list__reverse(Chars0, Chars) },
+		{ Result = ok(Chars) }
+	;
+		{ Result0 = error(Err) },
+		{ Result = error(Err) }
+	;
+		{ Result0 = ok(Char) },
+		io__read_file_2(Stream, [Char|Chars0], Result)
+	).
+
+io__read_binary_file(Result) -->
+	io__binary_input_stream(Stream),
+	io__read_binary_file(Stream, Result).
+
+io__read_binary_file(Stream, Result) -->
+	io__read_binary_file_2(Stream, [], Result).
+
+:- pred io__read_binary_file_2(io__input_stream, list(int),
+		io__result(list(int)), io__state, io__state).
+:- mode io__read_binary_file_2(in, in, out, di, uo) is det.
+
+io__read_binary_file_2(Stream, Bytes0, Result) -->
+	io__read_byte(Stream, Result0),
+	(
+		{ Result0 = eof },
+		{ list__reverse(Bytes0, Bytes) },
+		{ Result = ok(Bytes) }
+	;
+		{ Result0 = error(Err) },
+		{ Result = error(Err) }
+	;
+		{ Result0 = ok(Byte) },
+		io__read_binary_file_2(Stream, [Byte|Bytes0], Result)
 	).
 
 io__putback_char(Char) -->
@@ -1268,7 +1378,7 @@ io__write_univ(Univ, Priority) -->
 		% we can't use io__write_uniq_array below... instead we
 		% use the following, which is a bit of a hack.
 		%
-		{ type_to_term(Univ, Term) },
+		{ term__univ_to_term(Univ, Term) },
 		{ varset__init(VarSet) },
 		term_io__write_term(VarSet, Term)
 	;
@@ -1290,7 +1400,7 @@ io__write_univ_as_univ(Univ) -->
 :- mode io__write_ordinary_term(in, in, di, uo) is det.
 
 io__write_ordinary_term(Term, Priority) -->
-	{ expand(Term, Functor, _Arity, Args) },
+	{ deconstruct(Term, Functor, _Arity, Args) },
 	io__get_op_table(OpTable),
 	(
 		{ Functor = "." },
@@ -1413,13 +1523,13 @@ adjust_priority(Priority, x, Priority - 1).
 
 io__write_list_tail(Term) -->
 	( 
-		{ expand(Term, ".", _Arity, [ListHead, ListTail]) }
+		{ deconstruct(Term, ".", _Arity, [ListHead, ListTail]) }
 	->
 		io__write_string(", "),
 		io__write_univ(ListHead),
 		io__write_list_tail(ListTail)
 	;
-		{ expand(Term, "[]", _Arity, []) }
+		{ deconstruct(Term, "[]", _Arity, []) }
 	->
 		[]
 	;
@@ -1479,9 +1589,9 @@ io__write_binary(Stream, Term) -->
 	io__set_binary_output_stream(OrigStream, _Stream).
 
 io__read_binary(Stream, Result) -->
-	io__set_output_stream(Stream, OrigStream),
+	io__set_binary_input_stream(Stream, OrigStream),
 	io__read_binary(Result),
-	io__set_output_stream(OrigStream, _Stream).
+	io__set_binary_input_stream(OrigStream, _Stream).
 
 io__write_binary(Term) -->
 	% a quick-and-dirty implementation... not very space-efficient
@@ -2174,6 +2284,38 @@ io__write_bytes(Message) -->
 	update_io(IO0, IO);
 ").
 
+/* moving about binary streams */
+
+:- pred whence_to_int(io__whence::in, int::out) is det.
+
+whence_to_int(set, 0).
+whence_to_int(cur, 1).
+whence_to_int(end, 2).
+
+io__seek_binary(Stream, Whence, Offset, IO0, IO) :-
+	whence_to_int(Whence, Flag),
+	io__seek_binary_2(Stream, Flag, Offset, IO0, IO).
+
+:- pred io__seek_binary_2(io__stream, int, int, io__state, io__state).
+:- mode io__seek_binary_2(in, in, in, di, uo) is det.
+
+:- pragma c_code(io__seek_binary_2(Stream::in, Flag::in, Off::in,
+	IO0::di, IO::uo),
+"{
+	static const int seek_flags[] = { SEEK_SET, SEEK_CUR, SEEK_END };
+	MercuryFile *stream = (MercuryFile *) Stream;
+	fseek(stream->file, Off, seek_flags[Flag]);
+	IO = IO0;
+}").
+
+:- pragma c_code(io__binary_stream_offset(Stream::in, Offset::out,
+		IO0::di, IO::uo),
+"{
+	MercuryFile *stream = (MercuryFile *) Stream;
+	Offset = ftell(stream->file);
+	IO = IO0;
+}").
+
 /* output predicates - with output to the specified stream */
 
 io__write_string(Stream, Message) -->
@@ -2492,18 +2634,100 @@ io__write_char(Stream, Character) -->
 ").
 
 /*---------------------------------------------------------------------------*/
+
+	% We need to do an explicit check of TMPDIR because not all
+	% systems check TMPDIR for us (eg Linux #$%*@&).
+io__tmpnam(Name) -->
+	io__get_environment_var("TMPDIR", Result),
+	(
+		{ Result = yes(Dir) },
+		io__tmpnam(Dir, "mtmp", Name)
+	;
+		{ Result = no },
+		io__tmpnam_2(Name)
+	).
+
+:- pred io__tmpnam_2(string::out, io__state::di, io__state::uo) is det.
+
 %#include <stdio.h>
-:- pragma(c_code, io__tmpnam(FileName::out, IO0::di, IO::uo), "{
+:- pragma(c_code, io__tmpnam_2(FileName::out, IO0::di, IO::uo), "{
 	Word tmp;
 
 	incr_hp_atomic(tmp, (L_tmpnam + sizeof(Word)) / sizeof(Word));
 	if (tmpnam((char *)tmp) == NULL) {
-		fprintf(stderr,
-		  ""Mercury runtime: unable to create temporary filename\\n"");
-		exit(1);
+		fatal_error(""unable to create temporary filename"");
 	}
 	FileName = (char *)tmp;
 	update_io(IO0, IO);
+}").
+
+/*---------------------------------------------------------------------------*/
+
+%#include <stdio.h>
+
+:- pragma c_header_code("
+#ifndef IO_HAVE_TEMPNAM
+	#include <sys/stat.h>
+	#include <unistd.h>
+	extern int	ML_io_tempnam_counter;
+	#define	MAX_TEMPNAME_TRIES	5
+#endif
+").
+
+:- pragma c_code("
+#ifndef IO_HAVE_TEMPNAM
+	int	ML_io_tempnam_counter = 0;
+#endif
+").
+
+:- pragma(c_code, io__tmpnam(Dir::in, Prefix::in, FileName::out,
+		IO0::di, IO::uo), "{
+#ifdef	IO_HAVE_TEMPNAM
+	String tmp;
+
+	tmp = tempnam(Dir, Prefix);
+	if (tmp  == NULL) {
+		fatal_error(""unable to create temporary filename"");
+	}
+	incr_saved_hp_atomic(LVALUE_CAST(Word *,FileName),
+		(strlen(tmp) + sizeof(Word)) / sizeof(Word));
+	strcpy(FileName, tmp);
+	free(tmp);
+	update_io(IO0, IO);
+#else
+	/*
+	** tempnam was unavailable, so construct a temporary name by
+	** concatenating Dir, `/', the first 5 chars of Prefix, and
+	** a three digit number. The three digit number is generated
+	** by starting with the pid of this process.
+	** Stat is used to check that the file does not exist.
+	*/
+	int	len, err, num_tries;
+	char	countstr[256];
+	struct stat buf;
+
+	len = strlen(Dir) + 1+ 5 + 3 + 1; /* Dir + / + Prefix + counter + \\0 */
+	incr_saved_hp_atomic(LVALUE_CAST(Word *,FileName),
+		(len + sizeof(Word)) / sizeof(Word));
+	if (ML_io_tempnam_counter == 0)
+		ML_io_tempnam_counter = getpid();
+	num_tries=0;
+	do {
+		sprintf(countstr, ""%0d"", ML_io_tempnam_counter % 1000);
+		ML_io_tempnam_counter++;
+		strcpy(FileName, Dir);
+		strcat(FileName, ""/"");
+		strncat(FileName, Prefix, 5);
+		strncat(FileName, countstr, 3);
+		err = stat(FileName, &buf);
+		num_tries++;
+	} while (err != -1 && errno != ENOENT
+		&& num_tries < MAX_TEMPNAME_TRIES);
+	if (err != -1 && errno != ENOENT) {
+		fatal_error(""unable to create temporary filename"");
+	}
+	update_io(IO0, IO);
+#endif
 }").
 
 /*---------------------------------------------------------------------------*/

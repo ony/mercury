@@ -37,8 +37,8 @@
 :- implementation.
 
 :- import_module hlds_goal, hlds_out, goal_util, quantification, passes_aux.
-:- import_module mode_util.
-:- import_module bool, list, set, map, std_util, varset.
+:- import_module mode_util, prog_data.
+:- import_module bool, list, set, map, std_util, term, varset.
 
 %-----------------------------------------------------------------------------%
 
@@ -118,7 +118,7 @@ saved_vars_in_goal(GoalExpr0 - GoalInfo0, SlotInfo0, Goal, SlotInfo) :-
 		Goal = GoalExpr0 - GoalInfo0,
 		SlotInfo = SlotInfo0
 	;
-		GoalExpr0 = pragma_c_code(_, _, _, _, _, _, _),
+		GoalExpr0 = pragma_c_code(_, _, _, _, _, _, _, _),
 		Goal = GoalExpr0 - GoalInfo0,
 		SlotInfo = SlotInfo0
 	),
@@ -274,7 +274,7 @@ saved_vars_delay_goal([Goal0 | Goals0], Construct, Var, IsNonLocal, SlotInfo0,
 				IsNonLocal, SlotInfo1, Goals1, SlotInfo),
 			Goals = [NewConstruct, Goal1 | Goals1]
 		;
-			Goal0Expr = pragma_c_code(_, _, _, _, _, _, _),
+			Goal0Expr = pragma_c_code(_, _, _, _, _, _, _, _),
 			rename_var(SlotInfo0, Var, _NewVar, Subst, SlotInfo1),
 			goal_util__rename_vars_in_goal(Construct, Subst,
 				NewConstruct),

@@ -179,7 +179,7 @@ intermod__gather_preds([PredId | PredIds], CollectTypes, InlineThreshold) -->
 				{ inlining__is_simple_goal(Goal,
 						InlineThreshold) }
 			;
-				{ pred_info_is_inlined(PredInfo0) }
+				{ pred_info_requested_inlining(PredInfo0) }
 			;
 				{ has_ho_input(ModuleInfo0, ProcInfo) }
 			)
@@ -354,11 +354,20 @@ intermod__traverse_goal(
 	intermod_info_get_tvarset(TVarSet),
 	( { invalid_pred_id(PredId0) } ->
 		{ typecheck__resolve_pred_overloading(ModuleInfo, Args,
-			VarTypes, TVarSet, PredName0, PredName, PredId) }
+			VarTypes, TVarSet, PredName0, PredName1, PredId) }
 	;
 		{ PredId = PredId0 },
-		{ PredName = PredName0 }
+		{ PredName1 = PredName0 }
 	),	
+	(
+		{ PredName1 = qualified(_, _) },
+		{ PredName = PredName1 }
+	;
+		{ PredName1 = unqualified(Name) },
+		{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
+		{ pred_info_module(PredInfo, PredModule) },
+		{ PredName = qualified(PredModule, Name) }
+	),
 	(
 		% We don't need to export complicated unification
 		% pred declarations, since they will be recreated when 
@@ -399,8 +408,8 @@ intermod__traverse_goal(if_then_else(Vars, Cond0, Then0, Else0, SM) - Info,
 
 	% Inlineable exported pragma_c_code goals can't use any
 	% non-exported types, so we just write out the clauses. 
-intermod__traverse_goal(pragma_c_code(A,B,C,D,E,F,G) - Info,
-			pragma_c_code(A,B,C,D,E,F,G) - Info, yes) --> [].
+intermod__traverse_goal(pragma_c_code(A,B,C,D,E,F,G,H) - Info,
+			pragma_c_code(A,B,C,D,E,F,G,H) - Info, yes) --> [].
 
 
 :- pred intermod__traverse_list_of_goals(hlds_goals::in, hlds_goals::out,
@@ -598,7 +607,7 @@ intermod__gather_pred_modes(_, _, _, _, []) --> [].
 intermod__gather_pred_modes(ModuleInfo, Modes, Insts, Procs, [ProcId | ProcIds])
 		-->
 	{ map__lookup(Procs, ProcId, ProcInfo) }, 
-	{ proc_info_argmodes(ProcInfo, ArgModes) },
+	{ proc_info_declared_argmodes(ProcInfo, ArgModes) },
 	intermod__gather_proc_modes(ModuleInfo, Modes, Insts, ArgModes),
 	intermod__gather_pred_modes(ModuleInfo, Modes, Insts, Procs, ProcIds).
 
@@ -702,7 +711,7 @@ intermod__write_intermod_info(IntermodInfo) -->
 	mercury_output_bracketed_constant(term__atom(ModName)),
 	io__write_string(".\n"),
 	( { Modules \= [] } ->
-		io__write_string(":- import_module "),
+		io__write_string(":- use_module "),
 		intermod__write_modules(Modules)
 	;
 		[]
@@ -966,14 +975,14 @@ intermod__write_c_code(SymName, PredOrFunc, HeadVars, Varset,
 			{ Goal = conj(Goals) - _ },
 			{ list__filter(
 				lambda([X::in] is semidet, (
-					X = pragma_c_code(_,_,_,_,_,_,_) - _
+					X = pragma_c_code(_,_,_,_,_,_,_,_) - _
 				)),
 				Goals, [CCodeGoal]) },
 			{ CCodeGoal = pragma_c_code(CCode, MayCallMercury,
-						_, _, Vars, _, _) - _ }
+						_, _, Vars, _, _, _) - _ }
 		;
 			{ Goal = pragma_c_code(CCode, MayCallMercury,
-						_, _, Vars, _, _) - _ }
+						_, _, Vars, _, _, _) - _ }
 		)
 	->	
 		intermod__write_c_clauses(Procs, ProcIds, PredOrFunc, CCode, 
@@ -1202,7 +1211,8 @@ intermod__grab_optfiles(Module0, Module, FoundError) -->
 	{ list__sort_and_remove_dups(DirectImports0, DirectImports1) },
 	read_optimization_interfaces(DirectImports1, [],
 		OptItems, no, OptError),
-	{ get_dependencies(OptItems, NewDeps0) },
+	{ get_dependencies(OptItems, NewImportDeps0, NewUseDeps0) },
+	{ list__append(NewImportDeps0, NewUseDeps0, NewDeps0) },
 	{ set__list_to_set(NewDeps0, NewDepsSet0) },
 	{ set__delete_list(NewDepsSet0, [ModuleName | DirectImports1],
 						NewDepsSet) },

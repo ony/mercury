@@ -17,7 +17,7 @@
 
 :- module uniq_array.
 :- interface.
-:- import_module int, list.
+:- import_module list, term.
 
 :- type uniq_array(T).
 
@@ -152,9 +152,6 @@
 	% order.  Fails if the element is not present.  If the
 	% element to be found appears multiple times, the index of
 	% the first occurrence is returned.
-	% call/N currently does not allow output arguments to come
-	% before input arguments, so you can't just pass compare/3
-	% in here. :-(
 :- pred uniq_array__bsearch(uniq_array(T), T, pred(T, T, comparison_result),
 		maybe(int)).
 :- mode uniq_array__bsearch(uniq_array_ui, in, pred(in, in, out) is det,
@@ -190,7 +187,7 @@
 :- pred uniq_array_to_term(uniq_array(T), term).
 :- mode uniq_array_to_term(in, out) is det.
 
-	% term_to_type/3 for uniq_arrays
+	% term_to_type/2 for uniq_arrays
 
 :- pred uniq_array_from_term(term, uniq_array(T)).
 :- mode uniq_array_from_term(in, out) is semidet.
@@ -198,7 +195,7 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module std_util.
+:- import_module std_util, int.
 
 :- type uniq_array(T).
 

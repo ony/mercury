@@ -20,8 +20,7 @@
 % argument for every type variable in the predicate's type declaration.
 % The argument gives information about the type, including higher-order
 % predicate variables for each of the builtin polymorphic operations
-% (currently unify/2, compare/3, index/2, term_to_type/2 and type_to_term/2,
-% although the last two are usually omitted to improve compilation speed).
+% (currently unify/2, compare/3, index/2).
 %
 %-----------------------------------------------------------------------------%
 %
@@ -31,25 +30,8 @@
 % SIMILAR CHANGES TO THE #defines IN "runtime/type_info.h"
 % AND VICE VERSA.
 %
-% We can use one of two ways to represent the type information.
-%
-% The old way has one cell, the type_info structure, laid out like this:
-%
-%	word 0		<arity of type constructor>
-%			e.g. 0 for `int', 1 for `list(T)', 2 for `map(K, V)'.
-%	word 1		<=/2 predicate for type>
-%	word 2		<index/2 predicate for type>
-%	word 3		<compare/3 predicate for type>
-%	word 4+		<the type_infos for the type params, if any>
-%
-%	or if using type_to_term predicates:
-%
-%	word 4		<term_to_type/2 predicate for type>
-%	word 5		<type_to_term/2 predicate for type>
-%	word 6+		<the type_infos for the type params, if any>
-%
-% The new way uses one or two cells. The cell which is always present
-% is the base_type_info structure, laid out like this:
+% Type information is represented using one or two cells. The cell which
+% is always present is the base_type_info structure, laid out like this:
 %
 %	word 0		<arity of type constructor>
 %			e.g. 0 for `int', 1 for `list(T)', 2 for `map(K, V)'.
@@ -61,14 +43,6 @@
 %	word 6		<string name of type>
 %			e.g. "int" for `int', "list" for `list(T)',
 %			"map" for `map(K,V)'
-%
-%	or if using type_to_term predicates:
-%
-%	word 4		<term_to_type/2 predicate for type>
-%	word 5		<type_to_term/2 predicate for type>
-%	word 6		<base_type_layout for type>
-%	word 7		<base_type_functors for type>
-%	word 8		<string name of type>
 %
 % The other cell is the new type_info structure, laid out like this:
 %
@@ -107,29 +81,23 @@
 %
 % Sharing one-or-two-cell structures:
 %
-% Whereas the old type_info structures are often different for different
-% references to a type which takes one or more type parameters, the
-% base_type_info structures will be the same for all references to the type.
-%
 % For compilation models that can put code addresses in static ground terms,
 % we can arrange to create one copy of the base_type_info structure statically,
 % avoiding the need to create other copies at runtime. For compilation models
 % that cannot put code addresses in static ground terms, we have several
 % options:
 %
-% 	1. use this one or two cell representation, allocating all cells 
+% 	1. use a one or two cell representation, but allocate all cells 
 % 	   at runtime.
-%	2. use the old one cell representation, allocating all cells at
+%	2. use another representation, allocating all cells at
 %	   runtime.
 %	3. use a shared static base_type_info, but initialize its code
 %	   addresses during startup (that is, during the module
 %	   initialization code).
 %
 % Presently, shared-one-or-two cells are the default, with grades that
-% cannot use static code addresses using option 3.  It is likely that in
-% future, support for one-cell representation, and non-shared
-% one-or-two-cell representations will be dropped, simply to reduce the
-% complexity of the polymorphism system.
+% cannot use static code addresses using option 3.  Support for older
+% type_info representations has been dropped. 
 %
 %-----------------------------------------------------------------------------%
 %
@@ -144,35 +112,13 @@
 %
 %	p(X) :- q([X]), r(0).
 %
-% All three methods (one_cell, one_or_two_cell, shared_one_or_two_cell)
-% add an extra argument for each type variable:
+% We add an extra argument for each type variable:
 %
 %	:- pred p(type_info(T1), T1).
 %	:- pred q(type_info(T2), T2).
 %	:- pred r(type_info(T3), T3).
 %
-% With the one_cell representation, we transform the body of p to this:
-%
-%	p(TypeInfoT1, X) :-
-%		TypeInfoT2 = type_info(
-%			1,
-%			'__Unify__'<list/1>,
-%			'__Index__'<list/1>,
-%			'__Compare__'<list/1>,
-%			'__Term_To_Type__'<list/1>,
-%			'__Type_To_Term__'<list/1>,
-%			TypeInfoT1),
-%		q(TypeInfoT2, [X]),
-%		TypeInfoT3 = type_info(
-%			0,
-%			builtin_unify_int,
-%			builtin_index_int,
-%			builtin_compare_int,
-%			builtin_term_to_type_int,
-%			builtin_type_to_term_int,
-%		r(TypeInfoT3, 0).
-%
-% With the one_or_two_cell representation, we transform the body of p to this:
+% We transform the body of p to this:
 %
 %	p(TypeInfoT1, X) :-
 %		BaseTypeInfoT2 = base_type_info(
@@ -180,8 +126,6 @@
 %			'__Unify__'<list/1>,
 %			'__Index__'<list/1>,
 %			'__Compare__'<list/1>,
-%			'__Term_To_Type__'<list/1>,
-%			'__Type_To_Term__'<list/1>,
 %			<base_type_layout for list/1>,
 %			<base_type_functors for list/1>,
 %			"list"),
@@ -194,18 +138,13 @@
 %			builtin_unify_int,
 %			builtin_index_int,
 %			builtin_compare_int,
-%			builtin_term_to_type_int,
-%			builtin_type_to_term_int,
 %			<base_type_layout for int/0>,
 %			<base_type_functors for int/0>,
 %			"int"),
 %		r(TypeInfoT3, 0).
 %
-% With the shared_one_or_two_cell representation, we transform the body of p
-% to the same as one_or_two_cell, but the unifications with
-% base_type_info(...) are generated as references to the single
-% definition of base_type_info (which is generated in the module that
-% defines it).
+% Note that base_type_infos are actually generated as references to a
+% single shared base_type_info.
 %
 %-----------------------------------------------------------------------------%
 
@@ -328,11 +267,11 @@ polymorphism__fixup_preds([PredId | PredIds], ModuleInfo0, ModuleInfo) :-
 		pred_info_set_arg_types(PredInfo0, TypeVarSet, ArgTypes,
 			PredInfo),
 		map__det_update(PredTable0, PredId, PredInfo, PredTable),
-		module_info_set_preds(ModuleInfo0, PredTable, ModuleInfo1),
-		polymorphism__fixup_preds(PredIds, ModuleInfo1, ModuleInfo)
+		module_info_set_preds(ModuleInfo0, PredTable, ModuleInfo1)
 	;
-		ModuleInfo = ModuleInfo0
-	).
+		ModuleInfo1 = ModuleInfo0
+	),
+	polymorphism__fixup_preds(PredIds, ModuleInfo1, ModuleInfo).
 
 %---------------------------------------------------------------------------%
 
@@ -426,8 +365,10 @@ polymorphism__process_goal_expr(call(PredId0, ProcId0, ArgVars0,
 		{ special_pred_get_type(MangledPredName, ArgVars0, MainVar) },
 		{ map__lookup(VarTypes, MainVar, Type) },
 		{ Type \= term__variable(_) },
-		% don't try this for type_to_term or term_to_type
-		% if they're not implemented
+
+		% don't try this for any special preds if they're not
+		% implemented
+
 		{ special_pred_list(SpecialPredIds) },
 		{ list__member(SpecialPredId, SpecialPredIds) }
 	->
@@ -573,7 +514,8 @@ polymorphism__process_goal_expr(if_then_else(Vars, A0, B0, C0, SM), GoalInfo,
 	polymorphism__process_goal(C0, C).
 
 polymorphism__process_goal_expr(pragma_c_code(IsRecursive, C_Code, PredId,
-		ProcId, ArgVars0, ArgNames0, ExtraInfo), GoalInfo, Goal) -->
+		ProcId, ArgVars0, ArgNames0, OrigArgTypes0, ExtraInfo),
+		GoalInfo, Goal) -->
 	polymorphism__process_call(PredId, ProcId, ArgVars0,
 		ArgVars, ExtraVars, ExtraGoals),
 	%
@@ -597,10 +539,20 @@ polymorphism__process_goal_expr(pragma_c_code(IsRecursive, C_Code, PredId,
 			PredTypeVarSet, ArgNames0, ArgNames) },
 
 	%
+	% insert type_info types for all the inserted type_info vars
+	% into the arg-types list
+	%
+	{ MakeType = lambda([TypeVar::in, TypeInfoType::out] is det,
+		construct_type(qualified("mercury_builtin", "type_info") - 1,
+			[term__variable(TypeVar)], TypeInfoType)) },
+	{ list__map(MakeType, PredTypeVars, TypeInfoTypes) },
+	{ list__append(TypeInfoTypes, OrigArgTypes0, OrigArgTypes) },
+
+	%
 	% plug it all back together
 	%
 	{ Call = pragma_c_code(IsRecursive, C_Code, PredId, ProcId, ArgVars,
-			ArgNames, ExtraInfo) - CallGoalInfo },
+			ArgNames, OrigArgTypes, ExtraInfo) - CallGoalInfo },
 	{ list__append(ExtraGoals, [Call], GoalList) },
 	{ conj_list_to_goal(GoalList, GoalInfo, Goal) }.
 
@@ -654,7 +606,7 @@ polymorphism__process_case_list([Case0 | Cases0], [Case | Cases]) -->
 polymorphism__process_call(PredId, _ProcId, ArgVars0, ArgVars,
 				ExtraVars, ExtraGoals, Info0, Info) :-
 	Info0 = poly_info(VarSet0, VarTypes0, TypeVarSet0,
-				TypeInfoMap, ModuleInfo),
+				TypeInfoMap0, ModuleInfo),
 	module_info_pred_info(ModuleInfo, PredId, PredInfo),
 	pred_info_arg_types(PredInfo, PredTypeVarSet, PredArgTypes0),
 		% rename apart
@@ -680,9 +632,10 @@ polymorphism__process_call(PredId, _ProcId, ArgVars0, ArgVars,
 		term__var_list_to_term_list(PredTypeVars, PredTypes0),
 		term__apply_rec_substitution_to_list(PredTypes0, TypeSubst,
 			PredTypes),
-		polymorphism__make_vars(PredTypes, ModuleInfo, TypeInfoMap,
+		polymorphism__make_vars(PredTypes, ModuleInfo, TypeInfoMap0,
 				VarSet0, VarTypes0,
-				ExtraVars, ExtraGoals, VarSet, VarTypes),
+				ExtraVars, TypeInfoMap, ExtraGoals, VarSet, 
+				VarTypes),
 		list__append(ExtraVars, ArgVars0, ArgVars),
 		Info = poly_info(VarSet, VarTypes, TypeVarSet,
 				TypeInfoMap, ModuleInfo)
@@ -738,27 +691,33 @@ polymorphism__process_lambda(PredOrFunc, Vars, Modes, Det, OrigNonLocals,
 % Update the varset and vartypes accordingly.
 
 :- pred polymorphism__make_vars(list(type), module_info, map(tvar, var),
-	varset, map(var, type), list(var), list(hlds_goal),
+	varset, map(var, type), list(var), map(tvar, var), list(hlds_goal),
 	varset, map(var, type)).
-:- mode polymorphism__make_vars(in, in, in, in, in, out, out, out, out) is det.
+:- mode polymorphism__make_vars(in, in, in, in, in, out, out, out, out, 
+	out) is det.
 
-polymorphism__make_vars([], _, _, VarSet, VarTypes, [], [], VarSet, VarTypes).
-polymorphism__make_vars([Type | Types], ModuleInfo, TypeInfoMap,
-		VarSet0, VarTypes0, ExtraVars, ExtraGoals, VarSet, VarTypes) :-
-	polymorphism__make_var(Type, ModuleInfo, TypeInfoMap,
-		VarSet0, VarTypes0, Var, ExtraGoals1, VarSet1, VarTypes1),
-	polymorphism__make_vars(Types, ModuleInfo, TypeInfoMap,
-		VarSet1, VarTypes1, ExtraVars2, ExtraGoals2, VarSet, VarTypes),
+polymorphism__make_vars([], _, TypeInfoMap, VarSet, VarTypes, [], TypeInfoMap,
+		[], VarSet, VarTypes).
+polymorphism__make_vars([Type | Types], ModuleInfo, TypeInfoMap0,
+		VarSet0, VarTypes0, ExtraVars, TypeInfoMap, ExtraGoals, 
+		VarSet, VarTypes) :-
+	polymorphism__make_var(Type, ModuleInfo, TypeInfoMap0,
+		VarSet0, VarTypes0, Var, TypeInfoMap1, ExtraGoals1, VarSet1,
+		VarTypes1),
+	polymorphism__make_vars(Types, ModuleInfo, TypeInfoMap1,
+		VarSet1, VarTypes1, ExtraVars2, TypeInfoMap, ExtraGoals2, 
+		VarSet, VarTypes),
 	ExtraVars = [Var | ExtraVars2],
 	list__append(ExtraGoals1, ExtraGoals2, ExtraGoals).
 
-:- pred polymorphism__make_var(type, module_info, map(tvar, var),
-	varset, map(var, type), var, list(hlds_goal),
+:- pred polymorphism__make_var(type, module_info, map(tvar, var), 
+	varset, map(var, type), var, map(tvar, var), list(hlds_goal),
 	varset, map(var, type)).
-:- mode polymorphism__make_var(in, in, in, in, in, out, out, out, out) is det.
+:- mode polymorphism__make_var(in, in, in, in, in, out, out, out, out, out) 
+	is det.
 
-polymorphism__make_var(Type, ModuleInfo, TypeInfoMap,
-		VarSet0, VarTypes0, Var, ExtraGoals, VarSet, VarTypes) :-
+polymorphism__make_var(Type, ModuleInfo, TypeInfoMap0, VarSet0, VarTypes0, 
+		Var, TypeInfoMap, ExtraGoals, VarSet, VarTypes) :-
 	(
 		type_is_higher_order(Type, _PredOrFunc, TypeArgs)
 	->
@@ -774,8 +733,8 @@ polymorphism__make_var(Type, ModuleInfo, TypeInfoMap,
 		% the type_info of higher-order types.
 		TypeId = unqualified("pred") - 0,
 		polymorphism__construct_type_info(Type, TypeId, TypeArgs,
-			yes, ModuleInfo, TypeInfoMap, VarSet0, VarTypes0,
-			Var, ExtraGoals, VarSet, VarTypes)
+			yes, ModuleInfo, TypeInfoMap0, VarSet0, VarTypes0,
+			Var, TypeInfoMap, ExtraGoals, VarSet, VarTypes)
 	;
 		type_to_type_id(Type, TypeId, TypeArgs)
 	->
@@ -785,11 +744,11 @@ polymorphism__make_var(Type, ModuleInfo, TypeInfoMap,
 		% at the top of the module.
 
 		polymorphism__construct_type_info(Type, TypeId, TypeArgs,
-			no, ModuleInfo, TypeInfoMap, VarSet0, VarTypes0,
-			Var, ExtraGoals, VarSet, VarTypes)
+			no, ModuleInfo, TypeInfoMap0, VarSet0, VarTypes0,
+			Var, TypeInfoMap, ExtraGoals, VarSet, VarTypes)
 	;
 		Type = term__variable(TypeVar1),
-		map__search(TypeInfoMap, TypeVar1, TypeInfoVar)
+		map__search(TypeInfoMap0, TypeVar1, TypeInfoVar)
 	->
 		% This occurs for code where a predicate calls a polymorphic
 		% predicate with a bound but unknown value of the type variable.
@@ -810,8 +769,11 @@ polymorphism__make_var(Type, ModuleInfo, TypeInfoMap,
 		Var = TypeInfoVar,
 		ExtraGoals = [],
 		VarSet = VarSet0,
-		VarTypes = VarTypes0
+		VarTypes = VarTypes0,
+		TypeInfoMap = TypeInfoMap0
 	;
+		Type = term__variable(TypeVar1)
+	->
 		% This occurs for code where a predicate calls a polymorphic
 		% predicate with an unbound type variable, for example
 		%
@@ -843,85 +805,31 @@ polymorphism__make_var(Type, ModuleInfo, TypeInfoMap,
 		% variable to zero
 		TypeId = unqualified("void") - 0,
 		polymorphism__construct_type_info(Type, TypeId, [],
-			no, ModuleInfo, TypeInfoMap, VarSet0, VarTypes0,
-			Var, ExtraGoals, VarSet, VarTypes)
+			no, ModuleInfo, TypeInfoMap0, VarSet0, VarTypes0,
+			Var, TypeInfoMap1, ExtraGoals, VarSet, VarTypes),
+		map__det_insert(TypeInfoMap1, TypeVar1, Var, TypeInfoMap)
+	;
+		error("polymorphism__make_var: unknown type")
 	).
 
 :- pred polymorphism__construct_type_info(type, type_id, list(type),
 	bool, module_info, map(tvar, var), varset, map(var, type),
-	var, list(hlds_goal), varset, map(var, type)).
+	var, map(tvar, var), list(hlds_goal), varset, map(var, type)).
 :- mode polymorphism__construct_type_info(in, in, in, in, in, in, in, in,
-	out, out, out, out) is det.
+	out, out, out, out, out) is det.
 
 polymorphism__construct_type_info(Type, TypeId, TypeArgs, IsHigherOrder, 
-		ModuleInfo, TypeInfoMap, VarSet0, VarTypes0,
-		Var, ExtraGoals, VarSet, VarTypes) :-
+		ModuleInfo, TypeInfoMap0, VarSet0, VarTypes0,
+		Var, TypeInfoMap, ExtraGoals, VarSet, VarTypes) :-
 
 	% Create the typeinfo vars for the arguments
-	polymorphism__make_vars(TypeArgs, ModuleInfo, TypeInfoMap,
-		VarSet0, VarTypes0, ArgTypeInfoVars, ArgTypeInfoGoals,
-		VarSet1, VarTypes1),
+	polymorphism__make_vars(TypeArgs, ModuleInfo, TypeInfoMap0,
+		VarSet0, VarTypes0, ArgTypeInfoVars, TypeInfoMap, 
+		ArgTypeInfoGoals, VarSet1, VarTypes1),
 
 	module_info_globals(ModuleInfo, Globals),
 	globals__get_type_info_method(Globals, TypeInfoMethod),
 	(
-		TypeInfoMethod = one_cell,
-
-		% Create a unification for the one-cell style type_info
-		% variable for this type:
-		%	TypeInfoVar = type_info(
-		%				CountVar,
-		%				SpecialPredVars...,
-		%				ArgTypeInfoVars...).
-		%
-		% For closures, the CountVar contains the correct actual
-		% arity, so no changes are necessary (this is not true
-		% of other type_info representations).
-
-		list__length(TypeArgs, TypeArity),
-		polymorphism__make_count_var(TypeArity, VarSet1, VarTypes1,
-			CountVar, CountGoal, VarSet2, VarTypes2),
-		polymorphism__get_special_proc_list(Type, ModuleInfo,
-			VarSet2, VarTypes2, SpecialPredVars, SpecialPredGoals,
-			VarSet3, VarTypes3),
-
-		list__append([CountVar | SpecialPredVars], ArgTypeInfoVars,
-			ArgVars),
-		polymorphism__init_type_info_var(Type, ArgVars, "type_info",
-			VarSet3, VarTypes3, Var, TypeInfoGoal,
-			VarSet, VarTypes),
-
-		list__append([CountGoal | SpecialPredGoals],
-			ArgTypeInfoGoals, ExtraGoals0),
-		list__append(ExtraGoals0, [TypeInfoGoal], ExtraGoals)
-	;
-		TypeInfoMethod = one_or_two_cell,
-
-		% Create a unification for the base_type_info
-		% variable for this type:
-		%	BaseVar = base_type_info(
-		%			CountVar,
-		%			SpecialPredVars...)
-
-		list__length(TypeArgs, TypeArity),
-		polymorphism__make_count_var(TypeArity, VarSet1, VarTypes1,
-			CountVar, CountGoal, VarSet2, VarTypes2),
-		polymorphism__get_special_proc_list(Type, ModuleInfo,
-			VarSet2, VarTypes2, SpecialPredVars, SpecialPredGoals,
-			VarSet3, VarTypes3),
-
-		polymorphism__init_type_info_var(Type,
-			[CountVar | SpecialPredVars], "base_type_info",
-			VarSet3, VarTypes3, BaseVar, BaseGoal,
-			VarSet4, VarTypes4),
-
-		list__append([CountGoal | SpecialPredGoals], [BaseGoal],
-			ExtraGoals0),
-		polymorphism__maybe_init_second_cell(ArgTypeInfoVars,
-			ArgTypeInfoGoals, Type, IsHigherOrder,
-			BaseVar, VarSet4, VarTypes4, ExtraGoals0,
-			Var, VarSet, VarTypes, ExtraGoals)
-	;
 		TypeInfoMethod = shared_one_or_two_cell,
 
 		polymorphism__init_const_base_type_info_var(Type,
@@ -1040,9 +948,7 @@ polymorphism__init_with_int_constant(CountVar, Num, CountUnifyGoal) :-
 	%
 	%	SpecialPred1 = __Unify__<type>,
 	%	SpecialPred2 = __Index__<type>,
-	%	SpecialPred3 = __Compare__<type>,
-	%	SpecialPred4 = __Term_To_Type__<type>,
-	%	SpecialPred5 = __Type_To_Term__<type>.
+	%	SpecialPred3 = __Compare__<type>.
 
 :- pred polymorphism__get_special_proc_list(
 			type, module_info, varset, map(var, type),

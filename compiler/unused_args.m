@@ -53,7 +53,7 @@
 :- import_module passes_aux, inst_match.
 
 :- import_module bool, char, int, list, map, require.
-:- import_module set, std_util, string, varset. 
+:- import_module set, std_util, string, term, varset. 
 
 		% Information about the dependencies of a variable
 		% that is not known to be used.
@@ -395,7 +395,7 @@ traverse_goal(_, higher_order_call(PredVar,Args,_,_,_), UseInf0, UseInf) :-
 	set_list_vars_used(UseInf0, [PredVar|Args], UseInf).
 
 % handle pragma(c_code, ...) - pragma_c_code uses all its args
-traverse_goal(_, pragma_c_code(_, _, _, _, Args, _, _), UseInf0, UseInf) :-
+traverse_goal(_, pragma_c_code(_, _, _, _, Args, _, _, _), UseInf0, UseInf) :-
 	set_list_vars_used(UseInf0, Args, UseInf).
 
 % cases to handle all the different types of unification
@@ -883,18 +883,12 @@ make_new_pred_info(ModuleInfo, PredInfo0, UnusedArgs, NameSuffix, Status,
 	remove_listof_elements(ArgTypes0, 1, UnusedArgs, ArgTypes),
 	pred_info_context(PredInfo0, Context),
 	pred_info_clauses_info(PredInfo0, ClausesInfo),
-	(
-		pred_info_is_inlined(PredInfo0)
-	->
-		Inline = yes
-	;
-		Inline = no
-	),
+	pred_info_get_marker_list(PredInfo0, MarkerList),
 	pred_info_get_goal_type(PredInfo0, GoalType),
 		% *** This will need to be fixed when the condition
 		%	field of the pred_info becomes used.
 	pred_info_init(PredModule, qualified(PredModule, Name), Arity, Tvars,
-		ArgTypes, true, Context, ClausesInfo, Status, Inline,
+		ArgTypes, true, Context, ClausesInfo, Status, MarkerList,
 		GoalType, PredOrFunc, PredInfo1),
 	pred_info_set_typevarset(PredInfo1, TypeVars, PredInfo).
 
@@ -1197,7 +1191,7 @@ fixup_goal_expr(_ModuleInfo, _UnusedVars, _ProcCallInfo, no,
 
 fixup_goal_expr(_ModuleInfo, _UnusedVars, _ProcCallInfo, no,
 			GoalExpr - GoalInfo, GoalExpr - GoalInfo) :-
-	GoalExpr = pragma_c_code(_, _, _, _, _, _, _).
+	GoalExpr = pragma_c_code(_, _, _, _, _, _, _, _).
 
 	% Remove useless unifications from a list of conjuncts.
 :- pred fixup_conjuncts(module_info::in, list(var)::in, proc_call_info::in,

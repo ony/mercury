@@ -3,7 +3,7 @@
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 **
-** $Id: dict.h,v 1.2 1997-05-29 09:52:58 aet Exp $
+** $Id: dict.h,v 1.2.2.1 1997-07-11 09:25:08 crs Exp $
 */
 
 

@@ -132,6 +132,7 @@ build_live_sets_in_goal(Goal0 - GoalInfo, Liveness0, ResumeVars0, LiveSets0,
 		% Add extra interference for variables that become live
 		% and variables that be come dead in this goal.
 	(
+/*******
 		% goal_is_atomic(Goal0)
 		fail
 		% NB: `fail' is a conservative approximation
@@ -141,6 +142,7 @@ build_live_sets_in_goal(Goal0 - GoalInfo, Liveness0, ResumeVars0, LiveSets0,
 		set__union(PreBirths, PostDeaths, ExtraInterference),
 		set__insert(LiveSets2, ExtraInterference, LiveSets)
 	;
+*******/
 		LiveSets = LiveSets2
 	).
 
@@ -302,7 +304,7 @@ build_live_sets_in_goal_2(unify(_,_,_,D,_), Liveness, ResumeVars0, LiveSets0,
 	).
 
 build_live_sets_in_goal_2(pragma_c_code(_, MayCallMercury, PredId, ProcId,
-		Args, _, Extra), Liveness, ResumeVars0, LiveSets0,
+		Args, _, _, Extra), Liveness, ResumeVars0, LiveSets0,
 		GoalInfo, ModuleInfo, ProcInfo,
 		Liveness, ResumeVars, LiveSets) :-
 
@@ -465,9 +467,9 @@ maybe_add_accurate_gc_typeinfos(ModuleInfo, ProcInfo, OutVars,
 	(
 		GC_Method = accurate
 	->
-		proc_info_get_used_typeinfos_setwise(ProcInfo, LiveVars1,
+		proc_info_get_typeinfo_vars_setwise(ProcInfo, LiveVars1,
 			TypeInfoVarsLive),
-		proc_info_get_used_typeinfos_setwise(ProcInfo, OutVars,
+		proc_info_get_typeinfo_vars_setwise(ProcInfo, OutVars,
 			TypeInfoVarsOut),
 		set__union(LiveVars1, TypeInfoVarsOut, LiveVars2),
 		set__union(LiveVars2, TypeInfoVarsLive, LiveVars)

@@ -19,7 +19,7 @@
 
 :- interface.
 :- import_module hlds_module, prog_data, mode_info.
-:- import_module set.
+:- import_module set, term.
 
 :- type instmap.
 :- type instmap_delta.
@@ -145,6 +145,12 @@
 :- pred instmap__bind_var_to_functor(var, cons_id,
 		instmap, instmap, module_info, module_info).
 :- mode instmap__bind_var_to_functor(in, in, in, out, in, out) is det.
+
+	% Update the given instmap to include the initial insts of the
+	% lambda variables.
+:- pred instmap__pre_lambda_update(module_info, list(var), list(mode),
+		instmap, instmap).
+:- mode instmap__pre_lambda_update(in, in, in, in, out) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -381,16 +387,31 @@ instmap_delta_bind_var_to_functor(Var, ConsId, InstMap,
 		ModuleInfo = ModuleInfo0
 	;
 		InstmapDelta0 = reachable(InstmappingDelta0),
-		( map__search(InstmappingDelta0, Var, Inst0) ->
-			Inst1 = Inst0
+
+		%
+		% Get the initial inst from the InstMap
+		%
+		instmap__lookup_var(InstMap, Var, OldInst),
+
+		%
+		% Compute the new inst by taking the old inst,
+		% applying the instmap delta to it,
+		% and then unifying with bound(ConsId, ...)
+		%
+		( map__search(InstmappingDelta0, Var, NewInst0) ->
+			NewInst1 = NewInst0
 		;
-			instmap__lookup_var(InstMap, Var, Inst1)
+			NewInst1 = OldInst
 		),
-		bind_inst_to_functor(Inst1, ConsId, Inst,
+		bind_inst_to_functor(NewInst1, ConsId, NewInst,
 			ModuleInfo0, ModuleInfo),
-		( Inst \= Inst1 ->
-			instmap_delta_set(InstmapDelta0, Var,
-				Inst, InstmapDelta)
+
+		%
+		% add `Var :: OldInst -> NewInst' to the instmap delta
+		%
+		( NewInst \= OldInst ->
+			instmap_delta_set(InstmapDelta0, Var, NewInst,
+				InstmapDelta)
 		;
 			InstmapDelta = InstmapDelta0
 		)
@@ -422,6 +443,11 @@ bind_inst_to_functor(Inst0, ConsId, Inst, ModuleInfo0, ModuleInfo) :-
 
 %-----------------------------------------------------------------------------%
 
+instmap__pre_lambda_update(ModuleInfo, Vars, Modes, InstMap0, InstMap) :-
+	mode_list_get_initial_insts(Modes, ModuleInfo, Insts),
+	assoc_list__from_corresponding_lists(Vars, Insts, VarInsts),
+	instmap_delta_from_assoc_list(VarInsts, InstMapDelta),
+	instmap__apply_instmap_delta(InstMap0, InstMapDelta, InstMap).
 
 %-----------------------------------------------------------------------------%
 

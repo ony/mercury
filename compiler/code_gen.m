@@ -29,7 +29,8 @@
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_goal, llds, code_info, shapes.
+:- import_module hlds_module, hlds_pred, hlds_goal, llds, code_info.
+:- import_module continuation_info.
 :- import_module list, assoc_list, io.
 
 		% Translate a HLDS structure into an LLDS
@@ -39,10 +40,10 @@
 :- mode generate_code(in, out, out, di, uo) is det.
 
 :- pred generate_proc_code(proc_info, proc_id, pred_id, module_info, 
-	shape_table, int, shape_table, int, c_procedure, io__state, io__state).
+	continuation_info, int, continuation_info, int, c_procedure, 
+	io__state, io__state).
 :- mode generate_proc_code(in, in, in, in, in, in, out, out, out,
 	di, uo) is det.
-		% N.B. could use unique mode for `shape_table'
 
 		% This predicate generates code for a goal.
 
@@ -124,18 +125,19 @@ generate_pred_code(ModuleInfo0, ModuleInfo, PredId, PredInfo, ProcIds, Code) -->
 		[]
 	),
 		% generate all the procedures for this predicate
-	{ module_info_get_shapes(ModuleInfo0, Shapes0) },
+	{ module_info_get_continuation_info(ModuleInfo0, ContInfo0) },
 	{ module_info_get_cell_count(ModuleInfo0, CellCount0) },
 	generate_proc_list_code(ProcIds, PredId, PredInfo, ModuleInfo0,
-		Shapes0, Shapes, CellCount0, CellCount, [], Code),
+		ContInfo0, ContInfo, CellCount0, CellCount, [], Code),
 	{ module_info_set_cell_count(ModuleInfo0, CellCount, ModuleInfo1) },
-	{ module_info_set_shapes(ModuleInfo1, Shapes, ModuleInfo) }.
+	{ module_info_set_continuation_info(ModuleInfo1, ContInfo, 
+		ModuleInfo) }.
 
 % For all the modes of predicate PredId, generate the appropriate
 % code (deterministic, semideterministic, or nondeterministic).
 
 :- pred generate_proc_list_code(list(proc_id), pred_id, pred_info, module_info,
-	shape_table, shape_table, int, int,
+	continuation_info, continuation_info, int, int,
 	list(c_procedure), list(c_procedure), io__state, io__state).
 % :- mode generate_proc_list_code(in, in, in, in, di, uo, di, uo, di, uo)
 %	is det.
@@ -143,21 +145,21 @@ generate_pred_code(ModuleInfo0, ModuleInfo, PredId, PredInfo, ProcIds, Code) -->
 	di, uo) is det.
 
 generate_proc_list_code([], _PredId, _PredInfo, _ModuleInfo,
-		Shapes, Shapes, CellCount, CellCount, Procs, Procs) --> [].
+		ContInfo, ContInfo, CellCount, CellCount, Procs, Procs) --> [].
 generate_proc_list_code([ProcId | ProcIds], PredId, PredInfo, ModuleInfo0,
-		Shapes0, Shapes, CellCount0, CellCount, Procs0, Procs) -->
+		ContInfo0, ContInfo, CellCount0, CellCount, Procs0, Procs) -->
 	{ pred_info_procedures(PredInfo, ProcInfos) },
 		% locate the proc_info structure for this mode of the predicate
 	{ map__lookup(ProcInfos, ProcId, ProcInfo) },
 		% find out if the proc is deterministic/etc
 	generate_proc_code(ProcInfo, ProcId, PredId, ModuleInfo0,
-		Shapes0, CellCount0, Shapes1, CellCount1, Proc),
+		ContInfo0, CellCount0, ContInfo1, CellCount1, Proc),
 	{ Procs1 = [Proc | Procs0] },
 	generate_proc_list_code(ProcIds, PredId, PredInfo, ModuleInfo0,
-		Shapes1, Shapes, CellCount1, CellCount, Procs1, Procs).
+		ContInfo1, ContInfo, CellCount1, CellCount, Procs1, Procs).
 
 generate_proc_code(ProcInfo, ProcId, PredId, ModuleInfo,
-		Shapes0, CellCount0, Shapes, CellCount, Proc) -->
+		ContInfo0, CellCount0, ContInfo, CellCount, Proc) -->
 		% find out if the proc is deterministic/etc
 	{ proc_info_interface_code_model(ProcInfo, CodeModel) },
 		% get the goal for this procedure
@@ -185,27 +187,43 @@ generate_proc_code(ProcInfo, ProcId, PredId, ModuleInfo,
 		% initialise the code_info structure 
 	{ code_info__init(VarInfo, Liveness, StackSlots, SaveSuccip, Globals,
 		PredId, ProcId, ProcInfo, InitialInst, FollowVars,
-		ModuleInfo, CellCount0, Shapes0, CodeInfo0) },
+		ModuleInfo, CellCount0, ContInfo0, CodeInfo0) },
 		% generate code for the procedure
 	{ generate_category_code(CodeModel, Goal, CodeTree, SUsed, CodeInfo0,
 		CodeInfo) },
-		% extract the new shape table and cell count
-	{ code_info__get_shapes(Shapes, CodeInfo, _CodeInfo1) },
+		% extract the new continuation_info and cell count
+	{ code_info__get_continuation_info(ContInfo1, CodeInfo, _CodeInfo1) },
 	{ code_info__get_cell_count(CellCount, CodeInfo, _CodeInfo2) },
+
 
 		% turn the code tree into a list
 	{ tree__flatten(CodeTree, FragmentList) },
 		% now the code is a list of code fragments (== list(instr)),
 		% so we need to do a level of unwinding to get a flat list.
 	{ list__condense(FragmentList, Instructions0) },
-	(
-		{ SUsed = yes(SlotNum) }
+	{
+		SUsed = yes(SlotNum)
 	->
-		{ code_gen__add_saved_succip(Instructions0,
-			SlotNum, Instructions) }
+		% XXX Do we need to still do this?
+		code_gen__add_saved_succip(Instructions0,
+			SlotNum, Instructions),
+
+		( GC_Method = accurate ->
+			code_info__get_total_stackslot_count(StackSize,
+				CodeInfo, _),
+			code_util__make_proc_label(ModuleInfo, 
+				PredId, ProcId, ProcLabel),
+			continuation_info__add_proc_info(Instructions, 
+				ProcLabel, StackSize, CodeModel,
+				SlotNum, ContInfo1, ContInfo)
+		;
+			ContInfo = ContInfo1
+		)
 	;
-		{ Instructions = Instructions0 }
-	),
+		ContInfo = ContInfo1,
+		Instructions = Instructions0
+	},
+
 		% get the name and arity of this predicate
 	{ predicate_name(ModuleInfo, PredId, Name) },
 	{ predicate_arity(ModuleInfo, PredId, Arity) },
@@ -694,16 +712,17 @@ code_gen__generate_det_goal_2(not(Goal), _GoalInfo, Instr) -->
 	code_gen__generate_negation(model_det, Goal, Instr).
 code_gen__generate_det_goal_2(higher_order_call(PredVar, Args, Types,
 		Modes, Det),
-		_CodeInfo, Instr) -->
+		GoalInfo, Instr) -->
 	call_gen__generate_higher_order_call(model_det, PredVar, Args,
-		Types, Modes, Det, Instr).
+		Types, Modes, Det, GoalInfo, Instr).
 code_gen__generate_det_goal_2(call(PredId, ProcId, Args, BuiltinState, _, _),
-		_GoalInfo, Instr) -->
+		GoalInfo, Instr) -->
 	(
 		{ BuiltinState = not_builtin }
 	->
 		code_info__succip_is_used,
-		call_gen__generate_det_call(PredId, ProcId, Args, Instr)
+		call_gen__generate_det_call(PredId, ProcId, Args, GoalInfo,
+			Instr)
 	;
 		call_gen__generate_det_builtin(PredId, ProcId, Args, Instr)
 	).
@@ -739,12 +758,13 @@ code_gen__generate_det_goal_2(unify(_L, _R, _U, Uni, _C), _GoalInfo, Instr) -->
 	).
 
 code_gen__generate_det_goal_2(pragma_c_code(C_Code, MayCallMercury,
-		PredId, ModeId, Args, ArgNames, Extra), GoalInfo, Instr) -->
+		PredId, ModeId, Args, ArgNames, OrigArgTypes, Extra),
+		GoalInfo, Instr) -->
 	(
 		{ Extra = none },
 		pragma_c_gen__generate_pragma_c_code(model_det, C_Code,
 			MayCallMercury, PredId, ModeId, Args, ArgNames,
-			GoalInfo, Instr)
+			OrigArgTypes, GoalInfo, Instr)
 	;
 		{ Extra = extra_pragma_info(_, _) },
 		{ error("det pragma has non-empty extras field") }
@@ -779,16 +799,17 @@ code_gen__generate_semi_goal_2(disj(Goals, StoreMap), _GoalInfo, Code) -->
 code_gen__generate_semi_goal_2(not(Goal), _GoalInfo, Code) -->
 	code_gen__generate_negation(model_semi, Goal, Code).
 code_gen__generate_semi_goal_2(higher_order_call(PredVar, Args, Types, Modes,
-		Det), _CodeInfo, Code) -->
+		Det), GoalInfo, Code) -->
 	call_gen__generate_higher_order_call(model_semi, PredVar, Args,
-		Types, Modes, Det, Code).
+		Types, Modes, Det, GoalInfo, Code).
 code_gen__generate_semi_goal_2(call(PredId, ProcId, Args, BuiltinState, _, _),
-							_GoalInfo, Code) -->
+							GoalInfo, Code) -->
 	(
 		{ BuiltinState = not_builtin }
 	->
 		code_info__succip_is_used,
-		call_gen__generate_semidet_call(PredId, ProcId, Args, Code)
+		call_gen__generate_semidet_call(PredId, ProcId, Args, GoalInfo,
+			Code)
 	;
 		call_gen__generate_semidet_builtin(PredId, ProcId, Args, Code)
 	).
@@ -823,12 +844,13 @@ code_gen__generate_semi_goal_2(unify(_L, _R, _U, Uni, _C),
 	).
 
 code_gen__generate_semi_goal_2(pragma_c_code(C_Code, MayCallMercury,
-		PredId, ModeId, Args, ArgNameMap, Extra), GoalInfo, Instr) -->
+		PredId, ModeId, Args, ArgNameMap, OrigArgTypes, Extra),
+		GoalInfo, Instr) -->
 	(
 		{ Extra = none },
 		pragma_c_gen__generate_pragma_c_code(model_semi, C_Code,
 			MayCallMercury, PredId, ModeId, Args, ArgNameMap,
-			GoalInfo, Instr)
+			OrigArgTypes, GoalInfo, Instr)
 	;
 		{ Extra = extra_pragma_info(_, _) },
 		{ error("semidet pragma has non-empty extras field") }
@@ -904,10 +926,9 @@ code_gen__generate_negation_general(CodeModel, Goal, ResumeVars, ResumeLocs,
 		Code) -->
 		% This code is a cut-down version of the code for semidet
 		% if-then-elses.
-		% XXX It does not save or restore tickets
 
 	code_info__make_known_failure_cont(ResumeVars, ResumeLocs, no,
-		no, _, ModContCode),
+		ModContCode),
 
 		% Maybe save the heap state current before the condition;
 		% this ought to be after we make the failure continuation
@@ -973,16 +994,17 @@ code_gen__generate_non_goal_2(not(_Goal), _GoalInfo, _Code) -->
 	{ error("Cannot have a nondet negation.") }.
 code_gen__generate_non_goal_2(higher_order_call(PredVar, Args, Types, Modes,
 		Det),
-		_CodeInfo, Code) -->
+		GoalInfo, Code) -->
 	call_gen__generate_higher_order_call(model_non, PredVar, Args, Types,
-		Modes, Det, Code).
+		Modes, Det, GoalInfo, Code).
 code_gen__generate_non_goal_2(call(PredId, ProcId, Args, BuiltinState, _, _),
-							_GoalInfo, Code) -->
+							GoalInfo, Code) -->
 	(
 		{ BuiltinState = not_builtin }
 	->
 		code_info__succip_is_used,
-		call_gen__generate_nondet_call(PredId, ProcId, Args, Code)
+		call_gen__generate_nondet_call(PredId, ProcId, Args, GoalInfo,
+			Code)
 	;
 		call_gen__generate_nondet_builtin(PredId, ProcId, Args, Code)
 	).
@@ -999,7 +1021,8 @@ code_gen__generate_non_goal_2(unify(_L, _R, _U, _Uni, _C),
 							_GoalInfo, _Code) -->
 	{ error("Cannot have a nondet unification.") }.
 code_gen__generate_non_goal_2(pragma_c_code(C_Code, MayCallMercury,
-		PredId, ModeId, Args, ArgNameMap, Extra), GoalInfo, Instr) -->
+		PredId, ModeId, Args, ArgNameMap, OrigArgTypes, Extra),
+		GoalInfo, Instr) -->
 	(
 		{ Extra = none },
 		% Error disabled for bootstrapping. string.m uses this form,
@@ -1009,12 +1032,13 @@ code_gen__generate_non_goal_2(pragma_c_code(C_Code, MayCallMercury,
 		% { error("nondet pragma has empty extras field") }
 		pragma_c_gen__generate_pragma_c_code(model_semi, C_Code,
 			MayCallMercury, PredId, ModeId, Args, ArgNameMap,
-			GoalInfo, Instr)
+			OrigArgTypes, GoalInfo, Instr)
 	;
 		{ Extra = extra_pragma_info(SavedVars, LabelNames) },
 		pragma_c_gen__generate_backtrack_pragma_c_code(model_semi,
 			C_Code, MayCallMercury, PredId, ModeId, Args,
-			ArgNameMap, SavedVars, LabelNames, GoalInfo, Instr)
+			ArgNameMap, OrigArgTypes, SavedVars, LabelNames,
+			GoalInfo, Instr)
 	).
 
 %---------------------------------------------------------------------------%
@@ -1056,7 +1080,7 @@ code_gen__add_saved_succip([Instrn0 - Comment | Instrns0 ], StackLoc,
 		Instrn0 = call(Target, ReturnLabel, LiveVals0, CM)
 	->
 		Instrn  = call(Target, ReturnLabel, 
-			[live_lvalue(stackvar(StackLoc), succip, no) |
+			[live_lvalue(stackvar(StackLoc), succip, []) |
 			LiveVals0], CM)
 	;
 		Instrn = Instrn0

@@ -13,6 +13,7 @@
 #define STD_H
 
 #include <stdlib.h>	/* for size_t */
+#include <assert.h>	/* for assert() */
 
 #ifndef	reg
 #define	reg		register
@@ -28,27 +29,12 @@
 #define	min(a, b)	((a) < (b) ? (a) : (b))
 #endif
 
-#ifdef SLOWSTRCMP
 #define streq(s1, s2)		(strcmp(s1, s2) == 0)
 #define strdiff(s1, s2)		(strcmp(s1, s2) != 0)
 #define strtest(s1, s2)		(strcmp(s1, s2))
 #define strneq(s1, s2, n)	(strncmp(s1, s2, n) == 0)
 #define strndiff(s1, s2, n)	(strncmp(s1, s2, n) != 0)
 #define strntest(s1, s2, n)	(strncmp(s1, s2, n))
-#else
-#define streq(s1, s2)		((*(s1) == *(s2)) && \
-				(strcmp((s1)+1, (s2)+1) == 0))
-#define strdiff(s1, s2)		((*(s1) != *(s2)) || \
-				(strcmp((s1)+1, (s2)+1) != 0))
-#define strtest(s1, s2)		((*(s1) != *(s2)) ? (*(s1) - *(s2)) : \
-				strcmp((s1)+1, (s2)+1))
-#define strneq(s1, s2, n)	((*(s1) == *(s2)) && \
-				(strncmp((s1)+1, (s2)+1, n-1) == 0))
-#define strndiff(s1, s2, n)	((*(s1) != *(s2)) || \
-				(strncmp((s1)+1, (s2)+1, n-1) != 0))
-#define strntest(s1, s2, n)	((*(s1) != *(s2)) ? (*(s1) - *(s2)) : \
-				strncmp((s1)+1, (s2)+1, n-1))
-#endif
 
 #define	ungetchar(c)		ungetc(c, stdin)
 
@@ -63,6 +49,16 @@
 #ifndef	FALSE
 #define	FALSE		0
 #endif
+
+/*
+** turn assertions off for speed
+*/
+#ifdef SPEED
+#define MR_assert(ASSERTION)	((void)0)
+#else
+#define	MR_assert(ASSERTION)	assert(ASSERTION)
+#endif
+
 
 /* XXX these should go in memory.h or heap.h */
 extern	void	*newmem(size_t);

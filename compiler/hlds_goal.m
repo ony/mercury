@@ -12,8 +12,8 @@
 
 :- interface.
 
-:- import_module hlds_data, prog_data, instmap.
-:- import_module bool, list, assoc_list, set, map, std_util.
+:- import_module hlds_data, hlds_pred, llds, prog_data, instmap.
+:- import_module list, assoc_list, set, map, std_util.
 
 	% Here is how goals are represented
 
@@ -159,6 +159,9 @@
 					% type_info variables introduced by
 					% polymorphism.m might be represented
 					% in this way).
+			list(type),	% The original types of the arguments.
+					% (With inlining, the actual types may
+					% be instances of the original types.)
 			extra_pragma_info
 					% Extra information for model_non
 					% pragma_c_codes; none for others.
@@ -608,7 +611,7 @@ get_pragma_c_var_names_2([MaybeName | MaybeNames], Names0, Names) :-
 
 :- implementation.
 
-:- import_module require.
+:- import_module require, term.
 
 goal_info_init(GoalInfo) :-
 	Detism = erroneous,
@@ -825,7 +828,7 @@ goal_is_atomic(disj([], _)).
 goal_is_atomic(higher_order_call(_,_,_,_,_)).
 goal_is_atomic(call(_,_,_,_,_,_)).
 goal_is_atomic(unify(_,_,_,_,_)).
-goal_is_atomic(pragma_c_code(_,_,_,_,_,_,_)).
+goal_is_atomic(pragma_c_code(_,_,_,_,_,_,_,_)).
 
 %-----------------------------------------------------------------------------%
 
