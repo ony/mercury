@@ -210,9 +210,15 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 		% 5. analyse_goal
 		analyse_goal( ProcInfo, HLDS, 
 					Goal0, Goal,
+					analysis_info(Alias0, Pool0, FPin),
+					analysis_info(_Alias, Pool, FP1)),
+		/*
+		analyse_goal( ProcInfo, HLDS, 
+					Goal0, Goal,
 					Pool0, Pool,
 					Alias0, _Alias, 
 					FPin, FP1 ),
+		*/
 		% 	OK
 		% 6. update all kind of information
 		indirect_reuse_pool_get_memo_reuse( Pool, Memo ), 
@@ -242,6 +248,195 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
+
+:- type analysis_info
+	--->	analysis_info(
+			alias	:: alias_as,
+			pool	:: indirect_reuse_pool,
+			table	:: sr_fixpoint_table__table
+		).
+
+:- pred analyse_goal( proc_info::in, module_info::in, 
+			hlds_goal::in, hlds_goal::out,
+			analysis_info::in, analysis_info::out) is det.
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = conj(Goals0), 
+	list__map_foldl(analyse_goal(ProcInfo, HLDS), Goals0, Goals, AI0, AI),
+	Expr = conj(Goals),
+	Info = Info0,
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
+	( 
+		pa_alias_as__is_top(AI0 ^ alias)
+	-> 
+		Info = Info0,
+		AI1 = AI0
+	;
+		call_verify_reuse( ProcInfo, HLDS,
+			PredId, ProcId, ActualVars, Info0, Info, AI0, AI1, _)
+	),
+	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
+		PredId, ProcId, ActualVars, AI0 ^ alias, Alias),
+	AI = AI1 ^ alias := Alias,
+	Expr = Expr0, 
+	Goal = Expr - Info.
+
+analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = generic_call(_, _, _, _), 
+	pa_alias_as__top("unhandled goal", Alias), 
+	AI = AI0 ^ alias := Alias,
+	Goal = Expr0 - Info0. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context), 
+	pa_alias_as__extend_unification(ProcInfo, HLDS, 
+			Unification, Info, AI0 ^ alias, Alias),	
+	AI = AI0 ^ alias := Alias,
+	Info = Info0,
+	Expr = Expr0, 
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = switch(Var, CanFail, Cases0, SM),
+	list__map_foldl(
+		(pred( case(ConsId, Gin)::in, Tuple::out,
+				FPin::in, FPout::out) is det :-
+			analyse_goal(ProcInfo, HLDS, Gin, Gout, 
+				analysis_info(AI0 ^ alias,
+						AI0 ^ pool, FPin),
+				analysis_info(NewAlias,
+						NewPool, FPout)),
+			Tuple = { case(ConsId, Gout), NewAlias, NewPool }
+		),
+		Cases0, Tuples,
+		AI0 ^ table, FP),
+
+	Cases = list__map((func({C, _A, _P}) = C), Tuples),
+	ListPools = list__map((func({_G, _A, P}) = P), Tuples),
+	ListAliases = list__map((func({_G, A, _P}) = A), Tuples),
+
+	indirect_reuse_pool_least_upper_bound_disjunction(
+				ListPools,
+				Pool),
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+				ListAliases,
+				Alias1),
+
+	% reduce the aliases
+	goal_info_get_outscope(Info, Outscope),
+	pa_alias_as__project_set(Outscope, Alias1, Alias),
+
+	AI = analysis_info(Alias, Pool, FP),
+
+	Info = Info0,
+	Expr = switch(Var, CanFail, Cases, SM),
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = disj( Goals0, SM ),
+	(
+		Goals0 = []
+	->
+		Goals = Goals0,
+		AI0 = AI
+	;
+		% XXX up to here
+		list__map_foldl(
+			(pred( Gin::in, Tuple::out,
+					FPin::in, FPout::out) is det :-
+				analyse_goal(ProcInfo, HLDS, Gin, Gout, 
+					analysis_info(AI0 ^ alias,
+							AI0 ^ pool, FPin),
+					analysis_info(NewAlias,
+							NewPool, FPout)),
+				Tuple = { Gout, NewAlias, NewPool }
+			),
+			Goals0, Tuples,
+			AI0 ^ table, FP),
+
+		Goals = list__map((func({G, _A, _P}) = G), Tuples),
+		ListPools = list__map((func({_G, _A, P}) = P), Tuples),
+		ListAliases = list__map((func({_G, A, _P}) = A), Tuples),
+
+		indirect_reuse_pool_least_upper_bound_disjunction(
+					ListPools,
+					Pool),
+		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+					ListAliases,
+					Alias1),
+
+		% reduce the aliases
+		goal_info_get_outscope(Info, Outscope),
+		pa_alias_as__project_set(Outscope, Alias1, Alias),
+
+		AI = analysis_info(Alias, Pool, FP)
+	),
+
+	Info = Info0,
+	Expr = disj(Goals, SM),
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = not(NegatedGoal0),
+	analyse_goal(ProcInfo, HLDS, NegatedGoal0, NegatedGoal, AI0, AI),
+	Info = Info0, 
+	Expr = not(NegatedGoal),
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = some(A, B, SomeGoal0), 
+	analyse_goal(ProcInfo, HLDS, SomeGoal0, SomeGoal, AI0, AI),
+	Info = Info0, 
+	Expr = some(A, B, SomeGoal), 
+	Goal = Expr - Info.
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = if_then_else( Vars, Cond0, Then0, Else0, SM),
+	analyse_goal(ProcInfo, HLDS, Cond0, Cond, AI0, AI_Cond),
+	analyse_goal(ProcInfo, HLDS, Then0, Then, AI_Cond, AI_Then),
+
+	AI1 = AI0 ^ table := AI_Then ^ table,
+	analyse_goal(ProcInfo, HLDS, Else0, Else, AI1, AI_Else),
+
+	indirect_reuse_pool_least_upper_bound_disjunction( 
+				[AI_Then ^ pool, AI_Else ^ pool],
+				Pool),
+
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+				[AI_Then ^ alias, AI_Else ^ alias],
+				Alias1),
+	% reduce the aliases
+	goal_info_get_outscope( Info, Outscope ),
+	pa_alias_as__project_set( Outscope, Alias1, Alias ),
+
+	AI = analysis_info(Alias, Pool, AI1 ^ table),
+
+	Info = Info0,
+	Expr = if_then_else( Vars, Cond, Then, Else, SM),
+	Goal = Expr - Info.
+
+analyse_goal(ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = pragma_foreign_code( _, _, _, _, Vars, MaybeModes, Types, _ ), 
+	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Vars, 
+			MaybeModes, Types, AI0 ^ alias, Alias), 
+	AI = AI0 ^ alias := Alias,
+	Goal = Expr0 - Info0. 
+
+analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = par_conj( _, _), 
+	pa_alias_as__top("unhandled goal (par_conj)", Alias), 
+	AI = AI0 ^ alias := Alias,
+	Goal = Expr0 - Info0. 
+
+analyse_goal(_ProcInfo, _HLDS, Expr0 - Info0, Goal, AI0, AI) :-
+	Expr0 = bi_implication(_, _), 
+	pa_alias_as__top("unhandled goal (bi_implication)", Alias), 
+	AI = AI0 ^ alias := Alias,
+	Goal = Expr0 - Info0. 
+
 :- pred analyse_goal( proc_info, module_info, 
 			hlds_goal, hlds_goal,
 			indirect_reuse_pool, indirect_reuse_pool, 
@@ -293,6 +488,7 @@ analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool,
 	FP = FP0,
 	Goal = Expr0 - Info0. 
 	
+	% AAA still to do
 analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
 			FP0, FP) :- 
 	Expr0 = switch( A, B, Cases0, SM),
@@ -466,6 +662,18 @@ analyse_case( ProcInfo, HLDS, Reuses0, Alias0, Case0, Case,
 			Alias0, Alias, FP0, FP),
 	Case = case( CONS, Goal).
 
+:- pred call_verify_reuse( proc_info::in, module_info::in,
+		pred_id::in, proc_id::in, list(prog_var)::in,
+		hlds_goal_info::in, hlds_goal_info::out, 
+		analysis_info::in, analysis_info::out, bool::out) is det.
+
+call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
+		GoalInfo0, GoalInfo, analysis_info(Alias0, Pool0, FP0),
+		analysis_info(Alias0, Pool, FP), YesNo) :-
+	call_verify_reuse(ProcInfo, ModuleInfo, PredId, ProcId, ActualVars,
+			Alias0, Pool0, Pool, GoalInfo0, GoalInfo,
+			FP0, FP, YesNo).
+
 :- pred call_verify_reuse( proc_info, module_info, pred_id, proc_id, 
 			list(prog_var), alias_as, 
 			indirect_reuse_pool, indirect_reuse_pool, 
@@ -525,8 +733,11 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 		% 4. project the aliases to the actual vars
 		pa_alias_as__project( ActualVars, Alias0, ActualAlias_i),
 		(
+				% XXX replace that with the actual
+				% static set!
 			memo_reuse_verify_reuse( ProcInfo, HLDS, 
-				Memo, ActualLive_i, ActualAlias_i)
+				Memo, ActualLive_i, ActualAlias_i,
+				set__init)
 		->
 			indirect_reuse_pool_add( HLDS, ProcInfo,
 				Memo, LFUi, LBUi, 
