@@ -428,7 +428,7 @@
 			% refer to a Mercury label. If they do, we must
 			% prevent the label from being optimized away.
 			% To make it known to labelopt, we mention it in
-			% the fourth or the fifth arg. The fourth argument
+			% the fourth, fifth or sixth arg. The fourth argument
 			% may give the name of a label whose name is fixed
 			% because it embedded in raw C code, and which does
 			% not have a layout structure. The fifth argument
@@ -440,7 +440,7 @@
 			% in C code and has no associated layout structure,
 			% being mentioned only in pragma_c_fail_to components).
 			%
-			% The sixth argument says whether the contents
+			% The seventh argument says whether the contents
 			% of the pragma C code can refer to stack slots.
 			% User-written shouldn't refer to stack slots,
 			% the question is whether the compiler-generated
@@ -1141,7 +1141,6 @@ llds__unop_return_type(tag, word).
 llds__unop_return_type(unmktag, word).
 llds__unop_return_type(mkbody, word).
 llds__unop_return_type(unmkbody, word).
-llds__unop_return_type(body, word).
 llds__unop_return_type(cast_to_unsigned, unsigned).
 llds__unop_return_type(hash_string, integer).
 llds__unop_return_type(bitwise_complement, integer).
@@ -1152,7 +1151,6 @@ llds__unop_arg_type(tag, word).
 llds__unop_arg_type(unmktag, word).
 llds__unop_arg_type(mkbody, word).
 llds__unop_arg_type(unmkbody, word).
-llds__unop_arg_type(body, word).
 llds__unop_arg_type(cast_to_unsigned, word).
 llds__unop_arg_type(hash_string, word).
 llds__unop_arg_type(bitwise_complement, integer).
@@ -1193,6 +1191,7 @@ llds__binop_return_type(float_lt, bool).
 llds__binop_return_type(float_gt, bool).
 llds__binop_return_type(float_le, bool).
 llds__binop_return_type(float_ge, bool).
+llds__binop_return_type(body, word).
 
 llds__register_type(r, word).
 llds__register_type(f, float).

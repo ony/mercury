@@ -95,11 +95,8 @@
 	% Auxiliary output options
 		;	assume_gmake
 		;	trace
-		;	trace_internal
-		;	trace_return
-		;	trace_redo
 		;	trace_optimized
-		;	trace_decl
+		;	suppress_trace
 		;	stack_trace_higher_order
 		;	generate_bytecode
 		;	generate_prolog		% Currently not used
@@ -488,11 +485,8 @@ option_defaults_2(aux_output_option, [
 		% Auxiliary Output Options
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
-	trace_internal		-	bool(yes),
-	trace_return		-	bool(yes),
-	trace_redo		-	bool(yes),
 	trace_optimized		-	bool(no),
-	trace_decl		-	bool(no),
+	suppress_trace		-	string(""),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
 	generate_prolog		-	bool(no),
@@ -596,7 +590,7 @@ option_defaults_2(code_gen_option, [
 	low_level_debug		-	bool(no),
 	trad_passes		-	bool(yes),
 	polymorphism		-	bool(yes),
-	lazy_code		-	bool(yes),
+	lazy_code		-	bool(no),
 	reclaim_heap_on_failure	-	bool_special,
 	reclaim_heap_on_semidet_failure	-	bool(yes),
 	reclaim_heap_on_nondet_failure	-	bool(yes),
@@ -876,12 +870,9 @@ long_option("output-grade-string",	output_grade_string).
 % aux output options
 long_option("assume-gmake",		assume_gmake).
 long_option("trace",			trace).
-long_option("trace-internal",		trace_internal).
-long_option("trace-return",		trace_return).
-long_option("trace-redo",		trace_redo).
 long_option("trace-optimised",		trace_optimized).
 long_option("trace-optimized",		trace_optimized).
-long_option("trace-decl",		trace_decl).
+long_option("suppress-trace",		suppress_trace).
 long_option("stack-trace-higher-order",	stack_trace_higher_order).
 long_option("generate-bytecode",	generate_bytecode).
 long_option("generate-prolog",		generate_prolog).
@@ -1434,6 +1425,7 @@ opt_level(3, _, [
 % and increases the inlining thresholds
 
 opt_level(4, _, [
+	lazy_code		-	bool(yes),
 	optimize_value_number	-	bool(yes),
 	inline_simple_threshold	-	int(8),
 	inline_compound_threshold -	int(20)
@@ -1663,26 +1655,17 @@ options_help_aux_output -->
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
 		"\tdo not assume the availability of GNU Make extensions.",
+% declarative debugging is not documented yet, since it is still experimental
+%		"--trace {minimum, shallow, deep, decl, rep, default}",
 		"--trace {minimum, shallow, deep, default}",
 		"\tGenerate code that includes the specified level", 
 		"\tof execution tracing.",
 		"\tSee the Debugging chapter of the Mercury User's Guide",
 		"\tfor details.",
-		"--no-trace-internal",
-		"\tDo not generate code for internal events even if the trace",
-		"\tlevel is deep.",
-		"--no-trace-return",
-		"\tDo not generate trace information for call return sites.",
-		"\tPrevents the printing of the values of variables in ancestors",
-		"\tof the current call.",
-		"--no-trace-redo",
-		"\tDo not generate code to trace REDO events.",
+%		"--suppress-trace <suppress-items>,",
+%		"\tSuppress the named aspects of the execution tracing system.",
 		"--trace-optimized",
 		"\tDo not disable optimizations that can change the trace.",
-% --trace-decl is commented out in the absence of runtime support
-%		"--trace-decl",
-%		"\tMake the generated tracing code include support for an",
-%		"\texperimental declarative debugger.",
 		"--stack-trace-higher-order",
 		"\tEnable stack traces through predicates and functions with",
 		"\thigher-order arguments, even if stack tracing is not",

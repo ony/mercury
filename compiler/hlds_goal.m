@@ -411,7 +411,10 @@
 	;	modes_are_ok
 	.
 
-	% The cell is available for compile time garbage collected.
+	% `yes' iff the cell is available for compile time garbage collection.
+	% Compile time garbage collection is when the compiler
+	% recognises that a memory cell is no longer needed and can be
+	% safely deallocated (ie by inserting an explicit call to free).
 :- type can_cgc == bool.
 
 :- type unification
@@ -482,7 +485,9 @@
 					% sub-unifications.
 			can_fail,	% Whether or not the unification
 					% could possibly fail.
-			can_cgc		% Can compile time GC this cell
+			can_cgc		% Can compile time GC this cell,
+					% ie explicitly deallocate it
+					% after the deconstruction.
 		)
 
 		% Y = X where the top node of Y is output,

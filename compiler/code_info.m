@@ -37,7 +37,8 @@
 :- implementation.
 
 :- import_module code_util, code_exprn, var_locn, llds_out, prog_out.
-:- import_module exprn_aux, arg_info, type_util, mode_util, options.
+:- import_module exprn_aux, arg_info, type_util, mode_util.
+:- import_module trace_params, options.
 
 :- import_module term, varset.
 :- import_module set, stack.
@@ -339,7 +340,7 @@ code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
 	globals__lookup_bool_option(Globals, lazy_code, LazyCode),
 	globals__get_options(Globals, Options),
 	globals__get_trace_level(Globals, TraceLevel),
-	( TraceLevel \= none ->
+	( trace_level_is_none(TraceLevel) = no ->
 		trace__fail_vars(ModuleInfo, ProcInfo, FailVars),
 		MaybeFailVars = yes(FailVars),
 		set__union(Liveness, FailVars, EffLiveness)
@@ -413,7 +414,7 @@ code_info__init(SaveSuccip, Globals, PredId, ProcId, ProcInfo, FollowVars,
 	trace_slot_info::out, code_info::in, code_info::out) is det.
 
 code_info__init_maybe_trace_info(TraceLevel, Globals, TraceSlotInfo) -->
-	( { TraceLevel \= none } ->
+	( { trace_level_is_none(TraceLevel) = no } ->
 		trace__setup(Globals, TraceSlotInfo, TraceInfo),
 		code_info__set_maybe_trace_info(yes(TraceInfo))
 	;

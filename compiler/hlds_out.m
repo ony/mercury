@@ -1540,8 +1540,13 @@ hlds_out__write_goal_2(unify(A, B, _, Unification, _), ModuleInfo, VarSet,
 	hlds_out__write_unify_rhs_2(B, ModuleInfo, VarSet, InstVarSet,
 		AppendVarnums, Indent, Follow, VarType, TypeQual),
 	globals__io_lookup_string_option(dump_hlds_options, Verbose),
-	( { string__contains_char(Verbose, 'u') 
-			; string__contains_char(Verbose, 'p') } ->
+	(
+		{
+			string__contains_char(Verbose, 'u') 
+		;
+			string__contains_char(Verbose, 'p')
+		}
+	->
 		(
 			% don't output bogus info if we haven't been through
 			% mode analysis yet

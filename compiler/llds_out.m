@@ -262,7 +262,7 @@
 
 :- implementation.
 
-:- import_module rtti, rtti_out, options.
+:- import_module rtti, rtti_out, options, trace_params.
 :- import_module exprn_aux, prog_util, prog_out, hlds_pred.
 :- import_module export, mercury_to_mercury, modules.
 :- import_module c_util.
@@ -419,7 +419,7 @@ output_split_c_file_init(ModuleName, Modules, Datas,
 
 output_c_file_mercury_headers -->
 	globals__io_get_trace_level(TraceLevel),
-	( { TraceLevel \= none } ->
+	( { trace_level_is_none(TraceLevel) = no } ->
 		io__write_string("#include ""mercury_imp.h""\n"),
 		io__write_string("#include ""mercury_trace_base.h""\n")
 	;
