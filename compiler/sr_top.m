@@ -77,7 +77,6 @@
 :- import_module structure_reuse__sr_profile_run.
 :- import_module structure_reuse__sr_split.
 :- import_module structure_reuse__sr_split.
-:- import_module structure_reuse__sr_util.
 
 :- import_module list, map, varset, std_util, int, bool.
 :- import_module term, require.

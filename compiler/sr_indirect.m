@@ -43,7 +43,6 @@
 :- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_fixpoint_table.
 :- import_module structure_reuse__sr_live.
-:- import_module structure_reuse__sr_util.
 :- import_module transform_hlds__dependency_graph.
 
 :- import_module map, list, std_util, require, set, string, bool.

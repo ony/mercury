@@ -120,7 +120,6 @@
 :- import_module possible_alias.
 :- import_module possible_alias__pa_run.
 :- import_module possible_alias__pa_alias_as.
-:- import_module possible_alias__pa_sr_util.
 :- import_module structure_reuse.
 :- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_split.

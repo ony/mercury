@@ -55,86 +55,83 @@
 :- import_module require.
 
 	% The direct-reuse analysis consists of three steps: 
-	% 1. pre-annotations (local forward use, local backward use)
-	% 2. 'deadness' analysis, i.e. identifying where datastructures
-	% potentially die. 
-	% 3. 'choice' analysis, i.e. identify where dead datastructure can be
-	% reused. 
-process_proc(AliasTable, PredId, ProcId, 
-		ProcInfo0, ProcInfo, ModuleInfo0, ModuleInfo) -->
-	% Some pre-processing: 
-	% - Initialise the reuse information.
-	% - Annotate goals with local forward use (lfu).
-	% - Annotate goals with local backward use (lbu). 
-	% - Annotate the goals with their goal-paths (used to identify the
-	% unifications, later in the choice analysis)
-	% XXX these goal-paths should become the main way of identifying the
-	% places of reuse, instead of annotating the actual goals.
-	{ sr_lfu__process_proc(ProcInfo0, ProcInfo1) },
-	{ sr_lbu__process_proc(ModuleInfo0, ProcInfo1, ProcInfo2b) },
-	{ goal_path__fill_slots(ProcInfo2b, ModuleInfo0, ProcInfo2) }, 
+	% 1. pre-annotate the analysed goal with lfu and lbu information. 
+	% 2. determine where datastructures die, i.e. have a sort of "deadness"
+	%  	analyis. 
+	% 3. determine how to reuse the detected dead data structures. This is
+	% 	the so called "choice analysis". 
+	% 
+	% XXX 
+	% During the choice analysis, program points are identified by the
+	% goal-paths leading to thes points. This should become the main way of
+	% identifying placed of reuse, instead of annotating the actual goals. 
+process_proc(AliasTable, PredId, ProcId, !ProcInfo, !ModuleInfo, !IO) :- 
+	globals__io_lookup_bool_option(very_verbose, VeryVerbose, !IO),
 
-	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
+	sr_lfu__process_proc(!ProcInfo), 
+	sr_lbu__process_proc(!.ModuleInfo, !ProcInfo), 
+	goal_path__fill_slots(!.ProcInfo, !.ModuleInfo, !:ProcInfo),
 
-	% After the preliminary annotations, perform the actual analysis of the
-	% procedure goal. 
+
 	passes_aux__write_proc_progress_message("% Analysing ", 
-			PredId, ProcId, ModuleInfo0), 
+			PredId, ProcId, !.ModuleInfo, !IO), 
 
-	{ proc_info_goal(ProcInfo2, Goal0) },
+	proc_info_goal(!.ProcInfo, Goal0),
 
 	% 'Deadness' analysis: determine the deconstructions in which data
 	% structures potentially die. 
-	passes_aux__maybe_write_string(VeryVerbose, "%\tdeadness analysis..."),
-	{ sr_dead__process_goal(PredId, ProcInfo0, ModuleInfo0, 
-			AliasTable, Goal0,Goal1) },
-	passes_aux__maybe_write_string(VeryVerbose, "done.\n"),
+	passes_aux__maybe_write_string(VeryVerbose, 
+		"%\tdeadness analysis...", !IO),
+	sr_dead__process_goal(PredId, !.ProcInfo, !.ModuleInfo, 
+			AliasTable, Goal0, Goal1) ,
+	passes_aux__maybe_write_string(VeryVerbose, "done.\n", !IO),
 
 	% 'Choice' analysis: determine how the detected dead data structures
 	% can be reused locally. 
-	passes_aux__maybe_write_string(VeryVerbose, "%\tchoice analysis..."),
-	{ proc_info_vartypes(ProcInfo0, VarTypes) }, 
+	passes_aux__maybe_write_string(VeryVerbose, 
+		"%\tchoice analysis...", !IO),
+	proc_info_vartypes(!.ProcInfo, VarTypes), 
 
 	% XXX Getting the strategy also performs the check whether the
 	% arguments given to the mmc were correct. This is definitely not the
 	% right moment to check these arguments. Should be done way earlier. 
-	sr_choice_util__get_strategy(Strategy, ModuleInfo0, ModuleInfo),
-	{ Strategy = strategy(Constraint, Selection) },
+	sr_choice_util__get_strategy(Strategy, !ModuleInfo, !IO), 
+	Strategy = strategy(Constraint, Selection),
 	(
-		{ Selection = graph }
+		Selection = graph 
 	->
-		{ sr_choice_graphing__set_background_info(Constraint, 
-			ModuleInfo, VarTypes, Background) }, 
+		sr_choice_graphing__set_background_info(Constraint, 
+			!.ModuleInfo, VarTypes, Background), 
 		sr_choice_graphing__process_goal(Background, Goal1, Goal,
-			MaybeReuseConditions)
+			MaybeReuseConditions, !IO)
 	;
-		{ sr_choice__process_goal(Strategy, VarTypes, ModuleInfo, 
-			ProcInfo0, Goal1, Goal, MaybeReuseConditions) }
+		sr_choice__process_goal(Strategy, VarTypes, !.ModuleInfo, 
+			!.ProcInfo, Goal1, Goal, MaybeReuseConditions)
 	),
 	(
-		{ VeryVerbose = yes } 
+		VeryVerbose = yes 
 	->
 		(
-			{ MaybeReuseConditions = yes(Cs) }
+			MaybeReuseConditions = yes(Cs)
 		->
-			{ list__length(Cs, LCs) },
-			{ reuse_conditions_simplify(Cs, RCs) }, 
-			{ list__length(RCs, LRCs) }, 
-			{ string__int_to_string(LCs, LCS)}, 
-			{ string__int_to_string(LRCs, LRCS) }, 
-			{ string__append_list([" done (", LCS, " / ", 
-					LRCS, ").\n"], Msg3) }, 
-			io__write_string(Msg3)
+			list__length(Cs, LCs),
+			reuse_conditions_simplify(Cs, RCs), 
+			list__length(RCs, LRCs), 
+			string__int_to_string(LCs, LCS), 
+			string__int_to_string(LRCs, LRCS), 
+			string__append_list([" done (", LCS, " / ", 
+					LRCS, ").\n"], Msg3) , 
+			io__write_string(Msg3, !IO)
 		; 
-			io__write_string("done (no direct reuse).\n")
+			io__write_string("done (no direct reuse).\n", !IO)
 		)
 	; 
-		[]
+		true
 	), 
 	
-	{ memo_reuse_simplify(MaybeReuseConditions, MaybeReuseConditions1) },
-	{ proc_info_set_reuse_information(ProcInfo2, MaybeReuseConditions1, 
-			ProcInfo3) },
-	{ proc_info_set_goal(ProcInfo3, Goal, ProcInfo) }.
+	memo_reuse_simplify(MaybeReuseConditions, MaybeReuseConditions1),
+	proc_info_set_reuse_information(!.ProcInfo, 
+			MaybeReuseConditions1, !:ProcInfo), 
+	proc_info_set_goal(!.ProcInfo, Goal, !:ProcInfo).
 
 

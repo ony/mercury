@@ -25,7 +25,6 @@
 :- include_module sr_profile_run.
 :- include_module sr_split.
 :- include_module sr_top.
-:- include_module sr_util.
 
 :- import_module parse_tree.
 :- import_module hlds.

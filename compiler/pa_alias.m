@@ -56,7 +56,6 @@
 :- import_module parse_tree__prog_io_pasr.
 :- import_module possible_alias__pa_datastruct.
 :- import_module possible_alias__pa_selector.
-:- import_module possible_alias__pa_sr_util.
 
 :- import_module varset, require, int, map, std_util, string.
 

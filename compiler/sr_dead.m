@@ -40,7 +40,6 @@
 :- import_module possible_alias__pa_run.
 :- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_live.
-:- import_module structure_reuse__sr_util.
 
 :- import_module assoc_list, int, require. 
 :- import_module set, list, map, std_util.
@@ -63,7 +62,7 @@ process_goal(_PredId, ProcInfo, ModuleInfo, AliasTable, Goal0, Goal) :-
 annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal,
 		Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = conj(Goals0),
-	sr_util__list_map_foldl2(
+	list__map_foldl2(
 		annotate_goal(ProcInfo, HLDS, AliasTable),
 		Goals0, Goals,
 		Pool0, Pool,
@@ -95,7 +94,7 @@ annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal,
 			Pool0, Pool, Alias0, Alias) :- 
 	Expr0 = switch(A, B, Cases0),
 	goal_info_get_outscope(Info0, Outscope), 
-	sr_util__list_map3(annotate_case(ProcInfo, HLDS, AliasTable, 
+	list__map3(annotate_case(ProcInfo, HLDS, AliasTable, 
 			Pool0, Alias0),
 			Cases0, Cases, ListPools, ListAliases),
 	dead_cell_pool_least_upper_bound_disj(Outscope, ListPools, Pool), 
@@ -130,7 +129,7 @@ annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal,
 		Pool = Pool0, 
 		Alias = Alias0
 	;
-		list_map3(
+		list__map3(
 			pred(Gin::in, Gout::out, P::out, A::out)
 				is det :- 
 			(

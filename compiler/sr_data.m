@@ -188,7 +188,6 @@
 :- import_module possible_alias__pa_alias_as.
 :- import_module possible_alias__pa_datastruct.
 :- import_module possible_alias__pa_sr_util.
-:- import_module structure_reuse__sr_util.
 
 :- import_module list, string, require, varset, bool, assoc_list.
 %-----------------------------------------------------------------------------%
@@ -448,13 +447,10 @@ reuse_conditions_simplify_2(Condition, Acc0, Acc) :-
 	->
 		Acc = Acc0
 	;
-		list_ho_member(reuse_condition_equal, 
-				Condition, 
-				Acc0)
-	->
-		Acc = Acc0
-	;
-		Acc = [Condition | Acc0]
+		% Remove all the occurrences of Condition in Acc0, and then add
+		% the Condition back to the list. 
+		list__filter(reuse_condition_equal(Condition), Acc0, _, Acc1),
+		Acc = [Condition | Acc1]
 	).
 		
 
@@ -464,20 +460,16 @@ memo_reuse_equal(no, no).
 memo_reuse_equal(yes(C1), yes(C2)):- 
 	list__length(C1, L),
 	list__length(C2, L), 
-	list__filter(
-		pred(COND::in) is semidet :- 
+	list__foldl(
+		pred(Cond::in, Conditions0::in, Conditions::out) is det :- 
 		    (
-			(sr_util__list_ho_member(reuse_condition_equal,
-					COND, 	
-					C1)
-			-> 
-				fail
-			; 
-				true
-			)
+		    	% remove all the occurrences of Cond from the
+			% accumulator. 
+		    	list__filter(reuse_condition_equal(Cond), 
+				Conditions0, _, Conditions)
 		   ),
-		C2, 
-		[]).
+		C1, C2, Result), 
+	Result = []. 
 			
 memo_reuse_init(no).
 memo_reuse_top(no).
