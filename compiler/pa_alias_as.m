@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -7,26 +7,20 @@
 % module pa_alias_as: defines the possible alias abstract substitution 
 % main author: nancy
 
-:- module pa_alias_as.
+:- module possible_alias__pa_alias_as.
 
 :- interface.
 
-%-----------------------------------------------------------------------------%
-%-- import_module 
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
+:- import_module hlds__instmap.
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_datastruct.
+:- import_module structure_reuse__sr_live.
 
-% library modules
 :- import_module set, list, map, string, int, varset.
 :- import_module io, term, std_util.
-
-% XXX parent modules
-:- import_module parse_tree, hlds.
-% compiler modules
-:- import_module parse_tree__prog_data.
-:- import_module hlds__hlds_goal.
-:- import_module hlds__hlds_pred, hlds__hlds_module.
-:- import_module hlds__instmap.
-:- import_module sr_live.
-:- import_module pa_datastruct.
 
 %-----------------------------------------------------------------------------%
 %-- exported types
@@ -35,7 +29,6 @@
 
 %-----------------------------------------------------------------------------%
 %-- exported predicates
-
 
 :- pred init(alias_as::out) is det.
 :- pred is_bottom(alias_as::in) is semidet.
@@ -212,18 +205,19 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
-% library modules
-:- import_module require, term, assoc_list.
-
-% XXX parent modules
-:- import_module check_hlds.
-% compiler modules
-:- import_module pa_alias, pa_util, pa_sr_util.
-:- import_module pa_alias_set.
-:- import_module parse_tree__mercury_to_mercury.
+:- import_module check_hlds__inst_match.
+:- import_module check_hlds__mode_util.
 :- import_module check_hlds__type_util.
 :- import_module hlds__hlds_llds.
-:- import_module pa_sr_util.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module possible_alias__pa_alias.
+:- import_module possible_alias__pa_alias_set.
+:- import_module possible_alias__pa_selector. 
+:- import_module possible_alias__pa_sr_util.
+:- import_module possible_alias__pa_util.
+
+:- import_module require, term, assoc_list.
+:- import_module std_util.
 
 %-----------------------------------------------------------------------------%
 %-- type definitions 
@@ -664,7 +658,6 @@ typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, [Alias | Rest]):-
 	map__is_empty(Substitution),
 	typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, Rest).
 		
-:- import_module std_util, check_hlds__inst_match.
 
 :- pred maybe_modes_to_modes(list(maybe(pair(string, mode))), list(mode)).
 :- mode maybe_modes_to_modes(in, out) is semidet.
@@ -711,7 +704,6 @@ to_trios(Vars, Modes, Types, Trios):-
 :- pred collect_all_input_vars(module_info::in,
 		list(trio)::in, list(trio)::out) is det.
 
-:- import_module check_hlds__mode_util.
 
 collect_all_output_vars(HLDS, VarsIN, VarsOUT):- 
 	list__filter(
@@ -1021,7 +1013,6 @@ parse_single_user_declared_alias(Term, Alias):-
 	).
 
 % might be better to move this code to pa_datastruct ? 
-:- import_module pa_selector. 
 :- pred parse_user_datastruct(term::in, 
 		pa_datastruct__datastruct::out) is det. 
 parse_user_datastruct(Term, Data):- 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -18,14 +18,13 @@
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-:- module pa_prelim_run.
+:- module possible_alias__pa_prelim_run.
 
 :- interface.
 
-% XXX parent modules
-:- import_module hlds.
-% import modules
-:- import_module hlds__hlds_module, io.
+:- import_module hlds__hlds_module.
+
+:- import_module io.
 
 :- pred process_imported_predicates(module_info::in, module_info::out, 
 		io__state::di, io__state::uo) is det.
@@ -40,18 +39,17 @@
 
 :- implementation.
 
-:- import_module ll_backend, parse_tree. 
-:- import_module list, map, set, std_util.
-:- import_module hlds__hlds_pred, ll_backend__liveness. 
-:- import_module hlds__hlds_goal, parse_tree__prog_data.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
 :- import_module hlds__passes_aux.
-%-----------------------------------------------------------------------------%
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module ll_backend__liveness. 
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_alias_as.
 
+:- import_module list, map, set, std_util.
 :- import_module term, varset.
-:- import_module pa_alias_as.
-:- import_module libs.
-:- import_module libs__globals, libs__options.
-% :- import_module hlds__hlds_out.
 
 process_imported_predicates(HLDS0, HLDS) -->
 	{ module_info_unproc_alias_pragmas(HLDS0, UnprocAliasPragmas) },
@@ -267,5 +265,5 @@ annotate_all_outscope_vars_in_goal(Goal0, Outscope, Goal, NewOutscope) :-
 	),
 	goal_info_get_nonlocals(Info0, NL), 
 	set__union(Outscope, NL, NewOutscope), 
-	goal_info_set_outscope(Info0, NewOutscope, Info),	
+	goal_info_set_outscope(NewOutscope, Info0, Info),	
 	Goal = Expr - Info.

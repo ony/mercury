@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -8,19 +8,14 @@
 % 		 with Local Forward Use (LFU) information. 
 % main author: nancy
 
-:- module sr_lfu.
+:- module structure_reuse__sr_lfu.
 
 :- interface.
 
-%-------------------------------------------------------------------%
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred. 
 
-% library modules. 
 :- import_module io.
-
-% XXX parent modules. 
-:- import_module hlds.
-% compiler modules. 
-:- import_module hlds__hlds_module, hlds__hlds_pred. 
 
 :- pred sr_lfu__lfu_pass(module_info, module_info, io__state, io__state).
 :- mode sr_lfu__lfu_pass(in, out, di, uo) is det.
@@ -32,21 +27,17 @@
 
 :- implementation. 
 
-% library modules 
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_llds.
+:- import_module hlds__passes_aux.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module ll_backend__liveness.
+:- import_module parse_tree__prog_data.
+
 :- import_module list, map, bool, set, varset.
 :- import_module string.
 :- import_module std_util, require.
-
-% XXX parent modules. 
-:- import_module libs, parse_tree, ll_backend. 
-
-% mercury-compiler modules
-:- import_module libs__globals, libs__options.
-:- import_module hlds__passes_aux.
-:- import_module hlds__hlds_goal.
-:- import_module hlds__hlds_llds.
-:- import_module parse_tree__prog_data.
-:- import_module ll_backend__liveness.
 
 
 sr_lfu__lfu_pass(HLDSin , HLDSout) --> 
@@ -138,7 +129,7 @@ process_proc(ProcInfo01, ProcInfo) :-
 	% set__init(LFU),
 	set__difference(Inst,Dead,LFU),
 	Goal01 = Expr01 - Info01, 
-	goal_info_set_lfu(Info01, LFU, Info), 
+	goal_info_set_lfu(LFU, Info01, Info), 
 	Goal = Expr01 - Info, 
 
 	% compute global use: global use = intersect(LFU, headvars)
@@ -169,7 +160,7 @@ annotate_lfu_in_goal(Inst0, Dead0, Inst, Dead, Goal0, Goal):-
 	->
 		calculateInstDead(Info0, Inst0, Dead0, Inst, Dead),
 		set__difference(Inst,Dead,LFU),
-		goal_info_set_lfu(Info0, LFU, Info),
+		goal_info_set_lfu(LFU, Info0, Info),
 		Goal = Expr0 - Info
 	;
 		annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, Goal0, Goal)
@@ -245,7 +236,7 @@ annotate_lfu_in_goal_2(Inst0, Dead0, Inst, Dead, TopGoal0, TopGoal) :-
 		Expr = Expr0
 	),
 	set__difference(Inst,Dead,LFU),
-	goal_info_set_lfu(Info0, LFU, Info),
+	goal_info_set_lfu(LFU, Info0, Info),
 	TopGoal = Expr - Info. 
 
 :- pred annotate_lfu_in_conj(set(prog_var), set(prog_var),

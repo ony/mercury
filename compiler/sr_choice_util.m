@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001-2002 The University of Melbourne.
+% Copyright (C) 2001-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,19 +10,15 @@
 % Common data types and procedures to sr_choice, and sr_choice_graphing. 
 %-----------------------------------------------------------------------------%
 
-:- module sr_choice_util.
+:- module structure_reuse__sr_choice_util.
 :- interface.
 
-% library modules. 
-:- import_module bool, io, std_util, list.
-
-% XXX parent modules.
-:- import_module hlds, parse_tree.
-
-% compiler modules. 
 :- import_module hlds__hlds_module. 
 :- import_module hlds__hlds_data.
-:- import_module hlds__hlds_pred, parse_tree__prog_data.
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
+
+:- import_module bool, io, std_util, list.
 
 :- type strategy
         --->    strategy(
@@ -81,12 +77,11 @@
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
-% XXX parent modules.
-:- import_module libs, check_hlds.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module check_hlds__type_util.
 
 :- import_module map, require, int.
-:- import_module libs__globals, libs__options.
-:- import_module check_hlds__type_util.
 
 get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
 	io_lookup_string_option(structure_reuse_constraint, ConstraintStr),

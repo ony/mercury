@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -11,17 +11,15 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module sr_split.
+:- module structure_reuse__sr_split.
 :- interface.
 
-% library modules.
-:- import_module std_util, io, string.
-
-% XXX parent modules.
-:- import_module hlds.
-% compiler modules. 
+:- import_module hlds__hlds_goal.
 :- import_module hlds__hlds_module.
-:- import_module hlds__hlds_pred, sr_data, hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
+:- import_module structure_reuse__sr_data.
+
+:- import_module std_util, io, string.
 
 	% create_multiple_versions(ReuseHLDS, FinalHLDS).
 	% Starting from the VirginHLDS, it computes a new HLDS where for
@@ -42,14 +40,13 @@
 %-----------------------------------------------------------------------------%
 
 :- implementation.
-% XXX parent modules.
-:- import_module parse_tree.
+
+:- import_module hlds__hlds_data.
+:- import_module parse_tree__prog_data.
+:- import_module parse_tree__prog_util. 
+:- import_module structure_reuse__sr_data. 
 
 :- import_module bool, std_util, require, list, set, map.
-:- import_module parse_tree__prog_data, hlds__hlds_data.
-:- import_module parse_tree__prog_util. 
-:- import_module sr_data. 
-
 
 reuse_predicate_name(PredName) :- 
 	string__prefix(PredName, "reuse__").
@@ -307,7 +304,7 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 	Goal = Goal0, 
 	goal_info_get_reuse(GoalInfo0, Reuse0), 
 	convert_reuse(Reuse0, Reuse), 
-	goal_info_set_reuse(GoalInfo0, Reuse, GoalInfo).
+	goal_info_set_reuse(Reuse, GoalInfo0, GoalInfo).
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
 	Goal0 = generic_call(_,_,_,_),
 	Goal = Goal0, 
@@ -328,7 +325,7 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 	Goal = Goal0, 
 	goal_info_get_reuse(GoalInfo0, Reuse0), 
 	convert_reuse(Reuse0,Reuse), 
-	goal_info_set_reuse(GoalInfo0, Reuse, GoalInfo).
+	goal_info_set_reuse(Reuse, GoalInfo0, GoalInfo).
 convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :- 
 	Goal0 = disj(Goals0),
 	list__map(convert_potential_reuse_to_reuse, Goals0, Goals), 
@@ -392,10 +389,11 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 			Name = Name0,
 			%goal_info_set_reuse(GoalInfo0, reuse(no_reuse),
 					%GoalInfo)
-			goal_info_set_reuse(GoalInfo0,
+			goal_info_set_reuse(
 				potential_reuse(SR),
 			% reuse(missed_reuse_call(["Conditional call."])),
-					GoalInfo)
+				GoalInfo0,
+				GoalInfo)
 		;
 			Result = proc(PredId, ProcId) - Name,
 			GoalInfo = GoalInfo0
@@ -418,8 +416,10 @@ process_goal(LocalReuseOnly, Goal0 - GoalInfo0, Goal - GoalInfo) -->
 	->
 		( ConditionalReuse = yes, LocalReuseOnly = yes ->
 			Unification = Unification0,
-			goal_info_set_reuse(GoalInfo0, potential_reuse(SR),
-					GoalInfo)
+			goal_info_set_reuse(
+				potential_reuse(SR),
+				GoalInfo0, 
+				GoalInfo)
 		;
 			(
 				Unification0 = construct(Var, ConsId, Vars,

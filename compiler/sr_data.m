@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,19 +12,18 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module sr_data.
+:- module structure_reuse__sr_data.
 :- interface.
 
-% library modules. 
-:- import_module bool, map, set, std_util, list, io, term.
-
-% XXX parent modules. 
-:- import_module hlds, parse_tree.
-% compiler modules. 
-:- import_module pa_alias_as, pa_datastruct.
-:- import_module sr_live.
-:- import_module hlds__hlds_data, hlds__hlds_pred, hlds__hlds_module.
+:- import_module hlds__hlds_data.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_alias_as.
+:- import_module possible_alias__pa_datastruct.
+:- import_module structure_reuse__sr_live.
+
+:- import_module bool, map, set, std_util, list, io, term.
 
 	% The information placed in the goal info which is used by
 	% structure reuse.
@@ -186,12 +185,17 @@
 
 :- implementation.
 
-:- import_module list, string, require, varset, bool, assoc_list.
-:- import_module pa_datastruct, pa_alias_as.
-:- import_module parse_tree__mercury_to_mercury, parse_tree__prog_out.
-:- import_module parse_tree__prog_io, parse_tree__prog_io_util.
-:- import_module sr_util, pa_sr_util.
+:- import_module hlds__instmap. 
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module parse_tree__prog_io.
+:- import_module parse_tree__prog_io_util.
+:- import_module parse_tree__prog_out.
+:- import_module possible_alias__pa_alias_as.
+:- import_module possible_alias__pa_datastruct.
+:- import_module possible_alias__pa_sr_util.
+:- import_module structure_reuse__sr_util.
 
+:- import_module list, string, require, varset, bool, assoc_list.
 %-----------------------------------------------------------------------------%
 /**
 reuse_to_string(Reuse) = String :- 
@@ -386,7 +390,6 @@ reuse_condition_verify(ProcInfo, HLDS,  Live0, Alias0, Static,
 		NodesList,
 		[]).
 
-:- import_module hlds__instmap. 
 
 reuse_condition_update(_ProcInfo, _HLDS, 
 		_LFUi, _LBUi, _ALIASi, _HVs, always, always).

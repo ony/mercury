@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -8,22 +8,18 @@
 % 	sr_indirect.
 % main author: nancy
 
-:- module sr_fixpoint_table.
+:- module structure_reuse__sr_fixpoint_table.
 
 :- interface.
 
 %-------------------------------------------------------------------%
 
-% library modules.
-:- import_module list.
-
-% XXX parent modules
-:- import_module hlds.
-
-% compiler modules. 
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_module. 
 :- import_module hlds__hlds_pred.
-:- import_module sr_data.
-:- import_module hlds__hlds_goal, hlds__hlds_module. 
+:- import_module structure_reuse__sr_data.
+
+:- import_module list.
 
 :- type table.
 
@@ -75,6 +71,8 @@
 %-------------------------------------------------------------------%
 :- implementation.
 
+:- import_module fixpoint_table.
+
 :- import_module std_util, require. 
 
 :- type fixpoint_entry ---> 
@@ -102,7 +100,6 @@ pick_reuse_information(HLDS, PredProc, Entry) :-
 
 
 
-:- import_module fixpoint_table.
 
 :- type table == 
 		fixpoint_table(pred_proc_id, fixpoint_entry).

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -7,17 +7,13 @@
 % Module:	sr_profile_run
 % Main authors: nancy
 
-:- module sr_profile_run.
+:- module structure_reuse__sr_profile_run.
 
 :- interface.
 
-% library modules. 
-:- import_module io.
-
-% XXX parent modules
-:- import_module hlds.
-% compiler modules. 
 :- import_module hlds__hlds_module. 
+
+:- import_module io.
 
 :- pred structure_reuse_profiling(module_info::in, io__state::di, 
 			io__state::uo) is det.
@@ -25,18 +21,17 @@
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
-:- import_module list, map, bool, std_util. 
-
-% XXX parent modules
-:- import_module libs, parse_tree.
-
-:- import_module hlds__hlds_pred.
-:- import_module libs__globals, libs__options, hlds__passes_aux.
-:- import_module parse_tree__prog_out. 
-:- import_module pa_alias_as.
-:- import_module sr_profile, sr_data.
 :- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
+:- import_module hlds__passes_aux.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module parse_tree__prog_out. 
+:- import_module possible_alias__pa_alias_as.
+:- import_module structure_reuse__sr_data.
+:- import_module structure_reuse__sr_profile.
 
+:- import_module list, map, bool, std_util. 
 
 structure_reuse_profiling(HLDS) -->
 	globals__io_lookup_bool_option(very_verbose, Verbose), 

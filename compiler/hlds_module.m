@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2002 The University of Melbourne.
+% Copyright (C) 1996-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -27,8 +27,10 @@
 :- import_module hlds__special_pred.
 :- import_module libs__globals, backend_libs__foreign.
 :- import_module relation, map, std_util, list, set, multi_map, counter.
-:- import_module pa_alias_as.
-:- import_module sr_data.
+:- import_module possible_alias.
+:- import_module possible_alias__pa_alias_as.
+:- import_module structure_reuse.
+:- import_module structure_reuse__sr_data.
 
 :- implementation.
 

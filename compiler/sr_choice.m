@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,35 +14,36 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module sr_choice.
+:- module structure_reuse__sr_choice.
 :- interface.
 
-% library modules.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
+:- import_module hlds__hlds_module.
+:- import_module structure_reuse__sr_data.
+:- import_module structure_reuse__sr_choice_util.
+
 :- import_module list, std_util.
 
-% XXX parent modules. 
-:- import_module hlds.
-% compiler modules. 
-:- import_module hlds__hlds_goal, hlds__hlds_pred, hlds__hlds_module.
-:- import_module sr_data, sr_choice_util.
-
 :- pred sr_choice__process_goal(strategy::in, vartypes::in, module_info::in,
-		proc_info::in, hlds_goal::in, hlds_goal::out,
-		maybe(list(reuse_condition))::out) is det.
-
+	proc_info::in, hlds_goal::in, hlds_goal::out,
+	maybe(list(reuse_condition))::out) is det.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
-% XXX parent modules. 
-:- import_module parse_tree, check_hlds, libs.
+:- import_module check_hlds__type_util.
+:- import_module hlds__hlds_data.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module parse_tree__prog_data.
 
-:- import_module hlds__hlds_data, parse_tree__prog_data, check_hlds__type_util.
 :- import_module assoc_list, bool, int. 
 :- import_module map, multi_map, require, set.
-:- import_module libs__options, libs__globals.
+:- import_module string. 
+:- import_module queue.
 
 process_goal(Strategy, VarTypes, ModuleInfo, ProcInfo, 
 		Goal0, Goal, MaybeReuseConditions) :-
@@ -193,7 +194,6 @@ merge(InfoA, Info0, Info) :-
 		hlds_goal_info::in, hlds_goal_info::out,
 		constraint_info::in, constraint_info::out) is det.
 
-:- import_module string. 
 apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 	{ Unif = construct(Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi) },
 	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
@@ -262,8 +262,9 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 		)}
 	),
 	{ solutions(P, Candidates) },
-	{ goal_info_set_reuse(GoalInfo0,
+	{ goal_info_set_reuse(
 			choice(construct(set__list_to_set(Candidates))),
+			GoalInfo0,
 			GoalInfo) }.
 
 
@@ -331,7 +332,6 @@ and_list(ListA, ListB)
 
 %-----------------------------------------------------------------------------%
 
-:- import_module queue.
 
 :- type selection_info
 	--->	selection_info(
@@ -605,17 +605,19 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 			ReuseCond = condition(_, _, _),
 			ConditionalReuse = yes
 		},
-		{ goal_info_set_reuse(GoalInfo0,
+		{ goal_info_set_reuse(
 				potential_reuse(cell_reused(ReuseVar, 
 						ConditionalReuse,
 						ConsIds, ReuseFields)),
+				GoalInfo0,
 				GoalInfo) },
 		ReuseConditions =^ reuse_conds,
 		^ reuse_conds := [ReuseCond | ReuseConditions]
 	;
 		{ LocalReused = LocalReused0 },
-		{ goal_info_set_reuse(GoalInfo0,
+		{ goal_info_set_reuse(
 				potential_reuse(no_reuse),
+				GoalInfo0,
 				GoalInfo) }
 	),
 	^ local_used := LocalReused.
@@ -729,8 +731,9 @@ determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
 	{ ReuseInfo = choice(deconstruct(MaybeDies)) ->
 		(
 			MaybeDies = yes(Condition),
-			goal_info_set_reuse(GoalInfo0, 
+			goal_info_set_reuse(
 					potential_reuse(cell_died),
+					GoalInfo0, 
 					GoalInfo),
 			( set__member(Var, ReusedVars) ->
 				CanCGC = no
@@ -750,8 +753,9 @@ determine_cgc_unification(ReusedVars, Unif0, Unif, GoalInfo0, GoalInfo) -->
 		;
 			MaybeDies = no,
 			CanCGC = no,
-			goal_info_set_reuse(GoalInfo0, 
+			goal_info_set_reuse(
 					potential_reuse(no_reuse),
+					GoalInfo0, 
 					GoalInfo)
 		)
 	;

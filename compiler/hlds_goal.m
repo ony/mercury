@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2002 The University of Melbourne.
+% Copyright (C) 1996-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -12,7 +12,8 @@
 
 :- interface.
 
-:- import_module sr_data.
+:- import_module structure_reuse.
+:- import_module structure_reuse__sr_data.
 % :- import_module ll_backend__llds.	% XXX needed for `lval'
 :- import_module parse_tree__prog_data, parse_tree__inst.
 :- import_module hlds__hlds_data, hlds__hlds_pred, hlds__hlds_llds.
@@ -622,30 +623,6 @@
 % variable can occur in both the post-death and post-birth sets,
 % or in both the pre-death and pre-birth sets.
 
-:- pred goal_info_get_lfu(hlds_goal_info, set(prog_var)).
-:- mode goal_info_get_lfu(in, out) is det.
-
-:- pred goal_info_set_lfu(hlds_goal_info, set(prog_var), hlds_goal_info).
-:- mode goal_info_set_lfu(in, in, out) is det.
-
-:- pred goal_info_get_lbu(hlds_goal_info, set(prog_var)).
-:- mode goal_info_get_lbu(in, out) is det.
-
-:- pred goal_info_set_lbu(hlds_goal_info, set(prog_var), hlds_goal_info).
-:- mode goal_info_set_lbu(in, in, out) is det.
-
-:- pred goal_info_get_outscope(hlds_goal_info, set(prog_var)).
-:- mode goal_info_get_outscope(in, out) is det.
-
-:- pred goal_info_set_outscope(hlds_goal_info, set(prog_var), hlds_goal_info).
-:- mode goal_info_set_outscope(in, in, out) is det.
-
-:- pred goal_info_get_reuse(hlds_goal_info, reuse_goal_info).
-:- mode goal_info_get_reuse(in, out) is det.
-
-:- pred goal_info_set_reuse(hlds_goal_info, reuse_goal_info, hlds_goal_info).
-:- mode goal_info_set_reuse(in, in, out) is det.
-
 	% see also goal_info_get_code_model in code_model.m
 :- pred goal_info_get_determinism(hlds_goal_info, determinism).
 :- mode goal_info_get_determinism(in, out) is det.
@@ -791,6 +768,21 @@
 			;	later.
 
 :- type maybe_cut	--->	cut ; no_cut.
+
+:- pred goal_info_get_lfu(hlds_goal_info::in, set(prog_var)::out) is det.
+:- pred goal_info_get_lbu(hlds_goal_info::in, set(prog_var)::out) is det.
+:- pred goal_info_get_outscope(hlds_goal_info::in, set(prog_var)::out) is det.
+:- pred goal_info_get_reuse(hlds_goal_info::in, reuse_goal_info::out) is det.
+
+:- pred goal_info_reuse_init(hlds_goal_info::in, hlds_goal_info::out) is det.
+:- pred goal_info_set_lfu(set(prog_var)::in, hlds_goal_info::in,
+	hlds_goal_info::out) is det.
+:- pred goal_info_set_lbu(set(prog_var)::in, hlds_goal_info::in,
+	hlds_goal_info::out) is det.
+:- pred goal_info_set_outscope(set(prog_var)::in, hlds_goal_info::in,
+	hlds_goal_info::out) is det.
+:- pred goal_info_set_reuse(reuse_goal_info::in, hlds_goal_info::in,
+	hlds_goal_info::out) is det.
 
 %-----------------------------------------------------------------------------%
 %
@@ -1149,11 +1141,16 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 % Information stored with all kinds of goals
 %
 
-	% NB. Don't forget to check goal_util__name_apart_goalinfo
-	% if this structure is modified.
-:- type hlds_goal_info
-	---> goal_info(
-		lfu :: set(prog_var),		% the local forward use set
+% XXX reuse_goal_info temporarely still defined in sr_data.
+% :- type reuse_info
+	% ---> 	empty
+	% ; 	potential_reuse(short_reuse_info)
+	% ; 	reuse(short_reuse_info).
+
+:- type hlds_goal_reuse_info
+	--->	goal_reuse_info(
+			lfu	:: set(prog_var),
+				% the local forward use set
 				% (closely related to the previous 4 sets)
 				% This set contains the variables which
 				% are syntactically needed during forward
@@ -1165,14 +1162,16 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 				% This information is needed by the liveness
 				% analysis in the context of memory
 				% reuse.
-		lbu :: set(prog_var), 		% the local backward use set
+			lbu	:: set(prog_var),
+				% the local backward use set
 				% This set contains the instantiated
 				% variables that will still be needed upon
 				% backtracking (i.e. syntactically appearing
 				% in a nondet call preceding this 
 				% goal. 
 
-		outscope :: set(prog_var), 	% outscope-vars
+			outscope :: set(prog_var),
+				% outscope-vars
 				% This is a generalisation of the
 				% concept of nonlocal variables. While
 				% nonlocals variables are limited to
@@ -1188,10 +1187,15 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 				% must be in the scope of the unification
 				% where it can be reused). 
 
-		reuse :: reuse_goal_info,
+			reuse	:: reuse_goal_info
 				% Any structure reuse information
 				% related to this call.
+		).
 
+	% NB. Don't forget to check goal_util__name_apart_goalinfo
+	% if this structure is modified.
+:- type hlds_goal_info
+	---> goal_info(
 		determinism :: determinism,
 				% the overall determinism of the goal
 				% (computed during determinism analysis)
@@ -1261,23 +1265,22 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 		goal_path :: goal_path,
 				% The path to this goal from the root in
 				% reverse order.
+	
+		goal_reuse_info	:: maybe(hlds_goal_reuse_info),
+				% Information related to the derivation
+				% of structure reuse opportunities.
 
 		code_gen_info :: hlds_goal_code_gen_info
 	).
 
 goal_info_init(GoalInfo) :-
 	Detism = erroneous,
-	set__init(LFU),
-	set__init(LBU), 
-	set__init(Outscope),
-	Reuse = empty,
 	instmap_delta_init_unreachable(InstMapDelta),
 	set__init(NonLocals),
 	term__context_init(Context),
 	set__init(Features),
-	GoalInfo = goal_info(LFU, LBU, Outscope, Reuse,
-		Detism, InstMapDelta, Context, NonLocals, 
-		Features, [], no_code_gen_info).
+	GoalInfo = goal_info(Detism, InstMapDelta, Context, NonLocals, 
+		Features, [], no, no_code_gen_info).
 
 goal_info_init(Context, GoalInfo) :-
 	goal_info_init(GoalInfo0),
@@ -1295,14 +1298,6 @@ goal_info_init(NonLocals, InstMapDelta, Detism, Context, GoalInfo) :-
 	goal_info_set_instmap_delta(GoalInfo1, InstMapDelta, GoalInfo2),
 	goal_info_set_determinism(GoalInfo2, Detism, GoalInfo3),
 	goal_info_set_context(GoalInfo3, Context, GoalInfo).
-
-goal_info_get_lfu(GoalInfo, GoalInfo ^ lfu).
-
-goal_info_get_outscope(GoalInfo, GoalInfo ^ outscope).
-
-goal_info_get_lbu(GoalInfo, GoalInfo ^ lbu).
-
-goal_info_get_reuse(GoalInfo, GoalInfo ^ reuse).
 
 goal_info_get_determinism(GoalInfo, GoalInfo ^ determinism).
 
@@ -1322,17 +1317,6 @@ goal_info_get_features(GoalInfo, GoalInfo ^ features).
 goal_info_get_goal_path(GoalInfo, GoalInfo ^ goal_path).
 
 goal_info_get_code_gen_info(GoalInfo, GoalInfo ^ code_gen_info).
-
-goal_info_set_lfu(GoalInfo0, LFU,
-		GoalInfo0 ^ lfu := LFU).
-
-goal_info_set_lbu(GoalInfo0, LBU,
-		GoalInfo0 ^ lbu := LBU).
-
-goal_info_set_outscope(GoalInfo0, OutScope,
-		GoalInfo0 ^ outscope := OutScope).
-
-goal_info_set_reuse(GoalInfo, Reuse, GoalInfo ^ reuse := Reuse).
 
 goal_info_set_determinism(GoalInfo0, Determinism,
 		GoalInfo0 ^ determinism := Determinism).
@@ -1357,6 +1341,99 @@ goal_info_set_goal_path(GoalInfo0, GoalPath,
 
 goal_info_set_code_gen_info(GoalInfo0, CodeGenInfo,
 		GoalInfo0 ^ code_gen_info := CodeGenInfo).
+
+%-----------------------------------------------------------------------------%
+goal_info_get_lfu(GoalInfo, LFU) :-
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	(
+		MaybeSub = yes(Sub),
+		LFU = Sub ^ lfu
+	;
+		MaybeSub = no,
+		error("goal_info_get_lfu: no goal_reuse_info")
+	).
+
+goal_info_get_outscope(GoalInfo, Outscope) :- 
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	(
+		MaybeSub = yes(Sub),
+		Outscope = Sub ^ outscope
+	;
+		MaybeSub = no,
+		error("goal_info_get_outscope: no goal_reuse_info")
+	).
+
+goal_info_get_lbu(GoalInfo, LBU) :-
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	(
+		MaybeSub = yes(Sub),
+		LBU = Sub ^ lbu
+	;
+		MaybeSub = no,
+		error("goal_info_get_lbu: no goal_reuse_info")
+	).
+
+goal_info_get_reuse(GoalInfo, Reuse) :- 
+	MaybeSub = GoalInfo ^ goal_reuse_info,
+	(
+		MaybeSub = yes(Sub),
+		Reuse = Sub ^ reuse
+	;
+		MaybeSub = no,
+		error("goal_info_get_reuse: no goal_reuse_info")
+	).
+
+goal_info_reuse_init(GoalInfo0, GoalInfo) :- 
+	ReuseInfo = goal_reuse_info(set__init, set__init, set__init, empty),
+	GoalInfo = GoalInfo0 ^ goal_reuse_info := yes(ReuseInfo).
+
+goal_info_set_lfu(LFU, GoalInfo0, GoalInfo) :-
+	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
+	(
+		MaybeSub0 = yes(Sub0),
+		Sub = Sub0 ^ lfu := LFU,
+		MaybeSub = yes(Sub)
+	;
+		MaybeSub0 = no,
+		error("goal_info_set_lfu: no goal_reuse_info")
+	),
+	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
+
+goal_info_set_lbu(LBU, GoalInfo0, GoalInfo) :- 
+	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
+	(
+		MaybeSub0 = yes(Sub0),
+		Sub = Sub0 ^ lbu := LBU,
+		MaybeSub = yes(Sub)
+	;
+		MaybeSub0 = no,
+		error("goal_info_set_lbu: no goal_reuse_info")
+	),
+	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
+
+goal_info_set_outscope(Outscope, GoalInfo0, GoalInfo) :- 
+	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
+	(
+		MaybeSub0 = yes(Sub0),
+		Sub = Sub0 ^ outscope := Outscope,
+		MaybeSub = yes(Sub)
+	;
+		MaybeSub0 = no,
+		error("goal_info_set_outscope: no goal_reuse_info")
+	),
+	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
+
+goal_info_set_reuse(Reuse, GoalInfo0, GoalInfo):- 
+	MaybeSub0 = GoalInfo0 ^ goal_reuse_info,
+	(
+		MaybeSub0 = yes(Sub0),
+		Sub = Sub0 ^ reuse := Reuse,
+		MaybeSub = yes(Sub)
+	;
+		MaybeSub0 = no,
+		error("goal_info_set_reuse: no goal_reuse_info")
+	),
+	GoalInfo = GoalInfo0 ^ goal_reuse_info := MaybeSub.
 
 %-----------------------------------------------------------------------------%
 

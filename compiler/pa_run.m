@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -10,21 +10,16 @@
 %		 head-variables might become aliased after the procedure exits
 % main author: nancy
 
-:- module pa_run.
+:- module possible_alias__pa_run.
 
 :- interface.
 
-%-----------------------------------------------------------------------------%
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_alias_as.
 
 :- import_module io, list.
-
-% XXX parent modules
-:- import_module hlds, parse_tree.
-
-:- import_module hlds__hlds_module, hlds__hlds_pred.
-:- import_module parse_tree__prog_data.
-:- import_module pa_alias_as.
-
 
 	% the main pass
 :- pred pa_run__aliases_pass(module_info, module_info, io__state, io__state).
@@ -65,27 +60,33 @@
 %-----------------------------------------------------------------------------%
 :- implementation.
 
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
+:- import_module hlds__instmap.
+:- import_module hlds__passes_aux.
+:- import_module hlds__special_pred.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module ll_backend__liveness.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module parse_tree__modules.
+:- import_module parse_tree__prog_data.
+:- import_module parse_tree__prog_out.
+:- import_module parse_tree__prog_util.
+:- import_module possible_alias__pa_alias_as.
+:- import_module possible_alias__pa_prelim_run.
+:- import_module possible_alias__pa_sr_util.
+:- import_module possible_alias__pa_util.
+	% may 20, 2004: should not be necessary
+% :- import_module structure_reuse__sr_lbu.
+% :- import_module structure_reuse__sr_lfu.
+:- import_module transform_hlds__dependency_graph.
+
 :- import_module require.
 :- import_module list, map, int, set.
 :- import_module std_util, string.
 :- import_module term.
-
-% XXX parent modules
-:- import_module transform_hlds, ll_backend, libs. 
-
-:- import_module transform_hlds__dependency_graph.
-:- import_module hlds__instmap, hlds__special_pred.
-:- import_module hlds__hlds_pred, hlds__hlds_goal.
-:- import_module parse_tree__prog_util, parse_tree__prog_out.
-:- import_module parse_tree__prog_data.
-:- import_module ll_backend__liveness.
-
-:- import_module pa_util, pa_alias_as, pa_prelim_run.
-
-
-% XXX lfu/lbu stuff
-:- import_module sr_lbu, sr_lfu.
-
+:- import_module varset, bool.
 
 %-----------------------------------------------------------------------------%
 
@@ -182,10 +183,11 @@ analyse_pred_proc(HLDS, PRED_PROC_ID , FPtable0, FPtable) -->
 			ProcInfo_tmp) },
 
 	% XXX annotate all lbu/lfu stuff
-	{ sr_lfu__process_proc(ProcInfo_tmp, ProcInfo_tmp2) }, 
-	{ sr_lbu__process_proc(HLDS, ProcInfo_tmp2, ProcInfo) }, 
+	% may 20, 2004: should not be necessary
+	% { sr_lfu__process_proc(ProcInfo_tmp, ProcInfo_tmp2) }, 
+	% { sr_lbu__process_proc(HLDS, ProcInfo_tmp2, ProcInfo) }, 
 
-	% { ProcInfo = ProcInfo_tmp }, 
+	{ ProcInfo = ProcInfo_tmp }, 
 
 	{ PRED_PROC_ID = proc(PredId, ProcId) },
 
@@ -632,14 +634,6 @@ update_alias_in_module_info(FPtable, PRED_PROC_ID, HLDSin, HLDSout) :-
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 % make the interface
-
-:- import_module parse_tree__modules.
-:- import_module parse_tree__mercury_to_mercury.
-:- import_module hlds__passes_aux.
-:- import_module libs__globals, libs__options.
-:- import_module varset, bool.
-
-:- import_module pa_sr_util.
 
 	% inspiration taken from termination.m
 :- pred pa_run__make_pa_interface(module_info, io__state, io__state).

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,14 +14,12 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module sr_dead.
+:- module structure_reuse__sr_dead.
 :- interface.
 
-% XXX parent modules.
-:- import_module hlds.
-
-% compiler modules.
-:- import_module hlds__hlds_pred, hlds__hlds_module, hlds__hlds_goal.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
 
 :- pred sr_dead__process_goal(pred_id::in, proc_info::in, module_info::in, 
 				hlds_goal::in, hlds_goal::out) is det.
@@ -32,15 +30,16 @@
 
 :- implementation.
 
-% XXX parent modules
-:- import_module parse_tree.
+:- import_module hlds__hlds_data.
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_alias_as.
+:- import_module possible_alias__pa_run.
+:- import_module structure_reuse__sr_data.
+:- import_module structure_reuse__sr_live.
+:- import_module structure_reuse__sr_util.
 
 :- import_module assoc_list, int, require. 
 :- import_module set, list, map, std_util.
-:- import_module parse_tree__prog_data, hlds__hlds_data.
-:- import_module sr_data, sr_live.
-:- import_module pa_alias_as, pa_run.
-:- import_module sr_util.
 
 process_goal(_PredId, ProcInfo, ModuleInfo, Goal0, Goal) :- 
 	pa_alias_as__init(Alias0), 
@@ -248,8 +247,8 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 			)
 		
 		->
-			goal_info_set_reuse(Info0, 
-				choice(deconstruct(no)), Info),
+			goal_info_set_reuse( choice(deconstruct(no)), 
+				Info0, Info),
 			Pool = Pool0
 		;
 			add_dead_cell(ModuleInfo, ProcInfo, 
@@ -257,9 +256,9 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 					LFU, LBU,
 					Alias0, Pool0, Pool, 
 					ReuseCondition),
-			goal_info_set_reuse(Info0, 
+			goal_info_set_reuse(
 				choice(deconstruct(
-					yes(ReuseCondition))), Info) 
+					yes(ReuseCondition))), Info0, Info) 
 		)
 	;
 		Unification = construct(_, ConsId, Vars, _, _, _, _)
@@ -279,7 +278,8 @@ unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
 			dead_cell_pool_try_to_reuse(list__length(Vars),
 					Pool0, ReuseVarsConds)
 		),
-		goal_info_set_reuse(Info0, choice(construct(ReuseVarsConds)),
+		goal_info_set_reuse(choice(construct(ReuseVarsConds)),
+				Info0, 
 				Info),
 		Pool = Pool0
 	;

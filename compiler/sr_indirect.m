@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -11,16 +11,12 @@
 %
 %-----------------------------------------------------------------------------%
 
-:- module sr_indirect.
+:- module structure_reuse__sr_indirect.
 :- interface.
 
-% library modules.
-:- import_module io. 
-
-% XXX parent modules. 
-:- import_module hlds.
-% compiler modules. 
 :- import_module hlds__hlds_module.
+
+:- import_module io. 
 
 :- pred sr_indirect__compute_fixpoint(module_info::in, module_info::out,
 		io__state::di, io__state::uo) is det.
@@ -30,19 +26,25 @@
 
 :- implementation.
 
-% XXX parent modules. 
-:- import_module transform_hlds, parse_tree, libs.
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_pred.
+:- import_module hlds__instmap.
+:- import_module hlds__passes_aux.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module parse_tree__prog_data.
+:- import_module parse_tree__prog_util.
+:- import_module possible_alias__pa_datastruct. 
+:- import_module possible_alias__pa_alias_as.
+:- import_module possible_alias__pa_run.
+:- import_module possible_alias__pa_sr_util.
+:- import_module structure_reuse__sr_data.
+:- import_module structure_reuse__sr_fixpoint_table.
+:- import_module structure_reuse__sr_live.
+:- import_module structure_reuse__sr_util.
+:- import_module transform_hlds__dependency_graph.
 
 :- import_module map, list, std_util, require, set, string, bool.
-:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__passes_aux.
-:- import_module transform_hlds__dependency_graph.
-:- import_module parse_tree__prog_data, parse_tree__prog_util.
-:- import_module pa_alias_as, pa_run.
-:- import_module pa_sr_util.
-:- import_module sr_data, sr_util, sr_live.
-:- import_module sr_fixpoint_table.
-:- import_module libs__globals, libs__options.
-:- import_module pa_datastruct. 
 
 compute_fixpoint(HLDS0, HLDSout) -->
 		% compute the strongly connected components
@@ -590,7 +592,7 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 				% sr_choice_graphing__annotate_reuses)
 				KindReuse = reuse(ReuseCall)
 			),
-			goal_info_set_reuse(Info0, KindReuse, Info),
+			goal_info_set_reuse(KindReuse, Info0, Info),
 			YesNo = yes
 		;
 			Pool = Pool0,
@@ -600,8 +602,10 @@ call_verify_reuse(ProcInfo, HLDS, PredId0, ProcId0,
 					StaticTerms, Memo, 
 					Cause), 
 			
-			goal_info_set_reuse(Info0, 
-				potential_reuse(missed_reuse_call(Cause)), Info), 
+			goal_info_set_reuse(
+				potential_reuse(missed_reuse_call(Cause)), 
+				Info0, 
+				Info), 
 			YesNo = no
 		)
 	).
@@ -775,7 +779,6 @@ indirect_reuse_pool_least_upper_bound_disjunction(List, Pool):-
 		require__error("(sr_indirect) indirect_reuse_pool_least_upper_bound_disjunction: list is empty")
 	).
 
-:- import_module hlds__instmap.
 
 indirect_reuse_pool_least_upper_bound(Pool1, Pool2, Pool):-
 	Pool1 = pool(HVS, Memo1), 

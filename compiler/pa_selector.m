@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -15,22 +15,15 @@
 % 2. _partially instantiated datastructures_ : the day they'll be 
 %    introduced, a couple of things will have to be changed.
 
-:- module pa_selector.
+:- module possible_alias__pa_selector.
 
 :- interface.
 
-%-------------------------------------------------------------------%
-%-- import_module 
-
-% library modules
-:- import_module list, int, io, term.
-
-% XXX parent modules
-:- import_module hlds, parse_tree.
-% compiler modules
-:- import_module hlds__hlds_data, hlds__hlds_module.
+:- import_module hlds__hlds_data.
+:- import_module hlds__hlds_module.
 :- import_module parse_tree__prog_data.
 
+:- import_module list, int, io, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -107,18 +100,15 @@
 
 :- implementation.
 
-% library modules
-:- import_module require, string, std_util, bool.
-
-% XXX parent modules
-:- import_module check_hlds.
-
-% compiler modules
-:- import_module parse_tree__mercury_to_mercury, parse_tree__prog_io.
-:- import_module parse_tree__prog_out.
 :- import_module check_hlds__type_util.
-:- import_module hlds__hlds_pred, hlds__hlds_out.
+:- import_module hlds__hlds_out.
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module parse_tree__prog_io.
+:- import_module parse_tree__prog_out.
 
+:- import_module require, string, std_util, bool.
+:- import_module assoc_list, map.
 
 init([]).
 init(CONS, INDEX, SEL):-
@@ -437,7 +427,6 @@ hlds_type_body_to_minimal_string(foreign_type(_), "foreign_type").
 % BRANCH_MAP : copy/pasted from wimvh/bta_reduce.m
 %-------------------------------------------------------------------%
 
-:- import_module assoc_list, map.
 
 :- type branch_map == assoc_list(type, selector).
 

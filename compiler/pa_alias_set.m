@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001-2002 The University of Melbourne.
+% Copyright (C) 2001-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -14,24 +14,17 @@
 % TO DO: 
 % 	- record type of the selectorset immediately in the set. 
 
-:- module pa_alias_set. 
+:- module possible_alias__pa_alias_set. 
 
 :- interface.
 
-%-----------------------------------------------------------------------------%
-%-- import_module
-
-% library modules
-:- import_module list, set, map, io, term.
-
-% XXX parent modules
-:- import_module hlds, parse_tree. 
-% compiler modules
-:- import_module pa_datastruct. 
-:- import_module hlds__hlds_module, hlds__hlds_pred.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data. 
-:- import_module pa_alias.
+:- import_module possible_alias__pa_alias.
+:- import_module possible_alias__pa_datastruct. 
 
+:- import_module list, set, map, io, term.
 
 %-----------------------------------------------------------------------------%
 %-- exported types
@@ -143,12 +136,11 @@
 %-----------------------------------------------------------------------------%
 %-- import module
 
-% library modules
+:- import_module possible_alias__pa_selector.
+
 :- import_module std_util.
 :- import_module int, bool, assoc_list. 
-
-% compiler modules
-:- import_module pa_selector.
+:- import_module require, string. 
 
 %-----------------------------------------------------------------------------%
 %-- type definitions
@@ -1279,7 +1271,6 @@ set_cross_product(Set0, Set1, CrossProduct):-
 
 %-----------------------------------------------------------------------------%
 
-:- import_module require, string. 
 :- pred map_det_insert(map(K,V)::in, K::in, V::in, 
 			map(K,V)::out, string::in) is det.
 map_det_insert(Map0, K, V, Map, Msg) :- 

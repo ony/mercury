@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -30,21 +30,14 @@
 %	  uses. 
 % All the other goals simply propagate LBU. 
 
-
-:- module sr_lbu.
+:- module structure_reuse__sr_lbu.
 
 :- interface.
 
-%-------------------------------------------------------------------%
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred. 
 
-% library modules. 
 :- import_module io.
-
-% XXX parent modules
-:- import_module hlds.
-
-% compiler modules. 
-:- import_module hlds__hlds_module, hlds__hlds_pred. 
 
 :- pred sr_lbu__lbu_pass(module_info, module_info, io__state, io__state).
 :- mode sr_lbu__lbu_pass(in, out, di, uo) is det.
@@ -59,22 +52,19 @@
 
 :- implementation. 
 
-% library modules 
+
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_llds.
+:- import_module hlds__instmap. 
+:- import_module hlds__passes_aux.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module parse_tree__prog_data.
+:- import_module structure_reuse__sr_live.
+
 :- import_module list,map, bool, set, varset.
 :- import_module string.
 :- import_module std_util, require.
-
-% XXX parent modules
-:- import_module libs, parse_tree.
-
-% mercury-compiler modules
-:- import_module libs__globals, libs__options.
-:- import_module hlds__passes_aux.
-:- import_module hlds__hlds_goal.
-:- import_module hlds__hlds_llds.
-:- import_module parse_tree__prog_data.
-
-:- import_module sr_live.
 
 sr_lbu__lbu_pass(HLDSin , HLDSout) --> 
 	% get all the predicate id's 
@@ -163,7 +153,6 @@ sr_lbu__process_proc(HLDS, ProcInfo0, ProcInfo) :-
 			hlds_goal, hlds_goal).
 :- mode annotate_lbu_in_goal(in, in, in, out, in, out) is det.
 
-:- import_module hlds__instmap. 
 
 annotate_lbu_in_goal(HLDS, ProcInfo, 
 		Lbu0, Lbu, TopGoal0, TopGoal):-
@@ -326,7 +315,7 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 		Expr = Expr0,
 		Info = Info0
 	),
-	goal_info_set_lbu(Info, LbuGoal, Info_new), 
+	goal_info_set_lbu(LbuGoal, Info, Info_new), 
 	TopGoal = Expr - Info_new. 	
 
 % LBU setting 1: 

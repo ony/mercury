@@ -1,27 +1,28 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
-
 % module pa_sr_util: extra utility predicates common to the alias (pa_*) and
 %		     reuse passes (sr_*)
 % main author: nancy
+% 
+% XXX should eventually disappear... 
 
-:- module pa_sr_util.
+:- module possible_alias__pa_sr_util.
 
 :- interface. 
 %-----------------------------------------------------------------------------%
 
 % library modules
+
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data. 
+
 :- import_module io, list, std_util, term. 
 
-% XXX parent modules
-:- import_module hlds, parse_tree.
-% compiler modules. 
-:- import_module hlds__hlds_pred, parse_tree__prog_data. 
-:- import_module hlds__hlds_module.
-
+% XXX hlds_out.m
 :- pred trans_opt_output_vars_and_types(
 		prog_varset::in, 
 		vartypes::in, 
@@ -41,8 +42,9 @@
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
-:- import_module bool, map, require.
 :- import_module parse_tree__mercury_to_mercury.
+
+:- import_module bool, map, require.
 
 
 trans_opt_output_vars_and_types(ProgVarSet, VarTypes, TypeVarSet, 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,24 +9,19 @@
 %	datastructures. 
 % main author: nancy
 
-:- module pa_alias.
+:- module possible_alias__pa_alias.
 
 :- interface.
 
-%-------------------------------------------------------------------%
-%-- import_module 
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_datastruct.
+:- import_module structure_reuse__sr_live. % XXX should be removed, eventually.
 
-% library module
 :- import_module set, list, std_util.
 :- import_module io, string, term.
-
-% XXX parent modules
-:- import_module hlds.
-% compiler module
-:- import_module parse_tree__prog_data.
-:- import_module hlds__hlds_pred, hlds__hlds_goal, hlds__hlds_module.
-:- import_module sr_live.
-:- import_module pa_datastruct.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -63,19 +58,15 @@
 %-------------------------------------------------------------------%
 :- implementation.
 
-% library module
-:- import_module varset, require, int, map.
-
-% XXX parent modules.
-:- import_module check_hlds, parse_tree.
-% compiler module
-:- import_module hlds__hlds_data.
-:- import_module parse_tree__mercury_to_mercury.
 :- import_module check_hlds__type_util.
-:- import_module pa_datastruct.
-:- import_module pa_selector.
-:- import_module pa_sr_util.
+:- import_module hlds__hlds_data.
 :- import_module hlds__hlds_llds.
+:- import_module parse_tree__mercury_to_mercury.
+:- import_module possible_alias__pa_datastruct.
+:- import_module possible_alias__pa_selector.
+:- import_module possible_alias__pa_sr_util.
+
+:- import_module varset, require, int, map.
 
 %-------------------------------------------------------------------%
 % printing routines

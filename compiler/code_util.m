@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2002 The University of Melbourne.
+% Copyright (C) 1994-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -462,7 +462,8 @@ code_util__compiler_generated(PredInfo) :-
 	pred_info_arity(PredInfo, PredArity),
 	special_pred_name_arity(_, _, PredName, PredArity).
 
-:- import_module sr_split.
+:- import_module structure_reuse.
+:- import_module structure_reuse__sr_split.
 code_util__reuse_compiler_generated(PredInfo) :-
 	pred_info_name(PredInfo, PredName), 
 	sr_split__reuse_predicate_name(PredName).

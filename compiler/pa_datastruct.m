@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -17,22 +17,17 @@
 % 2. _partially instantiated datastructures_ : the day they'll be 
 %    introduced, a couple of things will have to be changed.
 
-:- module pa_datastruct.
+:- module possible_alias__pa_datastruct.
 
 :- interface.
 
-%-------------------------------------------------------------------%
-%-- import_module 
-
-% library modules
-:- import_module map, io, term.
-
-% XXX parent modules
-:- import_module parse_tree, hlds.
-% compiler modules
-:- import_module parse_tree__prog_data, hlds__hlds_data, hlds__hlds_pred.
+:- import_module hlds__hlds_data.
 :- import_module hlds__hlds_module.
-:- import_module pa_selector.
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_selector.
+
+:- import_module map, io, term.
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -116,13 +111,9 @@
 %-------------------------------------------------------------------%
 :- implementation.
 
-% library modules
-:- import_module string, varset, require, list.
-
-% XXX parent modules
-:- import_module check_hlds.
-% compiler_modules
 :- import_module check_hlds__type_util.
+
+:- import_module string, varset, require, list.
 
 :- type datastruct ---> cel(prog_var, pa_selector__selector).
 

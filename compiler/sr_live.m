@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000-2002 The University of Melbourne.
+% Copyright (C) 2000-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -9,23 +9,17 @@
 %		  in the context of the structure reuse analysis.
 % main author: nancy
 
-:- module sr_live.
+:- module structure_reuse__sr_live.
 
 :- interface.
 
-%-------------------------------------------------------------------%
-%-- import_module
+:- import_module hlds__hlds_module. 
+:- import_module hlds__hlds_pred.
+:- import_module parse_tree__prog_data.
+:- import_module possible_alias__pa_datastruct.
 
-% library modules
 :- import_module set.
 :- import_module list.
-
-% XXX parent modules
-:- import_module parse_tree, hlds.
-% compiler modules
-:- import_module parse_tree__prog_data.
-:- import_module pa_datastruct.
-:- import_module hlds__hlds_pred, hlds__hlds_module. 
 
 %-------------------------------------------------------------------%
 %-- exported types
@@ -72,11 +66,7 @@
 %-------------------------------------------------------------------%
 :- implementation.
 
-%-------------------------------------------------------------------%
-%-- import_module
-
 :- import_module require.
-
 
 %-------------------------------------------------------------------%
 %-- additional types 

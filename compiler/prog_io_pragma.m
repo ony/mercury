@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2002 The University of Melbourne.
+% Copyright (C) 1996-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -26,8 +26,10 @@
 :- import_module parse_tree__prog_util.
 :- import_module transform_hlds__term_util, transform_hlds__term_errors.
 :- import_module int, map, string, std_util, bool, require, set.
-:- import_module pa_alias_as.
-:- import_module sr_data.
+:- import_module possible_alias.
+:- import_module possible_alias__pa_alias_as.
+:- import_module structure_reuse.
+:- import_module structure_reuse__sr_data.
 
 parse_pragma(ModuleName, VarSet, PragmaTerms, Result) :-
 	(

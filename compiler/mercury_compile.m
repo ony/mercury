@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2002 The University of Melbourne.
+% Copyright (C) 1994-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -57,7 +57,10 @@
 :- import_module transform_hlds__delay_construct, transform_hlds__unused_args.
 :- import_module transform_hlds__unneeded_code, transform_hlds__lco.
 :- import_module ll_backend__deep_profiling.
+:- import_module possible_alias.
+:- import_module possible_alias__pa_run.
 :- import_module structure_reuse.
+:- import_module structure_reuse__sr_top.
 
 	% the LLDS back-end
 :- import_module ll_backend__saved_vars, ll_backend__stack_opt.
@@ -109,8 +112,6 @@
 :- import_module libs__timestamp.
 :- import_module make, make__options_file, backend_libs__compile_target_code.
 
-:- import_module pa_run. % possible aliases
-% :- import_module sr_run. % structure reuse
 
 	% library modules
 :- import_module int, list, map, set, std_util, require, string, bool, dir.

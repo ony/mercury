@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2001-2002 The University of Melbourne.
+% Copyright (C) 2001-2002,2004 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -104,19 +104,16 @@
 
 %-----------------------------------------------------------------------------%
 
-:- module sr_choice_graphing.
+:- module structure_reuse__sr_choice_graphing.
 :- interface. 
 
-% library modules. 
+:- import_module hlds__hlds_goal.
+:- import_module hlds__hlds_module.
+:- import_module hlds__hlds_pred.
+:- import_module structure_reuse__sr_choice_util.
+:- import_module structure_reuse__sr_data.
+
 :- import_module io, std_util, list. 
-
-% XXX parent modules.
-:- import_module hlds.
-% compiler_modules.
-:- import_module hlds__hlds_goal, hlds__hlds_module, hlds__hlds_pred.
-:- import_module sr_data.
-
-:- import_module sr_choice_util.
 
 :- type background_info. 
 :- pred set_background_info(sr_choice_util__constraint::in, module_info::in, 
@@ -134,14 +131,14 @@
 %-----------------------------------------------------------------------------%
 :- implementation. 
 
-% XXX parent modules.
-:- import_module parse_tree, check_hlds, libs. 
+:- import_module check_hlds__type_util.
+:- import_module hlds__hlds_data.
+:- import_module libs__globals.
+:- import_module libs__options.
+:- import_module parse_tree__prog_data.
 
 :- import_module term, map, float, bool, set, require, int. 
-:- import_module check_hlds__type_util, libs__globals, libs__options.
-:- import_module parse_tree__prog_data.
-:- import_module hlds__hlds_data.
-
+:- import_module string. 
 %-----------------------------------------------------------------------------%
 :- type background_info 
 	---> 	background(
@@ -260,7 +257,6 @@ dump_table(Values, ContextVar, HighestValue) -->
 		[]
 	).
 
-:- import_module string. 
 :- pred dump_selected_var(contextvar::in, value::in, 
 		io__state::di, io__state::uo) is det.
 dump_selected_var(context(Var, _Context, _GoalPath), Value) -->
@@ -718,7 +714,7 @@ annotate_reuses(DeadContextVar, Value, E0 - I0, E - I):-
 		contextvar_equal(ContextVar, DeadContextVar)
 	->
 		% then this must be a deconstruction
-		goal_info_set_reuse(I0, potential_reuse(cell_died), I),
+		goal_info_set_reuse(potential_reuse(cell_died), I0, I),
 		E = E0
 	;
 		list__filter(
@@ -765,7 +761,7 @@ annotate_reuses(DeadContextVar, Value, E0 - I0, E - I):-
 				% (see also sr_indirect__call_verify_reuse)
 				KindReuse = reuse(CellReused)
 			), 	
-			goal_info_set_reuse(I0, KindReuse, I), 
+			goal_info_set_reuse(KindReuse, I0, I), 
 			E = E0
 		;
 			% ReuseVars = [_|_]
@@ -980,7 +976,7 @@ clean_all_left_overs(G0 - I0, G - I):-
 	goal_info_get_reuse(I0, ReuseInfo0), 
 	possible_cgc(Unification0, ReuseInfo0, Unification, ReuseInfo),
 	G = unify(A, B, C, Unification, D),
-	goal_info_set_reuse(I0, ReuseInfo, I).
+	goal_info_set_reuse(ReuseInfo, I0, I).
 
 :- pred possible_cgc(hlds_goal__unification::in, reuse_goal_info::in, 
 		hlds_goal__unification::out, reuse_goal_info::out) is det.
