@@ -3733,14 +3733,17 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 		{ code_util__predinfo_is_builtin(PredInfo1) }
 	->
 		prog_out__write_context(Context),
-		report_warning("Warning: clause for builtin.\n"),
+		% XXX change this back to use report_warning
+		% after the change to add {int,float}__checked_quotient
+		% is installed everywhere.
+		io__write_string("Warning: clause for builtin.\n"),
 		{ ModuleInfo = ModuleInfo1 },
 		{ Info = Info0 }
 	;
 		{ pred_info_clauses_info(PredInfo1, Clauses0) },
 		{ pred_info_typevarset(PredInfo1, TVarSet0) },
 		{ maybe_add_default_func_mode(PredInfo1, PredInfo2, _) },
-		select_applicable_modes(Args, ClauseVarSet, Context,
+		select_applicable_modes(Args, ClauseVarSet, Status, Context,
 			PredId, PredInfo2, ModuleInfo1, Info0,
 			ArgTerms, ProcIdsForThisClause, ModuleInfo2, Info1),
 		clauses_info_add_clause(Clauses0, ProcIdsForThisClause,
@@ -3797,26 +3800,33 @@ module_add_clause(ModuleInfo0, ClauseVarSet, PredOrFunc, PredName, Args, Body,
 	% and determine which mode(s) this clause should apply to.
 
 :- pred select_applicable_modes(list(prog_term)::in, prog_varset::in,
-		prog_context::in, pred_id::in, pred_info::in,
-		module_info::in, qual_info::in,
+		import_status::in, prog_context::in, pred_id::in,
+		pred_info::in, module_info::in, qual_info::in,
 		list(prog_term)::out, list(proc_id)::out,
 		module_info::out, qual_info::out,
 		io__state::di, io__state::uo) is det.
 
-select_applicable_modes(Args0, VarSet, Context, PredId, PredInfo, ModuleInfo0,
-		Info0, Args, ProcIds, ModuleInfo, Info) -->
+select_applicable_modes(Args0, VarSet, Status, Context, PredId, PredInfo,
+		ModuleInfo0, Info0, Args, ProcIds, ModuleInfo, Info) -->
 	{ get_mode_annotations(Args0, Args, empty, ModeAnnotations) },
 	(
 		{ ModeAnnotations = modes(ModeList0) },
 
 		%
 		% The user specified some mode annotations on this clause.
-		% First module-qualify the mode annotations.
+		% First module-qualify the mode annotations. The annotations
+		% on clauses from `.opt' files will already be fully module
+		% qualified.
 		%
-		{ qual_info_get_mq_info(Info0, MQInfo0) },
-		module_qual__qualify_clause_mode_list(ModeList0, ModeList,
-			Context, MQInfo0, MQInfo),
-		{ qual_info_set_mq_info(Info0, MQInfo, Info) },
+		( { Status = opt_imported } ->
+			{ ModeList = ModeList0 },
+			{ Info = Info0 }
+		;
+			{ qual_info_get_mq_info(Info0, MQInfo0) },
+			module_qual__qualify_clause_mode_list(ModeList0,
+				ModeList, Context, MQInfo0, MQInfo),
+			{ qual_info_set_mq_info(Info0, MQInfo, Info) }
+		),
 
 		%
 		% Now find the procedure which matches these mode annotations.
@@ -4248,7 +4258,7 @@ module_add_pragma_foreign_proc(Attributes, PredName, PredOrFunc,
 	->
 		{ module_info_incr_errors(ModuleInfo1, ModuleInfo) },
 		prog_out__write_context(Context),
-		io__write_string("Error: `:- pragma foreign_code' (or `pragma c_code')\n"),
+		io__write_string("Error: `:- pragma foreign_proc' (or `pragma c_code')\n"),
 		prog_out__write_context(Context),
 		io__write_string("declaration for imported "),
 		hlds_out__write_simple_call_id(PredOrFunc, PredName/Arity),

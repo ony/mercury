@@ -494,7 +494,7 @@ convert_local_to_global(mlds__defn(Name, Context, Flags0, Body)) =
 ml_insert_init_env(TypeName, ModuleName, Globals, Defn0, Defn, Init0, Init) :-
 	Defn0 = mlds__defn(Name, Context, Flags, DefnBody0),
 	(
-		DefnBody0 = mlds__function(PredProcId, Params, 
+		DefnBody0 = mlds__function(PredProcId, Params,
 			defined_here(FuncBody0), Attributes),
 		statement_contains_var(FuncBody0, qual(ModuleName,
 			mlds__var_name("env_ptr", no)))
@@ -1258,9 +1258,9 @@ defn_contains_defn(mlds__defn(_Name, _Context, _Flags, DefnBody), Defn) :-
 :- mode defn_body_contains_defn(in, out) is nondet.
 
 % defn_body_contains_defn(mlds__data(_Type, _Initializer), _Defn) :- fail.
-defn_body_contains_defn(mlds__function(_PredProcId, _Params, FuncBody, _Attrs),
-		Name) :-
-	function_body_contains_defn(FuncBody, Name).
+defn_body_contains_defn(mlds__function(_PredProcId, _Params, FunctionBody,
+		_Attrs), Name) :-
+	function_body_contains_defn(FunctionBody, Name).
 defn_body_contains_defn(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
 		CtorDefns, FieldDefns),
@@ -1395,9 +1395,9 @@ defn_contains_var(mlds__defn(_Name, _Context, _Flags, DefnBody), Name) :-
 
 defn_body_contains_var(mlds__data(_Type, Initializer), Name) :-
 	initializer_contains_var(Initializer, Name).
-defn_body_contains_var(mlds__function(_PredProcId, _Params, FuncBody, _Attrs),
-		Name) :-
-	function_body_contains_var(FuncBody, Name).
+defn_body_contains_var(mlds__function(_PredProcId, _Params, FunctionBody,
+		_Attrs), Name) :-
+	function_body_contains_var(FunctionBody, Name).
 defn_body_contains_var(mlds__class(ClassDefn), Name) :-
 	ClassDefn = mlds__class_defn(_Kind, _Imports, _Inherits, _Implements,
 		CtorDefns, FieldDefns),

@@ -3480,8 +3480,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
 	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe\n",
-			ExeFileName, ".exe : ", ExeFileName, ".dll\n",
-			ExeFileName, ".dll : ", "$(", MakeVarName, ".dlls) ",
+			ExeFileName, ".exe : ", "$(", MakeVarName, ".dlls) ",
 			"$(", MakeVarName, ".foreign_dlls)\n"] },
 	{ Else = ["else\n"] },
 	{ MainRule =
@@ -3549,15 +3548,31 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 							SharedLibFileName),
 	module_name_to_lib_file_name("lib", ModuleName,
 		".$(EXT_FOR_SHARED_LIB)", no, MaybeSharedLibFileName),
-	io__write_strings(DepStream, [
-		".PHONY : ", LibTargetName, "\n",
-		LibTargetName, " : ",
-		LibFileName, " ",
+
+	{ ILLibRule = [
+		LibTargetName, " : ", "$(", MakeVarName, ".dlls) ",
+			"$(", MakeVarName, ".foreign_dlls)\n"
+	] },
+	{ LibRule = [
+		LibTargetName, " : ", LibFileName, " ",
 		MaybeSharedLibFileName, " \\\n",
 		"\t\t$(", MakeVarName, ".ints) ",
 		"$(", MakeVarName, ".int3s) ",
 		MaybeOptsVar, MaybeTransOptsVar,
 		InitFileName, "\n\n"
+	] },
+	{ Gmake = yes,
+		LibRules = If ++ ILLibRule ++ Else ++ LibRule ++ EndIf
+	; Gmake = no,
+		( Target = il ->
+			LibRules = ILLibRule
+		;
+			LibRules = LibRule
+		)
+	},
+	io__write_strings(DepStream, [
+		".PHONY : ", LibTargetName, "\n" |
+		LibRules
 	]),
 
 	io__write_strings(DepStream, [
@@ -4033,8 +4048,8 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
 
-	% Generate the list of .NET DLLs which could be refered to by this
-	% module.  
+	% Generate the list of .NET DLLs which could be referred to by this
+	% module (including the module itself).
 	% If we are compiling a module within the standard library we should
 	% reference the runtime DLLs and all other library DLLs.  If we are
 	% outside the library we should just reference mercury.dll (which will
@@ -4042,15 +4057,18 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	
 :- func referenced_dlls(module_name, list(module_name)) = list(module_name).
 
-referenced_dlls(Module, Modules0) = Modules :-
+referenced_dlls(Module, DepModules0) = Modules :-
+	DepModules = [Module | DepModules0],
+
 		% If we are not compiling a module in the mercury
 		% std library then replace all the std library dlls with
 		% one reference to mercury.dll.
 	( Module = unqualified(Str), mercury_std_library_module(Str) ->
 			% In the standard library we need to add the
 			% runtime dlls.
-		Modules = [unqualified("mercury_mcpp"),
-				unqualified("mercury_il") | Modules0]
+		Modules = list__remove_dups(
+			[unqualified("mercury_mcpp"),
+				unqualified("mercury_il") | DepModules])
 	;
 		F = (func(M) =
 			( if 
@@ -4064,7 +4082,7 @@ referenced_dlls(Module, Modules0) = Modules :-
 				unqualified(outermost_qualifier(M))
 			)
 		),
-		Modules = list__remove_dups(list__map(F, Modules0))
+		Modules = list__remove_dups(list__map(F, DepModules))
 	).
 
 	% submodules(Module, Imports)

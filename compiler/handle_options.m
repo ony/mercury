@@ -632,9 +632,12 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% so we need to disable it when tracing.
 	option_implies(procid_stack_layout, optimize_dups, bool(no)),
 
-	% XXX deforestation does not perform folding on polymorphic
-	% predicates correctly with --body-typeinfo-liveness.
+	% XXX deforestation and constraint propagation do not perform
+	% folding on polymorphic predicates correctly with
+	% --body-typeinfo-liveness.
 	option_implies(body_typeinfo_liveness, deforestation, bool(no)),
+	option_implies(body_typeinfo_liveness, constraint_propagation,
+		bool(no)),
 
 	% XXX if trailing is enabled, middle recursion optimization
 	% can generate code which does not allocate a stack frame 
@@ -733,13 +736,13 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(use_opt_files, warn_missing_opt_files, bool(no)),
 
 
-	% The preferred backend foreign language depends on the target.
+	% The backend foreign languages depend on the target.
 	( 	
 		{ Target = c },
 		{ BackendForeignLanguages = ["c"] }
 	;
 		{ Target = il },
-		{ BackendForeignLanguages = ["csharp", "mc++"] }
+		{ BackendForeignLanguages = ["il", "csharp", "mc++"] }
 	;
 		{ Target = asm },
 		% XXX This is wrong!  It should be asm.

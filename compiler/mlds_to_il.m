@@ -45,7 +45,6 @@
 % [ ] Computed gotos need testing.
 % [ ] :- extern doesn't work -- it needs to be treated like pragma c code.
 % [ ] nested modules need testing
-% [ ] Implement pragma export.
 % [ ] Fix issues with abstract types so that we can implement C
 %     pointers as MR_Box rather than MR_Word.
 % [ ] When generating target_code, sometimes we output more calls than
@@ -194,7 +193,9 @@
 %-----------------------------------------------------------------------------%
 
 generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
-	mlds(MercuryModuleName, _, Imports, Defns) = transform_mlds(MLDS),
+
+	mlds(MercuryModuleName, _ForeignCode, Imports, Defns) =
+		transform_mlds(MLDS),
 
 	ModuleName = mercury_module_name_to_mlds(MercuryModuleName),
 	prog_out__sym_name_to_string(mlds_module_name_to_sym_name(ModuleName),
@@ -213,6 +214,7 @@ generate_il(MLDS, ILAsm, ForeignLangs, IO0, IO) :-
 	IlInfo0 = il_info_init(ModuleName, AssemblyName, Imports,
 			ILDataRep, DebugIlAsm, VerifiableCode, ByRefTailCalls),
 
+		% Generate code for all the methods.
 	list__map_foldl(mlds_defn_to_ilasm_decl, Defns, ILDecls,
 			IlInfo0, IlInfo),
 
@@ -279,11 +281,21 @@ get_il_data_rep(ILDataRep, IO0, IO) :-
 :- func transform_mlds(mlds) = mlds.
 
 transform_mlds(MLDS0) = MLDS :-
+	AllExports = list__condense(
+		list__map(
+			(func(mlds__foreign_code(_, _, Exports)) = Exports),
+			map__values(MLDS0 ^ foreign_code))
+		),
+
+		% Generate the exports for this file, they will be placed
+		% into class methods inside the wrapper class.
+	list__map(mlds_export_to_mlds_defn, AllExports, ExportDefns),
+
 	list__filter((pred(D::in) is semidet :-
 			( D = mlds__defn(_, _, _, mlds__function(_, _, _, _))
 			; D = mlds__defn(_, _, _, mlds__data(_, _))
 			)
-		), MLDS0 ^ defns, MercuryCodeMembers, Others),
+		), MLDS0 ^ defns ++ ExportDefns, MercuryCodeMembers, Others),
 	WrapperClass = wrapper_class(list__map(rename_defn, MercuryCodeMembers)),
 		% Note that ILASM requires that the type definitions in Others
 		% must precede the references to those types in WrapperClass.
@@ -308,13 +320,15 @@ rename_defn(defn(Name, Context, Flags, Entity0))
 	= defn(Name, Context, Flags, Entity) :-
 	( Entity0 = data(Type, Initializer),
 		Entity = data(Type, rename_initializer(Initializer))
-	; Entity0 = function(MaybePredProcId, Params, FunctionBody0, Attrs),
+	; Entity0 = function(MaybePredProcId, Params, FunctionBody0,
+			Attributes),
 		( FunctionBody0 = defined_here(Stmt),
 			FunctionBody = defined_here(rename_statement(Stmt))
 		; FunctionBody0 = external,
 			FunctionBody = external
 		),
-		Entity = function(MaybePredProcId, Params, FunctionBody, Attrs)
+		Entity = function(MaybePredProcId, Params, FunctionBody,
+			Attributes)
 	; Entity0 = class(ClassDefn),
 		ClassDefn = class_defn(Kind, Imports, Inherits, Implements,
 				Ctors, Members),
@@ -547,7 +561,7 @@ mlds_defn_to_ilasm_decl(defn(Name, Context, Flags0, class(ClassDefn)),
 		il_info::in, il_info::out) is det.
 
 generate_class_body(Name, Context, ClassDefn,
-		ClassName, EntityName, Extends, Interfaces, ClassDecls,
+		ClassName, EntityName, Extends, Interfaces, ClassMembers,
 		Info0, Info) :-
 	EntityName = entity_name_to_ilds_id(Name),
 	ClassDefn = class_defn(Kind, _Imports, Inherits, Implements,
@@ -562,7 +576,7 @@ generate_class_body(Name, Context, ClassDefn,
 	Ctors = maybe_add_empty_ctor(Ctors0, Kind, Context),
 	list__map_foldl(generate_method(ClassName, yes(Parent)), Ctors,
 			IlCtors, Info1, Info),
-	ClassDecls = list__condense(IlCtors) ++
+	ClassMembers = list__condense(IlCtors) ++
 			list__condense(MethodsAndFields).
 
 	% For IL, every class needs a constructor,
@@ -579,8 +593,9 @@ maybe_add_empty_ctor(Ctors0, Kind, Context) = Ctors :-
 		% Generate an empty block for the body of the constructor.
 		Stmt = mlds__statement(block([], []), Context),
 
+		Attributes = [],
 		Ctor = mlds__function(no, func_params([], []),
-				defined_here(Stmt), []),
+				defined_here(Stmt), Attributes),
 		CtorFlags = init_decl_flags(public, per_instance, non_virtual,
 				overridable, modifiable, concrete),
 
@@ -788,7 +803,8 @@ interface_id_to_class_name(_) = Result :-
 		mlds__defn::in, list(class_member)::out,
 		il_info::in, il_info::out) is det.
 
-generate_method(ClassName, _, defn(Name, Ctxt, Flags, Entity), ClassDecls) -->
+generate_method(ClassName, _, defn(Name, Ctxt, Flags, Entity),
+		ClassMembers) -->
 	{ Entity = data(Type, DataInitializer) },
 
 	{ FieldName = entity_name_to_ilds_id(Name) },
@@ -878,11 +894,11 @@ generate_method(ClassName, _, defn(Name, Ctxt, Flags, Entity), ClassDecls) -->
 	{ MaybeOffset = no },
 	{ Initializer = none },
 
-	{ ClassDecls = [field(Attrs, ILType, FieldName,
+	{ ClassMembers = [field(Attrs, ILType, FieldName,
 			MaybeOffset, Initializer)] }.
 
 generate_method(ClassName, IsCons,
-		defn(Name, Context, Flags, Entity), ClassDecls) -->
+		defn(Name, Context, Flags, Entity), ClassMembers) -->
 	{ Entity = function(_, Params, MaybeStatement, Attributes) },
 
 	il_info_get_module_name(ModuleName),
@@ -953,9 +969,6 @@ generate_method(ClassName, IsCons,
 		)
 	),
 
-		% Generate the custom attributes
-	{ CustomAttrs = attributes_to_custom_attributes(DataRep, Attributes) },
-
 		% Need to insert a ret for functions returning
 		% void (MLDS doesn't).
 	{ Returns = [] ->
@@ -991,7 +1004,10 @@ generate_method(ClassName, IsCons,
 		il_info_add_init_instructions(runtime_initialization_instrs),
 		^ has_main := yes,
 
-		il_info_get_next_block_id(TryBlockId),
+		il_info_get_next_block_id(InnerTryBlockId),
+		il_info_get_next_block_id(OuterTryBlockId),
+		il_info_get_next_block_id(InnerCatchBlockId),
+		il_info_get_next_block_id(OuterCatchBlockId),
 		il_info_make_next_label(DoneLabel),
 
 			% Replace all the returns with leave instructions;
@@ -1007,21 +1023,74 @@ generate_method(ClassName, IsCons,
 				I
 			)
 		)},
+
+		{ UnivMercuryType = term__functor(term__atom("univ"), [], 
+			context("", 0)) },
+		{ UnivMLDSType = mercury_type(UnivMercuryType,
+				user_type, "XXX") },
+		{ UnivType = mlds_type_to_ilds_type(DataRep, UnivMLDSType) },
+
 		{ RenameNode = (func(N) = list__map(RenameRets, N)) },
 
-		{ ExceptionClassName = structured_name(assembly("mscorlib"),
+		{ MercuryExceptionClassName = 
+			mercury_runtime_name(["Exception"]) },
+		
+		{ ExceptionClassName = structured_name(il_system_assembly_name,
 				["System", "Exception"], []) },
+
+		{ FieldRef = make_fieldref(UnivType, MercuryExceptionClassName,
+			"mercury_exception") },
 
 		{ ConsoleWriteName = class_member_name(
 				structured_name(il_system_assembly_name,
 					["System", "Console"], []),
 				id("Write")) },
+
+		{ UncaughtExceptionName = class_member_name(
+			mercury_library_wrapper_class_name(["exception"]),
+				id("ML_report_uncaught_exception")) },
+
 		{ WriteString = methoddef(call_conv(no, default),
 					void, ConsoleWriteName,
 					[il_string_type]) },
+		{ WriteUncaughtException = methoddef(call_conv(no, default),
+					void, UncaughtExceptionName,
+					[UnivType]) },
 		{ WriteObject = methoddef(call_conv(no, default),
 					void, ConsoleWriteName,
 					[il_generic_type]) },
+
+
+			% A code block to catch any exception at all.
+	
+		{ CatchAnyException = tree__list([
+			instr_node(start_block(
+				catch(ExceptionClassName),
+				OuterCatchBlockId)),
+			instr_node(ldstr("\nUncaught system exception: \n")),
+			instr_node(call(WriteString)),
+			instr_node(call(WriteObject)),
+			instr_node(leave(label_target(DoneLabel))),
+			instr_node(end_block(catch(ExceptionClassName),
+				OuterCatchBlockId))
+			])
+		},
+
+			% Code to catch Mercury exceptions.
+		{ CatchUserException = tree__list([
+			instr_node(start_block(
+				catch(MercuryExceptionClassName),
+				InnerCatchBlockId)),
+			instr_node(ldfld(FieldRef)),
+
+			instr_node(call(WriteUncaughtException)),
+
+			instr_node(leave(label_target(DoneLabel))),
+			instr_node(end_block(
+				catch(MercuryExceptionClassName),
+				InnerCatchBlockId))
+			])
+		},
 
 			% Wrap an exception handler around the main
 			% code.  This allows us to debug programs
@@ -1029,21 +1098,46 @@ generate_method(ClassName, IsCons,
 			% how you wish to debug.  Pressing the cancel
 			% button on this window is a bit difficult
 			% remotely.
+			%
+			% Inside this exception handler, we catch any 
+			% exceptions and print them.
+			%
+			% We nest the Mercury exception handler so that any
+			% exceptions thrown in ML_report_uncaught_exception
+			% will be caught by the outer (more general) exception
+			% handler.
+			%
+			% try {
+			%	try {
+			%		... main instructions ...
+			%	}
+			%	catch (mercury.runtime.Exception me) {
+			%		ML_report_uncaught_exception(me);
+			%	}
+			% } 
+			% catch (System.Exception e) {
+			%	System.Console.Write(e);
+			% }
+
 		{ InstrsTree = tree__list([
-				instr_node(start_block(try, TryBlockId)),
+
+					% outer try block
+				instr_node(start_block(try, OuterTryBlockId)),
+
+					% inner try block
+				instr_node(start_block(try, InnerTryBlockId)),
 				tree__map(RenameNode, InstrsTree2),
 				instr_node(leave(label_target(DoneLabel))),
-				instr_node(end_block(try, TryBlockId)),
+				instr_node(end_block(try, InnerTryBlockId)),
+				
+					% inner catch block
+				CatchUserException,
 
-				instr_node(start_block(
-						catch(ExceptionClassName),
-						TryBlockId)),
-				instr_node(ldstr("\nException Caught: \n")),
-				instr_node(call(WriteString)),
-				instr_node(call(WriteObject)),
 				instr_node(leave(label_target(DoneLabel))),
-				instr_node(end_block(catch(ExceptionClassName),
-						TryBlockId)),
+				instr_node(end_block(try, OuterTryBlockId)),
+
+					% outer catch block
+				CatchAnyException,
 
 				instr_node(label(DoneLabel)),
 				instr_node(ret)
@@ -1056,12 +1150,16 @@ generate_method(ClassName, IsCons,
 		% Generate the entire method contents.
 	DebugIlAsm =^ debug_il_asm,
 	VerifiableCode =^ verifiable_code,
-	{ MethodBody = make_method_defn(DebugIlAsm, VerifiableCode,
-		InstrsTree) },
-	{ list__condense([EntryPoint, CustomAttrs, MethodBody],
-			MethodContents) },
 
 	{ MethodHead = methodhead(Attrs, MemberName, ILSignature, []) },
+	{ MethodBody = make_method_defn(DebugIlAsm, VerifiableCode,
+		InstrsTree) },
+
+	{ CustomAttributes = attributes_to_custom_attributes(DataRep,
+		Attributes) },
+	{ list__condense([EntryPoint, CustomAttributes, MethodBody],
+		MethodContents) },
+
 	{ Method = ilasm__method(MethodHead, MethodContents) },
 
 		% Check to see whether we should generate a property
@@ -1085,7 +1183,7 @@ generate_method(ClassName, IsCons,
 			),
 			Property = property(ILDSType, id(PropertyName),
 					yes(MethodHead), no),
-			ClassDecls = [Method, Property]
+			ClassMembers = [Method, Property]
 		;
 			MemberName = id(IdName),
 			string__append("set_", PropertyName, IdName)
@@ -1095,20 +1193,20 @@ generate_method(ClassName, IsCons,
 					list__reverse(ILParams)),
 			Property = property(ILDSType, id(PropertyName),
 					no, yes(MethodHead)),
-			ClassDecls = [Method, Property]
+			ClassMembers = [Method, Property]
 		;
-			ClassDecls = [Method]
+			ClassMembers = [Method]
 		)
 	;
-		ClassDecls = [Method]
+		ClassMembers = [Method]
 	}.
 
-generate_method(_, _, defn(Name, Context, Flags, Entity), [ClassDecl]) -->
+generate_method(_, _, defn(Name, Context, Flags, Entity), [ClassMember]) -->
 	{ Entity = class(ClassDefn) },
 	generate_class_body(Name, Context, ClassDefn, _ClassName, EntityName,
-			Extends, Interfaces, ClassDecls),
-	{ ClassDecl = nested_class(decl_flags_to_nestedclassattrs(Flags),
-			EntityName, Extends, Interfaces, ClassDecls) }.
+			Extends, Interfaces, ClassMembers),
+	{ ClassMember = nested_class(decl_flags_to_nestedclassattrs(Flags),
+			EntityName, Extends, Interfaces, ClassMembers) }.
 
 %-----------------------------------------------------------------------------%
 
@@ -1123,6 +1221,8 @@ attribute_to_custom_attribute(DataRep, custom(MLDSType)) = custom(CustomDecl) :-
 	ClassName = mlds_type_to_ilds_class_name(DataRep, MLDSType),
 	MethodRef = get_constructor_methoddef(ClassName, []),
 	CustomDecl = custom_decl(methodref(MethodRef), no, no_initalizer).
+
+%-----------------------------------------------------------------------------%
 
 :- func merge_properties(list(class_member)) = list(class_member).
 
@@ -1200,6 +1300,86 @@ mangle_dataname(internal_layout(_, _)) = _MangledName :-
 	error("unimplemented: mangling internal_layout").
 mangle_dataname(tabling_pointer(_)) = _MangledName :-
 	error("unimplemented: mangling tabling_pointer").
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+	% MLDS exports are converted into forwarding functions, which are
+	% marked as public, are given the specified name, and simply call to
+	% the "exported" function.
+	%
+	% They will be placed inside the "mercury_code" wrapper class with
+	% all the other procedures.
+	%
+	% XXX much of this code should be generalized and turned into a
+	% more general routine for generating MLDS forwarding functions.
+	% We could use almost the same approach for outline_foreign_code
+	% to generate the forwarding function.
+
+:- pred mlds_export_to_mlds_defn(mlds__pragma_export::in, mlds__defn::out)
+	is det.
+
+mlds_export_to_mlds_defn(
+	ml_pragma_export(ExportName, EntityName, Params, Context), Defn) :- 
+	EntityName = qual(ModuleName, UnqualName),
+
+	Params = mlds__func_params(Inputs, RetTypes),
+	list__map_foldl(
+		(pred(RT::in, RV - Lval::out, N0::in, N0 + 1::out) is det :-
+			VN = var_name("returnval" ++ int_to_string(N0), no),
+			RV = ml_gen_mlds_var_decl(
+				var(VN), RT, no_initializer, Context),
+			Lval = var(qual(ModuleName, VN), RT)
+		), RetTypes, ReturnVars, 0, _),
+
+	EntNameToVarName = (func(EntName) = VarName :-
+		( EntName = data(var(VarName0)) ->
+			VarName = qual(ModuleName, VarName0)
+		;
+			error("exported method has argument without var name")
+		)
+	),
+	ArgTypes = assoc_list__values(Inputs),
+	ArgRvals = list__map(
+		(func(EntName - Type) = lval(var(VarName, Type)) :-
+			VarName = EntNameToVarName(EntName)
+		), Inputs),
+	ReturnVarDecls = assoc_list__keys(ReturnVars),
+	ReturnLvals = assoc_list__values(ReturnVars),
+	ReturnRvals = list__map((func(X) = lval(X)), ReturnLvals),
+
+	Signature = func_signature(ArgTypes, RetTypes),
+	( 
+		UnqualName = function(PredLabel, ProcId, _MaybeSeq, _PredId)
+	->
+		CodeRval = const(code_addr_const(proc(
+			qual(ModuleName, PredLabel - ProcId),
+			Signature)))
+	;
+		error("exported entity is not a function")
+	),
+
+		% XXX should we look for tail calls?
+	CallStatement = statement(
+		call(Signature, CodeRval, no, ArgRvals, ReturnLvals,
+			call), Context),
+	ReturnStatement = statement(return(ReturnRvals), Context),
+
+	Statement = statement(mlds__block(ReturnVarDecls,
+		( ReturnRvals = [] ->
+			[CallStatement]
+		;
+			[CallStatement, ReturnStatement]
+		)
+		), Context),
+	
+	Attributes = [],
+	DefnEntity = function(no, Params, defined_here(Statement),
+		Attributes),
+
+	Flags = init_decl_flags(public, one_copy, non_virtual, overridable,
+		const, concrete),
+	Defn = defn(export(ExportName), Context, Flags, DefnEntity).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -1521,6 +1701,8 @@ statement_to_il(statement(return(Rvals), Context), Instrs) -->
 			context_node(Context),
 			LoadInstrs,
 			instr_node(ret)]) }
+	; { Rvals = [] } ->
+		{ unexpected(this_file, "empty list of return values") }
 	;
 		% MS IL doesn't support multiple return values
 		{ sorry(this_file, "multiple return values") }
@@ -3772,10 +3954,18 @@ il_commit_class_name = mercury_runtime_name(["Commit"]).
 
 %-----------------------------------------------------------------------------
 
-	% qualifiy a name with "[mercury]mercury."
+	% qualify a name with "[mercury]mercury."
 :- func mercury_library_name(ilds__namespace_qual_name) = ilds__class_name.
 mercury_library_name(Name) = 
 	structured_name(assembly("mercury"), ["mercury" | Name], []).
+
+	% qualify a name with "[mercury]mercury." and add the wrapper class
+	% name on the end.
+:- func mercury_library_wrapper_class_name(ilds__namespace_qual_name) = 
+		ilds__class_name.
+mercury_library_wrapper_class_name(Name) = 
+	structured_name(assembly("mercury"),
+		["mercury" | Name] ++ [wrapper_class_name], []).
 
 %-----------------------------------------------------------------------------
 
@@ -4092,9 +4282,9 @@ il_info_remove_locals(RemoveLocals, Info0, Info) :-
 	map__delete_list(Info0 ^ locals, Keys, NewLocals),
 	Info = Info0 ^ locals := NewLocals.
 
-:- pred il_info_add_class_members(list(class_member), il_info, il_info).
-:- mode il_info_add_class_members(in, in, out) is det.
-il_info_add_class_members(ClassMembers, Info0, Info) :- 
+:- pred il_info_add_class_member(list(class_member), il_info, il_info).
+:- mode il_info_add_class_member(in, in, out) is det.
+il_info_add_class_member(ClassMembers, Info0, Info) :- 
 	Info = Info0 ^ class_members := 
 		list__append(ClassMembers, Info0 ^ class_members).
 

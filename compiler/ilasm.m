@@ -144,7 +144,7 @@
 			extends,		% what is the parent class
 			implements, 		% what interfaces are 
 						% implemented
-			list(class_member)		% methods and fields
+			list(class_member)	% methods and fields
 		)
 	;	custom(custom_decl)		% custom attribute
 		% comments
@@ -274,7 +274,7 @@
 
 :- import_module char, string, pprint, getopt.
 :- import_module require, int, term_io, varset, bool.
-:- import_module globals, options.
+:- import_module globals, options, error_util.
 
 
 	% Some versions of the IL assembler enforce a rule that if you output 
@@ -424,14 +424,6 @@ ilasm__output_decl(comment(CommentStr), Info, Info) -->
 		[]
 	).
 
-ilasm__output_decl(file(FileName), Info, Info) --> 
-	io__write_string(".file "),
-	output_id(FileName).
-
-ilasm__output_decl(extern_module(ModName), Info, Info) --> 
-	io__write_string(".module extern "),
-	output_id(ModName).
-
 ilasm__output_decl(extern_assembly(AsmName, AssemblyDecls), Info0, Info) --> 
 	io__write_string(".assembly extern "),
 	output_id(AsmName),
@@ -447,6 +439,15 @@ ilasm__output_decl(assembly(AsmName), Info0, Info) -->
 	output_id(AsmName),
 	{ Info = Info0 ^ current_assembly := AsmName },
 	io__write_string(" { }").
+
+ilasm__output_decl(file(FileName), Info, Info) --> 
+	io__write_string(".file "),
+	output_id(FileName).
+
+ilasm__output_decl(extern_module(ModName), Info, Info) --> 
+	io__write_string(".module extern "),
+	output_id(ModName).
+
 
 :- pred ilasm__output_class_member(class_member::in, ilasm_info::in,
 	ilasm_info::out, io__state::di, io__state::uo) is det.
@@ -465,6 +466,9 @@ ilasm__output_class_member(method(MethodHead, MethodDecls), Info0, Info) -->
 		ilasm__output_decl(method(MethodHead, MethodDecls), 
 			Info0, Info)
 	).
+
+ilasm__output_class_member(custom(CustomDecl), Info0, Info) -->
+	output_custom_decl(CustomDecl, Info0, Info).
 
 ilasm__output_class_member(
 		field(FieldAttrs, Type, IlId, MaybeOffset, Initializer),
@@ -512,9 +516,6 @@ ilasm__output_class_member(nested_class(Attrs, Id, Extends, Implements,
 		Contents), Info0, Info) --> 
 	ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 		Info0, Info).
-
-ilasm__output_class_member(custom(CustomDecl), Info0, Info) --> 
-	output_custom_decl(CustomDecl, Info0, Info).
 
 ilasm__output_class_member(comment(CommentStr), Info, Info) --> 
 	globals__io_lookup_bool_option(auto_comments, PrintComments),
@@ -1425,8 +1426,8 @@ output_classattr(serializable) --> io__write_string("serializable").
 output_classattr(specialname) --> io__write_string("specialname").
 output_classattr(unicode) --> io__write_string("unicode").
 
-:- pred ilasm__output_assembly_decl(assembly_decl::in, 
-	ilasm_info::in, ilasm_info::out, io__state::di, io__state::uo) is det.
+:- pred ilasm__output_assembly_decl(assembly_decl::in, ilasm_info::in,
+		ilasm_info::out, io__state::di, io__state::uo) is det.
 
 ilasm__output_assembly_decl(version(A, B, C, D), I, I) -->
 	io__format(".ver %d:%d:%d:%d", [i(A), i(B), i(C), i(D)]).
@@ -1460,7 +1461,7 @@ output_custom_decl(custom_decl(Type, MaybeOwner, StringOrBytes),
 		io__write_list(Bytes, " ", output_hexbyte),
 		io__write_string(")")
 	;
-		[]
+		{ sorry(this_file, "custom_decl of this sort") }
 	),
 	io__write_string("\n").
 
@@ -1470,7 +1471,6 @@ output_custom_type(type(Type), Info0, Info) -->
 	output_type(Type, Info0, Info).
 output_custom_type(methodref(MethodRef), Info0, Info) -->
 	output_methodref(MethodRef, Info0, Info).
-
 
 :- pred output_index(index::in, io__state::di, io__state::uo) is det.
 output_index(Index) -->
@@ -1712,5 +1712,7 @@ escape_special_char('\t', 't').
 escape_special_char('\b', 'b').
 
 
+:- func this_file = string.
+this_file = "ilasm.m".
 
 :- end_module ilasm.

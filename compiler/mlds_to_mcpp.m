@@ -221,7 +221,7 @@ generate_method_mcpp_code(ModuleName,
 	( 
 			% XXX we ignore the attributes
 		{ Entity = mlds__function(_, Params,
-			defined_here(Statement), _Attrs) },
+			defined_here(Statement), _) },
 		( 
 			{ has_inline_target_code_statement(Statement) }
 		;
