@@ -729,46 +729,57 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 		% output files intended for use by the user,
 		% and phony Mmake targets names go in the current directory
 		%
-		{ Ext = ".m"
-		% executable files
-		; Ext = ""
-		; Ext = ".split"
-		% library files
-		; Ext = ".a"
-		; Ext = ".$A"
-		; Ext = ".so"
-		; Ext = ".$(EXT_FOR_SHARED_LIB)"
-		; Ext = ".split.a"
-		; Ext = ".split.$A"
-		; Ext = ".split.so"
-		; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
-		; Ext = ".init"
-		% output files intended for use by the user
-		; Ext = ".h"
-		; Ext = ".err"
-		; Ext = ".ugly"
-		; Ext = ".hlds_dump"
-		; Ext = ".dependency_graph"
-		; Ext = ".order"
-		; Ext = ".rla"
-		; Ext = ".rl_dump"
-		% Mmake targets
-		; Ext = ".clean"
-		; Ext = ".realclean"
-		; Ext = ".depend"
-		; Ext = ".install_ints"
-		; Ext = ".install_hdrs"
-		; Ext = ".check"
-		; Ext = ".ints"
-		; Ext = ".int3s"
-		; Ext = ".rlos"
-		; Ext = ".ils"
-		; Ext = ".opts"
-		; Ext = ".trans_opts"
-		% The current interface to `mercury_update_interface'
-		% requires .h.tmp files to be in the same directory as
-		% the .h files
-		; Ext = ".h.tmp"
+		{
+			( Ext = ".m"
+			% executable files
+			; Ext = ""
+			; Ext = ".split"
+			% library files
+			; Ext = ".a"
+			; Ext = ".$A"
+			; Ext = ".so"
+			; Ext = ".$(EXT_FOR_SHARED_LIB)"
+			; Ext = ".split.a"
+			; Ext = ".split.$A"
+			; Ext = ".split.so"
+			; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
+			; Ext = ".init"
+			% output files intended for use by the user
+			% (the .h_dump* and .c_dump* MLDS dumps also
+			% fit into this category, but for efficiency,
+			% to keep this as a switch, we deal with them below)
+			; Ext = ".h"
+			; Ext = ".err"
+			; Ext = ".ugly"
+			; Ext = ".hlds_dump"
+			; Ext = ".mlds_dump"
+			; Ext = ".dependency_graph"
+			; Ext = ".order"
+			; Ext = ".rla"
+			; Ext = ".rl_dump"
+			% Mmake targets
+			; Ext = ".clean"
+			; Ext = ".realclean"
+			; Ext = ".depend"
+			; Ext = ".install_ints"
+			; Ext = ".install_hdrs"
+			; Ext = ".check"
+			; Ext = ".ints"
+			; Ext = ".int3s"
+			; Ext = ".rlos"
+			; Ext = ".ils"
+			; Ext = ".opts"
+			; Ext = ".trans_opts"
+			% The current interface to `mercury_update_interface'
+			% requires .h.tmp files to be in the same directory as
+			% the .h files
+			; Ext = ".h.tmp"
+			)
+		;
+			% output files intended for use by the user
+			( string__prefix(Ext, ".c_dump")
+			; string__prefix(Ext, ".h_dump")
+			)
 		}
 	->
 		{ FileName0 = BaseName }
@@ -901,7 +912,8 @@ make_private_interface(SourceFileName, ModuleName, MaybeTimestamp, Items0) -->
 		%
 		% Check whether we succeeded
 		%
-	( { Error = yes } ->
+	% XXX zs: why does this code not check for fatal_module_errors?
+	( { Error = some_module_errors } ->
 		module_name_to_file_name(ModuleName, ".int0", no, FileName),
 		io__write_strings(["Error reading interface files.\n",
 				"`", FileName, "' not written.\n"])
@@ -954,7 +966,8 @@ make_interface(SourceFileName, ModuleName, MaybeTimestamp, Items0) -->
 		% Check whether we succeeded
 		%
 	{ module_imports_get_items(Module0, InterfaceItems1) },
-	( { Error = yes } ->
+	% XXX zs: why does this code not check for fatal_module_errors?
+	( { Error = some_module_errors } ->
 		module_name_to_file_name(ModuleName, ".int", no, IntFileName),
 		module_name_to_file_name(ModuleName, ".int2", no, Int2FileName),
 		io__write_strings(["Error reading short interface files.\n",
@@ -1248,7 +1261,7 @@ write_interface_file(_SourceFileName, ModuleName, Suffix,
 				"Reading old interface for module", yes, no,
 				OldItems0, OldError, _OldIntFileName,
 				_OldTimestamp),
-			( { OldError = no } ->
+			( { OldError = no_module_errors } ->
 				{ strip_off_interface_decl(OldItems0,
 					OldItems) },
 				{ MaybeOldItems = yes(OldItems) }
@@ -1536,7 +1549,8 @@ find_read_module(ReadModules, ModuleName, Suffix, ReturnTimestamp,
 init_module_imports(SourceFileName, ModuleName, Items, PublicChildren,
 			FactDeps, MaybeTimestamps, Module) :-
 	Module = module_imports(SourceFileName, ModuleName, [], [], [], [],
-		PublicChildren, FactDeps, unknown, Items, no, MaybeTimestamps).
+		PublicChildren, FactDeps, unknown, Items, no_module_errors,
+		MaybeTimestamps).
 
 module_imports_get_source_file_name(Module, Module ^ source_file_name).
 module_imports_get_module_name(Module, Module ^ module_name).
@@ -2395,7 +2409,7 @@ generate_dependencies(ModuleName, DepsMap0) -->
 	%
 	{ map__lookup(DepsMap, ModuleName, deps(_, ModuleImports)) },
 	{ module_imports_get_error(ModuleImports, Error) },
-	( { Error = fatal } ->
+	( { Error = fatal_module_errors } ->
 		{ prog_out__sym_name_to_string(ModuleName, ModuleString) },
 		{ string__append_list(["can't read source file for module `",
 			ModuleString, "'."], Message) },
@@ -2562,7 +2576,7 @@ generate_dependencies_write_d_files([Dep | Deps],
 	% the current Module depends on, a .d file is still produced, even
 	% though it probably contains incorrect information.
 	{ module_imports_get_error(Module, Error) },
-	( { Error \= fatal } ->
+	( { Error \= fatal_module_errors } ->
 		write_dependency_file(Module,
 			set__list_to_set(IndirectOptDeps), yes(TransOptDeps))
 	;
@@ -2639,7 +2653,7 @@ deps_list_to_deps_rel([Deps | DepsList], DepsMap,
 		IntRel0, IntRel, ImplRel0, ImplRel) :-
 	Deps = deps(_, ModuleImports),
 	ModuleError = ModuleImports ^ error,
-	( ModuleError \= fatal ->
+	( ModuleError \= fatal_module_errors ->
 		%
 		% Add interface dependencies to the interface deps relation.
 		%
@@ -3663,7 +3677,7 @@ select_ok_modules([], _, []).
 select_ok_modules([Module | Modules0], DepsMap, Modules) :-
 	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
 	module_imports_get_error(ModuleImports, Error),
-	( Error = fatal ->
+	( Error = fatal_module_errors ->
 		Modules = Modules1
 	;
 		Modules = [Module | Modules1]
@@ -3834,7 +3848,7 @@ read_dependencies(ModuleName, Search, ModuleImportsList) -->
 	read_mod_ignore_errors(ModuleName, ".m",
 		"Getting dependencies for module", Search, no, Items0, Error,
 		FileName0, _),
-	( { Items0 = [], Error = fatal } ->
+	( { Items0 = [], Error = fatal_module_errors } ->
 		read_mod_ignore_errors(ModuleName, ".int", 
 		    "Getting dependencies for module interface", Search, no,
 		    Items, _Error, FileName, _),
@@ -3969,7 +3983,7 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 	% level of module qualifiers.
 	%
 	(
-		{ Error0 = fatal },
+		{ Error0 = fatal_module_errors },
 		{ Items0 = [] },
 		{ Extension = ".m" },
 		{ PartialModuleName = qualified(Parent, Child) }
@@ -3984,7 +3998,7 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 		check_timestamp(FileName0, MaybeTimestamp0, MaybeTimestamp),
 		( { IgnoreErrors = yes } ->
 			(
-				{ Error0 = fatal },
+				{ Error0 = fatal_module_errors },
 				{ Items0 = [] }
 			->
 				maybe_write_string(VeryVerbose, "not found.\n")
@@ -3992,15 +4006,18 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 				maybe_write_string(VeryVerbose, "done.\n")
 			)
 		;
-			( { Error0 = fatal } ->
+			(
+				{ Error0 = fatal_module_errors },
 				maybe_write_string(VeryVerbose,
 					"fatal error(s).\n"),
 				io__set_exit_status(1)
-			; { Error0 = yes } ->
+			;
+				{ Error0 = some_module_errors },
 				maybe_write_string(VeryVerbose,
 					"parse error(s).\n"),
 				io__set_exit_status(1)
 			;
+				{ Error0 = no_module_errors },
 				maybe_write_string(VeryVerbose,
 					"successful parse.\n")
 			),
@@ -4027,13 +4044,16 @@ read_mod_from_file(FileName, Extension, Descr, Search, ReturnTimestamp,
 		ReturnTimestamp, Error, ModuleName, Messages, Items,
 		MaybeTimestamp0),
 	check_timestamp(FullFileName, MaybeTimestamp0, MaybeTimestamp),
-	( { Error = fatal } ->
+	(
+		{ Error = fatal_module_errors },
 		maybe_write_string(VeryVerbose, "fatal error(s).\n"),
 		io__set_exit_status(1)
-	; { Error = yes } ->
+	;
+		{ Error = some_module_errors },
 		maybe_write_string(VeryVerbose, "parse error(s).\n"),
 		io__set_exit_status(1)
 	;
+		{ Error = no_module_errors },
 		maybe_write_string(VeryVerbose, "successful parse.\n")
 	),
 	prog_out__write_messages(Messages).
@@ -4124,7 +4144,7 @@ process_module_private_interfaces(ReadModules, [Ancestor | Ancestors],
 		globals__io_lookup_bool_option(statistics, Statistics),
 		maybe_report_stats(Statistics),
 
-		( { PrivateIntError = fatal } ->
+		( { PrivateIntError = fatal_module_errors } ->
 			{ ModAncestors = ModAncestors0 }
 		;
 			{ ModAncestors = [Ancestor | ModAncestors0] }
@@ -4180,7 +4200,7 @@ process_module_long_interfaces(ReadModules, NeedQualifier, [Import | Imports],
 		globals__io_lookup_bool_option(statistics, Statistics),
 		maybe_report_stats(Statistics),
 
-		( { LongIntError = fatal } ->
+		( { LongIntError = fatal_module_errors } ->
 			{ ModImplementationImports =
 				ModImplementationImports0 },
 			{ Module1 = Module0 }
@@ -4400,8 +4420,8 @@ strip_off_interface_decl(Items0, Items) :-
 :- mode maybe_add_int_error(in, in, out) is det.
 
 maybe_add_int_error(InterfaceError, ModError0, ModError) :-
-	( InterfaceError \= no ->
-		ModError = yes
+	( InterfaceError \= no_module_errors ->
+		ModError = some_module_errors
 	;
 		ModError = ModError0
 	).

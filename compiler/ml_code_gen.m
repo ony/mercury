@@ -1061,7 +1061,7 @@ ml_gen_proc_defn(ModuleInfo, PredId, ProcId, MLDS_ProcDefnBody, ExtraDefns) :-
 		% corresponding definition, making sure that the function
 		% is declared as `extern' rather than `static'.
 		%
-		MaybeStatement = no,
+		FunctionBody = external,
 		ExtraDefns = []
 	;
 		% Set up the initial success continuation, if any.
@@ -1111,7 +1111,7 @@ ml_gen_proc_defn(ModuleInfo, PredId, ProcId, MLDS_ProcDefnBody, ExtraDefns) :-
 		MLDS_Decls = list__append(MLDS_LocalVars, MLDS_Decls0),
 		MLDS_Statement = ml_gen_block(MLDS_Decls, MLDS_Statements,
 			Context),
-		MaybeStatement = yes(MLDS_Statement)
+		FunctionBody = defined_here(MLDS_Statement)
 	),
 
 	pred_info_get_attributes(PredInfo, Attributes),
@@ -1121,7 +1121,7 @@ ml_gen_proc_defn(ModuleInfo, PredId, ProcId, MLDS_ProcDefnBody, ExtraDefns) :-
 		AttributeList),
 	
 	MLDS_ProcDefnBody = mlds__function(yes(proc(PredId, ProcId)),
-			MLDS_Params, MaybeStatement, MLDSAttributes).
+			MLDS_Params, FunctionBody, MLDSAttributes).
 
 	% for model_det and model_semi procedures,
 	% figure out which output variables are returned by
@@ -1581,9 +1581,11 @@ ml_gen_commit(Goal, CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 		%	    {
 		%       #endif
 		%		MR_COMMIT_TYPE ref;
+		%
 		%		void success() {
 		%			MR_DO_COMMIT(ref);
 		%		}
+		%
 		%		MR_TRY_COMMIT(ref, {
 		%			<Goal && success()>
 		%			succeeded = FALSE;
@@ -1617,29 +1619,9 @@ ml_gen_commit(Goal, CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 		{ DoCommitStmt = do_commit(lval(CommitRefLval)) },
 		{ DoCommitStatement = 
 			mlds__statement(DoCommitStmt, MLDS_Context) },
-		=(MLDSGenInfo),
-		{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
-		{ module_info_globals(ModuleInfo, Globals) },
-		{ globals__get_target(Globals, Target) },
-		{ Target = il ->
-				% XXX would be a good performance thing
-				% to re-use the same pre-allocated commit
-				% object over and over again, instead of
-				% allocating them each time.
-			NewCommitObject = mlds__statement(
-				atomic(new_object(CommitRefLval, no,
-					mlds__commit_type, no, no, [], [])),
-					MLDS_Context),
-			DoCommitBody = ml_gen_block([CommitRefDecl], 
-				[NewCommitObject,
-				DoCommitStatement],
-				Context)
-		;
-			DoCommitBody = DoCommitStatement
-		},
 		/* pop nesting level */
 		ml_gen_nondet_label_func(SuccessFuncLabel, Context,
-			DoCommitBody, SuccessFunc),
+			DoCommitStatement, SuccessFunc),
 
 		ml_get_env_ptr(EnvPtrRval),
 		{ SuccessCont = success_cont(SuccessFuncLabelRval,
@@ -1662,13 +1644,8 @@ ml_gen_commit(Goal, CodeModel, Context, MLDS_Decls, MLDS_Statements) -->
 				[SetSuccessTrue]), Context)) },
 		{ TryCommitStatement = mlds__statement(TryCommitStmt,
 			MLDS_Context) },
-		{ Target = il ->
-			CommitFuncLocalDecls = [SuccessFunc |
-				GoalStaticDecls]
-		;
-			CommitFuncLocalDecls = [CommitRefDecl, SuccessFunc |
-				GoalStaticDecls]
-		},
+		{ CommitFuncLocalDecls = [CommitRefDecl, SuccessFunc |
+			GoalStaticDecls] },
 		maybe_put_commit_in_own_func(CommitFuncLocalDecls,
 			[TryCommitStatement], Context,
 			CommitFuncDecls, MLDS_Statements),
@@ -2162,7 +2139,7 @@ ml_gen_nondet_pragma_foreign_proc(CodeModel, Attributes,
 	%
 	% Generate <declaration of one local variable for each arg>
 	%
-	{ ml_gen_pragma_c_decls(ArgList, ArgDeclsList) },
+	ml_gen_pragma_c_decls(ArgList, ArgDeclsList),
 
 	%
 	% Generate definitions of the FAIL, SUCCEED, SUCCEED_LAST,
@@ -2422,7 +2399,7 @@ ml_gen_ordinary_pragma_c_proc(CodeModel, Attributes,
 	%
 	% Generate <declaration of one local variable for each arg>
 	%
-	{ ml_gen_pragma_c_decls(ArgList, ArgDeclsList) },
+	ml_gen_pragma_c_decls(ArgList, ArgDeclsList),
 
 	%
 	% Generate code to set the values of the input variables.
@@ -2597,32 +2574,46 @@ ml_make_c_arg_list(Vars, ArgDatas, Types, TypeStrings, ArgList) :-
 % for a `pragma c_code' declaration.
 %
 :- pred ml_gen_pragma_c_decls(list(ml_c_arg)::in,
-		list(target_code_component)::out) is det.
+		list(target_code_component)::out,
+		ml_gen_info::in, ml_gen_info::out) is det.
 
-ml_gen_pragma_c_decls([], []).
-ml_gen_pragma_c_decls([Arg|Args], [Decl|Decls]) :-
+ml_gen_pragma_c_decls([], []) --> [].
+ml_gen_pragma_c_decls([Arg|Args], [Decl|Decls]) -->
 	ml_gen_pragma_c_decl(Arg, Decl),
 	ml_gen_pragma_c_decls(Args, Decls).
 
 % ml_gen_pragma_c_decl generates C code to declare an argument
 % of a `pragma c_code' declaration.
 %
-:- pred ml_gen_pragma_c_decl(ml_c_arg::in, target_code_component::out) is det.
+:- pred ml_gen_pragma_c_decl(ml_c_arg::in, target_code_component::out,
+		ml_gen_info::in, ml_gen_info::out) is det.
 
-ml_gen_pragma_c_decl(ml_c_arg(_Var, MaybeNameAndMode, _Type, TypeString),
-		Decl) :-
-	(
+ml_gen_pragma_c_decl(ml_c_arg(_Var, MaybeNameAndMode, Type, TypeString),
+		Decl) -->
+	=(MLDSGenInfo),
+	{ ml_gen_info_get_module_info(MLDSGenInfo, ModuleInfo) },
+	{ module_info_globals(ModuleInfo, Globals) },
+	{ globals__get_target(Globals, Target) },
+	{
 		MaybeNameAndMode = yes(ArgName - _Mode),
 		\+ var_is_singleton(ArgName)
 	->
-		string__format("\t%s %s;\n", [s(TypeString), s(ArgName)],
+		( 
+			type_util__var(Type, _),
+			Target = il
+		->
+			TypeStr = "MR_Box"
+		;
+			TypeStr = TypeString
+		),
+		string__format("\t%s %s;\n", [s(TypeStr), s(ArgName)],
 			DeclString)
 	;
 		% if the variable doesn't occur in the ArgNames list,
 		% it can't be used, so we just ignore it
 		DeclString = ""
-	),
-	Decl = raw_target_code(DeclString).
+	},
+	{ Decl = raw_target_code(DeclString) }.
 
 %-----------------------------------------------------------------------------%
 
@@ -2684,6 +2675,7 @@ ml_gen_pragma_c_input_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType, TypeString),
 		{ module_info_globals(ModuleInfo, Globals) },
 		{ globals__lookup_bool_option(Globals, highlevel_data,
 			HighLevelData) },
+		{ globals__get_target(Globals, Target) },
 		{ HighLevelData = yes ->
 			% In general, the types used for the C interface
 			% are not the same as the types used by
@@ -2696,7 +2688,12 @@ ml_gen_pragma_c_input_arg(ml_c_arg(Var, MaybeNameAndMode, OrigType, TypeString),
 			% a cast is for polymorphic types, which are
 			% `Word' in the C interface but `MR_Box' in the
 			% MLDS back-end.
-			( type_util__var(OrigType, _) ->
+			% Except for --grade ilc, where polymorphic types
+			% are MR_Box.
+			( 
+				type_util__var(OrigType, _),
+				Target \= il
+			->
 				Cast = "(MR_Word) "
 			;
 				Cast = ""

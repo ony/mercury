@@ -188,7 +188,7 @@ construct_ctor(ModuleInfo, ForeignClass, PredId)
 
 	Stmt = construct_ctor_body(ModuleInfo, ForeignClass, PredId, ProcId),
 
-	EntityDefn = mlds__function(no, Params, yes(Stmt), []).
+	EntityDefn = mlds__function(no, Params, defined_here(Stmt), []).
 
 :- func construct_ctor_body(module_info, foreign_class_defn, pred_id,
 		proc_id) = mlds__statement.
@@ -298,7 +298,7 @@ construct_method(ModuleInfo, ForeignClass, ClassProc)
 			overridable, modifiable, concrete),
 
 	Params = construct_proc_params(ModuleInfo, PredId, ProcId),
-	EntityDefn = mlds__function(no, Params, yes(Stmt), []),
+	EntityDefn = mlds__function(no, Params, defined_here(Stmt), []),
 
 	Stmt = construct_method_body(ModuleInfo, ForeignClass, ClassProc).
 
