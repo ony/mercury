@@ -151,6 +151,7 @@
 			true_vars :: vars(T),
 			false_vars :: vars(T),
 			equiv_vars :: equiv_vars(T),
+			imp_vars :: imp_vars(T),
 			robdd :: robdd(T)
 		).
 
@@ -412,22 +413,27 @@ minimal_model(Vars, xrobdd(T, F, E, R), (TrueVars `union` T) `intersect` Vars,
 
 :- func normalise(xrobdd(T)::di_xrobdd) = (xrobdd(T)::uo_xrobdd) is det.
 
-normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, Robdd0)) = X :-
-	%( some [V] (V `member` TrueVars0, V `member` FalseVars0) ->
+normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, ImpVars0, Robdd0)) = X :-
+	% T <-> F
 	( \+ empty(TrueVars0 `intersect` FalseVars0) ->
 		X = zero
 	;
-		% Lines 4, 5
+		% TF <-> E
 		normalise_true_false_equivalent_vars(Changed0, TrueVars0,
 			TrueVars1, FalseVars0, FalseVars1, EQVars0, EQVars1),
 
-		% Line 6
-		Robdd1 = restrict_true_false_vars(TrueVars1, FalseVars1,
-				Robdd0),
-		Changed1 = Changed0 `bool__or` ( Robdd1 \= Robdd0 -> yes ; no),
+		% TF <-> I
+		normalise_true_false_implication_vars(Changed1, TrueVars1,
+			TrueVars2, FalseVars1, FalseVars2, ImpVars0, ImpVars1),
+		Changed2 = Changed0 `bool__or` Changed1,
 
-		% Line 7
+		% TF -> R
+		Robdd1 = restrict_true_false_vars(TrueVars2, FalseVars2,
+				Robdd0),
+		Changed3 = Changed2 `bool__or` ( Robdd1 \= Robdd0 -> yes ; no),
+
 		(
+			% TF <- R
 			definite_vars(Robdd1,
 				some_vars(NewTrueVars), some_vars(NewFalseVars))
 		->
@@ -435,22 +441,35 @@ normalise(xrobdd(TrueVars0, FalseVars0, EQVars0, Robdd0)) = X :-
 				empty(NewTrueVars),
 				empty(NewFalseVars)
 			->
-				Changed2 = Changed1,
-				TrueVars2 = TrueVars1,
-				FalseVars2 = FalseVars1
+				Changed4 = Changed4,
+				TrueVars = TrueVars2,
+				FalseVars = FalseVars2
 			;
-				Changed2 = yes,
-				TrueVars2 = TrueVars1 `union` NewTrueVars,
-				FalseVars2 = FalseVars1 `union` NewFalseVars
+				Changed4 = yes,
+				TrueVars = TrueVars2 `union` NewTrueVars,
+				FalseVars = FalseVars2 `union` NewFalseVars
 			),
 
-			% Lines 8, 9, 10
-			extract_equivalent_vars_from_robdd(Changed3, Robdd1, 
-					Robdd2, EQVars1, EQVars2),
-			Changed = Changed2 `bool__or` Changed3,
+			% E <-> I
+			propagate_equivalences_into_implications(EQVars1,
+				Changed5, ImpVars1, ImpVars2),
+			propagate_implications_into_equivalences(ImpVars2,
+				Changed6, EQVars1, EQVars2),
+			Changed7 = Changed4 `bool__or` Changed5
+					`bool__or` Changed6,
 
-			% Line 11
-			X0 = xrobdd(TrueVars2, FalseVars2, EQVars2, Robdd2),
+			% E <-> R
+			extract_equivalent_vars_from_robdd(Changed8, Robdd1, 
+					Robdd2, EQVars2, EQVars),
+			Changed9 = Changed7 `bool__or` Changed8,
+
+			% I <-> R
+			extract_implication_vars_from_robdd(Changed10, Robdd2,
+				Robdd, ImpVars2, ImpVars),
+			Changed = Changed9 `bool__or` Changed10,
+
+			X0 = xrobdd(TrueVars, FalseVars, EQVars,
+					ImpVars, Robdd),
 			X = ( Changed = yes ->
 				normalise(X0)
 			;

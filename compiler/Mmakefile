@@ -42,6 +42,7 @@ M_ENV	=	MERCURY_INT_DIR=$(LIBRARY_DIR) \
 			-I$(RUNTIME_DIR) \
 			-I$(BOEHM_GC_DIR) \
 			-I$(BOEHM_GC_DIR)/include \
+			-I$(ROBDD_DIR) \
 		"
 SMC	=	$(MC) --search-directory $(BROWSER_DIR)
 MCD	=	$(M_ENV) $(SMC) --generate-dependencies

@@ -160,6 +160,9 @@
 
 :- type equivalent_result(T) == entailment_result(map(var(T), var(T))).
 
+:- pred extract_implications(%implication_result(T)::out,
+		robdd(T)::in, robdd(T)::out) is det.
+
 	% Existentially quantify away the var in the ROBDD.
 :- func restrict(var(T), robdd(T)) = robdd(T).
 
@@ -469,6 +472,87 @@ rev_map(some_vars(equivalent_vars_map(EQ0))) = some_vars(EQ) :-
 		    )
 		), EQ0, sparse_bitset__init, _, map__init, EQ).
 
+extract_implications(R0, R) :-
+	implications_2(R0, Imps, RevImps, DisImps, RevDisImps),
+	R = squeeze_implications(Imps, RevImps, DisImps, RevDisImps, R0).
+
+
+:- pred implications_2(robdd(T)::in, imp_res(T)::out, imp_res(T)::out,
+	imp_res(T)::out, imp_res(T)::out) is det.
+:- pragma memo(implications_2/5).
+
+implications_2(R, Imps, RevImps, DisImps, RevDisImps) :-
+	( R = one ->
+	    Imps = some_vars(imps(map__init)),
+	    RevImps = Imps,
+	    DisImps = Imps,
+	    RevDisImps = Imps
+	; R = zero ->
+	    Imps = all_vars,
+	    RevImps = Imps,
+	    DisImps = Imps,
+	    RevDisImps = Imps
+	;
+	    IVars = vars_entailed(R ^ tr),
+	    RIVars = vars_disentailed(R ^ fa),
+	    DIVars = vars_disentailed(R ^ tr),
+	    RDIVars = vars_entailed(R ^ fa),
+
+	    implications_2(R ^ tr, Imps0, RevImps0, DisImps0, RevDisImps0),
+	    implications_2(R ^ fa, Imps1, RevImps1, DisImps1, RevDisImps1),
+
+	    Imps2 = Imps0 `intersection` Imps1,
+	    RevImps2 = RevImps0 `intersection` RevImps1,
+	    DisImps2 = DisImps0 `intersection` DisImps1,
+	    RevDisImps2 = RevDisImps0 `intersection` RevDisImps1,
+
+	    Imps = Imps2 ^ elem(R ^ value) := IVars,
+	    RevImps = RevImps2 ^ elem(R ^ value) := RIVars,
+	    DisImps = DisImps2 ^ elem(R ^ value) := DIVars,
+	    RevDisImps = RevDisImps2 ^ elem(R ^ value) := RDIVars
+	).
+
+:- func squeeze_implications(imp_res(T), imp_res(T),
+	    imp_res(T), imp_res(T), robdd(T)) = robdd(T).
+
+squeeze_implications(Imps, RevImps, DisImps, RevDisImps, R0) = R :-
+	squeeze_implications_2(Imps, RevImps, DisImps, RevDisImps,
+		init, map__init, _, R0, R).
+
+:- pred squeeze_implications_2(imp_res(T)::in, imp_res(T)::in,
+		imp_res(T)::in, imp_res(T)::in, vars(T)::in, robdd_cache(T)::in,
+		robdd_cache(T)::out, robdd(T)::in, robdd(T)::out) is det.
+
+squeeze_implications_2(Imps, RevImps, DisImps, RevDisImps,
+		NukeVars, Seen0, Seen, R0, R) :-
+	( is_terminal(R0) ->
+		R = R0,
+		Seen = Seen0
+	; NukeVars `contains` R0 ^ value ->
+		( R0 ^ fa = zero ->
+			R1 = R0 ^ tr
+		;
+			R1 = R0 ^ fa
+		),
+		squeeze_implications_2(Imps, RevImps, DisImps,
+			RevDisImps, NukeVars, Seen0, Seen, R1, R)
+	;
+		NukeVarsT = NukeVars `union` Imps ^ get(R0 ^ value) `union`
+				DisImps ^ get(R0 ^ value),
+		squeeze_implications_2(Imps, RevImps, DisImps,
+			RevDisImps, NukeVarsT, Seen0, Seen1, R0 ^ tr, RT),
+
+		NukeVarsF = NukeVars `union` RevImps ^ get(R0 ^ value) `union`
+				RevDisImps ^ get(R0 ^ value),
+		squeeze_implications_2(Imps, RevImps, DisImps,
+			RevDisImps, NukeVarsF, Seen1, Seen2, R0 ^ fa, RF),
+
+		R = make_node(R0 ^ value, RT, RF),
+		Seen = Seen2 ^ elem(R0) := R
+	).
+		
+		
+
 :- typeclass intersectable(T) where [
 	func T `intersection` T = T
 ].
@@ -498,6 +582,24 @@ rev_map(some_vars(equivalent_vars_map(EQ0))) = some_vars(EQ) :-
 			)), MapA, map__init))
 	)
 ].
+
+:- type imp_res(T) == entailment_result(imp_res_2(T)).
+:- type imp_res_2(T) ---> imps(map(var(T), vars_entailed_result(T))).
+
+:- instance intersectable(imp_res_2(T)) where [
+	imps(MapA) `intersection` imps(MapB) =
+		imps(map__intersect(intersection, MapA, MapB))
+].
+
+:- func 'elem :='(var(T), imp_res(T), vars_entailed_result(T)) = imp_res(T).
+
+'elem :='(_, all_vars, _) = all_vars.
+'elem :='(V, some_vars(imps(M0)), Vs) = some_vars(imps(M0 ^ elem(V) := Vs)).
+
+:- func get(var(T), imp_res(T)) = vars(T).
+
+get(_, all_vars) = init.
+get(V, some_vars(imps(M))) = ( some_vars(Vs) = M ^ elem(V) -> Vs ; init ).
 
 :- func vars_entailed_result(T) `insert` var(T) = vars_entailed_result(T).
 
@@ -565,6 +667,8 @@ print_robdd_2(F, Trues, Falses) -->
 :- pragma c_code(restrict_threshold(V::in, F::in) = (R::out),
 		[will_not_call_mercury],
 		"R = (Word) restrictThresh(V, (node *) F);").
+
+:- pragma memo(rename_vars/2).
 
 rename_vars(Subst, F) = 
 	( is_terminal(F) ->
@@ -687,7 +791,7 @@ var_restrict_false(V, F0) = F :-
 		)
 	).
 
-%/*
+/*
 restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
     size(R0, _Nodes, _Depth), % XXX
 	P = (pred(V::in, di, uo) is det --> io__write_int(var_to_int(V))), % XXX
@@ -718,16 +822,18 @@ restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R) :-
 		R = make_node(R0 ^ value, R_tr, R_fa)
 	    )
 	).
-%*/
-/*
+*/
+%/*
 restrict_true_false_vars(TrueVars, FalseVars, R0) = R :-
 	restrict_true_false_vars_2(TrueVars, FalseVars, R0, R,
-		hash_table__new(robdd_double_hash, 12, 0.9), _).
+%		hash_table__new(robdd_double_hash, 12, 0.9),
+		init, _).
 
 :- pred restrict_true_false_vars_2(vars(T)::in, vars(T)::in,
 	robdd(T)::in, robdd(T)::out,
-	hash_table(robdd(T), robdd(T))::hash_table_di,
-	hash_table(robdd(T), robdd(T))::hash_table_uo) is det.
+%	hash_table(robdd(T), robdd(T))::hash_table_di,
+%	hash_table(robdd(T), robdd(T))::hash_table_uo
+	robdd_cache(T)::in, robdd_cache(T)::out) is det.
 
 restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R, Seen0, Seen) :-
 	( is_terminal(R0) ->
@@ -758,7 +864,7 @@ restrict_true_false_vars_2(TrueVars0, FalseVars0, R0, R, Seen0, Seen) :-
 		),
 		Seen = det_insert(Seen2, R0, R)
 	).
-*/
+%*/
 
 :- pred robdd_double_hash(robdd(T)::in, int::out, int::out) is det.
 
@@ -847,42 +953,58 @@ make_equiv_2([V | Vs], LM, Trues) =
 	) :-
 	L = LM ^ det_elem(V).
 
-expand_equiv(LeaderMap, R) =
-	expand_equiv_2(map__sorted_keys(LeaderMap), LeaderMap, init, R).
+expand_equiv(LeaderMap, R0) = R :-
+	expand_equiv_2(map__sorted_keys(LeaderMap), LeaderMap, init, R0, R,
+		map__init, _).
 
-:- func expand_equiv_2(list(var(T)), map(var(T), var(T)), vars(T), robdd(T)) =
-		robdd(T).
+:- pred expand_equiv_2(list(var(T))::in, map(var(T), var(T))::in, vars(T)::in,
+	robdd(T)::in, robdd(T)::out,
+	robdd_cache(T)::in, robdd_cache(T)::out) is det.
 
-expand_equiv_2([], _, _, R) = R.
-expand_equiv_2([V | Vs], LM, Trues, R) =
-	( R = one ->
-		make_equiv_2([V | Vs], LM, Trues)
-	; R = zero ->
-		zero
-	; compare((<), R ^ value, V) ->
-		make_node(R ^ value,
-			expand_equiv_2([V | Vs], LM, Trues, R ^ tr),
-			expand_equiv_2([V | Vs], LM, Trues, R ^ fa))
-	; compare((<), V, R ^ value) ->
-		( L = V ->
-			make_node(V,
-				expand_equiv_2(Vs, LM, Trues `insert` V, R),
-				expand_equiv_2(Vs, LM, Trues, R))
-		; Trues `contains` L ->
-			make_node(V, expand_equiv_2(Vs, LM, Trues, R), zero)
+expand_equiv_2([], _, _, R, R) --> [].
+expand_equiv_2([V | Vs], LM, Trues, R0, R) -->
+	{ L = LM ^ det_elem(V) },
+	( { R0 = zero } ->
+		{ R = zero }
+	; R1 =^ elem(R0) ->
+		{ R = R1 }
+	; { R0 = one } ->
+		{ R = make_equiv_2([V | Vs], LM, Trues) },
+		^ elem(R0) := R
+	; { compare((<), R0 ^ value, V) } ->
+		expand_equiv_2([V | Vs], LM, Trues, R0 ^ tr, Rtr),
+		expand_equiv_2([V | Vs], LM, Trues, R0 ^ fa, Rfa),
+		{ R = make_node(R0 ^ value, Rtr, Rfa) },
+		^ elem(R0) := R
+	; { compare((<), V, R0 ^ value) } ->
+		( { L = V } ->
+			expand_equiv_2(Vs, LM, Trues `insert` V, R0, Rtr),
+			expand_equiv_2(Vs, LM, Trues, R0, Rfa),
+			{ R = make_node(V, Rtr, Rfa) },
+			^ elem(R0) := R
+		; { Trues `contains` L } ->
+			expand_equiv_2(Vs, LM, Trues, R0, Rtr),
+			{ R = make_node(V, Rtr, zero) },
+			^ elem(R0) := R
 		;
-			make_node(V, zero, expand_equiv_2(Vs, LM, Trues, R))
+			expand_equiv_2(Vs, LM, Trues, R0, Rfa),
+			{ R = make_node(V, zero, Rfa) },
+			^ elem(R0) := R
 		)
-	; L = V ->
-		make_node(V,
-			expand_equiv_2(Vs, LM, Trues `insert` V, R ^ tr),
-			expand_equiv_2(Vs, LM, Trues, R ^ fa))
-	; Trues `contains` L ->
-		make_node(V, expand_equiv_2(Vs, LM, Trues, R ^ tr), zero)
+	; { L = V } ->
+		expand_equiv_2(Vs, LM, Trues `insert` V, R0 ^ tr, Rtr),
+		expand_equiv_2(Vs, LM, Trues, R0 ^ fa, Rfa),
+		{ R = make_node(V, Rtr, Rfa) },
+		^ elem(R0) := R
+	; { Trues `contains` L } -> 
+		expand_equiv_2(Vs, LM, Trues, R0 ^ tr, Rtr),
+		{ R = make_node(V, Rtr, zero) },
+		^ elem(R0) := R
 	;
-		make_node(V, zero, expand_equiv_2(Vs, LM, Trues, R ^ fa))
-	) :-
-	L = LM ^ det_elem(V).
+		expand_equiv_2(Vs, LM, Trues, R0 ^ fa, Rfa),
+		{ R = make_node(V, zero, Rfa) },
+		^ elem(R0) := R
+	).
 
 :- pragma c_code(is_terminal(F::in), [will_not_call_mercury, thread_safe],
 	"SUCCESS_INDICATOR = IS_TERMINAL(F);").
