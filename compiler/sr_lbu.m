@@ -6,28 +6,30 @@
 
 % module sr_lbu: implements the process of annotating each program point
 % 		 with Local Backward Use (LBU) information. 
-%	 	 (based on resume-points and possible aliasing)
-% XXX this module is purely for testing the workings of the resume-point
-% field. The LBU-pass is not intended as a separate compiler-pass. 
-% XXX I'm not really convinced that LBU should be made alias-compatible
-% at each program point for the Live-set to be correct by the end. 
-%    1. I think the alias-compatibility was needed in our Prolog-prototype
-%       because we derive the exact set of variables in BU for each 
-%       predicate.. While here I'm pretty convinced that a fixpoint-
-%      	computation for BU is a bit of an overkill. Deterministic and
-%       semideterministic predicates do not need a global BU analysis
-%	anyway. And for non-deterministic predicates it seems realistic
-% 	to consider all of the headvariables as vars in BU (when 
-%	backtracked to the point of the predicate, chances are all of
-%    	the vars still will be needed somehow -- note that this is
-% 	independent of the possibilities of reuse within such a nondet
-%	predicate, cf the nondet mode of append, where headvar3 can be
-%	safely reused for the generation of each new solution).
-%    2. It is sufficient to know the simple Backward Use at each program
-%       point, as it is anyhow combined with the alias information to 
-%	obtain the set of live datastructures. 
-% RESULT: we remove the alias-information threaded along this pass. 
+%	 	 (based on resume-points and forward use information)
 % main author: nancy
+%
+%
+% Although this annotation phase was initially not intended as
+% a separate pass, it is cleaner, and easier to work with. 
+%
+% We annotate each program point with a set of variables which are
+% in so-called Local Backward Use (LBU). A variable is said to be in LBU
+% if it will be accessed upon backtracking. 
+% This information is computed based on the backtrack-vars,
+% and forward use information. 
+% The goals requiring special attention are: 
+% 	- procedure calls: if the call is nondet, then all the arguments
+% 	  of the call are in LBU, as well as all the variables which 
+% 	  are instantiated at that program point, and are still used in 
+%	  forward execution. (Intuition: if backtracking up to this
+% 	  procedure call is needed, then all the values of these forward
+%	  use variables must remain the same, as they will be needed after
+%	  backtracking. 
+% 	- disjunctions, not, switch.  Introduce new local backward
+%	  uses. 
+% All the other goals simply propagate LBU. 
+
 
 :- module sr_lbu.
 
@@ -41,6 +43,8 @@
 :- pred sr_lbu__lbu_pass(module_info, module_info, io__state, io__state).
 :- mode sr_lbu__lbu_pass(in, out, di, uo) is det.
 
+	% Precondition: the code must already be annotated with
+	% LFU-information. 
 :- pred sr_lbu__process_proc(module_info::in,
 		proc_info::in, proc_info::out) is det.
 
@@ -181,7 +185,11 @@ annotate_lbu_in_goal(HLDS, ProcInfo,
 			% if the call is nondeterministic, all 
 			% actual vars are taken to be in Local Backward Use.
 			set__list_to_set(CallVars,CallVars_set),	
-			set__union(CallVars_set, Lbu_01, Lbu)
+			% Don't forget to include all the variables that
+			% are in forward use, as they have to be kept
+			% alive too.
+			goal_info_get_lfu(Info0, LFU), 
+			Lbu = set__union_list([CallVars_set, Lbu_01, LFU])
 		;
 			Lbu = Lbu_01
 		),
@@ -341,23 +349,6 @@ annotate_lbu_in_disj(HLDS, ProcInfo, Lbu0, Lbu,
 			),
 		Goals0, Goals, 
 		Lbu0, Lbu).
-
-/*************************************************************************
-:- pred map_foldl2(pred(T1,T2,T3,T3,T4,T4), list(T1), list(T2), T3, T3, 
-			T4, T4).
-:- mode map_foldl2(pred(in,out,in,out,in,out) is det, 
-                   in, out, in, out, in, out) is det.
-
-map_foldl2(P, L1, L, A1, A, B1, B):-
-        (L1 = [X|Xs] ->
-                P(X,Y,A1,A2,B1,B2),
-                map_foldl2(P, Xs, Ys, A2, A, B2, B),
-                L = [Y | Ys]
-        ;
-                L = [],
-                A = A1,
-                B = B1).
-*************************************************************************/
 
 :- pred determinism_is_nondet(prog_data__determinism).
 :- mode determinism_is_nondet(in) is semidet.
