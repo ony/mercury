@@ -19,7 +19,6 @@
 % order calls.
 % 			
 %-----------------------------------------------------------------------------
-%
 
 :- module termination.
 
@@ -28,40 +27,38 @@
 :- import_module io.
 :- import_module hlds_module, term_errors, term_util.
 
-
 % The top level predicate.  This controls all of the termination analysis
 :- pred termination__pass(module_info, module_info, io__state, io__state).
 :- mode termination__pass(in, out, di, uo) is det.
 
-% this provides an initialised termination structure.
+% This predicate provides an initialised termination structure.
 :- pred termination__init(termination).
 :- mode termination__init(out) is det.
 
-% this prints out a termination structure.
+% This predicate prints out a termination structure.
 :- pred termination__out(termination, io__state, io__state).
 :- mode termination__out(in, di, uo) is det.
 
-% this prints out the used_args structure
+% This predicate prints out the used_args structure
 :- pred termination__out_used_args(termination, io__state, io__state). 
 :- mode termination__out_used_args(in, di, uo) is det.
 
-% this prints out the termination constant
+% This predicate prints out the termination constant
 :- pred termination__out_const(termination, io__state, io__state).
 :- mode termination__out_const(in, di, uo) is det.
 
-% this prints out the terminates (yes/dont_know/not_set).
+% This predicate prints out the terminates (yes/dont_know/not_set).
 :- pred termination__out_terminates(termination, io__state, io__state).
 :- mode termination__out_terminates(in, di, uo) is det.
 
-
-% this outputs pragma opt_terminates which are used in .trans_opt and .opt
-% files.
+% This predicate outputs pragma opt_terminates which are used in .trans_opt
+% and .opt files.
 :- pred termination__output_pragma_opt_terminates(pred_or_func, sym_name,
 	int, proc_id, termination, io__state, io__state).
 :- mode termination__output_pragma_opt_terminates(in, in, in, in, in, 
 	di, uo) is det.
 
-% this is used to output an error in a short form, suitable for 
+% This is used to output an error in a short form, suitable for 
 % printing the HLDS.
 :- pred termination__maybe_output_error(module_info, termination, 
 	io__state, io__state).
@@ -80,7 +77,6 @@
 :- import_module code_util, prog_out, bag, set.
 :- import_module term_pass1, term_pass2.
 
-
 %-----------------------------------------------------------------------------%
 
 termination__pass(Module0, Module) -->
@@ -89,7 +85,7 @@ termination__pass(Module0, Module) -->
 	{ module_info_ensure_dependency_info(Module0, Module1) },
 	{ module_info_predids(Module1, PredIds) },
 
-		% process builtin 
+	% process builtin predicates
 	check_preds(PredIds, Module1, Module2),
 
 	proc_inequalities(Module2, Module3),
@@ -110,6 +106,7 @@ termination__pass(Module0, Module) -->
 
 	maybe_write_string(Verbose, "% Termination checking done.\n").
 
+% An initialised termination structure.
 termination__init(term(not_set, not_set, no, no)).
 
 %-----------------------------------------------------------------------------%
@@ -194,13 +191,13 @@ termination__output_pragma_opt_terminates(PredOrFunc, SymName,
 	
 termination__maybe_output_error(Module, term(Const, _, _, MaybeError)) -->
 	( { MaybeError = yes(Error) } ->
-		io__write_string("% unable to determine termination as:"),
+		io__write_string("% unable to prove termination because:"),
 		term_errors__output(no, Module, Error)
 	;
 		[]
 	),
 	( { Const = inf(yes(ConstError)) } ->
-		io__write_string("% unable to set const as:"),
+		io__write_string("% unable to set termination const because:"),
 		term_errors__output(no, Module, ConstError)
 	;
 		[]
@@ -212,6 +209,19 @@ termination__maybe_output_error(Module, term(Const, _, _, MaybeError)) -->
 	io__state, io__state).
 :- mode check_preds(in, in, out, di, uo) is det.
 
+% This predicate processes each predicate and sets the termination property
+% if possible.  This is done as follows:  Set the termination to yes if:
+% - there is a terminates pragma defined for the predicate
+% - there is a `check_termination' pragma defined for the predicate, and it
+% 	is imported, and the compiler is not currently generating the
+% 	intermodule optimization file.
+% - the predicate is a builtin predicate or is compiler generated (This
+% 	also sets the termination constant and UsedArgs).
+%
+% Set the termination to dont_know if:
+% - the predicate is imported and there is no other source of information
+% 	about it (opt_terminates pragmas, terminates pragmas,
+% 	check_termination pragmas, builtin/compiler generated).
 check_preds([], Module, Module, State, State).
 check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 	module_info_preds(Module0, PredTable0),
@@ -220,16 +230,19 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 	pred_info_procedures(PredInfo0, ProcTable0),
 	map__keys(ProcTable0, ProcIds),
 	(
-		(
-		ImportStatus = exported
+		( ImportStatus = exported
 		; ImportStatus = local
 		; ImportStatus = pseudo_exported
 		)
 	->
 		pred_info_get_marker_list(PredInfo0, Markers),
 		( list__member(request(terminates), Markers) ->
-			change_procs_terminate(ProcIds, no, yes,
-				 no, ProcTable0, ProcTable2)
+			MaybeFind = no,
+			ReplaceTerminate = yes,
+			MaybeError = no,
+			change_procs_terminate(ProcIds, MaybeFind, 
+				ReplaceTerminate, MaybeError, 
+				ProcTable0, ProcTable2)
 		; code_util__predinfo_is_builtin(PredInfo0) ->
 			set_builtin_terminates(ProcIds, PredInfo0, Module0,
 				ProcTable0, ProcTable2)
@@ -238,21 +251,20 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 		),
 		State0 = State1
 	; %else if
-		(
-		ImportStatus = imported
+		( ImportStatus = imported
 		; ImportStatus = opt_decl  % should this be here?
 		; ImportStatus = opt_imported
 		; ImportStatus = pseudo_imported  % should this be here?
 		)
 	->
-		% all of the predicates that are processed here are imported
-		% in some way
-		% with imported predicates, any 'request(check_termination)'
-		% markers will be checked by the compiler when it compiles
-		% relevant source file (that the pred was imported from)
+		% All of the predicates that are processed in this section
+		% are imported in some way.
+		% With imported predicates, any 'check_termination'
+		% pragmas will be checked by the compiler when it compiles
+		% relevant source file (that the pred was imported from).
 		% When making the intermodule optimizations, the 
-		% check_termination will not be checked, so it cannot
-		% be depended upon
+		% check_termination will not be checked when the relevant
+		% source file is compiled, so it cannot be depended upon. 
 		pred_info_get_marker_list(PredInfo0, Markers),
 		globals__io_lookup_bool_option(make_optimization_interface,
 			MakeOptInt, State0, State1),
@@ -273,26 +285,31 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 				ProcTable0, ProcTable1)
 		;
 			% go through, changing each 'not_set' to 'dont_know'
-			change_procs_terminate(ProcIds, yes(not_set), dont_know,
-				 no, ProcTable0, ProcTable1)
+			MaybeFind = yes(not_set),
+			ReplaceTerminate = dont_know,
+			MaybeError = no,
+			change_procs_terminate(ProcIds, MaybeFind,
+				ReplaceTerminate, MaybeError, ProcTable0,
+				ProcTable1)
 				
 		),
-		change_procs_const(ProcIds, yes(not_set), inf(no), 
+		MaybeFindConst = yes(not_set),
+		MaybeConstError = no,
+		ReplaceConst = inf(MaybeConstError),
+		change_procs_const(ProcIds, MaybeFindConst, ReplaceConst,
 			ProcTable1, ProcTable2)
 	;
-%		(
-%		ImportStatus = abstract_imported
+%		( ImportStatus = abstract_imported
 %		; ImportStatus = abstract_exported
 %		),
-		% this should not happen, as procedures are being processed
-		% here, and these import_status' refer to abstract types
-		error("Unexpected Import Status of a predicate"),
-		ProcTable2 = ProcTable0,
-		State0 = State1
+		% This should not happen, as procedures are being processed
+		% here, and these import_status' refer to abstract types.
+		error("termination__check_preds: Unexpected import status of a predicate")
 	),
 	( 
-		% dont know if compiler gen/mercury_builtin preds will be 
-		% imported or not
+		% It is possible for compiler generated/mercury builtin
+		% predicates to be imported or locally defined, so they
+		% must be covered here, seperatly.
 		set_compiler_gen_terminates(ProcIds, PredInfo0, 
 			Module0, ProcTable2, ProcTable3)
 	->
@@ -305,7 +322,10 @@ check_preds([PredId | PredIds] , Module0, Module, State0, State) :-
 	module_info_set_preds(Module0, PredTable, Module1),
 	check_preds(PredIds, Module1, Module, State1, State).
 
-	
+% The list of proc_ids must refer to builtin predicates.  This predicate
+% sets the termination information of builtin predicates.
+% XXX this should be called from set_compiler_gen_terminates instead of
+% from check_preds.
 :- pred set_builtin_terminates(list(proc_id), pred_info, module_info, 
 	proc_table, proc_table).
 :- mode set_builtin_terminates(in, in, in, in, out) is det.
@@ -314,12 +334,13 @@ set_builtin_terminates([ProcId | ProcIds], PredInfo, Module, ProcTable0,
 			ProcTable) :-
 	map__lookup(ProcTable0, ProcId, ProcInfo0), 
 	( attempt_set_proc_const(Module, PredInfo, ProcInfo0) ->
-		% for attempt_set_proc_const to succeed, the output vars of
-		% that proc must all be of a type that cannot be recursive.
-		% hence the size of the output vars will all be size 0,
-		% independent on the input variables.  therefore, as the
-		% size of the output vars do not depend on the size of the
-		% input vars, usedargs should be set to yes([no, no, ...])
+		% For attempt_set_proc_const to succeed on a procedure, the
+		% output variables of that procedure must all be of a type
+		% whose norm will be zero.  Hence the size of the output
+		% variables will all be 0, independent of the size of the
+		% input variables.  Therefore, as the size of the output
+		% variables do not depend on the size of the input
+		% variables, UsedArgs should be set to yes([no, no, ...]).
 		Const = set(0),
 		proc_info_headvars(ProcInfo0, HeadVars),
 		term_util__make_bool_list(HeadVars, [], Bools),
@@ -334,9 +355,9 @@ set_builtin_terminates([ProcId | ProcIds], PredInfo, Module, ProcTable0,
 	set_builtin_terminates(ProcIds, PredInfo, Module, ProcTable1, 
 		ProcTable).
 
-% this pred checs to see if the ProcId is a compiler generated pred, or a
-% mercury_builtin pred.  If it is, then it sets the termination property 
-% of the ProcIds accordingly.
+% This predicate checks each ProcId in the list to see if it is a compiler
+% generated predicate, or a mercury_builtin predicate.  If it is, then the
+% compiler sets the termination property of the ProcIds accordingly.
 :- pred set_compiler_gen_terminates(list(proc_id), pred_info, module_info,
 	proc_table, proc_table).
 :- mode set_compiler_gen_terminates(in, in, in, in, out) is semidet.
@@ -408,20 +429,17 @@ set_compiler_gen_terminates([ ProcId | ProcIds ], PredInfo, Module,
 			Termination = term(OldConst, yes, OldUsedArgs, no)
 		)
 	),
-	% it is a compiler generated procedure, so enter the data in
-	% the proc_inf
+	% The procedure is a compiler generated procedure, so enter the
+	% data in the proc_info.
 	proc_info_set_termination(ProcInfo0, Termination, ProcInfo),
 	map__det_update(ProcTable0, ProcId, ProcInfo, ProcTable1),
 	set_compiler_gen_terminates(ProcIds, PredInfo, Module,
 		ProcTable1, ProcTable).
 
-
-
-	
-% for attempt_set_proc_const to succeed, the output vars of
-% that proc must all be of a type that cannot be recursive.
-% hence the size of the output vars will all be size 0,
-% independent on the input variables. 
+% For attempt_set_proc_const to succeed, the output variables of
+% that procedure must all be of a type that will always have a norm of 0.
+% Hence the size of the output vars will always be 0, independent of the
+% size of the input variables. 
 :- pred attempt_set_proc_const(module_info, pred_info, proc_info).
 :- mode attempt_set_proc_const(in, in, in) is semidet.
 attempt_set_proc_const(Module, PredInfo, ProcInfo) :-
@@ -433,26 +451,34 @@ attempt_set_proc_const(Module, PredInfo, ProcInfo) :-
 :- mode attempt_set_proc_const_2(in, in, in) is semidet.
 attempt_set_proc_const_2([], [], _).
 attempt_set_proc_const_2([], [_|_], _) :- 
-	error("Unmatched vars in termination.m").
+	error("termination__attempt_set_proc_const_2: Unmatched variables.").
 attempt_set_proc_const_2([_|_], [], _) :- 
-	error("Unmatched vars in termination.m").
+	error("termination:attempt_set_proc_const_2: Unmatched variables").
 attempt_set_proc_const_2([Type | Types], [Mode | Modes], Module) :-
 	( mode_is_input(Module, Mode) ->
-		% doesnt matter what type it is
+		% The variable is an input variables, so its size is
+		% irrelevant.
 		attempt_set_proc_const_2(Types, Modes, Module)
 	;
-		classify_type(Type, Module, TypeOfType),
-		% user_type could be a type_info, which should be called
-		% size 0.  this is not a big problem, as most type_infos
+		classify_type(Type, Module, TypeCategory),
+		% User_type could be a type_info, which should be called
+		% size 0.  This is not a big problem, as most type_infos
 		% are input.
-		TypeOfType \= user_type(_), 
-		% this could be changed, by looking up the poly type, 
-		% and seeing if that is recursive, or could it?
-		TypeOfType \= polymorphic_type, 
-		TypeOfType \= pred_type,
+		TypeCategory \= user_type(_), 
+		% This could be changed, by looking up the polymorphic type, 
+		% and seeing if it is recursive, or could it?
+		TypeCategory \= polymorphic_type, 
+		TypeCategory \= pred_type,
 		attempt_set_proc_const_2(Types, Modes, Module)
 	).
 		
+% This predicate changes the terminate part of a list of procedures.
+% change_procs_terminate(ProcList,MaybeFind, Replace, MaybeError,
+% 		ProcTable, ProcTable).
+% If MaybeFind is no, then this predicate changes the terminates and
+% MaybeError field of all the procedures passed to it.  If MaybeFind is set
+% to yes(OldTerminates) then the terminates and MaybeError field of a
+% procedure is only changed if the Terminates field was OldTerminates.
 :- pred change_procs_terminate(list(proc_id), maybe(terminates), terminates,
 	maybe(term_errors__error), proc_table, proc_table).
 :- mode change_procs_terminate(in, in, in, in, in, out) is det.
@@ -479,6 +505,12 @@ change_procs_terminate([ProcId | ProcIds], MaybeFind, Replace, MaybeError,
 	change_procs_terminate(ProcIds, MaybeFind, Replace, MaybeError,
 		ProcTable1, ProcTable).
 
+% This predicate changes the termination constant of a list of procedures.
+% change_procs_const(ProcList,MaybeFind, Replace, ProcTable, ProcTable).
+% If MaybeFind is no, then this predicate changes the constant
+% field of all the procedures passed to it.  If MaybeFind is set
+% to yes(OldConst) then the termination constant of a procedure is
+% only changed if the Constant field was OldConst.
 :- pred change_procs_const(list(proc_id), maybe(term_util__constant),
 	term_util__constant, proc_table, proc_table).
 :- mode change_procs_const(in, in, in, in, out) is det.
@@ -507,8 +539,9 @@ change_procs_const([ProcId | ProcIds], MaybeFind, Replace, ProcTable0,
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 % These predicates are used to add the opt_terminates pragmas to the .opt
-% file.  Currently they are not used, because the .trans_opt file does a
-% much better job.
+% file.  Currently they are not used, because the .trans_opt file gives
+% much better accuracy.  The two files are not mutually exclusive, and
+% termination information may be stored in both.
 
 :- pred termination__make_opt_int(list(pred_id), module_info, io__state, 
 		io__state).
@@ -565,8 +598,4 @@ termination__make_opt_int_3(PredId, [ ProcId | ProcIds ], ProcTable,
 		Arity, ProcId, Termination),
 	termination__make_opt_int_3(PredId, ProcIds, ProcTable, PredOrFunc, 
 		SymName, Arity).
-
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
-% Various Utilities
 
