@@ -93,95 +93,95 @@ apply_constraint(Constraint, VarTypes, ModuleInfo, ProcInfo, Goal0, Goal) :-
 :- pred apply_constraint_2(constraint::in, hlds_goal::in, hlds_goal::out,
 		constraint_info::in, constraint_info::out) is det.
 
-apply_constraint_2(_Constraint, Goal - GoalInfo, Goal - GoalInfo) -->
-	{ Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name) }.
+apply_constraint_2(_Constraint, Goal - GoalInfo, Goal - GoalInfo, !CI) :- 
+	Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name).
 
-apply_constraint_2(Constraint, Goal - GoalInfo0, Goal - GoalInfo) -->
-	{ Goal = unify(_Var, _Rhs, _Mode, Unification, _Ctxt) },
+apply_constraint_2(Constraint, Goal - GoalInfo0, Goal - GoalInfo, !CI) :- 
+	Goal = unify(_Var, _Rhs, _Mode, Unification, _Ctxt),
 	apply_constraint_unification(Constraint, Unification,
-			GoalInfo0, GoalInfo).
+			GoalInfo0, GoalInfo, !CI).
 
-apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = generic_call(_, _, _, _) },
-	{ Goal = Goal0 }.
-apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
-	{ Goal = Goal0 }.
-apply_constraint_2(_Constraint, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = shorthand(_) },
-	{ error("structure_reuse: shorthand.\n") }.
+apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal0 - GoalInfo, !CI) :- 
+	Goal0 = generic_call(_, _, _, _).
+apply_constraint_2(_Constraint, Goal0 - GoalInfo, Goal0 - GoalInfo, !CI) :-
+	Goal0 = foreign_proc(_, _, _, _, _, _, _).
+apply_constraint_2(_Constraint, Goal0 - _GoalInfo, _, !CI) :- 
+	Goal0 = shorthand(_),
+	error("structure_reuse: shorthand.\n").
 
-apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
-	=(BeforeIfInfo),
-	apply_constraint_2(Constraint, If0, If),
-	=(IfInfo),
-	{ apply_constraint_2(Constraint, Then0, Then, IfInfo, ThenInfo) },
-	{ apply_constraint_2(Constraint, Else0, Else, BeforeIfInfo, ElseInfo) },
-	merge(ThenInfo),
-	merge(ElseInfo),
-	{ Goal = if_then_else(Vars, If, Then, Else) }.
+apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo, !CI) :- 
+	Goal0 = if_then_else(Vars, If0, Then0, Else0),
+	BeforeIfInfo = !.CI, 
+	apply_constraint_2(Constraint, If0, If, !CI),
+	IfInfo = !.CI, 
+	apply_constraint_2(Constraint, Then0, Then, IfInfo, ThenInfo),
+	apply_constraint_2(Constraint, Else0, Else, BeforeIfInfo, ElseInfo),
+	merge(ThenInfo, !CI),
+	merge(ElseInfo, !CI),
+	Goal = if_then_else(Vars, If, Then, Else).
 
-apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0) },
-	=(InitSwitchInfo),
-	apply_constraint_cases(Constraint, InitSwitchInfo, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases) }.
+apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo, !CI) :- 
+	Goal0 = switch(Var, CanFail, Cases0),
+	InitSwitchInfo = !.CI, 
+	apply_constraint_cases(Constraint, InitSwitchInfo, Cases0, Cases, !CI),
+	Goal = switch(Var, CanFail, Cases).
 
-apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
-	apply_constraint_2(Constraint, SomeGoal0, SomeGoal),
-	{ Goal = some(Vars, CanRemove, SomeGoal) }.
+apply_constraint_2(Constraint, Goal0 - GoalInfo, Goal - GoalInfo, !CI) :- 
+	Goal0 = some(Vars, CanRemove, SomeGoal0),
+	apply_constraint_2(Constraint, SomeGoal0, SomeGoal, !CI),
+	Goal = some(Vars, CanRemove, SomeGoal).
 
-apply_constraint_2(Constraint, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	=(InitNotInfo),
+apply_constraint_2(Constraint, not(G0) - GoalInfo, not(G) - GoalInfo, !CI):-
+	InitNotInfo = !.CI, 
 	% A negated goal cannot introduce new dead cells to the map of
 	% available dead cells, as those dead cells are not allowed to 
 	% be reused outside of the negated goal. 
-	{ apply_constraint_2(Constraint, Goal0, Goal, InitNotInfo, _) }.
+	apply_constraint_2(Constraint, G0, G, InitNotInfo, _).
 
 apply_constraint_2(Constraint, conj(Goal0s) - GoalInfo,
-		conj(Goals) - GoalInfo) -->
-	apply_constraint_list(Constraint, Goal0s, Goals).
+		conj(Goals) - GoalInfo, !CI) :- 
+	apply_constraint_list(Constraint, Goal0s, Goals, !CI).
 
 apply_constraint_2(Constraint, disj(Goal0s) - GoalInfo,
-		disj(Goals) - GoalInfo) -->
-	=(InitDisjInfo),
-	apply_constraint_disj(Constraint, InitDisjInfo, Goal0s, Goals).
+		disj(Goals) - GoalInfo, !CI) :- 
+	InitDisjInfo = !.CI, 
+	apply_constraint_disj(Constraint, InitDisjInfo, Goal0s, Goals, !CI).
 
 apply_constraint_2(Constraint, par_conj(Goal0s) - GoalInfo,
-		par_conj(Goals) - GoalInfo) -->
-	apply_constraint_list(Constraint, Goal0s, Goals).
+		par_conj(Goals) - GoalInfo, !CI) :- 
+	apply_constraint_list(Constraint, Goal0s, Goals, !CI).
 
 :- pred apply_constraint_cases(constraint::in, constraint_info::in,
 		list(case)::in, list(case)::out,
 		constraint_info::in, constraint_info::out) is det.
 
-apply_constraint_cases(_Constraint, _Info0, [], []) --> [].
-apply_constraint_cases(Constraint, Info0, [Case0 | Case0s], [Case | Cases]) -->
-	{ Case0 = case(ConsId, Goal0) },
-	{ apply_constraint_2(Constraint, Goal0, Goal, Info0, Info) },
-	merge(Info),
-	{ Case = case(ConsId, Goal) },
-	apply_constraint_cases(Constraint, Info0, Case0s, Cases).
+apply_constraint_cases(_Constraint, _Info0, [], [], !CI). 
+apply_constraint_cases(Constraint, Info0, [Case0 | Case0s], [Case | Cases], 
+		!CI) :- 
+	Case0 = case(ConsId, Goal0),
+	apply_constraint_2(Constraint, Goal0, Goal, Info0, Info),
+	merge(Info, !CI),
+	Case = case(ConsId, Goal),
+	apply_constraint_cases(Constraint, Info0, Case0s, Cases, !CI).
 
 :- pred apply_constraint_list(constraint::in, hlds_goals::in, hlds_goals::out,
 		constraint_info::in, constraint_info::out) is det.
 
-apply_constraint_list(_Constraint, [], []) --> [].
-apply_constraint_list(Constraint, [Goal0 | Goal0s], [Goal | Goals]) -->
-	apply_constraint_2(Constraint, Goal0, Goal),
-	apply_constraint_list(Constraint, Goal0s, Goals).
+apply_constraint_list(_Constraint, [], [], !CI).
+apply_constraint_list(Constraint, [Goal0 | Goal0s], [Goal | Goals], !CI) :-
+	apply_constraint_2(Constraint, Goal0, Goal, !CI),
+	apply_constraint_list(Constraint, Goal0s, Goals, !CI).
 
 :- pred apply_constraint_disj(constraint::in,
 		constraint_info::in, hlds_goals::in, hlds_goals::out,
 		constraint_info::in, constraint_info::out) is det.
 
-apply_constraint_disj(_Constraint, _Info0, [], []) --> [].
-apply_constraint_disj(Constraint, Info0, [Goal0 | Goal0s], [Goal | Goals]) -->
-	{ apply_constraint_2(Constraint, Goal0, Goal, Info0, Info) },
-	merge(Info),
-	apply_constraint_disj(Constraint, Info0, Goal0s, Goals).
+apply_constraint_disj(_Constraint, _Info0, [], [], !CI).
+apply_constraint_disj(Constraint, Info0, [Goal0 | Goal0s], [Goal | Goals], 
+		!CI) :- 
+	apply_constraint_2(Constraint, Goal0, Goal, Info0, Info),
+	merge(Info, !CI),
+	apply_constraint_disj(Constraint, Info0, Goal0s, Goals, !CI).
 
 :- pred merge(constraint_info::in, constraint_info::in,
 		constraint_info::out) is det.
@@ -194,24 +194,24 @@ merge(InfoA, Info0, Info) :-
 		hlds_goal_info::in, hlds_goal_info::out,
 		constraint_info::in, constraint_info::out) is det.
 
-apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
-	{ Unif = construct(Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi) },
-	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
-	{ ReuseInfo = choice(construct(Pairs)) ->
+apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo, !CI) :-
+	Unif = construct(Var, ConsId, Vars, _Ms, _HTC, _IsUniq, _Aditi),
+	goal_info_get_reuse(GoalInfo0, ReuseInfo),
+	( ReuseInfo = choice(construct(Pairs)) ->
 		PossibleCandidates = set__to_sorted_list(Pairs)
 	;
 		error("sr_choice__apply_constraint_unification")
-	},
-	ModuleInfo =^ module_info, 
-	VarTypes =^ vartypes, 
-	{ has_secondary_tag(ModuleInfo, VarTypes, Var, 
-			ConsId, HasSecondaryTag) },
-	Map =^ map,
+	), 
+	ModuleInfo = !.CI ^ module_info, 
+	VarTypes = !.CI ^ vartypes, 
+	has_secondary_tag(ModuleInfo, VarTypes, Var, 
+			ConsId, HasSecondaryTag),
+	Map = !.CI ^ map,
 	(
-		{ Constraint = same_cons_id },
+		Constraint = same_cons_id ,
 
 			% XXX recode this more efficiently at some stage.
-		{ P = (pred(Candidate::out) is nondet :- 
+		P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
 			multi_map__search(Map, CandidateVar, CandidateData),
@@ -223,11 +223,11 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 			Candidate = (Candidate0
 					^ cons_ids := yes([ConsId]))
 					^ reuse_fields := yes(ReuseFields)
-		)}
+		)
 	;
-		{ Constraint = within_n_cells_difference(Difference) },
+		Constraint = within_n_cells_difference(Difference),
 			% XXX recode this more efficiently at some stage.
-		{ P = (pred(Candidate::out) is nondet :- 
+		P = (pred(Candidate::out) is nondet :- 
 			list__member(Candidate0, PossibleCandidates),
 			CandidateVar = Candidate0 ^ var,
 			
@@ -259,39 +259,37 @@ apply_constraint_unification(Constraint, Unif, GoalInfo0, GoalInfo) -->
 					^ cons_ids := yes(ConsIds))
 					^ reuse_fields := yes(ReuseFields)
 
-		)}
+		)
 	),
-	{ solutions(P, Candidates) },
-	{ goal_info_set_reuse(
+	solutions(P, Candidates),
+	goal_info_set_reuse(
 			choice(construct(set__list_to_set(Candidates))),
 			GoalInfo0,
-			GoalInfo) }.
+			GoalInfo).
 
 
-apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC) },
-	Map0 =^ map,
-	ModuleInfo =^ module_info, 
-	VarTypes =^ vartypes, 
-	{ has_secondary_tag(ModuleInfo, VarTypes, Var, ConsId, SecondaryTag) },
-	{ NewData = data(ConsId, Vars, SecondaryTag) },
-	{ 
-		(
-			multi_map__search(Map0, Var, ListData),
-			cons_id_in_reuse_cell_data(ConsId, ListData)
-		)
+apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo, !CI) :-
+	Unif = deconstruct(Var, ConsId, Vars, _Modes, _CanFail, _CanCGC),
+	Map0 = !.CI ^ map,
+	ModuleInfo = !.CI ^ module_info, 
+	VarTypes = !.CI ^ vartypes, 
+	has_secondary_tag(ModuleInfo, VarTypes, Var, ConsId, SecondaryTag),
+	NewData = data(ConsId, Vars, SecondaryTag),
+	( 
+		multi_map__search(Map0, Var, ListData),
+		cons_id_in_reuse_cell_data(ConsId, ListData)
 	->
 		Map = Map0
 	;
 		multi_map__set(Map0, Var, NewData, Map) 
-	},
-	^ map := Map.
-apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = assign(_, _) }.
-apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = simple_test(_, _) }.
-apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = complicated_unify(_, _, _) }.
+	),
+	!:CI = !.CI ^ map := Map.
+apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo, !CI) :- 
+	Unif = assign(_, _).
+apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo, !CI) :-
+	Unif = simple_test(_, _).
+apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo, !CI) :-
+	Unif = complicated_unify(_, _, _).
 
 :- pred cons_id_in_reuse_cell_data(cons_id, list(reuse_cell_data)). 
 :- mode cons_id_in_reuse_cell_data(in, in) is semidet.
@@ -364,93 +362,97 @@ select_reuses(SelectionRule, Goal0, Goal, ReusedVars, ReuseConditions) :-
 :- pred select_reuses_2(selection::in, hlds_goal::in, hlds_goal::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_2(_Selection, Goal - GoalInfo, Goal - GoalInfo) -->
-	{ Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name) }.
+select_reuses_2(_Selection, Goal - GoalInfo, Goal - GoalInfo, !SI) :- 
+	Goal = call(_PredId, _ProcId, _Args, _Builtin, _MaybeCtxt, _Name).
 
-select_reuses_2(Selection, Goal - GoalInfo0, Goal - GoalInfo) -->
-	{ Goal = unify(_Var, _Rhs, _Mode, Unification, _Ctxt) },
-	select_reuses_unification(Selection, Unification, GoalInfo0, GoalInfo).
+select_reuses_2(Selection, Goal - GoalInfo0, Goal - GoalInfo, !SI) :-
+	Goal = unify(_Var, _Rhs, _Mode, Unification, _Ctxt),
+	select_reuses_unification(Selection, Unification, 
+		GoalInfo0, GoalInfo, !SI).
 
-select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = generic_call(_, _, _, _) },
-	{ Goal = Goal0 }.
-select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = foreign_proc(_, _, _, _, _, _, _) },
-	{ Goal = Goal0 }.
-select_reuses_2(_Selection, Goal0 - _GoalInfo, _) -->
-	{ Goal0 = shorthand(_) },
-	{ error("structure_reuse: shorthand.\n") }.
+select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo, !SI) :-
+	Goal0 = generic_call(_, _, _, _),
+	Goal = Goal0.
+select_reuses_2(_Selection, Goal0 - GoalInfo, Goal - GoalInfo, !SI) :- 
+	Goal0 = foreign_proc(_, _, _, _, _, _, _),
+	Goal = Goal0.
+select_reuses_2(_Selection, Goal0 - _GoalInfo, _, !SI) :- 
+	Goal0 = shorthand(_),
+	error("structure_reuse: shorthand.\n").
 
-select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = if_then_else(Vars, If0, Then0, Else0) },
-	selection_start_branch,
-	=(BeforeIfInfo),
-	{ select_reuses_2(Selection, If0, If, BeforeIfInfo, IfInfo) },
-	{ select_reuses_2(Selection, Then0, Then, IfInfo, ThenInfo) },
-	selection_merge(ThenInfo),
-	{ select_reuses_2(Selection, Else0, Else, BeforeIfInfo, ElseInfo) },
-	selection_merge(ElseInfo),
-	selection_end_branch,
-	{ Goal = if_then_else(Vars, If, Then, Else) }.
+select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo, !SI) :-
+	Goal0 = if_then_else(Vars, If0, Then0, Else0),
+	selection_start_branch(!SI),
+	BeforeIfInfo = !.SI, 
+	select_reuses_2(Selection, If0, If, BeforeIfInfo, IfInfo),
+	select_reuses_2(Selection, Then0, Then, IfInfo, ThenInfo),
+	selection_merge(ThenInfo, !SI),
+	select_reuses_2(Selection, Else0, Else, BeforeIfInfo, ElseInfo),
+	selection_merge(ElseInfo, !SI),
+	selection_end_branch(!SI),
+	Goal = if_then_else(Vars, If, Then, Else).
 
-select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = switch(Var, CanFail, Cases0) },
-	selection_start_branch,
-	=(InitSwitchInfo),
-	select_reuses_cases(Selection, InitSwitchInfo, Cases0, Cases),
-	{ Goal = switch(Var, CanFail, Cases) }.
+select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo, !SI) :- 
+	Goal0 = switch(Var, CanFail, Cases0),
+	selection_start_branch(!SI),
+	InitSwitchInfo = !.SI,
+	select_reuses_cases(Selection, InitSwitchInfo, Cases0, Cases, !SI),
+	Goal = switch(Var, CanFail, Cases).
 
-select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = some(Vars, CanRemove, SomeGoal0) },
-	select_reuses_2(Selection, SomeGoal0, SomeGoal),
-	{ Goal = some(Vars, CanRemove, SomeGoal) }.
+select_reuses_2(Selection, Goal0 - GoalInfo, Goal - GoalInfo, !SI) :- 
+	Goal0 = some(Vars, CanRemove, SomeGoal0),
+	select_reuses_2(Selection, SomeGoal0, SomeGoal, !SI),
+	Goal = some(Vars, CanRemove, SomeGoal).
 
-select_reuses_2(Selection, not(Goal0) - GoalInfo, not(Goal) - GoalInfo) -->
-	select_reuses_2(Selection, Goal0, Goal).
+select_reuses_2(Selection, not(Goal0) - GoalInfo, not(Goal) - GoalInfo, !SI) :-
+	select_reuses_2(Selection, Goal0, Goal, !SI).
 
 select_reuses_2(Selection, conj(Goal0s) - GoalInfo,
-		conj(Goals) - GoalInfo) -->
-	select_reuses_list(Selection, Goal0s, Goals).
+		conj(Goals) - GoalInfo, !SI) :-
+	select_reuses_list(Selection, Goal0s, Goals, !SI).
 
 select_reuses_2(Selection, disj(Goal0s) - GoalInfo,
-		disj(Goals) - GoalInfo) -->
-	selection_start_branch,
-	=(InitDisjInfo),
-	select_reuses_disj(Selection, InitDisjInfo, Goal0s, Goals).
+		disj(Goals) - GoalInfo, !SI) :-
+	selection_start_branch(!SI),
+	InitDisjInfo = !.SI, 
+	select_reuses_disj(Selection, InitDisjInfo, Goal0s, Goals, !SI).
 
 select_reuses_2(Selection, par_conj(Goal0s) - GoalInfo,
-		par_conj(Goals) - GoalInfo) -->
-	select_reuses_list(Selection, Goal0s, Goals).
+		par_conj(Goals) - GoalInfo, !SI) :-
+	select_reuses_list(Selection, Goal0s, Goals, !SI).
 
 :- pred select_reuses_cases(selection::in, selection_info::in,
 		list(case)::in, list(case)::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_cases(_Selection, _Info0, [], []) --> selection_end_branch.
-select_reuses_cases(Selection, Info0, [Case0 | Case0s], [Case | Cases]) -->
-	{ Case0 = case(ConsId, Goal0) },
-	{ select_reuses_2(Selection, Goal0, Goal, Info0, Info) },
-	selection_merge(Info),
-	{ Case = case(ConsId, Goal) },
-	select_reuses_cases(Selection, Info0, Case0s, Cases).
+select_reuses_cases(_Selection, _Info0, [], [], !SI) :- 
+	selection_end_branch(!SI).
+select_reuses_cases(Selection, Info0, [Case0 | Case0s], [Case | Cases], !SI) :-
+	Case0 = case(ConsId, Goal0),
+	select_reuses_2(Selection, Goal0, Goal, Info0, Info),
+	selection_merge(Info, !SI),
+	Case = case(ConsId, Goal),
+	select_reuses_cases(Selection, Info0, Case0s, Cases, !SI).
 
 :- pred select_reuses_list(selection::in, hlds_goals::in, hlds_goals::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_list(_Selection, [], []) --> [].
-select_reuses_list(Selection, [Goal0 | Goal0s], [Goal | Goals]) -->
-	select_reuses_2(Selection, Goal0, Goal),
-	select_reuses_list(Selection, Goal0s, Goals).
+select_reuses_list(_Selection, [], [], !SI).
+select_reuses_list(Selection, [Goal0 | Goal0s], [Goal | Goals], !SI) :-
+	select_reuses_2(Selection, Goal0, Goal, !SI),
+	select_reuses_list(Selection, Goal0s, Goals, !SI).
 
 :- pred select_reuses_disj(selection::in,
 		selection_info::in, hlds_goals::in, hlds_goals::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_disj(_Selection, _Info0, [], []) --> selection_end_branch.
-select_reuses_disj(Selection, Info0, [Goal0 | Goal0s], [Goal | Goals]) -->
-	{ select_reuses_2(Selection, Goal0, Goal, Info0, Info) },
-	selection_merge(Info),
-	select_reuses_disj(Selection, Info0, Goal0s, Goals).
+select_reuses_disj(_Selection, _Info0, [], [], !SI) :- 
+	selection_end_branch(!SI).
+select_reuses_disj(Selection, Info0, [Goal0 | Goal0s], 
+		[Goal | Goals], !SI) :-
+	select_reuses_2(Selection, Goal0, Goal, Info0, Info),
+	selection_merge(Info, !SI),
+	select_reuses_disj(Selection, Info0, Goal0s, Goals, !SI).
 
 	%
 	% This merges in the select_info left after the end of each
@@ -545,51 +547,55 @@ list_merge([H | T], Tail, Head) :-
 		hlds_goal_info::in, hlds_goal_info::out,
 		selection_info::in, selection_info::out) is det.
 
-select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
-	{ Unif = construct(_Var, _ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi) },
-	{ goal_info_get_reuse(GoalInfo0, ReuseInfo) },
-	{ ReuseInfo = choice(construct(Pairs)) ->
+select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo, !SI) :-
+	Unif = construct(_Var, _ConsId, _Vars, _Ms, _HTC, _IsUniq, _Aditi),
+	goal_info_get_reuse(GoalInfo0, ReuseInfo),
+	(
+		ReuseInfo = choice(construct(Pairs)) 
+	->
 		PossibleCandidates = set__to_sorted_list(Pairs)
 	;
 		error("sr_choice__apply_selection_unification")
-	},
+	),
 
-	LocalReused0 =^ local_used,
-	GlobalReused =^ global_used,
+	LocalReused0 = !.SI ^ local_used,
+	GlobalReused = !.SI ^ global_used,
 
 	(
-		{ Selection = lifo },
-		Locals =^ lifo ^ local,
-		Globals =^ lifo ^ global,
-		{ F = (pred(Var::in, LocalReuseVar::out) is semidet :-
+		Selection = lifo,
+		Locals = !.SI ^ lifo ^ local,
+		Globals = !.SI ^ lifo ^ global,
+		F = (pred(Var::in, LocalReuseVar::out) is semidet :-
 				list__filter((pred(RV::in) is semidet :-
 						Var = RV ^ var
 					), PossibleCandidates,
 					[LocalReuseVar]),
 				\+ set__member(Var, LocalReused0),
 				\+ set__member(Var, GlobalReused)
-			)},
-		{ list__filter_map(F,
-				Locals ++ list__condense(Globals), Candidates) }
+			),
+		list__filter_map(F,
+			Locals ++ list__condense(Globals), Candidates)
 	;
-		{ Selection = random },
+		Selection = random,
 		% XXX If you ask me, I don't see much randomness around here. 
-		{ P = (pred(Choice::out) is nondet :- 
+		P = (pred(Choice::out) is nondet :- 
 			list__member(Choice, PossibleCandidates),
 			ChoiceVar = Choice ^ var,
 			\+ set__member(ChoiceVar, LocalReused0),
 			\+ set__member(ChoiceVar, GlobalReused)
-		)},
+		),
 
-		{ solutions(P, Candidates) }
+		solutions(P, Candidates)
 	;
-		{ Selection = graph },
-		{ require__error("(sr_choice) select_reuses_unification: selection graph is not an option at this place.") }
+		Selection = graph,
+		require__error("(sr_choice) select_reuses_unification: selection graph is not an option at this place.")
 	),
-	( { Candidates = [Candidate | _] } ->
-		{ Candidate = reuse_var(ReuseVar, ReuseCond,
-				MaybeConsIds, MaybeReuseFields) },
-		{ 
+	( 
+		Candidates = [Candidate | _] 
+	->
+		Candidate = reuse_var(ReuseVar, ReuseCond,
+				MaybeConsIds, MaybeReuseFields),
+		( 
 			MaybeConsIds = yes(ConsIds0),
 			MaybeReuseFields = yes(ReuseFields0)
 		->
@@ -597,43 +603,43 @@ select_reuses_unification(Selection, Unif, GoalInfo0, GoalInfo) -->
 			ReuseFields = ReuseFields0
 		;
 			error("select_reuses_unification: no cons_ids.")
-		},
-		{ set__insert(LocalReused0, ReuseVar, LocalReused) },
-		{
+		),
+		set__insert(LocalReused0, ReuseVar, LocalReused),
+		(
 			ReuseCond = always,
 			ConditionalReuse = no
 		;
 			ReuseCond = condition(_, _, _),
 			ConditionalReuse = yes
-		},
-		{ goal_info_set_reuse(
+		),
+		goal_info_set_reuse(
 				potential_reuse(cell_reused(ReuseVar, 
 						ConditionalReuse,
 						ConsIds, ReuseFields)),
 				GoalInfo0,
-				GoalInfo) },
-		ReuseConditions =^ reuse_conds,
-		^ reuse_conds := [ReuseCond | ReuseConditions]
+				GoalInfo),
+		ReuseConditions = !.SI ^ reuse_conds,
+		!:SI = !.SI ^ reuse_conds := [ReuseCond | ReuseConditions]
 	;
-		{ LocalReused = LocalReused0 },
-		{ goal_info_set_reuse(
+		LocalReused = LocalReused0,
+		goal_info_set_reuse(
 				potential_reuse(no_reuse),
 				GoalInfo0,
-				GoalInfo) }
+				GoalInfo) 
 	),
-	^ local_used := LocalReused.
+	!:SI = !.SI ^ local_used := LocalReused.
 
-select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = deconstruct(Var, _ConsId, _Vars, _Modes, _CanFail, _CanCGC) },
-	Locals0 =^ lifo ^ local,
-	^ lifo ^ local := [Var | Locals0].
+select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo, !SI) :- 
+	Unif = deconstruct(Var, _ConsId, _Vars, _Modes, _CanFail, _CanCGC),
+	Locals0 = !.SI ^ lifo ^ local,
+	!:SI = !.SI ^ lifo ^ local := [Var | Locals0].
 
-select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = assign(_, _) }.
-select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = simple_test(_, _) }.
-select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo) -->
-	{ Unif = complicated_unify(_, _, _) }.
+select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo, !SI) :- 
+	Unif = assign(_, _).
+select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo, !SI) :- 
+	Unif = simple_test(_, _).
+select_reuses_unification(_Selection, Unif, GoalInfo, GoalInfo, !SI) :- 
+	Unif = complicated_unify(_, _, _).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
