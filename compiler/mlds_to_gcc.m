@@ -41,14 +41,10 @@
 %	  (there is some documentation in gcc/mercury/README,
 %	  but probably there should also be something in the INSTALL
 %	  file in the Mercury distribution)
-%	- set up nightly tests
 %	- test more
 %
 %	Fix unimplemented standard Mercury features:
-%	- support nested modules
-%	  (They can be compiled using `gcc', but compiling them
-%	  with `mmc' doesn't work, see the XXX comment below.
-%	  Also Mmake support is broken.)
+%	- Mmake support for nested modules
 %	- support modules containing foreign_decls but no
 %	  foreign_procs or foreign code
 %
@@ -95,12 +91,39 @@
 :- module mlds_to_gcc.
 :- interface.
 
-:- import_module mlds, bool.
+:- import_module mlds, maybe_mlds_to_gcc, bool.
 :- use_module io.
 
-	% The bool returned is `yes' iff the module contained C code.
-	% In that case, we will have output a separate C file which needs
-	% to be compiled with the C compiler.
+	% run_gcc_backend(ModuleName, CallBack, CallBackOutput):
+	% 
+	% Set things up to generate an assembler file whose name
+	% is based on the specified module name, and then call the
+	% CallBack procedure.  When the CallBack procedure exits
+	% (returning CallBackOutput), finish generating the assembler
+	% file, and then return the CallBackOutput back to the caller.
+	% 
+	% Due to limitations in the GCC back-end, this procedure
+	% must not be called more than once per process.
+
+:- pred mlds_to_gcc__run_gcc_backend(mercury_module_name,
+		frontend_callback(T), T, io__state, io__state).
+:- mode mlds_to_gcc__run_gcc_backend(in, in(frontend_callback), out,
+		di, uo) is det.
+
+	% compile_to_gcc(MLDS, ContainsCCode):
+	%
+	% Generate GCC trees and/or RTL for the given MLDS,
+	% and invoke the GCC back-end to output assembler for
+	% them to the assembler file.
+	%
+	% This procedure must only be called from within a callback
+	% function passed to run_gcc_backend.  Otherwise it may
+	% try to use the GCC back-end before it has been properly
+	% initialized.
+	%
+	% The ContainsCCode bool returned is `yes' iff the module contained
+	% C code. In that case, we will have output a separate C file which
+	% needs to be compiled with the C compiler.
 	%
 	% XXX Currently the only foreign language we handle is C.
 	%     To make it work properly we'd need to change the
@@ -134,15 +157,14 @@
 :- import_module globals, options, passes_aux.
 :- import_module builtin_ops, modules.
 :- import_module prog_data, prog_out, prog_util, type_util, error_util.
-:- import_module pseudo_type_info.
+:- import_module pseudo_type_info, code_model.
 
 :- import_module bool, int, string, library, list, map.
 :- import_module assoc_list, term, std_util, require.
 
 %-----------------------------------------------------------------------------%
 
-mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
-	{ MLDS = mlds(ModuleName, _, _, _) },
+mlds_to_gcc__run_gcc_backend(ModuleName, CallBack, CallBackOutput) -->
 	globals__io_lookup_bool_option(pic, Pic),
 	{ Pic = yes ->
 		PicExt = ".pic_s",
@@ -185,18 +207,15 @@ mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 	maybe_write_string(Verbose, "% Invoking GCC back-end as `"),
 	maybe_write_string(Verbose, CommandLine),
 	maybe_write_string(Verbose, "':\n"),
-	gcc__run_backend(CommandLine, Result,
-		mlds_to_gcc__compile_to_gcc(MLDS), ContainsCCode),
+	maybe_flush_output(Verbose),
+	gcc__run_backend(CommandLine, Result, CallBack, CallBackOutput),
 	( { Result \= 0 } ->
 		report_error("GCC back-end failed!\n")
 	;
 		maybe_write_string(Verbose, "% GCC back-end done.\n")
 	).
 
-:- pred mlds_to_gcc__compile_to_gcc(mlds__mlds, bool, io__state, io__state).
-:- mode mlds_to_gcc__compile_to_gcc(in, out, di, uo) is det.
-
-mlds_to_gcc__compile_to_gcc(MLDS, ContainsCCode) -->
+mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns0) },
 
 	%
@@ -1543,7 +1562,8 @@ get_func_name(FunctionName, FuncName, AsmFuncName) :-
 		% necessarily need to be unique.
 		%
 		(
-			PredLabel = pred(_PorF, _ModuleName, PredName, _Arity),
+			PredLabel = pred(_PorF, _ModuleName, PredName, _Arity,
+				_CodeModel, _NonOutputFunc),
 		  	FuncName = PredName
 		;
 			PredLabel = special_pred(SpecialPredName, _ModuleName,
@@ -1559,8 +1579,8 @@ get_func_name(FunctionName, FuncName, AsmFuncName) :-
 :- pred get_pred_label_name(mlds__pred_label, string).
 :- mode get_pred_label_name(in, out) is det.
 
-get_pred_label_name(pred(PredOrFunc, MaybeDefiningModule, Name, Arity),
-		LabelName) :-
+get_pred_label_name(pred(PredOrFunc, MaybeDefiningModule, Name, Arity,
+			_CodeMode, _NonOutputFunc), LabelName) :-
 	( PredOrFunc = predicate, Suffix = "p"
 	; PredOrFunc = function, Suffix = "f"
 	),
@@ -2149,7 +2169,8 @@ maybe_add_module_qualifier(QualifiedName, AsmName0, AsmName) :-
 			% don't module-qualify main/2
 			%
 			Name = function(PredLabel, _, _, _),
-			PredLabel = pred(predicate, no, "main", 2)
+			PredLabel = pred(predicate, no, "main", 2,
+				model_det, no)
 		;
 			%
 			% don't module-qualify base_typeclass_infos

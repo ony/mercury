@@ -2590,6 +2590,31 @@ add_dep(ModuleRelKey, Dep, Relation0, Relation) :-
 	relation__add_element(Relation0, Dep, DepRelKey, Relation1),
 	relation__add(Relation1, ModuleRelKey, DepRelKey, Relation).
 
+% check if a module is a top-level module, a nested sub-module,
+% or a separate sub-module.
+%
+:- type submodule_kind
+	--->	toplevel
+	;	nested_submodule
+	;	separate_submodule.
+
+:- func get_submodule_kind(module_name, deps_map) = submodule_kind.
+get_submodule_kind(ModuleName, DepsMap) = Kind :-
+	get_ancestors(ModuleName, Ancestors),
+	( list__last(Ancestors, Parent) ->
+		map__lookup(DepsMap, ModuleName, deps(_, ModuleImports)),
+		map__lookup(DepsMap, Parent, deps(_, ParentImports)),
+		ModuleFileName = ModuleImports ^ source_file_name,
+		ParentFileName = ParentImports ^ source_file_name,
+		( ModuleFileName = ParentFileName ->
+			Kind = nested_submodule
+		;
+			Kind = separate_submodule
+		)
+	;
+		Kind = toplevel
+	).
+
 %-----------------------------------------------------------------------------%
 
 	% Write out the `.dv' file, using the information collected in the
@@ -2712,8 +2737,21 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".os = "),
-	write_compact_dependencies_list(Modules, "$(os_subdir)", ".$O",
-					Basis, DepStream),
+	% for --target asm, we only generate separate object files
+	% for top-level modules and separate sub-modules, not for
+	% nested sub-modules.
+	{ IsNested = (pred(Mod::in) is semidet :-
+		get_submodule_kind(Mod, DepsMap) = nested_submodule) },
+	(
+		{ Target = asm },
+		{ list__filter(IsNested, Modules, NestedModules, MainModules) },
+		{ NestedModules \= [] }
+	->
+		write_dependencies_list(MainModules, ".$O", DepStream)
+	;
+		write_compact_dependencies_list(Modules, "$(os_subdir)",
+			".$O", Basis, DepStream)
+	),
 	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -2794,6 +2832,40 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".hs = "),
+	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
+	( { HighLevelCode = yes } ->
+		( { Target = asm } ->
+			% For the `--target asm' back-end, we only
+			% generate `.h' files for modules that
+			% contain C code
+			write_dependencies_list(
+				modules_that_need_headers(Modules, DepsMap),
+				".h", DepStream)
+		; { Target = c } ->
+			% For the `--target c' MLDS back-end, we
+			% generate `.h' files for every module
+			write_compact_dependencies_list(Modules, "", ".h",
+					Basis, DepStream)
+		;
+			% For the IL and Java targets, currently we don't
+			% generate `.h' files at all; although perhaps
+			% we should...
+			[]
+		)
+	;
+		% For the LLDS back-end, we don't use `.h' files at all
+		[]
+	),
+	io__write_string(DepStream, "\n"),
+
+	% The `<module>.all_hs' variable is like `<module>.hs' except
+	% that it contains header files for all the modules, regardless
+	% of the grade or --target option.  It is used by the rule for
+	% `mmake realclean', which should remove anything that could have
+	% been automatically generated, even if the grade or --target option
+	% has changed.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_hs = "),
 	write_compact_dependencies_list(Modules, "", ".h", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -3044,7 +3116,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		InitCFileName, " : ", DepFileName, " ", DvFileName, " ",
 			All_C2InitArgsDepString, "\n",
 		"\t$(C2INIT) $(ALL_GRADEFLAGS) $(ALL_C2INITFLAGS) $(",
-			MakeVarName, ".init_cs) $(ALL_C2INITARGS) > ",
+			MakeVarName, ".init_cs) $(ALL_C2INITARGS) -o ",
 			InitCFileName, "\n\n"
 	]),
 
@@ -3196,7 +3268,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-rm -f $(", MakeVarName, ".opts)\n",
 		"\t-rm -f $(", MakeVarName, ".trans_opts)\n",
 		"\t-rm -f $(", MakeVarName, ".ds)\n",
-		"\t-rm -f $(", MakeVarName, ".hs)\n",
+		"\t-rm -f $(", MakeVarName, ".all_hs)\n",
 		"\t-rm -f $(", MakeVarName, ".rlos)\n"
 	]),
 	io__write_strings(DepStream, [
@@ -3240,6 +3312,22 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 
 %-----------------------------------------------------------------------------%
 
+	% Find out which modules we need to generate C header files for,
+	% assuming we're compiling with `--target asm'.
+:- func modules_that_need_headers(list(module_name), deps_map)  =
+		list(module_name).
+
+modules_that_need_headers(Modules, DepsMap) =
+	list__filter(module_needs_header(DepsMap), Modules).
+
+	% Succeed iff we need to generate a C header file for the specified
+	% module, assuming we're compiling with `--target asm'.
+:- pred module_needs_header(deps_map::in, module_name::in) is semidet.
+
+module_needs_header(DepsMap, Module) :-
+	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
+	ModuleImports ^ foreign_code = contains_foreign_code.
+
 	% get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
 	% Find any extra .$O files that should be linked into the executable.
 	% These include fact table object files and object files for foreign
@@ -3249,7 +3337,8 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 :- mode get_extra_link_objects(in, in, in, out) is det.
 
 get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) :-
-	get_extra_link_objects_2(Modules, DepsMap, Target, [], ExtraLinkObjs).
+	get_extra_link_objects_2(Modules, DepsMap, Target, [], ExtraLinkObjs0),
+	list__reverse(ExtraLinkObjs0, ExtraLinkObjs).
 
 :- pred get_extra_link_objects_2(list(module_name), deps_map,
 		compilation_target, assoc_list(file_name, module_name),
@@ -3391,19 +3480,31 @@ write_file_dependencies_list([FileName | FileNames], Suffix, DepStream) -->
 	maybe(pair(string)), io__output_stream, io__state, io__state).
 :- mode write_compact_dependencies_list(in, in, in, in, in, di, uo) is det.
 
-write_compact_dependencies_list(Modules, _Prefix, Suffix, no, DepStream) -->
-	write_dependencies_list(Modules, Suffix, DepStream).
-write_compact_dependencies_list(_Modules, Prefix, Suffix,
-		yes(VarName - OldSuffix), DepStream) -->
-	io__write_string(DepStream, "$("),
-	io__write_string(DepStream, VarName),
-	io__write_string(DepStream, ":%"),
-	io__write_string(DepStream, OldSuffix),
-	io__write_string(DepStream, "="),
-	io__write_string(DepStream, Prefix),
-	io__write_string(DepStream, "%"),
-	io__write_string(DepStream, Suffix),
-	io__write_string(DepStream, ")").
+write_compact_dependencies_list(Modules, Prefix, Suffix, Basis, DepStream) -->
+	(
+		{ Basis = yes(VarName - OldSuffix) },
+		% Don't use the compact dependency lists for names of header
+		% files for modules in the standard library, because it
+		% doesn't take into account the "mercury." prefix
+		% that gets added to those header file names in MLDS grades.
+		\+ {
+			(Suffix = ".h" ; Suffix = ".h.tmp"),
+			list__member(unqualified(StdLibModule), Modules),
+			mercury_std_library_module(StdLibModule)
+		}
+	->
+		io__write_string(DepStream, "$("),
+		io__write_string(DepStream, VarName),
+		io__write_string(DepStream, ":%"),
+		io__write_string(DepStream, OldSuffix),
+		io__write_string(DepStream, "="),
+		io__write_string(DepStream, Prefix),
+		io__write_string(DepStream, "%"),
+		io__write_string(DepStream, Suffix),
+		io__write_string(DepStream, ")")
+	;
+		write_dependencies_list(Modules, Suffix, DepStream)
+	).
 
 :- pred write_compact_dependencies_separator(maybe(pair(string)),
 	io__output_stream, io__state, io__state).

@@ -21,12 +21,14 @@
 %
 % The IL backend TO-DO list:
 %
+% [ ] advanced name mangling: 
+%	- optionally only mangle names when it is absolutely necessary
 % [ ] solutions
-% [ ] floating point 
 % [ ] Type classes
-%	- You need to know what module the instance declaration is given in.
-%	- This involves module qualifying instance declarations.
-%	- This has semantic complications that we have to ignore for now
+%	- now work, but...
+%	- type class hierarchies don't work due to unimplemented pragma
+%	  foreign code.
+%	- should be implemented as interfaces
 % [ ] RTTI (io__write -- about half the work required for this is done)
 % [ ] High-level RTTI data
 % [ ] Test unused mode (we seem to create a byref for it)
@@ -43,7 +45,6 @@
 % [ ] nested modules need testing
 % [ ] We generate too many castclasses, it would be good to check if we
 %     really to do it before generating it.  Same with isinst.
-% [ ] Write line number information from contexts (in .il and .cpp files)
 % [ ] Implement pragma export.
 % [ ] Fix issues with abstract types so that we can implement C
 %     pointers as MR_Box rather than MR_Word.
@@ -51,7 +52,7 @@
 %     we should (this can occur in nondet C code). 
 % [ ] ml_gen_call_current_success_cont_indirectly should be merged with
 % 	similar code for doing copy-in/copy-out.
-% [ ] figure out whether we need maxstack and fix it
+% [ ] generate maxstack correctly
 % [ ] Try to use the IL bool type for the true/false rvals.
 % [ ] Add an option to do overflow checking.
 % [ ] Should replace hard-coded of int32 with a more abstract name such
@@ -136,7 +137,7 @@
 :- import_module globals, options, passes_aux.
 :- import_module builtin_ops, c_util, modules, tree.
 :- import_module prog_data, prog_out, llds_out.
-:- import_module rtti, type_util.
+:- import_module rtti, type_util, code_model.
 
 :- import_module ilasm, il_peephole.
 :- import_module ml_util, ml_code_util, error_util.
@@ -332,7 +333,8 @@ generate_method_defn(FunctionDefn) -->
 			% If this is main, add the entrypoint, set a
 			% flag, and call the initialization instructions
 			% in the cctor of this module.
-		( { PredLabel = pred(predicate, no, "main", 2) },
+		( { PredLabel = pred(predicate, no, "main", 2, model_det,
+			no) },
 		  { MaybeSeqNum = no }
 		->
 			{ EntryPoint = [entrypoint] },
@@ -1995,30 +1997,95 @@ get_ilds_type_class_name(ILType) = ClassName :-
 % Name mangling.
 
 
-	% XXX we should check into the name mangling done here to make
-	% sure it is all necessary.
-	% We may need to do different name mangling for CLS compliance
+	% XXX We may need to do different name mangling for CLS compliance
 	% than we would otherwise need.
-predlabel_to_id(pred(PredOrFunc, MaybeModuleName, Name, Arity), ProcId, 
-			MaybeSeqNum, Id) :-
-		( PredOrFunc = predicate, PredOrFuncStr = "p" 
-		; PredOrFunc = function, PredOrFuncStr = "f" 
-		),
-		proc_id_to_int(ProcId, ProcIdInt),
+	%
+	% We mangle as follows:
+	%	- Problem:
+	%	  Two preds or funcs with different arities in Mercury
+	%	  end up having the same types and arities in IL, e.g.
+	%	  because one of them takes io__state arguments which
+	%	  get omitted in IL.                                       
+	%
+	%	  To avoid this we append _<arity> to every procedure
+	%	  name.
+	%
+	%	- Problem:
+	%	  A semidet pred returns its success value, and so has
+	%	  the same return type (bool) as a function.
+	%
+	%	  To avoid this, we mangle all semidet predicates
+	%	  to indicate that they are a pred by appending _p.
+	%
+	%	- Problem:
+	%	  A function with modes other than the default (in, in,
+	%	  in = out) may clash with a predicate which has the
+	%	  same types and modes.
+	%
+	%	  To avoid this, we mangle all functions with
+	%	  non-default modes by adding _f to the procedure name.
+	%
+	%	- Problem:
+	%	  A predicate or function with more than one mode.
+	%
+	%	  To avoid this, we mangle all modes > 0 by adding
+	%	  _m<modenum> to the procedure name.
+	%
+	%	- We append the sequence number (if there is one) as
+	%	  _i<seqnum>.
+	%
+	%	- We prepend the module name (if there is one) as
+	%	  <modulename>_.
+	%	
+	% So the mangled name is:
+	% (<modulename>_)<procname>_<arity>(_f|_p)(_m<modenum>)(_i<seqnum>)
+	%
+	% Where parentheses indicate optional components.
+	%
+	% Since each optional component (except the modulename) is after
+	% the mandatory arity, and the components have unique prefixes,
+	% it isn't possible to generate names that conflict with user
+	% names. 
+	%
+	% XXX I think that it may be possible to have conflicts with
+	% user names in the case where there is a <modulename>. - fjh
+	%
+predlabel_to_id(pred(PredOrFunc, MaybeModuleName, Name, Arity, CodeModel,
+	NonOutputFunc), ProcId, MaybeSeqNum, Id) :-
 		( MaybeModuleName = yes(ModuleName) ->
 			mlds_to_il__sym_name_to_string(ModuleName, MStr),
 			string__format("%s_", [s(MStr)], MaybeModuleStr)
 		;
 			MaybeModuleStr = ""
 		),
+		( 
+			CodeModel = model_semi,
+			PredOrFunc = predicate
+		->
+			PredOrFuncStr = "_p" 
+		;
+			PredOrFunc = function,
+			NonOutputFunc = yes
+		->
+			PredOrFuncStr = "_f" 
+		;
+			PredOrFuncStr = ""
+		),
+		proc_id_to_int(ProcId, ProcIdInt),
+		( ProcIdInt = 0 ->
+			MaybeProcIdInt = ""
+		;
+			string__format("_m%d", [i(ProcIdInt)], MaybeProcIdInt)
+		),
 		( MaybeSeqNum = yes(SeqNum) ->
-			string__format("_%d", [i(SeqNum)], MaybeSeqNumStr)
+			string__format("_i%d", [i(SeqNum)], MaybeSeqNumStr)
 		;
 			MaybeSeqNumStr = ""
 		),
-		string__format("%s%s_%d_%s_%d%s", [s(MaybeModuleStr), s(Name),
-			 i(Arity), s(PredOrFuncStr), i(ProcIdInt),
-			 s(MaybeSeqNumStr)], UnMangledId),
+		string__format("%s%s_%d%s%s%s", [
+			s(MaybeModuleStr), s(Name),
+			i(Arity), s(PredOrFuncStr), s(MaybeProcIdInt),
+			s(MaybeSeqNumStr)], UnMangledId),
 		llds_out__name_mangle(UnMangledId, Id).
 
 predlabel_to_id(special_pred(PredName, MaybeModuleName, TypeName, Arity),
