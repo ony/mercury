@@ -23,12 +23,18 @@
 :- import_module hlds_module, hlds_pred.
 :- import_module bool, list, io.
 
+	% Ensure that the module_info contains a version of the
+	% dependency_info which only contains arcs between procedures
+	% for which there are clauses defined (ie not imported except
+	% for opt_imported).
+	%
 :- pred module_info_ensure_dependency_info(module_info, module_info).
 :- mode module_info_ensure_dependency_info(in, out) is det.
 
 	% Build the dependency graph, if the bool is yes then
-	% imported_procedures aren't included in the dependency graph,
-	% otherwise they are.
+	% imported procedures are included in the dependency graph,
+	% otherwise they aren't.
+	%
 :- pred dependency_graph__build_dependency_graph(module_info, bool,
 		dependency_info).
 :- mode dependency_graph__build_dependency_graph(in, in, out) is det.
@@ -116,19 +122,19 @@ module_info_ensure_dependency_info(ModuleInfo0, ModuleInfo) :-
 	( MaybeDepInfo = yes(_) ->
 	    ModuleInfo = ModuleInfo0
 	;
-	    dependency_graph__build_dependency_graph(ModuleInfo0, yes, DepInfo),
+	    dependency_graph__build_dependency_graph(ModuleInfo0, no, DepInfo),
 	    module_info_set_dependency_info(ModuleInfo0, DepInfo, ModuleInfo)
 	).
 
 	% Traverse the module structure, calling `dependency_graph__add_arcs'
 	% for each procedure body.
 
-dependency_graph__build_dependency_graph(ModuleInfo0, LocalOnly, DepInfo) :-
+dependency_graph__build_dependency_graph(ModuleInfo0, Imported, DepInfo) :-
 	module_info_predids(ModuleInfo0, PredIds),
 	relation__init(DepGraph0),
-	dependency_graph__add_pred_nodes(PredIds, ModuleInfo0, LocalOnly,
+	dependency_graph__add_pred_nodes(PredIds, ModuleInfo0, Imported,
 				DepGraph0, DepGraph1),
-	dependency_graph__add_pred_arcs(PredIds, ModuleInfo0, LocalOnly,
+	dependency_graph__add_pred_arcs(PredIds, ModuleInfo0, Imported,
 				DepGraph1, DepGraph),
 	hlds_dependency_info_init(DepInfo0),
 	hlds_dependency_info_set_dependency_graph(DepInfo0, DepGraph,
@@ -155,7 +161,7 @@ dependency_graph__sets_to_lists([X | Xs], Ys, Zs) :-
 :- mode dependency_graph__add_pred_nodes(in, in, in, in, out) is det.
 
 dependency_graph__add_pred_nodes([], _ModuleInfo, _, DepGraph, DepGraph).
-dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo, LocalOnly,
+dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo, Imported,
                                         DepGraph0, DepGraph) :-
         module_info_preds(ModuleInfo, PredTable),
         map__lookup(PredTable, PredId, PredInfo),
@@ -163,16 +169,16 @@ dependency_graph__add_pred_nodes([PredId | PredIds], ModuleInfo, LocalOnly,
 		% Don't bother adding nodes (or arcs) for procedures
 		% which which are imported (ie we don't have any
 		% `clauses' for).
-		LocalOnly = yes,
+		Imported = no,
 		pred_info_non_imported_procids(PredInfo, ProcIds)
 	;
-		LocalOnly = no,
+		Imported = yes,
 		pred_info_procids(PredInfo, ProcIds)
 	),
 
 	dependency_graph__add_proc_nodes(ProcIds, PredId, ModuleInfo,
 		DepGraph0, DepGraph1),
-        dependency_graph__add_pred_nodes(PredIds, ModuleInfo, LocalOnly,
+        dependency_graph__add_pred_nodes(PredIds, ModuleInfo, Imported,
 		DepGraph1, DepGraph).
 
 :- pred dependency_graph__add_proc_nodes(list(proc_id), pred_id, module_info,
@@ -194,7 +200,7 @@ dependency_graph__add_proc_nodes([ProcId | ProcIds], PredId, ModuleInfo,
 :- mode dependency_graph__add_pred_arcs(in, in, in, in, out) is det.
 
 dependency_graph__add_pred_arcs([], _ModuleInfo, _, DepGraph, DepGraph).
-dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo, LocalOnly,
+dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo, Imported,
 					DepGraph0, DepGraph) :-
 	module_info_preds(ModuleInfo, PredTable),
 	map__lookup(PredTable, PredId, PredInfo),
@@ -202,15 +208,15 @@ dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo, LocalOnly,
 		% Don't bother adding nodes (or arcs) for procedures
 		% which which are imported (ie we don't have any
 		% `clauses' for).
-		LocalOnly = yes,
+		Imported = no,
 		pred_info_non_imported_procids(PredInfo, ProcIds)
 	;
-		LocalOnly = no,
+		Imported = yes,
 		pred_info_procids(PredInfo, ProcIds)
 	),
-	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo, LocalOnly,
+	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo, Imported,
 			DepGraph0, DepGraph1),
-	dependency_graph__add_pred_arcs(PredIds, ModuleInfo, LocalOnly,
+	dependency_graph__add_pred_arcs(PredIds, ModuleInfo, Imported,
 			DepGraph1, DepGraph).
 
 :- pred dependency_graph__add_proc_arcs(list(proc_id), pred_id, module_info,
@@ -220,7 +226,7 @@ dependency_graph__add_pred_arcs([PredId | PredIds], ModuleInfo, LocalOnly,
 dependency_graph__add_proc_arcs([], _PredId, _ModuleInfo, _,
 		DepGraph, DepGraph).
 dependency_graph__add_proc_arcs([ProcId | ProcIds], PredId, ModuleInfo,
-		LocalOnly, DepGraph0, DepGraph) :-
+		IncludeImported, DepGraph0, DepGraph) :-
 
 	module_info_preds(ModuleInfo, PredTable0),
 	map__lookup(PredTable0, PredId, PredInfo0),
@@ -228,7 +234,7 @@ dependency_graph__add_proc_arcs([ProcId | ProcIds], PredId, ModuleInfo,
 	map__lookup(ProcTable0, ProcId, ProcInfo0),
 
 	(
-		LocalOnly = yes,
+		IncludeImported = no,
 		proc_info_goal(ProcInfo0, Goal),
 
 		relation__lookup_element(DepGraph0,
@@ -236,7 +242,7 @@ dependency_graph__add_proc_arcs([ProcId | ProcIds], PredId, ModuleInfo,
 		dependency_graph__add_arcs_in_goal(Goal, Caller,
 				DepGraph0, DepGraph1)
 	;
-		LocalOnly = no,
+		IncludeImported = yes,
 		pred_info_import_status(PredInfo0, ImportStatus),
 		status_is_imported(ImportStatus, Imported),
 		(
@@ -252,8 +258,8 @@ dependency_graph__add_proc_arcs([ProcId | ProcIds], PredId, ModuleInfo,
 					DepGraph0, DepGraph1)
 		)
 	),
-	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo, LocalOnly,
-						DepGraph1, DepGraph).
+	dependency_graph__add_proc_arcs(ProcIds, PredId, ModuleInfo,
+			IncludeImported, DepGraph1, DepGraph).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -77,6 +77,7 @@
 		;	debug_rl_gen
 		;	debug_rl_opt
 		;	debug_il_asm	% il_asm = IL generation via asm
+		;	debug_liveness
 	% Output options
 		;	make_short_interface
 		;	make_interface
@@ -284,6 +285,7 @@
 		;	cflags_for_regs
 		;	cflags_for_gotos
 		;	cflags_for_threads
+		;	pic
 		;	target_debug	
 		;	c_include_directory
 		;	c_flag_to_name_object_file
@@ -490,7 +492,8 @@ option_defaults_2(verbosity_option, [
 	debug_pd		-	bool(no),
 	debug_rl_gen		-	bool(no),
 	debug_rl_opt		-	bool(no),
-	debug_il_asm		-	bool(no)
+	debug_il_asm		-	bool(no),
+	debug_liveness		-	int(-1)
 ]).
 option_defaults_2(output_option, [
 		% Output Options (mutually exclusive)
@@ -518,10 +521,7 @@ option_defaults_2(aux_output_option, [
 	trace_table_io		-	bool(no),
 	trace_table_io_states	-	bool(no),
 	suppress_trace		-	string(""),
-		% XXX delay_death should be enabled by default,
-		% but currently it is disabled because it is broken --
-		% it fails on tests/hard_coded/erroneous_liveness.m.
-	delay_death		-	bool(no),
+	delay_death		-	bool(yes),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
 	generate_prolog		-	bool(no),
@@ -659,6 +659,7 @@ option_defaults_2(code_gen_option, [
 					% the `mmc' script will override the
 					% above three defaults with values
 					% determined at configuration time
+	pic			-	bool(no),
 	target_debug		-	bool(no),
 	c_include_directory	-	accumulating([]),
 					% the `mmc' script will override the
@@ -894,6 +895,7 @@ long_option("debug-rl-opt",		debug_rl_opt).
 	% is executed.  It is a temporary measure until the IL debugging
 	% system built into .NET improves.
 long_option("debug-il-asm",		debug_il_asm).
+long_option("debug-liveness",		debug_liveness).
 
 % output options (mutually exclusive)
 long_option("generate-dependencies",	generate_dependencies).
@@ -1002,6 +1004,7 @@ long_option("debug",			debug).
 % long_option("require-tracing",       require_tracing).
 long_option("use-trail",		use_trail).
 long_option("use-minimal-model",	use_minimal_model).
+long_option("pic",			pic).
 long_option("pic-reg",			pic_reg).
 long_option("tags",			tags).
 long_option("num-tag-bits",		num_tag_bits).
@@ -1688,7 +1691,10 @@ options_help_verbosity -->
 		"--debug-rl-gen",
 		"\tOutput detailed debugging traces of Aditi-RL code generation.",
 		"--debug-rl-opt",
-		"\tOutput detailed debugging traces of Aditi-RL optimization."
+		"\tOutput detailed debugging traces of Aditi-RL optimization.",
+		"--debug-liveness <pred_id>",
+		"\tOutput detailed debugging traces of the liveness analysis",
+		"\tof the predicate with the given predicate id."
 	]).
 
 :- pred options_help_output(io__state::di, io__state::uo) is det.
@@ -2214,6 +2220,12 @@ options_help_code_generation -->
 		"\tthe Mercury compiler itself (and probably not even then).",
 		"\tCauses the generated code to become VERY big and VERY",
 		"\tinefficient.  Slows down compilation a LOT.",
+
+		"--pic",
+		"\tGenerate position-independent code.",
+		"\tThis option is only used by the `--target asm' back-end.",
+		"\tThe generated assembler code will be written to",
+		"\t`<module>.pic_s' rather than to `<module>.s'.",
 
 		"--target-debug",
 		"\tEnable debugging of the generated target code.",

@@ -387,7 +387,7 @@
 	%	constant or variable
 	%	function
 	%	class, including
-	%		package (class with only static members)
+	%		package (class with only static (one_copy) members)
 	%		interface (abstract class, no data members)
 	%		struct (value class)
 	%		enum
@@ -414,6 +414,8 @@
 			mlds__class_defn
 		).
 
+	% Note that `one_copy' variables *must* have an initializer
+	% (the GCC back-end relies on this).
 :- type mlds__initializer
 	--->	init_obj(mlds__rval)
 	;	init_struct(list(mlds__initializer))
@@ -572,22 +574,32 @@
 :- type mlds__decl_flags.
 
 :- type access
+	%
+	% used for class members (this includes globals,
+	% which are actually members of the top-level package)
+	%
 	--->	public		% accessible to anyone
 	;	protected	% only accessible to the class and to
 				% derived classes
 	;	private		% only accessible to the class
 	;	default		% Java "default" access: accessible to anything
 				% defined in the same package.
-	;	local		% use for local variables:
-				% only accessible within the function
-				% (or block) in which the variable is
-				% defined
+	%
+	% used for entities defined in a block/2 statement,
+	% i.e. local variables and nested functions
+	%
+	;	local		% only accessible within the block
+				% in which the entity (variable or
+				% nested function) is defined
 	.
 
 :- type per_instance
 	--->	one_copy	% i.e. "static" storage duration
 				% (but not necessarily static linkage)
 				% or static member function
+				% Note that `one_copy' variables
+				% *must* have an initializer
+				% (the GCC back-end relies on this.)
 	;	per_instance.	% i.e. "auto" local variable in function,
 				% or non-static member of class.
 

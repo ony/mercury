@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -194,7 +194,7 @@ write_profiling( String, Prof, HLDS ) -->
 		io__write_string(Stream, String), 
 		io__write_string(Stream, " {\nrankdir=LR;\n"),
 		{ dependency_graph__build_dependency_graph(HLDS,
-				no, DepInfo) },
+				yes, DepInfo) },
 		{ hlds_dependency_info_get_dependency_graph(DepInfo,
 				DepGraph) },
 		{ relation__components(DepGraph, ComponentsSet) },

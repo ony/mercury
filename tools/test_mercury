@@ -102,10 +102,14 @@ case $INSTALL_DIR_NAME in
 		RELEASE_VERSION_PATTERN=rotd-*
 		;;
 	mercury-0.10)
-		CHECKOUT_OPTS=-rversion-0_10_x
-		BASE_TAG_NAME=version-0_10_x
-		RELEASE_VERSION=0.10-beta-$DATE
-		RELEASE_VERSION_PATTERN=0.10-beta-*
+		#CHECKOUT_OPTS=-rversion-0_10
+		#BASE_TAG_NAME=version-0_10_y
+		#RELEASE_VERSION=0.10
+		#RELEASE_VERSION_PATTERN=0.10-*
+		CHECKOUT_OPTS=-rversion-0_10_y
+		BASE_TAG_NAME=version-0_10_y
+		RELEASE_VERSION=0.10.1-beta-$DATE
+		RELEASE_VERSION_PATTERN=0.10.1-beta-*
 		;;
 esac
 
@@ -124,6 +128,12 @@ case $HOST in
 				gcc)	OPTIMIZE=-O5 ;;
 				*)	OPTIMIZE=-O2 ;;
 			esac ;;
+
+			# XXX There are some performance problems
+			# with deforestation (module_qual__process_assert takes
+			# forever to compile with --intermodule-optimization
+			# and --deforestation), so disable it for now.
+	earth)		OPTIMIZE="-O5 --intermodule-optimization --no-deforestation" ;;
 	kryten) 	OPTIMIZE=-O1 ;;	# currently not used
 	rimmer) 	OPTIMIZE=-O1 ;; # currently not used
 esac
@@ -168,7 +178,7 @@ TESTDIR=/home/mercury/public/test_mercury
 DIR=$TESTDIR/test_dirs/$HOST
 
 case $HOST in
-	hg|ender|roy|venus) 	
+	hg|ender|roy|venus|earth) 	
 		INSTALL_DIR=/home/$HOST/public/$INSTALL_DIR_NAME/$FULLARCH ;;
 	*)		
 		INSTALL_DIR=/home/mercury/public/$INSTALL_DIR_NAME/$FULLARCH ;;
@@ -219,12 +229,15 @@ case $HOST in
 	ender) 		PARALLEL= ;; 	# one CPU
 	roy) 		PARALLEL= ;; 	# one CPU
 	venus) 		PARALLEL= ;; 	# one CPU
+	earth) 		PARALLEL= ;; 	# one CPU
 	*)		PARALLEL= ;;
 esac
 
 # version of the mercury compiler to use for bootstrapping
 case $HOST in
 	hg|ender|roy|venus)
+		# XXX Add earth to the list above once a compiler
+		# is installed there.
 		BOOTSTRAP_MERCURY_COMPILER=/home/$HOST/public/$INSTALL_DIR_NAME/$FULLARCH/lib/mercury/bin/$FULLARCH/mercury_compile
 		;;
 	*)
@@ -303,6 +316,17 @@ case $HOST in
 			hlc.gc.prof hlc.gc.memprof hlc.gc.tr hlc.par.gc \
 			hl.gc.prof  hl.gc.memprof  hl.gc.tr  hl.par.gc"
 		;;
+	hg)
+		CONFIG_OPTS=""
+		case $C_COMPILER in asm)
+			INSTALL_GRADE="hlc.gc"
+			INSTALL_LIBGRADES="asm_fast.gc asm_fast \
+				asm_fast.gc.prof asm_fast.prof  \
+				asm_fast.gc.memprof asm_fast.gc.tr \
+				asm_fast.gc.tr.debug hlc.par.gc"
+			;;
+		esac
+		;;
 	*)	
 		CONFIG_OPTS="" ;;
 esac
@@ -378,7 +402,7 @@ case $HOST in
 		;;
 esac
 case $HOST in
-	murlibobo|kryten|taifun|quicksilver|hg|hydra|roy|venus|ender)
+	murlibobo|kryten|taifun|quicksilver|hg|hydra|roy|venus|ender|earth)
 		[ -d mercury/extras/clpr/CVS ] ||
 		(cd mercury/extras && cvs checkout $CHECKOUT_OPTS clpr) ||
 			{ false; exit 1; }
@@ -418,18 +442,33 @@ cd mercury || { false; exit 1; }
 	esac
 # fi
 
+# We allow "asm" as a special value for the C_COMPILER
+# variable; it means to build with `--target asm'.
+# $CC holds the name of the real C compiler.
+
+case $C_COMPILER in
+	asm)
+		CC=gcc
+		target_opts="--target asm"
+		;;
+	*)
+		CC="$C_COMPILER"
+		target_opts=""
+		;;
+esac
+export CC
+
 autoconf || { false; exit 1; }
 rm -f config.cache
-CC=$C_COMPILER
-export CC
 ./configure --prefix=$INSTALL_DIR $CONFIG_OPTS || { false; exit 1; }
-mmake depend $PARALLEL || { false; exit 1; }
-mmake realclean MMAKEFLAGS=$PARALLEL || { false; exit 1; }
+mmake $target_opts depend $PARALLEL || { false; exit 1; }
+mmake $target_opts realclean MMAKEFLAGS=$PARALLEL || { false; exit 1; }
 ./configure --prefix=$INSTALL_DIR $CONFIG_OPTS || { false; exit 1; }
-mmake depend $PARALLEL || { false; exit 1; }
-version=`mmake version` || { false; exit 1; }
-fullarch=`mmake fullarch` || { false; exit 1; }
-tools/bootcheck -k -r -p -t $PARALLEL || $install_anyway || { false; exit 1; }
+mmake $target_opts depend $PARALLEL || { false; exit 1; }
+version=`mmake $target_opts version` || { false; exit 1; }
+fullarch=`mmake $target_opts fullarch` || { false; exit 1; }
+tools/bootcheck $target_opts -k -r -p -t $PARALLEL ||
+	$install_anyway || { false; exit 1; }
 cd .. || { false; exit 1; }
 
 #-----------------------------------------------------------------------------#
@@ -463,13 +502,17 @@ case $status in 0)
     # again, look back in the CVS archives for version 1.114 to see
     # the necessary code.
 
-    mmake install MMAKEFLAGS=$PARALLEL || status=1
+    # Note that we don't pass $target_opts when doing `mmake install_grades';
+    # that wouldn't work, since many of the grades can only be built with
+    # `--target c'.
+    mmake $target_opts install_main MMAKEFLAGS=$PARALLEL || status=1
+    mmake install_grades MMAKEFLAGS=$PARALLEL || status=1
     case "$INSTALL_GRADE" in
 	hl*)
 	    	# --split-c-files is not supported for the hl* grades
 	    	;;
-	*)	mmake install_split_library LIBGRADES= MMAKEFLAGS=$PARALLEL ||
-	    		status=1
+	*)	mmake install_split_library \
+			LIBGRADES= MMAKEFLAGS=$PARALLEL || status=1
 		;;
     esac
 
@@ -503,7 +546,7 @@ case $HOST in
 		# requires --enable-all-grades
 		GRADES="asm_fast.gc.tr asm_fast.tr"
 		;;
-	hg|quicksilver|hydra|ender|kryten|taifun|venus)
+	hg|quicksilver|hydra|ender|kryten|taifun|venus|earth)
 		case $C_COMPILER in
 			gcc)	GRADES="asm_fast.gc.tr" ;;
 			*)	GRADES="" ;;
@@ -628,14 +671,23 @@ case $HOST in
 	hg)
 		GRADES="asm_fast.gc asm_fast
 			asm_fast.gc.prof asm_fast.prof
-			asm_fast.gc.memprof asm_fast.gc.tr asm_fast.gc.tr.debug
+			asm_fast.gc.memprof asm_fast.gc.tr
+			asm_fast.gc.tr.debug
 			asm_fast.par.gc hlc.gc"
 		;;
+
+	earth)	GRADES="asm_fast.gc asm_fast
+			asm_fast.gc.prof asm_fast.prof
+			asm_fast.gc.memprof asm_fast.gc.tr asm_fast.gc.tr.debug
+			hlc.gc hlc.par.gc"
+		;;
+
 	venus)
 		case $C_COMPILER in
 			gcc)	GRADES="asm_fast.gc asm_fast
 				asm_fast.gc.prof asm_fast.prof
-				asm_fast.gc.memprof asm_fast.gc.tr asm_fast.gc.tr.debug
+				asm_fast.gc.memprof asm_fast.gc.tr
+				asm_fast.gc.tr.debug
 				hlc.gc hlc.par.gc" ;;
 			*)	GRADES="none.gc none none.gc.prof
 				none.prof none.gc.memprof none.gc.tr
@@ -678,7 +730,8 @@ do
 		$PARALLEL || status=1
 	case $grade in
 		*.memprof*)
-			# we need to set LD_BIND_NOW=1 for profiling on DEC Alpha
+			# we need to set LD_BIND_NOW=1
+			# for profiling on DEC Alpha
 			(cd benchmarks &&
 			touch poly.m &&
 			mmake poly.depend &&
@@ -711,6 +764,16 @@ do
 			;;
 	esac
 done
+case $HOST in hg)
+	echo "test_mercury starting tests for --target asm at `date`" 1>&2
+	# XXX Note that some of these tests are currently expected to fail
+	# with `--target asm' (in particular the tests of tabling and
+	# nested modules), so we don't set status=1 if these tests fail.
+	./runtests --target asm -f "$TEST_MCFLAGS" -c "$TEST_CFLAGS" \
+		-g hlc.gc -m "$TEST_MGNUCFLAGS" -l "$TEST_MLFLAGS" \
+		$PARALLEL
+	;;
+esac
 cd ..
 
 #-----------------------------------------------------------------------------#
@@ -718,13 +781,17 @@ cd ..
 : update the unstable release
 
 case $HOST in murlibobo)
-	# XXX should remove old files
 	rsh $BETA_FTPHOST \
-		"echo rm -f $BETA_FTPDIR/mercury-*-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
+		"rm -f $BETA_FTPDIR/mercury-compiler-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
+	rsh $BETA_FTPHOST \
+		"rm -f $BETA_FTPDIR/mercury-extras-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
+	rsh $BETA_FTPHOST \
+		"rm -f $BETA_FTPDIR/mercury-tests-$RELEASE_VERSION_PATTERN-unstable.tar.gz" &&
 	rcp $INSTALL_DIR_NAME-unstable/mercury-*-$version-unstable.tar.gz \
 		$BETA_FTPHOST:$BETA_FTPDIR 
-	# XXX should remove old files
-	echo rm -f $BETA_WEBDIR/mercury-*-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
+	rm -f $BETA_WEBDIR/mercury-compiler-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
+	rm -f $BETA_WEBDIR/mercury-extras-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
+	rm -f $BETA_WEBDIR/mercury-tests-$RELEASE_VERSION_PATTERN-unstable.tar.gz &&
 	cp $INSTALL_DIR_NAME-unstable/mercury-*-$version-unstable.tar.gz \
 		$BETA_WEBDIR
 	;;
@@ -744,6 +811,9 @@ case $HOST in
 		;;
 	venus)	
 		fullname=i686-pc-linux-libc2.1-gnu-O5
+		;;
+	earth)	
+		fullname=i686-pc-linux-libc2.1-gnu-O5-intermod
 		;;
 	roy)	
 		fullname=i686-pc-linux-libc2.1-gnu-O4-hlc
@@ -844,9 +914,9 @@ case $status in
 	    $LN $BETA_FTPDIR/mercury-tests-$version-unstable.tar.gz \
 	        $BETA_FTPDIR/mercury-tests-$version.tar.gz" &&
 
-		# XXX should remove old files
-	    echo rm -f $BETA_WEBDIR/mercury-*-$RELEASE_VERSION_PATTERN[0-9].tar.gz &&
-	    echo rm -f $BETA_WEBDIR/mercury-*-$version.tar.gz && 
+	    rm -f $BETA_WEBDIR/mercury-compiler-$RELEASE_VERSION_PATTERN[0-9].tar.gz &&
+	    rm -f $BETA_WEBDIR/mercury-extras-$RELEASE_VERSION_PATTERN[0-9].tar.gz &&
+	    rm -f $BETA_WEBDIR/mercury-tests-$RELEASE_VERSION_PATTERN[0-9].tar.gz &&
 	    $LN $BETA_WEBDIR/mercury-compiler-$version-unstable.tar.gz \
 	        $BETA_WEBDIR/mercury-compiler-$version.tar.gz &&
 	    $LN $BETA_WEBDIR/mercury-extras-$version-unstable.tar.gz \

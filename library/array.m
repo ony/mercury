@@ -608,6 +608,7 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 %-----------------------------------------------------------------------------%
 
 :- pragma foreign_decl("C", "
+#include ""mercury_heap.h""		/* for MR_maybe_record_allocation() */
 #include ""mercury_library_types.h""	/* for MR_ArrayType */
 #include ""mercury_misc.h""		/* for MR_fatal_error() */
 ").
@@ -1298,8 +1299,8 @@ samsort_up(N, A0, A, B0, B, Lo, Hi, I) :-
 
     ( if I > Hi then
 
-        A = B0,
-        B = A0
+        A = A0,
+        B = B0
 
       else if N > 0 then
 

@@ -916,6 +916,11 @@ Mmake will then ensure that the appropriate directories are searched for
 the relevant interface files, module initialisation files, compiled
 libraries, etc.
 
+Beware that the directory name that you must use in @samp{EXTRA_LIB_DIRS}
+is not quite the same as the name that was specified in the
+@samp{INSTALL_PREFIX} when the library was installed --- the name in
+@samp{EXTRA_LIB_DIRS} needs to have @samp{/lib/mercury} appended.
+
 One can specify extra libraries to be used on a program-by-program
 basis.  For instance, if the program @samp{foo} also uses the library
 @samp{mylib4foo}, but the other programs governed by the Mmakefile don't,
@@ -2522,6 +2527,7 @@ the Mmakefile in @file{$ADITI_HOME/demos/transactions} as a template.
 * Displaying the profile::          How to display the profile data.
 * Analysis of results::             How to interpret the output.
 * Memory profiling::                Profiling memory usage rather than time.
+* Profiling and shared libraries::  Profiling dynamically linked executables.
 @end menu
 
 @node Profiling introduction
@@ -2825,6 +2831,24 @@ It can tell you how much memory was allocated by each procedure,
 but it won't tell you how long the memory was live for,
 or how much of that memory was garbage-collected.
 
+@node Profiling and shared libraries
+@section Profiling and shared libraries
+
+On some operating systems, Mercury's profiling doesn't work properly
+with shared libraries.  The symptom is errors ("map__lookup failed")
+or warnings from @samp{mprof}.  On some systems, the problem occurs
+because the C implementation fails to conform to the semantics
+specified by the ISO C standard for programs that use shared
+libraries.  For other systems, we have not been able to analyze the
+cause of the failure (but we suspect that the cause may be the same as
+on those systems where we have been able to analyze it).
+
+If you get errors or warnings from @samp{mprof}, and your program is
+dynamically linked, try rebuilding your application statically linked,
+e.g. by using @samp{MLFLAGS=--static} in your Mmakefile.  Another
+work-around that sometimes works is to set the environment variable
+@samp{LD_BIND_NOW} to a non-null value before running the program.
+
 @node Invocation
 @chapter Invocation
 
@@ -3034,6 +3058,12 @@ Output detailed debugging traces of Aditi-RL optimization
 (@pxref{Using Aditi}).
 @end ifset
 @c aditi
+
+@sp 1
+@item --debug-liveness <n>
+Output detailed debugging traces of the liveness analysis
+of the predicate with the given predicate id.
+
 @end table
 
 @node Output options
@@ -3720,6 +3750,13 @@ used to debug the Mercury compiler's low-level code generation.
 This option is not likely to be useful to anyone except the Mercury
 implementors.  It causes the generated code to become very big and very
 inefficient, and slows down compilation a lot.
+
+@sp 1
+@item @code{--pic}
+Generate position independent code.
+This option is only used by the @samp{--target asm} back-end.
+The generated assembler will be written to @samp{@var{module}.pic_s}
+rather than to @samp{@var{module}.s}.
 
 @sp 1
 @item @code{--target-debug}

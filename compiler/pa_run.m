@@ -84,7 +84,7 @@ pa_run__aliases_pass( HLDSin, HLDSout ) -->
 
 	% preliminary steps:
 	% 1. annotate all the liveness
-	{ pa_prelim_run__annotate_all_liveness_in_module( HLDSin, HLDS1 ) },
+	pa_prelim_run__annotate_all_liveness_in_module( HLDSin, HLDS1 ),
 
 	% 2. annotate all the outscope vars
 	{ pa_prelim_run__annotate_all_outscope_vars_in_module(HLDS1,HLDS2) },

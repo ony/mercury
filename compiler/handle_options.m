@@ -218,7 +218,7 @@ postprocess_options(ok(OptionTable), Error) -->
             { Error = yes("Invalid GC option (must be `none', `conservative' or `accurate')") }
 	)
     ;
-        { Error = yes("Invalid target option (must be `c', `il', or `java')") }
+        { Error = yes("Invalid target option (must be `c', `asm', `il', or `java')") }
     ).
     
 
@@ -324,7 +324,8 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% in its own function, to avoid problems with setjmp() and
 	% non-volatile local variables.
 	( { Target = c ; Target = asm } ->
-		option_implies(highlevel_code, put_commit_in_own_func, bool(yes))
+		option_implies(highlevel_code, put_commit_in_own_func,
+			bool(yes))
 	;
 		[]
 	),
@@ -374,6 +375,23 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	
 	option_implies(very_verbose, verbose, bool(yes)),
 
+	globals__io_lookup_int_option(debug_liveness, DebugLiveness),
+	(
+		{ DebugLiveness >= 0 },
+		{ convert_dump_alias("all", AllDumpOptions) }
+	->
+			% Programmers only enable --debug-liveness if they are
+			% interested in the goal annotations put on goals by
+			% the various phases of the liveness pass. The default
+			% dump options do not print these annotations.
+		globals__io_lookup_string_option(dump_hlds_options,
+			DumpOptions0),
+		{ string__append(DumpOptions0, AllDumpOptions, DumpOptions) },
+		globals__io_set_option(dump_hlds_options, string(DumpOptions))
+	;
+		[]
+	),
+
 	% --split-c-files implies --procs-per-c-function 1
 	option_implies(split_c_files, procs_per_c_function, int(1)),
 
@@ -385,7 +403,6 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	{ int__min(unify_proc__max_exploited_compare_spec_value,
 		CompareSpec0, CompareSpec) },
 	globals__io_set_option(compare_specialization, int(CompareSpec)),
-
 
 	% Minimal model tabling is not compatible with trailing;
 	% see the comment in runtime/mercury_tabling.c.
@@ -574,6 +591,11 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	option_implies(intermod_unused_args, intermodule_optimization,
 		bool(yes)),
 	option_implies(intermod_unused_args, optimize_unused_args, bool(yes)),
+
+	% --introduce-accumulators implies --excess-assign and
+	% --common-struct.
+	option_implies(introduce_accumulators, excess_assign, bool(yes)),
+	option_implies(introduce_accumulators, common_struct, bool(yes)),
 
 	% Don't do the unused_args optimization when making the
 	% optimization interface.
