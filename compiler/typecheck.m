@@ -314,7 +314,6 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 	;
 	    pred_info_arg_types(PredInfo0, _ArgTypeVarSet, ExistQVars0,
 		    ArgTypes0),
-	    pred_info_get_class_context(PredInfo0, PredConstraints),
 	    pred_info_clauses_info(PredInfo0, ClausesInfo0),
 	    ClausesInfo0 = clauses_info(VarSet, ExplicitVarTypes,
 				_OldInferredVarTypes, HeadVars, Clauses0),
@@ -357,14 +356,17 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, MaybePredInfo, Changed,
 			Inferring = yes,
 			write_pred_progress_message("% Inferring type of ",
 				PredId, ModuleInfo, IOState0, IOState1),
-			HeadTypeParams1 = []
+			HeadTypeParams1 = [],
+			PredConstraints = constraints([], [])
 		;
 			Inferring = no,
 			write_pred_progress_message("% Type-checking ",
 				PredId, ModuleInfo, IOState0, IOState1),
 			term__vars_list(ArgTypes0, HeadTypeParams0),
 			list__delete_elems(HeadTypeParams0, ExistQVars0,
-				HeadTypeParams1)
+				HeadTypeParams1),
+			pred_info_get_class_context(PredInfo0,
+				PredConstraints)
 		),
 
 		%
