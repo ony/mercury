@@ -132,7 +132,7 @@ arg_types_are_all_primitive(HLDS, PredInfo):-
 types_are_primitive(HLDS, TYPES) :- 
         list__filter(pred(TYPE::in) is semidet :-
 		(
-			type_util__type_is_guaranteed_atomic(TYPE,HLDS)
+			type_util__type_is_atomic(TYPE,HLDS)
 		),
 		TYPES,
 		_TrueList, 

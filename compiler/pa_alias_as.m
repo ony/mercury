@@ -146,19 +146,12 @@
 
 
 
-	% Dump the alias information (used in hlds_dumps). 
-	% Each alias will be preceded by the string "% ". 
+	% print-procedures:
+	% print_maybe_possible_aliases: routine used within
+	% hlds_dumps.
 :- pred print_maybe_possible_aliases(maybe(alias_as), proc_info, pred_info, 
 				io__state, io__state).
 :- mode print_maybe_possible_aliases(in, in, in, di, uo) is det.
-
-	% print_maybe_possible_aliases(RepeatingString, MaybeAS, ProcInfo, 
-	% PredInfo). 
-	% Dump the aliases, each alias preceded with the given first
-	% string. 
-:- pred print_maybe_possible_aliases(string, maybe(alias_as), proc_info, 
-		pred_info, io__state, io__state).
-:- mode print_maybe_possible_aliases(in, in, in, in, di, uo) is det.
 
 	% print_maybe_interface_aliases: routine for printing
 	% alias information in interface files.
@@ -762,28 +755,26 @@ normalize_wti(ProcInfo, HLDS, ASin, ASout):-
 	% MaybeAs = yes(Alias_as) -> print out Alias_as
 	%         = no		   -> print "not available"
 print_maybe_possible_aliases(MaybeAS, ProcInfo, PredInfo) -->
-	print_maybe_possible_aliases("% ", MaybeAS, ProcInfo, PredInfo). 
-
-print_maybe_possible_aliases(RepeatingStart, MaybeAS, ProcInfo, PredInfo) -->
 	(
 		{ MaybeAS = yes(AS) }
-	->
-		print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo)
+	->	
+		print_possible_aliases(AS, ProcInfo, PredInfo)
 	;
 		io__write_string("% not available.")
 	).
 
 	% print_possible_aliases(Abstract Substitution, Proc Info).
 	% print alias abstract substitution
-:- pred print_possible_aliases(string::in, alias_as::in, proc_info::in, 
-		pred_info::in, io__state::di, io__state::uo) is det.
-print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo) -->
+:- pred print_possible_aliases(alias_as, proc_info, pred_info, 
+					io__state, io__state).
+:- mode print_possible_aliases(in, in, in, di, uo) is det. 
+
+print_possible_aliases(AS, ProcInfo, PredInfo) -->
 	(
 		{ AS = real_as(Aliases) }
 	->
-		io__nl, 
 		pa_alias_set__print(PredInfo, ProcInfo, Aliases, 
-				RepeatingStart, ",\n", "")
+				"\n% ", "")
 	;
 		{ AS = top(Msgs) }
 	->
@@ -792,12 +783,10 @@ print_possible_aliases(RepeatingStart, AS, ProcInfo, PredInfo) -->
 				(string__append_list(["%\t",S0,"\n"], S)),
 			Msgs, 
 			MsgsF) }, 
-		{ string__append_list([RepeatingStart, "aliases are top:\n" |MsgsF],Msg) },
+		{ string__append_list(["% aliases are top:\n" |MsgsF],Msg) },
 		io__write_string(Msg)
 	;
-		{ string__append_list([RepeatingStart, "aliases = bottom"],
-			Msg) }, 
-		io__write_string(Msg)
+		io__write_string("% aliases = bottom")
 	).
 
 	% MaybeAs = yes(Alias_as) -> print `yes(printed Alias_as)'
