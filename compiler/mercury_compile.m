@@ -2345,19 +2345,19 @@ mercury_compile__maybe_mark_static_terms(HLDS0, Verbose, Stats, HLDS) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred mercury_compile__possible_aliases( module_info, bool, bool, 
+:- pred mercury_compile__possible_aliases(module_info, bool, bool, 
 						module_info, io__state,
 						io__state).
-:- mode mercury_compile__possible_aliases( in, in, in, out, di, uo) is det.
+:- mode mercury_compile__possible_aliases(in, in, in, out, di, uo) is det.
 
-mercury_compile__possible_aliases(HLDS0, Verbose, Stats, HLDS ) -->
-	globals__io_lookup_bool_option( infer_possible_aliases, InferAliases),
+mercury_compile__possible_aliases(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(infer_possible_aliases, InferAliases),
 	( 	
 		{ InferAliases = yes }
 	->
 		maybe_write_string(Verbose, "% Possible alias analysis...\n"),
 		maybe_flush_output(Verbose),
-		pa_run__aliases_pass( HLDS0, HLDS ),
+		pa_run__aliases_pass(HLDS0, HLDS),
 		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
 	;
@@ -2366,23 +2366,19 @@ mercury_compile__possible_aliases(HLDS0, Verbose, Stats, HLDS ) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred mercury_compile__structure_reuse( module_info, bool, bool, 
+:- pred mercury_compile__structure_reuse(module_info, bool, bool, 
 						module_info, io__state,
 						io__state).
-:- mode mercury_compile__structure_reuse( in, in, in, out, di, uo) is det.
+:- mode mercury_compile__structure_reuse(in, in, in, out, di, uo) is det.
 
-mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS ) -->
-	globals__io_lookup_bool_option( infer_structure_reuse, StrucReuse),
+mercury_compile__structure_reuse(HLDS0, Verbose, Stats, HLDS) -->
+	globals__io_lookup_bool_option(infer_structure_reuse, StrucReuse),
 	( 	
 		{ StrucReuse = yes }
 	->
 		maybe_write_string(Verbose, "% Structure-reuse analysis...\n"),
 		maybe_flush_output(Verbose),
-		% sr_run__structure_reuse_pass( HLDS0, HLDS), 
-
-			% XXX plug in the new structure reuse framework
 		structure_reuse(HLDS0, HLDS),
-
 		maybe_write_string(Verbose, "% done.\n"),
 		maybe_report_stats(Stats)
 	;

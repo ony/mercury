@@ -133,10 +133,10 @@ trans_opt__write_optfile(Module) -->
 		% file should go here.
 		{ module_info_predids(Module, PredIds) },
 
-		globals__io_lookup_bool_option( termination, Termination),
-		globals__io_lookup_bool_option( infer_possible_aliases, 
+		globals__io_lookup_bool_option(termination, Termination),
+		globals__io_lookup_bool_option(infer_possible_aliases, 
 							PossibleAliases),
-		globals__io_lookup_bool_option( infer_structure_reuse,
+		globals__io_lookup_bool_option(infer_structure_reuse,
 							StructureReuse),
 
 		{ module_info_structure_reuse_info(Module, StructReuseInfo) },
@@ -167,7 +167,7 @@ trans_opt__write_optfile(Module) -->
 		% output possible-alias information.
 		io__write_string(
 			"\n%----------- pa_alias_info/3 ------------- \n\n"),
-		list__foldl( pa_run__write_pred_pa_info(Module,
+		list__foldl(pa_run__write_pred_pa_info(Module,
 							AllSpecialPredIds),
 				PredIds)
 		;
@@ -179,7 +179,7 @@ trans_opt__write_optfile(Module) -->
 		% output structure-reuse information
 		 io__write_string(
 			"\n%----------- sr_reuse_info/3 ------------- \n\n"),
-		list__foldl( structure_reuse__write_pragma_reuse_info(Module, 
+		list__foldl(structure_reuse__write_pragma_reuse_info(Module, 
 							AllSpecialPredIds),
 				PredIds)
 		;
