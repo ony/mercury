@@ -225,12 +225,16 @@ apply_constraint_unification(_Constraint, Unif, GoalInfo, GoalInfo) -->
 			reuse_conds	:: list(reuse_condition)
 		).
 
+:- func selection_info_init = selection_info.
+
+selection_info_init = selection_info(set__init, set__init, []).
+
 :- pred select_reuses(selection::in, hlds_goal::in, hlds_goal::out,
 		list(reuse_condition)::out) is det.
 
-select_reuses(_SelectionRule, Goal0, Goal, ReuseConditions) :-
-	Goal = Goal0,
-	ReuseConditions = [].
+select_reuses(SelectionRule, Goal0, Goal, ReuseConditions) :-
+	select_reuses(SelectionRule, Goal0, Goal, selection_info_init, Info),
+	ReuseConditions = Info ^ reuse_conds.
 
 :- pred select_reuses(selection::in, hlds_goal::in, hlds_goal::out,
 		selection_info::in, selection_info::out) is det.
