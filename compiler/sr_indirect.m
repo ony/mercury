@@ -273,15 +273,8 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 
 analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, AI0, AI) :-
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
-	( 
-		pa_alias_as__is_top(AI0 ^ alias)
-	-> 
-		Info = Info0,
-		AI1 = AI0
-	;
-		call_verify_reuse( ProcInfo, HLDS,
-			PredId, ProcId, ActualVars, Info0, Info, AI0, AI1, _)
-	),
+	call_verify_reuse( ProcInfo, HLDS,
+			PredId, ProcId, ActualVars, Info0, Info, AI0, AI1, _),
 	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
 		PredId, ProcId, ActualVars, AI0 ^ alias, Alias),
 	AI = AI1 ^ alias := Alias,
@@ -480,19 +473,11 @@ analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias,
 analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
 			FP0, FP) :- 
 	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
-	( 
-		pa_alias_as__is_top(Alias0)
-	-> 
-		Info = Info0,
-		Pool = Pool0,
-		FP = FP0
-	;
-		call_verify_reuse( ProcInfo, HLDS,
-			PredId, ProcId, ActualVars, Alias0, set__init,
-			Pool0, Pool,
-			Info0, Info, 
-			FP0, FP, _)
-	),
+	call_verify_reuse( ProcInfo, HLDS,
+		PredId, ProcId, ActualVars, Alias0, set__init,
+		Pool0, Pool,
+		Info0, Info, 
+		FP0, FP, _),
 	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
 		PredId, ProcId, ActualVars, Alias0, Alias),
 	Expr = Expr0, 
@@ -723,11 +708,21 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0, ActualVars, Alias0,
 	% 2. once found, we can immediately handle the case where
 	% the tabled reuse would say that reuse is not possible anyway:
 	(
-		memo_reuse_top(FormalMemo)
+		( 
+			memo_reuse_top(FormalMemo) ; 
+			pa_alias_as__is_top(Alias0)
+		)
 	->
 		Pool = Pool0,
 		Info = Info0, 
 		YesNo = no
+	;
+		% unconditional reuse
+		FormalMemo = yes([])
+	->
+		indirect_reuse_pool_add_unconditional( Pool0, Pool ), 
+		Info = Info0, 
+		YesNo = yes
 	;
 		memo_reuse_rename( ProcInfo0, ActualVars, FormalMemo, 
 					Memo ), 
@@ -902,6 +897,8 @@ lookup_memo_reuse( PredId, ProcId, HLDS, FP0, FP, Memo ):-
 		memo_reuse::in, 
 		set(prog_var)::in, set(prog_var)::in, alias_as::in, 
 		indirect_reuse_pool::in, indirect_reuse_pool::out) is det. 
+:- pred indirect_reuse_pool_add_unconditional(indirect_reuse_pool::in, 
+		indirect_reuse_pool::out) is det.
 		
 
 indirect_reuse_pool_init( HVs, MEMO, pool( HVs, MEMO) ).
@@ -953,6 +950,20 @@ indirect_reuse_pool_add( HLDS, ProcInfo, MemoReuse,
 	;
 		Pool = Pool0
 	).
+
+indirect_reuse_pool_add_unconditional( Pool0, Pool ) :- 
+	Pool0 = pool( Hvs, Memo0 ),
+	(
+		Memo0 = no
+	->
+		Memo = yes([])
+	;
+		Memo = Memo0
+	),
+	Pool = pool( Hvs, Memo).
+
+
+
 	
 
 
