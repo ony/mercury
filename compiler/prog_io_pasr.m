@@ -14,8 +14,27 @@
 
 :- import_module parse_tree__prog_data.
 
-:- import_module io, term, std_util, list.
+:- import_module io, term, std_util, list, varset, map.
 
+% XXX prog_io_pasr shows to be a bad name, if it also contains procedures to
+% transform the aliases types, like the renaming below. 
+%-----------------------------------------------------------------------------%
+% Renaming
+%-----------------------------------------------------------------------------%
+:- pred rename_selector(substitution(tvar_type)::in,
+		selector::in, selector::out) is det.
+:- pred rename_datastruct(map(prog_var, prog_var)::in, 
+		maybe(substitution(tvar_type))::in,
+		datastruct::in, datastruct::out) is det.
+:- pred rename_alias(map(prog_var, prog_var)::in, 
+		maybe(substitution(tvar_type))::in,
+		alias::in, alias::out) is det.
+:- pred rename_aliases(map(prog_var, prog_var)::in, 
+		maybe(substitution(tvar_type))::in,
+		aliases::in, aliases::out) is det.
+:- pred rename_aliases_domain(map(prog_var, prog_var)::in, 
+		maybe(substitution(tvar_type))::in,
+		aliases_domain::in, aliases_domain::out) is det.
 %-----------------------------------------------------------------------------%
 % Printing routines. 
 %-----------------------------------------------------------------------------%
@@ -65,25 +84,6 @@
 		maybe(aliases_domain)::in, 
 		io__state::di, io__state::uo) is det.
 
-
-%-----------------------------------------------------------------------------%
-% Transform to string routines. 
-
-% 1. selectors
-	% The same as print_selector, yet returns a string instead of printing
-	% the result to stdout. 
-:- pred selector_to_string(tvarset::in, selector::in, string::out) is det.
-
-	% User declared selectors are constrained to type selectors only. Hence
-	% this procedure will give an error when a normal selector is
-	% encountered. 
-:- pred to_user_declared_selector(tvarset::in, selector::in, 
-		string::out) is det. 
-
-% 2. datastructs. 
-:- pred to_user_declared_datastruct(prog_varset::in, tvarset::in, 
-		datastruct::in, string::out) is det. 
-
 %-----------------------------------------------------------------------------%
 % Parsing routines. 
 %-----------------------------------------------------------------------------%
@@ -100,6 +100,9 @@
 :- pred parse_aliases_domain(term(T)::in, aliases_domain::out) is det.
 :- pred parse_aliases_domain_from_list(list(term(T))::in,
 		aliases_domain::out) is det.
+	% Parse the used declared aliases (pragma aliasing). 
+:- pred parse_user_declared_aliasing(term::in, varset::in, 
+		aliasing::out) is semidet.
 
 :- pred format_context(term__context::in, string::out) is det.
 %-----------------------------------------------------------------------------%
@@ -111,9 +114,77 @@
 :- import_module parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_io.
 
-:- import_module string, require, bool, varset, std_util, int. 
+:- import_module string, require, bool, varset, std_util, int, set. 
 
 %-----------------------------------------------------------------------------%
+:- pred rename_unit_selector(substitution(tvar_type)::in, 
+		unit_sel::in, unit_sel::out) is det.
+rename_unit_selector(Subst, US0, US) :- 
+	(
+		US0 = ns(_,_), 
+		US = US0
+	; 
+		US0 = ts(Type0), 
+		term__apply_substitution(Type0, Subst, Type), 
+		US = ts(Type)
+	).
+rename_selector(TypeSubst, Sel0, Sel) :- 
+	list__map(rename_unit_selector(TypeSubst), Sel0, Sel).
+
+rename_datastruct(ProgMap, MaybeTypeSubst, Data0, Data) :- 
+	Data0 = selected_cel(Var0, Sel0), 
+	map__lookup(ProgMap, Var0, Var), 
+	(
+		MaybeTypeSubst = yes(TypeSubst), 
+		rename_selector(TypeSubst, Sel0, Sel)
+	;
+		MaybeTypeSubst = no, 
+		Sel = Sel0
+	),
+	Data = selected_cel(Var, Sel). 
+rename_alias(ProgMap, MaybeTypeSubst, A0 - B0, A - B) :- 
+	rename_datastruct(ProgMap, MaybeTypeSubst, A0, A), 
+	rename_datastruct(ProgMap, MaybeTypeSubst, B0, B).
+
+rename_aliases(ProgMap, MaybeTypeSubst, Aliases0, Aliases) :- 
+	list__map(rename_alias(ProgMap, MaybeTypeSubst), Aliases0, Aliases).
+
+rename_aliases_domain(_, _, top(M), top(M)).
+rename_aliases_domain(_, _, bottom, bottom).
+rename_aliases_domain(ProgMap, MaybeTypeSubst, real(Aliases0), real(Aliases)):- 
+	rename_aliases(ProgMap, MaybeTypeSubst, Aliases0, Aliases).
+%-----------------------------------------------------------------------------%
+
+:- pred selector_to_string(tvarset::in, selector::in, string::out) is det.
+selector_to_string(TVarSet, Selector, String):- 
+	(
+		Selector = []
+	-> 
+		String = "[]"
+	; 
+		list__map(us_to_string(TVarSet), 
+			Selector, SelectorStrings), 
+		string__append_list(["[", 
+			string__join_list(",", SelectorStrings), 
+			"]"], String)
+	). 
+
+:- pred us_to_string(tvarset::in, unit_sel::in, string::out) is det.
+us_to_string(_, ns(ConsId, Index), StringSelector):- 
+	hlds_data__cons_id_arity(ConsId, Arity), 
+	string__append_list(["sel(",
+		mercury_cons_id_to_string(ConsId, needs_brackets),
+		",", 
+		int_to_string(Arity), 
+		",",
+		int_to_string(Index), 
+		")"], StringSelector).
+
+us_to_string(TVarSet, ts(TypeSel), StringSelector):- 
+	string__append_list(["typesel(", 
+		mercury_term_to_string(TypeSel, TVarSet, bool__no),
+		")"], StringSelector).
+
 print_selector(TVarSet, Selector, !IO) :-
 	selector_to_string(TVarSet, Selector, String), 
 	io__write_string(String, !IO). 
@@ -190,7 +261,8 @@ print_interface_maybe_aliases_domain(_ProgVarSet, _TVarSet, no, !IO) :-
 	io__write_string("not_available", !IO). 
 print_interface_maybe_aliases_domain(ProgVarSet, TVarSet, yes(Aliases), !IO) :-
 	io__write_string("yes(", !IO), 
-	print_aliases_domain(ProgVarSet, TVarSet, no, Aliases, !IO). 
+	print_aliases_domain(ProgVarSet, TVarSet, no, Aliases, !IO), 
+	io__write_string(")", !IO). 
 
 print_aliases_domain(ProgVarSet, TVarSet, MaybeThreshold, Aliases, !IO) :- 
 	(
@@ -205,67 +277,6 @@ print_aliases_domain(ProgVarSet, TVarSet, MaybeThreshold, Aliases, !IO) :-
 			"]", AliasList, !IO)
 	).
 	
-%-----------------------------------------------------------------------------%
-to_user_declared_selector(TVarSet, Selector, String):- 
-	(
-		Selector = []
-	-> 
-		String = "[]"
-	; 
-		list__map(us_to_user_declared(TVarSet), 
-			Selector, SelectorStrings), 
-		string__append_list(["[", 
-			string__join_list(",", SelectorStrings), 
-			"]"], String)
-	). 
-
-selector_to_string(TVarSet, Selector, String):- 
-	(
-		Selector = []
-	-> 
-		String = "[]"
-	; 
-		list__map(us_to_string(TVarSet), 
-			Selector, SelectorStrings), 
-		string__append_list(["[", 
-			string__join_list(",", SelectorStrings), 
-			"]"], String)
-	). 
-
-:- pred us_to_string(tvarset::in, unit_sel::in, string::out) is det.
-us_to_string(_, ns(ConsId, Index), StringSelector):- 
-	hlds_data__cons_id_arity(ConsId, Arity), 
-	string__append_list(["sel(",
-		mercury_cons_id_to_string(ConsId, needs_brackets),
-		",", 
-		int_to_string(Arity), 
-		",",
-		int_to_string(Index), 
-		")"], StringSelector).
-
-us_to_string(TVarSet, ts(TypeSel), StringSelector):- 
-	string__append_list(["typesel(", 
-		mercury_term_to_string(TypeSel, TVarSet, bool__no),
-		")"], StringSelector).
-
-:- pred us_to_user_declared(tvarset::in, unit_sel::in, string::out) is det.
-us_to_user_declared(_, ns(_, _), _):- 
-	Msg = "(pa_selector) us_to_user_declared, expected type-selectors.",
-	require__error(Msg). 
-us_to_user_declared(TVarSet, ts(Type), String) :- 
-	String = mercury_type_to_string(TVarSet, Type). 
-
-%-----------------------------------------------------------------------------%
-% 2. datastruct. 
-to_user_declared_datastruct(ProgVarSet, TypeVarSet, Data, String):- 
-	Data = selected_cel(ProgVar, Selector), 
-	varset__lookup_name(ProgVarSet, ProgVar, ProgName), 
-	to_user_declared_selector(TypeVarSet, Selector,
-			SelectorString), 
-	string__append_list(["cel(", ProgName, ", ", SelectorString, ")"], 
-		String). 
-
-
 %-----------------------------------------------------------------------------%
 % Parsing routines. 
 %-----------------------------------------------------------------------------%
@@ -496,3 +507,134 @@ parse_aliases_domain_from_list(ListTerm, AliasesDomain):-
 			" should be yes/1"], Msg),
 		error(Msg)
 	).
+
+:- pred parse_user_declared_datastruct(term::in, datastruct::out) is det. 
+parse_user_declared_datastruct(Term, Data):- 
+	(
+		Term = term__functor(term__atom("cel"),
+			[VarTerm, TypesTerm], Context)
+	->
+		(
+			VarTerm = term__variable(GenericVar),
+			term__coerce_var(GenericVar, ProgVar) 
+		-> 
+			(
+				split_terms(TypesTerm, ListTypesTerms)
+			-> 
+				list__map(term__coerce, ListTypesTerms, Types),
+				Data = selected_cel(ProgVar, 
+					typeselector_init(Types))
+			;
+				format_context(Context, ContextString), 
+				string__append_list([
+					"(prog_io_pasr) ",
+					"parse_user_declared_datastruct: ", 
+					"error in declared selector (", 
+						ContextString, ")"], Msg), 
+				error(Msg)
+				
+			)
+		;
+			format_context(Context, ContextString), 
+			string__append_list([
+				"(prog_io_pasr) ",
+				"parse_user_declared_datastruct: ", 
+				"error in declared alias (", 
+				ContextString, ")"], Msg), 
+			error(Msg)
+		)
+	;
+		string__append_list(["(prog_io_pasr) ", 
+			"parse_user_datastruct: ",
+			"wrong datastructure description ",
+			"-- should be cel/2"], Msg),
+		error(Msg)
+	).
+
+:- pred parse_user_declared_alias(term::in, alias::out) is det.
+parse_user_declared_alias(Term, Alias):- 
+	(
+		Term = term__functor(term__atom("-"), [Left, Right], _)
+	->
+		% Left and Right have shape "cel(ProgVar, Types)"
+		parse_user_declared_datastruct(Left, LeftData), 
+		parse_user_declared_datastruct(Right, RightData), 
+		Alias = LeftData - RightData
+	;
+		string__append_list(["(prog_io_pasr) ", 
+			"parse_user_declared_alias: ", 
+			"wrong functor."], Msg), 
+		error(Msg)
+	).
+
+:- pred parse_user_declared_aliases(term::in, aliases_domain::out) is det.
+parse_user_declared_aliases(ListTerm, AliasDomain):- 
+	(
+		split_terms(ListTerm, AllTerms)
+	-> 
+		list__map(parse_user_declared_alias, 
+				AllTerms, Aliases),
+		AliasDomain = real(Aliases)
+	;
+		string__append_list(["(prog_io_pasr) ", 
+			"parse_user_declared_aliases: ", 
+			"term not a functor."], Msg), 
+		error(Msg)
+	).
+
+:- pred split_terms(term::in, list(term)::out) is semidet.
+split_terms(ListTerm, Terms):- 
+	ListTerm = term__functor(term__atom(Cons), Args, _), 
+	(
+		Cons = "[|]"
+	->
+		Args = [FirstTerm, RestTerm],
+		split_terms(RestTerm, RestList), 
+		Terms = [FirstTerm | RestList]
+	;
+		Cons = "[]"
+	->
+		Terms = []
+	; 
+		fail
+	). 
+
+	% bottom
+parse_user_declared_aliasing(term__functor(term__atom("no_aliasing"), [], _),
+		_VarSet, Aliasing):-
+	Aliasing = aliasing(no, varset__init, bottom). 
+	% top
+parse_user_declared_aliasing(term__functor(term__atom("unknown_aliasing"), 
+				[], Context), _VarSet, Aliasing):-
+	format_context(Context, ContextString), 
+	string__append_list(["user declared top (", ContextString, ")"], Msg),
+	TopAlias = top([Msg]),
+	Aliasing = aliasing(no, varset__init, TopAlias). 
+parse_user_declared_aliasing(term__functor(term__atom("alias"), 
+		[TypesTerm,AliasTerm], _), VarSet, Aliasing):-
+	(
+		TypesTerm = term__functor(term__atom("yes"), 
+					ListTypesTerms, _), 
+		term__vars_list(ListTypesTerms, TypeVars), 
+		set__list_to_set(TypeVars, SetTypeVars), 
+		varset__select(VarSet, SetTypeVars, TypeVarSet0),
+		varset__coerce(TypeVarSet0, TypeVarSet),
+		
+		list__map(term__coerce, ListTypesTerms, Types), 
+		MaybeTypes = yes(Types)
+	;
+		TypesTerm = term__functor(term__atom("no"),[],_), 
+		MaybeTypes = no,
+		varset__init(TypeVarSet) 
+	), 
+	parse_user_declared_aliases(AliasTerm, AliasAs), 
+	Aliasing = aliasing(MaybeTypes, TypeVarSet, AliasAs). 
+
+	
+:- func typeselector_init(list(type)) = selector. 
+typeselector_init(Types) = Selector :- 
+	list__map(
+		pred(T::in, US::out) is det :- 
+			US = ts(T),
+		Types,
+		Selector). 	

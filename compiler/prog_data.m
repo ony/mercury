@@ -30,8 +30,6 @@
 :- import_module recompilation.
 :- import_module bool, list, assoc_list, map, set, varset, term, std_util.
 	% XXX Dependencies moeten weg!!
-:- import_module possible_alias.
-:- import_module possible_alias__pa_alias_as.
 :- import_module structure_reuse.
 :- import_module structure_reuse__sr_data.
 
@@ -485,7 +483,7 @@
 				% This set is restricted to the head variables
 				% of the procedure the reuse condition refers
 				% to. 
-		    alias_headvars	:: aliases
+		    alias_headvars	:: aliases_domain
 		    		% The set of aliases existing at the moment
 				% where the reuse_nodes become dead. These
 				% aliases are also restricted to the
@@ -721,6 +719,9 @@
 		pragma_foreign_proc_attributes).
 :- mode set_aliasing(in, in, out) is det.
 
+:- pred to_user_declared_aliasing(aliasing::in, prog_varset::in, 
+		string::out) is det.
+
 :- pred set_purity(pragma_foreign_proc_attributes, purity,
 		pragma_foreign_proc_attributes).
 :- mode set_purity(in, in, out) is det.
@@ -758,15 +759,15 @@
 	;	tabled_for_io_unitize
 	;	tabled_for_descendant_io.
 
-% :- type aliasing
-%	--->	no_aliasing
-%	;	unknown_aliasing.
 :- type aliasing 
-	---> 	aliasing(maybe(list(type)), % this is only needed when the
-					    % user expresses aliases in terms
-					    % of type-variables.
-			 tvarset, 
-			 pa_alias_as__alias_as). 
+	---> 	aliasing(
+			maybe_types:: maybe(list(type)), 
+					% this is only needed when the
+					% user expresses aliases in terms
+					% of type-variables.
+			typevarset:: tvarset, 
+			aliases:: aliases_domain
+		). 
 
 :- type pragma_var    
 	--->	pragma_var(prog_var, string, mode).
@@ -1186,8 +1187,11 @@
 
 :- implementation.
 
-:- import_module string.
+:- import_module string, require.
 :- import_module check_hlds__purity.
+	% XXX circular dependency! 
+:- import_module parse_tree__mercury_to_mercury.
+
 
 :- type pragma_foreign_proc_attributes
 	--->	attributes(
@@ -1209,7 +1213,7 @@
 default_attributes(Language, 
 	attributes(Language, may_call_mercury, not_thread_safe, 
 		not_tabled_for_io, Aliasing, impure, no, [])):- 
-	pa_alias_as__top("Default top", TopAlias), 
+	TopAlias = top(["Default top"]), 
 	Aliasing = aliasing(no, varset__init, TopAlias).
 
 may_call_mercury(Attrs, Attrs ^ may_call_mercury).
@@ -1280,7 +1284,7 @@ attributes_to_strings(Attrs, ProgVarSet, StringList) :-
 		TabledForIO = not_tabled_for_io,
 		TabledForIOStr = "not_tabled_for_io"
 	),
-	to_user_declared_aliases(Aliasing, ProgVarSet, AliasingStr), 
+	to_user_declared_aliasing(Aliasing, ProgVarSet, AliasingStr), 
 	(
 		Purity = pure,
 		PurityStrList = ["promise_pure"]
@@ -1304,4 +1308,83 @@ add_extra_attribute(Attributes0, NewAttribute,
 extra_attribute_to_string(max_stack_size(Size)) =
 	"max_stack_size(" ++ string__int_to_string(Size) ++ ")".
 
+%-----------------------------------------------------------------------------%
+% Transform to string routines. 
+
+:- pred to_user_declared_selector(tvarset::in, selector::in, 
+		string::out) is det. 
+:- pred to_user_declared_datastruct(prog_varset::in, tvarset::in, 
+		datastruct::in, string::out) is det. 
+to_user_declared_selector(TVarSet, Selector, String):- 
+	(
+		Selector = []
+	-> 
+		String = "[]"
+	; 
+		list__map(us_to_user_declared(TVarSet), 
+			Selector, SelectorStrings), 
+		string__append_list(["[", 
+			string__join_list(",", SelectorStrings), 
+			"]"], String)
+	). 
+
+:- pred us_to_user_declared(tvarset::in, unit_sel::in, string::out) is det.
+us_to_user_declared(_, ns(_, _), _):- 
+	Msg = "(pa_selector) us_to_user_declared, expected type-selectors.",
+	require__error(Msg). 
+us_to_user_declared(TVarSet, ts(Type), String) :- 
+	String = mercury_type_to_string(TVarSet, Type). 
+
+%-----------------------------------------------------------------------------%
+% 2. datastruct. 
+to_user_declared_datastruct(ProgVarSet, TypeVarSet, Data, String):- 
+	Data = selected_cel(ProgVar, Selector), 
+	varset__lookup_name(ProgVarSet, ProgVar, ProgName), 
+	to_user_declared_selector(TypeVarSet, Selector,
+			SelectorString), 
+	string__append_list(["cel(", ProgName, ", ", SelectorString, ")"], 
+		String). 
+
+%-----------------------------------------------------------------------------%
+% 3. alias
+:- pred to_user_declared_alias(prog_varset::in, tvarset::in, 
+		alias::in, string::out) is det.
+to_user_declared_alias(ProgVarSet, TypeVarSet, Alias, String):- 
+	Alias = Data0 - Data1, 
+	to_user_declared_datastruct(ProgVarSet, TypeVarSet, 
+			Data0, Data0String), 
+	to_user_declared_datastruct(ProgVarSet, TypeVarSet,
+			Data1, Data1String),
+	string__append_list([Data0String, " - ", Data1String],
+			String). 
+%-----------------------------------------------------------------------------%
+% 3. aliases
+
+:- pred to_user_declared_aliases(prog_varset::in, tvarset::in,
+		list(alias)::in, string::out) is det. 
+to_user_declared_aliases(ProgVarSet, TypeVarSet, Aliases, String) :- 
+	list__map(to_user_declared_alias(ProgVarSet, TypeVarSet), 
+		Aliases, AliasesStrings), 
+	string__append_list(["[",
+		string__join_list(",", AliasesStrings), 
+		"]"], String).
+
+to_user_declared_aliasing(aliasing(_, _, bottom), _, "no_aliasing"). 
+to_user_declared_aliasing(aliasing(_, _, top(_)), _, "unknown_aliasing").
+to_user_declared_aliasing(aliasing(MaybeTypes, TypeVarSet, real(Aliases)), 
+		ProgVarSet, String):-
+	(
+		MaybeTypes = yes(Types) 
+	->
+		TypesString0 = mercury_type_list_to_string(TypeVarSet, Types),
+		string__append_list(["yes(", TypesString0, ")"], 
+			TypesString)
+	;
+		TypesString = "no"
+	), 
+	to_user_declared_aliases(ProgVarSet, TypeVarSet, Aliases, AliasString), 
+	string__append_list(["alias(", TypesString, ", ", 
+			AliasString, ")"], String).
+
+	
 %-----------------------------------------------------------------------------%

@@ -218,22 +218,6 @@
 		alias_as::in, alias_as::out) is det.
 
 %-----------------------------------------------------------------------------%
-% Parsing routines. 
-% XXX Should eventually move to some other place? 
-%-----------------------------------------------------------------------------%
-	% Parse the used declared aliases (pragma aliasing). 
-	% XXX This routine is definitely on the wrong place and should be moved
-	% to parse_tree somewhere, once the aliasing type is defined without
-	% the alias_as type. 
-:- pred parse_user_declared_aliases(term::in, varset::in, 
-		aliasing::out) is semidet.
-
-	% Reconvert the (parsed) user declared aliasing information to a
-	% printable string. 
-:- pred to_user_declared_aliases(aliasing::in, prog_varset::in, 
-		string::out) is det. 
-
-%-----------------------------------------------------------------------------%
 % Computing the live data structure set using alias information. 
 % XXX This procedure should go into sr_live by providing a routine to convert
 % alias_as types to lists of pairs of data structures. 
@@ -680,7 +664,7 @@ extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId,
 :- mode from_foreign_code(in, in, in, in, in, in, in, in, in, out) is det.
 
 from_foreign_code(HLDS, _ProcInfo, PredId, ProcId, GoalInfo, Attrs, Vars, 
-		MaybeModes, Types, Alias):-
+		MaybeModes, Types, AliasAs):-
 	module_info_pred_proc_info(HLDS, proc(PredId, ProcId), 
 			_PredInfo, PragmaProcInfo), 
 	(
@@ -691,7 +675,7 @@ from_foreign_code(HLDS, _ProcInfo, PredId, ProcId, GoalInfo, Attrs, Vars,
 		% Typecheck the aliasing: 
 		(
 			proc_info_headvars(PragmaProcInfo, FormalVars), 	
-			typecheck_user_annotated_alias(HLDS, FormalVars, 
+			typecheck_user_aliases_domain(HLDS, FormalVars, 
 				Types, UserAlias)
 		-> 
 			Alias = UserAlias
@@ -710,9 +694,10 @@ from_foreign_code(HLDS, _ProcInfo, PredId, ProcId, GoalInfo, Attrs, Vars,
 			format_context(Context, ContextStr), 
 			string__append_list(["pragma_foreign_code:",
 					" (",ContextStr, ")"], Msg), 
-			pa_alias_as__top(Msg, Alias)
+			Alias = top([Msg])
 		)
-	).
+	), 
+	from_aliases_domain_to_alias_as(Alias, AliasAs).
 
 
 predict_bottom_alias(HLDS, Vars, Modes, Types):- 
@@ -741,7 +726,7 @@ report_pragma_type_error(ProcInfo, GoalInfo, Aliasing):-
 	proc_info_varset(ProcInfo, VarSet), 
 	goal_info_get_context(GoalInfo, Context), 
 	format_context(Context, ContextStr), 
-	to_user_declared_aliases(Aliasing, VarSet, AliasingString), 
+	to_user_declared_aliasing(Aliasing, VarSet, AliasingString), 
 	string__append_list(
 		["\n", ContextStr, 
 		": Type error in user declared aliasing. \n", 
@@ -750,19 +735,20 @@ report_pragma_type_error(ProcInfo, GoalInfo, Aliasing):-
 		Msg), 
 	require__error(Msg). 
 	
-:- pred typecheck_user_annotated_alias(module_info::in, list(prog_var)::in,
-		list(type)::in, alias_as::in) is semidet.
-typecheck_user_annotated_alias(_, _, _, bottom). 
-typecheck_user_annotated_alias(_, _, _, top(_)). 
-typecheck_user_annotated_alias(ModuleInfo, Vars, Types, real_as(AliasSet)):- 
+:- pred typecheck_user_aliases_domain(module_info::in, 
+		list(prog_var)::in,
+		list(type)::in, aliases_domain::in) is semidet.
+typecheck_user_aliases_domain(_, _, _, bottom). 
+typecheck_user_aliases_domain(_, _, _, top(_)). 
+typecheck_user_aliases_domain(ModuleInfo, Vars, Types, real(Aliases)):- 
 	map__from_corresponding_lists(Vars, Types, VarTypes), 
-	to_pair_alias_list(AliasSet, AliasList),
-	typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, AliasList). 
+	list__takewhile(
+		typecheck_user_annotated_alias(ModuleInfo, VarTypes),
+		Aliases, _, []).
 
-:- pred typecheck_user_annotated_alias_2(module_info::in, 
-		map(prog_var, type)::in, list(alias)::in) is semidet.
-typecheck_user_annotated_alias_2(_, _, []). 
-typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, [Alias | Rest]):-
+:- pred typecheck_user_annotated_alias(module_info::in, 
+		map(prog_var, type)::in, alias::in) is semidet.
+typecheck_user_annotated_alias(ModuleInfo, VarTypes, Alias):-
 	Alias = Data1 - Data2, 
 	type_unify( 
 		type_of_node_with_vartypes(ModuleInfo, VarTypes, Data1), 
@@ -770,10 +756,8 @@ typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, [Alias | Rest]):-
 		[], 
 		map__init, 
 		Substitution),
-	map__is_empty(Substitution),
-	typecheck_user_annotated_alias_2(ModuleInfo, VarTypes, Rest).
+	map__is_empty(Substitution).
 		
-
 :- pred maybe_modes_to_modes(list(maybe(pair(string, mode))), list(mode)).
 :- mode maybe_modes_to_modes(in, out) is semidet.
 
@@ -891,180 +875,6 @@ normalize_wti(HLDS, ProcInfo, ASin, ASout):-
 		ASout = ASin
 	).
 		
-%-----------------------------------------------------------------------------%
-% parsing routines for user declared aliases
-%-----------------------------------------------------------------------------%
-
-parse_user_declared_aliases(term__functor(term__atom("no_aliasing"), [], _),
-		_VarSet, Aliasing):-
-        pa_alias_as__init(BottomAlias),
-	Aliasing = aliasing(no, varset__init, BottomAlias). 
-parse_user_declared_aliases(term__functor(term__atom("unknown_aliasing"), 
-				[], Context), _VarSet, Aliasing):-
-	format_context(Context, ContextString), 
-	string__append_list(["user declared top (", ContextString, ")"], Msg),
-        pa_alias_as__top(Msg, TopAlias), 
-	Aliasing = aliasing(no, varset__init, TopAlias). 
-parse_user_declared_aliases(term__functor(term__atom("alias"), 
-		[TypesTerm,AliasTerm], _), VarSet, Aliasing):-
-	(
-		TypesTerm = term__functor(term__atom("yes"), 
-					ListTypesTerms, _), 
-		term__vars_list(ListTypesTerms, TypeVars), 
-		set__list_to_set(TypeVars, SetTypeVars), 
-		varset__select(VarSet, SetTypeVars, TypeVarSet0),
-		varset__coerce(TypeVarSet0, TypeVarSet),
-		
-		list__map(term__coerce, ListTypesTerms, Types), 
-		MaybeTypes = yes(Types)
-	;
-		TypesTerm = term__functor(term__atom("no"),[],_), 
-		MaybeTypes = no,
-		varset__init(TypeVarSet) 
-	), 
-	parse_user_declared_aliases_2(AliasTerm, AliasAs), 
-	Aliasing = aliasing(MaybeTypes, TypeVarSet, AliasAs). 
-
-
-:- pred parse_user_declared_aliases_2(term::in, alias_as::out) is det.
-parse_user_declared_aliases_2(ListTerm, AliasAS):- 
-	(
-		parse_list_term(ListTerm, AllTerms)
-	-> 
-		list__map(parse_single_user_declared_alias, 
-				AllTerms, AliasList),
-		from_pair_alias_list(AliasList, AliasSet),
-		wrap(AliasSet, AliasAS)
-	;
-		error("(pa_alias_as) parse_user_declared_aliases_2: term not a functor")
-	).
-
-:- pred parse_list_term(term::in, list(term)::out) is semidet.
-parse_list_term(ListTerm, Terms):- 
-	ListTerm = term__functor(term__atom(Cons), Args, _), 
-	(
-		Cons = "[|]"
-	->
-		Args = [FirstTerm, RestTerm],
-		parse_list_term(RestTerm, RestList), 
-		Terms = [FirstTerm | RestList]
-	;
-		Cons = "[]"
-	->
-		Terms = []
-	; 
-		fail
-	). 
-
-:- pred parse_single_user_declared_alias(term::in, alias::out) is det.
-parse_single_user_declared_alias(Term, Alias):- 
-	(
-		Term = term__functor(term__atom("-"), [Left, Right], _)
-	->
-		% Left and Right have shape "cel(ProgVar, Types)"
-		parse_user_datastruct(Left, LeftData), 
-		parse_user_datastruct(Right, RightData), 
-		Alias = LeftData - RightData
-	;
-		error("(pa_alias_as) parse_single_user_declared_alias: wrong functor.")
-	).
-
-% might be better to move this code to pa_datastruct ? 
-:- pred parse_user_datastruct(term::in, 
-		prog_data__datastruct::out) is det. 
-parse_user_datastruct(Term, Data):- 
-	(
-		Term = term__functor(term__atom("cel"),
-			[VarTerm, TypesTerm], Context)
-	->
-		(
-			VarTerm = term__variable(GenericVar),
-			term__coerce_var(GenericVar, ProgVar) 
-		-> 
-			(
-				parse_list_term(TypesTerm, ListTypesTerms)
-			-> 
-				list__map(term__coerce, ListTypesTerms, Types),
-				pa_selector__init(Types, Selector), 
-				pa_datastruct__init(ProgVar, Selector, Data)
-			;
-				format_context(Context, ContextString), 
-				string__append_list([
-				"(pa_alias_as) parse_user_datastruct: ", 
-				"error in declared selector (", 
-					ContextString, ")"], Msg), 
-				error(Msg)
-				
-			)
-		;
-			format_context(Context, ContextString), 
-			string__append_list([
-				"(pa_alias_as) parse_user_datastruct: ", 
-				"error in declared alias (", 
-				ContextString, ")"], Msg), 
-			error(Msg)
-		)
-	;
-		error("(pa_alias_as) parse_user_datastruct: wrong datastructure description -- should be cel/2")
-	).
-
-		
-to_user_declared_aliases(aliasing(_, _, bottom), _, "no_aliasing"). 
-to_user_declared_aliases(aliasing(_, _, top(_)), _, "unknown_aliasing").
-% to_user_declared_aliases(aliasing(_, _, real_as(_)), _, "alias(no, [])"). 
-% to_user_declared_aliases(aliasing(MaybeTypes, real_as(_)), 
-%				ProgVarSet, String):- 
-to_user_declared_aliases( aliasing(MaybeTypes, TypeVarSet, real_as(AliasSet)), 
-		ProgVarSet, String):-
-	(
-		MaybeTypes = yes(Types) 
-	->
-		TypesString0 = mercury_type_list_to_string(TypeVarSet, Types),
-		string__append_list(["yes(", TypesString0, ")"], 
-			TypesString)
-	;
-		TypesString = "no"
-	), 
-	to_pair_alias_list(AliasSet, AliasList), 
-	alias_list_to_user_declared_aliases(AliasList, 
-			ProgVarSet, TypeVarSet, AliasString0), 
-	string__append_list(["[",AliasString0,"]"], AliasString), 
-
-	string__append_list(["alias(", TypesString, ", ", 
-			AliasString, ")"], String).
-
-:- pred alias_list_to_user_declared_aliases(list(alias)::in, 
-		prog_varset::in, tvarset::in, string::out) is det. 
-alias_list_to_user_declared_aliases([], _, _, ""). 
-alias_list_to_user_declared_aliases([Alias|Rest], ProgVarSet, TypeVarSet,
-		String):- 
-	alias_to_user_declared_alias(Alias, ProgVarSet, TypeVarSet, 
-			AliasString), 
-	(
-		Rest = []
-	->
-		String = AliasString
-	; 
-		alias_list_to_user_declared_aliases(Rest, ProgVarSet, 
-				TypeVarSet, RestString), 
-		string__append_list([AliasString, ", ", RestString], 
-				String)
-	).
-
-:- pred alias_to_user_declared_alias(alias::in, prog_varset::in,
-		tvarset::in, string::out) is det.
-alias_to_user_declared_alias(Alias, ProgVarSet, TypeVarSet, String):- 
-	Alias = Data0 - Data1, 
-	prog_io_pasr__to_user_declared_datastruct(ProgVarSet, TypeVarSet, 
-			Data0, Data0String), 
-	prog_io_pasr__to_user_declared_datastruct(ProgVarSet, TypeVarSet,
-			Data1, Data1String),
-	string__append_list([Data0String, " - ", Data1String],
-			String). 
-		
-		
-
-%-----------------------------------------------------------------------------%
 
 %-----------------------------------------------------------------------------%
 % Extra 

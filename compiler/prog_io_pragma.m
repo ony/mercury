@@ -1413,7 +1413,7 @@ parse_tabled_for_io(term__functor(term__atom(Str), [], _), TabledForIo) :-
 :- mode parse_aliasing(in, in, out) is semidet.
 
 parse_aliasing(Term, VarSet, Aliasing):- 
-	pa_alias_as__parse_user_declared_aliases(Term, VarSet, Aliasing). 
+	prog_io_pasr__parse_user_declared_aliasing(Term, VarSet, Aliasing). 
 
 :- pred parse_max_stack_size(term::in, int::out) is semidet.
 

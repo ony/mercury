@@ -99,6 +99,7 @@
 
 :- import_module parse_tree__prog_io, parse_tree__prog_io_goal.
 :- import_module parse_tree__prog_io_dcg, parse_tree__prog_io_util.
+:- import_module parse_tree__prog_io_pasr.
 :- import_module parse_tree__prog_out, parse_tree__mercury_to_mercury.
 :- import_module parse_tree__prog_util, parse_tree__inst.
 :- import_module parse_tree__modules, parse_tree__module_qual.
@@ -5892,21 +5893,30 @@ clauses_info_add_pragma_foreign_proc(ClausesInfo0, Purity, Attributes0, PredId,
 rename_aliasing(ActualAliasing, ActualHVs, FormalHVs, FormalTypes, 
 			TVarSet, FormalAliasing):- 
 	ActualAliasing = aliasing(MaybeActualTypes, _, ActualAlias),
-
 	map__from_corresponding_lists(ActualHVs, FormalHVs, VarMapping), 
-	pa_alias_as__rename(VarMapping, ActualAlias, Alias0), 
 	(
 		MaybeActualTypes = yes(ActualTypes)
 	->
-		pa_alias_as__rename_types(ActualTypes, FormalTypes, 
-				Alias0, FormalAlias),
+		assoc_list__from_corresponding_lists(ActualTypes, 
+				FormalTypes, FromToTypes), 
+		list__foldl(
+			(pred(P::in, S0::in, S::out) is det :- 
+				P = F - T, 
+				( 
+				 	term__unify(F, T, S0, S1) 
+				-> 	S = S1
+				; 	S = S0
+				)), FromToTypes, map__init, Substitution), 
+		MaybeTypeMap = yes(Substitution),
 		term__vars_list(FormalTypes, FormalTVars), 
 		set__list_to_set(FormalTVars, TSet), 
 		varset__select(TVarSet, TSet, FormalVarSet) 
-	;
-		FormalAlias = Alias0,
+	; 
+		MaybeTypeMap = no,
 		FormalVarSet = varset__init
 	), 
+	rename_aliases_domain(VarMapping, MaybeTypeMap, ActualAlias, 
+			FormalAlias), 
 	% NB: MaybeActualTypes are not needed after this renaming
 	FormalAliasing = aliasing(yes(FormalTypes), FormalVarSet, FormalAlias). 
 		

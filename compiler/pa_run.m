@@ -809,6 +809,5 @@ pa_run__make_pa_interface_pred_proc(PredInfo, ProcTable, ProcId) -->
 	{ pred_info_typevarset(PredInfo, TVarSet) }, 
 	print_interface_maybe_aliases_domain(ProgVarSet, TVarSet, 
 		MaybeAliases),
-
 	io__write_string(").\n").
 
