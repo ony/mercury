@@ -1174,6 +1174,37 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 	;
 		[]
 	),
+	( { string__contains_char(Verbose, 'B') } ->
+		{ ProducingVars = GoalInfo ^ producing_vars },
+		{ set__to_sorted_list(ProducingVars, ProducingVarsList) },
+		hlds_out__write_indent(Indent),
+		io__write_string("% producing vars: "),
+		mercury_output_vars(ProducingVarsList, VarSet, AppendVarnums),
+		io__write_string("\n"),
+
+		{ ConsumingVars = GoalInfo ^ consuming_vars },
+		{ set__to_sorted_list(ConsumingVars, ConsumingVarsList) },
+		hlds_out__write_indent(Indent),
+		io__write_string("% consuming vars: "),
+		mercury_output_vars(ConsumingVarsList, VarSet, AppendVarnums),
+		io__write_string("\n"),
+
+		{ MakeVisibleVars = GoalInfo ^ make_visible_vars },
+		{ set__to_sorted_list(MakeVisibleVars, MakeVisibleVarsList) },
+		hlds_out__write_indent(Indent),
+		io__write_string("% make_visible vars: "),
+		mercury_output_vars(MakeVisibleVarsList, VarSet, AppendVarnums),
+		io__write_string("\n"),
+
+		{ NeedVisibleVars = GoalInfo ^ need_visible_vars },
+		{ set__to_sorted_list(NeedVisibleVars, NeedVisibleVarsList) },
+		hlds_out__write_indent(Indent),
+		io__write_string("% need_visible vars: "),
+		mercury_output_vars(NeedVisibleVarsList, VarSet, AppendVarnums),
+		io__write_string("\n")
+	;
+		[]
+	),
 	( { string__contains_char(Verbose, 'f') } ->
 		{ goal_info_get_follow_vars(GoalInfo, MaybeFollowVars) },
 		(
