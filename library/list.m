@@ -484,6 +484,21 @@
 :- mode list__foldl2(pred(in, di, uo, di, uo) is det,
 		in, di, uo, di, uo) is det.
 
+	% list__foldl3(Pred, List, Start1, End1, Start2, End2, Start3, End3) 
+	% calls Pred with each element of List (working left-to-right),
+	% 3 accumulators (with the initial values of Start1, Start2 and Start3),
+	% and returns the final values in End1, End2 and End3.
+	% (Although no more expressive than list__foldl, this is often
+	% a more convenient format, and a little more efficient).
+:- pred list__foldl3(pred(L, A1, A1, A2, A2, A3, A3), list(L),
+		A1, A1, A2, A2, A3, A3).
+:- mode list__foldl3(pred(in, in, out, in, out, in, out) is det,
+		in, in, out, in, out, in, out) is det.
+:- mode list__foldl3(pred(in, in, out, in, out, in, out) is semidet,
+		in, in, out, in, out, in, out) is semidet.
+:- mode list__foldl3(pred(in, in, out, in, out, in, out) is nondet,
+		in, in, out, in, out, in, out) is nondet.
+
 	% list__map_foldl(Pred, InList, OutList, Start, End) calls Pred
 	% with an accumulator (with the initial value of Start) on
 	% each element of InList (working left-to-right) to transform
@@ -1149,6 +1164,14 @@ list__foldl2(P, [H|T], FirstAcc0, FirstAcc, SecAcc0, SecAcc) :-
 	call(P, H, FirstAcc0, FirstAcc1, SecAcc0, SecAcc1),
 	list__foldl2(P, T, FirstAcc1, FirstAcc, SecAcc1, SecAcc).
 
+list__foldl3(_, [], FirstAcc, FirstAcc, SecAcc, SecAcc, ThirdAcc, ThirdAcc).
+list__foldl3(P, [H | T], FirstAcc0, FirstAcc, SecAcc0, SecAcc,
+		ThirdAcc0, ThirdAcc) :-
+	call(P, H, FirstAcc0, FirstAcc1, SecAcc0, SecAcc1,
+		ThirdAcc0, ThirdAcc1),
+	list__foldl3(P, T, FirstAcc1, FirstAcc, SecAcc1, SecAcc,
+		ThirdAcc1, ThirdAcc).
+
 list__map_foldl(_, [],  []) -->
         [].
 list__map_foldl(P, [H0|T0], [H|T]) -->
@@ -1223,11 +1246,12 @@ list__sort(P, L0, L) :-
         ).
 
 % list__hosort is actually det but the compiler can't confirm it
-:- pred list__hosort(pred(X, X, comparison_result), int, list(X), list(X), list(X)).
+:- pred list__hosort(pred(X, X, comparison_result), int, list(X),
+	list(X), list(X)).
 :- mode list__hosort(pred(in, in, out) is det, in, in, out, out) is semidet.
 
-	% list__hosort is a Mercury implementation of the mergesort described in
-	% The Craft of Prolog.
+	% list__hosort is a Mercury implementation of the mergesort
+	% described in The Craft of Prolog.
 	% N denotes the length of the part of L0 that this call is sorting.
 	% 		(require((length(L0, M), M >= N)))
 	% Since we have redundant information about the list (N, and the
@@ -1237,22 +1261,22 @@ list__hosort(P, N, L0, L, Rest) :-
         (
 		N = 1
 	->
-                L0 = [X|Rest],
+                L0 = [X | Rest],
 		L = [X]
         ;
 		N = 2
 	->
-		L0 = [X,Y|Rest],
+		L0 = [X, Y | Rest],
 		call(P, X, Y, C),
 		(
 			C = (<),
-			L = [X,Y]
+			L = [X, Y]
 		; 
 			C = (=),
-			L = [X,Y]
+			L = [X, Y]
 		;
 			C = (>),
-			L = [Y,X]
+			L = [Y, X]
 		)
         ;      
 		N1 is N//2,
@@ -1263,41 +1287,41 @@ list__hosort(P, N, L0, L, Rest) :-
         ).
 
 list__merge(_P, [], [], []).
-list__merge(_P, [], [Y|Ys], [Y|Ys]).
-list__merge(_P, [X|Xs], [], [X|Xs]).
-list__merge(P, [H1|T1], [H2|T2], L) :-
+list__merge(_P, [], [Y | Ys], [Y | Ys]).
+list__merge(_P, [X | Xs], [], [X | Xs]).
+list__merge(P, [H1 | T1], [H2 | T2], L) :-
 	call(P, H1, H2, C),
 	(
 		C = (<),
-		L = [H1|T],   
-		list__merge(P, T1, [H2|T2], T)
+		L = [H1 | T],   
+		list__merge(P, T1, [H2 | T2], T)
 	;
 		C = (=),
-		L = [H1,H2|T],
+		L = [H1, H2 | T],
 		list__merge(P, T1, T2, T)
 	;
 		C = (>),
-		L = [H2|T],   
-		list__merge(P, [H1|T1], T2, T)
+		L = [H2 | T],   
+		list__merge(P, [H1 | T1], T2, T)
 	).
 
 list__merge_and_remove_dups(_P, [], [], []).
-list__merge_and_remove_dups(_P, [], [Y|Ys], [Y|Ys]).
-list__merge_and_remove_dups(_P, [X|Xs], [], [X|Xs]).
-list__merge_and_remove_dups(P, [H1|T1], [H2|T2], L) :-
+list__merge_and_remove_dups(_P, [], [Y | Ys], [Y | Ys]).
+list__merge_and_remove_dups(_P, [X | Xs], [], [X | Xs]).
+list__merge_and_remove_dups(P, [H1 | T1], [H2 | T2], L) :-
 	call(P, H1, H2, C),
 	(
 		C = (<),
-		L = [H1|T],   
-		list__merge_and_remove_dups(P, T1, [H2|T2], T)
+		L = [H1 | T],   
+		list__merge_and_remove_dups(P, T1, [H2 | T2], T)
 	;
 		C = (=),
-		L = [H1 | T],
+		L = [H1  |  T],
 		list__merge_and_remove_dups(P, T1, T2, T)
 	;
 		C = (>),
-		L = [H2|T],   
-		list__merge_and_remove_dups(P, [H1|T1], T2, T)
+		L = [H2 | T],   
+		list__merge_and_remove_dups(P, [H1 | T1], T2, T)
 	).
 
 

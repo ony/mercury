@@ -32,7 +32,8 @@ SUBDIRS = \
 		browser \
 		compiler \
 		doc \
-		profiler
+		profiler \
+		deep_profiler
 
 MMAKEFLAGS =
 
@@ -52,7 +53,7 @@ SUBSUBDIR_MMAKE = PATH=../../scripts:../../util:$$PATH \
 # `mmake depend' forces them to be remade to ensure that they are up-to-date.
 
 .PHONY: dep
-dep: dep_library dep_browser dep_compiler dep_profiler
+dep: dep_library dep_browser dep_compiler dep_profiler dep_deep_profiler
 
 .PHONY: dep_library
 dep_library: library/$(deps_subdir)library.dep
@@ -78,6 +79,16 @@ dep_profiler: profiler/$(deps_subdir)mercury_profile.dep
 profiler/$(deps_subdir)mercury_profile.dep: library/$(deps_subdir)library.dep
 	cd profiler && $(SUBDIR_MMAKE) depend
 
+.PHONY: dep_deep_profiler
+dep_deep_profiler: deep_profiler/$(deps_subdir)mdprof_cgi.dep \
+		deep_profiler/$(deps_subdir)mdprof_server.dep
+
+deep_profiler/$(deps_subdir)mdprof_cgi.dep: library/$(deps_subdir)library.dep
+	cd deep_profiler && $(SUBDIR_MMAKE) mdprof_cgi.depend
+
+deep_profiler/$(deps_subdir)mdprof_server.dep: library/$(deps_subdir)library.dep
+	cd deep_profiler && $(SUBDIR_MMAKE) mdprof_server.depend
+
 # depend_library MUST be done before depend_compiler and depend_profiler
 
 .PHONY: depend
@@ -86,6 +97,7 @@ depend:
 	cd browser && $(SUBDIR_MMAKE) depend
 	cd compiler && $(SUBDIR_MMAKE) depend
 	cd profiler && $(SUBDIR_MMAKE) depend
+	cd deep_profiler && $(SUBDIR_MMAKE) depend
 
 .PHONY: depend_library
 depend_library:
@@ -102,6 +114,10 @@ depend_compiler:
 .PHONY: depend_profiler
 depend_profiler:
 	cd profiler && $(SUBDIR_MMAKE) depend
+
+.PHONY: depend_deep_profiler
+depend_deep_profiler:
+	cd deep_profiler && $(SUBDIR_MMAKE) depend
 
 #-----------------------------------------------------------------------------#
 
@@ -153,10 +169,15 @@ doc: scripts util
 profiler: dep_profiler scripts util boehm_gc runtime library browser trace
 	cd profiler && $(SUBDIR_MMAKE)
 
+.PHONY: deep_profiler
+deep_profiler: dep_deep_profiler scripts util boehm_gc runtime library \
+		browser trace
+	cd deep_profiler && $(SUBDIR_MMAKE)
+
 #-----------------------------------------------------------------------------#
 
 .PHONY: tags
-tags: tags_compiler tags_library tags_browser tags_profiler
+tags: tags_compiler tags_library tags_browser tags_profiler tags_deep_profiler
 
 .PHONY: tags_compiler
 tags_compiler:
@@ -173,6 +194,25 @@ tags_browser:
 .PHONY: tags_profiler
 tags_profiler:
 	cd profiler && $(SUBDIR_MMAKE) tags
+
+.PHONY: tags_deep_profiler
+tags_deep_profiler:
+	cd deep_profiler && $(SUBDIR_MMAKE) tags
+
+#-----------------------------------------------------------------------------#
+
+# Remove from each of the listed directories mmc-generated files that don't
+# belong there.
+cleanint:
+	for dir in browser compiler deep_profiler library profiler; do \
+		echo Looking for inappropriate files in the $$dir directory: ; \
+		( cd $$dir && ../tools/cleanint > .cleanint ) ; \
+		if test -s $$dir/.cleanint ; then \
+			cat $$dir/.cleanint ; \
+		else \
+			echo none found. ; \
+		fi \
+	done
 
 #-----------------------------------------------------------------------------#
 
@@ -218,6 +258,8 @@ tar: README INSTALL
 	cd compiler && $(SUBDIR_MMAKE) cs tags
 	cd profiler && $(SUBDIR_MMAKE) depend
 	cd profiler && $(SUBDIR_MMAKE) cs tags
+	cd deep_profiler && $(SUBDIR_MMAKE) depend
+	cd deep_profiler && $(SUBDIR_MMAKE) cs tags
 	cd doc && $(SUBDIR_MMAKE) info html dvi mdb_doc
 	cd bindist && $(SUBDIR_MMAKE) bindist.configure
 	# the following command might fail on Windows?
@@ -287,6 +329,11 @@ install: install_main install_grades
 	@echo "-- Don't forget to add $(INSTALL_BINDIR) to your PATH,"
 	@echo "-- $(INSTALL_MAN_DIR) to your MANPATH,"
 	@echo "-- and $(INSTALL_INFO_DIR) to your INFOPATH,"
+	@if test $(ENABLE_DEEP_PROFILER) != yes || \
+		cmp -s scripts/mdprof.in $(INSTALL_CGI_DIR)/mdprof; \
+	then true ; else \
+		echo "-- to copy scripts/mdprof to $(INSTALL_CGI_DIR),"; \
+	fi
 	@echo "-- and to add the following lines to the \`.emacs' file"
 	@echo "-- in your home directory:"
 	@echo "	(setq load-path (cons (expand-file-name "
@@ -297,7 +344,8 @@ install: install_main install_grades
 install_main: all \
 		install_scripts install_util install_runtime install_boehm_gc \
   		install_library install_browser install_trace \
-		install_compiler install_profiler install_doc 
+		install_compiler install_profiler install_deep_profiler \
+		install_doc 
  
 .PHONY: install_scripts
 install_scripts: scripts
@@ -340,6 +388,10 @@ install_doc: doc
 install_profiler: profiler
 	cd profiler && $(SUBDIR_MMAKE) install
 
+.PHONY: install_deep_profiler
+install_deep_profiler: deep_profiler
+	cd deep_profiler && $(SUBDIR_MMAKE) install
+
 .PHONY: install_grades
 install_grades: scripts
 	cd boehm_gc && rm -rf tmp_dir && mkdir tmp_dir && \
@@ -347,13 +399,15 @@ install_grades: scripts
 	cd runtime && rm -rf tmp_dir && mkdir tmp_dir && \
 		{ mv -f *.$O *.pic_o *.$A *.so tmp_dir || true; }
 	cd library && rm -rf tmp_dir && mkdir tmp_dir && \
-		{ mv -f *.dep *.h *.c *.$O *.pic_o *.$A *.so \
-			Mercury/deps/*.dep \
-			Mercury/cs/*.c Mercury/os/*.$O tmp_dir || true; }
+		{ mv -f *.dep *.h *.c *.c_date *.$O *.pic_o *.$A *.so *.used \
+			Mercury/useds/*.used Mercury/deps/*.dep \
+			Mercury/cs/*.c Mercury/c_dates/*.c_date \
+			Mercury/os/*.$O tmp_dir || true; }
 	cd browser && rm -rf tmp_dir && mkdir tmp_dir && \
-		{ mv -f *.dep *.h *.c *.$O *.pic_o *.$A *.so \
-			Mercury/deps/*.dep \
-			Mercury/cs/*.c Mercury/os/*.$O tmp_dir || true; }
+		{ mv -f *.dep *.h *.c *.c_date *.$O *.pic_o *.$A *.so *.used \
+			Mercury/useds/*.used Mercury/deps/*.dep \
+			Mercury/cs/*.c Mercury/c_dates/*.c_date \
+			Mercury/os/*.$O tmp_dir || true; }
 	cd trace && rm -rf tmp_dir && mkdir tmp_dir && \
 		{ mv -f *.$O *.pic_o *.$A *.so tmp_dir || true; }
 	#
@@ -382,10 +436,10 @@ install_grades: scripts
 		  $(SUBDIR_MMAKE) MC=mmc GRADE=$$grade install_lib ) && \
 		( cd boehm_gc && rm -f *.$O *.pic_o *.$A *.so ) && \
 		( cd runtime && rm -f *.$O *.pic_o *.$A *.so ) && \
-		( cd library && rm -f *.dep *.h *.c *.$O *.pic_o *.$A *.so \
-				Mercury/cs/*.c Mercury/os/*.$O ) && \
-		( cd browser && rm -f *.dep *.h *.c *.$O *.pic_o *.$A *.so \
-				Mercury/cs/*.c Mercury/os/*.$O ) && \
+		( cd library && rm -f *.dep *.h *.c *.c_date *.$O *.pic_o \
+				*.$A *.so Mercury/cs/*.c Mercury/os/*.$O ) && \
+		( cd browser && rm -f *.dep *.h *.c *.c_date *.$O *.pic_o \
+				*.$A *.so Mercury/cs/*.c Mercury/os/*.$O ) && \
 		( cd trace && rm -f *.$O *.pic_o *.$A *.so ) && \
 		true \
 		|| { scripts/mercury_cleanup_install; exit 1; }; \
@@ -396,10 +450,18 @@ install_grades: scripts
 	cd library  && { [ -d Mercury/cs ] && mv tmp_dir/*.c Mercury/cs; \
 			 [ -d Mercury/os ] && mv tmp_dir/*.$O Mercury/os; \
 			 [ -d Mercury/deps ] && mv tmp_dir/*.dep Mercury/deps;\
+			 [ -d Mercury/c_dates ] && \
+			 	mv tmp_dir/*.c_date Mercury/c_dates;\
+			 [ -d Mercury/useds ] && \
+			 	mv tmp_dir/*.used Mercury/useds;\
 			 mv tmp_dir/* . ; rmdir tmp_dir; true; }
 	cd browser  && { [ -d Mercury/cs ] && mv tmp_dir/*.c Mercury/cs; \
 			 [ -d Mercury/os ] && mv tmp_dir/*.$O Mercury/os; \
 			 [ -d Mercury/deps ] && mv tmp_dir/*.dep Mercury/deps;\
+			 [ -d Mercury/c_dates ] && \
+			 	mv tmp_dir/*.c_date Mercury/c_dates;\
+			 [ -d Mercury/useds ] && \
+			 	mv tmp_dir/*.used Mercury/useds;\
 			 mv tmp_dir/* . ; rmdir tmp_dir; true; }
 	cd trace    && { mv tmp_dir/* . ; rmdir tmp_dir; true; }
 
@@ -454,6 +516,9 @@ touch_files:
 	touch profiler/*.date*
 	chmod +w profiler/*.dep
 	touch profiler/*.dep
+	touch deep_profiler/*.date*
+	chmod +w deep_profiler/*.dep
+	touch deep_profiler/*.dep
 	touch doc/*.texi configure
 	sleep 1
 	touch boehm_gc/*.c
@@ -463,6 +528,7 @@ touch_files:
 	touch trace/*.c
 	touch compiler/*.c
 	touch profiler/*.c
+	touch deep_profiler/*.c
 	touch doc/*.info doc/*.dvi doc/*.html config.status
 
 #-----------------------------------------------------------------------------#

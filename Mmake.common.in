@@ -51,13 +51,6 @@ CFLAGS_FOR_PIC		= @CFLAGS_FOR_PIC@
 # just reuse the .o files.
 EXT_FOR_PIC_OBJECTS	= @EXT_FOR_PIC_OBJECTS@
 
-# Set LIBRARY_RM_C as `:' if EXT_FOR_PIC_OBJECTS is `pic_o', or `rm'
-# otherwise.  This is used to ensure that in cases when we're building
-# both `.o' and `.pic_o' files, we don't remove the intermediate `.c' files.
-# This avoids compiling things to C twice, and also avoids problems when
-# bootstrapping from the source distribution.
-LIBRARY_RM_C		= @LIBRARY_RM_C@
-
 # This specifies the path to the so_locations file (or its equivalent),
 # which is used by the linker to help it to map different shared objects
 # to different virtual memory addresses at static link time, so as to avoid 
@@ -196,6 +189,10 @@ GCC_SRC_DIR = @GCC_SRC_DIR@
 # the stage2 and stage3 directories). 
 INCLUDE_ADITI_OUTPUT = @ENABLE_ADITI_BACK_END@
 
+# Enable building of the deep profiler?
+# This value of ENABLE_DEEP_PROFILER is either yes or no.
+ENABLE_DEEP_PROFILER=@ENABLE_DEEP_PROFILER@
+
 #-----------------------------------------------------------------------------#
 
 INSTALL_INFO=@INSTALL_INFO@
@@ -259,12 +256,12 @@ BOEHMGC_MAKEFILE=@BOEHMGC_MAKEFILE@
 
 # This rule helps to check that header files is self-contained, i.e. that each
 # header file foo.h includes any other header files that define types
-# used by foo.h. It creates a foo_check.c file that contains only a single
-# `#include' statement that includes foo.h; compiling foo_check.c will fail
+# used by foo.h. It creates a foo.check.c file that contains only a single
+# `#include' statement that includes foo.h; compiling foo.check.c will fail
 # if foo.h is not self-contained.
 
-%_check.c : %.h
-	echo "#include \"$*.h\"" > $*_check.c
+%.check.c : %.h
+	echo "#include \"$*.h\"" > $*.check.c
 
 # This rule checks whether a header file defines any macros it shouldn't.
 # It generates the list of macros defined in the header file, and filters this
@@ -273,10 +270,10 @@ BOEHMGC_MAKEFILE=@BOEHMGC_MAKEFILE@
 # the HEADER_CLEAN_FILTER make variable to contain this command.
 
 AWK = awk
-%_check.macros: %.h %_check.c
+%.check.macros: %.h %.check.c
 	-$(MGNUC) $(ALL_GRADEFLAGS) $(ALL_MGNUCFLAGS) \
 		-DMERCURY_BOOTSTRAP_H \
-		-E $*_check.c \
+		-E $*.check.c \
 		-nostdinc -dN \
 		2> /dev/null | $(AWK) '/^#define/ { print $$2; }' | \
 		$(HEADER_CLEAN_FILTER) | sort -u > $@

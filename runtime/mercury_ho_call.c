@@ -21,6 +21,85 @@ ENDINIT
 
 #include "mercury_imp.h"
 #include "mercury_ho_call.h"
+#include "mercury_deep_profiling.h"
+#include "mercury_deep_profiling_hand.h"
+
+#ifdef	MR_DEEP_PROFILING
+  #ifdef MR_DEEP_PROFILING_STATISTICS
+    #define	maybe_incr_prof_call_builtin_new()			\
+			do { MR_deep_prof_call_builtin_new++; } while (0)
+    #define	maybe_incr_prof_call_builtin_old()			\
+			do { MR_deep_prof_call_builtin_old++; } while (0)
+  #else
+    #define	maybe_incr_prof_call_builtin_new()			\
+			((void) 0)
+    #define	maybe_incr_prof_call_builtin_old()			\
+			((void) 0)
+  #endif
+
+  #ifdef MR_DEEP_PROFILING_EXPLICIT_CALL_COUNTS
+    #define	maybe_incr_call_count(csd)				\
+			do { csd->MR_csd_own.MR_own_calls++; } while (0)
+  #else
+    #define	maybe_incr_call_count(csd)				\
+			((void) 0)
+  #endif
+
+  #define	special_pred_call_leave_code(ps, field)			\
+	do {								\
+		MR_CallSiteDynamic	*csd;				\
+		MR_ProcDynamic		*pd;				\
+									\
+		csd = MR_next_call_site_dynamic;			\
+		pd = csd->MR_csd_callee_ptr;				\
+		if (pd == NULL) {					\
+			MR_new_proc_dynamic(pd, (MR_ProcStatic *) &ps);	\
+			csd->MR_csd_callee_ptr = pd;			\
+			maybe_incr_prof_call_builtin_new();		\
+		} else {						\
+			maybe_incr_prof_call_builtin_old();		\
+		}							\
+		maybe_incr_call_count(csd);				\
+		csd->MR_csd_own.field++;				\
+	} while (0)
+
+  #define	unify_call_exit_code(predname)				\
+	special_pred_call_leave_code(					\
+		MR_proc_static_user_builtin_name(predname, 2, 0),	\
+		MR_own_exits)
+
+  #define	unify_call_fail_code(predname)				\
+	special_pred_call_leave_code(					\
+		MR_proc_static_user_builtin_name(predname, 2, 0),	\
+		MR_own_fails)
+
+  #define	compare_call_exit_code(predname)			\
+	special_pred_call_leave_code(					\
+		MR_proc_static_user_builtin_name(predname, 3, 0),	\
+		MR_own_exits)
+
+MR_proc_static_user_builtin_empty(integer_unify, 2, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(integer_compare, 3, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(float_unify, 2, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(float_compare, 3, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(string_unify, 2, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(string_compare, 3, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(c_pointer_unify, 2, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(c_pointer_compare, 3, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(typeinfo_unify, 2, 0,
+	"mercury_ho_call.c", 0, TRUE);
+MR_proc_static_user_builtin_empty(typeinfo_compare, 3, 0,
+	"mercury_ho_call.c", 0, TRUE);
+
+#endif
 
 #ifndef MR_HIGHLEVEL_CODE
 static	MR_Word	MR_generic_compare(MR_TypeInfo type_info, MR_Word x, MR_Word y);
@@ -232,6 +311,7 @@ MR_define_entry(mercury__unify_2_0);
 #define	call_user_code_label	call_unify_in_proc
 #define	type_stat_struct	MR_type_stat_mer_unify
 #define	attempt_msg		"attempt to unify "
+#define	entry_point_is_mercury
 
 #include "mercury_unify_compare_body.h"
 
@@ -243,6 +323,7 @@ MR_define_entry(mercury__unify_2_0);
 #undef	call_user_code_label
 #undef  type_stat_struct
 #undef  attempt_msg
+#undef  entry_point_is_mercury
 
 }
 
@@ -254,19 +335,19 @@ MR_define_entry(mercury__unify_2_0);
 */
 
 MR_define_entry(mercury__compare_3_0);
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
 {
 	MR_tailcall(MR_ENTRY(mercury__compare_3_3), MR_LABEL(mercury__compare_3_0));
 }
 #endif
 MR_define_entry(mercury__compare_3_1);
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
 {
 	MR_tailcall(MR_ENTRY(mercury__compare_3_3), MR_LABEL(mercury__compare_3_1));
 }
 #endif
 MR_define_entry(mercury__compare_3_2);
-#ifdef PROFILE_CALLS
+#ifdef MR_MPROF_PROFILE_CALLS
 {
 	MR_tailcall(MR_ENTRY(mercury__compare_3_3), MR_LABEL(mercury__compare_3_2));
 }
@@ -304,6 +385,7 @@ MR_define_entry(mercury__compare_3_3);
 #define	type_stat_struct	MR_type_stat_mer_compare
 #define	attempt_msg		"attempt to compare "
 #define	select_compare_code
+#define	entry_point_is_mercury
 
 #include "mercury_unify_compare_body.h"
 
@@ -316,6 +398,7 @@ MR_define_entry(mercury__compare_3_3);
 #undef  type_stat_struct
 #undef  attempt_msg
 #undef	select_compare_code
+#undef	entry_point_is_mercury
 
 }
 MR_END_MODULE
@@ -410,9 +493,48 @@ MR_generic_compare(MR_TypeInfo type_info, MR_Word x, MR_Word y)
 ** in the list of initialization functions that get called.
 ** So for MR_HIGHLEVEL_CODE it just does nothing.
 */
-void mercury_sys_init_call(void); /* suppress gcc warning */
-void mercury_sys_init_call(void) {
+
+/* forward decls to suppress gcc warnings */
+void mercury_sys_init_call_init(void);
+void mercury_sys_init_call_init_type_tables(void);
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_call_write_out_proc_statics(FILE *fp);
+#endif
+
+void mercury_sys_init_call_init(void)
+{
 #ifndef MR_HIGHLEVEL_CODE
 	call_module();
 #endif /* not MR_HIGHLEVEL_CODE */
 }
+
+void mercury_sys_init_call_init_type_tables(void)
+{
+	/* no types to register */
+}
+
+#ifdef	MR_DEEP_PROFILING
+void mercury_sys_init_call_write_out_proc_statics(FILE *fp)
+{
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(integer_unify, 2, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(integer_compare, 3, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(float_unify, 2, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(float_compare, 3, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(string_unify, 2, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(string_compare, 3, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(c_pointer_unify, 2, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(c_pointer_compare, 3, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(typeinfo_unify, 2, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_builtin_name(typeinfo_compare, 3, 0));
+}
+#endif

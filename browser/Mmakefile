@@ -24,12 +24,6 @@ VPATH=$(LIBRARY_DIR)
 
 #-----------------------------------------------------------------------------#
 
-# If we're going to generate both `.o' files and `.pic_o' files, then
-# don't remove the intermediate `.c' files.
-RM_C	=	$(LIBRARY_RM_C)
-
-#-----------------------------------------------------------------------------#
-
 # Specify which compilers to use to compile the library.
 # Don't change these without good reason - if you want to
 # do a temporary change, change ../Mmake.params.
@@ -62,6 +56,11 @@ LDLIBS	=	-l$(STD_LIB_NAME) -l$(RT_LIB_NAME) \
 		    *.gc*)		echo "-lgc" ;;			\
 		  esac							\
 		`
+
+# XXX Smart recompilation currently doesn't work when the module
+# name doesn't match the file name, so disable warnings about it
+# not working in this directory.
+MCFLAGS += --no-warn-smart-recompilation
 
 MTAGS	=	$(SCRIPTS_DIR)/mtags
 

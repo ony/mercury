@@ -117,6 +117,13 @@
 			maybe(int32),		% offset for explicit layout
 			field_initializer	% initializer
 		)
+		% .property (a class property)
+	;	property(
+			ilds__type,		% property type
+			ilds__id,		% property name
+			maybe(methodhead),	% get property
+			maybe(methodhead)	% set property
+		)
 		% .class (a nested class)
 	;	nested_class(
 			list(classattr),	% attributes for the class
@@ -177,12 +184,18 @@
 
 	% attributes that a class can have.
 	% see SDK documentation for what they all mean.
-:- type classattr
-	--->	abstract    ;  ansi       ;  auto          ;  autochar
-	;	contextful  ;  enum       ;  explicit      ;  import
-	;	interface   ;  lazyinit   ;  marshalbyref  ;  public
-	;	sealed      ;  sequential ;  unicode       ;  value
-	;	wrapper.
+:-  type classattr
+	--->	abstract		; ansi
+	;	auto			; autochar
+	;	beforefieldinit		; explicit
+	;	interface		; nestedassembly
+	;	nestedfamandassem	; nestedfamily
+	;	nestedfamorassem	; nestedprivate
+	;	nestedpublic		; private
+	;	public 			; rtspecialname
+	;	sealed			; sequential
+	;	serializable		; specialname
+	;	unicode.
 
 	% attributes that a method can have.	
 	% see SDK documentation for what they all mean.
@@ -289,7 +302,7 @@ ilasm__output(Blocks, Info0, Info) -->
 ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 		Info0, Info) --> 
 	io__write_string(".class "),
-	io__write_list(Attrs, " ", io__write),
+	io__write_list(Attrs, " ", output_classattr),
 	( { Attrs \= [] } ->
 		io__write_string(" ")
 	;
@@ -330,7 +343,7 @@ ilasm__output_decl(namespace(DottedName, Contents), Info0, Info) -->
 ilasm__output_decl(method(MethodHead, MethodDecls), Info0, Info) --> 
 	io__write_string(".method "),
 	output_methodhead(MethodHead, Info0, Info1),
-	io__write_string(" {\n"),
+	io__write_string("\n{\n"),
 	ilasm__write_list(MethodDecls, "\n", output_method_body_decl,
 		Info1, Info),
 	io__write_string("}\n").
@@ -421,18 +434,39 @@ ilasm__output_classdecl(
 		[]
 	),
 	io__write_list(FieldAttrs, " ", io__write),
-	( { FieldAttrs \= [] } ->
-		io__write_string(" ")
-	;
-		[]
-	),
+	io__write_string("\n\t"),
 	output_type(Type, Info0, Info),
-	io__write_string(" "),
+	io__write_string("\n\t"),
 	output_id(IlId),
 	output_field_initializer(Initializer).
 
-ilasm__output_classdecl(nested_class(Attrs, Id, Extends, Implements, Contents),
-		Info0, Info) --> 
+ilasm__output_classdecl(
+		property(Type, Name, MaybeGet, MaybeSet), Info0, Info) -->
+	io__write_string(".property instance "),
+	output_type(Type, Info0, Info1),
+	io__write_string(" "),
+	output_id(Name),
+	io__write_string("() {"),
+	( { MaybeGet = yes(methodhead(_, GetMethodName, GetSignature, _)) },
+		io__nl,
+		io__write_string("\t.get instance "),
+		output_name_signature_and_call_conv(GetSignature,
+				yes(GetMethodName), "\t\t", Info1, Info2)
+	; { MaybeGet = no },
+		{ Info2 = Info1 }
+	),
+	( { MaybeSet = yes(methodhead(_, SetMethodName, SetSignature, _)) },
+		io__nl,
+		io__write_string("\t.set instance "),
+		output_name_signature_and_call_conv(SetSignature,
+				yes(SetMethodName), "\t\t", Info2, Info)
+	; { MaybeSet = no },
+		{ Info = Info2 }
+	),
+	io__write_string("\n}\n").
+
+ilasm__output_classdecl(nested_class(Attrs, Id, Extends, Implements,
+		Contents), Info0, Info) --> 
 	ilasm__output_decl(class(Attrs, Id, Extends, Implements, Contents),
 		Info0, Info).
 
@@ -476,7 +510,7 @@ ilasm__output_methodhead(methodhead(Attrs, MethodName, Signature,
 	;
 		[]
 	),
-	output_name_signature_and_call_conv(Signature, yes(MethodName),
+	output_name_signature_and_call_conv(Signature, yes(MethodName), "\t",
 		Info0, Info),
 	io__write_list(ImplAttrs, " ", io__write).
 
@@ -526,22 +560,30 @@ output_call_conv(call_conv(IsInstance, IlCallConv)) -->
 	).
 
 :- pred output_name_signature_and_call_conv(signature::in,
-	maybe(member_name)::in, ilasm_info::in, ilasm_info::out,
+	maybe(member_name)::in, string::in, ilasm_info::in, ilasm_info::out,
 	io__state::di, io__state::uo) is det.
 output_name_signature_and_call_conv(signature(CallConv, ReturnType,
-		 ArgTypes), MaybeMethodName, Info0, Info) -->
+		 ArgTypes), MaybeMethodName, Indent, Info0, Info) -->
 	output_call_conv(CallConv),
-	io__write_string(" "),
+	io__write_string("\n"),
+	io__write_string(Indent),
 	output_ret_type(ReturnType, Info0, Info1),
-	io__write_string(" "),
 	( { MaybeMethodName = yes(MethodName) } ->
+		io__write_string("\n"),
+		io__write_string(Indent),
 		output_member_name(MethodName)
 	;
-		[]
+		io__write_string(" ")
 	),
-	io__write_string("("),
-	ilasm__write_list(ArgTypes, ", ", output_param, Info1, Info),
-	io__write_string(")").
+	( { ArgTypes = [] } ->
+		io__write_string("()"),
+		{ Info = Info0 }
+	;
+		io__write_string("(\n\t\t"),
+		ilasm__write_list(ArgTypes, ",\n\t\t", output_param,
+			Info1, Info),
+		io__write_string("\n\t)")
+	).
 
 :- pred output_member_name(member_name::in, io__state::di,
 	 io__state::uo) is det.
@@ -609,7 +651,7 @@ output_simple_type(class(Name), Info0, Info) -->
 	io__write_string("class "),
 	output_structured_name(Name, Info0, Info).
 output_simple_type(value_class(Name), Info0, Info) --> 
-	io__write_string("value_class "),
+	io__write_string("valuetype "),
 	output_structured_name(Name, Info0, Info).
 output_simple_type(interface(Name), Info0, Info) --> 
 	io__write_string("interface "),
@@ -643,11 +685,12 @@ output_simple_type_opcode(float32) --> io__write_string("r4").
 output_simple_type_opcode(float64) --> io__write_string("r8").
 output_simple_type_opcode(native_float) --> 
 	{ error("unable to create opcode for native_float") }.
-		% XXX should i4 be used for bool and char? 
+		% XXX should i4 be used for bool? 
 output_simple_type_opcode(bool) --> io__write_string("i4").
-output_simple_type_opcode(char) --> io__write_string("i4").
+output_simple_type_opcode(char) --> io__write_string("i2").
 
 	% all reference types use "ref" as their opcode.
+	% XXX is "ref" here correct for value classes?
 output_simple_type_opcode(refany) --> io__write_string("ref").
 output_simple_type_opcode(class(_Name)) --> io__write_string("ref").
 output_simple_type_opcode(value_class(_Name)) --> io__write_string("ref").
@@ -729,27 +772,32 @@ output_debug_instruction(Instr, Info0, Info) -->
 		output_trace_instr(Instr, Info1, Info),
 		io__write_string("\n")
 
-
 	; { Instr = start_block(scope(Locals), Id) } ->
 		{ string__format("{\t// #%d", [i(Id)], S) },
 		io__write_string(S),
 		io__nl,
 		output_trace(S),
 
+		( { Locals = [] } ->
+			{ Info = Info0 }
+		;
 			% output the .locals decl
-		io__write_string(".locals ("),
-		ilasm__write_list(Locals, ", ", output_local, Info0, Info1),
-		io__write_string(")"),
-		io__write_string("\n"),
+			io__write_string("\t.locals (\n\t\t"),
+			ilasm__write_list(Locals, ",\n\t\t", output_local,
+				Info0, Info1),
+			io__write_string("\n\t)"),
+			io__write_string("\n"),
 
-			% trace the .locals decl
-		io__write_string("\t\tldstr """),
-		io__write_string(".locals ("),
-		ilasm__write_list(Locals, ", ", output_local, Info1, Info),
-		io__write_string(")"),
-		io__write_string("\\n"""),
-		io__write_string("\n"),
-		io__write_string("\t\tcall void ['mscorlib']System.Console::Write(class ['mscorlib']System.String)\n")
+				% trace the .locals decl
+			io__write_string("\t\tldstr """),
+			io__write_string(".locals (\\n\\t\\t"),
+			ilasm__write_list(Locals, ",\\n\\t\\t", output_local,
+				Info1, Info),
+			io__write_string(")"),
+			io__write_string("\\n"""),
+			io__write_string("\n"),
+			io__write_string("\t\tcall void ['mscorlib']System.Console::Write(class ['mscorlib']System.String)\n")
+		)
 
 	;
 		output_trace_instr(Instr, Info0, Info1),
@@ -806,6 +854,9 @@ output_instruction(PrintComments, Instr, Info0, Info) -->
 :- pred output_instr(instr::in, ilasm_info::in, ilasm_info::out,
 	io__state::di, io__state::uo) is det.
 
+output_instr(il_asm_code(Code, _MaxStack), I, I) --> 
+	io__write_string(Code).
+
 output_instr(comment(Comment), I, I) --> 
 	output_comment_string(Comment).
 
@@ -817,9 +868,13 @@ output_instr(start_block(scope(Locals), Id), Info0, Info) -->
 	io__write_string("{"),
 	io__write_string("\t// #"),
 	io__write_int(Id),
-	io__write_string("\n\t.locals ("),
-	ilasm__write_list(Locals, ", ", output_local, Info0, Info),
-	io__write_string(")\n").
+	( { Locals = [] } ->
+		{ Info = Info0 }
+	;
+		io__write_string("\n\t.locals (\n\t\t"),
+		ilasm__write_list(Locals, ",\n\t\t", output_local, Info0, Info),
+		io__write_string("\n\t)\n")
+	).
 
 output_instr(start_block(try, Id), I, I) -->
 	io__write_string(".try {"),
@@ -851,11 +906,11 @@ output_instr(end_block(try, Id), I, I) -->
 	io__write_string(" (try block)").
 
 output_instr(context(File, Line), I, I) -->
-	io__write_string(".line "),
+	io__write_string("\n\t.line "),
 	io__write_int(Line),
 	io__write_string(" '"),
 	io__write_string(File),
-	io__write_string("'\n").
+	io__write_string("'").
 
 output_instr(call(MethodRef), Info0, Info) --> 
 	io__write_string("call\t"),
@@ -867,18 +922,12 @@ output_instr(callvirt(MethodRef), Info0, Info) -->
 
 output_instr(calli(Signature), Info0, Info) -->
 	io__write_string("calli\t"),
-	output_name_signature_and_call_conv(Signature, no, Info0, Info).
+	output_name_signature_and_call_conv(Signature, no, "\t\t", Info0, Info).
 
 output_instr(ret, I, I) --> 
 	io__write_string("ret").
 output_instr((and), I, I) --> 
 	io__write_string("and").
-output_instr(ann_catch, I, I) --> 
-	io__write_string("ann_catch").
-output_instr(ann_def, I, I) --> 
-	io__write_string("ann_def").
-output_instr(ann_lab, I, I) --> 
-	io__write_string("ann_lab").
 output_instr(arglist, I, I) --> 
 	io__write_string("arglist").
 output_instr(break, I, I) --> 
@@ -891,16 +940,12 @@ output_instr(cpblk, I, I) -->
 	io__write_string("cpblk").
 output_instr(dup, I, I) -->
 	io__write_string("dup").
-output_instr(endcatch, I, I) -->
-	io__write_string("endcatch").
 output_instr(endfilter, I, I) --> 
 	io__write_string("endfilter").
 output_instr(endfinally, I, I) --> 
 	io__write_string("endfinally").
 output_instr(initblk, I, I) --> 
 	io__write_string("initblk").
-output_instr(jmpi, I, I) --> 
-	io__write_string("jmpi").
 output_instr(ldnull, I, I) --> 
 	io__write_string("ldnull").
 output_instr(localloc, I, I) --> 
@@ -923,16 +968,10 @@ output_instr(volatile, I, I) -->
 	io__write_string("volatile").
 output_instr(xor, I, I) --> 
 	io__write_string("xor").
-output_instr(entercrit, I, I) --> 
-	io__write_string("entercrit").
-output_instr(exitcrit, I, I) -->
-	io__write_string("exitcrit").
 output_instr(ldlen, I, I) --> 
 	io__write_string("ldlen").
 output_instr(throw, I, I) --> 
 	io__write_string("throw").
-output_instr(ann_hoisted_call, I, I) -->
-	io__write_string("ann_hoisted_call").
 
 	% There are short forms of various instructions.
 	% The assembler can't generate them for you.
@@ -1176,10 +1215,6 @@ output_instr(ldflda(FieldRef), Info0, Info) -->
 output_instr(ldobj(Type), Info0, Info) -->
 	io__write_string("ldobj\t"),
 	output_type(Type, Info0, Info).
-	
-output_instr(ldrefany(Index), I, I) -->
-	io__write_string("ldrefany\t"),
-	output_index(Index).
 
 output_instr(ldsfld(FieldRef), Info0, Info) --> 
 	io__write_string("ldsfld\t"),
@@ -1208,6 +1243,16 @@ output_instr(newobj(MethodRef), Info0, Info) -->
 	io__write_string("newobj\t"),
 	output_methodref(MethodRef, Info0, Info).
 
+output_instr(refanytype, I, I) --> 
+	io__write_string("refanytype").
+
+output_instr(refanyval(Type), Info0, Info) --> 
+	io__write_string("refanyval\t"),
+	output_type(Type, Info0, Info).
+
+output_instr(rethrow, I, I) --> 
+	io__write_string("rethrow").
+
 output_instr(stelem(SimpleType), I, I) --> 
 	io__write_string("stelem."),
 	output_simple_type_opcode(SimpleType).
@@ -1216,28 +1261,21 @@ output_instr(stfld(FieldRef), Info0, Info) -->
 	io__write_string("stfld\t"),
 	output_fieldref(FieldRef, Info0, Info).
 
+output_instr(stobj(Type), Info0, Info) -->
+	io__write_string("stobj\t"),
+	output_type(Type, Info0, Info).
+	
+output_instr(sizeof(Type), Info0, Info) -->
+	io__write_string("sizeof\t"),
+	output_type(Type, Info0, Info).
+
 output_instr(stsfld(FieldRef), Info0, Info) --> 
 	io__write_string("stsfld\t"),
 	output_fieldref(FieldRef, Info0, Info).
 
-output_instr(typerefany(Index), I, I) -->
-	io__write_string("typerefany\t"),
-	output_index(Index).
-
 output_instr(unbox(Type), Info0, Info) -->
 	io__write_string("unbox\t"),
 	output_type(Type, Info0, Info).
-
-	% This is stuff for "Opt-IL", which was (is?) some sort of 
-	% optimization annotated IL.  I have no idea whether it is used
-	% at all.
-output_instr(ann_call(_), I, I) --> { error("output not implemented") }.
-output_instr(ann_data(_), I, I) --> { error("output not implemented") }.
-output_instr(ann_dead(_), I, I) --> { error("output not implemented") }.
-output_instr(ann_hoisted(_), I, I) --> { error("output not implemented") }.
-output_instr(ann_live(_), I, I) --> { error("output not implemented") }.
-output_instr(ann_phi(_), I, I) --> { error("output not implemented") }.
-output_instr(ann_ref(_), I, I) --> { error("output not implemented") }.
 
 :- pred output_overflow(overflow::in, io__state::di,
 		io__state::uo) is det.
@@ -1270,24 +1308,11 @@ output_target(label_target(Label)) -->
 	io__state::di, io__state::uo) is det.
 output_fieldref(fieldref(Type, ClassMemberName), Info0, Info) -->
 	output_type(Type, Info0, Info1),
-	io__write_string(" "),
+	io__write_string("\n\t\t"),
 	output_class_member_name(ClassMemberName, Info1, Info).
 
 :- pred output_methodref(methodref::in, ilasm_info::in, ilasm_info::out,
 		io__state::di, io__state::uo) is det.
-output_methodref(methodref(call_conv(IsInstance, _), ReturnType, 
-		StructuredName, ArgTypes), Info0, Info) -->
-	( { IsInstance = yes } ->
-		io__write_string("instance ")
-	;
-		[]
-	),
-	output_ret_type(ReturnType, Info0, Info1),
-	io__write_string(" "),
-	output_structured_name(StructuredName, Info1, Info2),
-	io__write_string("("),
-	ilasm__write_list(ArgTypes, ", ", output_type, Info2, Info),
-	io__write_string(")").
 output_methodref(methoddef(call_conv(IsInstance, _), ReturnType, 
 		ClassMemberName, ArgTypes), Info0, Info) -->
 	( { IsInstance = yes } ->
@@ -1296,11 +1321,17 @@ output_methodref(methoddef(call_conv(IsInstance, _), ReturnType,
 		[]
 	),
 	output_ret_type(ReturnType, Info0, Info1),
-	io__write_string(" "),
+	io__write_string("\n\t\t"),
 	output_class_member_name(ClassMemberName, Info1, Info2),
-	io__write_string("("),
-	ilasm__write_list(ArgTypes, ", ", output_type, Info2, Info),
-	io__write_string(")").
+	( { ArgTypes = [] } ->
+		io__write_string("()\n"),
+		{ Info = Info0 }
+	;
+		io__write_string("(\n\t\t\t"),
+		ilasm__write_list(ArgTypes, ",\n\t\t\t", output_type,
+			Info2, Info),
+		io__write_string("\n\t\t)")
+	).
 output_methodref(local_method(call_conv(IsInstance, _), ReturnType, 
 		MethodName, ArgTypes), Info0, Info) -->
 	( { IsInstance = yes } ->
@@ -1309,11 +1340,41 @@ output_methodref(local_method(call_conv(IsInstance, _), ReturnType,
 		[]
 	),
 	output_ret_type(ReturnType, Info0, Info1),
-	io__write_string(" "),
+	io__write_string("\n\t\t"),
 	output_member_name(MethodName),
-	io__write_string("("),
-	ilasm__write_list(ArgTypes, ", ", output_type, Info1, Info),
-	io__write_string(")").
+	( { ArgTypes = [] } ->
+		io__write_string("()\n"),
+		{ Info = Info0 }
+	;
+		io__write_string("(\n\t\t\t"),
+		ilasm__write_list(ArgTypes, ",\n\t\t\t", output_type,
+			Info1, Info),
+		io__write_string("\n\t\t)")
+	).
+
+:- pred output_classattr(classattr::in, io__state::di, io__state::uo) is det.
+
+output_classattr(abstract) --> io__write_string("abstract").
+output_classattr(ansi) --> io__write_string("ansi").
+output_classattr(auto) --> io__write_string("auto").
+output_classattr(autochar) --> io__write_string("autochar").
+output_classattr(beforefieldinit) --> io__write_string("beforefieldinit").
+output_classattr(explicit) --> io__write_string("explicit").
+output_classattr(interface) --> io__write_string("interface").
+output_classattr(nestedassembly) --> io__write_string("nested assembly").
+output_classattr(nestedfamandassem) --> io__write_string("nested famandassem").
+output_classattr(nestedfamily) --> io__write_string("nested family").
+output_classattr(nestedfamorassem) --> io__write_string("nested famorassem").
+output_classattr(nestedprivate) --> io__write_string("nested private").
+output_classattr(nestedpublic) --> io__write_string("nested public").
+output_classattr(private) --> io__write_string("private").
+output_classattr(public) --> io__write_string("public").
+output_classattr(rtspecialname) --> io__write_string("rtspecialname").
+output_classattr(sealed) --> io__write_string("sealed").
+output_classattr(sequential) --> io__write_string("sequential").
+output_classattr(serializable) --> io__write_string("serializable").
+output_classattr(specialname) --> io__write_string("specialname").
+output_classattr(unicode) --> io__write_string("unicode").
 
 :- pred ilasm__output_assembly_decl(assembly_decl::in, 
 	io__state::di, io__state::uo) is det.

@@ -22,8 +22,9 @@
 % Any types which are needed in both the parse tree and in the HLDS
 % should be defined here, rather than in hlds*.m.
 
-:- import_module (inst).
-:- import_module bool, list, assoc_list, map, varset, term, std_util.
+:- import_module (inst), options.
+:- import_module recompilation.
+:- import_module bool, list, assoc_list, map, set, varset, term, std_util.
 :- import_module pa_alias_as.
 :- import_module sr_data.
 
@@ -46,42 +47,31 @@
 :- type item_and_context ==	pair(item, prog_context).
 
 :- type item		
-	--->	pred_clause(prog_varset, sym_name, list(prog_term), goal)
-		%      VarNames, PredName, HeadArgs, ClauseBody
+	--->	clause(prog_varset, pred_or_func, sym_name,
+			list(prog_term), goal)
+		%	VarNames, PredOrFunc, PredName, HeadArgs, ClauseBody
 
-	;	func_clause(prog_varset, sym_name, list(prog_term),
-			prog_term, goal)
-		%      VarNames, PredName, HeadArgs, Result, ClauseBody
+	; 	type_defn(tvarset, sym_name, list(type_param),
+			type_defn, condition)
+		%	VarNames, TypeName, Args, TypeDefn, Condition
 
-	; 	type_defn(tvarset, type_defn, condition)
-	; 	inst_defn(inst_varset, inst_defn, condition)
-	; 	mode_defn(inst_varset, mode_defn, condition)
+	; 	inst_defn(inst_varset, sym_name, list(inst_var),
+			inst_defn, condition)
+	; 	mode_defn(inst_varset, sym_name, list(inst_var),
+			mode_defn, condition)
 	; 	module_defn(prog_varset, module_defn)
 
-	; 	pred(tvarset, inst_varset, existq_tvars, sym_name,
-			list(type_and_mode), maybe(determinism), condition,
-			purity, class_constraints)
-		%       TypeVarNames, InstVarNames,
-		%	ExistentiallyQuantifiedTypeVars, PredName, ArgTypes,
-		%	Deterministicness, Cond, Purity, TypeClassContext
-
-	; 	func(tvarset, inst_varset, existq_tvars, sym_name,
-			list(type_and_mode), type_and_mode, maybe(determinism),
+	; 	pred_or_func(tvarset, inst_varset, existq_tvars, pred_or_func,
+			sym_name, list(type_and_mode), maybe(determinism),
 			condition, purity, class_constraints)
 		%       TypeVarNames, InstVarNames,
-		%	ExistentiallyQuantifiedTypeVars, PredName, ArgTypes,
-		%	ReturnType, Deterministicness, Cond, Purity,
-		%	TypeClassContext
+		%	ExistentiallyQuantifiedTypeVars, PredOrFunc, PredName,
+		%	ArgTypes, Determinism, Cond, Purity, TypeClassContext
 
-	; 	pred_mode(inst_varset, sym_name, list(mode), maybe(determinism),
-			condition)
-		%       VarNames, PredName, ArgModes, Deterministicness,
-		%       Cond
-
-	; 	func_mode(inst_varset, sym_name, list(mode), mode,
-			maybe(determinism), condition)
-		%       VarNames, PredName, ArgModes, ReturnValueMode,
-		%       Deterministicness, Cond
+	; 	pred_or_func_mode(inst_varset, pred_or_func, sym_name,
+			list(mode), maybe(determinism), condition)
+		%       VarNames, PredOrFunc, PredName, ArgModes,
+		%	Determinism, Cond
 
 	;	pragma(pragma_type)
 
@@ -97,10 +87,10 @@
 		%	DerivingClass, ClassName, Types, 
 		%	MethodInstances, VarNames, ModuleContainingInstance
 
-	;	nothing.
-		% used for items that should be ignored (currently only
-		% NU-Prolog `when' declarations, which are silently ignored
-		% for backwards compatibility).
+	;	nothing(maybe(item_warning)).
+		% used for items that should be ignored (e.g.
+		% NU-Prolog `when' declarations, which are silently
+		% ignored for backwards compatibility).
 
 :- type type_and_mode	
 	--->	type_only(type)
@@ -112,7 +102,7 @@
  	;	csharp
  	;	managed_cplusplus
 % 	;	java
-% 	;	il
+ 	;	il
 	.
 
 :- type pred_or_func
@@ -139,6 +129,14 @@
 	;	erroneous
 	;	failure.
 
+:- type item_warning
+	--->	item_warning(
+			maybe(option),	% Option controlling whether the
+					% warning should be reported.
+			string,		% The warning.
+			term		% The term to which it relates.
+		).
+
 %-----------------------------------------------------------------------------%
 %
 % Pragmas
@@ -162,11 +160,12 @@
 			% VarNames, Foreign Code Implementation Info
 	
 	;	type_spec(sym_name, sym_name, arity, maybe(pred_or_func),
-			maybe(list(mode)), type_subst, tvarset)
+			maybe(list(mode)), type_subst, tvarset, set(type_id))
 			% PredName, SpecializedPredName, Arity,
 			% PredOrFunc, Modes if a specific procedure was
 			% specified, type substitution (using the variable
-			% names from the pred declaration), TVarSet
+			% names from the pred declaration), TVarSet,
+			% Equivalence types used
 
 	;	inline(sym_name, arity)
 			% Predname, Arity
@@ -455,9 +454,8 @@
 	% This invariant is needed to ensure that we can do
 	% unifications, map__lookups, etc., and get the
 	% expected semantics.
-	% Any code that creates new class constraints must
-	% ensure that this invariant is preserved,
-	% probably by using strip_term_contexts/2 in type_util.m.
+	% (This invariant now applies to all types, but is
+	% especially important here.)
 :- type class_constraint
 	---> constraint(class_name, list(type)).
 
@@ -474,36 +472,18 @@
 	;	concrete(list(class_method)).
 
 :- type class_method
-	--->	pred(tvarset, inst_varset, existq_tvars, sym_name,
-			list(type_and_mode), maybe(determinism), condition,
-			purity, class_constraints, prog_context)
+	--->	pred_or_func(tvarset, inst_varset, existq_tvars, pred_or_func,
+			sym_name, list(type_and_mode), maybe(determinism),
+			condition, purity, class_constraints, prog_context)
 		%       TypeVarNames, InstVarNames,
 		%	ExistentiallyQuantifiedTypeVars,
-		%	PredName, ArgTypes, Determinism, Cond
+		%	PredOrFunc, PredName, ArgTypes, Determinism, Cond
 		%	Purity, ClassContext, Context
 
-	; 	func(tvarset, inst_varset, existq_tvars, sym_name,
-			list(type_and_mode), type_and_mode,
-			maybe(determinism), condition,
-			purity, class_constraints, prog_context)
-		%       TypeVarNames, InstVarNames,
-		%	ExistentiallyQuantfiedTypeVars,
-		%	PredName, ArgTypes, ReturnType,
-		%	Determinism, Cond
-		%	Purity, ClassContext, Context
-
-	; 	pred_mode(inst_varset, sym_name, list(mode),
-			maybe(determinism), condition,
+	; 	pred_or_func_mode(inst_varset, pred_or_func, sym_name,
+			list(mode), maybe(determinism), condition,
 			prog_context)
-		%       InstVarNames, PredName, ArgModes,
-		%	Determinism, Cond
-		%	Context
-
-	; 	func_mode(inst_varset, sym_name, list(mode), mode,
-			maybe(determinism), condition,
-			prog_context)
-		%       InstVarNames, PredName, ArgModes,
-		%	ReturnValueMode,
+		%       InstVarNames, PredOrFunc, PredName, ArgModes,
 		%	Determinism, Cond
 		%	Context
 	.
@@ -578,6 +558,14 @@
 		pragma_foreign_proc_attributes).
 :- mode set_aliasing(in, in, out) is det.
 
+:- pred add_extra_attribute(pragma_foreign_proc_attributes, 
+		pragma_foreign_proc_extra_attribute,
+		pragma_foreign_proc_attributes).
+:- mode add_extra_attribute(in, in, out) is det.
+
+:- func extra_attributes(pragma_foreign_proc_attributes)
+	= pragma_foreign_proc_extra_attributes.
+
 	% For pragma c_code, there are two different calling conventions,
 	% one for C code that may recursively call Mercury code, and another
 	% more efficient one for the case when we know that the C code will
@@ -612,6 +600,13 @@
 	  	% variable, name, mode
 		% we explicitly store the name because we need the real
 		% name in code_gen
+
+
+:- type pragma_foreign_proc_extra_attribute
+	--->	max_stack_size(int).
+
+:- type pragma_foreign_proc_extra_attributes == 
+	list(pragma_foreign_proc_extra_attribute).
 
 %-----------------------------------------------------------------------------%
 %
@@ -707,12 +702,10 @@
 % type_defn/3 is defined above as a constructor for item/0
 
 :- type type_defn	
-	--->	du_type(sym_name, list(type_param), list(constructor),
-			maybe(equality_pred)
-		)
-	;	uu_type(sym_name, list(type_param), list(type))
-	;	eqv_type(sym_name, list(type_param), type)
-	;	abstract_type(sym_name, list(type_param)).
+	--->	du_type(list(constructor), maybe(equality_pred))
+	;	uu_type(list(type))
+	;	eqv_type(type)
+	;	abstract_type.
 
 :- type constructor	
 	--->	ctor(
@@ -743,6 +736,16 @@
 	% type_id and a list of arguments.
 	% type_util:construct_type to construct a type from a type_id 
 	% and a list of arguments.
+	%
+	% The `term__context's of the type terms must be empty (as
+	% returned by term__context_init). prog_io_util__convert_type
+	% ensures this is the case. There are at least two reasons that this
+	% is required:
+	% - Various parts of the code to handle typeclasses creates maps
+	%   indexed by `class_constraint's, which contain types.
+	% - Smart recompilation requires that the items which occur in
+	%   interface files can be unified using the builtin unification
+	%   operation.
 :- type (type)		==	term(tvar_type).
 :- type type_term	==	term(tvar_type).
 
@@ -789,8 +792,8 @@
 % inst_defn/3 defined above
 
 :- type inst_defn	
-	--->	eqv_inst(sym_name, list(inst_var), inst)
-	;	abstract_inst(sym_name, list(inst_var)).
+	--->	eqv_inst(inst)
+	;	abstract_inst.
 
 	% An `inst_name' is used as a key for the inst_table.
 	% It is either a user-defined inst `user_inst(Name, Args)',
@@ -851,7 +854,7 @@
 % mode_defn/3 defined above
 
 :- type mode_defn	
-	--->	eqv_mode(sym_name, list(inst_var), mode).
+	--->	eqv_mode(mode).
 
 :- type (mode)		
 	--->	((inst) -> (inst))
@@ -919,7 +922,12 @@
 	;	import(sym_list)
 	;	use(sym_list)
 
-	;	include_module(list(module_name)).
+	;	include_module(list(module_name))
+
+		% This is used to represent the version numbers
+		% of items in an interface file for use in
+		% smart recompilation.
+	;	version_numbers(module_name, recompilation__version_numbers).
 
 :- type section
 	--->	implementation
@@ -1000,18 +1008,23 @@
 
 :- implementation.
 
+:- import_module string.
+
 :- type pragma_foreign_proc_attributes
 	--->	attributes(
 			foreign_language 	:: foreign_language,
 			may_call_mercury	:: may_call_mercury,
 			thread_safe		:: thread_safe,
 			tabled_for_io		:: tabled_for_io,
-			aliasing		:: aliasing
+			aliasing		:: aliasing,
+			extra_attributes	:: 
+				list(pragma_foreign_proc_extra_attribute)
 		).
+
 
 default_attributes(Language, 
 	attributes(Language, may_call_mercury, not_thread_safe, 
-		not_tabled_for_io, Aliasing)):-
+		not_tabled_for_io, Aliasing, [])):-
 	pa_alias_as__top("Default top", TopAlias), 
 	Aliasing = aliasing(no, varset__init, TopAlias).
 
@@ -1045,7 +1058,7 @@ attributes_to_strings(Attrs, ProgVarSet, StringList) :-
 	% in the attribute list -- the foreign language specifier string
 	% is at the start of the pragma.
 	Attrs = attributes(_Lang, MayCallMercury, ThreadSafe,
-			TabledForIO, Aliasing),
+			TabledForIO, Aliasing, ExtraAttributes),
 	(
 		MayCallMercury = may_call_mercury,
 		MayCallMercuryStr = "may_call_mercury"
@@ -1069,6 +1082,16 @@ attributes_to_strings(Attrs, ProgVarSet, StringList) :-
 	),
 	to_user_declared_aliases(Aliasing, ProgVarSet, AliasingStr), 
 	StringList = [MayCallMercuryStr, ThreadSafeStr, TabledForIOStr,
-			AliasingStr].
+			AliasingStr] ++
+			list__map(extra_attribute_to_string, ExtraAttributes).
+
+add_extra_attribute(Attributes0, NewAttribute,
+	Attributes0 ^ extra_attributes := 
+		[NewAttribute | Attributes0 ^ extra_attributes]).
+
+:- func extra_attribute_to_string(pragma_foreign_proc_extra_attribute) 
+	= string.
+extra_attribute_to_string(max_stack_size(Size)) =
+	"max_stack_size(" ++ string__int_to_string(Size) ++ ")".
 
 %-----------------------------------------------------------------------------%

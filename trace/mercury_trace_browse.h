@@ -17,22 +17,23 @@
 #include "mercury_conf.h"	/* for MR_USE_EXTERNAL_DEBUGGER */
 #include "mercury_types.h"	/* for MR_Word, MR_String       */
 #include "mercury_std.h"	/* for bool                     */
+#include "mercury_tags.h"	/* for MR_DEFINE_MERCURY_ENUM_CONST     */
 
 /*
 ** The following types must correspond with browse_caller_type and
 ** portray_format in browser/browser_info.m.
 */
 typedef enum {
-	MR_BROWSE_CALLER_PRINT,
-	MR_BROWSE_CALLER_BROWSE,
-	MR_BROWSE_CALLER_PRINT_ALL
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_CALLER_PRINT),
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_CALLER_BROWSE),
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_CALLER_PRINT_ALL)
 } MR_Browse_Caller_Type;
 
 typedef enum {
-	MR_BROWSE_FORMAT_FLAT,
-	MR_BROWSE_FORMAT_RAW_PRETTY,
-	MR_BROWSE_FORMAT_VERBOSE,
-	MR_BROWSE_FORMAT_PRETTY
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_FORMAT_FLAT),
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_FORMAT_RAW_PRETTY),
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_FORMAT_VERBOSE),
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_BROWSE_FORMAT_PRETTY)
 } MR_Browse_Format;
 
 /*
@@ -59,9 +60,9 @@ extern	void	MR_trace_print(MR_Word type_info, MR_Word value,
 /*
 ** Set browser parameters.
 */
-extern	bool	MR_trace_set_browser_param(MR_Bool print, MR_Bool browse,
-			MR_Bool print_all, MR_Bool flat, MR_Bool raw_pretty,
-			MR_Bool verbose, MR_Bool pretty, const char *param, 
+extern	bool	MR_trace_set_browser_param(MR_Word print, MR_Word browse,
+			MR_Word print_all, MR_Word flat, MR_Word raw_pretty,
+			MR_Word verbose, MR_Word pretty, const char *param, 
 			const char *value);
 
 /*
@@ -69,7 +70,11 @@ extern	bool	MR_trace_set_browser_param(MR_Bool print, MR_Bool browse,
 */
 
 /* This must kept in sync with query_type in browser/interactive.m. */
-typedef enum { MR_NORMAL_QUERY, MR_CC_QUERY, MR_IO_QUERY } MR_Query_Type;
+typedef enum { 
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_NORMAL_QUERY), 
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_CC_QUERY), 
+	MR_DEFINE_MERCURY_ENUM_CONST(MR_IO_QUERY) 
+} MR_Query_Type;
 
 extern	void	MR_trace_query(MR_Query_Type type, const char *options,
 			int num_imports, /* const */ char *imports[]);

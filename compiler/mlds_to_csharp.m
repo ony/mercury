@@ -89,9 +89,9 @@ output_src_end(ModuleName) -->
 :- mode generate_csharp_code(in, di, uo) is det.
 generate_csharp_code(MLDS) -->
 
-	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
-	{ ClassName = mlds_module_name_to_class_name(
-		mercury_module_name_to_mlds(ModuleName)) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, _Imports, Defns) },
+	{ ClassName = class_name(mercury_module_name_to_mlds(ModuleName), 
+			wrapper_class_name) },
 
 	io__nl,
 	io__write_strings([
@@ -101,6 +101,8 @@ generate_csharp_code(MLDS) -->
 		"using mercury;\n",
 		"\n"]),
 
+		% Get the foreign code for C#
+	{ ForeignCode = map__lookup(AllForeignCode, csharp) },
 	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
 		ForeignCode),
 
@@ -119,7 +121,7 @@ generate_csharp_code(MLDS) -->
 	)),
 
 	io__write_strings([
-		"\npublic class mercury_code",
+		"\npublic class " ++ wrapper_class_name,
 		"{\n"]),
 
 		% Output the contents of pragma foreign_code declarations.
@@ -195,7 +197,7 @@ generate_method_csharp_code(_ModuleName,
 	_Context, _DeclFlags, Entity)) -->
 
 	( 
-		{ Entity = mlds__function(_, Params, yes(Statement)) },
+		{ Entity = mlds__function(_, Params, defined_here(Statement)) },
 		{ has_foreign_languages(Statement, Langs) },
 		{ list__member(csharp, Langs) }
 	->
@@ -272,9 +274,9 @@ write_csharp_statement(statement(Statement, _Context)) -->
 :- pred write_csharp_code_component(mlds__target_code_component, 
 	io__state, io__state).
 :- mode write_csharp_code_component(in, di, uo) is det.
-write_csharp_code_component(user_target_code(Code, _MaybeContext)) -->
+write_csharp_code_component(user_target_code(Code, _MaybeContext, _Attrrs)) -->
 	io__write_string(Code).
-write_csharp_code_component(raw_target_code(Code)) -->
+write_csharp_code_component(raw_target_code(Code, _Attrs)) -->
 	io__write_string(Code).
 		% XXX we don't handle name yet.
 write_csharp_code_component(name(_)) --> [].
@@ -327,6 +329,9 @@ write_csharp_rval(binop(Binop, Rval1, Rval2)) -->
 
 write_csharp_rval(mem_addr(_)) -->
 	{ sorry(this_file, "mem_addr rval") }.
+	
+write_csharp_rval(self(_)) -->
+	{ sorry(this_file, "self rval") }.
 	
 :- pred write_csharp_rval_const(mlds__rval_const, io__state, io__state).
 :- mode write_csharp_rval_const(in, di, uo) is det.
@@ -470,8 +475,14 @@ write_il_simple_type_as_csharp_type(value_class(_ClassName)) -->
 	{ sorry(this_file, "value classes") }.
 write_il_simple_type_as_csharp_type(interface(_ClassName)) --> 
 	{ sorry(this_file, "interfaces") }.
-write_il_simple_type_as_csharp_type('[]'(_Type, _Bounds)) --> 
-	{ sorry(this_file, "arrays") }.
+write_il_simple_type_as_csharp_type('[]'(Type, Bounds)) --> 
+	write_il_type_as_csharp_type(Type),
+	io__write_string("[]"),
+	( { Bounds = [] } ->
+		[]
+	;
+		{ sorry(this_file, "arrays with bounds") }
+	).
 write_il_simple_type_as_csharp_type('&'(Type)) --> 
 		% XXX is this always right?
 	io__write_string("ref "),

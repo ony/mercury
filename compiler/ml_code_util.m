@@ -17,7 +17,7 @@
 
 :- import_module prog_data.
 :- import_module hlds_module, hlds_pred.
-:- import_module rtti, code_model.
+:- import_module builtin_ops, rtti, code_model.
 :- import_module mlds.
 :- import_module globals.
 
@@ -116,6 +116,15 @@
 	%
 :- pred ml_gen_type(prog_type, mlds__type, ml_gen_info, ml_gen_info).
 :- mode ml_gen_type(in, out, in, out) is det.
+
+	% Convert the element type for an array_index operator
+	% to an MLDS type.
+	%
+:- func ml_gen_array_elem_type(builtin_ops__array_elem_type) = mlds__type.
+
+	% Return the MLDS type corresponding to a Mercury string type.
+	%
+:- func ml_string_type = mlds__type.
 
 %-----------------------------------------------------------------------------%
 %
@@ -912,7 +921,8 @@ ml_gen_label_func(FuncLabel, FuncParams, Context, Statement, Func) -->
 	%
 	{ DeclFlags = ml_gen_label_func_decl_flags },
 	{ MaybePredProcId = no },
-	{ FuncDefn = function(MaybePredProcId, FuncParams, yes(Statement)) },
+	{ FuncDefn = function(MaybePredProcId, FuncParams,
+		defined_here(Statement)) },
 	{ Func = mlds__defn(FuncName, mlds__make_context(Context), DeclFlags,
 			FuncDefn) }.
 
@@ -922,8 +932,7 @@ ml_gen_label_func(FuncLabel, FuncParams, Context, Statement, Func) -->
 	%
 :- func ml_gen_label_func_decl_flags = mlds__decl_flags.
 ml_gen_label_func_decl_flags = MLDS_DeclFlags :-
-	Access = private,  % XXX if we're using nested functions,
-			   % this should be `local' rather than `private'
+	Access = local,
 	PerInstance = per_instance,
 	Virtuality = non_virtual,
 	Finality = overridable,
@@ -941,6 +950,12 @@ ml_gen_type(Type, MLDS_Type) -->
 	=(Info),
 	{ ml_gen_info_get_module_info(Info, ModuleInfo) },
 	{ MLDS_Type = mercury_type_to_mlds_type(ModuleInfo, Type) }.
+
+ml_gen_array_elem_type(elem_type_string) = ml_string_type.
+ml_gen_array_elem_type(elem_type_int) = mlds__native_int_type.
+ml_gen_array_elem_type(elem_type_generic) = mlds__generic_type.
+
+ml_string_type = mercury_type(string_type, str_type).
 
 %-----------------------------------------------------------------------------%
 %
@@ -1760,7 +1775,7 @@ ml_gen_call_current_success_cont_indirectly(Context, MLDS_Statement) -->
 
 	{ 
 		Defn = mlds__defn(function(PredLabel, ProcId, 
-			yes(SeqNum), _), _, _, function(_, _, yes(_)))
+			yes(SeqNum), _), _, _, function(_, _, defined_here(_)))
 	->
 		% We call the proxy function.
 		QualProcLabel = qual(MLDS_Module, PredLabel - ProcId),

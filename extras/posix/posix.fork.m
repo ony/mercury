@@ -14,7 +14,7 @@
 
 :- type whoami
 	--->	child
-	;	parent(pid_t)
+	;	parent(pid)
 	.
 
 :- pred fork(posix__result(whoami), io__state, io__state).

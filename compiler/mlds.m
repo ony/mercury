@@ -286,7 +286,7 @@
 % It would be nice to avoid this dependency...
 :- import_module llds.
 
-:- import_module bool, list, assoc_list, std_util.
+:- import_module bool, list, assoc_list, std_util, map.
 
 %-----------------------------------------------------------------------------%
 
@@ -298,14 +298,19 @@
 %
 :- type mlds
 	---> mlds(
-		mercury_module_name,	% The Mercury module name
+			% The Mercury module name.
+		name		:: mercury_module_name,
 
-		mlds__foreign_code,	% Code defined in some other language,
-					% e.g. for `pragma c_header_code', etc.
+			% Code defined in some other language, e.g.  for
+			% `pragma c_header_code', etc.
+		foreign_code	:: map(foreign_language, mlds__foreign_code),
 
-		% The MLDS code itself
-		mlds__imports,		% Packages/classes to import
-		mlds__defns		% Definitions of code and data
+			% The MLDS code itself
+			% Packages/classes to import
+		toplevel_imports :: mlds__imports,
+
+			% Definitions of code and data
+		defns		:: mlds__defns
 	).
 
 :- func mlds__get_module_name(mlds) = mercury_module_name.
@@ -326,18 +331,45 @@
 :- type mlds__package_name == mlds_module_name.
 
 % Given the name of a Mercury module, return the name of the corresponding
-% MLDS package.
-:- func mercury_module_name_to_mlds(mercury_module_name) = mlds__package_name.
+% MLDS package in which this module is defined.
+:- func mercury_module_name_to_mlds(mercury_module_name) = mlds_module_name.
 
-% Given the name of a Mercury module, return the name of the corresponding
-% MLDS package.
+% Given the name of a Mercury module, and a package name, return the
+% name of the corresponding MLDS module name in which this module is
+% defined.
+% In this case, the package is specified as the first parameter (c.f.
+% mercury_module_name_to_mlds above).
+:- func mercury_module_and_package_name_to_mlds(mercury_module_name,
+		mercury_module_name) = mlds_module_name.
+
+% Given the name of a Mercury module return the fully qualified module
+% name.  ie For the name System.Object which is defined in the source
+% package mscorlib it will return System.Object.
 :- func mlds_module_name_to_sym_name(mlds__package_name) = sym_name.
+
+% Give the name of a Mercury module, return the name of the corresponding 
+% MLDS package.
+:- func mlds_module_name_to_package_name(mlds_module_name) = sym_name.
 
 % Given an MLDS module name (e.g. `foo.bar'), append another class qualifier
 % (e.g. for a class `baz'), and return the result (e.g. `foo.bar.baz').
 % The `arity' argument specifies the arity of the class.
 :- func mlds__append_class_qualifier(mlds_module_name, mlds__class_name, arity) =
 	mlds_module_name.
+
+% Append a wrapper class qualifier to the module name and leave the
+% package name unchanged.
+:- func mlds__append_wrapper_class(mlds_module_name) = mlds_module_name.
+
+% Append an arbitarty qualifier to the module name and leave the package
+% name unchanged.
+:- func mlds__append_name(mlds_module_name, string) = mlds_module_name.
+
+% When targetting languages such as IL, C#, and Java, which don't
+% support global methods or global variables, we need to wrap all the
+% generated global functions and global data inside a wrapper class.
+% This function returns the name to use for the wrapper class.
+:- func wrapper_class_name = string.
 
 :- type mlds__defns == list(mlds__defn).
 :- type mlds__defn
@@ -412,17 +444,21 @@
 			maybe(pred_proc_id),	% identifies the original
 						% Mercury procedure, if any
 			mlds__func_params,	% the arguments & return types
-			maybe(mlds__statement)	% the function body, or `no'
-						% if the function is abstract
-						% or if the function is defined
-						% externally (i.e. the original
-						% Mercury procedure was declared
-						% `:- external').
+			mlds__function_body	% the function body
+
 		)
 		% packages, classes, interfaces, structs, enums
 	;	mlds__class(
 			mlds__class_defn
 		).
+
+	% It is possible for the function to be defined externally
+	% (i.e. the original Mercury procedure was declared `:- external').
+	% (If you want to generate an abstract body consider adding another
+	% alternative here).
+:- type mlds__function_body 
+	--->	defined_here(mlds__statement)
+	;	external.
 
 	% Note that `one_copy' variables *must* have an initializer
 	% (the GCC back-end relies on this).
@@ -487,6 +523,7 @@
 						% inherits these base classes
 		implements ::	list(mlds__interface_id),
 						% implements these interfaces
+		ctors	::	mlds__defns,	% has these constructors
 		members ::	mlds__defns	% contains these members
 	).
 
@@ -505,8 +542,29 @@
 		% to handle nondeterminism
 	;	mlds__cont_type(mlds__return_types)
 
-		% The type used for storing information about a commit.
-		% This may be `jmp_buf' or `__label__'.
+		% mlds__commit_type is used for storing information about a commit.
+		% This is an abstract type; the exact definition will depend
+		% on the back-end.  The only operations on this ADT are
+		% `try_commit' and `do_commit'.  This type holds information
+		% about the `try_commit' stack frame that is needed to unwind
+		% the stack when a `do_commit' is executed.
+		%
+		% For the C back-end, if we're implementing do_commit/try_commit
+		% using setjmp/longmp, then mlds__commit_type will be jmp_buf.
+		% If we're implementing them using GNU C nested functions, then
+		% it will be `__label__'; in this case, the local variable
+		% of this "type" is actually a label, and doing a goto to that
+		% label will unwind the stack.
+		%
+		% If the back-end implements commits using the target language's,
+		% try/catch-style exception handling, as in Java/C++/etc.,
+		% then the target language implementation's exception handling
+		% support will keep track of the information need to unwind
+		% the stack, and so variables of this type don't need
+		% to be declared at all.
+		%
+		% See also the comments in ml_code_gen.m which show how commits
+		% can be implemented for different target languages.
 	;	mlds__commit_type
 
 		% MLDS native builtin types.
@@ -592,11 +650,12 @@
 	;	protected	% only accessible to the class and to
 				% derived classes
 	;	private		% only accessible to the class
-	;	default		% Java "default" access: accessible to anything
-				% defined in the same package.
+	;	default		% Java "default" access or .NET assembly
+				% access: accessible to anything defined
+				% in the same package.
 	%
-	% used for entities defined in a block/2 statement,
-	% i.e. local variables and nested functions
+	% Used for entities defined in a block/2 statement,
+	% i.e. local variables and nested functions.
 	%
 	;	local		% only accessible within the block
 				% in which the entity (variable or
@@ -709,7 +768,7 @@
 	%
 	% sequence
 	%
-		block(mlds__defns, list(mlds__statement))
+		block(mlds__defns, list(mlds__statement))	
 
 	%
 	% iteration
@@ -807,9 +866,12 @@
 		%	statement for Ref, and branch to the CommitHandlerGoal
 		%	that was specified in that try_commit instruction.
 		%
-		% For both try_commit and commit instructions,
+		% For both try_commit and do_commit instructions,
 		% Ref should be the name of a local variable of type
-		% mlds__commit_type.  There should be exactly
+		% mlds__commit_type.  (This variable can be used by
+		% the back-end's implementation of do_commit and
+		% try_commit to store information needed to unwind
+		% the stack.)  There should be exactly
 		% one try_commit instruction for each Ref.
 		% do_commit(Ref) instructions should only be used
 		% in goals called from the GoalToTry goal in the
@@ -1087,15 +1149,17 @@ XXX Full exception handling support is not yet implemented.
 	;	lang_GNU_C
 	;	lang_C_minus_minus
 	;	lang_asm
+	;	lang_il
 	;	lang_java_asm
 	;	lang_java_bytecode
 	.
 
 :- type target_code_component
-	--->	user_target_code(string, maybe(prog_context))
+	--->	user_target_code(string, maybe(prog_context),
+				target_code_attributes)
 			% user_target_code holds C code from
 			% the user's `pragma c_code' declaration
-	;	raw_target_code(string)
+	;	raw_target_code(string, target_code_attributes)
 			% raw_target_code holds C code that the
 			% compiler has generated.  To ensure that
 			% following `#line' directives work OK,
@@ -1108,6 +1172,11 @@ XXX Full exception handling support is not yet implemented.
 	;	target_code_output(mlds__lval)
 	;	name(mlds__qualified_entity_name)
 	.
+
+:- type target_code_attributes == list(target_code_attribute).
+
+:- type target_code_attribute
+	--->	max_stack_size(int).
 
 	%
 	% constructor id
@@ -1244,8 +1313,15 @@ XXX Full exception handling support is not yet implemented.
 
 	;	binop(binary_op, mlds__rval, mlds__rval)
 
-	;	mem_addr(mlds__lval).
+	;	mem_addr(mlds__lval)
 		% The address of a variable, etc.
+
+	;	self(mlds__type).
+		% The equivalent of the `this' pointer in C++ with the
+		% type of the object.  Note that this rval is valid iff
+		% we are targetting an object oriented backend and we
+		% are in an instance method (procedures which have the
+		% per_instance flag set).
 
 :- type mlds__unary_op
 	--->	box(mlds__type)
@@ -1433,14 +1509,26 @@ mlds__get_func_signature(func_params(Parameters, RetTypes)) =
 
 %-----------------------------------------------------------------------------%
 
-% Mercury module names are the same as MLDS package names, except that
-% modules in the Mercury standard library map get a `mercury' prefix
-% e.g. `mercury.builtin', `mercury.io', `mercury.std_util', etc.,
+% A mercury module name consists of two parts.  One part is the package
+% which the module name is defined in, and the other part is the actual
+% module name.  For example the module name System.XML could be defined
+% in the package XML.
+%
+% Note that modules in the Mercury standard library map get a `mercury'
+% prefix e.g. `mercury.builtin', `mercury.io', `mercury.std_util', etc.,
 % when mapped to MLDS package names.
 
-:- type mlds_module_name == prog_data__module_name.
+% :- type mlds_module_name == prog_data__module_name.
+:- type mlds_module_name
+	---> name(
+		package_name	:: prog_data__module_name,
+		module_name	:: prog_data__module_name
+	).
 
-mercury_module_name_to_mlds(MercuryModule) = MLDS_Package :-
+mercury_module_and_package_name_to_mlds(MLDS_Package, MercuryModule)
+	= name(MLDS_Package, MercuryModule).
+
+mercury_module_name_to_mlds(MercuryModule) = name(MLDS_Package, MLDS_Package) :-
 	(
 		MercuryModule = unqualified(ModuleName),
 		mercury_std_library_module(ModuleName)
@@ -1450,12 +1538,21 @@ mercury_module_name_to_mlds(MercuryModule) = MLDS_Package :-
 		MLDS_Package = MercuryModule
 	).
 
-mlds_module_name_to_sym_name(MLDS_Package) = MLDS_Package.
+mlds_module_name_to_sym_name(Module) = Module ^ module_name.
 
-mlds__append_class_qualifier(Package, ClassName, ClassArity) =
-		qualified(Package, ClassQualifier) :-
+mlds_module_name_to_package_name(Module) = Module ^ package_name.
+
+mlds__append_class_qualifier(name(Package, Module), ClassName, ClassArity) =
+		name(Package, qualified(Module, ClassQualifier)) :-
 	string__format("%s_%d", [s(ClassName), i(ClassArity)],
 		ClassQualifier).
+
+mlds__append_wrapper_class(Name) = mlds__append_name(Name, wrapper_class_name).
+
+mlds__append_name(name(Package, Module), Name)
+	= name(Package, qualified(Module, Name)).
+
+wrapper_class_name = "mercury_code".
 
 %-----------------------------------------------------------------------------%
 

@@ -1,9 +1,7 @@
 %-----------------------------------------------------------------------------%
-%
-% Copyright (C) 1997-2000 The University of Melbourne.
+% Copyright (C) 1997-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
-%
 %-----------------------------------------------------------------------------%
 %
 % File: demangle.m
@@ -164,13 +162,13 @@ demangle_proc -->
 		remove_trailing_int(UA_ModeNum),
 		m_remove_suffix("__ua")
 	->
-		{ UnusedArgs = yes },
+		{ UnusedArgs = yes(ModeNum0 - no) },
 		{ ModeNum1 is UA_ModeNum mod 10000 }
 	;
 		remove_trailing_int(UA_ModeNum),
 		m_remove_suffix("__uab")
 	->
-		{ UnusedArgs = yes },
+		{ UnusedArgs = yes(ModeNum0 - yes) },
 		{ ModeNum1 is UA_ModeNum mod 10000 }
 	;
 		{ UnusedArgs = no },
@@ -183,22 +181,21 @@ demangle_proc -->
 	% n is a unique identifier for this specialized version
 	%
 	(
-		remove_trailing_int(HO_ModeNum),
+		remove_trailing_int(HO_Num),
 		m_remove_suffix("__ho")
 	->
-		{ HigherOrder = yes },
-		{ ModeNum is HO_ModeNum mod 10000 }
+		{ HigherOrder = yes(HO_Num) }
 	;
-		{ HigherOrder = no },
-		{ ModeNum = ModeNum1 }
+		{ HigherOrder = no }
 	),
+	{ ModeNum = ModeNum1 },
 
 	%
 	% Make sure special predicates with unused_args 
 	% are reported correctly.
 	%
 
-	( { UnusedArgs = yes, Category0 \= ordinary } ->
+	( { UnusedArgs = yes(_), Category0 \= ordinary } ->
 		remove_trailing_int(Arity)
 	;
 		{ true }
@@ -270,6 +267,15 @@ demangle_proc -->
 				{ IntroducedPredType = type_spec(TypeSpec) },
 				{ Seq = 0 },
 				{ Line = 0 }
+
+				% The compiler adds a redundant mode
+				% number to the predicate name to avoid
+				% creating two predicates with the same
+				% name (deep profiling doesn't like that).
+				% It isn't used here so we just ignore it.
+				% The compiler also adds a version number
+				% for the argument order used for specialized
+				% versions, which can also be ignored.
 			;
 				{ IntroducedPredType = IntroducedPredType0 },
 				remove_int(Line),
@@ -304,7 +310,8 @@ demangle_proc -->
 	dcg_set(DemangledName).
 
 :- pred format_proc(pred_category, maybe(string), string, string, int, int,
-		bool, bool, maybe(int), list(string), list(string)).
+		maybe(int), maybe(pair(int, bool)), maybe(int), list(string),
+		list(string)).
 :- mode format_proc(in, in, in, in, in, in, in, in, in, out, in) is det.
 format_proc(Category, MaybeModule, PredOrFunc, PredName, Arity, ModeNum, 
 		HigherOrder, UnusedArgs, MaybeInternalLabelNum) -->
@@ -358,13 +365,21 @@ format_proc(Category, MaybeModule, PredOrFunc, PredName, Arity, ModeNum,
 		)
 	},
 	[MainPart],
-	( { HigherOrder = yes } ->
-		[" (specialized)"]
+	( { HigherOrder = yes(HO_Num) } ->
+		[" (specialized [#", string__int_to_string(HO_Num), "])"]
 	;
 		[]
 	),
-	( { UnusedArgs = yes } ->
-		[" (minus unused args)"]
+	( { UnusedArgs = yes(UA_Num - Extra) } ->
+		( { Extra = yes } ->
+			[" (minus extra unused args [#",
+			 string__int_to_string(UA_Num),
+			 "])"]
+		;
+			[" (minus unused args [#",
+			 string__int_to_string(UA_Num),
+			 "])"]
+		)
 	;
 		[]
 	),

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -42,6 +42,13 @@
 
 :- pred mercury_table_builtin_module(sym_name).
 :- mode mercury_table_builtin_module(out) is det.
+
+	% Returns the name of the module containing the builtins for
+	% deep profiling.
+	% This module is automatically imported iff deep profiling is
+	% enabled.
+:- pred mercury_profiling_builtin_module(sym_name).
+:- mode mercury_profiling_builtin_module(out) is det.
 
 	% Succeeds iff the specified module is one of the three
 	% builtin modules listed above which are automatically imported.
@@ -124,6 +131,17 @@
 
 %-----------------------------------------------------------------------------%
 
+	% adjust_func_arity(PredOrFunc, FuncArity, PredArity).
+	%
+	% We internally store the arity as the length of the argument
+	% list including the return value, which is one more than the
+	% arity of the function reported in error messages.
+:- pred adjust_func_arity(pred_or_func, int, int).
+:- mode adjust_func_arity(in, in, out) is det.
+:- mode adjust_func_arity(in, out, in) is det.
+
+%-----------------------------------------------------------------------------%
+
 	% make_pred_name_with_context(ModuleName, Prefix, PredOrFunc, PredName,
 	%	Line, Counter, SymName).
 	%
@@ -192,11 +210,13 @@
 mercury_public_builtin_module(unqualified("builtin")).
 mercury_private_builtin_module(unqualified("private_builtin")).
 mercury_table_builtin_module(unqualified("table_builtin")).
+mercury_profiling_builtin_module(unqualified("profiling_builtin")).
 
 any_mercury_builtin_module(Module) :-
 	(	mercury_public_builtin_module(Module)
 	;	mercury_private_builtin_module(Module)
 	;	mercury_table_builtin_module(Module)
+	;	mercury_profiling_builtin_module(Module)
 	).
 
 unqualify_name(unqualified(PredName), PredName).
@@ -217,6 +237,11 @@ construct_qualified_term(unqualified(Name), Args, Context, Term) :-
 construct_qualified_term(SymName, Args, Term) :-
 	term__context_init(Context),
 	construct_qualified_term(SymName, Args, Context, Term).
+
+%-----------------------------------------------------------------------------%
+
+adjust_func_arity(predicate, Arity, Arity).
+adjust_func_arity(function, Arity - 1, Arity).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%

@@ -362,8 +362,8 @@ intermod__should_be_processed(ProcessLocalPreds, PredId, PredInfo,
 		bool::out, intermod_info::in, intermod_info::out) is det.
 
 intermod__traverse_clauses([], [], yes) --> [].
-intermod__traverse_clauses([clause(P, Goal0, C) | Clauses0],
-			[clause(P, Goal, C) | Clauses], DoWrite) -->
+intermod__traverse_clauses([clause(P, Goal0, L, C) | Clauses0],
+			[clause(P, Goal, L, C) | Clauses], DoWrite) -->
 	intermod__traverse_goal(Goal0, Goal, DoWrite1),
 	( { DoWrite1 = yes } ->
 		intermod__traverse_clauses(Clauses0, Clauses, DoWrite)
@@ -401,14 +401,14 @@ check_for_ho_input_args(ModuleInfo, [HeadVar | HeadVars],
 clause_list_is_deforestable(PredId, Clauses)  :-
 	some [Clause1] (
 		list__member(Clause1, Clauses),
-		Clause1 = clause(_, Goal1, _),
+		Clause1 = clause(_, Goal1, _, _),
 		goal_calls_pred_id(Goal1, PredId)
 	),
 	(
 		Clauses = [_, _ | _]
 	;
 		Clauses = [Clause2],
-		Clause2 = clause(_, Goal2, _),
+		Clause2 = clause(_, Goal2, _, _),
 		goal_to_conj_list(Goal2, GoalList),
 		goal_contains_one_branched_goal(GoalList)
 	).
@@ -450,28 +450,8 @@ intermod__traverse_goal(disj(Goals0, SM) - Info, disj(Goals, SM) - Info,
 		DoWrite) -->
 	intermod__traverse_list_of_goals(Goals0, Goals, DoWrite).
 
-intermod__traverse_goal(
-	call(PredId0, B, Args, D, MaybeUnifyContext, PredName0) - Info,
-	call(PredId, B, Args, D, MaybeUnifyContext, PredName) - Info, DoWrite)
-		-->
-	%
-	% Fully module-qualify the pred name
-	%
-	intermod_info_get_module_info(ModuleInfo),
-	intermod_info_get_var_types(VarTypes),
-	intermod_info_get_tvarset(TVarSet),
-	( { invalid_pred_id(PredId0) } ->
-		{ map__apply_to_list(Args, VarTypes, ArgTypes) },
-		{ typecheck__resolve_pred_overloading(ModuleInfo, ArgTypes,
-			TVarSet, PredName0, PredName1, PredId) }
-	;
-		{ PredId = PredId0 },
-		{ PredName1 = PredName0 }
-	),	
-	{ unqualify_name(PredName1, UnqualPredName) },
-	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
-	{ pred_info_module(PredInfo, PredModule) },
-	{ PredName = qualified(PredModule, UnqualPredName) },
+intermod__traverse_goal(Goal, Goal, DoWrite) -->
+	{ Goal = call(PredId, _, _, _, _, _) - _ },
 
 	%
 	% Ensure that the called predicate will be exported.
@@ -724,54 +704,14 @@ intermod__module_qualify_unify_rhs(_LVar,
 	% Fully module-qualify the right-hand-side of a unification.
 	% For function calls and higher-order terms, call intermod__add_proc
 	% so that the predicate or function will be exported if necessary.
-intermod__module_qualify_unify_rhs(LVar, functor(Functor0, Vars),
+intermod__module_qualify_unify_rhs(_LVar, functor(Functor, Vars),
 				functor(Functor, Vars), DoWrite) -->
-	intermod_info_get_module_info(ModuleInfo),
-	{ module_info_get_predicate_table(ModuleInfo, PredTable) },
-	intermod_info_get_tvarset(TVarSet),
-	intermod_info_get_var_types(VarTypes),
 	(
-		% Is it a higher-order function call?
-		% (higher-order predicate calls are transformed into
-		% higher_order_call goals by make_hlds.m).
-		{ Functor0 = cons(unqualified(ApplyName), _) },
-		{ ApplyName = "apply"
-		; ApplyName = ""
-		},
-		{ list__length(Vars, ApplyArity) },
-		{ ApplyArity >= 1 }
-	->
-		{ Functor = Functor0 },
-		{ DoWrite = yes }
-	;
-		%
-		% Is it a function call?
-		%
-		{ Functor0 = cons(FuncName, Arity) },
-		{ predicate_table_search_func_sym_arity(PredTable,
-				FuncName, Arity, PredIds) },
-		{ list__append(Vars, [LVar], FuncArgs) },
-		{ map__apply_to_list(FuncArgs, VarTypes, FuncArgTypes) },
-		{ typecheck__find_matching_pred_id(PredIds, ModuleInfo,
-			TVarSet, FuncArgTypes, PredId, QualifiedFuncName) }
-	->
-		%
-		% Yes, it is a function call.
-		% Fully module-qualify it.
-		% Make sure that the called function will be exported.
-		%
-		{ Functor = cons(QualifiedFuncName, Arity) },
-		intermod__add_proc(PredId, DoWrite)
-	;
 		%
 		% Is this a higher-order predicate or higher-order function
 		% term?
 		%
-		{ Functor0 = cons(PredName, Arity) },
-		intermod_info_get_var_types(VarTypes),
-		{ map__lookup(VarTypes, LVar, LVarType) },
-		{ type_is_higher_order(LVarType, PredOrFunc,
-			EvalMethod, PredArgTypes) }
+		{ Functor = pred_const(PredId, _, EvalMethod) }
 	->
 		( { EvalMethod = (aditi_top_down) } ->
 			% XXX Predicates which build this type of lambda
@@ -780,49 +720,25 @@ intermod__module_qualify_unify_rhs(LVar, functor(Functor0, Vars),
 			% bytecode fragment to use. The best way to handle
 			% these is probably to add some sort of lookup table
 			% to Aditi. 
-			{ DoWrite = no },
-			{ Functor = Functor0 }
+			{ DoWrite = no }
 		;
 			%
 			% Yes, the unification creates a higher-order term.
 			% Make sure that the predicate/function is exported.
 			%
-			{ map__apply_to_list(Vars, VarTypes, Types) },
-			{ list__append(Types, PredArgTypes, ArgTypes) },
-			{ get_pred_id_and_proc_id(PredName, PredOrFunc,
-				TVarSet, ArgTypes, ModuleInfo,
-				PredId, _ProcId) },
-			intermod__add_proc(PredId, DoWrite),
-			%
-			% Fully module-qualify it.
-			%
-			{ unqualify_name(PredName, UnqualPredName) },
-			{ predicate_module(ModuleInfo, PredId, Module) },
-			{ QualifiedPredName =
-				qualified(Module, UnqualPredName) },
-			{ Functor = cons(QualifiedPredName, Arity) }
+			intermod__add_proc(PredId, DoWrite)
 		)
 	;
 		%
-		% Is it a functor symbol for which we can add
-		% a module qualifier?
+		% It's an ordinary constructor, or a constant of a builtin
+		% type, so just leave it alone.
 		%
-		{ Functor0 = cons(ConsName, ConsArity) },
-		{ map__lookup(VarTypes, LVar, VarType) },
-		{ type_to_type_id(VarType, TypeId, _) },
-		{ TypeId = qualified(TypeModule, _) - _ }
-	->
+		% Constructors are module qualified by post_typecheck.m.
 		%
-		% Fully module-qualify it
+		% Function calls and higher-order function applications
+		% are transformed into ordinary calls and higher-order calls
+		% by post_typecheck.m, so they can't occur here.
 		%
-		{ unqualify_name(ConsName, UnqualConsName) },
-		{ Functor = cons(qualified(TypeModule, UnqualConsName),
-				ConsArity) },
-		{ DoWrite = yes }
-	;
-		% It is a constant of a builtin type.
-		% No module qualification needed.
-		{ Functor = Functor0 },
 		{ DoWrite = yes }
 	).
 
@@ -1257,22 +1173,19 @@ intermod__write_type(TypeId - TypeDefn) -->
 	{ TypeId = Name - _Arity },
 	(
 		{ Body = du_type(Ctors, _, _, MaybeEqualityPred) },
-		mercury_output_type_defn(VarSet,
-			du_type(Name, Args, Ctors,
-				MaybeEqualityPred),
-			Context)
+		{ TypeBody = du_type(Ctors, MaybeEqualityPred) }
 	;
 		{ Body = uu_type(_) },
 		{ error("uu types not implemented") }
 	;
 		{ Body = eqv_type(EqvType) },
-		mercury_output_type_defn(VarSet,
-			eqv_type(Name, Args, EqvType), Context)
+		{ TypeBody = eqv_type(EqvType) }
 	;
 		{ Body = abstract_type },
-		mercury_output_type_defn(VarSet,
-			abstract_type(Name, Args), Context)
-	).
+		{ TypeBody = abstract_type }
+	),
+	mercury_output_item(type_defn(VarSet, Name, Args, TypeBody, true),
+		Context).
 
 :- pred intermod__write_modes(module_info::in,
 		io__state::di, io__state::uo) is det.
@@ -1294,11 +1207,9 @@ intermod__write_mode(ModuleName, ModeId, ModeDefn) -->
 		{ SymName = qualified(ModuleName, _) },
 		{ ImportStatus = local }
 	->
-		mercury_output_mode_defn(
-			Varset,
-			eqv_mode(SymName, Args, Mode),
-			Context
-		)
+		mercury_output_item(
+			mode_defn(Varset, SymName, Args, eqv_mode(Mode), true),
+			Context)
 	;
 		[]
 	).
@@ -1326,19 +1237,14 @@ intermod__write_inst(ModuleName, InstId, InstDefn) -->
 	->
 		(
 			{ Body = eqv_inst(Inst2) },
-			mercury_output_inst_defn(
-					Varset,
-					eqv_inst(SymName, Args, Inst2),
-					Context
-			)
+			{ InstBody = eqv_inst(Inst2) }
 		;
 			{ Body = abstract_inst },
-			mercury_output_inst_defn(
-					Varset,
-					abstract_inst(SymName, Args),
-					Context
-			)
-		)
+			{ InstBody = abstract_inst }
+		),
+		mercury_output_item(
+			inst_defn(Varset, SymName, Args, InstBody, true),
+			Context)
 	;
 		[]
 	).
@@ -1559,8 +1465,8 @@ intermod__write_clause(ModuleInfo, PredId, VarSet, HeadVars,
 :- pred strip_headvar_unifications(list(prog_var)::in,
 		clause::in, list(prog_term)::out, clause::out) is det.
 
-strip_headvar_unifications(HeadVars, clause(ProcIds, Goal0, Context),
-		HeadTerms, clause(ProcIds, Goal, Context)) :-
+strip_headvar_unifications(HeadVars, clause(ProcIds, Goal0, Lang, Context),
+		HeadTerms, clause(ProcIds, Goal, Lang, Context)) :-
 	Goal0 = _ - GoalInfo0,
 	goal_to_conj_list(Goal0, Goals0),
 	map__init(HeadVarMap0),
@@ -1668,7 +1574,7 @@ intermod__write_type_spec_pragmas(ModuleInfo, PredId) -->
 	( { multi_map__search(PragmaMap, PredId, TypeSpecPragmas) } ->
 		list__foldl(
 		    ( pred(Pragma::in, di, uo) is det -->
-			( { Pragma = type_spec(_, _, _, _, _, _, _) } ->
+			( { Pragma = type_spec(_, _, _, _, _, _, _, _) } ->
 				{ AppendVarnums = yes },
 				mercury_output_pragma_type_spec(Pragma,
 					AppendVarnums)
@@ -1732,7 +1638,7 @@ intermod__should_output_marker(generate_inline, _) :-
 intermod__write_foreign_code(_, _, _, _, [], _) --> [].
 intermod__write_foreign_code(SymName, PredOrFunc, HeadVars, Varset, 
 		[Clause | Clauses], Procs) -->
-	{ Clause = clause(ProcIds, Goal, _) },
+	{ Clause = clause(ProcIds, Goal, _, _) },
 	(
 		(
 			% Pull the foreign code out of the goal.
@@ -2116,7 +2022,7 @@ intermod__grab_optfiles(Module0, Module, FoundError) -->
 		% Read in the .opt files for imported and ancestor modules.
 		%
 	{ Module0 = module_imports(_, ModuleName, Ancestors0, InterfaceDeps0,
-					ImplementationDeps0, _, _, _, _, _, _) },
+				ImplementationDeps0, _, _, _, _, _, _, _) },
 	{ list__condense([Ancestors0, InterfaceDeps0, ImplementationDeps0],
 		OptFilesToRead) },
 	read_all_optimization_interfaces(InferPossibleAlias,
@@ -2152,7 +2058,11 @@ intermod__grab_optfiles(Module0, Module, FoundError) -->
 		% Figure out whether anything went wrong
 		%
 	{ module_imports_get_error(Module, FoundError0) },
-	{ ( FoundError0 \= no ; UAError = yes) ->
+	{
+		( FoundError0 \= no_module_errors
+		; UAError = yes
+		)
+	->
 		FoundError = yes
 	;
 		FoundError = no
@@ -2193,10 +2103,16 @@ read_all_optimization_interfaces(Transitive,
 
 	{ module_imports_set_items(Module0, Items1, Module1) },
 
-	process_module_long_interfaces(NewDeps, ".int", [], NewIndirectDeps,
-				Module1, Module3),
-	process_module_indirect_imports(NewIndirectDeps, ".int2",
-				Module3, Module4),
+		%
+		% Read in the .int, and .int2 files needed by the .opt files.
+		% (XXX do we also need to read in .int0 files here?)
+		%
+	{ map__init(ReadModules) },
+	process_module_long_interfaces(ReadModules,
+			must_be_qualified, NewDeps, ".int",
+			[], NewIndirectDeps, Module1, Module3),
+	process_module_indirect_imports(ReadModules, NewIndirectDeps, ".int2",
+			Module3, Module4),
 
 	( { NewDeps = [] ; Transitive = no } ->
 		{ Module5 = Module4 }
@@ -2205,11 +2121,10 @@ read_all_optimization_interfaces(Transitive,
 			OptFilesToRead ++ AlreadyReadOptFiles, NewDeps,
 			Module4, Module5)
 	),
-	
 
 	{ module_imports_get_error(Module5, FoundError0) },
-	{ ( FoundError0 \= no ; OptError = yes ) ->
-		module_imports_set_error(Module5, yes, Module)
+	{ ( FoundError0 \= no_module_errors ; OptError = yes ) ->
+		module_imports_set_error(Module5, fatal_module_errors, Module)
 	;
 		Module = Module5
 	}.
@@ -2254,14 +2169,14 @@ read_optimization_interfaces([Import | Imports],
 update_error_status(FileType, FileName, ModuleError, Messages,
 		Error0, Error1) -->
 	(
-		{ ModuleError = no },
+		{ ModuleError = no_module_errors },
 		{ Error1 = Error0 }
 	;
-		{ ModuleError = yes },
+		{ ModuleError = some_module_errors },
 		prog_out__write_messages(Messages),
 		{ Error1 = yes }
 	;
-		{ ModuleError = fatal },
+		{ ModuleError = fatal_module_errors },
 		{
 			FileType = opt,
 			WarningOption = warn_missing_opt_files

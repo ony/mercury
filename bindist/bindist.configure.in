@@ -20,10 +20,12 @@ else
 	PREFIX="$prefix"
 fi
 LIBDIR="$PREFIX/lib/mercury"
+WINDOWS_LIBDIR="`cygpath -w $LIBDIR 2>/dev/null`"
 NONSHARED_LIB_DIR=${MERCURY_NONSHARED_LIB_DIR=$PREFIX/lib/nonshared}
 AC_SUBST(PREFIX)
-AC_SUBST(NONSHARED_LIB_DIR)
 AC_SUBST(LIBDIR)
+AC_SUBST(WINDOWS_LIBDIR)
+AC_SUBST(NONSHARED_LIB_DIR)
 DEFAULT_MERCURY_DEBUGGER_INIT_DIR=$LIBDIR/mdb
 AC_SUBST(DEFAULT_MERCURY_DEBUGGER_INIT_DIR)
 
@@ -49,6 +51,7 @@ AC_SUBST(BITS_PER_WORD)
 AC_SUBST(LOW_TAG_BITS)
 AC_SUBST(CFLAGS_FOR_REGS)
 AC_SUBST(CFLAGS_FOR_GOTOS)
+AC_SUBST(CFLAGS_FOR_THREADS)
 AC_SUBST(LINK_SHARED_OBJ)
 AC_SUBST(LINK_SHARED_OBJ_SH)
 AC_SUBST(CFLAGS_FOR_PIC)
@@ -61,7 +64,6 @@ AC_SUBST(EXT_FOR_PIC_OBJECTS)
 AC_SUBST(EXT_FOR_SHARED_LIB)
 AC_SUBST(SHARED_LIBS)
 AC_SUBST(HAVE_DELAY_SLOT)
-AC_SUBST(DEFAULT_RM_C)
 AC_SUBST(ALLOW_UNDEFINED)
 AC_SUBST(ERROR_UNDEFINED)
 AC_SUBST(DL_LIBRARY)
@@ -83,6 +85,8 @@ AC_SUBST(LINK_OPT_SEP)
 AC_SUBST(CYGPATH)
 AC_SUBST(MATH_LIB)
 AC_SUBST(SHARED_LIBS_SH)
+AC_SUBST(CGIDIR)
+AC_SUBST(ENABLE_DEEP_PROFILER)
 
 #-----------------------------------------------------------------------------#
 AC_PROG_RANLIB
@@ -219,7 +223,7 @@ AC_SUBST_FILE(CANONICAL_GRADE)
 #-----------------------------------------------------------------------------#
 MERCURY_CHECK_READLINE
 #-----------------------------------------------------------------------------#
-AC_OUTPUT(Makefile scripts/mmc scripts/mprof
+AC_OUTPUT(Makefile scripts/mmc scripts/mercury.bat scripts/mprof scripts/mdprof
 scripts/mercury_update_interface scripts/mgnuc scripts/ml
 scripts/mmake scripts/c2init scripts/sicstus_conv
 scripts/mkfifo_using_mknod scripts/Mmake.vars

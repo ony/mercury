@@ -63,10 +63,12 @@
 		;	warn_duplicate_calls
 		;	warn_missing_module_name
 		;	warn_wrong_module_name
+		;	warn_smart_recompilation
 	% Verbosity options
 		;	verbose
 		;	very_verbose
 		;	verbose_errors
+		;	verbose_recompilation
 		;	statistics
 		;	debug_types
 		;	debug_modes
@@ -86,7 +88,6 @@
 		;	generate_dependencies
 		;	generate_module_order
 		;	convert_to_mercury
-		;	convert_to_goedel
 		;	typecheck_only
 		;	errorcheck_only
 		;	target_code_only
@@ -94,6 +95,13 @@
 		;	aditi_only
 		;	output_grade_string
 	% Auxiliary output options
+		;	smart_recompilation
+
+				% This option is used to control output
+				% of version numbers in interface files.
+				% It is implied by --smart-recompilation,
+				% and cannot be set explicitly by the user.
+		;	generate_item_version_numbers
 		;	assume_gmake
 		;	trace
 		;	trace_optimized
@@ -103,11 +111,6 @@
 		;	suppress_trace
 		;	stack_trace_higher_order
 		;	generate_bytecode
-		;	generate_prolog		% Currently not used
-				% XXX generate_prolog should probably be
-				% in the "Output options" section rather than
-				% in the "Auxiliary output options" section
-		;	prolog_dialect		% Currently not used
 		;	line_numbers
 		;	auto_comments
 		;	show_dependency_graph
@@ -147,11 +150,24 @@
 		;	profiling		% profile_time + profile_calls
 		;	time_profiling		% profile_time + profile_calls
 		;	memory_profiling	% profime_mem + profile_calls
-		;	deep_profiling	% profile_time + profile_deep
+		;	deep_profiling		% profile_deep
 		;	profile_calls
 		;	profile_time
 		;	profile_memory
 		;	profile_deep
+		;	use_activation_counts
+				% use_activation_counts is used to determine
+				% which mechanism for cycle detection should be
+				% used for deep profiling. Actually, we only
+				% want to use the `yes' value, but we keep
+				% support for the `no' value for benchmarks
+				% for the paper.
+		;	use_zeroing_for_ho_cycles
+		;	use_lots_of_ho_specialization
+				% We should always handle tail recursion
+				% specially in deep profiling; the options is
+				% only for benchmarks for the paper.
+		;	deep_profile_tail_recursion
 		;	debug
 		;	stack_trace
 		;	require_tracing
@@ -186,19 +202,12 @@
 		;       unboxed_no_tag_types
 		;	sync_term_size % in words
 		;	type_layout
-	% Foreign language interface options
-				% The foreign language that the user has
-				% selected for use in this module
-				% (defaults to the value of backend
-				% foreign target).
-		;	use_foreign_language
 	% Options for internal use only
 	% (the values of these options are implied by the
 	% settings of other options)
-				% The language that this backend can
-				% interface to most easily (probably the
-				% target language of the backend).
-		; 	backend_foreign_language 
+				% The foreign programming languages that this
+				% backend can interface to.
+		; 	backend_foreign_languages
 				% Stack layout information required to do
 				% a stack trace.
 		;       basic_stack_layout
@@ -333,11 +342,12 @@
 		;	optimize_unused_args
 		;	intermod_unused_args
 		;	optimize_higher_order
+		;	higher_order_size_limit
+		;	higher_order_arg_limit
 		;	unneeded_code
 		;	unneeded_code_copy_limit
 		;	type_specialization
 		;	user_guided_type_specialization
-		;	higher_order_size_limit
 		;	introduce_accumulators
 		;	optimize_constructor_last_call
 		;	optimize_duplicate_calls
@@ -388,6 +398,7 @@
 		;	optimize_peep
 		;	optimize_jumps
 		;	optimize_fulljumps
+		;	pessimize_tailcalls
 		;	checked_nondet_tailcalls
 		;	use_local_vars
 		;	optimize_labels
@@ -480,13 +491,15 @@ option_defaults_2(warning_option, [
 	warn_simple_code	-	bool(yes),
 	warn_duplicate_calls	-	bool(no),
 	warn_missing_module_name -	bool(yes),
-	warn_wrong_module_name -	bool(yes)
+	warn_wrong_module_name -	bool(yes),
+	warn_smart_recompilation -	bool(yes)
 ]).
 option_defaults_2(verbosity_option, [
 		% Verbosity Options
 	verbose			-	bool(no),
 	very_verbose		-	bool(no),
 	verbose_errors		-	bool(no),
+	verbose_recompilation	-	bool(no),
 	statistics		-	bool(no),
 	debug_types		- 	bool(no),
 	debug_modes		- 	bool(no),
@@ -508,7 +521,6 @@ option_defaults_2(output_option, [
 	make_optimization_interface -	bool(no),
 	make_transitive_opt_interface -	bool(no),
 	convert_to_mercury 	-	bool(no),
-	convert_to_goedel 	-	bool(no),
 	typecheck_only		-	bool(no),
 	errorcheck_only		-	bool(no),
 	target_code_only	-	bool(no),
@@ -518,6 +530,8 @@ option_defaults_2(output_option, [
 ]).
 option_defaults_2(aux_output_option, [
 		% Auxiliary Output Options
+	smart_recompilation	-	bool(no),
+	generate_item_version_numbers -	bool(no),
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
@@ -527,8 +541,6 @@ option_defaults_2(aux_output_option, [
 	delay_death		-	bool(yes),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
-	generate_prolog		-	bool(no),
-	prolog_dialect		-	string("default"),
 	line_numbers		-	bool(yes),
 	auto_comments		-	bool(no),
 	show_dependency_graph	-	bool(no),
@@ -581,6 +593,12 @@ option_defaults_2(compilation_model_option, [
 	profile_time		-	bool(no),
 	profile_memory		-	bool(no),
 	profile_deep		-	bool(no),
+	use_activation_counts	-	bool(no),
+	use_zeroing_for_ho_cycles
+				-	bool(yes),
+	use_lots_of_ho_specialization
+				-	bool(no),
+	deep_profile_tail_recursion	-	bool(yes),
 	debug			-	bool_special,
 	require_tracing		-	bool(no),
 	stack_trace		-	bool(no),
@@ -608,8 +626,7 @@ option_defaults_2(compilation_model_option, [
 					% of writing) - will usually be over-
 					% ridden by a value from configure.
 	type_layout		-	bool(yes),
-	use_foreign_language	-	string(""),
-	backend_foreign_language-	string(""),
+	backend_foreign_languages-	accumulating([]),
 					% The previous two options
 					% depend on the target and are
 					% set in handle_options.
@@ -749,11 +766,12 @@ option_defaults_2(optimization_option, [
 	optimize_unused_args	-	bool(no),
 	intermod_unused_args	-	bool(no),
 	optimize_higher_order	-	bool(no),
+	higher_order_size_limit	-	int(20),
+	higher_order_arg_limit -	int(10),
 	unneeded_code		-	bool(no),
 	unneeded_code_copy_limit	-	int(10),
 	type_specialization	-	bool(no),
 	user_guided_type_specialization	-	bool(no),
-	higher_order_size_limit	-	int(20),
 	introduce_accumulators -	bool(no),
 	optimize_constructor_last_call -	bool(no),
 	optimize_dead_procs	-	bool(no),
@@ -788,6 +806,7 @@ option_defaults_2(optimization_option, [
 	optimize_peep		-	bool(no),
 	optimize_jumps		-	bool(no),
 	optimize_fulljumps	-	bool(no),
+	pessimize_tailcalls	-	bool(no),
 	checked_nondet_tailcalls -	bool(no),
 	use_local_vars		-	bool(no),
 	optimize_labels		-	bool(no),
@@ -842,7 +861,6 @@ short_option('d', 			dump_hlds).
 short_option('D', 			dump_hlds_alias).
 short_option('e', 			errorcheck_only).
 short_option('E', 			verbose_errors).
-short_option('G', 			convert_to_goedel).
 short_option('h', 			help).
 short_option('H', 			highlevel_code).
 short_option('i', 			make_interface).
@@ -884,11 +902,13 @@ long_option("warn-simple-code",		warn_simple_code).
 long_option("warn-duplicate-calls",	warn_duplicate_calls).
 long_option("warn-missing-module-name",	warn_missing_module_name).
 long_option("warn-wrong-module-name",	warn_wrong_module_name).
+long_option("warn-smart-recompilation",	warn_smart_recompilation).
 
 % verbosity options
 long_option("verbose",			verbose).
 long_option("very-verbose",		very_verbose).
 long_option("verbose-error-messages",	verbose_errors).
+long_option("verbose-recompilation",	verbose_recompilation).
 long_option("statistics",		statistics).
 long_option("debug-types",		debug_types).
 long_option("debug-modes",		debug_modes).
@@ -927,8 +947,6 @@ long_option("make-trans-opt", 		make_transitive_opt_interface).
 long_option("convert-to-mercury", 	convert_to_mercury).
 long_option("convert-to-Mercury", 	convert_to_mercury). 
 long_option("pretty-print", 		convert_to_mercury).
-long_option("convert-to-goedel", 	convert_to_goedel).
-long_option("convert-to-Goedel", 	convert_to_goedel).
 long_option("typecheck-only",		typecheck_only).
 long_option("errorcheck-only",		errorcheck_only).
 long_option("target-code-only",		target_code_only).
@@ -937,6 +955,7 @@ long_option("aditi-only",		aditi_only).
 long_option("output-grade-string",	output_grade_string).
 
 % aux output options
+long_option("smart-recompilation",	smart_recompilation).
 long_option("assume-gmake",		assume_gmake).
 long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
@@ -947,10 +966,6 @@ long_option("suppress-trace",		suppress_trace).
 long_option("delay-death",		delay_death).
 long_option("stack-trace-higher-order",	stack_trace_higher_order).
 long_option("generate-bytecode",	generate_bytecode).
-long_option("generate-prolog",		generate_prolog).
-long_option("generate-Prolog",		generate_prolog).
-long_option("prolog-dialect",		prolog_dialect).
-long_option("Prolog-dialect",		prolog_dialect).
 long_option("line-numbers",		line_numbers).
 long_option("auto-comments",		auto_comments).
 long_option("show-dependency-graph",	show_dependency_graph).
@@ -1006,6 +1021,13 @@ long_option("profile-calls",		profile_calls).
 long_option("profile-time",		profile_time).
 long_option("profile-memory",		profile_memory).
 long_option("profile-deep",		profile_deep).
+long_option("use-activation-counts",	use_activation_counts).
+long_option("use-zeroing-for-ho-cycles",
+					use_zeroing_for_ho_cycles).
+long_option("use-lots-of-ho-specialization",
+					use_lots_of_ho_specialization).
+long_option("deep-profile-tail-recursion",
+					deep_profile_tail_recursion).
 long_option("debug",			debug).
 % The following options are not allowed, because they're
 % not very useful and would probably only confuse people.
@@ -1022,8 +1044,8 @@ long_option("bits-per-word",		bits_per_word).
 long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
 long_option("type-layout",		type_layout).
-long_option("use-foreign-language",	use_foreign_language).
-long_option("backend-foreign-language",	backend_foreign_language).
+long_option("backend-foreign-languages",
+					backend_foreign_languages).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -1151,6 +1173,8 @@ long_option("optimise-unused-args",	optimize_unused_args).
 long_option("intermod-unused-args",	intermod_unused_args).
 long_option("optimize-higher-order",	optimize_higher_order).
 long_option("optimise-higher-order",	optimize_higher_order).
+long_option("higher-order-size-limit",	higher_order_size_limit).
+long_option("higher-order-arg-limit",	higher_order_arg_limit).
 long_option("unneeded-code",		unneeded_code).
 long_option("unneeded-code-copy-limit",	unneeded_code_copy_limit).
 long_option("type-specialization",	type_specialization).
@@ -1165,7 +1189,6 @@ long_option("user-guided-type-specialisation",
 	% eventually be removed.
 long_option("fixed-user-guided-type-specialization",
 					user_guided_type_specialization).
-long_option("higher-order-size-limit",	higher_order_size_limit).
 long_option("introduce-accumulators",	introduce_accumulators).
 long_option("optimise-constructor-last-call",	optimize_constructor_last_call).
 long_option("optimize-constructor-last-call",	optimize_constructor_last_call).
@@ -1237,6 +1260,7 @@ long_option("optimize-jumps",		optimize_jumps).
 long_option("optimise-jumps",		optimize_jumps).
 long_option("optimize-fulljumps",	optimize_fulljumps).
 long_option("optimise-fulljumps",	optimize_fulljumps).
+long_option("pessimize-tailcalls",	pessimize_tailcalls).
 long_option("checked-nondet-tailcalls", checked_nondet_tailcalls).
 long_option("use-local-vars",		use_local_vars).
 long_option("optimize-labels",		optimize_labels).
@@ -1332,7 +1356,7 @@ special_handler(memory_profiling, none, OptionTable0, ok(OptionTable)) :-
         map__set(OptionTable2, profile_memory, bool(yes), OptionTable3),
         map__set(OptionTable3, profile_deep, bool(no), OptionTable).
 special_handler(deep_profiling, none, OptionTable0, ok(OptionTable)) :-
-	map__set(OptionTable0, profile_time, bool(yes), OptionTable1),
+	map__set(OptionTable0, profile_time, bool(no), OptionTable1),
 	map__set(OptionTable1, profile_calls, bool(no), OptionTable2),
         map__set(OptionTable2, profile_memory, bool(no), OptionTable3),
         map__set(OptionTable3, profile_deep, bool(yes), OptionTable).
@@ -1382,7 +1406,8 @@ special_handler(inhibit_warnings, bool(Inhibit), OptionTable0, ok(OptionTable))
 			warn_missing_trans_opt_deps -	bool(Enable),
 			warn_simple_code	-	bool(Enable),
 			warn_missing_module_name -	bool(Enable),
-			warn_wrong_module_name	-	bool(Enable)
+			warn_wrong_module_name	-	bool(Enable),
+			warn_smart_recompilation -	bool(Enable)
 		], OptionTable0, OptionTable).
 special_handler(infer_all, bool(Infer), OptionTable0, ok(OptionTable)) :-
 	override_options([
@@ -1670,7 +1695,9 @@ options_help_warning -->
 		"\ta `:- module' declaration.",
 		"--no-warn-wrong-module-name",
 		"\tDisable warnings for modules whose `:- module'",
-		"\tdeclaration does not match the module's file name."
+		"\tdeclaration does not match the module's file name.",
+		"--no-warn-smart-recompilation",
+		"\tDisable warnings from the smart recompilation system."
 	]).
 
 :- pred options_help_verbosity(io__state::di, io__state::uo) is det.
@@ -1685,6 +1712,9 @@ options_help_verbosity -->
 		"-E, --verbose-error-messages",
 		"\tExplain error messages.  Asks the compiler to give you a more",
 		"\tdetailed explanation of any errors it finds in your program.",
+		"--verbose-recompilation",
+		"\tWhen using `--smart-recompilation', output messages\n",
+		"\texplaining why a module needs to be recompiled.",
 		"-S, --statistics",
 		"\tOutput messages about the compiler's time/space usage.",
 		"\tAt the moment this option implies `--no-trad-passes', so you get",
@@ -1744,10 +1774,6 @@ options_help_output -->
 		"\tOutput transitive optimization information",
 		"\tinto the `<module>.trans_opt' file.",
 		"\tThis option should only be used by mmake.",
-		"-G, --convert-to-goedel",
-		"\tConvert to Goedel. Output to file `<module>.loc'.",
-		"\tNote that some Mercury language constructs cannot",
-		"\t(easily) be translated into Goedel.",
 		"-P, --convert-to-mercury",
 		"\tConvert to Mercury. Output to file `<module>.ugly'",
 		"\tThis option acts as a Mercury ugly-printer.",
@@ -1779,6 +1805,11 @@ options_help_output -->
 options_help_aux_output -->
 	io__write_string("\nAuxiliary Output Options:\n"),
 	write_tabbed_lines([
+		"--smart-recompilation",
+		"\tWhen compiling, write program dependency information",
+		"\tto be used to avoid unnecessary recompilations if an",
+		"\timported module's interface changes in a way which does",
+		"\tnot invalidate the compiled code.",
 		"--no-assume-gmake",
 		"\tWhen generating `.dep' files, generate Makefile",
 		"\tfragments that use only the features of standard make;",
@@ -1815,17 +1846,9 @@ options_help_aux_output -->
 		"--generate-bytecode",
 		"\tOutput a bytecode form of the module for use",
 		"\tby an experimental debugger.",
-% --generate-prolog is not documented because it is not yet implemented
-%		"--generate-prolog",
-%		"\tConvert the program to Prolog. Output to file `<module>.pl'",
-%		"\tor `<module>.nl' (depending on the dialect).",
-% --prolog-dialect is not documented because it is not yet used
-%		"--prolog-dialect {sicstus,nu}",
-%		"\tTarget the named dialect if generating Prolog code.",
 		"-n-, --no-line-numbers",
 		"\tDo not put source line numbers in the generated code.",
 		"\tThe generated code may be in C (the usual case),",
-		"\tin Goedel (with the option --convert-to-goedel)",
 		"\tor in Mercury (with the option --convert-to-mercury).",
 		"--auto-comments",
 		"\tOutput comments in the `<module>.c' file.",
@@ -1850,7 +1873,8 @@ options_help_aux_output -->
 		"\t(see the Mercury User's Guide for details).",
 		"--dump-mlds <stage number or name>",
 		"\tDump the MLDS (medium level intermediate representation) after",
-		"\tthe specified stage to `<module>.mlds_dump.<num>-<name>'.",
+		"\tthe specified stage to `<module>.mlds_dump.<num>-<name>',",
+		"\t`<module>.c_dump.<num>-<name>' and `<module>.h_dump.<num>-<name>'.",
 		"\tStage numbers range from 1-99.",
 		"\tMultiple dump options accumulate.",
 		"--dump-rl",
@@ -2124,6 +2148,10 @@ options_help_compilation_model -->
 		"--memory-profiling\t\t(grade modifier: `.memprof')",
 		"\tEnable memory and call profiling.",
 		"\tThis option is not supported for the IL or Java back-ends.",
+		"--deep-profiling\t\t(grade modifier: `.profdeep')",
+		"\tEnable deep profiling.",
+		"\tThis option is not supported for the high-level C, IL",
+		"\tor Java back-ends.",
 /*****************
 XXX The following options are not documented,
 because they are currently not useful.
@@ -2505,16 +2533,6 @@ options_help_hlds_hlds_optimization -->
 
 		"--optimize-higher-order",
 		"\tEnable specialization of higher-order predicates.",
-		"--unneeded-code",
-		"\tRemove goals from computation paths where their outputs are",
-		"\tnot needed, provided the semantics options allow the deletion",
-		"\tor movement of the goal.",
-		"--unneeded-code-copy-limit",
-		"\tGives the maximum number of places to which a goal may be copied",
-		"\twhen removing it from computation paths on which its outputs are",
-		"\tnot needed. A value of zero forbids goal movement and allows",
-		"\tonly goal deletion; a value of one prevents any increase in the",
-		"\tsize of the code.",
 		"--type-specialization",
 		"\tEnable specialization of polymorphic predicates where the",
 		"\tpolymorphic types are known.",
@@ -2526,6 +2544,20 @@ options_help_hlds_hlds_optimization -->
 		"\t`--optimize-higher-order' and `--type-specialization'.",
 		"\tGoal size is measured as the number of calls, unifications",
 		"\tand branched goals.",
+		"--higher-order-arg-limit",
+		"\tSet the maximum size of higher-order arguments to",
+		"\tbe specialized by `--optimize-higher-order' and",
+		"\t`--type-specialization'.",
+		"--unneeded-code",
+		"\tRemove goals from computation paths where their outputs are",
+		"\tnot needed, provided the semantics options allow the deletion",
+		"\tor movement of the goal.",
+		"--unneeded-code-copy-limit",
+		"\tGives the maximum number of places to which a goal may be copied",
+		"\twhen removing it from computation paths on which its outputs are",
+		"\tnot needed. A value of zero forbids goal movement and allows",
+		"\tonly goal deletion; a value of one prevents any increase in the",
+		"\tsize of the code.",
 		"--introduce-accumulators",
 		"\tAttempt to introduce accumulating variables into",
 		"\tprocedures, so as to make them tail recursive.",
@@ -2615,6 +2647,8 @@ options_help_llds_llds_optimization -->
 		"\tDisable elimination of jumps to jumps.",
 		"--no-optimize-fulljumps",
 		"\tDisable elimination of jumps to ordinary code.",
+		"--pessimize-tailcalls",
+		"\tDisable the optimization of tailcalls.",
 		"--checked-nondet-tailcalls",
 		"\tConvert nondet calls into tail calls whenever possible, even",
 		"\twhen this requires a runtime check. This option tries to",

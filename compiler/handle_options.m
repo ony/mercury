@@ -46,7 +46,7 @@
 :- implementation.
 
 :- import_module options, globals, prog_io_util, trace_params, unify_proc.
-:- import_module prog_data.
+:- import_module prog_data, foreign.
 :- import_module char, int, string, map, set, getopt, library.
 
 handle_options(MaybeError, Args, Link) -->
@@ -77,8 +77,6 @@ handle_options(MaybeError, Args, Link) -->
 						MakeTransOptInt),
 		globals__io_lookup_bool_option(convert_to_mercury,
 			ConvertToMercury),
-		globals__io_lookup_bool_option(convert_to_goedel,
-			ConvertToGoedel),
 		globals__io_lookup_bool_option(typecheck_only, TypecheckOnly),
 		globals__io_lookup_bool_option(errorcheck_only, ErrorcheckOnly),
 		globals__io_lookup_bool_option(target_code_only,
@@ -91,12 +89,21 @@ handle_options(MaybeError, Args, Link) -->
 		{ bool__or_list([GenerateDependencies, MakeInterface,
 			MakePrivateInterface, MakeShortInterface,
 			MakeOptimizationInt, MakeTransOptInt,
-			ConvertToMercury, ConvertToGoedel, TypecheckOnly,
+			ConvertToMercury, TypecheckOnly,
 			ErrorcheckOnly, TargetCodeOnly,
 			GenerateIL, GenerateJava,
 			CompileOnly, AditiOnly],
 			NotLink) },
-		{ bool__not(NotLink, Link) }
+		{ bool__not(NotLink, Link) },
+		globals__io_lookup_bool_option(smart_recompilation, Smart),
+		( { Smart = yes, Link = yes } ->
+			% XXX Currently smart recompilation doesn't check
+			% that all the files needed to link are present
+			% and up-to-date, so disable it.
+			disable_smart_recompilation("linking")
+		;
+			[]	
+		)
 	).
 
 :- pred dump_arguments(list(string), io__state, io__state).
@@ -133,14 +140,9 @@ postprocess_options(ok(OptionTable), Error) -->
         ->
             { map__lookup(OptionTable, tags, TagsMethod0) },
             (
-                { TagsMethod0 = string(TagsMethodStr) },
-                { convert_tags_method(TagsMethodStr, TagsMethod) }
+                    { TagsMethod0 = string(TagsMethodStr) },
+                    { convert_tags_method(TagsMethodStr, TagsMethod) }
             ->
-                { map__lookup(OptionTable, prolog_dialect, PrologDialect0) },
-                (
-                    { PrologDialect0 = string(PrologDialectStr) },
-                    { convert_prolog_dialect(PrologDialectStr, PrologDialect) }
-                ->
                     { map__lookup(OptionTable,
                         fact_table_hash_percent_full, PercentFull) },
                     (
@@ -178,7 +180,7 @@ postprocess_options(ok(OptionTable), Error) -->
                                     ->
                                         postprocess_options_2(OptionTable,
                                             Target, GC_Method, TagsMethod,
-                                            PrologDialect, TermNorm, TraceLevel,
+                                            TermNorm, TraceLevel,
                                             TraceSuppress, Error)
                                     ;
                                         { DumpAliasOption = string(DumpAlias) },
@@ -191,8 +193,8 @@ postprocess_options(ok(OptionTable), Error) -->
                                             NewOptionTable) },
                                         postprocess_options_2(NewOptionTable,
                                             Target, GC_Method, TagsMethod,
-                                            PrologDialect, TermNorm,
-                                            TraceLevel, TraceSuppress, Error)
+                                            TermNorm, TraceLevel,
+					    TraceSuppress, Error)
                                     ;
                                         { Error = yes("Invalid argument to option `--hlds-dump-alias'.") }
                                     )
@@ -208,11 +210,8 @@ postprocess_options(ok(OptionTable), Error) -->
                     ;
                         { Error = yes("Invalid argument to option `--fact-table-hash-percent-full'\n\t(must be an integer between 1 and 100)") }
                     )
-                ;
-                    { Error = yes("Invalid prolog-dialect option (must be `sicstus', `nu', or `default')") }
-                )
             ;
-                { Error = yes("Invalid tags option (must be `none', `low' or `high')") }
+                    { Error = yes("Invalid tags option (must be `none', `low' or `high')") }
             )
         ;
             { Error = yes("Invalid GC option (must be `none', `conservative' or `accurate')") }
@@ -223,15 +222,15 @@ postprocess_options(ok(OptionTable), Error) -->
     
 
 :- pred postprocess_options_2(option_table::in, compilation_target::in,
-    gc_method::in, tags_method::in, prolog_dialect::in, termination_norm::in,
+    gc_method::in, tags_method::in, termination_norm::in,
     trace_level::in, trace_suppress_items::in, maybe(string)::out,
     io__state::di, io__state::uo) is det.
 
 postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
-		PrologDialect, TermNorm, TraceLevel, TraceSuppress, Error) -->
+		TermNorm, TraceLevel, TraceSuppress, Error) -->
 	{ unsafe_promise_unique(OptionTable, OptionTable1) }, % XXX
 	globals__io_init(OptionTable1, Target, GC_Method, TagsMethod,
-		PrologDialect, TermNorm, TraceLevel, TraceSuppress),
+		TermNorm, TraceLevel, TraceSuppress),
 
 	% --gc conservative implies --no-reclaim-heap-*
 	( { GC_Method = conservative } ->
@@ -373,6 +372,59 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
         % option_implies(infer_possible_aliases, use_opt_files, bool(yes)),
         % option_implies(infer_possible_aliases, use_trans_opt_files, bool(yes)),
 	
+	option_implies(smart_recompilation, generate_item_version_numbers,
+			bool(yes)),
+	
+	%
+	% Disable `--smart-recompilation' for compilation options
+	% which either do not produce a compiled output file or
+	% for which smart recompilation will not work.
+	%
+	option_implies(generate_dependencies, smart_recompilation, bool(no)),
+	option_implies(convert_to_mercury, smart_recompilation, bool(no)),
+	option_implies(make_private_interface, smart_recompilation, bool(no)),
+	option_implies(make_interface, smart_recompilation, bool(no)),
+	option_implies(make_short_interface, smart_recompilation, bool(no)),
+	option_implies(output_grade_string, smart_recompilation, bool(no)),
+	option_implies(make_optimization_interface,
+		smart_recompilation, bool(no)),
+	option_implies(make_transitive_opt_interface,
+		smart_recompilation, bool(no)),
+	option_implies(errorcheck_only, smart_recompilation, bool(no)),
+	option_implies(typecheck_only, smart_recompilation, bool(no)),
+
+	% `--aditi-only' is only used by the Aditi query shell,
+	% for queries which should only be compiled once.
+	% recompilation_check.m currently doesn't check whether
+	% the `.rlo' file is up to date (with `--no-aditi-only' the
+	% Aditi-RL bytecode is embedded in the `.c' file.
+	option_implies(aditi_only, smart_recompilation, bool(no)),
+
+	% We never use version number information in `.int3',
+	% `.opt' or `.trans_opt'  files.
+	option_implies(make_short_interface, generate_item_version_numbers,
+		bool(no)),
+
+	% XXX Smart recompilation does not yet work with inter-module
+	% optimization, but we still want to generate version numbers
+	% in interface files for users of a library compiled with
+	% inter-module optimization but not using inter-module
+	% optimization themselves.
+	globals__io_lookup_bool_option(smart_recompilation, Smart),
+	maybe_disable_smart_recompilation(Smart, intermodule_optimization, yes,
+		"`--intermodule-optimization'"),
+	maybe_disable_smart_recompilation(Smart, use_opt_files, yes,
+		"`--use-opt-files'"),
+
+	% XXX Smart recompilation does not yet work with
+	% `--no-target-code-only'. With `--no-target-code-only'
+	% it becomes difficult to work out what all the target
+	% files are and check whether they are up-to-date.
+	% By default, mmake always enables `--target-code-only' and
+	% processes the target code file itself, so this isn't a problem.
+	maybe_disable_smart_recompilation(Smart, target_code_only, no,
+		"`--no-target-code-only'"),
+
 	option_implies(very_verbose, verbose, bool(yes)),
 
 	globals__io_lookup_int_option(debug_liveness, DebugLiveness),
@@ -509,8 +561,33 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 		[]
 	),
 
-	% Deep profiling requires `procid' stack layouts
-	option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	% Deep profiling will eventually use `procid' stack layouts,
+	% but for now, we use a separate copy of each MR_Proc_Id structure.
+	% option_implies(profile_deep, procid_stack_layout, bool(yes)),
+	globals__io_lookup_bool_option(profile_deep, ProfileDeep),
+	globals__io_lookup_bool_option(highlevel_code, HighLevel),
+	( { ProfileDeep = yes } ->
+		(
+			{ HighLevel = no },
+			{ Target = c }
+		->
+			[]
+		;
+			usage_error("deep profiling is incompatible with high level code")
+		),
+		globals__io_lookup_bool_option(
+			use_lots_of_ho_specialization, LotsOfHOSpec),
+		( { LotsOfHOSpec = yes } ->
+			{ True = bool(yes) },
+			globals__io_set_option(optimize_higher_order, True),
+			globals__io_set_option(higher_order_size_limit,
+				int(999999))
+		;
+			[]
+		)
+	;
+		[]
+	),
 
 	% --no-reorder-conj implies --no-deforestation.
 	option_neg_implies(reorder_conj, deforestation, bool(no)),
@@ -641,56 +718,33 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% The preferred backend foreign language depends on the target.
 	( 	
 		{ Target = c },
-		{ BackendForeignLanguage = foreign_language_string(c) }
+		{ BackendForeignLanguages = ["c"] }
 	;
 		{ Target = il },
-		{ BackendForeignLanguage =
-			foreign_language_string(managed_cplusplus) }
+		{ BackendForeignLanguages = ["csharp", "mc++"] }
 	;
 		{ Target = asm },
 		% XXX This is wrong!  It should be asm.
-		{ BackendForeignLanguage = foreign_language_string(c) }
+		{ BackendForeignLanguages = ["c"] }
 	;
 		% XXX We don't generate java or handle it as a foreign
 		% language just yet, but if we did, we should fix this
 		{ Target = java },
-		{ BackendForeignLanguage = foreign_language_string(c) }
+		{ BackendForeignLanguages = [] }
 	),
 
-		% only set the backend foreign language if it is unset
-	globals__io_lookup_string_option(backend_foreign_language,
+		% only set the backend foreign languages if they are unset
+	globals__io_lookup_accumulating_option(backend_foreign_languages,
 		CurrentBackendForeignLanguage),
 	( 
-		{ CurrentBackendForeignLanguage = "" }
+		{ CurrentBackendForeignLanguage = [] }
 	->
-		globals__io_set_option(backend_foreign_language,
-			string(BackendForeignLanguage))
+		globals__io_set_option(backend_foreign_languages,
+			accumulating(BackendForeignLanguages))
 	;
 		[]
 	),
 
-	% The default foreign language we use is the same as the backend.
-	globals__io_lookup_string_option(use_foreign_language,
-		UseForeignLanguage),
-	( 
-		{ UseForeignLanguage = "" }
-	->
-		globals__io_set_option(use_foreign_language, 
-			string(BackendForeignLanguage))
-	; 
-		{ convert_foreign_language(UseForeignLanguage, FL) }
-	->
-		{ CanonicalLangName = foreign_language_string(FL) },
-		globals__io_set_option(use_foreign_language, 
-			string(CanonicalLangName))
-	;
-		usage_error(
-			string__format(
-			"unrecognized foreign language argument `%s' for --use-foreign-language",
-			[s(UseForeignLanguage)]))
-	),
-
-	globals__io_lookup_bool_option(highlevel_code, HighLevel),
 	( { HighLevel = no } ->
 		postprocess_options_lowlevel
 	;
@@ -747,6 +801,47 @@ option_neg_implies(SourceOption, ImpliedOption, ImpliedOptionValue) -->
 	globals__io_lookup_bool_option(SourceOption, SourceOptionValue),
 	( { SourceOptionValue = no } ->
 		globals__io_set_option(ImpliedOption, ImpliedOptionValue)
+	;
+		[]
+	).
+
+	% Smart recompilation does not yet work with all
+	% options (in particular `--intermodule-optimization'
+	% and `--no-target-code-only'). Disable smart recompilation
+	% if such an option is set, maybe issuing a warning.
+:- pred maybe_disable_smart_recompilation(bool::in, option::in, bool::in,
+		string::in, io__state::di, io__state::uo) is det.
+
+maybe_disable_smart_recompilation(Smart, ConflictingOption,
+		ValueToDisableSmart, OptionDescr) -->
+	globals__io_lookup_bool_option(ConflictingOption, Value),
+	(
+		{ Smart = yes },
+		{ Value = ValueToDisableSmart }
+	->
+		disable_smart_recompilation(OptionDescr)
+	;
+		[]
+	).
+
+:- pred disable_smart_recompilation(string::in,
+		io__state::di, io__state::uo) is det.
+
+disable_smart_recompilation(OptionDescr) -->
+	globals__io_set_option(smart_recompilation, bool(no)),
+	globals__io_lookup_bool_option(warn_smart_recompilation,
+		WarnSmart),
+	( { WarnSmart = yes } ->
+		io__write_string(
+	"Warning: smart recompilation does not yet work with "),
+		io__write_string(OptionDescr),
+		io__write_string(".\n"),
+		globals__io_lookup_bool_option(halt_at_warn, Halt),
+		( { Halt = yes } ->
+			io__set_exit_status(1)
+		;
+			[]
+		)
 	;
 		[]
 	).
@@ -1017,24 +1112,24 @@ grade_component_table("gc", gc, [gc - string("conservative")]).
 grade_component_table("agc", gc, [gc - string("accurate")]).
 
 	% Profiling components
-grade_component_table("prof", prof, [profile_time - bool(yes),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(no)]).
-grade_component_table("profdeep", prof, [profile_time - bool(yes),
-	profile_deep - bool(yes), profile_calls - bool(no),
-	profile_memory - bool(no)]).
-grade_component_table("proftime", prof, [profile_time - bool(yes),
-	profile_deep - bool(no), profile_calls - bool(no),
-	profile_memory - bool(no)]).
-grade_component_table("profcalls", prof, [profile_time - bool(no),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(no)]).
-grade_component_table("memprof", prof, [profile_time - bool(no),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(yes)]).
-grade_component_table("profall", prof, [profile_time - bool(yes),
-	profile_deep - bool(no), profile_calls - bool(yes),
-	profile_memory - bool(yes)]).
+grade_component_table("prof", prof,
+	[profile_time - bool(yes), profile_calls - bool(yes),
+	profile_memory - bool(no), profile_deep - bool(no)]).
+grade_component_table("proftime", prof,
+	[profile_time - bool(yes), profile_calls - bool(no),
+	profile_memory - bool(no), profile_deep - bool(no)]).
+grade_component_table("profcalls", prof,
+	[profile_time - bool(no), profile_calls - bool(yes),
+	profile_memory - bool(no), profile_deep - bool(no)]).
+grade_component_table("memprof", prof,
+	[profile_time - bool(no), profile_calls - bool(yes),
+	profile_memory - bool(yes), profile_deep - bool(no)]).
+grade_component_table("profall", prof,
+	[profile_time - bool(yes), profile_calls - bool(yes),
+	profile_memory - bool(yes), profile_deep - bool(no)]).
+grade_component_table("profdeep", prof,
+	[profile_time - bool(no), profile_calls - bool(no),
+	profile_memory - bool(no), profile_deep - bool(yes)]).
 
 	% Trailing components
 grade_component_table("tr", trail, [use_trail - bool(yes)]).

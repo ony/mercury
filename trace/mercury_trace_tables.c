@@ -50,12 +50,13 @@ MR_register_all_modules_and_procs(FILE *fp, bool verbose)
 			fflush(fp);
 		}
 
-		MR_do_init_modules();
+		MR_trace_init_modules();
 		done = TRUE;
 		if (verbose) {
 			fprintf(fp, "done.\n");
 			if (MR_module_info_next == 0) {
-				fprintf(fp, "There are no debuggable modules.");
+				fprintf(fp,
+					"There are no debuggable modules.\n");
 			} else if (MR_module_info_next == 1) {
 				fprintf(fp, "There is one debuggable module, "
 					"with %d procedures.\n",
@@ -487,7 +488,7 @@ MR_label_layout_stats(FILE *fp)
 	int				module_num, file_num, label_num;
 	MR_Trace_Port			port;
 	int				total;
-	int				histogram[MR_PORT_PRAGMA_LATER + 1];
+	int				histogram[MR_PORT_NUM_PORTS];
 
 	total = 0;
 	for (port = 0; port < MR_PORT_NUM_PORTS; port++) {

@@ -91,10 +91,10 @@ output_src_end(ModuleName) -->
 :- mode generate_mcplusplus_code(in, di, uo) is det.
 generate_mcplusplus_code(MLDS) -->
 
-	{ MLDS = mlds(ModuleName, ForeignCode, _Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, _Imports, Defns) },
 	{ prog_out__sym_name_to_string(ModuleName, ModuleNameStr) },
-	{ ClassName = mlds_module_name_to_class_name(
-		mercury_module_name_to_mlds(ModuleName)) },
+	{ ClassName = class_name(mercury_module_name_to_mlds(ModuleName),
+			wrapper_class_name) },
 
 	io__nl,
 	io__write_strings([
@@ -128,11 +128,13 @@ generate_mcplusplus_code(MLDS) -->
 			io__format("namespace %s {", [s(N)])
 	)),
 
+		% Get the foreign code for MC++
+	{ ForeignCode = map__lookup(AllForeignCode, managed_cplusplus) },
 	generate_foreign_header_code(mercury_module_name_to_mlds(ModuleName),
 		ForeignCode),
 
 	io__write_strings([
-		"\n__gc public class mercury_code",
+		"\n__gc public class " ++ wrapper_class_name,
 		"{\n",
 		"public:\n"]),
 
@@ -210,7 +212,8 @@ generate_method_mcpp_code(ModuleName,
 		defn(function(PredLabel, ProcId, MaybeSeqNum, _PredId), 
 	_Context, _DeclFlags, Entity)) -->
 	( 
-		{ Entity = mlds__function(_, Params, yes(Statement)) },
+		{ Entity = mlds__function(_, Params,
+			defined_here(Statement)) },
 		( 
 			{ has_inline_target_code_statement(Statement) }
 		;
@@ -369,9 +372,10 @@ write_managed_cpp_statement(Statement) -->
 :- pred write_managed_cpp_code_component(mlds__target_code_component, 
 	io__state, io__state).
 :- mode write_managed_cpp_code_component(in, di, uo) is det.
-write_managed_cpp_code_component(user_target_code(Code, _MaybeContext)) -->
+write_managed_cpp_code_component(user_target_code(Code, _MaybeContext,
+		_Attrs)) -->
 	io__write_string(Code).
-write_managed_cpp_code_component(raw_target_code(Code)) -->
+write_managed_cpp_code_component(raw_target_code(Code, _Attrs)) -->
 	io__write_string(Code).
 		% XXX we don't handle name yet.
 write_managed_cpp_code_component(name(_)) --> [].
@@ -425,6 +429,9 @@ write_managed_cpp_rval(binop(Binop, Rval1, Rval2)) -->
 
 write_managed_cpp_rval(mem_addr(_)) -->
 	io__write_string(" /* mem_addr rval -- unimplemented */ ").
+
+write_managed_cpp_rval(self(_)) -->
+	io__write_string(" /* self rval -- unimplemented */ ").
 	
 :- pred write_managed_cpp_rval_const(mlds__rval_const, io__state, io__state).
 :- mode write_managed_cpp_rval_const(in, di, uo) is det.

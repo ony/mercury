@@ -174,7 +174,8 @@ MR_trace_real(const MR_Label_Layout *layout)
 			MR_Word		*saved_regs = event_info.MR_saved_regs;
 			int		max_r_num;
 			const char	*path;
-			bool    	stop_collecting = FALSE;
+			bool		stop_collecting = FALSE;
+			int		lineno = 0;
 
 			max_r_num = layout->MR_sll_entry->MR_sle_max_r_num;
 			if (max_r_num + MR_NUM_SPECIAL_REG > 
@@ -193,8 +194,11 @@ MR_trace_real(const MR_Label_Layout *layout)
 			MR_copy_regs_to_saved_regs(event_info.MR_max_mr_num, 
 				saved_regs);
 			MR_trace_init_point_vars(layout, saved_regs, port);
+
+			lineno = MR_get_line_number(saved_regs, layout, port);
+
 			MR_COLLECT_filter(MR_trace_ctrl.MR_filter_ptr, seqno,
-				depth, port, layout, path, &stop_collecting);
+				depth, port, layout, path, lineno, &stop_collecting);
 			MR_copy_saved_regs_to_regs(event_info.MR_max_mr_num, 
 				saved_regs);
 			if (stop_collecting) {
@@ -516,6 +520,11 @@ MR_trace_retry(MR_Event_Info *event_info, MR_Event_Details *event_details,
 	MR_Retry_Result			result;
 #endif
 
+#ifdef	MR_DEEP_PROFILING
+	*problem = "retry is incompatible with deep profiling.";
+	return MR_RETRY_ERROR;
+#endif
+
 	args = NULL;
 	MR_init_call_table_array();
 
@@ -546,7 +555,7 @@ MR_trace_retry(MR_Event_Info *event_info, MR_Event_Details *event_details,
 	}
 
 	level_layout = return_label_layout->MR_sll_entry;
-	if (! MR_ENTRY_LAYOUT_HAS_EXEC_TRACE(level_layout)) {
+	if (! MR_PROC_LAYOUT_HAS_EXEC_TRACE(level_layout)) {
 		*problem = "that procedure does not have debugging information";
 		goto report_problem;
 	}
@@ -1017,7 +1026,7 @@ MR_undo_updates_of_maxfr(const MR_Proc_Layout *level_layout,
 		** will be saved in a stack slot.
 		*/
 
-		if (! MR_ENTRY_LAYOUT_HAS_EXEC_TRACE(level_layout)) {
+		if (! MR_PROC_LAYOUT_HAS_EXEC_TRACE(level_layout)) {
 			return "an intervening stack frame "
 				"has no debugging information";
 		} else if (level_layout->MR_sle_maybe_maxfr > 0) {
@@ -1174,7 +1183,7 @@ MR_check_minimal_model_calls(MR_Event_Info *event_info, int ancestor_level,
 		label_layout = label->i_layout;
 		proc_layout = label_layout->MR_sll_entry;
 
-		if (! MR_ENTRY_LAYOUT_HAS_EXEC_TRACE(proc_layout)) {
+		if (! MR_PROC_LAYOUT_HAS_EXEC_TRACE(proc_layout)) {
 			*problem = "reached label without debugging info";
 			return MR_RETRY_ERROR;
 		}
@@ -1286,7 +1295,7 @@ MR_maybe_record_call_table(const MR_Proc_Layout *level_layout,
 {
 	MR_TrieNode	call_table;
 
-	if (! MR_ENTRY_LAYOUT_HAS_EXEC_TRACE(level_layout)) {
+	if (! MR_PROC_LAYOUT_HAS_EXEC_TRACE(level_layout)) {
 		/*
 		** The exec trace seems to have disappeared since the call
 		** to MR_undo_updates_of_maxfr ...
@@ -1368,4 +1377,12 @@ MR_abandon_call_table_array(void)
 	if (MR_call_table_ptrs != NULL) {
 		MR_free(MR_call_table_ptrs);
 	}
+}
+
+void
+MR_trace_init_modules(void)
+{
+	MR_do_init_modules();
+	MR_do_init_modules_type_tables();
+	MR_do_init_modules_debugger();
 }

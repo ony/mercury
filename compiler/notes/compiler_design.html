@@ -24,7 +24,7 @@ library, runtime, etc.) fit together.
 <p>
 
 The main job of the compiler is to translate Mercury into C, although it
-can also translate (subsets of) Mercury to some other languages: Goedel,
+can also translate (subsets of) Mercury to some other languages:
 Mercury bytecode (for a planned bytecode interpreter), MSIL (for the
 Microsoft .NET platform) and RL (the Aditi Relational Language).
 
@@ -621,6 +621,11 @@ The module transform.m contains stuff that is supposed to be useful
 for high-level optimizations (but which is not yet used).
 
 <p>
+
+The last HLDS-to-HLDS transformation implements deep profiling
+(deep_profiling.m).
+
+<p>
 <hr>
 <!---------------------------------------------------------------------------->
 
@@ -1044,6 +1049,38 @@ bytecode interpreter has not yet been written.
 <hr>
 <!---------------------------------------------------------------------------->
 
+<h3> SMART RECOMPILATION </h3>
+
+<p>
+
+The Mercury compiler can record program dependency information
+to avoid unnecessary recompilations when an imported module's
+interface changes in a way which does not invalidate previously
+compiled code.
+
+<ul>
+<li> recompilation.m contains types used by the other smart
+  recompilation modules.
+
+<li> recompilation_version.m generates version numbers for program items
+  in interface files.
+
+<li> recompilation_usage.m works out which program items were used
+  during a compilation.
+
+<li> recompilation_check.m is called before recompiling a module.
+  It uses the information written by recompilation_version.m and
+  recompilation_usage.m to work out whether the recompilation is
+  actually needed.
+
+<li> timestamp.m contains an ADT representing timestamps used
+  by smart recompilation.
+</ul>
+
+<p>
+<hr>
+<!---------------------------------------------------------------------------->
+
 <h3> MISCELLANEOUS </h3>
 
 	<dl>
@@ -1105,19 +1142,7 @@ bytecode interpreter has not yet been written.
 
 <p>
 
-The following modules do not serve any function at the moment.
-Some of them are obsolete; other are work-in-progress.
-(For some of them its hard to say which!)
-
 	<dl>
-
-	<dt> excess.m:
-		<dd>
-		This eliminates assignments that merely introduce another
-		name for an already existing variable. The functionality of
-		this module has been included in simplify.m, however sometime
-		in the future it may be necessary to provide a version which
-		maintains superhomogeneous form.
 
 	<dt> lco.m:
 		<dd>
@@ -1126,19 +1151,12 @@ Some of them are obsolete; other are work-in-progress.
 		It does not apply the optimization and will not until the
 		mode system is capable of expressing definite aliasing.
 
-	<dt> mercury_to_goedel.m:
-		<dd>
-		This converts from item_list to Goedel source code.
-		It works for simple programs, but doesn't handle
-		various Mercury constructs such as lambda expressions,
-		higher-order predicates, and functor overloading.
-
 	</dl>
 
 <p>
 <hr>
 <!---------------------------------------------------------------------------->
 
-Last update was $Date: 2001-05-18 14:41:54 $ by $Author: petdr $@cs.mu.oz.au. <br>
+Last update was $Date: 2001-07-25 13:06:57 $ by $Author: petdr $@cs.mu.oz.au. <br>
 </body>
 </html>

@@ -105,25 +105,19 @@
 :- import_module hlds_module, hlds_pred, hlds_data, prog_data.
 :- import_module bool, io, list, map.
 
-:- pred typecheck(module_info, module_info, bool, io__state, io__state).
-:- mode typecheck(in, out, out, di, uo) is det.
+	% typecheck(Module0, Module, FoundError,
+	%		ExceededIterationLimit, IO0, IO) 
+	%
+	% Type-checks Module0 and annotates it with variable typings
+	% (returning the result in Module), printing out appropriate
+	% error messages.
+	% FoundError is set to `yes' if there are any errors and
+	% `no' otherwise.
+	% ExceededIterationLimit is set to `yes' if the type inference
+	% iteration limit was reached and `no' otherwise.
 
-/*
-	Formally, typecheck(Module0, Module, FoundError, IO0, IO) is
-	intended to be true iff Module is Module0 annotated with the
-	variable typings that result from the process of type-checking,
-	FoundError is `yes' if Module0 contains any type errors and `no'
-	otherwise, and IO is the io__state that results from IO0 after
-	printing out appropriate error messages for the type errors in
-	Module0, if any.
-
-	Informally, typecheck(Module0, Module, FoundError, IO0, IO) 
-	type-checks Module0 and annotates it with variable typings
-	(returning the result in Module), prints out appropriate error
-	messages, and sets FoundError to `yes' if it finds any errors
-	and `no' otherwise.
-*/
-
+:- pred typecheck(module_info, module_info, bool, bool, io__state, io__state).
+:- mode typecheck(in, out, out, out, di, uo) is det.
 
 	% Find a predicate which matches the given name and argument types.
 	% Abort if there is no matching pred.
@@ -168,14 +162,14 @@
 
 %-----------------------------------------------------------------------------%
 
-typecheck(Module0, Module, FoundError) -->
+typecheck(Module0, Module, FoundError, ExceededIterationLimit) -->
 	globals__io_lookup_bool_option(statistics, Statistics),
 	globals__io_lookup_bool_option(verbose, Verbose),
 	io__stderr_stream(StdErr),
 	io__set_output_stream(StdErr, OldStream),
 
 	maybe_write_string(Verbose, "% Type-checking clauses...\n"),
-	check_pred_types(Module0, Module, FoundError),
+	check_pred_types(Module0, Module, FoundError, ExceededIterationLimit),
 	maybe_report_stats(Statistics),
 
 	io__set_output_stream(OldStream, _).
@@ -184,32 +178,33 @@ typecheck(Module0, Module, FoundError) -->
 
 	% Type-check the code for all the predicates in a module.
 
-:- pred check_pred_types(module_info, module_info, bool,
+:- pred check_pred_types(module_info, module_info, bool, bool,
 		io__state, io__state).
-:- mode check_pred_types(in, out, out, di, uo) is det.
+:- mode check_pred_types(in, out, out, out, di, uo) is det.
 
-check_pred_types(Module0, Module, FoundError) -->
+check_pred_types(Module0, Module, FoundError, ExceededIterationLimit) -->
 	{ module_info_predids(Module0, PredIds) },
 	globals__io_lookup_int_option(type_inference_iteration_limit,
 		MaxIterations),
 	typecheck_to_fixpoint(MaxIterations, PredIds, Module0,
-		Module, FoundError),
+		Module, FoundError, ExceededIterationLimit),
 	write_inference_messages(PredIds, Module).
 
 	% Repeatedly typecheck the code for a group of predicates
 	% until a fixpoint is reached, or until some errors are detected.
 
 :- pred typecheck_to_fixpoint(int, list(pred_id), module_info, module_info, 
-		bool, io__state, io__state).
-:- mode typecheck_to_fixpoint(in, in, in, out, out, di, uo) is det.
+		bool, bool, io__state, io__state).
+:- mode typecheck_to_fixpoint(in, in, in, out, out, out, di, uo) is det.
 
 typecheck_to_fixpoint(NumIterations, PredIds, Module0, Module,
-		FoundError) -->
+		FoundError, ExceededIterationLimit) -->
 	typecheck_pred_types_2(PredIds, Module0, Module1,
 		no, FoundError1, no, Changed),
 	( { Changed = no ; FoundError1 = yes } ->
 		{ Module = Module1 },
-		{ FoundError = FoundError1 }
+		{ FoundError = FoundError1 },
+		{ ExceededIterationLimit = no }
 	;
 		globals__io_lookup_bool_option(debug_types, DebugTypes),
 		( { DebugTypes = yes } ->
@@ -220,11 +215,12 @@ typecheck_to_fixpoint(NumIterations, PredIds, Module0, Module,
 		{ NumIterations1 = NumIterations - 1 },
 		( { NumIterations1 > 0 } ->
 			typecheck_to_fixpoint(NumIterations1, PredIds, Module1,
-				Module, FoundError)
+				Module, FoundError, ExceededIterationLimit)
 		;
 			typecheck_report_max_iterations_exceeded,
 			{ Module = Module1 },
-			{ FoundError = yes }
+			{ FoundError = yes },
+			{ ExceededIterationLimit = yes }
 		)
 	).
 
@@ -491,7 +487,6 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 		pred_info_set_unproven_body_constraints(PredInfo4,
 				UnprovenBodyConstraints, PredInfo5),
 
-		is_bool(Inferring),
 		( Inferring = yes ->
 			%
 			% We need to infer which of the head variable
@@ -594,10 +589,6 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 		typecheck_info_get_io_state(TypeCheckInfo4, IOState)
 	    )
 	).
-
-% is_bool/1 is used to avoid a type ambiguity
-:- pred is_bool(bool::in) is det.
-is_bool(_).
 
 :- pred rename_instance_method_constraints(map(tvar, tvar),
 		maybe(instance_method_constraints),
@@ -833,7 +824,7 @@ maybe_add_field_access_function_clause(ModuleInfo, PredInfo0, PredInfo) :-
 		goal_info_set_nonlocals(GoalInfo0, NonLocals, GoalInfo),
 		Goal = GoalExpr - GoalInfo,
 		ProcIds = [], % the clause applies to all procedures.
-		Clause = clause(ProcIds, Goal, Context),
+		Clause = clause(ProcIds, Goal, mercury, Context),
 		clauses_info_set_clauses(ClausesInfo0, [Clause], ClausesInfo),
 		pred_info_set_clauses_info(PredInfo0, ClausesInfo, PredInfo)
 	;
@@ -884,14 +875,14 @@ typecheck_clause_list([Clause0|Clauses0], HeadVars, ArgTypes,
 
 typecheck_clause(Clause0, HeadVars, ArgTypes, Clause) -->
 		% XXX abstract clause/3
-	{ Clause0 = clause(Modes, Body0, Context) },
+	{ Clause0 = clause(Modes, Body0, Lang, Context) },
 	typecheck_info_set_context(Context),
 		% typecheck the clause - first the head unification, and
 		% then the body
 	typecheck_var_has_type_list(HeadVars, ArgTypes, 1),
 	typecheck_goal(Body0, Body),
 	checkpoint("end of clause"),
-	{ Clause = clause(Modes, Body, Context) },
+	{ Clause = clause(Modes, Body, Lang, Context) },
 	typecheck_info_set_context(Context),
 	typecheck_check_for_ambiguity(clause_only, HeadVars).
 
@@ -3689,6 +3680,12 @@ typecheck_info_set_pred_import_status(TypeCheckInfo, Status,
 
 %-----------------------------------------------------------------------------%
 
+	%
+	% Note: changes here may require changes to
+	% post_typecheck__resolve_unify_functor,
+	% intermod__module_qualify_unify_rhs,
+	% recompilation_usage__find_matching_constructors
+	% and recompilation_check__check_functor_ambiguities.
 :- pred typecheck_info_get_ctor_list(typecheck_info, cons_id, int, 
 			list(cons_type_info), list(invalid_field_update)).
 :- mode typecheck_info_get_ctor_list(typecheck_info_ui,
@@ -3787,9 +3784,7 @@ typecheck_info_get_ctor_list_2(TypeCheckInfo, Functor, Arity,
 		Arity = 0,
 		builtin_atomic_type(Functor, BuiltInTypeName)
 	->
-		term__context_init("<builtin>", 0, Context),
-		ConsType = term__functor(term__atom(BuiltInTypeName), [],
-				Context),
+		construct_type(unqualified(BuiltInTypeName) - 0, [], ConsType),
 		varset__init(ConsTypeVarSet),
 		ConsInfo = cons_type_info(ConsTypeVarSet, [], ConsType, [],
 			constraints([], [])),
@@ -4403,13 +4398,13 @@ convert_cons_defn_list(TypeCheckInfo, [X|Xs], [Y|Ys]) :-
 
 convert_cons_defn(TypeCheckInfo, HLDS_ConsDefn, ConsTypeInfo) :-
 	HLDS_ConsDefn = hlds_cons_defn(ExistQVars, ExistConstraints, Args,
-				TypeId, Context),
+				TypeId, _),
 	assoc_list__values(Args, ArgTypes),
 	typecheck_info_get_types(TypeCheckInfo, Types),
 	map__lookup(Types, TypeId, TypeDefn),
 	hlds_data__get_type_defn_tvarset(TypeDefn, ConsTypeVarSet),
 	hlds_data__get_type_defn_tparams(TypeDefn, ConsTypeParams),
-	construct_type(TypeId, ConsTypeParams, Context, ConsType),
+	construct_type(TypeId, ConsTypeParams, ConsType),
 	UnivConstraints = [],
 	Constraints = constraints(UnivConstraints, ExistConstraints),
 	ConsTypeInfo = cons_type_info(ConsTypeVarSet, ExistQVars,
@@ -5531,25 +5526,6 @@ maybe_report_missing_import(TypeCheckInfo, ModuleQualifier) -->
 		io__write_string("' has not been imported).\n")
 	;
 		io__write_string(".\n")
-	).
-
-:- pred visible_module(module_name, module_info).
-:- mode visible_module(out, in) is multi.
-
-visible_module(VisibleModule, ModuleInfo) :-
-	module_info_name(ModuleInfo, ThisModule),
-	module_info_get_imported_module_specifiers(ModuleInfo, ImportedModules),
-	%
-	% the visible modules are the current module, any
-	% imported modules, and any ancestor modules.
-	%
-	(
-		VisibleModule = ThisModule
-	;
-		set__member(VisibleModule, ImportedModules)
-	;
-		get_ancestors(ThisModule, ParentModules),
-		list__member(VisibleModule, ParentModules)
 	).
 
 :- pred report_error_func_instead_of_pred(typecheck_info, pred_or_func,

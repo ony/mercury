@@ -210,7 +210,7 @@ trans_opt__grab_optfiles(Transitive, Module0, DontReadTheseModules,
 	{ module_imports_get_items(Module1, Items0) },
 	{ list__append(Items0, OptItems, Items) },
 	{ module_imports_set_items(Module1, Items, Module2) },
-	{ module_imports_set_error(Module2, no, Module) },
+	{ module_imports_set_error(Module2, no_module_errors, Module) },
 
 	maybe_write_string(Verbose, "% Done.\n").
 

@@ -290,7 +290,7 @@ ml_gen_static_const_arg(Var, static_cons(ConsId, ArgVars, StaticArgs), Rval) -->
 		% If this argument is something that would normally be allocated
 		% on the heap, just generate a reference to the static constant
 		% that we must have already generated for it.
-		% XXX Using mdls__array_type(mlds__generic_type) is probably 
+		% XXX Using mlds__array_type(mlds__generic_type) is probably 
 		% wrong when `--high-level-data' is enabled.
 		%
 		{ ConstType = mlds__array_type(mlds__generic_type) },	
@@ -373,6 +373,9 @@ ml_gen_constant(tabling_pointer_constant(PredId, ProcId), VarType, Rval) -->
 			tabling_pointer(PredLabel - ProcId)) },
 	{ Rval = unop(cast(MLDS_VarType),
 			const(data_addr_const(DataAddr))) }.
+
+ml_gen_constant(deep_profiling_proc_static_tag(_), _, _) -->
+	{ error("ml_gen_constant: deep_profiling_proc_static_tag not yet supported") }.
 
 ml_gen_constant(code_addr_constant(PredId, ProcId), _, ProcAddrRval) -->
 	ml_gen_proc_addr_rval(PredId, ProcId, ProcAddrRval).
@@ -726,10 +729,21 @@ ml_gen_closure_wrapper(PredId, ProcId, Offset, NumClosureArgs,
 	{ WrapperFuncBody = ml_gen_block(Decls, Statements, Context) },
 	ml_gen_new_func_label(yes(WrapperParams), WrapperFuncName,
 		WrapperFuncRval),
-	ml_gen_label_func(WrapperFuncName, WrapperParams, Context,
+	ml_gen_wrapper_func(WrapperFuncName, WrapperParams, Context,
 		WrapperFuncBody, WrapperFunc),
 	{ WrapperFuncType = mlds__func_type(WrapperParams) },
 	ml_gen_info_add_extra_defn(WrapperFunc).
+
+:- pred ml_gen_wrapper_func(ml_label_func, mlds__func_params, prog_context,
+		mlds__statement, mlds__defn, ml_gen_info, ml_gen_info).
+:- mode ml_gen_wrapper_func(in, in, in, in, out, in, out) is det.
+
+ml_gen_wrapper_func(FuncLabel, FuncParams, Context, Statement, Func) -->
+	ml_gen_label_func(FuncLabel, FuncParams, Context, Statement, Func0),
+	{ Func0 = mlds__defn(Name, Ctxt, DeclFlags0, Defn) },
+	{ DeclFlags1 = set_per_instance(DeclFlags0, one_copy) },
+	{ DeclFlags = set_access(DeclFlags1, private) },
+	{ Func = mlds__defn(Name, Ctxt, DeclFlags, Defn) }.
 
 :- func ml_gen_wrapper_head_var_names(int, int) = list(mlds__var_name).
 ml_gen_wrapper_head_var_names(Num, Max) = Names :-
@@ -999,7 +1013,7 @@ ml_gen_new_object(MaybeConsId, Tag, CtorName, Var, ExtraRvals, ExtraTypes,
 
 		%
 		% Generate a local static constant for this term.
-		% XXX Using mdls__array_type(mlds__generic_type) is probably 
+		% XXX Using mlds__array_type(mlds__generic_type) is probably 
 		% wrong when `--high-level-data' is enabled.
 		%
 		ml_gen_static_const_name(Var, ConstName),
@@ -1317,6 +1331,10 @@ ml_gen_det_deconstruct(Var, ConsId, Args, Modes, Context,
 		{ HasSecondaryTag = no },
 		{ MLDS_Stmts0 = [] }
 	;
+		{ Tag = deep_profiling_proc_static_tag(_) },
+		{ HasSecondaryTag = no },
+		{ MLDS_Stmts0 = [] }
+	;
 		{ Tag = no_tag },
 		{ HasSecondaryTag = no },
 		( { Args = [Arg], Modes = [Mode] } ->
@@ -1440,6 +1458,9 @@ ml_tag_offset_and_argnum(Tag, TagBits, OffSet, ArgNum) :-
 		Tag = tabling_pointer_constant(_, _),
 		error("ml_tag_offset_and_argnum")
 	;
+		Tag = deep_profiling_proc_static_tag(_),
+		error("ml_tag_offset_and_argnum")
+	;
 		Tag = no_tag,
 		error("ml_tag_offset_and_argnum")
 	;
@@ -1459,6 +1480,7 @@ ml_primary_tag(code_addr_constant(_, _)) = no.
 ml_primary_tag(type_ctor_info_constant(_, _, _)) = no.
 ml_primary_tag(base_typeclass_info_constant(_, _, _)) = no.
 ml_primary_tag(tabling_pointer_constant(_, _)) = no.
+ml_primary_tag(deep_profiling_proc_static_tag(_)) = no.
 ml_primary_tag(no_tag) = no.
 ml_primary_tag(shared_local_tag(PrimaryTag, _)) = yes(PrimaryTag).
 
@@ -1811,6 +1833,9 @@ ml_gen_tag_test_rval(base_typeclass_info_constant(_, _, _), _, _, _) = _ :-
 ml_gen_tag_test_rval(tabling_pointer_constant(_, _), _, _, _) = _ :-
 	% This should never happen
 	error("Attempted tabling_pointer unification").
+ml_gen_tag_test_rval(deep_profiling_proc_static_tag(_), _, _, _) = _ :-
+	% This should never happen
+	error("Attempted deep_profiling_proc_static unification").
 ml_gen_tag_test_rval(no_tag, _, _, _Rval) = const(true).
 ml_gen_tag_test_rval(unshared_tag(UnsharedTag), _, _, Rval) =
 	binop(eq, unop(std_unop(tag), Rval),

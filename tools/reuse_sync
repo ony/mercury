@@ -21,7 +21,7 @@ echo new tag: $new_tag
 
 set -x
 cvs rtag $new_tag $source_dir
-cvs update -j$old_tag -j$new_tag
+cvs update -d -j$old_tag -j$new_tag
 set +x
 
 rm -f $sync_tag_file

@@ -399,11 +399,13 @@ generate_wrapper_class(ModuleName, Interface, MethodDefn, ClassDefn) :-
 		%
 		string__append(PredName0, Type, PredName),
 		ClassMembers  = [NewMethodDefn],
+		ClassCtors    = [],
 		ClassName     = type(PredName, Arity),
 		ClassContext  = Context,
 		ClassFlags    = ml_gen_type_decl_flags,
 		ClassBodyDefn = mlds__class_defn(mlds__class, ClassImports, 
-			ClassExtends, ClassImplements, ClassMembers),
+			ClassExtends, ClassImplements,
+			ClassCtors, ClassMembers),
 		ClassBody     = mlds__class(ClassBodyDefn)
 	;
 
@@ -421,7 +423,7 @@ generate_wrapper_method(ModuleName, Defn0, Defn) :-
 		Name0 = function(_Label0, ProcID, MaybeSeqNum, PredID),
 		Body0 = mlds__function(MaybeID, Params0, 
 			MaybeStatements0),
-		MaybeStatements0 = yes(Statements0),
+		MaybeStatements0 = defined_here(Statements0),
 		Statements0 = mlds__statement(
 			block(BlockDefns0, _BlockList0), _) 
 	->
@@ -457,7 +459,8 @@ generate_wrapper_method(ModuleName, Defn0, Defn) :-
 		% Put it all together.
 		%
 		Params = mlds__func_params(Args, RetTypes),
-		Body   = mlds__function(MaybeID, Params, yes(Statements)),
+		Body   = mlds__function(MaybeID, Params,
+			defined_here(Statements)),
 		Flags  = ml_gen_special_member_decl_flags,	
 		Defn   = mlds__defn(Name, Context, Flags, Body) 
 	;
@@ -482,11 +485,14 @@ generate_wrapper_decls(ModuleName, Context, [Arg | Args],
 	ArrayIndex = const(int_const(Count)),		
 	NewVarName = qual(mercury_module_name_to_mlds(ModuleName), 
 		var_name("args", no)),
-	NewArgLval = var(NewVarName, mlds__generic_type),
+	NewArgLval = var(NewVarName, mlds__array_type(mlds__generic_type)),
 	%	
-	% Package everything together.
+	% Package everything together. 
 	%
-	Initializer = binop(array_index, lval(NewArgLval), ArrayIndex),
+	% XXX Don't we need a cast here? -fjh.
+	%
+	Initializer = binop(array_index(elem_type_generic),
+		lval(NewArgLval), ArrayIndex),
 	Body = mlds__data(Type, init_obj(Initializer)),	
 	Defn = mlds__defn(Name, Context, Flags, Body),
 	%	
@@ -646,7 +652,12 @@ output_class(Indent, Name, _Context, ClassDefn) -->
 		{ unexpected(this_file, "output_class") }
 	),
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, Implements,
-		AllMembers) },
+		Ctors, AllMembers) },
+	{ Ctors = [] ->
+		true
+	;
+		sorry(this_file, "constructors")
+	},
 	( { Kind = mlds__interface } -> 
 		io__write_string("interface ")
 	;
@@ -967,16 +978,16 @@ output_pred_proc_id(proc(PredId, ProcId)) -->
 	).
 
 :- pred output_func(indent, qualified_entity_name, mlds__context,
-		func_params, maybe(statement), io__state, io__state).
+		func_params, function_body, io__state, io__state).
 :- mode output_func(in, in, in, in, in, di, uo) is det.
 
 output_func(Indent, Name, Context, Signature, MaybeBody) -->
 	output_func_decl(Indent, Name, Context, Signature),
 	(
-		{ MaybeBody = no },
+		{ MaybeBody = external },
 		io__write_string(";\n")
 	;
-		{ MaybeBody = yes(Body) },
+		{ MaybeBody = defined_here(Body) },
 		io__write_string("\n"),
 		indent_line(Context, Indent),
 		io__write_string("{\n"),
@@ -2006,6 +2017,9 @@ output_rval(binop(Op, Rval1, Rval2)) -->
 output_rval(mem_addr(_Lval)) -->
 	{ unexpected(this_file, "output_rval: mem_addr(_) not supported") }.
 
+output_rval(self(_)) -->
+	io__write_string("this").
+
 :- pred output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode output_unop(in, in, di, uo) is det.
 	
@@ -2113,7 +2127,7 @@ output_std_unop(UnaryOp, Exprn) -->
 	
 output_binop(Op, X, Y) -->
 	(
-		{ Op = array_index }
+		{ Op = array_index(_Type) }
 	->
 		output_bracketed_rval(X),
 		io__write_string("["),

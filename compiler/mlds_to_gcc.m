@@ -216,7 +216,10 @@ mlds_to_gcc__run_gcc_backend(ModuleName, CallBack, CallBackOutput) -->
 	).
 
 mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
-	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns0) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns0) },
+
+		% We only handle C currently, so we just look up C
+	{ ForeignCode = map__lookup(AllForeignCode, c) },
 
 	%
 	% Handle output of any foreign code (C, Ada, Fortran, etc.)
@@ -259,9 +262,9 @@ mlds_to_gcc__compile_to_asm(MLDS, ContainsCCode) -->
 		% create a new MLDS containing just the foreign code
 		% (with all definitions made public, so we can use
 		% them from the asm file!) and pass that to mlds_to_c.m
-		{ ForeignMLDS = mlds(ModuleName, ForeignCode, Imports,
+		{ ForeignMLDS = mlds(ModuleName, AllForeignCode, Imports,
 			list__map(make_public, ForeignDefns)) },
-		mlds_to_c__output_mlds(ForeignMLDS),
+		mlds_to_c__output_mlds(ForeignMLDS, ""),
 		% XXX currently the only foreign code we handle is C;
 		%     see comments above (at the declaration for
 		%     mlds_to_c__compile_to_asm)
@@ -364,7 +367,8 @@ gen_init_fn_defns(MLDS_ModuleName, GlobalInfo0, GlobalInfo) -->
 		qual(MLDS_ModuleName, Name),
 		SymbolTable, LabelTable) },
 	{ term__context_init(Context) },
-	{ FuncBody = mlds__statement(block([], []), mlds__make_context(Context)) },
+	{ FuncBody = mlds__statement(block([], []),
+		mlds__make_context(Context)) },
 	gcc__start_function(GCC_FuncDecl),
 	gen_statement(DefnInfo, FuncBody),
 	gcc__end_function.
@@ -788,8 +792,8 @@ gen_defn_body(Name, Context, Flags, DefnBody, GlobalInfo0, GlobalInfo) -->
 		{ GlobalInfo = GlobalInfo0 ^ global_vars := GlobalVars }
 	;
 		{ DefnBody = mlds__function(_MaybePredProcId, Signature,
-			MaybeBody) },
-		gen_func(Name, Context, Flags, Signature, MaybeBody,
+			FunctionBody) },
+		gen_func(Name, Context, Flags, Signature, FunctionBody,
 			GlobalInfo0, GlobalInfo)
 	;
 		{ DefnBody = mlds__class(ClassDefn) },
@@ -1264,7 +1268,12 @@ gen_class(Name, Context, ClassDefn, GlobalInfo0, GlobalInfo) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		AllMembers) },
+		Ctors, AllMembers) },
+	{ Ctors = [] ->
+		true
+	;
+		unexpected(this_file, "constructors")
+	},
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -1423,7 +1432,7 @@ mlds_output_enum_constant(Indent, EnumModuleName, Defn) -->
 %
 
 :- pred gen_func(qualified_entity_name, mlds__context,
-		mlds__decl_flags, func_params, maybe(statement),
+		mlds__decl_flags, func_params, function_body,
 		global_info, global_info, io__state, io__state).
 :- mode gen_func(in, in, in, in, in, in, out, di, uo) is det.
 
@@ -1431,9 +1440,9 @@ gen_func(Name, Context, Flags, Signature, MaybeBody,
 		GlobalInfo0, GlobalInfo) -->
 	{ GlobalInfo = GlobalInfo0 },
 	(
-		{ MaybeBody = no }
+		{ MaybeBody = external }
 	;
-		{ MaybeBody = yes(Body) },
+		{ MaybeBody = defined_here(Body) },
 		gcc__push_gc_context,
 		make_func_decl_for_defn(Name, Signature, GlobalInfo0,
 			FuncDecl, SymbolTable),
@@ -2961,6 +2970,9 @@ build_rval(mem_addr(Lval), DefnInfo, AddrExpr) -->
 	build_lval(Lval, DefnInfo, Expr),
 	gcc__build_addr_expr(Expr, AddrExpr).
 
+build_rval(self(_), _DefnInfo, _Expr) -->
+	{ unexpected(this_file, "self rval") }.
+
 :- pred build_unop(mlds__unary_op, mlds__rval, defn_info, gcc__expr,
 		io__state, io__state).
 :- mode build_unop(in, in, in, out, di, uo) is det.
@@ -3101,7 +3113,17 @@ build_std_binop(BinaryOp, Arg1, Arg2, DefnInfo, Expr) -->
 		%
 		build_rval(Arg1, DefnInfo, GCC_Arg1),
 		build_rval(Arg2, DefnInfo, GCC_Arg2),
-		{ convert_binary_op(BinaryOp, GCC_BinaryOp, GCC_ResultType) },
+		( { BinaryOp = array_index(ElemType) } ->
+			% for array index operations,
+			% we need to convert the element type into a GCC type
+			{ GCC_BinaryOp = gcc__array_ref },
+			{ MLDS_Type = ml_gen_array_elem_type(ElemType) },
+			build_type(MLDS_Type, DefnInfo ^ global_info,
+				GCC_ResultType)
+		;
+			{ convert_binary_op(BinaryOp, GCC_BinaryOp,
+				GCC_ResultType) }
+		),
 		gcc__build_binop(GCC_BinaryOp, GCC_ResultType,
 			GCC_Arg1, GCC_Arg2, Expr)
 	).
@@ -3140,11 +3162,8 @@ convert_binary_op((or),		gcc__truth_orif_expr, gcc__boolean_type_node).
 convert_binary_op(eq,		gcc__eq_expr,	     gcc__boolean_type_node).
 convert_binary_op(ne,		gcc__ne_expr,	     gcc__boolean_type_node).
 convert_binary_op(body,		gcc__minus_expr,     'MR_intptr_t').
-convert_binary_op(array_index,  gcc__array_ref,	     Type) :-
-	% XXX temp hack -- this is wrong.
-	% We should change builtin_ops:array_index
-	% so that it takes the type as an argument.
-	Type = 'MR_Integer'.
+convert_binary_op(array_index(_), _, _) :-
+				unexpected(this_file, "array_index").
 convert_binary_op(str_eq, _, _) :- unexpected(this_file, "str_eq").
 convert_binary_op(str_ne, _, _) :- unexpected(this_file, "str_ne").
 convert_binary_op(str_lt, _, _) :- unexpected(this_file, "str_lt").

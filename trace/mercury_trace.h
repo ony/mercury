@@ -191,8 +191,8 @@ typedef enum {
 
 typedef void (*MR_FilterFuncPtr)(MR_Integer, MR_Integer,
 	MR_Integer, MR_Word, MR_Word, MR_String, MR_String, MR_String,
-	MR_Integer, MR_Integer, MR_Word, MR_Integer, MR_String, MR_Word,
-	MR_Word *, MR_Char *);
+	MR_Integer, MR_Integer, MR_Word, MR_Integer, MR_String, MR_Integer,
+	MR_Word, MR_Word *, MR_Char *);
 
 typedef struct {
 	MR_Trace_Cmd_Type	MR_trace_cmd;	
@@ -232,5 +232,7 @@ typedef struct {
 #define	MR_port_is_interface(port)	((port) <= MR_PORT_EXCEPTION)
 
 #define	MR_port_is_entry(port)		((port) == MR_PORT_CALL)
+
+extern	void	MR_trace_init_modules(void);
 
 #endif /* MERCURY_TRACE_H */

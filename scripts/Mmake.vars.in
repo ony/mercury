@@ -69,6 +69,7 @@ LIB_MCFLAGS	= $(patsubst %,-I %,$(EXTRA_INT_DIRS))
 
 MCS		= $(MC) --split-c-files --compile-only
 MCG		= $(MC) --compile-to-c
+MCE		= $(MC) --errorcheck-only
 MCD		= $(MC) --generate-dependencies
 MCI		= $(MC) --make-interface
 MCPI		= $(MC) --make-private-interface
@@ -142,12 +143,14 @@ EXTRA_CFLAGS	=
 
 # MS_CL is the command line version of Microsoft Visual C++, which we
 # use to compile Managed C++ code in the .NET backend.
-MS_CL		= cl
+MS_CL		= @MS_CL@
+MS_VISUALCPP_DIR = @MS_VISUALCPP_DIR@
 ALL_MS_CLFLAGS	= $(MS_CLFLAGS) $(EXTRA_MS_CLFLAGS) $(TARGET_MS_CLFLAGS) \
 		$(LIB_MS_CLFLAGS)
 MS_CLFLAGS	=
 EXTRA_MS_CLFLAGS =
-LIB_MS_CLFLAGS	= $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
+MS_VC7_INCLUDES = -I"`cygpath -w '$(MS_VISUALCPP_DIR)/include'`"
+LIB_MS_CLFLAGS	= $(MS_VC7_INCLUDES) $(patsubst %,-I %,$(EXTRA_C_INCL_DIRS))
 
 # MS_CL_NOASM can be used to turn off assembly generation.  Use
 # MS_CL_NOASM=:noAssembly to turn it off, leave it blank to turn it on.
@@ -156,7 +159,7 @@ MS_DOTNET_SDK_DIR=@MS_DOTNET_SDK_DIR@
 # The system libraries were once needed here, but are currently unnecessary.
 MS_CL_LIBS	= 
 MERC_C_INCL_DIR = @LIBDIR@/inc
-MERC_DLL_DIR    = @LIBDIR@/inc
+MERC_DLL_DIR    = @LIBDIR@/lib/ilc/@FULLARCH@
 
 # MS_ILASM is the Microsoft IL assembler, which turns IL assembly code
 # into bytecode.
@@ -256,10 +259,11 @@ EXT_FOR_PIC_OBJECTS	= @EXT_FOR_PIC_OBJECTS@
 # shared libraries.
 EXT_FOR_SHARED_LIB	= @EXT_FOR_SHARED_LIB@
 
-# Set `RM_C' to `:' if you want to keep the intermediate `.c' files,
-# or to `rm' if you want Mmake to remove them.  Beware that RM_C=rm
-# causes some potential race conditions if you use parallel make.
-RM_C		= @DEFAULT_RM_C@
+# XXX RM_C is not used any more (it used to control whether
+# the intermediate C files were removed).
+# It may still be referred to by `.d' files generated before
+# support for RM_C was removed from the compiler.
+RM_C = :
 
 # lists of targets that depend on $(MLOBJS) and $(MLPICOBJS)
 MLOBJS_DEPS = 
@@ -417,11 +421,16 @@ date3s_subdir=$(SUBDIR)date3s/
 optdates_subdir=$(SUBDIR)optdates/
 trans_opt_dates_subdir=$(SUBDIR)trans_opt_dates/
 cs_subdir=$(SUBDIR)cs/
+dlls_subdir=$(SUBDIR)dlls/
 ss_subdir=$(SUBDIR)cs/
 os_subdir=$(SUBDIR)os/
 rlos_subdir=$(SUBDIR)rlos/
 ils_subdir=$(SUBDIR)ils/
 dirs_subdir=$(SUBDIR)dirs/
+c_dates_subdir=$(SUBDIR)c_dates/
+s_dates_subdir=$(SUBDIR)s_dates/
+pic_s_dates_subdir=$(SUBDIR)pic_s_dates/
+il_dates_subdir=$(SUBDIR)il_dates/
 
 else
 
@@ -443,11 +452,16 @@ date3s_subdir=
 optdates_subdir=
 trans_opt_dates_subdir=
 cs_subdir=
+dlls_subdir=
 ss_subdir=
 os_subdir=
 rlos_subdir=
 ils_subdir=
 dirs_subdir=
+c_dates_subdir=
+s_dates_subdir=
+pic_s_dates_subdir=
+il_dates_subdir=
 
 endif
 
@@ -473,7 +487,7 @@ INSTALL_MKDIR = mkdir -p
 #-----------------------------------------------------------------------------#
 
 # Specify the locations for installing things.
-# These directories can all be modified independantly.
+# These directories can all be modified independently.
 # In particular, you might want to find a better place for the DVI and
 # HTML files.
 
@@ -513,6 +527,7 @@ INSTALL_MAN_DIR		= $(INSTALL_PREFIX)/man
 INSTALL_HTML_DIR	= $(INSTALL_PREFIX)/lib/mercury/html
 INSTALL_MDB_DOC_DIR	= $(INSTALL_PREFIX)/lib/mercury/mdb
 INSTALL_ELISP_DIR	= $(INSTALL_PREFIX)/lib/mercury/elisp
+INSTALL_CGI_DIR		= @CGIDIR@
 
 # You should not need to override anything below here
 
@@ -540,7 +555,7 @@ LIBGRADES		= @LIBGRADES@
 empty_string=
 OBJFILE_OPT=@OBJFILE_OPT@$(empty_string)
 
-EXT_FOR_EXE=@EXE_SUFFIX@
+EXT_FOR_EXE=@EXEEXT@
 O=@OBJ_SUFFIX@
 A=@LIB_SUFFIX@
 

@@ -46,7 +46,7 @@
 
 :- type instrs == list(instr).
 
-:- import_module assoc_list, bool, map, string, std_util.
+:- import_module assoc_list, bool, map, string, std_util, int.
 :- import_module ilds, require.
 
 	% We zip down to the end of the instruction list, and start attempting
@@ -86,8 +86,27 @@ optimize_decl(Decl0, Decl, Mod0, Mod) :-
 optimize_class_decl(Decl0, Decl, Mod0, Mod) :-
 	( Decl0 = method(A, MethodDecls0) ->
 		list__map_foldl(optimize_method_decl, MethodDecls0,
-			MethodDecls, Mod0, Mod),
-		Decl = method(A, MethodDecls)
+			MethodDecls1, Mod0, Mod),
+		( Mod = yes ->
+				% find the new maxstack
+			MaxStacks = list__map((func(X) = 
+				( if X = instrs(I) 
+				  then calculate_max_stack(I) 
+				  else 0
+				)), MethodDecls1),
+			NewMaxStack = list__foldl((func(X, Y0) = X + Y0),
+				MaxStacks, 0
+			),
+				% set the maxstack
+			MethodDecls = list__map((func(X) = 
+				( if X = maxstack(_) 
+				  then maxstack(int32(NewMaxStack))
+				  else X
+				)), MethodDecls1),
+			Decl = method(A, MethodDecls)
+		;
+			Decl = method(A, MethodDecls1)
+		)
 	;
 		Mod = no,
 	 	Decl0 = Decl 
@@ -233,13 +252,13 @@ match(ldc(Type, Const), [stloc(Var)| Instrs0], Instrs) :-
 	Instrs = list__append(Replacement, Rest).
 
 	% Two patterns begin with start_scope.
-match(start_block(scope(Locals), Id), Instrs0, Instrs) :-
+match(start_block(scope(Locals), Id)) -->
 	( 
-		match2(start_block(scope(Locals), Id), Instrs0, Instrs1)
+		match_start_scope_1(start_block(scope(Locals), Id))
 	->
-		Instrs = Instrs1
+		[]
 	;	
-		match3(start_block(scope(Locals), Id), Instrs0, Instrs)
+		match_start_scope_2(start_block(scope(Locals), Id))
 	).
 
 	% If this is a scope with a local variable that is stored to but not
@@ -251,9 +270,9 @@ match(start_block(scope(Locals), Id), Instrs0, Instrs) :-
 	% stloc(X) patterns.
 	% This could be more efficient if it stopped looking outside the
 	% enclosing scope.
-:- pred match2(instr, instrs, instrs).
-:- mode match2(in, in, out) is semidet.
-match2(start_block(scope(Locals), Id), Instrs0, Instrs) :-
+:- pred match_start_scope_1(instr, instrs, instrs).
+:- mode match_start_scope_1(in, in, out) is semidet.
+match_start_scope_1(start_block(scope(Locals), Id), Instrs0, Instrs) :-
 
 		% Is this variable a local that is unused?
 	IsUnusedLocal = (pred(V::in) is semidet :-
@@ -267,6 +286,7 @@ match2(start_block(scope(Locals), Id), Instrs0, Instrs) :-
 			X \= ldloc(V),
 			X \= ldloca(V)
 		), Instrs0, _, [])
+
 	),
 
 		% A producer, which finds "dup" and returns the rest of
@@ -304,6 +324,8 @@ match2(start_block(scope(Locals), Id), Instrs0, Instrs) :-
 		R = V - Pre0 - Pre - Post
 	),
 
+	no_handwritten_code(Instrs0, Id),
+
 		% Keep looking for "dups" until it is followed by a
 		% suitable stloc.
 	keep_looking(FindDup, FindStloc, Instrs0, [] - [], Result, _Left),
@@ -325,9 +347,12 @@ match2(start_block(scope(Locals), Id), Instrs0, Instrs) :-
 	% it.
 	% This could be more efficient if it stopped looking outside the
 	% enclosing scope.
-:- pred match3(instr, instrs, instrs).
-:- mode match3(in, in, out) is semidet.
-match3(start_block(scope(Locals), Id), Instrs0, Instrs) :-
+:- pred match_start_scope_2(instr, instrs, instrs).
+:- mode match_start_scope_2(in, in, out) is semidet.
+match_start_scope_2(start_block(scope(Locals), Id), Instrs0, Instrs) :-
+
+	no_handwritten_code(Instrs0, Id),
+
 		% The pattern
 	list__filter((pred(VarName - _Type::in) is semidet :-
 		Var = name(VarName),
@@ -341,6 +366,7 @@ match3(start_block(scope(Locals), Id), Instrs0, Instrs) :-
 		), Instrs0, _, [])),
 		Locals, UnusedLocals, UsedLocals),
 	UnusedLocals \= [],
+
 
 		% Comment and replacement
 	list__map((pred(VarName - _Type::in, Comment::out) is det :-
@@ -369,6 +395,36 @@ match4(start_block(scope([]), _), Instrs0, Instrs) :-
 
 
 %-----------------------------------------------------------------------------%
+
+	% Succeeds if there is no handwritten code within the current block.
+	% (excluding sub-blocks).
+:- pred no_handwritten_code(instrs::in, int::in) is semidet.
+
+no_handwritten_code([], _).
+no_handwritten_code([Instr | Instrs], Id) :-
+	( Instr = il_asm_code(_, _) ->
+		fail
+	; Instr = end_block(_, Id) ->
+		true
+	; Instr = start_block(_, SkipId) ->
+		InstrsAfterBlock = skip_over_block(Instrs, SkipId),
+		no_handwritten_code(InstrsAfterBlock, Id)
+	; 
+		no_handwritten_code(Instrs, Id)
+	).
+
+	% Skips over a block until the end of the block (with Id matching
+	% the given Id) is found.
+:- func skip_over_block(instrs, int) = instrs.
+skip_over_block([], _) = []. 
+skip_over_block([Instr | Instrs], Id) = 
+	( Instr = end_block(_, Id) ->
+		Instrs
+	;
+		skip_over_block(Instrs, Id)
+	).
+
+
 
 	% Skip over all the comments.
 :- pred skip_comments(instrs::in, instrs::out, instrs::out) is det.
@@ -425,8 +481,8 @@ can_call(call(_)) 				= yes.
 can_call(calli(_)) 				= yes.
 can_call(callvirt(_)) 				= yes.
 can_call(jmp(_)) 				= yes.
-can_call(jmpi) 					= yes.
 can_call(newobj(_))			 	= yes.
+can_call(il_asm_code(_, _))		 	= yes.
 
 can_call(comment(_Comment)) 			= no. 
 can_call(label(_Label)) 			= no. 
@@ -435,16 +491,12 @@ can_call(end_block(_, _Id)) 			= no.
 can_call(context(_, _)) 			= no.
 can_call(ret) 					= no. 
 can_call((and)) 				= no. 
-can_call(ann_catch) 				= no. 
-can_call(ann_def) 				= no. 
-can_call(ann_lab) 				= no. 
 can_call(arglist) 				= no. 
 can_call(break) 				= no. 
 can_call(ceq) 					= no. 
 can_call(ckfinite) 				= no. 
 can_call(cpblk) 				= no. 
 can_call(dup) 					= no.
-can_call(endcatch) 				= no.
 can_call(endfilter) 				= no. 
 can_call(endfinally) 				= no. 
 can_call(initblk) 				= no. 
@@ -459,11 +511,8 @@ can_call(shl) 					= no.
 can_call(tailcall) 				= no. 
 can_call(volatile) 				= no. 
 can_call(xor) 					= no. 
-can_call(entercrit) 				= no. 
-can_call(exitcrit) 				= no.
 can_call(ldlen) 				= no. 
 can_call(throw)	 				= no. 
-can_call(ann_hoisted_call) 			= no.
 can_call(ldarg(_)) 				= no. 
 can_call(ldc(_Type, _Const)) 			= no.
 can_call(ldstr(_String)) 			= no. 
@@ -506,25 +555,21 @@ can_call(ldelema(_Type)) 			= no.
 can_call(ldfld(_FieldRef)) 			= no.
 can_call(ldflda(_FieldRef)) 			= no.
 can_call(ldobj(_Type)) 				= no.
-can_call(ldrefany(_Index)) 			= no.
 can_call(ldsfld(_FieldRef)) 			= no. 
 can_call(ldsflda(_FieldRef)) 			= no. 
 can_call(ldtoken(_)) 				= no.
 can_call(ldvirtftn(_MethodRef)) 		= no.
 can_call(mkrefany(_Type)) 			= no.
 can_call(newarr(_Type)) 			= no. 
+can_call(refanytype)	 			= no. 
+can_call(refanyval(_)) 				= no. 
+can_call(rethrow) 				= no. 
+can_call(sizeof(_Type))				= no. 
+can_call(stobj(_Type)) 				= no. 
 can_call(stelem(_SimpleType)) 			= no. 
 can_call(stfld(_FieldRef)) 			= no. 
 can_call(stsfld(_FieldRef)) 			= no. 
-can_call(typerefany(_Index)) 			= no.
 can_call(unbox(_Type)) 				= no.
-can_call(ann_call(_)) 				= no.
-can_call(ann_data(_)) 				= no.
-can_call(ann_dead(_)) 				= no.
-can_call(ann_hoisted(_)) 			= no.
-can_call(ann_live(_)) 				= no.
-can_call(ann_phi(_)) 				= no.
-can_call(ann_ref(_)) 				= no.
 
 	% These instructions generate no actual code and do not affect
 	% control flow, they are simply part of instr for
@@ -536,6 +581,7 @@ equivalent_to_nop(end_block(scope(_), _))	 	= yes.
 equivalent_to_nop(nop) 					= yes. 
 equivalent_to_nop(context(_, _)) 			= yes. 
 
+equivalent_to_nop(il_asm_code(_, _)) 			= no. 
 equivalent_to_nop(start_block(try, _))			= no.
 equivalent_to_nop(end_block(try, _))			= no.
 equivalent_to_nop(start_block(catch(_), _))		= no.
@@ -546,20 +592,15 @@ equivalent_to_nop(calli(_Signature)) 			= no.
 equivalent_to_nop(callvirt(_MethodRef)) 		= no. 
 equivalent_to_nop(ret) 					= no. 
 equivalent_to_nop((and)) 				= no. 
-equivalent_to_nop(ann_catch) 				= no. 
-equivalent_to_nop(ann_def) 				= no. 
-equivalent_to_nop(ann_lab) 				= no. 
 equivalent_to_nop(arglist) 				= no. 
 equivalent_to_nop(break) 				= no. 
 equivalent_to_nop(ceq) 					= no. 
 equivalent_to_nop(ckfinite) 				= no. 
 equivalent_to_nop(cpblk) 				= no. 
 equivalent_to_nop(dup) 					= no.
-equivalent_to_nop(endcatch) 				= no.
 equivalent_to_nop(endfilter) 				= no. 
 equivalent_to_nop(endfinally) 				= no. 
 equivalent_to_nop(initblk) 				= no. 
-equivalent_to_nop(jmpi) 				= no. 
 equivalent_to_nop(ldnull) 				= no. 
 equivalent_to_nop(localloc)	 			= no. 
 equivalent_to_nop(neg) 					= no. 
@@ -570,11 +611,8 @@ equivalent_to_nop(shl) 					= no.
 equivalent_to_nop(tailcall) 				= no. 
 equivalent_to_nop(volatile) 				= no. 
 equivalent_to_nop(xor) 					= no. 
-equivalent_to_nop(entercrit) 				= no. 
-equivalent_to_nop(exitcrit) 				= no.
 equivalent_to_nop(ldlen) 				= no. 
 equivalent_to_nop(throw) 				= no. 
-equivalent_to_nop(ann_hoisted_call) 			= no.
 equivalent_to_nop(ldarg(_)) 				= no. 
 equivalent_to_nop(ldc(_Type, _Const)) 			= no.
 equivalent_to_nop(ldstr(_String)) 			= no. 
@@ -618,7 +656,6 @@ equivalent_to_nop(ldelema(_Type)) 			= no.
 equivalent_to_nop(ldfld(_FieldRef)) 			= no.
 equivalent_to_nop(ldflda(_FieldRef)) 			= no.
 equivalent_to_nop(ldobj(_Type)) 			= no.
-equivalent_to_nop(ldrefany(_Index)) 			= no.
 equivalent_to_nop(ldsfld(_FieldRef)) 			= no. 
 equivalent_to_nop(ldsflda(_FieldRef)) 			= no. 
 equivalent_to_nop(ldtoken(_)) 				= no.
@@ -626,22 +663,24 @@ equivalent_to_nop(ldvirtftn(_MethodRef)) 		= no.
 equivalent_to_nop(mkrefany(_Type)) 			= no.
 equivalent_to_nop(newarr(_Type)) 			= no. 
 equivalent_to_nop(newobj(_MethodRef)) 			= no. 
+equivalent_to_nop(refanytype)				= no.
+equivalent_to_nop(refanyval(_))				= no.
+equivalent_to_nop(rethrow)				= no.
 equivalent_to_nop(stelem(_SimpleType)) 			= no. 
 equivalent_to_nop(stfld(_FieldRef)) 			= no. 
+equivalent_to_nop(sizeof(_Type))			= no. 
+equivalent_to_nop(stobj(_))				= no.
 equivalent_to_nop(stsfld(_FieldRef)) 			= no. 
-equivalent_to_nop(typerefany(_Index)) 			= no.
 equivalent_to_nop(unbox(_Type)) 			= no.
-equivalent_to_nop(ann_call(_)) 				= no.
-equivalent_to_nop(ann_data(_)) 				= no.
-equivalent_to_nop(ann_dead(_)) 				= no.
-equivalent_to_nop(ann_hoisted(_)) 			= no.
-equivalent_to_nop(ann_live(_)) 				= no.
-equivalent_to_nop(ann_phi(_)) 				= no.
-equivalent_to_nop(ann_ref(_)) 				= no.
 
 
 	% These instructions can branch control flow.
 :- func can_branch(instr) = bool.
+
+	% XXX we should refine what we mean by can_branch -- it seems to only
+	% mean local branching to local labels (which il_asm_code shouldn't do)
+	% but we will be conservative for now.
+can_branch(il_asm_code(_, _))				= yes.
 can_branch(br(_)) 					= yes.
 can_branch(brtrue(_))					= yes.
 can_branch(brfalse(_))					= yes.
@@ -664,20 +703,15 @@ can_branch(calli(_Signature)) 				= no.
 can_branch(callvirt(_MethodRef)) 			= no. 
 can_branch(ret) 					= no. 
 can_branch((and)) 					= no. 
-can_branch(ann_catch) 					= no. 
-can_branch(ann_def) 					= no. 
-can_branch(ann_lab) 					= no. 
 can_branch(arglist) 					= no. 
 can_branch(break) 					= no. 
 can_branch(ceq) 					= no. 
 can_branch(ckfinite) 					= no. 
 can_branch(cpblk) 					= no. 
 can_branch(dup) 					= no.
-can_branch(endcatch) 					= no.
 can_branch(endfilter) 					= no. 
 can_branch(endfinally) 					= no. 
 can_branch(initblk) 					= no. 
-can_branch(jmpi) 					= no. 
 can_branch(ldnull) 					= no. 
 can_branch(localloc)		 			= no. 
 can_branch(neg) 					= no. 
@@ -688,11 +722,8 @@ can_branch(shl) 					= no.
 can_branch(tailcall) 					= no. 
 can_branch(volatile) 					= no. 
 can_branch(xor) 					= no. 
-can_branch(entercrit) 					= no. 
-can_branch(exitcrit) 					= no.
 can_branch(ldlen) 					= no. 
 can_branch(throw) 					= no. 
-can_branch(ann_hoisted_call) 				= no.
 can_branch(ldarg(_)) 					= no. 
 can_branch(ldc(_Type, _Const)) 				= no.
 can_branch(ldstr(_String)) 				= no. 
@@ -726,7 +757,6 @@ can_branch(ldelema(_Type)) 				= no.
 can_branch(ldfld(_FieldRef)) 				= no.
 can_branch(ldflda(_FieldRef)) 				= no.
 can_branch(ldobj(_Type)) 				= no.
-can_branch(ldrefany(_Index)) 				= no.
 can_branch(ldsfld(_FieldRef)) 				= no. 
 can_branch(ldsflda(_FieldRef)) 				= no. 
 can_branch(ldtoken(_)) 					= no.
@@ -734,16 +764,13 @@ can_branch(ldvirtftn(_MethodRef)) 			= no.
 can_branch(mkrefany(_Type)) 				= no.
 can_branch(newarr(_Type)) 				= no. 
 can_branch(newobj(_MethodRef)) 				= no. 
+can_branch(rethrow) 					= no. 
+can_branch(refanytype) 					= no. 
+can_branch(refanyval(_)) 				= no. 
 can_branch(stelem(_SimpleType)) 			= no. 
 can_branch(stfld(_FieldRef)) 				= no. 
+can_branch(stobj(_)) 					= no. 
+can_branch(sizeof(_Type))				= no. 
 can_branch(stsfld(_FieldRef)) 				= no. 
-can_branch(typerefany(_Index)) 				= no.
 can_branch(unbox(_Type)) 				= no.
-can_branch(ann_call(_)) 				= no.
-can_branch(ann_data(_)) 				= no.
-can_branch(ann_dead(_)) 				= no.
-can_branch(ann_hoisted(_)) 				= no.
-can_branch(ann_live(_)) 				= no.
-can_branch(ann_phi(_)) 					= no.
-can_branch(ann_ref(_)) 					= no.
 

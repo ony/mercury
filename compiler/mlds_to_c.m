@@ -22,8 +22,15 @@
 :- import_module mlds.
 :- import_module io.
 
-:- pred mlds_to_c__output_mlds(mlds, io__state, io__state).
-:- mode mlds_to_c__output_mlds(in, di, uo) is det.
+	% output_mlds(MLDS, Suffix):
+	%	Output C code to the appropriate C file and header file.
+	%	The file names are determined by the module name,
+	%	with the specified Suffix appended at the end.
+	%	(The suffix is used for debugging dumps.  For normal
+	%	output, the suffix should be the empty string.)
+	%	
+:- pred mlds_to_c__output_mlds(mlds, string, io__state, io__state).
+:- mode mlds_to_c__output_mlds(in, in, di, uo) is det.
 
 	% output an MLDS context in C #line format. 
 	% this is useful for other foreign language interfaces such as
@@ -54,7 +61,7 @@
 :- import_module builtin_ops, c_util, modules.
 :- import_module prog_data, prog_out, type_util, error_util, code_model.
 
-:- import_module bool, int, string, library, list.
+:- import_module bool, int, string, library, list, map.
 :- import_module assoc_list, term, std_util, require.
 
 %-----------------------------------------------------------------------------%
@@ -64,7 +71,7 @@
 
 %-----------------------------------------------------------------------------%
 
-mlds_to_c__output_mlds(MLDS) -->
+mlds_to_c__output_mlds(MLDS, Suffix) -->
 	%
 	% We need to use the MLDS package name to compute the header file
 	% names, giving e.g. `mercury.io.h', `mercury.time.h' etc.,
@@ -90,11 +97,14 @@ mlds_to_c__output_mlds(MLDS) -->
 	% next time Mmake is run.
 	%
 	{ ModuleName = mlds__get_module_name(MLDS) },
-	module_name_to_file_name(ModuleName, ".c", yes, SourceFile),
+	module_name_to_file_name(ModuleName, ".c" ++ Suffix, yes,
+		SourceFile),
 	{ MLDS_ModuleName = mercury_module_name_to_mlds(ModuleName) },
 	{ ModuleSymName = mlds_module_name_to_sym_name(MLDS_ModuleName) },
-	module_name_to_file_name(ModuleSymName, ".h.tmp", yes, TmpHeaderFile),
-	module_name_to_file_name(ModuleSymName, ".h", yes, HeaderFile),
+	module_name_to_file_name(ModuleSymName, ".h" ++ Suffix ++ ".tmp", yes,
+		TmpHeaderFile),
+	module_name_to_file_name(ModuleSymName, ".h" ++ Suffix, yes,
+		HeaderFile),
 	{ Indent = 0 },
 	output_to_file(SourceFile, mlds_output_src_file(Indent, MLDS)),
 	output_to_file(TmpHeaderFile, mlds_output_hdr_file(Indent, MLDS)),
@@ -110,9 +120,11 @@ mlds_to_c__output_mlds(MLDS) -->
 :- mode mlds_output_hdr_file(in, in, di, uo) is det.
 
 mlds_output_hdr_file(Indent, MLDS) -->
-	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns) },
 	mlds_output_hdr_start(Indent, ModuleName), io__nl,
 	mlds_output_hdr_imports(Indent, Imports), io__nl,
+		% Get the foreign code for C
+	{ ForeignCode = map__lookup(AllForeignCode, c) },
 	mlds_output_c_hdr_decls(MLDS_ModuleName, Indent, ForeignCode), io__nl,
 	%
 	% The header file must contain _definitions_ of all public types,
@@ -180,9 +192,12 @@ mlds_output_src_import(_Indent, Import) -->
 :- mode mlds_output_src_file(in, in, di, uo) is det.
 
 mlds_output_src_file(Indent, MLDS) -->
-	{ MLDS = mlds(ModuleName, ForeignCode, Imports, Defns) },
+	{ MLDS = mlds(ModuleName, AllForeignCode, Imports, Defns) },
 	mlds_output_src_start(Indent, ModuleName), io__nl,
 	mlds_output_src_imports(Indent, Imports), io__nl,
+
+		% Get the foreign code for C
+	{ ForeignCode = map__lookup(AllForeignCode, c) },
 	mlds_output_c_decls(Indent, ForeignCode), io__nl,
 	%
 	% The public types have already been defined in the
@@ -538,6 +553,8 @@ mlds_output_c_defn(_Indent, user_foreign_code(c, Code, Context)) -->
 mlds_output_c_defn(_Indent, user_foreign_code(managed_cplusplus, _, _)) -->
 	{ sorry(this_file, "foreign code other than C") }.
 mlds_output_c_defn(_Indent, user_foreign_code(csharp, _, _)) -->
+	{ sorry(this_file, "foreign code other than C") }.
+mlds_output_c_defn(_Indent, user_foreign_code(il, _, _)) -->
 	{ sorry(this_file, "foreign code other than C") }.
 
 :- pred mlds_output_pragma_export_decl(mlds_module_name, indent,
@@ -959,7 +976,10 @@ mlds_output_class(Indent, Name, Context, ClassDefn) -->
 	% not when compiling to C++
 	%
 	{ ClassDefn = class_defn(Kind, _Imports, BaseClasses, _Implements,
-		AllMembers) },
+		Ctors, Members) },
+	
+	{ AllMembers = Ctors ++ Members },
+
 	( { Kind = mlds__enum } ->
 		{ StaticMembers = [] },
 		{ StructMembers = AllMembers }
@@ -1180,16 +1200,16 @@ mlds_output_pred_proc_id(proc(PredId, ProcId)) -->
 	).
 
 :- pred mlds_output_func(indent, qualified_entity_name, mlds__context,
-		func_params, maybe(statement), io__state, io__state).
+		func_params, function_body, io__state, io__state).
 :- mode mlds_output_func(in, in, in, in, in, di, uo) is det.
 
-mlds_output_func(Indent, Name, Context, Signature, MaybeBody) -->
+mlds_output_func(Indent, Name, Context, Signature, FunctionBody) -->
 	mlds_output_func_decl(Indent, Name, Context, Signature),
 	(
-		{ MaybeBody = no },
+		{ FunctionBody = external },
 		io__write_string(";\n")
 	;
-		{ MaybeBody = yes(Body) },
+		{ FunctionBody = defined_here(Body) },
 		io__write_string("\n"),
 
 		mlds_indent(Context, Indent),
@@ -1795,7 +1815,7 @@ mlds_output_extern_or_static(Access, PerInstance, DeclOrDefn, Name, DefnBody)
 		{ Name \= type(_, _) },
 		% Don't output "static" for functions that don't have a body.
 		% This can happen for Mercury procedures declared `:- external'
-		{ DefnBody \= mlds__function(_, _, no) }
+		{ DefnBody \= mlds__function(_, _, external) }
 	->
 		io__write_string("static ")
 	;
@@ -2520,7 +2540,7 @@ mlds_output_atomic_stmt(_Indent, _FuncInfo,
 :- mode mlds_output_target_code_component(in, in, di, uo) is det.
 
 mlds_output_target_code_component(Context,
-		user_target_code(CodeString, MaybeUserContext)) -->
+		user_target_code(CodeString, MaybeUserContext, _Attrs)) -->
 	( { MaybeUserContext = yes(UserContext) } ->
 		mlds_to_c__output_context(mlds__make_context(UserContext))
 	;
@@ -2528,7 +2548,8 @@ mlds_output_target_code_component(Context,
 	),
 	io__write_string(CodeString),
 	io__write_string("\n").
-mlds_output_target_code_component(Context, raw_target_code(CodeString)) -->
+mlds_output_target_code_component(Context, raw_target_code(CodeString,
+		_Attrs)) -->
 	mlds_to_c__output_context(Context),
 	io__write_string(CodeString).
 mlds_output_target_code_component(Context, target_code_input(Rval)) -->
@@ -2564,13 +2585,13 @@ mlds_output_init_args([Arg|Args], [ArgType|ArgTypes], Context,
 	% represented as MR_Box, so we need to box them if necessary.
 	%
 	mlds_indent(Context, Indent),
-	io__write_string("MR_field("),
+	io__write_string("MR_hl_field("),
 	mlds_output_tag(Tag),
 	io__write_string(", "),
 	mlds_output_lval(Target),
 	io__write_string(", "),
 	io__write_int(ArgNum),
-	io__write_string(") = (MR_Word) "),
+	io__write_string(") = "),
 	mlds_output_boxed_rval(ArgType, Arg),
 	io__write_string(";\n"),
 	mlds_output_init_args(Args, ArgTypes, Context,
@@ -2591,35 +2612,33 @@ mlds_output_lval(field(MaybeTag, Rval, offset(OffsetRval),
 		; FieldType = mlds__mercury_type(term__variable(_), _)
 		}
 	->
-		% XXX this generated code is ugly;
-		% it would be nicer to use a different macro
-		% than MR_field(), one which had type `MR_Box'
-		% rather than `MR_Word'.
-		io__write_string("(* (MR_Box *) &")
+		io__write_string("(")
 	;
 		% The field type for field(_, _, offset(_), _, _) lvals
 		% must be something that maps to MR_Box.
 		{ error("unexpected field type") }
 	),
 	( { MaybeTag = yes(Tag) } ->
-		io__write_string("MR_field("),
+		io__write_string("MR_hl_field("),
 		mlds_output_tag(Tag),
 		io__write_string(", ")
 	;
-		io__write_string("MR_mask_field(")
+		io__write_string("MR_hl_mask_field("),
+		io__write_string("(MR_Word) ")
 	),
-	io__write_string("(MR_Word) "),
 	mlds_output_rval(Rval),
 	io__write_string(", "),
 	mlds_output_rval(OffsetRval),
 	io__write_string("))").
 mlds_output_lval(field(MaybeTag, PtrRval, named_field(FieldName, CtorType),
-		_FieldType, _PtrType)) -->
-	% XXX we shouldn't bother with this cast in the case where
-	% PtrType == CtorType
+		_FieldType, PtrType)) -->
 	io__write_string("("),
-	mlds_output_cast(CtorType),
 	( { MaybeTag = yes(0) } ->
+		( { PtrType \= CtorType } ->
+			mlds_output_cast(CtorType)
+		;
+			[]
+		),
 		( { PtrRval = mem_addr(Lval) } ->
 			mlds_output_lval(Lval),
 			io__write_string(").")
@@ -2628,6 +2647,7 @@ mlds_output_lval(field(MaybeTag, PtrRval, named_field(FieldName, CtorType),
 			io__write_string(")->")
 		)
 	;
+		mlds_output_cast(CtorType),
 		( { MaybeTag = yes(Tag) } ->
 			io__write_string("MR_body("),
 			mlds_output_rval(PtrRval),
@@ -2704,16 +2724,16 @@ mlds_output_rval(lval(Lval)) -->
 /**** XXX do we need this?
 mlds_output_rval(lval(Lval)) -->
 	% if a field is used as an rval, then we need to use
-	% the MR_const_field() macro, not the MR_field() macro,
+	% the MR_hl_const_field() macro, not the MR_hl_field() macro,
 	% to avoid warnings about discarding const,
 	% and similarly for MR_mask_field.
 	( { Lval = field(MaybeTag, Rval, FieldNum, _, _) } ->
 		( { MaybeTag = yes(Tag) } ->
-			io__write_string("MR_const_field("),
+			io__write_string("MR_hl_const_field("),
 			mlds_output_tag(Tag),
 			io__write_string(", ")
 		;
-			io__write_string("MR_const_mask_field(")
+			io__write_string("MR_hl_const_mask_field(")
 		),
 		mlds_output_rval(Rval),
 		io__write_string(", "),
@@ -2725,7 +2745,7 @@ mlds_output_rval(lval(Lval)) -->
 ****/
 
 mlds_output_rval(mkword(Tag, Rval)) -->
-	io__write_string("(MR_Word) MR_mkword("),
+	io__write_string("MR_mkword("),
 	mlds_output_tag(Tag),
 	io__write_string(", "),
 	mlds_output_rval(Rval),
@@ -2744,6 +2764,9 @@ mlds_output_rval(mem_addr(Lval)) -->
 	% XXX are parentheses needed?
 	io__write_string("&"),
 	mlds_output_lval(Lval).
+
+mlds_output_rval(self(_)) -->
+	{ error("mlds_to_c: self rval encountered.\n") }.
 
 :- pred mlds_output_unop(mlds__unary_op, mlds__rval, io__state, io__state).
 :- mode mlds_output_unop(in, in, di, uo) is det.
@@ -2777,6 +2800,12 @@ mlds_output_cast(Type) -->
 	
 mlds_output_boxed_rval(Type, Exprn) -->
 	(
+		{ Exprn = unop(cast(OtherType), InnerExprn) },
+		{ Type = OtherType }
+	->
+		% avoid unnecessary double-casting -- strip away the inner cast
+		mlds_output_boxed_rval(Type, InnerExprn)
+	;
 		{ Type = mlds__mercury_type(term__functor(term__atom("float"),
 				[], _), _)
 		; Type = mlds__native_float_type
@@ -2866,7 +2895,7 @@ mlds_output_std_unop(UnaryOp, Exprn) -->
 	
 mlds_output_binop(Op, X, Y) -->
 	(
-		{ Op = array_index }
+		{ Op = array_index(_Type) }
 	->
 		mlds_output_bracketed_rval(X),
 		io__write_string("["),

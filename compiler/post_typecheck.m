@@ -191,9 +191,8 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, ModuleInfo, ReportErrs,
 		%
 		% bind all the type variables in `Set' to `void' ...
 		%
-		pred_info_context(PredInfo0, Context),
 		pred_info_get_constraint_proofs(PredInfo0, Proofs0),
-		bind_type_vars_to_void(Set, Context, VarTypesMap0, VarTypesMap,
+		bind_type_vars_to_void(Set, VarTypesMap0, VarTypesMap,
 			Proofs0, Proofs),
 		clauses_info_set_vartypes(ClausesInfo0, VarTypesMap,
 			ClausesInfo),
@@ -246,12 +245,12 @@ check_type_bindings_2([Var - Type | VarTypes], HeadTypeParams,
 %
 % bind all the type variables in `UnboundTypeVarsSet' to the type `void' ...
 %
-:- pred bind_type_vars_to_void(set(tvar), prog_context,
+:- pred bind_type_vars_to_void(set(tvar),
 				map(prog_var, type), map(prog_var, type),
 				constraint_proof_map, constraint_proof_map).
-:- mode bind_type_vars_to_void(in, in, in, out, in, out) is det.
+:- mode bind_type_vars_to_void(in, in, out, in, out) is det.
 
-bind_type_vars_to_void(UnboundTypeVarsSet, Context,
+bind_type_vars_to_void(UnboundTypeVarsSet,
 		VarTypesMap0, VarTypesMap, Proofs0, Proofs) :-
 	%
 	% first create a pair of corresponding lists (UnboundTypeVars, Voids)
@@ -259,19 +258,15 @@ bind_type_vars_to_void(UnboundTypeVarsSet, Context,
 	%
 	set__to_sorted_list(UnboundTypeVarsSet, UnboundTypeVars),
 	list__length(UnboundTypeVars, Length),
-	Void = term__functor(term__atom("void"), [], Context),
+	term__context_init(InitContext),
+	Void = term__functor(term__atom("void"), [], InitContext),
 	list__duplicate(Length, Void, Voids),
 
 	%
 	% then create a *substitution* that maps the 
-	% unbound type variables to void, but throws away the term context,
-	% for use in renaming the constraint proofs (ie. so that we can use
-	% map__lookup on the proofs).
+	% unbound type variables to void.
 	%
-	term__context_init(InitContext),
-	VoidNoContext = term__functor(term__atom("void"), [], InitContext),
-	list__duplicate(Length, VoidNoContext, VoidsNoContext),
-	map__from_corresponding_lists(UnboundTypeVars, VoidsNoContext, 
+	map__from_corresponding_lists(UnboundTypeVars, Voids, 
 		VoidSubst),
 
 	%
@@ -402,8 +397,16 @@ post_typecheck__resolve_pred_overloading(PredId0, Args0, CallerPredInfo,
 			ArgTypes, TVarSet, PredName0, PredName, PredId)
         ;
 		PredId = PredId0,
-		PredName = PredName0
+		get_qualified_pred_name(ModuleInfo, PredId, PredName)
         ).
+
+:- pred get_qualified_pred_name(module_info, pred_id, sym_name).
+:- mode get_qualified_pred_name(in, in, out) is det.
+
+get_qualified_pred_name(ModuleInfo, PredId, qualified(PredModule, PredName)) :-
+	module_info_pred_info(ModuleInfo, PredId, PredInfo),
+	pred_info_module(PredInfo, PredModule),
+	pred_info_name(PredInfo, PredName).
 
 %-----------------------------------------------------------------------------%
 
@@ -570,7 +573,7 @@ resolve_aditi_builtin_overloading(ModuleInfo, CallerPredInfo, Args,
 		)
 	;
 		PredId = PredId0,
-		SymName = SymName0
+		get_qualified_pred_name(ModuleInfo, PredId, SymName)
 	).
 
 	% Work out the modes of the arguments of a closure passed
@@ -963,14 +966,14 @@ report_aditi_pragma(PredInfo, ErrorPieces) :-
 
 post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		Unification0, UnifyContext, GoalInfo0,
-		ModuleInfo0, PredInfo0, PredInfo, VarTypes0, VarTypes,
+		ModuleInfo, PredInfo0, PredInfo, VarTypes0, VarTypes,
 		VarSet0, VarSet, Goal) :-
 
 	map__lookup(VarTypes0, X0, TypeOfX),
 	list__length(ArgVars0, Arity),
 	(
 		%
-		% is the function symbol apply/N or ''/N,
+		% Is the function symbol apply/N or ''/N,
 		% representing a higher-order function call?
 		%
 		ConsId0 = cons(unqualified(ApplyName), _),
@@ -998,7 +1001,7 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		Goal = HOCall - GoalInfo0
 	;
 		%
-		% is the function symbol a user-defined function, rather
+		% Is the function symbol a user-defined function, rather
 		% than a functor which represents a data constructor?
 		%
 
@@ -1025,9 +1028,9 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		% compiler for a field access function -- that needs
 		% to be expanded into unifications below.
 		%
-		\+ pred_info_is_field_access_function(ModuleInfo0, PredInfo0),
+		\+ pred_info_is_field_access_function(ModuleInfo, PredInfo0),
 
-		module_info_get_predicate_table(ModuleInfo0, PredTable),
+		module_info_get_predicate_table(ModuleInfo, PredTable),
 		predicate_table_search_func_sym_arity(PredTable,
 			PredName, Arity, PredIds),
 
@@ -1038,7 +1041,7 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		pred_info_typevarset(PredInfo0, TVarSet),
 		map__apply_to_list(ArgVars0, VarTypes0, ArgTypes0),
 		list__append(ArgTypes0, [TypeOfX], ArgTypes),
-		typecheck__find_matching_pred_id(PredIds, ModuleInfo0,
+		typecheck__find_matching_pred_id(PredIds, ModuleInfo,
 			TVarSet, ArgTypes, PredId, QualifiedFuncName)
 	->
 		%
@@ -1064,7 +1067,7 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		% calls into predicate calls above.
 		%
 		ConsId0 = cons(Name, Arity),
-		is_field_access_function_name(ModuleInfo0, Name, Arity,
+		is_field_access_function_name(ModuleInfo, Name, Arity,
 			AccessType, FieldName),
 
 		%
@@ -1081,22 +1084,59 @@ post_typecheck__resolve_unify_functor(X0, ConsId0, ArgVars0, Mode0,
 		%
 		pred_info_typevarset(PredInfo0, TVarSet),
 		map__apply_to_list(ArgVars0, VarTypes0, ArgTypes0),
-		\+ find_matching_constructor(ModuleInfo0, TVarSet,
+		\+ find_matching_constructor(ModuleInfo, TVarSet,
 			ConsId0, TypeOfX, ArgTypes0)
 	->
-		post_typecheck__finish_field_access_function(ModuleInfo0,
+		post_typecheck__finish_field_access_function(ModuleInfo,
 			PredInfo0, PredInfo, VarTypes0, VarTypes,
 			VarSet0, VarSet, AccessType, FieldName,
 			UnifyContext, X0, ArgVars0, GoalInfo0, Goal)
 	;
 		%
-		% ordinary construction/deconstruction unifications
-		% we leave alone
+		% Is the function symbol a higher-order predicate
+		% or function constant?
+		% This test needs to come after the test to recognise
+		% function calls and field access function calls
+		% to avoid being confused by functions that return
+		% higher-order terms.
+		%
+		ConsId0 = cons(Name, _),
+		type_is_higher_order(TypeOfX, PredOrFunc,
+			EvalMethod, HOArgTypes)
+	->
+		%
+		% Find the pred_id and proc_id of the constant.
+		%
+		map__apply_to_list(ArgVars0, VarTypes0, ArgTypes0),
+		AllArgTypes = ArgTypes0 ++ HOArgTypes,
+		pred_info_typevarset(PredInfo0, TVarSet),
+		get_pred_id_and_proc_id(Name, PredOrFunc, TVarSet,
+			AllArgTypes, ModuleInfo, PredId, ProcId),
+		ConsId = pred_const(PredId, ProcId, EvalMethod),
+		Goal = unify(X0, functor(ConsId, ArgVars0), Mode0,
+			Unification0, UnifyContext) - GoalInfo0,
+		PredInfo = PredInfo0,
+		VarTypes = VarTypes0,
+		VarSet = VarSet0
+	;
+		%
+		% Module qualify ordinary construction/deconstruction
+		% unifications.
 		%
 		PredInfo = PredInfo0,
 		VarTypes = VarTypes0,
 		VarSet = VarSet0,
-		Goal = unify(X0, functor(ConsId0, ArgVars0), Mode0,
+		(
+			ConsId0 = cons(Name0, Arity),
+			type_to_type_id(TypeOfX, TypeIdOfX, _),
+			TypeIdOfX = qualified(TypeModule, _) - _
+		->
+			unqualify_name(Name0, Name),
+			ConsId = cons(qualified(TypeModule, Name), Arity)	
+		;
+			ConsId = ConsId0
+		),
+		Goal = unify(X0, functor(ConsId, ArgVars0), Mode0,
 				Unification0, UnifyContext) - GoalInfo0
 	).
 

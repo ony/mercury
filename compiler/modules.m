@@ -39,8 +39,8 @@
 
 :- interface.
 
-:- import_module prog_data, prog_io, globals.
-:- import_module std_util, bool, list, set, io.
+:- import_module prog_data, prog_io, globals, timestamp.
+:- import_module std_util, bool, list, map, set, io.
 
 %-----------------------------------------------------------------------------%
 
@@ -121,8 +121,8 @@
 
 %-----------------------------------------------------------------------------%
 
-	% read_mod(ModuleName, Extension, Descr, Search, Items, Error,
-	%		SourceFileName):
+	% read_mod(ModuleName, Extension, Descr, Search, ReturnTimestamp,
+	%		Items, Error, SourceFileName, MaybeTimestamp):
 	%	Given a module name and a file extension (e.g. `.m',
 	%	`.int', or `int2'), read in the list of items in that file.
 	%	If Extension is ".m", and ModuleName is a nested module,
@@ -131,6 +131,8 @@
 	%	`foo.bar.baz.m', then `bar.baz.m', then `baz.m'.
 	%	If Search is yes, search all directories given by the option
 	%	search_directories for the module.
+	%	If ReturnTimestamp is yes, attempt to return the modification
+	%	time of the file in MaybeTimestamp.
 	%	If the actual module name (as determined by the
 	%	`:- module' declaration) does not match the specified
 	%	module name, then report an error message.
@@ -141,21 +143,46 @@
 	%	If you want to read a module given the file name,
 	%	use `read_mod_from_file'.
 	%
-:- pred read_mod(module_name, string, string, bool,
-		item_list, module_error, file_name, io__state, io__state).
-:- mode read_mod(in, in, in, in, out, out, out, di, uo) is det.
+:- pred read_mod(module_name, string, string, bool, bool,
+		item_list, module_error, file_name, maybe(timestamp),
+		io__state, io__state).
+:- mode read_mod(in, in, in, in, in, out, out, out, out, di, uo) is det.
+
+	% read_mod_if_changed(ModuleName, Extension, Descr, Search,
+	%	OldTimestamp, Items, Error, SourceFileName,
+	%	MaybeTimestamp):
+	%
+	%	If the timestamp of the file specified by the given
+	%	module name and file extension is newer than OldTimestamp,
+	%	read the file, returning the new timestamp.
+	%
+	%	If the file was read, MaybeTimestamp will contain the
+	%	new timestamp.
+	%	If the timestamp was unchanged, MaybeTimestamp will
+	%	be `yes(OldTimestamp)'.
+	%	If the file could not be read, MaybeTimestamp will be `no'.
+:- pred read_mod_if_changed(module_name, string, string, bool, timestamp,
+		item_list, module_error, file_name, maybe(timestamp),
+		io__state, io__state).
+:- mode read_mod_if_changed(in, in, in, in, in,
+		out, out, out, out, di, uo) is det.
 
 	% Similar to read_mod, but doesn't return error messages.
-:- pred read_mod_ignore_errors(module_name, string, string, bool,
-		item_list, module_error, file_name, io__state, io__state).
-:- mode read_mod_ignore_errors(in, in, in, in, out, out, out, di, uo) is det.
+:- pred read_mod_ignore_errors(module_name, string, string, bool, bool,
+		item_list, module_error, file_name, maybe(timestamp),
+		io__state, io__state).
+:- mode read_mod_ignore_errors(in, in, in, in, in, out, out, out, out,
+		di, uo) is det.
 
-	% read_mod_from_file(SourceFileName, Extension, Descr, Search, Items,
-	%		Error, ModuleName):
+	% read_mod_from_file(SourceFileName, Extension, Descr, Search,
+	%		ReturnTimestamp, Items, Error,
+	%		ModuleName, MaybeTimestamp):
 	%	Given a file name and a file extension (e.g. `.m',
 	%	`.int', or `int2'), read in the list of items in that file.
 	%	If Search is yes, search all directories given by the option
 	%	search_directories for the module.
+	%	If ReturnTimestamp is yes, attempt to return the modification
+	%	time of the file in MaybeTimestamp.
 	%	Return the module name (as determined by the
 	%	`:- module' declaration, if any).
 	%
@@ -163,37 +190,44 @@
 	%	If you want to read a module given the module name,
 	%	use `read_mod'.
 	%
-:- pred read_mod_from_file(file_name, string, string, bool,
-		item_list, module_error, module_name, io__state, io__state).
-:- mode read_mod_from_file(in, in, in, in, out, out, out, di, uo) is det.
+:- pred read_mod_from_file(file_name, string, string, bool, bool,
+		item_list, module_error, module_name,
+		maybe(timestamp), io__state, io__state).
+:- mode read_mod_from_file(in, in, in, in, in, out, out, out, out,
+		di, uo) is det.
 
 %-----------------------------------------------------------------------------%
 
-	% make_private_interface(SourceFileName, ModuleName, Items):
+	% make_private_interface(SourceFileName, ModuleName,
+	%		MaybeTimestamp, Items):
 	%	Given a source file name and module name,
+	%	the timestamp of the source file,
 	%	and the list of items in that module,
 	%	output the private (`.int0') interface file for the module.
 	%	(The private interface contains all the declarations in
 	%	the module, including those in the `implementation'
 	%	section; it is used when compiling sub-modules.)
 	%
-:- pred make_private_interface(file_name, module_name, item_list,
-				io__state, io__state).
-:- mode make_private_interface(in, in, in, di, uo) is det.
+:- pred make_private_interface(file_name, module_name,
+		maybe(timestamp), item_list, io__state, io__state).
+:- mode make_private_interface(in, in, in, in, di, uo) is det.
 
-	% make_interface(SourceFileName, ModuleName, Items):
+	% make_interface(SourceFileName, ModuleName, MaybeTimestamp, Items):
 	%	Given a source file name and module name,
+	%	the timestamp of the source file,
 	%	and the list of items in that module,
 	%	output the long (`.int') and short (`.int2') interface files
 	%	for the module.
 	%
-:- pred make_interface(file_name, module_name, item_list, io__state, io__state).
-:- mode make_interface(in, in, in, di, uo) is det.
+:- pred make_interface(file_name, module_name, maybe(timestamp),
+		item_list, io__state, io__state).
+:- mode make_interface(in, in, in, in, di, uo) is det.
 
 	% 	Output the unqualified short interface file to <module>.int3.
 	%
-:- pred make_short_interface(module_name, item_list, io__state, io__state).
-:- mode make_short_interface(in, in, di, uo) is det.
+:- pred make_short_interface(file_name, module_name, item_list,
+		io__state, io__state).
+:- mode make_short_interface(in, in, in, di, uo) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -242,18 +276,55 @@
 				% in this module.
 		foreign_code :: contains_foreign_code,
 				% Whether or not the module contains
-				% foreign code
+				% foreign code (and which languages if it does)
 		items :: item_list,
 				% The contents of the module and its imports
-		error :: module_error
+		error :: module_error,
 				% Whether an error has been encountered
 				% when reading in this module.
+
+		maybe_timestamps :: maybe(module_timestamps)
+				% If we are doing smart recompilation,
+				% we need to keep the timestamps of the
+				% modules read in.
 	).
 
 :- type contains_foreign_code
-	--->	contains_foreign_code
+	--->	contains_foreign_code(set(foreign_language))
 	;	no_foreign_code
 	;	unknown.
+
+	% When doing smart recompilation record for each module
+	% the suffix of the file that was read and the modification
+	% time of the file.
+:- type module_timestamps == map(module_name, module_timestamp).
+:- type module_timestamp
+	--->	module_timestamp(
+			suffix :: string,
+			timestamp :: timestamp,
+			need_qualifier :: need_qualifier
+		).
+
+	% recompilation_check.m records each file read to avoid
+	% reading it again. The string is the suffix of the file
+	% name.
+:- type read_modules == map(pair(module_name, string), read_module).
+
+:- type read_module
+	---> read_module(
+			module_timestamp,
+			item_list,
+			module_error,
+			file_name
+	).
+
+	% find_read_module(ReadModules, ModuleName, Suffix, ReturnTimestamp,
+	%	Items, MaybeTimestamp, Error, FileName)
+	%
+	% Check whether a file was read during recompilation checking.
+:- pred find_read_module(read_modules, module_name, string, bool, item_list,
+		maybe(timestamp), module_error, file_name).
+:- mode find_read_module(in, in, in, in, out, out, out, out) is semidet.
 
 % Some access predicates for the module_imports structure
 
@@ -307,6 +378,11 @@
 :- pred append_pseudo_decl(module_imports, module_defn, module_imports).
 :- mode append_pseudo_decl(in, in, out) is det.
 
+	% Strip off the `:- interface' declaration at the start of
+	% the item list, if any.
+:- pred strip_off_interface_decl(item_list, item_list).
+:- mode strip_off_interface_decl(in, out) is det.
+
 %-----------------------------------------------------------------------------%
 
 	% Given a module (well, a list of items), split it into
@@ -322,8 +398,8 @@
 
 %-----------------------------------------------------------------------------%
 
-	% grab_imported_modules(SourceFileName, ModuleName,
-	%		Items, Module, Error)
+	% grab_imported_modules(SourceFileName, ModuleName, ReadModules,
+	%		ModuleTimestamp, Items, Module, Error)
 	%	Given a source file name and module name,
 	%	and the list of items in that module,
 	%	read in the private interface files for all the parent modules,
@@ -331,10 +407,13 @@
 	%	and the short interface files for all the indirectly imported
 	%	modules, and return a `module_imports' structure containing the
 	%	relevant information.
+	%	ReadModules contains the interface files read during
+	%	recompilation checking.
 	%
-:- pred grab_imported_modules(file_name, module_name, item_list, module_imports,
-			module_error, io__state, io__state).
-:- mode grab_imported_modules(in, in, in, out, out, di, uo) is det.
+:- pred grab_imported_modules(file_name, module_name, read_modules,
+		maybe(timestamp), item_list, module_imports,
+		module_error, io__state, io__state).
+:- mode grab_imported_modules(in, in, in, in, in, out, out, di, uo) is det.
 
 	% grab_unqual_imported_modules(SourceFileName, ModuleName,
 	%		Items, Module, Error):
@@ -350,21 +429,23 @@
 			module_imports, module_error, io__state, io__state).
 :- mode grab_unqual_imported_modules(in, in, in, out, out, di, uo) is det.
 
-	% process_module_long_interfaces(Imports, Ext, IndirectImports0,
-	%			IndirectImports, Module0, Module):
+	% process_module_long_interfaces(ReadModules, NeedQualifier, Imports,
+	%	Ext, IndirectImports0, IndirectImports, Module0, Module):
+	%
 	%  	Read the long interfaces for modules in Imports
 	%	(unless they've already been read in)
 	%	from files with filename extension Ext,
 	%	and append any imports/uses in those modules to the
 	%	IndirectImports list.
 	%
-:- pred process_module_long_interfaces(list(module_name), string,
-		list(module_name), list(module_name),
-		module_imports, module_imports,
+:- pred process_module_long_interfaces(read_modules, need_qualifier,
+		list(module_name), string, list(module_name),
+		list(module_name), module_imports, module_imports,
 		io__state, io__state).
-:- mode process_module_long_interfaces(in, in, in, out, in, out, di, uo) is det.
+:- mode process_module_long_interfaces(in, in, in, in, in, out, in, out,
+		di, uo) is det.
 
-	% process_module_indirect_imports(IndirectImports, Ext,
+	% process_module_indirect_imports(ReadModules, IndirectImports, Ext,
 	%			Module0, Module):
 	%  	Read the short interfaces for modules in IndirectImports
 	%	(unless they've already been read in) and any
@@ -373,33 +454,34 @@
 	%	Put them all in a `:- used.' section, where the section
 	%	is assumed to be in the interface.
 	%
-:- pred process_module_indirect_imports(list(module_name), string,
-		module_imports, module_imports, io__state, io__state).
-:- mode process_module_indirect_imports(in, in, in, out, di, uo)
+:- pred process_module_indirect_imports(read_modules, list(module_name),
+		string, module_imports, module_imports, io__state, io__state).
+:- mode process_module_indirect_imports(in, in, in, in, out, di, uo)
 		is det.
 
-	% process_module_short_interfaces_transitively(IndirectImports, Ext,
-	%			Module0, Module):
+	% process_module_short_interfaces_transitively(ReadModules,
+	%		IndirectImports, Ext, Module0, Module):
 	%  	Read the short interfaces for modules in IndirectImports
 	%	(unless they've already been read in) and any
 	%	modules that those modules import (transitively).
 	%
-:- pred process_module_short_interfaces_transitively(list(module_name),
-		string, module_imports, module_imports, io__state, io__state).
-:- mode process_module_short_interfaces_transitively(in, in, in, out, di, uo)
-		is det.
+:- pred process_module_short_interfaces_transitively(read_modules,
+		list(module_name), string, module_imports, module_imports,
+		io__state, io__state).
+:- mode process_module_short_interfaces_transitively(in, in, in, in,
+		out, di, uo) is det.
 
-	% process_module_short_interfaces(Modules, Ext,
+	% process_module_short_interfaces(ReadModules, Modules, Ext,
 	%		IndirectImports0, IndirectImports, Module0, Module):
 	%  	Read the short interfaces for modules in Modules
 	%	(unless they've already been read in).
 	%	Append the modules imported by Modules to
 	%	IndirectImports0 to give IndirectImports.
 	%
-:- pred process_module_short_interfaces(list(module_name), string,
-		list(module_name), list(module_name),
+:- pred process_module_short_interfaces(read_modules, list(module_name),
+		string, list(module_name), list(module_name),
 		module_imports, module_imports, io__state, io__state).
-:- mode process_module_short_interfaces(in, in, in, out, in, out, di, uo)
+:- mode process_module_short_interfaces(in, in, in, in, out, in, out, di, uo)
 		is det.
 
 %-----------------------------------------------------------------------------%
@@ -495,6 +577,14 @@
 :- pred touch_interface_datestamp(module_name, string, io__state, io__state).
 :- mode touch_interface_datestamp(in, in, di, uo) is det.
 
+	% touch_datestamp(FileName).
+	%
+	% Update the modification time for the given file,
+	% clobbering the contents of the file.
+	
+:- pred touch_datestamp(file_name, io__state, io__state).
+:- mode touch_datestamp(in, di, uo) is det.
+
 	% update_interface(FileName)
 	%
 	% Call the shell script mercury_update_interface to update the
@@ -524,11 +614,12 @@
 
 :- implementation.
 :- import_module llds_out, passes_aux, prog_out, prog_util, mercury_to_mercury.
-:- import_module prog_io_util, options, module_qual.
+:- import_module prog_io_util, options, module_qual, foreign.
+:- import_module recompilation_version.
 
 :- import_module string, map, term, varset, dir, library.
 :- import_module assoc_list, relation, char, require.
-:- import_module getopt, term, varset.
+:- import_module getopt.
 
 %-----------------------------------------------------------------------------%
 
@@ -570,6 +661,7 @@ mercury_std_library_module("parser").
 mercury_std_library_module("pprint").
 mercury_std_library_module("pqueue").
 mercury_std_library_module("private_builtin").
+mercury_std_library_module("profiling_builtin").
 mercury_std_library_module("prolog").
 mercury_std_library_module("queue").
 mercury_std_library_module("random").
@@ -637,46 +729,57 @@ choose_file_name(ModuleName, BaseName, Ext, MkDir, FileName) -->
 		% output files intended for use by the user,
 		% and phony Mmake targets names go in the current directory
 		%
-		{ Ext = ".m"
-		% executable files
-		; Ext = ""
-		; Ext = ".split"
-		% library files
-		; Ext = ".a"
-		; Ext = ".$A"
-		; Ext = ".so"
-		; Ext = ".$(EXT_FOR_SHARED_LIB)"
-		; Ext = ".split.a"
-		; Ext = ".split.$A"
-		; Ext = ".split.so"
-		; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
-		; Ext = ".init"
-		% output files intended for use by the user
-		; Ext = ".h"
-		; Ext = ".err"
-		; Ext = ".ugly"
-		; Ext = ".hlds_dump"
-		; Ext = ".dependency_graph"
-		; Ext = ".order"
-		; Ext = ".rla"
-		; Ext = ".rl_dump"
-		% Mmake targets
-		; Ext = ".clean"
-		; Ext = ".realclean"
-		; Ext = ".depend"
-		; Ext = ".install_ints"
-		; Ext = ".install_hdrs"
-		; Ext = ".check"
-		; Ext = ".ints"
-		; Ext = ".int3s"
-		; Ext = ".rlos"
-		; Ext = ".ils"
-		; Ext = ".opts"
-		; Ext = ".trans_opts"
-		% The current interface to `mercury_update_interface'
-		% requires .h.tmp files to be in the same directory as
-		% the .h files
-		; Ext = ".h.tmp"
+		{
+			( Ext = ".m"
+			% executable files
+			; Ext = ""
+			; Ext = ".split"
+			% library files
+			; Ext = ".a"
+			; Ext = ".$A"
+			; Ext = ".so"
+			; Ext = ".$(EXT_FOR_SHARED_LIB)"
+			; Ext = ".split.a"
+			; Ext = ".split.$A"
+			; Ext = ".split.so"
+			; Ext = ".split.$(EXT_FOR_SHARED_LIB)"
+			; Ext = ".init"
+			% output files intended for use by the user
+			% (the .h_dump* and .c_dump* MLDS dumps also
+			% fit into this category, but for efficiency,
+			% to keep this as a switch, we deal with them below)
+			; Ext = ".h"
+			; Ext = ".err"
+			; Ext = ".ugly"
+			; Ext = ".hlds_dump"
+			; Ext = ".mlds_dump"
+			; Ext = ".dependency_graph"
+			; Ext = ".order"
+			; Ext = ".rla"
+			; Ext = ".rl_dump"
+			% Mmake targets
+			; Ext = ".clean"
+			; Ext = ".realclean"
+			; Ext = ".depend"
+			; Ext = ".install_ints"
+			; Ext = ".install_hdrs"
+			; Ext = ".check"
+			; Ext = ".ints"
+			; Ext = ".int3s"
+			; Ext = ".rlos"
+			; Ext = ".ils"
+			; Ext = ".opts"
+			; Ext = ".trans_opts"
+			% The current interface to `mercury_update_interface'
+			% requires .h.tmp files to be in the same directory as
+			% the .h files
+			; Ext = ".h.tmp"
+			)
+		;
+			% output files intended for use by the user
+			( string__prefix(Ext, ".c_dump")
+			; string__prefix(Ext, ".h_dump")
+			)
 		}
 	->
 		{ FileName0 = BaseName }
@@ -803,13 +906,14 @@ make_directory(DirName) -->
 	% Read in the .int3 files that the current module depends on,
 	% and use these to qualify all the declarations
 	% as much as possible. Then write out the .int0 file.
-make_private_interface(SourceFileName, ModuleName, Items0) -->
+make_private_interface(SourceFileName, ModuleName, MaybeTimestamp, Items0) -->
 	grab_unqual_imported_modules(SourceFileName, ModuleName, Items0,
 		Module, Error),
 		%
 		% Check whether we succeeded
 		%
-	( { Error = yes } ->
+	% XXX zs: why does this code not check for fatal_module_errors?
+	( { Error = some_module_errors } ->
 		module_name_to_file_name(ModuleName, ".int0", no, FileName),
 		io__write_strings(["Error reading interface files.\n",
 				"`", FileName, "' not written.\n"])
@@ -841,7 +945,8 @@ make_private_interface(SourceFileName, ModuleName, Items0) -->
 				)
 			    ), Items4, Items) },
 				
-			write_interface_file(ModuleName, ".int0", Items),
+			write_interface_file(SourceFileName, ModuleName,
+				".int0", MaybeTimestamp, Items),
 			touch_interface_datestamp(ModuleName, ".date0")
 		)
 	).
@@ -849,7 +954,7 @@ make_private_interface(SourceFileName, ModuleName, Items0) -->
 	% Read in the .int3 files that the current module depends on,
 	% and use these to qualify all items in the interface as much as
 	% possible. Then write out the .int and .int2 files.
-make_interface(SourceFileName, ModuleName, Items0) -->
+make_interface(SourceFileName, ModuleName, MaybeTimestamp, Items0) -->
 	{ get_interface(Items0, InterfaceItems0) },
 		% 
 		% Get the .int3 files for imported modules
@@ -861,7 +966,8 @@ make_interface(SourceFileName, ModuleName, Items0) -->
 		% Check whether we succeeded
 		%
 	{ module_imports_get_items(Module0, InterfaceItems1) },
-	( { Error = yes } ->
+	% XXX zs: why does this code not check for fatal_module_errors?
+	( { Error = some_module_errors } ->
 		module_name_to_file_name(ModuleName, ".int", no, IntFileName),
 		module_name_to_file_name(ModuleName, ".int2", no, Int2FileName),
 		io__write_strings(["Error reading short interface files.\n",
@@ -894,19 +1000,19 @@ make_interface(SourceFileName, ModuleName, Items0) -->
 			check_for_clauses_in_interface(InterfaceItems4,
 							InterfaceItems),
 			check_int_for_no_exports(InterfaceItems, ModuleName),
-			write_interface_file(ModuleName, ".int",
-							InterfaceItems),
+			write_interface_file(SourceFileName, ModuleName,
+				".int", MaybeTimestamp, InterfaceItems),
 			{ get_short_interface(InterfaceItems, int2,
 						ShortInterfaceItems) },
-			write_interface_file(ModuleName, ".int2",
-						ShortInterfaceItems),
+			write_interface_file(SourceFileName, ModuleName,
+				".int2", MaybeTimestamp, ShortInterfaceItems),
 			touch_interface_datestamp(ModuleName, ".date")
 		)
 	).
 
 	% This qualifies everything as much as it can given the
 	% information in the current module and writes out the .int3 file.
-make_short_interface(ModuleName, Items0) -->
+make_short_interface(SourceFileName, ModuleName, Items0) -->
 	{ get_interface(Items0, InterfaceItems0) },
 		% assertions are also stripped since they should
 		% only be written to .opt files,
@@ -915,7 +1021,8 @@ make_short_interface(ModuleName, Items0) -->
 	{ get_short_interface(InterfaceItems, int3, ShortInterfaceItems0) },
 	module_qual__module_qualify_items(ShortInterfaceItems0,
 			ShortInterfaceItems, ModuleName, no, _, _, _, _),
-	write_interface_file(ModuleName, ".int3", ShortInterfaceItems),
+	write_interface_file(SourceFileName, ModuleName, ".int3",
+			no, ShortInterfaceItems),
 	touch_interface_datestamp(ModuleName, ".date3").
 
 %-----------------------------------------------------------------------------%
@@ -956,9 +1063,7 @@ check_for_clauses_in_interface([], []) --> [].
 check_for_clauses_in_interface([ItemAndContext0 | Items0], Items) -->
 	{ ItemAndContext0 = Item0 - Context },
 	(
-		( { Item0 = pred_clause(_,_,_,_) }
-		; { Item0 = func_clause(_,_,_,_,_) }
-		)
+		{ Item0 = clause(_,_,_,_,_) }
 	->
 		prog_out__write_context(Context),
 		report_warning("Warning: clause in module interface.\n"),
@@ -1003,8 +1108,7 @@ split_clauses_and_decls([ItemAndContext0 | Items0],
 	->
 		split_clauses_and_decls(Items0, ClauseItems, InterfaceItems)
 	;
-		( Item0 = pred_clause(_,_,_,_)
-		; Item0 = func_clause(_,_,_,_,_)
+		( Item0 = clause(_,_,_,_,_)
 		; Item0 = pragma(Pragma),
 		  pragma_allowed_in_interface(Pragma, no)
 		)
@@ -1041,7 +1145,7 @@ pragma_allowed_in_interface(tabled(_, _, _, _, _), no).
 pragma_allowed_in_interface(promise_pure(_, _), no).
 pragma_allowed_in_interface(promise_semipure(_, _), no).
 pragma_allowed_in_interface(unused_args(_, _, _, _, _), no).
-pragma_allowed_in_interface(type_spec(_, _, _, _, _, _, _), yes).
+pragma_allowed_in_interface(type_spec(_, _, _, _, _, _, _, _), yes).
 pragma_allowed_in_interface(termination_info(_, _, _, _, _), yes).
 pragma_allowed_in_interface(pa_alias_info(_, _, _, _, _,_), yes).
 pragma_allowed_in_interface(sr_reuse_info(_, _, _, _, _, _,_), yes).
@@ -1081,7 +1185,7 @@ check_int_for_no_exports([], ModuleName) -->
 	warn_no_exports(ModuleName).
 check_int_for_no_exports([Item - _Context | Items], ModuleName) -->
 	(
-		{ Item = nothing
+		{ Item = nothing(_)
 		; Item = module_defn(_, ModuleDefn),
 		  ModuleDefn \= include_module(_)
 		}
@@ -1128,28 +1232,69 @@ warn_no_exports(ModuleName) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred write_interface_file(module_name, string, item_list,
-	io__state, io__state).
-:- mode write_interface_file(in, in, in, di, uo) is det.
+:- pred write_interface_file(file_name, module_name, string,
+		maybe(timestamp), item_list, io__state, io__state).
+:- mode write_interface_file(in, in, in, in, in, di, uo) is det.
 
-write_interface_file(ModuleName, Suffix, InterfaceItems) -->
+write_interface_file(_SourceFileName, ModuleName, Suffix,
+		MaybeTimestamp, InterfaceItems0) -->
 
-		% create (e.g.) `foo.int.tmp'
-
+		% Create (e.g.) `foo.int.tmp'.
 	{ string__append(Suffix, ".tmp", TmpSuffix) },
 	module_name_to_file_name(ModuleName, Suffix, yes, OutputFileName),
 	module_name_to_file_name(ModuleName, TmpSuffix, no, TmpOutputFileName),
 
-		% we need to add a `:- interface' declaration at the start
-		% of the item list
+	globals__io_lookup_bool_option(line_numbers, LineNumbers),
+	globals__io_set_option(line_numbers, bool(no)),
+
+	globals__io_lookup_bool_option(generate_item_version_numbers,
+		GenerateVersionNumbers),
+
+	( { GenerateVersionNumbers = yes } ->
+		% Find the timestamp of the current module.
+		(
+			{ MaybeTimestamp = yes(Timestamp) },
+
+			% Read in the previous version of the file.
+			read_mod_ignore_errors(ModuleName, Suffix,
+				"Reading old interface for module", yes, no,
+				OldItems0, OldError, _OldIntFileName,
+				_OldTimestamp),
+			( { OldError = no_module_errors } ->
+				{ strip_off_interface_decl(OldItems0,
+					OldItems) },
+				{ MaybeOldItems = yes(OldItems) }
+			;
+				% If we can't read in the old file, the
+				% timestamps will all be set to the
+				% modification time of the source file.
+				{ MaybeOldItems = no }
+			),
+			{ recompilation_version__compute_version_numbers(
+				Timestamp, InterfaceItems0, MaybeOldItems,
+				VersionNumbers) },
+			{ VersionNumberItem = module_defn(VarSet,
+				version_numbers(ModuleName, VersionNumbers))
+				- Context },
+			{ InterfaceItems1 =
+				[VersionNumberItem | InterfaceItems0] }
+		;
+			{ MaybeTimestamp = no },
+			{ error(
+"write_interface_file with `--smart-recompilation', timestamp not read") }
+		)
+	;
+		{ InterfaceItems1 = InterfaceItems0 }
+	),
+
+		% Add a `:- interface' declaration at the start
+		% of the item list.
 	{ varset__init(VarSet) },
 	{ term__context_init(Context) },
 	{ InterfaceDeclaration = module_defn(VarSet, interface) - Context },
-	{ InterfaceItems1 = [InterfaceDeclaration | InterfaceItems] },
+	{ InterfaceItems = [InterfaceDeclaration | InterfaceItems1] },
 
-	globals__io_lookup_bool_option(line_numbers, LineNumbers),
-	globals__io_set_option(line_numbers, bool(no)),
-	convert_to_mercury(ModuleName, TmpOutputFileName, InterfaceItems1),
+	convert_to_mercury(ModuleName, TmpOutputFileName, InterfaceItems),
 	globals__io_set_option(line_numbers, bool(LineNumbers)),
 	update_interface(OutputFileName).
 
@@ -1177,7 +1322,9 @@ update_interface(OutputFileName) -->
 
 touch_interface_datestamp(ModuleName, Ext) -->
 	module_name_to_file_name(ModuleName, Ext, yes, OutputFileName),
+	touch_datestamp(OutputFileName).
 
+touch_datestamp(OutputFileName) -->
 	globals__io_lookup_bool_option(verbose, Verbose),
 	maybe_write_string(Verbose, "% Touching `"),
 	maybe_write_string(Verbose, OutputFileName),
@@ -1200,7 +1347,8 @@ touch_interface_datestamp(ModuleName, Ext) -->
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
-grab_imported_modules(SourceFileName, ModuleName, Items0, Module, Error) -->
+grab_imported_modules(SourceFileName, ModuleName, ReadModules, MaybeTimestamp,
+			Items0, Module, Error) -->
 		%
 		% Find out which modules this one depends on
 		%
@@ -1224,8 +1372,15 @@ grab_imported_modules(SourceFileName, ModuleName, Items0, Module, Error) -->
 	{ get_fact_table_dependencies(Items0, FactDeps) },
 	{ get_interface(Items0, InterfaceItems) },
 	{ get_children(InterfaceItems, PublicChildren) },
+	{ MaybeTimestamp = yes(Timestamp) ->
+		MaybeTimestamps = yes(map__det_insert(map__init, ModuleName,
+			module_timestamp(".m", Timestamp, may_be_unqualified)))
+	;
+		MaybeTimestamps = no	
+
+	},
 	{ init_module_imports(SourceFileName, ModuleName, Items0,
-		PublicChildren, FactDeps, Module0) },
+		PublicChildren, FactDeps, MaybeTimestamps, Module0) },
 
 		% If this module has any seperately-compiled sub-modules,
 		% then we need to make everything in this module
@@ -1257,40 +1412,44 @@ grab_imported_modules(SourceFileName, ModuleName, Items0, Module, Error) -->
 			IntImportedModules2, IntUsedModules2) },
 
 		% Process the ancestor modules
-	process_module_private_interfaces(AncestorModules,
+	process_module_private_interfaces(ReadModules, AncestorModules,
 		IntImportedModules2, IntImportedModules,
 		IntUsedModules2, IntUsedModules,
 		Module2, Module3),
 
 		% Process the modules imported using `import_module'.
 	{ IntIndirectImports0 = [] },
-	process_module_long_interfaces(IntImportedModules, ".int",
-		IntIndirectImports0, IntIndirectImports1, Module3, Module4),
+	process_module_long_interfaces(ReadModules, may_be_unqualified,
+		IntImportedModules, ".int", IntIndirectImports0,
+		IntIndirectImports1, Module3, Module4),
 
 	{ append_pseudo_decl(Module4, imported(implementation), Module5) },
 
 	{ ImpIndirectImports0 = [] },
-	process_module_long_interfaces(ImpImportedModules, ".int",
-		ImpIndirectImports0, ImpIndirectImports1, Module5, Module6),
+	process_module_long_interfaces(ReadModules, may_be_unqualified,
+		ImpImportedModules, ".int", ImpIndirectImports0,
+		ImpIndirectImports1, Module5, Module6),
 
 		% Process the modules imported using `use_module' .
 	{ append_pseudo_decl(Module6, used(interface), Module7) },
-	process_module_long_interfaces(IntUsedModules, ".int",
-		IntIndirectImports1, IntIndirectImports, Module7, Module8),
+	process_module_long_interfaces(ReadModules, must_be_qualified,
+		IntUsedModules, ".int", IntIndirectImports1,
+		IntIndirectImports, Module7, Module8),
 	{ append_pseudo_decl(Module8, used(implementation), Module9) },
-	process_module_long_interfaces(ImpUsedModules, ".int",
-		ImpIndirectImports1, ImpIndirectImports, Module9, Module10),
+	process_module_long_interfaces(ReadModules, must_be_qualified,
+		ImpUsedModules, ".int", ImpIndirectImports1,
+		ImpIndirectImports, Module9, Module10),
 
 		% Process the short interfaces for indirectly imported modules.
 		% The short interfaces are treated as if
 		% they are imported using `use_module'.
 	{ append_pseudo_decl(Module10, transitively_imported, Module11) },
 	{ append_pseudo_decl(Module11, used(interface), Module12) },
-	process_module_short_interfaces_transitively(IntIndirectImports,
-		".int2", Module12, Module13),
+	process_module_short_interfaces_transitively(ReadModules,
+		IntIndirectImports, ".int2", Module12, Module13),
 	{ append_pseudo_decl(Module13, used(implementation), Module14) },
-	process_module_short_interfaces_transitively(ImpIndirectImports,
-		".int2", Module14, Module),
+	process_module_short_interfaces_transitively(ReadModules,
+		ImpIndirectImports, ".int2", Module14, Module),
 
 	{ module_imports_get_error(Module, Error) }.
 
@@ -1312,7 +1471,7 @@ grab_unqual_imported_modules(SourceFileName, ModuleName, Items0,
 		% and append a `:- imported' decl to the items.
 		%
 	{ init_module_imports(SourceFileName, ModuleName, Items0, [], [],
-		Module0) },
+		no, Module0) },
 	{ append_pseudo_decl(Module0, imported(interface), Module1) },
 
 		% Add `builtin' and `private_builtin' to the imported modules.
@@ -1323,58 +1482,74 @@ grab_unqual_imported_modules(SourceFileName, ModuleName, Items0,
 		%
 		% Get the .int3s and .int0s that the current module depends on.
 		%
+	{ map__init(ReadModules) },
 
 		% first the .int0s for parent modules
-	process_module_private_interfaces(ParentDeps,
+	process_module_private_interfaces(ReadModules, ParentDeps,
 			IntImportDeps1, IntImportDeps, IntUseDeps1, IntUseDeps,
 			Module1, Module2),
 
 		% then the .int3s for `:- import'-ed modules
-	process_module_long_interfaces(IntImportDeps, ".int3",
-			[], IntIndirectImportDeps0, Module2, Module3),
+	process_module_long_interfaces(ReadModules, may_be_unqualified,
+			IntImportDeps, ".int3", [],
+			IntIndirectImportDeps0, Module2, Module3),
 
 	{ append_pseudo_decl(Module3, imported(implementation), Module4) },
 
-	process_module_private_interfaces(ParentDeps,
+	process_module_private_interfaces(ReadModules, ParentDeps,
 			ImpImportDeps0, ImpImportDeps, ImpUseDeps0, ImpUseDeps,
 			Module4, Module5),
 
-	process_module_long_interfaces(ImpImportDeps, ".int3",
-			[], ImpIndirectImportDeps0, Module5, Module6),
+	process_module_long_interfaces(ReadModules, may_be_unqualified,
+			ImpImportDeps, ".int3", [], ImpIndirectImportDeps0,
+			Module5, Module6),
 
 		% then (after appropriate `:- used' decls)
 		% the .int3s for `:- use'-ed modules
 	{ append_pseudo_decl(Module6, used(interface), Module7) },
-	process_module_long_interfaces(IntUseDeps, ".int3",
-			IntIndirectImportDeps0, IntIndirectImportDeps,
-			Module7, Module8),
+	process_module_long_interfaces(ReadModules, must_be_qualified,
+			IntUseDeps, ".int3", IntIndirectImportDeps0,
+			IntIndirectImportDeps, Module7, Module8),
 	{ append_pseudo_decl(Module8, used(implementation), Module9) },
-	process_module_long_interfaces(ImpUseDeps, ".int3",
-			ImpIndirectImportDeps0, ImpIndirectImportDeps,
-			Module9, Module10),
+	process_module_long_interfaces(ReadModules, must_be_qualified,
+			ImpUseDeps, ".int3", ImpIndirectImportDeps0,
+			ImpIndirectImportDeps, Module9, Module10),
 
 		% then (after appropriate `:- used' decl)
 		% the .int3s for indirectly imported modules
 	{ append_pseudo_decl(Module10, used(interface), Module11) },
-	process_module_short_interfaces_transitively(
+	process_module_short_interfaces_transitively(ReadModules,
 			IntIndirectImportDeps, ".int3", Module11, Module12),
 
 	{ append_pseudo_decl(Module12, used(implementation), Module13) },
-	process_module_short_interfaces_transitively(
+	process_module_short_interfaces_transitively(ReadModules,
 			ImpIndirectImportDeps, ".int3", Module13, Module),
 
 	{ module_imports_get_error(Module, Error) }.
 
 %-----------------------------------------------------------------------------%
 
+find_read_module(ReadModules, ModuleName, Suffix, ReturnTimestamp,
+		Items, MaybeTimestamp, Error, FileName) :-
+	map__search(ReadModules, ModuleName - Suffix, ReadModule),
+	ReadModule = read_module(ModuleTimestamp, Items, Error, FileName),
+	( ReturnTimestamp = yes ->
+		ModuleTimestamp = module_timestamp(_, Timestamp, _),
+		MaybeTimestamp = yes(Timestamp)
+	;
+		MaybeTimestamp = no
+	).
+
 :- pred init_module_imports(file_name, module_name, item_list,
-			list(module_name), list(string), module_imports).
-:- mode init_module_imports(in, in, in, in, in, out) is det.
+			list(module_name), list(string),
+			maybe(module_timestamps), module_imports).
+:- mode init_module_imports(in, in, in, in, in, in, out) is det.
 
 init_module_imports(SourceFileName, ModuleName, Items, PublicChildren,
-			FactDeps, Module) :-
+			FactDeps, MaybeTimestamps, Module) :-
 	Module = module_imports(SourceFileName, ModuleName, [], [], [], [],
-			PublicChildren, FactDeps, unknown, Items, no).
+		PublicChildren, FactDeps, unknown, Items, no_module_errors,
+		MaybeTimestamps).
 
 module_imports_get_source_file_name(Module, Module ^ source_file_name).
 module_imports_get_module_name(Module, Module ^ module_name).
@@ -1415,6 +1590,7 @@ add_implicit_imports(Items, Globals, ImportDeps0, UseDeps0,
 	mercury_public_builtin_module(MercuryPublicBuiltin),
 	mercury_private_builtin_module(MercuryPrivateBuiltin),
 	mercury_table_builtin_module(MercuryTableBuiltin),
+	mercury_profiling_builtin_module(MercuryProfilingBuiltin),
 	ImportDeps = [MercuryPublicBuiltin | ImportDeps0],
 	UseDeps1 = [MercuryPrivateBuiltin | UseDeps0],
 	(
@@ -1427,10 +1603,16 @@ add_implicit_imports(Items, Globals, ImportDeps0, UseDeps0,
 		; globals__lookup_bool_option(Globals, trace_table_io, yes)
 		)
 	->
-		UseDeps = [MercuryTableBuiltin | UseDeps1]
+		UseDeps2 = [MercuryTableBuiltin | UseDeps1]
 	;
-		UseDeps = UseDeps1
+		UseDeps2 = UseDeps1
+	),
+	( globals__lookup_bool_option(Globals, profile_deep, yes) ->
+		UseDeps = [MercuryProfilingBuiltin|UseDeps2]
+	;
+		UseDeps = UseDeps2
 	).
+
 
 :- pred contains_tabling_pragma(item_list::in) is semidet.
 
@@ -1596,7 +1778,7 @@ warn_if_duplicate_use_import_decls(ModuleName,
 write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 	{ Module = module_imports(SourceFileName, ModuleName, ParentDeps,
 			IntDeps, ImplDeps, IndirectDeps, _InclDeps, FactDeps0,
-			_ContainsForeignCode, _Items, _Error) },
+			ContainsForeignCode, Items, _Error, _Timestamps) },
 	globals__io_lookup_bool_option(verbose, Verbose),
 	{ module_name_to_make_var_name(ModuleName, MakeVarName) },
 	module_name_to_file_name(ModuleName, ".d", yes, DependencyFileName),
@@ -1695,12 +1877,16 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		},
 		module_name_to_file_name(ModuleName, ".optdate", no,
 					OptDateFileName),
-		module_name_to_file_name(ModuleName, ".c", no, CFileName),
-		module_name_to_file_name(ModuleName, ".s", no, AsmFileName),
-		module_name_to_file_name(ModuleName, ".pic_s", no, PicAsmFileName),
+		module_name_to_file_name(ModuleName, ".c_date", no,
+			CDateFileName),
+		module_name_to_file_name(ModuleName, ".s_date", no,
+			AsmDateFileName),
+		module_name_to_file_name(ModuleName, ".pic_s_date", no,
+			PicAsmDateFileName),
 		module_name_to_file_name(ModuleName, ".$O", no, ObjFileName),
 		module_name_to_file_name(ModuleName, ".rlo", no, RLOFileName),
-		module_name_to_file_name(ModuleName, ".il", no, ILFileName),
+		module_name_to_file_name(ModuleName, ".il_date", no,
+			ILDateFileName),
 		module_name_to_file_name(ModuleName, ".pic_o", no,
 							PicObjFileName),
 		module_name_to_split_c_file_pattern(ModuleName, ".$O",
@@ -1708,15 +1894,13 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		io__write_strings(DepStream, ["\n\n",
 			OptDateFileName, " ",
 			TransOptDateFileName, " ",
-			CFileName, " ",
-			AsmFileName, " ",
-			PicAsmFileName, " ",
+			CDateFileName, " ",
+			AsmDateFileName, " ",
+			PicAsmDateFileName, " ",
 			ErrFileName, " ",
-			PicObjFileName, " ",
-			ObjFileName, " ",
 			SplitObjPattern, " ",
 			RLOFileName, " ",
-			ILFileName, " : ",
+			ILDateFileName, " : ",
 			SourceFileName
 		] ),
 		write_dependencies_list(ParentDeps, ".int0", DepStream),
@@ -1744,11 +1928,9 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 		( { Intermod = yes; UseOptFiles = yes } ->
 			io__write_strings(DepStream, [
 				"\n\n", 
-				CFileName, " ",
+				CDateFileName, " ",
 				TransOptDateFileName, " ",
 				ErrFileName, " ", 
-				PicObjFileName, " ",
-				ObjFileName, " ",
 				SplitObjPattern, " :"
 			]),
 
@@ -1775,10 +1957,8 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					".opt", DepStream),
 				io__write_strings(DepStream, [
 					"\n\n", 
-					CFileName, " ",
+					CDateFileName, " ",
 					ErrFileName, " ", 
-					PicObjFileName, " ", 
-					ObjFileName, " ",
 					SplitObjPattern, " :"
 				]),
 				write_dependencies_list(TransOptDeps,
@@ -1823,7 +2003,7 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 							HeaderFileName),
 			io__write_strings(DepStream, [
 					"\n\n", HeaderFileName, 
-					" : ", CFileName
+					" : ", CDateFileName
 			])
 		;
 			[]
@@ -1851,8 +2031,29 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				SourceFileName, "\n",
 			"\trm -rf ", DirFileName, "\n",
 			"\t$(MCS) $(ALL_GRADEFLAGS) $(ALL_MCSFLAGS) ",
-				SourceFileName, "\n"
+				SourceFileName, "\n\n"
 		]),
+
+		globals__io_get_target(Target),
+		globals__io_get_globals(Globals),
+		(
+			{ Target = il },
+			{
+				ContainsForeignCode = 
+					contains_foreign_code(LangSet)
+			;
+				ContainsForeignCode = unknown,
+				get_item_list_foreign_code(Globals, Items,
+					LangSet),
+				not set__empty(LangSet)
+			}
+		->
+			{ Langs = set__to_sorted_list(LangSet) },
+			list__foldl(write_foreign_dependency_for_il(DepStream,
+				ModuleName, AllDeps), Langs)
+		;
+			[]
+		),
 
 		module_name_to_file_name(ModuleName, ".int0", no,
 							Int0FileName),
@@ -1929,40 +2130,15 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 				TransOptDateFileName, " : ", SourceFileName,
 					"\n",
 				"\t$(MCTOI) $(ALL_MCTOIFLAGS) $<\n",
-				CFileName, " : ", SourceFileName, "\n",
-				"\trm -f ", CFileName, "\n",
+				CDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"$< > ", ErrFileName, " 2>&1\n",
-				"ifneq ($(RM_C),:)\n",
-				ObjFileName, " : ", SourceFileName, "\n",
-				"\t$(MMAKE_MAKE_CMD) $(MFLAGS) ",
-					"MC=""$(MC)"" ",
-					"ALL_MCFLAGS=""$(ALL_MCFLAGS)"" ",
-					"ALL_GRADEFLAGS=""$(ALL_GRADEFLAGS)"" ",
-					CFileName, "\n",
-				"\t$(MGNUC) $(ALL_GRADEFLAGS) ",
-					"$(ALL_MGNUCFLAGS) -c ", CFileName,
-					" -o $@\n",
-				"\t$(RM_C) ", CFileName, "\n",
-				PicObjFileName, " : ", SourceFileName, "\n",
-				"\t$(MMAKE_MAKE_CMD) $(MFLAGS) ",
-					"MC=""$(MC)"" ",
-					"ALL_MCFLAGS=""$(ALL_MCFLAGS)"" ",
-					"ALL_GRADEFLAGS=""$(ALL_GRADEFLAGS)"" ",
-					CFileName, "\n",
-				"\t$(MGNUC) $(ALL_GRADEFLAGS) ",
-					"$(ALL_MGNUCFLAGS) $(CFLAGS_FOR_PIC) ",
-					"\\\n",
-				"\t\t-c ", CFileName, " -o $@\n",
-				"endif # RM_C != :\n",
 				"ifeq ($(TARGET_ASM),yes)\n",
-				AsmFileName, " : ", SourceFileName, "\n",
-				"\trm -f ", AsmFileName, "\n",
+				AsmDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--target-code-only $< > ", ErrFileName,
 					" 2>&1\n",
-				PicAsmFileName, " : ", SourceFileName, "\n",
-				"\trm -f ", PicAsmFileName, "\n",
+				PicAsmDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--target-code-only --pic ",
 					"\\\n",
@@ -1970,13 +2146,11 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 					"$< > ", ErrFileName,
 					" 2>&1\n",
 				"endif # TARGET_ASM\n",
-				ILFileName, " : ", SourceFileName, "\n",
-				"\trm -f ", ILFileName, "\n",
+				ILDateFileName, " : ", SourceFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--il-only $< > ", ErrFileName,
 					" 2>&1\n",
 				RLOFileName, " : ", SourceFileName, "\n",
-				"\trm -f ", RLOFileName, "\n",
 				"\t$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) ",
 					"--aditi-only $< > ", ErrFileName,
 					" 2>&1\n"
@@ -2026,6 +2200,75 @@ write_dependency_file(Module, AllDepsSet, MaybeTransOptDeps) -->
 			maybe_write_string(Verbose, " done.\n")
 		)
 	).
+
+	% Generate the following dependency.  This dependency is
+	% needed because module__cpp_code.dll might refer to
+	% high level data in any of the mercury modules it
+	% imports plus itself.
+	% We also generate a dependency on the .il file, so that mmake
+	% knows we need to generate the .il file to get the foreign language 
+	% source file (e.g. .cpp file).
+	%
+	% For example, for MC++ we generate:
+	%
+	% 	<module>__cpp_code.dll : <module>.dll <imports>.dll
+	%	<module>__cpp_code.cpp : <module>.il
+	%
+	% (the rule to generate .dll from .cpp is a pattern rule in
+	% scripts/Mmake.rules).
+	% 
+:- pred write_foreign_dependency_for_il(io__output_stream::in,sym_name::in,
+		list(module_name)::in, foreign_language::in,
+		io__state::di, io__state::uo) is det.
+write_foreign_dependency_for_il(DepStream, ModuleName, AllDeps, ForeignLang)
+		-->
+	( 
+		{ ForeignModuleName = foreign_language_module_name(
+			ModuleName, ForeignLang) },
+		{ ForeignExt = foreign_language_file_extension(ForeignLang) }
+	->
+		module_name_to_file_name(ForeignModuleName, "", no,
+			ForeignModuleNameString),
+		module_name_to_file_name(ForeignModuleName, ForeignExt, no,
+			ForeignFileName),
+		module_name_to_file_name(ModuleName, ".il", no, IlFileName),
+		module_name_to_file_name(ModuleName, ".dll", no, DllFileName),
+		module_name_to_file_name(ForeignModuleName, ".dll", no,
+			ForeignDllFileName),
+
+		io__write_strings(DepStream, [
+			ForeignDllFileName, " : ", DllFileName]),
+			% XXX This change doesn't work correctly because
+			% mmake can't find the dlls which don't reside
+			% in the current directory.
+		/*
+		write_dll_dependencies_list(ModuleName, AllDeps, DepStream),
+		*/
+		io__nl(DepStream),
+
+		io__write_strings(DepStream, [
+			ForeignFileName, " : ", IlFileName, "\n\n"]),
+
+		( { ForeignLang = csharp } ->
+			% Store in the variable
+			% CSHARP_ASSEMBLY_REFS-foreign_code_name
+			% the command line argument to reference all the
+			% dlls the foreign code module references.
+			io__write_strings(DepStream, 
+				["CSHARP_ASSEMBLY_REFS-", 
+					ForeignModuleNameString, "="]),
+			write_dll_dependencies_list(ModuleName,
+				AllDeps, "/r:", DepStream),
+			io__nl(DepStream)
+		;
+			[]
+		)
+	;
+		% This foreign language doesn't generate an external file
+		% so there are no dependencies to generate.
+		[]
+	).
+
 
 maybe_read_dependency_file(ModuleName, MaybeTransOptDeps) -->
 	globals__io_lookup_bool_option(transitive_optimization, TransOpt),
@@ -2232,8 +2475,8 @@ generate_module_dependencies(ModuleName) -->
 
 generate_file_dependencies(FileName) -->
 	% read in the top-level file (to figure out its module name)
-	read_mod_from_file(FileName, ".m", "Reading file", no,
-		Items, Error, ModuleName),
+	read_mod_from_file(FileName, ".m", "Reading file", no, no,
+		Items, Error, ModuleName, _),
 	{ string__append(FileName, ".m", SourceFileName) },
 	split_into_submodules(ModuleName, Items, SubModuleList),
 	globals__io_get_globals(Globals),
@@ -2254,7 +2497,7 @@ generate_dependencies(ModuleName, DepsMap0) -->
 	%
 	{ map__lookup(DepsMap, ModuleName, deps(_, ModuleImports)) },
 	{ module_imports_get_error(ModuleImports, Error) },
-	( { Error = fatal } ->
+	( { Error = fatal_module_errors } ->
 		{ prog_out__sym_name_to_string(ModuleName, ModuleString) },
 		{ string__append_list(["can't read source file for module `",
 			ModuleString, "'."], Message) },
@@ -2421,7 +2664,7 @@ generate_dependencies_write_d_files([Dep | Deps],
 	% the current Module depends on, a .d file is still produced, even
 	% though it probably contains incorrect information.
 	{ module_imports_get_error(Module, Error) },
-	( { Error \= fatal } ->
+	( { Error \= fatal_module_errors } ->
 		write_dependency_file(Module,
 			set__list_to_set(IndirectOptDeps), yes(TransOptDeps))
 	;
@@ -2498,7 +2741,7 @@ deps_list_to_deps_rel([Deps | DepsList], DepsMap,
 		IntRel0, IntRel, ImplRel0, ImplRel) :-
 	Deps = deps(_, ModuleImports),
 	ModuleError = ModuleImports ^ error,
-	( ModuleError \= fatal ->
+	( ModuleError \= fatal_module_errors ->
 		%
 		% Add interface dependencies to the interface deps relation.
 		%
@@ -2710,18 +2953,55 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".mods ="),
 	write_dependencies_list(Modules, "", DepStream),
+	io__write_string(DepStream, "\n"),
+
+	globals__io_get_target(Target),
+	( { Target = il } ->
+		{ ForeignModulesAndExts = foreign_modules(Modules, DepsMap) }
+	;
+		{ ForeignModulesAndExts = [] }
+	),
+	{ ForeignModules = assoc_list__keys(ForeignModulesAndExts) },
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".foreign ="),
+	write_dependencies_list(ForeignModules, "", DepStream),
 	io__write_string(DepStream, "\n\n"),
 
 	globals__io_lookup_bool_option(assume_gmake, Gmake),
 	( { Gmake = yes } ->
 		{ string__append(MakeVarName, ".mods", ModsVarName) },
-		{ Basis = yes(ModsVarName - "") }
+		{ Basis = yes(ModsVarName - "") },
+
+		{ string__append(MakeVarName, ".foreign", ForeignVarName) },
+		{ ForeignBasis = yes(ForeignVarName - "") }
 	;
-		{ Basis = no }
+		{ Basis = no },
+		{ ForeignBasis = no }
 	),
 
-	globals__io_get_target(Target),
 	{ get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
+
+
+	{ MakeFileName = (pred(M - E::in, F::out, di, uo) is det -->
+		module_name_to_file_name(M, E, yes, F0),
+		{ F = "$(os_subdir)" ++ F0 }
+	) },
+
+	list__map_foldl(MakeFileName, ForeignModulesAndExts, ForeignFileNames),
+
+		% .foreign_cs are the source files which have had
+		% foreign code placed in them.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".foreign_cs = "),
+	write_file_dependencies_list(ForeignFileNames, "", DepStream),
+	io__write_string(DepStream, "\n"),
+
+		% The dlls which contain the foreign_code.
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".foreign_dlls = "),
+	write_compact_dependencies_list(ForeignModules, "$(dlls_subdir)",
+					".dll", ForeignBasis, DepStream),
+	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".init_cs = "),
@@ -2737,24 +3017,143 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".os = "),
-	% for --target asm, we only generate separate object files
-	% for top-level modules and separate sub-modules, not for
-	% nested sub-modules.
+	io__write_string(DepStream, ".dlls = "),
+	write_compact_dependencies_list(Modules, "$(dlls_subdir)", ".dll",
+					Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_ss = "),
+	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".s",
+		Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_pic_ss = "),
+	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".pic_s",
+		Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_s_dates = "),
+	write_compact_dependencies_list(Modules, "$(s_dates_subdir)",
+					".s_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_pic_s_dates = "),
+	write_compact_dependencies_list(Modules, "$(pic_s_dates_subdir)",
+					".pic_s_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_os = "),
+	write_compact_dependencies_list(Modules, "$(os_subdir)", ".$O",
+		Basis, DepStream),
+	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".all_pic_os = "),
+	write_compact_dependencies_list(Modules, "$(os_subdir)",
+		".$(EXT_FOR_PIC_OBJECTS)", Basis, DepStream),
+	write_extra_link_dependencies_list(ExtraLinkObjs,
+		".$(EXT_FOR_PIC_OBJECTS)", DepStream),
+	io__write_string(DepStream, "\n"),
+
 	{ IsNested = (pred(Mod::in) is semidet :-
 		get_submodule_kind(Mod, DepsMap) = nested_submodule) },
 	(
+		% For --target asm, we only generate separate object files
+		% for top-level modules and separate sub-modules, not for
+		% nested sub-modules.
 		{ Target = asm },
-		{ list__filter(IsNested, Modules, NestedModules, MainModules) },
+		{ list__filter(IsNested, Modules,
+			NestedModules, MainModules) },
 		{ NestedModules \= [] }
 	->
-		write_dependencies_list(MainModules, ".$O", DepStream)
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".ss = "),
+		write_dependencies_list(MainModules, ".s", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_ss = "),
+		write_dependencies_list(MainModules, ".pic_s", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".s_dates = "),
+		write_dependencies_list(MainModules, ".s_date", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_s_dates = "),
+		write_dependencies_list(MainModules, ".pic_s_date", DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".os = "),
+		write_dependencies_list(MainModules, ".$O", DepStream),
+		write_extra_link_dependencies_list(ExtraLinkObjs, ".$O",
+			DepStream),
+		io__write_string(DepStream, "\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_os = "),
+		write_dependencies_list(MainModules, ".$(EXT_FOR_PIC_OBJECTS)",
+			DepStream),
+		write_extra_link_dependencies_list(ExtraLinkObjs,
+			".$(EXT_FOR_PIC_OBJECTS)", DepStream),
+		io__write_string(DepStream, "\n")
 	;
-		write_compact_dependencies_list(Modules, "$(os_subdir)",
-			".$O", Basis, DepStream)
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".ss = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_ss)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_ss = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_pic_ss)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".s_dates = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_s_dates)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_s_dates = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_pic_s_dates)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".os = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_os)\n"),
+
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".pic_os = $("),
+		io__write_string(DepStream, MakeVarName),
+		io__write_string(DepStream, ".all_pic_os)\n")
 	),
-	write_extra_link_dependencies_list(ExtraLinkObjs, ".$O", DepStream),
-	io__write_string(DepStream, "\n"),
+
+	%
+	% $(foo.cs_or_ss) contains the names of the generated intermediate
+	% files between `.m' and `.o' files. This is used in foo.dep
+	% to make sure the intermediate files are generated before the
+	% object files, so that errors are reported as soon as possible.
+	% 
+	% If TARGET_ASM=yes, we define $(foo.cs_or_ss) to be $(foo.ss),
+	% otherwise it is defined to be $(foo.cs).
+	%
+	io__write_strings(DepStream, [
+		"ifeq ($(TARGET_ASM),yes)\n",
+		MakeVarName, ".cs_or_ss =$(", MakeVarName, ".ss)\n",
+		"else\n",
+		MakeVarName, ".cs_or_ss =$(", MakeVarName, ".cs)\n",
+		"endif\n\n"
+	]),
 
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".rlos = "),
@@ -2763,18 +3162,15 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".ils = "),
-	write_compact_dependencies_list(Modules, "$(ils_subdir)", ".il",
+	io__write_string(DepStream, ".useds = "),
+	write_compact_dependencies_list(Modules, "$(useds_subdir)", ".used",
 					Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".pic_os = "),
-	write_compact_dependencies_list(Modules, "$(os_subdir)",
-					".$(EXT_FOR_PIC_OBJECTS)",
+	io__write_string(DepStream, ".ils = "),
+	write_compact_dependencies_list(Modules, "$(ils_subdir)", ".il",
 					Basis, DepStream),
-	write_extra_link_dependencies_list(ExtraLinkObjs,
-					".$(EXT_FOR_PIC_OBJECTS)", DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -2786,12 +3182,6 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, MakeVarName),
 	io__write_string(DepStream, ".dir_os = "),
 	write_compact_dependencies_list(Modules, "$(dirs_subdir)", ".dir/*.$O",
-					Basis, DepStream),
-	io__write_string(DepStream, "\n"),
-
-	io__write_string(DepStream, MakeVarName),
-	io__write_string(DepStream, ".ss = "),
-	write_compact_dependencies_list(Modules, "$(ss_subdir)", ".s",
 					Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
@@ -2823,6 +3213,18 @@ generate_dv_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	io__write_string(DepStream, ".trans_opt_dates = "),
 	write_compact_dependencies_list(Modules, "$(trans_opt_dates_subdir)",
 					".trans_opt_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".c_dates = "),
+	write_compact_dependencies_list(Modules, "$(c_dates_subdir)",
+					".c_date", Basis, DepStream),
+	io__write_string(DepStream, "\n"),
+
+	io__write_string(DepStream, MakeVarName),
+	io__write_string(DepStream, ".il_dates = "),
+	write_compact_dependencies_list(Modules, "$(il_dates_subdir)",
+					".il_date", Basis, DepStream),
 	io__write_string(DepStream, "\n"),
 
 	io__write_string(DepStream, MakeVarName),
@@ -2994,42 +3396,39 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	% rather than first spending time compiling C files to .$O,
 	% which could be a waste of time if the program contains errors.
 	%
-	% But we can only do this if we don't remove the .c files,
-	% i.e. if RM_C=:
-	% So we define $(foo.maybe_cs) here and use it in the rules below.
-	% This needs to be defined here in the .dep file rather than
-	% in the .dv file since it depends on the setting of the $(RM_C) file
-	% which can be overridden by the user's Mmakefile.
-	%
 	% When compiling to assembler, we want to do the same kind of
 	% thing, for the same reason, but with the `.s' files rather
-	% than the `.c' files.  So if TARGET_ASM=yes, we define
-	% $(foo.maybe_cs) to be $(foo.ss).
-	% XXX The name `.maybe_cs' is a bit misleading in this case.
-	%     Perhaps we should change it.
+	% than the `.c' files.
 	%
-	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
-	io__write_strings(DepStream, [
-		"ifeq ($(TARGET_ASM),yes)\n",
-		MakeVarName, ".maybe_cs=$(", MakeVarName, ".ss)\n",
-		"else\n",
-		"  ifeq ($(RM_C),:)\n",
-		MakeVarName, ".maybe_cs=$(", MakeVarName, ".cs)\n",
-		"  else\n",
-		MakeVarName, ".maybe_cs=\n",
-		"  endif\n\n",
-		"endif\n\n"
-	]),
 
-	io__write_strings(DepStream, [
-		ExeFileName, " : $(", MakeVarName, ".maybe_cs) ",
+	module_name_to_file_name(SourceModuleName, "", no, ExeFileName),
+
+	{ If = ["ifeq ($(findstring il,$(GRADE)),il)\n"] },
+	{ ILMainRule = [ExeFileName, " : ", ExeFileName, ".exe ",
+			"$(", MakeVarName, ".dlls) ",
+			"$(", MakeVarName, ".foreign_dlls)\n"] },
+	{ Else = ["else\n"] },
+	{ MainRule =
+		[ExeFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".os) ",
 			InitObjFileName, " $(MLOBJS) ", All_MLLibsDepString,
 			"\n",
 		"\t$(ML) $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) -o ",
 			ExeFileName, " ", InitObjFileName, " \\\n",
-		"\t	$(", MakeVarName, ".os) $(MLOBJS) $(ALL_MLLIBS)\n\n"
-	]),
+		"\t	$(", MakeVarName, ".os) $(MLOBJS) $(ALL_MLLIBS)\n"] },
+	{ EndIf = ["endif\n"] },
+
+	globals__io_get_target(Target),
+	{ Gmake = yes,
+		Rules = If ++ ILMainRule ++ Else ++ MainRule ++ EndIf
+	; Gmake = no,
+		( Target = il ->
+			Rules = ILMainRule
+		;
+			Rules = MainRule
+		)
+	},
+	io__write_strings(DepStream, Rules),
 
 	module_name_to_file_name(SourceModuleName, ".split", yes,
 				SplitExeFileName),
@@ -3086,7 +3485,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	]),
 
 	io__write_strings(DepStream, [
-		SharedLibFileName, " : $(", MakeVarName, ".maybe_cs) ",
+		SharedLibFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".pic_os) ",
 			"$(MLPICOBJS) ", All_MLLibsDepString, "\n",
 		"\t$(ML) --make-shared-lib $(ALL_GRADEFLAGS) $(ALL_MLFLAGS) ",
@@ -3096,7 +3495,7 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	]),
 
 	io__write_strings(DepStream, [
-		LibFileName, " : $(", MakeVarName, ".maybe_cs) ",
+		LibFileName, " : $(", MakeVarName, ".cs_or_ss) ",
 			"$(", MakeVarName, ".os) $(MLOBJS)\n",
 		"\trm -f ", LibFileName, "\n",
 		"\t$(AR) $(ALL_ARFLAGS) $(AR_LIBFILE_OPT)", LibFileName, " ",
@@ -3161,7 +3560,6 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 	module_name_to_lib_file_name("lib", ModuleName, ".install_hdrs", no,
 				LibInstallHdrsTargetName),
 	globals__io_lookup_bool_option(highlevel_code, HighLevelCode),
-	globals__io_get_target(Target),
 	( { HighLevelCode = yes, ( Target = c ; Target = asm ) } ->
 		%
 		% XXX  Note that we install the header files in two places:
@@ -3238,13 +3636,21 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		CleanTargetName, " :\n",
 		"\t-rm -rf $(", MakeVarName, ".dirs)\n",
 		"\t-rm -f $(", MakeVarName, ".cs) ", InitCFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".ss) ", InitAsmFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".os) ", InitObjFileName, "\n",
-		"\t-rm -f $(", MakeVarName, ".pic_os) ", InitPicObjFileName,
-									"\n",
+		"\t-rm -f $(", MakeVarName, ".all_ss) ", InitAsmFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".all_pic_ss) ",
+					InitAsmFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".all_os) ", InitObjFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".all_pic_os) ",
+					InitPicObjFileName, "\n",
+		"\t-rm -f $(", MakeVarName, ".c_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".il_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".all_s_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".all_pic_s_dates)\n",
+		"\t-rm -f $(", MakeVarName, ".useds)\n",
 		"\t-rm -f $(", MakeVarName, ".ils)\n",
 		"\t-rm -f $(", MakeVarName, ".profs)\n",
 		"\t-rm -f $(", MakeVarName, ".errs)\n",
+		"\t-rm -f $(", MakeVarName, ".foreign_cs)\n",
 		"\t-rm -f $(", MakeVarName, ".schemas)\n"
 	]),
 
@@ -3270,6 +3676,8 @@ generate_dep_file(SourceFileName, ModuleName, DepsMap, DepStream) -->
 		"\t-rm -f $(", MakeVarName, ".trans_opts)\n",
 		"\t-rm -f $(", MakeVarName, ".ds)\n",
 		"\t-rm -f $(", MakeVarName, ".all_hs)\n",
+		"\t-rm -f $(", MakeVarName, ".dlls)\n",
+		"\t-rm -f $(", MakeVarName, ".foreign_dlls)\n",
 		"\t-rm -f $(", MakeVarName, ".rlos)\n"
 	]),
 	io__write_strings(DepStream, [
@@ -3304,7 +3712,8 @@ get_source_file(DepsMap, ModuleName, FileName) :-
 :- mode append_to_init_list(in, in, in, di, uo) is det.
 
 append_to_init_list(DepStream, InitFileName, Module) -->
-	{ llds_out__make_init_name(Module, InitFuncName) },
+	{ llds_out__make_init_name(Module, InitFuncName0) },
+	{ string__append(InitFuncName0, "init", InitFuncName) },
 	{ llds_out__make_rl_data_name(Module, RLName) },
 	io__write_strings(DepStream, [
 		"\techo ""INIT ", InitFuncName, """ >> ", InitFileName, "\n",
@@ -3321,13 +3730,44 @@ append_to_init_list(DepStream, InitFileName, Module) -->
 modules_that_need_headers(Modules, DepsMap) =
 	list__filter(module_needs_header(DepsMap), Modules).
 
+
+
+	% Find out which modules will generate as external foreign
+	% language files. 
+	% We return the module names and file extensions.
+:- func foreign_modules(list(module_name), deps_map) =
+		assoc_list(module_name, string).
+
+foreign_modules(Modules, DepsMap) = ForeignModules :-
+	P = (pred(M::in, FMs::out) is semidet :-
+		module_has_foreign(DepsMap, M, LangList),
+		FMs = list__filter_map((func(L) = (NewM - Ext) is semidet :-
+			NewM = foreign_language_module_name(M, L),
+			Ext = foreign_language_file_extension(L)
+		), LangList)
+	),
+	list__filter_map(P, Modules, ForeignModulesList),
+	ForeignModules = list__condense(ForeignModulesList).
+
 	% Succeed iff we need to generate a C header file for the specified
 	% module, assuming we're compiling with `--target asm'.
 :- pred module_needs_header(deps_map::in, module_name::in) is semidet.
 
 module_needs_header(DepsMap, Module) :-
 	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
-	ModuleImports ^ foreign_code = contains_foreign_code.
+	ModuleImports ^ foreign_code = contains_foreign_code(Langs),
+	set__member(c, Langs).
+
+	% Succeed iff we need to generate a foreign language output file 
+	% for the specified module.
+:- pred module_has_foreign(deps_map::in, module_name::in,
+		list(foreign_language)::out) is semidet.
+
+module_has_foreign(DepsMap, Module, LangList) :-
+	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
+	ModuleImports ^ foreign_code = contains_foreign_code(Langs),
+	LangList = set__to_sorted_list(Langs).
+
 
 	% get_extra_link_objects(Modules, DepsMap, Target, ExtraLinkObjs) },
 	% Find any extra .$O files that should be linked into the executable.
@@ -3368,7 +3808,8 @@ get_extra_link_objects_2([Module | Modules], DepsMap, Target,
 	%
 	(
 		Target = asm,
-		( ModuleImports ^ foreign_code = contains_foreign_code
+		( ModuleImports ^ foreign_code = contains_foreign_code(Langs),
+		  set__member(c, Langs)
 		; FactTableObjs \= []
 		)
 	->
@@ -3382,33 +3823,87 @@ get_extra_link_objects_2([Module | Modules], DepsMap, Target,
 	get_extra_link_objects_2(Modules, DepsMap, Target, ExtraLinkObjs1, 
 		ExtraLinkObjs).
 
-:- pred item_list_contains_foreign_code(item_list::in) is semidet.
+:- pred get_item_list_foreign_code(globals::in, item_list::in,
+		set(foreign_language)::out) is det.
 
-item_list_contains_foreign_code([Item|Items]) :-
-	(
-		Item = pragma(Pragma) - _Context,
-		% The code here should match the way that mlds_to_gcc.m
-		% decides whether or not to call mlds_to_c.m.
-		% XXX Note that we do NOT count foreign_decls here.
-		% We only link in a foreign object file if mlds_to_gcc
-		% called mlds_to_c.m to generate it, which it will only
-		% do if there is some foreign_code, not just foreign_decls.
-		% Counting foreign_decls here causes problems with
-		% intermodule optimization.
-		(	Pragma = foreign_code(_Lang, _)
-		;	Pragma = foreign_proc(_, _, _, _, _, _)
-		;	% XXX `pragma export' should not be treated as
-			% foreign, but currently mlds_to_gcc.m doesn't
-			% handle that declaration, and instead just punts
-			% it on to mlds_to_c.m, thus generating C code for
-			% it, rather than assembler code.  So we need to
-			% treat `pragma export' like the other pragmas for
-			% foreign code.
-			Pragma = export(_, _, _, _)
-		)
-	;
-		item_list_contains_foreign_code(Items)
-	).
+get_item_list_foreign_code(Globals, Items, LangSet) :-
+	globals__get_backend_foreign_languages(Globals, BackendLangs),
+	globals__get_target(Globals, Target),
+	list__foldl2((pred(Item::in, Set0::in, Set::out, Seen0::in, Seen::out)
+			is det :-
+		(
+			Item = pragma(Pragma) - _Context
+		->
+			% The code here should match the way that mlds_to_gcc.m
+			% decides whether or not to call mlds_to_c.m.  XXX Note
+			% that we do NOT count foreign_decls here.  We only
+			% link in a foreign object file if mlds_to_gcc called
+			% mlds_to_c.m to generate it, which it will only do if
+			% there is some foreign_code, not just foreign_decls.
+			% Counting foreign_decls here causes problems with
+			% intermodule optimization.
+			(	
+				Pragma = foreign_code(Lang, _),
+				list__member(Lang, BackendLangs)
+			->
+				set__insert(Set0, Lang, Set),
+				Seen = Seen0
+			;	
+				Pragma = foreign_proc(Attrs, Name, _, _, _, _)
+			->
+				foreign_language(Attrs, NewLang),
+				( OldLang = map__search(Seen0, Name) ->
+						% is it better than an existing
+						% one? 
+					( 
+					  yes = prefer_foreign_language(
+						Globals, Target, OldLang,
+						NewLang)
+					->
+						map__set(Seen0, Name,
+							NewLang, Seen)
+					;
+						Seen = Seen0
+					)
+				;
+						% is it one of the languages
+						% we support?
+					( 
+						list__member(NewLang,
+							BackendLangs)
+					->
+						map__det_insert(Seen0, Name,
+							NewLang, Seen)
+					;
+						Seen = Seen0
+					)
+				),
+				Set = Set0
+			;	
+				% XXX `pragma export' should not be treated as
+				% foreign, but currently mlds_to_gcc.m doesn't
+				% handle that declaration, and instead just
+				% punts it on to mlds_to_c.m, thus generating C
+				% code for it, rather than assembler code.  So
+				% we need to treat `pragma export' like the
+				% other pragmas for foreign code.
+				Pragma = export(_, _, _, _),
+				list__member(c, BackendLangs)
+			->
+				% XXX we assume lang = c for exports
+				Lang = c,
+				set__insert(Set0, Lang, Set),
+				Seen = Seen0
+			;
+				Set = Set0,
+				Seen = Seen0
+			)
+		;
+			Set = Set0,
+			Seen = Seen0
+		)), Items, set__init, LangSet0, map__init, LangMap),
+		Values = map__values(LangMap),
+		LangSet = set__insert_list(LangSet0, Values).
 
 %-----------------------------------------------------------------------------%
 
@@ -3419,7 +3914,7 @@ select_ok_modules([], _, []).
 select_ok_modules([Module | Modules0], DepsMap, Modules) :-
 	map__lookup(DepsMap, Module, deps(_, ModuleImports)),
 	module_imports_get_error(ModuleImports, Error),
-	( Error = fatal ->
+	( Error = fatal_module_errors ->
 		Modules = Modules1
 	;
 		Modules = [Module | Modules1]
@@ -3438,6 +3933,41 @@ write_dependencies_list([Module | Modules], Suffix, DepStream) -->
 	io__write_string(DepStream, " \\\n\t"),
 	io__write_string(DepStream, FileName),
 	write_dependencies_list(Modules, Suffix, DepStream).
+
+:- pred write_dll_dependencies_list(module_name, list(module_name),
+		string, io__output_stream, io__state, io__state).
+:- mode write_dll_dependencies_list(in, in, in, in, di, uo) is det.
+
+write_dll_dependencies_list(Module, Modules0, Prefix, DepStream) -->
+		% If we are not compiling a module in the mercury
+		% std library then replace all the std library dlls with
+		% one reference to mercury.dll.
+	{ Module = unqualified(Str), mercury_std_library_module(Str) ->
+		Modules = Modules0
+	;
+		F = (func(M) =
+			( if 
+				M = unqualified(S),
+				mercury_std_library_module(S)
+			then
+				unqualified("mercury")
+			else
+				M
+			)
+		),
+		Modules = list__remove_dups(list__map(F, Modules0))
+	},
+	list__foldl(write_dll_dependency(DepStream, Prefix), Modules).
+
+:- pred write_dll_dependency(io__output_stream, string, module_name,
+				io__state, io__state).
+:- mode write_dll_dependency(in, in, in, di, uo) is det.
+
+write_dll_dependency(DepStream, Prefix, Module) -->
+	module_name_to_file_name(Module, ".dll", no, FileName),
+	io__write_string(DepStream, " \\\n\t"),
+	io__write_string(DepStream, Prefix),
+	io__write_string(DepStream, FileName).
 
 :- pred write_fact_table_dependencies_list(module_name, list(file_name),
 			string, io__output_stream, io__state, io__state).
@@ -3588,12 +4118,12 @@ insert_into_deps_map(ModuleImports, DepsMap0, DepsMap) :-
 
 read_dependencies(ModuleName, Search, ModuleImportsList) -->
 	read_mod_ignore_errors(ModuleName, ".m",
-		"Getting dependencies for module", Search, Items0, Error,
-		FileName0),
-	( { Items0 = [], Error = fatal } ->
+		"Getting dependencies for module", Search, no, Items0, Error,
+		FileName0, _),
+	( { Items0 = [], Error = fatal_module_errors } ->
 		read_mod_ignore_errors(ModuleName, ".int", 
-		    "Getting dependencies for module interface", Search, 
-		    Items, _Error, FileName),
+		    "Getting dependencies for module interface", Search, no,
+		    Items, _Error, FileName, _),
 		{ SubModuleList = [ModuleName - Items] }
 	;
 		{ FileName = FileName0 },
@@ -3634,12 +4164,17 @@ init_dependencies(FileName, Error, Globals, ModuleName - Items,
 	get_fact_table_dependencies(Items, FactTableDeps),
 
 	% Figure out whether the items contain foreign code.
-	% As an optimization, we do this only if target = asm,
-	% since that is the only time we'll need that field.
+	% As an optimization, we do this only if target = asm or target = il
+	% since those are the only times we'll need that field.
+	globals__get_target(Globals, Target),
 	ContainsForeignCode =
-		(if globals__get_target(Globals, asm) then
-			(if item_list_contains_foreign_code(Items) then
-				contains_foreign_code
+		(if (Target = asm ; Target = il) then
+			(if 
+				get_item_list_foreign_code(Globals,
+					Items, LangSet),
+				not set__empty(LangSet)
+			then
+				contains_foreign_code(LangSet)
 			else
 				no_foreign_code
 			)
@@ -3649,27 +4184,56 @@ init_dependencies(FileName, Error, Globals, ModuleName - Items,
 
 	ModuleImports = module_imports(FileName, ModuleName, ParentDeps,
 		InterfaceDeps, ImplementationDeps, IndirectDeps, IncludeDeps,
-		FactTableDeps, ContainsForeignCode, [], Error).
+		FactTableDeps, ContainsForeignCode, [], Error, no).
 
 %-----------------------------------------------------------------------------%
 
-read_mod(ModuleName, Extension, Descr, Search, Items, Error, FileName) -->
-	read_mod_2(no, ModuleName, ModuleName, Extension, Descr, Search,
-		Items, Error, FileName).
+:- pred read_mod(read_modules, module_name, string, string, bool, bool,
+		item_list, module_error, file_name, maybe(timestamp),
+		io__state, io__state).
+:- mode read_mod(in, in, in, in, in, in, out, out, out, out, di, uo) is det.
 
-read_mod_ignore_errors(ModuleName, Extension, Descr, Search,
-		Items, Error, FileName) -->
+read_mod(ReadModules, ModuleName, Extension, Descr, Search, ReturnTimestamp,
+		Items, Error, FileName, MaybeTimestamp) -->
+	(
+		{ find_read_module(ReadModules, ModuleName, Extension,
+			ReturnTimestamp, Items0, MaybeTimestamp0,
+			Error0, FileName0) }
+	->
+		{ Error = Error0 },
+		{ Items = Items0 },
+		{ MaybeTimestamp = MaybeTimestamp0 },
+		{ FileName = FileName0 }
+	;
+		read_mod(ModuleName, Extension, Descr, Search, ReturnTimestamp,
+			Items, Error, FileName, MaybeTimestamp)
+	).
+
+read_mod(ModuleName, Extension, Descr, Search, ReturnTimestamp,
+		Items, Error, FileName, MaybeTimestamp) -->
+	read_mod_2(no, ModuleName, ModuleName, Extension, Descr, Search,
+		no, ReturnTimestamp, Items, Error, FileName, MaybeTimestamp).
+
+read_mod_if_changed(ModuleName, Extension, Descr, Search, OldTimestamp,
+		Items, Error, FileName, MaybeTimestamp) -->
+	read_mod_2(no, ModuleName, ModuleName, Extension, Descr, Search,
+		yes(OldTimestamp), yes, Items, Error,
+		FileName, MaybeTimestamp).
+
+read_mod_ignore_errors(ModuleName, Extension, Descr, Search, ReturnTimestamp,
+		Items, Error, FileName, MaybeTimestamp) -->
 	read_mod_2(yes, ModuleName, ModuleName, Extension, Descr, Search,
-		Items, Error, FileName).
+		no, ReturnTimestamp, Items, Error, FileName, MaybeTimestamp).
 
 :- pred read_mod_2(bool, module_name, module_name, string, string,
-		bool, item_list, module_error, file_name,
-		io__state, io__state).
-:- mode read_mod_2(in, in, in, in, in, in, out, out, out, di, uo)
-		is det.
+		bool, maybe(timestamp), bool, item_list, module_error,
+		file_name, maybe(timestamp), io__state, io__state).
+:- mode read_mod_2(in, in, in, in, in, in, in, in, out, out, out, out,
+		di, uo) is det.
 
 read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
-		Extension, Descr, Search, Items, Error, FileName) -->
+		Extension, Descr, Search, MaybeOldTimestamp,
+		ReturnTimestamp, Items, Error, FileName, MaybeTimestamp) -->
 	module_name_to_file_name(PartialModuleName, Extension, no, FileName0),
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 	maybe_write_string(VeryVerbose, "% "),
@@ -3678,17 +4242,25 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 	maybe_write_string(VeryVerbose, FileName0),
 	maybe_write_string(VeryVerbose, "'... "),
 	maybe_flush_output(VeryVerbose),
-	prog_io__read_module(FileName0, ModuleName, Search,
-		Error0, ActualModuleName, Messages, Items0),
+	( { MaybeOldTimestamp = yes(OldTimestamp) } ->
+		prog_io__read_module_if_changed(FileName0, ModuleName, Search,
+			OldTimestamp, Error0, ActualModuleName,
+			Messages, Items0, MaybeTimestamp0)
+	;
+		prog_io__read_module(FileName0, ModuleName, Search,
+			ReturnTimestamp, Error0, ActualModuleName,
+			Messages, Items0, MaybeTimestamp0)
+	),
 	check_module_has_expected_name(FileName0,
 		ModuleName, ActualModuleName),
+
 	%
 	% if that didn't work, and we're reading in the source (.m)
 	% file for a nested module, try again after dropping one 
 	% level of module qualifiers.
 	%
 	(
-		{ Error0 = fatal },
+		{ Error0 = fatal_module_errors },
 		{ Items0 = [] },
 		{ Extension = ".m" },
 		{ PartialModuleName = qualified(Parent, Child) }
@@ -3696,11 +4268,14 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 		maybe_write_string(VeryVerbose, "not found...\n"),
 		{ drop_one_qualifier(Parent, Child, PartialModuleName2) },
 		read_mod_2(IgnoreErrors, ModuleName, PartialModuleName2,
-			Extension, Descr, Search, Items, Error, FileName)
+			Extension, Descr, Search, MaybeOldTimestamp,
+			ReturnTimestamp, Items, Error, FileName,
+			MaybeTimestamp)
 	;
+		check_timestamp(FileName0, MaybeTimestamp0, MaybeTimestamp),
 		( { IgnoreErrors = yes } ->
 			(
-				{ Error0 = fatal },
+				{ Error0 = fatal_module_errors },
 				{ Items0 = [] }
 			->
 				maybe_write_string(VeryVerbose, "not found.\n")
@@ -3708,15 +4283,18 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 				maybe_write_string(VeryVerbose, "done.\n")
 			)
 		;
-			( { Error0 = fatal } ->
+			(
+				{ Error0 = fatal_module_errors },
 				maybe_write_string(VeryVerbose,
 					"fatal error(s).\n"),
 				io__set_exit_status(1)
-			; { Error0 = yes } ->
+			;
+				{ Error0 = some_module_errors },
 				maybe_write_string(VeryVerbose,
 					"parse error(s).\n"),
 				io__set_exit_status(1)
 			;
+				{ Error0 = no_module_errors },
 				maybe_write_string(VeryVerbose,
 					"successful parse.\n")
 			),
@@ -3727,8 +4305,8 @@ read_mod_2(IgnoreErrors, ModuleName, PartialModuleName,
 		{ FileName = FileName0 }
 	).
 
-read_mod_from_file(FileName, Extension, Descr, Search,
-		Items, Error, ModuleName) -->
+read_mod_from_file(FileName, Extension, Descr, Search, ReturnTimestamp,
+		Items, Error, ModuleName, MaybeTimestamp) -->
 	globals__io_lookup_bool_option(very_verbose, VeryVerbose),
 	maybe_write_string(VeryVerbose, "% "),
 	maybe_write_string(VeryVerbose, Descr),
@@ -3740,17 +4318,40 @@ read_mod_from_file(FileName, Extension, Descr, Search,
 	{ dir__basename(FileName, BaseFileName) },
 	{ file_name_to_module_name(BaseFileName, DefaultModuleName) },
 	prog_io__read_module(FullFileName, DefaultModuleName, Search,
-		Error, ModuleName, Messages, Items),
-	( { Error = fatal } ->
+		ReturnTimestamp, Error, ModuleName, Messages, Items,
+		MaybeTimestamp0),
+	check_timestamp(FullFileName, MaybeTimestamp0, MaybeTimestamp),
+	(
+		{ Error = fatal_module_errors },
 		maybe_write_string(VeryVerbose, "fatal error(s).\n"),
 		io__set_exit_status(1)
-	; { Error = yes } ->
+	;
+		{ Error = some_module_errors },
 		maybe_write_string(VeryVerbose, "parse error(s).\n"),
 		io__set_exit_status(1)
 	;
+		{ Error = no_module_errors },
 		maybe_write_string(VeryVerbose, "successful parse.\n")
 	),
 	prog_out__write_messages(Messages).
+
+:- pred check_timestamp(file_name, maybe(io__res(timestamp)), maybe(timestamp), 
+		io__state, io__state).
+:- mode check_timestamp(in, in, out, di, uo) is det.
+
+check_timestamp(FileName, MaybeTimestamp0, MaybeTimestamp) -->
+	(
+		{ MaybeTimestamp0 = yes(ok(Timestamp)) },
+		{ MaybeTimestamp = yes(Timestamp) }
+	;
+		{ MaybeTimestamp0 = yes(error(IOError)) },
+		{ MaybeTimestamp = no },
+		report_modification_time_warning(
+			FileName, IOError)
+	;
+		{ MaybeTimestamp0 = no },
+		{ MaybeTimestamp = no }
+	).
 
 /*
 :- pred combine_module_errors(module_error, module_error, module_error).
@@ -3772,16 +4373,16 @@ combine_module_errors(no, Error, Error).
 	%	and append any imports/uses in the ancestors to the
 	%	corresponding previous lists.
 
-:- pred process_module_private_interfaces(list(module_name),
+:- pred process_module_private_interfaces(read_modules, list(module_name),
 		list(module_name), list(module_name),
 		list(module_name), list(module_name),
 		module_imports, module_imports, io__state, io__state).
-:- mode process_module_private_interfaces(in, in, out, in, out, in, out,
+:- mode process_module_private_interfaces(in, in, in, out, in, out, in, out,
 		di, uo) is det.
 
-process_module_private_interfaces([], DirectImports, DirectImports,
+process_module_private_interfaces(_, [], DirectImports, DirectImports,
 		DirectUses, DirectUses, Module, Module) --> [].
-process_module_private_interfaces([Ancestor | Ancestors],
+process_module_private_interfaces(ReadModules, [Ancestor | Ancestors],
 		DirectImports0, DirectImports, DirectUses0, DirectUses,
 		Module0, Module) -->
 	{ ModuleName = Module0 ^ module_name },
@@ -3794,23 +4395,33 @@ process_module_private_interfaces([Ancestor | Ancestors],
 		{ list__member(Ancestor, ModAncestors0) }
 	->
 		% we've already read it
-		process_module_private_interfaces(Ancestors,
+		process_module_private_interfaces(ReadModules, Ancestors,
 				DirectImports0, DirectImports,
 				DirectUses0, DirectUses,
 				Module0, Module)
 	;
 		{ ModItems0 = Module0 ^ items },
 		{ ModError0 = Module0 ^ error },
-		read_mod(Ancestor, ".int0",
-			"Reading private interface for module", yes, 
-			PrivateIntItems, PrivateIntError, _AncestorFileName),
+		{ Module0 ^ maybe_timestamps = yes(_) ->
+			ReturnTimestamp = yes
+		;
+			ReturnTimestamp = no
+		},
+		read_mod(ReadModules, Ancestor, ".int0",
+			"Reading private interface for module", yes,
+			ReturnTimestamp, PrivateIntItems, PrivateIntError,
+			_AncestorFileName, MaybeTimestamp),
+
+		maybe_record_timestamp(Ancestor, ".int0", may_be_unqualified,
+			MaybeTimestamp, Module0, Module1),
+
 		{ strip_off_interface_decl(PrivateIntItems, Items) },
 		{ maybe_add_int_error(PrivateIntError, ModError0, ModError) },
 
 		globals__io_lookup_bool_option(statistics, Statistics),
 		maybe_report_stats(Statistics),
 
-		( { PrivateIntError = fatal } ->
+		( { PrivateIntError = fatal_module_errors } ->
 			{ ModAncestors = ModAncestors0 }
 		;
 			{ ModAncestors = [Ancestor | ModAncestors0] }
@@ -3820,20 +4431,20 @@ process_module_private_interfaces([Ancestor | Ancestors],
 				DirectImports1) },
 		{ list__append(DirectUses0, AncDirectUses, DirectUses1) },
 		{ list__append(ModItems0, Items, ModItems) },
-		{ Module1 = ((Module0 ^ items := ModItems)
+		{ Module2 = ((Module1 ^ items := ModItems)
 				      ^ parent_deps := ModAncestors)
 				      ^ error := ModError },
-		process_module_private_interfaces(Ancestors, DirectImports1,
-				DirectImports, DirectUses1, DirectUses,
-				Module1, Module)
+		process_module_private_interfaces(ReadModules, Ancestors,
+				DirectImports1, DirectImports, DirectUses1,
+				DirectUses, Module2, Module)
 	).
 
 %-----------------------------------------------------------------------------%
 
-process_module_long_interfaces([], _Ext, IndirectImports, IndirectImports, 
-		Module, Module) --> [].
-process_module_long_interfaces([Import | Imports], Ext, IndirectImports0,
-		IndirectImports, Module0, Module) -->
+process_module_long_interfaces(_, _, [], _Ext,
+		IndirectImports, IndirectImports, Module, Module) --> [].
+process_module_long_interfaces(ReadModules, NeedQualifier, [Import | Imports],
+		Ext, IndirectImports0, IndirectImports, Module0, Module) -->
 	{ ModuleName = Module0 ^ module_name },
 	{ ModImplementationImports0 = Module0 ^ impl_deps },
 	(
@@ -3844,24 +4455,35 @@ process_module_long_interfaces([Import | Imports], Ext, IndirectImports0,
 		; { list__member(Import, ModImplementationImports0) }
 		)
 	->
-		process_module_long_interfaces(Imports, Ext,
-				IndirectImports0, IndirectImports,
-				Module0, Module)
+		process_module_long_interfaces(ReadModules, NeedQualifier,
+			Imports, Ext, IndirectImports0, IndirectImports,
+			Module0, Module)
 	;
 		{ ModItems0 = Module0 ^ items },
 		{ ModError0 = Module0 ^ error },
-		read_mod(Import, Ext,
-			"Reading interface for module", yes, 
-			LongIntItems, LongIntError, _LongIntFileName),
+		{ Module0 ^ maybe_timestamps = yes(_) ->
+			ReturnTimestamp = yes
+		;
+			ReturnTimestamp = no
+		},
+		read_mod(ReadModules, Import, Ext,
+			"Reading interface for module", yes, ReturnTimestamp,
+			LongIntItems, LongIntError, _LongIntFileName,
+			MaybeTimestamp),
+
 		{ strip_off_interface_decl(LongIntItems, Items) },
 		{ maybe_add_int_error(LongIntError, ModError0, ModError) },
 
 		globals__io_lookup_bool_option(statistics, Statistics),
 		maybe_report_stats(Statistics),
 
-		( { LongIntError = fatal } ->
-			{ ModImplementationImports = ModImplementationImports0 }
+		( { LongIntError = fatal_module_errors } ->
+			{ ModImplementationImports =
+				ModImplementationImports0 },
+			{ Module1 = Module0 }
 		;
+			maybe_record_timestamp(Import, Ext, NeedQualifier,
+				MaybeTimestamp, Module0, Module1),
 			{ ModImplementationImports =
 				[Import | ModImplementationImports0] },
 			check_module_accessibility(ModuleName, Import,
@@ -3873,12 +4495,13 @@ process_module_long_interfaces([Import | Imports], Ext, IndirectImports0,
 		{ list__append(IndirectImports2, IndirectUses1,
 			IndirectImports3) },
 		{ list__append(ModItems0, Items, ModItems) },
-		{ Module1 = ((Module0 ^ impl_deps := ModImplementationImports)
+		{ Module2 = ((Module1 ^ impl_deps := ModImplementationImports)
 				      ^ items := ModItems)
 				      ^ error := ModError },
 
-		process_module_long_interfaces(Imports, Ext,
-			IndirectImports3, IndirectImports, Module1, Module)
+		process_module_long_interfaces(ReadModules, NeedQualifier,
+			Imports, Ext, IndirectImports3, IndirectImports,
+			Module2, Module)
 	).
 
 :- pred check_module_accessibility(module_name, module_name, item_list,
@@ -3991,27 +4614,29 @@ report_inaccessible_module_error(ModuleName, ParentModule, SubModule,
 
 %-----------------------------------------------------------------------------%
 
-process_module_indirect_imports(IndirectImports, Ext, Module0, Module) -->
+process_module_indirect_imports(ReadModules, IndirectImports, Ext,
+			Module0, Module) -->
 		% Treat indirectly imported items as if they were imported 
 		% using `:- use_module', since all uses of them in the `.int'
 		% files must be module qualified.
 	{ append_pseudo_decl(Module0, used(interface), Module1) },
-	process_module_short_interfaces_transitively(IndirectImports,
-		Ext, Module1, Module).
+	process_module_short_interfaces_transitively(ReadModules,
+		IndirectImports, Ext, Module1, Module).
 
-process_module_short_interfaces_transitively(Imports, Ext, Module0, Module) -->
-	process_module_short_interfaces(Imports, Ext, [], IndirectImports,
-		Module0, Module1),
+process_module_short_interfaces_transitively(ReadModules, Imports, Ext,
+		Module0, Module) -->
+	process_module_short_interfaces(ReadModules, Imports, Ext, [],
+		IndirectImports, Module0, Module1),
 	( { IndirectImports = [] } ->
 		{ Module = Module1 }
 	;
-		process_module_short_interfaces_transitively(IndirectImports,
-			Ext, Module1, Module)
+		process_module_short_interfaces_transitively(ReadModules,
+			IndirectImports, Ext, Module1, Module)
 	).
 
-process_module_short_interfaces([], _,
+process_module_short_interfaces(_, [], _,
 		IndirectImports, IndirectImports, Module, Module) --> [].
-process_module_short_interfaces([Import | Imports], Ext, 
+process_module_short_interfaces(ReadModules, [Import | Imports], Ext, 
 		IndirectImports0, IndirectImports, Module0, Module) -->
 	{ ModIndirectImports0 = Module0 ^ indirect_deps },
 	(
@@ -4023,14 +4648,23 @@ process_module_short_interfaces([Import | Imports], Ext,
 		; list__member(Import, ModIndirectImports0)
 		}
 	->
-		process_module_short_interfaces(Imports, Ext,
+		process_module_short_interfaces(ReadModules, Imports, Ext,
 			IndirectImports0, IndirectImports, Module0, Module)
 	;
 		{ ModItems0 = Module0 ^ items },
 		{ ModError0 = Module0 ^ error },
-		read_mod(Import, Ext,
-				"Reading short interface for module", yes,
-				ShortIntItems, ShortIntError, _ImportFileName),
+		{ Module0 ^ maybe_timestamps = yes(_) ->
+			ReturnTimestamp = yes
+		;
+			ReturnTimestamp = no
+		},
+		read_mod(ReadModules, Import, Ext,
+			"Reading short interface for module", yes,
+			ReturnTimestamp, ShortIntItems, ShortIntError,
+			_ImportFileName, MaybeTimestamp),
+		maybe_record_timestamp(Import, Ext, must_be_qualified,
+			MaybeTimestamp, Module0, Module1),
+
 		{ strip_off_interface_decl(ShortIntItems, Items) },
 		{ maybe_add_int_error(ShortIntError, ModError0, ModError) },
 
@@ -4042,17 +4676,12 @@ process_module_short_interfaces([Import | Imports], Ext,
 		{ list__append(IndirectImports0, Imports1, IndirectImports1) },
 		{ list__append(IndirectImports1, Uses1, IndirectImports2) },
 		{ list__append(ModItems0, Items, ModItems) },
-		{ Module1 = ((Module0 ^ indirect_deps := ModIndirectImports)
+		{ Module2 = ((Module1 ^ indirect_deps := ModIndirectImports)
 				      ^ items := ModItems)
 				      ^ error := ModError },
-		process_module_short_interfaces(Imports, Ext,
-			IndirectImports2, IndirectImports, Module1, Module)
+		process_module_short_interfaces(ReadModules, Imports, Ext,
+			IndirectImports2, IndirectImports, Module2, Module)
 	).
-
-:- pred strip_off_interface_decl(item_list, item_list).
-:- mode strip_off_interface_decl(in, out) is det.
-
-% strip off the `:- interface' declaration at the start, if any
 
 strip_off_interface_decl(Items0, Items) :-
 	(
@@ -4068,8 +4697,8 @@ strip_off_interface_decl(Items0, Items) :-
 :- mode maybe_add_int_error(in, in, out) is det.
 
 maybe_add_int_error(InterfaceError, ModError0, ModError) :-
-	( InterfaceError \= no ->
-		ModError = yes
+	( InterfaceError \= no_module_errors ->
+		ModError = some_module_errors
 	;
 		ModError = ModError0
 	).
@@ -4567,30 +5196,33 @@ get_short_interface_2([ItemAndContext | Rest], Items0, Imports0, NeedsImports0,
 :- pred include_in_short_interface(item).
 :- mode include_in_short_interface(in) is semidet.
 
-include_in_short_interface(type_defn(_, _, _)).
-include_in_short_interface(inst_defn(_, _, _)).
-include_in_short_interface(mode_defn(_, _, _)).
+include_in_short_interface(type_defn(_, _, _, _, _)).
+include_in_short_interface(inst_defn(_, _, _, _, _)).
+include_in_short_interface(mode_defn(_, _, _, _, _)).
 include_in_short_interface(module_defn(_, _)).
 
 :- pred make_abstract_defn(item, short_interface_kind, item).
 :- mode make_abstract_defn(in, in, out) is semidet.
 
-make_abstract_defn(type_defn(VarSet, du_type(Name, Args, _, _), Cond), _,
-			type_defn(VarSet, abstract_type(Name, Args), Cond)).
-make_abstract_defn(type_defn(VarSet, abstract_type(Name, Args), Cond), _,
-			type_defn(VarSet, abstract_type(Name, Args), Cond)).
-make_abstract_defn(type_defn(VarSet, eqv_type(Name, Args, _), Cond),
-			ShortInterfaceKind,
-			type_defn(VarSet, abstract_type(Name, Args), Cond)) :-
-	% For the `.int2' files, we need the full definitions of
-	% equivalence types.  They are needed to ensure that
-	% non-abstract equivalence types always get fully expanded
-	% before code generation, even in modules that only indirectly
-	% import the definition of the equivalence type.
-	% But the full definitions are not needed for the `.int3' files.
-	% So we convert equivalence types into abstract types only for
-	% the `.int3' files.
-	ShortInterfaceKind = int3.
+make_abstract_defn(type_defn(VarSet, Name, Args, TypeDefn, Cond),
+		ShortInterfaceKind,
+		type_defn(VarSet, Name, Args, abstract_type, Cond)) :-
+	(
+		TypeDefn = du_type(_, _)
+	;
+		TypeDefn = abstract_type
+	;
+		TypeDefn = eqv_type(_),
+		% For the `.int2' files, we need the full definitions of
+		% equivalence types. They are needed to ensure that
+		% non-abstract equivalence types always get fully expanded
+		% before code generation, even in modules that only indirectly
+		% import the definition of the equivalence type.
+		% But the full definitions are not needed for the `.int3'
+		% files. So we convert equivalence types into abstract
+		% types only for the `.int3' files.
+		ShortInterfaceKind = int3
+	).
 make_abstract_defn(typeclass(A, B, C, _, E), _,
 		typeclass(A, B, C, abstract, E)).
 
@@ -4611,5 +5243,61 @@ make_abstract_instance(Item0, Item) :-
 	Body = abstract,
 	Item = instance(Constraints, Class, ClassTypes, Body, TVarSet,
 		ModName).
+
+%-----------------------------------------------------------------------------%
+
+:- pred maybe_record_timestamp(module_name, string, need_qualifier,
+	maybe(timestamp), module_imports, module_imports,
+	io__state, io__state).
+:- mode maybe_record_timestamp(in, in, in, in, in, out, di, uo) is det.
+
+maybe_record_timestamp(ModuleName, Suffix, NeedQualifier,
+		MaybeTimestamp, Module0, Module) -->
+	(
+		{ Module0 ^ maybe_timestamps = yes(Timestamps0) }
+	->
+		(
+			{ MaybeTimestamp = yes(Timestamp) },
+			{ TimestampInfo = module_timestamp(Suffix,
+						Timestamp, NeedQualifier) },
+			{ map__set(Timestamps0, ModuleName,
+					TimestampInfo, Timestamps) },
+			{ Module = Module0 ^ maybe_timestamps :=
+					yes(Timestamps) }
+		;
+			{ MaybeTimestamp = no },
+			{ Module = Module0 }
+		)
+	;
+		{ Module = Module0 }
+	).
+
+:- pred report_modification_time_warning(file_name, io__error,
+		io__state, io__state).
+:- mode report_modification_time_warning(in, in, di, uo) is det.
+
+report_modification_time_warning(SourceFileName, Error) -->
+	globals__io_set_option(smart_recompilation, bool(no)),
+	globals__io_set_option(generate_item_version_numbers, bool(no)),
+	globals__io_lookup_bool_option(warn_smart_recompilation, Warn),
+	( { Warn = yes } ->
+		io__write_string(
+			"Warning: cannot find modification time for "),
+		io__write_string(SourceFileName),
+		io__write_string(":\n"),
+		{ io__error_message(Error, Msg) },
+		io__write_string("  "),
+		io__write_string(Msg),
+		io__write_string(".\n"),
+		io__write_string("  Smart recompilation will not work.\n"),
+		globals__io_lookup_bool_option(halt_at_warn, HaltAtWarn),
+		( { HaltAtWarn = yes } ->
+			io__set_exit_status(1)	
+		;
+			[]
+		)
+	;
+		[]
+	).
 
 %-----------------------------------------------------------------------------%

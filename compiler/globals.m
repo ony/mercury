@@ -41,11 +41,6 @@
 	;	low
 	;	high.
 
-:- type prolog_dialect
-	--->	default
-	;	nu
-	;	sicstus.
-
 :- type termination_norm
 	--->	simple
 	;	total
@@ -56,30 +51,22 @@
 :- pred convert_foreign_language(string::in, foreign_language::out) is semidet.
 :- pred convert_gc_method(string::in, gc_method::out) is semidet.
 :- pred convert_tags_method(string::in, tags_method::out) is semidet.
-:- pred convert_prolog_dialect(string::in, prolog_dialect::out) is semidet.
 :- pred convert_termination_norm(string::in, termination_norm::out) is semidet.
-
-	% A string representation of the foreign language suitable 
-	% for use in human-readable error messages
-:- func foreign_language_string(foreign_language) = string.
-
-	% A string representation of the foreign language suitable 
-	% for use in machine-readable name mangling.
-:- func simple_foreign_language_string(foreign_language) = string.
 
 %-----------------------------------------------------------------------------%
 
 	% Access predicates for the `globals' structure.
 
 :- pred globals__init(option_table::di, compilation_target::di, gc_method::di,
-	tags_method::di, prolog_dialect::di, termination_norm::di,
+	tags_method::di, termination_norm::di,
 	trace_level::di, trace_suppress_items::di, globals::uo) is det.
 
 :- pred globals__get_options(globals::in, option_table::out) is det.
 :- pred globals__get_target(globals::in, compilation_target::out) is det.
+:- pred globals__get_backend_foreign_languages(globals::in,
+		list(foreign_language)::out) is det.
 :- pred globals__get_gc_method(globals::in, gc_method::out) is det.
 :- pred globals__get_tags_method(globals::in, tags_method::out) is det.
-:- pred globals__get_prolog_dialect(globals::in, prolog_dialect::out) is det.
 :- pred globals__get_termination_norm(globals::in, termination_norm::out) 
 	is det.
 :- pred globals__get_trace_level(globals::in, trace_level::out) is det.
@@ -125,11 +112,14 @@
 	% io__state using io__set_globals and io__get_globals.
 
 :- pred globals__io_init(option_table::di, compilation_target::in,
-	gc_method::in, tags_method::in, prolog_dialect::in,
+	gc_method::in, tags_method::in,
 	termination_norm::in, trace_level::in, trace_suppress_items::in,
 	io__state::di, io__state::uo) is det.
 
 :- pred globals__io_get_target(compilation_target::out,
+	io__state::di, io__state::uo) is det.
+
+:- pred globals__io_get_backend_foreign_languages(list(foreign_language)::out,
 	io__state::di, io__state::uo) is det.
 	
 :- pred globals__io_lookup_foreign_language_option(option::in,
@@ -139,9 +129,6 @@
 	io__state::di, io__state::uo) is det.
 
 :- pred globals__io_get_tags_method(tags_method::out,
-	io__state::di, io__state::uo) is det.
-
-:- pred globals__io_get_prolog_dialect(prolog_dialect::out,
 	io__state::di, io__state::uo) is det.
 
 :- pred globals__io_get_termination_norm(termination_norm::out,
@@ -214,14 +201,7 @@ convert_foreign_language_2("managed c++", managed_cplusplus).
 convert_foreign_language_2("c#", csharp).
 convert_foreign_language_2("csharp", csharp).
 convert_foreign_language_2("c sharp", csharp).
-
-foreign_language_string(c) = "C".
-foreign_language_string(managed_cplusplus) = "Managed C++".
-foreign_language_string(csharp) = "C#".
-
-simple_foreign_language_string(c) = "c".
-simple_foreign_language_string(managed_cplusplus) = "cpp". % XXX mcpp is better
-simple_foreign_language_string(csharp) = "csharp".
+convert_foreign_language_2("il", il).
 
 convert_gc_method("none", none).
 convert_gc_method("conservative", conservative).
@@ -230,20 +210,6 @@ convert_gc_method("accurate", accurate).
 convert_tags_method("none", none).
 convert_tags_method("low", low).
 convert_tags_method("high", high).
-
-convert_prolog_dialect("default", default).
-convert_prolog_dialect("nu", nu).
-convert_prolog_dialect("NU", nu).
-convert_prolog_dialect("nuprolog", nu).
-convert_prolog_dialect("NUprolog", nu).
-convert_prolog_dialect("nu-prolog", nu).
-convert_prolog_dialect("NU-Prolog", nu).
-convert_prolog_dialect("sicstus", sicstus).
-convert_prolog_dialect("Sicstus", sicstus).
-convert_prolog_dialect("SICStus", sicstus).
-convert_prolog_dialect("sicstus-prolog", sicstus).
-convert_prolog_dialect("Sicstus-Prolog", sicstus).
-convert_prolog_dialect("SICStus-Prolog", sicstus).
 
 convert_termination_norm("simple", simple).
 convert_termination_norm("total", total).
@@ -258,25 +224,33 @@ convert_termination_norm("size-data-elems", size_data_elems).
 			target 			:: compilation_target,
 			gc_method 		:: gc_method,
 			tags_method 		:: tags_method,
-			prolog_dialect 		:: prolog_dialect,
 			termination_norm 	:: termination_norm,
 			trace_level 		:: trace_level,
 			trace_suppress_items	:: trace_suppress_items
 		).
 
 globals__init(Options, Target, GC_Method, TagsMethod,
-		PrologDialect, TerminationNorm, TraceLevel, TraceSuppress,
+		TerminationNorm, TraceLevel, TraceSuppress,
 	globals(Options, Target, GC_Method, TagsMethod,
-		PrologDialect, TerminationNorm, TraceLevel, TraceSuppress)).
+		TerminationNorm, TraceLevel, TraceSuppress)).
 
 globals__get_options(Globals, Globals ^ options).
 globals__get_target(Globals, Globals ^ target).
 globals__get_gc_method(Globals, Globals ^ gc_method).
 globals__get_tags_method(Globals, Globals ^ tags_method).
-globals__get_prolog_dialect(Globals, Globals ^ prolog_dialect).
 globals__get_termination_norm(Globals, Globals ^ termination_norm).
 globals__get_trace_level(Globals, Globals ^ trace_level).
 globals__get_trace_suppress(Globals, Globals ^ trace_suppress_items).
+
+globals__get_backend_foreign_languages(Globals, ForeignLangs) :-
+	globals__lookup_accumulating_option(Globals, backend_foreign_languages,
+		LangStrs),
+	ForeignLangs = list__map(func(String) = ForeignLang :-
+		( convert_foreign_language(String, ForeignLang0) ->
+			ForeignLang = ForeignLang0
+		;
+			error("globals__io_get_backend_foreign_languages: invalid foreign_language string")
+		), LangStrs).
 
 globals__set_options(Globals, Options, Globals ^ options := Options).
 
@@ -361,17 +335,15 @@ globals__want_return_var_layouts(Globals, WantReturnLayouts) :-
 %-----------------------------------------------------------------------------%
 
 globals__io_init(Options, Target, GC_Method, TagsMethod,
-		PrologDialect, TerminationNorm, TraceLevel, TraceSuppress) -->
+		TerminationNorm, TraceLevel, TraceSuppress) -->
 	{ copy(Target, Target1) },
 	{ copy(GC_Method, GC_Method1) },
 	{ copy(TagsMethod, TagsMethod1) },
-	{ copy(PrologDialect, PrologDialect1) },
 	{ copy(TerminationNorm, TerminationNorm1) },
 	{ copy(TraceLevel, TraceLevel1) },
 	{ copy(TraceSuppress, TraceSuppress1) },
 	{ globals__init(Options, Target1, GC_Method1, TagsMethod1,
-		PrologDialect1, TerminationNorm1, TraceLevel1, TraceSuppress1,
-		Globals) },
+		TerminationNorm1, TraceLevel1, TraceSuppress1, Globals) },
 	globals__io_set_globals(Globals).
 
 globals__io_get_target(Target) -->
@@ -385,10 +357,6 @@ globals__io_get_gc_method(GC_Method) -->
 globals__io_get_tags_method(Tags_Method) -->
 	globals__io_get_globals(Globals),
 	{ globals__get_tags_method(Globals, Tags_Method) }.
-
-globals__io_get_prolog_dialect(PrologDIalect) -->
-	globals__io_get_globals(Globals),
-	{ globals__get_prolog_dialect(Globals, PrologDIalect) }.
 
 globals__io_get_termination_norm(TerminationNorm) -->
 	globals__io_get_globals(Globals),
@@ -455,6 +423,10 @@ globals__io_lookup_foreign_language_option(Option, ForeignLang) -->
 	;
 		error("globals__io_lookup_foreign_language_option: invalid foreign_language option")
 	}.
+
+globals__io_get_backend_foreign_languages(ForeignLangs) -->
+	globals__io_get_globals(Globals),
+	{ globals__get_backend_foreign_languages(Globals, ForeignLangs) }.
 
 globals__io_lookup_bool_option(Option, Value) -->
 	globals__io_get_globals(Globals),
