@@ -316,6 +316,7 @@
 		;	intermodule_optimization
 		;	use_opt_files
 		;	use_trans_opt_files
+		;	promise_no_modified_source_files
 		;	transitive_optimization
 		;	split_c_files
 	%	- HLDS
@@ -701,6 +702,7 @@ option_defaults_2(special_optimization_option, [
 	intermodule_optimization -	bool(no),
 	use_opt_files		-	bool(no),
 	use_trans_opt_files	-	bool(no),
+	promise_no_modified_source_files - bool(no),
 	transitive_optimization -	bool(no),
 	check_termination	-	bool(no),
 	verbose_check_termination -	bool(no),
@@ -1117,6 +1119,8 @@ long_option("intermodule-optimization", intermodule_optimization).
 long_option("intermodule-optimisation", intermodule_optimization).
 long_option("use-opt-files",		use_opt_files).
 long_option("use-trans-opt-files",	use_trans_opt_files).
+long_option("promise-no-modified-source-files",
+					promise_no_modified_source_files).
 long_option("transitive-intermodule-optimization", 
 					transitive_optimization).
 long_option("transitive-intermodule-optimisation", 
@@ -2423,6 +2427,13 @@ options_help_optimization -->
 		"\t`.trans_opt' files which are already built,",
 		"\te.g. those for the standard library, but do",
 		"\tnot build any others.",
+		"--promise-no-modified-source-files",
+		"\tPromise that no source files have been modified. This",
+		"|t allows the compiler to propagate more information",
+		"\tduring intermodule optimization.",
+		"\tTouch any source files and rebuild",
+		"\t(repeatedly) to gain more optimization. Modifying a",
+		"\tsource file will *require* a `mmake realclean'.",
 		"--split-c-files",
 		"\tGenerate each C function in its own C file,",
 		"\tso that the linker will optimize away unused code.",

@@ -664,6 +664,8 @@ mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
 	globals__io_lookup_bool_option(transitive_optimization, TransOpt),
 	globals__io_lookup_bool_option(make_transitive_opt_interface,
 		MakeTransOptInt),
+	globals__io_lookup_bool_option(promise_no_modified_source_files,
+			NoModifiedSrcFiles),
 	( { (UseOptInt = yes ; IntermodOpt = yes), MakeOptInt = no } ->
 		maybe_write_string(Verbose, "% Reading .opt files...\n"),
 		maybe_flush_output(Verbose),
@@ -676,11 +678,19 @@ mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
 	( { MakeTransOptInt = yes } ->
 		( { MaybeTransOptDeps = yes(TransOptDeps) } ->
 			% When creating the trans_opt file, only import the
-			% trans_opt files which are lower in the ordering.
-			{ HigherDeps = list__delete_elems(
-					Imports0 ^ int_deps ++
-						Imports0 ^ impl_deps,
-					TransOptDeps) },
+			% trans_opt files which are lower in the ordering
+			% however when none of the src files have been
+			% modified it is safe to read in all the
+			% trans_opt files to determine better
+			% information.
+			{ NoModifiedSrcFiles = yes ->
+				HigherDeps = []
+			;
+				HigherDeps = list__delete_elems(
+						Imports0 ^ int_deps ++
+							Imports0 ^ impl_deps,
+						TransOptDeps)
+			},
 			trans_opt__grab_optfiles(yes, Imports1, 
 					[OrigModuleName | HigherDeps],
 					TransOptDeps, Imports, Error2)
