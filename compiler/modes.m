@@ -392,6 +392,7 @@ modecheck_to_fixpoint(PredIds, MaxIterations, WhatToCheck, MayChangeCalledProc,
 			;
 				[]
 			),
+
 			%
 			% Mode analysis may have modified the procedure
 			% bodies, since it does some optimizations such
@@ -402,6 +403,7 @@ modecheck_to_fixpoint(PredIds, MaxIterations, WhatToCheck, MayChangeCalledProc,
 			% they may therefore produce incorrect results.
 			% Thus we need to restore the old procedure bodies.
 			%
+
 			( { WhatToCheck = check_modes } ->
 				% restore the proc_info goals from the
 				% clauses in the pred_info
@@ -413,6 +415,7 @@ modecheck_to_fixpoint(PredIds, MaxIterations, WhatToCheck, MayChangeCalledProc,
 				{ copy_pred_bodies(OldPredTable, PredIds,
 					ModuleInfo3, ModuleInfo4) }
 			),
+
 			{ MaxIterations1 is MaxIterations - 1 },
 			modecheck_to_fixpoint(PredIds, MaxIterations1,
 				WhatToCheck, MayChangeCalledProc,
@@ -487,11 +490,22 @@ modecheck_pred_modes_2([PredId | PredIds], WhatToCheck, MayChangeCalledProc,
 		NumErrors0, NumErrors) -->
 	{ module_info_preds(ModuleInfo0, Preds0) },
 	{ map__lookup(Preds0, PredId, PredInfo0) },
-	( { pred_info_is_imported(PredInfo0) } ->
-		{ ModuleInfo3 = ModuleInfo0 },
-		{ Changed1 = Changed0 },
-		{ NumErrors1 = NumErrors0 }
-	; { pred_info_is_pseudo_imported(PredInfo0) } ->
+	(
+		(
+			%
+			% don't modecheck imported predicates
+			%
+			( { pred_info_is_imported(PredInfo0) }
+			; { pred_info_is_pseudo_imported(PredInfo0) }
+			)
+		;
+			%
+			% don't modecheck class methods
+			%
+			{ pred_info_get_markers(PredInfo0, PredMarkers) },
+			{ check_marker(PredMarkers, class_method) }
+		)
+	->
 		{ ModuleInfo3 = ModuleInfo0 },
 		{ Changed1 = Changed0 },
 		{ NumErrors1 = NumErrors0 }
@@ -717,7 +731,7 @@ modecheck_proc_3(ProcId, PredId, WhatToCheck, MayChangeCalledProc,
 		% we use the context of the mode declaration.
 	module_info_pred_info(ModuleInfo0, PredId, PredInfo),
 	pred_info_clauses_info(PredInfo, ClausesInfo),
-	ClausesInfo = clauses_info(_, _, _, _, ClauseList),
+	clauses_info_clauses(ClausesInfo, ClauseList),
 	( ClauseList = [FirstClause | _] ->
 		FirstClause = clause(_, _, Context)
 	;
@@ -1428,7 +1442,7 @@ check_for_impurity_error(Goal, ImpurityErrors0, ImpurityErrors) -->
 	{ mode_info_get_predid(ModeInfo0, PredId) },
 	{ module_info_pred_info(ModuleInfo, PredId, PredInfo) },
 	{ pred_info_clauses_info(PredInfo, ClausesInfo) },
-	{ ClausesInfo = clauses_info(_,_,_,HeadVars,_) },
+	{ clauses_info_headvars(ClausesInfo, HeadVars) },
 	(   { no_non_headvar_unification_goals(DelayedGoals, HeadVars) } ->
 		{ ImpurityErrors = ImpurityErrors0 }
 	;
@@ -1915,7 +1929,7 @@ handle_implied_mode(Var0, VarInst0, InitialInst0, Var,
 
 			% Construct the code to do the unification
 			modecheck_unify__create_var_var_unification(Var0, Var,
-				ModeInfo, ExtraGoal),
+				VarType, ModeInfo, ExtraGoal),
 
 			% append the goals together in the appropriate order:
 			% ExtraGoals0, then NewUnify

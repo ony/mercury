@@ -318,7 +318,7 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 	    )
 	->
 	    pred_info_clauses_info(PredInfo0, ClausesInfo0),
-	    ClausesInfo0 = clauses_info(_, _, _, _, Clauses0),
+	    clauses_info_clauses(ClausesInfo0, Clauses0),
 	    ( Clauses0 = [] ->
 		pred_info_mark_as_external(PredInfo0, PredInfo)
 	    ;
@@ -331,8 +331,10 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 	    pred_info_arg_types(PredInfo0, _ArgTypeVarSet, ExistQVars0,
 		    ArgTypes0),
 	    pred_info_clauses_info(PredInfo0, ClausesInfo0),
-	    ClausesInfo0 = clauses_info(VarSet, ExplicitVarTypes,
-				_OldInferredVarTypes, HeadVars, Clauses0),
+	    clauses_info_clauses(ClausesInfo0, Clauses0),
+	    clauses_info_headvars(ClausesInfo0, HeadVars),
+	    clauses_info_varset(ClausesInfo0, VarSet),
+	    clauses_info_explicit_vartypes(ClausesInfo0, ExplicitVarTypes),
 	    ( 
 		Clauses0 = [] 
 	    ->
@@ -346,8 +348,8 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 				% of the head vars into the clauses_info
 			map__from_corresponding_lists(HeadVars, ArgTypes0,
 				VarTypes),
-			ClausesInfo = clauses_info(VarSet, VarTypes,
-				VarTypes, HeadVars, Clauses0),
+			clauses_info_set_vartypes(ClausesInfo0, VarTypes,
+				ClausesInfo),
 			pred_info_set_clauses_info(PredInfo0, ClausesInfo,
 				PredInfo),
 			Error = no,
@@ -415,8 +417,9 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 				ConstraintProofs, TVarRenaming,
 				ExistTypeRenaming),
 		map__optimize(InferredVarTypes0, InferredVarTypes),
-		ClausesInfo = clauses_info(VarSet, ExplicitVarTypes,
-				InferredVarTypes, HeadVars, Clauses),
+		clauses_info_set_vartypes(ClausesInfo0, InferredVarTypes,
+				ClausesInfo1),
+		clauses_info_set_clauses(ClausesInfo1, Clauses, ClausesInfo),
 		pred_info_set_clauses_info(PredInfo0, ClausesInfo, PredInfo1),
 		pred_info_set_typevarset(PredInfo1, TypeVarSet, PredInfo2),
 		pred_info_set_constraint_proofs(PredInfo2, ConstraintProofs,

@@ -271,7 +271,7 @@ dependency_graph__add_arcs_in_goal_2(unify(_,_,_,Unify,_), Caller,
 	; Unify = deconstruct(_, Cons, _, _, _),
 	    dependency_graph__add_arcs_in_cons(Cons, Caller,
 				DepGraph0, DepGraph)
-	; Unify = complicated_unify(_, _),
+	; Unify = complicated_unify(_, _, _),
 	    DepGraph0 = DepGraph
 	).
 

@@ -310,7 +310,19 @@
 
 	;	complicated_unify(
 			uni_mode,	% The mode of the unification.
-			can_fail	% Whether or not it could possibly fail
+			can_fail,	% Whether or not it could possibly fail
+			list(prog_var)	% The type_info variables needed
+					% by this unification, if ends up
+					% being a complicated unify.
+					% This field is set by polymorphism.m.
+					% It is used by quantification.m
+					% when recomputing the nonlocals.
+					% It is also used by modecheck_unify.m,
+					% which checks that the type_info
+					% variables needed are all ground.
+					% It is also checked by simplify.m when
+					% it converts complicated unifications
+					% into procedure calls.
 		).
 
 	% A unify_context describes the location in the original source

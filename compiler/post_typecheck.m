@@ -58,9 +58,9 @@
 :- mode post_typecheck__resolve_pred_overloading(in, in, in, in, in,
 		out, out) is det.
 
-	% Do the stuff needed to initialize the proc_infos so that
-	% a pred is ready for mode checking (copy clauses from the
-	% clause_info to the proc_info, etc.)
+	% Do the stuff needed to initialize the pred_infos and proc_infos
+	% so that a pred is ready for running polymorphism and then
+	% mode checking.
 	% Also check that all predicates with an `aditi' marker have
 	% an `aditi:state' argument.
 	%
@@ -95,7 +95,8 @@
 
 post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
 		NumErrors, IOState0, IOState) :-
-	pred_info_get_unproven_body_constraints(PredInfo0, UnprovenConstraints0),
+	pred_info_get_unproven_body_constraints(PredInfo0,
+		UnprovenConstraints0),
 	( UnprovenConstraints0 \= [] ->
 		list__sort_and_remove_dups(UnprovenConstraints0,
 			UnprovenConstraints),
@@ -109,7 +110,8 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
 		
 	pred_info_clauses_info(PredInfo0, ClausesInfo0),
 	pred_info_get_head_type_params(PredInfo0, HeadTypeParams),
-	ClausesInfo0 = clauses_info(VarSet, B, VarTypesMap0, HeadVars, E),
+	clauses_info_varset(ClausesInfo0, VarSet),
+	clauses_info_vartypes(ClausesInfo0, VarTypesMap0),
 	map__to_assoc_list(VarTypesMap0, VarTypesList),
 	set__init(Set0),
 	check_type_bindings_2(VarTypesList, HeadTypeParams,
@@ -129,7 +131,8 @@ post_typecheck__check_type_bindings(PredId, PredInfo0, PredInfo, ModuleInfo,
 		%
 		pred_info_context(PredInfo0, Context),
 		bind_type_vars_to_void(Set, Context, VarTypesMap0, VarTypesMap),
-		ClausesInfo = clauses_info(VarSet, B, VarTypesMap, HeadVars, E),
+		clauses_info_set_vartypes(ClausesInfo0, VarTypesMap,
+			ClausesInfo),
 		pred_info_set_clauses_info(PredInfo0, ClausesInfo, PredInfo)
 	),
 
@@ -310,7 +313,7 @@ post_typecheck__resolve_pred_overloading(PredId0, Args0, CallerPredInfo,
 		% 
 		pred_info_typevarset(CallerPredInfo, TVarSet),
 		pred_info_clauses_info(CallerPredInfo, ClausesInfo),
-		ClausesInfo = clauses_info(_, _, VarTypes, _, _),
+		clauses_info_vartypes(ClausesInfo, VarTypes),
 		typecheck__resolve_pred_overloading(ModuleInfo, Args0,
 			VarTypes, TVarSet, PredName0, PredName, PredId)
         ;
@@ -321,15 +324,14 @@ post_typecheck__resolve_pred_overloading(PredId0, Args0, CallerPredInfo,
 %-----------------------------------------------------------------------------%
 
 	% 
-	% Copy clauses to procs, then ensure that all 
-	% constructors occurring in predicate mode 
+	% Add a default mode for functions if none was specified, and
+	% ensure that all constructors occurring in predicate mode 
 	% declarations are module qualified.
 	% 
-post_typecheck__finish_pred(ModuleInfo, PredId, PredInfo1, PredInfo) -->
-	{ maybe_add_default_mode(PredInfo1, PredInfo2, _) },
-	{ copy_clauses_to_procs(PredInfo2, PredInfo3) },
+post_typecheck__finish_pred(ModuleInfo, PredId, PredInfo0, PredInfo) -->
+	{ maybe_add_default_mode(PredInfo0, PredInfo1, _) },
 	post_typecheck__propagate_types_into_modes(ModuleInfo, PredId,
-			PredInfo3, PredInfo).
+		PredInfo1, PredInfo).
 
 	%
 	% For ill-typed preds, we just need to set the modes up correctly
@@ -337,10 +339,8 @@ post_typecheck__finish_pred(ModuleInfo, PredId, PredInfo1, PredInfo) -->
 	% won't result in spurious mode errors.
 	%
 post_typecheck__finish_ill_typed_pred(ModuleInfo, PredId,
-		PredInfo0, PredInfo) -->
-	{ maybe_add_default_mode(PredInfo0, PredInfo1, _) },
-	post_typecheck__propagate_types_into_modes(ModuleInfo, PredId,
-		PredInfo1, PredInfo).
+			PredInfo0, PredInfo) -->
+	post_typecheck__finish_pred(ModuleInfo, PredId, PredInfo0, PredInfo).
 
 	% 
 	% For imported preds, we just need to ensure that all

@@ -131,7 +131,8 @@ copy_clauses_to_procs_2([ProcId | ProcIds], ClausesInfo, Procs0, Procs) :-
 	copy_clauses_to_procs_2(ProcIds, ClausesInfo, Procs1, Procs).
 
 copy_clauses_to_proc(ProcId, ClausesInfo, Proc0, Proc) :-
-	ClausesInfo = clauses_info(VarSet, _, VarTypes, HeadVars, Clauses),
+	ClausesInfo = clauses_info(VarSet, _, VarTypes, HeadVars, Clauses,
+		TI_VarMap, TCI_VarMap),
 	select_matching_clauses(Clauses, ProcId, MatchingClauses),
 	get_clause_goals(MatchingClauses, GoalList),
 	( GoalList = [SingleGoal] ->
@@ -181,7 +182,8 @@ copy_clauses_to_proc(ProcId, ClausesInfo, Proc0, Proc) :-
 		map__init(Empty),
 		Goal = disj(GoalList, Empty) - GoalInfo
 	),
-	proc_info_set_body(Proc0, VarSet, VarTypes, HeadVars, Goal, Proc).
+	proc_info_set_body(Proc0, VarSet, VarTypes, HeadVars, Goal,
+		TI_VarMap, TCI_VarMap, Proc).
 
 :- pred get_purity(hlds_goal, purity).
 :- mode get_purity(in, out) is det.

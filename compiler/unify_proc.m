@@ -239,7 +239,13 @@ unify_proc__request_unify(UnifyId, Determinism, Context, ModuleInfo0,
 
 		% convert from `uni_mode' to `list(mode)'
 		UnifyMode = ((X_Initial - Y_Initial) -> (X_Final - Y_Final)),
-		ArgModes = [(X_Initial -> X_Final), (Y_Initial -> Y_Final)],
+		ArgModes0 = [(X_Initial -> X_Final), (Y_Initial -> Y_Final)],
+
+		% for polymorphic types, add extra modes for the type_infos
+		TypeId = _TypeName - TypeArity,
+		in_mode(InMode),
+		list__duplicate(TypeArity, InMode, TypeInfoModes),
+		list__append(TypeInfoModes, ArgModes0, ArgModes),
 
 		ArgLives = no,  % XXX ArgLives should be part of the UnifyId
 
@@ -481,7 +487,10 @@ unify_proc__generate_clause_info(SpecialPredId, Type, TypeBody, Context,
 		VarTypeInfo = VarTypeInfo1
 	),
 	unify_proc__info_extract(VarTypeInfo, VarSet, Types),
-	ClauseInfo = clauses_info(VarSet, Types, Types, Args, Clauses).
+	map__init(TI_VarMap),
+	map__init(TCI_VarMap),
+	ClauseInfo = clauses_info(VarSet, Types, Types, Args, Clauses,
+			TI_VarMap, TCI_VarMap).
 
 :- pred unify_proc__generate_unify_clauses(hlds_type_body, prog_var, prog_var,
 		prog_context, list(clause), unify_proc_info, unify_proc_info).
