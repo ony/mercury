@@ -3,25 +3,24 @@
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
-
+%
 % File: profiling_builtin.m.
-% Main author: conway.
+% Authors: conway, zs.
 % Stability: low.
-
+%
 % This file is automatically imported into every module
 % when deep profiling is enabled.
 % It contains support predicates used for deep profiling.
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
+%
+%---------------------------------------------------------------------------%
 
 :- module profiling_builtin.
 
 :- interface.
 
 :- type proc_static.
-:- type call_site_dynamic.
-:- type call_site_dynamic_addr.
 :- type proc_dynamic.
+:- type call_site_dynamic.
 
 :- impure pred prepare_for_normal_call(call_site_dynamic::in, int::in) is det.
 
@@ -112,13 +111,13 @@
 :- impure pred restore_recursion_depth_count_fail(
 	call_site_dynamic::in, int::in, int::in) is det.
 
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
+
 :- implementation.
 
 :- type proc_static		---> proc_static(c_pointer).
-:- type call_site_dynamic	---> call_site_dynamic(c_pointer).
-:- type call_site_dynamic_addr	---> call_site_dynamic_addr(c_pointer).
 :- type proc_dynamic		---> proc_dynamic(c_pointer).
+:- type call_site_dynamic	---> call_site_dynamic(c_pointer).
 
 :- pragma foreign_decl("C", "
 #ifndef	MR_DEEP_PROFILING_GUARD
@@ -135,393 +134,265 @@
 #endif	/* MR_DEEP_PROFILING_GUARD */
 ").
 
-%------------------------------------------------------------------------------%
-% Activation count versions
-%------------------------------------------------------------------------------%
+%---------------------------------------------------------------------------%
+% Call port procedures
+%---------------------------------------------------------------------------%
 
-det_call_port_code_ac(ProcStatic, TopCSD, MiddleCSD) :-
-	impure create_proc_dynamic_ac(ProcStatic, TopCSD, MiddleCSD, _),
-	%	done by create_proc_dynamic_ac
-	%impure increment_activation_count(MiddleCSD),
-	impure increment_call_count(MiddleCSD).
-
-det_exit_port_code_ac(TopCSD, MiddleCSD) :-
-	impure increment_exit_count(MiddleCSD),
-	impure decrement_activation_count(MiddleCSD),
-	impure set_current_csd(TopCSD).
-
-semi_call_port_code_ac(ProcStatic, TopCSD, MiddleCSD) :-
-	impure create_proc_dynamic_ac(ProcStatic, TopCSD, MiddleCSD, _),
-	%	done by create_proc_dynamic1_ac
-	%impure increment_activation_count(MiddleCSD),
-	impure increment_call_count(MiddleCSD).
-
-semi_exit_port_code_ac(TopCSD, MiddleCSD) :-
-	impure increment_exit_count(MiddleCSD),
-	impure decrement_activation_count(MiddleCSD),
-	impure set_current_csd(TopCSD).
-
-semi_fail_port_code_ac(TopCSD, MiddleCSD) :-
-	impure increment_fail_count(MiddleCSD),
-	impure decrement_activation_count(MiddleCSD),
-	impure set_current_csd(TopCSD),
-	fail.
-
-non_call_port_code_ac(ProcStatic, TopCSD, MiddleCSD, NewActivationPtr) :-
-	impure create_proc_dynamic_ac(ProcStatic, TopCSD, MiddleCSD,
-		NewActivationPtr),
-	%	done by create_proc_dynamic_ac
-	%impure increment_activation_count(MiddleCSD),
-	impure increment_call_count(MiddleCSD).
-
-non_exit_port_code_ac(TopCSD, MiddleCSD) :-
-	impure increment_exit_count(MiddleCSD),
-	impure decrement_activation_count(MiddleCSD),
-	impure set_current_csd(TopCSD).
-
-non_redo_port_code_ac(MiddleCSD, NewOutermostProcDyn) :-
-	impure set_current_csd(MiddleCSD),
-	impure increment_redo_count(MiddleCSD),
-	impure increment_activation_count(MiddleCSD, NewOutermostProcDyn),
-	fail.
-
-non_fail_port_code_ac(TopCSD, MiddleCSD) :-
-	impure increment_fail_count(MiddleCSD),
-	impure decrement_activation_count(MiddleCSD),
-	impure set_current_csd(TopCSD),
-	fail.
-
-%------------------------------------------------------------------------------%
-% Non-activation count versions
-%------------------------------------------------------------------------------%
-
-det_call_port_code_sr(ProcStatic, TopCSD, MiddleCSD, OldActivationPtr) :-
-	impure create_proc_dynamic_sr(ProcStatic, TopCSD, MiddleCSD,
-		OldActivationPtr, _NewActivationPtr),
-	impure increment_call_count(MiddleCSD).
-
-det_exit_port_code_sr(TopCSD, MiddleCSD, OutermostActivationPtr) :-
-	impure increment_exit_count(MiddleCSD),
-	impure set_outermost_activation_ptr(MiddleCSD, OutermostActivationPtr),
-	impure set_current_csd(TopCSD).
-
-semi_call_port_code_sr(ProcStatic, TopCSD, MiddleCSD, OldActivationPtr) :-
-	impure create_proc_dynamic_sr(ProcStatic, TopCSD, MiddleCSD,
-		OldActivationPtr, _NewActivationPtr),
-	impure increment_call_count(MiddleCSD).
-
-semi_exit_port_code_sr(TopCSD, MiddleCSD, OutermostActivationPtr) :-
-	impure increment_exit_count(MiddleCSD),
-	impure set_outermost_activation_ptr(MiddleCSD, OutermostActivationPtr),
-	impure set_current_csd(TopCSD).
-
-semi_fail_port_code_sr(TopCSD, MiddleCSD, OutermostActivationPtr) :-
-	impure increment_fail_count(MiddleCSD),
-	impure set_outermost_activation_ptr(MiddleCSD, OutermostActivationPtr),
-	impure set_current_csd(TopCSD),
-	fail.
-
-non_call_port_code_sr(ProcStatic, TopCSD, MiddleCSD,
-		OldActivationPtr, NewActivationPtr) :-
-	impure create_proc_dynamic_sr(ProcStatic, TopCSD, MiddleCSD,
-		OldActivationPtr, NewActivationPtr),
-	impure increment_call_count(MiddleCSD).
-
-non_exit_port_code_sr(TopCSD, MiddleCSD, OldOutermostProcDyn) :-
-	impure increment_exit_count(MiddleCSD),
-	impure set_outermost_activation_ptr(MiddleCSD, OldOutermostProcDyn),
-	impure set_current_csd(TopCSD).
-
-non_redo_port_code_sr(MiddleCSD, NewOutermostProcDyn) :-
-	impure set_current_csd(MiddleCSD),
-	impure increment_redo_count(MiddleCSD),
-	impure set_outermost_activation_ptr(MiddleCSD, NewOutermostProcDyn),
-	fail.
-
-non_fail_port_code_sr(TopCSD, MiddleCSD, OldOutermostProcDyn) :-
-	impure increment_fail_count(MiddleCSD),
-	impure set_outermost_activation_ptr(MiddleCSD, OldOutermostProcDyn),
-	impure set_current_csd(TopCSD),
-	fail.
-
-%------------------------------------------------------------------------------%
-
-inner_call_port_code(ProcStatic, MiddleCSD) :-
-	impure create_proc_dynamic_inner(ProcStatic, MiddleCSD),
-	impure increment_recursion_depth(MiddleCSD).
-
-%------------------------------------------------------------------------------%
-
-% :- impure pred get_parent_and_curr_csd(call_site_dynamic::out,
-% 			call_site_dynamic::out) is det.
-% 
-% :- pragma c_code(get_parent_and_curr_csd(Top::out, Middle::out),
-% 		[thread_safe, will_not_call_mercury], "{
-% #ifdef MR_DEEP_PROFILING
-% 	Top = (MR_Word) MR_parent_call_site_dynamic;
-% 	Middle = (MR_Word) MR_current_call_site_dynamic;
-% #else
-% 	MR_fatal_error(""get_parent_and_curr_csd: deep profiling not enabled"");
-% #endif
-% }").
-
-:- pragma c_code(set_current_csd(CSD::in),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-	MR_current_call_site_dynamic = (MR_CallSiteDynamic *) CSD;
-#else
-	MR_fatal_error(""set_current_csd: deep profiling not enabled"");
-#endif
+:- pragma c_code(det_call_port_code_ac(ProcStatic::in, TopCSD::out,
+		MiddleCSD::out),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: ProcStatic, TopCSD, MiddleCSD */
+#define procname	""det_call_port_code_ac""
+#define version_ac
+#undef need_new_outermost
+#include ""mercury_deep_call_port_body.h""
+#undef procname
+#undef version_ac
 }").
 
-:- impure pred create_proc_dynamic_ac(proc_static::in, call_site_dynamic::out,
-	call_site_dynamic::out, proc_dynamic::out) is det.
-
-:- pragma c_code(create_proc_dynamic_ac(ProcStatic::in, TopCSD::out,
-		MiddleCSD::out, NewPtr::out),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-#ifndef MR_USE_ACTIVATION_COUNTS
-	MR_fatal_error(""create_proc_dynamic_ac called when not using activation counts!"");
-#else
-	MR_CallSiteDynamic	*csd;
-	MR_ProcStatic		*ps;
-
-	MR_enter_instrumentation();
-
-#ifdef	MR_DEEP_PROFILING_LOWLEVEL_DEBUG
-	MR_print_deep_prof_vars(stdout);
-#endif
-
-	TopCSD = (MR_Word) MR_current_call_site_dynamic;
-	MiddleCSD = (MR_Word) MR_next_call_site_dynamic;
-	MR_current_call_site_dynamic = MR_next_call_site_dynamic;
-	csd = MR_current_call_site_dynamic;
-	ps = (MR_ProcStatic *) ProcStatic;
-
-	MR_deep_assert(ps->MR_ps_activation_count == 0
-		|| ps->MR_ps_outermost_activation_ptr != NULL);
-
-	if (csd->MR_csd_callee_ptr != NULL) {
-		if (ps->MR_ps_activation_count == 0) {
-			ps->MR_ps_outermost_activation_ptr =
-				csd->MR_csd_callee_ptr;
-		}
-	} else if (ps->MR_ps_activation_count > 0) {
-		MR_incr_activation_loads();
-		csd->MR_csd_callee_ptr = ps->MR_ps_outermost_activation_ptr;
-	} else {
-		MR_ProcDynamic	*pd;
-
-		MR_new_proc_dynamic(pd, ps);
-		csd->MR_csd_callee_ptr = pd;
-		ps->MR_ps_outermost_activation_ptr = pd;
-	}
-
-	ps->MR_ps_activation_count++;
-	NewPtr = (MR_Word) ps->MR_ps_outermost_activation_ptr;
-	MR_leave_instrumentation();
-#endif
-#else
-	MR_fatal_error(""create_proc_dynamic_ac: deep profiling not enabled"");
-#endif
+:- pragma c_code(semi_call_port_code_ac(ProcStatic::in, TopCSD::out,
+		MiddleCSD::out),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: ProcStatic, TopCSD, MiddleCSD */
+#define procname	""semi_call_port_code_ac""
+#define version_ac
+#undef need_new_outermost
+#include ""mercury_deep_call_port_body.h""
+#undef procname
+#undef version_ac
 }").
 
-:- impure pred create_proc_dynamic_sr(proc_static::in,
-	call_site_dynamic::out, call_site_dynamic::out,
-	proc_dynamic::out, proc_dynamic::out) is det.
-
-:- pragma c_code(create_proc_dynamic_sr(ProcStatic::in, TopCSD::out,
-		MiddleCSD::out, OldPtr::out, NewPtr::out),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-#ifdef MR_USE_ACTIVATION_COUNTS
-	MR_fatal_error(""create_proc_dynamic_sr called when using activation counts!"");
-#else
-	MR_CallSiteDynamic	*csd;
-	MR_ProcStatic		*ps;
-
-	MR_enter_instrumentation();
-
-#ifdef	MR_DEEP_PROFILING_LOWLEVEL_DEBUG
-	MR_print_deep_prof_vars(stdout);
-#endif
-
-	TopCSD = (MR_Word) MR_current_call_site_dynamic;
-	MiddleCSD = (MR_Word) MR_next_call_site_dynamic;
-	MR_current_call_site_dynamic = MR_next_call_site_dynamic;
-	csd = MR_current_call_site_dynamic;
-	ps = (MR_ProcStatic *) ProcStatic;
-	OldPtr = (MR_Word) ps->MR_ps_outermost_activation_ptr;
-
-#ifdef MR_DEEP_PROFILING_DEBUG
-	fprintf(stderr, ""entering %s\n"", ps->proc_id);
-	fprintf(stderr, ""\toutermost_activation_ptr = %p\n"",
-		ps->MR_ps_outermost_activation_ptr);
-#endif
-
-	if (csd->MR_csd_callee_ptr != NULL) {
-		ps->MR_ps_outermost_activation_ptr = csd->MR_csd_callee_ptr;
-	} else if (ps->MR_ps_outermost_activation_ptr != NULL) {
-		csd->MR_csd_callee_ptr = ps->MR_ps_outermost_activation_ptr;
-	} else {
-		MR_ProcDynamic	*pd;
-
-		MR_new_proc_dynamic(pd, ps);
-		csd->MR_csd_callee_ptr = pd;
-		ps->MR_ps_outermost_activation_ptr = csd->MR_csd_callee_ptr;
-	}
-
-	NewPtr = (MR_Word) ps->MR_ps_outermost_activation_ptr;
-	MR_leave_instrumentation();
-#endif
-#else
-	MR_fatal_error(""create_proc_dynamic_sr: deep profiling not enabled"");
-#endif
+:- pragma c_code(non_call_port_code_ac(ProcStatic::in, TopCSD::out,
+		MiddleCSD::out, NewOutermostActivationPtr::out),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: ProcStatic, TopCSD, MiddleCSD */
+/* shut up warning: NewOutermostActivationPtr */
+#define procname	""non_call_port_code_ac""
+#define version_ac
+#define need_new_outermost
+#include ""mercury_deep_call_port_body.h""
+#undef procname
+#undef version_ac
+#undef need_new_outermost
 }").
 
-:- impure pred create_proc_dynamic_inner(proc_static::in,
-	call_site_dynamic::out) is det.
-
-:- pragma c_code(create_proc_dynamic_inner(ProcStatic::in, MiddleCSD::out),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-#ifndef MR_USE_ACTIVATION_COUNTS
-	MR_fatal_error(""create_proc_dynamic1 called when not using activation counts!"");
-#else
-	MR_CallSiteDynamic	*csd;
-	MR_ProcStatic		*ps;
-
-	MR_enter_instrumentation();
-
-#ifdef	MR_DEEP_PROFILING_LOWLEVEL_DEBUG
-	MR_print_deep_prof_vars(stdout);
-#endif
-
-	MiddleCSD = (MR_Word) MR_next_call_site_dynamic;
-	MR_current_call_site_dynamic = MR_next_call_site_dynamic;
-	csd = MR_current_call_site_dynamic;
-	ps = (MR_ProcStatic *) ProcStatic;
-
-	MR_deep_assert(ps->MR_ps_outermost_activation_ptr != NULL);
-
-	if (csd->MR_csd_callee_ptr == NULL) {
-		csd->MR_csd_callee_ptr = ps->MR_ps_outermost_activation_ptr;
-	}
-
-	MR_leave_instrumentation();
-#endif
-#else
-	MR_fatal_error(""create_proc_dynamic_inner: deep profiling not enabled"");
-#endif
+:- pragma c_code(det_call_port_code_sr(ProcStatic::in, TopCSD::out,
+		MiddleCSD::out, OldOutermostActivationPtr::out),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: ProcStatic, TopCSD, MiddleCSD */
+/* shut up warning: OldOutermostActivationPtr */
+#define procname	""det_call_port_code_sr""
+#define version_sr
+#undef need_new_outermost
+#include ""mercury_deep_call_port_body.h""
+#undef procname
+#undef version_sr
 }").
 
-% :- impure pred increment_activation_count(call_site_dynamic::in) is det.
-% 
-% :- pragma c_code(increment_activation_count(CSD::in),
-% 		[thread_safe, will_not_call_mercury], "{
-% #ifdef MR_DEEP_PROFILING
-% #ifdef MR_USE_ACTIVATION_COUNTS
-% 	MR_CallSiteDynamic	*csd;
-% 
-% 	csd = (MR_CallSiteDynamic *) CSD;
-% 	MR_deep_assert(csd == MR_current_call_site_dynamic);
-% 
-% #ifdef MR_DEEP_PROFILING_STATISTICS
-% 	MR_number_of_profiling_entries++;
-% #endif
-% 
-% 	MR_deep_assert(csd->MR_csd_callee_ptr->MR_pd_proc_static->
-% 		MR_ps_activation_count >= 0);
-% 	csd->MR_csd_callee_ptr->MR_pd_proc_static->MR_ps_activation_count++;
-% 
-% #else
-% 	MR_fatal_error(""increment_activation_count: no activation_count"");
-% #endif
-% #endif
-% }").
-
-:- impure pred increment_activation_count(call_site_dynamic::in,
-	proc_dynamic::in) is det.
-
-:- pragma c_code(increment_activation_count(CSD::in, PD::in),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-#ifdef MR_USE_ACTIVATION_COUNTS
-	MR_CallSiteDynamic	*csd;
-	MR_ProcStatic		*ps;
-
-	csd = (MR_CallSiteDynamic *) CSD;
-	MR_deep_assert(csd == MR_current_call_site_dynamic);
-
-	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
-	ps->MR_ps_activation_count++;
-	ps->MR_ps_outermost_activation_ptr = (MR_ProcDynamic*) PD;
-#else
-	MR_fatal_error(""increment_activation_count: no activation_count"");
-#endif
-#else
-	MR_fatal_error(""increment_activation_count: deep profiling not enabled"");
-#endif
+:- pragma c_code(semi_call_port_code_sr(ProcStatic::in, TopCSD::out,
+		MiddleCSD::out, OldOutermostActivationPtr::out),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: ProcStatic, TopCSD, MiddleCSD */
+/* shut up warning: OldOutermostActivationPtr */
+#define procname	""semi_call_port_code_sr""
+#define version_sr
+#undef need_new_outermost
+#include ""mercury_deep_call_port_body.h""
+#undef procname
+#undef version_sr
 }").
 
-% :- impure pred increment_activation_count(call_site_dynamic::in,
-% 	int::out, proc_dynamic::out) is det.
-% 
-% :- pragma c_code(increment_activation_count(CSD::in, X::out, Y::out),
-% 		[thread_safe, will_not_call_mercury], "{
-% #ifdef MR_DEEP_PROFILING
-% #ifdef MR_USE_ACTIVATION_COUNTS
-% 	MR_CallSiteDynamic	*csd;
-% 
-% 	csd = (MR_CallSiteDynamic *) CSD;
-% 	MR_deep_assert(csd == MR_current_call_site_dynamic);
-% 
-% 	csd->MR_csd_callee_ptr->MR_pd_proc_static->MR_ps_activation_count++;
-% 	X = csd->MR_csd_callee_ptr->MR_pd_proc_static->MR_ps_activation_count;
-% 	Y = (MR_Word) csd->MR_csd_callee_ptr->MR_pd_proc_static->
-% 		MR_ps_outermost_activation_ptr;
-% #else
-% 	MR_fatal_error(""increment_activation_count: no activation_count"");
-% #endif
-% #endif
-% }").
-
-:- impure pred decrement_activation_count(call_site_dynamic::in) is det.
-
-:- pragma c_code(decrement_activation_count(CSD::in),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-#ifdef MR_USE_ACTIVATION_COUNTS
-	MR_CallSiteDynamic	*csd;
-	MR_ProcStatic		*ps;
-
-	csd = (MR_CallSiteDynamic *) CSD;
-	MR_deep_assert(csd == MR_current_call_site_dynamic);
-	MR_deep_assert(csd->MR_csd_callee_ptr != NULL);
-
-	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
-	ps->MR_ps_activation_count--;
-	MR_deep_assert(ps->MR_ps_activation_count >= 0);
-#else
-	MR_fatal_error(""increment_activation_count: no activation_count"");
-#endif
-#else
-	MR_fatal_error(""decrement_activation_count: deep profiling not enabled"");
-#endif
+:- pragma c_code(non_call_port_code_sr(ProcStatic::in, TopCSD::out,
+		MiddleCSD::out, OldOutermostActivationPtr::out,
+		NewOutermostActivationPtr::out),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: ProcStatic, TopCSD, MiddleCSD */
+/* shut up warning: OldOutermostActivationPtr, NewOutermostActivationPtr */
+#define procname	""non_call_port_code_sr""
+#define version_sr
+#define need_new_outermost
+#include ""mercury_deep_call_port_body.h""
+#undef procname
+#undef version_sr
+#undef need_new_outermost
 }").
 
-:- pragma c_code(set_outermost_activation_ptr(CSD::in, Ptr::in),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-	MR_CallSiteDynamic	*csd;
-	MR_ProcStatic		*ps;
+%---------------------------------------------------------------------------%
+% Exit/Fail port procedures
+%---------------------------------------------------------------------------%
 
-	csd = (MR_CallSiteDynamic *) CSD;
-	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
-	ps->MR_ps_outermost_activation_ptr = (MR_ProcDynamic *) Ptr;
-#endif
+:- pragma c_code(det_exit_port_code_ac(TopCSD::in, MiddleCSD::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD */
+#define procname	""det_exit_port_code_ac""
+#define exit_port
+#define version_ac
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef exit_port
+#undef version_ac
 }").
+
+:- pragma c_code(det_exit_port_code_sr(TopCSD::in, MiddleCSD::in,
+		OldOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD, OldOutermostActivationPtr */
+#define procname	""det_exit_port_code_sr""
+#define exit_port
+#define version_sr
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef exit_port
+#undef version_sr
+}").
+
+:- pragma c_code(semi_exit_port_code_ac(TopCSD::in, MiddleCSD::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD */
+#define procname	""semi_exit_port_code_ac""
+#define exit_port
+#define version_ac
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef exit_port
+#undef version_ac
+}").
+
+:- pragma c_code(semi_exit_port_code_sr(TopCSD::in, MiddleCSD::in,
+		OldOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD, OldOutermostActivationPtr */
+#define procname	""semi_exit_port_code_sr""
+#define exit_port
+#define version_sr
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef exit_port
+#undef version_sr
+}").
+
+:- pragma c_code(semi_fail_port_code_ac(TopCSD::in, MiddleCSD::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD */
+#define procname	""semi_exit_port_code_ac""
+#define fail_port
+#define version_ac
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef fail_port
+#undef version_ac
+}").
+
+:- pragma c_code(semi_fail_port_code_sr(TopCSD::in, MiddleCSD::in,
+		OldOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD, OldOutermostActivationPtr */
+#define procname	""semi_fail_port_code_sr""
+#define fail_port
+#define version_sr
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef fail_port
+#undef version_sr
+}").
+
+:- pragma c_code(non_exit_port_code_ac(TopCSD::in, MiddleCSD::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD */
+#define procname	""non_exit_port_code_ac""
+#define exit_port
+#define version_ac
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef exit_port
+#undef version_ac
+}").
+
+:- pragma c_code(non_exit_port_code_sr(TopCSD::in, MiddleCSD::in,
+		OldOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD, OldOutermostActivationPtr */
+#define procname	""non_exit_port_code_sr""
+#define exit_port
+#define version_sr
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef exit_port
+#undef version_sr
+}").
+
+:- pragma c_code(non_fail_port_code_ac(TopCSD::in, MiddleCSD::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD */
+#define procname	""non_exit_port_code_ac""
+#define fail_port
+#define version_ac
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef fail_port
+#undef version_ac
+}").
+
+:- pragma c_code(non_fail_port_code_sr(TopCSD::in, MiddleCSD::in,
+		OldOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: TopCSD, MiddleCSD, OldOutermostActivationPtr */
+#define procname	""non_fail_port_code_sr""
+#define fail_port
+#define version_sr
+#include ""mercury_deep_leave_port_body.h""
+#undef procname
+#undef fail_port
+#undef version_sr
+}").
+
+%---------------------------------------------------------------------------%
+% Redo port procedures
+%---------------------------------------------------------------------------%
+
+:- pragma c_code(non_redo_port_code_ac(MiddleCSD::in,
+		NewOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: MiddleCSD, NewOutermostActivationPtr */
+#define procname	""non_redo_port_code_ac""
+#define version_ac
+#include ""mercury_deep_redo_port_body.h""
+#undef procname
+#undef version_ac
+}").
+
+:- pragma c_code(non_redo_port_code_sr(MiddleCSD::in,
+		NewOutermostActivationPtr::in),
+		[thread_safe, will_not_call_mercury],
+"{
+/* shut up warning: MiddleCSD, NewOutermostActivationPtr */
+#define procname	""non_redo_port_code_sr""
+#define version_sr
+#include ""mercury_deep_redo_port_body.h""
+#undef procname
+#undef version_sr
+}").
+
+%---------------------------------------------------------------------------%
+% Procedures that prepare for calls
+%---------------------------------------------------------------------------%
 
 :- pragma c_code(prepare_for_normal_call(CSD::in, N::in),
 		[thread_safe, will_not_call_mercury], "{
@@ -572,8 +443,6 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	type_ctor_info = MR_TYPEINFO_GET_TYPE_CTOR_INFO(type_info);
 
 	void_key = (void *) type_ctor_info;
-	/* XXX should be void_key = (void *) type_ctor_info; */
-	/* was void_key = (void *) type_ctor_info->unify_pred; */
 	MR_search_csdlist(csdlist, prev, pd, CSN, void_key);
 	MR_maybe_deep_profile_update_special_history(type_ctor_info);
 	if (csdlist != NULL) {
@@ -641,77 +510,103 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 #ifdef MR_DEEP_PROFILING
 	MR_CallSiteDynamic	*csd;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	MR_deep_assert(csd == MR_current_call_site_dynamic);
 	MR_deep_assert(csd->MR_csd_callee_ptr != NULL);
 
 	MR_current_callback_site = (MR_CallSiteDynList **)
 		&(csd->MR_csd_callee_ptr->MR_pd_call_site_ptr_ptrs[N]);
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""prepare_for_callback: deep profiling not enabled"");
 #endif
 }").
 
-:- impure pred increment_call_count(call_site_dynamic::in) is det.
-:- pragma c_code(increment_call_count(CSD::in),
+%---------------------------------------------------------------------------%
+% Procedures needed for handling directly recursive procedures
+%---------------------------------------------------------------------------%
+
+:- pragma c_code(inner_call_port_code(ProcStatic::in, MiddleCSD::out),
 		[thread_safe, will_not_call_mercury], "{
 #ifdef MR_DEEP_PROFILING
-#ifdef MR_DEEP_PROFILING_CALL_COUNTS
+#ifndef MR_USE_ACTIVATION_COUNTS
+	MR_fatal_error(""create_proc_dynamic_inner called when not using activation counts!"");
+#else
 	MR_CallSiteDynamic	*csd;
+	MR_ProcStatic		*ps;
 
-	csd = (MR_CallSiteDynamic *) CSD;
-	MR_deep_assert(csd == MR_current_call_site_dynamic);
-	csd->MR_csd_own.MR_own_calls++;
+	MR_enter_instrumentation();
+
+#ifdef	MR_DEEP_PROFILING_LOWLEVEL_DEBUG
+	MR_print_deep_prof_vars(stdout);
+#endif
+
+	MiddleCSD = (MR_Word) MR_next_call_site_dynamic;
+	MR_current_call_site_dynamic = MR_next_call_site_dynamic;
+	csd = MR_current_call_site_dynamic;
+	csd->MR_csd_depth_count++;
+	ps = (MR_ProcStatic *) ProcStatic;
+
+	MR_deep_assert(ps->MR_ps_outermost_activation_ptr != NULL);
+
+	if (csd->MR_csd_callee_ptr == NULL) {
+		csd->MR_csd_callee_ptr = ps->MR_ps_outermost_activation_ptr;
+	}
+
+	MR_leave_instrumentation();
 #endif
 #else
-	MR_fatal_error(""increment_call_count: deep profiling not enabled"");
+	MR_fatal_error(""create_proc_dynamic_inner: deep profiling not enabled"");
 #endif
 }").
 
-:- impure pred increment_exit_count(call_site_dynamic::in) is det.
-:- pragma c_code(increment_exit_count(CSD::in),
+:- pragma c_code(set_current_csd(CSD::in),
 		[thread_safe, will_not_call_mercury], "{
 #ifdef MR_DEEP_PROFILING
-#ifdef MR_DEEP_PROFILING_CALL_COUNTS
-	MR_CallSiteDynamic	*csd;
-
-	csd = (MR_CallSiteDynamic *) CSD;
-	MR_deep_assert(csd == MR_current_call_site_dynamic);
-	csd->MR_csd_own.MR_own_exits++;
-#endif
+	MR_current_call_site_dynamic = (MR_CallSiteDynamic *) CSD;
 #else
-	MR_fatal_error(""increment_exit_count: deep profiling not enabled"");
+	MR_fatal_error(""set_current_csd: deep profiling not enabled"");
 #endif
 }").
 
-:- impure pred increment_redo_count(call_site_dynamic::in) is det.
-:- pragma c_code(increment_redo_count(CSD::in),
+:- impure pred increment_activation_count(call_site_dynamic::in,
+	proc_dynamic::in) is det.
+
+:- pragma c_code(increment_activation_count(CSD::in, PD::in),
 		[thread_safe, will_not_call_mercury], "{
 #ifdef MR_DEEP_PROFILING
-#ifdef MR_DEEP_PROFILING_CALL_COUNTS
+#ifdef MR_USE_ACTIVATION_COUNTS
 	MR_CallSiteDynamic	*csd;
+	MR_ProcStatic		*ps;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
-	csd->MR_csd_own.MR_own_redos++;
+	MR_deep_assert(csd == MR_current_call_site_dynamic);
+
+	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
+	ps->MR_ps_activation_count++;
+	ps->MR_ps_outermost_activation_ptr = (MR_ProcDynamic *) PD;
+	MR_leave_instrumentation();
+#else
+	MR_fatal_error(""increment_activation_count: no activation_count"");
 #endif
 #else
-	MR_fatal_error(""increment_redo_count: deep profiling not enabled"");
+	MR_fatal_error(""increment_activation_count: deep profiling not enabled"");
 #endif
 }").
 
-:- impure pred increment_fail_count(call_site_dynamic::in) is det.
-:- pragma c_code(increment_fail_count(CSD::in),
+:- pragma c_code(set_outermost_activation_ptr(CSD::in, Ptr::in),
 		[thread_safe, will_not_call_mercury], "{
 #ifdef MR_DEEP_PROFILING
-#ifdef MR_DEEP_PROFILING_CALL_COUNTS
 	MR_CallSiteDynamic	*csd;
+	MR_ProcStatic		*ps;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
-	MR_deep_assert(csd == MR_current_call_site_dynamic);
-	csd->MR_csd_own.MR_own_fails++;
-#endif
-#else
-	MR_fatal_error(""increment_fail_count: deep profiling not enabled"");
+	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
+	ps->MR_ps_outermost_activation_ptr = (MR_ProcDynamic *) Ptr;
+	MR_leave_instrumentation();
 #endif
 }").
 
@@ -723,6 +618,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	MR_ProcDynamic		*pd;
 	MR_ProcStatic		*ps;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	pd = csd->MR_csd_callee_ptr;
 	ps = pd->MR_pd_proc_static;
@@ -731,6 +627,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	ps->MR_ps_activation_count = 0;
 	Ptr = (MR_Word) ps->MR_ps_outermost_activation_ptr;
 	ps->MR_ps_outermost_activation_ptr = NULL;
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""save_and_zero_activation_info: no activation_count"");
 #endif
@@ -747,12 +644,14 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	MR_ProcDynamic		*pd;
 	MR_ProcStatic		*ps;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	pd = csd->MR_csd_callee_ptr;
 	ps = pd->MR_pd_proc_static;
 
 	ps->MR_ps_activation_count = 0;
 	ps->MR_ps_outermost_activation_ptr = NULL;
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""rezero_activation_info: no activation_count"");
 #endif
@@ -769,6 +668,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	MR_ProcDynamic		*pd;
 	MR_ProcStatic		*ps;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	MR_deep_assert(csd == MR_current_call_site_dynamic);
 	pd = csd->MR_csd_callee_ptr;
@@ -776,6 +676,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 
 	ps->MR_ps_activation_count = Count;
 	ps->MR_ps_outermost_activation_ptr = (MR_ProcDynamic *) Ptr;
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""reset_activation_info: no activation_count"");
 #endif
@@ -791,6 +692,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	MR_CallSiteDynamic	*csd;
 	MR_CallSiteDynamic	*inner_csd;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	inner_csd = csd->MR_csd_callee_ptr->MR_pd_call_site_ptr_ptrs[CSN];
 
@@ -799,29 +701,12 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	} else {
 		Count = 0;
 	}
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""save_recursion_depth_count: no depth counts"");
 #endif
 #else
 	MR_fatal_error(""save_recursion_depth_count: deep profiling not enabled"");
-#endif
-}").
-
-:- impure pred increment_recursion_depth(call_site_dynamic::in) is det.
-
-:- pragma c_code(increment_recursion_depth(CSD::in),
-		[thread_safe, will_not_call_mercury], "{
-#ifdef MR_DEEP_PROFILING
-#ifdef MR_DEEP_PROFILING_TAIL_RECURSION
-	MR_CallSiteDynamic	*csd;
-
-	csd = (MR_CallSiteDynamic *) CSD;
-	csd->MR_csd_depth_count++;
-#else
-	MR_fatal_error(""increment_recursion_depth: no depth counts"");
-#endif
-#else
-	MR_fatal_error(""increment_recursion_depth: deep profiling not enabled"");
 #endif
 }").
 
@@ -834,6 +719,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	MR_CallSiteDynamic	*inner_csd;
 	int			inner_count;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	inner_csd = csd->MR_csd_callee_ptr->MR_pd_call_site_ptr_ptrs[CSN];
 
@@ -847,6 +733,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	} else {
 		MR_deep_assert(OuterCount == 0);
 	}
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""restore_recursion_depth_count_exit: no depth counts"");
 #endif
@@ -864,6 +751,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	MR_CallSiteDynamic	*inner_csd;
 	int			inner_count;
 
+	MR_enter_instrumentation();
 	csd = (MR_CallSiteDynamic *) CSD;
 	inner_csd = csd->MR_csd_callee_ptr->MR_pd_call_site_ptr_ptrs[CSN];
 
@@ -877,6 +765,7 @@ inner_call_port_code(ProcStatic, MiddleCSD) :-
 	} else {
 		MR_deep_assert(OuterCount == 0);
 	}
+	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""restore_recursion_depth_count_fail: no depth counts"");
 #endif

@@ -14,10 +14,6 @@
 	--->	ok(T)
 	;	error(string).
 
-:- type deep_result2(T1, T2)
-	--->	ok2(T1, T2)
-	;	error2(string).
-
 :- pred read_call_graph(string::in, deep_result(initial_deep)::out,
 	io__state::di, io__state::uo) is det.
 
@@ -36,7 +32,16 @@
 :- implementation.
 
 :- import_module measurements.
-:- import_module char, std_util.
+:- import_module char, float, math, std_util.
+
+:- type deep_result2(T1, T2)
+	--->	ok2(T1, T2)
+	;	error2(string).
+
+:- type nodes_result
+	--->	ok_eof(initial_deep, ptr_info)
+	;	at_limit(initial_deep, ptr_info)
+	;	error_nodes(string).
 
 :- type ptr_info --->
 		ptr_info(
@@ -56,20 +61,25 @@ read_call_graph(FileName, Res) -->
 	io__see_binary(FileName, Res0),
 	(
 		{ Res0 = ok },
-		read_sequence2(
+		read_sequence6(
+			read_fixed_size_int,
+			read_fixed_size_int,
+			read_fixed_size_int,
+			read_fixed_size_int,
 			read_num,
 			read_num,
-			(pred(InstrumentQuanta::in, UserQuanta::in,
+			(pred(NumCSDs::in, NumCSSs::in, NumPDs::in, NumPSs::in,
+					InstrumentQuanta::in, UserQuanta::in,
 					ResInitDeep::out) is det :-
-				init_deep(InstrumentQuanta, UserQuanta,
+				init_deep(NumCSDs, NumCSSs, NumPDs, NumPSs,
+					InstrumentQuanta, UserQuanta,
 					InitDeep0),
 				ResInitDeep = ok(InitDeep0)
 			),
 			Res1),
 		(
 			{ Res1 = ok(InitDeep) },
-			{ PI0 = ptr_info(0, 0, 0, 0) },
-			read_nodes(InitDeep, PI0, Res2),
+			read_all_nodes(InitDeep, Res2),
 			io__seen_binary,
 			{ resize_arrays(Res2, Res) }
 		;
@@ -82,9 +92,11 @@ read_call_graph(FileName, Res) -->
 		{ Res = error(Msg) }
 	).
 
-:- pred init_deep(int::in, int::in, initial_deep::out) is det.
+:- pred init_deep(int::in, int::in, int::in, int::in, int::in, int::in,
+	initial_deep::out) is det.
 
-init_deep(InstrumentQuanta, UserQuanta, InitDeep) :-
+init_deep(NumCSDs, NumCSSs, NumPDs, NumPSs, InstrumentQuanta, UserQuanta,
+		InitDeep) :-
 	InitStats = profile_stats(
 		InstrumentQuanta,
 		UserQuanta,
@@ -92,25 +104,85 @@ init_deep(InstrumentQuanta, UserQuanta, InitDeep) :-
 	InitDeep = initial_deep(
 		InitStats,
 		proc_dynamic_ptr(-1),
-		init(1, call_site_dynamic(
+		array__init(NumCSDs + 1,
+			call_site_dynamic(
 				proc_dynamic_ptr(-1),
 				proc_dynamic_ptr(-1),
 				zero_own_prof_info
 			)),
-		init(1, proc_dynamic(proc_static_ptr(-1), array([]))),
-		init(1, call_site_static(
+		array__init(NumPDs + 1,
+			proc_dynamic(proc_static_ptr(-1), array([]))),
+		array__init(NumCSSs + 1,
+			call_site_static(
 				proc_static_ptr(-1), -1,
-				normal_call(proc_static_ptr(-1), ""),
-				-1, ""
+				normal_call(proc_static_ptr(-1), ""), -1, ""
 			)),
-		init(1, proc_static(dummy_proc_id, "", "", "", array([])))
+		array__init(NumPSs + 1,
+			proc_static(dummy_proc_id, "", "", "", array([])))
 	).
 
-:- pred read_nodes(initial_deep::in, ptr_info::in,
+:- pred read_all_nodes(initial_deep::in,
 	deep_result2(initial_deep, ptr_info)::out,
 	io__state::di, io__state::uo) is det.
 
-read_nodes(InitDeep0, PtrInfo0, Res) -->
+read_all_nodes(InitDeep0, Res) -->
+	{ InitDeep0 = initial_deep(_, _, Array1, Array2, Array3, Array4) },
+	{ array__max(Array1, Max1) },
+	{ array__max(Array2, Max2) },
+	{ array__max(Array3, Max3) },
+	{ array__max(Array4, Max4) },
+	{ ApproxNumNodes = float(Max1 + Max2 + Max3 + Max4) },
+	{ CubeRoot = round_to_int(math__exp(math__ln(ApproxNumNodes) / 3.0)) },
+
+	{ PtrInfo0 = ptr_info(0, 0, 0, 0) },
+	read_nodes_2(InitDeep0, PtrInfo0, CubeRoot, Res).
+
+% Each top-level invocation of read_nodes should read CubeRoot nodes.
+% Each top-level invocation of read_nodes_1 should read CubeRoot^2 nodes.
+% The single top-level invocation of read_nodes_2 should read all nodes.
+
+:- pred read_nodes_2(initial_deep::in, ptr_info::in, int::in,
+	deep_result2(initial_deep, ptr_info)::out,
+	io__state::di, io__state::uo) is det.
+
+read_nodes_2(InitDeep0, PtrInfo0, CubeRoot, Res) -->
+	read_nodes_1(InitDeep0, PtrInfo0, CubeRoot, CubeRoot, Res0),
+	(
+		{ Res0 = ok_eof(InitDeep1, PtrInfo1) },
+		{ Res = ok2(InitDeep1, PtrInfo1) }
+	;
+		{ Res0 = at_limit(InitDeep1, PtrInfo1) },
+		read_nodes_2(InitDeep1, PtrInfo1, CubeRoot, Res)
+	;
+		{ Res0 = error_nodes(Err) },
+		{ Res = error2(Err) }
+	).
+
+:- pred read_nodes_1(initial_deep::in, ptr_info::in, int::in, int::in,
+	nodes_result::out, io__state::di, io__state::uo) is det.
+
+read_nodes_1(InitDeep0, PtrInfo0, Limit, CubeRoot, Res) -->
+	read_nodes(InitDeep0, PtrInfo0, Limit, Res0),
+	(
+		{ Res0 = ok_eof(InitDeep1, PtrInfo1) },
+		{ Res = ok_eof(InitDeep1, PtrInfo1) }
+	;
+		{ Res0 = at_limit(InitDeep1, PtrInfo1) },
+		( { Limit > 1 } ->
+			read_nodes_1(InitDeep1, PtrInfo1, Limit - 1, CubeRoot,
+				Res)
+		;
+			{ Res = Res0 }
+		)
+	;
+		{ Res0 = error_nodes(Err) },
+		{ Res = error_nodes(Err) }
+	).
+
+:- pred read_nodes(initial_deep::in, ptr_info::in, int::in,
+	nodes_result::out, io__state::di, io__state::uo) is det.
+
+read_nodes(InitDeep0, PtrInfo0, Limit, Res) -->
 	read_byte(Res0),
 	(
 		{ Res0 = ok(Byte) },
@@ -125,10 +197,15 @@ read_nodes(InitDeep0, PtrInfo0, Res) -->
 					^ init_call_site_statics := CSSs },
 				{ PtrInfo1 = PtrInfo0 ^ css
 					:= max(PtrInfo0 ^ css, CSSI) },
-				read_nodes(InitDeep1, PtrInfo1, Res)
+				( { Limit > 1 } ->
+					read_nodes(InitDeep1, PtrInfo1,
+						Limit - 1, Res)
+				;
+					{ Res = at_limit(InitDeep1, PtrInfo1) }
+				)
 			;
 				{ Res1 = error2(Err) },
-				{ Res = error2(Err) }
+				{ Res = error_nodes(Err) }
 			)
 		; { Byte = token_proc_static } ->
 			read_proc_static(Res1),
@@ -141,10 +218,15 @@ read_nodes(InitDeep0, PtrInfo0, Res) -->
 					^ init_proc_statics := PSs },
 				{ PtrInfo1 = PtrInfo0 ^ ps
 					:= max(PtrInfo0 ^ ps, PSI) },
-				read_nodes(InitDeep1, PtrInfo1, Res)
+				( { Limit > 1 } ->
+					read_nodes(InitDeep1, PtrInfo1,
+						Limit - 1, Res)
+				;
+					{ Res = at_limit(InitDeep1, PtrInfo1) }
+				)
 			;
 				{ Res1 = error2(Err) },
-				{ Res = error2(Err) }
+				{ Res = error_nodes(Err) }
 			)
 		; { Byte = token_call_site_dynamic } ->
 			read_call_site_dynamic(Res1),
@@ -157,10 +239,15 @@ read_nodes(InitDeep0, PtrInfo0, Res) -->
 					^ init_call_site_dynamics := CSDs },
 				{ PtrInfo1 = PtrInfo0 ^ csd
 					:= max(PtrInfo0 ^ csd, CSDI) },
-				read_nodes(InitDeep1, PtrInfo1, Res)
+				( { Limit > 1 } ->
+					read_nodes(InitDeep1, PtrInfo1,
+						Limit - 1, Res)
+				;
+					{ Res = at_limit(InitDeep1, PtrInfo1) }
+				)
 			;
 				{ Res1 = error2(Err) },
-				{ Res = error2(Err) }
+				{ Res = error_nodes(Err) }
 			)
 		; { Byte = token_proc_dynamic } ->
 			read_proc_dynamic(Res1),
@@ -173,32 +260,42 @@ read_nodes(InitDeep0, PtrInfo0, Res) -->
 					^ init_proc_dynamics := PDs },
 				{ PtrInfo1 = PtrInfo0 ^ pd
 					:= max(PtrInfo0 ^ pd, PDI) },
-				read_nodes(InitDeep1, PtrInfo1, Res)
+				( { Limit > 1 } ->
+					read_nodes(InitDeep1, PtrInfo1,
+						Limit - 1, Res)
+				;
+					{ Res = at_limit(InitDeep1, PtrInfo1) }
+				)
 			;
 				{ Res1 = error2(Err) },
-				{ Res = error2(Err) }
+				{ Res = error_nodes(Err) }
 			)
 		; { Byte = token_root } ->
 			read_root(Res1),
 			(
 				{ Res1 = ok(PDPtr) },
 				{ InitDeep1 = InitDeep0 ^ init_root := PDPtr },
-				read_nodes(InitDeep1, PtrInfo0, Res)
+				( { Limit > 1 } ->
+					read_nodes(InitDeep1, PtrInfo0,
+						Limit - 1, Res)
+				;
+					{ Res = at_limit(InitDeep1, PtrInfo0) }
+				)
 			;
 				{ Res1 = error(Err) },
-				{ Res = error2(Err) }
+				{ Res = error_nodes(Err) }
 			)
 		;
 			{ format("unexpected token %d", [i(Byte)], Msg) },
-			{ Res = error2(Msg) }
+			{ Res = error_nodes(Msg) }
 		)
 	;
 		{ Res0 = eof },
-		{ Res = ok2(InitDeep0, PtrInfo0) }
+		{ Res = ok_eof(InitDeep0, PtrInfo0) }
 	;
 		{ Res0 = error(Err) },
 		{ io__error_message(Err, Msg) },
-		{ Res = error2(Msg) }
+		{ Res = error_nodes(Msg) }
 	).
 
 :- pred read_root(deep_result(proc_dynamic_ptr)::out,
@@ -344,8 +441,11 @@ read_proc_id_user_defined(PredOrFunc, Res) -->
 :- func raw_proc_id_to_string(proc_id) = string.
 
 raw_proc_id_to_string(compiler_generated(TypeName, TypeModule, _DefModule,
-		PredName, _Arity, _Mode)) =
-	string__append_list([PredName, " for ", TypeModule, ":", TypeName]).
+		PredName, Arity, Mode)) =
+	string__append_list(
+		[PredName, " for ", TypeModule, ":", TypeName,
+		"/", string__int_to_string(Arity),
+		" mode ", string__int_to_string(Mode)]).
 raw_proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 		Name, Arity, Mode)) =
 	string__append_list([DeclModule, ":", Name,
@@ -356,7 +456,7 @@ raw_proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 :- func refined_proc_id_to_string(proc_id) = string.
 
 refined_proc_id_to_string(compiler_generated(TypeName, TypeModule, _DefModule,
-		RawPredName, _Arity, _Mode)) = Name :-
+		RawPredName, Arity, Mode)) = Name :-
 	( RawPredName = "__Unify__" ->
 		PredName = "Unify"
 	; RawPredName = "__Compare__" ->
@@ -368,8 +468,15 @@ refined_proc_id_to_string(compiler_generated(TypeName, TypeModule, _DefModule,
 			Msg),
 		error(Msg)
 	),
-	Name = string__append_list(
-		[PredName, " for ", TypeModule, ":", TypeName]).
+	Name0 = string__append_list(
+		[PredName, " for ", TypeModule, ":", TypeName,
+			"/", string__int_to_string(Arity)]),
+	( Mode = 0 ->
+		Name = Name0
+	;
+		Name = string__append_list([Name0, " mode ", 
+			string__int_to_string(Mode)])
+	).
 refined_proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
 		ProcName, Arity, Mode)) = Name :-
 	(
@@ -1041,8 +1148,8 @@ read_sequence6(P1, P2, P3, P4, P5, P6, Combine, Res) -->
 
 %-----------------------------------------------------------------------------%
 
-:- pred read_string(deep_result(string), io__state, io__state).
-:- mode read_string(out, di, uo) is det.
+:- pred read_string(deep_result(string)::out,
+	io__state::di, io__state::uo) is det.
 
 read_string(Res) -->
 	read_num(Res0),
@@ -1073,8 +1180,8 @@ read_string(Res) -->
 		{ Res = error(Err) }
 	).
 
-:- pred read_ptr(ptr_kind, deep_result(int), io__state, io__state).
-:- mode read_ptr(in, out, di, uo) is det.
+:- pred read_ptr(ptr_kind::in, deep_result(int)::out,
+	io__state::di, io__state::uo) is det.
 
 read_ptr(_Kind, Res) -->
 	read_num1(0, Res).
@@ -1082,8 +1189,7 @@ read_ptr(_Kind, Res) -->
 	% io__write(Res),
 	% io__write_string("\n").
 
-:- pred read_num(deep_result(int), io__state, io__state).
-:- mode read_num(out, di, uo) is det.
+:- pred read_num(deep_result(int)::out, io__state::di, io__state::uo) is det.
 
 read_num(Res) -->
 	read_num1(0, Res).
@@ -1091,8 +1197,8 @@ read_num(Res) -->
 	% io__write(Res),
 	% io__write_string("\n").
 
-:- pred read_num1(int, deep_result(int), io__state, io__state).
-:- mode read_num1(in, out, di, uo) is det.
+:- pred read_num1(int::in, deep_result(int)::out,
+	io__state::di, io__state::uo) is det.
 
 read_num1(Num0, Res) -->
 	read_byte(Res0),
@@ -1113,8 +1219,40 @@ read_num1(Num0, Res) -->
 		{ Res = error(Msg) }
 	).
 
-:- pred read_n_bytes(int, deep_result(list(int)), io__state, io__state).
-:- mode read_n_bytes(in, out, di, uo) is det.
+:- func fixed_size_int_bytes = int.
+
+% Must correspond to MR_FIXED_SIZE_INT_BYTES
+% in runtime/mercury_deep_profiling.c.
+
+fixed_size_int_bytes = 4.
+
+:- pred read_fixed_size_int(deep_result(int)::out,
+	io__state::di, io__state::uo) is det.
+
+read_fixed_size_int(Res) -->
+	read_fixed_size_int1(fixed_size_int_bytes, 0, 0, Res).
+
+:- pred read_fixed_size_int1(int::in, int::in, int::in, deep_result(int)::out,
+	io__state::di, io__state::uo) is det.
+
+read_fixed_size_int1(BytesLeft, Num0, ShiftBy, Res) -->
+	( { BytesLeft =< 0 } ->
+		{ Res = ok(Num0) }
+	;
+		read_deep_byte(Res0),
+		(
+			{ Res0 = ok(Byte) },
+			{ Num1 = Num0 \/ ( Byte << ShiftBy) },
+			read_fixed_size_int1(BytesLeft - 1, Num1, ShiftBy + 8,
+				Res)
+		;
+			{ Res0 = error(Err) },
+			{ Res = error(Err) }
+		)
+	).
+
+:- pred read_n_bytes(int::in, deep_result(list(int))::out,
+	io__state::di, io__state::uo) is det.
 
 read_n_bytes(N, Res) -->
 	read_n_bytes(N, [], Res0),
@@ -1127,9 +1265,8 @@ read_n_bytes(N, Res) -->
 		{ Res = error(Err) }
 	).
 
-:- pred read_n_bytes(int, [int], deep_result(list(int)),
-		io__state, io__state).
-:- mode read_n_bytes(in, in, out, di, uo) is det.
+:- pred read_n_bytes(int::in, list(int)::in, deep_result(list(int))::out,
+	io__state::di, io__state::uo) is det.
 
 read_n_bytes(N, Bytes0, Res) -->
 	( { N =< 0 } ->
@@ -1138,15 +1275,15 @@ read_n_bytes(N, Bytes0, Res) -->
 		read_deep_byte(Res0),
 		(
 			{ Res0 = ok(Byte) },
-			read_n_bytes(N - 1, [Byte|Bytes0], Res)
+			read_n_bytes(N - 1, [Byte | Bytes0], Res)
 		;
 			{ Res0 = error(Err) },
 			{ Res = error(Err) }
 		)
 	).
 
-:- pred read_deep_byte(deep_result(int), io__state, io__state).
-:- mode read_deep_byte(out, di, uo) is det.
+:- pred read_deep_byte(deep_result(int)::out,
+	io__state::di, io__state::uo) is det.
 
 read_deep_byte(Res) -->
 	read_byte(Res0),
@@ -1182,8 +1319,8 @@ deep_insert(A0, Ind, Thing, A) :-
 :- pragma c_code(u(A::in) = (B::array_uo),
 		[will_not_call_mercury, thread_safe], "B = A;").
 
-%:- func max(int, int) = int.
-%max(A, B) = (A > B -> A ; B).
+% :- func max(int, int) = int.
+% max(A, B) = (A > B -> A ; B).
 
 %------------------------------------------------------------------------------%
 

@@ -9,15 +9,15 @@
 :- interface.
 
 :- pred test_server(string::in, string::in, deep::in, string::in,
-	io__state::di, io__state::uo) is det.
+	io__state::di, io__state::uo) is cc_multi.
 
-:- pred server_loop(string::in, string::in, int::in, string::in, deep::in,
-	io__state::di, io__state::uo) is det.
+:- pred server(string::in, string::in, int::in, bool::in, deep::in,
+	io__state::di, io__state::uo) is cc_multi.
 
 :- implementation.
 
-:- import_module cgi_interface, measurements, deep:util.
-:- import_module int, string, float, require.
+:- import_module cgi_interface, measurements, timeout, deep:util.
+:- import_module int, string, float, exception, require.
 
 :- type call_site_line_number
 	--->	call_site_line_number
@@ -26,17 +26,19 @@
 %-----------------------------------------------------------------------------%
 
 test_server(DirName, URLprefix, Deep, Fields) -->
+	{ string__format("mkdir -p %s", [s(DirName)], Cmd) },
+	io__call_system(Cmd, _),
 	{ array__max(Deep ^ clique_members, NumCliques) },
 	test_cliques(1, NumCliques, DirName, URLprefix, Deep, Fields),
 	{ array__max(Deep ^ proc_statics, NumProcStatics) },
 	test_procs(1, NumProcStatics, DirName, URLprefix, Deep, Fields).
 
 :- pred test_cliques(int::in, int::in, string::in, string::in, deep::in,
-	string::in, io__state::di, io__state::uo) is det.
+	string::in, io__state::di, io__state::uo) is cc_multi.
 
 test_cliques(Cur, Max, DirName, URLprefix, Deep, Fields) -->
 	( { Cur =< Max } ->
-		{ exec(clique(Cur, Fields), URLprefix, Deep, HTML, _) },
+		{ try_exec(clique(Cur, Fields), URLprefix, Deep, HTML) },
 		write_html(DirName, "clique", Cur, HTML),
 		test_cliques(Cur + 1, Max, DirName, URLprefix, Deep, Fields)
 	;
@@ -44,11 +46,11 @@ test_cliques(Cur, Max, DirName, URLprefix, Deep, Fields) -->
 	).
 
 :- pred test_procs(int::in, int::in, string::in, string::in, deep::in,
-	string::in, io__state::di, io__state::uo) is det.
+	string::in, io__state::di, io__state::uo) is cc_multi.
 
 test_procs(Cur, Max, DirName, URLprefix, Deep, Fields) -->
 	( { Cur =< Max } ->
-		{ exec(proc(Cur, Fields), URLprefix, Deep, HTML, _) },
+		{ try_exec(proc(Cur, Fields), URLprefix, Deep, HTML) },
 		write_html(DirName, "proc", Cur, HTML),
 		test_procs(Cur + 1, Max, DirName, URLprefix, Deep, Fields)
 	;
@@ -59,7 +61,16 @@ test_procs(Cur, Max, DirName, URLprefix, Deep, Fields) -->
 	io__state::di, io__state::uo) is det.
 
 write_html(DirName, BaseName, Num, HTML) -->
-	{ string__format("%s/%s_%d.html", [s(DirName), s(BaseName), i(Num)],
+	{ Bunch = (Num - 1) // 1000 },
+	( { (Num - 1) rem 1000 = 0 } ->
+		{ string__format("mkdir -p %s/%s_%04d",
+			[s(DirName), s(BaseName), i(Bunch)], Cmd) },
+		io__call_system(Cmd, _)
+	;
+		[]
+	),
+	{ string__format("%s/%s_%04d/%s_%06d.html",
+		[s(DirName), s(BaseName), i(Bunch), s(BaseName), i(Num)],
 		FileName) },
 	io__tell(FileName, _),
 	io__write_string(HTML),
@@ -67,7 +78,37 @@ write_html(DirName, BaseName, Num, HTML) -->
 
 %-----------------------------------------------------------------------------%
 
-server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep) -->
+server(BaseName, URLprefix, TimeOut, CreatePipes, Deep) -->
+	{ string__append(BaseName, "_to_server", InputFileName) },
+	{ string__append(BaseName, "_from_server", OutputFileName) },
+	(
+		{ CreatePipes = yes },
+		{ format("mknod -m a=rw %s p", [s(InputFileName)],
+			MakeInputPipeCmd) },
+		{ format("mknod -m a=rw %s p", [s(OutputFileName)],
+			MakeOutputPipeCmd) },
+		io__call_system(MakeInputPipeCmd, InputRes),
+		( { InputRes = ok(0) } ->
+			[]
+		;
+			{ error("could not make pipe to server") }
+		),
+		io__call_system(MakeOutputPipeCmd, OutputRes),
+		( { OutputRes = ok(0) } ->
+			[]
+		;
+			{ error("could not make pipe from server") }
+		)
+	;
+		{ CreatePipes = no }
+	),
+	server_loop(InputFileName, OutputFileName, URLprefix, TimeOut, Deep).
+
+:- pred server_loop(string::in, string::in, string::in, int::in, deep::in,
+	io__state::di, io__state::uo) is cc_multi.
+
+server_loop(InputFileName, OutputFileName, URLprefix, TimeOut, Deep) -->
+	setup_timeout(InputFileName, OutputFileName, TimeOut),
 	io__see(InputFileName, _),
 	read(Res0),
 	% stderr_stream(StdErr),
@@ -76,55 +117,65 @@ server_loop(InputFileName, OutputFileName, Wait, URLprefix, Deep) -->
 	(
 		{ Res0 = eof },
 		% write_string(StdErr, "eof.\n"),
-		server_loop(InputFileName, OutputFileName, Wait,
-			URLprefix, Deep)
+		server_loop(InputFileName, OutputFileName, URLprefix,
+			TimeOut, Deep)
 	;
 		{ Res0 = error(Msg, Line) },
 		stderr_stream(StdErr),
 		format(StdErr, "error reading input line %d: %s\n",
 			[i(Line), s(Msg)]),
-		server_loop(InputFileName, OutputFileName, Wait,
-			URLprefix, Deep)
+		server_loop(InputFileName, OutputFileName, URLprefix,
+			TimeOut, Deep)
 	;
 		{ Res0 = ok(Cmd) },
-		{ exec(Cmd, URLprefix, Deep, HTML, Continue) },
+		{ try_exec(Cmd, URLprefix, Deep, HTML) },
 		io__tell(OutputFileName, _),
 		io__write(html(HTML)),
 		io__write_string(".\n"),
 		io__told,
-		% ( { Wait > 0 } ->
-		% 	{ wait(Wait) }
-		% ;
-		% 	[]
-		% ),
-		(
-			{ Continue = yes },
-			server_loop(InputFileName, OutputFileName, Wait,
-				URLprefix, Deep)
+		( { Cmd = quit } ->
+			[]
+		; { Cmd = timeout(NewTimeOut) } ->
+			server_loop(InputFileName, OutputFileName, URLprefix,
+				NewTimeOut, Deep)
 		;
-			{ Continue = no }
+			server_loop(InputFileName, OutputFileName, URLprefix,
+				TimeOut, Deep)
 		)
 	).
 
-% :- pred wait(int::in) is det.
-% 
-% :- pragma foreign_code("C", wait(Seconds::in), [will_not_call_mercury], "
-% 	#include <unistd.h>
-% 	sleep(Seconds);
-% ").
-
 %-----------------------------------------------------------------------------%
 
-:- pred exec(cmd::in, string::in, deep::in, string::out, bool::out) is det.
+:- pred try_exec(cmd::in, string::in, deep::in, string::out) is cc_multi.
 
-exec(Cmd, URLprefix, Deep, HTML, no) :-
+try_exec(Cmd, URLprefix, Deep, HTML) :-
+	try(exec(Cmd, URLprefix, Deep), Result),
+	(
+		Result = succeeded(HTML)
+	;
+		Result = exception(Exception),
+		( univ_to_type(Exception, MsgPrime) ->
+			Msg = MsgPrime
+		;
+			Msg = "unknown exception"
+		),
+		HTML =
+			format("<H1>AN EXCEPTION HAS OCCURRED: %s.</H1>\n",
+				[s(Msg)])
+	).
+
+:- pred exec(cmd::in, string::in, deep::in, string::out) is det.
+
+exec(Cmd, _URLprefix, _Deep, HTML) :-
 	Cmd = quit,
 	HTML =
-		banner ++
-		"<H1>Shutting down deep profiler.</H1>\n" ++
-		footer(URLprefix, Cmd, Deep).
+		"<H1>Shutting down deep profiler.</H1>\n".
 
-exec(Cmd, URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, _Deep, HTML) :-
+	Cmd = timeout(TimeOut),
+	HTML = format("<H1>Timeout set to %d minutes</H1>\n", [i(TimeOut)]).
+
+exec(Cmd, URLprefix, Deep, HTML) :-
 	Cmd = menu,
 	HTML =
 		banner ++
@@ -173,17 +224,17 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 			++
 		"</ul>\n" ++
 		"<p>\n" ++
-		present_stats(Deep ^ profile_stats) ++
+		present_stats(Deep) ++
 		"<p>\n" ++
 		footer(URLprefix, Cmd, Deep).
 
-exec(Cmd, URLprefix, Deep, HTML, Continue) :-
+exec(Cmd, URLprefix, Deep, HTML) :-
 	Cmd = root(Fields),
 	deep_lookup_clique_index(Deep, Deep ^ root, RootCliquePtr),
 	RootCliquePtr = clique_ptr(RootCliqueNum),
-	exec(clique(RootCliqueNum, Fields), URLprefix, Deep, HTML, Continue).
+	exec(clique(RootCliqueNum, Fields), URLprefix, Deep, HTML).
 
-exec(Cmd, URLprefix, Deep, HTML, yes) :-
+exec(Cmd, URLprefix, Deep, HTML) :-
 	Cmd = clique(CliqueNum, Fields),
 	( valid_clique_ptr(Deep, clique_ptr(CliqueNum)) ->
 		HTML =
@@ -201,7 +252,7 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 			footer(URLprefix, Cmd, Deep)
 	).
 
-exec(Cmd, URLprefix, Deep, HTML, yes) :-
+exec(Cmd, URLprefix, Deep, HTML) :-
 	Cmd = top_procs(Sort, InclDesc, Limit, Fields),
 	find_top_procs(Sort, InclDesc, Limit, Deep, MaybeTopPSIs),
 	(
@@ -232,7 +283,7 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 		)
 	).
 
-exec(Cmd, URLprefix, Deep, HTML, yes) :-
+exec(Cmd, URLprefix, Deep, HTML) :-
 	Cmd = proc(PSI, Fields),
 	HTML =
 		"<HTML>\n" ++
@@ -243,7 +294,7 @@ exec(Cmd, URLprefix, Deep, HTML, yes) :-
 		"</TABLE>\n" ++
 		footer(URLprefix, Cmd, Deep).
 
-exec(Cmd, _URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, Deep, HTML) :-
 	Cmd = proc_static(PSI),
 	PSPtr = proc_static_ptr(PSI),
 	( valid_proc_static_ptr(Deep, PSPtr) ->
@@ -263,7 +314,26 @@ exec(Cmd, _URLprefix, Deep, HTML, yes) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, Deep, HTML) :-
+	Cmd = proc_dynamic(PDI),
+	PDPtr = proc_dynamic_ptr(PDI),
+	( valid_proc_dynamic_ptr(Deep, PDPtr) ->
+		deep_lookup_proc_dynamics(Deep, PDPtr, PD),
+		PSPtr = PD ^ pd_proc_static,
+		PSPtr = proc_static_ptr(PSI),
+		HTML =
+			"<HTML>\n" ++
+			format("proc_static %d, ", [i(PSI)]) ++
+			array_slots_to_html(PD ^ pd_sites) ++
+			"</HTML>\n"
+	;
+		HTML =
+			"<HTML>\n" ++
+			"Invalid proc_dynamic_ptr" ++
+			"</HTML>\n"
+	).
+
+exec(Cmd, _URLprefix, Deep, HTML) :-
 	Cmd = call_site_static(CSSI),
 	CSSPtr = call_site_static_ptr(CSSI),
 	( valid_call_site_static_ptr(Deep, CSSPtr) ->
@@ -285,33 +355,109 @@ exec(Cmd, _URLprefix, Deep, HTML, yes) :-
 			"</HTML>\n"
 	).
 
-exec(Cmd, _URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, Deep, HTML) :-
+	Cmd = call_site_dynamic(CSDI),
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
+		deep_lookup_call_site_dynamics(Deep, CSDPtr, CSD),
+		CSD ^ csd_caller = proc_dynamic_ptr(CallerPDI),
+		CSD ^ csd_callee = proc_dynamic_ptr(CalleePDI),
+		HTML =
+			"<HTML>\n" ++
+			string__int_to_string(CallerPDI) ++ " -> " ++
+			string__int_to_string(CalleePDI) ++ ": " ++
+			own_to_string(CSD ^ csd_own_prof) ++
+			"</HTML>\n"
+	;
+		HTML =
+			"<HTML>\n" ++
+			"Invalid call_site_dynamic_ptr" ++
+			"</HTML>\n"
+	).
+
+exec(Cmd, _URLprefix, Deep, HTML) :-
+	Cmd = raw_clique(CI),
+	CliquePtr = clique_ptr(CI),
+	( valid_clique_ptr(Deep, CliquePtr) ->
+		deep_lookup_clique_parents(Deep, CliquePtr, Parent),
+		Parent = call_site_dynamic_ptr(ParentPDI),
+		ParentStr = format("%d ->", [i(ParentPDI)]),
+		deep_lookup_clique_members(Deep, CliquePtr, Members),
+		HTML =
+			"<HTML>\n" ++
+			ParentStr ++
+			list__foldl(append_pdi_to_string, Members, "") ++
+			"</HTML>\n"
+	;
+		HTML =
+			"<HTML>\n" ++
+			"Invalid call_site_dynamic_ptr" ++
+			"</HTML>\n"
+	).
+
+exec(Cmd, _URLprefix, Deep, HTML) :-
 	Cmd = num_proc_dynamics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_pds) ++
 		"</HTML>\n".
 
-exec(Cmd, _URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, Deep, HTML) :-
 	Cmd = num_call_site_dynamics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_csds) ++
 		"</HTML>\n".
 
-exec(Cmd, _URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, Deep, HTML) :-
 	Cmd = num_proc_statics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_pss) ++
 		"</HTML>\n".
 
-exec(Cmd, _URLprefix, Deep, HTML, yes) :-
+exec(Cmd, _URLprefix, Deep, HTML) :-
 	Cmd = num_call_site_statics,
 	HTML =
 		"<HTML>\n" ++
 		string__int_to_string(Deep ^ profile_stats ^ num_csss) ++
 		"</HTML>\n".
+
+%-----------------------------------------------------------------------------%
+
+:- func array_slots_to_html(array(call_site_array_slot)) = string.
+
+array_slots_to_html(SlotArray) = HTML :-
+	array__to_list(SlotArray, SlotList),
+	list__foldl(append_slot_to_string, SlotList, "multi", HTML).
+
+:- pred append_slot_to_string(call_site_array_slot::in,
+	string::in, string::out) is det.
+
+append_slot_to_string(Slot, Str0, Str) :-
+	Str = Str0 ++ " " ++ array_slot_to_html(Slot).
+
+:- func array_slot_to_html(call_site_array_slot) = string.
+
+array_slot_to_html(normal(CSDPtr)) = HTML :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	HTML = "normal " ++ string__int_to_string(CSDI).
+array_slot_to_html(multi(CSDPtrArray)) = HTML :-
+	array__to_list(CSDPtrArray, CSDPtrs),
+	list__foldl(append_csdi_to_string, CSDPtrs, "", CSDI_HTML),
+	list__length(CSDPtrs, CSDPtrCount),
+	HTML = format("multi(%d): [", [i(CSDPtrCount)]) ++ CSDI_HTML ++ "]".
+
+:- pred append_csdi_to_string(call_site_dynamic_ptr::in,
+	string::in, string::out) is det.
+
+append_csdi_to_string(call_site_dynamic_ptr(CSDI), Str0, Str) :-
+	Str = Str0 ++ " " ++ string__int_to_string(CSDI).
+
+:- func append_pdi_to_string(proc_dynamic_ptr, string) = string.
+
+append_pdi_to_string(proc_dynamic_ptr(PDI), Str0) =
+	Str0 ++ " " ++ string__int_to_string(PDI).
 
 %-----------------------------------------------------------------------------%
 
@@ -324,9 +470,10 @@ kind_and_callee_to_string(higher_order_call) = "higher_order_call".
 kind_and_callee_to_string(method_call) = "method_call".
 kind_and_callee_to_string(callback) = "callback".
 
-:- func present_stats(profile_stats) = string.
+:- func present_stats(deep) = string.
 
-present_stats(Stats) = HTML :-
+present_stats(Deep) = HTML :-
+	Stats = Deep ^ profile_stats,
 	HTML =
 		"<TABLE>\n" ++
 		"<TR><TD ALIGN=left>Quanta in user code:</TD>\n" ++
@@ -347,6 +494,9 @@ present_stats(Stats) = HTML :-
 		"<TR><TD ALIGN=left>ProcStatic structures:</TD>\n" ++
 		format("<TD ALIGN=right>%d</TD></TR>\n",
 			[i(Stats ^ num_pss)]) ++
+		"<TR><TD ALIGN=left>Cliques:</TD>\n" ++
+		format("<TD ALIGN=right>%d</TD></TR>\n",
+			[i(array__max(Deep ^ clique_members))]) ++
 		"</TABLE>\n".
 
 %-----------------------------------------------------------------------------%
@@ -429,200 +579,154 @@ group_proc_dynamics_by_proc_static(Deep, PDPtr, PStoPDsMap0, PStoPDsMap) :-
 
 procs_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PSPtr - PDPtrs)
 		= HTML :-
-	InitialSeparator = separator_row(Fields),
-	list__map(deep_lookup_pd_own(Deep), PDPtrs, ProcOwns),
-	list__map(deep_lookup_pd_desc(Deep), PDPtrs, ProcDescs),
-	ProcOwn = sum_own_infos(ProcOwns),
-	ProcDesc = sum_inherit_infos(ProcDescs),
-	ProcTotal = proc_total_in_clique(URLprefix, Deep, Fields,
-		PSPtr, ProcOwn, ProcDesc),
-	deep_lookup_proc_statics(Deep, PSPtr, PS),
-	CSSPtrs = PS ^ ps_sites,
-	array__max(CSSPtrs, CSSMax),
-	list__map(deep_lookup_proc_dynamic_sites(Deep), PDPtrs, PDSites),
-	Group0 = call_site_groups_to_html(URLprefix, Deep, Fields,
-		CliquePtr, 0, CSSMax, CSSPtrs, PDSites),
-	( Group0 = "" ->
-		Group = Group0
+	( PDPtrs = [] ->
+		HTML = ""
+	; PDPtrs = [PDPtr] ->
+		HTML = proc_in_clique_to_html(URLprefix, Deep, Fields,
+			CliquePtr, PDPtr)
 	;
-		Group = separator_row(Fields) ++ Group0
-	),
-	HTML =
-		InitialSeparator ++
-		ProcTotal ++
-		Group.
+		Separator = separator_row(Fields),
+		list__map(deep_lookup_pd_own(Deep), PDPtrs, ProcOwns),
+		list__map(deep_lookup_pd_desc(Deep), PDPtrs, ProcDescs),
+		ProcOwn = sum_own_infos(ProcOwns),
+		ProcDesc = sum_inherit_infos(ProcDescs),
+		ProcTotal = proc_total_in_clique(URLprefix, Deep, Fields,
+			PSPtr, no, ProcOwn, ProcDesc),
+		ComponentHTMLs = list__map(proc_in_clique_to_html(URLprefix,
+			Deep, Fields, CliquePtr), PDPtrs),
+		string__append_list(ComponentHTMLs, ComponentHTML),
+		HTML =
+			Separator ++
+			ProcTotal ++
+			Separator ++
+			ComponentHTML
+	).
 
-:- func proc_total_in_clique(string, deep, fields,
-	proc_static_ptr, own_prof_info, inherit_prof_info) = string.
+:- func proc_in_clique_to_html(string, deep, fields,
+	clique_ptr, proc_dynamic_ptr) = string.
 
-proc_total_in_clique(URLprefix, Deep, Fields, PSPtr, Own, Desc) = HTML :-
+proc_in_clique_to_html(URLprefix, Deep, Fields, CliquePtr, PDPtr) = HTML :-
+	( valid_proc_dynamic_ptr(Deep, PDPtr) ->
+		InitialSeparator = separator_row(Fields),
+		deep_lookup_pd_own(Deep, PDPtr, ProcOwn),
+		deep_lookup_pd_desc(Deep, PDPtr, ProcDesc),
+		deep_lookup_proc_dynamics(Deep, PDPtr, PD),
+		PD = proc_dynamic(PSPtr, _),
+		ProcTotal = proc_total_in_clique(URLprefix, Deep, Fields,
+			PSPtr, yes, ProcOwn, ProcDesc),
+		child_call_sites(Deep ^ proc_dynamics, Deep ^ proc_statics,
+			PDPtr, GroupPairs),
+		list__foldl(call_site_group_to_html(URLprefix, Deep,
+			Fields, CliquePtr), GroupPairs, map__init, GroupMap),
+		map__to_assoc_list(GroupMap, GroupPairLists),
+		assoc_list__values(GroupPairLists, GroupLists),
+		list__condense(GroupLists, GroupList),
+		string__append_list(GroupList, GroupStr0),
+		( GroupList = [] ->
+			GroupStr = GroupStr0
+		;
+			GroupStr = separator_row(Fields) ++ GroupStr0
+		),
+		HTML =
+			InitialSeparator ++
+			ProcTotal ++
+			GroupStr
+	;
+		HTML = ""
+	).
+
+:- func proc_total_in_clique(string, deep, fields, proc_static_ptr, bool,
+	own_prof_info, inherit_prof_info) = string.
+
+proc_total_in_clique(URLprefix, Deep, Fields, PSPtr, Only, Own, Desc) = HTML :-
 	ProcName = proc_static_to_html_ref(URLprefix, Deep, Fields, PSPtr),
+	(
+		Only = no,
+		OnlyStr = "summary "
+	;
+		Only = yes,
+		OnlyStr = ""
+	),
 	HTML = 
 		"<TR>\n" ++
-		format("<TD COLSPAN=2><B>%s</B></TD>\n", [s(ProcName)]) ++
+		format("<TD COLSPAN=2><B>%s%s</B></TD>\n",
+			[s(OnlyStr), s(ProcName)]) ++
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
 
-:- func lookup_pd_site(int, array(call_site_array_slot))
-	= call_site_array_slot.
+:- pred call_site_group_to_html(string::in, deep::in, fields::in,
+	clique_ptr::in, pair(call_site_static_ptr, call_site_array_slot)::in,
+	map(pair(string, int), list(string))::in,
+	map(pair(string, int), list(string))::out) is det.
 
-lookup_pd_site(SlotNum, SlotArray) = Slot :-
-	array__lookup(SlotArray, SlotNum, Slot).
-
-:- func extract_normal_slot(call_site_array_slot) = call_site_dynamic_ptr.
-
-extract_normal_slot(normal(CSDPtr)) = CSDPtr.
-extract_normal_slot(multi(_)) = _ :-
-	error("extract_normal_slot: found multi").
-
-:- func extract_multi_slot(call_site_array_slot) = list(call_site_dynamic_ptr).
-
-extract_multi_slot(normal(_)) = _ :-
-	error("extract_multi_slot: found normal").
-extract_multi_slot(multi(CSDPtrArray)) = CSDPtrs :-
-	array__to_list(CSDPtrArray, CSDPtrs).
-
-:- pred compare_csd_pd_ptrs(deep::in,
-	call_site_dynamic_ptr::in, call_site_dynamic_ptr::in,
-	comparison_result::out) is det.
-
-compare_csd_pd_ptrs(Deep, CSDPtr1, CSDPtr2, Res) :-
-	deep_lookup_call_site_dynamics(Deep, CSDPtr1, CSD1),
-	deep_lookup_call_site_dynamics(Deep, CSDPtr2, CSD2),
-	PDPtr1 = CSD1 ^ csd_callee,
-	PDPtr2 = CSD2 ^ csd_callee,
-	PDPtr1 = proc_dynamic_ptr(PDI1),
-	PDPtr2 = proc_dynamic_ptr(PDI2),
-	compare(Res, PDI1, PDI2).
-
-:- pred group_call_site_dynamics_by_proc_static(deep::in,
-	call_site_dynamic_ptr::in,
-	map(proc_static_ptr, list(call_site_dynamic_ptr))::in,
-	map(proc_static_ptr, list(call_site_dynamic_ptr))::out) is det.
-
-group_call_site_dynamics_by_proc_static(Deep, CSDPtr,
-		PStoCSDsMap0, PStoCSDsMap) :-
-	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
-		deep_lookup_call_site_dynamics(Deep, CSDPtr, CSD),
-		PDPtr = CSD ^ csd_callee,
-		( valid_proc_dynamic_ptr(Deep, PDPtr) ->
-			deep_lookup_proc_dynamics(Deep, PDPtr, PD),
-			PSPtr = PD ^ pd_proc_static
-		;
-			PSPtr = proc_static_ptr(-1)
-		),
-		( map__search(PStoCSDsMap0, PSPtr, PSCSDs0) ->
-			PSCSDs = [CSDPtr | PSCSDs0],
-			map__det_update(PStoCSDsMap0, PSPtr, PSCSDs,
-				PStoCSDsMap)
-		;
-			map__det_insert(PStoCSDsMap0, PSPtr, [CSDPtr],
-				PStoCSDsMap)
-		)
-	;
-		PStoCSDsMap = PStoCSDsMap0
-	).
-
-:- func call_site_groups_to_html(string, deep, fields, clique_ptr, int, int,
-	array(call_site_static_ptr), list(array(call_site_array_slot)))
-	= string.
-
-call_site_groups_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Cur, Max,
-		CSSs, PDSiteArrays) = HTML :-
-	( Cur > Max ->
-		HTML = ""
-	;
-		ThisHTML = call_site_group_to_html(URLprefix, Deep, Fields,
-			ThisCliquePtr, Cur, CSSs, PDSiteArrays),
-		RestHTML = call_site_groups_to_html(URLprefix, Deep, Fields,
-			ThisCliquePtr, Cur + 1, Max, CSSs, PDSiteArrays),
-		HTML = ThisHTML ++ RestHTML
-	).
-
-:- func call_site_group_to_html(string, deep, fields, clique_ptr, int,
-	array(call_site_static_ptr), list(array(call_site_array_slot)))
-	= string.
-
-call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Cur,
-		CSSPtrs, PDSiteArrays) = HTML :-
-	array__lookup(CSSPtrs, Cur, CSSPtr),
-	PDSites = list__map(lookup_pd_site(Cur), PDSiteArrays),
+call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair,
+		GroupMap0, GroupMap) :-
+	Pair = CSSPtr - CallSiteArray,
 	deep_lookup_call_site_statics(Deep, CSSPtr, CSS),
-	PSPtr = CSS ^ css_container,
+	CSS = call_site_static(PSPtr, _SlotNum, Kind, LineNumber, _GoalPath),
 	deep_lookup_proc_statics(Deep, PSPtr, PS),
 	FileName = PS ^ ps_filename,
-	LineNumber = CSS ^ css_line_num,
-	Kind = CSS ^ css_kind,
-	( Kind = normal_call(CalleePSPtr, _) ->
-		CSDPtrs0 = list__map(extract_normal_slot, PDSites),
-		list__filter(valid_call_site_dynamic_ptr(Deep),
-			CSDPtrs0, CSDPtrs),
-		process_call_site_dynamics_group(CSDPtrs, Deep, CalleePSPtr,
-			no, MaybeToCliquePtr, zero_own_prof_info, Own,
-			zero_inherit_prof_info, Desc),
-		(
-			MaybeToCliquePtr = no,
-			HTML = ""
+	( Kind = normal_call(_CalleePSPtr, _) ->
+		( CallSiteArray = normal(CSDPtr0) ->
+			CSDPtr = CSDPtr0
 		;
-			MaybeToCliquePtr = yes(ToCliquePtr),
-			HTML = call_site_dynamics_to_html(URLprefix,
-				Deep, Fields, yes(FileName - LineNumber),
-				ThisCliquePtr, ToCliquePtr, CalleePSPtr,
-				Own, Desc)
-		)
+			error("call_site_group_to_html: normal_call error")
+		),
+		HTML = maybe_call_site_dynamic_to_html(URLprefix, Deep, Fields,
+			call_site_line_number, ThisCliquePtr, CSDPtr)
 	;
-		CSDPtrLists = list__map(extract_multi_slot, PDSites),
-		list__condense(CSDPtrLists, CSDPtrs0),
-		list__filter(valid_call_site_dynamic_ptr(Deep),
-			CSDPtrs0, CSDPtrs1),
-		list__foldl(group_call_site_dynamics_by_proc_static(Deep),
-			CSDPtrs1, map__init, PStoCSDsMap),
-		map__to_assoc_list(PStoCSDsMap, PStoCSDsList),
+		( CallSiteArray = multi(CSDPtrs0) ->
+			array__to_list(CSDPtrs0, CSDPtrs)
+		;
+			error("call_site_group_to_html: non-normal_call error")
+		),
 		Tuple0 = { "", zero_own_prof_info, zero_inherit_prof_info },
 		Tuple = list__foldl(call_site_array_to_html(URLprefix,
-			Deep, Fields, ThisCliquePtr), PStoCSDsList, Tuple0),
+			Deep, Fields, no_call_site_line_number, ThisCliquePtr),
+			CSDPtrs, Tuple0),
 		Tuple = { GroupHTML, SumOwn, SumDesc },
+		CallSiteName0 = call_site_kind_and_callee_to_html(Kind),
 		( GroupHTML = "" ->
-			HTML = ""
+			CallSiteName = CallSiteName0 ++ " (no calls made)"
 		;
-			CallSiteName = call_site_kind_and_callee_to_html(Kind),
-			HTML =
-				"<TR>\n" ++
-				format("<TD>%s:%d</TD>\n",
-					[s(FileName), i(LineNumber)]) ++
-				format("<TD>%s</TD>\n", [s(CallSiteName)]) ++
-				own_and_desc_to_html(SumOwn, SumDesc,
-					Deep, Fields) ++
-				"</TR>\n" ++
-				GroupHTML
-		)
+			CallSiteName = CallSiteName0
+		),
+		HTML =
+			"<TR>\n" ++
+			format("<TD>%s:%d</TD>\n",
+				[s(FileName), i(LineNumber)]) ++
+			format("<TD>%s</TD>\n", [s(CallSiteName)]) ++
+			own_and_desc_to_html(SumOwn, SumDesc, Deep, Fields) ++
+			"</TR>\n" ++
+			GroupHTML
+	),
+	Key = FileName - LineNumber,
+	( map__search(GroupMap0, Key, HTMLs0) ->
+		map__det_update(GroupMap0, Key, [HTML | HTMLs0], GroupMap)
+	;
+		map__det_insert(GroupMap0, Key, [HTML], GroupMap)
 	).
 
-:- func call_site_array_to_html(string, deep, fields, clique_ptr,
-	pair(proc_static_ptr, list(call_site_dynamic_ptr)),
+:- func call_site_array_to_html(string, deep, fields, call_site_line_number,
+	clique_ptr, call_site_dynamic_ptr,
 	{string, own_prof_info, inherit_prof_info}) =
 	{string, own_prof_info, inherit_prof_info}.
 
-call_site_array_to_html(URLprefix, Deep, Fields, ThisCliquePtr,
-		PSPtr - CSDPtrs, Tuple0) = Tuple :-
-	Tuple0 = { HTML0, GroupOwn0, GroupDesc0 },
-	process_call_site_dynamics_group(CSDPtrs, Deep, PSPtr,
-		no, MaybeToCliquePtr, zero_own_prof_info, Own,
-		zero_inherit_prof_info, Desc),
-	(
-		MaybeToCliquePtr = yes(ToCliquePtr),
-		HTML1 = call_site_dynamics_to_html(URLprefix, Deep, Fields, no,
-			ThisCliquePtr, ToCliquePtr, PSPtr, Own, Desc),
-		HTML = HTML0 ++ HTML1,
-		GroupOwn = add_own_to_own(GroupOwn0, Own),
-		GroupDesc = add_inherit_to_inherit(GroupDesc0, Desc)
+call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
+		ThisCliquePtr, CSDPtr, Tuple0) = Tuple :-
+	( valid_call_site_dynamic_ptr(Deep, CSDPtr) ->
+		Tuple0 = { HTML0, Own0, Desc0 },
+		HTML1 = call_site_dynamic_to_html(URLprefix, Deep, Fields,
+			PrintCallSiteLineNmber, yes(ThisCliquePtr), CSDPtr),
+		string__append(HTML0, HTML1, HTML),
+		deep_lookup_csd_own(Deep, CSDPtr, CallSiteOwn),
+		deep_lookup_csd_desc(Deep, CSDPtr, CallSiteDesc),
+		Own = add_own_to_own(Own0, CallSiteOwn),
+		Desc = add_inherit_to_inherit(Desc0, CallSiteDesc),
+		Tuple = { HTML, Own, Desc }
 	;
-		MaybeToCliquePtr = no,
-		HTML = HTML0,
-		GroupOwn = GroupOwn0,
-		GroupDesc = GroupDesc0
-	),
-	Tuple = { HTML, GroupOwn, GroupDesc }.
+		Tuple = Tuple0
+	).
 
 :- pred process_call_site_dynamics_group(list(call_site_dynamic_ptr)::in,
 	deep::in, proc_static_ptr::in,
@@ -712,20 +816,24 @@ call_site_dynamic_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
 	deep_lookup_call_site_dynamics(Deep, CSDPtr, CSD),
 	CSD = call_site_dynamic(_FromPtr, ToProcPtr, CallSiteOwn),
 	deep_lookup_csd_desc(Deep, CSDPtr, CallSiteDesc),
-	deep_lookup_clique_index(Deep, ToProcPtr, ToCliquePtr),
-	CalleeName = call_site_dynamic_label(Deep, CSDPtr),
-	(
-		MaybeThisCliquePtr = yes(ThisCliquePtr),
-		ThisCliquePtr = ToCliquePtr
-	->
-		% We don't link recursive calls
-		ProcName = CalleeName
+	( valid_proc_dynamic_ptr(Deep, ToProcPtr) ->
+		deep_lookup_clique_index(Deep, ToProcPtr, ToCliquePtr),
+		CalleeName = call_site_dynamic_label(Deep, CSDPtr),
+		(
+			MaybeThisCliquePtr = yes(ThisCliquePtr),
+			ThisCliquePtr = ToCliquePtr
+		->
+			% We don't link recursive calls
+			ProcName = CalleeName
+		;
+			ToCliquePtr = clique_ptr(ToCliqueNum),
+			ProcName =
+				format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
+					[s(URLprefix), s(Fields),
+					i(ToCliqueNum), s(CalleeName)])
+		)
 	;
-		ToCliquePtr = clique_ptr(ToCliqueNum),
-		ProcName =
-			format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
-				[s(URLprefix), s(Fields),
-				i(ToCliqueNum), s(CalleeName)])
+		ProcName = "builtin special procedure"
 	),
 	( PrintCallSiteLineNmber = call_site_line_number ->
 		deep_lookup_call_site_static_map(Deep, CSDPtr, CSSPtr),
@@ -848,7 +956,7 @@ call_site_summary_group_to_html(URLprefix, Deep, Fields, PSPtr - CSDPtrs)
 		zero_own_prof_info, Own, zero_inherit_prof_info, Desc),
 	HTML =
 		"<TR>\n" ++
-		format("<TD>%s</TD>\n",
+		format("<TD></TD><TD>%s</TD>\n",
 			[s(proc_static_to_html_ref(URLprefix,
 				Deep, Fields, PSPtr))]) ++
 		own_and_desc_to_html(Own, Desc, Deep, Fields) ++

@@ -291,7 +291,6 @@ typedef enum {
 		*MR_current_callback_site = (csdlist);			\
 	} while (0)
 
-#define	MR_DEEP_CHECKS
 #ifdef	MR_DEEP_CHECKS
   #define MR_deep_assert(cond)						\
  	do {								\
@@ -333,7 +332,7 @@ extern	void	MR_deep_assert_failed(const char *cond,
 			const char *filename, int linenumber);
 extern	void	MR_setup_callback(void *entry);
 extern	void	MR_write_out_proc_static(FILE *fp, const MR_ProcStatic *ptr);
-extern	void	MR_write_out_profiling_tree(FILE *fp);
+extern	void	MR_write_out_profiling_tree(void);
 
 extern	void	MR_deep_prof_init(void);
 

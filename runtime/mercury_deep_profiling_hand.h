@@ -290,14 +290,14 @@
 		label, MR_ENTRY(proclabel));				\
     MR_define_label(label);						\
 	MR_update_prof_current_proc(MR_LABEL(proclabel));		\
-	MR_stackvar(first_slot) = MR_r1;	/* TopCSD */		\
-	MR_stackvar(first_slot+1) = MR_r2;	/* MiddleCSD */		\
-	MR_stackvar(first_slot+3) = MR_r3;	/* NewActivationPtr */	\
+	MR_framevar(first_slot) = MR_r1;	/* TopCSD */		\
+	MR_framevar(first_slot+1) = MR_r2;	/* MiddleCSD */		\
+	MR_framevar(first_slot+3) = MR_r3;	/* NewActivationPtr */	\
 	(void) 0
 
 #define	MR_deep_non_exit_ac(proclabel, first_slot, label)		\
-	MR_r1 = MR_stackvar(first_slot);	/* TopCSD */		\
-	MR_r2 = MR_stackvar(first_slot+1);	/* MiddleCSD */		\
+	MR_r1 = MR_framevar(first_slot);	/* TopCSD */		\
+	MR_r2 = MR_framevar(first_slot+1);	/* MiddleCSD */		\
 	MR_call_localret(MR_ENTRY(					\
 		mercury__profiling_builtin__non_exit_port_code_ac_2_0),	\
 		label, MR_ENTRY(proclabel));				\
@@ -305,8 +305,8 @@
 	MR_update_prof_current_proc(MR_LABEL(proclabel))
 
 #define	MR_deep_non_redo_ac(proclabel, first_slot, label)		\
-	MR_r1 = MR_stackvar(first_slot+1);	/* MiddleCSD */		\
-	MR_r2 = MR_stackvar(first_slot+2);	/* NewActivationPtr */	\
+	MR_r1 = MR_framevar(first_slot+1);	/* MiddleCSD */		\
+	MR_r2 = MR_framevar(first_slot+2);	/* NewActivationPtr */	\
 	MR_call_localret(MR_ENTRY(					\
 		mercury__profiling_builtin__non_redo_port_code_ac_2_0),	\
 		label, MR_ENTRY(proclabel));				\
@@ -314,8 +314,8 @@
 	MR_update_prof_current_proc(MR_LABEL(proclabel))
 
 #define	MR_deep_non_fail_ac(proclabel, first_slot, label)		\
-	MR_r1 = MR_stackvar(first_slot);	/* TopCSD */		\
-	MR_r2 = MR_stackvar(first_slot+1);	/* MiddleCSD */		\
+	MR_r1 = MR_framevar(first_slot);	/* TopCSD */		\
+	MR_r2 = MR_framevar(first_slot+1);	/* MiddleCSD */		\
 	MR_call_localret(MR_ENTRY(					\
 		mercury__profiling_builtin__non_fail_port_code_ac_2_0),	\
 		label, MR_ENTRY(proclabel));				\
@@ -331,16 +331,16 @@
 		label, MR_ENTRY(proclabel));				\
     MR_define_label(label);						\
 	MR_update_prof_current_proc(MR_LABEL(proclabel));		\
-	MR_stackvar(first_slot) = MR_r1;	/* TopCSD */		\
-	MR_stackvar(first_slot+1) = MR_r2;	/* MiddleCSD */		\
-	MR_stackvar(first_slot+3) = MR_r3;	/* OldActivationPtr */	\
-	MR_stackvar(first_slot+4) = MR_r4;	/* NewActivationPtr */	\
+	MR_framevar(first_slot) = MR_r1;	/* TopCSD */		\
+	MR_framevar(first_slot+1) = MR_r2;	/* MiddleCSD */		\
+	MR_framevar(first_slot+3) = MR_r3;	/* OldActivationPtr */	\
+	MR_framevar(first_slot+4) = MR_r4;	/* NewActivationPtr */	\
 	(void) 0
 
 #define	MR_deep_non_exit_sr(proclabel, first_slot, label)		\
-	MR_r1 = MR_stackvar(first_slot);	/* TopCSD */		\
-	MR_r2 = MR_stackvar(first_slot+1);	/* MiddleCSD */		\
-	MR_r3 = MR_stackvar(first_slot+2);	/* OldActivationPtr */	\
+	MR_r1 = MR_framevar(first_slot);	/* TopCSD */		\
+	MR_r2 = MR_framevar(first_slot+1);	/* MiddleCSD */		\
+	MR_r3 = MR_framevar(first_slot+2);	/* OldActivationPtr */	\
 	MR_call_localret(MR_ENTRY(					\
 		mercury__profiling_builtin__non_exit_port_code_sr_3_0),	\
 		label, MR_ENTRY(proclabel));				\
@@ -348,8 +348,8 @@
 	MR_update_prof_current_proc(MR_LABEL(proclabel))
 
 #define	MR_deep_non_redo_sr(proclabel, first_slot, label)		\
-	MR_r1 = MR_stackvar(first_slot+1);	/* MiddleCSD */		\
-	MR_r2 = MR_stackvar(first_slot+3);	/* NewActivationPtr */	\
+	MR_r1 = MR_framevar(first_slot+1);	/* MiddleCSD */		\
+	MR_r2 = MR_framevar(first_slot+3);	/* NewActivationPtr */	\
 	MR_call_localret(MR_ENTRY(					\
 		mercury__profiling_builtin__non_redo_port_code_sr_2_0),	\
 		label, MR_ENTRY(proclabel));				\
@@ -357,9 +357,9 @@
 	MR_update_prof_current_proc(MR_LABEL(proclabel))
 
 #define	MR_deep_non_fail_sr(proclabel, first_slot, label)		\
-	MR_r1 = MR_stackvar(first_slot);	/* TopCSD */		\
-	MR_r2 = MR_stackvar(first_slot+1);	/* MiddleCSD */		\
-	MR_r3 = MR_stackvar(first_slot+2);	/* OldActivationPtr */	\
+	MR_r1 = MR_framevar(first_slot);	/* TopCSD */		\
+	MR_r2 = MR_framevar(first_slot+1);	/* MiddleCSD */		\
+	MR_r3 = MR_framevar(first_slot+2);	/* OldActivationPtr */	\
 	MR_call_localret(MR_ENTRY(					\
 		mercury__profiling_builtin__non_fail_port_code_sr_3_0),	\
 		label, MR_ENTRY(proclabel));				\

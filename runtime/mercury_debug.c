@@ -297,6 +297,11 @@ MR_printregs(const char *msg)
 	printf("%-9s", "sp:");      MR_printdetstack(MR_sp);
 
 	MR_print_ordinary_regs();
+
+	if (MR_watch_addr != NULL) {
+		printf("watch addr %p: %lx %ld\n", MR_watch_addr,
+			(long) *MR_watch_addr, (long) *MR_watch_addr);
+	}
 }
 
 static void 

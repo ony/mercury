@@ -11,7 +11,7 @@
 :- import_module io.
 
 :- pred main(io__state, io__state).
-:- mode main(di, uo) is det.
+:- mode main(di, uo) is cc_multi.
 
 :- implementation.
 
@@ -204,20 +204,17 @@
 
 		% Output formats
 	;	flat
-	;	gprof
 	%;	browse
 	;	dot
 	;	dump
-	;	html
 
-		% XXX
 	;	server
-	;	input_file
-	;	output_file
-	;	wait
+	;	create_pipes
+	;	pipes_base_name
 	;	test
 	;	test_dir
 	;	test_fields
+	;	timeout
 	.
 
 :- type options ---> options.
@@ -260,8 +257,7 @@ main -->
 		format(StdErr, "error parsing options: %s\n", [s(Msg)])
 	).
 
-:- pred main2(globals, io__state, io__state).
-:- mode main2(in, di, uo) is det.
+:- pred main2(globals::in, io__state::di, io__state::uo) is cc_multi.
 
 main2(Globals0) -->
 	stderr_stream(StdErr),
@@ -295,8 +291,7 @@ main2(Globals0) -->
 sum_all_csd_quanta(_, call_site_dynamic(_, _, OwnPI), Sum0,
 	Sum0 + quanta(OwnPI)).
 
-:- pred main3(globals, deep, io__state, io__state).
-:- mode main3(in, in, di, uo) is det.
+:- pred main3(globals::in, deep::in, io__state::di, io__state::uo) is cc_multi.
 
 main3(Globals, Deep) -->
 	{ get_global(Globals, options) = options(Options) },
@@ -324,25 +319,16 @@ main3(Globals, Deep) -->
 	;
 		{ map__search(Options, server, string(Machine)) },
 		{ Machine \= "" },
-		{ map__search(Options, input_file, string(InputFileName)) },
-		{ map__search(Options, output_file, string(OutputFileName)) },
-		{ map__search(Options, wait, int(Wait)) }
+		{ map__search(Options, pipes_base_name, string(BaseName)) },
+		{ map__search(Options, timeout, int(TimeOut)) },
+		{ map__search(Options, create_pipes, bool(CreatePipes)) }
 	->
 		{ string__append_list(["http://", Machine, "/cgi-bin/deep"],
 			URLprefix) },
-		server_loop(InputFileName, OutputFileName, Wait, URLprefix,
-			Deep)
+		server(BaseName, URLprefix, TimeOut, CreatePipes, Deep)
 	;
 		[]
 	),
-	%( { search(Options, html, bool(yes)) } ->
-	%	stderr_stream(StdErr),
-	%	write_string(StdErr, "Generating HTML.\n"),
-	%	deep2html("Deep", Deep),
-	%	write_string(StdErr, "Done.\n")
-	%;
-	%	[]
-	%),
 	%( { search(Options, browse, bool(yes)) } ->
 	%	browse(Globals, Deep)
 	%;
@@ -492,43 +478,38 @@ main_parent_proc_id = user_defined(predicate, "mercury_runtime",
 :- pred short(char, option).
 :- mode short(in, out) is semidet.
 
-short('h',	help).
-
-short('d',	depth).
-
-short('F',	flat).
-short('g',	gprof).
 %short('b',	browse).
+
+short('C',	create_pipes).
 short('D',	dot).
+short('F',	flat).
 short('G',	dump).
-short('H',	html).
-short('f',	data_file).
+short('P',	pipes_base_name).
 short('S',	server).
-short('I',	input_file).
-short('O',	output_file).
-short('W',	wait).
 short('T',	test).
+short('d',	depth).
+short('f',	data_file).
+short('h',	help).
+short('t',	timeout).
 
 :- pred long(string, option).
 :- mode long(in, out) is semidet.
 
-long("help",	help).
+%long("browse",		browse).
 
-long("depth",	depth).
-
-long("flat",	flat).
-long("gprof",	gprof).
-%long("browse",	browse).
-long("dot",	dot).
-long("dump",	dump).
-long("html",	html).
-long("server",	server).
+long("create-pipes",	create_pipes).
 long("data-file",	data_file).
-long("input-file",	input_file).
-long("wait",	wait).
-long("test",	test).
+long("depth",		depth).
+long("dot",		dot).
+long("dump",		dump).
+long("flat",		flat).
+long("help",		help).
+long("pipes-base-name",	pipes_base_name).
+long("server",		server).
+long("test",		test).
 long("test-dir",	test_dir).
 long("test-fields",	test_fields).
+long("timeout",		timeout).
 
 :- pred defaults(option, option_data).
 :- mode defaults(out, out) is nondet.
@@ -540,24 +521,21 @@ defaults(Option, Data) :-
 :- pred defaults0(option, option_data).
 :- mode defaults0(out, out) is multi.
 
-defaults0(help,		bool(no)).
+%defaults0(browse,		bool(yes)).
 
-defaults0(depth,	int(1000)).
-
-defaults0(flat,		bool(no)).
-defaults0(gprof,	bool(no)).
-%defaults0(browse,	bool(yes)).
-defaults0(dot,		bool(no)).
-defaults0(dump,		bool(no)).
-defaults0(html,		bool(no)).
-defaults0(data_file,	maybe_string(no)).
-defaults0(server,	string("")).
-defaults0(input_file,	string("/var/tmp/toDeep")).
-defaults0(output_file,	string("/var/tmp/fromDeep")).
-defaults0(wait,		int(0)).
-defaults0(test,		bool(no)).
-defaults0(test_dir,	string("deep_test")).
-defaults0(test_fields,	string("pqw")).
+defaults0(create_pipes,		bool(no)).
+defaults0(help,			bool(no)).
+defaults0(depth,		int(1000)).
+defaults0(flat,			bool(no)).
+defaults0(dot,			bool(no)).
+defaults0(dump,			bool(no)).
+defaults0(data_file,		maybe_string(no)).
+defaults0(server,		string("")).
+defaults0(pipes_base_name,	string("/var/tmp/pipes")).
+defaults0(test,			bool(no)).
+defaults0(test_dir,		string("deep_test")).
+defaults0(test_fields,		string("pqw")).
+defaults0(timeout,		int(30)).
 
 :- func (get_global(globals, Key) = Value) <= global(Key, Value).
 

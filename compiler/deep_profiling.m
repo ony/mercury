@@ -534,16 +534,16 @@ maybe_transform_procedure(ModuleInfo, PredId, ProcId, ProcTable0, ProcTable,
 	proc_info_goal(ProcInfo0, Goal0),
 	predicate_module(ModuleInfo, PredId, PredModuleName),
 	(
-		(
-			% XXX We need to eliminate nondet C code...
-			Goal0 = pragma_foreign_code(_,_,_,_,_,_, Impl) - _,
-			Impl = nondet(_, _, _, _, _, _, _, _, _)
-		;
-			% We don't want to transform the procedures for
-			% managing the deep profiling call graph, or we'd get
-			% infinite recursion.
-			mercury_profiling_builtin_module(PredModuleName)
-		)
+		% XXX We need to eliminate nondet C code...
+		Goal0 = pragma_foreign_code(_,_,_,_,_,_, Impl) - _,
+		Impl = nondet(_, _, _, _, _, _, _, _, _)
+	->
+		error("deep profiling is incompatible with nondet foreign code")
+	;
+		% We don't want to transform the procedures for
+		% managing the deep profiling call graph, or we'd get
+		% infinite recursion.
+		mercury_profiling_builtin_module(PredModuleName)
 	->
 		ProcTable = ProcTable0,
 		ProcStatics = ProcStatics0
@@ -877,12 +877,23 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 		NewNonlocals = list_to_set([TopCSD, MiddleCSD])
 	),
 
+	% Even though the procedure has a model_non interface determinism,
+	% the actual determinism of its original body goal may have been
+	% at_most once. However, the exit/redo disjunction we insert into
+	% the procedure body means that the procedure body does actually leave
+	% a nondet stack frame when it succeeds, and its determinism must be
+	% adjusted accordingly.
+	goal_info_get_determinism(GoalInfo0, Detism0),
+	determinism_components(Detism0, CanFail, _),
+	determinism_components(Detism, CanFail, at_most_many),
+	goal_info_set_determinism(GoalInfo0, Detism, GoalInfo),
+
 	ExitRedoNonLocals = set__union(NewNonlocals,
 		list_to_set([NewOutermostProcDyn])),
 	ExitRedoGoalInfo = impure_reachable_init_goal_info(ExitRedoNonLocals,
 		multidet),
 
-	CallExitRedoGoalInfo = goal_info_add_nonlocals_make_impure(GoalInfo0,
+	CallExitRedoGoalInfo = goal_info_add_nonlocals_make_impure(GoalInfo,
 		ExitRedoNonLocals),
 
 	Goal = conj([
@@ -898,7 +909,7 @@ transform_non_proc(ModuleInfo, PredProcId, Proc0, Proc, yes(ProcStatic)) :-
 			]) - CallExitRedoGoalInfo,
 			FailPortCode
 		], map__init) - CallExitRedoGoalInfo
-	]) - GoalInfo0,
+	]) - GoalInfo,
 	proc_info_set_varset(Proc0, Vars, Proc1),
 	proc_info_set_vartypes(Proc1, VarTypes, Proc2),
 	proc_info_set_goal(Proc2, Goal, Proc).

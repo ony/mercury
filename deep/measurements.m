@@ -44,11 +44,14 @@
 :- func compress_profile(int, int, int, int, int, int, int) = own_prof_info.
 :- func compress_profile(own_prof_info) = own_prof_info.
 
+:- func own_to_string(own_prof_info) = string.
+
 %-----------------------------------------------------------------------------%
 
 :- implementation.
 
 :- import_module int.
+:- import_module string.
 
 :- type own_prof_info
 	--->	all(int, int, int, int, int, int, int)
@@ -195,3 +198,29 @@ compress_profile(PI0) = PI :-
 		PI0 = zdet(_, _, _),
 		PI = PI0
 	).
+
+%-----------------------------------------------------------------------------%
+
+own_to_string(all(Calls, Exits, Fails, Redos, Quanta, Allocs, Words)) =
+	"all(" ++
+	string__int_to_string(Calls) ++ ", " ++
+	string__int_to_string(Exits) ++ ", " ++
+	string__int_to_string(Fails) ++ ", " ++
+	string__int_to_string(Redos) ++ ", " ++
+	string__int_to_string(Quanta) ++ ", " ++
+	string__int_to_string(Allocs) ++ ", " ++
+	string__int_to_string(Words) ++
+	")".
+own_to_string(det(Calls, Quanta, Allocs, Words)) =
+	"det(" ++
+	string__int_to_string(Calls) ++ ", " ++
+	string__int_to_string(Quanta) ++ ", " ++
+	string__int_to_string(Allocs) ++ ", " ++
+	string__int_to_string(Words) ++
+	")".
+own_to_string(zdet(Calls, Allocs, Words)) =
+	"det(" ++
+	string__int_to_string(Calls) ++ ", " ++
+	string__int_to_string(Allocs) ++ ", " ++
+	string__int_to_string(Words) ++
+	")".

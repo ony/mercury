@@ -14,6 +14,7 @@
 
 :- type cmd
 	--->	quit
+	;	timeout(int)
 	;	menu
 	;	root(fields)
 	;	clique(int, fields)
@@ -21,7 +22,10 @@
 	;	top_procs(sort_measurement, include_descendants,
 			display_limit, fields)
 	;	proc_static(int)
+	;	proc_dynamic(int)
 	;	call_site_static(int)
+	;	call_site_dynamic(int)
+	;	raw_clique(int)
 	;	num_proc_statics
 	;	num_call_site_statics
 	;	num_proc_dynamics

@@ -93,6 +93,7 @@ const char	*MR_mdb_err_filename = NULL;
 /* other options */
 
 bool		MR_check_space = FALSE;
+MR_Word		*MR_watch_addr = NULL;
 
 static	bool	benchmark_all_solns = FALSE;
 static	bool	use_own_timer = FALSE;
@@ -820,45 +821,64 @@ process_options(int argc, char **argv)
 #ifdef CONSERVATIVE_GC
 				GC_quiet = FALSE;
 #endif
-			}
-			else if (streq(MR_optarg, "b"))
+			} else if (streq(MR_optarg, "b")) {
 				MR_nondstackdebug = TRUE;
-			else if (streq(MR_optarg, "c"))
+			} else if (streq(MR_optarg, "c")) {
 				MR_calldebug    = TRUE;
-			else if (streq(MR_optarg, "d"))
+			} else if (streq(MR_optarg, "d")) {
 				MR_detaildebug  = TRUE;
-			else if (streq(MR_optarg, "f"))
+			} else if (streq(MR_optarg, "f")) {
 				MR_finaldebug   = TRUE;
-			else if (streq(MR_optarg, "g"))
+			} else if (streq(MR_optarg, "g")) {
 				MR_gotodebug    = TRUE;
-			else if (streq(MR_optarg, "G"))
+			} else if (streq(MR_optarg, "G")) {
 #ifdef CONSERVATIVE_GC
 				GC_quiet = FALSE;
 #else
 				; /* ignore inapplicable option */
 #endif
-			else if (streq(MR_optarg, "h"))
+			} else if (streq(MR_optarg, "h")) {
 				MR_heapdebug    = TRUE;
-			else if (streq(MR_optarg, "H"))
+			} else if (streq(MR_optarg, "H")) {
 				MR_hashdebug    = TRUE;
-			else if (streq(MR_optarg, "m"))
+			} else if (streq(MR_optarg, "m")) {
 				MR_memdebug     = TRUE;
-			else if (streq(MR_optarg, "p"))
+			} else if (streq(MR_optarg, "p")) {
 				MR_progdebug    = TRUE;
-			else if (streq(MR_optarg, "r"))
+			} else if (streq(MR_optarg, "r")) {
 				MR_sregdebug    = TRUE;
-			else if (streq(MR_optarg, "s"))
+			} else if (streq(MR_optarg, "s")) {
 				MR_detstackdebug  = TRUE;
-			else if (streq(MR_optarg, "S"))
+			} else if (streq(MR_optarg, "S")) {
 				MR_tablestackdebug = TRUE;
-			else if (streq(MR_optarg, "t"))
+			} else if (streq(MR_optarg, "t")) {
 				MR_tracedebug   = TRUE;
-			else if (streq(MR_optarg, "T"))
+			} else if (streq(MR_optarg, "T")) {
 				MR_tabledebug   = TRUE;
-			else if (streq(MR_optarg, "u"))
+			} else if (streq(MR_optarg, "u")) {
 				MR_unbufdebug   = TRUE;
-			else
+			} else if (MR_optarg[0] == 'w') {
+				long	addr;
+
+				if (MR_optarg[1] == '0' && MR_optarg[2] == 'x')
+				{
+					if (sscanf(MR_optarg+3, "%lx", &addr)
+						!= 1)
+					{
+						usage();
+					}
+				} else {
+					if (sscanf(MR_optarg+1, "%lu", &addr)
+						!= 1)
+					{
+						usage();
+					}
+				}
+
+				MR_watch_addr = (MR_Word *) addr;
+			} else {
 				usage();
+			}
 
 			use_own_timer = FALSE;
 			break;
@@ -1446,16 +1466,9 @@ mercury_runtime_terminate(void)
 #endif
 
 #ifdef MR_DEEP_PROFILING
+	MR_deep_prof_turn_off_time_profiling();
 	if (MR_deep_profiling_save_results) {
-		FILE	*fp;
-
-		MR_deep_prof_turn_off_time_profiling();
-		fp = fopen("Deep.data", "w");
-		if (fp != NULL) {
-			MR_write_out_profiling_tree(fp);
-		} else {
-			MR_fatal_error("Cannot open Deep.data");
-		}
+		MR_write_out_profiling_tree();
 	}
 #endif
 

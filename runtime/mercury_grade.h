@@ -106,42 +106,54 @@
   #define MR_GRADE_PART_4	MR_GRADE_PART_3
 #endif
 
-#ifdef MR_MPROF_PROFILE_TIME
-  #ifdef MR_MPROF_PROFILE_CALLS
-    #ifdef MR_MPROF_PROFILE_MEMORY
-      #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _profall)
-    #else
-      #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _prof)
-    #endif
-  #else
-    #ifdef MR_MPROF_PROFILE_MEMORY
-      /*
-      ** Memory profiling interferes with time profiling,
-      ** so there's no point in allowing this.
-      */
-      #error "Invalid combination of profiling options"
-    #else
-      /* Currently useless, but... */
-      #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _proftime)
-    #endif
+#ifdef MR_DEEP_PROFILING
+  #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _profdeep)
+  #if defined(MR_MPROF_PROFILE_TIME) || defined(MR_MPROF_PROFILE_CALLS) \
+	|| defined(MR_MPROF_PROFILE_MEMORY)
+    /*
+    ** Deep profiling is completely separate from the other profiling
+    ** alternatives, and there is no point in allowing their combination.
+    */
+    #error "Invalid combination of profiling options"
   #endif
 #else
-  #ifdef MR_MPROF_PROFILE_CALLS
-    #ifdef MR_MPROF_PROFILE_MEMORY
-      #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _memprof)
+  #ifdef MR_MPROF_PROFILE_TIME
+    #ifdef MR_MPROF_PROFILE_CALLS
+      #ifdef MR_MPROF_PROFILE_MEMORY
+        #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _profall)
+      #else
+        #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _prof)
+      #endif
     #else
-      #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _profcalls)
+      #ifdef MR_MPROF_PROFILE_MEMORY
+        /*
+        ** Memory profiling interferes with time profiling,
+        ** so there's no point in allowing this.
+        */
+        #error "Invalid combination of profiling options"
+      #else
+        /* Currently useless, but... */
+        #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _proftime)
+      #endif
     #endif
   #else
-    #ifdef MR_MPROF_PROFILE_MEMORY
-      /*
-      ** Call-graph memory profiling requires call profiling,
-      ** and call profiling is reasonably cheap, so there's
-      ** no point in allowing this.
-      */
-      #error "Invalid combination of profiling options"
+    #ifdef MR_MPROF_PROFILE_CALLS
+      #ifdef MR_MPROF_PROFILE_MEMORY
+        #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _memprof)
+      #else
+        #define MR_GRADE_PART_5	MR_PASTE2(MR_GRADE_PART_4, _profcalls)
+      #endif
     #else
-      #define MR_GRADE_PART_5	MR_GRADE_PART_4
+      #ifdef MR_MPROF_PROFILE_MEMORY
+        /*
+        ** Call-graph memory profiling requires call profiling,
+        ** and call profiling is reasonably cheap, so there's
+        ** no point in allowing this.
+        */
+        #error "Invalid combination of profiling options"
+      #else
+        #define MR_GRADE_PART_5	MR_GRADE_PART_4
+      #endif
     #endif
   #endif
 #endif

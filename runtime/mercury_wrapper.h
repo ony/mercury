@@ -199,7 +199,9 @@ extern	const char	*MR_mdb_err_filename;
 /* size of the primary cache */
 extern	size_t		MR_pcache_size;
 
+/* low level debugging */
 extern	bool		MR_check_space;
+extern	MR_Word		*MR_watch_addr;
 
 /* timing */
 extern	int		MR_time_at_start;

@@ -93,11 +93,11 @@ ints:	deep.ints cgi.ints
 
 #-----------------------------------------------------------------------------#
 
-.PHONY:		tags
+.PHONY: tags
 tags:		.deep.tags
 
 .deep.tags:	$(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
-		$(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
+	$(MTAGS) $(deep.ms) $(cgi.ms) $(LIBRARY_DIR)/*.m
 		touch .deep.tags
 
 #-----------------------------------------------------------------------------#

@@ -582,6 +582,7 @@ sys_init_array_module_builtins_init_type_tables(void)
 		&mercury_data_array__type_ctor_info_array_1);
 }
 
+#ifdef	MR_DEEP_PROFILING
 void
 sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
 {
@@ -590,6 +591,7 @@ sys_init_array_module_builtins_write_out_proc_statics(FILE *fp)
 	MR_write_out_proc_static(fp, (MR_ProcStatic *)
 		&MR_proc_static_compiler_name(array, __Compare__, array, 1, 0));
 }
+#endif
 
 #endif /* ! MR_HIGHLEVEL_CODE */
 
@@ -692,7 +694,8 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 
 :- pragma foreign_decl("C", "
 #include ""mercury_library_types.h""	/* for MR_ArrayType */
-#include ""mercury_misc.h""		/* for MR_fatal_error() */
+/* #include ""exception.h""		for ML_throw_string() */
+extern	void	ML_throw_string(const char *msg);
 ").
 
 :- pragma foreign_decl("C", "
@@ -718,6 +721,11 @@ ML_make_array(MR_Integer size, MR_Word item)
 :- pragma foreign_code("C", 
 		array__init(Size::in, Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
+#ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
+	if (Size < 0) {
+		ML_throw_string(""array__init: negative size"");
+	}
+#endif
 	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_make_array(Size, Item);
 ").
@@ -863,7 +871,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 	MR_ArrayType *array = (MR_ArrayType *)Array;
 #ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
 	if ((MR_Unsigned) Index >= (MR_Unsigned) array->size) {
-		MR_fatal_error(""array__lookup: array index out of bounds"");
+		ML_throw_string(""array__lookup: array index out of bounds"");
 	}
 #endif
 	Item = array->elements[Index];
@@ -874,7 +882,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 	MR_ArrayType *array = (MR_ArrayType *)Array;
 #ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
 	if ((MR_Unsigned) Index >= (MR_Unsigned) array->size) {
-		MR_fatal_error(""array__lookup: array index out of bounds"");
+		ML_throw_string(""array__lookup: array index out of bounds"");
 	}
 #endif
 	Item = array->elements[Index];
@@ -903,7 +911,7 @@ array__slow_set(Array0, Index, Item, Array) :-
 	MR_ArrayType *array = (MR_ArrayType *)Array0;
 #ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
 	if ((MR_Unsigned) Index >= (MR_Unsigned) array->size) {
-		MR_fatal_error(""array__set: array index out of bounds"");
+		ML_throw_string(""array__set: array index out of bounds"");
 	}
 #endif
 	array->elements[Index] = Item;	/* destructive update! */
@@ -993,7 +1001,7 @@ ML_shrink_array(MR_ArrayType *old_array, MR_Integer array_size)
 	old_array_size = old_array->size;
 	if (old_array_size == array_size) return old_array;
 	if (old_array_size < array_size) {
-		MR_fatal_error(
+		ML_throw_string(
 			""array__shrink: can't shrink to a larger size"");
 	}
 

@@ -16,11 +16,10 @@
 ** excp_handler
 ** handle_ticket_on_exit
 **
-** It should also define may_need_fail_action for the model_non versions.
+** For the model_non versions, it should also define
 **
-** XXX Note that we call succeed_discard() to exit regardless of the determinism
-** and (in the semidet case) of whether MR_r1 is true or false.  We just return the MR_r1 value
-** back to our caller.
+** version_model_non
+** handle_ticket_on_fail
 */
 
 /*
@@ -44,7 +43,7 @@
 #define	FAIL_REDOIP_LABEL(pl)		MR_PASTE3(pl, _i, 6)
 #define	FAIL_PORT_RETURN_LABEL(pl)	MR_PASTE3(pl, _i, 7)
 
-#if	defined(may_need_fail_action) && \
+#if	defined(version_model_non) && \
 		(defined(MR_USE_TRAIL) || defined(MR_DEEP_PROFILING))
   #define excp_catch_redoip(pl)	MR_LABEL(FAIL_REDOIP_LABEL(pl))
 #else
@@ -62,7 +61,7 @@ MR_define_entry(proc_label);
 	MR_create_exception_handler("builtin_catch/3" model,
 		excp_handler, MR_r3, excp_catch_redoip(proc_label));
 
-#if	defined(may_need_fail_action) && defined(MR_DEEP_PROFILING)
+#if	defined(version_model_non) && defined(MR_DEEP_PROFILING)
 	/*
 	** Give the deep profiler control when execution backtracks into
 	** the closure.
@@ -101,18 +100,21 @@ MR_define_label(CLOSURE_RETURN_LABEL(proc_label));
 	handle_ticket_on_exit();
 #endif
 
+#ifdef	version_model_non
+	MR_succeed();
+#else
 	MR_succeed_discard();
-
-#if	defined(may_need_fail_action) && defined(MR_DEEP_PROFILING)
-
-MR_define_label(REDO_REDOIP_LABEL(proc_label));
-
-	MR_deep_non_redo(proc_static, FIRST_DEEP_SLOT,
-		REDO_PORT_RETURN_LABEL(proc_label));
-	/* executes MR_fail() */
 #endif
 
-#if	defined(may_need_fail_action) && \
+#if	defined(version_model_non) && defined(MR_DEEP_PROFILING)
+MR_define_label(REDO_REDOIP_LABEL(proc_label));
+	MR_deep_non_redo(proc_static, FIRST_DEEP_SLOT,
+		REDO_PORT_RETURN_LABEL(proc_label));
+	/* non_redo_port_code executes *semidet* failure */
+	MR_fail();
+#endif
+
+#if	defined(version_model_non) && \
 		(defined(MR_USE_TRAIL) || defined(MR_DEEP_PROFILING))
 
 MR_define_label(FAIL_REDOIP_LABEL(proc_label));
@@ -124,10 +126,12 @@ MR_define_label(FAIL_REDOIP_LABEL(proc_label));
 #ifdef	MR_DEEP_PROFILING
 	MR_deep_non_fail(proc_static, FIRST_DEEP_SLOT,
 		FAIL_PORT_RETURN_LABEL(proc_label));
-	/* executes MR_fail() */
+	/* non_redo_port_code executes *semidet* failure */
+	MR_fail();
 #endif
 
-#endif
+#endif	/* defined(version_model_non) && \
+		(defined(MR_USE_TRAIL) || defined(MR_DEEP_PROFILING)) */
 
 #undef	FIRST_DEEP_SLOT
 

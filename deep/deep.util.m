@@ -43,6 +43,9 @@
 	call_site_dynamic_ptr::in, maybe(clique_ptr)::out) is det.
 :- pred lookup_call_site_static_map(call_site_static_map::in,
 	call_site_dynamic_ptr::in, call_site_static_ptr::out) is det.
+:- pred lookup_call_site_calls(array(map(proc_static_ptr,
+	list(call_site_dynamic_ptr)))::in, call_site_static_ptr::in,
+	map(proc_static_ptr, list(call_site_dynamic_ptr))::out) is det.
 
 :- pred deep_lookup_call_site_dynamics(deep::in, call_site_dynamic_ptr::in,
 	call_site_dynamic::out) is det.
@@ -151,81 +154,117 @@ valid_call_site_static_ptr_raw(CallSiteStatics, call_site_static_ptr(CSSI)) :-
 
 lookup_call_site_dynamics(CallSiteDynamics, CSDPtr, CSD) :-
 	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(CallSiteDynamics, CSDI, CSD).
+	( CSDI > 0, array__in_bounds(CallSiteDynamics, CSDI) ->
+		array__lookup(CallSiteDynamics, CSDI, CSD)
+	;
+		error("lookup_call_site_dynamics: bounds error")
+	).
 
 lookup_call_site_statics(CallSiteStatics, CSSPtr, CSS) :-
 	CSSPtr = call_site_static_ptr(CSSI),
-	array__lookup(CallSiteStatics, CSSI, CSS).
+	( CSSI > 0, array__in_bounds(CallSiteStatics, CSSI) ->
+		array__lookup(CallSiteStatics, CSSI, CSS)
+	;
+		error("lookup_call_site_statics: bounds error")
+	).
 
 lookup_proc_dynamics(ProcDynamics, PDPtr, PD) :-
 	PDPtr = proc_dynamic_ptr(PDI),
-	array__lookup(ProcDynamics, PDI, PD).
+	( PDI > 0, array__in_bounds(ProcDynamics, PDI) ->
+		array__lookup(ProcDynamics, PDI, PD)
+	;
+		error("lookup_proc_dynamics: bounds error")
+	).
 
 lookup_proc_statics(ProcStatics, PSPtr, PS) :-
 	PSPtr = proc_static_ptr(PSI),
-	array__lookup(ProcStatics, PSI, PS).
+	( PSI > 0, array__in_bounds(ProcStatics, PSI) ->
+		array__lookup(ProcStatics, PSI, PS)
+	;
+		error("lookup_proc_statics: bounds error")
+	).
 
 lookup_clique_index(CliqueIndex, PDPtr, CliquePtr) :-
 	PDPtr = proc_dynamic_ptr(PDI),
-	array__lookup(CliqueIndex, PDI, CliquePtr).
+	( PDI > 0, array__in_bounds(CliqueIndex, PDI) ->
+		array__lookup(CliqueIndex, PDI, CliquePtr)
+	;
+		error("lookup_clique_index: bounds error")
+	).
 
 lookup_clique_members(CliqueMembers, CliquePtr, PDPtrs) :-
 	CliquePtr = clique_ptr(CI),
-	array__lookup(CliqueMembers, CI, PDPtrs).
+	( array__in_bounds(CliqueMembers, CI) ->
+		array__lookup(CliqueMembers, CI, PDPtrs)
+	;
+		error("lookup_clique_members: bounds error")
+	).
 
 lookup_clique_parents(CliqueParents, CliquePtr, CSDPtr) :-
 	CliquePtr = clique_ptr(CI),
-	array__lookup(CliqueParents, CI, CSDPtr).
+	( array__in_bounds(CliqueParents, CI) ->
+		array__lookup(CliqueParents, CI, CSDPtr)
+	;
+		error("lookup_clique_parents: bounds error")
+	).
 
 lookup_clique_maybe_child(CliqueMaybeChild, CSDPtr, MaybeCliquePtr) :-
 	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(CliqueMaybeChild, CSDI, MaybeCliquePtr).
+	( CSDI > 0, array__in_bounds(CliqueMaybeChild, CSDI) ->
+		array__lookup(CliqueMaybeChild, CSDI, MaybeCliquePtr)
+	;
+		error("lookup_clique_maybe_child: bounds error")
+	).
 
 lookup_call_site_static_map(CallSiteStaticMap, CSDPtr, CSSPtr) :-
 	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(CallSiteStaticMap, CSDI, CSSPtr).
+	( CSDI > 0, array__in_bounds(CallSiteStaticMap, CSDI) ->
+		array__lookup(CallSiteStaticMap, CSDI, CSSPtr)
+	;
+		error("lookup_call_site_static_map: bounds error")
+	).
+
+lookup_call_site_calls(CallSiteCalls, CSSPtr, Calls) :-
+	CSSPtr = call_site_static_ptr(CSSI),
+	( CSSI > 0, array__in_bounds(CallSiteCalls, CSSI) ->
+		array__lookup(CallSiteCalls, CSSI, Calls)
+	;
+		error("lookup_call_site_static_map: bounds error")
+	).
 
 %-----------------------------------------------------------------------------%
 
 deep_lookup_call_site_dynamics(Deep, CSDPtr, CSD) :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(Deep ^ call_site_dynamics, CSDI, CSD).
+	lookup_call_site_dynamics(Deep ^ call_site_dynamics, CSDPtr, CSD).
 
 deep_lookup_call_site_statics(Deep, CSSPtr, CSS) :-
-	CSSPtr = call_site_static_ptr(CSSI),
-	array__lookup(Deep ^ call_site_statics, CSSI, CSS).
+	lookup_call_site_statics(Deep ^ call_site_statics, CSSPtr, CSS).
 
 deep_lookup_proc_dynamics(Deep, PDPtr, PD) :-
-	PDPtr = proc_dynamic_ptr(PDI),
-	array__lookup(Deep ^ proc_dynamics, PDI, PD).
+	lookup_proc_dynamics(Deep ^ proc_dynamics, PDPtr, PD).
 
 deep_lookup_proc_statics(Deep, PSPtr, PS) :-
-	PSPtr = proc_static_ptr(PSI),
-	array__lookup(Deep ^ proc_statics, PSI, PS).
+	lookup_proc_statics(Deep ^ proc_statics, PSPtr, PS).
 
 deep_lookup_clique_index(Deep, PDPtr, CliquePtr) :-
-	PDPtr = proc_dynamic_ptr(PDI),
-	array__lookup(Deep ^ clique_index, PDI, CliquePtr).
+	lookup_clique_index(Deep ^ clique_index, PDPtr, CliquePtr).
 
 deep_lookup_clique_members(Deep, CliquePtr, PDPtrs) :-
-	CliquePtr = clique_ptr(CI),
-	array__lookup(Deep ^ clique_members, CI, PDPtrs).
+	lookup_clique_members(Deep ^ clique_members, CliquePtr, PDPtrs).
 
 deep_lookup_clique_parents(Deep, CliquePtr, CSDPtr) :-
-	CliquePtr = clique_ptr(CI),
-	array__lookup(Deep ^ clique_parents, CI, CSDPtr).
+	lookup_clique_parents(Deep ^ clique_parents, CliquePtr, CSDPtr).
 
 deep_lookup_clique_maybe_child(Deep, CSDPtr, MaybeCliquePtr) :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(Deep ^ clique_maybe_child, CSDI, MaybeCliquePtr).
+	lookup_clique_maybe_child(Deep ^ clique_maybe_child, CSDPtr,
+		MaybeCliquePtr).
 
 deep_lookup_call_site_static_map(Deep, CSDPtr, CSSPtr) :-
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	array__lookup(Deep ^ call_site_static_map, CSDI, CSSPtr).
+	lookup_call_site_static_map(Deep ^ call_site_static_map, CSDPtr,
+		CSSPtr).
 
 deep_lookup_call_site_calls(Deep, CSSPtr, Calls) :-
-	CSSPtr = call_site_static_ptr(CSSI),
-	array__lookup(Deep ^ call_site_calls, CSSI, Calls).
+	lookup_call_site_calls(Deep ^ call_site_calls, CSSPtr, Calls).
 
 deep_lookup_proc_dynamic_sites(Deep, PDPtr, PDSites) :-
 	deep_lookup_proc_dynamics(Deep, PDPtr, PD),

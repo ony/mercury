@@ -21,135 +21,185 @@
 :- import_module char, string, int, list, set, require, std_util.
 
 main -->
-	io__get_environment_var("QUERY_STRING", MQStr),
+	io__get_environment_var("QUERY_STRING", MaybeQueryString),
 	(
-		{ MQStr = yes(QStr) },
-		{ split(QStr, ('+'), Pieces) },
-		(
-			{
-				Pieces = ["clique", NStr],
-				string__to_int(NStr, N),
-				Fields = default_fields
-			;
-				Pieces = ["clique", Fields, NStr],
-				string__to_int(NStr, N),
-				validate_fields(Fields)
-			}
-		->
-			to("/var/tmp/toDeep", clique(N, Fields)),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{
-				Pieces = ["proc", NStr],
-				string__to_int(NStr, N),
-				Fields = default_fields
-			;
-				Pieces = ["proc", Fields, NStr],
-				string__to_int(NStr, N),
-				validate_fields(Fields)
-			}
-		->
-			to("/var/tmp/toDeep", proc(N, Fields)),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{
-				Pieces = ["procs", SortStr, InclDescStr,
-					LimitStr],
-				Fields = default_fields
-			;
-				Pieces = ["procs", SortStr, InclDescStr,
-					LimitStr, Fields],
-				validate_fields(Fields)
-			},
-			{ translate_criteria(SortStr, Sort,
-				InclDescStr, InclDesc, LimitStr, Limit) }
-		->
-			to("/var/tmp/toDeep",
-				top_procs(Sort, InclDesc, Limit, Fields)),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{
-				Pieces = ["root"],
-				Fields = default_fields
-			;
-				Pieces = ["root", Fields],
-				validate_fields(Fields)
-			}
-		->
-			to("/var/tmp/toDeep", root(Fields)),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["menu"] }
-		->
-			to("/var/tmp/toDeep", menu),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["proc_static", NStr] },
-			{ string__to_int(NStr, N) }
-		->
-			to("/var/tmp/toDeep", proc_static(N)),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["call_site_static", NStr] },
-			{ string__to_int(NStr, N) }
-		->
-			to("/var/tmp/toDeep", call_site_static(N)),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["num_proc_statics"] }
-		->
-			to("/var/tmp/toDeep", num_proc_statics),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["num_call_site_statics"] }
-		->
-			to("/var/tmp/toDeep", num_call_site_statics),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["num_proc_dynamics"] }
-		->
-			to("/var/tmp/toDeep", num_proc_dynamics),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["num_call_site_dynamics"] }
-		->
-			to("/var/tmp/toDeep", num_call_site_dynamics),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			{ Pieces = ["quit"] }
-		->
-			to("/var/tmp/toDeep", quit),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		;
-			[]
-		)
+		{ MaybeQueryString = yes(QueryString0) },
+		init_query(QueryString0, QueryString, ToServer, FromServer),
+		handle_query(QueryString, ToServer, FromServer)
 	;
-		{ MQStr = no }
+		{ MaybeQueryString = no }
 	).
+
+:- pred handle_query(string::in, string::in, string::in,
+	io__state::di, io__state::uo) is det.
+
+handle_query(QueryString, ToServer, FromServer) -->
+	{ split(QueryString, ('+'), Pieces) },
+	(
+		{
+			Pieces = ["clique", NStr],
+			string__to_int(NStr, N),
+			Fields = default_fields
+		;
+			Pieces = ["clique", Fields, NStr],
+			string__to_int(NStr, N),
+			validate_fields(Fields)
+		}
+	->
+		to(ToServer, clique(N, Fields)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{
+			Pieces = ["proc", NStr],
+			string__to_int(NStr, N),
+			Fields = default_fields
+		;
+			Pieces = ["proc", Fields, NStr],
+			string__to_int(NStr, N),
+			validate_fields(Fields)
+		}
+	->
+		to(ToServer, proc(N, Fields)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{
+			Pieces = ["procs", SortStr, InclDescStr,
+				LimitStr],
+			Fields = default_fields
+		;
+			Pieces = ["procs", SortStr, InclDescStr,
+				LimitStr, Fields],
+			validate_fields(Fields)
+		},
+		{ translate_criteria(SortStr, Sort,
+			InclDescStr, InclDesc, LimitStr, Limit) }
+	->
+		to(ToServer, top_procs(Sort, InclDesc, Limit, Fields)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{
+			Pieces = ["root"],
+			Fields = default_fields
+		;
+			Pieces = ["root", Fields],
+			validate_fields(Fields)
+		}
+	->
+		to(ToServer, root(Fields)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["menu"] }
+	->
+		to(ToServer, menu),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["proc_static", NStr] },
+		{ string__to_int(NStr, N) }
+	->
+		to(ToServer, proc_static(N)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["proc_dynamic", NStr] },
+		{ string__to_int(NStr, N) }
+	->
+		to(ToServer, proc_dynamic(N)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["call_site_static", NStr] },
+		{ string__to_int(NStr, N) }
+	->
+		to(ToServer, call_site_static(N)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["call_site_dynamic", NStr] },
+		{ string__to_int(NStr, N) }
+	->
+		to(ToServer, call_site_dynamic(N)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["raw_clique", NStr] },
+		{ string__to_int(NStr, N) }
+	->
+		to(ToServer, raw_clique(N)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["num_proc_statics"] }
+	->
+		to(ToServer, num_proc_statics),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["num_call_site_statics"] }
+	->
+		to(ToServer, num_call_site_statics),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["num_proc_dynamics"] }
+	->
+		to(ToServer, num_proc_dynamics),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["num_call_site_dynamics"] }
+	->
+		to(ToServer, num_call_site_dynamics),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["timeout", TStr] },
+		{ string__to_int(TStr, TimeOut) }
+	->
+		to(ToServer, timeout(TimeOut)),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		{ Pieces = ["quit"] }
+	->
+		to(ToServer, quit),
+		from(FromServer, html(Str)),
+		write_string("Content-type: text/html\n\n"),
+		write_string(Str)
+	;
+		[]
+	).
+
+:- pred init_query(string::in, string::out, string::out, string::out,
+	io__state::di, io__state::uo) is det.
+
+init_query(QueryString0, QueryString, ToServer, FromServer) -->
+	{ extract_base_name(QueryString0, QueryString, BaseName) },
+	{ string__append(BaseName, "_to_server", ToServer) },
+	{ string__append(BaseName, "_from_server", FromServer) }.
+
+:- pred extract_base_name(string::in, string::out, string::out) is det.
+
+extract_base_name(QueryString, QueryString, "/var/tmp/pipes").
 
 :- pred translate_criteria(string::in, sort_measurement::out,
 	string::in, include_descendants::out, string::in, display_limit::out)

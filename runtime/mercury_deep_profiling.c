@@ -174,11 +174,15 @@ typedef enum node_kind {
 	kind_csd, kind_pd, kind_css, kind_ps
 } MR_NodeKind;
 
+/* must correspond to fixed_size_int_bytes in deep/deep.io.m */
+#define	MR_FIXED_SIZE_INT_BYTES	4
+
 static	void	MR_write_csd_ptr(FILE *fp, const MR_CallSiteDynamic *ptr);
 static	void	MR_write_ptr(FILE *fp, MR_NodeKind kind, const int node_id);
 static	void	MR_write_kind(FILE *fp, MR_CallSite_Kind kind);
 static	void	MR_write_byte(FILE *fp, const char byte);
 static	void	MR_write_num(FILE *fp, unsigned long num);
+static	void	MR_write_fixed_size_int(FILE *fp, unsigned long num);
 static	void	MR_write_string(FILE *fp, const char *ptr);
 
 /*----------------------------------------------------------------------------*/
@@ -235,12 +239,18 @@ static	FILE		*debug_fp;
 #endif
 
 void
-MR_write_out_profiling_tree(FILE *fp)
+MR_write_out_profiling_tree(void)
 {
 	int			i;
 	MR_ProfilingHashNode	*n;
 	MR_Proc_Id		*pid;
 	int			root_pd_id;
+	FILE			*fp;
+
+	fp = fopen("Deep.data", "w+");
+	if (fp == NULL) {
+		MR_fatal_error("Cannot open Deep.data");
+	}
 
 #ifdef	MR_DEEP_PROFILING_DEBUG
 	debug_fp = fopen("Deep.debug", "w");
@@ -248,6 +258,11 @@ MR_write_out_profiling_tree(FILE *fp)
 		debug_fp = stderr;
 	}
 #endif
+
+	MR_write_fixed_size_int(fp, 0);
+	MR_write_fixed_size_int(fp, 0);
+	MR_write_fixed_size_int(fp, 0);
+	MR_write_fixed_size_int(fp, 0);
 
 	MR_write_num(fp, MR_quanta_inside_deep_profiling_code);
 	MR_write_num(fp, MR_quanta_outside_deep_profiling_code);
@@ -278,6 +293,13 @@ MR_write_out_profiling_tree(FILE *fp)
 		(MR_ProcStatic *) &MR_main_parent_proc_static);
 	MR_deep_assert(MR_address_of_write_out_proc_statics != NULL);
 	(*MR_address_of_write_out_proc_statics)(fp);
+
+	rewind(fp);
+	MR_write_fixed_size_int(fp, MR_call_site_dynamic_table->last_id);
+	MR_write_fixed_size_int(fp, MR_call_site_static_table->last_id);
+	MR_write_fixed_size_int(fp, MR_proc_dynamic_table->last_id);
+	MR_write_fixed_size_int(fp, MR_proc_static_table->last_id);
+	(void) fclose(fp);
 
 #ifdef MR_DEEP_PROFILING_STATISTICS
 	if (! MR_print_deep_profiling_statistics) {
@@ -752,6 +774,23 @@ MR_write_num(FILE *fp, unsigned long num)
 		fputc(pieces[i--] | 0x80, fp);
 	}
 	fputc(pieces[0], fp);
+}
+
+static void
+MR_write_fixed_size_int(FILE *fp, unsigned long num)
+{
+	int	i;
+
+#ifdef	MR_DEEP_PROFILING_DETAIL_DEBUG
+	fprintf(debug_fp, "fixed_size_int: %ld\n", num);
+#endif
+
+	MR_deep_assert((int) num >= 0);
+
+	for (i = 0; i < MR_FIXED_SIZE_INT_BYTES; i++) {
+		fputc(num & ((1 << 8) - 1), fp);
+		num = num >> 8;
+	}
 }
 
 static void

@@ -31,6 +31,9 @@
 :- func throw(T) = _.
 :- mode throw(in) = out is erroneous.
 
+:- pred throw_string(string).
+:- mode throw_string(in) is erroneous.
+
 % The following types are used by try/3 and try/5.
 
 :- type exception_result(T)
@@ -521,6 +524,11 @@ very_unsafe_perform_io(Goal, Result) :-
 wrap_exception(Exception, exception(Exception)).
 
 %-----------------------------------------------------------------------------%
+
+:- pragma export(throw_string(in), "ML_throw_string").
+
+throw_string(Msg) :-
+	throw(Msg).
 
 :- pred builtin_throw(univ).
 :- mode builtin_throw(in) is erroneous.
@@ -1135,13 +1143,16 @@ void mercury_sys_init_exceptions_write_out_proc_statics(FILE *fp);
 			""being omitted from the trace.\\n"", (msg));	\\
 	} while (0)
 
+/*
+** base_sp and base_curfr always hold MR_sp and MR_curfr. They exist
+** only because we cannot take the addresses of MR_sp and MR_curfr.
+*/
+
 static MR_Code *
-MR_trace_throw(MR_Code *success_pointer)
+MR_trace_throw(MR_Code *success_pointer, MR_Word *base_sp, MR_Word *base_curfr)
 {
 	const MR_Internal	*label;
 	const MR_Label_Layout	*return_label_layout;
-	MR_Word			*base_sp;
-	MR_Word			*base_curfr;
 
 	/*
 	** Find the layout info for the stack frame pointed to by MR_succip
@@ -1152,16 +1163,6 @@ MR_trace_throw(MR_Code *success_pointer)
 		return NULL;
 	}
 	return_label_layout = label->i_layout;
-
-	/*
-	** base_sp and base_curfr always hold MR_sp and MR_curfr. They exist
-	** only because we cannot take the addresses of MR_sp and MR_curfr.
-	*/
-
-	MR_restore_transient_registers();
-	base_sp = MR_sp;
-	base_curfr = MR_curfr;
-	MR_save_transient_registers();
 
 	while (return_label_layout != NULL) {
 		const MR_Proc_Layout		*entry_layout;
@@ -1244,7 +1245,6 @@ MR_declare_entry(mercury__do_call_closure);
 /* the following is defined in runtime/mercury_trace_base.c */
 MR_declare_entry(MR_do_trace_redo_fail);
 
-/* XXX the following block must be updated */
 #ifdef	MR_DEEP_PROFILING
 MR_declare_label(mercury__exception__builtin_catch_3_0_i1);
 MR_declare_label(mercury__exception__builtin_catch_3_1_i1);
@@ -1317,10 +1317,14 @@ MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_catch_3_5,
 	MR_DETISM_NON, MR_PROC_NO_SLOT_COUNT, MR_LONG_LVAL_TYPE_UNKNOWN,
 	MR_PREDICATE, ""exception"", ""builtin_catch"", 3, 5);
 
-MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_throw_1_0,
-        MR_DETISM_DET, 1, MR_LONG_LVAL_STACKVAR(1),
-        MR_PREDICATE, ""exception"", ""builtin_throw"", 1, 0);
-MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_throw_1_0, 1);
+#ifdef	MR_DEEP_PROFILING
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_0, 1);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_1, 1);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_2, 1);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_3, 1);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 1);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 1);
+#endif
 
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_0, 2);
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_1, 2);
@@ -1330,15 +1334,49 @@ MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 2);
 MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 2);
 
 #ifdef	MR_DEEP_PROFILING
-/* XXX 99 */
-MR_proc_static_user_ho(exception, builtin_catch, 3, 0, ""exception.m"", 99);
-MR_proc_static_user_ho(exception, builtin_catch, 3, 1, ""exception.m"", 99);
-MR_proc_static_user_ho(exception, builtin_catch, 3, 2, ""exception.m"", 99);
-MR_proc_static_user_ho(exception, builtin_catch, 3, 3, ""exception.m"", 99);
-MR_proc_static_user_ho(exception, builtin_catch, 3, 4, ""exception.m"", 99);
-MR_proc_static_user_ho(exception, builtin_catch, 3, 5, ""exception.m"", 99);
-/* XXX builtin_throw can make calls */
-MR_proc_static_user_ho(exception, builtin_throw, 1, 0, ""exception.m"", 99);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_0, 3);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_1, 3);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_2, 3);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_3, 3);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 3);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 3);
+#endif
+
+#ifdef	MR_DEEP_PROFILING
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 4);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 4);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 5);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 5);
+#endif
+
+#if	defined(MR_USE_TRAIL) || defined(MR_DEEP_PROFILING)
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 6);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 6);
+#endif
+
+#ifdef	MR_DEEP_PROFILING
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_4, 7);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_catch_3_5, 7);
+#endif
+
+MR_MAKE_PROC_LAYOUT(mercury__exception__builtin_throw_1_0,
+        MR_DETISM_DET, 1, MR_LONG_LVAL_STACKVAR(1),
+        MR_PREDICATE, ""exception"", ""builtin_throw"", 1, 0);
+MR_MAKE_INTERNAL_LAYOUT(mercury__exception__builtin_throw_1_0, 1);
+
+#ifdef	MR_DEEP_PROFILING
+/* XXX the final 0s are fake line numbers */
+MR_proc_static_user_ho(exception, builtin_catch, 3, 0, ""exception.m"", 0);
+MR_proc_static_user_ho(exception, builtin_catch, 3, 1, ""exception.m"", 0);
+MR_proc_static_user_ho(exception, builtin_catch, 3, 2, ""exception.m"", 0);
+MR_proc_static_user_ho(exception, builtin_catch, 3, 3, ""exception.m"", 0);
+MR_proc_static_user_ho(exception, builtin_catch, 3, 4, ""exception.m"", 0);
+MR_proc_static_user_ho(exception, builtin_catch, 3, 5, ""exception.m"", 0);
+/*
+** XXX Builtin_throw will eventually be able to make calls in deep profiling
+** grades. In the meantime, we need its proc_static structure for its callers.
+*/
+MR_proc_static_user_empty(exception, builtin_throw, 1, 0, ""exception.m"");
 #endif
 
 MR_BEGIN_MODULE(exceptions_module)
@@ -1366,33 +1404,33 @@ MR_BEGIN_MODULE(exceptions_module)
 	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i2);
 
 #ifdef	MR_DEEP_PROFILING
-	MR_init_label(mercury__exception__builtin_catch_3_0_i3);
-	MR_init_label(mercury__exception__builtin_catch_3_1_i3);
-	MR_init_label(mercury__exception__builtin_catch_3_2_i3);
-	MR_init_label(mercury__exception__builtin_catch_3_3_i3);
-	MR_init_label(mercury__exception__builtin_catch_3_4_i3);
-	MR_init_label(mercury__exception__builtin_catch_3_5_i3);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_0_i3);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_1_i3);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_2_i3);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_3_i3);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i3);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i3);
 #endif
 
 #ifdef	MR_DEEP_PROFILING
-	MR_init_label(mercury__exception__builtin_catch_3_4_i4);
-	MR_init_label(mercury__exception__builtin_catch_3_5_i4);
-	MR_init_label(mercury__exception__builtin_catch_3_4_i5);
-	MR_init_label(mercury__exception__builtin_catch_3_5_i5);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i4);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i4);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i5);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i5);
 #endif
 
 #if	defined(MR_USE_TRAIL) || defined(MR_DEEP_PROFILING)
-	MR_init_label(mercury__exception__builtin_catch_3_4_i6);
-	MR_init_label(mercury__exception__builtin_catch_3_5_i6);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i6);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i6);
 #endif
 
 #ifdef	MR_DEEP_PROFILING
-	MR_init_label(mercury__exception__builtin_catch_3_4_i7);
-	MR_init_label(mercury__exception__builtin_catch_3_5_i7);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_4_i7);
+	MR_init_label_sl(mercury__exception__builtin_catch_3_5_i7);
 #endif
 
-	MR_init_entry(mercury__exception__builtin_throw_1_0);
-	MR_init_label(mercury__exception__builtin_throw_1_0_i1);
+	MR_init_entry_sl(mercury__exception__builtin_throw_1_0);
+	MR_init_label_sl(mercury__exception__builtin_throw_1_0_i1);
 MR_BEGIN_CODE
 
 /*
@@ -1503,7 +1541,7 @@ MR_BEGIN_CODE
 #define	model			""[model non]""
 #define	save_results()		save_r1
 #define	restore_results()	restore_r1
-#define	may_need_fail_action	TRUE
+#define	version_model_non	TRUE
 #define	handle_ticket_on_exit()	((void) 0)
 #define	handle_ticket_on_fail()	do {					\
 					MR_prune_ticket();		\
@@ -1524,7 +1562,7 @@ MR_BEGIN_CODE
 
 #undef	handle_ticket_on_fail
 #undef	handle_ticket_on_exit
-#undef	may_need_fail_action
+#undef	version_model_non
 #undef	restore_results
 #undef	save_results
 #undef	model
@@ -1562,7 +1600,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		MR_Code	*MR_jumpaddr;
 		MR_trace_set_exception_value(exception);
 		MR_save_transient_registers();
-		MR_jumpaddr = MR_trace_throw(MR_succip);
+		MR_jumpaddr = MR_trace_throw(MR_succip, MR_sp, MR_curfr);
 		MR_restore_transient_registers();
 		if (MR_jumpaddr != NULL) MR_GOTO(MR_jumpaddr);
 	}
@@ -1638,8 +1676,8 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	/*
 	** Save the handler we found
 	*/
-	catch_code_model = MR_EXCEPTION_FRAMEVARS->MR_excp_code_model;
-	handler = MR_EXCEPTION_FRAMEVARS->MR_excp_handler;
+	catch_code_model = MR_EXCEPTION_STRUCT->MR_excp_code_model;
+	handler = MR_EXCEPTION_STRUCT->MR_excp_handler;
 
 	/*
 	** Reset the success ip (i.e. return address).
@@ -1651,15 +1689,15 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	/*
 	** Reset the det stack.
 	*/
-	MR_sp = MR_EXCEPTION_FRAMEVARS->MR_excp_stack_ptr;
+	MR_sp = MR_EXCEPTION_STRUCT->MR_excp_stack_ptr;
 
 #ifdef MR_USE_TRAIL
 	/*
 	** Reset the trail.
 	*/
-	MR_reset_ticket(MR_EXCEPTION_FRAMEVARS->MR_excp_trail_ptr,
+	MR_reset_ticket(MR_EXCEPTION_STRUCT->MR_excp_trail_ptr,
 		MR_exception);
-	MR_discard_tickets_to(MR_EXCEPTION_FRAMEVARS->MR_excp_ticket_counter);
+	MR_discard_tickets_to(MR_EXCEPTION_STRUCT->MR_excp_ticket_counter);
 #endif
 #ifndef CONSERVATIVE_GC
 	/*
@@ -1681,7 +1719,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 
 	/* switch to the solutions heap */
 	if (MR_ENGINE(MR_eng_heap_zone) ==
-		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone)
+		MR_EXCEPTION_STRUCT->MR_excp_heap_zone)
 	{
 		swap_heaps();
 	}
@@ -1693,24 +1731,24 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	** Note that we need to save/restore the hp register, if it
 	** is transient, before/after calling MR_deep_copy().
 	*/
-	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr <=
-		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone->top);
+	assert(MR_EXCEPTION_STRUCT->MR_excp_heap_ptr <=
+		MR_EXCEPTION_STRUCT->MR_excp_heap_zone->top);
 	MR_save_transient_registers();
 	exception = MR_deep_copy(&exception,
 		(MR_TypeInfo) &mercury_data_std_util__type_ctor_info_univ_0,
-		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr,
-		MR_EXCEPTION_FRAMEVARS->MR_excp_heap_zone->top);
+		MR_EXCEPTION_STRUCT->MR_excp_heap_ptr,
+		MR_EXCEPTION_STRUCT->MR_excp_heap_zone->top);
 	MR_restore_transient_registers();
 
 	/* switch back to the ordinary heap */
 	swap_heaps();
 
 	/* reset the heap */
-	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr <= MR_hp);
-	MR_hp = MR_EXCEPTION_FRAMEVARS->MR_excp_heap_ptr;
+	assert(MR_EXCEPTION_STRUCT->MR_excp_heap_ptr <= MR_hp);
+	MR_hp = MR_EXCEPTION_STRUCT->MR_excp_heap_ptr;
 
 	/* MR_deep_copy the exception back to the ordinary heap */
-	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr <=
+	assert(MR_EXCEPTION_STRUCT->MR_excp_solns_heap_ptr <=
 		MR_ENGINE(MR_eng_solutions_heap_zone)->top);
 	MR_save_transient_registers();
 	exception = MR_deep_copy(&exception,
@@ -1720,7 +1758,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 	MR_restore_transient_registers();
 
 	/* reset the solutions heap */
-	assert(MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr
+	assert(MR_EXCEPTION_STRUCT->MR_excp_solns_heap_ptr
 		<= saved_solns_heap_ptr);
 	assert(saved_solns_heap_ptr <= MR_sol_hp);
 	if (catch_code_model == MR_MODEL_NON_HANDLER) {
@@ -1740,7 +1778,7 @@ MR_define_entry(mercury__exception__builtin_throw_1_0);
 		** we can safely reset the solutions heap to where
 		** it was when it try (catch) was entered.
 		*/
-		MR_sol_hp = MR_EXCEPTION_FRAMEVARS->MR_excp_solns_heap_ptr;
+		MR_sol_hp = MR_EXCEPTION_STRUCT->MR_excp_solns_heap_ptr;
 	}
 }
 #endif /* !defined(CONSERVATIVE_GC) */
@@ -1825,7 +1863,7 @@ INIT mercury_sys_init_exceptions
 void
 mercury_sys_init_exceptions_init(void)
 {
-#ifdef	MR_HIGHLEVEL_CODE
+#ifndef	MR_HIGHLEVEL_CODE
 	exceptions_module();
 #endif
 }
@@ -1840,7 +1878,20 @@ mercury_sys_init_exceptions_init_type_tables(void)
 void
 mercury_sys_init_exceptions_write_out_proc_statics(FILE *fp)
 {
-	/* XXX */
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_catch, 3, 0));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_catch, 3, 1));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_catch, 3, 2));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_catch, 3, 3));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_catch, 3, 4));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_catch, 3, 5));
+	MR_write_out_proc_static(fp, (MR_ProcStatic *)
+		&MR_proc_static_user_name(exception, builtin_throw, 1, 0));
 }
 #endif
 

@@ -807,102 +807,75 @@ XXX :- external stops us from using this
 #endif
 ").
 
-/*
-** Note that the code for this is identical to the code for 
-** table_multi_return_all_ans/2 (below).
-** Any changes to this code should also be made there.
-*/
-:- pragma foreign_code("C",
-	table_nondet_return_all_ans(T::in, A::out),
-	will_not_call_mercury,
-	local_vars("
-#ifdef MR_USE_MINIMAL_MODEL
-		MR_AnswerList	cur_node;
-#else
-		/* ensure local var struct is non-empty */
-		char	bogus;
-#endif
-	"),
-	first_code("
-#ifdef MR_USE_MINIMAL_MODEL
-		MR_TrieNode	table;
+table_nondet_return_all_ans(TrieNode, Answer) :-
+	semipure pickup_answer_list(TrieNode, CurNode0),
+	semipure table_nondet_return_all_ans_2(CurNode0, Answer).
 
-		table = (MR_TrieNode) T;
-		LOCALS->cur_node = table->MR_subgoal->answer_list;
+table_multi_return_all_ans(TrieNode, Answer) :-
+	semipure pickup_answer_list(TrieNode, CurNode0),
+	( semipure return_next_answer(CurNode0, FirstAnswer, CurNode1) ->
+		(
+			Answer = FirstAnswer
+		;
+			semipure table_nondet_return_all_ans_2(CurNode1,
+				Answer)
+		)
+	;
+		error("table_multi_return_all_ans: no first answer")
+	).
 
-  #ifdef MR_TABLE_DEBUG
-		if (MR_tabledebug) {
-			printf(""restoring all answers in %p -> %p\\n"",
-				table, table->MR_subgoal);
-		}
-  #endif
-#endif
-	"),
-	retry_code("
-	"),
-	shared_code("
-#ifdef MR_USE_MINIMAL_MODEL
-		if (LOCALS->cur_node == NULL) {
-			FAIL;
-		} else {
-			A = (MR_Word) &LOCALS->cur_node->answer_data;
-			LOCALS->cur_node = LOCALS->cur_node->next_answer;
-			SUCCEED;
-		}
-#else
-		MR_fatal_error(""minimal model code entered when not enabled"");
-#endif
-	")
-).
+:- semipure pred table_nondet_return_all_ans_2(c_pointer::in,
+	ml_answer_block::out) is nondet.
 
-/*
-** Note that the code for this is identical to the code for 
-** table_nondet_return_all_ans/2 (above).
-** Any changes to this code should also be made there.
-*/
-:- pragma foreign_code("C",
-	table_multi_return_all_ans(T::in, A::out),
-	will_not_call_mercury,
-	local_vars("
-#ifdef MR_USE_MINIMAL_MODEL
-		MR_AnswerList	cur_node;
-#else
-		/* ensure local var struct is non-empty */
-		char	bogus;
-#endif
-	"),
-	first_code("
-#ifdef MR_USE_MINIMAL_MODEL
-		MR_TrieNode	table;
+table_nondet_return_all_ans_2(CurNode0, Answer) :-
+	semipure return_next_answer(CurNode0, FirstAnswer, CurNode1),
+	(
+		Answer = FirstAnswer
+	;
+		semipure table_nondet_return_all_ans_2(CurNode1, Answer)
+	).
 
-		table = (MR_TrieNode) T;
-		LOCALS->cur_node = table->MR_subgoal->answer_list;
+:- semipure pred pickup_answer_list(ml_subgoal_table_node::in, c_pointer::out)
+	is det.
+
+:- pragma foreign_proc("C", pickup_answer_list(T::in, CurNode::out),
+	[will_not_call_mercury], "
+#ifdef MR_USE_MINIMAL_MODEL
+	MR_TrieNode	table;
+
+	table = (MR_TrieNode) T;
+	CurNode = (MR_Word) table->MR_subgoal->answer_list;
 
   #ifdef MR_TABLE_DEBUG
-		if (MR_tabledebug) {
-			printf(""restoring all answers in %p -> %p\\n"",
-				table, table->MR_subgoal);
-		}
+	if (MR_tabledebug) {
+		printf(""restoring all answers in %p -> %p\\n"",
+			table, table->MR_subgoal);
+	}
   #endif
 #endif
-	"),
-	retry_code("
-	"),
-	shared_code("
-#ifdef MR_USE_MINIMAL_MODEL
-		if (LOCALS->cur_node == NULL) {
-			FAIL;
-		} else {
-			A = (MR_Word) &LOCALS->cur_node->answer_data;
-			LOCALS->cur_node = LOCALS->cur_node->next_answer;
-			SUCCEED;
-		}
-#else
-		MR_fatal_error(""minimal model code entered when not enabled"");
-#endif
-	")
-).
+").
 
+:- semipure pred return_next_answer(c_pointer::in, ml_answer_block::out,
+	c_pointer::out) is semidet.
+
+:- pragma foreign_proc("C",
+	return_next_answer(CurNode0::in, AnswerBlock::out, CurNode::out),
+	[will_not_call_mercury], "
+#ifdef MR_USE_MINIMAL_MODEL
+	MR_AnswerList	cur_node0;
+
+	cur_node0 = (MR_AnswerList *) CurNode0;
+	if (cur_node0 == NULL) {
+		SUCCESS_INDICATOR = FALSE;
+	} else {
+		AnswerBlock = (MR_Word) &cur_node0->answer_data;
+		CurNode = (MR_Word) cur_node0->next_answer;
+		SUCCESS_INDICATOR = TRUE;
+	}
+#else
+	MR_fatal_error(""minimal model code entered when not enabled"");
+#endif
+").
 
 :- pragma foreign_code("MC++",
 	table_nondet_is_complete(_T::in), [will_not_call_mercury], "
@@ -937,38 +910,16 @@ XXX :- external stops us from using this
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
-:- pragma foreign_code("MC++",
-	table_nondet_return_all_ans(_T::in, _A::out),
-	will_not_call_mercury,
-	local_vars("
-	"),
-	first_code("
-	"),
-	retry_code("
-	"),
-	shared_code("
+:- pragma foreign_proc("MC++", pickup_answer_list(_T::in, _CurNode::out),
+		[will_not_call_mercury], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	")
-).
+").
 
-/*
-** Note that the code for this is identical to the code for 
-** table_nondet_return_all_ans/2 (above).
-** Any changes to this code should also be made there.
-*/
-:- pragma foreign_code("MC++",
-	table_multi_return_all_ans(_T::in, _A::out),
-	will_not_call_mercury,
-	local_vars("
-	"),
-	first_code("
-	"),
-	retry_code("
-	"),
-	shared_code("
+:- pragma foreign_proc("MC++",
+	return_next_answer(_CurNode0::in, _AnswerBlock::out, _CurNode::out),
+		[will_not_call_mercury], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	")
-).
+").
 
 %-----------------------------------------------------------------------------%
 
