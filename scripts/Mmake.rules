@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------#
-# Copyright (C) 1995-2000 The University of Melbourne.
+# Copyright (C) 1995-2001 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #-----------------------------------------------------------------------------#
@@ -171,7 +171,8 @@ $(trans_opts_subdir)%.trans_opt : $(trans_opt_dates_subdir)%.trans_opt_date
 # C back-end
 $(cs_subdir)%.c : %.m
 	rm -f $(cs_subdir)$*.c
-	$(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) $< > $*.err 2>&1
+	if $(MCG) $(ALL_GRADEFLAGS) $(ALL_MCGFLAGS) $< > $*.err 2>&1 ; \
+	then cat $*.err; exit 0; else cat $*.err; exit 1; fi
 
 # Aditi-RL back-end
 $(rlos_subdir)%.rlo : %.m
