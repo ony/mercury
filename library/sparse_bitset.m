@@ -114,6 +114,12 @@
 :- pred contains(sparse_bitset(T), T) <= enum(T).
 :- mode contains(in, in) is semidet.
 
+	% 'member(X, Set) is true iff 'X' is a member of 'Set'.
+	% For the (in, in) mode, used 'contains/2' instead since it is more
+	% efficient.
+:- pred member(T, sparse_bitset(T)) <= enum(T).
+:- mode member(out, in) is nondet.
+
 	% `insert(Set, X)' returns the union
 	% of `Set' and the set containing only `X'.
 	% Takes O(rep_size(Set)) time and space.
@@ -174,6 +180,13 @@
 
 :- pred remove_leq(sparse_bitset(T), T, sparse_bitset(T)) <= enum(T).
 :- mode remove_leq(in, in, out) is det.
+
+	% `remove_gt(Set, X)' returns the list Set with all elements greater
+	% than X removed.
+:- func remove_gt(sparse_bitset(T), T) = sparse_bitset(T) <= enum(T).
+
+:- pred remove_gt(sparse_bitset(T), T, sparse_bitset(T)) <= enum(T).
+:- mode remove_gt(in, in, out) is det.
 
 	% `remove_least(Set0, X, Set)' is true iff `X' is the
 	% least element in `Set0', and `Set' is the set which
@@ -511,6 +524,32 @@ remove_leq_2([Data | Rest], Index) =
 
 %-----------------------------------------------------------------------------%
 
+remove_gt(sparse_bitset(Set), Elem) =
+	sparse_bitset(remove_gt_2(Set, enum__to_int(Elem))).
+
+:- func remove_gt_2(bitset_impl, int) = bitset_impl.
+
+remove_gt_2([], _) = [].
+remove_gt_2([Data | Rest], Index) =
+	( Offset + bits_per_int =< Index ->
+		[Data | remove_gt_2(Rest, Index)]
+	; Offset =< Index ->
+		(
+			Bits = Data ^ bits /\
+				\ unchecked_left_shift(\ 0, Index - Offset + 1),
+			Bits \= 0
+		->
+			[make_bitset_elem(Offset, Bits)]
+		;
+			[]
+		)
+	;
+		[]
+	) :-
+	Offset = Data ^ offset.
+
+%-----------------------------------------------------------------------------%
+
 remove_least(sparse_bitset(Set0), Elem, sparse_bitset(Set)) :-
 	Set0 = [First | Rest],
 	Bits0 = First ^ bits,
@@ -671,6 +710,16 @@ contains_2([Data | Rest], Index) :-
 		get_bit(Data ^ bits, Index - Offset) \= 0
 	;		
 		contains_2(Rest, Index)
+	).
+
+%-----------------------------------------------------------------------------%
+
+member(X, Set0) :-
+	remove_least(Set0, X0, Set),
+	(
+		X = X0
+	;
+		member(X, Set)
 	).
 
 %-----------------------------------------------------------------------------%
@@ -861,6 +910,8 @@ remove(A, B, remove(A, B)).
 remove_list(A, B, remove_list(A, B)).
 
 remove_leq(A, B, remove_leq(A, B)).
+
+remove_gt(A, B, remove_gt(A, B)).
 
 list_to_set(A, list_to_set(A)).
 
