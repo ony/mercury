@@ -53,8 +53,8 @@
 					list(pair(byte_var, byte_dir)))
 			;	complex_deconstruct(byte_var, byte_cons_id,
 					list(pair(byte_var, byte_dir)))
-			;	place_arg(reg_type, int, byte_var)
-			;	pickup_arg(reg_type, int, byte_var)
+			;	lvar_to_reg(reg_type, int, byte_var)
+			;	reg_to_lvar(reg_type, int, byte_var)
 			;	call(byte_module_id, byte_pred_id,
 					arity, byte_proc_id)
 			;	higher_order_call(byte_var, arity, arity,
@@ -107,6 +107,7 @@
 :- type byte_module_id	==	string.
 :- type byte_pred_id	==	string.
 :- type byte_proc_id	==	pair(string,int).
+				% entrypoint label - proc id number
 :- type byte_label_id	==	int.
 :- type byte_var	==	int.
 :- type byte_temp	==	int.
@@ -273,10 +274,10 @@ output_args(complex_deconstruct(Var, ConsId, VarDirs)) -->
 	{ list__length(VarDirs, Length) },
 	output_length(Length),
 	output_var_dirs(VarDirs).
-output_args(place_arg(RegType, RegNum, Var)) -->
+output_args(lvar_to_reg(RegType, RegNum, Var)) -->
 	output_reg(RegType, RegNum),
 	output_var(Var).
-output_args(pickup_arg(RegType, RegNum, Var)) -->
+output_args(reg_to_lvar(RegType, RegNum, Var)) -->
 	output_reg(RegType, RegNum),
 	output_var(Var).
 output_args(call(ModuleId, PredId, Arity, ProcId)) -->
@@ -399,10 +400,10 @@ debug_args(complex_deconstruct(Var, ConsId, VarDirs)) -->
 	{ list__length(VarDirs, Length) },
 	debug_length(Length),
 	debug_var_dirs(VarDirs).
-debug_args(place_arg(RegType, RegNum, Var)) -->
+debug_args(lvar_to_reg(RegType, RegNum, Var)) -->
 	debug_reg(RegType, RegNum),
 	debug_var(Var).
-debug_args(pickup_arg(RegType, RegNum, Var)) -->
+debug_args(reg_to_lvar(RegType, RegNum, Var)) -->
 	debug_reg(RegType, RegNum),
 	debug_var(Var).
 debug_args(call(ModuleId, PredId, Arity, ProcId)) -->
@@ -878,8 +879,8 @@ byte_code(construct(_, _, _),			23).
 byte_code(deconstruct(_, _, _),			24).
 byte_code(complex_construct(_, _, _),		25).
 byte_code(complex_deconstruct(_, _, _),		26).
-byte_code(place_arg(_, _, _),			27).
-byte_code(pickup_arg(_, _, _),			28).
+byte_code(lvar_to_reg(_, _, _),			27).
+byte_code(reg_to_lvar(_, _, _),			28).
 byte_code(call(_, _, _, _),			29).
 byte_code(higher_order_call(_, _, _, _),	30).
 byte_code(builtin_binop(_, _, _, _),		31).
@@ -922,8 +923,8 @@ byte_debug(construct(_, _, _),			"construct").
 byte_debug(deconstruct(_, _, _),		"deconstruct").
 byte_debug(complex_construct(_, _, _),		"complex_construct").
 byte_debug(complex_deconstruct(_, _, _),	"complex_deconstruct").
-byte_debug(place_arg(_, _, _),			"place_arg").
-byte_debug(pickup_arg(_, _, _),			"pickup_arg").
+byte_debug(lvar_to_reg(_, _, _),		"lvar_to_reg").
+byte_debug(reg_to_lvar(_, _, _),		"reg_to_lvar").
 byte_debug(call(_, _, _, _),			"call").
 byte_debug(higher_order_call(_, _, _, _),	"higher_order_call").
 byte_debug(builtin_binop(_, _, _, _),		"builtin_binop").

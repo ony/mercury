@@ -250,7 +250,7 @@ bytecode_gen__gen_places([], _, empty).
 bytecode_gen__gen_places([Var - Loc | OutputArgs], ByteInfo, Code) :-
 	bytecode_gen__gen_places(OutputArgs, ByteInfo, OtherCode),
 	bytecode_gen__map_var(ByteInfo, Var, ByteVar),
-	Code = tree(node([place_arg(r, Loc, ByteVar)]), OtherCode).
+	Code = tree(node([lvar_to_reg(r, Loc, ByteVar)]), OtherCode).
 
 :- pred bytecode_gen__gen_pickups(list(pair(var, arg_loc))::in, byte_info::in,
 	byte_tree::out) is det.
@@ -259,7 +259,7 @@ bytecode_gen__gen_pickups([], _, empty).
 bytecode_gen__gen_pickups([Var - Loc | OutputArgs], ByteInfo, Code) :-
 	bytecode_gen__gen_pickups(OutputArgs, ByteInfo, OtherCode),
 	bytecode_gen__map_var(ByteInfo, Var, ByteVar),
-	Code = tree(node([pickup_arg(r, Loc, ByteVar)]), OtherCode).
+	Code = tree(node([reg_to_lvar(r, Loc, ByteVar)]), OtherCode).
 
 %---------------------------------------------------------------------------%
 
