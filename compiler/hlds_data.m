@@ -49,7 +49,9 @@
 
 :- type hlds_cons_defn
 	--->	hlds_cons_defn(
-			% maybe add tvarset?
+			% maybe add tvarset here?
+			% you can get the tvarset from the hlds__type_defn.
+			existq_tvars,
 			list(type),		% The types of the arguments
 						% of this functor (if any)
 			type_id,		% The result type, i.e. the

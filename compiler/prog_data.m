@@ -53,14 +53,14 @@
 
 	; 	pred(tvarset, existq_tvars, sym_name, list(type_and_mode),
 			maybe(determinism), condition, purity,
-			list(class_constraint))
+			class_constraints)
 		%       VarNames, ExistentiallyQuantifiedTypeVars,
 		%	PredName, ArgTypes, Deterministicness, Cond,
 		%	Purity, TypeClassContext
 
 	; 	func(tvarset, existq_tvars, sym_name, list(type_and_mode),
 			type_and_mode, maybe(determinism), condition, purity,
-			list(class_constraint))
+			class_constraints)
 		%       VarNames, ExistentiallyQuantifiedTypeVars,
 		%       PredName, ArgTypes, ReturnType,
 		%       Deterministicness, Cond,
@@ -243,6 +243,12 @@
 :- type class_constraint
 	---> constraint(class_name, list(type)).
 
+:- type class_constraints
+	---> constraints(
+		list(class_constraint),	% ordinary (universally quantified)
+		list(class_constraint)	% existentially quantified constraints
+	).
+
 :- type class_name == sym_name.
 
 :- type class_interface  == list(class_method).	
@@ -250,7 +256,7 @@
 :- type class_method
 	--->	pred(tvarset, existq_tvars, sym_name, list(type_and_mode),
 			maybe(determinism), condition,
-			list(class_constraint), term__context)
+			class_constraints, term__context)
 		%       VarNames, ExistentiallyQuantifiedTypeVars,
 		%	PredName, ArgTypes, Determinism, Cond
 		%	ClassContext, Context
@@ -258,7 +264,7 @@
 	; 	func(tvarset, existq_tvars, sym_name, list(type_and_mode),
 			type_and_mode,
 			maybe(determinism), condition,
-			list(class_constraint), term__context)
+			class_constraints, term__context)
 		%       VarNames, ExistentiallyQuantfiedTypeVars,
 		%	PredName, ArgTypes, ReturnType,
 		%	Determinism, Cond
@@ -315,11 +321,11 @@
 	--->	(goal,goal)
 	;	true	
 			% could use conj(goals) instead 
-	;	{goal;goal}	% {...} quotes ';'/2.
+	;	{goal;goal}		% {...} quotes ';'/2.
 	;	fail	
 			% could use disj(goals) instead
 	;	not(goal)
-	;	some(vars,goal)
+	;	{ some(vars,goal) }	% {...} quotes 'some'/2
 	;	all(vars,goal)
 	;	implies(goal,goal)
 	;	equivalent(goal,goal)
@@ -348,7 +354,8 @@
 	;	eqv_type(sym_name, list(type_param), type)
 	;	abstract_type(sym_name, list(type_param)).
 
-:- type constructor	==	pair(sym_name, list(constructor_arg)).
+:- type constructor	
+	--->	ctor(existq_tvars, sym_name, list(constructor_arg)).
 
 :- type constructor_arg	==	pair(string, type).
 

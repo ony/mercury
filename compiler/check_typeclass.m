@@ -161,7 +161,7 @@ check_class_instance(ClassId, SuperClasses, Vars, ClassInterface, ClassVarSet,
 		arity,					% Arity of the method.
 		list(type),				% Expected types of
 							% arguments.
-		list(class_constraint),			% Constraints from
+		class_constraints,			% Constraints from
 							% class method.
 		list(pair(list(mode), determinism)),	% Modes and 
 							% determinisms of the
@@ -205,9 +205,10 @@ check_instance_pred(ClassId, ClassVars, ClassInterface, PredId,
 		% declaration, we don't check that constraint... the instance
 		% declaration itself satisfies it!
 	(
-		ClassContext0 = [_|Tail]
+		ClassContext0 = constraints([_|OtherUnivCs], ExistCs)
 	->
-		ClassContext = Tail
+		UnivCs = OtherUnivCs,
+		ClassContext = constraints(UnivCs, ExistCs)
 	;
 		error("check_instance_pred: no constraint on class method")
 	),
@@ -406,7 +407,7 @@ handle_instance_method_overloading(ClassVars,
 		RenameSubst),
 	term__apply_substitution_to_list(InstanceTypes0, RenameSubst,
 		InstanceTypes),
-	apply_subst_to_constraints(RenameSubst, InstanceConstraints0,
+	apply_subst_to_constraint_list(RenameSubst, InstanceConstraints0,
 		InstanceConstraints),
 
 		% Work out what the type variables are bound to for this
@@ -419,7 +420,9 @@ handle_instance_method_overloading(ClassVars,
 		% constraints from the class method. This allows an instance
 		% method to have constraints on it which are part of the
 		% instance declaration as a whole.
-	list__append(InstanceConstraints, ClassContext1, ClassContext),
+	ClassContext1 = constraints(UnivConstraints1, ExistConstraints),
+	list__append(InstanceConstraints, UnivConstraints1, UnivConstraints),
+	ClassContext = constraints(UnivConstraints, ExistConstraints),
 
 	Info1 = instance_method_info(ModuleInfo, PredName, PredArity, 
 		ArgTypes, ClassContext, ArgModes, Errors0, ArgTypeVars,
@@ -669,7 +672,7 @@ check_superclass_conformance(SuperClasses0, ClassVars0, ClassVarSet,
 		Subst),
 
 		% Make the constraints in terms of the instance variables
-	apply_subst_to_constraints(Subst, SuperClasses0, SuperClasses),
+	apply_subst_to_constraint_list(Subst, SuperClasses0, SuperClasses),
 
 		% Now handle the class variables
 	map__apply_to_list(ClassVars0, Subst, ClassVarTerms),
@@ -694,7 +697,7 @@ check_superclass_conformance(SuperClasses0, ClassVars0, ClassVarSet,
 		typecheck__reduce_context_by_rule_application(InstanceTable, 
 			SuperClassTable, InstanceConstraints, TypeSubst,
 			InstanceVarSet1, InstanceVarSet2,
-			Proofs0, Proofs1, SuperClasses, 
+			Proofs0, Proofs1, SuperClasses,
 			[])
 	->
 		Errors = Errors0,

@@ -139,7 +139,7 @@
 	% type_list_matches_exactly(TypesA, TypesB) succeeds iff TypesA and
 	% TypesB are exactly the same modulo variable renaming. 
 :- pred type_and_constraint_list_matches_exactly(list(type),
-	list(class_constraint), list(type), list(class_constraint)).
+		class_constraints, list(type), class_constraints).
 :- mode type_and_constraint_list_matches_exactly(in, in, in, in) is semidet.
 
 	% apply a type substitution (i.e. map from tvar -> type)
@@ -166,17 +166,25 @@
 	map(var, var), map(tvar, type_info_locn)).
 :- mode apply_substitutions_to_var_map(in, in, in, out) is det.
 
-:- pred apply_rec_subst_to_constraints(substitution, list(class_constraint),
-	list(class_constraint)).
+:- pred apply_rec_subst_to_constraints(substitution, class_constraints,
+	class_constraints).
 :- mode apply_rec_subst_to_constraints(in, in, out) is det.
+
+:- pred apply_rec_subst_to_constraint_list(substitution, list(class_constraint),
+	list(class_constraint)).
+:- mode apply_rec_subst_to_constraint_list(in, in, out) is det.
 
 :- pred apply_rec_subst_to_constraint(substitution, class_constraint,
 	class_constraint).
 :- mode apply_rec_subst_to_constraint(in, in, out) is det.
 
-:- pred apply_subst_to_constraints(substitution, list(class_constraint),
-	list(class_constraint)).
+:- pred apply_subst_to_constraints(substitution, class_constraints,
+	class_constraints).
 :- mode apply_subst_to_constraints(in, in, out) is det.
+
+:- pred apply_subst_to_constraint_list(substitution, list(class_constraint),
+	list(class_constraint)).
+:- mode apply_subst_to_constraint_list(in, in, out) is det.
 
 :- pred apply_subst_to_constraint(substitution, class_constraint,
 	class_constraint).
@@ -362,10 +370,10 @@ type_util__get_cons_id_arg_types(ModuleInfo, VarType, ConsId, ArgTypes) :-
 		% will fail for builtin cons_ids.
 		map__search(Ctors, ConsId, ConsDefns),
 		CorrectCons = lambda([ConsDefn::in] is semidet, (
-				ConsDefn = hlds_cons_defn(_, TypeId, _)
+				ConsDefn = hlds_cons_defn(_, _, TypeId, _)
 			)),
 		list__filter(CorrectCons, ConsDefns,
-			[hlds_cons_defn(ArgTypes0, _, _)]),
+			[hlds_cons_defn(_, ArgTypes0, _, _)]),
 		ArgTypes0 \= []
 	->
 		module_info_types(ModuleInfo, Types),
@@ -392,7 +400,9 @@ type_util__get_cons_id_arg_types(ModuleInfo, VarType, ConsId, ArgTypes) :-
 	% type_is_no_tag_type/3 is called.
 
 type_is_no_tag_type(Ctors, Ctor, Type) :-
-	Ctors = [Ctor - [_FieldName - Type]],
+	Ctors = [SingleCtor],
+	SingleCtor = ctor(ExistQVars, Ctor, [_FieldName - Type]),
+	ExistQVars = [],
 	unqualify_name(Ctor, Name),
 	Name \= "type_info",
 	Name \= "base_type_info",
@@ -423,8 +433,12 @@ substitute_type_args(TypeParams0, TypeArgs, Constructors0, Constructors) :-
 :- mode substitute_type_args_2(in, in, out) is det.
 
 substitute_type_args_2([], _, []).
-substitute_type_args_2([Name - Args0 | Ctors0], Subst,
-		[Name - Args | Ctors]) :-
+substitute_type_args_2([Ctor0| Ctors0], Subst, [Ctor | Ctors]) :-
+	% Note: prog_io.m ensures that the quantified variables,
+	% if any, are distinct from the parameters, so there'
+	% no need to worry about apply the substitution to ExistQVars
+	Ctor0 = ctor(ExistQVars, Name, Args0),
+	Ctor = ctor(ExistQVars, Name, Args),
 	substitute_type_args_3(Args0, Subst, Args),
 	substitute_type_args_2(Ctors0, Subst, Ctors).
 
@@ -461,9 +475,14 @@ type_and_constraint_list_matches_exactly(TypesA, ConstraintsA0,
 	type_list_subsumes(TypesA, TypesB, Subst),
 	type_list_subsumes(TypesB, TypesA, _),
 	apply_subst_to_constraints(Subst, ConstraintsA0, ConstraintsA),
-	list__sort(ConstraintsA, SortedA),
-	list__sort(ConstraintsB, SortedB),
-	SortedA = SortedB.
+	ConstraintsA = constraints(UnivCsA, ExistCsA),
+	ConstraintsB = constraints(UnivCsB, ExistCsB),
+	list__sort(UnivCsA, SortedUnivCsA),
+	list__sort(UnivCsB, SortedUnivCsB),
+	SortedUnivCsA = SortedUnivCsB,
+	list__sort(ExistCsA, SortedExistCsA),
+	list__sort(ExistCsB, SortedExistCsB),
+	SortedExistCsA = SortedExistCsB.
 
 %-----------------------------------------------------------------------------%
 
@@ -732,6 +751,12 @@ apply_substitutions_to_var_map_2([TVar | TVars], VarMap0, TSubst, Subst,
 %-----------------------------------------------------------------------------%
 
 apply_rec_subst_to_constraints(Subst, Constraints0, Constraints) :-
+	Constraints0 = constraints(UnivCs0, ExistCs0),
+	apply_rec_subst_to_constraint_list(Subst, UnivCs0, UnivCs),
+	apply_rec_subst_to_constraint_list(Subst, ExistCs0, ExistCs),
+	Constraints = constraints(UnivCs, ExistCs).
+
+apply_rec_subst_to_constraint_list(Subst, Constraints0, Constraints) :-
 	list__map(apply_rec_subst_to_constraint(Subst), Constraints0,
 		Constraints).
 
@@ -743,7 +768,13 @@ apply_rec_subst_to_constraint(Subst, Constraint0, Constraint) :-
 	strip_term_contexts(Types1, Types),
 	Constraint  = constraint(ClassName, Types).
 
-apply_subst_to_constraints(Subst, Constraints0, Constraints) :-
+apply_subst_to_constraints(Subst,
+		constraints(UniversalCs0, ExistentialCs0),
+		constraints(UniversalCs, ExistentialCs)) :-
+	apply_subst_to_constraint_list(Subst, UniversalCs0, UniversalCs),
+	apply_subst_to_constraint_list(Subst, ExistentialCs0, ExistentialCs).
+
+apply_subst_to_constraint_list(Subst, Constraints0, Constraints) :-
 	list__map(apply_subst_to_constraint(Subst), Constraints0, Constraints).
 
 apply_subst_to_constraint(Subst, Constraint0, Constraint) :-

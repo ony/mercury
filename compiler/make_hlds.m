@@ -1140,10 +1140,11 @@ convert_type_defn(abstract_type(Name, Args), _, Name, Args, abstract_type).
 :- mode ctors_add(in, in, in, in, in, out, di, uo) is det.
 
 ctors_add([], _TypeId, _NeedQual, _Context, Ctors, Ctors) --> [].
-ctors_add([Name - Args | Rest], TypeId, NeedQual, Context, Ctors0, Ctors) -->
+ctors_add([Ctor | Rest], TypeId, NeedQual, Context, Ctors0, Ctors) -->
+	{ Ctor = ctor(ExistQVars, Name, Args) },
 	{ make_cons_id(Name, Args, TypeId, QualifiedConsId) },
 	{ assoc_list__values(Args, Types) },
-	{ ConsDefn = hlds_cons_defn(Types, TypeId, Context) },
+	{ ConsDefn = hlds_cons_defn(ExistQVars, Types, TypeId, Context) },
 	(
 		{ map__search(Ctors0, QualifiedConsId, QualifiedConsDefns0) }
 	->
@@ -1153,7 +1154,7 @@ ctors_add([Name - Args | Rest], TypeId, NeedQual, Context, Ctors0, Ctors) -->
 	),
 	(
 		{ list__member(OtherConsDefn, QualifiedConsDefns1) },
-		{ OtherConsDefn = hlds_cons_defn(_, TypeId, _) }
+		{ OtherConsDefn = hlds_cons_defn(_, _, TypeId, _) }
 	->
 		% XXX we should record each error using module_info_incr_errors
 		io__stderr_stream(StdErr),
@@ -1207,8 +1208,7 @@ add_ctor(ConsName, Arity, ConsDefn, ModuleQual, ConsId, CtorsIn, CtorsOut) :-
 
 :- pred module_add_pred(module_info, varset, existq_tvars, sym_name,
 		list(type_and_mode), maybe(determinism), condition, purity,
-		list(class_constraint), 
-		pred_markers, term__context, item_status, 
+		class_constraints, pred_markers, term__context, item_status, 
 		maybe(pair(pred_id, proc_id)), module_info, 
 		io__state, io__state).
 :- mode module_add_pred(in, in, in, in, in, in, in, in, in, in, in, in,
@@ -1243,7 +1243,7 @@ module_add_pred(Module0, VarSet, ExistQVars, PredName, TypesAndModes, MaybeDet,
 :- pred module_add_func(module_info, varset, existq_tvars, sym_name,
 		list(type_and_mode),
 		type_and_mode, maybe(determinism), condition, purity,
-		list(class_constraint), pred_markers, term__context,
+		class_constraints, pred_markers, term__context,
 		item_status, maybe(pair(pred_id, proc_id)),
 		module_info, io__state, io__state).
 :- mode module_add_func(in, in, in, in, in, in, in, in, in, in, in, in, in, 			out, out, di, uo) is det.
@@ -1376,7 +1376,9 @@ module_add_class_method(Method, Name, Vars, Status, MaybePredIdProcId,
 		{ Method = pred(VarSet, ExistQVars, PredName, TypesAndModes, 
 			MaybeDet, Cond, ClassContext, Context) },
 		{ term__var_list_to_term_list(Vars, VarTerms) },
-		{ NewClassContext = [constraint(Name, VarTerms)|ClassContext] },
+		{ ClassContext = constraints(UnivCnstrs, ExistCnstrs) },
+		{ NewUnivCnstrs = [constraint(Name, VarTerms) | UnivCnstrs] },
+		{ NewClassContext = constraints(NewUnivCnstrs, ExistCnstrs) },
 		{ init_markers(Markers0) },
 		{ add_marker(Markers0, class_method, Markers) },
 		module_add_pred(Module0, VarSet, ExistQVars, PredName,
@@ -1387,7 +1389,9 @@ module_add_class_method(Method, Name, Vars, Status, MaybePredIdProcId,
 			RetTypeAndMode, MaybeDet, Cond, ClassContext,
 			Context) },
 		{ term__var_list_to_term_list(Vars, VarTerms) },
-		{ NewClassContext = [constraint(Name, VarTerms)|ClassContext] },
+		{ ClassContext = constraints(UnivCnstrs, ExistCnstrs) },
+		{ NewUnivCnstrs = [constraint(Name, VarTerms) | UnivCnstrs] },
+		{ NewClassContext = constraints(NewUnivCnstrs, ExistCnstrs) },
 		{ init_markers(Markers0) },
 		{ add_marker(Markers0, class_method, Markers) },
 		module_add_func(Module0, VarSet, ExistQVars, FuncName,
@@ -1503,7 +1507,7 @@ module_add_instance_defn(Module0, Constraints, Name, Types, Interface, VarSet,
 %-----------------------------------------------------------------------------%
 
 :- pred add_new_pred(module_info, tvarset, existq_tvars, sym_name, list(type),
-		condition, purity, list(class_constraint), pred_markers,
+		condition, purity, class_constraints, pred_markers,
 		term__context, import_status, need_qualifier, pred_or_func,
 		module_info, io__state, io__state).
 :- mode add_new_pred(in, in, in, in, in, in, in, in, in, in, in, in, in, out, 
@@ -1724,7 +1728,7 @@ add_special_pred_decl(SpecialPredId,
 	init_markers(Markers),
 		% XXX If/when we have "comparable" or "unifiable" typeclasses, 
 		% XXX this context might not be empty
-	ClassContext = [],
+	ClassContext = constraints([], []),
 	ExistQVars = [],
 	pred_info_init(ModuleName, PredName, Arity, TVarSet, ExistQVars,
 		ArgTypes, Cond, Context, ClausesInfo0, Status, Markers,
@@ -1883,7 +1887,7 @@ preds_add_implicit(PredicateTable0,
 	map__init(Proofs),
 		% The class context is empty since this is an implicit
 		% definition. Inference will fill it in.
-	ClassContext = [],
+	ClassContext = constraints([], []),
 		% We assume none of the arguments are existentially typed.
 		% Existential types must be declared, they won't be inferred.
 	ExistQVars = [],

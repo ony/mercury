@@ -189,6 +189,7 @@
 :- import_module purity.
 
 :- import_module int, string, std_util, parser, term_io, dir, require.
+:- import_module assoc_list.
 
 %-----------------------------------------------------------------------------%
 
@@ -834,7 +835,7 @@ process_decl(ModuleName, VarSet, "some", [TVars, Decl], Result) :-
 		Result = error(Msg, Term)
 	;
 		Result = error(
-	"Existential quantifiers only allowed on pred or func declarations", 
+"Top-level existential quantifiers only allowed on pred or func declarations", 
 		    Decl)
 	).
 
@@ -1285,7 +1286,19 @@ process_eqv_type(ModuleName, Head, Body, Result) :-
 :- pred process_eqv_type_2(maybe_functor, term, maybe1(type_defn)).
 :- mode process_eqv_type_2(in, in, out) is det.
 process_eqv_type_2(error(Error, Term), _, error(Error, Term)).
-process_eqv_type_2(ok(Name, Args), Body, ok(eqv_type(Name, Args, Body))).
+process_eqv_type_2(ok(Name, Args), Body, Result) :-
+	% check that all the variables in the body occur in the head
+	(
+		(
+			term__contains_var(Body, Var2),
+			\+ term__contains_var_list(Args, Var2)
+		)
+	->
+		Result = error("free type parameter in RHS of type definition",
+				Body)
+	;
+		Result = ok(eqv_type(Name, Args, Body))
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1308,16 +1321,56 @@ process_du_type_2(_, error(Error, Term), _, _, error(Error, Term)).
 process_du_type_2(ModuleName, ok(Functor, Args), Body, MaybeEqualityPred,
 		Result) :-
 	% check that body is a disjunction of constructors
-	( %%% some [Constrs] 
+	(
 		convert_constructors(ModuleName, Body, Constrs)
 	->
+		% check that all type variables in the body
+		% are either explicitly existentally quantified
+		% or occur in the head.
 		(
-			MaybeEqualityPred = ok(EqualityPred),
-			Result = ok(du_type(Functor, Args, Constrs,
-						EqualityPred))
+			list__member(Ctor, Constrs),
+			Ctor = ctor(ExistQVars, _CtorName, CtorArgs),
+			assoc_list__values(CtorArgs, CtorArgTypes),
+			term__contains_var_list(CtorArgTypes, Var),
+			\+ list__member(Var, ExistQVars),
+			\+ term__contains_var_list(Args, Var)
+		->
+			Result = error(
+			"free type parameter in RHS of type definition",
+					Body)
+		
+		% check that all type variables in existential quantifiers
+		% do not occur in the head
 		;
-			MaybeEqualityPred = error(Error, Term),
-			Result = error(Error, Term)
+			list__member(Ctor, Constrs),
+			Ctor = ctor(ExistQVars, _CtorName, CtorArgs),
+			list__member(Var, ExistQVars),
+			assoc_list__values(CtorArgs, CtorArgTypes),
+			\+ term__contains_var_list(CtorArgTypes, Var)
+		->
+			Result = error( "type variable has overlapping scopes (explicit type quantifier shadows argument type)", Body)
+
+		% check that all type variables in existential quantifiers
+		% occur somewhere in the body
+		;
+			list__member(Ctor, Constrs),
+			Ctor = ctor(ExistQVars, _CtorName, CtorArgs),
+			list__member(Var, ExistQVars),
+			assoc_list__values(CtorArgs, CtorArgTypes),
+			\+ term__contains_var_list(CtorArgTypes, Var)
+		->
+			Result = error(
+			"var occurs only in existential quantifier",
+					Body)
+		;
+			(
+				MaybeEqualityPred = ok(EqualityPred),
+				Result = ok(du_type(Functor, Args, Constrs,
+							EqualityPred))
+			;
+				MaybeEqualityPred = error(Error, Term),
+				Result = error(Error, Term)
+			)
 		)
 	;
 		Result = error("invalid RHS of type definition", Body)
@@ -1374,7 +1427,7 @@ check_for_errors_2(ok(Name, Args), Body, Head, Result) :-
 
 :- pred check_for_errors_3(sym_name, list(term), term, term, maybe_functor).
 :- mode check_for_errors_3(in, in, in, in, out) is det.
-check_for_errors_3(Name, Args, Body, Head, Result) :-
+check_for_errors_3(Name, Args, _Body, Head, Result) :-
 	% check that all the head args are variables
 	( %%%	some [Arg]
 		(
@@ -1392,15 +1445,6 @@ check_for_errors_3(Name, Args, Body, Head, Result) :-
 		)
 	->
 		Result = error("repeated type parameters in LHS of type defn", Head)
-	% check that all the variables in the body occur in the head
-	; %%% some [Var2]
-		(
-			term__contains_var(Body, Var2),
-			\+ term__contains_var_list(Args, Var2)
-		)
-	->
-		Result = error("free type parameter in RHS of type definition",
-				Body)
 	;
 		Result = ok(Name, Args)
 	).
@@ -1427,24 +1471,34 @@ convert_constructors_2(ModuleName, [Term | Terms], [Constr | Constrs]) :-
 	convert_constructors_2(ModuleName, Terms, Constrs).
 
 	% true if input argument is a valid constructor.
-	% Note that as a special case, one level of
-	% curly braces around the constructor are ignored.
-	% This is to allow you to define ';'/2 constructors.
 
 :- pred convert_constructor(module_name, term, constructor).
 :- mode convert_constructor(in, in, out) is semidet.
-convert_constructor(ModuleName, Term, Result) :-
+convert_constructor(ModuleName, Term0, Result) :-
 	( 
-		Term = term__functor(term__atom("{}"), [Term1], _Context)
+		Term0 = term__functor(term__atom("some"), [Vars, Term1], _)
 	->
+		term__vars(Vars, ExistQVars),
 		Term2 = Term1
 	;
-		Term2 = Term
+		ExistQVars = [],
+		Term2 = Term0
+	),
+	( 
+		% Note that as a special case, one level of
+		% curly braces around the constructor are ignored.
+		% This is to allow you to define ';'/2 and 'some'/2
+		% constructors.
+		Term2 = term__functor(term__atom("{}"), [Term3], _Context)
+	->
+		Term4 = Term3
+	;
+		Term4 = Term2
 	),
 	parse_implicitly_qualified_term(ModuleName,
-		Term2, Term, "constructor definition", ok(F, As)),
+		Term4, Term0, "constructor definition", ok(F, As)),
 	convert_constructor_arg_list(As, Args),
-	Result = F - Args.
+	Result = ctor(ExistQVars, F, Args).
 
 %-----------------------------------------------------------------------------%
 
@@ -1455,30 +1509,21 @@ convert_constructor(ModuleName, Term, Result) :-
 :- mode process_pred(in, in, in, in, in, in, out) is det.
 
 process_pred(ModuleName, VarSet, PredType0, Cond, MaybeDet, Purity, Result) :-
+	get_class_context(ModuleName, PredType0, PredType, MaybeContext),
 	(
-		maybe_get_class_context(ModuleName, PredType0, PredType,
-			MaybeContext)
-	->
-		(
-			MaybeContext = ok(Constraints),
-			parse_implicitly_qualified_term(ModuleName,
-				PredType, PredType, "`:- pred' declaration",
-				R),
-			process_pred_2(R, PredType, VarSet, MaybeDet, Cond,
-				Purity, Constraints, Result)
-		;
-			MaybeContext = error(String, Term),
-			Result = error(String, Term)
-		)
-	;
+		MaybeContext = ok(Constraints),
 		parse_implicitly_qualified_term(ModuleName,
-			PredType0, PredType0, "`:- pred' declaration", R),
-		process_pred_2(R, PredType0, VarSet, MaybeDet, Cond, Purity, 
-			[], Result)
+			PredType, PredType, "`:- pred' declaration",
+			R),
+		process_pred_2(R, PredType, VarSet, MaybeDet, Cond,
+			Purity, Constraints, Result)
+	;
+		MaybeContext = error(String, Term),
+		Result = error(String, Term)
 	).
 
 :- pred process_pred_2(maybe_functor, term, varset, maybe(determinism),
-			condition, purity, list(class_constraint), 
+			condition, purity, class_constraints, 
 			maybe1(item)).
 :- mode process_pred_2(in, in, in, in, in, in, in, out) is det.
 
@@ -1510,14 +1555,60 @@ process_pred_2(error(M, T), _, _, _, _, _, _, error(M, T)).
 	% an appropriate error message (if a syntactically invalid class 
 	% context was given).
 
-:- pred maybe_get_class_context(module_name, term, term,
-	maybe1(list(class_constraint))).
-:- mode maybe_get_class_context(in, in, out, out) is semidet.
+:- pred get_class_context(module_name, term, term, maybe1(class_constraints)).
+:- mode get_class_context(in, in, out, out) is det.
 
-maybe_get_class_context(ModuleName, PredType0, PredType, MaybeContext) :-
-	PredType0 = term__functor(term__atom("<="), 
-		[PredType, Constraints], _),
-	parse_class_constraints(ModuleName, Constraints, MaybeContext).
+get_class_context(ModuleName, PredType0, PredType, MaybeContext) :-
+	get_universal_constraints(ModuleName, PredType0, PredType1,
+		MaybeUniversalConstraints),
+	get_existential_constraints(ModuleName, PredType1, PredType,
+		MaybeExistentialConstraints),
+	combine_quantifier_results(MaybeUniversalConstraints,
+		MaybeExistentialConstraints, MaybeContext).
+
+:- pred combine_quantifier_results(maybe1(list(class_constraint)),
+		maybe1(list(class_constraint)), maybe1(class_constraints)).
+:- mode combine_quantifier_results(in, in, out) is det.
+combine_quantifier_results(error(Msg, Term), _, error(Msg, Term)).
+combine_quantifier_results(ok(_), error(Msg, Term), error(Msg, Term)).
+combine_quantifier_results(ok(Univs), ok(Exists),
+			ok(constraints(Univs, Exists))).
+
+:- pred get_universal_constraints(module_name, term, term,
+			maybe1(list(class_constraint))).
+:- mode get_universal_constraints(in, in, out, out) is det.
+
+get_universal_constraints(ModuleName, PredType0, PredType,
+		MaybeUniversalConstraints) :-
+	(	
+		PredType0 = term__functor(term__atom("<="), 
+			[PredType1, UniversalConstraints], _)
+	->
+		PredType = PredType1,
+		parse_class_constraints(ModuleName, UniversalConstraints,
+			MaybeUniversalConstraints)
+	;
+		PredType = PredType0,
+		MaybeUniversalConstraints = ok([])
+	).
+
+:- pred get_existential_constraints(module_name, term, term,
+			maybe1(list(class_constraint))).
+:- mode get_existential_constraints(in, in, out, out) is det.
+
+get_existential_constraints(ModuleName, PredType0, PredType,
+		MaybeExistentialConstraints) :-
+	(	
+		PredType0 = term__functor(term__atom("&"), 
+			[PredType1, ExistentialConstraints], _)
+	->
+		PredType = PredType1,
+		parse_class_constraints(ModuleName, ExistentialConstraints,
+			MaybeExistentialConstraints)
+	;
+		PredType = PredType0,
+		MaybeExistentialConstraints = ok([])
+	).
 
 %-----------------------------------------------------------------------------%
 
@@ -1554,25 +1645,18 @@ verify_type_and_mode_list_2([Head | Tail], First) :-
 :- mode process_func(in, in, in, in, in, in, out) is det.
 
 process_func(ModuleName, VarSet, Term0, Cond, Purity, MaybeDet, Result) :-
+	get_class_context(ModuleName, Term0, Term, MaybeContext),
 	(
-		maybe_get_class_context(ModuleName, Term0, Term,
-			MaybeContext)
-	->
-		(
-			MaybeContext = ok(Constraints),
-			process_unconstrained_func(ModuleName, VarSet, Term,
-				Cond, MaybeDet, Purity, Constraints, Result) 
-		;
-			MaybeContext = error(String, ErrorTerm),
-			Result = error(String, ErrorTerm)
-		)
+		MaybeContext = ok(Constraints),
+		process_unconstrained_func(ModuleName, VarSet, Term,
+			Cond, MaybeDet, Purity, Constraints, Result) 
 	;
-		process_unconstrained_func(ModuleName, VarSet, Term0, 
-			Cond, MaybeDet, Purity, [], Result) 
+		MaybeContext = error(String, ErrorTerm),
+		Result = error(String, ErrorTerm)
 	).
 
 :- pred process_unconstrained_func(module_name, varset, term, condition,
-	maybe(determinism), purity, list(class_constraint), maybe1(item)).
+	maybe(determinism), purity, class_constraints, maybe1(item)).
 :- mode process_unconstrained_func(in, in, in, in, in, in, in, out) is det.
 
 process_unconstrained_func(ModuleName, VarSet, Term, Cond, MaybeDet, 
@@ -1591,7 +1675,7 @@ process_unconstrained_func(ModuleName, VarSet, Term, Cond, MaybeDet,
 
 
 :- pred process_func_2(maybe_functor, term, term, varset, maybe(determinism),
-			condition, purity, list(class_constraint),
+			condition, purity, class_constraints,
 			maybe1(item)).
 :- mode process_func_2(in, in, in, in, in, in, in, in, out) is det.
 

@@ -1939,7 +1939,8 @@ hlds_out__write_constructors_2(Indent, Tvarset, [C | Cs]) -->
 :- pred hlds_out__write_constructor(tvarset, constructor, io__state, io__state).
 :- mode hlds_out__write_constructor(in, in, di, uo) is det.
 
-hlds_out__write_constructor(Tvarset, Name - Args) -->
+hlds_out__write_constructor(Tvarset, ctor(ExistQVars, Name, Args)) -->
+	mercury_output_quantifier(Tvarset, ExistQVars),
 	prog_out__write_sym_name(Name),
 	( { Args = [Arg | Rest] } ->
 		io__write_char('('),

@@ -48,7 +48,7 @@
 
 :- pred lambda__transform_lambda(pred_or_func, string, list(var), list(mode), 
 		determinism, list(var), set(var), hlds_goal, unification,
-		varset, map(var, type), list(class_constraint), tvarset,
+		varset, map(var, type), class_constraints, tvarset,
 		map(tvar, type_info_locn), map(class_constraint, var),
 		module_info, unify_rhs, unification, module_info).
 :- mode lambda__transform_lambda(in, in, in, in, in, in, in, in, in, in, in,
@@ -68,7 +68,7 @@
 		lambda_info(
 			varset,			% from the proc_info
 			map(var, type),		% from the proc_info
-			list(class_constraint),	% from the pred_info
+			class_constraints,	% from the pred_info
 			tvarset,		% from the proc_info
 			map(tvar, type_info_locn),	
 						% from the proc_info 
@@ -238,7 +238,8 @@ lambda__process_lambda(PredOrFunc, Vars, Modes, Det, OrigNonLocals0, LambdaGoal,
 		Unification0, Functor, Unification, LambdaInfo0, LambdaInfo) :-
 	LambdaInfo0 = lambda_info(VarSet, VarTypes, Constraints, TVarSet,
 			TVarMap, TCVarMap, POF, PredName, ModuleInfo0),
-	goal_util__extra_nonlocal_typeinfos(TVarMap, VarTypes,
+	ExistQVars = [],
+	goal_util__extra_nonlocal_typeinfos(TVarMap, VarTypes, ExistQVars,
 		LambdaGoal, ExtraTypeInfos),
 	lambda__transform_lambda(PredOrFunc, PredName, Vars, Modes, Det,
 		OrigNonLocals0, ExtraTypeInfos, LambdaGoal, Unification0,
@@ -355,9 +356,9 @@ lambda__transform_lambda(PredOrFunc, OrigPredName, Vars, Modes, Detism,
 		goal_info_get_context(LambdaGoalInfo, LambdaContext),
 		% The TVarSet is a superset of what it really ought be,
 		% but that shouldn't matter.
-		% Currently lambda expressions are always monomorphic
-		% in Mercury, so there are no existentially quantified
-		% type variables (no universally quantified tvars either).
+		% Currently we don't allow existentially typed lambda
+		% expressions (we can change this if/when we allow
+		% `in' modes for existentially typed arguments)
 		ExistQVars = [],
 		lambda__uni_modes_to_modes(UniModes1, OrigArgModes),
 

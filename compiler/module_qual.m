@@ -336,7 +336,7 @@ module_qualify_item(typeclass(Constraints0, Name, Vars, Interface0, VarSet) -
 	{ list__length(Vars, Arity) },
 	{ Id = Name - Arity },
 	{ mq_info_set_error_context(Info0, class(Id) - Context, Info1) },
-	qualify_class_constraints(Constraints0, Constraints, Info1, Info2),
+	qualify_class_constraint_list(Constraints0, Constraints, Info1, Info2),
 	qualify_class_interface(Interface0, Interface, Info2, Info).
 
 module_qualify_item(instance(Constraints0, Name0, Types0, Interface0, VarSet) -
@@ -349,7 +349,7 @@ module_qualify_item(instance(Constraints0, Name0, Types0, Interface0, VarSet) -
 	{ mq_info_set_error_context(Info0, instance(Id) - Context, Info1) },
 		% We don't qualify the implementation yet, since that requires
 		% us to resolve overloading.
-	qualify_class_constraints(Constraints0, Constraints, Info1, Info2),
+	qualify_class_constraint_list(Constraints0, Constraints, Info1, Info2),
 	qualify_class_name(Id, Name - _, Info2, Info3),
 	qualify_type_list(Types0, Types, Info3, Info),
 	{ qualify_instance_interface(Name, Interface0, Interface) }.
@@ -417,8 +417,9 @@ qualify_type_defn(abstract_type(SymName, Params),
 		mq_info::in, mq_info::out, io__state::di, io__state::uo) is det.
 				
 qualify_constructors([], [], Info, Info) --> [].
-qualify_constructors([SymName - Args0 | Ctors0], [SymName - Args | Ctors],
-					Info0, Info) -->
+qualify_constructors([Ctor0 | Ctors0], [Ctor | Ctors], Info0, Info) -->
+	{ Ctor0 = ctor(ExistQVars, SymName, Args0) },
+	{ Ctor = ctor(ExistQVars, SymName, Args) },
 	qualify_constructor_arg_list(Args0, Args, Info0, Info1),
 	qualify_constructors(Ctors0, Ctors, Info1, Info).
 
@@ -702,14 +703,23 @@ qualify_pragma_vars([pragma_var(Var, Name, Mode0) | PragmaVars0],
 	qualify_mode(Mode0, Mode, Info0, Info1),
 	qualify_pragma_vars(PragmaVars0, PragmaVars, Info1, Info).
 
-:- pred qualify_class_constraints(list(class_constraint)::in,
+:- pred qualify_class_constraints(class_constraints::in,
+	class_constraints::out, mq_info::in, mq_info::out, io__state::di,
+	io__state::uo) is det. 
+
+qualify_class_constraints(constraints(UnivCs0, ExistCs0),
+			constraints(UnivCs, ExistCs), MQInfo0, MQInfo) -->
+	qualify_class_constraint_list(UnivCs0, UnivCs, MQInfo0, MQInfo1),
+	qualify_class_constraint_list(ExistCs0, ExistCs, MQInfo1, MQInfo).
+
+:- pred qualify_class_constraint_list(list(class_constraint)::in,
 	list(class_constraint)::out, mq_info::in, mq_info::out, io__state::di,
 	io__state::uo) is det. 
 
-qualify_class_constraints([], [], MQInfo, MQInfo) --> [].
-qualify_class_constraints([C0|C0s], [C|Cs], MQInfo0, MQInfo) -->
+qualify_class_constraint_list([], [], MQInfo, MQInfo) --> [].
+qualify_class_constraint_list([C0|C0s], [C|Cs], MQInfo0, MQInfo) -->
 	qualify_class_constraint(C0, C, MQInfo0, MQInfo1),
-	qualify_class_constraints(C0s, Cs, MQInfo1, MQInfo).
+	qualify_class_constraint_list(C0s, Cs, MQInfo1, MQInfo).
 
 :- pred qualify_class_constraint(class_constraint::in, class_constraint::out,
 	mq_info::in, mq_info::out, io__state::di, io__state::uo) is det.

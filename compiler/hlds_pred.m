@@ -266,7 +266,7 @@
 	% call the created predicate.
 :- pred hlds_pred__define_new_pred(hlds_goal, hlds_goal, list(var),
 		instmap, string, tvarset, map(var, type),
-		list(class_constraint), map(tvar, type_info_locn),
+		class_constraints, map(tvar, type_info_locn),
 		map(class_constraint, var), varset, pred_markers, 
 		module_info, module_info, pred_proc_id).
 :- mode hlds_pred__define_new_pred(in, out, in, in, in, in, in,
@@ -277,14 +277,14 @@
 
 :- pred pred_info_init(module_name, sym_name, arity, tvarset, existq_tvars,
 	list(type), condition, term__context, clauses_info, import_status,
-	pred_markers, goal_type, pred_or_func, list(class_constraint), 
+	pred_markers, goal_type, pred_or_func, class_constraints, 
 	map(class_constraint, constraint_proof), pred_info).
 :- mode pred_info_init(in, in, in, in, in, in, in, in, in, in, in, in, in,
 	in, in, out) is det.
 
 :- pred pred_info_create(module_name, sym_name, tvarset, existq_tvars,
 	list(type), condition, term__context, import_status, pred_markers,
-	pred_or_func, list(class_constraint), proc_info, proc_id, pred_info).
+	pred_or_func, class_constraints, proc_info, proc_id, pred_info).
 :- mode pred_info_create(in, in, in, in, in, in, in, in, in, in, in, in,
 	out, out) is det.
 
@@ -397,11 +397,10 @@
 :- pred pred_info_get_is_pred_or_func(pred_info, pred_or_func).
 :- mode pred_info_get_is_pred_or_func(in, out) is det.
 
-:- pred pred_info_get_class_context(pred_info, list(class_constraint)).
+:- pred pred_info_get_class_context(pred_info, class_constraints).
 :- mode pred_info_get_class_context(in, out) is det.
 
-:- pred pred_info_set_class_context(pred_info, list(class_constraint), 
-	pred_info).
+:- pred pred_info_set_class_context(pred_info, class_constraints, pred_info).
 :- mode pred_info_set_class_context(in, in, out) is det.
 
 :- pred pred_info_get_constraint_proofs(pred_info, 
@@ -505,7 +504,7 @@ invalid_proc_id(-1).
 			pred_markers,	% various boolean flags
 			pred_or_func,	% whether this "predicate" was really
 					% a predicate or a function
-			list(class_constraint),
+			class_constraints,
 					% the class constraints on the 
 					% predicate
 			map(class_constraint, constraint_proof),
@@ -802,6 +801,10 @@ hlds_pred__define_new_pred(Goal0, Goal, ArgVars0, InstMap0, PredName, TVarSet,
 	goal_info_get_instmap_delta(GoalInfo, InstMapDelta),
 	instmap__apply_instmap_delta(InstMap0, InstMapDelta, InstMap),
 
+	% XXX The set of existentially quantified type variables
+	% here might not be correct.
+	ExistQVars = [],
+
 	% If typeinfo_liveness is set, all type_infos for the argument
 	% variables need to be passed in, not just the ones that are used.
 	module_info_globals(ModuleInfo0, Globals),
@@ -809,7 +812,7 @@ hlds_pred__define_new_pred(Goal0, Goal, ArgVars0, InstMap0, PredName, TVarSet,
 		TypeInfoLiveness),
 	( TypeInfoLiveness = yes ->
 		goal_util__extra_nonlocal_typeinfos(TVarMap, VarTypes0,
-			Goal0, ExtraTypeInfos0),
+			ExistQVars, Goal0, ExtraTypeInfos0),
 		set__delete_list(ExtraTypeInfos0, ArgVars0, ExtraTypeInfos),
 		set__to_sorted_list(ExtraTypeInfos, ExtraArgs),
 		list__append(ExtraArgs, ArgVars0, ArgVars)
@@ -845,10 +848,6 @@ hlds_pred__define_new_pred(Goal0, Goal, ArgVars0, InstMap0, PredName, TVarSet,
 		Detism, Goal0, Context, TVarMap, TCVarMap, ArgsMethod,
 		ProcInfo0),
 	proc_info_set_maybe_termination_info(ProcInfo0, TermInfo, ProcInfo),
-
-	% XXX The set of existentially quantified type variables
-	% here might not be correct.
-	ExistQVars = [],
 
 	pred_info_create(ModuleName, SymName, TVarSet, ExistQVars, ArgTypes,
 		true, Context, local, Markers, predicate, ClassContext, 
