@@ -1304,16 +1304,14 @@ convert_args_type_assign(args(TypeAssign0, _, Constraints0), TypeAssign) :-
 	type_assign_get_typeclass_constraints(TypeAssign0, OldConstraints),
 	type_assign_get_type_bindings(TypeAssign0, Bindings),
 	apply_rec_subst_to_constraints(Bindings, Constraints0, Constraints),
-
 	%
-	% add the dual of the constraints for this functor
+	% add the dual of the constraints for this call
 	% to the current constraint set
 	% (anything which we can assume in the caller
 	% is something that we must prove in the callee,
 	% and vice versa)
 	%
-	Constraints = constraints(UnivCs, ExistCs),
-	ConstraintsToAdd = constraints(ExistCs, UnivCs),
+	dual_constraints(Constraints, ConstraintsToAdd),
 	add_constraints(OldConstraints, ConstraintsToAdd, NewConstraints),
 
 	type_assign_set_typeclass_constraints(TypeAssign0,
@@ -2065,7 +2063,21 @@ get_cons_stuff(ConsDefn, TypeAssign0, _TypeCheckInfo, ConsType, ArgTypes,
 			ClassConstraints2),
 		type_assign_get_typeclass_constraints(TypeAssign1,
 			OldConstraints),
-		add_constraints(OldConstraints, ClassConstraints2,
+		%
+		% add the dual of the constraints for this functor
+		% to the current constraint set
+		% We need to do this for functions so that functions
+		% have the same behaviour as predicates
+		% (anything which we can assume in the caller
+		% is something that we must prove in the callee,
+		% and vice versa).
+		% For functors which are data constructors,
+		% this corresponds to assuming that they
+		% will be used as constructors rather than as
+		% deconstructors.
+		%
+		dual_constraints(ClassConstraints2, ConstraintsToAdd),
+		add_constraints(OldConstraints, ConstraintsToAdd,
 			ClassConstraints),
 		type_assign_set_typeclass_constraints(TypeAssign1,
 			ClassConstraints, TypeAssign2),
@@ -2082,6 +2094,19 @@ get_cons_stuff(ConsDefn, TypeAssign0, _TypeCheckInfo, ConsType, ArgTypes,
 		error("get_cons_stuff: type_assign_rename_apart failed")
 	).
 
+	%
+	% compute the dual of a set of constraints:
+	% anything which we can assume in the caller
+	% is something that we must prove in the callee,
+	% and vice versa
+	%
+:- pred dual_constraints(class_constraints, class_constraints).
+:- mode dual_constraints(in, out) is det.
+dual_constraints(constraints(Univs, Exists), constraints(Exists, Univs)).
+
+	% add_constraints(Cs0, CsToAdd, Cs) :-
+	% add the specified constraints to the current constraint set
+	%
 :- pred add_constraints(class_constraints, class_constraints,
 			class_constraints).
 :- mode add_constraints(in, in, out) is det.
