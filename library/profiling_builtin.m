@@ -320,7 +320,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 
 	ps->MR_ps_activation_count++;
 	NewPtr = (MR_Word) ps->MR_ps_outermost_activation_ptr;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 	MR_leave_instrumentation();
 #endif
 #else
@@ -374,7 +373,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	}
 
 	NewPtr = (MR_Word) ps->MR_ps_outermost_activation_ptr;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 	MR_leave_instrumentation();
 #endif
 #else
@@ -411,7 +409,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 		csd->MR_csd_callee_ptr = ps->MR_ps_outermost_activation_ptr;
 	}
 
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 	MR_leave_instrumentation();
 #endif
 #else
@@ -460,7 +457,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
 	ps->MR_ps_activation_count++;
 	ps->MR_ps_outermost_activation_ptr = (MR_ProcDynamic*) PD;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 #else
 	MR_fatal_error(""increment_activation_count: no activation_count"");
 #endif
@@ -507,7 +503,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	ps = csd->MR_csd_callee_ptr->MR_pd_proc_static;
 	ps->MR_ps_activation_count--;
 	MR_deep_assert(ps->MR_ps_activation_count >= 0);
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 #else
 	MR_fatal_error(""increment_activation_count: no activation_count"");
 #endif
@@ -548,8 +543,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	}
 
 	MR_next_call_site_dynamic = child_csd;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
-	MR_deep_assert(child_csd->MR_csd_own.MR_own_quanta >= 0);
 	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""prepare_for_normal_call: deep profiling not enabled"");
@@ -593,7 +586,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 		MR_next_call_site_dynamic = newcsd;
 	}
 
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""prepare_for_special_call: deep profiling not enabled"");
@@ -638,7 +630,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 		MR_next_call_site_dynamic = newcsd;
 	}
 
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 	MR_leave_instrumentation();
 #else
 	MR_fatal_error(""prepare_for_ho_call: deep profiling not enabled"");
@@ -653,7 +644,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	csd = (MR_CallSiteDynamic *) CSD;
 	MR_deep_assert(csd == MR_current_call_site_dynamic);
 	MR_deep_assert(csd->MR_csd_callee_ptr != NULL);
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 
 	MR_current_callback_site = (MR_CallSiteDynList **)
 		&(csd->MR_csd_callee_ptr->MR_pd_call_site_ptr_ptrs[N]);
@@ -672,7 +662,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	csd = (MR_CallSiteDynamic *) CSD;
 	MR_deep_assert(csd == MR_current_call_site_dynamic);
 	csd->MR_csd_own.MR_own_calls++;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 #endif
 #else
 	MR_fatal_error(""increment_call_count: deep profiling not enabled"");
@@ -689,7 +678,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	csd = (MR_CallSiteDynamic *) CSD;
 	MR_deep_assert(csd == MR_current_call_site_dynamic);
 	csd->MR_csd_own.MR_own_exits++;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 #endif
 #else
 	MR_fatal_error(""increment_exit_count: deep profiling not enabled"");
@@ -705,7 +693,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 
 	csd = (MR_CallSiteDynamic *) CSD;
 	csd->MR_csd_own.MR_own_redos++;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 #endif
 #else
 	MR_fatal_error(""increment_redo_count: deep profiling not enabled"");
@@ -722,7 +709,6 @@ inner_call_port_code(ProcDescr, MiddleCSD) :-
 	csd = (MR_CallSiteDynamic *) CSD;
 	MR_deep_assert(csd == MR_current_call_site_dynamic);
 	csd->MR_csd_own.MR_own_fails++;
-	MR_deep_assert(csd->MR_csd_own.MR_own_quanta >= 0);
 #endif
 #else
 	MR_fatal_error(""increment_fail_count: deep profiling not enabled"");
