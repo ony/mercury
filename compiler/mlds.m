@@ -963,7 +963,7 @@ XXX Full exception handling support is not yet implemented.
 	% heap management
 	%
 
-	;	delete_object(mlds__lval, int)
+	;	delete_object(mlds__rval, int)
 			% Compile time garbage collect (ie explicitly
 			% deallocate) the memory used by the lval of 
 			% the size recorded in the integer.

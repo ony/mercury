@@ -991,7 +991,7 @@ atomic_statement_to_il(assign(Lval, Rval), Instrs) -->
 atomic_statement_to_il(comment(Comment), Instrs) -->
 	{ Instrs = node([comment(Comment)]) }.
 
-atomic_statement_to_il(delete_object(Target, _Size), Instrs) -->
+atomic_statement_to_il(delete_object(_Target, _Size), _Instrs) -->
 		% XXX we assume the code generator knows what it is
 		% doing and is only going to delete real objects (e.g.
 		% reference types).  It would perhaps be prudent to
@@ -1001,8 +1001,9 @@ atomic_statement_to_il(delete_object(Target, _Size), Instrs) -->
 		% We implement delete_object by storing null in the
 		% lval, which hopefully gives the garbage collector a good
 		% solid hint that this storage is no longer required.
-	get_load_store_lval_instrs(Target, LoadInstrs, StoreInstrs),
-	{ Instrs = tree__list([LoadInstrs, instr_node(ldnull), StoreInstrs]) }.
+	{ error("atomic_statement_to_il: delete object NYI") }.
+	%get_load_store_lval_instrs(Target, LoadInstrs, StoreInstrs),
+	%{ Instrs = tree__list([LoadInstrs, instr_node(ldnull), StoreInstrs]) }.
 
 atomic_statement_to_il(new_object(Target, _MaybeTag, Type, Size, _CtorName,
 		Args, ArgTypes), Instrs) -->

@@ -911,8 +911,8 @@ fixup_atomic_stmt(comment(C), comment(C)) --> [].
 fixup_atomic_stmt(assign(Lval0, Rval0), assign(Lval, Rval)) -->
 	fixup_lval(Lval0, Lval),
 	fixup_rval(Rval0, Rval).
-fixup_atomic_stmt(delete_object(Lval0, Size), delete_object(Lval, Size)) -->
-	fixup_lval(Lval0, Lval).
+fixup_atomic_stmt(delete_object(Rval0, Size), delete_object(Rval, Size)) -->
+	fixup_rval(Rval0, Rval).
 fixup_atomic_stmt(new_object(Target0, MaybeTag, Type, MaybeSize, MaybeCtorName,
 			Args0, ArgTypes),
 		new_object(Target, MaybeTag, Type, MaybeSize, MaybeCtorName,

@@ -2390,11 +2390,11 @@ mlds_output_atomic_stmt(Indent, _FuncInfo, assign(Lval, Rval), _) -->
 	%
 	% heap management
 	%
-mlds_output_atomic_stmt(Indent, _FuncInfo, delete_object(Lval, Size), _) -->
+mlds_output_atomic_stmt(Indent, _FuncInfo, delete_object(Rval, Size), _) -->
 	mlds_indent(Indent),
-	io__write_string("MR_compile_time_gc(MR_strip_tag("),
-	mlds_output_lval(Lval),
-	io__write_string("), "),
+	io__write_string("MR_compile_time_gc("),
+	mlds_output_rval(Rval),
+	io__write_string(", "),
 	io__write_int(Size),
 	io__write_string(");\n").
 

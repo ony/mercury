@@ -163,6 +163,9 @@ ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, CanCGC),
 		%
 		{ CanCGC = yes },
 		ml_gen_var(Var, VarLval),
+		ml_variable_type(Var, Type),
+		ml_cons_id_to_tag(ConsId, Type, Tag),
+		{ MaybePrimaryTag = ml_primary_tag(Tag) },
 		{ 
 			HasSecondaryTag = yes,
 			SecondaryTagSize = 1
@@ -170,7 +173,15 @@ ml_gen_unification(deconstruct(Var, ConsId, Args, ArgModes, CanFail, CanCGC),
 			HasSecondaryTag = no,
 			SecondaryTagSize = 0
 		},
-		{ MLDS_Stmt = atomic(delete_object(VarLval,
+		{	
+			MaybePrimaryTag = yes(PrimaryTag),
+			Rval = binop(body, lval(VarLval),
+					ml_gen_mktag(PrimaryTag))
+		;
+			MaybePrimaryTag = no,
+			Rval = lval(VarLval)
+		},
+		{ MLDS_Stmt = atomic(delete_object(Rval,
 				list__length(Args) + SecondaryTagSize)) },
 		{ MLDS_CGC_Statements = [mlds__statement(MLDS_Stmt,
 				mlds__make_context(Context)) ] }
@@ -1427,6 +1438,21 @@ ml_tag_offset_and_argnum(Tag, TagBits, OffSet, ArgNum) :-
 		Tag = shared_local_tag(_Bits1, _Num1),
 		error("ml_tag_offset_and_argnum")
 	).
+
+:- func ml_primary_tag(cons_tag) = maybe(tag_bits).
+
+ml_primary_tag(unshared_tag(UnsharedTag)) = yes(UnsharedTag).
+ml_primary_tag(shared_remote_tag(PrimaryTag, _SecondaryTag)) = yes(PrimaryTag).
+ml_primary_tag(string_constant(_)) = no.
+ml_primary_tag(int_constant(_)) = no.
+ml_primary_tag(float_constant(_)) = no.
+ml_primary_tag(pred_closure_tag(_, _, _)) = no.
+ml_primary_tag(code_addr_constant(_, _)) = no.
+ml_primary_tag(type_ctor_info_constant(_, _, _)) = no.
+ml_primary_tag(base_typeclass_info_constant(_, _, _)) = no.
+ml_primary_tag(tabling_pointer_constant(_, _)) = no.
+ml_primary_tag(no_tag) = no.
+ml_primary_tag(shared_local_tag(_, _)) = no.
 
 
 	% Given a type and a cons_id, and also the types of the actual
