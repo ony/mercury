@@ -247,7 +247,8 @@ transform_mlds(MLDS0) = MLDS :-
 			)
 		), MLDS0 ^ defns, MercuryCodeMembers, Others),
 	MLDS = MLDS0 ^ defns := [wrapper_class(
-			list__map(rename_defn, MercuryCodeMembers)) | Others].
+			list__map(rename_defn, MercuryCodeMembers)) |
+			list__map(rename_defn, Others)].
 
 
 :- func wrapper_class(mlds__defns) = mlds__defn.
@@ -275,8 +276,12 @@ rename_defn(defn(Name, Context, Flags, Entity0))
 			MaybeStmt = no
 		),
 		Entity = function(MaybePredProcId, Params, MaybeStmt, Attrs)
-	; Entity0 = class(_),
-		unexpected(this_file, "nested class")
+	; Entity0 = class(ClassDefn),
+		ClassDefn = class_defn(Kind, Imports, Inherits, Implements,
+				Ctors, Members),
+		Entity = class(class_defn(Kind, Imports, Inherits, Implements,
+				list__map(rename_defn, Ctors),
+				list__map(rename_defn, Members)))
 	).
 
 :- func rename_statement(mlds__statement) = mlds__statement.
@@ -483,7 +488,7 @@ mlds_defn_to_ilasm_decl(defn(Name, _Context, Flags, class(ClassDefn)),
 		Info = Info2
 	),
 	Decl = class(decl_flags_to_classattrs(Flags), EntityName, Extends,
-			Interfaces, MethodDecls).
+			Interfaces, merge_properties(MethodDecls)).
 
 :- pred generate_class_body(mlds__entity_name::in, mlds__class_defn::in,
 		ilds__class_name::out, ilds__id::out, extends::out,
@@ -505,7 +510,8 @@ generate_class_body(Name, ClassDefn, ClassName, EntityName, Extends, Interfaces,
 			MethodsAndFields, Info0, Info1),
 	list__map_foldl(generate_method(ClassName, yes(Parent)), Ctors,
 			IlCtors, Info1, Info),
-	ClassDecls = IlCtors ++ MethodsAndFields.
+	ClassDecls = list__condense(IlCtors) ++
+			list__condense(MethodsAndFields).
 
 
 :- func generate_parent_and_extends(il_data_rep, list(mlds__class_id))
@@ -611,7 +617,13 @@ decl_flags_to_methattrs(Flags)
 	; AccessFlag = protected,
 		Access = [family]
 	; AccessFlag = private,
-		Access = [private]
+			% Rather then using private which only allows
+			% methods in the same type to call the method,
+			% we use assembly which means that this method
+			% can be called from any method in the module.
+			% This is currently neccessary for implementing
+			% foreign_classes.
+		Access = [assembly]
 	; AccessFlag = default,
 		Access = [assembly]
 	; AccessFlag = local,
@@ -697,10 +709,10 @@ interface_id_to_class_name(_) = Result :-
 %-----------------------------------------------------------------------------%
 
 :- pred generate_method(ilds__class_name::in, maybe(ilds__class_name)::in,
-		mlds__defn::in, class_member::out,
+		mlds__defn::in, list(class_member)::out,
 		il_info::in, il_info::out) is det.
 
-generate_method(ClassName, _, defn(Name, Context, Flags, Entity), ClassDecl) -->
+generate_method(ClassName, _, defn(Name, Ctxt, Flags, Entity), ClassDecls) -->
 	{ Entity = data(Type, DataInitializer) },
 
 	{ FieldName = entity_name_to_ilds_id(Name) },
@@ -762,7 +774,7 @@ generate_method(ClassName, _, defn(Name, Context, Flags, Entity), ClassDecl) -->
 		% Add a store after the alloc instrs (if necessary)
 	{ AllocInstrs = list__condense(tree__flatten(
 		tree__list([
-			context_node(Context),
+			context_node(Ctxt),
 			comment_node(string__append("allocation for ",
 				FieldName)),
 			AllocInstrsTree, 
@@ -771,7 +783,7 @@ generate_method(ClassName, _, defn(Name, Context, Flags, Entity), ClassDecl) -->
 		% Add a load before the init instrs (if necessary)
 	{ InitInstrs = list__condense(tree__flatten(
 		tree__list([
-			context_node(Context),
+			context_node(Ctxt),
 			comment_node(string__append("initializer for ",
 				FieldName)),
 			LoadTree,
@@ -790,10 +802,11 @@ generate_method(ClassName, _, defn(Name, Context, Flags, Entity), ClassDecl) -->
 	{ MaybeOffset = no },
 	{ Initializer = none },
 
-	{ ClassDecl = field(Attrs, IlType, FieldName,
-			MaybeOffset, Initializer) }.
+	{ ClassDecls = [field(Attrs, IlType, FieldName,
+			MaybeOffset, Initializer)] }.
 
-generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassDecl) -->
+generate_method(ClassName, IsCons,
+		defn(Name, Context, Flags, Entity), ClassDecls) -->
 	{ Entity = function(_, Params, MaybeStatement, Attributes) },
 
 	il_info_get_module_name(ModuleName),
@@ -908,10 +921,49 @@ generate_method(_, IsCons, defn(Name, Context, Flags, Entity), ClassDecl) -->
 	{ list__condense([EntryPoint, CustomAttrs, MethodBody],
 			MethodContents) },
 
-	{ ClassDecl = ilasm__method(methodhead(Attrs, MemberName,
-			ILSignature, []), MethodContents)}.
+	{ MethodHead = methodhead(Attrs, MemberName, ILSignature, []) },
+	{ Method = ilasm__method(MethodHead, MethodContents) },
 
-generate_method(_, _, defn(Name, _Context, Flags, Entity), ClassDecl) -->
+		% Check to see whether we should generate a property
+		% decl as well.
+	{ ClassName = structured_name(_, QualifiedName) },
+	{
+			% XXX Very hacky.  Only classes which are not
+			% the wrapper class can have properties in them.
+		\+ list__last(QualifiedName, "mercury_code")
+	->
+		( 
+			MemberName = id(IdName),
+			string__append("get_", PropertyName, IdName)
+		->
+			ILSignature = signature(_, ReturnType, _),
+			( ReturnType = simple_type(SimpleType) ->
+				ILDSType = ilds__type([], SimpleType)
+			;
+				unexpected(this_file,
+					"no return type for get method")
+			),
+			Property = property(ILDSType, id(PropertyName),
+					yes(MethodHead), no),
+			ClassDecls = [Method, Property]
+		;
+			MemberName = id(IdName),
+			string__append("set_", PropertyName, IdName)
+		->
+			ILSignature = signature(_, _, ILParams),
+			ILDSType - _Name = list__det_head(
+					list__reverse(ILParams)),
+			Property = property(ILDSType, id(PropertyName),
+					no, yes(MethodHead)),
+			ClassDecls = [Method, Property]
+		;
+			ClassDecls = [Method]
+		)
+	;
+		ClassDecls = [Method]
+	}.
+
+generate_method(_, _, defn(Name, _Context, Flags, Entity), [ClassDecl]) -->
 	{ Entity = class(ClassDefn) },
 	generate_class_body(Name, ClassDefn, _ClassName, EntityName,
 			Extends, Interfaces, ClassDecls),
