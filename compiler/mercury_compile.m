@@ -683,8 +683,14 @@ mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
 		{ Imports1 = Imports0 },
 		{ Error1 = no }
 	),
+	{ Imports0 = module_imports(_File, _Module, Ancestors,
+			InterfaceImports, ImplementationImports,
+			_IndirectImports, _PublicChildren, _FactDeps,
+			_ForeignCode, _Items, _Error) },
+	{ list__condense([Ancestors, InterfaceImports,
+			ImplementationImports], TransOptFiles) },
 	( { MakeTransOptInt = yes } ->
-		( { MaybeTransOptDeps = yes(TransOptDeps) } ->
+		( { MaybeTransOptDeps = yes(TransOptDeps0) } ->
 			% When creating the trans_opt file, only import the
 			% trans_opt files which are lower in the ordering
 			% however when none of the src files have been
@@ -693,9 +699,11 @@ mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
 			% information.
 			{ NoModifiedSrcFiles = yes ->
 				HigherDeps = [],
+				TransOptDeps = TransOptFiles,
 				Transitive = yes
 			;
 				Transitive = no,
+				TransOptDeps = TransOptDeps0,
 				HigherDeps = list__delete_elems(
 						Imports0 ^ int_deps ++
 							Imports0 ^ impl_deps,
@@ -740,16 +748,10 @@ mercury_compile__maybe_grab_optfiles(Imports0, OrigModuleName,
 		{ Error2 = no }
 	;
 		( { TransOpt = yes } ->
-			% If transitive optimization is enabled, but we are
-			% not creating the .opt or .trans opt file, then import
-			% the trans_opt files for all the modules that are
-			% imported (or used), and for all ancestor modules.
-			{ Imports0 = module_imports(_File, _Module, Ancestors,
-				InterfaceImports, ImplementationImports,
-				_IndirectImports, _PublicChildren, _FactDeps,
-				_ForeignCode, _Items, _Error) },
-			{ list__condense([Ancestors, InterfaceImports,
-				ImplementationImports], TransOptFiles) },
+		% If transitive optimization is enabled, but we are
+		% not creating the .opt or .trans opt file, then import
+		% the trans_opt files for all the modules that are
+		% imported (or used), and for all ancestor modules.
 			trans_opt__grab_optfiles(yes, Imports1,
 					[OrigModuleName], TransOptFiles,
 					Imports, Error2)
