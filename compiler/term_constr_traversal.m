@@ -235,7 +235,7 @@ traverse_goal_2(call(CallPredId, CallProcId, Args, _, _, _)-_, Params,
 	(
 		CallArgSizeInfo = no,
 		Constr_info = Constr_info1,
-		XXXXX
+		%XXXXX
 		IO = IO0
 	;
 		CallArgSizeInfo = yes(Size_info),
@@ -287,7 +287,7 @@ traverse_goal_2(unify(_, _RHS, _UniMode, Unification, _UniContext)-_,
 	%params_get_ppid(Params, PPID),
 	(
 		Unification = construct(Var, ConsId, ArgVars0, Modes),
-		XX Put in a predicate.
+		%XX Put in a predicate.
 		( info_to_eqn(Var, ConsId, ArgVars0, Modes, Params, 
 					Constr_info0, Constr_info_out) ->
 			( Constr_info_out = constr_info(_, _, _, [Eqn|_]) ->
