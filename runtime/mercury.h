@@ -35,6 +35,7 @@
 #include "mercury_type_tables.h"	/* for MR_register_type_ctor_info */
 
 #ifdef CONSERVATIVE_GC
+  #define GC_I_HIDE_POINTERS
   #include "gc.h"
   #ifdef INLINE_ALLOC
     #include "gc_inl.h"
