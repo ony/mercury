@@ -251,175 +251,204 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 			is det.
 
 
-analyse_goal( ProcInfo, HLDS, Goal0, Goal, 
-		Pool0, Pool, 
-		Alias0, AliasRed, 
-		FP0, FP ) :- 
-	Goal0 = Expr0 - Info0,
-	% each of the branches of the following if/then/else branches
-	% must instantiate:
-	% 	Expr
-	%	Info
-	%	Pool, 
-	%	Aliases,
-	% 	FP
-	(
-		% 1. conjunction
-		Expr0 = conj(Goals0)
-	->
-		list_map_foldl3( analyse_goal(ProcInfo, HLDS),
-				Goals0, Goals, 
-				Pool0, Pool,
-				Alias0, Alias, 
-				FP0, FP),
-		Info = Info0,
-		Expr = conj(Goals)
-	;
-		% 2. call
-		Expr0 = call(PredId, ProcId, ActualVars, _, _, _)
-	->
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = conj(Goals0), 
+	list_map_foldl3( analyse_goal(ProcInfo, HLDS),
+			Goals0, Goals, 
+			Pool0, Pool,
+			Alias0, Alias, 
+			FP0, FP),
+	Expr = conj(Goals),
+	Info = Info0,
+	Goal = Expr - Info. 
 
-		( 
-			pa_alias_as__is_top(Alias0)
-		-> 
-		  	Info = Info0,
-			Pool = Pool0,
-			FP = FP0
-		;
-			call_verify_reuse( ProcInfo, HLDS,
-				PredId, ProcId, ActualVars, Alias0, 
-				Pool0, Pool,
-				Info0, Info, 
-				FP0, FP, _)
-		),
-		pa_run__extend_with_call_alias( HLDS, ProcInfo, 
-	    		PredId, ProcId, ActualVars, Alias0, Alias),
-		Expr = Expr0
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = call(PredId, ProcId, ActualVars, _, _, _), 
+	( 
+		pa_alias_as__is_top(Alias0)
+	-> 
+		Info = Info0,
+		Pool = Pool0,
+		FP = FP0
 	;
-		% 3. generic_call --> see end
-		% 4. switch 
-		Expr0 = switch( A, B, Cases0, SM)
+		call_verify_reuse( ProcInfo, HLDS,
+			PredId, ProcId, ActualVars, Alias0, 
+			Pool0, Pool,
+			Info0, Info, 
+			FP0, FP, _)
+	),
+	pa_run__extend_with_call_alias( HLDS, ProcInfo, 
+		PredId, ProcId, ActualVars, Alias0, Alias),
+	Expr = Expr0, 
+	Goal = Expr - Info.
+
+analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
+			_Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = generic_call(_, _, _, _), 
+	pa_alias_as__top("unhandled goal", Alias), 
+	Pool = Pool0, 
+	FP = FP0,
+	Goal = Expr0 - Info0. 
+	
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = switch( A, B, Cases0, SM),
+	list_map3_foldl(
+		analyse_case(ProcInfo, HLDS, 
+				Pool0, Alias0),
+		Cases0, 
+		Cases,
+		ListPools, 
+		ListAliases,
+		FP0, FP),
+	indirect_reuse_pool_least_upper_bound_disjunction( ListPools,
+				Pool),
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+				ListAliases,
+				Alias1),
+	% reduce the aliases
+	goal_info_get_outscope( Info, Outscope ),
+	pa_alias_as__project_set( Outscope, Alias1, Alias ),
+
+	Info = Info0,
+	Expr = switch( A, B, Cases, SM),
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context), 
+	Pool = Pool0, 
+	pa_alias_as__extend_unification(ProcInfo, HLDS, 
+			Unification, Info, Alias0, Alias),	
+	Info = Info0,
+	FP = FP0,
+	Expr = Expr0, 
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = disj( Goals0, SM ),
+	(
+		Goals0 = []
 	->
+		Goals = Goals0, 
+		Pool = Pool0,
+		Alias = Alias0,
+		FP = FP0
+	;
+		
 		list_map3_foldl(
-			analyse_case(ProcInfo, HLDS, 
-					Pool0, Alias0),
-			Cases0, 
-			Cases,
+			pred( Gin::in, Gout::out, R::out, A::out, 
+			FPin::in, FPout::out) is det :-
+			(
+			analyse_goal( ProcInfo, HLDS, 
+				Gin, Gout, 
+				Pool0, R, 
+				Alias0, A, 
+				FPin, FPout)
+			),
+			Goals0, 
+			Goals,
 			ListPools, 
 			ListAliases,
 			FP0, FP),
-		indirect_reuse_pool_least_upper_bound_disjunction( ListPools,
+		indirect_reuse_pool_least_upper_bound_disjunction(
+					ListPools,
 					Pool),
 		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
 					ListAliases,
-					Alias),
-		Info = Info0,
-		Expr = switch( A, B, Cases, SM)
-		
-	; 
-		% 5. unification
-		Expr0 = unify(_Var, _Rhs, _Mode, Unification, _Context)
-	->
-		Pool = Pool0, 
-		pa_alias_as__extend_unification(ProcInfo, HLDS, 
-				Unification, Info, Alias0, Alias),	
-		Info = Info0,
-		FP = FP0,
-		Expr = Expr0
-
-	;
-		% 6. disjunction	
-		Expr0 = disj( Goals0, SM )
-	->
-		(
-			Goals0 = []
-		->
-			Goals = Goals0, 
-			Pool = Pool0,
-			Alias = Alias0,
-			FP = FP0
-		;
-			
-			list_map3_foldl(
-				pred( Gin::in, Gout::out, R::out, A::out, 
-			      	FPin::in, FPout::out) is det :-
-			    	(
-			      	analyse_goal( ProcInfo, HLDS, 
-					Gin, Gout, 
-					Pool0, R, 
-					Alias0, A, 
-					FPin, FPout)
-			    	),
-				Goals0, 
-				Goals,
-				ListPools, 
-				ListAliases,
-				FP0, FP),
-			indirect_reuse_pool_least_upper_bound_disjunction(
-						ListPools,
-						Pool),
-			pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
-						ListAliases,
-						Alias)
-		),
-		Info = Info0,
-		Expr = disj(Goals, SM)
-
-	;
-		% 7. not
-		Expr0 = not(NegatedGoal0)
-	->
-		analyse_goal(ProcInfo, HLDS, 
-				NegatedGoal0, NegatedGoal, 
-				Pool0, Pool, 
-				Alias0, Alias, 
-				FP0, FP), 
-		Info = Info0, 
-		Expr = not(NegatedGoal)
-	;
-		% 8. some --> treated as unhandled case
-		% 9. if_then_else
-		Expr0 = if_then_else( Vars, Cond0, Then0, Else0, SM)
-	->
-		analyse_goal( ProcInfo, HLDS, Cond0, Cond, 
-				Pool0, PoolCOND, 
-				Alias0,  AliasCOND, 
-				FP0, FP1),
-		analyse_goal( ProcInfo, HLDS, Then0, Then, 
-				PoolCOND, PoolTHEN, 
-				AliasCOND,  AliasTHEN,
-				FP1, FP2 ),
-		analyse_goal( ProcInfo, HLDS, Else0, Else, 
-				Pool0, PoolELSE, 
-				Alias0,  AliasELSE,
-				FP2, FP3 ), 
-		indirect_reuse_pool_least_upper_bound_disjunction( 
-					[PoolTHEN, PoolELSE],
-					Pool),
-
-		pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
-					[AliasTHEN, AliasELSE],
-					Alias),
-		FP = FP3,
-		Info = Info0,
-		Expr = if_then_else( Vars, Cond, Then, Else, SM)
-				
-	;
-		Expr = Expr0,
-		Pool = Pool0, 
-		pa_alias_as__top("unhandled goal", Alias), 
-		FP = FP0,
-		Info = Info0
-	),
-	(
-		goal_is_atomic( Expr )
-	->
-		AliasRed = Alias % projection operation is not worthwhile
-	;
+					Alias1),
+		% reduce the aliases
 		goal_info_get_outscope( Info, Outscope ),
-		pa_alias_as__project_set( Outscope, Alias, AliasRed )
+		pa_alias_as__project_set( Outscope, Alias1, Alias )
 	),
+
+	Info = Info0,
+	Expr = disj(Goals, SM),
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = not(NegatedGoal0),
+	analyse_goal(ProcInfo, HLDS, 
+			NegatedGoal0, NegatedGoal, 
+			Pool0, Pool, 
+			Alias0, Alias, 
+			FP0, FP), 
+	Info = Info0, 
+	Expr = not(NegatedGoal),
+	Goal = Expr - Info. 
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = some( A, B, SomeGoal0), 
+	analyse_goal( ProcInfo, HLDS, SomeGoal0, SomeGoal, Pool0, Pool, 
+			Alias0, Alias, FP0, FP), 
+	Info = Info0, 
+	Expr = some( A, B, SomeGoal), 
 	Goal = Expr - Info.
+
+analyse_goal( ProcInfo, HLDS, Expr0 - Info0, Goal, Pool0, Pool, Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = if_then_else( Vars, Cond0, Then0, Else0, SM),
+	analyse_goal( ProcInfo, HLDS, Cond0, Cond, 
+			Pool0, PoolCOND, 
+			Alias0,  AliasCOND, 
+			FP0, FP1),
+	analyse_goal( ProcInfo, HLDS, Then0, Then, 
+			PoolCOND, PoolTHEN, 
+			AliasCOND,  AliasTHEN,
+			FP1, FP2 ),
+	analyse_goal( ProcInfo, HLDS, Else0, Else, 
+			Pool0, PoolELSE, 
+			Alias0,  AliasELSE,
+			FP2, FP3 ), 
+	indirect_reuse_pool_least_upper_bound_disjunction( 
+				[PoolTHEN, PoolELSE],
+				Pool),
+
+	pa_alias_as__least_upper_bound_list(ProcInfo, HLDS, 
+				[AliasTHEN, AliasELSE],
+				Alias1),
+	FP = FP3,
+
+	% reduce the aliases
+	goal_info_get_outscope( Info, Outscope ),
+	pa_alias_as__project_set( Outscope, Alias1, Alias ),
+
+	Info = Info0,
+	Expr = if_then_else( Vars, Cond, Then, Else, SM),
+	Goal = Expr - Info.
+				
+analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
+			_Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = pragma_foreign_code( _, _, _, _, _, _, _, _ ), 
+	pa_alias_as__top("unhandled goal", Alias), 
+	Pool = Pool0, 
+	FP = FP0,
+	Goal = Expr0 - Info0. 
+
+analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
+			_Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = par_conj( _, _), 
+	pa_alias_as__top("unhandled goal", Alias), 
+	Pool = Pool0, 
+	FP = FP0,
+	Goal = Expr0 - Info0. 
+
+analyse_goal( _ProcInfo, _HLDS, Expr0 - Info0, Goal, Pool0, Pool, 
+			_Alias0, Alias, 
+			FP0, FP) :- 
+	Expr0 = bi_implication(_, _), 
+	pa_alias_as__top("unhandled goal", Alias), 
+	Pool = Pool0, 
+	FP = FP0,
+	Goal = Expr0 - Info0. 
 
 :- pred analyse_case( proc_info, module_info, 
 			indirect_reuse_pool, alias_as, 
