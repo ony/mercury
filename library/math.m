@@ -277,21 +277,25 @@ ML_math_domain_error(MR_String where)
 %
 	% Pythagoras' number
 :- pragma foreign_proc("C", 
-	math__pi = (Pi::out), [will_not_call_mercury, thread_safe],"
+	math__pi = (Pi::out), [will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Pi = ML_FLOAT_PI;
 ").
 :- pragma foreign_proc("MC++", 
-	math__pi = (Pi::out), [will_not_call_mercury, thread_safe],"
+	math__pi = (Pi::out), [will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Pi = System::Math::PI;
 ").
 
 	% Base of natural logarithms
 :- pragma foreign_proc("C", 
-	math__e = (E::out), [will_not_call_mercury, thread_safe],"
+	math__e = (E::out), [will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	E = ML_FLOAT_E;
 ").
 :- pragma foreign_proc("MC++", 
-	math__e = (E::out), [will_not_call_mercury, thread_safe],"
+	math__e = (E::out), [will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	E = System::Math::E;
 ").
 
@@ -301,12 +305,14 @@ ML_math_domain_error(MR_String where)
 %
 :- pragma foreign_proc("C", 
 	math__ceiling(Num::in) = (Ceil::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Ceil = ceil(Num);
 ").
 :- pragma foreign_proc("MC++", 
 	math__ceiling(Num::in) = (Ceil::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Ceil = System::Math::Ceil(Num);
 ").
 
@@ -316,12 +322,14 @@ ML_math_domain_error(MR_String where)
 %
 :- pragma foreign_proc("C", 
 	math__floor(Num::in) = (Floor::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Floor = floor(Num);
 ").
 :- pragma foreign_proc("MC++", 
 	math__floor(Num::in) = (Floor::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Floor = System::Math::Floor(Num);
 ").
 
@@ -332,12 +340,14 @@ ML_math_domain_error(MR_String where)
 %
 :- pragma foreign_proc("C", 
 	math__round(Num::in) = (Rounded::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	Rounded = floor(Num+0.5);
 ").
 :- pragma foreign_proc("MC++", 
 	math__round(Num::in) = (Rounded::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	// XXX the semantics of System::Math::Round() are not the same as ours.
 	// Unfortunately they are better (round to nearest even number).
 	Rounded = System::Math::Floor(Num+0.5);
@@ -349,7 +359,8 @@ ML_math_domain_error(MR_String where)
 %
 :- pragma foreign_proc("C",
 	math__truncate(X::in) = (Trunc::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	if (X < 0.0) {
 		Trunc = ceil(X);
 	} else {
@@ -358,7 +369,8 @@ ML_math_domain_error(MR_String where)
 ").
 :- pragma foreign_proc("MC++",
 	math__truncate(X::in) = (Trunc::out),
-		[will_not_call_mercury, thread_safe],"
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
 	if (X < 0.0) {
 		Trunc = System::Math::Ceil(X);
 	} else {
@@ -374,7 +386,8 @@ ML_math_domain_error(MR_String where)
 %		X >= 0
 %
 :- pragma foreign_proc("C", math__sqrt(X::in) = (SquareRoot::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing], "
 #ifndef ML_OMIT_MATH_DOMAIN_CHECKS
 	if (X < 0.0) {
 		ML_math_domain_error(""math__sqrt"");
@@ -383,7 +396,8 @@ ML_math_domain_error(MR_String where)
 	SquareRoot = sqrt(X);
 ").
 :- pragma foreign_proc("MC++", math__sqrt(X::in) = (SquareRoot::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing], "
 #ifndef ML_OMIT_MATH_DOMAIN_CHECKS
 	if (X < 0.0) {
 		ML_math_domain_error(""math__sqrt"");

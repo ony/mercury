@@ -478,12 +478,12 @@ is(X, X).
 :- mode int__to_float(in, out) is det.
 */
 :- pragma foreign_proc("C", int__to_float(IntVal::in, FloatVal::out),
-		will_not_call_mercury,
+		[will_not_call_mercury, no_aliasing],
 "
 	FloatVal = IntVal;
 ").
 :- pragma foreign_proc("MC++", int__to_float(IntVal::in, FloatVal::out),
-		will_not_call_mercury,
+		[will_not_call_mercury, no_aliasing],
 "
 	FloatVal = (MR_Float) IntVal;
 ").

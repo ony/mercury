@@ -679,7 +679,7 @@ string__from_char_list(CharList, Str) :-
 */
 
 :- pragma foreign_proc("C", string__to_char_list(Str::in, CharList::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	MR_ConstString p = Str + strlen(Str);
 	CharList = MR_list_empty_msg(MR_PROC_LABEL);
 	while (p > Str) {
@@ -690,7 +690,7 @@ string__from_char_list(CharList, Str) :-
 }").
 
 :- pragma foreign_proc("C", string__to_char_list(Str::out, CharList::in),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 		/* mode (out, in) is det */
 	MR_Word char_list_ptr;
 	size_t size;
@@ -733,7 +733,7 @@ string__from_char_list(CharList, Str) :-
 % it improves the overall speed of parsing by about 7%.
 %
 :- pragma foreign_proc("C", string__from_rev_char_list(Chars::in, Str::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, no_aliasing], "
 {
 	MR_Word list_ptr;
 	MR_Word size, len;
@@ -772,7 +772,7 @@ string__from_char_list(CharList, Str) :-
 }").
 
 :- pragma foreign_proc("MC++", string__to_char_list(Str::in, CharList::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
         MR_Integer length, i; 
         MR_Word tmp;
         MR_Word prev;
@@ -791,7 +791,7 @@ string__from_char_list(CharList, Str) :-
 }").
 
 :- pragma foreign_proc("MC++", string__to_char_list(Str::out, CharList::in),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
         System::Text::StringBuilder *tmp;
 	MR_Char c;
        
@@ -809,8 +809,8 @@ string__from_char_list(CharList, Str) :-
 }").
 
 :- pragma foreign_proc("MC++", string__from_rev_char_list(_Chars::in,
-		_Str::out), [will_not_call_mercury, thread_safe], "
-{
+		_Str::out), [will_not_call_mercury, thread_safe, no_aliasing],
+"{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 
@@ -937,7 +937,7 @@ string__append_list(Lists, string__append_list(Lists)).
 	% Implementation of append_list that uses C as this minimises the
 	% amount of garbage created.
 :- pragma foreign_proc("C", string__append_list(Strs::in) = (Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	MR_Word	list = Strs;
 	MR_Word	tmp;
 	size_t	len = 0;
@@ -965,7 +965,7 @@ string__append_list(Lists, string__append_list(Lists)).
 }").
 
 :- pragma foreign_proc("MC++", string__append_list(_Strs::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 
@@ -1390,14 +1390,14 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 :- func int_length_modifer = string.
 :- pragma foreign_proc("C", 
 	int_length_modifer = (LengthModifier::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	MR_make_aligned_string(LengthModifier,
 		(MR_String) (MR_Word) MR_INTEGER_LENGTH_MODIFIER);
 }").
 
 :- pragma foreign_proc("MC++", 
 	int_length_modifer = (_LengthModifier::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 
@@ -1408,14 +1408,14 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 :- func format_float(string, float) = string.
 :- pragma foreign_proc("C",
 	format_float(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	MR_save_transient_hp();
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, (double) Val);
 	MR_restore_transient_hp();
 }").
 :- pragma foreign_proc("MC++",
 	format_float(_FormatStr::in, _Val::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 
@@ -1425,14 +1425,14 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 :- func format_int(string, int) = string.
 :- pragma foreign_proc("C",
 	format_int(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	MR_save_transient_hp();
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 	MR_restore_transient_hp();
 }").
 :- pragma foreign_proc("MC++",
 	format_int(_FormatStr::in, _Val::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 
@@ -1442,12 +1442,12 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 :- func format_string(string, string) = string.
 :- pragma foreign_proc("C", 
 	format_string(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 }").
 :- pragma foreign_proc("MC++", 
 	format_string(_FormatStr::in, _Val::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 
@@ -1457,14 +1457,14 @@ make_format(Flags, MaybeWidth, MaybePrec, LengthMod, Spec) = String :-
 :- func format_char(string, char) = string.
 :- pragma foreign_proc("C", 
 	format_char(FormatStr::in, Val::in) = (Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	MR_save_transient_hp();
 	Str = MR_make_string(MR_PROC_LABEL, FormatStr, Val);
 	MR_restore_transient_hp();
 }").
 :- pragma foreign_proc("MC++", 
 	format_char(_FormatStr::in, _Val::in) = (_Str::out),
-		[will_not_call_mercury, thread_safe], "{
+		[will_not_call_mercury, thread_safe, no_aliasing], "{
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 }").
 

@@ -415,19 +415,19 @@ char__lower_upper('z', 'Z').
 
 :- pragma foreign_proc("C",
 	char__to_int(Character::in, Int::out),
-               [will_not_call_mercury, thread_safe] , "
+               [will_not_call_mercury, thread_safe, no_aliasing] , "
 	Int = (MR_UnsignedChar) Character;
 ").
 
 :- pragma foreign_proc("C",
 	char__to_int(Character::in, Int::in),
-               [will_not_call_mercury, thread_safe] , "
+               [will_not_call_mercury, thread_safe, no_aliasing] , "
 	SUCCESS_INDICATOR = ((MR_UnsignedChar) Character == Int);
 ").
 
 :- pragma foreign_proc("C",
 	char__to_int(Character::out, Int::in),
-               [will_not_call_mercury, thread_safe] , "
+               [will_not_call_mercury, thread_safe, no_aliasing] , "
 	/*
 	** If the integer doesn't fit into a char, then
 	** the assignment `Character = Int' below will truncate it.
@@ -440,19 +440,19 @@ char__lower_upper('z', 'Z').
 
 :- pragma foreign_proc("MC++",
 	char__to_int(Character::in, Int::out),
-               [will_not_call_mercury, thread_safe] , "
+               [will_not_call_mercury, thread_safe, no_aliasing] , "
 	Int = Character;
 ").
 
 :- pragma foreign_proc("MC++",
 	char__to_int(Character::in, Int::in),
-               [will_not_call_mercury, thread_safe] , "
+               [will_not_call_mercury, thread_safe, no_aliasing] , "
 	SUCCESS_INDICATOR = (Character == Int);
 ").
 
 :- pragma foreign_proc("MC++",
 	char__to_int(Character::out, Int::in),
-               [will_not_call_mercury, thread_safe] , "
+               [will_not_call_mercury, thread_safe, no_aliasing] , "
 	Character = Int;
 	SUCCESS_INDICATOR = (Character == Int);
 ").
@@ -465,13 +465,13 @@ char__min_char_value(0).
 :- pragma c_header_code("#include <limits.h>").
 :- pragma foreign_proc("C",
 		char__max_char_value(Max::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, no_aliasing], "
 	Max = UCHAR_MAX;
 ").
 
 :- pragma foreign_proc("MC++",
 		char__max_char_value(_Max::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, no_aliasing], "
 	mercury::runtime::Errors::SORRY(""c code for this function"");
 ").
 

@@ -377,12 +377,12 @@ float(Int) = Float :-
 	% float__ceiling_to_int(X) returns the
 	% smallest integer not less than X.
 :- pragma foreign_proc("C", float__ceiling_to_int(X :: in) = (Ceil :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Ceil = (MR_Integer) ceil(X);
 ").
 :- pragma foreign_proc("MC++", float__ceiling_to_int(X :: in) = (Ceil :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Ceil = (MR_Integer) System::Math::Ceil(X);
 ").
@@ -392,12 +392,12 @@ float__ceiling_to_int(X, float__ceiling_to_int(X)).
 	% float__floor_to_int(X) returns the
 	% largest integer not greater than X.
 :- pragma foreign_proc("C", float__floor_to_int(X :: in) = (Floor :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Floor = (MR_Integer) floor(X);
 ").
 :- pragma foreign_proc("MC++", float__floor_to_int(X :: in) = (Floor :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Floor = (MR_Integer) System::Math::Floor(X);
 ").
@@ -407,12 +407,12 @@ float__floor_to_int(X, float__floor_to_int(X)).
 	% float__round_to_int(X) returns the integer closest to X.
 	% If X has a fractional value of 0.5, it is rounded up.
 :- pragma foreign_proc("C", float__round_to_int(X :: in) = (Round :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Round = (MR_Integer) floor(X + 0.5);
 ").
 :- pragma foreign_proc("MC++", float__round_to_int(X :: in) = (Round :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Round = (MR_Integer) System::Math::Floor(X + 0.5);
 ").
@@ -422,12 +422,12 @@ float__round_to_int(X, float__round_to_int(X)).
 	% float__truncate_to_int(X) returns the integer closest
 	% to X such that |float__truncate_to_int(X)| =< |X|.
 :- pragma foreign_proc("C", float__truncate_to_int(X :: in) = (Trunc :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Trunc = (MR_Integer) X;
 ").
 :- pragma foreign_proc("MC++", float__truncate_to_int(X :: in) = (Trunc :: out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	Trunc = (MR_Integer) X;
 ").
@@ -490,12 +490,12 @@ float__pow(X, Exp) = Ans :-
 float__pow(X, Exp, float__pow(X, Exp)).
 
 :- pragma foreign_proc("C", float__hash(F::in) = (H::out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	H = MR_hash_float(F);
 ").
 :- pragma foreign_proc("MC++", float__hash(F::in) = (H::out),
-	[will_not_call_mercury, thread_safe],
+	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	H = F.GetHashCode();
 ").
@@ -533,10 +533,10 @@ float__hash(F, float__hash(F)).
 
 	% Maximum floating-point number
 :- pragma foreign_proc("C", float__max = (Max::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Max = ML_FLOAT_MAX;").
 :- pragma foreign_proc("MC++", float__max = (Max::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Max = MR_BoxedFloat::MaxValue;").
 
 
@@ -544,30 +544,30 @@ float__max(float__max).
 
 	% Minimum normalised floating-point number */
 :- pragma foreign_proc("C", float__min = (Min::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Min = ML_FLOAT_MIN;").
 :- pragma foreign_proc("MC++", float__min = (Min::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Min = MR_BoxedFloat::MinValue;").
 
 float__min(float__min).
 
 	% Smallest x such that x \= 1.0 + x
 :- pragma foreign_proc("C", float__epsilon = (Eps::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Eps = ML_FLOAT_EPSILON;").
 :- pragma foreign_proc("MC++", float__epsilon = (Eps::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Eps = MR_BoxedFloat::Epsilon;").
 
 float__epsilon(float__epsilon).
 
 	% Radix of the floating-point representation.
 :- pragma foreign_proc("C", float__radix = (Radix::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Radix = ML_FLOAT_RADIX;").
 :- pragma foreign_proc("MC++", float__radix = (_Radix::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, no_aliasing], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
@@ -575,10 +575,10 @@ float__radix(float__radix).
 
 	% The number of base-radix digits in the mantissa.
 :- pragma foreign_proc("C", float__mantissa_digits = (MantDig::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"MantDig = ML_FLOAT_MANT_DIG;").
 :- pragma foreign_proc("MC++", float__mantissa_digits = (_MantDig::out),
-		[will_not_call_mercury, thread_safe], "
+		[will_not_call_mercury, thread_safe, no_aliasing], "
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
@@ -588,10 +588,10 @@ float__mantissa_digits(float__mantissa_digits).
 	%	radix ** (min_exponent - 1)
 	% is a normalised floating-point number.
 :- pragma foreign_proc("C", float__min_exponent = (MinExp::out),
-		[will_not_call_mercury, thread_safe],
+		[will_not_call_mercury, thread_safe, no_aliasing],
 	"MinExp = ML_FLOAT_MIN_EXP;").
 :- pragma foreign_proc("MC++", float__min_exponent = (_MinExp::out),
-		[will_not_call_mercury, thread_safe], "	
+		[will_not_call_mercury, thread_safe, no_aliasing], "	
 	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
