@@ -779,7 +779,7 @@ call_verify_reuse( ProcInfo, HLDS, PredId0, ProcId0,
 			Pool = Pool0,
 	
 			examine_cause_of_missed_reuse( HLDS, ProcInfo, 
-					LBUi, LFUi, 
+					LFUi, LBUi, 
 					StaticTerms, Memo, 
 					Cause ), 
 			

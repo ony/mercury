@@ -28,8 +28,7 @@
 :- type reuse_goal_info
 	--->	empty
 	;	choice(choice_info)
-	;	reuse(short_reuse_info)
-	.
+	;	reuse(short_reuse_info).
 
 :- type short_reuse_info --->
 				no_reuse 
@@ -51,8 +50,7 @@
 				% the condition associated with reusing
 				% that cell.
 			set(reuse_var)
-		)
-	.
+		).
 
 	% A reuse, whether direct or indirect, is only allowed as long
 	% as the caller fulfills some conditions.  This type keeps track
@@ -66,81 +64,79 @@
 		   local_alias_headvars :: alias_as 
 		).
 
-	% XXX this will replace the former tabled_reuse type. 
 :- type memo_reuse == maybe(list(reuse_condition)).
-
 
 %-----------------------------------------------------------------------------%
 % reuse_condition predicates 
 %-----------------------------------------------------------------------------%
-:- pred reuse_condition_merge( reuse_condition::in, 
+:- pred reuse_condition_merge(reuse_condition::in, 
 				reuse_condition::in,
 				reuse_condition::out) is det.
 
-:- pred reuse_condition_equal(reuse_condition, reuse_condition).
-:- mode reuse_condition_equal(in, in) is semidet.
+:- pred reuse_condition_equal(reuse_condition::in, 
+			reuse_condition::in) is semidet.
 
 	% condition_init(Var, LFUi, LBUi, ALIASi, HVs, Condition).
-:- pred reuse_condition_init(module_info, proc_info,
-			prog_var, set(prog_var), set(prog_var), 
-			alias_as, list(prog_var), reuse_condition).
-:- mode reuse_condition_init(in, in, in, in, in, in, in, out) is det.
+:- pred reuse_condition_init(module_info::in, proc_info::in, prog_var::in,
+			set(prog_var)::in, set(prog_var)::in, 
+			alias_as::in, list(prog_var)::in, 
+			reuse_condition::out) is det.
 
-	% rename the reuse condition given a map from FROM_VARS, to
-	% TO_VARS
-:- pred reuse_condition_rename( map(prog_var, prog_var), 
-		reuse_condition, reuse_condition).
-:- mode reuse_condition_rename( in, in, out ) is det.
-
-:- pred reuse_condition_rename_types( term__substitution(tvar_type)::in, 
+	% Rename the reuse condition given a map from FromVars, to
+	% ToVars.
+:- pred reuse_condition_rename(map(prog_var, prog_var)::in, 
 		reuse_condition::in, reuse_condition::out) is det.
 
-	% print the reuse_condition 
-:- pred reuse_condition_print( proc_info, pred_info, reuse_condition, 
-				io__state, io__state).
-:- mode reuse_condition_print( in, in, in, di, uo) is det.
+:- pred reuse_condition_rename_types(term__substitution(tvar_type)::in, 
+		reuse_condition::in, reuse_condition::out) is det.
 
-	% check whether the given live_set and alias_as satisfy
+	% Print the reuse-condition.
+:- pred reuse_condition_print(proc_info::in, pred_info::in,
+				reuse_condition::in, 
+				io__state::di, io__state::uo) is det.
+
+	% Check whether the given live_set and alias_as satisfy
 	% the condition for reuse. 
-:- pred reuse_condition_verify( proc_info, module_info, 
-			live_set, alias_as, set(prog_var), reuse_condition ).
-:- mode reuse_condition_verify( in, in, in, in, in, in ) is semidet.
+:- pred reuse_condition_verify(proc_info::in, module_info::in, 
+			live_set::in, alias_as::in, set(prog_var)::in, 
+			reuse_condition::in) is semidet.
 
-:- pred reuse_condition_update( proc_info, module_info, 
-			set(prog_var), set(prog_var), 
-			alias_as, list(prog_var), 
-			reuse_condition, reuse_condition ).
-:- mode reuse_condition_update( in, in, in, in, in, in, in, out) is det.
+:- pred reuse_condition_update(proc_info::in, module_info::in, 
+			set(prog_var)::in, set(prog_var)::in, 
+			alias_as::in, list(prog_var)::in, 
+			reuse_condition::in, reuse_condition::out) is det.
 
-:- pred reuse_conditions_simplify( list(reuse_condition)::in, 
+:- pred reuse_conditions_simplify(list(reuse_condition)::in, 
 		list(reuse_condition)::out) is det.
 %-----------------------------------------------------------------------------%
 % memo_reuse predicates
 %-----------------------------------------------------------------------------%
 
-:- pred memo_reuse_equal( memo_reuse::in, memo_reuse::in) is semidet.
-:- pred memo_reuse_init( memo_reuse::out ) is det.
-:- pred memo_reuse_top( memo_reuse::in ) is semidet.
-:- pred memo_reuse_rename( proc_info::in, list(prog_var)::in, 
+:- pred memo_reuse_equal(memo_reuse::in, memo_reuse::in) is semidet.
+:- pred memo_reuse_init(memo_reuse::out) is det.
+:- pred memo_reuse_top(memo_reuse::in) is semidet.
+:- pred memo_reuse_rename(proc_info::in, list(prog_var)::in, 
 		memo_reuse::in, memo_reuse::out) is det.
-:- pred memo_reuse_rename( map(prog_var, prog_var)::in, memo_reuse::in,
+:- pred memo_reuse_rename(map(prog_var, prog_var)::in, memo_reuse::in,
 		memo_reuse::out) is det.
-	% memo_reuse_rename_types( FromTypes, ToTypes, Memo0, Memo).
+	% memo_reuse_rename_types(FromTypes, ToTypes, Memo0, Memo).
 	% Rename all the types occurring in the memo_reuse from FromTypes, 
 	% to ToTypes.
-:- pred memo_reuse_rename_types( list((type))::in, list((type))::in, 
+:- pred memo_reuse_rename_types(list((type))::in, list((type))::in, 
 		memo_reuse::in, memo_reuse::out) is det.
-:- pred memo_reuse_print( memo_reuse::in, sym_name::in, proc_info::in,
+:- pred memo_reuse_print(memo_reuse::in, sym_name::in, proc_info::in,
 		pred_info::in, io__state::di, io__state::uo) is det.
-:- pred memo_reuse_parse( term(T)::in, memo_reuse::out, 
+:- pred memo_reuse_print_dump(memo_reuse::in, proc_info::in, 
+		pred_info::in, io__state::di, io__state::uo) is det. 
+:- pred memo_reuse_parse(term(T)::in, memo_reuse::out, 
 		maybe(sym_name)::out) is semidet.
-:- pred memo_reuse_verify_reuse( proc_info::in, module_info::in, 
+:- pred memo_reuse_verify_reuse(proc_info::in, module_info::in, 
 		memo_reuse::in, live_set::in, alias_as::in,
 		set(prog_var)::in) is semidet.
-:- pred memo_reuse_is_conditional( memo_reuse::in ) is semidet.
-:- pred memo_reuse_is_unconditional( memo_reuse::in) is semidet.
-:- pred memo_reuse_simplify( memo_reuse::in, memo_reuse::out) is det.
-:- pred memo_reuse_merge( memo_reuse::in, memo_reuse::in, 
+:- pred memo_reuse_is_conditional(memo_reuse::in) is semidet.
+:- pred memo_reuse_is_unconditional(memo_reuse::in) is semidet.
+:- pred memo_reuse_simplify(memo_reuse::in, memo_reuse::out) is det.
+:- pred memo_reuse_merge(memo_reuse::in, memo_reuse::in, 
 		memo_reuse::out) is det.
 
 %-----------------------------------------------------------------------------%
@@ -152,30 +148,30 @@
 :- import_module mercury_to_mercury, prog_out, prog_io, prog_io_util.
 :- import_module sr_util, pa_sr_util.
 
-reuse_condition_merge( C1, C2, C ):-
+reuse_condition_merge(C1, C2, C):-
 	(
-		reuse_condition_equal( C1, C2 )
+		reuse_condition_equal(C1, C2)
 	->
 		C = C1
 	;
-		reuse_condition_merge_2( C1, C2, C )
+		reuse_condition_merge_2(C1, C2, C)
 	).
 
-:- pred reuse_condition_merge_2( reuse_condition::in, 
+:- pred reuse_condition_merge_2(reuse_condition::in, 
 				reuse_condition::in,
-				reuse_condition::out ) is det.
+				reuse_condition::out) is det.
 
-reuse_condition_merge_2( C1, C2, C) :- 
+reuse_condition_merge_2(C1, C2, C) :- 
 	(
-		C1 = condition( N1, U1, A1 )
+		C1 = condition(N1, U1, A1)
 	->
 		(
-			C2 = condition( N2, U2, A2 )
+			C2 = condition(N2, U2, A2)
 		->
-			set__union( N1, N2, N),
-			set__union( U1, U2, U),
+			set__union(N1, N2, N),
+			set__union(U1, U2, U),
 			pa_alias_as__add(A1, A2, A),
-			C = condition( N, U, A )
+			C = condition(N, U, A)
 		;
 			% C2 = always
 			C = C1
@@ -187,14 +183,14 @@ reuse_condition_merge_2( C1, C2, C) :-
 			
 			
 reuse_condition_equal(always, always).
-reuse_condition_equal(condition(NODES1, LU1, LA1), 
-			condition(NODES2, LU2, LA2)):-
-	set__equal(NODES1, NODES2),
+reuse_condition_equal(condition(Nodes1, LU1, LA1), 
+			condition(Nodes2, LU2, LA2)):-
+	set__equal(Nodes1, Nodes2),
 	set__equal(LU1, LU2),
 	pa_alias_as__equal(LA1, LA2).
 
 reuse_condition_init(ModuleInfo, ProcInfo, 
-				Var, LFUi, LBUi, ALIASi, HVs, CONDITION):- 
+				Var, LFUi, LBUi, ALIASi, HVs, Condition):- 
 	% First determine the nodes to which the reuse is related. 
 	% There are two cased:
 	% 1. Var is a headvar, then it is sufficient to keep the topcel
@@ -210,88 +206,88 @@ reuse_condition_init(ModuleInfo, ProcInfo,
 	(
 		list__member(Var, HVs)
 	->
-		NODES = [TopCel]
+		Nodes = [TopCel]
 	;
 		pa_alias_as__collect_aliases_of_datastruct(ModuleInfo, 
 			ProcInfo, TopCel, 
 			ALIASi, AliasedData),
 		list__filter(
-			pred(DATA::in) is semidet :-
-			  ( pa_datastruct__get_var(DATA,V), 
-			    list__member(V, HVs) ),
+			pred(Data::in) is semidet :-
+			  (pa_datastruct__get_var(Data,V), 
+			   list__member(V, HVs)),
 			AliasedData,
-			NODES)
+			Nodes)
 	),
 	(
-		NODES = []
+		Nodes = []
 	->
-		CONDITION = always
+		Condition = always
 	;
 		set__union(LFUi, LBUi, LUi),
 		set__list_to_set(HVs, HVsSet),
 		set__intersect(LUi, HVsSet, LUiHVs),
-		pa_alias_as__project( HVs, ALIASi, LAiHVs),
-		set__list_to_set(NODES, NODES_set),
-		CONDITION = condition(NODES_set,LUiHVs, LAiHVs)
+		pa_alias_as__project(HVs, ALIASi, LAiHVs),
+		set__list_to_set(Nodes, Nodes_set),
+		Condition = condition(Nodes_set, LUiHVs, LAiHVs)
 	).
 
-reuse_condition_rename( Dict, Cin, Cout ) :- 
+reuse_condition_rename(Dict, Cin, Cout) :- 
 	(
-		Cin = condition( Nodes, LUiH, LAiH )
+		Cin = condition(Nodes, LUiH, LAiH)
 	->
 		% rename the nodes:
 		set__to_sorted_list(Nodes, NodesList), 
 		list__map(
-			pa_datastruct__rename( Dict ),
+			pa_datastruct__rename(Dict),
 			NodesList,
 			RenNodesList),
 		% rename the datastructures
 		set__to_sorted_list(LUiH, ListLUiH),
 		list__map(
-			map__lookup( Dict ), 
+			map__lookup(Dict), 
 			ListLUiH, 	
-			ListRenLUiH ),
+			ListRenLUiH),
 		set__list_to_set(ListRenLUiH, RenLUiH),
 		% rename the alias
-		pa_alias_as__rename( Dict, LAiH, RenLAiH ),
-		set__list_to_set( RenNodesList, RenNodes ),
-		Cout = condition(RenNodes, RenLUiH, RenLAiH )
+		pa_alias_as__rename(Dict, LAiH, RenLAiH),
+		set__list_to_set(RenNodesList, RenNodes),
+		Cout = condition(RenNodes, RenLUiH, RenLAiH)
 	;
 		Cout = Cin
 	).
 
-reuse_condition_rename_types( Subst, Cond0, Cond ):-
+reuse_condition_rename_types(Subst, Cond0, Cond):-
 	(
-		Cond0 = condition( Nodes0, LUiH0, LAiH0 ),
+		Cond0 = condition(Nodes0, LUiH0, LAiH0),
 		% rename the selectors of the nodes
-		set__to_sorted_list( Nodes0, NodesList0 ), 
+		set__to_sorted_list(Nodes0, NodesList0), 
 		list__map(
-			pa_datastruct__rename_types( Subst ), 
+			pa_datastruct__rename_types(Subst), 
 			NodesList0, 
-			NodesList ), 
-		set__list_to_set( NodesList, Nodes), 
+			NodesList), 
+		set__list_to_set(NodesList, Nodes), 
 		% LUiH needs no renaming:
 		LUiH = LUiH0, 
 		% rename the selector of the local aliases
-		pa_alias_as__rename_types( Subst, LAiH0, LAiH ), 
+		pa_alias_as__rename_types(Subst, LAiH0, LAiH), 
 		% combine the whole stuff
-		Cond = condition( Nodes, LUiH, LAiH )
+		Cond = condition(Nodes, LUiH, LAiH)
 	;
 		Cond0 = always, 
 		Cond = always
 	).
 
-reuse_condition_print( _, _, always ) -->
+reuse_condition_print(_, _, always) -->
 	io__write_string("always").
-reuse_condition_print( ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
-	{ set__to_sorted_list( Nodes, NodesList ) }, 
+reuse_condition_print(ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
+	{ set__to_sorted_list(Nodes, NodesList) }, 
 	io__write_string("condition("),
 		% write out the list of headvar-nodes involved
 	io__write_string("["),
-	io__write_list( NodesList, ",", 
+	io__write_list(NodesList, ",", 
 			pred( D::in, IO1::di, IO2::uo) is det :- 
-			    ( pa_datastruct__print(D, ProcInfo, 
-						PredInfo, IO1, IO2) )
+			    (pa_datastruct__print(D, ProcInfo, 
+						PredInfo, IO1, IO2))
 			),
 	io__write_string("], "),	
 
@@ -307,9 +303,9 @@ reuse_condition_print( ProcInfo, PredInfo, condition(Nodes, LUiH, LAiH)) -->
 
 	io__write_string(")").
 
-reuse_condition_verify( _ProcInfo, _HLDS, _Live0, _Alias0, _Static, always).
-reuse_condition_verify( ProcInfo, HLDS,  Live0, Alias0, Static,
-		condition( Nodes, LUiH, LAiH ) ):- 
+reuse_condition_verify(_ProcInfo, _HLDS, _Live0, _Alias0, _Static, always).
+reuse_condition_verify(ProcInfo, HLDS,  Live0, Alias0, Static,
+		condition(Nodes, LUiH, LAiH)):- 
 
 		% We cannot reuse a variable which was statically
 		% constructed.
@@ -319,36 +315,35 @@ reuse_condition_verify( ProcInfo, HLDS,  Live0, Alias0, Static,
 			set__member(Var, Static)
 		), set__to_sorted_list(Nodes), []),
 	
-	pa_alias_as__extend( ProcInfo, HLDS, Alias0, LAiH, Alias),
-	pa_alias_as__live( HLDS, ProcInfo, LUiH, Live0, Alias, Live), 
+	pa_alias_as__extend(ProcInfo, HLDS, Alias0, LAiH, Alias),
+	pa_alias_as__live(HLDS, ProcInfo, LUiH, Live0, Alias, Live), 
 	set__to_sorted_list(Nodes, NodesList), 
 	list__filter(
-		pred( D::in ) is semidet :- 
-		    ( sr_live__is_live_datastruct(HLDS, ProcInfo, D, Live) ),
+		pred(D::in) is semidet :- 
+		    (sr_live__is_live_datastruct(HLDS, ProcInfo, D, Live)),
 		NodesList,
-		[] ).
+		[]).
 
 :- import_module instmap. 
 
-reuse_condition_update( _ProcInfo, _HLDS, 
-		_LFUi, _LBUi, _ALIASi, _HVs, always, always ).
-reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
-		condition( OLD_NODES_set, OLD_LUiH, OLD_LAiH ),
+reuse_condition_update(_ProcInfo, _HLDS, 
+		_LFUi, _LBUi, _ALIASi, _HVs, always, always).
+reuse_condition_update(ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
+		condition(OLD_NODES_set, OLD_LUiH, OLD_LAiH),
 		CONDITION):- 
-	set__to_sorted_list( OLD_NODES_set, OLD_NODES ), 
+	set__to_sorted_list(OLD_NODES_set, OLD_NODES), 
 	list__map(
 		pred(TOP::in,LIST::out) is det :- 
-			( pa_alias_as__collect_aliases_of_datastruct(HLDS,
+			(pa_alias_as__collect_aliases_of_datastruct(HLDS,
 				ProcInfo, TOP, 
 				ALIASi, LIST)),
 		OLD_NODES,
-		LISTS_ALL_NEW_NODES
-		),
-	list__condense( [ OLD_NODES | LISTS_ALL_NEW_NODES], ALL_NEW_NODES),
+		LISTS_ALL_NEW_NODES),
+	list__condense([ OLD_NODES | LISTS_ALL_NEW_NODES], ALL_NEW_NODES),
 	list__filter(
 		pred(DATA::in) is semidet :-
-		  ( pa_datastruct__get_var(DATA,V), 
-		    list__member(V, HVs) ),
+		  (pa_datastruct__get_var(DATA,V), 
+		    list__member(V, HVs)),
 		ALL_NEW_NODES,
 		NEW_NODES),
 	(
@@ -358,55 +353,55 @@ reuse_condition_update( ProcInfo, HLDS, LFUi, LBUi, ALIASi, HVs,
 	;
 		% normalize all the datastructs
 		list__map(
-			pa_datastruct__normalize_wti( ProcInfo, HLDS ),
+			pa_datastruct__normalize_wti(ProcInfo, HLDS),
 			NEW_NODES,
 			NORM_NODES
 			),
 			% bit strange naming perhaps, but here the
 			% OLD_LAiH has the role of `NEW' wrt the extension
 			% operation.  
-		pa_alias_as__extend( ProcInfo, HLDS, 
+		pa_alias_as__extend(ProcInfo, HLDS, 
 					OLD_LAiH, ALIASi, NewALIASi),
-		pa_alias_as__project( HVs, NewALIASi, NEW_LAiH0),
+		pa_alias_as__project(HVs, NewALIASi, NEW_LAiH0),
 			% XXX instmap here simply initialized, as currently
 			% it's not used in the normalization anyway.. 	
 		instmap__init_reachable(InstMap0), 
-		pa_alias_as__normalize( ProcInfo, HLDS, InstMap0, 
+		pa_alias_as__normalize(ProcInfo, HLDS, InstMap0, 
 				NEW_LAiH0, NEW_LAiH), 
 
 		set__union(LFUi, LBUi, LUi),
 		set__union(LUi, OLD_LUiH, NEW_LUi),
 		set__list_to_set(HVs, HVsSet),
 		set__intersect(NEW_LUi, HVsSet, NEW_LUiH),
-		set__list_to_set( NORM_NODES, NORM_NODES_set), 
-		CONDITION = condition( NORM_NODES_set, NEW_LUiH, NEW_LAiH )
+		set__list_to_set(NORM_NODES, NORM_NODES_set), 
+		CONDITION = condition(NORM_NODES_set, NEW_LUiH, NEW_LAiH)
 	).
 
 
-reuse_conditions_simplify( OLD, NEW ):- 
+reuse_conditions_simplify(ReuseCondition0, ReuseCondition):- 
 	list__foldl( 
 		reuse_conditions_simplify_2, 
-		OLD, 
+		ReuseCondition0, 
 		[],
-		NEW). 
+		ReuseCondition). 
 
-:- pred reuse_conditions_simplify_2(reuse_condition, 
-		list(reuse_condition), list(reuse_condition)).
-:- mode reuse_conditions_simplify_2(in,in,out) is det.
+:- pred reuse_conditions_simplify_2(reuse_condition::in, 
+		list(reuse_condition)::in, 
+		list(reuse_condition)::out) is det.
 
-reuse_conditions_simplify_2( COND, ACC, NewACC) :-
+reuse_conditions_simplify_2(Condition, Acc0, Acc) :-
 	(
-		COND = always
+		Condition = always
 	->
-		NewACC = ACC
+		Acc = Acc0
 	;
 		list_ho_member(reuse_condition_equal, 
-				COND, 
-				ACC)
+				Condition, 
+				Acc0)
 	->
-		NewACC = ACC
+		Acc = Acc0
 	;
-		NewACC = [ COND | ACC ]
+		Acc = [Condition | Acc0]
 	).
 		
 
@@ -417,9 +412,9 @@ memo_reuse_equal(yes(C1), yes(C2)):-
 	list__length(C1, L),
 	list__length(C2, L), 
 	list__filter(
-		pred( COND::in ) is semidet :- 
+		pred(COND::in) is semidet :- 
 		    (
-			( sr_util__list_ho_member( reuse_condition_equal,
+			(sr_util__list_ho_member(reuse_condition_equal,
 					COND, 	
 					C1)
 			-> 
@@ -427,45 +422,45 @@ memo_reuse_equal(yes(C1), yes(C2)):-
 			; 
 				true
 			)
-		    ),
+		   ),
 		C2, 
 		[]).
 			
 memo_reuse_init(no).
 memo_reuse_top(no).
 
-memo_reuse_rename(ProcInfo, ActualVars, MEMOin, MEMOout ) :- 
+memo_reuse_rename(ProcInfo, ActualVars, MEMOin, MEMOout):- 
 	proc_info_headvars(ProcInfo, FormalVars),
-	map__from_corresponding_lists( FormalVars, ActualVars, Dict),
-	memo_reuse_rename( Dict, MEMOin, MEMOout).
+	map__from_corresponding_lists(FormalVars, ActualVars, Dict),
+	memo_reuse_rename(Dict, MEMOin, MEMOout).
 
-memo_reuse_rename( Dict, TREUSEin, TREUSEout) :- 
+memo_reuse_rename(Dict, Memo0, Memo) :- 
 	(
-		TREUSEin = yes(CONDITIONS)
+		Memo0 = yes(Cond0)
 	->
 		list__map(
-			reuse_condition_rename( Dict ), 
-			CONDITIONS, 
-			RenCONDITIONS),
-		TREUSEout = yes(RenCONDITIONS)
+			reuse_condition_rename(Dict), 
+			Cond0, 
+			Cond),
+		Memo = yes(Cond)
 	;
-		TREUSEout = TREUSEin
+		Memo = Memo0
 	).
 
-memo_reuse_rename_types( FromTypes, ToTypes, Memo0, Memo) :-
-	assoc_list__from_corresponding_lists( FromTypes, ToTypes, 
+memo_reuse_rename_types(FromTypes, ToTypes, Memo0, Memo) :-
+	assoc_list__from_corresponding_lists(FromTypes, ToTypes, 
 				FromToTypes), 
-	list__foldl( pa_sr_util__rename_type_det, FromToTypes, 
-			map__init, Substitution ), 
-	memo_reuse_rename_types_2( Substitution, Memo0, Memo ). 
+	list__foldl(pa_sr_util__rename_type_det, FromToTypes, 
+			map__init, Substitution), 
+	memo_reuse_rename_types_2(Substitution, Memo0, Memo). 
 
-:- pred memo_reuse_rename_types_2( term__substitution(tvar_type)::in, 
+:- pred memo_reuse_rename_types_2(term__substitution(tvar_type)::in, 
 		memo_reuse::in, memo_reuse::out) is det.
-memo_reuse_rename_types_2( Subst, Memo0, Memo) :- 
+memo_reuse_rename_types_2(Subst, Memo0, Memo) :- 
 	(
 		Memo0 = yes(Conditions0),
 		list__map(
-			reuse_condition_rename_types( Subst ), 
+			reuse_condition_rename_types(Subst), 
 			Conditions0, 
 			Conditions), 
 		Memo = yes(Conditions)
@@ -474,79 +469,93 @@ memo_reuse_rename_types_2( Subst, Memo0, Memo) :-
 		Memo = no
 	).
 
-memo_reuse_print( TREUSE, Name, ProcInfo, PredInfo ) --> 
+memo_reuse_print(MemoReuse, Name, ProcInfo, PredInfo) --> 
+	memo_reuse_print2(MemoReuse, yes(Name), ProcInfo, PredInfo). 
+
+:- pred memo_reuse_print2(memo_reuse::in, maybe(sym_name)::in, 
+		proc_info::in, pred_info::in, 
+		io__state::di, io__state::uo) is det.
+memo_reuse_print2(MemoReuse, MaybeName, ProcInfo, PredInfo) --> 
 	( 	
-		{ TREUSE = yes(CONDS) }
+		{ MemoReuse = yes(Cond) }
 	->
 		io__write_string("yes(["),
-		io__write_list(CONDS, ",", 
+		io__write_list(Cond, ",", 
 			reuse_condition_print(ProcInfo, PredInfo)),
-		io__write_string("], "),
-		prog_out__write_quoted_sym_name(Name),
+		io__write_string("]"),
+		(
+			{ MaybeName = yes(Name) }
+		->
+			io__write_string(","),
+			prog_out__write_quoted_sym_name(Name)
+		;
+			[]
+		),
 		io__write_string(")")
 	;
 		io__write_string("no")
 	).
 
-memo_reuse_parse( ReuseInformation, ParsedReuse, MaybeReuseName ) :- 
+memo_reuse_print_dump(MemoReuse, ProcInfo, PredInfo) --> 
+	memo_reuse_print2(MemoReuse, no, ProcInfo, PredInfo). 
+
+memo_reuse_parse(ReuseInformation, ParsedReuse, MaybeReuseName) :- 
 	(
-		ReuseInformation = term__functor( term__atom("no"), _, _),
+		ReuseInformation = term__functor(term__atom("no"), _, _),
 		MaybeReuseName = no,
 		memo_reuse_init(ParsedReuse)
 	;
-		ReuseInformation = term__functor( term__atom("yes"),
+		ReuseInformation = term__functor(term__atom("yes"),
 					ReadConditions, _),
-		conditions_list_parse( ReadConditions, Conditions, ReuseName),
+		conditions_list_parse(ReadConditions, Conditions, ReuseName),
 		MaybeReuseName = yes(ReuseName),
 		ParsedReuse = yes(Conditions)
 	).
 
-:- pred conditions_list_parse( list(term(T)),
-		list(reuse_condition), sym_name).
-:- mode conditions_list_parse( in, out, out ) is det.
+:- pred conditions_list_parse(list(term(T))::in,
+		list(reuse_condition)::out, sym_name::out) is det.
 
-conditions_list_parse( LISTTERM, CONDS, ReuseName ) :- 
+conditions_list_parse(ListTerm, Conds, ReuseName) :- 
 	(
-		LISTTERM = [ OneITEM , NameTerm ]
+		ListTerm = [OneItem, NameTerm]
 	->
-		condition_rest_parse(OneITEM, CONDS),
+		condition_rest_parse(OneItem, Conds),
 		parse_qualified_term(NameTerm, NameTerm, "pragma reuse",
 				Result),
-		( Result = ok(ReuseName0, []) ->
+		(Result = ok(ReuseName0, []) ->
 			ReuseName = ReuseName0
 		;
 			error("(sr_data) conditions_list_parse: conditions_list_parse")
 		)
 	;
-		list__length( LISTTERM, L ), 
+		list__length(ListTerm, L), 
 		string__int_to_string(L, LS), 
-		string__append_list( ["(sr_data) conditions_list_parse: ",
+		string__append_list(["(sr_data) conditions_list_parse: ",
 				"wrong number of arguments. yes/", LS,
 				" should be yes/2"], Msg),
 		error(Msg)
 	).
 
-:- pred condition_parse(term(T), reuse_condition).
-:- mode condition_parse(in, out) is det.
+:- pred condition_parse(term(T)::in, reuse_condition::out) is det.
 
-condition_parse( TERM, COND ) :- 
+condition_parse(Term, Cond) :- 
 	(
-		TERM = term__functor( term__atom( CONS ), Args, _)
+		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			CONS = "condition"	
+			Cons = "condition"	
 		->
 			(
-				Args = [ NodesTerm, LUiHTerm, LAiHTerm ]
+				Args = [NodesTerm, LUiHTerm, LAiHTerm]
 			->
 				nodes_parse(NodesTerm, NodesList),
 				set__list_to_set(NodesList, Nodes), 
 				vars_parse(LUiHTerm, LUiH),
-				pa_alias_as__parse_read_aliases_from_single_term( LAiHTerm, LAiH),
-				COND = condition( Nodes, LUiH, LAiH )
+				pa_alias_as__parse_read_aliases_from_single_term(LAiHTerm, LAiH),
+				Cond = condition(Nodes, LUiH, LAiH)
 			;
 				list__length(Args, L),
-				string__int_to_string( L, LS), 
+				string__int_to_string(L, LS), 
 				string__append_list( 
 					[ "(sr_data) condition_parse: ",
 					"wrong number of arguments. ",
@@ -555,9 +564,9 @@ condition_parse( TERM, COND ) :-
 				error(Msg)
 			)
 		;
-			term__det_term_to_type( TERM, TYPE ),
+			term__det_term_to_type(Term, Type),
 			varset__init(V), 
-			mercury_type_to_string(V, TYPE, StringTerm),
+			mercury_type_to_string(V, Type, StringTerm),
 			string__append_list( 
 				["(sr_data) condition_parse: ",
 				"wrong constructur. `", 
@@ -569,49 +578,46 @@ condition_parse( TERM, COND ) :-
 		error("(sr_data) condition_parse: term is not a functor")
 	).
 
-:- pred nodes_parse( term(T), list(pa_datastruct__datastruct)).
-:- mode nodes_parse( in, out) is det.
+:- pred nodes_parse(term(T)::in, list(pa_datastruct__datastruct)::out) is det.
 
-nodes_parse( Term, Datastructs ) :- 
+nodes_parse(Term, Datastructs) :- 
 	(
-		Term = term__functor( term__atom(CONS), Args, _)
+		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			CONS = ".",
-			Args = [ First , Rest ]
+			Cons = ".",
+			Args = [First, Rest]
 		->
-			pa_datastruct__parse_term( First, D1),
-			nodes_parse( Rest, D2),
-			Datastructs = [ D1 | D2 ]
+			pa_datastruct__parse_term(First, D1),
+			nodes_parse(Rest, D2),
+			Datastructs = [D1 | D2]
 		;
-			CONS = "[]"
+			Cons = "[]"
 		->
 			Datastructs = []
 		;
-			string__append("(sr_data) nodes_parse: could not parse nodes, top cons: ", CONS, Msg),
+			string__append("(sr_data) nodes_parse: could not parse nodes, top cons: ", Cons, Msg),
 			error(Msg)
 		)
 	;
 		error("(sr_data) nodes_parse: term not a functor")
 	).
 
-:- pred vars_parse( term(T), set(prog_var)).
-:- mode vars_parse( in, out) is det.
+:- pred vars_parse(term(T)::in, set(prog_var)::out) is det.
 
-vars_parse( Term, Vars ) :- 
-	vars_parse_list( Term, VarList) , 
-	set__list_to_set( VarList, Vars).
+vars_parse(Term, Vars) :- 
+	vars_parse_list(Term, VarList) , 
+	set__list_to_set(VarList, Vars).
 
-:- pred vars_parse_list( term(T), list(prog_var)).
-:- mode vars_parse_list( in, out) is det.
+:- pred vars_parse_list(term(T)::in, list(prog_var)::out) is det.
 
-vars_parse_list( Term, Vars ) :- 
+vars_parse_list(Term, Vars) :- 
 	(
-		Term = term__functor( term__atom(CONS), Args, _)
+		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			CONS = ".",
-			Args = [ First , Rest ]
+			Cons = ".",
+			Args = [First, Rest]
 		->
 			( 
 				First = term__variable(V)
@@ -620,15 +626,15 @@ vars_parse_list( Term, Vars ) :-
 			;
 				error("(sr_data) vars_parse_list: list should contain variables.")
 			),	
-			term__coerce_var(V1, PROGVAR),
-			vars_parse_list( Rest, V2),
-			Vars = [ PROGVAR | V2 ]
+			term__coerce_var(V1, ProgVar),
+			vars_parse_list(Rest, V2),
+			Vars = [ProgVar | V2]
 		;
-			CONS = "[]"
+			Cons = "[]"
 		->
 			Vars = []
 		;
-			string__append("(sr_data) vars_parse_list: could not parse nodes, top cons: ", CONS, Msg),
+			string__append("(sr_data) vars_parse_list: could not parse nodes, top cons: ", Cons, Msg),
 			error(Msg)
 		)
 	;
@@ -636,47 +642,46 @@ vars_parse_list( Term, Vars ) :-
 	).
 
 
-:- pred condition_rest_parse(term(T), list(reuse_condition)).
-:- mode condition_rest_parse(in, out) is det.
+:- pred condition_rest_parse(term(T)::in, list(reuse_condition)::out) is det.
 
-condition_rest_parse( Term, CONDS ) :- 
+condition_rest_parse(Term, Conds) :- 
 	(
-		Term = term__functor( term__atom(CONS), Args, _)
+		Term = term__functor(term__atom(Cons), Args, _)
 	->
 		(
-			CONS = ".",
-			Args = [ First , Rest ]
+			Cons = ".",
+			Args = [First, Rest]
 		->
-			condition_parse( First, COND1),
-			condition_rest_parse( Rest, COND2),
-			CONDS = [ COND1 | COND2 ]
+			condition_parse(First, Cond1),
+			condition_rest_parse(Rest, Cond2),
+			Conds = [Cond1 | Cond2]
 		;
-			CONS = "[]"
+			Cons = "[]"
 		->
-			CONDS = []
+			Conds = []
 		;
-			string__append("(sr_data) condition_rest_parse: could not parse conditions, top cons: ", CONS, Msg),
+			string__append("(sr_data) condition_rest_parse: could not parse conditions, top cons: ", Cons, Msg),
 			error(Msg)
 		)
 	;
 		error("(sr_data) condition_rest_parse: term not a functor")
 	).
 
-memo_reuse_verify_reuse( ProcInfo, HLDS, TREUSE, Live0, Alias0, Static ) :-
-	TREUSE = yes(CONDITIONS), 
-	list__takewhile( reuse_condition_verify( ProcInfo, HLDS, 
-						Live0, Alias0, Static ), 
-				CONDITIONS, _, [] ).
+memo_reuse_verify_reuse(ProcInfo, HLDS, Memo, Live0, Alias0, Static) :-
+	Memo = yes(Conditions), 
+	list__takewhile(reuse_condition_verify(ProcInfo, HLDS, 
+						Live0, Alias0, Static), 
+				Conditions, _, []).
 
-memo_reuse_is_conditional( yes([_|_]) ).
-memo_reuse_is_unconditional( yes([]) ).
+memo_reuse_is_conditional(yes([_|_])).
+memo_reuse_is_unconditional(yes([])).
 
 memo_reuse_simplify(M0, M):-
 	(
-		M0 = yes( Conditions0 )
+		M0 = yes(Conditions0)
 	->
-		reuse_conditions_simplify( Conditions0, Conditions ),
-		M = yes( Conditions )
+		reuse_conditions_simplify(Conditions0, Conditions),
+		M = yes(Conditions)
 	;
 		M = M0
 	).
