@@ -45,7 +45,6 @@
 :- import_module libs__globals.
 :- import_module libs__options.
 :- import_module parse_tree__prog_data.
-:- import_module structure_reuse__sr_choice. 
 :- import_module structure_reuse__sr_choice_graphing.
 :- import_module structure_reuse__sr_dead.
 :- import_module structure_reuse__sr_lbu.
@@ -79,14 +78,14 @@ process_proc(Strategy, AliasTable, PredId, ProcId,
 	passes_aux__write_proc_progress_message("% Analysing ", 
 			PredId, ProcId, ModuleInfo, !IO), 
 
-	proc_info_goal(!.ProcInfo, Goal0),
+	proc_info_goal(!.ProcInfo, Goal1),
 
 	% 'Deadness' analysis: determine the deconstructions in which data
 	% structures potentially die. 
 	passes_aux__maybe_write_string(VeryVerbose, 
 		"%\tdeadness analysis...", !IO),
 	sr_dead__process_goal(PredId, !.ProcInfo, ModuleInfo, 
-			AliasTable, Goal0, Goal1) ,
+			AliasTable, DeadCellTable), 
 	passes_aux__maybe_write_string(VeryVerbose, "done.\n", !IO),
 
 	% 'Choice' analysis: determine how the detected dead data structures
@@ -95,18 +94,11 @@ process_proc(Strategy, AliasTable, PredId, ProcId,
 		"%\tchoice analysis...\n", !IO),
 	proc_info_vartypes(!.ProcInfo, VarTypes), 
 
-	Strategy = strategy(_Constraint, Selection),
-	(
-		( Selection = graph ; Selection = lifo )
-	->
-		sr_choice_graphing__set_background_info(Strategy, 
-			ModuleInfo, VarTypes, Background), 
-		sr_choice_graphing__process_goal(Background, Goal1, Goal,
-			MaybeReuseConditions, !IO)
-	;
-		sr_choice__process_goal(Strategy, VarTypes, ModuleInfo, 
-			!.ProcInfo, Goal1, Goal, MaybeReuseConditions)
-	),
+	sr_choice_graphing__set_background_info(Strategy, 
+		ModuleInfo, VarTypes, Background), 
+	sr_choice_graphing__process_goal(Background, 
+		DeadCellTable, Goal1, Goal,
+		MaybeReuseConditions, !IO),
 	(
 		VeryVerbose = yes 
 	->

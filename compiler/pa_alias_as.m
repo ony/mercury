@@ -148,6 +148,8 @@
 	% Compute least upper bound of a list of abstract alias descriptions.
 :- pred least_upper_bound_list(module_info::in, proc_info::in, 
 		hlds_goal_info::in, list(alias_as)::in, alias_as::out) is det.
+:- pred least_upper_bound_list(module_info::in, proc_info::in, 
+		list(alias_as)::in, alias_as::out) is det.
 
 	% extend(ProcInfo, ModuleInfo, NEW, OLD, RESULT).
 	% This is the "comb" operation used in the Nancy's Phd-textbook. It is
@@ -476,6 +478,9 @@ least_upper_bound(HLDS, ProcInfo, AS1, AS2, RESULT) :-
 	).
 
 least_upper_bound_list(HLDS, ProcInfo, _GoalInfo, Alias_list0, AS) :-
+	least_upper_bound_list(HLDS, ProcInfo, Alias_list0, AS). 
+
+least_upper_bound_list(HLDS, ProcInfo, Alias_list0, AS) :-
 	list__foldl(least_upper_bound(HLDS, ProcInfo) , Alias_list0, 
 			bottom, AS).
 

@@ -416,8 +416,6 @@ convert_potential_reuse_to_reuse(Goal0 - GoalInfo0, Goal - GoalInfo) :-
 
 :- pred convert_reuse(reuse_goal_info::in, reuse_goal_info::out) is det.
 convert_reuse(R0, R):- R0 = empty, R = R0.
-convert_reuse(R0, _R):- R0 = choice(_),
-	error("(sr_split) convert_reuse: reuse_goal_info should not be choice/1 at this stage. ").
 convert_reuse(R0, R):- R0 = potential_reuse(S), R = reuse(S).
 convert_reuse(R0, R):- R0 = reuse(_), R = R0.
 

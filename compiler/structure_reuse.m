@@ -10,7 +10,6 @@
 :- module structure_reuse.
 :- interface.
 
-:- include_module sr_choice.
 :- include_module sr_choice_graphing.
 :- include_module sr_choice_util.
 :- include_module sr_data.

@@ -16,6 +16,7 @@
 :- interface.
 
 :- import_module hlds__hlds_data.
+:- import_module hlds__hlds_goal.
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
 :- import_module parse_tree__prog_data.
@@ -23,6 +24,27 @@
 :- import_module structure_reuse__sr_live.
 
 :- import_module bool, map, set, std_util, list, io, term.
+
+%-----------------------------------------------------------------------------%
+:- type program_point 
+	---> 	pp( 
+			pp_context	:: term__context, 
+			pp_path		:: goal_path
+		).
+:- pred program_point_init(hlds_goal_info::in, program_point::out) is det.
+
+:- type dead_cell_table == map(program_point, reuse_condition).
+:- func dead_cell_table_init = dead_cell_table. 
+:- func dead_cell_table_search(program_point, dead_cell_table) 
+		= reuse_condition is semidet.
+:- pred dead_cell_table_set(program_point::in, reuse_condition::in, 
+		dead_cell_table::in, dead_cell_table::out) is det.
+:- pred dead_cell_table_remove(program_point::in, 
+		dead_cell_table::in, dead_cell_table::out) is det.
+:- pred dead_cell_table_remove_conditionals(dead_cell_table::in, 
+		dead_cell_table::out) is det. 
+:- pred dead_cell_table_dump(dead_cell_table::in, 
+		io__state::di, io__state::uo) is det.
 
 %-----------------------------------------------------------------------------%
 
@@ -48,45 +70,6 @@
 :- pred from_maybe_reuse_tuples_to_memo_reuse(maybe_reuse_tuples::in, 
 		memo_reuse::out) is det.
 %-----------------------------------------------------------------------------%
-	% The information placed in the goal info which is used by
-	% structure reuse.
-	% This field should be initilaised to empty.
-	% The sr_dead module replaces empty with choice.
-	% The sr_choice&sr_indirect module replaces choice with 
-	% 	potential_reuse.
-	% The sr_split module replaces potential_reuse with reuse for
-	% 	the reuse-version of a procedure. 
-:- type reuse_goal_info
-	--->	empty
-	;	choice(choice_info)
-	; 	potential_reuse(short_reuse_info)
-	;	reuse(short_reuse_info).
-
-:- type short_reuse_info --->
-				no_reuse 
-			; 	cell_died
-			; 	cell_reused(
-						% The variable selected
-						% for reuse.
-					prog_var,
-						% Is the reuse conditional?
-					bool,
-						% What are the possible
-						% cons_ids that the cell
-						% to be reused can have.
-					list(cons_id),
-						% Which of the fields of
-						% the cell to be reused
-						% already contain the
-						% correct value.
-					list(bool)
-				)
-
-					% Call the reuse version of the
-					% call and whether calling the
-					% reuse version is conditional.
-			; 	reuse_call(bool)
-			; 	missed_reuse_call(list(string)). 
 
 :- type reuse_var
 	--->	reuse_var(
@@ -143,7 +126,7 @@
 	% condition_init(Var, LFUi, LBUi, ALIASi, HVs, Condition).
 :- pred reuse_condition_init(module_info::in, proc_info::in, prog_var::in,
 			set(prog_var)::in, set(prog_var)::in, 
-			alias_as::in, list(prog_var)::in, 
+			alias_as::in, 
 			reuse_condition::out) is det.
 
 	% Rename the reuse condition given a map from FromVars, to
@@ -214,7 +197,49 @@
 
 :- import_module list, string, require, varset, bool, assoc_list.
 %-----------------------------------------------------------------------------%
+program_point_init(Info, PP) :- 
+	goal_info_get_context(Info, Context), 
+	goal_info_get_goal_path(Info, GoalPath), 
+	PP = pp(Context, GoalPath). 
 
+dead_cell_table_init = map__init.
+dead_cell_table_search(PP, Table) = Table ^ elem(PP). 
+dead_cell_table_set(PP, RC, Table0, Table) :- 
+	map__set(Table0, PP, RC, Table). 
+dead_cell_table_remove(PP, !Table) :- 
+	map__det_remove(!.Table, PP, _, !:Table). 
+dead_cell_table_remove_conditionals(!Table) :- 
+	map__foldl(dead_cell_table_add_unconditional, !.Table, 
+		dead_cell_table_init, !:Table). 
+
+:- pred dead_cell_table_add_unconditional(program_point::in, 
+		reuse_condition::in, dead_cell_table::in, 
+		dead_cell_table::out) is det.
+dead_cell_table_add_unconditional(PP, C, !Table) :- 
+	(
+		C = always
+	-> 
+		dead_cell_table_set(PP, C, !Table)
+	;
+		true
+	).
+
+dead_cell_table_dump(Table, !IO) :- 
+	io__write_string("\t\t|--------|\n", !IO),
+	map__foldl(dead_cell_entry_dump, Table, !IO),
+	io__write_string("\t\t|--------|\n", !IO).
+
+:- pred dead_cell_entry_dump(program_point::in, reuse_condition::in, 
+		io__state::di, io__state::uo) is det.
+dead_cell_entry_dump(_PP, Cond, !IO) :- 
+	Cond = always, 
+	io__write_string("\t\t| always |\n", !IO). 
+dead_cell_entry_dump(_PP, Cond, !IO) :- 
+	Cond = condition(_, _, _), 
+	io__write_string("\t\t|  cond  |\n", !IO). 
+	
+
+%-----------------------------------------------------------------------------%
 reuse_condition_table_init = map__init. 
 reuse_condition_table_search(PredProcId, Table) = Table ^ elem(PredProcId). 
 reuse_condition_table_set(PredProcId, Conds, Table0, Table) :- 
@@ -312,7 +337,8 @@ reuse_condition_equal(condition(Nodes1, LU1, LA1),
 	pa_alias_as__equal(LA1, LA2).
 
 reuse_condition_init(ModuleInfo, ProcInfo, 
-				Var, LFUi, LBUi, ALIASi, HVs, Condition):- 
+		Var, LFUi, LBUi, ALIASi, Condition):- 
+	proc_info_headvars(ProcInfo, HVs), 
 	% First determine the nodes to which the reuse is related. 
 	% There are two cased:
 	% 1. Var is a headvar, then it is sufficient to keep the topcel

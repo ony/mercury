@@ -267,10 +267,6 @@
 :- import_module check_hlds__type_util.
 :- import_module transform_hlds__termination, transform_hlds__term_errors.
 
-% Reuse modules
-:- import_module structure_reuse. 
-:- import_module structure_reuse__sr_data.
-
 % RL back-end modules (XXX should avoid using those here).
 :- import_module aditi_backend__rl.
 
@@ -1324,9 +1320,6 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 				),
 				io__write_string(": "),
 				(
-					{ SR = no_reuse },
-					io__write_string("nothing.\n")
-				;
 					{ SR = cell_died },
 					io__write_string("cell just died (deconstruction).\n") 
 				;

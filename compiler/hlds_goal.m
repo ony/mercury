@@ -12,8 +12,6 @@
 
 :- interface.
 
-:- import_module structure_reuse.
-:- import_module structure_reuse__sr_data.
 % :- import_module ll_backend__llds.	% XXX needed for `lval'
 :- import_module parse_tree__prog_data, parse_tree__inst.
 :- import_module hlds__hlds_data, hlds__hlds_pred, hlds__hlds_llds.
@@ -592,7 +590,6 @@
 %
 % Information for all kinds of goals
 %
-
 %
 % Access predicates for the hlds_goal_info data structure.
 % For documentation on the meaning of the fields that these
@@ -792,6 +789,43 @@
 :- pred goal_info_set_reuse(reuse_goal_info::in, hlds_goal_info::in,
 	hlds_goal_info::out) is det.
 
+	% Before the analysis, every goal is annotated with 'empty', ie. no
+	% information about any reuse. 
+	% The field 'potential_reuse' states that in a reuse version of the
+	% current procedure, this goal can be replaced by a goal performing
+	% structure reuse. 
+	% The field 'reuse' states that in the current procedure (either the
+	% specialised reuse version of a procedure, or the original procedure
+	% itself) the current goal can safely be replaced by a goal performing
+	% structure reuse. 
+:- type reuse_goal_info
+	---> 	empty
+	; 	potential_reuse(short_reuse_info)
+	; 	reuse(short_reuse_info).
+
+	% 'cell_died' is only relevant for deconstructions. 
+	% 'cell_reused' is only relevant for constructions. 
+	% 'reuse_call' is obviously only applicable to procedure calls. 
+	% 'missed_reuse_call' is only used for procedure calls. 
+:- type short_reuse_info 
+	---> 	cell_died	
+	; 	cell_reused(
+			prog_var, 	% The dead variable selected
+					% for reusing.
+			bool,		% Yes if the reuse is conditional. 
+			list(cons_id), 	% What are the possible
+					% cons_ids that the variable
+					% to be reused can have.
+			list(bool) 	% Which of the fields of
+					% the cell to be reused
+					% already contain the
+					% correct value.
+		)
+	; 	reuse_call(bool)	% 'yes' if the call is conditional. 
+	; 	missed_reuse_call(list(string)). 
+					% The strings give a description on why
+					% the call to the reuse version might
+					% not be safe. 
 %-----------------------------------------------------------------------------%
 %
 % Miscellaneous utility procedures for dealing with HLDS goals
@@ -1149,11 +1183,6 @@ simple_call_id_pred_or_func(PredOrFunc - _) = PredOrFunc.
 % Information stored with all kinds of goals
 %
 
-% XXX reuse_goal_info temporarely still defined in sr_data.
-% :- type reuse_info
-	% ---> 	empty
-	% ; 	potential_reuse(short_reuse_info)
-	% ; 	reuse(short_reuse_info).
 
 :- type hlds_goal_reuse_info
 	--->	goal_reuse_info(

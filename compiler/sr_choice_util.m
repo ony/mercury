@@ -37,12 +37,11 @@
 	% candidates is either:
 	% 	- lifo: take the cell that has died the most recently with
 	%	  respect to the construction where it can be reused. 
-	%	- random: pick the candidate randomly. 
 	% 	- graph: build up a weighted graph, and select the
-	% 	  best fitting candidate (see sr_choice_graphing.m)
+	% 	  best fitting candidate.
+	% Both strategies are implemented in module sr_choice_graphing.
 :- type selection
         --->    lifo
-        ;       random
         ;       graph
         .
 
@@ -85,10 +84,14 @@
 
 get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
 	io_lookup_string_option(structure_reuse_constraint, ConstraintStr),
-	( { ConstraintStr = "same_cons_id" } ->
+	( 
+		{ ConstraintStr = "same_cons_id" } 
+	->
 		{ Constraint = same_cons_id },
 		{ ModuleInfo1 = ModuleInfo0 }
-	; { ConstraintStr = "within_n_cells_difference" } ->
+	; 
+		{ ConstraintStr = "within_n_cells_difference" } 
+	->
 		io_lookup_int_option(structure_reuse_constraint_arg, NCells),
 		{ Constraint = within_n_cells_difference(NCells) },
 		{ ModuleInfo1 = ModuleInfo0 }
@@ -99,13 +102,14 @@ get_strategy(Strategy, ModuleInfo0, ModuleInfo) -->
 		{ module_info_incr_errors(ModuleInfo0, ModuleInfo1) }
 	),
 	io_lookup_string_option(structure_reuse_selection, SelectionStr),
-	( { SelectionStr = "lifo" } ->
+	( 
+		{ SelectionStr = "lifo" } 
+	->
 		{ Selection = lifo },
 		{ ModuleInfo = ModuleInfo1 }
-	; { SelectionStr = "random" } ->
-		{ Selection = random },
-		{ ModuleInfo = ModuleInfo1 }
-	; { SelectionStr = "graph" } ->
+	; 
+		{ SelectionStr = "graph" } 
+	->
 		{ Selection = graph },
 		{ ModuleInfo = ModuleInfo1 }
 	; 

@@ -2572,7 +2572,7 @@ options_help_semantics -->
 
 		"--structure-reuse-selection",
 		"\tStrategy to decide which of the possible cells available",
-		"\tfor reuse is reused.  Currently lifo, random, or graph",
+		"\tfor reuse is reused.  Currently lifo, or graph",
 		"\t(default = graph).",
 
 		"--cell-cache",

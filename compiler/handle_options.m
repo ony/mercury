@@ -1648,7 +1648,7 @@ convert_dump_alias("vanessa", "ltuCIU").
 convert_dump_alias("paths", "cP").
 convert_dump_alias("petdr", "din").
 convert_dump_alias("palias", "A").
-convert_dump_alias("sr", "Ap").
+convert_dump_alias("sr", "ApG").
 
 convert_dump_alias("osv", "bcdglmnpruvP").	% for debugging
 						% --optimize-saved-vars-cell

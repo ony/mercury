@@ -20,14 +20,13 @@
 :- module structure_reuse__sr_dead.
 :- interface.
 
-:- import_module hlds__hlds_goal.
 :- import_module hlds__hlds_module.
 :- import_module hlds__hlds_pred.
 :- import_module possible_alias__pa_alias_as.
+:- import_module structure_reuse__sr_data.
 
 :- pred sr_dead__process_goal(pred_id::in, proc_info::in, module_info::in, 
-		alias_as_table::in, hlds_goal::in, hlds_goal::out) is det.
-
+		alias_as_table::in, dead_cell_table::out) is det. 
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -35,447 +34,160 @@
 :- implementation.
 
 :- import_module hlds__hlds_data.
+:- import_module hlds__hlds_goal.
 :- import_module parse_tree__prog_data.
 :- import_module possible_alias__pa_alias_as.
 :- import_module possible_alias__pa_run.
-:- import_module structure_reuse__sr_data.
 :- import_module structure_reuse__sr_live.
 
 :- import_module assoc_list, int, require. 
 :- import_module set, list, map, std_util.
 
-process_goal(_PredId, ProcInfo, ModuleInfo, AliasTable, !Goal) :- 
+process_goal(_PredId, ProcInfo, ModuleInfo, AliasTable, DeadCellTable) :- 
 	pa_alias_as__init(Alias0), 
-	hlds_pred__proc_info_headvars(ProcInfo, HeadVars), 
-	dead_cell_pool_init(HeadVars, Pool0), 
-	annotate_goal(ProcInfo, ModuleInfo, AliasTable, !Goal, 
-			Pool0, _Pool, Alias0, _Alias).
-		
+	proc_info_goal(ProcInfo, Goal), 
+	collect_dead_cells(ProcInfo, ModuleInfo, AliasTable, Goal, 
+		Alias0, _Alias,
+		dead_cell_table_init, DeadCellTable).
 	
 %-----------------------------------------------------------------------------%
 
-:- pred annotate_goal(proc_info::in, module_info::in, alias_as_table::in,
-		hlds_goal::in, hlds_goal::out, 
-		dead_cell_pool::in, dead_cell_pool::out, 
-		alias_as::in, alias_as::out) is det.
+:- pred collect_dead_cells(proc_info::in, module_info::in, alias_as_table::in,
+		hlds_goal::in, 
+		alias_as::in, alias_as::out,
+		dead_cell_table::in, dead_cell_table::out) is det.
 
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias):-
-	Expr0 = conj(Goals0),
-	list__map_foldl2(
-		annotate_goal(ProcInfo, HLDS, AliasTable),
-		Goals0, Goals, !Pool, !Alias), 
-	Info = Info0, 
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - _Info, !Alias, !DC) :-
 	Expr = conj(Goals),
-	Goal = Expr - Info. 
+	list__foldl2(collect_dead_cells(ProcInfo, HLDS, AliasTable),
+		Goals, !Alias, !DC).
 	
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias):-
-	Expr0 = call(PredId, ProcId, ActualVars, _, _, _),
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - _Info, !Alias, !DC) :- 
+	Expr = call(PredId, ProcId, ActualVars, _, _, _),
 	proc_info_vartypes(ProcInfo, VarTypes), 
 	list__map(map__lookup(VarTypes), ActualVars, ActualTypes), 
 	pa_run__extend_with_call_alias(HLDS, ProcInfo, AliasTable, 
-		PredId, ProcId, ActualVars, ActualTypes, !Alias), 
-	Expr = Expr0, 
-	Info = Info0, 
-	Goal = Expr - Info. 
+		PredId, ProcId, ActualVars, ActualTypes, !Alias).
 	
-annotate_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = generic_call(_, _, _, _), 
-	pa_alias_as__top("generic_call unhandled", !Alias),
-	Goal = Expr0 - Info0. 
+collect_dead_cells(_ProcInfo, _HLDS, _AliasTable, Expr - _Info, !Alias, !DC) :- 
+	Expr = generic_call(_, _, _, _), 
+	pa_alias_as__top("generic_call unhandled", !Alias).
 	
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = switch(A, B, Cases0),
-	goal_info_get_outscope(Info0, Outscope), 
-	list__map3(annotate_case(ProcInfo, HLDS, AliasTable, 
-			!.Pool, !.Alias),
-			Cases0, Cases, ListPools, ListAliases),
-	dead_cell_pool_least_upper_bound_disj(Outscope, ListPools, !:Pool), 
-	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info0, 
-			ListAliases, !:Alias),
-	Info = Info0, 
-	Expr = switch(A, B, Cases), 
-	Goal = Expr - Info. 
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - _Info, !Alias, !DC) :- 
+	Expr = switch(_A, _B, Cases),
+	Goals = list__map((func(C) = G :- C = case(_, G)), Cases),
+	annotate_disj(ProcInfo, HLDS, AliasTable, Goals, !Alias, !DC).
+
+:- pred annotate_disj(proc_info::in, module_info::in, alias_as_table::in, 
+		hlds_goals::in, alias_as::in, alias_as::out, 
+		dead_cell_table::in, dead_cell_table::out) is det.
+annotate_disj(ProcInfo, ModuleInfo, AliasTable, Goals, Alias0, Alias, !DC) :-
+	list__map_foldl(
+		(pred(G::in, A::out, DCin::in, DCout::out) is det :- 
+			collect_dead_cells(ProcInfo, ModuleInfo, AliasTable, 
+				G, Alias0, A, DCin, DCout)),
+		Goals, ListAliases, !DC),
+	pa_alias_as__least_upper_bound_list(ModuleInfo, ProcInfo, 
+			ListAliases, Alias).
 	
-annotate_goal(ProcInfo, HLDS, _AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = unify(_Var, _Rhs, _Mode, Unification0, _Context),
-	unification_verify_reuse(HLDS, ProcInfo, Unification0, !.Alias, 
-		!Pool, Info0, Info),
+collect_dead_cells(ProcInfo, HLDS, _AliasTable, Expr - Info, !Alias, !DC) :-
+	Expr = unify(_Var, _Rhs, _Mode, Unification, _Context),
+	program_point_init(Info, ProgramPoint), 
+	unification_verify_reuse(HLDS, ProcInfo, Info, Unification, 
+		ProgramPoint, !.Alias, !DC),
 		% XXX candidate for future optimization: if
 		% you annotate the deconstruct first, you might avoid
 		% creating the aliases altogether, thus reducing the
 		% number of aliases you cary along, and eventually
 		% having an impact on the analysis-time.
-	pa_alias_as__extend_unification(HLDS, ProcInfo, Unification0,
-			Info, !Alias), 
-	Expr = Expr0, 
-	Goal = Expr - Info. 
+	pa_alias_as__extend_unification(HLDS, ProcInfo, Unification,
+			Info, !Alias).
 	
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = disj(Goals0),
-	Pool0 = !.Pool, 
-	Alias0 = !.Alias, 
-	(
-		Goals0 = []
-	->
-		Goals = Goals0
-	;
-		list__map3(
-			pred(Gin::in, Gout::out, P::out, A::out)
-				is det :- 
-			(
-			   annotate_goal(ProcInfo, HLDS, AliasTable, 
-				Gin, Gout, Pool0, P, 
-				Alias0, A)
-			),
-			Goals0, Goals, 
-			ListPools, ListAliases),
-		goal_info_get_outscope(Info0, Outscope), 
-		dead_cell_pool_least_upper_bound_disj(Outscope,
-			ListPools, !:Pool),
-		pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, 
-			Info0, ListAliases, !:Alias)
-	),
-	Info = Info0,
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - _Info, !Alias, !DC) :- 
 	Expr = disj(Goals),
-	Goal = Expr - Info. 
+	annotate_disj(ProcInfo, HLDS, AliasTable, Goals, !Alias, !DC). 
 
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = not(NegatedGoal0),
-	annotate_goal(ProcInfo, HLDS, AliasTable, NegatedGoal0, NegatedGoal,
-			!Pool, !Alias), 
-	Info = Info0, 
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - _Info, !Alias, !DC) :- 
 	Expr = not(NegatedGoal),
-	Goal = Expr - Info. 
+	collect_dead_cells(ProcInfo, HLDS, AliasTable, NegatedGoal, !Alias, !DC). 
 	
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = some(A, B, SomeGoal0),
-	% XXX
-	annotate_goal(ProcInfo, HLDS, AliasTable, 
-			SomeGoal0, SomeGoal, !Pool, !Alias), 
-	Info = Info0, 
-	Expr = some(A, B, SomeGoal),
-	Goal = Expr - Info. 
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - _Info, !Alias, !DC) :- 
+	Expr = some(_A, _B, SomeGoal),
+	collect_dead_cells(ProcInfo, HLDS, AliasTable, 
+			SomeGoal, !Alias, !DC). 
 	
-annotate_goal(ProcInfo, HLDS, AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = if_then_else(Vars, Cond0, Then0, Else0),
-	Pool0 = !.Pool,
+collect_dead_cells(ProcInfo, HLDS, AliasTable, Expr - Info, !Alias, !DC) :- 
+	Expr = if_then_else(_Vars, Cond, Then, Else),
 	Alias0 = !.Alias, 
-	goal_info_get_outscope(Info0, Outscope), 
-	annotate_goal(ProcInfo, HLDS, AliasTable, Cond0, Cond, Pool0, 
-			PoolCond, Alias0, AliasCond),
-	annotate_goal(ProcInfo, HLDS, AliasTable, Then0, Then, PoolCond, 
-			PoolThen, AliasCond, AliasThen),
-	annotate_goal(ProcInfo, HLDS, AliasTable, Else0, Else, Pool0, 
-			PoolElse, Alias0, AliasElse), 
-	dead_cell_pool_least_upper_bound_disj(Outscope, 
-			[ PoolThen, PoolElse ], !:Pool), 
-	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info0, 
-			[ AliasThen, AliasElse ], !:Alias),
-	Info = Info0, 
-	Expr = if_then_else(Vars, Cond, Then, Else),
-	Goal = Expr - Info. 
+	collect_dead_cells(ProcInfo, HLDS, AliasTable, Cond, !Alias, !DC), 
+	collect_dead_cells(ProcInfo, HLDS, AliasTable, Then, !Alias, !DC), 
+	collect_dead_cells(ProcInfo, HLDS, AliasTable, Else, Alias0, AliasElse, 
+			!DC), 
+	pa_alias_as__least_upper_bound_list(HLDS, ProcInfo, Info, 
+			[ !.Alias, AliasElse ], !:Alias).
 	
-annotate_goal(ProcInfo, HLDS, _AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = foreign_proc(Attrs, PredId, ProcId, 
+collect_dead_cells(ProcInfo, HLDS, _AliasTable, Expr - Info, !Alias, !DC) :- 
+	Expr = foreign_proc(Attrs, PredId, ProcId, 
 			Vars, MaybeModes, Types, _), 
 	extend_foreign_code(HLDS, ProcInfo, Attrs, PredId, ProcId, 
-		Vars, MaybeModes, Types, Info0, !Alias),
-	Goal = Expr0 - Info0. 
+		Vars, MaybeModes, Types, Info, !Alias).
 	
-annotate_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = par_conj(_),
-	pa_alias_as__top("par_conj unhandled", !Alias),
-	Goal = Expr0 - Info0. 
+collect_dead_cells(_ProcInfo, _HLDS, _AliasTable, Expr - _Info, !Alias, !DC) :- 
+	Expr = par_conj(_),
+	pa_alias_as__top("par_conj unhandled", !Alias).
 		
-annotate_goal(_ProcInfo, _HLDS, _AliasTable, Expr0 - Info0, Goal, 
-		!Pool, !Alias) :- 
-	Expr0 = shorthand(_),
-	pa_alias_as__top("shorthand unhandled", !Alias),
-	Goal = Expr0 - Info0. 
-
-:- pred annotate_case(proc_info::in, module_info::in, alias_as_table::in, 
-		dead_cell_pool::in, alias_as::in, case::in,
-		case::out, dead_cell_pool::out, alias_as::out) is det.
-
-annotate_case(ProcInfo, HLDS, AliasTable, Pool0, Alias0, Case0, 
-		Case, Pool, Alias) :- 
-	Case0 = case(ConsId, Goal0),
-	annotate_goal(ProcInfo, HLDS, AliasTable, Goal0, Goal, 
-			Pool0, Pool, Alias0, Alias), 
-	Case = case(ConsId, Goal).
+collect_dead_cells(_ProcInfo, _HLDS, _AliasTable, Expr - _Info, !Alias, !DC) :- 
+	Expr = shorthand(_),
+	error("(sr_dead) shorthand unhandled(sr_dead).\n").
 
 :- pred unification_verify_reuse(module_info::in, proc_info::in, 
+		hlds_goal_info::in, 
 		hlds_goal__unification::in, 
-		alias_as::in, dead_cell_pool::in, dead_cell_pool::out,
-		hlds_goal_info::in, hlds_goal_info::out) is det.
+		program_point::in, alias_as::in, 
+		dead_cell_table::in, dead_cell_table::out) is det.
 
-unification_verify_reuse(ModuleInfo, ProcInfo, Unification, Alias0,
-		Pool0, Pool, Info0, Info) :- 
+unification_verify_reuse(ModuleInfo, ProcInfo, Info, 
+		Unification, PP, Alias0, !DC) :- 
+	Unification = deconstruct(Var, ConsId, Vars, _, _, _),
+	goal_info_get_lfu(Info, LFU), 
+	goal_info_get_lbu(Info, LBU),
 	(
-		Unification = deconstruct(Var, ConsId, Vars, _, _, _)
-	->
-		goal_info_get_lfu(Info0, LFU), 
-		goal_info_get_lbu(Info0, LBU),
 		(
-			(
-				% XXX things suchs as pred_const's cannot
-				% die. 
-				cons_id_maybe_arity(ConsId, no)
-			;
-				% Cells of arity 0 can not be reused. 
-				cons_id_arity(ConsId, 0), 
-				% Arity zero should imply that the size of the
-				% cell is zero, just to be sure. 
-				list__length(Vars) = 0
-			; 
-				list__length(Vars) = 0
-			;
-				set__union(LFU, LBU, LU), 
-				sr_live__init(Live0),
-				pa_alias_as__live(ModuleInfo, 
-						ProcInfo, LU, Live0, 
-						Alias0, Live), 
-				sr_live__is_live(Var, Live) 
-			;
-				pa_alias_as__is_top(Alias0)
-			)
-		
-		->
-			goal_info_set_reuse(choice(deconstruct(no)), 
-				Info0, Info),
-			Pool = Pool0
+			% XXX things suchs as pred_const's cannot
+			% die. 
+			cons_id_maybe_arity(ConsId, no)
 		;
-			add_dead_cell(ModuleInfo, ProcInfo, 
-					Var, list__length(Vars),
-					LFU, LBU,
-					Alias0, Pool0, Pool, 
-					ReuseCondition),
-			goal_info_set_reuse(
-				choice(deconstruct(
-					yes(ReuseCondition))), Info0, Info) 
+			% Cells of arity 0 can not be reused. 
+			cons_id_arity(ConsId, 0), 
+			% Arity zero should imply that the size of the
+			% cell is zero, just to be sure. 
+			list__length(Vars) = 0
+		; 
+			list__length(Vars) = 0
+		;
+			set__union(LFU, LBU, LU), 
+			sr_live__init(Live0),
+			pa_alias_as__live(ModuleInfo, ProcInfo, LU, 
+				Live0, Alias0, Live), 
+			sr_live__is_live(Var, Live) 
+		;
+			pa_alias_as__is_top(Alias0)
 		)
-	;
-		Unification = construct(_, ConsId, Vars, _, _, _, _)
 	->
-			% XXX to avoid trying to reuse cells such as
-			% pred_const, which don't have a valid cons_id
-			% passed to them in ml_gen_new_object. ie
-			% pred_const's.
-			% Do not reuse cells for constructing functors
-			% of arity zero. 
-		( 
-			( cons_id_maybe_arity(ConsId, no) ; 
-			  cons_id_arity(ConsId, 0) )
-		->
-			set__init(ReuseVarsConds)
-		;
-			dead_cell_pool_try_to_reuse(list__length(Vars),
-					Pool0, ReuseVarsConds)
-		),
-		goal_info_set_reuse(choice(construct(ReuseVarsConds)),
-				Info0, 
-				Info),
-		Pool = Pool0
+		% No dead cell generated
+		true 	
 	;
-		% assign
-		% simple_test
-		% complicated_unify
-		Pool = Pool0,
-		Info = Info0
+		reuse_condition_init(ModuleInfo, ProcInfo, 
+			Var, LFU, LBU, Alias0, ReuseCondition),
+		dead_cell_table_set(PP, ReuseCondition, !DC)
 	).
 
-%-----------------------------------------------------------------------------%
-%-----------------------------------------------------------------------------%
+unification_verify_reuse(_, _, _, Unification, _, _, !DC) :- 
+	Unification = construct(_, _, _, _, _, _, _).
+unification_verify_reuse(_, _, _, Unification, _, _, !DC) :- 
+	Unification = assign(_, _).
+unification_verify_reuse(_, _, _, Unification, _, _, !DC) :- 
+	Unification = simple_test(_,_). 
+unification_verify_reuse(_, _, _, Unification, _, _, !DC) :- 
+	Unification = complicated_unify(_, _, _).
 
-% We use the notion of a pool to record all the dead cells that are available
-% for reuse within the scope of the goal that is considered at that moment. 
-% This pool is used to identify the constructions which might possibly be
-% interested in reusing one of these available dead cells, and the reuse
-% conditions which would be implied by the reuse that is finally decided. 
-
-	% type used for threading through all the information about
-	% eventual dead cells.
-:- type dead_cell_pool ---> 
-		pool(
-			list(prog_var), % real headvars
-			map(prog_var, dead_extra_info)
-		).
-
-	% for each dead cell, we need to keep it's reuse-condition,
-	% and during this phase, fill in the names of all the vars
-	% who would be interested in reusing the dead cell. 
-:- type dead_extra_info --->
-		extra(
-			int, 	% The number of arguments of the dead cell.
-				% Note that this can be different from the
-				% arity of the constructor, as it may include
-				% the fields for type-info's etc. 
-			reuse_condition, 
-			list(prog_var) 	% XXX for the moment always kept
-					% empty
-		).
-
-	% initialize dr_info	
-:- pred dead_cell_pool_init(list(prog_var)::in, dead_cell_pool::out) is det.
-	% test if empty
-:- pred dead_cell_pool_is_empty(dead_cell_pool::in) is semidet.
-
-:- pred add_dead_cell(module_info, proc_info, prog_var, int, set(prog_var), 
-			set(prog_var), alias_as, 
-			dead_cell_pool, dead_cell_pool, 
-			reuse_condition).
-:- mode add_dead_cell(in, in, in, in, in, in, in, in, out, out) is det.
-
-	% given its reuse_condition, add the dead cell to dr_info.
-:- pred add_dead_cell(prog_var, int, reuse_condition, 
-			dead_cell_pool, dead_cell_pool) is det.
-:- mode add_dead_cell(in, in, in, in, out) is det.
-
-:- pred dead_cell_pool_least_upper_bound_disj(set(prog_var),
-				list(dead_cell_pool), dead_cell_pool).
-:- mode dead_cell_pool_least_upper_bound_disj(in, in, out) is det.
-
-:- pred dead_cell_pool_least_upper_bound(dead_cell_pool, 
-				dead_cell_pool,
-				dead_cell_pool).
-:- mode dead_cell_pool_least_upper_bound(in, in, out) is det.
-
-	% given the set of currently non-local vars (all vars that
-	% are in fact nonlocal, including the ones that were not 
-	% used within the goal that we are leaving), update the 
-	% dr_info::current_scope field. 
-:- pred dead_cell_pool_leave_scope(set(prog_var), dead_cell_pool, 
-					dead_cell_pool).
-:- mode dead_cell_pool_leave_scope(in, in, out) is det.
-
-:- pred dead_cell_pool_try_to_reuse(int, dead_cell_pool, 
-		set(reuse_var)).
-:- mode dead_cell_pool_try_to_reuse(in, in, out) is det.
-
-dead_cell_pool_init(HVS, Pool):- 
-	map__init(Map),
-	Pool = pool(HVS, Map).
-dead_cell_pool_is_empty(pool(_, Pool)):- 
-	map__is_empty(Pool).
-
-add_dead_cell(ModuleInfo, ProcInfo, Var, Size, LFU, LBU, 
-			Alias0, Pool0, Pool, Condition) :- 
-	Pool0 = pool(HVS, _Map0), 
-	reuse_condition_init(ModuleInfo, ProcInfo, Var, LFU, LBU, 
-			Alias0, HVS, Condition),
-	add_dead_cell(Var, Size, Condition, Pool0, Pool).
-
-add_dead_cell(Var, Size, ReuseCond, pool(HVS, Pool0), 
-				     pool(HVS, Pool)) :- 
-		% XXX Candidates are always zero. For the
-		% moment we will not try to track this ! 
-	Extra = extra(Size, ReuseCond, []),
-	(
-		map__insert(Pool0, Var, Extra, Pool1)
-	->
-		Pool = Pool1
-	;
-		error("(sr_dead) add_dead_cell: trying to add dead variable whilst already being marked as dead?")
-	).
-
-
-dead_cell_pool_least_upper_bound_disj(OutscopeVars, Pools, Pool):- 
-	list__map(dead_cell_pool_leave_scope(OutscopeVars),
-		Pools, CleanedPools),
-	(
-		CleanedPools = [ C1 | _CR ]
-	->
-		Pool0 = C1,
-		list__foldl(
-			dead_cell_pool_least_upper_bound,
-			CleanedPools, 
-			Pool0, 
-			Pool)
-	;
-		require__error("(sr_direct) dead_cell_pool_least_upper_bound_disj: trying to compute a lub_list of an empty list")
-	).
-
-dead_cell_pool_least_upper_bound(Pool1, Pool2, Pool) :- 
-	Pool1 = pool(HVS, Map1), 
-	map__init(Map0), 
-	Pool0 = pool(HVS, Map0),
-	map__foldl(
-		dead_cell_pool_merge_var(Pool2),
-		Map1, 
-		Pool0,
-		Pool).
-
-:- pred dead_cell_pool_merge_var(dead_cell_pool, prog_var, 
-			dead_extra_info, 
-			dead_cell_pool, dead_cell_pool).
-:- mode dead_cell_pool_merge_var(in, in, in, in, out) is det.
-
-dead_cell_pool_merge_var(P2, Key1, Extra1, P0, P) :- 
-	P2 = pool(_, Pool2),
-	P0 = pool(HVS, Pool0),
-	(
-		map__search(Pool2, Key1, Extra2)
-	->
-		Extra1 = extra(A1, R1, _Cands1), 
-		Extra2 = extra(A2, R2, _Cands2),
-		int__min(A1, A2, A), 
-		reuse_condition_merge(R1, R2, R),
-			% XXX candidates not tracked
-		Extra = extra(A, R, []),
-		(
-			map__insert(Pool0, Key1, Extra, Pool01)
-		->
-			P = pool(HVS, Pool01)
-		;
-			require__error("(sr_direct) dead_cell_pool_merge_var: trying to add already existing key to pool")
-		)
-	;	
-		P = P0
-	).
-
-dead_cell_pool_leave_scope(ScopeVarsSet, P0, P) :- 
-	P0 = pool(HVS, Pool0),
-	set__to_sorted_list(ScopeVarsSet, ScopeVars),
-	map__to_assoc_list(Pool0, AssocList0),
-	list__filter(
-		pred(Key::in) is semidet :- 
-			(
-				Key = ProgVar - _Extra,
-				list__member(ProgVar, ScopeVars)
-			),
-		AssocList0,
-		AssocList),
-	map__from_assoc_list(AssocList, Pool),
-	P = pool(HVS, Pool).
-	
-dead_cell_pool_try_to_reuse(Size, Pool, Set) :-
-	Pool = pool(_HVS, Map), 
-	map__to_assoc_list(Map, AssocList),
-	list__filter(cons_can_reuse(Size), AssocList, CellsThatCanBeReused),
-	list__map(to_pair_var_condition, 
-			CellsThatCanBeReused, VarConditionPairs),
-	set__list_to_set(VarConditionPairs, Set).
-
-:- pred cons_can_reuse(int, pair(prog_var, dead_extra_info)).
-:- mode cons_can_reuse(in, in) is semidet.
-
-cons_can_reuse(Size, _Var - Extra) :- 
-	Extra = extra(DeadSize, _, _), 
-	Size =< DeadSize.
-
-:- pred to_pair_var_condition(pair(prog_var, dead_extra_info), reuse_var).
-:- mode to_pair_var_condition(in, out) is det.
-
-to_pair_var_condition(Var - Extra, reuse_var(Var, Condition, no, no)) :- 
-	Extra = extra(_, Condition, _).
