@@ -181,7 +181,8 @@ generate_c_code(MLDS) -->
 		"#include ""mercury_mcpp.h""\n",
 		"#using ""mercury_mcpp.dll""\n",
 		"#using ""mercury_il.dll""\n",
-		"#using """, ModuleNameStr, ".dll""\n",
+		"#using """, string__replace_all(ModuleNameStr, ":", "."),
+				".dll""\n",
 
 		% XXX We have to use the mercury namespace, as
 		% llds_out still generates some of the code used in the
@@ -207,7 +208,9 @@ generate_c_code(MLDS) -->
 		ForeignCode),
 
 	io__write_strings([
-		"\n__gc public class ", ModuleNameStr, "__c_code\n",
+		"\n__gc public class ",
+			string__replace_all(ModuleNameStr, ":", "__"),
+			"__c_code\n",
 		"{\n",
 		"public:\n"]),
 
