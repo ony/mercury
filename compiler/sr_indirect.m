@@ -185,7 +185,7 @@ analyse_pred_proc( HLDS, PredProcId, FPin, FPout) -->
 					LengthS, "\n"], Msg2) } ,
 			maybe_write_string(VeryVerbose, Msg2)
 		; 
-			maybe_write_string(VeryVerbose, "%\t No reuse.\n")
+			maybe_write_string(VeryVerbose, "%\tNo reuse.\n")
 		)
 	),
 	{ 
