@@ -12,14 +12,12 @@
 
 :- type deep_result(T)
 	--->	ok(T)
-	;	error(string)
-	.
+	;	error(string).
 
-:- pred read_call_graph(string, deep_result(deep), io__state, io__state).
-:- mode read_call_graph(in, out, di, uo) is det.
+:- pred read_call_graph(string::in, deep_result(initial_deep)::out,
+	io__state::di, io__state::uo) is det.
 
-:- pred dump_graph(deep, io__state, io__state).
-:- mode dump_graph(in, di, uo) is det.
+:- pred dump_graph(deep::in, io__state::di, io__state::uo) is det.
 
 %:- pred deep2dot(string, int, deep, io__state, io__state).
 %:- mode deep2dot(in, in, in, di, uo) is det.
@@ -57,30 +55,19 @@ read_call_graph(FileName, Res) -->
 	io__see_binary(FileName, Res0),
 	(
 		{ Res0 = ok },
-		{ Deep0 = deep(call_site_dynamic_ptr(-1),
+		{ InitDeep = initial_deep(
+			call_site_dynamic_ptr(-1),
 			init(1, call_site_dynamic(
 					proc_dynamic_ptr(-1),
 					% should be zero_own_profile
 					zdet(0, 0, 0)
 				)),
 			init(1, proc_dynamic(proc_static_ptr(-1), array([]))),
-			init(1, call_site_static(normal, "")),
-			init(1, proc_static("", array([]))),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([]),
-			array([])
+			init(1, call_site_static(normal_call, -1, "")),
+			init(1, proc_static(dummy_proc_id, "", array([])))
 		) },
 		{ PI0 = ptr_info(0, 0, 0, 0) },
-		read_call_graph2(Deep0, Res1, PI0, PI),
+		read_call_graph2(InitDeep, Res1, PI0, PI),
 		io__seen_binary,
 		{ resize_arrays(Res1, PI, Res) }
 	;
@@ -89,24 +76,27 @@ read_call_graph(FileName, Res) -->
 		{ Res = error(Msg) }
 	).
 
-:- pred read_call_graph2(deep, deep_result(deep), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_call_graph2(in, out, in, out, di, uo) is det.
+:- pred read_call_graph2(initial_deep::in, deep_result(initial_deep)::out,
+	ptr_info::in, ptr_info::out, io__state::di, io__state::uo) is det.
 
-read_call_graph2(Deep0, Res, PtrInfo0, PtrInfo) -->
+read_call_graph2(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 	read_byte(Res0),
 	(
 		{ Res0 = ok(Byte) },
-		( { Byte = call_site_static } ->
-			read_call_site_static(Deep0, Res, PtrInfo0, PtrInfo)
-		; { Byte = proc_static } ->
-			read_proc_static(Deep0, Res, PtrInfo0, PtrInfo)
-		; { Byte = call_site_dynamic } ->
-			read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo)
-		; { Byte = proc_dynamic } ->
-			read_proc_dynamic(Deep0, Res, PtrInfo0, PtrInfo)
-		; { Byte = root } ->
-			read_root(Deep0, Res, PtrInfo0, PtrInfo)
+		( { Byte = token_call_site_static } ->
+			read_call_site_static(InitDeep0, Res,
+				PtrInfo0, PtrInfo)
+		; { Byte = token_proc_static } ->
+			read_proc_static(InitDeep0, Res,
+				PtrInfo0, PtrInfo)
+		; { Byte = token_call_site_dynamic } ->
+			read_call_site_dynamic(InitDeep0, Res,
+				PtrInfo0, PtrInfo)
+		; { Byte = token_proc_dynamic } ->
+			read_proc_dynamic(InitDeep0, Res,
+				PtrInfo0, PtrInfo)
+		; { Byte = token_root } ->
+			read_root(InitDeep0, Res, PtrInfo0, PtrInfo)
 		;
 			{ format("unexpected token %d", [i(Byte)], Msg) },
 			{ Res = error(Msg) },
@@ -114,7 +104,7 @@ read_call_graph2(Deep0, Res, PtrInfo0, PtrInfo) -->
 		)
 	;
 		{ Res0 = eof },
-		{ Res = ok(Deep0) },
+		{ Res = ok(InitDeep0) },
 		{ PtrInfo = PtrInfo0 }
 	;
 		{ Res0 = error(Err) },
@@ -123,45 +113,46 @@ read_call_graph2(Deep0, Res, PtrInfo0, PtrInfo) -->
 		{ PtrInfo = PtrInfo0 }
 	).
 
-:- pred read_root(deep, deep_result(deep), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_root(in, out, in, out, di, uo) is det.
+:- pred read_root(initial_deep::in, deep_result(initial_deep)::out,
+	ptr_info::in, ptr_info::out, io__state::di, io__state::uo) is det.
 
-read_root(Deep0, Res, PtrInfo0, PtrInfo) -->
+read_root(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading root.\n", []),
 	read_ptr(csd, Res0),
 	(
 		{ Res0 = ok(Ptr) },
-		{ Deep1 = Deep0^root := call_site_dynamic_ptr(Ptr) },
-		read_call_graph2(Deep1, Res, PtrInfo0, PtrInfo)
+		{ InitDeep1 = InitDeep0 ^ init_root
+			:= call_site_dynamic_ptr(Ptr) },
+		read_call_graph2(InitDeep1, Res, PtrInfo0, PtrInfo)
 	;
 		{ Res0 = error(Err) },
 		{ Res = error(Err) },
 		{ PtrInfo = PtrInfo0 }
 	).
 
-:- pred read_call_site_static(deep, deep_result(deep), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_call_site_static(in, out, in, out, di, uo) is det.
+:- pred read_call_site_static(initial_deep::in, deep_result(initial_deep)::out,
+	ptr_info::in, ptr_info::out, io__state::di, io__state::uo) is det.
 
-read_call_site_static(Deep0, Res, PtrInfo0, PtrInfo) -->
+read_call_site_static(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading call_site_static.\n", []),
-	read_sequence3(
+	read_sequence4(
 		read_ptr(css),
 		read_call_site_kind,
+		read_num,
 		read_string,
-		(pred(Ptr::in, Kind::in, Str::in, Res0::out)
+		(pred(Ptr::in, Kind::in, LineNumber::in, Str::in, Res0::out)
 				is det :-
-			CSS = call_site_static(Kind, Str),
-			insert(Deep0^call_site_statics, Ptr, CSS, CSSs),
-			Deep = Deep0^call_site_statics := CSSs,
-			Res0 = ok({Deep, Ptr})
+			CSS = call_site_static(Kind, LineNumber, Str),
+			insert(InitDeep0 ^ init_call_site_statics,
+				Ptr, CSS, CSSs),
+			InitDeep = InitDeep0 ^ init_call_site_statics := CSSs,
+			Res0 = ok({InitDeep, Ptr})
 		),
 		Res1),
 	(
-		{ Res1 = ok({Deep1, NewPtr}) },
-		{ PtrInfo1 = PtrInfo0^css := max(PtrInfo0^css, NewPtr) },
-		read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
+		{ Res1 = ok({InitDeep1, NewPtr}) },
+		{ PtrInfo1 = PtrInfo0 ^ css := max(PtrInfo0 ^ css, NewPtr) },
+		read_call_graph2(InitDeep1, Res, PtrInfo1, PtrInfo)
 	;
 		{ Res1 = error(Err) },
 		{ Res = error(Err) },
@@ -169,33 +160,36 @@ read_call_site_static(Deep0, Res, PtrInfo0, PtrInfo) -->
 	).
 
 
-:- pred read_proc_static(deep, deep_result(deep), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_proc_static(in, out, in, out, di, uo) is det.
+:- pred read_proc_static(initial_deep::in, deep_result(initial_deep)::out,
+	ptr_info::in, ptr_info::out, io__state::di, io__state::uo) is det.
 
-read_proc_static(Deep0, Res, PtrInfo0, PtrInfo) -->
+read_proc_static(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading proc_static.\n", []),
-	read_sequence3(
+	read_sequence4(
 		read_ptr(ps),
+		read_proc_id,
 		read_string,
 		read_num,
-		(pred(Ptr0::in, Id0::in, N0::in, Stuff0::out) is det :-
-			Stuff0 = ok({Ptr0, Id0, N0})
+		(pred(Ptr0::in, Id0::in, F0::in, N0::in, Stuff0::out) is det :-
+			Stuff0 = ok({Ptr0, Id0, F0, N0})
 		),
 		Res1),
 	(
-		{ Res1 = ok({Ptr, Id, N}) },
+		{ Res1 = ok({Ptr, Id, FileName, N}) },
 		read_n_things(N, read_ptr(css), Res2),
 		(
 			{ Res2 = ok(Ptrs0) },
 			{ map((pred(Ptr1::in, Ptr2::out) is det :-
 				Ptr2 = call_site_static_ptr(Ptr1)
 			), Ptrs0, Ptrs) },
-			{ ProcStatic = proc_static(Id, array(Ptrs)) },
-			{ insert(Deep0^proc_statics, Ptr, ProcStatic, PSs) },
-			{ Deep1 = Deep0^proc_statics := PSs },
-			{ PtrInfo1 = PtrInfo0 ^ ps := max(PtrInfo0^ps, Ptr) },
-			read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
+			{ ProcStatic =
+				proc_static(Id, FileName, array(Ptrs)) },
+			{ insert(InitDeep0 ^ init_proc_statics,
+				Ptr, ProcStatic, PSs) },
+			{ InitDeep1 = InitDeep0 ^ init_proc_statics := PSs },
+			{ PtrInfo1 = PtrInfo0 ^ ps :=
+				max(PtrInfo0 ^ ps, Ptr) },
+			read_call_graph2(InitDeep1, Res, PtrInfo1, PtrInfo)
 		;
 			{ Res2 = error(Err) },
 			{ Res = error(Err) },
@@ -207,11 +201,70 @@ read_proc_static(Deep0, Res, PtrInfo0, PtrInfo) -->
 		{ PtrInfo = PtrInfo0 }
 	).
 
-:- pred read_proc_dynamic(deep, deep_result(deep), ptr_info, ptr_info,
-		io__state, io__state).
-:- mode read_proc_dynamic(in, out, in, out, di, uo) is det.
+:- pred read_proc_id(deep_result(proc_id)::out,
+	io__state::di, io__state::uo) is det.
 
-read_proc_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
+read_proc_id(Res) -->
+	read_deep_byte(Res0),
+	(
+		{ Res0 = ok(Byte) },
+		( { Byte = token_isa_compiler_generated } ->
+			read_proc_id_compiler_generated(Res)
+		; { Byte = token_isa_predicate } ->
+			read_proc_id_user_defined(predicate, Res)
+		; { Byte = token_isa_function } ->
+			read_proc_id_user_defined(function, Res)
+		;
+			{ format("unexpected call_site_kind %d",
+				[i(Byte)], Msg) },
+			{ Res = error(Msg) }
+		)
+	;
+		{ Res0 = error(Err) },
+		{ Res = error(Err) }
+	).
+
+:- pred read_proc_id_compiler_generated(deep_result(proc_id)::out,
+	io__state::di, io__state::uo) is det.
+
+read_proc_id_compiler_generated(Res) -->
+	read_sequence6(
+		read_string,
+		read_string,
+		read_string,
+		read_string,
+		read_num,
+		read_num,
+		(pred(TypeName::in, TypeModule::in, DefModule::in,
+			PredName::in, Arity::in, Mode::in, ProcId::out)
+			is det :-
+			ProcId = ok(compiler_generated(TypeName, TypeModule,
+				DefModule, PredName, Arity, Mode))
+		),
+		Res).
+
+:- pred read_proc_id_user_defined(pred_or_func::in, deep_result(proc_id)::out,
+	io__state::di, io__state::uo) is det.
+
+read_proc_id_user_defined(PredOrFunc, Res) -->
+	read_sequence5(
+		read_string,
+		read_string,
+		read_string,
+		read_num,
+		read_num,
+		(pred(DeclModule::in, DefModule::in, Name::in,
+			Arity::in, Mode::in, ProcId::out)
+			is det :-
+			ProcId = ok(user_defined(PredOrFunc, DeclModule,
+				DefModule, Name, Arity, Mode))
+		),
+		Res).
+
+:- pred read_proc_dynamic(initial_deep::in, deep_result(initial_deep)::out,
+	ptr_info::in, ptr_info::out, io__state::di, io__state::uo) is det.
+
+read_proc_dynamic(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading proc_dynamic.\n", []),
 	read_sequence3(
 		read_ptr(pd),
@@ -228,10 +281,10 @@ read_proc_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 			{ Res2 = ok(Refs) },
 			{ PSPtr = proc_static_ptr(SPtr) },
 			{ PD = proc_dynamic(PSPtr, array(Refs)) },
-			{ insert(Deep0^proc_dynamics, Ptr, PD, PDs) },
-			{ Deep1 = Deep0^proc_dynamics := PDs },
-			{ PtrInfo1 = PtrInfo0 ^ pd := max(PtrInfo0^pd, Ptr) },
-			read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
+			{ insert(InitDeep0 ^ init_proc_dynamics, Ptr, PD, PDs) },
+			{ InitDeep1 = InitDeep0 ^ init_proc_dynamics := PDs },
+			{ PtrInfo1 = PtrInfo0 ^ pd := max(PtrInfo0 ^ pd, Ptr) },
+			read_call_graph2(InitDeep1, Res, PtrInfo1, PtrInfo)
 		;
 			{ Res2 = error(Err) },
 			{ Res = error(Err) },
@@ -243,11 +296,11 @@ read_proc_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 		{ PtrInfo = PtrInfo0 }
 	).
 
-:- pred read_call_site_dynamic(deep, deep_result(deep),
-		ptr_info, ptr_info, io__state, io__state).
-:- mode read_call_site_dynamic(in, out, in, out, di, uo) is det.
+:- pred read_call_site_dynamic(initial_deep::in,
+	deep_result(initial_deep)::out, ptr_info::in, ptr_info::out,
+	io__state::di, io__state::uo) is det.
 
-read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
+read_call_site_dynamic(InitDeep0, Res, PtrInfo0, PtrInfo) -->
 	%format("reading call_site_dynamic.\n", []),
 	read_ptr(csd, Res1),
 	(
@@ -260,12 +313,12 @@ read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 				{ Res3 = ok(Profile) },
 				{ PDPtr = proc_dynamic_ptr(Ptr2) },
 				{ CD = call_site_dynamic(PDPtr, Profile) },
-				{ insert(Deep0^call_site_dynamics, Ptr1,
+				{ insert(InitDeep0 ^ init_call_site_dynamics, Ptr1,
 						CD, CDs) },
-				{ Deep1 = Deep0^call_site_dynamics := CDs },
+				{ InitDeep1 = InitDeep0 ^ init_call_site_dynamics := CDs },
 				{ PtrInfo1 = PtrInfo0 ^ csd :=
-						max(PtrInfo0^csd, Ptr1) },
-				read_call_graph2(Deep1, Res, PtrInfo1, PtrInfo)
+						max(PtrInfo0 ^ csd, Ptr1) },
+				read_call_graph2(InitDeep1, Res, PtrInfo1, PtrInfo)
 			;
 				{ Res3 = error(Err) },
 				{ Res = error(Err) },
@@ -282,8 +335,8 @@ read_call_site_dynamic(Deep0, Res, PtrInfo0, PtrInfo) -->
 		{ PtrInfo = PtrInfo0 }
 	).
 
-:- pred read_profile(deep_result(own_prof_info), io__state, io__state).
-:- mode read_profile(out, di, uo) is det.
+:- pred read_profile(deep_result(own_prof_info)::out,
+	io__state::di, io__state::uo) is det.
 
 read_profile(Res) -->
 	read_num(Res0),
@@ -416,15 +469,15 @@ compress_profile(PI0) = PI :-
 		PI = PI0
 	).
 
-:- pred read_call_site_ref(deep_result(call_site_ref), io__state, io__state).
-:- mode read_call_site_ref(out, di, uo) is det.
+:- pred read_call_site_ref(deep_result(call_site_array_slot)::out,
+	io__state::di, io__state::uo) is det.
 
 read_call_site_ref(Res) -->
 	%format("reading call_site_ref.\n", []),
 	read_call_site_kind(Res1),
 	(
 		{ Res1 = ok(Kind) },
-		( { Kind = normal } ->
+		( { Kind = normal_call } ->
 			read_ptr(csd, Res2),
 			(
 				{ Res2 = ok(Ptr) },
@@ -459,13 +512,15 @@ read_call_site_kind(Res) -->
 	read_deep_byte(Res0),
 	(
 		{ Res0 = ok(Byte) },
-		( { Byte = normal } ->
-			{ Res = ok(normal) }
-		; { Byte = higher_order } ->
-			{ Res = ok(higher_order) }
-		; { Byte = typeclass_method } ->
-			{ Res = ok(typeclass_method) }
-		; { Byte = callback } ->
+		( { Byte = token_normal_call } ->
+			{ Res = ok(normal_call) }
+		; { Byte = token_special_call } ->
+			{ Res = ok(special_call) }
+		; { Byte = token_higher_order_call } ->
+			{ Res = ok(higher_order_call) }
+		; { Byte = token_method_call } ->
+			{ Res = ok(method_call) }
+		; { Byte = token_callback } ->
 			{ Res = ok(callback) }
 		;
 			{ format("unexpected call_site_kind %d",
@@ -575,6 +630,174 @@ read_sequence3(P1, P2, P3, Combine, Res) -->
 			(
 				{ Res3 = ok(T3) },
 				{ call(Combine, T1, T2, T3, Res) }
+			;
+				{ Res3 = error(Err) },
+				{ Res = error(Err) }
+			)
+		;
+			{ Res2 = error(Err) },
+			{ Res = error(Err) }
+		)
+	;
+		{ Res1 = error(Err) },
+		{ Res = error(Err) }
+	).
+
+:- pred read_sequence4(
+		pred(deep_result(T1), io__state, io__state),
+		pred(deep_result(T2), io__state, io__state),
+		pred(deep_result(T3), io__state, io__state),
+		pred(deep_result(T4), io__state, io__state),
+		pred(T1, T2, T3, T4, deep_result(T5)),
+		deep_result(T5), io__state, io__state).
+:- mode read_sequence4(
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(in, in, in, in, out) is det,
+		out, di, uo) is det.
+
+read_sequence4(P1, P2, P3, P4, Combine, Res) -->
+	call(P1, Res1),
+	(
+		{ Res1 = ok(T1) },
+		call(P2, Res2),
+		(
+			{ Res2 = ok(T2) },
+			call(P3, Res3),
+			(
+				{ Res3 = ok(T3) },
+				call(P4, Res4),
+				(
+					{ Res4 = ok(T4) },
+					{ call(Combine, T1, T2, T3, T4, Res) }
+				;
+					{ Res4 = error(Err) },
+					{ Res = error(Err) }
+				)
+			;
+				{ Res3 = error(Err) },
+				{ Res = error(Err) }
+			)
+		;
+			{ Res2 = error(Err) },
+			{ Res = error(Err) }
+		)
+	;
+		{ Res1 = error(Err) },
+		{ Res = error(Err) }
+	).
+
+:- pred read_sequence5(
+		pred(deep_result(T1), io__state, io__state),
+		pred(deep_result(T2), io__state, io__state),
+		pred(deep_result(T3), io__state, io__state),
+		pred(deep_result(T4), io__state, io__state),
+		pred(deep_result(T5), io__state, io__state),
+		pred(T1, T2, T3, T4, T5, deep_result(T6)),
+		deep_result(T6), io__state, io__state).
+:- mode read_sequence5(
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(in, in, in, in, in, out) is det,
+		out, di, uo) is det.
+
+read_sequence5(P1, P2, P3, P4, P5, Combine, Res) -->
+	call(P1, Res1),
+	(
+		{ Res1 = ok(T1) },
+		call(P2, Res2),
+		(
+			{ Res2 = ok(T2) },
+			call(P3, Res3),
+			(
+				{ Res3 = ok(T3) },
+				call(P4, Res4),
+				(
+					{ Res4 = ok(T4) },
+					call(P5, Res5),
+					(
+						{ Res5 = ok(T5) },
+						{ call(Combine, T1, T2, T3, T4,
+							T5, Res) }
+					;
+						{ Res5 = error(Err) },
+						{ Res = error(Err) }
+					)
+				;
+					{ Res4 = error(Err) },
+					{ Res = error(Err) }
+				)
+			;
+				{ Res3 = error(Err) },
+				{ Res = error(Err) }
+			)
+		;
+			{ Res2 = error(Err) },
+			{ Res = error(Err) }
+		)
+	;
+		{ Res1 = error(Err) },
+		{ Res = error(Err) }
+	).
+
+:- pred read_sequence6(
+		pred(deep_result(T1), io__state, io__state),
+		pred(deep_result(T2), io__state, io__state),
+		pred(deep_result(T3), io__state, io__state),
+		pred(deep_result(T4), io__state, io__state),
+		pred(deep_result(T5), io__state, io__state),
+		pred(deep_result(T6), io__state, io__state),
+		pred(T1, T2, T3, T4, T5, T6, deep_result(T7)),
+		deep_result(T7), io__state, io__state).
+:- mode read_sequence6(
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(out, di, uo) is det,
+		pred(in, in, in, in, in, in, out) is det,
+		out, di, uo) is det.
+
+read_sequence6(P1, P2, P3, P4, P5, P6, Combine, Res) -->
+	call(P1, Res1),
+	(
+		{ Res1 = ok(T1) },
+		call(P2, Res2),
+		(
+			{ Res2 = ok(T2) },
+			call(P3, Res3),
+			(
+				{ Res3 = ok(T3) },
+				call(P4, Res4),
+				(
+					{ Res4 = ok(T4) },
+					call(P5, Res5),
+					(
+						{ Res5 = ok(T5) },
+						call(P6, Res6),
+						(
+							{ Res6 = ok(T6) },
+							{ call(Combine, T1, T2,
+								T3, T4, T5,
+								T6, Res) }
+						;
+							{ Res6 = error(Err) },
+							{ Res = error(Err) }
+						)
+					;
+						{ Res5 = error(Err) },
+						{ Res = error(Err) }
+					)
+				;
+					{ Res4 = error(Err) },
+					{ Res = error(Err) }
+				)
 			;
 				{ Res3 = error(Err) },
 				{ Res = error(Err) }
@@ -728,41 +951,57 @@ insert(A0, Ind, Thing, A) :-
 #include ""mercury_deep_profiling.h""
 ").
 
-:- func root = int.
-:- pragma c_code(root = (X::out),
-		[will_not_call_mercury, thread_safe], "X = root;").
+:- func token_root = int.
+:- pragma c_code(token_root = (X::out),
+	[will_not_call_mercury, thread_safe], "X = root;").
 
-:- func call_site_static = int.
-:- pragma c_code(call_site_static = (X::out),
-		[will_not_call_mercury, thread_safe], "X = callsite_static;").
+:- func token_call_site_static = int.
+:- pragma c_code(token_call_site_static = (X::out),
+	[will_not_call_mercury, thread_safe], "X = callsite_static;").
 
-:- func call_site_dynamic = int.
-:- pragma c_code(call_site_dynamic = (X::out),
-		[will_not_call_mercury, thread_safe], "X = callsite_dynamic;").
+:- func token_call_site_dynamic = int.
+:- pragma c_code(token_call_site_dynamic = (X::out),
+	[will_not_call_mercury, thread_safe], "X = callsite_dynamic;").
 
-:- func proc_static = int.
-:- pragma c_code(proc_static = (X::out),
-		[will_not_call_mercury, thread_safe], "X = proc_static;").
+:- func token_proc_static = int.
+:- pragma c_code(token_proc_static = (X::out),
+	[will_not_call_mercury, thread_safe], "X = proc_static;").
 
-:- func proc_dynamic = int.
-:- pragma c_code(proc_dynamic = (X::out),
-		[will_not_call_mercury, thread_safe], "X = proc_dynamic;").
+:- func token_proc_dynamic = int.
+:- pragma c_code(token_proc_dynamic = (X::out),
+	[will_not_call_mercury, thread_safe], "X = proc_dynamic;").
 
-:- func normal = int.
-:- pragma c_code(normal = (X::out),
-		[will_not_call_mercury, thread_safe], "X = normal;").
+:- func token_normal_call = int.
+:- pragma c_code(token_normal_call = (X::out),
+	[will_not_call_mercury, thread_safe], "X = MR_normal_call;").
 
-:- func higher_order = int.
-:- pragma c_code(higher_order = (X::out),
-		[will_not_call_mercury, thread_safe], "X = higher_order;").
+:- func token_special_call = int.
+:- pragma c_code(token_special_call = (X::out),
+	[will_not_call_mercury, thread_safe], "X = MR_special_call;").
 
-:- func typeclass_method = int.
-:- pragma c_code(typeclass_method = (X::out),
-		[will_not_call_mercury, thread_safe], "X = typeclass_method;").
+:- func token_higher_order_call = int.
+:- pragma c_code(token_higher_order_call = (X::out),
+	[will_not_call_mercury, thread_safe], "X = MR_higher_order_call;").
 
-:- func callback = int.
-:- pragma c_code(callback = (X::out),
-		[will_not_call_mercury, thread_safe], "X = callback;").
+:- func token_method_call = int.
+:- pragma c_code(token_method_call = (X::out),
+	[will_not_call_mercury, thread_safe], "X = MR_method_call;").
+
+:- func token_callback = int.
+:- pragma c_code(token_callback = (X::out),
+	[will_not_call_mercury, thread_safe], "X = MR_callback;").
+
+:- func token_isa_predicate = int.
+:- pragma c_code(token_isa_predicate = (X::out),
+	[will_not_call_mercury, thread_safe], "X = isa_predicate;").
+
+:- func token_isa_function = int.
+:- pragma c_code(token_isa_function = (X::out),
+	[will_not_call_mercury, thread_safe], "X = isa_function;").
+
+:- func token_isa_compiler_generated = int.
+:- pragma c_code(token_isa_compiler_generated = (X::out),
+	[will_not_call_mercury, thread_safe], "X = isa_compiler_generated;").
 
 %------------------------------------------------------------------------------%
 %------------------------------------------------------------------------------%
@@ -774,8 +1013,8 @@ deep2dot(FileName, Depth, Deep) -->
 		{ Res = ok },
 		format("digraph L0 {\n", []),
 		format("size =""8,11"";\n", []),
-		{ Deep^root = call_site_dynamic_ptr(Root) },
-		{ lookup(Deep^clique_index, Root, RootClique) },
+		{ Deep ^ root = call_site_dynamic_ptr(Root) },
+		{ lookup(Deep ^ clique_index, Root, RootClique) },
 		deep2dot2(Deep, Depth, RootClique),
 		format("};\n", [])
 	;
@@ -791,18 +1030,18 @@ deep2dot(FileName, Depth, Deep) -->
 deep2dot2(Deep, Depth, Clique) -->
 	( { Depth > 0 } ->
 		{ Clique = clique(CliqueN) },
-		{ lookup(Deep^clique_tree, CliqueN, Children0) },
-		{ lookup(Deep^clique_members, CliqueN, Members) },
+		{ lookup(Deep ^ clique_tree, CliqueN, Children0) },
+		{ lookup(Deep ^ clique_members, CliqueN, Members) },
 		(
 			{ Members = [call_site_dynamic_ptr(CSDI)|_] },
 			{ CSDI > 0 },
-			{ lookup(Deep^call_site_dynamics, CSDI, CSD) },
+			{ lookup(Deep ^ call_site_dynamics, CSDI, CSD) },
 			{ CSD = call_site_dynamic(PDPtr, _) },
 			{ PDPtr = proc_dynamic_ptr(PDI), PDI > 0 },
-			{ lookup(Deep^proc_dynamics, PDI, PD) },
+			{ lookup(Deep ^ proc_dynamics, PDI, PD) },
 			{ PD = proc_dynamic(PSPtr, _) },
 			{ PSPtr = proc_static_ptr(PSI), PSI > 0 },
-			{ lookup(Deep^proc_statics, PSI, PS) },
+			{ lookup(Deep ^ proc_statics, PSI, PS) },
 			{ PS = proc_static(Id, _) }
 		->
 			{ Clique = clique(Z) },
@@ -845,18 +1084,19 @@ children(Refs, Index, Kids) :-
 dump_graph(Deep) -->
 	format("digraph L0 {\n", []),
 	format("size=""8,11"";\n", []),
-	foldl((pred(CSDI::in, CSD::in, di, uo) is det -->
+	array_foldl((pred(CSDI::in, CSD::in, di, uo) is det -->
 		{ CSDI = From },
 		{ CSD = call_site_dynamic(proc_dynamic_ptr(To), _) },
 		format("n%x -> { n%x };\n", [i(From), i(To)])
-	), Deep^call_site_dynamics),
-	foldl((pred(PDI::in, PD::in, di, uo) is det -->
+	), Deep ^ call_site_dynamics),
+	array_foldl((pred(PDI::in, PD::in, di, uo) is det -->
 		{ PDI = From },
 		{ PD = proc_dynamic(PSPtr, Refs) },
 		{ PSPtr = proc_static_ptr(PSI) },
-		{ lookup(Deep^proc_statics, PSI, PS) },
-		{ PS = proc_static(Id, _) },
-		format("n%x [label=""%s""];\n", [i(From), s(Id)]),
+		{ lookup(Deep ^ proc_statics, PSI, PS) },
+		{ PS = proc_static(Id, _, _) },
+		format("n%x [label=""%s""];\n",
+			[i(From), s(proc_id_to_string(Id))]),
 		{ array__to_list(Refs, RefList) },
 		foldl((pred(Ref::in, di, uo) is det -->
 			(
@@ -872,141 +1112,34 @@ dump_graph(Deep) -->
 				), CSDPtrList)
 			)
 		), RefList)
-	), Deep^proc_dynamics),
+	), Deep ^ proc_dynamics),
 	format("};\n", []).
 
-/*
-node2html(URL, Deep, CSDPtr, _CSD) -->
-	format("<HTML>\n", []),
-	format("<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n", []),
-	{ ThisName = label(CSDPtr, Deep) },
-	format("<H2>%s</H2>\n", [s(ThisName)]),
-	format("<TABLE>\n", []),
-	format("<TR>\n", []),
-	format("<TD>Kind</TD>\n", []),
-	format("<TD>Procedure                     </TD>\n", []),
-	format("<TD>Calls</TD>\n", []),
-	format("<TD>Exits</TD>\n", []),
-	format("<TD>Fails</TD>\n", []),
-	format("<TD>Redos</TD>\n", []),
-	format("<TD>Quanta</TD>\n", []),
-	format("<TD>Memory</TD>\n", []),
-	format("</TR>\n", []),
-
-	{ array__to_list(refs(CSDPtr, Deep), RefList0) },
-	{ list__delete_all(RefList0,
-		normal(call_site_dynamic_ptr(0)), RefList) },
-	foldl((pred(Ref::in, di, uo) is det -->
-		(
-			{ Ref = normal(ToPtr) },
-			{ label(ToPtr, Deep) = CalleeName },
-			{ ToPtr = call_site_dynamic_ptr(To) },
-			{ lookup(Deep^call_site_dynamics, To, CSD) },
-			{ CSD = call_site_dynamic(_, PI) },
-			{ Calls = calls(PI) }, { Exits = exits(PI) },
-			{ Fails = fails(PI) }, { Redos = redos(PI) },
-			{ Quanta = quanta(PI) }, { Mems = memory(PI) },
-			format("<TR>\n", []),
-			format("<TD> </TD>\n", []),
-			format("<TD><A HREF=""%s?%d"">%s</A></TD>\n",
-				[s(URL), i(To), s(CalleeName)]),
-			format("<TD>%d</TD>\n", [i(Calls)]),
-			format("<TD>%d</TD>\n", [i(Exits)]),
-			format("<TD>%d</TD>\n", [i(Fails)]),
-			format("<TD>%d</TD>\n", [i(Redos)]),
-			format("<TD>%d</TD>\n", [i(Quanta)]),
-			format("<TD>%d</TD>\n", [i(Mems)]),
-			format("</TR>\n", [])
-		;
-			{ Ref = multi(CSDPtrs) },
-			{ array__to_list(CSDPtrs, CSDPtrList) },
-			foldl((pred(ToPtr::in, di, uo) is det -->
-				{ label(ToPtr, Deep) = CalleeName },
-				{ ToPtr = call_site_dynamic_ptr(To) },
-				{ lookup(Deep^call_site_dynamics, To, CSD) },
-				{ CSD = call_site_dynamic(_, PI) },
-				{ Calls = calls(PI) }, { Exits = exits(PI) },
-				{ Fails = fails(PI) }, { Redos = redos(PI) },
-				{ Quanta = quanta(PI) }, { Mems = memory(PI) },
-				format("<TR>\n", []),
-				format("<TD>^</TD>\n", []),
-				format("<TD><A HREF=""%s?%d"">%s</A></TD>\n",
-					[s(URL), i(To), s(CalleeName)]),
-				format("<TD>%d</TD>\n", [i(Calls)]),
-				format("<TD>%d</TD>\n", [i(Exits)]),
-				format("<TD>%d</TD>\n", [i(Fails)]),
-				format("<TD>%d</TD>\n", [i(Redos)]),
-				format("<TD>%d</TD>\n", [i(Quanta)]),
-				format("<TD>%d</TD>\n", [i(Mems)]),
-				format("</TR>\n", [])
-			), CSDPtrList)
-		)
-	), RefList),
-	format("</TABLE>\n", []),
-	format("</HTML>\n", []).
-
-:- func label(call_site_dynamic_ptr, deep) = string.
-
-label(CSDPtr, Deep) = Name :-
-	(
-		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
-		lookup(Deep^call_site_dynamics, CSDI, CSD),
-		CSD = call_site_dynamic(PDPtr, _),
-		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
-		lookup(Deep^proc_dynamics, PDI, PD),
-		PD = proc_dynamic(PSPtr, _),
-		PSPtr = proc_static_ptr(PSI), PSI > 0,
-		lookup(Deep^proc_statics, PSI, PS),
-		PS = proc_static(Id, _)
-	->
-		Name = Id
-	;
-		Name = "-"
-	).
-
-:- func refs(call_site_dynamic_ptr, deep) = array(call_site_ref).
-
-refs(CSDPtr, Deep) = Refs :-
-	(
-		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
-		lookup(Deep^call_site_dynamics, CSDI, CSD),
-		CSD = call_site_dynamic(PDPtr, _),
-		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
-		lookup(Deep^proc_dynamics, PDI, PD),
-		PD = proc_dynamic(_, Refs0)
-	->
-		Refs = Refs0
-	;
-		Refs = array([])
-	).
-*/
-
-:- pred resize_arrays(deep_result(deep), ptr_info, deep_result(deep)).
-:- mode resize_arrays(in, in, out) is det.
+:- pred resize_arrays(deep_result(initial_deep)::in, ptr_info::in,
+	deep_result(initial_deep)::out) is det.
 
 resize_arrays(error(Err), _, error(Err)).
-resize_arrays(ok(Deep0), PI, ok(Deep)) :-
-	PI^csd = CSDMax,
-	CSDs0 = Deep0^call_site_dynamics,
+resize_arrays(ok(InitDeep0), PI, ok(InitDeep)) :-
+	PI ^ csd = CSDMax,
+	CSDs0 = InitDeep0 ^ init_call_site_dynamics,
 	lookup(CSDs0, 0, CSDx),
 	resize(u(CSDs0), CSDMax + 1, CSDx, CSDs),
-	Deep1 = Deep0^call_site_dynamics := CSDs,
+	InitDeep1 = InitDeep0 ^ init_call_site_dynamics := CSDs,
 
-	PI^pd = PDMax,
-	PDs0 = Deep1^proc_dynamics,
+	PI ^ pd = PDMax,
+	PDs0 = InitDeep1 ^ init_proc_dynamics,
 	lookup(PDs0, 0, PDx),
 	resize(u(PDs0), PDMax + 1, PDx, PDs),
-	Deep2 = Deep1^proc_dynamics := PDs,
+	InitDeep2 = InitDeep1 ^ init_proc_dynamics := PDs,
 
-	PI^css = CSSMax,
-	CSSs0 = Deep2^call_site_statics,
+	PI ^ css = CSSMax,
+	CSSs0 = InitDeep2 ^ init_call_site_statics,
 	lookup(CSSs0, 0, CSSx),
 	resize(u(CSSs0), CSSMax + 1, CSSx, CSSs),
-	Deep3 = Deep2^call_site_statics := CSSs,
+	InitDeep3 = InitDeep2 ^ init_call_site_statics := CSSs,
 
-	PI^ps = PSMax,
-	PSs0 = Deep3^proc_statics,
+	PI ^ ps = PSMax,
+	PSs0 = InitDeep3 ^ init_proc_statics,
 	lookup(PSs0, 0, PSx),
 	resize(u(PSs0), PSMax + 1, PSx, PSs),
-	Deep = Deep3^proc_statics := PSs.
-
+	InitDeep = InitDeep3 ^ init_proc_statics := PSs.

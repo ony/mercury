@@ -15,23 +15,8 @@
 
 :- implementation.
 
-:- import_module char, int, list, require, std_util, string.
-
-:- type cmd
-	--->	quit
-	;	root
-	;	clique(int)
-	;	procs(sort, int, int)
-	;	proc(int)
-	.
-
-:- type sort
-	--->	self
-	;	self_and_desc
-	.
-
-:- type resp
-	--->	html(string).
+:- import_module cgi_interface.
+:- import_module char, string, int, list, set, require, std_util.
 
 main -->
 	io__get_environment_var("QUERY_STRING", MQStr),
@@ -39,23 +24,45 @@ main -->
 		{ MQStr = yes(QStr) },
 		{ split(QStr, ('+'), Pieces) },
 		(
-			{ Pieces = ["clique", NStr] },
-			{ string__to_int(NStr, N) }
+			{
+				Pieces = ["clique", NStr],
+				string__to_int(NStr, N),
+				Fields = default_fields
+			;
+				Pieces = ["clique", Fields, NStr],
+				string__to_int(NStr, N),
+				validate_fields(Fields)
+			}
 		->
-			to("/var/tmp/toDeep", clique(N)),
+			to("/var/tmp/toDeep", clique(N, Fields)),
 			from("/var/tmp/fromDeep", html(Str)),
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)
 		;
-			{ Pieces = ["proc", NStr] },
-			{ string__to_int(NStr, N) }
+			{
+				Pieces = ["proc", NStr],
+				string__to_int(NStr, N),
+				Fields = default_fields
+			;
+				Pieces = ["proc", Fields, NStr],
+				string__to_int(NStr, N),
+				validate_fields(Fields)
+			}
 		->
-			to("/var/tmp/toDeep", proc(N)),
+			to("/var/tmp/toDeep", proc(N, Fields)),
 			from("/var/tmp/fromDeep", html(Str)),
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)
 		;
-			{ Pieces = ["procs", SortStr, FirstStr, LastStr] },
+			{
+				Pieces = ["procs", SortStr,
+					FirstStr, LastStr],
+				Fields = default_fields
+			;
+				Pieces = ["procs", SortStr, Fields,
+					FirstStr, LastStr],
+				validate_fields(Fields)
+			},
 			{
 				SortStr = "self",
 				Sort = self
@@ -66,17 +73,35 @@ main -->
 			{ string__to_int(FirstStr, First) },
 			{ string__to_int(LastStr, Last) }
 		->
-			to("/var/tmp/toDeep", procs(Sort, First, Last)),
+			to("/var/tmp/toDeep",
+				procs(Sort, Fields, First, Last)),
 			from("/var/tmp/fromDeep", html(Str)),
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)
-		; { Pieces = ["quit"] } ->
+		;
+			{
+				Pieces = ["root"],
+				Fields = default_fields
+			;
+				Pieces = ["root", Fields],
+				validate_fields(Fields)
+			}
+		->
+			to("/var/tmp/toDeep", root(Fields)),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["menu"] }
+		->
+			to("/var/tmp/toDeep", menu),
+			from("/var/tmp/fromDeep", html(Str)),
+			write_string("Content-type: text/html\n\n"),
+			write_string(Str)
+		;
+			{ Pieces = ["quit"] }
+		->
 			to("/var/tmp/toDeep", quit),
-			from("/var/tmp/fromDeep", html(Str)),
-			write_string("Content-type: text/html\n\n"),
-			write_string(Str)
-		; { Pieces = ["root"] } ->
-			to("/var/tmp/toDeep", root),
 			from("/var/tmp/fromDeep", html(Str)),
 			write_string("Content-type: text/html\n\n"),
 			write_string(Str)
@@ -86,6 +111,29 @@ main -->
 	;
 		{ MQStr = no }
 	).
+
+:- func default_fields = fields.
+
+default_fields = "apqtw".
+
+:- func all_fields = fields.
+
+all_fields = "apqtw".
+
+:- pred validate_fields(string::in) is semidet.
+
+validate_fields(String) :-
+	Chars = string__to_char_list(String),
+	list__sort_and_remove_dups(Chars, Chars),
+	validate_field_chars(Chars,
+		set__list_to_set(string__to_char_list(all_fields))).
+
+:- pred validate_field_chars(list(char)::in, set(char)::in) is semidet.
+
+validate_field_chars([], _).
+validate_field_chars([Char | Chars], AvailFields0) :-
+	set__delete(AvailFields0, Char, AvailFields1),
+	validate_field_chars(Chars, AvailFields1).
 
 :- pred to(string, cmd, io__state, io__state).
 :- mode to(in, in, di, uo) is det.
@@ -152,4 +200,3 @@ split([C|Cs], SChar, Chars0, Strs0, Strs) :-
 	;
 		split(Cs, SChar, [C|Chars0], Strs0, Strs)
 	).
-

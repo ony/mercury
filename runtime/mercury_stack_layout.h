@@ -474,8 +474,11 @@ typedef union MR_Proc_Id_Union {
 	MR_Compiler_Proc_Id	MR_proc_comp;
 } MR_Proc_Id;
 
-#define	MR_ENTRY_LAYOUT_COMPILER_GENERATED(entry)		\
-		((MR_Unsigned) entry->MR_sle_user.MR_user_pred_or_func \
+#define	MR_ENTRY_LAYOUT_COMPILER_GENERATED(entry)			\
+	MR_PROC_ID_COMPILER_GENERATED(entry->MR_sle_proc_id)
+
+#define	MR_PROC_ID_COMPILER_GENERATED(proc_id)				\
+		((MR_Unsigned) proc_id.MR_proc_user.MR_user_pred_or_func\
 		> MR_FUNCTION)
 
 /*

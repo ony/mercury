@@ -8,14 +8,26 @@
 
 :- interface.
 
-:- pred server(globals, deep, io__state, io__state).
-:- mode server(in, in, di, uo) is det.
+:- pred server(string::in, globals::in, deep::in, io__state::di, io__state::uo)
+	is det.
 
 :- implementation.
 
+:- import_module cgi_interface.
 :- import_module float.
 
-server(Globals, Deep) -->
+:- type call_site_line_number
+	--->	call_site_line_number
+	;	no_call_site_line_number.
+
+server(Machine, _Globals, Deep) -->
+	{ string__append_list(["http://www.", Machine,
+		".cs.mu.oz.au/cgi-bin/deep"], URLprefix) },
+	server_loop(URLprefix, Deep).
+
+:- pred server_loop(string::in, deep::in, io__state::di, io__state::uo) is det.
+
+server_loop(URLprefix, Deep) -->
 	io__see("/var/tmp/toDeep", _),
 	read(Res0),
 	stderr_stream(StdErr),
@@ -24,67 +36,140 @@ server(Globals, Deep) -->
 	(
 		{ Res0 = eof },
 		write_string(StdErr, "eof.\n"),
-		server(Globals, Deep)
+		server_loop(URLprefix, Deep)
 	;
 		{ Res0 = error(Msg, Line) },
 		format(StdErr, "error reading input line %d: %s\n",
 			[i(Line), s(Msg)]),
-		server(Globals, Deep)
+		server_loop(URLprefix, Deep)
 	;
 		{ Res0 = ok(Cmd) },
-		exec(Cmd, Globals, Deep)
+		{ exec(Cmd, URLprefix, Deep, HTML, Continue) },
+		tell("/var/tmp/fromDeep", _),
+		write(html(HTML)),
+		write_string(".\n"),
+		told,
+		(
+			{ Continue = yes },
+			server_loop(URLprefix, Deep)
+		;
+			{ Continue = no }
+		)
 	).
 
-:- type cmd
-	--->	quit
-	;	root
-	;	clique(int)
-	;	procs(sort, int, int)
-	;	proc(int)
-	.
+%-----------------------------------------------------------------------------%
 
-:- type sort
-	--->	self
-	;	self_and_desc
-	.
+:- pred exec(cmd::in, string::in, deep::in, string::out, bool::out) is det.
 
-:- type resp
-	--->	html(string)
-	.
+exec(Cmd, URLprefix, Deep, HTML, no) :-
+	Cmd = quit,
+	HTML =
+		banner ++
+		"<H1>Shutting down deep profiler.</H1>\n" ++
+		footer(URLprefix, Cmd, Deep).
 
-:- pred exec(cmd, globals, deep, io__state, io__state).
-:- mode exec(in, in, in, di, uo) is det.
+exec(Cmd, URLprefix, Deep, HTML, yes) :-
+	Cmd = menu,
+	HTML =
+		banner ++
+		"<p>\n" ++
+		menu_text ++
+		"<ul>\n" ++
+		"<li>\n" ++
+		menu_item(URLprefix, "root",
+			"Exploring the call graph.") ++
+		"<li>\n" ++
+		menu_item(URLprefix, "procs+self+1+100",
+			"Most expensive procedures: time, self.") ++
+		"<li>\n" ++
+		menu_item(URLprefix, "procs+both+1+100",
+			"Most expensive procedures: time, self+desc.") ++
+		"</ul>\n" ++
+		"<p>\n" ++
+		footer(URLprefix, Cmd, Deep).
 
-exec(quit, _, _) -->
-	tell("/var/tmp/fromDeep", _),
-	write(html(
-"<HTML>\n" ++
-"<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n" ++
-"<H1>Shutting down deep profiler.</H1>\n" ++
-"</HTML>\n")),
-	write_string(".\n"),
-	told.
+exec(Cmd, URLprefix, Deep, HTML, yes) :-
+	Cmd = root(Fields), 
+	RootOwn = root_own_info(Deep),
+	RootInherit = root_inherit_info(Deep),
+	HTML =
+		banner ++
+		"<TABLE>\n" ++
+		fields_header(Fields) ++
+		proc_total_in_clique(main_parent_proc_id, Deep, Fields,
+			RootOwn, RootInherit) ++
+		call_site_to_html(URLprefix, Deep, Fields,
+			no_call_site_line_number, clique_ptr(-1), Deep ^ root)
+			++
+		"</TABLE>\n" ++
+		footer(URLprefix, Cmd, Deep).
 
-exec(root, Globs, Deep) -->
-	{ RootTotal = root_total_info(Deep) },
-	{ RootOwn = root_own_info(Deep) },
-	{ RootInherit = root_inherit_info(Deep) },
-	{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
-	{ HTML =
+exec(Cmd, URLprefix, Deep, HTML, yes) :-
+	Cmd = clique(CliqueNum, Fields),
+	( CliqueNum > 0 ->
+		HTML =
+			banner ++
+			"<TABLE>\n" ++
+			fields_header(Fields) ++
+			clique_to_html(URLprefix, clique_ptr(CliqueNum),
+				Deep, Fields) ++
+			"</TABLE>\n" ++
+			footer(URLprefix, Cmd, Deep)
+	;
+		HTML =
+			banner ++
+			"<H1>There is no clique with that number.</H1>\n" ++
+			footer(URLprefix, Cmd, Deep)
+	).
+
+exec(Cmd, URLprefix, Deep, HTML, yes) :-
+	Cmd = procs(Sort, Fields, First, Last),
+	HTML =
+		banner ++
+		"<TABLE>\n" ++
+		fields_header(Fields) ++
+		procs2html(URLprefix, Deep, Sort, Fields, First, Last) ++
+		"</TABLE>\n" ++
+		footer(URLprefix, Cmd, Deep).
+
+exec(Cmd, URLprefix, Deep, HTML, yes) :-
+	Cmd = proc(PSI, Fields),
+	HTML =
 		"<HTML>\n" ++
 		banner ++
 		"<TABLE>\n" ++
-		clique_table_header ++
-		pred_name("Call graph root", RootTotal,
-			RootOwn, RootInherit) ++
-		callsite2html(URL, Deep, clique(-1), Deep ^ root) ++
+		fields_header(Fields) ++
+		proc_summary_to_html(URLprefix, Deep, Fields, PSI) ++
 		"</TABLE>\n" ++
-		footer(Deep) },
-	tell("/var/tmp/fromDeep", _),
-	write(html(HTML)),
-	write_string(".\n"),
-	told,
-	server(Globs, Deep).
+		footer(URLprefix, Cmd, Deep).
+
+%-----------------------------------------------------------------------------%
+
+:- func banner = string.
+
+banner =
+	"<HTML>\n" ++
+	"<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n".
+
+:- func footer(string, cmd, deep) = string.
+
+footer(_URLprefix, _Cmd, _Deep) =
+	% Link back to root,
+	% Search, etc, etc.
+	"</HTML>\n".
+
+:- func menu_text = string.
+
+menu_text =
+	"You can start exploring the deep profile at the following points.".
+
+:- func menu_item(string, string, string) = string.
+
+menu_item(URLprefix, URLsuffix, Text) = 
+	format("<A HREF=""%s?%s"">%s</A>\n",
+		[s(URLprefix), s(URLsuffix), s(Text)]).
+
+%-----------------------------------------------------------------------------%
 
 :- func root_total_info(deep) = inherit_prof_info.
 
@@ -108,227 +193,396 @@ root_own_info(Deep) = RootOwn :-
 	lookup(Deep ^ call_site_dynamics, RootI, RootCsd),
 	RootCsd = call_site_dynamic(_, RootOwn).
 
-exec(clique(N), Globs, Deep) -->
-	( { N > 0 } ->
-		{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
-		{ HTML =
-			"<HTML>\n" ++
-			banner ++
-			"<TABLE>\n" ++
-			clique_table_header ++
-			clique2html(URL, Deep, clique(N)) ++
-			"</TABLE>\n" ++
-			footer(Deep) }
-	;
-		{ HTML = "<HTML>\n" ++
-			banner ++
-			"<H1>Node not found.</H1>\n" ++
-			"</HTML>\n" }
-	),
-	tell("/var/tmp/fromDeep", _),
-	write(html(HTML)),
-	write_string(".\n"),
-	told,
-	server(Globs, Deep).
+%-----------------------------------------------------------------------------%
 
-exec(procs(Sort, First, Last), Globs, Deep) -->
-	{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
-	{ HTML =
-		"<HTML>\n" ++
-		banner ++
-		"<TABLE>\n" ++
-		clique_table_header ++
-		procs2html(URL, Deep, Sort, First, Last) ++
-		"</TABLE>\n" ++
-		footer(Deep) },
-	tell("/var/tmp/fromDeep", _),
-	write(html(HTML)),
-	write_string(".\n"),
-	told,
-	server(Globs, Deep).
+:- func fields_header(fields) = string.
 
-exec(proc(PSI), Globs, Deep) -->
-	{ URL = "http://www.mercury.cs.mu.oz.au/cgi-bin/deep" },
-	{ HTML =
-		"<HTML>\n" ++
-		banner ++
-		"<TABLE>\n" ++
-		clique_table_header ++
-		proc_summary_to_html(URL, Deep, PSI) ++
-		"</TABLE>\n" ++
-		footer(Deep) },
-	tell("/var/tmp/fromDeep", _),
-	write(html(HTML)),
-	write_string(".\n"),
-	told,
-	server(Globs, Deep).
-
-:- func banner = string.
-banner =
-    "<TITLE>The University of Melbourne Mercury Deep Profiler.</TITLE>\n".
-
-:- func clique_table_header = string.
-clique_table_header =
+fields_header(Fields) =
 	"<TR>\n" ++
 	"<TD>Kind</TD>\n" ++
 	"<TD>Procedure</TD>\n" ++
-	"<TD ALIGN=RIGHT>Calls</TD>\n" ++
-	"<TD ALIGN=RIGHT>Exits</TD>\n" ++
-	"<TD ALIGN=RIGHT>Fails</TD>\n" ++
-	"<TD ALIGN=RIGHT>Redos</TD>\n" ++
-	"<TD ALIGN=RIGHT>Self</TD>\n" ++
-	"<TD ALIGN=RIGHT>% of root</TD>\n" ++
-	"<TD ALIGN=RIGHT>Self + Descendants</TD>\n" ++
-	"<TD ALIGN=RIGHT>% of root</TD>\n" ++
+	( show_port_counts(Fields) ->
+		"<TD ALIGN=RIGHT>Calls</TD>\n" ++
+		"<TD ALIGN=RIGHT>Exits</TD>\n" ++
+		"<TD ALIGN=RIGHT>Fails</TD>\n" ++
+		"<TD ALIGN=RIGHT>Redos</TD>\n"
+	;
+		""
+	) ++
+	( show_quanta(Fields) ->
+		"<TD ALIGN=RIGHT>Self quanta</TD>\n"
+	;
+		""
+	) ++
+	( show_times(Fields) ->
+		"<TD ALIGN=RIGHT>Self time</TD>\n"
+	;
+		""
+	) ++
+	( (show_quanta(Fields) ; show_times(Fields)) ->
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	( show_quanta(Fields) ->
+		"<TD ALIGN=RIGHT>Total quanta</TD>\n"
+	;
+		""
+	) ++
+	( show_times(Fields) ->
+		"<TD ALIGN=RIGHT>Total time</TD>\n"
+	;
+		""
+	) ++
+	( (show_quanta(Fields) ; show_times(Fields)) ->
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	( show_allocs(Fields) ->
+		"<TD ALIGN=RIGHT>Self allocs</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n" ++
+		"<TD ALIGN=RIGHT>Total allocs</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
+	( show_words(Fields) ->
+		"<TD ALIGN=RIGHT>Self words</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n" ++
+		"<TD ALIGN=RIGHT>Total words</TD>\n" ++
+		"<TD ALIGN=RIGHT>% of root</TD>\n"
+	;
+		""
+	) ++
 	"</TR>\n".
 
-:- func pred_name(string, inherit_prof_info, own_prof_info, inherit_prof_info)
-	= string.
+:- func separator_row(fields) = string.
 
-pred_name(ProcName, Root, Own, OwnPlusDesc) =
+separator_row(Fields) = Separator :-
+	Fixed = 2,	% Kind, Procedure
+	( show_port_counts(Fields) ->
+		Port = 4
+	;
+		Port = 4
+	),
+	( show_quanta(Fields) ->
+		Quanta = 2
+	;
+		Quanta = 0
+	),
+	( show_times(Fields) ->
+		Times = 2
+	;
+		Times = 0
+	),
+	( (show_quanta(Fields) ; show_times(Fields)) ->
+		Percentage = 2
+	;
+		Percentage = 0
+	),
+	( show_allocs(Fields) ->
+		Allocs = 4
+	;
+		Allocs = 0
+	),
+	( show_words(Fields) ->
+		Words = 4
+	;
+		Words = 0
+	),
+	Count = Fixed + Port + Quanta + Times + Percentage + Allocs + Words,
+	Separator = string__format("<TR><TD COLSPAN=%d>&nbsp;</TD></TR>\n",
+		[i(Count)]).
+
+%-----------------------------------------------------------------------------%
+
+:- func clique_to_html(string, clique_ptr, deep, fields) = string.
+
+clique_to_html(URLprefix, CliquePtr, Deep, Fields) = HTML :-
+	CliquePtr = clique_ptr(CliqueNum),
+	array__lookup(Deep ^ clique_members, CliqueNum, PDPtrs),
+	array__lookup(Deep ^ clique_parents, CliqueNum, CallerCSDPtr),
+	EntryCallSite = call_site_to_html(URLprefix, Deep, Fields,
+		call_site_line_number, CliquePtr, CallerCSDPtr),
+	PDStrs = list__map(proc_in_clique_to_html(URLprefix, CliquePtr,
+		Deep, Fields), PDPtrs),
+	string__append_list(PDStrs, ProcGroups),
+	HTML =
+		EntryCallSite ++
+		ProcGroups.
+
+:- func proc_in_clique_to_html(string, clique_ptr, deep, fields,
+	proc_dynamic_ptr) = string.
+
+proc_in_clique_to_html(URLprefix, CliquePtr, Deep, Fields, PDPtr) = HTML :-
+	PDPtr = proc_dynamic_ptr(PDI),
+	( PDI > 0 ->
+		InitialSeparator = separator_row(Fields),
+		array__lookup(Deep ^ pd_own, PDI, ProcOwn),
+		array__lookup(Deep ^ pd_desc, PDI, ProcDesc),
+		array__lookup(Deep ^ proc_dynamics, PDI, PD),
+		PD = proc_dynamic(PSPtr, _),
+		PSPtr = proc_static_ptr(PSI),
+		array__lookup(Deep ^ proc_statics, PSI, PS),
+		PS = proc_static(Id, _, _),
+		ProcTotal = proc_total_in_clique(Id, Deep, Fields,
+			ProcOwn, ProcDesc),
+		child_call_sites(Deep ^ proc_dynamics, Deep ^ proc_statics,
+			PDPtr, GroupPairs),
+		GroupStrs = list__map(call_site_group_to_html(URLprefix,
+			Deep, Fields, CliquePtr), GroupPairs),
+		string__append_list(GroupStrs, GroupStr0),
+		( GroupStrs = [] ->
+			GroupStr = GroupStr0
+		;
+			GroupStr = separator_row(Fields) ++ GroupStr0
+		),
+		HTML =
+			InitialSeparator ++
+			ProcTotal ++
+			GroupStr
+	;
+		HTML = ""
+	).
+
+:- func proc_total_in_clique(proc_id, deep, fields,
+	own_prof_info, inherit_prof_info) = string.
+
+proc_total_in_clique(ProcId, Deep, Fields, Own, Desc) = HTML :-
+	ProcName = proc_id_to_string(ProcId),
+	HTML = 
 		"<TR>\n" ++
 		format("<TD COLSPAN=2><B>%s</B></TD>\n", [s(ProcName)]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(OwnQuanta))]) ++
-		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(TotalQ))]) ++
-		format("<TD ALIGN=RIGHT>%2.2f</TD>\n", [f(TotalProp)]) ++
-		"</TR>\n" :-
+		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
+		"</TR>\n".
+
+:- func call_site_group_to_html(string, deep, fields, clique_ptr,
+	pair(call_site_static_ptr, call_site_array_slot)) = string.
+
+call_site_group_to_html(URLprefix, Deep, Fields, ThisCliquePtr, Pair) = HTML :-
+	Pair = CSSPtr - CallSiteArray,
+	CSSPtr = call_site_static_ptr(CSSI),
+	array__lookup(Deep ^ call_site_statics, CSSI, CSS),
+	CSS = call_site_static(Kind, LineNumber, _GoalPath),
+	( Kind = normal_call ->
+		( CallSiteArray = normal(CSDPtr0) ->
+			CSDPtr = CSDPtr0
+		;
+			error("call_site_group_to_html: normal_call error")
+		),
+		HTML = call_site_to_html(URLprefix, Deep, Fields,
+			call_site_line_number, ThisCliquePtr, CSDPtr)
+	;
+		( CallSiteArray = multi(CSDPtrs0) ->
+			array__to_list(CSDPtrs0, CSDPtrs)
+		;
+			error("call_site_group_to_html: non-normal_call error")
+		),
+		Tuple0 = { "", zero_own_prof_info, zero_inherit_prof_info },
+		Tuple = list__foldl(call_site_array_to_html(URLprefix,
+			Deep, Fields, no_call_site_line_number, ThisCliquePtr),
+			CSDPtrs, Tuple0),
+		Tuple = { GroupHTML, SumOwn, SumDesc },
+		CallSiteName0 = call_site_kind_to_html(Kind),
+		( GroupHTML = "" ->
+			CallSiteName = CallSiteName0 ++ " (no calls made)"
+		;
+			CallSiteName = CallSiteName0
+		),
+		HTML = "<TR>\n" ++
+			format("<TD>%d</TD>\n", [i(LineNumber)]) ++
+			format("<TD>%s</TD>\n", [s(CallSiteName)]) ++
+			own_and_desc_to_html(SumOwn, SumDesc, Deep, Fields) ++
+			"</TR>\n" ++
+			GroupHTML
+	).
+
+:- func call_site_array_to_html(string, deep, fields, call_site_line_number,
+	clique_ptr, call_site_dynamic_ptr,
+	{string, own_prof_info, inherit_prof_info}) =
+	{string, own_prof_info, inherit_prof_info}.
+
+call_site_array_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
+		ThisCliquePtr, CSDPtr, Tuple0) = Tuple :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( array__in_bounds(Deep ^ call_site_dynamics, CSDI) ->
+		Tuple0 = { HTML0, Own0, Desc0 },
+		HTML1 = call_site_to_html(URLprefix, Deep, Fields,
+			PrintCallSiteLineNmber, ThisCliquePtr, CSDPtr),
+		string__append(HTML0, HTML1, HTML),
+		array__lookup(Deep ^ call_site_dynamics, CSDI, CSD),
+		CSD = call_site_dynamic(_, CallSiteOwn),
+		array__lookup(Deep ^ csd_desc, CSDI, CallSiteDesc),
+		Own = add_own_to_own(Own0, CallSiteOwn),
+		Desc = add_inherit_to_inherit(Desc0, CallSiteDesc),
+		Tuple = { HTML, Own, Desc }
+	;
+		Tuple = Tuple0
+	).
+
+:- func call_site_to_html(string, deep, fields, call_site_line_number,
+	clique_ptr, call_site_dynamic_ptr) = string.
+
+call_site_to_html(URLprefix, Deep, Fields, PrintCallSiteLineNmber,
+		ThisCliquePtr, CSDPtr) = HTML :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( array__in_bounds(Deep ^ call_site_dynamics, CSDI) ->
+		array__lookup(Deep ^ call_site_dynamics, CSDI, CSD),
+		CSD = call_site_dynamic(ToPtr, CallSiteOwn),
+		array__lookup(Deep ^ csd_desc, CSDI, CallSiteDesc),
+		ToPtr = proc_dynamic_ptr(ToInd),
+		lookup(Deep ^ clique_index, ToInd, ToCliquePtr),
+		CalleeName = label(CSDPtr, Deep),
+		( ThisCliquePtr = ToCliquePtr ->
+			% We don't link recursive calls
+			ProcName = CalleeName
+		;
+			ToCliquePtr = clique_ptr(ToCliqueNum),
+			ProcName =
+				format("<A HREF=""%s?clique+%s+%d"">%s</A>\n",
+					[s(URLprefix), s(Fields),
+					i(ToCliqueNum), s(CalleeName)])
+		),
+		(
+			PrintCallSiteLineNmber = call_site_line_number,
+			array__lookup(Deep ^ call_site_caller, CSDI,
+				CallSiteCaller),
+			CallSiteCaller = call_site_caller(_, _, CSSPtr),
+			CSSPtr = call_site_static_ptr(CSSI),
+			array__in_bounds(Deep ^ call_site_statics, CSSI),
+			array__lookup(Deep ^ call_site_statics, CSSI, CSS),
+			CSS = call_site_static(_, LineNumber, _)
+		->
+			LineNumberField =
+				format("<TD>%d</TD>\n", [i(LineNumber)])
+		;
+			LineNumberField = "<TD> </TD>\n"
+		),
+		HTML = "<TR>\n" ++
+			LineNumberField ++
+			format("<TD>%s</TD>\n", [s(ProcName)]) ++
+			own_and_desc_to_html(CallSiteOwn, CallSiteDesc,
+				Deep, Fields) ++
+			"</TR>\n"
+	;
+		HTML = ""
+	).
+
+:- func own_and_desc_to_html(own_prof_info, inherit_prof_info,
+	deep, fields) = string.
+
+own_and_desc_to_html(Own, Desc, Deep, Fields) = HTML :-
+	add_own_to_inherit(Own, Desc) = OwnPlusDesc,
+	Root = root_total_info(Deep),
 	Calls = calls(Own),
 	Exits = exits(Own),
 	Fails = fails(Own),
 	Redos = redos(Own),
+
 	OwnQuanta = quanta(Own),
-	TotalQ = inherit_quanta(OwnPlusDesc),
-	RootQ = inherit_quanta(Root),
-	OwnProp = 100.0 * float(OwnQuanta) / float(RootQ),
-	TotalProp = 100.0 * float(TotalQ) / float(RootQ).
+	TotalQuanta = inherit_quanta(OwnPlusDesc),
+	RootQuanta = inherit_quanta(Root),
+	OwnQuantaProp = 100.0 * float(OwnQuanta) / float(RootQuanta),
+	TotalQuantaProp = 100.0 * float(TotalQuanta) / float(RootQuanta),
 
-:- func footer(deep) = string.
-footer(_Deep) =
-	% Link back to root,
-	% Search, etc, etc.
-	"</HTML>\n".
+	OwnAllocs = mallocs(Own),
+	TotalAllocs = inherit_mallocs(OwnPlusDesc),
+	RootAllocs = inherit_mallocs(Root),
+	OwnAllocProp = 100.0 * float(OwnAllocs) / float(RootAllocs),
+	TotalAllocProp = 100.0 * float(TotalAllocs) / float(RootAllocs),
 
-:- func clique2html(string, deep, clique) = string.
-clique2html(URL, Deep, Clique) = HTML :-
-	Clique = clique(CliqueN),
-
-	lookup(Deep ^ clique_members, CliqueN, PDPtrs),
-	lookup(Deep ^ clique_parents, CliqueN, CallerCSDPtr),
-
-	SummaryLine = callsite2html(URL, Deep, Clique, CallerCSDPtr),
-
-	map(proc_in_clique_to_html(URL, Clique, Deep), PDPtrs, PDStrs),
-	append_list(PDStrs, CliqueHTML),
+	OwnWords = words(Own),
+	TotalWords = inherit_words(OwnPlusDesc),
+	RootWords = inherit_words(Root),
+	OwnWordProp = 100.0 * float(OwnWords) / float(RootWords),
+	TotalWordProp = 100.0 * float(TotalWords) / float(RootAllocs),
 
 	HTML =
-		SummaryLine ++
-		CliqueHTML.
-
-:- pred proc_in_clique_to_html(string::in, clique::in, deep::in,
-		proc_dynamic_ptr::in, string::out) is det.
-
-proc_in_clique_to_html(URL, Clique, Deep, PDPtr, PDStr) :-
-	PDPtr = proc_dynamic_ptr(PDI),
-	( PDI > 0 ->
-		RootTotal = root_total_info(Deep),
-
-		lookup(Deep ^ proc_dynamics, PDI, PD),
-		PD = proc_dynamic(PSPtr, _),
-		PSPtr = proc_static_ptr(PSI),
-		lookup(Deep ^ proc_statics, PSI, PS),
-		PS = proc_static(Id, _),
-		call_sites(Deep, PDPtr, CSDPtrs),
-		CSDStrs = map(callsite2html(URL, Deep, Clique),
-			CSDPtrs),
-		append_list(CSDStrs, Rows0),
-		( CSDStrs = [] ->
-			Rows = Rows0
+		( show_port_counts(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Calls))]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Exits))]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Fails))]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(Redos))])
 		;
-			Rows = "<TR><TD COLSPAN=8>&nbsp;</TD></TR>\n" ++ Rows0
-		),
-		lookup(Deep ^ pd_desc, PDI, SubTotalDesc),
-		lookup(Deep ^ pd_own, PDI, SubTotalOwn),
-		add_own_to_inherit(SubTotalOwn, SubTotalDesc) = SubTotal,
-		PDStr =
-			"<TR><TD COLSPAN=8>&nbsp;</TD></TR>\n" ++
-			pred_name(Id, RootTotal, SubTotalOwn, SubTotal) ++
-			Rows
-	;
-		PDStr = ""
-	).
+			""
+		) ++
+		( show_quanta(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(OwnQuanta))])
+		;
+			""
+		) ++
+		( show_times(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(quantum_time(OwnQuanta))])
+		;
+			""
+		) ++
+		( (show_quanta(Fields) ; show_times(Fields)) ->
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(OwnQuantaProp)])
+		;
+			""
+		) ++
+		( show_quanta(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(TotalQuanta))])
+		;
+			""
+		) ++
+		( show_times(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(quantum_time(TotalQuanta))])
+		;
+			""
+		) ++
+		( (show_quanta(Fields) ; show_times(Fields)) ->
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(TotalQuantaProp)])
+		;
+			""
+		) ++
+		( show_allocs(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(OwnAllocs))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(OwnAllocProp)]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(TotalAllocs))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(TotalAllocProp)])
+		;
+			""
+		) ++
+		( show_words(Fields) ->
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(OwnWords))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(OwnWordProp)]) ++
+			format("<TD ALIGN=RIGHT>%s</TD>\n",
+				[s(commas(TotalWords))]) ++
+			format("<TD ALIGN=RIGHT>%2.2f</TD>\n",
+				[f(TotalWordProp)])
+		;
+			""
+		).
 
-:- pred addTime(proc_dynamic_ptr, int,
-		(proc_dynamic_ptr -> int), (proc_dynamic_ptr -> int)).
-:- mode addTime(in, in, in, out) is det.
+%-----------------------------------------------------------------------------%
 
-addTime(P, T0, SM0, SM) :-
-	( search(SM0, P, T1) ->
-		T = T0 + T1
-	;
-		T = T0
-	),
-	set(SM0, P, T, SM).
+:- func procs2html(string, deep, sort, fields, int, int) = string.
 
-
-:- func callsite2html(string, deep, clique, call_site_dynamic_ptr) = string.
-callsite2html(URL, Deep, ThisClique, CSDPtr) = Row :-
-	RootTotal = root_total_info(Deep),
-	RootQuanta = inherit_quanta(RootTotal),
-	RQ = float(RootQuanta),
-
-	label(CSDPtr, Deep) = CalleeName,
-	CSDPtr = call_site_dynamic_ptr(CSDI),
-	lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-	CSD = call_site_dynamic(ToPtr, OwnPI),
-	ToPtr = proc_dynamic_ptr(ToInd),
-	lookup(Deep ^ clique_index, ToInd, clique(To)),
-
-		% We don't link recursive calls
-	( clique(To) = ThisClique ->
-		ProcName = CalleeName
-	;
-		ProcName =
-			format("<A HREF=""%s?clique+%d"">%s</A>\n",
-				[s(URL), i(To), s(CalleeName)])
-	),
-	Calls = calls(OwnPI),
-	Exits = exits(OwnPI),
-	Fails = fails(OwnPI),
-	Redos = redos(OwnPI),
-	OwnQuanta = quanta(OwnPI),
-	lookup(Deep ^ csd_desc, CSDI, CSDDPI),
-	DescQuanta = inherit_quanta(CSDDPI),
-	Quanta = OwnQuanta + DescQuanta,
-	OwnQ = float(OwnQuanta),
-	Q = float(Quanta),
-	OwnProp = 100.0 * OwnQ / RQ,
-	Prop = 100.0 * Q / RQ,
-	Row = "<TR>\n" ++
-		"<TD> </TD>\n" ++
-		format("<TD>%s</TD>\n", [s(ProcName)]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(OwnQuanta))]) ++
-		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
-		format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
-		format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
-		"</TR>\n".
-
-:- func procs2html(string, deep, sort, int, int) = string.
-procs2html(URL, Deep, Sort, First, Last) = HTML :-
-	foldl((pred(PSI::in, _PS::in, Xs0::in, Xs::out) is det :-
+procs2html(URLprefix, Deep, Sort, _Fields, First, Last) = HTML :-
+	array_foldl((pred(PSI::in, _PS::in, Xs0::in, Xs::out) is det :-
 	(
 		PSI >= First,
 		PSI =< Last
 	->
-		Row = proc2html(URL, Deep, PSI, OwnQuanta, Quanta),
+		Row = proc2html(URLprefix, Deep, PSI, OwnQuanta, Quanta),
 		(
 			Sort = self,
 			K = OwnQuanta
@@ -349,50 +603,39 @@ procs2html(URL, Deep, Sort, First, Last) = HTML :-
 
 :- type boldness
 	--->	normal
-	;	bold
-	.
+	;	bold.
 
-:- func proc_summary_to_html(string, deep, int) = string.
+:- func proc_summary_to_html(string, deep, fields, int) = string.
 
-proc_summary_to_html(URL, Deep, PSI) = HTML :-
+proc_summary_to_html(URLprefix, Deep, Fields, PSI) = HTML :-
 	lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(_Id, CSSPtrsArray),
+	PS = proc_static(_, _, CSSPtrsArray),
 	array__to_list(CSSPtrsArray, CSSPtrs),
 	map((pred(CSSPtr::in, CSSStr::out) is det :-
 		CSSPtr = call_site_static_ptr(CSSI),
 		( CSSI > 0 ->
-			lookup(Deep ^ proc_static_index, CSSI, PSPtr),
-			PSPtr = proc_static_ptr(CPSI),
-			( CPSI > 0 ->
-				lookup(Deep ^ proc_statics, CPSI, CPS),
-				CPS = proc_static(Name, _)
-			;
-				Name = "unknown"
-			),
-			lookup(Deep ^ css_own, CSSI, OwnPI),
-			lookup(Deep ^ css_desc, CSSI, DescPI),
-			CSSStr = css2html(URL, Deep, Name, OwnPI, DescPI)
+			CSSStr = call_site_summary_to_html(Deep, Fields, CSSPtr)
 		;
 			CSSStr = ""
 		)
 	), CSSPtrs, CallSiteSummaryList),
 	string__append_list(CallSiteSummaryList, CallSiteSummaries),
 	HTML =
-		proc2html(bold, URL, Deep, PSI, _, _) ++
+		proc2html(bold, URLprefix, Deep, PSI, _, _) ++
 		CallSiteSummaries.
 
 :- func proc2html(string, deep, int, int, int) = string.
 :- mode (proc2html(in, in, in, out, out) = out) is det.
 
-proc2html(URL, Deep, PSI, OwnQuanta, Quanta) =
-	proc2html(normal, URL, Deep, PSI, OwnQuanta, Quanta).
+proc2html(URLprefix, Deep, PSI, OwnQuanta, Quanta) =
+	proc2html(normal, URLprefix, Deep, PSI, OwnQuanta, Quanta).
 
 :- func proc2html(boldness, string, deep, int, int, int) = string.
 :- mode (proc2html(in, in, in, in, out, out) = out) is det.
 
-proc2html(Boldness, _URL, Deep, PSI, OwnQuanta, Quanta) = HTML :-
+proc2html(Boldness, _URLprefix, Deep, PSI, OwnQuanta, Quanta) = HTML :-
 	lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(Id, _),
+	PS = proc_static(Id, _, _),
 	lookup(Deep ^ ps_own, PSI, PI),
 	Calls = calls(PI), Exits = exits(PI),
 	Fails = fails(PI), Redos = redos(PI),
@@ -418,7 +661,8 @@ proc2html(Boldness, _URL, Deep, PSI, OwnQuanta, Quanta) = HTML :-
 	),
 	HTML = "<TR>\n" ++
 	 "<TD> </TD>\n" ++
-	 format("<TD>%s%s%s</TD>\n", [s(BS),s(Id),s(BE)]) ++
+	 format("<TD>%s%s%s</TD>\n",
+	 	[s(BS), s(proc_id_to_string(Id)), s(BE)]) ++
 	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
 	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
 	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
@@ -429,34 +673,99 @@ proc2html(Boldness, _URL, Deep, PSI, OwnQuanta, Quanta) = HTML :-
 	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
 		"</TR>\n".
 
-:- func css2html(string, deep, string,
-		own_prof_info, inherit_prof_info) = string.
+%-----------------------------------------------------------------------------%
 
-css2html(_URL, Deep, Id, PI, PSIDesc) = HTML :-
-	Calls = calls(PI), Exits = exits(PI),
-	Fails = fails(PI), Redos = redos(PI),
-	OwnQuanta = quanta(PI),
-	DescQuanta = inherit_quanta(PSIDesc),
-	Quanta = OwnQuanta + DescQuanta,
-	OwnQ = float(OwnQuanta),
-	Q = float(Quanta),
-	OwnProp = 100.0 * OwnQ / RQ,
-	Prop = 100.0 * Q / RQ,
-	RootTotal = root_total_info(Deep),
-	RootQuanta = inherit_quanta(RootTotal),
-	RQ = float(RootQuanta),
-	HTML = "<TR>\n" ++
-	 "<TD> </TD>\n" ++
-	 format("<TD>%s</TD>\n", [s(Id)]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Calls))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Exits))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Fails))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Redos))]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n",[s(commas(OwnQuanta))]) ++
-	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(OwnProp)]) ++
-	 format("<TD ALIGN=RIGHT>%s</TD>\n", [s(commas(Quanta))]) ++
-	 format("<TD ALIGN=RIGHT>%0.2f</TD>\n", [f(Prop)]) ++
+:- func call_site_summary_to_html(deep, string, call_site_static_ptr) = string.
+
+call_site_summary_to_html(Deep, Fields, CSSPtr) = HTML :-
+	CSSPtr = call_site_static_ptr(CSSI),
+	array__lookup(Deep ^ css_own, CSSI, Own),
+	array__lookup(Deep ^ css_desc, CSSI, Desc),
+	array__lookup(Deep ^ call_site_statics, CSSI, CSS),
+	CSS = call_site_static(Kind, LineNumber, _GoalPath),
+	array__lookup(Deep ^ call_site_calls, CSSI, CallSiteCallMap),
+	map__to_assoc_list(CallSiteCallMap, CallSiteCallList),
+	( Kind = normal_call ->
+		( CallSiteCallList = [CallSiteCall] ->
+			CallSiteCall = PSPtr - _CallSet,
+			PSPtr = proc_static_ptr(PSI),
+			array__lookup(Deep ^ proc_statics, PSI, PS),
+			PS = proc_static(ProcId, _, _)
+		;
+			error("normal call site calls more than one procedure")
+		),
+		MainLineRest =
+			format("<TD>%s</TD>\n",
+				[s(proc_id_to_string(ProcId))]) ++
+			own_and_desc_to_html(Own, Desc, Deep, Fields),
+		AdditionalLines = ""
+	;
+		CallSiteName0 = call_site_kind_to_html(Kind),
+		( CallSiteCallList = [] ->
+			CallSiteName = CallSiteName0 ++ " (no calls made)"
+		;
+			CallSiteName = CallSiteName0
+		),
+		MainLineRest =
+			format("<TD>%s</TD>\n",
+				[s(CallSiteName)]) ++
+			own_and_desc_to_html(Own, Desc, Deep, Fields),
+		CallSiteCallLines = list__map(
+			call_site_summary_group_to_html(Deep, Fields),
+			CallSiteCallList),
+		string__append_list(CallSiteCallLines, AdditionalLines)
+	),
+	HTML =
+		"<TR>\n" ++
+		format("<TD>%d</TD>\n", [i(LineNumber)]) ++
+		MainLineRest ++
+		"</TR>\n" ++
+		AdditionalLines.
+
+:- func call_site_kind_to_html(call_site_kind) = string.
+
+call_site_kind_to_html(normal_call) =       "normal_call".
+call_site_kind_to_html(special_call) =      "special_call".
+call_site_kind_to_html(higher_order_call) = "higher_order_call".
+call_site_kind_to_html(method_call) =       "method_call".
+call_site_kind_to_html(callback) =          "callback".
+
+:- func call_site_summary_group_to_html(deep, string,
+	pair(proc_static_ptr, set(call_site_dynamic_ptr))) = string.
+
+call_site_summary_group_to_html(Deep, Fields, PSPtr - CSDPtrSet) = HTML :-
+	PSPtr = proc_static_ptr(PSI),
+	array__lookup(Deep ^ proc_statics, PSI, PS),
+	PS = proc_static(ProcId, _, _),
+	set__to_sorted_list(CSDPtrSet, CSDPtrs),
+	CallSiteDynamics = Deep ^ call_site_dynamics,
+	CallSiteDescs = Deep ^ csd_desc,
+	list__foldl2(accumulate_csd_prof_info(CallSiteDynamics, CallSiteDescs),
+		CSDPtrs, zero_own_prof_info, Own,
+		zero_inherit_prof_info, Desc),
+	HTML =
+		"<TR>\n" ++
+		format("<TD>%s</TD>\n", [s(proc_id_to_string(ProcId))]) ++
+		own_and_desc_to_html(Own, Desc, Deep, Fields) ++
 		"</TR>\n".
+
+:- pred accumulate_csd_prof_info(
+	call_site_dynamics::in, array(inherit_prof_info)::in,
+	call_site_dynamic_ptr::in,
+	own_prof_info::in, own_prof_info::out,
+	inherit_prof_info::in, inherit_prof_info::out) is det.
+
+accumulate_csd_prof_info(CallSiteDynamics, CSDDescs, CSDPtr,
+		Own0, Own, Desc0, Desc) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	array__lookup(CallSiteDynamics, CSDI, CSD),
+	CSD = call_site_dynamic(_, CSDOwn),
+	array__lookup(CSDDescs, CSDI, CSDDesc),
+
+	add_own_to_own(Own0, CSDOwn) = Own,
+	add_inherit_to_inherit(Desc0, CSDDesc) = Desc.
+
+%-----------------------------------------------------------------------------%
 
 :- func label(call_site_dynamic_ptr, deep) = string.
 
@@ -470,41 +779,88 @@ label(CSDPtr, Deep) = Name :-
 		PD = proc_dynamic(PSPtr, _),
 		PSPtr = proc_static_ptr(PSI), PSI > 0,
 		lookup(Deep ^ proc_statics, PSI, PS),
-		PS = proc_static(Id, _)
+		PS = proc_static(Id, _, _)
 	->
-		Name = Id
+		Name = proc_id_to_string(Id)
 	;
 		Name = "-"
 	).
 
-:- func refs(call_site_dynamic_ptr, deep) = array(call_site_ref).
+:- func refs(call_site_dynamic_ptr, deep) = array(call_site_array_slot).
 
-refs(CSDPtr, Deep) = Refs :-
+refs(CSDPtr, Deep) = CallSiteArraySlots :-
 	(
 		CSDPtr = call_site_dynamic_ptr(CSDI), CSDI > 0,
 		lookup(Deep ^ call_site_dynamics, CSDI, CSD),
 		CSD = call_site_dynamic(PDPtr, _),
 		PDPtr = proc_dynamic_ptr(PDI), PDI > 0,
 		lookup(Deep ^ proc_dynamics, PDI, PD),
-		PD = proc_dynamic(_, Refs0)
+		PD = proc_dynamic(_, CallSiteArraySlots0)
 	->
-		Refs = Refs0
+		CallSiteArraySlots = CallSiteArraySlots0
 	;
-		Refs = array([])
+		CallSiteArraySlots = array([])
 	).
+
+%-----------------------------------------------------------------------------%
+
+:- func quantum_time(int) = string.
+
+quantum_time(Quanta) = TimeStr :-
+	Time = Quanta * 10,	% a quantum is 10 milliseconds on our machines
+	format("%d", [i(Time)], Str0),
+	string__to_char_list(Str0, Chars0),
+	reverse(Chars0, RevChars0),
+	string__from_char_list(reverse(
+		milliseconds_to_seconds(RevChars0)), TimeStr).
 
 :- func commas(int) = string.
 
 commas(Num) = Str :-
 	format("%d", [i(Num)], Str0),
 	string__to_char_list(Str0, Chars0),
-	reverse(Chars0, Chars1),
-	string__from_char_list(reverse(commas1(Chars1)), Str).
+	reverse(Chars0, RevChars0),
+	string__from_char_list(reverse(add_commas(RevChars0)), Str).
 
-:- func commas1([char]) = [char].
-commas1([]) = [].
-commas1([C]) = [C].
-commas1([C,D]) = [C,D].
-commas1([C,D,E]) = [C,D,E].
-commas1([C,D,E,F|R]) = [C,D,E,(',')|commas1([F|R])].
+:- func milliseconds_to_seconds([char]) = [char].
 
+milliseconds_to_seconds([]) = ['0', '.', '0', '0'].
+milliseconds_to_seconds([_C]) = ['0', '.', '0', '0'].
+milliseconds_to_seconds([_C, D]) = ['0', '.', '0', D].
+milliseconds_to_seconds([_C, D, E]) = ['0', '.', D, E].
+milliseconds_to_seconds([_C, D, E, F | R]) = [D, E, '.' | add_commas([F | R])].
+
+:- func add_commas([char]) = [char].
+
+add_commas([]) = [].
+add_commas([C]) = [C].
+add_commas([C, D]) = [C, D].
+add_commas([C, D, E]) = [C, D, E].
+add_commas([C, D, E, F | R]) = [C, D, E, (',') | add_commas([F | R])].
+
+%-----------------------------------------------------------------------------%
+
+:- pred show_port_counts(fields::in) is semidet.
+
+show_port_counts(Fields) :-
+	string__contains_char(Fields, 'p').
+
+:- pred show_quanta(fields::in) is semidet.
+
+show_quanta(Fields) :-
+	string__contains_char(Fields, 'q').
+
+:- pred show_times(fields::in) is semidet.
+
+show_times(Fields) :-
+	string__contains_char(Fields, 't').
+
+:- pred show_allocs(fields::in) is semidet.
+
+show_allocs(Fields) :-
+	string__contains_char(Fields, 'a').
+
+:- pred show_words(fields::in) is semidet.
+
+show_words(Fields) :-
+	string__contains_char(Fields, 'w').

@@ -13,8 +13,8 @@
 
 :- interface.
 
-:- import_module hlds_goal, hlds_pred, prog_data, (inst), term.
-:- import_module bool, list, map, std_util.
+:- import_module hlds_pred, prog_data, (inst), rtti.
+:- import_module bool, list, map, std_util, term.
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -54,13 +54,7 @@
 				% that points to the table that implements
 				% memoization, loop checking or the minimal
 				% model semantics for the given procedure.
-			;	deep_profiling_procedure_data(pred_proc_id,
-					list(callsite))
-				% XXX this is a hack; the call site list should
-				% not be part of the cons_id, only of the data
-				% structure in layout.m that the cons_id refers
-				% to.
-			.
+			;	deep_profiling_proc_static(rtti_proc_label).
 
 	% A cons_defn is the definition of a constructor (i.e. a constant
 	% or a functor) for a particular type.
@@ -110,14 +104,6 @@
 :- type field_access_type
 	--->	get
 	;	set
-	.
-
-%-----------------------------------------------------------------------------%
-
-:- type callsite
-	--->	normal(pred_proc_id, goal_path)
-	;	call(goal_path)
-	%;	classMethod(pred_proc_id, goal_path)
 	.
 
 %-----------------------------------------------------------------------------%
@@ -195,8 +181,8 @@ cons_id_arity(base_typeclass_info_const(_, _, _, _), _) :-
 	error("cons_id_arity: can't get arity of base_typeclass_info_const").
 cons_id_arity(tabling_pointer_const(_, _), _) :-
 	error("cons_id_arity: can't get arity of tabling_pointer_const").
-cons_id_arity(deep_profiling_procedure_data(_, _), _) :-
-	error("cons_id_arity: can't get arity of deep_profiling_procedure_data").
+cons_id_arity(deep_profiling_proc_static(_), _) :-
+	error("cons_id_arity: can't get arity of deep_profiling_proc_static").
 
 make_functor_cons_id(term__atom(Name), Arity,
 		cons(unqualified(Name), Arity)).
@@ -351,7 +337,7 @@ make_cons_id_from_qualified_sym_name(SymName, Args, cons(SymName, Arity)) :-
 			% represented as global data. The word just contains
 			% the address of the tabling pointer of the
 			% specified procedure.
-	;	deep_profiling_procedure_data(pred_proc_id, list(callsite))
+	;	deep_profiling_proc_static_tag(rtti_proc_label)
 			% This is for constants representing procedure
 			% descriptions for deep profiling.
 	;	unshared_tag(tag_bits)

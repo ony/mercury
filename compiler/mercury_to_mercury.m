@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -1180,8 +1180,8 @@ mercury_output_cons_id(base_typeclass_info_const(Module, Class, InstanceNum,
 		[i(InstanceNum), s(InstanceString)]).
 mercury_output_cons_id(tabling_pointer_const(_, _), _) -->
 	io__write_string("<tabling pointer>").
-mercury_output_cons_id(deep_profiling_procedure_data(_, _), _) -->
-	io__write_string("<deep_profiling_procedure_data>").
+mercury_output_cons_id(deep_profiling_proc_static(_), _) -->
+	io__write_string("<deep_profiling_proc_static>").
 
 mercury_output_mode_defn(VarSet, eqv_mode(Name, Args, Mode), Context) -->
 	io__write_string(":- mode ("),

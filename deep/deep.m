@@ -15,40 +15,90 @@
 
 :- implementation.
 
-:- import_module array, bool, char, getopt, int, list.
+:- import_module array, bool, char, getopt, int, list, assoc_list.
 :- import_module map, require, set, std_util, string.
 
-:- type deep
-	--->	deep(
-			root			:: call_site_dynamic_ptr,
-			call_site_dynamics	:: call_site_dynamics,
-			proc_dynamics		:: proc_dynamics,
-			call_site_statics	:: call_site_statics,
-			proc_statics		:: proc_statics,
-				% Clique information
-			clique_index		:: array(clique),
-			clique_members		:: clique_members,
-			clique_parents		:: array(call_site_dynamic_ptr),
-				% Call site index
-			call_site_index		:: array(call_site_static_ptr),
-			proc_static_index	:: array(proc_static_ptr),
-				% Propagated timing info
-			pd_own			:: array(own_prof_info),
-			pd_desc			:: array(inherit_prof_info),
-			csd_desc		:: array(inherit_prof_info),
-			ps_own			:: array(own_prof_info),
-			ps_desc			:: array(inherit_prof_info),
-			css_own			:: array(own_prof_info),
-			css_desc		:: array(inherit_prof_info)
-		).
+:- type initial_deep --->
+	initial_deep(
+		init_root		:: call_site_dynamic_ptr,
+			% The main arrays, each indexed by own xxx_ptr int
+		init_call_site_dynamics	:: call_site_dynamics,
+		init_proc_dynamics	:: proc_dynamics,
+		init_call_site_statics	:: call_site_statics,
+		init_proc_statics	:: proc_statics
+	).
 
-:- type call_site_dynamics == array(call_site_dynamic).
+:- type deep --->
+	deep(
+		root			:: call_site_dynamic_ptr,
+			% The main arrays, each indexed by own xxx_ptr int
+		call_site_dynamics	:: call_site_dynamics,
+		proc_dynamics		:: proc_dynamics,
+		call_site_statics	:: call_site_statics,
+		proc_statics		:: proc_statics,
+			% Clique information
+		clique_index		:: array(clique_ptr),
+					   % index: proc_dynamic_ptr int
+		clique_members		:: array(list(proc_dynamic_ptr)),
+					   % index: clique_ptr int
+		clique_parents		:: array(call_site_dynamic_ptr),
+					   % index: clique_ptr int
+		clique_maybe_child	:: array(maybe(clique_ptr)),
+					   % index: call_site_dynamic_ptr int
+			% Reverse links
+		proc_callers		:: array(set(call_site_dynamic_ptr)),
+					   % index: proc_static_ptr int
+		call_site_caller	:: array(call_site_caller),
+					   % index: call_site_dynamic_ptr int
+		call_site_calls		:: array(map(proc_static_ptr,
+						set(call_site_dynamic_ptr))),
+					   % index: call_site_static_ptr int
+			% Propagated timing info
+		pd_own			:: array(own_prof_info),
+		pd_desc			:: array(inherit_prof_info),
+		csd_desc		:: array(inherit_prof_info),
+		ps_own			:: array(own_prof_info),
+		ps_desc			:: array(inherit_prof_info),
+		css_own			:: array(own_prof_info),
+		css_desc		:: array(inherit_prof_info)
+	).
+
+%-----------------------------------------------------------------------------%
+
 :- type proc_dynamics == array(proc_dynamic).
 :- type proc_statics == array(proc_static).
+:- type call_site_dynamics == array(call_site_dynamic).
 :- type call_site_statics == array(call_site_static).
+
+:- type proc_dynamic_ptr
+	--->	proc_dynamic_ptr(int).
+
+:- type proc_static_ptr
+	--->	proc_static_ptr(int).
 
 :- type call_site_dynamic_ptr
 	--->	call_site_dynamic_ptr(int).
+
+:- type call_site_static_ptr
+	--->	call_site_static_ptr(int).
+
+:- type clique_ptr
+	--->	clique_ptr(int).
+
+%-----------------------------------------------------------------------------%
+
+:- type proc_dynamic
+	--->	proc_dynamic(
+			proc_static_ptr,
+			array(call_site_array_slot)
+		).
+
+:- type proc_static
+	--->	proc_static(
+			proc_id,		% procedure ID
+			string, 		% file name
+			array(call_site_static_ptr)
+		).
 
 :- type call_site_dynamic
 	--->	call_site_dynamic(
@@ -56,44 +106,62 @@
 			own_prof_info
 		).
 
-:- type proc_dynamic_ptr
-	--->	proc_dynamic_ptr(int).
-
-:- type call_site_ref
-	--->	normal(call_site_dynamic_ptr)
-	;	multi(array(call_site_dynamic_ptr))
-	.
-
-:- type proc_dynamic
-	--->	proc_dynamic(
-			proc_static_ptr,
-			array(call_site_ref)
-		).
-
-:- type proc_static_ptr
-	--->	proc_static_ptr(int).
-
-:- type proc_static
-	--->	proc_static(
-			string,	% procedure ID
-			array(call_site_static_ptr)
-		).
-
-:- type call_site_static_ptr
-	--->	call_site_static_ptr(int).
-
 :- type call_site_static
 	--->	call_site_static(
 			call_site_kind,
-			string	% goal path
+			int,			% line number
+			string			% goal path
 		).
 
+%-----------------------------------------------------------------------------%
+
+:- type pred_or_func
+	--->	predicate
+	;	function.
+
+:- type proc_id
+	--->	user_defined(
+			user_pred_or_func	:: pred_or_func,
+			user_decl_module	:: string,
+			user_def_module		:: string,
+			user_name		:: string,
+			user_arity		:: int,
+			user_mode		:: int
+		)
+	;	compiler_generated(
+			comp_gen_type_name	:: string,
+			comp_gen_type_module	:: string,
+			comp_gen_def_module	:: string,
+			comp_gen_pred_name	:: string,
+			comp_gen_arity		:: int,
+			comp_gen_mode		:: int
+		).
+
+:- type call_site_array_slot
+	--->	normal(call_site_dynamic_ptr)
+	;	multi(array(call_site_dynamic_ptr)).
+
 :- type call_site_kind
-	--->	normal
-	;	higher_order
-	;	typeclass_method
-	;	callback
-	.
+	--->	normal_call
+	;	special_call
+	;	higher_order_call
+	;	method_call
+	;	callback.
+
+:- type call_site_callees
+	--->	call_site_callees(
+			list(proc_dynamic_ptr)
+		).
+
+:- type call_site_caller
+	--->	call_site_caller(
+			proc_static_ptr,	% in this procedure,
+			int,			% at this slot in the
+						% call_site_ids array
+			call_site_static_ptr
+		).
+
+%-----------------------------------------------------------------------------%
 
 :- type own_prof_info
 	--->	all(int, int, int, int, int, int, int)
@@ -114,9 +182,7 @@
 			int 		% memory_words
 		).
 
-:- type ptr ---> ptr(int).
-:- type clique ---> clique(int).
-:- type clique_members == array([proc_dynamic_ptr]).
+%-----------------------------------------------------------------------------%
 
 :- type globals == (univ -> univ).
 :- typeclass global(T1, T2) where [].
@@ -188,7 +254,7 @@ main2(Globals0) -->
 	io__report_stats,
 	write_string(StdErr, "Reading graph data...\n"),
 	{ get_global(Globals0, options) = options(Options) },
-	( { lookup(Options, file, maybe_string(yes(FileName0))) } ->
+	( { map__lookup(Options, file, maybe_string(yes(FileName0))) } ->
 		{ FileName = FileName0 }
 	;
 		{ FileName = "Deep.data" }
@@ -197,11 +263,11 @@ main2(Globals0) -->
 	write_string(StdErr, "Done.\n"),
 	io__report_stats,
 	(
-		{ Res = ok(Deep0) },
+		{ Res = ok(InitialDeep) },
 		write_string(StdErr, "Merging cycles in the graph.\n"),
-		merge_cliques(Deep0, Deep),
+		startup(InitialDeep, Deep),
 		write_string(StdErr, "Done.\n"),
-		{ foldl(sum_all_csd_quanta, Deep ^ call_site_dynamics,
+		{ array_foldl(sum_all_csd_quanta, Deep ^ call_site_dynamics,
 			0, Total) },
 		format(StdErr, "Total quanta %d\n", [i(Total)]),
 		main3(Globals0, Deep)
@@ -231,8 +297,11 @@ main3(Globals, Deep) -->
 	%;
 	%	[]
 	%),
-	( { search(Options, server, bool(yes)) } ->
-		server(Globals, Deep)
+	(
+		{ search(Options, server, string(MachineName)) },
+		{ MachineName \= "" }
+	->
+		server(MachineName, Globals, Deep)
 	;
 		[]
 	),
@@ -253,26 +322,26 @@ main3(Globals, Deep) -->
 
 %------------------------------------------------------------------------------%
 
-:- pred merge_cliques(deep, deep, io__state, io__state).
-:- mode merge_cliques(in, out, di, uo) is det.
+:- pred startup(initial_deep::in, deep::out, io__state::di, io__state::uo)
+	is det.
 
-merge_cliques(Deep0, Deep) -->
+startup(InitialDeep, Deep) -->
 	stderr_stream(StdErr),
 	io__report_stats,
+
 	format(StdErr, "  Constructing graph...\n", []),
-	make_graph(Deep0, Graph),
+	make_graph(InitialDeep, Graph),
 	format(StdErr, "  Done.\n", []),
 	io__report_stats,
-	format(StdErr, "  Performing topological sort...\n", []),
+
+	format(StdErr, "  Constructing cliques...\n", []),
 	{ atsort(Graph, CliqueList0) },
-	format(StdErr, "  Done.\n", []),
-	io__report_stats,
 
 		% Turn each of the sets into a list.
 		% (We use foldl here because the list may be very
 		% long and map runs out of stack space, and we
 		% want the final list in reverse order anyway.)
-	{ foldl((pred(Set::in, L0::in, L::out) is det :-
+	{ list__foldl((pred(Set::in, L0::in, L::out) is det :-
 		set__to_sorted_list(Set, List0),
 		map((pred(PDI::in, PDPtr::out) is det :-
 			PDPtr = proc_dynamic_ptr(PDI)
@@ -284,21 +353,34 @@ merge_cliques(Deep0, Deep) -->
 		% of the tsort to the top, so that we can use it to
 		% do the propagation simply.
 	{ Cliques = array(CliqueList) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
 
 	format(StdErr, "  Constructing indexes...\n", []),
+	{ InitialDeep = initial_deep(Root, CallSiteDynamics, ProcDynamics,
+		CallSiteStatics, ProcStatics) },
 	flush_output(StdErr),
-	{ array__max(Deep0 ^ proc_dynamics, PDMax) },
+
+	{ array__max(ProcDynamics, PDMax) },
 	{ NPDs = PDMax + 1 },
-	{ init(NPDs, clique(-1), CliqueIndex0) },
+	{ array__max(CallSiteDynamics, CSDMax) },
+	{ NCSDs = CSDMax + 1 },
+	{ array__max(ProcStatics, PSMax) },
+	{ NPSs = PSMax + 1 },
+	{ array__max(InitialDeep ^ init_call_site_statics, CSSMax) },
+	{ NCSSs = CSSMax + 1 },
+
+	{ array__init(NPDs, clique_ptr(-1), CliqueIndex0) },
 
 		% For each clique, add entries in an array
 		% that maps from each clique member (ProcDynamic)
 		% back to the clique to which it belongs.
-	{ foldl((pred(CliqueN::in, CliqueMembers::in,
+	{ array_foldl((pred(CliqueN::in, CliqueMembers::in,
 				I0::array_di, I::array_uo) is det :-
-		lfoldl((pred(X::in, I1::array_di, I2::array_uo) is det :-
+		array_list_foldl((pred(X::in, I1::array_di, I2::array_uo)
+				is det :-
 			X = proc_dynamic_ptr(Y),
-			array__set(I1, Y, clique(CliqueN), I2)
+			array__set(I1, Y, clique_ptr(CliqueN), I2)
 		), CliqueMembers, I0, I)
 	), Cliques, CliqueIndex0, CliqueIndex) },
 
@@ -311,217 +393,279 @@ merge_cliques(Deep0, Deep) -->
 		% the browser.
 	{ array__max(Cliques, CliqueMax) },
 	{ NCliques = CliqueMax + 1 },
-	{ init(NCliques, call_site_dynamic_ptr(-1), CliqueParents0) },
-	{ foldl((pred(PPDI1::in, PClique::in,
-			C1::array_di, C2::array_uo) is det :-
-	    ( PPDI1 > 0 ->
-		call_sites(Deep0, proc_dynamic_ptr(PPDI1), CSDPtrs),
-		lfoldl((pred(CCSDPtr::in, C3::array_di, C4::array_uo) is det :-
-			CCSDPtr = call_site_dynamic_ptr(CCSDI),
-			( CCSDI > 0 ->
-				lookup(Deep0 ^ call_site_dynamics, CCSDI, CCSD),
-				CCSD = call_site_dynamic(CPDPtr, _),
-				CPDPtr = proc_dynamic_ptr(CPDI),
-				( CPDI > 0 ->
-				    lookup(CliqueIndex, CPDI, CClique),
-				    ( CClique \= PClique ->
-				    	CClique = clique(CN),
-					set(C3, CN, CCSDPtr, C4)
-				    ;
-					C4 = C3
-				    )
-				;
-				    C4 = C3
-				)
-			;
-				C4 = C3
-			)
-		), CSDPtrs, C1, C2)
-	    ;
-	    	error("emit nasal daemons")
-	    )
-	), CliqueIndex, CliqueParents0, CliqueParents1) },
-	{ Deep0 ^ root = call_site_dynamic_ptr(RootI) },
-	{ lookup(Deep0 ^ call_site_dynamics, RootI, RootCSD) },
+	{ array__init(NCliques, call_site_dynamic_ptr(-1), CliqueParents0) },
+	{ array__init(NCSDs, no, CliqueMaybeChildren0) },
+	{ array_foldl2(construct_clique_parents(InitialDeep, CliqueIndex),
+		CliqueIndex,
+		CliqueParents0, CliqueParents1,
+		CliqueMaybeChildren0, CliqueMaybeChildren1) },
+
+	{ Root = call_site_dynamic_ptr(RootI) },
+	{ array__lookup(CallSiteDynamics, RootI, RootCSD) },
 	{ RootCSD = call_site_dynamic(RootPD, _) },
 	{ RootPD = proc_dynamic_ptr(RootPDI) },
-	{ lookup(CliqueIndex, RootPDI, clique(RootCliqueN)) },
-	{ set(CliqueParents1, RootCliqueN, Deep0 ^ root, CliqueParents) },
+	{ array__lookup(CliqueIndex, RootPDI, RootCliquePtr) },
+	{ RootCliquePtr = clique_ptr(RootCliqueN) },
+	{ array__set(CliqueParents1, RootCliqueN, Root, CliqueParents) },
+	{ array__set(CliqueMaybeChildren1, RootI, yes(RootCliquePtr),
+		CliqueMaybeChildren) },
 
-	{ array__max(Deep0 ^ call_site_dynamics, CSDMax) },
-	{ NCSDs = CSDMax + 1 },
-	{ init(NCSDs, call_site_static_ptr(-1), CallSiteIndex0) },
-	{ foldl(construct_call_site_index(Deep0), Deep0 ^ proc_dynamics,
-		CallSiteIndex0, CallSiteIndex) },
+	{ array__init(NPSs, set__init, ProcCallers0) },
+	{ array_foldl(construct_proc_callers(InitialDeep), CallSiteDynamics,
+		ProcCallers0, ProcCallers) },
 
-	{ array__max(Deep0 ^ call_site_statics, CSSMax) },
-	{ NCSSs = CSSMax + 1 },
-	{ init(NCSSs, proc_static_ptr(-1), ProcStaticIndex0) },
-	{ foldl(construct_proc_static_index(Deep0), Deep0 ^ proc_dynamics,
-		ProcStaticIndex0, ProcStaticIndex) },
+	{ array__init(NCSDs, call_site_caller(proc_static_ptr(-1),
+		-1, call_site_static_ptr(-1)), CallSiteCaller0) },
+	{ array_foldl(construct_call_site_caller(InitialDeep), ProcDynamics,
+		CallSiteCaller0, CallSiteCaller) },
+
+	{ array__init(NCSSs, map__init, CallSiteCalls0) },
+	{ array_foldl(construct_call_site_calls(InitialDeep), ProcDynamics,
+		CallSiteCalls0, CallSiteCalls) },
 
 	format(StdErr, "  Done.\n", []),
 	io__report_stats,
 
 	format(StdErr, "  Propagating time up call graph...\n", []),
 
-	{ init(NPDs, zero_own_prof_info, PDOwn0) },
-	{ foldl(sum_call_sites_in_proc_dynamic,
-		Deep0 ^ call_site_dynamics, PDOwn0, PDOwn) },
+	{ array__init(NCSDs, zero_inherit_prof_info, CSDDesc0) },
+	{ array__init(NPDs, zero_own_prof_info, PDOwn0) },
+	{ array_foldl(sum_call_sites_in_proc_dynamic,
+		CallSiteDynamics, PDOwn0, PDOwn) },
+	{ array__init(NPDs, zero_inherit_prof_info, PDDesc0) },
+	{ array__init(NPSs, zero_own_prof_info, PSOwn0) },
+	{ array__init(NPSs, zero_inherit_prof_info, PSDesc0) },
+	{ array__init(NCSSs, zero_own_prof_info, CSSOwn0) },
+	{ array__init(NCSSs, zero_inherit_prof_info, CSSDesc0) },
 
-	{ init(NPDs, zero_inherit_prof_info, PDDesc0) },
-	{ init(NCSDs, zero_inherit_prof_info, CSDDesc0) },
+	{ Deep0 = deep(Root, CallSiteDynamics, ProcDynamics,
+		CallSiteStatics, ProcStatics,
+		CliqueIndex, Cliques, CliqueParents, CliqueMaybeChildren,
+		ProcCallers, CallSiteCaller, CallSiteCalls,
+		PDOwn, PDDesc0, CSDDesc0,
+		PSOwn0, PSDesc0, CSSOwn0, CSSDesc0) },
 
-	{ array__max(Deep0 ^ proc_statics, PSMax) },
-	{ NPSs = PSMax + 1 },
-	{ init(NPSs, zero_own_prof_info, PSOwn0) },
-	{ init(NPSs, zero_inherit_prof_info, PSDesc0) },
+	{ array_foldl(propagate_to_clique, Cliques, Deep0, Deep1) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
 
-	{ init(NCSSs, zero_own_prof_info, CSSOwn0) },
-	{ init(NCSSs, zero_inherit_prof_info, CSSDesc0) },
-
-	{ Deep1 = ((((((((((((Deep0
-		^ clique_index := CliqueIndex)
-		^ clique_members := Cliques)
-		^ clique_parents := CliqueParents)
-		^ call_site_index := CallSiteIndex)
-		^ proc_static_index := ProcStaticIndex)
-		^ pd_own := PDOwn)
-		^ pd_desc := PDDesc0)
-		^ csd_desc := CSDDesc0)
-		^ ps_own := PSOwn0)
-		^ ps_desc := PSDesc0)
-		^ css_own := CSSOwn0)
-		^ css_desc := CSSDesc0) },
-
-	{ foldl(propagate_to_clique, Cliques, Deep1, Deep2) },
-
-	{ foldl(summarize_proc_dynamic, Deep2 ^ proc_dynamics, Deep2, Deep3) },
-
-	{ foldl(summarize_call_site_dynamic, Deep2 ^ call_site_dynamics,
-		Deep3, Deep) },
+	format(StdErr, "  Summarizing information...\n", []),
+	{ summarize_proc_dynamics(Deep1, Deep2) },
+	{ summarize_call_site_dynamics(Deep2, Deep) },
+	format(StdErr, "  Done.\n", []),
+	io__report_stats,
 
 	format(StdErr, "  Done.\n", []),
 	io__report_stats.
 
-:- pred construct_call_site_index(deep::in, int::in, proc_dynamic::in,
-		array(call_site_static_ptr)::array_di,
-		array(call_site_static_ptr)::array_uo) is det.
+:- pred construct_clique_parents(initial_deep::in, array(clique_ptr)::in,
+	int::in, clique_ptr::in,
+	array(call_site_dynamic_ptr)::array_di,
+	array(call_site_dynamic_ptr)::array_uo,
+	array(maybe(clique_ptr))::array_di,
+	array(maybe(clique_ptr))::array_uo) is det.
 
-construct_call_site_index(Deep, _PDI, PD, CallSiteIndex0, CallSiteIndex) :-
-	PD = proc_dynamic(PSPtr, Refs),
-	PSPtr = proc_static_ptr(PSI),
-	lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(_Id, CSSPtrs),
-	array__max(Refs, MaxCS),
-	construct_call_site_index2(MaxCS, Refs, CSSPtrs,
-		CallSiteIndex0, CallSiteIndex).
-
-:- pred construct_call_site_index2(int::in,
-		array(call_site_ref)::in, array(call_site_static_ptr)::in,
-		array(call_site_static_ptr)::array_di,
-		array(call_site_static_ptr)::array_uo) is det.
-
-construct_call_site_index2(N, Refs, CSSPtrs, CallSiteIndex0, CallSiteIndex) :-
-	( N >= 0 ->
-		lookup(Refs, N, Ref),
-		lookup(CSSPtrs, N, CSSPtr),
-		(
-			Ref = normal(CSDPtr),
-			CSDPtr = call_site_dynamic_ptr(CSDI),
-			( CSDI > 0 ->
-				set(CallSiteIndex0, CSDI, CSSPtr,
-					CallSiteIndex1)
-			;
-				CallSiteIndex1 = CallSiteIndex0
-			)
-		;
-			Ref = multi(CSDPtrs),
-			foldl0((pred(_::in, CSDPtr::in,
-				CSIdx0::array_di, CSIdx1::array_uo) is det :-
-				CSDPtr = call_site_dynamic_ptr(CSDI),
-				( CSDI > 0 ->
-					set(CSIdx0, CSDI, CSSPtr, CSIdx1)
-				;
-					CSIdx1 = CSIdx0
-				)
-			), CSDPtrs, CallSiteIndex0, CallSiteIndex1)
-		),
-		construct_call_site_index2(N - 1, Refs, CSSPtrs,
-			CallSiteIndex1, CallSiteIndex)
+construct_clique_parents(InitialDeep, CliqueIndex, PDI, CliquePtr,
+		CliqueParents0, CliqueParents,
+		CliqueMaybeChildren0, CliqueMaybeChildren) :-
+	( PDI > 0 ->
+		flat_call_sites(InitialDeep ^ init_proc_dynamics,
+			proc_dynamic_ptr(PDI), CSDPtrs),
+		array_list_foldl2(
+			construct_clique_parents_2(InitialDeep,
+				CliqueIndex, CliquePtr),
+			CSDPtrs, CliqueParents0, CliqueParents,
+			CliqueMaybeChildren0, CliqueMaybeChildren)
 	;
-		CallSiteIndex = CallSiteIndex0
+		error("emit nasal daemons")
 	).
 
-:- pred construct_proc_static_index(deep::in, int::in, proc_dynamic::in,
-		array(proc_static_ptr)::array_di,
-		array(proc_static_ptr)::array_uo) is det.
+:- pred construct_clique_parents_2(initial_deep::in, array(clique_ptr)::in,
+	clique_ptr::in, call_site_dynamic_ptr::in,
+	array(call_site_dynamic_ptr)::array_di,
+	array(call_site_dynamic_ptr)::array_uo,
+	array(maybe(clique_ptr))::array_di,
+	array(maybe(clique_ptr))::array_uo) is det.
 
-construct_proc_static_index(Deep, _PDI, PD,
-		ProcStaticIndex0, ProcStaticIndex) :-
-	PD = proc_dynamic(PSPtr, Refs),
-	array__max(Refs, MaxCS),
-	PSPtr = proc_static_ptr(PSI),
-	lookup(Deep ^ proc_statics, PSI, PS),
-	PS = proc_static(_Id, CSSPtrs),
-	construct_proc_static_index2(MaxCS, Deep, Refs, CSSPtrs,
-		ProcStaticIndex0, ProcStaticIndex).
-
-:- pred construct_proc_static_index2(int::in,
-		deep::in,
-		array(call_site_ref)::in, array(call_site_static_ptr)::in,
-		array(proc_static_ptr)::array_di,
-		array(proc_static_ptr)::array_uo) is det.
-
-construct_proc_static_index2(N, Deep, Refs, CSSPtrs,
-		ProcStaticIndex0, ProcStaticIndex) :-
-	( N >= 0 ->
-		lookup(Refs, N, Ref),
-		lookup(CSSPtrs, N, CSSPtr),
-		CSSPtr = call_site_static_ptr(CSSI),
-		(
-			Ref = normal(CSDPtr),
-			CSDPtr = call_site_dynamic_ptr(CSDI),
-			( CSDI > 0 ->
-				lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-				CSD = call_site_dynamic(PDPtr, _),
-				PDPtr = proc_dynamic_ptr(PDI),
-				( PDI > 0 ->
-					lookup(Deep ^ proc_dynamics, PDI, PD),
-					PD = proc_dynamic(PSPtr, _),
-					set(ProcStaticIndex0, CSSI, PSPtr,
-						ProcStaticIndex1)
-				;
-					ProcStaticIndex1 = ProcStaticIndex0
-				)
+construct_clique_parents_2(InitialDeep, CliqueIndex, ParentCliquePtr, CSDPtr,
+		CliqueParents0, CliqueParents,
+		CliqueMaybeChildren0, CliqueMaybeChildren) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( CSDI > 0 ->
+		array__lookup(InitialDeep ^ init_call_site_dynamics, CSDI,
+			CSD),
+		CSD = call_site_dynamic(ChildPDPtr, _),
+		ChildPDPtr = proc_dynamic_ptr(ChildPDI),
+		( ChildPDI > 0 ->
+			array__lookup(CliqueIndex, ChildPDI, ChildCliquePtr),
+			( ChildCliquePtr \= ParentCliquePtr ->
+				ChildCliquePtr = clique_ptr(ChildCliqueNum),
+				array__set(CliqueParents0, ChildCliqueNum,
+					CSDPtr, CliqueParents),
+				array__set(CliqueMaybeChildren0, CSDI,
+					yes(ChildCliquePtr),
+					CliqueMaybeChildren)
 			;
-				ProcStaticIndex1 = ProcStaticIndex0
+				CliqueParents = CliqueParents0,
+				CliqueMaybeChildren = CliqueMaybeChildren0
 			)
 		;
-			Ref = multi(CSDPtrs),
-			foldl0((pred(_::in, CSDPtr::in,
-				PIdx0::array_di, PIdx1::array_uo) is det :-
-			CSDPtr = call_site_dynamic_ptr(CSDI),
-			( CSDI > 0 ->
-				lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-				CSD = call_site_dynamic(PDPtr, _),
-				PDPtr = proc_dynamic_ptr(PDI),
-				( PDI > 0 ->
-					lookup(Deep ^ proc_dynamics, PDI, PD),
-					PD = proc_dynamic(PSPtr, _),
-					set(PIdx0, CSSI, PSPtr, PIdx1)
-				;
-					PIdx1 = PIdx0
-				)
-			;
-				PIdx1 = PIdx0
-				)
-			), CSDPtrs, ProcStaticIndex0, ProcStaticIndex1)
-		),
-		construct_proc_static_index2(N - 1, Deep, Refs, CSSPtrs,
-			ProcStaticIndex1, ProcStaticIndex)
+			CliqueParents = CliqueParents0,
+			CliqueMaybeChildren = CliqueMaybeChildren0
+		)
 	;
-		ProcStaticIndex = ProcStaticIndex0
+		CliqueParents = CliqueParents0,
+		CliqueMaybeChildren = CliqueMaybeChildren0
+	).
+
+:- pred construct_proc_callers(initial_deep::in, int::in,
+	call_site_dynamic::in,
+	array(set(call_site_dynamic_ptr))::array_di,
+	array(set(call_site_dynamic_ptr))::array_uo) is det.
+
+construct_proc_callers(InitialDeep, CSDI, CSD, ProcCallers0, ProcCallers) :-
+	CSD = call_site_dynamic(PDPtr, _),
+	PDPtr = proc_dynamic_ptr(PDI),
+	array__lookup(InitialDeep ^ init_proc_dynamics, PDI, PD),
+	PD = proc_dynamic(PSPtr, _),
+	PSPtr = proc_static_ptr(PSI),
+	array__lookup(ProcCallers0, PSI, Callers0),
+	Callers = set__insert(Callers0, call_site_dynamic_ptr(CSDI)),
+	array__set(ProcCallers0, PSI, Callers, ProcCallers).
+
+:- pred construct_call_site_caller(initial_deep::in, int::in, proc_dynamic::in,
+	array(call_site_caller)::array_di,
+	array(call_site_caller)::array_uo) is det.
+
+construct_call_site_caller(InitialDeep, _PDI, PD,
+		CallSiteCaller0, CallSiteCaller) :-
+	PD = proc_dynamic(PSPtr, CSDArraySlots),
+	PSPtr = proc_static_ptr(PSI),
+	array__lookup(InitialDeep ^ init_proc_statics, PSI, PS),
+	PS = proc_static(_, _, CSSPtrs),
+	array__max(CSDArraySlots, MaxCS),
+	construct_call_site_caller_2(MaxCS, PSPtr, CSSPtrs, CSDArraySlots,
+		CallSiteCaller0, CallSiteCaller).
+
+:- pred construct_call_site_caller_2(int::in, proc_static_ptr::in,
+	array(call_site_static_ptr)::in,
+	array(call_site_array_slot)::in,
+	array(call_site_caller)::array_di,
+	array(call_site_caller)::array_uo) is det.
+
+construct_call_site_caller_2(SlotNum, PSPtr, CSSPtrs, CSDArraySlots,
+		CallSiteCaller0, CallSiteCaller) :-
+	( SlotNum >= 0 ->
+		array__lookup(CSDArraySlots, SlotNum, CSDArraySlot),
+		array__lookup(CSSPtrs, SlotNum, CSSPtr),
+		(
+			CSDArraySlot = normal(CSDPtr),
+			construct_call_site_caller_3(PSPtr, SlotNum, CSSPtr,
+				-1, CSDPtr, CallSiteCaller0, CallSiteCaller1)
+
+		;
+			CSDArraySlot = multi(CSDPtrs),
+			array_foldl0(construct_call_site_caller_3(
+				PSPtr, SlotNum, CSSPtr), CSDPtrs,
+				CallSiteCaller0, CallSiteCaller1)
+		),
+		construct_call_site_caller_2(SlotNum - 1, PSPtr, CSSPtrs,
+			CSDArraySlots, CallSiteCaller1, CallSiteCaller)
+	;
+		CallSiteCaller = CallSiteCaller0
+	).
+
+:- pred construct_call_site_caller_3(proc_static_ptr::in, int::in,
+	call_site_static_ptr::in, int::in, call_site_dynamic_ptr::in,
+	array(call_site_caller)::array_di,
+	array(call_site_caller)::array_uo) is det.
+
+construct_call_site_caller_3(PSPtr, SlotNum, CSSPtr, _Dummy, CSDPtr,
+		CallSiteCaller0, CallSiteCaller) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( CSDI > 0 ->
+		Caller = call_site_caller(PSPtr, SlotNum, CSSPtr),
+		array__set(CallSiteCaller0, CSDI, Caller, CallSiteCaller)
+	;
+		CallSiteCaller = CallSiteCaller0
+	).
+
+:- pred construct_call_site_calls(initial_deep::in, int::in, proc_dynamic::in,
+	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_di,
+	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_uo)
+	is det.
+
+construct_call_site_calls(InitialDeep, _PDI, PD,
+		CallSiteCalls0, CallSiteCalls) :-
+	PD = proc_dynamic(PSPtr, CSDArraySlots),
+	array__max(CSDArraySlots, MaxCS),
+	PSPtr = proc_static_ptr(PSI),
+	array__lookup(InitialDeep ^ init_proc_statics, PSI, PS),
+	PS = proc_static(_, _, CSSPtrs),
+	CallSiteDynamics = InitialDeep ^ init_call_site_dynamics,
+	ProcDynamics = InitialDeep ^ init_proc_dynamics,
+	construct_call_site_calls_2(CallSiteDynamics, ProcDynamics, MaxCS,
+		CSSPtrs, CSDArraySlots, CallSiteCalls0, CallSiteCalls).
+
+:- pred construct_call_site_calls_2(call_site_dynamics::in, proc_dynamics::in,
+	int::in, array(call_site_static_ptr)::in,
+	array(call_site_array_slot)::in,
+	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_di,
+	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_uo)
+	is det.
+
+construct_call_site_calls_2(CallSiteDynamics, ProcDynamics, SlotNum,
+		CSSPtrs, CSDArraySlots, CallSiteCalls0, CallSiteCalls) :-
+	( SlotNum >= 0 ->
+		array__lookup(CSDArraySlots, SlotNum, CSDArraySlot),
+		array__lookup(CSSPtrs, SlotNum, CSSPtr),
+		(
+			CSDArraySlot = normal(CSDPtr),
+			construct_call_site_calls_3(CallSiteDynamics,
+				ProcDynamics, CSSPtr, -1,
+				CSDPtr, CallSiteCalls0, CallSiteCalls1)
+		;
+			CSDArraySlot = multi(CSDPtrs),
+			array_foldl0(
+				construct_call_site_calls_3(CallSiteDynamics,
+					ProcDynamics, CSSPtr),
+				CSDPtrs, CallSiteCalls0, CallSiteCalls1)
+		),
+		construct_call_site_calls_2(CallSiteDynamics, ProcDynamics,
+			SlotNum - 1, CSSPtrs, CSDArraySlots,
+			CallSiteCalls1, CallSiteCalls)
+	;
+		CallSiteCalls = CallSiteCalls0
+	).
+
+:- pred construct_call_site_calls_3(call_site_dynamics::in, proc_dynamics::in,
+	call_site_static_ptr::in, int::in, call_site_dynamic_ptr::in,
+	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_di,
+	array(map(proc_static_ptr, set(call_site_dynamic_ptr)))::array_uo)
+	is det.
+
+construct_call_site_calls_3(CallSiteDynamics, ProcDynamics, CSSPtr,
+		_Dummy, CSDPtr, CallSiteCalls0, CallSiteCalls) :-
+	CSDPtr = call_site_dynamic_ptr(CSDI),
+	( CSDI > 0 ->
+		array__lookup(CallSiteDynamics, CSDI, CSD),
+		CSD = call_site_dynamic(PDPtr, _),
+		PDPtr = proc_dynamic_ptr(PDI),
+		array__lookup(ProcDynamics, PDI, PD),
+		PD = proc_dynamic(PSPtr, _),
+
+		CSSPtr = call_site_static_ptr(CSSI),
+		array__lookup(CallSiteCalls0, CSSI, CallMap0),
+		( map__search(CallMap0, PSPtr, CallSet0) ->
+			set__insert(CallSet0, CSDPtr, CallSet),
+			map__det_update(CallMap0, PSPtr, CallSet, CallMap)
+		;
+			set__singleton_set(CallSet, CSDPtr),
+			map__det_insert(CallMap0, PSPtr, CallSet, CallMap)
+		),
+		array__set(CallSiteCalls0, CSSI, CallMap, CallSiteCalls)
+	;
+		CallSiteCalls = CallSiteCalls0
 	).
 
 :- pred sum_call_sites_in_proc_dynamic(int::in, call_site_dynamic::in,
@@ -531,86 +675,112 @@ sum_call_sites_in_proc_dynamic(_, CSD, PDO0, PDO) :-
 	CSD = call_site_dynamic(PDPtr, PI),
 	PDPtr = proc_dynamic_ptr(PDI),
 	( PDI > 0 ->
-		lookup(PDO0, PDI, OwnPI0),
+		array__lookup(PDO0, PDI, OwnPI0),
 		OwnPI = add_own_to_own(PI, OwnPI0),
-		set(PDO0, PDI, OwnPI, PDO)
+		array__set(PDO0, PDI, OwnPI, PDO)
 	;
 		PDO = PDO0
 	).
 
-:- pred summarize_proc_dynamic(int::in, proc_dynamic::in, deep::in, deep::out)
+:- pred summarize_proc_dynamics(deep::in, deep::out) is det.
+
+summarize_proc_dynamics(Deep0, Deep) :-
+	PSOwn0 = Deep0 ^ ps_own,
+	PSDesc0 = Deep0 ^ ps_desc,
+	array_foldl2(summarize_proc_dynamic(Deep0 ^ pd_own, Deep0 ^ pd_desc),
+		Deep0 ^ proc_dynamics,
+		copy(PSOwn0), PSOwn, copy(PSDesc0), PSDesc),
+	Deep = ((Deep0
+		^ ps_own := PSOwn)
+		^ ps_desc := PSDesc).
+
+:- pred summarize_proc_dynamic(array(own_prof_info)::in,
+	array(inherit_prof_info)::in, int::in, proc_dynamic::in,
+	array(own_prof_info)::array_di, array(own_prof_info)::array_uo,
+	array(inherit_prof_info)::array_di, array(inherit_prof_info)::array_uo)
 	is det.
 
-summarize_proc_dynamic(PDI, PD, Deep0, Deep) :-
+summarize_proc_dynamic(PDOwn, PDDesc, PDI, PD,
+		PSOwn0, PSOwn, PSDesc0, PSDesc) :-
 	PD = proc_dynamic(PSPtr, _),
 	PSPtr = proc_static_ptr(PSI),
 	( PSI > 0 ->
-		PDOwn = Deep0 ^ pd_own,
-		PDDesc = Deep0 ^ pd_desc,
-		lookup(PDOwn, PDI, PDOwnPI),
-		lookup(PDDesc, PDI, PDDescPI),
+		array__lookup(PDOwn, PDI, PDOwnPI),
+		array__lookup(PDDesc, PDI, PDDescPI),
 
-		PSOwn0 = Deep0 ^ ps_own,
-		PSDesc0 = Deep0 ^ ps_desc,
-		lookup(PSOwn0, PSI, PSOwnPI0),
-		lookup(PSDesc0, PSI, PSDescPI0),
+		array__lookup(PSOwn0, PSI, PSOwnPI0),
+		array__lookup(PSDesc0, PSI, PSDescPI0),
 
 		add_own_to_own(PDOwnPI, PSOwnPI0) = PSOwnPI,
 		add_inherit_to_inherit(PDDescPI, PSDescPI0) = PSDescPI,
-		set(u(PSOwn0), PSI, PSOwnPI, PSOwn),
-		set(u(PSDesc0), PSI, PSDescPI, PSDesc),
-
-		Deep = (Deep0 ^ ps_own := PSOwn) ^ ps_desc := PSDesc
+		array__set(u(PSOwn0), PSI, PSOwnPI, PSOwn),
+		array__set(u(PSDesc0), PSI, PSDescPI, PSDesc)
 	;
 		error("emit nasal devils")
 	).
 
-:- pred summarize_call_site_dynamic(int::in, call_site_dynamic::in,
-		deep::in, deep::out) is det.
+:- pred summarize_call_site_dynamics(deep::in, deep::out) is det.
 
-summarize_call_site_dynamic(CSDI, CSD, Deep0, Deep) :-
-	( call_site_dynamic_ptr(CSDI) \= Deep0 ^ root ->
-		lookup(Deep0 ^ call_site_index, CSDI, CSSPtr),
+summarize_call_site_dynamics(Deep0, Deep) :-
+	CSSOwn0 = Deep0 ^ css_own,
+	CSSDesc0 = Deep0 ^ css_desc,
+	array_foldl2(summarize_call_site_dynamic(Deep0 ^ root,
+		Deep0 ^ call_site_caller, Deep0 ^ csd_desc),
+		Deep0 ^ call_site_dynamics,
+		copy(CSSOwn0), CSSOwn, copy(CSSDesc0), CSSDesc),
+	Deep = ((Deep0
+		^ css_own := CSSOwn)
+		^ css_desc := CSSDesc).
+
+:- pred summarize_call_site_dynamic(call_site_dynamic_ptr::in,
+	array(call_site_caller)::in, array(inherit_prof_info)::in,
+	int::in, call_site_dynamic::in,
+	array(own_prof_info)::array_di, array(own_prof_info)::array_uo,
+	array(inherit_prof_info)::array_di, array(inherit_prof_info)::array_uo)
+	is det.
+
+summarize_call_site_dynamic(Root, CallSiteCallers, CSDDescs, CSDI, CSD,
+		CSSOwn0, CSSOwn, CSSDesc0, CSSDesc) :-
+	( call_site_dynamic_ptr(CSDI) \= Root ->
+		array__lookup(CallSiteCallers, CSDI, CallSiteCaller),
+		CallSiteCaller = call_site_caller(_, _, CSSPtr),
 		CSSPtr = call_site_static_ptr(CSSI),
 		( CSSI > 0 ->
 			CSD = call_site_dynamic(_, CSDOwnPI),
-			CSDDesc = Deep0 ^ csd_desc,
-			lookup(CSDDesc, CSDI, CSDDescPI),
+			array__lookup(CSDDescs, CSDI, CSDDescPI),
 
-			CSSOwn0 = Deep0 ^ css_own,
-			CSSDesc0 = Deep0 ^ css_desc,
-			lookup(CSSOwn0, CSSI, CSSOwnPI0),
-			lookup(CSSDesc0, CSSI, CSSDescPI0),
+			array__lookup(CSSOwn0, CSSI, CSSOwnPI0),
+			array__lookup(CSSDesc0, CSSI, CSSDescPI0),
 
-			add_own_to_own(CSDOwnPI, CSSOwnPI0) = CSSOwnPI,
-			CSSDescPI =
-				add_inherit_to_inherit(CSDDescPI, CSSDescPI0),
-			set(u(CSSOwn0), CSSI, CSSOwnPI, CSSOwn),
-			set(u(CSSDesc0), CSSI, CSSDescPI, CSSDesc),
-
-			Deep = (Deep0 ^ css_own := CSSOwn) ^ css_desc := CSSDesc
+			add_own_to_own(CSDOwnPI, CSSOwnPI0)
+				= CSSOwnPI,
+			add_inherit_to_inherit(CSDDescPI, CSSDescPI0)
+				= CSSDescPI,
+			array__set(u(CSSOwn0), CSSI, CSSOwnPI, CSSOwn),
+			array__set(u(CSSDesc0), CSSI, CSSDescPI, CSSDesc)
 		;
 			error("emit nasal gorgons")
 		)
     	;
 		% There is no CSS for root.
 		% XXX There probably should be!
-		Deep = Deep0
+		CSSOwn = CSSOwn0,
+		CSSDesc = CSSDesc0
 	).
 
 :- pred propagate_to_clique(int::in, list(proc_dynamic_ptr)::in,
 	deep::in, deep::out) is det.
 
 propagate_to_clique(CliqueNumber, Members, Deep0, Deep) :-
-	lookup(Deep0 ^ clique_parents, CliqueNumber, ParentCSDPtr),
+	array__lookup(Deep0 ^ clique_parents, CliqueNumber, ParentCSDPtr),
 	ParentCSDPtr = call_site_dynamic_ptr(ParentCSDI),
-	foldl(propagate_to_proc_dynamic(CliqueNumber, ParentCSDPtr),
+	list__foldl(propagate_to_proc_dynamic(CliqueNumber, ParentCSDPtr),
 		Members, Deep0, Deep1),
-	lookup(Deep1 ^ call_site_dynamics, ParentCSDI, ParentCSD),
+	array__lookup(Deep1 ^ call_site_dynamics, ParentCSDI, ParentCSD),
 	ParentCSD = call_site_dynamic(_, ParentOwnPI),
-	lookup(Deep1 ^ csd_desc, ParentCSDI, CliqueTotal0),
+	array__lookup(Deep1 ^ csd_desc, ParentCSDI, CliqueTotal0),
 	subtract_own_from_inherit(ParentOwnPI, CliqueTotal0) = CliqueTotal,
-	set(u(Deep1 ^ csd_desc), ParentCSDI, CliqueTotal, CSDDesc),
+	array__set(u(Deep1 ^ csd_desc), ParentCSDI, CliqueTotal, CSDDesc),
 	Deep = Deep1 ^ csd_desc := CSDDesc.
 
 :- pred propagate_to_proc_dynamic(int::in, call_site_dynamic_ptr::in,
@@ -618,17 +788,17 @@ propagate_to_clique(CliqueNumber, Members, Deep0, Deep) :-
 
 propagate_to_proc_dynamic(CliqueNumber, ParentCSDPtr, PDPtr,
 		Deep0, Deep) :-
-	call_sites(Deep0, PDPtr, CSDPtrs),
-	foldl(propagate_to_call_site(CliqueNumber, PDPtr),
+	flat_call_sites(Deep0 ^ proc_dynamics, PDPtr, CSDPtrs),
+	list__foldl(propagate_to_call_site(CliqueNumber, PDPtr),
 		CSDPtrs, Deep0, Deep1),
 	ParentCSDPtr = call_site_dynamic_ptr(ParentCSDI),
-	lookup(Deep1 ^ csd_desc, ParentCSDI, CliqueTotal0),
+	array__lookup(Deep1 ^ csd_desc, ParentCSDI, CliqueTotal0),
 	PDPtr = proc_dynamic_ptr(PDI),
-	lookup(Deep1 ^ pd_desc, PDI, DescPI),
-	lookup(Deep1 ^ pd_own, PDI, OwnPI),
+	array__lookup(Deep1 ^ pd_desc, PDI, DescPI),
+	array__lookup(Deep1 ^ pd_own, PDI, OwnPI),
 	add_own_to_inherit(OwnPI, CliqueTotal0) = CliqueTotal1,
 	add_inherit_to_inherit(DescPI, CliqueTotal1) = CliqueTotal,
-	set(u(Deep1 ^ csd_desc), ParentCSDI, CliqueTotal, CSDDesc),
+	array__set(u(Deep1 ^ csd_desc), ParentCSDI, CliqueTotal, CSDDesc),
 	Deep = Deep1 ^ csd_desc := CSDDesc.
 
 :- pred propagate_to_call_site(int::in, proc_dynamic_ptr::in,
@@ -637,20 +807,21 @@ propagate_to_proc_dynamic(CliqueNumber, ParentCSDPtr, PDPtr,
 propagate_to_call_site(CliqueNumber, PDPtr, CSDPtr, Deep0, Deep) :-
 	CSDPtr = call_site_dynamic_ptr(CSDI),
 	( CSDI > 0 ->
-		lookup(Deep0 ^ call_site_dynamics, CSDI, CSD),
+		array__lookup(Deep0 ^ call_site_dynamics, CSDI, CSD),
 		CSD = call_site_dynamic(CPDPtr, CPI),
 		CPDPtr = proc_dynamic_ptr(CPDI),
 		( CPDI > 0 ->
-			lookup(Deep0 ^ clique_index, CPDI,
-				clique(ChildCliqueNumber)),
+			array__lookup(Deep0 ^ clique_index, CPDI,
+				clique_ptr(ChildCliqueNumber)),
 			( ChildCliqueNumber \= CliqueNumber ->
 				PDPtr = proc_dynamic_ptr(PDI),
-				lookup(Deep0 ^ pd_desc, PDI, PDTotal0),
-				lookup(Deep0 ^ csd_desc, CSDI, CDesc),
+				array__lookup(Deep0 ^ pd_desc, PDI, PDTotal0),
+				array__lookup(Deep0 ^ csd_desc, CSDI, CDesc),
 				add_own_to_inherit(CPI, PDTotal0) = PDTotal1,
 				add_inherit_to_inherit(CDesc, PDTotal1)
 					= PDTotal,
-				set(u(Deep0 ^ pd_desc), PDI, PDTotal, PDDesc),
+				array__set(u(Deep0 ^ pd_desc), PDI, PDTotal,
+					PDDesc),
 				Deep = Deep0 ^ pd_desc := PDDesc
 			;
 				Deep = Deep0
@@ -737,21 +908,41 @@ add_own_to_own(PI1, PI2) = SumPI :-
 mlookup(A, I, T, S) :-
 	array__max(A, M),
 	( I >= 0, I =< M ->
-		lookup(A, I, T)
+		array__lookup(A, I, T)
 	;
 		format("!(0 <= %d <= %d): %s", [i(I), i(M), s(S)], Msg),
 		error(Msg)
 	).
 
-:- pred call_sites(deep, proc_dynamic_ptr, [call_site_dynamic_ptr]).
-:- mode call_sites(in, in, out) is det.
+:- pred child_call_sites(proc_dynamics::in, proc_statics::in,
+	proc_dynamic_ptr::in,
+	assoc_list(call_site_static_ptr, call_site_array_slot)::out) is det.
 
-call_sites(Deep, PDPtr, CSDPtrs) :-
+child_call_sites(ProcDynamics, ProcStatics, PDPtr, PairedSlots) :-
+	PDPtr = proc_dynamic_ptr(PDI),
+	% require(array__in_bounds(ProcDynamics, PDI),
+	% 	"child_call_sites: PDI not in range"),
+	array__lookup(ProcDynamics, PDI, PD),
+	PD = proc_dynamic(PSPtr, CSDArray),
+	PSPtr = proc_static_ptr(PSI),
+	% require(array__in_bounds(ProcStatics, PSI),
+	% 	"child_call_sites: PDI not in range"),
+	array__lookup(ProcStatics, PSI, PS),
+	PS = proc_static(_, _, CSSArray),
+	array__to_list(CSDArray, CSDSlots),
+	array__to_list(CSSArray, CSSSlots),
+	assoc_list__from_corresponding_lists(CSSSlots, CSDSlots, PairedSlots).
+
+:- pred flat_call_sites(proc_dynamics::in, proc_dynamic_ptr::in,
+	list(call_site_dynamic_ptr)::out) is det.
+
+flat_call_sites(ProcDynamics, PDPtr, CSDPtrs) :-
 	( PDPtr = proc_dynamic_ptr(PDI), PDI > 0 ->
-		lookup(Deep ^ proc_dynamics, PDI, PD),
+		array__lookup(ProcDynamics, PDI, PD),
 		PD = proc_dynamic(_PSPtr, Refs),
 		array__to_list(Refs, RefList),
-		foldl((pred(Ref::in, CSDPtrs0::in, CSDPtrs1::out) is det :-
+		list__foldl((pred(Ref::in, CSDPtrs0::in, CSDPtrs1::out)
+			is det :-
 		    (
 		    	Ref = normal(CSDPtr),
 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
@@ -776,56 +967,57 @@ call_sites(Deep, PDPtr, CSDPtrs) :-
 		CSDPtrs = []
 	).
 
-:- pred kids(deep, array(clique), proc_dynamic_ptr, [clique]).
-:- mode kids(in, in, in, out) is det.
+% :- pred kids(deep::in, array(clique_ptr)::in, proc_dynamic_ptr::in,	
+% 	list(clique_ptr)::out) is det.
+% 
+% kids(Deep, Index, PDPtr, Kids) :-
+% 	( PDPtr = proc_dynamic_ptr(PDI), PDI > 0 ->
+% 		array__lookup(Deep ^ proc_dynamics, PDI, PD),
+% 		PD = proc_dynamic(_PSPtr, Refs),
+% 		solutions((pred(Kid::out) is nondet :-
+% 		    array__to_list(Refs, RefList),
+% 		    member(Ref, RefList),
+% 		    (
+% 		    	Ref = normal(CSDPtr),
+% 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
+% 			CSDI > 0,
+% 			array__lookup(Deep ^ call_site_dynamics, CSDI, CSD),
+% 			CSD = call_site_dynamic(CPDPtr, _Prof),
+% 			CPDPtr = proc_dynamic_ptr(CPDI),
+% 			CPDI > 0,
+% 		    	array__lookup(Index, CPDI, Kid)
+% 		    ;
+% 		    	Ref = multi(PtrArray),
+% 		    	array__to_list(PtrArray, PtrList),
+% 		    	member(CSDPtr, PtrList),
+% 		    	CSDPtr = call_site_dynamic_ptr(CSDI),
+% 			CSDI > 0,
+% 			array__lookup(Deep ^ call_site_dynamics, CSDI, CSD),
+% 			CSD = call_site_dynamic(CPDPtr, _Prof),
+% 			CPDPtr = proc_dynamic_ptr(CPDI),
+% 			CPDI > 0,
+% 		    	array__lookup(Index, CPDI, Kid)
+% 		    )
+% 		), Kids)
+% 	;
+% 		Kids = []
+% 	).
 
-kids(Deep, Index, PDPtr, Kids) :-
-	( PDPtr = proc_dynamic_ptr(PDI), PDI > 0 ->
-		lookup(Deep ^ proc_dynamics, PDI, PD),
-		PD = proc_dynamic(_PSPtr, Refs),
-		solutions((pred(Kid::out) is nondet :-
-		    array__to_list(Refs, RefList),
-		    member(Ref, RefList),
-		    (
-		    	Ref = normal(CSDPtr),
-		    	CSDPtr = call_site_dynamic_ptr(CSDI),
-			CSDI > 0,
-			lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-			CSD = call_site_dynamic(CPDPtr, _Prof),
-			CPDPtr = proc_dynamic_ptr(CPDI),
-			CPDI > 0,
-		    	lookup(Index, CPDI, Kid)
-		    ;
-		    	Ref = multi(PtrArray),
-		    	array__to_list(PtrArray, PtrList),
-		    	member(CSDPtr, PtrList),
-		    	CSDPtr = call_site_dynamic_ptr(CSDI),
-			CSDI > 0,
-			lookup(Deep ^ call_site_dynamics, CSDI, CSD),
-			CSD = call_site_dynamic(CPDPtr, _Prof),
-			CPDPtr = proc_dynamic_ptr(CPDI),
-			CPDI > 0,
-		    	lookup(Index, CPDI, Kid)
-		    )
-		), Kids)
-	;
-		Kids = []
-	).
+:- pred make_graph(initial_deep::in, graph::out,
+	io__state::di, io__state::uo) is det.
 
-:- pred make_graph(deep, graph, io__state, io__state).
-:- mode make_graph(in, out, di, uo) is det.
-
-make_graph(Deep, Graph) -->
+make_graph(InitialDeep, Graph) -->
 	{ init(Graph0) },
-	foldl2((pred(PDI::in, PD::in, G1::in, G2::out, di, uo) is det -->
+	array_foldl2((pred(PDI::in, PD::in, G1::in, G2::out, di, uo) is det -->
 		{ From = PDI },
 	        { PD = proc_dynamic(_ProcStatic, CallSiteRefArray) },
 	        { array__to_list(CallSiteRefArray, CallSiteRefList) },
-	        foldl2((pred(CSR::in, G5::in, G6::out, di, uo) is det -->
+	        list__foldl2((pred(CSR::in, G5::in, G6::out, di, uo) is det -->
 		    (
 			{ CSR = normal(call_site_dynamic_ptr(CSDI)) },
 			( { CSDI > 0 } ->
-				{ lookup(Deep ^ call_site_dynamics,
+				{ array__lookup(
+					InitialDeep ^ init_call_site_dynamics,
 					CSDI, CSD) },
 				{ CSD = call_site_dynamic(CPDPtr, _) },
 				{ CPDPtr = proc_dynamic_ptr(To) },
@@ -836,11 +1028,12 @@ make_graph(Deep, Graph) -->
 		    ;
 			{ CSR = multi(CallSiteArray) },
 			{ array__to_list(CallSiteArray, CallSites) },
-			foldl2((pred(CSDPtr1::in, G7::in, G8::out,
+			list__foldl2((pred(CSDPtr1::in, G7::in, G8::out,
 					di, uo) is det -->
 			    { CSDPtr1 = call_site_dynamic_ptr(CSDI) },
 			    ( { CSDI > 0 } ->
-			    	{ lookup(Deep ^ call_site_dynamics,
+			    	{ array__lookup(
+					InitialDeep ^ init_call_site_dynamics,
 					CSDI, CSD) },
 			       	{ CSD = call_site_dynamic(CPDPtr, _) },
 			    	{ CPDPtr = proc_dynamic_ptr(To) },
@@ -851,73 +1044,120 @@ make_graph(Deep, Graph) -->
 			), CallSites, G5, G6)
 		    )
 	        ), CallSiteRefList, G1, G2)
-	), Deep ^ proc_dynamics, Graph0, Graph).
+	), InitialDeep ^ init_proc_dynamics, Graph0, Graph).
 
-:- pred foldl(pred(int, T, U, U), array(T), U, U).
-:- mode foldl(pred(in, in, in, out) is det, in, in, out) is det.
-:- mode foldl(pred(in, in, di, uo) is det, in, di, uo) is det.
-:- mode foldl(pred(in, in, array_di, array_uo) is det, in,
-		array_di, array_uo) is det.
+%-----------------------------------------------------------------------------%
 
-foldl(P, A, U0, U) :-
+:- func dummy_proc_id = proc_id.
+
+dummy_proc_id = user_defined(predicate, "unknown", "unknown", "unknown",
+	-1, -1).
+
+:- func main_parent_proc_id = proc_id.
+
+main_parent_proc_id = user_defined(predicate, "mercury_runtime",
+	"mercury_runtime", "main_parent", 0, 0).
+
+:- func proc_id_to_string(proc_id) = string.
+
+proc_id_to_string(compiler_generated(TypeName, TypeModule, _DefModule,
+		PredName, _Arity, _Mode)) =
+	string__append_list([PredName, " for ", TypeModule, ":", TypeName]).
+proc_id_to_string(user_defined(PredOrFunc, DeclModule, _DefModule,
+		Name, Arity, Mode)) =
+	string__append_list([DeclModule, ":", Name,
+		"/", string__int_to_string(Arity),
+		( PredOrFunc = function -> "+1" ; "" ),
+		"-", string__int_to_string(Mode)]).
+
+%-----------------------------------------------------------------------------%
+
+:- pred array_foldl(pred(int, T, U, U), array(T), U, U).
+:- mode array_foldl(pred(in, in, di, uo) is det, in, di, uo) is det.
+:- mode array_foldl(pred(in, in, array_di, array_uo) is det, in,
+	array_di, array_uo) is det.
+:- mode array_foldl(pred(in, in, in, out) is det, in, in, out) is det.
+
+array_foldl(P, A, U0, U) :-
 	array__max(A, Max),
-	foldl(1, Max, P, A, U0, U).
+	array_foldl(1, Max, P, A, U0, U).
 
-:- pred foldl0(pred(int, T, U, U), array(T), U, U).
-:- mode foldl0(pred(in, in, in, out) is det, in, in, out) is det.
-:- mode foldl0(pred(in, in, di, uo) is det, in, di, uo) is det.
-:- mode foldl0(pred(in, in, array_di, array_uo) is det, in,
-		array_di, array_uo) is det.
+:- pred array_foldl0(pred(int, T, U, U), array(T), U, U).
+:- mode array_foldl0(pred(in, in, di, uo) is det, in, di, uo) is det.
+:- mode array_foldl0(pred(in, in, array_di, array_uo) is det, in,
+	array_di, array_uo) is det.
+:- mode array_foldl0(pred(in, in, in, out) is det, in, in, out) is det.
 
-foldl0(P, A, U0, U) :-
+array_foldl0(P, A, U0, U) :-
 	array__max(A, Max),
-	foldl(0, Max, P, A, U0, U).
+	array_foldl(0, Max, P, A, U0, U).
 
-:- pred foldl(int, int, pred(int, T, U, U), array(T), U, U).
-:- mode foldl(in, in, pred(in, in, in, out) is det, in, in, out) is det.
-:- mode foldl(in, in, pred(in, in, di, uo) is det, in, di, uo) is det.
-:- mode foldl(in, in, pred(in, in, array_di, array_uo) is det, in,
-		array_di, array_uo) is det.
+:- pred array_foldl(int, int, pred(int, T, U, U), array(T), U, U).
+:- mode array_foldl(in, in, pred(in, in, di, uo) is det, in, di, uo) is det.
+:- mode array_foldl(in, in, pred(in, in, array_di, array_uo) is det, in,
+	array_di, array_uo) is det.
+:- mode array_foldl(in, in, pred(in, in, in, out) is det, in, in, out) is det.
 
-foldl(N, Max, P, A, U0, U) :-
+array_foldl(N, Max, P, A, U0, U) :-
 	( N =< Max ->
-		lookup(A, N, E),
+		array__lookup(A, N, E),
 		call(P, N, E, U0, U1),
-		foldl(N + 1, Max, P, A, U1, U)
+		array_foldl(N + 1, Max, P, A, U1, U)
 	;
 		U = U0
 	).
 
-:- pred foldl2(pred(int, T, U, U, V, V), array(T), U, U, V, V).
-:- mode foldl2(pred(in, in, in, out, di, uo) is det, in, in, out, di, uo)
-		is det.
+:- pred array_foldl2(pred(int, T, U, U, V, V), array(T), U, U, V, V).
+:- mode array_foldl2(pred(in, in, di, uo, di, uo) is det, in, di, uo, di, uo)
+	is det.
+:- mode array_foldl2(pred(in, in, array_di, array_uo, array_di, array_uo)
+	is det, in, array_di, array_uo, array_di, array_uo)
+	is det.
+:- mode array_foldl2(pred(in, in, in, out, di, uo) is det, in, in, out, di, uo)
+	is det.
 
-foldl2(P, A, U0, U, V0, V) :-
+array_foldl2(P, A, U0, U, V0, V) :-
 	array__max(A, Max),
-	foldl2(1, Max, P, A, U0, U, V0, V).
+	array_foldl2(1, Max, P, A, U0, U, V0, V).
 
-:- pred foldl2(int, int, pred(int, T, U, U, V, V), array(T), U, U, V, V).
-:- mode foldl2(in, in, pred(in, in, in, out, di, uo) is det, in,
-		in, out, di, uo) is det.
+:- pred array_foldl2(int, int, pred(int, T, U, U, V, V), array(T), U, U, V, V).
+:- mode array_foldl2(in, in, pred(in, in, di, uo, di, uo) is det, in,
+	di, uo, di, uo) is det.
+:- mode array_foldl2(in, in, pred(in, in,
+	array_di, array_uo, array_di, array_uo) is det, in,
+	array_di, array_uo, array_di, array_uo) is det.
+:- mode array_foldl2(in, in, pred(in, in, in, out, di, uo) is det, in,
+	in, out, di, uo) is det.
 
-foldl2(N, Max, P, A, U0, U, V0, V) :-
+array_foldl2(N, Max, P, A, U0, U, V0, V) :-
 	( N =< Max ->
-		lookup(A, N, E),
+		array__lookup(A, N, E),
 		call(P, N, E, U0, U1, V0, V1),
-		foldl2(N + 1, Max, P, A, U1, U, V1, V)
+		array_foldl2(N + 1, Max, P, A, U1, U, V1, V)
 	;
 		U = U0,
 		V = V0
 	).
 
-:- pred lfoldl(pred(T, array(U), array(U)), [T], array(U), array(U)).
-:- mode lfoldl(pred(in, array_di, array_uo) is det, in,
-		array_di, array_uo) is det.
+:- pred array_list_foldl(pred(T, array(U), array(U)), list(T),
+	array(U), array(U)).
+:- mode array_list_foldl(pred(in, array_di, array_uo) is det, in,
+	array_di, array_uo) is det.
 
-lfoldl(_, []) --> [].
-lfoldl(P, [X | Xs]) -->
-	call(P, X),
-	lfoldl(P, Xs).
+array_list_foldl(_, [], Acc, Acc).
+array_list_foldl(P, [X | Xs], Acc0, Acc) :-
+	call(P, X, Acc0, Acc1),
+	array_list_foldl(P, Xs, Acc1, Acc).
+
+:- pred array_list_foldl2(pred(T, array(U), array(U), array(V), array(V)),
+	list(T), array(U), array(U), array(V), array(V)).
+:- mode array_list_foldl2(pred(in, array_di, array_uo, array_di, array_uo)
+	is det, in, array_di, array_uo, array_di, array_uo) is det.
+
+array_list_foldl2(_, [], AccU, AccU, AccV, AccV).
+array_list_foldl2(P, [X | Xs], AccU0, AccU, AccV0, AccV) :-
+	call(P, X, AccU0, AccU1, AccV0, AccV1),
+	array_list_foldl2(P, Xs, AccU1, AccU, AccV1, AccV).
 
 %------------------------------------------------------------------------------%
 
@@ -1024,12 +1264,12 @@ defaults0(dot,		bool(no)).
 defaults0(dump,		bool(no)).
 defaults0(html,		bool(no)).
 defaults0(file,		maybe_string(no)).
-defaults0(server,	bool(no)).
+defaults0(server,	string("")).
 
 :- func (get_global(globals, Key) = Value) <= global(Key, Value).
 
 get_global(Globs, Key) = Value :-
-	( search(Globs, univ(Key), ValueUniv) ->
+	( map__search(Globs, univ(Key), ValueUniv) ->
 		( ValueUniv = univ(Value0) ->
 			Value = Value0
 		;
@@ -1042,4 +1282,4 @@ get_global(Globs, Key) = Value :-
 :- func (set_global(globals, Key, Value) = globals) <= global(Key, Value).
 
 set_global(Globs0, Key, Value) = Globs :-
-	set(Globs0, univ(Key), univ(Value), Globs).
+	map__set(Globs0, univ(Key), univ(Value), Globs).

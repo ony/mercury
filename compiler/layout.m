@@ -29,7 +29,7 @@
 
 :- interface.
 
-:- import_module prog_data, trace_params, llds.
+:- import_module prog_data, trace_params, llds, rtti, hlds_goal.
 :- import_module std_util, list, assoc_list.
 
 :- type layout_data
@@ -61,6 +61,34 @@
 			closure_file_name	:: string,
 			closure_line_number	:: int,
 			closure_goal_path	:: string
+		)
+	;	proc_static_data(
+			proc_static_id		:: rtti_proc_label,
+			proc_static_file_name	:: string,
+			call_site_statics	:: list(call_site_static_data)
+		).
+
+:- type call_site_static_data
+	--->	normal_call(
+			normal_callee		:: rtti_proc_label,
+			normal_line_number	:: int,
+			normal_goal_path	:: goal_path
+		)
+	;	special_call(
+			special_line_number	:: int,
+			special_goal_path	:: goal_path
+		)
+	;	higher_order_call(
+			ho_line_number		:: int,
+			ho_goal_path		:: goal_path
+		)
+	;	method_call(
+			method_line_number	:: int,
+			method_goal_path	:: goal_path
+		)
+	;	callback(
+			callback_line_number	:: int,
+			callback_goal_path	:: goal_path
 		).
 
 :- type label_var_info
@@ -126,7 +154,9 @@
 	;	module_layout_string_table(module_name)
 	;	module_layout_file_vector(module_name)
 	;	module_layout_proc_vector(module_name)
-	;	module_layout(module_name).
+	;	module_layout(module_name)
+	;	proc_static(rtti_proc_label)
+	;	proc_static_call_sites(rtti_proc_label).
 
 :- type label_vars
 	--->	label_has_var_info

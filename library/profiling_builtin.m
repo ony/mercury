@@ -526,7 +526,8 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	tmp->profiling_metrics.quanta = 0;
 #endif
 #ifdef MR_DEEP_PROFILING_MEMORY
-	tmp->profiling_metrics.memory = 0;
+	tmp->profiling_metrics.memory_mallocs = 0;
+	tmp->profiling_metrics.memory_words = 0;
 #endif
 	csd->call_site_callee_ptr->call_site_ptr_ptrs[N] = tmp;
     }
@@ -629,7 +630,8 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	tmp2->profiling_metrics.quanta = 0;
 #endif
 #ifdef MR_DEEP_PROFILING_MEMORY
-	tmp2->profiling_metrics.memory = 0;
+	tmp2->profiling_metrics.memory_mallocs = 0;
+	tmp2->profiling_metrics.memory_words = 0;
 #endif
 	
 	tmp = MR_PROFILING_MALLOC(MR_CallSiteDynList);
@@ -757,7 +759,8 @@ create_proc_dynamic2(ProcDescr, TopCSD, MiddleCSD) :-
 	tmp2->profiling_metrics.quanta = 0;
 #endif
 #ifdef MR_DEEP_PROFILING_MEMORY
-	tmp2->profiling_metrics.memory = 0;
+	tmp2->profiling_metrics.memory_mallocs = 0;
+	tmp2->profiling_metrics.memory_words = 0;
 #endif
 	
 	tmp = MR_PROFILING_MALLOC(MR_CallSiteDynList);

@@ -66,6 +66,7 @@
 :- implementation.
 
 :- import_module prog_data, prog_out, hlds_pred, trace_params, c_util.
+:- import_module rtti, trace, code_util.
 :- import_module int, char, string, require, std_util, list.
 
 output_layout_data_defn(label_layout_data(Label, ProcLayoutAddr,
@@ -86,6 +87,10 @@ output_layout_data_defn(module_layout_data(ModuleName, StringTableSize,
 		DeclSet0, DeclSet) -->
 	output_module_layout_data_defn(ModuleName, StringTableSize,
 		StringTable, ProcLayoutNames, FileLayouts, TraceLevel,
+		DeclSet0, DeclSet).
+output_layout_data_defn(proc_static_data(RttiProcLabel, FileName, CallSites),
+		DeclSet0, DeclSet) -->
+	output_proc_static_data_defn(RttiProcLabel, FileName, CallSites,
 		DeclSet0, DeclSet).
 
 %-----------------------------------------------------------------------------%
@@ -111,6 +116,8 @@ extract_layout_name(closure_proc_id_data(CallerProcLabel, SeqNo,
 		closure_proc_id(CallerProcLabel, SeqNo, ClosureProcLabel)).
 extract_layout_name(module_layout_data(ModuleName, _,_,_,_,_), LayoutName) :-
 	LayoutName = module_layout(ModuleName).
+extract_layout_name(proc_static_data(RttiProcLabel, _, _), LayoutName) :-
+	LayoutName = proc_static(RttiProcLabel).
 
 :- pred output_layout_decls(list(layout_name)::in, decl_set::in, decl_set::out,
 	io__state::di, io__state::uo) is det.
@@ -206,6 +213,26 @@ output_layout_name(module_layout(ModuleName)) -->
 	io__write_string("_module_layout__"),
 	{ llds_out__sym_name_mangle(ModuleName, ModuleNameStr) },
 	io__write_string(ModuleNameStr).
+output_layout_name(proc_static(RttiProcLabel)) -->
+	io__write_string(mercury_data_prefix),
+	io__write_string("_proc_static__"),
+	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
+	output_proc_label(ProcLabel),
+	% This should not be necessary, but type specialization
+	% can produce (e.g. in set_ordlist) more than one copy of a predicate.
+	io__write_string("_id"),
+	{ pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
+	io__write_int(PredId).
+output_layout_name(proc_static_call_sites(RttiProcLabel)) -->
+	io__write_string(mercury_data_prefix),
+	io__write_string("_proc_static_call_sites__"),
+	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
+	output_proc_label(ProcLabel),
+	% This should not be necessary, but type specialization
+	% can produce (e.g. in set_ordlist) more than one copy of a predicate.
+	io__write_string("_id"),
+	{ pred_id_to_int(RttiProcLabel ^ pred_id, PredId) },
+	io__write_int(PredId).
 
 output_layout_name_storage_type_name(label_layout(Label, LabelVars),
 		_BeingDefined) -->
@@ -272,6 +299,21 @@ output_layout_name_storage_type_name(module_layout(ModuleName),
 		_BeingDefined) -->
 	io__write_string("static const MR_Module_Layout "),
 	output_layout_name(module_layout(ModuleName)).
+output_layout_name_storage_type_name(proc_static(RttiProcLabel),
+		_BeingDefined) -->
+	(
+		{ RttiProcLabel ^ is_special_pred_instance = yes },
+		io__write_string("static MR_Compiler_ProcStatic ")
+	;
+		{ RttiProcLabel ^ is_special_pred_instance = no },
+		io__write_string("static MR_User_ProcStatic ")
+	),
+	output_layout_name(proc_static(RttiProcLabel)).
+output_layout_name_storage_type_name(proc_static_call_sites(RttiProcLabel),
+		_BeingDefined) -->
+	io__write_string("static MR_CallSiteStatic "),
+	output_layout_name(proc_static_call_sites(RttiProcLabel)),
+	io__write_string("[]").
 
 layout_name_would_include_code_addr(label_layout(_, _)) = no.
 layout_name_would_include_code_addr(proc_layout(_, _)) = yes.
@@ -284,6 +326,8 @@ layout_name_would_include_code_addr(module_layout_string_table(_)) = no.
 layout_name_would_include_code_addr(module_layout_file_vector(_)) = no.
 layout_name_would_include_code_addr(module_layout_proc_vector(_)) = no.
 layout_name_would_include_code_addr(module_layout(_)) = no.
+layout_name_would_include_code_addr(proc_static(_)) = no.
+layout_name_would_include_code_addr(proc_static_call_sites(_)) = no.
 
 :- func label_vars_to_type(label_vars) = string.
 
@@ -984,5 +1028,78 @@ output_data_addr_in_vector(Prefix, DataAddr) -->
 	io__write_string(Prefix),
 	output_data_addr(DataAddr),
 	io__write_string(",\n").
+
+%-----------------------------------------------------------------------------%
+
+:- pred output_proc_static_data_defn(rtti_proc_label::in, string::in,
+	list(call_site_static_data)::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_proc_static_data_defn(RttiProcLabel, FileName, CallSites,
+		DeclSet0, DeclSet) -->
+	output_call_site_static_array(RttiProcLabel, CallSites,
+		DeclSet0, DeclSet1),
+	{ LayoutName = proc_static(RttiProcLabel) },
+	io__write_string("\n"),
+	output_layout_name_storage_type_name(LayoutName, yes),
+	io__write_string(" = {\n"),
+	{ ProcLabel = code_util__make_proc_label_from_rtti(RttiProcLabel) },
+	output_layout_proc_id_group(ProcLabel),
+	io__write_string("\t"),
+	quote_and_write_string(FileName),
+	io__write_string(",\n\t"),
+	io__write_int(list__length(CallSites)),
+	io__write_string(",\n\t"),
+	{ CallSitesLayoutName = proc_static_call_sites(RttiProcLabel) },
+	output_layout_name(CallSitesLayoutName),
+	io__write_string(",\n#ifdef MR_USE_ACTIVATION_COUNTS\n"),
+	io__write_string("\t0,\n"),
+	io__write_string("#endif\n"),
+	io__write_string("\tNULL\n};\n"),
+	{ decl_set_insert(DeclSet1, data_addr(layout_addr(LayoutName)),
+		DeclSet) }.
+
+:- pred output_call_site_static_array(rtti_proc_label::in,
+	list(call_site_static_data)::in, decl_set::in, decl_set::out,
+	io__state::di, io__state::uo) is det.
+
+output_call_site_static_array(RttiProcLabel, CallSites, DeclSet0, DeclSet) -->
+	{ LayoutName = proc_static_call_sites(RttiProcLabel) },
+	io__write_string("\n"),
+	output_layout_name_storage_type_name(LayoutName, yes),
+	io__write_string(" = {\n"),
+	list__foldl(output_call_site_static, CallSites),
+	io__write_string("};\n"),
+	{ decl_set_insert(DeclSet0, data_addr(layout_addr(LayoutName)),
+		DeclSet) }.
+
+:- pred output_call_site_static(call_site_static_data::in,
+	io__state::di, io__state::uo) is det.
+
+output_call_site_static(CallSiteStatic) -->
+	{
+		CallSiteStatic = normal_call(_Callee, LineNumber, GoalPath),
+		Kind = "MR_normal_call"
+	;
+		CallSiteStatic = special_call(LineNumber, GoalPath),
+		Kind = "MR_special_call"
+	;
+		CallSiteStatic = higher_order_call(LineNumber, GoalPath),
+		Kind = "MR_higher_order_call"
+	;
+		CallSiteStatic = method_call(LineNumber, GoalPath),
+		Kind = "MR_method_call"
+	;
+		CallSiteStatic = callback(LineNumber, GoalPath),
+		Kind = "MR_callback"
+	},
+	io__write_string("\t{ "),
+	io__write_string(Kind),
+	io__write_string(", "),
+	io__write_int(LineNumber),
+	io__write_string(", """),
+	{ trace__path_to_string(GoalPath, GoalPathStr) },
+	io__write_string(GoalPathStr),
+	io__write_string(""" },\n").
 
 %-----------------------------------------------------------------------------%

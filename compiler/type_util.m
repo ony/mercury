@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -161,6 +161,7 @@
 :- func string_type = (type).
 :- func float_type = (type).
 :- func char_type = (type).
+:- func c_pointer_type = (type).
 
 	% Given a constant and an arity, return a type_id.
 	% Fails if the constant is not an atom.
@@ -732,10 +733,21 @@ qualify_higher_order_type((aditi_bottom_up), Type0,
 	    term__functor(term__atom("aditi_bottom_up"), [Type0], Context)) :-
 	term__context_init(Context).
 
-int_type = Type :- construct_type(unqualified("int") - 0, [], Type).
-string_type = Type :- construct_type(unqualified("string") - 0, [], Type).
-float_type = Type :- construct_type(unqualified("float") - 0, [], Type).
-char_type = Type :- construct_type(unqualified("character") - 0, [], Type).
+int_type = Type :-
+	construct_type(unqualified("int") - 0, [], Type).
+
+string_type = Type :-
+	construct_type(unqualified("string") - 0, [], Type).
+
+float_type = Type :-
+	construct_type(unqualified("float") - 0, [], Type).
+
+char_type = Type :-
+	construct_type(unqualified("character") - 0, [], Type).
+
+c_pointer_type = Type :-
+	mercury_public_builtin_module(BuiltinModule),
+	construct_type(qualified(BuiltinModule, "c_pointer") - 0, [], Type).
 
 %-----------------------------------------------------------------------------%
 

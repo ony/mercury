@@ -93,6 +93,7 @@ depend:
 	cd browser && $(SUBDIR_MMAKE) depend
 	cd compiler && $(SUBDIR_MMAKE) depend
 	cd profiler && $(SUBDIR_MMAKE) depend
+	cd deep && $(SUBDIR_MMAKE) depend
 
 .PHONY: depend_library
 depend_library:
@@ -109,6 +110,10 @@ depend_compiler:
 .PHONY: depend_profiler
 depend_profiler:
 	cd profiler && $(SUBDIR_MMAKE) depend
+
+.PHONY: depend_deep
+depend_deep:
+	cd deep && $(SUBDIR_MMAKE) depend
 
 #-----------------------------------------------------------------------------#
 
@@ -167,7 +172,7 @@ deep: dep_deep scripts util boehm_gc runtime library browser trace
 #-----------------------------------------------------------------------------#
 
 .PHONY: tags
-tags: tags_compiler tags_library tags_browser tags_profiler
+tags: tags_compiler tags_library tags_browser tags_profiler tags_deep
 
 .PHONY: tags_compiler
 tags_compiler:
@@ -184,6 +189,10 @@ tags_browser:
 .PHONY: tags_profiler
 tags_profiler:
 	cd profiler && $(SUBDIR_MMAKE) tags
+
+.PHONY: tags_deep
+tags_deep:
+	cd deep && $(SUBDIR_MMAKE) tags
 
 #-----------------------------------------------------------------------------#
 
@@ -229,6 +238,8 @@ tar: README INSTALL
 	cd compiler && $(SUBDIR_MMAKE) cs tags
 	cd profiler && $(SUBDIR_MMAKE) depend
 	cd profiler && $(SUBDIR_MMAKE) cs tags
+	cd deep && $(SUBDIR_MMAKE) depend
+	cd deep && $(SUBDIR_MMAKE) cs tags
 	cd doc && $(SUBDIR_MMAKE) info html dvi mdb_doc
 	cd bindist && $(SUBDIR_MMAKE) bindist.configure
 	# the following command might fail on Windows?
@@ -308,7 +319,7 @@ install: install_main install_grades
 install_main: all \
 		install_scripts install_util install_runtime install_boehm_gc \
   		install_library install_browser install_trace \
-		install_compiler install_profiler install_doc 
+		install_compiler install_profiler install_deep install_doc 
  
 .PHONY: install_scripts
 install_scripts: scripts
@@ -350,6 +361,10 @@ install_doc: doc
 .PHONY: install_profiler
 install_profiler: profiler
 	cd profiler && $(SUBDIR_MMAKE) install
+
+.PHONY: install_deep
+install_deep: deep
+	cd deep && $(SUBDIR_MMAKE) install
 
 .PHONY: install_grades
 install_grades: scripts

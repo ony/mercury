@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -417,6 +417,10 @@
 	% Construct an rtti_proc_label for a given procedure.
 :- func rtti__make_proc_label(module_info, pred_id, proc_id) = rtti_proc_label.
 
+	% Construct an rtti_proc_label for a given procedure.
+:- pred rtti__proc_label_pred_proc_id(rtti_proc_label::in,
+	pred_id::out, proc_id::out) is det.
+
 	% Return the C variable name of the RTTI data structure identified
 	% by the input arguments.
 	% XXX this should be in rtti_out.m
@@ -473,6 +477,7 @@ rtti_data_to_name(pseudo_type_info(PseudoTypeInfo), RttiTypeId,
 	RttiTypeId = pti_get_rtti_type_id(PseudoTypeInfo).
 
 :- func pti_get_rtti_type_id(pseudo_type_info) = rtti_type_id.
+
 pti_get_rtti_type_id(type_ctor_info(RttiTypeId)) = RttiTypeId.
 pti_get_rtti_type_id(type_info(RttiTypeId, _)) = RttiTypeId.
 pti_get_rtti_type_id(higher_order_type_info(RttiTypeId, _, _)) = RttiTypeId.
@@ -516,6 +521,7 @@ rtti_name_is_exported(base_typeclass_info(_, _, _)) = yes.
 rtti_name_is_exported(type_hashcons_pointer)    = no.
 
 :- func pseudo_type_info_is_exported(pseudo_type_info) = bool.
+
 pseudo_type_info_is_exported(type_var(_))			= no.
 pseudo_type_info_is_exported(type_ctor_info(_))			= yes.
 pseudo_type_info_is_exported(type_info(_, _))			= no.
@@ -544,6 +550,10 @@ rtti__make_proc_label(ModuleInfo, PredId, ProcId) = ProcLabel :-
 		PredName, Arity, ArgTypes, PredId, ProcId,
 		ProcVarSet, ProcHeadVars, ProcArgModes, ProcCodeModel,
 		IsImported, IsPseudoImp, IsExported, IsSpecialPredInstance).
+
+rtti__proc_label_pred_proc_id(ProcLabel, PredId, ProcId) :-
+	ProcLabel = rtti_proc_label(_, _, _, _, _, _, PredId, ProcId,
+		_, _, _, _, _, _, _, _).
 
 rtti__addr_to_string(RttiTypeId, RttiName, Str) :-
 	rtti__mangle_rtti_type_id(RttiTypeId, ModuleName, TypeName, A_str),
@@ -625,8 +635,8 @@ rtti__addr_to_string(RttiTypeId, RttiName, Str) :-
 			TypeName, "_", A_str], Str)
 	).
 
-:- pred rtti__mangle_rtti_type_id(rtti_type_id, string, string, string).
-:- mode rtti__mangle_rtti_type_id(in, out, out, out) is det.
+:- pred rtti__mangle_rtti_type_id(rtti_type_id::in,
+	string::out, string::out, string::out) is det.
 
 rtti__mangle_rtti_type_id(RttiTypeId, ModuleName, TypeName, A_str) :-
 	RttiTypeId = rtti_type_id(ModuleName0, TypeName0, TypeArity),
@@ -663,10 +673,12 @@ rtti__pseudo_type_info_to_string(PseudoTypeInfo, Str) :-
 	).
 
 :- func pseudo_type_list_to_string(list(pseudo_type_info)) = string.
+
 pseudo_type_list_to_string(PseudoTypeList) =
 	string__append_list(list__map(pseudo_type_to_string, PseudoTypeList)).
 
 :- func pseudo_type_to_string(pseudo_type_info) = string.
+
 pseudo_type_to_string(type_var(Int)) =
 	string__append("__var_", string__int_to_string(Int)).
 pseudo_type_to_string(type_ctor_info(TypeId)) =
@@ -684,6 +696,7 @@ pseudo_type_to_string(higher_order_type_info(TypeId, Arity, ArgTypes)) =
 	]).
 
 :- func rtti__type_id_to_string(rtti_type_id) = string.
+
 rtti__type_id_to_string(RttiTypeId) = String :-
 	rtti__mangle_rtti_type_id(RttiTypeId, ModuleName, TypeName, A_Str),
 	String0 = string__append_list([ModuleName, "__", TypeName, "_", A_Str]),

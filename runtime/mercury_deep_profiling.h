@@ -16,14 +16,17 @@
 #include <stdio.h>
 
 typedef enum {
-	normal,
-	higher_order,
-	typeclass_method,
-	callback
+	MR_normal_call,
+	MR_special_call,
+	MR_higher_order_call,
+	MR_method_call,
+	MR_callback
 } MR_CallsiteKind;
 
 typedef struct MR_CallSiteStatic_Struct		MR_CallSiteStatic;
 typedef struct MR_CallSiteDynamic_Struct	MR_CallSiteDynamic;
+typedef struct MR_User_ProcStatic_Struct	MR_User_ProcStatic;
+typedef struct MR_Compiler_ProcStatic_Struct	MR_Compiler_ProcStatic;
 typedef struct MR_ProcStatic_Struct		MR_ProcStatic;
 typedef struct MR_ProcDynamic_Struct		MR_ProcDynamic;
 typedef struct MR_ProfilingMetrics_Struct	MR_ProfilingMetrics;
@@ -48,13 +51,37 @@ struct MR_ProfilingMetrics_Struct {
 
 struct MR_CallSiteStatic_Struct {
     	MR_CallsiteKind				call_site_kind;
-	MR_ConstString				call_site_id;
+	int					call_site_line_number;
+	MR_ConstString				call_site_goal_path;
 };
 
 struct MR_ProcStatic_Struct {
-	MR_ConstString				proc_id;	/* XXX */
+	MR_Proc_Id				ps_proc_id;
+	MR_ConstString				ps_file_name;
 	int					num_call_sites;
-	MR_CallSiteStatic			**call_sites;
+	MR_CallSiteStatic			*call_sites;
+#ifdef MR_USE_ACTIVATION_COUNTS
+	int					activation_count;
+#endif
+	MR_ProcDynamic				*outermost_activation_ptr;
+};
+
+struct MR_User_ProcStatic_Struct {
+	MR_User_Proc_Id				ps_proc_id;
+	MR_ConstString				ps_file_name;
+	int					num_call_sites;
+	MR_CallSiteStatic			*call_sites;
+#ifdef MR_USE_ACTIVATION_COUNTS
+	int					activation_count;
+#endif
+	MR_ProcDynamic				*outermost_activation_ptr;
+};
+
+struct MR_Compiler_ProcStatic_Struct {
+	MR_Compiler_Proc_Id			ps_proc_id;
+	MR_ConstString				ps_file_name;
+	int					num_call_sites;
+	MR_CallSiteStatic			*call_sites;
 #ifdef MR_USE_ACTIVATION_COUNTS
 	int					activation_count;
 #endif
@@ -94,12 +121,13 @@ typedef enum {
 
 /* XXX MR_parent_call_site_dynamic is obsolete */
 /* XXX MR_inside_deep_profiling_code should be type bool */
-extern	volatile MR_CallSiteDynamic		*MR_parent_call_site_dynamic;
-extern	volatile MR_CallSiteDynamic		*MR_next_call_site_dynamic;
-extern	volatile MR_CallSiteDynamic		*MR_current_call_site_dynamic;
-extern	volatile MR_CallSiteDynamic		**MR_current_callback_site;
+/* If these are volatile, a lot of other things must be too */
+extern	MR_CallSiteDynamic		*MR_parent_call_site_dynamic;
+extern	MR_CallSiteDynamic		*MR_next_call_site_dynamic;
+extern	MR_CallSiteDynamic		*MR_current_call_site_dynamic;
+extern	MR_CallSiteDynamic		**MR_current_callback_site;
 #ifdef MR_DEEP_PROFILING_IGNORE_INSTRUMENTATION
-extern	volatile MR_Bool			MR_inside_deep_profiling_code;
+extern	bool				MR_inside_deep_profiling_code;
 #endif
 
 extern	MR_CallSiteDynamic			*MR_rootCallSites[];

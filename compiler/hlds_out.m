@@ -251,7 +251,7 @@
 
 % HLDS modules.
 :- import_module mercury_to_mercury, purity, special_pred, instmap.
-:- import_module termination, term_errors, check_typeclass.
+:- import_module termination, term_errors, check_typeclass, rtti.
 
 % RL back-end modules (XXX should avoid using those here).
 :- import_module rl.
@@ -306,8 +306,8 @@ hlds_out__cons_id_to_string(base_typeclass_info_const(_, _, _, _),
 	"<base_typeclass_info>").
 hlds_out__cons_id_to_string(tabling_pointer_const(_, _),
 	"<tabling_pointer>").
-hlds_out__cons_id_to_string(deep_profiling_procedure_data(_, _),
-	"<deep_profiling_procedure_data>").
+hlds_out__cons_id_to_string(deep_profiling_proc_static(_),
+	"<deep_profiling_proc_static>").
 
 hlds_out__write_cons_id(cons(SymName, Arity)) -->
 	prog_out__write_sym_name_and_arity(SymName / Arity).
@@ -327,8 +327,8 @@ hlds_out__write_cons_id(base_typeclass_info_const(_, _, _, _)) -->
 	io__write_string("<base_typeclass_info>").
 hlds_out__write_cons_id(tabling_pointer_const(_, _)) -->
 	io__write_string("<tabling_pointer>").
-hlds_out__write_cons_id(deep_profiling_procedure_data(_, _)) -->
-	io__write_string("<deep_profiling_procedure_data>").
+hlds_out__write_cons_id(deep_profiling_proc_static(_)) -->
+	io__write_string("<deep_profiling_proc_static>").
 
 	% The code of this predicate duplicates the functionality of
 	% error_util__describe_one_pred_name. Changes here should be made
@@ -2109,16 +2109,15 @@ hlds_out__write_functor_cons_id(ConsId, ArgVars, VarSet, ModuleInfo,
 		io__write_int(ProcIdInt),
 		io__write_string(")")
 	;
-		{ ConsId = deep_profiling_procedure_data(PPId, CSs) },
-		{ PPId = proc(PredId, ProcId) },
-		io__write_string("deep_profiling_procedure_data("),
+		{ ConsId = deep_profiling_proc_static(RttiProcLabel) },
+		{ rtti__proc_label_pred_proc_id(RttiProcLabel,
+			PredId, ProcId) },
+		io__write_string("deep_profiling_proc_static("),
 		hlds_out__write_pred_id(ModuleInfo, PredId),
 		{ proc_id_to_int(ProcId, ProcIdInt) },
 		io__write_string(" (mode "),
 		io__write_int(ProcIdInt),
-		io__write_string("), "),
-		io__write(CSs),
-		io__write_string(")")
+		io__write_string("))")
 	).
 
 hlds_out__write_var_modes([], [], _, _, _) --> [].

@@ -1644,6 +1644,8 @@ compute_arg_types_modes([Var | Vars], VarTypes, InstMap0, InstMap,
 :- pred proc_info_has_io_state_pair(module_info::in, proc_info::in,
 	int::out, int::out) is semidet.
 
+:- pred clone_proc_id(proc_table::in, proc_id::in, proc_id::out) is det.
+
 :- pred find_lowest_unused_proc_id(proc_table::in, proc_id::out) is det.
 
 	% When mode inference is enabled, we record for each inferred
@@ -2211,6 +2213,14 @@ proc_info_has_io_state_pair_2([Var - Mode | VarModes], ModuleInfo, VarTypes,
 	),
 	proc_info_has_io_state_pair_2(VarModes, ModuleInfo, VarTypes,
 		ArgNum + 1, MaybeIn1, MaybeOut1, MaybeIn, MaybeOut).
+
+clone_proc_id(_ProcTable, ProcId, CloneProcId) :-
+	% we cannot use find_lowest_unused_proc_id
+	% due to a bug in type specialization,
+	% which can generate two predicates with identical names,
+	% one of which has a procedure with proc_id 0
+	% and the other a procedure with proc_id 1.
+	CloneProcId = 100 + ProcId.
 
 find_lowest_unused_proc_id(ProcTable, CloneProcId) :-
 	find_lowest_unused_proc_id(0, ProcTable, CloneProcId).
