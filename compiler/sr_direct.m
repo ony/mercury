@@ -260,16 +260,9 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 	;
 		Unification = construct(_, CONS_ID, _, _, _, _, _)
 	->
-		(
-			dead_cell_pool_try_to_reuse( CONS_ID, 
-					Pool0, ReuseVarsConds)
-		->
-			goal_info_set_reuse(Info0, 
-				choice(construct(ReuseVarsConds)),
-				Info)
-		;
-			Info = Info0
-		),
+		dead_cell_pool_try_to_reuse( CONS_ID, Pool0, ReuseVarsConds),
+		goal_info_set_reuse(Info0, choice(construct(ReuseVarsConds)),
+				Info),
 		Pool = Pool0
 	;
 		% assign
@@ -339,7 +332,7 @@ unification_verify_reuse( Unification, Alias0, Pool0, Pool,
 
 :- pred dead_cell_pool_try_to_reuse( cons_id, dead_cell_pool, 
 		set(pair(prog_var, reuse_condition))).
-:- mode dead_cell_pool_try_to_reuse( in, in, out) is semidet.
+:- mode dead_cell_pool_try_to_reuse( in, in, out) is det.
 		
 dead_cell_pool_init( HVS, Pool ):- 
 	map__init(Map),
@@ -447,7 +440,6 @@ dead_cell_pool_try_to_reuse( Cons, Pool, Set) :-
 		cons_can_reuse( Arity ), 
 		AssocList, 
 		CellsThatCanBeReused),
-	CellsThatCanBeReused \= [],
 	list__map(
 		to_pair_var_condition, 
 		CellsThatCanBeReused,
