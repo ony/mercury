@@ -40,7 +40,7 @@ typedef void (*MR_Cont) (void *);
 
 typedef __gc public class System::Object * MR_Word[];
 typedef __gc public class System::Object * MR_Box;
-typedef __gc public class System::Object * MR_Array[];
+typedef __gc public class System::Array  * MR_Array;
 
 #define MR_Ref(type) type __gc *
 typedef MR_Ref(MR_Box) MR_Box_Ref;
@@ -153,6 +153,7 @@ typedef __gc public class System::Object * MR_TypeClassInfo[];
 #define MR_TYPECTOR_REP_NOTAG_GROUND_val		27
 #define MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ_val		28
 #define MR_TYPECTOR_REP_EQUIV_GROUND_val		29
+#define MR_TYPECTOR_REP_TUPLE_val			30
 
 // XXX we should integrate this macro in with the version in 
 // mercury_typeinfo.h

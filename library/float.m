@@ -49,26 +49,26 @@
 	% addition
 :- func float + float = float.
 :- mode in    + in    = uo  is det.
-:- mode uo    + in    = in  is det.
-:- mode in    + uo    = in  is det.
 
 	% subtraction
 :- func float - float = float.
 :- mode in    - in    = uo  is det.
-:- mode uo    - in    = in  is det.
-:- mode in    - uo    = in  is det.
 
 	% multiplication
 :- func float * float = float.
 :- mode in    * in    = uo  is det.
-:- mode uo    * in    = in  is det.
-:- mode in    * uo    = in  is det.
 
 	% division
+	% Throws an `math__domain_error' exception if the right
+	% operand is zero. See the comments at the top of math.m
+	% to find out how to disable this check.
 :- func float / float = float.
 :- mode in    / in    = uo  is det.
-:- mode uo    / in    = in  is det.
-:- mode in    / uo    = in  is det.
+
+	% unchecked_quotient(X, Y) is the same as X / Y, but the
+	% behaviour is undefined if the right operand is zero.
+:- func unchecked_quotient(float, float) = float.
+:- mode unchecked_quotient(in, in)    = uo  is det.
 
 	% unary plus
 :- func + float = float.
@@ -257,9 +257,9 @@
 :- mode float__min(in, in, out) is det.
 
 	% float__pow(Base, Exponent, Answer) is true iff Answer is
-	% Base raised to the power Exponent.  The exponent must be an 
-	% integer greater or equal to 0.  Currently this function runs
+	% Base raised to the power Exponent. Currently this function runs
 	% at O(n), where n is the value of the exponent.
+	% Throws a `math__domain_error' exception if the exponent is negative.
 :- pragma obsolete(float__pow/3).
 :- pred float__pow(float, int, float).
 :- mode float__pow(in, in, out) is det.
@@ -308,47 +308,11 @@
 :- pred float__max_exponent(int).
 :- mode float__max_exponent(out) is det.
 
-%
-% Synonyms for the builtin arithmetic functions.
-%
-
-:- pragma obsolete(builtin_float_plus/3).
-:- pred builtin_float_plus(float, float, float).
-:- mode builtin_float_plus(in, in, uo) is det.
-
-:- pragma obsolete(builtin_float_minus/3).
-:- pred builtin_float_minus(float, float, float).
-:- mode builtin_float_minus(in, in, uo) is det.
-
-:- pragma obsolete(builtin_float_times/3).
-:- pred builtin_float_times(float, float, float).
-:- mode builtin_float_times(in, in, uo) is det.
-
-:- pragma obsolete(builtin_float_divide/3).
-:- pred builtin_float_divide(float, float, float).
-:- mode builtin_float_divide(in, in, uo) is det.
-
-:- pragma obsolete(builtin_float_gt/2).
-:- pred builtin_float_gt(float, float).
-:- mode builtin_float_gt(in, in) is semidet.
-
-:- pragma obsolete(builtin_float_lt/2).
-:- pred builtin_float_lt(float, float).
-:- mode builtin_float_lt(in, in) is semidet.
-
-:- pragma obsolete(builtin_float_ge/2).
-:- pred builtin_float_ge(float, float).
-:- mode builtin_float_ge(in, in) is semidet.
-
-:- pragma obsolete(builtin_float_le/2).
-:- pred builtin_float_le(float, float).
-:- mode builtin_float_le(in, in) is semidet.
-
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module int, require.
+:- import_module exception, int, math.
 
 %
 % Header files of mathematical significance.
@@ -363,9 +327,42 @@
 
 %---------------------------------------------------------------------------%
 
-% The arithmetic and comparison operators are builtins,
+% The other arithmetic and comparison operators are builtins,
 % which the compiler expands inline.  We don't need to define them here.
 
+:- pragma inline('/'/2).
+X / Y = Z :-
+	( domain_checks, Y = 0.0 ->
+		throw(math__domain_error("float:'/'"))
+	;
+		Z = unchecked_quotient(X, Y)
+	).
+
+	% This code is included here rather than just calling
+	% the version in math.m because we currently don't do
+	% transitive inter-module inlining, so code which uses
+	% `/'/2 but doesn't import math.m couldn't have the
+	% domain check optimized away..
+:- pred domain_checks is semidet.
+:- pragma inline(domain_checks/0).
+
+:- pragma foreign_proc("C", domain_checks,
+		[will_not_call_mercury, thread_safe], "
+#ifdef ML_OMIT_MATH_DOMAIN_CHECKS
+	SUCCESS_INDICATOR = FALSE;
+#else
+	SUCCESS_INDICATOR = TRUE;
+#endif
+").
+
+:- pragma foreign_proc("MC++", domain_checks,
+		[thread_safe], "
+#if ML_OMIT_MATH_DOMAIN_CHECKS
+	SUCCESS_INDICATOR = FALSE;
+#else
+	SUCCESS_INDICATOR = TRUE;
+#endif
+").
 %---------------------------------------------------------------------------%
 %
 % Conversion functions
@@ -381,10 +378,10 @@ float(Int) = Float :-
 "
 	Ceil = (MR_Integer) ceil(X);
 ").
-:- pragma foreign_proc("MC++", float__ceiling_to_int(X :: in) = (Ceil :: out),
+:- pragma foreign_proc("C#", float__ceiling_to_int(X :: in) = (Ceil :: out),
 	[will_not_call_mercury, thread_safe, no_aliasing],
 "
-	Ceil = (MR_Integer) System::Math::Ceiling(X);
+	Ceil = System.Convert.ToInt32(System.Math.Ceiling(X));
 ").
 
 float__ceiling_to_int(X, float__ceiling_to_int(X)).
@@ -396,10 +393,10 @@ float__ceiling_to_int(X, float__ceiling_to_int(X)).
 "
 	Floor = (MR_Integer) floor(X);
 ").
-:- pragma foreign_proc("MC++", float__floor_to_int(X :: in) = (Floor :: out),
+:- pragma foreign_proc("C#", float__floor_to_int(X :: in) = (Floor :: out),
 	[will_not_call_mercury, thread_safe, no_aliasing],
 "
-	Floor = (MR_Integer) System::Math::Floor(X);
+	Floor = System.Convert.ToInt32(System.Math.Floor(X));
 ").
 
 float__floor_to_int(X, float__floor_to_int(X)).
@@ -411,10 +408,10 @@ float__floor_to_int(X, float__floor_to_int(X)).
 "
 	Round = (MR_Integer) floor(X + 0.5);
 ").
-:- pragma foreign_proc("MC++", float__round_to_int(X :: in) = (Round :: out),
+:- pragma foreign_proc("C#", float__round_to_int(X :: in) = (Round :: out),
 	[will_not_call_mercury, thread_safe, no_aliasing],
 "
-	Round = (MR_Integer) System::Math::Floor(X + 0.5);
+	Round = System.Convert.ToInt32(System.Math.Floor(X + 0.5));
 ").
 
 float__round_to_int(X, float__round_to_int(X)).
@@ -426,10 +423,10 @@ float__round_to_int(X, float__round_to_int(X)).
 "
 	Trunc = (MR_Integer) X;
 ").
-:- pragma foreign_proc("MC++", float__truncate_to_int(X :: in) = (Trunc :: out),
+:- pragma foreign_proc("C#", float__truncate_to_int(X :: in) = (Trunc :: out),
 	[will_not_call_mercury, thread_safe, no_aliasing],
 "
-	Trunc = (MR_Integer) X;
+	Trunc = System.Convert.ToInt32(X);
 ").
 
 float__truncate_to_int(X, float__truncate_to_int(X)).
@@ -477,7 +474,7 @@ float__min(X, Y, float__min(X, Y)).
 %	reduce O(N) to O(logN) of the exponent.
 float__pow(X, Exp) = Ans :-
 	( Exp < 0 ->
-		error("float__pow taken with exponent < 0\n")
+		throw(math__domain_error("float__pow"))
 	; Exp = 1 ->
 		Ans =  X
 	; Exp = 0 ->
@@ -494,7 +491,7 @@ float__pow(X, Exp, float__pow(X, Exp)).
 "
 	H = MR_hash_float(F);
 ").
-:- pragma foreign_proc("MC++", float__hash(F::in) = (H::out),
+:- pragma foreign_proc("C#", float__hash(F::in) = (H::out),
 	[will_not_call_mercury, thread_safe, no_aliasing],
 "
 	H = F.GetHashCode();
@@ -535,9 +532,9 @@ float__hash(F, float__hash(F)).
 :- pragma foreign_proc("C", float__max = (Max::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Max = ML_FLOAT_MAX;").
-:- pragma foreign_proc("MC++", float__max = (Max::out),
+:- pragma foreign_proc("C#", float__max = (Max::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
-	"Max = MR_BoxedFloat::MaxValue;").
+	"Max = System.Double.MaxValue;").
 
 
 float__max(float__max).
@@ -546,9 +543,9 @@ float__max(float__max).
 :- pragma foreign_proc("C", float__min = (Min::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Min = ML_FLOAT_MIN;").
-:- pragma foreign_proc("MC++", float__min = (Min::out),
+:- pragma foreign_proc("C#", float__min = (Min::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
-	"Min = MR_BoxedFloat::MinValue;").
+	"Min = System.Double.MinValue;").
 
 float__min(float__min).
 
@@ -556,9 +553,9 @@ float__min(float__min).
 :- pragma foreign_proc("C", float__epsilon = (Eps::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Eps = ML_FLOAT_EPSILON;").
-:- pragma foreign_proc("MC++", float__epsilon = (Eps::out),
+:- pragma foreign_proc("C#", float__epsilon = (Eps::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
-	"Eps = MR_BoxedFloat::Epsilon;").
+	"Eps = System.Double.Epsilon;").
 
 float__epsilon(float__epsilon).
 
@@ -566,9 +563,10 @@ float__epsilon(float__epsilon).
 :- pragma foreign_proc("C", float__radix = (Radix::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
 	"Radix = ML_FLOAT_RADIX;").
-:- pragma foreign_proc("MC++", float__radix = (_Radix::out),
+:- pragma foreign_proc("C#", float__radix = (_Radix::out),
 		[will_not_call_mercury, thread_safe, no_aliasing], "
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	_Radix = 0;
 ").
 
 float__radix(float__radix).
@@ -577,9 +575,10 @@ float__radix(float__radix).
 :- pragma foreign_proc("C", float__mantissa_digits = (MantDig::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
 	"MantDig = ML_FLOAT_MANT_DIG;").
-:- pragma foreign_proc("MC++", float__mantissa_digits = (_MantDig::out),
+:- pragma foreign_proc("C#", float__mantissa_digits = (_MantDig::out),
 		[will_not_call_mercury, thread_safe, no_aliasing], "
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	_MantDig = 0;
 ").
 
 float__mantissa_digits(float__mantissa_digits).
@@ -590,9 +589,10 @@ float__mantissa_digits(float__mantissa_digits).
 :- pragma foreign_proc("C", float__min_exponent = (MinExp::out),
 		[will_not_call_mercury, thread_safe, no_aliasing],
 	"MinExp = ML_FLOAT_MIN_EXP;").
-:- pragma foreign_proc("MC++", float__min_exponent = (_MinExp::out),
+:- pragma foreign_proc("C#", float__min_exponent = (_MinExp::out),
 		[will_not_call_mercury, thread_safe, no_aliasing], "	
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	_MinExp = 0;
 ").
 
 float__min_exponent(float__min_exponent).
@@ -604,9 +604,10 @@ float__min_exponent(float__min_exponent).
 		[will_not_call_mercury, thread_safe],
 	"MaxExp = ML_FLOAT_MAX_EXP;").
 
-:- pragma foreign_proc("MC++", float__max_exponent = (_MaxExp::out),
+:- pragma foreign_proc("C#", float__max_exponent = (_MaxExp::out),
 		[will_not_call_mercury, thread_safe], "	
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	_MaxExp = 0;
 ").
 
 

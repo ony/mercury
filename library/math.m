@@ -10,8 +10,7 @@
 %
 % Higher mathematical operations.  (The basics are in float.m.)
 %
-% By default, domain errors are currently handled by a program abort.
-% This is because Mercury originally did not have exceptions built in.
+% By default, domain errors are currently handled by throwing an exception.
 %
 % For better performance, it is possible to disable the Mercury domain
 % checking by compiling with `--intermodule-optimization' and the C macro
@@ -198,11 +197,21 @@
 :- func math__tanh(float) = float.
 :- mode math__tanh(in) = out is det.
 
+	% A domain error exception, indicates that the inputs to a function
+	% were outside the domain of the function.  The string indicates
+	% where the error occured.
+	%
+	% It is possible to switch domain checking off, in which case,
+	% depending on the backend, a domain error may cause a program
+	% abort.
+	
+:- type domain_error ---> domain_error(string).
+
 %---------------------------------------------------------------------------%
 %---------------------------------------------------------------------------%
 
 :- implementation.
-:- import_module float.
+:- import_module float, exception.
 
 % These operations are mostly implemented using the C interface.
 
@@ -223,54 +232,37 @@
 	#define	ML_FLOAT_PI		3.1415926535897932384
 	#define	ML_FLOAT_LN2		0.69314718055994530941
 
-	void ML_math_domain_error(const char *where);
-
 "). % end pragma foreign_decl
 
-:- pragma foreign_decl("MC++", "
+:- pragma foreign_code("C#", "
 
 	// This is not defined in the .NET Frameworks.
-	// For pi and e we use the constants defined in System::Math.
+	// For pi and e we use the constants defined in System.Math.
 
-	#define	ML_FLOAT_LN2		0.69314718055994530941
+	public static double ML_FLOAT_LN2 = 0.69314718055994530941;
+	
+
 ").
 
-:- pragma foreign_code("C", "
+:- pred domain_checks is semidet.
 
-	#include ""mercury_trace_base.h""
-	#include <stdio.h>
+:- pragma foreign_proc("C", domain_checks,
+		[will_not_call_mercury, thread_safe], "
+#ifdef ML_OMIT_MATH_DOMAIN_CHECKS
+	SUCCESS_INDICATOR = FALSE;
+#else
+	SUCCESS_INDICATOR = TRUE;
+#endif
+").
 
-	/*
-	** Handle domain errors.
-	*/
-	void
-	ML_math_domain_error(const char *where)
-	{
-		fflush(stdout);
-		fprintf(stderr,
-			""Software error: Domain error in call to `%s'\\n"",
-			where);
-		MR_trace_report(stderr);
-	#ifndef MR_HIGHLEVEL_CODE
-		MR_dump_stack(MR_succip, MR_sp, MR_curfr, FALSE);
-	#endif
-		exit(1);
-	}
-
-"). % end pragma foreign_code
-
-:- pragma foreign_code("MC++", "
-
-/*
-** Handle domain errors.
-*/
-static void
-ML_math_domain_error(MR_String where)
-{
-	throw new mercury::runtime::Exception(where);
-}
-
-"). % end pragma foreign_code
+:- pragma foreign_proc("MC++", domain_checks,
+		[thread_safe], "
+#if ML_OMIT_MATH_DOMAIN_CHECKS
+	SUCCESS_INDICATOR = FALSE;
+#else
+	SUCCESS_INDICATOR = TRUE;
+#endif
+").
 
 %
 % Mathematical constants from math.m
@@ -281,10 +273,10 @@ ML_math_domain_error(MR_String where)
 				no_aliasing],"
 	Pi = ML_FLOAT_PI;
 ").
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	math__pi = (Pi::out), [will_not_call_mercury, thread_safe, 
 				no_aliasing],"
-	Pi = System::Math::PI;
+	Pi = System.Math.PI;
 ").
 
 	% Base of natural logarithms
@@ -293,10 +285,10 @@ ML_math_domain_error(MR_String where)
 				no_aliasing],"
 	E = ML_FLOAT_E;
 ").
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	math__e = (E::out), [will_not_call_mercury, thread_safe, 
 				no_aliasing],"
-	E = System::Math::E;
+	E = System.Math.E;
 ").
 
 %
@@ -309,10 +301,11 @@ ML_math_domain_error(MR_String where)
 				no_aliasing],"
 	Ceil = ceil(Num);
 ").
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	math__ceiling(Num::in) = (Ceil::out),
-		[will_not_call_mercury, thread_safe, no_aliasing],"
-	Ceil = System::Math::Ceiling(Num);
+		[will_not_call_mercury, thread_safe, 
+				no_aliasing],"
+	Ceil = System.Math.Ceiling(Num);
 ").
 
 %
@@ -325,11 +318,11 @@ ML_math_domain_error(MR_String where)
 				no_aliasing],"
 	Floor = floor(Num);
 ").
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	math__floor(Num::in) = (Floor::out),
 		[will_not_call_mercury, thread_safe, 
 				no_aliasing],"
-	Floor = System::Math::Floor(Num);
+	Floor = System.Math.Floor(Num);
 ").
 
 %
@@ -343,13 +336,13 @@ ML_math_domain_error(MR_String where)
 				no_aliasing],"
 	Rounded = floor(Num+0.5);
 ").
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	math__round(Num::in) = (Rounded::out),
 		[will_not_call_mercury, thread_safe, 
 				no_aliasing],"
-	// XXX the semantics of System::Math::Round() are not the same as ours.
+	// XXX the semantics of System.Math.Round() are not the same as ours.
 	// Unfortunately they are better (round to nearest even number).
-	Rounded = System::Math::Floor(Num+0.5);
+	Rounded = System.Math.Floor(Num+0.5);
 ").
 
 %
@@ -365,25 +358,22 @@ math__truncate(X) = (X < 0.0 -> math__ceiling(X) ; math__floor(X)).
 % Domain restrictions:
 %		X >= 0
 %
-:- pragma foreign_proc("C", math__sqrt(X::in) = (SquareRoot::out),
-		[will_not_call_mercury, thread_safe, 
-				no_aliasing], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < 0.0) {
-		ML_math_domain_error(""math__sqrt"");
-	}
-#endif
+math__sqrt(X) = SquareRoot :-
+	( domain_checks, X < 0.0 ->
+		throw(domain_error("math__sqrt"))
+	;
+		SquareRoot = math__sqrt_2(X)
+	).
+
+:- func math__sqrt_2(float) = float.
+
+:- pragma foreign_proc("C", math__sqrt_2(X::in) = (SquareRoot::out),
+		[will_not_call_mercury, thread_safe, no_aliasing], "
 	SquareRoot = sqrt(X);
 ").
-:- pragma foreign_proc("MC++", math__sqrt(X::in) = (SquareRoot::out),
-		[will_not_call_mercury, thread_safe, 
-				no_aliasing], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < 0.0) {
-		ML_math_domain_error(""math__sqrt"");
-	}
-#endif
-	SquareRoot = System::Math::Sqrt(X);
+:- pragma foreign_proc("C#", math__sqrt_2(X::in) = (SquareRoot::out),
+		[thread_safe, no_aliasing], "
+	SquareRoot = System.Math.Sqrt(X);
 ").
 
 
@@ -438,42 +428,29 @@ math__solve_quadratic(A, B, C) = Roots :-
 %		X >= 0
 %		X = 0 implies Y > 0
 %
-:- pragma foreign_proc("C", math__pow(X::in, Y::in) = (Res::out),
+math__pow(X, Y) = Res :-
+	( domain_checks, X < 0.0 ->
+		throw(domain_error("math__pow"))
+	; X = 0.0 ->
+		( Y =< 0.0 ->
+			throw(domain_error("math__pow"))
+		;
+			Res = 0.0
+		)
+	;
+		Res = math__pow_2(X, Y)
+	).
+
+:- func math__pow_2(float, float) = float.
+
+:- pragma foreign_proc("C", math__pow_2(X::in, Y::in) = (Res::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < 0.0) {
-		ML_math_domain_error(""math__pow"");
-	}
-	if (X == 0.0) {
-		if (Y <= 0.0) {
-			ML_math_domain_error(""math__pow"");
-		}
-		Res = 0.0;
-	} else {
-		Res = pow(X, Y);
-	}
-#else
 	Res = pow(X, Y);
-#endif
 ").
 
-:- pragma foreign_proc("MC++", math__pow(X::in, Y::in) = (Res::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < 0.0) {
-		ML_math_domain_error(""math__pow"");
-	}
-	if (X == 0.0) {
-		if (Y <= 0.0) {
-			ML_math_domain_error(""math__pow"");
-		}
-		Res = 0.0;
-	} else {
-		Res = System::Math::Pow(X, Y);
-	}
-#else
-	Res = System::Math::Pow(X, Y);
-#endif
+:- pragma foreign_proc("C#", math__pow_2(X::in, Y::in) = (Res::out),
+		[thread_safe], "
+	Res = System.Math.Pow(X, Y);
 ").
 
 
@@ -485,9 +462,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Exp = exp(X);
 ").
-:- pragma foreign_proc("MC++", math__exp(X::in) = (Exp::out),
+:- pragma foreign_proc("C#", math__exp(X::in) = (Exp::out),
 		[will_not_call_mercury, thread_safe],"
-	Exp = System::Math::Exp(X);
+	Exp = System.Math.Exp(X);
 ").
 
 %
@@ -497,23 +474,22 @@ math__solve_quadratic(A, B, C) = Roots :-
 % Domain restrictions:
 %		X > 0
 %
-:- pragma foreign_proc("C", math__ln(X::in) = (Log::out),
+math__ln(X) = Log :-
+	( domain_checks, X =< 0.0 ->
+		throw(domain_error("math__ln"))
+	;
+		Log = math__ln_2(X)
+	).
+
+:- func math__ln_2(float) = float.
+
+:- pragma foreign_proc("C", math__ln_2(X::in) = (Log::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0) {
-		ML_math_domain_error(""math__ln"");
-	}
-#endif
 	Log = log(X);
 ").
-:- pragma foreign_proc("MC++", math__ln(X::in) = (Log::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0) {
-		ML_math_domain_error(""math__ln"");
-	}
-#endif
-	Log = System::Math::Log(X);
+:- pragma foreign_proc("C#", math__ln_2(X::in) = (Log::out),
+		[thread_safe], "
+	Log = System.Math.Log(X);
 ").
 
 %
@@ -523,23 +499,22 @@ math__solve_quadratic(A, B, C) = Roots :-
 % Domain restrictions:
 %		X > 0
 %
-:- pragma foreign_proc("C", math__log10(X::in) = (Log10::out),
+math__log10(X) = Log :-
+	( domain_checks, X =< 0.0 ->
+		throw(domain_error("math__log10"))
+	;
+		Log = math__log10_2(X)
+	).
+
+:- func math__log10_2(float) = float.
+
+:- pragma foreign_proc("C", math__log10_2(X::in) = (Log10::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0) {
-		ML_math_domain_error(""math__log10"");
-	}
-#endif
 	Log10 = log10(X);
 ").
-:- pragma foreign_proc("MC++", math__log10(X::in) = (Log10::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0) {
-		ML_math_domain_error(""math__log10"");
-	}
-#endif
-	Log10 = System::Math::Log10(X);
+:- pragma foreign_proc("C#", math__log10_2(X::in) = (Log10::out),
+		[thread_safe], "
+	Log10 = System.Math.Log10(X);
 ").
 
 %
@@ -549,23 +524,22 @@ math__solve_quadratic(A, B, C) = Roots :-
 % Domain restrictions:
 %		X > 0
 %
-:- pragma foreign_proc("C", math__log2(X::in) = (Log2::out),
+math__log2(X) = Log :-
+	( domain_checks, X =< 0.0 ->
+		throw(domain_error("math__log2"))
+	;
+		Log = math__log2_2(X)
+	).
+
+:- func math__log2_2(float) = float.
+
+:- pragma foreign_proc("C", math__log2_2(X::in) = (Log2::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0) {
-		ML_math_domain_error(""math__log2"");
-	}
-#endif
 	Log2 = log(X) / ML_FLOAT_LN2;
 ").
-:- pragma foreign_proc("MC++", math__log2(X::in) = (Log2::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0) {
-		ML_math_domain_error(""math__log2"");
-	}
-#endif
-	Log2 = System::Math::Log(X) / ML_FLOAT_LN2;
+:- pragma foreign_proc("C#", math__log2_2(X::in) = (Log2::out),
+		[thread_safe], "
+	Log2 = System.Math.Log(X) / ML_FLOAT_LN2;
 ").
 
 %
@@ -577,29 +551,28 @@ math__solve_quadratic(A, B, C) = Roots :-
 %		B > 0
 %		B \= 1
 %
-:- pragma foreign_proc("C", math__log(B::in, X::in) = (Log::out),
+math__log(B, X) = Log :-
+	(
+		domain_checks,
+		( X =< 0.0
+		; B =< 0.0
+		; B = 1.0
+		)
+	->
+		throw(domain_error("math__log"))
+	;
+		Log = math__log_2(B, X)
+	).
+
+:- func math__log_2(float, float) = float.
+
+:- pragma foreign_proc("C", math__log_2(B::in, X::in) = (Log::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0 || B <= 0.0) {
-		ML_math_domain_error(""math__log"");
-	}
-	if (B == 1.0) {
-		ML_math_domain_error(""math__log"");
-	}
-#endif
 	Log = log(X)/log(B);
 ").
-:- pragma foreign_proc("MC++", math__log(B::in, X::in) = (Log::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X <= 0.0 || B <= 0.0) {
-		ML_math_domain_error(""math__log"");
-	}
-	if (B == 1.0) {
-		ML_math_domain_error(""math__log"");
-	}
-#endif
-	Log = System::Math::Log(X,B);
+:- pragma foreign_proc("C#", math__log_2(B::in, X::in) = (Log::out),
+		[thread_safe], "
+	Log = System.Math.Log(X,B);
 ").
 
 
@@ -610,9 +583,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Sin = sin(X);
 ").
-:- pragma foreign_proc("MC++", math__sin(X::in) = (Sin::out),
+:- pragma foreign_proc("C#", math__sin(X::in) = (Sin::out),
 		[will_not_call_mercury, thread_safe],"
-	Sin = System::Math::Sin(X);
+	Sin = System.Math.Sin(X);
 ").
 
 
@@ -623,9 +596,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Cos = cos(X);
 ").
-:- pragma foreign_proc("MC++", math__cos(X::in) = (Cos::out),
+:- pragma foreign_proc("C#", math__cos(X::in) = (Cos::out),
 		[will_not_call_mercury, thread_safe],"
-	Cos = System::Math::Cos(X);
+	Cos = System.Math.Cos(X);
 ").
 
 %
@@ -635,9 +608,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Tan = tan(X);
 ").
-:- pragma foreign_proc("MC++", math__tan(X::in) = (Tan::out),
+:- pragma foreign_proc("C#", math__tan(X::in) = (Tan::out),
 		[will_not_call_mercury, thread_safe],"
-	Tan = System::Math::Tan(X);
+	Tan = System.Math.Tan(X);
 ").
 
 %
@@ -647,23 +620,27 @@ math__solve_quadratic(A, B, C) = Roots :-
 % Domain restrictions:
 %		X must be in the range [-1,1]
 %
-:- pragma foreign_proc("C", math__asin(X::in) = (ASin::out),
+math__asin(X) = ASin :-
+	(
+		domain_checks,
+		( X < -1.0
+		; X > 1.0
+		)
+	->
+		throw(domain_error("math__asin"))
+	;
+		ASin = math__asin_2(X)
+	).
+
+:- func math__asin_2(float) = float.
+
+:- pragma foreign_proc("C", math__asin_2(X::in) = (ASin::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < -1.0 || X > 1.0) {
-		ML_math_domain_error(""math__asin"");
-	}
-#endif
 	ASin = asin(X);
 ").
-:- pragma foreign_proc("MC++", math__asin(X::in) = (ASin::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < -1.0 || X > 1.0) {
-		ML_math_domain_error(""math__asin"");
-	}
-#endif
-	ASin = System::Math::Asin(X);
+:- pragma foreign_proc("C#", math__asin_2(X::in) = (ASin::out),
+		[thread_safe], "
+	ASin = System.Math.Asin(X);
 ").
 
 %
@@ -673,23 +650,27 @@ math__solve_quadratic(A, B, C) = Roots :-
 % Domain restrictions:
 %		X must be in the range [-1,1]
 %
-:- pragma foreign_proc("C", math__acos(X::in) = (ACos::out),
+math__acos(X) = ACos :-
+	(
+		domain_checks,
+		( X < -1.0
+		; X > 1.0
+		)
+	->
+		throw(domain_error("math__acos"))
+	;
+		ACos = math__acos_2(X)
+	).
+
+:- func math__acos_2(float) = float.
+
+:- pragma foreign_proc("C", math__acos_2(X::in) = (ACos::out),
 		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < -1.0 || X > 1.0) {
-		ML_math_domain_error(""math__acos"");
-	}
-#endif
 	ACos = acos(X);
 ").
-:- pragma foreign_proc("MC++", math__acos(X::in) = (ACos::out),
-		[will_not_call_mercury, thread_safe], "
-#ifndef ML_OMIT_MATH_DOMAIN_CHECKS
-	if (X < -1.0 || X > 1.0) {
-		ML_math_domain_error(""math__acos"");
-	}
-#endif
-	ACos = System::Math::Acos(X);
+:- pragma foreign_proc("C#", math__acos_2(X::in) = (ACos::out),
+		[thread_safe], "
+	ACos = System.Math.Acos(X);
 ").
 
 
@@ -701,9 +682,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	ATan = atan(X);
 ").
-:- pragma foreign_proc("MC++", math__atan(X::in) = (ATan::out),
+:- pragma foreign_proc("C#", math__atan(X::in) = (ATan::out),
 		[will_not_call_mercury, thread_safe],"
-	ATan = System::Math::Atan(X);
+	ATan = System.Math.Atan(X);
 ").
 
 %
@@ -714,9 +695,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe], "
 	ATan2 = atan2(Y, X);
 ").
-:- pragma foreign_proc("MC++", math__atan2(Y::in, X::in) = (ATan2::out), 
+:- pragma foreign_proc("C#", math__atan2(Y::in, X::in) = (ATan2::out), 
 		[will_not_call_mercury, thread_safe], "
-	ATan2 = System::Math::Atan2(Y, X);
+	ATan2 = System.Math.Atan2(Y, X);
 ").
 
 %
@@ -727,9 +708,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Sinh = sinh(X);
 ").
-:- pragma foreign_proc("MC++", math__sinh(X::in) = (Sinh::out),
+:- pragma foreign_proc("C#", math__sinh(X::in) = (Sinh::out),
 		[will_not_call_mercury, thread_safe],"
-	Sinh = System::Math::Sinh(X);
+	Sinh = System.Math.Sinh(X);
 ").
 
 %
@@ -740,9 +721,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Cosh = cosh(X);
 ").
-:- pragma foreign_proc("MC++", math__cosh(X::in) = (Cosh::out),
+:- pragma foreign_proc("C#", math__cosh(X::in) = (Cosh::out),
 		[will_not_call_mercury, thread_safe],"
-	Cosh = System::Math::Cosh(X);
+	Cosh = System.Math.Cosh(X);
 ").
 
 %
@@ -753,9 +734,9 @@ math__solve_quadratic(A, B, C) = Roots :-
 		[will_not_call_mercury, thread_safe],"
 	Tanh = tanh(X);
 ").
-:- pragma foreign_proc("MC++", math__tanh(X::in) = (Tanh::out),
+:- pragma foreign_proc("C#", math__tanh(X::in) = (Tanh::out),
 		[will_not_call_mercury, thread_safe],"
-	Tanh = System::Math::Tanh(X);
+	Tanh = System.Math.Tanh(X);
 ").
 
 %---------------------------------------------------------------------------%

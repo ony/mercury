@@ -25,17 +25,74 @@ namespace mercury {
 
 namespace runtime {
 
-	// XXX Exception support is utterly incomplete.
+	// A user exception -- really just a wrapper for the exception
+	// data.
+
 __gc public class Exception : public System::Exception
 {
 public:
-	// XXX there should be a Mercury object here.
-    Exception(MR_String Msg) : System::Exception(Msg)
-    { 
-	// XXX this should set the exception message
-    }
+   Exception(MR_Word data) 
+   {
+   	mercury_exception = data;	
+   }
+   MR_Word mercury_exception;
 };
 
+__gc public class SystemException : public System::Exception
+{
+public:
+	SystemException(MR_String Msg) : System::Exception(Msg)
+	{	
+		// the parent constructor sets the error message that
+		// will be printed.
+	}
+};
+
+
+__gc public class LowLevelData
+{
+
+public:
+	// Make a Mercury enumeration with the given integer value.
+static MR_Word make_enum(int enum_value) {
+
+	MR_Word e;
+	MR_newenum(e, enum_value);
+	return e;
+
+}
+
+	// Make an MR_Word with the given tag and arity.
+static MR_Word make_MR_Word(int tag, int arity) {
+	MR_Word e;
+	MR_newobj(e, tag, arity);
+	return e;
+
+}
+	// Set a field of an MR_Word with a given value.
+	// The first field is at index 1.
+static void set_MR_Word_field(MR_Word w, int index, System::Object *value) {
+	MR_objset(w, index, value);
+}
+	// Get the value from an MR_Word.
+	// The first field is at index 1.
+static System::Object * get_MR_Word_field(MR_Word w, int index) {
+	return w[index];
+}
+
+static bool list_is_cons(MR_Word w) {
+	return (System::Convert::ToInt32(w[0]) != 0);
+}
+
+static MR_Box list_get_head(MR_Word w) {
+	return w[1];
+}
+
+static MR_Word list_get_tail(MR_Word w) {
+	return dynamic_cast<MR_Word>(w[2]);
+}
+
+};
 
 __gc public class Errors {
     public:
@@ -43,14 +100,14 @@ __gc public class Errors {
     {
         MR_String msg;
         msg = System::String::Concat("Sorry, unimplemented: ", s);
-        throw new mercury::runtime::Exception(msg);
+        throw new mercury::runtime::SystemException(msg);
     }
 
     static void fatal_error(MR_String s)
     {
         MR_String msg;
         msg = System::String::Concat("Fatal error: ", s);
-        throw new mercury::runtime::Exception(msg);
+        throw new mercury::runtime::SystemException(msg);
     }
 };
 
@@ -98,6 +155,7 @@ __gc public class Constants {
     static int MR_TYPECTOR_REP_NOTAG_GROUND		=27;
     static int MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ	=28;
     static int MR_TYPECTOR_REP_EQUIV_GROUND		=29;
+    static int MR_TYPECTOR_REP_TUPLE			=30;
 
     static int MR_SECTAG_NONE				= 0;
     static int MR_SECTAG_LOCAL				= 1;

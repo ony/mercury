@@ -264,6 +264,9 @@ $(os_subdir)%.dll : %.cs
 
 $(os_subdir)%.dll : %.il
 	$(MS_ILASM) $(ALL_MS_ILASMFLAGS) /dll /quiet /OUT=$@ $<
+
+mercury.sn:
+	cp $(MERC_DLL_DIR)/mercury.sn .
 endif
 
 # For --split-c-files, we generate the .$O files directly from the .m files.
@@ -374,6 +377,10 @@ ifeq ($(findstring il,$(GRADE)),il)
 .cpp.exe:
 	$(MS_CL) -CLR($MS_CL_NOASM) -I$(MERCURY_LIBRARY_PATH) $< -link -entry:main $(MS_CL_LIBS) -out:$@
 
+.cs.exe:
+	$(MS_CSC) /lib:`cygpath -w $(MERC_DLL_DIR)` /out:$@ \
+		$(CSHARP_ASSEMBLY_REFS-$*) $(EXTRA_CSCFLAGS) $<
+
 endif # $(findstring il,$(GRADE)) != ""
 
 #-----------------------------------------------------------------------------#
@@ -463,8 +470,8 @@ lib%.install_split_library: %.split.a install_grade_dirs
 lib%.install_grades:
 	rm -rf tmp_dir && \
 	mkdir tmp_dir && \
-	{ mv -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.os) $($*.pic_os) \
-		*.a *.so tmp_dir || true; } && \
+	{ mv -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.c_dates) $($*.os) \
+		$($*.pic_os) *.a *.so tmp_dir || true; } && \
 	for grade in x $(ALL_LIBGRADES); do \
 		if [ "$$grade" != "x" ]; then \
 			$(MMAKE) GRADE=$$grade $*.depend || \
@@ -473,12 +480,13 @@ lib%.install_grades:
 				exit 1; \
 			$(MMAKE) GRADE=$$grade lib$*.install_library || \
 				exit 1; \
-			rm -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) $($*.os) \
-				$($*.pic_os) *.a *.so; \
+			rm -f $(deps_subdir)$*.dep $($*.hs) $($*.cs) \
+				$($*.c_dates) $($*.os) $($*.pic_os) *.a *.so; \
 		fi; \
 	done && \
 	{ mv tmp_dir/*.c $(cs_subdir). ; \
 	  mv tmp_dir/*.$O $(os_subdir). ; \
+	  mv tmp_dir/*.c_date $(c_dates_subdir). ; \
 	  mv tmp_dir/*.pic_o $(os_subdir). ; \
 	  mv tmp_dir/*.dep $(deps_subdir). ; \
 	  mv tmp_dir/* . ; rmdir tmp_dir ; true; }

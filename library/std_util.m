@@ -137,11 +137,11 @@
 % is required.
 
 :- pred solutions(pred(T), list(T)).
-:- mode solutions(pred(out) is multi, out) is det.
+:- mode solutions(pred(out) is multi, out(non_empty_list)) is det.
 :- mode solutions(pred(out) is nondet, out) is det.
 
 :- func solutions(pred(T)) = list(T).
-:- mode solutions(pred(out) is multi) = out is det.
+:- mode solutions(pred(out) is multi) = out(non_empty_list) is det.
 :- mode solutions(pred(out) is nondet) = out is det.
 
 :- pred solutions_set(pred(T), set(T)).
@@ -153,7 +153,8 @@
 :- mode solutions_set(pred(out) is nondet) = out is det.
 
 :- pred unsorted_solutions(pred(T), list(T)).
-:- mode unsorted_solutions(pred(out) is multi, out) is cc_multi.
+:- mode unsorted_solutions(pred(out) is multi, out(non_empty_list)) 
+        is cc_multi.
 :- mode unsorted_solutions(pred(out) is nondet, out) is cc_multi.
 
 :- func aggregate(pred(T), func(T, U) = U, U) = U.
@@ -1411,28 +1412,57 @@ sys_init_type_desc_module_write_out_proc_statics(FILE *fp)
 
 ").
 
+	% We need to call the rtti_implementation module -- so that we get the
+	% dependencies right it's easiest to do it from Mercury.
+:- interface.
+:- use_module rtti_implementation.
+:- pred call_rtti_compare_type_infos(comparison_result::out, 
+	rtti_implementation__type_info::in, rtti_implementation__type_info::in) is det.
+:- implementation.
+
+call_rtti_compare_type_infos(Res, T1, T2) :-
+	rtti_implementation__compare_type_infos(Res, T1, T2).
+
+
 :- pragma foreign_code("MC++", "
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, type_desc, 0, 
         MR_TYPECTOR_REP_TYPEINFO)
 
-static int MR_compare_type_info(MR_TypeInfo x, MR_TypeInfo y) {
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
-	return 0;
-}
+static int MR_compare_type_info(MR_Word t1, MR_Word t2) {
+	MR_Word res;
 
-static int
-__Unify____type_desc_0_0(MR_Word x, MR_Word y)
-{
-	mercury::runtime::Errors::SORRY(""unify for type_desc"");
-	return 0;
+	mercury::std_util::mercury_code::call_rtti_compare_type_infos_3(
+		&res, t1, t2);
+	return System::Convert::ToInt32(res[0]);
 }
 
 static void
 __Compare____type_desc_0_0(
     MR_Word_Ref result, MR_Word x, MR_Word y)
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::std_util::mercury_code::call_rtti_compare_type_infos_3(
+		result, x, y);
+}
+
+static int
+__Unify____type_desc_0_0(MR_Word x, MR_Word y)
+{
+	return (MR_compare_type_info(x, y) == MR_COMPARE_EQUAL);
+}
+
+static void
+special___Compare___type_desc_0_0(
+    MR_Word_Ref result, MR_Word x, MR_Word y)
+{
+	mercury::std_util::mercury_code::call_rtti_compare_type_infos_3(
+		result, x, y);
+}
+
+static int
+special___Unify___type_desc_0_0(MR_Word x, MR_Word y)
+{
+	return (MR_compare_type_info(x, y) == MR_COMPARE_EQUAL);
 }
 
 static int
@@ -1635,7 +1665,7 @@ extern  MR_TypeInfo	    ML_make_type(int arity, MR_TypeCtorDesc type_ctor_desc,
 }
 ").
 
-:- pragma foreign_proc("MC++", type_of(_Value::unused) = (TypeInfo::out),
+:- pragma foreign_proc("C#", type_of(_Value::unused) = (TypeInfo::out),
 	will_not_call_mercury, "
 {
 	TypeInfo = TypeInfo_for_T;
@@ -1648,7 +1678,7 @@ extern  MR_TypeInfo	    ML_make_type(int arity, MR_TypeCtorDesc type_ctor_desc,
 	TypeInfo_for_T = TypeInfo;
 ").
 
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	has_type(_Arg::unused, TypeInfo::in), will_not_call_mercury, "
 	TypeInfo_for_T = TypeInfo;
 ").
@@ -1760,10 +1790,11 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 }
 ").
 
-:- pragma foreign_proc("MC++", type_ctor(_TypeInfo::in) = (_TypeCtor::out),
+:- pragma foreign_proc("C#", type_ctor(_TypeInfo::in) = (_TypeCtor::out),
 	will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury.runtime.Errors.SORRY(""foreign code for type_ctor"");
+	_TypeCtor = null;
 }
 ").
 
@@ -1864,7 +1895,7 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 :- pragma foreign_proc("MC++", type_ctor_and_args(_TypeDesc::in,
 		_TypeCtorDesc::out, _ArgTypes::out), will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::runtime::Errors::SORRY(""type_ctor_and_args"");
 }
 ").
 
@@ -1918,7 +1949,7 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 	make_type(_TypeCtorDesc::in, _ArgTypes::in) = (_TypeDesc::out),
 		will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::runtime::Errors::SORRY(""make_type"");
 }
 ").
 
@@ -2265,11 +2296,14 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 }
 ").
 
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	make_type(_TypeCtorDesc::out, _ArgTypes::out) = (_TypeDesc::in),
 		will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	// XXX this is required to keep the C# compiler quiet, but we should 
+	// really fix the interface to semidet C#
+	succeeded = 1;
 }
 ").
 
@@ -2278,14 +2312,14 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 		_TypeCtorArity::out),
         will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }
 ").
 
 :- pragma foreign_proc("MC++", num_functors(_TypeInfo::in) = (_Functors::out),
 	will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }
 ").
 
@@ -2293,7 +2327,7 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
         _FunctorName::out, _Arity::out, _TypeInfoList::out),
 		will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }
 ").
 
@@ -2301,15 +2335,19 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 	get_functor_ordinal(_TypeDesc::in, _FunctorNumber::in,
 		_Ordinal::out), will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }
 ").
 
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	construct(_TypeDesc::in, _FunctorNumber::in,
 		_ArgList::in) = (_Term::out), will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	_Term = null;
+	// XXX this is required to keep the C# compiler quiet, but we should 
+	// really fix the interface to semidet C#
+	succeeded = 1;
 }
 ").
 
@@ -2361,11 +2399,12 @@ construct_tuple(Args) =
 }
 ").
 
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	construct_tuple_2(_Args::in, _ArgTypes::in, _Arity::in) = (_Term::out),
 		will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+	mercury.runtime.Errors.SORRY(""construct_tuple_2"");
+	_Term = null;
 }
 ").
 
@@ -3279,18 +3318,24 @@ ML_named_arg_num(MR_TypeInfo type_info, MR_Word *term_ptr,
 ** changes to store__arg_ref in store.m.
 */
 
-:- pragma foreign_proc("MC++", 
+:- pragma foreign_proc("C#", 
 	arg(_Term::in, _ArgumentIndex::in) = (_Argument::out),
         will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	// XXX this is required to keep the C# compiler quiet, but we should 
+	// really fix the interface to semidet C#
+	succeeded = 1;
 }").
 
-:- pragma foreign_proc("MC++",
+:- pragma foreign_proc("C#",
 	argument(_Term::in, _ArgumentIndex::in) = (_ArgumentUniv::out),
         will_not_call_mercury, "
 {
-	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	mercury.runtime.Errors.SORRY(""foreign code for this function"");
+	// XXX this is required to keep the C# compiler quiet, but we should 
+	// really fix the interface to semidet C#
+	succeeded = 1;
 }").
 
 det_arg(Type, ArgumentIndex) = Argument :-
