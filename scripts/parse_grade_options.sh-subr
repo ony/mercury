@@ -1,5 +1,5 @@
 #---------------------------------------------------------------------------#
-# Copyright (C) 1997-2000 The University of Melbourne.
+# Copyright (C) 1997-2001 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #---------------------------------------------------------------------------#
@@ -22,10 +22,14 @@
 	--target)
 		shift
 		case "$1" in
+			asm)
+				target=asm ;;
 			c|C)
 				target=c ;;
 			il|IL)
 				target=il ;;
+			java|Java)
+				target=java ;;
 			*)
 				echo "$0: invalid target \`$1'" 1>&2
 				exit 1
@@ -33,7 +37,7 @@
 		esac
 		;;
 
-	--il|--IL)
+	--il|--IL|--il-only|--IL-only)
 		target=il ;;
 
 	--high-level-code|-H)
@@ -206,8 +210,16 @@
 					gcc_nested_functions=false
 					highlevel_data=false
 					;;
+				java)
+					target=java
+					asm_labels=false
+					non_local_gotos=false
+					global_regs=false
+					highlevel_code=true
+					gcc_nested_functions=false
+					highlevel_data=true
+					;;
 				hl)
-					target=c
 					asm_labels=false
 					non_local_gotos=false
 					global_regs=false
@@ -216,7 +228,6 @@
 					highlevel_data=true
 					;;
 				hlc)
-					target=c
 					asm_labels=false
 					non_local_gotos=false
 					global_regs=false
@@ -225,7 +236,6 @@
 					highlevel_data=false
 					;;
 				hl_nest)
-					target=c
 					asm_labels=false
 					non_local_gotos=false
 					global_regs=false
@@ -234,7 +244,6 @@
 					highlevel_data=true
 					;;
 				hlc_nest)
-					target=c
 					asm_labels=false
 					non_local_gotos=false
 					global_regs=false

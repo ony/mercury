@@ -94,7 +94,7 @@ apply_constraint(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 apply_constraint(_Constraint, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _, _) },
+	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 apply_constraint(_Constraint, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },
@@ -299,7 +299,7 @@ select_reuses(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 select_reuses(_Selection, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _, _) },
+	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 select_reuses(_Selection, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1999-2000 The University of Melbourne.
+% Copyright (C) 1999-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -404,6 +404,10 @@
 			mlds__func_params,	% the arguments & return types
 			maybe(mlds__statement)	% the function body, or `no'
 						% if the function is abstract
+						% or if the function is defined
+						% externally (i.e. the original
+						% Mercury procedure was declared
+						% `:- external').
 		)
 		% packages, classes, interfaces, structs, enums
 	;	mlds__class(
@@ -620,7 +624,7 @@
 	%
 :- type mlds__foreign_code
 	---> mlds__foreign_code(
-		foreign_header_info,
+		foreign_decl_info,
 		list(user_foreign_code),
 		list(mlds__pragma_export)
 	).
@@ -695,6 +699,9 @@
 		% Some (e.g. C#) also allow switches on strings.
 		% Most target languages only allow matching on values;
 		% only some (e.g. GNU C) allow matching on ranges.
+		% The MLDS code generator should only generate switches
+		% that the target will support.
+		%
 		% Note that unlike C, MLDS cases do NOT fall through; if you
 		% want to achieve that effect, you need to use an explicit goto.
 	;	switch(
@@ -702,8 +709,12 @@
 			mlds__type,
 			mlds__rval,
 
+			% The range of possible values which the
+			% value might take (if known)
+			mlds__switch_range,
+
 			% The different cases
-			list(mlds__switch_case),
+			mlds__switch_cases,
 
 			% What to do if none of the cases match
 			mlds__switch_default
@@ -768,6 +779,16 @@
 		% do_commit(Ref) instructions should only be used
 		% in goals called from the GoalToTry goal in the
 		% try_commit instruction with the same Ref.
+		%
+		% The C and GCC back-ends require each try_commit
+		% to be put in its own nested function, to avoid
+		% problems with setjmp() and local vars not declared
+		% volatile.  They also require each do_commit
+		% to be put in its own function -- this is needed when
+		% using __builtin_setjmp()/__builtin_longjmp() to
+		% ensure that the call to __builtin_longjmp() is
+		% not in the same function as the call to
+		% __builtin_setjmp().
 		%	
 	;	try_commit(mlds__lval, mlds__statement, mlds__statement)
 	;	do_commit(mlds__rval)
@@ -813,11 +834,18 @@ XXX Full exception handling support is not yet implemented.
 %
 % Extra info for switches
 %
+	% The range of possible values which the
+	% switch variable might take (if known)
+:- type mlds__switch_range
+	--->	range_unknown
+	;	range(range_min::int, range_max::int).
+			% From range_min to range_max, inclusive.
 
 	% Each switch case consists of the conditions to match against,
 	% and the statement to execute if the match succeeds.
 	% Unlike C, cases do NOT fall through; if you want to achieve that
 	% effect, you need to use an explicit goto.
+:- type mlds__switch_cases == list(mlds__switch_case).
 :- type mlds__switch_case == pair(mlds__case_match_conds, mlds__statement).
 
 	% case_match_conds should be a _non-empty_ list of conditions;
@@ -833,7 +861,12 @@ XXX Full exception handling support is not yet implemented.
 	;	match_range(mlds__rval, mlds__rval).  % match_range(Min, Max)
 						% matches if the switch value
 						% is between Min and Max,
-						% inclusive
+						% inclusive.
+						% Note that this should only be
+						% used if the target supports
+						% it; currently the C back-end
+						% supports this only if you're
+						% using the GNU C compiler.
 
 	% The switch_default specifies what to do if none of the switch
 	% conditions match.
@@ -1016,7 +1049,7 @@ XXX Full exception handling support is not yet implemented.
 			% output #line directives.
 	;	target_code_input(mlds__rval)
 	;	target_code_output(mlds__lval)
-	;	name(mlds__entity_name)
+	;	name(mlds__qualified_entity_name)
 	.
 
 	% XXX I'm not sure what representation we should use here

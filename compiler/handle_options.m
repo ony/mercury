@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -46,6 +46,7 @@
 :- implementation.
 
 :- import_module options, globals, prog_io_util, trace_params, unify_proc.
+:- import_module prog_data.
 :- import_module char, int, string, map, set, getopt, library.
 
 handle_options(MaybeError, Args, Link) -->
@@ -84,13 +85,15 @@ handle_options(MaybeError, Args, Link) -->
 			TargetCodeOnly),
 		globals__io_get_target(Target),
 		{ GenerateIL = (if Target = il then yes else no) },
+		{ GenerateJava = (if Target = java then yes else no) },
 		globals__io_lookup_bool_option(compile_only, CompileOnly),
 		globals__io_lookup_bool_option(aditi_only, AditiOnly),
 		{ bool__or_list([GenerateDependencies, MakeInterface,
 			MakePrivateInterface, MakeShortInterface,
 			MakeOptimizationInt, MakeTransOptInt,
 			ConvertToMercury, ConvertToGoedel, TypecheckOnly,
-			ErrorcheckOnly, TargetCodeOnly, GenerateIL,
+			ErrorcheckOnly, TargetCodeOnly,
+			GenerateIL, GenerateJava,
 			CompileOnly, AditiOnly],
 			NotLink) },
 		{ bool__not(NotLink, Link) }
@@ -215,7 +218,7 @@ postprocess_options(ok(OptionTable), Error) -->
             { Error = yes("Invalid GC option (must be `none', `conservative' or `accurate')") }
 	)
     ;
-        { Error = yes("Invalid target option (must be `c' or `il')") }
+        { Error = yes("Invalid target option (must be `c', `il', or `java')") }
     ).
     
 
@@ -292,7 +295,40 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	;
 		[]
 	),
+	% Generating Java implies high-level code, turning off nested functions,
+	% using copy-out for both det and nondet output arguments,
+	% using no tags, not optimizing tailcalls and no static ground terms.
+	% XXX no static ground terms should be eliminated in a later
+	%     version.
+	% XXX The Java backend should eventually support optimizing tailcalls.
+	( { Target = java } ->
+		globals__io_set_option(highlevel_code, bool(yes)),
+		globals__io_set_option(gcc_nested_functions, bool(no)),
+		globals__io_set_option(nondet_copy_out, bool(yes)),
+		globals__io_set_option(det_copy_out, bool(yes)),
+		globals__io_set_option(num_tag_bits, int(0)),
+		globals__io_set_option(optimize_tailcalls, bool(no)),
+		globals__io_set_option(static_ground_terms, bool(no))
+	;
+		[]
+	),
+	% Generating assembler via the gcc back-end requires
+	% using high-level code.
+	( { Target = asm } ->
+		globals__io_set_option(highlevel_code, bool(yes))
+	;
+		[]
+	),
 
+	% Generating high-level C or asm code requires putting each commit
+	% in its own function, to avoid problems with setjmp() and
+	% non-volatile local variables.
+	( { Target = c ; Target = asm } ->
+		option_implies(highlevel_code, put_commit_in_own_func, bool(yes))
+	;
+		[]
+	),
+	
 	% --high-level-code disables the use of low-level gcc extensions
 	option_implies(highlevel_code, gcc_non_local_gotos, bool(no)),
 	option_implies(highlevel_code, gcc_global_registers, bool(no)),
@@ -300,6 +336,9 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 
 	% --no-gcc-nested-functions implies --no-gcc-local-labels
 	option_neg_implies(gcc_nested_functions, gcc_local_labels, bool(no)),
+
+	% --no-mlds-optimize implies --no-optimize-tailcalls
+	option_neg_implies(optimize, optimize_tailcalls, bool(no)),
 
 	option_implies(verbose_check_termination, check_termination,bool(yes)),
 	option_implies(check_termination, termination, bool(yes)),
@@ -585,6 +624,48 @@ postprocess_options_2(OptionTable, Target, GC_Method, TagsMethod,
 	% we are expecting some to be missing.
 	option_implies(use_opt_files, warn_missing_opt_files, bool(no)),
 
+
+	% The preferred backend foreign language depends on the target.
+	( 	
+		{ Target = c },
+		{ BackendForeignLanguage = foreign_language_string(c) }
+	;
+		{ Target = il },
+		{ BackendForeignLanguage =
+			foreign_language_string(managed_cplusplus) }
+	;
+		{ Target = asm },
+		% XXX This is wrong!  It should be asm.
+		{ BackendForeignLanguage = foreign_language_string(c) }
+	;
+		% XXX We don't generate java or handle it as a foreign
+		% language just yet, but if we did, we should fix this
+		{ Target = java },
+		{ BackendForeignLanguage = foreign_language_string(c) }
+	),
+	globals__io_set_option(backend_foreign_language,
+		string(BackendForeignLanguage)),
+	% The default foreign language we use is the same as the backend.
+	globals__io_lookup_string_option(use_foreign_language,
+		UseForeignLanguage),
+	( 
+		{ UseForeignLanguage = "" }
+	->
+		globals__io_set_option(use_foreign_language, 
+			string(BackendForeignLanguage))
+	; 
+		{ convert_foreign_language(UseForeignLanguage, FL) }
+	->
+		{ CanonicalLangName = foreign_language_string(FL) },
+		globals__io_set_option(use_foreign_language, 
+			string(CanonicalLangName))
+	;
+		usage_error(
+			string__format(
+			"unrecognized foreign language argument `%s' for --use-foreign-language",
+			[s(UseForeignLanguage)]))
+	),
+
 	globals__io_lookup_bool_option(highlevel_code, HighLevel),
 	( { HighLevel = no } ->
 		postprocess_options_lowlevel
@@ -847,32 +928,36 @@ grade_component_table("hl", gcc_ext, [
 		gcc_global_registers	- bool(no),
 		highlevel_code		- bool(yes),
 		gcc_nested_functions	- bool(no),
-		highlevel_data		- bool(yes),
-		target			- string("c")]).
+		highlevel_data		- bool(yes)
+		% target can be either c or asm
+		]).
 grade_component_table("hlc", gcc_ext, [
 		asm_labels		- bool(no),
 		gcc_non_local_gotos	- bool(no),
 		gcc_global_registers	- bool(no),
 		highlevel_code		- bool(yes),
 		gcc_nested_functions	- bool(no),
-		highlevel_data		- bool(no),
-		target			- string("c")]).
+		highlevel_data		- bool(no)
+		% target can be either c or asm
+		]).
 grade_component_table("hl_nest", gcc_ext, [
 		asm_labels		- bool(no),
 		gcc_non_local_gotos	- bool(no),
 		gcc_global_registers	- bool(no),
 		highlevel_code		- bool(yes),
 		gcc_nested_functions	- bool(yes),
-		highlevel_data		- bool(yes),
-		target			- string("c")]).
+		highlevel_data		- bool(yes)
+		% target can be either c or asm
+		]).
 grade_component_table("hlc_nest", gcc_ext, [
 		asm_labels		- bool(no),
 		gcc_non_local_gotos	- bool(no),
 		gcc_global_registers	- bool(no),
 		highlevel_code		- bool(yes),
 		gcc_nested_functions	- bool(yes),
-		highlevel_data		- bool(no),
-		target			- string("c")]).
+		highlevel_data		- bool(no)
+		% target can be either c or asm
+		]).
 grade_component_table("il", gcc_ext, [
 		asm_labels		- bool(no),
 		gcc_non_local_gotos	- bool(no),
@@ -889,6 +974,14 @@ grade_component_table("ilc", gcc_ext, [
 		gcc_nested_functions	- bool(no),
 		highlevel_data		- bool(no),
 		target			- string("il")]).
+grade_component_table("java", gcc_ext, [
+		asm_labels		- bool(no),
+		gcc_non_local_gotos	- bool(no),
+		gcc_global_registers	- bool(no),
+		gcc_nested_functions	- bool(no),
+		highlevel_code		- bool(yes),
+		highlevel_data		- bool(yes),
+		target			- string("java")]).
 
 	% Parallelism/multithreading components.
 grade_component_table("par", par, [parallel - bool(yes)]).

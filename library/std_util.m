@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -495,6 +495,15 @@
 
 %-----------------------------------------------------------------------------%
 
+	% dynamic_cast(X, Y) succeeds with Y = X iff X has the same
+	% ground type as Y (so this may succeed if Y is of type
+	% list(int), say, but not if Y is of type list(T)).
+	%
+:- pred dynamic_cast(T1, T2).
+:- mode dynamic_cast(in, out) is semidet.
+
+%-----------------------------------------------------------------------------%
+
 	% functor, argument and deconstruct take any type (including univ),
 	% and return representation information for that type.
 	%
@@ -793,7 +802,8 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 %
 :- impure pred get_registers(heap_ptr::out, heap_ptr::out, trail_ptr::out)
 	is det.
-:- pragma c_code(get_registers(HeapPtr::out, SolutionsHeapPtr::out,
+:- pragma foreign_code("C", 
+		get_registers(HeapPtr::out, SolutionsHeapPtr::out,
 		TrailPtr::out), will_not_call_mercury,
 "
 	/* save heap states */
@@ -812,12 +822,40 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 #endif
 ").
 
+:- pragma foreign_code("MC++", 
+		get_registers(HeapPtr::out, SolutionsHeapPtr::out,
+		TrailPtr::out), will_not_call_mercury,
+"
+	/*
+	** For MC++, we always use the MS garbage collector,
+	** so we don't have to worry here about heap reclamation on failure.
+	*/
+	HeapPtr = SolutionsHeapPtr = 0;
+
+#ifdef MR_USE_TRAIL
+	/* XXX trailing not yet implemented for the MLDS back-end */
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+#else
+	TrailPtr = 0
+#endif
+
+").
+
+
 :- impure pred check_for_floundering(trail_ptr::in) is det.
-:- pragma c_code(check_for_floundering(TrailPtr::in), [will_not_call_mercury],
+:- pragma foreign_code("C", 
+	check_for_floundering(TrailPtr::in), [will_not_call_mercury],
 "
 #ifdef MR_USE_TRAIL
 	/* check for outstanding delayed goals (``floundering'') */
 	MR_reset_ticket(TrailPtr, MR_solve);
+#endif
+").
+:- pragma foreign_code("MC++", 
+	check_for_floundering(_TrailPtr::in), [will_not_call_mercury],
+"
+#ifdef MR_USE_TRAIL
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 #endif
 ").
 
@@ -825,10 +863,18 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 % Discard the topmost trail ticket.
 %
 :- impure pred discard_trail_ticket is det.
-:- pragma c_code(discard_trail_ticket, [will_not_call_mercury],
+:- pragma foreign_code("C", 
+	discard_trail_ticket, [will_not_call_mercury],
 "
 #ifdef MR_USE_TRAIL
 	MR_discard_ticket();
+#endif
+").
+:- pragma foreign_code("MC++", 
+	discard_trail_ticket, [will_not_call_mercury],
+"
+#ifdef MR_USE_TRAIL
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 #endif
 ").
 
@@ -836,12 +882,13 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 % Swap the heap with the solutions heap
 %
 :- impure pred swap_heap_and_solutions_heap is det.
-:- pragma c_code(swap_heap_and_solutions_heap,
+:- pragma foreign_code("C", 
+	swap_heap_and_solutions_heap,
 	will_not_call_mercury,
 "
 #ifndef CONSERVATIVE_GC
     {
-	MemoryZone *temp_zone;
+	MR_MemoryZone *temp_zone;
 	MR_Word *temp_hp;
 
 	temp_zone = MR_ENGINE(heap_zone);
@@ -852,6 +899,18 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 	MR_sol_hp = temp_hp;
     }
 #endif
+").
+:- pragma foreign_code("MC++", 
+	swap_heap_and_solutions_heap,
+	will_not_call_mercury,
+"
+	/*
+	** For the .NET back-end, we use the system heap, rather
+	** than defining our own heaps.  So we don't need to
+	** worry about swapping them.  Hence do nothing here.
+	*/
+
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 ").
 
 %
@@ -864,7 +923,7 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 :-        mode partial_deep_copy(in, mdi, muo) is det.
 :-        mode partial_deep_copy(in, in, out) is det.
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 
 #include ""mercury_deep_copy.h""
 
@@ -878,35 +937,60 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 #else
   /*
   ** Note that we need to save/restore the MR_hp register, if it
-  ** is transient, before/after calling deep_copy().
+  ** is transient, before/after calling MR_deep_copy().
   */
   #define MR_PARTIAL_DEEP_COPY(SolutionsHeapPtr,			\\
   		OldVar, NewVal, TypeInfo_for_T)				\\
   	do {								\\
-		save_transient_hp();					\\
-		NewVal = deep_copy(&OldVal, (MR_TypeInfo) TypeInfo_for_T,\\
+		MR_save_transient_hp();					\\
+		NewVal = MR_deep_copy(&OldVal, (MR_TypeInfo) TypeInfo_for_T,\\
 				(const MR_Word *) SolutionsHeapPtr,	\\
 				MR_ENGINE(solutions_heap_zone)->top);	\\
-		restore_transient_hp();					\\
+		MR_restore_transient_hp();				\\
 	} while (0)
 #endif
 
 ").
 
-:- pragma c_code(partial_deep_copy(SolutionsHeapPtr::in,
-			OldVal::in, NewVal::out), will_not_call_mercury,
+:- pragma foreign_code("C",
+	partial_deep_copy(SolutionsHeapPtr::in,
+		OldVal::in, NewVal::out), will_not_call_mercury,
 "
 	MR_PARTIAL_DEEP_COPY(SolutionsHeapPtr, OldVal, NewVal, TypeInfo_for_T);
 ").
-:- pragma c_code(partial_deep_copy(SolutionsHeapPtr::in,
-			OldVal::mdi, NewVal::muo), will_not_call_mercury,
+:- pragma foreign_code("C", 
+	partial_deep_copy(SolutionsHeapPtr::in,
+		OldVal::mdi, NewVal::muo), will_not_call_mercury,
 "
 	MR_PARTIAL_DEEP_COPY(SolutionsHeapPtr, OldVal, NewVal, TypeInfo_for_T);
 ").
-:- pragma c_code(partial_deep_copy(SolutionsHeapPtr::in,
-			OldVal::di, NewVal::uo), will_not_call_mercury,
+:- pragma foreign_code("C", partial_deep_copy(SolutionsHeapPtr::in,
+		OldVal::di, NewVal::uo), will_not_call_mercury,
 "
 	MR_PARTIAL_DEEP_COPY(SolutionsHeapPtr, OldVal, NewVal, TypeInfo_for_T);
+").
+
+:- pragma foreign_code("MC++",
+	partial_deep_copy(_SolutionsHeapPtr::in,
+		OldVal::in, NewVal::out), will_not_call_mercury,
+"
+	/*
+	** For the IL back-end, we don't do heap reclamation on failure,
+	** so we don't need to worry about making deep copies here.
+	** Shallow copies will suffice.
+	*/
+	NewVal = OldVal;
+").
+:- pragma foreign_code("MC++", 
+	partial_deep_copy(_SolutionsHeapPtr::in,
+		OldVal::mdi, NewVal::muo), will_not_call_mercury,
+"
+	NewVal = OldVal;
+").
+:- pragma foreign_code("MC++", partial_deep_copy(_SolutionsHeapPtr::in,
+		OldVal::di, NewVal::uo), will_not_call_mercury,
+"
+	NewVal = OldVal;
 ").
 
 %
@@ -916,12 +1000,23 @@ do_while(GeneratorPred, CollectorPred, Accumulator0, Accumulator) :-
 %	heap since that value was obtained via get_registers/3.
 %
 :- impure pred reset_solutions_heap(heap_ptr::in) is det.
-:- pragma c_code(reset_solutions_heap(SolutionsHeapPtr::in),
+:- pragma foreign_code("C", 
+	reset_solutions_heap(SolutionsHeapPtr::in),
 	will_not_call_mercury,
 "
 #ifndef CONSERVATIVE_GC
 	MR_sol_hp = SolutionsHeapPtr;
 #endif
+").
+
+:- pragma foreign_code("MC++", 
+	reset_solutions_heap(_SolutionsHeapPtr::in),
+	will_not_call_mercury,
+"
+	/*
+	** For the IL back-end, we don't have a separate `solutions heap'.
+	** Hence this operation is a NOP.
+	*/
 ").
 
 %-----------------------------------------------------------------------------%
@@ -960,27 +1055,53 @@ XXX `ui' modes don't work yet
 :- type mutvar(T) ---> mutvar(c_pointer).
 
 :- pragma inline(new_mutvar/2).
-:- pragma c_code(new_mutvar(X::in, Ref::out), will_not_call_mercury,
+:- pragma foreign_code("C", new_mutvar(X::in, Ref::out), will_not_call_mercury,
 "
-	incr_hp_msg(Ref, 1, MR_PROC_LABEL, ""std_util:mutvar/1"");
+	MR_incr_hp_msg(Ref, 1, MR_PROC_LABEL, ""std_util:mutvar/1"");
 	*(MR_Word *) Ref = X;
 ").
-:- pragma c_code(new_mutvar(X::di, Ref::uo), will_not_call_mercury,
+:- pragma foreign_code("C", new_mutvar(X::di, Ref::uo), will_not_call_mercury,
 "
-	incr_hp_msg(Ref, 1, MR_PROC_LABEL, ""std_util:mutvar/1"");
+	MR_incr_hp_msg(Ref, 1, MR_PROC_LABEL, ""std_util:mutvar/1"");
 	*(MR_Word *) Ref = X;
 ").
 
 :- pragma inline(get_mutvar/2).
-:- pragma c_code(get_mutvar(Ref::in, X::uo), will_not_call_mercury,
+:- pragma foreign_code("C", get_mutvar(Ref::in, X::uo), will_not_call_mercury,
 "
 	X = *(MR_Word *) Ref;
 ").
 
 :- pragma inline(set_mutvar/2).
-:- pragma c_code(set_mutvar(Ref::in, X::in), will_not_call_mercury, "
+:- pragma foreign_code("C", set_mutvar(Ref::in, X::in), will_not_call_mercury, "
 	*(MR_Word *) Ref = X;
 ").
+
+:- pragma foreign_code("MC++", 
+	new_mutvar(_X::in, _Ref::out), will_not_call_mercury,
+"
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+:- pragma foreign_code("MC++", 
+	new_mutvar(_X::di, _Ref::uo), will_not_call_mercury,
+"
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+
+:- pragma inline(get_mutvar/2).
+:- pragma foreign_code("MC++",
+	get_mutvar(_Ref::in, _X::uo), will_not_call_mercury,
+"
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+
+:- pragma inline(set_mutvar/2).
+:- pragma foreign_code("MC++",
+	set_mutvar(_Ref::in, _X::in), will_not_call_mercury,
+"
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+
 
 %%% end_module mutvar.
 
@@ -1030,16 +1151,31 @@ unsorted_aggregate(Generator, Accumulator, Acc0, Acc) :-
 % to make sure that the compiler doesn't issue any determinism warnings
 % for them.
 
-:- pragma c_code(semidet_succeed, [will_not_call_mercury, thread_safe],
+:- pragma foreign_code("C", semidet_succeed, 
+		[will_not_call_mercury, thread_safe],
 		"SUCCESS_INDICATOR = TRUE;").
-:- pragma c_code(semidet_fail, [will_not_call_mercury, thread_safe],
+:- pragma foreign_code("C", semidet_fail, [will_not_call_mercury, thread_safe],
 		"SUCCESS_INDICATOR = FALSE;").
-:- pragma c_code(cc_multi_equal(X::in, Y::out),
+:- pragma foreign_code("C", cc_multi_equal(X::in, Y::out),
                [will_not_call_mercury, thread_safe],
 		"Y = X;").
-:- pragma c_code(cc_multi_equal(X::di, Y::uo),
+:- pragma foreign_code("C", cc_multi_equal(X::di, Y::uo),
                [will_not_call_mercury, thread_safe],
 		"Y = X;").
+
+:- pragma foreign_code("MC++", semidet_succeed, 
+		[will_not_call_mercury, thread_safe],
+		"SUCCESS_INDICATOR = TRUE;").
+:- pragma foreign_code("MC++", semidet_fail, 
+		[will_not_call_mercury, thread_safe],
+		"SUCCESS_INDICATOR = FALSE;").
+:- pragma foreign_code("MC++", cc_multi_equal(X::in, Y::out),
+               [will_not_call_mercury, thread_safe],
+		"Y = X;").
+:- pragma foreign_code("MC++", cc_multi_equal(X::di, Y::uo),
+               [will_not_call_mercury, thread_safe],
+		"Y = X;").
+
 
 %-----------------------------------------------------------------------------%
 
@@ -1062,24 +1198,31 @@ det_univ_to_type(Univ, X) :-
 		error(ErrorString)
 	).
 
-:- pragma c_code(univ_value(Univ::in) = (Value::out), will_not_call_mercury, "
+:- pragma foreign_code("C", univ_value(Univ::in) = (Value::out), will_not_call_mercury, "
     MR_TypeInfo typeinfo;
 
     MR_unravel_univ(Univ, typeinfo, Value);
     TypeInfo_for_T = (MR_Word) typeinfo;
 ").
 
-:- pragma c_header_code("
+:- pragma foreign_code("MC++", 
+	univ_value(_Univ::in) = (_Value::out), will_not_call_mercury,
+"
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+
+
+:- pragma foreign_decl("C", "
 /*
 **	`univ' is represented as a two word structure.
 **	One word contains the address of a type_info for the type.
 **	The other word contains the data.
-**	The offsets UNIV_OFFSET_FOR_TYPEINFO and UNIV_OFFSET_FOR_DATA
-**	are defined in runtime/type_info.h.
+**	The offsets MR_UNIV_OFFSET_FOR_TYPEINFO and MR_UNIV_OFFSET_FOR_DATA
+**	are defined in runtime/mercury_type_info.h.
 */
 
 #include ""mercury_type_info.h""
-#include ""mercury_heap.h""	/* for incr_hp_msg() etc. */
+#include ""mercury_heap.h""	/* for MR_incr_hp_msg() etc. */
 #include ""mercury_misc.h""	/* for MR_fatal_error() */
 #include ""mercury_string.h""	/* for MR_make_aligned_string() */
 
@@ -1094,41 +1237,91 @@ det_univ_to_type(Univ, X) :-
 	% Allocate heap space, set the first field to contain the address
 	% of the type_info for this type, and then store the input argument
 	% in the second field.
-:- pragma c_code(type_to_univ(Value::di, Univ::uo), will_not_call_mercury, "
-    incr_hp_msg(Univ, 2, MR_PROC_LABEL, ""std_util:univ/0"");
-    MR_define_univ_fields(Univ, TypeInfo_for_T, Value);
+:- pragma foreign_code("C",
+	type_to_univ(Value::di, Univ::uo), will_not_call_mercury,
+"
+	MR_incr_hp_msg(Univ, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+	MR_define_univ_fields(Univ, TypeInfo_for_T, Value);
 ").
-:- pragma c_code(type_to_univ(Value::in, Univ::out), will_not_call_mercury, "
-    incr_hp_msg(Univ, 2, MR_PROC_LABEL, ""std_util:univ/0"");
-    MR_define_univ_fields(Univ, TypeInfo_for_T, Value);
+:- pragma foreign_code("C", 
+	type_to_univ(Value::in, Univ::out), will_not_call_mercury,
+"
+	MR_incr_hp_msg(Univ, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+	MR_define_univ_fields(Univ, TypeInfo_for_T, Value);
 ").
 
 	% Backward mode - convert from univ to type.
 	% We check that type_infos compare equal.
 	% The variable `TypeInfo_for_T' used in the C code
 	% is the compiler-introduced type-info variable.
-:- pragma c_code(type_to_univ(Value::out, Univ::in), will_not_call_mercury, "{
+:- pragma foreign_code("C",
+	type_to_univ(Value::out, Univ::in), will_not_call_mercury, 
+"{
 	MR_Word	univ_type_info;
 	int	    comp;
 
-	univ_type_info = MR_field(MR_mktag(0), Univ, UNIV_OFFSET_FOR_TYPEINFO);
-	save_transient_registers();
+	univ_type_info = MR_field(MR_mktag(0), Univ,
+			MR_UNIV_OFFSET_FOR_TYPEINFO);
+	MR_save_transient_registers();
 	comp = MR_compare_type_info((MR_TypeInfo) univ_type_info,
 		(MR_TypeInfo) TypeInfo_for_T);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 	if (comp == MR_COMPARE_EQUAL) {
-		Value = MR_field(MR_mktag(0), Univ, UNIV_OFFSET_FOR_DATA);
+		Value = MR_field(MR_mktag(0), Univ,
+				MR_UNIV_OFFSET_FOR_DATA);
 		SUCCESS_INDICATOR = TRUE;
 	} else {
 		SUCCESS_INDICATOR = FALSE;
 	}
 }").
 
-:- pragma c_code(univ_type(Univ::in) = (TypeInfo::out), will_not_call_mercury, "
-	TypeInfo = MR_field(MR_mktag(0), Univ, UNIV_OFFSET_FOR_TYPEINFO);
+:- pragma foreign_code("C", univ_type(Univ::in) = (TypeInfo::out),
+		will_not_call_mercury, 
+"
+	TypeInfo = MR_field(MR_mktag(0), Univ, MR_UNIV_OFFSET_FOR_TYPEINFO);
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("MC++",
+	type_to_univ(Value::di, Univ::uo), will_not_call_mercury,
+"
+        MR_untagged_newobj(Univ, 2);
+        MR_objset(Univ, 0, TypeInfo_for_T);
+        MR_objset(Univ, 1, Value);
+").
+:- pragma foreign_code("MC++", 
+	type_to_univ(Value::in, Univ::out), will_not_call_mercury,
+"
+        MR_untagged_newobj(Univ, 2);
+        MR_objset(Univ, 0, TypeInfo_for_T);
+        MR_objset(Univ, 1, Value);
+").
+
+	% Backward mode - convert from univ to type.
+	% We check that type_infos compare equal.
+	% The variable `TypeInfo_for_T' used in the C code
+	% is the compiler-introduced type-info variable.
+:- pragma foreign_code("MC++",
+	type_to_univ(Value::out, Univ::in), will_not_call_mercury, "
+{
+	MR_Word univ_type_info = Value->GetValue(0);
+	if (MR_compare_type_info(TypeInfo_for_T, univ_type_info)
+			== MR_COMPARE_EQUAL) {
+		MR_Box UnivValue = Univ->GetValue(1);
+		Value = UnivValue;
+		SUCCESS_INDICATOR = TRUE;
+        } else {
+		SUCCESS_INDICATOR = FALSE;
+	}
+}").
+
+:- pragma foreign_code("MC++", univ_type(Univ::in) = (TypeInfo::out),
+		will_not_call_mercury, 
+"
+        TypeInfo = Univ->GetValue(0);
+").
+
+
+:- pragma foreign_code("C", "
 
 #ifdef MR_HIGHLEVEL_CODE
 void sys_init_unify_univ_module(void); /* suppress gcc -Wmissing-decl warning */
@@ -1140,27 +1333,16 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, type_desc, 0,
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, univ, 0,
 	MR_TYPECTOR_REP_UNIV);
 
-#ifndef	COMPACT_ARGS
+MR_define_extern_entry(mercury____Unify___std_util__type_desc_0_0);
+MR_define_extern_entry(mercury____Compare___std_util__type_desc_0_0);
 
-Declare_label(mercury____Compare___std_util__univ_0_0_i1);
-
-MR_MAKE_PROC_LAYOUT(mercury____Compare___std_util__univ_0_0,
-	MR_DETISM_DET, 1, MR_LONG_LVAL_STACKVAR(1),
-	MR_PREDICATE, ""std_util"", ""compare_univ"", 3, 0);
-MR_MAKE_INTERNAL_LAYOUT(mercury____Compare___std_util__univ_0_0, 1);
-
-#endif
-
-Define_extern_entry(mercury____Unify___std_util__type_desc_0_0);
-Define_extern_entry(mercury____Compare___std_util__type_desc_0_0);
-
-BEGIN_MODULE(unify_univ_module)
-	init_entry(mercury____Unify___std_util__univ_0_0);
-	init_entry(mercury____Compare___std_util__univ_0_0);
-	init_entry(mercury____Unify___std_util__type_desc_0_0);
-	init_entry(mercury____Compare___std_util__type_desc_0_0);
-BEGIN_CODE
-Define_entry(mercury____Unify___std_util__univ_0_0);
+MR_BEGIN_MODULE(unify_univ_module)
+	MR_init_entry(mercury____Unify___std_util__univ_0_0);
+	MR_init_entry(mercury____Compare___std_util__univ_0_0);
+	MR_init_entry(mercury____Unify___std_util__type_desc_0_0);
+	MR_init_entry(mercury____Compare___std_util__type_desc_0_0);
+MR_BEGIN_CODE
+MR_define_entry(mercury____Unify___std_util__univ_0_0);
 {
 	/*
 	** Unification for univ.
@@ -1174,15 +1356,15 @@ Define_entry(mercury____Unify___std_util__univ_0_0);
 	univ2 = r2;
 
 	/* First check the type_infos compare equal */
-	typeinfo1 = MR_field(MR_mktag(0), univ1, UNIV_OFFSET_FOR_TYPEINFO);
-	typeinfo2 = MR_field(MR_mktag(0), univ2, UNIV_OFFSET_FOR_TYPEINFO);
-	save_transient_registers();
+	typeinfo1 = MR_field(MR_mktag(0), univ1, MR_UNIV_OFFSET_FOR_TYPEINFO);
+	typeinfo2 = MR_field(MR_mktag(0), univ2, MR_UNIV_OFFSET_FOR_TYPEINFO);
+	MR_save_transient_registers();
 	comp = MR_compare_type_info((MR_TypeInfo) typeinfo1,
 		(MR_TypeInfo) typeinfo2);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 	if (comp != MR_COMPARE_EQUAL) {
 		r1 = FALSE;
-		proceed();
+		MR_proceed();
 	}
 
 	/*
@@ -1190,16 +1372,16 @@ Define_entry(mercury____Unify___std_util__univ_0_0);
 	** unwrapped args
 	*/
 	r1 = typeinfo1;
-	r2 = MR_field(MR_mktag(0), univ1, UNIV_OFFSET_FOR_DATA);
-	r3 = MR_field(MR_mktag(0), univ2, UNIV_OFFSET_FOR_DATA);
+	r2 = MR_field(MR_mktag(0), univ1, MR_UNIV_OFFSET_FOR_DATA);
+	r3 = MR_field(MR_mktag(0), univ2, MR_UNIV_OFFSET_FOR_DATA);
 	{
-		Declare_entry(mercury__unify_2_0);
-		tailcall(ENTRY(mercury__unify_2_0),
-			LABEL(mercury____Unify___std_util__univ_0_0));
+		MR_declare_entry(mercury__unify_2_0);
+		MR_tailcall(MR_ENTRY(mercury__unify_2_0),
+			MR_LABEL(mercury____Unify___std_util__univ_0_0));
 	}
 }
 
-Define_entry(mercury____Compare___std_util__univ_0_0);
+MR_define_entry(mercury____Compare___std_util__univ_0_0);
 {
 	/*
 	** Comparison for univ:
@@ -1213,15 +1395,15 @@ Define_entry(mercury____Compare___std_util__univ_0_0);
 	univ2 = r2;
 
 	/* First compare the type_infos */
-	typeinfo1 = MR_field(MR_mktag(0), univ1, UNIV_OFFSET_FOR_TYPEINFO);
-	typeinfo2 = MR_field(MR_mktag(0), univ2, UNIV_OFFSET_FOR_TYPEINFO);
-	save_transient_registers();
+	typeinfo1 = MR_field(MR_mktag(0), univ1, MR_UNIV_OFFSET_FOR_TYPEINFO);
+	typeinfo2 = MR_field(MR_mktag(0), univ2, MR_UNIV_OFFSET_FOR_TYPEINFO);
+	MR_save_transient_registers();
 	comp = MR_compare_type_info((MR_TypeInfo) typeinfo1,
 		(MR_TypeInfo) typeinfo2);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 	if (comp != MR_COMPARE_EQUAL) {
 		r1 = comp;
-		proceed();
+		MR_proceed();
 	}
 
 	/*
@@ -1230,50 +1412,50 @@ Define_entry(mercury____Compare___std_util__univ_0_0);
 	*/
 
 	r1 = typeinfo1;
-	r2 = MR_field(MR_mktag(0), univ1, UNIV_OFFSET_FOR_DATA);
-	r3 = MR_field(MR_mktag(0), univ2, UNIV_OFFSET_FOR_DATA);
+	r2 = MR_field(MR_mktag(0), univ1, MR_UNIV_OFFSET_FOR_DATA);
+	r3 = MR_field(MR_mktag(0), univ2, MR_UNIV_OFFSET_FOR_DATA);
 	{
-		Declare_entry(mercury__compare_3_0);
-		tailcall(ENTRY(mercury__compare_3_0),
-			LABEL(mercury____Compare___std_util__univ_0_0));
+		MR_declare_entry(mercury__compare_3_0);
+		MR_tailcall(MR_ENTRY(mercury__compare_3_0),
+			MR_LABEL(mercury____Compare___std_util__univ_0_0));
 	}
 }
 
-Define_entry(mercury____Unify___std_util__type_desc_0_0);
+MR_define_entry(mercury____Unify___std_util__type_desc_0_0);
 {
 	/*
 	** Unification for type_desc.
 	*/
 	int	comp;
 
-	save_transient_registers();
-	comp = MR_compare_type_info((MR_TypeInfo) r1, (MR_TypeInfo) r2);
-	restore_transient_registers();
-	r1 = (comp == MR_COMPARE_EQUAL);
-	proceed();
+	MR_save_transient_registers();
+	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
+	MR_restore_transient_registers();
+	MR_r1 = (comp == MR_COMPARE_EQUAL);
+	MR_proceed();
 }
 
-Define_entry(mercury____Compare___std_util__type_desc_0_0);
+MR_define_entry(mercury____Compare___std_util__type_desc_0_0);
 {
 	/*
 	** Comparison for type_desc.
 	*/
 	int	comp;
 
-	save_transient_registers();
-	comp = MR_compare_type_info((MR_TypeInfo) r1, (MR_TypeInfo) r2);
-	restore_transient_registers();
-	r1 = comp;
-	proceed();
+	MR_save_transient_registers();
+	comp = MR_compare_type_info((MR_TypeInfo) MR_r1, (MR_TypeInfo) MR_r2);
+	MR_restore_transient_registers();
+	MR_r1 = comp;
+	MR_proceed();
 }
 
-END_MODULE
+MR_END_MODULE
 
 /* Ensure that the initialization code for the above module gets run. */
 /*
 INIT sys_init_unify_univ_module
 */
-MR_MODULE_STATIC_OR_EXTERN ModuleFunc unify_univ_module;
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc unify_univ_module;
 void sys_init_unify_univ_module(void); /* suppress gcc -Wmissing-decl warning */
 void sys_init_unify_univ_module(void) {
 	unify_univ_module();
@@ -1295,13 +1477,90 @@ void sys_init_unify_univ_module(void) {
 
 ").
 
+:- pragma foreign_code("MC++", "
+
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, univ, 0, MR_TYPECTOR_REP_UNIV)
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(std_util, type_desc, 0, 
+        MR_TYPECTOR_REP_C_POINTER)
+
+static int MR_compare_type_info(MR_TypeInfo x, MR_TypeInfo y) {
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	return 0;
+}
+
+static int
+__Unify____univ_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::SORRY(""unify for univ"");
+	return 0;
+}
+
+static int
+__Unify____type_desc_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::SORRY(""unify for type_desc"");
+	return 0;
+}
+
+static void
+__Compare____univ_0_0(MR_Word_Ref result,
+MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::SORRY(""compare for univ"");
+}
+
+static void
+__Compare____type_desc_0_0(
+    MR_Word_Ref result, MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+
+static int
+do_unify__univ_0_0(MR_Box x, MR_Box y)
+{
+	return mercury::std_util__c_code::__Unify____univ_0_0(
+		dynamic_cast<MR_Word>(x),
+		dynamic_cast<MR_Word>(y));
+}
+
+static int
+do_unify__type_desc_0_0(MR_Box x, MR_Box y)
+{
+    return mercury::std_util__c_code::__Unify____type_desc_0_0(
+	    dynamic_cast<MR_Word>(x),
+	    dynamic_cast<MR_Word>(y));
+}
+
+static void
+do_compare__univ_0_0(MR_Word_Ref result,
+    MR_Box x, MR_Box y)
+{
+    mercury::std_util__c_code::__Compare____univ_0_0(
+	    result,
+	    dynamic_cast<MR_Word>(x),
+	    dynamic_cast<MR_Word>(y));
+}
+
+static void
+do_compare__type_desc_0_0(
+    MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+    mercury::std_util__c_code::__Compare____type_desc_0_0(
+	    result,
+	    dynamic_cast<MR_Word>(x),
+	    dynamic_cast<MR_Word>(y));
+}
+
+").
+
 %-----------------------------------------------------------------------------%
 
 	% Code for type manipulation.
 
 	% Prototypes and type definitions.
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 
 /* The `#ifndef ... #define ... #endif' guards against multiple inclusion */
 #ifndef ML_TYPECTORDESC_GUARD
@@ -1324,7 +1583,7 @@ void sys_init_unify_univ_module(void) {
 ** tuple, plus one encodes a predicate, plus two encodes a function.
 ** The maximum arity that can be encoded is given by MR_MAX_VARIABLE_ARITY
 ** (see below).
-** The C type corresponding to std_util:type_ctor_desc is `MR_TypeCtorInfo'.
+** The C type corresponding to std_util:type_ctor_desc is `MR_TypeCtorDesc'.
 */
 
 /*
@@ -1351,7 +1610,7 @@ typedef struct MR_TypeCtorDesc_Struct *MR_TypeCtorDesc;
 ** type_ctor_info pointers. This still allows higher-order terms with
 ** 1024 arguments, which is more than ../LIMITATIONS promises.
 */
-#define MR_MAX_VARIABLE_ARITY         MAX_VIRTUAL_REG
+#define MR_MAX_VARIABLE_ARITY         MR_MAX_VIRTUAL_REG
 
 /*
 ** Constructors for the MR_TypeCtorDesc ADT
@@ -1408,7 +1667,7 @@ typedef struct MR_TypeCtorDesc_Struct *MR_TypeCtorDesc;
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 
 /* The `#ifndef ... #define ... #endif' guards against multiple inclusion */
 #ifndef ML_CONSTRUCT_INFO_GUARD
@@ -1450,12 +1709,11 @@ extern  MR_TypeInfo	    ML_make_type(int arity, MR_TypeCtorDesc type_ctor_desc,
 				             MR_Word arg_type_list);
 ").
 
-	% A type_ctor_desc is really just a subtype of type_desc,
-	% but we hide this from users, since it is an implementation
-	% detail.
-:- type type_ctor_desc == type_desc.
+	% A type_ctor_desc is not (quite) a subtype of type_desc,
+	% so we use a separate type for it.
+:- type type_ctor_desc ---> type_ctor_desc(c_pointer).
 
-:- pragma c_code(type_of(_Value::unused) = (TypeInfo::out),
+:- pragma foreign_code("C", type_of(_Value::unused) = (TypeInfo::out),
 	will_not_call_mercury, "
 {
 	TypeInfo = TypeInfo_for_T;
@@ -1467,16 +1725,30 @@ extern  MR_TypeInfo	    ML_make_type(int arity, MR_TypeCtorDesc type_ctor_desc,
 	** probably isn't very important anyway.
 	*/
 #if 0
-	save_transient_registers();
+	MR_save_transient_registers();
 	TypeInfo = (MR_Word) MR_collapse_equivalences(
 		(MR_TypeInfo) TypeInfo_for_T);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 #endif
 
 }
 ").
 
-:- pragma c_code(has_type(_Arg::unused, TypeInfo::in), will_not_call_mercury, "
+:- pragma foreign_code("MC++", type_of(_Value::unused) = (TypeInfo::out),
+	will_not_call_mercury, "
+{
+	TypeInfo = TypeInfo_for_T;
+}
+").
+
+
+:- pragma foreign_code("C", 
+	has_type(_Arg::unused, TypeInfo::in), will_not_call_mercury, "
+	TypeInfo_for_T = TypeInfo;
+").
+
+:- pragma foreign_code("MC++", 
+	has_type(_Arg::unused, TypeInfo::in), will_not_call_mercury, "
 	TypeInfo_for_T = TypeInfo;
 ").
 
@@ -1511,7 +1783,13 @@ type_name(Type) = TypeName :-
 				UnqualifiedTypeName)
 		;
 			type_arg_names(ArgTypes, IsFunc, ArgTypeNames),
-			string__append_list([Name, "(" | ArgTypeNames],
+			( IsFunc = no ->
+				list__append(ArgTypeNames, [")"], TypeStrings0)
+			;
+				TypeStrings0 = ArgTypeNames
+			),
+			TypeNameStrings = [Name, "(" | TypeStrings0],
+			string__append_list(TypeNameStrings,
 				UnqualifiedTypeName)
 		)
 	),
@@ -1522,6 +1800,14 @@ type_name(Type) = TypeName :-
 			UnqualifiedTypeName], TypeName)
 	).
 
+
+	% Turn the types into a list of strings representing an argument
+	% list, adding commas as separators as required.  For example:
+	% 	["TypeName1", ",", "TypeName2"]
+	% If formatting a function type, we close the parentheses around
+	% the function's input parameters, e.g.
+	% 	["TypeName1", ",", "TypeName2", ") = ", "ReturnTypeName"]
+	% It is the caller's reponsibility to add matching parentheses.
 :- pred type_arg_names(list(type_desc), bool, list(string)).
 :- mode type_arg_names(in, in, out) is det.
 
@@ -1529,7 +1815,7 @@ type_arg_names([], _, []).
 type_arg_names([Type|Types], IsFunc, ArgNames) :-
 	Name = type_name(Type),
 	( Types = [] ->
-		ArgNames = [Name, ")"]
+		ArgNames = [Name]
 	; IsFunc = yes, Types = [FuncReturnType] ->
 		FuncReturnName = type_name(FuncReturnType),
 		ArgNames = [Name, ") = ", FuncReturnName]
@@ -1557,15 +1843,15 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 		error("det_make_type/2: make_type/2 failed (wrong arity)")
 	).
 
-:- pragma c_code(type_ctor(TypeInfo::in) = (TypeCtor::out),
+:- pragma foreign_code("C", type_ctor(TypeInfo::in) = (TypeCtor::out),
 	will_not_call_mercury, "
 {
 	MR_TypeCtorInfo type_ctor_info;
 	MR_TypeInfo	type_info;
 
-	save_transient_registers();
+	MR_save_transient_registers();
 	type_info = MR_collapse_equivalences((MR_TypeInfo) TypeInfo);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 
 	type_ctor_info = MR_TYPEINFO_GET_TYPE_CTOR_INFO(type_info);
 
@@ -1573,14 +1859,22 @@ det_make_type(TypeCtor, ArgTypes) = Type :-
 }
 ").
 
-:- pragma c_header_code("
+:- pragma foreign_code("MC++", type_ctor(_TypeInfo::in) = (_TypeCtor::out),
+	will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+
+:- pragma foreign_decl("C", "
 
 extern	MR_TypeCtorDesc ML_make_type_ctor_desc(MR_TypeInfo type_info,
 				MR_TypeCtorInfo type_ctor_info);
 
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 
 MR_TypeCtorDesc
 ML_make_type_ctor_desc(MR_TypeInfo type_info, MR_TypeCtorInfo type_ctor_info)
@@ -1617,7 +1911,7 @@ ML_make_type_ctor_desc(MR_TypeInfo type_info, MR_TypeCtorInfo type_ctor_info)
 }
 
 /*
-** You need to wrap save/restore_transient_registers() around
+** You need to wrap MR_{save/restore}_transient_registers() around
 ** calls to this function.
 */
 
@@ -1650,19 +1944,26 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 }
 ").
 
-:- pragma c_code(type_ctor_and_args(TypeDesc::in,
+:- pragma foreign_code("C", type_ctor_and_args(TypeDesc::in,
 		TypeCtorDesc::out, ArgTypes::out), will_not_call_mercury, "
 {
 	MR_TypeCtorDesc type_ctor_desc;
 	MR_TypeInfo	type_info;
 
-	save_transient_registers();
+	MR_save_transient_registers();
 
 	type_info = (MR_TypeInfo) TypeDesc;
 	ML_type_ctor_and_args(type_info, TRUE, &type_ctor_desc, &ArgTypes);
 	TypeCtorDesc = (MR_Word) type_ctor_desc;
 
-	restore_transient_registers();
+	MR_restore_transient_registers();
+}
+").
+
+:- pragma foreign_code("MC++", type_ctor_and_args(_TypeDesc::in,
+		_TypeCtorDesc::out, _ArgTypes::out), will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
 }
 ").
 
@@ -1675,7 +1976,8 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 	** a new type with the specified arguments.
 	*/
 
-:- pragma c_code(make_type(TypeCtorDesc::in, ArgTypes::in) = (TypeDesc::out),
+:- pragma foreign_code("C", 
+	make_type(TypeCtorDesc::in, ArgTypes::in) = (TypeDesc::out),
 		will_not_call_mercury, "
 {
 	MR_TypeCtorDesc type_ctor_desc;
@@ -1702,13 +2004,23 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 	if (list_length != arity) {
 		SUCCESS_INDICATOR = FALSE;
 	} else {
-		save_transient_registers();
-		TypeDesc = (MR_Word) ML_make_type(arity, type_ctor_desc, ArgTypes);
-		restore_transient_registers();
+		MR_save_transient_registers();
+		TypeDesc = (MR_Word) ML_make_type(arity, type_ctor_desc,
+			ArgTypes);
+		MR_restore_transient_registers();
 		SUCCESS_INDICATOR = TRUE;
 	}
 }
 ").
+
+:- pragma foreign_code("MC++", 
+	make_type(_TypeCtorDesc::in, _ArgTypes::in) = (_TypeDesc::out),
+		will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
 
 	/*
 	** This is the reverse mode of make_type: given a type,
@@ -1716,23 +2028,24 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 	** arguments.
 	*/
 
-:- pragma c_code(make_type(TypeCtorDesc::out, ArgTypes::out) = (TypeDesc::in),
+:- pragma foreign_code("C", 
+	make_type(TypeCtorDesc::out, ArgTypes::out) = (TypeDesc::in),
 		will_not_call_mercury, "
 {
 	MR_TypeCtorDesc type_ctor_desc;
 	MR_TypeInfo	type_info;
 
-	save_transient_registers();
+	MR_save_transient_registers();
 
 	type_info = (MR_TypeInfo) TypeDesc;
 	ML_type_ctor_and_args(type_info, FALSE, &type_ctor_desc, &ArgTypes);
 	TypeCtorDesc = (MR_Word) type_ctor_desc;
 
-	restore_transient_registers();
+	MR_restore_transient_registers();
 }
 ").
 
-:- pragma c_code(type_ctor_name_and_arity(TypeCtorDesc::in,
+:- pragma foreign_code("C", type_ctor_name_and_arity(TypeCtorDesc::in,
 		TypeCtorModuleName::out, TypeCtorName::out, TypeCtorArity::out),
         will_not_call_mercury, "
 {
@@ -1766,16 +2079,16 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 }
 ").
 
-:- pragma c_code(num_functors(TypeInfo::in) = (Functors::out),
+:- pragma foreign_code("C", num_functors(TypeInfo::in) = (Functors::out),
 	will_not_call_mercury, "
 {
-	save_transient_registers();
+	MR_save_transient_registers();
 	Functors = ML_get_num_functors((MR_TypeInfo) TypeInfo);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 }
 ").
 
-:- pragma c_code(get_functor(TypeDesc::in, FunctorNumber::in,
+:- pragma foreign_code("C", get_functor(TypeDesc::in, FunctorNumber::in,
         FunctorName::out, Arity::out, TypeInfoList::out),
     will_not_call_mercury, "
 {
@@ -1792,10 +2105,10 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
         ** type and if the functor number is in range, we
         ** succeed.
         */
-    save_transient_registers();
+    MR_save_transient_registers();
     success = ML_get_functors_check_range(FunctorNumber,
                 type_info, &construct_info);
-    restore_transient_registers();
+    MR_restore_transient_registers();
 
         /*
         ** Get the functor name and arity, construct the list
@@ -1811,25 +2124,26 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
         if (MR_TYPE_CTOR_INFO_IS_TUPLE(
                         MR_TYPEINFO_GET_TYPE_CTOR_INFO(type_info)))
         {
-            save_transient_registers();
+            MR_save_transient_registers();
             TypeInfoList = ML_type_params_vector_to_list(Arity,
                     MR_TYPEINFO_GET_TUPLE_ARG_VECTOR(type_info));
-            restore_transient_registers();
+            MR_restore_transient_registers();
         } else {
-            save_transient_registers();
+            MR_save_transient_registers();
             TypeInfoList = ML_pseudo_type_info_vector_to_type_info_list(
                 arity,
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
                 construct_info.arg_pseudo_type_infos);
-            restore_transient_registers();
+            MR_restore_transient_registers();
         }
     }
     SUCCESS_INDICATOR = success;
 }
 ").
 
-:- pragma c_code(get_functor_ordinal(TypeDesc::in, FunctorNumber::in,
-    Ordinal::out), will_not_call_mercury, "
+:- pragma foreign_code("C", 
+	get_functor_ordinal(TypeDesc::in, FunctorNumber::in,
+		Ordinal::out), will_not_call_mercury, "
 {
     MR_TypeInfo         type_info;
     ML_Construct_Info   construct_info;
@@ -1843,10 +2157,10 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
         ** type and if the functor number is in range, we
         ** succeed.
         */
-    save_transient_registers();
+    MR_save_transient_registers();
     success = ML_get_functors_check_range(FunctorNumber, type_info,
         &construct_info);
-    restore_transient_registers();
+    MR_restore_transient_registers();
 
     if (success) {
         switch (construct_info.type_ctor_rep) {
@@ -1880,8 +2194,9 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
 }
 ").
 
-:- pragma c_code(construct(TypeDesc::in, FunctorNumber::in, ArgList::in) =
-    (Term::out), will_not_call_mercury, "
+:- pragma foreign_code("C", 
+	construct(TypeDesc::in, FunctorNumber::in, ArgList::in) = (Term::out),
+	will_not_call_mercury, "
 {
     MR_TypeInfo         type_info;
     MR_TypeCtorInfo     type_ctor_info;
@@ -1895,12 +2210,12 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
         ** Check range of FunctorNum, get info for this
         ** functor.
         */
-    save_transient_registers();
+    MR_save_transient_registers();
     success =
         ML_get_functors_check_range(FunctorNumber, type_info, &construct_info)
         && ML_typecheck_arguments(type_info, construct_info.arity, ArgList,
                 construct_info.arg_pseudo_type_infos);
-    restore_transient_registers();
+    MR_restore_transient_registers();
 
         /*
         ** Build the new term in `new_data'.
@@ -1934,7 +2249,7 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
             }
 
             new_data = MR_field(MR_mktag(0), MR_list_head(ArgList),
-                UNIV_OFFSET_FOR_DATA);
+                MR_UNIV_OFFSET_FOR_DATA);
             break;
 
         case MR_TYPECTOR_REP_DU:
@@ -1964,7 +2279,7 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
                 case MR_SECTAG_REMOTE:
                     arity = functor_desc->MR_du_functor_orig_arity;
 
-                    tag_incr_hp_msg(new_data, ptag, arity + 1,
+                    MR_tag_incr_hp_msg(new_data, ptag, arity + 1,
                         MR_PROC_LABEL, ""<created by std_util:construct/3>"");
 
                     MR_field(ptag, new_data, 0) =
@@ -1972,7 +2287,7 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
                     for (i = 0; i < arity; i++) {
                         MR_field(ptag, new_data, i + 1) =
                             MR_field(MR_mktag(0), MR_list_head(arg_list),
-                                UNIV_OFFSET_FOR_DATA);
+                                MR_UNIV_OFFSET_FOR_DATA);
                         arg_list = MR_list_tail(arg_list);
                     }
 
@@ -1981,13 +2296,13 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
                 case MR_SECTAG_NONE:
                     arity = functor_desc->MR_du_functor_orig_arity;
 
-                    tag_incr_hp_msg(new_data, ptag, arity,
+                    MR_tag_incr_hp_msg(new_data, ptag, arity,
                         MR_PROC_LABEL, ""<created by std_util:construct/3>"");
 
                     for (i = 0; i < arity; i++) {
                         MR_field(ptag, new_data, i) =
                             MR_field(MR_mktag(0), MR_list_head(arg_list),
-                                UNIV_OFFSET_FOR_DATA);
+                                MR_UNIV_OFFSET_FOR_DATA);
                         arg_list = MR_list_tail(arg_list);
                     }
 
@@ -2010,14 +2325,14 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
                 if (arity == 0) {
                     new_data = (MR_Word) NULL;
                 } else {
-                    incr_hp_msg(new_data, arity, MR_PROC_LABEL,
+                    MR_incr_hp_msg(new_data, arity, MR_PROC_LABEL,
                             ""<created by std_util:construct/3>"");
             
                     arg_list = ArgList;
                     for (i = 0; i < arity; i++) {
                         MR_field(MR_mktag(0), new_data, i) =
                                 MR_field(MR_mktag(0), MR_list_head(arg_list),
-                                    UNIV_OFFSET_FOR_DATA);
+                                    MR_UNIV_OFFSET_FOR_DATA);
                         arg_list = MR_list_tail(arg_list);
                     }
 
@@ -2037,11 +2352,59 @@ ML_type_ctor_and_args(MR_TypeInfo type_info, bool collapse_equivalences,
         ** Create a univ.
         */
 
-        incr_hp_msg(Term, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+        MR_incr_hp_msg(Term, 2, MR_PROC_LABEL, ""std_util:univ/0"");
         MR_define_univ_fields(Term, type_info, new_data);
     }
 
     SUCCESS_INDICATOR = success;
+}
+").
+
+:- pragma foreign_code("MC++", 
+	make_type(_TypeCtorDesc::out, _ArgTypes::out) = (_TypeDesc::in),
+		will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+:- pragma foreign_code("MC++", type_ctor_name_and_arity(_TypeCtorDesc::in,
+		_TypeCtorModuleName::out, _TypeCtorName::out,
+		_TypeCtorArity::out),
+        will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+:- pragma foreign_code("MC++", num_functors(_TypeInfo::in) = (_Functors::out),
+	will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+:- pragma foreign_code("MC++", get_functor(_TypeDesc::in, _FunctorNumber::in,
+        _FunctorName::out, _Arity::out, _TypeInfoList::out),
+		will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+:- pragma foreign_code("MC++", 
+	get_functor_ordinal(_TypeDesc::in, _FunctorNumber::in,
+		_Ordinal::out), will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+:- pragma foreign_code("MC++", 
+	construct(_TypeDesc::in, _FunctorNumber::in,
+		_ArgList::in) = (_Term::out), will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
 }
 ").
 
@@ -2052,8 +2415,8 @@ construct_tuple(Args) =
 
 :- func construct_tuple_2(list(univ), list(type_desc), int) = univ.
 
-:- pragma c_code(construct_tuple_2(Args::in, ArgTypes::in,
-		Arity::in) = (Term::out),
+:- pragma foreign_code("C", 
+	construct_tuple_2(Args::in, ArgTypes::in, Arity::in) = (Term::out),
 		will_not_call_mercury, "
 {
 	MR_TypeInfo type_info;
@@ -2064,10 +2427,10 @@ construct_tuple(Args) =
 	/*
 	** Construct a type_info for the tuple.
 	*/
-	save_transient_registers();
+	MR_save_transient_registers();
 	type_info = ML_make_type(Arity, MR_TYPECTOR_DESC_MAKE_TUPLE(Arity),
 			ArgTypes);
-	restore_transient_registers();
+	MR_restore_transient_registers();
 
 	/*
 	** Create the tuple.
@@ -2075,11 +2438,11 @@ construct_tuple(Args) =
 	if (Arity == 0) {
 		new_data = (MR_Word) NULL;
 	} else {
-		incr_hp_msg(new_data, Arity, MR_PROC_LABEL,
+		MR_incr_hp_msg(new_data, Arity, MR_PROC_LABEL,
 			""<created by std_util:construct_tuple/1>"");
 		for (i = 0; i < Arity; i++) {
 			arg_value = MR_field(MR_mktag(0), MR_list_head(Args),
-					UNIV_OFFSET_FOR_DATA);
+					MR_UNIV_OFFSET_FOR_DATA);
 			MR_field(MR_mktag(0), new_data, i) = arg_value;
 			Args = MR_list_tail(Args);
 		}
@@ -2088,12 +2451,21 @@ construct_tuple(Args) =
 	/*
 	** Create a univ.
 	*/
-	incr_hp_msg(Term, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+	MR_incr_hp_msg(Term, 2, MR_PROC_LABEL, ""std_util:univ/0"");
 	MR_define_univ_fields(Term, type_info, new_data);
 }
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("MC++", 
+	construct_tuple_2(_Args::in, _ArgTypes::in, _Arity::in) = (_Term::out),
+		will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""compare for type_desc"");
+}
+").
+
+
+:- pragma foreign_code("C", "
 
     /*
     ** Prototypes
@@ -2273,7 +2645,7 @@ ML_typecheck_arguments(MR_TypeInfo type_info, int arity, MR_Word arg_list,
         }
 
         list_arg_type_info = (MR_TypeInfo) MR_field(MR_mktag(0),
-            MR_list_head(arg_list), UNIV_OFFSET_FOR_TYPEINFO);
+            MR_list_head(arg_list), MR_UNIV_OFFSET_FOR_TYPEINFO);
 
         if (MR_TYPE_CTOR_INFO_IS_TUPLE(
                 MR_TYPEINFO_GET_TYPE_CTOR_INFO(type_info)))
@@ -2314,7 +2686,7 @@ ML_copy_arguments_from_list_to_vector(int arity, MR_Word arg_list,
     for (i = 0; i < arity; i++) {
         MR_field(MR_mktag(0), term_vector, i) =
             MR_field(MR_mktag(0), MR_list_head(arg_list),
-                UNIV_OFFSET_FOR_DATA);
+                MR_UNIV_OFFSET_FOR_DATA);
         arg_list = MR_list_tail(arg_list);
     }
 }
@@ -2351,11 +2723,11 @@ ML_make_type(int arity, MR_TypeCtorDesc type_ctor_desc, MR_Word arg_types_list)
         type_ctor_info = MR_TYPECTOR_DESC_GET_VA_TYPE_CTOR_INFO(
             type_ctor_desc);
 
-        restore_transient_registers();
-        incr_hp_atomic_msg(LVALUE_CAST(MR_Word, new_type_info_arena),
+        MR_restore_transient_registers();
+        MR_incr_hp_atomic_msg(MR_LVALUE_CAST(MR_Word, new_type_info_arena),
             MR_higher_order_type_info_size(arity),
             ""mercury__std_util__ML_make_type"", ""type_info"");
-        save_transient_registers();
+        MR_save_transient_registers();
         MR_fill_in_higher_order_type_info(new_type_info_arena,
             type_ctor_info, arity, new_type_info_args);
     } else {
@@ -2366,11 +2738,11 @@ ML_make_type(int arity, MR_TypeCtorDesc type_ctor_desc, MR_Word arg_types_list)
             return (MR_TypeInfo) type_ctor_info;
         }
 
-        restore_transient_registers();
-        incr_hp_atomic_msg(LVALUE_CAST(MR_Word, new_type_info_arena),
+        MR_restore_transient_registers();
+        MR_incr_hp_atomic_msg(MR_LVALUE_CAST(MR_Word, new_type_info_arena),
             MR_first_order_type_info_size(arity),
             ""mercury__std_util__ML_make_type"", ""type_info"");
-        save_transient_registers();
+        MR_save_transient_registers();
         MR_fill_in_first_order_type_info(new_type_info_arena,
             type_ctor_info, new_type_info_args);
     }
@@ -2423,7 +2795,7 @@ ML_type_params_vector_to_list(int arity, MR_TypeInfoParams type_params)
     MR_TypeInfo arg_type;
     MR_Word     type_info_list;
 
-    restore_transient_registers();
+    MR_restore_transient_registers();
     type_info_list = MR_list_empty();
 
     while (arity > 0) {
@@ -2431,7 +2803,7 @@ ML_type_params_vector_to_list(int arity, MR_TypeInfoParams type_params)
 		type_info_list);
 	--arity;
     }
-    save_transient_registers();
+    MR_save_transient_registers();
 
     return type_info_list;
 }
@@ -2454,27 +2826,27 @@ ML_pseudo_type_info_vector_to_type_info_list(int arity,
     MR_TypeInfo arg_type;
     MR_Word     type_info_list;
 
-    restore_transient_registers();
+    MR_restore_transient_registers();
     type_info_list = MR_list_empty();
 
     while (--arity >= 0) {
             /* Get the argument type_info */
 
             /* Fill in any polymorphic pseudo type_infos */
-        save_transient_registers();
+        MR_save_transient_registers();
         arg_type = MR_create_type_info(type_params,
             arg_pseudo_type_infos[arity]);
-        restore_transient_registers();
+        MR_restore_transient_registers();
 
             /* Look past any equivalences */
-        save_transient_registers();
+        MR_save_transient_registers();
         arg_type = MR_collapse_equivalences(arg_type);
-        restore_transient_registers();
+        MR_restore_transient_registers();
 
             /* Join the argument to the front of the list */
         type_info_list = MR_list_cons((MR_Word) arg_type, type_info_list);
     }
-    save_transient_registers();
+    MR_save_transient_registers();
 
     return type_info_list;
 }
@@ -2566,7 +2938,7 @@ ML_get_num_functors(MR_TypeInfo type_info)
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 
     #include <stdio.h>
 
@@ -2588,11 +2960,19 @@ ML_get_num_functors(MR_TypeInfo type_info)
     ** non-zero). The arity will always be set.
     **
     ** ML_expand will fill in the other fields (functor, arity,
-    ** arg_values, arg_type_infos, and non_canonical_type)
-    ** accordingly, but
-    ** the values of fields not asked for should be assumed to
-    ** contain random data when ML_expand returns.
-    ** (that is, they should not be relied on to remain unchanged).
+    ** arg_values, arg_type_infos, and non_canonical_type) accordingly,
+    ** but the values of fields not asked for should be assumed to contain
+    ** random data when ML_expand returns (that is, they should not be
+    ** relied on to remain unchanged).
+    **
+    ** The arg_type_infos field will contain a pointer to an array of arity
+    ** MR_TypeInfos, one for each user-visible field of the cell. The
+    ** arg_values field will contain a pointer to an arity + num_extra_args
+    ** MR_Words, one for each field of the cell, whether user-visible or not.
+    ** The first num_extra_args words will be the type infos and/or typeclass
+    ** infos added by the implementation to describe the types of the
+    ** existentially typed fields, while the last arity words will be the
+    ** user-visible fields themselves.
     */
 
 /* The `#ifndef ... #define ... #endif' guards against multiple inclusion */
@@ -2626,9 +3006,15 @@ extern  void    ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 extern  bool    ML_arg(MR_TypeInfo type_info, MR_Word *term, int arg_index,
                     MR_TypeInfo *arg_type_info_ptr, MR_Word **argument_ptr);
 
+    /*
+    ** NB. ML_named_arg_num() is used in mercury_trace_vars.c.
+    */
+extern  bool    ML_named_arg_num(MR_TypeInfo type_info, MR_Word *term_ptr,
+                    const char *arg_name, int *arg_num_ptr);
+
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 
 /*
 ** Expand the given data using its type_info, find its
@@ -2650,12 +3036,12 @@ extern  bool    ML_arg(MR_TypeInfo type_info, MR_Word *term, int arg_index,
 **  ML_expand increments the heap pointer, however, on
 **  some platforms the register windows mean that transient
 **  Mercury registers may be lost. Before calling ML_expand,
-**  call save_transient_registers(), and afterwards, call
-**  restore_transient_registers().
+**  call MR_save_transient_registers(), and afterwards, call
+**  MR_restore_transient_registers().
 **
-**  If writing a C function that calls deep_copy, make sure you
-**  document that around your function, save_transient_registers()
-**  restore_transient_registers() need to be used.
+**  If writing a C function that calls MR_deep_copy, make sure you
+**  document that around your function, MR_save_transient_registers()
+**  MR_restore_transient_registers() need to be used.
 **
 **  If you change this code you will also have reflect any changes in
 **  runtime/mercury_deep_copy_body.h and runtime/mercury_tabling.c
@@ -2850,7 +3236,7 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 
                 data_word = *data_word_ptr;
                 sprintf(buf, ""%ld"", (long) data_word);
-                incr_saved_hp_atomic(LVALUE_CAST(MR_Word, str),
+                MR_incr_saved_hp_atomic(MR_LVALUE_CAST(MR_Word, str),
                     (strlen(buf) + sizeof(MR_Word)) / sizeof(MR_Word));
                 strcpy(str, buf);
                 expand_info->functor = str;
@@ -2869,7 +3255,7 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 char    *str;
 
                 data_word = *data_word_ptr;
-                incr_saved_hp_atomic(LVALUE_CAST(MR_Word, str),
+                MR_incr_saved_hp_atomic(MR_LVALUE_CAST(MR_Word, str),
                     (3 + sizeof(MR_Word)) / sizeof(MR_Word));
                     sprintf(str, ""\'%c\'"", (char) data_word);
                 expand_info->functor = str;
@@ -2888,9 +3274,9 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 char        *str;
 
                 data_word = *data_word_ptr;
-                f = word_to_float(data_word);
+                f = MR_word_to_float(data_word);
                 sprintf(buf, ""%#.15g"", f);
-                incr_saved_hp_atomic(LVALUE_CAST(MR_Word, str),
+                MR_incr_saved_hp_atomic(MR_LVALUE_CAST(MR_Word, str),
                     (strlen(buf) + sizeof(MR_Word)) / sizeof(MR_Word));
                 strcpy(str, buf);
                 expand_info->functor = str;
@@ -2908,7 +3294,7 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                 char    *str;
 
                 data_word = *data_word_ptr;
-                incr_saved_hp_atomic(LVALUE_CAST(MR_Word, str),
+                MR_incr_saved_hp_atomic(MR_LVALUE_CAST(MR_Word, str),
                     (strlen((MR_String) data_word) + 2 + sizeof(MR_Word))
                     / sizeof(MR_Word));
                 sprintf(str, ""%c%s%c"", '""', (MR_String) data_word, '""');
@@ -2959,8 +3345,8 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
                  */
             data_word = *data_word_ptr;
             ML_expand((MR_TypeInfo)
-                ((MR_Word *) data_word)[UNIV_OFFSET_FOR_TYPEINFO],
-                &((MR_Word *) data_word)[UNIV_OFFSET_FOR_DATA], expand_info);
+                ((MR_Word *) data_word)[MR_UNIV_OFFSET_FOR_TYPEINFO],
+                &((MR_Word *) data_word)[MR_UNIV_OFFSET_FOR_DATA], expand_info);
             break;
         }
 
@@ -3112,6 +3498,9 @@ ML_expand(MR_TypeInfo type_info, MR_Word *data_word_ptr,
 ** It takes the address of a term, its type, and an argument index.
 ** If the selected argument exists, it succeeds and returns the address
 ** of the argument, and its type; if it doesn't, it fails (i.e. returns FALSE).
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
 */
 
 bool
@@ -3143,7 +3532,8 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
     success = (arg_index >= 0 && arg_index < expand_info.arity);
     if (success) {
         *arg_type_info_ptr = expand_info.arg_type_infos[arg_index];
-        *arg_ptr = &expand_info.arg_values[arg_index];
+        *arg_ptr = &expand_info.arg_values[
+            arg_index + expand_info.num_extra_args];
     }
 
     /*
@@ -3158,13 +3548,118 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
     return success;
 }
 
+/*
+** ML_named_arg_num() takes the address of a term, its type, and an argument
+** name. If the given term has an argument with the given name, it succeeds and
+** returns the argument number (counted starting from 0) of the argument;
+** if it doesn't, it fails (i.e. returns FALSE).
+**
+** You need to wrap MR_{save/restore}_transient_hp() around
+** calls to this function.
+*/
+
+bool
+ML_named_arg_num(MR_TypeInfo type_info, MR_Word *term_ptr,
+    const char *arg_name, int *arg_num_ptr)
+{
+    MR_TypeCtorInfo             type_ctor_info;
+    const MR_DuPtagLayout       *ptag_layout;
+    const MR_DuFunctorDesc      *functor_desc;
+    const MR_NotagFunctorDesc   *notag_functor_desc;
+    MR_Word                     data;
+    int                         ptag;
+    MR_Word                     sectag;
+    MR_TypeInfo                 eqv_type_info;
+    int                         i;
+
+    type_ctor_info = MR_TYPEINFO_GET_TYPE_CTOR_INFO(type_info);
+
+    switch (type_ctor_info->type_ctor_rep) {
+        case MR_TYPECTOR_REP_DU_USEREQ:
+        case MR_TYPECTOR_REP_DU:
+            data = *term_ptr;
+            ptag = MR_tag(data);
+            ptag_layout = &type_ctor_info->type_layout.layout_du[ptag];
+
+            switch (ptag_layout->MR_sectag_locn) {
+                case MR_SECTAG_NONE:
+                    functor_desc = ptag_layout->MR_sectag_alternatives[0];
+                    break;
+                case MR_SECTAG_LOCAL:
+                    sectag = MR_unmkbody(data);
+                    functor_desc =
+                        ptag_layout->MR_sectag_alternatives[sectag];
+                    break;
+                case MR_SECTAG_REMOTE:
+                    sectag = MR_field(ptag, data, 0);
+                    functor_desc =
+                        ptag_layout->MR_sectag_alternatives[sectag];
+                    break;
+            }
+
+            if (functor_desc->MR_du_functor_arg_names == NULL) {
+                return FALSE;
+            }
+
+            for (i = 0; i < functor_desc->MR_du_functor_orig_arity; i++) {
+                if (functor_desc->MR_du_functor_arg_names[i] != NULL
+                && streq(arg_name, functor_desc->MR_du_functor_arg_names[i]))
+                {
+                    *arg_num_ptr = i;
+                    return TRUE;
+                }
+            }
+
+            return FALSE;
+
+        case MR_TYPECTOR_REP_EQUIV:
+            eqv_type_info = MR_create_type_info(
+                MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
+                type_ctor_info->type_layout.layout_equiv);
+            return ML_named_arg_num(eqv_type_info, term_ptr, arg_name,
+                arg_num_ptr);
+
+        case MR_TYPECTOR_REP_EQUIV_GROUND:
+            eqv_type_info = MR_pseudo_type_info_is_ground(
+                type_ctor_info->type_layout.layout_equiv);
+            return ML_named_arg_num(eqv_type_info, term_ptr, arg_name,
+                arg_num_ptr);
+
+        case MR_TYPECTOR_REP_EQUIV_VAR:
+            /*
+            ** The current version of the RTTI gives all such equivalence types
+            ** the EQUIV type_ctor_rep, not EQUIV_VAR.
+            */
+            MR_fatal_error(""unexpected EQUIV_VAR type_ctor_rep"");
+            break;
+
+        case MR_TYPECTOR_REP_NOTAG:
+        case MR_TYPECTOR_REP_NOTAG_USEREQ:
+        case MR_TYPECTOR_REP_NOTAG_GROUND:
+        case MR_TYPECTOR_REP_NOTAG_GROUND_USEREQ:
+            notag_functor_desc = type_ctor_info->type_functors.functors_notag;
+
+            if (notag_functor_desc->MR_notag_functor_arg_name != NULL
+            && streq(arg_name, notag_functor_desc->MR_notag_functor_arg_name))
+            {
+                *arg_num_ptr = 0;
+                return TRUE;
+            }
+
+            return FALSE;
+
+        default:
+            return FALSE;
+    }
+}
+
 ").
 
 %-----------------------------------------------------------------------------%
 
     % Code for functor, arg and deconstruct.
 
-:- pragma c_code(functor(Term::in, Functor::out, Arity::out),
+:- pragma foreign_code("C", functor(Term::in, Functor::out, Arity::out),
     will_not_call_mercury, "
 {
     MR_TypeInfo     type_info;
@@ -3175,9 +3670,9 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
     expand_info.need_functor = TRUE;
     expand_info.need_args = FALSE;
 
-    save_transient_registers();
+    MR_save_transient_registers();
     ML_expand(type_info, &Term, &expand_info);
-    restore_transient_registers();
+    MR_restore_transient_registers();
 
         /*
         ** Check for attempts to deconstruct a non-canonical type:
@@ -3193,7 +3688,7 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
     }
 
         /* Copy functor onto the heap */
-    MR_make_aligned_string(LVALUE_CAST(MR_ConstString, Functor),
+    MR_make_aligned_string(MR_LVALUE_CAST(MR_ConstString, Functor),
         expand_info.functor);
 
     Arity = expand_info.arity;
@@ -3204,7 +3699,7 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
 ** changes to store__arg_ref in store.m.
 */
 
-:- pragma c_code(arg(Term::in, ArgumentIndex::in) = (Argument::out),
+:- pragma foreign_code("C", arg(Term::in, ArgumentIndex::in) = (Argument::out),
         will_not_call_mercury, "
 {
     MR_TypeInfo type_info;
@@ -3217,7 +3712,7 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
     type_info = (MR_TypeInfo) TypeInfo_for_T;
     exp_arg_type_info = (MR_TypeInfo) TypeInfo_for_ArgT;
 
-    save_transient_registers();
+    MR_save_transient_registers();
     success = ML_arg(type_info, &Term, ArgumentIndex,
         &arg_type_info, &argument_ptr);
 
@@ -3232,11 +3727,12 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
         }
     }
 
-    restore_transient_registers();
+    MR_restore_transient_registers();
     SUCCESS_INDICATOR = success;
 }").
 
-:- pragma c_code(argument(Term::in, ArgumentIndex::in) = (ArgumentUniv::out),
+:- pragma foreign_code("C",
+	argument(Term::in, ArgumentIndex::in) = (ArgumentUniv::out),
         will_not_call_mercury, "
 {
     MR_TypeInfo type_info;
@@ -3246,18 +3742,43 @@ ML_arg(MR_TypeInfo type_info, MR_Word *term_ptr, int arg_index,
 
     type_info = (MR_TypeInfo) TypeInfo_for_T;
 
-    save_transient_registers();
+    MR_save_transient_registers();
     success = ML_arg(type_info, &Term, ArgumentIndex,
         &arg_type_info, &argument_ptr);
-    restore_transient_registers();
+    MR_restore_transient_registers();
 
     if (success) {
         /* Allocate enough room for a univ */
-        incr_hp_msg(ArgumentUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+        MR_incr_hp_msg(ArgumentUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
         MR_define_univ_fields(ArgumentUniv, arg_type_info, *argument_ptr);
     }
 
     SUCCESS_INDICATOR = success;
+}").
+
+:- pragma foreign_code("MC++", functor(_Term::in, _Functor::out, _Arity::out),
+    will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}").
+
+/*
+** N.B. any modifications to arg/2 might also require similar
+** changes to store__arg_ref in store.m.
+*/
+
+:- pragma foreign_code("MC++", 
+	arg(_Term::in, _ArgumentIndex::in) = (_Argument::out),
+        will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}").
+
+:- pragma foreign_code("MC++",
+	argument(_Term::in, _ArgumentIndex::in) = (_ArgumentUniv::out),
+        will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
 det_arg(Type, ArgumentIndex) = Argument :-
@@ -3282,7 +3803,8 @@ det_argument(Type, ArgumentIndex) = Argument :-
         error("det_argument: argument out of range")
     ).
 
-:- pragma c_code(deconstruct(Term::in, Functor::out, Arity::out,
+:- pragma foreign_code("C", 
+	deconstruct(Term::in, Functor::out, Arity::out,
         Arguments::out), will_not_call_mercury, "
 {
     ML_Expand_Info      expand_info;
@@ -3295,9 +3817,9 @@ det_argument(Type, ArgumentIndex) = Argument :-
     expand_info.need_functor = TRUE;
     expand_info.need_args = TRUE;
 
-    save_transient_registers();
+    MR_save_transient_registers();
     ML_expand(type_info, &Term, &expand_info);
-    restore_transient_registers();
+    MR_restore_transient_registers();
 
         /*
         ** Check for attempts to deconstruct a non-canonical type:
@@ -3313,7 +3835,7 @@ det_argument(Type, ArgumentIndex) = Argument :-
     }
 
         /* Get functor */
-    MR_make_aligned_string(LVALUE_CAST(MR_ConstString, Functor),
+    MR_make_aligned_string(MR_LVALUE_CAST(MR_ConstString, Functor),
         expand_info.functor);
 
         /* Get arity */
@@ -3326,7 +3848,7 @@ det_argument(Type, ArgumentIndex) = Argument :-
     while (--i >= 0) {
 
             /* Create an argument on the heap */
-        incr_hp_msg(Argument, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+        MR_incr_hp_msg(Argument, 2, MR_PROC_LABEL, ""std_util:univ/0"");
         MR_define_univ_fields(Argument,
             expand_info.arg_type_infos[i],
             expand_info.arg_values[i + expand_info.num_extra_args]);
@@ -3344,6 +3866,14 @@ det_argument(Type, ArgumentIndex) = Argument :-
         MR_GC_free(expand_info.arg_type_infos);
     }
 }").
+
+:- pragma foreign_code("MC++", 
+	deconstruct(_Term::in, _Functor::out, _Arity::out,
+        _Arguments::out), will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}
+").
 
 get_functor_info(Univ, FunctorInfo) :-
     ( univ_to_type(Univ, Int) ->
@@ -3375,8 +3905,9 @@ get_functor_info(Univ, FunctorInfo) :-
     % with the type of the single function symbol of the notag type.
 :- pred get_notag_functor_info(Univ::in, ExpUniv::out) is semidet.
 
-:- pragma c_code(get_notag_functor_info(Univ::in, ExpUniv::out),
-    will_not_call_mercury, "
+:- pragma foreign_code("C", 
+	get_notag_functor_info(Univ::in, ExpUniv::out),
+	will_not_call_mercury, "
 {
     MR_TypeInfo         type_info;
     MR_TypeInfo         exp_type_info;
@@ -3392,7 +3923,7 @@ get_functor_info(Univ, FunctorInfo) :-
             functor_desc = type_ctor_info->type_functors.functors_notag;
             exp_type_info = MR_pseudo_type_info_is_ground(
                 functor_desc->MR_notag_functor_arg_type);
-            incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+            MR_incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
             MR_define_univ_fields(ExpUniv, exp_type_info, value);
             SUCCESS_INDICATOR = TRUE;
             break;
@@ -3403,7 +3934,7 @@ get_functor_info(Univ, FunctorInfo) :-
             exp_type_info = MR_create_type_info(
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
                 functor_desc->MR_notag_functor_arg_type);
-            incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+            MR_incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
             MR_define_univ_fields(ExpUniv, exp_type_info, value);
             SUCCESS_INDICATOR = TRUE;
             break;
@@ -3414,13 +3945,21 @@ get_functor_info(Univ, FunctorInfo) :-
     }
 }").
 
+:- pragma foreign_code("MC++", 
+	get_notag_functor_info(_Univ::in, _ExpUniv::out),
+	will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}").
+
     % Given a value of an arbitrary type, succeed if its type is defined
     % as an equivalence type, and return a univ which bundles up the value
     % with the equivalent type. (I.e. this removes one layer of equivalence
     % from the type stored in the univ.)
 :- pred get_equiv_functor_info(Univ::in, ExpUniv::out) is semidet.
 
-:- pragma c_code(get_equiv_functor_info(Univ::in, ExpUniv::out),
+:- pragma foreign_code("C",
+	get_equiv_functor_info(Univ::in, ExpUniv::out),
     will_not_call_mercury, "
 {
     MR_TypeInfo     type_info;
@@ -3434,7 +3973,7 @@ get_functor_info(Univ, FunctorInfo) :-
         case MR_TYPECTOR_REP_EQUIV:
             exp_type_info = MR_pseudo_type_info_is_ground(
                 type_ctor_info->type_layout.layout_equiv);
-            incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+            MR_incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
             MR_define_univ_fields(ExpUniv, exp_type_info, value);
             SUCCESS_INDICATOR = TRUE;
             break;
@@ -3443,7 +3982,7 @@ get_functor_info(Univ, FunctorInfo) :-
             exp_type_info = MR_create_type_info(
                 MR_TYPEINFO_GET_FIRST_ORDER_ARG_VECTOR(type_info),
                 type_ctor_info->type_layout.layout_equiv);
-            incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
+            MR_incr_hp_msg(ExpUniv, 2, MR_PROC_LABEL, ""std_util:univ/0"");
             MR_define_univ_fields(ExpUniv, exp_type_info, value);
             SUCCESS_INDICATOR = TRUE;
             break;
@@ -3454,12 +3993,20 @@ get_functor_info(Univ, FunctorInfo) :-
     }
 }").
 
+:- pragma foreign_code("MC++",
+	get_equiv_functor_info(_Univ::in, _ExpUniv::out),
+    will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}").
+
     % Given a value of an arbitrary type, succeed if it is an enum type,
     % and return the integer value corresponding to the value.
 :- pred get_enum_functor_info(Univ::in, Int::out) is semidet.
 
-:- pragma c_code(get_enum_functor_info(Univ::in, Enum::out),
-    will_not_call_mercury, "
+:- pragma foreign_code("C",
+	get_enum_functor_info(Univ::in, Enum::out),
+	will_not_call_mercury, "
 {
     MR_TypeInfo     type_info;
     MR_TypeCtorInfo type_ctor_info;
@@ -3480,6 +4027,13 @@ get_functor_info(Univ, FunctorInfo) :-
     }
 }").
 
+:- pragma foreign_code("MC++",
+	get_enum_functor_info(_Univ::in, _Enum::out),
+	will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}").
+
     % Given a value of an arbitrary type, succeed if it is a general du type
     % (i.e. non-enum, non-notag du type), and return the top function symbol's
     % arguments as well as its tag information: an indication of where the
@@ -3490,7 +4044,7 @@ get_functor_info(Univ, FunctorInfo) :-
 :- pred get_du_functor_info(univ::in, int::out, int::out, int::out,
     list(univ)::out) is semidet.
 
-:- pragma c_code(get_du_functor_info(Univ::in, Where::out,
+:- pragma foreign_code("C", get_du_functor_info(Univ::in, Where::out,
     Ptag::out, Sectag::out, Args::out), will_not_call_mercury, "
 {
     MR_TypeInfo             type_info;
@@ -3555,7 +4109,7 @@ get_functor_info(Univ, FunctorInfo) :-
                                 functor_desc->MR_du_functor_arg_types[i]);
                         }
 
-                        incr_hp_msg(arg, 2, MR_PROC_LABEL,
+                        MR_incr_hp_msg(arg, 2, MR_PROC_LABEL,
                             ""std_util:univ/0"");
                         MR_define_univ_fields(arg,
                             arg_type_info, arg_vector[i]);
@@ -3565,7 +4119,7 @@ get_functor_info(Univ, FunctorInfo) :-
 
                 default:
                     MR_fatal_error(
-		    ""get_du_functor_info: unknown sectag locn"");
+                        ""get_du_functor_info: unknown sectag locn"");
             }
             break;
 
@@ -3573,6 +4127,12 @@ get_functor_info(Univ, FunctorInfo) :-
             SUCCESS_INDICATOR = FALSE;
             break;
     }
+}").
+
+:- pragma foreign_code("MC++", get_du_functor_info(_Univ::in, _Where::out,
+    _Ptag::out, _Sectag::out, _Args::out), will_not_call_mercury, "
+{
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
 }").
 
 %-----------------------------------------------------------------------------%
@@ -3622,3 +4182,9 @@ solutions_set(P) = S :- solutions_set(P, S).
 aggregate(P, F, Acc0) = Acc :-
 	aggregate(P, (pred(X::in, A0::in, A::out) is det :- A = F(X, A0)),
 		Acc0, Acc).
+
+dynamic_cast(T1, T2) :-
+	univ_to_type(univ(T1), T2).
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%

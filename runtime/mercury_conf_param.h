@@ -37,7 +37,7 @@
 */
 
 /*
-** MR_Code generation options:
+** Code generation options:
 **
 ** MR_HIGHLEVEL_CODE
 ** MR_HIGHLEVEL_DATA
@@ -69,6 +69,18 @@
 ** USE_SINGLE_PREC_FLOAT:
 **	Use C's `float' rather than C's `double' for the
 **	Mercury floating point type (`MR_Float').
+**
+** MR_USE_REGPARM:
+**	For the MLDS back-end (i.e. MR_HIGHLEVEL_CODE),
+**	on x86, use a different (more efficient) calling convention.
+**	This requires the use of a very recent version of gcc --
+**	more recent that gcc 2.95.2.
+**	For details, see the definition of the MR_CALL macro in
+**	runtime/mercury_std.h.
+**
+** MR_AVOID_MACROS:
+**	For the MLDS back-end (i.e. MR_HIGHLEVEL_CODE),
+**	use inline functions rather than macros for a few builtins.
 **
 ** PARALLEL
 **	Enable support for parallelism [not yet working].
@@ -218,6 +230,15 @@
 ** Settings of configuration parameters which can be passed on
 ** the command line, but which are also implied by other parameters.
 */
+
+/*
+** MR_HIGHLEVEL_CODE implies BOXED_FLOAT,
+** since unboxed float is currently not yet implemented for the MLDS back-end.
+** XXX we really ought to fix that...
+*/
+#ifdef MR_HIGHLEVEL_CODE
+  #define BOXED_FLOAT 1
+#endif
 
 /* MR_LOWLEVEL_DEBUG implies MR_DEBUG_GOTOS and MR_CHECK_FOR_OVERFLOW */
 #ifdef MR_LOWLEVEL_DEBUG

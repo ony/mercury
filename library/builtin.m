@@ -1,5 +1,5 @@
 %---------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %---------------------------------------------------------------------------%
@@ -147,6 +147,23 @@
 :- mode promise_only_solution(pred(out) is cc_multi) = out is det.
 :- mode promise_only_solution(pred(out) is cc_nondet) = out is semidet.
 
+% `promise_only_solution_io' is like `promise_only_solution', but
+% for procedures with unique modes (e.g. those that do IO).
+%
+% A call to `promise_only_solution_io(P, X, IO0, IO)' constitutes
+% a promise on the part of the caller that for the given IO0,
+% there is only one value of `X' and `IO' for which `P(X, IO0, IO)' is true.
+% `promise_only_solution_io(P, X, IO0, IO)' presumes that this assumption
+% is satisfied, and returns the X and IO for which `P(X, IO0, IO)' is true.
+%
+% Note that misuse of this predicate may lead to unsound results:
+% if the assumption is not satisfied, the behaviour is undefined.
+% (If you lie to the compiler, the compiler will get its revenge!)
+
+:- pred promise_only_solution_io(pred(T, IO, IO), T, IO, IO).
+:- mode promise_only_solution_io(pred(out, di, uo) is cc_multi,
+		out, di, uo) is det.
+
 %-----------------------------------------------------------------------------%
 
 
@@ -212,12 +229,38 @@ promise_only_solution(Pred) = OutVal :-
 :- mode cc_cast(pred(out) is cc_nondet) = out(pred(out) is semidet) is det.
 :- mode cc_cast(pred(out) is cc_multi) = out(pred(out) is det) is det.
 
-:- pragma c_code(cc_cast(X :: (pred(out) is cc_multi)) =
+:- pragma foreign_code("C", cc_cast(X :: (pred(out) is cc_multi)) =
                         (Y :: out(pred(out) is det)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
-:- pragma c_code(cc_cast(X :: (pred(out) is cc_nondet)) =
+:- pragma foreign_code("C", cc_cast(X :: (pred(out) is cc_nondet)) =
                         (Y :: out(pred(out) is semidet)),
+                [will_not_call_mercury, thread_safe],
+                "Y = X;").
+:- pragma foreign_code("MC++", cc_cast(X :: (pred(out) is cc_multi)) =
+                        (Y :: out(pred(out) is det)),
+                [will_not_call_mercury, thread_safe],
+                "Y = X;").
+:- pragma foreign_code("MC++", cc_cast(X :: (pred(out) is cc_nondet)) =
+                        (Y :: out(pred(out) is semidet)),
+                [will_not_call_mercury, thread_safe],
+                "Y = X;").
+
+promise_only_solution_io(Pred, X) -->
+	call(cc_cast_io(Pred), X).
+
+:- func cc_cast_io(pred(T, IO, IO)) = pred(T, IO, IO).
+:- mode cc_cast_io(pred(out, di, uo) is cc_multi) =
+	out(pred(out, di, uo) is det) is det.
+
+:- pragma foreign_code("C",
+	cc_cast_io(X :: (pred(out, di, uo) is cc_multi)) = 
+		(Y :: out(pred(out, di, uo) is det)),
+                [will_not_call_mercury, thread_safe],
+                "Y = X;").
+:- pragma foreign_code("MC++", 
+		cc_cast_io(X :: (pred(out, di, uo) is cc_multi)) =
+		(Y :: out(pred(out, di, uo) is det)),
                 [will_not_call_mercury, thread_safe],
                 "Y = X;").
 
@@ -233,13 +276,25 @@ promise_only_solution(Pred) = OutVal :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("#include ""mercury_type_info.h""").
+:- pragma foreign_decl("C", "#include ""mercury_type_info.h""").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 
 #ifdef MR_HIGHLEVEL_CODE
-void sys_init_builtin_types_module(void); /* suppress gcc warning */
-void sys_init_builtin_types_module(void) { return; }
+
+/* forward decl, to suppress gcc -Wmissing-decl warning */
+void sys_init_builtin_types_module(void);
+
+/*
+** This empty initialization function is needed just to
+** match the one that we use for LLDS grades.
+*/
+void
+sys_init_builtin_types_module(void)
+{
+	/* no initialization needed */
+}
+
 #else
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_NOCM(builtin, int, 0,
@@ -311,7 +366,7 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_UNUSED(ticket, 0, MR_TYPECTOR_REP_TICKET);
 /*
 INIT sys_init_builtin_types_module
 */
-MR_MODULE_STATIC_OR_EXTERN ModuleFunc builtin_types_module;
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc builtin_types_module;
 extern void mercury__private_builtin__init(void);
 
 void sys_init_builtin_types_module(void); /* suppress gcc warning */
@@ -365,6 +420,504 @@ void sys_init_builtin_types_module(void) {
 
 ").
 
+:- pragma foreign_code("MC++", "
+
+static void compare_3_p_0(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+		MR_Box X, MR_Box Y) 
+{
+
+        MR_TypeInfo             type_info;
+        MR_TypeCtorInfo         type_ctor_info;
+        int                     arity;
+        MR_TypeInfoParams       params;
+        MR_Word                 *args;
+        MR_Box                  ComparePred;
+
+        type_info = (MR_TypeInfo) TypeInfo_for_T;
+        type_ctor_info = dynamic_cast<MR_Word> (type_info->GetValue(
+		MR_TYPEINFO_TYPE_CTOR_INFO_SLOT));
+
+        if (type_ctor_info == 0) {
+            type_ctor_info = type_info;
+        }
+
+        if (0) {
+            // XXX code for higher order still needs to be written...
+        } else {
+            arity = mercury::runtime::Convert::ToInt32(
+		type_ctor_info->GetValue(MR_TYPE_CTOR_INFO_ARITY_SLOT));
+        }
+
+	ComparePred = type_ctor_info->GetValue(
+		MR_TYPE_CTOR_INFO_COMPARE_PRED_SLOT);
+
+        switch(arity) {
+	case 0: 
+		mercury::runtime::GenericCall::result_call_4(
+			ComparePred,
+			Res, X, Y);
+	break;
+	case 1:
+		mercury::runtime::GenericCall::result_call_5(
+			ComparePred,
+			type_info->GetValue(1), 
+			Res, X, Y);
+	break;
+	case 2:
+		mercury::runtime::GenericCall::result_call_6(
+			ComparePred,
+			type_info->GetValue(1), 
+			type_info->GetValue(2), 
+			Res, X, Y);
+	break;
+	case 3:
+		mercury::runtime::GenericCall::result_call_7(
+			ComparePred,
+			type_info->GetValue(1), 
+			type_info->GetValue(2), 
+			type_info->GetValue(3), 
+			Res, X, Y);
+	break;
+	case 4:
+		mercury::runtime::GenericCall::result_call_8(
+			ComparePred,
+			type_info->GetValue(1), 
+			type_info->GetValue(2), 
+			type_info->GetValue(3), 
+			type_info->GetValue(4), 
+			Res, X, Y);
+	break;
+	case 5:
+		mercury::runtime::GenericCall::result_call_9(
+			ComparePred,
+			type_info->GetValue(1), 
+			type_info->GetValue(2), 
+			type_info->GetValue(3), 
+			type_info->GetValue(4), 
+			type_info->GetValue(5), 
+			Res, X, Y);
+	break; 
+	default:
+		mercury::runtime::Errors::fatal_error(
+			""compare/3: type arity > 5 not supported"");
+	}
+}
+
+void compare_3_p_1(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+		MR_Box X, MR_Box Y) 
+{
+	compare_3_p_0(TypeInfo_for_T, Res, X, Y);
+}
+
+void compare_3_p_2(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+		MR_Box X, MR_Box Y) 
+{
+	compare_3_p_0(TypeInfo_for_T, Res, X, Y);
+}
+
+void compare_3_p_3(MR_TypeInfo TypeInfo_for_T, MR_Word_Ref Res, 
+		MR_Box X, MR_Box Y) 
+{
+	compare_3_p_0(TypeInfo_for_T, Res, X, Y);
+}
+
+void copy_2_p_0(MR_TypeInfo TypeInfo_for_T,
+		MR_Box X, MR_Ref(MR_Box) Y) 
+{
+	// XXX this needs to be implemented -- just using Clone() won't work
+	// because it often does shallow copies.
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+}
+
+void copy_2_p_1(MR_TypeInfo TypeInfo_for_T,
+		MR_Box X, MR_Ref(MR_Box) Y) 
+{
+	copy_2_p_0(TypeInfo_for_T, X, Y);
+}
+
+").
+
+:- pragma foreign_code("MC++", "
+
+static MR_Integer unify_2_p_0(MR_TypeInfo TypeInfo_for_T, MR_Box X, MR_Box Y) 
+{
+	int			SUCCESS_INDICATOR;
+        MR_TypeInfo             type_info;
+        MR_TypeCtorInfo         type_ctor_info;
+        MR_Box                  tmp;
+        int                     arity;
+        MR_TypeInfoParams       params;
+        MR_Box       		UnifyPred;
+	
+        type_info = (MR_TypeInfo) TypeInfo_for_T;
+
+        type_ctor_info = dynamic_cast<MR_Word> (type_info->GetValue(
+		MR_TYPEINFO_TYPE_CTOR_INFO_SLOT));
+        if (type_ctor_info == 0) {
+            type_ctor_info = type_info;
+        }
+
+        // XXX insert code to handle higher order....
+        if (0) {
+
+        } else {
+            arity = mercury::runtime::Convert::ToInt32(
+		type_ctor_info->GetValue(MR_TYPE_CTOR_INFO_ARITY_SLOT));
+        }
+
+	UnifyPred = type_ctor_info->GetValue(
+		MR_TYPE_CTOR_INFO_UNIFY_PRED_SLOT);
+
+	switch(arity) {
+	case 0: 
+                SUCCESS_INDICATOR = 
+			mercury::runtime::GenericCall::semidet_call_3(
+				UnifyPred,
+				X, Y);
+	break;
+	case 1:
+                SUCCESS_INDICATOR = 
+			mercury::runtime::GenericCall::semidet_call_4(
+				UnifyPred,
+				type_info->GetValue(1), 
+				X, Y);
+	break;
+	case 2:
+		SUCCESS_INDICATOR = 
+			mercury::runtime::GenericCall::semidet_call_5(
+				UnifyPred,
+				type_info->GetValue(1), 
+				type_info->GetValue(2), 
+				X, Y);
+	break;
+	case 3:
+		SUCCESS_INDICATOR =
+			mercury::runtime::GenericCall::semidet_call_6(
+				UnifyPred,
+				type_info->GetValue(1), 
+				type_info->GetValue(2), 
+				type_info->GetValue(3), 
+				X, Y);
+	break;
+	case 4:
+		SUCCESS_INDICATOR =
+			mercury::runtime::GenericCall::semidet_call_7(
+				UnifyPred,
+				type_info->GetValue(1), 
+				type_info->GetValue(2), 
+				type_info->GetValue(3), 
+				type_info->GetValue(4), 
+				X, Y);
+	break;
+	case 5:
+		SUCCESS_INDICATOR = 
+			mercury::runtime::GenericCall::semidet_call_8(
+				UnifyPred,
+				type_info->GetValue(1), 
+				type_info->GetValue(2), 
+				type_info->GetValue(3), 
+				type_info->GetValue(4), 
+				type_info->GetValue(5), 
+				X, Y);
+	break;
+	default:
+		mercury::runtime::Errors::fatal_error(
+			""unify/2: type arity > 5 not supported"");
+	}
+
+	return SUCCESS_INDICATOR;
+}
+
+").
+
+:- pragma foreign_code("MC++", "
+	
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, int, 0, MR_TYPECTOR_REP_INT) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, character, 0, MR_TYPECTOR_REP_CHAR) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, string, 0, MR_TYPECTOR_REP_STRING) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, c_pointer, 0,
+	MR_TYPECTOR_REP_C_POINTER) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, void, 0, MR_TYPECTOR_REP_VOID) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, float, 0, MR_TYPECTOR_REP_FLOAT) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, func, 0, MR_TYPECTOR_REP_PRED) 
+MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(builtin, pred, 0, MR_TYPECTOR_REP_PRED) 
+
+static int
+__Unify____int_0_0(MR_Integer x, MR_Integer y)
+{
+	return x == y;
+}
+
+static int
+__Unify____string_0_0(MR_String x, MR_String y)
+{
+	return System::String::Equals(x, y);
+}
+
+static int
+__Unify____character_0_0(MR_Char x, MR_Char y)
+{
+	return x == y;
+}
+
+static int
+__Unify____float_0_0(MR_Float x, MR_Float y)
+{
+	/* XXX what should this function do when x and y are both NaNs? */
+	return x == y;
+}
+
+static int
+__Unify____void_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `void'"");
+	return 0;
+}
+
+static int
+__Unify____c_pointer_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `c_pointer'"");
+	return 0;
+}
+
+static int
+__Unify____func_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for `func' type"");
+	return 0;
+}
+
+static int
+__Unify____pred_0_0(MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for `pred' type"");
+	return 0;
+}
+
+static void
+__Compare____int_0_0(
+	MR_Word_Ref result, MR_Integer x, MR_Integer y)
+{
+	int r = (x > y ? MR_COMPARE_GREATER :
+		x == y ? MR_COMPARE_EQUAL :
+		MR_COMPARE_LESS);
+	MR_newenum(*result, r);
+}
+
+static void
+__Compare____float_0_0(
+	MR_Word_Ref result, MR_Float x, MR_Float y)
+{
+	/* XXX what should this function do when x and y are both NaNs? */
+	int r = (x > y ? MR_COMPARE_GREATER :
+		x == y ? MR_COMPARE_EQUAL :
+		x < y ? MR_COMPARE_LESS :
+		(mercury::runtime::Errors::fatal_error(
+			""incomparable floats in compare/3""),
+			MR_COMPARE_EQUAL)); 
+	MR_newenum(*result, r);
+}
+
+
+static void
+__Compare____string_0_0(MR_Word_Ref result,
+	MR_String x, MR_String y)
+{
+	int res = System::String::Compare(x, y);
+	int r = (res > 0 ? MR_COMPARE_GREATER :
+		res == 0 ? MR_COMPARE_EQUAL :
+		MR_COMPARE_LESS);
+	MR_newenum(*result, r);
+}
+
+static void
+__Compare____character_0_0(
+	MR_Word_Ref result, MR_Char x, MR_Char y)
+{
+	int r = (x > y ? MR_COMPARE_GREATER :
+		x == y ? MR_COMPARE_EQUAL :
+		MR_COMPARE_LESS);
+	MR_newenum(*result, r);
+}
+
+static void
+__Compare____void_0_0(MR_Word_Ref result,
+	MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `void'"");
+}
+
+static void
+__Compare____c_pointer_0_0(
+	MR_Word_Ref result, MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `c_pointer'"");
+}
+
+static void
+__Compare____func_0_0(MR_Word_Ref result,
+	MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for `func' type"");
+}
+
+static void
+__Compare____pred_0_0(MR_Word_Ref result,
+	MR_Word x, MR_Word y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for `pred' type"");
+}
+
+/*
+** Unification procedures with the arguments boxed.
+** These are just wrappers which call the unboxed version.
+*/
+
+static int
+do_unify__int_0_0(MR_Box x, MR_Box y)
+{
+	return mercury::builtin__c_code::__Unify____int_0_0(
+		mercury::runtime::Convert::ToInt32(x), 
+		mercury::runtime::Convert::ToInt32(y)); 
+}
+
+static int
+do_unify__string_0_0(MR_Box x, MR_Box y)
+{
+	return mercury::builtin__c_code::__Unify____string_0_0(
+		dynamic_cast<MR_String>(x), 
+		dynamic_cast<MR_String>(y));
+}
+
+static int
+do_unify__float_0_0(MR_Box x, MR_Box y)
+{
+	return mercury::builtin__c_code::__Unify____float_0_0(
+		mercury::runtime::Convert::ToDouble(x),
+		mercury::runtime::Convert::ToDouble(y));
+}
+
+static int
+do_unify__character_0_0(MR_Box x, MR_Box y)
+{
+	return mercury::builtin__c_code::__Unify____character_0_0(
+		mercury::runtime::Convert::ToChar(x),
+		mercury::runtime::Convert::ToChar(y));
+}
+
+static int
+do_unify__void_0_0(MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for type `void'"");
+	return 0;
+}
+
+static int
+do_unify__c_pointer_0_0(MR_Box x, MR_Box y)
+{
+	return mercury::builtin__c_code::__Unify____c_pointer_0_0(
+		dynamic_cast<MR_Word>(x), 
+		dynamic_cast<MR_Word>(y)); 
+}
+
+static int
+do_unify__func_0_0(MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for `func' type"");
+	return 0;
+}
+
+static int
+do_unify__pred_0_0(MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called unify for `pred' type"");
+	return 0;
+}
+
+/*
+** Comparison procedures with the arguments boxed.
+** These are just wrappers which call the unboxed version.
+*/
+
+static void
+do_compare__int_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::builtin__c_code::__Compare____int_0_0(result,
+		mercury::runtime::Convert::ToInt32(x),
+		mercury::runtime::Convert::ToInt32(y));
+}
+
+static void
+do_compare__string_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::builtin__c_code::__Compare____string_0_0(result,
+		dynamic_cast<MR_String>(x),
+		dynamic_cast<MR_String>(y));
+}
+
+static void
+do_compare__float_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::builtin__c_code::__Compare____float_0_0(result,
+		mercury::runtime::Convert::ToDouble(x),
+		mercury::runtime::Convert::ToDouble(y));
+}
+
+static void
+do_compare__character_0_0(
+	MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::builtin__c_code::__Compare____character_0_0(
+		result, 
+		mercury::runtime::Convert::ToChar(x),
+		mercury::runtime::Convert::ToChar(y));
+}
+
+static void
+do_compare__void_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for type `void'"");
+}
+
+static void
+do_compare__c_pointer_0_0(
+	MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::builtin__c_code::__Compare____c_pointer_0_0(
+		result, 
+		dynamic_cast<MR_Word>(x),
+		dynamic_cast<MR_Word>(y));
+}
+
+static void
+do_compare__func_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for func type"");
+}
+
+static void
+do_compare__pred_0_0(MR_Word_Ref result, MR_Box x, MR_Box y)
+{
+	mercury::runtime::Errors::fatal_error(
+		""called compare/3 for pred type"");
+}
+
+").
+
 %-----------------------------------------------------------------------------%
 
 % unsafe_promise_unique/2 is a compiler builtin.
@@ -381,14 +934,14 @@ void sys_init_builtin_types_module(void) {
 Using `pragma c_code' doesn't work, due to the lack of support for
 aliasing, and in particular the lack of support for `ui' modes.
 :- pragma c_code(copy(Value::ui, Copy::uo), "
-	save_transient_registers();
-	Copy = deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
-	restore_transient_registers();
+	MR_save_transient_registers();
+	Copy = MR_deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
+	MR_restore_transient_registers();
 ").
 :- pragma c_code(copy(Value::in, Copy::uo), "
-	save_transient_registers();
-	Copy = deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
-	restore_transient_registers();
+	MR_save_transient_registers();
+	Copy = MR_deep_copy(&Value, TypeInfo_for_T, NULL, NULL);
+	MR_restore_transient_registers();
 ").
 *************/
 
@@ -398,8 +951,8 @@ aliasing, and in particular the lack of support for `ui' modes.
 
 :- pragma c_header_code("
 #ifdef MR_HIGHLEVEL_CODE
-  void mercury__builtin__copy_2_p_0(MR_Mercury_Type_Info, MR_Box, MR_Box *);
-  void mercury__builtin__copy_2_p_1(MR_Mercury_Type_Info, MR_Box, MR_Box *);
+  void MR_CALL mercury__builtin__copy_2_p_0(MR_Mercury_Type_Info, MR_Box, MR_Box *);
+  void MR_CALL mercury__builtin__copy_2_p_1(MR_Mercury_Type_Info, MR_Box, MR_Box *);
 #endif
 ").
 
@@ -407,67 +960,74 @@ aliasing, and in particular the lack of support for `ui' modes.
 
 #ifdef MR_HIGHLEVEL_CODE
 
-void
+void MR_CALL
 mercury__builtin__copy_2_p_0(MR_Mercury_Type_Info type_info,
 	MR_Box value, MR_Box * copy)
 {
 	MR_Word val = (MR_Word) value;
-	*copy = (MR_Box) deep_copy(&val, (MR_TypeInfo) type_info, NULL, NULL);
+	*copy = (MR_Box) MR_deep_copy(&val,
+			(MR_TypeInfo) type_info, NULL, NULL);
 }
 
-void
+void MR_CALL
 mercury__builtin__copy_2_p_1(MR_Mercury_Type_Info type_info, MR_Box x, MR_Box * y)
 {
 	mercury__builtin__copy_2_p_0(type_info, x, y);
 }
 
+/* forward decl, to suppress gcc -Wmissing-decl warning */
 void sys_init_copy_module(void);
-void sys_init_copy_module(void)
+
+/*
+** This empty initialization function is needed just to
+** match the one that we use for LLDS grades.
+*/
+void
+sys_init_copy_module(void)
 {
-	MR_init_entry(mercury__builtin__copy_2_p_0);
-	MR_init_entry(mercury__builtin__copy_2_p_1);
+	/* no initialization needed */
 }
 
 #else /* ! MR_HIGHLEVEL_CODE */
 
-Define_extern_entry(mercury__copy_2_0);
-Define_extern_entry(mercury__copy_2_1);
+MR_define_extern_entry(mercury__copy_2_0);
+MR_define_extern_entry(mercury__copy_2_1);
 
-BEGIN_MODULE(copy_module)
-	init_entry(mercury__copy_2_0);
-	init_entry(mercury__copy_2_1);
-BEGIN_CODE
+MR_BEGIN_MODULE(copy_module)
+	MR_init_entry(mercury__copy_2_0);
+	MR_init_entry(mercury__copy_2_1);
+MR_BEGIN_CODE
 
 #ifdef PROFILE_CALLS
-  #define fallthru(target, caller) { tailcall((target), (caller)); }
+  #define fallthru(target, caller) { MR_tailcall((target), (caller)); }
 #else
   #define fallthru(target, caller)
 #endif
 
-Define_entry(mercury__copy_2_0);
-fallthru(ENTRY(mercury__copy_2_1), ENTRY(mercury__copy_2_0))
-Define_entry(mercury__copy_2_1);
+MR_define_entry(mercury__copy_2_0);
+fallthru(MR_ENTRY(mercury__copy_2_1), MR_ENTRY(mercury__copy_2_0))
+MR_define_entry(mercury__copy_2_1);
 {
 	MR_Word value, copy, type_info;
 
-	type_info = r1;
-	value = r2;
+	type_info = MR_r1;
+	value = MR_r2;
 
-	save_transient_registers();
-	copy = deep_copy(&value, (MR_TypeInfo) type_info, NULL, NULL);
-	restore_transient_registers();
+	MR_save_transient_registers();
+	copy = MR_deep_copy(&value, (MR_TypeInfo) type_info, NULL, NULL);
+	MR_restore_transient_registers();
 
-	r1 = copy;
-	proceed();
+	MR_r1 = copy;
+	MR_proceed();
 }
-END_MODULE
+MR_END_MODULE
 
 /* Ensure that the initialization code for the above module gets run. */
 
 /*
 INIT sys_init_copy_module
 */
-MR_MODULE_STATIC_OR_EXTERN ModuleFunc copy_module;
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc copy_module;
 void sys_init_copy_module(void);
 	/* extra declaration to suppress gcc -Wmissing-decl warning */
 void sys_init_copy_module(void) {
@@ -484,8 +1044,20 @@ void sys_init_copy_module(void) {
 :- pragma c_code("
 
 #ifdef MR_HIGHLEVEL_CODE
+
+/* forward decl, to suppress gcc -Wmissing-decl warning */
 void sys_init_unify_c_pointer_module(void);
-void sys_init_unify_c_pointer_module(void) { return; }
+
+/*
+** This empty initialization function is needed just to
+** match the one that we use for LLDS grades.
+*/
+void
+sys_init_unify_c_pointer_module(void)
+{
+	/* no initialization needed */
+}
+
 #else
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(builtin, c_pointer, 0,
@@ -493,12 +1065,16 @@ MR_DEFINE_BUILTIN_TYPE_CTOR_INFO_PRED(builtin, c_pointer, 0,
 	mercury____Unify___builtin__c_pointer_0_0,
 	mercury____Compare___builtin__c_pointer_0_0);
 
-BEGIN_MODULE(unify_c_pointer_module)
-	init_entry(mercury____Unify___builtin__c_pointer_0_0);
-	init_entry(mercury____Compare___builtin__c_pointer_0_0);
+MR_declare_entry(mercury____Unify___builtin__c_pointer_0_0);
+MR_declare_entry(mercury____Index___builtin__c_pointer_0_0);
+MR_declare_entry(mercury____Compare___builtin__c_pointer_0_0);
 
-BEGIN_CODE
-Define_entry(mercury____Unify___builtin__c_pointer_0_0);
+MR_BEGIN_MODULE(unify_c_pointer_module)
+	MR_init_entry(mercury____Unify___builtin__c_pointer_0_0);
+	MR_init_entry(mercury____Compare___builtin__c_pointer_0_0);
+
+MR_BEGIN_CODE
+MR_define_entry(mercury____Unify___builtin__c_pointer_0_0);
 	/*
 	** For c_pointer, we assume that equality and comparison
 	** can be based on object identity (i.e. using address comparisons).
@@ -506,16 +1082,16 @@ Define_entry(mercury____Unify___builtin__c_pointer_0_0);
 	** the io__state contains a map(io__stream, filename).
 	** However, it might not be correct in general...
 	*/
-	r1 = (r1 == r2);
-	proceed();
+	MR_r1 = (MR_r1 == MR_r2);
+	MR_proceed();
 
-Define_entry(mercury____Compare___builtin__c_pointer_0_0);
-	r1 = (r1 == r2 ? MR_COMPARE_EQUAL :
-			  r1 < r2 ? MR_COMPARE_LESS :
+MR_define_entry(mercury____Compare___builtin__c_pointer_0_0);
+	MR_r1 = (MR_r1 == MR_r2 ? MR_COMPARE_EQUAL :
+			  MR_r1 < MR_r2 ? MR_COMPARE_LESS :
 			  MR_COMPARE_GREATER);
-	proceed();
+	MR_proceed();
 
-END_MODULE
+MR_END_MODULE
 
 /* Ensure that the initialization code for the above module gets run. */
 /*
@@ -523,7 +1099,7 @@ INIT sys_init_unify_c_pointer_module
 */
 
 
-MR_MODULE_STATIC_OR_EXTERN ModuleFunc unify_c_pointer_module;
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc unify_c_pointer_module;
 void sys_init_unify_c_pointer_module(void);
 	/* duplicate declaration to suppress gcc -Wmissing-decl warning */
 void sys_init_unify_c_pointer_module(void) {

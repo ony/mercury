@@ -444,7 +444,7 @@ analyse_goal_expr( if_then_else(_VARS, IF, THEN, ELSE, _SM), _Info,
 	analyse_goal( ProcInfo, HLDS, ELSE, T2, T, A0, A3),
 	pa_alias_as__least_upper_bound( ProcInfo, HLDS, A2, A3, A).
 
-analyse_goal_expr( pragma_foreign_code( _,_,_,_, Vars, MaybeModes,Types,_  ), 
+analyse_goal_expr( pragma_foreign_code( _,_,_, Vars, MaybeModes,Types,_  ), 
 			Info, ProcInfo, HLDS , 
 			T, T, Ain, A) :- 
 	pa_alias_as__extend_foreign_code( ProcInfo, HLDS, Info, Vars, 

@@ -531,6 +531,8 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 		; % Inferring = no
 			pred_info_set_head_type_params(PredInfo5,
 				HeadTypeParams2, PredInfo6),
+			pred_info_get_maybe_instance_method_constraints(
+				PredInfo6, MaybeInstanceMethodConstraints0),
 
 			%
 			% leave the original argtypes etc., but 
@@ -548,7 +550,9 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 				% optimize common case
 				ExistQVars1 = [],
 				ArgTypes1 = ArgTypes0,
-				PredConstraints1 = PredConstraints
+				PredConstraints1 = PredConstraints,
+				MaybeInstanceMethodConstraints1 = 
+					MaybeInstanceMethodConstraints0
 			;
 				apply_var_renaming_to_var_list(ExistQVars0,
 					ExistTypeRenaming, ExistQVars1),
@@ -557,7 +561,11 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 					ArgTypes1),
 				apply_variable_renaming_to_constraints(
 					ExistTypeRenaming,
-					PredConstraints, PredConstraints1)
+					PredConstraints, PredConstraints1),
+				rename_instance_method_constraints(
+					ExistTypeRenaming,
+					MaybeInstanceMethodConstraints0,
+					MaybeInstanceMethodConstraints1)
 			),
 
 			% rename them all to match the new typevarset
@@ -567,12 +575,18 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 				TVarRenaming, RenamedOldArgTypes),
 			apply_variable_renaming_to_constraints(TVarRenaming,
 				PredConstraints1, RenamedOldConstraints),
+			rename_instance_method_constraints(TVarRenaming,
+				MaybeInstanceMethodConstraints1,
+				MaybeInstanceMethodConstraints),
 
 			% save the results in the pred_info
 			pred_info_set_arg_types(PredInfo6, TypeVarSet,
 				ExistQVars, RenamedOldArgTypes, PredInfo7),
 			pred_info_set_class_context(PredInfo7,
-				RenamedOldConstraints, PredInfo),
+				RenamedOldConstraints, PredInfo8),
+			pred_info_set_maybe_instance_method_constraints(
+				PredInfo8, MaybeInstanceMethodConstraints,
+				PredInfo),
 
 			Changed = no
 		),
@@ -584,6 +598,27 @@ typecheck_pred_type(PredId, PredInfo0, ModuleInfo, PredInfo, Error, Changed,
 % is_bool/1 is used to avoid a type ambiguity
 :- pred is_bool(bool::in) is det.
 is_bool(_).
+
+:- pred rename_instance_method_constraints(map(tvar, tvar),
+		maybe(instance_method_constraints),
+		maybe(instance_method_constraints)).
+:- mode rename_instance_method_constraints(in, in, out) is det.
+
+rename_instance_method_constraints(_, no, no).
+rename_instance_method_constraints(Renaming,
+		yes(Constraints0), yes(Constraints)) :-
+	Constraints0 = instance_method_constraints(ClassId,
+		InstanceTypes0, InstanceConstraints0,
+		ClassMethodClassContext0),
+	term__apply_variable_renaming_to_list(InstanceTypes0,
+		Renaming, InstanceTypes),
+	apply_variable_renaming_to_constraint_list(Renaming,
+		InstanceConstraints0, InstanceConstraints),
+	apply_variable_renaming_to_constraints(Renaming,
+		ClassMethodClassContext0, ClassMethodClassContext),
+	Constraints = instance_method_constraints(ClassId,
+		InstanceTypes, InstanceConstraints,
+		ClassMethodClassContext).
 
 	%
 	% infer which of the head variable
@@ -764,7 +799,7 @@ special_pred_needs_typecheck(PredInfo, ModuleInfo) :-
 	%
 	% For a field access function for which the user has supplied
 	% a declaration but no clauses, add a clause
-	% 'foo:='(X, Y) = 'foo:='(X, Y).
+	% 'foo :='(X, Y) = 'foo :='(X, Y).
 	% As for the default clauses added for builtins, this is not a
 	% recursive call -- post_typecheck.m will expand the body into
 	% unifications.
@@ -1043,8 +1078,8 @@ typecheck_goal_2(unify(A, B0, Mode, Info, UnifyContext),
 	typecheck_unification(A, B0, B).
 typecheck_goal_2(switch(_, _, _, _), _) -->
 	{ error("unexpected switch") }.
-typecheck_goal_2(pragma_foreign_code(A, B, PredId, D, Args, F, G, H), 
-		pragma_foreign_code(A, B, PredId, D, Args, F, G, H)) -->
+typecheck_goal_2(pragma_foreign_code(A, PredId, C, Args, E, F, G), 
+		pragma_foreign_code(A, PredId, C, Args, E, F, G)) -->
 	% pragma_foreign_codes are automatically generated, so they
 	% will always be type-correct, but we need to do
 	% the type analysis in order to correctly compute the
@@ -2037,14 +2072,16 @@ check_warn_too_much_overloading(TypeCheckInfo0, TypeCheckInfo) :-
 :- mode checkpoint(in, typecheck_info_di, typecheck_info_uo) is det.
 
 checkpoint(Msg, T0, T) :-
-	typecheck_info_get_io_state(T0, I0),
-	globals__io_lookup_bool_option(debug_types, DoCheckPoint, I0, I1),
+	typecheck_info_get_module_info(T0, ModuleInfo),
+	module_info_globals(ModuleInfo, Globals),
+	globals__lookup_bool_option(Globals, debug_types, DoCheckPoint),
 	( DoCheckPoint = yes ->
-		checkpoint_2(Msg, T0, I1, I)
+		typecheck_info_get_io_state(T0, I0),
+		checkpoint_2(Msg, T0, I0, I),
+		typecheck_info_set_io_state(T0, I, T)
 	;
-		I = I1
-	),
-	typecheck_info_set_io_state(T0, I, T).
+		T = T0
+	).
 
 :- pred checkpoint_2(string, typecheck_info, io__state, io__state).
 :- mode checkpoint_2(in, typecheck_info_no_io, di, uo) is det.
@@ -2806,7 +2843,7 @@ builtin_apply_type(_TypeCheckInfo, Functor, Arity, ConsTypeInfos) :-
 	% builtin_field_access_function_type(TypeCheckInfo, Functor,
 	%	Arity, ConsTypeInfos):
 	% Succeed if Functor is the name of one the automatically
-	% generated field access functions (fieldname, '<fieldname>:=').
+	% generated field access functions (fieldname, '<fieldname> :=').
 :- pred builtin_field_access_function_type(typecheck_info, cons_id, arity,
 		list(cons_type_info), list(invalid_field_update)).
 :- mode builtin_field_access_function_type(typecheck_info_ui, in, in,
@@ -2926,7 +2963,7 @@ convert_field_access_cons_type_info(AccessType, FieldName, FieldDefn,
 	AccessType = set,
 
 	%
-	% A `'field:='/2' function has no existentially
+	% A `'field :='/2' function has no existentially
 	% quantified type variables - the values of all
 	% type variables in the field are supplied by
 	% the caller, all the others are supplied by
@@ -3021,7 +3058,7 @@ convert_field_access_cons_type_info(AccessType, FieldName, FieldDefn,
 			% Rename the class constraints, projecting
 			% the constraints onto the set of type variables
 			% occuring in the types of the arguments of
-			% the call to `'field:='/2'. 
+			% the call to `'field :='/2'. 
 			%
 			term__vars_list([FunctorType, FieldType],
 				CallTVars0),
@@ -3656,9 +3693,11 @@ typecheck_info_get_ctor_list(TypeCheckInfo, Functor, Arity,
 		% has supplied type or mode declarations, the
 		% goal should only contain an application of the
 		% field access function, not constructor applications
-		% or function calls.
+		% or function calls. The clauses in `.opt' files will
+		% already have been expanded into unifications.
 		%
-		TypeCheckInfo ^ is_field_access_function = yes
+		TypeCheckInfo ^ is_field_access_function = yes,
+		TypeCheckInfo ^ import_status \= opt_imported
 	->
 		(
 			builtin_field_access_function_type(TypeCheckInfo,

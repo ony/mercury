@@ -32,9 +32,12 @@
 
 :- interface.
 
-:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data.
-:- import_module prog_data, llds, instmap, term.
-:- import_module io, bool, list.
+% Parse tree modules
+:- import_module prog_data.
+% HLDS modules
+:- import_module hlds_module, hlds_pred, hlds_goal, hlds_data, instmap.
+
+:- import_module io, bool, list, term.
 
 %-----------------------------------------------------------------------------%
 
@@ -131,8 +134,8 @@
 :- pred hlds_out__write_can_fail(can_fail, io__state, io__state).
 :- mode hlds_out__write_can_fail(in, di, uo) is det.
 
-:- pred hlds_out__write_code_model(code_model, io__state, io__state).
-:- mode hlds_out__write_code_model(in, di, uo) is det.
+:- pred hlds_out__write_eval_method(eval_method, io__state, io__state).
+:- mode hlds_out__write_eval_method(in, di, uo) is det.
 
 :- pred hlds_out__write_import_status(import_status, io__state, io__state).
 :- mode hlds_out__write_import_status(in, di, uo) is det.
@@ -243,10 +246,23 @@
 
 :- implementation.
 
-:- import_module mercury_to_mercury, globals, options, purity, special_pred.
-:- import_module llds_out, prog_out, prog_util, (inst), instmap, trace.
-:- import_module rl, code_util, termination, term_errors, check_typeclass.
+% Parse tree modules.
+:- import_module prog_out, prog_util, (inst).
 
+% HLDS modules.
+:- import_module mercury_to_mercury, purity, special_pred, instmap.
+:- import_module termination, term_errors, check_typeclass.
+
+% RL back-end modules (XXX should avoid using those here).
+:- import_module rl.
+
+% LLDS back-end modules (XXX should avoid using those here).
+:- import_module code_util, llds, llds_out, trace.
+
+% Misc
+:- import_module globals, options.
+
+% Standard library modules
 :- import_module int, string, set, assoc_list, map, multi_map.
 :- import_module require, getopt, std_util, term_io, varset.
 :- import_module pa_alias_as, sr_data.
@@ -288,7 +304,8 @@ hlds_out__cons_id_to_string(code_addr_const(_, _), "<code_addr>").
 hlds_out__cons_id_to_string(type_ctor_info_const(_, _, _), "<type_ctor_info>").
 hlds_out__cons_id_to_string(base_typeclass_info_const(_, _, _, _),
 	"<base_typeclass_info>").
-hlds_out__cons_id_to_string(tabling_pointer_const(_, _), "<tabling_pointer>").
+hlds_out__cons_id_to_string(tabling_pointer_const(_, _),
+	"<tabling_pointer>").
 
 hlds_out__write_cons_id(cons(SymName, Arity)) -->
 	prog_out__write_sym_name_and_arity(SymName / Arity).
@@ -729,7 +746,6 @@ hlds_out__write_pred(Indent, ModuleInfo, PredId, PredInfo) -->
 	{ pred_info_get_exist_quant_tvars(PredInfo, ExistQVars) },
 	{ pred_info_typevarset(PredInfo, TVarSet) },
 	{ pred_info_clauses_info(PredInfo, ClausesInfo) },
-	{ pred_info_procedures(PredInfo, ProcTable) },
 	{ pred_info_context(PredInfo, Context) },
 	{ pred_info_name(PredInfo, PredName) },
 	{ pred_info_import_status(PredInfo, ImportStatus) },
@@ -843,7 +859,7 @@ hlds_out__write_pred(Indent, ModuleInfo, PredId, PredInfo) -->
 		[]
 	),
 	hlds_out__write_procs(Indent, AppendVarnums, ModuleInfo, PredId,
-		ImportStatus, ProcTable),
+		ImportStatus, PredInfo),
 	io__write_string("\n").
 
 :- pred hlds_out__write_marker_list(list(marker), io__state, io__state).
@@ -1039,6 +1055,7 @@ hlds_out__write_goal_a(Goal - GoalInfo, ModuleInfo, VarSet, AppendVarnums,
 	( { string__contains_char(Verbose, 'P') } ->
 		{ goal_info_get_goal_path(GoalInfo, Path) },
 		( { Path \= [] } ->
+			% XXX should avoid dependency on trace.m here
 			{ trace__path_to_string(Path, PathStr) },
 			hlds_out__write_indent(Indent),
 			io__write_string("% goal path: "),
@@ -1614,12 +1631,12 @@ hlds_out__write_goal_2(unify(A, B, _, Unification, _), ModuleInfo, VarSet,
 		[]
 	).
 
-hlds_out__write_goal_2(pragma_foreign_code(Language, _, _, _, ArgVars,
+hlds_out__write_goal_2(pragma_foreign_code(Attributes, _, _, ArgVars,
 		ArgNames, _, PragmaCode), _, _, _, Indent, Follow, _) -->
-	% XXX handle other languages
+	{ foreign_language(Attributes, ForeignLang) },
 	hlds_out__write_indent(Indent),
 	io__write_string("$pragma_foreign_code( /* "),
-	io__write(Language),
+	io__write_string(foreign_language_string(ForeignLang)),
 	io__write_string(" */ ["),
 	hlds_out__write_varnum_list(ArgVars),
 	io__write_string("], ["),
@@ -1739,6 +1756,7 @@ hlds_out__write_aditi_builtin(ModuleInfo,
 		Indent, Follow) -->
 	hlds_out__write_indent(Indent),	
 	io__write_string("aditi_call "),
+	% XXX should avoid dependency on rl.m here
 	{ rl__get_entry_proc_name(ModuleInfo, PredProcId, ProcName) },
 	io__write(ProcName),
 	io__write_string("("),
@@ -2328,6 +2346,10 @@ hlds_out__write_import_status(imported(interface)) -->
 	io__write_string("imported in the interface").
 hlds_out__write_import_status(imported(implementation)) -->
 	io__write_string("imported in the implementation").
+hlds_out__write_import_status(external(interface)) -->
+	io__write_string("external (and exported)").
+hlds_out__write_import_status(external(implementation)) -->
+	io__write_string("external (and local)").
 hlds_out__write_import_status(abstract_imported) -->
 	io__write_string("abstract_imported").
 hlds_out__write_import_status(opt_imported) -->
@@ -2891,12 +2913,13 @@ hlds_out__write_modes(Indent, _ModeTable) -->
 %-----------------------------------------------------------------------------%
 
 :- pred hlds_out__write_procs(int, bool, module_info, pred_id, import_status,
-	proc_table, io__state, io__state).
+	pred_info, io__state, io__state).
 :- mode hlds_out__write_procs(in, in, in, in, in, in, di, uo) is det.
 
 hlds_out__write_procs(Indent, AppendVarnums, ModuleInfo, PredId,
-		ImportStatus, ProcTable) -->
-	{ map__keys(ProcTable, ProcIds) },
+		ImportStatus, PredInfo) -->
+	{ pred_info_procedures(PredInfo, ProcTable) },
+	{ pred_info_procids(PredInfo, ProcIds) },
 	hlds_out__write_procs_2(ProcIds, AppendVarnums, ModuleInfo, Indent,
 		PredId, ImportStatus, ProcTable).
 
@@ -2909,7 +2932,8 @@ hlds_out__write_procs_2([], _, _ModuleInfo, _Indent, _PredId, _, _ProcTable) -->
 hlds_out__write_procs_2([ProcId | ProcIds], AppendVarnums, ModuleInfo, Indent,
 		PredId, ImportStatus, ProcTable) -->
 	{ map__lookup(ProcTable, ProcId, ProcInfo) },
-	hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId, ImportStatus, ProcInfo),
+	hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
+		ImportStatus, ProcInfo),
 	hlds_out__write_procs_2(ProcIds, AppendVarnums, ModuleInfo, Indent,
 		PredId, ImportStatus, ProcTable).
 
@@ -2934,6 +2958,7 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 	{ proc_info_get_maybe_termination_info(Proc, MaybeTermination) },
 	{ proc_info_typeinfo_varmap(Proc, TypeInfoMap) },
 	{ proc_info_typeclass_info_varmap(Proc, TypeClassInfoMap) },
+	{ proc_info_eval_method(Proc, EvalMethod) },
 	{ proc_info_is_address_taken(Proc, IsAddressTaken) },
 	{ proc_info_possible_aliases(Proc, MaybeAliases) }, 
 	{ proc_info_get_call_table_tip(Proc, MaybeCallTableTip) },
@@ -3008,6 +3033,14 @@ hlds_out__write_proc(Indent, AppendVarnums, ModuleInfo, PredId, ProcId,
 		io__write_string("% address is taken\n")
 	;
 		io__write_string("% address is not taken\n")
+	),
+
+	( { EvalMethod = eval_normal } ->
+		[]
+	;
+		io__write_string("% eval method: "),
+		hlds_out__write_eval_method(EvalMethod),
+		io__write_string("\n")
 	),
 
 	( { MaybeCallTableTip = yes(CallTableTip) } ->
@@ -3138,12 +3171,16 @@ hlds_out__write_can_fail(can_fail) -->
 hlds_out__write_can_fail(cannot_fail) -->
 	io__write_string("cannot_fail").
 
-hlds_out__write_code_model(model_det) -->
-	io__write_string("model_det").
-hlds_out__write_code_model(model_semi) -->
-	io__write_string("model_semi").
-hlds_out__write_code_model(model_non) -->
-	io__write_string("model_non").
+hlds_out__write_eval_method(eval_normal) -->
+	io__write_string("normal").
+hlds_out__write_eval_method(eval_loop_check) -->
+	io__write_string("loop_check").
+hlds_out__write_eval_method(eval_memo) -->
+	io__write_string("memo").
+hlds_out__write_eval_method(eval_minimal) -->
+	io__write_string("minimal").
+hlds_out__write_eval_method(eval_table_io) -->
+	io__write_string("table_io").
 
 :- pred hlds_out__write_indent(int, io__state, io__state).
 :- mode hlds_out__write_indent(in, di, uo) is det.

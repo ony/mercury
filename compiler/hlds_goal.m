@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1996-2000 The University of Melbourne.
+% Copyright (C) 1996-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -164,7 +164,6 @@
 		% Foreign code from a pragma foreign_code(...) decl.
 
 	;	pragma_foreign_code(
-			foreign_language, % the language we are using
 			pragma_foreign_code_attributes,
 			pred_id,	% The called predicate
 			proc_id, 	% The mode of the predicate
@@ -628,9 +627,7 @@
 :- pred goal_info_set_reuse(hlds_goal_info, reuse_goal_info, hlds_goal_info).
 :- mode goal_info_set_reuse(in,in, out) is det.
 
-:- pred goal_info_get_code_model(hlds_goal_info, code_model).
-:- mode goal_info_get_code_model(in, out) is det.
-
+	% see also goal_info_get_code_model in code_model.m
 :- pred goal_info_get_determinism(hlds_goal_info, determinism).
 :- mode goal_info_get_determinism(in, out) is det.
 
@@ -741,6 +738,10 @@
 	% the root is last. (Keeping the list in reverse order makes the
 	% common operations constant-time instead of linear in the length
 	% of the list.)
+	%
+	% If any of the following three types is changed, then the
+	% corresponding types in browser/program_representation.m must be
+	% updated.
 
 :- type goal_path == list(goal_path_step).
 
@@ -824,6 +825,12 @@
 	%
 :- pred negate_goal(hlds_goal, hlds_goal_info, hlds_goal).
 :- mode negate_goal(in, in, out) is det.
+
+	% Return yes if goal(s) contain any foreign code
+:- func goal_has_foreign(hlds_goal) = bool.
+:- mode goal_has_foreign(in) = out is det.
+:- func goal_list_has_foreign(list(hlds_goal)) = bool.
+:- mode goal_list_has_foreign(in) = out is det.
 
 	% A goal is atomic iff it doesn't contain any sub-goals
 	% (except possibly goals inside lambda expressions --
@@ -1383,10 +1390,6 @@ goal_info_set_resume_point(GoalInfo0, ResumePoint,
 goal_info_set_goal_path(GoalInfo0, GoalPath,
 		GoalInfo0 ^ goal_path := GoalPath).
 
-goal_info_get_code_model(GoalInfo, CodeModel) :-
-	goal_info_get_determinism(GoalInfo, Determinism),
-	determinism_to_code_model(Determinism, CodeModel).
-
 goal_info_add_feature(GoalInfo0, Feature, GoalInfo) :-
 	goal_info_get_features(GoalInfo0, Features0),
 	set__insert(Features0, Feature, Features),
@@ -1544,13 +1547,78 @@ all_negated([conj(NegatedConj) - _GoalInfo | NegatedGoals], Goals) :-
 	list__append(Goals1, Goals2, Goals).
 
 %-----------------------------------------------------------------------------%
+% Returns yes if a goal (or subgoal contained within) contains any foreign
+% code
+goal_has_foreign(Goal) = HasForeign :-
+	Goal = GoalExpr - _,
+	(
+		GoalExpr = conj(Goals),
+		HasForeign = goal_list_has_foreign(Goals)
+	;
+		GoalExpr = call(_, _, _, _, _, _),
+		HasForeign = no
+	;
+		GoalExpr = generic_call(_, _, _, _),
+		HasForeign = no
+	;
+		GoalExpr = switch(_, _, _, _),
+		HasForeign = no
+	;
+		GoalExpr = unify(_, _, _, _, _),
+		HasForeign = no
+	;
+		GoalExpr = disj(Goals, _),
+		HasForeign = goal_list_has_foreign(Goals)
+	;
+		GoalExpr = not(Goal2),
+		HasForeign = goal_has_foreign(Goal2)
+	;
+		GoalExpr = some(_, _, Goal2),
+		HasForeign = goal_has_foreign(Goal2)
+	;
+		GoalExpr = if_then_else(_, Goal2, Goal3, Goal4, _),
+		HasForeign =
+		(	goal_has_foreign(Goal2) = yes 
+		->	yes
+		;	goal_has_foreign(Goal3) = yes
+		->	yes
+		;	goal_has_foreign(Goal4) = yes
+		->	yes
+		;	no
+		)
+	;
+		GoalExpr = pragma_foreign_code(_, _, _, _, _, _, _),
+		HasForeign = yes
+	;
+		GoalExpr = par_conj(Goals, _),
+		HasForeign = goal_list_has_foreign(Goals)
+	;
+		GoalExpr = bi_implication(Goal2, Goal3),
+		HasForeign =
+		(	goal_has_foreign(Goal2) = yes
+		->	yes
+		;	goal_has_foreign(Goal3) = yes
+		->	yes
+		;	no
+		)
+	).
+
+goal_list_has_foreign([]) = no.
+goal_list_has_foreign([X | Xs]) =
+	(	goal_has_foreign(X) = yes
+	->	yes
+	;	goal_list_has_foreign(Xs)
+	).
+
+
+%-----------------------------------------------------------------------------%
 
 goal_is_atomic(conj([])).
 goal_is_atomic(disj([], _)).
 goal_is_atomic(generic_call(_,_,_,_)).
 goal_is_atomic(call(_,_,_,_,_,_)).
 goal_is_atomic(unify(_,_,_,_,_)).
-goal_is_atomic(pragma_foreign_code(_,_,_,_,_,_,_,_)).
+goal_is_atomic(pragma_foreign_code(_,_,_,_,_,_,_)).
 
 %-----------------------------------------------------------------------------%
 
@@ -1645,7 +1713,7 @@ set_goal_contexts_2(_, Goal, Goal) :-
 set_goal_contexts_2(_, Goal, Goal) :-
 	Goal = unify(_, _, _, _, _).
 set_goal_contexts_2(_, Goal, Goal) :-
-	Goal = pragma_foreign_code(_, _, _, _, _, _, _, _).
+	Goal = pragma_foreign_code(_, _, _, _, _, _, _).
 set_goal_contexts_2(Context, bi_implication(LHS0, RHS0),
 		bi_implication(LHS, RHS)) :-
 	set_goal_contexts(Context, LHS0, LHS),

@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -19,13 +19,16 @@
 /*
 ** Function prototypes.
 */
-static	void	garbage_collect(MR_Code *saved_success, MR_Word *stack_pointer,
+static	void	garbage_collect(MR_Code *saved_success,
+			MR_Word *stack_pointer,
 			MR_Word *max_frame, MR_Word *current_frame);
 static	void	garbage_collect_roots(void);
 static	void	copy_long_value(MR_Long_Lval locn, MR_TypeInfo type_info, 
-		bool copy_regs, MR_Word *stack_pointer, MR_Word *current_frame);
+			bool copy_regs, MR_Word *stack_pointer,
+			MR_Word *current_frame);
 static	void	copy_short_value(MR_Short_Lval locn, MR_TypeInfo type_info,
-		bool copy_regs, MR_Word *stack_pointer, MR_Word *current_frame);
+			bool copy_regs, MR_Word *stack_pointer,
+			MR_Word *current_frame);
 
 /*
 ** Global variables (only used in this module, however).
@@ -63,14 +66,14 @@ void
 MR_schedule_agc(MR_Code *pc_at_signal, MR_Word *sp_at_signal, 
 	MR_Word *curfr_at_signal)
 {
-	MR_Stack_Layout_Label		*layout;
-	const MR_Stack_Layout_Entry	*entry_layout;
-	MR_Long_Lval_Type		type;
-	MR_Long_Lval			location;
-	const char			*reason;
-	MR_Entry			*entry_label = NULL;
-	int				number;
-	MR_Determinism			determinism;
+	MR_Label_Layout		*layout;
+	const MR_Proc_Layout	*proc_layout;
+	MR_Long_Lval_Type	type;
+	MR_Long_Lval		location;
+	const char		*reason;
+	MR_Entry		*entry_label = NULL;
+	int			number;
+	MR_Determinism		determinism;
 
 	if (gc_running) {
 		/*
@@ -103,9 +106,9 @@ MR_schedule_agc(MR_Code *pc_at_signal, MR_Word *sp_at_signal,
 	/* Search for the entry label */
 
 	entry_label = MR_prev_entry_by_addr(pc_at_signal);
-	entry_layout = entry_label->e_layout;
+	proc_layout = entry_label->e_layout;
 
-	determinism = entry_layout->MR_sle_detism;
+	determinism = proc_layout->MR_sle_detism;
 
 	if (determinism < 0) {
 		/*
@@ -152,13 +155,13 @@ MR_schedule_agc(MR_Code *pc_at_signal, MR_Word *sp_at_signal,
 	}
 	gc_scheduled = TRUE;
 
-	location = entry_layout->MR_sle_succip_locn;
+	location = proc_layout->MR_sle_succip_locn;
 	type = MR_LONG_LVAL_TYPE(location);
 	number = MR_LONG_LVAL_NUMBER(location);
 	if (MR_DETISM_DET_STACK(determinism)) {
 
 		if (type != MR_LONG_LVAL_TYPE_STACKVAR) {
-			fatal_error("can only handle stackvars");
+			MR_fatal_error("can only handle stackvars");
 		}
 
 		/*
@@ -170,7 +173,7 @@ MR_schedule_agc(MR_Code *pc_at_signal, MR_Word *sp_at_signal,
 	} else {
 		/*
 		** XXX we don't support nondet stack frames yet.
-		fatal_error("cannot schedule in nondet stack frame");
+		MR_fatal_error("cannot schedule in nondet stack frame");
 		*/
 
 		saved_success_location = &MR_based_framevar(curfr_at_signal,
@@ -210,15 +213,15 @@ Define_entry(mercury__garbage_collect_0_0);
         /* record that the collector is running */
 	gc_running = TRUE;
 
-	save_registers();
+	MR_save_registers();
 	garbage_collect(saved_success, MR_sp, MR_maxfr, MR_curfr);
-	restore_registers();
+	MR_restore_registers();
 	gc_scheduled = FALSE;
 	gc_running = FALSE;
 
 	MR_succip = saved_success;
-	proceed();
-	fatal_error("Unreachable code reached");
+	MR_proceed();
+	MR_fatal_error("Unreachable code reached");
 
 END_MODULE
 
@@ -237,18 +240,17 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 {
     MR_Internal                     *label, *first_label;
     int                             i, count;
-    const MR_Stack_Layout_Label     *internal_layout;
-    const MR_Stack_Layout_Vars      *vars;
-    MemoryZone                      *old_heap, *new_heap;
+    const MR_Label_Layout	    *label_layout;
+    MR_MemoryZone                   *old_heap, *new_heap;
     MR_TypeInfoParams               type_params;
     bool                            succeeded;
     bool                            top_frame = TRUE;
     MR_MemoryList                   allocated_memory_cells = NULL;
-    MR_Word                            *old_hp, *new_hp;
-    MR_Stack_Layout_Entry           *entry_layout;
-    MR_Word                            *first_stack_pointer,
-    					*first_current_frame,
-    					*first_max_frame;
+    MR_Word                         *old_hp, *new_hp;
+    MR_Proc_Layout	            *proc_layout;
+    MR_Word                         *first_stack_pointer;
+    MR_Word                         *first_current_frame,
+    MR_Word                         *first_max_frame;
 
     old_heap = MR_ENGINE(heap_zone);
     new_heap = MR_ENGINE(heap_zone2);
@@ -275,7 +277,7 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
     ** Swap the two heaps.
     */
     {
-        MemoryZone *tmp;
+        MR_MemoryZone *tmp;
 
         tmp = MR_ENGINE(heap_zone2);
         MR_ENGINE(heap_zone2) = MR_ENGINE(heap_zone);
@@ -288,7 +290,7 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 #endif
 
     label = MR_lookup_internal_by_addr(success_ip);
-    internal_layout = label->i_layout;
+    label_layout = label->i_layout;
 
 #ifdef MR_DEBUG_AGC_COLLECTION
     first_label = label;
@@ -319,7 +321,7 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
     do {
         MR_Stack_Walk_Step_Result       result;
         const char                      *problem;
-        const MR_Stack_Layout_Label     *return_label_layout;
+        const MR_Label_Layout           *return_label_layout;
 	int				short_var_count, long_var_count;
 
 #ifdef MR_DEBUG_AGC_COLLECTION
@@ -327,15 +329,14 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
         fflush(NULL);
 #endif
 
-        vars = &(internal_layout->MR_sll_var_info);
-        short_var_count = MR_short_desc_var_count(vars);
-        long_var_count = MR_long_desc_var_count(vars);
+        short_var_count = MR_short_desc_var_count(label_layout);
+        long_var_count = MR_long_desc_var_count(label_layout);
 
         /* Get the type parameters from the stack frame. */
 
 	/* XXX We must pass NULL since the registers have not been saved */
 	/* XXX This is probably a bug; Tyson should look into it */
-        type_params = MR_materialize_typeinfos_base(vars,
+        type_params = MR_materialize_typeinfos_base(label_layout,
             NULL, stack_pointer, current_frame);
         
         /* Copy each live variable */
@@ -345,8 +346,8 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
             MR_PseudoTypeInfo pseudo_type_info;
             MR_TypeInfo type_info;
 
-	    locn = MR_long_desc_var_locn(vars, i);
-            pseudo_type_info = MR_var_pti(vars, i);
+	    locn = MR_long_desc_var_locn(label_layout, i);
+            pseudo_type_info = MR_var_pti(label_layout, i);
 
             type_info = MR_make_type_info(type_params, pseudo_type_info,
                 &allocated_memory_cells);
@@ -361,8 +362,8 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
             MR_PseudoTypeInfo pseudo_type_info;
             MR_TypeInfo type_info;
 
-	    locn = MR_short_desc_var_locn(vars, i);
-            pseudo_type_info = MR_var_pti(vars, i);
+	    locn = MR_short_desc_var_locn(label_layout, i);
+            pseudo_type_info = MR_var_pti(label_layout, i);
 
             type_info = MR_make_type_info(type_params, pseudo_type_info,
                 &allocated_memory_cells);
@@ -374,14 +375,14 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 
         MR_free(type_params);
 
-        entry_layout = internal_layout->MR_sll_entry;
+        proc_layout = label_layout->MR_sll_entry;
 
 	{
 		MR_Long_Lval            location;
 		MR_Long_Lval_Type            type;
 		int                     number;
 
-		location = entry_layout->MR_sle_succip_locn;
+		location = proc_layout->MR_sle_succip_locn;
 		type = MR_LONG_LVAL_TYPE(location);
 		number = MR_LONG_LVAL_NUMBER(location);
 		if (type != MR_LONG_LVAL_TYPE_STACKVAR) {
@@ -390,7 +391,7 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 		
 		success_ip = (Code *) MR_based_stackvar(stack_pointer, number);
 		stack_pointer = stack_pointer - 
-			entry_layout->MR_sle_stack_slots;
+			proc_layout->MR_sle_stack_slots;
 		label = MR_lookup_internal_by_addr(success_ip);
 	}
 
@@ -398,11 +399,11 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 	we should use this code eventually, but it requires a bit of
 	a redesign of the code around here.
  
-        result = MR_stack_walk_step(entry_layout, &internal_layout,
+        result = MR_stack_walk_step(proc_layout, &label_layout,
             (MR_Word **) &stack_pointer, &current_frame, &problem);
 
         if (result == STEP_ERROR_BEFORE || result == STEP_ERROR_AFTER) {
-            fatal_error(problem);
+            MR_fatal_error(problem);
         } 
 */
 
@@ -410,9 +411,9 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
             break;
         }
 	return_label_layout = label->i_layout;
-        internal_layout = return_label_layout;
+        label_layout = return_label_layout;
         top_frame = FALSE;
-    } while (internal_layout != NULL); /* end for each stack frame... */
+    } while (label_layout != NULL); /* end for each stack frame... */
 
 
     /* 
@@ -450,18 +451,17 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 	if (label != NULL) {
 		int short_var_count, long_var_count;
 
-		internal_layout = label->i_layout;
-		short_var_count = MR_short_desc_var_count(vars);
-		long_var_count = MR_long_desc_var_count(vars);
-		/* var_count = internal_layout->MR_sll_var_count; */
-		vars = &(internal_layout->MR_sll_var_info);
+		label_layout = label->i_layout;
+		short_var_count = MR_short_desc_var_count(label_layout);
+		long_var_count = MR_long_desc_var_count(label_layout);
+		/* var_count = label_layout->MR_sll_var_count; */
 
 		/* 
 		** XXX We must pass NULL since the registers have not
 		** been saved This is probably a bug; Tyson should look
 		** into it
 		*/
-		type_params = MR_materialize_typeinfos_base(vars,
+		type_params = MR_materialize_typeinfos_base(label_layout,
 		    NULL, stack_pointer, MR_redofr_slot(max_frame));
         
 		/* Copy each live variable */
@@ -470,8 +470,8 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 		    MR_PseudoTypeInfo pseudo_type_info;
 		    MR_TypeInfo type_info;
 
-		    locn = MR_long_desc_var_locn(vars, i);
-		    pseudo_type_info = MR_var_pti(vars, i);
+		    locn = MR_long_desc_var_locn(label_layout, i);
+		    pseudo_type_info = MR_var_pti(label_layout, i);
 
 		    type_info = MR_make_type_info(type_params, pseudo_type_info,
 			&allocated_memory_cells);
@@ -486,8 +486,8 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 		    MR_PseudoTypeInfo pseudo_type_info;
 		    MR_TypeInfo type_info;
 
-		    locn = MR_short_desc_var_locn(vars, i);
-		    pseudo_type_info = MR_var_pti(vars, i);
+		    locn = MR_short_desc_var_locn(label_layout, i);
+		    pseudo_type_info = MR_var_pti(label_layout, i);
 
 		    type_info = MR_make_type_info(type_params, pseudo_type_info,
 			&allocated_memory_cells);
@@ -557,8 +557,8 @@ garbage_collect(MR_Code *success_ip, MR_Word *stack_pointer,
 ** 	Copies a value in a register or stack frame,
 ** 	replacing the original with the new copy.
 **
-** 	The copying is done using agc_deep_copy, which is
-** 	the accurate GC version of deep_copy (it leaves
+** 	The copying is done using MR_agc_deep_copy, which is
+** 	the accurate GC version of MR_deep_copy (it leaves
 ** 	forwarding pointers in the old copy of the data, if
 ** 	it is on the old heap).
 */
@@ -572,8 +572,8 @@ copy_long_value(MR_Long_Lval locn, MR_TypeInfo type_info, bool copy_regs,
 	switch (MR_LONG_LVAL_TYPE(locn)) {
 		case MR_LONG_LVAL_TYPE_R:
 			if (copy_regs) {
-				virtual_reg(locn_num) = agc_deep_copy(
-					&virtual_reg(locn_num), type_info,
+				MR_virtual_reg(locn_num) = agc_deep_copy(
+					&MR_virtual_reg(locn_num), type_info,
 					MR_ENGINE(heap_zone2->min),
 					MR_ENGINE(heap_zone2->hardmax));
 			}
@@ -584,7 +584,7 @@ copy_long_value(MR_Long_Lval locn, MR_TypeInfo type_info, bool copy_regs,
 
 		case MR_LONG_LVAL_TYPE_STACKVAR:
 			MR_based_stackvar(stack_pointer, locn_num) =
-				agc_deep_copy(&MR_based_stackvar(
+				MR_agc_deep_copy(&MR_based_stackvar(
 						stack_pointer,locn_num),
 					type_info, MR_ENGINE(heap_zone2->min),
 					MR_ENGINE(heap_zone2->hardmax));
@@ -592,7 +592,7 @@ copy_long_value(MR_Long_Lval locn, MR_TypeInfo type_info, bool copy_regs,
 
 		case MR_LONG_LVAL_TYPE_FRAMEVAR:
 			MR_based_framevar(current_frame, locn_num) =
-				agc_deep_copy(
+				MR_agc_deep_copy(
 				&MR_based_framevar(current_frame, locn_num),
 				type_info,
 				MR_ENGINE(heap_zone2->min),
@@ -622,7 +622,7 @@ copy_long_value(MR_Long_Lval locn, MR_TypeInfo type_info, bool copy_regs,
 			break;
 
 		default:
-			fatal_error("Unknown MR_Long_Lval_Type in copy_long_value");
+			MR_fatal_error("Unknown MR_Long_Lval_Type in copy_long_value");
 			break;
 	}
 }
@@ -682,7 +682,7 @@ garbage_collect_roots(void)
 	MR_RootList current = root_list;
 
 	while (current != NULL) {
-		*current->root = agc_deep_copy(current->root,
+		*current->root = MR_agc_deep_copy(current->root,
 			current->type_info, MR_ENGINE(heap_zone2->min), 
 			MR_ENGINE(heap_zone2->hardmax));
 		current = current->next;

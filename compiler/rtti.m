@@ -24,9 +24,9 @@
 
 :- interface.
 
-:- import_module llds.	% XXX for code_model
+:- import_module prog_data.
 :- import_module hlds_module, hlds_pred, hlds_data.
-:- import_module prog_data, pseudo_type_info.
+:- import_module pseudo_type_info, code_model.
 
 :- import_module bool, list, std_util.
 
@@ -194,9 +194,10 @@
 			% the MR_NotagFunctorDesc C type.
 
 			string,			% functor name
-			rtti_data		% pseudo typeinfo of argument
+			rtti_data,		% pseudo typeinfo of argument
 						% (as a pseudo_type_info
 						% rtti_data)
+			maybe(string)		% the argument's name, if any
 		)
 	;	du_functor_desc(
 			rtti_type_id,		% identifies the type
@@ -220,9 +221,10 @@
 						% contains variables (assuming
 						% that arguments are numbered
 						% from zero)
-			rtti_name,		% a vector of length arity
+			maybe(rtti_name),	% a vector of length arity
 						% containing the pseudo
-						% typeinfos of the arguments
+						% typeinfos of the arguments,
+						% if any
 						% (a field_types rtti_name)
 			maybe(rtti_name),	% possibly a vector of length
 						% arity containing the names
@@ -447,7 +449,7 @@ rtti_data_to_name(field_types(RttiTypeId, Ordinal, _),
 	RttiTypeId, field_types(Ordinal)).
 rtti_data_to_name(enum_functor_desc(RttiTypeId, _, Ordinal),
 	RttiTypeId, enum_functor_desc(Ordinal)).
-rtti_data_to_name(notag_functor_desc(RttiTypeId, _, _),
+rtti_data_to_name(notag_functor_desc(RttiTypeId, _, _, _),
 	RttiTypeId, notag_functor_desc).
 rtti_data_to_name(du_functor_desc(RttiTypeId, _,_,_,_, Ordinal, _,_,_,_,_),
 	RttiTypeId, du_functor_desc(Ordinal)).

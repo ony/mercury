@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1995-2000 The University of Melbourne.
+% Copyright (C) 1995-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -82,10 +82,17 @@
 
 :- implementation.
 
-:- import_module hlds_goal, prog_data, quantification.
-:- import_module hlds_data, globals, options, type_util.
-:- import_module goal_util, prog_util, mode_util, inst_match, llds, arg_info.
+:- import_module code_model. % XXX for some back-end dependent optimizations
 
+% Parse tree modules
+:- import_module prog_data, prog_util.
+% HLDS modules
+:- import_module hlds_goal, hlds_data, quantification.
+:- import_module type_util, goal_util, mode_util, inst_match.
+% Misc
+:- import_module globals, options.
+
+% Standard library modules
 :- import_module list, map, set.
 :- import_module term, varset, bool, string, std_util, require.
 
@@ -269,8 +276,8 @@ lambda__process_goal_2(generic_call(A,B,C,D), GoalInfo,
 lambda__process_goal_2(call(A,B,C,D,E,F), GoalInfo,
 			call(A,B,C,D,E,F) - GoalInfo) -->
 	[].
-lambda__process_goal_2(pragma_foreign_code(A,B,C,D,E,F,G,H), GoalInfo,
-			pragma_foreign_code(A,B,C,D,E,F,G,H) - GoalInfo) -->
+lambda__process_goal_2(pragma_foreign_code(A,B,C,D,E,F,G), GoalInfo,
+			pragma_foreign_code(A,B,C,D,E,F,G) - GoalInfo) -->
 	[].
 lambda__process_goal_2(bi_implication(_, _), _, _) -->
 	% these should have been expanded out by now
@@ -408,7 +415,8 @@ lambda__process_lambda(PredOrFunc, EvalMethod, Vars, Modes, Detism,
 		proc_info_interface_code_model(Call_ProcInfo, Call_CodeModel),
 		determinism_to_code_model(Detism, CodeModel),
 		module_info_globals(ModuleInfo0, Globals),
-		globals__lookup_bool_option(Globals, highlevel_code, HighLevelCode),
+		globals__lookup_bool_option(Globals, highlevel_code,
+			HighLevelCode),
 		(
 			HighLevelCode = no,
 			( CodeModel = Call_CodeModel
@@ -416,7 +424,8 @@ lambda__process_lambda(PredOrFunc, EvalMethod, Vars, Modes, Detism,
 			)
 		;
 			HighLevelCode = yes,
-			pred_info_get_is_pred_or_func(Call_PredInfo, Call_PredOrFunc),
+			pred_info_get_is_pred_or_func(Call_PredInfo,
+				Call_PredOrFunc),
 			PredOrFunc = Call_PredOrFunc,
 			CodeModel = Call_CodeModel
 		),
@@ -542,7 +551,15 @@ lambda__process_lambda(PredOrFunc, EvalMethod, Vars, Modes, Detism,
 
 		proc_info_create(VarSet, VarTypes, AllArgVars, AllArgModes,
 			InstVarSet, Detism, LambdaGoal, LambdaContext,
-			TVarMap, TCVarMap, address_is_taken, ProcInfo),
+			TVarMap, TCVarMap, address_is_taken, ProcInfo0),
+		% If we previously already needed to recompute the nonlocals,
+		% then we'd better to that recomputation for the procedure
+		% that we just created.
+		( MustRecomputeNonLocals0 = yes ->
+			requantify_proc(ProcInfo0, ProcInfo)
+		;
+			ProcInfo = ProcInfo0
+		),
 
 		set__init(Assertions),
 

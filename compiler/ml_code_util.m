@@ -17,9 +17,8 @@
 
 :- import_module prog_data.
 :- import_module hlds_module, hlds_pred.
-:- import_module rtti.
+:- import_module rtti, code_model.
 :- import_module mlds.
-:- import_module llds. % XXX for `code_model'.
 :- import_module globals.
 
 :- import_module bool, int, list, map, std_util.
@@ -491,9 +490,13 @@
 :- pred ml_gen_info_get_globals(globals, ml_gen_info, ml_gen_info).
 :- mode ml_gen_info_get_globals(out, in, out) is det.
 
+	% lookup the --gcc-nested-functions option
 :- pred ml_gen_info_use_gcc_nested_functions(bool, ml_gen_info, ml_gen_info).
 :- mode ml_gen_info_use_gcc_nested_functions(out, in, out) is det.
 
+	% lookup the --put-commit-in-nested-func option
+:- pred ml_gen_info_put_commit_in_own_func(bool, ml_gen_info, ml_gen_info).
+:- mode ml_gen_info_put_commit_in_own_func(out, in, out) is det.
 
 	% Generate a new label number for use in label statements.
 	% This is used to give unique names to the case labels generated
@@ -1735,6 +1738,8 @@ ml_declare_env_ptr_arg(Name - mlds__generic_env_ptr_type) -->
 			% each procedure
 			%
 
+				% XXX we should use the standard library
+				% `counter' type here
 			func_label :: mlds__func_sequence_num,
 			commit_label :: commit_sequence_num,
 			label :: label_num,
@@ -1812,6 +1817,11 @@ ml_gen_info_use_gcc_nested_functions(UseNestedFuncs) -->
 	ml_gen_info_get_globals(Globals),
 	{ globals__lookup_bool_option(Globals, gcc_nested_functions,
 		UseNestedFuncs) }.
+
+ml_gen_info_put_commit_in_own_func(PutCommitInNestedFunc) -->
+	ml_gen_info_get_globals(Globals),
+	{ globals__lookup_bool_option(Globals, put_commit_in_own_func,
+		PutCommitInNestedFunc) }.
 
 ml_gen_info_get_globals(Globals) -->
 	=(Info),

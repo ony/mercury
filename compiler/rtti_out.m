@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 2000 The University of Melbourne.
+% Copyright (C) 2000-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -73,7 +73,7 @@
 
         % Return true iff the given type of RTTI data structure includes
 	% code addresses.
-:- pred rtti_name_would_include_code_addr(rtti_name::in, bool::out) is det.
+:- func rtti_name_would_include_code_addr(rtti_name) = bool.
 
 :- pred rtti_name_linkage(rtti_name::in, linkage::out) is det.
 
@@ -163,8 +163,8 @@ output_rtti_data_defn(enum_functor_desc(RttiTypeId, FunctorName, Ordinal),
 	io__write_string(""",\n\t"),
 	io__write_int(Ordinal),
 	io__write_string("\n};\n").
-output_rtti_data_defn(notag_functor_desc(RttiTypeId, FunctorName, ArgType),
-		DeclSet0, DeclSet) -->
+output_rtti_data_defn(notag_functor_desc(RttiTypeId, FunctorName, ArgType,
+		MaybeArgName), DeclSet0, DeclSet) -->
 	output_rtti_data_decls(ArgType, "", "", 0, _, DeclSet0, DeclSet1),
 	output_generic_rtti_data_defn_start(RttiTypeId, notag_functor_desc,
 		DeclSet1, DeclSet),
@@ -172,13 +172,29 @@ output_rtti_data_defn(notag_functor_desc(RttiTypeId, FunctorName, ArgType),
 	c_util__output_quoted_string(FunctorName),
 	io__write_string(""",\n\t "),
 	output_addr_of_rtti_data(ArgType),
+	io__write_string(",\n\t"),
+	(
+		{ MaybeArgName = yes(ArgName) },
+		io__write_string(""""),
+		io__write_string(ArgName),
+		io__write_string("""")
+	;
+		{ MaybeArgName = no },
+		io__write_string("NULL")
+	),
 	io__write_string("\n};\n").
 output_rtti_data_defn(du_functor_desc(RttiTypeId, FunctorName, Ptag, Stag,
-		Locn, Ordinal, Arity, ContainsVarBitVector, ArgTypes,
+		Locn, Ordinal, Arity, ContainsVarBitVector, MaybeArgTypes,
 		MaybeNames, MaybeExist),
 		DeclSet0, DeclSet) -->
-	output_rtti_addr_decls(RttiTypeId, ArgTypes, "", "", 0, _,
-		DeclSet0, DeclSet1),
+	(
+		{ MaybeArgTypes = yes(ArgTypes) },
+		output_rtti_addr_decls(RttiTypeId, ArgTypes, "", "", 0, _,
+			DeclSet0, DeclSet1)
+	;
+		{ MaybeArgTypes = no },
+		{ DeclSet1 = DeclSet0 }
+	),
 	(
 		{ MaybeNames = yes(NamesInfo1) },
 		output_rtti_addr_decls(RttiTypeId, NamesInfo1, "", "",
@@ -214,7 +230,13 @@ output_rtti_data_defn(du_functor_desc(RttiTypeId, FunctorName, Ptag, Stag,
 	io__write_int(Ordinal),
 	io__write_string(",\n\t"),
 	io__write_string("(MR_PseudoTypeInfo *) "), % cast away const
-	output_addr_of_rtti_addr(RttiTypeId, ArgTypes),
+	(
+		{ MaybeArgTypes = yes(ArgTypes2) },
+		output_addr_of_rtti_addr(RttiTypeId, ArgTypes2)
+	;
+		{ MaybeArgTypes = no },
+		io__write_string("NULL")
+	),
 	io__write_string(",\n\t"),
 	(
 		{ MaybeNames = yes(NamesInfo2) },
@@ -598,7 +620,7 @@ output_rtti_name_storage_type_name(OutputName, RttiName, BeingDefined) -->
 	{ c_data_linkage_string(Globals, Linkage, BeingDefined, LinkageStr) },
 	io__write_string(LinkageStr),
 
-	{ rtti_name_would_include_code_addr(RttiName, InclCodeAddr) },
+	{ InclCodeAddr = rtti_name_would_include_code_addr(RttiName) },
 	{ c_data_const_string(Globals, InclCodeAddr, ConstStr) },
 	io__write_string(ConstStr),
 
@@ -989,25 +1011,26 @@ output_static_code_addr(CodeAddr) -->
 
 %-----------------------------------------------------------------------------%
 
-rtti_name_would_include_code_addr(exist_locns(_),            no).
-rtti_name_would_include_code_addr(exist_info(_),             no).
-rtti_name_would_include_code_addr(field_names(_),            no).
-rtti_name_would_include_code_addr(field_types(_),            no).
-rtti_name_would_include_code_addr(enum_functor_desc(_),      no).
-rtti_name_would_include_code_addr(notag_functor_desc,        no).
-rtti_name_would_include_code_addr(du_functor_desc(_),        no).
-rtti_name_would_include_code_addr(enum_name_ordered_table,   no).
-rtti_name_would_include_code_addr(enum_value_ordered_table,  no).
-rtti_name_would_include_code_addr(du_name_ordered_table,     no).
-rtti_name_would_include_code_addr(du_stag_ordered_table(_),  no).
-rtti_name_would_include_code_addr(du_ptag_ordered_table,     no).
-rtti_name_would_include_code_addr(type_ctor_info,            yes).
-rtti_name_would_include_code_addr(base_typeclass_info(_, _, _), yes).
-rtti_name_would_include_code_addr(pseudo_type_info(Pseudo),
-		pseudo_type_info_would_incl_code_addr(Pseudo)).
-rtti_name_would_include_code_addr(type_hashcons_pointer,     no).
+rtti_name_would_include_code_addr(exist_locns(_)) =               no.
+rtti_name_would_include_code_addr(exist_info(_)) =                no.
+rtti_name_would_include_code_addr(field_names(_)) =               no.
+rtti_name_would_include_code_addr(field_types(_)) =               no.
+rtti_name_would_include_code_addr(enum_functor_desc(_)) =         no.
+rtti_name_would_include_code_addr(notag_functor_desc) =           no.
+rtti_name_would_include_code_addr(du_functor_desc(_)) =           no.
+rtti_name_would_include_code_addr(enum_name_ordered_table) =      no.
+rtti_name_would_include_code_addr(enum_value_ordered_table) =     no.
+rtti_name_would_include_code_addr(du_name_ordered_table) =        no.
+rtti_name_would_include_code_addr(du_stag_ordered_table(_)) =     no.
+rtti_name_would_include_code_addr(du_ptag_ordered_table) =        no.
+rtti_name_would_include_code_addr(type_ctor_info) =               yes.
+rtti_name_would_include_code_addr(base_typeclass_info(_, _, _)) = yes.
+rtti_name_would_include_code_addr(pseudo_type_info(Pseudo)) =
+		pseudo_type_info_would_incl_code_addr(Pseudo).
+rtti_name_would_include_code_addr(type_hashcons_pointer) =        no.
 
 :- func pseudo_type_info_would_incl_code_addr(pseudo_type_info) = bool.
+
 pseudo_type_info_would_incl_code_addr(type_var(_))			= no.
 pseudo_type_info_would_incl_code_addr(type_ctor_info(_))		= yes.
 pseudo_type_info_would_incl_code_addr(type_info(_, _))			= no.

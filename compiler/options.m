@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1994-2000 The University of Melbourne.
+% Copyright (C) 1994-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU General
 % Public License - see the file COPYING in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -97,6 +97,9 @@
 		;	assume_gmake
 		;	trace
 		;	trace_optimized
+		;	trace_table_io
+		;	trace_table_io_states
+		;	delay_death
 		;	suppress_trace
 		;	stack_trace_higher_order
 		;	generate_bytecode
@@ -134,6 +137,8 @@
 		;	il			% target il
 		;	il_only			% target il + target_code_only
 		;	compile_to_c		% target c + target_code_only
+		;       java                    % target java
+		;       java_only               % target java + target_code_only
 		;	gcc_non_local_gotos
 		;	gcc_global_registers
 		;	asm_labels
@@ -174,14 +179,25 @@
 		;	gcc_nested_functions
 		;	det_copy_out
 		;	nondet_copy_out
+		;	put_commit_in_own_func
 		;	unboxed_float
 		;       unboxed_enums
 		;       unboxed_no_tag_types
 		;	sync_term_size % in words
 		;	type_layout
+	% Foreign language interface options
+				% The foreign language that the user has
+				% selected for use in this module
+				% (defaults to the value of backend
+				% foreign target).
+		;	use_foreign_language
 	% Options for internal use only
 	% (the values of these options are implied by the
 	% settings of other options)
+				% The language that this backend can
+				% interface to most easily (probably the
+				% target language of the backend).
+		; 	backend_foreign_language 
 				% Stack layout information required to do
 				% a stack trace.
 		;       basic_stack_layout
@@ -272,6 +288,12 @@
 		;	c_include_directory
 		;	c_flag_to_name_object_file
 		;	object_file_extension
+
+		;	java_compiler
+		;	java_flags
+		;	java_classpath
+		;	java_object_file_extension
+
 		;	max_jump_table_size
 		;	compare_specialization
 		;	fact_table_max_array_size
@@ -348,6 +370,8 @@
 		;	simple_neg
 		;	follow_vars
 		;	allow_hijacks
+	%	- MLDS
+		;	optimize_tailcalls
 	%	- LLDS
 		;	common_data
 		;	optimize	% also used for MLDS->MLDS optimizations
@@ -490,7 +514,13 @@ option_defaults_2(aux_output_option, [
 	assume_gmake		-	bool(yes),
 	trace			-	string("default"),
 	trace_optimized		-	bool(no),
+	trace_table_io		-	bool(no),
+	trace_table_io_states	-	bool(no),
 	suppress_trace		-	string(""),
+		% XXX delay_death should be enabled by default,
+		% but currently it is disabled because it is broken --
+		% it fails on tests/hard_coded/erroneous_liveness.m.
+	delay_death		-	bool(no),
 	stack_trace_higher_order -	bool(no),
 	generate_bytecode	-	bool(no),
 	generate_prolog		-	bool(no),
@@ -531,6 +561,8 @@ option_defaults_2(compilation_model_option, [
 	il			-	special,
 	il_only			-	special,
 	compile_to_c		-	special,
+	java			-       special,
+	java_only               -       special,
 	gcc_non_local_gotos	-	bool(yes),
 	gcc_global_registers	-	bool(yes),
 	asm_labels		-	bool(yes),
@@ -570,6 +602,11 @@ option_defaults_2(compilation_model_option, [
 					% of writing) - will usually be over-
 					% ridden by a value from configure.
 	type_layout		-	bool(yes),
+	use_foreign_language	-	string(""),
+	backend_foreign_language-	string(""),
+					% The previous two options
+					% depend on the target and are
+					% set in handle_options.
 	basic_stack_layout	-	bool(no),
 	agc_stack_layout	-	bool(no),
 	procid_stack_layout	-	bool(no),
@@ -585,6 +622,7 @@ option_defaults_2(compilation_model_option, [
 	gcc_nested_functions	-	bool(no),
 	det_copy_out		-	bool(no),
 	nondet_copy_out		-	bool(no),
+	put_commit_in_own_func	-	bool(no),
 	unboxed_float           -       bool(no),
 	unboxed_enums           -       bool(yes),
 	unboxed_no_tag_types    -       bool(yes)
@@ -633,8 +671,14 @@ option_defaults_2(code_gen_option, [
 					% the `mmc' script will override the
 					% above default with a value determined
 					% at configuration time
+
+	java_compiler		-	string("javac"),
+	java_flags		-	accumulating([]),
+	java_classpath  	-	accumulating([]),
+	java_object_file_extension -	string(".class"),
+
 	max_jump_table_size	-	int(0),
-	compare_specialization	-	int(1),
+	compare_specialization	-	int(4),
 					% 0 indicates any size.
 	fact_table_max_array_size -	int(1024),
 	fact_table_hash_percent_full - 	int(90),
@@ -720,7 +764,8 @@ option_defaults_2(optimization_option, [
 	simple_neg		-	bool(no),
 	follow_vars		-	bool(no),
 	allow_hijacks		-	bool(yes),
-
+% MLDS
+	optimize_tailcalls	- 	bool(no),
 % LLDS
 	common_data		-	bool(no),
 	optimize		-	bool(no),
@@ -883,7 +928,10 @@ long_option("assume-gmake",		assume_gmake).
 long_option("trace",			trace).
 long_option("trace-optimised",		trace_optimized).
 long_option("trace-optimized",		trace_optimized).
+long_option("trace-table-io",		trace_table_io).
+long_option("trace-table-io-states",	trace_table_io_states).
 long_option("suppress-trace",		suppress_trace).
+long_option("delay-death",		delay_death).
 long_option("stack-trace-higher-order",	stack_trace_higher_order).
 long_option("generate-bytecode",	generate_bytecode).
 long_option("generate-prolog",		generate_prolog).
@@ -926,6 +974,10 @@ long_option("il-only",			il_only).
 long_option("IL-only",			il_only).
 long_option("compile-to-c",		compile_to_c).
 long_option("compile-to-C",		compile_to_c).
+long_option("java",                     java).
+long_option("Java",                     java).
+long_option("java-only",                java_only).
+long_option("Java-only",                java_only).
 long_option("gcc-non-local-gotos",	gcc_non_local_gotos).
 long_option("gcc-global-registers",	gcc_global_registers).
 long_option("asm-labels",		asm_labels).
@@ -954,6 +1006,7 @@ long_option("bits-per-word",		bits_per_word).
 long_option("bytes-per-word",		bytes_per_word).
 long_option("conf-low-tag-bits",	conf_low_tag_bits).
 long_option("type-layout",		type_layout).
+long_option("use-foreign-language",	use_foreign_language).
 long_option("agc-stack-layout",		agc_stack_layout).
 long_option("basic-stack-layout",	basic_stack_layout).
 long_option("procid-stack-layout",	procid_stack_layout).
@@ -975,6 +1028,7 @@ long_option("high-level-data",		highlevel_data).
 long_option("gcc-nested-functions",	gcc_nested_functions).
 long_option("det-copy-out",		det_copy_out).
 long_option("nondet-copy-out",		nondet_copy_out).
+long_option("put-commit-in-own-func",	put_commit_in_own_func).
 long_option("unboxed-float",		unboxed_float).
 long_option("unboxed-enums",		unboxed_enums).
 long_option("unboxed-no-tag-types",	unboxed_no_tag_types).
@@ -997,6 +1051,7 @@ long_option("num-real-f-regs",		num_real_f_regs).
 long_option("num-real-r-temps",		num_real_r_temps).
 long_option("num-real-f-temps",		num_real_f_temps).
 long_option("num-real-temps",		num_real_r_temps).	% obsolete
+
 long_option("cc",			cc).
 long_option("cflags",			cflags).
 long_option("cflags-for-regs",		cflags_for_regs).
@@ -1011,6 +1066,18 @@ long_option("target-debug",		target_debug).
 long_option("c-include-directory",	c_include_directory).
 long_option("c-flag-to-name-object-file", c_flag_to_name_object_file).
 long_option("object-file-extension",	object_file_extension).
+
+long_option("java-compiler",		java_compiler).
+long_option("javac",			java_compiler).
+long_option("java-flags",			cflags).
+	% XXX we should consider the relationship between java_debug and
+	% target_debug more carefully.  Perhaps target_debug could imply
+	% Java debug if the target is Java.  However for the moment they are
+	% just synonyms.
+long_option("java-debug",		target_debug).
+long_option("java-classpath",   	java_classpath).
+long_option("java-object-file-extension", java_object_file_extension).
+
 long_option("max-jump-table-size",	max_jump_table_size).
 long_option("compare-specialization",	compare_specialization).
 long_option("fact-table-max-array-size",fact_table_max_array_size).
@@ -1126,6 +1193,8 @@ long_option("allow-hijacks",		allow_hijacks).
 % you can't use both at the same time it doesn't really matter.
 long_option("mlds-optimize",		optimize).
 long_option("mlds-optimise",		optimize).
+long_option("optimize-tailcalls",	optimize_tailcalls).
+long_option("optimise-tailcalls",	optimize_tailcalls).
 
 % LLDS optimizations
 long_option("common-data",		common_data).
@@ -1215,6 +1284,11 @@ special_handler(il_only, none, OptionTable0, ok(OptionTable)) :-
 	map__set(OptionTable1, target_code_only, bool(yes), OptionTable).
 special_handler(compile_to_c, none, OptionTable0, ok(OptionTable)) :-
 	map__set(OptionTable0, target, string("c"), OptionTable1),
+	map__set(OptionTable1, target_code_only, bool(yes), OptionTable).
+special_handler(java, none, OptionTable0, ok(OptionTable)) :-
+	map__set(OptionTable0, target, string("java"), OptionTable).
+special_handler(java_only, none, OptionTable0, ok(OptionTable)) :-
+	map__set(OptionTable0, target, string("java"), OptionTable1),
 	map__set(OptionTable1, target_code_only, bool(yes), OptionTable).
 special_handler(profiling, bool(Value), OptionTable0, ok(OptionTable)) :-
 	map__set(OptionTable0, profile_time, bool(Value), OptionTable1),
@@ -1391,7 +1465,8 @@ opt_level(1, OptionTable, [
 	optimize_delay_slot	-	bool(DelaySlot),
 	follow_vars		-	bool(yes),
 	middle_rec		-	bool(yes),
-	emit_c_loops		-	bool(yes)
+	emit_c_loops		-	bool(yes),
+	optimize_tailcalls	-	bool(yes)
 	% dups?
 ]) :-
 	getopt__lookup_bool_option(OptionTable, have_delay_slot, DelaySlot).
@@ -1452,7 +1527,8 @@ opt_level(4, _, [
 	lazy_code		-	bool(yes),
 	optimize_value_number	-	bool(yes),
 	inline_simple_threshold	-	int(8),
-	inline_compound_threshold -	int(20)
+	inline_compound_threshold -	int(20),
+	higher_order_size_limit -	int(30)
 ]).
 
 % Optimization level 5: apply optimizations which may have some
@@ -1465,7 +1541,8 @@ opt_level(5, _, [
 	pred_value_number	-	bool(yes),
 	optimize_repeat		-	int(5),
 	optimize_vnrepeat	-	int(2),
-	inline_compound_threshold -	int(100)
+	inline_compound_threshold -	int(100),
+	higher_order_size_limit -	int(40)
 ]).
 
 % Optimization level 6: apply optimizations which may have any
@@ -1657,7 +1734,8 @@ options_help_output -->
 		"\tCheck the module for errors, but do not generate any code.",
 		"-C, --target-code-only",
 		"\tGenerate target code (i.e. C code in `<module>.c',",
-		"\t\tor IL code in `<module>.il') but not object code.",
+		"\t\tIL code in `<module>.il', or Java code in",
+		"\t\t`<module>.java'), but not object code.",
 		"-c, --compile-only",
 		"\tGenerate C code in `<module>.c' and object code in `<module>.o'",
 		"\tbut do not attempt to link the named modules.",
@@ -1690,6 +1768,20 @@ options_help_aux_output -->
 %		"\tSuppress the named aspects of the execution tracing system.",
 		"--trace-optimized",
 		"\tDo not disable optimizations that can change the trace.",
+% tabling io is not documented yet, since it is still experimental
+%		"--trace-table-io",
+%		"\tEnable the tabling of I/O actions, to allow the debugger",
+%		"\tto execute retry commands across I/O actions.",
+%		"--trace-table-io-states",
+%		"\tWhen tabling I/O actions, table the io__state arguments",
+%		"\ttogether with the others. This should be required iff",
+%		"\tvalues of type io__state actually contain information.",
+		"--no-delay-death",
+		"\tWhen the trace level is `deep', the compiler normally",
+		"\tpreserves the values of variables as long as possible, even",
+		"\tbeyond the point of their last use, in order to make them",
+		"\taccessible from as many debugger events as possible.",
+		"\tHowever, it will not do this if this option is given.",
 		"--stack-trace-higher-order",
 		"\tEnable stack traces through predicates and functions with",
 		"\thigher-order arguments, even if stack tracing is not",
@@ -1845,17 +1937,28 @@ options_help_compilation_model -->
 		"-s <grade>, --grade <grade>",
 		"\tSelect the compilation model. The <grade> should be one of",
 		"\t`none', `reg', `jump', `asm_jump', `fast', `asm_fast', `hlc'",
-		"--target {c, il}",
-		"\tSpecify the target language: C or IL (default: C).",
-		"\tThe IL target implies `--high-level-code' (see below).",
+		"--target {c, il, java}",
+		"\tSpecify the target language: C, IL or Java (default: C).",
+		"\tThe IL and Java targets imply `--high-level-code' (see below).",
 		"--il",
 		"\tAn abbreviation for `--target il'.",
 		"--il-only",
-		"\tAn abbreviation for `--target il --intermediate-code-only'.",
-		"\tGenerate IL code in `<module>.il', but do not generate object code.",
+		"\tAn abbreviation for `--target il --target-code-only'.",
+		"\tGenerate IL code in `<module>.il', but do not generate",
+		"\tobject code.",
+		
+		"--java",
+		"\tAn abbreviation for `--target java'.",
+		"--java-only",
+		"\tAn abbreviation for `--target java --target-code-only'.",
+		"\tGenerate Java code in `<module>.java', but do not generate",
+		"\tobject code.",
+		
 		"--compile-to-c",
-		"\tAn abbreviation for `--target c --intermediate-code-only'.",
+		"\tAn abbreviation for `--target c --target-code-only'.",
 		"\tGenerate C code in `<module>.c', but do not generate object code.",
+
+
 % These grades (hl, hl_nest, and hlc_nest) are not yet documented, because
 % the --high-level-data option is not yet implemented,
 % and the --gcc-nested-functions option is not yet documented.
@@ -1917,6 +2020,16 @@ options_help_compilation_model -->
 %		"\tSpecify whether to handle output arguments for nondet",
 %		"\tprocedures using pass-by-value rather than pass-by-reference.",
 %		"\tThis option is ignored if the `--high-level-code' option is not enabled.",
+% The --put-commit-in-own-func option is not documented because
+% it is enabled automatically (by handle_options) in the situations
+% where it is needed; the user should never need to set it.
+%		"--put-commit-in-own-func",
+%		"\tPut each commit in its own C function.",
+%		"\tThis option only affects the MLDS back-ends.",
+%		"\tIt is needed for the high-level C back-end,",
+%		"\twhere commits are implemented via setjmp()/longjmp(),",
+%		"\tsince longjmp() may clobber any non-volatile local vars",
+%		"\tin the function that called setjmp().",
 		"--gc {none, conservative, accurate}",
 		"--garbage-collection {none, conservative, accurate}",
 		"\t\t\t\t(`.gc' grades use `--gc conservative',",
@@ -1987,6 +2100,15 @@ your program compiled with different options.
 
 		% The --bytes-per-word option is intended for use
 		% by the `mmc' script; it is deliberately not documented.
+		%
+		"--use-foreign-language <foreign language>",
+		"\tUse the given foreign language to implement predicates",
+		"\twritten in foreign languages.  Any name that can be used",
+		"\tto specify foreign languages in pragma foreign declarations",
+		"\tis valid, but not all foreign languages are implemented",
+		"\tin all backends.",
+		"\tDefault value is `C' for the LLDS and MLDS->C backends,",
+		"\tor `ManagedC++' for the .NET backend.",
 
 		"--no-type-layout",
 		"(This option is not for general use.)",
@@ -2071,6 +2193,20 @@ options_help_code_generation -->
 		"\tEnable debugging of the generated C code.",
 		"\t(This has the same effect as",
 		"\t`--cflags ""-g"" --link-flags ""--no-strip""'.)",
+
+		"--javac",
+		"--java-compiler",
+		"\tSpecify which Java compiler to use.  The default is javac.",
+		
+		"--java-flags",
+		"\tSpecify options to be passed to the Java compiler.",
+
+		"--java-classpath",
+		"\tSet the classpath for the Java compiler.",
+
+		"--java-object-file-extension",
+		"\tSpecify an extension for Java object (bytecode) files",
+		"\tBy default this is `.class'.",
 
 		"--no-trad-passes",
 		"\tThe default `--trad-passes' completely processes each predicate",
@@ -2415,7 +2551,10 @@ options_help_mlds_mlds_optimization -->
 	io__write_string("\n    MLDS -> MLDS optimizations:\n"),
 	write_tabbed_lines([
 		"--no-mlds-optimize",
-		"\tDisable the MLDS->MLDS optimization passes."
+		"\tDisable the MLDS->MLDS optimization passes.",
+		"--no-optimize-tailcalls",
+		"\tTreat tailcalls as ordinary calls, rather than optimizing",
+		"\tby turning self-tailcalls into loops."
 	]).
 
 

@@ -1,5 +1,5 @@
 %-----------------------------------------------------------------------------%
-% Copyright (C) 1993-1995, 1997-2000 The University of Melbourne.
+% Copyright (C) 1993-1995, 1997-2001 The University of Melbourne.
 % This file may only be copied under the terms of the GNU Library General
 % Public License - see the file COPYING.LIB in the Mercury distribution.
 %-----------------------------------------------------------------------------%
@@ -188,6 +188,19 @@
 :- mode array__semidet_slow_set(array_ui, in, in, array_uo) is semidet.
 :- mode array__semidet_slow_set(in, in, in, array_uo) is semidet.
 
+	% Field selection for arrays.
+	% Array ^ elem(Index) = array__lookup(Array, Index).
+:- func array__elem(int, array(T)) = T.
+:- mode array__elem(in, array_ui) = out is det.
+:- mode array__elem(in, in) = out is det.
+
+	% Field update for arrays.
+	% (Array ^ elem(Index) := Value) = array__set(Array, Index, Value).
+:- func 'array__elem :='(int, array(T), T) = array(T).
+:- mode 'array__elem :='(in, array_ui, in) = array_uo is det.
+
+%-----------------------------------------------------------------------------%
+
 	% array__copy(Array0, Array):
 	% Makes a new unique copy of an array.
 :- pred array__copy(array(T), array(T)).
@@ -303,8 +316,6 @@
 :- implementation.
 :- import_module int.
 
-:- type array(T).
-
 /****
 lower bounds other than zero are not supported
 	% array__resize takes an array and new lower and upper bounds.
@@ -323,43 +334,100 @@ lower bounds other than zero are not supported
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_code("
+:- pragma foreign_decl("C", "
+#ifdef MR_HIGHLEVEL_CODE
+  bool MR_CALL mercury__array__do_unify__array_1_0(
+  	MR_Mercury_Type_Info type_info, MR_Box x, MR_Box y);
+  bool MR_CALL mercury__array____Unify____array_1_0(
+	MR_Mercury_Type_Info type_info, MR_Array x, MR_Array y);
+  void MR_CALL mercury__array__do_compare__array_1_0(MR_Mercury_Type_Info
+ 	 type_info, MR_Comparison_Result *result, MR_Box x, MR_Box y);
+  void MR_CALL mercury__array____Compare____array_1_0(MR_Mercury_Type_Info
+	type_info, MR_Comparison_Result *result, MR_Array x, MR_Array y);
+#endif
+").
+
+:- pragma foreign_code("C", "
 
 #ifdef MR_HIGHLEVEL_CODE
+
+MR_define_type_ctor_info(array, array, 1, MR_TYPECTOR_REP_ARRAY);
+
+/* forward decl, to suppress gcc -Wmissing-decl warning */
 void sys_init_array_module_builtins(void);
-void sys_init_array_module_builtins(void) {
-	return;
+
+/*
+** This empty initialization function is needed just to
+** match the one that we use for LLDS grades.
+*/
+void
+sys_init_array_module_builtins(void)
+{
+	/* no initialization needed */
 }
+
+bool MR_CALL
+mercury__array__do_unify__array_1_0(MR_Mercury_Type_Info type_info,
+	MR_Box x, MR_Box y)
+{
+	return mercury__array____Unify____array_1_0(
+		type_info, (MR_Array) x, (MR_Array) y);
+}
+
+bool MR_CALL
+mercury__array____Unify____array_1_0(MR_Mercury_Type_Info type_info,
+	MR_Array x, MR_Array y)
+{
+	return mercury__array__array_equal_2_p_0(type_info, x, y);
+}
+
+void MR_CALL
+mercury__array__do_compare__array_1_0(
+	MR_Mercury_Type_Info type_info, MR_Comparison_Result *result,
+	MR_Box x, MR_Box y)
+{
+	mercury__array____Compare____array_1_0(
+		type_info, result, (MR_Array) x, (MR_Array) y);
+}
+
+void MR_CALL
+mercury__array____Compare____array_1_0(
+	MR_Mercury_Type_Info type_info, MR_Comparison_Result *result,
+	MR_Array x, MR_Array y)
+{
+	mercury__array__array_compare_3_p_0(type_info, result, x, y);
+}
+
 #else
 
 MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY);
 
-Declare_entry(mercury__array__array_equal_2_0);
-Declare_entry(mercury__array__array_compare_3_0);
+MR_declare_entry(mercury__array__array_equal_2_0);
+MR_declare_entry(mercury__array__array_compare_3_0);
 
-BEGIN_MODULE(array_module_builtins)
-	init_entry(mercury____Unify___array__array_1_0);
-	init_entry(mercury____Compare___array__array_1_0);
-BEGIN_CODE
+MR_BEGIN_MODULE(array_module_builtins)
+	MR_init_entry(mercury____Unify___array__array_1_0);
+	MR_init_entry(mercury____Compare___array__array_1_0);
+MR_BEGIN_CODE
 
-Define_entry(mercury____Unify___array__array_1_0);
+MR_define_entry(mercury____Unify___array__array_1_0);
 	/* this is implemented in Mercury, not hand-coded low-level C */
-	tailcall(ENTRY(mercury__array__array_equal_2_0),
-		ENTRY(mercury____Unify___array__array_1_0));
+	MR_tailcall(MR_ENTRY(mercury__array__array_equal_2_0),
+		MR_ENTRY(mercury____Unify___array__array_1_0));
 
-Define_entry(mercury____Compare___array__array_1_0);
+MR_define_entry(mercury____Compare___array__array_1_0);
 	/* this is implemented in Mercury, not hand-coded low-level C */
-	tailcall(ENTRY(mercury__array__array_compare_3_0),
-		ENTRY(mercury____Compare___array__array_1_0));
+	MR_tailcall(MR_ENTRY(mercury__array__array_compare_3_0),
+		MR_ENTRY(mercury____Compare___array__array_1_0));
 
-END_MODULE
+MR_END_MODULE
 
 /* Ensure that the initialization code for the above module gets run. */
 /*
 INIT sys_init_array_module_builtins
 */
 
-MR_MODULE_STATIC_OR_EXTERN ModuleFunc array_module_builtins;
+MR_MODULE_STATIC_OR_EXTERN MR_ModuleFunc array_module_builtins;
 
 void sys_init_array_module_builtins(void);
 		/* suppress gcc -Wmissing-decl warning */
@@ -375,6 +443,45 @@ void sys_init_array_module_builtins(void) {
 #endif /* ! MR_HIGHLEVEL_CODE */
 
 ").
+
+:- pragma foreign_code("MC++", "
+    MR_DEFINE_BUILTIN_TYPE_CTOR_INFO(array, array, 1, MR_TYPECTOR_REP_ARRAY)
+
+    static int
+    __Unify____array_1_0(MR_Word type_info, 
+		MR_Word x, MR_Word y)
+    {
+            mercury::runtime::Errors::SORRY(""unify for array"");
+            return 0;
+    }
+
+    static void
+    __Compare____array_1_0(
+            MR_Word type_info, MR_Word_Ref result, MR_Word x, MR_Word y)
+    {
+            mercury::runtime::Errors::SORRY(""compare for array"");
+    }
+
+    static int
+    do_unify__array_1_0(MR_Word type_info, MR_Box x, MR_Box y)
+    {
+            return mercury::array__c_code::__Unify____array_1_0(
+                    type_info, 
+                    dynamic_cast<MR_Array>(x),
+                    dynamic_cast<MR_Array>(y));
+    }
+
+    static void
+    do_compare__array_1_0(
+            MR_Word type_info, MR_Word_Ref result, MR_Box x, MR_Box y)
+    {
+            mercury::array__c_code::__Compare____array_1_0(
+                    type_info, result, 
+                    dynamic_cast<MR_Array>(x),
+                    dynamic_cast<MR_Array>(y));
+    }
+").
+
 
 %-----------------------------------------------------------------------------%
 
@@ -432,16 +539,16 @@ array__compare_elements(N, Size, Array1, Array2, Result) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 #include ""mercury_library_types.h""	/* for MR_ArrayType */
 #include ""mercury_misc.h""		/* for MR_fatal_error() */
 ").
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 MR_ArrayType *ML_make_array(MR_Integer size, MR_Word item);
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 MR_ArrayType *
 ML_make_array(MR_Integer size, MR_Word item)
 {
@@ -457,39 +564,92 @@ ML_make_array(MR_Integer size, MR_Word item)
 }
 ").
 
-:- pragma c_code(array__init(Size::in, Item::in, Array::array_uo),
+:- pragma foreign_code("C", 
+		array__init(Size::in, Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_make_array(Size, Item);
 ").
 
-:- pragma c_code(array__make_empty_array(Array::array_uo),
+:- pragma foreign_code("C",
+		array__make_empty_array(Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_make_array(0, 0);
 ").
 
+:- pragma foreign_code("MC++", 
+		array__init(Size::in, Item::in, Array::array_uo),
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+		// XXX still need to do init
+	Array = (MR_Word) System::Array::CreateInstance(Item->GetType(), Size);
+").
+
+:- pragma foreign_code("MC++",
+		array__make_empty_array(Array::array_uo),
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+		// XXX this is inefficient.
+	Array = (MR_Word) 
+		System::Array::CreateInstance(
+			(new System::Object)->GetType(), 0);
+").
+
+
 %-----------------------------------------------------------------------------%
 
-:- pragma c_code(array__min(Array::array_ui, Min::out),
+:- pragma foreign_code("C",
+		array__min(Array::array_ui, Min::out),
 		[will_not_call_mercury, thread_safe], "
 	/* Array not used */
 	Min = 0;
 ").
-:- pragma c_code(array__min(Array::in, Min::out),
+:- pragma foreign_code("C", 
+		array__min(Array::in, Min::out),
 		[will_not_call_mercury, thread_safe], "
 	/* Array not used */
 	Min = 0;
 ").
 
-:- pragma c_code(array__max(Array::array_ui, Max::out), 
+:- pragma foreign_code("MC++",
+		array__min(Array::array_ui, Min::out),
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	/* Array not used */
+	Min = 0;
+").
+:- pragma foreign_code("MC++", 
+		array__min(Array::in, Min::out),
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	/* Array not used */
+	Min = 0;
+").
+
+:- pragma foreign_code("C", 
+		array__max(Array::array_ui, Max::out), 
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size - 1;
 ").
-:- pragma c_code(array__max(Array::in, Max::out), 
+:- pragma foreign_code("C",
+		array__max(Array::in, Max::out), 
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size - 1;
 ").
+:- pragma foreign_code("MC++", 
+		array__max(Array::array_ui, Max::out), 
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	Max = Array->get_Length() - 1;
+").
+:- pragma foreign_code("MC++",
+		array__max(Array::in, Max::out), 
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	Max = Array->get_Length() - 1;
+").
+
 
 array__bounds(Array, Min, Max) :-
 	array__min(Array, Min),
@@ -497,14 +657,30 @@ array__bounds(Array, Min, Max) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_code(array__size(Array::array_ui, Max::out),
+:- pragma foreign_code("C",
+		array__size(Array::array_ui, Max::out),
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size;
 ").
-:- pragma c_code(array__size(Array::in, Max::out),
+:- pragma foreign_code("C",
+		array__size(Array::in, Max::out),
 		[will_not_call_mercury, thread_safe], "
 	Max = ((MR_ArrayType *)Array)->size;
 ").
+
+:- pragma foreign_code("MC++",
+		array__size(Array::array_ui, Max::out),
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	Max = Array->get_Length() - 1;
+").
+:- pragma foreign_code("MC++",
+		array__size(Array::in, Max::out),
+		[will_not_call_mercury, thread_safe], "
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	Max = Array->get_Length() - 1;
+").
+
 
 %-----------------------------------------------------------------------------%
 
@@ -530,7 +706,8 @@ array__slow_set(Array0, Index, Item, Array) :-
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_code(array__lookup(Array::array_ui, Index::in, Item::out),
+:- pragma foreign_code("C",
+		array__lookup(Array::array_ui, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array;
 #ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
@@ -540,7 +717,8 @@ array__slow_set(Array0, Index, Item, Array) :-
 #endif
 	Item = array->elements[Index];
 }").
-:- pragma c_code(array__lookup(Array::in, Index::in, Item::out),
+:- pragma foreign_code("C",
+		array__lookup(Array::in, Index::in, Item::out),
 		[will_not_call_mercury, thread_safe], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array;
 #ifndef ML_OMIT_ARRAY_BOUNDS_CHECKS
@@ -550,10 +728,25 @@ array__slow_set(Array0, Index, Item, Array) :-
 #endif
 	Item = array->elements[Index];
 }").
+
+:- pragma foreign_code("MC++",
+		array__lookup(Array::array_ui, Index::in, Item::out),
+		[will_not_call_mercury, thread_safe], "{
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	Item = Array->GetValue(Index);
+}").
+:- pragma foreign_code("MC++",
+		array__lookup(Array::in, Index::in, Item::out),
+		[will_not_call_mercury, thread_safe], "{
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+	Item = Array->GetValue(Index);
+}").
+
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_code(array__set(Array0::array_di, Index::in,
+:- pragma foreign_code("C",
+		array__set(Array0::array_di, Index::in,
 		Item::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "{
 	MR_ArrayType *array = (MR_ArrayType *)Array0;
@@ -566,14 +759,24 @@ array__slow_set(Array0, Index, Item, Array) :-
 	Array = Array0;
 }").
 
+:- pragma foreign_code("MC++",
+		array__set(Array0::array_di, Index::in,
+		Item::in, Array::array_uo),
+		[will_not_call_mercury, thread_safe], "{
+	Array0->SetValue(Item, Index);	/* destructive update! */
+	Array = Array0;
+        mercury::runtime::Errors::SORRY(""foreign code for this predicate"");
+}").
+
+
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 MR_ArrayType * ML_resize_array(MR_ArrayType *old_array,
 					MR_Integer array_size, MR_Word item);
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 MR_ArrayType *
 ML_resize_array(MR_ArrayType *old_array, MR_Integer array_size,
 				MR_Word item)
@@ -607,21 +810,28 @@ ML_resize_array(MR_ArrayType *old_array, MR_Integer array_size,
 }
 ").
 
-:- pragma c_code(array__resize(Array0::array_di, Size::in, Item::in,
+:- pragma foreign_code("C",
+		array__resize(Array0::array_di, Size::in, Item::in,
 		Array::array_uo), [will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_resize_array(
 				(MR_ArrayType *) Array0, Size, Item);
 ").
+:- pragma foreign_code("MC++",
+		array__resize(_Array0::array_di, _Size::in, _Item::in,
+		_Array::array_uo), [will_not_call_mercury, thread_safe], "
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 MR_ArrayType * ML_shrink_array(MR_ArrayType *old_array,
 					MR_Integer array_size);
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 MR_ArrayType *
 ML_shrink_array(MR_ArrayType *old_array, MR_Integer array_size)
 {
@@ -652,20 +862,27 @@ ML_shrink_array(MR_ArrayType *old_array, MR_Integer array_size)
 }
 ").
 
-:- pragma c_code(array__shrink(Array0::array_di, Size::in, Array::array_uo),
+:- pragma foreign_code("C",
+		array__shrink(Array0::array_di, Size::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation(Size + 1, MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_shrink_array(
 				(MR_ArrayType *) Array0, Size);
 ").
+:- pragma foreign_code("MC++",
+		array__shrink(_Array0::array_di, _Size::in, _Array::array_uo),
+		[will_not_call_mercury, thread_safe], "
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+").
+
 
 %-----------------------------------------------------------------------------%
 
-:- pragma c_header_code("
+:- pragma foreign_decl("C", "
 MR_ArrayType *ML_copy_array(MR_ArrayType *old_array);
 ").
 
-:- pragma c_code("
+:- pragma foreign_code("C", "
 MR_ArrayType *
 ML_copy_array(MR_ArrayType *old_array)
 {
@@ -688,18 +905,37 @@ ML_copy_array(MR_ArrayType *old_array)
 }
 ").
 
-:- pragma c_code(array__copy(Array0::array_ui, Array::array_uo),
+:- pragma foreign_code("C",
+		array__copy(Array0::array_ui, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation((((MR_ArrayType *) Array0)->size) + 1,
 		MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_copy_array((MR_ArrayType *) Array0);
 ").
 
-:- pragma c_code(array__copy(Array0::in, Array::array_uo),
+:- pragma foreign_code("C",
+		array__copy(Array0::in, Array::array_uo),
 		[will_not_call_mercury, thread_safe], "
 	MR_maybe_record_allocation((((MR_ArrayType *) Array0)->size) + 1,
 		MR_PROC_LABEL, ""array:array/1"");
 	Array = (MR_Word) ML_copy_array((MR_ArrayType *) Array0);
+").
+
+:- pragma foreign_code("MC++",
+		array__copy(Array0::array_ui, Array::array_uo),
+		[will_not_call_mercury, thread_safe], "
+		// XXX need to deep copy it
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+	Array = Array0;
+
+").
+
+:- pragma foreign_code("MC++",
+		array__copy(Array0::in, Array::array_uo),
+		[will_not_call_mercury, thread_safe], "
+	mercury::runtime::Errors::SORRY(""foreign code for this function"");
+		// XXX need to deep copy it
+	Array = Array0;
 ").
 
 %-----------------------------------------------------------------------------%
@@ -876,3 +1112,6 @@ array__map(F, A1) = A2 :-
 array_compare(A1, A2) = C :-
 	array_compare(C, A1, A2).
 
+array__elem(Index, Array) = array__lookup(Array, Index).
+
+'array__elem :='(Index, Array, Value) = array__set(Array, Index, Value).

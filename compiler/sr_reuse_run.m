@@ -797,7 +797,7 @@ process_goal(_CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
 	{ Goal0 = generic_call(_, _, _, _) },
 	{ Goal = Goal0 }.
 process_goal(_CGC, Goal0 - GoalInfo, Goal - GoalInfo) -->
-	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _, _) },
+	{ Goal0 = pragma_foreign_code(_, _, _, _, _, _, _) },
 	{ Goal = Goal0 }.
 process_goal(_CGC, Goal0 - _GoalInfo, _) -->
 	{ Goal0 = bi_implication(_, _) },

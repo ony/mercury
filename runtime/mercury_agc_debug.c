@@ -1,5 +1,5 @@
 /*
-** Copyright (C) 1998-2000 The University of Melbourne.
+** Copyright (C) 1998-2001 The University of Melbourne.
 ** This file may only be copied under the terms of the GNU Library General
 ** Public License - see the file COPYING.LIB in the Mercury distribution.
 */
@@ -18,13 +18,13 @@
 /*
 ** Function prototypes.
 */
-static	void	dump_long_value(MR_Long_Lval locn, MemoryZone *heap_zone,
+static	void	dump_long_value(MR_Long_Lval locn, MR_MemoryZone *heap_zone,
 			MR_Word * stack_pointer, MR_Word *current_frame,
 			bool do_regs);
 static	void	dump_short_value(MR_Short_Lval locn, MemoryZone *heap_zone,
 			Word * stack_pointer, Word *current_frame,
 			bool do_regs);
-static  void	dump_live_variables(const MR_Stack_Layout_Label *layout, 
+static  void	dump_live_variables(const MR_Label_Layout *layout, 
 			MemoryZone *heap_zone, bool top_frame,
 			Word *stack_pointer, Word *current_frame);
 
@@ -35,7 +35,7 @@ void
 MR_agc_dump_roots(MR_RootList roots)
 {
 #ifdef NATIVE_GC
-	MR_Word	saved_regs[MAX_FAKE_REG];
+	MR_Word	saved_regs[MR_MAX_FAKE_REG];
 
 	fflush(NULL);
 	fprintf(stderr, "Dumping roots\n");
@@ -50,8 +50,8 @@ MR_agc_dump_roots(MR_RootList roots)
 		** call Mercury soon, and we don't want it messing with
 		** the saved registers).
 		*/
-		restore_registers();
-		MR_copy_regs_to_saved_regs(MAX_FAKE_REG, saved_regs);
+		MR_restore_registers();
+		MR_copy_regs_to_saved_regs(MR_MAX_FAKE_REG, saved_regs);
 
 		MR_hp = MR_ENGINE(debug_heap_zone->min);
 		MR_virtual_hp = MR_ENGINE(debug_heap_zone->min);
@@ -61,8 +61,8 @@ MR_agc_dump_roots(MR_RootList roots)
 		fflush(NULL);
 		fprintf(stderr, "\n");
 
-		MR_copy_saved_regs_to_regs(MAX_FAKE_REG, saved_regs);
-		save_registers();
+		MR_copy_saved_regs_to_regs(MR_MAX_FAKE_REG, saved_regs);
+		MR_save_registers();
 		roots = roots->next;
 	}
   #endif /* MR_DEBUG_AGC_PRINT_VARS */
@@ -160,16 +160,15 @@ MR_agc_dump_nondet_stack_frames(MR_Internal *label, MemoryZone *heap_zone,
 }
 
 void
-MR_agc_dump_stack_frames(MR_Internal *label, MemoryZone *heap_zone,
+MR_agc_dump_stack_frames(MR_Internal *label, MR_MemoryZone *heap_zone,
 	MR_Word *stack_pointer, MR_Word *current_frame)
 {
 #ifdef NATIVE_GC
-	MR_Word saved_regs[MAX_FAKE_REG];
+	MR_Word saved_regs[MR_MAX_FAKE_REG];
 	int i, short_var_count, long_var_count;
-	const MR_Stack_Layout_Vars *vars;
 	MR_Word *type_params, type_info, value;
-	MR_Stack_Layout_Entry *entry_layout;
-	const MR_Stack_Layout_Label *layout;
+	MR_Proc_Layout *entry_layout;
+	const MR_Label_Layout *layout;
 	const MR_Code *success_ip;
 	bool top_frame = TRUE;
 
@@ -206,7 +205,7 @@ MR_agc_dump_stack_frames(MR_Internal *label, MemoryZone *heap_zone,
 			type = MR_LONG_LVAL_TYPE(location);
 			number = MR_LONG_LVAL_NUMBER(location);
 			if (type != MR_LONG_LVAL_TYPE_STACKVAR) {
-				fatal_error("can only handle stackvars");
+				MR_fatal_error("can only handle stackvars");
 			}
 			                                
 			success_ip = (MR_Code *) 
@@ -227,21 +226,19 @@ MR_agc_dump_stack_frames(MR_Internal *label, MemoryZone *heap_zone,
 }
 
 static void
-dump_live_variables(const MR_Stack_Layout_Label *layout, 
+dump_live_variables(const MR_Label_Layout *label_layout, 
 		MemoryZone *heap_zone, bool top_frame,
 		Word *stack_pointer, Word *current_frame)
 {
 	int short_var_count, long_var_count, i;
-	const MR_Stack_Layout_Vars *vars;
 	MR_TypeInfo type_info;
 	MR_Word value;
 	MR_TypeInfoParams type_params;
-        MR_Word saved_regs[MAX_FAKE_REG];
+        MR_Word saved_regs[MR_MAX_FAKE_REG];
         MR_Word *current_regs;
 
-	vars = &(layout->MR_sll_var_info);
-	short_var_count = MR_short_desc_var_count(vars);
-	long_var_count = MR_long_desc_var_count(vars);
+	short_var_count = MR_short_desc_var_count(label_layout);
+	long_var_count = MR_long_desc_var_count(label_layout);
 
 	/*
 	** For the top stack frame, we should pass a pointer to
@@ -250,21 +247,21 @@ dump_live_variables(const MR_Stack_Layout_Label *layout,
 	** not live yet for any call except the top one.
 	*/
 	restore_registers();
-	MR_copy_regs_to_saved_regs(MAX_FAKE_REG, saved_regs);
+	MR_copy_regs_to_saved_regs(MR_MAX_FAKE_REG, saved_regs);
 	if (top_frame) {
 		current_regs = saved_regs;
 	} else {
 		current_regs = NULL;
 	}
-	type_params = MR_materialize_typeinfos_base(vars,
+	type_params = MR_materialize_typeinfos_base(label_layout,
 		current_regs, stack_pointer, current_frame);
 
 	for (i = 0; i < long_var_count; i++) {
 		fprintf(stderr, "%-12s\t", "");
-		MR_print_proc_id(stderr, layout->MR_sll_entry);
+		MR_print_proc_id(stderr, label_layout->MR_sll_entry);
 
-		dump_long_value(MR_long_desc_var_locn(vars, i), heap_zone,
-			stack_pointer, current_frame, top_frame);
+		dump_long_value(MR_long_desc_var_locn(label_layout, i),
+			heap_zone, stack_pointer, current_frame, top_frame);
 		fprintf(stderr, "\n");
 		fflush(NULL);
 
@@ -276,7 +273,7 @@ dump_live_variables(const MR_Stack_Layout_Label *layout,
 		MR_hp = MR_ENGINE(debug_heap_zone->min);
 		MR_virtual_hp = MR_ENGINE(debug_heap_zone->min);
 
-		if (MR_get_type_and_value_base(vars, i,
+		if (MR_get_type_and_value_base(label_layout, i,
 				current_regs, stack_pointer,
 				current_frame, type_params,
 				&type_info, &value)) {
@@ -292,10 +289,10 @@ dump_live_variables(const MR_Stack_Layout_Label *layout,
 
 	for (; i < short_var_count; i++) {
 		fprintf(stderr, "%-12s\t", "");
-		MR_print_proc_id(stderr, layout->MR_sll_entry);
+		MR_print_proc_id(stderr, label_layout->MR_sll_entry);
 
-		dump_short_value(MR_short_desc_var_locn(vars, i), heap_zone,
-			stack_pointer, current_frame, top_frame);
+		dump_short_value(MR_short_desc_var_locn(label_layout, i),
+			heap_zone, stack_pointer, current_frame, top_frame);
 		fprintf(stderr, "\n");
 		fflush(NULL);
 		
@@ -307,7 +304,7 @@ dump_live_variables(const MR_Stack_Layout_Label *layout,
 		MR_hp = MR_ENGINE(debug_heap_zone->min);
 		MR_virtual_hp = MR_ENGINE(debug_heap_zone->min);
 
-		if (MR_get_type_and_value_base(vars, i,
+		if (MR_get_type_and_value_base(label_layout, i,
 				current_regs, stack_pointer,
 				current_frame, type_params,
 				&type_info, &value)) {
@@ -322,13 +319,13 @@ dump_live_variables(const MR_Stack_Layout_Label *layout,
 	}
 
 
-	MR_copy_saved_regs_to_regs(MAX_FAKE_REG, saved_regs);
+	MR_copy_saved_regs_to_regs(MR_MAX_FAKE_REG, saved_regs);
 	save_registers();
 	free(type_params);
 }
 
 static void
-dump_long_value(MR_Long_Lval locn, MemoryZone *heap_zone, 
+dump_long_value(MR_Long_Lval locn, MR_MemoryZone *heap_zone, 
 	MR_Word *stack_pointer, MR_Word *current_frame, bool do_regs)
 {
 #ifdef NATIVE_GC
@@ -341,7 +338,7 @@ dump_long_value(MR_Long_Lval locn, MemoryZone *heap_zone,
 	switch (MR_LONG_LVAL_TYPE(locn)) {
 		case MR_LONG_LVAL_TYPE_R:
 			if (do_regs) {
-				value = virtual_reg(locn_num);
+				value = MR_virtual_reg(locn_num);
 				have_value = TRUE;
 				fprintf(stderr, "r%d\t", locn_num);
 			} else {

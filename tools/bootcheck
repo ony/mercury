@@ -1,6 +1,6 @@
 #!/bin/sh
 #---------------------------------------------------------------------------#
-# Copyright (C) 1995-2000 The University of Melbourne.
+# Copyright (C) 1995-2001 The University of Melbourne.
 # This file may only be copied under the terms of the GNU General
 # Public License - see the file COPYING in the Mercury distribution.
 #---------------------------------------------------------------------------#
@@ -14,16 +14,22 @@ Options:
 		directories will be run. In the absence of any such options,
 		all tests in all directories will be run (unless testing
 		as a whole is disabled).
+	-e, --extras
+		Test the programs in the extras directory.
 	-h, --help
 		Display this usage message.
 	-j <num-jobs>, --jobs <num-jobs>
 		Run using <num-jobs> different parallel processes.
 	-k, --keep-objs
 		Keep the stage 2 object files even if stage 2 is successful.
-	-m <mmake-args>, --mmake-args <mmake-args>
+	-m <mmake-args>, --mmake-opts <mmake-args>
 		Pass <mmake-args> as options to \`mmake'.
+	-M <make-args>, --make-opts <make-args>
+		Pass <make-args> as options to \`make'.
 	-o <filename>, --output-file <filename>
 		Output results to <filename>.
+	--target <target>
+		Specify the target to use in creating stages 2 and 3.
 	-G <grade>, --grade <grade>
 		Specify the grade to use in creating stages 2 and 3.
 		The tests will also be executed in this grade, unless
@@ -47,13 +53,15 @@ Options:
 		Copy the profiler directory instead of linking it.
 		This is sometimes necessary for bootstrapping
 		changes.
+	-n, --no-bootcheck
+		Do not run the bootstrap check; execute the test suite and/or
+		the extras only. This option requires a previous bootstrap
+		check to have left a working stage 2 directory.
+	--no-check-namespace
+		Don't build the check_namespace target in the runtime.
 	-t, --no-test-suite
 		By default, bootcheck will also run the test quite.
 		This option prevents that.
-	-T, --test-suite-only
-		Do not run the bootstrap check; execute the test suite only.
-		This option requires a previous bootstrap check to have left
-		a working stage 2 directory.
 	-2, --keep-stage-2
 		Don't rebuild the stage 2 directory from scratch after
 		building stage 1.  Instead use the existing stage 2 directory.
@@ -88,13 +96,17 @@ Options:
 "
 
 testdirs=""
+extras=false
 jfactor=""
 keep_objs=false
-mmake_opts="-k"
+mmake_opts=""
+make_opts="-k"
 outfile=""
 runtests=true
 do_bootcheck=true
+check_namespace=true
 grade=
+target=c
 test_grade=
 test_params=false
 copy_runtime=false
@@ -129,6 +141,9 @@ while [ $# -gt 0 ]; do
 	-d*)
 		testdirs="$testdirs ` expr $1 : '-d\(.*\)' `"; ;;
 
+	-e|--extras)
+		extras=true ;;
+
 	-h|--help)
 		echo "$usage"
 		exit 0 ;;
@@ -143,13 +158,22 @@ while [ $# -gt 0 ]; do
 	-k|--keep-objs)
 		keep_objs=true ;;
 
-	-m|--mmake)
+	-m|--mmake|--mmake-opts)
 		mmake_opts="$mmake_opts $2"; shift ;;
+	-M|--make-opts)
+		make_opts="$make_opts $2"; shift ;;
 
 	-o|--output-file)
 		outfile="$2"; shift ;;
 	-o*)
 		outfile="` expr $1 : '-o\(.*\)' `"; ;;
+
+	--target)
+		case "$2" in
+		c|asm)	target="$2"; shift ;;
+		*)	echo "unknown target \`$2'" 1>&2; exit 1 ;;
+		esac
+		;;
 
 	-G|--grade)
 		grade="$2"; shift ;;
@@ -168,11 +192,14 @@ while [ $# -gt 0 ]; do
 	-p|--copy-profiler)
 		copy_profiler=true ;;
 
+	-n|--no-bootcheck)
+		do_bootcheck=false ;;
+
+	--no-check_namespace)
+		check_namespace=false ;;
+
 	-t|--no-test-suite)
 		runtests=false ;;
-
-	-T|--test-suite-only)
-		do_bootcheck=false ;;
 
 	-2|--keep-stage-2)
 		keep_stage_2=true ;;
@@ -225,8 +252,26 @@ fi
 
 case $use_subdirs in
 	yes)	cs_subdir=Mercury/cs/
+		ss_subdir=Mercury/ss/
 		;;
 	no)	cs_subdir=
+		ss_subdir=
+		;;
+esac
+
+case $target in
+	c)	target_ext=c
+		target_subdir=$cs_subdir
+		target_opt=
+		;;
+	asm)	target_ext=s
+		target_subdir=$ss_subdir
+		target_opt="--target asm"
+		# If the stage 1 directory was built without --target asm, 
+		# but the stage 2 will be built with `--target asm',
+		# then we need to copy the profiler directory.
+		# So to be safe, we just enable this by default.
+		copy_profiler=true
 		;;
 esac
 
@@ -291,6 +336,8 @@ then
 	RMSTAGECMD="/bin/rm -fr"
 fi
 
+#-----------------------------------------------------------------------------#
+
 if $do_bootcheck
 then
 	if mmake $mmake_opts MMAKEFLAGS=$jfactor all
@@ -298,13 +345,13 @@ then
 		echo "building of stage 1 successful"
 	else
 		cd $root/library;
-		mmake depend
+		mmake $mmake_opts depend
 		cd $root/browser;
-		mmake depend
+		mmake $mmake_opts depend
 		cd $root/compiler;
-		mmake depend
+		mmake $mmake_opts depend
 		cd $root/profiler;
-		mmake depend
+		mmake $mmake_opts depend
 		cd $root
 		if mmake $mmake_opts MMAKEFLAGS=$jfactor all
 		then
@@ -338,6 +385,7 @@ then
 	set +x
 	echo linking stage 2... 1>&2
 	cd stage2
+	$LN_S $root/main.c .
 	mkdir compiler
 	cd compiler
 	# Break up the links into several chunks.
@@ -377,6 +425,7 @@ then
 		$LN_S $root/runtime/*.in .
 		cp $root/runtime/Mmake* .
 		$LN_S $root/runtime/machdeps .
+		$LN_S $root/runtime/RESERVED_MACRO_NAMES .
 		cd $root/stage2
 		rm -f trace
 		mkdir trace
@@ -401,7 +450,7 @@ then
 		$LN_S $root/boehm_gc/*.s .
 		$LN_S $root/boehm_gc/include .
 		cp $root/boehm_gc/Mmake* .
-		cp $root/boehm_gc/Makefile .
+		$LN_S $root/boehm_gc/Makefile .
 		cp $root/boehm_gc/NT_MAKEFILE .
 		cp $root/boehm_gc/gc_cpp.cc .
 		$LN_S $root/boehm_gc/machdeps .
@@ -437,6 +486,7 @@ then
 	then
 		echo "GRADE = $grade" >> Mmake.params
 	fi
+	echo 'GCC_SRC_DIR := ../$(GCC_SRC_DIR)' >> Mmake.params
 	cd $root
 
 	set -x
@@ -448,6 +498,7 @@ then
 
 	# Use the new mmake to build stage 2
 	MMAKE=$MMAKE_DIR/mmake
+	mmake_opts="$mmake_opts $target_opt"
 
 	if (cd stage2 && $MMAKE $mmake_opts $jfactor runtime)
 	then
@@ -548,6 +599,7 @@ then
 	echo linking stage 3... 1>&2
 	set +x
 	cd stage3
+	$LN_S $root/main.c .
 	mkdir compiler
 	cd compiler
 	# Break up the links into several chunks.
@@ -621,7 +673,7 @@ then
 
 	if 	(cd stage3/library &&
 		$MMAKE $mmake_opts $jfactor all-ints &&
-		$MMAKE $mmake_opts $jfactor cs)
+		$MMAKE $mmake_opts $jfactor ${target_ext}s)
 	then
 		echo "building of stage 3 library successful"
 	else
@@ -630,7 +682,7 @@ then
 		# try again, in case the failure cause was transient
 		if 	(cd stage3/library &&
 			$MMAKE $mmake_opts $jfactor all-ints &&
-			$MMAKE $mmake_opts $jfactor cs)
+			$MMAKE $mmake_opts $jfactor ${target_ext}s)
 		then
 			echo "building of stage 3 library successful"
 		else
@@ -653,14 +705,14 @@ then
 		xargs /bin/rm -f
 	fi
 
-	if (cd stage3/browser && $MMAKE $mmake_opts $jfactor cs)
+	if (cd stage3/browser && $MMAKE $mmake_opts $jfactor ${target_ext}s)
 	then
 		echo "building of stage 3 browser successful"
 	else
 		echo "building of stage 3 browser initially not successful"
 		df .
 		# try again, in case the failure cause was transient
-		if (cd stage3/browser && $MMAKE $mmake_opts $jfactor cs)
+		if (cd stage3/browser && $MMAKE $mmake_opts $jfactor ${target_ext}s)
 		then
 			echo "building of stage 3 browser successful"
 		else
@@ -669,14 +721,14 @@ then
 		fi
 	fi
 
-	if (cd stage3/compiler && $MMAKE $mmake_opts $jfactor cs)
+	if (cd stage3/compiler && $MMAKE $mmake_opts $jfactor ${target_ext}s)
 	then
 		echo "building of stage 3 compiler successful"
 	else
 		echo "building of stage 3 compiler initially not successful"
 		df .
 		# try again, in case the failure cause was transient
-		if (cd stage3/compiler && $MMAKE $mmake_opts $jfactor cs)
+		if (cd stage3/compiler && $MMAKE $mmake_opts $jfactor ${target_ext}s)
 		then
 			echo "building of stage 3 compiler successful"
 		else
@@ -701,7 +753,7 @@ then
 	fi
 
 	for dir in library browser compiler; do
-		for file in stage2/$dir/${cs_subdir}*.c; do
+		for file in stage2/$dir/${target_subdir}*.${target_ext}; do
 		    diff -u $file stage3/$dir/${cs_subdir}`basename $file` ||
 			diff_status=1
 		done
@@ -709,7 +761,7 @@ then
 
 	exec >&3		# restore stdout from fd 3
 	if [ $diff_status -ne 0 ]; then
-		echo "error - stage 2 and stage 3 differ!"
+		echo "** error - stage 2 and stage 3 differ!"
 	else
 		echo "stage 2 and stage 3 compare ok"
 		echo "removing stage 3..."
@@ -721,6 +773,20 @@ then
 		$RMSTAGECMD $root/stage3/* < /dev/null
 		/bin/rm -fr $root/stage3/* < /dev/null
 		/bin/rm -fr $root/stage3/.[a-zA-Z]* < /dev/null
+
+		case "$grade" in
+			*debug*)
+				# These files take up a lot of disk space,
+				# so we compress them. This reduces the
+				# probability that running the tests will
+				# run out of disk space, while still allowing
+				# the original files to be reconstructed
+				# relatively quickly.
+				gzip $root/stage2/library/*.c
+				gzip $root/stage2/browser/*.c
+				gzip $root/stage2/compiler/*.c
+				;;
+		esac
 	fi
 
 	echo "finishing stage3 at `date`"
@@ -729,9 +795,11 @@ else
 	echo "building of stages 1 and 2 skipped"
 fi
 
-if $runtests
+#-----------------------------------------------------------------------------#
+
+if test "$runtests" = "true" -o "$extras" = "true"
 then
-	# Use everything from stage 2, the options say that the tests
+	# Use everything from stage 2, unless the options say that the tests
 	# should be done in grade different from the grade of stage 2,
 	# in which case use everything from stage 1, trusting the user
 	# that the grade of the tests and the grade of stage 1 are compatible.
@@ -769,7 +837,8 @@ then
 		-I$root/${stage2_insert}boehm_gc
 		-I$root/${stage2_insert}boehm_gc/include"
 	export MERCURY_ALL_C_INCL_DIRS
-	MERCURY_ALL_MC_C_INCL_DIRS="--c-include-directory $root/${stage2_insert}trace
+	MERCURY_ALL_MC_C_INCL_DIRS="
+		--c-include-directory $root/${stage2_insert}trace
 		--c-include-directory $root/${stage2_insert}library
 		--c-include-directory $root/${stage2_insert}runtime
 		--c-include-directory $root/${stage2_insert}boehm_gc
@@ -790,7 +859,35 @@ then
 		# for mkinit, mmc, mgnuc, ml etc
 	PATH=$root/${stage2_insert}util:$root/${stage2_insert}scripts:$PATH
 	export PATH
+fi
 
+#-----------------------------------------------------------------------------#
+
+# build the check_namespace target in the runtime directory
+
+check_namespace_status=0
+if $check_namespace
+then
+	cd $root/${stage2_insert}runtime
+	mmake $mmake_opts check_namespace || {
+		echo '** mmake check_namespace failed!'
+		# XXX Currently we just report the errors;
+		#     we don't yet actually return a non-zero status.
+		#     That's why the line below is commented out.
+		#     This is a transition measure until we're sure
+		#     that everything really is namespace-clean.
+		# check_namespace_status=1
+	}
+	cd $root
+fi
+
+#-----------------------------------------------------------------------------#
+
+# Run the tests in the tests/* directories
+
+test_status=0
+if $runtests
+then
 	# We need to give tests/debugger access to the mdbrc and mdb_doc
 	# files in the doc and scripts directories, without hardcoding their
 	# pathnames. We must also compensate for scripts/mdbrc having hardcoded
@@ -852,9 +949,64 @@ then
 
 		cd $root
 	fi
-else
-	test_status=0
 fi
+
+#-----------------------------------------------------------------------------#
+
+# Run the tests in the extras/* directories
+
+extras_status=0
+if $extras
+then
+	cd $root/extras
+	if test -f Mmake.params
+	then
+		mv Mmake.params Mmake.params.$$
+	fi
+
+	if test -f $root/Mmake.stage.params
+	then
+		cp $root/Mmake.stage.params Mmake.params
+	elif test -f $root/Mmake.params
+	then
+		cp $root/Mmake.params Mmake.params
+	else
+		cp /dev/null Mmake.params
+	fi
+
+	if test "$test_grade" != ""
+	then
+		echo "GRADE = $test_grade" >> Mmake.params
+	elif test "$grade" != ""
+	then
+		echo "GRADE = $grade" >> Mmake.params
+	fi
+
+	for testdir in *
+	do
+		if test -f $testdir/Mmakefile -a ! -f $testdir/NOBOOTTEST
+		then
+			(cd $testdir;
+			mmake realclean $jfactor;
+			mmake depend    $jfactor &&
+			mmake           $jfactor &&
+			mmake check     $jfactor &&
+			mmake realclean $jfactor ) ||
+			extras_status=1
+		fi
+	done
+
+	if test -f Mmake.params.$$
+	then
+		mv Mmake.params.$$ Mmake.params
+	else
+		/bin/rm Mmake.params
+	fi
+
+	cd $root
+fi
+
+#-----------------------------------------------------------------------------#
 
 if test "$type_stats" != ""
 then
@@ -863,9 +1015,12 @@ fi
 
 echo "finishing at `date`"
 
-if test "$diff_status" = 0 -a "$test_status" = 0
+if test "$diff_status" = 0 -a "$test_status" = 0 -a "$extras_status" = 0 \
+	-a "$check_namespace_status" = 0
 then
 	exit 0
 else
 	exit 1
 fi
+
+#-----------------------------------------------------------------------------#
