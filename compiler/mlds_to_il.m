@@ -2602,23 +2602,7 @@ il_system_namespace_name = "System".
 :- mode mlds_to_il__generate_extern_assembly(in, out) is det.
 
 mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
-	Gen = (pred(Import::in, Decl::out) is semidet :-
-		ClassName = mlds_module_name_to_class_name(Import ^ name),
-		ClassName = structured_name(Assembly, _),
-		not (Assembly = "mercury"),
-		Decl = extern_assembly(Assembly, [])
-	),
-	list__filter_map(Gen, Imports, Decls0),
-	list__sort_and_remove_dups(Decls0, Decls),
-	AllDecls = [
-		extern_assembly("mercury", [
-			version(0, 0, 0, 0),
-			public_key_token([
-				int8(0x22), int8(0x8C), int8(0x16), int8(0x7D),
-				int8(0x12), int8(0xAA), int8(0x0B), int8(0x0B)
-			])
-		]),
-		extern_assembly("mscorlib", [
+	SystemAssemblyDecl = [
 			version(1, 0, 2411, 0),
 			public_key_token([
 				int8(0xb7), int8(0x7a), int8(0x5c), int8(0x56),
@@ -2630,8 +2614,32 @@ mlds_to_il__generate_extern_assembly(Imports, AllDecls) :-
 				int8(0x25), int8(0xea), int8(0x45), int8(0x0f),
 				int8(0x60), int8(0x58), int8(0xc3), int8(0x84),
 				int8(0xe0), int8(0x3b), int8(0xe0), int8(0x95)
+			])],
+	Gen = (pred(Import::in, Decl::out) is semidet :-
+		ClassName = mlds_module_name_to_class_name(Import ^ name),
+		ClassName = structured_name(Assembly, _),
+		not (Assembly = "mercury"),
+		(
+			Import ^ mercury = no,
+			string__append("System", _, Assembly)
+		->
+			AssemblyDecl = SystemAssemblyDecl
+		;
+			AssemblyDecl = []
+		),
+		Decl = extern_assembly(Assembly, AssemblyDecl)
+	),
+	list__filter_map(Gen, Imports, Decls0),
+	list__sort_and_remove_dups(Decls0, Decls),
+	AllDecls = [
+		extern_assembly("mercury", [
+			version(0, 0, 0, 0),
+			public_key_token([
+				int8(0x22), int8(0x8C), int8(0x16), int8(0x7D),
+				int8(0x12), int8(0xAA), int8(0x0B), int8(0x0B)
 			])
-		]) | Decls].
+		]),
+		extern_assembly("mscorlib", SystemAssemblyDecl) | Decls].
 
 %-----------------------------------------------------------------------------
 
