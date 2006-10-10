@@ -1379,9 +1379,18 @@
 :- instance stream.putback(io.input_stream, char, io.state, io.error).
 
 
-
+    % XXX This is buffered but are we going to have a separate typeclass
+    % for buffering?
+    %
+    % XXX What about for :- type binary_file == list(int).
+    % 
 :- instance stream.stream(io.binary_output_stream, io.state, io.error).
+:- instance stream.output(io.binary_output_stream, int, io.state, io.error).
+:- instance stream.output(io.binary_output_stream, string, io.state, io.error).
+
 :- instance stream.stream(io.binary_input_stream,  io.state, io.error).
+:- instance stream.input(io.binary_input_stream, int, io.state, io.error).
+:- instance stream.putback(io.binary_input_stream, int, io.state, io.error).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -9040,7 +9049,8 @@ io.read_symlink(FileName, Result, !IO) :-
 ].
 
     % XXX in the long run we should just define:
-    %   :- type io.result(T) == stream.result(T).
+    %   :- type io.result(T) == stream.result(T, io.error).
+    %
 :- func io.result_to_stream_result(io.result(T)) = stream.result(T, io.error).
 
 io.result_to_stream_result(ok(T)) = ok(T).
@@ -9091,8 +9101,25 @@ io.result_to_stream_result(error(Error)) = error(Error).
 % Binary input streams
 %
 
-:- instance stream.stream(io.binary_input_stream, io.state, io.error) where [
+:- instance stream.stream(io.binary_input_stream, io.state, io.error)
+    where
+[
     pred(name/4) is io.binary_input_stream_name
+].
+
+:- instance stream.input(io.binary_input_stream, int, io.state, io.error)
+    where
+[
+    ( get(Stream, Result, !IO) :-
+        io.read_byte(Stream, Result0, !IO),
+        Result = io.result_to_stream_result(Result0)
+    )
+]. 
+
+:- instance stream.putback(io.binary_input_stream, int, io.state, io.error)
+    where
+[
+    pred(unget/4) is io.putback_byte
 ].
 
 %-----------------------------------------------------------------------------%
@@ -9102,6 +9129,18 @@ io.result_to_stream_result(error(Error)) = error(Error).
 
 :- instance stream.stream(io.binary_output_stream, io.state, io.error) where [
     pred(name/4) is io.binary_output_stream_name
+].
+
+:- instance stream.output(io.binary_output_stream, int, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_byte
+].
+
+:- instance stream.output(io.binary_output_stream, string, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_bytes
 ].
 
 %-----------------------------------------------------------------------------%
