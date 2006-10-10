@@ -1,0 +1,4 @@
+mix_string_buffers.m:007: In predicate `main'/2:
+mix_string_buffers.m:007:   type error: unsatisfied typeclass constraints:
+mix_string_buffers.m:007:     `stream.output((string_buffer.string_buffer_stream(T)), string, (string_buffer.string_buffer(T)), V_10)',
+mix_string_buffers.m:007:     `stream.output((string_buffer.string_buffer_stream(T)), string, (string_buffer.string_buffer(T)), V_6)'

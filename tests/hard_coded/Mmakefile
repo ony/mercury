@@ -187,6 +187,7 @@ ORDINARY_PROGS=	\
 	stable_sort \
 	string_alignment \
 	string_alignment_bug \
+	string_buffer_test \
 	string_loop \
 	string_string \
 	string_strip \

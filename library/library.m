@@ -108,6 +108,7 @@
 :- import_module store.
 :- import_module stream.
 :- import_module string.
+:- import_module string_buffer.
 :- import_module svarray.
 :- import_module svbag.
 :- import_module svbimap.
@@ -257,6 +258,7 @@ mercury_std_library_module("std_util").
 mercury_std_library_module("store").
 mercury_std_library_module("stream").
 mercury_std_library_module("string").
+mercury_std_library_module("string_buffer").
 mercury_std_library_module("svarray").
 mercury_std_library_module("svbag").
 mercury_std_library_module("svbimap").
