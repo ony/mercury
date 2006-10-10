@@ -34,6 +34,7 @@
 :- import_module list.
 :- import_module map.
 :- import_module maybe.
+:- import_module stream.
 :- import_module string.
 :- import_module time.
 :- import_module univ.
@@ -1354,6 +1355,33 @@
     %
 :- func io.error_message(io.error) = string.
 :- pred io.error_message(io.error::in, string::out) is det.
+
+%-----------------------------------------------------------------------------%
+%
+% Instances of the stream typeclass
+%
+
+:- instance stream.error(io.error).
+
+:- instance stream.stream(io.output_stream, io.state, io.error).
+:- instance stream.output(io.output_stream, char,   io.state, io.error).
+:- instance stream.output(io.output_stream, float,  io.state, io.error).
+:- instance stream.output(io.output_stream, int,    io.state, io.error).
+:- instance stream.output(io.output_stream, string, io.state, io.error).
+:- instance stream.output(io.output_stream, univ,   io.state, io.error).
+
+:- instance stream.stream(io.input_stream, io.state, io.error).
+:- instance stream.input(io.input_stream, char, io.state, io.error).
+    % XXX Should we define :- type line == string.
+:- instance stream.input(io.input_stream, string, io.state, io.error).
+    % XXX What about :- type word == list(char)?
+
+:- instance stream.putback(io.input_stream, char, io.state, io.error).
+
+
+
+:- instance stream.stream(io.binary_output_stream, io.state, io.error).
+:- instance stream.stream(io.binary_input_stream,  io.state, io.error).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -5097,6 +5125,10 @@ io.call_system_return_signal(Command, Result, !IO) :-
     % exception hander, does not print out the module name.
 
 io.make_io_error(Error) = io_error(Error).
+
+
+io.error_message(Error) = Msg :-
+    io.error_message(Error, Msg).
 
 io.error_message(io_error(Error), Error).
 
@@ -8965,12 +8997,112 @@ io.read_symlink(FileName, Result, !IO) :-
     }
 ").
 
-/*---------------------------------------------------------------------------*/
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+%
+% Instances of the stream typeclass
+%
+
+:- instance stream.error(io.error) where [
+    func(stream.error_message/1) is io.error_message
+].
+
+%-----------------------------------------------------------------------------%
+%
+% Text input streams
+%
+
+:- instance stream.stream(io.input_stream, io.state, io.error) where [
+    pred(name/4) is io.input_stream_name
+].
+
+:- instance stream.input(io.input_stream, char, io.state, io.error)
+    where
+[
+    ( get(Stream, Result, !IO) :-
+        io.read_char(Stream, Result0, !IO),
+        Result = io.result_to_stream_result(Result0)
+    )
+].
+
+:- instance stream.input(io.input_stream, string, io.state, io.error) 
+    where
+[
+    ( get(Stream, Result, !IO) :-
+        io.read_line_as_string(Stream, Result0, !IO),
+        Result = io.result_to_stream_result(Result0)
+    )
+].
+    
+:- instance stream.putback(io.input_stream, char, io.state, io.error) where
+[
+    pred(unget/4) is io.putback_char
+].
+
+    % XXX in the long run we should just define:
+    %   :- type io.result(T) == stream.result(T).
+:- func io.result_to_stream_result(io.result(T)) = stream.result(T, io.error).
+
+io.result_to_stream_result(ok(T)) = ok(T).
+io.result_to_stream_result(eof) = eof.
+io.result_to_stream_result(error(Error)) = error(Error).
+
+%-----------------------------------------------------------------------------%
+%
+% Text output streams
+%
+
+:- instance stream.stream(io.output_stream, io.state, io.error) where [
+    pred(name/4) is io.output_stream_name
+].
+
+:- instance stream.output(io.output_stream, char, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_char
+].
+
+:- instance stream.output(io.output_stream, float, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_float
+].
+
+:- instance stream.output(io.output_stream, int, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_int
+].
+
+:- instance stream.output(io.output_stream, string, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_string
+].
+
+:- instance stream.output(io.output_stream, univ, io.state, io.error)
+    where
+[
+    pred(put/4) is io.write_univ
+].
+
+%-----------------------------------------------------------------------------%
+%
+% Binary input streams
+%
+
+:- instance stream.stream(io.binary_input_stream, io.state, io.error) where [
+    pred(name/4) is io.binary_input_stream_name
+].
+
+%-----------------------------------------------------------------------------%
+%
+% Binary output streams
+%
+
+:- instance stream.stream(io.binary_output_stream, io.state, io.error) where [
+    pred(name/4) is io.binary_output_stream_name
+].
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
-% Ralph Becket <rwab1@cl.cam.ac.uk> 27/04/99
-%   Functional forms added.
-
-io.error_message(Error) = Msg :-
-    io.error_message(Error, Msg).
