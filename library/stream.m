@@ -136,11 +136,11 @@
 
     % XXX call this random_access?
     %
-% :- typeclass stream.seekable(Stream, State, Error)
-%         <= stream(Stream, State, Error) where [
-%     pred seek(Stream::in, stream.whence::in, int::in, State::di, State::uo)
-%         is det
-% ].
+:- typeclass stream.seekable(Stream, State, Error)
+         <= stream(Stream, State, Error) where [
+     pred seek(Stream::in, stream.whence::in, int::in, State::di, State::uo)
+         is det
+].
 
 %----------------------------------------------------------------------------%
 %
@@ -167,6 +167,51 @@
 %         <= ( stream.output(Stream, Unit, State),
 %              stream.putback(Stream, Unit, State),
 %              stream.text(Stream, State)) where [].
+
+%-----------------------------------------------------------------------------%
+%
+% Generic stream operations
+%
+
+:- type stream.maybe_partial_res(T, Error)
+    --->    ok(T)
+    ;       error(T, Error).
+
+    % Applies the given closure to each Unit read from the input stream
+    % in turn, until eof or error.
+    %
+:- pred stream.input_stream_fold(Stream, pred(Unit, T, T), T,
+    stream.maybe_partial_res(T, Error), State, State)
+    <= stream.input(Stream, Unit, State, Error).
+:- mode stream.input_stream_fold(in, in(pred(in, in, out) is det),
+    in, out, di, uo) is det.
+:- mode stream.input_stream_fold(in, in(pred(in, in, out) is cc_multi),
+    in, out, di, uo) is cc_multi.
+
+%-----------------------------------------------------------------------------%
+%-----------------------------------------------------------------------------%
+
+:- implementation.
+
+%-----------------------------------------------------------------------------%
+%
+% Folds over input streams
+%
+
+stream.input_stream_fold(Stream, Pred, T0, Res, !S) :-
+    get(Stream, Result, !S),
+    (
+        Result = ok(Unit),
+        Pred(Unit, T0, T1),
+        stream.input_stream_fold(Stream, Pred, T1, Res, !S)
+    ;
+        Result = eof,
+        Res = ok(T0)
+    ;
+        Result = error(Error),
+        Res = error(T0, Error)
+    ).
+
 
 %-----------------------------------------------------------------------------%
 :- end_module stream.

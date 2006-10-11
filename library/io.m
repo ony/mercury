@@ -1387,10 +1387,12 @@
 :- instance stream.stream(io.binary_output_stream, io.state, io.error).
 :- instance stream.output(io.binary_output_stream, int, io.state, io.error).
 :- instance stream.output(io.binary_output_stream, string, io.state, io.error).
+:- instance stream.seekable(io.binary_output_stream, io.state, io.error).
 
 :- instance stream.stream(io.binary_input_stream,  io.state, io.error).
 :- instance stream.input(io.binary_input_stream, int, io.state, io.error).
 :- instance stream.putback(io.binary_input_stream, int, io.state, io.error).
+:- instance stream.seekable(io.binary_input_stream, io.state, io.error).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -9122,6 +9124,21 @@ io.result_to_stream_result(error(Error)) = error(Error).
     pred(unget/4) is io.putback_byte
 ].
 
+:- instance stream.seekable(io.binary_input_stream, io.state, io.error)
+    where
+[
+    ( seek(Stream, Whence0, OffSet, !IO) :-
+        Whence = stream_whence_to_io_whence(Whence0),
+        io.seek_binary_input(Stream, Whence, OffSet, !IO)
+    )
+].    
+
+:- func stream_whence_to_io_whence(stream.whence) = io.whence.
+
+stream_whence_to_io_whence(set) = set.
+stream_whence_to_io_whence(cur) = cur.
+stream_whence_to_io_whence(end) = end.
+
 %-----------------------------------------------------------------------------%
 %
 % Binary output streams
@@ -9142,6 +9159,15 @@ io.result_to_stream_result(error(Error)) = error(Error).
 [
     pred(put/4) is io.write_bytes
 ].
+
+:- instance stream.seekable(io.binary_output_stream, io.state, io.error)
+    where
+[
+    ( seek(Stream, Whence0, OffSet, !IO) :-
+        Whence = stream_whence_to_io_whence(Whence0),
+        io.seek_binary_output(Stream, Whence, OffSet, !IO)
+    )
+].    
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
