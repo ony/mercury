@@ -15,7 +15,7 @@
 %   - add more generic operations.
 %   - where do the flush and fill operations belong?
 %   - what about resizable buffers?
-%
+%   
 %-----------------------------------------------------------------------------%
 
 :- module stream.
@@ -69,11 +69,18 @@
 % Input streams
 %
 
+
+:- typeclass stream.input(Stream, State, Error)
+    <= stream(Stream, State, Error) where
+[
+    pred fill(Stream::in, State::di, State::uo) is det
+].
+
     % An input stream is a stream from which we can read things(?) of
     % type Unit.
     %
 :- typeclass stream.input(Stream, Unit, State, Error)
-    <= stream(Stream, State, Error) where
+    <= stream.input(Stream, State, Error) where
 [
     pred get(Stream::in, stream.result(Unit, Error)::out, State::di, State::uo)
         is det
@@ -84,11 +91,17 @@
 % Output streams
 %
 
+:- typeclass stream.output(Stream, State, Error) 
+    <= stream(Stream, State, Error) where
+[
+    pred flush(Stream::in, State::di, State::uo) is det
+].
+
     % An output stream is a stream to which we can write things(?) of
     % type Unit.
     %
 :- typeclass stream.output(Stream, Unit, State, Error)
-    <= stream(Stream, State, Error) where
+    <= stream.output(Stream, State, Error) where
 [
     pred put(Stream::in, Unit::in, State::di, State::uo) is det
 ].
@@ -118,31 +131,6 @@
 
 :- typeclass stream.unbounded_putback(Stream, Unit, State, Error)
     <= stream.putback(Stream, Unit, State, Error) where [].
-
-%----------------------------------------------------------------------------%
-%
-% Buffered streams
-%
-
-% XXX What about streams where we can control the buffering?
-
-:- typeclass stream.buffered(Stream, State, Error)
-    <= stream(Stream, State, Error) where
-[
-     pred flush(Stream::in, State::di, State::uo) is det
-].
-
-% :- typeclass stream.buffered_output(Stream, State, Error)
-%   <= stream.output(Stream, State, Error) where
-% [
-%   pred flush(Stream::in, State::di, State::uo) is det
-% ].
-
-% :- typeclass stream.buffered_input(Stream, State, Error)
-%   <= stream.input(Stream, State, Error) where
-% [
-%   pred fill(Stream::in, State::di, State::uo) is det
-% ].
 
 %----------------------------------------------------------------------------%
 %

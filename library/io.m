@@ -1364,6 +1364,7 @@
 :- instance stream.error(io.error).
 
 :- instance stream.stream(io.output_stream, io.state, io.error).
+:- instance stream.output(io.output_stream, io.state, io.error).
 :- instance stream.output(io.output_stream, char,   io.state, io.error).
 :- instance stream.output(io.output_stream, float,  io.state, io.error).
 :- instance stream.output(io.output_stream, int,    io.state, io.error).
@@ -1371,6 +1372,7 @@
 :- instance stream.output(io.output_stream, univ,   io.state, io.error).
 
 :- instance stream.stream(io.input_stream, io.state, io.error).
+:- instance stream.input(io.input_stream, io.state, io.error).
 :- instance stream.input(io.input_stream, char, io.state, io.error).
     % XXX Should we define :- type line == string.
 :- instance stream.input(io.input_stream, string, io.state, io.error).
@@ -1378,18 +1380,16 @@
 
 :- instance stream.putback(io.input_stream, char, io.state, io.error).
 
-
-    % XXX This is buffered but are we going to have a separate typeclass
-    % for buffering?
-    %
     % XXX What about for :- type binary_file == list(int).
     % 
 :- instance stream.stream(io.binary_output_stream, io.state, io.error).
+:- instance stream.output(io.binary_output_stream, io.state, io.error).
 :- instance stream.output(io.binary_output_stream, int, io.state, io.error).
 :- instance stream.output(io.binary_output_stream, string, io.state, io.error).
 :- instance stream.seekable(io.binary_output_stream, io.state, io.error).
 
 :- instance stream.stream(io.binary_input_stream,  io.state, io.error).
+:- instance stream.input(io.binary_input_stream,  io.state, io.error).
 :- instance stream.input(io.binary_input_stream, int, io.state, io.error).
 :- instance stream.putback(io.binary_input_stream, int, io.state, io.error).
 :- instance stream.seekable(io.binary_input_stream, io.state, io.error).
@@ -9027,6 +9027,10 @@ io.read_symlink(FileName, Result, !IO) :-
     pred(name/4) is io.input_stream_name
 ].
 
+:- instance stream.input(io.input_stream, io.state, io.error) where [
+    ( fill(_, !IO) )
+].
+
 :- instance stream.input(io.input_stream, char, io.state, io.error)
     where
 [
@@ -9066,6 +9070,10 @@ io.result_to_stream_result(error(Error)) = error(Error).
 
 :- instance stream.stream(io.output_stream, io.state, io.error) where [
     pred(name/4) is io.output_stream_name
+].
+
+:- instance stream.output(io.output_stream, io.state, io.error) where [
+    pred(flush/3) is io.flush_output
 ].
 
 :- instance stream.output(io.output_stream, char, io.state, io.error)
@@ -9109,6 +9117,12 @@ io.result_to_stream_result(error(Error)) = error(Error).
     pred(name/4) is io.binary_input_stream_name
 ].
 
+:- instance stream.input(io.binary_input_stream, io.state, io.error)
+    where
+[
+    ( fill(_, !IO) )
+].
+
 :- instance stream.input(io.binary_input_stream, int, io.state, io.error)
     where
 [
@@ -9146,6 +9160,10 @@ stream_whence_to_io_whence(end) = end.
 
 :- instance stream.stream(io.binary_output_stream, io.state, io.error) where [
     pred(name/4) is io.binary_output_stream_name
+].
+
+:- instance stream.output(io.binary_output_stream, io.state, io.error) where [
+    pred(flush/3) is io.flush_binary_output
 ].
 
 :- instance stream.output(io.binary_output_stream, int, io.state, io.error)
