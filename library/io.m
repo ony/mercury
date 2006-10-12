@@ -1363,15 +1363,15 @@
 
 :- instance stream.error(io.error).
 
-:- instance stream.stream(io.output_stream, io.state, io.error).
-:- instance stream.output(io.output_stream, io.state, io.error).
-:- instance stream.output(io.output_stream, char,   io.state, io.error).
-:- instance stream.output(io.output_stream, float,  io.state, io.error).
-:- instance stream.output(io.output_stream, int,    io.state, io.error).
-:- instance stream.output(io.output_stream, string, io.state, io.error).
-:- instance stream.output(io.output_stream, univ,   io.state, io.error).
+:- instance stream.stream(io.output_stream, io.state).
+:- instance stream.output(io.output_stream, io.state).
+:- instance stream.output(io.output_stream, char,   io.state).
+:- instance stream.output(io.output_stream, float,  io.state).
+:- instance stream.output(io.output_stream, int,    io.state).
+:- instance stream.output(io.output_stream, string, io.state).
+:- instance stream.output(io.output_stream, univ,   io.state).
 
-:- instance stream.stream(io.input_stream, io.state, io.error).
+:- instance stream.stream(io.input_stream, io.state).
 :- instance stream.input(io.input_stream, io.state, io.error).
 :- instance stream.input(io.input_stream, char, io.state, io.error).
     % XXX Should we define :- type line == string.
@@ -1382,17 +1382,17 @@
 
     % XXX What about for :- type binary_file == list(int).
     % 
-:- instance stream.stream(io.binary_output_stream, io.state, io.error).
-:- instance stream.output(io.binary_output_stream, io.state, io.error).
-:- instance stream.output(io.binary_output_stream, int, io.state, io.error).
-:- instance stream.output(io.binary_output_stream, string, io.state, io.error).
-:- instance stream.seekable(io.binary_output_stream, io.state, io.error).
+:- instance stream.stream(io.binary_output_stream, io.state).
+:- instance stream.output(io.binary_output_stream, io.state).
+:- instance stream.output(io.binary_output_stream, int, io.state).
+:- instance stream.output(io.binary_output_stream, string, io.state).
+:- instance stream.seekable(io.binary_output_stream, io.state).
 
-:- instance stream.stream(io.binary_input_stream,  io.state, io.error).
+:- instance stream.stream(io.binary_input_stream,  io.state).
 :- instance stream.input(io.binary_input_stream,  io.state, io.error).
 :- instance stream.input(io.binary_input_stream, int, io.state, io.error).
 :- instance stream.putback(io.binary_input_stream, int, io.state, io.error).
-:- instance stream.seekable(io.binary_input_stream, io.state, io.error).
+:- instance stream.seekable(io.binary_input_stream, io.state).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -9023,7 +9023,7 @@ io.read_symlink(FileName, Result, !IO) :-
 % Text input streams
 %
 
-:- instance stream.stream(io.input_stream, io.state, io.error) where [
+:- instance stream.stream(io.input_stream, io.state) where [
     pred(name/4) is io.input_stream_name
 ].
 
@@ -9068,39 +9068,39 @@ io.result_to_stream_result(error(Error)) = error(Error).
 % Text output streams
 %
 
-:- instance stream.stream(io.output_stream, io.state, io.error) where [
+:- instance stream.stream(io.output_stream, io.state) where [
     pred(name/4) is io.output_stream_name
 ].
 
-:- instance stream.output(io.output_stream, io.state, io.error) where [
+:- instance stream.output(io.output_stream, io.state) where [
     pred(flush/3) is io.flush_output
 ].
 
-:- instance stream.output(io.output_stream, char, io.state, io.error)
+:- instance stream.output(io.output_stream, char, io.state)
     where
 [
     pred(put/4) is io.write_char
 ].
 
-:- instance stream.output(io.output_stream, float, io.state, io.error)
+:- instance stream.output(io.output_stream, float, io.state)
     where
 [
     pred(put/4) is io.write_float
 ].
 
-:- instance stream.output(io.output_stream, int, io.state, io.error)
+:- instance stream.output(io.output_stream, int, io.state)
     where
 [
     pred(put/4) is io.write_int
 ].
 
-:- instance stream.output(io.output_stream, string, io.state, io.error)
+:- instance stream.output(io.output_stream, string, io.state)
     where
 [
     pred(put/4) is io.write_string
 ].
 
-:- instance stream.output(io.output_stream, univ, io.state, io.error)
+:- instance stream.output(io.output_stream, univ, io.state)
     where
 [
     pred(put/4) is io.write_univ
@@ -9111,7 +9111,7 @@ io.result_to_stream_result(error(Error)) = error(Error).
 % Binary input streams
 %
 
-:- instance stream.stream(io.binary_input_stream, io.state, io.error)
+:- instance stream.stream(io.binary_input_stream, io.state)
     where
 [
     pred(name/4) is io.binary_input_stream_name
@@ -9138,7 +9138,7 @@ io.result_to_stream_result(error(Error)) = error(Error).
     pred(unget/4) is io.putback_byte
 ].
 
-:- instance stream.seekable(io.binary_input_stream, io.state, io.error)
+:- instance stream.seekable(io.binary_input_stream, io.state)
     where
 [
     ( seek(Stream, Whence0, OffSet, !IO) :-
@@ -9158,27 +9158,27 @@ stream_whence_to_io_whence(end) = end.
 % Binary output streams
 %
 
-:- instance stream.stream(io.binary_output_stream, io.state, io.error) where [
+:- instance stream.stream(io.binary_output_stream, io.state) where [
     pred(name/4) is io.binary_output_stream_name
 ].
 
-:- instance stream.output(io.binary_output_stream, io.state, io.error) where [
+:- instance stream.output(io.binary_output_stream, io.state) where [
     pred(flush/3) is io.flush_binary_output
 ].
 
-:- instance stream.output(io.binary_output_stream, int, io.state, io.error)
+:- instance stream.output(io.binary_output_stream, int, io.state)
     where
 [
     pred(put/4) is io.write_byte
 ].
 
-:- instance stream.output(io.binary_output_stream, string, io.state, io.error)
+:- instance stream.output(io.binary_output_stream, string, io.state)
     where
 [
     pred(put/4) is io.write_bytes
 ].
 
-:- instance stream.seekable(io.binary_output_stream, io.state, io.error)
+:- instance stream.seekable(io.binary_output_stream, io.state)
     where
 [
     ( seek(Stream, Whence0, OffSet, !IO) :-

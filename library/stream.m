@@ -15,7 +15,11 @@
 %   - add more generic operations.
 %   - where do the flush and fill operations belong?
 %   - what about resizable buffers?
-%   
+%
+% For handling errors on output streams we throw exceptions rather than
+% return a value indicating that an errro has occurred.  This simplifies
+% the typeclass hierarchy (output streams do not need an error type).
+%
 %-----------------------------------------------------------------------------%
 
 :- module stream.
@@ -49,14 +53,10 @@
 % Streams
 %
 
-    % A stream consists of a handle type, a unique state type and an
-    % error type.  The handle allows us to refer to different instances
-    % of a stream type.  The state type is threaded through the stream
-    % operations, while the error type encapsulates errors that might
-    % be produced by the underlying stream instances.
+    % A stream consists of a handle type and a state type.  The state
+    % type is threaded through the stream operations.
     %
-:- typeclass stream.stream(Stream, State, Error)
-    <= (stream.error(Error), (Stream -> State, Error)) where
+:- typeclass stream.stream(Stream, State) <= (Stream -> State) where
 [ 
         % Returns a descriptive name for the stream.
         % Intended for use in error messages.
@@ -69,9 +69,10 @@
 % Input streams
 %
 
-
+    % Input streams also include an error type.
+    %
 :- typeclass stream.input(Stream, State, Error)
-    <= stream(Stream, State, Error) where
+    <= ( stream(Stream, State), stream.error(Error), (Stream -> Error) ) where
 [
     pred fill(Stream::in, State::di, State::uo) is det
 ].
@@ -91,8 +92,11 @@
 % Output streams
 %
 
-:- typeclass stream.output(Stream, State, Error) 
-    <= stream(Stream, State, Error) where
+    % Output streams have no error type - they handle errors by
+    % throwing exceptions.
+    %
+:- typeclass stream.output(Stream, State) 
+    <= stream(Stream, State) where
 [
     pred flush(Stream::in, State::di, State::uo) is det
 ].
@@ -100,8 +104,8 @@
     % An output stream is a stream to which we can write things(?) of
     % type Unit.
     %
-:- typeclass stream.output(Stream, Unit, State, Error)
-    <= stream.output(Stream, State, Error) where
+:- typeclass stream.output(Stream, Unit, State)
+    <= stream.output(Stream, State) where
 [
     pred put(Stream::in, Unit::in, State::di, State::uo) is det
 ].
@@ -115,7 +119,7 @@
     %
 :- typeclass stream.duplex(Stream, Unit, State, Error)
     <= ( stream.input(Stream,  Unit, State, Error),
-         stream.output(Stream, Unit, State, Error)
+         stream.output(Stream, Unit, State)
        ) where [].
 
 %----------------------------------------------------------------------------%
@@ -142,8 +146,8 @@
     ;       cur
     ;       end.
 
-:- typeclass stream.seekable(Stream, State, Error)
-         <= stream(Stream, State, Error) where [
+:- typeclass stream.seekable(Stream, State)
+         <= stream(Stream, State) where [
      pred seek(Stream::in, stream.whence::in, int::in, State::di, State::uo)
          is det
 ].
@@ -153,8 +157,8 @@
 % Line oriented streams
 %
 
-:- typeclass stream.text(Stream, State, Error)
-    <= stream(Stream, State, Error) where
+:- typeclass stream.text(Stream, State)
+    <= stream(Stream, State) where
 [
     pred get_line(Stream::in, int::out, State::di, State::uo) is det,
     pred set_line(Stream::in, int::in,  State::di, State::uo) is det
