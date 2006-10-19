@@ -531,11 +531,11 @@ make_module_dependencies(ModuleName, !Info, !IO) :-
             io.set_output_stream(ErrorStream, _, !IO),
             split_into_submodules(ModuleName, Items, SubModuleList, [], Specs),
             sort_error_specs(Specs, SortedSpecs),
-            write_error_specs(SortedSpecs, 0, _NumWarnings, 0, _NumErrors,
-                !IO),
+            globals.io_get_globals(Globals, !IO),
+            write_error_specs(SortedSpecs, Globals, 0, _NumWarnings,
+                0, _NumErrors, !IO),
             io.set_output_stream(OldOutputStream, _, !IO),
 
-            globals.io_get_globals(Globals, !IO),
             assoc_list.keys(SubModuleList, SubModuleNames),
             list.map(init_dependencies(SourceFileName, ModuleName,
                 SubModuleNames, Error, Globals),
@@ -553,8 +553,10 @@ make_module_dependencies(ModuleName, !Info, !IO) :-
             % file doesn't depend on anything else.
             %
             ( Error = no_module_errors ->
-                Target = ModuleName - unqualified_short_interface,
-                maybe_make_target_message(OldOutputStream, Target, !IO),
+                Target = ModuleName -
+                    module_target_unqualified_short_interface,
+                maybe_make_target_message_to_stream(OldOutputStream, Target,
+                    !IO),
                 build_with_check_for_interrupt(
                     build_with_module_options(ModuleName,
                         ["--make-short-interface"],
@@ -573,8 +575,10 @@ make_module_dependencies(ModuleName, !Info, !IO) :-
                         ModuleImportList)
                 ), cleanup_module_dep_files(SubModuleNames), _, !Info, !IO),
 
-            record_made_target(ModuleName - unqualified_short_interface,
-                process_module(make_short_interface), Succeeded, !Info, !IO),
+            record_made_target(
+                ModuleName - module_target_unqualified_short_interface,
+                process_module(task_make_short_interface), Succeeded,
+                !Info, !IO),
             unredirect_output(ModuleName, ErrorStream, !Info, !IO)
         )
     ;
@@ -605,8 +609,8 @@ cleanup_short_interfaces(SubModuleNames, !Info, !IO) :-
     list.foldl2(
         (pred(SubModuleName::in, !.Info::in, !:Info::out, !.IO::di, !:IO::uo)
                 is det :-
-            make_remove_target_file(SubModuleName, unqualified_short_interface,
-                !Info, !IO)
+            make_remove_target_file(SubModuleName,
+                module_target_unqualified_short_interface, !Info, !IO)
         ), SubModuleNames, !Info, !IO).
 
 :- pred cleanup_module_dep_files(list(module_name)::in,

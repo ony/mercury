@@ -418,8 +418,7 @@ queued_proc_progress_message(PredProcId, HowToCheckGoal, ModuleInfo, !IO) :-
         ;
             io.write_string("% Mode-analyzing ", !IO)
         ),
-        PredProcId = proc(PredId, ProcId),
-        hlds_out.write_pred_proc_id(ModuleInfo, PredId, ProcId, !IO),
+        hlds_out.write_pred_proc_id(ModuleInfo, PredProcId, !IO),
         io.write_string("\n", !IO)
 %       /*****
 %       mode_list_get_initial_insts(Modes, ModuleInfo1,
@@ -458,15 +457,23 @@ modecheck_queued_proc(HowToCheckGoal, PredProcId, !OldPredTable, !ModuleInfo,
         module_info_remove_predid(PredId, !ModuleInfo),
         Changed = Changed1
     ;
-        ( HowToCheckGoal = check_unique_modes ->
+        (
+            HowToCheckGoal = check_unique_modes,
             detect_switches_in_proc(ProcId, PredId, !ModuleInfo),
             detect_cse_in_proc(ProcId, PredId, !ModuleInfo, !IO),
-            determinism_check_proc(ProcId, PredId, !ModuleInfo, !IO),
+            determinism_check_proc(ProcId, PredId, !ModuleInfo, Specs),
+            (
+                Specs = []
+            ;
+                Specs = [_ | _],
+                unexpected(this_file, "modecheck_queued_proc: found error")
+            ),
             save_proc_info(ProcId, PredId, !.ModuleInfo, !OldPredTable),
             unique_modes.check_proc(ProcId, PredId, !ModuleInfo, Changed2,
                 !IO),
             bool.or(Changed1, Changed2, Changed)
         ;
+            HowToCheckGoal = check_modes,
             Changed = Changed1
         )
     ).
@@ -720,7 +727,8 @@ generate_initialise_clauses(_Type, TypeBody, X, Context, Clauses, !Info) :-
         InitGoal = InitCall - GoalInfo,
 
         Any = any(shared),
-        generate_cast(equiv_type_cast, X0, X, Any, Any, Context, CastGoal),
+        generate_cast_with_insts(equiv_type_cast, X0, X, Any, Any, Context,
+            CastGoal),
         Goal = conj(plain_conj, [InitGoal, CastGoal]) - GoalInfo,
         quantify_clauses_body([X], Goal, Context, Clauses, !Info)
     ;

@@ -117,17 +117,17 @@ extern  void        MP_unregister_cleanup_file(const char *filename);
 extern  void        MP_handle_fatal_exception(void *data);
 extern  void        MP_delete_cleanup_files(void);
 extern  void        MP_delete_cleanup_files_and_exit_failure(
-                const char *signal_name);
+                        const char *signal_name);
 
-extern  int     MP_timeout_seconds;
+extern  int         MP_timeout_seconds;
 extern  const char  *MP_timeout_mutex_file;
 extern  const char  *MP_timeout_want_dir;
 extern  const char  *MP_timeout_want_prefix;
 
 typedef struct
 {
-    int MP_signum;
-    void    (*MP_handler)(void);
+    int             MP_signum;
+    void            (*MP_handler)(void);
 } MP_sig_handler;
 
 extern  const MP_sig_handler    MP_signal_structs[];
@@ -159,9 +159,9 @@ extern  void    MP_do_release_lock(const char *mutex_file);
 #include    <sys/types.h>
 
 const char  *MP_cleanup_files[MP_MAX_CLEANUP_FILES];
-int     MP_cleanup_file_next = 0;
+int         MP_cleanup_file_next = 0;
 
-int     MP_timeout_seconds = 30 * 60;
+int         MP_timeout_seconds = 30 * 60;
 const char  *MP_timeout_mutex_file = NULL;
 const char  *MP_timeout_want_dir = NULL;
 const char  *MP_timeout_want_prefix = NULL;
@@ -234,7 +234,7 @@ MP_handle_fatal_exception(void *data)
 void
 MP_delete_cleanup_files(void)
 {
-    int i;
+    int     i;
     MR_bool delayed_mutex_file;
 
     /*
@@ -346,10 +346,23 @@ const MP_sig_handler MP_signal_structs[] =
 void
 MP_handle_timeout(void)
 {
-    DIR     *dir;
+    DIR             *dir;
     struct  dirent  *dirent;
-    int     matchlen;
-    MR_bool     success;
+    int             matchlen;
+    MR_bool         success;
+
+#ifdef  MP_DEBUG_LOCKS
+    {
+        FILE    *debug_fp;
+
+        debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+        if (debug_fp != NULL) {
+            fprintf(debug_fp, ""pid %d MP_handle_timeout at %d\\n"",
+                getpid(), (int) time(NULL));
+            fclose(debug_fp);
+        }
+    }
+#endif
 
     if (MP_timeout_want_dir == NULL || MP_timeout_want_prefix == NULL) {
         MR_fatal_error(""MP_handle_timeout: null dir or prefix"");
@@ -364,6 +377,19 @@ MP_handle_timeout(void)
         ** We therefore abort the timeout, but schedule the next one.
         */
 
+#ifdef  MP_DEBUG_LOCKS
+        {
+            FILE    *debug_fp;
+
+            debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+            if (debug_fp != NULL) {
+                fprintf(debug_fp, ""pid %d aborting timeout: lock\\n"",
+                    getpid());
+                fclose(debug_fp);
+            }
+        }
+#endif
+
         (void) alarm(MP_timeout_seconds);
         return;
     }
@@ -374,9 +400,20 @@ MP_handle_timeout(void)
     }
 
     while ((dirent = readdir(dir)) != NULL) {
-        if (MR_strneq(dirent->d_name, MP_timeout_want_prefix,
-            matchlen))
-        {
+        if (MR_strneq(dirent->d_name, MP_timeout_want_prefix, matchlen)) {
+
+#ifdef  MP_DEBUG_LOCKS
+            {
+                FILE    *debug_fp;
+
+                debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+                if (debug_fp != NULL) {
+                    fprintf(debug_fp,
+                        ""pid %d aborting timeout: want file\\n"", getpid());
+                    fclose(debug_fp);
+                }
+            }
+#endif
             /* abort the timeout */
             (void) closedir(dir);
             (void) alarm(MP_timeout_seconds);
@@ -387,9 +424,23 @@ MP_handle_timeout(void)
     (void) closedir(dir);
 
     /*
-    ** This call will delete the mutex file last, releasing the mutex
+    ** This call will delete the mutex file last, releasing the mutex.
     */
+
     MP_delete_cleanup_files();
+
+#ifdef  MP_DEBUG_LOCKS
+    {
+        FILE    *debug_fp;
+
+        debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+        if (debug_fp != NULL) {
+            fprintf(debug_fp, ""pid %d timeout exit\\n"", getpid());
+            fclose(debug_fp);
+        }
+    }
+#endif
+
     exit(EXIT_SUCCESS);
 }
 
@@ -456,21 +507,43 @@ MP_handle_sig_pipe(void)
 MR_bool
 MP_do_try_get_lock(const char *mutex_file)
 {
-    int res;
+    int     res;
     MR_bool success;
 
     res = open(mutex_file, O_CREAT | O_EXCL, 0);
     if (res >= 0) {
+#ifdef  MP_DEBUG_LOCKS
+        FILE    *debug_fp;
+
+        debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+        if (debug_fp != NULL) {
+            fprintf(debug_fp, ""pid %d try: lock %s\\n"",
+                getpid(), mutex_file);
+            fclose(debug_fp);
+        }
+#endif
+
         (void) close(res);
         MP_register_cleanup_file(mutex_file);
         success = MR_TRUE;
     } else if (res < 0 && errno == EEXIST) {
+#ifdef  MP_DEBUG_LOCKS
+        FILE    *debug_fp;
+
+        debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+        if (debug_fp != NULL) {
+            fprintf(debug_fp, ""pid %d try: no lock %s\\n"",
+                getpid(), mutex_file);
+            fclose(debug_fp);
+        }
+#endif
+
         success = MR_FALSE;
     } else {
         MR_fatal_error(""MP_do_try_get_lock failed"");
     }
 
-    return res;
+    return success;
 }
 
 void
@@ -481,10 +554,32 @@ MP_do_get_lock(const char *mutex_file)
     for (;;) {
         res = open(mutex_file, O_CREAT | O_EXCL, 0);
         if (res >= 0) {
+#ifdef  MP_DEBUG_LOCKS
+            FILE    *debug_fp;
+
+            debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+            if (debug_fp != NULL) {
+                fprintf(debug_fp, ""pid %d got lock %s\\n"",
+                    getpid(), mutex_file);
+                fclose(debug_fp);
+            }
+#endif
+
             (void) close(res);
             MP_register_cleanup_file(mutex_file);
             return;
         } else if (res < 0 && errno == EEXIST) {
+#ifdef  MP_DEBUG_LOCKS
+            FILE    *debug_fp;
+
+            debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+            if (debug_fp != NULL) {
+                fprintf(debug_fp, ""pid %d trying to lock %s ...\\n"",
+                    getpid(), mutex_file);
+                fclose(debug_fp);
+            }
+#endif
+
             sleep(5);
             continue;
         } else {
@@ -496,6 +591,17 @@ MP_do_get_lock(const char *mutex_file)
 void
 MP_do_release_lock(const char *mutex_file)
 {
+#ifdef  MP_DEBUG_LOCKS
+    FILE    *debug_fp;
+
+    debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+    if (debug_fp != NULL) {
+        fprintf(debug_fp, ""pid %d releasing lock %s\\n"",
+            getpid(), mutex_file);
+        fclose(debug_fp);
+    }
+#endif
+
     MP_unregister_cleanup_file(mutex_file);
     (void) unlink(mutex_file);
 }
@@ -552,12 +658,25 @@ MP_do_release_lock(const char *mutex_file)
 ").
 
 :- pragma foreign_proc("C",
-    setup_signals(MutexFile::in, WantDir::in, WantPrefix::in,
-        S0::di, S::uo),
+    setup_signals(MutexFile::in, WantDir::in, WantPrefix::in, S0::di, S::uo),
     [will_not_call_mercury, promise_pure],
 "
 #ifdef  MR_DEEP_PROFILER_ENABLED
     int i;
+
+#ifdef  MP_DEBUG_LOCKS
+    {
+        FILE    *debug_fp;
+
+        debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+        if (debug_fp != NULL) {
+            fprintf(debug_fp, ""pid %d setup signals ...\\n"", getpid());
+            fprintf(debug_fp, ""mutexfile %s, wantdir %s, wantprefix %s\\n"",
+                MutexFile, WantDir, WantPrefix);
+            fclose(debug_fp);
+        }
+    }
+#endif
 
     MP_timeout_mutex_file = MutexFile;
     MP_timeout_want_dir = WantDir;
@@ -593,6 +712,20 @@ MP_do_release_lock(const char *mutex_file)
     MP_timeout_seconds = Minutes * 60;
     (void) alarm(MP_timeout_seconds);
     S = S0;
+
+#ifdef  MP_DEBUG_LOCKS
+    {
+        FILE    *debug_fp;
+
+        debug_fp = fopen(""/tmp/deep_locks"", ""a"");
+        if (debug_fp != NULL) {
+            fprintf(debug_fp, ""pid %d setup timeout at %d for %d\\n"",
+                getpid(), (int) time(NULL),
+                (int) time(NULL) + MP_timeout_seconds);
+            fclose(debug_fp);
+        }
+    }
+#endif
 #else
     MR_fatal_error(""deep profiler not enabled"");
 #endif
@@ -630,8 +763,7 @@ release_lock(Debug, MutexFile, !IO) :-
 #endif
 ").
 
-:- pred do_release_lock(string::in, io::di, io::uo)
-    is det.
+:- pred do_release_lock(string::in, io::di, io::uo) is det.
 
 :- pragma foreign_proc("C",
     do_release_lock(MutexFile::in, S0::di, S::uo),
