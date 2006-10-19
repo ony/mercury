@@ -1370,6 +1370,7 @@
 :- instance stream.output(io.output_stream, int,    io.state).
 :- instance stream.output(io.output_stream, string, io.state).
 :- instance stream.output(io.output_stream, univ,   io.state).
+:- instance stream.line_oriented(io.output_stream, io.state).
 
 :- instance stream.stream(io.input_stream, io.state).
 :- instance stream.input(io.input_stream, io.state, io.error).
@@ -1378,6 +1379,7 @@
 :- instance stream.input(io.input_stream, string, io.state, io.error).
     % XXX What about :- type word == list(char)?
 
+:- instance stream.line_oriented(io.input_stream, io.state).
 :- instance stream.putback(io.input_stream, char, io.state, io.error).
 
     % XXX What about for :- type binary_file == list(int).
@@ -9063,6 +9065,13 @@ io.result_to_stream_result(ok(T)) = ok(T).
 io.result_to_stream_result(eof) = eof.
 io.result_to_stream_result(error(Error)) = error(Error).
 
+
+:- instance stream.line_oriented(io.input_stream, io.state) where
+[
+    pred(get_line/4) is io.get_line_number,
+    pred(set_line/4) is io.set_line_number
+].
+
 %-----------------------------------------------------------------------------%
 %
 % Text output streams
@@ -9104,6 +9113,12 @@ io.result_to_stream_result(error(Error)) = error(Error).
     where
 [
     pred(put/4) is io.write_univ
+].
+
+:- instance stream.line_oriented(io.output_stream, io.state) where
+[
+    pred(get_line/4) is io.get_output_line_number,
+    pred(set_line/4) is io.set_output_line_number
 ].
 
 %-----------------------------------------------------------------------------%

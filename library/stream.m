@@ -10,14 +10,10 @@
 % Authors: juliensf, maclarty.
 %
 % TODO:
-%   - non-blocking streams.
-%   - thread-safety (really an issue for the instances).
-%   - add more generic operations.
-%   - where do the flush and fill operations belong?
-%   - what about resizable buffers?
+%   - non-blocking stream operations.
 %
 % For handling errors on output streams we throw exceptions rather than
-% return a value indicating that an errro has occurred.  This simplifies
+% return a value indicating that an error has occurred.  This simplifies
 % the typeclass hierarchy (output streams do not need an error type).
 %
 %-----------------------------------------------------------------------------%
@@ -35,13 +31,14 @@
 
 :- type stream.name == string.
 
-:- type stream.result(T, E)
+:- type stream.result(T, Error)
     --->    ok(T)
     ;       eof
-    ;       error(E).
+    ;       error(Error).
 
 :- typeclass stream.error(Error) where
 [
+
     % Convert a stream error into a human-readable format.
     % e.g. for use in error messages.
     %
@@ -53,8 +50,8 @@
 % Streams
 %
 
-    % A stream consists of a handle type and a state type.  The state
-    % type is threaded through the stream operations.
+    % A stream consists of a handle type and a state type.  The state type is
+    % threaded through, and destructively updated by, the stream operations.
     %
 :- typeclass stream.stream(Stream, State) <= (Stream -> State) where
 [ 
@@ -83,6 +80,9 @@
 :- typeclass stream.input(Stream, Unit, State, Error)
     <= stream.input(Stream, State, Error) where
 [
+    % Get the next unit from the given stream.  The get operation should
+    % block until the next unit is available.
+    %
     pred get(Stream::in, stream.result(Unit, Error)::out, State::di, State::uo)
         is det
 ].
@@ -92,10 +92,10 @@
 % Output streams
 %
 
-    % Output streams have no error type - they handle errors by
-    % throwing exceptions.
+    % Output streams have no error type.
+    % They should handle errors by throwing exceptions.
     %
-:- typeclass stream.output(Stream, State) 
+:- typeclass stream.output(Stream, State)
     <= stream(Stream, State) where
 [
     pred flush(Stream::in, State::di, State::uo) is det
@@ -115,7 +115,7 @@
 % Duplex streams
 %
 
-    % A duplex stream is one to which we can both read and write.
+    % A duplex stream is one to which can be both read from and written to.
     %
 :- typeclass stream.duplex(Stream, Unit, State, Error)
     <= ( stream.input(Stream,  Unit, State, Error),
@@ -146,8 +146,9 @@
     ;       cur
     ;       end.
 
-:- typeclass stream.seekable(Stream, State)
-         <= stream(Stream, State) where [
+:- typeclass stream.seekable(Stream, State) <= stream(Stream, State)
+    where
+[
      pred seek(Stream::in, stream.whence::in, int::in, State::di, State::uo)
          is det
 ].
@@ -157,26 +158,12 @@
 % Line oriented streams
 %
 
-:- typeclass stream.text(Stream, State)
-    <= stream(Stream, State) where
+:- typeclass stream.line_oriented(Stream, State) <= stream(Stream, State)
+    where
 [
     pred get_line(Stream::in, int::out, State::di, State::uo) is det,
     pred set_line(Stream::in, int::in,  State::di, State::uo) is det
 ].
-
-%-----------------------------------------------------------------------------%
-
-% It would probably also be useful to have something like the following.
-
-% :- typeclass stream.standard_reader(Stream, Unit, State) 
-%         <= ( stream.input(Stream, Unit, State),
-%              stream.buffered(Stream, State),
-%              stream.text(Stream, State)) where [].
-%     
-% :- typeclass stream.standard_writer(Stream, Unit, State)
-%         <= ( stream.output(Stream, Unit, State),
-%              stream.putback(Stream, Unit, State),
-%              stream.text(Stream, State)) where [].
 
 %-----------------------------------------------------------------------------%
 %
