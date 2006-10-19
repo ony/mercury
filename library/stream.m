@@ -10,7 +10,7 @@
 % Authors: juliensf, maclarty.
 %
 % TODO:
-%   - non-blocking stream operations.
+%   - non-blocking versions of the stream operations.
 %
 % For handling errors on output streams we throw exceptions rather than
 % return a value indicating that an error has occurred.  This simplifies
@@ -71,6 +71,9 @@
 :- typeclass stream.input(Stream, State, Error)
     <= ( stream(Stream, State), stream.error(Error), (Stream -> Error) ) where
 [
+    % For buffered input streams this method causes the buffer to be filled.
+    % For unbuffered streams it is a no-op.
+    %
     pred fill(Stream::in, State::di, State::uo) is det
 ].
 
@@ -98,6 +101,9 @@
 :- typeclass stream.output(Stream, State)
     <= stream(Stream, State) where
 [
+    % For buffered output streams calling this method completely flushes
+    % the buffer.  For unbuffered streams it should be a no-op.
+    %
     pred flush(Stream::in, State::di, State::uo) is det
 ].
 
@@ -130,9 +136,15 @@
 :- typeclass stream.putback(Stream, Unit, State, Error)
     <= stream.input(Stream, Unit, State, Error) where
 [
+    % Un-gets a unit from the specified input stream.  At least
+    % one unit of can be placed back on the stream.
+    %
     pred unget(Stream::in, Unit::in, State::di, State::uo) is det
 ]. 
-
+    
+    % Streams that are instances of the unbounded_putback class may
+    % unget an unlimited number of units.
+    %
 :- typeclass stream.unbounded_putback(Stream, Unit, State, Error)
     <= stream.putback(Stream, Unit, State, Error) where [].
 
@@ -153,6 +165,8 @@
          is det
 ].
 
+% XXX need a typeclass to hold the offset method for input streams.
+
 %----------------------------------------------------------------------------%
 %
 % Line oriented streams
@@ -161,7 +175,12 @@
 :- typeclass stream.line_oriented(Stream, State) <= stream(Stream, State)
     where
 [
+    % Get the current line number for the specified stream.
+    %
     pred get_line(Stream::in, int::out, State::di, State::uo) is det,
+    
+    % Set the current line number of the specified stream.
+    %
     pred set_line(Stream::in, int::in,  State::di, State::uo) is det
 ].
 
@@ -200,7 +219,7 @@
 :- mode stream.input_stream_fold_state(in, in(pred(in, di, uo) is cc_multi),
     out, di, uo) is cc_multi.
     
-    % Applies the given closure to each Unit read from the inpu stream
+    % Applies the given closure to each Unit read from the input stream
     % in turn, until eof or error.
     %
 :- pred stream.input_stream_fold2_state(Stream,
