@@ -14,8 +14,8 @@
 :- module string_buffer.
 :- interface.
 
-:- import_module char.
-:- import_module stream.
+% :- import_module char.
+% :- import_module stream.
 :- import_module string.
 
 %-----------------------------------------------------------------------------%
@@ -46,14 +46,14 @@
 
 %----------------------------------------------------------------------------%
 
-:- instance stream.stream(string_buffer_stream(T), string_buffer(T)).
-
-:- instance stream.output(string_buffer_stream(T), string_buffer(T)).
-
-:- instance stream.output(string_buffer_stream(T), char, string_buffer(T)).
-:- instance stream.output(string_buffer_stream(T), string, string_buffer(T)).
-
-:- instance stream.error(string_buffer_error).
+% :- instance stream.stream(string_buffer_stream(T), string_buffer(T)).
+% 
+% :- instance stream.output(string_buffer_stream(T), string_buffer(T)).
+% 
+% :- instance stream.output(string_buffer_stream(T), char, string_buffer(T)).
+% :- instance stream.output(string_buffer_stream(T), string, string_buffer(T)).
+% 
+% :- instance stream.error(string_buffer_error).
 
 %----------------------------------------------------------------------------%
 %----------------------------------------------------------------------------%
@@ -76,30 +76,30 @@ init(InitialString, Name, _InitialSize, Buffer, Stream) :-
 
 to_string(string_buffer(Str), Str).
 
-:- instance stream.stream(string_buffer_stream(T), string_buffer(T)) where 
-[
-    name(string_buffer_stream(Name), Name, !State)
-].
-
-:- instance stream.output(string_buffer_stream(T), string_buffer(T)) where
-[
-    flush(_, !State)
-].
-
-:- instance stream.output(string_buffer_stream(T), char, string_buffer(T))
-    where
-[
-    put(_Stream, Chr, string_buffer(Buffer0),
-        string_buffer(Buffer0 ++ string.from_char(Chr)))
-].
-
-:- instance stream.output(string_buffer_stream(T), string, string_buffer(T))
-    where
-[
-    put(_Stream, Str, string_buffer(Buffer0), string_buffer(Buffer0 ++ Str))
-].
-
-:- instance stream.error(string_buffer_error) where
-[
-    error_message(string_buffer_error(Message)) = Message
-].
+% :- instance stream.stream(string_buffer_stream(T), string_buffer(T)) where 
+% [
+%     name(string_buffer_stream(Name), Name, !State)
+% ].
+% 
+% :- instance stream.output(string_buffer_stream(T), string_buffer(T)) where
+% [
+%     flush(_, !State)
+% ].
+% 
+% :- instance stream.output(string_buffer_stream(T), char, string_buffer(T))
+%     where
+% [
+%     put(_Stream, Chr, string_buffer(Buffer0),
+%         string_buffer(Buffer0 ++ string.from_char(Chr)))
+% ].
+% 
+% :- instance stream.output(string_buffer_stream(T), string, string_buffer(T))
+%     where
+% [
+%     put(_Stream, Str, string_buffer(Buffer0), string_buffer(Buffer0 ++ Str))
+% ].
+% 
+% :- instance stream.error(string_buffer_error) where
+% [
+%     error_message(string_buffer_error(Message)) = Message
+% ].

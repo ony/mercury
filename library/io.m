@@ -1365,18 +1365,18 @@
 
 :- instance stream.stream(io.output_stream, io.state).
 :- instance stream.output(io.output_stream, io.state).
-:- instance stream.output(io.output_stream, char,   io.state).
-:- instance stream.output(io.output_stream, float,  io.state).
-:- instance stream.output(io.output_stream, int,    io.state).
-:- instance stream.output(io.output_stream, string, io.state).
-:- instance stream.output(io.output_stream, univ,   io.state).
+:- instance stream.writer(io.output_stream, char,   io.state).
+:- instance stream.writer(io.output_stream, float,  io.state).
+:- instance stream.writer(io.output_stream, int,    io.state).
+:- instance stream.writer(io.output_stream, string, io.state).
+:- instance stream.writer(io.output_stream, univ,   io.state).
 :- instance stream.line_oriented(io.output_stream, io.state).
 
 :- instance stream.stream(io.input_stream, io.state).
 :- instance stream.input(io.input_stream, io.state, io.error).
-:- instance stream.input(io.input_stream, char, io.state, io.error).
+:- instance stream.reader(io.input_stream, char, io.state, io.error).
     % XXX Should we define :- type line == string.
-:- instance stream.input(io.input_stream, string, io.state, io.error).
+:- instance stream.reader(io.input_stream, string, io.state, io.error).
     % XXX What about :- type word == list(char)?
 
 :- instance stream.line_oriented(io.input_stream, io.state).
@@ -1386,13 +1386,13 @@
     % 
 :- instance stream.stream(io.binary_output_stream, io.state).
 :- instance stream.output(io.binary_output_stream, io.state).
-:- instance stream.output(io.binary_output_stream, int, io.state).
-:- instance stream.output(io.binary_output_stream, string, io.state).
+:- instance stream.writer(io.binary_output_stream, int, io.state).
+:- instance stream.writer(io.binary_output_stream, string, io.state).
 :- instance stream.seekable(io.binary_output_stream, io.state).
 
 :- instance stream.stream(io.binary_input_stream,  io.state).
 :- instance stream.input(io.binary_input_stream,  io.state, io.error).
-:- instance stream.input(io.binary_input_stream, int, io.state, io.error).
+:- instance stream.reader(io.binary_input_stream, int, io.state, io.error).
 :- instance stream.putback(io.binary_input_stream, int, io.state, io.error).
 :- instance stream.seekable(io.binary_input_stream, io.state).
 
@@ -9033,7 +9033,7 @@ io.read_symlink(FileName, Result, !IO) :-
     ( fill(_, !IO) )
 ].
 
-:- instance stream.input(io.input_stream, char, io.state, io.error)
+:- instance stream.reader(io.input_stream, char, io.state, io.error)
     where
 [
     ( get(Stream, Result, !IO) :-
@@ -9042,7 +9042,7 @@ io.read_symlink(FileName, Result, !IO) :-
     )
 ].
 
-:- instance stream.input(io.input_stream, string, io.state, io.error) 
+:- instance stream.reader(io.input_stream, string, io.state, io.error) 
     where
 [
     ( get(Stream, Result, !IO) :-
@@ -9085,31 +9085,31 @@ io.result_to_stream_result(error(Error)) = error(Error).
     pred(flush/3) is io.flush_output
 ].
 
-:- instance stream.output(io.output_stream, char, io.state)
+:- instance stream.writer(io.output_stream, char, io.state)
     where
 [
     pred(put/4) is io.write_char
 ].
 
-:- instance stream.output(io.output_stream, float, io.state)
+:- instance stream.writer(io.output_stream, float, io.state)
     where
 [
     pred(put/4) is io.write_float
 ].
 
-:- instance stream.output(io.output_stream, int, io.state)
+:- instance stream.writer(io.output_stream, int, io.state)
     where
 [
     pred(put/4) is io.write_int
 ].
 
-:- instance stream.output(io.output_stream, string, io.state)
+:- instance stream.writer(io.output_stream, string, io.state)
     where
 [
     pred(put/4) is io.write_string
 ].
 
-:- instance stream.output(io.output_stream, univ, io.state)
+:- instance stream.writer(io.output_stream, univ, io.state)
     where
 [
     pred(put/4) is io.write_univ
@@ -9138,7 +9138,7 @@ io.result_to_stream_result(error(Error)) = error(Error).
     ( fill(_, !IO) )
 ].
 
-:- instance stream.input(io.binary_input_stream, int, io.state, io.error)
+:- instance stream.reader(io.binary_input_stream, int, io.state, io.error)
     where
 [
     ( get(Stream, Result, !IO) :-
@@ -9181,13 +9181,13 @@ stream_whence_to_io_whence(end) = end.
     pred(flush/3) is io.flush_binary_output
 ].
 
-:- instance stream.output(io.binary_output_stream, int, io.state)
+:- instance stream.writer(io.binary_output_stream, int, io.state)
     where
 [
     pred(put/4) is io.write_byte
 ].
 
-:- instance stream.output(io.binary_output_stream, string, io.state)
+:- instance stream.writer(io.binary_output_stream, string, io.state)
     where
 [
     pred(put/4) is io.write_bytes

@@ -80,7 +80,7 @@
     % An input stream is a stream from which we can read things(?) of
     % type Unit.
     %
-:- typeclass stream.input(Stream, Unit, State, Error)
+:- typeclass stream.reader(Stream, Unit, State, Error)
     <= stream.input(Stream, State, Error) where
 [
     % Get the next unit from the given stream.  The get operation should
@@ -110,7 +110,7 @@
     % An output stream is a stream to which we can write things(?) of
     % type Unit.
     %
-:- typeclass stream.output(Stream, Unit, State)
+:- typeclass stream.writer(Stream, Unit, State)
     <= stream.output(Stream, State) where
 [
     pred put(Stream::in, Unit::in, State::di, State::uo) is det
@@ -121,12 +121,12 @@
 % Duplex streams
 %
 
-    % A duplex stream is one to which can be both read from and written to.
+    % A duplex stream is one for which both reader and writer instances
+    % can be defined.
     %
-:- typeclass stream.duplex(Stream, Unit, State, Error)
-    <= ( stream.input(Stream,  Unit, State, Error),
-         stream.output(Stream, Unit, State)
-       ) where [].
+:- typeclass stream.duplex(Stream, State, Error)
+    <= ( stream.input(Stream, State, Error), stream.output(Stream, State))
+        where [].
 
 %----------------------------------------------------------------------------%
 %
@@ -134,7 +134,7 @@
 %
 
 :- typeclass stream.putback(Stream, Unit, State, Error)
-    <= stream.input(Stream, Unit, State, Error) where
+    <= stream.reader(Stream, Unit, State, Error) where
 [
     % Un-gets a unit from the specified input stream.  At least
     % one unit of can be placed back on the stream.
@@ -202,7 +202,7 @@
     %
 :- pred stream.input_stream_fold(Stream, pred(Unit, T, T), T,
     stream.maybe_partial_res(T, Error), State, State)
-    <= stream.input(Stream, Unit, State, Error).
+    <= stream.reader(Stream, Unit, State, Error).
 :- mode stream.input_stream_fold(in, in(pred(in, in, out) is det),
     in, out, di, uo) is det.
 :- mode stream.input_stream_fold(in, in(pred(in, in, out) is cc_multi),
@@ -213,7 +213,7 @@
     %
 :- pred stream.input_stream_fold_state(Stream, pred(Unit, State, State),
     stream.res(Error), State, State)
-    <= stream.input(Stream, Unit, State, Error).
+    <= stream.reader(Stream, Unit, State, Error).
 :- mode stream.input_stream_fold_state(in, in(pred(in, di, uo) is det),
     out, di, uo) is det.
 :- mode stream.input_stream_fold_state(in, in(pred(in, di, uo) is cc_multi),
@@ -224,7 +224,7 @@
     %
 :- pred stream.input_stream_fold2_state(Stream,
     pred(Unit, T, T, State, State), T, stream.maybe_partial_res(T, Error),
-    State, State) <= stream.input(Stream, Unit, State, Error).
+    State, State) <= stream.reader(Stream, Unit, State, Error).
 :- mode stream.input_stream_fold2_state(in,
     in(pred(in, in, out, di, uo) is det),
     in, out, di, uo) is det.
@@ -239,7 +239,7 @@
 :- pred stream.input_stream_fold2_state_maybe_stop(Stream,
     pred(Unit, bool, T, T, State, State),
     T, stream.maybe_partial_res(T, Error), State, State)
-    <= stream.input(Stream, Unit, State, Error).
+    <= stream.reader(Stream, Unit, State, Error).
 :- mode stream.input_stream_fold2_state_maybe_stop(in,
     in(pred(in, out, in, out, di, uo) is det), in, out, di, uo) is det.
 :- mode stream.input_stream_fold2_state_maybe_stop(in,
