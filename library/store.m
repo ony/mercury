@@ -30,30 +30,34 @@
 
 :- module store.
 :- interface.
+
 :- import_module io.
 
-% Stores and keys are indexed by a type S of typeclass store(S) that
-% is used to distinguish between different stores.  By using an
-% existential type declaration for store.new (see below), we use the
-% type system to ensure at compile time that you never attempt to use
-% a key from one store to access a different store.
+%-----------------------------------------------------------------------------%
 
+    % Stores and keys are indexed by a type S of typeclass store(S) that
+    % is used to distinguish between different stores.  By using an
+    % existential type declaration for store.new (see below), we use the
+    % type system to ensure at compile time that you never attempt to use
+    % a key from one store to access a different store.
+    %
 :- typeclass store(S).
 :- type store(S).
 
 :- instance store(io.state).
 :- instance store(store(S)).
 
-    % initialize a new store
+    % Initialize a new store.
+    %
 :- some [S] pred store.new(store(S)::uo) is det.
 
 %-----------------------------------------------------------------------------%
 %
-% mutvars
+% Mutvars
 %
 
     % generic_mutvar(T, S):
-    % a mutable variable holding a value of type T in store S
+    % A mutable variable holding a value of type T in store S.
     %
 :- type generic_mutvar(T, S).
 :- type io_mutvar(T) == generic_mutvar(T, io.state).

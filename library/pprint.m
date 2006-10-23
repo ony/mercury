@@ -362,16 +362,16 @@
     %
 :- func to_string(int, doc) = string.
 
-    % Write docs out in pretty printed format.  The int
-    % argument specifies a page width in characters.
+    % Write docs out in pretty printed format.
+    % The int argument specifies a page width in characters.
     %
 :- pred write(int::in, T::in, io::di, io::uo) is det <= doc(T).
 
+    % Write docs to the specified stream in pretty printed format.
+    % The int argument specifies a page widht in characters.
+    %
 :- pred write(Stream::in, int::in, T::in, State::di, State::uo) is det
     <= ( doc(T), stream.writer(Stream, string, State) ).
-
-% :- pred write(io.output_stream::in, int::in, T::in, io::di, io::uo) is det
-%     <= doc(T).
 
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
