@@ -16,6 +16,7 @@
 % TODO:
 % * Add non-blocking versions of the stream operations.
 % * Thread-safety aspects(?)
+% * Add a typeclass to hold the offset method for binary input streams.
 %
 %-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
@@ -166,6 +167,11 @@
 % Seekable streams
 %
 
+    % stream.whence denotes the base for a seek operation.
+    %   set - seek relative to the start of the file
+    %   cur - seek relative to the current position in the file
+    %   end - seek relative to the end of the file.
+    %
 :- type stream.whence
     --->    set
     ;       cur
@@ -174,17 +180,20 @@
 :- typeclass stream.seekable(Stream, State) <= stream(Stream, State)
     where
 [
-     pred seek(Stream::in, stream.whence::in, int::in, State::di, State::uo)
-         is det
+    % Seek to an offset relative to whence on the specified stream.
+    % The offset is measured in bytes.
+    %
+    pred seek(Stream::in, stream.whence::in, int::in, State::di, State::uo)
+        is det
 ].
-
-% XXX need a typeclass to hold the offset method for input streams.
 
 %----------------------------------------------------------------------------%
 %
 % Line oriented streams
 %
 
+    % A line oriented stream is a stream that keeps track of line numbers.
+    %
 :- typeclass stream.line_oriented(Stream, State) <= stream(Stream, State)
     where
 [
@@ -206,6 +215,9 @@
     --->    ok
     ;       error(Error).
 
+    % stream.maybe_partial_res is used when it is possible to return
+    % a partial result when an error occurs.
+    %
 :- type stream.maybe_partial_res(T, Error)
     --->    ok(T)
     ;       error(T, Error).
