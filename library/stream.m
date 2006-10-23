@@ -9,13 +9,15 @@
 % File: stream.m.
 % Authors: juliensf, maclarty.
 %
+% This module provides a family of typeclasses for defining streams in Mercury.
+% It also provides some generic predicates that operate on instances of these
+% typeclasses.
+%
 % TODO:
-%   - non-blocking versions of the stream operations.
+% * Add non-blocking versions of the stream operations.
+% * Thread-safety aspects(?)
 %
-% For handling errors on output streams we throw exceptions rather than
-% return a value indicating that an error has occurred.  This simplifies
-% the typeclass hierarchy (output streams do not need an error type).
-%
+%-----------------------------------------------------------------------------%
 %-----------------------------------------------------------------------------%
 
 :- module stream.
@@ -50,8 +52,9 @@
 % Streams
 %
 
-    % A stream consists of a handle type and a state type.  The state type is
-    % threaded through, and destructively updated by, the stream operations.
+    % A stream consists of a handle type and a state type.
+    % The state type is threaded through, and destructively updated by,
+    % the stream operations.
     %
 :- typeclass stream.stream(Stream, State) <= (Stream -> State) where
 [ 
@@ -66,7 +69,7 @@
 % Input streams
 %
 
-    % Input streams also include an error type.
+    % An input stream is a source of data.
     %
 :- typeclass stream.input(Stream, State, Error)
     <= ( stream(Stream, State), stream.error(Error), (Stream -> Error) ) where
@@ -77,9 +80,10 @@
     pred fill(Stream::in, State::di, State::uo) is det
 ].
 
-    % An input stream is a stream from which we can read things(?) of
-    % type Unit.
-    %
+    % A reader stream is a subclass of specific input stream that can be
+    % used to read data of a specific type from the input stream.  
+    % A single input streams can support multiple reader subclasses.
+    % 
 :- typeclass stream.reader(Stream, Unit, State, Error)
     <= stream.input(Stream, State, Error) where
 [
@@ -94,25 +98,30 @@
 %
 % Output streams
 %
-
-    % Output streams have no error type.
-    % They should handle errors by throwing exceptions.
+   
+    % An output stream is a destination for data.
+    % Note that unlike input streams, output stream do not have an explicit
+    % error type.  They should handle errors by throwing an exception.
     %
 :- typeclass stream.output(Stream, State)
     <= stream(Stream, State) where
 [
-    % For buffered output streams calling this method completely flushes
-    % the buffer.  For unbuffered streams it should be a no-op.
+    % For buffered output streams completely write out any data in the
+    % buffer.  For unbuffered streams this operation is a no-op.
     %
     pred flush(Stream::in, State::di, State::uo) is det
 ].
 
-    % An output stream is a stream to which we can write things(?) of
-    % type Unit.
+    % A writer stream is a subclass of specific output stream that can be
+    % used to write data of a specific type to the output stream.  
+    % A single output stream can support multiple writer subclasses.
     %
 :- typeclass stream.writer(Stream, Unit, State)
     <= stream.output(Stream, State) where
 [
+    % Write the next unit to the given stream.
+    % The put operation should block until the unit is completely written.
+    %
     pred put(Stream::in, Unit::in, State::di, State::uo) is det
 ].
 
@@ -121,8 +130,8 @@
 % Duplex streams
 %
 
-    % A duplex stream is one for which both reader and writer instances
-    % can be defined.
+    % A duplex stream is a stream that can act as both a source and
+    % destination of data, i.e. it is a both an input and an output stream.
     %
 :- typeclass stream.duplex(Stream, State, Error)
     <= ( stream.input(Stream, State, Error), stream.output(Stream, State))
@@ -133,17 +142,21 @@
 % Putback streams
 %
 
+    % A putback stream is an input stream that allows data to be pushed back
+    % onto the stream.  As with reader subclasses it is possible to define
+    % multiple putback streams for a single input stream.
+    %
 :- typeclass stream.putback(Stream, Unit, State, Error)
     <= stream.reader(Stream, Unit, State, Error) where
 [
-    % Un-gets a unit from the specified input stream.  At least
-    % one unit of can be placed back on the stream.
+    % Un-gets a unit from the specified input stream.
+    % At least one unit of can be placed back on the stream.
     %
     pred unget(Stream::in, Unit::in, State::di, State::uo) is det
 ]. 
-    
-    % Streams that are instances of the unbounded_putback class may
-    % unget an unlimited number of units.
+   
+    % As above but guarantees that an unlimited number of units may
+    % be pushed back onto the stream.
     %
 :- typeclass stream.unbounded_putback(Stream, Unit, State, Error)
     <= stream.putback(Stream, Unit, State, Error) where [].
