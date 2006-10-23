@@ -9,9 +9,9 @@
 % File: stream.m.
 % Authors: juliensf, maclarty.
 %
-% This module provides a family of typeclasses for defining streams in Mercury.
-% It also provides some generic predicates that operate on instances of these
-% typeclasses.
+% This module provides a family of typeclasses for defining streams
+% in Mercury.  It also provides some generic predicates that operate
+% on instances of these typeclasses.
 %
 % TODO:
 % * Add non-blocking versions of the stream operations.
@@ -73,10 +73,11 @@
     % An input stream is a source of data.
     %
 :- typeclass stream.input(Stream, State, Error)
-    <= ( stream(Stream, State), stream.error(Error), (Stream -> Error) ) where
+    <= ( stream(Stream, State), stream.error(Error), (Stream -> Error) )
+    where
 [
-    % For buffered input streams this method causes the buffer to be filled.
-    % For unbuffered streams it is a no-op.
+    % For buffered input streams this method causes the buffer
+    % to be filled.  For unbuffered streams it is a no-op.
     %
     pred fill(Stream::in, State::di, State::uo) is det
 ].
@@ -88,11 +89,11 @@
 :- typeclass stream.reader(Stream, Unit, State, Error)
     <= stream.input(Stream, State, Error) where
 [
-    % Get the next unit from the given stream.  The get operation should
-    % block until the next unit is available.
+    % Get the next unit from the given stream.
+    % The get operation should block until the next unit is available.
     %
-    pred get(Stream::in, stream.result(Unit, Error)::out, State::di, State::uo)
-        is det
+    pred get(Stream::in, stream.result(Unit, Error)::out,
+        State::di, State::uo) is det
 ].
 
 %-----------------------------------------------------------------------------%
@@ -101,8 +102,9 @@
 %
    
     % An output stream is a destination for data.
-    % Note that unlike input streams, output stream do not have an explicit
-    % error type.  They should handle errors by throwing an exception.
+    % Note that unlike input streams, output stream do not include
+    % an explicit error type.  They should handle errors by throwing
+    % a exceptions.
     %
 :- typeclass stream.output(Stream, State)
     <= stream(Stream, State) where
@@ -131,8 +133,9 @@
 % Duplex streams
 %
 
-    % A duplex stream is a stream that can act as both a source and
-    % destination of data, i.e. it is a both an input and an output stream.
+    % A duplex stream is a stream that can act as both a source
+    % and destination of data, i.e. it is a both an input and
+    % an output stream.
     %
 :- typeclass stream.duplex(Stream, State, Error)
     <= ( stream.input(Stream, State, Error), stream.output(Stream, State))
@@ -143,9 +146,10 @@
 % Putback streams
 %
 
-    % A putback stream is an input stream that allows data to be pushed back
-    % onto the stream.  As with reader subclasses it is possible to define
-    % multiple putback streams for a single input stream.
+    % A putback stream is an input stream that allows data to be
+    % pushed back onto the stream.  As with reader subclasses it is
+    % possible to define multiple putback subclasses for a
+    % single input stream.
     %
 :- typeclass stream.putback(Stream, Unit, State, Error)
     <= stream.reader(Stream, Unit, State, Error) where
