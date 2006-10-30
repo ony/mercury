@@ -54,7 +54,7 @@
 %
 
     % A stream consists of a handle type and a state type.
-    % The state type is threaded through, and destructively updated by,
+    % The state type is threaded through, and destructively updated by
     % the stream operations.
     %
 :- typeclass stream.stream(Stream, State) <= (Stream -> State) where
